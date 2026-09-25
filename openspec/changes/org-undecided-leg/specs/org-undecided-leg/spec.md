@@ -17,13 +17,16 @@ The whole batch SHALL be refused with zero writes when any of the following hold
 - a digest is malformed;
 - the store format is below 19;
 - digests are given without any undecided id;
-- the call carries more than 200 ids, more than 20 digests, or a statement longer than 4,096 bytes.
+- the call carries more than 200 ids, more than 20 digests, or a statement longer than 4,096 bytes;
+- an id is longer than the longest known row id plus 256 bytes plus 4,096 bytes;
+- the row id is produced both by a person holder and by an organization holder that share a key.
 
 A single id SHALL be skipped and named, while the rest of the batch proceeds, when any of the following holds:
 
-- the work of a work holder does not exist or its citekey cannot be uniquely located;
-- the author slot of a work holder is no longer a literal;
+- the citekey of a work holder cannot be uniquely located;
 - the organization already holds a confirmed or rejected verdict for the normalized pairing.
+
+A row whose work was deleted or whose author slot is no longer a literal is not produced by the resolution run, so its id is refused as an unknown row, not skipped.
 
 When an identical undecided record already exists on the organization, the id SHALL be reported as already recorded and SHALL NOT be written again. When two ids in the same call produce the same record on the same organization, the second SHALL be reported as recorded in this call.
 
@@ -45,7 +48,7 @@ When an identical undecided record already exists on the organization, the id SH
 
 ### Requirement: An undecided id SHALL be split only where the prefix is a known row id
 
-An undecided id SHALL have the form `<rowID>@<orgKey>=<statement>`, where `rowID` is byte-identical to the id the listing returns for a candidate row or an ambiguity entry, and `orgKey` is a store key. The leg SHALL try every position where `@`, a store key, and `=` appear in sequence, and SHALL accept a split only when the text before `@` equals a row id produced by the same resolution run. Exactly one accepted split SHALL be required; zero or more than one SHALL refuse the whole batch.
+An undecided id SHALL have the form `<rowID>@<orgKey>=<statement>`, where `rowID` is byte-identical to the id the listing returns for a candidate row or an ambiguity entry, and `orgKey` is a store key. The leg SHALL try every position where `@`, a store key, and `=` appear in sequence, and SHALL accept a split only when the text before `@` is byte-identical to a row id produced by the same load. The known row ids SHALL be the union of the listing's resolution run, which excludes rejected pairings, and a run that does not exclude them, so that an id shown in the listing is always known and an already decided pairing reaches the skip instead of a refusal. Exactly one accepted split SHALL be required; zero or more than one SHALL refuse the whole batch.
 
 #### Scenario: A literal that contains `@` and `=`
 
@@ -59,6 +62,8 @@ An undecided id SHALL have the form `<rowID>@<orgKey>=<statement>`, where `rowID
 | `p::A@iss=x` | `p::A` | row `p::A`, org `iss`, statement `x` |
 | `p::A@iss=x` | none | refused: no known row |
 | `p::A@b=c@iss=x` | `p::A`, `p::A@b=c` | refused: two accepted splits |
+
+A known row whose id is another known row id followed by `@<key>=` can therefore never be recorded; this is accepted as a known limit. When the shorter row leaves the listing, the same input is accepted as a split of the longer row.
 
 ### Requirement: The named organization SHALL belong to the named row
 
@@ -76,7 +81,7 @@ For a candidate row, the organization in the id SHALL be the organization the ro
 
 ### Requirement: The listing SHALL disclose undecided checks and give every row an id
 
-The MCP listing SHALL carry an `id` on candidate rows and on ambiguity entries. A candidate row SHALL carry `undecidedChecks` as the number of undecided records its organization holds for the normalized pairing. An ambiguity entry SHALL carry `undecidedChecks` as a map from organization key to that number, listing only non-zero counts. The listing SHALL carry `undecidedTotal`, the number of normalized pairings with at least one undecided record. The CLI listing SHALL print each row's id and SHALL mark rows with undecided records with the number of checks.
+The MCP listing SHALL carry an `id` on candidate rows and on ambiguity entries. A candidate row SHALL carry `undecidedChecks` as the number of undecided records its organization holds for the normalized pairing when the pairing is in the undecided state, and 0 otherwise. An ambiguity entry SHALL carry `undecidedChecks` as a map from organization key to that number, listing only non-zero counts. Both counts SHALL cover only pairings in the undecided state, that is, pairings with at least one undecided record and no confirmed or rejected verdict. The listing SHALL carry `undecidedTotal`, the number of candidate pairings in the undecided state, which SHALL equal the undecided count on the CLI four-state line, and `ambiguityUndecidedTotal`, the number of distinct ambiguity pairings (holder, literal, organization) in the undecided state. The CLI listing SHALL print each row's id and SHALL mark rows with undecided records with the number of checks. When sanitizing or truncating changes the printed id, the CLI SHALL say that the printed id cannot be sent back.
 
 #### Scenario: A checked candidate in the listing
 
@@ -85,7 +90,7 @@ The MCP listing SHALL carry an `id` on candidate rows and on ambiguity entries. 
 
 ### Requirement: Filtered CLI apply SHALL exclude checked candidates
 
-The CLI `--apply` of resolve-organizations SHALL NOT apply a candidate whose organization holds an undecided record for the pairing. Excluded candidates SHALL be listed with a pointer to applying them by explicit id. When every in-scope candidate is excluded, the command SHALL write nothing and exit non-zero. `--reject` SHALL NOT exclude checked candidates.
+The CLI `--apply` of resolve-organizations SHALL NOT apply a candidate whose organization holds an undecided record for the pairing. Excluded candidates SHALL be listed with a pointer to applying them by explicit id on the MCP face; the CLI has no per-id apply for organizations. When every in-scope candidate is excluded, the command SHALL write nothing and exit non-zero. `--reject` SHALL NOT exclude checked candidates.
 
 #### Scenario: Filtered apply with one checked candidate
 

@@ -70,5 +70,25 @@ final class OrgUndecidedCLITests: XCTestCase {
                                       "chen-ch::ISS Academia Sinica@iss=x"]).status, 0)
         XCTAssertNotEqual(try runCLI(["resolve-organizations", "--rests-on", "sha256:" + String(repeating: "a", count: 64)]).status, 0)
         XCTAssertTrue(try reload().organizations.allSatisfy { $0.references.isEmpty })
+        // R1 verify：--holder／--org 對未決腿沒有作用，靜默忽略會讓人以為收窄了範圍
+        XCTAssertNotEqual(try runCLI(["resolve-organizations", "--holder", "chen-ch", "--undecided",
+                                      "chen-ch::ISS Academia Sinica@iss=x"]).status, 0)
+        XCTAssertTrue(try reload().organizations.allSatisfy { $0.references.isEmpty })
+    }
+
+    /// 歧義條目的未決另數一行（與 MCP 的 ambiguityUndecidedTotal 同一個定義），不混進四態計數。
+    func testAmbiguityUndecidedIsCountedOnItsOwnLine() throws {
+        for key in ["as", "iss-2"] {
+            var o = Organization(key: key)
+            o.names = TimelineOf([TemporalValue(value: "Sinica", range: DateRange())])
+            try store.writeOrganization(o)
+        }
+        var p = Person(key: "p", names: ["p"])
+        p.profile.affiliations = TimelineOf([TemporalValue(value: OrgRef.literal("Sinica"), range: DateRange())])
+        try store.writePerson(p)
+        XCTAssertEqual(try runCLI(["resolve-organizations", "--undecided", "p::Sinica@as=查過"]).status, 0)
+        let list = try runCLI(["resolve-organizations"])
+        XCTAssertTrue(list.output.contains("歧義條目中查過未決的配對：1"), list.output)
+        XCTAssertTrue(list.output.contains("查過未決 0"), "四態計數只數候選：\n\(list.output)")
     }
 }

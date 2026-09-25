@@ -4896,6 +4896,22 @@ public final class AkashicService {
                 ResolutionLedger.undecidedChecks(in: checks, holderKind: holder.verdictHolderKind,
                                                  holder: holder.key, literal: literal, judgedKey: orgKey)
             }
+            // undecidedTotal 與 CLI 的四態計數行、resolve-people 的同名欄位同一個定義：**候選配對**中查過未決、尚未判定的
+            // 配對數（#643 R1 verify——先前是全庫所有未決狀態的配對，同一個 store 兩面報不同的數）。歧義條目裡的另給
+            // ambiguityUndecidedTotal：org × 位置逐個數，同一配對出現在多個歧義條目只算一次。
+            let undecidedTotal = (ResolutionLedger.counts(
+                organizations: load.organizations,
+                candidatePairings: report.candidates.map {
+                    ResolutionPairing(holderKind: $0.holder.verdictHolderKind, holder: $0.holder.key,
+                                      literal: $0.literal, judgedKey: $0.orgKey)
+                })[ResolutionLedger.orgRule] ?? (0, 0, 0, 0)).undecided
+            var ambiguityChecked = Set<ResolutionPairing>()
+            for m in report.ambiguities {
+                for k in m.orgKeys where undecidedCount(m.holder, m.literal, k) > 0 {
+                    ambiguityChecked.insert(ResolutionLedger.statePairing(ResolutionPairing(
+                        holderKind: m.holder.verdictHolderKind, holder: m.holder.key, literal: m.literal, judgedKey: k)))
+                }
+            }
             return try jsonString([
                 "candidates": report.candidates.map { c -> [String: Any] in
                     var row: [String: Any] = ["id": rowID(c),
@@ -4919,7 +4935,8 @@ public final class AkashicService {
                             "orgKeys": m.orgKeys.map { displaySafe($0, max: 200) },
                             "undecidedChecks": perOrg]
                 },
-                "undecidedTotal": checks.count,
+                "undecidedTotal": undecidedTotal,   // display-safe-exempt: Int
+                "ambiguityUndecidedTotal": ambiguityChecked.count,   // display-safe-exempt: Int
                 "note": "apply 帶候選 id 歸戶；reject 帶候選 id 否決",
             ] as [String: Any])
         }

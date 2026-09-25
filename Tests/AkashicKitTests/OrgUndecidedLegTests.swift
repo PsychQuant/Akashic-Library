@@ -31,7 +31,7 @@ final class OrgUndecidedLegTests: XCTestCase {
     func testSplitTable() {
         let ok = AkashicService.splitOrgUndecided("p::A@iss=x", knownRowIDs: ["p::A"])
         XCTAssertEqual(ok.accepted.map { [$0.rowID, $0.orgKey, $0.statement] }, [["p::A", "iss", "x"]])
-        XCTAssertTrue(AkashicService.splitOrgUndecided("p::A@iss=x", knownRowIDs: []).accepted.isEmpty, "無已知 rowID")
+        XCTAssertTrue(AkashicService.splitOrgUndecided("p::A@iss=x", knownRowIDs: Set<String>()).accepted.isEmpty, "無已知 rowID")
         XCTAssertEqual(AkashicService.splitOrgUndecided("p::A@b=c@iss=x", knownRowIDs: ["p::A", "p::A@b=c"]).accepted.count, 2,
                        "兩個切法都成立")
     }
@@ -177,7 +177,9 @@ final class OrgUndecidedLegTests: XCTestCase {
         let amb = try XCTUnwrap((list["ambiguities"] as? [[String: Any]])?.first)
         XCTAssertEqual(amb["id"] as? String, "p::Sinica", "歧義條目帶 id")
         XCTAssertEqual(amb["undecidedChecks"] as? [String: Int], ["as": 1], "只列非零的 org")
-        XCTAssertEqual(list["undecidedTotal"] as? Int, 2)
+        // R1 verify：undecidedTotal 與 CLI 四態計數行、resolve-people 同一個定義（只數候選配對）；歧義條目另數
+        XCTAssertEqual(list["undecidedTotal"] as? Int, 1)
+        XCTAssertEqual(list["ambiguityUndecidedTotal"] as? Int, 1)
     }
 
     /// 沒有未決記錄時：候選列 0、歧義條目空物件、總數 0。
@@ -187,6 +189,72 @@ final class OrgUndecidedLegTests: XCTestCase {
         let list = json(try service.resolveOrganizations(apply: nil))
         XCTAssertEqual((list["candidates"] as? [[String: Any]])?.first?["undecidedChecks"] as? Int, 0)
         XCTAssertEqual(list["undecidedTotal"] as? Int, 0)
+        XCTAssertEqual(list["ambiguityUndecidedTotal"] as? Int, 0)
+    }
+
+    // MARK: - R1 verify 的修正
+
+    /// person 與 organization 同 key、同 literal 時兩列的 id 相同：整批拒絕，不把記錄寫到先解析到的那一種 holder 下。
+    func testPersonAndOrganizationWithTheSameKeyAreRefused() throws {
+        try org("lab", "Lab")
+        try org("x", "X Institute", parents: [.literal("Lab")])
+        try person("x", affiliation: "Lab")
+        XCTAssertThrowsError(try service.resolveOrganizations(apply: nil, undecided: ["x::Lab@lab=查過"])) { error in
+            XCTAssertTrue("\(error)".contains("兩種 holder"), "\(error)")
+        }
+        XCTAssertTrue(try orgRefs("lab").isEmpty)
+    }
+
+    /// 列表帶否決過濾、未決腿若只用不帶否決的那次 resolve，parents 的循環守衛會擋掉列表上看得到的列。
+    /// a→b 已否決；b 的 parents literal 指向 a。列表上有 `b::A Org`，未決腿必須認得它。
+    func testRowShownOnlyByTheRejectFilteredRunIsKnown() throws {
+        try org("a", "A Org", parents: [.literal("B Org")])
+        try org("b", "B Org", parents: [.literal("A Org")])
+        _ = try service.resolveOrganizations(apply: nil, reject: ["a::B Org"])
+        let list = json(try service.resolveOrganizations(apply: nil))
+        let ids = ((list["candidates"] as? [[String: Any]]) ?? []).compactMap { $0["id"] as? String }
+        XCTAssertTrue(ids.contains("b::A Org"), "前提：列表看得到這一列：\(list)")
+        let out = json(try service.resolveOrganizations(apply: nil, undecided: ["b::A Org@a=查過院組織規程"]))
+        XCTAssertEqual(recorded(out).count, 1, "\(out)")
+    }
+
+    /// rowID 以位元組比對：列表的 literal 是 NFD 時，送 NFC 拼法不算同一個 id。
+    func testRowIDMatchIsByteExact() throws {
+        let nfd = "Cafe\u{0301} Lab"
+        try org("cafe", nfd)
+        try person("p", affiliation: nfd)
+        XCTAssertThrowsError(try service.resolveOrganizations(apply: nil, undecided: ["p::Café Lab@cafe=查過"]), "NFC 拼法")
+        XCTAssertTrue(try orgRefs("cafe").isEmpty)
+        let out = json(try service.resolveOrganizations(apply: nil, undecided: ["p::\(nfd)@cafe=查過"]))
+        XCTAssertEqual(recorded(out).count, 1, "逐字的 NFD 拼法：\(out)")
+    }
+
+    /// 超過任何合法 id 長度的輸入在試切之前就整批拒絕；試切本身對長輸入是線性的。
+    func testOverlongSpecIsRefusedBeforeSplittingAndSplitIsLinear() throws {
+        try org("iss", "Sinica")
+        try person("p", affiliation: "Sinica")
+        let long = "p::Sinica@iss=" + String(repeating: "x", count: 5_000)
+        XCTAssertThrowsError(try service.resolveOrganizations(apply: nil, undecided: [long])) { error in
+            XCTAssertTrue("\(error)".contains("超過任何合法 id 的上限"), "\(error)")
+        }
+        let adversarial = String(repeating: "@a=", count: 20_000)   // 60 KB，每個 @ 都是可切的位置
+        let start = Date()
+        let r = AkashicService.splitOrgUndecided(adversarial, knownRowIDs: ["p::Sinica"])
+        XCTAssertEqual(r.tried, 20_000)
+        XCTAssertTrue(r.accepted.isEmpty)
+        XCTAssertLessThan(Date().timeIntervalSince(start), 2.0, "R1 verify 實測先前 60 KB 跑 14 秒")
+    }
+
+    /// 切得開但前綴不是已知 id（例如那一列已歸戶而離開列表）時，訊息要與格式錯分得開。
+    func testStaleIDMessageDiffersFromFormatError() throws {
+        try org("iss", "Sinica")
+        try person("p", affiliation: "Sinica")
+        XCTAssertThrowsError(try service.resolveOrganizations(apply: nil, undecided: ["q::Gone@iss=x"])) { error in
+            XCTAssertTrue("\(error)".contains("離開列表"), "\(error)")
+        }
+        XCTAssertThrowsError(try service.resolveOrganizations(apply: nil, undecided: ["p::Sinica=x"])) { error in
+            XCTAssertTrue("\(error)".contains("不是 <列表的 id>@<orgKey>=<說明> 的格式"), "\(error)")
+        }
     }
 }
 

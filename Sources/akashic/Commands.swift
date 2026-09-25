@@ -979,6 +979,12 @@ struct ResolveOrganizations: ParsableCommand {
             help: "未決記錄的證據（可重複）：sha256:<64 hex>，先用 store-source 存檔。套用到這次呼叫的每一筆 --undecided；只伴隨 --undecided")
     var restsOn: [String] = []
 
+    /// 列表每列的 id 行（#643）。消毒或截斷改了字串時要說出來：印出來的不是回程把手，逐字送回會對不上（R1 verify）。
+    static func idLine(_ id: String) -> String {
+        let shown = displaySafe(id, max: 400)
+        return shown == id ? "      id: \(shown)" : "      id: \(shown)  ⟨顯示經消毒或截斷，不能逐字送回——這一列改用 MCP⟩"
+    }
+
     func run() throws {
         // change `org-undecided-leg`（#643）：未決腿單獨呼叫，走 service 的同一個函式（兩面同契約）
         if !restsOn.isEmpty && undecided.isEmpty {
@@ -986,6 +992,10 @@ struct ResolveOrganizations: ParsableCommand {
         }
         if !undecided.isEmpty {
             if apply || reject { throw ValidationError("--undecided 單獨呼叫（不與 --apply／--reject 組合）") }
+            // --holder／--org 對未決腿沒有作用（id 已經點名了列與 org）——靜默忽略會讓人以為收窄了範圍（#643 R1 verify）
+            if !holder.isEmpty || !org.isEmpty {
+                throw ValidationError("--undecided 不接受 --holder／--org——每個 id 已經點名了那一列與 org")
+            }
             let store = try options.openStore()
             let service = AkashicService(root: store.root, key: store.key,
                                          environment: ProcessInfo.processInfo.environment)
@@ -1090,7 +1100,7 @@ struct ResolveOrganizations: ParsableCommand {
                                                              holder: a.holder.key, literal: a.literal, judgedKey: k)
                     return n > 0 ? "\(displaySafe(k, max: 200)) 查過未決 \(n) 次" : nil   // display-safe-exempt: n 是 Int
                 }
-                row.append("      id: \(displaySafe(AkashicService.orgRowID(a.holder, literal: a.literal), max: 400))"
+                row.append(Self.idLine(AkashicService.orgRowID(a.holder, literal: a.literal))   // display-safe-exempt: idLine 內部消毒
                            + (perOrg.isEmpty ? "" : "  ⟨\(perOrg.joined(separator: "、"))⟩"))
                 if a.orgKeys.count > AmbiguityDisplayLimit.refs {
                     row.append("      （\(a.orgKeys.count) 個候選，以下顯示前 \(AmbiguityDisplayLimit.refs) 個）")
@@ -1152,6 +1162,20 @@ struct ResolveOrganizations: ParsableCommand {
                                             candidatePairings: triples)[
                 ResolutionLedger.orgRule] ?? (0, 0, 0, 0)
             print("四態計數（\(ResolutionLedger.orgRule)）：已確認 \(c.confirmed)／已否決 \(c.rejected)／查過未決 \(c.undecided)／未處理 \(c.pending)")
+            // 歧義條目的未決（#643 R1 verify）：四態計數只數候選配對（與 MCP 的 undecidedTotal、resolve-people 同一個定義），
+            // 歧義條目裡逐個 org 記的另外數——與 MCP 的 ambiguityUndecidedTotal 同一個定義
+            var ambiguityChecked = Set<ResolutionPairing>()
+            for m in orgReport.ambiguities {
+                for k in m.orgKeys where ResolutionLedger.undecidedChecks(
+                    in: undecidedMap, holderKind: m.holder.verdictHolderKind,
+                    holder: m.holder.key, literal: m.literal, judgedKey: k) > 0 {
+                    ambiguityChecked.insert(ResolutionLedger.statePairing(ResolutionPairing(
+                        holderKind: m.holder.verdictHolderKind, holder: m.holder.key, literal: m.literal, judgedKey: k)))
+                }
+            }
+            if !ambiguityChecked.isEmpty {
+                print("歧義條目中查過未決的配對：\(ambiguityChecked.count)（不在上面的四態計數裡）")   // display-safe-exempt: Int
+            }
         }
 
         // reject（#232 design D6）：對收窄後的候選寫 verdict，holder 記錄**不動**
@@ -1211,13 +1235,13 @@ struct ResolveOrganizations: ParsableCommand {
             let checked = n > 0 ? " ⟨查過未決 \(n) 次\(apply ? "：不套用" : "")⟩" : ""   // display-safe-exempt: n 是 Int
             print("\(mark)\(label(c.holder)) 「\(displaySafe(c.literal, max: 200))」 → \(displaySafe(c.orgKey, max: 200))（\(displaySafe(c.reason, max: 300))）\(tag)\(checked)")
             // 未決腿的回程把手（#643）——逐字取用；終端機顯示經消毒，含控制字元的 literal 要改用 MCP
-            print("      id: \(displaySafe(AkashicService.orgRowID(c.holder, literal: c.literal), max: 400))")
+            print(Self.idLine(AkashicService.orgRowID(c.holder, literal: c.literal)))   // display-safe-exempt: idLine 內部消毒
         }
         printOrgCountsAndSunk()
         printOrgAmbiguities()
         if apply, !undecidedSkipped.isEmpty {
             print("")
-            print("查過未決的候選 \(undecidedSkipped.count) 筆不套用（有人查過而判不出來——要歸戶就以 id 點名走 MCP akashic_resolve_organizations 的 apply）：")
+            print("查過未決的候選 \(undecidedSkipped.count) 筆不套用（有人查過而判不出來——CLI 沒有逐 id 的 apply，要歸戶就以 id 點名走 MCP akashic_resolve_organizations 的 apply）：")
             for c in undecidedSkipped {
                 print("  \(label(c.holder)) 「\(displaySafe(c.literal, max: 200))」 → \(displaySafe(c.orgKey, max: 200))")
             }

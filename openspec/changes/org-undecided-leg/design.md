@@ -48,10 +48,14 @@ rowID 與列表回傳的回程把手逐字相同，呼叫端從列表複製即�
 
 1. 找出字串中每一個符合 `@` ＋ StoreKey（`[a-z0-9][a-z0-9-]*`）＋ `=` 的位置。
 2. 對每個位置試切：`@` 之前是 rowID 候選，StoreKey 是 orgKey，`=` 之後是說明。
-3. 只收「前綴恰為列表中某一列的 rowID」的切法；列表是**這次呼叫當下**以同一份 load 跑 `OrgResolver.resolve` 得到的候選列與歧義條目。
+3. 只收「前綴與列表中某一列的 rowID **位元組相同**」的切法。已知 rowID 取自同一份 load 的**兩次** `OrgResolver.resolve`：帶否決過濾的那次（＝列表本身）與不帶的那次。只取後者的話，parents 的循環守衛會把否決過的邊當成本輪已接受的邊，擋掉一些列表上看得到的列（R1 verify）；只取前者的話，已否決的配對會被當成不認得，走不到「已判定、逐筆略過」。
 4. 恰好一個切法成立 → 收下。零個 → 整批拒絕（格式錯，或 rowID 不在列表上）；多個 → 整批拒絕（有歧義，不猜）。
 
-literal 或說明裡出現 `@`、`=`、`:` 都不會被切錯：只有同時對得上已知 rowID 與 StoreKey 的切法才算數。
+literal 或說明裡出現 `@`、`=`、`:` 都不會被切錯：只有同時對得上已知 rowID 與 StoreKey 的切法才算數。**這句以「原本要點名的列仍在列表上」為前提**（R1 verify DA 重現）：若某個 literal 恰好是另一個 literal 接上 `@<key>=`，較短的那一列歸戶而離開列表之後，同一個輸入會改切到較長的那一列。成立條件很窄，記為已知邊界。反過來，兩列都在時較長的那一列永遠記不了（兩個切法都成立），也是已知邊界。
+
+比對是位元組層的：Swift `String` 的 `==` 是 canonical equivalence，NFC 與 NFD 會被當成同一列。解析的工作量是線性的：只在前綴長度等於某個已知 rowID 的位置才組字串比對，且單筆 id 超過「最長已知 rowID ＋ 256 ＋ 4,096 位元組」時在試切之前就整批拒絕。R1 verify 實測先前的版本 60 KB 的輸入跑 14 秒。
+
+person 與 organization 的 key 可以同名，兩者的 rowID 都是 `key::literal`。同一個 rowID 對到兩種 holder 時整批拒絕，不把記錄寫到先解析到的那一種下面。apply／reject 的 id 同樣相撞（既有的 `byID` 取第一個），目前沒有工具面分得開，出路是改名 person 的 key。
 
 替代方案：以第一個或最後一個 `=` 切。literal 可能含 `=`，說明也可能含 `=`，兩個方向都會切錯，否決。改用結構化參數（MCP 收 object 陣列、CLI 用分開的旗標）不會切錯，但與 people／venues 的字串形分岔，兩族的契約描述會變成兩份，否決。
 
@@ -81,10 +85,13 @@ org 的 id 解析與寫入放新檔。`UndecidedVerdicts.swift` 已經接近 250
 
 ### 已判定的配對逐筆略過；揭露用既有的 `undecidedChecks`
 
-「已判定」的判準：被判 org 對這個正規化配對已持有 confirmed 或 rejected，判斷沿用 `pairingIsDecided`。已判定的配對略過並具名，其餘逐筆略過的類別照 people 腿：
-- work 不存在；
-- citekey 無法唯一定位（#628）；
-- 該位置已不是 literal。
+「已判定」的判準：被判 org 對這個正規化配對已持有 confirmed 或 rejected；每個 org 的判定配對鍵只算一次（`decidedPairingKeys`）。逐筆略過只有兩類：
+- 配對已判定；
+- citekey 無法唯一定位（#628）。
+
+people 腿另有「work 不存在」「位置已不是 literal」兩類，org 腿走不到：那兩種列不會出現在 resolve 的結果裡，id 會以「不是這次列表的 id」整批拒絕（R1 verify 更正了初稿的列舉）。
+
+**記錄是 work 層級，不是作者位層級**：value 不帶作者位索引（#483），所以 `w[1]::L@o=…` 記下的查證，在同一筆 work 的 `w[0]::L` 被 apply 之後會跟著變成「已判定」，列表不再標它，CLI 的 `--apply` 也會套用 `w[1]`（R1 verify DA 重現）。這是 value 文法的既有取捨，本 change 不改；兩面的說明寫明。
 
 揭露：
 - MCP 候選列帶 `undecidedChecks`（整數）。
@@ -95,7 +102,11 @@ org 的 id 解析與寫入放新檔。`UndecidedVerdicts.swift` 已經接近 250
 
 CLI 的 `ResolveOrganizations` 不經 service；排除用與 service 同一個 `ResolutionLedger.undecidedChecks`，不另寫判準：
 - 篩選式 `--apply` 時，查過未決的候選移出套用集，另列並指路 MCP 的逐 id apply；
-- 全數被排除時，零寫入並以非零結束（與 resolve-people 的 #624 同形）。
+- 全數被排除時，零寫入並以非零結束。
+
+與 resolve-people 的 #624 **不完全同形**（R1 verify）：people 的 CLI 有 `--judge` 這條逐 id 的路，org 的 CLI 沒有逐 id 的 apply。查過未決的候選在 CLI 上因此歸戶不了，只能走 MCP。這是有記錄的兩面差異，缺口記 #647。
+
+`--undecided` 不接受 `--holder`／`--org`：id 已經點名了列與 org，收窄旗標沒有作用，靜默忽略會讓人以為收窄了範圍。
 
 `--reject` 不排除：否決是一個判定，查過未決之後再否決是合法的後續。
 
@@ -118,9 +129,7 @@ CLI 的 `ResolveOrganizations` 不經 service；排除用與 service 同一個 `
   - `rests_on` 沒有伴隨 `undecided`；
   - 超過上限：一次 200 個 id、20 個 digest，或單句說明超過 4,096 位元組。
 - 逐筆略過並具名：
-  - work 不存在；
   - citekey 無法唯一定位；
-  - 位置不是 literal；
   - 配對已判定。
 - no-op：完全相同的記錄已在 → `alreadyRecorded`。
 - 寫入前每個被改寫的 org 都先過 `assertOrganizationWritable`，全部通過才寫。寫入或 index 重建失敗時，錯誤訊息列出已落地的 org key。
@@ -130,7 +139,7 @@ CLI 的 `ResolveOrganizations` 不經 service；排除用與 service 同一個 `
   - `alreadyRecorded`；
   - `organizationsRewritten`；
   - `restsOn`。
-- MCP 列表：候選列與歧義條目帶 `id` 與 `undecidedChecks`；頂層帶 `undecidedTotal`，是有未決記錄的正規化配對數。
+- MCP 列表：候選列與歧義條目帶 `id` 與 `undecidedChecks`；頂層帶 `undecidedTotal`（候選配對中處於未決狀態的數目，與 CLI 四態計數行、resolve-people 同一個定義）與 `ambiguityUndecidedTotal`（歧義條目的 holder × literal × org 逐個數）。初稿的 `undecidedTotal` 是全庫所有未決狀態的配對數，同一個 store 兩面報不同的數（R1 verify）。
 - CLI 新增 `--undecided`（可重複）與 `--rests-on`，走 service 的同一個函式。
   - 列表每列印出 rowID；有未決記錄的列標「查過未決 N 次」。
   - `--apply` 排除查過未決的候選，另列並指路以 id 點名的 MCP apply。
@@ -147,6 +156,7 @@ CLI 的 `ResolveOrganizations` 不經 service；排除用與 service 同一個 `
 
 ## Risks / Trade-offs
 
-- [rowID 取自呼叫當下的列表，兩次呼叫之間 store 變了，rowID 就可能不在列表上] → 視為語法錯而整批拒絕。訊息寫明「先不帶參數列出候選，取得當下的 id」。與 apply 的既有行為相同：apply 對不在列表上的 id 也是 notFound。
-- [列表回傳的 rowID 刻意不消毒（回程把手要逐字），CLI 印出時要消毒] → CLI 印出時用 `displaySafe`。含控制字元的 literal 在 CLI 上複製回來會對不上，要改用 MCP。這一點寫進 CLI 的說明。
+- [rowID 取自呼叫當下的列表，兩次呼叫之間 store 變了，rowID 就可能不在列表上] → 整批拒絕，訊息與格式錯分開（「@ 之前的部分不是這次列表的 id」）。訊息寫明「先不帶參數列出候選，取得當下的 id」。與 apply 的既有行為相同：apply 對不在列表上的 id 也是 notFound。
+- [列表回傳的 rowID 刻意不消毒（回程把手要逐字），CLI 印出時要消毒] → CLI 印出時用 `displaySafe`；消毒或截斷改了字串時，該行標「不能逐字送回——這一列改用 MCP」。
+- [spec 另開 capability `org-undecided-leg` 而不是擴充 `resolution-verdict-states`] → 刻意：那份 change 已驗證完成、等使用者 close，再改它的 spec 會讓它重新進入驗證。兩份 spec 的關係是「同一個契約的第三族」，archive 時各自落地。
 - [歧義條目新增 `id` 會改變 MCP 列表的 payload] → additive，既有欄位不動；`mcp-cli-parity` 的 resolve-organizations 列同步重新確認。

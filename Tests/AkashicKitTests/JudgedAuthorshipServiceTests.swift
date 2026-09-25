@@ -74,15 +74,16 @@ final class JudgedAuthorshipServiceTests: XCTestCase {
             .filter { $0.holder == "w1" && $0.rule == ProvenanceReference.RuleName.judgedPerWork }
     }
 
-    /// #627 R5：以 --apply 歸戶的位置再送 judge——不是「已是這個判定」（R4 曾這樣回報、丟掉理由），
-    /// 而是具名略過、指向 #636（verdict 以配對去重，理由無處另存）。
-    func testJudgeAfterApplyIsSkippedByNameNotReportedAsAlreadyJudged() throws {
+    /// 以 --apply 歸戶的位置再送 judge：#627 R5 起不是「已是這個判定」（R4 曾這樣回報、丟掉理由）；
+    /// change `resolution-verdict-states`（#636）起也不再具名略過——寫一筆逐篇判定與 apply 那筆並存，作者位不動。
+    func testJudgeAfterApplyCoexistsWithTheApplyVerdict() throws {
         try keyByApply()
         let out = try judge(["w1:1:chun-houh-chen=查證：論文機構是中研院統計所"])
-        let why = ((out["skipped"] as? [[String: Any]])?.first?["why"] as? String) ?? ""
-        XCTAssertTrue(why.contains("不是逐篇判定") && why.contains("#636"), "\(out)")
+        XCTAssertEqual((out["skipped"] as? [Any])?.count ?? 0, 0, "\(out)")
         XCTAssertEqual((out["alreadyJudged"] as? [Any])?.count ?? 0, 0)
-        XCTAssertEqual(try judgedVerdicts("chun-houh-chen").count, 0)
+        XCTAssertEqual((out["judged"] as? [[String: Any]])?.first?["coexistsWith"] as? String, "nominated", "\(out)")
+        XCTAssertEqual(try judgedVerdicts("chun-houh-chen").count, 1)
+        XCTAssertEqual(try reloadEntry().authors[1], .key("chun-houh-chen"), "作者位不動")
     }
 
     /// #627 R5：真的重跑（已有逐篇判定 verdict）才是 no-op。

@@ -1533,7 +1533,7 @@ struct ResolvePeople: ParsableCommand {
     /// 而批次會讓它退化成罐頭字串——罐頭 judgement 等於沒有判定。同 `mcp-cli-parity`
     /// 已載明的既有不對稱（tier 閘只加在 CLI 的篩選式批次）。
     @Option(name: .long, parsing: .upToNextOption,
-            help: "逐篇判定（可重複）：citekey:authorIndex:personKey=判定理由。理由必填且逐字寫進 verdict；literal 由 store 讀。歧義列也適用——歧義的意思是提名器分不出來，不是人分不出來。不提供批次形式。同一次呼叫把同一個作者位判給兩個人整批拒絕；citekey 重複或與另一筆共用 id 的 work 該筆略過並具名；全部略過時沒有寫入、非零結束（作者位已歸給同一個人：已有同一句理由的逐篇判定＝no-op 成功，理由不同則略過；以 --apply 等歸戶的略過並具名，升級的面見 #636）；有寫入而之後 index 重建失敗時回錯誤、寫入已落地，訊息逐行列出已判定與略過的 id（#627）。單獨呼叫，不與 --refute／--apply／--reject 組合（#635）")
+            help: "逐篇判定（可重複）：citekey:authorIndex:personKey=判定理由。理由必填且逐字寫進 verdict；literal 由 store 讀。歧義列也適用——歧義的意思是提名器分不出來，不是人分不出來。不提供批次形式。同一次呼叫把同一個作者位判給兩個人整批拒絕；citekey 重複或與另一筆共用 id 的 work 該筆略過並具名；全部略過時沒有寫入、非零結束（作者位已歸給同一個人：已有同一句理由的逐篇判定＝no-op 成功，理由不同則略過；以 --apply 等歸戶的：寫一筆逐篇判定與它並存、作者位不動（需要 store format ≥ 19，change resolution-verdict-states，#636））；有寫入而之後 index 重建失敗時回錯誤、寫入已落地，訊息逐行列出已判定與略過的 id（#627）。單獨呼叫，不與 --refute／--apply／--reject 組合（#635）；--undecided 同為單獨呼叫")
     var judge: [String] = []
 
     /// **團體作者的升格**（#443）：`.literal` → `.organization`。
@@ -1580,6 +1580,16 @@ struct ResolvePeople: ParsableCommand {
             help: "判定式否決（可重複）：citekey:authorIndex:personKey=否決理由。理由必填。歧義列也適用——既有 --reject 只吃候選。entry 不動，只寫 resolution-rejected verdict；之後該配對不再被提名。citekey 重複或與另一筆共用 id 的 work、以及作者位目前就歸給這個人的（否決會與既有歸戶矛盾）該筆略過並具名；全部略過時沒有寫入、非零結束（#627）。單獨呼叫，不與 --judge／--apply／--reject 組合（#635）")
     var refute: [String] = []
 
+    /// 查過、判不出來（change `resolution-verdict-states`，#619）。
+    @Option(name: .long, parsing: .upToNextOption,
+            help: "記下查過未決（可重複）：citekey:authorIndex:personKey=查了什麼、為何判不出來。說明必填。寫一筆 resolution-undecided 到該 person，作者位不動；之後這個配對在列表標「查過未決 N 次」、篩選式 --apply 不帶走它（要歸戶就用 --judge）。可附 --rests-on。已判定的配對（有 confirmed 或 rejected）、citekey 重複的 work、已歸戶的作者位該筆略過並具名；全部略過時非零結束。需要 store format ≥ 19。單獨呼叫，不與 --judge／--refute／--apply／--reject 組合")
+    var undecided: [String] = []
+
+    /// 未決記錄查了什麼（sha256 digest，先以 store-source 存檔）。
+    @Option(name: .long, parsing: .upToNextOption,
+            help: "未決記錄的證據（可重複）：sha256:<64 hex>，先用 store-source 存檔。**套用到這次呼叫的每一筆 --undecided**——不同配對要附不同證據就分次呼叫。只伴隨 --undecided")
+    var restsOn: [String] = []
+
     /// 歧義段的列數上限（#388）。
     ///
     /// **加旋鈕不等於拆掉防線**：真正與內容無關的界是 `AmbiguityDisplayLimit.bytes`
@@ -1604,6 +1614,32 @@ struct ResolvePeople: ParsableCommand {
         try runResolve()
     }
 
+    /// 未決腿的輸出（resolve-people／resolve-venues 共用；change `resolution-verdict-states`）。service 的欄位已消毒，原樣轉印。
+    static func printUndecidedResult(_ out: String) throws {
+        let parsed = (try? JSONSerialization.jsonObject(with: Data(out.utf8))) as? [String: Any]
+        let rows = (parsed?["undecided"] as? [[String: Any]]) ?? []
+        let already = (parsed?["alreadyRecorded"] as? [String]) ?? []
+        let skipped = (parsed?["skipped"] as? [[String: Any]]) ?? []
+        print("\(rows.isEmpty && already.isEmpty ? "⚠" : "✓") 記下查過未決 \(rows.count) 筆")
+        for r in rows {
+            print("  \(r["id"] as? String ?? "?")  「\(r["literal"] as? String ?? "?")」")   // display-safe-exempt: service 已消毒，displaySafe 不冪等
+            print("      \(r["statement"] as? String ?? "")")   // display-safe-exempt: 同上
+            let ro = (r["restsOn"] as? [String]) ?? []
+            if !ro.isEmpty { print("      rests-on：\(ro.joined(separator: "、"))") }   // display-safe-exempt: 同上
+        }
+        if !skipped.isEmpty {
+            print("")
+            print("略過 \(skipped.count) 筆（store 狀態不符；\(rows.isEmpty ? "本次沒有任何一筆寫入" : "其餘已落地")）：")
+            for sk in skipped { print("  \(sk["id"] as? String ?? "?")  ——\(sk["why"] as? String ?? "")") }   // display-safe-exempt: service 已消毒
+        }
+        if !already.isEmpty {
+            print("")
+            print("同一筆未決記錄已在 \(already.count) 筆（沒有寫入）：")
+            for id in already { print("  \(id)") }   // display-safe-exempt: service 已消毒
+        }
+        if rows.isEmpty, already.isEmpty, !skipped.isEmpty { throw ExitCode(1) }
+    }
+
     private func runResolve() throws {
         // #298：破壞性寫入前確認目標 store 已被指名。**只在 --apply 時**
         // ——dry-run 不得被擋（它不寫東西，且正是用來確認目標的手段）。
@@ -1621,7 +1657,7 @@ struct ResolvePeople: ParsableCommand {
         let structuralLegs = [!splitAuthor.isEmpty, !attributeOrg.isEmpty, !unSplit.isEmpty,
                               !dropAuthor.isEmpty]
         if structuralLegs.contains(true) {
-            let otherLegs = apply || !reject.isEmpty || !judge.isEmpty || !refute.isEmpty
+            let otherLegs = apply || !reject.isEmpty || !judge.isEmpty || !refute.isEmpty || !undecided.isEmpty
             if structuralLegs.filter({ $0 }).count > 1 || otherLegs {
                 throw ValidationError("--split-author／--attribute-org／--un-split／--drop-author 各自單獨呼叫"
                     + "（不得與其他腿或彼此組合）——它們改作者位的數量或值域，"
@@ -1629,10 +1665,13 @@ struct ResolvePeople: ParsableCommand {
             }
         }
         // #635：--judge／--refute 同樣各自單獨呼叫——先前只執行其中一條、其餘腿被靜默丟掉、仍印 ✓
-        if !judge.isEmpty || !refute.isEmpty {
-            let legs = [!judge.isEmpty, !refute.isEmpty, apply, !reject.isEmpty].filter { $0 }.count
+        if !restsOn.isEmpty && undecided.isEmpty {
+            throw ValidationError("--rests-on 只伴隨 --undecided 使用（它是未決記錄查了什麼的證據，#619）")
+        }
+        if !judge.isEmpty || !refute.isEmpty || !undecided.isEmpty {
+            let legs = [!judge.isEmpty, !refute.isEmpty, !undecided.isEmpty, apply, !reject.isEmpty].filter { $0 }.count
             if legs > 1 {
-                throw ValidationError("--judge／--refute 各自單獨呼叫（不得與彼此或 --apply／--reject 組合）——"
+                throw ValidationError("--judge／--refute／--undecided 各自單獨呼叫（不得與彼此或 --apply／--reject 組合）——"
                     + "混在一起時只有一條腿會執行；分次呼叫（#635）")
             }
         }
@@ -1716,6 +1755,12 @@ struct ResolvePeople: ParsableCommand {
             }
             return
         }
+        if !undecided.isEmpty {
+            let service = AkashicService(root: store.root, key: store.key,
+                                         environment: ProcessInfo.processInfo.environment)
+            try Self.printUndecidedResult(try service.resolvePeople(apply: nil, undecided: undecided, restsOn: restsOn))
+            return
+        }
         if !judge.isEmpty || !refute.isEmpty {
             let service = AkashicService(root: store.root, key: store.key,
                                          environment: ProcessInfo.processInfo.environment)
@@ -1734,6 +1779,9 @@ struct ResolvePeople: ParsableCommand {
                 // 這裡原樣轉印——二次消毒會逃脫自己的反斜線（displaySafe 不冪等）
                 print("  \(r["id"] as? String ?? "?")  「\(r["literal"] as? String ?? "?")」")   // display-safe-exempt: service 已消毒，displaySafe 不冪等
                 print("      \(r["judgement"] as? String ?? "")")   // display-safe-exempt: 同上
+                if r["coexistsWith"] != nil {
+                    print("      （與既有的提名層判定並存——那筆 apply／reject 的記錄保留，#636）")
+                }
             }
             // 略過**必須具名**——靜默略過會讓「沒判到」與「判了但沒生效」在輸出上
             // 完全一樣（lossless-intake 執行細節 3 的同一條理由）。
@@ -1801,9 +1849,21 @@ struct ResolvePeople: ParsableCommand {
         // #627：citekey 重複的候選同樣不進批次——以 citekey 定位會猜是哪一筆。比照淘汰所得
         // 排除並另列，而不是讓 service 端的拒絕把整批卡死。
         let duplicatedCK = load.entries.unlocatableCitekeys   // #627 R2：含與另一筆共用 id 的
+        // change `resolution-verdict-states`（#619）：查過未決的配對同樣不進批次——有人查過而判不出來，
+        // 照清單全收等於替他判了。比照淘汰所得排除並另列；要寫它就逐筆 --judge（必附理由）。
+        let undecidedChecks = ResolutionLedger.undecidedChecks(holders: load.people.map { ($0.key, $0.references) })
+        func checks(_ c: ResolutionCandidate) -> Int {
+            undecidedChecks[ResolutionPairing(holderKind: .work, holder: c.citekey,
+                                              literal: c.literal, judgedKey: c.personKey)] ?? 0
+        }
         let duplicateSkipped = candidates.filter { duplicatedCK.contains($0.citekey) }
-        let applySet = candidates.filter { $0.eliminatedPairings == 0 && !duplicatedCK.contains($0.citekey) }
+        let applySet = candidates.filter {
+            $0.eliminatedPairings == 0 && !duplicatedCK.contains($0.citekey) && checks($0) == 0
+        }
         let eliminatedSkipped = candidates.filter { $0.eliminatedPairings > 0 && !duplicatedCK.contains($0.citekey) }
+        let undecidedSkipped = candidates.filter {
+            $0.eliminatedPairings == 0 && !duplicatedCK.contains($0.citekey) && checks($0) > 0
+        }
         // R1-fix B1＋R2-fix R3-3（使用者裁決：不豁免）：套用集含寬鬆 tier 時，
         // **不論怎麼收窄**都要 `--tier` 具名——`--person` 恰是同名碰撞問題最糟的
         // 收窄軸（它選中的正是同鍵列；R2 live probe：--person 一發寫 5 筆 initials
@@ -1820,7 +1880,9 @@ struct ResolvePeople: ParsableCommand {
                 + (eliminatedSkipped.isEmpty ? "" :
                     "另有 \(eliminatedSkipped.count) 筆淘汰而得的唯一候選不論 --tier 都不套用，要逐筆 --judge（#624）。")
                 + (duplicateSkipped.isEmpty ? "" :
-                    "另有 \(duplicateSkipped.count) 筆候選所在的 citekey 重複或與另一筆共用 id，不論 --tier 都不套用——先修正重複的 citekey 或 id（#627）。"))
+                    "另有 \(duplicateSkipped.count) 筆候選所在的 citekey 重複或與另一筆共用 id，不論 --tier 都不套用——先修正重複的 citekey 或 id（#627）。")
+                + (undecidedSkipped.isEmpty ? "" :
+                    "另有 \(undecidedSkipped.count) 筆查過未決的候選不論 --tier 都不套用，要逐筆 --judge（#619）。"))
         }
 
         /// #231：歧義**不再靜默丟棄**。它與「沒人匹配」語意不同——後者是 `.literal`
@@ -1862,8 +1924,13 @@ struct ResolvePeople: ParsableCommand {
                 // ——而 CLI 才是人真正在讀的那個面。
                 var row: [String] = []
                 // R1-fix B6：碰撞層可見——initials 碰撞（縮寫共鍵）≠ exact 同名
+                let ambChecks = a.personKeys.reduce(0) {
+                    $0 + (undecidedChecks[ResolutionPairing(holderKind: .work, holder: a.citekey,
+                                                            literal: a.literal, judgedKey: $1)] ?? 0)
+                }
                 row.append("  〔\(a.tier.rawValue)〕\(displaySafe(a.citekey, max: 200))[\(a.authorIndex)] 「\(displaySafe(a.literal, max: 200))」"   // display-safe-exempt: tier.rawValue 封閉 enum；其餘已消毒
-                           + "  entry:\(a.entryID.uuidString.prefix(8))")
+                           + "  entry:\(a.entryID.uuidString.prefix(8))"
+                           + (ambChecks > 0 ? "  ⟨查過未決 \(ambChecks) 次⟩" : ""))
                 if a.personKeys.count > AmbiguityDisplayLimit.refs {
                     row.append("      （\(a.personKeys.count) 個候選，以下顯示前 \(AmbiguityDisplayLimit.refs) 個）")
                 }
@@ -2010,7 +2077,8 @@ struct ResolvePeople: ParsableCommand {
             let mark = (apply && !selected.contains(c.pinnedID)) ? "  (skip) " : "  "
             // #624：列表模式也標出淘汰所得——不必等到 --apply 才知道哪幾列不會被套用
             let tag = duplicatedCK.contains(c.citekey) ? " ⟨citekey 重複或共用 id：--apply 不套用，先修正⟩"
-                : c.eliminatedPairings > 0 ? " ⟨淘汰而得：--apply 不套用，要逐筆 --judge⟩" : ""
+                : c.eliminatedPairings > 0 ? " ⟨淘汰而得：--apply 不套用，要逐筆 --judge⟩"
+                : checks(c) > 0 ? " ⟨查過未決 \(checks(c)) 次：--apply 不套用，要逐筆 --judge⟩" : ""
             print("\(mark)\(displaySafe(c.citekey, max: 200))[\(c.authorIndex)] 「\(displaySafe(c.literal, max: 200))」 → \(displaySafe(c.personKey, max: 200))（\(displaySafe(c.reason, max: 300))）\(tag)")
         }
         printCountsAndSunk()
@@ -2037,10 +2105,17 @@ struct ResolvePeople: ParsableCommand {
                 }
                 print("  → 先修正重複的 citekey 或共用的 id 再重跑——重複 citekey 由 akashic validate 列出，共用 id 在 index 重建時以 UNIQUE entries.uuid 報出（#627）")
             }
+            if !undecidedSkipped.isEmpty {
+                print("\n⚠ 查過未決的候選 \(undecidedSkipped.count) 筆不套用（有人查過而判不出來，批次不替他判）：")
+                for c in undecidedSkipped {
+                    print("  \(displaySafe(c.citekey, max: 200))[\(c.authorIndex)] 「\(displaySafe(c.literal, max: 200))」 → \(displaySafe(c.personKey, max: 200))（查過 \(checks(c)) 次）")
+                }
+                print("  → 有了新證據就逐筆送：resolve-people --judge <citekey:authorIndex:personKey>=理由，或 --refute；查了什麼見 akashic person <key>（#619）")
+            }
             if applySet.isEmpty {
                 throw ValidationError(
-                    "套用集沒有可套用的候選（淘汰而得 \(eliminatedSkipped.count) 筆、citekey 重複或共用 id \(duplicateSkipped.count) 筆），不寫入——"
-                    + "淘汰而得的要逐筆 --judge <citekey:authorIndex:personKey>=理由；citekey 重複或共用 id 的先修正")
+                    "套用集沒有可套用的候選（淘汰而得 \(eliminatedSkipped.count) 筆、citekey 重複或共用 id \(duplicateSkipped.count) 筆、查過未決 \(undecidedSkipped.count) 筆），不寫入——"
+                    + "淘汰而得與查過未決的要逐筆 --judge <citekey:authorIndex:personKey>=理由；citekey 重複或共用 id 的先修正")
             }
             // #232：apply 改走 **AkashicService**（與 MCP 同一條實作路徑）——
             // service 端做 per-item 收容（R7/M21）、先報失敗再 rebuild（R9/M8）、

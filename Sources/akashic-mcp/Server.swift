@@ -152,7 +152,7 @@ actor AkashicMCPServer {
                 "add": strArray("要加的目標 citekeys"), "remove": strArray("要移除的目標"),
              ], required: ["citekey", "kind"])),
         Tool(name: "akashic_resolve_people",
-             description: "人物解析：不帶 apply/reject 回 {candidates, candidateTotal, candidateRowsDropped, rejected, rejectedTotal, rejectedRowsDropped, pendingTotal, people, ambiguities, ambiguityTotal, ambiguityRowsDropped, truncated}（另有 verdictMalformed/verdictMalformedTotal，僅在偵測到解析不了的 verdict 時出現）——candidates 是提名候選（#303 起四個信心層，每列帶 tier：exact＝alias 完全命中／confirmed-elsewhere＝同 literal 已於他處 confirmed／reorder＝token 重排命中／initials＝姓＋首字母命中——信心降冪排序；**tier 越低證據越弱，initials 的 apply 前必查證**；不歧義，可套用），每列帶 eliminatedPairings（>0＝淘汰而得的唯一命中：此位置其他人選已被否決、沒有人判定過剩下這一個；CLI 的篩選式 --apply 會排除它；以三段 id 點名的 apply 照寫、兩段 id 指到它會被拒——送 id 前自己判定，#624），候選所在的 citekey 在 store 裡不只一筆、或該 work 與另一筆共用 id 時，該列帶 unlocatableCitekey:true（apply／reject 這種 id 會整批拒絕、judge／refute 該筆略過並具名——以 citekey 定位會猜是哪一筆 work、以 id 寫檔會寫到兄弟的檔，先修正重複的 citekey 或 id，#627），每列帶 counts{confirmed,rejected,pending}（該列證據類別的三態**計數**——刻意不報比率／機率，pendingTotal 給未處理總量）；rejected 是**已否決配對的獨立段**（排在 candidates 之後閱讀；帶 verdict:\"rejected\"、無 id，不可套用）——沉底而非隱藏；ambiguities 是同一 literal 在同一提名層對到 2+ person 的位置（帶 tier——initials 碰撞 ≠ exact 同名），**不可套用、需要人判斷**，每筆帶 personRefs（不透明 ref，非 person key）；區辨欄位在 people[ref] 只送一次（key/names/namesTotal/orcid/openalex/died/currentAffiliation 或 formerAffiliation+formerAffiliationEnd|formerAffiliationAttested，缺席即不出現），以便分辨「兩個同名的人」（各自歸屬）與「同一人兩筆記錄」（該合併）。帶 apply（候選 id 陣列）逐候選套用並在同一動作寫 resolution-confirmed verdict（store format < 8 時 verdict 跳過並以 verdictsSkipped 揭露）；帶 reject（候選 id 陣列）寫 resolution-rejected verdict 到該 person（entry 不動；需 store format ≥ 8），之後該配對不再被提名（同 literal 他 entry 照提）。apply 與 reject 都是顯式人為動作，無任何自動 verdict 路徑。**組合呼叫是兩段式**（#272）：reject 腿先完整提交，apply 腿以寫入後狀態重解析；回應改為 {legs:{reject,apply}} 按腿回報（單腿呼叫形狀不變）；同列兩邊都點到＝reject 贏、apply 以 skippedBecauseRejected 回報。上限：candidates／rejected／ambiguities 各自 48 KB 位元組預算，歧義至多 50 筆／每筆至多 20 個 personRefs／people 至多 60 筆／每人至多 2 個異名（超出時給 namesTotal），candidates 與 rejected 各至多 50 筆。吃不下預算的**整列不印**並計入 *RowsDropped；**任一軸被截**都會讓 truncated=true（*Total 給各自的總數）。絕不自動合併。單筆寫入失敗記入 writeFailed／confirmWriteFailed／rejectWriteFailed 並續跑（applied/rejected 只列實際落地者；confirm 的 verdict 只寫給真的改到的作者位——萬一有候選沒套用，不寫 verdict、以 notApplied＋notAppliedReason 回報；judge 同一次呼叫把同一作者位判給兩個人整批拒絕，#627）。",
+             description: "人物解析：不帶 apply/reject 回 {candidates, candidateTotal, candidateRowsDropped, rejected, rejectedTotal, rejectedRowsDropped, pendingTotal, undecidedTotal, people, ambiguities, ambiguityTotal, ambiguityRowsDropped, truncated}（另有 verdictMalformed/verdictMalformedTotal，僅在偵測到解析不了的 verdict 時出現）——candidates 是提名候選（#303 起四個信心層，每列帶 tier：exact＝alias 完全命中／confirmed-elsewhere＝同 literal 已於他處 confirmed／reorder＝token 重排命中／initials＝姓＋首字母命中——信心降冪排序；**tier 越低證據越弱，initials 的 apply 前必查證**；不歧義，可套用），每列帶 eliminatedPairings（>0＝淘汰而得的唯一命中：此位置其他人選已被否決、沒有人判定過剩下這一個；CLI 的篩選式 --apply 會排除它；以三段 id 點名的 apply 照寫、兩段 id 指到它會被拒——送 id 前自己判定，#624），候選所在的 citekey 在 store 裡不只一筆、或該 work 與另一筆共用 id 時，該列帶 unlocatableCitekey:true（apply／reject 這種 id 會整批拒絕、judge／refute 該筆略過並具名——以 citekey 定位會猜是哪一筆 work、以 id 寫檔會寫到兄弟的檔，先修正重複的 citekey 或 id，#627），每列帶 counts{confirmed,rejected,undecided,pending}（該列證據類別的四態**計數**——刻意不報比率／機率，pendingTotal 給未處理總量、undecidedTotal 給查過未決總量；查過未決的配對不算進 pending），查過未決的配對（有 resolution-undecided 記錄、尚未判定）該列與歧義條目帶 undecidedChecks（查過幾次；CLI 的篩選式 --apply 不帶走它，以三段 id 點名的 apply 照寫，#619）；rejected 是**已否決配對的獨立段**（排在 candidates 之後閱讀；帶 verdict:\"rejected\"、無 id，不可套用）——沉底而非隱藏；ambiguities 是同一 literal 在同一提名層對到 2+ person 的位置（帶 tier——initials 碰撞 ≠ exact 同名），**不可套用、需要人判斷**，每筆帶 personRefs（不透明 ref，非 person key）；區辨欄位在 people[ref] 只送一次（key/names/namesTotal/orcid/openalex/died/currentAffiliation 或 formerAffiliation+formerAffiliationEnd|formerAffiliationAttested，缺席即不出現），以便分辨「兩個同名的人」（各自歸屬）與「同一人兩筆記錄」（該合併）。帶 apply（候選 id 陣列）逐候選套用並在同一動作寫 resolution-confirmed verdict（store format < 8 時 verdict 跳過並以 verdictsSkipped 揭露）；帶 reject（候選 id 陣列）寫 resolution-rejected verdict 到該 person（entry 不動；需 store format ≥ 8），之後該配對不再被提名（同 literal 他 entry 照提）。apply 與 reject 都是顯式人為動作，無任何自動 verdict 路徑。**組合呼叫是兩段式**（#272）：reject 腿先完整提交，apply 腿以寫入後狀態重解析；回應改為 {legs:{reject,apply}} 按腿回報（單腿呼叫形狀不變）；同列兩邊都點到＝reject 贏、apply 以 skippedBecauseRejected 回報。上限：candidates／rejected／ambiguities 各自 48 KB 位元組預算，歧義至多 50 筆／每筆至多 20 個 personRefs／people 至多 60 筆／每人至多 2 個異名（超出時給 namesTotal），candidates 與 rejected 各至多 50 筆。吃不下預算的**整列不印**並計入 *RowsDropped；**任一軸被截**都會讓 truncated=true（*Total 給各自的總數）。絕不自動合併。單筆寫入失敗記入 writeFailed／confirmWriteFailed／rejectWriteFailed 並續跑（applied/rejected 只列實際落地者；confirm 的 verdict 只寫給真的改到的作者位——萬一有候選沒套用，不寫 verdict、以 notApplied＋notAppliedReason 回報；judge 同一次呼叫把同一作者位判給兩個人整批拒絕，#627）。",
              inputSchema: obj([
                 "apply": strArray("要套用的候選 id（三段形 citekey:authorIndex:personKey——#303 起 id 釘 person，提名改指時顯式拒絕；兩段 legacy 形僅當該位置提名仍唯一、且不是淘汰而得時等價）；省略＝只列候選"),
                 "reject": strArray("要否決的候選 id（同 apply 的三段形）——寫 resolution-rejected verdict（rule 依該候選的 tier 導出），entry 不動；省略＝不否決"),
@@ -161,8 +161,10 @@ actor AkashicMCPServer {
 "split_author": strArray("把一個作者位**拆成多個**（#443）：citekey:authorIndex:分隔符=理由。一個 literal 裝了兩個人時用它。**收分隔符不收拆好的名字**——後者等於讓呼叫端編造；收分隔符則拆出的每一段必然是原文的子字串。切出空段即拒絕；只作用於未歸戶的位置；拆出來的仍是 .literal（拆是形狀修正不是身分判定）。單獨呼叫，不與其餘腿組合——它改的是作者位的數量"),
                 "un_split": strArray("把拆分**合回**原 literal（#513，`split_author` 的具名逆操作）：citekey:原literal。**以值定位**——原 literal 逐字取自 store 的拆分記錄（#450 起 split 會寫一筆），不用索引。還原後那筆記錄被刪掉：它的存在理由是「authors 已經沒有原 literal 了」，而還原之後那句話為假，留著會讓 store 斷言一件假的事、並點亮 staleSplitRecords。歷史留在 git。任一段已升格為 .key／.organization（那是判定的逆轉，屬 demote 一族）、各段不連續同序、或同 value 多筆記錄 → 整批拒絕、零寫入。單獨呼叫，不與其餘腿組合"),
                 "drop_author": strArray("把一個作者位**移除**（#457）：citekey:literal=理由。三態（.key／.organization／.literal）都假設那一格背後有一個作者，而 PsycInfo 的 `No authorship indicated` 不是——它今天在 .bib 裡是 `AUTHOR = {indicated, No authorship}`，一個被捏造出來的人；APA7 §9.12 對無署名作品要求作者位是**空的**。**以值定位不用索引**（同 un_split）：索引在同一批的前一次移除之後會位移，而「這個字串不是人」本來就是關於字串的宣稱。理由必填（移除是判定）；只作用於未歸戶的 .literal；同一筆 work 的作者位裡出現多次即拒絕不判定。移除記錄（field: authors、statement `移除：理由`、value＝被移除的 literal 逐字）與作者位改寫同一次寫入，需要 store format ≥ 17。**沒有具名逆操作**：記錄留著被移除的字串，但刻意不留位置。單獨呼叫，不與其餘腿組合"),
+                "undecided": strArray("記下查過未決（change resolution-verdict-states，#619）：citekey:authorIndex:personKey=查了什麼、為何判不出來。寫一筆 resolution-undecided 到該 person，作者位不動；之後這個配對在列表的候選列／歧義條目帶 undecidedChecks、counts 的 undecided 與頂層 undecidedTotal 計入它（pending 不再算它）；CLI 的篩選式 --apply 不帶走它，以 id 點名的 apply 照寫。已判定的配對（有任一層級的 confirmed 或 rejected）、已歸戶的作者位、citekey 無法唯一定位的 work 該筆略過並在 skipped 具名；完全相同的記錄已在＝alreadyRecorded。輸入錯（缺 =、非三段、重複 id、說明空白、person 不存在、digest 形狀不合、store format < 19、rests_on 沒有伴隨 undecided）整批拒絕零寫入。單獨呼叫，不與其他腿組合"),
+                "rests_on": strArray("未決記錄的證據 digest（sha256:64hex，先用 akashic_store_source 存檔）。套用到這次呼叫的每一筆 undecided——不同配對要附不同證據就分次呼叫。只伴隨 undecided"),
                 "attribute_org": strArray("把作者位歸給**團體作者**（#443）：citekey:authorIndex:orgKey=判定理由。`.literal` → `.organization`——`Author` 三態裡在此之前只有兩態接得起來。理由必填；org 需已存在（絕不自動建）；已歸戶的位置拒絕；整批驗證通過才寫。單獨呼叫，不與 apply／reject 組合"),
-                                "judge": strArray("逐篇判定（#386）：citekey:authorIndex:personKey=判定理由，以**第一個 = 切**（理由可含等號）。與 apply 是不同種類的主張——apply 套用 resolver 提名出來的候選，judge 指名一個作者位並說明**憑什麼**，因此**歧義列也適用**（歧義的意思是提名器分不出來，不是人／AI 分不出來）。理由必填且逐字寫進 verdict；literal 由 store 讀不由呼叫端提供。輸入語法錯（缺 = ／非三段形／重複 id／理由空白／person 不存在／同一個作者位判給兩個人）整批拒絕零寫入；store 狀態不符（work 不存在／索引越界／位置已歸戶／citekey 重複或與另一筆 work 共用 id，#627）該筆略過並在 skipped 具名、不中止其餘。有寫入而之後 index 重建失敗時回錯誤，訊息逐行列出已判定與略過的 id——那時寫入已落地；沒有寫入時不重建。作者位已歸給同一個人時：已有這個配對、同一句理由的逐篇判定＝no-op，回在 alreadyJudged（理由不同則略過並具名，#636）；由其他規則歸戶的（例如 apply）略過並具名——verdict 以配對去重，理由無處另存（升級的面見 #636）；找不到原 literal 也略過並具名。judge／refute 各自單獨呼叫，不與彼此或 apply／reject 組合——組合整批拒絕（#635）。判定寫的 verdict rule 是 author-judged-per-work，會讓同 literal 在其他 work 以 confirmed-elsewhere 提名並在理由揭露血統——那仍是提名，仍須逐列決定。需 store format ≥ 8"),
+                                "judge": strArray("逐篇判定（#386）：citekey:authorIndex:personKey=判定理由，以**第一個 = 切**（理由可含等號）。與 apply 是不同種類的主張——apply 套用 resolver 提名出來的候選，judge 指名一個作者位並說明**憑什麼**，因此**歧義列也適用**（歧義的意思是提名器分不出來，不是人／AI 分不出來）。理由必填且逐字寫進 verdict；literal 由 store 讀不由呼叫端提供。輸入語法錯（缺 = ／非三段形／重複 id／理由空白／person 不存在／同一個作者位判給兩個人）整批拒絕零寫入；store 狀態不符（work 不存在／索引越界／位置已歸戶／citekey 重複或與另一筆 work 共用 id，#627）該筆略過並在 skipped 具名、不中止其餘。有寫入而之後 index 重建失敗時回錯誤，訊息逐行列出已判定與略過的 id——那時寫入已落地；沒有寫入時不重建。作者位已歸給同一個人時：已有這個配對、同一句理由的逐篇判定＝no-op，回在 alreadyJudged（理由不同則略過並具名，#636）；由其他規則歸戶的（例如 apply）：寫一筆逐篇判定與它並存、作者位不動，judged 列帶 coexistsWith:\"nominated\"（需 store format ≥ 19；change resolution-verdict-states，#636——判定層級 nominated／judged 參與去重）；refute 對既有的 reject 同理；找不到原 literal 也略過並具名。judge／refute／undecided 各自單獨呼叫，不與彼此或 apply／reject 組合——組合整批拒絕（#635）。判定寫的 verdict rule 是 author-judged-per-work，會讓同 literal 在其他 work 以 confirmed-elsewhere 提名並在理由揭露血統——那仍是提名，仍須逐列決定。需 store format ≥ 8"),
              ])),
         Tool(name: "akashic_create_entry",
              description: "建庫外手動文獻（無 Zotero provenance；citekey 自動生成）。",
@@ -220,6 +222,8 @@ actor AkashicMCPServer {
                 "reject": strArray("要否決的候選 id（同形）"),
                 "repoint": strArray("要改指的已歸戶邊（citekey:venueIndex:newKey）——不與 apply／reject／demote 組合；退役 from 上的 confirmed 與 to 上的 rejected（D20），改指後不得與本 work 另一條邊指同一 venue（D27），也不得讓目的 venue 對該 work 持有第二個 confirmed literal（相等比位元組——同一 literal 的另一個拼法也拒，D38／D43，整批拒絕零寫入）；同一條邊在同一批被指定兩次自成一句拒絕（R16）"),
                 "demote": strArray("要退回 literal 的已歸戶邊（citekey:venueIndex）——原字串從 verdict 取回、退役該 venue 上這個配對的 confirmed（D20）；不與其他組合"),
+                "undecided": strArray("記下查過未決（change resolution-verdict-states，#619）：citekey:venueIndex:venueKey=查了什麼、為何判不出來。寫一筆 resolution-undecided 到該 venue，邊不動；之後列表該列帶 undecidedChecks。已判定的配對、已歸戶的邊、citekey 無法唯一定位的 work 該筆略過並在 skipped 具名；完全相同的記錄已在＝alreadyRecorded。輸入錯（缺 =、非三段、重複 id、說明空白、venue 不存在、digest 形狀不合、store format < 19）整批拒絕零寫入。單獨呼叫"),
+                "rests_on": strArray("未決記錄的證據 digest（sha256:64hex，先用 akashic_store_source 存檔）。套用到這次呼叫的每一筆 undecided——不同配對要附不同證據就分次呼叫。只伴隨 undecided"),
              ])),
         Tool(name: "akashic_add_organization",
              description: "建機構實體（organization:；#304 org 重啟後的單筆 MCP 面）。parent 以既有 org key 指涉（選填；literal parent 屬 bootstrap 面）。",
@@ -454,6 +458,8 @@ actor AkashicMCPServer {
                 let judge = argList("judge")
                 let refuteProvided = params.arguments?["refute"] != nil
                 let refute = argList("refute")
+                let undecidedProvided = params.arguments?["undecided"] != nil
+                let restsOnProvided = params.arguments?["rests_on"] != nil
                 // **兩個結構修正腿各自單獨呼叫，顯式拒絕組合**（R1 verify）：先前靠
                 // 分支順序隱含達成，其餘腿被**靜默忽略**——呼叫端（LLM）會以為兩腿都
                 // 跑了。同檔 resolve_venues 對同型契約是顯式 throw（#418），對齊。
@@ -468,7 +474,7 @@ actor AkashicMCPServer {
                 let dropProvided = params.arguments?["drop_author"] != nil
                 if splitProvided || attrOrgProvided || unSplitProvided || dropProvided {
                     let otherLegs = applyProvided || rejectProvided || confirmProvided
-                        || judgeProvided || refuteProvided
+                        || judgeProvided || refuteProvided || undecidedProvided || restsOnProvided
                     let structural = [splitProvided, attrOrgProvided, unSplitProvided,
                                       dropProvided].filter { $0 }.count
                     if structural > 1 || otherLegs {
@@ -512,7 +518,9 @@ actor AkashicMCPServer {
                                                    reject: rejectProvided ? reject : nil,
                                                    confirmTiers: confirmProvided ? confirmTiers : nil,
                                                    judge: judgeProvided ? judge : nil,
-                                                   refute: refuteProvided ? refute : nil)
+                                                   refute: refuteProvided ? refute : nil,
+                                                   undecided: undecidedProvided ? argList("undecided") : nil,
+                                                   restsOn: restsOnProvided ? argList("rests_on") : nil)
             case "akashic_create_entry":
                 output = try service.createEntry(
                     type: arg("type") ?? "", title: arg("title") ?? "",
@@ -560,6 +568,8 @@ actor AkashicMCPServer {
                 let vRejectProvided = params.arguments?["reject"] != nil
                 let vRepointProvided = params.arguments?["repoint"] != nil
                 let vDemoteProvided = params.arguments?["demote"] != nil
+                let vUndecidedProvided = params.arguments?["undecided"] != nil
+                let vRestsOnProvided = params.arguments?["rests_on"] != nil
                 // **修正類的兩個各自單獨呼叫**（兩面同契約，#418）：它們修的是已歸戶的邊，
                 // 與升格／否決不同階段；混在一次呼叫裡會讓「哪一批寫了」難以判讀。
                 if (vRepointProvided || vDemoteProvided),
@@ -570,7 +580,9 @@ actor AkashicMCPServer {
                     apply: vApplyProvided ? argList("apply") : nil,
                     reject: vRejectProvided ? argList("reject") : nil,
                     repoint: vRepointProvided ? argList("repoint") : nil,
-                    demote: vDemoteProvided ? argList("demote") : nil)
+                    demote: vDemoteProvided ? argList("demote") : nil,
+                    undecided: vUndecidedProvided ? argList("undecided") : nil,
+                    restsOn: vRestsOnProvided ? argList("rests_on") : nil)
             case "akashic_add_organization":
                 output = try service.addOrganization(
                     key: arg("key") ?? "", names: argList("names"),

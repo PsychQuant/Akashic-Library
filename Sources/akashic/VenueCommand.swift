@@ -349,7 +349,28 @@ struct ResolveVenuesCmd: ParsableCommand {
             help: "把誤升的邊退回 literal（citekey:venueIndex）——原字串從 verdict 取回，無損，#418；退役該 venue 上這個配對的 confirmed（D20）")
     var demote: [String] = []
 
+    @Option(name: .long, parsing: .upToNextOption,
+            help: "記下查過未決（可重複）：citekey:venueIndex:venueKey=查了什麼、為何判不出來。寫一筆 resolution-undecided 到該 venue，邊不動；之後列表標 undecidedChecks。可附 --rests-on。已判定的配對、已歸戶的邊、citekey 重複的 work 該筆略過並具名。需要 store format ≥ 19。單獨呼叫（change resolution-verdict-states，#619）")
+    var undecided: [String] = []
+
+    @Option(name: .long, parsing: .upToNextOption,
+            help: "未決記錄的證據（可重複）：sha256:<64 hex>，先用 store-source 存檔。套用到這次呼叫的每一筆 --undecided——不同配對要附不同證據就分次呼叫。只伴隨 --undecided")
+    var restsOn: [String] = []
+
     func run() throws {
+        if !restsOn.isEmpty && undecided.isEmpty {
+            throw ValidationError("--rests-on 只伴隨 --undecided 使用（#619）")
+        }
+        if !undecided.isEmpty {
+            guard apply.isEmpty, reject.isEmpty, repoint.isEmpty, demote.isEmpty else {
+                throw ValidationError("--undecided 單獨呼叫（不與 --apply／--reject／--repoint／--demote 組合）")
+            }
+            let store = try options.openStore()
+            let service = AkashicService(root: store.root, key: store.key,
+                                         environment: ProcessInfo.processInfo.environment)
+            try ResolvePeople.printUndecidedResult(try service.resolveVenues(apply: nil, undecided: undecided, restsOn: restsOn))
+            return
+        }
         // CLI 契約同 resolve-people：apply 與 reject 分兩次呼叫
         if !apply.isEmpty, !reject.isEmpty {
             throw ValidationError("--apply 與 --reject 請分兩次呼叫（組合腿是 MCP 面的契約差異，見 mcp-cli-parity）")

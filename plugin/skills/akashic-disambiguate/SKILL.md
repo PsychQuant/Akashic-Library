@@ -129,7 +129,7 @@ akashic resolve-people --refute "<citekey>:<idx>:<personKey>=<理由>"
 
 ### 5. 收尾：每一列都要有處置
 
-重跑 `resolve-people`，對照本輪回報確認每一列都有處置。判不出來的走第三個出口：不 judge、不 refute，literal 留著，查過的來源寫在回報。store 不留查過的紀錄（#619）；範圍含判不出來配對的那一批不要用 CLI 的 `--apply`（不論帶不帶 `--tier`／`--citekey`／`--person`，它都會帶走範圍內的候選；只有淘汰而得的唯一候選會被它排除，查過未決的它看不到，#619）；確認過的逐筆顯式送（#624）。
+重跑 `resolve-people`，對照本輪回報確認每一列都有處置。判不出來的走第三個出口：不 judge、不 refute，literal 留著，**對查過的每個人選記一筆未決**：`resolve-people --undecided <citekey:authorIndex:personKey>=查了什麼、為何判不出來`（store format ≥ 19；可附 `--rests-on`／`rests_on`：承重頁面先 `store-source` 存檔取 digest，一次呼叫的每一筆共用同一組 digest，證據不同就分次送）。之後這個配對在列表標「查過未決 N 次」，CLI 的篩選式 `--apply` 自動排除它（#619）；淘汰而得的唯一候選同樣被排除（#624）。確認過的逐筆顯式送。
 
 literal 可能是 A 或 B，不等於 A、B 兩筆是同一人。只有查到**兩筆以上 person 記錄**本身可能是同一個人時才記 divergence（candidates＝那幾筆 person 的 key），且先在回報裡建議，使用者確認後才記——divergence 記了沒有面刪得掉（#586）：
 

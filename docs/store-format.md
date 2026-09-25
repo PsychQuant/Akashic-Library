@@ -831,11 +831,12 @@ references:
    所有查詢中消失，而 §5.0 的 format 6 與 7 正是因為這種整檔 quarantine 而 bump 的，
    所以仍需格式 bump，不在本範圍。遷移對它**回報而不靜默略過**。
 
-### 消解判定欄位對：`resolution-confirmed`／`resolution-rejected`（#232）
+### 消解判定欄位：`resolution-confirmed`／`resolution-rejected`（#232）／`resolution-undecided`（#619）
 
 人工消解判定（「這個 literal 就是他」／「查過了，不是他」）以**判斷型 reference**
-落在**被判定的記錄**上（person 或 organization），欄位名是**封閉對**——只有
-`resolution-confirmed` 與 `resolution-rejected` 兩值，不得依性質相似類推第三個：
+落在**被判定的記錄**上（person、organization 或 venue），欄位名是**封閉集合**——#232 起是
+`resolution-confirmed` 與 `resolution-rejected` 兩值，format 19 起（change `resolution-verdict-states`）顯式擴成三值，
+多一個 `resolution-undecided`，不得依性質相似類推第四個：
 
 ```yaml
 references:
@@ -844,6 +845,24 @@ references:
   judgement: 查過本人網頁，非本人 [rule: author-name-exact]
   rests-on: []                                # verdict 例外：允許空（見下）
 ```
+
+**未決記錄與判定層級（normative，format 19；change `resolution-verdict-states`，#619／#636）**：
+
+- **`resolution-undecided`＝查過、判不出來。** value 文法同上；statement 是「查了什麼、為何判不出來」並以
+  `[rule: checked-undecided]` 結尾；**rests-on 可以帶** digest（也可以空）。confirmed／rejected 仍不帶（#280）。
+  未決**不是判定**：它不抑制提名、不構成矛盾（#486 的矛盾只比 confirmed×rejected）、不被 `supersede` 退役。
+- **配對狀態現算不存**：有任一 confirmed／rejected＝decided；否則有 ≥1 筆未決＝undecided；都沒有＝pending。未決記錄在
+  配對被判定後**保留**為查證歷史。計數是四態（`counts{confirmed, rejected, undecided, pending}`），undecided 的配對不算 pending。
+- **判定層級**：confirmed／rejected 各分 `judged`（rule 恰為 `author-judged-per-work` 或 `author-organization-judged`，
+  封閉兩個）與 `nominated`（其餘全部，含缺尾註的 legacy）。同一配對的兩個層級是**兩筆記錄**（#636：先 `--apply`
+  後 `--judge` 並存）。
+- **三把鍵**（`ProvenanceReference`，`Sources/AkashicCore/VerdictRecordKey.swift`）：**配對鍵** `verdictPairingKey`
+  （不含 field、不含層級——矛盾判斷與狀態推導）；**記錄鍵** `verdictRecordKey`（寫入去重、合併收攏、D64 重複掃描——
+  confirmed／rejected 為 field＋配對＋層級，undecided 為整筆位元組）；**field＋配對鍵** `verdictEqualityKey`（語意不變，
+  只在「同 field、同配對、不分層級」時用：D20 退役相反判定、D23 confirmed literal 唯一性）。下文各處寫「以 `verdictEqualityKey`
+  去重」的地方，format 19 起指的是記錄鍵。
+- **寫入閘**：`LibraryStore.assertVerdictShapesWritable` 對 format < 19 拒寫帶未決記錄、或同一配對兩個層級並存的記錄
+  （person／organization／venue 共用）。
 
 **配對的唯一性（normative，#554 R10–R12）**：verdict 的 `value` 只定位配對 `(holder, literal)`，
 **不帶** `venues` 的 index——所以一筆 work 對同一個 venue **只能有一條 key 邊**，且同一 (venue, work)

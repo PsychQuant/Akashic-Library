@@ -44,7 +44,7 @@
 | 10 | `Divergence.judgement.prefers` | 本記錄的某個候選 | decode 時驗證存在性；同樣短暫 |
 | 11 | `Person.references` / `Organization.references` / `Venue.references` | `sources/` 的內容 | `ProvenanceReference`，content-addressed（`sha256:`）；`Venue.references` 於 #304 venue change 隨形狀新增——同型別、同定址法，列入以維持封閉性 |
 | 12 | `Divergence.judgement.restsOn` | `sources/` 的內容 | 同 11 的定址法；**與 10 同一筆記錄的另一條邊** |
-| 13 | `Person.references` / `Organization.references` / `Venue.references` 中 verdict 欄位對的 `value` | work／person／organization／venue（by key） | **僅限封閉欄位對** `resolution-confirmed`／`resolution-rejected`（#232）；value 文法 `<kind>:<key> :: <literal>`。正典側是**被判定的記錄**：verdict 是關於它的同一性的事實，存在 entry 側會讓 work 長出無上界的 per-person 清單，且 reject 依規格不動 entry。與 11 **不同條**：11 指向存檔內容（content-addressed），13 是 `ProvenanceReference.value` 首次成為跨 entity 指標（by key）——`rename` 因此必須遷移 `work:` value（#232 verify NEW-1 實測不遷移＝否決安靜變回待判）。`resolve-venues` 的 verdict 落被判定的 venue 記錄（#304，同一欄位對、同文法）。**venue 側是 O(catalog)**（#499，2026-09-04 裁決候選 3）：一本刊的 verdict 數＝被歸戶的作品數，`psychological-methods` 實測 1,352 筆；序列化位置**不改**，改在 decode 硬預算的一半設 warning（`AliasEventBudget.venueVerdictWarningThreshold`，`StoreHealth.venueVerdictBudgetWarnings`）。達門檻＝重開本條的規模化裁決，那時的形狀是 sidecar ledger（本表改指向 sidecar、12 格遷移改讀寫）——不是 per-literal 聚合（那會打回 #464／#463 的 per-holder 前提） |
+| 13 | `Person.references` / `Organization.references` / `Venue.references` 中 verdict 欄位對的 `value` | work／person／organization／venue（by key） | **僅限封閉的 verdict 欄位**（#232 的欄位對；change `resolution-verdict-states` 起多一個 `resolution-undecided`，#619——同文法、同 holder，封閉三值）；value 文法 `<kind>:<key> :: <literal>`。正典側是**被判定的記錄**：verdict 是關於它的同一性的事實，存在 entry 側會讓 work 長出無上界的 per-person 清單，且 reject 依規格不動 entry。與 11 **不同條**：11 指向存檔內容（content-addressed），13 是 `ProvenanceReference.value` 首次成為跨 entity 指標（by key）——`rename` 因此必須遷移 `work:` value（#232 verify NEW-1 實測不遷移＝否決安靜變回待判）。`resolve-venues` 的 verdict 落被判定的 venue 記錄（#304，同一欄位對、同文法）。**venue 側是 O(catalog)**（#499，2026-09-04 裁決候選 3）：一本刊的 verdict 數＝被歸戶的作品數，`psychological-methods` 實測 1,352 筆；序列化位置**不改**，改在 decode 硬預算的一半設 warning（`AliasEventBudget.venueVerdictWarningThreshold`，`StoreHealth.venueVerdictBudgetWarnings`）。達門檻＝重開本條的規模化裁決，那時的形狀是 sidecar ledger（本表改指向 sidecar、12 格遷移改讀寫）——不是 per-literal 聚合（那會打回 #464／#463 的 per-holder 前提） |
 | 14 | `Entry.venues` | venue | `.key` 已歸戶／`.literal` 未歸戶，兩者都合法（與第 1 條同二態形；#304。作品側正典的六理由同適用——刊名沿革中舊文章掛舊刊名即第 4 條可表達性的 venue 版；編年 list 由本邊反向現算，venue 記錄**不存**文章清單） |
 | 15 | `Entry.references` | `sources/` 的內容 | 同第 11 條的定址法（content-addressed `sha256:`），但住在 **work** 上——#394 §5 新增。**正典側是 work**：識別碼（`doi`／`pmid`／`isbn`）是那筆作品的屬性，來源說的是「這個號是從哪裡查到的」，那件事只跟該作品有關。值域：三個識別碼欄位 ＋ **`authors`** ＋ **`fields.<鍵名>`**（#517，見下）（#450，2026-09-07：**拆分記錄**——value 是**已退役**的原 literal，與其他三格「值必須在場」的語意相反；一致性條件是 statement 各段至少一段仍是作者位，由 `StoreHealth` 報 warning（`staleSplitRecords`）而非 decode 拒收；statement 走 `SplitRecordValue` 單一解析器、空 rests-on 經 `firstOrderRulingFields` 放行、store format 16）。**#517 起多一格 `fields.<鍵名>`**（見表下方「第 15 條邊的兩次擴充」）——`title`／`date` 仍不得類推（`validateReferenceAttachment` 的 `default` 照舊拒絕）。 **為什麼在此之前不存在**：`Entry` 原本沒有 `references`，而 provenance-reference spec 明寫「不能攜帶 reference 的識別碼不算記錄的一等公民」——照字面，work 的三個識別碼在補上它之前不算一等公民，而那正是 #394 的標題所主張的東西 |
 
@@ -112,6 +112,13 @@ grep -nE "public var" Sources/AkashicCore/{Models,Organization,Divergence,Tempor
   > **刻意不攜 rests-on**——證據載體依生命週期分工：已判定 → 被判實體的 `references`
   > （第 11 條）；未判定 → divergence 的 `judgement.restsOn`（第 12 條）。這是設計不是
   > 缺口；不得因「verdict 也該綁證據」而給第 13 條長出第二個內容指標。
+  > **收窄（change `resolution-verdict-states`，#619，2026-09-25）**：上面的「未判定 → divergence」只對
+  > **record↔record** 的同一性問題成立。literal→key 的**配對**「查過、判不出來」有自己的載體：第三個 verdict
+  > 欄位 `resolution-undecided`，**它可以帶 rests-on**——查過未決的配對沒有被判實體能承認那份證據，唯一的落點
+  > 是那筆記錄本身。所以載體分工是三段：已判定 → 被判實體的一般 `references`（第 11 條）；查過未決的配對 →
+  > 該配對的未決記錄的 rests-on（digest 同樣是第 11 條邊的內容指標，住在 `references` 裡，不新增邊）；
+  > record↔record 未判定 → divergence 的 `judgement.restsOn`（第 12 條）。**confirmed／rejected 仍不攜
+  > rests-on**——「不得給第 13 條長出第二個內容指標」對判定維持不變，未決不是判定。
   > 實際後果（已修，#251）：`SourceStore.missingSourceDigests` 曾只掃 `people` 與
   > `organizations` 的 `references`、不掃 divergence 的 judgement——報告對消歧證據
   > 鏈全盲。2026-08-15 起第 12 條邊在掃描範圍；同輪修掉「讀不到折成缺席」（#265）。

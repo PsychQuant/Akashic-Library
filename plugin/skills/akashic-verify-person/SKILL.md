@@ -142,7 +142,7 @@ akashic_resolve_people reject:["<citekey>:<index>:<personKey>", …]  # 查過�
 - id 用**列表給的三段形**（#303 起釘 person——提名改指時顯式拒絕；不要手拼）
 - apply 與 reject **可同一次呼叫**（#272 起兩段式：reject 腿先完整提交、apply 腿在新快照重解析、按腿回報）；CLI 面維持分兩次
 - reject 之後該配對不再被提名；**同 literal 在別的 entry 是另一次觀察**，照提、照查
-- **第三個出口——查不出來**：證據不足以判定時不 apply、不 reject，literal 留著，查過的來源（URL＋取得日期）寫在報告再停手。這個配對 store 不留紀錄（#619）；送 apply 的 id 清單不要含判不出來的配對（#624）。只有查到兩筆以上 person 記錄本身可能是同一個人時，才用 `akashic_record_divergence` 記下，且先在回報裡建議，使用者確認後才記——divergence 記了沒有面刪得掉（#586）（candidates＝那幾筆 person 的 key；judgement 與 rests_on 成對，rests_on 只收 `sha256:` digest（#507），沒有 digest 就兩者都不帶）
+- **第三個出口——查不出來**：證據不足以判定時不 apply、不 reject，literal 留著，**記一筆未決**：`akashic_resolve_people` 的 `undecided`（CLI `--undecided`）收 `citekey:authorIndex:personKey=查了什麼、為何判不出來`（store format ≥ 19；可附 `--rests-on`／`rests_on`：承重頁面先 `store-source` 存檔取 digest，一次呼叫的每一筆共用同一組 digest，證據不同就分次送），報告同時寫查過的來源（URL＋取得日期）再停手（#619）；送 apply 的 id 清單不要含判不出來的配對（#624）。只有查到兩筆以上 person 記錄本身可能是同一個人時，才用 `akashic_record_divergence` 記下，且先在回報裡建議，使用者確認後才記——divergence 記了沒有面刪得掉（#586）（candidates＝那幾筆 person 的 key；judgement 與 rests_on 成對，rests_on 只收 `sha256:` digest（#507），沒有 digest 就兩者都不帶）
 - verdict 需要 store format ≥ 8；format 不足時 reject 會硬擋指路、apply 照常歸戶但跳過 verdict 並明說（**不必預查 format**——兩個失敗模式都會自己說話，直接動手即可）
 - 三態計數（confirmed／rejected／pending）從 verdict 現算——**只報計數不報比率**，pending（沒有 verdict 的，含查過未決者）永遠可見
 
@@ -160,7 +160,7 @@ akashic_resolve_people reject:["<citekey>:<index>:<personKey>", …]  # 查過�
   的列一起誤升。實測「C-H Chen」15 列分屬至少 6 個不同機構的人。目前**沒有 per-work 的歸戶
   路徑**（追蹤：Akashic-Library#386）；在它出現之前，這類配對查證完成後**只記錄結論、不寫入**
 - **配對不在 candidates 列時沒有 apply 把手**——同上：先讓配對能以 exact 成為候選（補 alias 或建檔），重跑 resolve 再 apply
-- **查不出來是合法結果**。「證據不足以判定」就說證據不足，讓配對留在 pending、literal 留著（Step 3 的第三個出口）——pending 可見是設計，不是待消滅的數字
+- **查不出來是合法結果**。「證據不足以判定」就說證據不足，記一筆未決、literal 留著（Step 3 的第三個出口；未決的配對不再算進 pending，#619）——pending 可見是設計，不是待消滅的數字
 - **承重頁面要存檔**：判定所依據的網頁內容存進 `sources/`（content-addressed）、經 bootstrap 寫入 person 的 `references`——寫法依 [writing-to-the-store.md](../akashic-bootstrap/references/writing-to-the-store.md)。非承重的佐證列 URL 即可。（verdict **刻意**不攜 rests-on——設計裁決見 Akashic-Library#280：已判定的證據住 person `references`。判不出來的配對，證據 store 沒有地方放，只在報告裡——缺口見 #619）
 
 ## 相關

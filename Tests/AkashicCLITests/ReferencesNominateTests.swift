@@ -275,9 +275,12 @@ final class ReferencesNominateTests: XCTestCase {
         XCTAssertFalse(try decode(output).warnings.contains { $0.contains("不只一筆") }, output)
     }
 
-    /// T16：storeMatches 列出門檻以上的**全部**記錄（R2 G3：原本只取前 3，真正那筆排第 4 就漏）；
-    /// 同分的多筆是可能的重複記錄，要 warning（R2 G8）
-    func testStoreMatchesListsEveryHitAndWarnsOnTies() throws {
+    /// T16：storeMatches 列出門檻以上的**全部**記錄（R2 G3：原本只取前 3，真正那筆排第 4 就漏）。
+    ///
+    /// **不**發「同分」warning（R3 M3 推翻 R2 G8）：這四筆是不同作者、同標題的書——分數只看標題，
+    /// 同分不代表重複，那則 warning 會讓整個 run 停下、把使用者送去 merge-twins 判出「不是攣生」，
+    /// 下一次又停；副標不同的真攣生反而不同分、不會警告。是不是同一篇交給逐筆判定（SKILL 第 4 步）。
+    func testStoreMatchesListsEveryHitWithoutTieWarning() throws {
         for who in ["Ann One", "Bob Two", "Cat Three", "Dan Four"] {
             try createEntry("{\"type\":\"book\",\"title\":\"Same imaginary title\",\"authors\":[\"\(who)\"],\"date\":\"2001\"}")
         }
@@ -287,7 +290,7 @@ final class ReferencesNominateTests: XCTestCase {
         XCTAssertEqual(status, 0, output)
         let r = try decode(output)
         XCTAssertEqual(r.refs.first?.storeMatches?.count, 4)
-        XCTAssertTrue(r.warnings.contains { $0.contains("同分") }, "\(r.warnings)")
+        XCTAssertFalse(r.warnings.contains { $0.contains("同分") }, "\(r.warnings)")
     }
 
     /// T17：候選的 OpenAlex 標題也要比對 store（R2 G4：PDF 標題切壞時，只比 PDF 標題會漏網，

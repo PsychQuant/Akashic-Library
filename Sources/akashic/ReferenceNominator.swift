@@ -158,7 +158,6 @@ enum ReferenceNominator {
             return c
         }
         var nominated = Set<String>()
-        var warnings: [String] = []
         let nominations = refs.map { ref -> RefNomination in
             let ranked = works.compactMap { w -> Candidate? in
                 let (score, basis) = self.score(ref, w)
@@ -166,20 +165,21 @@ enum ReferenceNominator {
                 let (held, conflict) = lookup(w.doi, in: doiIndex)
                 return Candidate(openalex: w.id, doi: w.doi?.normalized, title: w.title, year: w.year,
                                  firstAuthor: w.authorNames.first, score: score, basis: basis,
-                                 inStore: held, inStoreConflict: conflict,
-                                 storeMatches: storeMatches(title: w.title, year: w.year, in: store))
+                                 inStore: held, inStoreConflict: conflict, storeMatches: [])
             }
             .sorted { ($0.score, $1.openalex) > ($1.score, $0.openalex) }
-            let top = Array(ranked.prefix(topN))
+            // store 比對只做輸出的前幾名（R3 I1：原本對門檻以上的每個候選都掃一次全庫）
+            let top = ranked.prefix(topN).map { c -> Candidate in
+                var t = c
+                t.storeMatches = storeMatches(title: c.title, year: c.year, in: store)
+                return t
+            }
             top.forEach { nominated.insert($0.openalex) }
             let (held, conflict) = lookup(ref.doi.flatMap(DOI.init), in: doiIndex)
+            // 「同分」warning 已拿掉（R3 M3）：分數只看標題，同分的常是同標題的不同作品（版次、冊次、
+            // 不同作者），而副標不同的真攣生反而不同分。兩筆以上 store 記錄是不是同一篇，交給逐筆
+            // 判定（SKILL 第 4 步：判出兩筆以上是同一篇 → 那一筆「判不了」，不擅選）。
             let refMatches = storeMatches(title: ref.title, year: ref.year, in: store)
-            // 同分的多筆 store 記錄：可能是重複記錄，不得擅選一筆（R2 G8）
-            let lists = [refMatches] + top.map(\.storeMatches)
-            if lists.contains(where: { $0.count >= 2 && $0[0].score == $0[1].score }) {
-                warnings.append("第 \(ref.index) 筆在 store 裡有多筆標題與年份同分的記錄——可能是重複記錄；"
-                                + "不要擅選一筆連 cites，先處理重複（akashic-merge-twins）")
-            }
             return RefNomination(index: ref.index, firstAuthor: ref.firstAuthor, year: ref.year,
                                  title: ref.title, doi: ref.doi,
                                  inStore: held, inStoreConflict: conflict,
@@ -194,7 +194,7 @@ enum ReferenceNominator {
         let counts = Counts(refs: refs.count, works: works.count,
                             refsWithCandidates: nominations.filter { !$0.candidates.isEmpty }.count,
                             unnominated: unnominated.count)
-        return Result(refs: nominations, unnominated: unnominated, counts: counts, warnings: warnings,
+        return Result(refs: nominations, unnominated: unnominated, counts: counts, warnings: [],
                       contract: ReferenceListExtractor.contractVersion)
     }
 

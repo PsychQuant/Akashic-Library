@@ -33,10 +33,11 @@ extension AkashicService {
     static let maxStatementBytes = 4_096
     static let maxSpecsPerCall = 200
 
-    /// 解析 `<citekey>:<index>:<entityKey>=<說明>`（以第一個 `=` 切——說明是自由文字）。輸入錯一律 throw。
-    func parseUndecidedSpecs(_ specs: [String], restsOn: [String], indexName: String) throws -> [UndecidedSpec] {
-        guard specs.count <= Self.maxSpecsPerCall else {
-            throw ServiceError.invalid("一次最多記 \(Self.maxSpecsPerCall) 筆未決（這次 \(specs.count) 筆）——分次送")   // display-safe-exempt: Self.maxSpecsPerCall 是 Int 常數
+    /// 三個未決腿（people／venues／organizations，change `org-undecided-leg`）共用的整批檢查：上限、format 閘、
+    /// rests-on 形狀。輸入錯一律 throw（整批拒絕、零寫入）。
+    func checkUndecidedCall(specCount: Int, restsOn: [String]) throws {
+        guard specCount <= Self.maxSpecsPerCall else {
+            throw ServiceError.invalid("一次最多記 \(Self.maxSpecsPerCall) 筆未決（這次 \(specCount) 筆）——分次送")   // display-safe-exempt: Self.maxSpecsPerCall 與 specCount 是 Int
         }
         guard restsOn.count <= Self.maxRestsOnPerCall else {
             throw ServiceError.invalid("rests_on 一次最多 \(Self.maxRestsOnPerCall) 個 digest（這次 \(restsOn.count) 個）——證據不同的配對分次送")   // display-safe-exempt: Self.maxRestsOnPerCall 是 Int 常數
@@ -55,6 +56,24 @@ extension AkashicService {
         } catch {
             throw ServiceError.invalid("rests_on 不合法：\(displaySafeError(error, max: 400))")
         }
+    }
+
+    /// 單筆說明的檢查（位元組上限、空白）——三個未決腿共用。
+    func checkUndecidedStatement(id: String, statement: String) throws {
+        guard statement.utf8.count <= Self.maxStatementBytes else {
+            throw ServiceError.invalid(
+                "未決「\(displaySafeInvisible(id, max: 200))」的說明超過 \(Self.maxStatementBytes) 位元組——精簡它，承重內容用 rests_on 附存檔")   // display-safe-exempt: Self.maxStatementBytes 是 Int 常數
+        }
+        if statement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            throw ServiceError.invalid(
+                "未決「\(displaySafeInvisible(id, max: 200))」的說明是空白——要寫查了什麼、為何判不出來；"
+                + "沒有它，這筆記錄與「沒查過」無法區分")
+        }
+    }
+
+    /// 解析 `<citekey>:<index>:<entityKey>=<說明>`（以第一個 `=` 切——說明是自由文字）。輸入錯一律 throw。
+    func parseUndecidedSpecs(_ specs: [String], restsOn: [String], indexName: String) throws -> [UndecidedSpec] {
+        try checkUndecidedCall(specCount: specs.count, restsOn: restsOn)
         var out: [UndecidedSpec] = []
         var seen = Set<String>()
         for spec in specs {
@@ -71,15 +90,7 @@ extension AkashicService {
                     "未決 id「\(displaySafeInvisible(id, max: 200))」不是三段形 citekey:\(indexName):key"   // display-safe-exempt: indexName 是呼叫端的字面常量
                     + "（\(indexName) 是從 0 起的非負整數）")   // display-safe-exempt: indexName 是呼叫端的字面常量
             }
-            guard statement.utf8.count <= Self.maxStatementBytes else {
-                throw ServiceError.invalid(
-                    "未決「\(displaySafeInvisible(id, max: 200))」的說明超過 \(Self.maxStatementBytes) 位元組——精簡它，承重內容用 rests_on 附存檔")   // display-safe-exempt: Self.maxStatementBytes 是 Int 常數
-            }
-            if statement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                throw ServiceError.invalid(
-                    "未決「\(displaySafeInvisible(id, max: 200))」的說明是空白——要寫查了什麼、為何判不出來；"
-                    + "沒有它，這筆記錄與「沒查過」無法區分")
-            }
+            try checkUndecidedStatement(id: id, statement: statement)
             guard seen.insert("\(parts[0]):\(idx):\(parts[2])").inserted else {   // display-safe-exempt: 集合鍵，不輸出
                 throw ServiceError.invalid(
                     "未決 id「\(displaySafeInvisible(id, max: 200))」在一次呼叫裡重複")
@@ -253,11 +264,18 @@ extension AkashicService {
 
     private func undecidedPayload(recorded: [(spec: UndecidedSpec, literal: String)], skipped: [(id: String, why: String)],
                                   already: [String], restsOn: [String], rewritten: Int, holderName: String) throws -> String {
+        try undecidedPayload(rows: recorded.map { (id: $0.spec.id, literal: $0.literal, statement: $0.spec.statement) },
+                             skipped: skipped, already: already, restsOn: restsOn, rewritten: rewritten, holderName: holderName)
+    }
+
+    /// 三個未決腿共用的回應形狀。
+    func undecidedPayload(rows: [(id: String, literal: String, statement: String)], skipped: [(id: String, why: String)],
+                          already: [String], restsOn: [String], rewritten: Int, holderName: String) throws -> String {
         try jsonString([
-            "undecided": recorded.map { r -> [String: Any] in
-                ["id": displaySafe(r.spec.id, max: 200),
+            "undecided": rows.map { r -> [String: Any] in
+                ["id": displaySafe(r.id, max: 200),
                  "literal": displaySafe(r.literal, max: 300),
-                 "statement": displaySafe(r.spec.statement, max: 800),
+                 "statement": displaySafe(r.statement, max: 800),
                  "restsOn": restsOn.map { displaySafe($0, max: 80) }]
             },
             "skipped": skipped.map { ["id": displaySafe($0.id, max: 200), "why": $0.why] },   // display-safe-exempt: why 由本檔組裝，內含值已消毒

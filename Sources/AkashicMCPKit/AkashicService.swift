@@ -4814,7 +4814,19 @@ public final class AkashicService {
     /// 候選 id 格式 `<holderKey>:<literal 前 40 字>` 不穩定，故用 rowID 慣例：
     /// holder key + literal 的複合（OrgResolver 未定義 rowID——這裡以
     /// `<holderKey>::<literal>` 為 id，冒號雙分隔避開 key 內容）。
-    public func resolveOrganizations(apply: [String]?, reject: [String]? = nil) throws -> String {
+    public func resolveOrganizations(apply: [String]?, reject: [String]? = nil,
+                                     undecided: [String]? = nil, restsOn: [String]? = nil) throws -> String {
+        // change `org-undecided-leg`（#643）：未決腿單獨呼叫；rests_on 只伴隨它（同 people／venues）
+        let present = { (x: [String]?) in !(x ?? []).isEmpty }
+        if present(restsOn) && !present(undecided) {
+            throw ServiceError.invalid("rests_on 只伴隨 undecided 使用（它是未決記錄查了什麼的證據，#643）")
+        }
+        if present(undecided) {
+            guard !present(apply) && !present(reject) else {
+                throw ServiceError.invalid("undecided 單獨呼叫，不得與 apply／reject 組合——分次呼叫")
+            }
+            return try recordUndecidedOrganizations(undecided ?? [], restsOn: restsOn ?? [])
+        }
         let load = try store.load()
         let rejected = ResolutionLedger.rejectedPairings(organizations: load.organizations)
         let report = OrgResolver.resolve(people: load.people,
@@ -4825,10 +4837,7 @@ public final class AkashicService {
         // 這兩行**刻意不消毒**：rowID 產的是 apply 的回程把手，呼叫端要逐字送回來，
         // 消毒會讓它對不上（且 `displaySafe` 不冪等——二次呼叫會逃脫自己的反斜線）。
         // 控制字元由 JSON 編碼處理；CLI 面的人可讀輸出走 `label(…)`，那裡有消毒。
-        func rowID(_ c: OrgResolutionCandidate) -> String {
-            if case let .work(citekey, i) = c.holder { return "\(citekey)[\(i)]::\(c.literal)" }   // display-safe-exempt: 回程把手須逐字
-            return "\(c.holder.key)::\(c.literal)"   // display-safe-exempt: 同上（本行語意與 #378 前相同——先前寫成隱式 return 而未被守衛看見）
-        }
+        func rowID(_ c: OrgResolutionCandidate) -> String { Self.orgRowID(c.holder, literal: c.literal) }
         let byID = Dictionary(report.candidates.map { (rowID($0), $0) },
                               uniquingKeysWith: { first, _ in first })
         let byKey = Dictionary(load.organizations.map { ($0.key, $0) },
@@ -4881,20 +4890,36 @@ public final class AkashicService {
                                    "organizationsRewritten": grouped.count] as [String: Any])   // display-safe-exempt: Int
         }
         guard let selected = apply, !selected.isEmpty else {
+            // change `org-undecided-leg`（#643）：查過未決的次數以正規化配對查，holder 是被判的 org
+            let checks = ResolutionLedger.undecidedChecks(holders: load.organizations.map { ($0.key, $0.references) })
+            func undecidedCount(_ holder: OrgResolutionCandidate.Holder, _ literal: String, _ orgKey: String) -> Int {
+                ResolutionLedger.undecidedChecks(in: checks, holderKind: holder.verdictHolderKind,
+                                                 holder: holder.key, literal: literal, judgedKey: orgKey)
+            }
             return try jsonString([
                 "candidates": report.candidates.map { c -> [String: Any] in
                     var row: [String: Any] = ["id": rowID(c),
                      "holder": displaySafe(c.holder.key, max: 200),
                      "literal": displaySafe(c.literal, max: 200),
-                     "orgKey": displaySafe(c.orgKey, max: 200)]
+                     "orgKey": displaySafe(c.orgKey, max: 200),
+                     "undecidedChecks": undecidedCount(c.holder, c.literal, c.orgKey)]   // display-safe-exempt: undecidedCount 回傳 Int
                     if isUnlocatable(c) { row["unlocatableCitekey"] = true }   // #628
                     return row
                 },
                 "ambiguities": report.ambiguities.map { m -> [String: Any] in
-                    ["holder": displaySafe(m.holder.key, max: 200),
-                     "literal": displaySafe(m.literal, max: 200),
-                     "orgKeys": m.orgKeys.map { displaySafe($0, max: 200) }]
+                    // 歧義有 2+ 個 org：一個整數說不出查的是哪一個，所以是 org → 次數（只列非零）
+                    var perOrg: [String: Int] = [:]
+                    for k in m.orgKeys {
+                        let n = undecidedCount(m.holder, m.literal, k)
+                        if n > 0 { perOrg[displaySafe(k, max: 200)] = n }
+                    }
+                    return ["id": Self.orgRowID(m.holder, literal: m.literal),   // display-safe-exempt: 回程把手須逐字（同候選列的 rowID，#378）；控制字元由 JSON 編碼處理
+                            "holder": displaySafe(m.holder.key, max: 200),
+                            "literal": displaySafe(m.literal, max: 200),
+                            "orgKeys": m.orgKeys.map { displaySafe($0, max: 200) },
+                            "undecidedChecks": perOrg]
                 },
+                "undecidedTotal": checks.count,
                 "note": "apply 帶候選 id 歸戶；reject 帶候選 id 否決",
             ] as [String: Any])
         }

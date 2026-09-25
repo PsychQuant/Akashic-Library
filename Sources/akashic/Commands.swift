@@ -970,7 +970,28 @@ struct ResolveOrganizations: ParsableCommand {
           help: "否決收窄後的候選（寫 resolution-rejected verdict 到被判定的 organization；必須帶 --holder / --org）")
     var reject = false
 
+    /// 查過、判不出來（change `org-undecided-leg`，#643）。
+    @Option(name: .long, parsing: .upToNextOption,
+            help: "記下查過未決（可重複）：<列表的 id>@<orgKey>=查了什麼、為何判不出來。id 逐字取自不帶參數時列表每列的 id（work 作者位是 citekey[i]::literal）；在每個 @<orgKey>= 的位置試切，前綴必須恰為已知的 id，恰一個才收、零個或多個整批拒絕。orgKey 必須是那一列提名的 org（歧義條目可逐個 org 記）。寫一筆 resolution-undecided 到該 org，holder 不動；之後列表標「查過未決 N 次」、--apply 不帶走它。可附 --rests-on。已判定的配對、citekey 重複的 work 該筆略過並具名。需要 store format ≥ 19；一次超過 200 個 id、20 個 digest 或單句說明超過 4,096 位元組整批拒絕。單獨呼叫，不與 --apply／--reject 組合。literal 含控制字元時終端機上複製回來會對不上，改用 MCP")
+    var undecided: [String] = []
+
+    @Option(name: .long, parsing: .upToNextOption,
+            help: "未決記錄的證據（可重複）：sha256:<64 hex>，先用 store-source 存檔。套用到這次呼叫的每一筆 --undecided；只伴隨 --undecided")
+    var restsOn: [String] = []
+
     func run() throws {
+        // change `org-undecided-leg`（#643）：未決腿單獨呼叫，走 service 的同一個函式（兩面同契約）
+        if !restsOn.isEmpty && undecided.isEmpty {
+            throw ValidationError("--rests-on 只伴隨 --undecided 使用（#643）")
+        }
+        if !undecided.isEmpty {
+            if apply || reject { throw ValidationError("--undecided 單獨呼叫（不與 --apply／--reject 組合）") }
+            let store = try options.openStore()
+            let service = AkashicService(root: store.root, key: store.key,
+                                         environment: ProcessInfo.processInfo.environment)
+            try ResolvePeople.printUndecidedResult(try service.resolveOrganizations(apply: nil, undecided: undecided, restsOn: restsOn))
+            return
+        }
         // #298：破壞性寫入前確認目標 store 已被指名。**只在 --apply 時**
         // ——dry-run 不得被擋（它不寫東西，且正是用來確認目標的手段）。
         if apply { try options.assertDestructiveTargetNamed("resolve-organizations") }
@@ -1000,7 +1021,15 @@ struct ResolveOrganizations: ParsableCommand {
                 && (okSet.isEmpty || okSet.contains($0.orgKey))
         }
         let unlocatableSkipped = inScope.filter(isUnlocatable)
-        let candidates = inScope.filter { !isUnlocatable($0) }
+        // change `org-undecided-leg`（#643）：查過未決的次數——判準與 service 的列表同一個 ledger 函式
+        let undecidedMap = ResolutionLedger.undecidedChecks(holders: load.organizations.map { ($0.key, $0.references) })
+        func checks(_ c: OrgResolutionCandidate) -> Int {
+            ResolutionLedger.undecidedChecks(in: undecidedMap, holderKind: c.holder.verdictHolderKind,
+                                             holder: c.holder.key, literal: c.literal, judgedKey: c.orgKey)
+        }
+        // 篩選式 --apply 不帶走查過未決的候選（與 resolve-people 的 #624 同形）；--reject 不排除——否決是一個判定
+        let undecidedSkipped = apply ? inScope.filter { !isUnlocatable($0) && checks($0) > 0 } : []
+        let candidates = inScope.filter { !isUnlocatable($0) && !(apply && checks($0) > 0) }
         if (apply || reject), !unlocatableSkipped.isEmpty {
             print("⚠ 所在 work 的 citekey 重複或與另一筆共用 id 的候選 \(unlocatableSkipped.count) 筆不寫入（無法確定是哪一筆 work）：")
             for c in unlocatableSkipped {
@@ -1055,6 +1084,14 @@ struct ResolveOrganizations: ParsableCommand {
                 let span = rangeLabel(a.range)   // display-safe-exempt: rangeLabel 內部已消毒；displaySafe 不冪等，不得再包
                 var row: [String] = []
                 row.append("  \(label(a.holder)) 「\(displaySafe(a.literal, max: 200))」\(span)")
+                // 未決腿的回程把手（#643）：歧義條目可逐個 org 記未決；各 org 查過未決的次數一併標出
+                let perOrg = a.orgKeys.compactMap { k -> String? in
+                    let n = ResolutionLedger.undecidedChecks(in: undecidedMap, holderKind: a.holder.verdictHolderKind,
+                                                             holder: a.holder.key, literal: a.literal, judgedKey: k)
+                    return n > 0 ? "\(displaySafe(k, max: 200)) 查過未決 \(n) 次" : nil   // display-safe-exempt: n 是 Int
+                }
+                row.append("      id: \(displaySafe(AkashicService.orgRowID(a.holder, literal: a.literal), max: 400))"
+                           + (perOrg.isEmpty ? "" : "  ⟨\(perOrg.joined(separator: "、"))⟩"))
                 if a.orgKeys.count > AmbiguityDisplayLimit.refs {
                     row.append("      （\(a.orgKeys.count) 個候選，以下顯示前 \(AmbiguityDisplayLimit.refs) 個）")
                 }
@@ -1170,10 +1207,25 @@ struct ResolveOrganizations: ParsableCommand {
             let mark = (apply && !selected.contains("\(c.holder)#\(c.literal)")) ? "  (skip) " : "  "
             // #628（R1 verify）：列表模式也標出來——不必送出 --apply 才知道它會被排除
             let tag = isUnlocatable(c) ? " ⟨citekey 重複或共用 id：不寫入，先修正⟩" : ""
-            print("\(mark)\(label(c.holder)) 「\(displaySafe(c.literal, max: 200))」 → \(displaySafe(c.orgKey, max: 200))（\(displaySafe(c.reason, max: 300))）\(tag)")
+            let n = checks(c)
+            let checked = n > 0 ? " ⟨查過未決 \(n) 次\(apply ? "：不套用" : "")⟩" : ""   // display-safe-exempt: n 是 Int
+            print("\(mark)\(label(c.holder)) 「\(displaySafe(c.literal, max: 200))」 → \(displaySafe(c.orgKey, max: 200))（\(displaySafe(c.reason, max: 300))）\(tag)\(checked)")
+            // 未決腿的回程把手（#643）——逐字取用；終端機顯示經消毒，含控制字元的 literal 要改用 MCP
+            print("      id: \(displaySafe(AkashicService.orgRowID(c.holder, literal: c.literal), max: 400))")
         }
         printOrgCountsAndSunk()
         printOrgAmbiguities()
+        if apply, !undecidedSkipped.isEmpty {
+            print("")
+            print("查過未決的候選 \(undecidedSkipped.count) 筆不套用（有人查過而判不出來——要歸戶就以 id 點名走 MCP akashic_resolve_organizations 的 apply）：")
+            for c in undecidedSkipped {
+                print("  \(label(c.holder)) 「\(displaySafe(c.literal, max: 200))」 → \(displaySafe(c.orgKey, max: 200))")
+            }
+            if candidates.isEmpty {
+                print("⚠ 收窄後的候選全部查過未決——沒有寫入")
+                throw ExitCode(1)
+            }
+        }
         if apply {
             if !(holder.isEmpty && org.isEmpty), candidates.isEmpty {
                 throw ValidationError("--holder / --org 的篩選條件沒有命中任何候選")

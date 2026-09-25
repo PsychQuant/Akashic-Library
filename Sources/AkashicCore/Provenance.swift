@@ -201,7 +201,7 @@ public struct ProvenanceReference: Equatable {
     /// 被併 venue 的 `paginated` judgement 與 rests-on 隨檔案靜默消失）、`AkashicService.updateVenue` 的 `paginated` 冪等閘（設值與清除**兩處**）、
     /// `UpdatePerson` 的 references append-only 去重、`AddOnlyEnrichment.applied` 的來源 reference 冪等、
     /// 未決記錄的記錄鍵（`VerdictRecordKey.swift`，change `resolution-verdict-states`——同一配對的多次查證只有整筆位元組相同才算重複）、
-    /// 未決腿辨認「這一筆是同一次呼叫剛寫下的」（`UndecidedVerdicts.swift`，R1 verify）。
+    /// 未決腿辨認「這一筆是同一次呼叫剛寫下的」（`UndecidedVerdicts.swift`，R1 verify；org 族在 `OrgUndecidedVerdicts.swift`，#643）。
     /// **稽核程序**（`ByteExactKeySiteInventoryTests` 釘住）：全樹引用 `byteExactKey` 的檔案是一張封閉清單——那才是「位址在哪」的機械答案；
     /// `grep 'references.contains('` 不是：它的其餘命中是四處欄位**存在性**謂詞（`LibraryStore` 的 `$0.field == …`，問的不是同一筆）與
     /// `ResolutionLedger.appendIfAbsent`——後者**是**一個 sameness 面而**刻意**用 `verdictEqualityKey`（正規化，#470 的裁決）；

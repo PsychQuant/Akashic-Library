@@ -1113,8 +1113,8 @@ struct ResolveOrganizations: ParsableCommand {
             }
             let c = ResolutionLedger.counts(organizations: load.organizations,
                                             candidatePairings: triples)[
-                ResolutionLedger.orgRule] ?? (0, 0, 0)
-            print("三態計數（\(ResolutionLedger.orgRule)）：已確認 \(c.confirmed)／已否決 \(c.rejected)／未處理 \(c.pending)")
+                ResolutionLedger.orgRule] ?? (0, 0, 0, 0)
+            print("四態計數（\(ResolutionLedger.orgRule)）：已確認 \(c.confirmed)／已否決 \(c.rejected)／查過未決 \(c.undecided)／未處理 \(c.pending)")
         }
 
         // reject（#232 design D6）：對收窄後的候選寫 verdict，holder 記錄**不動**
@@ -1971,8 +1971,8 @@ struct ResolvePeople: ParsableCommand {
                 .map { ResolutionLedger.personRule(for: $0) }
             let foreign = byRule.keys.filter { !personRules.contains($0) }.sorted()
             for rule in personRules + foreign {
-                let c = byRule[rule] ?? (confirmed: 0, rejected: 0, pending: 0)
-                let nonZero = c.confirmed + c.rejected + c.pending > 0
+                let c = byRule[rule] ?? (confirmed: 0, rejected: 0, undecided: 0, pending: 0)
+                let nonZero = c.confirmed + c.rejected + c.undecided + c.pending > 0
                 guard nonZero || rule == ResolutionLedger.personRule else { continue }
                 // R5：標籤過文法夾（同 resolver reason 的夾法）——rule 尾註是 store
                 // 衍生自由文字，不夾的話手改 verdict 可在標籤裡偽造整行計數樣式
@@ -1980,7 +1980,7 @@ struct ResolvePeople: ParsableCommand {
                                        options: .regularExpression) != nil
                     ? rule : "非標準rule（\(displaySafe(rule, max: 60))）"
                 // 計數不報比率（分母含 censoring，比率會邀請錯誤推論）——未處理量必須可見
-                print("三態計數（\(label)）：已確認 \(c.confirmed)／已否決 \(c.rejected)／未處理 \(c.pending)")
+                print("四態計數（\(label)）：已確認 \(c.confirmed)／已否決 \(c.rejected)／查過未決 \(c.undecided)／未處理 \(c.pending)")
             }
         }
 

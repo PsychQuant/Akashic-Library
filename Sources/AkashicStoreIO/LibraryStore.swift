@@ -736,6 +736,34 @@ public final class LibraryStore {
     ///
     /// **抽出來而不是在 pre-flight 複製一份**：閘門清單複製兩份必然分岔，而分岔的
     /// 方向正好是「pre-flight 說可以、實際寫入時 throw」——也就是這個缺陷本身。
+    /// format 19 的兩個新形狀（change `resolution-verdict-states`）：未決記錄（#619）與同一配對兩個判定層級並存（#636）。
+    ///
+    /// 兩者對 format-18 binary 都是安靜的破壞——前者整檔 quarantine，後者在舊鍵的收攏下丟掉一筆理由——所以 refuse-if-newer
+    /// 必須在寫入端先 fire。三種 holder（person／organization／venue）共用這一道閘，不各寫一份。
+    public static func assertVerdictShapesWritable(_ refs: [ProvenanceReference], format: Int, what: String) throws {
+        guard format < 19 else { return }
+        if refs.contains(where: { $0.field == ProvenanceReference.resolutionUndecidedField }) {
+            throw StoreIOError.invalidInput(
+                what: what,
+                why: "含未決記錄（resolution-undecided），需要 store format ≥ 19；本 store 是 \(format)——"
+                    + "確認會碰這個 store 的 CLI/MCP/App 都已升級後，把 store.yaml 的 format: 改成 19"
+                    + "（format-18 binary 讀到這個欄位會整檔 quarantine）")
+        }
+        var seen: [String: ProvenanceReference.VerdictClass] = [:]
+        for r in refs {
+            guard let cls = r.verdictClass else { continue }
+            let k = ProvenanceReference.verdictEqualityKey(field: r.field, value: r.value)
+            if let prior = seen[k], prior != cls {
+                throw StoreIOError.invalidInput(
+                    what: what,
+                    why: "同一配對同時有提名層與逐篇判定兩筆 \(displaySafeInvisible(r.field, max: 40))，需要 store format ≥ 19；"
+                        + "本 store 是 \(format)——format-18 binary 的合併與 rename 會把兩筆收成一筆"
+                        + "（確認三個 binary 都已升級後，把 store.yaml 的 format: 改成 19）")
+            }
+            seen[k] = cls
+        }
+    }
+
     public static func assertVenueWritable(_ v: Venue, format: Int) throws {
         guard StoreKey.isValid(v.key) else {
             throw StoreIOError.invalidKey("venue key", v.key)
@@ -759,6 +787,8 @@ public final class LibraryStore {
                      "venue type 會整檔拒讀）")
         }
         try Self.assertIdentifierReferencesWritable(
+            v.references, format: format, what: "venue「\(displaySafeInvisible(v.key, max: 120))」")
+        try Self.assertVerdictShapesWritable(
             v.references, format: format, what: "venue「\(displaySafeInvisible(v.key, max: 120))」")
         // #406：兩個世代的能力**分開閘**（R2 verify NEW BUG 1——初版把兩者綁在
         // 同一條 `< 15`，於是一筆合法的 format-14 venue（有頂層 `paginated:`、無
@@ -867,6 +897,8 @@ public final class LibraryStore {
                         why: "含 resolution verdict reference，需要 store format ≥ 8；本 store 是 \(format)——" +
                          "升級方式見 writePerson 同型訊息")
             }
+            try Self.assertVerdictShapesWritable(
+                org.references, format: format, what: "organization「\(displaySafeInvisible(org.key, max: 120))」")
         }
         // 同 writePerson 的閘（#229）——「哪個名字對外」是同一個問題，不該有兩套答案
         try Self.assertNoErrors(org.validate(), what: "organization", key: org.key)
@@ -938,6 +970,8 @@ public final class LibraryStore {
                          "確認會碰這個 store 的 CLI/MCP/App 都已升級後，把 store.yaml 的 " +
                          "format: 改成 8（v8 只新增 references 欄位對，既有資料不變）")
             }
+            try Self.assertVerdictShapesWritable(
+                person.references, format: format, what: "person「\(displaySafeInvisible(person.key, max: 120))」")
         }
         // v10-only 形狀的 format gate（#227，同 6/7/8/9 的機制與理由）：巢狀 names
         // 對 v9 binary 是 known 欄位形狀不符 → **整檔 quarantine（人檔消失）**，

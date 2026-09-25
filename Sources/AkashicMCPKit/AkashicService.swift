@@ -1605,8 +1605,8 @@ public final class AkashicService {
             let countsByRule = ResolutionLedger.counts(
                 people: load.people, candidates: activeTriples)
             func countsJSON(_ rule: String) -> [String: Any] {
-                let c = countsByRule[rule] ?? (confirmed: 0, rejected: 0, pending: 0)
-                return ["confirmed": c.confirmed, "rejected": c.rejected, "pending": c.pending]
+                let c = countsByRule[rule] ?? (confirmed: 0, rejected: 0, undecided: 0, pending: 0)
+                return ["confirmed": c.confirmed, "rejected": c.rejected, "undecided": c.undecided, "pending": c.pending]
             }
             var candidateRows: [[String: Any]] = []
             var candidateBytes = 0
@@ -1699,6 +1699,7 @@ public final class AkashicService {
                 // 未處理量頂層可見（design D7）——「還沒查」是 censoring，藏起來
                 // 會讓計數看起來比實際完整。
                 "pendingTotal": countsByRule.values.reduce(0) { $0 + $1.pending },
+                "undecidedTotal": countsByRule.values.reduce(0) { $0 + $1.undecided },
                 // **區辨欄位只送一次**（`people`），`ambiguities` 只帶 ref。先前每筆歧義
                 // 都內嵌完整的 person 區塊——verify 席實測 201 筆產出 176 KB（約 44k
                 // tokens），其中 201 份是同一區塊的逐字複本。MCP 結果直灌 LLM context，
@@ -3917,7 +3918,7 @@ public final class AkashicService {
             // 因為那個判定是關於「這個作者位是誰」。
             let ref = ResolutionLedger.record(
                 .confirmed, holderKind: .work, holder: p.citekey, literal: p.literal,
-                rule: "author-organization-judged", statement: p.judgement)
+                rule: ProvenanceReference.RuleName.orgJudged, statement: p.judgement)
             ResolutionLedger.appendIfAbsent(ref, to: &orgs[p.orgKey]!.references)
             rows.append(["citekey": displaySafe(p.citekey, max: 200),
                          "authorIndex": p.idx,   // display-safe-exempt: Int

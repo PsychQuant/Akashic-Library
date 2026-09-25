@@ -126,10 +126,12 @@ final class SplitRecordReferenceTests: XCTestCase {
         XCTAssertThrowsError(try ProvenanceReference(
             field: "doi", value: "10.1000/x", url: nil, retrieved: nil, status: nil, mediaType: nil,
             content: nil, judgement: "s", restsOn: []), "識別碼欄位的空 rests-on 仍拒")
-        XCTAssertEqual(ProvenanceReference.resolutionVerdictFields, ["resolution-confirmed", "resolution-rejected"],
-                       "封閉對不動——三處把它當 verdict 文法解析")
+        // 拆分記錄不進 verdict 欄位集合（三處把它當 verdict 文法解析）；那個集合自 change `resolution-verdict-states` 起是封閉三值
+        XCTAssertEqual(ProvenanceReference.resolutionVerdictFields,
+                       ["resolution-confirmed", "resolution-rejected", "resolution-undecided"])
+        XCTAssertFalse(ProvenanceReference.resolutionVerdictFields.contains("authors"))
         XCTAssertEqual(ProvenanceReference.firstOrderRulingFields,
-                       ["resolution-confirmed", "resolution-rejected", "authors"])
+                       ["resolution-confirmed", "resolution-rejected", "resolution-undecided", "authors"])
     }
 
     /// spec「Resolution verdict parsing ignores split records」：ledger（demote 走它）、死 verdict 掃描各零 verdict。

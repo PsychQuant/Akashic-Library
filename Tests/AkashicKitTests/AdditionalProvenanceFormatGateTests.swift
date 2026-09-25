@@ -26,7 +26,7 @@ final class AdditionalProvenanceFormatGateTests: XCTestCase {
     }
 
     func testSupportedIs18() {
-        XCTAssertEqual(StoreVersion.supported, 18)
+        XCTAssertGreaterThanOrEqual(StoreVersion.supported, 18)
     }
 
     func testFormat17RefusesAdditionalProvenance() throws {

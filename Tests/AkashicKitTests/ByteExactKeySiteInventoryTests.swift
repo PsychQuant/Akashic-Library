@@ -22,6 +22,7 @@ final class ByteExactKeySiteInventoryTests: XCTestCase {
             "Sources/AkashicMCPKit/AkashicService.swift",        // paginated 冪等閘 ×2（D69）
             "Sources/AkashicMCPKit/UpdatePerson.swift",          // references append-only 去重（D73）
             "Sources/AkashicCore/AddOnlyEnrichment.swift",       // applied 的冪等（D73）
+            "Sources/AkashicCore/VerdictRecordKey.swift",        // 未決記錄的記錄鍵（change resolution-verdict-states，#619）
         ]
         let sources = Self.repoRoot.appendingPathComponent("Sources")
         var found: Set<String> = []

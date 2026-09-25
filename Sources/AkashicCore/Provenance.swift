@@ -27,8 +27,13 @@ public struct ProvenanceReference: Equatable {
     /// ResolutionLedger 四處都引這一個列舉（單一來源，不留漂移面）。
     /// 「確認」那一半的欄位名——D64 的 carve-out 與第 27 列第二類只對它成立（R26；R25 verify 第 34 列：字面量散在兩處）。
     public static let resolutionConfirmedField = "resolution-confirmed"
+    public static let resolutionRejectedField = "resolution-rejected"
+    /// 「查過、判不出來」（change `resolution-verdict-states`，#619）。value 文法與另外兩個相同；**允許帶 rests-on**
+    /// ——查過未決的配對沒有被判實體能承認那份證據，唯一的落點是這筆記錄本身。confirmed／rejected 仍不帶（#280）。
+    public static let resolutionUndecidedField = "resolution-undecided"
+    /// **封閉三值**（#232 的封閉對，由 change `resolution-verdict-states` 顯式裁決擴成三值——不得依性質相似類推第四個）。
     public static let resolutionVerdictFields: Set<String> = [
-        resolutionConfirmedField, "resolution-rejected",
+        resolutionConfirmedField, resolutionRejectedField, resolutionUndecidedField,
     ]
 
     /// #450：**一階人為裁決**的欄位集合——judgement 的空 rests-on 只對這些放行（#232 D8 的例外
@@ -75,6 +80,10 @@ public struct ProvenanceReference: Equatable {
         public static let orgExact = "org-name-exact"
         public static let venueExact = "venue-name-exact"
         public static let judgedPerWork = "author-judged-per-work"
+        /// `attribute-org` 的團體作者判定（#443）。與 `judgedPerWork` 同屬 `judged` 層級（`judgedRules`）。
+        public static let orgJudged = "author-organization-judged"
+        /// 未決記錄的尾註（#619）。不屬任何判定層級——未決沒有層級。
+        public static let undecided = "checked-undecided"
         /// 三族的「完全命中」。**弱血統的判準是「不是這些」**——與
         /// `PersonResolver` 的 `rules.filter { $0 != personRule }` 同一個謂詞
         /// （那裡只比 person 族，因為它只處理 person 提名）。
@@ -190,7 +199,8 @@ public struct ProvenanceReference: Equatable {
     /// D62 的 rename 折疊（`LibraryStore.migratedVerdicts`）、D64 的「全部完全相同」（`StoreHealth.duplicateVerdictRecordIssues`，kind 那一半用
     /// `kindByteKey`）、合併的遺失偵測（`DivergenceResolve.fieldsLostByMerging` 的 person／work／**venue** 三份——venue 那份 R25 之前根本不比 references，
     /// 被併 venue 的 `paginated` judgement 與 rests-on 隨檔案靜默消失）、`AkashicService.updateVenue` 的 `paginated` 冪等閘（設值與清除**兩處**）、
-    /// `UpdatePerson` 的 references append-only 去重、`AddOnlyEnrichment.applied` 的來源 reference 冪等。
+    /// `UpdatePerson` 的 references append-only 去重、`AddOnlyEnrichment.applied` 的來源 reference 冪等、
+    /// 未決記錄的記錄鍵（`VerdictRecordKey.swift`，change `resolution-verdict-states`——同一配對的多次查證只有整筆位元組相同才算重複）。
     /// **稽核程序**（`ByteExactKeySiteInventoryTests` 釘住）：全樹引用 `byteExactKey` 的檔案是一張封閉清單——那才是「位址在哪」的機械答案；
     /// `grep 'references.contains('` 不是：它的其餘命中是四處欄位**存在性**謂詞（`LibraryStore` 的 `$0.field == …`，問的不是同一筆）與
     /// `ResolutionLedger.appendIfAbsent`——後者**是**一個 sameness 面而**刻意**用 `verdictEqualityKey`（正規化，#470 的裁決）；
@@ -532,7 +542,7 @@ extension Person {
                     "person 沒有可附著 reference 的欄位「\(displaySafeInvisible(r.field, max: 120))」（合法：names、authorized、"
                     + "orcid、openalex、died、note、profile.affiliations、profile.ranks、"
                     + "profile.administrative、profile.appointments、profile.fields、"
-                    + "resolution-confirmed、resolution-rejected）")
+                    + "resolution-confirmed、resolution-rejected、resolution-undecided）")
             }
         }
     }
@@ -623,7 +633,7 @@ extension Organization {
                     "organization.references(field: \(displaySafeInvisible(r.field, max: 120)))",
                     "organization 沒有可附著 reference 的欄位「\(displaySafeInvisible(r.field, max: 120))」"
                     + "（合法：names、authorized、founded、dissolved、note、ror、parents、"
-                    + "resolution-confirmed、resolution-rejected）")
+                    + "resolution-confirmed、resolution-rejected、resolution-undecided）")
             }
         }
     }
@@ -758,7 +768,7 @@ extension Venue {
                     "venue.references(field: \(displaySafeInvisible(r.field, max: 120)))",
                     "venue 沒有可附著 reference 的欄位「\(displaySafeInvisible(r.field, max: 120))」"
                     + "（合法：names、authorized、issn、note、paginated、"
-                    + "resolution-confirmed、resolution-rejected）")
+                    + "resolution-confirmed、resolution-rejected、resolution-undecided）")
             }
         }
     }

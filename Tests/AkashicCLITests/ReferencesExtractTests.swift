@@ -212,6 +212,161 @@ final class ReferencesExtractTests: XCTestCase {
         XCTAssertEqual(r.entries[4].title, "Guidelines for pretend research")
     }
 
+    // MARK: - #617 verify 修正輪（F1 F4 F5 F8 F14）
+
+    /// T6：年份括號的其他寫法都要認得——認不得時下一筆會被當成續行無聲併入（F1）
+    func testOtherYearFormsAreYearParens() throws {
+        let text = """
+        References
+
+        Adams, A. (in preparation). A manuscript in preparation. Unpublished.
+        Baker, B. (submitted). A submitted manuscript. Unpublished.
+        Carter, C. (1890/1950). A reprinted classic. Imaginary Press.
+        Dole, D. (1998–99). A two-year span. Journal D, 1, 1–2.
+        Evans, E. (2015–). An ongoing series. Journal E.
+        Fox, F. (forthcoming). A forthcoming book. Imaginary Press.
+        Gray, G. (2004). A plain year. Journal G, 2, 3–4.
+        """
+        let (status, output) = try extract(text)
+        XCTAssertEqual(status, 0, output)
+        let r = try decode(output)
+        XCTAssertEqual(r.entries.map(\.firstAuthor), ["Adams", "Baker", "Carter", "Dole", "Evans", "Fox", "Gray"])
+        guard r.entries.count == 7 else { return }
+        XCTAssertEqual(r.entries.map(\.year), [nil, nil, 1890, 1998, 2015, nil, 2004])
+        XCTAssertEqual(r.entries.map(\.yearNote), ["in preparation", "submitted", nil, nil, nil, "forthcoming", nil])
+        XCTAssertEqual(r.entries[2].title, "A reprinted classic")
+    }
+
+    /// T7：仍然認不得的年份寫法 → 併筆無法避免，但一定要有 warning（F1：原本 `year == nil`
+    /// 那條永遠不會觸發，因為併入後的條目帶著下一筆的年份）
+    func testAbsorbedEntryStartIsWarned() throws {
+        let text = """
+        References
+
+        Adams, J. (circa 1900). An undated old text. Imaginary Press.
+        Baker, L. (2002). Second title. Journal B, 2, 3–4.
+        """
+        let (status, output) = try extract(text)
+        XCTAssertEqual(status, 0, output)
+        let r = try decode(output)
+        XCTAssertEqual(r.count, 1)
+        XCTAssertTrue(r.warnings.contains { $0.contains("第 1 筆") && $0.contains("併") }, "\(r.warnings)")
+    }
+
+    /// T7b：作者清單換行（上一行以 `&` 或逗號結尾）不是併筆，不得誤報
+    func testWrappedAuthorListIsNotWarnedAsMerge() throws {
+        let text = """
+        References
+
+        Chen, H.-Y., Diaz, R., &
+            Garcia, T. (2012). Within-person title. Journal C, 8, 1–20.
+        Hughes, A., Ito, K.,
+            Jensen, S. (2015). Another wrapped list. Journal H, 3, 1–2.
+        """
+        let (status, output) = try extract(text)
+        XCTAssertEqual(status, 0, output)
+        let r = try decode(output)
+        XCTAssertEqual(r.count, 2)
+        XCTAssertFalse(r.warnings.contains { $0.contains("併") }, "\(r.warnings)")
+    }
+
+    /// T8：出版地續行（`Cambridge, U.K.:`）不是新條目開頭
+    func testPublisherLocationLineIsNotAnEntryStart() throws {
+        let text = """
+        References
+
+        Adams, J. (2001). A book title. Cambridge University Press,
+        Cambridge, U.K.: Imaginary.
+        Baker, L. (2002). Second title. Journal B, 2, 3–4.
+        """
+        let (status, output) = try extract(text)
+        XCTAssertEqual(status, 0, output)
+        let r = try decode(output)
+        XCTAssertEqual(r.entries.map(\.firstAuthor), ["Adams", "Baker"])
+    }
+
+    /// T9：機構名裡有句點（`U.S. Department …`）仍是條目開頭
+    func testGroupAuthorWithPeriodsStartsAnEntry() throws {
+        let text = """
+        References
+
+        Adams, J. (2001). First title. Journal A, 1, 1–2.
+        U.S. Department of Imaginary Affairs. (2019). A pretend report. Author.
+        """
+        let (status, output) = try extract(text)
+        XCTAssertEqual(status, 0, output)
+        let r = try decode(output)
+        XCTAssertEqual(r.count, 2)
+        guard r.entries.count == 2 else { return }
+        XCTAssertEqual(r.entries[1].firstAuthor, "U.S. Department of Imaginary Affairs")
+        XCTAssertTrue(r.entries[1].groupAuthor)
+        XCTAssertEqual(r.entries[1].year, 2019)
+    }
+
+    /// T10：參考文獻段之後的表格欄名 `Reference` 不得奪走標題（F4）——取條目開頭最多的
+    /// 那個標題，有多個候選時說出來
+    func testLaterReferenceLineDoesNotHijackTheSection() throws {
+        let text = """
+        References
+
+        Adams, J. K. (2001). First title. Journal A, 1, 1–2.
+        Baker, L. (2002). Second title. Journal B, 2, 3–4.
+
+        Table 1
+
+        Studies included
+        Reference
+        Smith, Q. (2001). A table cell. n = 40
+        """
+        let (status, output) = try extract(text)
+        XCTAssertEqual(status, 0, output)
+        let r = try decode(output)
+        XCTAssertEqual(r.entries.map(\.firstAuthor), ["Adams", "Baker"])
+        XCTAssertTrue(r.warnings.contains { $0.contains("標題候選") }, "\(r.warnings)")
+    }
+
+    /// T11：找到標題、段落裡卻沒有任何條目 → 非零結束，不是空清單（F5）
+    func testHeadingWithNoEntriesFailsLoudly() throws {
+        let (status, output) = try extract("References\n\nAppendix\n\nSomething else.\n")
+        XCTAssertNotEqual(status, 0)
+        XCTAssertTrue(output.contains("沒有辨識出任何條目"), output)
+    }
+
+    /// T12：短的連字號大寫詞不得造成指數回溯（F8，ReDoS）
+    func testPathologicalHyphenatedLineIsFast() throws {
+        let bad = String(repeating: "Aa-", count: 21) + "Aa!"   // 修正前約 45 秒（每多一段約 ×2.8）
+        let text = "References\n\nAdams, J. (2001). First title. Journal A.\n\(bad)\nBaker, L. (2002). Second. Journal B.\n"
+        let start = Date()
+        let (status, output) = try extract(text)
+        XCTAssertLessThan(Date().timeIntervalSince(start), 5, "extract 花了太久——正則回溯")
+        XCTAssertEqual(status, 0, output)
+    }
+
+    /// T13：APA 在標點前斷行的 DOI 要接回來，不得截成看似合法的錯 DOI（F14）
+    func testDOIWrappedBeforePunctuationIsRejoined() throws {
+        let text = """
+        References
+
+        Adams, J. (2001). First title. Journal A, 1, 1–2. https://doi.org/10.9999/0022-3514
+        .40.2.226
+        """
+        let (status, output) = try extract(text)
+        XCTAssertEqual(status, 0, output)
+        XCTAssertEqual(try decode(output).entries.first?.doi, "10.9999/0022-3514.40.2.226")
+    }
+
+    /// T14：標題裡的小數點不是句末（F14）
+    func testDecimalPointDoesNotEndTheTitle() throws {
+        let text = """
+        References
+
+        Adams, J. (2001). Version 2.5 of the imaginary model. Journal A, 1, 1–2.
+        """
+        let (status, output) = try extract(text)
+        XCTAssertEqual(status, 0, output)
+        XCTAssertEqual(try decode(output).entries.first?.title, "Version 2.5 of the imaginary model")
+    }
+
     /// T5：數字編號格式 → 明確回報不支援，不硬切
     func testNumberedStyleIsRejected() throws {
         let text = """

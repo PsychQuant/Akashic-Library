@@ -39,7 +39,7 @@ Each confirmed or rejected verdict SHALL belong to exactly one class, derived fr
 
 | Class | Condition |
 | ----- | --------- |
-| `judged` | the rule is exactly `author-judged-per-work` |
+| `judged` | the rule is exactly `author-judged-per-work` or exactly `author-organization-judged` |
 | `nominated` | every other case, including a missing rule tail and an unrecognised rule |
 
 This is a closed enumeration. A third class SHALL NOT be introduced by analogy.
@@ -48,6 +48,11 @@ This is a closed enumeration. A third class SHALL NOT be introduced by analogy.
 
 - **WHEN** a confirmed verdict's statement carries no `[rule: …]` tail
 - **THEN** its class SHALL be `nominated`
+
+#### Scenario: An organization attribution
+
+- **WHEN** a confirmed verdict's rule tail is `author-organization-judged`
+- **THEN** its class SHALL be `judged`
 
 #### Scenario: A per-work judgement
 
@@ -129,7 +134,7 @@ Counts SHALL be four-valued: confirmed, rejected, undecided, pending.
 
 ### Requirement: Nomination SHALL disclose undecided checks and filtered apply SHALL exclude them
 
-An undecided pairing SHALL still be nominated. Every candidate row and ambiguity entry whose pairing holds undecided verdicts SHALL disclose the number of them on every face. The CLI filtered `--apply` of resolve-people and resolve-venues SHALL exclude those candidates, list each excluded row with a pointer to per-work judgement, and SHALL exit non-zero without writing when every candidate is excluded. An explicit per-id apply through the MCP face SHALL write.
+An undecided pairing SHALL still be nominated. Every candidate row and ambiguity entry whose pairing holds undecided verdicts SHALL disclose the number of them on every face. The CLI filtered `--apply` of resolve-people SHALL exclude those candidates, list each excluded row with a pointer to per-work judgement, and SHALL exit non-zero without writing when every candidate is excluded. An explicit per-id apply SHALL write on every face; resolve-venues has no filtered batch apply on either face, so its list SHALL only disclose the count.
 
 #### Scenario: Filtered apply skips a checked pairing
 

@@ -77,10 +77,12 @@ confirmed／rejected 各自分兩個層級：
 
 | 層級 | 條件 |
 | --- | --- |
-| `judged` | rule 恰為 `author-judged-per-work` |
+| `judged` | rule 恰為 `author-judged-per-work`（person 的逐篇判定）或 `author-organization-judged`（`attribute-org` 的團體作者判定） |
 | `nominated` | 其餘全部：四個 tier 的 rule、`venue-name-exact`、`org-name-exact`、缺尾註的 legacy、無法辨識的 rule |
 
 判準寫成封閉列舉，不寫成「看起來像人判的」這種性質。
+
+`author-organization-judged` 在實作前探勘時補進來：`attributeToOrganizations` 寫的也是逐篇判定、附理由，而先以 resolve-organizations apply 歸給同一 org 再 attribute-org 時，會被去重吃掉，與 #636 是同一個形狀。列舉仍是封閉的兩個 rule，不得依「看起來像人判的」類推第三個。
 
 **理由：**
 
@@ -156,7 +158,7 @@ MCP 列表的 `counts` 多一個 `undecided` 欄，頂層多一個 `undecidedTot
 - CLI 候選列標「查過未決 N 次」。
 - CLI 篩選式 `--apply` 排除帶未決記錄的候選：逐筆列出，並指向 `--judge`／`--refute`。全數被排除時零寫入、非零結束。tier 閘看排除後的套用集。
 - MCP 逐 id apply 照寫。這與 #624 的淘汰而得、tier 閘同型：MCP 是顯式指名，CLI 篩選是未指名的掃蕩。
-- resolve-venues 同一套規則。
+- resolve-venues 兩面都沒有篩選式批次 apply（CLI 的 `--apply` 收 id 清單），列表也沒有 counts、tier、pending，所以只在列表列帶 `undecidedChecks`，沒有排除這一步。實作前探勘時發現，原稿寫「同一套規則」是錯的。
 
 ### 並存的寫入面：judge／refute 在已同向判過的配對上寫入
 

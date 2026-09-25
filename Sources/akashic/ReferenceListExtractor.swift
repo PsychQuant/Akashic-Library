@@ -33,8 +33,9 @@ enum ReferenceListExtractor {
         var contract: Int?
     }
 
-    /// 目前的輸出契約版本。輸出欄位或 warning 的語意改了就加一。
-    static let contractVersion = 2
+    /// 目前的輸出契約版本。輸出欄位或 warning 的語意改了就加一。3（R4 A4）：R3 改了 warning 的語意
+    /// ——多段 warning 列各段條目數、頁首與接續 warning、位置帶 PDF 頁碼、nominate 不再發「同分」。
+    static let contractVersion = 3
 
     // MARK: - 樣式
 
@@ -93,10 +94,11 @@ enum ReferenceListExtractor {
     /// 年份括號：`(2015)`、`(2015a)`、`(2015, March 3)`、區間 `(1998–2012)`／`(1998–99)`／`(2015–)`、
     /// 重印 `(1890/1950)`（都取第一年）、`(n.d.)`、`(in press)`／`(in preparation)`／`(submitted)`／
     /// `(forthcoming)`。認不得的寫法會讓下一筆被當成續行併進來——區間是 #617 校準加的，其餘是
-    /// verify F1 加的；右括號排成 `}` 的排版錯字（`(1996}.`，本機真實書籍實測）是 R3 加的；仍認不得的
+    /// verify F1 加的；括號排成大括號的排版錯字（`(1996}.` 是 R3、鏡像的 `{1996)` 是 R4 B1，都出自
+    /// 本機同一本真實書籍）；仍認不得的
     /// 由 `split` 的併筆 warning 揭露。
     static let yearParenPattern =
-        "\\((?:(\\d{4})([a-z])?(?=\\s*[),/}]|\\s*[–—-])|(n\\.\\s?d\\.)|(in press|in preparation|submitted|forthcoming))"
+        "[({](?:(\\d{4})([a-z])?(?=\\s*[),/}]|\\s*[–—-])|(n\\.\\s?d\\.)|(in press|in preparation|submitted|forthcoming))"
 
     static let doiPattern =
         "(?:https?://(?:dx\\.)?doi\\.org/|doi:\\s*)(10\\.\\d{4,9}/\\S+)"
@@ -117,7 +119,7 @@ enum ReferenceListExtractor {
                 "找不到參考文獻段的標題（References／Bibliography／參考文獻 等獨立成行的標題）——"
                 + "輸入可能不含參考文獻段，或標題與其他文字擠在同一行")
         }
-        let sections = groups(candidates, in: lines, place: place)
+        let sections = groups(candidates, in: lines, pages: pages, place: place)
         let starts = sections.map { $0.lines.filter(isEntryStart).count }
         // 條目開頭最多者；同數取後者（沿用原本「參考文獻段在正文之後」的偏好）
         let best = starts.indices.max { (starts[$0], $0) < (starts[$1], $1) } ?? 0
@@ -132,6 +134,18 @@ enum ReferenceListExtractor {
                             + "——可能是目錄、附錄或表格；若其中有這份清單的一部分，清單被截斷了")
         }
         warnings += chosen.notes
+        // 標題之前、同一頁就有完整條目：雙欄版面把清單的一部分讀到標題之前了（R4 A7）。沒有換頁資訊
+        // 時無從判斷「同一頁」，不報
+        if paged {
+            let before = (0..<chosen.heading).filter { i in
+                pages[i] == pages[chosen.heading] && isEntryStart(lines[i])
+                    && (i == 0 || !continuesAuthorList(lines[i - 1])) && isFullEntry(at: i, in: lines)
+            }
+            if before.count >= 2 {
+                warnings.append("標題之前、同一頁（PDF 第 \(pages[chosen.heading]) 頁）有 \(before.count) 個完整條目沒有計入"
+                                + "——可能是雙欄版面把清單的一部分讀到標題之前了，這份清單可能缺了一段")
+            }
+        }
 
         let nonEmpty = chosen.lines.filter { !$0.isEmpty }
         if nonEmpty.prefix(10).filter({ matches($0, numberedPattern) }).count >= 3 {
@@ -139,7 +153,7 @@ enum ReferenceListExtractor {
                 "參考文獻段是數字編號格式（[1] …）——目前不支援，只處理作者—年份格式（#617 D7）")
         }
 
-        let noise = noiseIndices(nonEmpty, documentLines: lines, section: chosen.range)
+        let (noise, fallback) = noiseIndices(nonEmpty, documentLines: lines, section: chosen.range)
         guard nonEmpty.indices.contains(where: { !noise.contains($0) && isEntryStart(nonEmpty[$0]) }) else {
             throw ValidationError(
                 "找到參考文獻標題，但段落裡沒有辨識出任何條目——段落可能是空的、被截斷，或不是作者—年份格式")
@@ -149,10 +163,14 @@ enum ReferenceListExtractor {
         if !noise.isEmpty {
             let pageNumbers = noise.filter { matches(nonEmpty[$0], "^\\d{1,4}$") }.count
             // 不引 PDF 原文（R2 G10：warnings 會進模型的行動清單），只報落在哪幾筆
-            warnings.append("略過 \(noise.count) 行：頁碼 \(pageNumbers) 行、在參考文獻段以外也出現的行"
-                            + " \(noise.count - pageNumbers) 行（頁首頁尾、版權聲明），落在第 "
-                            + skippedIn.map(String.init).joined(separator: "、")
-                            + " 筆——這幾筆的標題或出處若看起來缺了一段，判為「判不了」")
+            let repeated = fallback
+                ? "段內重複出現的行 \(noise.count - pageNumbers) 行（沒有正文可對照，以段內重複判定：頁首頁尾、"
+                    + "版權聲明，也可能是正當重複的續行）"
+                : "在參考文獻段以外也出現的行 \(noise.count - pageNumbers) 行（頁首頁尾、版權聲明）"
+            warnings.append("略過 \(noise.count) 行：頁碼 \(pageNumbers) 行、\(repeated)，落在第 "
+                            + skippedIn.prefix(15).map(String.init).joined(separator: "、")
+                            + (skippedIn.count > 15 ? " 等 \(skippedIn.count) 筆" : " 筆")
+                            + "——這幾筆的標題或出處若看起來缺了一段，判為「判不了」")
         }
         let entries = texts.enumerated().map { offset, text in
             fields(of: text, index: offset + 1)
@@ -177,14 +195,14 @@ enum ReferenceListExtractor {
     /// - 換頁符：pdftotext 把它放在每頁第一行的**行首**（`…\n\fNext`），空白頁是連續兩個
     ///   （`\f\f`）。行首的換頁符只換頁、**不多算一行**，所以行號等於檔案的行號；行中的
     ///   換頁符（其他工具）才換頁並斷行。R2 只收掉 `\n\f` 一次，空白頁仍每頁多算一行。
-    /// - 行尾軟連字號：換成一般連字號、**保留換行**（R2 直接接合，後面的行號全部少一）。接合交給
-    ///   `join`（行尾是連字號時不加空白）；比對端的 `titleTokens` 會去掉連字號。
+    /// - 行尾軟連字號：換成 `softHyphenMark`、**保留換行**（R2 直接接合，後面的行號全部少一）。接合
+    ///   交給 `join`：去掉記號、不加空白。R3 換成一般連字號，標題與 DOI 因此多出一個 `-`（R4 B5）。
     /// - NFKC（連字 ﬁ → fi、不換行空白 → 空白），其餘格式字元與控制字元移除，頭尾空白去掉。
     static func normalizedLines(_ s: String) -> (lines: [String], pages: [Int]) {
         let t = s.replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
             .replacingOccurrences(of: "\t", with: " ")
-            .replacingOccurrences(of: "\u{AD}\n", with: "-\n")
+            .replacingOccurrences(of: "\u{AD}\n", with: softHyphenMark + "\n")
         var lines: [String] = []
         var pages: [Int] = []
         var page = 1
@@ -199,6 +217,9 @@ enum ReferenceListExtractor {
         }
         return (lines, pages)
     }
+
+    /// 行尾軟連字號的記號：私用區字元，NFKC 不動它、`clean` 也不刪它
+    static let softHyphenMark = "\u{E000}"
 
     static func clean(_ s: String) -> String {
         var out = String.UnicodeScalarView()
@@ -226,7 +247,7 @@ enum ReferenceListExtractor {
     /// 段外**沒有任何文字**時（只有清單的輸入：貼上的參考文獻頁、節錄），沒有正文頁可以觀察，
     /// 退回「段內重複 ≥ 2」（R3 L2：R2 改判準時把這種輸入的頁首併進了條目）。標題候選行不算
     /// 段外文字。
-    static func noiseIndices(_ lines: [String], documentLines: [String], section: Range<Int>) -> Set<Int> {
+    static func noiseIndices(_ lines: [String], documentLines: [String], section: Range<Int>) -> (Set<Int>, fallback: Bool) {
         var outside: [String: Int] = [:]
         for (i, l) in documentLines.enumerated()
         where !l.isEmpty && !section.contains(i) && !matches(l, headingPattern, caseInsensitive: true) {
@@ -234,11 +255,12 @@ enum ReferenceListExtractor {
         }
         var inside: [String: Int] = [:]
         if outside.isEmpty { for l in lines { inside[l, default: 0] += 1 } }
-        return Set(lines.indices.filter { i in
+        let set = Set(lines.indices.filter { i in
             if matches(lines[i], "^\\d{1,4}$") { return true }
             if isEntryStart(lines[i]) { return false }
             return outside.isEmpty ? inside[lines[i], default: 0] >= 2 : outside[lines[i], default: 0] >= 1
         })
+        return (set, outside.isEmpty)
     }
 
     /// 一份清單：從 `heading` 開始，`lines` 是清單內的行（略過的斷點區不在內），`range` 是它在
@@ -278,7 +300,7 @@ enum ReferenceListExtractor {
     ///
     /// 兩項都成立 → 同一份清單：斷點區略過，說出來。否則清單在斷點處結束；斷點之後若還有完整
     /// 條目，說出數目。
-    static func groups(_ candidates: [Int], in lines: [String], place: (Int) -> String) -> [Group] {
+    static func groups(_ candidates: [Int], in lines: [String], pages: [Int], place: (Int) -> String) -> [Group] {
         var result: [Group] = []
         let candidateSet = Set(candidates)
         var k = 0
@@ -287,50 +309,71 @@ enum ReferenceListExtractor {
             var out: [String] = []
             var notes: [String] = []
             var runningHeads: [Int] = []
-            var first: String?
-            var last: String?
+            var order = Order()
+            var entries = 0
+            var previous = ""
             var i = heading + 1
             while i < lines.count {
                 let line = lines[i]
                 let isHeading = candidateSet.contains(i)
                 let isEnd = !isHeading && matches(line, endPattern, caseInsensitive: true)
                 if isHeading || isEnd {
+                    let isFloat = isEnd && matches(line, floatPattern, caseInsensitive: true)
                     let canContinue = isHeading
+                        // 頁首：同文字，而且清單到這裡為止，每跨兩頁至少有一筆完整條目——目錄裡同文字的
+                        // 標題與真正的清單隔著整份正文，過不了這一關（R4 B3）
                         ? line.caseInsensitiveCompare(lines[heading]) == .orderedSame
+                            && order.full * 2 >= max(1, pages[i] - pages[heading])
                         : !matches(line, hardEndPattern, caseInsensitive: true)
-                    if canContinue, let first, let last, let j = continuation(after: i, in: lines, candidates: candidateSet),
-                       let how = continues(sortKey(lines[j]), first: first, last: last, columnSwapAllowed: !isHeading) {
-                        if isHeading {
-                            runningHeads.append(i)
-                        } else {
-                            let kind = matches(line, floatPattern, caseInsensitive: true) ? "圖表標題" : "結束標題"
+                    if canContinue, let j = continuation(after: i, in: lines, candidates: candidateSet) {
+                        let how = order.last == nil
+                            // 第一筆之前的圖表或結束標題（R4 A3-4）：沒有可比的，之後是完整條目就是清單的開頭
+                            ? (isHeading ? nil : "清單第一筆在它之後")
+                            // 雙欄讀反只用在非圖表的結束標題（R4 A3-2）
+                            : order.accept(sortKey(lines[j]), columnSwapAllowed: isEnd && !isFloat)
+                        if let how {
+                            if isHeading {
+                                // 只略過標題這一行：之後的行照常收，跨頁條目的後半才留得住（R4 A1）
+                                runningHeads.append(i)
+                                i += 1
+                                continue
+                            }
+                            let kind = isFloat ? "圖表標題" : "結束標題"
                             let skipped = lines[(i + 1)..<j].filter { !$0.isEmpty }.count
-                            notes.append("\(place(i))的\(kind)夾在清單中間：清單在\(place(j))接續（\(how)）"
-                                         + "——中間 \(skipped) 行略過；那之前的最後一筆若有一段落在其中，會缺那一段")
+                            let after = entries == 0 ? "清單第一筆之前" : "第 \(entries) 筆之後"
+                            notes.append("\(place(i))的\(kind)夾在清單中間（\(after)）：清單在\(place(j))接續（\(how)）"
+                                         + "——中間 \(skipped) 行略過"
+                                         + (entries == 0 ? "" : "；第 \(entries) 筆若有一段落在其中，會缺那一段"))
+                            i = j
+                            continue
                         }
-                        i = j
-                        continue
                     }
                     if isEnd {
                         let following = fullEntries(after: i, in: lines, candidates: candidateSet)
                         if following > 0 {
-                            notes.append("清單停在\(place(i))的結束標題，但它之後還有 \(following) 個條目開頭沒有計入"
+                            notes.append("清單停在\(place(i))的\(isFloat ? "圖表標題" : "結束標題")，但它之後還有 \(following) 個條目開頭沒有計入"
                                          + "（字母順序接不上，或不在接續範圍內）——若那些也是參考文獻，這份清單被截斷了")
                         }
                     }
                     break
                 }
                 out.append(line)
-                if isEntryStart(line) {
-                    let key = sortKey(line)
-                    if first == nil { first = key }
-                    last = key
+                if !line.isEmpty {
+                    // 只有真正的新一筆才更新排序鍵：作者清單換行的那一行（`Baker, L., &` 下一行的
+                    // `Zimmerman, P.`）長得像條目開頭，但不是（R4 A2）
+                    if isEntryStart(line) && !continuesAuthorList(previous) {
+                        entries += 1
+                        order.see(sortKey(line), full: isFullEntry(at: i, in: lines))
+                    }
+                    previous = line
                 }
                 i += 1
             }
             if !runningHeads.isEmpty {
-                notes.append("參考文獻標題在清單中又出現 \(runningHeads.count) 次（\(runningHeads.map(place).joined(separator: "、"))），"
-                             + "其後的條目按字母順序接得上——視為頁首，併入同一份清單")
+                // 位置只列前 5 個——長書的頁首出現幾十次，全列會被 warning 的長度上限截掉（R4 B10）
+                let shown = runningHeads.prefix(5).map(place).joined(separator: "、")
+                notes.append("參考文獻標題在清單中又出現 \(runningHeads.count) 次（\(shown)\(runningHeads.count > 5 ? " 等" : "")），"
+                             + "其後的條目按字母順序接得上——視為頁首，只略過標題那一行、併入同一份清單")
             }
             result.append(Group(heading: heading, lines: out, range: (heading + 1)..<i, notes: notes))
             k = candidates.firstIndex(where: { $0 >= i && !runningHeads.contains($0) }) ?? candidates.count
@@ -338,21 +381,45 @@ enum ReferenceListExtractor {
         return result
     }
 
-    /// 斷點之後的第一個完整條目（排序鍵 `next`）是不是同一份清單的接續；是的話回傳怎麼接上的：
-    /// - `next` 不排在斷點前最後一筆之前 → 字母順序接得上
-    /// - `next` 排在這份清單的第一筆之前、而斷點不是標題候選 → 雙欄版面被讀反（pdftotext 先讀了
-    ///   後半所在的那一欄）。R3 用本機真實論文量到的兩例都是這樣：結束標題前是 B–P，之後從 A 開始
-    static func continues(_ next: String, first: String, last: String, columnSwapAllowed: Bool) -> String? {
-        let opts: String.CompareOptions = [.caseInsensitive, .diacriticInsensitive]
-        if next.compare(last, options: opts) != .orderedAscending { return "字母順序接得上" }
-        if columnSwapAllowed && next.compare(first, options: opts) == .orderedAscending {
-            return "之後的條目排在清單開頭之前——雙欄版面的另一欄"
+    /// 一份清單到目前為止的排序狀態。
+    ///
+    /// 接續的判準（`accept`）：
+    /// - 之後的第一筆不排在斷點前最後一筆之前 → 字母順序接得上
+    /// - 排在這份清單第一筆之前、而且允許雙欄讀反（非圖表的結束標題）→ pdftotext 先讀了後半所在
+    ///   的那一欄。R3 用本機真實論文量到的兩例都是這樣：結束標題前是 B–P，之後從 A 開始
+    /// - 讀反**只會發生一次**：之後接受的範圍收窄成讀反那一欄的 `[last, upper)`，`upper` 是讀反
+    ///   之前的第一筆。R3 沒有這道上界，`[≥ last] ∪ [< first]` 從此涵蓋整個字母表（R4 A3-1）
+    struct Order {
+        private(set) var first: String?
+        private(set) var last: String?
+        private(set) var upper: String?
+        private(set) var full = 0
+
+        mutating func see(_ key: String, full isFull: Bool) {
+            if first == nil { first = key }
+            last = key
+            if isFull { full += 1 }
         }
-        return nil
+
+        mutating func accept(_ next: String, columnSwapAllowed: Bool) -> String? {
+            guard let first, let last else { return nil }
+            let o: String.CompareOptions = [.caseInsensitive, .diacriticInsensitive]
+            let notBeforeLast = next.compare(last, options: o) != .orderedAscending
+            if let upper {
+                return notBeforeLast && next.compare(upper, options: o) == .orderedAscending ? "字母順序接得上" : nil
+            }
+            if notBeforeLast { return "字母順序接得上" }
+            if columnSwapAllowed && next.compare(first, options: o) == .orderedAscending {
+                upper = first
+                return "之後的條目排在清單開頭之前——雙欄版面的另一欄"
+            }
+            return nil
+        }
     }
 
-    /// 斷點 `i` 之後第一個條目開頭的位置——若它是完整條目。越過圖表標題，不越過另一個標題候選
-    /// 或非圖表的結束標題；窗口內沒有條目開頭、或第一個條目開頭不完整，回 nil。
+    /// 斷點 `i` 之後第一個條目開頭的位置——若它是完整條目。越過圖表標題與會穿插的結束標題（補充
+    /// 資料、致謝、註——R4 A3-3：原本在它們那裡就停，圖表之後緊接著補充資料時清單在圖表處截斷），
+    /// 不越過另一個標題候選、附錄或索引；窗口內沒有條目開頭、或第一個條目開頭不完整，回 nil。
     static func continuation(after i: Int, in lines: [String], candidates: Set<Int>) -> Int? {
         var seen = 0
         var j = i + 1
@@ -360,7 +427,7 @@ enum ReferenceListExtractor {
             let l = lines[j]
             if !l.isEmpty {
                 if candidates.contains(j) { return nil }
-                if matches(l, endPattern, caseInsensitive: true) && !matches(l, floatPattern, caseInsensitive: true) { return nil }
+                if matches(l, hardEndPattern, caseInsensitive: true) { return nil }
                 if isEntryStart(l) { return isFullEntry(at: j, in: lines) ? j : nil }
                 seen += 1
             }
@@ -369,23 +436,24 @@ enum ReferenceListExtractor {
         return nil
     }
 
-    /// 斷點之後、到下一個標題候選或非圖表結束標題之前，完整條目的數目（只用來寫 warning）
+    /// 斷點之後、到下一個標題候選、附錄或索引之前，完整條目的數目（只用來寫 warning）
     static func fullEntries(after i: Int, in lines: [String], candidates: Set<Int>) -> Int {
         var n = 0
         var j = i + 1
         while j < lines.count {
             let l = lines[j]
             if candidates.contains(j) { break }
-            if j > i + 1 && matches(l, endPattern, caseInsensitive: true) && !matches(l, floatPattern, caseInsensitive: true) { break }
+            if j > i + 1 && matches(l, hardEndPattern, caseInsensitive: true) { break }
             if isEntryStart(l) && isFullEntry(at: j, in: lines) { n += 1 }
             j += 1
         }
         return n
     }
 
-    /// 從 `j` 起，年份括號後面接著標題：`(2001). Title`、`(1995): Title`、`(1995) Title`。
-    /// 表格列（`(2003) 120 .35`）後面是數字，索引行（`姓, 名., 288`）沒有年份括號。只認 `(年份).`
-    /// 太窄——非 APA 的作者—年份書目寫 `(1995):`，本機真實書籍實測因此在頁首處斷開
+    /// 從 `j` 起，年份括號後面接著標題：`(2001). Title`、`(1995): Title`、`(1995) Two words`。
+    /// 表格列後面是數字（`(2003) 120 .35`）或一個字再接數字（`(2003) RCT 120`，R4 B2），索引行
+    /// （`姓, 名., 288`）沒有年份括號。只認 `(年份).` 太窄——非 APA 的作者—年份書目寫 `(1995):`，
+    /// 本機真實書籍實測因此在頁首處斷開
     ///
     /// 往下看至多 6 行（長的作者清單會把年份推到第 4 行以後），但不越過下一筆條目——否則一筆沒有
     /// 年份的短條目會借到下一筆的年份。作者清單換行的那一行也長得像條目開頭，要照 `split` 的規則
@@ -395,7 +463,8 @@ enum ReferenceListExtractor {
         while end < min(j + 6, lines.count),
               !(isEntryStart(lines[end]) && !continuesAuthorList(lines[end - 1])) { end += 1 }
         let text = lines[j..<end].joined(separator: " ")
-        return matches(text, "\\((?:\\d{4}[a-z]?|n\\.\\s?d\\.|in press|in preparation|submitted|forthcoming)[^(){}]{0,40}[)}][.:,]?\\s*[\\p{L}\"“‘'\\[]",
+        return matches(text, "[({](?:\\d{4}[a-z]?|n\\.\\s?d\\.|in press|in preparation|submitted|forthcoming)[^(){}]{0,40}[)}]"
+                            + "(?:[.:,]\\s*[\\p{L}\"“‘'\\[]|\\s+\\p{L}[\\p{L}'’\\-]*\\s+[\\p{L}\"“‘'\\[])",
                        caseInsensitive: true)
     }
 
@@ -445,7 +514,7 @@ enum ReferenceListExtractor {
             }
         }
         if !current.isEmpty { entries.append(current) }
-        return (entries, absorbed, skippedIn)
+        return (entries.map { $0.replacingOccurrences(of: softHyphenMark, with: "") }, absorbed, skippedIn)
     }
 
     /// 作者清單換到下一行的樣子：以逗號、`&` 或 `and` 結尾
@@ -459,6 +528,7 @@ enum ReferenceListExtractor {
     /// 續行接合：行尾是連字號、破折號或斜線（URL）時不加空白，其餘加一個空白。
     /// 連字號保留——分不出是斷字還是複合字（`Within-person`）；比對端正規化時會去掉它。
     static func join(_ a: String, _ b: String) -> String {
+        if a.hasSuffix(softHyphenMark) { return String(a.dropLast()) + b }
         if let last = a.last, "-–—/".contains(last) { return a + b }
         // APA 在標點前斷行的 DOI／URL 接回、不留空白：`…/0022-3514` ＋ `.40.2.226`（#617 verify）、
         // SICI 的 `(199901)55:1<1::…>`、URL 的 `?id=`（R2 G10）。`(` 只在括號內沒有空白時才接
@@ -490,7 +560,7 @@ enum ReferenceListExtractor {
         let authorPart = ns.substring(to: m.range.location)
         let afterStart = m.range.location + m.range.length
         let afterParen = ns.substring(from: afterStart)
-        let rest = afterParen.drop(while: { $0 != ")" }).dropFirst()
+        let rest = afterParen.drop(while: { $0 != ")" && $0 != "}" }).dropFirst()
 
         if matches(text, personStartPattern) {
             ref.authors = surnames(in: authorPart)
@@ -531,6 +601,7 @@ enum ReferenceListExtractor {
         let body = Array(rest.drop(while: { ".: ".contains($0) }))
         var out = ""
         var previousWord = ""
+        var depth = 0
         for (i, ch) in body.enumerated() {
             if ch == "." {
                 let isInitial = previousWord.count == 1 && previousWord.first?.isLetter == true
@@ -538,34 +609,43 @@ enum ReferenceListExtractor {
                 let isDecimal = i > 0 && body[i - 1].isNumber && i + 1 < body.count && body[i + 1].isNumber
                 // 常見縮寫不是句末（R2 G4：截斷的標題會讓 store 比對漏網）——但要看上下文（R3 M9：
                 // `Learning to say no.` 的 `no.` 就是句末，不看上下文會把期刊名吞進標題）
+                // 括號深度逐字累計，不在每個句點重數（R4 B8：重數是二次方）
                 let isAbbreviation = isTitleAbbreviation(previousWord.lowercased(),
                                                           next: body[(i + 1)...].first(where: { $0 != " " }),
-                                                          insideParens: out.filter({ $0 == "(" }).count
-                                                              > out.filter({ $0 == ")" }).count)
+                                                          insideParens: depth > 0)
                 if !isInitial && !isDecimal && !isAbbreviation { break }
             }
             out.append(ch)
+            if ch == "(" { depth += 1 } else if ch == ")" && depth > 0 { depth -= 1 }
             if ch == "?" || ch == "!" { break }
             previousWord = ch.isLetter ? previousWord + String(ch) : ""
         }
         var t = out.trimmingCharacters(in: .whitespaces)
-        t = replacing(t, "\\s*\\[[^\\]]*\\]$", with: "")
+        // 標題在括號裡就結束了（`Title (Vol. II. Part A)` 在 `II.` 結束）：未閉合的括號殘片不屬於標題
+        // （R4 B4）
+        if depth > 0, let open = t.lastIndex(of: "(") {
+            t = String(t[..<open]).trimmingCharacters(in: .whitespaces)
+        }
+        // 正則不以 `\s*` 開頭，改成事後去空白——長空白串上的 `\s*…$` 是二次方（R4 B8）
+        t = replacing(t, "\\[[^\\]]*\\]$", with: "").trimmingCharacters(in: .whitespaces)
         // 尾端的版次、冊次、編者括號（`(3rd ed.)`、`(6th ed., Vol. 3)`、`(Vol. 2)`、
         // `(J. Smith, Ed.; 3rd ed.)`）不屬於標題本身（R3 M8：G4 只去掉純版次的括號）
-        t = replacing(t, "\\s*\\((?=[^()]*\\b(?:ed|eds|vol|vols|trans|rev)\\.)[^()]*\\)$", with: "",
-                      caseInsensitive: true)
+        t = replacing(t, "\\((?=[^()]*\\b(?:ed|eds|vol|vols|trans|rev|pp)\\.)[^()]*\\)$", with: "",
+                      caseInsensitive: true).trimmingCharacters(in: .whitespaces)
         return t.isEmpty ? nil : t
     }
 
     /// 標題裡的句點前一個詞是不是縮寫（R3 M9：看上下文，封閉的四類）：
     /// - `vs` → 一律是縮寫
-    /// - `no`、`vol`、`vols` → 後面接數字才是（`No. 2`）；`Learning to say no.` 是句末
+    /// - `no`、`vol`、`vols` → 後面接數字或羅馬數字才是（`No. 2`、`Vol. II`）；`Learning to say no.` 是句末
+    /// - `pp` → 後面接數字才是（`pp. 10–20`）
     /// - `ed`、`eds`、`trans`、`rev` → 在括號內才是（`(3rd ed.)`）
     /// - `st` → 後面接大寫字母才是（`St. Louis`）
     static func isTitleAbbreviation(_ word: String, next: Character?, insideParens: Bool) -> Bool {
         switch word {
         case "vs": return true
-        case "no", "vol", "vols": return next?.isNumber == true
+        case "no", "vol", "vols": return next?.isNumber == true || next.map { "IVXLC".contains($0) } == true
+        case "pp": return next?.isNumber == true
         case "ed", "eds", "trans", "rev": return insideParens
         case "st": return next?.isUppercase == true
         default: return false

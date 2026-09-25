@@ -258,7 +258,7 @@ final class ReferencesNominateTests: XCTestCase {
     /// 手寫一份 extract 形狀的 refs JSON（構造 extract 產不出的輸入：切壞的標題、極端年份）
     private func manualRefs(title: String, year: Int, firstAuthor: String = "Adams") throws -> String {
         try write("refs-manual-\(UUID().uuidString).json", """
-        {"count":1,"contract":2,"warnings":[],"entries":[{"index":1,"raw":"manual","firstAuthor":"\(firstAuthor)",\
+        {"count":1,"contract":3,"warnings":[],"entries":[{"index":1,"raw":"manual","firstAuthor":"\(firstAuthor)",\
         "authors":["\(firstAuthor)"],"groupAuthor":false,"year":\(year),"title":"\(title)"}]}
         """)
     }
@@ -321,7 +321,7 @@ final class ReferencesNominateTests: XCTestCase {
         let refs = try extractRefs("References\n\nAdams, J. (2001). A title. Journal A, 1, 1–2.\n")
         let (status, output) = try nominate(refs, [try openalex([])])
         XCTAssertEqual(status, 0, output)
-        XCTAssertEqual(try decode(output).contract, 2)
+        XCTAssertEqual(try decode(output).contract, 3)
     }
 
     /// T10：輸入 JSON 壞掉 → 非零結束並指名是哪一個輸入。

@@ -433,11 +433,12 @@ final class ReferencesExtractTests: XCTestCase {
                        ["Psychometric imaginary theory", "Latent vs. manifest change in imaginary panels"])
     }
 
-    /// T16：輸出帶 `contract`，讓 skill 分辨得出太舊的 CLI（G5）
+    /// T16：輸出帶 `contract`，讓 skill 分辨得出太舊的 CLI（G5）。R4 A4：warning 的語意在 R3 改了
+    /// （多段 warning 列各段數目、頁首與接續 warning、頁碼、拿掉「同分」），契約加一到 3
     func testOutputCarriesContractVersion() throws {
         let (status, output) = try extract("References\n\nAdams, J. (2001). A title. Journal A.\n")
         XCTAssertEqual(status, 0, output)
-        XCTAssertEqual(try decode(output).contract, 2)
+        XCTAssertEqual(try decode(output).contract, 3)
     }
 
     /// T17：APA 7 以刪節號省略作者時，換行不是併筆；小寫接在連字號後的姓、分號結尾的出版地（G10）
@@ -628,7 +629,8 @@ final class ReferencesExtractTests: XCTestCase {
         let r = try decode(output)
         XCTAssertEqual(r.entries.map(\.firstAuthor), ["Adams", "Baker", "Carter", "Dunn"])
         XCTAssertFalse(r.entries[1].raw.contains("Supplementary"), r.entries[1].raw)
-        XCTAssertTrue(r.warnings.contains { $0.contains("接續") && $0.contains("第 5 行") }, "\(r.warnings)")
+        XCTAssertTrue(r.warnings.contains { $0.contains("接續") && $0.contains("第 5 行") && $0.contains("第 2 筆之後") },
+                      "\(r.warnings)")
     }
 
     /// T32：雙欄版面裡 pdftotext 會把兩欄讀反——結束標題之前是清單的後半（C 開頭），之後才是前半
@@ -759,7 +761,16 @@ final class ReferencesExtractTests: XCTestCase {
         let (status, output) = try extract(text)
         XCTAssertEqual(status, 0, output)
         let r = try decode(output)
+        // R4 B6：補回原 T2 的斷言（R3 改寫 T2 時保留了 fixture，卻拿掉了對 raw 與筆數的斷言）
+        XCTAssertEqual(r.count, 3)
         XCTAssertEqual(r.entries.map(\.title), ["First title", "Second title", "Third title spanning two lines"])
+        for e in r.entries {
+            XCTAssertFalse(e.raw.contains("RUNNING HEAD"), e.raw)
+            XCTAssertFalse(e.raw.contains("copyrighted"), e.raw)
+        }
+        // 沒有正文可對照時，warning 要說實話：是以段內重複判定的，不是「在段外也出現」
+        XCTAssertTrue(r.warnings.contains { $0.contains("段內重複") }, "\(r.warnings)")
+        XCTAssertFalse(r.warnings.contains { $0.contains("段外也出現") }, "\(r.warnings)")
     }
 
     /// T31：空白頁（`\f\f`）與行尾軟連字號不得讓 warning 的行號漂移；warning 同時報 PDF 頁碼，
@@ -774,5 +785,222 @@ final class ReferencesExtractTests: XCTestCase {
         let r = try decode(output)
         XCTAssertTrue(r.warnings.contains { $0.contains("標題候選") && $0.contains("第 5 行") && $0.contains("PDF 第 3 頁") },
                       "\(r.warnings)")
+    }
+
+    // MARK: - #617 verify R4
+
+    /// T33：頁首合併時，跨頁條目的後半（標題其餘、出處、DOI）要留在那一筆裡（R4 A1——R3 直接跳到
+    /// 下一筆，中間的行無聲丟掉）
+    func testRunningHeadKeepsTheTailOfAPageSpanningEntry() throws {
+        let text = "References\n\nAdams, J. (2001). A title continued\n\u{0C}References\n"
+            + "across pages. Journal A, 1, 1–2.\nhttps://doi.org/10.1234/example\n"
+            + "Baker, L. (2002). Another title. Journal B, 2, 3–4.\n"
+        let (status, output) = try extract(text)
+        XCTAssertEqual(status, 0, output)
+        let r = try decode(output)
+        XCTAssertEqual(r.count, 2)
+        guard r.count == 2 else { return }
+        XCTAssertEqual(r.entries[0].title, "A title continued across pages")
+        XCTAssertEqual(r.entries[0].doi, "10.1234/example")
+        XCTAssertFalse(r.entries[0].raw.contains("References"), r.entries[0].raw)
+    }
+
+    /// T34：作者清單換行的那一行（`Zimmerman, P.`）不得變成排序鍵——排序比的是每一筆的第一作者
+    /// （R4 A2：原本拿共同作者去比，排序正確的清單在頁首處被切開）
+    func testCoAuthorWrapLineDoesNotResetTheSortKey() throws {
+        let text = "References\n\nAdams, J. (2001). First title. Journal A, 1, 1–2.\nBaker, L., &\n"
+            + "Zimmerman, P. (2002). Second title. Journal B, 2, 3–4.\n\u{0C}References\n"
+            + "Carter, M. (2003). Third title. Journal C, 3, 5–6.\n"
+        let (status, output) = try extract(text)
+        XCTAssertEqual(status, 0, output)
+        let r = try decode(output)
+        XCTAssertEqual(r.entries.map(\.firstAuthor), ["Adams", "Baker", "Carter"])
+        XCTAssertFalse(r.warnings.contains { $0.contains("標題候選") }, "\(r.warnings)")
+    }
+
+    /// T35：雙欄讀反只會發生一次——合併過之後，接受範圍收窄成「讀反的那一欄」（R4 A3-1：原本
+    /// `[≥ last] ∪ [< first]` 從此涵蓋整個字母表，之後任何斷點都會合併）
+    func testColumnSwapNarrowsLaterContinuations() throws {
+        let text = """
+        References
+
+        Carter, M. (2003). Third title. Journal C, 3, 5–6.
+        Dunn, P. (2004). Fourth title. Journal D, 4, 7–8.
+        ACKNOWLEDGMENTS
+        We thank the imaginary participants.
+        Adams, J. K. (2001). First title. Journal A, 1, 1–2.
+        Baker, L. (2002). Second title. Journal B, 2, 3–4.
+        Author Note
+        Zed, Q. (2019). Not part of the list. Journal Z, 9, 1–2.
+        """
+        let (status, output) = try extract(text)
+        XCTAssertEqual(status, 0, output)
+        let r = try decode(output)
+        XCTAssertEqual(r.entries.map(\.firstAuthor), ["Carter", "Dunn", "Adams", "Baker"])
+        XCTAssertTrue(r.warnings.contains { $0.contains("清單停在") }, "\(r.warnings)")
+    }
+
+    /// T36：雙欄讀反的接續條件只用在結束標題，不用在圖表（R4 A3-2）
+    func testColumnSwapDoesNotApplyAfterAFloat() throws {
+        let text = """
+        References
+
+        Baker, L. (2002). Second title. Journal B, 2, 3–4.
+        Dunn, P. (2004). Fourth title. Journal D, 4, 7–8.
+        Table 1
+        Abbott, R. (2003). A row that looks like an entry. Journal R, 1, 1–2.
+        """
+        let (status, output) = try extract(text)
+        XCTAssertEqual(status, 0, output)
+        XCTAssertEqual(try decode(output).entries.map(\.firstAuthor), ["Baker", "Dunn"])
+    }
+
+    /// T37：圖表之後緊接著穿插的結束標題（補充資料），清單仍要接續（R4 A3-3：原本在結束標題處
+    /// 就停，清單在圖表處截斷且沒有 warning）
+    func testFloatFollowedByInterleavedEndHeadingContinues() throws {
+        let text = """
+        References
+
+        Adams, J. K. (2001). First title. Journal A, 1, 1–2.
+        Baker, L. (2002). Second title. Journal B, 2, 3–4.
+        Table 2
+        Table body text
+        SUPPLEMENTARY MATERIAL
+        The Supplementary Material for this article can be found online.
+        Carter, M. (2003). Third title. Journal C, 3, 5–6.
+        Dunn, P. (2004). Fourth title. Journal D, 4, 7–8.
+        """
+        let (status, output) = try extract(text)
+        XCTAssertEqual(status, 0, output)
+        XCTAssertEqual(try decode(output).entries.map(\.firstAuthor), ["Adams", "Baker", "Carter", "Dunn"])
+    }
+
+    /// T38：圖表出現在第一筆之前（標題孤立在頁尾、下一頁先是圖），清單不得變空，也不得改選後面的
+    /// 表格欄名 `Reference`（R4 A3-4：R1 的失敗模式）
+    func testFloatBeforeTheFirstEntryDoesNotEmptyTheList() throws {
+        let text = """
+        References
+        Figure 1
+        Caption text for the figure.
+        Adams, J. K. (2001). First title. Journal A, 1, 1–2.
+        Baker, L. (2002). Second title. Journal B, 2, 3–4.
+        Carter, M. (2003). Third title. Journal C, 3, 5–6.
+        Reference
+        Smith, Q. (2001). A table cell. n = 40
+        """
+        let (status, output) = try extract(text)
+        XCTAssertEqual(status, 0, output)
+        XCTAssertEqual(try decode(output).entries.map(\.firstAuthor), ["Adams", "Baker", "Carter"])
+    }
+
+    /// T39：參考文獻標題之前、同一頁就有完整條目——雙欄版面把清單的一部分讀到標題之前了，要說出來
+    /// （R4 A7：本機一份真實論文有約 20 筆這樣無聲漏掉）
+    func testEntriesBeforeTheHeadingOnTheSamePageAreWarned() throws {
+        let text = "Body text on page one.\n\u{0C}Body text on page two.\n"
+            + "Adams, J. (2001). First title. Journal A, 1, 1–2.\n"
+            + "Baker, L. (2002). Second title. Journal B, 2, 3–4.\nReferences\n"
+            + "Carter, M. (2003). Third title. Journal C, 3, 5–6.\n"
+            + "Dunn, P. (2004). Fourth title. Journal D, 4, 7–8.\n"
+        let (status, output) = try extract(text)
+        XCTAssertEqual(status, 0, output)
+        let r = try decode(output)
+        XCTAssertTrue(r.warnings.contains { $0.contains("標題之前") && $0.contains("2 個完整條目") }, "\(r.warnings)")
+    }
+
+    /// T40：年份括號的排版錯字 `(1996}` 與 `{1997)` 都認得，而且標題照樣取得到（R4 B1）
+    func testBraceYearTyposKeepYearsAndTitles() throws {
+        let text = """
+        References
+
+        Adams, J. (1996}. First title. Journal A, 1, 1–2.
+        Baker, L. {1997). Second title. Journal B, 2, 3–4.
+        Carter, M. (1998). Third title. Journal C, 3, 5–6.
+        """
+        let (status, output) = try extract(text)
+        XCTAssertEqual(status, 0, output)
+        let r = try decode(output)
+        XCTAssertEqual(r.entries.map(\.year), [1996, 1997, 1998])
+        XCTAssertEqual(r.entries.map(\.title), ["First title", "Second title", "Third title"])
+    }
+
+    /// T41：年份後面接一個字再接數字的表格列（`(2003) RCT 120`）不是完整條目（R4 B2）
+    func testTableRowWithAWordAfterTheYearIsNotAnEntry() throws {
+        let text = """
+        References
+
+        Adams, J. K. (2001). First title. Journal A, 1, 1–2.
+        Baker, L. (2002). Second title. Journal B, 2, 3–4.
+        Table 1
+        Carter, M. (2003) RCT 120 .35
+        Dunn, P. (2004) Cohort 88 .41
+        """
+        let (status, output) = try extract(text)
+        XCTAssertEqual(status, 0, output)
+        XCTAssertEqual(try decode(output).entries.map(\.firstAuthor), ["Adams", "Baker"])
+    }
+
+    /// T42：目錄裡同文字的 `References`，加上正文裡一行長得像條目的句子，不得讓目錄那一段吞掉正文
+    /// （R4 B3）——頁首合併要求清單在跨過的頁上每頁都有條目
+    func testTableOfContentsHeadingDoesNotSwallowTheBody() throws {
+        let text = "Contents\nIntroduction\nReferences\n\u{0C}Body text.\n"
+            + "Aaron, B. (1990) showed that effects vary across studies.\n\u{0C}More body text.\n"
+            + "\u{0C}Even more body text.\n\u{0C}References\n"
+            + "Adams, J. K. (2001). First title. Journal A, 1, 1–2.\n"
+            + "Baker, L. (2002). Second title. Journal B, 2, 3–4.\n"
+        let (status, output) = try extract(text)
+        XCTAssertEqual(status, 0, output)
+        XCTAssertEqual(try decode(output).entries.map(\.firstAuthor), ["Adams", "Baker"])
+    }
+
+    /// T43：冊次括號的其他寫法——羅馬數字、帶頁碼、在括號內被截斷——都不留在標題裡（R4 B4）
+    func testVolumeParentheticalVariantsAreStripped() throws {
+        let text = """
+        References
+
+        Adams, J. (2001). Handbook of things (Vol. II). Imaginary Press.
+        Baker, L. (2002). Big book (Vol. 3, pp. 10–20). Imaginary Press.
+        Carter, M. (2003). Title three (Vol. II. Part A). Imaginary Press.
+        """
+        let (status, output) = try extract(text)
+        XCTAssertEqual(status, 0, output)
+        XCTAssertEqual(try decode(output).entries.map(\.title), ["Handbook of things", "Big book", "Title three"])
+    }
+
+    /// T44：行尾軟連字號是斷字，接回時不得變成真的連字號——標題與 DOI 都不能多一個 `-`（R4 B5）
+    func testSoftHyphenDoesNotBecomeAHardHyphen() throws {
+        let text = "References\n\nAdams, J. (2001). Develop\u{AD}\nment of things. Journal A, 1, 1–2. "
+            + "https://doi.org/10.1234/ab\u{AD}\ncd\nBaker, L. (2002). Second title. Journal B, 2, 3–4.\n"
+        let (status, output) = try extract(text)
+        XCTAssertEqual(status, 0, output)
+        let r = try decode(output)
+        XCTAssertEqual(r.entries.first?.title, "Development of things")
+        XCTAssertEqual(r.entries.first?.doi, "10.1234/abcd")
+    }
+
+    /// T45：標題裡大量句點與括號、或長空白串，不得讓 `title()` 變成二次方（R4 B8）
+    func testLongPunctuatedTitleIsFast() throws {
+        let noise = String(repeating: "(a. b. ", count: 4000) + String(repeating: " ", count: 20000)
+        let text = "References\n\nAdams, J. (2001). \(noise)end. Journal A, 1, 1–2.\n"
+        let start = Date()
+        let (status, output) = try extract(text)
+        XCTAssertLessThan(Date().timeIntervalSince(start), 3, "title 花了太久")
+        XCTAssertEqual(status, 0, output)
+    }
+
+    /// T46：長書的頁首一出現幾十次，warning 仍要短到不被 500 字上限截掉——只列前幾個位置（R4 B10）
+    func testRunningHeadNoteStaysShortInLongBooks() throws {
+        var text = "References\n\n"
+        for i in 0..<40 {
+            text += "Au\(String(UnicodeScalar(65 + i / 26)!))\(String(UnicodeScalar(97 + i % 26)!)), J. (2001). Title \(i). Journal, 1, 1–2.\n"
+            text += "\u{0C}References\n"
+        }
+        text += "Zz, J. (2001). Last. Journal, 1, 1–2.\n"
+        let (status, output) = try extract(text)
+        XCTAssertEqual(status, 0, output)
+        let r = try decode(output)
+        XCTAssertEqual(r.count, 41)
+        let note = r.warnings.first { $0.contains("頁首") } ?? ""
+        XCTAssertTrue(note.contains("40 次"), note)
+        XCTAssertLessThan(note.count, 400, note)
     }
 }

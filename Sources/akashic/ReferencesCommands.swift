@@ -103,9 +103,12 @@ struct ReferencesNominateCmd: ParsableCommand {
                                                  doiIndex: snapshot.doiIndex, store: snapshot.records)
         if skipped > 0 { result.warnings.append("略過 \(skipped) 個沒有 id 的 OpenAlex 項目") }
         if duplicates > 0 { result.warnings.append("\(duplicates) 個 OpenAlex work 在多批重複出現，只算一次") }
-        let conflicts = snapshot.doiIndex.values.filter { $0.count > 1 }.count
+        // 只計入**這次**涉及的 DOI（R2 G2：原本全 store 計數，store 裡既有的無關重複也會讓每次 run 停下）
+        let involved = Set(works.compactMap { $0.doi?.normalized }
+                           + parsed.entries.compactMap { $0.doi.flatMap(DOI.init)?.normalized })
+        let conflicts = involved.filter { (snapshot.doiIndex[$0]?.count ?? 0) > 1 }.count
         if conflicts > 0 {
-            result.warnings.append("\(conflicts) 個 DOI 在 store 裡對應到不只一筆記錄——這些 DOI 的 inStore 留空、"
+            result.warnings.append("\(conflicts) 個本次涉及的 DOI 在 store 裡對應到不只一筆記錄——這些 DOI 的 inStore 留空、"
                                    + "改列 inStoreConflict；不要擅選一筆連 cites，先處理重複記錄（akashic-merge-twins）")
         }
         if snapshot.quarantined > 0 {
@@ -141,7 +144,14 @@ struct ReferencesNominateCmd: ParsableCommand {
             s.firstAuthor = c.firstAuthor.map { displaySafe($0) }
             s.inStore = c.inStore.map { displaySafe($0) }
             s.inStoreConflict = c.inStoreConflict.map { $0.map { displaySafe($0) } }
+            s.storeMatches = c.storeMatches.map(safeMatch)
             return s
+        }
+        func safeMatch(_ m: ReferenceNominator.StoreMatch) -> ReferenceNominator.StoreMatch {
+            var t = m
+            t.citekey = displaySafe(m.citekey)
+            t.title = displaySafe(m.title, max: 500)
+            return t
         }
         var out = r
         out.refs = r.refs.map { n in
@@ -151,12 +161,7 @@ struct ReferencesNominateCmd: ParsableCommand {
             s.doi = n.doi.map { displaySafe($0) }
             s.inStore = n.inStore.map { displaySafe($0) }
             s.inStoreConflict = n.inStoreConflict.map { $0.map { displaySafe($0) } }
-            s.storeMatches = n.storeMatches.map { m in
-                var t = m
-                t.citekey = displaySafe(m.citekey)
-                t.title = displaySafe(m.title, max: 500)
-                return t
-            }
+            s.storeMatches = n.storeMatches.map(safeMatch)
             s.candidates = n.candidates.map(safe)
             return s
         }

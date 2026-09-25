@@ -41,6 +41,8 @@ enum ReferenceNominator {
         /// 這個 DOI 在 store 裡對到不只一筆（#637 的形狀）：`inStore` 留空、全部列在這裡，
         /// 不以任何順序擅選一筆（#617 verify F6）
         var inStoreConflict: [String]?
+        /// 以**這個候選的標題**比對 store（R2 G4：PDF 標題可能被切壞，而真正要寫入的是這一筆）
+        var storeMatches: [StoreMatch]
     }
 
     /// store 裡標題與年份都相近的記錄——抓「沒填 DOI、或填了另一個 DOI 的同一篇」
@@ -97,6 +99,8 @@ enum ReferenceNominator {
         var unnominated: [WorkSummary]
         var counts: Counts
         var warnings: [String]
+        /// 輸出契約版本，同 extract（R2 G5）
+        var contract: Int?
     }
 
     static let topN = 3
@@ -147,7 +151,14 @@ enum ReferenceNominator {
 
     static func nominate(refs: [ReferenceListExtractor.Reference], works: [Work],
                          doiIndex: DOIIndex, store: [StoreRecord] = []) -> Result {
+        // refs 的年份也只收 0…9999（R2 G7：R1 只擋了 OpenAlex 那側，`Int.min` 仍在年份相減時溢位）
+        let refs = refs.map { r -> ReferenceListExtractor.Reference in
+            var c = r
+            c.year = plausibleYear(r.year)
+            return c
+        }
         var nominated = Set<String>()
+        var warnings: [String] = []
         let nominations = refs.map { ref -> RefNomination in
             let ranked = works.compactMap { w -> Candidate? in
                 let (score, basis) = self.score(ref, w)
@@ -155,16 +166,24 @@ enum ReferenceNominator {
                 let (held, conflict) = lookup(w.doi, in: doiIndex)
                 return Candidate(openalex: w.id, doi: w.doi?.normalized, title: w.title, year: w.year,
                                  firstAuthor: w.authorNames.first, score: score, basis: basis,
-                                 inStore: held, inStoreConflict: conflict)
+                                 inStore: held, inStoreConflict: conflict,
+                                 storeMatches: storeMatches(title: w.title, year: w.year, in: store))
             }
             .sorted { ($0.score, $1.openalex) > ($1.score, $0.openalex) }
             let top = Array(ranked.prefix(topN))
             top.forEach { nominated.insert($0.openalex) }
             let (held, conflict) = lookup(ref.doi.flatMap(DOI.init), in: doiIndex)
+            let refMatches = storeMatches(title: ref.title, year: ref.year, in: store)
+            // 同分的多筆 store 記錄：可能是重複記錄，不得擅選一筆（R2 G8）
+            let lists = [refMatches] + top.map(\.storeMatches)
+            if lists.contains(where: { $0.count >= 2 && $0[0].score == $0[1].score }) {
+                warnings.append("第 \(ref.index) 筆在 store 裡有多筆標題與年份同分的記錄——可能是重複記錄；"
+                                + "不要擅選一筆連 cites，先處理重複（akashic-merge-twins）")
+            }
             return RefNomination(index: ref.index, firstAuthor: ref.firstAuthor, year: ref.year,
                                  title: ref.title, doi: ref.doi,
                                  inStore: held, inStoreConflict: conflict,
-                                 storeMatches: storeMatches(for: ref, in: store),
+                                 storeMatches: refMatches,
                                  candidates: top)
         }
         let unnominated = works.filter { !nominated.contains($0.id) }.map { w -> WorkSummary in
@@ -175,7 +194,8 @@ enum ReferenceNominator {
         let counts = Counts(refs: refs.count, works: works.count,
                             refsWithCandidates: nominations.filter { !$0.candidates.isEmpty }.count,
                             unnominated: unnominated.count)
-        return Result(refs: nominations, unnominated: unnominated, counts: counts, warnings: [])
+        return Result(refs: nominations, unnominated: unnominated, counts: counts, warnings: warnings,
+                      contract: ReferenceListExtractor.contractVersion)
     }
 
     /// 一筆記錄 → `inStore`；多筆 → `inStoreConflict`（不擅選）；沒有 → 兩者皆空
@@ -184,21 +204,20 @@ enum ReferenceNominator {
         return held.count == 1 ? (held[0], nil) : (nil, held)
     }
 
-    /// 標題詞集合 Dice ≥ `storeMatchThreshold`、年份差 ≤ 1（任一邊沒有年份則不比年份），至多 3 筆
+    /// 標題詞集合 Dice ≥ `storeMatchThreshold`、年份差 ≤ 1（任一邊沒有年份則不比年份）。
+    /// **不截斷**（R2 G3：原本只取前 3，skill 卻把它當成完整的重複檢查——真正那筆排第 4 就漏）。
     static let storeMatchThreshold = 0.8
-    static func storeMatches(for ref: ReferenceListExtractor.Reference,
-                             in store: [StoreRecord]) -> [StoreMatch] {
-        let tokens = titleTokens(ref.title ?? "")
+    static func storeMatches(title: String?, year: Int?, in store: [StoreRecord]) -> [StoreMatch] {
+        let tokens = titleTokens(title ?? "")
         guard !tokens.isEmpty else { return [] }
         return store.compactMap { rec -> StoreMatch? in
-            if let a = ref.year, let b = rec.year, abs(a - b) > 1 { return nil }
+            if let a = year, let b = rec.year, abs(a - b) > 1 { return nil }
             let d = dice(tokens, rec.tokens)
             guard d >= storeMatchThreshold else { return nil }
             return StoreMatch(citekey: rec.citekey, title: rec.title, year: rec.year,
                               score: (d * 1_000).rounded() / 1_000)
         }
         .sorted { ($0.score, $1.citekey) > ($1.score, $0.citekey) }
-        .prefix(3).map { $0 }
     }
 
     /// 第三方年份只收 0…9999；其餘當作沒有（#617 verify F15：`Int.min` 會讓年份相減溢位 trap）

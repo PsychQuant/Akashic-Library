@@ -18,6 +18,7 @@ final class ReferencesNominateTests: XCTestCase {
         let basis: [String]
         let inStore: String?
         let inStoreConflict: [String]?
+        let storeMatches: [StoreMatch]?
     }
     private struct StoreMatch: Decodable {
         let citekey: String
@@ -36,6 +37,7 @@ final class ReferencesNominateTests: XCTestCase {
         let refs: [RefNomination]
         let unnominated: [Work]
         let warnings: [String]
+        let contract: Int?
     }
 
     private var root: URL!
@@ -251,6 +253,72 @@ final class ReferencesNominateTests: XCTestCase {
         let oa = try write("oa-extreme.json", #"{"results":[{"id":"https://openalex.org/W43","doi":null,"title":"A title","publication_year":-9223372036854775808,"authorships":[]}]}"#)
         let (status, output) = try nominate(refs, [oa])
         XCTAssertEqual(status, 0, output)
+    }
+
+    /// 手寫一份 extract 形狀的 refs JSON（構造 extract 產不出的輸入：切壞的標題、極端年份）
+    private func manualRefs(title: String, year: Int, firstAuthor: String = "Adams") throws -> String {
+        try write("refs-manual-\(UUID().uuidString).json", """
+        {"count":1,"contract":2,"warnings":[],"entries":[{"index":1,"raw":"manual","firstAuthor":"\(firstAuthor)",\
+        "authors":["\(firstAuthor)"],"groupAuthor":false,"year":\(year),"title":"\(title)"}]}
+        """)
+    }
+
+    /// T15：DOI 衝突 warning 只計入**這次**涉及的 DOI（R2 G2：原本是全 store 計數，使用者的
+    /// store 本來就有 16 組同 DOI 重複，SKILL 又規定一出現就停——每次 run 都會被擋）
+    func testConflictWarningCountsOnlyDOIsInThisRun() throws {
+        try createEntry(#"{"type":"periodical-article","title":"Unrelated twin","authors":["Zed Q"],"date":"1999","doi":["10.9999/unrelated.1"]}"#)
+        try createEntry(#"{"type":"periodical-article","title":"Unrelated twin","authors":["Zed Q"],"date":"1999","doi":["10.9999/unrelated.1"]}"#)
+        let refs = try extractRefs("References\n\nAdams, J. (2001). A title. Journal A, 1, 1–2.\n")
+        let oa = try openalex([work("W50", doi: "10.9999/other.1", title: "A title", year: 2001, authors: ["Jane Adams"])])
+        let (status, output) = try nominate(refs, [oa])
+        XCTAssertEqual(status, 0, output)
+        XCTAssertFalse(try decode(output).warnings.contains { $0.contains("不只一筆") }, output)
+    }
+
+    /// T16：storeMatches 列出門檻以上的**全部**記錄（R2 G3：原本只取前 3，真正那筆排第 4 就漏）；
+    /// 同分的多筆是可能的重複記錄，要 warning（R2 G8）
+    func testStoreMatchesListsEveryHitAndWarnsOnTies() throws {
+        for who in ["Ann One", "Bob Two", "Cat Three", "Dan Four"] {
+            try createEntry("{\"type\":\"book\",\"title\":\"Same imaginary title\",\"authors\":[\"\(who)\"],\"date\":\"2001\"}")
+        }
+        let refs = try extractRefs("References\n\nFour, D. (2001). Same imaginary title. Imaginary Press.\n")
+        let oa = try openalex([work("W51", doi: nil, title: "Same imaginary title", year: 2001, authors: ["Dan Four"])])
+        let (status, output) = try nominate(refs, [oa])
+        XCTAssertEqual(status, 0, output)
+        let r = try decode(output)
+        XCTAssertEqual(r.refs.first?.storeMatches?.count, 4)
+        XCTAssertTrue(r.warnings.contains { $0.contains("同分") }, "\(r.warnings)")
+    }
+
+    /// T17：候選的 OpenAlex 標題也要比對 store（R2 G4：PDF 標題切壞時，只比 PDF 標題會漏網，
+    /// 而真正要寫入的是候選那一筆）
+    func testCandidateTitleIsAlsoMatchedAgainstStore() throws {
+        try createEntry(#"{"type":"book","title":"An imaginary theory of measurement","authors":["Jane Adams"],"date":"1994"}"#)
+        let citekey = try XCTUnwrap(try LibraryStore(root: root).load().entries.first?.citekey)
+        let refs = try manualRefs(title: "Imaginary thy", year: 1994)
+        let oa = try openalex([work("W52", doi: "10.9999/book.9", title: "An imaginary theory of measurement",
+                                    year: 1994, authors: ["Jane Adams"])])
+        let (status, output) = try nominate(refs, [oa])
+        XCTAssertEqual(status, 0, output)
+        let r = try decode(output)
+        XCTAssertEqual(r.refs.first?.candidates.first?.storeMatches?.map(\.citekey), [citekey])
+    }
+
+    /// T18：`--refs` 的極端年份不得 trap（R2 G7：R1 只擋了 OpenAlex 那側）
+    func testExtremeRefYearDoesNotTrap() throws {
+        try createEntry(#"{"type":"book","title":"Any title","authors":["Jane Adams"],"date":"1994"}"#)
+        let refs = try manualRefs(title: "Any title", year: Int.min)
+        let oa = try openalex([work("W53", doi: nil, title: "Any title", year: 1994, authors: ["Jane Adams"])])
+        let (status, output) = try nominate(refs, [oa])
+        XCTAssertEqual(status, 0, output)
+    }
+
+    /// T19：輸出帶 `contract`（R2 G5）
+    func testNominateOutputCarriesContract() throws {
+        let refs = try extractRefs("References\n\nAdams, J. (2001). A title. Journal A, 1, 1–2.\n")
+        let (status, output) = try nominate(refs, [try openalex([])])
+        XCTAssertEqual(status, 0, output)
+        XCTAssertEqual(try decode(output).contract, 2)
     }
 
     /// T10：輸入 JSON 壞掉 → 非零結束並指名是哪一個輸入。

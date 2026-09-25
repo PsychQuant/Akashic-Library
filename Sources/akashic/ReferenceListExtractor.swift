@@ -28,13 +28,22 @@ enum ReferenceListExtractor {
         var count: Int
         var entries: [Reference]
         var warnings: [String]
+        /// 輸出契約版本（#617 verify R2 G5）：skill 以它分辨 CLI 是否夠新——舊版沒有這個鍵，
+        /// 而舊版上新的檢查會空洞地成立。optional：讀舊輸出時不因缺鍵失敗，交給 skill 判斷。
+        var contract: Int?
     }
+
+    /// 目前的輸出契約版本。輸出欄位或 warning 的語意改了就加一。
+    static let contractVersion = 2
 
     // MARK: - 樣式
 
     /// 參考文獻段的標題：整行只有這幾個字（可帶章節編號與冒號）。有多個候選時取**段內條目開頭
-    /// 最多**的那個（#617 verify F4：原本取最後一個，附錄或表格欄名的 `Reference` 會奪走標題、
-    /// 前面整份清單被無聲丟棄）；目錄頁的同名字下面沒有條目開頭，自然落選。
+    /// 最多**的那個，每個候選的段落截止在**下一個候選**（#617 verify F4／R2 G1）：
+    /// - 只取最後一個 → 清單**之後**的表格欄名 `Reference` 奪走標題（R1）
+    /// - 取條目最多、但段落不截止 → 較早候選（目錄、清單**之前**的表格）的段落延伸到真正的
+    ///   清單、是它的超集，結構上必勝（R2，那次修正引入的迴歸）
+    /// 截止於下一個候選後，每段只算自己的行；同數取後者。
     static let headingPattern =
         "^(?:\\d+(?:\\.\\d+)*\\.?\\s+)?(?:references?|reference list|bibliography|literature cited|works cited|參考文獻|参考文献|引用文獻)\\s*:?$"
 
@@ -55,11 +64,12 @@ enum ReferenceListExtractor {
     /// 這種失敗行會被試遍所有切法，每多一段慢約 2.8 倍（20 段 16 秒）。名縮寫後接冒號的
     /// （`Cambridge, U.K.:`、`Washington, D.C.:`）是出版地續行，不是條目開頭。
     static let personStartPattern =
-        "^" + particles + "\\p{Lu}[\\p{L}'’]+(?:[\\s\\-]\\p{Lu}[\\p{L}'’]+)*,\\s+\\p{Lu}\\.(?!(?:\\s?\\p{Lu}\\.)*\\s*:)"
+        "^" + particles + "\\p{Lu}[\\p{L}'’]+(?:\\s\\p{Lu}[\\p{L}'’]+|-\\p{L}[\\p{L}'’]+)*,\\s+\\p{Lu}\\.(?!(?:\\s?\\p{Lu}\\.)*\\s*[:;])"
 
-    /// 機構作者開頭的一筆：`機構名. (年份`。機構名可以含句點（`U.S. Department …`，#617 verify）。
+    /// 機構作者開頭的一筆：`機構名. (年份`。機構名可以含句點（`U.S. Department …`，#617 verify）；
+    /// 但以 `et al.` 結尾的是正文的引用句（`Quinn et al. (2011) argued …`），不是條目（R2 G1）。
     static let groupStartPattern =
-        "^\\p{Lu}[^()]{2,120}?\\.\\s\\((?:\\d{4}|n\\.\\s?d\\.|in press|in preparation|submitted|forthcoming)"
+        "^\\p{Lu}[^()]{2,120}?(?<!\\bet al)\\.\\s\\((?:\\d{4}|n\\.\\s?d\\.|in press|in preparation|submitted|forthcoming)"
 
     /// 年份括號：`(2015)`、`(2015a)`、`(2015, March 3)`、區間 `(1998–2012)`／`(1998–99)`／`(2015–)`、
     /// 重印 `(1890/1950)`（都取第一年）、`(n.d.)`、`(in press)`／`(in preparation)`／`(submitted)`／
@@ -84,7 +94,10 @@ enum ReferenceListExtractor {
                 "找不到參考文獻段的標題（References／Bibliography／參考文獻 等獨立成行的標題）——"
                 + "輸入可能不含參考文獻段，或標題與其他文字擠在同一行")
         }
-        let sections = candidates.map { (index: $0, lines: section(after: $0, in: lines)) }
+        let sections = candidates.enumerated().map { k, c in
+            (index: c, lines: section(after: c, in: lines,
+                                      until: k + 1 < candidates.count ? candidates[k + 1] : nil))
+        }
         let starts = sections.map { $0.lines.filter(isEntryStart).count }
         // 條目開頭最多者；同數取後者（沿用原本「參考文獻段在正文之後」的偏好）
         let best = starts.indices.max { (starts[$0], $0) < (starts[$1], $1) } ?? 0
@@ -132,7 +145,7 @@ enum ReferenceListExtractor {
         for e in entries where e.title == nil {
             warnings.append("第 \(e.index) 筆沒有辨識出標題")
         }
-        return Result(count: entries.count, entries: entries, warnings: warnings)
+        return Result(count: entries.count, entries: entries, warnings: warnings, contract: contractVersion)
     }
 
     // MARK: - 步驟
@@ -175,10 +188,12 @@ enum ReferenceListExtractor {
         return (kept, dropped)
     }
 
-    /// 標題之後、到結束標題之前的行
-    static func section(after heading: Int, in lines: [String]) -> [String] {
+    /// 標題之後、到結束標題或 `until`（下一個標題候選）之前的行
+    static func section(after heading: Int, in lines: [String], until next: Int? = nil) -> [String] {
         var out: [String] = []
-        for line in lines[(heading + 1)...] {
+        let end = next ?? lines.count
+        guard heading + 1 < end else { return [] }
+        for line in lines[(heading + 1)..<end] {
             if matches(line, endPattern, caseInsensitive: true) { break }
             out.append(line)
         }
@@ -221,7 +236,9 @@ enum ReferenceListExtractor {
     /// 作者清單換到下一行的樣子：以逗號、`&` 或 `and` 結尾
     static func continuesAuthorList(_ s: String) -> Bool {
         let t = s.trimmingCharacters(in: .whitespaces)
+        // APA 7 以刪節號省略第 20 位之後的作者（`…, . . .` 換行接最後一位，R2 G10）
         return t.hasSuffix(",") || t.hasSuffix("&") || t.lowercased().hasSuffix(" and")
+            || t.hasSuffix("...") || t.hasSuffix("…") || t.hasSuffix(". . .")
     }
 
     /// 續行接合：行尾是連字號、破折號或斜線（URL）時不加空白，其餘加一個空白。
@@ -301,7 +318,9 @@ enum ReferenceListExtractor {
                 let isInitial = previousWord.count == 1 && previousWord.first?.isLetter == true
                 // 小數點（`2.5`）不是句末（#617 verify F14）
                 let isDecimal = i > 0 && body[i - 1].isNumber && i + 1 < body.count && body[i + 1].isNumber
-                if !isInitial && !isDecimal { break }
+                // 常見縮寫（`vs.`、`(3rd ed.)`、`Vol.`）不是句末（R2 G4：截斷的標題會讓 store 比對漏網）
+                let isAbbreviation = titleAbbreviations.contains(previousWord.lowercased())
+                if !isInitial && !isDecimal && !isAbbreviation { break }
             }
             out.append(ch)
             if ch == "?" || ch == "!" { break }
@@ -309,8 +328,14 @@ enum ReferenceListExtractor {
         }
         var t = out.trimmingCharacters(in: .whitespaces)
         t = replacing(t, "\\s*\\[[^\\]]*\\]$", with: "")
+        // 尾端的版次括號（`(3rd ed.)`、`(Rev. ed.)`）不屬於標題本身
+        t = replacing(t, "\\s*\\((?:\\d+(?:st|nd|rd|th)|rev\\.?|revised|updated|expanded)\\s+ed\\.?\\)$", with: "",
+                      caseInsensitive: true)
         return t.isEmpty ? nil : t
     }
+
+    /// 標題裡不算句末的縮寫（前一個詞，小寫比對）
+    static let titleAbbreviations: Set<String> = ["vs", "ed", "eds", "vol", "no", "rev", "trans"]
 
     static func doi(in text: String) -> String? {
         let ns = text as NSString
@@ -353,8 +378,9 @@ enum ReferenceListExtractor {
         return r.location == NSNotFound ? nil : ns.substring(with: r)
     }
 
-    static func replacing(_ s: String, _ pattern: String, with template: String) -> String {
-        regex(pattern, caseInsensitive: false).stringByReplacingMatches(
+    static func replacing(_ s: String, _ pattern: String, with template: String,
+                          caseInsensitive: Bool = false) -> String {
+        regex(pattern, caseInsensitive: caseInsensitive).stringByReplacingMatches(
             in: s, range: NSRange(location: 0, length: (s as NSString).length),
             withTemplate: template)
     }

@@ -25,6 +25,7 @@ final class ReferencesExtractTests: XCTestCase {
         let count: Int
         let entries: [Ref]
         let warnings: [String]
+        let contract: Int?
     }
 
     private func extract(_ text: String) throws -> (status: Int32, output: String) {
@@ -365,6 +366,92 @@ final class ReferencesExtractTests: XCTestCase {
         let (status, output) = try extract(text)
         XCTAssertEqual(status, 0, output)
         XCTAssertEqual(try decode(output).entries.first?.title, "Version 2.5 of the imaginary model")
+    }
+
+    // MARK: - #617 verify R2 修正輪（G1 G4 G5 G10）
+
+    /// T10b：清單**前**的表格欄名 `Reference` 不得奪走標題（G1：R1 修正取「條目開頭最多」，
+    /// 但較早候選的段落延伸到真正清單、是它的超集，結構上必勝）
+    func testTableBeforeTheListDoesNotHijackTheSection() throws {
+        let text = """
+        Body text before the table.
+        Table 1. Studies included in the imaginary review
+        Reference
+        Quinn et al. (2011)
+        Rivera and Soto (2014)
+        Results
+        The pooled effect was small, as Quinn et al. (2011) also argued.
+
+        References
+
+        Adams, J. K. (2001). First title. Journal A, 1, 1–2.
+        Baker, L. (2002). Second title. Journal B, 2, 3–4.
+        Carter, M. (2003). Third title. Journal C, 3, 5–6.
+        """
+        let (status, output) = try extract(text)
+        XCTAssertEqual(status, 0, output)
+        XCTAssertEqual(try decode(output).entries.map(\.firstAuthor), ["Adams", "Baker", "Carter"])
+    }
+
+    /// T10c：目錄的 `References` 不得奪走標題，也不得讓整篇被誤判成編號制（G1）
+    func testTableOfContentsDoesNotHijackTheSection() throws {
+        let text = """
+        Contents
+        1. Introduction
+        2. Method
+        References
+        3. Results
+        Hamaker et al. (2015) showed this in the body.
+
+        References
+
+        Adams, J. K. (2001). First title. Journal A, 1, 1–2.
+        Baker, L. (2002). Second title. Journal B, 2, 3–4.
+        """
+        let (status, output) = try extract(text)
+        XCTAssertEqual(status, 0, output)
+        XCTAssertEqual(try decode(output).entries.map(\.firstAuthor), ["Adams", "Baker"])
+    }
+
+    /// T15：標題不在 `vs.`／`ed.` 截斷，尾端的版次括號去掉（G4：無 DOI 的書靠標題比對 store）
+    func testTitleSurvivesAbbreviationsAndDropsEdition() throws {
+        let text = """
+        References
+
+        Adams, J. (1994). Psychometric imaginary theory (3rd ed.). Imaginary Press.
+        Baker, L. (2001). Latent vs. manifest change in imaginary panels. Journal B, 2, 3–4.
+        """
+        let (status, output) = try extract(text)
+        XCTAssertEqual(status, 0, output)
+        XCTAssertEqual(try decode(output).entries.map(\.title),
+                       ["Psychometric imaginary theory", "Latent vs. manifest change in imaginary panels"])
+    }
+
+    /// T16：輸出帶 `contract`，讓 skill 分辨得出太舊的 CLI（G5）
+    func testOutputCarriesContractVersion() throws {
+        let (status, output) = try extract("References\n\nAdams, J. (2001). A title. Journal A.\n")
+        XCTAssertEqual(status, 0, output)
+        XCTAssertEqual(try decode(output).contract, 2)
+    }
+
+    /// T17：APA 7 以刪節號省略作者時，換行不是併筆；小寫接在連字號後的姓、分號結尾的出版地（G10）
+    func testEllipsisHyphenatedLowercaseAndSemicolonLocation() throws {
+        let text = """
+        References
+
+        Adams, A., Baker, B., Carter, C., . . .
+            Zed, Z. (2020). A very large collaboration. Journal Z, 1, 1–2.
+        Al-khatib, R. (2019). A hyphenated lowercase surname. Journal R, 2, 3–4.
+        Moss, T. (2018). A book title. Imaginary Press,
+        Oxford, U.K.; New York.
+        Nolan, U. (2017). Last title. Journal N, 4, 5–6.
+        """
+        let (status, output) = try extract(text)
+        XCTAssertEqual(status, 0, output)
+        let r = try decode(output)
+        XCTAssertEqual(r.entries.map(\.firstAuthor), ["Adams", "Al-khatib", "Moss", "Nolan"])
+        XCTAssertFalse(r.warnings.contains { $0.contains("併") }, "\(r.warnings)")
+        XCTAssertFalse(r.entries[1].groupAuthor)
     }
 
     /// T5：數字編號格式 → 明確回報不支援，不硬切

@@ -18,8 +18,8 @@ The whole batch SHALL be refused with zero writes when any of the following hold
 - the store format is below 19;
 - digests are given without any undecided id;
 - the call carries more than 200 ids, more than 20 digests, or a statement longer than 4,096 bytes;
-- an id is longer than the longest known row id plus 256 bytes plus 4,096 bytes;
-- the row id is produced both by a person holder and by an organization holder that share a key.
+- an id is longer than the longest known row id plus the longest nominated organization key plus 2 bytes plus 4,096 bytes;
+- the row id names both a person row and an organization row on the listing (the two holders share a key).
 
 A single id SHALL be skipped and named, while the rest of the batch proceeds, when any of the following holds:
 
@@ -48,7 +48,7 @@ When an identical undecided record already exists on the organization, the id SH
 
 ### Requirement: An undecided id SHALL be split only where the prefix is a known row id
 
-An undecided id SHALL have the form `<rowID>@<orgKey>=<statement>`, where `rowID` is byte-identical to the id the listing returns for a candidate row or an ambiguity entry, and `orgKey` is a store key. The leg SHALL try every position where `@`, a store key, and `=` appear in sequence, and SHALL accept a split only when the text before `@` is byte-identical to a row id produced by the same load. The known row ids SHALL be the union of the listing's resolution run, which excludes rejected pairings, and a run that does not exclude them, so that an id shown in the listing is always known and an already decided pairing reaches the skip instead of a refusal. Exactly one accepted split SHALL be required; zero or more than one SHALL refuse the whole batch.
+An undecided id SHALL have the form `<rowID>@<orgKey>=<statement>`, where `rowID` is byte-identical to the id the listing returns for a candidate row or an ambiguity entry, and `orgKey` is a store key. The leg SHALL try every position where `@`, a store key, and `=` appear in sequence, and SHALL accept a split only when the text before `@` is byte-identical to a row id produced by the same load. The known row ids SHALL be every row of the listing's resolution run, which excludes rejected pairings, plus the rows of a run that does not exclude them whose pairing with the named organization is already decided. An id shown in the listing is therefore always known; a decided pairing that is still produced by the unfiltered run reaches the skip; and a row that left the listing without being decided is refused as an unknown row. When a row id names both a person row and an organization row on the listing, the whole batch SHALL be refused; a same-key row that appears only because its pairing is decided SHALL NOT cause that refusal. Exactly one accepted split SHALL be required; zero or more than one SHALL refuse the whole batch.
 
 #### Scenario: A literal that contains `@` and `=`
 

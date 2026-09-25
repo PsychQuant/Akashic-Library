@@ -26,7 +26,7 @@ extension AkashicService {
     /// 一次呼叫的上限（R1 verify security）。超過即整批拒絕、零寫入、具名（`lossless-intake` 的有界拒絕：不截斷）。
     /// **它只約束一次呼叫，不約束累積**（R2 verify logic／security）：未決記錄設計上會累積、不退役，重複呼叫仍能把一筆
     /// 記錄推向 decode 的節點預算。累積面的出聲只有 venue 有（`StoreHealth.venueVerdictBudgetWarnings`，未決計入）；
-    /// person 側沒有對應的預警——缺口記 #645。
+    /// person 與 organization 側沒有對應的預警——缺口記 #645（organization 在 #643 加入同一個缺口）。
     /// 數字的來源：rests-on 取「一次查證會存的頁面數」的寬鬆上界；說明取 `displaySafe` 對資料面的 800 字之數倍，
     /// 讓一段完整的查證敘述放得下；一次的 id 數取 CLI 單批 triage 的量級。
     static let maxRestsOnPerCall = 20
@@ -269,17 +269,20 @@ extension AkashicService {
     }
 
     /// 三個未決腿共用的回應形狀。
+    /// `idMax`：id 的截斷長度。org 的 id 帶整個 literal、被判的 orgKey 在尾端，截 200 會讓同一歧義條目的兩個 org 在結果裡
+    /// 長得一樣（#643 R2 verify），所以 org 腿傳這次最長的 id。
     func undecidedPayload(rows: [(id: String, literal: String, statement: String)], skipped: [(id: String, why: String)],
-                          already: [String], restsOn: [String], rewritten: Int, holderName: String) throws -> String {
+                          already: [String], restsOn: [String], rewritten: Int, holderName: String,
+                          idMax: Int = 200) throws -> String {
         try jsonString([
             "undecided": rows.map { r -> [String: Any] in
-                ["id": displaySafe(r.id, max: 200),
+                ["id": displaySafe(r.id, max: idMax),
                  "literal": displaySafe(r.literal, max: 300),
                  "statement": displaySafe(r.statement, max: 800),
                  "restsOn": restsOn.map { displaySafe($0, max: 80) }]
             },
-            "skipped": skipped.map { ["id": displaySafe($0.id, max: 200), "why": $0.why] },   // display-safe-exempt: why 由本檔組裝，內含值已消毒
-            "alreadyRecorded": already.map { displaySafe($0, max: 200) },
+            "skipped": skipped.map { ["id": displaySafe($0.id, max: idMax), "why": $0.why] },   // display-safe-exempt: why 由本檔組裝，內含值已消毒
+            "alreadyRecorded": already.map { displaySafe($0, max: idMax) },
             holderName: rewritten,
         ])
     }

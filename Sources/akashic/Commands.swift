@@ -972,7 +972,7 @@ struct ResolveOrganizations: ParsableCommand {
 
     /// 查過、判不出來（change `org-undecided-leg`，#643）。
     @Option(name: .long, parsing: .upToNextOption,
-            help: "記下查過未決（可重複）：<列表的 id>@<orgKey>=查了什麼、為何判不出來。id 逐字取自不帶參數時列表每列的 id（work 作者位是 citekey[i]::literal）；在每個 @<orgKey>= 的位置試切，前綴必須恰為已知的 id，恰一個才收、零個或多個整批拒絕。orgKey 必須是那一列提名的 org（歧義條目可逐個 org 記）。寫一筆 resolution-undecided 到該 org，holder 不動；之後列表標「查過未決 N 次」、--apply 不帶走它。可附 --rests-on。已判定的配對、citekey 重複的 work 該筆略過並具名。需要 store format ≥ 19；一次超過 200 個 id、20 個 digest 或單句說明超過 4,096 位元組整批拒絕。單獨呼叫，不與 --apply／--reject 組合。literal 含控制字元時終端機上複製回來會對不上，改用 MCP")
+            help: "記下查過未決（可重複）：<列表的 id>@<orgKey>=查了什麼、為何判不出來。id 逐字取自不帶參數時列表每列的 id（work 作者位是 citekey[i]::literal）；在每個 @<orgKey>= 的位置試切，前綴必須與列表的 id 位元組相同，恰一個才收、零個或多個整批拒絕（例外：某個 literal 恰為另一個 literal 接上 @<key>= 時）。orgKey 必須是那一列提名的 org（歧義條目可逐個 org 記）。person 與 organization 同 key 而兩列都在列表上時 id 相同，點到它整批拒絕。寫一筆 resolution-undecided 到該 org，holder 不動；記錄是 work 層級、不帶作者位（同一筆 work 另一個同 literal 的作者位被 apply 後，這個配對就算已判定）；之後列表標「查過未決 N 次」、--apply 不帶走它。可附 --rests-on。已判定的配對、citekey 重複的 work 該筆略過並具名。需要 store format ≥ 19；一次超過 200 個 id、20 個 digest、單句說明超過 4,096 位元組或單筆 id 超過「最長列表 id ＋ 最長 orgKey ＋ 2 ＋ 4,096 位元組」整批拒絕。單獨呼叫，不與 --apply／--reject／--holder／--org 組合。literal 含控制字元時終端機上複製回來會對不上，改用 MCP")
     var undecided: [String] = []
 
     @Option(name: .long, parsing: .upToNextOption,
@@ -1246,7 +1246,9 @@ struct ResolveOrganizations: ParsableCommand {
                 print("  \(label(c.holder)) 「\(displaySafe(c.literal, max: 200))」 → \(displaySafe(c.orgKey, max: 200))")
             }
             if candidates.isEmpty {
-                print("⚠ 收窄後的候選全部查過未決——沒有寫入")
+                // 排除有兩個來源（#628 的 citekey 重複、查過未決）；全數排除時兩者都可能有份（#643 R2 verify）
+                print(unlocatableSkipped.isEmpty ? "⚠ 收窄後的候選全部查過未決——沒有寫入"
+                                                 : "⚠ 收窄後的候選全部被排除（查過未決，或 citekey 重複、見上）——沒有寫入")
                 throw ExitCode(1)
             }
         }

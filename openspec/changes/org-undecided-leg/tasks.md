@@ -1,12 +1,12 @@
 ## 1. 共用檢查與解析
 
 - [x] 1.1 把未決腿共用的檢查抽成 `UndecidedVerdicts.swift` 的 helper：上限（200／20／4,096）、format ≥ 19 閘、rests-on 形狀驗證、說明空白檢查；people 與 venues 兩腿改呼叫它，行為不變。驗證：既有的 `UndecidedServiceTests`、`ResolutionVerdictStatesR1Tests`、`ResolutionVerdictStatesR2Tests`、`UndecidedCLITests` 全數通過（design「程式放在新檔 `OrgUndecidedVerdicts.swift`，共用檢查抽成 helper」）
-- [x] 1.2 新檔 `OrgUndecidedVerdicts.swift` 實作 org 未決 id 的解析：在每個 `@<StoreKey>=` 位置試切，前綴必須等於同一次 `OrgResolver.resolve` 產出的 rowID（候選列或歧義條目），恰一個切法才收；orgKey 必須屬於被點名的那一列。驗證：`OrgUndecidedLegTests` 的 split 表三列（收下、無已知 rowID、兩個切法）、literal 含 `@` 與 `=`、orgKey 不在那一列，全部符合 spec（spec「An undecided id SHALL be split only where the prefix is a known row id」「The named organization SHALL belong to the named row」；design「未決 id 是 `<rowID>@<orgKey>=<說明>`，以已知 rowID 試切」「orgKey 必須屬於被點名的那一列」）
+- [x] 1.2 新檔 `OrgUndecidedVerdicts.swift` 實作 org 未決 id 的解析：在每個 `@<StoreKey>=` 位置試切，前綴必須與已知 rowID 位元組相同——已知 rowID＝列表那次（帶否決過濾）的候選列與歧義條目，加上不帶否決那次裡配對已判定的列（R1／R2 verify）——恰一個切法才收；orgKey 必須屬於被點名的那一列。驗證：`OrgUndecidedLegTests` 的 split 表三列（收下、無已知 rowID、兩個切法）、literal 含 `@` 與 `=`、orgKey 不在那一列，全部符合 spec（spec「An undecided id SHALL be split only where the prefix is a known row id」「The named organization SHALL belong to the named row」；design「未決 id 是 `<rowID>@<orgKey>=<說明>`，以已知 rowID 試切」「orgKey 必須屬於被點名的那一列」）
 
 ## 2. service 寫入面與列表揭露
 
-- [x] 2.1 `AkashicService.resolveOrganizations` 新增 `undecided:restsOn:`：單獨呼叫（與 apply／reject 組合整批拒絕、rests_on 無 undecided 拒絕），三種 holder 的 value 以 `verdictHolderKind` 編碼，逐筆略過四類、`alreadyRecorded`、同一次呼叫的第二個相同記錄報成本次寫入（鍵含被判 org）、寫入前逐個 `assertOrganizationWritable`、失敗時列出已落地的 org。驗證：`OrgUndecidedLegTests` 的三種 holder 各一筆、歧義逐 org、已判定略過、format 18 拒絕、組合拒絕（spec「resolve-organizations SHALL provide an explicit undecided leg on both faces」；design「記錄落在被判的 org 上，value 以 holder kind 編碼」「已判定的配對逐筆略過；揭露用既有的 `undecidedChecks`」）
-- [x] 2.2 MCP 列表的候選列與歧義條目帶 `id`；候選列 `undecidedChecks` 為整數、歧義條目為 orgKey 對次數的物件（只列非零），頂層 `undecidedTotal`。驗證：`OrgUndecidedLegTests` 寫入一筆未決後列表對應列的 `undecidedChecks` 為 1、歧義條目的物件只含被記的 org（spec「The listing SHALL disclose undecided checks and give every row an id」）
+- [x] 2.1 `AkashicService.resolveOrganizations` 新增 `undecided:restsOn:`：單獨呼叫（與 apply／reject 組合整批拒絕、rests_on 無 undecided 拒絕），三種 holder 的 value 以 `verdictHolderKind` 編碼，逐筆略過兩類（配對已判定、citekey 無法唯一定位——R1 verify 更正：work 不存在與位置不再是 literal 在 org 腿走不到，改為整批拒絕）、`alreadyRecorded`、同一次呼叫的第二個相同記錄報成本次寫入（鍵含被判 org）、寫入前逐個 `assertOrganizationWritable`、失敗時列出已落地的 org。驗證：`OrgUndecidedLegTests` 的三種 holder 各一筆、歧義逐 org、已判定略過、format 18 拒絕、組合拒絕（spec「resolve-organizations SHALL provide an explicit undecided leg on both faces」；design「記錄落在被判的 org 上，value 以 holder kind 編碼」「已判定的配對逐筆略過；揭露用既有的 `undecidedChecks`」）
+- [x] 2.2 MCP 列表的候選列與歧義條目帶 `id`；候選列 `undecidedChecks` 為整數、歧義條目為 orgKey 對次數的物件（只列非零），頂層 `undecidedTotal`（候選配對，與 CLI 四態計數行同一個定義）與 `ambiguityUndecidedTotal`（R1 verify）。驗證：`OrgUndecidedLegTests` 寫入一筆未決後列表對應列的 `undecidedChecks` 為 1、歧義條目的物件只含被記的 org（spec「The listing SHALL disclose undecided checks and give every row an id」）
 
 ## 3. 兩面接線
 

@@ -28,7 +28,7 @@ resolve-organizations 補上未決（`resolution-undecided`）的寫入面，與
   - 同一個 id 同時對應 person 與 organization 兩種 holder。
 - 逐筆略過並具名：配對已判定，或 citekey 無法唯一定位（#628）。
 - 完全相同的記錄已在時回報 `alreadyRecorded`。同一次呼叫的第二個相同記錄報成本次寫入。
-- 已知 id 取自兩次 resolve 的聯集（R1 起）：帶否決過濾的那次（＝列表）與不帶的那次。已否決配對的 id 仍然認得，會走「已判定、逐筆略過」；列表上看得到的 id 一定認得。
+- 已知 id（R2 起）：列表那次（帶否決過濾）的列全部認得；不帶否決那次只補配對已判定的列。列表上看得到的 id 一定認得；已否決的配對若仍被產出，走「已判定、逐筆略過」；離開列表而沒有人判定過的舊 id 整批拒絕。
 
 ## R1 verify（6 席，38 項：0 HIGH、16 MEDIUM）之後的修正
 
@@ -54,3 +54,16 @@ resolve-organizations 補上未決（`resolution-undecided`）的寫入面，與
 - 沒有任何 org 命中的 literal：它不在列表上，也沒有被判的 org。
 - 撤回未決。
 - App 的 org 裁決台（目前不存在）。
+
+## R2 verify（6 席，27 項：0 HIGH、7 MEDIUM）之後的修正
+
+- **已知 id 的來源再收窄**：R1 把不帶否決那次整批併入，DA 用真 binary 重現兩個後果——一筆已否決的 person 列讓列表上唯一的 org 列被當成撞號而整批拒絕；否決另一個配對後離開列表、沒有人判定過的舊 id 仍被收下，寫出任何揭露面都看不到的記錄。現在不帶否決那次只補配對已判定的列；撞號只在兩列都在列表上時成立
+- **試切**：說明只在恰一個切法時組，第二個切法成立即停（先前每個成立的切法各複製一次尾段）
+- **單筆 id 的長度上限**：orgKey 的餘裕改用這次列表最長的 orgKey（StoreKey 沒有長度上限，先前寫死 256）
+- **回應裡的 id 不截斷到 200**：org 的 id 帶整個 literal、orgKey 在尾端，截斷會讓同一歧義條目兩個 org 的結果長得一樣
+- **CLI `--undecided` 的 help 與 MCP 描述對齊**：位元組比對、已知邊界、撞號拒絕、work 層級記錄、單筆 id 上限、不接受 `--holder`／`--org`
+- CLI `--apply` 全數排除時，排除原因含 citekey 重複的也說出來
+- MCP 列表的 note 說明歧義條目的 id 只用於 undecided
+- 累積的誠實邊界（`zero-instance-guards` 第 30 列、`UndecidedVerdicts.swift` 的註解）補上 organization 側，#645 擴及 organization
+- tasks.md 補上 R1 的更正
+- 記為已知邊界、不改：已判定而兩次 resolve 都不產出的列（已 apply、兩條互相成環且都已否決的 parents 邊）以「不是這次列表的 id」整批拒絕；CLI 列表每列多一行 id，會消耗歧義段的位元組預算

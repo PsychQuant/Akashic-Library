@@ -35,7 +35,7 @@ extension AkashicService {
 
     /// 在每個「`@` ＋ StoreKey ＋ `=`」的位置試切，只收前綴恰為已知 rowID 的切法（使用者 2026-09-25 裁決，#643）。
     ///
-    /// 回傳**全部**成立的切法——恰一個才可以用，零個或多個由呼叫端整批拒絕（不猜）。literal 或說明裡的 `@`、`=`
+    /// 回傳成立的切法——恰一個才可以用，零個或多個由呼叫端整批拒絕（不猜）。找到第二個即停，所以「多個」時回傳恰兩個、說明留空。literal 或說明裡的 `@`、`=`
     /// 不會切錯：一個位置要同時對得上已知 rowID 與 StoreKey 才算數。**這句保證以「原本要點名的列仍在列表上」為前提**：
     /// 若某個 literal 恰好是另一個 literal 接上 `@<key>=`，而較短的那一列已歸戶而離開列表，同一個輸入會改切到較長的那一列
     /// （#643 R1 verify DA 重現；成立條件很窄，設計文件記為已知邊界）。
@@ -47,7 +47,7 @@ extension AkashicService {
         let chars = Array(spec.unicodeScalars)
         var knownLengths = Set<Int>()
         for k in knownRowIDs { knownLengths.insert(String(decoding: k, as: UTF8.self).unicodeScalars.count) }
-        var accepted: [OrgUndecidedSplit] = []
+        var cuts: [(at: Int, keyEnd: Int, rowID: String)] = []
         var tried = 0
         func isKeyChar(_ s: Unicode.Scalar, first: Bool) -> Bool {
             switch s.value {
@@ -64,10 +64,14 @@ extension AkashicService {
             guard knownLengths.contains(i) else { continue }
             let rowID = String(String.UnicodeScalarView(chars[..<i]))
             guard knownRowIDs.contains(Array(rowID.utf8)) else { continue }
-            accepted.append(OrgUndecidedSplit(
-                rowID: rowID,
-                orgKey: String(String.UnicodeScalarView(chars[(i + 1)..<j])),
-                statement: String(String.UnicodeScalarView(chars[(j + 1)...]))))
+            cuts.append((i, j, rowID))
+            if cuts.count > 1 { break }   // 第二個成立即可判定「多個」——不再掃、不組說明（R2 verify：每個切法各複製一次尾段）
+        }
+        // 說明只在恰一個切法時組；多個時說明留空（呼叫端只看數量，整批拒絕）
+        let accepted = cuts.map { c in
+            OrgUndecidedSplit(rowID: c.rowID,
+                              orgKey: String(String.UnicodeScalarView(chars[(c.at + 1)..<c.keyEnd])),
+                              statement: cuts.count == 1 ? String(String.UnicodeScalarView(chars[(c.keyEnd + 1)...])) : "")
         }
         return (accepted, tried)
     }
@@ -77,24 +81,21 @@ extension AkashicService {
         splitOrgUndecided(spec, knownRowIDs: Set(knownRowIDs.map { Array($0.utf8) }))
     }
 
-    /// 單筆 id 的長度上限：最長的已知 rowID ＋ `@`、orgKey、`=` 的餘裕 ＋ 說明上限。超過的不可能是合法 id，在試切之前就擋
-    /// （#643 R1 verify：說明的 4,096 位元組上限原本在切完之後才檢查，對解析的工作量沒有作用）。
-    static let orgKeyAllowanceBytes = 256
-
     /// 解析一批 org 未決。`rows` 是這次呼叫當下的列表：rowID（UTF-8 位元組）→ 那一列提名的 org（候選列一個、歧義條目 2+ 個）。
     /// 輸入錯一律 throw（整批拒絕、零寫入）。
     func parseOrgUndecidedSpecs(_ specs: [String], restsOn: [String],
                                 rows: [[UInt8]: Set<String>]) throws -> [OrgUndecidedSpec] {
         try checkUndecidedCall(specCount: specs.count, restsOn: restsOn)
         let known = Set(rows.keys)
-        let maxSpecBytes = (known.map(\.count).max() ?? 0) + Self.orgKeyAllowanceBytes + Self.maxStatementBytes
+        let longestOrgKey = rows.values.flatMap { $0 }.map(\.utf8.count).max() ?? 0
+        let maxSpecBytes = (known.map(\.count).max() ?? 0) + longestOrgKey + 2 + Self.maxStatementBytes
         var out: [OrgUndecidedSpec] = []
         var seen = Set<[UInt8]>()
         for spec in specs {
             guard spec.utf8.count <= maxSpecBytes else {
                 throw ServiceError.invalid(
                     "未決「\(displaySafeInvisible(spec, max: 200))」長 \(spec.utf8.count) 位元組，超過任何合法 id 的上限 \(maxSpecBytes)"   // display-safe-exempt: spec.utf8.count 與 maxSpecBytes 是 Int
-                    + "（最長的列表 id ＋ \(Self.orgKeyAllowanceBytes) ＋ 說明上限 \(Self.maxStatementBytes)）——精簡說明，承重內容用 rests_on 附存檔")   // display-safe-exempt: Self.orgKeyAllowanceBytes 與 Self.maxStatementBytes 是 Int 常數
+                    + "（最長的列表 id ＋ 最長的 orgKey ＋ 2 ＋ 說明上限 \(Self.maxStatementBytes)）——精簡說明，承重內容用 rests_on 附存檔")   // display-safe-exempt: Self.maxStatementBytes 是 Int 常數
             }
             let r = Self.splitOrgUndecided(spec, knownRowIDs: known)
             guard r.accepted.count == 1, let s = r.accepted.first else {
@@ -137,33 +138,59 @@ extension AkashicService {
         // 上限與 format 在 load 之前擋（#643 R1 verify：原本 201 個 id 也要先載入全庫、跑完提名才被拒）
         try checkUndecidedCall(specCount: specs.count, restsOn: restsOn)
         let load = try store.load()
-        // 已知 rowID 取自**兩次** resolve 的聯集（#643 R1 verify）：
-        // - 帶否決過濾的那次＝列表本身。parents 的循環守衛會讀本輪已接受的邊，而否決過的邊不在其中，
-        //   所以列表會出現一些「不帶否決」那次會被守衛擋掉的列——只取後者，列表上的 id 會被當成不認得。
-        // - 不帶否決過濾的那次：已否決的配對仍然認得，才能走「已判定、逐筆略過」而不是整批拒絕。
+        // 已知 rowID（#643 R1／R2 verify）：
+        // - **列表那次**（帶否決過濾）＝呼叫端看得到的列，全部認得。parents 的循環守衛讀本輪已接受的邊，只取不帶否決的
+        //   那次會擋掉列表上看得到的列（R1）。
+        // - **不帶否決那次**只補「配對已判定」的列：已否決的配對仍然認得，才能走逐筆略過而不是整批拒絕。R1 把它整批併入，
+        //   於是 (a) 一個已否決的 person 列會讓列表上唯一的 org 列被當成撞號而整批拒絕，(b) 否決另一個配對後離開列表、
+        //   沒有人判定過的舊列仍被收下，寫出一筆任何揭露面都看不到的記錄（R2 verify DA 真 binary 重現兩者）。
         let listed = OrgResolver.resolve(people: load.people, organizations: load.organizations,
                                          rejected: ResolutionLedger.rejectedPairings(organizations: load.organizations),
                                          entries: load.entries)
         let unfiltered = OrgResolver.resolve(people: load.people, organizations: load.organizations,
                                              rejected: [], entries: load.entries)
-        // rowID → holder 身分（kind）→ 那一列。person 與 organization 的 key 可以同名，兩者的 rowID 都是 `key::literal`
-        // （#643 R1 verify）；同一個 rowID 對到兩種 holder 時整批拒絕，不猜是哪一個。
-        var rows: [[UInt8]: [ProvenanceReference.VerdictHolderKind: (holder: OrgResolutionCandidate.Holder, literal: String, orgs: Set<String>)]] = [:]
-        func add(_ holder: OrgResolutionCandidate.Holder, _ literal: String, _ orgKeys: [String]) {
+        var decidedKeys: [String: Set<String>] = [:]   // 每個 org 只掃一次 references（同 people／venues 的 R3 修正）
+        func decided(_ holder: OrgResolutionCandidate.Holder, _ literal: String, _ orgKey: String) -> Bool {
+            guard let org = load.organizations.first(where: { $0.key == orgKey }) else { return false }
+            let keys = decidedKeys[orgKey] ?? Self.decidedPairingKeys(org.references)
+            decidedKeys[orgKey] = keys
+            let value = ProvenanceReference.VerdictPairingValue(holderKind: holder.verdictHolderKind, holder: holder.key,
+                                                                literal: literal).encoded
+            return ProvenanceReference.verdictPairingKey(value: value).map(keys.contains) ?? false
+        }
+        // rowID → holder kind → 那一列。person 與 organization 的 key 可以同名，兩者的 rowID 都是 `key::literal`。
+        typealias Row = (holder: OrgResolutionCandidate.Holder, literal: String, listed: Set<String>, decidedOnly: Set<String>)
+        var rows: [[UInt8]: [ProvenanceReference.VerdictHolderKind: Row]] = [:]
+        func add(_ holder: OrgResolutionCandidate.Holder, _ literal: String, _ orgKeys: [String], listing: Bool) {
             let id = Array(Self.orgRowID(holder, literal: literal).utf8)
-            rows[id, default: [:]][holder.verdictHolderKind, default: (holder, literal, [])].orgs.formUnion(orgKeys)
+            var row = rows[id]?[holder.verdictHolderKind] ?? (holder, literal, [], [])
+            for k in orgKeys {
+                if listing { row.listed.insert(k); row.decidedOnly.remove(k) }
+                else if !row.listed.contains(k), decided(holder, literal, k) { row.decidedOnly.insert(k) }
+            }
+            if !row.listed.isEmpty || !row.decidedOnly.isEmpty { rows[id, default: [:]][holder.verdictHolderKind] = row }
         }
-        for report in [listed, unfiltered] {
-            for c in report.candidates { add(c.holder, c.literal, [c.orgKey]) }
-            for a in report.ambiguities { add(a.holder, a.literal, a.orgKeys) }
+        for (report, listing) in [(listed, true), (unfiltered, false)] {
+            for c in report.candidates { add(c.holder, c.literal, [c.orgKey], listing: listing) }
+            for a in report.ambiguities { add(a.holder, a.literal, a.orgKeys, listing: listing) }
         }
-        let parsed = try parseOrgUndecidedSpecs(specs, restsOn: restsOn,
-                                                rows: rows.mapValues { $0.values.reduce(into: Set<String>()) { $0.formUnion($1.orgs) } })
-        for s in parsed where (rows[Array(s.rowID.utf8)]?.count ?? 0) > 1 {
-            let kinds = rows[Array(s.rowID.utf8)]!.keys.map(\.rawValue).sorted().joined(separator: "、")
-            throw ServiceError.invalid(
-                "未決「\(displaySafeInvisible(s.id, max: 200))」的 id 同時對應 \(kinds) 兩種 holder（person 與 organization 的 key 可以同名）"   // display-safe-exempt: kinds 是封閉的 holder kind 值
-                + "——無法確定是哪一個，整批拒絕、零寫入。apply／reject 的 id 同樣相撞，目前沒有工具面分得開這兩列：改名那個 person 的 key（rename-person；organization 沒有改名面）後再列一次")
+        let parsed = try parseOrgUndecidedSpecs(specs, restsOn: restsOn, rows: rows.mapValues {
+            $0.values.reduce(into: Set<String>()) { $0.formUnion($1.listed); $0.formUnion($1.decidedOnly) }
+        })
+        // 每個 id 選定一列：列表上有、且提名這個 org 的 kind 優先；兩種 kind 都在列表上時整批拒絕（apply／reject 的 id
+        // 此時同樣相撞——它們以列表那次的第一列為準）。列表上沒有的，只可能是已判定的配對，下面會逐筆略過。
+        var chosen: [Row] = []
+        for s in parsed {
+            let kinds = rows[Array(s.rowID.utf8)] ?? [:]
+            let onListing = kinds.filter { $0.value.listed.contains(s.orgKey) }
+            if onListing.count > 1 {
+                throw ServiceError.invalid(
+                    "未決「\(displaySafeInvisible(s.id, max: 200))」的 id 在列表上同時是 person 與 organization 兩列（兩者的 key 同名）"
+                    + "——無法確定是哪一列，整批拒絕、零寫入。apply／reject 的 id 同樣相撞（以先列出的那一列為準），目前沒有工具面分得開："
+                    + "改名那個 person 的 key（rename-person；organization 沒有改名面）後再列一次")
+            }
+            let pick = onListing.first ?? kinds.first { $0.value.decidedOnly.contains(s.orgKey) }
+            chosen.append(pick!.value)   // parse 已驗 orgKey 屬於這個 rowID 的聯集，所以兩者至少一個成立
         }
         var orgs = Dictionary(load.organizations.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
         for s in parsed where orgs[s.orgKey] == nil {
@@ -175,9 +202,7 @@ extension AkashicService {
         var already: [String] = []
         var touched = Set<String>()
         var writtenThisCall = Set<[[UInt8]]>()   // 鍵帶被判 org（同 people／venues 的 R2 修正）
-        var decidedKeys: [String: Set<String>] = [:]   // 每個 org 只掃一次 references（同 people／venues 的 R3 修正）
-        for s in parsed {
-            let row = rows[Array(s.rowID.utf8)]!.values.first!
+        for (s, row) in zip(parsed, chosen) {
             if case let .work(citekey, _) = row.holder, unlocatable.contains(citekey) {
                 skipped.append((s.id, "work「\(displaySafe(citekey, max: 200))」的 citekey 重複或與另一筆 work 共用 id——無法確定是哪一筆，略過（#628）"))
                 continue
@@ -186,9 +211,7 @@ extension AkashicService {
             let value = ProvenanceReference.VerdictPairingValue(holderKind: kind, holder: row.holder.key,
                                                                 literal: row.literal).encoded
             var org = orgs[s.orgKey]!
-            let decided = decidedKeys[s.orgKey] ?? Self.decidedPairingKeys(org.references)
-            decidedKeys[s.orgKey] = decided
-            if let key = ProvenanceReference.verdictPairingKey(value: value), decided.contains(key) {
+            if decided(row.holder, row.literal, s.orgKey) {
                 skipped.append((s.id, "這個配對已判定（\(Self.existingDecision(org.references, value: value))）——未決不改變已判定配對的狀態"))   // display-safe-exempt: 封閉的欄位名
                 continue
             }
@@ -219,6 +242,7 @@ extension AkashicService {
                 + displaySafeError(error, max: 400))
         }
         return try undecidedPayload(rows: recorded, skipped: skipped, already: already,
-                                    restsOn: restsOn, rewritten: touched.count, holderName: "organizationsRewritten")
+                                    restsOn: restsOn, rewritten: touched.count, holderName: "organizationsRewritten",
+                                    idMax: max(200, parsed.map { $0.id.unicodeScalars.count }.max() ?? 0))
     }
 }

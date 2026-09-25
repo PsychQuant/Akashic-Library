@@ -200,7 +200,7 @@ final class OrgUndecidedLegTests: XCTestCase {
         try org("x", "X Institute", parents: [.literal("Lab")])
         try person("x", affiliation: "Lab")
         XCTAssertThrowsError(try service.resolveOrganizations(apply: nil, undecided: ["x::Lab@lab=查過"])) { error in
-            XCTAssertTrue("\(error)".contains("兩種 holder"), "\(error)")
+            XCTAssertTrue("\(error)".contains("同時是 person 與 organization 兩列"), "\(error)")
         }
         XCTAssertTrue(try orgRefs("lab").isEmpty)
     }
@@ -243,6 +243,62 @@ final class OrgUndecidedLegTests: XCTestCase {
         XCTAssertEqual(r.tried, 20_000)
         XCTAssertTrue(r.accepted.isEmpty)
         XCTAssertLessThan(Date().timeIntervalSince(start), 2.0, "R1 verify 實測先前 60 KB 跑 14 秒")
+    }
+
+    /// R2 verify DA 重現一：person 那一列已否決、列表上只剩 org 那一列時，逐字複製的 id 要收下，不當成撞號。
+    func testRejectedPersonRowDoesNotCollideWithTheListedOrgRow() throws {
+        try org("lab", "Lab")
+        try org("x", "X Institute", parents: [.literal("Lab")])
+        try person("x", affiliation: "Lab")
+        _ = try service.resolveOrganizations(apply: nil, reject: ["x::Lab"])   // byID 取第一列（person）
+        let ids = ((json(try service.resolveOrganizations(apply: nil))["candidates"] as? [[String: Any]]) ?? [])
+            .compactMap { $0["id"] as? String }
+        XCTAssertEqual(ids, ["x::Lab"], "前提：列表只剩 org 那一列")
+        let out = json(try service.resolveOrganizations(apply: nil, undecided: ["x::Lab@lab=查過院組織規程"]))
+        XCTAssertEqual(recorded(out).count, 1, "\(out)")
+        XCTAssertTrue(try orgRefs("lab").contains { $0.value == "org:x :: Lab" && $0.field == "resolution-undecided" })
+    }
+
+    /// R2 verify DA 重現二：否決另一個配對後離開列表、沒有人判定過的列，其舊 id 要整批拒絕，不寫出一筆看不到的記錄。
+    func testRowThatLeftTheListingWithoutBeingDecidedIsRefused() throws {
+        try org("a", "A Org", parents: [.key("c"), .literal("B Org")])
+        try org("b", "B Org", parents: [.literal("A Org")])
+        try org("c", "C Org", parents: [.literal("B Org")])
+        _ = try service.resolveOrganizations(apply: nil, reject: ["a::B Org"])
+        let ids = ((json(try service.resolveOrganizations(apply: nil))["candidates"] as? [[String: Any]]) ?? [])
+            .compactMap { $0["id"] as? String }
+        XCTAssertFalse(ids.contains("c::B Org"), "前提：c::B Org 已離開列表：\(ids)")
+        XCTAssertThrowsError(try service.resolveOrganizations(apply: nil, undecided: ["c::B Org@b=查過"]))
+        XCTAssertFalse(try orgRefs("b").contains { $0.field == "resolution-undecided" })
+    }
+
+    /// 已否決的配對（不在列表上）仍走逐筆略過，不整批拒絕。
+    func testRejectedPairingOffTheListingIsSkipped() throws {
+        try org("iss", "Sinica")
+        try person("p", affiliation: "Sinica")
+        _ = try service.resolveOrganizations(apply: nil, reject: ["p::Sinica"])
+        let out = json(try service.resolveOrganizations(apply: nil, undecided: ["p::Sinica@iss=查過"]))
+        XCTAssertEqual((out["skipped"] as? [Any])?.count, 1, "\(out)")
+    }
+
+    /// 巢狀的已知前綴：第二個切法成立即停，說明不組（R2 verify：每個切法各複製一次尾段）。
+    func testNestedKnownPrefixesStopAtTheSecondSplit() {
+        let known: Set<String> = ["p::A", "p::A@a=x", "p::A@a=x@a=x"]
+        let r = AkashicService.splitOrgUndecided("p::A@a=x@a=x@a=" + String(repeating: "y", count: 10_000), knownRowIDs: known)
+        XCTAssertEqual(r.accepted.count, 2)
+        XCTAssertTrue(r.accepted.allSatisfy { $0.statement.isEmpty })
+    }
+
+    /// 結果裡的 id 不截斷：同一歧義條目的兩個 org，literal 很長時仍分得開。
+    func testLongLiteralIDsStayDistinguishableInTheResult() throws {
+        let long = "Institute " + String(repeating: "of Very Long Names ", count: 20)
+        let name = long.trimmingCharacters(in: .whitespaces)
+        try org("as", name)
+        try org("iss", name)
+        try person("p", affiliation: name)
+        let out = json(try service.resolveOrganizations(apply: nil, undecided: ["p::\(name)@as=查過", "p::\(name)@iss=查過"]))
+        let ids = Set(recorded(out).compactMap { $0["id"] as? String })
+        XCTAssertEqual(ids.count, 2, "\(ids)")
     }
 
     /// 切得開但前綴不是已知 id（例如那一列已歸戶而離開列表）時，訊息要與格式錯分得開。

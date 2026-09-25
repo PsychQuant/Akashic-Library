@@ -4937,7 +4937,7 @@ public final class AkashicService {
                 },
                 "undecidedTotal": undecidedTotal,   // display-safe-exempt: Int
                 "ambiguityUndecidedTotal": ambiguityChecked.count,   // display-safe-exempt: Int
-                "note": "apply 帶候選 id 歸戶；reject 帶候選 id 否決",
+                "note": "apply 帶候選 id 歸戶；reject 帶候選 id 否決；歧義條目的 id 只用於 undecided（<id>@<orgKey>=說明），apply／reject 不收",
             ] as [String: Any])
         }
         let chosen = try dedupe(selected).map { id -> OrgResolutionCandidate in

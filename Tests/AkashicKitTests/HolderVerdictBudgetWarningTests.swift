@@ -76,6 +76,35 @@ final class HolderVerdictBudgetWarningTests: XCTestCase {
         XCTAssertTrue(store.venueVerdictBudgetIssues(in: try store.load(), threshold: 1).isEmpty, "venue 族不掃 person")
     }
 
+    /// 位元組軸（#645 verify security）：未決記錄的說明可寫到 4 KB，只看節點會在撞上 8 MiB 讀取上限之後很久才出聲。
+    /// 經 `health(from:)`（預設門檻）走一次，同時證明新族真的接進了 perRecord。
+    func testByteAxisFiresThroughHealthWithUndecidedRecords() throws {
+        var p = Person(key: "chen-c", names: ["Chen, C."])
+        let statement = String(repeating: "查", count: 1_400)   // 4,200 位元組
+        p.references = (0..<260).map { i in
+            ProvenanceReference(
+                field: "resolution-undecided",
+                value: ProvenanceReference.VerdictPairingValue(holderKind: .work, holder: "w\(i)a", literal: "Chen, C.").encoded,
+                kind: .judgement(statement: statement, restsOn: []))
+        }
+        try store.writePerson(p)
+        let health = store.health(from: try store.load())
+        XCTAssertEqual(health.holderVerdictBudgetWarnings.map(\.owner), ["chen-c"], "260 筆 × 4.2 KB ≥ 1 MiB，節點數只有門檻的 2%")
+        XCTAssertTrue(health.holderVerdictBudgetWarnings.first?.issue.message.contains("位元組") == true)
+        XCTAssertTrue(health.venueVerdictBudgetWarnings.isEmpty, "venue 族不重複報 person")
+    }
+
+    /// 位元組門檻＝讀取預算的一半 ÷ 最壞的 YAML 跳脫（4.00×，第 18 列量過）；venue 族同一個門檻。
+    func testByteThresholdIsDerivedAndSharedWithVenues() throws {
+        XCTAssertEqual(AliasEventBudget.verdictByteWarningThreshold, AliasEventBudget.maxBytes / 2 / 4)
+        var v = Venue(key: "big-journal", type: .periodical, names: TimelineOf([TemporalValue(value: "Big Journal")]))
+        v.references = verdicts(3)
+        try store.writeVenue(v)
+        let load = try store.load()
+        XCTAssertEqual(store.venueVerdictBudgetIssues(in: load, threshold: 1_000, byteThreshold: 10).count, 1, "venue 族也看位元組軸")
+        XCTAssertTrue(store.venueVerdictBudgetIssues(in: load, threshold: 1_000, byteThreshold: 1_000_000).isEmpty)
+    }
+
     /// 三個面都要提到（源碼掃描，#453 的同一形）。
     func testAllFacesMentionHolderVerdictBudgetWarnings() throws {
         let repo = URL(fileURLWithPath: #filePath)

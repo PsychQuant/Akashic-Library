@@ -57,7 +57,14 @@ public enum AliasEventBudget {
     /// #499（裁決：候選 3）：第 13 條邊在 venue 側維持序列化位置（verdict 留在被判定的 venue 上），
     /// 但增長是 O(catalog)——所以在**硬預算的一半**設一道 warning，指名該 venue，讓工具自己看、不靠散文觸發條件。
     /// 達門檻＝重開第 13 條邊的規模化裁決（候選 2：sidecar ledger 是那時的形狀）。live 最大刊 1,352 筆（2026-09-04）。
+    ///
+    /// **兩族共用**（#645）：person／organization 的 verdict 與 venue 同形、受同一個預算約束，
+    /// `StoreHealth.holderVerdictBudgetWarnings` 也用這個門檻——改它會同時移動兩族。
     public static let venueVerdictWarningThreshold = maxExpandedNodes / 2 / nodesPerVenueVerdict
+    /// #645：verdict 內容（value、說明、rests-on 的 UTF-8 總和）的位元組門檻＝讀取位元組預算的一半 ÷ 最壞的 YAML 跳脫放大
+    /// （控制字元 4.00×，`zero-instance-guards` 第 18 列量過）＝ 1 MiB。decode 閘有節點與位元組兩軸，未決記錄的說明可寫到
+    /// 4,096 位元組，只看節點會在撞上位元組上限之後很久才出聲。venue 與 person／organization 兩族共用。
+    public static let verdictByteWarningThreshold = maxBytes / 2 / 4
 
     /// 輸入大小上限（bytes）。
     public static let maxBytes = 8 * 1024 * 1024

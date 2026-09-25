@@ -655,30 +655,48 @@ public extension LibraryStore {
     /// 只數 resolution verdict（`resolutionVerdictFields`），不數其他 reference——增長來源就是它們。
     /// severity warning：記錄合法、只是在長；訊息說出數字、門檻與處置。
     func venueVerdictBudgetIssues(in load: LibraryLoad,
-                                  threshold: Int = AliasEventBudget.venueVerdictWarningThreshold) -> [StoreHealth.OwnedIssue] {
+                                  threshold: Int = AliasEventBudget.venueVerdictWarningThreshold,
+                                  byteThreshold: Int = AliasEventBudget.verdictByteWarningThreshold) -> [StoreHealth.OwnedIssue] {
         load.venues.compactMap { v in
-            let (n, effective) = Self.verdictBudgetCount(v.references)
-            guard effective >= threshold else { return nil }
-            let counted = effective == n ? "\(n) 筆" : "\(n) 筆（rests-on 換算後等效 \(effective) 筆）"   // display-safe-exempt: Int
-            let message = "\(StoreHealth.venueVerdictBudgetPrefix)：\(counted) resolution verdict（門檻 \(threshold)＝"
-                + "decode 硬預算的一半）。這本刊的 verdict 是 O(catalog) 在長；處置：重開第 13 條邊的規模化裁決（#499，"
-                + "候選 2 sidecar ledger），不要只放寬預算"
+            guard let over = Self.verdictBudgetOverrun(v.references, threshold: threshold, byteThreshold: byteThreshold)
+            else { return nil }
+            let message = "\(StoreHealth.venueVerdictBudgetPrefix)：\(over)。這本刊的 verdict 是 O(catalog) 在長；"   // display-safe-exempt: over 只含 Int 與固定字
+                + "處置：重開第 13 條邊的規模化裁決（#499，候選 2 sidecar ledger），不要只放寬預算"
             return StoreHealth.OwnedIssue(owner: v.key, kind: "venue",
                                           issue: ValidationIssue(severity: .warning, message: message))
         }
     }
 
-    /// resolution verdict 的筆數與等效筆數。門檻是以「每筆 9 節點、rests-on 空」換算的（`nodesPerVenueVerdict`）；
-    /// 未決記錄可帶 rests-on（change `resolution-verdict-states`），每個 digest 多一個節點——換算回等效筆數再比
-    /// （R1 verify security）。venue 族與 person／organization 族共用這一份（#645）。
-    static func verdictBudgetCount(_ references: [ProvenanceReference]) -> (count: Int, effective: Int) {
+    /// resolution verdict 的筆數、等效筆數與內容位元組。venue 族與 person／organization 族共用這一份（#645）。
+    ///
+    /// - 等效筆數：門檻是以「每筆 9 節點、rests-on 空」換算的（`nodesPerVenueVerdict`）；未決記錄可帶 rests-on
+    ///   （change `resolution-verdict-states`），每個 digest 多一個節點——換算回等效筆數再比（#619 R1 verify security）。
+    /// - 位元組：value、說明與 rests-on 的 UTF-8 總和。decode 閘有兩軸，節點之外還有讀取的位元組上限；未決記錄的說明
+    ///   可寫到 4,096 位元組，約 2,000 筆就先撞上位元組上限，那時節點數只到預算的一成（#645 verify security）。
+    static func verdictBudgetCount(_ references: [ProvenanceReference]) -> (count: Int, effective: Int, bytes: Int) {
         let verdicts = references.filter { ProvenanceReference.resolutionVerdictFields.contains($0.field) }
-        let extraNodes = verdicts.reduce(0) { acc, r in
-            if case .judgement(_, let restsOn) = r.kind { return acc + restsOn.count }
-            return acc
+        var extraNodes = 0
+        var bytes = 0
+        for r in verdicts {
+            bytes += (r.value ?? "").utf8.count
+            if case .judgement(let statement, let restsOn) = r.kind {
+                extraNodes += restsOn.count
+                bytes += statement.utf8.count + restsOn.reduce(0) { $0 + $1.utf8.count }
+            }
         }
         let n = verdicts.count
-        return (n, n + (extraNodes + AliasEventBudget.nodesPerVenueVerdict - 1) / AliasEventBudget.nodesPerVenueVerdict)
+        return (n, n + (extraNodes + AliasEventBudget.nodesPerVenueVerdict - 1) / AliasEventBudget.nodesPerVenueVerdict, bytes)
+    }
+
+    /// 兩軸任一達門檻時回傳說明（筆數與位元組都說出來，讓人看得出是哪一軸）；都沒到回 nil。
+    static func verdictBudgetOverrun(_ references: [ProvenanceReference], threshold: Int, byteThreshold: Int) -> String? {
+        let (n, effective, bytes) = verdictBudgetCount(references)
+        guard effective >= threshold || bytes >= byteThreshold else { return nil }
+        let counted = effective == n ? "\(n) 筆" : "\(n) 筆（rests-on 換算後等效 \(effective) 筆）"   // display-safe-exempt: Int
+        var axes: [String] = []
+        if effective >= threshold { axes.append("筆數達門檻 \(threshold)（節點預算的一半）") }   // display-safe-exempt: Int
+        if bytes >= byteThreshold { axes.append("內容 \(bytes) 位元組達門檻 \(byteThreshold)（讀取位元組預算的一半÷最壞 YAML 跳脫 4 倍）") }   // display-safe-exempt: Int
+        return "\(counted) resolution verdict，\(axes.joined(separator: "；"))"   // display-safe-exempt: 兩者皆本函式以 Int 組成
     }
 
     /// **person／organization 的 verdict 數逼近 decode 預算**（#645）——venue 族（#499）的同形擴充。
@@ -690,15 +708,15 @@ public extension LibraryStore {
     /// person 4,575 筆、單筆最多 40；organization 13 筆、單筆最多 1——零實例（`zero-instance-guards` 第 31 列）。
     /// severity warning：記錄合法、只是在長；處置是查是否有呼叫端在重複記未決，持續增長時重開第 13 條邊的規模化裁決。
     func holderVerdictBudgetIssues(in load: LibraryLoad,
-                                   threshold: Int = AliasEventBudget.venueVerdictWarningThreshold) -> [StoreHealth.OwnedIssue] {
+                                   threshold: Int = AliasEventBudget.venueVerdictWarningThreshold,
+                                   byteThreshold: Int = AliasEventBudget.verdictByteWarningThreshold) -> [StoreHealth.OwnedIssue] {
         let holders = load.people.map { ($0.key, "person", $0.references) }
             + load.organizations.map { ($0.key, "organization", $0.references) }
         return holders.compactMap { key, kind, references in
-            let (n, effective) = Self.verdictBudgetCount(references)
-            guard effective >= threshold else { return nil }
-            let counted = effective == n ? "\(n) 筆" : "\(n) 筆（rests-on 換算後等效 \(effective) 筆）"   // display-safe-exempt: Int
-            let message = "\(StoreHealth.holderVerdictBudgetPrefix)：這筆 \(kind) 持有 \(counted) resolution verdict（門檻 \(threshold)＝"   // display-safe-exempt: kind 是封閉的兩個值
-                + "decode 硬預算的一半）。處置：先查是否有呼叫端在重複記未決（未決記錄不退役，#619）；持續增長時重開第 13 條邊的"
+            guard let over = Self.verdictBudgetOverrun(references, threshold: threshold, byteThreshold: byteThreshold)
+            else { return nil }
+            let message = "\(StoreHealth.holderVerdictBudgetPrefix)：這筆 \(kind) 持有 \(over)。"   // display-safe-exempt: kind 是封閉的兩個值、over 只含 Int 與固定字
+                + "處置：先查是否有呼叫端在重複記未決（未決記錄不退役，#619）；持續增長時重開第 13 條邊的"
                 + "規模化裁決（#499），不要只放寬預算"
             return StoreHealth.OwnedIssue(owner: key, kind: kind,
                                           issue: ValidationIssue(severity: .warning, message: message))

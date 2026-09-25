@@ -220,6 +220,10 @@ struct Validate: ParsableCommand {
         if !health.venueVerdictBudgetWarnings.isEmpty {
             print("venue verdict 逼近 decode 預算: \(health.venueVerdictBudgetWarnings.count)（第 13 條邊的規模化裁決，#499）")
         }
+        // #645：person／organization 的同一族——增長來源多了不退役的未決記錄
+        if !health.holderVerdictBudgetWarnings.isEmpty {
+            print("person／organization verdict 逼近 decode 預算: \(health.holderVerdictBudgetWarnings.count)（先查重複記未決，#645）")   // display-safe-exempt: Int
+        }
         // #450：拆分後錨失效——逐條已印，這兩行給總數（兩種分開：一種要人重新消歧，一種只是提醒）。
         if !health.orphanedSplitVerdicts.isEmpty {
             print("拆分後的孤兒 verdict: \(health.orphanedSplitVerdicts.count)（錨 literal 已被 work 側拆分記錄退役，#450）")

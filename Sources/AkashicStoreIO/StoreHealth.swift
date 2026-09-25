@@ -124,6 +124,12 @@ public struct StoreHealth {
     public var venueVerdictBudgetWarnings: [OwnedIssue] {
         perRecordIssues.filter { $0.issue.message.hasPrefix(Self.venueVerdictBudgetPrefix) }
     }
+    /// person／organization 的 verdict 數達 decode 預算一半（#645）的訊息前綴——venue 族的同形擴充，前綴分開以免兩族互相計入。
+    public static let holderVerdictBudgetPrefix = "person／organization 的 verdict 數逼近 decode 預算"
+    /// `perRecordIssues` 裡的 person／organization verdict 預算 warning。計算屬性，同 `deadVerdicts`。
+    public var holderVerdictBudgetWarnings: [OwnedIssue] {
+        perRecordIssues.filter { $0.issue.message.hasPrefix(Self.holderVerdictBudgetPrefix) }
+    }
 
     /// #450：拆分後的孤兒 verdict——某 person／organization 持有的 resolution verdict，其 literal 已被
     /// 該 work 的拆分記錄退役（以 (citekey, literal) 為鍵）。計算屬性，同 `deadVerdicts`。
@@ -308,6 +314,7 @@ public extension LibraryStore {
         perRecord += danglingSourceIssues(in: load)
         // #499：第 13 條邊在 venue 側是 O(catalog)——硬預算的一半處出聲、指名該 venue（裁決：候選 3）。
         perRecord += venueVerdictBudgetIssues(in: load)
+        perRecord += holderVerdictBudgetIssues(in: load)
         // #450：拆分後錨失效的兩種 warning——各段全不在的拆分記錄（owner 是 work）、literal 已被拆分
         // 退役的 verdict（owner 是持有者）。跨記錄（work 的拆分記錄 vs person 的 verdict），單筆 validate()
         // 看不到；同一形：per-record warning。
@@ -650,21 +657,50 @@ public extension LibraryStore {
     func venueVerdictBudgetIssues(in load: LibraryLoad,
                                   threshold: Int = AliasEventBudget.venueVerdictWarningThreshold) -> [StoreHealth.OwnedIssue] {
         load.venues.compactMap { v in
-            let verdicts = v.references.filter { ProvenanceReference.resolutionVerdictFields.contains($0.field) }
-            let n = verdicts.count
-            // 等效筆數：門檻是以「每筆 9 節點、rests-on 空」換算的（`nodesPerVenueVerdict`）；未決記錄可帶 rests-on
-            // （change `resolution-verdict-states`），每個 digest 多一個節點——換算回等效筆數再比（R1 verify security）
-            let extraNodes = verdicts.reduce(0) { acc, r in
-                if case .judgement(_, let restsOn) = r.kind { return acc + restsOn.count }
-                return acc
-            }
-            let effective = n + (extraNodes + AliasEventBudget.nodesPerVenueVerdict - 1) / AliasEventBudget.nodesPerVenueVerdict
+            let (n, effective) = Self.verdictBudgetCount(v.references)
             guard effective >= threshold else { return nil }
             let counted = effective == n ? "\(n) 筆" : "\(n) 筆（rests-on 換算後等效 \(effective) 筆）"   // display-safe-exempt: Int
             let message = "\(StoreHealth.venueVerdictBudgetPrefix)：\(counted) resolution verdict（門檻 \(threshold)＝"
                 + "decode 硬預算的一半）。這本刊的 verdict 是 O(catalog) 在長；處置：重開第 13 條邊的規模化裁決（#499，"
                 + "候選 2 sidecar ledger），不要只放寬預算"
             return StoreHealth.OwnedIssue(owner: v.key, kind: "venue",
+                                          issue: ValidationIssue(severity: .warning, message: message))
+        }
+    }
+
+    /// resolution verdict 的筆數與等效筆數。門檻是以「每筆 9 節點、rests-on 空」換算的（`nodesPerVenueVerdict`）；
+    /// 未決記錄可帶 rests-on（change `resolution-verdict-states`），每個 digest 多一個節點——換算回等效筆數再比
+    /// （R1 verify security）。venue 族與 person／organization 族共用這一份（#645）。
+    static func verdictBudgetCount(_ references: [ProvenanceReference]) -> (count: Int, effective: Int) {
+        let verdicts = references.filter { ProvenanceReference.resolutionVerdictFields.contains($0.field) }
+        let extraNodes = verdicts.reduce(0) { acc, r in
+            if case .judgement(_, let restsOn) = r.kind { return acc + restsOn.count }
+            return acc
+        }
+        let n = verdicts.count
+        return (n, n + (extraNodes + AliasEventBudget.nodesPerVenueVerdict - 1) / AliasEventBudget.nodesPerVenueVerdict)
+    }
+
+    /// **person／organization 的 verdict 數逼近 decode 預算**（#645）——venue 族（#499）的同形擴充。
+    ///
+    /// 兩者持有的 resolution verdict 與 venue 同一個 `ProvenanceReference` 形狀（每筆展開同為
+    /// `nodesPerVenueVerdict` 個節點）、受同一個 decode 硬預算約束，所以門檻沿用 `venueVerdictWarningThreshold`
+    /// ——另立一個等值常數會是同一件事的第二份描述。增長來源：一個人的著作數（第 13 條邊的 person 側），與
+    /// 不退役的 `resolution-undecided` 記錄（#619 起 person、#643 起 organization）。2026-09-25 live store：
+    /// person 4,575 筆、單筆最多 40；organization 13 筆、單筆最多 1——零實例（`zero-instance-guards` 第 31 列）。
+    /// severity warning：記錄合法、只是在長；處置是查是否有呼叫端在重複記未決，持續增長時重開第 13 條邊的規模化裁決。
+    func holderVerdictBudgetIssues(in load: LibraryLoad,
+                                   threshold: Int = AliasEventBudget.venueVerdictWarningThreshold) -> [StoreHealth.OwnedIssue] {
+        let holders = load.people.map { ($0.key, "person", $0.references) }
+            + load.organizations.map { ($0.key, "organization", $0.references) }
+        return holders.compactMap { key, kind, references in
+            let (n, effective) = Self.verdictBudgetCount(references)
+            guard effective >= threshold else { return nil }
+            let counted = effective == n ? "\(n) 筆" : "\(n) 筆（rests-on 換算後等效 \(effective) 筆）"   // display-safe-exempt: Int
+            let message = "\(StoreHealth.holderVerdictBudgetPrefix)：這筆 \(kind) 持有 \(counted) resolution verdict（門檻 \(threshold)＝"   // display-safe-exempt: kind 是封閉的兩個值
+                + "decode 硬預算的一半）。處置：先查是否有呼叫端在重複記未決（未決記錄不退役，#619）；持續增長時重開第 13 條邊的"
+                + "規模化裁決（#499），不要只放寬預算"
+            return StoreHealth.OwnedIssue(owner: key, kind: kind,
                                           issue: ValidationIssue(severity: .warning, message: message))
         }
     }

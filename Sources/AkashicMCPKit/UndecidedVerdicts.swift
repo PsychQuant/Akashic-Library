@@ -25,8 +25,8 @@ extension AkashicService {
 
     /// 一次呼叫的上限（R1 verify security）。超過即整批拒絕、零寫入、具名（`lossless-intake` 的有界拒絕：不截斷）。
     /// **它只約束一次呼叫，不約束累積**（R2 verify logic／security）：未決記錄設計上會累積、不退役，重複呼叫仍能把一筆
-    /// 記錄推向 decode 的節點預算。累積面的出聲只有 venue 有（`StoreHealth.venueVerdictBudgetWarnings`，未決計入）；
-    /// person 與 organization 側沒有對應的預警——缺口記 #645（organization 在 #643 加入同一個缺口）。
+    /// 記錄推向 decode 的節點預算。累積面由預算 warning 出聲（未決計入）：venue 側是 `StoreHealth.venueVerdictBudgetWarnings`，
+    /// person 與 organization 側是 `StoreHealth.holderVerdictBudgetWarnings`（#645）。
     /// 數字的來源：rests-on 取「一次查證會存的頁面數」的寬鬆上界；說明取 `displaySafe` 對資料面的 800 字之數倍，
     /// 讓一段完整的查證敘述放得下；一次的 id 數取 CLI 單批 triage 的量級。
     static let maxRestsOnPerCall = 20

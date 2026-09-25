@@ -404,6 +404,8 @@ public final class AkashicService {
                 "danglingSources": health.danglingSources.count,
                 // #499：venue verdict 數逼近 decode 預算——計數讓呼叫端不必掃 first 就看見有哪本刊在長。
                 "venueVerdictBudgetWarnings": health.venueVerdictBudgetWarnings.count,
+                // #645：person／organization 的同一族（未決記錄不退役，#619／#643）
+                "holderVerdictBudgetWarnings": health.holderVerdictBudgetWarnings.count,   // display-safe-exempt: Int
                 // #450：拆分後錨失效的兩種 warning——孤兒 verdict（owner 是持有者）與各段全不在的拆分記錄
                 // （owner 是 work）。計數分開：前者要人去重新消歧，後者只是提醒記錄留著供 un-split。
                 "orphanedSplitVerdicts": health.orphanedSplitVerdicts.count,

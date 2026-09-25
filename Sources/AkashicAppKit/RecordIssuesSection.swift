@@ -51,6 +51,11 @@ struct RecordIssuesSection: View {
                     .help("這本刊的 resolution verdict 數達 decode 硬預算的一半（#499）。"
                           + "處置是重開第 13 條邊的規模化裁決，不要只放寬預算。")
             }
+            if summary.holderVerdictBudget > 0 {
+                LabeledContent("人物／機構 verdict 逼近預算", value: summary.lowerBound(summary.holderVerdictBudget))
+                    .help("這筆 person 或 organization 的 resolution verdict 數達 decode 硬預算的一半（#645）。"
+                          + "先查是否有呼叫端在重複記未決（未決記錄不退役）；持續增長時重開第 13 條邊的規模化裁決。")
+            }
             if summary.orphanedSplitVerdicts > 0 {
                 LabeledContent("拆分後的孤兒 verdict", value: summary.lowerBound(summary.orphanedSplitVerdicts))
                     .help("verdict 判的 literal 已被那筆 work 的拆分記錄退役（#450）。"

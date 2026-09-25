@@ -85,7 +85,13 @@ final class ReferencesExtractTests: XCTestCase {
 
     /// T2：頁碼、重複的頁首與版權聲明夾在段中——不成為條目，也不併進條目
     func testPageNoiseIsNeitherAnEntryNorMergedIntoOne() throws {
+        // 正文頁也印著同樣的頁首與版權聲明——真實論文的形狀（R2 G10：雜訊的判準改為
+        // 「在參考文獻段以外也出現」，只在段內重複的行是正當續行）
         let text = """
+        Body text on page eleven.
+        RUNNING HEAD IMAGINARY
+        This document is copyrighted by the Imaginary Association.
+
         References
 
         Adams, J. K. (2001). First title. Journal A, 1, 1–2.
@@ -466,5 +472,107 @@ final class ReferencesExtractTests: XCTestCase {
         let (status, output) = try extract(text)
         XCTAssertNotEqual(status, 0)
         XCTAssertTrue(output.contains("不支援"), output)
+    }
+
+    // MARK: - #617 verify R2 餘項（G6、G10）
+
+    /// T18：清單中間的圖表標題（雙欄期刊的浮動圖表）不得截斷清單（G6）——
+    /// 略過那一行、繼續切分，並說出來
+    func testFloatCaptionInsideTheListDoesNotTruncateIt() throws {
+        let text = """
+        References
+
+        Adams, J. K. (2001). First title. Journal A, 1, 1–2.
+        Table 3
+        Baker, L. (2002). Second title. Journal B, 2, 3–4.
+        Carter, M. (2003). Third title. Journal C, 3, 5–6.
+        """
+        let (status, output) = try extract(text)
+        XCTAssertEqual(status, 0, output)
+        let r = try decode(output)
+        XCTAssertEqual(r.entries.map(\.firstAuthor), ["Adams", "Baker", "Carter"])
+        XCTAssertTrue(r.warnings.contains { $0.contains("圖表標題") && $0.contains("第 4 行") }, "\(r.warnings)")
+    }
+
+    /// T18b：附錄等結束標題之後若還有條目開頭，停在那裡、但要說出被擋在外面的數目（G6）
+    func testEndHeadingFollowedByEntriesIsWarned() throws {
+        let text = """
+        References
+
+        Adams, J. K. (2001). First title. Journal A, 1, 1–2.
+        Appendix A
+        Baker, L. (2002). Second title. Journal B, 2, 3–4.
+        """
+        let (status, output) = try extract(text)
+        XCTAssertEqual(status, 0, output)
+        let r = try decode(output)
+        XCTAssertEqual(r.count, 1)
+        XCTAssertTrue(r.warnings.contains { $0.contains("第 4 行") && $0.contains("1 個條目開頭") }, "\(r.warnings)")
+    }
+
+    /// T19：warning 的行號就是檔案的行號——pdftotext 每頁結尾的 `\n\f` 不得多算一行（G10）
+    func testLineNumbersDoNotDriftAcrossPageBreaks() throws {
+        let text = "Intro text.\n\u{0C}More text.\n\u{0C}References\n\n"
+            + "Adams, J. K. (2001). First title. Journal A, 1, 1–2.\n"
+            + "Baker, L. (2002). Second title. Journal B, 2, 3–4.\n"
+            + "Reference\nSmith, Q. (2001). A table cell. n = 40\n"
+        let (status, output) = try extract(text)
+        XCTAssertEqual(status, 0, output)
+        let r = try decode(output)
+        XCTAssertTrue(r.warnings.contains { $0.contains("標題候選") && $0.contains("第 3 行") }, "\(r.warnings)")
+    }
+
+    /// T20：只在參考文獻段裡重複的續行（同一家出版社的兩章）是條目的一部分，不是頁首（G10）；
+    /// 被略過的行只以條目序號回報，warning 不帶 PDF 原文
+    func testRepeatedLineOnlyInsideTheListIsKept() throws {
+        let text = """
+        Body text on page one.
+        RUNNING HEAD IMAGINARY
+        Body text on page two.
+        RUNNING HEAD IMAGINARY
+
+        References
+
+        Adams, J. K. (2001). First chapter. In B. Editor (Ed.), Book one (pp. 1–2).
+        New York, NY: Imaginary Press.
+        Baker, L. (2002). Second chapter. In C. Editor (Ed.), Book two (pp. 3–4).
+        RUNNING HEAD IMAGINARY
+        New York, NY: Imaginary Press.
+        Carter, M. (2003). Third title. Journal C, 3, 5–6.
+        """
+        let (status, output) = try extract(text)
+        XCTAssertEqual(status, 0, output)
+        let r = try decode(output)
+        XCTAssertEqual(r.count, 3)
+        guard r.entries.count == 3 else { return }
+        XCTAssertTrue(r.entries[0].raw.hasSuffix("New York, NY: Imaginary Press."), r.entries[0].raw)
+        XCTAssertTrue(r.entries[1].raw.hasSuffix("New York, NY: Imaginary Press."), r.entries[1].raw)
+        XCTAssertFalse(r.entries[1].raw.contains("RUNNING HEAD"), r.entries[1].raw)
+        XCTAssertTrue(r.warnings.contains { $0.contains("略過 1 行") && $0.contains("第 2 筆") }, "\(r.warnings)")
+        XCTAssertFalse(r.warnings.contains { $0.contains("RUNNING HEAD") || $0.contains("Imaginary Press") },
+                       "warnings 不得帶 PDF 原文：\(r.warnings)")
+    }
+
+    /// T21：DOI／URL 在 `(`、`?` 等其他標點前斷行也要接回（G10）；但後面接的是帶空白的
+    /// 括號附註（`(Original work published …)`）時不接
+    func testDOIWrappedBeforeOtherPunctuationIsRejoined() throws {
+        let text = """
+        References
+
+        Adams, J. (2001). First title. Journal A, 1, 1–2. https://doi.org/10.9999/(SICI)1097-4679
+        (199901)55:1<1::AID-JCLP1>3.0.CO;2-X
+        Baker, L. (2002). Second title. Retrieved from https://example.org/page
+        ?id=42
+        Carter, M. (1950/2003). Third title. Imaginary Press. https://doi.org/10.9999/xyz
+        (Original work published 1950)
+        """
+        let (status, output) = try extract(text)
+        XCTAssertEqual(status, 0, output)
+        let r = try decode(output)
+        guard r.entries.count == 3 else { return XCTFail("\(r.entries.map(\.raw))") }
+        XCTAssertEqual(r.entries[0].doi, "10.9999/(SICI)1097-4679(199901)55:1<1::AID-JCLP1>3.0.CO;2-X")
+        XCTAssertTrue(r.entries[1].raw.contains("https://example.org/page?id=42"), r.entries[1].raw)
+        XCTAssertEqual(r.entries[2].doi, "10.9999/xyz")
+        XCTAssertTrue(r.entries[2].raw.contains("xyz (Original work"), r.entries[2].raw)
     }
 }

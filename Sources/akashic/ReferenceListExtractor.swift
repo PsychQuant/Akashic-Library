@@ -95,43 +95,41 @@ enum ReferenceListExtractor {
                 + "輸入可能不含參考文獻段，或標題與其他文字擠在同一行")
         }
         let sections = candidates.enumerated().map { k, c in
-            (index: c, lines: section(after: c, in: lines,
-                                      until: k + 1 < candidates.count ? candidates[k + 1] : nil))
+            section(after: c, in: lines, until: k + 1 < candidates.count ? candidates[k + 1] : nil)
         }
         let starts = sections.map { $0.lines.filter(isEntryStart).count }
         // 條目開頭最多者；同數取後者（沿用原本「參考文獻段在正文之後」的偏好）
         let best = starts.indices.max { (starts[$0], $0) < (starts[$1], $1) } ?? 0
-        let chosen = sections[best].lines
+        let chosen = sections[best]
         var warnings: [String] = []
         let withEntries = starts.filter { $0 > 0 }.count
         if withEntries > 1 {
             warnings.append("有 \(withEntries) 個參考文獻標題候選都帶著條目；取條目開頭最多的那個"
-                            + "（第 \(sections[best].index + 1) 行，\(starts[best]) 個條目開頭）——其餘可能是附錄或表格")
+                            + "（第 \(chosen.range.lowerBound) 行，\(starts[best]) 個條目開頭）——其餘可能是附錄或表格")
         }
+        warnings += chosen.notes
 
-        let nonEmpty = chosen.filter { !$0.isEmpty }
+        let nonEmpty = chosen.lines.filter { !$0.isEmpty }
         if nonEmpty.prefix(10).filter({ matches($0, numberedPattern) }).count >= 3 {
             throw ValidationError(
                 "參考文獻段是數字編號格式（[1] …）——目前不支援，只處理作者—年份格式（#617 D7）")
         }
 
-        let (kept, droppedLines) = dropNoise(nonEmpty, documentLines: lines)
-        if !droppedLines.isEmpty {
-            let pageNumbers = droppedLines.filter { matches($0, "^\\d{1,4}$") }.count
-            let repeated = Array(Set(droppedLines.filter { !matches($0, "^\\d{1,4}$") })).sorted()
-            var note = "略過 \(droppedLines.count) 行：頁碼 \(pageNumbers) 行、全文逐字重複的行 \(droppedLines.count - pageNumbers) 行"
-            if !repeated.isEmpty {
-                note += "（頁首頁尾、版權聲明；也可能是正當重複的續行）："
-                    + repeated.prefix(3).map { "「\(String($0.prefix(60)))」" }.joined(separator: "")
-            }
-            warnings.append(note)
-        }
-        guard kept.contains(where: isEntryStart) else {
+        let noise = noiseIndices(nonEmpty, documentLines: lines, section: chosen.range)
+        guard nonEmpty.indices.contains(where: { !noise.contains($0) && isEntryStart(nonEmpty[$0]) }) else {
             throw ValidationError(
                 "找到參考文獻標題，但段落裡沒有辨識出任何條目——段落可能是空的、被截斷，或不是作者—年份格式")
         }
 
-        let (texts, absorbed) = split(kept)
+        let (texts, absorbed, skippedIn) = split(nonEmpty, skip: noise)
+        if !noise.isEmpty {
+            let pageNumbers = noise.filter { matches(nonEmpty[$0], "^\\d{1,4}$") }.count
+            // 不引 PDF 原文（R2 G10：warnings 會進模型的行動清單），只報落在哪幾筆
+            warnings.append("略過 \(noise.count) 行：頁碼 \(pageNumbers) 行、在參考文獻段以外也出現的行"
+                            + " \(noise.count - pageNumbers) 行（頁首頁尾、版權聲明），落在第 "
+                            + skippedIn.map(String.init).joined(separator: "、")
+                            + " 筆——這幾筆的標題或出處若看起來缺了一段，判為「判不了」")
+        }
         let entries = texts.enumerated().map { offset, text in
             fields(of: text, index: offset + 1)
         }
@@ -150,11 +148,14 @@ enum ReferenceListExtractor {
 
     // MARK: - 步驟
 
-    /// pdftotext 輸出的正規化：換頁符當換行、NFKC（連字 ﬁ → fi、不換行空白 → 空白）、
+    /// pdftotext 輸出的正規化：換頁符當換行（緊接在換行後的不重複算）、NFKC（連字 ﬁ → fi、不換行空白 → 空白）、
     /// 行尾軟連字號視為斷字接合、其餘格式字元與控制字元移除。
     static func normalize(_ s: String) -> String {
         var t = s.replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
+            // pdftotext 在每頁結尾寫 `\n\f`：換頁符接在換行後面時不再多算一行，warning 的行號
+            // 才對得上檔案的行號（R2 G10）
+            .replacingOccurrences(of: "\n\u{0C}", with: "\n")
             .replacingOccurrences(of: "\u{0C}", with: "\n")
             .replacingOccurrences(of: "\t", with: " ")
             .replacingOccurrences(of: "\u{AD}\n", with: "")
@@ -170,34 +171,78 @@ enum ReferenceListExtractor {
         return String(out)
     }
 
-    /// 頁碼（只有數字的行）與逐字重複的行（頁首、頁尾、版權聲明）。重複次數在**全文**計
-    /// ——參考文獻段只跨兩頁時，頁首在段內只出現一次（#617 校準）。條目開頭的行不算：
-    /// 兩筆條目的開頭行不會逐字相同，除非真的是重複條目，那要保留給人看。
-    static func dropNoise(_ lines: [String], documentLines: [String]) -> (kept: [String], dropped: [String]) {
-        var counts: [String: Int] = [:]
-        for l in documentLines where !l.isEmpty { counts[l, default: 0] += 1 }
-        var kept: [String] = []
-        var dropped: [String] = []
-        for l in lines {
-            if matches(l, "^\\d{1,4}$") || (counts[l, default: 0] >= 2 && !isEntryStart(l)) {
-                dropped.append(l)
-            } else {
-                kept.append(l)
-            }
+    /// 雜訊行在 `lines` 裡的位置：頁碼（只有數字的行），以及**在參考文獻段以外也出現**的行
+    /// （頁首、頁尾、版權聲明——它們印在每一頁上，正文頁也有）。
+    ///
+    /// 判準的演變，都是量出來的：
+    /// - 段內計數 → 參考文獻段只跨兩頁時，頁首在段內只出現一次，併進了條目（#617 校準）
+    /// - 全文計數 ≥ 2 → 同一家出版社的兩章各以 `New York, NY: Guilford Press.` 單獨成行
+    ///   結尾，兩行都被當成頁首刪掉（R2 G10）
+    /// - 段外出現 ≥ 1（現行）→ 只在清單裡重複的是條目的一部分
+    ///
+    /// 位置（每頁開頭或結尾幾行）不能當判準：同一條版權聲明在一篇 APA 論文的三頁裡分別落在
+    /// 第 0、8、16 行。條目開頭的行永不算雜訊——兩筆開頭逐字相同就是重複條目，要留給人看。
+    static func noiseIndices(_ lines: [String], documentLines: [String], section: Range<Int>) -> Set<Int> {
+        var outside: [String: Int] = [:]
+        for (i, l) in documentLines.enumerated() where !l.isEmpty && !section.contains(i) {
+            outside[l, default: 0] += 1
         }
-        return (kept, dropped)
+        return Set(lines.indices.filter { i in
+            matches(lines[i], "^\\d{1,4}$") || (outside[lines[i], default: 0] >= 1 && !isEntryStart(lines[i]))
+        })
     }
 
-    /// 標題之後、到結束標題或 `until`（下一個標題候選）之前的行
-    static func section(after heading: Int, in lines: [String], until next: Int? = nil) -> [String] {
+    /// 一個標題候選的段落：`lines` 是段內的行（略過的圖表標題不在內），`range` 是它在全文的
+    /// 行號範圍（0 起算，`lowerBound` 是標題本身的下一行——也就是標題的 1 起算行號），
+    /// `notes` 是只在選中這段時才輸出的 warning。
+    struct Section {
+        var lines: [String]
+        var range: Range<Int>
+        var notes: [String]
+    }
+
+    /// 圖表標題（`Table 3`、`Figure 2.`）——雙欄期刊的浮動圖表會落在清單中間
+    static let floatPattern = "^(?:table|figure)\\s+\\d+\\.?\\s*:?$"
+
+    /// 標題之後、到結束標題或 `until`（下一個標題候選）之前的行。
+    ///
+    /// 結束標題之後、到 `until` 之前（若中間還有另一個非圖表的結束標題，則到那裡為止）若還有
+    /// 條目開頭（R2 G6——原本無聲截斷）：
+    /// - 圖表標題 → 浮動圖表，略過這一行、繼續切分
+    /// - 其他（附錄、註、致謝）→ 仍在這裡停，但把被擋在外面的條目開頭數寫進 `notes`
+    static func section(after heading: Int, in lines: [String], until next: Int? = nil) -> Section {
         var out: [String] = []
+        var notes: [String] = []
         let end = next ?? lines.count
-        guard heading + 1 < end else { return [] }
-        for line in lines[(heading + 1)..<end] {
-            if matches(line, endPattern, caseInsensitive: true) { break }
+        guard heading + 1 < end else { return Section(lines: [], range: (heading + 1)..<(heading + 1), notes: []) }
+        var i = heading + 1
+        while i < end {
+            let line = lines[i]
+            if matches(line, endPattern, caseInsensitive: true) {
+                let isFloat = matches(line, floatPattern, caseInsensitive: true)
+                var j = i + 1
+                var following = 0
+                while j < end {
+                    if matches(lines[j], endPattern, caseInsensitive: true)
+                        && !matches(lines[j], floatPattern, caseInsensitive: true) { break }
+                    if isEntryStart(lines[j]) { following += 1 }
+                    j += 1
+                }
+                if following == 0 { break }
+                if isFloat {
+                    notes.append("第 \(i + 1) 行的圖表標題夾在清單中間，其後還有 \(following) 個條目開頭——"
+                                 + "略過這一行、繼續切分；圖表的內文可能併進前一筆的 raw")
+                    i += 1
+                    continue
+                }
+                notes.append("清單停在第 \(i + 1) 行的結束標題（附錄、註或致謝），但它之後還有 \(following) 個條目開頭"
+                             + "沒有計入——若那些也是參考文獻，這份清單被截斷了")
+                break
+            }
             out.append(line)
+            i += 1
         }
-        return out
+        return Section(lines: out, range: (heading + 1)..<i, notes: notes)
     }
 
     static func isEntryStart(_ line: String) -> Bool {
@@ -210,11 +255,21 @@ enum ReferenceListExtractor {
     /// `absorbed` 回報「吸收了一行條目開頭、而上一行不是作者清單的延續（不以 `,`／`&`／`and`
     /// 結尾）」的條目序號（#617 verify F1）：那是前一筆年份沒認出來、兩筆被併成一筆的訊號。
     /// 原本唯一的併筆偵測是「沒有年份」，但併入後的條目帶著下一筆的年份，那條永遠不會觸發。
-    static func split(_ lines: [String]) -> (entries: [String], absorbed: [Int]) {
+    ///
+    /// `skip` 是雜訊行的位置：不併進任何一筆，但記下它落在第幾筆（`skippedIn`）——
+    /// 夾在兩筆之間的算前一筆（那時前一筆還沒結束）。
+    static func split(_ lines: [String], skip: Set<Int> = [])
+        -> (entries: [String], absorbed: [Int], skippedIn: [Int]) {
         var entries: [String] = []
         var absorbed: [Int] = []
+        var skippedIn: [Int] = []
         var current = ""
-        for line in lines {
+        for (i, line) in lines.enumerated() {
+            if skip.contains(i) {
+                let n = entries.count + 1
+                if skippedIn.last != n { skippedIn.append(n) }
+                continue
+            }
             if !current.isEmpty && isEntryStart(line) && yearParen(in: current) != nil {
                 entries.append(current)
                 current = line
@@ -230,7 +285,7 @@ enum ReferenceListExtractor {
             }
         }
         if !current.isEmpty { entries.append(current) }
-        return (entries, absorbed)
+        return (entries, absorbed, skippedIn)
     }
 
     /// 作者清單換到下一行的樣子：以逗號、`&` 或 `and` 結尾
@@ -245,10 +300,13 @@ enum ReferenceListExtractor {
     /// 連字號保留——分不出是斷字還是複合字（`Within-person`）；比對端正規化時會去掉它。
     static func join(_ a: String, _ b: String) -> String {
         if let last = a.last, "-–—/".contains(last) { return a + b }
-        // APA 在標點前斷行的 DOI／URL（`…/0022-3514` ＋ `.40.2.226`）接回，不留空白（#617 verify）
-        if let first = b.first, "._-/".contains(first),
-           let token = a.split(separator: " ").last, token.contains("10.") || token.contains("http") {
-            return a + b
+        // APA 在標點前斷行的 DOI／URL 接回、不留空白：`…/0022-3514` ＋ `.40.2.226`（#617 verify）、
+        // SICI 的 `(199901)55:1<1::…>`、URL 的 `?id=`（R2 G10）。`(` 只在括號內沒有空白時才接
+        // ——`(Original work published 1950)` 是附註，不是 DOI 的一段
+        if let first = b.first, let token = a.split(separator: " ").last,
+           token.contains("10.") || token.contains("http") {
+            if "._-/)?=&#%~;:<>".contains(first) { return a + b }
+            if first == "(", matches(b, "^\\([^\\s()]*\\)") { return a + b }
         }
         return a + " " + b
     }

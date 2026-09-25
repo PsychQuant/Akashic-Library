@@ -34,6 +34,10 @@ struct ReferencesExtractCmd: ParsableCommand {
 
     /// 逐欄 `displaySafe` 後編碼：PDF 文字是第三方內容，控制字元與方向字元不得原樣
     /// 進終端或 LLM context。上限依欄位用途給：`raw` 要容得下一整筆、其餘是單一欄位。
+    ///
+    /// **這份輸出同時是 `nominate` 的輸入**（#617 verify）：截斷會附加「…（已截斷）」、反斜線
+    /// 會逃成 `\u{005C}`，兩者都會進到比對。所以會被比對的欄位（`doi`、`title`）上限放寬到
+    /// 實務上碰不到；真的碰到時，那筆的 DOI 比對不上、標題多出雜訊詞——落在「只在 PDF」由人判斷。
     func encodeForDisplay(_ r: ReferenceListExtractor.Result) throws -> String {
         var safe = r
         safe.entries = r.entries.map { e in
@@ -41,8 +45,8 @@ struct ReferencesExtractCmd: ParsableCommand {
             s.raw = displaySafe(e.raw, max: 2_000)
             s.firstAuthor = e.firstAuthor.map { displaySafe($0) }
             s.authors = e.authors.map { displaySafe($0) }
-            s.title = e.title.map { displaySafe($0, max: 500) }
-            s.doi = e.doi.map { displaySafe($0) }
+            s.title = e.title.map { displaySafe($0, max: 1_000) }
+            s.doi = e.doi.map { displaySafe($0, max: 500) }
             s.yearSuffix = e.yearSuffix.map { displaySafe($0) }
             return s
         }
@@ -94,32 +98,37 @@ struct ReferencesNominateCmd: ParsableCommand {
             }
         }
 
-        let (inStore, conflicts) = try storeDOIs()
-        var result = ReferenceNominator.nominate(refs: parsed.entries, works: works, inStore: inStore)
+        let snapshot = try storeSnapshot()
+        var result = ReferenceNominator.nominate(refs: parsed.entries, works: works,
+                                                 doiIndex: snapshot.doiIndex, store: snapshot.records)
         if skipped > 0 { result.warnings.append("略過 \(skipped) 個沒有 id 的 OpenAlex 項目") }
         if duplicates > 0 { result.warnings.append("\(duplicates) 個 OpenAlex work 在多批重複出現，只算一次") }
+        let conflicts = snapshot.doiIndex.values.filter { $0.count > 1 }.count
         if conflicts > 0 {
-            result.warnings.append("\(conflicts) 個 DOI 在 store 裡對應到不只一筆記錄（取 citekey 最小者）——先處理重複記錄")
+            result.warnings.append("\(conflicts) 個 DOI 在 store 裡對應到不只一筆記錄——這些 DOI 的 inStore 留空、"
+                                   + "改列 inStoreConflict；不要擅選一筆連 cites，先處理重複記錄（akashic-merge-twins）")
+        }
+        if snapshot.quarantined > 0 {
+            result.warnings.append("store 有 \(snapshot.quarantined) 個被隔離（quarantined）的檔案沒有被掃描——它們的 DOI"
+                                   + "與標題看不到，「不在庫」的判斷因此不完整；先修好那些檔（akashic validate）再寫入")
         }
         print(try encodeForDisplay(result))
     }
 
-    /// store 裡每個 DOI（正規形）→ citekey。讀取走 `canonicalDOIs`，不自己比較字串。
-    func storeDOIs() throws -> (map: [String: String], conflicts: Int) {
+    /// store 的快照：DOI（正規形，讀取走 `canonicalDOIs`）→ 所有持有它的 citekey；標題索引；
+    /// 被隔離而沒掃到的檔數（#617 verify F6／F7：原本同 DOI 取字串最小者、隔離檔無聲略過）
+    func storeSnapshot() throws -> (doiIndex: ReferenceNominator.DOIIndex,
+                                    records: [ReferenceNominator.StoreRecord], quarantined: Int) {
         let load = try options.openStore().load()
-        var map: [String: String] = [:]
-        var conflicted = Set<String>()
+        var index: [String: Set<String>] = [:]
+        var records: [ReferenceNominator.StoreRecord] = []
         for entry in load.entries {
-            for d in entry.canonicalDOIs {
-                if let existing = map[d.normalized], existing != entry.citekey {
-                    conflicted.insert(d.normalized)
-                    map[d.normalized] = min(existing, entry.citekey)
-                } else {
-                    map[d.normalized] = entry.citekey
-                }
-            }
+            for d in entry.canonicalDOIs { index[d.normalized, default: []].insert(entry.citekey) }
+            records.append(.init(citekey: entry.citekey, title: entry.title,
+                                 tokens: ReferenceNominator.titleTokens(entry.title),
+                                 year: ReferenceNominator.year(of: entry.date)))
         }
-        return (map, conflicted.count)
+        return (index.mapValues { $0.sorted() }, records, load.quarantined.count)
     }
 
     /// 同 extract：OpenAlex 內容與 citekey 都逐欄 `displaySafe` 後才編碼。
@@ -131,6 +140,7 @@ struct ReferencesNominateCmd: ParsableCommand {
             s.title = c.title.map { displaySafe($0, max: 500) }
             s.firstAuthor = c.firstAuthor.map { displaySafe($0) }
             s.inStore = c.inStore.map { displaySafe($0) }
+            s.inStoreConflict = c.inStoreConflict.map { $0.map { displaySafe($0) } }
             return s
         }
         var out = r
@@ -140,6 +150,13 @@ struct ReferencesNominateCmd: ParsableCommand {
             s.title = n.title.map { displaySafe($0, max: 500) }
             s.doi = n.doi.map { displaySafe($0) }
             s.inStore = n.inStore.map { displaySafe($0) }
+            s.inStoreConflict = n.inStoreConflict.map { $0.map { displaySafe($0) } }
+            s.storeMatches = n.storeMatches.map { m in
+                var t = m
+                t.citekey = displaySafe(m.citekey)
+                t.title = displaySafe(m.title, max: 500)
+                return t
+            }
             s.candidates = n.candidates.map(safe)
             return s
         }
@@ -150,6 +167,7 @@ struct ReferencesNominateCmd: ParsableCommand {
             s.title = w.title.map { displaySafe($0, max: 500) }
             s.firstAuthor = w.firstAuthor.map { displaySafe($0) }
             s.inStore = w.inStore.map { displaySafe($0) }
+            s.inStoreConflict = w.inStoreConflict.map { $0.map { displaySafe($0) } }
             return s
         }
         let encoder = JSONEncoder()

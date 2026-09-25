@@ -10,8 +10,15 @@ import AkashicCore
 ///
 /// 計分（起點值，#617 S6 以真實論文校準）：標題 Dice 係數 × 0.5 ＋ 第一作者 × 0.25 ＋
 /// 年份 × 0.25。兩邊都有 DOI 且相同 → 1.0；不同 → 減半（PDF 的 DOI 可能被 pdftotext
-/// 的斷行弄壞，所以不直接排除）。總分 ≥ `floor` 才提名，每筆至多 `topN` 名——門檻的意思是
-/// 「單一欄位符合不夠」：同作者同年（0.5）或標題夠像（Dice ≥ 0.7）才進候選。
+/// 的斷行弄壞，所以不直接排除）。總分 ≥ `floor`（0.35）才提名，每筆至多 `topN` 名。
+///
+/// 標題**完全不像**（Dice = 0）時仍會通過門檻的組合，封閉列舉只有這三種（#617 verify：
+/// 原本這裡只寫了第一種）：
+/// 1. 第一作者 ＋ 同年 = 0.5
+/// 2. 第一作者 ＋ 年份差 1 = 0.375
+/// 3. 非第一作者的作者 ＋ 同年 = 0.375
+/// 其餘都需要標題有一定相似度（單靠標題：Dice ≥ 0.7）。這三種是刻意留下的——同作者同年的
+/// 兄弟作品要讓判定看見——代價是多產作者會多出雜訊候選，由逐筆判定排除。
 enum ReferenceNominator {
 
     struct Work {
@@ -31,6 +38,18 @@ enum ReferenceNominator {
         var score: Double
         var basis: [String]
         var inStore: String?
+        /// 這個 DOI 在 store 裡對到不只一筆（#637 的形狀）：`inStore` 留空、全部列在這裡，
+        /// 不以任何順序擅選一筆（#617 verify F6）
+        var inStoreConflict: [String]?
+    }
+
+    /// store 裡標題與年份都相近的記錄——抓「沒填 DOI、或填了另一個 DOI 的同一篇」
+    /// （#617 verify F2／F3）。只提名，是不是同一篇由模型判定。
+    struct StoreMatch: Codable {
+        var citekey: String
+        var title: String
+        var year: Int?
+        var score: Double
     }
 
     struct RefNomination: Codable {
@@ -40,6 +59,8 @@ enum ReferenceNominator {
         var title: String?
         var doi: String?
         var inStore: String?
+        var inStoreConflict: [String]?
+        var storeMatches: [StoreMatch]
         var candidates: [Candidate]
     }
 
@@ -50,7 +71,19 @@ enum ReferenceNominator {
         var year: Int?
         var firstAuthor: String?
         var inStore: String?
+        var inStoreConflict: [String]?
     }
+
+    /// store 的一筆記錄，供標題＋年份比對
+    struct StoreRecord {
+        let citekey: String
+        let title: String
+        let tokens: Set<String>
+        let year: Int?
+    }
+
+    /// DOI（正規形）→ 持有它的 citekey（已排序、去重）
+    typealias DOIIndex = [String: [String]]
 
     struct Counts: Codable {
         var refs: Int
@@ -104,7 +137,7 @@ enum ReferenceNominator {
             works.append(Work(id: id,
                               doi: (work["doi"] as? String).flatMap(DOI.init),
                               title: work["title"] as? String ?? work["display_name"] as? String,
-                              year: work["publication_year"] as? Int,
+                              year: plausibleYear(work["publication_year"] as? Int),
                               authorNames: names))
         }
         return (works, skipped)
@@ -113,34 +146,71 @@ enum ReferenceNominator {
     // MARK: - 提名
 
     static func nominate(refs: [ReferenceListExtractor.Reference], works: [Work],
-                         inStore: [String: String]) -> Result {
+                         doiIndex: DOIIndex, store: [StoreRecord] = []) -> Result {
         var nominated = Set<String>()
         let nominations = refs.map { ref -> RefNomination in
             let ranked = works.compactMap { w -> Candidate? in
                 let (score, basis) = self.score(ref, w)
                 guard score >= floor else { return nil }
+                let (held, conflict) = lookup(w.doi, in: doiIndex)
                 return Candidate(openalex: w.id, doi: w.doi?.normalized, title: w.title, year: w.year,
                                  firstAuthor: w.authorNames.first, score: score, basis: basis,
-                                 inStore: w.doi.flatMap { inStore[$0.normalized] })
+                                 inStore: held, inStoreConflict: conflict)
             }
             .sorted { ($0.score, $1.openalex) > ($1.score, $0.openalex) }
             let top = Array(ranked.prefix(topN))
             top.forEach { nominated.insert($0.openalex) }
-            let refDOI = ref.doi.flatMap(DOI.init)
+            let (held, conflict) = lookup(ref.doi.flatMap(DOI.init), in: doiIndex)
             return RefNomination(index: ref.index, firstAuthor: ref.firstAuthor, year: ref.year,
                                  title: ref.title, doi: ref.doi,
-                                 inStore: refDOI.flatMap { inStore[$0.normalized] },
+                                 inStore: held, inStoreConflict: conflict,
+                                 storeMatches: storeMatches(for: ref, in: store),
                                  candidates: top)
         }
-        let unnominated = works.filter { !nominated.contains($0.id) }.map { w in
-            WorkSummary(openalex: w.id, doi: w.doi?.normalized, title: w.title, year: w.year,
-                        firstAuthor: w.authorNames.first,
-                        inStore: w.doi.flatMap { inStore[$0.normalized] })
+        let unnominated = works.filter { !nominated.contains($0.id) }.map { w -> WorkSummary in
+            let (held, conflict) = lookup(w.doi, in: doiIndex)
+            return WorkSummary(openalex: w.id, doi: w.doi?.normalized, title: w.title, year: w.year,
+                               firstAuthor: w.authorNames.first, inStore: held, inStoreConflict: conflict)
         }
         let counts = Counts(refs: refs.count, works: works.count,
                             refsWithCandidates: nominations.filter { !$0.candidates.isEmpty }.count,
                             unnominated: unnominated.count)
         return Result(refs: nominations, unnominated: unnominated, counts: counts, warnings: [])
+    }
+
+    /// 一筆記錄 → `inStore`；多筆 → `inStoreConflict`（不擅選）；沒有 → 兩者皆空
+    static func lookup(_ doi: DOI?, in index: DOIIndex) -> (String?, [String]?) {
+        guard let d = doi, let held = index[d.normalized], !held.isEmpty else { return (nil, nil) }
+        return held.count == 1 ? (held[0], nil) : (nil, held)
+    }
+
+    /// 標題詞集合 Dice ≥ `storeMatchThreshold`、年份差 ≤ 1（任一邊沒有年份則不比年份），至多 3 筆
+    static let storeMatchThreshold = 0.8
+    static func storeMatches(for ref: ReferenceListExtractor.Reference,
+                             in store: [StoreRecord]) -> [StoreMatch] {
+        let tokens = titleTokens(ref.title ?? "")
+        guard !tokens.isEmpty else { return [] }
+        return store.compactMap { rec -> StoreMatch? in
+            if let a = ref.year, let b = rec.year, abs(a - b) > 1 { return nil }
+            let d = dice(tokens, rec.tokens)
+            guard d >= storeMatchThreshold else { return nil }
+            return StoreMatch(citekey: rec.citekey, title: rec.title, year: rec.year,
+                              score: (d * 1_000).rounded() / 1_000)
+        }
+        .sorted { ($0.score, $1.citekey) > ($1.score, $0.citekey) }
+        .prefix(3).map { $0 }
+    }
+
+    /// 第三方年份只收 0…9999；其餘當作沒有（#617 verify F15：`Int.min` 會讓年份相減溢位 trap）
+    static func plausibleYear(_ y: Int?) -> Int? {
+        guard let y, (0...9_999).contains(y) else { return nil }
+        return y
+    }
+
+    /// store 記錄的年份：`date` 開頭的四位數字
+    static func year(of date: String?) -> Int? {
+        guard let d = date, d.count >= 4, let y = Int(d.prefix(4)) else { return nil }
+        return plausibleYear(y)
     }
 
     static func score(_ ref: ReferenceListExtractor.Reference, _ work: Work) -> (Double, [String]) {

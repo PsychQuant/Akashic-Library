@@ -17,10 +17,16 @@ final class ReferencesNominateTests: XCTestCase {
         let score: Double
         let basis: [String]
         let inStore: String?
+        let inStoreConflict: [String]?
+    }
+    private struct StoreMatch: Decodable {
+        let citekey: String
+        let score: Double
     }
     private struct RefNomination: Decodable {
         let index: Int
         let candidates: [Candidate]
+        let storeMatches: [StoreMatch]?
     }
     private struct Work: Decodable {
         let openalex: String
@@ -189,6 +195,62 @@ final class ReferencesNominateTests: XCTestCase {
         let r = try decode(output)
         XCTAssertEqual(r.refs[0].candidates.first?.inStore, citekey)
         XCTAssertNil(r.refs[1].candidates.first?.inStore)
+    }
+
+    private func createEntry(_ json: String) throws {
+        let draft = try write("draft-\(UUID().uuidString).json", json)
+        let (status, output) = try CLITestHarness.run(["create-entry", "--file", draft, "--library", root.path], env: [:])
+        XCTAssertEqual(status, 0, output)
+    }
+
+    /// T11：同一個 DOI 在 store 裡對到兩筆（#637 的形狀）→ 不擅選一筆，列出全部並 warning
+    /// （#617 verify F6：原本取字串最小者，常常選到 `b` 尾碼那筆重複記錄）
+    func testDOIHeldByTwoRecordsIsReportedNotPicked() throws {
+        try createEntry(#"{"type":"periodical-article","title":"Twin title","authors":["Jane Adams"],"date":"2001","doi":["10.9999/twin.1"]}"#)
+        try createEntry(#"{"type":"periodical-article","title":"Twin title","authors":["Jane Adams"],"date":"2001","doi":["10.9999/twin.1"]}"#)
+        let refs = try extractRefs("References\n\nAdams, J. (2001). Twin title. Journal A, 1, 1–2.\n")
+        let oa = try openalex([work("W40", doi: "10.9999/twin.1", title: "Twin title", year: 2001, authors: ["Jane Adams"])])
+        let (status, output) = try nominate(refs, [oa])
+        XCTAssertEqual(status, 0, output)
+        let r = try decode(output)
+        let c = try XCTUnwrap(r.refs.first?.candidates.first)
+        XCTAssertNil(c.inStore, "同一個 DOI 對到兩筆時不得擅選一筆")
+        XCTAssertEqual(c.inStoreConflict?.count, 2)
+        XCTAssertTrue(r.warnings.contains { $0.contains("不只一筆") }, "\(r.warnings)")
+    }
+
+    /// T12：被隔離（quarantined）的檔案要計數回報——那些記錄的 DOI 看不到，不得看起來像
+    /// 「掃過且不在庫」（#617 verify F7；#497）
+    func testQuarantinedFilesAreCounted() throws {
+        let broken = root.appendingPathComponent("entities/00000000-0000-0000-0000-000000000617.yaml")
+        try "type: [unclosed\n".write(to: broken, atomically: true, encoding: .utf8)
+        let refs = try extractRefs("References\n\nAdams, J. (2001). A title. Journal A, 1, 1–2.\n")
+        let oa = try openalex([work("W41", doi: "10.9999/q.1", title: "A title", year: 2001, authors: ["Jane Adams"])])
+        let (status, output) = try nominate(refs, [oa])
+        XCTAssertEqual(status, 0, output)
+        XCTAssertTrue(try decode(output).warnings.contains { $0.contains("隔離") }, output)
+    }
+
+    /// T13：store 裡沒有 DOI（或 DOI 不同）的同一篇，以標題＋年份提名（#617 verify F2／F3：
+    /// 原本寫入前這道比對要模型每次手寫，而且命中後沒有去處）
+    func testStoreTitleYearMatchesAreNominated() throws {
+        try createEntry(#"{"type":"book","title":"An old book without a DOI","authors":["Jane Adams"],"date":"1995"}"#)
+        let citekey = try XCTUnwrap(try LibraryStore(root: root).load().entries.first?.citekey)
+        let refs = try extractRefs("References\n\nAdams, J. (1995). An old book without a DOI. Imaginary Press.\n")
+        let oa = try openalex([work("W42", doi: "10.9999/book.1", title: "An old book without a DOI", year: 1995, authors: ["Jane Adams"])])
+        let (status, output) = try nominate(refs, [oa])
+        XCTAssertEqual(status, 0, output)
+        let r = try decode(output)
+        XCTAssertEqual(r.refs.first?.storeMatches?.map(\.citekey), [citekey])
+        XCTAssertNil(r.refs.first?.candidates.first?.inStore, "DOI 不同，inStore 仍是空的——兩條線索分開給")
+    }
+
+    /// T14：第三方 publication_year 的極端值不得讓 nominate trap（#617 verify F15）
+    func testExtremePublicationYearDoesNotTrap() throws {
+        let refs = try extractRefs("References\n\nAdams, J. (2001). A title. Journal A, 1, 1–2.\n")
+        let oa = try write("oa-extreme.json", #"{"results":[{"id":"https://openalex.org/W43","doi":null,"title":"A title","publication_year":-9223372036854775808,"authorships":[]}]}"#)
+        let (status, output) = try nominate(refs, [oa])
+        XCTAssertEqual(status, 0, output)
     }
 
     /// T10：輸入 JSON 壞掉 → 非零結束並指名是哪一個輸入。

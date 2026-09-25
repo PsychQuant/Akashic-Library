@@ -383,6 +383,23 @@ actor AkashicMCPServer {
             guard let value = params.arguments?[key], case .array(let arr) = value else { return [] }
             return arr.compactMap(\.stringValue)
         }
+        /// **有給就必須是非空的字串陣列**（change `resolution-verdict-states`，R1 verify security）：`argList` 對非陣列、
+        /// 非字串元素、null 都靜默回 []——未決腿若照用，`rests_on` 給成單一字串時證據被丟掉而回報成功，`undecided: []`
+        /// 會落到列表模式、看起來像寫了。沒給鍵回 nil；給了而形狀不對整個呼叫拒絕、零寫入。
+        func argStrictList(_ key: String) throws -> [String]? {
+            guard let value = params.arguments?[key] else { return nil }
+            guard case .array(let arr) = value else {
+                throw ServiceError.invalid("\(displaySafeInvisible(key, max: 60)) 必須是字串陣列——收到別的型別；拒絕整個呼叫，零寫入")
+            }
+            let strs = arr.compactMap(\.stringValue)
+            guard strs.count == arr.count else {
+                throw ServiceError.invalid("\(displaySafeInvisible(key, max: 60)) 的每個元素都必須是字串；拒絕整個呼叫，零寫入")
+            }
+            guard !strs.isEmpty else {
+                throw ServiceError.invalid("\(displaySafeInvisible(key, max: 60)) 是空陣列——沒有要送的東西就不要給這個鍵")
+            }
+            return strs
+        }
         func argDict(_ key: String) -> [String: String] {
             guard let value = params.arguments?[key], case .object(let dict) = value else { return [:] }
             return dict.compactMapValues(\.stringValue)
@@ -519,8 +536,8 @@ actor AkashicMCPServer {
                                                    confirmTiers: confirmProvided ? confirmTiers : nil,
                                                    judge: judgeProvided ? judge : nil,
                                                    refute: refuteProvided ? refute : nil,
-                                                   undecided: undecidedProvided ? argList("undecided") : nil,
-                                                   restsOn: restsOnProvided ? argList("rests_on") : nil)
+                                                   undecided: try argStrictList("undecided"),
+                                                   restsOn: try argStrictList("rests_on"))
             case "akashic_create_entry":
                 output = try service.createEntry(
                     type: arg("type") ?? "", title: arg("title") ?? "",
@@ -568,8 +585,6 @@ actor AkashicMCPServer {
                 let vRejectProvided = params.arguments?["reject"] != nil
                 let vRepointProvided = params.arguments?["repoint"] != nil
                 let vDemoteProvided = params.arguments?["demote"] != nil
-                let vUndecidedProvided = params.arguments?["undecided"] != nil
-                let vRestsOnProvided = params.arguments?["rests_on"] != nil
                 // **修正類的兩個各自單獨呼叫**（兩面同契約，#418）：它們修的是已歸戶的邊，
                 // 與升格／否決不同階段；混在一次呼叫裡會讓「哪一批寫了」難以判讀。
                 if (vRepointProvided || vDemoteProvided),
@@ -581,8 +596,8 @@ actor AkashicMCPServer {
                     reject: vRejectProvided ? argList("reject") : nil,
                     repoint: vRepointProvided ? argList("repoint") : nil,
                     demote: vDemoteProvided ? argList("demote") : nil,
-                    undecided: vUndecidedProvided ? argList("undecided") : nil,
-                    restsOn: vRestsOnProvided ? argList("rests_on") : nil)
+                    undecided: try argStrictList("undecided"),
+                    restsOn: try argStrictList("rests_on"))
             case "akashic_add_organization":
                 output = try service.addOrganization(
                     key: arg("key") ?? "", names: argList("names"),

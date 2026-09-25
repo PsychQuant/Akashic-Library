@@ -751,6 +751,10 @@ extension LibraryStore {
             // holder 遷移對**合併後**的 references 預測。
             let pre = try validatePersonPreconditions(survivor: survivor, mergedKeys: mergedKeys, snapshot: snapshot)
             let mp = Self.mergedPersonKeeper(pre.keeper, absorbing: pre.doomed, edges: VerdictEdgeSet(snapshot: snapshot))   // R18 D51
+            // 預測的 keeper 要過與實跑同一道寫入閘（change `resolution-verdict-states` R1 verify logic：記錄鍵帶判定層級之後，
+            // 合併可以留下同一配對的 nominated 與 judged 兩筆，format < 19 的 store 在 `keeperWrite` 拒——dry-run 對它沉默就是
+            // #139 F1 的形狀；venue／work 兩支早已這樣做）
+            try LibraryStore.assertPersonWritable(mp.keeper, format: { try StoreVersion.read(root: root) })
             let vp = Self.predictedHolderVerdictMigration(
                 snapshot: snapshot, merged: merged, survivor: survivor, holderKind: .person,
                 keeperReferences: mp.keeper.references)

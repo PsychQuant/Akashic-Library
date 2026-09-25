@@ -742,7 +742,11 @@ public final class AkashicService {
                     // change `resolution-verdict-states`（#619）：未決記錄逐筆印查了什麼——它的內容就是那份查證
                     if v.kind == .undecided {
                         d["statement"] = displaySafe(v.statement, max: 800)
-                        d["restsOn"] = v.restsOn.map { displaySafe($0, max: 80) }
+                        // 有界（R1 verify security：檢視面進 LLM context，未決記錄設計上會累積）——前 5 個 digest ＋ 總數
+                        d["restsOn"] = v.restsOn.prefix(5).map { displaySafe($0, max: 80) }
+                        if v.restsOn.count > 5 { d["restsOnTotal"] = v.restsOn.count }
+                        // 配對被判定之後，未決記錄是查證歷史不是過期資料（spec：保留、不退役）——不標 stale
+                        if !observed { d["state"] = "history" }
                     }
                     return d
                 }
@@ -1151,6 +1155,7 @@ public final class AkashicService {
         // change `resolution-verdict-states`（#636）：作者位已歸給同一人、只差一筆逐篇判定——只寫 verdict、不動 entry
         var verdictOnly = Set<String>()
         var coexisting = Set<String>()       // 與既有的提名層 verdict 並存的判定（回應帶 coexistsWith）
+        var verdictSuppressed = Set<String>() // format 18：作者位照常歸戶，但不寫會與提名層並存的逐篇判定
         for spec in specs {
             guard let eq = spec.firstIndex(of: "=") else {
                 throw ServiceError.invalid(
@@ -1215,9 +1220,12 @@ public final class AkashicService {
             // 不只一個就不猜。verdict 不帶作者位索引，所以同一筆 work 的兩個作者位歸給同一人時會有兩個。
             func recoveredLiterals(holder k: String) -> [String] {
                 let vs = ResolutionLedger.verdicts(references: load.people.first(where: { $0.key == k })?.references ?? []).verdicts
+                // 以正規化鍵去重（R1 verify DA：work 攣生合併後，同一人可對同一 work 留下 nominated 與 judged 兩筆
+                // confirmed、literal 只差位元組——逐位元組去重會數成兩個 literal，之後 judge／refute 永遠「不猜」地略過）。
+                // 正規化相同的拼法是同一個配對；取首見的那個拼法。
                 var seenLit = Set<String>(), out: [String] = []
                 for v in vs where v.kind == .confirmed && v.holderKind == .work && v.holder == citekey
-                    && seenLit.insert(v.literal).inserted { out.append(v.literal) }
+                    && seenLit.insert(NameNormalization.matchingKey(v.literal)).inserted { out.append(v.literal) }
                 return out
             }
             var literal: String
@@ -1268,29 +1276,43 @@ public final class AkashicService {
             // change `resolution-verdict-states`（#636）：同一配對同方向的既有判定分兩個層級看——
             //   - 已有**逐篇判定**：同一句理由＝no-op（alreadyJudged）；理由不同＝略過（記錄鍵相同，新理由無處另存）
             //   - 只有**提名層**（apply／reject）：寫一筆逐篇判定與它並存——需要 format ≥ 19（舊 binary 會把兩筆收成一筆）
+            // change `resolution-verdict-states`（#636）：同一配對同方向的既有判定分兩個層級看。**層級檢查只在「作者位不會變」
+            // 時決定 no-op 或略過**（R1 verify Codex HIGH／regression：先前對仍是 literal 的作者位也適用，已有逐篇判定時回報
+            // alreadyJudged 而作者位從未歸戶——verdict 不帶作者位索引，既有記錄代表不了這一格的狀態）：
+            //   - 作者位會被改寫（confirm 且位置仍是 literal）：照常歸戶；verdict 只在不會造出 format 18 不允許的形狀時寫
+            //     （已有同層級的由記錄鍵去重、已有提名層而 format < 19 時不寫這筆——那是 format 18 的既有語意）
+            //   - 作者位不變（refute，或已歸給同一人）：已有逐篇判定＝同一句理由則 no-op（比 statement 與 rests-on，不比 literal
+            //     的位元組——只差拼法不是理由不同，R1 verify logic）、否則具名略過；只有提名層＝寫一筆並存（需 format ≥ 19）
+            let pin = "\(citekey):\(idx):\(personKey)"   // display-safe-exempt: 集合鍵，不輸出
+            let slotChanges = isConfirm && !verdictOnly.contains(pin)
             let newRef = ResolutionLedger.record(judged: p, kind: kind)
             let sameField = (byKey[personKey]?.references ?? []).filter {
                 $0.field == newRef.field
                     && ProvenanceReference.verdictEqualityKey(field: $0.field, value: $0.value)
                     == ProvenanceReference.verdictEqualityKey(field: newRef.field, value: newRef.value)
             }
-            if sameField.contains(where: { $0.verdictClass == .judged }) {
-                if sameField.contains(where: { $0.byteExactKey == newRef.byteExactKey }) {
+            let hasJudged = sameField.contains { $0.verdictClass == .judged }
+            let hasNominated = sameField.contains { $0.verdictClass == .nominated }
+            if hasJudged && !slotChanges {
+                if sameField.contains(where: { $0.verdictClass == .judged && $0.kindByteKey == newRef.kindByteKey }) {
                     alreadyJudged.append(id)
                 } else {
                     skipped.append((id, "該配對已有逐篇判定，但理由不同——同一層級的判定以配對去重，新的理由無處另存（#636）"))
                 }
-                verdictOnly.remove("\(citekey):\(idx):\(personKey)")   // display-safe-exempt: 集合鍵
+                verdictOnly.remove(pin)
                 continue
             }
-            if sameField.contains(where: { $0.verdictClass == .nominated }) {
-                guard storeFormat >= 19 else {
+            if hasNominated && !hasJudged {
+                if storeFormat >= 19 {
+                    coexisting.insert(pin)
+                } else if slotChanges {
+                    verdictSuppressed.insert(pin)   // 照常歸戶，逐篇判定不另寫（format 18 不允許兩層級並存）
+                } else {
                     skipped.append((id, "該配對已有提名層的判定（例如 --apply／--reject）；逐篇判定與它並存需要 store format ≥ 19"
                                         + "（本 store 是 \(storeFormat)——舊 binary 的合併會把兩筆收成一筆）"))   // display-safe-exempt: Int
-                    verdictOnly.remove("\(citekey):\(idx):\(personKey)")   // display-safe-exempt: 集合鍵
+                    verdictOnly.remove(pin)
                     continue
                 }
-                coexisting.insert("\(citekey):\(idx):\(personKey)")   // display-safe-exempt: 集合鍵，不輸出
             }
             pairings.append(p)
         }
@@ -1322,6 +1344,7 @@ public final class AkashicService {
             guard var person = grouped[p.personKey] ?? byKey[p.personKey] else {
                 throw ServiceError.notFound("person「\(displaySafeInvisible(p.personKey, max: 200))」")
             }
+            if verdictSuppressed.contains("\(p.citekey):\(p.authorIndex):\(p.personKey)") { continue }   // display-safe-exempt: 集合鍵
             ResolutionLedger.appendIfAbsent(ResolutionLedger.record(judged: p, kind: kind),
                                             to: &person.references)
             grouped[p.personKey] = person
@@ -1469,7 +1492,7 @@ public final class AkashicService {
                 ResolutionLedger.appendIfAbsent(ResolutionLedger.record(
                     .rejected, holderKind: .work, holder: c.citekey, literal: c.literal,
                     rule: ResolutionLedger.personRule(for: c.tier),
-                    statement: "resolve reject：使用者否決此配對"), to: &p.references)
+                    statement: "resolve reject：使用者否決此配對"), to: &p.references, allowCoexistence: storeFormat >= 19)
                 grouped[c.personKey] = p
                 rejectedByPerson[c.personKey, default: []].append(c)
             }
@@ -1580,8 +1603,7 @@ public final class AkashicService {
             let ambiguityUndecided = ResolutionLedger.undecidedChecks(holders: load.people.map { ($0.key, $0.references) })
             func ambiguityRow(_ a: AmbiguousMatch, _ refs: [String]) -> [String: Any] {
                 let checks = a.personKeys.reduce(0) {
-                    $0 + (ambiguityUndecided[ResolutionPairing(holderKind: .work, holder: a.citekey,
-                                                               literal: a.literal, judgedKey: $1)] ?? 0)
+                    $0 + ResolutionLedger.undecidedChecks(in: ambiguityUndecided, holder: a.citekey, literal: a.literal, judgedKey: $1)
                 }
                 var row: [String: Any] = [
                     "entryID": a.entryID.uuidString,   // display-safe-exempt: UUID 的 uuidString 恆為 [0-9A-F-]
@@ -1672,11 +1694,10 @@ public final class AkashicService {
                 // #627 R1：citekey 在 store 裡不只一筆——apply／reject 這個 id 會整批拒絕。
                 // 列表先標出來，呼叫端不必送出去才知道（CLI 列表的 ⟨citekey 重複⟩ 同一件事）
                 if unlocatableCK.contains(pair.candidate.citekey) { row["unlocatableCitekey"] = true }
-                if let n = undecidedChecks[ResolutionPairing(holderKind: .work, holder: pair.candidate.citekey,
-                                                            literal: pair.candidate.literal,
-                                                            judgedKey: pair.candidate.personKey)] {
-                    row["undecidedChecks"] = n
-                }
+                let n = ResolutionLedger.undecidedChecks(in: undecidedChecks, holder: pair.candidate.citekey,
+                                                         literal: pair.candidate.literal,
+                                                         judgedKey: pair.candidate.personKey)
+                if n > 0 { row["undecidedChecks"] = n }
                 let cost = Self.jsonBytes(row)
                 guard candidateBytes + cost <= Self.candidateByteBudget else {
                     candidatesDropped += 1
@@ -1857,7 +1878,7 @@ public final class AkashicService {
             ResolutionLedger.appendIfAbsent(ResolutionLedger.record(
                 .confirmed, holderKind: .work, holder: c.citekey, literal: c.literal,
                 rule: ResolutionLedger.personRule(for: c.tier),
-                statement: "resolve apply：使用者確認歸戶"), to: &p.references)
+                statement: "resolve apply：使用者確認歸戶"), to: &p.references, allowCoexistence: storeFormat >= 19)
             confirmGrouped[c.personKey] = p
         }
         for key in confirmGrouped.keys.sorted() {
@@ -2879,9 +2900,11 @@ public final class AkashicService {
                         "literal": displaySafe(v.literal, max: 200),
                         "rule": displaySafe(v.rule, max: 200),
                         "state": observed ? "observed" : "stale"]
-                if v.kind == .undecided {   // #619：未決記錄逐筆印查了什麼
+                if v.kind == .undecided {   // #619：未決記錄逐筆印查了什麼（有界：前 5 個 digest ＋ 總數）
                     vd["statement"] = displaySafe(v.statement, max: 800)
-                    vd["restsOn"] = v.restsOn.map { displaySafe($0, max: 80) }
+                    vd["restsOn"] = v.restsOn.prefix(5).map { displaySafe($0, max: 80) }
+                    if v.restsOn.count > 5 { vd["restsOnTotal"] = v.restsOn.count }
+                    if !observed { vd["state"] = "history" }   // 判定後保留的查證歷史，不是 stale
                 }
                 return vd
             }
@@ -3971,7 +3994,7 @@ public final class AkashicService {
             let ref = ResolutionLedger.record(
                 .confirmed, holderKind: .work, holder: p.citekey, literal: p.literal,
                 rule: ProvenanceReference.RuleName.orgJudged, statement: p.judgement)
-            ResolutionLedger.appendIfAbsent(ref, to: &orgs[p.orgKey]!.references)
+            ResolutionLedger.appendIfAbsent(ref, to: &orgs[p.orgKey]!.references, allowCoexistence: ((try? StoreVersion.read(root: store.root)) ?? 1) >= 19)
             rows.append(["citekey": displaySafe(p.citekey, max: 200),
                          "authorIndex": p.idx,   // display-safe-exempt: Int
                          "organization": displaySafe(p.orgKey, max: 200),
@@ -4130,8 +4153,8 @@ public final class AkashicService {
                      "reason": displaySafe(c.reason, max: 400)]
                     // #628：apply／reject 這個 id 會整批拒絕——列表先標出來（同 resolve-people 的標記）
                     if unlocatableCK.contains(c.citekey) { row["unlocatableCitekey"] = true }
-                    if let n = venueUndecided[ResolutionPairing(holderKind: .work, holder: c.citekey,
-                                                                literal: c.literal, judgedKey: c.venueKey)] {
+                    let n = ResolutionLedger.undecidedChecks(in: venueUndecided, holder: c.citekey, literal: c.literal, judgedKey: c.venueKey)
+                    if n > 0 {
                         row["undecidedChecks"] = n
                     }
                     return row
@@ -4142,8 +4165,7 @@ public final class AkashicService {
                      "literal": displaySafe(m.literal, max: 200),
                      "venueKeys": m.venueKeys.map { displaySafe($0, max: 200) }]
                     let checks = m.venueKeys.reduce(0) {
-                        $0 + (venueUndecided[ResolutionPairing(holderKind: .work, holder: m.citekey,
-                                                               literal: m.literal, judgedKey: $1)] ?? 0)
+                        $0 + ResolutionLedger.undecidedChecks(in: venueUndecided, holder: m.citekey, literal: m.literal, judgedKey: $1)
                     }
                     if checks > 0 { row["undecidedChecks"] = checks }
                     return row
@@ -4802,7 +4824,7 @@ public final class AkashicService {
                     .rejected, holderKind: c.holder.verdictHolderKind,   // #483
                     holder: c.holder.key, literal: c.literal,
                     rule: ResolutionLedger.orgRule,
-                    statement: "resolve reject：使用者否決此配對"), to: &o.references)
+                    statement: "resolve reject：使用者否決此配對"), to: &o.references, allowCoexistence: storeFormat >= 19)
                 grouped[c.orgKey] = o
             }
             for key in grouped.keys.sorted() { try store.writeOrganization(grouped[key]!) }
@@ -4858,7 +4880,7 @@ public final class AkashicService {
                 .confirmed, holderKind: c.holder.verdictHolderKind,   // #483：與 reject 路徑同一份定義
                 holder: c.holder.key, literal: c.literal,
                 rule: ResolutionLedger.orgRule,
-                statement: "resolve apply：org name 完全命中，使用者確認"), to: &o.references)
+                statement: "resolve apply：org name 完全命中，使用者確認"), to: &o.references, allowCoexistence: storeFormat >= 19)
             grouped[c.orgKey] = o
         }
         for key in grouped.keys.sorted() { try store.writeOrganization(grouped[key]!) }

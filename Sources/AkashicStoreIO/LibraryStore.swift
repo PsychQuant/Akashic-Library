@@ -757,7 +757,7 @@ public final class LibraryStore {
                 throw StoreIOError.invalidInput(
                     what: what,
                     why: "同一配對同時有提名層與逐篇判定兩筆 \(displaySafeInvisible(r.field, max: 40))，需要 store format ≥ 19；"
-                        + "本 store 是 \(format)——format-18 binary 的合併與 rename 會把兩筆收成一筆"
+                        + "本 store 是 \(format)——format-18 binary 的合併會把兩筆收成一筆"
                         + "（確認三個 binary 都已升級後，把 store.yaml 的 format: 改成 19）")
             }
             seen[k] = cls

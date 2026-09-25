@@ -859,8 +859,8 @@ references:
 - **三把鍵**（`ProvenanceReference`，`Sources/AkashicCore/VerdictRecordKey.swift`）：**配對鍵** `verdictPairingKey`
   （不含 field、不含層級——矛盾判斷與狀態推導）；**記錄鍵** `verdictRecordKey`（寫入去重、合併收攏、D64 重複掃描——
   confirmed／rejected 為 field＋配對＋層級，undecided 為整筆位元組）；**field＋配對鍵** `verdictEqualityKey`（語意不變，
-  只在「同 field、同配對、不分層級」時用：D20 退役相反判定、D23 confirmed literal 唯一性）。下文各處寫「以 `verdictEqualityKey`
-  去重」的地方，format 19 起指的是記錄鍵。
+  只在「同 field、同配對、不分層級」時用：D20 退役相反判定、D23 confirmed literal 唯一性）。本節下文記述的合併收攏與寫入去重（`appendIfAbsent`、`mergeVerdicts`、holder 遷移、D64），format 19 起用的是記錄鍵；
+  rename 的折疊（D55／D62）一直是整筆位元組相同（`byteExactKey`），不在此列；D20／D23 仍是 `verdictEqualityKey`。
 - **寫入閘**：`LibraryStore.assertVerdictShapesWritable` 對 format < 19 拒寫帶未決記錄、或同一配對兩個層級並存的記錄
   （person／organization／venue 共用）。
 
@@ -1010,7 +1010,7 @@ merge 與 rename 的 CLI／App sink 同一種性質式逃脫。**dry-run 對去�
    tolerant 解析：尾註缺席依 kind 計入該族預設。這是 typed slot 的 v1 妥協；
    格式再演化時遷移為 typed 欄位。
 
-三態計數（confirmed／rejected／pending）一律**現算、絕不儲存**——store 內沒有任何
+計數（format 19 起四態：confirmed／rejected／undecided／pending）一律**現算、絕不儲存**——store 內沒有任何
 counter 欄位；「還沒查」與「查過了不是他」由 verdict 存在與否區分。
 
 **verdict 是一條邊，生命週期有防線**（#232 verify）：`value` 內嵌 citekey／key，

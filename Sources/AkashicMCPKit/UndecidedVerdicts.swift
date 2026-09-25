@@ -23,8 +23,23 @@ extension AkashicService {
         let statement: String
     }
 
+    /// 一次呼叫的上限（R1 verify security：未決記錄設計上會累積、不退役、只收位元組相同的重複，所以寫入端要有界——
+    /// 否則一個會迴圈的呼叫端能把單一記錄推過 decode 的節點預算，之後那筆 person／venue 的所有寫入都會被 encode canary 拒絕）。
+    /// 超過即整批拒絕、零寫入、具名（`lossless-intake` 的有界拒絕：不截斷）。
+    /// 數字的來源：rests-on 取「一次查證會存的頁面數」的寬鬆上界；說明取 `displaySafe` 對資料面的 800 字之數倍，
+    /// 讓一段完整的查證敘述放得下；一次的 id 數取 CLI 單批 triage 的量級。
+    static let maxRestsOnPerCall = 20
+    static let maxStatementBytes = 4_096
+    static let maxSpecsPerCall = 200
+
     /// 解析 `<citekey>:<index>:<entityKey>=<說明>`（以第一個 `=` 切——說明是自由文字）。輸入錯一律 throw。
     func parseUndecidedSpecs(_ specs: [String], restsOn: [String], indexName: String) throws -> [UndecidedSpec] {
+        guard specs.count <= Self.maxSpecsPerCall else {
+            throw ServiceError.invalid("一次最多記 \(Self.maxSpecsPerCall) 筆未決（這次 \(specs.count) 筆）——分次送")   // display-safe-exempt: Self.maxSpecsPerCall 是 Int 常數
+        }
+        guard restsOn.count <= Self.maxRestsOnPerCall else {
+            throw ServiceError.invalid("rests_on 一次最多 \(Self.maxRestsOnPerCall) 個 digest（這次 \(restsOn.count) 個）——證據不同的配對分次送")   // display-safe-exempt: Self.maxRestsOnPerCall 是 Int 常數
+        }
         let storeFormat = (try? StoreVersion.read(root: store.root)) ?? 1
         guard storeFormat >= 19 else {
             throw ServiceError.invalid(
@@ -54,6 +69,10 @@ extension AkashicService {
                 throw ServiceError.invalid(
                     "未決 id「\(displaySafeInvisible(id, max: 200))」不是三段形 citekey:\(indexName):key"   // display-safe-exempt: indexName 是呼叫端的字面常量
                     + "（\(indexName) 是從 0 起的非負整數）")   // display-safe-exempt: indexName 是呼叫端的字面常量
+            }
+            guard statement.utf8.count <= Self.maxStatementBytes else {
+                throw ServiceError.invalid(
+                    "未決「\(displaySafeInvisible(id, max: 200))」的說明超過 \(Self.maxStatementBytes) 位元組——精簡它，承重內容用 rests_on 附存檔")   // display-safe-exempt: Self.maxStatementBytes 是 Int 常數
             }
             if statement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 throw ServiceError.invalid(
@@ -101,6 +120,7 @@ extension AkashicService {
         var skipped: [(id: String, why: String)] = []
         var already: [String] = []
         var touched = Set<String>()
+        var writtenThisCall = Set<[[UInt8]]>()
         for s in parsed {
             guard !unlocatable.contains(s.citekey) else {
                 skipped.append((s.id, "work「\(displaySafe(s.citekey, max: 200))」的 citekey 重複或與另一筆 work 共用 id——無法確定是哪一筆，略過（#627）"))
@@ -127,12 +147,28 @@ extension AkashicService {
                 people[s.entityKey] = person
                 touched.insert(s.entityKey)
                 recorded.append((s, literal))
+                writtenThisCall.insert(ref.byteExactKey)
+            } else if writtenThisCall.contains(ref.byteExactKey) {
+                // 同一次呼叫的另一個 id 已寫下同一筆（同一筆 work 兩個作者位同一 literal、說明也相同——記錄不帶位置）：
+                // 那筆是這次寫的，不是「已在」（R1 verify logic）
+                recorded.append((s, literal))
             } else {
                 already.append(s.id)
             }
         }
-        for key in touched.sorted() { try store.writePerson(people[key]!) }
-        if !touched.isEmpty { try LibraryIndex(store: store).rebuild() }
+        // 寫入前先驗每一筆（R1 verify Codex：逐筆寫、第二筆的內容驗證失敗時第一筆已落地而呼叫端只看到錯誤）。
+        // 驗證失敗 → 整批拒絕、零寫入。
+        let format = (try? StoreVersion.read(root: store.root)) ?? 1
+        for key in touched.sorted() { try LibraryStore.assertPersonWritable(people[key]!, format: { format }) }
+        var landed: [String] = []
+        do {
+            for key in touched.sorted() { try store.writePerson(people[key]!); landed.append(key) }
+            if !touched.isEmpty { try LibraryIndex(store: store).rebuild() }
+        } catch {
+            // 真正的 I/O 或 index 重建失敗：已落地的記錄要說出來（同 judgeAuthorships #627 R2 的立場——略過與落地不能被錯誤吞掉）
+            throw ServiceError.invalid("未決記錄寫到一半失敗（已落地的 person：\(landed.map { displaySafeInvisible($0, max: 120) }.joined(separator: "、"))）："   // display-safe-exempt: landed 已逐筆逃脫
+                + displaySafeError(error, max: 400))
+        }
         return try undecidedPayload(recorded: recorded, skipped: skipped, already: already,
                                     restsOn: restsOn, rewritten: touched.count, holderName: "personsRewritten")
     }
@@ -151,6 +187,7 @@ extension AkashicService {
         var skipped: [(id: String, why: String)] = []
         var already: [String] = []
         var touched = Set<String>()
+        var writtenThisCall = Set<[[UInt8]]>()
         for s in parsed {
             guard !unlocatable.contains(s.citekey) else {
                 skipped.append((s.id, "work「\(displaySafe(s.citekey, max: 200))」的 citekey 重複或與另一筆 work 共用 id——無法確定是哪一筆，略過（#628）"))
@@ -177,12 +214,28 @@ extension AkashicService {
                 venues[s.entityKey] = venue
                 touched.insert(s.entityKey)
                 recorded.append((s, literal))
+                writtenThisCall.insert(ref.byteExactKey)
+            } else if writtenThisCall.contains(ref.byteExactKey) {
+                // 同一次呼叫的另一個 id 已寫下同一筆（同一筆 work 兩個作者位同一 literal、說明也相同——記錄不帶位置）：
+                // 那筆是這次寫的，不是「已在」（R1 verify logic）
+                recorded.append((s, literal))
             } else {
                 already.append(s.id)
             }
         }
-        for key in touched.sorted() { try store.writeVenue(venues[key]!) }
-        if !touched.isEmpty { try LibraryIndex(store: store).rebuild() }
+        // 寫入前先驗每一筆（R1 verify Codex：逐筆寫、第二筆的內容驗證失敗時第一筆已落地而呼叫端只看到錯誤）。
+        // 驗證失敗 → 整批拒絕、零寫入。
+        let format = (try? StoreVersion.read(root: store.root)) ?? 1
+        for key in touched.sorted() { try LibraryStore.assertVenueWritable(venues[key]!, format: format) }
+        var landed: [String] = []
+        do {
+            for key in touched.sorted() { try store.writeVenue(venues[key]!); landed.append(key) }
+            if !touched.isEmpty { try LibraryIndex(store: store).rebuild() }
+        } catch {
+            // 真正的 I/O 或 index 重建失敗：已落地的記錄要說出來（同 judgeAuthorships #627 R2 的立場——略過與落地不能被錯誤吞掉）
+            throw ServiceError.invalid("未決記錄寫到一半失敗（已落地的 venue：\(landed.map { displaySafeInvisible($0, max: 120) }.joined(separator: "、"))）："   // display-safe-exempt: landed 已逐筆逃脫
+                + displaySafeError(error, max: 400))
+        }
         return try undecidedPayload(recorded: recorded, skipped: skipped, already: already,
                                     restsOn: restsOn, rewritten: touched.count, holderName: "venuesRewritten")
     }

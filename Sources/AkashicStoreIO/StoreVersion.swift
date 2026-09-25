@@ -154,7 +154,7 @@ public enum StoreVersion {
     /// - **19** ＝ verdict 欄位的第三個值 `resolution-undecided`（查過、判不出來，可帶 rests-on；#619）＋ 判定層級參與
     ///   記錄鍵（`nominated` 與 `judged` 兩筆並存，#636；change `resolution-verdict-states`）。**non-additive，兩個理由各自足夠**：
     ///   (1) references 的 field 白名單是 strict——format-18 binary 讀到 `resolution-undecided` 會**整檔 quarantine**（人／venue／
-    ///   org 檔消失）；(2) 舊 binary 的合併與 rename 以舊鍵收攏，會把並存的兩筆 confirmed 收成一筆、安靜丟掉其中一筆理由。
+    ///   org 檔消失）；(2) 舊 binary 的**合併**以舊鍵收攏（rename 自 D62 起只折整筆位元組相同的記錄、不受影響——R1 verify DA），會把並存的兩筆 confirmed 收成一筆、安靜丟掉其中一筆理由。
     ///   write gate（`assertVerdictShapesWritable`）對 format < 19 拒寫帶未決記錄、或同一配對兩個層級並存的 person／org／venue。
     ///   **無資料遷移**（兩種形狀在 format 18 都寫不出來，既有記錄零 diff）。
     public static let supported = 19

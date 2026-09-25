@@ -111,8 +111,9 @@ struct ResolveDivergence: ParsableCommand {
         }
         if !report.verdictsCollapsed.isEmpty {   // #461：收攏丟列要說出來——靜默丟棄不可稽核
             // 兩類內容（R13 verify regression 第 28 列）：holder 遷移的收攏（與遷移輸出同鍵）、#271 的去重（與倖存者既有的同鍵）——
-            // 鍵都是 `verdictEqualityKey`（正規化 literal），不是 (field, value)
-            print("verdict 收攏丟棄 \(report.verdictsCollapsed.count) 筆（與倖存者既有的或遷移輸出同一配對——正規化後相等，留一筆）：")
+            // 鍵是記錄鍵 `verdictRecordKey`（change `resolution-verdict-states`）：同一配對、同一判定層級、正規化後相等才收；
+            // 提名層與逐篇判定兩筆並存不收，未決記錄只收整筆位元組相同的
+            print("verdict 收攏丟棄 \(report.verdictsCollapsed.count) 筆（與倖存者既有的或遷移輸出同一筆記錄——同一配對、同一判定層級、正規化後相等，留一筆）：")
             for c in report.verdictsCollapsed { print("  · \(displaySafeInvisible(c, max: 1_000))") }
         }
         for w in report.warnings {   // #75 對一：不擋但要說

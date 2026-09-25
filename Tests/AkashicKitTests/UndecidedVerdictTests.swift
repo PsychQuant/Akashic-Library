@@ -108,7 +108,9 @@ final class UndecidedVerdictTests: XCTestCase {
     }
 
     func testPairingStateDecidedBeatsUndecided() {
-        let p = ResolutionPairing(holderKind: .work, holder: "chen2020a", literal: "C.-H. Chen", judgedKey: "chen-ch")
+        // 鍵是正規化配對（R1 verify：與寫入端的 verdictPairingKey 同一把正規化）
+        let p = ResolutionLedger.statePairing(
+            ResolutionPairing(holderKind: .work, holder: "chen2020a", literal: "C.-H. Chen", judgedKey: "chen-ch"))
         XCTAssertEqual(ResolutionLedger.pairingStates(references: [undecided(), undecided(statement: "x")],
                                                       judgedKey: "chen-ch")[p]?.state, .undecided)
         XCTAssertEqual(ResolutionLedger.pairingStates(references: [undecided(), undecided(statement: "x")],

@@ -1135,7 +1135,7 @@ struct ResolveOrganizations: ParsableCommand {
                     .rejected, holderKind: pairingKind(c.holder),
                     holder: c.holder.key, literal: c.literal,
                     rule: ResolutionLedger.orgRule,
-                    statement: "resolve reject：使用者否決此配對"), to: &o.references)
+                    statement: "resolve reject：使用者否決此配對"), to: &o.references, allowCoexistence: ((try? StoreVersion.read(root: store.root)) ?? 1) >= 19)
                 grouped[c.orgKey] = o
             }
             var wrote = 0
@@ -1251,7 +1251,7 @@ struct ResolveOrganizations: ParsableCommand {
                     holder: c.holder.key, literal: c.literal,
                     rule: ResolutionLedger.orgRule,
                     statement: "resolve apply：使用者確認歸戶"),
-                    to: &updatedOrgs[i].references) {
+                    to: &updatedOrgs[i].references, allowCoexistence: ((try? StoreVersion.read(root: store.root)) ?? 1) >= 19) {
                     confirmTargets.insert(c.orgKey)
                 }
             }
@@ -1853,8 +1853,7 @@ struct ResolvePeople: ParsableCommand {
         // 照清單全收等於替他判了。比照淘汰所得排除並另列；要寫它就逐筆 --judge（必附理由）。
         let undecidedChecks = ResolutionLedger.undecidedChecks(holders: load.people.map { ($0.key, $0.references) })
         func checks(_ c: ResolutionCandidate) -> Int {
-            undecidedChecks[ResolutionPairing(holderKind: .work, holder: c.citekey,
-                                              literal: c.literal, judgedKey: c.personKey)] ?? 0
+            ResolutionLedger.undecidedChecks(in: undecidedChecks, holder: c.citekey, literal: c.literal, judgedKey: c.personKey)
         }
         let duplicateSkipped = candidates.filter { duplicatedCK.contains($0.citekey) }
         let applySet = candidates.filter {
@@ -1925,8 +1924,7 @@ struct ResolvePeople: ParsableCommand {
                 var row: [String] = []
                 // R1-fix B6：碰撞層可見——initials 碰撞（縮寫共鍵）≠ exact 同名
                 let ambChecks = a.personKeys.reduce(0) {
-                    $0 + (undecidedChecks[ResolutionPairing(holderKind: .work, holder: a.citekey,
-                                                            literal: a.literal, judgedKey: $1)] ?? 0)
+                    $0 + ResolutionLedger.undecidedChecks(in: undecidedChecks, holder: a.citekey, literal: a.literal, judgedKey: $1)
                 }
                 row.append("  〔\(a.tier.rawValue)〕\(displaySafe(a.citekey, max: 200))[\(a.authorIndex)] 「\(displaySafe(a.literal, max: 200))」"   // display-safe-exempt: tier.rawValue 封閉 enum；其餘已消毒
                            + "  entry:\(a.entryID.uuidString.prefix(8))"

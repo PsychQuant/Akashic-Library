@@ -82,7 +82,7 @@ confirmed／rejected 各自分兩個層級：
 
 判準寫成封閉列舉，不寫成「看起來像人判的」這種性質。
 
-`author-organization-judged` 在實作前探勘時補進來：`attributeToOrganizations` 寫的也是逐篇判定、附理由，而先以 resolve-organizations apply 歸給同一 org 再 attribute-org 時，會被去重吃掉，與 #636 是同一個形狀。列舉仍是封閉的兩個 rule，不得依「看起來像人判的」類推第三個。
+`author-organization-judged` 在實作前探勘時補進來：`attributeToOrganizations` 寫的也是逐篇判定、附理由。R1 verify DA 更正它的觸發面：attribute-org 對已歸戶的作者位直接拒絕，所以**同一個作者位**不可能先 apply 再 attribute；並存只出現在「同一筆 work 兩個作者位同一 literal」與「work 合併」兩種情形——兩者都是真的，#636 的形狀在那兩格成立。列舉仍是封閉的兩個 rule，不得依「看起來像人判的」類推第三個。
 
 **理由：**
 
@@ -118,6 +118,10 @@ confirmed／rejected 各自分兩個層級：
 | `PersonResolver`／`VenueResolver` 的否決抑制 | 配對鍵（等同既有 `matchingKey` 比對） |
 | `AkashicService.judgeAuthorships` | 記錄鍵 |
 | `UpdatePerson.appendReferences` | 維持 D73 的 `byteExactKey`；閘接受 undecided |
+| `VenueResolver` 的否決抑制 | 不變（只讀 rejected；未決不抑制） |
+| `Venue.validate()`（D36 confirmed literal 唯一性、訊息文字） | 只看 confirmed，不變；訊息改說「以記錄鍵去重」 |
+| `DivergenceCommands` 的收攏說明（CLI 輸出） | 改說記錄鍵（同一配對、同一層級、正規化後相等才收） |
+| 其餘寫入 `appendIfAbsent` 的面（apply、reject、App accept、attribute-org、org apply／reject） | 記錄鍵；format < 19 時傳 `allowCoexistence: false`——不造出 format 18 不允許的兩層級並存（R1 verify regression：否則 entry 已寫入後才被 `assertVerdictShapesWritable` 擋下） |
 | `Provenance.validateReferenceAttachment` | 接受三值 |
 
 **被否決的替代方案**：直接讓 `verdictEqualityKey` 帶層級。那會一刀切換約 40 個使用點，其中 D20、D23、#486 恰好需要「不分層級」。會安靜錯在最需要對的那幾處。
@@ -211,7 +215,12 @@ refute 對「作者位歸給同一人」的配對仍略過，因為那是矛盾�
 **理由有兩個，任一都足以要求 bump：**
 
 1. 舊 binary 的 `validateReferenceAttachment` 不認得 `resolution-undecided`，讀到會 quarantine 整個 person／venue 檔。
-2. 舊 binary 的合併與 rename 以舊鍵收攏，會把並存的 judged／nominated 收成一筆，丟掉其中一筆理由。
+2. 舊 binary 的**合併**以舊鍵收攏，會把並存的 judged／nominated 收成一筆，丟掉其中一筆理由（rename 自 D62 起只折整筆位元組相同的記錄，不受影響——R1 verify DA 更正）。
+
+**合併在 format 18 會被擋（R1 verify logic，裁決：擋，不退回舊鍵）**：合併以記錄鍵收攏之後，同一配對的 nominated 與
+judged 兩筆都留下；format < 19 時倖存記錄的寫入被 `assertVerdictShapesWritable` 拒絕、零寫入（dry-run 對 person keeper 也跑同一道閘）。
+不退回舊鍵收攏的理由：那等於在 format 18 維持第二套相等定義，而它丟掉的是一筆人寫的判定理由。部署順序（三個 binary 升級 →
+marker 改 19）完成之後這一格就消失。
 
 **寫入面的閘：**
 
@@ -234,7 +243,7 @@ refute 對「作者位歸給同一人」的配對仍略過，因為那是矛盾�
 **Interface / data shape：**
 
 - 新欄位值 `resolution-undecided`。value 文法同其他 verdict；statement 以 `[rule: checked-undecided]` 結尾；rests-on 為 0 到多個 `sha256:<64 hex>`。
-- `ResolutionLedger.VerdictKind` 三值。新增 `ResolutionLedger.pairingState(...)`，回 `decided`／`undecided`／`pending`。
+- `ResolutionLedger.VerdictKind` 三值。新增 `ResolutionLedger.pairingStates(references:judgedKey:)`（回每個配對的 `decided`／`undecided` 與未決記錄數；鍵是正規化配對 `statePairing`，與 `verdictPairingKey` 同一把正規化）、`undecidedChecks(holders:)` 與查詢 `undecidedChecks(in:holder:literal:judgedKey:)`。
 - `ResolutionLedger.counts` 回傳 tuple 加 `undecided`。
 - MCP resolve-people／resolve-venues 回應新增 `undecided`（已記錄）、`alreadyRecorded`、`skipped`；列表列新增 `undecidedChecks`；頂層新增 `undecidedTotal`。judge 回應的 `judged` 列可帶 `coexistsWith`。
 - CLI 旗標 `--undecided`、`--rests-on`（兩個命令）。
@@ -257,7 +266,7 @@ refute 對「作者位歸給同一人」的配對仍略過，因為那是矛盾�
 **Scope boundaries：**
 
 - In：person 與 venue 兩族的未決寫入面；person 族的並存（venue 族沒有 judged 層級）；三把鍵與約 40 個使用點的指派；四態計數；format bump；規則文件（entity-backlink-completeness 的 #280 注記、mcp-cli-parity、two-kinds-of-edits、zero-instance-guards 第 14／28 列的鍵描述）；akashic-disambiguate skill 把「判不出來」的出口改成寫未決。
-- Out：organization 族的寫入面、未決撤回、person demote、App 的未決寫入 UI（App 只需顯示計數）、rests-on 存在性驗證。
+- Out：organization 族的寫入面（#643）、未決撤回、person demote、App 的未決**寫入** UI、rests-on 存在性驗證（與 `update-venue --paginated` 同等；本機缺檔由 dangling-source 掃描報）。App 的裁決台**顯示**未決次數在 scope 內（R1 verify：初稿寫了卻沒做）。
 
 ## Risks / Trade-offs
 
@@ -268,7 +277,7 @@ refute 對「作者位歸給同一人」的配對仍略過，因為那是矛盾�
 - **[未決記錄無上限累積]**：一個配對被反覆查證會不斷長。→ Mitigation：
   - venue 的 verdict 節點預算（第 16 列）把未決一起計入。
   - 列表只給次數，不列內容；內容由 `akashic person`／`akashic venue` 檢視面逐筆印出。
-- **[並存讓 `confirmedPairings` 不再是一對一]** → 回傳改成 judged 優先。提名理由揭露 judged 血統，因為 judged 是更強的出身。代價是提名理由不再同時提到「也曾 apply 過」；那筆記錄仍在，檢視面看得到。
+- **[並存讓 `confirmedPairings` 不再是一對一]** → 回傳依血統排序取一個：exact 優先（`PersonResolver` 對 exact 不加血統註記），其次 judged，最後其餘弱血統。R1 verify 更正：初稿寫「judged 優先」，一筆 exact 的 apply 加上後來的 judge 反而讓提名理由多出一個弱血統註記（`PersonResolver` 把 exact 以外一律當弱血統）。
 - **[format bump 打斷三個 binary]** → 沿用既有部署鏈與記憶中的六步順序。本 change 沒有資料遷移，回退只要不升 marker 即可。
 - **[`--rests-on` 套用整次呼叫]** → 可能把某筆證據誤掛到同一次呼叫的另一筆未決上。→ Mitigation：
   - 回應逐筆印出掛上的 digest。

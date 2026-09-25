@@ -425,7 +425,7 @@ public struct Venue: Equatable {
         // **掃描以位元組分兩類**（R15，Claude 代裁 D39；R14 verify Codex 第 3 列、requirements 第 5 列：D23 的拒絕
         // （`AkashicService.confirmedLiteral`）比**位元組**，而 R14 的掃描只算 `matchingKey` 不同的——只差大小寫或 NFC 形的兩筆
         // confirmed 讓 demote／repoint 必拒而 validate 零診斷，R14 寫的「鍵與 D23 同一把」是假的）：正規化後不同＝不變式
-        // （§3.5）的違反；只差位元組＝重複的判定記錄（`appendIfAbsent`／`supersede`／合併遷移都以 `verdictEqualityKey` 去重，
+        // （§3.5）的違反；只差位元組＝重複的判定記錄（`appendIfAbsent`／`supersede`／合併遷移都以記錄鍵 `verdictRecordKey` 去重——confirmed 同層級時等同 `verdictEqualityKey`，
         // 工具面寫不出它——手改或舊 binary 寫的）。兩類同一家族前綴（`confirmedLiteralAmbiguityPrefix`，StoreHealth 用它篩）、
         // 措辭分開。則數有上限（`Entry.perRecordWarningCap`；R14 verify logic 第 16 列、security 第 18 列：本檢查在讀取路徑上對
         // 未信任的 store 內容跑，同一函式的近重複檢查為同一條理由剛加了上限）。
@@ -481,7 +481,7 @@ public struct Venue: Equatable {
                     severity: .warning,
                     message: "\(Self.confirmedLiteralAmbiguityPrefix)：venue '\(displaySafeInvisible(key, max: 120))' 對 work「\(displaySafeInvisible(w, max: 120))」持有 \(lits.count) 筆只差位元組的 confirmed literal（"   // display-safe-exempt: 前綴是常量；Int
                            + shown + (lits.count > 5 ? "…" : "")   // display-safe-exempt: shown 由上一行逐項 displaySafeInvisible 組成
-                           + "）——正規化後是同一個配對（重複的判定記錄——工具面以 verdictEqualityKey 去重、寫不出它：是手改、舊 binary 寫的，或由 rename 從舊鍵原樣帶過來），"
+                           + "）——正規化後是同一個配對（重複的判定記錄——工具面以記錄鍵去重、寫不出它：是手改、舊 binary 寫的，或由 rename 從舊鍵原樣帶過來），"
                            + "而 D23 的拒絕比位元組，resolve-venues 的 demote／repoint 對這筆 work 同樣會被拒；修法是手改 YAML 留一筆——"
                            + "本掃描只比 literal：兩筆的 judgement／rests-on 若不同，「重複的判定記錄」那一族會另報一則，留一筆之前先看它（R26 D71）"))
             }

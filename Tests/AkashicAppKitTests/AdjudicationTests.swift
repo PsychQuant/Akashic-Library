@@ -30,6 +30,23 @@ final class AdjudicationTests: XCTestCase {
         try? FileManager.default.removeItem(at: root)
     }
 
+    /// change `resolution-verdict-states` R1 verify：裁決台（第三面）也要看得出查過未決——CLI 與 MCP 都標了、這裡不標的話，
+    /// 有人查過而判不出來的配對在人眼前與從沒查過的長得一樣。Accept 是逐筆顯式，照常可用、未決記錄保留。
+    func testUndecidedChecksAreDisclosedAndAcceptStillWrites() throws {
+        try StoreVersion.write(root: root, format: StoreVersion.supported)
+        var p = try XCTUnwrap(state.people.first { $0.key == "cheng-che" })
+        // AkashicAppKitTests 不依賴 AkashicEntity——直接以 Core 的形狀建一筆未決記錄（與 `ResolutionLedger.record(undecided:)` 同形）
+        p.references = [ProvenanceReference(field: "resolution-undecided", value: "work:a2020paper :: Che Cheng",
+                                            kind: .judgement(statement: "查了機構 [rule: checked-undecided]", restsOn: []))]
+        try state.store.writePerson(p)
+        try state.load()
+        let model = PeopleResolveModel(state: state)
+        XCTAssertEqual(model.undecidedChecks(for: model.candidates[0]), 1)
+        try model.accept(model.candidates[0])
+        let after = try XCTUnwrap(state.people.first { $0.key == "cheng-che" })
+        XCTAssertEqual(Set(after.references.map(\.field)), ["resolution-undecided", "resolution-confirmed"])
+    }
+
     func testPeopleResolveAcceptAppliesSingleCandidate() throws {
         let model = PeopleResolveModel(state: state)
         XCTAssertEqual(model.candidates.count, 1)

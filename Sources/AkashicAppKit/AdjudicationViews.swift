@@ -30,6 +30,12 @@ struct PeopleResolveView: View {
                                     Text(displaySafe(a.citekey, max: 200)
                                          + "［作者 #\(a.authorIndex)］")
                                         .font(.caption).foregroundStyle(.secondary)
+                                    // #619：有人查過而判不出來——與從沒查過的分得開
+                                    let ambChecks = model.undecidedChecks(for: a)
+                                    if ambChecks > 0 {
+                                        Text("查過未決 \(ambChecks) 次")   // display-safe-exempt: ambChecks 是 Int
+                                            .font(.caption).foregroundStyle(.orange)
+                                    }
                                     ForEach(a.personKeys, id: \.self) { k in
                                         // 區辨欄位——只給 key 的話人也判不了。`names` 不具
                                         // 區辨力（它們正規化後相同才會歧義）。
@@ -78,6 +84,12 @@ struct PeopleResolveView: View {
                                 Text("\(candidate.displayCitekey)［作者 #\(candidate.authorIndex)］·\(candidate.tier.rawValue)·\(candidate.displayReason)")   // display-safe-exempt: tier.rawValue 封閉 enum；其餘欄位已投影
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
+                                // #619：查過未決的配對要看得出來（CLI 的篩選式 --apply 會排除它；這裡的 Accept 是逐筆顯式，照常可用）
+                                let checks = model.undecidedChecks(for: candidate)
+                                if checks > 0 {
+                                    Text("查過未決 \(checks) 次——Accept 前先看查了什麼（akashic person）")   // display-safe-exempt: checks 是 Int
+                                        .font(.caption).foregroundStyle(.orange)
+                                }
                             }
                             Spacer()
                             Button("Accept") {

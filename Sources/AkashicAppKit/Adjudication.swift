@@ -22,6 +22,10 @@ public final class PeopleResolveModel {
     ///
     /// **不可 accept**——`apply` 只吃 `candidates`，型別層就寫不出來。
     public private(set) var ambiguities: [AmbiguousMatch] = []
+    /// 查過未決的配對 → 未決記錄數（change `resolution-verdict-states`，#619）。裁決台是第三個面：CLI 標「查過未決 N 次」、
+    /// MCP 帶 `undecidedChecks`，這裡不標的話，有人查過而判不出來的配對在人眼前與從沒查過的長得一樣（R1 verify）。
+    /// accept 照常可用——它是逐筆顯式指名（同 MCP 的逐 id apply），不是篩選式批次。
+    public private(set) var undecided: [ResolutionPairing: Int] = [:]
 
     public init(state: AppState) {
         self.state = state
@@ -41,6 +45,19 @@ public final class PeopleResolveModel {
         // 歧義**不參與 skip 集合**：skip 的語意是「這個候選我不要套用」，而歧義
         // 本來就套用不了。它是待辦事項，不是候選。
         ambiguities = report.ambiguities
+        undecided = ResolutionLedger.undecidedChecks(holders: state.people.map { ($0.key, $0.references) })
+    }
+
+    /// 這個候選的配對查過未決幾次（0＝沒有未決記錄）。
+    public func undecidedChecks(for c: ResolutionCandidate) -> Int {
+        ResolutionLedger.undecidedChecks(in: undecided, holder: c.citekey, literal: c.literal, judgedKey: c.personKey)
+    }
+
+    /// 這個歧義位置跨全部人選的未決記錄總數。
+    public func undecidedChecks(for a: AmbiguousMatch) -> Int {
+        a.personKeys.reduce(0) {
+            $0 + ResolutionLedger.undecidedChecks(in: undecided, holder: a.citekey, literal: a.literal, judgedKey: $1)
+        }
     }
 
     /// 一行可顯示的區辨欄位（已消毒）。
@@ -129,7 +146,7 @@ public final class PeopleResolveModel {
                 .confirmed, holderKind: .work,
                 holder: candidate.citekey, literal: candidate.literal,
                 rule: ResolutionLedger.personRule(for: candidate.tier),
-                statement: "裁決台 accept：使用者確認歸戶"), to: &p.references)
+                statement: "裁決台 accept：使用者確認歸戶"), to: &p.references, allowCoexistence: storeFormat >= 19)
             do {
                 try state.store.writePerson(p)
             } catch {

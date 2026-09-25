@@ -61,6 +61,20 @@ final class UndecidedCLITests: XCTestCase {
         XCTAssertTrue(try reload().entries.allSatisfy { $0.authors == [.literal("Che Cheng")] }, "零寫入")
     }
 
+    /// R1 verify 第 13 列：檢視面三值分開印、未決逐筆印查了什麼、並存的逐篇判定標出來（先前只有手動真 binary 看過）。
+    func testPersonViewRendersUndecidedAndMarksTheJudgedVerdict() throws {
+        _ = try runCLI(["resolve-people", "--undecided", "a2020x:0:cheng-che=查了機構欄只寫 Taipei", "--rests-on", digest])
+        _ = try runCLI(["resolve-people", "--apply", "--tier", "exact", "--yes"])          // 帶走 b2021y
+        _ = try runCLI(["resolve-people", "--judge", "b2021y:0:cheng-che=論文登記中研院統計所"])  // 與 apply 並存
+        let v = try runCLI(["person", "cheng-che"])
+        XCTAssertEqual(v.status, 0, v.output)
+        XCTAssertTrue(v.output.contains("? undecided"), v.output)
+        XCTAssertTrue(v.output.contains("查了：查了機構欄只寫 Taipei"), v.output)
+        XCTAssertTrue(v.output.contains(digest), v.output)
+        XCTAssertTrue(v.output.contains("〔逐篇判定〕"), v.output)
+        XCTAssertFalse(v.output.contains("✓ confirmed〔逐篇判定〕  work:a2020x"), "未決的那筆不是判定")
+    }
+
     func testRestsOnWithoutUndecidedIsRefused() throws {
         let r = try runCLI(["resolve-people", "--rests-on", digest])
         XCTAssertNotEqual(r.status, 0, r.output)

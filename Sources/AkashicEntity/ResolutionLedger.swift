@@ -149,9 +149,22 @@ public enum ResolutionLedger {
     /// DA (d) 第 1 步——**這個寫入面**不製造重複，計數就能誠實地數原始 refs）。store 仍可能持有同鍵的重複：手改、舊 binary，
     /// 或 rename 自 D62 起原樣帶過來的（它只折整筆相等的）——那個狀態由 `StoreHealth.duplicateVerdictRecords` 報（#554 R23，D64）。
     /// 回傳是否真的附加了。
+    ///
+    /// **`allowCoexistence`**（change `resolution-verdict-states`，R1 verify regression）：false 時，同一配對同一 field 已有
+    /// **另一個判定層級**的記錄就不寫（回 false）——那是 format 18 的既有語意（舊鍵把兩層級當同一筆）。寫入面在
+    /// store format < 19 時傳 false：否則 apply／reject／accept／attribute-org 會在 entry 已寫入之後才被
+    /// `assertVerdictShapesWritable` 擋下，留下一個已歸戶卻沒有 verdict 的作者位。
     @discardableResult
     public static func appendIfAbsent(_ ref: ProvenanceReference,
-                                      to references: inout [ProvenanceReference]) -> Bool {
+                                      to references: inout [ProvenanceReference],
+                                      allowCoexistence: Bool = true) -> Bool {
+        if !allowCoexistence, let cls = ref.verdictClass {
+            let k = ProvenanceReference.verdictEqualityKey(field: ref.field, value: ref.value)
+            if references.contains(where: {
+                $0.verdictClass.map { $0 != cls } == true
+                    && ProvenanceReference.verdictEqualityKey(field: $0.field, value: $0.value) == k
+            }) { return false }
+        }
         // #470：相等取正規化（與 merge／rename 的寫入面、以及讀取面的 rejectedNorm 同一個
         // 定義）。在此之前這裡比位元組，於是一個只差空白的重複判定會被寫進去。
         // change `resolution-verdict-states`：去重用**記錄鍵**——confirmed／rejected 帶判定層級（nominated 與 judged 並存，
@@ -266,8 +279,11 @@ public enum ResolutionLedger {
             for v in verdicts(references: p.references).verdicts where v.kind == .confirmed {
                 let key = ResolutionPairing(holderKind: v.holderKind, holder: v.holder,
                                             literal: v.literal, judgedKey: p.key)
-                // #636 起同一配對可並存兩筆（nominated 與 judged）：血統揭露 judged——它是更強的出身
-                if let seen = out[key], ProvenanceReference.verdictClass(rule: seen) == .judged { continue }
+                // #636 起同一配對可並存兩筆（nominated 與 judged）。取哪一筆的 rule 餵提名理由：exact 優先
+                // （PersonResolver 對 exact 不加血統註記——它本來就是最強的名字證據），其次 judged（有理由的逐篇判定），
+                // 最後才是其餘的弱血統。與序列化順序無關（R1 verify logic／regression：先前 judged 優先，一筆 exact 的
+                // apply 加上後來的 judge 反而讓提名理由多出一個弱血統註記）。
+                if let seen = out[key], lineageRank(seen) <= lineageRank(v.rule) { continue }
                 out[key] = v.rule
             }
         }
@@ -315,7 +331,7 @@ public enum ResolutionLedger {
         return out
     }
 
-    /// 三態計數（per rule；spec「Calibration counts SHALL be derived, never stored」）。
+    /// 四態計數（per rule；spec「Calibration counts SHALL be derived, never stored」；change `resolution-verdict-states` 起多 undecided）。
     ///
     /// - confirmed／rejected：**數原始 refs**（歷史全量）。寫入邊界已冪等
     ///   （`appendIfAbsent` + service 端 rowID 去重），所以殘存的重複是**症狀**，
@@ -333,7 +349,7 @@ public enum ResolutionLedger {
                    candidates: candidates)
     }
 
-    /// organization 族的三態計數——同一個 core，只換被判定的記錄集合與 pending 歸屬。
+    /// organization 族的四態計數——同一個 core，只換被判定的記錄集合與 pending 歸屬。
     public static func counts(organizations: [Organization],
                               candidatePairings: [ResolutionPairing])
         -> [String: Counts] {
@@ -353,8 +369,9 @@ public enum ResolutionLedger {
         var checked = Set<ResolutionPairing>()
         for s in sets {
             for v in verdicts(references: s.references).verdicts {
-                let pairing = ResolutionPairing(holderKind: v.holderKind, holder: v.holder,
-                                                literal: v.literal, judgedKey: s.key)
+                // 狀態推導用正規化配對（`statePairing`，R1 verify）
+                let pairing = statePairing(ResolutionPairing(holderKind: v.holderKind, holder: v.holder,
+                                                             literal: v.literal, judgedKey: s.key))
                 var entry = result[v.rule] ?? (0, 0, 0, 0)
                 switch v.kind {
                 case .confirmed: entry.confirmed += 1
@@ -368,7 +385,13 @@ public enum ResolutionLedger {
                 decided.insert(pairing)
             }
         }
-        for (c, rule) in candidates where !decided.contains(c) {
+        // undecided／pending 以**配對**為單位（spec「count candidate pairings」）：同一筆 work 兩個作者位同一 literal
+        // 同一人時是兩列候選、一個配對——先前逐列數，一筆未決記錄會計兩次（R1 verify Codex）。一個配對出現在多個 rule
+        // 下時，計入第一個出現的 rule（候選依信心降冪排序，所以是最強的那一層）。
+        var counted = Set<ResolutionPairing>()
+        for (raw, rule) in candidates {
+            let c = statePairing(raw)
+            guard !decided.contains(c), counted.insert(c).inserted else { continue }
             var entry = result[rule] ?? (0, 0, 0, 0)
             if checked.contains(c) { entry.undecided += 1 } else { entry.pending += 1 }
             result[rule] = entry
@@ -378,12 +401,16 @@ public enum ResolutionLedger {
 
     /// 配對狀態（spec「A pairing's state SHALL be derived as decided, undecided, or pending」）與它的未決記錄數。
     /// 只回有 verdict 的配對；不在表裡的就是 `pending`。
+    ///
+    /// **鍵是正規化的配對**（`statePairing`，literal 取 `matchingKey`）——與 spec 的配對鍵、與寫入端 `pairingIsDecided`
+    /// 用的 `verdictPairingKey` 同一把正規化（R1 verify logic／requirements：先前讀取端比位元組、寫入端比正規化，
+    /// 只差空白的兩筆在兩端答案不同）。查詢用 `undecidedChecks(in:holderKind:holder:literal:judgedKey:)`。
     public static func pairingStates(references: [ProvenanceReference], judgedKey: String)
         -> [ResolutionPairing: (state: PairingState, undecidedChecks: Int)] {
         var out: [ResolutionPairing: (state: PairingState, undecidedChecks: Int)] = [:]
         for v in verdicts(references: references).verdicts {
-            let p = ResolutionPairing(holderKind: v.holderKind, holder: v.holder,
-                                      literal: v.literal, judgedKey: judgedKey)
+            let p = statePairing(ResolutionPairing(holderKind: v.holderKind, holder: v.holder,
+                                                   literal: v.literal, judgedKey: judgedKey))
             var cur = out[p] ?? (.undecided, 0)
             if v.kind == .undecided { cur.undecidedChecks += 1 } else { cur.state = .decided }
             out[p] = cur
@@ -401,6 +428,26 @@ public enum ResolutionLedger {
             }
         }
         return out
+    }
+
+    /// 狀態推導用的配對：literal 換成 `NameNormalization.matchingKey`（與 `verdictPairingKey` 同一把正規化）。
+    public static func statePairing(_ p: ResolutionPairing) -> ResolutionPairing {
+        ResolutionPairing(holderKind: p.holderKind, holder: p.holder,
+                          literal: NameNormalization.matchingKey(p.literal), judgedKey: p.judgedKey)
+    }
+
+    /// `undecidedChecks(holders:)` 的查詢：以正規化配對查，缺席＝0。
+    public static func undecidedChecks(in map: [ResolutionPairing: Int],
+                                       holderKind: ProvenanceReference.VerdictHolderKind = .work,
+                                       holder: String, literal: String, judgedKey: String) -> Int {
+        map[statePairing(ResolutionPairing(holderKind: holderKind, holder: holder,
+                                           literal: literal, judgedKey: judgedKey))] ?? 0
+    }
+
+    /// 提名理由的血統排序：exact（0）＜ judged（1）＜ 其餘（2）。數字小者勝。
+    static func lineageRank(_ rule: String) -> Int {
+        if ProvenanceReference.RuleName.exact.contains(rule) { return 0 }
+        return ProvenanceReference.verdictClass(rule: rule) == .judged ? 1 : 2
     }
 
     // MARK: - 沉底列（design D7「order without hiding」的唯一來源）

@@ -650,8 +650,16 @@ public extension LibraryStore {
     func venueVerdictBudgetIssues(in load: LibraryLoad,
                                   threshold: Int = AliasEventBudget.venueVerdictWarningThreshold) -> [StoreHealth.OwnedIssue] {
         load.venues.compactMap { v in
-            let n = v.references.filter { ProvenanceReference.resolutionVerdictFields.contains($0.field) }.count
-            guard n >= threshold else { return nil }
+            let verdicts = v.references.filter { ProvenanceReference.resolutionVerdictFields.contains($0.field) }
+            let n = verdicts.count
+            // 等效筆數：門檻是以「每筆 9 節點、rests-on 空」換算的（`nodesPerVenueVerdict`）；未決記錄可帶 rests-on
+            // （change `resolution-verdict-states`），每個 digest 多一個節點——換算回等效筆數再比（R1 verify security）
+            let extraNodes = verdicts.reduce(0) { acc, r in
+                if case .judgement(_, let restsOn) = r.kind { return acc + restsOn.count }
+                return acc
+            }
+            let effective = n + (extraNodes + AliasEventBudget.nodesPerVenueVerdict - 1) / AliasEventBudget.nodesPerVenueVerdict
+            guard effective >= threshold else { return nil }
             let message = "\(StoreHealth.venueVerdictBudgetPrefix)：\(n) 筆 resolution verdict（門檻 \(threshold)＝"
                 + "decode 硬預算的一半）。這本刊的 verdict 是 O(catalog) 在長；處置：重開第 13 條邊的規模化裁決（#499，"
                 + "候選 2 sidecar ledger），不要只放寬預算"

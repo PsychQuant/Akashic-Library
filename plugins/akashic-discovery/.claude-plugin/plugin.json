@@ -1,6 +1,6 @@
 {
   "name": "akashic-discovery",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "Akashic-Library 文獻探索 skills（引用追溯、被引、關聯、作者與期刊著作）——依賴 akashic-mcp 的 canonical store。目前有 akashic-work-references（往回追一篇論文的參考文獻，#617）；其餘由後續 issue 各自加入。",
   "author": {
     "name": "Che Cheng"

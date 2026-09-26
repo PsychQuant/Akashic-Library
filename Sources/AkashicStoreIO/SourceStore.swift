@@ -83,6 +83,15 @@ public extension LibraryStore {
     /// 路徑正是 index 腐爛的來源——本 issue 之前的 7 個 blob 全靠手工補記）。
     @discardableResult
     func storeSource(_ data: Data, provenance: SourceProvenance) throws -> SourceReceipt {
+        // #546：下界。空字串的 digest 是常數，任何空輸入都得到它——它不指認任何一份內容，
+        // 而兩次不同的失敗抓取會折成同一筆、被去重讀成「早已存過」。與 #519 的上界同型：
+        // 整個拒絕、零寫入、具名。所以這一道放在任何磁碟寫入之前。
+        guard !data.isEmpty else {
+            throw StoreIOError.invalidInput(
+                what: "source 內容",
+                why: "0 byte——空內容的 digest 對所有空輸入都相同，不指認任何一份存檔。"
+                    + "這通常是一次失敗的抓取留下的空檔；重新取得內容再存")
+        }
         // #224 verify（Codex #4）：sidecar 已腐壞時不可宣稱冪等——malformed 行讓
         // 重複檢查不可靠（同 digest 可能藏在解析不出的行裡）。fail-closed：先修再寫。
         // 這個檢查在**任何**磁碟寫入之前——拒寫時不留孤兒 blob。

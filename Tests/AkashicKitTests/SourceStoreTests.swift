@@ -107,6 +107,22 @@ final class SourceStoreTests: XCTestCase {
         XCTAssertTrue(shards.isEmpty, "拒寫時不得留孤兒 blob：\(shards)")
     }
 
+    /// #546：0 byte 的內容整個拒絕、零寫入。空字串的 digest 是常數（`sha256:e3b0…`），任何空輸入都得到它——
+    /// 兩次不同的失敗抓取會折成同一筆「存檔」，而內容定址的去重讓它看起來只是「已經存過了」。
+    func testStoreSourceRefusesEmptyContent() throws {
+        XCTAssertThrowsError(try store.storeSource(Data(), provenance: prov())) { e in
+            let msg = (e as? LocalizedError)?.errorDescription ?? "\(e)"
+            XCTAssertTrue(msg.contains("0 byte"), "要說出是空內容：\(msg)")
+        }
+        let shards = ((try? FileManager.default.contentsOfDirectory(
+            atPath: root.appendingPathComponent("sources").path)) ?? [])
+            .filter { $0.count == 2 }
+        XCTAssertTrue(shards.isEmpty, "拒寫時不得留 blob：\(shards)")
+        XCTAssertEqual(try indexLines(), [], "拒寫時不得留 index 條目")
+        // 一個 byte 就收——閘只擋空，不擋短
+        XCTAssertTrue(try store.storeSource(Data("x".utf8), provenance: prov()).indexEntryCreated)
+    }
+
     /// verify D2（lossless-intake「丟棄必須可見」）：冪等早退丟棄的 provenance 要在回條上。
     func testIdempotentStoreReportsDiscardedProvenance() throws {
         let data = Data("same".utf8)

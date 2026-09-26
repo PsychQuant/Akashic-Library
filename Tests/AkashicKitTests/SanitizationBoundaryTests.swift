@@ -245,6 +245,7 @@ final class SanitizationBoundaryTests: XCTestCase {
         ("^(rows|AmbiguityDisplayLimit\\.bytes / 1024|startLine\\.map\\(String\\.init\\) \\?\\? \"\\?\")$", "Int"),
         ("^breakdown$", "封閉 enum ResolutionTier 的 rawValue 與計數"),
         ("^(command|f\\.0)$", "本檔字面命令名／旗標名"),
+        ("^flag$", "DestructiveTargetGate 的旗標名：預設 --apply，唯一的另一個呼叫端傳字面三元 apply ? \"--apply\" : \"--reject\"（#580）"),
         ("^Self\\.shapeName\\(\\w+\\)$", "JSON 值的型別名（封閉的幾個字面）"),
         ("^\\[\\]$", "空陣列字面"),
         ("^safeNames$", "export 缺欄位名的 join，已逐項 displaySafeInvisible"),

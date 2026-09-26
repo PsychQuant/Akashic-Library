@@ -174,7 +174,9 @@ final class ResolveAmbiguityCLITests: XCTestCase {
                                    title: "X", authors: [.literal("Ambi Guous")], date: "2020"))
 
         let r = try runCLI(["resolve-people"])
-        XCTAssertTrue(r.output.contains("無候選"), "前提：確實沒有唯一命中：\n\(r.output)")
+        // #597 R1：有歧義時改說「無唯一候選」——「任何提名層皆無命中」對歧義為假
+        XCTAssertTrue(r.output.contains("無唯一候選"), "前提：確實沒有唯一命中：\n\(r.output)")
+        XCTAssertFalse(r.output.contains("任何提名層皆無命中"), r.output)
         XCTAssertTrue(r.output.contains("歧義"),
                       "「無候選」之後仍必須印歧義——那正是最需要人看的時候：\n\(r.output)")
     }

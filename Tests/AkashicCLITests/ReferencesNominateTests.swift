@@ -258,7 +258,7 @@ final class ReferencesNominateTests: XCTestCase {
     /// 手寫一份 extract 形狀的 refs JSON（構造 extract 產不出的輸入：切壞的標題、極端年份）
     private func manualRefs(title: String, year: Int, firstAuthor: String = "Adams") throws -> String {
         try write("refs-manual-\(UUID().uuidString).json", """
-        {"count":1,"contract":3,"warnings":[],"entries":[{"index":1,"raw":"manual","firstAuthor":"\(firstAuthor)",\
+        {"count":1,"contract":4,"warnings":[],"entries":[{"index":1,"raw":"manual","firstAuthor":"\(firstAuthor)",\
         "authors":["\(firstAuthor)"],"groupAuthor":false,"year":\(year),"title":"\(title)"}]}
         """)
     }
@@ -321,7 +321,7 @@ final class ReferencesNominateTests: XCTestCase {
         let refs = try extractRefs("References\n\nAdams, J. (2001). A title. Journal A, 1, 1–2.\n")
         let (status, output) = try nominate(refs, [try openalex([])])
         XCTAssertEqual(status, 0, output)
-        XCTAssertEqual(try decode(output).contract, 3)
+        XCTAssertEqual(try decode(output).contract, 4)
     }
 
     /// T10：輸入 JSON 壞掉 → 非零結束並指名是哪一個輸入。
@@ -343,11 +343,22 @@ final class ReferencesNominateTests: XCTestCase {
 
     /// T60：refs 的 contract 比 CLI 舊時，nominate 拒絕並說明——兩個子命令之間的 JSON 是契約（R5 E4）
     func testNominateRejectsRefsFromAnOlderContract() throws {
-        let refs = try write("old-refs.json", #"{"count":1,"contract":2,"warnings":[],"entries":[{"index":1,"raw":"x","firstAuthor":"Adams","authors":["Adams"],"groupAuthor":false,"year":2001,"title":"A title"}]}"#)
+        let refs = try write("old-refs.json", #"{"count":1,"contract":3,"warnings":[],"entries":[{"index":1,"raw":"x","firstAuthor":"Adams","authors":["Adams"],"groupAuthor":false,"year":2001,"title":"A title"}]}"#)
         let oa = try openalex([work("W60", doi: nil, title: "A title", year: 2001, authors: ["Jane Adams"])])
         let (status, output) = try nominate(refs, [oa])
         XCTAssertNotEqual(status, 0, output)
         XCTAssertTrue(output.contains("contract"), output)
+    }
+
+    /// T63：refs 的 contract 比 CLI **新**時也拒絕，而且叫人更新 CLI，不是叫人用舊 CLI 重跑 extract
+    /// ——舊的解碼器會無聲丟掉新欄位，輸出卻蓋上自己的 contract（R6 codex）
+    func testNominateRejectsRefsFromANewerContract() throws {
+        let refs = try write("new-refs.json", #"{"count":1,"contract":5,"warnings":[],"entries":[{"index":1,"raw":"x","firstAuthor":"Adams","authors":["Adams"],"groupAuthor":false,"year":2001,"title":"A title"}]}"#)
+        let oa = try openalex([work("W63", doi: nil, title: "A title", year: 2001, authors: ["Jane Adams"])])
+        let (status, output) = try nominate(refs, [oa])
+        XCTAssertNotEqual(status, 0, output)
+        XCTAssertTrue(output.contains("更新"), output)
+        XCTAssertFalse(output.contains("重跑 akashic references extract"), output)
     }
 
     /// T62：只會列進報告的 `unnominated` work，它的 DOI 在 store 裡有重複時，不觸發「對應到不只一筆」

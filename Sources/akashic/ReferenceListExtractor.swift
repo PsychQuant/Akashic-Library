@@ -35,7 +35,9 @@ enum ReferenceListExtractor {
 
     /// 目前的輸出契約版本。輸出欄位或 warning 的語意改了就加一。3（R4 A4）：R3 改了 warning 的語意
     /// ——多段 warning 列各段條目數、頁首與接續 warning、位置帶 PDF 頁碼、nominate 不再發「同分」。
-    static let contractVersion = 3
+    /// 4（R6）：新增「過長」與「最後一筆還沒結束」兩則 warning，多段 warning 改列條目最多的 5 段；
+    /// nominate 只接同版的 refs。
+    static let contractVersion = 4
 
     // MARK: - 樣式
 
@@ -127,21 +129,26 @@ enum ReferenceListExtractor {
         var warnings: [String] = []
         let withEntries = starts.indices.filter { starts[$0] > 0 }
         if withEntries.count > 1 {
-            let others = withEntries.filter { $0 != best }.map { "\(place(sections[$0].heading))：\(starts[$0]) 個" }
-            // 只列前 5 段（R5 E4：候選很多時會超過 warning 的長度上限）
+            // 只列 5 段（R5 E4：候選很多時會超過 warning 的長度上限）——列條目開頭最多的 5 段，不是文件裡
+            // 最前面的 5 段（R6 E4：大段可能被藏在「等 N 段」裡）
+            let others = withEntries.filter { $0 != best }
+                .sorted { (starts[$0], -$0) > (starts[$1], -$1) }
+                .map { "\(place(sections[$0].heading))：\(starts[$0]) 個" }
             warnings.append("有 \(withEntries.count) 個參考文獻標題候選都帶著條目；取條目開頭最多的那個"
-                            + "（\(place(chosen.heading))，\(starts[best]) 個條目開頭）。其餘："
-                            + others.prefix(5).joined(separator: "、") + (others.count > 5 ? " 等 \(others.count) 段" : "")
+                            + "（\(place(chosen.heading))，\(starts[best]) 個條目開頭）。其餘（由多到少）："
+                            + others.prefix(5).joined(separator: "、")
+                            + (others.count > 5 ? " 等 \(others.count) 段（未列的每段都不多於列出的）" : "")
                             + "——可能是目錄、附錄或表格；若其中有這份清單的一部分，清單被截斷了")
         }
         // 沒被選中、而且自己一筆都沒有的段：它在斷點處停下、之後其實有條目開頭——主清單可能就是它
         // （R5 D7：這則 note 原本跟著沒被選中的段一起丟掉，工具改選別段而完全沒有 warning）
         // 只在停下處是圖表或結束標題時（停在另一個標題候選的，那些條目歸下一段），而且不在選中的清單裡
-        // 的條目開頭至少 3 個——一兩行是正文裡長得像條目的句子（本機語料：目錄後的一行、真清單本身）
+        // 的條目開頭至少 3 個——一兩行是正文裡長得像條目的句子（本機語料：目錄後的一行、真清單本身）；
+        // 或者比選中的清單還多——短清單的主清單只有一兩筆，選中的那段更少（R6 D7）
         for (n, g) in sections.enumerated() where n != best && starts[n] == 0 {
             guard let o = g.orphan else { continue }
             let outside = o.starts.filter { !chosen.range.contains($0) }
-            if outside.count >= 3 {
+            if outside.count >= 3 || outside.count > starts[best] {
                 warnings.append("\(place(o.heading))的參考文獻標題之後，清單在\(place(o.stop))的圖表或結束標題處停下，"
                                 + "之後的 \(outside.count) 個條目開頭沒有被認成清單（第一筆不是完整條目，或離斷點太遠）"
                                 + "——若那才是參考文獻，這份清單選錯了")
@@ -210,6 +217,23 @@ enum ReferenceListExtractor {
         for n in absorbed {
             warnings.append("第 \(n) 筆吸收了一行看起來像新條目開頭的內容——可能兩筆併成一筆"
                             + "（前一筆的年份寫法沒認出來），作者與標題可能分屬兩筆")
+        }
+        // 過長的條目：清單之後（或欄間）的文字被併了進來，最常見的是最後一筆一路吸到檔尾（作者簡介、
+        // 「引用本文」的 DOI）。作者、年份、標題取自開頭，不受影響；DOI 取第一個出現的，這一筆自己沒有
+        // DOI 時會拿到別人的（R6：原本只在 SKILL 裡點名一份語料，機制沒有揭露）
+        let overlong = entries.filter { $0.raw.count > overlongEntry }.map(\.index)
+        for c in stride(from: 0, to: overlong.count, by: 40) {
+            let chunk = overlong[c..<min(c + 40, overlong.count)].map(String.init).joined(separator: "、")
+            warnings.append((c == 0 ? "" : "（續）") + "第 \(chunk) 筆的原文超過 \(overlongEntry) 字"
+                            + "——可能併進了清單之後或欄間的文字；這幾筆的 DOI 可能不是它自己的")
+        }
+        // 清單停在結束標題或圖表標題，而最後一筆在那之前還沒結束：它在斷點之後的那一段不會回來（R6：跨過
+        // 圖表的最後一筆，後半原本無聲丟掉）。看切分之後的那一筆本身——斷點前一行常是頁尾之類的雜訊
+        // （本機語料 3 份）；過長的已由上一則說出來（本機語料 11 份是吸進了文字才停在圖表處）
+        if let stop = chosen.stop, let last = entries.last,
+           !closesEntry(last.raw), last.raw.count <= overlongEntry {
+            warnings.append("清單停在\(place(stop.line))的\(stop.kind)，而最後一筆（第 \(last.index) 筆）在那之前還沒結束"
+                            + "（不是以句點、括號、頁碼或 DOI 結尾）——它若在那之後還有一段，這一筆缺了那一段")
         }
         for e in entries where e.year == nil && e.yearNote == nil {
             warnings.append("第 \(e.index) 筆沒有辨識出年份——可能兩筆併成一筆，或不是作者—年份格式")
@@ -310,15 +334,45 @@ enum ReferenceListExtractor {
         /// 這一段一筆都沒有、卻在圖表或結束標題處停下時，停下處之後的條目開頭位置——即使這段沒被
         /// 選中，只要那些不在選中的清單裡，就要說出來（`extract` 決定）
         var orphan: (heading: Int, stop: Int, starts: [Int])?
+        /// 清單停在結束標題或圖表標題時，停在哪裡。最後一筆在那裡還沒結束的話，要說出來——但雜訊行
+        /// 在這裡還沒去掉，要等切分之後看那一筆本身（`extract` 決定）
+        var stop: (line: Int, kind: String)? = nil
     }
 
     /// 圖表之後找接續時的窗口：表格一格一行，本機一份真實論文要隔 1,095 行（R5 D7）
     static let floatContinuationWindow = 1500
 
+    /// 「過長」的條目字數。本機 124 份可切的真實論文、5,519 筆：中位數 168 字、第 99 百分位 893 字；
+    /// 超過 1,000 字的 51 筆有 32 筆是清單的最後一筆（R6）
+    static let overlongEntry = 1000
+
     /// 一定是清單之後的結束標題：附錄、索引。這兩種不做接續判定——附錄裡的文獻清單可能剛好
     /// 按字母順序接得上（T3、T18b），而它們從不穿插在清單中間。
     static let hardEndPattern =
         "^(?:\\d+\\.?\\s+)?(?:(?:appendix|appendices)\\b[^()]{0,80}|(?:subject |author |name )?index(?:es)?)\\s*:?$"
+
+    /// 第 `j` 行是附錄或索引的終點——不是某一筆換行換出來的一行。
+    ///
+    /// 以小寫開頭的不是（R6 E5）：標題不會以小寫開頭，`appendix in children. Journal …` 是標題的
+    /// 續行；原本清單在那裡結束，最後一筆的後半與 DOI 無聲丟掉。
+    ///
+    /// 大寫開頭、單獨一行的 `Index` 分不出來：本機語料裡「前一行還沒結束」的附錄／索引行 118 個，
+    /// 大寫開頭的 114 個幾乎都是真標題（書末索引每頁的頁首、前一行是不帶 `https://` 的網址），只憑
+    /// 前一行判會把整份索引吸進最後一筆。這種照終點處理，由 `extract` 的「最後一筆還沒結束」說出來。
+    static func isHardEnd(at j: Int, in lines: [String]) -> Bool {
+        guard matches(lines[j], hardEndPattern, caseInsensitive: true) else { return false }
+        return lines[j].first(where: \.isLetter)?.isLowercase != true
+    }
+
+    /// 一筆像是結束了：句點、右括號或右方括號，或以 DOI／網址（不一定帶 `https://`）、頁碼區間結尾
+    static func closesEntry(_ s: String) -> Bool {
+        let t = s.replacingOccurrences(of: softHyphenMark, with: "").trimmingCharacters(in: .whitespaces)
+        guard let last = t.last else { return true }
+        if ".)]".contains(last) { return true }
+        // 頁碼區間結尾（`12, 345–367`）：不以句點結尾的書目格式
+        return matches(t, "(?:https?://|doi:\\s*|\\b10\\.\\d{4,9}/|\\bwww\\.)\\S+$|\\.(?:com|org|net|edu|gov)(?:/\\S*)?$|\\d+\\s?[-–]\\s?\\d+$",
+                       caseInsensitive: true)
+    }
 
     /// 圖表標題（`Table 3`、`Figure 2.`）——雙欄期刊的浮動圖表會落在清單中間
     static let floatPattern = "^(?:table|figure)\\s+\\d+\\.?\\s*:?$"
@@ -352,6 +406,7 @@ enum ReferenceListExtractor {
             var out: [String] = []
             var notes: [(text: String, mark: Int?)] = []
             var orphan: (heading: Int, stop: Int, starts: [Int])?
+            var stop: (line: Int, kind: String)?
             var runningHeads: [Int] = []
             var order = Order()
             var entries = 0
@@ -360,7 +415,10 @@ enum ReferenceListExtractor {
             while i < lines.count {
                 let line = lines[i]
                 let isHeading = candidateSet.contains(i)
+                // 以小寫開頭的是某一筆換行換出來的一行，不是標題，照一般的行收（R6 E5：`appendix in
+                // children. Journal …` 原本讓清單在那裡結束）
                 let isEnd = !isHeading && matches(line, endPattern, caseInsensitive: true)
+                    && line.first(where: \.isLetter)?.isLowercase != true
                 if isHeading || isEnd {
                     let isFloat = isEnd && matches(line, floatPattern, caseInsensitive: true)
                     let sameHeading = isHeading && line.caseInsensitiveCompare(lines[heading]) == .orderedSame
@@ -372,8 +430,10 @@ enum ReferenceListExtractor {
                     let window = isFloat ? floatContinuationWindow : continuationWindow
                     if canContinue, let j = continuation(after: i, in: lines, candidates: candidateSet, window: window) {
                         let how: String?
-                        if continuesAuthorList(previous) {
-                            // 斷點前一行正在列作者：斷點之後那一行是同一筆的共同作者，不比字母順序（R5 D5）
+                        if endsInAuthorList(previous) {
+                            // 斷點前一行正在列作者：斷點之後那一行是同一筆的共同作者，不比字母順序（R5 D5）。
+                            // 只看作者清單的形狀，不看「以逗號結尾」——期刊名後面也是逗號，那樣會跳過
+                            // 字母順序、把停下並說出來的情形變成無聲併入（R6 D5）
                             how = "斷點前正在列作者，是同一筆"
                         } else if order.last == nil {
                             // 第一筆之前的圖表或結束標題（R4 A3-4）：沒有可比的，之後是完整條目就是清單的開頭
@@ -412,13 +472,17 @@ enum ReferenceListExtractor {
                         continue
                     }
                     if isEnd {
+                        let kind = isFloat ? "圖表標題" : "結束標題"
                         let following = fullEntries(after: i, in: lines, candidates: candidateSet)
                         if following > 0 {
-                            notes.append(("清單停在\(place(i))的\(isFloat ? "圖表標題" : "結束標題")，但它之後還有 \(following) 個條目開頭沒有計入"
+                            notes.append(("清單停在\(place(i))的\(kind)，但它之後還有 \(following) 個條目開頭沒有計入"
                                           + "（字母順序接不上，或不在接續範圍內）——若那些也是參考文獻，這份清單被截斷了", nil))
                         }
+                        if entries > 0 { stop = (i, kind) }
                     }
-                    if entries == 0 && isEnd {
+                    // 停在附錄或索引的不算：那之後的條目開頭屬於附錄或索引（它們不穿插在清單中間）。目錄裡
+                    // `References` 下一行就是 `Index`，本機一本書因此誤報（R6）
+                    if entries == 0 && isEnd && !matches(line, hardEndPattern, caseInsensitive: true) {
                         orphan = (heading, i, entryStartLines(after: i, in: lines, candidates: candidateSet))
                     }
                     break
@@ -441,7 +505,7 @@ enum ReferenceListExtractor {
                 notes.append(("參考文獻標題在清單中又出現 \(runningHeads.count) 次（\(shown)\(runningHeads.count > 5 ? " 等" : "")），"
                               + "其後接得上同一份清單——視為頁首，只略過標題那一行、併入同一份清單", nil))
             }
-            result.append(Group(heading: heading, lines: out, range: (heading + 1)..<i, notes: notes, orphan: orphan))
+            result.append(Group(heading: heading, lines: out, range: (heading + 1)..<i, notes: notes, orphan: orphan, stop: stop))
             k = candidates.firstIndex(where: { $0 >= i && !runningHeads.contains($0) }) ?? candidates.count
         }
         return result
@@ -491,7 +555,7 @@ enum ReferenceListExtractor {
             let l = lines[j]
             if !l.isEmpty {
                 if candidates.contains(j) { return nil }
-                if matches(l, hardEndPattern, caseInsensitive: true) { return nil }
+                if isHardEnd(at: j, in: lines) { return nil }
                 if isEntryStart(l) { return isFullEntry(at: j, in: lines) ? j : nil }
                 seen += 1
             }
@@ -508,7 +572,7 @@ enum ReferenceListExtractor {
             let l = lines[j]
             if candidates.contains(j) { break }
             // 緊接在斷點之後的附錄或索引也是終點（R5 E4：原本從第二行才開始算）
-            if matches(l, hardEndPattern, caseInsensitive: true) { break }
+            if isHardEnd(at: j, in: lines) { break }
             if isEntryStart(l) && isFullEntry(at: j, in: lines) { n += 1 }
             j += 1
         }
@@ -521,7 +585,7 @@ enum ReferenceListExtractor {
         var j = i + 1
         while j < lines.count {
             let l = lines[j]
-            if candidates.contains(j) || matches(l, hardEndPattern, caseInsensitive: true) { break }
+            if candidates.contains(j) || isHardEnd(at: j, in: lines) { break }
             if isEntryStart(l) { out.append(j) }
             j += 1
         }
@@ -543,9 +607,17 @@ enum ReferenceListExtractor {
         while end < min(j + 6, lines.count),
               !(isEntryStart(lines[end]) && !continuesAuthorList(lines[end - 1])) { end += 1 }
         let text = lines[j..<end].joined(separator: " ")
-        return matches(text, "[({](?:\\d{4}[a-z]?|n\\.\\s?d\\.|in press|in preparation|submitted|forthcoming)[^(){}]{0,40}[)}]"
-                            + "(?:[.:,]\\s*[\\p{L}\\d\"“‘'\\[]|\\s+[\"“‘'\\[]|\\s+\\p{L}[\\p{L}'’\\-]*(?:[.:,]|\\s+[\\p{L}\"“‘'\\[]))",
-                       caseInsensitive: true)
+        guard let m = firstMatch(text, "([({](?:\\d{4}[a-z]?|n\\.\\s?d\\.|in press|in preparation|submitted|forthcoming)[^(){}]{0,40}[)}])"
+                                     + "(?:[.:,]\\s*[\\p{L}\\d\"“‘'\\[]|\\s+[\"“‘'\\[]|\\s+\\p{L}[\\p{L}'’\\-]*(?:[.:,]|\\s+[\\p{L}\"“‘'\\[]))",
+                                 caseInsensitive: true) else { return false }
+        // 年份之後以數字為主的是表格列：`(2003) USA, 120, .35`、`(2003). 150 .40`（R6 D3：R5 放寬成
+        // 「一個字接標點」與「數字開頭的標題」之後，這兩種也過了）。真的條目在年份之後有標題與期刊名，
+        // 字詞比數字多
+        let bracket = m.range(at: 1)
+        let tokens = (text as NSString).substring(from: bracket.location + bracket.length).split(separator: " ")
+        let numeric = tokens.filter { $0.contains(where: \.isNumber) && !$0.contains(where: \.isLetter) }.count
+        let wordy = tokens.filter { $0.contains(where: \.isLetter) }.count
+        return !(numeric >= 2 && numeric > wordy)
     }
 
     /// 排序鍵：第一作者（個人作者取第一個逗號之前，機構作者取 `. (` 之前），去掉大小寫與重音
@@ -609,6 +681,16 @@ enum ReferenceListExtractor {
         // APA 7 以刪節號省略第 20 位之後的作者（`…, . . .` 換行接最後一位，R2 G10）
         return t.hasSuffix(",") || t.hasSuffix(";") || t.hasSuffix("&") || t.lowercased().hasSuffix(" and")
             || t.hasSuffix("...") || t.hasSuffix("…") || t.hasSuffix(". . .")
+    }
+
+    /// 比 `continuesAuthorList` 窄：這一行**確實**在列作者——以 `&`、`and`、刪節號結尾，或以名縮寫
+    /// 加逗號／分號結尾（`Cole, M.,`、`Chen, H.-Y.;`）。只以逗號結尾的不算：期刊名、書名後面也是
+    /// 逗號（R6 D5）。斷點處用這一個，因為它會跳過字母順序的檢查
+    static func endsInAuthorList(_ s: String) -> Bool {
+        let t = s.trimmingCharacters(in: .whitespaces)
+        if t.hasSuffix("&") || t.lowercased().hasSuffix(" and") || t.hasSuffix("...") || t.hasSuffix("…")
+            || t.hasSuffix(". . .") { return true }
+        return matches(t, "(?:^|[\\s,\\-])\\p{Lu}\\.[,;]$")
     }
 
     /// 續行接合：行尾是連字號、破折號或斜線（URL）時不加空白，其餘加一個空白。
@@ -722,8 +804,11 @@ enum ReferenceListExtractor {
         }
         // 尾端的版次、冊次、編者括號（`(3rd ed.)`、`(6th ed., Vol. 3)`、`(Vol. 2)`、
         // `(J. Smith, Ed.; 3rd ed.)`）不屬於標題本身（R3 M8：G4 只去掉純版次的括號）
-        t = replacing(t, "\\((?=[^()]*\\b(?:ed|eds|vol|vols|trans|rev|pp)\\.)[^()]*\\)$", with: "",
+        // 報告編號（`(No. IV)`）同理（R6 INFO）
+        t = replacing(t, "\\((?=[^()]*\\b(?:ed|eds|vol|vols|trans|rev|pp|no)\\.)[^()]*\\)$", with: "",
                       caseInsensitive: true).trimmingCharacters(in: .whitespaces)
+        // 逗號式書目的冊次、頁碼在句點處被切下之後留下的殘片（`Collected papers, Vol`、`…, pp`，R6 INFO）
+        t = replacing(t, ",\\s*(?:vols?|pp)$", with: "", caseInsensitive: true)
         return t.isEmpty ? nil : t
     }
 

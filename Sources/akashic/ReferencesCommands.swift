@@ -79,8 +79,14 @@ struct ReferencesNominateCmd: ParsableCommand {
             throw ValidationError(
                 "--refs \(displaySafeInvisible(refs, max: 300)) 讀不到或不是 akashic references extract 的輸出：\(displaySafeErrorText(error))")
         }
-        // refs 是 extract 的輸出，兩者之間的 JSON 是契約：比這個 CLI 舊的 refs 不接（R5 E4）
-        guard (parsed.contract ?? 0) >= ReferenceListExtractor.contractVersion else {
+        // refs 是 extract 的輸出，兩者之間的 JSON 是契約，而且要**恰好**同版（R5 E4、R6 codex）：
+        // 舊的 refs 缺這版的語意；新的 refs 會被這個解碼器無聲丟掉新欄位，輸出卻蓋上這版的 contract
+        let refsContract = parsed.contract ?? 0
+        guard refsContract <= ReferenceListExtractor.contractVersion else {
+            throw ValidationError("--refs 的 contract（\(refsContract)）比這個 CLI（\(ReferenceListExtractor.contractVersion)）新"
+                                  + "——請先更新 akashic CLI，再跑 nominate")
+        }
+        guard refsContract == ReferenceListExtractor.contractVersion else {
             throw ValidationError("--refs 的 contract 比這個 CLI 舊（或沒有 contract）——請用同一版 CLI 重跑 akashic references extract")
         }
         guard !openalex.isEmpty else {

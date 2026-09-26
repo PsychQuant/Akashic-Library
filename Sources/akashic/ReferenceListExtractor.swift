@@ -38,7 +38,8 @@ enum ReferenceListExtractor {
     /// 4（R6）：新增「過長」與「最後一筆還沒結束」兩則 warning，多段 warning 改列條目最多的 5 段；
     /// nominate 只接同版的 refs。5（R7）：「最後一筆看起來還沒結束」擴及停在另一個參考文獻標題、一路到文字
     /// 結尾，並新增「下一行以小寫開頭、這個標題可能是換行換出來的字」；措辭改為「被切斷或吸進了文字」。
-    static let contractVersion = 5
+    /// 6（R11）：新增「清單停在…之後有 N 行像條目開頭、但判為不完整」。
+    static let contractVersion = 6
 
     // MARK: - 樣式
 
@@ -502,6 +503,14 @@ enum ReferenceListExtractor {
                         if following > 0 {
                             notes.append(("清單停在\(place(i))的\(kind)，但它之後還有 \(following) 個條目開頭沒有計入"
                                           + "（字母順序接不上，或不在接續範圍內）——若那些也是參考文獻，這份清單被截斷了", nil))
+                        } else if !matches(line, hardEndPattern, caseInsensitive: true) {
+                            // 之後有條目開頭、但沒有一個判為完整：表格列，或被判成表格列的真條目。後者若是斷點之後的
+                            // 最後一筆，上面那一則數不到它，原本完全沒有 warning（R11 #2）。附錄與索引之後的不算
+                            let nonFull = entryStartLines(after: i, in: lines, candidates: candidateSet).count
+                            if nonFull > 0 {
+                                notes.append(("清單停在\(place(i))的\(kind)，之後有 \(nonFull) 行像條目開頭、但判為不完整"
+                                              + "（表格列，或寫法不同的條目）——若其中有參考文獻，這份清單被截斷了", nil))
+                            }
                         }
                     }
                     // 停在附錄或索引的不算：那之後的條目開頭屬於附錄或索引（它們不穿插在清單中間）。目錄裡
@@ -669,24 +678,16 @@ enum ReferenceListExtractor {
             .split(separator: " ").contains(where: isSubstantiveWord)
     }
 
-    /// 實在的字（`isFullEntry` 用）：四個字母以上、不是冊期頁版這類縮寫、不是首字母縮寫（`U.S.S.R.`，
-    /// R10 #0）；或含漢字、假名、韓文——只認這幾個區段，不以碼位下限代替（R10 #1：`>= U+3040` 連
-    /// 全形拉丁字母與其他文字都算進去）
+    /// 實在的字（`isFullEntry` 用）：四個字母以上、不是冊期頁版這類縮寫；或含 U+3040 以上的字母（漢字、
+    /// 假名、注音、韓文等；標點不是字母，全形拉丁字母在 `clean` 的 NFKC 已轉成半形）。
+    ///
+    /// 首字母縮寫（`U.S.S.R.`）算：R10 把它排除、把區段收窄成幾段，是往「丟真條目」的方向改——
+    /// `J.A.M.A. 264, 100–102.` 這種以縮寫期刊名寫的真條目、含注音的標題因此被判成表格列（R11 #2／#3）。
+    /// 多收一列表格只多一筆「只在 PDF」，所以那一邊的缺口寫進 SKILL 的〈已知限制〉，不在這裡收緊
     static func isSubstantiveWord(_ token: Substring) -> Bool {
-        if token.unicodeScalars.contains(where: isCJKLetter) { return true }
-        let bare = token.trimmingCharacters(in: CharacterSet(charactersIn: ",;:()[]\"“”‘’'"))
-        if matches(bare, "^(?:\\p{L}\\.)+$") { return false }
+        if token.unicodeScalars.contains(where: { $0.properties.isAlphabetic && $0.value >= 0x3040 }) { return true }
         let letters = token.filter(\.isLetter).lowercased()
         return letters.count >= 4 && !notWords.contains(letters)
-    }
-
-    /// 漢字、平假名、片假名、韓文音節與字母
-    static func isCJKLetter(_ u: Unicode.Scalar) -> Bool {
-        switch u.value {
-        case 0x3040...0x30FF, 0x3400...0x4DBF, 0x4E00...0x9FFF, 0xF900...0xFAFF,
-             0x1100...0x11FF, 0x3130...0x318F, 0xAC00...0xD7AF, 0x20000...0x2FA1F: return true
-        default: return false
-        }
     }
 
     /// 四個字母以上、但不算實在的字的縮寫

@@ -436,11 +436,11 @@ final class ReferencesExtractTests: XCTestCase {
     /// T16：輸出帶 `contract`，讓 skill 分辨得出太舊的 CLI（G5）。R4 A4：warning 的語意在 R3 改了
     /// （多段 warning 列各段數目、頁首與接續 warning、頁碼、拿掉「同分」），契約加一到 3。R6：新增「過長」
     /// 與「最後一筆還沒結束」、多段 warning 改列最多的 5 段，加一到 4。R7：「還沒結束」擴及文字結尾與另一個
-    /// 參考文獻標題，新增「下一行以小寫開頭」，加一到 5
+    /// 參考文獻標題，新增「下一行以小寫開頭」，加一到 5。R11：新增「之後有 N 行像條目開頭、但判為不完整」，加一到 6
     func testOutputCarriesContractVersion() throws {
         let (status, output) = try extract("References\n\nAdams, J. (2001). A title. Journal A.\n")
         XCTAssertEqual(status, 0, output)
-        XCTAssertEqual(try decode(output).contract, 5)
+        XCTAssertEqual(try decode(output).contract, 6)
     }
 
     /// T17：APA 7 以刪節號省略作者時，換行不是併筆；小寫接在連字號後的姓、分號結尾的出版地（G10）
@@ -1558,10 +1558,14 @@ final class ReferencesExtractTests: XCTestCase {
         XCTAssertEqual(try decode(output).entries.map(\.firstAuthor), ["Adams", "Baker"])
     }
 
-    /// T81：首字母縮寫（`U.S.S.R.`）不是實在的字；全形拉丁字母也不是（R10 #0／#1：去掉句點後 `ussr`
-    /// 有四個字母、全形字的碼位在 U+3040 以上，兩種表格列都被收進來）
-    func testInitialismAndFullwidthTableRowsAreExcluded() throws {
-        let text = twoEntriesAndATable + "Carter, M. (2003). U.S.S.R. 120 .35\nDunn, P. (2004). ＵＳＡ, 120, .35\n"
+    /// T81：全形拉丁字母的表格列擋下（`clean` 的 NFKC 先把它轉成半形），日文標點（`・`）不是字——
+    /// 只有標點與數字的表格列也擋下（R11 #0：R10 拿掉字母屬性檢查，`・` 被算成字）。
+    ///
+    /// R10 原本在這裡也斷言首字母縮寫 `U.S.S.R.` 的表格列要擋下；R11 撤回那條規則：它讓以縮寫期刊名
+    /// 寫的真條目（`J.A.M.A. 264, 100–102.`）在斷點之後被無聲丟掉，而多收一列表格的代價小得多
+    /// （見 T83 與 SKILL〈已知限制〉）
+    func testFullwidthAndPunctuationOnlyTableRowsAreExcluded() throws {
+        let text = twoEntriesAndATable + "Carter, M. (2003). ＵＳＡ, 120, .35\nDunn, P. (2004). ・ 120 .35\n"
         let (status, output) = try extract(text)
         XCTAssertEqual(status, 0, output)
         XCTAssertEqual(try decode(output).entries.map(\.firstAuthor), ["Adams", "Baker"])
@@ -1573,10 +1577,26 @@ final class ReferencesExtractTests: XCTestCase {
         // 每一種都放在斷點之後的第一筆——只有那一筆會被判斷，之後的行照常併進清單
         for (row, first) in [("Carter, M. (2003). U.S.S.R. policy. J Pol, 1, 2–3.", "Carter"),
                              ("Carter, M. (2003). 心理. 學報, 1, 2–3.", "Carter"),
-                             ("World Health Organization. (2005). QA. WHO, 1, 2–3.", "World Health Organization")] {
+                             ("World Health Organization. (2005). QA. WHO, 1, 2–3.", "World Health Organization"),
+                             // R11 #2／#3：以縮寫期刊名寫的真條目、含注音的標題，也在斷點之後的最後一筆
+                             ("Carter, M. (1990). J.A.M.A. 264, 100–102.", "Carter"),
+                             ("Carter, M. (2003). ㄅㄆㄇ. 學報, 1, 2–3.", "Carter")] {
             let (status, output) = try extract(twoEntriesAndATable + row + "\n")
             XCTAssertEqual(status, 0, output)
             XCTAssertEqual(try decode(output).entries.map(\.firstAuthor), ["Adams", "Baker", first], row)
         }
+    }
+
+    // MARK: - #617 verify R11
+
+    /// T83：斷點之後的最後一筆若被判成表格列（姓名與年份之間、年份之後都沒有實在的字），要出聲——
+    /// 「之後還有 N 個」只數完整條目，數不到它，原本完全沒有 warning（R11 #2）
+    func testRejectedLastEntryAfterABreakIsWarned() throws {
+        let text = twoEntriesAndATable + "Carter, M. (2003). Art. Sci, 1, 2.\n"
+        let (status, output) = try extract(text)
+        XCTAssertEqual(status, 0, output)
+        let r = try decode(output)
+        XCTAssertEqual(r.entries.map(\.firstAuthor), ["Adams", "Baker"])
+        XCTAssertTrue(r.warnings.contains { $0.contains("判為不完整") && $0.contains("1 行") }, "\(r.warnings)")
     }
 }

@@ -310,8 +310,9 @@ public enum RelationalExport {
             -- 丟掉它，下游就只能 parse 散文或放棄該區分。
             note          TEXT,
             -- 只有 dimension='affiliation' 且該筆已歸戶時非空。
-            -- **NULL ＝ 未歸戶**，與 publication_author.researcher_id 同語意——
-            -- 不加「是否已歸戶」旗標欄位，缺席本身就是資訊，而且 IS NULL 直接就是查詢。
+            -- **NULL ＝ 未歸戶，或隸屬的 key 懸空**——這張表分不開兩者（缺口 #651）。
+            -- 不要比照 publication_author.researcher_id 解讀：那張表自 #596 起用 author_kind
+            -- 分三態，researcher_id IS NULL 不再等於未歸戶。
             organization_id UUID REFERENCES organization(organization_id)
         );
 

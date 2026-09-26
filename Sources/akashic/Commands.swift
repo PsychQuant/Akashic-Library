@@ -1498,6 +1498,14 @@ struct ExportTables: ParsableCommand {
         if unresolved > 0 {
             print("  （\(unresolved) 筆作者未歸戶 → publication_author.author_kind = 'literal'）")
         }
+        // 懸空的作者 key 是**斷掉的參照**，不是未歸戶——另報，不讓它在改用 author_kind 計數後靜默消失
+        // （#596 R1 verify：團體作者 key 懸空時 validate 也不報，#652；匯出這一行是目前唯一會數到它的面）
+        let dangling = tables.publicationAuthor.rows.filter {
+            ($0[4] == "person" && $0[2] == nil) || ($0[4] == "organization" && $0[5] == nil)
+        }.count
+        if dangling > 0 {
+            print("  （\(dangling) 筆作者 key 懸空——author_kind 為 person／organization 而 id 為 NULL，store 裡沒有對應記錄）")
+        }
     }
 }
 
@@ -2090,8 +2098,9 @@ struct ResolvePeople: ParsableCommand {
                 var how: [String] = []
                 if byRows > 0 { how.append("--rows \(listedAmbiguities.count) 可列出全部") }
                 if budgetDropped > 0 {
+                    // --apply 模式不收窄歧義段（#597 只收窄列表模式），指路要說清楚（#597 R1 verify）
                     how.append("內容過大的那 \(budgetDropped) 筆調大列數也看不到，"
-                               + "用 --citekey／--person 收窄範圍")
+                               + (apply ? "不帶 --apply 時用 --citekey／--person 收窄範圍" : "用 --citekey／--person 收窄範圍"))
                 }
                 print("  …另 \(hidden) 筆未顯示（\(why.joined(separator: "；"))；"
                       + "\(how.joined(separator: "；"))）")
@@ -2118,8 +2127,15 @@ struct ResolvePeople: ParsableCommand {
         func printCountsAndSunk() {
             // 同 entry 同 literal 的每個位置各一列（verify C-4）；malformed verdict
             // 一併報出（lossless-intake：丟棄必須可見）
+            // #597：列表收窄時，已否決列用同一組 citekey／person 篩選（它們沒有 tier，--tier 不作用），
+            // 四態計數仍是全庫——兩件事都在畫面上說出來，不讓讀的人把全庫的數字當成收窄後的（R1 verify）
+            if narrowing {
+                print("（收窄時：已否決列依 --citekey／--person 篩選、不看 --tier；四態計數涵蓋全庫）")
+            }
             for s in ResolutionLedger.observedRejections(people: load.people,
-                                                         entries: load.entries) {
+                                                         entries: load.entries)
+                where !narrowing || ((ckSet.isEmpty || ckSet.contains(s.citekey))
+                                     && (pkSet.isEmpty || pkSet.contains(s.judgedKey))) {
                 print("  (已否決) \(displaySafe(s.citekey, max: 200))[\(s.authorIndex)] 「\(displaySafe(s.literal, max: 200))」 ↛ \(displaySafe(s.judgedKey, max: 200))")
             }
             for m in ResolutionLedger.malformedVerdicts(people: load.people).prefix(20) {
@@ -2151,8 +2167,20 @@ struct ResolvePeople: ParsableCommand {
             }
         }
 
+        // #597：收窄行要在零候選的提早返回之前印——否則那條路徑會靜默收窄歧義段（R1 verify DA 以真 binary 重現）
+        func printNarrowingLine() {
+            guard narrowing else { return }
+            print("已收窄（--citekey／--person／--tier）：候選 \(listed.count) 個（全部 \(all.count) 個）、"   // display-safe-exempt: Int
+                  + "歧義 \(listedAmbiguities.count) 筆（全部 \(report.ambiguities.count) 筆）——不帶篩選可列出全部")   // display-safe-exempt: Int
+        }
+
         guard !all.isEmpty else {
-            print("無候選（literal 作者 \(load.entries.flatMap(\.authors).filter { if case .literal = $0 { return true } else { return false } }.count) 個，任何提名層皆無命中）")
+            let literalCount = load.entries.flatMap(\.authors).filter { if case .literal = $0 { return true } else { return false } }.count
+            // 有歧義時不說「任何提名層皆無命中」——歧義就是命中了多個人（R1 verify DA）
+            print(report.ambiguities.isEmpty
+                  ? "無候選（literal 作者 \(literalCount) 個，任何提名層皆無命中）"   // display-safe-exempt: Int
+                  : "無唯一候選（literal 作者 \(literalCount) 個；歧義 \(report.ambiguities.count) 筆見下）")   // display-safe-exempt: Int
+            printNarrowingLine()
             printCountsAndSunk()   // 沒有候選 ≠ 沒有歷史——已否決與計數照樣要看得見
             printAmbiguities()   // 沒有唯一候選時，歧義**更**該被看見
             return
@@ -2167,10 +2195,7 @@ struct ResolvePeople: ParsableCommand {
             .reorder: "reorder——token 重排命中",
             .initials: "initials——姓＋首字母命中（證據最弱，apply 前必查證）",
         ]
-        if narrowing {
-            print("已收窄（--citekey／--person／--tier）：候選 \(listed.count) 個（全部 \(all.count) 個）、"   // display-safe-exempt: Int
-                  + "歧義 \(listedAmbiguities.count) 筆（全部 \(report.ambiguities.count) 筆）——不帶篩選可列出全部")   // display-safe-exempt: Int
-        }
+        printNarrowingLine()
         var printedTier: ResolutionTier? = nil
         for c in listed {
             if c.tier != printedTier {

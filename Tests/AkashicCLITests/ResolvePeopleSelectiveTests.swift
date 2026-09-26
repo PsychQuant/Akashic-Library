@@ -219,13 +219,67 @@ final class ResolvePeopleSelectiveTests: XCTestCase {
         XCTAssertTrue(try body("a2020a").contains("literal:"), "列表模式不得寫入")
     }
 
-    /// #597：`--person` 與 `--tier` 在列表模式同樣生效（與 --citekey 取交集）。
-    func testListModePersonAndTierNarrow() throws {
+    /// #597：`--person` 在列表模式同樣生效，與 --citekey 取交集（--tier 見下一支——R1 verify 指出這支的名字曾宣稱涵蓋 --tier 而沒有）。
+    func testListModePersonNarrowsAndIntersects() throws {
         let byPerson = try runCLI(["resolve-people", "--person", "olsson-ulf"])
+        XCTAssertEqual(byPerson.status, 0, byPerson.err)
         XCTAssertTrue(byPerson.out.contains("b2021b") && !byPerson.out.contains("a2020a"), byPerson.out)
         let empty = try runCLI(["resolve-people", "--citekey", "a2020a", "--person", "olsson-ulf"])
         XCTAssertEqual(empty.status, 0)
         XCTAssertTrue(empty.out.contains("候選 0 個（全部 3 個）"), empty.out)
+    }
+
+    /// #597 R1 verify：`--tier` 在列表模式收窄，單獨用與和 --citekey 交集都要對。
+    func testListModeTierNarrows() throws {
+        try """
+        id: 00000009-1111-1111-1111-111111111111
+        citekey: d2023d
+        type: periodical-article
+        title: TD
+        authors:
+          - literal: "Cheng Che"
+        date: "2023"
+
+        """.write(to: root.appendingPathComponent("entries/d2023d.yaml"),
+                  atomically: true, encoding: .utf8)
+        let reorder = try runCLI(["resolve-people", "--tier", "reorder"])
+        XCTAssertEqual(reorder.status, 0, reorder.err)
+        XCTAssertTrue(reorder.out.contains("d2023d"), reorder.out)
+        XCTAssertFalse(reorder.out.contains("a2020a") || reorder.out.contains("b2021b"), "--tier 沒有收窄：\(reorder.out)")
+        XCTAssertTrue(reorder.out.contains("候選 1 個（全部 4 個）"), reorder.out)
+        let both = try runCLI(["resolve-people", "--tier", "exact", "--citekey", "d2023d"])
+        XCTAssertTrue(both.out.contains("候選 0 個（全部 4 個）"), both.out)
+    }
+
+    /// 第二個共用「Che Cheng」的 person 讓 a2020a／c2022c 變成歧義條目。
+    private func seedAmbiguity() throws {
+        try "id: 22222222-2222-4222-8222-222222222222\nkey: cheng-che-2\nnames: {variant: [Che Cheng]}\n".write(
+            to: root.appendingPathComponent("people/cheng-che-2.yaml"), atomically: true, encoding: .utf8)
+    }
+
+    /// #597 R1 verify：歧義條目以「任一命中的 person」比 --person；不相交就不列，而總數照說。
+    func testListModeNarrowsAmbiguitiesByAnyPerson() throws {
+        try seedAmbiguity()
+        let hit = try runCLI(["resolve-people", "--person", "cheng-che-2"])
+        XCTAssertEqual(hit.status, 0, hit.err)
+        XCTAssertTrue(hit.out.contains("歧義 2 筆（全部 2 筆）"), hit.out)
+        let miss = try runCLI(["resolve-people", "--person", "olsson-ulf"])
+        XCTAssertTrue(miss.out.contains("歧義 0 筆（全部 2 筆）"), miss.out)
+        XCTAssertFalse(miss.out.contains("a2020a"), "不相交的歧義條目不得列出：\(miss.out)")
+        let byCitekey = try runCLI(["resolve-people", "--citekey", "c2022c"])
+        XCTAssertTrue(byCitekey.out.contains("歧義 1 筆（全部 2 筆）"), byCitekey.out)
+    }
+
+    /// #597 R1 verify DA：store 沒有唯一候選時，收窄行仍要印出，否則歧義段被靜默收窄；
+    /// 也不得說「任何提名層皆無命中」——歧義就是命中了多個人。
+    func testListModeNarrowingIsVisibleWhenThereAreNoUniqueCandidates() throws {
+        try seedAmbiguity()
+        try FileManager.default.removeItem(at: root.appendingPathComponent("entries/b2021b.yaml"))
+        let r = try runCLI(["resolve-people", "--citekey", "nosuch"])
+        XCTAssertEqual(r.status, 0, r.err)
+        XCTAssertTrue(r.out.contains("歧義 0 筆（全部 2 筆）"), r.out)
+        XCTAssertTrue(r.out.contains("無唯一候選"), r.out)
+        XCTAssertFalse(r.out.contains("任何提名層皆無命中"), r.out)
     }
 
     /// 無篩選時維持既有的全套用行為。

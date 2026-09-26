@@ -684,9 +684,9 @@ public final class AkashicService {
                 // 規則被它自己舉為範例的命令當天違反，README 的「隸屬哪裡」也沒有入口。
                 //
                 // `.key` 與 `.literal` **分開兩個欄位**，不折成一欄：未歸戶不得冒充
-                // identity（同 `EntityRef` 的立場）。缺席即資訊——`RelationalExport`
-                // 已記過這個理由：不需要「是否已歸戶」的旗標，兩個欄位可以互相矛盾，
-                // 一個 sum type 不會。
+                // identity（同 `EntityRef` 的立場）。歸戶與否由 `OrgRef` 的 case 表達，
+                // 不另設旗標——兩個欄位可以互相矛盾，一個 sum type 不會。（先前這裡引用
+                // `RelationalExport` 的「缺席即資訊」；#596 起那句對扁平的匯出表已不成立。）
                 //
                 // **`DateRange` 有四個欄位，四個都要帶**（#218 R2 verify HIGH，四個 lens
                 // 獨立命中）。第一版只搬 `start`／`end`，於是：

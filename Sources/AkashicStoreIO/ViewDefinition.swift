@@ -64,8 +64,9 @@ public extension ViewExtension {
     /// - `entries`：citekey 在 `works` 內。
     /// - `people`：外延成員 **∪ 被保留著作引用的 `.key` 作者**。合著者若被濾掉，
     ///   `RelationalExport` 會把已歸戶的 `.key` 退化成 `researcher_id IS NULL` ＋
-    ///   name_full 印 key 字串——那把「已歸戶但非成員」與「未歸戶」折成同一個觀察，
-    ///   事後無法區分。view 的語意是「這些著作與相關的人」，合著者屬於相關的人。
+    ///   name_full 印 key 字串——外鍵斷掉、顯示名丟失。（#596 之前這還會把「已歸戶但非成員」與
+    ///   「未歸戶」折成同一個觀察；現在 `author_kind` 分得開，但外鍵與顯示名的論證照舊成立。）
+    ///   view 的語意是「這些著作與相關的人」，合著者屬於相關的人。
     /// - `organizations`：被保留 person 的隸屬時間軸引用的 `.key` 機構、**被保留著作的團體作者**（#596——
     ///   publication_author 的 organization_id 外鍵與顯示名靠它），加上其 `parents` 的**遞移閉包**
     ///   （organization 表的 parent_id 外鍵）。

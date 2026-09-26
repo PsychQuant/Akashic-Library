@@ -2,9 +2,10 @@ import Foundation
 
 /// 對某個機構的指涉，或一段尚未歸戶的字面文字。
 ///
-/// 形狀刻意與 `Author` 相同（`.key` / `.literal`）——那是本專案已經解過一次的同型問題，
-/// 而 `RelationalExport` 已經記下理由：**不需要「是否已歸戶」的旗標欄位，缺席本身就是資訊**。
-/// 兩個欄位可以互相矛盾，一個 sum type 不會。
+/// 形狀刻意與 `Author` 相同（`.key` / `.literal`）——那是本專案已經解過一次的同型問題：
+/// **歸戶與否由 case 表達，不另設旗標欄位**。兩個欄位可以互相矛盾，一個 sum type 不會。
+///（先前這裡引用 `RelationalExport` 的「缺席本身就是資訊」——那是**匯出表**的主張，#596 起對
+/// `publication_author` 已不成立：扁平表沒有 sum type，要靠 `author_kind` 才分得出三態。sum type 的論證不受影響。）
 public enum OrgRef: Equatable, Comparable {
     /// 指向一筆 organization 記錄的 key。
     case key(String)

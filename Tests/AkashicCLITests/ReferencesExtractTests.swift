@@ -1660,4 +1660,30 @@ final class ReferencesExtractTests: XCTestCase {
         let r7 = try decode(try extract(seventh).output)
         XCTAssertFalse(r7.warnings.contains { $0.contains("沒有計入") }, "\(r7.warnings)")
     }
+
+    /// T87：附錄或索引之後，年份括號之後「還有字」就算——標題以數字開頭（`(2003). 3D art.`）、標題換到
+    /// 下一行的也算；年份之後只有頁碼與頁碼記號（`45f.`、`67ff.`、`n. 3`）的作者索引行不算，範圍也不越過
+    /// 下一個附錄或索引標題（R13 修正初版要求年份之後「緊接著」字，數字開頭的真條目因此無聲——往丟真條目的
+    /// 方向收窄了）。反例避開 `passim` 與「緊接在單一索引標題之後」：那兩種會被既有的完整條目判定收進
+    /// 「之後還有 N 個」（R13 之前就是如此，SKILL〈已知限制〉有寫）
+    func testAfterAppendixOrIndexAnyWordAfterTheYearCountsButPageMarkersDoNot() throws {
+        let head = "References\n\nAdams, J. K. (2001). First title. Journal A, 1, 1–2.\n"
+            + "Baker, L. (2002). Second title. Journal B, 2, 3–4.\n\n"
+        for tail in ["Appendix\n\nCarter, M. (2003). 3D art. Sci, 1, 2.\n",
+                     "Appendix\n\nCarter, M. (2003).\n3D art. Sci, 1, 2.\n"] {
+            let (status, output) = try extract(head + tail)
+            XCTAssertEqual(status, 0, output)
+            let r = try decode(output)
+            XCTAssertEqual(r.entries.map(\.firstAuthor), ["Adams", "Baker"], tail)
+            XCTAssertTrue(r.warnings.contains { $0.contains("1 行") && $0.contains("沒有計入") }, "\(tail): \(r.warnings)")
+        }
+        for tail in ["Index\n\nSmith, J. (1998), 45f., 67ff.\nTaylor, K. (2001), 88 n. 3\n",
+                     "Appendix\n\nIndex\n\nSmith, J. (1998), 45\nTaylor, K. (2001), 88\n\nName Index\n\nconformity, 12\n"] {
+            let (status, output) = try extract(head + tail)
+            XCTAssertEqual(status, 0, output)
+            let r = try decode(output)
+            XCTAssertEqual(r.entries.map(\.firstAuthor), ["Adams", "Baker"], tail)
+            XCTAssertFalse(r.warnings.contains { $0.contains("沒有計入") || $0.contains("判為不完整") }, "\(tail): \(r.warnings)")
+        }
+    }
 }

@@ -721,18 +721,28 @@ enum ReferenceListExtractor {
         return yearParen(in: lines[j..<end].joined(separator: " ")) != nil
     }
 
-    /// 從 `j` 起的這一筆（範圍同 `hasYearParen`）帶年份括號、而且括號之後接著字——條目的標題或期刊名。
-    /// 帶年份的作者索引行（`Smith, J. (1998), 45`）年份之後只有頁碼（R13 #1：R12 只看年份括號，
-    /// 這種索引行在附錄或索引之後會誤報）
+    /// 從 `j` 起的這一筆（範圍同 `hasYearParen`，另外不越過附錄或索引標題）帶年份括號、而且括號之後還有
+    /// 字——條目的標題或期刊名。帶年份的作者索引行（`Smith, J. (1998), 45`、`45f., 67ff.`、`88 n. 3`）
+    /// 年份之後只有頁碼與頁碼記號（R13 #1：R12 只看年份括號，這種索引行在附錄或索引之後會誤報）。
+    ///
+    /// 「還有字」而不是「緊接著字」：R13 修正初版要求年份括號之後緊接著字，標題以數字開頭的真條目
+    /// （`(2003). 3D art.`）因此在附錄之後無聲——往丟真條目的方向收窄了。範圍停在附錄或索引標題，是因為
+    /// 真條目不會跨過那種標題，而帶年份的作者索引最後一行會吸進下一個索引標題的字
     static func hasDatedTitle(at j: Int, in lines: [String]) -> Bool {
         var end = j + 1
         while end < min(j + 6, lines.count),
-              !(isEntryStart(lines[end]) && !continuesAuthorList(lines[end - 1])) { end += 1 }
-        return matches(lines[j..<end].joined(separator: " "),
-                       "[({](?:\\d{4}[a-z]?|n\\.\\s?d\\.|in press|in preparation|submitted|forthcoming)[^(){}]{0,40}[)}]"
-                       + "[.:,]?\\s*[\\p{L}\"“‘'\\[]",
-                       caseInsensitive: true)
+              !(isEntryStart(lines[end]) && !continuesAuthorList(lines[end - 1])),
+              !isHardEnd(at: end, in: lines) { end += 1 }
+        let text = lines[j..<end].joined(separator: " ")
+        guard let m = firstMatch(text, "[({](?:\\d{4}[a-z]?|n\\.\\s?d\\.|in press|in preparation|submitted|forthcoming)"
+                                     + "[^(){}]{0,40}[)}]", caseInsensitive: true) else { return false }
+        return (text as NSString).substring(from: m.range.location + m.range.length)
+            .split(whereSeparator: { !$0.isLetter })
+            .contains { !pageMarkers.contains($0.lowercased()) }
     }
+
+    /// 索引裡跟在頁碼後面的記號（`45f.`、`67ff.`、`88 n. 3`），不算字
+    static let pageMarkers: Set<String> = ["f", "ff", "n", "nn"]
 
     /// 排序鍵：第一作者（個人作者取第一個逗號之前，機構作者取 `. (` 之前），去掉大小寫與重音
     static func sortKey(_ line: String) -> String {

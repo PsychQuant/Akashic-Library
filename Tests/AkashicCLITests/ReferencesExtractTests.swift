@@ -1483,4 +1483,24 @@ final class ReferencesExtractTests: XCTestCase {
         let r = try decode(output)
         XCTAssertTrue(r.warnings.contains { $0.contains("小寫開頭") && $0.contains("第 2 筆") }, "\(r.warnings)")
     }
+
+    // MARK: - #617 verify R8
+
+    /// T77：標題段不在縮寫（`Vol.`、`No.`）或首字母縮寫（`U.S.A.`）處結束——表格列的數字仍要數到
+    /// （R8 #0／#2：R7 的標題段一遇到句點結尾的字就停，這三種表格列又被收成條目，沒有 warning）
+    func testAbbreviationsDoNotEndTheTitleSegmentOfATableRow() throws {
+        let text = """
+        References
+
+        Adams, J. K. (2001). First title. Journal A, 1, 1–2.
+        Baker, L. (2002). Second title. Journal B, 2, 3–4.
+        Table 1
+        Smith, J. (2003). Vol. 12, 45-67, .35
+        Taylor, K. (2004). No. 8, 90-120, .40
+        Upton, M. (2005) U.S.A. 120 .35
+        """
+        let (status, output) = try extract(text)
+        XCTAssertEqual(status, 0, output)
+        XCTAssertEqual(try decode(output).entries.map(\.firstAuthor), ["Adams", "Baker"])
+    }
 }

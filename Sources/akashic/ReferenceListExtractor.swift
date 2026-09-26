@@ -510,7 +510,9 @@ enum ReferenceListExtractor {
                     }
                     if entries > 0 {
                         let kind = isHeading ? "參考文獻標題" : isFloat ? "圖表標題" : "結束標題"
-                        let next = lines[(i + 1)...].first { !$0.isEmpty && !matches($0, "^\\d{1,4}$") }
+                        // 往後至多看 `continuationWindow` 行，與其他往後看的地方一致（R8 #6）
+                        let next = lines[(i + 1)..<min(lines.count, i + 1 + continuationWindow)]
+                            .first { !$0.isEmpty && !matches($0, "^\\d{1,4}$") }
                         let suspect = matches(line, bareHardEndPattern, caseInsensitive: true)
                             && next?.first(where: \.isLetter)?.isLowercase == true
                         stop = (i, kind, suspect)
@@ -644,17 +646,27 @@ enum ReferenceListExtractor {
         // 年份之後以數字為主的是表格列：`(2003) USA, 120, .35`、`(2003). 150 .40`（R6 D3：R5 放寬成
         // 「一個字接標點」與「數字開頭的標題」之後，這兩種也過了）。只數**標題那一段**——年份之後到第一個
         // 以句點、問號或驚嘆號結尾的字為止。R6 連卷期頁一起數，`(2003). Flow. Nature, 300 (1), 2–3.`
-        // 這種標題短、頁碼多的真條目被當成表格列，在斷點之後連同後面的清單無聲丟掉（R7 #0／#3）
+        // 這種標題短、頁碼多的真條目被當成表格列，在斷點之後連同後面的清單無聲丟掉（R7 #0／#3）。
+        // 「句末」要是真的字：至少兩個字母、不是縮寫、不是首字母縮寫。R7 一遇到句點結尾的字就停，
+        // `(2003). Vol. 12, 45-67, .35`、`(2005) U.S.A. 120 .35` 在數到數字之前就停下，表格列又被收成
+        // 條目（R8 #0／#2）
         let bracket = m.range(at: 1)
         var segment: [Substring] = []
         for token in (text as NSString).substring(from: bracket.location + bracket.length).split(separator: " ") {
             segment.append(token)
-            if let last = token.last, ".?!".contains(last), token.contains(where: \.isLetter) { break }
+            guard let last = token.last, ".?!".contains(last) else { continue }
+            let word = token.filter(\.isLetter).lowercased()
+            let initials = token.allSatisfy { $0.isLetter || $0 == "." } && token.filter(\.isLetter).count * 2 == token.count
+            if word.count >= 2 && !initials && !segmentAbbreviations.contains(word) { break }
         }
         let numeric = segment.filter { $0.contains(where: \.isNumber) && !$0.contains(where: \.isLetter) }.count
         let wordy = segment.filter { $0.contains(where: \.isLetter) }.count
         return !(numeric >= 2 && numeric > wordy)
     }
+
+    /// 標題段裡不算句末的縮寫（`isFullEntry`）：冊、期、頁、版、編、對、聖、圖、表、章、節
+    static let segmentAbbreviations: Set<String> = ["vol", "vols", "no", "nos", "pp", "ed", "eds", "vs",
+                                                    "st", "fig", "tab", "ch", "sec"]
 
     /// 排序鍵：第一作者（個人作者取第一個逗號之前，機構作者取 `. (` 之前），去掉大小寫與重音
     static func sortKey(_ line: String) -> String {

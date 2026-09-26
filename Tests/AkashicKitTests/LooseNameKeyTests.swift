@@ -92,4 +92,13 @@ final class LooseNameKeyTests: XCTestCase {
         XCTAssertTrue(LooseNameKey.initialsKeys("Xu, Yung-Fong")
             .isDisjoint(with: LooseNameKey.initialsKeys("Hsu, Yung-Fong")))
     }
+
+    /// #574 R1 verify：`matchingKey` 自 #574 起保留空白後的組合符號，但 `LooseNameKey` 對它的輸出又在 grapheme cluster
+    /// 上切一次——`" \u{301}"` 是同一個 cluster，會再被當成空白丟掉，同一個損失在提名鍵裡重演。
+    func testReorderKeyKeepsACombiningMarkAfterASpace() {
+        XCTAssertTrue(LooseNameKey.reorderKey("A \u{301}B").unicodeScalars.contains("\u{301}"),
+                      "組合符號不得在提名鍵裡消失：\(Array(LooseNameKey.reorderKey("A \u{301}B").unicodeScalars))")
+        XCTAssertNotEqual(LooseNameKey.reorderKey("A \u{301}B"), LooseNameKey.reorderKey("A B"))
+    }
+
 }

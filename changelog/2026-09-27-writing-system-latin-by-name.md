@@ -14,3 +14,11 @@
 - 測試：`AuthorizedNameTests.testLatinIsDecidedByLetterAndNameNotCodePointRange`，涵蓋 ×、÷、全形、越南文、Latin Extended-D、希臘文，以及 Latin-1 的真字母。實作前五條全紅。
   - 越南文那條第一版寫「Tạp chí」，但它夾著 ASCII 字母，舊區間也判得對，斷言驗不到東西；改成只含擴展區字母的「ỆỰ」。
 - **沒改的**：`LooseNameKey` 有自己的一份 `isLatinLetter`（提名用的寬鬆鍵），不在本張範圍。它是否該共用同一個判準，要看提名的 recall 會不會因此改變，另案評估。
+
+## R1 verify 之後
+
+- **分類先做 NFC**：KELVIN SIGN（U+212A）與 ANGSTROM SIGN（U+212B）canonical 分別等於 `K` 與 `Å`，但名稱不以 LATIN 開頭，原本仍歸 `.other`。「每書寫系統至多一個」因此仍能被 canonical 相等的變體繞過。先做 NFC 之後，canonical 相等的字串分類必然相同，這一整類逃逸在結構上關掉，而不只是關掉一個見證。相容等價（NFKC）不在這個保證裡。
+- `isLatinLetter` 的 doc：第一行原本還在描述舊區間；「名稱前綴是完整的等價物」是過度宣稱，改成「近似」，並列出已知漏網（沒有 canonical 分解的非 LATIN 名稱拉丁字母，名冊零實例）。
+- 改了名的那支測試，doc 仍在論證已經關掉的逃逸；同檔另有兩處引用舊測試名，其中一處把舊測試當成「不動點 ⇒ 書寫系統不變」的反例。三處都改寫：保留歷史，現況照實說——NFC 之後那個蘊含成立。
+- 測試 `testWritingSystemIsInvariantUnderCanonicalEquivalence`。第一版 fixture 寫 `"\u{212A}elley"`，夾著 ASCII、沒有 NFC 也判得對，負控只紅了 2 條；改成單獨字元後，負控（拿掉 NFC）4 條全紅。這個錯誤在同一張 issue 犯了兩次（越南文那條也是），已記進工作記憶。
+- 另外記錄：全形與擴展拉丁的名字，現在會在 `--authorize` 時替換同書寫系統的 ASCII authorized，而不是並列（security 席）。這是「每書寫系統至多一個」的原意，不是回歸。

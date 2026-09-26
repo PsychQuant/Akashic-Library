@@ -226,7 +226,9 @@ extension NameNormalizationTests {
     ///
     /// **這條記錄的是 `validate` 擋得住的那一部分，不是禁令的論據。** 禁令是語意的
     /// （見 `PersonNames.authorized` 的 doc）——`validate` 只攔下多數機械嘗試，且
-    /// `testNormalizedFormsCanEvadeBothInvariants` 證明兩條不變式**可以同時靜默**。
+    /// #568 之前 `testNormalizedFormsCanEvadeBothInvariants` 證明兩條不變式**可以同時靜默**；#568 起那個見證已關掉
+    /// （見 `testNormalizedFormsNoLongerEvadeTheWritingSystemInvariant`），但「`validate` 只攔下多數」這句仍成立——
+    /// 語意的禁令本來就不靠它。
     ///
     /// 這一格：`matchingKey` 改變了字串時，產出落在 `names` 外 → 不變式 1 觸發。
     /// 對 `names` 每筆都是不動點的記錄（純漢字，`testCJKIsNotMangled` 就是），
@@ -265,9 +267,9 @@ extension NameNormalizationTests {
         // 前提一：不動點——不變式 1 在這裡沒有東西可抓
         XCTAssertEqual(normalized, names, "前提：純漢字是 matchingKey 的不動點")
         // 前提二：**scalar 序列未被改變**，所以分類跟著不變。
-        // 這裡不能推「不動點 ⇒ 書寫系統不變」——那個蘊含是假的，
-        // `testNormalizedFormsCanEvadeBothInvariants` 就是反例（Swift `==` 相等
-        // 但 scalar 改變、分類翻轉）。要斷言的是 scalar 本身。
+        // #568 之前「不動點 ⇒ 書寫系統不變」是假的（Swift `==` 相等但 scalar 改變、分類翻轉，反例即
+        // `testNormalizedFormsNoLongerEvadeTheWritingSystemInvariant` 的前身）；#568 起 `WritingSystem.of` 先做 NFC，
+        // canonical 相等 ⇒ 分類相同，那個蘊含成立。這裡仍斷言 scalar 本身，因為要量的是 matchingKey 沒改 scalar。
         XCTAssertEqual(normalized.map { Array($0.unicodeScalars) },
                        names.map { Array($0.unicodeScalars) },
                        "前提：scalar 序列未變（不是靠 Swift == 推出來的）")
@@ -323,25 +325,22 @@ extension NameNormalizationTests {
             + "實際：\(issues.map(\.message))")
     }
 
-    /// **執行邊界**：有一類輸入讓 `map(matchingKey)` 兩條不變式**同時靜默**。
+    /// **這支測試原本釘的是一個否定的事實，#568 之後它反過來了。**
     ///
-    /// 這條測試存在的理由是釘住一個**否定**的事實：`Person.authorized` 的禁令**不能**
-    /// 靠 `validate` 執行。#222 有三個版本試著從 `validate` 推出禁令（不變式 1／
-    /// 不變式 2／兩條聯手），各被一個邊界輸入推翻；這是其中最根本的那個——它同時
-    /// 打掉三者，因為兩條不變式在這裡**都**靜默。
+    /// ## #568 之前（原名 `testNormalizedFormsCanEvadeBothInvariants`）
     ///
-    /// ## 為什麼會漏
+    /// 它證明有一類輸入讓 `map(matchingKey)` 兩條不變式**同時靜默**。不變式 1 用 Swift `String ==`（canonical
+    /// equivalence）；不變式 2 走 `WritingSystem.of`，而當時它逐 scalar 讀固定區間（0x41–0x5A／0x61–0x7A／
+    /// 0xC0–0x24F）。兩者不是同一個等價關係：`"d" + U+0307` 與 `U+1E0B` 在 Swift 是同一個字串，前者 `.latn`、後者
+    /// （區間外的 Latin Extended Additional）`.other`。NFKC 合成讓一筆名字「值不變、分類改變」，兩條不變式都靜默。
+    /// #222 有三個版本試著從 `validate` 推出禁令，這是把三者一起打掉的那個輸入。
     ///
-    /// 不變式 1 用 `Set(names).contains(_:)`，也就是 Swift `String ==`——**canonical
-    /// equivalence**。不變式 2 走 `WritingSystem.of`，它**逐 scalar 讀固定區間**
-    /// （`isLatinLetter` 只認 0x41–0x5A / 0x61–0x7A / 0xC0–0x24F）。
+    /// ## #568 之後
     ///
-    /// **兩者不是同一個等價關係。** Latin Extended Additional（U+1E00–U+1EFF）落在
-    /// `isLatinLetter` 之外，所以 canonical 相等的字串可以分屬不同 bucket：
-    /// `"d" + U+0307` 與 `U+1E0B` 在 Swift 是**同一個字串**，但前者 `.latn`、後者 `.other`。
-    ///
-    /// 於是 `matchingKey` 的 NFKC 合成讓一筆名字「值不變、分類改變」：不變式 1 因為
-    /// 值相等而靜默，不變式 2 因為分類已分家而靜默。
+    /// `WritingSystem.of` 先做 NFC、以 Unicode 名稱判定拉丁字母，分類因此對 canonical 相等不變：U+1E0B 歸拉丁，
+    /// 兩筆同屬 `.latn`，不變式 2 抓得到。**關掉的是 canonical 相等這一類**，不是「`validate` 能執行禁令」——
+    /// 相容等價（NFKC）與沒有 canonical 分解的非 LATIN 名稱拉丁字母不在這個保證裡（見 `isLatinLetter` 的 doc），
+    /// 禁令仍是語意的。
     func testNormalizedFormsNoLongerEvadeTheWritingSystemInvariant() {
         let names = ["d\u{0307}", "x"]                        // 皆 .latn
         XCTAssertEqual(names.map(WritingSystem.of), [.latn, .latn],

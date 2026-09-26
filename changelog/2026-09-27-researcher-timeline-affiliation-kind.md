@@ -10,3 +10,8 @@
 - 端到端：在沙箱 store（`AKASHIC_HOME` 指向暫存目錄）跑真的 `export-tables`：
   - CSV 表頭與 DDL 的欄位順序逐欄一致；
   - 用 Python 的 duckdb 執行產出的 `load.sql`，`affiliation_kind = 'literal'` 查得到那一列。
+
+## R1 verify 之後
+
+- `RelationalExport` 型別 doc 裡的欄位清單停在很早的版本（沒有 `note`、`organization_id`，欄名也不對），改成現況並指向 `columns` 與 DDL。
+- 同形的姊妹格：`researcher.affiliation_current`（現況便利欄位）同樣分不開 key 與 literal，也沒有機構 id。開 #656 追蹤。

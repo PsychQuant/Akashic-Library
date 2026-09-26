@@ -421,6 +421,26 @@ extension StdioE2ETests {
         XCTAssertTrue(fields.contains("volume"), "要點名是哪個鍵：\(fields)")
     }
 
+    /// #542 R1 verify（兩席 HIGH）：`akashic_enrich` 的 proposals item schema 宣告 `additionalProperties: false`，先前只列
+    /// `sourceDigest`——照 schema 呼叫的 client 送不出 `sourceURL`／`sourceRetrieved`，三個 provenance 鍵在 MCP 面上出不來。
+    func testEnrichSchemaListsEverySourceField() throws {
+        try initialize()
+        try send(["jsonrpc": "2.0", "id": 2, "method": "tools/list"])
+        let r = try readResponse()
+        let tools = ((r["result"] as? [String: Any])?["tools"] as? [[String: Any]]) ?? []
+        let enrich = try XCTUnwrap(tools.first { $0["name"] as? String == "akashic_enrich" })
+        let proposals = ((enrich["inputSchema"] as? [String: Any])?["properties"] as? [String: Any])?["proposals"] as? [String: Any]
+        let item = try XCTUnwrap(proposals?["items"] as? [String: Any])
+        XCTAssertEqual(item["additionalProperties"] as? Bool, false)
+        let props = Set(((item["properties"] as? [String: Any]) ?? [:]).keys)
+        for k in ["sourceDigest", "sourceURL", "sourceRetrieved", "sourceMediaType", "sourceStatus"] {
+            XCTAssertTrue(props.contains(k), "schema 要列出 \(k)，否則照規矩的 client 送不出來：\(props.sorted())")
+        }
+        let desc = enrich["description"] as? String ?? ""
+        XCTAssertFalse(desc.contains("只回顯進報告、不進 store"), "#517 之後為假的那句不得留在描述裡")
+        XCTAssertTrue(desc.contains("provenanceWritten"), "描述要說出 payload 的 provenance 鍵")
+    }
+
     /// #561 R1 verify：清單以外的讀取器同一條規則——給了而型別不對（null 也算）整個呼叫拒絕。
     /// 最尖的是 `dry_run: "true"`：先前被折成 false，呼叫端要的乾跑變成真的寫入。
     func testMalformedScalarArgumentsAreRefused() throws {

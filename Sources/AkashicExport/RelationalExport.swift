@@ -26,7 +26,8 @@ import AkashicCore
 /// ## temporal 維度怎麼出（#20 落地後）
 ///
 /// `PersonProfile` 的每個維度是**一條時間軸**，關係式端對應一張 **long-format** 表
-/// `researcher_timeline(researcher_id, dimension, value, start, end, end_unknown, source)`。
+/// `researcher_timeline(researcher_id, dimension, value, valid_start, valid_end, valid_end_unknown, source, note,
+/// organization_id, affiliation_kind)`——欄位順序以 `tables(…)` 的 `columns` 與 DDL 為準（load.sql 依位置灌表）。
 ///
 /// **不攤平成寬表**（`rank_2020`、`rank_2021`…）：維度值域是開放的（新職稱只是一個
 /// 新字串），攤平會讓每個新值變成一次 schema 變更。long format 讓「歷任所長」是

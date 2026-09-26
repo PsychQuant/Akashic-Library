@@ -64,7 +64,10 @@ public enum LooseNameKey {
     private static func cleanTokens(_ s: String) -> [String] {
         s.replacingOccurrences(of: ",", with: " ")
             .replacingOccurrences(of: ".", with: "-")
-            .split(whereSeparator: \.isWhitespace)
+            // 在 scalar 上切（#574 R1 verify）：`matchingKey` 的輸出裡空白後可能緊接組合符號，而 `" \u{301}"` 是同一個
+            // grapheme cluster——在 Character 上切會把它整個當成空白丟掉，上游剛修掉的損失在這裡重演。
+            .unicodeScalars.split(whereSeparator: { $0.properties.isWhitespace })
+            .map { String(String.UnicodeScalarView($0)) }
             .compactMap { raw -> String? in
                 var collapsed = ""
                 for ch in raw {

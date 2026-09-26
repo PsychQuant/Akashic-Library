@@ -496,7 +496,7 @@ EOF
 訊息最多點名 5 組（第 6 組起以「…共 N 組」揭露）、一則第二類訊息涵蓋一筆 work 的全部拼法；真要數「work 對」用下方鏡射的 `bytes_only`，
 組數目前沒有 CLI 指令能數（R16 verify requirements 第 11 列、logic 第 14 列）。Python 對照（不依賴 binary；鏡射
 `NameNormalization.matchingKey`——改一邊要同批改另一邊。**鏡射的兩處已知差異在 R15 對齊**（R14 verify logic 第 17 列、DA 第 23 列、
-regression 第 30 列）：空白類用 Swift `Character.isWhitespace` 的 `White_Space` 集合，不用 Python `str.split()`（它把 U+001C–001F 也當空白
+regression 第 30 列）：空白類用 Unicode 的 `White_Space` 集合（R15 當時 Swift 走 `Character.isWhitespace`；#574 起改在 scalar 上看 `properties.isWhitespace`，集合相同），不用 Python `str.split()`（它把 U+001C–001F 也當空白
 ——store 內不可達，但同檔第 25 列早就顯式列舉了）；連字號家族在 **grapheme cluster** 上比（Swift 的 `hyphenFamily.contains(Character)`）
 ——連字號後面跟著組合符號時整個 cluster 不在家族裡、**不**取代，DA 實測 `A-\u0301B` 與 `A\u2010\u0301B` 在 Swift 是兩個鍵而 R14 的鏡射判成一個。
 **R16 再對齊兩處**（R15 verify logic 第 9／11 列、DA 第 24 列；Claude 代裁 D46，2026-09-16 用逐字複製的 `matchingKey` 探針量過）：(1) 空白也在

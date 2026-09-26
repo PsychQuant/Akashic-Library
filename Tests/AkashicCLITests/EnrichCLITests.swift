@@ -121,14 +121,25 @@ final class EnrichCLITests: XCTestCase {
         let dryItem = try XCTUnwrap(((try JSONSerialization.jsonObject(with: Data(dryJSON.output.utf8)) as? [String: Any])?["items"] as? [[String: Any]])?.first)
         XCTAssertNil(dryItem["provenanceWritten"], "dry-run 的 payload 不得帶 provenanceWritten：\(dryJSON.output)")
         XCTAssertEqual(dryItem["provenancePlanned"] as? [String], ["fields.abstract"], dryJSON.output)
-        // 寫了：payload 與 CLI 行說同一件事
-        let json = try cli(["enrich", "--from", full, "--apply", "--json"])
+        // 寫了：CLI 行正面說出已寫入（R1 verify：先前只斷言了 dry-run 那一行）
+        let applied = try cli(["enrich", "--from", full, "--apply"])
+        XCTAssertEqual(applied.status, 0, applied.output)
+        XCTAssertTrue(applied.output.contains("→ 已寫入 1 筆 reference（fields.abstract）"), applied.output)
+        XCTAssertEqual(try entry("cheng2025alpha").references.filter { $0.field == "fields.abstract" }.count, 1, "store 裡真的有那筆 reference")
+        // payload 與 CLI 行說同一件事：另一個欄位走 --json
+        let fullNote = try proposals(#"[{"citekey":"cheng2025alpha","fields":{"note":"N1"},"sourceDigest":"\#(digest)","sourceURL":"https://example.org/x","sourceRetrieved":"2026-09-09"}]"#)
+        let json = try cli(["enrich", "--from", fullNote, "--apply", "--json"])
         XCTAssertEqual(json.status, 0, json.output)
         let obj = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(json.output.utf8)) as? [String: Any], json.output)
         let item = try XCTUnwrap((obj["items"] as? [[String: Any]])?.first, json.output)
         let written = try XCTUnwrap(item["provenanceWritten"] as? [String], "payload 要帶 provenanceWritten：\(json.output)")
-        XCTAssertEqual(written.count, 1, json.output)
-        XCTAssertEqual(try entry("cheng2025alpha").references.filter { $0.field == "fields.abstract" }.count, 1, "store 裡真的有那筆 reference")
+        XCTAssertEqual(written, ["fields.note"], json.output)
+        // 只補 date：不產生 reference（#655），CLI 行不得說「沒有補任何值」
+        let dateOnly = try proposals(#"[{"citekey":"noauthor2020x","date":"2020","sourceDigest":"\#(digest)","sourceURL":"https://example.org/y","sourceRetrieved":"2026-09-09"}]"#)
+        let d = try cli(["enrich", "--from", dateOnly])
+        XCTAssertTrue(d.output.contains("+ date"), d.output)
+        XCTAssertTrue(d.output.contains("date／authors 不寫 reference"), d.output)
+        XCTAssertFalse(d.output.contains("沒有補任何值"), d.output)
         // 只有 digest：不寫，理由具名；CLI 行不得說寫了
         let digestOnly = try proposals(#"[{"citekey":"cheng2025alpha","fields":{"note":"N"},"sourceDigest":"\#(digest)"}]"#)
         let skipped = try cli(["enrich", "--from", digestOnly, "--apply"])

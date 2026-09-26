@@ -47,6 +47,16 @@ final class AuthorizedNameTests: XCTestCase {
         XCTAssertEqual(WritingSystem.of("Ångström"), .latn, "Latin-1 補充區的真字母照舊")
     }
 
+    /// #568 R1 verify：分類對 canonical 相等不變。KELVIN SIGN／ANGSTROM SIGN 的名稱不以 LATIN 開頭，
+    /// 先做 NFC 才會與它們 canonical 相等的拉丁字母同一桶。
+    func testWritingSystemIsInvariantUnderCanonicalEquivalence() {
+        // 單獨的字元——夾著 ASCII 的話，沒有 NFC 也判得對，斷言驗不到東西（負控第一版只紅了 2 條，就是這個原因）
+        XCTAssertEqual(WritingSystem.of("\u{212A}"), .latn, "KELVIN SIGN canonical 等於 K")
+        XCTAssertEqual(WritingSystem.of("\u{212B}"), .latn, "ANGSTROM SIGN canonical 等於 Å")
+        XCTAssertEqual(WritingSystem.of("\u{212A}"), WritingSystem.of("K"))
+        XCTAssertEqual(WritingSystem.of("\u{212B}"), WritingSystem.of("\u{C5}"))
+    }
+
     func testScriptOfEmptyAndSymbolOnlyIsOther() {
         XCTAssertEqual(WritingSystem.of(""), .other)
         XCTAssertEqual(WritingSystem.of("   "), .other)

@@ -26,9 +26,14 @@ public enum WritingSystem: String, Equatable, Hashable, CaseIterable, Sendable {
     ///
     /// 判準的優先序有意義：含表意文字即為 `han`（混合字串如「陳素雲 Su-Yun Huang」在
     /// 名冊裡真的存在，而它是一個漢字名而非拉丁名）。
+    ///
+    /// **先做 NFC**（#568 R1 verify）：分類因此對 canonical 相等不變——canonical 相等的兩個字串 NFC 之後是同一串
+    /// scalar，分類必然相同。少了這一步，KELVIN SIGN（U+212A，canonical 等於 `K`）與 ANGSTROM SIGN（U+212B，
+    /// canonical 等於 `Å`）的名稱不以 LATIN 開頭而歸 `.other`，「每書寫系統至多一個」就能被 canonical 相等的變體繞過。
+    /// 相容等價（NFKC）不在這個保證裡。
     public static func of(_ name: String) -> WritingSystem {
         var sawLatin = false
-        for scalar in name.unicodeScalars {
+        for scalar in name.precomposedStringWithCanonicalMapping.unicodeScalars {
             if isIdeograph(scalar) { return .han }
             if isLatinLetter(scalar) { sawLatin = true }
         }
@@ -51,13 +56,15 @@ public enum WritingSystem: String, Equatable, Hashable, CaseIterable, Sendable {
         }
     }
 
-    /// 基本拉丁與拉丁補充的字母（含變音符號）。數字、標點、空白不算——`"—"` 與 `"123"`
-    /// 都不是名字，歸 `other` 讓它們在報告裡看得見。
+    /// 拉丁字母。數字、標點、空白不算——`"—"` 與 `"123"` 都不是名字，歸 `other` 讓它們在報告裡看得見。
     /// **是字母，且 Unicode 名稱以 `LATIN ` 或 `FULLWIDTH LATIN ` 開頭**（#568）——與 `zero-instance-guards` 第 12 列
     /// 量測腳本同一條判準（該腳本同輪改成認兩個前綴）。
     /// 先前是 code-point 區間（A–Z、a–z、U+00C0–024F），兩個方向都錯：區間內的 ×（U+00D7）與 ÷（U+00F7）是符號，
     /// 區間外的全形拉丁（U+FF21–FF5A）、越南文（U+1E00–1EFF）與 Latin Extended-C／D／E 是字母。Swift 沒有 script
-    /// property；名稱前綴是現成而完整的等價物（區間要逐版本追 Unicode 新增的拉丁區塊，名稱不必）。
+    /// property；名稱前綴是現成的近似（區間要逐版本追 Unicode 新增的拉丁區塊，名稱不必）。**它不是完整的等價物**
+    /// （#568 R1 verify）：Script=Latin 但名稱不以 LATIN 開頭的字母——KELVIN SIGN、ANGSTROM SIGN 這類 letterlike
+    /// symbol、部分 modifier letter——這裡歸不到拉丁。前兩個由 `of` 先做 NFC 收掉（它們 canonical 分解成拉丁字母）；
+    /// 其餘沒有 canonical 分解的，仍是已知的漏網，名冊裡零實例。
     /// ASCII 字母先走快路徑——名冊裡幾乎全是它們，`properties.name` 要建字串。
     private static func isLatinLetter(_ s: Unicode.Scalar) -> Bool {
         if s.isASCII { return (0x41...0x5A).contains(s.value) || (0x61...0x7A).contains(s.value) }

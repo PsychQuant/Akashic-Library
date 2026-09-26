@@ -24,7 +24,7 @@ struct EnrichCmd: ParsableCommand {
 
     @OptionGroup var options: LibraryOptions
 
-    @Option(name: .long, help: "提案 JSON 檔：[{citekey|doi, fields{…}, date?, authors?, sourceDigest?}]（每筆 citekey 或 doi 恰一個）")
+    @Option(name: .long, help: "提案 JSON 檔：[{citekey|doi, fields{…}, date?, authors?, sourceDigest?, sourceURL?, sourceRetrieved?, sourceMediaType?, sourceStatus?}]（每筆 citekey 或 doi 恰一個；digest／URL／retrieved 齊備才寫 retrieval reference）")
     var from: String
 
     @Flag(name: .long, help: "實際寫入（預設只列出計畫）")
@@ -115,9 +115,12 @@ struct EnrichCmd: ParsableCommand {
                     print("    來源：\(digest) → 這筆寫入失敗，\(lost.count) 筆 reference 沒有落地（\(lost.joined(separator: "、"))）")   // display-safe-exempt: service 已對每個值 displaySafe；count 是 Int
                 } else if let why = item["provenanceSkipped"] as? String {
                     print("    來源：\(digest)（只記在報告，不進 store——\(why)）")   // display-safe-exempt: service 已對每個值 displaySafe
-                } else {
-                    // 這筆沒有要補的欄位時，也就沒有 reference 可寫
+                } else if (item["additions"] as? [[String: String]] ?? []).isEmpty {
                     print("    來源：\(digest)（沒有補任何值，所以沒有 reference）")   // display-safe-exempt: service 已對每個值 displaySafe
+                } else {
+                    // 補進去的只有 date／authors：它們不產生 retrieval reference（#655）。R1 verify 實測：這裡曾印
+                    // 「沒有補任何值」，而上一行正列著 `+ date = …`。
+                    print("    來源：\(digest)（補進去的 date／authors 不寫 reference——缺口 #655）")   // display-safe-exempt: service 已對每個值 displaySafe
                 }
             }
         }

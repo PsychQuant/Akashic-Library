@@ -144,7 +144,8 @@ public enum AddOnlyEnrichment {
                 throw DecodingError.dataCorrupted(.init(
                     codingPath: c.codingPath,
                     debugDescription: "未知的鍵 \(unknown.map { "「\($0)」" }.joined(separator: "、"))"
-                        + "——要補的欄位要放在 fields 裡；可用的頂層鍵：citekey、doi、fields、date、authors、sourceDigest"))
+                        + "——要補的欄位要放在 fields 裡；可用的頂層鍵：citekey、doi、fields、date、authors、"
+                        + "sourceDigest、sourceURL、sourceRetrieved、sourceMediaType、sourceStatus（後五個也收蛇形）"))
             }
             func key(_ s: String) -> AnyKey { AnyKey(stringValue: s)! }
             citekey = try c.decodeIfPresent(String.self, forKey: key("citekey"))

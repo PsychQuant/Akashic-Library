@@ -11,3 +11,8 @@
 - **改之前量過**：live store 202,139 個字串值，會讓 key 改變的形狀（NFKC、刪 Cf 之後，Zs 類空白緊接組合符號）0 個。提名鍵、`verdictEqualityKey`、#486／D23 一族的去重鍵，在 live store 上都不變。
 - `zero-instance-guards` 第 27 列的 Python 鏡射原本照 Swift 的舊行為鏡射，現在同批改掉；兩個固定案例改成新行為，另一個固定案例的註解一併更新。鏡射的 assert 全部通過。
 - 測試：`NameNormalizationTests.testWhitespaceCollapseKeepsCombiningMarksAfterAnySpace`，涵蓋 U+0020、NBSP、TAB 三種空白後的組合符號，以及「孤立的組合符號是內容」。實作前 4 條紅（TAB 那條本來就對）。相關 632 支測試全綠。
+
+## R1 verify 之後
+
+- `LooseNameKey` 對 `matchingKey` 的輸出又在 grapheme cluster 上切一次。`" \u{301}"` 是同一個 cluster，上游剛修掉的損失在提名鍵裡重演（logic 席）。它的 `cleanTokens` 改成在 scalar 上切。測試：`LooseNameKeyTests.testReorderKeyKeepsACombiningMarkAfterASpace`，實作前紅。live store 同一個量測（0 個字串值有這個形狀），提名鍵不變。
+- 第 27 列散文裡一句「Swift `Character.isWhitespace`」改成現況（scalar 上的 `properties.isWhitespace`，集合相同）。

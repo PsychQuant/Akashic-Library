@@ -83,8 +83,9 @@ struct ReferencesNominateCmd: ParsableCommand {
         // 舊的 refs 缺這版的語意；新的 refs 會被這個解碼器無聲丟掉新欄位，輸出卻蓋上這版的 contract
         let refsContract = parsed.contract ?? 0
         guard refsContract <= ReferenceListExtractor.contractVersion else {
-            throw ValidationError("--refs 的 contract（\(refsContract)）比這個 CLI（\(ReferenceListExtractor.contractVersion)）新"
-                                  + "——請先更新 akashic CLI，再跑 nominate")
+            // 訊息不插數字：ValidationError 的每個插值都要經過消毒守衛（SanitizationBoundaryTests），
+            // 版本號可以從 refs.json 的 contract 與 `akashic references extract` 的輸出看到
+            throw ValidationError("--refs 的 contract 比這個 CLI 新——請先更新 akashic CLI，再跑 nominate")
         }
         guard refsContract == ReferenceListExtractor.contractVersion else {
             throw ValidationError("--refs 的 contract 比這個 CLI 舊（或沒有 contract）——請用同一版 CLI 重跑 akashic references extract")

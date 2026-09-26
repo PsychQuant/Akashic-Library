@@ -47,12 +47,12 @@ struct LibraryCreate: ParsableCommand {
     @Option(name: .long, help: "顯示名稱") var name: String
     @Option(name: .long, help: "描述（選填）") var description: String?
 
+    /// 驗證先行：未驗證 key 不得進任何路徑組合（存在性 oracle 防護）。放在 `validate()` 而不是 `run()`（#549 R1）：
+    /// 它只看 argv，要早於開 store——否則 store 缺佈局時先報執行期失敗，同一個打錯的 key 得到不同的 exit code。
+    func validate() throws { try requireValidLibraryKey(key) }
+
     func run() throws {
         let store = try options.openStore()
-        // 驗證先行：未驗證 key 不得進任何路徑組合（存在性 oracle 防護）
-        guard StoreKey.isValid(key) else {
-            throw ValidationError("library key「\(displaySafeInvisible(key, max: 200))」不符合 \(StoreKey.pattern)，拒絕寫入")
-        }
         guard !FileManager.default.fileExists(atPath: store.libraryURL(key: key).path) else {
             throw RuntimeFailure.state("library「\(displaySafeInvisible(key, max: 200))」已存在")
         }
@@ -62,6 +62,14 @@ struct LibraryCreate: ParsableCommand {
         } catch {
             throw RuntimeFailure.state(displaySafeErrorText(error))
         }
+    }
+}
+
+/// library key 的格式檢查只看 argv——三個 library 子命令共用（#549 R1：add／remove 先前把它交給服務層，服務層的
+/// `ServiceError` 被包成執行期失敗，同一個打錯的 key 在 create 回 64、在 add 回 1）。
+private func requireValidLibraryKey(_ key: String) throws {
+    guard StoreKey.isValid(key) else {
+        throw ValidationError("library key「\(displaySafeInvisible(key, max: 200))」不符合 \(StoreKey.pattern)，拒絕寫入")
     }
 }
 
@@ -96,6 +104,8 @@ struct LibraryAdd: ParsableCommand {
     @Argument(help: "library key") var libraryKey: String
     @Argument(help: "citekey（可多個）") var citekeys: [String]
 
+    func validate() throws { try requireValidLibraryKey(libraryKey) }
+
     func run() throws {
         let report = try runMembership(options: options, action: "add", libraryKey: libraryKey, citekeys: citekeys)
         for ck in report.written {
@@ -111,6 +121,8 @@ struct LibraryRemove: ParsableCommand {
     @OptionGroup var options: LibraryOptions
     @Argument(help: "library key") var libraryKey: String
     @Argument(help: "citekey（可多個）") var citekeys: [String]
+
+    func validate() throws { try requireValidLibraryKey(libraryKey) }
 
     func run() throws {
         let report = try runMembership(options: options, action: "remove", libraryKey: libraryKey, citekeys: citekeys)

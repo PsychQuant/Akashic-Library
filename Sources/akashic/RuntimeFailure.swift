@@ -12,6 +12,18 @@ import AkashicCore
 /// 「argv 以外」包括檔案系統、檔案註冊表與 config、store 的內容、服務層的回應、輸入檔的內容。
 /// 判斷一個拋錯點時只問一句：拿掉所有 I/O，這個條件還判得出來嗎？判得出來就是用法錯誤。
 ///
+/// **四個邊界**（#549 R1 verify；寫在判準旁邊，不讓讀者從性質自行類推）：
+///
+/// 1. **stdin 是 argv 以外。** `update-person` 從 stdin 讀到的 JSON 不對 → `RuntimeFailure`；同一個 JSON 經 `--fields`
+///    給而格式不對 → `ValidationError`。與 `create-entry` 從 stdin／`--file` 讀到壞 JSON 同一類。
+/// 2. **服務層做的輸入驗證會被包成 1。** `AkashicService` 丟的 `ServiceError` 在 CLI 的包裝站點一律成 `RuntimeFailure`，
+///    其中有些其實只看 argv（例如 key 格式）。本輪把 verify 實測到的那一格（`library add`／`remove` 的 key 格式）
+///    搬到 CLI 的 `validate()`；其餘逐站搬移記在 #654，不在這裡寫成「服務錯誤都是執行期」。
+/// 3. **exit 1 與「跑了、發現問題」共用。** `validate` 找到 fatal、`--apply` 部分失敗也回 1——exit code 只分得開「用法」
+///    與「其他」，分不開「沒跑起來」與「跑了有問題」；後者要讀訊息。#549 要求的是不回 64，本輪不再細分。
+/// 4. **只看 argv 的檢查放在 `validate()`**，早於開 store；放在 `run()` 裡而排在開 store 之後，store 缺佈局時會先報
+///    執行期失敗。本輪搬了 verify 點名的三處（library key、`--tier`、`--fields`）；其餘散在 `run()` 裡的仍受順序影響。
+///
 /// 既有拋錯點的逐一歸類（2026-09-26）記在 `changelog/2026-09-26-cli-runtime-failure-exit-code.md`。
 /// `Sources/akashic/Reference*` 三個檔屬另一個 session 的 #617 範圍，本輪沒有動，該檔也記著。
 ///

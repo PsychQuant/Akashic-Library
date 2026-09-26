@@ -117,7 +117,7 @@ final class TerminalOutputSafetyTests: XCTestCase {
                              "usage 段是多行的：\(r.output)")
     }
 
-    /// #554 R31（R30 verify 第 2／27 列）：**直接傳到頂層的原始錯誤**（不是五個 `ValidationError` 包裝之一）也要逃一次——R30 只經列舉式的
+    /// #554 R31（R30 verify 第 2／27 列）：**直接傳到頂層的原始錯誤**（不是五個包裝站點之一——#549 起它們是 `RuntimeFailure`，原本是 `ValidationError`）也要逃一次——R30 只經列舉式的
     /// `displaySafeAssembled`，ZWSP 原樣落 stderr；MCP 面走性質式，兩面不同字串。這裡用真 binary：`enrich --from <目錄>` 讓 `Data(contentsOf:)`
     /// 擲出 Foundation 錯誤（路徑含 ZWSP），stderr 必須等於 `displaySafeErrorMultiline(同一個錯誤, prefix: "Error: ")`。
     func testRawErrorReachingTheTopLevelIsEscapedOnce() throws {

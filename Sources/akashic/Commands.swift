@@ -1701,6 +1701,15 @@ struct ResolvePeople: ParsableCommand {
     /// 生效的列數上限：旗標優先，缺席退回預設。
     var rowLimit: Int { rows ?? AmbiguityDisplayLimit.rows }
 
+    /// --tier 值域驗證（fail-loud：typo 靜默變成「不篩」比失敗糟——#205 同判準）。放在 `validate()`（#549 R1）：
+    /// 它只看 argv，要早於載入 store，否則 store 缺佈局時先報執行期失敗、打錯的 --tier 得到另一個 exit code。
+    func validate() throws {
+        for raw in tier where ResolutionTier(rawValue: raw) == nil {
+            throw ValidationError("--tier「\(displaySafeInvisible(raw, max: 120))」不是提名層——合法值：" +
+                ResolutionTier.allCases.map(\.rawValue).joined(separator: " / "))
+        }
+    }
+
     func run() throws {
         if let rows, rows < 1 {
             throw ValidationError("--rows 必須 ≥ 1（給了 \(rows)）——要看完整清單就給一個夠大的數；"
@@ -1929,14 +1938,8 @@ struct ResolvePeople: ParsableCommand {
         // 列表本身，並說出「顯示 N 個、全部 M 個」（#597：逐篇查證要看這一篇還有哪些 literal 被提名，全列表只能自己 grep；
         // 說出全部有幾個，就不會讓人以為其他候選不存在——那是先前「一律顯示全部」要防的事）。
         let ckSet = Set(citekey), pkSet = Set(person)
-        // --tier 值域驗證（fail-loud：typo 靜默變成「不篩」比失敗糟——#205 同判準）
-        let tierSet = try Set(tier.map { raw -> ResolutionTier in
-            guard let t = ResolutionTier(rawValue: raw) else {
-                throw ValidationError("--tier「\(displaySafeInvisible(raw, max: 120))」不是提名層——合法值：" +
-                    ResolutionTier.allCases.map(\.rawValue).joined(separator: " / "))
-            }
-            return t
-        })
+        // --tier 值域在 `validate()` 驗過（#549 R1：只看 argv，要早於載入 store）；這裡只是轉型
+        let tierSet = Set(tier.compactMap(ResolutionTier.init(rawValue:)))
         let candidates = all.filter {
             (ckSet.isEmpty || ckSet.contains($0.citekey))
                 && (pkSet.isEmpty || pkSet.contains($0.personKey))

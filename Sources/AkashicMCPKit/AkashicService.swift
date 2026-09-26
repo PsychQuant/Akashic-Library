@@ -566,6 +566,12 @@ public final class AkashicService {
         guard let data = try? Data(contentsOf: url) else {
             throw ServiceError.invalid("讀不到 \(displaySafeInvisible(path, max: 800))")
         }
+        // #546：真正的閘在 `SourceStore.storeSource`（所有呼叫端都經過它）；這裡只是讓訊息說出**哪一個**檔——
+        // 批次存檔時「0 byte」而不點名是查不下去的（#546 R1 verify）。
+        guard !data.isEmpty else {
+            throw ServiceError.invalid("「\(displaySafeInvisible(path, max: 800))」是 0 byte——空內容的 digest 對所有空輸入都相同，不指認任何一份存檔。"
+                + "這通常是一次失敗的抓取留下的空檔；重新取得內容再存")
+        }
         // SourceStore 擲出的錯（index 腐壞、排除未驗證）**原樣往上傳**，不吞——那些是
         // 承重的 fail-closed 判斷，包裝過會弄丟指路訊息。
         let receipt = try store.storeSource(

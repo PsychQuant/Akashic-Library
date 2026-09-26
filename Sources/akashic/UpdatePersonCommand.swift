@@ -22,16 +22,27 @@ struct UpdatePersonCmd: ParsableCommand {
     @Flag(name: .long, help: "只預告會改什麼（含 format gate 預演），不寫入")
     var dryRun: Bool = false
 
-    func run() throws {
-        let raw: Data
-        if let fields {
-            raw = Data(fields.utf8)
-        } else {
-            raw = FileHandle.standardInput.readDataToEndOfFile()
+    /// `--fields` 的值就是 argv——它不是 JSON object 是用法錯誤（64），在 `validate()` 擋、早於開 store（#549 R1）。
+    func validate() throws {
+        if let fields, Self.jsonObject(Data(fields.utf8)) == nil {
+            throw ValidationError("--fields 必須是 JSON object")
         }
-        guard let parsed = try? JSONSerialization.jsonObject(with: raw),
-              let dict = parsed as? [String: Any] else {
-            throw ValidationError("--fields 必須是 JSON object（或經 stdin 提供）")
+    }
+
+    private static func jsonObject(_ raw: Data) -> [String: Any]? {
+        (try? JSONSerialization.jsonObject(with: raw)) as? [String: Any]
+    }
+
+    func run() throws {
+        let dict: [String: Any]
+        if let fields, let d = Self.jsonObject(Data(fields.utf8)) {
+            dict = d
+        } else {
+            // stdin 不是 argv：內容不對是執行期失敗（1），與 create-entry 從 stdin／--file 讀到壞 JSON 同一類（#549 R1）
+            guard let d = Self.jsonObject(FileHandle.standardInput.readDataToEndOfFile()) else {
+                throw RuntimeFailure.state("stdin 必須是 JSON object（或改用 --fields 直接給）")
+            }
+            dict = d
         }
         let store = try options.openStore()
         // `key:` 不可省——見 `PersonCommand.swift` 的長註解（verify #220 HIGH）。

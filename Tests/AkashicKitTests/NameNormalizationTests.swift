@@ -44,6 +44,18 @@ final class NameNormalizationTests: XCTestCase {
                        "NBSP、多空白、前後空白收斂；大小寫摺疊")
     }
 
+    /// #574：空白只收斂、不吃掉任何非空白 scalar——與 `NameIdentity.canonical` 同一種切法（在 scalar 上切）。
+    /// 先前在 grapheme cluster 上切：Zs 類空白後面的組合符號依 GB9 併進同一個 cluster，整個被當成空白丟掉；
+    /// TAB 之類的 Control 類空白依 GB4 斷開，組合符號保留——同一個組合符號，保不保得住取決於前面是哪一種空白。
+    func testWhitespaceCollapseKeepsCombiningMarksAfterAnySpace() {
+        XCTAssertEqual(NameNormalization.matchingKey("A \u{301}B"), "a \u{301}b", "U+0020 後的組合符號不得消失")
+        XCTAssertEqual(NameNormalization.matchingKey("A\u{A0}\u{301}B"), "a \u{301}b", "NBSP 經 NFKC 成空格，同上")
+        XCTAssertEqual(NameNormalization.matchingKey("A\t\u{301}B"), "a \u{301}b", "TAB 本來就保留——兩種空白現在一致")
+        XCTAssertEqual(NameNormalization.matchingKey("A \u{301}B"), NameNormalization.matchingKey("A\t\u{301}B"))
+        XCTAssertNotEqual(NameNormalization.matchingKey("A \u{301}B"), NameNormalization.matchingKey("A B"),
+                          "孤立的組合符號是內容，不是空白的一部分")
+    }
+
     // MARK: - 配對面接線：resolver 比對吃正規化、輸出仍是原字串
 
     func testResolverMatchesAcrossHyphenVariantsButPreservesOriginals() {

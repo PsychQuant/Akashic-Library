@@ -503,7 +503,7 @@ regression 第 30 列）：空白類用 Swift `Character.isWhitespace` 的 `Whit
 Character 上切——**機制是 grapheme 分群，不是 `isWhitespace` 讀幾個 scalar**（R17 更正，R16 verify DA 第 10 列：R16 寫成「只看第一個 scalar」，
 鏡射照著無條件吞，60,033 例差分裡 2,967 例源於此）：U+0020 與其他 Zs 類空白（NFKC 後大多已折成 U+0020；U+1680 仍是 Zs）後面的組合符號依
 GB9 併進同一個 cluster，`split(whereSeparator: \.isWhitespace)` 看到的是一個 `isWhitespace` 為 true 的 Character、**整個丟掉**、組合符號一起消失
-（`A \u0301B` → `a b`；`canonical` 自 R6 起在 scalar 上切、不會這樣——`matchingKey` 這個資料損失另案 **#574**，鏡射照現況鏡射，修那條時要同批改這裡）；
+（`A \u0301B` → `a b`；`canonical` 自 R6 起在 scalar 上切、不會這樣——`matchingKey` 這個資料損失另案 **#574**，鏡射照現況鏡射，修那條時要同批改這裡——**#574 已於 2026-09-27 修掉**：`matchingKey` 改在 scalar 上切，任何空白後面的組合符號都保留；下方鏡射與固定案例同批改。改之前量過 live store 202,139 個字串值，key 會變的 0 個）；
 而 TAB／LF／VT／FF／CR／NEL／LS／PS 在 GCB 屬 **Control**，依 GB4 後面一定斷開，組合符號自成 cluster、**保留**（`A\t\u0301B` → `a \u0301b`）——
 2026-09-16 探針對 `White_Space` 的 25 個碼位逐一量過，8 個是這一類（GCB Control）、17 個是 Zs（其中 U+2000–200A 的 11 個 NFKC 先折成 U+0020，落同一分支）——R17 曾寫「全部 14 個裡 8 個」，那是把 U+2000–200A 漏掉之後的數（R17 verify DA 第 10 列；同一份檔案第 25 列的 `WSSET` 自己就是 25 個），#574 的更正 comment 同批改；
 (2) 連字號後接 ZWJ／ZWNJ 也是同一個 cluster（Grapheme_Extend）、不取代，之後 Cf 才被刪（`A\u2010\u200DB` → `a\u2010b`）。鏡射只認 M 類與
@@ -516,9 +516,8 @@ clustering 之前、修 clustering 收斂不了，同屬邊界）：
 python3 - <<'EOF'
 import glob, io, os, re, unicodedata, yaml
 # 鏡射 NameNormalization.matchingKey：NFKC → 連字號家族（整個 grapheme cluster 恰為一個連字號才算：後接 M 類、ZWJ、ZWNJ 都不算）→ '-'
-# → 刪 Cf → 小寫 → White_Space 收斂為單一空格（顯式集合，與第 25 列的 WSSET 同一份定義；在 Character 上切——**Zs 類**空白後面掛著的
-# 組合符號隨那個 cluster 一起被丟掉（GB9），鏡射 Swift 的資料損失，#574；Control 類空白（TAB／LF／VT／FF／CR／NEL／LS／PS）後面依 GB4 斷開、
-# 組合符號保留——R17 更正，R16 verify DA 第 10 列）
+# → 刪 Cf → 小寫 → White_Space 收斂為單一空格（顯式集合，與第 25 列的 WSSET 同一份定義；在 **scalar** 上切，只丟空白、不刪其他 scalar
+# ——#574 起。之前 Swift 在 Character 上切，Zs 類空白後面的組合符號隨 cluster 一起被丟，這裡曾照那個行為鏡射）
 HY = set('\u2010\u2011\u2012\u2013\u2014\u2015\u2212')
 WS = {0x09,0x0A,0x0B,0x0C,0x0D,0x20,0x85,0xA0,0x1680,0x2028,0x2029,0x202F,0x205F,0x3000} | set(range(0x2000,0x200B))
 MARK = lambda c: unicodedata.category(c).startswith('M')
@@ -536,8 +535,6 @@ def mk(s):
         if ord(c) in WS:
             if cur: toks.append(cur); cur = ''
             i += 1
-            if unicodedata.category(c) == 'Zs':          # 只有 Zs 類空白會與後面的組合符號同 cluster（GB9）；Control 類依 GB4 斷開（R17）
-                while i < len(s) and MARK(s[i]): i += 1  # 掛在空白上的組合符號隨 cluster 一起丟（R16，鏡射 Swift 的 grapheme 分群）
             continue
         cur += c; i += 1
     if cur: toks.append(cur)
@@ -548,10 +545,10 @@ assert mk('A-\u0301B') != mk('A\u2010\u0301B')                # 連字號後接�
 assert mk('Fann,  C.') == mk('Fann, C.') == mk('Fann,\tC.')    # 空白收斂
 assert mk('Fann, C.\u200b') == mk('Fann, C.')                  # Cf 刪除
 assert mk('A\u001fB') == 'a\u001fb'                            # U+001F 不是 White_Space（Python str.split 會切）
-assert mk('A \u0301B') == 'a b'                                # 空白＋組合符號整個 cluster 被丟（Swift 的資料損失，#574；R15 verify logic 第 9 列）
+assert mk('A \u0301B') == 'a \u0301b'                          # #574 起空白後的組合符號保留（之前整個 cluster 被丟，R15 verify logic 第 9 列）
 assert mk('A\u2010\u200dB') == 'a\u2010b'                      # 連字號＋ZWJ 是一個 cluster、不取代，ZWJ 隨後被當 Cf 刪掉（logic 第 11 列）
-assert mk('A\u00a0\u0301B') == 'a b'                           # NBSP 經 NFKC 成空格，同上
-assert mk('A\t\u0301B') == 'a \u0301b'                          # TAB 是 GCB Control：組合符號自成 cluster、保留（R17；DA 第 10 列）
+assert mk('A\u00a0\u0301B') == 'a \u0301b'                     # NBSP 經 NFKC 成空格，同上
+assert mk('A\t\u0301B') == 'a \u0301b'                          # TAB：一直都保留；#574 起與 Zs 類空白一致
 assert mk('A\u2028\u0301B') == 'a \u0301b'                      # LS 同上
 n = flagged = pairs = bytes_only = 0
 for f in glob.glob(os.path.expanduser('~/.akashic/entities') + '/*.yaml'):

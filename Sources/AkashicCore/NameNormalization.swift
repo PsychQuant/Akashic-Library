@@ -40,10 +40,18 @@ public enum NameNormalization {
         let visible = unified.unicodeScalars.filter {
             $0.properties.generalCategory != .format
         }
-        // split(whereSeparator:) 吃所有 Unicode 空白（NBSP 已被 NFKC 轉普通空格，
-        // 但 ideographic space 等仍靠這裡收斂）——同時完成 trim 與塌縮
-        return String(String.UnicodeScalarView(visible)).lowercased()
-            .split(whereSeparator: \.isWhitespace)
-            .joined(separator: " ")
+        // 空白收斂在 **scalar** 上做（#574），與 `NameIdentity.canonical` 同一種切法：只丟 White_Space scalar、
+        // 不刪任何其他 scalar。先前用 `split(whereSeparator: \.isWhitespace)` 在 grapheme cluster 上切——Zs 類空白
+        // 後面的組合符號依 GB9 併進同一個 cluster，整個被當成空白丟掉（`"A \u{301}B"` → `"a b"`）；TAB 之類的
+        // Control 類空白依 GB4 斷開、組合符號保留。改之前量過：live store 202,139 個字串值，key 會變的 0 個。
+        // NBSP 已被 NFKC 轉成普通空格，ideographic space 等仍靠這裡收斂；前後空白一併去掉。
+        var out = String.UnicodeScalarView()
+        var pendingSpace = false
+        for u in String(String.UnicodeScalarView(visible)).lowercased().unicodeScalars {
+            if u.properties.isWhitespace { pendingSpace = !out.isEmpty; continue }
+            if pendingSpace { out.append(" "); pendingSpace = false }
+            out.append(u)
+        }
+        return String(out)
     }
 }

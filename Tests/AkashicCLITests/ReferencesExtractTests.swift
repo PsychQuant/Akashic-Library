@@ -435,11 +435,12 @@ final class ReferencesExtractTests: XCTestCase {
 
     /// T16：輸出帶 `contract`，讓 skill 分辨得出太舊的 CLI（G5）。R4 A4：warning 的語意在 R3 改了
     /// （多段 warning 列各段數目、頁首與接續 warning、頁碼、拿掉「同分」），契約加一到 3。R6：新增「過長」
-    /// 與「最後一筆還沒結束」、多段 warning 改列最多的 5 段，加一到 4
+    /// 與「最後一筆還沒結束」、多段 warning 改列最多的 5 段，加一到 4。R7：「還沒結束」擴及文字結尾與另一個
+    /// 參考文獻標題，新增「下一行以小寫開頭」，加一到 5
     func testOutputCarriesContractVersion() throws {
         let (status, output) = try extract("References\n\nAdams, J. (2001). A title. Journal A.\n")
         XCTAssertEqual(status, 0, output)
-        XCTAssertEqual(try decode(output).contract, 4)
+        XCTAssertEqual(try decode(output).contract, 5)
     }
 
     /// T17：APA 7 以刪節號省略作者時，換行不是併筆；小寫接在連字號後的姓、分號結尾的出版地（G10）
@@ -1260,7 +1261,15 @@ final class ReferencesExtractTests: XCTestCase {
         let (status, output) = try extract(text)
         XCTAssertEqual(status, 0, output)
         let r = try decode(output)
-        XCTAssertTrue(r.warnings.contains { $0.contains("還沒結束") && $0.contains("第 2 筆") }, "\(r.warnings)")
+        // 下一行以小寫開頭：R7 起發更具體的那一則（這個 Index 可能是換行換出來的字）
+        XCTAssertTrue(r.warnings.contains { $0.contains("小寫開頭") && $0.contains("第 2 筆") }, "\(r.warnings)")
+
+        // 下一行以大寫開頭時，靠「還沒結束」那一則
+        let upper = text.replacingOccurrences(of: "as a research tool.", with: "Scientometric Methods, a tool.")
+        let (s2, o2) = try extract(upper)
+        XCTAssertEqual(s2, 0, o2)
+        let r2 = try decode(o2)
+        XCTAssertTrue(r2.warnings.contains { $0.contains("還沒結束") && $0.contains("第 2 筆") }, "\(r2.warnings)")
     }
 
     /// T64b：一筆完整結束之後的 `Index`、緊接在圖表標題之後的附錄，仍是終點
@@ -1392,5 +1401,86 @@ final class ReferencesExtractTests: XCTestCase {
         XCTAssertEqual(status, 0, output)
         XCTAssertEqual(try decode(output).entries.map(\.title),
                        ["Collected papers", "Working report", "Selected essays"])
+    }
+
+    // MARK: - #617 verify R7
+
+    /// T72：標題短、卷期頁多的真條目在斷點之後仍是完整條目——數字多寡只看年份到標題結束那一段，
+    /// 不把卷期頁算進去（R7 #0／#3／#8：R6 的規則連卷期頁一起算，這一筆連同之後的清單無聲丟掉）
+    func testShortTitleWithManyNumbersAfterABreakIsStillAnEntry() throws {
+        for breakLine in ["Table 1\nSome table caption text", "Author Note"] {
+            let text = """
+            References
+
+            Adams, J. K. (2001). First title. Journal A, 1, 1–2.
+            Baker, L. (2002). Second title. Journal B, 2, 3–4.
+            \(breakLine)
+            Carter, M. (2003). Trust. J Psychol, 12(3), 245–267, 300–320, 400–420.
+            Dunn, P. (2004). Flow. Nature, 300 (1), 2–3.
+            """
+            let (status, output) = try extract(text)
+            XCTAssertEqual(status, 0, output)
+            XCTAssertEqual(try decode(output).entries.map(\.firstAuthor), ["Adams", "Baker", "Carter", "Dunn"], breakLine)
+        }
+        let running = "References\n\nAdams, J. K. (2001). First title. Journal A, 1, 1–2.\n"
+            + "Baker, L. (2002). Second title. Journal B, 2, 3–4.\n\u{0C}References\n"
+            + "Carter, M. (2003). Flow. Nature, 300 (1), 2–3.\n"
+        let (status, output) = try extract(running)
+        XCTAssertEqual(status, 0, output)
+        XCTAssertEqual(try decode(output).entries.map(\.firstAuthor), ["Adams", "Baker", "Carter"])
+    }
+
+    /// T73：最後一筆吸進一長串數字、之後有圖表標題時不得變成二次方（R7 #1：`closesEntry` 的正則在
+    /// 長度檢查之前就對整段跑，20 萬字元跑了 7 分鐘）
+    func testLongDigitRunInTheLastEntryIsFast() throws {
+        let text = "References\n\nAdams, J. (2001). First title. Journal A, 1, 1–2.\n"
+            + "Baker, L. (2002). A title that continues " + String(repeating: "1", count: 200_000) + "\nTable 1\n"
+        let start = Date()
+        let (status, output) = try extract(text)
+        XCTAssertLessThan(Date().timeIntervalSince(start), 3, "extract 花了太久")
+        XCTAssertEqual(status, 0, output)
+    }
+
+    /// T74：清單一路到文字結尾、最後一筆沒有結束時，也要說出來——PDF 可能缺頁（R7 #2）
+    func testUnfinishedLastEntryAtTheEndOfTheTextIsWarned() throws {
+        let text = "References\n\nAdams, J. (2001). First title. Journal A, 1, 1–2.\nBaker, L. (2002). A title that is cut\n"
+        let (status, output) = try extract(text)
+        XCTAssertEqual(status, 0, output)
+        let r = try decode(output)
+        XCTAssertTrue(r.warnings.contains { $0.contains("第 2 筆") && $0.contains("文字結尾") }, "\(r.warnings)")
+    }
+
+    /// T75：清單停在另一個參考文獻標題、最後一筆在那之前還沒結束時，也要說出來（R7 #2）
+    func testUnfinishedLastEntryBeforeAnotherHeadingIsWarned() throws {
+        let text = """
+        References
+
+        Adams, J. (2001). First title. Journal A, 1, 1–2.
+        Baker, L. (2002). Second title. Journal B, 2, 3–4.
+        Carter, M. (2003). A title that
+        Bibliography
+        Zed, Q. (2009). Other list. Journal Z, 9, 1–2.
+        """
+        let (status, output) = try extract(text)
+        XCTAssertEqual(status, 0, output)
+        let r = try decode(output)
+        XCTAssertTrue(r.warnings.contains { $0.contains("還沒結束") && $0.contains("第 3 筆") }, "\(r.warnings)")
+    }
+
+    /// T76：最後一筆恰好在句點處換行、下一行是大寫的 `Index`、再下一行以小寫開頭時，要說那可能是換行
+    /// 換出來的字（R7 #5：原本這種沒有任何 warning）
+    func testCapitalizedIndexFollowedByALowercaseLineIsWarned() throws {
+        let text = """
+        References
+
+        Adams, J. (2001). First title. Journal A, 1, 1–2.
+        Baker, L. (2002). The citation index.
+        Index
+        as a research tool. Journal B, 2, 3–4. https://doi.org/10.1234/idx
+        """
+        let (status, output) = try extract(text)
+        XCTAssertEqual(status, 0, output)
+        let r = try decode(output)
+        XCTAssertTrue(r.warnings.contains { $0.contains("小寫開頭") && $0.contains("第 2 筆") }, "\(r.warnings)")
     }
 }

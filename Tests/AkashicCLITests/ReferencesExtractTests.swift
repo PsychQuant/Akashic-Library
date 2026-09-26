@@ -440,7 +440,7 @@ final class ReferencesExtractTests: XCTestCase {
     func testOutputCarriesContractVersion() throws {
         let (status, output) = try extract("References\n\nAdams, J. (2001). A title. Journal A.\n")
         XCTAssertEqual(status, 0, output)
-        XCTAssertEqual(try decode(output).contract, 7)
+        XCTAssertEqual(try decode(output).contract, 8)
     }
 
     /// T17：APA 7 以刪節號省略作者時，換行不是併筆；小寫接在連字號後的姓、分號結尾的出版地（G10）
@@ -1604,7 +1604,8 @@ final class ReferencesExtractTests: XCTestCase {
     // MARK: - #617 verify R12
 
     /// T84：清單停在附錄或索引、之後的真條目被判成表格列時也要出聲——只數帶年份括號的，索引行
-    /// （`姓, 名., 頁碼`）不算（R12：R11 整個排除附錄與索引，真條目接在那之後又無聲了）
+    /// （`姓, 名., 頁碼`）不算（R12：R11 整個排除附錄與索引，真條目接在那之後又無聲了）。
+    /// R13 起附錄與索引這一支的措辭是「沒有計入」（見 T85）
     func testRejectedEntryAfterAppendixIsWarnedButIndexLinesAreNot() throws {
         let head = "References\n\nAdams, J. K. (2001). First title. Journal A, 1, 1–2.\n"
             + "Baker, L. (2002). Second title. Journal B, 2, 3–4.\n\n"
@@ -1612,12 +1613,51 @@ final class ReferencesExtractTests: XCTestCase {
         XCTAssertEqual(s1, 0, o1)
         let r1 = try decode(o1)
         XCTAssertEqual(r1.entries.map(\.firstAuthor), ["Adams", "Baker"])
-        XCTAssertTrue(r1.warnings.contains { $0.contains("判為不完整") }, "\(r1.warnings)")
+        XCTAssertTrue(r1.warnings.contains { $0.contains("沒有計入") }, "\(r1.warnings)")
 
         let (s2, o2) = try extract(head + "Index\n\nSmith, J., 12, 45\nTaylor, K., 88\n")
         XCTAssertEqual(s2, 0, o2)
         let r2 = try decode(o2)
         XCTAssertEqual(r2.entries.map(\.firstAuthor), ["Adams", "Baker"])
-        XCTAssertFalse(r2.warnings.contains { $0.contains("判為不完整") }, "\(r2.warnings)")
+        XCTAssertFalse(r2.warnings.contains { $0.contains("沒有計入") || $0.contains("判為不完整") }, "\(r2.warnings)")
+    }
+
+    // MARK: - #617 verify R13
+
+    /// T85：停在附錄或索引時，往後跨過接連的附錄與索引標題；只數年份之後有字的條目開頭——帶年份的
+    /// 索引行（`Smith, J. (1998), 45`）不算（R13 #0：`Appendix` → `Index` → 真條目無聲；R13 #1：
+    /// 帶年份的作者索引誤報）。附錄與索引兩種標題、正反兩個方向都測
+    func testAfterAppendixOrIndexOnlyDatedTitledLinesCountAcrossConsecutiveHeadings() throws {
+        let head = "References\n\nAdams, J. K. (2001). First title. Journal A, 1, 1–2.\n"
+            + "Baker, L. (2002). Second title. Journal B, 2, 3–4.\n\n"
+        let realEntry = "Carter, M. (2003). Art. Sci, 1, 2.\n"
+        for heading in ["Appendix", "Index", "Appendix\n\nIndex", "Index\n\nAppendix"] {
+            let (s1, o1) = try extract(head + heading + "\n\n" + realEntry)
+            XCTAssertEqual(s1, 0, o1)
+            let r1 = try decode(o1)
+            XCTAssertEqual(r1.entries.map(\.firstAuthor), ["Adams", "Baker"], heading)
+            XCTAssertTrue(r1.warnings.contains { $0.contains("1 行") && $0.contains("沒有計入") }, "\(heading): \(r1.warnings)")
+        }
+        for heading in ["Appendix", "Index"] {
+            for indexLines in ["Smith, J., 12, 45\nTaylor, K., 88\n", "Smith, J. (1998), 45\nTaylor, K. (2001), 88\n"] {
+                let (s2, o2) = try extract(head + heading + "\n\n" + indexLines)
+                XCTAssertEqual(s2, 0, o2)
+                let r2 = try decode(o2)
+                XCTAssertFalse(r2.warnings.contains { $0.contains("沒有計入") || $0.contains("判為不完整") }, "\(heading): \(r2.warnings)")
+            }
+        }
+    }
+
+    /// T86：年份要在條目開頭 6 行以內（與 `isFullEntry` 同一個範圍）——第 6 行算、第 7 行不算
+    /// （R13 codex：邊界只寫在註解與 SKILL 裡，沒有測試）
+    func testDatedLineCountUsesTheSixLineWindow() throws {
+        let head = "References\n\nAdams, J. K. (2001). First title. Journal A, 1, 1–2.\n"
+            + "Baker, L. (2002). Second title. Journal B, 2, 3–4.\n\nAppendix\n\nCarter, M.\n"
+        let sixth = head + "one\ntwo\nthree\nfour\n(2003). Title words. Sci, 1, 2.\n"
+        let seventh = head + "one\ntwo\nthree\nfour\nfive\n(2003). Title words. Sci, 1, 2.\n"
+        let r6 = try decode(try extract(sixth).output)
+        XCTAssertTrue(r6.warnings.contains { $0.contains("沒有計入") }, "\(r6.warnings)")
+        let r7 = try decode(try extract(seventh).output)
+        XCTAssertFalse(r7.warnings.contains { $0.contains("沒有計入") }, "\(r7.warnings)")
     }
 }

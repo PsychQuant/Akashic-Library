@@ -2,7 +2,8 @@
 # **唯一的守衛清單**（#432）。三個消費者共用它：
 #
 #   1. `.githooks/pre-push`（第三階段）
-#   2. `.github/workflows/plugin-guards.yml`
+#   2. `.github/workflows/census-parity.yml` 的 step「全部守衛（與 pre-push 同一份清單；本 runner 有 Swift）」
+#      （先前是 `plugin-guards.yml`，已於 `40977531` 刪除——#435；#626 更正本清單）
 #   3. 手動執行（`bash .githooks/run-guards.sh`）
 #
 # **為什麼抽出來**：先前 hook 與 CI **各自列出 21 支守衛**——那是兩份會分岔的規格，
@@ -19,9 +20,10 @@ set -eo pipefail
 # **9 支守衛已遷成 `akashic-guards` 的子命令（#433），它們需要先 build。**
 #
 # 沒有這個檢查的話，失敗訊息是 shell 的 `No such file or directory` ——那說不出
-# 「為什麼」也說不出「怎麼修」。`plugin-guards.yml` 跑在 **ubuntu**（無 Swift
-# toolchain），所以 CI 恢復後它必然走到這裡；讓它講清楚，而不是留一個看起來像
-# 路徑打錯的訊息。
+# 「為什麼」也說不出「怎麼修」。寫下這段時的 CI 消費者 `plugin-guards.yml` 跑在 **ubuntu**
+# （無 Swift toolchain），CI 恢復後必然走到這裡；那個 workflow 已於 `40977531` 刪除（#435），
+# 現在的 CI 消費者 `census-parity.yml` 跑在 macOS、會先 build。檢查留著，是為了手動執行
+# 或新 runner 沒先 build 時，訊息仍說得出為什麼、怎麼修。
 if [ ! -x .build/debug/akashic-guards ]; then
   echo "✗ .build/debug/akashic-guards 不存在或不可執行。"
   echo "  9 支守衛已遷成它的子命令（#433），先跑："

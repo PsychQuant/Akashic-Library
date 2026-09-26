@@ -28,6 +28,8 @@ struct ResolveDivergence: ParsableCommand {
         guard let uuid = UUID(uuidString: id) else {
             throw ValidationError("『\(displaySafeInvisible(id, max: 200))』不是合法的 UUID")
         }
+        // #653：合併＋全庫改寫＋刪檔，不可逆——寫錯 store 的代價最高的一個
+        if !dryRun { try options.assertDestructiveTargetNamed("resolve-divergence", flag: "", dryRunFlag: "--dry-run") }
         let store = try options.openStore()
         if dryRun {   // #78-2：消歧會連帶刪除使用者沒指名的塌縮記錄——要能先看
             // #159 verify 159-1：**必須把 overrideReason 一起傳**。少傳時 preview

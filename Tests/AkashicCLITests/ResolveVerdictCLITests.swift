@@ -311,6 +311,28 @@ final class ResolveVerdictCLITests: XCTestCase {
         XCTAssertFalse(listing.output.contains("拒絕執行"), "不帶寫入腿的列表不得被閘擋：\(listing.output)")
     }
 
+    /// #653 裁決：不可逆的寫入（合併＋刪檔、改名、格式遷移）要指名目標 store。有乾跑的指向乾跑旗標，
+    /// 沒有乾跑的（rename）不得叫人去跑一個不存在的 dry-run；乾跑本身不寫東西，不閘。
+    func testIrreversibleCommandsRequireANamedTarget() throws {
+        let env = ["AKASHIC_LIBRARY": root.path, "HOME": root.path, "AKASHIC_HOME": root.path]
+        let cases: [(args: [String], command: String, hint: String)] = [
+            (["resolve-divergence", "00000000-0000-0000-0000-000000000000", "--survivor", "x"], "resolve-divergence", "加 --dry-run"),
+            (["migrate"], "migrate", "加 --dry-run"),
+            (["migrate-provenance"], "migrate-provenance", "加 --dry-run"),
+            (["rename", "a2020x", "b2020x"], "rename", "這個寫入沒有 dry-run"),
+        ]
+        for c in cases {
+            let r = try CLITestHarness.run(c.args, env: env)
+            XCTAssertNotEqual(r.status, 0, "\(c.args)：\(r.output)")
+            XCTAssertTrue(r.output.contains("\(c.command) 拒絕執行：未指名目標 store"), "\(c.args)：\(r.output)")
+            XCTAssertTrue(r.output.contains(c.hint), "\(c.args) 的出路要說對：\(r.output)")
+        }
+        for args in [["migrate", "--dry-run"], ["migrate-provenance", "--dry-run"]] {
+            let r = try CLITestHarness.run(args, env: env)
+            XCTAssertFalse(r.output.contains("拒絕執行"), "乾跑不寫東西，不得被閘擋——\(args)：\(r.output)")
+        }
+    }
+
     /// 全庫盲掃否決是把一次判斷放大成批次動作——reject 必須帶收窄條件。
     func testOrgRejectRequiresNarrowing() throws {
         try seedOrgCandidate()

@@ -347,6 +347,7 @@ struct Migrate: ParsableCommand {
     var dryRun = false
 
     func run() throws {
+        if !dryRun { try options.assertDestructiveTargetNamed("migrate", flag: "", dryRunFlag: "--dry-run") }   // #653
         let store = try options.openStore()
         do {
             // 兩階段：先把 legacy 佈局搬進 entities/（format 2），再補形狀標籤（format 3）。
@@ -397,6 +398,7 @@ struct MigrateProvenance: ParsableCommand {
     var dryRun = false
 
     func run() throws {
+        if !dryRun { try options.assertDestructiveTargetNamed("migrate-provenance", flag: "", dryRunFlag: "--dry-run") }   // #653
         let store = try options.openStore()
         let report = try ProvenanceMigration.digestSourcesToReferences(
             store: store, dryRun: dryRun)
@@ -2315,6 +2317,8 @@ struct Rename: ParsableCommand {
     @Argument(help: "新 citekey") var to: String
 
     func run() throws {
+        // #650／#653：與 rename-person 同一道閘——單一顯式目標、不可逆的全庫改寫、沒有 --apply 可掛
+        try options.assertDestructiveTargetNamed("rename", flag: "", hasDryRun: false)
         let store = try options.openStore()
         let report = try store.renameEntry(from: from, to: to)
         _ = try LibraryIndex(store: store).rebuild()

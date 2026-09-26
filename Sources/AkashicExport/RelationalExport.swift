@@ -102,10 +102,12 @@ public enum RelationalExport {
                     if case .key(let k) = v.value { return orgIDByKey[k] }
                     return nil   // .literal ＝ 未歸戶；懸空的 .key 也回 NULL，不造 id
                 }()
+                // #651：kind 讓未歸戶的字面與懸空的 key 分得開（兩者的 organization_id 都是 NULL）
+                let kind: String = { if case .key = v.value { return "organization" } else { return "literal" } }()
                 timelineRows.append([p.id.uuidString, "affiliation", v.value.displayName,
                                      v.range.start, v.range.end,
                                      v.range.endedUnknown ? "true" : nil,
-                                     v.source, v.note, fk])
+                                     v.source, v.note, fk, kind])
             }
             let dims: [(String, Timeline)] = [
                 ("rank", p.profile.ranks),
@@ -118,7 +120,7 @@ public enum RelationalExport {
                     timelineRows.append([p.id.uuidString, dim, v.value,
                                          v.range.start, v.range.end,
                                          v.range.endedUnknown ? "true" : nil,
-                                         v.source, v.note, nil])
+                                         v.source, v.note, nil, nil])
                 }
             }
         }
@@ -177,7 +179,7 @@ public enum RelationalExport {
             researcherTimeline: Table(name: "researcher_timeline",
                                       columns: ["researcher_id", "dimension", "value",
                                                 "valid_start", "valid_end", "valid_end_unknown",
-                                                "source", "note", "organization_id"],
+                                                "source", "note", "organization_id", "affiliation_kind"],
                                       rows: timelineRows),
             publication: Table(name: "publication",
                                columns: ["publication_id", "citekey", "type", "title",
@@ -309,11 +311,14 @@ public enum RelationalExport {
             -- 但同一個來源底下的性質差異——學程關係 vs 所轄中心人員——只寫在這裡。
             -- 丟掉它，下游就只能 parse 散文或放棄該區分。
             note          TEXT,
-            -- 只有 dimension='affiliation' 且該筆已歸戶時非空。
-            -- **NULL ＝ 未歸戶，或隸屬的 key 懸空**——這張表分不開兩者（缺口 #651）。
-            -- 不要比照 publication_author.researcher_id 解讀：那張表自 #596 起用 author_kind
-            -- 分三態，researcher_id IS NULL 不再等於未歸戶。
-            organization_id UUID REFERENCES organization(organization_id)
+            -- 只有 dimension='affiliation' 且該筆已歸戶、而且 key 對得到機構時非空。
+            -- NULL 的意思要看 affiliation_kind：literal ＝ 未歸戶；organization ＝ key 懸空（斷掉的參照）。
+            organization_id UUID REFERENCES organization(organization_id),
+            -- #651：比照 publication_author.author_kind。只有 dimension='affiliation' 的列有值：
+            -- organization（value 是機構 key 的顯示名，含懸空的 key）／literal（未歸戶）。其他維度是 NULL。
+            -- 「還沒歸戶的隸屬」是 WHERE affiliation_kind = 'literal'，不是 organization_id IS NULL。
+            -- 新欄加在最後：load.sql 依位置灌表。
+            affiliation_kind TEXT
         );
 
         CREATE TABLE publication (

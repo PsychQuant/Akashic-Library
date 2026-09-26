@@ -198,6 +198,34 @@ final class OrganizationTests: XCTestCase {
         XCTAssertNil(byPerson[dangling.id.uuidString] ?? nil, "懸空參照不得憑空造 id")
     }
 
+    /// #651：`organization_id` NULL 同時代表「未歸戶的字面」與「懸空的 key」——比照 #596 的 `author_kind`，
+    /// 在最後加 `affiliation_kind` 把兩者分開。非隸屬維度的列是 NULL（那一欄對它們不適用）。
+    func testAffiliationKindSeparatesLiteralFromDanglingKey() throws {
+        let org = sinica()
+        var resolved = Person(key: "a-resolved")
+        resolved.profile.affiliations = TimelineOf([TemporalValue(value: .key("academia-sinica"))])
+        var literal = Person(key: "b-literal")
+        literal.profile.affiliations = TimelineOf([TemporalValue(value: .literal("iss"))])
+        var dangling = Person(key: "c-dangling")
+        dangling.profile.affiliations = TimelineOf([TemporalValue(value: .key("iss"))])
+        dangling.profile.ranks = Timeline([TemporalValue(value: "研究員")])
+
+        let t = RelationalExport.tables(entries: [], people: [resolved, literal, dangling],
+                                        organizations: [org]).researcherTimeline
+        XCTAssertEqual(t.columns.last, "affiliation_kind", "load.sql 依位置灌表，新欄加在最後")
+        let kindIdx = t.columns.count - 1
+        let dimIdx = try XCTUnwrap(t.columns.firstIndex(of: "dimension"))
+        func kind(_ p: Person, _ dim: String) -> String?? {
+            t.rows.first { $0[0] == p.id.uuidString && $0[dimIdx] == dim }.map { $0[kindIdx] }
+        }
+        XCTAssertEqual(kind(resolved, "affiliation"), .some("organization"))
+        XCTAssertEqual(kind(literal, "affiliation"), .some("literal"))
+        XCTAssertEqual(kind(dangling, "affiliation"), .some("organization"),
+                       "懸空的 key 仍是 organization——它是斷掉的參照，不是未歸戶；value 同是 iss 也分得開")
+        XCTAssertEqual(kind(dangling, "rank"), .some(nil), "非隸屬維度不適用")
+        XCTAssertTrue(RelationalExport.duckDBScript().contains("affiliation_kind"), "DDL 要宣告這一欄")
+    }
+
     /// 匯出腳本含機構表，且隸屬列的外鍵可空。
     func testDuckDBScriptDeclaresOrganization() {
         let sql = RelationalExport.duckDBScript()

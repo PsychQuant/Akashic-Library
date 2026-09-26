@@ -53,11 +53,19 @@ public enum WritingSystem: String, Equatable, Hashable, CaseIterable, Sendable {
 
     /// 基本拉丁與拉丁補充的字母（含變音符號）。數字、標點、空白不算——`"—"` 與 `"123"`
     /// 都不是名字，歸 `other` 讓它們在報告裡看得見。
+    /// **是字母，且 Unicode 名稱以 `LATIN ` 或 `FULLWIDTH LATIN ` 開頭**（#568）——與 `zero-instance-guards` 第 12 列
+    /// 量測腳本同一條判準（該腳本同輪改成認兩個前綴）。
+    /// 先前是 code-point 區間（A–Z、a–z、U+00C0–024F），兩個方向都錯：區間內的 ×（U+00D7）與 ÷（U+00F7）是符號，
+    /// 區間外的全形拉丁（U+FF21–FF5A）、越南文（U+1E00–1EFF）與 Latin Extended-C／D／E 是字母。Swift 沒有 script
+    /// property；名稱前綴是現成而完整的等價物（區間要逐版本追 Unicode 新增的拉丁區塊，名稱不必）。
+    /// ASCII 字母先走快路徑——名冊裡幾乎全是它們，`properties.name` 要建字串。
     private static func isLatinLetter(_ s: Unicode.Scalar) -> Bool {
-        switch s.value {
-        case 0x41...0x5A, 0x61...0x7A,   // A–Z a–z
-             0xC0...0x24F:               // Latin-1 補充 + 擴展 A/B
-            return true
+        if s.isASCII { return (0x41...0x5A).contains(s.value) || (0x61...0x7A).contains(s.value) }
+        switch s.properties.generalCategory {
+        case .uppercaseLetter, .lowercaseLetter, .titlecaseLetter, .modifierLetter, .otherLetter:
+            // 全形拉丁的名稱是 `FULLWIDTH LATIN …`——只認 `LATIN` 開頭會把它排除，而全形刊名與半形是同一個拉丁名
+            guard let name = s.properties.name else { return false }
+            return name.hasPrefix("LATIN ") || name.hasPrefix("FULLWIDTH LATIN ")
         default:
             return false
         }

@@ -330,7 +330,7 @@ extension NameNormalizationTests {
     ///
     /// 於是 `matchingKey` 的 NFKC 合成讓一筆名字「值不變、分類改變」：不變式 1 因為
     /// 值相等而靜默，不變式 2 因為分類已分家而靜默。
-    func testNormalizedFormsCanEvadeBothInvariants() {
+    func testNormalizedFormsNoLongerEvadeTheWritingSystemInvariant() {
         let names = ["d\u{0307}", "x"]                        // 皆 .latn
         XCTAssertEqual(names.map(WritingSystem.of), [.latn, .latn],
                        "前提：正規化前兩筆同屬拉丁——這是不變式 2 該咬的形狀")
@@ -341,15 +341,17 @@ extension NameNormalizationTests {
         // 但 scalar 變了（U+0064 U+0307 → U+1E0B），於是分類跟著變
         XCTAssertEqual(Array(normalized[0].unicodeScalars), ["\u{1E0B}"],
                        "前提：NFKC 合成改變了 scalar 序列")
-        XCTAssertEqual(normalized.map(WritingSystem.of), [.other, .latn],
-                       "**分類分家了**——不變式 2 因此看到兩個各一筆的 bucket")
+        // #568 之後：`isLatinLetter` 改以 Unicode 名稱判定，U+1E0B（LATIN SMALL LETTER D WITH DOT ABOVE）歸拉丁，
+        // 分類不再分家——不變式 2 看到兩筆拉丁、抓得到。這支測試在 #568 之前斷言的是相反的事（兩條不變式同時靜默），
+        // 訊息要求「若這裡變紅就更新 doc」；`Person.authorized` 的 doc 只寫「攔得下多數機械嘗試，但不是全部」、沒有
+        // 點名這個逃逸，所以不用改。
+        XCTAssertEqual(normalized.map(WritingSystem.of), [.latn, .latn],
+                       "分類不再因 NFKC 合成而分家（#568）")
 
         let issues = AuthorizedNames.validate(authorized: normalized, names: names,
                                               ownerKey: "probe")
-        XCTAssertTrue(issues.isEmpty,
-                      "**兩條不變式同時靜默**——這就是為什麼禁令不能靠 validate 執行。"
-                      + "若這裡變紅，代表 validate 收緊了，`Person.authorized` 的 doc "
-                      + "要跟著改（那是好事，但 doc 不能落後）。實際 issues：\(issues.map(\.message))")
+        XCTAssertFalse(issues.isEmpty,
+                       "不變式 2 現在抓得到這個形狀——每書寫系統至多一個（#568 之前兩條同時靜默）")
     }
 
     /// 對照組：**該塌縮的仍然塌縮**——否則上面兩條可能只是因為正規化整個壞掉才通過。

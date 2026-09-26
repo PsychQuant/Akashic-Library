@@ -35,6 +35,18 @@ final class AuthorizedNameTests: XCTestCase {
                        "含表意文字即歸 han；混合字串在名冊裡真的存在")
     }
 
+    /// #568：判準是「是字母，且 Unicode 名稱以 LATIN 開頭」——與 `zero-instance-guards` 第 12 列量測腳本同一條。
+    /// 舊的 code-point 區間兩個方向都錯：區間內的 ×／÷ 是符號，區間外的全形與越南文拉丁是字母。
+    func testLatinIsDecidedByLetterAndNameNotCodePointRange() {
+        XCTAssertEqual(WritingSystem.of("×"), .other, "U+00D7 是符號，不是拉丁字母")
+        XCTAssertEqual(WritingSystem.of("÷"), .other, "U+00F7 是符號，不是拉丁字母")
+        XCTAssertEqual(WritingSystem.of("ＰＳＹＣＨＯＭＥＴＲＩＫＡ"), .latn, "全形拉丁（U+FF21–FF5A）是拉丁字母")
+        XCTAssertEqual(WritingSystem.of("ỆỰ"), .latn, "Latin Extended Additional（越南文，U+1EC6／U+1EF0）——不能夾 ASCII，否則舊區間也判得對、斷言驗不到東西")
+        XCTAssertEqual(WritingSystem.of("ꞌ\u{A7C0}"), .latn, "Latin Extended-D")
+        XCTAssertEqual(WritingSystem.of("Ψυχολογία"), .other, "希臘字母不是拉丁")
+        XCTAssertEqual(WritingSystem.of("Ångström"), .latn, "Latin-1 補充區的真字母照舊")
+    }
+
     func testScriptOfEmptyAndSymbolOnlyIsOther() {
         XCTAssertEqual(WritingSystem.of(""), .other)
         XCTAssertEqual(WritingSystem.of("   "), .other)

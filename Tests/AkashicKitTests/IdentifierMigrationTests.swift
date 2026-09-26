@@ -259,8 +259,8 @@ final class IdentifierMigrationRunTests: XCTestCase {
     /// 這條測試釘住 entry 那個機制。**它一旦變綠（＝寫入面放寬了），`rewritingProvenance`
     /// 就從裝飾品變成承重結構**，那時要回頭確認它真的有測試涵蓋（整句 2026-08-25 起就在，`d8506974`；
     /// 它是條件義務——「變綠時要做的事」——不是今天的待辦。#556 R9 曾刪掉後半句再宣告「不是待辦」，
-    /// R9 verify 第 17／26 列）。venue 那條可達的路今天零行為測試——`grep -rn rewritingProvenance Tests/`
-    /// 的命中全是 doc 與斷言訊息，含這一句自己（R10 寫「3 處」，寫下去就是第 4 處，R10 verify）——記 #590。
+    /// R9 verify 第 17／26 列）。venue 那條可達的路自 #590（2026-09-27）起有行為測試：
+    /// `testVenueReferenceToAResidueTokenIsRewrittenToTheNormalizedForm`（負控：venue 呼叫傳空改寫清單 → 2 個斷言失敗）。
     func testAResidueValuedReferenceCannotBeWrittenAtAll() throws {
         var e = Entry(id: UUID(), citekey: "a2020", type: .periodicalArticle, title: "T")
         e.fields["doi"] = "10.1007/BF02294210"          // 殘留，結構化 doi 仍為空
@@ -274,6 +274,35 @@ final class IdentifierMigrationRunTests: XCTestCase {
                              + "rewritingProvenance 目前不可達的原因") { err in
             XCTAssertTrue("\(err)".contains("不在 doi 清單內"), "實得：\(err)")
         }
+    }
+
+    /// #590：`rewritingProvenance` 的 venue 路徑（可達、零實例）的行為測試。**裁決：改寫成正規形，與號本身同一次寫入。**
+    ///
+    /// 前提三個，缺一不可：work 的 `fields` 殘留有未正規化的 ISSN token（`00333123`）；那筆 work 的 venue 邊已歸戶；
+    /// 該 venue 持有一筆 value 等於那個 token 的 reference。`validateReferenceAttachment` 比的是解析後的 normalized，
+    /// 所以 `{field: issn, value: "00333123"}` 對 `issn: [0033-3123]` 寫得進去（#556 R5／R7 verify 實測）。
+    /// 遷移之後那個 token 從 store 消失（殘留被搬走、號以正規形存在 venue 上），reference 若不跟著改寫，就指向一個
+    /// store 裡已經不存在的字面——`validate` 照樣過（它比 normalized），但讀的人對不上。
+    func testVenueReferenceToAResidueTokenIsRewrittenToTheNormalizedForm() throws {
+        var v = Venue(key: "j", type: .periodical)
+        v.issn = [try XCTUnwrap(ISSN("0033-3123"))]
+        v.references = [ProvenanceReference(
+            field: "issn", value: "00333123",
+            kind: .judgement(statement: "期刊官網版權頁",
+                             restsOn: ["sha256:2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881"]))]
+        _ = try store.writeVenue(v)
+        try seedArticle("a2020", venueKey: "j", issn: "00333123")
+        commitAll()
+
+        let r = try IdentifierMigration.run(store: store, apply: true)
+        XCTAssertTrue(r.blockers.isEmpty, "無阻擋前提：\(r.blockers)")
+        let venue = try XCTUnwrap(try store.load().venues.first { $0.key == "j" })
+        XCTAssertEqual(venue.references.compactMap(\.value), ["0033-3123"],
+                       "reference 的 value 同一次改寫成正規形，不留指向已消失字面的 value")
+        XCTAssertEqual(venue.issn.map(\.normalized), ["0033-3123"])
+        XCTAssertNil(try issnOnDisk("a2020"), "work 側的殘留已移除")
+        XCTAssertTrue(r.provenanceRewrites.contains { $0.contains("00333123") && $0.contains("0033-3123") },
+                      "改寫要進報告：\(r.provenanceRewrites)")
     }
 
     /// 遷移**不得**用殘留覆寫已在場的結構化值（#394 verify）。

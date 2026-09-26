@@ -416,9 +416,9 @@ actor AkashicMCPServer {
             }
             let strs = dict.compactMapValues(\.stringValue)
             guard strs.count == dict.count else {
-                let bad = dict.keys.filter { strs[$0] == nil }.sorted().prefix(10)
-                    .map { displaySafeInvisible($0, max: 60) }.joined(separator: "、")
-                throw ServiceError.invalid("\(displaySafeInvisible(key, max: 60)) 的值都必須是字串（數字請寫成字串）——這些鍵不是：\(bad)；拒絕整個呼叫，零寫入")
+                let badKeys = dict.keys.filter { strs[$0] == nil }.sorted()
+                throw ServiceError.invalid("\(displaySafeInvisible(key, max: 60)) 的值都必須是字串（數字請寫成字串）；拒絕整個呼叫，零寫入。這些鍵不是："
+                    + badKeys.prefix(10).map { displaySafeInvisible($0, max: 60) }.joined(separator: "、"))
             }
             return strs
         }

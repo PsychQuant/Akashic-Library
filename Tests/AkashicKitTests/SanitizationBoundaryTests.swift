@@ -237,7 +237,7 @@ final class SanitizationBoundaryTests: XCTestCase {
         ("^StoreKey\\.pattern$", "常量正則"),
         ("^field\\.uppercased\\(\\)$", "三個呼叫端字面欄位名之一（doi／pmid／isbn）"),
         ("^\\$0\\.value$", "writeFailed 的 value 由 displaySafeError 產出（唯一命中：index rebuild 失敗那一句）"),
-        ("^confirmWriteFailed\\.keys\\.sorted\\(\\)\\.joined\\(separator: \"、\"\\)$", "鍵受 StoreKey 約束、且插入時已 displaySafeInvisible（R30；R29 verify 第 35 列：理由曾寫成列舉式的 displaySafe）"),
+        ("^(writeFailedList|confirmFailedList)$", "#562：listCapped 過的清單——writeFailed 的 key 逐項 displaySafeInvisible、value 由 displaySafeError 產出；confirmWriteFailed 的鍵在插入時已 displaySafeInvisible"),
         ("^(WorkType|VenueType|EntityKind)\\.allCases[^\\n]*$", "封閉列舉現算"),
         ("^known\\.isEmpty \\? \"[^\"]*\" : displaySafeInvisible\\(known, max: \\d+\\)$", "三元：字面或已消毒"),
         ("^[A-Za-z_][\\w.!= \\n]*\\?\\s*\"(?:[^\"\\\\]|\\\\.)*\"\\s*:\\s*\"(?:[^\"\\\\]|\\\\.)*\"$", "三元：兩支都是字面（字面裡的插值由上一層檢查）"),
@@ -269,8 +269,6 @@ final class SanitizationBoundaryTests: XCTestCase {
         ("^\\([\\w.]+( [<>=!]+ [0-9_]+)? \\? \"(?:[^\"\\\\]|\\\\.)*\"(?:\\s*\\+\\s*\"(?:[^\"\\\\]|\\\\.)*\")*\\s*:\\s*\"(?:[^\"\\\\]|\\\\.)*\"(?:\\s*\\+\\s*\"(?:[^\"\\\\]|\\\\.)*\")*\\)$", "括號三元：兩支都是字面（可再以 + 串接字面）、且沒有插值（有插值的走逐插值檢查）"),
         ("^validationErrors\\.prefix\\([0-9_]+\\)\\.map \\{ \"- \" \\+ displaySafeClipOnly\\(\\$0\\.message, max: [0-9_]+\\) \\}[\\s\\S]*$", "ValidationIssue.message 由 validate() 生產端消毒、這裡只截（updatePerson）"),
         ("^(knownKeys|updatable)\\.sorted\\(\\)\\.joined\\(separator: \"[^\"]*\"\\)$", "Provenance.knownKeys／PersonYAML.updatableKeys 的常量鍵名"),
-        ("^(report\\.writeFailed\\.keys|written)\\.sorted\\(\\)\\.map \\{ displaySafeInvisible\\(\\$0, max: 200\\) \\}\\.joined\\(separator: \", \"\\)$", "逐項消毒的 citekey 清單"),
-        ("^writeFailed\\.map \\{ \"\\\\\\(displaySafeInvisible\\(\\$0\\.key, max: 200\\)\\)（\\\\\\(\\$0\\.value\\)）\" \\}\\.sorted\\(\\)\\.joined\\(separator: \"; \"\\)$", "key 逐項消毒、value 由 displaySafeError 產出（index rebuild 失敗那一句）"),
         ("^labels\\.sorted\\(\\)$", "knownLabels 的子集（EntityKind 的常量標籤）"),
         // R30
         // R31 拿掉 R30 的 `displaySafe(resolved.path, max: 800)` 列（R30 verify 第 24 列）：那是全 diff 唯一從性質式退回列舉式的站點，而它要的

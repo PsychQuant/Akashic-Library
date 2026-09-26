@@ -157,6 +157,18 @@ final class ExportBoundaryTests: XCTestCase {
     ///
     /// 三個 renderer 各自的 escape 處理的是各自格式的 metacharacter，與 C0／bidi
     /// 是兩組不相干的字元集——這正是 #165 用來反駁「跳脫交給下游」的同一論證。
+    /// #562：指名的 citekey 查無時，訊息只列前 10 個再附總數——一次送幾千個不存在的
+    /// citekey，錯誤訊息不得等比膨脹（它也進 LLM context）。
+    func testMissingCitekeyListIsCappedWithTotal() throws {
+        let wanted = (0..<25).map { String(format: "nope%02d", $0) }
+        XCTAssertThrowsError(try service.export(citekeys: wanted, format: "bib")) { err in
+            let msg = "\(err)"
+            XCTAssertTrue(msg.contains("nope09"), "前 10 個要列出：\(msg)")
+            XCTAssertFalse(msg.contains("nope10"), "第 11 個起不列：\(msg)")
+            XCTAssertTrue(msg.contains("共 25 項"), "總數要揭露：\(msg)")
+        }
+    }
+
     func testMCPGraphSanitisesAllThreeFormats() throws {
         for format in ["mermaid", "dot", "graphml"] {
             let out = try service.graph(focus: "dirty2020", depth: 1, format: format)

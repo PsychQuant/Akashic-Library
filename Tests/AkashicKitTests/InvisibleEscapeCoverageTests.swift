@@ -79,14 +79,18 @@ final class InvisibleEscapeCoverageTests: XCTestCase {
         XCTAssertTrue(msgs.contains { $0.contains("\\u{200B}") }, msgs.description)
     }
 
-    /// 第六個生產者（R26 verify DA 第 4 列）：識別碼不是正規形的訊息迴送原樣值與正規形——doi 裡的 ZWSP 與 TAG 字元要逃脫。
+    /// 第六個生產者（R26 verify DA 第 4 列）：識別碼不是正規形的訊息迴送原樣值與正規形。
+    /// 原本的 fixture 是 doi 裡的 ZWSP 與 TAG 字元——#589 R2 起 `DOI.init` 直接拒收它們，那個形狀在
+    /// store 裡已經造不出來（下面第一段斷言釘住）。訊息的逃脫仍要驗：私用區字元（Co）進得了 DOI 後綴，
+    /// 而 `escapingInvisibleScalars` 會逃它。
     func testIdentifierDiagnosticsEscapeInvisibleScalars() throws {
+        XCTAssertNil(DOI("10.1037/A\u{200B}B\u{E0001}C"), "#589：不可見字元在建構時就拒收")
         var entry = Entry(id: UUID(), citekey: "e2020a", type: .periodicalArticle, title: "T")
-        entry.doi = [try XCTUnwrap(DOI("10.1037/A\u{200B}B\u{E0001}C"))]
+        entry.doi = [try XCTUnwrap(DOI("10.1037/A\u{E000}B"))]
         let msgs = entry.validate().map(\.message).filter { $0.contains("不是正規形") }
         XCTAssertEqual(msgs.count, 1, entry.validate().map(\.message).description)
-        XCTAssertFalse(msgs[0].unicodeScalars.contains { $0.value == 0x200B || $0.value == 0xE0001 }, msgs[0])
-        XCTAssertTrue(msgs[0].contains("\\u{200B}") && msgs[0].contains("\\u{E0001}"), msgs[0])
+        XCTAssertFalse(msgs[0].unicodeScalars.contains { $0.value == 0xE000 }, msgs[0])
+        XCTAssertTrue(msgs[0].contains("\\u{E000}"), msgs[0])
     }
 
     /// 第七個生產者（R26 verify DA 第 26 列）：跨記錄問題迴送 work 的 title——全庫最自由的欄位；quarantine reason（security 第 18 列、DA 第 44 列）

@@ -216,7 +216,8 @@ public struct DOI: Identifier {
               // 會讓一個看起來與真號相同的字串成為另一個 normalized、逃過去重與識別碼相等的身分判定。
               // 危險字元的定義沿用輸出閘與名字不變式的同一組性質，不另寫一份。
               !suffix.unicodeScalars.contains(where: { u in
-                  UnsafeToEmitScalar.contains(u) || u.properties.isDefaultIgnorableCodePoint
+                  // U+2800（盲文空白）是 So 類、不是 DI，但渲染是空白——名字不變式把它顯式列入不可見，這裡同列
+                  UnsafeToEmitScalar.contains(u) || u.properties.isDefaultIgnorableCodePoint || u.value == 0x2800
                       || [.control, .format, .lineSeparator, .paragraphSeparator].contains(u.properties.generalCategory)
               }) else { return nil }
         normalized = s

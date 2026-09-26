@@ -238,7 +238,7 @@ public final class AkashicService {
             entries = entries.filter { wantedSet.contains($0.citekey) }
             let missing = wantedSet.subtracting(entries.map(\.citekey))
             guard missing.isEmpty else {
-                let safeNames = missing.sorted().map { displaySafeInvisible($0, max: 200) }.joined(separator: ", ")
+                let safeNames = Self.listCapped(missing.sorted()) { displaySafeInvisible($0, max: 200) }   // #562：筆數也有上限
                 // 與 `person()` 完全同型（#294）：**指名的 citekey 查無，而 store 另有
                 // 讀不進來的檔——存在性無法判定**。先前一律擲 `notFound`，依 error kind
                 // 分支的呼叫端會把「或許在 quarantine 裡」當成「確定不存在」。
@@ -1927,14 +1927,17 @@ public final class AkashicService {
             try LibraryIndex(store: store).rebuild()
         } catch {
             // #627 R2：沒套用的候選也列出——index 重建失敗時它們不能跟著消失
-            let notAppliedIDs = notApplied.map {
+            let notAppliedIDs = Self.listCapped(notApplied.map {   // #562：筆數也有上限
                 displaySafeInvisible($0.citekey, max: 200) + ":" + String($0.authorIndex) + ":" + displaySafeInvisible($0.personKey, max: 200)
-            }.joined(separator: "、")
+            }) { $0 }
+            // #562：兩串清單的筆數也有上限（前 10 項＋總數）；項目在插入時已逐筆消毒
+            let writeFailedList = Self.listCapped(writeFailed.map { "\(displaySafeInvisible($0.key, max: 200))（\($0.value)）" }.sorted()) { $0 }
+            let confirmFailedList = Self.listCapped(confirmWriteFailed.keys.sorted()) { $0 }
             // R10（R9-verify L17）：附已改寫數——operator 才能對帳磁碟狀態。
             // confirmWriteFailed 一併列（verify GAP-11——漏了它，rebuild 失敗那次
             // 「verdict 沒落地」的報告就整個消失）。
             throw ServiceError.invalid(
-                "index rebuild 失敗：\(displaySafeError(error, max: 512))（本批已改寫 \(written) 檔；writeFailed \(writeFailed.count) 筆：\(writeFailed.map { "\(displaySafeInvisible($0.key, max: 200))（\($0.value)）" }.sorted().joined(separator: "; "))；confirmWriteFailed \(confirmWriteFailed.count) 筆：\(confirmWriteFailed.keys.sorted().joined(separator: "、"))；未套用 \(notApplied.count) 筆：\(notAppliedIDs)）")   // display-safe-exempt: written 是 Int；writeFailed 值與 confirmWriteFailed 鍵在插入時已 displaySafe（不冪等，不再包）；notAppliedIDs 已逐筆 displaySafeInvisible
+                "index rebuild 失敗：\(displaySafeError(error, max: 512))（本批已改寫 \(written) 檔；writeFailed \(writeFailed.count) 筆：\(writeFailedList)；confirmWriteFailed \(confirmWriteFailed.count) 筆：\(confirmFailedList)；未套用 \(notApplied.count) 筆：\(notAppliedIDs)）")   // display-safe-exempt: written 是 Int；writeFailed 值與 confirmWriteFailed 鍵在插入時已 displaySafe（不冪等，不再包）；notAppliedIDs 已逐筆 displaySafeInvisible
         }
         // R8（R7-verify L15）：applied 不誇報——排除寫入失敗的候選
         // R3-1 附帶：applied 回音同列表三段 pinned 形；R5 raw 不截斷（同 rejected
@@ -2143,7 +2146,7 @@ public final class AkashicService {
             throw ServiceError.invalid(
                 "以下欄位名無法表達成合法的 biblatex 欄位（或正規化後與其他欄位相撞），"
                 + "已拒絕寫入整筆——請改名後重試："
-                + rejectedKeys.map { displaySafeInvisible($0, max: 80) }.joined(separator: "、"))
+                + Self.listCapped(rejectedKeys) { displaySafeInvisible($0, max: 80) })   // #562
         }
         entry.fields = normalized
         // 寫入端的前置條件在動磁碟前全部跑一遍（與 writeEntry／writeEntryExclusive 同一個函式，#455）
@@ -2245,8 +2248,9 @@ public final class AkashicService {
         do {
             try LibraryIndex(store: store).rebuild()
         } catch {
+            let failedKeys = report.writeFailed.keys.sorted()
             throw ServiceError.invalid(
-                "index rebuild 失敗：\(displaySafeError(error, max: 512))（本趟 import 已落地：created \(report.created.count)、updated \(report.updated.count)、orphaned \(report.orphaned.count)；writeFailed \(report.writeFailed.count) 筆：\(report.writeFailed.keys.sorted().map { displaySafeInvisible($0, max: 200) }.joined(separator: ", "))）")
+                "index rebuild 失敗：\(displaySafeError(error, max: 512))（本趟 import 已落地：created \(report.created.count)、updated \(report.updated.count)、orphaned \(report.orphaned.count)；writeFailed \(report.writeFailed.count) 筆：\(Self.listCapped(failedKeys) { displaySafeInvisible($0, max: 200) })）")   // #562
         }
         var d: [String: Any] = [
             "created": report.created.map { displaySafe($0, max: 200) },
@@ -2435,10 +2439,11 @@ public final class AkashicService {
                     try LibraryIndex(store: store).rebuild()
                     indexRebuilt = true
                 } catch {
+                    let writtenSorted = written.sorted()
                     throw ServiceError.invalid(
                         "index rebuild 失敗：\(displaySafeError(error, max: 512))"
                         + "（本趟已落地 \(written.count) 筆："   // display-safe-exempt: Int
-                        + "\(written.sorted().map { displaySafeInvisible($0, max: 200) }.joined(separator: ", "))）")
+                        + "\(Self.listCapped(writtenSorted) { displaySafeInvisible($0, max: 200) })）")   // #562
                 }
             }
         }

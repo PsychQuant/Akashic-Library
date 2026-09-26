@@ -18,6 +18,12 @@ MANIFEST_VERSION=$(python3 -c "import json;print(json.load(open('$MCPB_DIR/manif
   echo "✗ VERSION（${VERSION}）與 mcpb/manifest.json（${MANIFEST_VERSION}）不一致——先同步再 release"
   exit 1
 }
+# #632：握手回報的 serverInfo.version 取自這個常數，也要與 VERSION 相等
+SWIFT_VERSION=$(sed -n 's/.*static let current = "\(.*\)".*/\1/p' "$REPO_ROOT/Sources/AkashicMCPKit/AkashicMCPVersion.swift")
+[ "$SWIFT_VERSION" = "$VERSION" ] || {
+  echo "✗ VERSION（${VERSION}）與 Sources/AkashicMCPKit/AkashicMCPVersion.swift（${SWIFT_VERSION}）不一致——先同步再 release"
+  exit 1
+}
 
 # #630：release 出貨的必須是 tag 那一份程式。v0.12.0 出貨的是兩週前的舊產物——下方
 # 三道檢查任一道存在，它都不會安靜地發出去。

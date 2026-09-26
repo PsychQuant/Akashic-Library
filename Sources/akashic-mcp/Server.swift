@@ -17,7 +17,7 @@ actor AkashicMCPServer {
         service = AkashicService(root: resolved.root, key: resolved.key)
         server = Server(
             name: "akashic-mcp",
-            version: "0.2.0",
+            version: AkashicMCPVersion.current,   // #632：與 mcpb/manifest.json 同步，不再寫死
             capabilities: .init(tools: .init()))
         // #152：深度預檢包在 SDK transport 外——撞毀在 SDK 解 Value 的遞迴，
         // 必須擋在 bytes 進 decoder 之前

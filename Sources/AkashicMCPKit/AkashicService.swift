@@ -2448,6 +2448,7 @@ public final class AkashicService {
         for item in plan.items { counts[item.category.rawValue, default: 0] += 1 }
         let shown = itemLimit.map { Array(plan.items.prefix($0)) } ?? plan.items
 
+        let writtenSet = Set(written)
         var d: [String: Any] = [
             "dryRun": dryRun,
             "proposals": proposals.count,   // display-safe-exempt: Int
@@ -2473,9 +2474,17 @@ public final class AkashicService {
                 // payload 在此之前不帶那件事——MCP 消費端在結構上看不出 provenance 寫了沒，
                 // 而 CLI 逐筆印著一句「只記在報告，不進 store」（#517 之前為真，之後為假）。
                 // 兩面缺的是同一個欄位，所以補在這裡、兩面同源（`mcp-cli-parity` 讀取面的要求）。
+                // 鍵名本身說出事實（#542 後續）：dry-run 什麼都沒寫，先前照樣帶 `provenanceWritten`，CLI 就印「已寫入」；
+                // `--apply` 而那筆寫入失敗時同樣。計畫、落地、沒落地三種狀態各用一個鍵，消費端不必自己拿 dryRun 與
+                // writeFailed 去交叉推論。
                 if !item.outcome.addedReferences.isEmpty {
-                    one["provenanceWritten"] = item.outcome.addedReferences.map {
-                        displaySafe($0.field, max: 120)
+                    let refFields = item.outcome.addedReferences.map { displaySafe($0.field, max: 120) }
+                    if dryRun {
+                        one["provenancePlanned"] = refFields
+                    } else if let ck = item.citekey, writtenSet.contains(ck) {
+                        one["provenanceWritten"] = refFields
+                    } else {
+                        one["provenanceNotWritten"] = refFields
                     }
                 }
                 if let s = item.outcome.provenanceSkipped {

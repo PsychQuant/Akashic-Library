@@ -107,6 +107,36 @@ final class EnrichCLITests: XCTestCase {
 
     // MARK: - 輸入錯要大聲
 
+    /// #542 Expected 3：CLI 的來源行由 payload 現算，不得與 `provenanceWritten` 矛盾。
+    /// 那一行曾逐字寫著「只記在報告，不進 store」——#517 之後為假，而沒有任何測試斷言它。三種狀態各驗一次。
+    func testSourceLineAgreesWithPayload() throws {
+        let digest = "sha256:" + String(repeating: "ab", count: 32)
+        let full = try proposals(#"[{"citekey":"cheng2025alpha","fields":{"abstract":"A"},"sourceDigest":"\#(digest)","sourceURL":"https://api.crossref.org/works/10.1037%2Fx","sourceRetrieved":"2026-09-09","sourceMediaType":"application/json","sourceStatus":200}]"#)
+        // dry-run：什麼都沒寫，不得說「已寫入」（這支測試第一次跑就抓到它這樣說）
+        let dry = try cli(["enrich", "--from", full])
+        XCTAssertTrue(dry.output.contains("--apply 時會寫 1 筆 reference"), dry.output)
+        XCTAssertFalse(dry.output.contains("已寫入"), dry.output)
+        XCTAssertFalse(dry.output.contains("不進 store"), dry.output)
+        let dryJSON = try cli(["enrich", "--from", full, "--json"])
+        let dryItem = try XCTUnwrap(((try JSONSerialization.jsonObject(with: Data(dryJSON.output.utf8)) as? [String: Any])?["items"] as? [[String: Any]])?.first)
+        XCTAssertNil(dryItem["provenanceWritten"], "dry-run 的 payload 不得帶 provenanceWritten：\(dryJSON.output)")
+        XCTAssertEqual(dryItem["provenancePlanned"] as? [String], ["fields.abstract"], dryJSON.output)
+        // 寫了：payload 與 CLI 行說同一件事
+        let json = try cli(["enrich", "--from", full, "--apply", "--json"])
+        XCTAssertEqual(json.status, 0, json.output)
+        let obj = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(json.output.utf8)) as? [String: Any], json.output)
+        let item = try XCTUnwrap((obj["items"] as? [[String: Any]])?.first, json.output)
+        let written = try XCTUnwrap(item["provenanceWritten"] as? [String], "payload 要帶 provenanceWritten：\(json.output)")
+        XCTAssertEqual(written.count, 1, json.output)
+        XCTAssertEqual(try entry("cheng2025alpha").references.filter { $0.field == "fields.abstract" }.count, 1, "store 裡真的有那筆 reference")
+        // 只有 digest：不寫，理由具名；CLI 行不得說寫了
+        let digestOnly = try proposals(#"[{"citekey":"cheng2025alpha","fields":{"note":"N"},"sourceDigest":"\#(digest)"}]"#)
+        let skipped = try cli(["enrich", "--from", digestOnly, "--apply"])
+        XCTAssertEqual(skipped.status, 0, skipped.output)
+        XCTAssertTrue(skipped.output.contains("只記在報告，不進 store——"), "要帶具名理由：\(skipped.output)")
+        XCTAssertFalse(skipped.output.contains("已寫入 1 筆 reference"), skipped.output)
+    }
+
     /// 頂層打錯位置的欄位（`abstract` 不在 `fields` 裡）→ 非零、訊息指名鍵與正確位置、磁碟不動。
     func testMalformedProposalsFileFailsLoudly() throws {
         let before = try bytes(alpha)

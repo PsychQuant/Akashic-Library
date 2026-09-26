@@ -109,11 +109,15 @@ struct EnrichCmd: ParsableCommand {
             if let digest = item["sourceDigest"] as? String {
                 if let written = item["provenanceWritten"] as? [String], !written.isEmpty {
                     print("    來源：\(digest) → 已寫入 \(written.count) 筆 reference（\(written.joined(separator: "、"))）")   // display-safe-exempt: service 已對每個值 displaySafe；count 是 Int
+                } else if let planned = item["provenancePlanned"] as? [String], !planned.isEmpty {
+                    print("    來源：\(digest) → --apply 時會寫 \(planned.count) 筆 reference（\(planned.joined(separator: "、"))）")   // display-safe-exempt: service 已對每個值 displaySafe；count 是 Int
+                } else if let lost = item["provenanceNotWritten"] as? [String], !lost.isEmpty {
+                    print("    來源：\(digest) → 這筆寫入失敗，\(lost.count) 筆 reference 沒有落地（\(lost.joined(separator: "、"))）")   // display-safe-exempt: service 已對每個值 displaySafe；count 是 Int
                 } else if let why = item["provenanceSkipped"] as? String {
                     print("    來源：\(digest)（只記在報告，不進 store——\(why)）")   // display-safe-exempt: service 已對每個值 displaySafe
                 } else {
-                    // dry-run：計畫階段還沒有 outcome 可報，說出這件事而不是替它下結論。
-                    print("    來源：\(digest)（寫入與否於 --apply 時回報）")   // display-safe-exempt: service 已對每個值 displaySafe
+                    // 這筆沒有要補的欄位時，也就沒有 reference 可寫
+                    print("    來源：\(digest)（沒有補任何值，所以沒有 reference）")   // display-safe-exempt: service 已對每個值 displaySafe
                 }
             }
         }

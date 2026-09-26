@@ -420,4 +420,32 @@ extension StdioE2ETests {
         XCTAssertTrue(fields.contains("fields 的值都必須是字串"), fields)
         XCTAssertTrue(fields.contains("volume"), "要點名是哪個鍵：\(fields)")
     }
+
+    /// #561 R1 verify：清單以外的讀取器同一條規則——給了而型別不對（null 也算）整個呼叫拒絕。
+    /// 最尖的是 `dry_run: "true"`：先前被折成 false，呼叫端要的乾跑變成真的寫入。
+    func testMalformedScalarArgumentsAreRefused() throws {
+        try initialize()
+        let entities = root.appendingPathComponent("entities")
+        func snapshot() throws -> [String: Data] {
+            var out: [String: Data] = [:]
+            for n in try FileManager.default.contentsOfDirectory(atPath: entities.path) {
+                out[n] = try Data(contentsOf: entities.appendingPathComponent(n))
+            }
+            return out
+        }
+        let before = try snapshot()
+        let dry = try call(2, "akashic_update_person", ["key": "fann", "fields": ["orcid": "0000-0002-1825-0097"], "dry_run": "true"])
+        XCTAssertTrue(dry.contains("dry_run 必須是 boolean"), dry)
+        let nullDry = try call(3, "akashic_import_wos", ["path": "/nonexistent.txt", "dry_run": NSNull()])
+        XCTAssertTrue(nullDry.contains("dry_run 必須是 boolean"), nullDry)
+        let keys = try call(4, "akashic_enrich_from_zotero", ["citekeys": ["a2020x", 42], "dry_run": true])
+        XCTAssertTrue(keys.contains("citekeys 的每個元素都必須是字串"), keys)
+        let libID = try call(5, "akashic_import_zotero", ["library_id": "5"])
+        XCTAssertTrue(libID.contains("library_id 必須是整數"), libID)
+        let str = try call(6, "akashic_set_status", ["citekey": 42, "status": "read"])
+        XCTAssertTrue(str.contains("citekey 必須是字串"), str)
+        let nullStr = try call(7, "akashic_set_status", ["citekey": NSNull(), "status": "read"])
+        XCTAssertTrue(nullStr.contains("citekey 必須是字串"), nullStr)
+        XCTAssertEqual(try snapshot(), before, "被拒絕的呼叫不得改任何記錄")
+    }
 }

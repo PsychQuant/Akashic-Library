@@ -153,10 +153,6 @@ final class ExportBoundaryTests: XCTestCase {
         }
     }
 
-    /// **171-4：`graph` 是 `export-bib` 逐行對應的孿生**，三種格式都要消毒。
-    ///
-    /// 三個 renderer 各自的 escape 處理的是各自格式的 metacharacter，與 C0／bidi
-    /// 是兩組不相干的字元集——這正是 #165 用來反駁「跳脫交給下游」的同一論證。
     /// #562：指名的 citekey 查無時，訊息只列前 10 個再附總數——一次送幾千個不存在的
     /// citekey，錯誤訊息不得等比膨脹（它也進 LLM context）。
     func testMissingCitekeyListIsCappedWithTotal() throws {
@@ -169,6 +165,10 @@ final class ExportBoundaryTests: XCTestCase {
         }
     }
 
+    /// **171-4：`graph` 是 `export-bib` 逐行對應的孿生**，三種格式都要消毒。
+    ///
+    /// 三個 renderer 各自的 escape 處理的是各自格式的 metacharacter，與 C0／bidi
+    /// 是兩組不相干的字元集——這正是 #165 用來反駁「跳脫交給下游」的同一論證。
     func testMCPGraphSanitisesAllThreeFormats() throws {
         for format in ["mermaid", "dot", "graphml"] {
             let out = try service.graph(focus: "dirty2020", depth: 1, format: format)

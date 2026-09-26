@@ -379,17 +379,33 @@ actor AkashicMCPServer {
     }
 
     private func handleToolCall(_ params: CallTool.Parameters) -> CallTool.Result {
-        func arg(_ key: String) -> String? { params.arguments?[key]?.stringValue }
-        func argInt(_ key: String) -> Int? { params.arguments?[key]?.intValue }
+        // **本檔所有具型別的讀取器同一條規則**（#561；R1 verify 起涵蓋 arg／argInt／argFlag／argList／argDict）：
+        // 鍵不在＝沒給；**給了而型別不對——JSON null 也算——整個呼叫拒絕、零寫入**，不靜默當成沒給。
+        // null 歸「型別不對」而不是「沒給」，理由與 `argFlag` 的既有立場相同：`dry_run: null` 若被當成沒給、折成預設 false，
+        // 呼叫端要的乾跑就變成寫入。代價是送 null 表示「省略」的 client 會被拒——錯誤訊息點名是哪個鍵，拿掉那個鍵即可。
+        func wrongType(_ key: String, _ expected: String) -> ServiceError {
+            .invalid("\(displaySafeInvisible(key, max: 60)) 必須是\(expected)——收到別的型別（null 也算）；要省略就不要給這個鍵。拒絕整個呼叫，零寫入")   // display-safe-exempt: expected 是本檔的編譯期字面
+        }
+        func arg(_ key: String) throws -> String? {
+            guard let value = params.arguments?[key] else { return nil }
+            guard let s = value.stringValue else { throw wrongType(key, "字串") }
+            return s
+        }
+        func argInt(_ key: String) throws -> Int? {
+            guard let value = params.arguments?[key] else { return nil }
+            guard case .int(let n) = value else { throw wrongType(key, "整數") }
+            return n
+        }
         /// **沒給鍵回 []；給了而形狀不對整個呼叫拒絕、零寫入**（#561）。先前非陣列回 []、非字串元素被
         /// `compactMap` 丟掉：`authorize: "Psychometrika"`（少一層括號）變成 `[]`、零寫入、回報成功；
-        /// `["名A", 42]` 變成 `["名A"]`，繞過「同書寫系統兩個名字整批拒絕」那道閘。與同檔 `argFlag` 對畸形
-        /// boolean 的立場一致：畸形輸入不得靜默當成未提供。空陣列照舊合法（「送了零個」與「沒送」對這些參數同義）。
+        /// `["名A", 42]` 變成 `["名A"]`，繞過「同書寫系統兩個名字整批拒絕」那道閘。
+        /// 空陣列照舊合法——對用 `argList` 讀的參數，「送了零個」與「沒送」得到同一個結果；有些參數要分辨兩者，
+        /// 那些用 `argStrictList` 或在呼叫端先看鍵在不在（例如 `update_venue` 的 `add_names`）。
         func argList(_ key: String) throws -> [String] {
             try argStrictList(key, allowEmpty: true) ?? []
         }
-        /// **有給就必須是非空的字串陣列**（change `resolution-verdict-states`，R1 verify security）：`argList` 對非陣列、
-        /// 非字串元素、null 都靜默回 []——未決腿若照用，`rests_on` 給成單一字串時證據被丟掉而回報成功，`undecided: []`
+        /// **有給就必須是非空的字串陣列**（change `resolution-verdict-states`，R1 verify security）：當時的 `argList` 對非陣列、
+        /// 非字串元素、null 都靜默回 []（#561 起它也拒絕這些，差別只剩空陣列）——未決腿若照用，`rests_on` 給成單一字串時證據被丟掉而回報成功，`undecided: []`
         /// 會落到列表模式、看起來像寫了。沒給鍵回 nil；給了而形狀不對整個呼叫拒絕、零寫入。
         /// `allowEmpty`：選填的證據清單（`rests_on`）收空陣列——零個 digest 是合法的未決記錄，省略與 [] 同義
         /// （R3 verify Codex）；代表寫入動作的鍵（`undecided`）仍拒絕空陣列。
@@ -417,7 +433,8 @@ actor AkashicMCPServer {
             let strs = dict.compactMapValues(\.stringValue)
             guard strs.count == dict.count else {
                 let badKeys = dict.keys.filter { strs[$0] == nil }.sorted()
-                throw ServiceError.invalid("\(displaySafeInvisible(key, max: 60)) 的值都必須是字串（數字請寫成字串）；拒絕整個呼叫，零寫入。這些鍵不是："
+                throw ServiceError.invalid("\(displaySafeInvisible(key, max: 60)) 的值都必須是字串（數字請寫成字串）；拒絕整個呼叫，零寫入。"
+                    + "共 \(badKeys.count) 個鍵不是字串："   // display-safe-exempt: Int
                     + badKeys.prefix(10).map { displaySafeInvisible($0, max: 60) }.joined(separator: "、"))
             }
             return strs
@@ -471,8 +488,7 @@ actor AkashicMCPServer {
                     action: arg("action") ?? "", key: arg("key"), name: arg("name"),
                     description: arg("description"), citekey: arg("citekey"))
             case "akashic_set_status":
-                let clearFlag: Bool
-                if case .bool(let b)? = params.arguments?["clear"] { clearFlag = b } else { clearFlag = false }
+                let clearFlag = try argFlag("clear", default: false)
                 output = try service.setStatus(citekey: arg("citekey") ?? "",
                                                status: arg("status"), clear: clearFlag)
             case "akashic_tag":
@@ -501,8 +517,8 @@ actor AkashicMCPServer {
                 // split 改作者位的**數量**（其他腿的 index 意義改變）、attribute_org
                 // 升格到另一個值域（「哪些寫了」難以判讀）。
                 //
-                // 空陣列與 JSON null 也拒（`argList` 對兩者都回 []）：「給了鍵但沒有
-                // 內容」不構成一次呼叫，靜默 no-op 會讓呼叫端以為別的腿跑了。
+                // 空陣列也拒（`argList` 對它回 []；JSON null 自 #561 起在 `argList` 就被拒）：
+                // 「給了鍵但沒有內容」不構成一次呼叫，靜默 no-op 會讓呼叫端以為別的腿跑了。
                 let splitProvided = params.arguments?["split_author"] != nil
                 let attrOrgProvided = params.arguments?["attribute_org"] != nil
                 let unSplitProvided = params.arguments?["un_split"] != nil
@@ -522,28 +538,28 @@ actor AkashicMCPServer {
                         let specs = try argList("drop_author")
                         guard !specs.isEmpty else {
                             throw ServiceError.invalid(
-                                "drop_author 是空的（空陣列或 null）——沒有要移除的東西就不要給這個鍵")
+                                "drop_author 是空陣列——沒有要移除的東西就不要給這個鍵")
                         }
                         output = try service.dropAuthors(specs)
                     } else if unSplitProvided {
                         let specs = try argList("un_split")
                         guard !specs.isEmpty else {
                             throw ServiceError.invalid(
-                                "un_split 是空的（空陣列或 null）——沒有要合回的東西就不要給這個鍵")
+                                "un_split 是空陣列——沒有要合回的東西就不要給這個鍵")
                         }
                         output = try service.unsplitAuthors(specs)
                     } else if splitProvided {
                         let specs = try argList("split_author")
                         guard !specs.isEmpty else {
                             throw ServiceError.invalid(
-                                "split_author 是空的（空陣列或 null）——沒有要拆的東西就不要給這個鍵")
+                                "split_author 是空陣列——沒有要拆的東西就不要給這個鍵")
                         }
                         output = try service.splitAuthors(specs)
                     } else {
                         let specs = try argList("attribute_org")
                         guard !specs.isEmpty else {
                             throw ServiceError.invalid(
-                                "attribute_org 是空的（空陣列或 null）——沒有要歸的東西就不要給這個鍵")
+                                "attribute_org 是空陣列——沒有要歸的東西就不要給這個鍵")
                         }
                         output = try service.attributeToOrganizations(specs)
                     }
@@ -595,7 +611,7 @@ actor AkashicMCPServer {
                     addVariant: params.arguments?["add_variant"] != nil ? argList("add_variant") : nil,
                     authorize: params.arguments?["authorize"] != nil ? argList("authorize") : nil,
                     paginated: paginatedFlag,
-                    clearPaginated: params.arguments?["clear_paginated"]?.boolValue ?? false,
+                    clearPaginated: try argFlag("clear_paginated", default: false),
                     judgement: arg("judgement"),
                     restsOn: params.arguments?["rests_on"] != nil ? argList("rests_on") : nil)
             case "akashic_resolve_venues":
@@ -644,8 +660,7 @@ actor AkashicMCPServer {
                         content: [.text(text: "fields 必須是 object", annotations: nil, _meta: nil)],
                         isError: true)
                 }
-                let dryRun: Bool
-                if case .bool(let b)? = params.arguments?["dry_run"] { dryRun = b } else { dryRun = false }
+                let dryRun = try argFlag("dry_run", default: false)
                 guard let fieldsAny = valueToAny(fieldsValue) as? [String: Any] else {
                     return CallTool.Result(
                         content: [.text(text: "fields 的巢狀深度超過 64——不是任何可更新欄位的形狀",
@@ -665,13 +680,8 @@ actor AkashicMCPServer {
                 output = try service.importZotero(zoteroDb: arg("zotero_db"),
                                                   libraryID: argInt("library_id"))
             case "akashic_enrich_from_zotero":
-                var enrichKeys: [String] = []
-                if case .array(let arr)? = params.arguments?["citekeys"] {
-                    for v in arr { if case .string(let s) = v { enrichKeys.append(s) } }
-                }
-                let enrichDryRun: Bool
-                if case .bool(let v)? = params.arguments?["dry_run"] { enrichDryRun = v }
-                else { enrichDryRun = false }
+                let enrichKeys = try argList("citekeys")
+                let enrichDryRun = try argFlag("dry_run", default: false)
                 output = try service.enrichFromZotero(citekeys: enrichKeys,
                                                       zoteroDb: arg("zotero_db"),
                                                       libraryID: argInt("library_id"),
@@ -694,10 +704,8 @@ actor AkashicMCPServer {
                                             includeAbsentAuthors: try argFlag("include_absent_authors", default: false),
                                             itemLimit: AkashicMCPServer.enrichItemLimit)
             case "akashic_import_wos":
-                let csvFlag: Bool
-                if case .bool(let v)? = params.arguments?["csv"] { csvFlag = v } else { csvFlag = false }
-                let dryRunFlag: Bool
-                if case .bool(let v)? = params.arguments?["dry_run"] { dryRunFlag = v } else { dryRunFlag = false }
+                let csvFlag = try argFlag("csv", default: false)
+                let dryRunFlag = try argFlag("dry_run", default: false)
                 output = try service.importWoS(path: arg("path") ?? "",
                                                csv: csvFlag, dryRun: dryRunFlag)
             default:

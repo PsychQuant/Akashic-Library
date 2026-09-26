@@ -436,11 +436,11 @@ final class ReferencesExtractTests: XCTestCase {
     /// T16：輸出帶 `contract`，讓 skill 分辨得出太舊的 CLI（G5）。R4 A4：warning 的語意在 R3 改了
     /// （多段 warning 列各段數目、頁首與接續 warning、頁碼、拿掉「同分」），契約加一到 3。R6：新增「過長」
     /// 與「最後一筆還沒結束」、多段 warning 改列最多的 5 段，加一到 4。R7：「還沒結束」擴及文字結尾與另一個
-    /// 參考文獻標題，新增「下一行以小寫開頭」，加一到 5。R11：新增「之後有 N 行像條目開頭、但判為不完整」，加一到 6
+    /// 參考文獻標題，新增「下一行以小寫開頭」，加一到 5。R11：新增「之後有 N 行像條目開頭、但判為不完整」，加一到 6。R12：那一則擴及附錄與索引，加一到 7
     func testOutputCarriesContractVersion() throws {
         let (status, output) = try extract("References\n\nAdams, J. (2001). A title. Journal A.\n")
         XCTAssertEqual(status, 0, output)
-        XCTAssertEqual(try decode(output).contract, 6)
+        XCTAssertEqual(try decode(output).contract, 7)
     }
 
     /// T17：APA 7 以刪節號省略作者時，換行不是併筆；小寫接在連字號後的姓、分號結尾的出版地（G10）
@@ -1578,9 +1578,10 @@ final class ReferencesExtractTests: XCTestCase {
         for (row, first) in [("Carter, M. (2003). U.S.S.R. policy. J Pol, 1, 2–3.", "Carter"),
                              ("Carter, M. (2003). 心理. 學報, 1, 2–3.", "Carter"),
                              ("World Health Organization. (2005). QA. WHO, 1, 2–3.", "World Health Organization"),
-                             // R11 #2／#3：以縮寫期刊名寫的真條目、含注音的標題，也在斷點之後的最後一筆
+                             // R11 #2／#3：以縮寫期刊名寫的真條目、含注音的標題，也在斷點之後的最後一筆。注音那一例的
+                             // 期刊名用 `J`——用漢字的話，退回 R10 的區段也照樣會過，測不到注音（R12 codex）
                              ("Carter, M. (1990). J.A.M.A. 264, 100–102.", "Carter"),
-                             ("Carter, M. (2003). ㄅㄆㄇ. 學報, 1, 2–3.", "Carter")] {
+                             ("Carter, M. (2003). ㄅㄆㄇ. J, 1, 2–3.", "Carter")] {
             let (status, output) = try extract(twoEntriesAndATable + row + "\n")
             XCTAssertEqual(status, 0, output)
             XCTAssertEqual(try decode(output).entries.map(\.firstAuthor), ["Adams", "Baker", first], row)
@@ -1598,5 +1599,25 @@ final class ReferencesExtractTests: XCTestCase {
         let r = try decode(output)
         XCTAssertEqual(r.entries.map(\.firstAuthor), ["Adams", "Baker"])
         XCTAssertTrue(r.warnings.contains { $0.contains("判為不完整") && $0.contains("1 行") }, "\(r.warnings)")
+    }
+
+    // MARK: - #617 verify R12
+
+    /// T84：清單停在附錄或索引、之後的真條目被判成表格列時也要出聲——只數帶年份括號的，索引行
+    /// （`姓, 名., 頁碼`）不算（R12：R11 整個排除附錄與索引，真條目接在那之後又無聲了）
+    func testRejectedEntryAfterAppendixIsWarnedButIndexLinesAreNot() throws {
+        let head = "References\n\nAdams, J. K. (2001). First title. Journal A, 1, 1–2.\n"
+            + "Baker, L. (2002). Second title. Journal B, 2, 3–4.\n\n"
+        let (s1, o1) = try extract(head + "Appendix\n\nCarter, M. (2003). Art. Sci, 1, 2.\n")
+        XCTAssertEqual(s1, 0, o1)
+        let r1 = try decode(o1)
+        XCTAssertEqual(r1.entries.map(\.firstAuthor), ["Adams", "Baker"])
+        XCTAssertTrue(r1.warnings.contains { $0.contains("判為不完整") }, "\(r1.warnings)")
+
+        let (s2, o2) = try extract(head + "Index\n\nSmith, J., 12, 45\nTaylor, K., 88\n")
+        XCTAssertEqual(s2, 0, o2)
+        let r2 = try decode(o2)
+        XCTAssertEqual(r2.entries.map(\.firstAuthor), ["Adams", "Baker"])
+        XCTAssertFalse(r2.warnings.contains { $0.contains("判為不完整") }, "\(r2.warnings)")
     }
 }

@@ -38,8 +38,9 @@ enum ReferenceListExtractor {
     /// 4（R6）：新增「過長」與「最後一筆還沒結束」兩則 warning，多段 warning 改列條目最多的 5 段；
     /// nominate 只接同版的 refs。5（R7）：「最後一筆看起來還沒結束」擴及停在另一個參考文獻標題、一路到文字
     /// 結尾，並新增「下一行以小寫開頭、這個標題可能是換行換出來的字」；措辭改為「被切斷或吸進了文字」。
-    /// 6（R11）：新增「清單停在…之後有 N 行像條目開頭、但判為不完整」。
-    static let contractVersion = 6
+    /// 6（R11）：新增「清單停在…之後有 N 行像條目開頭、但判為不完整」。7（R12）：這一則擴及附錄與索引
+    /// （只數帶年份括號的條目開頭）。
+    static let contractVersion = 7
 
     // MARK: - 樣式
 
@@ -503,10 +504,14 @@ enum ReferenceListExtractor {
                         if following > 0 {
                             notes.append(("清單停在\(place(i))的\(kind)，但它之後還有 \(following) 個條目開頭沒有計入"
                                           + "（字母順序接不上，或不在接續範圍內）——若那些也是參考文獻，這份清單被截斷了", nil))
-                        } else if !matches(line, hardEndPattern, caseInsensitive: true) {
+                        } else {
                             // 之後有條目開頭、但沒有一個判為完整：表格列，或被判成表格列的真條目。後者若是斷點之後的
-                            // 最後一筆，上面那一則數不到它，原本完全沒有 warning（R11 #2）。附錄與索引之後的不算
-                            let nonFull = entryStartLines(after: i, in: lines, candidates: candidateSet).count
+                            // 最後一筆，上面那一則數不到它，原本完全沒有 warning（R11 #2）。附錄與索引之後只數帶年份
+                            // 括號的：索引行（`姓, 名., 頁碼`）沒有年份，全數算進來每一本有索引的書都會誤報；R11 整個
+                            // 排除附錄與索引，真條目接在那之後就又無聲了（R12）
+                            let hard = matches(line, hardEndPattern, caseInsensitive: true)
+                            let nonFull = entryStartLines(after: i, in: lines, candidates: candidateSet)
+                                .filter { !hard || hasYearParen(at: $0, in: lines) }.count
                             if nonFull > 0 {
                                 notes.append(("清單停在\(place(i))的\(kind)，之後有 \(nonFull) 行像條目開頭、但判為不完整"
                                               + "（表格列，或寫法不同的條目）——若其中有參考文獻，這份清單被截斷了", nil))
@@ -692,6 +697,14 @@ enum ReferenceListExtractor {
 
     /// 四個字母以上、但不算實在的字的縮寫
     static let notWords: Set<String> = ["vols", "suppl", "supp", "sect", "chap"]
+
+    /// 從 `j` 起的這一筆（與 `isFullEntry` 同一個範圍：至多 6 行、不越過下一筆）帶年份括號
+    static func hasYearParen(at j: Int, in lines: [String]) -> Bool {
+        var end = j + 1
+        while end < min(j + 6, lines.count),
+              !(isEntryStart(lines[end]) && !continuesAuthorList(lines[end - 1])) { end += 1 }
+        return yearParen(in: lines[j..<end].joined(separator: " ")) != nil
+    }
 
     /// 排序鍵：第一作者（個人作者取第一個逗號之前，機構作者取 `. (` 之前），去掉大小寫與重音
     static func sortKey(_ line: String) -> String {

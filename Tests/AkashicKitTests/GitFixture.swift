@@ -29,8 +29,8 @@ enum GitFixture {
     @discardableResult
     static func run(_ args: [String], in dir: URL) -> Int32 {
         let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        p.arguments = ["git", "-C", dir.path] + args
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/git")   // #585：與 LibraryStore.gitExecutable 同一個，不經 PATH
+        p.arguments = ["-C", dir.path] + args
         p.environment = scrubbedGitEnvironment
         p.standardOutput = Pipe()
         p.standardError = Pipe()
@@ -42,8 +42,8 @@ enum GitFixture {
     /// 讀一個值回來（containment 斷言用；失敗回 nil）。
     static func capture(_ args: [String], in dir: URL) -> String? {
         let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        p.arguments = ["git", "-C", dir.path] + args
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/git")   // #585
+        p.arguments = ["-C", dir.path] + args
         p.environment = scrubbedGitEnvironment
         let out = Pipe()
         p.standardOutput = out

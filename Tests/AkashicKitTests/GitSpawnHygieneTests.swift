@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+@testable import AkashicStoreIO
 
 /// #239 的第二層：**架構測試**，不是 runtime 斷言。
 ///
@@ -75,8 +76,9 @@ final class GitSpawnHygieneTests: XCTestCase {
                     continue
                 }
                 guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
-                // spawn git 的判準：arguments 陣列裡出現 "git" 這個字面 argv[0]。
-                guard text.contains("\"git\",") || text.contains("[\"git\"]") else { continue }
+                // spawn git 的判準：arguments 陣列裡出現 "git" 這個字面 argv[0]，或直接執行 git 的絕對路徑（#585 起 store 與
+                // fixture 改走 `/usr/bin/git`——只認 argv[0] 的話，改完之後這兩處就從守衛的視野消失了）。
+                guard text.contains("\"git\",") || text.contains("[\"git\"]") || text.contains("\"/usr/bin/git\"") else { continue }
                 found.insert(url.lastPathComponent)
                 if !text.contains("scrubbedGitEnvironment") {
                     offenders.append("\(treeName)/…/\(url.lastPathComponent)")
@@ -104,4 +106,26 @@ final class GitSpawnHygieneTests: XCTestCase {
             "以下檔案已不再 spawn git，請從 auditedFiles 移除：\(stale.sorted().joined(separator: "、"))"
         )
     }
+
+    /// #585：store 的 git 呼叫不經 `PATH`。#558 R3 verify 用一個排在 `PATH` 前面的 `git` shim 讓可回溯性閘從拒絕變成
+    /// 靜默放行；現在答案固定來自 `LibraryStore.gitExecutable`。
+    func testAShimEarlierInPathDoesNotAnswerForGit() throws {
+        let fm = FileManager.default
+        let shimDir = fm.temporaryDirectory.appendingPathComponent("git-shim-\(UUID().uuidString)")
+        try fm.createDirectory(at: shimDir, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: shimDir) }
+        let shim = shimDir.appendingPathComponent("git")
+        try "#!/bin/sh\necho SHIM-ANSWERED\n".write(to: shim, atomically: true, encoding: .utf8)
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: shim.path)
+
+        let saved = ProcessInfo.processInfo.environment["PATH"] ?? ""
+        setenv("PATH", shimDir.path + ":" + saved, 1)
+        defer { setenv("PATH", saved, 1) }
+        XCTAssertTrue(ProcessInfo.processInfo.environment["PATH"]?.hasPrefix(shimDir.path) ?? false, "前提：shim 排在 PATH 最前面")
+
+        let r = try XCTUnwrap(LibraryStore.git(["--version"], in: shimDir))
+        XCTAssertFalse(r.out.contains("SHIM-ANSWERED"), "PATH 前面的 shim 回答了 git 的問題：\(r.out)")
+        XCTAssertTrue(r.out.hasPrefix("git version"), r.out)
+    }
+
 }

@@ -3186,7 +3186,7 @@ extension LibraryStore {
         // 「未被 git 追蹤」——正確但完全指錯方向。
         let present = dedupePreservingOrder(relativePaths).filter { FileManager.default.fileExists(atPath: root.appendingPathComponent($0).path) }
         guard !present.isEmpty else { return [] }
-        let cannotRun = "無法執行 git，無從確認可回溯性"
+        let cannotRun = "無法執行 " + gitExecutable + "，無從確認可回溯性（store 的 git 呼叫固定用這個路徑、不經 PATH，#585）"
         func names(_ out: String) -> [String] { out.split(separator: "\0").map(String.init).filter { !$0.isEmpty } }
         // HEAD 解析不到（`rev-parse` 非零）不是「無法執行 git」——R2 把兩個查詢綁在一個 guard 裡，fresh repo 上每個檔（含 tracked+clean 的）
         // 都被報成工具壞了（R3；R2 verify 第 11／22 列）。只有子程序**起不來**才是 `cannotRun`。
@@ -3259,9 +3259,13 @@ extension LibraryStore {
     ///
     /// 用前綴剝除而非列舉具名變數：git 版本會新增變數，列舉會隨時間漏掉。
     ///
-    /// **`PATH` 不在剝除範圍——這是有記錄的邊界，不是疏漏**（#558 R3 verify 第 20 列，security 席用一個排在 `PATH` 前面的 `git` shim
-    /// 讓可回溯性閘從拒絕變成靜默完成）。它決定的是「哪個程式回答問題」而不是「問哪個 repo」，屬 defense-in-depth：能改 `PATH` 的人
-    /// 已能以使用者身分執行任意程式。釘 `PATH` 或改絕對路徑會影響本 repo 全部 git 呼叫端（含測試 fixture），另案裁決（#585）。
+    /// **`PATH` 不在剝除範圍，而「哪個程式回答問題」由 `gitExecutable` 釘死**（#585，使用者 2026-09-27 裁決）。#558 R3 verify 用一個
+    /// 排在 `PATH` 前面的 `git` shim 讓可回溯性閘從拒絕變成靜默完成——`/usr/bin/env git` 把答案交給了 `PATH`。現在直接執行絕對路徑，
+    /// `PATH` 前面放什麼都不影響；它不存在時 `git(_:in:)` 回 nil，呼叫端一律 fail-closed（具名拒絕，不放行）。
+    /// store 的所有 git 呼叫執行的程式（#585）。macOS 上它一定存在；把 git 放在別處的環境（nix 一類）這幾個命令會具名拒絕
+    /// ——那是裁決時接受的代價：安全閘不能讓 `PATH` 決定誰來回答。
+    static let gitExecutable = "/usr/bin/git"
+
     static var scrubbedGitEnvironment: [String: String] {
         ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("GIT_") }
     }
@@ -3270,9 +3274,10 @@ extension LibraryStore {
     ///
     /// 刻意**不**用 shell：參數直接進 `arguments`，路徑含空白或引號都不會被重新解析。
     static func git(_ args: [String], in dir: URL) -> (status: Int32, out: String)? {
+        guard FileManager.default.isExecutableFile(atPath: gitExecutable) else { return nil }   // 起不來＝呼叫端 fail-closed
         let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        p.arguments = ["git", "-C", dir.path] + args
+        p.executableURL = URL(fileURLWithPath: gitExecutable)
+        p.arguments = ["-C", dir.path] + args
         p.environment = scrubbedGitEnvironment
         let pipe = Pipe()
         p.standardOutput = pipe

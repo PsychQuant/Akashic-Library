@@ -19,6 +19,10 @@ final class PrePushHookTests: XCTestCase {
             let p = Process()
             p.executableURL = URL(fileURLWithPath: "/usr/bin/git")
             p.arguments = ["-C", root.path, "rev-parse", "origin/main"]
+            // 剝除 GIT_*（#239）：本測試正是在 pre-push hook 裡跑的，而 hook 環境帶著 GIT_DIR——`-C` 擋不住它。
+            // 這一處先前沒有被 GitSpawnHygieneTests 看見（它只認 argv 裡的 "git"），#585 擴充偵測條件後才現形。
+            let scrubbedGitEnvironment = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("GIT_") }
+            p.environment = scrubbedGitEnvironment
             let out = Pipe(); p.standardOutput = out; p.standardError = Pipe()
             try? p.run(); p.waitUntilExit()
             guard p.terminationStatus == 0 else { return nil }

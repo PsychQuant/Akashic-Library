@@ -389,7 +389,8 @@ enum ReferenceListExtractor {
     /// 一筆像是結束了：句點、右括號或右方括號，或以 DOI／網址（不一定帶 `https://`）、頁碼區間結尾
     static func closesEntry(_ s: String) -> Bool {
         // 只看結尾：每一支都錨在 `$`。整段丟給正則時，一長串吸進來的數字讓 `\\d+…$` 變成二次方（R7 #1：
-        // 20 萬字元跑了 7 分鐘）
+        // 20 萬字元跑了 7 分鐘）。`suffix` 以字元叢集計：一個字元後接大量組合字元時仍要走完那一串，成本
+        // 線性（R8 L3：200 萬個約 3 秒 CPU，與前面 `clean` 的正規化同一量級）
         let t = String(s.suffix(200)).replacingOccurrences(of: softHyphenMark, with: "").trimmingCharacters(in: .whitespaces)
         guard let last = t.last else { return true }
         if ".)]".contains(last) { return true }
@@ -643,30 +644,29 @@ enum ReferenceListExtractor {
         guard let m = firstMatch(text, "([({](?:\\d{4}[a-z]?|n\\.\\s?d\\.|in press|in preparation|submitted|forthcoming)[^(){}]{0,40}[)}])"
                                      + "(?:[.:,]\\s*[\\p{L}\\d\"“‘'\\[]|\\s+[\"“‘'\\[]|\\s+\\p{L}[\\p{L}'’\\-]*(?:[.:,]|\\s+[\\p{L}\"“‘'\\[]))",
                                  caseInsensitive: true) else { return false }
-        // 年份之後以數字為主的是表格列：`(2003) USA, 120, .35`、`(2003). 150 .40`（R6 D3：R5 放寬成
-        // 「一個字接標點」與「數字開頭的標題」之後，這兩種也過了）。只數**標題那一段**——年份之後到第一個
-        // 以句點、問號或驚嘆號結尾的字為止。R6 連卷期頁一起數，`(2003). Flow. Nature, 300 (1), 2–3.`
-        // 這種標題短、頁碼多的真條目被當成表格列，在斷點之後連同後面的清單無聲丟掉（R7 #0／#3）。
-        // 「句末」要是真的字：至少兩個字母、不是縮寫、不是首字母縮寫。R7 一遇到句點結尾的字就停，
-        // `(2003). Vol. 12, 45-67, .35`、`(2005) U.S.A. 120 .35` 在數到數字之前就停下，表格列又被收成
-        // 條目（R8 #0／#2）
+        // 表格列：年份之後**完全沒有實在的字**——四個字母以上、不是縮寫，或是漢字、假名、韓文。真條目的
+        // 標題或期刊名幾乎一定有這種字；`(2003) USA, 120, .35`、`(2003). 150 .40`、`(2003). Vol. 12,
+        // 45-67, .35`、`(2005) U.S.A. 120 .35` 沒有。
+        //
+        // 為什麼不數「數字是否多於字詞」：R6–R8 三輪都用它，每一輪都在界定「標題段在哪裡結束」時往一邊
+        // 壞——R6 把短標題、多頁碼的真條目當成表格列，R7 讓縮寫開頭的表格列過關，R8 又讓以 `U.K.` 結尾
+        // 的真標題數進卷期頁（R7 #0、R8 #0、R9 #0）。兩種錯的代價不對稱：多收一列表格只多一筆「只在 PDF」
+        // 的條目；把真條目判成表格列，斷點之後的清單會無聲消失。所以這一條寧可多收：只擋一個實在的字
+        // 都沒有的列，字詞多的表格列（`(2003) Total 120 .35`）寫進 SKILL 的〈已知限制〉
         let bracket = m.range(at: 1)
-        var segment: [Substring] = []
-        for token in (text as NSString).substring(from: bracket.location + bracket.length).split(separator: " ") {
-            segment.append(token)
-            guard let last = token.last, ".?!".contains(last) else { continue }
-            let word = token.filter(\.isLetter).lowercased()
-            let initials = token.allSatisfy { $0.isLetter || $0 == "." } && token.filter(\.isLetter).count * 2 == token.count
-            if word.count >= 2 && !initials && !segmentAbbreviations.contains(word) { break }
-        }
-        let numeric = segment.filter { $0.contains(where: \.isNumber) && !$0.contains(where: \.isLetter) }.count
-        let wordy = segment.filter { $0.contains(where: \.isLetter) }.count
-        return !(numeric >= 2 && numeric > wordy)
+        return (text as NSString).substring(from: bracket.location + bracket.length)
+            .split(separator: " ").contains(where: isSubstantiveWord)
     }
 
-    /// 標題段裡不算句末的縮寫（`isFullEntry`）：冊、期、頁、版、編、對、聖、圖、表、章、節
-    static let segmentAbbreviations: Set<String> = ["vol", "vols", "no", "nos", "pp", "ed", "eds", "vs",
-                                                    "st", "fig", "tab", "ch", "sec"]
+    /// 實在的字（`isFullEntry` 用）：四個字母以上、不是冊期頁版這類縮寫；或含漢字、假名、韓文
+    static func isSubstantiveWord(_ token: Substring) -> Bool {
+        if token.unicodeScalars.contains(where: { $0.properties.isAlphabetic && $0.value >= 0x3040 }) { return true }
+        let letters = token.filter(\.isLetter).lowercased()
+        return letters.count >= 4 && !notWords.contains(letters)
+    }
+
+    /// 四個字母以上、但不算實在的字的縮寫
+    static let notWords: Set<String> = ["vols", "suppl", "supp", "sect", "chap"]
 
     /// 排序鍵：第一作者（個人作者取第一個逗號之前，機構作者取 `. (` 之前），去掉大小寫與重音
     static func sortKey(_ line: String) -> String {

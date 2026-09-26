@@ -1503,4 +1503,25 @@ final class ReferencesExtractTests: XCTestCase {
         XCTAssertEqual(status, 0, output)
         XCTAssertEqual(try decode(output).entries.map(\.firstAuthor), ["Adams", "Baker"])
     }
+
+    // MARK: - #617 verify R9
+
+    /// T78：標題含縮寫或首字母縮寫的真條目，在斷點之後仍是完整條目——包括標題以首字母縮寫結尾、後面
+    /// 一串數字的（R9 #0：R8 的標題段在 `U.K.` 不結束，一路數進卷期頁，真條目被當成表格列丟掉）
+    func testRealEntriesWithAbbreviationsAfterABreakAreKept() throws {
+        let text = """
+        References
+
+        Adams, J. K. (2001). First title. Journal A, 1, 1–2.
+        Baker, L. (2002). Second title. Journal B, 2, 3–4.
+        Table 1
+        Carter, M. (2003). Crisis in U.K. 12, 34, 56, 78, 90, 102.
+        Dunn, P. (2004). St. Augustine and the city. Journal D, 4, 7–8.
+        Evans, Q. (2005). U.S. policy. J Pol, 12, 34–56.
+        Fisher, R. (2006). Ph.D. students. Educ Res, 1, 2–3.
+        """
+        let (status, output) = try extract(text)
+        XCTAssertEqual(status, 0, output)
+        XCTAssertEqual(try decode(output).entries.map(\.firstAuthor), ["Adams", "Baker", "Carter", "Dunn", "Evans", "Fisher"])
+    }
 }

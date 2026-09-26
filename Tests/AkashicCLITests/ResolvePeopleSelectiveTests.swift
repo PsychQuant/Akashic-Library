@@ -208,6 +208,26 @@ final class ResolvePeopleSelectiveTests: XCTestCase {
         XCTAssertTrue(r.out.contains("b2021b"), "被篩掉的候選消失了：\(r.out)")
     }
 
+    /// #597：不帶 --apply 時 `--citekey` 收窄列表本身，並說出全部有幾個——逐篇查證不必自己 grep 全列表，
+    /// 也不會讓人以為其他候選不存在。
+    func testListModeCitekeyNarrowsAndStatesTheTotal() throws {
+        let r = try runCLI(["resolve-people", "--citekey", "a2020a"])
+        XCTAssertEqual(r.status, 0, r.err)
+        XCTAssertTrue(r.out.contains("a2020a"), r.out)
+        XCTAssertFalse(r.out.contains("b2021b") || r.out.contains("c2022c"), "列表沒有收窄：\(r.out)")
+        XCTAssertTrue(r.out.contains("候選 1 個（全部 3 個）"), r.out)
+        XCTAssertTrue(try body("a2020a").contains("literal:"), "列表模式不得寫入")
+    }
+
+    /// #597：`--person` 與 `--tier` 在列表模式同樣生效（與 --citekey 取交集）。
+    func testListModePersonAndTierNarrow() throws {
+        let byPerson = try runCLI(["resolve-people", "--person", "olsson-ulf"])
+        XCTAssertTrue(byPerson.out.contains("b2021b") && !byPerson.out.contains("a2020a"), byPerson.out)
+        let empty = try runCLI(["resolve-people", "--citekey", "a2020a", "--person", "olsson-ulf"])
+        XCTAssertEqual(empty.status, 0)
+        XCTAssertTrue(empty.out.contains("候選 0 個（全部 3 個）"), empty.out)
+    }
+
     /// 無篩選時維持既有的全套用行為。
     func testNoFilterAppliesAll() throws {
         let r = try runCLI(["resolve-people", "--apply"])

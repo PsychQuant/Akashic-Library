@@ -1587,17 +1587,17 @@ struct ResolvePeople: ParsableCommand {
     /// #5：alias 完全命中**仍可能同名不同人**——people 庫還沒記錄第二個人時，
     /// 歧義偵測不會觸發。所以「全套用」對這種情境是危險的預設，必須能逐項挑。
     @Option(name: .long, parsing: .upToNextOption,
-            help: "只套用這些 citekey 的候選（可重複；與 --person 取交集）")
+            help: "只套用這些 citekey 的候選（可重複；與 --person 取交集）；不帶 --apply 時收窄列表並印出全部有幾個（#597）")
     var citekey: [String] = []
 
     @Option(name: .long, parsing: .upToNextOption,
-            help: "只套用指向這些 person key 的候選（可重複；與 --citekey 取交集）")
+            help: "只套用指向這些 person key 的候選（可重複；與 --citekey 取交集）；不帶 --apply 時收窄列表（歧義條目以任一命中的 person 比），並印出全部有幾個（#597）")
     var person: [String] = []
 
     /// R1-fix B1：#303 之後候選含四個信心層，裸 `--apply` 的爆炸半徑從
     /// exact-only 擴到全部——`--tier` 是把它收回來的把手。
     @Option(name: .long, parsing: .upToNextOption,
-            help: "只套用這些提名層（exact / confirmed-elsewhere / reorder / initials，可重複；與其他篩選取交集）")
+            help: "只套用這些提名層（exact / confirmed-elsewhere / reorder / initials，可重複；與其他篩選取交集）；不帶 --apply 時同樣收窄列表（#597）")
     var tier: [String] = []
 
     /// #232 design D6：reject 是顯式人為動作。rowID 同 MCP（citekey:authorIndex）。
@@ -1912,8 +1912,9 @@ struct ResolvePeople: ParsableCommand {
         let report = PersonResolver.resolve(entries: load.entries, people: load.people,
                                             rejected: rejectedSet, confirmed: confirmedSet)
         let all = report.candidates
-        // 篩選只影響 **--apply**，列表一律顯示全部——否則使用者用 --citekey 收窄後
-        // 會以為其他候選不存在。
+        // --apply 時列表顯示全部並標 (skip)——收窄範圍不等於「其他不存在」。**列表模式**（不帶 --apply）的篩選收窄
+        // 列表本身，並說出「顯示 N 個、全部 M 個」（#597：逐篇查證要看這一篇還有哪些 literal 被提名，全列表只能自己 grep；
+        // 說出全部有幾個，就不會讓人以為其他候選不存在——那是先前「一律顯示全部」要防的事）。
         let ckSet = Set(citekey), pkSet = Set(person)
         // --tier 值域驗證（fail-loud：typo 靜默變成「不篩」比失敗糟——#205 同判準）
         let tierSet = try Set(tier.map { raw -> ResolutionTier in
@@ -1928,6 +1929,16 @@ struct ResolvePeople: ParsableCommand {
                 && (pkSet.isEmpty || pkSet.contains($0.personKey))
                 && (tierSet.isEmpty || tierSet.contains($0.tier))
         }
+        // #597：列表模式的收窄（候選列與歧義條目同一組篩選；歧義條目以「任一命中的 person」比 --person）
+        let narrowing = !apply && !(citekey.isEmpty && person.isEmpty && tier.isEmpty)
+        let listed = narrowing ? candidates : all
+        let listedAmbiguities = narrowing
+            ? report.ambiguities.filter {
+                (ckSet.isEmpty || ckSet.contains($0.citekey))
+                    && (pkSet.isEmpty || !pkSet.isDisjoint(with: $0.personKeys))
+                    && (tierSet.isEmpty || tierSet.contains($0.tier))
+            }
+            : report.ambiguities
         // #624：淘汰而得的唯一候選（原本有別的人選、被否決之後只剩它）**不進**篩選式批次——
         // 沒有人判定過它是對的，而批次是「照清單全收」。它仍列出、標記、另列指路；
         // 要寫它就逐筆 `--judge`（必附理由）或 MCP 以三段 id 顯式送。刻意不給關掉的旗標：
@@ -1979,13 +1990,13 @@ struct ResolvePeople: ParsableCommand {
         /// 行動**的情況：(a) 兩個真的不同的人剛好同名（各自歸屬，永不合併）
         /// vs (b) 同一個人有兩筆記錄（該合併）。
         func printAmbiguities() {
-            guard !report.ambiguities.isEmpty else { return }
+            guard !listedAmbiguities.isEmpty else { return }
             let byKey = Dictionary(load.people.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
             print("")
             // **CLI 也要有上限**（#236 R2）。先前只給 MCP 加，而終端機灌爆的威脅
             // repo 自己有明文（`TerminalOutputSafetyTests`）——修一個面就宣稱這一類
             // 關掉了，正是本 PR 前一輪被抓的形狀。
-            let capped = Array(report.ambiguities.prefix(rowLimit))
+            let capped = Array(listedAmbiguities.prefix(rowLimit))
             // **列數上限擋不住內容**（#236 R4）。R2 加了列數與 ref 兩軸，實測仍可產出
             // **3,844,596 bytes**——`literal`／`key`／隸屬名各自可到 `max:` 上限，而
             // `displaySafe` 是 8 倍膨脹器。與 MCP 那半同一個結論：計數上限追不上內容，
@@ -2055,17 +2066,17 @@ struct ResolvePeople: ParsableCommand {
             // 說「前 N 筆」就是假的。（不改成「遇到第一筆放不下就停」是因為：單獨一筆
             // 就超過整個預算時，那會讓報告變成空的。）
             let headline: String
-            if report.ambiguities.count <= shownCount { headline = "" }
+            if listedAmbiguities.count <= shownCount { headline = "" }
             else if budgetDropped > 0 { headline = "，以下顯示 \(shownCount) 筆（非前綴：過大的整筆略過）" }
             else { headline = "，以下顯示前 \(shownCount) 筆" }
-            print("歧義（\(report.ambiguities.count)\(headline)）"
+            print("歧義（\(listedAmbiguities.count)\(headline)）"
                   + "——同一個 literal 對到 2+ 個 person，**需要人判斷**：")
             for l in lines { print(l) }
-            let hidden = report.ambiguities.count - shownCount
+            let hidden = listedAmbiguities.count - shownCount
             if hidden > 0 {
                 // **兩種丟棄要分開講**：超過列數上限，與內容吃爆位元組預算，對使用者
                 // 的意義不同——後者表示「就算提高列數也看不到，那幾筆本身太大」。
-                let byRows = report.ambiguities.count - capped.count
+                let byRows = listedAmbiguities.count - capped.count
                 var why: [String] = []
                 if byRows > 0 { why.append("\(byRows) 筆超過列數上限") }
                 if budgetDropped > 0 { why.append("\(budgetDropped) 筆內容過大、吃不下輸出預算") }
@@ -2074,7 +2085,7 @@ struct ResolvePeople: ParsableCommand {
                 // 出來；但**只在列數是原因時才指它**——被位元組預算擋下的那些，調大
                 // 列數一樣看不到，指它就是把使用者送去撞同一面牆。
                 var how: [String] = []
-                if byRows > 0 { how.append("--rows \(report.ambiguities.count) 可列出全部") }
+                if byRows > 0 { how.append("--rows \(listedAmbiguities.count) 可列出全部") }
                 if budgetDropped > 0 {
                     how.append("內容過大的那 \(budgetDropped) 筆調大列數也看不到，"
                                + "用 --citekey／--person 收窄範圍")
@@ -2153,8 +2164,12 @@ struct ResolvePeople: ParsableCommand {
             .reorder: "reorder——token 重排命中",
             .initials: "initials——姓＋首字母命中（證據最弱，apply 前必查證）",
         ]
+        if narrowing {
+            print("已收窄（--citekey／--person／--tier）：候選 \(listed.count) 個（全部 \(all.count) 個）、"   // display-safe-exempt: Int
+                  + "歧義 \(listedAmbiguities.count) 筆（全部 \(report.ambiguities.count) 筆）——不帶篩選可列出全部")   // display-safe-exempt: Int
+        }
         var printedTier: ResolutionTier? = nil
-        for c in all {
+        for c in listed {
             if c.tier != printedTier {
                 print("〔\(tierHeadline[c.tier] ?? c.tier.rawValue)〕")   // display-safe-exempt: 封閉 enum 的固定字面
                 printedTier = c.tier

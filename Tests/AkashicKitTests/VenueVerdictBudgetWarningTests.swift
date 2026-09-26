@@ -4,7 +4,7 @@ import XCTest
 @testable import AkashicStoreIO
 
 /// #499（裁決：候選 3）：第 13 條邊在 venue 側維持序列化位置，但 O(catalog) 的增長要有一道**工具自己會看**的
-/// 訊號——任一 venue 檔的 resolution verdict 數達 decode 預算的一半即 warning、指名該 venue。散文觸發條件沒有
+/// 訊號——任一 venue 的記錄檔達讀取上限的一半即 warning、指名該 venue（#645 起量位元組，原本量 verdict 數）。散文觸發條件沒有
 /// 機制會叫醒任何人（`blocked-issues-must-be-scannable` 的誠實邊界），所以門檻住在 `StoreHealth`。
 final class VenueVerdictBudgetWarningTests: XCTestCase {
     private var root: URL!

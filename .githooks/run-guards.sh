@@ -28,7 +28,7 @@ if [ ! -x .build/debug/akashic-guards ]; then
   echo "✗ .build/debug/akashic-guards 不存在或不可執行。"
   echo "  9 支守衛已遷成它的子命令（#433），先跑："
   echo "      swift build --product akashic-guards"
-  echo "  （CI：本腳本現在需要 Swift toolchain——ubuntu runner 尚未具備，見 #435）"
+  echo "  （CI：本腳本需要 Swift toolchain 並先 build；現行的 census-parity.yml 跑在 macOS、會先 build——見 #435、#626）"
   exit 1
 fi
 

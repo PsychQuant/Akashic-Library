@@ -88,6 +88,10 @@ final class StdioE2ETests: XCTestCase {
         let initResponse = try readResponse()
         let serverInfo = ((initResponse["result"] as? [String: Any])?["serverInfo"] as? [String: Any])
         XCTAssertEqual(serverInfo?["name"] as? String, "akashic-mcp")
+        // #632：真 binary 握手回報的版號等於 mcpb/manifest.json（發布版號的正典），不是寫死的舊值
+        let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let manifest = try JSONSerialization.jsonObject(with: Data(contentsOf: repo.appendingPathComponent("mcpb/manifest.json"))) as? [String: Any]
+        XCTAssertEqual(serverInfo?["version"] as? String, manifest?["version"] as? String)
 
         try send(["jsonrpc": "2.0", "method": "notifications/initialized"])
 

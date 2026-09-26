@@ -67,13 +67,40 @@ final class HolderVerdictBudgetWarningTests: XCTestCase {
     /// 這也是 R1 verify 指出缺的那支——沒有它，拿掉 `perRecord += holderVerdictBudgetIssues` 不會有任何測試變紅。
     func testUndecidedRecordsPushAPersonFileOverTheDefaultThroughHealth() throws {
         var p = Person(key: "chen-c", names: ["Chen, C."])
-        p.references = verdicts(1_000, field: "resolution-undecided", statement: String(repeating: "查", count: 1_400))
+        // 每筆說明 3,900 位元組——在未決腿的 4,096 上限內（R3 verify：先前的 fixture 用 4,200，是工具面寫不出來的形狀）
+        p.references = verdicts(1_100, field: "resolution-undecided", statement: String(repeating: "查", count: 1_300))
         let url = try store.writePerson(p)
         XCTAssertGreaterThanOrEqual(try size(url), AliasEventBudget.recordFileWarningBytes, "前提：檔案確實過了門檻")
         XCTAssertLessThan(try size(url), AliasEventBudget.maxBytes, "前提：仍讀得回來（否則會被 quarantine、根本不在 load 裡）")
         let health = store.health(from: try store.load())
         XCTAssertEqual(health.holderVerdictBudgetWarnings.map(\.owner), ["chen-c"])
         XCTAssertTrue(health.venueVerdictBudgetWarnings.isEmpty, "venue 族不掃 person")
+    }
+
+    /// R3 verify DA 以真 binary 重現：format ≥ 2 的 store 裡住在 legacy `people/` 的 person，被 load 照常讀進來，
+    /// 但先前的實作依 format 推回 `entities/<id>.yaml` 去 stat，檔不在就靜默不報——從 4 MiB 到 8 MiB 一則警告都沒有。
+    /// 現在量的是 load 實際讀到的位元組，住在哪裡都一樣。
+    func testLegacyPeopleDirectoryInAnEntitiesStoreIsMeasured() throws {
+        var p = Person(key: "lee-l", names: ["Lee, L."])
+        p.references = verdicts(20)
+        let text = try PersonYAML.encode(p)
+        let legacy = root.appendingPathComponent("people")
+        try FileManager.default.createDirectory(at: legacy, withIntermediateDirectories: true)
+        try text.write(to: legacy.appendingPathComponent("lee-l.yaml"), atomically: true, encoding: .utf8)
+        let load = try store.load()
+        XCTAssertEqual(load.people.map(\.key), ["lee-l"], "前提：legacy 檔被讀進來")
+        XCTAssertEqual(load.recordBytes[p.id], text.utf8.count)
+        XCTAssertEqual(store.holderVerdictBudgetIssues(in: load, threshold: text.utf8.count).map(\.owner), ["lee-l"])
+    }
+
+    /// venue 族同樣經 `health(from:)` 接上（R3 verify：先前沒有任何測試會因為拿掉 venue 那一行而變紅）。
+    func testVenueFamilyIsWiredIntoHealth() throws {
+        var v = Venue(key: "big-journal", type: .periodical, names: TimelineOf([TemporalValue(value: "Big Journal")]))
+        v.references = verdicts(1_100, field: "resolution-undecided", statement: String(repeating: "查", count: 1_300))
+        try store.writeVenue(v)
+        let health = store.health(from: try store.load())
+        XCTAssertEqual(health.venueVerdictBudgetWarnings.map(\.owner), ["big-journal"])
+        XCTAssertTrue(health.holderVerdictBudgetWarnings.isEmpty, "person／organization 族不掃 venue")
     }
 
     /// 門檻＝讀取上限的一半；live 最大檔（268,627 bytes，2026-09-26）不得已在門檻內。

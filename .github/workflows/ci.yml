@@ -20,8 +20,9 @@ name: CI
 # **`plugin/**` 留在忽略清單，但理由已經換了**（#407 R6）。原註解寫的是
 # 「plugin shell 沒有任何測試讀取」——那句話當時為真、現在為假：`plugin/` 底下
 # 已有五支守衛。現在留著它的理由純粹是計費：一次改 skill 散文不該點一台 10×
-# 的 macOS runner。守衛由 .github/workflows/plugin-guards.yml（ubuntu，1×）涵蓋
-# 純 python／bash 的三支；parity 那兩支由 .github/workflows/census-parity.yml
+# 的 macOS runner。守衛當時由 .github/workflows/plugin-guards.yml（ubuntu，1×）涵蓋
+# 純 python／bash 的三支——那個 workflow 已於 40977531 刪除（#435），現在全部守衛由
+# .github/workflows/census-parity.yml 的「全部守衛」step 跑（#626）；parity 那兩支同樣由 census-parity.yml
 # 涵蓋——**不是**由本檔下方那個 step。理由：本檔的觸發是 push-to-main ＋ 這份
 # paths-ignore，所以一個只改 census 的變更會讓整個 job 被跳過，而 census 正是
 # parity 的受測對象（#407 R7 verify 量到：守衛的觸發條件與它保護的檔案剛好
@@ -98,7 +99,7 @@ jobs:
           set -o pipefail
           swift test --build-system native -Xswiftc -warnings-as-errors 2>&1 | tee /tmp/test.log
 
-      # **Plugin parity 守衛**（#407）。放這個 job 而不是 plugin-guards.yml，
+      # **Plugin parity 守衛**（#407）。放這個 job 而不是當時的 plugin-guards.yml（已刪，40977531），
       # 因為它們拿**建好的 CLI** 當 oracle——比對 census 的 store-marker 解析
       # 與 StoreVersion.read 對同一批 fixture 的裁決是否一致。ubuntu 上沒有
       # binary 可以問，所以只能在這裡。

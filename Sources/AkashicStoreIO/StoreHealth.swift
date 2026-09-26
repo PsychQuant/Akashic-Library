@@ -118,14 +118,15 @@ public struct StoreHealth {
     public var danglingSources: [OwnedIssue] {
         perRecordIssues.filter { $0.issue.message.hasPrefix(Self.danglingSourcePrefix) }
     }
-    /// venue 的 verdict 數達 decode 預算一半（#499）的訊息前綴——單一定義，同上兩族。
-    public static let venueVerdictBudgetPrefix = "venue 的 verdict 數逼近 decode 預算"
+    /// venue 的記錄檔達讀取上限一半（#499；#645 起量記錄檔位元組）的訊息前綴——單一定義，同上兩族。
+    /// 屬性名 `venueVerdictBudgetWarnings` 沿用（API 名；增長來源仍是 verdict），訊息說的是實際量的東西。
+    public static let venueVerdictBudgetPrefix = "venue 的記錄檔逼近讀取上限"
     /// `perRecordIssues` 裡的 venue verdict 預算 warning。計算屬性，同 `deadVerdicts`。
     public var venueVerdictBudgetWarnings: [OwnedIssue] {
         perRecordIssues.filter { $0.issue.message.hasPrefix(Self.venueVerdictBudgetPrefix) }
     }
-    /// person／organization 的 verdict 數達 decode 預算一半（#645）的訊息前綴——venue 族的同形擴充，前綴分開以免兩族互相計入。
-    public static let holderVerdictBudgetPrefix = "person／organization 的 verdict 數逼近 decode 預算"
+    /// person／organization 的記錄檔達讀取上限一半（#645）的訊息前綴——venue 族的同形擴充，前綴分開以免兩族互相計入。
+    public static let holderVerdictBudgetPrefix = "person／organization 的記錄檔逼近讀取上限"
     /// `perRecordIssues` 裡的 person／organization verdict 預算 warning。計算屬性，同 `deadVerdicts`。
     public var holderVerdictBudgetWarnings: [OwnedIssue] {
         perRecordIssues.filter { $0.issue.message.hasPrefix(Self.holderVerdictBudgetPrefix) }
@@ -656,7 +657,7 @@ public extension LibraryStore {
     func venueVerdictBudgetIssues(in load: LibraryLoad,
                                   threshold: Int = AliasEventBudget.recordFileWarningBytes) -> [StoreHealth.OwnedIssue] {
         load.venues.compactMap { v in
-            guard let over = recordFileOverrun(entityURL(id: v.id), references: v.references, threshold: threshold)
+            guard let over = Self.recordFileOverrun(bytes: load.recordBytes[v.id], references: v.references, threshold: threshold)
             else { return nil }
             let message = "\(StoreHealth.venueVerdictBudgetPrefix)：\(over)。處置：先查是否有呼叫端在重複記未決（未決記錄不退役，#619）；"   // display-safe-exempt: over 只含 Int 與固定字
                 + "若是 O(catalog) 的歸戶在長，重開第 13 條邊的規模化裁決（#499，候選 2 sidecar ledger），不要只放寬上限"
@@ -665,11 +666,12 @@ public extension LibraryStore {
         }
     }
 
-    /// 記錄檔達門檻時回傳說明（檔案位元組、門檻、其中的 resolution verdict 筆數）；沒到或讀不到大小回 nil。
-    /// venue 族與 person／organization 族共用（#645）。
-    func recordFileOverrun(_ url: URL, references: [ProvenanceReference], threshold: Int) -> String? {
-        guard let size = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? Int,
-              size >= threshold else { return nil }
+    /// 記錄檔達門檻時回傳說明（位元組、門檻、其中的 resolution verdict 筆數）；沒到回 nil。venue 族與 person／organization
+    /// 族共用（#645）。位元組取自 `LibraryLoad.recordBytes`——load 實際讀到的數，與讀取閘比的同一個；不依路徑事後 stat
+    /// （R3 verify：format 推回的路徑對 legacy `people/`、symlink、檔名大小寫會指錯檔而靜默不報）。沒有值＝這筆不是經
+    /// `load()` 讀進來的，沒有位元組可量。
+    static func recordFileOverrun(bytes: Int?, references: [ProvenanceReference], threshold: Int) -> String? {
+        guard let size = bytes, size >= threshold else { return nil }
         let verdicts = references.filter { ProvenanceReference.resolutionVerdictFields.contains($0.field) }.count
         return "記錄檔 \(size) 位元組，達門檻 \(threshold)（讀取上限 \(AliasEventBudget.maxBytes) 的一半；"   // display-safe-exempt: Int
             + "超過上限的檔在下次載入時被 quarantine，寫入路徑有 2 倍寬限擋不住）；其中 resolution verdict \(verdicts) 筆"   // display-safe-exempt: Int
@@ -682,11 +684,11 @@ public extension LibraryStore {
     /// 都遠低於門檻（`zero-instance-guards` 第 31 列）。severity warning：記錄合法、只是在長。
     func holderVerdictBudgetIssues(in load: LibraryLoad,
                                    threshold: Int = AliasEventBudget.recordFileWarningBytes) -> [StoreHealth.OwnedIssue] {
-        let holders = load.people.map {
-            (key: $0.key, kind: "person", url: usesEntitiesLayout ? entityURL(id: $0.id) : personURL(key: $0.key), refs: $0.references)
-        } + load.organizations.map { (key: $0.key, kind: "organization", url: entityURL(id: $0.id), refs: $0.references) }
+        let holders = load.people.map { (key: $0.key, kind: "person", id: $0.id, refs: $0.references) }
+            + load.organizations.map { (key: $0.key, kind: "organization", id: $0.id, refs: $0.references) }
         return holders.compactMap { h in
-            guard let over = recordFileOverrun(h.url, references: h.refs, threshold: threshold) else { return nil }
+            guard let over = Self.recordFileOverrun(bytes: load.recordBytes[h.id], references: h.refs, threshold: threshold)
+            else { return nil }
             let message = "\(StoreHealth.holderVerdictBudgetPrefix)：這筆 \(h.kind) 的\(over)。"   // display-safe-exempt: kind 是封閉的兩個值、over 只含 Int 與固定字
                 + "處置：先查是否有呼叫端在重複記未決（未決記錄不退役，#619）；持續增長時重開第 13 條邊的"
                 + "規模化裁決（#499），不要只放寬上限"

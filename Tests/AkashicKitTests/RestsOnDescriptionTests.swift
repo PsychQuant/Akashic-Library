@@ -27,4 +27,12 @@ final class RestsOnDescriptionTests: XCTestCase {
         XCTAssertTrue(line.contains("sha256:64hex"))
         XCTAssertTrue(line.contains("akashic_store_source"))
     }
+
+    /// CLI `record-divergence --rests-on` 的 help 同樣要說出 digest 形狀與取得方式（R1 verify：先前只驗 MCP 那面）。
+    func testCLIRestsOnHelpNamesTheDigestShape() throws {
+        let cli = try read("Sources/akashic/Commands.swift")
+        let line = try XCTUnwrap(cli.split(separator: "\n").first { $0.contains("判斷依據的存檔 digest") })
+        XCTAssertTrue(line.contains("sha256:<64 hex>"))
+        XCTAssertTrue(line.contains("store-source"))
+    }
 }

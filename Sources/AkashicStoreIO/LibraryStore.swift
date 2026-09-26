@@ -117,6 +117,11 @@ public struct LibraryLoad {
     /// 填入（與 quarantined 同慣例）——先前用 key 合成 `.yaml` 檔名，`.YAML` 等
     /// 大小寫別名會被報成不存在的路徑。
     public var unknownFieldFiles: [String]
+    /// #645：每筆 person／organization／venue 在 load 時**實際讀到**的位元組數（以記錄 id 為鍵）——與讀取閘
+    /// `AliasEventBudget.check` 比對的是同一個 `text.utf8.count`。預算預警讀它，不事後依路徑去 stat：依 format 推回
+    /// 路徑會在 legacy `people/`、symlink、檔名大小寫上指錯檔而靜默不報（#645 R3 verify，DA 真 binary 重現）。
+    /// 只有經 `load()` 的記錄有值；手工組出來的 `LibraryLoad` 沒有，預警對它們不出聲（沒有位元組可量）。
+    public var recordBytes: [UUID: Int] = [:]
 
     public init(entries: [Entry] = [], people: [Person] = [],
                 organizations: [Organization] = [],
@@ -1152,6 +1157,7 @@ public final class LibraryStore {
                         continue
                     }
                     if !person.unknownFields.isEmpty { result.unknownFieldFiles.append(name) }
+                    result.recordBytes[person.id] = text.utf8.count
                     result.people.append(person)
                 case .organization:
                     let org = try OrganizationYAML.decode(text)
@@ -1168,6 +1174,7 @@ public final class LibraryStore {
                         continue
                     }
                     if !org.unknownFields.isEmpty { result.unknownFieldFiles.append(name) }
+                    result.recordBytes[org.id] = text.utf8.count
                     result.organizations.append(org)
                 case .venue:
                     let v = try VenueYAML.decode(text)
@@ -1184,6 +1191,7 @@ public final class LibraryStore {
                         continue
                     }
                     if !v.unknownFields.isEmpty { result.unknownFieldFiles.append(name) }
+                    result.recordBytes[v.id] = text.utf8.count
                     result.venues.append(v)
                 case .divergence:
                     let d = try DivergenceYAML.decode(text)
@@ -1282,7 +1290,8 @@ public final class LibraryStore {
         for path in try source.paths("people") {
             let name = path
             do {
-                let person = try PersonYAML.decode(try source.text(path))
+                let text = try source.text(path)
+                let person = try PersonYAML.decode(text)
                 let stem = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
                 guard StoreKey.isValid(person.key) else {
                     result.quarantined.append(QuarantinedFile(
@@ -1299,6 +1308,7 @@ public final class LibraryStore {
                 if !person.unknownFields.isEmpty {
                     result.unknownFieldFiles.append(name)
                 }
+                result.recordBytes[person.id] = text.utf8.count   // #645：legacy people/ 的記錄同樣量它實際讀到的
                 result.people.append(person)
             } catch {
                 result.quarantined.append(QuarantinedFile(

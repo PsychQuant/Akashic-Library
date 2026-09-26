@@ -26,7 +26,7 @@ struct RecordIssuesSummary: Equatable {
     let duplicateVerdictRecords: Int
     let danglingSources: Int
     let venueVerdictBudget: Int
-    /// #645：person／organization 的 verdict 數逼近 decode 預算——venue 族的同形擴充。
+    /// #645：person／organization 的記錄檔逼近讀取上限——venue 族的同形擴充。
     let holderVerdictBudget: Int
     let orphanedSplitVerdicts: Int
     let staleSplitRecords: Int

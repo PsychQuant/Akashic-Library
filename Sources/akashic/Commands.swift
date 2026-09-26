@@ -216,13 +216,13 @@ struct Validate: ParsableCommand {
         if !health.danglingSources.isEmpty {
             print("本機缺承重存檔: \(health.danglingSources.count)（sources/ 不進 git；其他 clone 上的數字會不同）")
         }
-        // #499：哪些 venue 的 verdict 數逼近 decode 預算——逐條已印，這一行給總數。
+        // #499：哪些 venue 的記錄檔逼近讀取上限（#645 起量位元組）——逐條已印，這一行給總數。
         if !health.venueVerdictBudgetWarnings.isEmpty {
-            print("venue verdict 逼近 decode 預算: \(health.venueVerdictBudgetWarnings.count)（第 13 條邊的規模化裁決，#499）")
+            print("venue 記錄檔逼近讀取上限: \(health.venueVerdictBudgetWarnings.count)（先查重複記未決；再看第 13 條邊的規模化裁決，#499）")   // display-safe-exempt: Int
         }
         // #645：person／organization 的同一族——增長來源多了不退役的未決記錄
         if !health.holderVerdictBudgetWarnings.isEmpty {
-            print("person／organization verdict 逼近 decode 預算: \(health.holderVerdictBudgetWarnings.count)（先查重複記未決，#645）")   // display-safe-exempt: Int
+            print("person／organization 記錄檔逼近讀取上限: \(health.holderVerdictBudgetWarnings.count)（先查重複記未決，#645）")   // display-safe-exempt: Int
         }
         // #450：拆分後錨失效——逐條已印，這兩行給總數（兩種分開：一種要人重新消歧，一種只是提醒）。
         if !health.orphanedSplitVerdicts.isEmpty {

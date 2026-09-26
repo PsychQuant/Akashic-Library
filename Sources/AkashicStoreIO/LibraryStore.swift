@@ -2715,10 +2715,44 @@ public extension LibraryLoad {
                 }
             }
         }
+        // key 本身不是合法 StoreKey 時另外說——那條邊**不可能**對應任何記錄（記錄的 key 在 load 時就驗過），
+        // 是手改或舊 binary 寫的；「沒有對應的檔」會讓人去找一個不存在的檔（#579）
+        func invalidNote(_ k: String) -> String {
+            StoreKey.isValid(k) ? "" : "；這個 key 不是合法的 StoreKey（只能是小寫英數與連字號、英數開頭），不可能對應任何記錄——手改或舊 binary 寫的"
+        }
         for (k, cites) in danglingAuthors.sorted(by: { $0.key < $1.key }) {
             out.append(ValidationIssue(severity: .warning,
                 message: "作者 key「\(displaySafeInvisible(k, max: 200))」沒有對應的 people 檔"
-                       + "（\(cites.count) 筆引用，如 \(displaySafeInvisible(cites.sorted().first ?? "", max: 200))）"))
+                       + "（\(cites.count) 筆引用，如 \(displaySafeInvisible(cites.sorted().first ?? "", max: 200))\(invalidNote(k))）"))
+        }
+
+        // 團體作者與 venue 邊的懸空參照（#652、#579）。在此之前只有 person 那一半有檢查：懸空的 `.organization`
+        // 作者 key 與懸空的 `venues[].key` 在 validate／doctor／App 都不出聲。warning 的理由同上。
+        let orgKeys = Set(organizations.map(\.key))
+        let venueKeys = Set(venues.map(\.key))
+        var danglingOrgAuthors: [String: Set<String>] = [:]
+        var danglingVenues: [String: Set<String>] = [:]
+        for e in entries {
+            for a in e.authors {
+                if case let .organization(k) = a, !orgKeys.contains(k) {
+                    danglingOrgAuthors[k, default: []].insert(e.citekey)
+                }
+            }
+            for v in e.venues {
+                if case let .key(k) = v, !venueKeys.contains(k) {
+                    danglingVenues[k, default: []].insert(e.citekey)
+                }
+            }
+        }
+        for (k, cites) in danglingOrgAuthors.sorted(by: { $0.key < $1.key }) {
+            out.append(ValidationIssue(severity: .warning,
+                message: "團體作者 key「\(displaySafeInvisible(k, max: 200))」沒有對應的 organization 檔"
+                       + "（\(cites.count) 筆引用，如 \(displaySafeInvisible(cites.sorted().first ?? "", max: 200))\(invalidNote(k))）"))
+        }
+        for (k, cites) in danglingVenues.sorted(by: { $0.key < $1.key }) {
+            out.append(ValidationIssue(severity: .warning,
+                message: "venue key「\(displaySafeInvisible(k, max: 200))」沒有對應的 venue 檔"
+                       + "（\(cites.count) 筆引用，如 \(displaySafeInvisible(cites.sorted().first ?? "", max: 200))\(invalidNote(k))）"))
         }
 
         // 歧異的候選同樣要被看見（#71 R1 verify）。**warning 而非 error**，理由與

@@ -38,6 +38,40 @@ final class CrossRecordValidationTests: XCTestCase {
         return e
     }
 
+    // MARK: - 懸空的團體作者與 venue 邊（#652、#579）
+
+    /// 在此之前只有 person 那一半有懸空檢查：`.organization` 作者與 `venues[].key` 懸空時 validate／doctor／App 都不出聲。
+    /// 2026-09-26 live store 實測有 2 筆（#340 批次手寫的 `organization: American Psychological Association`／`OECD`，
+    /// payload 是名稱而不是 key）。
+    func testDanglingCorporateAuthorAndVenueEdgeAreWarnings() throws {
+        var org = Organization(key: "real-org")
+        org.names = TimelineOf([TemporalValue(value: "Real Org", range: DateRange())])
+        try store.writeOrganization(org)
+        var e = entry("a2020a", authors: [.organization("real-org"), .organization("ghost-org")])
+        e.venues = [.key("ghost-venue"), .literal("Some Journal")]
+        try store.writeEntry(e)
+        let issues = try store.load().crossRecordIssues()
+        let orgW = try XCTUnwrap(issues.first { $0.message.contains("團體作者 key「ghost-org」") }, "\(issues)")
+        XCTAssertEqual(orgW.severity, .warning)
+        XCTAssertFalse(orgW.message.contains("不是合法的 StoreKey"), "合法 key 的懸空不附非法說明")
+        XCTAssertFalse(issues.contains { $0.message.contains("「real-org」") }, "存在的 org 不報")
+        let venueW = try XCTUnwrap(issues.first { $0.message.contains("venue key「ghost-venue」") }, "\(issues)")
+        XCTAssertEqual(venueW.severity, .warning)
+        XCTAssertFalse(issues.contains { $0.message.contains("Some Journal") }, "literal 邊是誠實狀態，不是懸空")
+    }
+
+    /// #579：key 本身不是合法 StoreKey 時，訊息要說它不可能對應任何記錄——「沒有對應的檔」會讓人去找一個不存在的檔。
+    func testInvalidStoreKeyEdgeSaysItCanNeverResolve() throws {
+        var e = entry("a2020a", authors: [.organization("OECD")])
+        e.venues = [.key("Psych Bull")]
+        try store.writeEntry(e)
+        let issues = try store.load().crossRecordIssues()
+        for needle in ["團體作者 key「OECD」", "venue key「Psych Bull」"] {
+            let w = try XCTUnwrap(issues.first { $0.message.contains(needle) }, "\(needle)：\(issues)")
+            XCTAssertTrue(w.message.contains("不是合法的 StoreKey"), w.message)
+        }
+    }
+
     // MARK: - 重複 DOI（#79）
 
     private func entryWithDOI(_ key: String, doi: String?, title: String = "Shared Title") -> Entry {

@@ -50,7 +50,7 @@ final class DestructiveTargetGateTests: XCTestCase {
         let src = try source("Sources/akashic/DestructiveTargetGate.swift")
         for name in ["migrate-person-identity", "migrate-venues", "bootstrap-people",
                      "bootstrap-organizations", "bootstrap-venues",
-                     "resolve-people", "resolve-organizations"] {
+                     "resolve-people", "resolve-organizations", "resolve-venues", "authorize-names"] {
             XCTAssertTrue(src.contains("\"\(name)\""), "封閉列舉缺 \(name)")
         }
     }
@@ -68,7 +68,10 @@ final class DestructiveTargetGateTests: XCTestCase {
                 let rest = line[r.upperBound...]
                 currentCommand = String(rest.prefix(while: { $0 != "\"" }))
             }
-            guard line.contains("var apply = false"), let cmd = currentCommand else { continue }
+            // 兩種宣告都認：`var apply = false` 與 `var apply: Bool = false`（#580 R1 verify：
+            // authorize-names 寫成後者，稽核因此看不到它、它也一直沒有閘）
+            guard line.range(of: #"var apply(: Bool)? = false"#, options: .regularExpression) != nil,
+                  let cmd = currentCommand else { continue }
             XCTAssertTrue(gate.contains("\"\(cmd)\""),
                           "`\(cmd)` 有 --apply 但不在 destructiveCommands 內"
                           + "——新增破壞性命令必須在同一個變更裡加進封閉列舉（#298 D3）")
@@ -84,7 +87,7 @@ final class DestructiveTargetGateTests: XCTestCase {
         let commands = try allCommandSources()
         for name in ["migrate-person-identity", "migrate-venues", "bootstrap-people",
                      "bootstrap-organizations", "bootstrap-venues",
-                     "resolve-people", "resolve-organizations"] {
+                     "resolve-people", "resolve-organizations", "resolve-venues", "authorize-names"] {
             XCTAssertTrue(commands.contains("commandName: \"\(name)\""),
                           "列舉裡的 `\(name)` 對不到任何 subcommand——命令退場後留下的孤兒列")
         }
@@ -97,10 +100,10 @@ final class DestructiveTargetGateTests: XCTestCase {
     func testEveryEnumeratedCommandActuallyCallsTheGate() throws {
         let combined = try allCommandSources()
         // resolve-organizations 的條件是 `apply || reject`（#580）：它的 --reject 也是篩選式寫入。
-        let conditions = ["resolve-organizations": "apply || reject"]
+        let conditions = ["resolve-organizations": "apply || reject", "resolve-venues": "let leg = writeLeg"]
         for name in ["migrate-person-identity", "migrate-venues", "bootstrap-people",
                      "bootstrap-organizations", "bootstrap-venues",
-                     "resolve-people", "resolve-organizations"] {
+                     "resolve-people", "resolve-organizations", "resolve-venues", "authorize-names"] {
             let cond = conditions[name] ?? "apply"
             XCTAssertTrue(
                 combined.contains("if \(cond) { try options.assertDestructiveTargetNamed(\"\(name)\"") ,
@@ -119,7 +122,8 @@ final class DestructiveTargetGateTests: XCTestCase {
             if let r = line.range(of: "commandName: \"") {
                 currentCommand = String(line[r.upperBound...].prefix(while: { $0 != "\"" }))
             }
-            guard line.contains("var reject = false"), let cmd = currentCommand else { continue }
+            guard line.range(of: #"var reject(: Bool)? = false"#, options: .regularExpression) != nil,
+                  let cmd = currentCommand else { continue }
             found += 1
             XCTAssertTrue(src.contains("if apply || reject { try options.assertDestructiveTargetNamed(\"\(cmd)\""),
                           "`\(cmd)` 有篩選式 --reject 但閘的條件不含 reject")
@@ -127,15 +131,13 @@ final class DestructiveTargetGateTests: XCTestCase {
         XCTAssertGreaterThan(found, 0, "空掃描不是通過：至少 resolve-organizations 有篩選式 --reject")
     }
 
-    /// resolve-venues 不在表內的理由是它的寫入腿全是逐 id 顯式指名（#580）。釘住那個前提：
-    /// `--apply` 若改成布林的篩選式旗標，`testEveryApplyCommandIsEnumerated` 會接住，而這條說明為什麼現在不在表內。
-    func testResolveVenuesApplyIsAnIDList() throws {
+    /// #580：resolve-venues 的寫入腿都是逐 id 的，仍然要閘——閘防的是寫錯 store，而從錯的 store 列出來的 id
+    /// 在錯的 store 上全部對得上（比照 enrich）。`--undecided` 那條路徑另有一處呼叫。
+    func testResolveVenuesGatesEveryWriteLeg() throws {
         let src = try source("Sources/akashic/VenueCommand.swift")
-        let start = try XCTUnwrap(src.range(of: "commandName: \"resolve-venues\""))
-        let body = src[start.upperBound...].prefix(4_000)
-        XCTAssertTrue(body.contains("var apply: [String] = []"), "resolve-venues 的 --apply 不再是 id 清單——重開 #580 的裁決")
-        XCTAssertFalse(try source("Sources/akashic/DestructiveTargetGate.swift").contains("\"resolve-venues\""),
-                       "resolve-venues 進了表——那時要同時改 DestructiveTargetGate 的判準段")
+        XCTAssertTrue(src.contains("try options.assertDestructiveTargetNamed(\"resolve-venues\", flag: \"--undecided\")"))
+        XCTAssertTrue(src.contains("(\"--apply\", apply), (\"--reject\", reject), (\"--repoint\", repoint), (\"--demote\", demote)"),
+                      "四個寫入腿都要在 writeLeg 裡")
     }
 
     /// 閘門**不得**查 CWD——那是被否決的方向 (b)。

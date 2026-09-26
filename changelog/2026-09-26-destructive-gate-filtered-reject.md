@@ -16,3 +16,17 @@
   - 負控：把條件改回只看 `apply`，6 個失敗。
 
 另外踩到一件事：doc 裡一度逐字寫出布林旗標的宣告，`testEveryApplyCommandIsEnumerated` 以字面比對，就把它當成一個命令，歸到上一個被掃到的 `create-entry`。現在 doc 不寫出那行宣告。
+
+## R1 verify（5 HIGH），推翻了上面的判準
+
+- **`authorize-names --apply` 是全庫布林掃蕩，卻沒有閘，稽核也看不到它。** 它的宣告寫出了 `: Bool`，而稽核只比對省略型別的寫法。現在它有閘、在表內，兩種寫法稽核都認得（`--reject` 同）。
+- **「逐 id 就不閘」被表內既有的成員推翻。** `enrich` 與 `enrich-from-zotero` 都是逐 id 的，它們的 doc 早就寫著「閘的成本是一行，豁免需要的理由比加上它多」。閘防的是**寫錯 store**，而從錯的 store 列出來的 id，在錯的 store 上全部對得上。所以 `resolve-venues` 的全部寫入腿（apply、reject、repoint、demote、undecided）都進表，#580 Impact 講的 campaign 批次因此受到保護。issue 的 Expected（三個 `resolve-*` 對閘給同一個答案）現在以「進表」達成。
+- **「不閘的只有一類」這個封閉列舉為假**：`fmt`、`migrate`、`migrate-provenance`、`import-*`、`create-entry`、`resolve-divergence`、`resolve-people` 的逐 id 腿都在表外，也都沒有閘。doc 改成照實描述，不寫封閉列舉；逐格裁決另開 #653。
+- `--yes` 的 help 與 parity 表 `--yes` 列的理由欄同步改寫。舊理由「CLI 篩選式、MCP 逐 id」在逐 id 也閘之後不再成立，真正的差別是 MCP 的 store 是 session 狀態（#310）。
+- 測試：
+  - 用真 binary：`resolve-venues --demote` 與 `authorize-names --apply` 未指名 store 時拒絕，不帶寫入腿的列表不擋；
+  - `testResolveVenuesGatesEveryWriteLeg`；
+  - 負控：拿掉 authorize-names 或 resolve-venues 主路徑的閘，對應測試變紅。
+- 未處理（LOW）：
+  - `rename-person` 的拒絕訊息仍寫 `--apply` 與 dry-run，但它兩者都沒有（併入 #650）；
+  - 消毒守衛放行表的 `^flag$` 是全域比對，沒有限定在閘的檔案。

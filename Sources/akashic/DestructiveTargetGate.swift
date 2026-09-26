@@ -52,24 +52,22 @@ enum DestructiveTargetGate {
     /// 新增會改寫或刪除記錄的命令時**必須在同一個變更裡加進這裡**。
     /// `DestructiveTargetGateTests` 的雙向機械稽核接住漏網的。
     ///
-    /// ## 判準：閘的是**篩選式**寫入，不是「會寫的命令」（#580）
+    /// ## 本表是什麼、不是什麼（#580）
     ///
-    /// 本表的成員是帶**篩選式** `--apply`（布林旗標 `--apply`：收窄條件之外全掃；稽核以宣告字面比對，所以這段 doc 不寫出那行宣告）的命令。
-    /// 同一個形狀的另一個旗標也閘：`resolve-organizations --reject`（收窄後的候選全寫 rejected
-    /// verdict）。閘的理由在檔頭——篩選式寫入的目標集合由 store 內容決定，呼叫端看不到它在寫哪個 store。
+    /// 本表是**會呼叫本閘的命令**的清單，不是「會寫 store 的命令」的清單。閘防的是**寫錯 store**
+    /// （#298：呼叫者以為自己在 scratch），而不是寫錯哪幾筆——從錯的 store 列出來的 id 在錯的
+    /// store 上全部對得上，所以逐 id 指名的寫入腿同樣受它保護（`enrich`／`enrich-from-zotero`／
+    /// `resolve-venues` 都是逐 id 的，都在表內）。各成員的觸發條件由命令自己決定：多數是布林
+    /// `--apply`；`resolve-organizations` 另含篩選式 `--reject`；`resolve-venues` 是任一寫入腿。
     ///
-    /// **不在表內、也不閘的只有一類**（封閉列舉，不得依性質相似類推第二類）：
+    /// **表外仍有會寫 store 的命令沒有閘**，而且不是一類：預設就寫的（`fmt`、`migrate`、
+    /// `migrate-provenance`、`import-wos`、`import-zotero`、`create-entry`……）、`resolve-people`
+    /// 的逐 id 腿（`--reject`／`--judge`／`--split-author`……）、`resolve-divergence`、`rename`
+    /// （`rename-person` 無條件呼叫本閘）。它們要不要閘**沒有逐一裁決過**——清單與裁決記在 #653／#650，
+    /// 本段刻意不寫成封閉列舉：上一版寫了「不閘的只有一類」，#580 R1 verify 當場找到六個反例。
     ///
-    /// 1. **逐 id 顯式指名的寫入腿**——`resolve-venues` 的全部寫入腿（`--apply` 收 id 清單，不是布林
-    ///    旗標）、`resolve-people` 的 `--reject`／`--judge`／`--refute`／`--split-author`／`--un-split`／
-    ///    `--drop-author`／`--attribute-org`／`--undecided`、`resolve-organizations` 的 `--undecided`。
-    ///    它們與 MCP 面同形（逐 id 顯式），檔頭「只擋 CLI，不擋 MCP」的理由同樣適用。
-    ///
-    /// **在表外但閘了的**：`rename-person` 無條件呼叫本閘（它沒有 `--apply` 可掛），是它自己的裁決；
-    /// `rename` 沒有閘——兩者的不一致記在 #650，本表不替它裁。
-    ///
-    /// 上一版的 `mcp-cli-parity` `--yes` 列寫「`resolve-venues` 的 `--apply` 正是篩選式批次掃蕩」與
-    /// 「`rename-person` 沒有這道閘」，兩句都與程式不符（#580 診斷）。
+    /// 稽核（`DestructiveTargetGateTests`）認得布林旗標的兩種宣告寫法：省略型別與寫出 `: Bool`
+    /// （`authorize-names` 曾因後者漏網）。這段 doc 不逐字寫出宣告——稽核以字面比對，會把 doc 當成命令。
     static let destructiveCommands: Set<String> = [
         // #394：識別碼自 fields 升格、work 的 issn 移位至 venue——改寫既有記錄。
         "migrate-identifiers",
@@ -83,6 +81,10 @@ enum DestructiveTargetGate {
         "enrich-from-zotero",
         // #458：generic add-only 補值——只加不存在的鍵，但它仍改寫既有記錄檔；閘的成本是一行。
         "enrich",
+        // #580：逐 id 的寫入腿（apply／reject／repoint／demote／undecided），比照 enrich
+        "resolve-venues",
+        // #580 R1 verify：全庫掃蕩的布林 --apply，先前因宣告寫成 `: Bool` 而漏在稽核之外
+        "authorize-names",
     ]
 
     /// 呼叫者有沒有指名目標 store。**只在真的要寫的時候呼叫**——dry-run 不得被擋

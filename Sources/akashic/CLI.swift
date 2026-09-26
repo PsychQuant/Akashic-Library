@@ -102,7 +102,7 @@ struct LibraryOptions: ParsableArguments {
     /// 語意**不是**「跳過確認」而是「**我已確認目標就是 registry 解析到的那個**」
     /// ——它的安全性來自拒絕訊息**先說出了目標**，使用者是看過之後才加上它的。
     @Flag(name: .long,
-          help: "破壞性 --apply 專用：我已確認目標是 registry 解析到的那個 store（未指定 --library 時必須）")
+          help: "破壞性寫入專用（--apply；resolve-organizations 的 --reject；resolve-venues 的各寫入腿）：我已確認目標是 registry 解析到的那個 store（未指定 --library 時必須）")
     var yes = false
 
     /// 破壞性寫入前的目標確認（#298）。**只在真的要寫時呼叫**——dry-run 不得被擋。

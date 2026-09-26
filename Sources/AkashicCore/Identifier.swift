@@ -208,8 +208,9 @@ public struct DOI: Identifier {
         guard s.hasPrefix("10."), let slash = s.firstIndex(of: "/") else { return nil }
         let registrant = s[s.index(s.startIndex, offsetBy: 3)..<slash]
         let suffix = s[s.index(after: slash)...]
-        // 註冊者至少 4 碼數字（實務下限），後綴非空且不含空白
-        guard registrant.count >= 4, registrant.allSatisfy({ $0.isNumber || $0 == "." }),
+        // 註冊者至少 4 碼 **ASCII** 數字（實務下限），後綴非空且不含空白。`isNumber` 認全形、阿拉伯-印度、
+        // 上標與 ½ 之類，`10.１０３７/x` 會以非 ASCII 的註冊者成為 normalized——#589 的同形（R1 verify）；後綴本來就可以含 Unicode
+        guard registrant.count >= 4, registrant.allSatisfy({ ($0.isASCII && $0.isNumber) || $0 == "." }),
               !suffix.isEmpty, !suffix.contains(where: { $0.isWhitespace }) else { return nil }
         normalized = s
     }

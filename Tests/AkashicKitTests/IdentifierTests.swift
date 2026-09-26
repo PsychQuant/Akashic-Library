@@ -59,6 +59,15 @@ final class IdentifierTests: XCTestCase {
         XCTAssertNil(ORCID("0000-0003-0899-747\u{FF17}"))
     }
 
+    /// #589 R1 verify：DOI 的註冊者段同樣只收 ASCII 數字（後綴不受限）。
+    func testDOIRegistrantRejectsNonASCIIDigits() {
+        XCTAssertNotNil(DOI("10.1037/met0000100"))
+        XCTAssertNil(DOI("10.\u{FF11}\u{FF10}\u{FF13}\u{FF17}/met0000100"), "全形")
+        XCTAssertNil(DOI("10.\u{0661}\u{0660}\u{0663}\u{0667}/met0000100"), "阿拉伯-印度數字")
+        XCTAssertNil(DOI("10.\u{00B9}\u{2070}\u{00B3}\u{2077}/x"), "上標")
+        XCTAssertNotNil(DOI("10.1037/\u{00E9}t\u{00E9}"), "後綴可以含 Unicode")
+    }
+
     // MARK: - DOI
 
     func testDOIAcceptsAndNormalizes() {

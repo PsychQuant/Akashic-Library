@@ -60,7 +60,7 @@
 會在邊界上自己長出沒人同意的答案，而那句話與下表**是兩份不會一起改的規格**。要判斷新情形，
 讀下表的理由欄，然後**加一列**。
 
-## 裁決史（封閉列舉——現有 32 列，一列不多一列不少）
+## 裁決史（封閉列舉——現有 33 列，一列不多一列不少）
 
 | # | 情形 | 裁決 | 理由 |
 |---|---|---|---|
@@ -95,7 +95,8 @@
 | 29 | **零實例，而它守的是另一個守衛的前提——一個常數必須大於等於全樹每個 sink 的輸出上限**（#554 R31／R32：`ErrorDisplay.inputScalarCeiling`＝4,096。D83 讓逃脫只讀每行前 ceiling 個輸入 scalar，等價性的前提是「任一 sink 的輸出上限 ≤ ceiling」——每個輸入 scalar 至少產生一個輸出 scalar，所以輸出上限之內的字串不受截短影響；前提一破，被 ceiling 截短的行會冒充完整的行、且每個 sink 都綠。2026-09-18 實測 Sources（HEAD `58bab46d`，R33 重量）：`displaySafeError(max:)` 57 站點、`displaySafeClipOnly(max:)` **39** 站點、sink 宣告的預設值 3 個（`displaySafeMultiline`／`displaySafeAssembled`／`displaySafeErrorMultiline` 的 400）、呼叫端字面的 `maxLineLength:` **0** 個，最大 4,096，**超過 ceiling 的 0**。**R32 寫的是 18／3，而它自己附的腳本第一次重跑就給出 39／5**（R32 verify 第 3／10／15 列，三席獨立重跑）：R32 的第三族（`maxLineLength` 與 `max` 兩個 `Int =` 預設值一起掃）把 `displaySafe`／`displaySafeInvisible` 的**生產者輸入預算** 200 也掃進來——它們不是 sink、與 ceiling 的前提無關，卻撐著那一族的地板（刪掉三個真的 sink 預設值裡的兩個仍綠）；clipOnly 的地板 15 是照量錯的 18 打的折，允許 62% 的站點靜默消失。R31 的第一版只掃 `displaySafeError(max:)` 與字面 `maxLineLength:`——後者全樹零命中、多行家族的上限是宣告的預設值 400、`displaySafeClipOnly` 完全沒掃，於是把預設值改成 8,192 守衛照綠（R31 verify 第 6／16／30 列）；R32 分三族各自有地板；R33 把生產者拿出族、分四族、地板照實測訂（50／35／3／0——第四族零實例、地板 0 明寫「可為空，不撐任何地板」）。重跑腳本見表下方） | ✅ **寫（四族各自有地板；第四族可為空）** | 第 16 列的理由是「裁決依賴守衛」（門檻到了才重開）；這一列更緊：**另一個守衛的正確性依賴它**——`testInputCeilingDoesNotChangeClippedOutput` 證的是「有界＝無界」，而那個等式只在 sink 上限 ≤ ceiling 時成立，本列守的就是那個前提。零的來源與前面各列都不同：不是還沒發生、不是掃乾淨了、不是在這台機器上，是**兩個數字今天恰好對齊**（最大 sink 4,096＝ceiling 4,096），而改任一邊都是一行 diff、不會有任何測試因此變錯（每個 sink 自己的測試只看自己的數）。**地板要分族**：R31 的單一地板由 57 個 `displaySafeError` 站點撐著，`maxLineLength:` 那一半通過的方式是「什麼都沒找到」——與第 3 列「未涵蓋不得冒充通過」、R29 NC4「空掃描不是通過」同一個形狀，在同一支守衛裡再犯一次。**而族要照它守的東西分，地板要照實測訂**（R33）：R32 分了族卻把兩個不是 sink 的生產者預設值混進第三族，又把一個量錯的數當地板——這一列自己在同一天就示範了「寫死的計數會與目錄分岔」，且分岔發生在它宣稱可重跑的腳本上。**觸發條件可檢查**（腳本見表下方）：超過 ceiling 的站點數應恆為 0；非零時要一起抬 ceiling（並重量線性），不是放寬那一個 sink |
 | 30 | **零實例，而上限守的記錄設計上只增不減**（#619 R1 verify security：未決腿的三個上限——一次 200 個 id、20 個 digest、單句說明 4,096 位元組。2026-09-25 實測 live store 8,747 筆 reference：最長的判定理由 687 位元組、rests-on 最多 3 個；`resolution-undecided` 0 筆——format 19 尚未部署。重跑腳本見表下方） | ✅ **寫（整批拒絕、零寫入、不截斷）** | 第 18 列的上限守的是一次遞進來的字串，並夾在兩個量測錨點之間；這一列多一件事：**被守的記錄設計上不退役**——未決是查證歷史，只收位元組相同的重複，一個會迴圈的呼叫端每跑一次就多留一筆。說明與 digest 的上限各有量測錨點（687 位元組的約 6 倍、3 個的約 7 倍）；**id 數 200 沒有可量的母體**——它限的是一次呼叫的批次大小、不是記錄內容，取 CLI 單批 triage 的量級，這一格是推估不是量測（R2 verify DA 第 16 列）。**誠實邊界**：上限只約束一次呼叫、不約束累積——累積由預算 warning 出聲：venue 側是第 16 列，person 與 organization 側是第 31 列（#645；organization 側由 #643 的未決腿加入）。**觸發條件可檢查**（腳本見表下方）：任一筆 reference 的說明或 rests-on 逼近上限時重開。**#645 落地、原本寫下的第二個觸發條件成立（2026-09-26）：重開後裁決不變**——三個上限仍只擋單次呼叫，累積改由第 31 列出聲（量記錄檔的位元組）；上限的量測錨點沒有變 |
 | 31 | **零實例，而它是一條已有守衛的曲線換了持有者**（#645：person／organization 的記錄檔逼近讀取上限。第 16 列守 venue 側；person 側的增長來源是一個人的著作數，#619 起多了不退役的 `resolution-undecided`（一筆說明可寫到 4,096 位元組），#643 起 organization 同。2026-09-26 實測 live store：person 4,575 筆、最大檔 10,869 bytes（`chen-chien-hsiun`）；organization 13 筆、最大檔 717 bytes；門檻 4,194,304——0 實例。重跑腳本見表下方） | ✅ **寫（warning 級、在 `StoreHealth`，門檻與量法同第 16 列）** | 第 16 列的理由是「裁決依賴守衛」——暫不改形狀之所以可接受，是因為漲到門檻時工具會出聲；這一列是**同一條曲線的另一個持有者一直沒有那盞燈**，而讓它開始漲的是一個新面（未決腿）。所以理由不是第 1 列的「不寫就沒有跡象」，是**第 30 列自己寫下的誠實邊界**（上限只擋單次呼叫、不擋累積）要有工具面兌現，否則那句邊界就是一句沒有後續的散文。**量的是檔案位元組**：初版照第 16 列用節點換算的筆數，R1 verify 指出未決記錄會先撞上位元組上限而加了「內容位元組」軸，R2 verify DA 再指出節點軸對 store 檔根本不生效——兩次修的都是估計，真正的預算是讀取路徑的 `maxBytes`，檔案大小已含 YAML 跳脫與 verdict 以外的內容，直接量它（第 16 列同日更正）。**門檻不另立常數**（`recordFileWarningBytes` 兩族共用——同一個預算的第二份描述會分岔）。**前綴分開**（`holderVerdictBudgetPrefix`）：兩族計數分開，而處置的第一步相同（先查重複記未決）。**誠實邊界**：warning 只在讀取面計算，寫入路徑有 2 倍寬限——一次夠大的寫入（judge／refute 的理由沒有長度上限）可以從門檻之下直接跳過讀取上限，warning 來不及出聲；那是寫入閘的缺口，記 #648。**觸發條件可檢查**（指令見表下方）：計數應恆為 0；非零時先看那筆記錄的 `resolution-undecided` 筆數 |
-| 32 | **零實例，而謂詞寫寬的方向是 Unicode——前件看起來是「數字」，實際是「任何書寫系統的數字」**（#589：ISSN／ISBN／ORCID 共用的 `idCompact` 以 `CharacterSet.alphanumerics` 過濾、以 `wholeNumberValue` 取值，兩者都認 Unicode 數字；全形與阿拉伯-印度數字寫成的號過得了 mod-11、原樣成為 `normalized`。#556 R4 verify security 席實測。2026-09-26 實測 live store 282 個 issn／orcid／isbn 值（YAML 解析；行級 regex 曾多數成 1,739，那個數不要用），非 ASCII **0** 筆；新 binary `validate` rc=0、無新隔離。重跑腳本見表下方） | ✅ **寫（在 `idCompact`，非 ASCII 的英數字元換成必定失敗的 `?`；已入庫的會在載入時被隔離）** | 第 2 列的理由是「前件寫寬了會誤傷」；這一列相反——前件寫寬了會**放行**，而放行的東西看起來是對的（第 4 列的偽裝性）：一個全形寫成的 ISSN 過得了 check digit，而 `identity-is-judged-not-matched` 讓識別碼相等**單獨**就能做身分判定，所以它是一個看起來像決定性證據的假號。修在 `idCompact` 而不是三個呼叫端，因為三個呼叫端共用它，修一處就全部關掉；**換成 `?` 而不是濾掉**，因為濾掉會讓夾在 ASCII 號裡的非 ASCII 字元被靜默吞掉、號照樣通過。判斷在 `uppercased()` 之前做（合字 `ﬀ` 轉大寫後是 ASCII 的 `FF`）。**已入庫的處置是隔離而不是 warning**：這一族在 decode 時本來就以 `ISSN(v) != nil` 驗證、不合法整檔隔離（`IdentifierYAML.make`），收緊謂詞之後非 ASCII 號自然落進同一條路，與其他不合法的號同級；零實例所以不需要遷移（`no-compat-fallback`）。PMID 以 `UInt64(s)` 解析、只收 ASCII，不在此列；DOI 的後綴本來就可以含 Unicode。**觸發條件可檢查**（腳本見表下方）：非 ASCII 數應恆為 0；非零時那筆在新 binary 下會被隔離，修法是把號改寫成 ASCII |
+| 32 | **零實例，而謂詞寫寬的方向是 Unicode——前件看起來是「數字」，實際是「任何書寫系統的數字」**（#589：ISSN／ISBN／ORCID 共用的 `idCompact` 以 `CharacterSet.alphanumerics` 過濾、以 `wholeNumberValue` 取值，兩者都認 Unicode 數字；全形與阿拉伯-印度數字寫成的號過得了 mod-11、原樣成為 `normalized`。#556 R4 verify security 席實測。2026-09-26 實測 live store 141 個 issn／orcid／isbn 值（issn 59、orcid 42、isbn 40；YAML 解析。先前寫過 1,739（行級 regex）與 282（本列腳本把每個值掃了兩次，R1 verify 四席同指）——兩個都不要用），另有 DOI 註冊者段同形（R1 verify：`isNumber` 認全形；live store 2,445 個 DOI），非 ASCII **0** 筆；新 binary `validate` rc=0、無新隔離。重跑腳本見表下方） | ✅ **寫（在 `idCompact`，非 ASCII 的英數字元換成必定失敗的 `?`；已入庫的會在載入時被隔離）** | 第 2 列的理由是「前件寫寬了會誤傷」；這一列相反——前件寫寬了會**放行**，而放行的東西看起來是對的（第 4 列的偽裝性）：一個全形寫成的 ISSN 過得了 check digit，而 `identity-is-judged-not-matched` 讓識別碼相等**單獨**就能做身分判定，所以它是一個看起來像決定性證據的假號。修在 `idCompact` 而不是三個呼叫端，因為三個呼叫端共用它，修一處就全部關掉；**換成 `?` 而不是濾掉**，因為濾掉會讓夾在 ASCII 號裡的非 ASCII 字元被靜默吞掉、號照樣通過。判斷在 `uppercased()` 之前做（合字 `ﬀ` 轉大寫後是 ASCII 的 `FF`）。**已入庫的處置是隔離而不是 warning**：這一族在 decode 時本來就以 `ISSN(v) != nil` 驗證、不合法整檔隔離（`IdentifierYAML.make`），收緊謂詞之後非 ASCII 號自然落進同一條路，與其他不合法的號同級；零實例所以不需要遷移（`no-compat-fallback`）。PMID 以 `UInt64(s)` 解析、ROR 以 `Int(…)` 加 ASCII 字母表，都只收 ASCII，不在此列；DOI 的**註冊者段**同形（`isNumber`）、R1 起一併只收 ASCII，後綴本來就可以含 Unicode、不動。**觸發條件可檢查**（腳本見表下方）：非 ASCII 數應恆為 0；非零時那筆在新 binary 下會被隔離，修法是把號改寫成 ASCII |
+| 33 | **一半零實例、一半兩筆，而同一個檢查只寫了三分之一**（#579、#652：work 的三種參照邊——`.key` 作者、`.organization` 作者、`venues[].key`——只有第一種有懸空檢查（`crossRecordIssues` 的「作者 key 沒有對應的 people 檔」）。2026-09-26 新 binary 對 live store：懸空的 venue 邊 **0** 筆；懸空的團體作者 **2** 筆（`anon1954technical` 的 `American Psychological Association`、`anon2014pisa` 的 `OECD`——2026-08-20 #340 批次手寫，payload 是名稱不是 key，而且不是合法 StoreKey）。重跑指令見表下方） | ✅ **寫（warning，在 `crossRecordIssues`；key 不是合法 StoreKey 時訊息另說「不可能對應任何記錄」）** | 第 13 列的理由是「跡象住在錯的地方」；這一列更早一步——**跡象根本不存在**，而同形的檢查就在隔壁：person 那一半有、另外兩半沒有，是檢查寫的時候只有 person 那一種邊。所以它不是新守衛的裁決，是把既有守衛的前件補完（第 2 列的「前件多寬」，方向是寫窄了）。**severity 是 warning**，理由與既有的懸空作者相同：懸空參照讓畫面少東西、不毀資料，而解析中途本來就會有；#579 另提的「error、與 person／organization 的 key 檢查對齊」不採——那些是**記錄自身**的 key，load 就 quarantine；這裡是**參照**，quarantine 整筆 work 會讓一條壞邊把整篇作品藏起來。非法 key 另附說明，因為記錄的 key 在 load 時就驗過，一條非法 key 的邊不是「目標還沒建」而是「永遠建不出來」。工具面不寫得出它（`attribute-org` 先驗 org 存在），實例只可能來自手寫、刪除或改名。**觸發條件可檢查**：venue 邊的數應恆為 0；團體作者那兩筆的處置是人的判斷——建 org 記錄再改 key，或改回 `literal:` 交給 `resolve-organizations`（目前沒有把 `.organization` 退回 literal 的工具面，只能手改 YAML） |
 
 對本表四類中的任一個做出下一次裁決（新增、不新增、保留、拿掉）= 在這張表加一列。
 
@@ -649,18 +650,21 @@ for f in glob.glob(os.path.expanduser('~/.akashic/entities') + '/*.yaml'):
     try: d = yaml.safe_load(io.open(f, encoding='utf8'))
     except Exception: unreadable += 1; continue
     if not isinstance(d, dict): unreadable += 1; continue
-    body = next((v for v in d.values() if isinstance(v, dict)), d) if len(d) == 1 else d
-    for src in (d, body):
-        for key in ('issn', 'orcid', 'isbn'):
-            v = src.get(key)
-            vals = [x.get('value') if isinstance(x, dict) else x for x in v] if isinstance(v, list) else ([v] if v is not None else [])
-            for x in vals:
-                n += 1
-                if any(ord(c) > 127 for c in str(x)): bad += 1
-print(f"issn／orcid／isbn 值 {n}｜非 ASCII {bad}｜讀不到的檔 {unreadable}")
+    for key in ('issn', 'orcid', 'isbn'):      # store 檔是扁平 mapping（形狀標籤與欄位同層），只掃一次（R1 verify：上一版掃兩次）
+        v = d.get(key)
+        vals = [x.get('value') if isinstance(x, dict) else x for x in v] if isinstance(v, list) else ([v] if v is not None else [])
+        for x in vals:
+            n += 1
+            if any(ord(c) > 127 for c in str(x)): bad += 1
+    dois = d.get('doi') or []                   # doi 是清單（一筆作品可以有多個 DOI）
+    for x in (dois if isinstance(dois, list) else [dois]):
+        if any(ord(c) > 127 for c in str(x).split('/', 1)[0]): bad += 1  # DOI 註冊者段（R1 起同形）
+print(f"issn／orcid／isbn 值 {n}｜非 ASCII（含 DOI 註冊者）{bad}｜讀不到的檔 {unreadable}")
 EOF
-# 2026-09-26：282｜0｜0
+# 2026-09-26（R1 重量）：141｜0｜0（另數了 2,445 個 DOI）
 ```
+
+**第 33 列的量測（2026-09-26，可重跑）**：`akashic validate 2>&1 | grep -c '團體作者 key「'` 與 `akashic validate 2>&1 | grep -c 'venue key「'`（用含這條檢查的 binary——同第 13 列的自證，舊 binary 印不出東西；2026-09-26：2 與 0）。
 
 ## 各列共通的東西（觀察，不是判準）
 
@@ -705,6 +709,7 @@ EOF
 - 第 28 列的理由是**可達性是本 change 的另一條裁決刻意造出來的**——第 23 列是新面讓不可達變可達；這一列是為了不刪判定（D62）而選擇留下一個狀態，守衛是那個選擇的另一半：留著而看不見，等於把刪除延後到合併、把回報搬到另一個命令
 - 第 30 列的理由是**被守的記錄不退役**——第 18 列守的是一次遞進來的字串，這一列守的記錄只增不減，所以上限只擋得住單次呼叫，累積要另一盞燈（venue 側是第 16 列、person 與 organization 側是第 31 列）
 - 第 32 列的理由是**前件寫寬的方向是放行**——第 2 列怕寬了誤傷，這一列寬了會放行一個看起來是決定性證據的假號；修在共用的謂詞，而且換成必定失敗的字元而不是濾掉
+- 第 33 列的理由是**同一個檢查只寫了三分之一**——跡象不是住錯地方（第 13 列），是根本不存在，而同形的檢查就在隔壁；補的是既有守衛的前件，不是新守衛
 - 第 31 列的理由是**同一條曲線換了持有者**——第 16 列的燈只照 venue；新面（未決腿）讓 person 與 organization 也開始累積，第 30 列寫下的誠實邊界要有工具面兌現，否則就是一句沒有後續的散文
 - 第 24 列的理由是**半吊子已經誠實**——前二十三列裡只有第 22 列同樣是「不動既有的東西」（比的是裁決的**動作**：那一列的對象是 spec 文字、失敗是被當死重刪掉；本列的對象是程式的半吊子管線、失敗是使用者撞牆或被當成待修殘留而被人動手）。留著的代價不是零（記了就刪不掉，#586），而是今天未兌現、且一出現就會出聲；動它的兩個方向（實作／拿掉）代價都更高。與第 10 列（缺用途）最像的是理由的**形**：實作那一半同樣是「形狀取決於還不存在的用途」；但第 10 列的對象根本不存在，這一列的對象已經在、且已經誠實
 

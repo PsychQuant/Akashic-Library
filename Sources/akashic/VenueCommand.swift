@@ -368,6 +368,9 @@ struct ResolveVenuesCmd: ParsableCommand {
             guard apply.isEmpty, reject.isEmpty, repoint.isEmpty, demote.isEmpty else {
                 throw ValidationError("--undecided 單獨呼叫（不與 --apply／--reject／--repoint／--demote 組合）")
             }
+            // #298／#580：逐 id 的寫入腿同樣要指名目標 store——閘防的是寫錯 store，不是寫錯哪幾筆
+            // （從錯的 store 列出來的 id 在錯的 store 上全部對得上）。比照 enrich 的既有裁決。
+            try options.assertDestructiveTargetNamed("resolve-venues", flag: "--undecided")
             let store = try options.openStore()
             let service = AkashicService(root: store.root, key: store.key,
                                          environment: ProcessInfo.processInfo.environment)
@@ -387,6 +390,10 @@ struct ResolveVenuesCmd: ParsableCommand {
         if let f = fixers.first, fixers.count > 1 || !apply.isEmpty || !reject.isEmpty {
             throw ValidationError("\(f.0) 請單獨呼叫（它修的是已歸戶的邊，與升格／否決不同階段）")
         }
+        // #298／#580：任一寫入腿都要指名目標 store（理由見上方 --undecided 那一處）；不帶旗標的列表不擋
+        let writeLeg = [("--apply", apply), ("--reject", reject), ("--repoint", repoint), ("--demote", demote)]
+            .first { !$0.1.isEmpty }?.0
+        if let leg = writeLeg { try options.assertDestructiveTargetNamed("resolve-venues", flag: leg) }
         let store = try options.openStore()
         let service = AkashicService(root: store.root, key: store.key,
                                      environment: ProcessInfo.processInfo.environment)

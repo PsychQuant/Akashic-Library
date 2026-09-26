@@ -2417,6 +2417,9 @@ struct AuthorizeNames: ParsableCommand {
     var apply: Bool = false
 
     func run() throws {
+        // #298：全庫掃蕩寫入——目標 store 未指名時要求顯式確認（#580 R1 verify：先前沒有閘，且稽核因
+        // 宣告寫成 `: Bool` 而看不到它）
+        if apply { try options.assertDestructiveTargetNamed("authorize-names") }
         let store = try options.openStore()
         let r = try AuthorizedNameMigration.run(store: store, apply: apply)
         print("person 總數: \(r.total)")

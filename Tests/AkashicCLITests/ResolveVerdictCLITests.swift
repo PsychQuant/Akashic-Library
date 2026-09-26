@@ -293,6 +293,20 @@ final class ResolveVerdictCLITests: XCTestCase {
             .contains { $0.field == "resolution-rejected" })
     }
 
+    /// #580：resolve-venues 的逐 id 寫入腿與 authorize-names 的全庫 --apply 同樣要指名目標 store——閘防的是寫錯
+    /// store，從錯的 store 列出來的 id 在錯的 store 上全部對得上（比照 enrich）。
+    func testResolveVenuesAndAuthorizeNamesRequireANamedTarget() throws {
+        let env = ["AKASHIC_LIBRARY": root.path, "HOME": root.path]
+        let venues = try CLITestHarness.run(["resolve-venues", "--demote", "x2020a:0"], env: env)
+        XCTAssertNotEqual(venues.status, 0, venues.output)
+        XCTAssertTrue(venues.output.contains("resolve-venues --demote 拒絕執行：未指名目標 store"), venues.output)
+        let names = try CLITestHarness.run(["authorize-names", "--apply"], env: env)
+        XCTAssertNotEqual(names.status, 0, names.output)
+        XCTAssertTrue(names.output.contains("authorize-names --apply 拒絕執行：未指名目標 store"), names.output)
+        let listing = try CLITestHarness.run(["resolve-venues"], env: env)
+        XCTAssertFalse(listing.output.contains("拒絕執行"), "不帶寫入腿的列表不得被閘擋：\(listing.output)")
+    }
+
     /// 全庫盲掃否決是把一次判斷放大成批次動作——reject 必須帶收窄條件。
     func testOrgRejectRequiresNarrowing() throws {
         try seedOrgCandidate()

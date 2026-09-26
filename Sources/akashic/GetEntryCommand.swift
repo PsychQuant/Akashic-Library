@@ -31,7 +31,7 @@ struct GetEntryCmd: ParsableCommand {
         }
         guard let data = payload.data(using: .utf8),
               let d = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw ValidationError("service 回應不是預期的 JSON 物件")
+            throw RuntimeFailure.state("service 回應不是預期的 JSON 物件")
         }
         print("citekey\t\(d["citekey"] as? String ?? "")")   // display-safe-exempt: 值取自 AkashicService.getEntry（entryDict 已逐欄位 displaySafe），二次消毒非冪等（\u{5C} 逃逸）
         print("type\t\(d["type"] as? String ?? "")")   // display-safe-exempt: 值取自 AkashicService.getEntry（entryDict 已逐欄位 displaySafe），二次消毒非冪等（\u{5C} 逃逸）

@@ -130,7 +130,7 @@ struct PersonCmd: ParsableCommand {
     static func render(_ payload: String) throws {
         guard let obj = try JSONSerialization.jsonObject(with: Data(payload.utf8))
                 as? [String: Any] else {
-            throw ValidationError("service 回應不是 JSON object")
+            throw RuntimeFailure.state("service 回應不是 JSON object")
         }
 
         // 模糊名分支：候選清單。**不自動選**——與 service 同一個立場

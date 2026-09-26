@@ -47,7 +47,7 @@ struct EnrichFromZotero: ParsableCommand {
 
         let dbURL = URL(fileURLWithPath: (zoteroDb as NSString).expandingTildeInPath)
         guard FileManager.default.fileExists(atPath: dbURL.path) else {
-            throw ValidationError("找不到 zotero.sqlite：\(displaySafeInvisible(dbURL.path, max: 300))")
+            throw RuntimeFailure.state("找不到 zotero.sqlite：\(displaySafeInvisible(dbURL.path, max: 300))")
         }
 
         let store = try options.openStore()

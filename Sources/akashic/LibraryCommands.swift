@@ -54,13 +54,13 @@ struct LibraryCreate: ParsableCommand {
             throw ValidationError("library key「\(displaySafeInvisible(key, max: 200))」不符合 \(StoreKey.pattern)，拒絕寫入")
         }
         guard !FileManager.default.fileExists(atPath: store.libraryURL(key: key).path) else {
-            throw ValidationError("library「\(displaySafeInvisible(key, max: 200))」已存在")
+            throw RuntimeFailure.state("library「\(displaySafeInvisible(key, max: 200))」已存在")
         }
         do {
             let url = try store.writeLibrary(Library(key: key, name: name, description: description))
             print("created: \(url.lastPathComponent)")
         } catch {
-            throw ValidationError(displaySafeErrorText(error))
+            throw RuntimeFailure.state(displaySafeErrorText(error))
         }
     }
 }
@@ -79,11 +79,11 @@ private func runMembership(options: LibraryOptions, action: String, libraryKey: 
             for f in report.writeFailures {
                 print("  ! \(displaySafe(f.citekey, max: 200)) — \(displaySafeClipOnly(f.error, max: 3_200))")   // display-safe-exempt: error 已消毒（生產端 displaySafeError，R28 D80），只截
             }
-            throw ValidationError("\(report.writeFailures.count) 筆寫入失敗（其餘已寫入且 index 已重建）")   // display-safe-exempt: Int
+            throw RuntimeFailure.state("\(report.writeFailures.count) 筆寫入失敗（其餘已寫入且 index 已重建）")   // display-safe-exempt: Int
         }
         return report
     } catch let e as ServiceError {
-        throw ValidationError(displaySafeErrorText(e))
+        throw RuntimeFailure.state(displaySafeErrorText(e))
     }
 }
 

@@ -15,8 +15,10 @@ struct AkashicCLI: ParsableCommand {
     /// displaySafe 會跳脫 LF 並截 200 字，不能直接用）。exit code 語意不變
     /// （沿用 ArgumentParser 的 exitCode(for:)）。
     static func main() {
+        var parsed: ParsableCommand?
         do {
             var command = try parseAsRoot()
+            parsed = command
             try command.run()
         } catch {
             // **非 ArgumentParser 的錯誤先逃一次**（R31 D83；R30 verify 第 2 列）：五個 `ValidationError` 包裝之外，直接傳到頂層的
@@ -25,7 +27,13 @@ struct AkashicCLI: ParsableCommand {
             // 走 `.other`（`Error: <text>`）——與原始錯誤同一條路；exit code 仍由**原始** error 決定。ArgumentParser 自己的錯誤
             // （parser／`ValidationError`／`CleanExit`／`ExitCode`）不動：它們的文字由 ArgumentParser 組、`ValidationError` 的 payload 已在擲出端逃。
             let isArgumentParserError = String(reflecting: type(of: error)).hasPrefix("ArgumentParser.")
-            let full = fullMessage(for: isArgumentParserError ? error : ErrorDisplay.EscapedOnce(error))
+            var full = fullMessage(for: isArgumentParserError ? error : ErrorDisplay.EscapedOnce(error))
+            // #549：`run()` 裡拋出的 `ValidationError` 由 ArgumentParser 以**根命令**渲染（`Usage: akashic <subcommand>`），把讀者導向
+            // 「子命令名稱打錯了」。parse 階段的錯誤本來就帶子命令的 usage；這裡對 run() 期間的那一類補上同樣的形狀。
+            if let v = error as? ValidationError, let cmd = parsed, let path = commandPath(to: type(of: cmd)), path.count > 1 {
+                full = "Error: \(v.message)\nUsage: \(usageString(for: type(of: cmd)))"   // display-safe-exempt: message 在擲出端已逃一次（ValidationError 的既有紀律）；usage 是程式產生
+                    + "\n  See '\(path.joined(separator: " ")) --help' for more information."   // display-safe-exempt: commandName 是程式字面
+            }
             // 這裡是 CLI 唯一的截斷點：`ValidationError` 包裝送進來的是 `displaySafeErrorText`（逃一次、不截）的文字，
             // ArgumentParser 加上 `Error: ` 之後在此逐行截 400——與 MCP 的 `displaySafeErrorMultiline(error, prefix: "Error: ")`
             // 同一條路、同一個字串（R30 D82；R29 verify 第 9 列）。
@@ -48,6 +56,17 @@ struct AkashicCLI: ParsableCommand {
             // 本 CLI 無 AsyncParsableCommand；若未來加入 async 子命令需一併補回。
             Foundation.exit(exitCode(for: error).rawValue)
         }
+    }
+
+    /// 由根命令走到 `target` 的 commandName 路徑（`["akashic", "library", "create"]`）；不在子命令樹裡回 nil。
+    static func commandPath(to target: ParsableCommand.Type) -> [String]? {
+        func walk(_ t: ParsableCommand.Type, _ prefix: [String]) -> [String]? {
+            let here = prefix + [t._commandName]
+            if ObjectIdentifier(t) == ObjectIdentifier(target) { return here }
+            for s in t.configuration.subcommands { if let found = walk(s, here) { return found } }
+            return nil
+        }
+        return walk(Self.self, [])
     }
 
     static let configuration = CommandConfiguration(
@@ -138,7 +157,7 @@ struct LibraryOptions: ParsableArguments {
         do {
             return try LibraryLocator.resolveDetailed(explicit: library)
         } catch {
-            throw ValidationError(displaySafeErrorText(error))
+            throw RuntimeFailure.state(displaySafeErrorText(error))
         }
     }
 
@@ -158,7 +177,7 @@ struct LibraryOptions: ParsableArguments {
         let fm = FileManager.default
         guard fm.fileExists(atPath: store.entitiesDir.path)
                 || fm.fileExists(atPath: store.entriesDir.path) else {
-            throw ValidationError("『\(displaySafeInvisible(root.path, max: 300))』不是 Akashic library（缺 entities/ 與 entries/）。先跑 akashic doctor --library <path> 建立佈局。")
+            throw RuntimeFailure.state("『\(displaySafeInvisible(root.path, max: 300))』不是 Akashic library（缺 entities/ 與 entries/）。先跑 akashic doctor --library <path> 建立佈局。")
         }
         // 上面的 StoreVersion.check 即 refuse-if-newer 的 choke point（#115）：
         // 曾只在 load() 被呼叫——凡不經 load() 的路徑全部繞過（fmt 的全庫

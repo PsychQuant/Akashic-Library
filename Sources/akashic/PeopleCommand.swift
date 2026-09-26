@@ -31,7 +31,7 @@ struct PeopleCmd: ParsableCommand {
         }
         guard let data = payload.data(using: .utf8),
               let people = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
-            throw ValidationError("service 回應不是預期的 JSON 陣列")
+            throw RuntimeFailure.state("service 回應不是預期的 JSON 陣列")
         }
         if people.isEmpty {
             // 「零筆」是結果不是錯誤——與 person --name 無候選同一立場。

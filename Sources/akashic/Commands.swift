@@ -269,7 +269,7 @@ struct ImportZotero: ParsableCommand {
         let store = try options.openOrCreateStore()
         let dbURL = URL(fileURLWithPath: (zoteroDb as NSString).expandingTildeInPath)
         guard FileManager.default.fileExists(atPath: dbURL.path) else {
-            throw ValidationError("找不到 zotero.sqlite：\(displaySafeInvisible(dbURL.path, max: 300))")
+            throw RuntimeFailure.state("找不到 zotero.sqlite：\(displaySafeInvisible(dbURL.path, max: 300))")
         }
         let report = try ZoteroImporter(store: store).run(zoteroDB: dbURL, libraryID: libraryId)
         print("created: \(report.created.count)")
@@ -375,7 +375,7 @@ struct Migrate: ParsableCommand {
                 print("  index rebuilt: \(stats.entries) entries → \(store.indexURL.path)")
             }
         } catch {
-            throw ValidationError(displaySafeErrorText(error))
+            throw RuntimeFailure.state(displaySafeErrorText(error))
         }
     }
 }
@@ -1190,7 +1190,7 @@ struct ResolveOrganizations: ParsableCommand {
         // （reject 不是套用）。寫入落被判定的 organization，per-item 收容同 apply。
         if reject {
             if candidates.isEmpty {
-                throw ValidationError("--holder / --org 的篩選條件沒有命中任何候選"
+                throw RuntimeFailure.state("--holder / --org 的篩選條件沒有命中任何候選"
                     + "（共 \(all.count) 個候選）——先不帶 --reject 列出候選確認 key")
             }
             let orgByKey = Dictionary(load.organizations.map { ($0.key, $0) },
@@ -1262,7 +1262,7 @@ struct ResolveOrganizations: ParsableCommand {
         }
         if apply {
             if !(holder.isEmpty && org.isEmpty), candidates.isEmpty {
-                throw ValidationError("--holder / --org 的篩選條件沒有命中任何候選")
+                throw RuntimeFailure.state("--holder / --org 的篩選條件沒有命中任何候選")
             }
             // #154 verify 154-8：per-item 收容 + 先報告再 rebuild + `✓` 只在全綠。
             //
@@ -1472,7 +1472,7 @@ struct ExportTables: ParsableCommand {
         if let viewKey = view {
             let config = try AkashicConfig.read(from: AkashicHome.configURL())
             guard let def = config.views[viewKey] else {
-                throw ValidationError("config.yaml 沒有 view「\(displaySafeInvisible(viewKey, max: 200))」"
+                throw RuntimeFailure.state("config.yaml 沒有 view「\(displaySafeInvisible(viewKey, max: 200))」"
                                       + "（`akashic view list` 看有哪些）")
             }
             let ext = def.extension_(in: load)
@@ -1536,7 +1536,7 @@ struct ExportBib: ParsableCommand {
             let missing = wanted.subtracting(entries.map(\.citekey))
             guard missing.isEmpty else {
                 let shown = missing.sorted()   // 逐筆列、有筆數上限（R30；R29 verify 第 30 列：整串截 400 把「哪些不存在」截掉）
-                throw ValidationError("citekeys 不存在：\(shown.prefix(40).map { displaySafeInvisible($0, max: 120) }.joined(separator: ", "))"
+                throw RuntimeFailure.state("citekeys 不存在：\(shown.prefix(40).map { displaySafeInvisible($0, max: 120) }.joined(separator: ", "))"
                                       + (shown.count > 40 ? "（另 \(shown.count - 40) 筆）" : ""))   // display-safe-exempt: Int
             }
         }
@@ -1983,7 +1983,7 @@ struct ResolvePeople: ParsableCommand {
            applySet.contains(where: { $0.tier != .exact }) {
             let breakdown = Dictionary(grouping: applySet, by: \.tier)
                 .map { "\($0.key.rawValue) \($0.value.count)" }.sorted().joined(separator: "、")   // display-safe-exempt: $0.key 是封閉 enum ResolutionTier，rawValue 是程式字面量；count 是數量
-            throw ValidationError(
+            throw RuntimeFailure.state(
                 "--apply 拒絕：套用集含寬鬆提名層（\(breakdown)）。"
                 + "寬鬆層一律要 --tier 具名——用 --tier exact 只套完全命中，"
                 + "或顯式列出要套的層（--tier reorder 等；initials 層 apply 前必查證）。"
@@ -2218,7 +2218,7 @@ struct ResolvePeople: ParsableCommand {
             // 篩選條件寫了卻一個都沒中——多半是打錯 key，別靜默什麼都不做。
             // R4-8：--tier 也算篩選條件（R3 抓到 --tier reorder 零命中印 ✓ exit 0）
             if !(citekey.isEmpty && person.isEmpty && tier.isEmpty), candidates.isEmpty {
-                throw ValidationError(
+                throw RuntimeFailure.state(
                     "--citekey / --person / --tier 的篩選條件沒有命中任何候選"
                     + "（共 \(all.count) 個候選）——請對照上面的清單確認 key 是否正確")
             }
@@ -2244,7 +2244,7 @@ struct ResolvePeople: ParsableCommand {
                 print("  → 有了新證據就逐筆送：resolve-people --judge <citekey:authorIndex:personKey>=理由，或 --refute；查了什麼見 akashic person <key>（#619）")
             }
             if applySet.isEmpty {
-                throw ValidationError(
+                throw RuntimeFailure.state(
                     "套用集沒有可套用的候選（淘汰而得 \(eliminatedSkipped.count) 筆、citekey 重複或共用 id \(duplicateSkipped.count) 筆、查過未決 \(undecidedSkipped.count) 筆），不寫入——"
                     + "淘汰而得與查過未決的要逐筆 --judge <citekey:authorIndex:personKey>=理由；citekey 重複或共用 id 的先修正")
             }

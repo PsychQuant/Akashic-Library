@@ -80,7 +80,7 @@ struct DivergencesCmd: ParsableCommand {
                 as? [String: Any],
               let count = obj["count"] as? Int,
               let items = obj["divergences"] as? [[String: Any]] else {
-            throw ValidationError("service 回應不是預期形狀")
+            throw RuntimeFailure.state("service 回應不是預期形狀")
         }
         // **空集合要說出來**（entity-backlink 執行細節 4）：「零筆未決」是結果不是錯誤
         guard count > 0 else {

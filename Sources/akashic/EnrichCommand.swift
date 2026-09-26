@@ -41,14 +41,14 @@ struct EnrichCmd: ParsableCommand {
 
         let url = URL(fileURLWithPath: (from as NSString).expandingTildeInPath)
         guard FileManager.default.fileExists(atPath: url.path) else {
-            throw ValidationError("找不到提案檔：\(displaySafeInvisible(url.path, max: 300))")
+            throw RuntimeFailure.state("找不到提案檔：\(displaySafeInvisible(url.path, max: 300))")
         }
         let proposals: [AddOnlyEnrichment.Proposal]
         do {
             proposals = try AddOnlyEnrichment.decodeProposals(from: try Data(contentsOf: url))
         } catch let e as AddOnlyEnrichment.InputError {
             // 訊息含檔案裡的鍵名＝未信任字串
-            throw ValidationError(displaySafeInvisible(e.description, max: 400))
+            throw RuntimeFailure.state(displaySafeInvisible(e.description, max: 400))
         }
 
         // **`key:` 必帶**（#220 HIGH）：漏掉會讓已註冊的 store 被當成 keyless 而長出第二份 index。
@@ -60,7 +60,7 @@ struct EnrichCmd: ParsableCommand {
             payload = try service.enrich(proposals: proposals, dryRun: !apply,
                                          includeAbsentAuthors: includeAbsentAuthors, itemLimit: nil)
         } catch let e as ServiceError {
-            throw ValidationError(displaySafeErrorText(e))   // display-safe-exempt: 逃一次不截——CLI 頂層 sink（displaySafeAssembled）截一次（R30 D82；R29 這裡先截 400、頂層再截 400）
+            throw RuntimeFailure.state(displaySafeErrorText(e))   // display-safe-exempt: 逃一次不截——CLI 頂層 sink（displaySafeAssembled）截一次（R30 D82；R29 這裡先截 400、頂層再截 400）
         }
 
         if json {

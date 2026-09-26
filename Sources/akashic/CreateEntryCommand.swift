@@ -55,7 +55,7 @@ struct CreateEntryCmd: ParsableCommand {
             raw = FileHandle.standardInput.readDataToEndOfFile()
         }
         guard let text = String(data: raw, encoding: .utf8) else {
-            throw ValidationError("輸入不是合法的 UTF-8")
+            throw RuntimeFailure.state("輸入不是合法的 UTF-8")
         }
 
         let drafts: [EntryDraft]
@@ -79,7 +79,7 @@ struct CreateEntryCmd: ParsableCommand {
         guard !drafts.isEmpty else {
             // **零筆不得靜默。**「解析成功但一筆都沒有」與「格式沒被辨識」是兩件事，
             // 而使用者從 exit 0 + 無輸出分不出來（同 import-wos 的既有立場）。
-            throw ValidationError("解析出 0 筆——確認 --format \(format.rawValue) 與輸入相符")
+            throw RuntimeFailure.state("解析出 0 筆——確認 --format \(format.rawValue) 與輸入相符")
         }
 
         if dryRun {
@@ -132,12 +132,12 @@ struct CreateEntryCmd: ParsableCommand {
         let objects: [[String: Any]]
         if let one = parsed as? [String: Any] { objects = [one] }
         else if let many = parsed as? [[String: Any]] { objects = many }
-        else { throw ValidationError("JSON 必須是 object 或 object 陣列") }
+        else { throw RuntimeFailure.state("JSON 必須是 object 或 object 陣列") }
 
         return try objects.map { o in
             guard let type = o["type"] as? String, !type.isEmpty,
                   let title = o["title"] as? String, !title.isEmpty else {
-                throw ValidationError("每筆都必須有非空的 type 與 title")
+                throw RuntimeFailure.state("每筆都必須有非空的 type 與 title")
             }
             // **形狀不符一律報錯，不靜默降級**（#206 verify C2）。
             //
@@ -152,7 +152,7 @@ struct CreateEntryCmd: ParsableCommand {
             var fields: [String: String] = [:]
             if let f = o["fields"] {
                 guard let dict = f as? [String: Any] else {
-                    throw ValidationError("「\(displaySafeInvisible(title, max: 120))」的 fields 必須是 object，實際是 \(Self.shapeName(f))")
+                    throw RuntimeFailure.state("「\(displaySafeInvisible(title, max: 120))」的 fields 必須是 object，實際是 \(Self.shapeName(f))")
                 }
                 for (k, v) in dict {
                     // **JSON null 跳過，不寫成 "<null>"**（verify M5）。來源說「沒有值」，
@@ -169,7 +169,7 @@ struct CreateEntryCmd: ParsableCommand {
                     // 巢狀 object／array：`String(describing:)` 會產出
                     // `{\n a = 1;\n}` 這種 NSDictionary dump——技術上「沒丟」，
                     // 實際不可讀也不可還原。報錯讓使用者自己決定要攤平成什麼。
-                    throw ValidationError(
+                    throw RuntimeFailure.state(
                         "「\(displaySafeInvisible(title, max: 120))」的欄位 \(displaySafeInvisible(k, max: 120)) 是 \(Self.shapeName(v))，"
                         + "無法無損轉成字串——請先在來源攤平成純量")
                 }
@@ -180,12 +180,12 @@ struct CreateEntryCmd: ParsableCommand {
             func idList(_ key: String) throws -> [String] {
                 guard let raw = o[key] else { return [] }
                 guard let arr = raw as? [Any] else {
-                    throw ValidationError(
+                    throw RuntimeFailure.state(
                         "「\(displaySafeInvisible(title, max: 120))」的 \(displaySafeInvisible(key, max: 200)) 必須是陣列，實際是 \(Self.shapeName(raw))")
                 }
                 return try arr.map { el in
                     guard let s = el as? String else {
-                        throw ValidationError(
+                        throw RuntimeFailure.state(
                             "「\(displaySafeInvisible(title, max: 120))」的 \(displaySafeInvisible(key, max: 200)) 含非字串元素（\(Self.shapeName(el))）")
                     }
                     return s
@@ -198,11 +198,11 @@ struct CreateEntryCmd: ParsableCommand {
             var authors: [String] = []
             if let a = o["authors"] {
                 guard let arr = a as? [Any] else {
-                    throw ValidationError("「\(displaySafeInvisible(title, max: 120))」的 authors 必須是陣列，實際是 \(Self.shapeName(a))")
+                    throw RuntimeFailure.state("「\(displaySafeInvisible(title, max: 120))」的 authors 必須是陣列，實際是 \(Self.shapeName(a))")
                 }
                 for el in arr {
                     guard let s = el as? String else {
-                        throw ValidationError(
+                        throw RuntimeFailure.state(
                             "「\(displaySafeInvisible(title, max: 120))」的 authors 含非字串元素（\(Self.shapeName(el))）。"
                             + "作者一律用顯示名字串；CSL-JSON 的 {family,given} 物件請先合併成一個字串")
                     }
@@ -213,7 +213,7 @@ struct CreateEntryCmd: ParsableCommand {
             if let d = o["date"], !(d is NSNull) {
                 if let s = d as? String { date = s }
                 else if let n = d as? NSNumber { date = n.stringValue }   // "date": 2025 很常見
-                else { throw ValidationError("「\(displaySafeInvisible(title, max: 120))」的 date 必須是字串或數字，實際是 \(Self.shapeName(d))") }
+                else { throw RuntimeFailure.state("「\(displaySafeInvisible(title, max: 120))」的 date 必須是字串或數字，實際是 \(Self.shapeName(d))") }
             }
             return EntryDraft(type: type, title: title, authors: authors,
                               date: date, fields: fields,
@@ -261,7 +261,7 @@ struct CreateEntryCmd: ParsableCommand {
             if depth == 0 { startLine = nil }
         }
         guard depth == 0, startLine == nil else {
-            throw ValidationError(
+            throw RuntimeFailure.state(
                 "第 \(startLine.map(String.init) ?? "?") 行起的 entry"
                 + "「\(displaySafeInvisible(startKey, max: 80))」大括號未閉合——"
                 + "檔案可能被截斷。**拒絕整份匯入**：半筆記錄會讓「這筆只有幾個欄位」"

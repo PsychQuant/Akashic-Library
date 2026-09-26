@@ -1524,4 +1524,17 @@ final class ReferencesExtractTests: XCTestCase {
         XCTAssertEqual(status, 0, output)
         XCTAssertEqual(try decode(output).entries.map(\.firstAuthor), ["Adams", "Baker", "Carter", "Dunn", "Evans", "Fisher"])
     }
+
+    /// T79：年份放在條目最後、後面接著下一筆標籤的書目（`… Journal, 3, 5–6 (2003).` ＋ `[Du04]`），
+    /// 頁首之後的第一筆仍是完整條目——實在的字在姓名與年份之間，不在年份之後（R9 修正輪自己的迴歸：
+    /// 只看年份之後，本機一本這種書從 86 筆掉到 33 筆、清單在每一頁的頁首斷開）
+    func testYearAtTheEndStyleIsNotATableRow() throws {
+        let text = "References\n\nAdams, J. First title. Journal A, 1, 1–2 (2001).\n[Ba02]\n"
+            + "Baker, L. Second title. Journal B, 2, 3–4 (2002).\n[Ca03]\n\u{0C}References\n"
+            + "Carter, M. Third title. Journal C, 3, 5–6 (2003).\n[Du04]\n"
+            + "Dunn, P. Fourth title. Journal D, 4, 7–8 (2004).\n"
+        let (status, output) = try extract(text)
+        XCTAssertEqual(status, 0, output)
+        XCTAssertEqual(try decode(output).entries.map(\.firstAuthor), ["Adams", "Baker", "Carter", "Dunn"])
+    }
 }

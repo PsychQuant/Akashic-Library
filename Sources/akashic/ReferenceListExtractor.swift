@@ -644,17 +644,26 @@ enum ReferenceListExtractor {
         guard let m = firstMatch(text, "([({](?:\\d{4}[a-z]?|n\\.\\s?d\\.|in press|in preparation|submitted|forthcoming)[^(){}]{0,40}[)}])"
                                      + "(?:[.:,]\\s*[\\p{L}\\d\"“‘'\\[]|\\s+[\"“‘'\\[]|\\s+\\p{L}[\\p{L}'’\\-]*(?:[.:,]|\\s+[\\p{L}\"“‘'\\[]))",
                                  caseInsensitive: true) else { return false }
-        // 表格列：年份之後**完全沒有實在的字**——四個字母以上、不是縮寫，或是漢字、假名、韓文。真條目的
-        // 標題或期刊名幾乎一定有這種字；`(2003) USA, 120, .35`、`(2003). 150 .40`、`(2003). Vol. 12,
-        // 45-67, .35`、`(2005) U.S.A. 120 .35` 沒有。
+        // 表格列：姓名**緊接**年份、年份之後**完全沒有實在的字**——四個字母以上、不是縮寫，或是漢字、
+        // 假名、韓文。真條目的標題或期刊名幾乎一定有這種字；`(2003) USA, 120, .35`、`(2003). 150 .40`、
+        // `(2003). Vol. 12, 45-67, .35`、`(2005) U.S.A. 120 .35` 沒有。年份放在最後的書目（`Adams, J.
+        // Title. Journal, 1, 1–2 (2001).` ＋ 下一筆的標籤）實在的字在姓名與年份之間——R9 修正輪只看年份之後，
+        // 本機一本這種書從 86 筆掉到 33 筆，清單在每一頁的頁首斷開。
         //
         // 為什麼不數「數字是否多於字詞」：R6–R8 三輪都用它，每一輪都在界定「標題段在哪裡結束」時往一邊
         // 壞——R6 把短標題、多頁碼的真條目當成表格列，R7 讓縮寫開頭的表格列過關，R8 又讓以 `U.K.` 結尾
         // 的真標題數進卷期頁（R7 #0、R8 #0、R9 #0）。兩種錯的代價不對稱：多收一列表格只多一筆「只在 PDF」
         // 的條目；把真條目判成表格列，斷點之後的清單會無聲消失。所以這一條寧可多收：只擋一個實在的字
         // 都沒有的列，字詞多的表格列（`(2003) Total 120 .35`）寫進 SKILL 的〈已知限制〉
+        let ns = text as NSString
         let bracket = m.range(at: 1)
-        return (text as NSString).substring(from: bracket.location + bracket.length)
+        if ns.substring(from: bracket.location + bracket.length).split(separator: " ").contains(where: isSubstantiveWord) {
+            return true
+        }
+        // 姓名（`姓, 名縮寫.`）之後、年份之前：共同作者的姓也算——多作者的表格列因此會被收進來，寧可多收
+        let nameEnd = firstMatch(text, personNamePattern).map { $0.range.location + $0.range.length } ?? bracket.location
+        guard nameEnd < bracket.location else { return false }
+        return ns.substring(with: NSRange(location: nameEnd, length: bracket.location - nameEnd))
             .split(separator: " ").contains(where: isSubstantiveWord)
     }
 

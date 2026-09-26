@@ -730,7 +730,7 @@ final class VenueServiceTests: XCTestCase {
     /// 並為 person 域提供了退路；venue 域缺這一格。
     func testRepointMovesAKeyedEdgeToAnotherVenue() throws {
         _ = try twoVenuesAndAnEntry()
-        let d = try json(try service.resolveVenues(apply: nil, reject: nil,
+        let d = try json(try service.committed(root).resolveVenues(apply: nil, reject: nil,
                                                    repoint: ["w2020:0:wikipedia-zh"]))
         XCTAssertEqual(d["entriesRewritten"] as? Int, 1)
         let after = try store.load().entries.first { $0.citekey == "w2020" }
@@ -741,7 +741,7 @@ final class VenueServiceTests: XCTestCase {
     /// （`identity-is-judged-not-matched`：判定要留 verdict、要可回溯與逆轉）。
     func testRepointWritesVerdictsOnBothVenues() throws {
         _ = try twoVenuesAndAnEntry()
-        _ = try service.resolveVenues(apply: nil, reject: nil, repoint: ["w2020:0:wikipedia-zh"])
+        _ = try service.committed(root).resolveVenues(apply: nil, reject: nil, repoint: ["w2020:0:wikipedia-zh"])
         let venues = try store.load().venues
         let old = try XCTUnwrap(venues.first { $0.key == "wikipedia" })
         let new = try XCTUnwrap(venues.first { $0.key == "wikipedia-zh" })
@@ -799,7 +799,7 @@ final class VenueServiceTests: XCTestCase {
         XCTAssertEqual(try store.load().entries.first { $0.citekey == "x2020" }?.venues,
                        [.key("psychometrika")], "前提：已升格")
 
-        let d = try json(try service.resolveVenues(apply: nil, reject: nil, demote: ["x2020:0"]))
+        let d = try json(try service.committed(root).resolveVenues(apply: nil, reject: nil, demote: ["x2020:0"]))
         XCTAssertEqual(d["entriesRewritten"] as? Int, 1)
         XCTAssertEqual(try store.load().entries.first { $0.citekey == "x2020" }?.venues,
                        [.literal("PSYCHOMETRIKA")],
@@ -815,7 +815,7 @@ final class VenueServiceTests: XCTestCase {
         e.venues = [.literal("PSYCHOMETRIKA")]
         _ = try store.writeEntry(e)
         _ = try service.resolveVenues(apply: ["x2020:0"], reject: nil)
-        _ = try service.resolveVenues(apply: nil, reject: nil, demote: ["x2020:0"])
+        _ = try service.committed(root).resolveVenues(apply: nil, reject: nil, demote: ["x2020:0"])
         let v = try XCTUnwrap(try store.load().venues.first { $0.key == "psychometrika" })
         XCTAssertTrue(v.references.contains { $0.field == "resolution-rejected" },
                       "降格要留 rejected：\(v.references)")

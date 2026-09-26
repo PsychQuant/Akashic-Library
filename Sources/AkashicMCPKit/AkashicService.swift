@@ -4074,9 +4074,12 @@ public final class AkashicService {
     /// venue 消歧（resolve-people 契約形，#304）：無參數＝列候選與歧義；
     /// apply＝literal 升格 key＋confirmed verdict；reject＝rejected verdict；
     /// apply+reject 同呼叫＝兩段式（reject 先完整提交，apply 以新快照重解析）。
+    /// `retiredLimit`：`verdictsRetired` 列幾筆（#573）。MCP 面傳 `retiredItemsCap`（輸出進 LLM context）；CLI 面傳 nil＝全列——
+    /// 操作者要能列舉每一筆被刪掉的判定，截斷的理由對終端機不成立（同 `validate` 對 MCP 截斷、CLI 全列的既有分工）。
     public func resolveVenues(apply: [String]?, reject: [String]? = nil,
                               repoint: [String]? = nil, demote: [String]? = nil,
-                              undecided: [String]? = nil, restsOn: [String]? = nil) throws -> String {
+                              undecided: [String]? = nil, restsOn: [String]? = nil,
+                              retiredLimit: Int? = AkashicService.retiredItemsCap) throws -> String {
         // change `resolution-verdict-states`（#619）：未決腿單獨呼叫；rests_on 只伴隨它
         let present = { (x: [String]?) in !(x ?? []).isEmpty }
         if present(restsOn) && !present(undecided) {
@@ -4095,7 +4098,7 @@ public final class AkashicService {
         // 狀態**不是壞掉的 key，所以「退回誠實狀態」必須是可能的，否則「誤可逆」
         // 這個承諾只兌現了一半。
         if let dm = demote, !dm.isEmpty {
-            return try demoteVenues(dm)
+            return try demoteVenues(dm, retiredLimit: retiredLimit)
         }
         // **改指：歸錯戶的退路**（#418）。`apply` 只做 literal → key 的升格，所以一條
         // 已經是 key 的邊在此之前**改不回來**——person 域有 `resolve-divergence`，
@@ -4107,7 +4110,7 @@ public final class AkashicService {
         // **失敗語意分兩類，與 `judge` 同**（#386）：輸入語法錯或前提不符 → **整批拒絕、
         // 零寫入**（下面先全部解析完才動手）；成功則兩側都留 verdict。
         if let rp = repoint, !rp.isEmpty {
-            return try repointVenues(rp)
+            return try repointVenues(rp, retiredLimit: retiredLimit)
         }
         if let ap = apply, !ap.isEmpty, let rj = reject, !rj.isEmpty {
             func parsed(_ s: String) throws -> [String: Any] {
@@ -4351,7 +4354,7 @@ public final class AkashicService {
     /// **先全部解析、再一次寫入**：任何一筆前提不符就整批拒絕、零寫入。部分寫入會讓
     /// 使用者面對一個「有些改了有些沒改」的中間態，而那正是改指這種操作最不該有的
     /// ——它本來就是在修一個錯誤歸戶。
-    private func repointVenues(_ ids: [String]) throws -> String {
+    private func repointVenues(_ ids: [String], retiredLimit: Int?) throws -> String {
         let load = try store.load()
         let storeFormat = (try? StoreVersion.read(root: store.root)) ?? 1
         guard storeFormat >= 11 else {
@@ -4428,7 +4431,7 @@ public final class AkashicService {
             return try jsonString((["repointed": [String](), "entriesRewritten": 0,
                                     "venuesRewritten": 0,
                                     "note": "沒有實際變更（改指到自己是 no-op）"] as [String: Any])
-                                  .merging(Self.retiredPayload([])) { a, _ in a })
+                                  .merging(Self.retiredPayload([], limit: retiredLimit)) { a, _ in a })
         }
 
         // **D27：配對的唯一性對改指之後的邊集合驗，且同一批裡同一 work 的兩個 move 不得帶同一個 literal**（R10 verify logic 第 2 列
@@ -4479,22 +4482,27 @@ public final class AkashicService {
         // venue 的變更先算、先過閘，entry 之後才落盤（D11，理由見 apply 那段）。
         var venuesByKey = Dictionary(load.venues.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
         var retired: [String] = []
+        var retiredOn: Set<String> = []   // #573：哪些 venue 檔會刪掉判定記錄
         for m in moves {
             let literal = m.literal
             if var to = venuesByKey[m.to] {
-                retired += ResolutionLedger.supersede(ResolutionLedger.record(
+                let gone = ResolutionLedger.supersede(ResolutionLedger.record(
                     .confirmed, holderKind: .work, holder: m.citekey, literal: literal,
                     rule: ResolutionLedger.venueRule,
                     statement: "resolve repoint：由「\(displaySafe(m.from, max: 120))」改指而來，使用者裁定"),
-                    in: &to.references).retired.map { Self.describeRetired($0, on: m.to) }
+                    in: &to.references).retired
+                if !gone.isEmpty { retiredOn.insert(m.to) }
+                retired += gone.map { Self.describeRetired($0, on: m.to) }
                 venuesByKey[m.to] = to
             }
             if var from = venuesByKey[m.from] {
-                retired += ResolutionLedger.supersede(ResolutionLedger.record(
+                let gone = ResolutionLedger.supersede(ResolutionLedger.record(
                     .rejected, holderKind: .work, holder: m.citekey, literal: literal,
                     rule: ResolutionLedger.venueRule,
                     statement: "resolve repoint：改指到「\(displaySafe(m.to, max: 120))」，此配對經裁定為誤"),
-                    in: &from.references).retired.map { Self.describeRetired($0, on: m.from) }
+                    in: &from.references).retired
+                if !gone.isEmpty { retiredOn.insert(m.from) }
+                retired += gone.map { Self.describeRetired($0, on: m.from) }
                 venuesByKey[m.from] = from
             }
         }
@@ -4512,6 +4520,7 @@ public final class AkashicService {
             }
         }
         let changedVenues = Set(moves.flatMap { [$0.from, $0.to] })
+        try assertRetiredVerdictsRecoverable(retiredOn.sorted().compactMap { k in load.venues.first { $0.key == k } }, count: retired.count)
         for k in changedVenues.sorted() { try LibraryStore.assertVenueWritable(venuesByKey[k]!, format: storeFormat) }
         for ck in touched.sorted() { try store.writeEntry(byCitekey[ck]!) }
         for k in changedVenues.sorted() { try store.writeVenue(venuesByKey[k]!) }
@@ -4520,7 +4529,29 @@ public final class AkashicService {
             "repointed": moves.map { "\(displaySafe($0.citekey, max: 200)):\($0.index):\(displaySafe($0.to, max: 200))" },
             "entriesRewritten": touched.count,        // display-safe-exempt: Int
             "venuesRewritten": changedVenues.count,   // display-safe-exempt: Int
-        ] as [String: Any]).merging(Self.retiredPayload(retired)) { a, _ in a })
+        ] as [String: Any]).merging(Self.retiredPayload(retired, limit: retiredLimit)) { a, _ in a })
+    }
+
+    /// **判定記錄被刪之前，那個檔要在 git 裡有副本**（#573，使用者 2026-09-27 裁決）。`supersede` 退役的是人的判斷，doc 與兩面描述
+    /// 都說「歷史留在 git」——但先前沒有任何東西確認 git 在：campaign 的常態節奏（apply 很多筆再一次 commit）正是最常沒 commit 的
+    /// 時候。與 `resolve-divergence` 同一支檢查（`LibraryStore.filesNotSafelyRecoverable`：tracked、clean、HEAD 可解析、無 index 位元）。
+    /// 只在**真的會退役判定**時跑——沒有相反判定可刪的 repoint／demote 不受影響。整批拒絕、零寫入。
+    private func assertRetiredVerdictsRecoverable(_ venues: [Venue], count: Int) throws {
+        guard !venues.isEmpty else { return }
+        // 先分辨「不在 git 裡」——否則下面那支檢查對非工作樹回的是「無法執行 git」，指錯原因
+        guard LibraryStore.isInsideVersionedWorkTree(store.root) else {
+            throw ServiceError.invalid(
+                "這次會刪掉 \(count) 筆判定記錄（相反的 confirmed／rejected），而 store 不在 git 工作樹裡——被刪的判定不會留下任何副本。"   // display-safe-exempt: Int
+                + "把 store 放進 git 並 commit 後再跑（#573）；整批拒絕、零寫入")
+        }
+        let bad = LibraryStore.filesNotSafelyRecoverable(
+            root: store.root, relativePaths: venues.map { "entities/\($0.id.uuidString).yaml" })
+        guard !bad.isEmpty else { return }
+        let keyByPath = Dictionary(venues.map { ("entities/\($0.id.uuidString).yaml", $0.key) }, uniquingKeysWith: { a, _ in a })
+        let lines = Self.listCapped(bad.map { "venue「\(displaySafeInvisible(keyByPath[$0.path] ?? $0.path, max: 200))」：\($0.why)" }) { $0 }
+        throw ServiceError.invalid(
+            "這次會刪掉 \(count) 筆判定記錄（相反的 confirmed／rejected），而它們的唯一副本會是 git——下列 venue 檔不能確認可回溯："   // display-safe-exempt: Int
+            + lines + "。先 commit 再跑（#573）；整批拒絕、零寫入")   // display-safe-exempt: lines 由 listCapped 逐項 displaySafeInvisible 組成；why 是本 package 的固定句
     }
 
     /// `verdictsRetired` 的上限與揭露（R10 verify security 第 16 列、regression 第 19 列；Claude 代裁 D30）：它是 repoint／demote
@@ -4529,11 +4560,12 @@ public final class AkashicService {
     /// （`mcp-cli-parity` 對 `--rows` 的論證）。`akashic_enrich` 的既有形：截 20 筆、總數與 `truncated` 揭露。CLI 面回同一個 payload
     /// （寫入面封閉例外），所以兩面同截。**它迴送 store 字串**（verdict 的 value 是原始匯入的刊名、statement 是判定文字）而輸出閘
     /// `displaySafe` 對 Cf 字元的逃脫仍是列舉——#569 的迴送點 4 → 6，那裡另裁。
-    static let retiredItemsCap = 20
-    static func retiredPayload(_ retired: [String]) -> [String: Any] {
-        ["verdictsRetired": Array(retired.prefix(retiredItemsCap)),   // display-safe-exempt: describeRetired 已逐項過 displaySafe
-         "verdictsRetiredTotal": retired.count,                       // display-safe-exempt: Int
-         "truncated": retired.count > retiredItemsCap]                // display-safe-exempt: Bool
+    public static let retiredItemsCap = 20
+    static func retiredPayload(_ retired: [String], limit: Int?) -> [String: Any] {
+        let shown = limit.map { Array(retired.prefix($0)) } ?? retired
+        return ["verdictsRetired": shown,                            // display-safe-exempt: describeRetired 已逐項過 displaySafe
+                "verdictsRetiredTotal": retired.count,               // display-safe-exempt: Int
+                "truncated": shown.count < retired.count]            // display-safe-exempt: Bool
     }
 
     /// **`repoint` 不得讓被動到的邊與本 work 另一條邊指同一 venue**（D27；R10 verify logic 第 2 列）——對**寫入後**的邊集合驗、
@@ -4701,7 +4733,7 @@ public final class AkashicService {
     /// **沒有 verdict 可依據時拒絕，不得拿顯示名頂替**：顯示名不是那筆記錄原本寫的字
     /// （實例：WoS 的 `PSYCHOMETRIKA` vs 正式刊名 `Psychometrika`），用它會安靜改寫
     /// 書目資料——那正是 `lossless-intake` 在防的。
-    private func demoteVenues(_ ids: [String]) throws -> String {
+    private func demoteVenues(_ ids: [String], retiredLimit: Int?) throws -> String {
         let load = try store.load()
         let storeFormat = (try? StoreVersion.read(root: store.root)) ?? 1
         guard storeFormat >= 11 else {
@@ -4762,16 +4794,19 @@ public final class AkashicService {
         // **同時退役那個配對的 confirmed**（D20）：它正是剛被裁定為誤的那筆，留著是 #486 的矛盾對。
         // venue 的變更先算、先過閘，entry 之後才落盤（D11，理由見 apply 那段）。
         var retired: [String] = []
+        var retiredOn: Set<String> = []   // #573
         for d in plan {
             guard var v = venuesByKey[d.venueKey] else { continue }
-            retired += ResolutionLedger.supersede(ResolutionLedger.record(
+            let gone = ResolutionLedger.supersede(ResolutionLedger.record(
                 .rejected, holderKind: .work, holder: d.citekey, literal: d.literal,
                 rule: ResolutionLedger.venueRule,
                 statement: "resolve demote：退回 literal，此配對經裁定為誤"), in: &v.references).retired
-                .map { Self.describeRetired($0, on: d.venueKey) }
+            if !gone.isEmpty { retiredOn.insert(d.venueKey) }
+            retired += gone.map { Self.describeRetired($0, on: d.venueKey) }
             venuesByKey[d.venueKey] = v
         }
         let changedVenues = Set(plan.map(\.venueKey))
+        try assertRetiredVerdictsRecoverable(retiredOn.sorted().compactMap { k in load.venues.first { $0.key == k } }, count: retired.count)
         for k in changedVenues.sorted() { try LibraryStore.assertVenueWritable(venuesByKey[k]!, format: storeFormat) }
         for ck in touched.sorted() { try store.writeEntry(byCitekey[ck]!) }
         for k in changedVenues.sorted() { try store.writeVenue(venuesByKey[k]!) }
@@ -4780,7 +4815,7 @@ public final class AkashicService {
             "demoted": plan.map { "\(displaySafe($0.citekey, max: 200)):\($0.index)" },
             "entriesRewritten": touched.count,        // display-safe-exempt: Int
             "venuesRewritten": changedVenues.count,   // display-safe-exempt: Int
-        ] as [String: Any]).merging(Self.retiredPayload(retired)) { a, _ in a })
+        ] as [String: Any]).merging(Self.retiredPayload(retired, limit: retiredLimit)) { a, _ in a })
     }
 
     // MARK: - Organization MCP 面（#304 parity 移轉）

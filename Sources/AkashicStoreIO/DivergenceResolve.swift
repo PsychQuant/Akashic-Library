@@ -3177,7 +3177,7 @@ extension LibraryStore {
     ///
     /// **已量測、不是邊界**（R4；R3 verify 第 23 列）：兩個查詢都帶 `-z`，`core.quotePath` 對它們**沒有作用**（實測含非 ASCII 路徑）；顯式
     /// `--relative` 勝過 `diff.relative=false`。**仍是邊界的**：`PATH`（見 `scrubbedGitEnvironment`）。
-    static func filesNotSafelyRecoverable(root: URL,
+    public static func filesNotSafelyRecoverable(root: URL,
                                           relativePaths: [String]) -> [(path: String, why: String)] {
         // **不存在的檔案跳過。** 它不可能被「不可回復地刪除」——刪除迴圈對它是
         // no-op。更重要的是不搶戲：候選住在 legacy 目錄時 `entities/<uuid>.yaml`
@@ -3306,7 +3306,7 @@ extension LibraryStore {
     /// `/..`，再一次得 `/../..`，路徑無限成長。第一版就是這樣寫的，測試跑成 88% CPU
     /// 加 29 GB RSS 的失控迴圈。`NSString` 的同名操作在 `/` 會回傳 `/`，加上明寫的
     /// 根目錄出口，兩道保險。
-    static func isInsideVersionedWorkTree(_ root: URL) -> Bool {
+    public static func isInsideVersionedWorkTree(_ root: URL) -> Bool {
         var path = root.resolvingSymlinksInPath().standardizedFileURL.path
         while true {
             let candidate = path.hasSuffix("/") ? path + ".git" : path + "/.git"

@@ -654,7 +654,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         var e = Entry(id: UUID(), citekey: "x2025", type: .periodicalArticle, title: "T")
         e.venues = [.key("ghost-journal")]
         _ = try store.writeEntry(e)
-        XCTAssertThrowsError(try service.resolveVenues(apply: nil, repoint: ["x2025:0:some-journal"])) { err in
+        XCTAssertThrowsError(try service.committed(root).resolveVenues(apply: nil, repoint: ["x2025:0:some-journal"])) { err in
             let s = String(describing: err)
             XCTAssertTrue(s.contains("ghost-journal"), s)
             // 指路要指得到（R7 verify 第 4 列）：`--demote` 對同一個懸空狀態也是 notFound，唯一的出路是救回檔案或手改 work 的 YAML
@@ -674,7 +674,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         _ = try store.writeEntry(e)
         _ = try service.resolveVenues(apply: ["x2025:0"])
         _ = try service.addVenue(key: "other-journal", names: ["Other Journal"], type: "periodical", note: nil, issn: nil)
-        _ = try service.resolveVenues(apply: nil, repoint: ["x2025:0:other-journal"])
+        _ = try service.committed(root).resolveVenues(apply: nil, repoint: ["x2025:0:other-journal"])
         let after = try store.load()
         let to = try XCTUnwrap(after.venues.first { $0.key == "other-journal" })
         let vs = ResolutionLedger.verdicts(references: to.references).0
@@ -684,7 +684,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         let fvs = ResolutionLedger.verdicts(references: from.references).0
         let rejected = fvs.filter { $0.kind == .rejected }.filter { $0.holder == "x2025" }
         XCTAssertEqual(rejected.map(\.literal), ["Psychometrika"])
-        _ = try service.resolveVenues(apply: nil, demote: ["x2025:0"])
+        _ = try service.committed(root).resolveVenues(apply: nil, demote: ["x2025:0"])
         XCTAssertEqual(try store.load().entries.first { $0.citekey == "x2025" }?.venues, [.literal("Psychometrika")])
     }
 
@@ -695,7 +695,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         e.venues = [.key("some-journal")]
         _ = try store.writeEntry(e)
         _ = try service.addVenue(key: "other-journal", names: ["Other Journal"], type: "periodical", note: nil, issn: nil)
-        XCTAssertThrowsError(try service.resolveVenues(apply: nil, repoint: ["x2025:0:other-journal"])) { err in
+        XCTAssertThrowsError(try service.committed(root).resolveVenues(apply: nil, repoint: ["x2025:0:other-journal"])) { err in
             XCTAssertTrue(String(describing: err).contains("confirmed verdict"), "\(err)")
         }
         XCTAssertEqual(try store.load().entries.first { $0.citekey == "x2025" }?.venues, [.key("some-journal")], "零寫入")
@@ -713,7 +713,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         _ = try store.writeEntry(e)
         _ = try service.resolveVenues(apply: ["x2025:0"])
         _ = try service.addVenue(key: "other-journal", names: ["Other Journal"], type: "periodical", note: nil, issn: nil)
-        let out = try service.resolveVenues(apply: nil, repoint: ["x2025:0:other-journal"])
+        let out = try service.committed(root).resolveVenues(apply: nil, repoint: ["x2025:0:other-journal"])
         XCTAssertTrue(out.contains("\"verdictsRetired\""), "報告要說退役了幾筆：\(out)")
         func kinds(_ key: String) throws -> [ResolutionLedger.VerdictKind] {
             let v = try XCTUnwrap(store.load().venues.first { $0.key == key })
@@ -723,7 +723,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         XCTAssertEqual(try kinds("other-journal"), [.confirmed])
         XCTAssertTrue(store.contradictoryVerdictIssues(in: try store.load()).isEmpty, "#486 不得對合法的 repoint 出聲")
         // undo：改回去——to 上的舊 rejected 被退役，from 上的舊 confirmed 被退役
-        _ = try service.resolveVenues(apply: nil, repoint: ["x2025:0:some-journal"])
+        _ = try service.committed(root).resolveVenues(apply: nil, repoint: ["x2025:0:some-journal"])
         XCTAssertEqual(try kinds("some-journal"), [.confirmed])
         XCTAssertEqual(try kinds("other-journal"), [.rejected])
         XCTAssertTrue(store.contradictoryVerdictIssues(in: try store.load()).isEmpty)
@@ -736,7 +736,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         e.venues = [.literal("Psychometrika")]
         _ = try store.writeEntry(e)
         _ = try service.resolveVenues(apply: ["x2025:0"])
-        _ = try service.resolveVenues(apply: nil, demote: ["x2025:0"])
+        _ = try service.committed(root).resolveVenues(apply: nil, demote: ["x2025:0"])
         let v = try venue()
         let vs = ResolutionLedger.verdicts(references: v.references).0.filter { $0.holder == "x2025" }
         XCTAssertEqual(vs.map(\.kind), [.rejected])
@@ -765,12 +765,12 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         }
         try store.writeVenue(v0)
         _ = try service.addVenue(key: "other-journal", names: ["Other Journal"], type: "periodical", note: nil, issn: nil)
-        XCTAssertThrowsError(try service.resolveVenues(apply: nil, repoint: ["x2025:1:other-journal"])) { err in
+        XCTAssertThrowsError(try service.committed(root).resolveVenues(apply: nil, repoint: ["x2025:1:other-journal"])) { err in
             let s = String(describing: err)
             XCTAssertTrue(s.contains("「Psychometrika」") && s.contains("「Psychometrika Journal」"), "要列出兩個 literal：\(s)")
             XCTAssertTrue(s.contains("YAML"), "要說怎麼修：\(s)")
         }
-        XCTAssertThrowsError(try service.resolveVenues(apply: nil, demote: ["x2025:0"]))
+        XCTAssertThrowsError(try service.committed(root).resolveVenues(apply: nil, demote: ["x2025:0"]))
         let after = try store.load()
         XCTAssertEqual(after.entries.first?.venues, [.key("some-journal"), .key("some-journal")], "零寫入")
         let v = try XCTUnwrap(after.venues.first { $0.key == "some-journal" })
@@ -795,8 +795,8 @@ final class VenueAuthorizedWriteTests: XCTestCase {
                                                      rule: ResolutionLedger.venueRule, statement: "手改"))
         try store.writeVenue(v0)
         _ = try service.addVenue(key: "other-journal", names: ["Other Journal"], type: "periodical", note: nil, issn: nil)
-        for op in [{ try self.service.resolveVenues(apply: nil, demote: ["x2025:0"]) },
-                   { try self.service.resolveVenues(apply: nil, repoint: ["x2025:0:other-journal"]) }] {
+        for op in [{ try self.service.committed(self.root).resolveVenues(apply: nil, demote: ["x2025:0"]) },
+                   { try self.service.committed(self.root).resolveVenues(apply: nil, repoint: ["x2025:0:other-journal"]) }] {
             XCTAssertThrowsError(try op()) { err in
                 let s = String(describing: err)
                 XCTAssertTrue(s.contains("2 條邊") || s.contains("兩條邊"), s)
@@ -814,9 +814,9 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         var keyed = try XCTUnwrap(store.load().entries.first { $0.citekey == "y2025" })
         keyed.venues.append(.literal("PSYCHOMETRIKA"))
         _ = try store.writeEntry(keyed)
-        XCTAssertThrowsError(try service.resolveVenues(apply: nil, repoint: ["y2025:0:other-journal"]))
+        XCTAssertThrowsError(try service.committed(root).resolveVenues(apply: nil, repoint: ["y2025:0:other-journal"]))
         XCTAssertEqual(try store.load().entries.first { $0.citekey == "y2025" }?.venues, [.key("some-journal"), .literal("PSYCHOMETRIKA")], "零寫入")
-        _ = try service.resolveVenues(apply: nil, demote: ["y2025:0"])
+        _ = try service.committed(root).resolveVenues(apply: nil, demote: ["y2025:0"])
         XCTAssertEqual(try store.load().entries.first { $0.citekey == "y2025" }?.venues, [.literal("Psychometrika"), .literal("PSYCHOMETRIKA")],
                        "demote 收：退回這條邊自己的 literal，另一條 literal 邊不動")
         XCTAssertEqual(ResolutionLedger.verdicts(references: try venue().references).0.filter { $0.holder == "y2025" }.map(\.kind), [.rejected])
@@ -834,7 +834,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         _ = try store.writeEntry(e)
         _ = try service.resolveVenues(apply: ["x2025:0", "x2025:1"])
         XCTAssertEqual(try store.load().entries.first?.venues, [.key("some-journal"), .key("beta-journal")])
-        XCTAssertThrowsError(try service.resolveVenues(apply: nil, repoint: ["x2025:1:some-journal"])) { err in
+        XCTAssertThrowsError(try service.committed(root).resolveVenues(apply: nil, repoint: ["x2025:1:some-journal"])) { err in
             let s = String(describing: err)
             XCTAssertTrue(s.contains("some-journal") && (s.contains("2 條邊") || s.contains("兩條邊")), s)
             XCTAssertTrue(s.contains("#572"), "要指向移除面的 issue：\(s)")
@@ -844,7 +844,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         let beta = try XCTUnwrap(after.venues.first { $0.key == "beta-journal" })
         XCTAssertEqual(ResolutionLedger.verdicts(references: beta.references).0.filter { $0.holder == "x2025" }.map(\.kind), [.confirmed], "零寫入")
         _ = try service.addVenue(key: "gamma-journal", names: ["Gamma Journal"], type: "periodical", note: nil, issn: nil)
-        XCTAssertThrowsError(try service.resolveVenues(apply: nil, repoint: ["x2025:0:gamma-journal", "x2025:1:gamma-journal"]))
+        XCTAssertThrowsError(try service.committed(root).resolveVenues(apply: nil, repoint: ["x2025:0:gamma-journal", "x2025:1:gamma-journal"]))
         XCTAssertEqual(try store.load().entries.first?.venues, [.key("some-journal"), .key("beta-journal")], "零寫入")
     }
 
@@ -865,7 +865,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
                                                         rule: ResolutionLedger.venueRule, statement: "手改"))
             try store.writeVenue(v)
         }
-        XCTAssertThrowsError(try service.resolveVenues(apply: nil, repoint: ["x2025:0:beta-journal", "x2025:1:some-journal"])) { err in
+        XCTAssertThrowsError(try service.committed(root).resolveVenues(apply: nil, repoint: ["x2025:0:beta-journal", "x2025:1:some-journal"])) { err in
             let s = String(describing: err)
             XCTAssertTrue(s.contains("「PSYCHOMETRIKA」") && s.contains("同一個 literal"), s)
         }
@@ -878,7 +878,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         e2.venues = [.literal("PSYCHOMETRIKA"), .literal("Beta Journal")]
         _ = try store.writeEntry(e2)
         _ = try service.resolveVenues(apply: ["y2025:0", "y2025:1"])
-        _ = try service.resolveVenues(apply: nil, repoint: ["y2025:0:beta-journal", "y2025:1:some-journal"])
+        _ = try service.committed(root).resolveVenues(apply: nil, repoint: ["y2025:0:beta-journal", "y2025:1:some-journal"])
         let load = try store.load()
         XCTAssertEqual(load.entries.first { $0.citekey == "y2025" }?.venues, [.key("beta-journal"), .key("some-journal")])
         func kinds(_ key: String) throws -> [String: ResolutionLedger.VerdictKind] {
@@ -889,7 +889,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         XCTAssertEqual(try kinds("beta-journal"), ["PSYCHOMETRIKA": .confirmed, "Beta Journal": .rejected])
         XCTAssertEqual(try kinds("some-journal"), ["Beta Journal": .confirmed, "PSYCHOMETRIKA": .rejected])
         XCTAssertTrue(store.contradictoryVerdictIssues(in: load).isEmpty)
-        _ = try service.resolveVenues(apply: nil, demote: ["y2025:0"])
+        _ = try service.committed(root).resolveVenues(apply: nil, demote: ["y2025:0"])
         XCTAssertEqual(try store.load().entries.first { $0.citekey == "y2025" }?.venues.first, .literal("PSYCHOMETRIKA"))
     }
 
@@ -947,7 +947,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         z.venues = [.key("some-journal"), .key("some-journal"), .literal("Beta Journal")]
         _ = try store.writeEntry(z)
         _ = try service.resolveVenues(apply: ["z2025:2"])
-        _ = try service.resolveVenues(apply: nil, repoint: ["z2025:2:gamma-journal"])
+        _ = try service.committed(root).resolveVenues(apply: nil, repoint: ["z2025:2:gamma-journal"])
         XCTAssertEqual(try store.load().entries.first { $0.citekey == "z2025" }?.venues, [.key("some-journal"), .key("some-journal"), .key("gamma-journal")])
         // 同 literal、venue 集合不相交：一批成功，四個 venue 各自正確
         var x = Entry(id: UUID(), citekey: "x2025", type: .periodicalArticle, title: "T")
@@ -959,7 +959,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
                                                         rule: ResolutionLedger.venueRule, statement: "手改"))
             try store.writeVenue(v)
         }
-        _ = try service.resolveVenues(apply: nil, repoint: ["x2025:0:gamma-journal", "x2025:1:delta-journal"])
+        _ = try service.committed(root).resolveVenues(apply: nil, repoint: ["x2025:0:gamma-journal", "x2025:1:delta-journal"])
         let load = try store.load()
         XCTAssertEqual(load.entries.first { $0.citekey == "x2025" }?.venues, [.key("gamma-journal"), .key("delta-journal")])
         func kinds(_ key: String) throws -> [ResolutionLedger.VerdictKind] {
@@ -988,7 +988,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
                                                         rule: ResolutionLedger.venueRule, statement: "手改"))
             try store.writeVenue(v)
         }
-        XCTAssertThrowsError(try service.resolveVenues(apply: nil, repoint: ["x2025:0:beta-journal", "x2025:1:delta-journal", "x2025:2:some-journal"])) { err in
+        XCTAssertThrowsError(try service.committed(root).resolveVenues(apply: nil, repoint: ["x2025:0:beta-journal", "x2025:1:delta-journal", "x2025:2:some-journal"])) { err in
             XCTAssertTrue(String(describing: err).contains("同一個 literal"), "\(err)")
         }
         XCTAssertEqual(try store.load().entries.first?.venues, [.key("some-journal"), .key("gamma-journal"), .key("beta-journal")], "零寫入")
@@ -1008,7 +1008,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
                                                         rule: ResolutionLedger.venueRule, statement: "手改"))
             try store.writeVenue(v)
         }
-        XCTAssertThrowsError(try service.resolveVenues(apply: nil, repoint: ["x2025:0:beta-journal", "x2025:1:some-journal"])) { err in
+        XCTAssertThrowsError(try service.committed(root).resolveVenues(apply: nil, repoint: ["x2025:0:beta-journal", "x2025:1:some-journal"])) { err in
             let s = String(describing: err)
             XCTAssertTrue(s.contains("PSYCHOMETRIKA") && s.contains("Psychometrika") && s.contains("正規化後相等"), s)
         }
@@ -1086,7 +1086,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         e.venues = [.literal("Psychometrika"), .literal("PSYCHOMETRIKA")]
         _ = try store.writeEntry(e)
         _ = try service.resolveVenues(apply: ["x2025:0"])
-        _ = try service.resolveVenues(apply: nil, demote: ["x2025:0"])
+        _ = try service.committed(root).resolveVenues(apply: nil, demote: ["x2025:0"])
         let out = try service.resolveVenues(apply: nil)
         let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(out.utf8)) as? [String: Any])
         let ids = (json["candidates"] as? [[String: Any]] ?? []).compactMap { $0["id"] as? String }
@@ -1104,7 +1104,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         v.references.append(ResolutionLedger.record(.confirmed, holderKind: .work, holder: "x2025", literal: "PSYCHOMETRIKA",
                                                     rule: ResolutionLedger.venueRule, statement: "手改\u{E0001}A\u{200B}B\u{00AD}C\u{2800}D\u{00A0}E"))
         try store.writeVenue(v)
-        let out = try service.resolveVenues(apply: nil, demote: ["x2025:0"])
+        let out = try service.committed(root).resolveVenues(apply: nil, demote: ["x2025:0"])
         // 補零到四位（R12 verify 第 24／26 列，與 displaySafe 的 %04X 一致）、U+2800 與非 ASCII 的 Zs 也逃（第 22／27 列）
         for esc in ["\\\\u{E0001}", "\\\\u{200B}", "\\\\u{00AD}", "\\\\u{2800}", "\\\\u{00A0}"] { XCTAssertTrue(out.contains(esc), "\(esc) 不在：\(out)") }
         XCTAssertFalse(out.unicodeScalars.contains { [0xE0001, 0x200B, 0xAD, 0x2800, 0xA0].contains(Int($0.value)) }, "不得原樣迴送")
@@ -1118,7 +1118,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         e.venues = [.literal("PSYCHOMETRIKA")]
         _ = try store.writeEntry(e)
         _ = try service.resolveVenues(apply: ["x2025:0"])
-        let out = try service.resolveVenues(apply: nil, repoint: ["x2025:0:some-journal"])
+        let out = try service.committed(root).resolveVenues(apply: nil, repoint: ["x2025:0:some-journal"])
         let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(out.utf8)) as? [String: Any])
         XCTAssertEqual(json["repointed"] as? [String], [])
         XCTAssertEqual(json["verdictsRetiredTotal"] as? Int, 0, out)
@@ -1151,15 +1151,64 @@ final class VenueAuthorizedWriteTests: XCTestCase {
                                                            rule: ResolutionLedger.venueRule, statement: "手改 \(i)"))
         }
         try store.writeVenue(beta)
-        let out = try service.resolveVenues(apply: nil, repoint: ["x2025:0:beta-journal"])
+        let out = try service.committed(root).resolveVenues(apply: nil, repoint: ["x2025:0:beta-journal"])
         let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(out.utf8)) as? [String: Any])
         XCTAssertEqual((json["verdictsRetired"] as? [String])?.count, 20, out)
         XCTAssertEqual(json["verdictsRetiredTotal"] as? Int, 26, "25 筆 rejected 在 to ＋ 1 筆 confirmed 在 from")
         XCTAssertEqual(json["truncated"] as? Bool, true)
-        let single = try service.resolveVenues(apply: nil, demote: ["x2025:0"])
+        let single = try service.committed(root).resolveVenues(apply: nil, demote: ["x2025:0"])
         let j2 = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(single.utf8)) as? [String: Any])
         XCTAssertEqual(j2["verdictsRetiredTotal"] as? Int, 1)
         XCTAssertEqual(j2["truncated"] as? Bool, false)
+    }
+
+    /// #573（使用者 2026-09-27 裁決）：repoint／demote 會刪判定記錄——而它們的唯一副本是 git。store 不在 git 裡時具名拒絕、零寫入。
+    func testRetiringVerdictsIsRefusedOutsideGit() throws {
+        let store = LibraryStore(root: root)
+        var e = Entry(id: UUID(), citekey: "x2025", type: .periodicalArticle, title: "T")
+        e.venues = [.literal("Psychometrika")]
+        _ = try store.writeEntry(e)
+        _ = try service.resolveVenues(apply: ["x2025:0"])
+        let before = try venue().references
+        XCTAssertThrowsError(try service.resolveVenues(apply: nil, demote: ["x2025:0"])) { err in
+            XCTAssertTrue("\(err)".contains("不在 git 工作樹"), "\(err)")
+        }
+        XCTAssertEqual(try venue().references, before, "零寫入：判定記錄不得被刪")
+        XCTAssertEqual(try store.load().entries.first?.venues, [.key("some-journal")], "邊也不得被改")
+    }
+
+    /// #573：store 在 git 裡、但那個 venue 檔有未 commit 的修改——git 裡的是舊版，當下這版的判定刪了就不可回復。具名拒絕。
+    func testRetiringVerdictsIsRefusedWhenTheVenueFileIsDirty() throws {
+        let store = LibraryStore(root: root)
+        var e = Entry(id: UUID(), citekey: "x2025", type: .periodicalArticle, title: "T")
+        e.venues = [.literal("Psychometrika")]
+        _ = try store.writeEntry(e)
+        StoreGitCommit.commitAll(root)
+        _ = try service.resolveVenues(apply: ["x2025:0"])   // 寫了 confirmed verdict，沒 commit——campaign 的常態節奏
+        XCTAssertThrowsError(try service.resolveVenues(apply: nil, demote: ["x2025:0"])) { err in
+            XCTAssertTrue("\(err)".contains("some-journal") && "\(err)".contains("未提交"), "\(err)")
+        }
+        XCTAssertNoThrow(try service.committed(root).resolveVenues(apply: nil, demote: ["x2025:0"]), "commit 之後就過")
+    }
+
+    /// #573：CLI 面（`retiredLimit: nil`）全列被刪的判定；MCP 面仍截 20 筆（`testVerdictsRetiredIsCappedAndDisclosed`）。
+    func testVerdictsRetiredIsNotCappedForTheCLIFace() throws {
+        let store = LibraryStore(root: root)
+        _ = try service.addVenue(key: "beta-journal", names: ["Beta Journal"], type: "periodical", note: nil, issn: nil)
+        var e = Entry(id: UUID(), citekey: "x2025", type: .periodicalArticle, title: "T")
+        e.venues = [.literal("PSYCHOMETRIKA")]
+        _ = try store.writeEntry(e)
+        _ = try service.resolveVenues(apply: ["x2025:0"])
+        var beta = try XCTUnwrap(store.load().venues.first { $0.key == "beta-journal" })
+        for i in 0..<25 {
+            beta.references.append(ResolutionLedger.record(.rejected, holderKind: .work, holder: "x2025", literal: "PSYCHOMETRIKA",
+                                                           rule: ResolutionLedger.venueRule, statement: "手改 \(i)"))
+        }
+        try store.writeVenue(beta)
+        let out = try service.committed(root).resolveVenues(apply: nil, repoint: ["x2025:0:beta-journal"], retiredLimit: nil)
+        let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(out.utf8)) as? [String: Any])
+        XCTAssertEqual((json["verdictsRetired"] as? [String])?.count, 26, "CLI 面全列")
+        XCTAssertEqual(json["truncated"] as? Bool, false)
     }
 
     /// **`confirmedLiteral` 的去重是位元組相等，同 `matchingKey` 異位元組是拒絕不是「先到先贏」**（R9 verify DA 第 9 列）：
@@ -1176,7 +1225,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         v.references.append(ResolutionLedger.record(.confirmed, holderKind: .work, holder: "x2025", literal: "PSYCHOMETRIKA",
                                                     rule: ResolutionLedger.venueRule, statement: "手改"))
         try store.writeVenue(v)
-        XCTAssertThrowsError(try service.resolveVenues(apply: nil, demote: ["x2025:0"])) { err in
+        XCTAssertThrowsError(try service.committed(root).resolveVenues(apply: nil, demote: ["x2025:0"])) { err in
             let s = String(describing: err)
             XCTAssertTrue(s.contains("「Psychometrika」") && s.contains("「PSYCHOMETRIKA」"), s)
         }
@@ -1192,7 +1241,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         e.venues = [.literal("Psychometrika")]
         _ = try store.writeEntry(e)
         _ = try service.resolveVenues(apply: ["x2025:0"])
-        let out = try service.resolveVenues(apply: nil, demote: ["x2025:0"])
+        let out = try service.committed(root).resolveVenues(apply: nil, demote: ["x2025:0"])
         let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(out.utf8)) as? [String: Any])
         let retired = try XCTUnwrap(json["verdictsRetired"] as? [String], "要是清單：\(out)")
         XCTAssertEqual(retired.count, 1)
@@ -1249,8 +1298,8 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         e.venues = [.key("some-journal")]
         _ = try store.writeEntry(e)
         _ = try service.addVenue(key: "other-journal", names: ["Other Journal"], type: "periodical", note: nil, issn: nil)
-        for op in [{ try self.service.resolveVenues(apply: nil, repoint: ["x2025:0:other-journal"]) },
-                   { try self.service.resolveVenues(apply: nil, demote: ["x2025:0"]) }] {
+        for op in [{ try self.service.committed(self.root).resolveVenues(apply: nil, repoint: ["x2025:0:other-journal"]) },
+                   { try self.service.committed(self.root).resolveVenues(apply: nil, demote: ["x2025:0"]) }] {
             XCTAssertThrowsError(try op()) { err in
                 let s = String(describing: err)
                 XCTAssertTrue(s.contains("- literal:") && s.contains("--apply"), s)
@@ -1297,7 +1346,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         XCTAssertEqual(try store.load().entries.first?.venues, [.key("some-journal")])
         let v = try venue()
         try rewriteFile(v) { $0.replacingOccurrences(of: "- value: PSYCHOMETRIKA\n", with: "- value: 'PSYCHOMETRIKA '\n") }
-        XCTAssertThrowsError(try service.resolveVenues(apply: nil, demote: ["x2025:0"]))
+        XCTAssertThrowsError(try service.committed(root).resolveVenues(apply: nil, demote: ["x2025:0"]))
         XCTAssertEqual(try store.load().entries.first?.venues, [.key("some-journal")], "entry 不得先退回 literal")
     }
 
@@ -1353,7 +1402,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         b.references.append(ResolutionLedger.record(.confirmed, holderKind: .work, holder: "x2025", literal: "Alpha Review",
                                                     rule: ResolutionLedger.venueRule, statement: "手改（沒有對應的邊）"))
         try store.writeVenue(b)
-        XCTAssertThrowsError(try service.resolveVenues(apply: nil, repoint: ["x2025:0:beta-journal"])) { err in
+        XCTAssertThrowsError(try service.committed(root).resolveVenues(apply: nil, repoint: ["x2025:0:beta-journal"])) { err in
             let s = String(describing: err)
             XCTAssertTrue(s.contains("beta-journal") && s.contains("Alpha Review") && s.contains("Psychometrika") && s.contains("D23"), s)
         }
@@ -1365,7 +1414,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         b2.references = [ResolutionLedger.record(.confirmed, holderKind: .work, holder: "x2025", literal: "PSYCHOMETRIKA",
                                                  rule: ResolutionLedger.venueRule, statement: "手改")]
         try store.writeVenue(b2)
-        XCTAssertThrowsError(try service.resolveVenues(apply: nil, repoint: ["x2025:0:beta-journal"])) { err in
+        XCTAssertThrowsError(try service.committed(root).resolveVenues(apply: nil, repoint: ["x2025:0:beta-journal"])) { err in
             let s = String(describing: err)
             XCTAssertTrue(s.contains("拼法") && s.contains("PSYCHOMETRIKA") && s.contains("位元組"), s)
         }
@@ -1428,7 +1477,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         e.venues = [.literal("Psychometrika")]
         _ = try store.writeEntry(e)
         _ = try service.resolveVenues(apply: ["x2025:0"])
-        XCTAssertThrowsError(try service.resolveVenues(apply: nil, repoint: ["x2025:0:beta-journal", "x2025:0:gamma-journal"])) { err in
+        XCTAssertThrowsError(try service.committed(root).resolveVenues(apply: nil, repoint: ["x2025:0:beta-journal", "x2025:0:gamma-journal"])) { err in
             let s = String(describing: err)
             XCTAssertTrue(s.contains("同一條邊") && s.contains("兩次"), s)
             XCTAssertFalse(s.contains("兩條邊"), s)
@@ -1495,13 +1544,13 @@ final class VenueAuthorizedWriteTests: XCTestCase {
             try store.writeVenue(bb)
         }
         try seed("Psychometrika", "Psycho\u{200B}metrika")
-        XCTAssertThrowsError(try service.resolveVenues(apply: nil, repoint: ["x2025:0:beta-journal", "x2025:1:some-journal"])) { err in
+        XCTAssertThrowsError(try service.committed(root).resolveVenues(apply: nil, repoint: ["x2025:0:beta-journal", "x2025:1:some-journal"])) { err in
             let s = String(describing: err)
             XCTAssertTrue(s.contains("／") && s.contains("\\u{200B}"), s)
             XCTAssertFalse(s.unicodeScalars.contains { $0.value == 0x200B }, "原樣迴送 ZWSP：\(s)")
         }
         try seed("Sankhy\u{0101}", "Sankhya\u{0304}")
-        XCTAssertThrowsError(try service.resolveVenues(apply: nil, repoint: ["x2025:0:beta-journal", "x2025:1:some-journal"])) { err in
+        XCTAssertThrowsError(try service.committed(root).resolveVenues(apply: nil, repoint: ["x2025:0:beta-journal", "x2025:1:some-journal"])) { err in
             let s = String(describing: err)
             XCTAssertTrue(s.contains("／") && s.contains("正規化後相等"), "NFC／NFD 是兩個拼法，都要印：\(s)")
         }
@@ -1517,7 +1566,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         v.references = [ResolutionLedger.record(.confirmed, holderKind: .work, holder: "x2025", literal: "Psycho\u{200B}metrika",
                                                 rule: ResolutionLedger.venueRule, statement: "手改")]
         try store.writeVenue(v)
-        XCTAssertThrowsError(try service.resolveVenues(apply: nil, demote: ["x2025:0"])) { err in
+        XCTAssertThrowsError(try service.committed(root).resolveVenues(apply: nil, demote: ["x2025:0"])) { err in
             let s = String(describing: err)
             XCTAssertTrue(s.contains("\\u{200B}") && !s.unicodeScalars.contains { $0.value == 0x200B }, s)
         }

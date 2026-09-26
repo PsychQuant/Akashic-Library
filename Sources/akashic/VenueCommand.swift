@@ -345,11 +345,11 @@ struct ResolveVenuesCmd: ParsableCommand {
     var reject: [String] = []
 
     @Option(name: .long, parsing: .upToNextOption,
-            help: "把已歸戶的邊改指到另一個 venue（citekey:venueIndex:newKey）——歸錯戶的退路，#418；退役 from 上的 confirmed 與 to 上的 rejected（D20），改指後不得與本 work 另一條邊指同一 venue（D27）")
+            help: "把已歸戶的邊改指到另一個 venue（citekey:venueIndex:newKey）——歸錯戶的退路，#418；退役 from 上的 confirmed 與 to 上的 rejected（D20），改指後不得與本 work 另一條邊指同一 venue（D27）；刪判定記錄之前要求那些 venue 檔已 commit（#573），被刪的全列")
     var repoint: [String] = []
 
     @Option(name: .long, parsing: .upToNextOption,
-            help: "把誤升的邊退回 literal（citekey:venueIndex）——原字串從 verdict 取回，無損，#418；退役該 venue 上這個配對的 confirmed（D20）")
+            help: "把誤升的邊退回 literal（citekey:venueIndex）——原字串從 verdict 取回，無損，#418；退役該 venue 上這個配對的 confirmed（D20）；刪判定記錄之前要求該 venue 檔已 commit（#573），被刪的全列")
     var demote: [String] = []
 
     @Option(name: .long, parsing: .upToNextOption,
@@ -400,7 +400,8 @@ struct ResolveVenuesCmd: ParsableCommand {
         print(try service.resolveVenues(apply: apply.isEmpty ? nil : apply,
                                         reject: reject.isEmpty ? nil : reject,
                                         repoint: repoint.isEmpty ? nil : repoint,
-                                        demote: demote.isEmpty ? nil : demote))
+                                        demote: demote.isEmpty ? nil : demote,
+                                        retiredLimit: nil))   // #573：CLI 全列被刪掉的判定
     }
 }
 

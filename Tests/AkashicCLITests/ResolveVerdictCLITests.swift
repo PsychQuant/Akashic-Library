@@ -303,7 +303,11 @@ final class ResolveVerdictCLITests: XCTestCase {
         let names = try CLITestHarness.run(["authorize-names", "--apply"], env: env)
         XCTAssertNotEqual(names.status, 0, names.output)
         XCTAssertTrue(names.output.contains("authorize-names --apply 拒絕執行：未指名目標 store"), names.output)
+        XCTAssertTrue(venues.output.contains("這個寫入沒有 dry-run"), "逐 id 腿沒有 dry-run，不得叫人去跑：\(venues.output)")
+        let orgUndecided = try CLITestHarness.run(["resolve-organizations", "--undecided", "x@y=z"], env: env)
+        XCTAssertTrue(orgUndecided.output.contains("resolve-organizations --undecided 拒絕執行"), orgUndecided.output)
         let listing = try CLITestHarness.run(["resolve-venues"], env: env)
+        XCTAssertEqual(listing.status, 0, listing.output)
         XCTAssertFalse(listing.output.contains("拒絕執行"), "不帶寫入腿的列表不得被閘擋：\(listing.output)")
     }
 

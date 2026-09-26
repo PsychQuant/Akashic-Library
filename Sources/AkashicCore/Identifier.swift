@@ -211,7 +211,14 @@ public struct DOI: Identifier {
         // 註冊者至少 4 碼 **ASCII** 數字（實務下限），後綴非空且不含空白。`isNumber` 認全形、阿拉伯-印度、
         // 上標與 ½ 之類，`10.１０３７/x` 會以非 ASCII 的註冊者成為 normalized——#589 的同形（R1 verify）；後綴本來就可以含 Unicode
         guard registrant.count >= 4, registrant.allSatisfy({ ($0.isASCII && $0.isNumber) || $0 == "." }),
-              !suffix.isEmpty, !suffix.contains(where: { $0.isWhitespace }) else { return nil }
+              !suffix.isEmpty, !suffix.contains(where: { $0.isWhitespace }),
+              // 後綴可以含 Unicode 字母，但不可含控制、格式、不可見字元（#589 R2 verify）——那些渲染上看不出來，
+              // 會讓一個看起來與真號相同的字串成為另一個 normalized、逃過去重與識別碼相等的身分判定。
+              // 危險字元的定義沿用輸出閘與名字不變式的同一組性質，不另寫一份。
+              !suffix.unicodeScalars.contains(where: { u in
+                  UnsafeToEmitScalar.contains(u) || u.properties.isDefaultIgnorableCodePoint
+                      || [.control, .format, .lineSeparator, .paragraphSeparator].contains(u.properties.generalCategory)
+              }) else { return nil }
         normalized = s
     }
 }

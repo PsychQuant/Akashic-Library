@@ -370,7 +370,7 @@ struct ResolveVenuesCmd: ParsableCommand {
             }
             // #298／#580：逐 id 的寫入腿同樣要指名目標 store——閘防的是寫錯 store，不是寫錯哪幾筆
             // （從錯的 store 列出來的 id 在錯的 store 上全部對得上）。比照 enrich 的既有裁決。
-            try options.assertDestructiveTargetNamed("resolve-venues", flag: "--undecided")
+            try options.assertDestructiveTargetNamed("resolve-venues", flag: "--undecided", hasDryRun: false)
             let store = try options.openStore()
             let service = AkashicService(root: store.root, key: store.key,
                                          environment: ProcessInfo.processInfo.environment)
@@ -393,7 +393,7 @@ struct ResolveVenuesCmd: ParsableCommand {
         // #298／#580：任一寫入腿都要指名目標 store（理由見上方 --undecided 那一處）；不帶旗標的列表不擋
         let writeLeg = [("--apply", apply), ("--reject", reject), ("--repoint", repoint), ("--demote", demote)]
             .first { !$0.1.isEmpty }?.0
-        if let leg = writeLeg { try options.assertDestructiveTargetNamed("resolve-venues", flag: leg) }
+        if let leg = writeLeg { try options.assertDestructiveTargetNamed("resolve-venues", flag: leg, hasDryRun: false) }
         let store = try options.openStore()
         let service = AkashicService(root: store.root, key: store.key,
                                      environment: ProcessInfo.processInfo.environment)

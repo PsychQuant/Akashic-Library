@@ -14,3 +14,4 @@ work 有三種參照邊：`.key` 作者、`.organization` 作者、`venues[].key
   - `CrossRecordValidationTests.testDanglingCorporateAuthorAndVenueEdgeAreWarnings`
   - `CrossRecordValidationTests.testInvalidStoreKeyEdgeSaysItCanNeverResolve`
   - 負控：關掉兩個迴圈與非法說明，兩支都失敗。
+- **R2 verify**：MCP `doctor` 只送前 20 則跨記錄問題，而新警告排在 60 則 DOI／標題重複之後，那個面永遠送不出去。現在參照完整性的警告（懸空的作者、團體作者、venue、歧異候選、library）排在重複提示之前，`testReferenceIntegrityWarningsComeBeforeDuplicateNoise` 釘住這個順序（負控：排回去就失敗）。上面「三個面都拿得到」那句，在此之前對 MCP 面不成立。

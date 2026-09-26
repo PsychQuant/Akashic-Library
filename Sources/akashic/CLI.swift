@@ -110,9 +110,9 @@ struct LibraryOptions: ParsableArguments {
     /// 2026-08-16 的事故：在 scratch 目錄執行無 `--library` 的 `--apply`，解析循
     /// registry 打到真 store，867 個 person 檔被改名重發 id。核心不是解析錯了，是
     /// **呼叫者以為自己在 scratch**，而沒有任何東西告訴他。
-    func assertDestructiveTargetNamed(_ command: String, flag: String = "--apply") throws {
+    func assertDestructiveTargetNamed(_ command: String, flag: String = "--apply", hasDryRun: Bool = true) throws {
         try DestructiveTargetGate.assertTargetNamed(
-            command: command, flag: flag, explicitLibrary: library, yes: yes,
+            command: command, flag: flag, hasDryRun: hasDryRun, explicitLibrary: library, yes: yes,
             resolved: try resolved().root)
     }
 

@@ -58,7 +58,7 @@ enum DestructiveTargetGate {
     /// （#298：呼叫者以為自己在 scratch），而不是寫錯哪幾筆——從錯的 store 列出來的 id 在錯的
     /// store 上全部對得上，所以逐 id 指名的寫入腿同樣受它保護（`enrich`／`enrich-from-zotero`／
     /// `resolve-venues` 都是逐 id 的，都在表內）。各成員的觸發條件由命令自己決定：多數是布林
-    /// `--apply`；`resolve-organizations` 另含篩選式 `--reject`；`resolve-venues` 是任一寫入腿。
+    /// `--apply`；`resolve-organizations` 另含篩選式 `--reject` 與逐 id 的 `--undecided`（R2 verify）；`resolve-venues` 是任一寫入腿。
     ///
     /// **表外仍有會寫 store 的命令沒有閘**，而且不是一類：預設就寫的（`fmt`、`migrate`、
     /// `migrate-provenance`、`import-wos`、`import-zotero`、`create-entry`……）、`resolve-people`
@@ -93,17 +93,24 @@ enum DestructiveTargetGate {
     /// 本函式**不查 CWD**、不改解析——它只判斷「呼叫者有沒有指名」。
     static func assertTargetNamed(command: String,
                                   flag: String = "--apply",
+                                  hasDryRun: Bool = true,
                                   explicitLibrary: String?,
                                   yes: Bool,
                                   resolved: URL) throws {
         // 正向寫法：指名了就通過。`guard ... else { return }` 的通過分支會是錯誤
         // 路徑，讀起來與慣例相反。
         if explicitLibrary != nil || yes { return }
+        // 旗標名與預覽提示依呼叫端而定（#580 R2 verify）：逐 id 的寫入腿與 rename-person 沒有 dry-run，
+        // 叫人「先跑 dry-run」是假話。rename-person 沒有旗標可掛，flag 傳空字串。
+        let invocation = flag.isEmpty ? command : command + " " + flag
+        let previewHint = hasDryRun
+            ? "先跑一次不帶 " + flag + " 的 dry-run 可以看到會改什麼。"
+            : "這個寫入沒有 dry-run；不帶寫入旗標執行只會列出候選，不預覽這次會改什麼。"
         // 這一行的路徑用性質式逃脫（R31；R30 verify 第 24 列）——R30 曾改回列舉式 `displaySafe`，理由是「貼回去就是那個目錄」，但列舉式也給不了
         // 這件事（反斜線、C0、bidi 照逃），而它放行的正是讓兩個路徑肉眼不可分的那一類字元（ZWSP／NBSP／變體選擇子）；訊息的職責是
         // 「確認這就是你要改的 store」，可辨識比可貼上重要。含這類字元的路徑要顯式指定時，請照 `解析到的目標是：` 那一行的 `\u{…}` 形自己還原（R31 verify 第 27 列）。
         throw ValidationError("""
-            \(command) \(flag) 拒絕執行：未指名目標 store。
+            \(invocation) 拒絕執行：未指名目標 store。
 
             解析到的目標是：\(displaySafeInvisible(resolved.path, max: 800))
             （由 registry 的 current 決定，**與你目前所在的目錄無關**）
@@ -112,7 +119,7 @@ enum DestructiveTargetGate {
               --library \(displaySafeInvisible(resolved.path, max: 800))   顯式指定（推薦——同時消除歧義）
               --yes                                                知情地沿用 registry 解析
 
-            先跑一次不帶 \(flag) 的 dry-run 可以看到會改什麼。
+            \(previewHint)
             """)
     }
 }

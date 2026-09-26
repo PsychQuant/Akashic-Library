@@ -72,6 +72,19 @@ final class CrossRecordValidationTests: XCTestCase {
         }
     }
 
+    /// #579 R2 verify：參照完整性的警告排在 DOI／標題重複之前——MCP doctor 只送前 20 則，live store 的重複提示有 60 則。
+    func testReferenceIntegrityWarningsComeBeforeDuplicateNoise() throws {
+        var dangling = entry("a2020a")
+        dangling.venues = [.key("ghost-venue")]
+        try store.writeEntry(dangling)
+        try store.writeEntry(entryWithDOI("b2020b", doi: "10.1000/dup"))
+        try store.writeEntry(entryWithDOI("c2020c", doi: "10.1000/dup"))
+        let issues = try store.load().crossRecordIssues()
+        let venueAt = try XCTUnwrap(issues.firstIndex { $0.message.contains("venue key「ghost-venue」") }, "\(issues)")
+        let doiAt = try XCTUnwrap(issues.firstIndex { $0.message.contains("10.1000/dup") }, "\(issues)")
+        XCTAssertLessThan(venueAt, doiAt)
+    }
+
     // MARK: - 重複 DOI（#79）
 
     private func entryWithDOI(_ key: String, doi: String?, title: String = "Shared Title") -> Entry {

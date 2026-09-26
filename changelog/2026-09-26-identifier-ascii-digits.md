@@ -16,3 +16,4 @@ ISSN、ISBN、ORCID 三者共用 `idCompact`。它用 `CharacterSet.alphanumeric
 - **與 issue Expected 的偏離**：issue 要的是「`Venue.validate()` 出聲」，實作是載入時整檔隔離，比出聲更強；零實例、沒有即時代價，這個偏離記在 issue。
 - `zero-instance-guards` 加第 32 列。
 - 測試：`testISSNRejectsNonASCIIDigits`（全形、阿拉伯-印度數字、混入一個、夾帶、全形 X）與 `testISBNAndORCIDRejectNonASCIIDigits`。負控：還原 `idCompact`，5 個斷言失敗。
+- **R2 verify**：DOI 後綴仍接受控制、格式與不可見字元（ZWSP、RLO、BEL、BOM、NUL、TAG、soft hyphen），它們渲染出來與真號相同，卻會成為另一個 normalized。現在後綴拒絕這些字元，定義沿用輸出閘與名字不變式的同一組性質，Unicode 字母照收。live store 2,445 個 DOI，受影響 0 個。負控：拿掉這道檢查，7 個壞輸入全部失敗。

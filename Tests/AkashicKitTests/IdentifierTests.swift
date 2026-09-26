@@ -68,6 +68,15 @@ final class IdentifierTests: XCTestCase {
         XCTAssertNotNil(DOI("10.1037/\u{00E9}t\u{00E9}"), "後綴可以含 Unicode")
     }
 
+    /// #589 R2 verify：後綴不可含控制、格式、不可見字元——渲染上與真號相同、卻成為另一個 normalized。
+    func testDOISuffixRejectsInvisibleAndControlCharacters() {
+        for bad in ["10.1037/met\u{200B}0000100", "10.1037/met0000100\u{202E}", "10.1037/abc\u{0007}",
+                    "10.1037/abc\u{FEFF}", "10.1037/x\u{0000}y", "10.1037/a\u{E0041}", "10.1037/a\u{00AD}b"] {
+            XCTAssertNil(DOI(bad), bad.unicodeScalars.map { String(format: "%04X", $0.value) }.joined(separator: " "))
+        }
+        XCTAssertNotNil(DOI("10.1037/met0000100"))
+    }
+
     // MARK: - DOI
 
     func testDOIAcceptsAndNormalizes() {

@@ -1000,6 +1000,8 @@ struct ResolveOrganizations: ParsableCommand {
             if !holder.isEmpty || !org.isEmpty {
                 throw ValidationError("--undecided 不接受 --holder／--org——每個 id 已經點名了那一列與 org")
             }
+            // #580 R2 verify：與 resolve-venues 的 --undecided 同形——逐 id 寫入同樣要指名目標 store
+            try options.assertDestructiveTargetNamed("resolve-organizations", flag: "--undecided", hasDryRun: false)
             let store = try options.openStore()
             let service = AkashicService(root: store.root, key: store.key,
                                          environment: ProcessInfo.processInfo.environment)
@@ -1016,7 +1018,7 @@ struct ResolveOrganizations: ParsableCommand {
         // （它不寫東西，且正是用來確認目標的手段）。本命令的 --reject 與 --apply 同形：都是
         // **篩選式**寫入（收窄後的候選全寫），所以兩者都閘（#580——先前只閘 --apply，--reject
         // 對未指名的 store 照寫 rejected verdict）。放在參數組合檢查之後：先報呼叫端的矛盾。
-        if apply || reject { try options.assertDestructiveTargetNamed("resolve-organizations", flag: apply ? "--apply" : "--reject") }
+        if apply || reject { try options.assertDestructiveTargetNamed("resolve-organizations", flag: apply ? "--apply" : "--reject", hasDryRun: apply) }
         let store = try options.openStore()
         let load = try store.load()
         // #232 design D5：已否決配對從 organization 的 verdict references 現算
@@ -2362,7 +2364,7 @@ struct RenamePerson: ParsableCommand {
 
     func run() throws {
         // #298：改名是破壞性寫入——目標 store 未指名時要求顯式確認
-        try options.assertDestructiveTargetNamed("rename-person")
+        try options.assertDestructiveTargetNamed("rename-person", flag: "", hasDryRun: false)
         let store = try options.openStore()
         let report = try store.renamePerson(from: from, to: to)
         _ = try LibraryIndex(store: store).rebuild()

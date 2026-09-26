@@ -135,7 +135,10 @@ final class DestructiveTargetGateTests: XCTestCase {
     /// 在錯的 store 上全部對得上（比照 enrich）。`--undecided` 那條路徑另有一處呼叫。
     func testResolveVenuesGatesEveryWriteLeg() throws {
         let src = try source("Sources/akashic/VenueCommand.swift")
-        XCTAssertTrue(src.contains("try options.assertDestructiveTargetNamed(\"resolve-venues\", flag: \"--undecided\")"))
+        XCTAssertTrue(src.contains("try options.assertDestructiveTargetNamed(\"resolve-venues\", flag: \"--undecided\", hasDryRun: false)"))
+        // 同形的 resolve-organizations --undecided 也閘（R2 verify）
+        XCTAssertTrue(try source("Sources/akashic/Commands.swift")
+            .contains("try options.assertDestructiveTargetNamed(\"resolve-organizations\", flag: \"--undecided\", hasDryRun: false)"))
         XCTAssertTrue(src.contains("(\"--apply\", apply), (\"--reject\", reject), (\"--repoint\", repoint), (\"--demote\", demote)"),
                       "四個寫入腿都要在 writeLeg 裡")
     }

@@ -30,3 +30,10 @@
 - 未處理（LOW）：
   - `rename-person` 的拒絕訊息仍寫 `--apply` 與 dry-run，但它兩者都沒有（併入 #650）；
   - 消毒守衛放行表的 `^flag$` 是全域比對，沒有限定在閘的檔案。
+
+## R2 verify（0 HIGH；devils-advocate 因週額度中斷而缺席）
+
+- `resolve-organizations --undecided` 與剛閘住的 `resolve-venues --undecided` 同形，但它在閘之前就提早返回。現在也閘。
+- 拒絕訊息原本一律寫「先跑一次不帶 X 的 dry-run」，對逐 id 的腿、`--reject`、`rename-person` 都是假話，因為它們沒有 dry-run。閘多了 `hasDryRun` 參數：沒有 dry-run 的改說「不帶寫入旗標執行只會列出候選」。`rename-person` 不再冒稱有 `--apply`。
+- `resolve-people` 的逐 id 腿仍不閘。R2 指出，照新理由它們也該閘，但這一格留給 #653 逐格裁決。所以 issue Expected「三個 `resolve-*` 給同一個答案」只在**命令層**成立（三個都在表內）；腿層的一致性由 #653 承接。
+- 列表測試補上 `status == 0` 的斷言。

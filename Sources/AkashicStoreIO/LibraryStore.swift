@@ -2630,80 +2630,6 @@ public extension LibraryLoad {
                        + "——沿 parents 走的消費端會無限迴圈。改掉其中一條 parents 邊"))
         }
 
-        // 重複 DOI（#79）。**warning 而非 error**：重複本身不毀資料，而且「同一篇在
-        // 個人庫與群組庫各一份」是真實且合理的狀態（Zotero 匯入器的身分是
-        // `(library_id, zotero_key)`，兩筆依設計就是兩個 item）。用 error 會讓
-        // `assertNoCrossRecordErrors` 鎖住整個寫入面。
-        //
-        // **處置留給人。** 這些正是 divergence 形狀承接的東西（兩個候選、同形狀、
-        // 未決的同一性），但不自動建——「線上先行 vs 出刊」算不算同一筆是編目判斷，
-        // 不是資料判斷。
-        //
-        // DOI 依規格**大小寫不敏感**，且同一個 DOI 有多種儲存形式——
-        // `https://doi.org/10.x/y`、`doi:10.x/y`、裸 `10.x/y`。只 trim+lowercase
-        // 會讓「兩筆存法不同的同一個 DOI」逃掉（真實案例：同一篇 Methods in
-        // Psychology 論文一筆存 URL 形式、一筆存裸 DOI）。這些前綴的剝除與小寫
-        // 現在住在 `DOI.init?`，本地不再重做一份——**同一份規格的兩個副本必然分岔**。
-        //
-        // **讀 `canonicalDOIs` 而不是 `fields["doi"]`**（#394 verify）。曾經讀後者，
-        // 而 §8 的遷移把 664 筆的 `fields.doi` 移除之後這條檢查恆為空：18 組共用 DOI
-        // 的警告全滅，其中 15 組改由下面那條印成「標題與年份相同但 **DOI 不同**」
-        // ——而那 15 組的 DOI 逐字相同。**一條檢查變瞎不只是少報，它讓另一條開始說謊。**
-        var byDOI: [String: [String]] = [:]
-        for e in entries {
-            // 同一筆 work 的多個 DOI 正規化後可能相同（例：URL 形式 ＋ 裸形式），
-            // 去重，否則「被 N 筆 work 共用」會把同一個 citekey 數兩次。
-            for d in Set(e.canonicalDOIs.map(\.normalized)) where !d.isEmpty {
-                byDOI[d, default: []].append(e.citekey)
-            }
-        }
-        var reportedByDOI = Set<String>()
-        for (doi, cites) in byDOI.sorted(by: { $0.key < $1.key }) where cites.count > 1 {
-            let names = cites.sorted().map { displaySafeInvisible($0, max: 200) }
-            reportedByDOI.formUnion(cites)
-            out.append(ValidationIssue(
-                severity: .warning,
-                message: "DOI「\(displaySafeInvisible(doi, max: 200))」被 \(names.count) 筆 work 共用"
-                       + "（\(names.joined(separator: ", "))）"
-                       + "——通常是同一出版品的多筆記錄（不同 Zotero library、線上先行 vs 出刊、"
-                       + "更正啟事），不是資料損壞；要不要視為同一筆是編目判斷，"
-                       + "可用 record-divergence 記下未決的同一性"))
-        }
-
-        // 同標題同年但 **DOI 不同**——DOI 那條結構上看不到，而這是真實且大量的：
-        // JSTOR DOI vs 出版商 DOI、arXiv 預印本 vs 正式版、期刊換過 DOI 規則、
-        // 同一篇被 Cambridge 與 Project Euclid 各給一個。
-        //
-        // **已被 DOI 抓到的組不重報**——同一件事出兩則是雜訊不是訊號。
-        // 年份必須相同：同名不同年（年度報告、系列作）不是重複。
-        func titleKey(_ e: Entry) -> String? {
-            let t = e.title.lowercased()
-                .components(separatedBy: .whitespacesAndNewlines)
-                .filter { !$0.isEmpty }.joined(separator: " ")
-                .trimmingCharacters(in: CharacterSet(charactersIn: "'\"“”‘’"))
-            guard !t.isEmpty else { return nil }
-            guard let d = e.date,
-                  let r = d.range(of: "[0-9]{4}", options: .regularExpression) else { return nil }
-            return "\(t)|\(d[r])"
-        }
-        var byTitleYear: [String: [String]] = [:]
-        for e in entries {
-            guard let k = titleKey(e) else { continue }
-            byTitleYear[k, default: []].append(e.citekey)
-        }
-        for (k, cites) in byTitleYear.sorted(by: { $0.key < $1.key }) where cites.count > 1 {
-            // 整組都已被 DOI 那條涵蓋 → 跳過
-            if cites.allSatisfy({ reportedByDOI.contains($0) }) { continue }
-            let names = cites.sorted().map { displaySafeInvisible($0, max: 200) }
-            let title = String(k.split(separator: "|").dropLast().joined(separator: "|"))
-            out.append(ValidationIssue(
-                severity: .warning,
-                message: "標題與年份相同但 DOI 不同的 \(names.count) 筆 work"
-                       + "（\(names.joined(separator: ", "))）：「\(displaySafeInvisible(title, max: 120))」"
-                       + "——常見成因是同一篇有多個 DOI（JSTOR vs 出版商、arXiv 預印本 vs 正式版）；"
-                       + "處置同上，留給編目判斷"))
-        }
-
         // 參照存在性。**warning 不是 error**：懸空參照讓畫面少東西，但不毀資料，
         // 而且解析中途（resolve-people 尚未 apply）本來就會有——擋下反而卡住工作流。
         let personKeys = Set(people.map(\.key))
@@ -2793,6 +2719,83 @@ public extension LibraryLoad {
                 message: "akashic.libraries 的「\(displaySafeInvisible(l, max: 200))」沒有對應的 registry 檔"
                        + "（\(n) 筆引用）"))
         }
+        // **排序是刻意的**（#579 R2 verify）：參照完整性的警告（懸空的作者、團體作者、venue、歧異候選、library）
+        // 排在 DOI／標題重複這類整理提示之前。MCP `doctor` 只送前 20 則，live store 的 DOI／標題重複有 60 則，
+        // 排在後面的完整性警告在那個面上永遠送不出去。
+        // 重複 DOI（#79）。**warning 而非 error**：重複本身不毀資料，而且「同一篇在
+        // 個人庫與群組庫各一份」是真實且合理的狀態（Zotero 匯入器的身分是
+        // `(library_id, zotero_key)`，兩筆依設計就是兩個 item）。用 error 會讓
+        // `assertNoCrossRecordErrors` 鎖住整個寫入面。
+        //
+        // **處置留給人。** 這些正是 divergence 形狀承接的東西（兩個候選、同形狀、
+        // 未決的同一性），但不自動建——「線上先行 vs 出刊」算不算同一筆是編目判斷，
+        // 不是資料判斷。
+        //
+        // DOI 依規格**大小寫不敏感**，且同一個 DOI 有多種儲存形式——
+        // `https://doi.org/10.x/y`、`doi:10.x/y`、裸 `10.x/y`。只 trim+lowercase
+        // 會讓「兩筆存法不同的同一個 DOI」逃掉（真實案例：同一篇 Methods in
+        // Psychology 論文一筆存 URL 形式、一筆存裸 DOI）。這些前綴的剝除與小寫
+        // 現在住在 `DOI.init?`，本地不再重做一份——**同一份規格的兩個副本必然分岔**。
+        //
+        // **讀 `canonicalDOIs` 而不是 `fields["doi"]`**（#394 verify）。曾經讀後者，
+        // 而 §8 的遷移把 664 筆的 `fields.doi` 移除之後這條檢查恆為空：18 組共用 DOI
+        // 的警告全滅，其中 15 組改由下面那條印成「標題與年份相同但 **DOI 不同**」
+        // ——而那 15 組的 DOI 逐字相同。**一條檢查變瞎不只是少報，它讓另一條開始說謊。**
+        var byDOI: [String: [String]] = [:]
+        for e in entries {
+            // 同一筆 work 的多個 DOI 正規化後可能相同（例：URL 形式 ＋ 裸形式），
+            // 去重，否則「被 N 筆 work 共用」會把同一個 citekey 數兩次。
+            for d in Set(e.canonicalDOIs.map(\.normalized)) where !d.isEmpty {
+                byDOI[d, default: []].append(e.citekey)
+            }
+        }
+        var reportedByDOI = Set<String>()
+        for (doi, cites) in byDOI.sorted(by: { $0.key < $1.key }) where cites.count > 1 {
+            let names = cites.sorted().map { displaySafeInvisible($0, max: 200) }
+            reportedByDOI.formUnion(cites)
+            out.append(ValidationIssue(
+                severity: .warning,
+                message: "DOI「\(displaySafeInvisible(doi, max: 200))」被 \(names.count) 筆 work 共用"
+                       + "（\(names.joined(separator: ", "))）"
+                       + "——通常是同一出版品的多筆記錄（不同 Zotero library、線上先行 vs 出刊、"
+                       + "更正啟事），不是資料損壞；要不要視為同一筆是編目判斷，"
+                       + "可用 record-divergence 記下未決的同一性"))
+        }
+
+        // 同標題同年但 **DOI 不同**——DOI 那條結構上看不到，而這是真實且大量的：
+        // JSTOR DOI vs 出版商 DOI、arXiv 預印本 vs 正式版、期刊換過 DOI 規則、
+        // 同一篇被 Cambridge 與 Project Euclid 各給一個。
+        //
+        // **已被 DOI 抓到的組不重報**——同一件事出兩則是雜訊不是訊號。
+        // 年份必須相同：同名不同年（年度報告、系列作）不是重複。
+        func titleKey(_ e: Entry) -> String? {
+            let t = e.title.lowercased()
+                .components(separatedBy: .whitespacesAndNewlines)
+                .filter { !$0.isEmpty }.joined(separator: " ")
+                .trimmingCharacters(in: CharacterSet(charactersIn: "'\"“”‘’"))
+            guard !t.isEmpty else { return nil }
+            guard let d = e.date,
+                  let r = d.range(of: "[0-9]{4}", options: .regularExpression) else { return nil }
+            return "\(t)|\(d[r])"
+        }
+        var byTitleYear: [String: [String]] = [:]
+        for e in entries {
+            guard let k = titleKey(e) else { continue }
+            byTitleYear[k, default: []].append(e.citekey)
+        }
+        for (k, cites) in byTitleYear.sorted(by: { $0.key < $1.key }) where cites.count > 1 {
+            // 整組都已被 DOI 那條涵蓋 → 跳過
+            if cites.allSatisfy({ reportedByDOI.contains($0) }) { continue }
+            let names = cites.sorted().map { displaySafeInvisible($0, max: 200) }
+            let title = String(k.split(separator: "|").dropLast().joined(separator: "|"))
+            out.append(ValidationIssue(
+                severity: .warning,
+                message: "標題與年份相同但 DOI 不同的 \(names.count) 筆 work"
+                       + "（\(names.joined(separator: ", "))）：「\(displaySafeInvisible(title, max: 120))」"
+                       + "——常見成因是同一篇有多個 DOI（JSTOR vs 出版商、arXiv 預印本 vs 正式版）；"
+                       + "處置同上，留給編目判斷"))
+        }
+
         return out
     }
 }

@@ -51,6 +51,25 @@ enum DestructiveTargetGate {
     ///
     /// 新增會改寫或刪除記錄的命令時**必須在同一個變更裡加進這裡**。
     /// `DestructiveTargetGateTests` 的雙向機械稽核接住漏網的。
+    ///
+    /// ## 判準：閘的是**篩選式**寫入，不是「會寫的命令」（#580）
+    ///
+    /// 本表的成員是帶**篩選式** `--apply`（布林旗標 `--apply`：收窄條件之外全掃；稽核以宣告字面比對，所以這段 doc 不寫出那行宣告）的命令。
+    /// 同一個形狀的另一個旗標也閘：`resolve-organizations --reject`（收窄後的候選全寫 rejected
+    /// verdict）。閘的理由在檔頭——篩選式寫入的目標集合由 store 內容決定，呼叫端看不到它在寫哪個 store。
+    ///
+    /// **不在表內、也不閘的只有一類**（封閉列舉，不得依性質相似類推第二類）：
+    ///
+    /// 1. **逐 id 顯式指名的寫入腿**——`resolve-venues` 的全部寫入腿（`--apply` 收 id 清單，不是布林
+    ///    旗標）、`resolve-people` 的 `--reject`／`--judge`／`--refute`／`--split-author`／`--un-split`／
+    ///    `--drop-author`／`--attribute-org`／`--undecided`、`resolve-organizations` 的 `--undecided`。
+    ///    它們與 MCP 面同形（逐 id 顯式），檔頭「只擋 CLI，不擋 MCP」的理由同樣適用。
+    ///
+    /// **在表外但閘了的**：`rename-person` 無條件呼叫本閘（它沒有 `--apply` 可掛），是它自己的裁決；
+    /// `rename` 沒有閘——兩者的不一致記在 #650，本表不替它裁。
+    ///
+    /// 上一版的 `mcp-cli-parity` `--yes` 列寫「`resolve-venues` 的 `--apply` 正是篩選式批次掃蕩」與
+    /// 「`rename-person` 沒有這道閘」，兩句都與程式不符（#580 診斷）。
     static let destructiveCommands: Set<String> = [
         // #394：識別碼自 fields 升格、work 的 issn 移位至 venue——改寫既有記錄。
         "migrate-identifiers",
@@ -71,6 +90,7 @@ enum DestructiveTargetGate {
     ///
     /// 本函式**不查 CWD**、不改解析——它只判斷「呼叫者有沒有指名」。
     static func assertTargetNamed(command: String,
+                                  flag: String = "--apply",
                                   explicitLibrary: String?,
                                   yes: Bool,
                                   resolved: URL) throws {
@@ -81,7 +101,7 @@ enum DestructiveTargetGate {
         // 這件事（反斜線、C0、bidi 照逃），而它放行的正是讓兩個路徑肉眼不可分的那一類字元（ZWSP／NBSP／變體選擇子）；訊息的職責是
         // 「確認這就是你要改的 store」，可辨識比可貼上重要。含這類字元的路徑要顯式指定時，請照 `解析到的目標是：` 那一行的 `\u{…}` 形自己還原（R31 verify 第 27 列）。
         throw ValidationError("""
-            \(command) --apply 拒絕執行：未指名目標 store。
+            \(command) \(flag) 拒絕執行：未指名目標 store。
 
             解析到的目標是：\(displaySafeInvisible(resolved.path, max: 800))
             （由 registry 的 current 決定，**與你目前所在的目錄無關**）
@@ -90,7 +110,7 @@ enum DestructiveTargetGate {
               --library \(displaySafeInvisible(resolved.path, max: 800))   顯式指定（推薦——同時消除歧義）
               --yes                                                知情地沿用 registry 解析
 
-            先跑一次不帶 --apply 的 dry-run 可以看到會改什麼。
+            先跑一次不帶 \(flag) 的 dry-run 可以看到會改什麼。
             """)
     }
 }

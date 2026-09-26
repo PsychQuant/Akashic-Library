@@ -96,14 +96,46 @@ final class DestructiveTargetGateTests: XCTestCase {
     /// `storeSource`（API 完整、零 production 呼叫端）的形狀。
     func testEveryEnumeratedCommandActuallyCallsTheGate() throws {
         let combined = try allCommandSources()
+        // resolve-organizations 的條件是 `apply || reject`（#580）：它的 --reject 也是篩選式寫入。
+        let conditions = ["resolve-organizations": "apply || reject"]
         for name in ["migrate-person-identity", "migrate-venues", "bootstrap-people",
                      "bootstrap-organizations", "bootstrap-venues",
                      "resolve-people", "resolve-organizations"] {
+            let cond = conditions[name] ?? "apply"
             XCTAssertTrue(
-                combined.contains("if apply { try options.assertDestructiveTargetNamed(\"\(name)\") }"),
-                "`\(name)` 沒有呼叫閘門，或呼叫條件不是 `apply`——"
+                combined.contains("if \(cond) { try options.assertDestructiveTargetNamed(\"\(name)\"") ,
+                "`\(name)` 沒有呼叫閘門，或呼叫條件不是 `\(cond)`——"
                 + "列舉完整而閘門沒被呼叫，等於沒有閘門")
         }
+    }
+
+    /// **機械稽核（篩選式 --reject → 閘）**（#580）：帶布林 `--reject`（收窄後全寫）的命令，其閘的條件必須含 `reject`。
+    /// 先前只看 `var apply = false`，resolve-organizations 的篩選式否決對未指名的 store 照寫。
+    func testEveryFilteredRejectIsGated() throws {
+        let src = try allCommandSources()
+        var currentCommand: String?
+        var found = 0
+        for line in src.split(separator: "\n", omittingEmptySubsequences: false) {
+            if let r = line.range(of: "commandName: \"") {
+                currentCommand = String(line[r.upperBound...].prefix(while: { $0 != "\"" }))
+            }
+            guard line.contains("var reject = false"), let cmd = currentCommand else { continue }
+            found += 1
+            XCTAssertTrue(src.contains("if apply || reject { try options.assertDestructiveTargetNamed(\"\(cmd)\""),
+                          "`\(cmd)` 有篩選式 --reject 但閘的條件不含 reject")
+        }
+        XCTAssertGreaterThan(found, 0, "空掃描不是通過：至少 resolve-organizations 有篩選式 --reject")
+    }
+
+    /// resolve-venues 不在表內的理由是它的寫入腿全是逐 id 顯式指名（#580）。釘住那個前提：
+    /// `--apply` 若改成布林的篩選式旗標，`testEveryApplyCommandIsEnumerated` 會接住，而這條說明為什麼現在不在表內。
+    func testResolveVenuesApplyIsAnIDList() throws {
+        let src = try source("Sources/akashic/VenueCommand.swift")
+        let start = try XCTUnwrap(src.range(of: "commandName: \"resolve-venues\""))
+        let body = src[start.upperBound...].prefix(4_000)
+        XCTAssertTrue(body.contains("var apply: [String] = []"), "resolve-venues 的 --apply 不再是 id 清單——重開 #580 的裁決")
+        XCTAssertFalse(try source("Sources/akashic/DestructiveTargetGate.swift").contains("\"resolve-venues\""),
+                       "resolve-venues 進了表——那時要同時改 DestructiveTargetGate 的判準段")
     }
 
     /// 閘門**不得**查 CWD——那是被否決的方向 (b)。

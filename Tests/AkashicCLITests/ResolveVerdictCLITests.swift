@@ -278,6 +278,21 @@ final class ResolveVerdictCLITests: XCTestCase {
         XCTAssertTrue(list.output.contains("已否決"), "沉底列要有標記：\n\(list.output)")
     }
 
+    /// #580：篩選式 --reject 與 --apply 同形——未指名目標 store 時拒絕、零寫入；--yes 知情放行。
+    func testOrgFilteredRejectRequiresANamedTarget() throws {
+        try seedOrgCandidate()
+        let env = ["AKASHIC_LIBRARY": root.path, "HOME": root.path]
+        let refused = try CLITestHarness.run(["resolve-organizations", "--reject", "--holder", "che-cheng"], env: env)
+        XCTAssertNotEqual(refused.status, 0, refused.output)
+        XCTAssertTrue(refused.output.contains("resolve-organizations --reject 拒絕執行：未指名目標 store"), refused.output)
+        XCTAssertFalse(try reload().organizations.first { $0.key == "stat-sinica" }!.references
+            .contains { $0.field == "resolution-rejected" }, "被閘擋下時零寫入")
+        let ok = try CLITestHarness.run(["resolve-organizations", "--reject", "--holder", "che-cheng", "--yes"], env: env)
+        XCTAssertEqual(ok.status, 0, ok.output)
+        XCTAssertTrue(try reload().organizations.first { $0.key == "stat-sinica" }!.references
+            .contains { $0.field == "resolution-rejected" })
+    }
+
     /// 全庫盲掃否決是把一次判斷放大成批次動作——reject 必須帶收窄條件。
     func testOrgRejectRequiresNarrowing() throws {
         try seedOrgCandidate()

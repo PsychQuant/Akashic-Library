@@ -1006,15 +1006,17 @@ struct ResolveOrganizations: ParsableCommand {
             try ResolvePeople.printUndecidedResult(try service.resolveOrganizations(apply: nil, undecided: undecided, restsOn: restsOn))
             return
         }
-        // #298：破壞性寫入前確認目標 store 已被指名。**只在 --apply 時**
-        // ——dry-run 不得被擋（它不寫東西，且正是用來確認目標的手段）。
-        if apply { try options.assertDestructiveTargetNamed("resolve-organizations") }
         if apply, reject {
             throw ValidationError("--apply 與 --reject 不可同用（相反的 verdict）——分兩次呼叫")
         }
         if reject, holder.isEmpty, org.isEmpty {
             throw ValidationError("--reject 必須帶 --holder / --org 收窄——否決是逐配對的判斷，不是批次動作")
         }
+        // #298：破壞性寫入前確認目標 store 已被指名。**只在真的要寫時**——dry-run 不得被擋
+        // （它不寫東西，且正是用來確認目標的手段）。本命令的 --reject 與 --apply 同形：都是
+        // **篩選式**寫入（收窄後的候選全寫），所以兩者都閘（#580——先前只閘 --apply，--reject
+        // 對未指名的 store 照寫 rejected verdict）。放在參數組合檢查之後：先報呼叫端的矛盾。
+        if apply || reject { try options.assertDestructiveTargetNamed("resolve-organizations", flag: apply ? "--apply" : "--reject") }
         let store = try options.openStore()
         let load = try store.load()
         // #232 design D5：已否決配對從 organization 的 verdict references 現算

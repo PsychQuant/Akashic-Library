@@ -16,3 +16,10 @@
 
 - `LooseNameKey` 對 `matchingKey` 的輸出又在 grapheme cluster 上切一次。`" \u{301}"` 是同一個 cluster，上游剛修掉的損失在提名鍵裡重演（logic 席）。它的 `cleanTokens` 改成在 scalar 上切。測試：`LooseNameKeyTests.testReorderKeyKeepsACombiningMarkAfterASpace`，實作前紅。live store 同一個量測（0 個字串值有這個形狀），提名鍵不變。
 - 第 27 列散文裡一句「Swift `Character.isWhitespace`」改成現況（scalar 上的 `properties.isWhitespace`，集合相同）。
+
+## R2 verify 之後
+
+- 同一種 Character 重切還在 `LooseTitleKey`（venue／org 的提名鍵）與 `PersonBootstrap` 的 `swappedOrder`／`suggestedKey`。`identity` 取兩個候選的 min，丟掉組合符號的那一支可能勝出（requirements 席）。
+- 修法不是再修三處，是**抽成單一定義**：`NameNormalization.whitespaceTokens`（以 White_Space scalar 切、不回空 token）。`matchingKey` 自己、`LooseNameKey`、`LooseTitleKey`、`PersonBootstrap` 都呼叫它。四處各寫一份切法，正是 R1、R2 兩輪一再找到新一處的原因。
+- 測試：`LooseNameKeyTests.testSiblingKeysKeepACombiningMarkAfterASpace`、`PersonBootstrapTests.testSwappedOrderKeepsACombiningMarkAfterASpace`，在修正前的程式上紅。
+- 量測沿用本 changelog 開頭那一個：live store 沒有「空白後緊接組合符號」的字串，四個鍵在 live store 上都不變。

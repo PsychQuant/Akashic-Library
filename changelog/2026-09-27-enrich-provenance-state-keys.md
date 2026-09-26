@@ -32,3 +32,14 @@
 - 測試：
   - `StdioE2ETests.testEnrichSchemaListsEverySourceField`（真 binary 的 `tools/list`）：schema 有五個來源欄位、描述不含舊句、說出 `provenanceWritten`。負控：Server.swift 換回 R1 前，6 個斷言失敗。
   - `EnrichCLITests.testSourceLineAgreesWithPayload` 補兩處：成功寫入時正面斷言「→ 已寫入 1 筆 reference（fields.abstract）」（R1 前只驗了 dry-run 那一行）；只補 date 時不得說「沒有補任何值」。
+
+## R2 verify 之後（6 席，0 HIGH、6 MEDIUM；依停損不開 R3）
+
+R1 把來源欄位寫進 MCP schema，等於正式邀請呼叫端送它們；核心對它們的驗證一直沒跟上 #517。R2 的 MEDIUM 全在這裡：
+
+- **`sourceStatus` 不再預設 200**（DA 實測）：`file:///scan.pdf` 這類離線來源省略 status，store 曾被寫進一個沒人觀察過的 `status: 200`。status 本來就是 store 格式裡 retrieval 的必要欄位，現在它是四個必要來源欄位之一。缺了就不寫 reference，理由具名。
+- **任何來源欄位給了卻不齊，都說出缺哪些**：先前只有「有 digest」那一種會說；只給 URL 與取得日期的提案兩面都一聲不吭。CLI 那一行也不再以「有 digest」為前提。
+- **三個來源字串納入 #519 的上限**：`sourceURL`／`sourceRetrieved`／`sourceMediaType` 自 #517 起寫進 store，每個補進去的欄位各帶一份，而上限一直沒涵蓋它們（DA 實測：3.5 MB 的 URL 落盤成 7 MB 的記錄檔，`validate` 全綠）。
+- **digest 不合法整批拒絕**：先前 dry-run 說「會寫」，apply 時才以 writeFailed 失敗，而且同一筆的合法欄位也一起沒寫。規則與 store 同一條（`ProvenanceReference.isValidDigest`）；`retrieved` 的格式 store 不驗，這裡也不另立規則，schema 描述不再承諾「ISO 8601 前綴」。
+- 文字：描述裡的「來源四欄」與實際列出的欄位對不上，改成「四個必要欄位＋一個選填」；「三個鍵擇一」改成「至多一個」（只補 date 時一個都沒有）；`mcp-cli-parity` 那一列與核心型別 doc 裡「sourceDigest 不進 store」的舊句改成現況；解析器收蛇形鍵是給 CLI 提案檔用的，MCP schema 只列駝峰形，doc 寫明。
+- 測試（`EnrichmentProvenanceTests`）：`testMissingStatusWritesNoReferenceAndSaysWhy`、`testSourceFieldsWithoutDigestAreReportedToo`、`testSourceStringsAreLengthCapped`、`testMalformedDigestIsRefusedAtPlanTime`，在修正前的程式上全部紅。既有「完整來源」的 fixture 補上 `sourceStatus`。

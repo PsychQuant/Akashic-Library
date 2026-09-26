@@ -114,16 +114,33 @@ public enum AddOnlyEnrichment {
             self.sourceMediaType = sourceMediaType; self.sourceStatus = sourceStatus
         }
 
-        /// 三欄齊備時的 `retrieval` kind；否則 nil（呼叫端具名回報，不靜默）。
+        /// 四欄（digest／URL／retrieved／status）齊備時的 `retrieval` kind；否則 nil（呼叫端具名回報，不靜默）。
+        ///
+        /// **status 不補預設值**（#542 R2 verify DA）：先前是 `sourceStatus ?? 200`，一份離線掃描檔（`file:///…`）
+        /// 因此被記成 HTTP 200——store 斷言了一個來源沒說過的事實。store 格式本來就把 status 列為 retrieval 的必要欄位。
         public var retrievalKind: ProvenanceReference.Kind? {
-            guard let d = sourceDigest, let u = sourceURL, let r = sourceRetrieved,
+            guard let d = sourceDigest, let u = sourceURL, let r = sourceRetrieved, let s = sourceStatus,
                   !d.isEmpty, !u.isEmpty, !r.isEmpty else { return nil }
-            return .retrieval(url: u, retrieved: r, status: sourceStatus ?? 200,
+            return .retrieval(url: u, retrieved: r, status: s,
                               mediaType: sourceMediaType, content: d)
         }
 
-        /// JSON 形：`{ "citekey" | "doi", "fields": {…}, "date", "authors": […], "sourceDigest" }`。
-        /// `source_digest` 也收（MCP 面其餘參數是 snake_case）。**未知的頂層鍵拒絕**——
+        /// 給了任何一個來源欄位、卻湊不成 reference 時缺的那些（空陣列＝要嘛齊了、要嘛一個都沒給）。
+        public var missingSourceFields: [String] {
+            let given = [sourceDigest, sourceURL, sourceRetrieved, sourceMediaType].contains { !($0 ?? "").isEmpty }
+                || sourceStatus != nil
+            guard given, retrievalKind == nil else { return [] }
+            var missing: [String] = []
+            if (sourceDigest ?? "").isEmpty { missing.append("sourceDigest") }
+            if (sourceURL ?? "").isEmpty { missing.append("sourceURL") }
+            if (sourceRetrieved ?? "").isEmpty { missing.append("sourceRetrieved") }
+            if sourceStatus == nil { missing.append("sourceStatus") }
+            return missing
+        }
+
+        /// JSON 形：`{ "citekey" | "doi", "fields": {…}, "date", "authors": […], "sourceDigest", "sourceURL",
+        /// "sourceRetrieved", "sourceMediaType", "sourceStatus" }`。來源鍵也收蛇形（`source_digest` 等）——CLI 的提案檔用得到；
+        /// MCP 的 item schema 宣告 `additionalProperties: false` 只列駝峰形，照 schema 的 client 送駝峰形即可。**未知的頂層鍵拒絕**——
         /// 把 `abstract` 寫在頂層而不是 `fields` 裡是最容易犯的錯，靜默略過會讓那筆看起來
         /// 「補了」而其實什麼都沒補。
         private struct AnyKey: CodingKey {
@@ -310,7 +327,8 @@ public enum AddOnlyEnrichment {
         public let reason: String?
         /// `ambiguous` 時全部命中的 citekey（排序）；其餘為空。
         public let matches: [String]
-        /// 逐筆回顯 `Proposal.sourceDigest`——**不進 store**。
+        /// 逐筆回顯 `Proposal.sourceDigest`。digest **單獨**不進 store；四個來源欄位齊備時它成為 retrieval reference
+        /// 的 `content`（`retrievalKind`，#517），那時進 store 的是 reference，不是這個回顯欄位。
         public let sourceDigest: String?
     }
 
@@ -465,10 +483,22 @@ public enum AddOnlyEnrichment {
         try checkLength(p.citekey, "citekey")
         try checkLength(p.doi, "doi")
         try checkLength(p.date, "date")
-        // `sourceDigest` 不進 store（`testSourceDigestIsReportedNotStored`），但它**會回顯進報告**
+        // `sourceDigest` 單獨不進 store（`testSourceDigestIsReportedNotStored`；四欄齊備時成為 reference 的 content），但它**會回顯進報告**
         // ——而 MCP 面的報告直接進 LLM context。上一版的註解寫「每一個字串」卻沒列它，那是
         // 散文與程式碼的矛盾；補上而不是改小註解，因為回顯本身就是要被上限管的出口。
         try checkLength(p.sourceDigest, "sourceDigest")
+        // #542 R2 verify（三席）：URL、取得日期、media type 自 #517 起**寫進 store**（每個補進去的欄位各帶一份），
+        // 而上面那句「每一個字串」一直沒涵蓋它們；R1 把它們列進 MCP schema 之後就成了照規矩的呼叫也會送的東西。
+        try checkLength(p.sourceURL, "sourceURL")
+        try checkLength(p.sourceRetrieved, "sourceRetrieved")
+        try checkLength(p.sourceMediaType, "sourceMediaType")
+        // digest 的形狀與 store 同一條（`ProvenanceReference.isValidDigest`）。先前不驗：dry-run 說「會寫」，
+        // apply 時才以 writeFailed 失敗，而且那一筆連合法的欄位也一起沒寫（R2 verify security）。
+        if let d = present(p.sourceDigest), !ProvenanceReference.isValidDigest(d) {
+            throw InputError.invalidProposal(
+                index: index,
+                reason: "sourceDigest 不是 `sha256:` 加 64 個小寫十六進位（實得長 \(d.utf8.count) bytes）——整批拒絕、零寫入")
+        }
         for (i, key) in p.fields.keys.sorted().enumerated() {
             // 鍵先於值，且**訊息裡放位置不放內容**——一個 64 KiB 的鍵印出來會淹掉錯誤本身。
             try checkLength(key, "第 \(i + 1) 個欄位鍵")
@@ -617,15 +647,12 @@ public enum AddOnlyEnrichment {
             for b in addedISBNs {
                 addedReferences.append(ProvenanceReference(field: "isbn", value: b.normalized, kind: kind))
             }
-        } else if let d = p.raw.sourceDigest, !d.isEmpty {
-            // 有 digest 卻寫不成 reference——說出來，不靜默（`lossless-intake` 執行細節 3）
-            var missing: [String] = []
-            if (p.raw.sourceURL ?? "").isEmpty { missing.append("sourceURL") }
-            if (p.raw.sourceRetrieved ?? "").isEmpty { missing.append("sourceRetrieved") }
-            provenanceSkipped = "有 sourceDigest 但缺 \(missing.joined(separator: "、"))"
-                + "——一次取得的 url 與日期沒有別的地方記（sources/index.jsonl 記 origin／"
-                + "retrieved／media-type，不記 url），所以 digest 單獨寫不成 reference。"
-                + "digest 仍在報告裡"
+        } else if !p.raw.missingSourceFields.isEmpty {
+            // 給了來源欄位卻寫不成 reference——說出來，不靜默（`lossless-intake` 執行細節 3）。
+            // #542 R2 verify：先前只在「有 digest」時說；只給 URL 與日期的提案兩面都一聲不吭。
+            provenanceSkipped = "來源欄位不齊，缺 \(p.raw.missingSourceFields.joined(separator: "、"))"
+                + "——retrieval reference 要 digest、url、取得日期與 status 四欄（store 格式的必要欄位；"
+                + "一次取得的 url 與日期沒有別的地方記），所以這筆不寫 reference。給了的欄位仍在報告裡"
         }
 
         let outcome = Outcome(addedFields: added, addedDate: addedDate, addedAuthors: addedAuthors,

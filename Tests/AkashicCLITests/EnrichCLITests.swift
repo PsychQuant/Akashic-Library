@@ -127,7 +127,7 @@ final class EnrichCLITests: XCTestCase {
         XCTAssertTrue(applied.output.contains("→ 已寫入 1 筆 reference（fields.abstract）"), applied.output)
         XCTAssertEqual(try entry("cheng2025alpha").references.filter { $0.field == "fields.abstract" }.count, 1, "store 裡真的有那筆 reference")
         // payload 與 CLI 行說同一件事：另一個欄位走 --json
-        let fullNote = try proposals(#"[{"citekey":"cheng2025alpha","fields":{"note":"N1"},"sourceDigest":"\#(digest)","sourceURL":"https://example.org/x","sourceRetrieved":"2026-09-09"}]"#)
+        let fullNote = try proposals(#"[{"citekey":"cheng2025alpha","fields":{"note":"N1"},"sourceDigest":"\#(digest)","sourceURL":"https://example.org/x","sourceRetrieved":"2026-09-09","sourceStatus":200}]"#)
         let json = try cli(["enrich", "--from", fullNote, "--apply", "--json"])
         XCTAssertEqual(json.status, 0, json.output)
         let obj = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(json.output.utf8)) as? [String: Any], json.output)
@@ -135,7 +135,7 @@ final class EnrichCLITests: XCTestCase {
         let written = try XCTUnwrap(item["provenanceWritten"] as? [String], "payload 要帶 provenanceWritten：\(json.output)")
         XCTAssertEqual(written, ["fields.note"], json.output)
         // 只補 date：不產生 reference（#655），CLI 行不得說「沒有補任何值」
-        let dateOnly = try proposals(#"[{"citekey":"noauthor2020x","date":"2020","sourceDigest":"\#(digest)","sourceURL":"https://example.org/y","sourceRetrieved":"2026-09-09"}]"#)
+        let dateOnly = try proposals(#"[{"citekey":"noauthor2020x","date":"2020","sourceDigest":"\#(digest)","sourceURL":"https://example.org/y","sourceRetrieved":"2026-09-09","sourceStatus":200}]"#)
         let d = try cli(["enrich", "--from", dateOnly])
         XCTAssertTrue(d.output.contains("+ date"), d.output)
         XCTAssertTrue(d.output.contains("date／authors 不寫 reference"), d.output)

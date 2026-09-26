@@ -317,10 +317,10 @@ actor AkashicMCPServer {
                         + "type／title／venues／attachments 一律不碰。與 akashic_enrich_from_zotero **同一份政策**（那是它的 Zotero adapter）。"
                         + "DOI 反向命中 ≥2 筆＝ambiguous（matches 列全部 citekey、零寫入，不判定哪筆才對）。"
                         + "雙摘要分鍵：第二個摘要由呼叫端具名 abstract-<lang>／abstract-2，落地為 abstract_es／abstract_2。"
-                        + "來源四欄（sourceDigest／sourceURL／sourceRetrieved 齊備，sourceMediaType／sourceStatus 選填）時，每個補進去的欄位（與 doi／pmid／isbn）"
-                        + "同一次寫入一筆 retrieval reference；只給 sourceDigest 不寫、理由進 item 的 provenanceSkipped。"
-                        + "item 的 provenance 狀態三個鍵擇一：provenancePlanned（dry_run，apply 時會寫）／provenanceWritten（已寫入）／"
-                        + "provenanceNotWritten（那一筆寫入失敗）。date／authors 不產生 reference。來源 reference 的冪等比位元組（#554 D73：只差 NFC／NFD 的兩筆都落盤，偵測面缺口 #582）。"
+                        + "來源四個必要欄位（sourceDigest／sourceURL／sourceRetrieved／sourceStatus）齊備時（sourceMediaType 選填），"
+                        + "每個補進去的欄位（與 doi／pmid／isbn）同一次寫入一筆 retrieval reference；給了其中幾個卻不齊時不寫，缺哪些進 item 的 provenanceSkipped。"
+                        + "sourceDigest 不是合法 sha256 digest 時整批拒絕。item 的 provenance 狀態至多一個鍵：provenancePlanned（dry_run，apply 時會寫）／"
+                        + "provenanceWritten（已寫入）／provenanceNotWritten（那一筆寫入失敗）；只補 date／authors 時一個都沒有（它們不產生 reference，#655）。來源 reference 的冪等比位元組（#554 D73：只差 NFC／NFD 的兩筆都落盤，偵測面缺口 #582）。"
                         + "**dry_run 預設 true**；false 才寫入（一次 load、逐筆寫、一次 rebuild；I/O 失敗逐筆記 writeFailed 其餘照寫）。"
                         + "輸入語法錯（兩鍵同給／皆無、fields 空且無 date 與 authors、鍵無法正規化、頂層未知鍵）→ **整批拒絕零寫入**；"
                         + "ambiguous／notFound／rejected／skipped 逐筆具名。items 至多 \(enrichItemLimit) 筆（counts／written／writeFailed 永遠完整，"
@@ -342,12 +342,12 @@ actor AkashicMCPServer {
                             ]),
                             "date": str("date（entry 的 date 為空時才補）"),
                             "authors": strArray("literal 作者名（entry 的 authors 完全為空且 include_absent_authors:true 時才補）"),
-                            "sourceDigest": str("來源存檔 digest（sha256:…）。與 sourceURL、sourceRetrieved 齊備才寫 retrieval reference；只給它時只回顯"),
+                            "sourceDigest": str("來源存檔 digest（sha256: 加 64 個小寫十六進位；不合法整批拒絕）。四個必要來源欄位齊備才寫 retrieval reference"),
                             "sourceURL": str("這次取得的 URL（寫 retrieval reference 的必要欄位）"),
-                            "sourceRetrieved": str("取得日期（ISO 8601 前綴；寫 retrieval reference 的必要欄位）"),
+                            "sourceRetrieved": str("取得日期（例如 2026-09-09；原樣記錄，不驗格式；寫 retrieval reference 的必要欄位）"),
                             "sourceMediaType": str("取得內容的 media type（選填，例如 application/json）"),
                             "sourceStatus": .object(["type": .string("integer"),
-                                                     "description": .string("HTTP 狀態碼（選填）")]),
+                                                     "description": .string("取得時的狀態碼（寫 retrieval reference 的必要欄位；離線來源沒有 HTTP 狀態時不要編一個，省略即不寫 reference）")]),
                         ]),
                     ]),
                 ]),

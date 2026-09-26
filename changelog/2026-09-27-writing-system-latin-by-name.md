@@ -22,3 +22,7 @@
 - 改了名的那支測試，doc 仍在論證已經關掉的逃逸；同檔另有兩處引用舊測試名，其中一處把舊測試當成「不動點 ⇒ 書寫系統不變」的反例。三處都改寫：保留歷史，現況照實說——NFC 之後那個蘊含成立。
 - 測試 `testWritingSystemIsInvariantUnderCanonicalEquivalence`。第一版 fixture 寫 `"\u{212A}elley"`，夾著 ASCII、沒有 NFC 也判得對，負控只紅了 2 條；改成單獨字元後，負控（拿掉 NFC）4 條全紅。這個錯誤在同一張 issue 犯了兩次（越南文那條也是），已記進工作記憶。
 - 另外記錄：全形與擴展拉丁的名字，現在會在 `--authorize` 時替換同書寫系統的 ASCII authorized，而不是並列（security 席）。這是「每書寫系統至多一個」的原意，不是回歸。
+
+## R2 之後補的量測
+
+R1 加的「先做 NFC」沒有量過就 commit 了。補量：live store 5,189 個 authorized 名字全部已是 NFC，加上 NFC 後分類改變 0 個。

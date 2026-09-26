@@ -24,7 +24,7 @@ struct EnrichCmd: ParsableCommand {
 
     @OptionGroup var options: LibraryOptions
 
-    @Option(name: .long, help: "提案 JSON 檔：[{citekey|doi, fields{…}, date?, authors?, sourceDigest?, sourceURL?, sourceRetrieved?, sourceMediaType?, sourceStatus?}]（每筆 citekey 或 doi 恰一個；digest／URL／retrieved 齊備才寫 retrieval reference）")
+    @Option(name: .long, help: "提案 JSON 檔：[{citekey|doi, fields{…}, date?, authors?, sourceDigest?, sourceURL?, sourceRetrieved?, sourceMediaType?, sourceStatus?}]（每筆 citekey 或 doi 恰一個；digest／URL／retrieved／status 四欄齊備才寫 retrieval reference）")
     var from: String
 
     @Flag(name: .long, help: "實際寫入（預設只列出計畫）")
@@ -106,7 +106,9 @@ struct EnrichCmd: ParsableCommand {
             // #542：**由 payload 現算，不寫死結論。** 這一行原本逐字寫著「只記在報告，
             // 不進 store」——#517 之前為真，之後為假，而沒有任何東西會發現（沒有測試
             // 斷言它、守衛也不掃出貨字串）。三種狀態要分得開。
-            if let digest = item["sourceDigest"] as? String {
+            // 只給 URL／日期、沒有 digest 的提案也要說（#542 R2 verify：先前這一行只在有 digest 時才印，那一格兩面都沉默）
+            if item["sourceDigest"] != nil || item["provenanceSkipped"] != nil {
+                let digest = item["sourceDigest"] as? String ?? "（沒給 digest）"
                 if let written = item["provenanceWritten"] as? [String], !written.isEmpty {
                     print("    來源：\(digest) → 已寫入 \(written.count) 筆 reference（\(written.joined(separator: "、"))）")   // display-safe-exempt: service 已對每個值 displaySafe；count 是 Int
                 } else if let planned = item["provenancePlanned"] as? [String], !planned.isEmpty {

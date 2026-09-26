@@ -101,4 +101,14 @@ final class LooseNameKeyTests: XCTestCase {
         XCTAssertNotEqual(LooseNameKey.reorderKey("A \u{301}B"), LooseNameKey.reorderKey("A B"))
     }
 
+
+    /// #574 R2 verify：同一種 Character 重切還在 `LooseTitleKey` 與 `PersonBootstrap`——三處現在都呼叫
+    /// `NameNormalization.whitespaceTokens`，不再各寫一份切法。
+    func testSiblingKeysKeepACombiningMarkAfterASpace() {
+        XCTAssertTrue(LooseTitleKey.key("Journal \u{301}X").unicodeScalars.contains("\u{301}"))
+        XCTAssertNotEqual(LooseTitleKey.key("Journal \u{301}X"), LooseTitleKey.key("Journal X"))
+        XCTAssertEqual(NameNormalization.whitespaceTokens("  A \u{301}B\t\u{301}C  "), ["A", "\u{301}B", "\u{301}C"],
+                       "兩種空白後的組合符號都留在下一個 token；前後與連續空白不產生空 token")
+    }
+
 }

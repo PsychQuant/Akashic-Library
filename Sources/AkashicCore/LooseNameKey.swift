@@ -62,12 +62,10 @@ public enum LooseNameKey {
     /// 連字號同為分段界；隨後逐 token 收斂連續 `-` 並修剪首尾，`y.-h.` 與 `y.h.`
     /// 同歸 `y-h`——reorder 與 initials 兩個鍵空間一致受益。
     private static func cleanTokens(_ s: String) -> [String] {
-        s.replacingOccurrences(of: ",", with: " ")
-            .replacingOccurrences(of: ".", with: "-")
-            // 在 scalar 上切（#574 R1 verify）：`matchingKey` 的輸出裡空白後可能緊接組合符號，而 `" \u{301}"` 是同一個
-            // grapheme cluster——在 Character 上切會把它整個當成空白丟掉，上游剛修掉的損失在這裡重演。
-            .unicodeScalars.split(whereSeparator: { $0.properties.isWhitespace })
-            .map { String(String.UnicodeScalarView($0)) }
+        // 在 scalar 上切（#574 R1 verify）：`matchingKey` 的輸出裡空白後可能緊接組合符號，而 `" \u{301}"` 是同一個
+        // grapheme cluster——在 Character 上切會把它整個當成空白丟掉，上游剛修掉的損失在這裡重演。
+        NameNormalization.whitespaceTokens(s.replacingOccurrences(of: ",", with: " ")
+                                             .replacingOccurrences(of: ".", with: "-"))
             .compactMap { raw -> String? in
                 var collapsed = ""
                 for ch in raw {

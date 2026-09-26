@@ -45,13 +45,16 @@ public enum NameNormalization {
         // 後面的組合符號依 GB9 併進同一個 cluster，整個被當成空白丟掉（`"A \u{301}B"` → `"a b"`）；TAB 之類的
         // Control 類空白依 GB4 斷開、組合符號保留。改之前量過：live store 202,139 個字串值，key 會變的 0 個。
         // NBSP 已被 NFKC 轉成普通空格，ideographic space 等仍靠這裡收斂；前後空白一併去掉。
-        var out = String.UnicodeScalarView()
-        var pendingSpace = false
-        for u in String(String.UnicodeScalarView(visible)).lowercased().unicodeScalars {
-            if u.properties.isWhitespace { pendingSpace = !out.isEmpty; continue }
-            if pendingSpace { out.append(" "); pendingSpace = false }
-            out.append(u)
-        }
-        return String(out)
+        return whitespaceTokens(String(String.UnicodeScalarView(visible)).lowercased()).joined(separator: " ")
+    }
+
+    /// 以 White_Space **scalar** 切 token（#574）——名字相關程式切空白的唯一定義。
+    ///
+    /// 不在 grapheme cluster 上切：`" \u{301}"` 是同一個 cluster，`split(whereSeparator: \.isWhitespace)` 會把它整個
+    /// 當成空白丟掉，組合符號跟著消失。#574 R1／R2 verify 在 `LooseNameKey`、`LooseTitleKey`、`PersonBootstrap` 各找到
+    /// 一份 Character 切法——它們都呼叫這裡，不再各寫一份。空 token 不回傳（前後、連續空白收斂）。
+    public static func whitespaceTokens(_ s: String) -> [String] {
+        s.unicodeScalars.split(whereSeparator: { $0.properties.isWhitespace })
+            .map { String(String.UnicodeScalarView($0)) }
     }
 }

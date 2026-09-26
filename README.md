@@ -1222,7 +1222,7 @@ fixture 的 BibEntry ──→ 我們的 Entry ──→ bibEntry(for:) ──�
 `enrich-from-zotero`（CLI）／`akashic_enrich_from_zotero`（MCP）走另一條紀律——而自 #458 起它是
 generic `enrich --from <file.json>`／`akashic_enrich` 的 **Zotero adapter**：add-only 政策只有一份
 （`AddOnlyEnrichment`，住 AkashicCore），提案以 citekey 或 DOI 定位（DOI 命中多筆＝`ambiguous`、零寫入）、
-雙摘要分鍵（`abstract-<lang>` → `abstract_<lang>`）；來源三欄（`sourceDigest`／`sourceURL`／`sourceRetrieved`）齊備時，每個補進去的欄位同一次寫一筆 retrieval reference，只給 digest 則只回顯（#517、#542）：
+雙摘要分鍵（`abstract-<lang>` → `abstract_<lang>`）；來源四欄（`sourceDigest`／`sourceURL`／`sourceRetrieved`／`sourceStatus`）齊備時，每個補進去的欄位同一次寫一筆 retrieval reference，只給 digest 則只回顯（#517、#542）：
 
 | | pull | 逐筆補值 |
 |---|---|---|

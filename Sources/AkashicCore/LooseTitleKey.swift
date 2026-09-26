@@ -55,7 +55,8 @@ public enum LooseTitleKey {
         let spaced = String(expanded.map { c in
             c.isLetter || c.isNumber || c.isWhitespace ? c : " "
         })
-        var tokens = spaced.split(whereSeparator: \.isWhitespace).map(String.init)
+        // scalar 上切（#574 R2 verify）：上面的標點映射保留 `" \u{301}"` 這種 cluster，Character 上切會把組合符號丟掉
+        var tokens = NameNormalization.whitespaceTokens(spaced)
         while let first = tokens.first, leadingArticles.contains(first) {
             tokens.removeFirst()
         }

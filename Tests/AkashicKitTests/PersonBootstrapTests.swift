@@ -640,4 +640,11 @@ final class PersonBootstrapTests: XCTestCase {
         XCTAssertTrue(r.pendingMutual.isEmpty, "只有一種寫法時沒有可判定的對象：\(r.pendingMutual)")
         XCTAssertEqual(r.candidates.count, 1, "它應該照常是建檔候選")
     }
+
+    /// #574 R2 verify：`swappedOrder` 在 Character 上切會把「空白＋組合符號」整個丟掉，而 `identity` 取兩個候選的
+    /// min——丟掉組合符號的那一支可能勝出。改走 `NameNormalization.whitespaceTokens`。
+    func testSwappedOrderKeepsACombiningMarkAfterASpace() {
+        XCTAssertEqual(PersonBootstrap.swappedOrder("A \u{301}B"), "\u{301}B A")
+    }
+
 }

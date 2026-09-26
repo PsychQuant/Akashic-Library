@@ -59,7 +59,8 @@ public enum PersonBootstrap {
     ///
     /// 與 `reordered` 互補——後者只認逗號形。少於兩個 token 回 `nil`（沒有可換的）。
     static func swappedOrder(_ s: String) -> String? {
-        let tokens = s.split(whereSeparator: \.isWhitespace).map(String.init)
+        // scalar 上切（#574 R2 verify）：`identity` 取 min(normalize(s), normalize(swapped))，Character 上切會讓丟掉組合符號的那一支勝出
+        let tokens = NameNormalization.whitespaceTokens(s)
         guard tokens.count >= 2 else { return nil }
         return ([tokens.last!] + tokens.dropLast()).joined(separator: " ")
     }
@@ -198,7 +199,7 @@ public enum PersonBootstrap {
     /// 建議的 person key：`<姓氏>-<名>` 小寫、非字母轉 `-`。
     static func suggestedKey(from name: String, taken: Set<String>) -> String? {
         let display = reordered(name) ?? name
-        let tokens = display.split(whereSeparator: \.isWhitespace).map(String.init)
+        let tokens = NameNormalization.whitespaceTokens(display)
         guard !tokens.isEmpty else { return nil }
         // 姓在後（已重排成 First Last）
         let surname = tokens.last!

@@ -125,12 +125,12 @@ final class EnrichmentProvenanceTests: XCTestCase {
         Entry(id: UUID(), citekey: "a2020x", type: .periodicalArticle, title: "T")
     }
 
-    /// 三欄齊備 → 每個補進去的欄位一筆 retrieval，且與值**同一次寫入**。
+    /// 四欄齊備（#542 R2 起 status 必要）→ 每個補進去的欄位一筆 retrieval，且與值**同一次寫入**。
     func testFullSourceWritesOneReferencePerAddedField() throws {
         let p = AddOnlyEnrichment.Proposal(
             citekey: "a2020x", fields: ["abstract": "一段摘要", "pages": "233-251"],
             sourceDigest: digest, sourceURL: "https://api.crossref.org/works/10.1037/x",
-            sourceRetrieved: "2026-09-09", sourceMediaType: "application/json")
+            sourceRetrieved: "2026-09-09", sourceMediaType: "application/json", sourceStatus: 200)
         let r = try AddOnlyEnrichment.plan(entries: [entry()], proposals: [p])
         let item = try XCTUnwrap(r.items.first)
         XCTAssertNil(item.outcome.provenanceSkipped)
@@ -169,6 +169,43 @@ final class EnrichmentProvenanceTests: XCTestCase {
         XCTAssertTrue(why.contains("sourceRetrieved"), why)
     }
 
+    /// #542 R2 verify（DA）：省略 status 不再補 200。一份離線掃描檔曾因此被記成 HTTP 200——store 斷言了來源沒說過的事。
+    func testMissingStatusWritesNoReferenceAndSaysWhy() throws {
+        let p = AddOnlyEnrichment.Proposal(
+            citekey: "a2020x", fields: ["abstract": "一段摘要"], sourceDigest: digest,
+            sourceURL: "file:///scan.pdf", sourceRetrieved: "2026-09-09")
+        let item = try XCTUnwrap(try AddOnlyEnrichment.plan(entries: [entry()], proposals: [p]).items.first)
+        XCTAssertTrue(item.outcome.addedReferences.isEmpty, "沒有 status 就不寫 reference，不捏造 200")
+        XCTAssertTrue(try XCTUnwrap(item.outcome.provenanceSkipped).contains("sourceStatus"))
+    }
+
+    /// #542 R2 verify（logic、requirements）：只給 URL 與日期、沒給 digest——先前兩面都一聲不吭。
+    func testSourceFieldsWithoutDigestAreReportedToo() throws {
+        let p = AddOnlyEnrichment.Proposal(
+            citekey: "a2020x", fields: ["abstract": "一段摘要"],
+            sourceURL: "https://example.org/x", sourceRetrieved: "2026-09-09", sourceStatus: 200)
+        let item = try XCTUnwrap(try AddOnlyEnrichment.plan(entries: [entry()], proposals: [p]).items.first)
+        XCTAssertTrue(item.outcome.addedReferences.isEmpty)
+        let why = try XCTUnwrap(item.outcome.provenanceSkipped, "給了來源欄位卻寫不成 reference，要說出來")
+        XCTAssertTrue(why.contains("sourceDigest"), why)
+    }
+
+    /// #542 R2 verify（三席）：URL／取得日期／media type 進 store，要受 #519 的單一字串上限管。
+    func testSourceStringsAreLengthCapped() {
+        let long = String(repeating: "u", count: AddOnlyEnrichment.maxValueBytes + 1)
+        for (url, ret, mt) in [(long, "2026-09-09", "a/b"), ("https://x", long, "a/b"), ("https://x", "2026-09-09", long)] {
+            let p = AddOnlyEnrichment.Proposal(citekey: "a2020x", fields: ["abstract": "x"], sourceDigest: digest,
+                                               sourceURL: url, sourceRetrieved: ret, sourceMediaType: mt, sourceStatus: 200)
+            XCTAssertThrowsError(try AddOnlyEnrichment.plan(entries: [entry()], proposals: [p]), "超過上限要整批拒絕")
+        }
+    }
+
+    /// #542 R2 verify（security）：digest 不合法先前 dry-run 說「會寫」、apply 時才 writeFailed，連合法欄位都沒寫。
+    func testMalformedDigestIsRefusedAtPlanTime() {
+        let p = AddOnlyEnrichment.Proposal(citekey: "a2020x", fields: ["abstract": "x"], sourceDigest: "sha256:nothex")
+        XCTAssertThrowsError(try AddOnlyEnrichment.plan(entries: [entry()], proposals: [p]))
+    }
+
     /// 沒有 digest 就什麼都不說——`provenanceSkipped` 不得變成每筆都印的雜訊。
     func testNoDigestMeansNoNoise() throws {
         let p = AddOnlyEnrichment.Proposal(citekey: "a2020x", fields: ["abstract": "x"])
@@ -180,7 +217,7 @@ final class EnrichmentProvenanceTests: XCTestCase {
     func testApplyingTwiceDoesNotDuplicateTheReference() throws {
         let p = AddOnlyEnrichment.Proposal(
             citekey: "a2020x", fields: ["abstract": "一段摘要"], sourceDigest: digest,
-            sourceURL: "https://example.org/x", sourceRetrieved: "2026-09-09")
+            sourceURL: "https://example.org/x", sourceRetrieved: "2026-09-09", sourceStatus: 200)
         let r = try AddOnlyEnrichment.plan(entries: [entry()], proposals: [p])
         let outcome = try XCTUnwrap(r.items.first).outcome
         let once = AddOnlyEnrichment.applied(outcome, to: entry())

@@ -40,6 +40,25 @@ final class IdentifierTests: XCTestCase {
         XCTAssertNil(ISSN(""), "空字串")
     }
 
+    /// #589：非 ASCII 數字寫成的號必須拒絕。`CharacterSet.alphanumerics` 與 `wholeNumberValue` 都認 Unicode 數字，
+    /// 全形與阿拉伯-印度數字過得了 mod-11、原樣成為 normalized——去重比字串、回讀比不出來。
+    func testISSNRejectsNonASCIIDigits() {
+        XCTAssertNotNil(ISSN("0033-3123"), "前提：ASCII 版是合法的號（Psychometrika）")
+        XCTAssertNil(ISSN("\u{FF10}\u{FF10}\u{FF13}\u{FF13}-\u{FF13}\u{FF11}\u{FF12}\u{FF13}"), "全形數字")
+        XCTAssertNil(ISSN("\u{0660}\u{0660}\u{0663}\u{0663}-\u{0663}\u{0661}\u{0662}\u{0663}"), "阿拉伯-印度數字")
+        XCTAssertNil(ISSN("0033-312\u{FF13}"), "只混一個全形數字也拒絕")
+        XCTAssertNil(ISSN("0033-3123\u{0663}"), "夾帶的非 ASCII 數字不得被濾掉後放行")
+        XCTAssertNil(ISSN("0003-066\u{FF38}"), "全形 X 不是 check digit 的 X")
+    }
+
+    /// 同一個 `idCompact` 也服務 ISBN 與 ORCID（#589 的同形）。
+    func testISBNAndORCIDRejectNonASCIIDigits() {
+        XCTAssertNotNil(ISBN("0-12-179060-6"))
+        XCTAssertNil(ISBN("\u{FF10}-12-179060-6"))
+        XCTAssertNotNil(ORCID("0000-0003-0899-7477"))
+        XCTAssertNil(ORCID("0000-0003-0899-747\u{FF17}"))
+    }
+
     // MARK: - DOI
 
     func testDOIAcceptsAndNormalizes() {

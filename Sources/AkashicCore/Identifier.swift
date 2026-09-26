@@ -78,10 +78,19 @@ public extension Identifier {
 
 private extension String {
     /// 去掉所有非英數字元（連字號、空白、括號…），並轉大寫。
+    ///
+    /// **非 ASCII 的英數字元換成 `?`，不濾掉**（#589）：`CharacterSet.alphanumerics` 與
+    /// `Character.wholeNumberValue` 都認 Unicode 數字，全形（U+FF10–FF19）或阿拉伯-印度數字
+    /// （U+0660–0669）寫成的號會過 mod-11、原樣成為 `normalized`——去重比字串、回讀比不出來。
+    /// 換成 `?` 讓長度照算、而 `?` 必定不是數字也不是 `X`，三個呼叫端（ISSN／ISBN／ORCID）不改
+    /// 一行就全部拒絕；**濾掉**則會讓夾在 ASCII 號裡的非 ASCII 字元被靜默吞掉、號照樣通過。
+    /// 判斷在 `uppercased()` 之前做：有些非 ASCII 字元轉大寫後是 ASCII（合字 `ﬀ` → `FF`）。
     var idCompact: String {
-        uppercased().unicodeScalars
+        unicodeScalars
             .filter { CharacterSet.alphanumerics.contains($0) }
-            .reduce(into: "") { $0.unicodeScalars.append($1) }
+            .reduce(into: "") { acc, s in
+                if s.isASCII { acc += String(s).uppercased() } else { acc += "?" }
+            }
     }
 }
 

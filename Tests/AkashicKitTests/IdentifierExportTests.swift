@@ -46,14 +46,42 @@ final class IdentifierExportTests: XCTestCase {
                        try XCTUnwrap(ISBN("978-0-306-40615-7")).normalized)
     }
 
-    /// 多值時以**逗號分隔**——一筆 work 真的可以有多個 DOI（實測 37 組同題同年而 DOI
-    /// 不同）。丟掉其餘的等於丟掉一次身分判定。
-    func testMultipleIdentifiersAreAllEmitted() throws {
+    /// #543（使用者 2026-09-27 裁決）：biblatex 的 `DOI` 欄位裝**一個** DOI、渲染成一條連結——逗號串起來的是一個
+    /// 不存在的 DOI（202 筆的連結是死的）。**第一個進 `DOI`，其餘進 `addendum`**：其餘的仍是真的號，丟掉等於丟掉
+    /// 一次身分判定，而讀 .bib 的人會以為那是全部。
+    func testMultipleDOIsEmitFirstAndMoveTheRestToAddendum() throws {
         let e = entry(doi: [try XCTUnwrap(DOI("10.1111/aaa")),
-                            try XCTUnwrap(DOI("10.2222/bbb"))])
-        let out = try XCTUnwrap(BibExport.bibEntry(for: e, people: [:], venues: [:]).fields["doi"])
-        XCTAssertTrue(out.contains("10.1111/aaa") && out.contains("10.2222/bbb"),
-                      "多值不得只留一個：\(out)")
+                            try XCTUnwrap(DOI("10.2222/bbb")),
+                            try XCTUnwrap(DOI("10.3333/ccc"))])
+        let f = BibExport.bibEntry(for: e, people: [:], venues: [:]).fields
+        XCTAssertEqual(f["doi"], "10.1111/aaa", "DOI 欄位只放一個")
+        let add = try XCTUnwrap(f["addendum"], "其餘的號不得消失")
+        XCTAssertTrue(add.contains("10.2222/bbb") && add.contains("10.3333/ccc"), add)
+        XCTAssertFalse(add.contains("10.1111/aaa"), "第一個不重複列：\(add)")
+    }
+
+    /// 已有 addendum 時接在後面，不覆蓋來源給的內容（`lossless-intake` 的出庫版）。
+    func testExtraDOIsAppendToAnExistingAddendum() throws {
+        var e = entry(doi: [try XCTUnwrap(DOI("10.1111/aaa")), try XCTUnwrap(DOI("10.2222/bbb"))])
+        e.fields["addendum"] = "Reprinted in X"
+        let add = try XCTUnwrap(BibExport.bibEntry(for: e, people: [:], venues: [:]).fields["addendum"])
+        XCTAssertTrue(add.hasPrefix("Reprinted in X"), add)
+        XCTAssertTrue(add.contains("10.2222/bbb"), add)
+    }
+
+    /// csl-json 那面同一條裁決：`DOI` 單值只放一個，其餘接進 `note`（CSL 沒有 addendum）。
+    func testCSLJSONPutsOneDOIAndTheRestInNote() throws {
+        let e = entry(doi: [try XCTUnwrap(DOI("10.1111/aaa")), try XCTUnwrap(DOI("10.2222/bbb"))])
+        let json = try CSLExport.cslJSON(entries: [e], people: [], venues: [])
+        let item = try XCTUnwrap((try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [[String: Any]])?.first)
+        XCTAssertEqual(item["DOI"] as? String, "10.1111/aaa")
+        XCTAssertTrue((item["note"] as? String ?? "").contains("10.2222/bbb"), "\(item)")
+    }
+
+    /// 單一 DOI 不產生 addendum。
+    func testSingleDOIAddsNoAddendum() throws {
+        let e = entry(doi: [try XCTUnwrap(DOI("10.1111/aaa"))])
+        XCTAssertNil(BibExport.bibEntry(for: e, people: [:], venues: [:]).fields["addendum"])
     }
 
     /// **沒有結構化值時不得覆蓋殘留**——遷移前的記錄只有 `fields.doi`，

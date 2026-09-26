@@ -75,7 +75,14 @@ public enum CSLExport {
                     guard !ids.isEmpty else { return }
                     item[key] = ids.map(\.normalized).joined(separator: ", ")
                 }
-                emitIdentifiers(entry.doi, as: "DOI")
+                // DOI 只放一個、其餘接進 note——與 `.bib` 同一條裁決（#543）；逗號串起來的 DOI 是一條死連結
+                if let first = entry.doi.first {
+                    item["DOI"] = first.normalized
+                    let rest = entry.doi.dropFirst().map(\.normalized)
+                    if !rest.isEmpty {
+                        item["note"] = BibExport.appendingOtherDOIs(to: item["note"] as? String, rest)
+                    }
+                }
                 emitIdentifiers(entry.isbn, as: "ISBN")
                 // ISSN 住 venue（§8 之後）。只在 `fields` 沒有殘留時才拉，
                 // 與 `.bib` 那面同判準——遷移略過的那些仍在 `fields`，不得被覆蓋。

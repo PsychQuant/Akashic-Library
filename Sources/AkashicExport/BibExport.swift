@@ -6,6 +6,13 @@ import BiblatexAPA
 /// 永遠不是資料庫本體（spec ADR #10）。
 public enum BibExport {
     /// Entry.fields（已是 biblatex 欄位名）之外的一級欄位對映。
+    /// 其餘 DOI 接進一段自由文字（`.bib` 的 `addendum`、csl-json 的 `note`）——兩面同一句話（#543）。
+    public static func appendingOtherDOIs(to existing: String?, _ rest: [String]) -> String {
+        let clause = (rest.count == 1 ? "Other DOI: " : "Other DOIs: ") + rest.joined(separator: ", ")
+        guard let existing, !existing.isEmpty else { return clause }
+        return existing + ". " + clause
+    }
+
     public static func bibEntry(for entry: Entry, people: [String: Person],
                                 organizations: [String: Organization] = [:],
                                 venues: [String: Venue]) -> BibEntry {
@@ -49,7 +56,16 @@ public enum BibExport {
             guard !ids.isEmpty else { return }
             fields[key] = braceSafe(ids.map(\.normalized).joined(separator: ", "))
         }
-        emitIdentifiers(entry.doi, as: "doi")
+        // **DOI 例外：只放一個**（#543，使用者 2026-09-27 裁決）。biblatex 的 `DOI` 欄位裝一個 DOI、渲染成一條連結，
+        // 逗號串起來的是一個不存在的 DOI（live store 202 筆的連結是死的）。第一個進 `DOI`，其餘接進 `addendum`——
+        // 它們仍是真的號，丟掉等於丟掉一次身分判定，而讀 .bib 的人會以為那是全部。已有 addendum 時接在後面。
+        if let first = entry.doi.first {
+            fields["doi"] = braceSafe(first.normalized)
+            let rest = entry.doi.dropFirst().map(\.normalized)
+            if !rest.isEmpty {
+                fields["addendum"] = braceSafe(BibExport.appendingOtherDOIs(to: entry.fields["addendum"], rest))
+            }
+        }
         emitIdentifiers(entry.pmid, as: "pmid")
         emitIdentifiers(entry.isbn, as: "isbn")
         // **ISSN 來自 venue，不是 work**（#394 §8 遷移之後）。

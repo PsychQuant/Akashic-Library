@@ -1537,4 +1537,46 @@ final class ReferencesExtractTests: XCTestCase {
         XCTAssertEqual(status, 0, output)
         XCTAssertEqual(try decode(output).entries.map(\.firstAuthor), ["Adams", "Baker", "Carter", "Dunn"])
     }
+
+    // MARK: - #617 verify R10
+
+    private let twoEntriesAndATable = """
+        References
+
+        Adams, J. K. (2001). First title. Journal A, 1, 1–2.
+        Baker, L. (2002). Second title. Journal B, 2, 3–4.
+        Table 1
+
+        """
+
+    /// T80：T79 的反方向——姓名與年份之間、年份之後都沒有實在的字的表格列，年份放在最後也仍然擋下
+    /// （R10 #4：T79 只釘住「真條目要收」）
+    func testYearAtTheEndTableRowIsStillExcluded() throws {
+        let text = twoEntriesAndATable + "Carter, M. 120 .35 (2003). 44 .21\nDunn, P. 98 .22 (2004). 51 .19\n"
+        let (status, output) = try extract(text)
+        XCTAssertEqual(status, 0, output)
+        XCTAssertEqual(try decode(output).entries.map(\.firstAuthor), ["Adams", "Baker"])
+    }
+
+    /// T81：首字母縮寫（`U.S.S.R.`）不是實在的字；全形拉丁字母也不是（R10 #0／#1：去掉句點後 `ussr`
+    /// 有四個字母、全形字的碼位在 U+3040 以上，兩種表格列都被收進來）
+    func testInitialismAndFullwidthTableRowsAreExcluded() throws {
+        let text = twoEntriesAndATable + "Carter, M. (2003). U.S.S.R. 120 .35\nDunn, P. (2004). ＵＳＡ, 120, .35\n"
+        let (status, output) = try extract(text)
+        XCTAssertEqual(status, 0, output)
+        XCTAssertEqual(try decode(output).entries.map(\.firstAuthor), ["Adams", "Baker"])
+    }
+
+    /// T82：T81 的反方向——首字母縮寫後面有實在的字、兩個漢字的標題、機構作者後面只有短字，都是真條目
+    /// （R10 #2：機構作者原本沒有「姓名與年份之間」那一步補救）
+    func testRealEntriesWithInitialismsCJKAndGroupAuthorsAreKept() throws {
+        // 每一種都放在斷點之後的第一筆——只有那一筆會被判斷，之後的行照常併進清單
+        for (row, first) in [("Carter, M. (2003). U.S.S.R. policy. J Pol, 1, 2–3.", "Carter"),
+                             ("Carter, M. (2003). 心理. 學報, 1, 2–3.", "Carter"),
+                             ("World Health Organization. (2005). QA. WHO, 1, 2–3.", "World Health Organization")] {
+            let (status, output) = try extract(twoEntriesAndATable + row + "\n")
+            XCTAssertEqual(status, 0, output)
+            XCTAssertEqual(try decode(output).entries.map(\.firstAuthor), ["Adams", "Baker", first], row)
+        }
+    }
 }

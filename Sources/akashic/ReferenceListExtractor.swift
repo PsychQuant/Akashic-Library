@@ -660,18 +660,33 @@ enum ReferenceListExtractor {
         if ns.substring(from: bracket.location + bracket.length).split(separator: " ").contains(where: isSubstantiveWord) {
             return true
         }
-        // 姓名（`姓, 名縮寫.`）之後、年份之前：共同作者的姓也算——多作者的表格列因此會被收進來，寧可多收
-        let nameEnd = firstMatch(text, personNamePattern).map { $0.range.location + $0.range.length } ?? bracket.location
+        // 姓名（`姓, 名縮寫.`）之後、年份之前：共同作者的姓也算——多作者的表格列因此會被收進來，寧可多收。
+        // 機構作者從頭算起，機構名稱本身就算（R10 #2：原本機構作者沒有這一步補救）
+        let nameEnd = firstMatch(text, personNamePattern).map { $0.range.location + $0.range.length }
+            ?? (matches(text, groupStartPattern) ? 0 : bracket.location)
         guard nameEnd < bracket.location else { return false }
         return ns.substring(with: NSRange(location: nameEnd, length: bracket.location - nameEnd))
             .split(separator: " ").contains(where: isSubstantiveWord)
     }
 
-    /// 實在的字（`isFullEntry` 用）：四個字母以上、不是冊期頁版這類縮寫；或含漢字、假名、韓文
+    /// 實在的字（`isFullEntry` 用）：四個字母以上、不是冊期頁版這類縮寫、不是首字母縮寫（`U.S.S.R.`，
+    /// R10 #0）；或含漢字、假名、韓文——只認這幾個區段，不以碼位下限代替（R10 #1：`>= U+3040` 連
+    /// 全形拉丁字母與其他文字都算進去）
     static func isSubstantiveWord(_ token: Substring) -> Bool {
-        if token.unicodeScalars.contains(where: { $0.properties.isAlphabetic && $0.value >= 0x3040 }) { return true }
+        if token.unicodeScalars.contains(where: isCJKLetter) { return true }
+        let bare = token.trimmingCharacters(in: CharacterSet(charactersIn: ",;:()[]\"“”‘’'"))
+        if matches(bare, "^(?:\\p{L}\\.)+$") { return false }
         let letters = token.filter(\.isLetter).lowercased()
         return letters.count >= 4 && !notWords.contains(letters)
+    }
+
+    /// 漢字、平假名、片假名、韓文音節與字母
+    static func isCJKLetter(_ u: Unicode.Scalar) -> Bool {
+        switch u.value {
+        case 0x3040...0x30FF, 0x3400...0x4DBF, 0x4E00...0x9FFF, 0xF900...0xFAFF,
+             0x1100...0x11FF, 0x3130...0x318F, 0xAC00...0xD7AF, 0x20000...0x2FA1F: return true
+        default: return false
+        }
     }
 
     /// 四個字母以上、但不算實在的字的縮寫

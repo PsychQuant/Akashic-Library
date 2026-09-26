@@ -2419,7 +2419,7 @@ struct RecordDivergence: ParsableCommand {
     var judgement: String?
 
     @Option(name: .long, parsing: .upToNextOption,
-            help: "判斷的依據（來源 URL 或 sha256: 存檔摘要）；可多個")
+            help: "判斷依據的存檔 digest（sha256:<64 hex>；URL 不是合法值——先用 store-source 存證據拿 digest）；可多個")
     var restsOn: [String] = []
 
     /// #159 verify 159-3：先前**只有 MCP** 能寫 `prefers`——LLM 寫得了、人寫不了。

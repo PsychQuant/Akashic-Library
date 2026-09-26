@@ -284,7 +284,7 @@ actor AkashicMCPServer {
                 "question": str("未決的是什麼，一句話"),
                 "candidates": strArray("候選，形如 key:shape（shape 為 person / organization / work / venue；venue 自 #553 起）；需要兩個以上"),
                 "judgement": str("已形成的判斷（選填；給了就必須同時給 rests_on）"),
-                "rests_on": strArray("判斷的依據（來源 URL 或 sha256: 摘要；選填，與 judgement 成對）"),
+                "rests_on": strArray("判斷依據的存檔 digest（sha256:64hex；URL 不是合法值——先用 akashic_store_source 存證據拿 digest；選填，與 judgement 成對）"),
                 "prefers": str("判斷傾向哪個候選的 key（選填，與 judgement 成對；必須是候選之一）——消歧會據以比對、不一致時拒絕，但**不代選**：倖存者仍須人工指定"),
              ], required: ["question", "candidates"])),
         Tool(name: "akashic_import_zotero",

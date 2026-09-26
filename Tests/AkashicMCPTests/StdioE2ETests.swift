@@ -381,3 +381,43 @@ extension StdioE2ETests {
         XCTAssertTrue(text.contains("abstract") && text.contains("fields"), text)
     }
 }
+
+/// #561：畸形的清單／物件參數整個呼叫拒絕，不靜默當成未提供。先前 `authorize: "X"`（少一層括號）折成 `[]`、
+/// 零寫入、回報成功；`["A", 42]` 掉成 `["A"]`；`fields: {"year": 2020}` 的數字值被靜默丟掉。**必須經真 binary**：
+/// 參數解析住在 server 的分派閉包裡。
+extension StdioE2ETests {
+    private func initialize() throws {
+        try send(["jsonrpc": "2.0", "id": 1, "method": "initialize",
+                  "params": ["protocolVersion": "2024-11-05", "capabilities": [:],
+                             "clientInfo": ["name": "t", "version": "1"]]])
+        _ = try readResponse()
+        try send(["jsonrpc": "2.0", "method": "notifications/initialized"])
+    }
+
+    private func call(_ id: Int, _ name: String, _ args: [String: Any]) throws -> String {
+        try send(["jsonrpc": "2.0", "id": id, "method": "tools/call",
+                  "params": ["name": name, "arguments": args]])
+        return try toolResultText(try readResponse())
+    }
+
+    func testMalformedListAndDictArgumentsAreRefused() throws {
+        try initialize()
+        let bare = try call(2, "akashic_update_venue", ["key": "psychometrika", "authorize": "Psychometrika"])
+        XCTAssertTrue(bare.contains("authorize 必須是字串陣列"), bare)
+        let mixed = try call(3, "akashic_update_venue", ["key": "psychometrika", "add_issn": ["0033-3123", 42]])
+        XCTAssertTrue(mixed.contains("add_issn 的每個元素都必須是字串"), mixed)
+        let newVenue = try call(4, "akashic_add_venue", ["key": "new-journal", "type": "periodical",
+                                                         "names": ["New Journal"], "issn": "0033-3123"])
+        XCTAssertTrue(newVenue.contains("issn 必須是字串陣列"), newVenue)
+        let entities = root.appendingPathComponent("entities")
+        let created = try FileManager.default.contentsOfDirectory(atPath: entities.path).contains { name in
+            ((try? String(contentsOf: entities.appendingPathComponent(name), encoding: .utf8)) ?? "").contains("key: new-journal")
+        }
+        XCTAssertFalse(created, "被拒絕的 add_venue 不得建出記錄")
+        let fields = try call(5, "akashic_create_entry", ["type": "periodical-article", "title": "T",
+                                                          "authors": ["Cheng, C."], "date": "2020",
+                                                          "fields": ["volume": 12]])
+        XCTAssertTrue(fields.contains("fields 的值都必須是字串"), fields)
+        XCTAssertTrue(fields.contains("volume"), "要點名是哪個鍵：\(fields)")
+    }
+}

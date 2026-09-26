@@ -381,9 +381,12 @@ actor AkashicMCPServer {
     private func handleToolCall(_ params: CallTool.Parameters) -> CallTool.Result {
         func arg(_ key: String) -> String? { params.arguments?[key]?.stringValue }
         func argInt(_ key: String) -> Int? { params.arguments?[key]?.intValue }
-        func argList(_ key: String) -> [String] {
-            guard let value = params.arguments?[key], case .array(let arr) = value else { return [] }
-            return arr.compactMap(\.stringValue)
+        /// **沒給鍵回 []；給了而形狀不對整個呼叫拒絕、零寫入**（#561）。先前非陣列回 []、非字串元素被
+        /// `compactMap` 丟掉：`authorize: "Psychometrika"`（少一層括號）變成 `[]`、零寫入、回報成功；
+        /// `["名A", 42]` 變成 `["名A"]`，繞過「同書寫系統兩個名字整批拒絕」那道閘。與同檔 `argFlag` 對畸形
+        /// boolean 的立場一致：畸形輸入不得靜默當成未提供。空陣列照舊合法（「送了零個」與「沒送」對這些參數同義）。
+        func argList(_ key: String) throws -> [String] {
+            try argStrictList(key, allowEmpty: true) ?? []
         }
         /// **有給就必須是非空的字串陣列**（change `resolution-verdict-states`，R1 verify security）：`argList` 對非陣列、
         /// 非字串元素、null 都靜默回 []——未決腿若照用，`rests_on` 給成單一字串時證據被丟掉而回報成功，`undecided: []`
@@ -404,9 +407,20 @@ actor AkashicMCPServer {
             }
             return strs
         }
-        func argDict(_ key: String) -> [String: String] {
-            guard let value = params.arguments?[key], case .object(let dict) = value else { return [:] }
-            return dict.compactMapValues(\.stringValue)
+        /// 同 `argList`（#561 的同形）：`create_entry` 的 `fields: {"year": 2020}` 先前被 `compactMapValues`
+        /// 靜默丟掉那個欄位——`lossless-intake` 說的「靜默是最糟的形式」。現在非物件、或任何非字串的值都整個呼叫拒絕。
+        func argDict(_ key: String) throws -> [String: String] {
+            guard let value = params.arguments?[key] else { return [:] }
+            guard case .object(let dict) = value else {
+                throw ServiceError.invalid("\(displaySafeInvisible(key, max: 60)) 必須是物件（字串對字串）——收到別的型別；拒絕整個呼叫，零寫入")
+            }
+            let strs = dict.compactMapValues(\.stringValue)
+            guard strs.count == dict.count else {
+                let bad = dict.keys.filter { strs[$0] == nil }.sorted().prefix(10)
+                    .map { displaySafeInvisible($0, max: 60) }.joined(separator: "、")
+                throw ServiceError.invalid("\(displaySafeInvisible(key, max: 60)) 的值都必須是字串（數字請寫成字串）——這些鍵不是：\(bad)；拒絕整個呼叫，零寫入")
+            }
+            return strs
         }
         /// **畸形 boolean 顯式拒絕，不靜默當未提供**（#406 R1 verify 的同一條理由）：
         /// `"false"`（字串）／null／數字被折成預設值的話，呼叫端以為的乾跑會變成寫入。
@@ -437,7 +451,7 @@ actor AkashicMCPServer {
                                            depth: argInt("depth") ?? 1,
                                            format: arg("format") ?? "mermaid")
             case "akashic_export":
-                let keys = argList("citekeys")
+                let keys = try argList("citekeys")
                 // #165：消毒住 `AkashicService.export()`（MCP 的輸出邊界）——
                 // Server 這層不 import AkashicCore，而且那裡才看得到「這份內容
                 // 是要回給 LLM」這個事實
@@ -470,15 +484,15 @@ actor AkashicMCPServer {
             case "akashic_resolve_people":
                 // 「有給 apply 但空陣列」＝套用零筆（no-op），與「未給」（列候選）語意分開
                 let applyProvided = params.arguments?["apply"] != nil
-                let apply = argList("apply")
+                let apply = try argList("apply")
                 let rejectProvided = params.arguments?["reject"] != nil
-                let reject = argList("reject")
+                let reject = try argList("reject")
                 let confirmProvided = params.arguments?["confirm_tiers"] != nil
-                let confirmTiers = argList("confirm_tiers")
+                let confirmTiers = try argList("confirm_tiers")
                 let judgeProvided = params.arguments?["judge"] != nil
-                let judge = argList("judge")
+                let judge = try argList("judge")
                 let refuteProvided = params.arguments?["refute"] != nil
-                let refute = argList("refute")
+                let refute = try argList("refute")
                 let undecidedProvided = params.arguments?["undecided"] != nil
                 let restsOnProvided = params.arguments?["rests_on"] != nil
                 // **兩個結構修正腿各自單獨呼叫，顯式拒絕組合**（R1 verify）：先前靠
@@ -505,28 +519,28 @@ actor AkashicMCPServer {
                             + "——它們改作者位的數量或值域，混在一批裡會讓其他腿的意義改變")
                     }
                     if dropProvided {
-                        let specs = argList("drop_author")
+                        let specs = try argList("drop_author")
                         guard !specs.isEmpty else {
                             throw ServiceError.invalid(
                                 "drop_author 是空的（空陣列或 null）——沒有要移除的東西就不要給這個鍵")
                         }
                         output = try service.dropAuthors(specs)
                     } else if unSplitProvided {
-                        let specs = argList("un_split")
+                        let specs = try argList("un_split")
                         guard !specs.isEmpty else {
                             throw ServiceError.invalid(
                                 "un_split 是空的（空陣列或 null）——沒有要合回的東西就不要給這個鍵")
                         }
                         output = try service.unsplitAuthors(specs)
                     } else if splitProvided {
-                        let specs = argList("split_author")
+                        let specs = try argList("split_author")
                         guard !specs.isEmpty else {
                             throw ServiceError.invalid(
                                 "split_author 是空的（空陣列或 null）——沒有要拆的東西就不要給這個鍵")
                         }
                         output = try service.splitAuthors(specs)
                     } else {
-                        let specs = argList("attribute_org")
+                        let specs = try argList("attribute_org")
                         guard !specs.isEmpty else {
                             throw ServiceError.invalid(
                                 "attribute_org 是空的（空陣列或 null）——沒有要歸的東西就不要給這個鍵")

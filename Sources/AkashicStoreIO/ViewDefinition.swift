@@ -66,8 +66,9 @@ public extension ViewExtension {
     ///   `RelationalExport` 會把已歸戶的 `.key` 退化成 `researcher_id IS NULL` ＋
     ///   name_full 印 key 字串——那把「已歸戶但非成員」與「未歸戶」折成同一個觀察，
     ///   事後無法區分。view 的語意是「這些著作與相關的人」，合著者屬於相關的人。
-    /// - `organizations`：被保留 person 的隸屬時間軸引用的 `.key` 機構，
-    ///   加上其 `parents` 的**遞移閉包**（organization 表的 parent_id 外鍵）。
+    /// - `organizations`：被保留 person 的隸屬時間軸引用的 `.key` 機構、**被保留著作的團體作者**（#596——
+    ///   publication_author 的 organization_id 外鍵與顯示名靠它），加上其 `parents` 的**遞移閉包**
+    ///   （organization 表的 parent_id 外鍵）。
     ///   `.literal` 與懸空 `.key` 本來就由 `RelationalExport` 回 NULL，不在此補。
     func scope(_ load: LibraryLoad) -> (entries: [Entry], people: [Person],
                                         organizations: [Organization]) {
@@ -82,7 +83,7 @@ public extension ViewExtension {
         }
         let keptPeople = load.people.filter { personKeys.contains($0.key) }
 
-        // 機構閉包：隸屬引用起步，沿 parents 走到頂（worklist；懸空的 .key 走不動，
+        // 機構閉包：隸屬引用與團體作者起步，沿 parents 走到頂（worklist；懸空的 .key 走不動，
         // 自然終止——不造 id 的立場與 RelationalExport 一致）
         let orgByKey = Dictionary(load.organizations.map { ($0.key, $0) },
                                   uniquingKeysWith: { a, _ in a })
@@ -91,6 +92,13 @@ public extension ViewExtension {
         for p in keptPeople {
             for v in p.profile.affiliations.entries {
                 if case let .key(k) = v.value { worklist.append(k) }
+            }
+        }
+        // #596：作者位指到的機構（團體作者）與隸屬同待遇——不收的話 publication_author 的 organization_id
+        // 接不上外鍵、name_full 拿不到顯示名。
+        for e in entries {
+            for a in e.authors {
+                if case let .organization(k) = a { worklist.append(k) }
             }
         }
         while let k = worklist.popLast() {

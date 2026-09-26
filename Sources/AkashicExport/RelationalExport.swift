@@ -15,11 +15,13 @@ import AkashicCore
 ///
 /// | Swift | `publication_author` |
 /// |---|---|
-/// | `.key(k)` | `researcher_id` = 該 person 的 id、`name_full` = 顯示名 |
-/// | `.literal(s)` | `researcher_id` = **NULL**、`name_full` = `s` |
+/// | `.key(k)` | `author_kind` = `person`、`researcher_id` = 該 person 的 id、`name_full` = 顯示名 |
+/// | `.organization(k)` | `author_kind` = `organization`、`organization_id` = 該機構的 id、`name_full` = 機構顯示名 |
+/// | `.literal(s)` | `author_kind` = `literal`、兩個 id 都 **NULL**、`name_full` = `s` |
 ///
-/// 不需要「是否已歸戶」的旗標欄位——**缺席本身就是資訊**，而且 SQL 的 `IS NULL`
-/// 直接就是「未歸戶」的查詢。
+/// **`author_kind` 是必要的**（#596）：只靠 `researcher_id IS NULL` 判「未歸戶」時，已歸戶的團體作者與沒對到的人名
+/// 在匯出裡同形——#378 把團體作者接到 `.organization`，到了這一層又被折回 literal 的樣子。「未歸戶」的查詢是
+/// `WHERE author_kind = 'literal'`；懸空的 key（指向不存在的記錄）kind 照實、id 是 NULL，不造 id。
 ///
 /// ## temporal 維度怎麼出（#20 落地後）
 ///
@@ -150,14 +152,17 @@ public enum RelationalExport {
                 switch a {
                 case let .key(k):
                     authorRows.append([e.id.uuidString, String(i), idByKey[k],
-                                       people.first { $0.key == k }?.displayName(in: .latn) ?? k])
-                // #323：團體作者。**person_id 欄位留 nil**——那一欄的外鍵指向 people
-                // 表，指進去會是假的外鍵；顯示名照樣寫出，讓它在關聯表裡看得見。
+                                       people.first { $0.key == k }?.displayName(in: .latn) ?? k,
+                                       "person", nil])
+                // #323：團體作者。**researcher_id 留 nil**——那一欄的外鍵指向 researcher 表，指進去會是假的外鍵。
+                // #596：kind 與 organization_id 讓它與未歸戶的 literal 分得開；顯示名取自匯出集合內的機構
+                //（view 閉包自 #596 起收作者位指到的機構）。
                 case let .organization(k):
                     authorRows.append([e.id.uuidString, String(i), nil,
-                                       organizations.first { $0.key == k }?.displayName ?? k])
+                                       organizations.first { $0.key == k }?.displayName ?? k,
+                                       "organization", orgIDByKey[k]])
                 case let .literal(s):
-                    authorRows.append([e.id.uuidString, String(i), nil, s])
+                    authorRows.append([e.id.uuidString, String(i), nil, s, "literal", nil])
                 }
             }
         }
@@ -180,7 +185,8 @@ public enum RelationalExport {
                                rows: publicationRows),
             publicationAuthor: Table(name: "publication_author",
                                      columns: ["publication_id", "author_seq",
-                                               "researcher_id", "name_full"],
+                                               "researcher_id", "name_full",
+                                               "author_kind", "organization_id"],
                                      rows: authorRows),
             organization: Table(name: "organization",
                                 columns: ["organization_id", "org_key", "name_current",
@@ -321,13 +327,16 @@ public enum RelationalExport {
             status         TEXT
         );
 
-        -- researcher_id 為 NULL ＝ **未歸戶的作者**（Akashic 的 `.literal`）。
-        -- 這不是缺漏，是狀態——`WHERE researcher_id IS NULL` 就是「還沒歸戶的」。
+        -- author_kind：person（researcher_id 指向 researcher）／organization（organization_id 指向 organization，
+        -- 團體作者）／literal（**未歸戶**，兩個 id 都 NULL）。「還沒歸戶的」是 `WHERE author_kind = 'literal'`——
+        -- 只看 `researcher_id IS NULL` 會把已歸戶的團體作者一起算進去（#596）。懸空的 key：kind 照實、id 為 NULL。
         CREATE TABLE publication_author (
             publication_id UUID    NOT NULL REFERENCES publication(publication_id),
             author_seq     INTEGER NOT NULL,
             researcher_id  UUID    REFERENCES researcher(researcher_id),
             name_full      TEXT    NOT NULL,
+            author_kind    TEXT    NOT NULL,
+            organization_id UUID   REFERENCES organization(organization_id),
             PRIMARY KEY (publication_id, author_seq)
         );
 

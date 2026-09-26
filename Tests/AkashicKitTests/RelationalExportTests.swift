@@ -30,6 +30,38 @@ final class RelationalExportTests: XCTestCase {
         XCTAssertEqual(t.rows[1][3], "Someone Else")
     }
 
+    /// #596：團體作者（`.organization`）不得與未歸戶的 literal 同形。`author_kind` 分得出三態，
+    /// `organization_id` 指向 organization 表，`name_full` 是機構的顯示名；`researcher_id` 只在 person 時非 NULL。
+    func testOrganizationAuthorIsDistinguishableFromLiteral() {
+        var org = Organization(key: "tcmp")
+        org.names = TimelineOf([TemporalValue(value: "Taiwan Cancer Moonshot Program")])
+        let p = Person(key: "cheng-che", names: PersonNames(authorized: ["Che Cheng"]))
+        let e = entry("a2020a", authors: [.key("cheng-che"), .organization("tcmp"), .literal("Someone Else")])
+        let t = RelationalExport.tables(entries: [e], people: [p], organizations: [org]).publicationAuthor
+        XCTAssertEqual(t.columns, ["publication_id", "author_seq", "researcher_id", "name_full", "author_kind", "organization_id"])
+        XCTAssertEqual(t.rows.map { $0[4] }, ["person", "organization", "literal"])
+        XCTAssertEqual(t.rows[1][2], nil, "團體作者不是 researcher")
+        XCTAssertEqual(t.rows[1][5], org.id.uuidString, "團體作者的 organization_id 指向 organization 表")
+        XCTAssertEqual(t.rows[1][3], "Taiwan Cancer Moonshot Program")
+        XCTAssertNil(t.rows[0][5]); XCTAssertNil(t.rows[2][5])
+    }
+
+    /// 懸空的 `.organization` key：organization_id 是 NULL（不造 id），kind 仍是 organization。
+    func testDanglingOrganizationAuthorYieldsNullID() {
+        let e = entry("a2020a", authors: [.organization("ghost-org")])
+        let row = RelationalExport.tables(entries: [e], people: []).publicationAuthor.rows[0]
+        XCTAssertEqual(row[4], "organization")
+        XCTAssertNil(row[5])
+        XCTAssertEqual(row[3], "ghost-org")
+    }
+
+    /// load.sql 的 DDL 跟著加欄與外鍵（欄位順序與 CSV 相同——`INSERT … SELECT *` 依位置）。
+    func testDDLDeclaresAuthorKindAndOrganizationFK() {
+        let sql = RelationalExport.duckDBScript(csvDirectory: "/tmp/x")
+        XCTAssertTrue(sql.contains("author_kind    TEXT    NOT NULL"), sql)
+        XCTAssertTrue(sql.contains("organization_id UUID   REFERENCES organization(organization_id)"), sql)
+    }
+
     /// `author_seq` 由陣列 index 給——作者順序是書目資料的一部分，不得被排序打亂。
     func testAuthorSequencePreservesOrder() {
         let e = entry("a2020a", authors: [.literal("First"), .literal("Second"), .literal("Third")])

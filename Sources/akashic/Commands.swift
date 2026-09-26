@@ -1490,10 +1490,11 @@ struct ExportTables: ParsableCommand {
             .write(to: sql, atomically: true, encoding: .utf8)
         print("載入腳本 → \(sql.path)")
         print("  duckdb akashic.db -c \".read \(sql.path)\"")
-        // 未歸戶作者是**狀態**不是缺漏，但值得說出數量——它是 resolve-people 的工作量
-        let unresolved = tables.publicationAuthor.rows.filter { $0[2] == nil }.count
+        // 未歸戶作者是**狀態**不是缺漏，但值得說出數量——它是 resolve-people 的工作量。
+        // 數 author_kind＝literal，不數 researcher_id IS NULL——後者會把已歸戶的團體作者算進去（#596）
+        let unresolved = tables.publicationAuthor.rows.filter { $0[4] == "literal" }.count
         if unresolved > 0 {
-            print("  （\(unresolved) 筆作者未歸戶 → publication_author.researcher_id IS NULL）")
+            print("  （\(unresolved) 筆作者未歸戶 → publication_author.author_kind = 'literal'）")
         }
     }
 }

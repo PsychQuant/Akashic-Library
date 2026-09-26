@@ -119,6 +119,23 @@ final class ViewExportTests: XCTestCase {
                       "parent_id 必須指向匯出集合內的 organization 列")
     }
 
+    /// #596：作者位指到的 organization 也進閉包（與隸屬同待遇），publication_author 的外鍵才接得上、顯示名才拿得到。
+    func testOrganizationClosureIncludesCorporateAuthors() throws {
+        var tcmp = Organization(key: "tcmp")
+        tcmp.names = TimelineOf([TemporalValue(value: "Taiwan Cancer Moonshot Program")])
+        try store.writeOrganization(tcmp)
+        try person("member", affiliation: .key("iss"))
+        try work("joint2020", authors: [.key("member"), .organization("tcmp")])
+        let load = try store.load()
+        let scoped = def.extension_(in: load).scope(load)
+        XCTAssertTrue(scoped.organizations.map(\.key).contains("tcmp"), "作者位指到的機構沒進閉包")
+        let tables = RelationalExport.tables(entries: scoped.entries, people: scoped.people,
+                                             organizations: scoped.organizations)
+        let orgRow = try XCTUnwrap(tables.publicationAuthor.rows.first { $0[4] == "organization" })
+        XCTAssertEqual(orgRow[3], "Taiwan Cancer Moonshot Program")
+        XCTAssertTrue(Set(tables.organization.rows.compactMap { $0[0] }).contains(orgRow[5] ?? "none"))
+    }
+
     /// 懸空的 parents `.key` 走不動、自然終止——不 crash、不造 id。
     func testDanglingParentKeyTerminatesClosureQuietly() throws {
         var iss = Organization(key: "iss")

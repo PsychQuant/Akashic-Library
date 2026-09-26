@@ -36,6 +36,19 @@ final class WoSImportTests: XCTestCase {
         XCTAssertEqual(dates["Three"], "2026 FEB")
     }
 
+    /// #598 Expected 的第二半：Date 自帶的年與 Publication Year 不一致時，date 以 Date 為準，但 Publication Year
+    /// 的原值不得靜默消失（它在 `consumedColumns` 裡、不進殘餘收集——`lossless-intake`）。一致時不另存。
+    func testDisagreeingPublicationYearIsKeptWhenDateCarriesItsOwnYear() throws {
+        let tsv = "Authors\tAuthor Full Names\tArticle Title\tPublication Year\tPublication Date\tDOI\n"
+            + "Lin, A\tLin, Ann\tOne\t2025\t2026 JUN 1\t10.1/one\n"
+            + "Lin, B\tLin, Bob\tTwo\t2026\t2026 JUN 1\t10.1/two\n"
+        _ = try WoSImport.run(text: tsv, store: store)
+        let byTitle = Dictionary(uniqueKeysWithValues: try store.load().entries.map { ($0.title, $0) })
+        XCTAssertEqual(byTitle["One"]?.date, "2026 JUN 1", "Date 內的年為準")
+        XCTAssertEqual(byTitle["One"]?.fields["publication_year"], "2025", "不一致的 Publication Year 原值留下")
+        XCTAssertNil(byTitle["Two"]?.fields["publication_year"], "一致時沒有資訊可留，不另存")
+    }
+
     // MARK: - alias 配對（本 importer 的真正價值）
 
     /// 兩欄**同 index 對齊**，每位作者免費得到兩種寫法。這補掉

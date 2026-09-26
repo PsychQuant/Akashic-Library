@@ -200,6 +200,15 @@ public enum WoSImport {
         if let g = row["Group Authors"], !g.isEmpty {
             e.authors += splitAuthors(g).map { .literal(CorporateName.mark($0)) }
         }
+        // #598：Date 自帶的年與 Publication Year 不一致時，date 以 Date 為準（上面的 `composeDate`），但
+        // Publication Year 在 `consumedColumns` 裡、不走殘餘收集——不留下來它就靜默消失（`lossless-intake`）。
+        // 以殘餘收集的鍵名慣例（`FieldKey.normalized`）原樣保留；一致時沒有資訊可留，不另存。
+        if let y = year?.trimmingCharacters(in: .whitespaces), !y.isEmpty,
+           let d = row["Publication Date"].map({ WoSImport.composeDate(year: year, date: $0) }),
+           d.count >= 4, d.prefix(4).allSatisfy(\.isNumber), String(d.prefix(4)) != y,
+           let key = FieldKey.normalized("Publication Year") {
+            e.fields[key] = y
+        }
         // **殘餘收集**（#206）——上面對映完之後，**其餘所有欄位原樣進 `fields`**。
         //
         // 這不是「順便多收一點」，是 `.claude/rules/lossless-intake.md` 的硬性要求：

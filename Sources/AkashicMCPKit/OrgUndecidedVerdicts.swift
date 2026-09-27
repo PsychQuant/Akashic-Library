@@ -86,6 +86,13 @@ extension AkashicService {
     func parseOrgUndecidedSpecs(_ specs: [String], restsOn: [String],
                                 rows: [[UInt8]: Set<String>]) throws -> [OrgUndecidedSpec] {
         try checkUndecidedCall(specCount: specs.count, restsOn: restsOn)
+        return try parseOrgIDSpecs(specs, rows: rows, noun: "未決", tail: "說明")
+    }
+
+    /// `<rowID>@<orgKey>=<尾段>` 的解析（未決腿與 #647 的逐篇判定共用）。`noun`／`tail` 只換訊息用詞；未決腿傳「未決」「說明」，
+    /// 訊息與 #643 逐字相同。尾段的內容檢查（空白、長度）由呼叫端做——兩條腿的訊息不同。
+    func parseOrgIDSpecs(_ specs: [String], rows: [[UInt8]: Set<String>],
+                         noun: String, tail: String) throws -> [OrgUndecidedSpec] {
         let known = Set(rows.keys)
         let longestOrgKey = rows.values.flatMap { $0 }.map(\.utf8.count).max() ?? 0
         let maxSpecBytes = (known.map(\.count).max() ?? 0) + longestOrgKey + 2 + Self.maxStatementBytes
@@ -94,8 +101,9 @@ extension AkashicService {
         for spec in specs {
             guard spec.utf8.count <= maxSpecBytes else {
                 throw ServiceError.invalid(
-                    "未決「\(displaySafeInvisible(spec, max: 200))」長 \(spec.utf8.count) 位元組，超過任何合法 id 的上限 \(maxSpecBytes)"   // display-safe-exempt: spec.utf8.count 與 maxSpecBytes 是 Int
-                    + "（最長的列表 id ＋ 最長的 orgKey ＋ 2 ＋ 說明上限 \(Self.maxStatementBytes)）——精簡說明，承重內容用 rests_on 附存檔")   // display-safe-exempt: Self.maxStatementBytes 是 Int 常數
+                    "\(noun)「\(displaySafeInvisible(spec, max: 200))」長 \(spec.utf8.count) 位元組，超過任何合法 id 的上限 \(maxSpecBytes)"   // display-safe-exempt: noun 是呼叫端的字面常量；spec.utf8.count 與 maxSpecBytes 是 Int
+                    + "（最長的列表 id ＋ 最長的 orgKey ＋ 2 ＋ \(tail)上限 \(Self.maxStatementBytes)）——精簡\(tail)"   // display-safe-exempt: tail 是呼叫端的字面常量；Self.maxStatementBytes 是 Int 常數
+                    + (noun == "未決" ? "，承重內容用 rests_on 附存檔" : ""))
             }
             let r = Self.splitOrgUndecided(spec, knownRowIDs: known)
             guard r.accepted.count == 1, let s = r.accepted.first else {
@@ -103,23 +111,23 @@ extension AkashicService {
                 if r.accepted.count > 1 {
                     why = "有 \(r.accepted.count) 個位置都切得成已知的 id——無法確定是哪一列，不猜"   // display-safe-exempt: count 是 Int
                 } else if r.tried == 0 {
-                    why = "不是 <列表的 id>@<orgKey>=<說明> 的格式（orgKey 是小寫英數與連字號）"
+                    why = "不是 <列表的 id>@<orgKey>=<\(tail)> 的格式（orgKey 是小寫英數與連字號）"   // display-safe-exempt: tail 是呼叫端的字面常量
                 } else {
                     why = "@ 之前的部分不是這次列表的 id——那一列可能已歸戶或否決而離開列表，或 id 沒有逐字取自不帶參數列出的候選／歧義條目"
                 }
-                throw ServiceError.invalid("未決「\(displaySafeInvisible(spec, max: 200))」\(why)")   // display-safe-exempt: why 是本函式的固定訊息
+                throw ServiceError.invalid("\(noun)「\(displaySafeInvisible(spec, max: 200))」\(why)")   // display-safe-exempt: noun 是呼叫端的字面常量；why 是本函式的固定訊息
             }
             let id = s.rowID + "@" + s.orgKey
             let rowNominates = rows[Array(s.rowID.utf8)] ?? []
             guard rowNominates.contains(s.orgKey) else {
                 let nominated = rowNominates.sorted().map { displaySafeInvisible($0, max: 80) }.joined(separator: "、")
                 throw ServiceError.invalid(
-                    "未決「\(displaySafeInvisible(id, max: 200))」點名的 organization 不是這一列提名的——"
+                    "\(noun)「\(displaySafeInvisible(id, max: 200))」點名的 organization 不是這一列提名的——"   // display-safe-exempt: noun 是呼叫端的字面常量
                     + "這一列的候選是：\(nominated)")   // display-safe-exempt: nominated 已逐筆 displaySafeInvisible
             }
-            try checkUndecidedStatement(id: id, statement: s.statement)
+            if noun == "未決" { try checkUndecidedStatement(id: id, statement: s.statement) }
             guard seen.insert(Array(id.utf8)).inserted else {
-                throw ServiceError.invalid("未決 id「\(displaySafeInvisible(id, max: 200))」在一次呼叫裡重複")
+                throw ServiceError.invalid("\(noun) id「\(displaySafeInvisible(id, max: 200))」在一次呼叫裡重複")   // display-safe-exempt: noun 是呼叫端的字面常量
             }
             out.append(OrgUndecidedSpec(id: id, rowID: s.rowID, orgKey: s.orgKey, statement: s.statement))
         }

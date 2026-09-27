@@ -82,6 +82,9 @@ public struct ProvenanceReference: Equatable {
         public static let judgedPerWork = "author-judged-per-work"
         /// `attribute-org` 的團體作者判定（#443）。與 `judgedPerWork` 同屬 `judged` 層級（`judgedRules`）。
         public static let orgJudged = "author-organization-judged"
+        /// `resolve-organizations --judge`／MCP `judge` 的逐篇判定（#647）。與上兩個同屬 `judged` 層級。
+        /// 不沿用 `author-organization-judged`：這條腿的 holder 還有 person 的隸屬與 organization 的上級機構，不只作者位。
+        public static let orgResolveJudged = "org-judged"
         /// 未決記錄的尾註（#619）。不屬任何判定層級——未決沒有層級。
         public static let undecided = "checked-undecided"
         /// 三族的「完全命中」。**弱血統的判準是「不是這些」**——與

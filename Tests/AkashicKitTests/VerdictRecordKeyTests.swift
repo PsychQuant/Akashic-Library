@@ -24,11 +24,12 @@ final class VerdictRecordKeyTests: XCTestCase {
     func testClassIsJudgedOnlyForTheTwoNamedRules() {
         XCTAssertEqual(ProvenanceReference.verdictClass(rule: "author-judged-per-work"), .judged)
         XCTAssertEqual(ProvenanceReference.verdictClass(rule: "author-organization-judged"), .judged)
+        XCTAssertEqual(ProvenanceReference.verdictClass(rule: "org-judged"), .judged, "#647 顯式加的第三列")
         for r in ["author-name-exact", "author-name-initials", "author-name-confirmed-elsewhere",
                   "venue-name-exact", "org-name-exact", "author-judged", "judged", "非標準"] {
             XCTAssertEqual(ProvenanceReference.verdictClass(rule: r), .nominated, r)
         }
-        XCTAssertEqual(ProvenanceReference.judgedRules.count, 2, "封閉列舉：兩個，不得類推第三個")
+        XCTAssertEqual(ProvenanceReference.judgedRules.count, 3, "封閉列舉：三個（#647 顯式加第三個），不得類推第四個")
     }
 
     func testLegacyVerdictWithoutRuleTailIsNominated() {

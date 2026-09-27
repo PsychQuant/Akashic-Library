@@ -65,6 +65,28 @@ final class OrgUndecidedCLITests: XCTestCase {
         XCTAssertEqual(try affiliation("lin-y"), .literal("National Taiwan University"))
     }
 
+    /// #647：查過未決、被篩選式 --apply 排除的候選，CLI 上以 --judge 逐列歸戶（先前只能走 MCP）。
+    func testJudgeLegAppliesTheExcludedCandidateFromTheCLI() throws {
+        // 單獨呼叫：與其他腿或 --holder 組合一律拒絕（先驗，此時 lin-y 那一列還在列表上——拒絕的理由不會是 id 不在列表）
+        let combo = try runCLI(["resolve-organizations", "--yes", "--apply", "--judge", "lin-y::National Taiwan University@ntu=x"])
+        XCTAssertNotEqual(combo.status, 0)
+        XCTAssertTrue(combo.output.contains("單獨呼叫"), combo.output)
+        let narrowed = try runCLI(["resolve-organizations", "--yes", "--holder", "lin-y", "--judge", "lin-y::National Taiwan University@ntu=x"])
+        XCTAssertNotEqual(narrowed.status, 0)
+        XCTAssertTrue(narrowed.output.contains("--holder"), narrowed.output)
+        XCTAssertEqual(try affiliation("lin-y"), .literal("National Taiwan University"))
+        _ = try runCLI(["resolve-organizations", "--undecided", "chen-ch::ISS Academia Sinica@iss=查過"])
+        let excluded = try runCLI(["resolve-organizations", "--apply", "--yes"])
+        XCTAssertTrue(excluded.output.contains("--judge"), "排除訊息要指路 --judge：\n\(excluded.output)")
+        let r = try runCLI(["resolve-organizations", "--yes", "--judge", "chen-ch::ISS Academia Sinica@iss=找到論文的完整署名"])
+        XCTAssertEqual(r.status, 0, r.output)
+        XCTAssertTrue(r.output.contains("逐篇判定 1 筆"), r.output)
+        XCTAssertEqual(try affiliation("chen-ch"), .key("iss"))
+        let v = try XCTUnwrap(try reload().organizations.first { $0.key == "iss" }?.references
+            .first { $0.field == ProvenanceReference.resolutionConfirmedField })
+        XCTAssertEqual(v.verdictClass, .judged)
+    }
+
     func testCombinationsAreRefused() throws {
         XCTAssertNotEqual(try runCLI(["resolve-organizations", "--apply", "--yes", "--undecided",
                                       "chen-ch::ISS Academia Sinica@iss=x"]).status, 0)

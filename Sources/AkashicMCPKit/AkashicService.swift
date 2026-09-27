@@ -4939,9 +4939,17 @@ public final class AkashicService {
     /// holder key + literal 的複合（OrgResolver 未定義 rowID——這裡以
     /// `<holderKey>::<literal>` 為 id，冒號雙分隔避開 key 內容）。
     public func resolveOrganizations(apply: [String]?, reject: [String]? = nil,
-                                     undecided: [String]? = nil, restsOn: [String]? = nil) throws -> String {
+                                     undecided: [String]? = nil, restsOn: [String]? = nil,
+                                     judge: [String]? = nil) throws -> String {
         // change `org-undecided-leg`（#643）：未決腿單獨呼叫；rests_on 只伴隨它（同 people／venues）
         let present = { (x: [String]?) in !(x ?? []).isEmpty }
+        // #647：逐篇判定腿同樣單獨呼叫（同 resolve-people 的 judge／refute，#635）
+        if present(judge) {
+            guard !present(apply) && !present(reject) && !present(undecided) && !present(restsOn) else {
+                throw ServiceError.invalid("judge 單獨呼叫，不得與 apply／reject／undecided／rests_on 組合——分次呼叫")
+            }
+            return try judgeOrganizations(judge ?? [])
+        }
         if present(restsOn) && !present(undecided) {
             throw ServiceError.invalid("rests_on 只伴隨 undecided 使用（它是未決記錄查了什麼的證據，#643）")
         }

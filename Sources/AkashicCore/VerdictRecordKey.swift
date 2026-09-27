@@ -27,12 +27,14 @@ extension ProvenanceReference {
         case nominated
     }
 
-    /// 屬於 `judged` 層級的 rule——**封閉列舉，兩個，不得依性質相似類推第三個**。
+    /// 屬於 `judged` 層級的 rule——**封閉列舉，三個，不得依性質相似類推第四個**。
     ///
     /// - `author-judged-per-work`：person 的逐篇判定（`--judge`／`--refute`）
     /// - `author-organization-judged`：`attribute-org` 的團體作者判定。實作前探勘時補進來——它同樣附理由、同樣有
     ///   「先 apply、後判定會被去重吃掉」的 #636 形狀
-    public static let judgedRules: Set<String> = [RuleName.judgedPerWork, RuleName.orgJudged]
+    /// - `org-judged`：`resolve-organizations` 的逐篇判定（#647，使用者 2026-09-27 裁決「比照 people 的 --judge，理由必填、
+    ///   寫成逐篇判定」）。顯式加的第三列——不是從前兩列類推：它的 holder 涵蓋隸屬、上級機構與團體作者位
+    public static let judgedRules: Set<String> = [RuleName.judgedPerWork, RuleName.orgJudged, RuleName.orgResolveJudged]
 
     /// rule（可能缺席）→ 判定層級。
     public static func verdictClass(rule: String?) -> VerdictClass {

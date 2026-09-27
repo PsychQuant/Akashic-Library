@@ -58,7 +58,7 @@ enum DestructiveTargetGate {
     /// （#298：呼叫者以為自己在 scratch），而不是寫錯哪幾筆——從錯的 store 列出來的 id 在錯的
     /// store 上全部對得上，所以逐 id 指名的寫入腿同樣受它保護（`enrich`／`enrich-from-zotero`／
     /// `resolve-venues` 都是逐 id 的，都在表內）。各成員的觸發條件由命令自己決定：多數是布林
-    /// `--apply`；`resolve-organizations` 另含篩選式 `--reject` 與逐 id 的 `--undecided`（R2 verify）；`resolve-venues` 是任一寫入腿。
+    /// `--apply`；`resolve-organizations` 另含篩選式 `--reject` 與逐 id 的 `--undecided`（R2 verify）、`--judge`（#647）；`resolve-venues` 是任一寫入腿。
     ///
     /// **表外仍有會寫 store 的命令沒有閘**（#653，使用者 2026-09-27 裁決：只閘不可逆的，點名的是格式遷移、合併、改名）。
     /// 不是每一個不閘的都可逆：`resolve-people --drop-author` 沒有具名逆操作、`import-zotero` 會覆寫欄位與作者——這兩個要不要閘、

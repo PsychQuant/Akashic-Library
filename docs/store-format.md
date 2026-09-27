@@ -857,8 +857,8 @@ references:
   未決**不是判定**：它不抑制提名、不構成矛盾（#486 的矛盾只比 confirmed×rejected）、不被 `supersede` 退役。
 - **配對狀態現算不存**：有任一 confirmed／rejected＝decided；否則有 ≥1 筆未決＝undecided；都沒有＝pending。未決記錄在
   配對被判定後**保留**為查證歷史。計數是四態（`counts{confirmed, rejected, undecided, pending}`），undecided 的配對不算 pending。
-- **判定層級**：confirmed／rejected 各分 `judged`（rule 恰為 `author-judged-per-work` 或 `author-organization-judged`，
-  封閉兩個）與 `nominated`（其餘全部，含缺尾註的 legacy）。同一配對的兩個層級是**兩筆記錄**（#636：先 `--apply`
+- **判定層級**：confirmed／rejected 各分 `judged`（rule 恰為 `author-judged-per-work`、`author-organization-judged` 或 `org-judged`（#647 起），
+  封閉三個）與 `nominated`（其餘全部，含缺尾註的 legacy）。同一配對的兩個層級是**兩筆記錄**（#636：先 `--apply`
   後 `--judge` 並存）。
 - **三把鍵**（`ProvenanceReference`，`Sources/AkashicCore/VerdictRecordKey.swift`）：**配對鍵** `verdictPairingKey`
   （不含 field、不含層級——矛盾判斷與狀態推導）；**記錄鍵** `verdictRecordKey`（寫入去重、合併收攏、D64 重複掃描——

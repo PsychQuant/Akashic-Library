@@ -988,6 +988,29 @@ struct ResolveOrganizations: ParsableCommand {
             help: "未決記錄的證據（可重複）：sha256:<64 hex>，先用 store-source 存檔。套用到這次呼叫的每一筆 --undecided；只伴隨 --undecided")
     var restsOn: [String] = []
 
+    /// 逐篇判定（#647）：CLI 在此之前沒有逐 id 的歸戶，查過未決的候選被篩選式 --apply 排除後只能走 MCP。
+    @Option(name: .long, parsing: .upToNextOption,
+            help: "逐篇判定（可重複）：<列表的 id>@<orgKey>=理由。id 的解析同 --undecided（歧義條目也收，可選其中一個 org）。把那一列歸戶到 orgKey，並寫一筆 org-judged 層級的 confirmed verdict，理由進記錄（必填、≤ 4,096 位元組）。查過未決的候選也可以這樣歸戶。輸入錯整批拒絕、零寫入；citekey 重複的 work、上級機構判給自己或會成環、列表過期，該筆略過並具名。單獨呼叫，不與 --apply／--reject／--undecided／--holder／--org 組合")
+    var judge: [String] = []
+
+    /// `--judge` 的結果（#647）。service 回來的字串已消毒；一筆都沒判成且有略過時非零結束（同 --undecided）。
+    static func printJudgeResult(_ out: String) throws {
+        let parsed = (try? JSONSerialization.jsonObject(with: Data(out.utf8))) as? [String: Any]
+        let rows = (parsed?["judged"] as? [[String: Any]]) ?? []
+        let skipped = (parsed?["skipped"] as? [[String: Any]]) ?? []
+        print("\(rows.isEmpty ? "⚠" : "✓") 逐篇判定 \(rows.count) 筆")
+        for r in rows {
+            print("  \(r["id"] as? String ?? "?")  「\(r["literal"] as? String ?? "?")」 → \(r["orgKey"] as? String ?? "?")")   // display-safe-exempt: service 已消毒，displaySafe 不冪等
+            print("      \(r["judgement"] as? String ?? "")")   // display-safe-exempt: 同上
+        }
+        if !skipped.isEmpty {
+            print("")
+            print("略過 \(skipped.count) 筆（store 狀態不符；\(rows.isEmpty ? "本次沒有任何一筆寫入" : "其餘已落地")）：")
+            for sk in skipped { print("  \(sk["id"] as? String ?? "?")  ——\(sk["why"] as? String ?? "")") }   // display-safe-exempt: service 已消毒
+        }
+        if rows.isEmpty, !skipped.isEmpty { throw ExitCode(1) }
+    }
+
     /// 列表每列的 id 行（#643）。消毒或截斷改了字串時要說出來：印出來的不是回程把手，逐字送回會對不上（R1 verify）。
     static func idLine(_ id: String) -> String {
         let shown = displaySafe(id, max: 400)
@@ -995,6 +1018,21 @@ struct ResolveOrganizations: ParsableCommand {
     }
 
     func run() throws {
+        // #647：逐篇判定腿單獨呼叫，走 service 的同一個函式（兩面同契約）
+        if !judge.isEmpty {
+            if apply || reject || !undecided.isEmpty || !restsOn.isEmpty {
+                throw ValidationError("--judge 單獨呼叫（不與 --apply／--reject／--undecided／--rests-on 組合）")
+            }
+            if !holder.isEmpty || !org.isEmpty {
+                throw ValidationError("--judge 不接受 --holder／--org——每個 id 已經點名了那一列與 org")
+            }
+            try options.assertDestructiveTargetNamed("resolve-organizations", flag: "--judge", hasDryRun: false)
+            let store = try options.openStore()
+            let service = AkashicService(root: store.root, key: store.key,
+                                         environment: ProcessInfo.processInfo.environment)
+            try Self.printJudgeResult(try service.resolveOrganizations(apply: nil, judge: judge))
+            return
+        }
         // change `org-undecided-leg`（#643）：未決腿單獨呼叫，走 service 的同一個函式（兩面同契約）
         if !restsOn.isEmpty && undecided.isEmpty {
             throw ValidationError("--rests-on 只伴隨 --undecided 使用（#643）")
@@ -1254,7 +1292,7 @@ struct ResolveOrganizations: ParsableCommand {
         printOrgAmbiguities()
         if apply, !undecidedSkipped.isEmpty {
             print("")
-            print("查過未決的候選 \(undecidedSkipped.count) 筆不套用（有人查過而判不出來——CLI 沒有逐 id 的 apply，要歸戶就以 id 點名走 MCP akashic_resolve_organizations 的 apply）：")
+            print("查過未決的候選 \(undecidedSkipped.count) 筆不套用（有人查過而判不出來——要歸戶就逐列 --judge <列表的 id>@<orgKey>=理由，#647）：")
             for c in undecidedSkipped {
                 print("  \(label(c.holder)) 「\(displaySafe(c.literal, max: 200))」 → \(displaySafe(c.orgKey, max: 200))")
             }

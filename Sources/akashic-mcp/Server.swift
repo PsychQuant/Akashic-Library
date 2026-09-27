@@ -241,6 +241,7 @@ actor AkashicMCPServer {
                 "reject": strArray("要否決的候選 id（同形）"),
                 "undecided": strArray("記下查過未決（change org-undecided-leg，#643）：<列表的 id>@<orgKey>=查了什麼、為何判不出來。id 逐字取自這次不帶參數列出的候選列或歧義條目（work 作者位是 citekey[i]::literal）；解析在每個 @<orgKey>= 的位置試切，前綴必須與已知的 id 位元組相同——恰一個位置成立才收，零個或多個都整批拒絕（literal 或說明含 @、= 不會切錯；例外是某個 literal 恰為另一個 literal 接上 @<key>=）。person 與 organization 同 key 而兩列都在列表上時 id 相同，點到它整批拒絕。orgKey 必須是那一列提名的 org（歧義條目可逐個 org 記）。寫一筆 resolution-undecided 到該 org，holder 不動。記錄是 work 層級、不帶作者位（同 apply／reject 的 verdict）：同一筆 work 另一個同 literal 的作者位被 apply 後，這個配對就算已判定。已判定的配對（該 org 已有 confirmed 或 rejected）與 citekey 無法唯一定位的 work 該筆略過並在 skipped 具名；完全相同的記錄已在＝alreadyRecorded。輸入錯（切不出或切出多個、id 重複、說明空白、org 不存在或不屬於那一列、digest 形狀不合、store format < 19、rests_on 沒有伴隨 undecided）整批拒絕零寫入；一次超過 200 個 id、20 個 digest、單句說明超過 4,096 位元組或單筆 id 超過「最長列表 id ＋ 最長 orgKey ＋ 2 ＋ 4,096 位元組」同樣整批拒絕。單獨呼叫，不與 apply／reject 組合"),
                 "rests_on": strArray("未決記錄的證據：sha256:<64 hex> digest，套用到這次呼叫的每一筆 undecided；只伴隨 undecided（空陣列與省略同義）"),
+                "judge": strArray("逐篇判定（#647）：<列表的 id>@<orgKey>=理由——id 解析同 undecided，歧義條目也收；把那一列歸戶到 orgKey 並寫 org-judged 層級的 confirmed verdict（理由必填、≤ 4,096 位元組）。輸入錯整批拒絕；citekey 重複、上級機構判給自己或會成環、列表過期該筆略過並具名。單獨呼叫，與 CLI --judge 同契約"),
              ])),
         Tool(name: "akashic_store_source",
              description: "存一份 source 的位元組進 sources/（內容定址，#264）。收**檔案路徑**"
@@ -652,7 +653,8 @@ actor AkashicMCPServer {
                     apply: oApplyProvided ? argList("apply") : nil,
                     reject: oRejectProvided ? argList("reject") : nil,
                     undecided: try argStrictList("undecided"),
-                    restsOn: try argStrictList("rests_on", allowEmpty: true))
+                    restsOn: try argStrictList("rests_on", allowEmpty: true),
+                    judge: try argStrictList("judge"))
             case "akashic_store_source":
                 output = try service.storeSource(
                     path: arg("path") ?? "", mediaType: arg("media_type") ?? "",

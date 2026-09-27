@@ -80,16 +80,11 @@ final class ClassicalSemanticsTests: XCTestCase {
         let sourceURL = directory.appendingPathComponent("Probe.swift")
         try source.write(to: sourceURL, atomically: true, encoding: .utf8)
 
-        let modules = productsDirectory.appendingPathComponent("Modules")
-        let buildRoot = productsDirectory
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let cyamlInclude = buildRoot
-            .appendingPathComponent("checkouts/Yams/Sources/CYaml/include")
+        let (modules, cyamlInclude) = SwiftcProbe.layout(products: productsDirectory)
         let cyamlModuleMap = cyamlInclude.appendingPathComponent("module.modulemap")
         XCTAssertTrue(
-            fileManager.fileExists(atPath: modules.path),
-            "external probe 找不到 SwiftPM Modules：\(modules.path)"
+            fileManager.fileExists(atPath: modules.appendingPathComponent("AkashicProposition.swiftmodule").path),
+            "external probe 找不到 AkashicProposition.swiftmodule：\(modules.path)"
         )
         XCTAssertTrue(
             fileManager.fileExists(atPath: cyamlModuleMap.path),

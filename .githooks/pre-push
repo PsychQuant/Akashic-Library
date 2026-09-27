@@ -73,17 +73,13 @@ PUSH_REFS
     fi
 fi
 
-# **建置系統釘 native（#577，中間項）**。Xcode 27（2026-09-16）起 `swift` 6.4 預設走 swiftbuild，而
-# `AkashicPropositionTests` 的三個外部探針以 .xctest 所在目錄反推 native 佈局的 `Modules/` 與
-# `checkouts/Yams`，在 swiftbuild 下必紅；沒有環境變數可切回。swiftbuild 還會把 `.build/debug`
-# 連結改指 `out/Products/Debug`、native 不會改回，而下方守衛從 `.build/debug/akashic-guards` 找
-# binary——所以 build 之後把連結指回 native 的產物目錄。探針支援兩種佈局後這三行一起拿掉。
-SWIFT_BUILD_SYSTEM=(--build-system native)
-echo "pre-push: swift build --build-system native -Xswiftc -warnings-as-errors"
-swift build "${SWIFT_BUILD_SYSTEM[@]}" -Xswiftc -warnings-as-errors
+# **預設建置系統**（#577）。Xcode 27 起是 swiftbuild；外部探針自 #577 起兩種佈局都認得，不再釘 native
+# （native 已被 SwiftPM 標為 deprecated）。
+echo "pre-push: swift build -Xswiftc -warnings-as-errors"
+swift build -Xswiftc -warnings-as-errors
 
-echo "pre-push: swift test --build-system native -Xswiftc -warnings-as-errors（全套；判讀看最後一行總數——#56 的教訓）"
-swift test "${SWIFT_BUILD_SYSTEM[@]}" -Xswiftc -warnings-as-errors
+echo "pre-push: swift test -Xswiftc -warnings-as-errors（全套；判讀看最後一行總數——#56 的教訓）"
+swift test -Xswiftc -warnings-as-errors
 
 # **Plugin 守衛**（#407）。CI 的 macOS job 對 plugin-only 的 push 被
 # paths-ignore 跳過（計費考量），所以本機這一關是它們唯一每次都會跑到的地方。
@@ -101,23 +97,11 @@ swift test "${SWIFT_BUILD_SYSTEM[@]}" -Xswiftc -warnings-as-errors
 # 這不是「測試模式」:它是「這一次要跑哪幾階段」,而測試只是第一個用到它的人。
 case ",${AKASHIC_PRE_PUSH_STAGES:-build,test,guards}," in
   *,guards,*)
-    # **只有守衛階段需要 `.build/debug` 指回 native 的產物**（`run-guards.sh` 從那裡找 akashic-guards）；build／test 兩階段自己帶
-    # `--build-system native`，不讀連結。放在這裡而不是 build 之後，是因為 `PrePushHookTests` 以 repo root 為 cwd 跑前兩階段——
-    # 重指是對工作樹的寫入，不該由跑一次 `swift test` 觸發（R20 verify regression 第 6 列）。
-    # 重指失敗要出聲（R19 verify logic 第 30 列、regression 第 34 列）；`ln -sfn` 對**真目錄**不會取代、會在裡面建巢狀連結並回 0
-    # （R20 verify security 第 13 列）——所以 ln 之後驗 readlink 真的等於目標，不等就中止。
-    NATIVE_DEBUG="$(uname -m)-apple-macosx/debug"
-    if [ ! -d ".build/$NATIVE_DEBUG" ]; then
-      echo "✗ pre-push: 找不到 native 產物目錄 .build/$NATIVE_DEBUG——守衛會跑到別次建置的 binary，中止" >&2
-      exit 1
-    fi
-    if [ -e .build/debug ] && [ ! -L .build/debug ]; then
-      echo "✗ pre-push: .build/debug 不是符號連結（是真目錄或普通檔案），無法重指——對真目錄 ln -sfn 只會在裡面建巢狀連結；先移走它再推（R21 verify 第 26 列：不留巢狀連結；R22 verify 第 34 列：普通檔案也走這裡）" >&2
-      exit 1
-    fi
-    ln -sfn "$NATIVE_DEBUG" .build/debug
-    if [ "$(readlink .build/debug)" != "$NATIVE_DEBUG" ]; then
-      echo "✗ pre-push: .build/debug 重指失敗（連結沒有指向 $NATIVE_DEBUG），中止" >&2
+    # **守衛從 `.build/debug` 找 `akashic-guards`**（`run-guards.sh`），所以它必須解析到這次建置的產物目錄——否則守衛拿別次建置的
+    # binary 對新樹跑、照樣印綠。預設建置系統建完會自己指好；這裡只核對、不寫入（#577 之前釘 native 時要手動重指）。
+    BIN_PATH="$(swift build --show-bin-path)"
+    if [ "$(cd .build/debug 2>/dev/null && pwd -P)" != "$(cd "$BIN_PATH" 2>/dev/null && pwd -P)" ]; then
+      echo "✗ pre-push: .build/debug 沒有指向這次建置的產物目錄（$BIN_PATH）——守衛會跑到別次建置的 binary，中止" >&2
       exit 1
     fi
     echo "pre-push: plugin 守衛（覆蓋／散文／parity，各含 negative control）"

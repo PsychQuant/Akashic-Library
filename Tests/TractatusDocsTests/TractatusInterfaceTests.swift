@@ -31,10 +31,9 @@ final class TractatusInterfaceTests: XCTestCase {
             encoding: .utf8
         )
         let testStep = try XCTUnwrap(workflow.range(of: "      - name: Test\n"))
-        // #577 中間項（#554 R22；R21 verify 第 5 列）：這一步釘 native——同 job 的守衛從 .build/debug 讀 binary，預設的 swiftbuild
-        // 會把連結翻回去。探針支援兩種佈局後這裡的旗標與 pre-push／census-parity.yml 的一起拿掉。
+        // #577：探針支援兩種佈局之後，這一步回到預設建置系統（先前釘 native 是中間項）
         let validate = try XCTUnwrap(
-            workflow.range(of: "swift run --build-system native tractatus-doc validate --root docs/tractatus")
+            workflow.range(of: "swift run tractatus-doc validate --root docs/tractatus")
         )
         let renderOutput = try XCTUnwrap(
             workflow.range(of: "--output docs/tractatus/generated/tractatus-project-map.md")

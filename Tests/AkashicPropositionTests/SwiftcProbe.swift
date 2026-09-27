@@ -28,6 +28,24 @@ import XCTest
 /// 所以 PATH 上的 swiftc 與建出 modules 的那個一致。
 enum SwiftcProbe {
 
+    /// SwiftPM 產物佈局（#577）。native 把 `.swiftmodule` 放在 `<products>/Modules`、`checkouts/` 在往上兩層；swiftbuild（Xcode 27
+    /// 起的預設）直接放在 `<products>`（`.build/out/Products/Debug`）、`checkouts/` 在往上三層。**以存在與否判斷，不寫死層數**——
+    /// 先前三個 probe 各自寫死 native 的佈局，預設建置系統一換就三個一起紅。
+    static func layout(products: URL) -> (modules: URL, cyamlInclude: URL) {
+        let fm = FileManager.default
+        let nativeModules = products.appendingPathComponent("Modules")
+        let modules = fm.fileExists(atPath: nativeModules.path) ? nativeModules : products
+        let rel = "checkouts/Yams/Sources/CYaml/include"
+        var dir = products
+        for _ in 0..<5 {
+            let candidate = dir.appendingPathComponent(rel)
+            if fm.fileExists(atPath: candidate.appendingPathComponent("module.modulemap").path) { return (modules, candidate) }
+            dir = dir.deletingLastPathComponent()
+        }
+        // 找不到時回 native 的位置，讓呼叫端的存在斷言印出一條具體路徑
+        return (modules, products.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent(rel))
+    }
+
     /// 用建出 modules 的那個 toolchain 設定 `process`。
     static func configure(_ process: Process, arguments: [String]) {
         if let swiftExec = ProcessInfo.processInfo.environment["SWIFT_EXEC"],

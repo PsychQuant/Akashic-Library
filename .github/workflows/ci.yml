@@ -81,23 +81,19 @@ jobs:
       #
       # build 與 test target 都開啟：測試碼本身若因 API 轉為 nonthrowing 而留下
       # 多餘 `try`，也會讓可重現驗證與實際 merge tree 分歧（#215）。
-      # #577：Xcode 27 的預設建置系統 swiftbuild 讓三個外部探針測試必紅、且會把 .build/debug 改指 out/Products/Debug——
-      # 與 .githooks/pre-push 同一個中間項：釘 native、build 之後把連結指回去。#577 落地時兩處一起拿掉。
+      # #577：用預設建置系統（Xcode 27 起是 swiftbuild）。守衛從 .build/debug 找 binary，所以建完核對它解析到的就是這次的產物目錄。
       - name: Build（warnings 視為錯誤）
         run: |
-          swift build --build-system native -Xswiftc -warnings-as-errors
-          N="$(uname -m)-apple-macosx/debug"
-          [ -d ".build/$N" ] || { echo "找不到 native 產物目錄 .build/$N" >&2; exit 1; }
-          if [ -e .build/debug ] && [ ! -L .build/debug ]; then echo ".build/debug 是真目錄，不能重指" >&2; exit 1; fi
-          ln -sfn "$N" .build/debug
-          [ "$(readlink .build/debug)" = "$N" ] || { echo ".build/debug 重指失敗" >&2; exit 1; }
+          swift build -Xswiftc -warnings-as-errors
+          [ "$(cd .build/debug && pwd -P)" = "$(cd "$(swift build --show-bin-path)" && pwd -P)" ] \
+            || { echo ".build/debug 沒有指向這次建置的產物目錄" >&2; exit 1; }
 
       # **不得加 --skip**（#57）。允許跳過測試的 CI 等於沒有 CI；要暫時停用某個
       # 測試，正確做法是在測試裡 XCTSkip 並寫明理由，那會留在程式碼裡被 review。
       - name: Test
         run: |
           set -o pipefail
-          swift test --build-system native -Xswiftc -warnings-as-errors 2>&1 | tee /tmp/test.log
+          swift test -Xswiftc -warnings-as-errors 2>&1 | tee /tmp/test.log
 
       # **Plugin parity 守衛**（#407）。放這個 job 而不是當時的 plugin-guards.yml（已刪，40977531），
       # 因為它們拿**建好的 CLI** 當 oracle——比對 census 的 store-marker 解析
@@ -141,9 +137,8 @@ jobs:
       # 違規；render --check 擋 YAML 已更新但並排 Markdown 尚未重生的 drift。
       - name: Tractatus 正典與並排文件
         run: |
-          # 同 job 的守衛已從 .build/debug 讀 binary；這一步若走預設的 swiftbuild 會把連結再翻回去（R21 verify 第 5 列）
-          swift run --build-system native tractatus-doc validate --root docs/tractatus
-          swift run --build-system native tractatus-doc render \
+          swift run tractatus-doc validate --root docs/tractatus
+          swift run tractatus-doc render \
             --root docs/tractatus \
             --output docs/tractatus/generated/tractatus-project-map.md \
             --check
@@ -175,13 +170,9 @@ jobs:
       - name: 端對端 — export-tables 產生的 load.sql 必須跑得起來
         run: |
           brew install duckdb
-          # 同一個 job 的 debug 那一步已釘 native（#577）；這裡若走預設的 swiftbuild，.build/release 會指到另一套產物目錄、整份重建
-          swift build -c release --build-system native
-          N="$(uname -m)-apple-macosx/release"
-          [ -d ".build/$N" ] || { echo "找不到 native release 產物目錄 .build/$N" >&2; exit 1; }
-          if [ -e .build/release ] && [ ! -L .build/release ]; then echo ".build/release 是真目錄，不能重指" >&2; exit 1; fi
-          ln -sfn "$N" .build/release
-          [ "$(readlink .build/release)" = "$N" ] || { echo ".build/release 重指失敗" >&2; exit 1; }
+          swift build -c release
+          [ "$(cd .build/release && pwd -P)" = "$(cd "$(swift build -c release --show-bin-path)" && pwd -P)" ] \
+            || { echo ".build/release 沒有指向這次建置的產物目錄" >&2; exit 1; }
           TMP=$(mktemp -d)
           STORE="$TMP/store"
           .build/release/akashic doctor --library "$STORE" > /dev/null

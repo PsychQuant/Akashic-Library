@@ -440,7 +440,7 @@ final class ReferencesExtractTests: XCTestCase {
     func testOutputCarriesContractVersion() throws {
         let (status, output) = try extract("References\n\nAdams, J. (2001). A title. Journal A.\n")
         XCTAssertEqual(status, 0, output)
-        XCTAssertEqual(try decode(output).contract, 8)
+        XCTAssertEqual(try decode(output).contract, 9)
     }
 
     /// T17：APA 7 以刪節號省略作者時，換行不是併筆；小寫接在連字號後的姓、分號結尾的出版地（G10）
@@ -1195,7 +1195,9 @@ final class ReferencesExtractTests: XCTestCase {
         XCTAssertEqual(status, 0, output)
     }
 
-    /// T59：圖表之後緊接著附錄時，附錄裡的條目不得被算進「清單停在…之後還有 N 個」（R5 E4）
+    /// T59：圖表之後緊接著附錄時，附錄裡的條目不得被算進「清單停在…之後還有 N 個」（R5 E4）。R14 起它們
+    /// 由「帶年份…沒有計入」說出來：附錄自己的文獻清單與「清單被截斷、真條目接在附錄之後」在文字上分不出來，
+    /// 不出聲的那一邊會丟真條目（R14 P1），停下來問只多一次確認
     func testHardEndRightAfterABreakStopsTheCount() throws {
         let text = """
         References
@@ -1210,7 +1212,8 @@ final class ReferencesExtractTests: XCTestCase {
         XCTAssertEqual(status, 0, output)
         let r = try decode(output)
         XCTAssertEqual(r.count, 2)
-        XCTAssertFalse(r.warnings.contains { $0.contains("清單停在") }, "\(r.warnings)")
+        XCTAssertFalse(r.warnings.contains { $0.contains("之後還有") }, "\(r.warnings)")
+        XCTAssertTrue(r.warnings.contains { $0.contains("1 行帶年份") && $0.contains("沒有計入") }, "\(r.warnings)")
     }
 
     /// T61：多段 warning 在候選很多時也不超過 500 字（R5 E4）
@@ -1664,10 +1667,10 @@ final class ReferencesExtractTests: XCTestCase {
     }
 
     /// T87：附錄或索引之後，年份括號之後「還有字」就算——標題以數字開頭（`(2003). 3D art.`）、標題換到
-    /// 下一行的也算；年份之後只有頁碼與頁碼記號（`45f.`、`67ff.`、`n. 3`）的作者索引行不算，範圍也不越過
-    /// 下一個附錄或索引標題（R13 修正初版要求年份之後「緊接著」字，數字開頭的真條目因此無聲——往丟真條目的
-    /// 方向收窄了）。反例避開 `passim` 與「緊接在單一索引標題之後」：那兩種會被既有的完整條目判定收進
-    /// 「之後還有 N 個」（R13 之前就是如此，SKILL〈已知限制〉有寫）
+    /// 下一行的也算；年份之後只有頁碼與頁碼記號（`45f.`、`67ff.`、`n. 3`、`44 sq.`、`et seq.`、`passim`）、
+    /// 姓名只有名縮寫的作者索引行不算（R13 修正初版要求年份之後「緊接著」字，數字開頭的真條目因此無聲——往丟
+    /// 真條目的方向收窄了）。反例避開「緊接在單一索引標題之後」：`passim` 會被既有的完整條目判定收進
+    /// 「之後還有 N 個」（SKILL〈已知限制〉有寫）
     func testAfterAppendixOrIndexAnyWordAfterTheYearCountsButPageMarkersDoNot() throws {
         let head = "References\n\nAdams, J. K. (2001). First title. Journal A, 1, 1–2.\n"
             + "Baker, L. (2002). Second title. Journal B, 2, 3–4.\n\n"
@@ -1680,12 +1683,61 @@ final class ReferencesExtractTests: XCTestCase {
             XCTAssertTrue(r.warnings.contains { $0.contains("1 行") && $0.contains("沒有計入") }, "\(tail): \(r.warnings)")
         }
         for tail in ["Index\n\nSmith, J. (1998), 45f., 67ff.\nTaylor, K. (2001), 88 n. 3\n",
-                     "Appendix\n\nIndex\n\nSmith, J. (1998), 45\nTaylor, K. (2001), 88\n\nName Index\n\nconformity, 12\n"] {
+                     "Appendix\n\nIndex\n\nSmith, J. K. (1998), 44 sq., 67 et seq.\nTaylor, K. (2001), 88 passim\n"] {
             let (status, output) = try extract(head + tail)
             XCTAssertEqual(status, 0, output)
             let r = try decode(output)
             XCTAssertEqual(r.entries.map(\.firstAuthor), ["Adams", "Baker"], tail)
             XCTAssertFalse(r.warnings.contains { $0.contains("沒有計入") || $0.contains("判為不完整") }, "\(tail): \(r.warnings)")
         }
+    }
+
+    // MARK: - #617 verify R14
+
+    private static let twoEntries = "References\n\nAdams, J. K. (2001). First title. Journal A, 1, 1–2.\n"
+        + "Baker, L. (2002). Second title. Journal B, 2, 3–4.\n\n"
+
+    private func assertCountsOneDatedLine(_ tail: String, file: StaticString = #filePath, line: UInt = #line) throws {
+        let (status, output) = try extract(Self.twoEntries + tail)
+        XCTAssertEqual(status, 0, output, file: file, line: line)
+        let r = try decode(output)
+        XCTAssertEqual(r.entries.map(\.firstAuthor), ["Adams", "Baker"], tail, file: file, line: line)
+        XCTAssertTrue(r.warnings.contains { $0.contains("1 行") && $0.contains("帶年份") && $0.contains("沒有計入") },
+                      "\(tail): \(r.warnings)", file: file, line: line)
+    }
+
+    /// T88：停在圖表、軟結束標題之後、到下一個附錄或索引之前沒有條目開頭時，也往後跨過附錄與索引去數
+    /// （R14 P1：R13 只在停點本身是附錄或索引時才往後跨——`Notes` → `Appendix` → 真條目無聲）
+    func testSoftEndFollowedByAppendixOrIndexStillCountsDatedEntries() throws {
+        for stop in ["Notes", "Acknowledgments\n\nWe thank our funders.", "Footnotes",
+                     "Supplementary Materials", "Table 1"] {
+            for hard in ["Appendix", "Index", "Appendix\n\nIndex"] {
+                try assertCountsOneDatedLine(stop + "\n\n" + hard + "\n\nCarter, M. (2003). Art. Sci, 1, 2.\n")
+            }
+        }
+    }
+
+    /// T89：條目本身的範圍不在附錄或索引樣的行截斷（R14 P2：續行 `Appendix of extra info.`、夾進來的
+    /// `Index`）；年份在第 6 行、標題在第 7 行（R14 P3）；年份放在最後的書目——姓名與年份之間有字就算
+    /// （R14 P4：R13 只看年份之後，這種條目在附錄之後無聲）
+    func testDatedEntryCountSurvivesHeadingLikeLinesLateTitlesAndYearLast() throws {
+        for tail in ["Appendix\n\nIndex\n\nCarter, M. (2003).\nAppendix of extra info.\nSci, 1, 2.\n",
+                     "Appendix\n\nCarter, M. (2003) —\nIndex\nSome title. Sci, 1, 2.\n",
+                     "Appendix\n\nCarter, M.\n—\n—\n—\n—\n(2003).\nArt. Sci, 1, 2.\n",
+                     "Appendix\n\nCarter, M. Art. Sci, 1, 2 (2003).\n",
+                     "Notes\n\nIndex\n\nCarter, M., Johnson, K. Art. Sci, 1, 2 (2003).\n"] {
+            try assertCountsOneDatedLine(tail)
+        }
+    }
+
+    /// T90：誤報的一側，照不對稱原則揭露而不收緊——帶年份的作者索引最後一行緊接著另一個索引標題時，範圍會
+    /// 吸進標題的字而被數到（R14 P2 拿掉了「範圍停在附錄或索引標題」：那個排除會讓續行像標題的真條目無聲）
+    func testDatedAuthorIndexAbuttingAnotherIndexHeadingIsADisclosedFalseAlarm() throws {
+        let (status, output) = try extract(Self.twoEntries
+            + "Appendix\n\nIndex\n\nSmith, J. (1998), 45\nTaylor, K. (2001), 88\n\nName Index\n\nconformity, 12\n")
+        XCTAssertEqual(status, 0, output)
+        let r = try decode(output)
+        XCTAssertEqual(r.entries.map(\.firstAuthor), ["Adams", "Baker"])
+        XCTAssertTrue(r.warnings.contains { $0.contains("帶年份") && $0.contains("沒有計入") }, "\(r.warnings)")
     }
 }

@@ -40,8 +40,10 @@ enum ReferenceListExtractor {
     /// 結尾，並新增「下一行以小寫開頭、這個標題可能是換行換出來的字」；措辭改為「被切斷或吸進了文字」。
     /// 6（R11）：新增「清單停在…之後有 N 行像條目開頭、但判為不完整」。7（R12）：這一則擴及附錄與索引
     /// （只數帶年份括號的條目開頭）。8（R13）：附錄與索引這一支改成獨立的「沒有計入」warning——跨過接連的
-    /// 附錄與索引標題，只數年份之後有字的條目開頭。
-    static let contractVersion = 8
+    /// 附錄與索引標題，只數年份之後有字的條目開頭。9（R14）：這一則改為任何結束標題與圖表之後都可能出現
+    /// （之後到下一個附錄或索引之前沒有條目開頭時），措辭改為「之後（含其後的附錄與索引）有 N 行帶年份」；
+    /// 數的是帶年份、而不是書末索引那種行的條目開頭（年份在最後的書目也算）。
+    static let contractVersion = 9
 
     // MARK: - 樣式
 
@@ -501,28 +503,27 @@ enum ReferenceListExtractor {
                     }
                     if isEnd {
                         let kind = isFloat ? "圖表標題" : "結束標題"
+                        let hard = matches(line, hardEndPattern, caseInsensitive: true)
                         let following = fullEntries(after: i, in: lines, candidates: candidateSet)
+                        let nonFull = hard ? 0 : entryStartLines(after: i, in: lines, candidates: candidateSet).count
                         if following > 0 {
                             notes.append(("清單停在\(place(i))的\(kind)，但它之後還有 \(following) 個條目開頭沒有計入"
                                           + "（字母順序接不上，或不在接續範圍內）——若那些也是參考文獻，這份清單被截斷了", nil))
-                        } else if !matches(line, hardEndPattern, caseInsensitive: true) {
+                        } else if nonFull > 0 {
                             // 之後有條目開頭、但沒有一個判為完整：表格列，或被判成表格列的真條目。後者若是斷點之後的
                             // 最後一筆，上面那一則數不到它，原本完全沒有 warning（R11 #2）
-                            let nonFull = entryStartLines(after: i, in: lines, candidates: candidateSet).count
-                            if nonFull > 0 {
-                                notes.append(("清單停在\(place(i))的\(kind)，之後有 \(nonFull) 行像條目開頭、但判為不完整"
-                                              + "（表格列，或寫法不同的條目）——若其中有參考文獻，這份清單被截斷了", nil))
-                            }
+                            notes.append(("清單停在\(place(i))的\(kind)，之後有 \(nonFull) 行像條目開頭、但判為不完整"
+                                          + "（表格列，或寫法不同的條目）——若其中有參考文獻，這份清單被截斷了", nil))
                         } else {
-                            // 附錄與索引：往後跨過接連的附錄與索引標題（R13 #0：`Appendix` → `Index` → 真條目原本
-                            // 無聲——一碰到第二個標題就停），只在另一個參考文獻標題處停；只數「年份之後有字」的條目開頭
-                            // ——索引行沒有年份，帶年份的作者索引（`Smith, J. (1998), 45`）年份之後只有頁碼（R13 #1）。
-                            // R11 整個排除附錄與索引、R12 只看到下一個標題，兩次都留下無聲的一支（R12、R13）
+                            // 不論停點是圖表、其他結束標題還是附錄或索引，都往後跨過其後所有的附錄與索引標題，數到下一個
+                            // 參考文獻標題或文字結尾；只排除書末索引那種行（`isDatedEntry`）。R11 整個排除附錄與索引、
+                            // R12 只看到下一個標題、R13 只在停點本身是附錄或索引時才往後跨——每一次都留下相鄰排列上
+                            // 無聲的一支（R12 M1、R13 N1、R14 P1：`Notes` → `Appendix` → 真條目）
                             let dated = entryStartLines(after: i, in: lines, candidates: candidateSet, throughHardEnds: true)
-                                .filter { hasDatedTitle(at: $0, in: lines) }.count
+                                .filter { isDatedEntry(at: $0, in: lines) }.count
                             if dated > 0 {
-                                notes.append(("清單停在\(place(i))的結束標題（附錄或索引），之後（含接連的附錄與索引）有 \(dated) 行"
-                                              + "帶年份、像條目開頭，沒有計入——若其中有參考文獻，這份清單被截斷了", nil))
+                                notes.append(("清單停在\(place(i))的\(hard ? "結束標題（附錄或索引）" : kind)，之後（含其後的附錄與索引）"
+                                              + "有 \(dated) 行帶年份、像條目開頭，沒有計入——若其中有參考文獻，這份清單被截斷了", nil))
                             }
                         }
                     }
@@ -713,36 +714,39 @@ enum ReferenceListExtractor {
     /// 四個字母以上、但不算實在的字的縮寫
     static let notWords: Set<String> = ["vols", "suppl", "supp", "sect", "chap"]
 
-    /// 從 `j` 起的這一筆（與 `isFullEntry` 同一個範圍：至多 6 行、不越過下一筆）帶年份括號
-    static func hasYearParen(at j: Int, in lines: [String]) -> Bool {
+    /// 從 `j` 起的一筆的範圍：至多 `limit` 行、不越過下一筆（與 `isFullEntry` 相同的規則）
+    static func entryWindowEnd(from j: Int, in lines: [String], limit: Int) -> Int {
         var end = j + 1
-        while end < min(j + 6, lines.count),
+        while end < min(j + limit, lines.count),
               !(isEntryStart(lines[end]) && !continuesAuthorList(lines[end - 1])) { end += 1 }
-        return yearParen(in: lines[j..<end].joined(separator: " ")) != nil
+        return end
     }
 
-    /// 從 `j` 起的這一筆（範圍同 `hasYearParen`，另外不越過附錄或索引標題）帶年份括號、而且括號之後還有
-    /// 字——條目的標題或期刊名。帶年份的作者索引行（`Smith, J. (1998), 45`、`45f., 67ff.`、`88 n. 3`）
-    /// 年份之後只有頁碼與頁碼記號（R13 #1：R12 只看年份括號，這種索引行在附錄或索引之後會誤報）。
+    /// 從 `j` 起的這一筆帶年份、而且不是書末索引那種行：年份括號在開頭 6 行內，而且年份之後還有字
+    /// （至多看到第 7 行），或姓名與年份之間有兩個字母以上的字。
     ///
-    /// 「還有字」而不是「緊接著字」：R13 修正初版要求年份括號之後緊接著字，標題以數字開頭的真條目
-    /// （`(2003). 3D art.`）因此在附錄之後無聲——往丟真條目的方向收窄了。範圍停在附錄或索引標題，是因為
-    /// 真條目不會跨過那種標題，而帶年份的作者索引最後一行會吸進下一個索引標題的字
-    static func hasDatedTitle(at j: Int, in lines: [String]) -> Bool {
-        var end = j + 1
-        while end < min(j + 6, lines.count),
-              !(isEntryStart(lines[end]) && !continuesAuthorList(lines[end - 1])),
-              !isHardEnd(at: end, in: lines) { end += 1 }
-        let text = lines[j..<end].joined(separator: " ")
+    /// 排除條件只描述誤報那一類的樣子——索引行（`Smith, J. K. (1998), 45f., 67 sq.`）年份之前只有姓名與
+    /// 名縮寫、之後只有頁碼與頁碼記號——不描述真條目的樣子。R13 兩次描述了真條目：「年份之後緊接著字」讓
+    /// 數字開頭的標題無聲（`6a0e4a61`），「年份之後有字」讓年份放在最後的書目無聲（R14 P4）；`d0a77881` 為了
+    /// 壓一個誤報把範圍停在附錄或索引樣的行，續行長得像標題的真條目也跟著無聲（R14 P2）。範圍因此照
+    /// `isFullEntry` 的規則，只在下一筆處停；帶年份的作者索引最後一行吸進下一個索引標題的字，是揭露的誤報
+    static func isDatedEntry(at j: Int, in lines: [String]) -> Bool {
+        let text = lines[j..<entryWindowEnd(from: j, in: lines, limit: 6)].joined(separator: " ")
         guard let m = firstMatch(text, "[({](?:\\d{4}[a-z]?|n\\.\\s?d\\.|in press|in preparation|submitted|forthcoming)"
                                      + "[^(){}]{0,40}[)}]", caseInsensitive: true) else { return false }
-        return (text as NSString).substring(from: m.range.location + m.range.length)
-            .split(whereSeparator: { !$0.isLetter })
-            .contains { !pageMarkers.contains($0.lowercased()) }
+        // 年份在第 6 行時，標題在第 7 行（R14 P3）。7 行的範圍以 6 行的為前綴，括號的位置不變
+        let longer = lines[j..<entryWindowEnd(from: j, in: lines, limit: 7)].joined(separator: " ") as NSString
+        if longer.substring(from: m.range.location + m.range.length).split(whereSeparator: { !$0.isLetter })
+            .contains(where: { !pageMarkers.contains($0.lowercased()) }) { return true }
+        // 年份放在最後的書目：姓名與年份之間有字。單一字母是名縮寫（`Smith, J. K.`）
+        let nameEnd = firstMatch(text, personNamePattern).map { $0.range.location + $0.range.length } ?? 0
+        guard nameEnd < m.range.location else { return false }
+        return (text as NSString).substring(with: NSRange(location: nameEnd, length: m.range.location - nameEnd))
+            .split(whereSeparator: { !$0.isLetter }).contains { $0.count >= 2 }
     }
 
-    /// 索引裡跟在頁碼後面的記號（`45f.`、`67ff.`、`88 n. 3`），不算字
-    static let pageMarkers: Set<String> = ["f", "ff", "n", "nn"]
+    /// 索引裡跟在頁碼後面的記號（`45f.`、`67ff.`、`88 n. 3`、`44 sq.`、`67 et seq.`、`passim`），不算字
+    static let pageMarkers: Set<String> = ["f", "ff", "n", "nn", "sq", "sqq", "et", "seq", "passim"]
 
     /// 排序鍵：第一作者（個人作者取第一個逗號之前，機構作者取 `. (` 之前），去掉大小寫與重音
     static func sortKey(_ line: String) -> String {

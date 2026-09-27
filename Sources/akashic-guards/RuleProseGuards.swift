@@ -34,6 +34,9 @@ private func abspath(_ p: String) -> String {
 func ruleProseGuards(argv: [String]) -> Int32 {
     var plugin = "\(repoRoot)/plugin"
     var venueArg: String? = nil
+    // `--prose-only`（#644）：只跑第 1、2 項。那兩項對**每一個** plugin 根都成立（`run-guards.sh` 照 `plugin-roots` 逐根跑）；
+    // 第 3–6 項綁著 `plugin/` 專屬的內容（`assertions-must-be-measured`、`VenueType`、自我量測表），在別的根上沒有意義。
+    var proseOnly = false
     // `--root <dir>` / `--venue <path>`：讓 negative control 能對**一份 copy** 跑，而不是
     // 就地改寫出貨檔。前一版的 harness 改的是版控中的規則檔，而跨模型審查在審查期間實際
     // 觀察到姊妹 harness 把 tracked 的 census 改壞三次。
@@ -41,6 +44,7 @@ func ruleProseGuards(argv: [String]) -> Int32 {
     while !a.isEmpty {
         if a[0] == "--root", a.count > 1 { plugin = abspath(a[1]); a.removeFirst(2) }
         else if a[0] == "--venue", a.count > 1 { venueArg = abspath(a[1]); a.removeFirst(2) }
+        else if a[0] == "--prose-only" { proseOnly = true; a.removeFirst() }
         else { print("✗ 未知參數：\(a[0])"); return 1 }
     }
     let rulePath = "\(plugin)/rules/assertions-must-be-measured.md"
@@ -133,6 +137,11 @@ func ruleProseGuards(argv: [String]) -> Int32 {
         }
     }
     check(2, "提到 repo 專屬路徑卻未在同一行揭露取用限制", undisclosed, [])
+    if proseOnly {
+        print("")
+        print("=== \(results.filter { $0 }.count)/\(results.count) PASS（--prose-only：\(base(plugin))）===")
+        return results.allSatisfy { $0 } ? 0 : 1
+    }
 
     let ruleTxt = requireContents(ofFile: rulePath, what: "assertions-must-be-measured.md")   // #527
     let ruleLines = ruleTxt.components(separatedBy: "\n")

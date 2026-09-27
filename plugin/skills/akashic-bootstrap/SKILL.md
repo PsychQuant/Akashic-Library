@@ -43,11 +43,16 @@ description: 把資料補進 Akashic library——給一個人名、citekey、DO
 補之前先查，否則會重複建立或誤判缺漏。
 
 ```
-akashic_search(query: …)              # 標題 / 關鍵字
+akashic_search(author: "Cheng", yearFrom: 2020)   # 依作者／刊名／年份／tag／type／library 篩
 akashic_get_entry(citekey: …)         # 單筆完整內容（含已有哪些 fields）
 akashic_person(name: "cheng")         # 模糊姓名 → 候選
 akashic_person(key: "cheng-che")      # 確定的人 → 著作 + 合著者
 ```
+
+**`akashic_search` 沒有標題或 DOI 條件**，store 目前也沒有以標題或 DOI 查詢的入口（#638）。要查的話：
+
+- **DOI**：建檔時 `akashic_create_entry`／`akashic create-entry` 在 DOI 已在庫時照常建，但會具名回報命中的 citekey（MCP 回應的 `doiHits`、CLI 印 ⚠，#637）。一看到命中就停下核對是不是同一篇——是的話走攣生合併，不要留兩筆。
+- **標題**：`akashic export-tables` 的 publications 表逐筆比對標題與年份。
 
 `akashic_person(name:)` 會回兩種候選：
 

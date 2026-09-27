@@ -99,3 +99,40 @@ extension BatchCreateTests {
         XCTAssertEqual(try LibraryStore(root: root).load().entries.first { $0.citekey == "author2024gamma" }?.akashic.libraries, [])
     }
 }
+
+// MARK: - #637：DOI 已在庫時具名回報（只回報、不拒絕）
+
+extension BatchCreateTests {
+    private func doiDraft(_ title: String, _ doi: String) -> AkashicService.EntryDraft {
+        AkashicService.EntryDraft(type: "periodical-article", title: title, authors: ["Some Author"], date: "2024",
+                                  fields: ["journaltitle": "Batch Journal"], doi: [doi])
+    }
+
+    /// 已在庫的 DOI：照常建（DOI 相同只是提名），回報命中的 citekey；DOI 不同的那筆不回報。
+    func testCreateEntriesReportsDOIAlreadyInStore() throws {
+        _ = try service.createEntries([doiDraft("Original study", "10.1037/abc")])
+        let report = try service.createEntries([doiDraft("Original study again", "10.1037/ABC"),
+                                                doiDraft("Unrelated study", "10.1037/xyz")])
+        XCTAssertEqual(report.created.count, 2, "只回報、不拒絕")
+        XCTAssertEqual(report.doiHits.map(\.index), [0])
+        XCTAssertEqual(report.doiHits.first?.existing, ["author2024original"])
+        XCTAssertEqual(report.doiHits.first?.doi, "10.1037/abc", "比對走正規形")
+    }
+
+    /// 同一批兩筆用同一個 DOI：第二筆回報第一筆。
+    func testCreateEntriesReportsDOIRepeatedWithinTheBatch() throws {
+        let report = try service.createEntries([doiDraft("First copy", "10.1037/dup"), doiDraft("Second copy", "10.1037/dup")])
+        XCTAssertEqual(report.doiHits.map(\.index), [1])
+        XCTAssertEqual(report.doiHits.first?.existing, ["author2024first"])
+    }
+
+    /// MCP 的單筆面：回應帶 doiHits。
+    func testSingleCreateEntryPayloadCarriesDOIHits() throws {
+        _ = try service.createEntries([doiDraft("Original study", "10.1037/abc")])
+        let out = try service.createEntry(type: "periodical-article", title: "Copy", authors: ["Some Author"],
+                                          date: "2024", fields: [:], doi: ["10.1037/abc"])
+        let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(out.utf8)) as? [String: Any])
+        let hits = try XCTUnwrap(json["doiHits"] as? [[String: Any]], out)
+        XCTAssertEqual(hits.first?["existing"] as? [String], ["author2024original"])
+    }
+}

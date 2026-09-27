@@ -2017,8 +2017,14 @@ public final class AkashicService {
         public struct WriteFailure: Equatable {
             public let index: Int; public let title: String; public let citekey: String; public let error: String
         }
+        /// #637：這一筆的 DOI 已在庫（或同一批稍早的一筆已用過）。**只回報、不拒絕**——DOI 相同只是提名，不是同一性證據
+        /// （更正啟事與原文共用 DOI、一筆 work 可有多個 DOI；#611 的立場）。要不要合併是攣生管線的判定。
+        public struct DOIHit: Equatable {
+            public let index: Int; public let citekey: String; public let doi: String; public let existing: [String]
+        }
         public var created: [Created] = []
         public var writeFailures: [WriteFailure] = []
+        public var doiHits: [DOIHit] = []
         public init() {}
     }
 
@@ -2060,8 +2066,19 @@ public final class AkashicService {
                     "第 \(i + 1) 筆「\(displaySafeInvisible(d.title, max: 120))」：\(displaySafeError(error, max: 400))——整批拒絕，零寫入")   // display-safe-exempt: Int；title 以性質逃脫（R28 E2E：TAG 字元曾原樣進 MCP 錯誤）
             }
         }
-        // 2. 逐筆寫（exclusive：目的檔存在 fail-closed），I/O 失敗收容
         var report = BatchCreateReport()
+        // #637：DOI 命中既有記錄（或同一批稍早的一筆）時具名回報。比對走 `canonicalDOIs` 的正規形。
+        var citekeysByDOI: [String: [String]] = [:]
+        for e in load.entries { for d in e.canonicalDOIs { citekeysByDOI[d.normalized, default: []].append(e.citekey) } }
+        for (i, e) in planned.enumerated() {
+            for d in e.canonicalDOIs {
+                if let hits = citekeysByDOI[d.normalized], !hits.isEmpty {
+                    report.doiHits.append(.init(index: i, citekey: e.citekey, doi: d.normalized, existing: hits))
+                }
+            }
+            for d in e.canonicalDOIs { citekeysByDOI[d.normalized, default: []].append(e.citekey) }
+        }
+        // 2. 逐筆寫（exclusive：目的檔存在 fail-closed），I/O 失敗收容
         for (i, entry) in planned.enumerated() {
             do {
                 _ = try store.writeEntryExclusive(entry)
@@ -2171,8 +2188,22 @@ public final class AkashicService {
         guard let c = report.created.first else {
             throw ServiceError.invalid("寫入失敗：" + (report.writeFailures.first?.error ?? "未知"))
         }
-        return try jsonString(["citekey": displaySafe(c.citekey, max: 200),
-                               "id": c.id.uuidString])
+        var out: [String: Any] = ["citekey": displaySafe(c.citekey, max: 200),
+                                  "id": c.id.uuidString]   // display-safe-exempt: UUID
+        // #637：DOI 已在庫時具名回報命中的 citekey（只回報、不拒絕——DOI 相同是提名不是同一性證據）
+        if !report.doiHits.isEmpty {
+            out["doiHits"] = report.doiHits.map {
+                ["doi": displaySafeInvisible($0.doi, max: 200),
+                 "existing": Self.cappedCitekeys($0.existing)] as [String: Any]
+            }
+        }
+        return try jsonString(out)
+    }
+
+    /// DOI 命中的 citekey 清單：逐項消毒、至多 20 個（一個被大量共用的 DOI 不得撐大回應）。
+    public static func cappedCitekeys(_ keys: [String]) -> [String] {
+        let shown = keys.prefix(20).map { displaySafe($0, max: 200) }
+        return keys.count > 20 ? shown + ["…另 \(keys.count - 20) 筆"] : shown   // display-safe-exempt: Int
     }
 
     public func addPerson(key: String, names: [String], orcid: String?, openalex: String?) throws -> String {

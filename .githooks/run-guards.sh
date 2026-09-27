@@ -51,8 +51,14 @@ bash plugin/tests/review-claim-audit.sh
 .build/debug/akashic-guards protected-ratchet
 .build/debug/akashic-guards workflow-run-scripts
 .build/debug/akashic-guards rule-prose-guards --venue Sources/AkashicCore/Venue.swift
+# #644：第 1、2 項（repo 專屬路徑不可跟隨、要在同一行揭露）對每個 plugin 根都跑；上一行已涵蓋 `plugin`（六項全跑），
+# 其餘的根只跑那兩項——第 3–6 項綁著 `plugin/` 專屬的內容。根的清單同樣只取自 `plugin-roots`。
+for root in $plugin_roots; do
+  [ "$root" = plugin ] && continue
+  .build/debug/akashic-guards rule-prose-guards --root "$root" --prose-only
+done
 # **Swift 版**（#433，第二支遷移的 harness）。乾淨樹逐位元相同（19 行、rc=0）。
-# 13 個 case ＋ 一個注入 PoC（不只看守衛紅不紅，還看**副作用有沒有發生**）。
+# 14 個 case（#644 起含一格 plugin/ 以外的根）＋ 一個注入 PoC（不只看守衛紅不紅，還看**副作用有沒有發生**）。
 .build/debug/akashic-guards rule-prose-guards-mutations
 bash plugin/skills/akashic-promote-literals/scripts/tests/hash-table-drift.sh
 # 表是逐 code point 的——這支證明對「# + 多 scalar 序列」那樣就夠

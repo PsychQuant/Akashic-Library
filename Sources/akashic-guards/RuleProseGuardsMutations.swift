@@ -127,6 +127,33 @@ func ruleProseGuardsMutations() -> Int32 {
                         "awk '/^    case /{n++} END{print n+0}' Sources/AkashicCore/Venue.swift",
                         5, "把展示的指令換回會算出 8 的原缺陷那一條"))
 
+    // ── #644：`--prose-only` 對 plugin/ 以外的根也抓得到第 2 項 ─────────────────────
+    // 取一個非 plugin 的根（`plugin-roots` 的第二個起），複製到 tempdir、加一個含未揭露 repo 路徑的檔。
+    // 先確認副本本身是綠的——否則「注入後變紅」不代表任何事（同 baseline 的理由）。
+    let otherRoot = "\(repoRoot)/plugins/akashic-discovery"
+    if FileManager.default.fileExists(atPath: otherRoot) {
+        let tmpR = NSTemporaryDirectory() + "prose-root-" + UUID().uuidString
+        let copyR = tmpR + "/akashic-discovery"
+        try? FileManager.default.createDirectory(atPath: tmpR, withIntermediateDirectories: true)
+        try? FileManager.default.copyItem(atPath: otherRoot, toPath: copyR)
+        let argvR = [BIN, "rule-prose-guards", "--root", copyR, "--prose-only"]
+        let (rcBase, outBase) = exec(argvR, cwd: repoRoot)
+        if rcBase != 0 {
+            print(outBase)
+            print("✗ --prose-only 在 akashic-discovery 的副本上 baseline 不是綠的（rc=\(rcBase)）")
+            results.append(false)
+        } else {
+            try? "判準寫在 `.claude/rules/identity-is-judged-not-matched.md`。\n"
+                .write(toFile: copyR + "/NC-644.md", atomically: true, encoding: .utf8)
+            results.append(report(exec(argvR, cwd: repoRoot).1, 2,
+                                  "在 plugin/ 以外的根加一句未揭露取用限制的 repo 專屬路徑（#644）"))
+        }
+        try? FileManager.default.removeItem(atPath: tmpR)
+    } else {
+        print("✗ 找不到 plugins/akashic-discovery——#644 那一格沒有根可測（不是通過）")
+        results.append(false)
+    }
+
     // ── 注入 PoC：證明那條執行路徑真的關著 ────────────────────────────────
     // 這一格與其他不同：它不只看守衛紅不紅，還看**副作用有沒有發生**。
     //

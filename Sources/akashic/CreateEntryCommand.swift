@@ -29,7 +29,7 @@ import BiblatexAPA
 struct CreateEntryCmd: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "create-entry",
-        abstract: "建庫外文獻，**保留來源的所有欄位**（JSON 或 .bib；citekey 自動生成）。"
+        abstract: "建庫外文獻，**保留來源的所有欄位**（JSON 或 .bib；citekey 自動生成）。DOI 已在庫時照常建，並以 ⚠ 列出命中的 citekey（#637）。"
             + "陣列一次寫入：可預期的失敗整批擋、零寫入（#455）")
 
     enum Format: String, ExpressibleByArgument, CaseIterable {
@@ -110,6 +110,12 @@ struct CreateEntryCmd: ParsableCommand {
             print("{\"citekey\":\"\(displaySafe(c.citekey, max: 200))\",\"id\":\"\(c.id.uuidString)\"}")   // display-safe-exempt: UUID
         }
         print("✓ created \(report.created.count)")   // display-safe-exempt: Int
+        // #637：DOI 已在庫時具名回報——只回報、不拒絕（DOI 相同是提名不是同一性證據，#611）
+        for h in report.doiHits {
+            let hits = AkashicService.cappedCitekeys(h.existing).joined(separator: "、")
+            print("⚠ \(displaySafe(h.citekey, max: 200)) 的 DOI \(displaySafeInvisible(h.doi, max: 200)) 也在：\(hits)"   // display-safe-exempt: hits 由 cappedCitekeys 逐項 displaySafe
+                  + "——同一篇的話走攣生合併（record-divergence → resolve-divergence）")
+        }
         if !report.writeFailures.isEmpty {
             print("failed \(report.writeFailures.count)（磁碟層，其餘已寫入且 index 已重建）：")   // display-safe-exempt: Int
             for f in report.writeFailures.prefix(10) {

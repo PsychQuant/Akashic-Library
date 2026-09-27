@@ -72,6 +72,37 @@ final class CrossRecordValidationTests: XCTestCase {
         }
     }
 
+    /// #660：隸屬（第 7 條邊）與上級機構（第 8 條邊）的懸空 key。在此之前兩者在 validate／doctor／App 都不出聲，
+    /// 只有 `researcher` 表的 `affiliation_current_id IS NULL` 分得出來。literal 是誠實狀態，不報。
+    func testDanglingAffiliationAndParentKeysAreWarnings() throws {
+        var real = Organization(key: "real-org")
+        real.names = TimelineOf([TemporalValue(value: "Real Org", range: DateRange())])
+        real.parents = TimelineOf([TemporalValue(value: OrgRef.key("ghost-parent"), range: DateRange()),
+                                   TemporalValue(value: OrgRef.literal("Some Ministry"), range: DateRange())])
+        try store.writeOrganization(real)
+        var p = Person(key: "some-person", names: ["Some Person"])
+        p.profile.affiliations = TimelineOf([
+            TemporalValue(value: .key("real-org"), range: DateRange(start: "2010", end: "2015")),
+            TemporalValue(value: .key("ghost-org"), range: DateRange(start: "2016")),
+            TemporalValue(value: .key("Academia Sinica"), range: DateRange(start: "2020")),
+            TemporalValue(value: .literal("Somewhere"), range: DateRange()),
+        ])
+        try store.writePerson(p)
+        let issues = try store.load().crossRecordIssues()
+        let aff = try XCTUnwrap(issues.first { $0.message.contains("隸屬 key「ghost-org」") }, "\(issues)")
+        XCTAssertEqual(aff.severity, .warning)
+        XCTAssertTrue(aff.message.contains("some-person"), aff.message)
+        XCTAssertFalse(aff.message.contains("不是合法的 StoreKey"), aff.message)
+        let bad = try XCTUnwrap(issues.first { $0.message.contains("隸屬 key「Academia Sinica」") }, "\(issues)")
+        XCTAssertTrue(bad.message.contains("不是合法的 StoreKey"), bad.message)
+        let par = try XCTUnwrap(issues.first { $0.message.contains("上級機構 key「ghost-parent」") }, "\(issues)")
+        XCTAssertEqual(par.severity, .warning)
+        XCTAssertTrue(par.message.contains("real-org"), par.message)
+        XCTAssertFalse(issues.contains { $0.message.contains("「real-org」") }, "存在的 org 不報：\(issues)")
+        XCTAssertFalse(issues.contains { $0.message.contains("Somewhere") || $0.message.contains("Some Ministry") },
+                       "literal 是誠實狀態，不是懸空：\(issues)")
+    }
+
     /// #579 R2 verify：參照完整性的警告排在 DOI／標題重複之前——MCP doctor 只送前 20 則，live store 的重複提示有 60 則。
     func testReferenceIntegrityWarningsComeBeforeDuplicateNoise() throws {
         var dangling = entry("a2020a")

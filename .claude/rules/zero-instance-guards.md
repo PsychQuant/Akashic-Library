@@ -60,7 +60,7 @@
 會在邊界上自己長出沒人同意的答案，而那句話與下表**是兩份不會一起改的規格**。要判斷新情形，
 讀下表的理由欄，然後**加一列**。
 
-## 裁決史（封閉列舉——現有 33 列，一列不多一列不少）
+## 裁決史（封閉列舉——現有 34 列，一列不多一列不少）
 
 | # | 情形 | 裁決 | 理由 |
 |---|---|---|---|
@@ -97,6 +97,7 @@
 | 31 | **零實例，而它是一條已有守衛的曲線換了持有者**（#645：person／organization 的記錄檔逼近讀取上限。第 16 列守 venue 側；person 側的增長來源是一個人的著作數，#619 起多了不退役的 `resolution-undecided`（一筆說明可寫到 4,096 位元組），#643 起 organization 同。2026-09-26 實測 live store：person 4,575 筆、最大檔 10,869 bytes（`chen-chien-hsiun`）；organization 13 筆、最大檔 717 bytes；門檻 4,194,304——0 實例。重跑腳本見表下方） | ✅ **寫（warning 級、在 `StoreHealth`，門檻與量法同第 16 列）** | 第 16 列的理由是「裁決依賴守衛」——暫不改形狀之所以可接受，是因為漲到門檻時工具會出聲；這一列是**同一條曲線的另一個持有者一直沒有那盞燈**，而讓它開始漲的是一個新面（未決腿）。所以理由不是第 1 列的「不寫就沒有跡象」，是**第 30 列自己寫下的誠實邊界**（上限只擋單次呼叫、不擋累積）要有工具面兌現，否則那句邊界就是一句沒有後續的散文。**量的是檔案位元組**：初版照第 16 列用節點換算的筆數，R1 verify 指出未決記錄會先撞上位元組上限而加了「內容位元組」軸，R2 verify DA 再指出節點軸對 store 檔根本不生效——兩次修的都是估計，真正的預算是讀取路徑的 `maxBytes`，檔案大小已含 YAML 跳脫與 verdict 以外的內容，直接量它（第 16 列同日更正）。**門檻不另立常數**（`recordFileWarningBytes` 兩族共用——同一個預算的第二份描述會分岔）。**前綴分開**（`holderVerdictBudgetPrefix`）：兩族計數分開，而處置的第一步相同（先查重複記未決）。**誠實邊界**：warning 只在讀取面計算，寫入路徑有 2 倍寬限——一次夠大的寫入（judge／refute 的理由沒有長度上限）可以從門檻之下直接跳過讀取上限，warning 來不及出聲；那是寫入閘的缺口，記 #648。**觸發條件可檢查**（指令見表下方）：計數應恆為 0；非零時先看那筆記錄的 `resolution-undecided` 筆數 |
 | 32 | **零實例，而謂詞寫寬的方向是 Unicode——前件看起來是「數字」，實際是「任何書寫系統的數字」**（#589：ISSN／ISBN／ORCID 共用的 `idCompact` 以 `CharacterSet.alphanumerics` 過濾、以 `wholeNumberValue` 取值，兩者都認 Unicode 數字；全形與阿拉伯-印度數字寫成的號過得了 mod-11、原樣成為 `normalized`。#556 R4 verify security 席實測。2026-09-26 實測 live store 141 個 issn／orcid／isbn 值（issn 59、orcid 42、isbn 40；YAML 解析。先前寫過 1,739（行級 regex）與 282（本列腳本把每個值掃了兩次，R1 verify 四席同指）——兩個都不要用），另有 DOI 註冊者段同形（R1 verify：`isNumber` 認全形；live store 2,445 個 DOI），非 ASCII **0** 筆；新 binary `validate` rc=0、無新隔離。重跑腳本見表下方） | ✅ **寫（在 `idCompact`，非 ASCII 的英數字元換成必定失敗的 `?`；已入庫的會在載入時被隔離）** | 第 2 列的理由是「前件寫寬了會誤傷」；這一列相反——前件寫寬了會**放行**，而放行的東西看起來是對的（第 4 列的偽裝性）：一個全形寫成的 ISSN 過得了 check digit，而 `identity-is-judged-not-matched` 讓識別碼相等**單獨**就能做身分判定，所以它是一個看起來像決定性證據的假號。修在 `idCompact` 而不是三個呼叫端，因為三個呼叫端共用它，修一處就全部關掉；**換成 `?` 而不是濾掉**，因為濾掉會讓夾在 ASCII 號裡的非 ASCII 字元被靜默吞掉、號照樣通過。判斷在 `uppercased()` 之前做（合字 `ﬀ` 轉大寫後是 ASCII 的 `FF`）。**已入庫的處置是隔離而不是 warning**：這一族在 decode 時本來就以 `ISSN(v) != nil` 驗證、不合法整檔隔離（`IdentifierYAML.make`），收緊謂詞之後非 ASCII 號自然落進同一條路，與其他不合法的號同級；零實例所以不需要遷移（`no-compat-fallback`）。PMID 以 `UInt64(s)` 解析、ROR 以 `Int(…)` 加 ASCII 字母表，都只收 ASCII，不在此列；DOI 的**註冊者段**同形（`isNumber`）、R1 起一併只收 ASCII，後綴本來就可以含 Unicode、不動。**觸發條件可檢查**（腳本見表下方）：非 ASCII 數應恆為 0；非零時那筆在新 binary 下會被隔離，修法是把號改寫成 ASCII |
 | 33 | **一半零實例、一半兩筆，而同一個檢查只寫了三分之一**（#579、#652：work 的三種參照邊——`.key` 作者、`.organization` 作者、`venues[].key`——只有第一種有懸空檢查（`crossRecordIssues` 的「作者 key 沒有對應的 people 檔」）。2026-09-26 新 binary 對 live store：懸空的 venue 邊 **0** 筆；懸空的團體作者 **2** 筆（`anon1954technical` 的 `American Psychological Association`、`anon2014pisa` 的 `OECD`——2026-08-20 #340 批次手寫，payload 是名稱不是 key，而且不是合法 StoreKey）。重跑指令見表下方） | ✅ **寫（warning，在 `crossRecordIssues`；key 不是合法 StoreKey 時訊息另說「不可能對應任何記錄」）** | 第 13 列的理由是「跡象住在錯的地方」；這一列更早一步——**跡象根本不存在**，而同形的檢查就在隔壁：person 那一半有、另外兩半沒有，是檢查寫的時候只有 person 那一種邊。所以它不是新守衛的裁決，是把既有守衛的前件補完（第 2 列的「前件多寬」，方向是寫窄了）。**severity 是 warning**，理由與既有的懸空作者相同：懸空參照讓畫面少東西、不毀資料，而解析中途本來就會有；#579 另提的「error、與 person／organization 的 key 檢查對齊」不採——那些是**記錄自身**的 key，load 就 quarantine；這裡是**參照**，quarantine 整筆 work 會讓一條壞邊把整篇作品藏起來。非法 key 另附說明，因為記錄的 key 在 load 時就驗過，一條非法 key 的邊不是「目標還沒建」而是「永遠建不出來」。工具面不寫得出它（`attribute-org` 先驗 org 存在），實例只可能來自手寫、刪除或改名。**觸發條件可檢查**：venue 邊的數應恆為 0；團體作者那兩筆的處置是人的判斷——建 org 記錄再改 key，或改回 `literal:` 交給 `resolve-organizations`（目前沒有把 `.organization` 退回 literal 的工具面，只能手改 YAML） |
+| 34 | **零實例，而第 33 列補完 work 側之後，同一種懸空在 person 與 organization 側仍然沒有檢查**（#660：第 7 條邊 `Person.profile.affiliations` 與第 8 條邊 `Organization.parents` 的 `.key` 指向不存在的 organization。#656 R1 verify DA 以 scratch store 實測 `akashic validate` rc=0、零 warning；#656 讓 `researcher` 表以 `affiliation_current_kind = 'organization' AND affiliation_current_id IS NULL` 分得出這種狀態，但要自己寫 SQL 才看得到。2026-09-27 實測 live store：organization 13 筆、person 4,575 筆，懸空的隸屬 key **0**、懸空的上級機構 key **0**。重跑腳本見表下方） | ✅ **寫（warning，在 `crossRecordIssues`；key 不是合法 StoreKey 時同第 33 列另說「不可能對應任何記錄」）** | 第 33 列的理由是「同一個檢查只寫了三分之一」；這一列是**那一次補完只補了 work 那一側**——封閉列舉裡指向 organization 的邊有三條（第 1 條的 `.organization` 作者、第 7 條、第 8 條），第 33 列照 work 的欄位窮舉，另外兩條住在別的形狀上而沒被看到（`entity-backlink-completeness` 記過相鄰的形狀：補了形狀、沒窮舉它的欄位——這次是窮舉了一個形狀的欄位、沒窮舉指向同一個目標的其他形狀）。**severity 是 warning**，理由同第 33 列：懸空參照讓畫面少東西、不毀資料，quarantine 整筆 person 會讓一條壞隸屬把整個人藏起來。**literal 不報**：未歸戶的隸屬是誠實狀態（`literal-first-then-key`）。上級機構的環已有檢查（#179），懸空的上級在那條檢查裡只是「不成環」、不出聲——本列補的是它沒問的那一半。實例只可能來自手寫、刪除 organization 檔、或手改 org key（`resolve-organizations` 升格前先驗 org 存在）。**觸發條件可檢查**：兩個數應恆為 0；非零時處置是人的判斷——建那筆 organization，或把 key 改回 `literal:` 交給 `resolve-organizations` |
 
 對本表四類中的任一個做出下一次裁決（新增、不新增、保留、拿掉）= 在這張表加一列。
 
@@ -665,6 +666,32 @@ EOF
 
 **第 33 列的量測（2026-09-26，可重跑）**：`akashic validate 2>&1 | grep -c '團體作者 key「'` 與 `akashic validate 2>&1 | grep -c 'venue key「'`（用含這條檢查的 binary——同第 13 列的自證，舊 binary 印不出東西；2026-09-26：2 與 0）。
 
+**第 34 列的量測（2026-09-27，可重跑）**：`akashic validate 2>&1 | grep -c '隸屬 key「'` 與 `akashic validate 2>&1 | grep -c '上級機構 key「'`（用含這條檢查的 binary——同第 13 列的自證，舊 binary 印不出東西）。Python 對照（不依賴 binary；讀不到的檔計數，同第 24 列）：
+
+```bash
+python3 - <<'EOF'
+import glob, io, os, yaml
+root = os.path.expanduser('~/.akashic/entities')
+orgs, affs, parents, bad = set(), [], [], 0
+for f in glob.glob(root + '/*.yaml'):
+    try: d = yaml.safe_load(io.open(f, encoding='utf8'))
+    except Exception: bad += 1; continue
+    if not isinstance(d, dict): bad += 1; continue
+    if 'organization' in d:
+        orgs.add(str(d.get('key')))
+        parents += d.get('parents') or []
+    elif 'person' in d:
+        affs += (d.get('profile') or {}).get('affiliations') or []
+def keyed(s):   # `- value: {key: X}` 是 .key；`- value: 名稱` 是 .literal
+    v = s.get('value') if isinstance(s, dict) else None
+    return str(v['key']) if isinstance(v, dict) and 'key' in v else None
+da = sorted({k for s in affs if (k := keyed(s)) and k not in orgs})
+dp = sorted({k for s in parents if (k := keyed(s)) and k not in orgs})
+print(f"organization {len(orgs)}｜懸空的隸屬 key {len(da)} {da}｜懸空的上級機構 key {len(dp)} {dp}｜讀不到的檔 {bad}")
+EOF
+# 2026-09-27：organization 13｜懸空的隸屬 key 0 []｜懸空的上級機構 key 0 []｜讀不到的檔 0
+```
+
 ## 各列共通的東西（觀察，不是判準）
 
 第 1–9 列與第 13、14 列的裁決都是「寫」（第 14 列是 2026-09-09 從「不寫」翻過來的）、第 10–12 列（皆出自 #365）是「不寫」，但**理由各不相同**，這正是不寫總括判準的原因：
@@ -709,6 +736,7 @@ EOF
 - 第 30 列的理由是**被守的記錄不退役**——第 18 列守的是一次遞進來的字串，這一列守的記錄只增不減，所以上限只擋得住單次呼叫，累積要另一盞燈（venue 側是第 16 列、person 與 organization 側是第 31 列）
 - 第 32 列的理由是**前件寫寬的方向是放行**——第 2 列怕寬了誤傷，這一列寬了會放行一個看起來是決定性證據的假號；修在共用的謂詞，而且換成必定失敗的字元而不是濾掉
 - 第 33 列的理由是**同一個檢查只寫了三分之一**——跡象不是住錯地方（第 13 列），是根本不存在，而同形的檢查就在隔壁；補的是既有守衛的前件，不是新守衛
+- 第 34 列的理由是**補完只補了一側**——第 33 列照 work 的欄位窮舉，指向同一個目標（organization）而住在別的形狀上的兩條邊沒被看到；窮舉的軸要是「指向誰」，不只是「住在誰身上」
 - 第 31 列的理由是**同一條曲線換了持有者**——第 16 列的燈只照 venue；新面（未決腿）讓 person 與 organization 也開始累積，第 30 列寫下的誠實邊界要有工具面兌現，否則就是一句沒有後續的散文
 - 第 24 列的理由是**半吊子已經誠實**——前二十三列裡只有第 22 列同樣是「不動既有的東西」（比的是裁決的**動作**：那一列的對象是 spec 文字、失敗是被當死重刪掉；本列的對象是程式的半吊子管線、失敗是使用者撞牆或被當成待修殘留而被人動手）。留著的代價不是零（記了就刪不掉，#586），而是今天未兌現、且一出現就會出聲；動它的兩個方向（實作／拿掉）代價都更高。與第 10 列（缺用途）最像的是理由的**形**：實作那一半同樣是「形狀取決於還不存在的用途」；但第 10 列的對象根本不存在，這一列的對象已經在、且已經誠實
 

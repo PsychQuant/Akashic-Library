@@ -2681,6 +2681,36 @@ public extension LibraryLoad {
                        + "（\(cites.count) 筆引用，如 \(displaySafeInvisible(cites.sorted().first ?? "", max: 200))\(invalidNote(k))）"))
         }
 
+        // 隸屬與上級機構的懸空參照（#660）。第 7 條邊（`Person.profile.affiliations`）與第 8 條邊
+        // （`Organization.parents`）指向 organization 的 key，而上面兩段只補了 work 那三種邊——這兩種
+        // 懸空在 validate／doctor／App 都不出聲，只有 `researcher` 表的 NULL 分得出來。warning 的理由同上。
+        var danglingAffiliations: [String: Set<String>] = [:]
+        var danglingParents: [String: Set<String>] = [:]
+        for p in people {
+            for seg in p.profile.affiliations.entries {
+                if case let .key(k) = seg.value, !orgKeys.contains(k) {
+                    danglingAffiliations[k, default: []].insert(p.key)
+                }
+            }
+        }
+        for org in organizations {
+            for seg in org.parents.entries {
+                if case let .key(k) = seg.value, !orgKeys.contains(k) {
+                    danglingParents[k, default: []].insert(org.key)
+                }
+            }
+        }
+        for (k, holders) in danglingAffiliations.sorted(by: { $0.key < $1.key }) {
+            out.append(ValidationIssue(severity: .warning,
+                message: "隸屬 key「\(displaySafeInvisible(k, max: 200))」沒有對應的 organization 檔"
+                       + "（\(holders.count) 位 person 引用，如 \(displaySafeInvisible(holders.sorted().first ?? "", max: 200))\(invalidNote(k))）"))
+        }
+        for (k, holders) in danglingParents.sorted(by: { $0.key < $1.key }) {
+            out.append(ValidationIssue(severity: .warning,
+                message: "上級機構 key「\(displaySafeInvisible(k, max: 200))」沒有對應的 organization 檔"
+                       + "（\(holders.count) 個 organization 引用，如 \(displaySafeInvisible(holders.sorted().first ?? "", max: 200))\(invalidNote(k))）"))
+        }
+
         // 歧異的候選同樣要被看見（#71 R1 verify）。**warning 而非 error**，理由與
         // 上面的懸空作者相同。DA 的更正指出它的實際後果不是安全問題（候選鍵從未進過
         // 任何路徑），而是**那筆記錄永遠無法被消歧**——`resolveDivergence` 只會擲

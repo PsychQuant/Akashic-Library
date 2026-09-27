@@ -17,7 +17,7 @@ final class ByteExactKeySiteInventoryTests: XCTestCase {
             "Sources/AkashicCore/Provenance.swift",              // 定義
             "Sources/akashic-guards/BacklinkRatchetData.swift",  // 守衛的裁決表（computed 欄位要具名）
             "Sources/AkashicStoreIO/LibraryStore.swift",         // migratedVerdicts 的折疊（D62／D65）
-            "Sources/AkashicStoreIO/StoreHealth.swift",          // duplicateVerdictRecordIssues（D64）——用的是 kindByteKey
+            "Sources/AkashicStoreIO/StoreHealth.swift",          // duplicateVerdictRecordIssues（D64）——用的是 kindByteKey；duplicateReferenceIssues（#582）數拼法
             "Sources/AkashicStoreIO/DivergenceResolve.swift",    // fieldsLostByMerging ×3（D69／D73）
             "Sources/AkashicMCPKit/AkashicService.swift",        // paginated 冪等閘 ×2（D69）
             "Sources/AkashicMCPKit/UpdatePerson.swift",          // references append-only 去重（D73）

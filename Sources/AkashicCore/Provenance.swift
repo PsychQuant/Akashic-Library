@@ -192,12 +192,12 @@ public struct ProvenanceReference: Equatable {
 
     /// **位元組精確的相等鍵**（#554 R24，D65；R23 verify Codex 第 1 列 HIGH）。
     ///
-    /// 「兩筆 reference 完全相同」在本 repo 的意思是**逐位元組相同**——問「兩筆是不是同一筆」的地方都以它為判準。**封閉列舉、九處**
+    /// 「兩筆 reference 完全相同」在本 repo 的意思是**逐位元組相同**——問「兩筆是不是同一筆」的地方都以它為判準。**封閉列舉、十處**
     /// （R26 D73；R25 verify 第 7／17／21／25／29 列：R24 說「全 repo」實際換了兩處、R25 說「四處」實際還有三處沒換——兩輪都是列舉寫得比程式大；
     /// R26 寫「七處」並附一條 `grep 'references.contains('` 的稽核指令，R26 verify 第 8／16／23／51 列實跑：9 個命中、5 個不在七處、七處裡 2 處
     /// 那條 grep 根本看不到——換了方向，列舉寫得比 grep 小；`paginated` 的冪等閘實際是兩處）：
     /// D62 的 rename 折疊（`LibraryStore.migratedVerdicts`）、D64 的「全部完全相同」（`StoreHealth.duplicateVerdictRecordIssues`，kind 那一半用
-    /// `kindByteKey`）、合併的遺失偵測（`DivergenceResolve.fieldsLostByMerging` 的 person／work／**venue** 三份——venue 那份 R25 之前根本不比 references，
+    /// `kindByteKey`）、#582 的重複 reference 掃描（同檔 `duplicateReferenceIssues`：分組用 canonical 相等，位元組用來數拼法——它問的正是「canonical 相等而位元組不同」）、合併的遺失偵測（`DivergenceResolve.fieldsLostByMerging` 的 person／work／**venue** 三份——venue 那份 R25 之前根本不比 references，
     /// 被併 venue 的 `paginated` judgement 與 rests-on 隨檔案靜默消失）、`AkashicService.updateVenue` 的 `paginated` 冪等閘（設值與清除**兩處**）、
     /// `UpdatePerson` 的 references append-only 去重、`AddOnlyEnrichment.applied` 的來源 reference 冪等、
     /// 未決記錄的記錄鍵（`VerdictRecordKey.swift`，change `resolution-verdict-states`——同一配對的多次查證只有整筆位元組相同才算重複）、

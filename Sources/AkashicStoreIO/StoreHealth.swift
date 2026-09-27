@@ -110,6 +110,14 @@ public struct StoreHealth {
     public var duplicateVerdictRecords: [OwnedIssue] {
         perRecordIssues.filter { $0.issue.message.hasPrefix(Self.duplicateVerdictRecordPrefix) }
     }
+    /// 同一筆記錄裡 ≥2 筆**非判定** reference 彼此 canonical 相等（#582）的訊息前綴——與 `duplicateVerdictRecordPrefix` 同形。
+    /// #554 R25／R26 把 `paginated` 冪等閘、`UpdatePerson` 的 append-only、`AddOnlyEnrichment.applied` 的判準換成位元組相等之後，
+    /// 只差 NFC／NFD 的兩筆都寫得進來，而 D64 那一族第一行就只看 verdict 欄位——這個狀態進得來、看不見。
+    public static let duplicateReferencePrefix = "重複的 reference"
+    /// `perRecordIssues` 裡的重複非判定 reference（#582）。計算屬性，與 `deadVerdicts` 同一個理由。
+    public var duplicateReferences: [OwnedIssue] {
+        perRecordIssues.filter { $0.issue.message.hasPrefix(Self.duplicateReferencePrefix) }
+    }
     /// 本機缺承重存檔（#453）的訊息前綴——**單一定義**：`danglingSourceIssues` 用它組訊息、
     /// `danglingSources` 用它篩，與 `deadVerdictPrefix` 同形。
     public static let danglingSourcePrefix = "本機缺承重存檔"
@@ -309,6 +317,7 @@ public extension LibraryStore {
         perRecord += contradictoryVerdictIssues(in: load)   // #486
         perRecord += unmergeableDivergenceIssues(in: load)   // #555 R2 D90：第 24 列的觸發條件由工具出聲
         perRecord += duplicateVerdictRecordIssues(in: load)   // #554 D64
+        perRecord += duplicateReferenceIssues(in: load)   // #582：D64 的非判定鏡像
         // #453：本機缺承重存檔——`missingSourceDigests` 先前零 production 呼叫端，doctor 只接
         // `auditSourceIndex()`（blob↔index 兩向比對），捏造或未同步的 digest 兩邊都不在、兩邊一致、
         // doctor 沉默（第 3 列「未涵蓋不得冒充通過」的形）。與死 verdict 同一形：per-record warning。
@@ -600,6 +609,53 @@ public extension LibraryStore {
                                        message: "\(Entry.perRecordCapSummaryPrefix)：\(kind) '\(displaySafeInvisible(owner, max: 120))' 另有 \(unlisted) 個配對未列出（同樣持有重複的判定記錄；每筆記錄最多列 \(cap) 個）"))]   // display-safe-exempt: 前綴是常量；Int
         }
         var out: [StoreHealth.OwnedIssue] = []
+        for p in load.people { out += scan(p.references, owner: p.key, kind: "person") }
+        for o in load.organizations { out += scan(o.references, owner: o.key, kind: "organization") }
+        for v in load.venues { out += scan(v.references, owner: v.key, kind: "venue") }
+        return out
+    }
+}
+
+extension LibraryStore {
+    /// **重複的 reference**（#582）：同一筆記錄裡 ≥2 筆非判定 reference 彼此 canonical 相等（Swift `==`：只差 NFC／NFD 也算）。
+    ///
+    /// D64（`duplicateVerdictRecordIssues`）的非判定鏡像。三個寫入面（`paginated` 冪等閘、`UpdatePerson` 的 append-only、
+    /// `AddOnlyEnrichment.applied`）自 #554 R25／R26 起以 `byteExactKey`（位元組相等）去重，所以位元組不同的變體寫得進來；
+    /// 位元組完全相同的重複工具面寫不出，是手改或舊 binary。兩種都報，措辭分開。
+    ///
+    /// **不設 per-record 上限**：一組一則，則數至多是該記錄 reference 數的一半，與死 verdict 那類同屬線性家族。
+    /// **severity 是 warning**：兩筆都合法，處置是人決定留哪一筆。2026-09-27 實測 live store：0 組（量法見 `zero-instance-guards` 第 35 列）。
+    func duplicateReferenceIssues(in load: LibraryLoad) -> [StoreHealth.OwnedIssue] {
+        // canonical 鍵：`byteExactKey` 逐段取 NFC——與 Swift `String` 的 `==` 同一個等價關係（canonical equivalence），
+        // 而 `ProvenanceReference` 刻意不合成 `Hashable`，要當鍵只有從 `byteExactKey` 出發。
+        func canonicalKey(_ r: ProvenanceReference) -> [[UInt8]] {
+            r.byteExactKey.map { Array(String(decoding: $0, as: UTF8.self).precomposedStringWithCanonicalMapping.utf8) }
+        }
+        func scan(_ refs: [ProvenanceReference], owner: String, kind: String) -> [StoreHealth.OwnedIssue] {
+            var groups: [[[UInt8]]: (first: ProvenanceReference, count: Int, spellings: Set<[[UInt8]]>)] = [:]
+            var order: [[[UInt8]]] = []
+            for r in refs where !ProvenanceReference.resolutionVerdictFields.contains(r.field) {
+                let k = canonicalKey(r)
+                groups[k, default: (r, 0, [])].count += 1
+                groups[k]!.spellings.insert(r.byteExactKey)
+                if groups[k]!.count == 1 { order.append(k) }
+            }
+            return order.compactMap { k in
+                guard let g = groups[k], g.count > 1 else { return nil }
+                let sameness = g.spellings.count > 1
+                    ? "只差位元組（\(g.spellings.count) 種拼法，例如 NFC／NFD）——工具面以位元組相等去重，這種變體寫得進來"
+                    : "位元組完全相同——工具面寫不出它，是手改或舊 binary 寫的"
+                let valuePart = g.first.value.map { "，value「\(displaySafeInvisible($0, max: 120))」" } ?? ""
+                return StoreHealth.OwnedIssue(
+                    owner: owner, kind: kind,
+                    issue: ValidationIssue(
+                        severity: .warning,
+                        message: "\(StoreHealth.duplicateReferencePrefix)：\(displaySafeInvisible(g.first.field, max: 120))\(valuePart)有 \(g.count) 筆彼此相等的記錄；"   // display-safe-exempt: 前綴是常量；Int
+                               + "\(sameness)。處置：確認說的是同一件事後留一筆（目前沒有工具面，手改 YAML）"))   // display-safe-exempt: sameness 是兩句字面常量＋Int
+            }
+        }
+        var out: [StoreHealth.OwnedIssue] = []
+        for e in load.entries { out += scan(e.references, owner: e.citekey, kind: "entry") }
         for p in load.people { out += scan(p.references, owner: p.key, kind: "person") }
         for o in load.organizations { out += scan(o.references, owner: o.key, kind: "organization") }
         for v in load.venues { out += scan(v.references, owner: v.key, kind: "venue") }

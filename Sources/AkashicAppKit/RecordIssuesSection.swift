@@ -36,6 +36,11 @@ struct RecordIssuesSection: View {
                           + "不含一格：venue 對某 work 的 confirmed 裡每筆各有自己拼法且 judgement／rests-on 全同的純拼法組——那格由"
                           + "「同一 work 多個 confirmed literal」報（R26 D71；在每筆 venue 20 筆 work 的上限之內，第 21 筆起兩族都只剩概括句）")
             }
+            if summary.duplicateReferences > 0 {
+                LabeledContent("重複的 reference", value: summary.lowerBound(summary.duplicateReferences))
+                    .help("同一記錄裡兩筆以上非判定的 reference 彼此相等（#582）：只差位元組（NFC／NFD）的變體工具面寫得進來，"
+                          + "位元組完全相同的是手改或舊 binary。確認說的是同一件事後留一筆——手改 YAML。")
+            }
             if summary.deadVerdicts > 0 {
                 LabeledContent("死 verdict", value: summary.lowerBound(summary.deadVerdicts))
                     .help("resolution verdict 指向一個沒有載入的 holder（#464）。先看 quarantine 清單；"

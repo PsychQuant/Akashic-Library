@@ -231,6 +231,9 @@ struct Validate: ParsableCommand {
         if !health.contradictedRemovalRecords.isEmpty {
             print("移除記錄與作者位互相矛盾: \(health.contradictedRemovalRecords.count)（#457）")   // display-safe-exempt: Int
         }
+        if !health.duplicateReferences.isEmpty {
+            print("重複的 reference: \(health.duplicateReferences.count)（逐則見上；非判定 reference 只差位元組或完全相同，#582）")   // display-safe-exempt: Int
+        }
         if !health.unmergeableDivergences.isEmpty {
             print("歧異記錄的 shape 沒有合併管線: \(health.unmergeableDivergences.count)（逐則見上；zero-instance-guards 第 24 列的觸發條件之一，#555）")   // display-safe-exempt: Int
         }

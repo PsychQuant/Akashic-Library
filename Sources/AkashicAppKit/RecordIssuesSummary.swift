@@ -24,6 +24,8 @@ struct RecordIssuesSummary: Equatable {
     let contradictoryVerdicts: Int
     /// #554 D64 的重複判定記錄（R23）——同一記錄對同一配對 ≥2 筆同 field 的 verdict：rename 自 D62 起原樣帶到新鍵、下一次合併收成一筆。
     let duplicateVerdictRecords: Int
+    /// #582：D64 的非判定鏡像（`paginated`、識別碼的 retrieval、`fields.*` 等 reference 只差位元組的並存）。
+    let duplicateReferences: Int
     let danglingSources: Int
     let venueVerdictBudget: Int
     /// #645：person／organization 的記錄檔逼近讀取上限——venue 族的同形擴充。
@@ -59,6 +61,7 @@ struct RecordIssuesSummary: Equatable {
         deadVerdicts = health.deadVerdicts.count
         contradictoryVerdicts = health.contradictoryVerdicts.count
         duplicateVerdictRecords = health.duplicateVerdictRecords.count
+        duplicateReferences = health.duplicateReferences.count
         danglingSources = health.danglingSources.count
         venueVerdictBudget = health.venueVerdictBudgetWarnings.count
         holderVerdictBudget = health.holderVerdictBudgetWarnings.count

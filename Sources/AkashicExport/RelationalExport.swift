@@ -303,8 +303,9 @@ public enum RelationalExport {
             -- 只是資料缺漏）。哪一種為真無法自動判斷，由 akashic doctor 報告、不代為
             -- 關閉。要找這些矛盾：WHERE died IS NOT NULL AND status = 'current'
             died          TEXT,
-            -- #656：affiliation_current 的三態，比照 researcher_timeline.affiliation_kind：organization（value 是機構 key 的
-            -- 顯示名，含懸空的 key）／literal（未歸戶）；沒有現職隸屬時 NULL。affiliation_current_id 只在 key 對得到機構時
+            -- #656：affiliation_current 的三態，比照 researcher_timeline.affiliation_kind：organization（affiliation_current 是
+            -- 機構的 key 字串本身，不是機構名——要名字請 join organization.name_current；含懸空的 key）／literal（未歸戶，
+            -- affiliation_current 是原字串）；沒有現職隸屬時 NULL。affiliation_current_id 只在 key 對得到機構時
             -- 非空——懸空的 key 與字面都是 NULL，要分兩者看 kind。新欄加在最後：load.sql 依位置灌表。
             affiliation_current_kind TEXT,
             affiliation_current_id   UUID REFERENCES organization(organization_id)
@@ -331,7 +332,7 @@ public enum RelationalExport {
             -- NULL 的意思要看 affiliation_kind：literal ＝ 未歸戶；organization ＝ key 懸空（斷掉的參照）。
             organization_id UUID REFERENCES organization(organization_id),
             -- #651：比照 publication_author.author_kind。只有 dimension='affiliation' 的列有值：
-            -- organization（value 是機構 key 的顯示名，含懸空的 key）／literal（未歸戶）。其他維度是 NULL。
+            -- organization（value 是機構的 key 字串本身，不是機構名；含懸空的 key）／literal（未歸戶）。其他維度是 NULL。
             -- 「還沒歸戶的隸屬」是 WHERE affiliation_kind = 'literal'，不是 organization_id IS NULL。
             -- 新欄加在最後：load.sql 依位置灌表。
             affiliation_kind TEXT

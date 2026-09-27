@@ -253,7 +253,11 @@ final class OrganizationTests: XCTestCase {
         XCTAssertNil(try row(dangling)[idIdx], "懸空的 key 不造 id")
         XCTAssertNil(try row(none)[kindIdx])
         XCTAssertNil(try row(none)[idIdx])
-        XCTAssertTrue(RelationalExport.duckDBScript().contains("affiliation_current_kind"), "DDL 要宣告這一欄")
+        // DDL 的宣告要與 columns 同序、帶型別與外鍵（R1 verify Codex：只查欄名出現，會被一句註解滿足）
+        let sql = RelationalExport.duckDBScript()
+        let kindDecl = try XCTUnwrap(sql.range(of: "affiliation_current_kind TEXT,"))
+        let idDecl = try XCTUnwrap(sql.range(of: "affiliation_current_id   UUID REFERENCES organization(organization_id)"))
+        XCTAssertLessThan(kindDecl.lowerBound, idDecl.lowerBound, "DDL 的欄序要與 columns 相同")
     }
 
     /// 匯出腳本含機構表，且隸屬列的外鍵可空。

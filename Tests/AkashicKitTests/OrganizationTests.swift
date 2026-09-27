@@ -212,8 +212,9 @@ final class OrganizationTests: XCTestCase {
 
         let t = RelationalExport.tables(entries: [], people: [resolved, literal, dangling],
                                         organizations: [org]).researcherTimeline
-        XCTAssertEqual(t.columns.last, "affiliation_kind", "load.sql 依位置灌表，新欄加在最後")
-        let kindIdx = t.columns.count - 1
+        // load.sql 依位置灌表，新欄加在最後——#661 之後最後一欄是 valid_attested，affiliation_kind 在它前面
+        XCTAssertEqual(Array(t.columns.suffix(3)), ["organization_id", "affiliation_kind", "valid_attested"])
+        let kindIdx = try XCTUnwrap(t.columns.firstIndex(of: "affiliation_kind"))
         let dimIdx = try XCTUnwrap(t.columns.firstIndex(of: "dimension"))
         func kind(_ p: Person, _ dim: String) -> String?? {
             t.rows.first { $0[0] == p.id.uuidString && $0[dimIdx] == dim }.map { $0[kindIdx] }

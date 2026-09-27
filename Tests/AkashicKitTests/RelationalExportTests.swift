@@ -218,6 +218,38 @@ final class RelationalExportTests: XCTestCase {
         XCTAssertEqual(rows[0][5], "ISS", "affiliation_current")
     }
 
+    /// #661：只被觀測到的隸屬（attested、沒有 end、不是 ended-unknown）不是現職也不是已結束。
+    /// status 曾寫 retired，而 researcher_timeline 同一段照 DDL 的判準讀成進行中——兩張表互相矛盾。
+    func testAttestedOnlyAffiliationIsUndeterminedAndTimelineCarriesTheObservation() throws {
+        var seen = Person(key: "a-seen", names: ["A"])
+        seen.profile.affiliations = TimelineOf([
+            TemporalValue(value: .literal("ISS"), range: DateRange(attested: ["2021", "2019-05"]))])
+        // 結束的一段加上只被觀測到的一段：仍然說不出來，不是 retired
+        var mixed = Person(key: "b-mixed", names: ["B"])
+        mixed.profile.affiliations = TimelineOf([
+            TemporalValue(value: .literal("NTU"), range: DateRange(start: "2000", end: "2010")),
+            TemporalValue(value: .literal("ISS"), range: DateRange(attested: ["2015"]))])
+        // 觀測點之外還有 end：已結束，retired 照舊
+        var ended = Person(key: "c-ended", names: ["C"])
+        ended.profile.affiliations = TimelineOf([
+            TemporalValue(value: .literal("ISS"), range: DateRange(end: "2018", attested: ["2015"]))])
+        let t = RelationalExport.tables(entries: [], people: [seen, mixed, ended])
+        let s = try XCTUnwrap(t.researcher.columns.firstIndex(of: "status"))
+        XCTAssertEqual(t.researcher.rows.map { $0[s] }, ["undetermined", "undetermined", "retired"])
+        let tl = t.researcherTimeline
+        let a = try XCTUnwrap(tl.columns.firstIndex(of: "valid_attested"))
+        XCTAssertEqual(tl.columns.last, "valid_attested", "新欄加在最後：load.sql 依位置灌表")
+        let who = try XCTUnwrap(tl.columns.firstIndex(of: "researcher_id"))
+        let seenRow = try XCTUnwrap(tl.rows.first { $0[who] == seen.id.uuidString })
+        XCTAssertEqual(seenRow[a], "2019-05;2021", "觀測點依序以 ; 串接")
+        let endedFree = try XCTUnwrap(tl.rows.first { $0[who] == mixed.id.uuidString && $0[a] == nil })
+        XCTAssertEqual(endedFree[tl.columns.firstIndex(of: "valid_end")!], "2010", "沒有觀測點的列是 NULL")
+        let ddl = RelationalExport.duckDBScript()
+        XCTAssertTrue(ddl.contains("'current', 'retired', 'undetermined'"), "CHECK 要收 undetermined")
+        XCTAssertTrue(ddl.contains("valid_end_unknown IS NULL **且** valid_attested IS NULL"),
+                      "進行中的判準要排除只被觀測到的段")
+    }
+
     /// researcher 的主鍵用**UUID 而非 key**——key 是稱呼會改，surrogate id 才適合當 FK。
     func testResearcherUsesStableIDNotKey() {
         let p = Person(key: "cheng-che", names: ["Che Cheng"], orcid: ORCID("0000-0001-2345-6789"))

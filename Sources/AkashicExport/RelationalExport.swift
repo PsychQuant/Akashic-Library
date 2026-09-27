@@ -27,7 +27,7 @@ import AkashicCore
 ///
 /// `PersonProfile` 的每個維度是**一條時間軸**，關係式端對應一張 **long-format** 表
 /// `researcher_timeline(researcher_id, dimension, value, valid_start, valid_end, valid_end_unknown, source, note,
-/// organization_id, affiliation_kind)`——欄位順序以 `tables(…)` 的 `columns` 與 DDL 為準（load.sql 依位置灌表）。
+/// organization_id, affiliation_kind, valid_attested)`——欄位順序以 `tables(…)` 的 `columns` 與 DDL 為準（load.sql 依位置灌表）。
 ///
 /// **不攤平成寬表**（`rank_2020`、`rank_2021`…）：維度值域是開放的（新職稱只是一個
 /// 新字串），攤平會讓每個新值變成一次 schema 變更。long format 讓「歷任所長」是
@@ -55,6 +55,22 @@ public enum RelationalExport {
         public var all: [Table] {
             [organization, researcher, researcherTimeline, publication, publicationAuthor]
         }
+    }
+
+    /// researcher.status（#661）：current／retired／undetermined，沒有隸屬資料時 nil。
+    static func researcherStatus<V>(_ affiliations: TimelineOf<V>) -> String? {
+        if affiliations.isEmpty { return nil }
+        if affiliations.current != nil { return "current" }
+        let observedOnly = affiliations.entries.contains {
+            $0.range.end == nil && !$0.range.endedUnknown && !$0.range.attested.isEmpty
+        }
+        return observedOnly ? "undetermined" : "retired"
+    }
+
+    /// researcher_timeline.valid_attested（#661）：觀測點依序以 `;` 串接，沒有時 NULL。
+    /// ISO 8601 前綴不含 `;`，所以拆得回來。
+    static func attestedCell(_ range: DateRange) -> String? {
+        range.attested.isEmpty ? nil : range.attested.sorted().joined(separator: ";")
     }
 
     /// 從一次 load 的結果產出表格。
@@ -87,8 +103,9 @@ public enum RelationalExport {
              p.profile.appointments.current?.value,
              // status：有開放的隸屬 ＝ current，全部結束 ＝ retired，沒資料 ＝ NULL。
              // **沒資料不猜成 current**——那會讓 43 位退休者被算成現職。
-             p.profile.affiliations.isEmpty ? nil
-                : (p.profile.affiliations.current != nil ? "current" : "retired"),
+             // #661：沒有開放段、但有一段只被觀測到（attested、沒有 end、不是 ended-unknown）＝ undetermined。
+             // 那一段不算現職（`isOpen` 的 #70 裁決），也不能算結束——寫 retired 就是「把被看到過誤當成離開了」。
+             researcherStatus(p.profile.affiliations),
              // #67：逝世日期。**與 status 正交**——status 描述隸屬，這欄描述這個人。
              // NULL ＝ 右設限（尚未觀察到死亡），**不是**「在世」的斷言。
              p.died,
@@ -117,7 +134,7 @@ public enum RelationalExport {
                 timelineRows.append([p.id.uuidString, "affiliation", v.value.displayName,
                                      v.range.start, v.range.end,
                                      v.range.endedUnknown ? "true" : nil,
-                                     v.source, v.note, fk, kind])
+                                     v.source, v.note, fk, kind, attestedCell(v.range)])
             }
             let dims: [(String, Timeline)] = [
                 ("rank", p.profile.ranks),
@@ -130,7 +147,7 @@ public enum RelationalExport {
                     timelineRows.append([p.id.uuidString, dim, v.value,
                                          v.range.start, v.range.end,
                                          v.range.endedUnknown ? "true" : nil,
-                                         v.source, v.note, nil, nil])
+                                         v.source, v.note, nil, nil, attestedCell(v.range)])
                 }
             }
         }
@@ -190,7 +207,8 @@ public enum RelationalExport {
             researcherTimeline: Table(name: "researcher_timeline",
                                       columns: ["researcher_id", "dimension", "value",
                                                 "valid_start", "valid_end", "valid_end_unknown",
-                                                "source", "note", "organization_id", "affiliation_kind"],
+                                                "source", "note", "organization_id", "affiliation_kind",
+                                                "valid_attested"],
                                       rows: timelineRows),
             publication: Table(name: "publication",
                                columns: ["publication_id", "citekey", "type", "title",
@@ -276,7 +294,7 @@ public enum RelationalExport {
             orcid         TEXT,
             openalex      TEXT,
             -- 以下為**現況**便利欄位，可由 researcher_timeline 推出（valid_end IS NULL
-            -- 且 valid_end_unknown IS NULL 的
+            -- 且 valid_end_unknown IS NULL 且 valid_attested IS NULL 的
             -- 最新一段）。冗餘是刻意的：不放的話每個「現在誰是研究員」的查詢都要
             -- 自己寫一次 window function。
             affiliation_current   TEXT,
@@ -288,8 +306,11 @@ public enum RelationalExport {
             -- （實測有 2017 / 2023 離職者的著作年表持續到 2026），也可能已經過世。
             -- 「還在發表嗎」請自己從 publication 表算（MAX(year) GROUP BY 研究者）；
             -- 「是否已知過世」看下面的 died 欄。
-            -- current / retired / NULL。**沒有隸屬資料時是 NULL，不猜成 current**。
-            status        TEXT CHECK (status IS NULL OR status IN ('current', 'retired')),
+            -- current / retired / undetermined / NULL。**沒有隸屬資料時是 NULL，不猜成 current**。
+            -- undetermined（#661）＝ 沒有進行中的段，但有一段只被觀測到過（valid_attested 非空、
+            -- 沒有 valid_end、也不是 valid_end_unknown）：那個人在觀測時點在那裡，之後還在不在資料說不出來。
+            -- 它不是 retired——把「被看到過」當成「離開了」是偽造的斷言。
+            status        TEXT CHECK (status IS NULL OR status IN ('current', 'retired', 'undetermined')),
             -- 逝世日期（#67）。ISO 8601 前綴，保留來源精度（2004 / 2004-11 / 2004-11-18）
             -- —— 精度即區間寬度：'2004' 說的是「2004 年的某個時候」。
             -- **NULL ＝ 尚未觀察到死亡（右設限），不是「在世」的斷言**：它同時涵蓋
@@ -319,9 +340,10 @@ public enum RelationalExport {
             dimension     TEXT NOT NULL,
             value         TEXT NOT NULL,
             valid_start   TEXT,   -- ISO 8601 前綴，保留來源精度（2003 / 2003-01 / 2003-01-15）
-            -- 「進行中」的判準是 valid_end IS NULL **且** valid_end_unknown IS NULL——
-            -- 只看 valid_end 會把「已結束、時點未知」（#63 的退休 PI）拉回現職。
-            valid_end     TEXT,   -- NULL 且 valid_end_unknown 也 NULL ＝ 仍在進行中
+            -- 「進行中」的判準是 valid_end IS NULL **且** valid_end_unknown IS NULL **且** valid_attested IS NULL——
+            -- 只看 valid_end 會把「已結束、時點未知」（#63 的退休 PI）拉回現職；不看 valid_attested 會把
+            -- 「只被觀測到過」（#70）讀成進行中（#661）。
+            valid_end     TEXT,   -- NULL 且 valid_end_unknown、valid_attested 也 NULL ＝ 仍在進行中
             valid_end_unknown BOOLEAN,  -- TRUE ＝ 已結束、時點未知（#63）；NULL ＝ 不適用
             source        TEXT,
             -- source 的另外半條命（#91）。source 分得出「名冊認證 vs 論文推得」，
@@ -335,7 +357,10 @@ public enum RelationalExport {
             -- organization（value 是機構的 key 字串本身，不是機構名；含懸空的 key）／literal（未歸戶）。其他維度是 NULL。
             -- 「還沒歸戶的隸屬」是 WHERE affiliation_kind = 'literal'，不是 organization_id IS NULL。
             -- 新欄加在最後：load.sql 依位置灌表。
-            affiliation_kind TEXT
+            affiliation_kind TEXT,
+            -- #661：觀測點（#70 的 attested），ISO 8601 前綴依序以 ';' 串接；沒有時 NULL。
+            -- 非空而 valid_end 與 valid_end_unknown 都 NULL ＝ 只被觀測到過，不是進行中也不是已結束。
+            valid_attested TEXT
         );
 
         CREATE TABLE publication (

@@ -440,7 +440,7 @@ final class ReferencesExtractTests: XCTestCase {
     func testOutputCarriesContractVersion() throws {
         let (status, output) = try extract("References\n\nAdams, J. (2001). A title. Journal A.\n")
         XCTAssertEqual(status, 0, output)
-        XCTAssertEqual(try decode(output).contract, 9)
+        XCTAssertEqual(try decode(output).contract, 10)
     }
 
     /// T17：APA 7 以刪節號省略作者時，換行不是併筆；小寫接在連字號後的姓、分號結尾的出版地（G10）
@@ -1739,5 +1739,38 @@ final class ReferencesExtractTests: XCTestCase {
         let r = try decode(output)
         XCTAssertEqual(r.entries.map(\.firstAuthor), ["Adams", "Baker"])
         XCTAssertTrue(r.warnings.contains { $0.contains("帶年份") && $0.contains("沒有計入") }, "\(r.warnings)")
+    }
+
+    // MARK: - #617 verify R15
+
+    /// T91：停點之後、到附錄或索引之前已經有別的 warning（「判為不完整」「之後還有 N 個」）時，附錄或索引之後
+    /// 帶年份的條目仍要另外說出來（R15 Q1：往後掃描只在前面沒有條目開頭時才做——`Notes` → 表格列 →
+    /// `Appendix` → 真條目，唯一的 warning 指向那行表格列）
+    func testDatedEntriesPastAppendixAreReportedEvenWhenAnEarlierWarningFired() throws {
+        for tail in ["Notes\n\nSmith, J. (2003) 120 .35\n\nAppendix\n\nIndex\n\nCarter, M. (2003). Real entry. Sci, 1, 2.\n",
+                     "Appendix\n\nAaron, Z. (2009). Appendix study title. Journal Z, 9, 1–2.\n\nIndex\n\nCarter, M. (2003). Real entry. Sci, 1, 2.\n"] {
+            let (status, output) = try extract(Self.twoEntries + tail)
+            XCTAssertEqual(status, 0, output)
+            let r = try decode(output)
+            XCTAssertEqual(r.entries.map(\.firstAuthor), ["Adams", "Baker"], tail)
+            XCTAssertTrue(r.warnings.contains { $0.contains("判為不完整") || $0.contains("之後還有") }, "\(tail): \(r.warnings)")
+            XCTAssertTrue(r.warnings.contains { $0.contains("1 行帶年份") && $0.contains("沒有計入") }, "\(tail): \(r.warnings)")
+        }
+    }
+
+    /// T92：書末索引行只以它自己的樣子定義——年份之前只有名縮寫、之後只有頁碼與頁碼記號、而且有頁碼。
+    /// 名縮寫多一個、標題只有單一字母的真條目都要數（R15 Q2：R14 要求姓名與年份之間有兩個字母以上的字，
+    /// `Carter, M. K. (2003).`、`R&D` 在附錄之後無聲）；帶連字號名縮寫的索引行不數
+    func testIndexLinesAreDefinedByTheirOwnShapeOnly() throws {
+        for tail in ["Appendix\n\nCarter, M. K. (2003).\n",
+                     "Appendix\n\nCarter, M. A B (2003).\n",
+                     "Index\n\nCarter, M. R&D (2003).\n"] {
+            try assertCountsOneDatedLine(tail)
+        }
+        let (status, output) = try extract(Self.twoEntries + "Index\n\nSmith, J.-P. (1998), 45, 67–69\nTaylor, K. L. (2001), 88\n")
+        XCTAssertEqual(status, 0, output)
+        let r = try decode(output)
+        XCTAssertEqual(r.entries.map(\.firstAuthor), ["Adams", "Baker"])
+        XCTAssertFalse(r.warnings.contains { $0.contains("帶年份") || $0.contains("之後還有") || $0.contains("判為不完整") }, "\(r.warnings)")
     }
 }

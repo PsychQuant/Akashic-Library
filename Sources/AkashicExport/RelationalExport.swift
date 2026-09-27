@@ -91,7 +91,16 @@ public enum RelationalExport {
                 : (p.profile.affiliations.current != nil ? "current" : "retired"),
              // #67：逝世日期。**與 status 正交**——status 描述隸屬，這欄描述這個人。
              // NULL ＝ 右設限（尚未觀察到死亡），**不是**「在世」的斷言。
-             p.died]
+             p.died,
+             // #656：比照 #651 的 affiliation_kind——affiliation_current 只放顯示名，字面「iss」與 key「iss」印出來一樣。
+             { () -> String? in
+                 guard let v = p.profile.affiliations.current?.value else { return nil }
+                 if case .key = v { return "organization" } else { return "literal" }
+             }(),
+             { () -> String? in
+                 guard case .key(let k)? = p.profile.affiliations.current?.value else { return nil }
+                 return orgIDByKey[k]   // 懸空的 key 回 NULL，不造 id
+             }()]
         }
 
         // long-format 時間軸。維度值域開放，所以不攤平成寬表。
@@ -175,7 +184,8 @@ public enum RelationalExport {
                               columns: ["researcher_id", "person_key", "name_full",
                                         "orcid", "openalex", "affiliation_current",
                                         "rank_current", "administrative_current",
-                                        "appointment_current", "status", "died"],
+                                        "appointment_current", "status", "died",
+                                        "affiliation_current_kind", "affiliation_current_id"],
                               rows: researcherRows),
             researcherTimeline: Table(name: "researcher_timeline",
                                       columns: ["researcher_id", "dimension", "value",
@@ -292,7 +302,12 @@ public enum RelationalExport {
             -- 還開著（可能是死於任內而漏記結束日，也可能是離職多年後才過世、開放段
             -- 只是資料缺漏）。哪一種為真無法自動判斷，由 akashic doctor 報告、不代為
             -- 關閉。要找這些矛盾：WHERE died IS NOT NULL AND status = 'current'
-            died          TEXT
+            died          TEXT,
+            -- #656：affiliation_current 的三態，比照 researcher_timeline.affiliation_kind：organization（value 是機構 key 的
+            -- 顯示名，含懸空的 key）／literal（未歸戶）；沒有現職隸屬時 NULL。affiliation_current_id 只在 key 對得到機構時
+            -- 非空——懸空的 key 與字面都是 NULL，要分兩者看 kind。新欄加在最後：load.sql 依位置灌表。
+            affiliation_current_kind TEXT,
+            affiliation_current_id   UUID REFERENCES organization(organization_id)
         );
 
         -- #20 的 valid-time 歷史。**long format**：維度值域是開放的（新職稱只是一個

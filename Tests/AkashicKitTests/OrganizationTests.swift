@@ -226,6 +226,36 @@ final class OrganizationTests: XCTestCase {
         XCTAssertTrue(RelationalExport.duckDBScript().contains("affiliation_kind"), "DDL 要宣告這一欄")
     }
 
+    /// #656：`researcher.affiliation_current` 只放顯示名，字面「iss」與 key「iss」印出來一樣。比照 #651，在最後加
+    /// `affiliation_current_kind` 與 `affiliation_current_id`：key 對得到機構才有 id，懸空的 key 與字面都是 NULL、以 kind 分開；
+    /// 沒有現職隸屬時兩欄都是 NULL。
+    func testAffiliationCurrentKindSeparatesLiteralFromDanglingKey() throws {
+        let org = sinica()
+        var resolved = Person(key: "a-resolved")
+        resolved.profile.affiliations = TimelineOf([TemporalValue(value: .key("academia-sinica"))])
+        var literal = Person(key: "b-literal")
+        literal.profile.affiliations = TimelineOf([TemporalValue(value: .literal("iss"))])
+        var dangling = Person(key: "c-dangling")
+        dangling.profile.affiliations = TimelineOf([TemporalValue(value: .key("iss"))])
+        let none = Person(key: "d-none")
+
+        let t = RelationalExport.tables(entries: [], people: [resolved, literal, dangling, none],
+                                        organizations: [org]).researcher
+        XCTAssertEqual(Array(t.columns.suffix(2)), ["affiliation_current_kind", "affiliation_current_id"],
+                       "load.sql 依位置灌表，新欄加在最後")
+        let kindIdx = t.columns.count - 2, idIdx = t.columns.count - 1
+        func row(_ p: Person) throws -> [String?] { try XCTUnwrap(t.rows.first { $0[0] == p.id.uuidString }) }
+        XCTAssertEqual(try row(resolved)[kindIdx], "organization")
+        XCTAssertEqual(try row(resolved)[idIdx], org.id.uuidString)
+        XCTAssertEqual(try row(literal)[kindIdx], "literal")
+        XCTAssertNil(try row(literal)[idIdx])
+        XCTAssertEqual(try row(dangling)[kindIdx], "organization", "懸空的 key 是斷掉的參照，不是未歸戶")
+        XCTAssertNil(try row(dangling)[idIdx], "懸空的 key 不造 id")
+        XCTAssertNil(try row(none)[kindIdx])
+        XCTAssertNil(try row(none)[idIdx])
+        XCTAssertTrue(RelationalExport.duckDBScript().contains("affiliation_current_kind"), "DDL 要宣告這一欄")
+    }
+
     /// 匯出腳本含機構表，且隸屬列的外鍵可空。
     func testDuckDBScriptDeclaresOrganization() {
         let sql = RelationalExport.duckDBScript()

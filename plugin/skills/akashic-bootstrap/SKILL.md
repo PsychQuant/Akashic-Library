@@ -43,16 +43,18 @@ description: 把資料補進 Akashic library——給一個人名、citekey、DO
 補之前先查，否則會重複建立或誤判缺漏。
 
 ```
-akashic_search(author: "Cheng", yearFrom: 2020)   # 依作者／刊名／年份／tag／type／library 篩
+akashic_search(author: "Cheng", year_from: 2020)  # 依作者／刊名／年份（year_from／year_to）／tag／type／library 篩
 akashic_get_entry(citekey: …)         # 單筆完整內容（含已有哪些 fields）
 akashic_person(name: "cheng")         # 模糊姓名 → 候選
 akashic_person(key: "cheng-che")      # 確定的人 → 著作 + 合著者
 ```
 
-**`akashic_search` 沒有標題或 DOI 條件**，store 目前也沒有以標題或 DOI 查詢的入口（#638）。要查的話：
+**`akashic_search` 沒有標題或 DOI 條件**（#638）。建檔之前這樣查：
 
-- **DOI**：建檔時 `akashic_create_entry`／`akashic create-entry` 在 DOI 已在庫時照常建，但會具名回報命中的 citekey（MCP 回應的 `doiHits`、CLI 印 ⚠，#637）。一看到命中就停下核對是不是同一篇——是的話走攣生合併，不要留兩筆。
-- **標題**：`akashic export-tables` 的 publications 表逐筆比對標題與年份。
+- **DOI**：`akashic_enrich`（`dry_run` 預設就是 true）或 `akashic enrich --from <提案檔>`（不帶 `--apply` 就是乾跑），提案只帶 `doi`。零寫入，回的是命中的 citekey、`ambiguous`（多筆命中）或 `notFound`。CLI 另外可以用 `akashic create-entry --dry-run`：它會列出 DOI 已在庫的那幾筆（#637）。
+  - **命中了就不要再建**：DOI 相等表示指的是同一篇。例外是 erratum 這類與原文共用 DOI 的另一份文件，它才該另建一筆。
+  - 真的建了重複的，`create-entry` 事後也會以 `doiHits`／⚠ 回報，那時走攣生合併。
+- **標題**：`akashic export-tables`（只有 CLI 面）的 `publication` 表逐筆比對標題與年份；同一張表的 `doi` 欄只放每筆的第一個 DOI（#657）。
 
 `akashic_person(name:)` 會回兩種候選：
 

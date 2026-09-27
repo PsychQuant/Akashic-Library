@@ -143,7 +143,7 @@ per-id 顯式契約。兩面的失敗語意相同且刻意分兩類：輸入語�
 （列數與 ref 上限都在時仍產出 3,844,596 bytes）。
 | `akashic_record_divergence` | `record-divergence` | ✅ |
 | `akashic_update_person` | `update-person` | ✅（#68）。**#554 R26 D73 重新確認（R27 補記），裁決不變、契約有改**：references 的 append-only 去重自此比位元組（`byteExactKey`）——canonical 相等而位元組不同的兩筆都會進 store（先前是靜默 no-op）；重複的偵測面缺口記 #582（R26 verify requirements 第 10 列、regression 第 54 列：R26 改了語意而這一列沉默）|
-| `akashic_create_entry` | `create-entry` | ✅（#206；#455 起兩面同走 `createEntries`——MCP 單筆是薄包裝，CLI 的 JSON 陣列是批次形，批次面的裁決見 CLI-only 表）。**#637 重新確認，裁決不變、契約有改**：DOI 已在庫（或同一批稍早的一筆已用過）時照常建，兩面同一份 `doiHits` 具名回報命中的 citekey（MCP 回應鍵、CLI 印 ⚠）——只回報不拒絕，DOI 相同是提名不是同一性證據（#611 的立場）|
+| `akashic_create_entry` | `create-entry` | ✅（#206；#455 起兩面同走 `createEntries`——MCP 單筆是薄包裝，CLI 的 JSON 陣列是批次形，批次面的裁決見 CLI-only 表）。**#637 重新確認，裁決不變、契約有改**：DOI 已在庫（或同一批稍早的一筆已用過）時照常建，兩面同一份 `doiHits` 具名回報命中的 citekey（MCP 回應鍵、CLI 印 ⚠）——只回報不拒絕：DOI 相等依 `identity-is-judged-not-matched` 足以判定同一篇，但 erratum 會與原文共用 DOI，拒絕會擋掉這類合法記錄；CLI 的 `--dry-run` 也回報（寫入前看得到），MCP 面寫入前的查法是 `akashic_enrich` 的乾跑|
 | `akashic_person` | `person` | ✅（#218）|
 | `akashic_people` | `people` | ✅（#219）|
 | `akashic_get_entry` | `get-entry` | ✅（#219）|

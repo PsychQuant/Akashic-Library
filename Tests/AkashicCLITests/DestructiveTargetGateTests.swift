@@ -42,15 +42,20 @@ final class DestructiveTargetGateTests: XCTestCase {
             .joined(separator: "\n")
     }
 
-    /// 封閉列舉恰好六個，且各自具名。
+    /// 封閉列舉的全部成員——三條稽核共用這一份（R2 verify：先前三份寫死的清單在 #653 加了五個命令之後都沒跟上）。
+    static let enumerated = ["migrate-person-identity", "migrate-venues", "bootstrap-people",
+                             "bootstrap-organizations", "bootstrap-venues",
+                             "resolve-people", "resolve-organizations", "resolve-venues", "authorize-names",
+                             // #653（使用者 2026-09-27 裁決：只閘不可逆的）與 #650
+                             "migrate", "migrate-provenance", "resolve-divergence", "rename", "rename-person"]
+
+    /// 封閉列舉的每個成員都在 `destructiveCommands` 裡，且各自具名。
     ///
     /// 數字寫死是刻意的（同本 repo 其他「一格不多一格不少」的守衛）：新增破壞性命令
     /// 時這條會紅，逼人在同一個變更裡做出裁決。
     func testEnumerationIsClosed() throws {
         let src = try source("Sources/akashic/DestructiveTargetGate.swift")
-        for name in ["migrate-person-identity", "migrate-venues", "bootstrap-people",
-                     "bootstrap-organizations", "bootstrap-venues",
-                     "resolve-people", "resolve-organizations", "resolve-venues", "authorize-names"] {
+        for name in Self.enumerated {
             XCTAssertTrue(src.contains("\"\(name)\""), "封閉列舉缺 \(name)")
         }
     }
@@ -85,9 +90,7 @@ final class DestructiveTargetGateTests: XCTestCase {
     /// 名字，讀起來與有效裁決毫無區別。（同 `mcp-cli-parity` 第三個稽核方向的教訓。）
     func testEveryEnumeratedNameExists() throws {
         let commands = try allCommandSources()
-        for name in ["migrate-person-identity", "migrate-venues", "bootstrap-people",
-                     "bootstrap-organizations", "bootstrap-venues",
-                     "resolve-people", "resolve-organizations", "resolve-venues", "authorize-names"] {
+        for name in Self.enumerated {
             XCTAssertTrue(commands.contains("commandName: \"\(name)\""),
                           "列舉裡的 `\(name)` 對不到任何 subcommand——命令退場後留下的孤兒列")
         }
@@ -100,13 +103,18 @@ final class DestructiveTargetGateTests: XCTestCase {
     func testEveryEnumeratedCommandActuallyCallsTheGate() throws {
         let combined = try allCommandSources()
         // resolve-organizations 的條件是 `apply || reject`（#580）：它的 --reject 也是篩選式寫入。
-        let conditions = ["resolve-organizations": "apply || reject", "resolve-venues": "let leg = writeLeg"]
-        for name in ["migrate-person-identity", "migrate-venues", "bootstrap-people",
-                     "bootstrap-organizations", "bootstrap-venues",
-                     "resolve-people", "resolve-organizations", "resolve-venues", "authorize-names"] {
+        let conditions = ["resolve-organizations": "apply || reject", "resolve-venues": "let leg = writeLeg",
+                          // #653：預設就寫、以 --dry-run 預覽的命令只在不帶 --dry-run 時閘
+                          "migrate": "!dryRun", "migrate-provenance": "!dryRun", "resolve-divergence": "!dryRun"]
+        // 沒有乾跑、每次都寫的命令無條件呼叫閘（#653／#650）
+        let unconditional: Set<String> = ["rename", "rename-person"]
+        for name in Self.enumerated {
             let cond = conditions[name] ?? "apply"
+            let needle = unconditional.contains(name)
+                ? "        try options.assertDestructiveTargetNamed(\"\(name)\""
+                : "if \(cond) { try options.assertDestructiveTargetNamed(\"\(name)\""
             XCTAssertTrue(
-                combined.contains("if \(cond) { try options.assertDestructiveTargetNamed(\"\(name)\"") ,
+                combined.contains(needle),
                 "`\(name)` 沒有呼叫閘門，或呼叫條件不是 `\(cond)`——"
                 + "列舉完整而閘門沒被呼叫，等於沒有閘門")
         }

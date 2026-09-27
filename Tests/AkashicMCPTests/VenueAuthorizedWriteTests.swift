@@ -1228,6 +1228,23 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         XCTAssertEqual(try store.load().entries.first { $0.citekey == "x2025" }?.venues, before, "拒絕時零寫入")
     }
 
+    /// R1 verify 第 26 列：repoint 路徑同樣受可回溯性閘管——從某個 venue 改指出去會退役它的 confirmed，那個檔沒 commit 就拒絕、零寫入。
+    func testRepointIsRefusedWhenTheFromVenueFileIsDirty() throws {
+        let store = LibraryStore(root: root)
+        _ = try service.addVenue(key: "beta-journal", names: ["Beta Journal"], type: "periodical", note: nil, issn: nil)
+        var e = Entry(id: UUID(), citekey: "x2025", type: .periodicalArticle, title: "T")
+        e.venues = [.literal("Psychometrika")]
+        _ = try store.writeEntry(e)
+        StoreGitCommit.commitAll(root)
+        _ = try service.resolveVenues(apply: ["x2025:0"])   // some-journal 多了 confirmed，沒 commit
+        let before = try store.load().entries.first { $0.citekey == "x2025" }?.venues
+        XCTAssertThrowsError(try service.resolveVenues(apply: nil, repoint: ["x2025:0:beta-journal"])) { err in
+            XCTAssertTrue("\(err)".contains("some-journal") && "\(err)".contains("未提交"), "\(err)")
+        }
+        XCTAssertEqual(try store.load().entries.first { $0.citekey == "x2025" }?.venues, before, "拒絕時零寫入")
+        XCTAssertNoThrow(try service.committed(root).resolveVenues(apply: nil, repoint: ["x2025:0:beta-journal"]), "commit 之後就過")
+    }
+
     /// #573：CLI 面（`retiredLimit: nil`）全列被刪的判定；MCP 面仍截 20 筆（`testVerdictsRetiredIsCappedAndDisclosed`）。
     func testVerdictsRetiredIsNotCappedForTheCLIFace() throws {
         let store = LibraryStore(root: root)

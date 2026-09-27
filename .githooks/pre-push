@@ -100,7 +100,10 @@ case ",${AKASHIC_PRE_PUSH_STAGES:-build,test,guards}," in
     # **守衛從 `.build/debug` 找 `akashic-guards`**（`run-guards.sh`），所以它必須解析到這次建置的產物目錄——否則守衛拿別次建置的
     # binary 對新樹跑、照樣印綠。預設建置系統建完會自己指好；這裡只核對、不寫入（#577 之前釘 native 時要手動重指）。
     BIN_PATH="$(swift build --show-bin-path)"
-    if [ "$(cd .build/debug 2>/dev/null && pwd -P)" != "$(cd "$BIN_PATH" 2>/dev/null && pwd -P)" ]; then
+    # 兩邊都要解析得到——兩個空字串相等會讓「都不存在」通過（R2 verify）
+    DEBUG_REAL="$(cd .build/debug 2>/dev/null && pwd -P || true)"
+    BIN_REAL="$(cd "$BIN_PATH" 2>/dev/null && pwd -P || true)"
+    if [ -z "$DEBUG_REAL" ] || [ -z "$BIN_REAL" ] || [ "$DEBUG_REAL" != "$BIN_REAL" ]; then
       echo "✗ pre-push: .build/debug 沒有指向這次建置的產物目錄（$BIN_PATH）——守衛會跑到別次建置的 binary，中止" >&2
       exit 1
     fi

@@ -34,5 +34,5 @@
 
 ## 誠實邊界
 
-- 閘只作用在 CLI。MCP 面沒有這四個能力的寫入 tool（`resolve-divergence` 與三個遷移屬 CLI-only 表的維運例外），所以兩面沒有新的不對稱。
+- 閘只作用在 CLI。MCP 面沒有這四個能力的寫入 tool（`resolve-divergence`、`rename` 與兩個遷移命令都屬 CLI-only 表的維運例外），所以兩面沒有新的不對稱。
 - `rename` 在閘之後仍然沒有乾跑。要先看影響範圍，只能先在副本上跑一次。補乾跑是另一件事，本輪不做。

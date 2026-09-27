@@ -167,7 +167,7 @@ actor AkashicMCPServer {
                                 "judge": strArray("逐篇判定（#386）：citekey:authorIndex:personKey=判定理由，以**第一個 = 切**（理由可含等號）。與 apply 是不同種類的主張——apply 套用 resolver 提名出來的候選，judge 指名一個作者位並說明**憑什麼**，因此**歧義列也適用**（歧義的意思是提名器分不出來，不是人／AI 分不出來）。理由必填且逐字寫進 verdict；literal 由 store 讀不由呼叫端提供。輸入語法錯（缺 = ／非三段形／重複 id／理由空白／person 不存在／同一個作者位判給兩個人）整批拒絕零寫入；store 狀態不符（work 不存在／索引越界／位置已歸戶／citekey 重複或與另一筆 work 共用 id，#627）該筆略過並在 skipped 具名、不中止其餘。有寫入而之後 index 重建失敗時回錯誤，訊息逐行列出已判定與略過的 id——那時寫入已落地；沒有寫入時不重建。作者位已歸給同一個人時：已有這個配對、同一句理由的逐篇判定＝no-op，回在 alreadyJudged（理由不同則略過並具名，#636）；由其他規則歸戶的（例如 apply）：寫一筆逐篇判定與它並存、作者位不動，judged 列帶 coexistsWith:\"nominated\"（需 store format ≥ 19；change resolution-verdict-states，#636——判定層級 nominated／judged 參與去重）；refute 對既有的 reject 同理；作者位仍是 literal 而判定理由存不進去時（store format < 19 已有提名層判定、或該配對已有理由不同的逐篇判定——同一層級以配對去重），作者位照常歸戶、judged 列帶 verdictNotRecorded 說明原因；找不到原 literal 也略過並具名。judge／refute／undecided 各自單獨呼叫，不與彼此或 apply／reject 組合——組合整批拒絕（#635）。判定寫的 verdict rule 是 author-judged-per-work，會讓同 literal 在其他 work 以 confirmed-elsewhere 提名並在理由揭露血統——那仍是提名，仍須逐列決定。需 store format ≥ 8"),
              ])),
         Tool(name: "akashic_create_entry",
-             description: "建庫外手動文獻（無 Zotero provenance；citekey 自動生成）。DOI 已在庫時照常建，回應的 doiHits 列出命中的 citekey（DOI 相同只是提名，是否同一篇由攣生合併管線判定，#637）。",
+             description: "建庫外手動文獻（無 Zotero provenance；citekey 自動生成）。DOI 已在庫時照常建，回應的 doiHits 列出命中的 citekey（#637）——DOI 相等表示指的是同一篇，但 erratum 會與原文共用 DOI，所以不拒絕；要在建檔之前查，用 akashic_enrich 的乾跑（proposal 帶 doi）。",
              inputSchema: obj([
                 "type": str("biblatex type（article/book/…）"),
                 "title": str("標題"),

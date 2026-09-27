@@ -101,6 +101,12 @@ func ruleProseGuards(argv: [String]) -> Int32 {
     // 逐字印出。兩邊都排序即可穩定——Python 版靠 os.walk 的目錄順序，這裡顯式排序，
     // 而**當兩者都是空 list 時（唯一的通過狀態）順序不可觀察**。
     let allFiles = walkFiles(plugin).sorted()
+    // 空掃描不是通過（#644 R2 verify）：根打錯或不存在時 `walkFiles` 回空，第 1、2 項對空清單照樣 PASS——未涵蓋冒充了乾淨。
+    // 全六項的跑法另有規則檔的讀取擋著；`--prose-only` 沒有，所以在這裡擋。
+    if proseOnly && allFiles.isEmpty {
+        print("✗ --prose-only：\(plugin) 不存在或沒有任何 .md／.sh／.py——空掃描不是通過")
+        return 1
+    }
 
     // ── 1. repo 專屬路徑不得以「可跟隨的連結」出現 ─────────────────────────
     //    點下去會 404，而 private repo 的 404 與「已刪除／從不存在」不可區分：

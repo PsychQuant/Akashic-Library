@@ -29,7 +29,7 @@ import BiblatexAPA
 struct CreateEntryCmd: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "create-entry",
-        abstract: "建庫外文獻，**保留來源的所有欄位**（JSON 或 .bib；citekey 自動生成）。DOI 已在庫時照常建，並以 ⚠ 列出命中的 citekey（#637）。"
+        abstract: "建庫外文獻，**保留來源的所有欄位**（JSON 或 .bib；citekey 自動生成）。DOI 已在庫時照常建，並以 ⚠ 列出命中的 citekey；--dry-run 也列（#637）。"
             + "陣列一次寫入：可預期的失敗整批擋、零寫入（#455）")
 
     enum Format: String, ExpressibleByArgument, CaseIterable {
@@ -82,17 +82,6 @@ struct CreateEntryCmd: ParsableCommand {
             throw RuntimeFailure.state("解析出 0 筆——確認 --format \(format.rawValue) 與輸入相符")
         }
 
-        if dryRun {
-            print("（dry-run）將建 \(drafts.count) 筆：")
-            for d in drafts {
-                print("  \(displaySafe(d.title, max: 90))"
-                    + "  [\(displaySafe(d.type, max: 40))]"
-                    + "  作者 \(d.authors.count)"
-                    + "  欄位 \(d.fields.count)")
-            }
-            return
-        }
-
         let store = try options.openStore()
         // `key:` 不可省——見 `PersonCommand.swift` 的長註解（verify #220 HIGH）。
         // **先前的註解說「寫入路徑所以沒炸」——那是假的**（#218 R2 verify MEDIUM，
@@ -104,18 +93,26 @@ struct CreateEntryCmd: ParsableCommand {
                                      environment: ProcessInfo.processInfo.environment)
         // 一次呼叫（#455）：可預期的失敗由 service 整批 throw（ArgumentParser 印錯、exit 非零）；
         // 這裡只剩磁碟層的逐筆結果。
+        if dryRun {
+            // #637 R2：乾跑也比對 DOI——命中要在建檔之前看得到，而不是寫完才報
+            let preview = try service.createEntries(drafts, dryRun: true)
+            print("（dry-run）將建 \(drafts.count) 筆：")   // display-safe-exempt: Int
+            for d in drafts {
+                print("  \(displaySafe(d.title, max: 90))"
+                    + "  [\(displaySafe(d.type, max: 40))]"
+                    + "  作者 \(d.authors.count)"   // display-safe-exempt: Int
+                    + "  欄位 \(d.fields.count)")   // display-safe-exempt: Int
+            }
+            Self.printDOIHits(preview.doiHits)
+            return
+        }
         let report = try service.createEntries(drafts)
         for c in report.created {
             // citekey 由 StoreKey 文法保證只含 [a-z0-9-]；id 是 UUID
             print("{\"citekey\":\"\(displaySafe(c.citekey, max: 200))\",\"id\":\"\(c.id.uuidString)\"}")   // display-safe-exempt: UUID
         }
         print("✓ created \(report.created.count)")   // display-safe-exempt: Int
-        // #637：DOI 已在庫時具名回報——只回報、不拒絕（DOI 相同是提名不是同一性證據，#611）
-        for h in report.doiHits {
-            let hits = AkashicService.cappedCitekeys(h.existing).joined(separator: "、")
-            print("⚠ \(displaySafe(h.citekey, max: 200)) 的 DOI \(displaySafeInvisible(h.doi, max: 200)) 也在：\(hits)"   // display-safe-exempt: hits 由 cappedCitekeys 逐項 displaySafe
-                  + "——同一篇的話走攣生合併（record-divergence → resolve-divergence）")
-        }
+        Self.printDOIHits(report.doiHits)
         if !report.writeFailures.isEmpty {
             print("failed \(report.writeFailures.count)（磁碟層，其餘已寫入且 index 已重建）：")   // display-safe-exempt: Int
             for f in report.writeFailures.prefix(10) {
@@ -123,6 +120,16 @@ struct CreateEntryCmd: ParsableCommand {
             }
             // **有任何一筆沒寫成就非零退出**：`akashic create-entry … && next` 不得在部分寫入時往下走
             throw ExitCode(1)
+        }
+    }
+
+    /// #637：DOI 已在庫時具名回報。DOI 相等依 `identity-is-judged-not-matched` 足以判定指的是同一篇，但建檔不拒絕：erratum 會與原文
+    /// 共用 DOI（識別碼終結指涉、不終結描述），拒絕會讓這類合法記錄建不進來。是否合併交給攣生管線。
+    static func printDOIHits(_ hits: [AkashicService.BatchCreateReport.DOIHit]) {
+        for h in hits {
+            let existing = AkashicService.cappedCitekeys(h.existing).joined(separator: "、")
+            print("⚠ \(displaySafe(h.citekey, max: 200)) 的 DOI \(displaySafeInvisible(h.doi, max: 200)) 已在：\(existing)"   // display-safe-exempt: existing 由 cappedCitekeys 逐項 displaySafe
+                  + "——是同一篇就不要再建，或建了之後走攣生合併（record-divergence → resolve-divergence）；erratum 這類共用 DOI 的另一筆才該留著")
         }
     }
 

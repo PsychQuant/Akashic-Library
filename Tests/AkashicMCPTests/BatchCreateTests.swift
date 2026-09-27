@@ -136,3 +136,33 @@ extension BatchCreateTests {
         XCTAssertEqual(hits.first?["existing"] as? [String], ["author2024original"])
     }
 }
+
+extension BatchCreateTests {
+    /// #637 R2：乾跑也比對 DOI（命中要在建檔之前看得到），而且什麼都不寫。
+    func testDryRunReportsDOIHitsAndWritesNothing() throws {
+        _ = try service.createEntries([doiDraftR2("Original study", "10.1037/abc")])
+        let before = try LibraryStore(root: root).load().entries.count
+        let report = try service.createEntries([doiDraftR2("Copy", "10.1037/abc")], dryRun: true)
+        XCTAssertEqual(report.doiHits.first?.existing, ["author2024original"])
+        XCTAssertTrue(report.created.isEmpty)
+        XCTAssertEqual(try LibraryStore(root: root).load().entries.count, before, "乾跑不得寫入")
+    }
+
+    /// #637 R2 verify：同批中寫入失敗的那筆不在 store 裡，後面的記錄不得把它當成「已在庫」的命中對象，它自己也不報命中。
+    func testFailedBatchMateIsNotReportedAsAnExistingHit() throws {
+        let doomedID = UUID()
+        let store = LibraryStore(root: root)
+        try FileManager.default.createDirectory(at: store.entityURL(id: doomedID), withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: store.entityURL(id: doomedID).appendingPathComponent("occupied"))
+        var doomed = doiDraftR2("First copy", "10.1037/dup"); doomed.id = doomedID
+        let report = try service.createEntries([doomed, doiDraftR2("Second copy", "10.1037/dup")])
+        XCTAssertEqual(report.writeFailures.map(\.index), [0])
+        XCTAssertEqual(report.created.map(\.index), [1])
+        XCTAssertTrue(report.doiHits.isEmpty, "寫入失敗的同批記錄被當成已在庫：\(report.doiHits)")
+    }
+
+    private func doiDraftR2(_ title: String, _ doi: String) -> AkashicService.EntryDraft {
+        AkashicService.EntryDraft(type: "periodical-article", title: title, authors: ["Some Author"], date: "2024",
+                                  fields: ["journaltitle": "Batch Journal"], doi: [doi])
+    }
+}

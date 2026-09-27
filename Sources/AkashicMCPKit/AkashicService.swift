@@ -2017,8 +2017,9 @@ public final class AkashicService {
         public struct WriteFailure: Equatable {
             public let index: Int; public let title: String; public let citekey: String; public let error: String
         }
-        /// #637：這一筆的 DOI 已在庫（或同一批稍早的一筆已用過）。**只回報、不拒絕**——DOI 相同只是提名，不是同一性證據
-        /// （更正啟事與原文共用 DOI、一筆 work 可有多個 DOI；#611 的立場）。要不要合併是攣生管線的判定。
+        /// #637：這一筆的 DOI 已在庫（或同一批稍早的一筆已用過）。**只回報、不拒絕**：DOI 相等依 `identity-is-judged-not-matched`
+        /// 足以判定指的是同一篇，但 erratum 會與原文共用 DOI（識別碼終結指涉、不終結描述），拒絕會讓這類合法記錄建不進來。
+        /// 要不要合併是攣生管線的事；要在建檔之前看到命中，用 `dryRun`。
         public struct DOIHit: Equatable {
             public let index: Int; public let citekey: String; public let doi: String; public let existing: [String]
         }
@@ -2038,7 +2039,10 @@ public final class AkashicService {
     ///
     /// 批次內的 citekey 唯一性：`Citekey.generate(existing:)` 看到的 `existing` **逐筆累積**——這是單筆版本
     /// 不會遇到的情況（同作者同年兩筆會撞成同一鍵）。preflight 與寫入端同一個 `assertEntryWritable`。
-    public func createEntries(_ drafts: [EntryDraft]) throws -> BatchCreateReport {
+    ///
+    /// `dryRun`（#637 R2）：跑完驗證與 DOI 命中比對後即返回，**不寫**——命中要在建檔之前看得到（`disambiguate-before-irreversible-writes`：
+    /// 可以事前識別的歧義不得留到寫入之後）。乾跑時同批的其他筆算作「會被建的」，實寫時只算真的寫成功的。
+    public func createEntries(_ drafts: [EntryDraft], dryRun: Bool = false) throws -> BatchCreateReport {
         guard !drafts.isEmpty else { throw ServiceError.invalid("drafts 不得為空") }
         let load = try store.load()
         // quarantined 檔 basename 佔住 citekey（Phase 1 合約：quarantined 檔永不被自動覆寫）
@@ -2070,7 +2074,7 @@ public final class AkashicService {
         // #637：DOI 命中既有記錄（或同一批稍早的一筆）時具名回報。比對走 `canonicalDOIs` 的正規形。
         var citekeysByDOI: [String: [String]] = [:]
         for e in load.entries { for d in e.canonicalDOIs { citekeysByDOI[d.normalized, default: []].append(e.citekey) } }
-        for (i, e) in planned.enumerated() {
+        func recordHits(_ i: Int, _ e: Entry) {
             for d in e.canonicalDOIs {
                 if let hits = citekeysByDOI[d.normalized], !hits.isEmpty {
                     report.doiHits.append(.init(index: i, citekey: e.citekey, doi: d.normalized, existing: hits))
@@ -2078,11 +2082,17 @@ public final class AkashicService {
             }
             for d in e.canonicalDOIs { citekeysByDOI[d.normalized, default: []].append(e.citekey) }
         }
-        // 2. 逐筆寫（exclusive：目的檔存在 fail-closed），I/O 失敗收容
+        if dryRun {
+            for (i, entry) in planned.enumerated() { recordHits(i, entry) }
+            return report
+        }
+        // 2. 逐筆寫（exclusive：目的檔存在 fail-closed），I/O 失敗收容。命中只對寫成功的那筆報、也只把寫成功的那筆加進比對表——
+        //    寫入失敗的同批記錄不在 store 裡，不得被後面的記錄當成「已在庫」（#637 R2 verify）
         for (i, entry) in planned.enumerated() {
             do {
                 _ = try store.writeEntryExclusive(entry)
                 report.created.append(.init(index: i, citekey: entry.citekey, id: entry.id))
+                recordHits(i, entry)
             } catch {
                 report.writeFailures.append(.init(index: i, title: entry.title, citekey: entry.citekey,
                                                   error: displaySafeError(error, max: 512)))
@@ -2190,7 +2200,7 @@ public final class AkashicService {
         }
         var out: [String: Any] = ["citekey": displaySafe(c.citekey, max: 200),
                                   "id": c.id.uuidString]   // display-safe-exempt: UUID
-        // #637：DOI 已在庫時具名回報命中的 citekey（只回報、不拒絕——DOI 相同是提名不是同一性證據）
+        // #637：DOI 已在庫時具名回報命中的 citekey（只回報、不拒絕——理由見 `BatchCreateReport.DOIHit`）
         if !report.doiHits.isEmpty {
             out["doiHits"] = report.doiHits.map {
                 ["doi": displaySafeInvisible($0.doi, max: 200),

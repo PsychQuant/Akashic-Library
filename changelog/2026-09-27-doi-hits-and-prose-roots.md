@@ -4,7 +4,7 @@
 
 `createEntries` 原本不檢查 DOI。store 已有同一篇時照常新建，只在 citekey 撞名時自動加尾碼（`xxx2020b…`），整個過程沒有提示。立案時量到 16 組「同一個 DOI 對到兩筆記錄」，其中 13 組是這個形狀。
 
-依 #611 已寫下的立場，DOI 相同只是提名，不是同一性證據：更正啟事與原文會共用 DOI，一筆 work 也可以有多個 DOI。所以做法是**只回報、不拒絕**：
+做法是**只回報、不拒絕**。（這裡原本寫「DOI 相同只是提名、不是同一性證據」，那與 `identity-is-judged-not-matched` 矛盾——DOI 相等依該規則足以判定指的是同一篇。不拒絕的真正理由是 erratum 會與原文共用 DOI，拒絕會擋掉這類合法記錄。更正見 `2026-09-27-batch7-r2-verify.md`。）
 
 - `BatchCreateReport.doiHits`：這一筆的 DOI 已在庫，或同一批稍早的一筆已用過時，列出命中的 citekey。比對走 `canonicalDOIs` 的正規形。
 - 兩面同一份：MCP `akashic_create_entry` 的回應帶 `doiHits`，CLI `create-entry` 印 ⚠。每個 DOI 至多列 20 個 citekey。

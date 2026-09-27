@@ -180,7 +180,53 @@ final class GitSpawnHygieneTests: XCTestCase {
 
         let bad = LibraryStore.filesNotSafelyRecoverable(root: repo, relativePaths: ["entities/a.yaml"])
         XCTAssertEqual(bad.map(\.path), ["entities/a.yaml"], "global gitconfig 讓閘把 dirty 的檔判成 clean")
-        XCTAssertTrue(bad.first?.why.contains("未提交") ?? false, "\(bad)")
+        // 真的 index 已被污染：`git status` 看不到這個修改，所以理由不能叫人「先 commit」（R2 verify requirements 席）
+        XCTAssertTrue(bad.first?.why.contains("stat 快取") ?? false, "\(bad)")
+    }
+
+    /// R2 verify security／DA：global **attributes**（`~/.config/git/attributes`）不受 global config 開關影響——一行 `*.yaml ident`
+    /// 就讓 `$Id: 任意 $` 的修改在比對時折回 `$Id$`。閘以 `-c core.attributesFile=/dev/null` 關掉它。
+    func testGlobalAttributesFileCannotHideAnEdit() throws {
+        let (repo, home, base) = try scratchRepo(committed: "judgement: $Id$\n")
+        defer { try? FileManager.default.removeItem(at: base) }
+        try "judgement: $Id: SECRET $\n".write(to: repo.appendingPathComponent("entities/a.yaml"), atomically: true, encoding: .utf8)
+        let attrs = home.appendingPathComponent(".config/git")
+        try FileManager.default.createDirectory(at: attrs, withIntermediateDirectories: true)
+        try "*.yaml ident\n".write(to: attrs.appendingPathComponent("attributes"), atomically: true, encoding: .utf8)
+        let saved = ProcessInfo.processInfo.environment["HOME"] ?? ""
+        setenv("HOME", home.path, 1)
+        defer { setenv("HOME", saved, 1) }
+        let bad = LibraryStore.filesNotSafelyRecoverable(root: repo, relativePaths: ["entities/a.yaml"])
+        XCTAssertEqual(bad.map(\.path), ["entities/a.yaml"], "global attributes 讓閘把修改過的檔判成乾淨")
+    }
+
+    /// R2 verify logic 席：git 判定乾淨的檔，閘不得誤判成 dirty——那會永久拒絕、而叫人 commit 一個沒有東西可 commit 的檔。
+    /// 兩個先前會誤判的形狀：以 CRLF commit 之後才設 `core.autocrlf=true`，以及被追蹤的 symlink。
+    func testFilesGitConsidersCleanAreNotReportedDirty() throws {
+        let (repo, _, base) = try scratchRepo(committed: "v: 1\r\n")
+        defer { try? FileManager.default.removeItem(at: base) }
+        XCTAssertEqual(GitFixture.run(["config", "core.autocrlf", "true"], in: repo), 0)
+        try FileManager.default.createSymbolicLink(atPath: repo.appendingPathComponent("entities/link.yaml").path,
+                                                   withDestinationPath: "a.yaml")
+        XCTAssertEqual(GitFixture.run(["add", "-A"], in: repo), 0)
+        XCTAssertEqual(GitFixture.run(["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "link"], in: repo), 0)
+        XCTAssertEqual(GitFixture.capture(["status", "--porcelain"], in: repo) ?? "?", "", "前提：git 說乾淨")
+        let bad = LibraryStore.filesNotSafelyRecoverable(root: repo, relativePaths: ["entities/a.yaml", "entities/link.yaml"])
+        XCTAssertEqual(bad.map(\.path), [], "git 說乾淨的檔被判成 dirty：\(bad)")
+    }
+
+    /// 一個已 commit 的 `entities/a.yaml`，外加一個空的假 HOME。
+    private func scratchRepo(committed content: String) throws -> (repo: URL, home: URL, base: URL) {
+        let fm = FileManager.default
+        let base = fm.temporaryDirectory.appendingPathComponent("git-attr-\(UUID().uuidString)")
+        let repo = base.appendingPathComponent("repo"), home = base.appendingPathComponent("home")
+        try fm.createDirectory(at: repo.appendingPathComponent("entities"), withIntermediateDirectories: true)
+        try fm.createDirectory(at: home, withIntermediateDirectories: true)
+        try content.write(to: repo.appendingPathComponent("entities/a.yaml"), atomically: true, encoding: .utf8)
+        XCTAssertEqual(GitFixture.run(["init", "-q"], in: repo), 0)
+        XCTAssertEqual(GitFixture.run(["add", "-A"], in: repo), 0)
+        XCTAssertEqual(GitFixture.run(["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "seed"], in: repo), 0)
+        return (repo, home, base)
     }
 
 }

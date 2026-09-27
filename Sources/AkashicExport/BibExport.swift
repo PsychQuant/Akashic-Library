@@ -14,6 +14,14 @@ public enum BibExport {
         return head + (".!?。".contains(head.last!) ? " " : ". ") + clause
     }
 
+    /// 第一個以外的 DOI（正規形、去重、不含與第一個相同者）——兩個匯出面共用（R1 verify 第 21 列：清單有重複值時 `DOI` 欄與
+    /// addendum 會各印一次同一個號）。
+    public static func otherDOIs(_ entry: Entry) -> [String] {
+        guard let first = entry.doi.first?.normalized else { return [] }
+        var seen: Set<String> = [first]
+        return entry.doi.dropFirst().map(\.normalized).filter { seen.insert($0).inserted }
+    }
+
     /// DOI 從 verbatim 的 `DOI` 欄位搬進 TeX 會解讀的 `addendum` 時要逃脫（#543 R1 verify security）：DOI 可以含 `_ % # & ~ ^ $ \`，
     /// 原樣進 addendum 會被 TeX 當成指令或註解，印出來的不是那個號。大括號由 `braceSafe` 管，這裡不動。
     static func texEscapedDOI(_ doi: String) -> String {
@@ -24,6 +32,10 @@ public enum BibExport {
             case "~": out += "\\textasciitilde{}"
             case "^": out += "\\textasciicircum{}"
             case "_", "%", "#", "&", "$": out += "\\" + String(ch)
+            // OT1 編碼（未載入 fontenc 的預設）下 `<`／`>`／`|` 會印成 ¡／¿／—；SICI 形的 DOI 含 `<`／`>`（R2 verify DA）
+            case "<": out += "\\textless{}"
+            case ">": out += "\\textgreater{}"
+            case "|": out += "\\textbar{}"
             default: out.append(ch)
             }
         }
@@ -78,7 +90,7 @@ public enum BibExport {
         // 它們仍是真的號，丟掉等於丟掉一次身分判定，而讀 .bib 的人會以為那是全部。已有 addendum 時接在後面。
         if let first = entry.doi.first {
             fields["doi"] = braceSafe(first.normalized)
-            let rest = entry.doi.dropFirst().map { texEscapedDOI($0.normalized) }
+            let rest = otherDOIs(entry).map(texEscapedDOI)
             if !rest.isEmpty {
                 fields["addendum"] = braceSafe(BibExport.appendingOtherDOIs(to: entry.fields["addendum"], rest))
             }

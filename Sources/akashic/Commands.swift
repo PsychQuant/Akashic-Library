@@ -369,7 +369,7 @@ struct Migrate: ParsableCommand {
             print("\(prefix) 形狀標籤：補 \(l.labelled) 筆"
                 + (l.alreadyLabelled > 0 ? "、已有標籤 \(l.alreadyLabelled) 筆" : ""))
             if dryRun {
-                print("  實際執行：akashic migrate --library " + displaySafeInvisible(store.root.path, max: 800))   // #653 R1 verify 第 18 列：不帶 --library 會被閘擋
+                print("  實際執行：akashic migrate --library " + shellQuotedLibraryPath(store.root.path))   // #653：不帶 --library 會被閘擋；R2：路徑要能照貼
             } else {
                 print("  store format → \(StoreVersion.supported)；舊 binary 從此會拒絕開啟這個 store（#24）")
                 let stats = try LibraryIndex(store: store).rebuild()
@@ -433,7 +433,7 @@ struct MigrateProvenance: ParsableCommand {
             }
         }
         if dryRun {
-            print("  實際執行：akashic migrate-provenance --library " + displaySafeInvisible(store.root.path, max: 800))   // #653 R1 verify 第 18 列：不帶 --library 會被閘擋
+            print("  實際執行：akashic migrate-provenance --library " + shellQuotedLibraryPath(store.root.path))   // #653：不帶 --library 會被閘擋；R2：路徑要能照貼
         } else {
             // 這個遷移沒有消歧那種「tracked 且 clean」的 gate（它不刪檔），
             // 所以可回溯性由使用者的版控負責——明講，不要讓人事後才發現。
@@ -2513,4 +2513,12 @@ struct RecordDivergence: ParsableCommand {
             }
         }
     }
+}
+
+/// 提示裡「照貼就能跑」的 `--library` 值（#653 R2 verify）：路徑可以原樣安全顯示時加單引號（內含的 `'` 以 `'\''` 處理），
+/// 空白與 shell 特殊字元都不會把它切開；需要逃脫才能顯示的路徑（控制字元、不可見字元）印成佔位字——逃脫過的字串貼回去
+/// 指的不是同一個目錄，那比不給更糟。
+func shellQuotedLibraryPath(_ path: String) -> String {
+    guard displaySafeInvisible(path, max: 800) == path else { return "<store 路徑（含需要逃脫才能顯示的字元，請自行填入）>" }
+    return "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"   // display-safe-exempt: 上一行已確認原樣可安全顯示
 }

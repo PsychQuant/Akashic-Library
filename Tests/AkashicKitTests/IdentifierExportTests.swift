@@ -86,9 +86,22 @@ final class IdentifierExportTests: XCTestCase {
         let add = try XCTUnwrap(BibExport.bibEntry(for: e, people: [:], venues: [:]).fields["addendum"])
         XCTAssertTrue(add.contains("10.1002/foo\\_bar\\%x\\#y"), add)
         XCTAssertFalse(add.contains(".."), add)
+        // SICI 形的 DOI 含 `<`／`>`：OT1 編碼下會印成 ¡／¿（R2 verify DA）
+        let sici = entry(doi: [try XCTUnwrap(DOI("10.1111/aaa")),
+                               try XCTUnwrap(DOI("10.1002/(SICI)1097-4571(199806)49:8<693::AID-ASI4>3.0.CO;2-0"))])
+        let siciAdd = try XCTUnwrap(BibExport.bibEntry(for: sici, people: [:], venues: [:]).fields["addendum"])
+        XCTAssertTrue(siciAdd.contains("\\textless{}693::aid-asi4\\textgreater{}"), siciAdd)   // 正規形是小寫
         let json = try CSLExport.cslJSON(entries: [e], people: [], venues: [])
         let item = try XCTUnwrap((try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [[String: Any]])?.first)
         XCTAssertTrue((item["note"] as? String ?? "").contains("10.1002/foo_bar%x#y"), "\(item)")
+    }
+
+    /// R1 verify 第 21 列：清單裡重複的號（含與第一個相同者）只印一次。
+    func testDuplicateDOIsAreListedOnce() throws {
+        let e = entry(doi: [try XCTUnwrap(DOI("10.1111/aaa")), try XCTUnwrap(DOI("10.1111/AAA")),
+                            try XCTUnwrap(DOI("10.2222/bbb")), try XCTUnwrap(DOI("10.2222/bbb"))])
+        let add = try XCTUnwrap(BibExport.bibEntry(for: e, people: [:], venues: [:]).fields["addendum"])
+        XCTAssertEqual(add, "Other DOI: 10.2222/bbb")
     }
 
     /// 單一 DOI 不產生 addendum。

@@ -3176,7 +3176,7 @@ extension LibraryStore {
     /// 靠唯一呼叫端的 `dedupePreservingOrder`，而 R3 把本函式變成測試直呼的 API。
     ///
     /// **已量測、不是邊界**（R4；R3 verify 第 23 列）：兩個查詢都帶 `-z`，`core.quotePath` 對它們**沒有作用**（實測含非 ASCII 路徑）；顯式
-    /// `--relative` 勝過 `diff.relative=false`。呼叫者的環境（`PATH`、global／system gitconfig、xcrun 選路）不影響答案，見 `scrubbedGitEnvironment`。
+    /// `--relative` 勝過 `diff.relative=false`。呼叫者環境能改變答案的已知向量與仍是邊界的部分，見 `scrubbedGitEnvironment`。
     public static func filesNotSafelyRecoverable(root: URL,
                                           relativePaths: [String]) -> [(path: String, why: String)] {
         // **不存在的檔案跳過。** 它不可能被「不可回復地刪除」——刪除迴圈對它是
@@ -3204,7 +3204,22 @@ extension LibraryStore {
             }
             headState = any.out.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .unborn : .unresolvable
         }
-        var tag: [String: Character] = [:], dirtySet = Set<String>()
+        var tag: [String: Character] = [:], dirtySet = Set<String>(), staleCacheSet = Set<String>()
+        // **index 的 stat 快取不可信**（#573／#585 R2）：`diff HEAD` 對 stat 與 index 相符的檔不讀內容，而那份 stat 可能是在一次被騙的
+        // 比對裡刷新的——使用者曾在惡意的 git 設定下跑過 `git status`，dirty 檔的新 stat 就被記成乾淨。所以另外在暫存路徑以
+        // `read-tree HEAD` 建一份**沒有任何 stat 資訊**的 index，拿它再比一次：每個檔都得重讀內容，而判斷乾淨的邏輯仍是 git 自己的
+        // （CRLF、symlink 照 git 的規則，R2 verify logic 席：先前直接比 `hash-object` 會誤判）。真正的 index 不動。
+        // （`update-index --really-refresh` 不行：它只是不理 assume-unchanged，stat 照信——第一版就是這樣，測試抓到。）
+        var refreshedIndex: URL?
+        if headState == .resolved {
+            let fresh = FileManager.default.temporaryDirectory.appendingPathComponent("akashic-index-\(UUID().uuidString)")
+            guard let rt = git(["read-tree", "HEAD"], in: root, extraEnv: ["GIT_INDEX_FILE": fresh.path]), rt.status == 0 else {
+                try? FileManager.default.removeItem(at: fresh)
+                return present.map { (path: $0, why: cannotRun) }
+            }
+            refreshedIndex = fresh
+        }
+        defer { if let r = refreshedIndex { try? FileManager.default.removeItem(at: r) } }
         // 分批送 pathspec（R3；R2 verify 第 20／33 列）：整份名單塞進一個 argv 超過 ARG_MAX 時 `Process.run()` 會擲出、每個檔都變成
         // `cannotRun`——fail-closed 但完全指錯方向；每批 `gitPathspecChunk` 筆約是 ARG_MAX 的 1／40（實測要兩萬多個 pathspec 才撞到）。
         for start in stride(from: 0, to: present.count, by: Self.gitPathspecChunk) {
@@ -3223,22 +3238,14 @@ extension LibraryStore {
                     return present.map { (path: $0, why: cannotRun) }
                 }
                 dirtySet.formUnion(names(dirty.out))
-                // **比內容，不只信 index 的 stat 快取**（#573／#585 R2）：`diff HEAD` 對 stat 與 index 相符的檔不讀內容，而 index
-                // 的 stat 可能是在一次被騙的比對裡刷新的——使用者曾在惡意的 global gitconfig（clean filter 從 HEAD 取內容）下跑過
-                // `git status`，dirty 檔的新 stat 就被記成乾淨，之後關掉 global config 也救不回來。所以另外把工作樹內容 hash 成 blob
-                // （只套 repo 自己的 filter），與 HEAD 的 blob id 逐檔比對，兩者取聯集。
-                guard let tree = git(["ls-tree", "-z", "HEAD", "--"] + chunk, in: root), tree.status == 0,
-                      let hashed = git(["hash-object", "--"] + chunk, in: root), hashed.status == 0 else {
-                    return present.map { (path: $0, why: cannotRun) }
+                if let r = refreshedIndex {
+                    guard let fresh = git(["diff", "--name-only", "--relative", "-z", "HEAD", "--"] + chunk, in: root,
+                                          extraEnv: ["GIT_INDEX_FILE": r.path]), fresh.status == 0 else {
+                        return present.map { (path: $0, why: cannotRun) }
+                    }
+                    let plain = Set(names(dirty.out))
+                    for rel in names(fresh.out) where !plain.contains(rel) { staleCacheSet.insert(rel) }
                 }
-                var headBlob: [String: String] = [:]
-                for entry in names(tree.out) {   // `<mode> <type> <sha>\t<path>`
-                    guard let tab = entry.firstIndex(of: "\t") else { continue }
-                    let meta = entry[..<tab].split(separator: " ")
-                    if meta.count == 3 { headBlob[String(entry[entry.index(after: tab)...])] = String(meta[2]) }
-                }
-                let worktreeBlobs = hashed.out.split(separator: "\n").map(String.init)
-                for (rel, sha) in zip(chunk, worktreeBlobs) where headBlob[rel] != sha { dirtySet.insert(rel) }
             }
         }
         var bad: [(path: String, why: String)] = []
@@ -3257,6 +3264,9 @@ extension LibraryStore {
                 bad.append((rel, "HEAD 沒有指向任何 commit（orphan 分支，或 HEAD 指向不存在的 ref）——repo 裡有 commit，但當下比對不到版本；切回有 commit 的分支後重跑"))
             } else if dirtySet.contains(rel) {
                 bad.append((rel, "有未提交的修改——git 裡的是舊版本，當下這版刪掉或改寫都不可回復"))
+            } else if staleCacheSet.contains(rel) {
+                // 只有重讀內容才看得到的修改：`git status` 會說乾淨、commit 也會說沒有東西——所以不能叫人「先 commit」（R2 verify requirements 席）
+                bad.append((rel, "內容與 git 裡的版本不同，但 index 的 stat 快取記成乾淨（可能曾在別的 git 設定下刷新過），`git status` 看不到這個修改——先跑 `git update-index --really-refresh`，確認 `git status` 列出它之後 commit，再重跑"))
             }
         }
         return bad
@@ -3283,30 +3293,35 @@ extension LibraryStore {
     /// 排在 `PATH` 前面的 `git` shim 讓可回溯性閘從拒絕變成靜默完成——`/usr/bin/env git` 把答案交給了 `PATH`。現在直接執行絕對路徑，
     /// `PATH` 前面放什麼都不影響；它不存在時 `git(_:in:)` 回 nil，呼叫端一律 fail-closed（具名拒絕，不放行）。
     ///
-    /// **git 的設定檔也不聽呼叫者的**（#573／#585 R1 verify DA 第 13 列，真 binary 重現）：只剝 `GIT_*` 時 `HOME` 下的 `.gitconfig`
-    /// 照樣生效——一個把 `*.yaml` 對到「從 HEAD 取內容」的 clean filter，就讓 `diff HEAD` 把 dirty 的檔判成 clean，可回溯性閘放行、
-    /// 刪掉一筆只存在工作樹的判定。所以在剝除之後設 `GIT_CONFIG_GLOBAL=/dev/null`、`GIT_CONFIG_NOSYSTEM=1`（只讀 repo 自己的設定），
-    /// `git(_:in:)` 另加 `-c core.fsmonitor=false`。**xcrun 的選路變數也剝**：macOS 的 `/usr/bin/git` 是 xcrun 的跳板，
-    /// `DEVELOPER_DIR`／`TOOLCHAINS`／`SDKROOT` 決定它實際執行哪一支（R1 verify security 第 12 列）。
-    /// **仍是邊界的**：repo 自己的 `.git/config` 與 `.gitattributes`——它們是被檢查的那個 repo 的一部分，不是呼叫者的環境。
+    /// **呼叫者的 git 設定不得讓閘說謊**（#573／#585 R1／R2 verify）。已知而且關掉的向量，逐一列出：
+    /// - **attributes**：`$XDG_CONFIG_HOME/git/attributes`（或 `~/.config/git/attributes`）與 global config 的 `core.attributesFile`
+    ///   不受 global config 開關影響，一行 `*.yaml ident` 或一個從 HEAD 取內容的 clean filter 就讓 dirty 的檔看起來乾淨（R1、R2
+    ///   verify 兩席真 binary 重現）。`git(_:in:)` 帶 `-c core.attributesFile=/dev/null`，環境設 `GIT_ATTR_NOSYSTEM=1`。
+    /// - **fsmonitor**：`-c core.fsmonitor=false`。
+    /// - **被污染的 index stat 快取**：見 `filesNotSafelyRecoverable` 在 index 副本上的 `--really-refresh`。
+    /// - **xcrun 選路**：macOS 的 `/usr/bin/git` 是 xcrun 的跳板，`DEVELOPER_DIR`／`TOOLCHAINS`／`SDKROOT` 決定它實際執行哪一支。
+    ///
+    /// **global config 本身保留**：R1 一度設 `GIT_CONFIG_GLOBAL=/dev/null`，R2 verify 指出它連帶關掉 `safe.directory`（只讀 global／
+    /// system，別的 uid 擁有的 store 被誤報成「無法執行 git」）與 `core.excludesFile`（`migrate-person-identity` 把 `.DS_Store` 當成 dirty）。
+    /// **仍是邊界的**：repo 自己的 `.git/config`、`.gitattributes`、`.git/info/attributes`（被檢查的那個 repo 的一部分），以及 global config
+    /// 裡被 repo 自己的 attributes 點名的 filter driver。
     static var scrubbedGitEnvironment: [String: String] {
         var env = ProcessInfo.processInfo.environment.filter {
             !$0.key.hasPrefix("GIT_") && !["DEVELOPER_DIR", "TOOLCHAINS", "SDKROOT"].contains($0.key)
         }
-        env["GIT_CONFIG_GLOBAL"] = "/dev/null"
-        env["GIT_CONFIG_NOSYSTEM"] = "1"
+        env["GIT_ATTR_NOSYSTEM"] = "1"
         return env
     }
 
     /// 在 `dir` 跑一次 git。回傳 nil = 根本執行不起來（沒有 git、或 spawn 失敗）。
     ///
     /// 刻意**不**用 shell：參數直接進 `arguments`，路徑含空白或引號都不會被重新解析。
-    static func git(_ args: [String], in dir: URL) -> (status: Int32, out: String)? {
+    static func git(_ args: [String], in dir: URL, extraEnv: [String: String] = [:]) -> (status: Int32, out: String)? {
         guard FileManager.default.isExecutableFile(atPath: gitExecutable) else { return nil }   // 起不來＝呼叫端 fail-closed
         let p = Process()
         p.executableURL = URL(fileURLWithPath: gitExecutable)
-        p.arguments = ["-C", dir.path, "-c", "core.fsmonitor=false"] + args
-        p.environment = scrubbedGitEnvironment
+        p.arguments = ["-C", dir.path, "-c", "core.fsmonitor=false", "-c", "core.attributesFile=/dev/null"] + args
+        p.environment = scrubbedGitEnvironment.merging(extraEnv) { _, new in new }
         let pipe = Pipe()
         p.standardOutput = pipe
         p.standardError = FileHandle.nullDevice   // 從不讀它——接 Pipe 而不讀，stderr 塞滿時是 hang 不是 crash（R3 verify security 第 33 列）

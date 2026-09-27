@@ -295,6 +295,19 @@ final class PrePushHookTests: XCTestCase {
     /// 否則守衛拿別次建置的 binary 對新樹跑、照樣印綠。先前（native 釘住時）的做法是手動重指連結；預設建置系統自己會指好，
     /// hook 改成只核對、不寫入。**它證明的是**：`.build/debug` 不在或指向別處 ⇒ hook 非零結束、stderr 說了為什麼、守衛沒跑。
     func testHookAbortsWhenDotBuildDebugIsNotThisBuildsProducts() throws {
+        try assertHookAbortsOnDotBuildDebug(shape: "elsewhere")
+    }
+
+    /// R2 verify：`.build/debug` 不存在、或是一個真目錄（不是這次的產物目錄）時同樣中止——不存在時兩邊解析結果都是空字串，
+    /// 先前的比較會讓「兩個空字串相等」通過。
+    func testHookAbortsWhenDotBuildDebugIsMissingOrARealDirectory() throws {
+        try assertHookAbortsOnDotBuildDebug(shape: "missing")
+        try assertHookAbortsOnDotBuildDebug(shape: "realdir")
+        // 兩邊都解析不到（`--show-bin-path` 指向不存在的目錄、`.build/debug` 也沒有）：這一格才區分得出「兩個空字串相等」的舊比較
+        try assertHookAbortsOnDotBuildDebug(shape: "bothmissing")
+    }
+
+    private func assertHookAbortsOnDotBuildDebug(shape: String) throws {
         let root = repositoryRoot
         guard FileManager.default.fileExists(
             atPath: root.appendingPathComponent(".git").path) else {
@@ -303,12 +316,21 @@ final class PrePushHookTests: XCTestCase {
         let temporary = FileManager.default.temporaryDirectory
             .appendingPathComponent("akashic-prepush-binpath-\(UUID().uuidString)")
         let products = temporary.appendingPathComponent(".build/out/Products/Debug")
-        try FileManager.default.createDirectory(at: products, withIntermediateDirectories: true)
-        // .build/debug 指向**另一個**目錄——正是「守衛會跑到別次建置的 binary」的形狀
-        let stale = temporary.appendingPathComponent(".build/stale")
-        try FileManager.default.createDirectory(at: stale, withIntermediateDirectories: true)
-        try FileManager.default.createSymbolicLink(atPath: temporary.appendingPathComponent(".build/debug").path,
-                                                   withDestinationPath: "stale")
+        if shape == "bothmissing" {
+            try FileManager.default.createDirectory(at: temporary.appendingPathComponent(".build"), withIntermediateDirectories: true)
+        } else {
+            try FileManager.default.createDirectory(at: products, withIntermediateDirectories: true)
+        }
+        // elsewhere：.build/debug 指向**另一個**目錄——正是「守衛會跑到別次建置的 binary」的形狀；missing：不存在；realdir：真目錄
+        let debug = temporary.appendingPathComponent(".build/debug")
+        switch shape {
+        case "elsewhere":
+            try FileManager.default.createDirectory(at: temporary.appendingPathComponent(".build/stale"), withIntermediateDirectories: true)
+            try FileManager.default.createSymbolicLink(atPath: debug.path, withDestinationPath: "stale")
+        case "realdir":
+            try FileManager.default.createDirectory(at: debug, withIntermediateDirectories: true)
+        default: break
+        }
         defer { try? FileManager.default.removeItem(at: temporary) }
 
         let log = temporary.appendingPathComponent("swift-invocations.log")
@@ -346,8 +368,8 @@ final class PrePushHookTests: XCTestCase {
 
         XCTAssertNotEqual(
             process.terminationStatus, 0,
-            ".build/debug 沒指向這次建置的產物時 pre-push 必須以非零結束——否則守衛跑的是別次建置的 binary")
-        XCTAssertTrue(err.contains("沒有指向這次建置的產物目錄"), "stderr 要說為什麼中止：\(err)")
+            "[\(shape)] .build/debug 沒指向這次建置的產物時 pre-push 必須以非零結束——否則守衛跑的是別次建置的 binary")
+        XCTAssertTrue(err.contains("沒有指向這次建置的產物目錄"), "[\(shape)] stderr 要說為什麼中止：\(err)")
         XCTAssertEqual(
             try String(contentsOf: log, encoding: .utf8)
                 .split(separator: "\n").map(String.init),

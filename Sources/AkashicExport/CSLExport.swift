@@ -78,7 +78,7 @@ public enum CSLExport {
                 // DOI 只放一個、其餘接進 note——與 `.bib` 同一條裁決（#543）；逗號串起來的 DOI 是一條死連結
                 if let first = entry.doi.first {
                     item["DOI"] = first.normalized
-                    let rest = entry.doi.dropFirst().map(\.normalized)
+                    let rest = BibExport.otherDOIs(entry)
                     if !rest.isEmpty {
                         // 本匯出不輸出來源的 note（fieldMap 沒有它），所以 note 只裝這一句——不是「接在既有 note 後面」（#543 R1 verify DA 第 31 列）
                         item["note"] = BibExport.appendingOtherDOIs(to: nil, rest)

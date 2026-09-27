@@ -130,8 +130,11 @@ func ruleProseGuardsMutations() -> Int32 {
     // ── #644：`--prose-only` 對 plugin/ 以外的根也抓得到第 2 項 ─────────────────────
     // 取一個非 plugin 的根（`plugin-roots` 的第二個起），複製到 tempdir、加一個含未揭露 repo 路徑的檔。
     // 先確認副本本身是綠的——否則「注入後變紅」不代表任何事（同 baseline 的理由）。
-    let otherRoot = "\(repoRoot)/plugins/akashic-discovery"
-    if FileManager.default.fileExists(atPath: otherRoot) {
+    // 根取自 `plugin-roots`（與 run-guards.sh 同一份清單，R2 verify：先前寫死了 discovery 的路徑）
+    let (_, rootsOut) = exec([BIN, "plugin-roots"], cwd: repoRoot)
+    let otherRoots = rootsOut.split(separator: "\n").map(String.init).filter { $0 != "plugin" && !$0.isEmpty }
+    let otherRoot = otherRoots.first.map { "\(repoRoot)/\($0)" } ?? ""
+    if !otherRoot.isEmpty, FileManager.default.fileExists(atPath: otherRoot) {
         let tmpR = NSTemporaryDirectory() + "prose-root-" + UUID().uuidString
         let copyR = tmpR + "/akashic-discovery"
         try? FileManager.default.createDirectory(atPath: tmpR, withIntermediateDirectories: true)
@@ -150,9 +153,15 @@ func ruleProseGuardsMutations() -> Int32 {
         }
         try? FileManager.default.removeItem(atPath: tmpR)
     } else {
-        print("✗ 找不到 plugins/akashic-discovery——#644 那一格沒有根可測（不是通過）")
+        print("✗ plugin-roots 沒有 plugin/ 以外的根——#644 那一格沒有根可測（不是通過）")
         results.append(false)
     }
+    // 空根：`--prose-only` 對不存在的根必須紅，不能因為「沒有任何行違規」而 PASS（R2 verify）
+    let (rcEmpty, outEmpty) = exec([BIN, "rule-prose-guards", "--root", NSTemporaryDirectory() + "no-such-root-" + UUID().uuidString,
+                                    "--prose-only"], cwd: repoRoot)
+    let emptyOK = rcEmpty != 0 && outEmpty.contains("空掃描不是通過")
+    print("\(emptyOK ? "✓" : "✗") --prose-only 對不存在的根 → rc=\(rcEmpty)\(emptyOK ? "，具名拒絕" : "（必須非零且說明）")")
+    results.append(emptyOK)
 
     // ── 注入 PoC：證明那條執行路徑真的關著 ────────────────────────────────
     // 這一格與其他不同：它不只看守衛紅不紅，還看**副作用有沒有發生**。

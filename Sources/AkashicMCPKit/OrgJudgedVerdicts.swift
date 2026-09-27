@@ -20,7 +20,7 @@ extension AkashicService {
 
     func judgeOrganizations(_ specs: [String]) throws -> String {
         guard specs.count <= Self.maxSpecsPerCall else {
-            throw ServiceError.invalid("一次最多判定 \(Self.maxSpecsPerCall) 筆（這次 \(specs.count) 筆）——分次送")   // display-safe-exempt: 兩者都是 Int
+            throw ServiceError.invalid("一次最多判定 \(Self.maxSpecsPerCall) 筆（這次 \(specs.count) 筆）——分次送")   // display-safe-exempt: Self.maxSpecsPerCall 與 specs.count 都是 Int
         }
         let storeFormat = (try? StoreVersion.read(root: store.root)) ?? 1
         guard storeFormat >= 8 else {
@@ -56,7 +56,7 @@ extension AkashicService {
             }
             guard s.statement.utf8.count <= Self.maxStatementBytes else {
                 throw ServiceError.invalid(
-                    "判定「\(displaySafeInvisible(s.id, max: 200))」的理由超過 \(Self.maxStatementBytes) 位元組——精簡它")   // display-safe-exempt: Int 常數
+                    "判定「\(displaySafeInvisible(s.id, max: 200))」的理由超過 \(Self.maxStatementBytes) 位元組——精簡它")   // display-safe-exempt: Self.maxStatementBytes 是 Int 常數
             }
             let kinds = rows[Array(s.rowID.utf8)] ?? [:]
             let matching = kinds.filter { $0.value.orgKeys.contains(s.orgKey) }

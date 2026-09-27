@@ -247,9 +247,8 @@ public struct Venue: Equatable {
         // 教訓同一句：守衛住在 validate → writeVenue 的交會處才擋得住所有路徑。
         // error 級——2026-09-12 實測 live store 485 筆 venue：非 canonical 0、含 Cf／Cc 0、
         // 無字母無數字 0、近重複對 0，提級不拒絕任何既有記錄。謂詞一份住
-        // `NameIdentity.wellFormednessIssue`——它拒的是三份定義的**聯集**（輸出閘 `UnsafeToEmitScalar` 的列舉、
-        // Cc／Cf／Zl／Zp、Default_Ignorable），輸出閘只逃脫其中第一份；所以「進得了 store 的名字輸出時一定安全」
-        // 為真，反過來「被拒的名字迴送時一定被逃脫」**為假**（TAG 字元原樣進錯誤訊息——#569，R9 verify 第 2 列）。
+        // `NameIdentity.wellFormednessIssue`——#569 起它拒的集合＝輸出閘 `UnsafeToEmitScalar.contains` 扣掉私用區，所以兩個方向都為真：
+        // 進得了 store 的名字輸出時安全，被拒的名字迴送時也被逃脫（R9 verify 第 2 列記過 #569 之前 TAG 字元原樣進錯誤訊息）。
         // 則數有上限（R16；R15 verify 第 15 列：同一函式的近重複與配對唯一性檢查都為「讀取路徑上對未信任的 store 內容跑」加了上限，
         // 這個迴圈與下方的近重複組卻逐筆無上限——`add_names` 無上限、無移除面）。其餘一句概括，概括句用自己的前綴、不進任何家族。
         var listedNames = 0, unlistedNames = 0

@@ -94,7 +94,7 @@ public enum NameIdentity {
     /// 1. **是 canonical 形**（前後／連續空白、tab、NFD 都不是）——空白不是名字的一部分
     ///    （本型別的立場）；R3 把新條目存原樣，之後乾淨拼法永遠進不了 authorized。
     /// 2. **不含危險或不可見 scalar**——三份定義的聯集：輸出閘 `UnsafeToEmitScalar`（**同一份**，
-    ///    它本身是 C0／C1／bidi 的列舉——#569 管它）、generalCategory 的 Cc／Cf／Zl／Zp（性質）、以及 Unicode
+    ///    #569 起它本身就是性質、涵蓋後兩份——下面兩份仍寫出來，是為了訊息分類）、generalCategory 的 Cc／Cf／Zl／Zp（性質）、以及 Unicode
     ///    自己的 `Default_Ignorable_Code_Point`（性質；UAX #44，UTS #39 confusable 用的那個），再加一個
     ///    三者都沒收的 U+2800 BRAILLE PATTERN BLANK。第三份是
     ///    R5 verify 第 2 列補的：VS16（U+FE0F，網頁貼上常見）、CGJ（U+034F）是 **Mn**、Hangul filler
@@ -140,20 +140,21 @@ public enum NameIdentity {
                 }
                 continue
             }
-            if UnsafeToEmitScalar.contains(u) {
+            // **拒絕的集合＝輸出閘（`UnsafeToEmitScalar.contains`）扣掉私用區**（#569 起同一份定義）。私用區（Co）不擋：
+            // 名字不變式從未宣稱它，且中文罕用字有時以私用區碼位表示；非 U+0020 的空白（Zs）已被上面的 canonical 檢查擋下。
+            let cat = u.properties.generalCategory
+            guard UnsafeToEmitScalar.contains(u), cat != .privateUse else { continue }
+            // 以下三支只決定**訊息**，不決定拒不拒。第一支與 #569 之前的輸出閘列舉逐字等價：Cc（C0／C1／DEL）、LS／PS、
+            // Bidi_Control（方向標記與 override／isolate）、BOM。
+            if cat == .control || cat == .lineSeparator || cat == .paragraphSeparator
+                || u.properties.isBidiControl || u.value == 0xFEFF {
                 return "含控制或方向控制字元 U+\(hex(u))——不是名字的一部分，請刪掉它"   // display-safe-exempt: 十六進位碼位（[0-9A-F]+），不是 store 字串
             }
-            // Default_Ignorable 之外還有一個渲染成空白的碼位：U+2800 BRAILLE PATTERN BLANK（So）。
-            // 不是 White_Space、不是四類、不是 DI、不在輸出閘——三份性質都沒收它，與 R5 verify 抓的
-            // Hangul filler 同形（R6 verify 第 20 列），顯式列進來；同族的 U+FFFC 顯示為方框，不擋。
+            // U+2800 BRAILLE PATTERN BLANK（So）渲染成空白，不是 DI——輸出閘把它顯式列入（R6 verify 第 20 列）。
             if u.properties.isDefaultIgnorableCodePoint || u.value == 0x2800 {
                 return "含不可見字元 U+\(hex(u))（零寬、變體選擇子、填充字元一類）——不是名字的一部分，請刪掉它"   // display-safe-exempt: 十六進位碼位（[0-9A-F]+），不是 store 字串
             }
-            switch u.properties.generalCategory {
-            case .control, .format, .lineSeparator, .paragraphSeparator:
-                return "含格式或控制字元 U+\(hex(u))——不是名字的一部分，請刪掉它"   // display-safe-exempt: 十六進位碼位（[0-9A-F]+），不是 store 字串
-            default: break
-            }
+            return "含格式或控制字元 U+\(hex(u))——不是名字的一部分，請刪掉它"   // display-safe-exempt: 十六進位碼位（[0-9A-F]+），不是 store 字串
         }
         // 「字母」是 generalCategory 的 L 類、「數字」是 N 類——不是 `Character.isLetter`（那是 `isAlphabetic`，
         // 含 Other_Alphabetic 的 Mn／Mc：一個孤立的 Arabic fatha 或 Devanagari vowel sign 會通過，

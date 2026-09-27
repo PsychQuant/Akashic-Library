@@ -1048,21 +1048,71 @@ final class SanitizationBoundaryTests: XCTestCase {
         XCTAssertEqual(displaySafeErrorMultiline(ServiceErrorProbe.make("a\nb")), "a\nb")
     }
 
-    /// D84 的 `cost` 常數有守衛（R33；R32 verify 第 7／11／17／35 列）：`UnsafeToEmitScalar` 的**每個**成員都在 BMP、只截支對每個成員以
-    /// `escapedScalarCount` 為預算恰好不截、少一格就截。`jsonEscape` 對同一前提有 surrogate 分支＋doc，這裡是 display 面的那一半——
-    /// 加一個非 BMP 成員（`\u{%04X}` 印五位、每次逃脫少算一格）自此紅（NC）。
-    func testEveryUnsafeScalarEscapesToExactlyEscapedScalarCount() {
-        var members = 0
-        for v in UInt32(0)...0x10FFFF where UnsafeToEmitScalar.contains(v) {
+    /// D84 的 `cost` 有守衛（R33；R32 verify 第 7／11／17／35 列）：人可讀輸出逃脫的**每個**成員，只截支以
+    /// `escapedScalarCount(v)` 為預算恰好不截、少一格就截。#569 之前集合全在 BMP、成本是常數 8；性質化之後含 TAG（U+E0000 起）
+    /// 與補充私用區（U+F0000 起，`%04X` 印五或六位），常數會讓每次逃脫少算一到兩格而沒有跡象（NC：把 `escapedScalarCount` 改回常數 8）。
+    func testEscapedScalarCountMatchesTheEscapeForEveryScalar() {
+        var members = 0, beyondBMP = 0
+        for v in UInt32(0)...0x10FFFF {
+            guard let u = Unicode.Scalar(v), UnsafeToEmitScalar.escapesInDisplay(u) else { continue }
             members += 1
-            XCTAssertLessThanOrEqual(v, 0xFFFF, "非 BMP 成員 U+\(String(v, radix: 16))：`%04X` 會印五位、預算少算一格")
-            guard let u = Unicode.Scalar(v) else { XCTFail("U+\(String(v, radix: 16)) 不是 scalar"); continue }
+            if v > 0xFFFF { beyondBMP += 1 }
+            let escaped = String(format: "\\u{%04X}", v)
+            XCTAssertEqual(escaped.unicodeScalars.count, UnsafeToEmitScalar.escapedScalarCount(v), "U+\(String(v, radix: 16))：逃脫序列長度")
+            // 只截支的預算對邊界逐點驗——BMP 內抽樣（全部走一遍要跑數十萬次截斷），BMP 外的三種長度都走得到
+            guard v % 97 == 0 || v > 0xFFFF && v % 4099 == 0 || (0xE0000...0xE007F).contains(v) else { continue }
             let s = String(Character(u))
-            XCTAssertEqual(String(format: "\\u{%04X}", v).unicodeScalars.count, UnsafeToEmitScalar.escapedScalarCount, "U+\(String(v, radix: 16))：逃脫序列長度")
-            XCTAssertEqual(displaySafeClipOnly(s, max: UnsafeToEmitScalar.escapedScalarCount), String(format: "\\u{%04X}", v), "U+\(String(v, radix: 16))")
-            XCTAssertTrue(displaySafeClipOnly(s, max: UnsafeToEmitScalar.escapedScalarCount - 1).hasSuffix("…（已截斷）"), "U+\(String(v, radix: 16))：少一格要截")
+            XCTAssertEqual(displaySafeClipOnly(s, max: UnsafeToEmitScalar.escapedScalarCount(v)), escaped, "U+\(String(v, radix: 16))")
+            XCTAssertTrue(displaySafeClipOnly(s, max: UnsafeToEmitScalar.escapedScalarCount(v) - 1).hasSuffix("…（已截斷）"), "U+\(String(v, radix: 16))：少一格要截")
         }
-        XCTAssertGreaterThanOrEqual(members, 32 + 1 + 32 + 2 + 5 + 4 + 3 + 1, "成員數 \(members)——空掃描不是通過")
+        XCTAssertGreaterThan(members, 100_000, "成員數 \(members)——空掃描不是通過（補充私用區就有十三萬個）")
+        XCTAssertGreaterThan(beyondBMP, 100_000, "BMP 以外的成員 \(beyondBMP)")
+    }
+
+    /// #569：輸出閘從列舉改成性質——舊列舉的每個成員仍在集合裡（性質是它的超集），且 #569 立案時具名的字元都被逃脫。
+    func testPropertyIsASupersetOfTheFormerEnumeration() {
+        let former: [ClosedRange<UInt32>] = [0...0x1F, 0x7F...0x9F, 0x2028...0x2029, 0x202A...0x202E, 0x2066...0x2069,
+                                             0x200E...0x200F, 0x061C...0x061C, 0xFEFF...0xFEFF]
+        for r in former { for v in r { XCTAssertTrue(UnsafeToEmitScalar.contains(v), "U+\(String(v, radix: 16)) 在舊列舉裡") } }
+        // TAG 字元、ZWSP、SHY、U+180E、U+206A–206F、NBSP、私用區、盲文空白
+        for v: UInt32 in [0xE0041, 0xE0001, 0xE007F, 0x200B, 0x00AD, 0x180E, 0x206A, 0x206F, 0x00A0, 0xE000, 0xF0000, 0x2800] {
+            XCTAssertTrue(UnsafeToEmitScalar.contains(v), "U+\(String(v, radix: 16))")
+        }
+        XCTAssertEqual(displaySafe("Tag\u{E0041}Name"), "Tag\\u{E0041}Name", "TAG 字元在人可讀輸出被逃脫")
+        XCTAssertEqual(displaySafe("a\u{200B}b"), "a\\u{200B}b")
+        for v: UInt32 in [0x20, 0x41, 0x4E2D, 0x0301, 0xFFFC] { XCTAssertFalse(UnsafeToEmitScalar.contains(v), "U+\(String(v, radix: 16)) 不在集合") }
+    }
+
+    /// #569 的裁決：ZWJ／ZWNJ 在人可讀輸出保留（波斯文、印度系文字的正字法），在 JSON 出口逃脫（`\u200D` 無損）。
+    func testJoinersStayInDisplayButAreEscapedInJSON() throws {
+        let persian = "نشریه\u{200C}روان"
+        XCTAssertEqual(displaySafe(persian), persian, "人可讀輸出不逃脫 ZWNJ")
+        XCTAssertEqual(escapingInvisibleScalars(persian), "نشریه\\u{200C}روان", "名字閘的訊息仍要看得見被拒的接合字元")
+        let json = String(decoding: try JSONSerialization.data(withJSONObject: ["n": persian]), as: UTF8.self)
+        let escaped = UnsafeToEmitScalar.escapingUnsafeScalars(inSerializedJSON: json)
+        XCTAssertTrue(escaped.contains("\\u200C"), escaped)
+        let back = try JSONSerialization.jsonObject(with: Data(escaped.utf8)) as? [String: String]
+        XCTAssertEqual(back?["n"], persian, "JSON 的逃脫無損")
+        // 非 BMP（TAG）在 JSON 裡以 surrogate pair 逃脫、解回來逐字相同
+        let tag = "a\u{E0041}b"
+        let tagJSON = UnsafeToEmitScalar.escapingUnsafeScalars(
+            inSerializedJSON: String(decoding: try JSONSerialization.data(withJSONObject: ["n": tag]), as: UTF8.self))
+        XCTAssertTrue(tagJSON.contains("\\uDB40\\uDC41"), tagJSON)
+        XCTAssertEqual((try JSONSerialization.jsonObject(with: Data(tagJSON.utf8)) as? [String: String])?["n"], tag)
+    }
+
+    /// #569：名字輸入閘拒絕的集合＝輸出閘扣掉私用區（接合字元另有脈絡規則、非 U+0020 空白由 canonical 檢查先擋）。
+    /// 兩份規格從此是一份——這裡對 BMP 與 TAG 區逐一比對，任何一邊改了另一邊沒改就紅。
+    func testNameGateRejectsExactlyTheOutputGateMinusPrivateUse() {
+        for v in Array(UInt32(0)...0xFFFF) + Array(UInt32(0xE0000)...0xE0FFF) {
+            guard let u = Unicode.Scalar(v), v != 0x200C, v != 0x200D, !u.properties.isWhitespace else { continue }
+            let s = "A" + String(Character(u)) + "B"
+            // canonical 形以外的拒絕（NFC 會改寫的組合）不是本測試要比的東西
+            guard s.precomposedStringWithCanonicalMapping.unicodeScalars.elementsEqual(s.unicodeScalars) else { continue }
+            let rejected = NameIdentity.wellFormednessIssue(s) != nil
+            let expected = UnsafeToEmitScalar.contains(u) && u.properties.generalCategory != .privateUse
+            if rejected != expected { XCTFail("U+\(String(v, radix: 16))：名字閘 \(rejected)，輸出閘扣私用區 \(expected)"); return }
+        }
     }
 
     /// 96 KB 總量以 UTF-8 位元組計（R30 verify 第 13 列：`String.count` 對 300 行 × 400 個 CJK 字放行 288 KB）。

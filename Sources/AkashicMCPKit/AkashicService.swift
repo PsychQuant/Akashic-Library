@@ -116,8 +116,12 @@ public final class AkashicService {
     /// 恆為低估。三個消費端——`resolve_people` 的候選列、rejected 列、doctor 的 `first`——都吃同一個偏差，預算對它留有餘裕。要真的
     /// 「量輸出那一份」得把量測綁到與 `jsonString` 同一組 options，而巢狀深度讓 pretty 的位元組數取決於它在 payload 裡的位置——
     /// 那不是本函式能單獨回答的，所以上面那句「實際位元組數」要讀成「compact 的實際位元組數」。）
+    ///
+    /// #569 起量的是**逃脫之後**的位元組（與 `jsonString` 同一道 `escapingUnsafeScalars`）：ZWJ／ZWNJ 在 JSON 裡是六個位元組的
+    /// `\u200C`，不是三個位元組的 UTF-8——量逃脫之前的會低估。
     static func jsonBytes(_ v: Any) -> Int {
-        (try? JSONSerialization.data(withJSONObject: [v], options: []))?.count ?? 0
+        guard let data = try? JSONSerialization.data(withJSONObject: [v], options: []) else { return 0 }
+        return UnsafeToEmitScalar.escapingUnsafeScalars(inSerializedJSON: String(decoding: data, as: UTF8.self)).utf8.count
     }
 
     public init(root: URL, key: String? = nil, configURL: URL? = nil,
@@ -3449,7 +3453,7 @@ public final class AkashicService {
         try LibraryIndex(store: store).rebuild()
         let nameReport = Self.namesReport(requested: addNames ?? [], before: namesBefore, after: venue.names.entries.map(\.value))
         // 名字鍵性質式（R33；R32 verify 第 9 列：同一函式的錯誤路徑 R32 已改性質式、成功 payload 仍列舉式——私用區 Co 與合法 joiner 過得了
-        // 名字驗證、列舉式不逃，操作者拿這份 payload 確認剛寫進去的是哪個名字）。其餘列舉式 payload 鍵是 #569 的範圍。
+        // 名字驗證、列舉式不逃，操作者拿這份 payload 確認剛寫進去的是哪個名字）。#569 起 `displaySafe` 本身也是性質式，差別只剩 ZWJ／ZWNJ。
         var payload: [String: Any] = ["key": key,
                                       "namesAdded": added.map { displaySafeInvisible($0, max: 200) },
                                       "namesFolded": nameReport.folded.map { displaySafeInvisible($0, max: 200) },
@@ -4627,7 +4631,7 @@ public final class AkashicService {
     /// #553 合併吸收的 store 可以有很多筆（每項 ~520 字元），而 MCP 的輸出進 LLM context、呼叫端無法在收到後丟棄已付的代價
     /// （`mcp-cli-parity` 對 `--rows` 的論證）。`akashic_enrich` 的既有形：截 20 筆、總數與 `truncated` 揭露。**只有 MCP 面截**：
     /// CLI 面傳 `retiredLimit: nil` 全列（#573，使用者 2026-09-27 裁決——輸出進人的終端機）。**它迴送 store 字串**（verdict 的 value 是原始匯入的刊名、statement 是判定文字）而輸出閘
-    /// `displaySafe` 對 Cf 字元的逃脫仍是列舉——#569 的迴送點 4 → 6，那裡另裁。
+    /// `displaySafe` #569 起以性質逃脫（與 `escapingInvisibleScalars` 同一份定義，只差人可讀輸出保留 ZWJ／ZWNJ）。
     public static let retiredItemsCap = 20
     static func retiredPayload(_ retired: [String], limit: Int?) -> [String: Any] {
         let shown = limit.map { Array(retired.prefix($0)) } ?? retired
@@ -4666,7 +4670,7 @@ public final class AkashicService {
         }
         // `verdictsRetired` 迴送的是 store 字串（verdict 的 value 是原始匯入的刊名、statement 是判定文字）——這條路徑上第一個帶
         // store 字串的**成功** payload（R11 verify security 第 10 列）；性質式逃脫住在 AkashicCore（`escapingInvisibleScalars`，
-        // R13：與名字不變式的訊息、合併的拒絕訊息共用，R12 verify 第 14 列），是 #569 的局部圍堵不是它的裁決。
+        // R13：與名字不變式的訊息、合併的拒絕訊息共用，R12 verify 第 14 列）。#569 起 `displaySafe` 已逃脫同一個集合，這裡多逃的只剩 ZWJ／ZWNJ。
         return escapingInvisibleScalars(s)
     }
 
@@ -5100,8 +5104,11 @@ public final class AkashicService {
                                "organizationsRewritten": grouped.count] as [String: Any])   // display-safe-exempt: Int
     }
 
+    /// CLI `--json` 與 MCP 回應共用的序列化點。序列化**之後**以 `escapingUnsafeScalars` 改寫字串字面值裡的危險 scalar（#569）：
+    /// 值多半已經過 `displaySafe`（人可讀的形），而人可讀輸出刻意保留 ZWJ／ZWNJ——JSON 出口逃脫它們，`\u200C` 是 JSON 自己的
+    /// 逃脫語法，解回來逐字相同，無損。其餘沒經過 `displaySafe` 的逐字值（餵回寫入面的 literal）同樣只在位元組層改寫。
     func jsonString(_ obj: Any) throws -> String {
         let data = try JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys])
-        return String(decoding: data, as: UTF8.self)
+        return UnsafeToEmitScalar.escapingUnsafeScalars(inSerializedJSON: String(decoding: data, as: UTF8.self))
     }
 }

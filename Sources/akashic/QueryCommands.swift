@@ -79,7 +79,8 @@ struct Query: ParsableCommand {
             }
             let data = try JSONSerialization.data(
                 withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
-            print(String(decoding: data, as: UTF8.self))
+            // #569：JSON 出口逃脫 ZWJ／ZWNJ 等（與 `AkashicService.jsonString` 同一道），無損
+            print(UnsafeToEmitScalar.escapingUnsafeScalars(inSerializedJSON: String(decoding: data, as: UTF8.self)))
         } else {
             guard !results.isEmpty else {
                 print("（無結果）")

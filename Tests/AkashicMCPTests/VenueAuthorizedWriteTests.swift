@@ -55,6 +55,21 @@ final class VenueAuthorizedWriteTests: XCTestCase {
     }
     override func tearDownWithError() throws { try? FileManager.default.removeItem(at: root) }
 
+    /// #569：service 的 JSON 出口（CLI `--json` 與 MCP 共用的 `jsonString`）逃脫 ZWJ／ZWNJ——人可讀輸出保留它們，JSON 不保留原字元，
+    /// 但解回來逐字相同。
+    func testServiceJSONEscapesJoinersLosslessly() throws {
+        let persian = "نشریه\u{200C}روان"
+        _ = try service.addVenue(key: "persian-journal", names: [persian], type: "periodical", note: nil, issn: nil)
+        let raw = try service.venue(key: "persian-journal")
+        XCTAssertFalse(raw.unicodeScalars.contains { $0.value == 0x200C }, "JSON 文字不帶原字元")
+        XCTAssertTrue(raw.contains("\\u200C"), raw)
+        let decoded = try JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any]
+        XCTAssertTrue(String(describing: decoded ?? [:]).isEmpty == false)
+        XCTAssertTrue(try JSONSerialization.data(withJSONObject: decoded ?? [:]).count > 0)
+        let names = String(decoding: try JSONSerialization.data(withJSONObject: decoded?["names"] ?? []), as: UTF8.self)
+        XCTAssertTrue(names.contains(persian), "解回來逐字相同：\(names)")
+    }
+
     private func venue() throws -> Venue {
         try XCTUnwrap(LibraryStore(root: root).load().venues.first { $0.key == "some-journal" })
     }
@@ -1094,7 +1109,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
     }
 
     /// **`verdictsRetired` 迴送的 store 字串要逃脫不可見 scalar**（R11 verify security 第 10 列：它是這條路徑上第一個帶 store 字串的
-    /// **成功** payload，而 `displaySafe` 的列舉不含 TAG 字元／ZWSP／變體選擇子——#569 的局部圍堵，以性質不以列舉）。
+    /// **成功** payload，而 #569 之前 `displaySafe` 的列舉不含 TAG 字元／ZWSP／變體選擇子——當時以性質式逃脫局部圍堵；#569 起 `displaySafe` 本身就是性質式）。
     func testVerdictsRetiredEscapesInvisibleScalars() throws {
         let store = LibraryStore(root: root)
         var e = Entry(id: UUID(), citekey: "x2025", type: .periodicalArticle, title: "T")

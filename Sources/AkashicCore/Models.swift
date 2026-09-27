@@ -707,22 +707,40 @@ public func displaySafeAssembled(_ s: String, maxLineLength: Int = 400,
 /// `JSONSerialization` 自己處理，再包一次會壞掉。共用的只有「這個字元本身危險」，
 /// 不含「這個輸出格式怎麼逃脫」。
 public enum UnsafeToEmitScalar {
-    public static func contains(_ v: UInt32) -> Bool {
-        v < 0x20 || v == 0x7F                    // C0 + DEL（含 ESC / CR / LF / TAB）
-            || (0x80...0x9F).contains(v)         // C1
-            || v == 0x2028 || v == 0x2029        // LS / PS——SwiftUI 與 JS 視為換行
-            || (0x202A...0x202E).contains(v)     // bidi override
-            || (0x2066...0x2069).contains(v)     // bidi isolate
-            || v == 0x200E || v == 0x200F || v == 0x061C  // 方向標記
-            || v == 0xFEFF                       // ZWNBSP / BOM
+    /// **性質，不是列舉**（#569，使用者 2026-09-27 裁決）。先前這裡是一張列舉（C0／C1／DEL、LS／PS、bidi override 與 isolate、
+    /// LRM／RLM／ALM、BOM），整個 Cf 類別的其餘 150 個碼位不在裡面——U+E0020–E007F 的 TAG 字元（經典的隱形文字載體）、ZWSP、SHY
+    /// 會原樣送進 LLM context；而名字輸入閘（`NameIdentity.wellFormednessIssue`）與 `escapingInvisibleScalars` 早已用性質，
+    /// 同一個字元在同一次呼叫裡被兩份規格判成不同答案。現在三者是**同一份**：
+    ///
+    /// `Default_Ignorable_Code_Point`、Cc／Cf／Zl／Zp、非 U+0020 的 Zs、私用區 Co、U+2800 BRAILLE PATTERN BLANK。
+    ///
+    /// 舊列舉的每個成員都落在這裡（C0／C1／DEL 是 Cc，LS／PS 是 Zl／Zp，方向字元與 BOM 是 Cf），
+    /// `testPropertyIsASupersetOfTheFormerEnumeration` 逐一釘住。
+    public static func contains(_ u: Unicode.Scalar) -> Bool {
+        let cat = u.properties.generalCategory
+        return u.properties.isDefaultIgnorableCodePoint
+            || cat == .control || cat == .format || cat == .lineSeparator || cat == .paragraphSeparator
+            || (cat == .spaceSeparator && u.value != 0x20) || cat == .privateUse || u.value == 0x2800
     }
 
-    public static func contains(_ u: Unicode.Scalar) -> Bool { contains(u.value) }
+    /// 以碼位查詢。surrogate 與超出 Unicode 的值不是 scalar，Swift 字串裡不會出現，回 false。
+    public static func contains(_ v: UInt32) -> Bool { Unicode.Scalar(v).map { contains($0) } ?? false }
 
-    /// `displaySafe` 的 `\u{%04X}` 逃脫對本集合**每個**成員恰產出的 scalar 數——只截支的預算以它計（R32 D84）。前提是成員全在 BMP
-    /// （`%04X` 恆四位）；`testEveryUnsafeScalarEscapesToExactlyEscapedScalarCount` 逐一走 0…0x10FFFF 釘住（R33；R32 verify 第 7／11／17／35 列：
-    /// `jsonEscape` 對同一前提有 surrogate 分支＋doc，display 面先前只有一句註解——加一個非 BMP 成員後 `max` 每次逃脫少算一格而沒有跡象）。
-    public static let escapedScalarCount = 8
+    /// **人可讀輸出**要逃脫的集合：`contains` 扣掉 ZWJ（U+200D）與 ZWNJ（U+200C）。
+    ///
+    /// 那兩個字元在波斯文、阿拉伯文與印度系文字是正字法的一部分（名字閘的 `joinerIsLegal` 只在那些脈絡放行），逃成 `\u{200D}`
+    /// 會讓人可讀的輸出出現看得見的逃脫序列。JSON 出口仍逃脫它們——`\u200D` 是 JSON 自己的逃脫語法，解回來逐字相同，無損。
+    /// 使用者 2026-09-27 裁決（#569）。
+    public static func escapesInDisplay(_ u: Unicode.Scalar) -> Bool {
+        u.value != 0x200C && u.value != 0x200D && contains(u)
+    }
+
+    /// `displaySafe` 的 `\u{%04X}` 逃脫對碼位 `v` 產出的 scalar 數：BMP 是 8（`\u{` ＋ 四位 ＋ `}`），U+10000 以上是 9 或 10
+    /// （`%04X` 印五或六位——TAG 字元 U+E0041 是 9）。只截支的預算以它計（R32 D84）。#569 之前集合全在 BMP、這裡是常數 8；
+    /// 性質化之後集合含 TAG 與補充私用區，常數會讓每次逃脫少算一到兩格而沒有跡象——`testEscapedScalarCountMatchesTheEscapeForEveryScalar` 逐一走全部 scalar 釘住。
+    public static func escapedScalarCount(_ v: UInt32) -> Int {
+        v > 0xFFFFF ? 10 : (v > 0xFFFF ? 9 : 8)
+    }
 
     /// 把一份**已序列化**的 JSON 文字裡、**字串字面值內**的危險 scalar 改寫成 `\uXXXX`。
     ///
@@ -782,7 +800,8 @@ public enum UnsafeToEmitScalar {
 /// 非 U+0020 的 Zs（NBSP／NNBSP／U+3000——名字側被 canonical 折掉，verdict literal 側沒有，第 27 列）、私用區 Co、U+2800
 /// BRAILLE PATTERN BLANK（名字不變式的顯式成員，第 22 列）。碼位補零到四位（與 `displaySafe` 的 `%04X` 一致，第 26 列）。
 /// 套在 `displaySafe` 之後：原始反斜線已被逃成 `\u{005C}`，這裡新加的 `\u{…}` 不會被再逃一次、store 裡字面寫著 `\u{200B}`
-/// 的字串也偽造不了本函式的輸出。它是 #569 的局部圍堵，不是它的裁決（`UnsafeToEmitScalar` 本身不動）。
+/// 的字串也偽造不了本函式的輸出。#569 之前它是局部圍堵；#569 起 `displaySafe` 本身就逃脫同一個集合，這裡多做的只剩 ZWJ／ZWNJ——
+/// 名字閘的拒絕訊息要讓人看得見那個被拒的接合字元。
 public func displaySafeInvisible(_ s: String, max: Int = 200) -> String {
     escapingInvisibleScalars(displaySafe(s, max: max))
 }
@@ -790,11 +809,8 @@ public func displaySafeInvisible(_ s: String, max: Int = 200) -> String {
 public func escapingInvisibleScalars(_ s: String) -> String {
     var out = String.UnicodeScalarView()
     for u in s.unicodeScalars {
-        let cat = u.properties.generalCategory
-        let invisible = u.properties.isDefaultIgnorableCodePoint
-            || cat == .control || cat == .format || cat == .lineSeparator || cat == .paragraphSeparator
-            || (cat == .spaceSeparator && u.value != 0x20) || cat == .privateUse || u.value == 0x2800
-        if invisible {
+        // #569 起與 `UnsafeToEmitScalar.contains` 是同一份定義；`displaySafe` 之後在這裡只剩 ZWJ／ZWNJ 會被逃
+        if UnsafeToEmitScalar.contains(u) {
             out.append(contentsOf: String(format: "\\u{%04X}", u.value).unicodeScalars)
         } else {
             out.append(u)
@@ -820,7 +836,7 @@ public func displaySafe(_ s: String, max: Int = 200,
     for u in s.unicodeScalars {
         let v = u.value
         let escape =
-            UnsafeToEmitScalar.contains(v)
+            UnsafeToEmitScalar.escapesInDisplay(u)
             || (escapingBackslash && v == 0x5C)      // 反斜線自身——否則輸出可被偽造。
                                                      // false 的呼叫端只有兩種：`displaySafeAssembled`（理由見該處）
                                                      // 與 `displaySafeClipOnly`（只截已消毒的訊息，R17）——
@@ -829,7 +845,7 @@ public func displaySafe(_ s: String, max: Int = 200,
         // 這是 ceiling 等價性的前提（每個輸入 scalar 至少產生一個輸出 scalar）；只截支（`false`，`displaySafeClipOnly`／`displaySafeAssembled`）
         // 數**輸出** scalar——sink 的 `max` 對消費端（終端、LLM context）是輸出上限，而一個含 TAB／CR／LS 的自帶消毒描述在 R31 仍會被
         // 逃成八個字元只算一格（R30 verify 第 12 列對 LF 修過一次，R31 只折 LF；D84 讓整個 `UnsafeToEmitScalar` 類別一起算對）。
-        let cost = escapingBackslash ? 1 : (escape ? UnsafeToEmitScalar.escapedScalarCount : 1)   // `\u{%04X}`：八個 scalar，前提由測試釘住（R33）
+        let cost = escapingBackslash ? 1 : (escape ? UnsafeToEmitScalar.escapedScalarCount(v) : 1)   // `\u{%04X}`：BMP 八個、以上九或十個，由測試釘住（R33；#569）
         if emitted + cost > boundedMaximum { truncated = true; break }
         if escape {
             put(String(format: "\\u{%04X}", v))

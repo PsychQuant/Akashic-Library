@@ -1639,7 +1639,7 @@ extension LibraryStore {
     }
 
     /// 遷移時被 `verdictEqualityKey` 去重丟掉的那一筆的人可讀描述（venue／person 共用）。**是 store 字串**（value 是原始匯入的刊名／
-    /// 人名、statement 是人寫的判定文字），消毒在 sink（CLI 對整列 `displaySafeInvisible`，#569 的局部圍堵），這裡只截——
+    /// 人名、statement 是人寫的判定文字），消毒在 sink（CLI 對整列 `displaySafeInvisible`），這裡只截——
     /// **逐段截**而不是整列截（R13 verify security 第 24 列：整列 300 會把這一列存在的理由——judgement——擠掉）。
     static func describeDedupedVerdict(_ doomedKey: String, kind: String, _ r: ProvenanceReference, kept: ProvenanceReference? = nil,
                                        why: String = "與倖存者同一配對（正規化後相等）") -> String {

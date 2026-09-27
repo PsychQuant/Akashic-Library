@@ -1628,9 +1628,10 @@ organization 零 error——擴閘不拒絕任何既有記錄；閘在 `fieldsLo
 1. **canonical 形**：NFC；無前後空白；內部任何 `White_Space` scalar 串（含 tab、換行、
    NBSP、NNBSP、U+3000）收斂為單一 U+0020。**正規化只丟空白、不刪任何其他 scalar**（空白後的
    combining mark 留著）。
-2. **不含危險或不可見 scalar**：Cc／Cf／Zl／Zp、輸出閘 `UnsafeToEmitScalar` 的成員、Unicode 的
-   `Default_Ignorable_Code_Point`（零寬、變體選擇子如 U+FE0F、CGJ U+034F、Hangul filler U+3164、
-   TAG 字元），以及 U+2800 BRAILLE PATTERN BLANK（三者都沒收、卻渲染成一格空白）。**例外只有
+2. **不含危險或不可見 scalar**：輸出閘 `UnsafeToEmitScalar` 的成員**扣掉私用區（Co）**——#569 起輸出閘本身就是性質：
+   Cc／Cf／Zl／Zp、Unicode 的 `Default_Ignorable_Code_Point`（零寬、變體選擇子如 U+FE0F、CGJ U+034F、Hangul filler U+3164、
+   TAG 字元）、非 U+0020 的空白（canonical 形已先擋下）、私用區，以及 U+2800 BRAILLE PATTERN BLANK（渲染成一格空白）。
+   私用區不擋：中文罕用字有時以私用區碼位表示，本條從未宣稱它。**例外只有
    ZWJ／ZWNJ**，且只在兩個脈絡：(a) 前一個 scalar 是 virama（ccc 9），從 virama 往前跳過標記找到的基底是
    **字母**（數字或標記當基底不算；含 legacy Malayalam chillu 的詞尾 ZWJ），**virama 與跳過的每個標記都是基底
    那個文字的**（R9，D22：`ک\u{094D}\u{200D}`、Bengali virama 掛在 Devanagari 基底上都不算），右鄰居若在要是

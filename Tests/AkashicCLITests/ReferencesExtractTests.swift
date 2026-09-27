@@ -1181,7 +1181,9 @@ final class ReferencesExtractTests: XCTestCase {
         let text = "References\n\nAdams, J. (2001). Title with glyph\u{E000}\nnext words. Journal A, 1, 1–2.\n"
         let (status, output) = try extract(text)
         XCTAssertEqual(status, 0, output)
-        XCTAssertTrue(try decode(output).entries.first?.raw.contains("\u{E000} next") == true, output)
+        // #569 起私用區字元在輸出閘被逃脫（`references extract` 逐欄 displaySafe），所以看的是逃脫後的形狀；
+        // 要驗的仍是「沒有被當成軟連字號、兩行沒有接成一個字」——逃脫序列後面接的是空格與下一行的字
+        XCTAssertTrue(try decode(output).entries.first?.raw.contains("glyph\\u{E000} next") == true, output)
     }
 
     /// T58：標題裡一長串 `[` 不得讓 `title()` 變成二次方（R5 E3）

@@ -214,13 +214,10 @@ public struct DOI: Identifier {
               !suffix.isEmpty, !suffix.contains(where: { $0.isWhitespace }),
               // 後綴可以含 Unicode 字母，但不可含控制、格式、不可見字元（#589 R2 verify）——那些渲染上看不出來，
               // 會讓一個看起來與真號相同的字串成為另一個 normalized、逃過去重與識別碼相等的身分判定。
-              // 這是第三份「不可見字元」的寫法（另兩份：`NameIdentity.wellFormednessIssue`、`escapingInvisibleScalars`）——#589 R1 verify
-              // 指出上一版註解說「不另寫一份」是假的。三份的差異刻意：這裡收私用區（Co，渲染成可見的方框）、非 ASCII 空白已被上一個條件擋下。
-              // 抽成單一謂詞的時機是出現第四個呼叫端，或三份需要一起改的時候。
+              // #569 起與名字閘、`escapingInvisibleScalars` 共用 `UnsafeToEmitScalar.contains` 這一份定義。刻意的差異只剩一個：
+              // 這裡收私用區（Co，渲染成可見的方框），與名字閘相同；非 ASCII 空白已被上一個條件擋下。
               !suffix.unicodeScalars.contains(where: { u in
-                  // U+2800（盲文空白）是 So 類、不是 DI，但渲染是空白——名字不變式把它顯式列入不可見，這裡同列
-                  UnsafeToEmitScalar.contains(u) || u.properties.isDefaultIgnorableCodePoint || u.value == 0x2800
-                      || [.control, .format, .lineSeparator, .paragraphSeparator].contains(u.properties.generalCategory)
+                  UnsafeToEmitScalar.contains(u) && u.properties.generalCategory != .privateUse
               }) else { return nil }
         normalized = s
     }

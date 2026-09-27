@@ -1623,7 +1623,7 @@ organization 零 error——擴閘不拒絕任何既有記錄；閘在 `fieldsLo
 而沒記）：spec 已有兩條 validate-time Requirement（authorized／variant 互斥、variant 不帶時間），
 本節的各條與它們同形，**應該**成為 spec 的 Requirement——那要走 spectra-propose，#554 不做
 （#554 的裁決是「既有 tool 的新參數，不走 Spectra」，D8 把它擴成 store 不變式時沒有重開那個
-裁決）。在 spec 補齊之前，本節是唯一的規範來源；follow-up 見 #570。六條，封閉（第 5 條是 R11 加的組內求值上限，R11 verify 第 13 列指出它先前只住在上面那個括號裡；第 6 條是 R18 加的整筆求值總量上限，R27 verify 第 10 列指出它從未進本節——「五條，封閉」對程式的六種 error 級拒絕為假）：
+裁決）。`openspec/specs/venue-entity/spec.md` 的 Requirement「Venue name well-formedness」（#570）以規格語言寫出同樣六條、每條一個 scenario，並指定本節是逐字元判定（scalar 類別、接合字元的兩個脈絡、訊息措辭）的細節來源——兩處要一起改。六條，封閉（第 5 條是 R11 加的組內求值上限，R11 verify 第 13 列指出它先前只住在上面那個括號裡；第 6 條是 R18 加的整筆求值總量上限，R27 verify 第 10 列指出它從未進本節——「五條，封閉」對程式的六種 error 級拒絕為假）：
 
 1. **canonical 形**：NFC；無前後空白；內部任何 `White_Space` scalar 串（含 tab、換行、
    NBSP、NNBSP、U+3000）收斂為單一 U+0020。**正規化只丟空白、不刪任何其他 scalar**（空白後的

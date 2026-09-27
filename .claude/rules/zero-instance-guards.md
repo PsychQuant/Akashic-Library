@@ -60,7 +60,7 @@
 會在邊界上自己長出沒人同意的答案，而那句話與下表**是兩份不會一起改的規格**。要判斷新情形，
 讀下表的理由欄，然後**加一列**。
 
-## 裁決史（封閉列舉——現有 35 列，一列不多一列不少）
+## 裁決史（封閉列舉——現有 36 列，一列不多一列不少）
 
 | # | 情形 | 裁決 | 理由 |
 |---|---|---|---|
@@ -99,6 +99,7 @@
 | 33 | **一半零實例、一半兩筆，而同一個檢查只寫了三分之一**（#579、#652：work 的三種參照邊——`.key` 作者、`.organization` 作者、`venues[].key`——只有第一種有懸空檢查（`crossRecordIssues` 的「作者 key 沒有對應的 people 檔」）。2026-09-26 新 binary 對 live store：懸空的 venue 邊 **0** 筆；懸空的團體作者 **2** 筆（`anon1954technical` 的 `American Psychological Association`、`anon2014pisa` 的 `OECD`——2026-08-20 #340 批次手寫，payload 是名稱不是 key，而且不是合法 StoreKey）。重跑指令見表下方） | ✅ **寫（warning，在 `crossRecordIssues`；key 不是合法 StoreKey 時訊息另說「不可能對應任何記錄」）** | 第 13 列的理由是「跡象住在錯的地方」；這一列更早一步——**跡象根本不存在**，而同形的檢查就在隔壁：person 那一半有、另外兩半沒有，是檢查寫的時候只有 person 那一種邊。所以它不是新守衛的裁決，是把既有守衛的前件補完（第 2 列的「前件多寬」，方向是寫窄了）。**severity 是 warning**，理由與既有的懸空作者相同：懸空參照讓畫面少東西、不毀資料，而解析中途本來就會有；#579 另提的「error、與 person／organization 的 key 檢查對齊」不採——那些是**記錄自身**的 key，load 就 quarantine；這裡是**參照**，quarantine 整筆 work 會讓一條壞邊把整篇作品藏起來。非法 key 另附說明，因為記錄的 key 在 load 時就驗過，一條非法 key 的邊不是「目標還沒建」而是「永遠建不出來」。工具面不寫得出它（`attribute-org` 先驗 org 存在），實例只可能來自手寫、刪除或改名。**觸發條件可檢查**：venue 邊的數應恆為 0；團體作者那兩筆的處置是人的判斷——建 org 記錄再改 key，或改回 `literal:` 交給 `resolve-organizations`（目前沒有把 `.organization` 退回 literal 的工具面，只能手改 YAML） |
 | 34 | **零實例，而第 33 列補完 work 側之後，同一種懸空在 person 與 organization 側仍然沒有檢查**（#660：第 7 條邊 `Person.profile.affiliations` 與第 8 條邊 `Organization.parents` 的 `.key` 指向不存在的 organization。#656 R1 verify DA 以 scratch store 實測 `akashic validate` rc=0、零 warning；#656 讓隸屬那一半在匯出表裡以 `affiliation_kind = 'organization' AND organization_id IS NULL` 分得出來，但要自己寫 SQL 才看得到；上級機構那一半在任何面都看不到——`organization.parent_id` 只看現任上級，懸空、字面、沒有上級三者都是 NULL（R1 verify DA）。2026-09-27 實測 live store：organization 13 筆、person 4,575 筆，懸空的隸屬 key **0**、懸空的上級機構 key **0**。重跑腳本見表下方） | ✅ **寫（warning，在 `crossRecordIssues`；key 不是合法 StoreKey 時同第 33 列另說「不可能對應任何記錄」）** | 第 33 列的理由是「同一個檢查只寫了三分之一」；這一列是**那一次補完只補了 work 那一側**——封閉列舉裡指向 organization 的邊有五條——第 1 條的 `.organization` 作者、第 7 條、第 8 條，以及第 9 條（divergence 候選的 organization shape）與第 13 條（verdict value 的 `organization:` holder）；後兩條早有檢查（懸空候選的 warning、死 verdict 掃描）。第 33 列照 work 的欄位窮舉，第 7、8 條住在別的形狀上而沒被看到（R1 verify 指出本列初稿寫「三條」，在自己講的那條軸上數錯）（`entity-backlink-completeness` 記過相鄰的形狀：補了形狀、沒窮舉它的欄位——這次是窮舉了一個形狀的欄位、沒窮舉指向同一個目標的其他形狀）。**severity 是 warning**，理由同第 33 列：懸空參照讓畫面少東西、不毀資料，quarantine 整筆 person 會讓一條壞隸屬把整個人藏起來。**literal 不報**：未歸戶的隸屬是誠實狀態（`literal-first-then-key`）。上級機構的環已有檢查（#179），懸空的上級在那條檢查裡只是「不成環」、不出聲——本列補的是它沒問的那一半。實例只可能來自手寫、刪除 organization 檔、或手改 org key（`resolve-organizations` 升格前先驗 org 存在）。**觸發條件可檢查**：兩個數應恆為 0；非零時處置是人的判斷——建那筆 organization，或把 key 改回 `literal:` 交給 `resolve-organizations` |
 | 35 | **零實例，而可達路徑是一次相等定義的替換打開的**（#582：同一筆記錄裡 ≥2 筆**非判定** reference 彼此 canonical 相等——只差 NFC／NFD，或位元組完全相同。#554 R25／R26 把 `paginated` 冪等閘、`UpdatePerson` 的 append-only、`AddOnlyEnrichment.applied` 的去重換成位元組相等（D69／D73），於是只差位元組的變體寫得進來；而第 28 列那一族第一行就只看 verdict 欄位。2026-09-27 實測 live store：非判定 reference 90 筆、重複組 **0**；新 binary 的 `validate` 對 live store 這一族 0 則。重跑腳本見表下方） | ✅ **寫（warning，`StoreHealth.duplicateReferences`；不設 per-record 上限）** | 第 28 列的理由是「可達性是本 change 的另一條裁決刻意造出來的」；這一列同形而**對象不同**：那一列是 rename 為了不刪判定而留下的判定記錄重複，這一列是位元組相等的去重為了不丟位元組而收下的非判定 reference 變體——同一個取捨（零資訊損失）在兩類欄位上各開一格，第 28 列只照判定那一格。issue 給的另一個出口是「裁決變體是合法並存、不報」：不採，因為並存的兩筆對同一件事說了兩次，合併時 `fieldsLostByMerging` 以位元組比對，倖存者只有其中一種拼法時合併會被擋下（issue 記載的路徑），那時才第一次出聲、而且出在錯的操作上。**位元組完全相同的也報**、措辭分開，一組裡兩種都有時兩件事都說。初稿寫「位元組完全相同的工具面寫不出」，R1 verify DA 以真 binary 否掉：`dropAuthors`／`splitAuthors` 對 work 的 references 直接 append，同一個移除做兩次就留下兩筆逐位元組相同的記錄。**計數的單位是組**，一筆記錄可以有好幾組。**誠實邊界**：只看 canonical 相等——只差 Cf 字元（ZWSP 之類）或只差 rests-on 順序的兩筆不報，它們在 D69／D73 之前也不被 `==` 去重，不是那次替換打開的格。**不設上限**：一組一則，則數至多是該記錄非判定 reference 數的一半——線性家族（與死 verdict 同類），不是第 28 列那種組合式家族。**severity 是 warning**：兩筆都合法，處置是人決定留哪一筆。**觸發條件可檢查**：計數應恆為 0；非零時先看是不是 NFC／NFD 變體——那是位元組相等的去重收下的，確認兩筆說的是同一件事後留一筆 |
+| 36 | **零實例，而製造它的通道是新開的，且它的錯看起來是對的**（#588：同一個 ISSN 掛在 2 個以上 venue。ISSN 的 mod-11 檢查碼擋得住亂碼，擋不住**合法但屬於姊妹刊的號**——JRSS-A／B／C 在模糊搜尋下都會命中，而 #556 起 `akashic-verify-venue` 把查到的 ISSN 寫進 venue。同輪補上移除面（`update-venue --remove-issn`／MCP `remove_issn`）：在此之前掛錯的號只能手改 YAML。2026-09-27 實測 live store：venue 485 筆、ISSN 值 59 個、distinct 59、掛在 ≥2 個 venue 的 **0**。重跑腳本見表下方） | ✅ **寫（warning，在 `crossRecordIssues`，以正規形比對）** | 第 4 列的理由是「錯誤的偽裝性」——猜錯的結果看起來是對的；這一列同形而更尖：`identity-is-judged-not-matched` 讓識別碼相等**單獨**就能做身分判定，所以一個掛錯刊的號不只是一筆錯的欄位，是一個看起來像決定性證據的假身分宣稱，之後以它為據的攣生判定都建在上面。與第 32 列（前件寫寬會放行假號）不同：那一列的號本身不合法、改謂詞就擋得住；這一列的號合法，錯的是它掛在哪裡，只有跨記錄比對看得到。**severity 是 warning**：兩本刊共用一個號可能是其中一本記錯，也可能兩筆是同一本刊（那時要走合併），那是判斷不是修檔；訊息把兩個出口都說出來。**移除面與守衛同批**：只有守衛而沒有移除面，warning 出現時唯一的出路是手改 YAML（`replace-endnote-and-zotero` 第 4 條）。移除的理由只進報告與 git 歷史（使用者 2026-09-27 裁決），所以移除前要求那筆 venue 檔已 commit（`assertRecordsRecoverable`，#573 的閘一般化）。**觸發條件可檢查**（腳本見表下方）：計數應恆為 0；非零時先查兩本刊是不是同一本，不是就移除記錯的那個號 |
 
 對本表四類中的任一個做出下一次裁決（新增、不新增、保留、拿掉）= 在這張表加一列。
 
@@ -722,6 +723,26 @@ EOF
 # 2026-09-27：非判定 reference 90｜重複組 0（其中只差位元組 0）｜讀不到的檔 0
 ```
 
+**第 36 列的量測（2026-09-27，可重跑）**：`akashic validate 2>&1 | grep -c '掛在 .* 個 venue 上'`（用含這條檢查的 binary——同第 13 列的自證，舊 binary 印不出東西）。Python 對照（不依賴 binary；正規形＝去掉連字號、大寫；讀不到的檔計數，同第 24 列）：
+
+```bash
+python3 - <<'EOF'
+import glob, io, os, yaml, collections
+by = collections.defaultdict(set); n = bad = venues = 0
+for f in glob.glob(os.path.expanduser('~/.akashic/entities') + '/*.yaml'):
+    try: d = yaml.safe_load(io.open(f, encoding='utf8'))
+    except Exception: bad += 1; continue
+    if not isinstance(d, dict): bad += 1; continue
+    if 'venue' not in d: continue
+    venues += 1
+    for x in d.get('issn') or []:
+        v = x.get('value') if isinstance(x, dict) else x
+        n += 1; by[str(v).replace('-', '').upper()].add(str(d.get('key')))
+print(f"venue {venues}｜ISSN 值 {n}｜distinct {len(by)}｜掛在 ≥2 個 venue {sum(len(k)>1 for k in by.values())}｜讀不到的檔 {bad}")
+EOF
+# 2026-09-27：venue 485｜ISSN 值 59｜distinct 59｜掛在 ≥2 個 venue 0｜讀不到的檔 0
+```
+
 ## 各列共通的東西（觀察，不是判準）
 
 第 1–9 列與第 13、14 列的裁決都是「寫」（第 14 列是 2026-09-09 從「不寫」翻過來的）、第 10–12 列（皆出自 #365）是「不寫」，但**理由各不相同**，這正是不寫總括判準的原因：
@@ -768,6 +789,7 @@ EOF
 - 第 33 列的理由是**同一個檢查只寫了三分之一**——跡象不是住錯地方（第 13 列），是根本不存在，而同形的檢查就在隔壁；補的是既有守衛的前件，不是新守衛
 - 第 34 列的理由是**補完只補了一側**——第 33 列照 work 的欄位窮舉，指向同一個目標（organization）而住在別的形狀上的兩條邊沒被看到；窮舉的軸要是「指向誰」，不只是「住在誰身上」
 - 第 35 列的理由是**同一個取捨在另一類欄位上開的格**——第 28 列照判定記錄那一格，位元組相等的去重在非判定 reference 上收下的變體沒有燈
+- 第 36 列的理由是**假號的來源是合法的號掛錯地方**——第 4 列是猜錯的結果看起來對、第 32 列是謂詞寬到放行假號；這一列的號本身合法，錯在它屬於哪本刊，只有跨記錄比對看得到，且守衛要與移除面同批，否則 warning 沒有工具面的出口
 - 第 31 列的理由是**同一條曲線換了持有者**——第 16 列的燈只照 venue；新面（未決腿）讓 person 與 organization 也開始累積，第 30 列寫下的誠實邊界要有工具面兌現，否則就是一句沒有後續的散文
 - 第 24 列的理由是**半吊子已經誠實**——前二十三列裡只有第 22 列同樣是「不動既有的東西」（比的是裁決的**動作**：那一列的對象是 spec 文字、失敗是被當死重刪掉；本列的對象是程式的半吊子管線、失敗是使用者撞牆或被當成待修殘留而被人動手）。留著的代價不是零（記了就刪不掉，#586），而是今天未兌現、且一出現就會出聲；動它的兩個方向（實作／拿掉）代價都更高。與第 10 列（缺用途）最像的是理由的**形**：實作那一半同樣是「形狀取決於還不存在的用途」；但第 10 列的對象根本不存在，這一列的對象已經在、且已經誠實
 

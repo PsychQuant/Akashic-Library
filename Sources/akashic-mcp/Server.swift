@@ -214,6 +214,7 @@ actor AkashicMCPServer {
                     "description": .string("「本刊是否使用頁碼」的判定（#406）：true＝傳統頁碼刊、false＝article-number 制。必附 judgement 與 rests_on（判定要留 verdict 與證據）；缺席＝不動既有值。nil 是誠實的未判定狀態，floor 檢查對它照報")]),
                 "judgement": str("paginated 判定的理由（設 paginated 時必填）"),
                 "rests_on": strArray("判定所依據的證據 digest（sha256:64hex，至少一個——先用 akashic_store_source 存證據拿 digest）"),
+                "remove_issn": strArray("移除 ISSN（#588）：<issn>=理由。理由必填、只回在 issnRemoved、不寫進 store，所以 venue 檔要已在 git 裡 commit；號不合法、這本刊沒有、重複、或同時在 add_issn 都整批拒絕、零寫入"),
              ], required: ["key"])),
         Tool(name: "akashic_resolve_venues",
              description: "〔#628：候選所在的 work 無法唯一定位（citekey 重複或與另一筆 work 共用 id）時該列帶 unlocatableCitekey:true，apply 逐筆略過並以 skippedUnlocatable 回報，reject／repoint／demote 整批拒絕〕venue 解析（resolve-people 契約形，#304）：不帶 apply/reject 回 {candidates, ambiguities}——candidates 是 venue name 完全命中且不歧義的 literal（正規化含 lowercase：WoS 全大寫形因此命中正式刊名）；ambiguities 是同一 literal 對到 2+ venue、需要人判斷。帶 apply（候選 id，形如 citekey:venueIndex）把 literal 升格為 key 並寫 resolution-confirmed verdict 到該 venue；帶 reject 寫 resolution-rejected（entry 不動）。組合呼叫兩段式（reject 腿先提交）。需 store format ≥ 11。絕不自動配對（literal-first-then-key）。帶 repoint（三段式 id citekey:venueIndex:newKey）把**已歸戶**的邊改指到另一個 venue——歸錯戶的退路（#418），兩側都寫 verdict（新的 confirmed、舊的 rejected）；語法錯或前提不符整批拒絕、零寫入；改指到自己是 no-op。repoint 不與 apply／reject 組合（不同階段）。帶 demote（citekey:venueIndex）把**誤升**的邊退回 literal——原字串從該 venue 上的 confirmed verdict 逐字取回（無損；取不到就拒絕，不拿顯示名頂替），並留 rejected verdict。repoint／demote 各自單獨呼叫。**repoint／demote 寫 verdict 時會刪掉同 holder 上同一配對的相反判定**（D20，#554）——那是一筆人的判定記錄（#553 合併搬進 keeper 的 `reject` 也算），唯一副本只剩 git，所以**會刪判定時要求那些 venue 檔已在 git 裡 commit**（#573：store 不在 git 工作樹、或檔案未 tracked／有未提交修改，整批拒絕零寫入——先 commit 再跑）；刪掉的每筆逐字列在 `verdictsRetired`（MCP 面截 20 筆，`verdictsRetiredTotal`／`truncated` 揭露；CLI 面全列）。三種前提不符整批拒絕零寫入：該 venue 上這筆 work 有 ≥2 個不同的 confirmed literal（D23）；配對由多條邊實例化——同一 work 兩條邊指同一 venue、或（repoint）另有 literal 邊同配對（D25）；repoint 讓**被動到的邊**與本 work 另一條邊指同一 venue、或同一批裡同一 work 的兩個 move 帶同一個 literal **且觸及同一個 venue**（D27；既有的重複邊與 venue 集合不相交的 move 不擋）。**apply 對會讓同一 work 兩條邊指同一 venue 的候選逐筆略過、其餘照寫**（D28／D33）：略過的列在 `skippedDuplicateVenueEdge`（id、venueKey、reason），且它會一直被提名——出路是刪掉多餘的邊（移除面：#572）；既有的重複邊由 validate 的 warning 報、不擋同一 work 上不相干的歸戶。**目的 venue 已對該 work 持有另一個 confirmed literal（沒有對應的邊——手改、舊 binary、R14 之前的合併）的候選同樣逐筆略過**（D38，列在 `skippedConflictingConfirmedLiteral`；相等比**位元組**，同一 literal 的另一個拼法也略過——寫下去不會多一筆，但之後 demote 會還回舊拼法而不是這條邊的原字串，D43；本檢查在重複邊檢查之後，所以「沒有對應的邊」為真，D44）——寫下第二個會讓那條邊立刻被 D23 鎖住；出路是刪掉那筆沒有邊的 confirmed。提名的否決抑制以正規化後的 literal 為鍵（R12）：對一個拼法的 reject／demote 會壓住同 work 同 venue 的其他拼法，撤回面見 #559。同一 work 兩條拼法不同的 literal 邊都指向同一 venue 時，**誰落地由 apply 陣列的順序決定（先到先寫）**，confirmed verdict 帶的就是那條邊的字。組合呼叫時 reject 腿以正規化配對壓掉 apply 腿的同配對 id（列在 `skippedBecauseRejected`）。",
@@ -622,7 +623,8 @@ actor AkashicMCPServer {
                     paginated: paginatedFlag,
                     clearPaginated: try argFlag("clear_paginated", default: false),
                     judgement: arg("judgement"),
-                    restsOn: params.arguments?["rests_on"] != nil ? argList("rests_on") : nil)
+                    restsOn: params.arguments?["rests_on"] != nil ? argList("rests_on") : nil,
+                    removeISSN: try argStrictList("remove_issn"))
             case "akashic_resolve_venues":
                 let vApplyProvided = params.arguments?["apply"] != nil
                 let vRejectProvided = params.arguments?["reject"] != nil

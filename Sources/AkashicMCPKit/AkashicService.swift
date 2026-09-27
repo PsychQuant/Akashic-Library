@@ -3180,10 +3180,48 @@ public final class AkashicService {
                             authorize: [String]? = nil,
                             paginated: Bool? = nil, clearPaginated: Bool = false,
                             judgement: String? = nil,
-                            restsOn: [String]? = nil) throws -> String {
+                            restsOn: [String]? = nil,
+                            removeISSN: [String]? = nil) throws -> String {
         let load = try store.load()
         guard var venue = load.venues.first(where: { $0.key == key }) else {
             throw ServiceError.notFound("venue「\(displaySafeInvisible(key, max: 200))」")
+        }
+        // #588：ISSN 的移除面。形狀 `<issn>=理由`——移除是判定的逆轉（寫錯的號，常是姊妹刊的號），理由必填；
+        // 使用者 2026-09-27 裁決：理由只進報告與 git 歷史，不寫進 store，所以移除前那個檔要在 git 裡有副本。
+        // 輸入錯與「這本刊沒有這個號」都整批拒絕、零寫入——只有一筆記錄，沒有「其餘照寫」可言。
+        var issnRemoved: [(issn: String, reason: String)] = []
+        if let specs = removeISSN, !specs.isEmpty {
+            var seen = Set<String>()
+            for spec in specs {
+                guard let eq = spec.firstIndex(of: "=") else {
+                    throw ServiceError.invalid("remove_issn「\(displaySafeInvisible(spec, max: 80))」缺少 `=`——格式是 <issn>=理由；拒絕整個呼叫，零寫入")
+                }
+                let raw = String(spec[..<eq]), reason = String(spec[spec.index(after: eq)...])
+                guard let one = ISSN(raw) else {
+                    throw ServiceError.invalid("remove_issn「\(displaySafeInvisible(raw, max: 60))」不是合法的 ISSN——拒絕整個呼叫，零寫入")
+                }
+                guard !reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    throw ServiceError.invalid("remove_issn「\(one.normalized)」的理由是空白——移除是判定的逆轉，要寫為什麼這個號不屬於這本刊")   // display-safe-exempt: one.normalized 只含 [0-9X-]
+                }
+                guard reason.utf8.count <= Self.maxStatementBytes else {
+                    throw ServiceError.invalid("remove_issn「\(one.normalized)」的理由超過 \(Self.maxStatementBytes) 位元組——精簡它")   // display-safe-exempt: one.normalized 只含 [0-9X-]；Self.maxStatementBytes 是 Int 常數
+                }
+                guard seen.insert(one.normalized).inserted else {
+                    throw ServiceError.invalid("remove_issn「\(one.normalized)」在一次呼叫裡重複")   // display-safe-exempt: one.normalized 只含 [0-9X-]
+                }
+                guard venue.issn.contains(where: { $0.normalized == one.normalized }) else {
+                    throw ServiceError.invalid("venue「\(displaySafeInvisible(key, max: 200))」沒有 ISSN「\(one.normalized)」——拒絕整個呼叫，零寫入")   // display-safe-exempt: one.normalized 只含 [0-9X-]
+                }
+                if let adds = addISSN, adds.contains(where: { ISSN($0)?.normalized == one.normalized }) {
+                    throw ServiceError.invalid("ISSN「\(one.normalized)」同時在 add_issn 與 remove_issn——兩句矛盾的話，拒絕整個呼叫")   // display-safe-exempt: one.normalized 只含 [0-9X-]
+                }
+                issnRemoved.append((one.normalized, reason))
+            }
+            try assertRecordsRecoverable([(venue.id, "venue「\(displaySafeInvisible(key, max: 200))」")],
+                                         action: "這次會從 venue「\(displaySafeInvisible(key, max: 200))」移除 \(issnRemoved.count) 個 ISSN",   // display-safe-exempt: issnRemoved.count 是 Int
+                                         issue: "#588")
+            let gone = Set(issnRemoved.map(\.issn))
+            venue.issn.removeAll { gone.contains($0.normalized) }
         }
         // ── 名字寫入的共用入口（#554 R4／R5，D6→D8）──
         //
@@ -3462,6 +3500,8 @@ public final class AkashicService {
                                       "namesTotal": venue.names.entries.count,
                                       // display-safe-exempt: ISSN.normalized 由型別保證只含 [0-9X-]
                                       "issnAdded": issnAdded,
+                                      // #588：理由只在這裡——store 不留，歷史在 git
+                                      "issnRemoved": issnRemoved.map { ["issn": $0.issn, "reason": displaySafe($0.reason, max: 600)] },   // display-safe-exempt: issn 只含 [0-9X-]；reason 未消毒（呼叫端送來的理由原文）
                                       "issnTotal": venue.issn.count,
                                       "variantAdded": variantAdded.map { displaySafeInvisible($0, max: 200) },
                                       "variantDropped": variantBlanks.map { displaySafeInvisible($0, max: 200) },
@@ -4588,32 +4628,42 @@ public final class AkashicService {
     /// 時候。與 `resolve-divergence` 同一支檢查（`LibraryStore.filesNotSafelyRecoverable`：tracked、clean、HEAD 可解析、無 index 位元）。
     /// 只在**真的會退役判定**時跑——沒有相反判定可刪的 repoint／demote 不受影響。整批拒絕、零寫入。
     private func assertRetiredVerdictsRecoverable(_ venues: [Venue], count: Int) throws {
-        guard !venues.isEmpty else { return }
+        try assertRecordsRecoverable(venues.map { ($0.id, "venue「\(displaySafeInvisible($0.key, max: 200))」") },
+                                     action: "這次會刪掉 \(count) 筆判定記錄（相反的 confirmed／rejected）",   // display-safe-exempt: Int
+                                     issue: "#573")
+    }
+
+    /// **會刪掉資料的寫入，之前那些記錄檔要在 git 裡有副本**——#573 的閘，一般化給移除面（#588 的 ISSN、#572 的 venue 邊、
+    /// #586 的 divergence 記錄；使用者 2026-09-27 裁決：移除面的理由只進報告與 git 歷史，所以 git 裡必須真的有副本）。
+    /// 與 `resolve-divergence` 同一支檢查（`LibraryStore.filesNotSafelyRecoverable`：tracked、clean、HEAD 可解析、無 index 位元）。
+    /// `items` 是（記錄 id, 人讀的標籤——已消毒）；`action` 是「這次會刪掉什麼」的一句（已消毒）。整批拒絕、零寫入。
+    func assertRecordsRecoverable(_ items: [(id: UUID, label: String)], action: String, issue: String) throws {
+        guard !items.isEmpty else { return }
         // 先分辨「不在 git 裡」——否則下面那支檢查對非工作樹回的是「無法執行 git」，指錯原因
         guard LibraryStore.isInsideVersionedWorkTree(store.root) else {
             throw ServiceError.invalid(
-                "這次會刪掉 \(count) 筆判定記錄（相反的 confirmed／rejected），而 store 不在 git 工作樹裡——被刪的判定不會留下任何副本。"   // display-safe-exempt: Int
-                + "把 store 放進 git 並 commit 後再跑（#573）；整批拒絕、零寫入")
+                "\(action)，而 store 不在 git 工作樹裡——被刪的東西不會留下任何副本。"   // display-safe-exempt: action 由呼叫端組、已消毒
+                + "把 store 放進 git 並 commit 後再跑（\(issue)）；整批拒絕、零寫入")   // display-safe-exempt: issue 是字面常量
         }
-        // 路徑取自磁碟上的實際檔名，不由 id 拼（R1 verify Codex HIGH、DA 第 32 列）：load 接受小寫 UUID 檔名，git 的 pathspec 分大小寫——
+        // 路徑取自磁碟上的實際檔名，不由 id 拼（#573 R1 verify Codex HIGH、DA 第 32 列）：load 接受小寫 UUID 檔名，git 的 pathspec 分大小寫——
         // 拼成大寫會對一個已 commit 的檔永遠回「未被追蹤」。而共用的檢查對不存在的路徑是略過（刪檔的語意），在這裡等於沒檢查：
         // 找不到檔就拒絕，不放行。
         let actual = Self.entityRelativePaths(root: store.root)
-        let missing = venues.filter { actual[$0.id] == nil }
+        let missing = items.filter { actual[$0.id] == nil }
         guard missing.isEmpty else {
-            let missingKeys = Self.listCapped(missing.map { displaySafeInvisible($0.key, max: 200) }) { $0 }
+            let missingLabels = Self.listCapped(missing.map(\.label)) { $0 }
             throw ServiceError.invalid(
-                "這次會刪掉 \(count) 筆判定記錄，但下列 venue 在 entities/ 找不到記錄檔、無從確認 git 裡有副本："   // display-safe-exempt: Int
-                + missingKeys + "（#573）；整批拒絕、零寫入")   // display-safe-exempt: missingKeys 由 listCapped 逐項 displaySafeInvisible 組成
+                "\(action)，但下列記錄在 entities/ 找不到記錄檔、無從確認 git 裡有副本："   // display-safe-exempt: action 已消毒
+                + missingLabels + "（\(issue)）；整批拒絕、零寫入")   // display-safe-exempt: missingLabels 的每一項由呼叫端消毒；issue 是字面常量
         }
-        let paths = venues.compactMap { actual[$0.id] }
+        let paths = items.compactMap { actual[$0.id] }
         let bad = LibraryStore.filesNotSafelyRecoverable(root: store.root, relativePaths: paths)
         guard !bad.isEmpty else { return }
-        let keyByPath = Dictionary(venues.compactMap { v in actual[v.id].map { ($0, v.key) } }, uniquingKeysWith: { a, _ in a })
-        let lines = Self.listCapped(bad.map { "venue「\(displaySafeInvisible(keyByPath[$0.path] ?? $0.path, max: 200))」：\($0.why)" }) { $0 }
+        let labelByPath = Dictionary(items.compactMap { i in actual[i.id].map { ($0, i.label) } }, uniquingKeysWith: { a, _ in a })
+        let lines = Self.listCapped(bad.map { "\(labelByPath[$0.path] ?? displaySafeInvisible($0.path, max: 200))：\($0.why)" }) { $0 }
         throw ServiceError.invalid(
-            "這次會刪掉 \(count) 筆判定記錄（相反的 confirmed／rejected），而它們的唯一副本會是 git——下列 venue 檔不能確認可回溯："   // display-safe-exempt: Int
-            + lines + "。先 commit 再跑（#573）；整批拒絕、零寫入")   // display-safe-exempt: lines 由 listCapped 逐項 displaySafeInvisible 組成；why 是本 package 的固定句
+            "\(action)，而它們的唯一副本會是 git——下列記錄檔不能確認可回溯："   // display-safe-exempt: action 已消毒
+            + lines + "。先 commit 再跑（\(issue)）；整批拒絕、零寫入")   // display-safe-exempt: lines 的 label 已消毒、why 是本 package 的固定句；issue 是字面常量
     }
 
     /// `entities/` 裡每個以 UUID 為名的記錄檔：id → 以 store root 為基準的相對路徑，檔名保留磁碟上的大小寫（#573 R1）。

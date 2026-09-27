@@ -2793,6 +2793,26 @@ public extension LibraryLoad {
                        + "可用 record-divergence 記下未決的同一性"))
         }
 
+        // **同一個 ISSN 掛在 2 個以上 venue**（#588）。ISSN 的 mod-11 檢查碼擋得住亂碼，擋不住**合法但屬於姊妹刊的號**
+        // （JRSS-A／B／C 在模糊搜尋下都會命中）——而識別碼相等單獨就能做身分判定（`identity-is-judged-not-matched`），
+        // 一個掛錯刊的號會讓之後以它為據的攣生判定建立在假的身分宣稱上。#556 起 `akashic-verify-venue` 把查到的 ISSN
+        // 寫進 venue，這是一條會製造它的通道。warning：兩本刊共用一個號可能是其中一本記錯、也可能是同一本刊的兩筆記錄，
+        // 那是判斷；以正規形比對（與 `add_issn` 的去重同一條規則）。2026-09-27 live store 59 個 ISSN、共用 0 組
+        //（`zero-instance-guards` 第 36 列）。
+        var byISSN: [String: Set<String>] = [:]
+        for v in venues {
+            for i in v.issn { byISSN[i.normalized, default: []].insert(v.key) }
+        }
+        for (issn, keys) in byISSN.sorted(by: { $0.key < $1.key }) where keys.count > 1 {
+            let names = keys.sorted().map { displaySafeInvisible($0, max: 200) }
+            out.append(ValidationIssue(
+                severity: .warning,
+                message: "ISSN「\(displaySafeInvisible(issn, max: 40))」掛在 \(names.count) 個 venue 上"   // display-safe-exempt: Int
+                       + "（\(names.joined(separator: ", "))）——一個 ISSN 只屬於一本刊：其中一筆可能記成了姊妹刊的號，"
+                       + "也可能兩筆是同一本刊（那時用 record-divergence 記下、resolve-divergence 合併）。"
+                       + "移除記錯的號：update-venue --remove-issn（#588）"))
+        }
+
         // 同標題同年但 **DOI 不同**——DOI 那條結構上看不到，而這是真實且大量的：
         // JSTOR DOI vs 出版商 DOI、arXiv 預印本 vs 正式版、期刊換過 DOI 規則、
         // 同一篇被 Cambridge 與 Project Euclid 各給一個。

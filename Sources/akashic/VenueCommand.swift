@@ -206,6 +206,11 @@ struct UpdateVenueCmd: ParsableCommand {
             help: "要附加的 ISSN（可多個；正規形相同者自動略過，不合法即整批拒絕）")
     var addISSN: [String] = []
 
+    /// #588：寫錯的號（常是姊妹刊的號）在此之前拿不掉，只能手改 YAML。
+    @Option(name: .customLong("remove-issn"), parsing: .upToNextOption,
+            help: "移除 ISSN（可多個）：<issn>=理由。移除是判定的逆轉，理由必填；理由只印在報告（issnRemoved），不寫進 store，所以這個 venue 檔要已在 git 裡 commit（tracked、無未提交修改），否則整批拒絕。號不合法、這本刊沒有這個號、同一次呼叫裡重複、或同時出現在 --add-issn，都整批拒絕、零寫入（#588）")
+    var removeISSN: [String] = []
+
     @Option(name: .customLong("add-variant"), parsing: .upToNextOption,
             help: ArgumentHelp("要標成異寫法的名字（append 語意；相等看 canonical、新名字以 canonical 形入庫——空白類收斂為單一空格、NFC——其他控制／格式／不可見字元、拉丁或 CJK 之間的接合字元、無字母無數字即整批拒絕——同 --add-name，#554 D8）。不在 names 裡的一併加進 names"
                              + "——兩個分割都是對 names 的標記，標一個 names 沒有的字串會造出"
@@ -261,7 +266,8 @@ struct UpdateVenueCmd: ParsableCommand {
                                       paginated: paginated,
                                       clearPaginated: clearPaginated,
                                       judgement: judgement,
-                                      restsOn: restsOn.isEmpty ? nil : restsOn))
+                                      restsOn: restsOn.isEmpty ? nil : restsOn,
+                                      removeISSN: removeISSN.isEmpty ? nil : removeISSN))
     }
 }
 

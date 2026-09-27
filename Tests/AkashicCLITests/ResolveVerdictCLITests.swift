@@ -319,7 +319,8 @@ final class ResolveVerdictCLITests: XCTestCase {
             (["resolve-divergence", "00000000-0000-0000-0000-000000000000", "--survivor", "x"], "resolve-divergence", "加 --dry-run"),
             (["migrate"], "migrate", "加 --dry-run"),
             (["migrate-provenance"], "migrate-provenance", "加 --dry-run"),
-            (["rename", "a2020x", "b2020x"], "rename", "這個寫入沒有 dry-run"),
+            (["rename", "a2020x", "b2020x"], "rename", "沒有只列候選的模式"),
+            (["rename-person", "a-b", "c-d"], "rename-person", "沒有只列候選的模式"),
         ]
         for c in cases {
             let r = try CLITestHarness.run(c.args, env: env)

@@ -1611,7 +1611,7 @@ organization、person 三種各過各的閘（R9，D24；2026-09-14 以含此版
 organization 零 error——擴閘不拒絕任何既有記錄；閘在 `fieldsLostByMerging` **之後**，merge 專屬的那句先出，R10）／
 `resolve-venues` 的 verdict 寫回——repoint／demote 寫 verdict 時退役同 holder 上同一配對的相反判定（D20）；配對唯一性的
 規範文字在 §3.5「配對的唯一性」，這裡不複述（D23／D25／D27／D28／D31／D32／D33）；退役的每筆逐字回報在 `verdictsRetired`
-（截 20 筆，`verdictsRetiredTotal`／`truncated` 揭露）；第 5 條的求值上限在讀取路徑上也跑）都要通過
+（MCP 面截 20 筆、`verdictsRetiredTotal`／`truncated` 揭露，CLI 面全列；退役前要求那些 venue 檔已在 git 裡 commit，#573）；第 5 條的求值上限在讀取路徑上也跑）都要通過
 `Venue.validate()` 的名字內容檢查，**error 級**；decode **不驗**（load 照讀，
 `validate`／`doctor` 報出來）。這一段是 **store 契約**（與 §3.4 canonical form、§3.1
 `authorized` 同級——手改 YAML 的人讀的是本檔不是 `.claude/rules`，而手改正是它指定的修法）。

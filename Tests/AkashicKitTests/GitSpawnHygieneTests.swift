@@ -51,7 +51,10 @@ final class GitSpawnHygieneTests: XCTestCase {
         // Tests/
         "GitFixture.swift",            // #234 的原始現場
         "CorpusValidationTests.swift", // history 測試的 runGit／gitOutput（#234 同類）
-        // 這條清單是封閉列舉：多了會紅（stale），少了也會紅（offender 未列）。
+        "PrePushHookTests.swift",      // #585 擴大偵測後才看見；當時沒剝 GIT_*，同輪補上
+        "StoreGitCommit.swift",        // #573 的測試 helper：repoint／demote 前先 commit
+        // 這條清單是封閉列舉：多了會紅（stale），少了也會紅（spawn git 卻未登記——#585 R1 verify 第 16／36 列：先前只有
+        // 「沒剝環境」才紅，有剝環境但沒登記的檔安靜通過，於是清單與實際分岔而守衛照綠）。
         //
         // 後兩者的來歷值得記：PR #243 從 `idd/230-xcrun-toolchain` 抽出 #234／#239 時，
         // TractatusDocs 還不在 main 上，所以那兩處的修法與清單條目都留給了 #237，並在
@@ -98,6 +101,12 @@ final class GitSpawnHygieneTests: XCTestCase {
             """
         )
 
+        let unlisted = found.subtracting(auditedFiles)
+        XCTAssertTrue(
+            unlisted.isEmpty,
+            "以下檔案 spawn git 但不在 auditedFiles：\(unlisted.sorted().joined(separator: "、"))——確認它剝除了環境後登記"
+        )
+
         // 反向：登記過的檔案若不再 spawn git，清單就該縮——否則它會慢慢變成一份
         // 沒人維護的名單，然後某天有人以為「在清單裡＝安全」。
         let stale = auditedFiles.subtracting(found)
@@ -126,6 +135,48 @@ final class GitSpawnHygieneTests: XCTestCase {
         let r = try XCTUnwrap(LibraryStore.git(["--version"], in: shimDir))
         XCTAssertFalse(r.out.contains("SHIM-ANSWERED"), "PATH 前面的 shim 回答了 git 的問題：\(r.out)")
         XCTAssertTrue(r.out.hasPrefix("git version"), r.out)
+    }
+
+    /// #573／#585 R1 verify DA 第 13 列：`HOME` 下的 `.gitconfig` 不得改變可回溯性閘的答案。攻擊形：global attributes 把 `*.yaml`
+    /// 對到一個 clean filter，filter 從 HEAD 取內容——`diff HEAD` 於是把 dirty 的檔判成 clean。閘只讀 repo 自己的設定時照樣報出來。
+    func testGlobalGitconfigCannotMakeADirtyFileLookClean() throws {
+        let fm = FileManager.default
+        let base = fm.temporaryDirectory.appendingPathComponent("git-home-\(UUID().uuidString)")
+        let repo = base.appendingPathComponent("repo"), home = base.appendingPathComponent("home")
+        try fm.createDirectory(at: repo.appendingPathComponent("entities"), withIntermediateDirectories: true)
+        try fm.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: base) }
+        let file = repo.appendingPathComponent("entities/a.yaml")
+        try "v: 1\n".write(to: file, atomically: true, encoding: .utf8)
+        XCTAssertEqual(GitFixture.run(["init", "-q"], in: repo), 0)
+        XCTAssertEqual(GitFixture.run(["add", "-A"], in: repo), 0)
+        XCTAssertEqual(GitFixture.run(["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "seed"], in: repo), 0)
+        try "v: 2\n".write(to: file, atomically: true, encoding: .utf8)
+
+        let attrs = home.appendingPathComponent("attrs")
+        try "*.yaml filter=lie\n".write(to: attrs, atomically: true, encoding: .utf8)
+        try """
+            [core]
+            \tattributesFile = \(attrs.path)
+            [filter "lie"]
+            \tclean = git cat-file -p HEAD:%f
+            """.write(to: home.appendingPathComponent(".gitconfig"), atomically: true, encoding: .utf8)
+        let saved = ProcessInfo.processInfo.environment["HOME"] ?? ""
+        setenv("HOME", home.path, 1)
+        defer { setenv("HOME", saved, 1) }
+        // 前提：這份 gitconfig 真的會讓一個不設防的 git 說謊——否則下面的斷言是空的
+        let naive = Process()
+        naive.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        naive.arguments = ["-C", repo.path, "diff", "--name-only", "HEAD"]
+        naive.environment = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("GIT_") }
+        let pipe = Pipe(); naive.standardOutput = pipe; naive.standardError = FileHandle.nullDevice
+        try naive.run(); naive.waitUntilExit()
+        let naiveOut = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        XCTAssertFalse(naiveOut.contains("entities/a.yaml"), "前提：只剝 GIT_* 的 git 被這份 gitconfig 騙過")
+
+        let bad = LibraryStore.filesNotSafelyRecoverable(root: repo, relativePaths: ["entities/a.yaml"])
+        XCTAssertEqual(bad.map(\.path), ["entities/a.yaml"], "global gitconfig 讓閘把 dirty 的檔判成 clean")
+        XCTAssertTrue(bad.first?.why.contains("未提交") ?? false, "\(bad)")
     }
 
 }

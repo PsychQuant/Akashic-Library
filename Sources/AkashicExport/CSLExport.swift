@@ -69,8 +69,8 @@ public enum CSLExport {
                 // DOI 3／ISSN 0／ISBN 2（遷移前 667／64／31），rc=0、零診斷。
                 // `.bib` 有 mitigation、csl-json 沒有，因為驗收條件只量了 `.bib`。
                 //
-                // CSL 的 `DOI`／`ISBN`／`ISSN` 是**單值字串**（不是陣列），多值以
-                // 逗號分隔——與 `.bib` 那面同一個慣例，不另創一種。
+                // CSL 的 `DOI`／`ISBN`／`ISSN` 是**單值字串**（不是陣列）。ISBN／ISSN 多值以逗號分隔——與 `.bib` 那面同一個
+                // 慣例；DOI 是例外，見下（#543）。
                 func emitIdentifiers<T: Identifier>(_ ids: [T], as key: String) {
                     guard !ids.isEmpty else { return }
                     item[key] = ids.map(\.normalized).joined(separator: ", ")
@@ -80,7 +80,8 @@ public enum CSLExport {
                     item["DOI"] = first.normalized
                     let rest = entry.doi.dropFirst().map(\.normalized)
                     if !rest.isEmpty {
-                        item["note"] = BibExport.appendingOtherDOIs(to: item["note"] as? String, rest)
+                        // 本匯出不輸出來源的 note（fieldMap 沒有它），所以 note 只裝這一句——不是「接在既有 note 後面」（#543 R1 verify DA 第 31 列）
+                        item["note"] = BibExport.appendingOtherDOIs(to: nil, rest)
                     }
                 }
                 emitIdentifiers(entry.isbn, as: "ISBN")

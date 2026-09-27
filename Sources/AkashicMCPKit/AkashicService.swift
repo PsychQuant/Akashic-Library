@@ -4080,6 +4080,10 @@ public final class AkashicService {
                               repoint: [String]? = nil, demote: [String]? = nil,
                               undecided: [String]? = nil, restsOn: [String]? = nil,
                               retiredLimit: Int? = AkashicService.retiredItemsCap) throws -> String {
+        // 負數上限要在任何寫入之前拒絕：`prefix` 對負數是 precondition failure，而 retiredPayload 在寫完之後才組（#573 R1）
+        if (retiredLimit ?? 0) < 0 {
+            throw ServiceError.invalid("retiredLimit 不得為負（nil 是全列、0 以上是上限）")
+        }
         // change `resolution-verdict-states`（#619）：未決腿單獨呼叫；rests_on 只伴隨它
         let present = { (x: [String]?) in !(x ?? []).isEmpty }
         if present(restsOn) && !present(undecided) {
@@ -4544,21 +4548,42 @@ public final class AkashicService {
                 "這次會刪掉 \(count) 筆判定記錄（相反的 confirmed／rejected），而 store 不在 git 工作樹裡——被刪的判定不會留下任何副本。"   // display-safe-exempt: Int
                 + "把 store 放進 git 並 commit 後再跑（#573）；整批拒絕、零寫入")
         }
-        let bad = LibraryStore.filesNotSafelyRecoverable(
-            root: store.root, relativePaths: venues.map { "entities/\($0.id.uuidString).yaml" })
+        // 路徑取自磁碟上的實際檔名，不由 id 拼（R1 verify Codex HIGH、DA 第 32 列）：load 接受小寫 UUID 檔名，git 的 pathspec 分大小寫——
+        // 拼成大寫會對一個已 commit 的檔永遠回「未被追蹤」。而共用的檢查對不存在的路徑是略過（刪檔的語意），在這裡等於沒檢查：
+        // 找不到檔就拒絕，不放行。
+        let actual = Self.entityRelativePaths(root: store.root)
+        let missing = venues.filter { actual[$0.id] == nil }
+        guard missing.isEmpty else {
+            let missingKeys = Self.listCapped(missing.map { displaySafeInvisible($0.key, max: 200) }) { $0 }
+            throw ServiceError.invalid(
+                "這次會刪掉 \(count) 筆判定記錄，但下列 venue 在 entities/ 找不到記錄檔、無從確認 git 裡有副本："   // display-safe-exempt: Int
+                + missingKeys + "（#573）；整批拒絕、零寫入")   // display-safe-exempt: missingKeys 由 listCapped 逐項 displaySafeInvisible 組成
+        }
+        let paths = venues.compactMap { actual[$0.id] }
+        let bad = LibraryStore.filesNotSafelyRecoverable(root: store.root, relativePaths: paths)
         guard !bad.isEmpty else { return }
-        let keyByPath = Dictionary(venues.map { ("entities/\($0.id.uuidString).yaml", $0.key) }, uniquingKeysWith: { a, _ in a })
+        let keyByPath = Dictionary(venues.compactMap { v in actual[v.id].map { ($0, v.key) } }, uniquingKeysWith: { a, _ in a })
         let lines = Self.listCapped(bad.map { "venue「\(displaySafeInvisible(keyByPath[$0.path] ?? $0.path, max: 200))」：\($0.why)" }) { $0 }
         throw ServiceError.invalid(
             "這次會刪掉 \(count) 筆判定記錄（相反的 confirmed／rejected），而它們的唯一副本會是 git——下列 venue 檔不能確認可回溯："   // display-safe-exempt: Int
             + lines + "。先 commit 再跑（#573）；整批拒絕、零寫入")   // display-safe-exempt: lines 由 listCapped 逐項 displaySafeInvisible 組成；why 是本 package 的固定句
     }
 
+    /// `entities/` 裡每個以 UUID 為名的記錄檔：id → 以 store root 為基準的相對路徑，檔名保留磁碟上的大小寫（#573 R1）。
+    static func entityRelativePaths(root: URL) -> [UUID: String] {
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: root.appendingPathComponent("entities").path)) ?? []
+        var out: [UUID: String] = [:]
+        for name in names where name.lowercased().hasSuffix(".yaml") {
+            if let id = UUID(uuidString: String(name.dropLast(5))) { out[id] = "entities/" + name }
+        }
+        return out
+    }
+
     /// `verdictsRetired` 的上限與揭露（R10 verify security 第 16 列、regression 第 19 列；Claude 代裁 D30）：它是 repoint／demote
     /// payload 裡唯一由 **store 內容**而非呼叫端輸入決定體積的欄位——`supersede` 退役 holder 上**每一筆**同鍵的相反判定，手改或
     /// #553 合併吸收的 store 可以有很多筆（每項 ~520 字元），而 MCP 的輸出進 LLM context、呼叫端無法在收到後丟棄已付的代價
-    /// （`mcp-cli-parity` 對 `--rows` 的論證）。`akashic_enrich` 的既有形：截 20 筆、總數與 `truncated` 揭露。CLI 面回同一個 payload
-    /// （寫入面封閉例外），所以兩面同截。**它迴送 store 字串**（verdict 的 value 是原始匯入的刊名、statement 是判定文字）而輸出閘
+    /// （`mcp-cli-parity` 對 `--rows` 的論證）。`akashic_enrich` 的既有形：截 20 筆、總數與 `truncated` 揭露。**只有 MCP 面截**：
+    /// CLI 面傳 `retiredLimit: nil` 全列（#573，使用者 2026-09-27 裁決——輸出進人的終端機）。**它迴送 store 字串**（verdict 的 value 是原始匯入的刊名、statement 是判定文字）而輸出閘
     /// `displaySafe` 對 Cf 字元的逃脫仍是列舉——#569 的迴送點 4 → 6，那裡另裁。
     public static let retiredItemsCap = 20
     static func retiredPayload(_ retired: [String], limit: Int?) -> [String: Any] {

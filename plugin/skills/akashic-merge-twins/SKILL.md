@@ -71,7 +71,8 @@ title／**date**。證據分層：
 3. `record-divergence --candidate k:work --candidate d:work --judgement <證據一句>
    --rests-on <證據報告的 sha256 digest> --prefers <keeper>`
 4. **再 commit**（divergence 記錄檔也要 tracked）
-5. `resolve-divergence <id> --survivor <keeper>`——**id 現場查詢，不要存**：
+5. `resolve-divergence <id> --survivor <keeper> --library <store 路徑>`——**要帶 `--library`**（#653 起不帶就拒絕：
+   合併不可逆，閘要確認寫的是對的 store；先加 `--dry-run` 過目）。**id 現場查詢，不要存**：
    divergence id 由候選集推出，先 resolve 的組會讓重疊組的候選遷移、**id 重算**。
    同一 keeper 命中多筆 divergence 時全部要輪到（cand[0] 的歧義實測漏過一組）
 6. 鏈式合併（A←B 且 B←C）按**拓撲序**：B←C 先跑

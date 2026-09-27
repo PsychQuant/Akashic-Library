@@ -369,7 +369,7 @@ struct Migrate: ParsableCommand {
             print("\(prefix) 形狀標籤：補 \(l.labelled) 筆"
                 + (l.alreadyLabelled > 0 ? "、已有標籤 \(l.alreadyLabelled) 筆" : ""))
             if dryRun {
-                print("  實際執行：akashic migrate")
+                print("  實際執行：akashic migrate --library " + displaySafeInvisible(store.root.path, max: 800))   // #653 R1 verify 第 18 列：不帶 --library 會被閘擋
             } else {
                 print("  store format → \(StoreVersion.supported)；舊 binary 從此會拒絕開啟這個 store（#24）")
                 let stats = try LibraryIndex(store: store).rebuild()
@@ -433,7 +433,7 @@ struct MigrateProvenance: ParsableCommand {
             }
         }
         if dryRun {
-            print("  實際執行：akashic migrate-provenance")
+            print("  實際執行：akashic migrate-provenance --library " + displaySafeInvisible(store.root.path, max: 800))   // #653 R1 verify 第 18 列：不帶 --library 會被閘擋
         } else {
             // 這個遷移沒有消歧那種「tracked 且 clean」的 gate（它不刪檔），
             // 所以可回溯性由使用者的版控負責——明講，不要讓人事後才發現。

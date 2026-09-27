@@ -9,7 +9,7 @@ enum StoreGitCommit {
         ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("GIT_") }
     }
 
-    private static func run(_ args: [String], in dir: URL) {
+    static func run(_ args: [String], in dir: URL) {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/git")
         p.arguments = ["-C", dir.path, "-c", "user.email=t@t", "-c", "user.name=t"] + args

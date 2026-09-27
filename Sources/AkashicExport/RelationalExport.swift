@@ -136,10 +136,10 @@ public enum RelationalExport {
              // 的 `fields.doi` 移除後，這一欄對它們全為 NULL。
              //
              // **`.first` 是零實例下的顯式裁決**（`zero-instance-guards`）：本表一列一筆
-             // work，而 DOI 是清單。實測全庫**帶 >1 個 DOI 的 work ＝ 0 筆**，所以今天
-             // 取第一個不丟任何東西。**觸發條件**：`akashic validate` 出現任何一筆帶
-             // 兩個結構化 DOI 的 work 時重裁——正解是另立一張 publication_doi 表，
-             // 不是在 CSV 欄位裡塞分隔符（那會把解析責任推給下游）。
+             // work，而 DOI 是清單。裁決當時全庫**帶 >1 個 DOI 的 work ＝ 0 筆**，所以取第一個
+             // 不丟任何東西。**觸發條件**（出現任何一筆帶兩個結構化 DOI 的 work 即重裁）**已經成立**：
+             // #543 量到 202 筆——這一欄現在會丟掉第 2 個以後的 DOI。重裁記在 #657（候選是另立一張
+             // publication_doi 表，不是在 CSV 欄位裡塞分隔符——那會把解析責任推給下游）。
              e.canonicalDOIs.first?.normalized, e.akashic.status]
         }
 

@@ -60,10 +60,9 @@ enum DestructiveTargetGate {
     /// `resolve-venues` 都是逐 id 的，都在表內）。各成員的觸發條件由命令自己決定：多數是布林
     /// `--apply`；`resolve-organizations` 另含篩選式 `--reject` 與逐 id 的 `--undecided`（R2 verify）；`resolve-venues` 是任一寫入腿。
     ///
-    /// **表外仍有會寫 store 的命令沒有閘，而那是裁決不是遺漏**（#653，使用者 2026-09-27）：只閘**不可逆**的——格式遷移、
-    /// 合併、改名。可逆或有自己回復路徑的寫入（`fmt`、`import-*`、`create-entry`、`resolve-people` 的逐 id 腿……）維持不閘：
-    /// 它們是 skill 的日常呼叫，一閘就要每個呼叫端補 `--yes`，而寫錯 store 的後果可以在 git 裡還原。逐格的裁決與理由記在
-    /// #653；本段不重抄清單（上一版寫了「不閘的只有一類」，#580 R1 verify 當場找到六個反例——清單會過期，裁決的判準不會）。
+    /// **表外仍有會寫 store 的命令沒有閘**（#653，使用者 2026-09-27 裁決：只閘不可逆的，點名的是格式遷移、合併、改名）。
+    /// 不是每一個不閘的都可逆：`resolve-people --drop-author` 沒有具名逆操作、`import-zotero` 會覆寫欄位與作者——這兩個要不要閘、
+    /// 以及稽核怎麼抓到新的未閘寫入命令，記在 #658。本段不重抄命令清單（#580 R1 寫過「不閘的只有一類」，當場被找到六個反例）。
     ///
     /// 稽核（`DestructiveTargetGateTests`）認得布林旗標的兩種宣告寫法：省略型別與寫出 `: Bool`
     /// （`authorize-names` 曾因後者漏網）。這段 doc 不逐字寫出宣告——稽核以字面比對，會把 doc 當成命令。
@@ -86,6 +85,8 @@ enum DestructiveTargetGate {
         "authorize-names",
         // #653（使用者 2026-09-27 裁決：只閘不可逆的）與 #650：預設就寫的格式遷移、全庫改寫的合併與改名
         "migrate", "migrate-provenance", "resolve-divergence", "rename",
+        // #650 R1 verify：rename-person 一直呼叫本閘，卻不在表內
+        "rename-person",
     ]
 
     /// 呼叫者有沒有指名目標 store。**只在真的要寫的時候呼叫**——dry-run 不得被擋
@@ -109,7 +110,10 @@ enum DestructiveTargetGate {
         let previewHint = dryRunFlag.map { "加 " + $0 + " 可以先看到會改什麼。" }
             ?? (hasDryRun
                 ? "先跑一次不帶 " + flag + " 的 dry-run 可以看到會改什麼。"
-                : "這個寫入沒有 dry-run；不帶寫入旗標執行只會列出候選，不預覽這次會改什麼。")
+                : flag.isEmpty
+                    // 沒有寫入旗標也沒有乾跑（rename／rename-person）：再跑一次就是整批改寫（#653 R1 verify 第 17 列）
+                    ? "這個命令沒有 dry-run，也沒有只列候選的模式——指名之後就會直接改寫；要先看影響範圍，在 store 的副本上跑。"
+                    : "這個寫入沒有 dry-run；不帶寫入旗標執行只會列出候選，不預覽這次會改什麼。")
         // 這一行的路徑用性質式逃脫（R31；R30 verify 第 24 列）——R30 曾改回列舉式 `displaySafe`，理由是「貼回去就是那個目錄」，但列舉式也給不了
         // 這件事（反斜線、C0、bidi 照逃），而它放行的正是讓兩個路徑肉眼不可分的那一類字元（ZWSP／NBSP／變體選擇子）；訊息的職責是
         // 「確認這就是你要改的 store」，可辨識比可貼上重要。含這類字元的路徑要顯式指定時，請照 `解析到的目標是：` 那一行的 `\u{…}` 形自己還原（R31 verify 第 27 列）。

@@ -3176,7 +3176,7 @@ extension LibraryStore {
     /// 靠唯一呼叫端的 `dedupePreservingOrder`，而 R3 把本函式變成測試直呼的 API。
     ///
     /// **已量測、不是邊界**（R4；R3 verify 第 23 列）：兩個查詢都帶 `-z`，`core.quotePath` 對它們**沒有作用**（實測含非 ASCII 路徑）；顯式
-    /// `--relative` 勝過 `diff.relative=false`。**仍是邊界的**：`PATH`（見 `scrubbedGitEnvironment`）。
+    /// `--relative` 勝過 `diff.relative=false`。呼叫者的環境（`PATH`、global／system gitconfig、xcrun 選路）不影響答案，見 `scrubbedGitEnvironment`。
     public static func filesNotSafelyRecoverable(root: URL,
                                           relativePaths: [String]) -> [(path: String, why: String)] {
         // **不存在的檔案跳過。** 它不可能被「不可回復地刪除」——刪除迴圈對它是
@@ -3250,6 +3250,10 @@ extension LibraryStore {
     /// `testPathspecChunkingSpansBatches` 讓迴圈真的跨第二批（R4；R3 之前整套測試沒有 fixture 超過一批）。
     static let gitPathspecChunk = 500
 
+    /// store 的所有 git 呼叫執行的程式（#585）。macOS 上它一定存在；把 git 放在別處的環境（nix 一類）這幾個命令會具名拒絕
+    /// ——那是裁決時接受的代價：安全閘不能讓 `PATH` 決定誰來回答。
+    static let gitExecutable = "/usr/bin/git"
+
     /// 子程序環境：**剝除全部 `GIT_*`**（#239）。
     ///
     /// 本型別的每一處 git 呼叫問的都是「**`dir` 自己的** repo 怎麼說」，答案不該被
@@ -3262,12 +3266,20 @@ extension LibraryStore {
     /// **`PATH` 不在剝除範圍，而「哪個程式回答問題」由 `gitExecutable` 釘死**（#585，使用者 2026-09-27 裁決）。#558 R3 verify 用一個
     /// 排在 `PATH` 前面的 `git` shim 讓可回溯性閘從拒絕變成靜默完成——`/usr/bin/env git` 把答案交給了 `PATH`。現在直接執行絕對路徑，
     /// `PATH` 前面放什麼都不影響；它不存在時 `git(_:in:)` 回 nil，呼叫端一律 fail-closed（具名拒絕，不放行）。
-    /// store 的所有 git 呼叫執行的程式（#585）。macOS 上它一定存在；把 git 放在別處的環境（nix 一類）這幾個命令會具名拒絕
-    /// ——那是裁決時接受的代價：安全閘不能讓 `PATH` 決定誰來回答。
-    static let gitExecutable = "/usr/bin/git"
-
+    ///
+    /// **git 的設定檔也不聽呼叫者的**（#573／#585 R1 verify DA 第 13 列，真 binary 重現）：只剝 `GIT_*` 時 `HOME` 下的 `.gitconfig`
+    /// 照樣生效——一個把 `*.yaml` 對到「從 HEAD 取內容」的 clean filter，就讓 `diff HEAD` 把 dirty 的檔判成 clean，可回溯性閘放行、
+    /// 刪掉一筆只存在工作樹的判定。所以在剝除之後設 `GIT_CONFIG_GLOBAL=/dev/null`、`GIT_CONFIG_NOSYSTEM=1`（只讀 repo 自己的設定），
+    /// `git(_:in:)` 另加 `-c core.fsmonitor=false`。**xcrun 的選路變數也剝**：macOS 的 `/usr/bin/git` 是 xcrun 的跳板，
+    /// `DEVELOPER_DIR`／`TOOLCHAINS`／`SDKROOT` 決定它實際執行哪一支（R1 verify security 第 12 列）。
+    /// **仍是邊界的**：repo 自己的 `.git/config` 與 `.gitattributes`——它們是被檢查的那個 repo 的一部分，不是呼叫者的環境。
     static var scrubbedGitEnvironment: [String: String] {
-        ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("GIT_") }
+        var env = ProcessInfo.processInfo.environment.filter {
+            !$0.key.hasPrefix("GIT_") && !["DEVELOPER_DIR", "TOOLCHAINS", "SDKROOT"].contains($0.key)
+        }
+        env["GIT_CONFIG_GLOBAL"] = "/dev/null"
+        env["GIT_CONFIG_NOSYSTEM"] = "1"
+        return env
     }
 
     /// 在 `dir` 跑一次 git。回傳 nil = 根本執行不起來（沒有 git、或 spawn 失敗）。
@@ -3277,7 +3289,7 @@ extension LibraryStore {
         guard FileManager.default.isExecutableFile(atPath: gitExecutable) else { return nil }   // 起不來＝呼叫端 fail-closed
         let p = Process()
         p.executableURL = URL(fileURLWithPath: gitExecutable)
-        p.arguments = ["-C", dir.path] + args
+        p.arguments = ["-C", dir.path, "-c", "core.fsmonitor=false"] + args
         p.environment = scrubbedGitEnvironment
         let pipe = Pipe()
         p.standardOutput = pipe

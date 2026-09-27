@@ -78,6 +78,19 @@ final class IdentifierExportTests: XCTestCase {
         XCTAssertTrue((item["note"] as? String ?? "").contains("10.2222/bbb"), "\(item)")
     }
 
+    /// #543 R1 verify（security、DA 第 30 列）：DOI 從 verbatim 的 `DOI` 欄位搬進 TeX 會解讀的 `addendum`，特殊字元要逃脫，否則印出來的
+    /// 不是那個號；csl-json 的 note 是純文字，原樣。既有 addendum 以句點結尾時不再補一個句點。
+    func testExtraDOIsAreTeXEscapedInAddendumButNotInCSLNote() throws {
+        var e = entry(doi: [try XCTUnwrap(DOI("10.1111/aaa")), try XCTUnwrap(DOI("10.1002/foo_bar%x#y"))])
+        e.fields["addendum"] = "Reprinted in X."
+        let add = try XCTUnwrap(BibExport.bibEntry(for: e, people: [:], venues: [:]).fields["addendum"])
+        XCTAssertTrue(add.contains("10.1002/foo\\_bar\\%x\\#y"), add)
+        XCTAssertFalse(add.contains(".."), add)
+        let json = try CSLExport.cslJSON(entries: [e], people: [], venues: [])
+        let item = try XCTUnwrap((try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [[String: Any]])?.first)
+        XCTAssertTrue((item["note"] as? String ?? "").contains("10.1002/foo_bar%x#y"), "\(item)")
+    }
+
     /// 單一 DOI 不產生 addendum。
     func testSingleDOIAddsNoAddendum() throws {
         let e = entry(doi: [try XCTUnwrap(DOI("10.1111/aaa"))])

@@ -5,14 +5,32 @@ import BiblatexAPA
 /// `.bib` 是編譯產物——從 store 匯出、經 biblatex-apa-swift 序列化，
 /// 永遠不是資料庫本體（spec ADR #10）。
 public enum BibExport {
-    /// Entry.fields（已是 biblatex 欄位名）之外的一級欄位對映。
-    /// 其餘 DOI 接進一段自由文字（`.bib` 的 `addendum`、csl-json 的 `note`）——兩面同一句話（#543）。
+    /// 其餘 DOI 接進一段自由文字（`.bib` 的 `addendum`、csl-json 的 `note`），兩面同一句話（#543）。`rest` 由呼叫端先轉成該面的
+    /// 文字形——`.bib` 那面要 TeX 逃脫（見 `texEscapedDOI`），csl 是純文字。既有文字已以句末標點結尾時不再補句點。
     public static func appendingOtherDOIs(to existing: String?, _ rest: [String]) -> String {
         let clause = (rest.count == 1 ? "Other DOI: " : "Other DOIs: ") + rest.joined(separator: ", ")
-        guard let existing, !existing.isEmpty else { return clause }
-        return existing + ". " + clause
+        let head = (existing ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !head.isEmpty else { return clause }
+        return head + (".!?。".contains(head.last!) ? " " : ". ") + clause
     }
 
+    /// DOI 從 verbatim 的 `DOI` 欄位搬進 TeX 會解讀的 `addendum` 時要逃脫（#543 R1 verify security）：DOI 可以含 `_ % # & ~ ^ $ \`，
+    /// 原樣進 addendum 會被 TeX 當成指令或註解，印出來的不是那個號。大括號由 `braceSafe` 管，這裡不動。
+    static func texEscapedDOI(_ doi: String) -> String {
+        var out = ""
+        for ch in doi {
+            switch ch {
+            case "\\": out += "\\textbackslash{}"
+            case "~": out += "\\textasciitilde{}"
+            case "^": out += "\\textasciicircum{}"
+            case "_", "%", "#", "&", "$": out += "\\" + String(ch)
+            default: out.append(ch)
+            }
+        }
+        return out
+    }
+
+    /// Entry.fields（已是 biblatex 欄位名）之外的一級欄位對映。
     public static func bibEntry(for entry: Entry, people: [String: Person],
                                 organizations: [String: Organization] = [:],
                                 venues: [String: Venue]) -> BibEntry {
@@ -49,8 +67,7 @@ public enum BibExport {
         // **只在有結構化值時覆蓋。** 遷移前的記錄只有 `fields.doi`，那時必須照舊
         // 輸出殘留——否則光是升級 binary 就會讓全庫的 DOI 從 .bib 消失。
         //
-        // 多值以逗號分隔：一筆 work 真的可以有多個 DOI（實測 37 組同題同年而 DOI
-        // 不同），只留一個等於丟掉一次身分判定。寫出的是**正規形**——磁碟上可能是
+        // pmid／isbn 多值以逗號分隔（它們不渲染成連結）；DOI 是例外、只放一個，見下（#543）。寫出的是**正規形**——磁碟上可能是
         // 非正規形，但 .bib 是給下游排版用的。
         func emitIdentifiers<T: Identifier>(_ ids: [T], as key: String) {
             guard !ids.isEmpty else { return }
@@ -61,7 +78,7 @@ public enum BibExport {
         // 它們仍是真的號，丟掉等於丟掉一次身分判定，而讀 .bib 的人會以為那是全部。已有 addendum 時接在後面。
         if let first = entry.doi.first {
             fields["doi"] = braceSafe(first.normalized)
-            let rest = entry.doi.dropFirst().map(\.normalized)
+            let rest = entry.doi.dropFirst().map { texEscapedDOI($0.normalized) }
             if !rest.isEmpty {
                 fields["addendum"] = braceSafe(BibExport.appendingOtherDOIs(to: entry.fields["addendum"], rest))
             }

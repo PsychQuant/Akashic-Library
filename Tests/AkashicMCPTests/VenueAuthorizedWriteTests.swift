@@ -1191,6 +1191,43 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         XCTAssertNoThrow(try service.committed(root).resolveVenues(apply: nil, demote: ["x2025:0"]), "commit 之後就過")
     }
 
+    /// #573 R1 verify（Codex HIGH、DA 第 32 列）：閘的路徑取自磁碟上的實際檔名。load 接受小寫 UUID 檔名，git 的 pathspec 分大小寫——
+    /// 由 id 拼出大寫路徑時，一個已 commit 且 clean 的檔永遠被報成「未被 git 追蹤」，照訊息 commit 之後仍然被拒。
+    func testRecoverabilityGateUsesTheFileNameOnDisk() throws {
+        let store = LibraryStore(root: root)
+        var e = Entry(id: UUID(), citekey: "x2025", type: .periodicalArticle, title: "T")
+        e.venues = [.literal("Psychometrika")]
+        _ = try store.writeEntry(e)
+        _ = try service.resolveVenues(apply: ["x2025:0"])
+        let venue = try XCTUnwrap(store.load().venues.first { $0.key == "some-journal" })
+        let upper = "entities/\(venue.id.uuidString).yaml", lower = "entities/\(venue.id.uuidString.lowercased()).yaml"
+        StoreGitCommit.commitAll(root)
+        let fm = FileManager.default
+        let tmp = root.appendingPathComponent("entities/rename-tmp")
+        try fm.moveItem(at: root.appendingPathComponent(upper), to: tmp)
+        try fm.moveItem(at: tmp, to: root.appendingPathComponent(lower))
+        StoreGitCommit.run(["rm", "-q", "--cached", upper], in: root)
+        StoreGitCommit.commitAll(root)
+        XCTAssertTrue((try fm.contentsOfDirectory(atPath: root.appendingPathComponent("entities").path)).contains(String(lower.dropFirst(9))),
+                      "前提：磁碟上是小寫檔名")
+        XCTAssertNoThrow(try service.resolveVenues(apply: nil, demote: ["x2025:0"]), "已 commit 且 clean 的小寫檔名 venue 不得被拒")
+    }
+
+    /// #573 R1 verify Codex：負數上限在寫入之前拒絕——`prefix` 對負數是 precondition failure，而 payload 在寫完之後才組。
+    func testNegativeRetiredLimitIsRefusedBeforeAnyWrite() throws {
+        let store = LibraryStore(root: root)
+        var e = Entry(id: UUID(), citekey: "x2025", type: .periodicalArticle, title: "T")
+        e.venues = [.literal("Psychometrika")]
+        _ = try store.writeEntry(e)
+        _ = try service.resolveVenues(apply: ["x2025:0"])
+        StoreGitCommit.commitAll(root)
+        let before = try store.load().entries.first { $0.citekey == "x2025" }?.venues
+        XCTAssertThrowsError(try service.resolveVenues(apply: nil, demote: ["x2025:0"], retiredLimit: -1)) { err in
+            XCTAssertTrue("\(err)".contains("retiredLimit"), "\(err)")
+        }
+        XCTAssertEqual(try store.load().entries.first { $0.citekey == "x2025" }?.venues, before, "拒絕時零寫入")
+    }
+
     /// #573：CLI 面（`retiredLimit: nil`）全列被刪的判定；MCP 面仍截 20 筆（`testVerdictsRetiredIsCappedAndDisclosed`）。
     func testVerdictsRetiredIsNotCappedForTheCLIFace() throws {
         let store = LibraryStore(root: root)

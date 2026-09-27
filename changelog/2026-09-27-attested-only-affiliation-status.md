@@ -10,11 +10,12 @@
 **`researcher.status` 多一個值 `undetermined`。**
 - 判定：沒有開放段，但至少有一段只被觀測到過。
 - 已結束的段加上只被觀測到的段，一樣是 `undetermined`：我們知道那個人某個時點在那裡，之後還在不在，資料說不出來。
-- 觀測點之外另有 `end` 的段，照舊算已結束。
+- 只有已結束的段（有 `end` 或 `ended-unknown`），照舊是 `retired`。（attested 與 end 並存是 store 拒收的矛盾，所以不是一種情形。）
 - 沒有隸屬資料時仍是 NULL，和 `undetermined` 分開：NULL 是沒資料，`undetermined` 是有資料但說不出來。
 
 **`researcher_timeline` 在最後加一欄 `valid_attested`。**
-- 內容是觀測點依序以 `;` 串接，沒有觀測點時是 NULL。
+- 內容是觀測點依序寫成 JSON 陣列（`["2019-05","2021"]`），沒有觀測點時是 NULL；以 `valid_attested::JSON` 取回。
+- R1 用過 `;` 串接，R1 verify 否掉：store 不驗觀測點的值域，`attested: [""]` 會串成空字串、被 DuckDB 讀成 NULL，那一段又成了進行中；含 `;` 的觀測點與兩個觀測點分不開。JSON 陣列兩者都無歧義，開頭固定是 `[`，也不會被試算表當成公式。
 - load.sql 依位置灌表，所以新欄放最後。
 
 **DDL 更新。**
@@ -22,6 +23,7 @@
 - `status` 的 CHECK 收 `undetermined`。
 - researcher 表「現況欄位可由 timeline 推出」的註解跟著改。
 - README 的 format 6 歷史列補一句新判準，因為那一行的 SQL 會被照抄。
+- `docs/store-format.md` §3 attested 第 2 條改寫：attested-only 段不算進行中，也不算已結束；舊的「status 推導不採計」有兩種讀法，其中一種正是 `retired` 的來源（R1 verify 三席同指）。`died` 與 `status` 那一節補上值域。
 
 ## 裁決
 
@@ -34,12 +36,13 @@
 - 已結束的段加上只被觀測到的段；
 - 觀測點之外另有 end。
 
-同一個測試也檢查欄位順序、`;` 串接、CHECK 與判準字串。
+同一個測試也檢查欄位順序、JSON 陣列（含 `[""]` 與含 `;` 的觀測點）、CHECK 與判準字串。
 
 `OrganizationTests` 的欄位順序斷言改成看最後三欄。
 
-負控兩組：
+負控三組：
 1. status 改回一律 `retired`：紅。
 2. `valid_attested` 改回永遠 NULL：紅。
+3. （R1 verify 後）`valid_attested` 改回 `;` 串接：紅。
 
-真 binary 驗證：scratch store 裡一個只被觀測到的人，`export-tables` 輸出 `undetermined` 與 `2019-05;2021`。以 DuckDB 1.5.5 跑 load.sql 灌表成功，新判準把那一段判為非進行中。
+真 binary 驗證：scratch store 裡一個只被觀測到的人，`export-tables` 輸出 `undetermined` 與觀測點（R1 當時是 `;` 串接，R1 verify 後改成 JSON 陣列）。以 DuckDB 1.5.5 跑 load.sql 灌表成功，新判準把那一段判為非進行中。

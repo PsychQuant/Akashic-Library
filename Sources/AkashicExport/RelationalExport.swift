@@ -34,7 +34,7 @@ import AkashicCore
 /// `WHERE dimension='administrative' AND value='所長'`，而不是對欄位名做字串比對。
 ///
 /// `researcher` 保留**現況**欄位（`rank_current` 等）作為便利視角——它們可由 timeline
-/// 推出（`end IS NULL` 的最新一段），冗餘但常用。**冗餘是刻意的**：不放的話每個
+/// 推出（`valid_end`、`valid_end_unknown`、`valid_attested` 三者皆 NULL 的最新一段），冗餘但常用。**冗餘是刻意的**：不放的話每個
 /// 「現在誰是研究員」的查詢都要自己寫一次 window function。
 public enum RelationalExport {
 
@@ -67,10 +67,17 @@ public enum RelationalExport {
         return observedOnly ? "undetermined" : "retired"
     }
 
-    /// researcher_timeline.valid_attested（#661）：觀測點依序以 `;` 串接，沒有時 NULL。
-    /// ISO 8601 前綴不含 `;`，所以拆得回來。
+    /// researcher_timeline.valid_attested（#661）：觀測點依序寫成 **JSON 陣列**（`["2019-05","2021"]`），沒有時 NULL。
+    ///
+    /// R1 用 `;` 串接，理由是「ISO 8601 前綴不含 `;`」——而 store 不驗觀測點的值域（decode 只要求 scalar），所以手改的
+    /// `"2019;x"` 與兩個觀測點分不開，`attested: [""]` 串成空字串、被 CSV 寫成空欄位、被 DuckDB 讀成 NULL，那一段在 timeline
+    /// 又成了「進行中」而 status 說 undetermined（#661 R1 verify）。JSON 陣列對任何字串都無歧義，`[""]` 也是非空的一格；
+    /// 開頭固定是 `[`，也不會被試算表當成公式。DuckDB 以 `valid_attested::JSON` 或 `from_json` 取回。
     static func attestedCell(_ range: DateRange) -> String? {
-        range.attested.isEmpty ? nil : range.attested.sorted().joined(separator: ";")
+        guard !range.attested.isEmpty,
+              let data = try? JSONSerialization.data(withJSONObject: range.attested.sorted(),
+                                                     options: [.withoutEscapingSlashes]) else { return nil }
+        return String(decoding: data, as: UTF8.self)
     }
 
     /// 從一次 load 的結果產出表格。
@@ -95,7 +102,7 @@ public enum RelationalExport {
         // 不是 key——key 是**稱呼**，會改；surrogate id 才適合當 FK。
         let sortedPeople = people.sorted { $0.key < $1.key }
         let researcherRows: [[String?]] = sortedPeople.map { p in
-            // 現況欄位由 timeline 推出（`end IS NULL` 的最新一段）——冗餘但常用
+            // 現況欄位由 timeline 推出（valid_end、valid_end_unknown、valid_attested 三者皆 NULL 的最新一段）——冗餘但常用
             [p.id.uuidString, p.key, p.displayName(in: .latn), p.orcid?.normalized, p.openalex,
              p.profile.affiliations.current?.value.displayName,
              p.profile.ranks.current?.value,
@@ -358,7 +365,7 @@ public enum RelationalExport {
             -- 「還沒歸戶的隸屬」是 WHERE affiliation_kind = 'literal'，不是 organization_id IS NULL。
             -- 新欄加在最後：load.sql 依位置灌表。
             affiliation_kind TEXT,
-            -- #661：觀測點（#70 的 attested），ISO 8601 前綴依序以 ';' 串接；沒有時 NULL。
+            -- #661：觀測點（#70 的 attested），依序寫成 JSON 陣列（["2019-05","2021"]）；沒有時 NULL。以 valid_attested::JSON 取回。
             -- 非空而 valid_end 與 valid_end_unknown 都 NULL ＝ 只被觀測到過，不是進行中也不是已結束。
             valid_attested TEXT
         );

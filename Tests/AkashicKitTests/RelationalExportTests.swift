@@ -229,10 +229,12 @@ final class RelationalExportTests: XCTestCase {
         mixed.profile.affiliations = TimelineOf([
             TemporalValue(value: .literal("NTU"), range: DateRange(start: "2000", end: "2010")),
             TemporalValue(value: .literal("ISS"), range: DateRange(attested: ["2015"]))])
-        // 觀測點之外還有 end：已結束，retired 照舊
+        // 只有已結束的段（有 end、或 ended-unknown）：retired 照舊。（attested 與 end 並存是 store 拒收的矛盾——
+        // encode／decode 兩端都擋，所以不拿它當 fixture；R1 verify 指出那個 fixture 釘的是一個不可達的狀態）
         var ended = Person(key: "c-ended", names: ["C"])
         ended.profile.affiliations = TimelineOf([
-            TemporalValue(value: .literal("ISS"), range: DateRange(end: "2018", attested: ["2015"]))])
+            TemporalValue(value: .literal("ISS"), range: DateRange(start: "2010", end: "2018")),
+            TemporalValue(value: .literal("NTU"), range: DateRange(endedUnknown: true))])
         let t = RelationalExport.tables(entries: [], people: [seen, mixed, ended])
         let s = try XCTUnwrap(t.researcher.columns.firstIndex(of: "status"))
         XCTAssertEqual(t.researcher.rows.map { $0[s] }, ["undetermined", "undetermined", "retired"])
@@ -241,9 +243,14 @@ final class RelationalExportTests: XCTestCase {
         XCTAssertEqual(tl.columns.last, "valid_attested", "新欄加在最後：load.sql 依位置灌表")
         let who = try XCTUnwrap(tl.columns.firstIndex(of: "researcher_id"))
         let seenRow = try XCTUnwrap(tl.rows.first { $0[who] == seen.id.uuidString })
-        XCTAssertEqual(seenRow[a], "2019-05;2021", "觀測點依序以 ; 串接")
+        XCTAssertEqual(seenRow[a], #"["2019-05","2021"]"#, "觀測點依序寫成 JSON 陣列")
         let endedFree = try XCTUnwrap(tl.rows.first { $0[who] == mixed.id.uuidString && $0[a] == nil })
         XCTAssertEqual(endedFree[tl.columns.firstIndex(of: "valid_end")!], "2010", "沒有觀測點的列是 NULL")
+        // R1 verify：`attested: [""]`（手改進得來，decode 只要求 scalar）與含 `;` 的觀測點——`;` 串接會把前者寫成空欄位（DuckDB 讀成
+        // NULL，那一段又成了進行中）、把後者與兩個觀測點混在一起。JSON 陣列兩者都無歧義。
+        XCTAssertEqual(RelationalExport.attestedCell(DateRange(attested: [""])), #"[""]"#)
+        XCTAssertEqual(RelationalExport.attestedCell(DateRange(attested: ["2019;x"])), #"["2019;x"]"#)
+        XCTAssertNil(RelationalExport.attestedCell(DateRange(start: "2010")))
         let ddl = RelationalExport.duckDBScript()
         XCTAssertTrue(ddl.contains("'current', 'retired', 'undetermined'"), "CHECK 要收 undetermined")
         XCTAssertTrue(ddl.contains("valid_end_unknown IS NULL **且** valid_attested IS NULL"),

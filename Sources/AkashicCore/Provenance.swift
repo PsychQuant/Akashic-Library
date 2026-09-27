@@ -192,7 +192,7 @@ public struct ProvenanceReference: Equatable {
 
     /// **位元組精確的相等鍵**（#554 R24，D65；R23 verify Codex 第 1 列 HIGH）。
     ///
-    /// 「兩筆 reference 完全相同」在本 repo 的意思是**逐位元組相同**——問「兩筆是不是同一筆」的地方都以它為判準。**封閉列舉、十處**
+    /// 「兩筆 reference 完全相同」在本 repo 的意思是**逐位元組相同**——問「兩筆是不是同一筆」的地方都以它為判準。**封閉列舉**（#582 R1 verify：「九處」「十處」這種數字找不到一種計法對得上——按項目、按展開後的站點、按檔案各得一個數，所以不寫數字；機械的答案是 `ByteExactKeySiteInventoryTests` 釘住的檔案清單）
     /// （R26 D73；R25 verify 第 7／17／21／25／29 列：R24 說「全 repo」實際換了兩處、R25 說「四處」實際還有三處沒換——兩輪都是列舉寫得比程式大；
     /// R26 寫「七處」並附一條 `grep 'references.contains('` 的稽核指令，R26 verify 第 8／16／23／51 列實跑：9 個命中、5 個不在七處、七處裡 2 處
     /// 那條 grep 根本看不到——換了方向，列舉寫得比 grep 小；`paginated` 的冪等閘實際是兩處）：

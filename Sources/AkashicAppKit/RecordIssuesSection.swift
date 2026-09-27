@@ -39,7 +39,8 @@ struct RecordIssuesSection: View {
             if summary.duplicateReferences > 0 {
                 LabeledContent("重複的 reference", value: summary.lowerBound(summary.duplicateReferences))
                     .help("同一記錄裡兩筆以上非判定的 reference 彼此相等（#582）：只差位元組（NFC／NFD）的變體工具面寫得進來，"
-                          + "位元組完全相同的是手改或舊 binary。確認說的是同一件事後留一筆——手改 YAML。")
+                          + "位元組完全相同的是同一個動作做了兩次（移除與拆分記錄不去重）、手改或舊 binary。計數的單位是組，一筆記錄可以有好幾組。"
+                          + "確認說的是同一件事後留一筆——手改 YAML。")
             }
             if summary.deadVerdicts > 0 {
                 LabeledContent("死 verdict", value: summary.lowerBound(summary.deadVerdicts))

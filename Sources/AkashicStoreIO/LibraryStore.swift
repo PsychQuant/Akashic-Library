@@ -2683,7 +2683,8 @@ public extension LibraryLoad {
 
         // 隸屬與上級機構的懸空參照（#660）。第 7 條邊（`Person.profile.affiliations`）與第 8 條邊
         // （`Organization.parents`）指向 organization 的 key，而上面兩段只補了 work 那三種邊——這兩種
-        // 懸空在 validate／doctor／App 都不出聲，只有 `researcher` 表的 NULL 分得出來。warning 的理由同上。
+        // 懸空在 validate／doctor／App 都不出聲——隸屬那一半在匯出表裡要自己寫 SQL 才分得出來，上級機構那一半連匯出表都分不出來
+        // （`organization.parent_id` 只看現任上級，懸空、字面、沒有上級都是 NULL）。warning 的理由同上。
         var danglingAffiliations: [String: Set<String>] = [:]
         var danglingParents: [String: Set<String>] = [:]
         for p in people {

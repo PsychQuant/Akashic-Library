@@ -620,10 +620,17 @@ extension LibraryStore {
     /// **重複的 reference**（#582）：同一筆記錄裡 ≥2 筆非判定 reference 彼此 canonical 相等（Swift `==`：只差 NFC／NFD 也算）。
     ///
     /// D64（`duplicateVerdictRecordIssues`）的非判定鏡像。三個寫入面（`paginated` 冪等閘、`UpdatePerson` 的 append-only、
-    /// `AddOnlyEnrichment.applied`）自 #554 R25／R26 起以 `byteExactKey`（位元組相等）去重，所以位元組不同的變體寫得進來；
-    /// 位元組完全相同的重複工具面寫不出，是手改或舊 binary。兩種都報，措辭分開。
+    /// `AddOnlyEnrichment.applied`）自 #554 R25／R26 起以 `byteExactKey`（位元組相等）去重，所以位元組不同的變體寫得進來。
+    /// 位元組完全相同的重複**也寫得進來**（R1 verify DA 真 binary 重現）：`dropAuthors`／`splitAuthors` 對 work 的 references 直接
+    /// append、不去重，同一個移除做兩次（`--drop-author` → `enrich --include-absent-authors` 補回 → 再 `--drop-author`）就留下兩筆
+    /// 逐位元組相同的記錄。兩種都報，措辭分開；一組裡兩種都有時兩件事都說。
     ///
     /// **不設 per-record 上限**：一組一則，則數至多是該記錄 reference 數的一半，與死 verdict 那類同屬線性家族。
+    /// 計數的單位是**組**：同一筆記錄可以有好幾組（`akashic_doctor` 的描述寫明）。
+    ///
+    /// **誠實邊界**（R1 verify）：只看 canonical 相等（Swift `==`）。只差 Cf 字元（例如 ZWSP）的兩筆不是 canonical 相等、不報——
+    /// 它們在 D69／D73 之前也不被 `==` 去重，不是那次替換打開的格；只差 rests-on 順序的兩筆同樣不報（`byteExactKey` 與 `==` 都把
+    /// rests-on 當有序陣列）。
     /// **severity 是 warning**：兩筆都合法，處置是人決定留哪一筆。2026-09-27 實測 live store：0 組（量法見 `zero-instance-guards` 第 35 列）。
     func duplicateReferenceIssues(in load: LibraryLoad) -> [StoreHealth.OwnedIssue] {
         // canonical 鍵：`byteExactKey` 逐段取 NFC——與 Swift `String` 的 `==` 同一個等價關係（canonical equivalence），
@@ -642,16 +649,22 @@ extension LibraryStore {
             }
             return order.compactMap { k in
                 guard let g = groups[k], g.count > 1 else { return nil }
-                let sameness = g.spellings.count > 1
-                    ? "只差位元組（\(g.spellings.count) 種拼法，例如 NFC／NFD）——工具面以位元組相等去重，這種變體寫得進來"
-                    : "位元組完全相同——工具面寫不出它，是手改或舊 binary 寫的"
-                let valuePart = g.first.value.map { "，value「\(displaySafeInvisible($0, max: 120))」" } ?? ""
+                // 一組裡位元組完全相同的多出來的筆數：每種拼法留一筆，其餘都是逐位元組的複本（R1 verify：混合組曾只說「只差位元組」）
+                let identicalExtra = g.count - g.spellings.count
+                var parts: [String] = []
+                if g.spellings.count > 1 {
+                    parts.append("只差位元組（\(g.spellings.count) 種拼法，例如 NFC／NFD）——工具面以位元組相等去重，這種變體寫得進來")
+                }
+                if identicalExtra > 0 {
+                    parts.append("其中 \(identicalExtra) 筆與另一筆位元組完全相同——同一個動作做了兩次（移除與拆分記錄不去重），或手改、舊 binary 寫的")
+                }
+                let valuePart = g.first.value.map { "（value「\(displaySafeInvisible($0, max: 120))」）" } ?? ""
                 return StoreHealth.OwnedIssue(
                     owner: owner, kind: kind,
                     issue: ValidationIssue(
                         severity: .warning,
-                        message: "\(StoreHealth.duplicateReferencePrefix)：\(displaySafeInvisible(g.first.field, max: 120))\(valuePart)有 \(g.count) 筆彼此相等的記錄；"   // display-safe-exempt: 前綴是常量；Int
-                               + "\(sameness)。處置：確認說的是同一件事後留一筆（目前沒有工具面，手改 YAML）"))   // display-safe-exempt: sameness 是兩句字面常量＋Int
+                        message: "\(StoreHealth.duplicateReferencePrefix)：\(displaySafeInvisible(g.first.field, max: 120))\(valuePart) 共 \(g.count) 筆彼此相等；"   // display-safe-exempt: 前綴是常量；Int
+                               + parts.joined(separator: "；") + "。處置：確認說的是同一件事後留一筆（目前沒有工具面，手改 YAML）"))   // display-safe-exempt: parts 是兩句字面常量＋Int
             }
         }
         var out: [StoreHealth.OwnedIssue] = []

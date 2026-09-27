@@ -438,8 +438,11 @@ displayName(script) =
 
 1. `attested` 是 ISO 8601 前綴的清單；非空時 `start`／`end`／`ended` **MUST** 全
    缺席——起點若已知就不是「起訖皆不明」，用 `start`（encode/decode 兩端拒矛盾）。
-2. attested-only 段 **MUST NOT** 視為進行中（`isOpen` false、`current` 不採計、
-   status 推導不採計）——有觀測不等於現況。
+2. attested-only 段 **MUST NOT** 視為進行中（`isOpen` false、`current` 不採計）——有觀測不等於現況。
+   它**也 MUST NOT 視為已結束**：沒有進行中的段、而至少一段是 attested-only 時，衍生層的 `status` 是
+   `undetermined`，不是 `retired`（#661，2026-09-27）。「被看到過」與「離開了」是兩件事；把前者推成後者是偽造的斷言。
+   這一句取代 #661 之前的「status 推導不採計」——那個寫法有兩種讀法（不算進行中／整段忽略），而後者正是
+   `retired` 的來源。
 3. 觀測點**不合併**：同 org 的多個觀測各自成點（每點日後可掛 #66 的 reference
    逐點溯源——本版尚未接，觀測來源暫記 `source`／`note`）。
 4. **format 7 專屬**（段內鍵 strict → non-additive）：write gate 對 format < 7 的
@@ -554,7 +557,8 @@ canary 攔下。那不成立——關聯匯出不經過 canary，而 canary 的�
 
 ### `died` 與 `status` 正交
 
-衍生層的 `status` 描述的是**隸屬**。在職過世者的隸屬確實結束了，所以 `status` 仍是
+衍生層的 `status` 描述的是**隸屬**（值域：`current`／`retired`／`undetermined`／NULL——沒有隸屬資料時 NULL，
+`undetermined` 見 §3 attested 第 2 條）。在職過世者的隸屬確實結束了，所以 `status` 仍是
 `retired`——加上 `died` **MUST NOT** 改變任何隸屬推導。兩者放在一起會露出一個矛盾
 （已故卻仍有開放的隸屬段），`doctor` **MUST** 報告它，並 **MUST NOT** 代為關閉：
 把隸屬的結束日設成死亡日是推論，而人可能離職多年後才過世。

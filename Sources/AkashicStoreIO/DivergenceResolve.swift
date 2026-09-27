@@ -3223,6 +3223,22 @@ extension LibraryStore {
                     return present.map { (path: $0, why: cannotRun) }
                 }
                 dirtySet.formUnion(names(dirty.out))
+                // **比內容，不只信 index 的 stat 快取**（#573／#585 R2）：`diff HEAD` 對 stat 與 index 相符的檔不讀內容，而 index
+                // 的 stat 可能是在一次被騙的比對裡刷新的——使用者曾在惡意的 global gitconfig（clean filter 從 HEAD 取內容）下跑過
+                // `git status`，dirty 檔的新 stat 就被記成乾淨，之後關掉 global config 也救不回來。所以另外把工作樹內容 hash 成 blob
+                // （只套 repo 自己的 filter），與 HEAD 的 blob id 逐檔比對，兩者取聯集。
+                guard let tree = git(["ls-tree", "-z", "HEAD", "--"] + chunk, in: root), tree.status == 0,
+                      let hashed = git(["hash-object", "--"] + chunk, in: root), hashed.status == 0 else {
+                    return present.map { (path: $0, why: cannotRun) }
+                }
+                var headBlob: [String: String] = [:]
+                for entry in names(tree.out) {   // `<mode> <type> <sha>\t<path>`
+                    guard let tab = entry.firstIndex(of: "\t") else { continue }
+                    let meta = entry[..<tab].split(separator: " ")
+                    if meta.count == 3 { headBlob[String(entry[entry.index(after: tab)...])] = String(meta[2]) }
+                }
+                let worktreeBlobs = hashed.out.split(separator: "\n").map(String.init)
+                for (rel, sha) in zip(chunk, worktreeBlobs) where headBlob[rel] != sha { dirtySet.insert(rel) }
             }
         }
         var bad: [(path: String, why: String)] = []

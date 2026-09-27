@@ -152,6 +152,8 @@ final class GitSpawnHygieneTests: XCTestCase {
         XCTAssertEqual(GitFixture.run(["add", "-A"], in: repo), 0)
         XCTAssertEqual(GitFixture.run(["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "seed"], in: repo), 0)
         try "v: 2\n".write(to: file, atomically: true, encoding: .utf8)
+        // mtime 往前調：與 index 寫入落在同一秒時 git 視為 racily clean、會重讀內容，污染就不一定成立——調開之後它必然成立
+        try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(-3600)], ofItemAtPath: file.path)
 
         let attrs = home.appendingPathComponent("attrs")
         try "*.yaml filter=lie\n".write(to: attrs, atomically: true, encoding: .utf8)
@@ -164,15 +166,17 @@ final class GitSpawnHygieneTests: XCTestCase {
         let saved = ProcessInfo.processInfo.environment["HOME"] ?? ""
         setenv("HOME", home.path, 1)
         defer { setenv("HOME", saved, 1) }
-        // 前提：這份 gitconfig 真的會讓一個不設防的 git 說謊——否則下面的斷言是空的
+        // 前提：這份 gitconfig 真的會讓一個不設防的 git 說謊——否則下面的斷言是空的。用 `status`：它一定會刷新 index，
+        // 把 dirty 檔的新 stat 記成乾淨（R2：index 被污染之後，只信 stat 快取的 `diff HEAD` 連內容都不讀，關掉 global
+        // config 也救不回來——閘因此另外比內容）。
         let naive = Process()
         naive.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-        naive.arguments = ["-C", repo.path, "diff", "--name-only", "HEAD"]
+        naive.arguments = ["-C", repo.path, "status", "--porcelain"]
         naive.environment = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("GIT_") }
         let pipe = Pipe(); naive.standardOutput = pipe; naive.standardError = FileHandle.nullDevice
         try naive.run(); naive.waitUntilExit()
         let naiveOut = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        XCTAssertFalse(naiveOut.contains("entities/a.yaml"), "前提：只剝 GIT_* 的 git 被這份 gitconfig 騙過")
+        XCTAssertFalse(naiveOut.contains("a.yaml"), "前提：只剝 GIT_* 的 git 被這份 gitconfig 騙過：\(naiveOut)")
 
         let bad = LibraryStore.filesNotSafelyRecoverable(root: repo, relativePaths: ["entities/a.yaml"])
         XCTAssertEqual(bad.map(\.path), ["entities/a.yaml"], "global gitconfig 讓閘把 dirty 的檔判成 clean")

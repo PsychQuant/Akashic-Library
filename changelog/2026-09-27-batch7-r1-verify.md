@@ -17,3 +17,13 @@ R1 verify 有 6 席，回報 40 條，其中 1 HIGH、12 MEDIUM。本輪修正�
   - `akashic-merge-twins` skill 的合併步驟補上 `--library`。
 - **#653 的措辭**：先前寫「不閘的都可逆」，這句不成立——`--drop-author` 與 import-zotero 都不可逆。這兩個閘不閘、以及稽核怎麼抓到新的未閘寫入命令，一併記在 #658，交給使用者裁決。
 - `GitSpawnHygieneTests` 的封閉清單改成真的封閉：會 spawn git 卻沒登記的檔也會紅。另外補登記兩個檔。
+
+## push 時的 pre-push 抓到：只信 index 的 stat 快取，關掉 global config 也不夠
+
+`testGlobalGitconfigCannotMakeADirtyFileLookClean` 在主 repo 會過，在 pre-push 裡紅。原因是它的前提檢查：先用「只剝 `GIT_*`」的 git 跑一次，確認惡意 gitconfig 真的騙得過去。那一次 git 會順手刷新 index 的 stat 快取，把 dirty 檔的新 stat 記成乾淨。之後閘的 `git diff HEAD` 看 stat 對得上就不讀內容，於是判成乾淨。
+
+這不只是測試的問題：使用者只要曾在惡意的 `HOME` 設定下跑過一次 `git status`，index 就被污染了，關掉 global config 也救不回來。
+
+- **修法**：`filesNotSafelyRecoverable` 另外把工作樹內容 hash 成 blob（`git hash-object`，只套 repo 自己的 filter），與 `git ls-tree HEAD` 的 blob id 逐檔比對，結果與 `diff HEAD` 取聯集。子目錄 store 的路徑基準已實測一致：兩者都相對於 cwd。
+- **測試**：前提檢查改用 `git status`，它一定會刷新 index。dirty 檔的 mtime 往前調一小時，避開 git 的 racy-clean 重讀，讓 index 被污染成為必然條件，而不是時間戳的巧合。
+- **負控**：拿掉內容比對，5/5 紅；修好後 5/5 綠。相關的 481 支測試 0 失敗。

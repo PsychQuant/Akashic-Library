@@ -1007,7 +1007,11 @@ final class SanitizationBoundaryTests: XCTestCase {
     /// 輸入四倍，耗時不得超過八倍（線性 ≈ 4 倍、二次 ≈ 16 倍）；另留一個寬鬆的絕對上限（10 秒）擋住整個路徑失控。
     func testErrorTextWorkIsLinearInTheInput() {
         struct Raw: Error, CustomStringConvertible { let description: String }
-        func seconds(_ body: () -> Void) -> TimeInterval { let t = Date(); body(); return Date().timeIntervalSince(t) }
+        // 取三次的最小值：單次量測在機器有其他編譯／測試負載時會被一次排程中斷拉長（2026-09-27 pre-push 實測 0.037 → 0.374 s，
+        // 單獨重跑三次皆通過）。雜訊只會讓時間變長，最小值濾掉它；真正的超線性在最小值上照樣超過 ×8。
+        func seconds(_ body: () -> Void) -> TimeInterval {
+            (0..<3).map { _ in let t = Date(); body(); return Date().timeIntervalSince(t) }.min()!
+        }
         let small = Raw(description: String(repeating: "\u{200B}", count: 500_000))
         let big = Raw(description: String(repeating: "\u{200B}", count: 2_000_000))
         _ = displaySafeError(small, max: 512)   // 暖機：第一次跑含一次性配置

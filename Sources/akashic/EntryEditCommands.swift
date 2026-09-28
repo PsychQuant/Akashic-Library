@@ -6,7 +6,8 @@ import AkashicMCPKit
 /// #219：關係／狀態的寫入面（CLI）——`link`／`tag`／`set-status` 三格。
 /// 各自與 MCP 的同名 tool 共用同一個 `AkashicService` 函式；kind 合法值、
 /// citekey 存在性、寫入與 reindex 全由 service 判——CLI 不重寫一份判準，
-/// 兩面才不會分岔（#206 → #218 → #219 同一條裁決線）。
+/// 兩面才不會分岔（#206 → #218 → #219 同一條裁決線）。只看參數的那幾道由 service 暴露成 static 函式，
+/// CLI 在 `validate()` 呼叫同一個函式（#654）。
 
 struct LinkCmd: ParsableCommand {
     static let configuration = CommandConfiguration(
@@ -27,10 +28,15 @@ struct LinkCmd: ParsableCommand {
     @Option(name: .long, parsing: .upToNextOption, help: "要移除的對端 citekey")
     var remove: [String] = []
 
-    func run() throws {
+    /// 只看 argv 的兩道檢查早於開 store（#654）：kind 值域是服務的同一個函式；「至少一個」是 CLI 自己的（MCP 面沒有這一條）。
+    func validate() throws {
         guard !add.isEmpty || !remove.isEmpty else {
             throw ValidationError("--add 與 --remove 至少要給一個")
         }
+        try argvCheck { try AkashicService.checkLinkKind(kind) }
+    }
+
+    func run() throws {
         let store = try options.openStore()
         // `key:` 不可省（#220 HIGH）——寫入格經 writeAndReindex，丟 key 會在
         // 已註冊 store 的 root 長出第二份 index
@@ -56,8 +62,10 @@ struct TagCmd: ParsableCommand {
     @Option(name: .long, parsing: .upToNextOption, help: "要移除的 tag")
     var remove: [String] = []
 
+    /// 「至少給一個」的守衛在 service（#258 下沉——兩面共用同一份判準）；CLI 在 `validate()` 呼叫同一個函式，早於開 store（#654）
+    func validate() throws { try argvCheck { try AkashicService.checkTagArguments(add: add, remove: remove) } }
+
     func run() throws {
-        // 「至少給一個」的守衛在 service（#258 下沉——兩面共用同一份判準）
         let store = try options.openStore()
         let service = AkashicService(root: store.root, key: store.key,
                                      environment: ProcessInfo.processInfo.environment)
@@ -81,9 +89,11 @@ struct SetStatusCmd: ParsableCommand {
     @Flag(name: .long, help: "清除狀態（與狀態值互斥）")
     var clear: Bool = false
 
+    /// 三態守衛（缺席拒絕、互斥拒絕）在 service（#258 下沉——原本只有 CLI 有這層、MCP 面「省略＝清除」，危害最大的面恰無守衛；
+    /// 單一判準兩面共用）。CLI 在 `validate()` 呼叫同一個函式，早於開 store（#654）
+    func validate() throws { try argvCheck { try AkashicService.checkStatusArguments(status: status, clear: clear) } }
+
     func run() throws {
-        // 三態守衛（缺席拒絕、互斥拒絕）在 service（#258 下沉——原本只有 CLI 有
-        // 這層、MCP 面「省略＝清除」，危害最大的面恰無守衛；單一判準兩面共用）
         let store = try options.openStore()
         let service = AkashicService(root: store.root, key: store.key,
                                      environment: ProcessInfo.processInfo.environment)

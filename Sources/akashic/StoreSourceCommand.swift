@@ -43,8 +43,16 @@ struct StoreSourceCmd: ParsableCommand {
     @Flag(name: .long, help: "輸出 service 的 JSON payload 原樣")
     var json = false
 
+    /// 必填欄位只看 argv——早於開 store（#654）；檢查本身在 service，兩面同一個函式
+    func validate() throws {
+        try argvCheck {
+            try AkashicService.checkStoreSourceArguments(mediaType: mediaType, retrieved: retrieved,
+                                                         origin: origin, acquisition: acquisition)
+        }
+    }
+
     func run() throws {
-        // 必填欄位、路徑可讀性、排除驗證全由 service 判——CLI 不重寫判準（否則兩處會分岔）
+        // 路徑可讀性、排除驗證由 service 判（要讀檔案系統——執行期）——CLI 不重寫判準（否則兩處會分岔）
         //
         // **`key:` 必帶**（#220 HIGH）：漏掉會讓已註冊的 store 被當成 keyless 而長出
         // 第二份 index。`PersonCLITests.testEveryCLIServiceConstructionPassesRegistryKey`

@@ -36,17 +36,17 @@ extension AkashicService {
     /// 三個未決腿（people／venues／organizations，change `org-undecided-leg`）共用的整批檢查：上限、format 閘、
     /// rests-on 形狀。輸入錯一律 throw（整批拒絕、零寫入）。
     func checkUndecidedCall(specCount: Int, restsOn: [String]) throws {
+        try Self.checkUndecidedCallArguments(specCount: specCount, restsOn: restsOn)
+        try checkUndecidedFormat()
+    }
+
+    /// 整批檢查裡只看參數的那一半：上限與 rests-on 形狀（#654——CLI 的 `validate()` 呼叫同一個函式，用法錯誤早於開 store）。
+    public static func checkUndecidedCallArguments(specCount: Int, restsOn: [String]) throws {
         guard specCount <= Self.maxSpecsPerCall else {
             throw ServiceError.invalid("一次最多記 \(Self.maxSpecsPerCall) 筆未決（這次 \(specCount) 筆）——分次送")   // display-safe-exempt: Self.maxSpecsPerCall 與 specCount 是 Int
         }
         guard restsOn.count <= Self.maxRestsOnPerCall else {
             throw ServiceError.invalid("rests_on 一次最多 \(Self.maxRestsOnPerCall) 個 digest（這次 \(restsOn.count) 個）——證據不同的配對分次送")   // display-safe-exempt: Self.maxRestsOnPerCall 是 Int 常數
-        }
-        let storeFormat = (try? StoreVersion.read(root: store.root)) ?? 1
-        guard storeFormat >= 19 else {
-            throw ServiceError.invalid(
-                "未決記錄（resolution-undecided）需要 store format ≥ 19（本 store 是 \(storeFormat)）"   // display-safe-exempt: storeFormat 是 Int
-                + "——確認 CLI/MCP/App 都已升級後，把 store.yaml 的 format: 改成 19")
         }
         // rests-on 的形狀走 ProvenanceReference 平面 init（單一驗證入口）：一個 dummy 值驗整組 digest
         do {
@@ -58,8 +58,18 @@ extension AkashicService {
         }
     }
 
+    /// 整批檢查裡要讀 store 的那一半：format 閘（`store.yaml`——argv 以外）。
+    func checkUndecidedFormat() throws {
+        let storeFormat = (try? StoreVersion.read(root: store.root)) ?? 1
+        guard storeFormat >= 19 else {
+            throw ServiceError.invalid(
+                "未決記錄（resolution-undecided）需要 store format ≥ 19（本 store 是 \(storeFormat)）"   // display-safe-exempt: storeFormat 是 Int
+                + "——確認 CLI/MCP/App 都已升級後，把 store.yaml 的 format: 改成 19")
+        }
+    }
+
     /// 單筆說明的檢查（位元組上限、空白）——三個未決腿共用。
-    func checkUndecidedStatement(id: String, statement: String) throws {
+    static func checkUndecidedStatement(id: String, statement: String) throws {
         guard statement.utf8.count <= Self.maxStatementBytes else {
             throw ServiceError.invalid(
                 "未決「\(displaySafeInvisible(id, max: 200))」的說明超過 \(Self.maxStatementBytes) 位元組——精簡它，承重內容用 rests_on 附存檔")   // display-safe-exempt: Self.maxStatementBytes 是 Int 常數
@@ -71,9 +81,17 @@ extension AkashicService {
         }
     }
 
+    /// CLI 的 `validate()` 用（#654）：people／venues 未決腿只看參數的全部檢查——與服務在讀 store 之前跑的是同一個函式。
+    public static func checkUndecidedArguments(_ specs: [String], restsOn: [String], indexName: String) throws {
+        _ = try parseUndecidedSpecs(specs, restsOn: restsOn, indexName: indexName)
+    }
+
     /// 解析 `<citekey>:<index>:<entityKey>=<說明>`（以第一個 `=` 切——說明是自由文字）。輸入錯一律 throw。
-    func parseUndecidedSpecs(_ specs: [String], restsOn: [String], indexName: String) throws -> [UndecidedSpec] {
-        try checkUndecidedCall(specCount: specs.count, restsOn: restsOn)
+    ///
+    /// **只看參數**（#654）：people 與 venues 的未決腿在讀 store 之前呼叫它，CLI 的 `validate()` 呼叫同一個函式。format 閘要讀
+    /// `store.yaml`，由呼叫端在解析之後另外檢查（`checkUndecidedFormat`）。
+    static func parseUndecidedSpecs(_ specs: [String], restsOn: [String], indexName: String) throws -> [UndecidedSpec] {
+        try checkUndecidedCallArguments(specCount: specs.count, restsOn: restsOn)
         var out: [UndecidedSpec] = []
         var seen = Set<String>()
         for spec in specs {
@@ -128,7 +146,8 @@ extension AkashicService {
 
     /// resolve-people 的未決腿。
     func recordUndecidedAuthorships(_ specs: [String], restsOn: [String]) throws -> String {
-        let parsed = try parseUndecidedSpecs(specs, restsOn: restsOn, indexName: "authorIndex")
+        let parsed = try Self.parseUndecidedSpecs(specs, restsOn: restsOn, indexName: "authorIndex")
+        try checkUndecidedFormat()
         let load = try store.load()
         let byCitekey = Dictionary(load.entries.map { ($0.citekey, $0) }, uniquingKeysWith: { _, last in last })
         let unlocatable = load.entries.unlocatableCitekeys
@@ -202,7 +221,8 @@ extension AkashicService {
 
     /// resolve-venues 的未決腿。
     func recordUndecidedVenues(_ specs: [String], restsOn: [String]) throws -> String {
-        let parsed = try parseUndecidedSpecs(specs, restsOn: restsOn, indexName: "venueIndex")
+        let parsed = try Self.parseUndecidedSpecs(specs, restsOn: restsOn, indexName: "venueIndex")
+        try checkUndecidedFormat()
         let load = try store.load()
         let byCitekey = Dictionary(load.entries.map { ($0.citekey, $0) }, uniquingKeysWith: { _, last in last })
         let unlocatable = load.entries.unlocatableCitekeys

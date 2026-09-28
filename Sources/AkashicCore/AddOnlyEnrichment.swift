@@ -545,6 +545,10 @@ public enum AddOnlyEnrichment {
         // digest 的形狀與 store 同一條（`ProvenanceReference.isValidDigest`）。先前不驗：dry-run 說「會寫」，
         // apply 時才以 writeFailed 失敗，而且那一筆連合法的欄位也一起沒寫（R2 verify security）。
         if let d = present(p.sourceDigest), !ProvenanceReference.isValidDigest(d) {
+            // #654：空內容的 digest 形狀合法卻不指認任何存檔（閘是 `isValidDigest` 本身）——分開說，對它說「形狀不對」是假話
+            if d == ProvenanceReference.emptyContentDigest {
+                throw InputError.invalidProposal(index: index, reason: "sourceDigest " + ProvenanceReference.emptyContentDigestReason)
+            }
             throw InputError.invalidProposal(
                 index: index,
                 reason: "sourceDigest 不是 `sha256:` 加 64 個小寫十六進位（實得長 \(d.utf8.count) bytes）——整批拒絕、零寫入")

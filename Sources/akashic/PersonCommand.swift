@@ -65,7 +65,8 @@ struct PersonCmd: ParsableCommand {
     @Flag(name: .long, help: "原樣輸出 service JSON（與 MCP akashic_person 逐欄位相同）")
     var json: Bool = false
 
-    func run() throws {
+    /// 只看 argv 的檢查早於開 store（#654）。
+    func validate() throws {
         // `--in-library` 只在 key 模式生效：service 的 name 分支根本沒讀 library
         // 參數（`AkashicService.swift` 的 `if let name` 段掃全庫算 publication 計數）。
         // 靜默忽略會給出**看起來被過濾過、實際沒有**的數字，所以明確拒絕——與
@@ -73,7 +74,12 @@ struct PersonCmd: ParsableCommand {
         if name != nil, inLibrary != nil {
             throw ValidationError("--in-library 只在 key 模式有效（--name 的候選計數是全庫的）")
         }
-        // key/name 互斥、空白拒絕、not-found 都由 service 判——CLI 不重寫一份判準
+        // key/name 互斥、空白拒絕由 service 判——CLI 不重寫一份判準，呼叫同一個 static 函式
+        try argvCheck { _ = try AkashicService.personLookupArguments(key: key, name: name) }
+    }
+
+    func run() throws {
+        // not-found 由 service 判（它要讀 store）
         let store = try options.openStore()
         // **`key:` 不可省**（verify #220 HIGH，4 個 lens 獨立命中）。省略它 →
         // service 內的 store 是 keyless → `indexURL` 從 `$AKASHIC_HOME/index/<key>-<tag>.sqlite`

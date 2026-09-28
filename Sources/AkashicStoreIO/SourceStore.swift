@@ -65,8 +65,11 @@ public extension LibraryStore {
     }
 
     /// digest → 存檔路徑。形狀錯回 nil（呼叫端決定 throw 與否）。
+    ///
+    /// **位址層只看形狀**（`isWellFormedDigest`，#654）：空內容的 digest 不可被引用，但它是一個合法的位址——
+    /// live store 有一個空 blob 住在那裡（#546 之前留下的）。
     internal func sourceURL(digest: String) -> URL? {
-        guard ProvenanceReference.isValidDigest(digest) else { return nil }
+        guard ProvenanceReference.isWellFormedDigest(digest) else { return nil }
         let hex = String(digest.dropFirst("sha256:".count))
         return sourcesDir.appendingPathComponent(String(hex.prefix(2)))
             .appendingPathComponent(String(hex.dropFirst(2)))
@@ -199,7 +202,7 @@ public extension LibraryStore {
             if line.trimmingCharacters(in: .whitespaces).isEmpty { continue }
             if let obj = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
                let content = obj["content"] as? String,
-               ProvenanceReference.isValidDigest(content) {
+               ProvenanceReference.isWellFormedDigest(content) {   // #654：index 的文法只看形狀——指向空 blob 的那一列（#546 之前）不是無法解析的行
                 digests.insert(content)
             } else {
                 malformed.append(i + 1)

@@ -586,6 +586,12 @@ struct BootstrapPeople: ParsableCommand {
     @Flag(name: .long, help: "輸出完整四段的 JSON（唯讀，不與 --apply 併用；不套用 --limit）")
     var json = false
 
+    /// 唯讀出口——與 `--apply` 併用沒有意義且會讓「輸出的是寫入前還是寫入後」有歧義。只看 argv，所以在 `validate()`：
+    /// 早於目標確認閘與開 store（#654——先前排在兩者之後，store 缺佈局時這個用法錯誤會被蓋成 1）。
+    func validate() throws {
+        if json && apply { throw ValidationError("--json 是唯讀輸出，不與 --apply 併用") }
+    }
+
     func run() throws {
         // #298：破壞性寫入前確認目標 store 已被指名。**只在 --apply 時**
         // ——dry-run 不得被擋（它不寫東西，且正是用來確認目標的手段）。
@@ -601,11 +607,7 @@ struct BootstrapPeople: ParsableCommand {
             // 有絕對否決權（實測門檻 10 時 `Daniel McNeish` 18 次被 `Daniel Muise`
             // 2 次單獨扣住）。
             minOccurrences: minOccurrences)
-        if json {
-            // 唯讀出口——與 `--apply` 併用沒有意義且會讓「輸出的是寫入前還是寫入後」有歧義。
-            guard !apply else {
-                throw ValidationError("--json 是唯讀輸出，不與 --apply 併用")
-            }
+        if json {   // 與 --apply 互斥已在 validate() 擋下
             // **這個出口刻意不套 `displaySafe`，消毒層是序列化器 ＋ 底下那一行後處理。**
             //
             // 理由是本出口需要 literal **逐字**可取回：這些名字要餵回 `add-person`，
@@ -1065,6 +1067,15 @@ struct ResolveOrganizations: ParsableCommand {
     static func idLine(_ id: String) -> String {
         let shown = displaySafe(id, max: 400)
         return shown == id ? "      id: \(shown)" : "      id: \(shown)  ⟨顯示經消毒或截斷，不能逐字送回——這一列改用 MCP⟩"
+    }
+
+    /// #654：只看參數的檢查（兩條腿一次的上限、rests-on 的 digest、每筆 id 連一個 `@<orgKey>=` 位置都沒有）在服務裡、讀 store 之前跑；
+    /// 這裡呼叫同一個函式。每一筆 id 要比對這次列表上的 id（要讀 store 跑提名），仍是執行期。
+    func validate() throws {
+        try argvCheck {
+            if !undecided.isEmpty { try AkashicService.checkOrgUndecidedCallArguments(undecided, restsOn: restsOn) }
+            if !judge.isEmpty { try AkashicService.checkOrgJudgeCallArguments(judge) }
+        }
     }
 
     func run() throws {
@@ -1827,6 +1838,17 @@ struct ResolvePeople: ParsableCommand {
             throw ValidationError("--tier「\(displaySafeInvisible(raw, max: 120))」不是提名層——合法值：" +
                 ResolutionTier.allCases.map(\.rawValue).joined(separator: " / "))
         }
+        // #654：各寫入腿只看參數的檢查（id 的形狀、理由空白與長度、同一批重複、一次的上限、rests-on 的 digest）在服務裡、
+        // 讀 store 之前跑；這裡呼叫同一個函式，用法錯誤回 64 並早於開 store。要讀 store 才判得出來的（work 不在、位置已歸戶……）仍是 1。
+        try argvCheck {
+            if !undecided.isEmpty { try AkashicService.checkUndecidedArguments(undecided, restsOn: restsOn, indexName: "authorIndex") }
+            if !judge.isEmpty { try AkashicService.checkJudgeArguments(judge, confirm: true) }
+            if !refute.isEmpty { try AkashicService.checkJudgeArguments(refute, confirm: false) }
+            if !splitAuthor.isEmpty { try AkashicService.checkSplitArguments(splitAuthor) }
+            if !unSplit.isEmpty { try AkashicService.checkUnsplitArguments(unSplit) }
+            if !dropAuthor.isEmpty { try AkashicService.checkDropAuthorArguments(dropAuthor) }
+            if !attributeOrg.isEmpty { try AkashicService.checkAttributeOrgArguments(attributeOrg) }
+        }
     }
 
     func run() throws {
@@ -1864,9 +1886,6 @@ struct ResolvePeople: ParsableCommand {
     }
 
     private func runResolve() throws {
-        // #298：破壞性寫入前確認目標 store 已被指名。**只在 --apply 時**
-        // ——dry-run 不得被擋（它不寫東西，且正是用來確認目標的手段）。
-        if apply { try options.assertDestructiveTargetNamed("resolve-people") }
         // 同一次呼叫不可同時 apply 與 reject——那是兩個相反的 verdict
         if apply, !reject.isEmpty {
             throw ValidationError("--apply 與 --reject 不可同用（相反的 verdict）——分兩次呼叫")
@@ -1898,6 +1917,10 @@ struct ResolvePeople: ParsableCommand {
                     + "混在一起時只有一條腿會執行；分次呼叫（#635）")
             }
         }
+        // #298：破壞性寫入前確認目標 store 已被指名。**只在 --apply 時**
+        // ——dry-run 不得被擋（它不寫東西，且正是用來確認目標的手段）。
+        // 排在腿組合檢查之後（#654）：閘要解析 registry，解析失敗是執行期（1）——排在前面會把用法錯誤蓋成 1。
+        if apply { try options.assertDestructiveTargetNamed("resolve-people") }
         // #658（使用者 2026-09-28 裁決）：--drop-author 沒有具名逆操作，被移除的作者位不留位置（#457）——
         // 寫錯 store 要靠 git 收拾。放在參數組合檢查之後：先報呼叫端的矛盾。其餘逐 id 腿的裁決見 `legRulings`。
         if !dropAuthor.isEmpty { try options.assertDestructiveTargetNamed("resolve-people", flag: "--drop-author", hasDryRun: false) }
@@ -2610,16 +2633,19 @@ struct RecordDivergence: ParsableCommand {
             help: "判斷傾向哪個候選（選填；須是候選之一、與 --judgement 成對）。指定後 resolve-divergence 選別人會拒絕，而非只警告")
     var prefers: String?
 
+    /// 只看 argv 的檢查早於開 store（#654）：`key:shape` 的解析與 MCP 面同一個函式（先前 CLI 另有一份一模一樣的解析，排在開 store 之後）；
+    /// 候選數、候選鍵格式、判斷與依據成對、依據的 digest、prefers 的兩條是 store 層 `recordDivergence` 開頭的同一個函式。
+    func validate() throws {
+        try argvCheck {
+            let parsed = try AkashicService.parseDivergenceCandidates(candidate)
+            try LibraryStore.checkDivergenceArguments(candidates: parsed, judgement: judgement,
+                                                      restsOn: restsOn, prefers: prefers)
+        }
+    }
+
     func run() throws {
         let store = try options.openStore()
-        let parsed: [(key: String, shape: EntityKind)] = try candidate.map { spec in
-            let parts = spec.split(separator: ":", maxSplits: 1).map(String.init)
-            guard parts.count == 2, let shape = EntityKind(rawValue: parts[1]) else {
-                throw ValidationError(
-                    "候選格式為 `key:shape`（shape ∈ \(EntityKind.allCases.filter { $0 != .divergence }.map(\.rawValue).joined(separator: " / "))），得到「\(displaySafeInvisible(spec, max: 120))」")
-            }
-            return (key: parts[0], shape: shape)
-        }
+        let parsed = try AkashicService.parseDivergenceCandidates(candidate)   // validate() 已過，這裡不會擲
         let d = try store.recordDivergence(question: question, candidates: parsed,
                                            judgement: judgement, restsOn: restsOn,
                                            prefers: prefers)

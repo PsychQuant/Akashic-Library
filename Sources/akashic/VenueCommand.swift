@@ -23,6 +23,9 @@ struct VenueCmd: ParsableCommand {
     @Flag(name: .long, help: "原樣輸出 service JSON（與 MCP akashic_venue 逐欄位相同）")
     var json: Bool = false
 
+    /// 空白 key 是用法錯誤，早於開 store（#654；檢查本身在 service，兩面同一個函式）
+    func validate() throws { try argvCheck { _ = try AkashicService.venueLookupKey(key) } }
+
     func run() throws {
         let store = try options.openStore()
         // `key:` 不可省——同 PersonCmd 的 #220 教訓（keyless store 會分岔出第二份 index）
@@ -170,6 +173,11 @@ struct AddVenueCmd: ParsableCommand {
             help: "ISSN（可多個；print 與 electronic 是兩個真的號。不合法即整批拒絕）")
     var issn: [String] = []
 
+    /// type 值域、key 格式、名字與 ISSN 的形狀只看 argv——早於開 store（#654）；檢查本身在 service，兩面同一個函式
+    func validate() throws {
+        try argvCheck { _ = try AkashicService.addVenueArguments(key: key, names: names, type: type, issn: issn) }
+    }
+
     func run() throws {
         let store = try options.openStore()
         let service = AkashicService(root: store.root, key: store.key,
@@ -251,6 +259,19 @@ struct UpdateVenueCmd: ParsableCommand {
     @Option(name: .customLong("rests-on"), parsing: .upToNextOption,
             help: "判定所依據的證據 digest（sha256:64hex，至少一個——先用 store-source 存證據拿 digest）")
     var restsOn: [String] = []
+
+    /// 只看 argv 的檢查早於開 store（#654）：與服務在讀 store 之前跑的是同一個函式，參數的對映與 `run()` 相同。
+    func validate() throws {
+        try argvCheck {
+            try AkashicService.checkUpdateVenueArguments(addNames: addName.isEmpty ? nil : addName, type: type,
+                                                         addISSN: addISSN.isEmpty ? nil : addISSN,
+                                                         addVariant: addVariant.isEmpty ? nil : addVariant,
+                                                         authorize: authorize.isEmpty ? nil : authorize,
+                                                         paginated: paginated, clearPaginated: clearPaginated,
+                                                         judgement: judgement, restsOn: restsOn.isEmpty ? nil : restsOn,
+                                                         removeISSN: removeISSN.isEmpty ? nil : removeISSN)
+        }
+    }
 
     func run() throws {
         let store = try options.openStore()
@@ -369,6 +390,17 @@ struct ResolveVenuesCmd: ParsableCommand {
     @Option(name: .customLong("drop-venue"), parsing: .upToNextOption,
             help: "移除 venue 邊（可重複）：citekey:venueIndex=理由（#572）。index 是原始位置。key 邊只在刪完後本 work 仍有另一條 key 邊指同一 venue 時可刪（否則先 --demote 再刪 literal 邊）；literal 邊一律可刪。理由必填、只印在報告裡——不寫進 store，要留在 git 就寫進 commit message；移除前要求那些 work 檔已 commit、乾淨。格式錯、理由空白、同一條邊兩次、越界、citekey 無法唯一定位，整批拒絕零寫入。刪光一筆 work 的 venue 邊時會具名（migrate-venues 與 Zotero pull 會重新推導）。單獨呼叫")
     var dropVenue: [String] = []
+
+    /// #654：各寫入腿只看參數的檢查（id 的形狀、理由、同一批重複、一次的上限、rests-on 的 digest）在服務裡、讀 store 之前跑；
+    /// 這裡呼叫同一個函式，用法錯誤回 64 並早於開 store。--apply／--reject 的 id 要比對這次的候選列表（讀 store），仍是執行期。
+    func validate() throws {
+        try argvCheck {
+            if !undecided.isEmpty { try AkashicService.checkUndecidedArguments(undecided, restsOn: restsOn, indexName: "venueIndex") }
+            if !repoint.isEmpty { try AkashicService.checkRepointArguments(repoint) }
+            if !demote.isEmpty { try AkashicService.checkDemoteArguments(demote) }
+            if !dropVenue.isEmpty { try AkashicService.checkDropVenueArguments(dropVenue) }
+        }
+    }
 
     func run() throws {
         if !restsOn.isEmpty && undecided.isEmpty {

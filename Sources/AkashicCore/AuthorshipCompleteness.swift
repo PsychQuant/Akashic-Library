@@ -7,8 +7,11 @@ public struct AuthorListFingerprint: Equatable, Hashable, Sendable {
     public let digest: String
 
     /// Persisted digest 的 strict parser；不合法的大小寫、長度或 prefix 一律拒絕。
+    ///
+    /// 只看形狀（`isWellFormedDigest`，#654）：fingerprint 是作者清單的 domain-separated 雜湊，不是內容位址——空內容的 digest
+    /// 不可能是它的值，而那件事由比對時的 `fingerprintMismatch` 說出來；在這裡以「形狀必須是 …」拒絕它是假話。
     public init(digest: String) throws {
-        guard ProvenanceReference.isValidDigest(digest) else {
+        guard ProvenanceReference.isWellFormedDigest(digest) else {
             throw AuthorshipCompletenessValidationError(
                 reason: .malformedFingerprint,
                 detail: digest)

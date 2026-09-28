@@ -33,8 +33,11 @@ struct AddPersonCmd: ParsableCommand {
     @Option(name: .long, help: "OpenAlex author ID（可選）")
     var openalex: String?
 
+    /// key 格式與 orcid 形狀只看 argv——早於開 store（#654）；檢查本身在 service，兩面同一個函式
+    func validate() throws { try argvCheck { _ = try AkashicService.addPersonArguments(key: key, orcid: orcid) } }
+
     func run() throws {
-        // key 合法性、已存在拒絕、quarantined 檔保護全由 service 判——CLI 不重寫判準
+        // 已存在拒絕、quarantined 檔保護由 service 判（要讀 store）——CLI 不重寫判準
         let store = try options.openStore()
         let service = AkashicService(root: store.root, key: store.key,
                                      environment: ProcessInfo.processInfo.environment)

@@ -261,11 +261,41 @@ public struct ProvenanceReference: Equatable {
         self.kind = kind
     }
 
-    /// digest 的形狀：`sha256:` + 64 個小寫 hex。
+    /// 0 byte 內容的 SHA-256 digest（#546／#654）。**常數**：任何空輸入都得到它，所以它不指認任何一份存檔——
+    /// 兩次不同的失敗抓取（不同 URL、不同作品）會折成它，而內容定址的去重讓它看起來只是「這份內容已經存過了」。
+    public static let emptyContentDigest =
+        "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+    /// 拒絕空內容 digest 時的理由——**一份描述**，每個拒絕站點共用（#654）。常量句，不含呼叫端資料。
+    /// 它與各站點既有的「形狀必須是 …」分開說：空內容的 digest 形狀完全合法，對它說「形狀錯了」是假話。
+    public static let emptyContentDigestReason =
+        "「\(emptyContentDigest)」是 0 byte 內容的 digest——它對所有空輸入都相同，不指認任何一份存檔"
+        + "（通常是一次失敗的抓取留下的空檔）；重新取得內容、用 store-source 存檔後引用新的 digest"
+
+    /// 可以被**引用**的 digest：形狀合法（`isWellFormedDigest`），且不是空內容的 digest（#654）。
     ///
     /// 形狀錯的 digest 永遠 resolve 不到內容——內容定址的根壞了，這筆 reference
     /// 的「內容」半邊就是假的。fail-fast 於寫入/載入，勝過存了一個永遠找不到的指涉。
+    ///
+    /// **空內容的 digest 同樣拒絕**（#654，使用者 2026-09-28 裁決：閘放在這裡而不是 `enrich` 入口，所以每一個寫入面都經過它）：
+    /// 一筆指向它的 reference 說的是「這個值出自一份空的存檔」，那句話沒有意義——#546 在 `store-source` 擋下了 0 byte 的內容，
+    /// 但引用端（`enrich` 的 `sourceDigest`、`rests-on`、`akashic.sources`、divergence 的依據）在此之前照收它。
+    /// 載入時也是這一條：手寫進 YAML 的空 digest 會讓那筆記錄被隔離（`zero-instance-guards` 第 41 列，live store 0 筆）。
+    ///
+    /// **位址層不用這一條**：`sources/` 的路徑解析與 `sources/index.jsonl` 的文法問的是「這個字串能不能定位一個檔」，
+    /// 用 `isWellFormedDigest`——live store 的 index 有一列指向空 blob（#546 之前的兩次失敗抓取留下的），改用本函式會把
+    /// 那一列判成無法解析，而 index 有無法解析的行時 `store-source` 對所有新內容都 fail-closed。
     public static func isValidDigest(_ s: String) -> Bool {
+        isWellFormedDigest(s) && s != emptyContentDigest
+    }
+
+    /// digest 的**形狀**：`sha256:` + 64 個小寫 hex。只回答「這個字串能不能當一個存檔的位址」。
+    ///
+    /// 使用者是封閉的兩類（#654，不得依性質相似類推第三類）：`SourceStore` 的位址層（`sources/` 路徑解析、
+    /// `sources/index.jsonl` 的文法）與 `AuthorListFingerprint` 的持久形（它是作者清單的 domain-separated 雜湊，不是內容位址，
+    /// 空內容的 digest 不可能是它的值——拿它當 fingerprint 會在比對時以「不符」被擋下，那句話才是真的）。
+    /// 其餘每一個 digest 都是引用，走 `isValidDigest`。
+    public static func isWellFormedDigest(_ s: String) -> Bool {
         let bytes = Array(s.utf8)
         let prefix = Array("sha256:".utf8)
         guard bytes.count == prefix.count + 64,
@@ -329,6 +359,9 @@ public struct ProvenanceReference: Equatable {
                     + "內容的 digest 是必要的另一半")
             }
             guard Self.isValidDigest(content) else {
+                if content == Self.emptyContentDigest {   // #654：形狀合法、不指認任何存檔——分開說
+                    throw StoreYAMLError.invalidField("reference(field: \(safeField)).content", Self.emptyContentDigestReason)   // display-safe-exempt: Self.emptyContentDigestReason 是常量句；safeField 已消毒
+                }
                 throw StoreYAMLError.invalidField(
                     "reference(field: \(safeField)).content",
                     "digest 形狀必須是 sha256: + 64 個小寫 hex，實得「\(displaySafeInvisible(content, max: 120))」")
@@ -349,6 +382,9 @@ public struct ProvenanceReference: Equatable {
                     "reference(field: \(safeField)).rests-on——沒有依據的斷言不是判斷")
             }
             for d in restsOn where !Self.isValidDigest(d) {
+                if d == Self.emptyContentDigest {   // #654
+                    throw StoreYAMLError.invalidField("reference(field: \(safeField)).rests-on", Self.emptyContentDigestReason)   // display-safe-exempt: Self.emptyContentDigestReason 是常量句；safeField 已消毒
+                }
                 throw StoreYAMLError.invalidField(
                     "reference(field: \(safeField)).rests-on",
                     "digest 形狀必須是 sha256: + 64 個小寫 hex，實得「\(displaySafeInvisible(d, max: 120))」")

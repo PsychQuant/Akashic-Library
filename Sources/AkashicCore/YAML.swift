@@ -1175,6 +1175,9 @@ public enum EntryYAML {
                 // 形狀錯的 digest 永遠 resolve 不到內容——fail-fast 於載入，勝過存了
                 // 一個永遠找不到的副本指涉（同 ProvenanceReference 的既有理由）。
                 for d in digests where !ProvenanceReference.isValidDigest(d) {
+                    if d == ProvenanceReference.emptyContentDigest {   // #654：形狀合法、不指認任何存檔
+                        throw StoreYAMLError.invalidField("akashic.sources", ProvenanceReference.emptyContentDigestReason)   // display-safe-exempt: ProvenanceReference.emptyContentDigestReason 是常量句
+                    }
                     throw StoreYAMLError.invalidField(
                         "akashic.sources",
                         "「\(displaySafeInvisible(d, max: 120))」不是合法的內容 digest（須為 sha256: 加 64 個小寫十六進位字元）")
@@ -2500,6 +2503,9 @@ public enum DivergenceYAML {
         // `ProvenanceReference.restsOn`（init 就驗）同一定義。三條指向同一內容儲存區的路徑
         // 先前只有這條沒閘，live store 因此收進一個 URL（#453 的掃描抓到）。
         if let bad = restsOn.first(where: { !ProvenanceReference.isValidDigest($0) }) {
+            if bad == ProvenanceReference.emptyContentDigest {   // #654
+                throw StoreYAMLError.invalidField("divergence.rests-on", ProvenanceReference.emptyContentDigestReason)   // display-safe-exempt: ProvenanceReference.emptyContentDigestReason 是常量句
+            }
             throw StoreYAMLError.invalidField(
                 "divergence.rests-on",
                 "「\(displaySafeInvisible(bad, max: 120))」不是合法的 digest（`sha256:` ＋ 64 個十六進位字元）"

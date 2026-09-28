@@ -36,14 +36,23 @@ struct EnrichFromZotero: ParsableCommand {
     @Flag(name: .long, help: "`authors` 完全為空時，從 Zotero 補 literal 作者（#340；非空一律不動）")
     var includeAbsentAuthors = false
 
-    func run() throws {
-        if apply { try options.assertDestructiveTargetNamed("enrich-from-zotero") }
-        let keys = citekeys.split(separator: ",")
+    /// `--citekeys` 切開後的清單（空段丟掉）——`validate()` 與 `run()` 讀同一個。
+    private var citekeyList: [String] {
+        citekeys.split(separator: ",")
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
-        guard !keys.isEmpty else {
+    }
+
+    /// 只看 argv，所以在 `validate()`：早於目標確認閘（它要解析 registry，失敗是執行期）與開 store（#654）。
+    func validate() throws {
+        guard !citekeyList.isEmpty else {
             throw ValidationError("--citekeys 不得為空——本命令刻意不提供「全部」的寫法")
         }
+    }
+
+    func run() throws {
+        if apply { try options.assertDestructiveTargetNamed("enrich-from-zotero") }
+        let keys = citekeyList
 
         let dbURL = URL(fileURLWithPath: (zoteroDb as NSString).expandingTildeInPath)
         guard FileManager.default.fileExists(atPath: dbURL.path) else {

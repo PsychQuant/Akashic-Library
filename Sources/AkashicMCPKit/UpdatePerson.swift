@@ -23,7 +23,7 @@ public extension AkashicService {
     ///   - dryRun: true 時零寫入，回報會改什麼 + gate 預演。
     /// #308：JSON 陣列 → ProvenanceReference 逐筆 append（冪等；verdict 欄位對拒收）。
     /// 回傳實際附加筆數。
-    private func appendReferences(_ raw: Any, to person: inout Person) throws -> Int {
+    private static func appendReferences(_ raw: Any, to person: inout Person) throws -> Int {
         guard let arr = raw as? [[String: Any]] else {
             throw ServiceError.invalid("references 必須是 object 陣列（append-only）")
         }
@@ -68,11 +68,16 @@ public extension AkashicService {
         return added
     }
 
-    func updatePerson(key: String, fields: [String: Any], dryRun: Bool) throws -> String {
-        let load = try store.load()   // 寫前重讀（同 AppState.mutate 的防 lost-update 語意）
-        guard var person = load.people.first(where: { $0.key == key }) else {
-            throw ServiceError.notFound("person「\(displaySafeInvisible(key, max: 200))」")
-        }
+    /// CLI 的 `validate()` 用（#654）：`--fields`（argv）只看參數的檢查——欄位名在白名單內、各欄位的形狀（純量／null、names 的兩個分割、
+    /// profile 的段、references 的形狀）。套在一筆空白的暫存記錄上，與服務套在既有記錄上的是同一個函式；要合併到既有記錄才判得出來的
+    /// （authorized ⊆ names 等 `validate()` 的 error）不在這裡。同一份 JSON 從 stdin 來時是 argv 以外，仍是執行期（#549 邊界 1）。
+    static func checkUpdatePersonFields(_ fields: [String: Any]) throws {
+        var scratch = Person(key: "argv-check")
+        _ = try applyUpdateFields(fields, to: &scratch)
+    }
+
+    /// `fields` 的逐欄套用（#654 從 `updatePerson` 抽出，逐字不變）：回傳 `changes`（欄位 → 原值）。
+    static func applyUpdateFields(_ fields: [String: Any], to person: inout Person) throws -> [String: Any] {
         // 白名單由 decoder 的 known keys **推導**，不手寫清單——手寫清單就是
         // 「第二份定義」：#75 的 prefers、#66 的 references 落地時自動納入，
         // 不必記得回來改這裡（diagnosis 的設計裁決）。
@@ -141,6 +146,15 @@ public extension AkashicService {
                     "欄位「\(displaySafeInvisible(k, max: 200))」是 decoder 認得、但部分更新入口尚未支援的欄位")
             }
         }
+        return changes
+    }
+
+    func updatePerson(key: String, fields: [String: Any], dryRun: Bool) throws -> String {
+        let load = try store.load()   // 寫前重讀（同 AppState.mutate 的防 lost-update 語意）
+        guard var person = load.people.first(where: { $0.key == key }) else {
+            throw ServiceError.notFound("person「\(displaySafeInvisible(key, max: 200))」")
+        }
+        let changes = try Self.applyUpdateFields(fields, to: &person)
 
         // #148 verify F4：names 全量替換可讓 authorized 懸空（authorized ⊆ names 的
         // 不變式只活在 Person.validate()，writePerson 不跑它）。部分更新是獨特的
@@ -188,7 +202,7 @@ public extension AkashicService {
 
     // MARK: - JSON 邊界
 
-    private func scalarOrNull(_ v: Any, field: String) throws -> String? {
+    private static func scalarOrNull(_ v: Any, field: String) throws -> String? {
         if v is NSNull { return nil }
         guard let s = v as? String else {
             throw ServiceError.invalid("欄位「\(field)」必須是字串或 null")   // display-safe-exempt: field 是呼叫端已過 updatable/switch 白名單的字面量，非 store 內容
@@ -198,7 +212,7 @@ public extension AkashicService {
 
     /// #227：names 的巢狀形狀。平坦陣列給出**點名新形狀**的錯誤——與 YAML decoder
     /// 對平坦 `names:` 的拒絕同紀律，兩個入口不得有兩套答案。
-    private func personNames(_ v: Any, field: String) throws -> PersonNames {
+    private static func personNames(_ v: Any, field: String) throws -> PersonNames {
         if v is [Any] {
             throw ServiceError.invalid(
                 "欄位「\(field)」收 object（{authorized:[…], variant:[…]}，全量替換）"   // display-safe-exempt: field 是白名單字面量
@@ -228,7 +242,7 @@ public extension AkashicService {
         return names
     }
 
-    private func stringList(_ v: Any, field: String) throws -> [String] {
+    private static func stringList(_ v: Any, field: String) throws -> [String] {
         guard let arr = v as? [Any], let strings = arr as? [String] else {
             throw ServiceError.invalid("欄位「\(field)」必須是字串陣列（全量替換）")   // display-safe-exempt: field 是呼叫端字面欄位名（R32：註記要具名 binding）
         }

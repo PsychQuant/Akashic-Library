@@ -597,9 +597,9 @@ public final class AkashicService {
     /// `SourceStore` 已在寫入前用 git 自身的忽略判定確認、未生效即拒寫
     /// （`replace-endnote-and-zotero`：「不得為了任何便利放寬它」）。入口自己再判一次
     /// 會製造兩處會分岔的判斷，而這道閘是**承重**的。
-    public func storeSource(path: String, mediaType: String, retrieved: String,
-                            origin: String, acquisition: String,
-                            note: String? = nil) throws -> String {
+    /// `store_source` 的必填欄位——只看參數；CLI 的 `validate()` 呼叫同一個函式（#654）。讀檔是執行期的事，不在這裡。
+    public static func checkStoreSourceArguments(mediaType: String, retrieved: String,
+                                                 origin: String, acquisition: String) throws {
         // 必填欄位**具名**拒絕——「參數不足」不告訴呼叫端該補哪個。
         for (label, value) in [("mediaType", mediaType), ("retrieved", retrieved),
                                ("origin", origin), ("acquisition", acquisition)] {
@@ -607,6 +607,13 @@ public final class AkashicService {
                 throw ServiceError.invalid("\(label) 不可為空")   // display-safe-exempt: label 是編譯期字面
             }
         }
+    }
+
+    public func storeSource(path: String, mediaType: String, retrieved: String,
+                            origin: String, acquisition: String,
+                            note: String? = nil) throws -> String {
+        try Self.checkStoreSourceArguments(mediaType: mediaType, retrieved: retrieved,
+                                           origin: origin, acquisition: acquisition)
         let url = URL(fileURLWithPath: path)
         guard let data = try? Data(contentsOf: url) else {
             throw ServiceError.invalid("讀不到 \(displaySafeInvisible(path, max: 800))")
@@ -684,9 +691,9 @@ public final class AkashicService {
         }
     }
 
-    /// #14 人物檢索：person 聚合視圖。key 直查；模糊名回候選（絕不自動選）。
-    /// key 與 name 互斥（同給擲錯）；空白輸入拒絕；候選上限 50。
-    public func person(key rawKey: String?, name rawName: String?, library: String?) throws -> String {
+    /// `person` 的參數檢查（空白拒絕、key 與 name 互斥、兩者至少其一）——只看參數，回傳 trim 過的值、恰一個非 nil。
+    /// CLI 的 `validate()` 呼叫同一個函式（#654）。
+    public static func personLookupArguments(key rawKey: String?, name rawName: String?) throws -> (key: String?, name: String?) {
         let key = rawKey?.trimmingCharacters(in: .whitespacesAndNewlines)
         let name = rawName?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let key, key.isEmpty { throw ServiceError.invalid("key 不可為空白") }
@@ -694,6 +701,16 @@ public final class AkashicService {
         if key != nil && name != nil {
             throw ServiceError.invalid("key 與 name 互斥——擇一使用")
         }
+        if key == nil && name == nil {
+            throw ServiceError.invalid("person 需要 key 或 name 至少其一")
+        }
+        return (key, name)
+    }
+
+    /// #14 人物檢索：person 聚合視圖。key 直查；模糊名回候選（絕不自動選）。
+    /// key 與 name 互斥（同給擲錯）；空白輸入拒絕；候選上限 50。
+    public func person(key rawKey: String?, name rawName: String?, library: String?) throws -> String {
+        let (key, name) = try Self.personLookupArguments(key: rawKey, name: rawName)
         if let key {
             let load = try store.load()
             let record = load.people.first { $0.key == key }
@@ -881,7 +898,8 @@ public final class AkashicService {
             }
             return try jsonString(out)
         }
-        throw ServiceError.invalid("person 需要 key 或 name 至少其一")
+        // personLookupArguments 保證 key 與 name 恰一個非 nil；走到這裡是那個保證被改壞了——不崩潰，出聲
+        throw ServiceError.invalid("內部錯誤：person 的參數檢查應已保證 key 或 name 恰一個")
     }
 
     /// #13 多 library：registry 管理 + 成員操作（衍生層寫入邊界內）。
@@ -1000,7 +1018,8 @@ public final class AkashicService {
         return report
     }
 
-    public func setStatus(citekey: String, status: String?, clear: Bool = false) throws -> String {
+    /// `set_status` 的三態守衛（#258）——只看參數。CLI 的 `validate()` 呼叫同一個函式（#654：用法錯誤要早於開 store、回 64）。
+    public static func checkStatusArguments(status: String?, clear: Bool) throws {
         // #258：三態守衛住 service——CLI 與 MCP 共用同一份判準（單一實作路徑，
         // entity-backlink 執行細節 2）。守衛原只在 CLI 側（#219），MCP schema 卻寫
         // 「省略＝清除」——LLM 產 JSON、省略即 valid 的那個面恰無守衛，DA 實測
@@ -1013,6 +1032,10 @@ public final class AkashicService {
         default:
             break
         }
+    }
+
+    public func setStatus(citekey: String, status: String?, clear: Bool = false) throws -> String {
+        try Self.checkStatusArguments(status: status, clear: clear)
         var entry = try requireEntry(citekey)
         entry.akashic.status = status
         try writeAndReindex(entry)
@@ -1026,12 +1049,17 @@ public final class AkashicService {
                                    ?? NSNull()] as [String: Any])
     }
 
-    public func tag(citekey: String, add: [String], remove: [String]) throws -> String {
+    /// `tag` 的零參數守衛（#258）——只看參數；CLI 的 `validate()` 呼叫同一個函式（#654）。
+    public static func checkTagArguments(add: [String], remove: [String]) throws {
         // #258 同形第二例：MCP 零參數原是 no-op 成功、CLI 拒絕——契約收斂到拒絕
         //（守衛同樣下沉 service，兩面共用）
         guard !add.isEmpty || !remove.isEmpty else {
             throw ServiceError.invalid("add 與 remove 至少要給一個")
         }
+    }
+
+    public func tag(citekey: String, add: [String], remove: [String]) throws -> String {
+        try Self.checkTagArguments(add: add, remove: remove)
         var entry = try requireEntry(citekey)
         for t in add where !entry.akashic.tags.contains(t) {
             entry.akashic.tags.append(t)
@@ -1045,21 +1073,26 @@ public final class AkashicService {
                                "tags": entry.akashic.tags.map { displaySafe($0, max: 200) }])
     }
 
+    /// `link` 的 kind 值域——只看參數。先前在讀 entry 之後才判（#654：CLI 的 `validate()` 呼叫同一個函式，用法錯誤早於開 store）。
+    public static func checkLinkKind(_ kind: String) throws {
+        guard kind == "cites" || kind == "related" else {
+            throw ServiceError.invalid("kind 必須是 cites / related")
+        }
+    }
+
     public func link(citekey: String, kind: String, add: [String], remove: [String]) throws -> String {
+        try Self.checkLinkKind(kind)
         var entry = try requireEntry(citekey)
-        switch kind {
-        case "cites":
+        if kind == "cites" {
             for t in add where !entry.akashic.relations.cites.contains(t) {
                 entry.akashic.relations.cites.append(t)
             }
             entry.akashic.relations.cites.removeAll { remove.contains($0) }
-        case "related":
+        } else {   // "related"——值域由 checkLinkKind 保證
             for t in add where !entry.akashic.relations.related.contains(t) {
                 entry.akashic.relations.related.append(t)
             }
             entry.akashic.relations.related.removeAll { remove.contains($0) }
-        default:
-            throw ServiceError.invalid("kind 必須是 cites / related")
         }
         try writeAndReindex(entry)
         return try jsonString([
@@ -1173,48 +1206,28 @@ public final class AkashicService {
                                      confirmTiers: confirmTiers, rejectedRowsOut: &ignored)
     }
 
-    /// 單腿本體（R4-1 抽出）。`rejectedRowsOut`：reject 腿實際否決的配對
-    /// （**未截斷**的 rowID＋personKey）——combined 分支的跨腿協調吃這個，
-    /// 不吃經消毒截斷的 JSON 回音。
-    /// 逐篇判定（change `per-work-judged-authorship`）。
-    ///
-    /// 收 `<citekey>:<authorIndex>:<personKey>=<judgement>`，**以第一個 `=` 切**
-    /// ——judgement 是自由文字，本來就可能含等號。
-    ///
-    /// **literal 由 store 讀、不由呼叫端提供**：少一個能打錯的欄位，且天然強制
-    /// 「該位置現在是一個 literal」——已歸戶的位置在讀取階段就被擋下。
-    ///
-    /// **先全部驗證再寫**：任一筆不合法即整體 throw，零副作用。半批寫入對「判定」
-    /// 這種需要逐筆負責的動作是錯的預設——使用者無從知道哪幾筆進去了。
-    private func judgeAuthorships(_ specs: [String],
-                                  kind: ResolutionLedger.VerdictKind) throws -> String {
-        let isConfirm = kind == .confirmed
-        let storeFormat = (try? StoreVersion.read(root: store.root)) ?? 1
-        guard storeFormat >= 8 else {
-            throw ServiceError.invalid(
-                "judgement 要寫 resolution-confirmed verdict，需要 store format ≥ 8"
-                + "（本 store 是 \(storeFormat)）")   // display-safe-exempt: storeFormat 是 Int
-        }
-        let load = try store.load()
-        let byCitekey = Dictionary(load.entries.map { ($0.citekey, $0) },
-                                   uniquingKeysWith: { _, last in last })
-        let unlocatableCK = load.entries.unlocatableCitekeys   // #627
-        // #641：person 側的同一件事——key 重複，或 load 判定它的檔案寫入時會被拒。先前判定寫完 work 才寫 person，
-        // person 那一格在寫入當下被 #631 拒絕時作者位已升格、verdict 卻沒寫（R2 verify 真 binary 重現）
-        let unlocatablePK = load.people.unlocatablePersonKeys
-        let byKey = Dictionary(load.people.map { ($0.key, $0) },
-                               uniquingKeysWith: { a, _ in a })
+    /// judge／refute 的一筆 id（只看參數的解析結果，#654）。
+    struct JudgeSpec {
+        let id: String
+        let citekey: String
+        let index: Int
+        let personKey: String
+        let judgement: String
+    }
 
-        // ── 全部解析 + 驗證（此段不寫任何東西）──
-        var pairings: [JudgedPairing] = []
-        var skipped: [(id: String, why: String)] = []
+    /// CLI 的 `validate()` 用（#654）：`--judge`（`confirm: true`）與 `--refute` 只看參數的全部檢查——與服務在讀 store 之前跑的是同一個函式。
+    public static func checkJudgeArguments(_ specs: [String], confirm: Bool) throws {
+        _ = try parseJudgeSpecs(specs, isConfirm: confirm)
+    }
+
+    /// `citekey:authorIndex:personKey=理由` 的解析與只看參數的檢查（#654 從 `judgeAuthorships` 的迴圈頭原樣搬出）：
+    /// 缺 `=`、不是三段形或索引為負、理由空白、同一個判定重複、歸戶時同一個作者位判給兩個人——全部整批拒絕。
+    /// 先前這些檢查與 store 狀態的檢查交錯在同一個迴圈裡、排在讀 store 之後；現在全部在讀 store 之前，所以一次呼叫同時有
+    /// 輸入錯與 store 狀態不符時，先報輸入錯。
+    static func parseJudgeSpecs(_ specs: [String], isConfirm: Bool) throws -> [JudgeSpec] {
+        var out: [JudgeSpec] = []
         var seen = Set<String>()
         var confirmSlots = Set<String>()   // #627 R2
-        var alreadyJudged: [String] = []     // #627 R4：已有逐篇判定 verdict 的重跑（no-op）
-        // change `resolution-verdict-states`（#636）：作者位已歸給同一人、只差一筆逐篇判定——只寫 verdict、不動 entry
-        var verdictOnly = Set<String>()
-        var coexisting = Set<String>()       // 與既有的提名層 verdict 並存的判定（回應帶 coexistsWith）
-        var verdictSuppressed = Set<String>() // format 18：作者位照常歸戶，但不寫會與提名層並存的逐篇判定
         for spec in specs {
             guard let eq = spec.firstIndex(of: "=") else {
                 throw ServiceError.invalid(
@@ -1259,6 +1272,54 @@ public final class AkashicService {
                     "作者位「\(displaySafeInvisible(citekey, max: 200)):\(idx)」在一次呼叫裡判給了兩個人——"   // display-safe-exempt: idx 是 Int
                     + "一個作者位只能歸戶給一個人，整批拒絕、零寫入")
             }
+            out.append(JudgeSpec(id: id, citekey: citekey, index: idx, personKey: personKey, judgement: judgement))
+        }
+        return out
+    }
+
+    /// 單腿本體（R4-1 抽出）。`rejectedRowsOut`：reject 腿實際否決的配對
+    /// （**未截斷**的 rowID＋personKey）——combined 分支的跨腿協調吃這個，
+    /// 不吃經消毒截斷的 JSON 回音。
+    /// 逐篇判定（change `per-work-judged-authorship`）。
+    ///
+    /// 收 `<citekey>:<authorIndex>:<personKey>=<judgement>`，**以第一個 `=` 切**
+    /// ——judgement 是自由文字，本來就可能含等號。
+    ///
+    /// **literal 由 store 讀、不由呼叫端提供**：少一個能打錯的欄位，且天然強制
+    /// 「該位置現在是一個 literal」——已歸戶的位置在讀取階段就被擋下。
+    ///
+    /// **先全部驗證再寫**：任一筆不合法即整體 throw，零副作用。半批寫入對「判定」
+    /// 這種需要逐筆負責的動作是錯的預設——使用者無從知道哪幾筆進去了。
+    private func judgeAuthorships(_ specs: [String],
+                                  kind: ResolutionLedger.VerdictKind) throws -> String {
+        let isConfirm = kind == .confirmed
+        let parsedSpecs = try Self.parseJudgeSpecs(specs, isConfirm: isConfirm)
+        let storeFormat = (try? StoreVersion.read(root: store.root)) ?? 1
+        guard storeFormat >= 8 else {
+            throw ServiceError.invalid(
+                "judgement 要寫 resolution-confirmed verdict，需要 store format ≥ 8"
+                + "（本 store 是 \(storeFormat)）")   // display-safe-exempt: storeFormat 是 Int
+        }
+        let load = try store.load()
+        let byCitekey = Dictionary(load.entries.map { ($0.citekey, $0) },
+                                   uniquingKeysWith: { _, last in last })
+        let unlocatableCK = load.entries.unlocatableCitekeys   // #627
+        // #641：person 側的同一件事——key 重複，或 load 判定它的檔案寫入時會被拒。先前判定寫完 work 才寫 person，
+        // person 那一格在寫入當下被 #631 拒絕時作者位已升格、verdict 卻沒寫（R2 verify 真 binary 重現）
+        let unlocatablePK = load.people.unlocatablePersonKeys
+        let byKey = Dictionary(load.people.map { ($0.key, $0) },
+                               uniquingKeysWith: { a, _ in a })
+
+        // ── 全部解析 + 驗證（此段不寫任何東西）──
+        var pairings: [JudgedPairing] = []
+        var skipped: [(id: String, why: String)] = []
+        var alreadyJudged: [String] = []     // #627 R4：已有逐篇判定 verdict 的重跑（no-op）
+        // change `resolution-verdict-states`（#636）：作者位已歸給同一人、只差一筆逐篇判定——只寫 verdict、不動 entry
+        var verdictOnly = Set<String>()
+        var coexisting = Set<String>()       // 與既有的提名層 verdict 並存的判定（回應帶 coexistsWith）
+        var verdictSuppressed = Set<String>() // format 18：作者位照常歸戶，但不寫會與提名層並存的逐篇判定
+        for ps in parsedSpecs {   // 只看參數的檢查已在讀 store 之前做完（`parseJudgeSpecs`，#654）
+            let (id, judgement, citekey, idx, personKey) = (ps.id, ps.judgement, ps.citekey, ps.index, ps.personKey)
             guard byKey[personKey] != nil else {
                 throw ServiceError.notFound("person「\(displaySafeInvisible(personKey, max: 200))」")
             }
@@ -2301,7 +2362,27 @@ public final class AkashicService {
         return keys.count > 20 ? shown + ["…另 \(keys.count - 20) 筆"] : shown   // display-safe-exempt: Int
     }
 
+    /// `add_person` 只看參數的檢查：key 的格式與 orcid 的形狀（#654）。回傳型別化的 ORCID。CLI 的 `validate()` 呼叫同一個函式。
+    ///
+    /// key 格式先前只在寫入閘（`assertPersonWritable`）擋——讀完整個 store、查過「已存在」之後才判，而它只看參數。
+    public static func addPersonArguments(key: String, orcid: String?) throws -> ORCID? {
+        guard StoreKey.isValid(key) else {
+            throw ServiceError.invalid("person key「\(displaySafeInvisible(key, max: 200))」不符合 \(StoreKey.pattern)，拒絕寫入")   // display-safe-exempt: StoreKey.pattern 是編譯期常量；key 已消毒
+        }
+        // #394 task 3.3：orcid 是外部呼叫端（CLI／MCP）送進來的原始字串，維持
+        // `String?` 簽章不動——與 UpdatePerson.swift 同紀律，寫入面驗證即拒絕，
+        // 不靜默丟、不靜默保留非法形狀。
+        guard let raw = orcid else { return nil }
+        guard let o = ORCID(raw) else {
+            throw ServiceError.invalid(
+                "欄位「orcid」的值「\(displaySafeInvisible(raw, max: 120))」不是合法的 ORCID"
+                + "（\(ORCID.shapeDescription)）")   // display-safe-exempt: 型別的靜態常數（預期形狀說明），非 store 內容
+        }
+        return o
+    }
+
     public func addPerson(key: String, names: [String], orcid: String?, openalex: String?) throws -> String {
+        let typedORCID = try Self.addPersonArguments(key: key, orcid: orcid)
         let load = try store.load()
         guard !load.people.contains(where: { $0.key == key }) else {
             throw ServiceError.invalid("person key「\(displaySafeInvisible(key, max: 200))」已存在")
@@ -2309,18 +2390,6 @@ public final class AkashicService {
         // quarantined people 檔同樣受保護：目的檔存在即拒寫
         guard !FileManager.default.fileExists(atPath: store.personURL(key: key).path) else {
             throw ServiceError.invalid("people/\(displaySafeInvisible(key, max: 200)).yaml 已存在（可能是 quarantined 檔），不覆寫")
-        }
-        // #394 task 3.3：orcid 是外部呼叫端（CLI／MCP）送進來的原始字串，維持
-        // `String?` 簽章不動——與 UpdatePerson.swift 同紀律，寫入面驗證即拒絕，
-        // 不靜默丟、不靜默保留非法形狀。
-        var typedORCID: ORCID?
-        if let raw = orcid {
-            guard let o = ORCID(raw) else {
-                throw ServiceError.invalid(
-                    "欄位「orcid」的值「\(displaySafeInvisible(raw, max: 120))」不是合法的 ORCID"
-                    + "（\(ORCID.shapeDescription)）")   // display-safe-exempt: 型別的靜態常數（預期形狀說明），非 store 內容
-            }
-            typedORCID = o
         }
         // #227：add_person 產生的是尚未指定對外名字的記錄——全部進 variant，
         // authorized 留空（指定是人的判斷，不由建檔機械偽造）。
@@ -2337,10 +2406,10 @@ public final class AkashicService {
     /// **當場記錄而非當場判斷**（#71 的診斷點）。candidates 格式與 CLI 一致
     /// （`key:shape`）。刻意**無** MCP 版 resolve——消歧含合併＋全庫改寫＋刪檔，
     /// tracked+clean 前提與人工確認屬 CLI／App 的互動面。
-    public func recordDivergence(question: String, candidates: [String],
-                                 judgement: String?, restsOn: [String],
-                                 prefers: String? = nil) throws -> String {
-        let parsed: [(key: String, shape: EntityKind)] = try candidates.map { spec in
+    /// 候選的 `key:shape` 解析——只看參數。先前 CLI 的 `record-divergence` 另有一份一模一樣的解析（兩份描述），而且排在開 store 之後；
+    /// 現在兩面同一個函式，CLI 在 `validate()` 呼叫它（#654）。
+    public static func parseDivergenceCandidates(_ candidates: [String]) throws -> [(key: String, shape: EntityKind)] {
+        try candidates.map { spec in
             let parts = spec.split(separator: ":", maxSplits: 1).map(String.init)
             guard parts.count == 2, let shape = EntityKind(rawValue: parts[1]) else {
                 throw ServiceError.invalid(
@@ -2348,6 +2417,12 @@ public final class AkashicService {
             }
             return (key: parts[0], shape: shape)
         }
+    }
+
+    public func recordDivergence(question: String, candidates: [String],
+                                 judgement: String?, restsOn: [String],
+                                 prefers: String? = nil) throws -> String {
+        let parsed = try Self.parseDivergenceCandidates(candidates)
         let d = try store.recordDivergence(question: question, candidates: parsed,
                                            judgement: judgement, restsOn: restsOn,
                                            prefers: prefers)
@@ -2990,9 +3065,15 @@ public final class AkashicService {
     /// venue 檢視：記錄＋刊名沿革＋**文章編年 list**（依年升冪；裁決五a）。
     /// 空集合顯式報零篇（零篇 ≠ 查無——entity-backlink 執行細節 4）；store 有
     /// quarantined 檔且查無時擲 undeterminable（同 person 的 #227 紀律）。
-    public func venue(key rawKey: String) throws -> String {
+    /// `venue` 的 key 參數（trim 後不得為空白）——只看參數；CLI 的 `validate()` 呼叫同一個函式（#654）。
+    public static func venueLookupKey(_ rawKey: String) throws -> String {
         let key = rawKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else { throw ServiceError.invalid("key 不可為空白") }
+        return key
+    }
+
+    public func venue(key rawKey: String) throws -> String {
+        let key = try Self.venueLookupKey(rawKey)
         let load = try store.load()
         guard let record = load.venues.first(where: { $0.key == key }) else {
             if !load.quarantined.isEmpty {
@@ -3143,7 +3224,7 @@ public final class AkashicService {
     /// 名字寫入的共用入口（#554 D8）：canonical → 逐項驗（`NameIdentity.wellFormednessIssue`，
     /// 與 `Venue.validate()` 同一份謂詞）→ 去重保序。空白項是「沒說話」，跳過；任一項不合
     /// 即整批拒絕、零寫入、訊息帶參數名。回傳的每一項都是 canonical 形。
-    private func vetVenueNames(_ raw: [String]?, parameter: String) throws -> [String] {
+    private static func vetVenueNames(_ raw: [String]?, parameter: String) throws -> [String] {
         try vetVenueNamesReportingBlanks(raw, parameter: parameter).vetted
     }
 
@@ -3157,7 +3238,7 @@ public final class AkashicService {
         return items.count > cap ? shown + "…（共 \(items.count) 項）" : shown   // display-safe-exempt: Int；shown 由 render 逐項消毒
     }
 
-    private func vetVenueNamesReportingBlanks(_ raw: [String]?, parameter: String) throws -> (vetted: [String], blanks: [String]) {
+    private static func vetVenueNamesReportingBlanks(_ raw: [String]?, parameter: String) throws -> (vetted: [String], blanks: [String]) {
         var seen = Set<String>()
         var out: [String] = []
         var bad: [String] = []
@@ -3186,15 +3267,17 @@ public final class AkashicService {
         return (out, blanks)
     }
 
-    public func addVenue(key: String, names: [String], type rawType: String,
-                         note: String? = nil, issn: [String]? = nil) throws -> String {
+    /// `add_venue` 只看參數的檢查（#654）：type 值域、key 格式、名字（`vetVenueNames`——canonical、逐項驗、去重）、ISSN。
+    /// 回傳型別化的值；「已存在」要讀 store，不在這裡。CLI 的 `validate()` 呼叫同一個函式。
+    public static func addVenueArguments(key: String, names: [String], type rawType: String,
+                                         issn: [String]?) throws -> (type: VenueType, names: [String], issn: [ISSN]) {
         guard let vtype = VenueType(rawValue: rawType) else {
             throw ServiceError.invalid(
                 "type「\(displaySafeInvisible(rawType, max: 60))」不在封閉列舉（\(VenueType.domainDescription)）")   // display-safe-exempt: domainDescription 由 VenueType.allCases 的 rawValue 組成，那些是 Swift 原始碼裡的識別字（編譯期常量），不含使用者資料
         }
-        let load = try store.load()
-        guard !load.venues.contains(where: { $0.key == key }) else {
-            throw ServiceError.invalid("venue key「\(displaySafeInvisible(key, max: 200))」已存在")
+        // key 格式先前只在寫入閘（`Venue.validate()`）擋——讀完整個 store 之後才判，而它只看參數
+        guard StoreKey.isValid(key) else {
+            throw ServiceError.invalid("venue key「\(displaySafeInvisible(key, max: 200))」不符合 \(StoreKey.pattern)，拒絕寫入")   // display-safe-exempt: StoreKey.pattern 是編譯期常量；key 已消毒
         }
         // 同一欄位的第四個寫入者走同一個入口（#554 R4 verify 第 1 列：`add-venue --names "X "`
         // 曾原樣存入、連空字串都收，種下的髒條目讓乾淨拼法永遠進不了）
@@ -3204,20 +3287,30 @@ public final class AkashicService {
             throw ServiceError.invalid(names.isEmpty ? "names 是空的——一筆 venue 至少要有一個名字"
                                                      : "names 全是空白——一筆 venue 至少要有一個名字")
         }
+        // 不合法即整個拒絕、零寫入（同 `updateVenue`）；相等看正規形。
+        var parsed: [ISSN] = []
+        var seen = Set<String>()
+        for r in issn ?? [] where !r.trimmingCharacters(in: .whitespaces).isEmpty {
+            guard let one = ISSN(r) else {
+                throw ServiceError.invalid(
+                    "issn「\(displaySafeInvisible(r, max: 60))」不是合法的 ISSN——拒絕整個呼叫，零寫入")
+            }
+            if seen.insert(one.normalized).inserted { parsed.append(one) }
+        }
+        return (vtype, vetted, parsed)
+    }
+
+    public func addVenue(key: String, names: [String], type rawType: String,
+                         note: String? = nil, issn: [String]? = nil) throws -> String {
+        let (vtype, vetted, issns) = try Self.addVenueArguments(key: key, names: names, type: rawType, issn: issn)
+        let load = try store.load()
+        guard !load.venues.contains(where: { $0.key == key }) else {
+            throw ServiceError.invalid("venue key「\(displaySafeInvisible(key, max: 200))」已存在")
+        }
         var venue = Venue(key: key, type: vtype,
                           names: Timeline(vetted.map { TemporalValue(value: $0) }),
                           note: note)
-        // 不合法即整個拒絕、零寫入（同 `updateVenue`）；相等看正規形。
-        if let raws = issn {
-            var seen = Set<String>()
-            for r in raws where !r.trimmingCharacters(in: .whitespaces).isEmpty {
-                guard let one = ISSN(r) else {
-                    throw ServiceError.invalid(
-                        "issn「\(displaySafeInvisible(r, max: 60))」不是合法的 ISSN——拒絕整個呼叫，零寫入")
-                }
-                if seen.insert(one.normalized).inserted { venue.issn.append(one) }
-            }
-        }
+        venue.issn = issns
         try store.writeVenue(venue)
         try LibraryIndex(store: store).rebuild()
         // 回報**存入**的名字（R9 verify logic 第 22 列）：R4 讓本函式走 `vetVenueNames`，payload 卻仍回呼叫端的原陣列——
@@ -3259,6 +3352,165 @@ public final class AkashicService {
         return (folded, alreadyPresent, dropped)
     }
 
+    /// `update_venue` 只看參數的全部檢查與解析結果（#654）。
+    struct UpdateVenueArguments {
+        let removeISSN: [(issn: ISSN, reason: String)]
+        let namesIn: [String]
+        let variantsIn: [String]
+        let variantBlanks: [String]
+        let authorizeIn: [String]
+        let authorizeBlanks: [String]
+        let type: VenueType?
+        /// nil＝這次沒給 add_issn；空陣列＝給了但全是空白
+        let addISSN: [ISSN]?
+        /// nil＝這次不動 paginated
+        let paginatedReference: ProvenanceReference?
+    }
+
+    /// CLI 的 `validate()` 用（#654）：`update-venue` 只看參數的全部檢查——與服務在讀 store 之前跑的是同一個函式。
+    public static func checkUpdateVenueArguments(addNames: [String]?, type rawType: String?, addISSN: [String]?,
+                                                 addVariant: [String]?, authorize: [String]?,
+                                                 paginated: Bool?, clearPaginated: Bool,
+                                                 judgement: String?, restsOn: [String]?,
+                                                 removeISSN: [String]?) throws {
+        _ = try updateVenueArguments(addNames: addNames, type: rawType, addISSN: addISSN, addVariant: addVariant,
+                                     authorize: authorize, paginated: paginated, clearPaginated: clearPaginated,
+                                     judgement: judgement, restsOn: restsOn, removeISSN: removeISSN)
+    }
+
+    /// `updateVenue` 裡只看參數的檢查（#654 原樣搬出；訊息逐字不變）：remove_issn 的形狀、理由、重複與 add_issn 矛盾；三組名字的
+    /// canonical 與逐項驗；type 值域；add_issn 的形狀；paginated／clear_paginated 的互斥、理由必填、judgement／rests_on 單獨出現，
+    /// 以及那筆 reference 本身（rests-on 的非空與 digest 形狀由 ProvenanceReference 平面 init 驗）；authorize 的兩種自相矛盾。
+    /// 先前它們排在讀 store、確認 venue 存在之後，與 store 狀態的檢查交錯；現在全部在讀 store 之前。要讀 store 才判得出來的
+    /// （venue 不存在、這本刊沒有要移除的號、舊指定被 reference 指著……）仍在 `updateVenue` 裡。
+    static func updateVenueArguments(addNames: [String]?, type rawType: String?, addISSN: [String]?,
+                                     addVariant: [String]?, authorize: [String]?,
+                                     paginated: Bool?, clearPaginated: Bool,
+                                     judgement: String?, restsOn: [String]?,
+                                     removeISSN: [String]?) throws -> UpdateVenueArguments {
+        var removals: [(issn: ISSN, reason: String)] = []
+        if let specs = removeISSN, !specs.isEmpty {
+            var seen = Set<String>()
+            for spec in specs {
+                guard let eq = spec.firstIndex(of: "=") else {
+                    throw ServiceError.invalid("remove_issn「\(displaySafeInvisible(spec, max: 80))」缺少 `=`——格式是 <issn>=理由；拒絕整個呼叫，零寫入")
+                }
+                let raw = String(spec[..<eq]), reason = String(spec[spec.index(after: eq)...])
+                guard let one = ISSN(raw) else {
+                    throw ServiceError.invalid("remove_issn「\(displaySafeInvisible(raw, max: 60))」不是合法的 ISSN——拒絕整個呼叫，零寫入")
+                }
+                guard !reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    throw ServiceError.invalid("remove_issn「\(one.normalized)」的理由是空白——移除是判定的逆轉，要寫為什麼這個號不屬於這本刊")   // display-safe-exempt: one.normalized 只含 [0-9X-]
+                }
+                guard reason.utf8.count <= Self.maxStatementBytes else {
+                    throw ServiceError.invalid("remove_issn「\(one.normalized)」的理由超過 \(Self.maxStatementBytes) 位元組——精簡它")   // display-safe-exempt: one.normalized 只含 [0-9X-]；Self.maxStatementBytes 是 Int 常數
+                }
+                guard seen.insert(one.normalized).inserted else {
+                    throw ServiceError.invalid("remove_issn「\(one.normalized)」在一次呼叫裡重複")   // display-safe-exempt: one.normalized 只含 [0-9X-]
+                }
+                if let adds = addISSN, adds.contains(where: { ISSN($0)?.normalized == one.normalized }) {
+                    throw ServiceError.invalid("ISSN「\(one.normalized)」同時在 add_issn 與 remove_issn——兩句矛盾的話，拒絕整個呼叫")   // display-safe-exempt: one.normalized 只含 [0-9X-]
+                }
+                removals.append((one, reason))
+            }
+        }
+        // 參數名兩面各自正確（R6 verify 第 45 列：CLI 使用者看到 MCP 鍵名 `add_names`，不是自己打的 `--add-name`）
+        let namesIn = try vetVenueNames(addNames, parameter: "add_names（--add-name）")
+        let (variantsIn, variantBlanks) = try vetVenueNamesReportingBlanks(addVariant, parameter: "add_variant（--add-variant）")
+        let (authorizeIn, authorizeBlanks) = try vetVenueNamesReportingBlanks(authorize, parameter: "authorize（--authorize）")
+        var vtype: VenueType?
+        if let rawType {
+            guard let t = VenueType(rawValue: rawType) else {
+                throw ServiceError.invalid(
+                    "type「\(displaySafeInvisible(rawType, max: 60))」不在封閉列舉（\(VenueType.domainDescription)）")   // display-safe-exempt: domainDescription 由 VenueType.allCases 的 rawValue 組成，那些是 Swift 原始碼裡的識別字（編譯期常量），不含使用者資料
+            }
+            vtype = t
+        }
+        var issns: [ISSN]?
+        if let raws = addISSN {
+            var parsed: [ISSN] = []
+            for r in raws where !r.trimmingCharacters(in: .whitespaces).isEmpty {
+                guard let one = ISSN(r) else {
+                    throw ServiceError.invalid(
+                        "issn「\(displaySafeInvisible(r, max: 60))」不是合法的 ISSN——拒絕整個呼叫，零寫入")
+                }
+                parsed.append(one)
+            }
+            issns = parsed
+        }
+        // #406／#500 的判定輸入（理由見 `updateVenue` 裡那段的長註解）：撤回與設定互斥、兩者都必附理由；
+        // 沒有判定就沒有判定的理由。
+        var paginatedRef: ProvenanceReference?
+        if clearPaginated {
+            guard paginated == nil else {
+                throw ServiceError.invalid(
+                    "paginated 與 clear_paginated 不得同時給——一次呼叫只能說一件事")
+            }
+            let trimmed = judgement?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !trimmed.isEmpty else {
+                throw ServiceError.invalid(
+                    "撤回 paginated 判定必附 judgement——撤回本身是判定，"
+                    + "沒有理由的撤回事後與「不知道為什麼撤回」無法區分")
+            }
+            paginatedRef = try ProvenanceReference(
+                field: "paginated", value: "nil",
+                url: nil, retrieved: nil, status: nil, mediaType: nil, content: nil,
+                judgement: trimmed, restsOn: restsOn ?? [])
+        } else if let paginated {
+            // trim 一次、驗證與儲存用同一個值（R1 verify：先前驗 trimmed、存原文——
+            // 兩個版本的 statement 會讓「同判定重打」的冪等比對失準）。
+            let trimmedJudgement = judgement?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !trimmedJudgement.isEmpty else {
+                throw ServiceError.invalid(
+                    "設 paginated 必附 judgement——「本刊是否使用頁碼」是判定，"
+                    + "沒有理由的判定事後與「不知道為什麼這樣」無法區分")
+            }
+            // #500：帶上判定值——資料層因此看得出哪句理由對應哪個值，而 (field, value,
+            // kind) 的冪等比對也自然把「翻轉」與「重打同一個判定」分開。
+            paginatedRef = try ProvenanceReference(
+                field: "paginated", value: paginated ? "true" : "false",
+                url: nil, retrieved: nil, status: nil, mediaType: nil, content: nil,
+                judgement: trimmedJudgement, restsOn: restsOn ?? [])
+        } else if judgement != nil || restsOn != nil {
+            throw ServiceError.invalid(
+                "judgement／rests_on 只伴隨 paginated 或 clear_paginated 使用"
+                + "——沒有判定就沒有判定的理由")
+        }
+        // 同一次呼叫把同一個名字既送 add_variant 又送 authorize，是兩句矛盾的話——
+        // 不能讓「哪段先跑」決定誰贏。這是**輸入**驗證（呼叫端的兩個參數互相矛盾），
+        // 不是分割互斥的第二份副本（那仍由 `Venue.validate()` 擋）。整批拒絕、零寫入。
+        do {
+            let variantKeys = Set(variantsIn.map(NameIdentity.canonical))
+            let both = authorizeIn.filter { variantKeys.contains(NameIdentity.canonical($0)) }
+            if !both.isEmpty {
+                throw ServiceError.invalid(
+                    "「\(Self.listCapped(both) { displaySafeInvisible($0, max: 120) })」"
+                    + "同時被送進 add_variant 與 authorize——那是兩句矛盾的話，請只說一句")
+            }
+        }
+        // 同一次呼叫兩個同 `WritingSystem` 的名字也是兩句矛盾的話（R1 verify 第 1 列，
+        // 四席各自重現）：迴圈逐一處理時第 N+1 輪會把第 N 輪剛升上去的當舊指定移出——
+        // 陣列順序決勝，而 `validateWritingSystems` 對這個形狀的裁決是「未決的問題，
+        // 不是指定；請選一個」。桶依 rawValue 排序、全部衝突桶一次印、印呼叫端的原字串
+        // （R2 第 7 列、R3 第 14 列）。
+        let clashes = Dictionary(grouping: authorizeIn, by: WritingSystem.of)
+            .filter { $0.value.count > 1 }
+            .sorted { $0.key.rawValue < $1.key.rawValue }
+        if !clashes.isEmpty {
+            let described = clashes.map { bucket in
+                "\(bucket.key.rawValue)：「\(Self.listCapped(bucket.value) { displaySafeInvisible($0, max: 120) })」"   // display-safe-exempt: WritingSystem.rawValue 是 enum 常數（han／latn／other），不是 store 字串；名字性質式（R32；R31 verify 第 2／8 列：私用區 Co 與合法 joiner 過得了名字驗證、列舉式不逃）
+            }.joined(separator: "；")
+            throw ServiceError.invalid(
+                "同一個書寫系統送了兩個以上的名字——" + described
+                + "——每書寫系統至多一個對外形，那是未決的問題，不是指定；請選一個")
+        }
+        return UpdateVenueArguments(removeISSN: removals, namesIn: namesIn,
+                                    variantsIn: variantsIn, variantBlanks: variantBlanks,
+                                    authorizeIn: authorizeIn, authorizeBlanks: authorizeBlanks,
+                                    type: vtype, addISSN: issns, paginatedReference: paginatedRef)
+    }
+
     /// venue 異名補寫（#306）——**append 語意**：`addNames` 只把不重複的名字附加進
     /// `names` 時間軸（不帶時間欄位、**不標 `variant` 也不標 `authorized`**——#422 之後
     /// `variant` 是正式欄位名，這裡先前寫的「附加 variant」是 #306 時代的散文用法，
@@ -3288,6 +3540,9 @@ public final class AkashicService {
                             judgement: String? = nil,
                             restsOn: [String]? = nil,
                             removeISSN: [String]? = nil) throws -> String {
+        let args = try Self.updateVenueArguments(addNames: addNames, type: rawType, addISSN: addISSN, addVariant: addVariant,
+                                                 authorize: authorize, paginated: paginated, clearPaginated: clearPaginated,
+                                                 judgement: judgement, restsOn: restsOn, removeISSN: removeISSN)
         let load = try store.load()
         guard var venue = load.venues.first(where: { $0.key == key }) else {
             throw ServiceError.notFound("venue「\(displaySafeInvisible(key, max: 200))」")
@@ -3298,30 +3553,10 @@ public final class AkashicService {
         // 輸入錯與「這本刊沒有這個號」都整批拒絕、零寫入——只有一筆記錄，沒有「其餘照寫」可言。
         var issnRemoved: [(issn: String, reason: String)] = []
         var issnReferencesRemoved: [String: Int] = [:]
-        if let specs = removeISSN, !specs.isEmpty {
-            var seen = Set<String>()
-            for spec in specs {
-                guard let eq = spec.firstIndex(of: "=") else {
-                    throw ServiceError.invalid("remove_issn「\(displaySafeInvisible(spec, max: 80))」缺少 `=`——格式是 <issn>=理由；拒絕整個呼叫，零寫入")
-                }
-                let raw = String(spec[..<eq]), reason = String(spec[spec.index(after: eq)...])
-                guard let one = ISSN(raw) else {
-                    throw ServiceError.invalid("remove_issn「\(displaySafeInvisible(raw, max: 60))」不是合法的 ISSN——拒絕整個呼叫，零寫入")
-                }
-                guard !reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                    throw ServiceError.invalid("remove_issn「\(one.normalized)」的理由是空白——移除是判定的逆轉，要寫為什麼這個號不屬於這本刊")   // display-safe-exempt: one.normalized 只含 [0-9X-]
-                }
-                guard reason.utf8.count <= Self.maxStatementBytes else {
-                    throw ServiceError.invalid("remove_issn「\(one.normalized)」的理由超過 \(Self.maxStatementBytes) 位元組——精簡它")   // display-safe-exempt: one.normalized 只含 [0-9X-]；Self.maxStatementBytes 是 Int 常數
-                }
-                guard seen.insert(one.normalized).inserted else {
-                    throw ServiceError.invalid("remove_issn「\(one.normalized)」在一次呼叫裡重複")   // display-safe-exempt: one.normalized 只含 [0-9X-]
-                }
+        if !args.removeISSN.isEmpty {
+            for (one, reason) in args.removeISSN {   // 形狀、理由、重複、與 add_issn 矛盾已在讀 store 之前驗過（`updateVenueArguments`，#654）
                 guard venue.issn.contains(where: { $0.normalized == one.normalized }) else {
                     throw ServiceError.invalid("venue「\(displaySafeInvisible(key, max: 200))」沒有 ISSN「\(one.normalized)」——拒絕整個呼叫，零寫入")   // display-safe-exempt: one.normalized 只含 [0-9X-]
-                }
-                if let adds = addISSN, adds.contains(where: { ISSN($0)?.normalized == one.normalized }) {
-                    throw ServiceError.invalid("ISSN「\(one.normalized)」同時在 add_issn 與 remove_issn——兩句矛盾的話，拒絕整個呼叫")   // display-safe-exempt: one.normalized 只含 [0-9X-]
                 }
                 issnRemoved.append((one.normalized, reason))
             }
@@ -3357,10 +3592,10 @@ public final class AkashicService {
             return venue.names.entries.first { NameIdentity.canonical($0.value) == key }?.value
         }
         // 參數名兩面各自正確（R6 verify 第 45 列：CLI 使用者看到 MCP 鍵名 `add_names`，不是自己打的 `--add-name`）
-        let namesIn = try vetVenueNames(addNames, parameter: "add_names（--add-name）")
+        let namesIn = args.namesIn
         let namesBefore = venue.names.entries.map(\.value)
-        let (variantsIn, variantBlanks) = try vetVenueNamesReportingBlanks(addVariant, parameter: "add_variant（--add-variant）")
-        let (authorizeIn, authorizeBlanks) = try vetVenueNamesReportingBlanks(authorize, parameter: "authorize（--authorize）")
+        let (variantsIn, variantBlanks) = (args.variantsIn, args.variantBlanks)
+        let (authorizeIn, authorizeBlanks) = (args.authorizeIn, args.authorizeBlanks)
 
         var added: [String] = []
         for n in namesIn {
@@ -3368,13 +3603,7 @@ public final class AkashicService {
             venue.names = Timeline(venue.names.entries + [TemporalValue(value: n)])   // vetted 已是 canonical
             added.append(n)
         }
-        if let rawType {
-            guard let vtype = VenueType(rawValue: rawType) else {
-                throw ServiceError.invalid(
-                    "type「\(displaySafeInvisible(rawType, max: 60))」不在封閉列舉（\(VenueType.domainDescription)）")   // display-safe-exempt: domainDescription 由 VenueType.allCases 的 rawValue 組成，那些是 Swift 原始碼裡的識別字（編譯期常量），不含使用者資料
-            }
-            venue.type = vtype
-        }
+        if let vtype = args.type { venue.type = vtype }
         // **識別碼：不合法就整個拒絕，零寫入**（#394）。
         //
         // 與上面 `type` 那條同型。識別碼尤其如此——它**終結指涉**
@@ -3385,15 +3614,7 @@ public final class AkashicService {
         // `IdentifierMigration.normalizedUnique` 的既有立場一致——兩個面若用不同的相等，
         // 對「這本刊有幾個 ISSN」會給出不同答案。
         var issnAdded: [String] = []
-        if let raws = addISSN {
-            var parsed: [ISSN] = []
-            for r in raws where !r.trimmingCharacters(in: .whitespaces).isEmpty {
-                guard let one = ISSN(r) else {
-                    throw ServiceError.invalid(
-                        "issn「\(displaySafeInvisible(r, max: 60))」不是合法的 ISSN——拒絕整個呼叫，零寫入")
-                }
-                parsed.append(one)
-            }
+        if let parsed = args.addISSN {
             var existing = Set(venue.issn.map(\.normalized))
             for one in parsed where !existing.contains(one.normalized) {
                 venue.issn.append(one)
@@ -3415,49 +3636,14 @@ public final class AkashicService {
         //
         // 撤回**是一筆判定**不是刪除：它同樣要理由與證據，並在 references 留下
         // value=`nil` 的一筆。丟掉全部 reference 才是刪除，而那違反「翻轉留史」。
-        if clearPaginated {
-            guard paginated == nil else {
-                throw ServiceError.invalid(
-                    "paginated 與 clear_paginated 不得同時給——一次呼叫只能說一件事")
-            }
-            let trimmed = judgement?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            guard !trimmed.isEmpty else {
-                throw ServiceError.invalid(
-                    "撤回 paginated 判定必附 judgement——撤回本身是判定，"
-                    + "沒有理由的撤回事後與「不知道為什麼撤回」無法區分")
-            }
-            let ref = try ProvenanceReference(
-                field: "paginated", value: "nil",
-                url: nil, retrieved: nil, status: nil, mediaType: nil, content: nil,
-                judgement: trimmed, restsOn: restsOn ?? [])
-            venue.paginated = nil
-            // 冪等閘比位元組（R25 D69；R24 verify regression 第 29 列：canonical `==` 把只差 NFC／NFD 的 judgement 靜默吞掉、零回報）
+        // 撤回與設定的輸入檢查、以及那筆 reference 本身（理由與證據的形狀由 ProvenanceReference 平面 init 驗）在讀 store 之前做完
+        // （`updateVenueArguments`，#654）；這裡只把它落到記錄上。
+        if let ref = args.paginatedReference {
+            venue.paginated = clearPaginated ? nil : paginated
+            // 冪等以**完整** (field, value, kind) 的**位元組**相等判（`byteExactKey`，R25 D69；R24 verify regression 第 29 列：canonical `==`
+            // 把只差 NFC／NFD 的 judgement 靜默吞掉、零回報；R25 verify 第 24／37 列：這句曾寫「`Equatable`」）——`ResolutionLedger.appendIfAbsent`
+            // 的判準對 value 恆 nil 的純量欄位太粗，會把「翻轉判定」（statement 不同）誤當重複而吞掉史（實測抓到）。
             if !venue.references.contains(where: { $0.byteExactKey == ref.byteExactKey }) { venue.references.append(ref) }
-        } else if let paginated {
-            // trim 一次、驗證與儲存用同一個值（R1 verify：先前驗 trimmed、存原文——
-            // 兩個版本的 statement 會讓「同判定重打」的冪等比對失準）。
-            let trimmedJudgement = judgement?
-                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            guard !trimmedJudgement.isEmpty else {
-                throw ServiceError.invalid(
-                    "設 paginated 必附 judgement——「本刊是否使用頁碼」是判定，"
-                    + "沒有理由的判定事後與「不知道為什麼這樣」無法區分")
-            }
-            // #500：帶上判定值——資料層因此看得出哪句理由對應哪個值，而 (field, value,
-            // kind) 的冪等比對也自然把「翻轉」與「重打同一個判定」分開。
-            let ref = try ProvenanceReference(
-                field: "paginated", value: paginated ? "true" : "false",
-                url: nil, retrieved: nil, status: nil, mediaType: nil, content: nil,
-                judgement: trimmedJudgement, restsOn: restsOn ?? [])
-            venue.paginated = paginated
-            // 冪等以**完整** (field, value, kind) 的**位元組**相等判（`byteExactKey`，R25 D69；R25 verify 第 24／37 列：這句曾寫「`Equatable`」，
-            // 被自己下面那一行否證）——`ResolutionLedger.appendIfAbsent` 的判準對 value 恆 nil 的純量欄位太粗，
-            // 會把「翻轉判定」（statement 不同）誤當重複而吞掉史（實測抓到）。
-            if !venue.references.contains(where: { $0.byteExactKey == ref.byteExactKey }) { venue.references.append(ref) }
-        } else if judgement != nil || restsOn != nil {
-            throw ServiceError.invalid(
-                "judgement／rests_on 只伴隨 paginated 或 clear_paginated 使用"
-                + "——沒有判定就沒有判定的理由")
         }
         // **variant 的寫入面**（#471）。在此之前 variant **兩面都沒有寫入面**，唯一的
         // 寫入者是 `migrate-venue-variants`——而它用的是「`authorized` 的補集」。
@@ -3509,36 +3695,7 @@ public final class AkashicService {
         var liftedFromVariant: [String] = []
         var alreadyAuthorized: [String] = []
         var authorizedRewritten: [String] = []   // 同名不同位元組的自我修復（R9 verify logic 第 23 列）
-        // 同一次呼叫把同一個名字既送 add_variant 又送 authorize，是兩句矛盾的話——
-        // 不能讓「哪段先跑」決定誰贏。這是**輸入**驗證（呼叫端的兩個參數互相矛盾），
-        // 不是分割互斥的第二份副本（那仍由 `Venue.validate()` 擋）。整批拒絕、零寫入。
-        // （放在這裡而非 vetNames 之後的原因只是敘事順序；它與下面的衝突檢查都在寫入前——
-        // 前面三個迴圈只改記憶體中的 `venue`，`writeVenue` 在最後。）
-        do {
-            let variantKeys = Set(variantsIn.map(NameIdentity.canonical))
-            let both = authorizeIn.filter { variantKeys.contains(NameIdentity.canonical($0)) }
-            if !both.isEmpty {
-                throw ServiceError.invalid(
-                    "「\(Self.listCapped(both) { displaySafeInvisible($0, max: 120) })」"
-                    + "同時被送進 add_variant 與 authorize——那是兩句矛盾的話，請只說一句")
-            }
-        }
-        // 同一次呼叫兩個同 `WritingSystem` 的名字也是兩句矛盾的話（R1 verify 第 1 列，
-        // 四席各自重現）：迴圈逐一處理時第 N+1 輪會把第 N 輪剛升上去的當舊指定移出——
-        // 陣列順序決勝，而 `validateWritingSystems` 對這個形狀的裁決是「未決的問題，
-        // 不是指定；請選一個」。桶依 rawValue 排序、全部衝突桶一次印、印呼叫端的原字串
-        // （R2 第 7 列、R3 第 14 列）。
-        let clashes = Dictionary(grouping: authorizeIn, by: WritingSystem.of)
-            .filter { $0.value.count > 1 }
-            .sorted { $0.key.rawValue < $1.key.rawValue }
-        if !clashes.isEmpty {
-            let described = clashes.map { bucket in
-                "\(bucket.key.rawValue)：「\(Self.listCapped(bucket.value) { displaySafeInvisible($0, max: 120) })」"   // display-safe-exempt: WritingSystem.rawValue 是 enum 常數（han／latn／other），不是 store 字串；名字性質式（R32；R31 verify 第 2／8 列：私用區 Co 與合法 joiner 過得了名字驗證、列舉式不逃）
-            }.joined(separator: "；")
-            throw ServiceError.invalid(
-                "同一個書寫系統送了兩個以上的名字——" + described
-                + "——每書寫系統至多一個對外形，那是未決的問題，不是指定；請選一個")
-        }
+        // 兩句矛盾的話（同一個名字既 add_variant 又 authorize、同一個書寫系統兩個名字）在讀 store 之前擋（`updateVenueArguments`，#654）
         for requested in authorizeIn {
             // 解析成 store 拼法；names 沒有的，以 canonical 形加進 names（兩個分割都是對 names 的標記）
             let x: String
@@ -3637,6 +3794,60 @@ public final class AkashicService {
         return try jsonString(payload)
     }
 
+    /// --split-author（split_author）的一筆 id（只看參數的解析結果，#654）。
+    struct SplitAuthorSpec {
+        let judgement: String
+        let citekey: String
+        let sep: String
+        let idx: Int
+    }
+
+    /// CLI 的 `validate()` 用（#654）：--split-author（split_author）只看參數的全部檢查——與服務在讀 store 之前跑的是同一個函式。
+    public static func checkSplitArguments(_ specs: [String]) throws {
+        _ = try parseSplitSpecs(specs)
+    }
+
+    /// `splitAuthors` 迴圈頭的解析與只看參數的檢查（#654 原樣搬出）。先前它們排在讀 store 之後、與 store 狀態的檢查交錯在同一個迴圈裡；
+    /// 現在全部在讀 store 之前，一次呼叫同時有輸入錯與 store 狀態不符時先報輸入錯。
+    static func parseSplitSpecs(_ specs: [String]) throws -> [SplitAuthorSpec] {
+        var out: [SplitAuthorSpec] = []
+        var seen = Set<String>()
+        for spec in specs {
+            guard let eq = spec.firstIndex(of: "=") else {
+                throw ServiceError.invalid(
+                    "「\(displaySafeInvisible(spec, max: 200))」缺少 `=`——格式是 "
+                    + "citekey:authorIndex:分隔符=理由")
+            }
+            let idPart = String(spec[spec.startIndex..<eq])
+            let judgement = String(spec[spec.index(after: eq)...])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !judgement.isEmpty else {
+                throw ServiceError.invalid(
+                    "「\(displaySafeInvisible(idPart, max: 200))」的理由是空的——拆開是一個判斷，"
+                    + "而沒有理由的判斷事後與「不知道為什麼這樣」無法區分")
+            }
+            // 分隔符本身可能含 `:`，所以只切前兩段
+            let bits = idPart.split(separator: ":", maxSplits: 2,
+                                    omittingEmptySubsequences: false)
+            guard bits.count == 3, let idx = Int(bits[1]), !bits[2].isEmpty else {
+                throw ServiceError.invalid(
+                    "id「\(displaySafeInvisible(idPart, max: 200))」不是三段形 citekey:authorIndex:分隔符")
+            }
+            let citekey = String(bits[0]), sep = String(bits[2])
+            // **以解析後的 (citekey, idx) 去重，不以字面 id**（R1 verify HIGH）：
+            // `w:0:與` 與 `w:0:，`（或 `w:00:與`、`w:+0:與`）字面不同、語意是同一個
+            // 作者位。字面去重讓兩筆都通過，而驗證對 pristine entry 求值、寫入對已
+            // 改寫的陣列依序套用——結果是長度不對的靜默毀損。一個 slot 一次只能拆一次。
+            guard seen.insert("\(citekey)#\(idx)").inserted else {   // display-safe-exempt: idx 是 Int
+                throw ServiceError.invalid(
+                    "「\(displaySafeInvisible(citekey, max: 200))」的作者位 \(idx) 被指定了兩次"   // display-safe-exempt: Int
+                    + "——同一個作者位一次只能拆一次")
+            }
+            out.append(SplitAuthorSpec(judgement: judgement, citekey: citekey, sep: sep, idx: idx))
+        }
+        return out
+    }
+
     /// **把黏在一起的作者位拆開**（#443）。
     ///
     /// ## 問題
@@ -3679,6 +3890,7 @@ public final class AkashicService {
     ///
     /// 與 `judge`／`repoint`／`attributeToOrganizations` 同。下面先全部解析驗證完才動手。
     public func splitAuthors(_ specs: [String]) throws -> String {
+        let parsedSpecs = try Self.parseSplitSpecs(specs)   // 只看參數的檢查在讀 store 之前（#654）
         let load = try store.load()
         let byCitekey = Dictionary(load.entries.map { ($0.citekey, $0) },
                                    uniquingKeysWith: { _, last in last })
@@ -3688,39 +3900,9 @@ public final class AkashicService {
                       let parts: [String]; let literal: String; let judgement: String
                       let record: SplitRecordValue }
         var plans: [Plan] = []
-        var seen = Set<String>()
 
-        for spec in specs {
-            guard let eq = spec.firstIndex(of: "=") else {
-                throw ServiceError.invalid(
-                    "「\(displaySafeInvisible(spec, max: 200))」缺少 `=`——格式是 "
-                    + "citekey:authorIndex:分隔符=理由")
-            }
-            let idPart = String(spec[spec.startIndex..<eq])
-            let judgement = String(spec[spec.index(after: eq)...])
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !judgement.isEmpty else {
-                throw ServiceError.invalid(
-                    "「\(displaySafeInvisible(idPart, max: 200))」的理由是空的——拆開是一個判斷，"
-                    + "而沒有理由的判斷事後與「不知道為什麼這樣」無法區分")
-            }
-            // 分隔符本身可能含 `:`，所以只切前兩段
-            let bits = idPart.split(separator: ":", maxSplits: 2,
-                                    omittingEmptySubsequences: false)
-            guard bits.count == 3, let idx = Int(bits[1]), !bits[2].isEmpty else {
-                throw ServiceError.invalid(
-                    "id「\(displaySafeInvisible(idPart, max: 200))」不是三段形 citekey:authorIndex:分隔符")
-            }
-            let citekey = String(bits[0]), sep = String(bits[2])
-            // **以解析後的 (citekey, idx) 去重，不以字面 id**（R1 verify HIGH）：
-            // `w:0:與` 與 `w:0:，`（或 `w:00:與`、`w:+0:與`）字面不同、語意是同一個
-            // 作者位。字面去重讓兩筆都通過，而驗證對 pristine entry 求值、寫入對已
-            // 改寫的陣列依序套用——結果是長度不對的靜默毀損。一個 slot 一次只能拆一次。
-            guard seen.insert("\(citekey)#\(idx)").inserted else {   // display-safe-exempt: idx 是 Int
-                throw ServiceError.invalid(
-                    "「\(displaySafeInvisible(citekey, max: 200))」的作者位 \(idx) 被指定了兩次"   // display-safe-exempt: Int
-                    + "——同一個作者位一次只能拆一次")
-            }
+        for ps in parsedSpecs {   // 只看參數的檢查已在讀 store 之前做完（`parseSplitSpecs`，#654）
+            let (judgement, citekey, sep, idx) = (ps.judgement, ps.citekey, ps.sep, ps.idx)
             if unlocatableCK.contains(citekey) {
                 // #627：citekey 重複時以 citekey 定位會猜是哪一筆——整批拒絕、零寫入，不猜
                 throw ServiceError.invalid(
@@ -3827,6 +4009,44 @@ public final class AkashicService {
         return try jsonString(["split": rows, "count": rows.count])   // display-safe-exempt: Int
     }
 
+    /// --un-split（un_split）的一筆 id（只看參數的解析結果，#654）。
+    struct UnsplitSpec {
+        let citekey: String
+        let retired: String
+    }
+
+    /// CLI 的 `validate()` 用（#654）：--un-split（un_split）只看參數的全部檢查——與服務在讀 store 之前跑的是同一個函式。
+    public static func checkUnsplitArguments(_ specs: [String]) throws {
+        _ = try parseUnsplitSpecs(specs)
+    }
+
+    /// `unsplitAuthors` 迴圈頭的解析與只看參數的檢查（#654 原樣搬出）。先前它們排在讀 store 之後、與 store 狀態的檢查交錯在同一個迴圈裡；
+    /// 現在全部在讀 store 之前，一次呼叫同時有輸入錯與 store 狀態不符時先報輸入錯。
+    static func parseUnsplitSpecs(_ specs: [String]) throws -> [UnsplitSpec] {
+        var out: [UnsplitSpec] = []
+        var seen = Set<String>()
+        for spec in specs {
+            // citekey 的值域是 `[a-z0-9][a-z0-9-]*`（`StoreKey`），不含 `:`——所以第一個
+            // `:` 就是分隔，而 literal 可以含冒號。同 `split_author` 的 id 形狀。
+            guard let colon = spec.firstIndex(of: ":") else {
+                throw ServiceError.invalid(
+                    "「\(displaySafeInvisible(spec, max: 200))」缺少 `:`——格式是 citekey:原literal")
+            }
+            let citekey = String(spec[spec.startIndex..<colon])
+            let retired = String(spec[spec.index(after: colon)...])
+            guard !citekey.isEmpty, !retired.isEmpty else {
+                throw ServiceError.invalid(
+                    "「\(displaySafeInvisible(spec, max: 200))」的 citekey 或原 literal 是空的")
+            }
+            guard seen.insert("\(citekey)\u{0}\(retired)").inserted else {
+                throw ServiceError.invalid(
+                    "同一筆「\(displaySafeInvisible(spec, max: 200))」在這批裡出現兩次")
+            }
+            out.append(UnsplitSpec(citekey: citekey, retired: retired))
+        }
+        return out
+    }
+
     /// **把拆分合回去**（#513）——`splitAuthors` 的具名逆操作。
     ///
     /// ## 為什麼需要它
@@ -3872,6 +4092,7 @@ public final class AkashicService {
     /// 同輸入必得同輸出，且它**就是** split 的具名逆操作——那條規則對程式編輯要求的正是
     /// 「冪等或有具名逆操作」。它不做任何判定：合回去的字串逐字取自記錄的 `value`。
     public func unsplitAuthors(_ specs: [String]) throws -> String {
+        let parsedSpecs = try Self.parseUnsplitSpecs(specs)   // 只看參數的檢查在讀 store 之前（#654）
         let load = try store.load()
         let byCitekey = Dictionary(load.entries.map { ($0.citekey, $0) },
                                    uniquingKeysWith: { _, last in last })
@@ -3880,25 +4101,9 @@ public final class AkashicService {
         struct Plan { let citekey: String; let start: Int; let retired: String
                       let parts: [String]; let reason: String }
         var plans: [Plan] = []
-        var seen = Set<String>()
 
-        for spec in specs {
-            // citekey 的值域是 `[a-z0-9][a-z0-9-]*`（`StoreKey`），不含 `:`——所以第一個
-            // `:` 就是分隔，而 literal 可以含冒號。同 `split_author` 的 id 形狀。
-            guard let colon = spec.firstIndex(of: ":") else {
-                throw ServiceError.invalid(
-                    "「\(displaySafeInvisible(spec, max: 200))」缺少 `:`——格式是 citekey:原literal")
-            }
-            let citekey = String(spec[spec.startIndex..<colon])
-            let retired = String(spec[spec.index(after: colon)...])
-            guard !citekey.isEmpty, !retired.isEmpty else {
-                throw ServiceError.invalid(
-                    "「\(displaySafeInvisible(spec, max: 200))」的 citekey 或原 literal 是空的")
-            }
-            guard seen.insert("\(citekey)\u{0}\(retired)").inserted else {
-                throw ServiceError.invalid(
-                    "同一筆「\(displaySafeInvisible(spec, max: 200))」在這批裡出現兩次")
-            }
+        for ps in parsedSpecs {   // 只看參數的檢查已在讀 store 之前做完（`parseUnsplitSpecs`，#654）
+            let (citekey, retired) = (ps.citekey, ps.retired)
             if unlocatableCK.contains(citekey) {
                 // #627：citekey 重複時以 citekey 定位會猜是哪一筆——整批拒絕、零寫入，不猜
                 throw ServiceError.invalid(
@@ -4007,6 +4212,57 @@ public final class AkashicService {
         return try jsonString(["unsplit": rows, "count": rows.count])   // display-safe-exempt: Int
     }
 
+    /// --drop-author（drop_author）的一筆 id（只看參數的解析結果，#654）。
+    struct DropAuthorSpec {
+        let record: AuthorRemovalRecordValue
+        let citekey: String
+        let literal: String
+    }
+
+    /// CLI 的 `validate()` 用（#654）：--drop-author（drop_author）只看參數的全部檢查——與服務在讀 store 之前跑的是同一個函式。
+    public static func checkDropAuthorArguments(_ specs: [String]) throws {
+        _ = try parseDropAuthorSpecs(specs)
+    }
+
+    /// `dropAuthors` 迴圈頭的解析與只看參數的檢查（#654 原樣搬出）。先前它們排在讀 store 之後、與 store 狀態的檢查交錯在同一個迴圈裡；
+    /// 現在全部在讀 store 之前，一次呼叫同時有輸入錯與 store 狀態不符時先報輸入錯。
+    static func parseDropAuthorSpecs(_ specs: [String]) throws -> [DropAuthorSpec] {
+        var out: [DropAuthorSpec] = []
+        var seen = Set<String>()
+        for spec in specs {
+            // `=` 之後一律是理由（同 `judge`／`attribute_org` 的既有形）。literal 可以含 `:`，
+            // 所以第一個 `:` 是 citekey 的分隔——citekey 的值域（`StoreKey`）不含 `:`。
+            guard let eq = spec.firstIndex(of: "=") else {
+                throw ServiceError.invalid(
+                    "「\(displaySafeInvisible(spec, max: 200))」缺少 `=`——格式是 citekey:literal=理由")
+            }
+            let idPart = String(spec[spec.startIndex..<eq])
+            let judgement = String(spec[spec.index(after: eq)...])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let record = AuthorRemovalRecordValue(reason: judgement) else {
+                throw ServiceError.invalid(
+                    "「\(displaySafeInvisible(idPart, max: 200))」的判定理由是空的——移除是判定，"
+                    + "而沒有理由的判定事後與「不知道為什麼這樣」無法區分")
+            }
+            guard let colon = idPart.firstIndex(of: ":") else {
+                throw ServiceError.invalid(
+                    "「\(displaySafeInvisible(idPart, max: 200))」缺少 `:`——格式是 citekey:literal=理由")
+            }
+            let citekey = String(idPart[idPart.startIndex..<colon])
+            let literal = String(idPart[idPart.index(after: colon)...])
+            guard !citekey.isEmpty, !literal.isEmpty else {
+                throw ServiceError.invalid(
+                    "「\(displaySafeInvisible(idPart, max: 200))」的 citekey 或 literal 是空的")
+            }
+            guard seen.insert("\(citekey)\u{0}\(literal)").inserted else {
+                throw ServiceError.invalid(
+                    "同一筆「\(displaySafeInvisible(idPart, max: 200))」在這批裡出現兩次")
+            }
+            out.append(DropAuthorSpec(record: record, citekey: citekey, literal: literal))
+        }
+        return out
+    }
+
     /// **把一個作者位移除**（#457）——`Author` 三態之外的第四種處置：**沒有作者**。
     ///
     /// ## 為什麼需要它
@@ -4039,6 +4295,7 @@ public final class AkashicService {
     ///
     /// 同 `judge`／`repoint`／`split_author`。format 閘（≥ 17）在任何寫入之前對全部計畫求值。
     public func dropAuthors(_ specs: [String]) throws -> String {
+        let parsedSpecs = try Self.parseDropAuthorSpecs(specs)   // 只看參數的檢查在讀 store 之前（#654）
         let load = try store.load()
         let byCitekey = Dictionary(load.entries.map { ($0.citekey, $0) },
                                    uniquingKeysWith: { _, last in last })
@@ -4047,37 +4304,9 @@ public final class AkashicService {
         struct Plan { let citekey: String; let idx: Int; let literal: String
                       let record: AuthorRemovalRecordValue }
         var plans: [Plan] = []
-        var seen = Set<String>()
 
-        for spec in specs {
-            // `=` 之後一律是理由（同 `judge`／`attribute_org` 的既有形）。literal 可以含 `:`，
-            // 所以第一個 `:` 是 citekey 的分隔——citekey 的值域（`StoreKey`）不含 `:`。
-            guard let eq = spec.firstIndex(of: "=") else {
-                throw ServiceError.invalid(
-                    "「\(displaySafeInvisible(spec, max: 200))」缺少 `=`——格式是 citekey:literal=理由")
-            }
-            let idPart = String(spec[spec.startIndex..<eq])
-            let judgement = String(spec[spec.index(after: eq)...])
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard let record = AuthorRemovalRecordValue(reason: judgement) else {
-                throw ServiceError.invalid(
-                    "「\(displaySafeInvisible(idPart, max: 200))」的判定理由是空的——移除是判定，"
-                    + "而沒有理由的判定事後與「不知道為什麼這樣」無法區分")
-            }
-            guard let colon = idPart.firstIndex(of: ":") else {
-                throw ServiceError.invalid(
-                    "「\(displaySafeInvisible(idPart, max: 200))」缺少 `:`——格式是 citekey:literal=理由")
-            }
-            let citekey = String(idPart[idPart.startIndex..<colon])
-            let literal = String(idPart[idPart.index(after: colon)...])
-            guard !citekey.isEmpty, !literal.isEmpty else {
-                throw ServiceError.invalid(
-                    "「\(displaySafeInvisible(idPart, max: 200))」的 citekey 或 literal 是空的")
-            }
-            guard seen.insert("\(citekey)\u{0}\(literal)").inserted else {
-                throw ServiceError.invalid(
-                    "同一筆「\(displaySafeInvisible(idPart, max: 200))」在這批裡出現兩次")
-            }
+        for ps in parsedSpecs {   // 只看參數的檢查已在讀 store 之前做完（`parseDropAuthorSpecs`，#654）
+            let (record, citekey, literal) = (ps.record, ps.citekey, ps.literal)
             if unlocatableCK.contains(citekey) {
                 // #627：citekey 重複時以 citekey 定位會猜是哪一筆——整批拒絕、零寫入，不猜
                 throw ServiceError.invalid(
@@ -4144,6 +4373,52 @@ public final class AkashicService {
         return try jsonString(["dropped": rows, "count": rows.count])   // display-safe-exempt: Int
     }
 
+    /// --attribute-org（attribute_org）的一筆 id（只看參數的解析結果，#654）。
+    struct AttributeOrgSpec {
+        let judgement: String
+        let idx: Int
+        let citekey: String
+        let orgKey: String
+    }
+
+    /// CLI 的 `validate()` 用（#654）：--attribute-org（attribute_org）只看參數的全部檢查——與服務在讀 store 之前跑的是同一個函式。
+    public static func checkAttributeOrgArguments(_ specs: [String]) throws {
+        _ = try parseAttributeOrgSpecs(specs)
+    }
+
+    /// `attributeToOrganizations` 迴圈頭的解析與只看參數的檢查（#654 原樣搬出）。先前它們排在讀 store 之後、與 store 狀態的檢查交錯在同一個迴圈裡；
+    /// 現在全部在讀 store 之前，一次呼叫同時有輸入錯與 store 狀態不符時先報輸入錯。
+    static func parseAttributeOrgSpecs(_ specs: [String]) throws -> [AttributeOrgSpec] {
+        var out: [AttributeOrgSpec] = []
+        var seen = Set<String>()
+        for spec in specs {
+            guard let eq = spec.firstIndex(of: "=") else {
+                throw ServiceError.invalid(
+                    "「\(displaySafeInvisible(spec, max: 200))」缺少 `=`——格式是 "
+                    + "citekey:authorIndex:orgKey=判定理由")
+            }
+            let idPart = String(spec[spec.startIndex..<eq])
+            let judgement = String(spec[spec.index(after: eq)...])
+                .trimmingCharacters(in: .whitespaces)
+            guard !judgement.isEmpty else {
+                throw ServiceError.invalid(
+                    "「\(displaySafeInvisible(idPart, max: 200))」的判定理由是空的——判定會錯，"
+                    + "而沒有理由的判定事後與「不知道為什麼這樣」無法區分")
+            }
+            let parts = idPart.split(separator: ":", omittingEmptySubsequences: false)
+            guard parts.count == 3, let idx = Int(parts[1]) else {
+                throw ServiceError.invalid(
+                    "id「\(displaySafeInvisible(idPart, max: 200))」不是三段形 citekey:authorIndex:orgKey")
+            }
+            let citekey = String(parts[0]), orgKey = String(parts[2])
+            guard seen.insert(idPart).inserted else {
+                throw ServiceError.invalid("id「\(displaySafeInvisible(idPart, max: 200))」重複")
+            }
+            out.append(AttributeOrgSpec(judgement: judgement, idx: idx, citekey: citekey, orgKey: orgKey))
+        }
+        return out
+    }
+
     /// **`.literal` → `.organization` 的升格**（#443）。
     ///
     /// ## 為什麼要有這條路
@@ -4169,6 +4444,7 @@ public final class AkashicService {
     /// 與 `judge`／`repoint` 同（#386／#418）。下面**先全部解析驗證完才動手**——逐筆
     /// 寫入會留下「一半套用」的狀態，比整批失敗難修得多。
     public func attributeToOrganizations(_ specs: [String]) throws -> String {
+        let parsedSpecs = try Self.parseAttributeOrgSpecs(specs)   // 只看參數的檢查在讀 store 之前（#654）
         let load = try store.load()
         let byCitekey = Dictionary(load.entries.map { ($0.citekey, $0) },
                                    uniquingKeysWith: { _, last in last })
@@ -4178,31 +4454,9 @@ public final class AkashicService {
         struct Plan { let citekey: String; let idx: Int; let orgKey: String
                       let literal: String; let judgement: String }
         var plans: [Plan] = []
-        var seen = Set<String>()
 
-        for spec in specs {
-            guard let eq = spec.firstIndex(of: "=") else {
-                throw ServiceError.invalid(
-                    "「\(displaySafeInvisible(spec, max: 200))」缺少 `=`——格式是 "
-                    + "citekey:authorIndex:orgKey=判定理由")
-            }
-            let idPart = String(spec[spec.startIndex..<eq])
-            let judgement = String(spec[spec.index(after: eq)...])
-                .trimmingCharacters(in: .whitespaces)
-            guard !judgement.isEmpty else {
-                throw ServiceError.invalid(
-                    "「\(displaySafeInvisible(idPart, max: 200))」的判定理由是空的——判定會錯，"
-                    + "而沒有理由的判定事後與「不知道為什麼這樣」無法區分")
-            }
-            let parts = idPart.split(separator: ":", omittingEmptySubsequences: false)
-            guard parts.count == 3, let idx = Int(parts[1]) else {
-                throw ServiceError.invalid(
-                    "id「\(displaySafeInvisible(idPart, max: 200))」不是三段形 citekey:authorIndex:orgKey")
-            }
-            let citekey = String(parts[0]), orgKey = String(parts[2])
-            guard seen.insert(idPart).inserted else {
-                throw ServiceError.invalid("id「\(displaySafeInvisible(idPart, max: 200))」重複")
-            }
+        for ps in parsedSpecs {   // 只看參數的檢查已在讀 store 之前做完（`parseAttributeOrgSpecs`，#654）
+            let (judgement, idx, citekey, orgKey) = (ps.judgement, ps.idx, ps.citekey, ps.orgKey)
             if unlocatableCK.contains(citekey) {
                 // #627：citekey 重複時以 citekey 定位會猜是哪一筆——整批拒絕、零寫入，不猜
                 throw ServiceError.invalid(
@@ -4572,24 +4826,22 @@ public final class AkashicService {
         ] as [String: Any])
     }
 
-    /// `resolve-venues --repoint` 的實作（#418）。
-    ///
-    /// **先全部解析、再一次寫入**：任何一筆前提不符就整批拒絕、零寫入。部分寫入會讓
-    /// 使用者面對一個「有些改了有些沒改」的中間態，而那正是改指這種操作最不該有的
-    /// ——它本來就是在修一個錯誤歸戶。
-    private func repointVenues(_ ids: [String], retiredLimit: Int?) throws -> String {
-        let load = try store.load()
-        let storeFormat = (try? StoreVersion.read(root: store.root)) ?? 1
-        guard storeFormat >= 11 else {
-            throw ServiceError.invalid(
-                "venue 改指需要 store format ≥ 11（本 store 是 \(storeFormat)）")   // display-safe-exempt: Int
-        }
-        let venueKeys = Set(load.venues.map(\.key))
-        var byCitekey = Dictionary(load.entries.map { ($0.citekey, $0) }, uniquingKeysWith: { a, _ in a })
-        let unlocatableForRepointDemote = load.entries.unlocatableCitekeys   // #628：迴圈外算一次（R1 verify：逐 id 重算是 O(M×N)）
+    /// --repoint（repoint）的一筆 id（只看參數的解析結果，#654）。
+    struct RepointSpec {
+        let idx: Int
+        let citekey: String
+        let newKey: String
+    }
 
-        struct Move { let citekey: String; let index: Int; let from: String; let to: String; let literal: String }
-        var moves: [Move] = []
+    /// CLI 的 `validate()` 用（#654）：--repoint（repoint）只看參數的全部檢查——與服務在讀 store 之前跑的是同一個函式。
+    public static func checkRepointArguments(_ ids: [String]) throws {
+        _ = try parseRepointSpecs(ids)
+    }
+
+    /// 迴圈頭的解析與只看參數的檢查（#654 原樣搬出）。先前排在讀 store 與 format 閘之後；現在全部在讀 store 之前，
+    /// 一次呼叫同時有輸入錯與 store 狀態不符時先報輸入錯。
+    static func parseRepointSpecs(_ ids: [String]) throws -> [RepointSpec] {
+        var out: [RepointSpec] = []
         var seen = Set<String>()
         var targetByEdge: [String: String] = [:]   // "citekey\u{0}index" → newKey（R16；R15 verify 第 14 列）
         for raw in ids where seen.insert(raw).inserted {
@@ -4607,6 +4859,32 @@ public final class AkashicService {
                     + "（改指到「\(displaySafeInvisible(earlier, max: 200))」與「\(displaySafeInvisible(newKey, max: 200))」）——一條邊一次只能改指到一個 venue；出路：只留一個")
             }
             targetByEdge["\(citekey)\u{0}\(idx)"] = newKey
+            out.append(RepointSpec(idx: idx, citekey: citekey, newKey: newKey))
+        }
+        return out
+    }
+
+    /// `resolve-venues --repoint` 的實作（#418）。
+    ///
+    /// **先全部解析、再一次寫入**：任何一筆前提不符就整批拒絕、零寫入。部分寫入會讓
+    /// 使用者面對一個「有些改了有些沒改」的中間態，而那正是改指這種操作最不該有的
+    /// ——它本來就是在修一個錯誤歸戶。
+    private func repointVenues(_ ids: [String], retiredLimit: Int?) throws -> String {
+        let parsedSpecs = try Self.parseRepointSpecs(ids)   // 只看參數的檢查在讀 store 之前（#654）
+        let load = try store.load()
+        let storeFormat = (try? StoreVersion.read(root: store.root)) ?? 1
+        guard storeFormat >= 11 else {
+            throw ServiceError.invalid(
+                "venue 改指需要 store format ≥ 11（本 store 是 \(storeFormat)）")   // display-safe-exempt: Int
+        }
+        let venueKeys = Set(load.venues.map(\.key))
+        var byCitekey = Dictionary(load.entries.map { ($0.citekey, $0) }, uniquingKeysWith: { a, _ in a })
+        let unlocatableForRepointDemote = load.entries.unlocatableCitekeys   // #628：迴圈外算一次（R1 verify：逐 id 重算是 O(M×N)）
+
+        struct Move { let citekey: String; let index: Int; let from: String; let to: String; let literal: String }
+        var moves: [Move] = []
+        for ps in parsedSpecs {   // 只看參數的檢查已在讀 store 之前做完（`parseRepointSpecs`，#654）
+            let (idx, citekey, newKey) = (ps.idx, ps.citekey, ps.newKey)
             // #628：byCitekey 前者勝——citekey 重複或與另一筆共用 id 時會猜是哪一筆。整批拒絕（同本函式的前提不符語意）
             if unlocatableForRepointDemote.contains(citekey) {
                 throw ServiceError.invalid(
@@ -4977,6 +5255,34 @@ public final class AkashicService {
         }
     }
 
+    /// --demote（demote）的一筆 id（只看參數的解析結果，#654）。
+    struct DemoteSpec {
+        let idx: Int
+        let citekey: String
+    }
+
+    /// CLI 的 `validate()` 用（#654）：--demote（demote）只看參數的全部檢查——與服務在讀 store 之前跑的是同一個函式。
+    public static func checkDemoteArguments(_ ids: [String]) throws {
+        _ = try parseDemoteSpecs(ids)
+    }
+
+    /// 迴圈頭的解析與只看參數的檢查（#654 原樣搬出）。先前排在讀 store 與 format 閘之後；現在全部在讀 store 之前，
+    /// 一次呼叫同時有輸入錯與 store 狀態不符時先報輸入錯。
+    static func parseDemoteSpecs(_ ids: [String]) throws -> [DemoteSpec] {
+        var out: [DemoteSpec] = []
+        var seen = Set<String>()
+        for raw in ids where seen.insert(raw).inserted {
+            let parts = raw.split(separator: ":", omittingEmptySubsequences: false).map(String.init)
+            guard parts.count == 2, let idx = Int(parts[1]), idx >= 0 else {
+                throw ServiceError.invalid(
+                    "降格 id「\(displaySafeInvisible(raw, max: 200))」不是 citekey:venueIndex 形")
+            }
+            let citekey = parts[0]
+            out.append(DemoteSpec(idx: idx, citekey: citekey))
+        }
+        return out
+    }
+
     /// `resolve-venues --demote` 的實作（#418）。
     ///
     /// **literal 從 verdict 取回，不從 venue 的名字猜**：`--apply` 寫的
@@ -4990,6 +5296,7 @@ public final class AkashicService {
     /// （實例：WoS 的 `PSYCHOMETRIKA` vs 正式刊名 `Psychometrika`），用它會安靜改寫
     /// 書目資料——那正是 `lossless-intake` 在防的。
     private func demoteVenues(_ ids: [String], retiredLimit: Int?) throws -> String {
+        let parsedSpecs = try Self.parseDemoteSpecs(ids)   // 只看參數的檢查在讀 store 之前（#654）
         let load = try store.load()
         let storeFormat = (try? StoreVersion.read(root: store.root)) ?? 1
         guard storeFormat >= 11 else {
@@ -5002,14 +5309,8 @@ public final class AkashicService {
 
         struct Demotion { let citekey: String; let index: Int; let venueKey: String; let literal: String }
         var plan: [Demotion] = []
-        var seen = Set<String>()
-        for raw in ids where seen.insert(raw).inserted {
-            let parts = raw.split(separator: ":", omittingEmptySubsequences: false).map(String.init)
-            guard parts.count == 2, let idx = Int(parts[1]), idx >= 0 else {
-                throw ServiceError.invalid(
-                    "降格 id「\(displaySafeInvisible(raw, max: 200))」不是 citekey:venueIndex 形")
-            }
-            let citekey = parts[0]
+        for ps in parsedSpecs {   // 只看參數的檢查已在讀 store 之前做完（`parseDemoteSpecs`，#654）
+            let (idx, citekey) = (ps.idx, ps.citekey)
             // #628：byCitekey 前者勝——citekey 重複或與另一筆共用 id 時會猜是哪一筆。整批拒絕（同本函式的前提不符語意）
             if unlocatableForRepointDemote.contains(citekey) {
                 throw ServiceError.invalid(

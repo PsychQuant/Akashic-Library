@@ -86,6 +86,11 @@ public enum ProvenanceMigration {
                   source.hasPrefix("sha256:") else { continue }
             let value = display(timeline.entries[i].value)
             guard ProvenanceReference.isValidDigest(source) else {
+                // #654：空內容的 digest 形狀合法——說「形狀不合法」是假話；它不指認任何存檔，搬成 reference 會在寫入時被拒
+                if source == ProvenanceReference.emptyContentDigest {
+                    skipped.append(Skip(record: record, field: field, reason: ProvenanceReference.emptyContentDigestReason))
+                    continue
+                }
                 skipped.append(Skip(record: record, field: field,
                                     reason: "digest 形狀不合法（sha256: + 64 小寫 hex）："
                                             + displaySafe(source, max: 120)))

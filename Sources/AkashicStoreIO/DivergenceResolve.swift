@@ -281,16 +281,65 @@ extension LibraryStore {
         // traversal**（R1 的 DA 已證明候選鍵從未進過任何路徑），而是
         // `Divergence.validate()` 對畸形候選鍵報 error——沒有這道守衛，工具就能寫出
         // 一筆自己的 validate 永遠不會通過、而又沒有編輯入口可以修的記錄。
-        for c in d.candidates where !StoreKey.isValid(c.key) {
-            throw StoreIOError.invalidKey("divergence candidate key", c.key)
+        try Self.assertDivergenceCandidateKeys(d.candidates.map(\.key))
+        if let j = d.judgement { try Self.assertDivergenceRestsOn(j.restsOn) }
+    }
+
+    /// 候選鍵的格式——寫入閘與 `recordDivergence` 的參數檢查共用（#654：只看參數，CLI 在 `validate()` 呼叫同一個函式）。
+    static func assertDivergenceCandidateKeys(_ keys: [String]) throws {
+        for k in keys where !StoreKey.isValid(k) {
+            throw StoreIOError.invalidKey("divergence candidate key", k)
         }
-        // #507：judgement 的依據必須是 digest——decode 期擋住的形狀，寫入閘也要擋，否則本 binary
-        // 寫得出一筆下一次載入就 quarantine 的記錄（`ProvenanceReference` 在 init 就驗的同一語意）。
-        if let j = d.judgement, let bad = j.restsOn.first(where: { !ProvenanceReference.isValidDigest($0) }) {
+    }
+
+    /// #507：judgement 的依據必須是 digest——decode 期擋住的形狀，寫入閘也要擋，否則本 binary
+    /// 寫得出一筆下一次載入就 quarantine 的記錄（`ProvenanceReference` 在 init 就驗的同一語意）。
+    /// 寫入閘與 `recordDivergence` 的參數檢查共用（#654）。
+    static func assertDivergenceRestsOn(_ restsOn: [String]) throws {
+        if let bad = restsOn.first(where: { !ProvenanceReference.isValidDigest($0) }) {
+            if bad == ProvenanceReference.emptyContentDigest {   // #654：形狀合法、不指認任何存檔
+                throw StoreIOError.invalidInput(what: "divergence.rests-on", why: ProvenanceReference.emptyContentDigestReason)   // display-safe-exempt: ProvenanceReference.emptyContentDigestReason 是常量句
+            }
             throw StoreIOError.invalidInput(
                 what: "divergence.rests-on",
                 why: "「\(displaySafeInvisible(bad, max: 120))」不是合法的 digest（`sha256:` ＋ 64 個十六進位字元）"
                     + "——先 store-source 把依據存進 sources/，再填它的 digest")
+        }
+    }
+
+    /// `recordDivergence` 只看參數的檢查（#654）：候選數、候選鍵格式、不可作候選的形狀、判斷與依據成對、依據的 digest、
+    /// prefers 的兩條。先前散在讀 store 前後（prefers 那兩條在「既有記錄」的檢查之後），CLI 呼叫時一律成了執行期失敗；
+    /// 現在 `recordDivergence` 開頭呼叫一次，CLI 的 `validate()` 呼叫同一個函式。
+    public static func checkDivergenceArguments(candidates: [(key: String, shape: EntityKind)],
+                                                judgement: String?, restsOn: [String],
+                                                prefers: String?) throws {
+        guard candidates.count >= 2 else {
+            throw StoreIOError.invalidInput(
+                what: "divergence candidates", why: "需要兩個以上的候選，得到 \(candidates.count) 個")
+        }
+        try assertDivergenceCandidateKeys(candidates.map(\.key))
+        if candidates.contains(where: { $0.shape == .divergence }) {
+            throw StoreIOError.invalidInput(
+                what: "divergence candidate",
+                why: "shape「\(EntityKind.divergence.rawValue)」不可作候選——歧異記錄沒有 key，不是可被指涉的對象")
+        }
+        // 「沒有依據的斷言不是判斷，沒有斷言的依據不知道在支持什麼」（#71 的不變式）。
+        // 編碼器也會擋，但那時的訊息在 YAML 層——這裡擋，訊息才貼近使用者的動作。
+        if (judgement != nil) != !restsOn.isEmpty {
+            throw StoreIOError.invalidInput(
+                what: "divergence judgement",
+                why: "判斷與依據必須成對：有 judgement 就要有 rests-on（依據），反之亦然")
+        }
+        try assertDivergenceRestsOn(restsOn)
+        if let p = prefers, !candidates.contains(where: { $0.key == p }) {
+            throw StoreIOError.invalidInput(
+                what: "divergence prefers",
+                why: "「\(displaySafeInvisible(p, max: 120))」不是本次的候選之一——判斷傾向的對象必須在候選清單內")
+        }
+        if prefers != nil && judgement == nil {
+            throw StoreIOError.invalidInput(
+                what: "divergence prefers",
+                why: "prefers 需與 judgement 成對——沒有判斷的傾向不知道依據什麼")
         }
     }
 
@@ -313,17 +362,8 @@ extension LibraryStore {
                                  judgement: String?,
                                  restsOn: [String],
                                  prefers: String? = nil) throws -> Divergence {
-        guard candidates.count >= 2 else {
-            throw StoreIOError.invalidInput(
-                what: "divergence candidates", why: "需要兩個以上的候選，得到 \(candidates.count) 個")
-        }
-        // 「沒有依據的斷言不是判斷，沒有斷言的依據不知道在支持什麼」（#71 的不變式）。
-        // 編碼器也會擋，但那時的訊息在 YAML 層——這裡擋，訊息才貼近使用者的動作。
-        if (judgement != nil) != !restsOn.isEmpty {
-            throw StoreIOError.invalidInput(
-                what: "divergence judgement",
-                why: "判斷與依據必須成對：有 judgement 就要有 rests-on（依據），反之亦然")
-        }
+        try Self.checkDivergenceArguments(candidates: candidates, judgement: judgement,
+                                          restsOn: restsOn, prefers: prefers)
         let load = try load()
         // **per-shape 存在檢查**（#133 verify F2）：曾用 people ∪ organizations 的
         // 合集只驗 key 不驗 shape——person 被記成 work 照樣寫入，validate 警告
@@ -346,11 +386,10 @@ extension LibraryStore {
                 // 那是拒絕 `.divergence` 的理由，而它對其餘被拒的形狀是**假的**
                 // （venue 有 key、是可被指涉的對象，當時拒絕它的真實理由是管線沒實作）。
                 // 一則說錯理由的訊息會讓讀者以為那是結構性限制。
+                // `.divergence` 那一則自 #654 起在 `checkDivergenceArguments`（只看參數）；走到這裡的是其餘沒有集合的形狀。
                 throw StoreIOError.invalidInput(
                     what: "divergence candidate",
-                    why: c.shape == .divergence
-                        ? "shape「\(c.shape.rawValue)」不可作候選——歧異記錄沒有 key，不是可被指涉的對象"
-                        : "shape「\(c.shape.rawValue)」的合併管線尚未實作——它有 key、可被指涉，只是 resolveDivergence 還接不住")
+                    why: "shape「\(c.shape.rawValue)」的合併管線尚未實作——它有 key、可被指涉，只是 resolveDivergence 還接不住")
             }
             guard pool.contains(c.key) else {
                 throw StoreIOError.invalidInput(
@@ -390,16 +429,6 @@ extension LibraryStore {
                 why: "這組候選已指定傾向「\(displaySafeInvisible(existingPrefers, max: 120))」——" +
                      "重錄時省略 prefers 不得靜默抹掉它。要沿用請再帶一次相同的 prefers；" +
                      "要改傾向請帶新的值；要撤銷請直接編輯該檔（entities/\(id.uuidString).yaml）")
-        }
-        if let p = prefers, !candidates.contains(where: { $0.key == p }) {
-            throw StoreIOError.invalidInput(
-                what: "divergence prefers",
-                why: "「\(displaySafeInvisible(p, max: 120))」不是本次的候選之一——判斷傾向的對象必須在候選清單內")
-        }
-        if prefers != nil && judgement == nil {
-            throw StoreIOError.invalidInput(
-                what: "divergence prefers",
-                why: "prefers 需與 judgement 成對——沒有判斷的傾向不知道依據什麼")
         }
         let d = Divergence(
             id: id,

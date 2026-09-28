@@ -26,16 +26,24 @@ import AkashicIndex
 /// 會從來源欄位重新推導出來——報告以 `emptied` 具名那些 work。
 extension AkashicService {
 
-    func dropVenueEdges(_ specs: [String]) throws -> String {
+    /// `--drop-venue`（drop_venue）的一筆（只看參數的解析結果，#654）。
+    struct DropVenueSpec {
+        let reason: String
+        let idx: Int
+        let citekey: String
+    }
+
+    /// CLI 的 `validate()` 用（#654）：`--drop-venue` 只看參數的全部檢查——與服務在讀 store 之前跑的是同一個函式。
+    public static func checkDropVenueArguments(_ specs: [String]) throws {
+        _ = try parseDropVenueSpecs(specs)
+    }
+
+    /// 一次的上限、`citekey:venueIndex=理由` 的形狀、理由的空白與長度、同一條邊兩次（#654 原樣搬出）。先前排在讀 store 之後。
+    static func parseDropVenueSpecs(_ specs: [String]) throws -> [DropVenueSpec] {
         guard specs.count <= Self.maxSpecsPerCall else {
             throw ServiceError.invalid("一次最多移除 \(Self.maxSpecsPerCall) 條邊（這次 \(specs.count) 條）——分次送")   // display-safe-exempt: Self.maxSpecsPerCall 與 specs.count 都是 Int
         }
-        let load = try store.load()
-        let unlocatable = load.entries.unlocatableCitekeys
-        let byCitekey = Dictionary(load.entries.map { ($0.citekey, $0) }, uniquingKeysWith: { a, _ in a })
-
-        struct Drop { let citekey: String; let index: Int; let reason: String }
-        var drops: [Drop] = []
+        var out: [DropVenueSpec] = []
         var seen = Set<String>()
         for raw in specs {
             guard let eq = raw.firstIndex(of: "=") else {
@@ -62,6 +70,21 @@ extension AkashicService {
                 throw ServiceError.invalid(
                     "同一條邊「\(displaySafeInvisible(head, max: 200))」在這次呼叫出現兩次——整批拒絕、零寫入")
             }
+            out.append(DropVenueSpec(reason: reason, idx: idx, citekey: citekey))
+        }
+        return out
+    }
+
+    func dropVenueEdges(_ specs: [String]) throws -> String {
+        let parsedSpecs = try Self.parseDropVenueSpecs(specs)   // 只看參數的檢查在讀 store 之前（#654）
+        let load = try store.load()
+        let unlocatable = load.entries.unlocatableCitekeys
+        let byCitekey = Dictionary(load.entries.map { ($0.citekey, $0) }, uniquingKeysWith: { a, _ in a })
+
+        struct Drop { let citekey: String; let index: Int; let reason: String }
+        var drops: [Drop] = []
+        for ps in parsedSpecs {   // 只看參數的檢查已在讀 store 之前做完（`parseDropVenueSpecs`，#654）
+            let (reason, idx, citekey) = (ps.reason, ps.idx, ps.citekey)
             if unlocatable.contains(citekey) {
                 throw ServiceError.invalid(
                     "work「\(displaySafeInvisible(citekey, max: 200))」無法唯一定位（\(UnlocatableReason.work)）——"

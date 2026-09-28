@@ -81,6 +81,22 @@ extension AkashicService {
         splitOrgUndecided(spec, knownRowIDs: Set(knownRowIDs.map { Array($0.utf8) }))
     }
 
+    /// 一筆 `<rowID>@<orgKey>=<尾段>` 裡連一個「`@` ＋ StoreKey 形 ＋ `=`」的位置都沒有——只看參數就判得出來的那一種壞形狀（#654）。
+    /// 切法要對得上這次列表的 id 才算數（要讀 store），但「根本沒有可切的位置」與列表無關：`tried` 只數位置、不看已知 rowID。
+    /// 服務在讀 store 之前對整批跑，`parseOrgIDSpecs` 逐筆也跑同一個函式；CLI 的 `validate()` 經兩條腿的整批檢查呼叫它。
+    static func checkOrgIDSpecShapes(_ specs: [String], noun: String, tail: String) throws {
+        for spec in specs where splitOrgUndecided(spec, knownRowIDs: Set<[UInt8]>()).tried == 0 {
+            throw ServiceError.invalid(
+                "\(noun)「\(displaySafeInvisible(spec, max: 200))」不是 <列表的 id>@<orgKey>=<\(tail)> 的格式（orgKey 是小寫英數與連字號）")   // display-safe-exempt: noun 與 tail 是呼叫端的字面常量
+        }
+    }
+
+    /// org 未決腿只看參數的整批檢查：上限、rests-on 的 digest、每筆的形狀（#654——CLI 的 `validate()` 呼叫同一個函式）。
+    public static func checkOrgUndecidedCallArguments(_ specs: [String], restsOn: [String]) throws {
+        try checkUndecidedCallArguments(specCount: specs.count, restsOn: restsOn)
+        try checkOrgIDSpecShapes(specs, noun: "未決", tail: "說明")
+    }
+
     /// 解析一批 org 未決。`rows` 是這次呼叫當下的列表：rowID（UTF-8 位元組）→ 那一列提名的 org（候選列一個、歧義條目 2+ 個）。
     /// 輸入錯一律 throw（整批拒絕、零寫入）。
     func parseOrgUndecidedSpecs(_ specs: [String], restsOn: [String],
@@ -99,6 +115,7 @@ extension AkashicService {
         var out: [OrgUndecidedSpec] = []
         var seen = Set<[UInt8]>()
         for spec in specs {
+            try Self.checkOrgIDSpecShapes([spec], noun: noun, tail: tail)
             guard spec.utf8.count <= maxSpecBytes else {
                 throw ServiceError.invalid(
                     "\(noun)「\(displaySafeInvisible(spec, max: 200))」長 \(spec.utf8.count) 位元組，超過任何合法 id 的上限 \(maxSpecBytes)"   // display-safe-exempt: noun 是呼叫端的字面常量；spec.utf8.count 與 maxSpecBytes 是 Int
@@ -110,9 +127,7 @@ extension AkashicService {
                 let why: String
                 if r.accepted.count > 1 {
                     why = "有 \(r.accepted.count) 個位置都切得成已知的 id——無法確定是哪一列，不猜"   // display-safe-exempt: count 是 Int
-                } else if r.tried == 0 {
-                    why = "不是 <列表的 id>@<orgKey>=<\(tail)> 的格式（orgKey 是小寫英數與連字號）"   // display-safe-exempt: tail 是呼叫端的字面常量
-                } else {
+                } else {   // 沒有可切的位置已由迴圈開頭的 checkOrgIDSpecShapes 擋下，這裡的位置都切不到已知的 id
                     why = "@ 之前的部分不是這次列表的 id——那一列可能已歸戶或否決而離開列表，或 id 沒有逐字取自不帶參數列出的候選／歧義條目"
                 }
                 throw ServiceError.invalid("\(noun)「\(displaySafeInvisible(spec, max: 200))」\(why)")   // display-safe-exempt: noun 是呼叫端的字面常量；why 是本函式的固定訊息
@@ -125,7 +140,7 @@ extension AkashicService {
                     "\(noun)「\(displaySafeInvisible(id, max: 200))」點名的 organization 不是這一列提名的——"   // display-safe-exempt: noun 是呼叫端的字面常量
                     + "這一列的候選是：\(nominated)")   // display-safe-exempt: nominated 已逐筆 displaySafeInvisible
             }
-            if noun == "未決" { try checkUndecidedStatement(id: id, statement: s.statement) }
+            if noun == "未決" { try Self.checkUndecidedStatement(id: id, statement: s.statement) }
             guard seen.insert(Array(id.utf8)).inserted else {
                 throw ServiceError.invalid("\(noun) id「\(displaySafeInvisible(id, max: 200))」在一次呼叫裡重複")   // display-safe-exempt: noun 是呼叫端的字面常量
             }
@@ -143,8 +158,10 @@ extension AkashicService {
 
     /// resolve-organizations 的未決腿（#643）。
     func recordUndecidedOrganizations(_ specs: [String], restsOn: [String]) throws -> String {
-        // 上限與 format 在 load 之前擋（#643 R1 verify：原本 201 個 id 也要先載入全庫、跑完提名才被拒）
-        try checkUndecidedCall(specCount: specs.count, restsOn: restsOn)
+        // 上限與 format 在 load 之前擋（#643 R1 verify：原本 201 個 id 也要先載入全庫、跑完提名才被拒）；
+        // 只看參數的（上限、digest、形狀）又在 format 之前（#654）
+        try Self.checkOrgUndecidedCallArguments(specs, restsOn: restsOn)
+        try checkUndecidedFormat()
         let load = try store.load()
         // 已知 rowID（#643 R1／R2 verify）：
         // - **列表那次**（帶否決過濾）＝呼叫端看得到的列，全部認得。parents 的循環守衛讀本輪已接受的邊，只取不帶否決的

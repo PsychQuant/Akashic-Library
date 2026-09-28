@@ -249,8 +249,8 @@ akashic:
 - 連結存**記錄側**、反向現算：內容先被取得、記錄後被建立，所以內容抵達當下沒有
   citekey 可填，而建立記錄時 digest 已存在——只有這一側能在對方尚未存在時誠實
   記下。不另存內容側的反向索引（兩份會分岔）。
-- digest 文法沿用 §3.5 的 reference digest（`sha256:` + 64 個小寫十六進位字元），
-  不合文法於載入即拒絕。
+- digest 文法沿用 §3.5 的 reference digest（`sha256:` + 64 個小寫十六進位字元，
+  且不得是空內容的 digest——#654），不合文法於載入即拒絕。
 - 空清單與缺席等價，encode 不 emit 空鍵。
 - digest 合法但本機無存檔＝**載入成功 + 可回報缺席**，與「記錄格式損毀」是兩種
   不同條件（同 §3.5 的既有契約）。
@@ -812,7 +812,14 @@ references:
    它依據的內容以 `rests-on` 指名。
 3. digest 形狀 **MUST** 是 `sha256:` + 64 個小寫 hex——算在**收到的原始位元組**上，
    不正規化、不轉碼（同一份實質內容可能因廣告/時間戳而有多個 digest——誠實接受的
-   代價；正規化是詮釋，另案）。
+   代價；正規化是詮釋，另案）。**空內容的 digest**（0 byte 的 SHA-256，
+   `sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`）形狀合法，
+   但 **MUST NOT** 被引用：它對所有空輸入都相同，不指認任何一份存檔（#546 在
+   `store-source` 擋下 0 byte 的內容；#654 把同一道下界放在引用端）。載入即拒——整檔
+   隔離；寫入面與載入共用一個謂詞（`ProvenanceReference.isValidDigest`），所以
+   `retrieval` 的 `content`、`rests-on`、`akashic.sources`（§2.4）、divergence 的依據
+   與 `enrich` 的 `sourceDigest` 同時涵蓋。位址層（`sources/` 的路徑與 `index.jsonl`
+   的文法）只看形狀，見下方「存檔佈局」。
 4. reference 清單內的鍵是 **strict**（未知鍵拒收）——未來加欄位是 **non-additive**
    （同時間軸段內鍵的教訓，#63/#74）。
 5. 既有 `TemporalValue.source`（時間段上的**裸 URL**）**不動**、不遷移、與 references
@@ -1092,6 +1099,14 @@ sources` … `# END`；idempotent——標記已在（含手工版本）就不�
 
 **digest 缺席是預期狀態，不是損毀**：存檔不進 remote，clone 後必然缺席。載入
 **MUST** 照常成功，缺席以與格式錯誤**不同的**條件回報（`missingSourceDigests`）。
+
+**位址層只看形狀**（#654）：`sources/` 的路徑解析與 `index.jsonl` 的文法問的是「這個
+字串能不能定位一個檔」，用 `ProvenanceReference.isWellFormedDigest`，不排除空內容的
+digest。引用端不收它（§3.5 規則 3），位址層收——#546 之前兩次失敗的抓取留下了一個
+空 blob 與指向它的 index 列（2026-09-28 實測 live store 仍在，沒有任何記錄引用它）。
+若 index 文法也排除它，那一列會被判成無法解析，而 index 有無法解析的行時 `store-source`
+對**所有**新內容拒寫。清掉那個 blob 需要一個「移除一筆存檔」的面，目前不存在（與
+#544 同族）；#546 起 `store-source` 拒收 0 byte，新的空 blob 不會再產生。
 
 **存一份 source 是一個動作**（#224）：blob 與它的 provenance 條目（`sources/
 index.jsonl`，欄位 `content`／`bytes`／`media-type`／`retrieved`／`origin`／

@@ -23,10 +23,13 @@ struct UpdatePersonCmd: ParsableCommand {
     var dryRun: Bool = false
 
     /// `--fields` 的值就是 argv——它不是 JSON object 是用法錯誤（64），在 `validate()` 擋、早於開 store（#549 R1）。
+    /// 欄位名與各欄位的形狀也只看它（#654）：與服務套在既有記錄上的是同一個函式。stdin 來的同一份 JSON 是 argv 以外，不在這裡。
     func validate() throws {
-        if let fields, Self.jsonObject(Data(fields.utf8)) == nil {
+        guard let fields else { return }
+        guard let dict = Self.jsonObject(Data(fields.utf8)) else {
             throw ValidationError("--fields 必須是 JSON object")
         }
+        try argvCheck { try AkashicService.checkUpdatePersonFields(dict) }
     }
 
     private static func jsonObject(_ raw: Data) -> [String: Any]? {

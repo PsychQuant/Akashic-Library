@@ -19,10 +19,17 @@ import AkashicIndex
 /// id 的解析與 #643 的未決腿共用（`parseOrgIDSpecs`）；歧義條目也收——歧義的意思是提名器分不出來，不是人分不出來。
 extension AkashicService {
 
-    func judgeOrganizations(_ specs: [String]) throws -> String {
+    /// org 判定腿只看參數的整批檢查：一次的上限、每筆的形狀（#654：CLI 的 `validate()` 呼叫同一個函式）。每一筆 id 要比對這次列表上的
+    /// id（`parseOrgIDSpecs`，要讀 store 跑提名），不在這裡——這裡只擋「連一個可切的位置都沒有」的那一種。
+    public static func checkOrgJudgeCallArguments(_ specs: [String]) throws {
         guard specs.count <= Self.maxSpecsPerCall else {
             throw ServiceError.invalid("一次最多判定 \(Self.maxSpecsPerCall) 筆（這次 \(specs.count) 筆）——分次送")   // display-safe-exempt: Self.maxSpecsPerCall 與 specs.count 都是 Int
         }
+        try checkOrgIDSpecShapes(specs, noun: "判定", tail: "理由")
+    }
+
+    func judgeOrganizations(_ specs: [String]) throws -> String {
+        try Self.checkOrgJudgeCallArguments(specs)
         let storeFormat = (try? StoreVersion.read(root: store.root)) ?? 1
         guard storeFormat >= 8 else {
             throw ServiceError.invalid(

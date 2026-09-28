@@ -712,7 +712,7 @@ public enum UnsafeToEmitScalar {
     /// 會原樣送進 LLM context；而名字輸入閘（`NameIdentity.wellFormednessIssue`）與 `escapingInvisibleScalars` 早已用性質，
     /// 同一個字元在同一次呼叫裡被兩份規格判成不同答案。現在三者是**同一份**：
     ///
-    /// `Default_Ignorable_Code_Point`、Cc／Cf／Zl／Zp、非 U+0020 的 Zs、私用區 Co、U+2800 BRAILLE PATTERN BLANK。
+    /// `Default_Ignorable_Code_Point`、Cc／Cf／Zl／Zp、非 U+0020 的 Zs、私用區 Co，以及 `rendersBlank` 那幾個碼位。
     ///
     /// 舊列舉的每個成員都落在這裡（C0／C1／DEL 是 Cc，LS／PS 是 Zl／Zp，方向字元與 BOM 是 Cf），
     /// `testPropertyIsASupersetOfTheFormerEnumeration` 逐一釘住。
@@ -720,7 +720,18 @@ public enum UnsafeToEmitScalar {
         let cat = u.properties.generalCategory
         return u.properties.isDefaultIgnorableCodePoint
             || cat == .control || cat == .format || cat == .lineSeparator || cat == .paragraphSeparator
-            || (cat == .spaceSeparator && u.value != 0x20) || cat == .privateUse || u.value == 0x2800
+            || (cat == .spaceSeparator && u.value != 0x20) || cat == .privateUse || rendersBlank(u.value)
+    }
+
+    /// **不在上面任何一類、卻渲染成空白或不顯示的碼位**——顯式列入，封閉列舉。
+    ///
+    /// 性質涵蓋不到它們：U+2800 BRAILLE PATTERN BLANK 與 U+1D159 MUSICAL SYMBOL NULL NOTEHEAD 是 So、U+13441／U+13442
+    /// EGYPTIAN HIEROGLYPH FULL／HALF BLANK 是 Lo（連「至少一個字母」都通過）、U+16FE4 KHITAN SMALL SCRIPT FILLER 是 Mn。
+    /// U+2800 是 #554 R6 verify 第 20 列加的；其餘四個是 #569 R1 verify DA 用名稱掃描找到的——走完 0…0x10FFFF，挑出名稱含
+    /// FILLER、BLANK、NULL、SPACE 而不在前面各類的碼位。**這份清單只保證那一次掃描的結果**：名稱不含這四個字、卻渲染成空白的
+    /// 碼位不在裡面，那是誠實邊界，不是遺漏。
+    public static func rendersBlank(_ v: UInt32) -> Bool {
+        v == 0x2800 || v == 0x13441 || v == 0x13442 || v == 0x16FE4 || v == 0x1D159
     }
 
     /// 以碼位查詢。surrogate 與超出 Unicode 的值不是 scalar，Swift 字串裡不會出現，回 false。
@@ -783,10 +794,9 @@ public enum UnsafeToEmitScalar {
         return String(out)
     }
 
-    /// 本集合目前全部落在 BMP，所以 `%04X` 恆為四位。**仍然處理 surrogate pair**——
-    /// 日後有人往集合裡加一個非 BMP 的 scalar 時，五位的 `\uXXXXX` 會產出不合法的
-    /// JSON 而**沒有任何跡象**（`zero-instance-guards` 第 1 列的形狀：不寫的話，
-    /// 那個形狀第一次出現時不會有跡象）。
+    /// 非 BMP 的 scalar 寫成 surrogate pair——`%04X` 對它們會印出五或六位，而 `\uXXXXX` 不是合法的 JSON。
+    /// #569 之前集合全在 BMP、這一支是防未來的守衛；#569 之後集合含 TAG 字元（U+E0000–E0FFF）與補充私用區，
+    /// 這一支是常走的路徑。
     private static func jsonEscape(_ v: UInt32) -> String {
         guard v > 0xFFFF else { return String(format: "\\u%04X", v) }
         let x = v - 0x10000

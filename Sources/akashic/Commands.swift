@@ -1002,6 +1002,7 @@ struct ResolveOrganizations: ParsableCommand {
         for r in rows {
             print("  \(r["id"] as? String ?? "?")  「\(r["literal"] as? String ?? "?")」 → \(r["orgKey"] as? String ?? "?")")   // display-safe-exempt: service 已消毒，displaySafe 不冪等
             print("      \(r["judgement"] as? String ?? "")")   // display-safe-exempt: 同上
+            if let why = r["verdictNotRecorded"] as? String { print("      ⚠ \(why)") }   // display-safe-exempt: service 的固定訊息
         }
         if !skipped.isEmpty {
             print("")
@@ -1625,7 +1626,7 @@ struct ExportBib: ParsableCommand {
             // 常態欄位，4000 上限會把它截成大括號不閉合的無效 .bib，且靜默。
             // 截斷一份文件永遠產生壞掉的文件；終端的量由 store 大小自然界定，
             // 而那是使用者自己要的。MCP 側因為下游是 LLM context，改為拒絕。
-            print(documentSafe(content), terminator: "")
+            print(cslJson ? documentSafeJSON(content) : documentSafe(content), terminator: "")
         }
     }
 }

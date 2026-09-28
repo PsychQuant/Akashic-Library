@@ -40,9 +40,9 @@ final class ISSNRemovalTests: XCTestCase {
         let out = json(try service.updateVenue(key: "jrss-b", addNames: nil, note: nil, type: nil,
                                                removeISSN: ["0035-9254=這是 Series C 的號，不是 B"]))
         XCTAssertEqual(try issns("jrss-b"), ["1369-7412", "1467-9868"])
-        let removed = try XCTUnwrap(out["issnRemoved"] as? [[String: String]])
-        XCTAssertEqual(removed.first?["issn"], "0035-9254")
-        XCTAssertTrue(removed.first?["reason"]?.contains("Series C") == true, "\(removed)")
+        let removed = try XCTUnwrap(out["issnRemoved"] as? [[String: Any]])
+        XCTAssertEqual(removed.first?["issn"] as? String, "0035-9254")
+        XCTAssertTrue((removed.first?["reason"] as? String)?.contains("Series C") == true, "\(removed)")
         let yaml = try String(contentsOf: try XCTUnwrap(
             FileManager.default.contentsOfDirectory(at: root.appendingPathComponent("entities"), includingPropertiesForKeys: nil).first))
         XCTAssertFalse(yaml.contains("Series C 的號"), "理由不寫進 store（使用者 2026-09-27 裁決）")
@@ -70,6 +70,37 @@ final class ISSNRemovalTests: XCTestCase {
                                                      addISSN: ["0035-9254"], removeISSN: ["0035-9254=x"]),
                              "同一個號同時加與移除是矛盾")
         XCTAssertEqual(try issns("jrss-b").count, 3)
+    }
+
+    /// R1 verify 兩席：帶 `field: issn` provenance 的號，移除後 reference 成了孤兒、寫入閘拒絕整個呼叫，而沒有任何面刪得掉
+    /// venue 的 reference——又回到手改 YAML。現在一併移除並逐號回報筆數；另一個號的 provenance 不動。
+    func testProvenanceOfTheRemovedISSNGoesWithIt() throws {
+        try seed()
+        var v = try XCTUnwrap(try store.load().venues.first { $0.key == "jrss-b" })
+        func retrieval(_ issn: String) -> ProvenanceReference {
+            ProvenanceReference(field: "issn", value: issn,
+                                kind: .retrieval(url: "https://portal.issn.org/", retrieved: "2026-09-27", status: 200,
+                                                 mediaType: "text/html", content: "sha256:" + String(repeating: "a", count: 64)))
+        }
+        v.references = [retrieval("0035-9254"), retrieval("1369-7412")]
+        try store.writeVenue(v)
+        GitFixture.commitAll(root)
+        let out = json(try service.updateVenue(key: "jrss-b", addNames: nil, note: nil, type: nil,
+                                               removeISSN: ["0035-9254=Series C 的號"]))
+        let after = try XCTUnwrap(try store.load().venues.first { $0.key == "jrss-b" })
+        XCTAssertEqual(after.references.compactMap(\.value), ["1369-7412"], "只移除指向被移除號的那一筆")
+        let removed = try XCTUnwrap(out["issnRemoved"] as? [[String: Any]])
+        XCTAssertEqual(removed.first?["referencesRemoved"] as? Int, 1, "\(removed)")
+    }
+
+    /// 理由不進 store，報告是唯一的一份：不得截在入口上限（4,096 位元組）之下（R1 verify：曾截 600）。
+    func testTheReasonIsReportedInFull() throws {
+        try seed()
+        let reason = String(repeating: "理", count: 1_000) + "尾段"
+        let out = json(try service.updateVenue(key: "jrss-b", addNames: nil, note: nil, type: nil,
+                                               removeISSN: ["0035-9254=" + reason]))
+        let removed = try XCTUnwrap(out["issnRemoved"] as? [[String: Any]])
+        XCTAssertEqual(removed.first?["reason"] as? String, reason)
     }
 
     /// 同一個 ISSN 掛在兩本刊上：warning，兩個 key 都點名。

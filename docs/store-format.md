@@ -1630,7 +1630,10 @@ organization 零 error——擴閘不拒絕任何既有記錄；閘在 `fieldsLo
    combining mark 留著）。
 2. **不含危險或不可見 scalar**：輸出閘 `UnsafeToEmitScalar` 的成員**扣掉私用區（Co）**——#569 起輸出閘本身就是性質：
    Cc／Cf／Zl／Zp、Unicode 的 `Default_Ignorable_Code_Point`（零寬、變體選擇子如 U+FE0F、CGJ U+034F、Hangul filler U+3164、
-   TAG 字元）、非 U+0020 的空白（canonical 形已先擋下）、私用區，以及 U+2800 BRAILLE PATTERN BLANK（渲染成一格空白）。
+   TAG 字元）、非 U+0020 的空白（canonical 形已先擋下）、私用區，以及渲染成空白、卻不在上述任何一類的五個碼位
+   （`UnsafeToEmitScalar.rendersBlank`：U+2800 BRAILLE PATTERN BLANK、U+13441／U+13442 EGYPTIAN HIEROGLYPH FULL／HALF BLANK、
+   U+16FE4 KHITAN SMALL SCRIPT FILLER、U+1D159 MUSICAL SYMBOL NULL NOTEHEAD——後四個是 #569 R1 verify 以名稱掃描找到的；
+   名稱不含 FILLER／BLANK／NULL／SPACE 而渲染成空白的碼位不在清單裡，那是誠實邊界）。
    私用區不擋：中文罕用字有時以私用區碼位表示，本條從未宣稱它。**例外只有
    ZWJ／ZWNJ**，且只在兩個脈絡：(a) 前一個 scalar 是 virama（ccc 9），從 virama 往前跳過標記找到的基底是
    **字母**（數字或標記當基底不算；含 legacy Malayalam chillu 的詞尾 ZWJ），**virama 與跳過的每個標記都是基底

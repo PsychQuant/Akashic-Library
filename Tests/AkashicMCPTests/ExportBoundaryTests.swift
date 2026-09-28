@@ -178,6 +178,30 @@ final class ExportBoundaryTests: XCTestCase {
         }
     }
 
+    /// **#569 R1 verify（三席同指）**：`documentSafe` 曾是手抄的舊列舉，TAG 字元、ZWSP、SHY 經 `akashic_export`／
+    /// `akashic_graph` 原樣進 LLM context。現在它用輸出閘的性質；ZWJ 在文件裡保留（人讀的文件），CSL-JSON 以 JSON 自己的
+    /// `\uXXXX` 逃脫、連 ZWJ 一起、無損。
+    func testDocumentExitsUseTheOutputGateProperty() throws {
+        // 比 scalar，不比 String：Swift 的 `contains` 以 grapheme 為單位，ZWJ 與 TAG 是 extender、併進前一個 cluster，
+        // 單獨找永遠找不到——「不含」的斷言會恆真（寫這支測試時實際踩到）
+        let tag = "\u{E0041}", zwsp = "\u{200B}", shy = "\u{00AD}", zwj = "\u{200D}"
+        func has(_ s: String, _ one: String) -> Bool { s.unicodeScalars.contains(one.unicodeScalars.first!) }
+        var e = Entry(id: UUID(), citekey: "tag2020", type: .periodicalArticle,
+                      title: "Tag\(tag)Name zw\(zwsp)sp so\(shy)ft ک\(zwj)ی")
+        e.date = "2020"
+        try LibraryStore(root: root).writeEntry(e)
+        let bib = try service.export(citekeys: ["tag2020"], format: "bib")
+        for s in [tag, zwsp, shy] { XCTAssertFalse(has(bib, s), "bib：raw \(s.unicodeScalars.first!.value)") }
+        XCTAssertTrue(bib.contains("U+E0041"), bib)
+        XCTAssertTrue(has(bib, zwj), "文件保留 ZWJ（人讀的文件，同人可讀輸出）")
+        let json = try service.export(citekeys: ["tag2020"], format: "csl-json")
+        for s in [tag, zwsp, shy, zwj] { XCTAssertFalse(has(json, s), "csl-json：raw \(s.unicodeScalars.first!.value)") }
+        let parsed = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [[String: Any]])
+        XCTAssertEqual(parsed.first?["title"] as? String, e.title, "CSL-JSON 的逃脫是 JSON 自己的語法，解回來逐字相同")
+        let graph = try service.graph(focus: "tag2020", depth: 1, format: "mermaid")
+        XCTAssertFalse(has(graph, tag), "graph：raw TAG")
+    }
+
     // MARK: - CLI：真 binary、真 stdout
 
     /// 拔掉 `Commands.swift` stdout 分支的消毒，這條就紅。

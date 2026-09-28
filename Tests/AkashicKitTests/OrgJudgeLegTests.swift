@@ -97,6 +97,44 @@ final class OrgJudgeLegTests: XCTestCase {
         XCTAssertEqual(try store.load().organizations.first { $0.key == "a" }?.parents.entries.first?.value, .key("c"))
     }
 
+    /// R1 verify Codex HIGH：預驗只涵蓋收到 verdict 的目標 org，holder org（上級機構被改寫的那一筆）違反寫入期不變式時，
+    /// person 已經落盤才被拒。現在整個寫入集合先驗，任一筆不過就零寫入。
+    func testInvalidHolderOrganizationRefusesTheWholeBatchBeforeAnyWrite() throws {
+        try org("b", "B Org")
+        var a = Organization(key: "a")
+        a.names = TimelineOf([TemporalValue(value: "A Org", range: DateRange())])
+        a.authorized = ["A Org"]
+        a.parents = TimelineOf([TemporalValue(value: OrgRef.literal("B Org"), range: DateRange())])
+        let url = try store.writeOrganization(a)
+        // 手改成違反不變式（authorized 不在 names 裡）——decode 不驗，載得進來，寫入閘會拒
+        let text = try String(contentsOf: url, encoding: .utf8)
+        let broken = text.replacingOccurrences(of: "authorized:\n- A Org", with: "authorized:\n- Not A Name")
+        XCTAssertNotEqual(text, broken, "fixture 沒改到：\(text)")
+        try broken.write(to: url, atomically: true, encoding: .utf8)
+        try person("p", affiliation: "B Org")
+        XCTAssertThrowsError(try service.resolveOrganizations(apply: nil, judge: ["p::B Org@b=x", "a::B Org@b=y"]))
+        XCTAssertEqual(try affiliation("p"), .literal("B Org"), "person 不得先落盤")
+        XCTAssertTrue(try judgedVerdicts("b").isEmpty, "目標 org 的 verdict 也不得落盤")
+    }
+
+    /// R1 verify logic：verdict 以 (holder, literal) 配對、不帶作者位索引。同一筆 work 兩個作者位是同一個 literal 時，
+    /// 兩個位置都歸戶，但第二句理由被去重吃掉——要說出來，不能列成已判定而不標。
+    func testSecondReasonForTheSamePairingIsReportedAsNotRecorded() throws {
+        try org("apa", "APA")
+        var e = Entry(id: UUID(), citekey: "ck2020", type: .periodicalArticle, title: "T",
+                      authors: [.literal("{APA}"), .literal("{APA}")], date: "2020")   // 團體作者要大括號標記（CorporateName.isMarked）
+        e.fields = [:]
+        try store.writeEntry(e)
+        let out = json(try service.resolveOrganizations(apply: nil, judge: ["ck2020[0]::APA@apa=reason ONE",
+                                                                              "ck2020[1]::APA@apa=reason TWO"]))
+        let rows = try XCTUnwrap(out["judged"] as? [[String: Any]])
+        XCTAssertEqual(rows.count, 2, "\(out)")
+        XCTAssertNil(rows[0]["verdictNotRecorded"])
+        XCTAssertNotNil(rows[1]["verdictNotRecorded"], "第二句理由沒寫進去，要標出來：\(rows)")
+        XCTAssertEqual(try judgedVerdicts("apa").count, 1)
+        XCTAssertEqual(try store.load().entries.first?.authors, [.organization("apa"), .organization("apa")])
+    }
+
     /// 輸入錯整批拒絕、零寫入：理由空白、同一列判兩次、與其他腿組合。
     func testInputErrorsRefuseTheWholeBatch() throws {
         try org("as", "Sinica")

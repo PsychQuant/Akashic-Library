@@ -139,7 +139,10 @@ extension AkashicService {
                 return e.authors[i] == .organization(orgKey)
             }
         }
-        var judged: [(id: String, literal: String, orgKey: String, statement: String)] = []
+        // 歸戶落地了而理由沒寫進去時要說出來（#647 R1 verify logic 第 8 列；resolve-people 的 `verdictNotRecorded` 同一個形）：
+        // verdict 以 (holder, literal) 配對、不帶作者位索引，同一筆 work 兩個作者位是同一個 literal 時，第二句理由會被去重吃掉；
+        // format < 19 時提名層的 confirmed 也會擋下逐篇判定。同一句理由不算沒寫——它已經在。
+        var judged: [(id: String, literal: String, orgKey: String, statement: String, notRecorded: String?)] = []
         var touchedOrgs = Set<String>()
         for (s, row) in accepted {
             guard landed(row, s.orgKey) else {
@@ -147,20 +150,33 @@ extension AkashicService {
                 continue
             }
             var org = orgs[s.orgKey]!
-            ResolutionLedger.appendIfAbsent(ResolutionLedger.record(
+            let ref = ResolutionLedger.record(
                 .confirmed, holderKind: row.holder.verdictHolderKind,
                 holder: row.holder.key, literal: row.literal,
                 rule: ProvenanceReference.RuleName.orgResolveJudged,
-                statement: s.statement), to: &org.references, allowCoexistence: storeFormat >= 19)
+                statement: s.statement)
+            var notRecorded: String?
+            if !ResolutionLedger.appendIfAbsent(ref, to: &org.references, allowCoexistence: storeFormat >= 19),
+               !org.references.contains(where: { $0.verdictRecordKey == ref.verdictRecordKey && $0.kindByteKey == ref.kindByteKey }) {
+                notRecorded = storeFormat >= 19
+                    ? "已歸戶；這個配對已有一筆理由不同的逐篇判定——判定以 (holder, literal) 配對去重，這次的理由沒有寫入"
+                    : "已歸戶；這個配對已有提名層的判定，逐篇判定與它並存需要 store format ≥ 19"
+                        + "（本 store 是 \(storeFormat)），這次的理由沒有寫入"   // display-safe-exempt: Int
+            }
             orgs[s.orgKey] = org
             touchedOrgs.insert(s.orgKey)
-            judged.append((s.id, row.literal, s.orgKey, s.statement))
+            judged.append((s.id, row.literal, s.orgKey, s.statement, notRecorded))
         }
-        // 寫入前先驗每一筆（同未決腿的 R1 修正），全部通過才寫
-        for key in touchedOrgs.sorted() { try LibraryStore.assertOrganizationWritable(orgs[key]!, format: { storeFormat }) }
         let changedPeople = applied.people.filter { after in peopleBefore[after.key].map { $0 != after } ?? false }
         let changedEntries = applied.entries.filter { e in !load.entries.contains(where: { $0 == e }) }
         let changedOrgKeys = Set(applied.organizations.filter { orgsBefore[$0.key] != $0 }.map(\.key)).union(touchedOrgs)
+        // 寫入前先驗**整個寫入集合**，全部通過才寫（#647 R1 verify Codex HIGH：先前只驗收到 verdict 的目標 org，
+        // person／entry／上級機構被改寫的 holder org 在寫入當下才被拒——前面的檔已經落盤）
+        if !judged.isEmpty {
+            for p in changedPeople { try LibraryStore.assertPersonWritable(p, format: { storeFormat }) }
+            for e in changedEntries { try LibraryStore.assertEntryWritable(e, format: { storeFormat }) }
+            for key in changedOrgKeys.sorted() { try LibraryStore.assertOrganizationWritable(orgs[key]!, format: { storeFormat }) }
+        }
         if !judged.isEmpty {
             for p in changedPeople { try store.writePerson(p) }
             for e in changedEntries { try store.writeEntry(e) }
@@ -169,10 +185,14 @@ extension AkashicService {
         }
         let idMax = max(200, parsed.map { $0.id.unicodeScalars.count }.max() ?? 0)
         return try jsonString([
-            "judged": judged.map { ["id": displaySafe($0.id, max: idMax),
-                                    "literal": displaySafe($0.literal, max: 200),
-                                    "orgKey": displaySafe($0.orgKey, max: 200),
-                                    "judgement": displaySafe($0.statement, max: 600)] },
+            "judged": judged.map { j -> [String: String] in
+                var row = ["id": displaySafe(j.id, max: idMax),
+                           "literal": displaySafe(j.literal, max: 200),
+                           "orgKey": displaySafe(j.orgKey, max: 200),
+                           "judgement": displaySafe(j.statement, max: Self.maxStatementBytes)]
+                if let why = j.notRecorded { row["verdictNotRecorded"] = why }   // display-safe-exempt: why 是本函式的固定訊息，只插 Int
+                return row
+            },
             "skipped": skipped.map { ["id": displaySafe($0.id, max: idMax), "why": $0.why] },   // display-safe-exempt: why 是本函式的訊息，其中的 store 字串已消毒
             "peopleRewritten": judged.isEmpty ? 0 : changedPeople.count,   // display-safe-exempt: Int
             "entriesRewritten": judged.isEmpty ? 0 : changedEntries.count,   // display-safe-exempt: Int

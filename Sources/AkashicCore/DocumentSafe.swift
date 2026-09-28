@@ -19,10 +19,15 @@ import Foundation
 ///
 /// ## 判準：只擋危險字元，不碰語法
 ///
-/// 跳脫的集合與 `displaySafe` **完全相同，只少了反斜線**：C0／C1／DEL、
-/// LS/PS、bidi override 與 isolate、方向標記、BOM。這些與各格式自己的
-/// metacharacter（`{}` `\` `%` `&`／`"` `\`／`<` `&`）是**兩組不相干的集合**，
+/// 跳脫的集合是 `UnsafeToEmitScalar.escapesInDisplay`——與 `displaySafe` 同一份性質（#569），
+/// 只少兩樣：反斜線（上面的理由），以及 TAB 與 LF（文件的結構）。先前這裡是一張手抄的列舉
+/// （C0／C1／DEL、LS/PS、bidi、方向標記、BOM），#569 把輸出閘改成性質之後它沒有跟著改，
+/// TAG 字元、ZWSP、SHY 經 `akashic_export`／`akashic_graph` 原樣進 LLM context（#569 R1 verify 三席同指）。
+/// 這些字元與各格式自己的 metacharacter（`{}` `\` `%` `&`／`"` `\`／`<` `&`）是**兩組不相干的集合**，
 /// 所以各 renderer 的 escape 不涵蓋它們，而本函式也不會踩到它們。
+///
+/// ZWJ／ZWNJ 保留：`.bib` 與圖是給人讀的文件，同人可讀輸出（使用者 2026-09-27 裁決）。CSL-JSON 是 JSON 出口，
+/// 走 `documentSafeJSON`——它以 JSON 自己的 `\uXXXX` 逃脫，連同 ZWJ／ZWNJ，而且無損。
 ///
 /// 標記寫成 `U+001B` 而非 `\u{001B}`：**不含反斜線、引號或角括號**，因此在
 /// `.bib` 的大括號內、JSON 字串內、XML 文字節點內都是無害的字面文字。
@@ -56,16 +61,8 @@ public func documentSafe(_ s: String) -> String {
     out.reserveCapacity(s.unicodeScalars.count + 16)
     for u in s.unicodeScalars {
         let v = u.value
-        let escape =
-            (v < 0x20 && v != 0x09 && v != 0x0A)     // C0，但留 TAB 與 LF（文件的結構）
-            || v == 0x0D                             // CR 仍跳脫——與 LF 並存會造成歧義
-            || v == 0x7F                             // DEL
-            || (0x80...0x9F).contains(v)             // C1
-            || v == 0x2028 || v == 0x2029            // LS / PS
-            || (0x202A...0x202E).contains(v)         // bidi override
-            || (0x2066...0x2069).contains(v)         // bidi isolate
-            || v == 0x200E || v == 0x200F || v == 0x061C  // 方向標記
-            || v == 0xFEFF                           // ZWNBSP / BOM
+        // 留 TAB 與 LF（文件的結構）；CR 仍跳脫——與 LF 並存會造成歧義
+        let escape = v != 0x09 && v != 0x0A && UnsafeToEmitScalar.escapesInDisplay(u)
         if escape {
             for c in String(format: "U+%04X", v).unicodeScalars { out.append(c) }
         } else {
@@ -73,4 +70,13 @@ public func documentSafe(_ s: String) -> String {
         }
     }
     return String(out)
+}
+
+/// **JSON 文件出口的消毒**（CSL-JSON，#569 R1 verify）：字串字面值內的危險 scalar 改寫成 JSON 自己的 `\uXXXX`
+/// （`UnsafeToEmitScalar.escapingUnsafeScalars(inSerializedJSON:)`）。與 `documentSafe` 的差別：
+/// - 無損——`\u202E` 解回來就是原字元，`U+202E` 標記解不回來；
+/// - 連 ZWJ／ZWNJ 一起逃（JSON 出口的裁決）；
+/// - 字串外的結構空白不動，所以輸出仍是合法 JSON。
+public func documentSafeJSON(_ json: String) -> String {
+    UnsafeToEmitScalar.escapingUnsafeScalars(inSerializedJSON: json)
 }

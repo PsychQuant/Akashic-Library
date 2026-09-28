@@ -275,11 +275,11 @@ public final class AkashicService {
         // 回傳直接進 LLM context——200 MB 會炸掉任何 context。行長限制同樣拿掉：
         // `BibWriter` 一個欄位一行，abstract 是常態欄位，4000 上限會把它截成
         // 大括號不閉合的無效 .bib，且靜默。
-        func safe(_ s: String) throws -> String {
+        func safe(_ s: String, json: Bool = false) throws -> String {
             // **量消毒之後的長度**（#171 複驗 b′）：`documentSafe` 是 6 倍膨脹器
             // （實測 1 MB 全 ESC → 6 MB），量 `s` 會讓最壞情況真正進 context 的是
             // 48 MB 而不是 8 MB——「小到不會毀掉 context」在對抗性內容下不成立。
-            let out = documentSafe(s)
+            let out = json ? documentSafeJSON(s) : documentSafe(s)
             guard out.utf8.count <= Self.maxExportBytes else {
                 // **指路只能指呼叫端真的有的旋鈕**（#171 複驗 b）：`akashic_export`
                 // 的 schema 只有 `citekeys` 與 `format`——原本寫的 `--library`／`--tag`
@@ -314,7 +314,7 @@ public final class AkashicService {
             return try safe(header + BibExport.bibFile(entries: entries, people: load.people,
                                                        venues: load.venues))
         case "csl-json":
-            return try safe(CSLExport.cslJSON(entries: entries, people: load.people, venues: load.venues))
+            return try safe(CSLExport.cslJSON(entries: entries, people: load.people, venues: load.venues), json: true)
         default: throw ServiceError.invalid("format 必須是 bib / csl-json")
         }
     }
@@ -3187,9 +3187,11 @@ public final class AkashicService {
             throw ServiceError.notFound("venue「\(displaySafeInvisible(key, max: 200))」")
         }
         // #588：ISSN 的移除面。形狀 `<issn>=理由`——移除是判定的逆轉（寫錯的號，常是姊妹刊的號），理由必填；
-        // 使用者 2026-09-27 裁決：理由只進報告與 git 歷史，不寫進 store，所以移除前那個檔要在 git 裡有副本。
+        // 使用者 2026-09-27 裁決：理由只進報告、不寫進 store；git 保存的是移除前的檔（號與它的 provenance），所以那個檔要已 commit。
+        // 理由本身要留在 git，得由操作者寫進後續的 commit message——工具不代寫（#588 R1 verify：先前的註解說「理由進 git 歷史」是過度宣稱）。
         // 輸入錯與「這本刊沒有這個號」都整批拒絕、零寫入——只有一筆記錄，沒有「其餘照寫」可言。
         var issnRemoved: [(issn: String, reason: String)] = []
+        var issnReferencesRemoved: [String: Int] = [:]
         if let specs = removeISSN, !specs.isEmpty {
             var seen = Set<String>()
             for spec in specs {
@@ -3222,6 +3224,14 @@ public final class AkashicService {
                                          issue: "#588")
             let gone = Set(issnRemoved.map(\.issn))
             venue.issn.removeAll { gone.contains($0.normalized) }
+            // 指向被移除號的 `field: issn` provenance 一併移除（#588 R1 verify 兩席）：留著它，寫入閘會以「值被改寫、provenance
+            // 成了孤兒」拒絕整個呼叫，而沒有任何面刪得掉 venue 的 reference（#587）——出路又回到手改 YAML。它們與被移除的號
+            // 同一個命運：號不屬於這本刊，「這個號從哪裡查到的」也就不再是這本刊的記錄。git 閘已確認移除前的檔有副本，報告逐號回報筆數。
+            venue.references.removeAll { r in
+                guard r.field == "issn", let v = r.value, let n = ISSN(v)?.normalized, gone.contains(n) else { return false }
+                issnReferencesRemoved[n, default: 0] += 1
+                return true
+            }
         }
         // ── 名字寫入的共用入口（#554 R4／R5，D6→D8）──
         //
@@ -3501,7 +3511,11 @@ public final class AkashicService {
                                       // display-safe-exempt: ISSN.normalized 由型別保證只含 [0-9X-]
                                       "issnAdded": issnAdded,
                                       // #588：理由只在這裡——store 不留，歷史在 git
-                                      "issnRemoved": issnRemoved.map { ["issn": $0.issn, "reason": displaySafe($0.reason, max: 600)] },   // display-safe-exempt: issn 只含 [0-9X-]；reason 未消毒（呼叫端送來的理由原文）
+                                      "issnRemoved": issnRemoved.map { r -> [String: Any] in
+                                          // 理由不進 store，報告是它唯一的一份——不截在入口上限之下（R1 verify：曾截 600、入口收 4,096 位元組）
+                                          ["issn": r.issn, "reason": displaySafe(r.reason, max: Self.maxStatementBytes),   // display-safe-exempt: issn 只含 [0-9X-]；reason 是呼叫端原文、在這裡消毒一次（未消毒的輸入）
+                                           "referencesRemoved": issnReferencesRemoved[r.issn] ?? 0]   // display-safe-exempt: Int
+                                      },
                                       "issnTotal": venue.issn.count,
                                       "variantAdded": variantAdded.map { displaySafeInvisible($0, max: 200) },
                                       "variantDropped": variantBlanks.map { displaySafeInvisible($0, max: 200) },

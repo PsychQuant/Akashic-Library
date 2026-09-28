@@ -184,6 +184,19 @@ final class VenueNameInvariantTests: XCTestCase {
         }
     }
 
+    /// **渲染成空白、卻不在任何一類的另外四個碼位**（#569 R1 verify DA，名稱掃描 FILLER／BLANK／NULL／SPACE）：
+    /// Egyptian full／half blank 是 Lo（連「至少一個字母」都通過）、Khitan filler 是 Mn、null notehead 是 So。
+    /// 名字閘與輸出閘同一份（`UnsafeToEmitScalar.rendersBlank`）。
+    func testOtherBlankRenderingCodePointsAreNotPartOfAName() {
+        for v: UInt32 in [0x13441, 0x13442, 0x16FE4, 0x1D159] {
+            let u = Unicode.Scalar(v)!
+            XCTAssertTrue(UnsafeToEmitScalar.contains(u), String(v, radix: 16))
+            XCTAssertTrue(displaySafe("A\(Character(u))B", max: 100).contains("\\u{\(String(format: "%04X", v))}"), String(v, radix: 16))
+            XCTAssertNotNil(NameIdentity.wellFormednessIssue("Psychometrika\(Character(u))"), String(v, radix: 16))
+        }
+        XCTAssertNotNil(NameIdentity.wellFormednessIssue("\u{13441}"), "唯一的名字是一個空白象形字：Lo 讓它通過了「至少一個字母」")
+    }
+
     /// 碼位補零到四位（R6 verify 第 32 列）：`U+034F` 不是 `U+34F`，搜 `U+001C` 才搜得到。
     func testCodePointsInMessagesArePaddedToFourHexDigits() {
         XCTAssertTrue(NameIdentity.wellFormednessIssue("A\u{034F}B")?.contains("U+034F") == true)

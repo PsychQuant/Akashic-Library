@@ -32,8 +32,10 @@ struct LibraryList: ParsableCommand {
             for key in Set(entry.akashic.libraries) { counts[key, default: 0] += 1 }
         }
         for library in load.libraries {
-            let desc = library.description.map { "　\($0)" } ?? ""
-            print("\(displaySafe(library.key, max: 200))\t\(displaySafe(library.name, max: 800))（\(counts[library.key] ?? 0) entries）\(displaySafe(desc, max: 800))")   // display-safe-exempt: dict 查找，值是 Int 計數；key 只是索引不進輸出
+            // 分隔的 U+3000 是程式自己放的、只消毒 store 字串——整串一起消毒會把分隔符印成 `\u{3000}`（#569 R1 verify：
+            // 非 U+0020 的 Zs 自 #569 起在人可讀輸出逃脫）
+            let desc = library.description.map { "　" + displaySafe($0, max: 800) } ?? ""
+            print("\(displaySafe(library.key, max: 200))\t\(displaySafe(library.name, max: 800))（\(counts[library.key] ?? 0) entries）\(desc)")   // display-safe-exempt: dict 查找，值是 Int 計數；key 只是索引不進輸出
         }
     }
 }

@@ -169,7 +169,7 @@ code:
 ---
 ### Requirement: Venue name well-formedness
 
-Every string in a venue's `names[].value`, `authorized`, and `variant` SHALL satisfy the following invariants at write time. A violation SHALL fail validation at error level, so every write surface refuses to write the record until it is fixed. Decoding SHALL NOT enforce them: a stored record that violates them still loads, and `validate` and `doctor` report it. The fix is a human edit of the YAML; no write surface SHALL silently rewrite a stored name.
+Every string in a venue's `names[].value`, `authorized`, and `variant` SHALL satisfy the following invariants at write time. A violation SHALL fail validation at error level, so every write surface refuses to write the record until it is fixed. Decoding SHALL NOT enforce them: a stored record that violates them still loads, and `validate`, the MCP `akashic_doctor` payload, and the App report it (the CLI `doctor` prints no per-record issues). The fix is a human edit of the YAML; no write surface SHALL silently rewrite a stored name.
 
 1. **Canonical form.** The string SHALL be NFC, with no leading or trailing whitespace, and every run of `White_Space` scalars inside it collapsed to a single U+0020. Canonicalization removes only whitespace; no other scalar is dropped.
 2. **No dangerous or invisible scalar.** The string SHALL contain no member of the output gate `UnsafeToEmitScalar`, except private-use (Co) scalars. ZWJ (U+200D) and ZWNJ (U+200C) are accepted only in the two joiner contexts defined in `docs/store-format.md` §5.7, and are rejected anywhere else.
@@ -178,7 +178,7 @@ Every string in a venue's `names[].value`, `authorized`, and `variant` SHALL sat
 5. **Per-group evaluation cap.** A group of canonically equal `names` segments SHALL be compared pairwise for at most 5,000 pairs. A group beyond that SHALL fail validation whether or not its pairs would qualify for the exception.
 6. **Per-record evaluation cap.** The pairwise comparisons across all groups of one venue SHALL total at most 100,000 pairs. Groups that do not fit in the remaining budget are not evaluated, and the record SHALL fail validation.
 
-The scalar classes behind invariant 2 (the output gate's property: Default_Ignorable_Code_Point, Cc, Cf, Zl, Zp, non-U+0020 Zs, Co, U+2800), the two joiner contexts, and the wording of each message are specified in `docs/store-format.md` §5.7. That section is the per-character reference for this requirement and SHALL be kept consistent with it.
+The scalar classes behind invariant 2 (the output gate's property: Default_Ignorable_Code_Point, Cc, Cf, Zl, Zp, non-U+0020 Zs, Co, and the five code points that render blank without belonging to those classes — U+2800, U+13441, U+13442, U+16FE4, U+1D159), the two joiner contexts, and the wording of each message are specified in `docs/store-format.md` §5.7. That section is the per-character reference for this requirement and SHALL be kept consistent with it.
 
 #### Scenario: A name with trailing whitespace fails validation
 
@@ -234,8 +234,9 @@ The scalar classes behind invariant 2 (the output gate's property: Default_Ignor
 source: venue-name-wellformedness-spec
 updated: 2026-09-27
 code:
-  - Sources/akashic/ReferenceListExtractor.swift
-  - Tests/AkashicCLITests/ReferencesExtractTests.swift
+  - Sources/AkashicCore/Venue.swift
+  - Sources/AkashicCore/NameIdentity.swift
+  - Sources/AkashicCore/Models.swift
+  - Tests/AkashicKitTests/VenueNameInvariantTests.swift
   - docs/store-format.md
-  - Tests/AkashicCLITests/ReferencesNominateTests.swift
 -->

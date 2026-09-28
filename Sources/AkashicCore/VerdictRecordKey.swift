@@ -18,7 +18,7 @@ extension ProvenanceReference {
 
     /// confirmed／rejected 的**判定層級**（封閉二值）。
     ///
-    /// 判準是**封閉列舉的 rule**，不是「看起來像人判的」這種性質：只有 `judgedRules` 裡的兩個 rule 是 `judged`，
+    /// 判準是**封閉列舉的 rule**，不是「看起來像人判的」這種性質：只有 `judgedRules` 裡列的 rule 是 `judged`（個數見該集合，這裡不寫死——#647 加第三個時這句曾停在「兩個」），
     /// 其餘全部——四個 tier 的 rule、`venue-name-exact`、`org-name-exact`、缺尾註的 legacy、無法辨識的 rule——是 `nominated`。
     /// 讓整個 rule 字串參與相等會讓同一配對經不同 tier 重複 apply 累積多筆 confirmed；二值只開放使用者裁決的那一格
     /// （apply 與逐篇判定並存，#636）。

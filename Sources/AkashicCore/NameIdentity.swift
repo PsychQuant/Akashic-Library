@@ -150,8 +150,8 @@ public enum NameIdentity {
                 || u.properties.isBidiControl || u.value == 0xFEFF {
                 return "含控制或方向控制字元 U+\(hex(u))——不是名字的一部分，請刪掉它"   // display-safe-exempt: 十六進位碼位（[0-9A-F]+），不是 store 字串
             }
-            // U+2800 BRAILLE PATTERN BLANK（So）渲染成空白，不是 DI——輸出閘把它顯式列入（R6 verify 第 20 列）。
-            if u.properties.isDefaultIgnorableCodePoint || u.value == 0x2800 {
+            // 渲染成空白而不是 DI 的碼位（U+2800 等，見 `UnsafeToEmitScalar.rendersBlank`）——輸出閘把它們顯式列入。
+            if u.properties.isDefaultIgnorableCodePoint || UnsafeToEmitScalar.rendersBlank(u.value) {
                 return "含不可見字元 U+\(hex(u))（零寬、變體選擇子、填充字元一類）——不是名字的一部分，請刪掉它"   // display-safe-exempt: 十六進位碼位（[0-9A-F]+），不是 store 字串
             }
             return "含格式或控制字元 U+\(hex(u))——不是名字的一部分，請刪掉它"   // display-safe-exempt: 十六進位碼位（[0-9A-F]+），不是 store 字串

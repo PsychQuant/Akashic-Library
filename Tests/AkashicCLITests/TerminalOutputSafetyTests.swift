@@ -109,6 +109,19 @@ final class TerminalOutputSafetyTests: XCTestCase {
         XCTAssertFalse(r.output.contains("\\u{"), "合法輸出不得出現跳脫殘渣")
     }
 
+    /// #569 R1 verify logic：`library list` 的 U+3000 分隔符是程式自己放的，整串一起消毒會把它印成 `\u{3000}`——
+    /// 非 U+0020 的 Zs 自 #569 起在人可讀輸出逃脫。只消毒 store 字串。
+    func testLibraryListKeepsItsOwnSeparator() throws {
+        let home = root.appendingPathComponent("home")
+        let env = ["AKASHIC_HOME": home.path]
+        _ = try CLITestHarness.run(["library", "create", "lab", "--library", root.path, "--name", "Lab",
+                                    "--description", "我的研究室"], env: env)
+        let r = try CLITestHarness.run(["library", "list", "--library", root.path], env: env)
+        XCTAssertEqual(r.status, 0, r.output)
+        XCTAssertTrue(r.output.contains("\u{3000}我的研究室"), r.output)
+        XCTAssertFalse(r.output.contains("\\u{3000}"), r.output)
+    }
+
     func testValidationErrorUsageStillMultiline() throws {
         // 缺必要參數的 validation error 帶 usage 段——同樣要保持多行完整
         let r = try CLITestHarness.run(["library", "create"], env: [:])

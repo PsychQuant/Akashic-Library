@@ -168,7 +168,13 @@ public enum StoreVersion {
     ///   寫不出來，既有記錄零 diff）。**為什麼不像 #517 的 `fields.<鍵>` 那樣不 bump**：那一格落地時沒有自己的
     ///   bump，是被同一天稍晚的 format 17 蓋住的（`b1027be0` 是 17 那次 bump 的祖先）——那是順序的巧合，不是契約
     ///   （而且只蓋住了讀取端：寫入閘到 #668 才補上）。
-    public static let supported = 20
+    /// - **21** ＝ library registry 的**成員性質**（頂層 `membership:`，`topic`／`rule`／`document`，#642）。依本檔頂部判準表
+    ///   是 additive——format-20 binary 走 tolerant-preserve **原樣保留而不解讀**。**仍 bump 的理由是語意、不是語法**
+    ///   （同 5、18 的「保留不等於遵守」）：舊 binary 的 `library add` 不查規則，對規則型與文件型 library 照樣寫進不符的
+    ///   成員，不會大聲失敗。write gate（`assertLibraryWritable`）對 format < 21 拒寫**規則型與文件型**；主題型不帶規則、
+    ///   舊 binary 的行為與新語意相同，不閘。**無資料遷移**（既有 registry 檔沒有這個鍵，零 diff）。
+    ///   實作 agent 原本記「不 bump」（頂層新鍵），整合時依這張表的 5／18 先例改判。
+    public static let supported = 21
 
     /// work 的 `date` 來源 reference（#655）需要的最低 store format。**寫入閘與 `enrich` 的事前判斷共用這一個數**
     /// ——兩邊各寫一個 20，會在下一次有人調整其中一邊時安靜地分岔（`enrich` 說「會寫」、寫入閘卻擋下）。
@@ -178,6 +184,9 @@ public enum StoreVersion {
     /// 寫入閘與 `enrich` 的事前判斷共用這一個數。是 17 不是 16：#517 與 format 17 同一天合進來、#517 在前，
     /// 所以支援 16 的 binary 有一部分早於 #517；17 的每一個 binary 都晚於它。
     public static let workFieldReferenceFormat = 17
+
+    /// library 的規則型／文件型成員性質（#642）需要的最低 store format。寫入閘與測試共用這一個數。
+    public static let libraryMembershipFormat = 21
 
     /// 遷移完成後的 format bump 提示——**只在真的要升的時候印**（#472）。
     ///

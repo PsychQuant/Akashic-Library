@@ -28,7 +28,7 @@
 > 那份文件明寫它是**思考輔助不是裁決程序**：它的輸出必須落回下表，不允許讀者拿它
 > 自行類推出沒寫下的邊。本規則只引用它、不複製（複製 = 兩份會分岔的規格）。
 
-以下 **16 條**是 store 裡**僅有的**關係邊。**封閉列舉，不得依性質相似類推下一條**：
+以下 **17 條**是 store 裡**僅有的**關係邊。**封閉列舉，不得依性質相似類推下一條**：
 
 | # | 存在哪 | 指向 | 邊界條件 |
 |---|---|---|---|
@@ -48,6 +48,7 @@
 | 14 | `Entry.venues` | venue | `.key` 已歸戶／`.literal` 未歸戶，兩者都合法（與第 1 條同二態形；#304。作品側正典的六理由同適用——刊名沿革中舊文章掛舊刊名即第 4 條可表達性的 venue 版；編年 list 由本邊反向現算，venue 記錄**不存**文章清單） |
 | 15 | `Entry.references` | `sources/` 的內容 | 同第 11 條的定址法（content-addressed `sha256:`），但住在 **work** 上——#394 §5 新增。**正典側是 work**：識別碼（`doi`／`pmid`／`isbn`）是那筆作品的屬性，來源說的是「這個號是從哪裡查到的」，那件事只跟該作品有關。值域：三個識別碼欄位 ＋ **`authors`** ＋ **`fields.<鍵名>`**（#517）＋ **`date`**（#655；兩者見表下方）（#450，2026-09-07：**拆分記錄**——value 是**已退役**的原 literal，與其他三格「值必須在場」的語意相反；一致性條件是 statement 各段至少一段仍是作者位，由 `StoreHealth` 報 warning（`staleSplitRecords`）而非 decode 拒收；statement 走 `SplitRecordValue` 單一解析器、空 rests-on 經 `firstOrderRulingFields` 放行、store format 16）。**#517 起多一格 `fields.<鍵名>`、#655 起多一格 `date`**（見表下方「第 15 條邊的三次擴充」）——`title` 仍不得類推（`validateReferenceAttachment` 的 `default` 照舊拒絕）。 **為什麼在此之前不存在**：`Entry` 原本沒有 `references`，而 provenance-reference spec 明寫「不能攜帶 reference 的識別碼不算記錄的一等公民」——照字面，work 的三個識別碼在補上它之前不算一等公民，而那正是 #394 的標題所主張的東西 |
 | 16 | `Library.membership` | venue／work | **#642 新增**（使用者 2026-09-28 照提案定案）：library 的成員性質與規則，住在 `libraries/<key>.yaml`。三種性質是封閉列舉（`topic`／`rule`／`document`），其中兩種帶邊：**規則型**的 `venue`（venue key——成員必須有一條指向它的 `.key` 邊）與 `excluded`（依裁決不收的 citekey），**文件型**的 document（一筆在庫文件的 citekey——成員是它的 `cites`）；主題型不帶邊。**正典側是 library**：規則是「這個 library 收什麼」的定義，屬於 library；venue 與文件不知道自己界定了哪個目錄，刪掉 library 規則就該一起消失（存在依賴），反過來刪掉 venue 或文件則規則懸空、由 `validate` 報 warning。外部來源 id（`source`，例如 OpenAlex source id）**不是邊**——它指向 store 之外，只記來歷、不作檢查依據（上方外部識別碼的判準）。**生命週期**：規則不隨改名與合併遷移，所以 `rename` 對被規則指涉的 citekey、work 合併對被指涉的被併者、venue 合併對被規則以 venue 界定的被併者**一律拒絕、零寫入**，訊息指路 `library set-kind`（`LibraryLoad.librariesNaming`，preview 與實跑共用）。成員清單本身仍**不存**在 library 上（第 5 條的反向，見下方不得儲存） |
+| 17 | `Entry.akashic.sources` | `sources/` 的內容 | 同第 11 條的定址法（content-addressed `sha256:`），住在 **work** 上：「這些位元組是本作品的副本」的 digest 清單（#223）；寫入面 `update-entry --add-source`／MCP `add_sources`（#614，只加不刪，要求 digest 已在本機 `sources/` 且 index 有取得記錄）。**與第 15 條不同條**：第 15 條是某個欄位值的出處（附在 `field` 上），這一條是整份作品的副本，不附在任何欄位上。**這條邊從 #223 就存在，本表漏列到 2026-09-29**——#614 整合時才發現（見下方失敗史的第四次） |
 
 
 #### 第 15 條邊的三次擴充（#450 的 `authors`、#517 的 `fields.<鍵名>`、#655 的 `date`）
@@ -159,6 +160,12 @@ grep -nE "public var" Sources/AkashicCore/{Models,Organization,Divergence,Tempor
 > 稽核程序第一次以「抓到真缺口」的方式證明了自己的價值；第 13 條隨修正補入，
 > 並附帶行為後果（rename 遷移）——漏列不只是文件不完整，是**沒有任何遷移路徑
 > 知道這條邊存在**的原因。
+>
+> **第四次**（#614，2026-09-29）：`Entry.akashic.sources`（#223 起就在 store 裡的 digest 清單）
+> 從來沒有進表。#614 替它補寫入面的 agent 回報時才被點出——它跑的是上面稽核程序的第 ③ 步，
+> 而那一步只在**有人碰到那個欄位**時才會被執行。前三次的教訓是「要有可執行的稽核程序」；
+> 這一次補一句：程序存在不等於有人跑。`akashic-guards` 的欄位棘輪（`BacklinkRatchetData`）早就把 `Models.sources` 列在「已裁決」裡——
+> 它確保每個欄位都被**看過**，不確保看的人答對；這一條當時被裁成「不是邊」而沒人回頭。補表的同時把它加進 `edgeTypes`。
 
 ### 不得儲存的（同一件事的另一面）
 

@@ -71,6 +71,8 @@ let edgeTypes: [String: String] = [
     "Models.excluded": "[String]",
     "Models.references": "[ProvenanceReference]",
     "Models.related": "[String]",
+    // #614 整合：`Entry.akashic.sources`（entity-backlink 第 17 條邊，#223 起就在 store 裡、2026-09-29 才進表）
+    "Models.sources": "[String]",
     "Models.tags": "[String]",
     "Models.venues": "[VenueRef]",
     "Organization.parents": "TimelineOf<OrgRef>",

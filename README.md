@@ -283,7 +283,7 @@ Registry（`config.yaml`）位置只有**一條**解析鏈：`--config` → `$AK
 
 - **Phase 1（完結）**：store 地基 — 格式規格、AkashicKit、Zotero 單向 pull、CLI。
   Spec：[docs/specs/2026-07-21-akashic-library-phase1-design.md](docs/specs/2026-07-21-akashic-library-phase1-design.md)
-- **Phase 2（本階段）**：MCP 整合 — schema hash 機制、`akashic-mcp`（31 tools）、發布統一。
+- **Phase 2（本階段）**：MCP 整合 — schema hash 機制、`akashic-mcp`（工具數見下方「工具面」一段）、發布統一。
   Spec：[docs/specs/2026-07-22-akashic-library-phase2-mcp-design.md](docs/specs/2026-07-22-akashic-library-phase2-mcp-design.md)
 - **Phase 3（本階段）**：原生 App — 管理工作台（人工裁決 GUI）+ Canvas 關係圖。
   Spec：[docs/specs/2026-07-22-akashic-library-phase3-app-design.md](docs/specs/2026-07-22-akashic-library-phase3-app-design.md)
@@ -391,6 +391,7 @@ store 是跨 binary（CLI / MCP / App）的契約。格式版本記載於
 | format 18 | **work 的附加 Zotero 來源**（`provenance_additional:`，#605）：同一作品在個人與群組 library 各有一份時，Akashic 過去以 `(library_id, zotero_key)` 為身分匯成兩筆、合併閘又把兩個 key 當「來源衝突」擋下——攣生結構上合併不了。附加來源讓 Zotero key 成為來源紀錄而非身分判準：再匯入命中任一來源都對回同一筆，只有主來源更新書目欄位。**頂層鍵本屬 additive，仍 bump**：format-17 binary 會保留但不比對附加來源，再匯入時安靜地重造攣生。**升級前置**：CLI/MCP/App 全升 v18 世代 → 手動 `format: 18` |
 | format 19 | **查過未決的記錄與判定並存**（change `resolution-verdict-states`）：`resolution-undecided` 記下「查過、判不出來」與查了什麼（#619），先 `--apply` 後 `--judge` 的兩筆判定並存不再被去重吃掉（#636）。舊 binary 讀到未決記錄會整檔 quarantine，合併時會把並存的兩筆收成一筆。**升級前置**：CLI/MCP/App 全升 v19 世代 → 手動 `format: 19` |
 | format 20 | **work 的日期可以攜帶來源**（#655）：`enrich` 從某份存檔補進 `date` 時，store 記得值卻不記得出處——#517 只替 `fields` 的鍵與識別碼寫 reference。第 15 條邊開新的一格 `date`（不借 `fields.date`，那是另一個格子），語意比照 `fields.<鍵>`：不收 value、`date` 缺席＋查找記錄＝這份來源沒給日期。`authors` 刻意不寫——`field: authors` 已是作者位記錄的格子，理由進報告的 `provenanceOmitted`。舊 binary 讀到 `field: date` 會整檔 quarantine；format < 20 的 store 上 `enrich` 值照補、reference 不寫並說明。**升級前置**：CLI/MCP/App 全升 v20 世代 → 手動 `format: 20` |
+| format 21 | **library 有機器可讀的成員性質**（#642）：registry 多一個 `membership:`（主題型／規則型／文件型），`library add` 對規則型與文件型逐筆比對、不符的不寫。**頂層鍵本屬 additive，仍 bump**：format-20 binary 會保留性質卻不查規則，照樣寫進不符的成員。寫入閘只擋規則型與文件型，主題型在 format 20 也寫得進。**升級前置**：CLI/MCP/App 全升 v21 世代 → 手動 `format: 21` |
 | — | **canonical serialization form**（#69）：記錄寫出的位元組形式由**單一權威**定義（三個 `encode` 函式），正規化即 `encode(decode(x))`——沒有第二份定義。時間軸的序列化順序改為「依 `range` 排序，`range` 相同時**保留寫入順序**」，與相等性用的全序**分離**（後者 `range` 相同時比 `value`，那是為了讓「同樣的段落、不同的儲存順序」判為相等）。動機：`Organization.names` 三筆全無 `range`，由值決勝會讓主名（中文正式名）被 ASCII 別名推到後面。`authors` / `attachments` 的順序**不參與排序**（位置即語意）。新增 `akashic fmt`（`--check` 只回報不寫檔）作為對齊入口；`validate` 不擋排版。**additive，不 bump format**；見 [store-format.md §3.4](docs/store-format.md) |
 | — | **`judgement.prefers`：消歧不對已寫下的判斷惰性**（#75 對一）。`divergence` 記錄本來就能寫 `judgement`（人的判斷），但 `resolve-divergence` **從來不看它**——人寫了「這兩筆是同一人、保留 A」，工具照樣讓你選 B 而不吭聲。新增選填的結構化欄位 `prefers: <key>`（與 `judgement` 成對、必須是候選之一），`prefers ≠ --survivor` 時**拒絕**，除非帶 `--override-reason`（空理由不接受）。有 `judgement` 但無 `prefers` 時無從機械核對 → **報 warning、不擋**。<br>**但不代選**：不照 `prefers` 自動執行——#133 起判斷可由 LLM 經 MCP 寫入，自動採信＝把「當場判斷」換成「延遲自動判斷」，繞過 #71 的人工確認底線。倖存者永遠是消歧當下的人工輸入，而這是**型別層強制**的（`survivor` 非 optional 且無 MCP resolve 工具）。<br>CLI：`record-divergence --prefers <key>`（先前只有 MCP 寫得了——LLM 有執法權而人沒有）。<br>**additive，不 bump format**：`judgement`／`prefers`／`rests-on` 是三個**平行的 record 頂層 key**，在 tolerant-preserve 涵蓋範圍內，跨版 round-trip 無損（實測）。代價是舊 binary 會靜默無視這道護欄——那是「選填護欄 + tolerant-preserve」的必然，見 [store-format.md §5.8](docs/store-format.md) |
 | — | **不可逆消歧拒絕在「讀不懂的記錄」上執行**（#75）。`resolve-divergence` 檢查本次會刪除或改寫的**每一筆** divergence 記錄（**封閉列舉三類**：目標／塌縮連帶刪除／候選遷移改寫），任一筆帶未知欄位即拒絕。<br>觸發它的實驗很直白：塞一個叫 `future-veto` 的未知欄位，`validate` **會印出**「未知欄位（已保留）」——binary 知道自己讀不懂——然後照樣把記錄連同那個欄位一起刪掉。與「quarantined 檔讀不到就改寫不到」是同一條理由的另一面：**讀不懂**與**讀不到**在不可逆操作前該同樣保守。<br>這取代了「每加一個安全欄位就 bump format」：版本無關、一次涵蓋所有未來欄位、代價侷限單筆記錄（bump 是整庫拒開）。誠實邊界：救不了已編譯出去的舊 binary |
@@ -503,8 +504,7 @@ store 永遠是全集——library 只是視角，成員關係存在 entry 的 `
 ⚠ 並發限制：對**同一 entry** 並發執行 membership 寫入（CLI 與 MCP 同時 `library add/remove`）
 不保證安全——read-modify-write 無跨程序鎖，後寫者可能靜默蓋掉先寫者（跨程序鎖為 #7
 store 硬化範疇）。`create` 為 exclusive-create（並發同 key 恰一方成功）。單一操作者依序使用不受影響。
-工具面：**31 tools**（實測 `grep -oE 'Tool\(name: "akashic_[a-z_]+"' Sources/akashic-mcp/Server.swift | sort -u | wc -l`；逐格裁決見 `.claude/rules/mcp-cli-parity.md` 的封閉列舉）——9 讀（search/get_entry/relations/graph/export/people/person/doctor/divergences 列歧異）+ akashic_files（list/use——多檔案切換）+ akashic_libraries（list/create/add/remove/set-kind/check）+
-8 寫（**只碰衍生層**：set_status/tag/link/resolve_people 逐候選/create_entry 庫外/add_person/import_zotero/record_divergence 記歧異**不**消歧——消歧屬人工）。
+工具面：**33 tools**（2026-09-29 實測 `grep -oE 'Tool\(name: "akashic_[a-z_]+"' Sources/akashic-mcp/Server.swift | sort -u | wc -l`；讀寫分類與逐格裁決見 `.claude/rules/mcp-cli-parity.md` 的封閉列舉——這裡不另列清單，列過的兩次都與 `Server.swift` 分岔）。
 biblatex 面向唯讀——過渡期歸 Zotero pull 管。並發（MCP 與 CLI 並用）：per-file atomic
 write、last-wins、index 冪等重建（單人場景設計）。
 

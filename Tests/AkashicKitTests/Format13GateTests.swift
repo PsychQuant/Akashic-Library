@@ -47,7 +47,7 @@ final class Format13GateTests: XCTestCase {
     /// 的 `n` 是相對於 supported 的。supported 變了而這裡沒變，那些測試會靜默地驗
     /// 一個不再相關的邊界。
     func testSupportedFormatIsTwenty() {
-        XCTAssertEqual(StoreVersion.supported, 20)
+        XCTAssertEqual(StoreVersion.supported, 21)
     }
 
     // MARK: - format 15：paginated 判定 reference（#406 R1 verify）

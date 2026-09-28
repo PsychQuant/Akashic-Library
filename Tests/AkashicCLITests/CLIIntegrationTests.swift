@@ -266,7 +266,18 @@ extension CLIIntegrationTests {
 
 /// #642：library 的成員性質在 CLI 面——create 要求 --kind、add 不符規則的不寫並說原因、check／set-kind／list 看得見依據。
 /// fixture 是 legacy 佈局（format 1，寫不進 venue），所以用文件型：`cheng2025identifiability` 的 cites 只有 `olsson1979maximum`。
+/// 文件型與規則型需要 store format ≥ 21（整合時加的寫入閘，StoreVersion 21），所以寫它們的測試先把 fixture 遷到當前 format。
 extension CLIIntegrationTests {
+    /// legacy format 1 → 當前 format（`akashic migrate`：entities 佈局＋形狀標籤、marker 寫成 supported）。
+    private func migrateFixtureToCurrentFormat() throws {
+        let r = try runCLI(["migrate"] + lib)
+        XCTAssertEqual(r.status, 0, "fixture 遷移失敗：\(r.stderr)")
+    }
+    /// 遷移後 `cheng2025identifiability` 的檔（`entities/<uuid>.yaml`）。
+    private var chengEntityFile: URL {
+        libraryRoot.appendingPathComponent("entities/7C1F6C2E-0000-0000-0000-000000000001.yaml")
+    }
+
     func testLibraryCreateRequiresAKindAndItsReferents() throws {
         var r = try runCLI(["library", "create", "paper", "--name", "P"] + lib)
         XCTAssertEqual(r.status, 64, "缺 --kind 是用法錯誤：\(r.stderr)")
@@ -279,6 +290,7 @@ extension CLIIntegrationTests {
     }
 
     func testDocumentLibraryAddWritesOnlyTheCitedAndNamesTheRest() throws {
+        try migrateFixtureToCurrentFormat()
         var r = try runCLI(["library", "create", "paper", "--name", "P", "--kind", "document",
                             "--document", "cheng2025identifiability"] + lib)
         XCTAssertEqual(r.status, 0, r.stderr)
@@ -287,7 +299,7 @@ extension CLIIntegrationTests {
         XCTAssertTrue(r.stdout.contains("added: olsson1979maximum"), r.stdout)
         XCTAssertTrue(r.stdout.contains("✕") && r.stdout.contains("沒有引用它"), r.stdout)
         XCTAssertTrue(r.stdout.contains("依據：文件型"), r.stdout)
-        let cheng = try String(contentsOf: libraryRoot.appendingPathComponent("entries/cheng2025identifiability.yaml"), encoding: .utf8)
+        let cheng = try String(contentsOf: chengEntityFile, encoding: .utf8)
         XCTAssertFalse(cheng.contains("- paper"), "不符規則的不寫")
         r = try runCLI(["library", "add", "paper", "cheng2025identifiability"] + lib)
         XCTAssertEqual(r.status, 1, "全部不符＝零寫入，非零結束：\(r.stdout)\(r.stderr)")
@@ -317,6 +329,7 @@ extension CLIIntegrationTests {
     }
 
     func testSetKindListsCurrentViolationsWithoutRemovingThem() throws {
+        try migrateFixtureToCurrentFormat()
         _ = try runCLI(["library", "create", "paper", "--name", "P", "--kind", "topic"] + lib)
         _ = try runCLI(["library", "add", "paper", "cheng2025identifiability", "olsson1979maximum"] + lib)
         var r = try runCLI(["library", "set-kind", "paper", "--kind", "document", "--document", "cheng2025identifiability"] + lib)
@@ -326,7 +339,7 @@ extension CLIIntegrationTests {
         XCTAssertTrue(r.stdout.contains("1 筆不符"), r.stdout)
         r = try runCLI(["validate"] + lib)
         XCTAssertTrue(r.stdout.contains("1 筆成員不符規則"), r.stdout)
-        let cheng = try String(contentsOf: libraryRoot.appendingPathComponent("entries/cheng2025identifiability.yaml"), encoding: .utf8)
+        let cheng = try String(contentsOf: chengEntityFile, encoding: .utf8)
         XCTAssertTrue(cheng.contains("- paper"), "set-kind 不自動移除")
     }
 }

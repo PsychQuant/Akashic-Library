@@ -8,7 +8,7 @@
 
 **資料**：`Library.membership`（`LibraryMembership`：`topic`／`rule(LibraryRule)`／`document(citekey:)`，sum type）。registry 檔多一個 `membership:` 區塊，closed shape：每種性質只收自己的鍵、kind 與 entry type 驗值域、key 文法驗、重複的 `types`／`excluded` 拒讀。缺席＝未標性質。
 
-**不 bump format**：`membership` 是 registry 頂層的新鍵，舊 binary 走 tolerant-preserve 原樣保留。舊 binary 的 `library add` 不查規則，那一格由新 binary 的 `validate` 報。這一點與 format 14 的先例（「保留而不解讀」對分割標記也 bump）不同，見下方「待使用者確認」。
+**store format 升到 21**（整合時改判）：實作時記的是「不 bump」——`membership` 是 registry 頂層的新鍵，舊 binary 走 tolerant-preserve 原樣保留。但保留不等於遵守：舊 binary 的 `library add` 不查規則，對規則型與文件型 library 照樣寫進不符的成員，而且不會出聲。`StoreVersion` 的判準表對這個形狀已經有兩個先例（format 5 的 `authorized`、format 18 的附加 Zotero 來源，都是頂層新鍵、都 bump），所以整合時照先例升到 21，這是 Claude 代裁，使用者可以翻：在 live store 的 marker 升上去之前，把 `supported` 改回 20、拿掉寫入閘即可。寫入閘（`LibraryStore.assertLibraryWritable`，門檻 `StoreVersion.libraryMembershipFormat`）只擋規則型與文件型；主題型不帶規則，舊 binary 的行為與新語意相同，不閘。
 
 **判定只有一份**：`LibraryMembershipCheck`（AkashicCore）。規則型要一條指向規則 venue 的 `.key` 邊（只有未歸戶 literal 的，判「查不出」、指路 `resolve-venues`）、type 在集合內、不在排除清單；文件型要被文件的 `cites` 列到，文件不在庫或 citekey 重複就一律不符。CLI、MCP、App 三個寫入面與 `validate`、`library check`、`library list` 都問它。
 
@@ -37,7 +37,7 @@
 
 ## 誠實邊界
 
-- **部署之後，live store 的 4 個 library 全部是未標性質**（2026-09-29 讀取量測），`library add` 對它們一律拒絕，直到有人 `set-kind`。Psychological Methods 目錄可以直接標成規則型（`--venue psychological-methods --type periodical-article`，1,344 筆成員全部符合）。另外三個依描述是文件型，但它們的文件不在庫，標不上文件型；要先建那筆文件，或由使用者決定性質。
+- **部署之後，live store 的 4 個 library 全部是未標性質**（2026-09-29 讀取量測），`library add` 對它們一律拒絕，直到有人 `set-kind`。標成規則型或文件型要先把 marker 升到 21（CLI、akashic-mcp、App 全部升級之後）；主題型不需要。Psychological Methods 目錄可以直接標成規則型（`--venue psychological-methods --type periodical-article`，1,344 筆成員全部符合）。另外三個依描述是文件型，但它們的文件不在庫，標不上文件型；要先建那筆文件，或由使用者決定性質。
 - 工具只比對，不判定：venue 沒歸戶的作品判「查不出」而不寫；文件自己沒登記 `cites` 的，判不是成員。
 - 目錄完整性（符合規則卻不是成員的作品）不在本次的檢查裡。live store 有 8 筆 Psychological Methods 的 periodical-article 不在目錄裡。
 - `excluded` 只做排除，不做「額外收錄」。提案寫的是「逐筆明列的例外」，這裡依描述「附錄等依裁決排除」讀成排除方向，並把欄位命名成 `excluded` 讓方向寫在資料裡。

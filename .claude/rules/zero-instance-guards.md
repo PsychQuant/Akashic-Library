@@ -60,7 +60,7 @@
 會在邊界上自己長出沒人同意的答案，而那句話與下表**是兩份不會一起改的規格**。要判斷新情形，
 讀下表的理由欄，然後**加一列**。
 
-## 裁決史（封閉列舉——現有 42 列，一列不多一列不少）
+## 裁決史（封閉列舉——現有 47 列，一列不多一列不少）
 
 | # | 情形 | 裁決 | 理由 |
 |---|---|---|---|
@@ -106,6 +106,11 @@
 | 40 | **零實例，而拒絕一直都在——只是問在錯的時間點**（#641：legacy 殘留（`entries/<citekey>.yaml`／`people/<key>.yaml`）加上三者之一——未受 git 追蹤或有未 commit 的修改、目的檔 `entities/<id>.yaml` 被隔離或是另一種記錄、同一個 id 兩份並存——的 work／person，寫入當下一定被 #631 的前置拒絕；那個拒絕發生在多檔寫入者的中途時，前面幾筆已經落盤。#631 R2 verify 以真 binary 重現 judge、refute、org apply、repoint／demote、migrate-identifiers 的撕裂，最後一處讓 ISSN 從 work 移除卻沒寫進 venue、重跑也救不回。2026-09-28 實測 live store：legacy 殘留 `entries/` **0** 個檔、`people/` **0** 個檔——load 不判斷任何記錄。重跑腳本見表下方） | ✅ **寫（load 時以同一組前置判斷標註，併進 `unlocatableCitekeys` 與新增的 `unlocatablePersonKeys`；validate 報 warning）** | 第 21 列的理由是「既有守衛的謂詞對那一類成員結構上不可能為真」；這一列的謂詞沒有問題——#631 的前置判斷對這些記錄答得完全正確，錯在**問的時間**：寫入當下才問，「拒絕」到達時同一個操作的前幾筆已經落盤。所以修法不是換謂詞，是**把同一組判斷（`assertEntitiesDestination`、`legacyMoveCandidate`、`filesNotSafelyRecoverable`）搬到 load 再問一次**，不另寫一份（`no-compat-fallback` §同一件事只能有一份描述）；答案記在記錄旁（`FileSituation`：不參與相等、不序列化），併進「無法唯一定位」的定義，#627／#628 已接好的各面閘因此在第一次寫入之前就拒絕或具名略過——那些面一行不改就拿到第 3 類；person 側的寫入者（judge／refute／apply／reject／undecided、org 以 person 為 holder 的各腿、App 的 accept、authorize-names）另接新的 `unlocatablePersonKeys`。寫入當下的檢查留著當最後一道防線：load 到寫入之間檔案處境可以變（有人在中間 commit 或刪檔），那一段的撕裂本列擋不住。**person 側只收兩類**（key 重複、檔案處境）：作品側的「共用 id」不收——people 表以 key 為主鍵，entities 佈局下共用 id 必然有一筆是 legacy（它已經落在檔案處境那一類），收進來只會多擋住住在 `entities/` 那一筆寫得進去的記錄（`unlocatablePersonKeys` 的 doc 逐條寫著）。**兩筆都還是 legacy、共用同一個 id 時**（C2b verify，Codex HIGH）：目的檔此刻不存在，逐筆的 #631 檢查各自通過，第一筆搬進 `entities/<id>.yaml` 之後第二筆才撞上——load 另外跨記錄比 legacy 那一段的 id，把兩筆都標出來（仍是第 2 類「檔案處境」，不新增類別；作品側本來就有「共用 id」那一類）。**severity 是 warning**：記錄讀得到、內容完好，擋的是寫入；升 error 會讓 `assertNoCrossRecordErrors` 擋下不相干的改名與合併。**成本**：只有 `entries/` 或 `people/` 裡真的有 YAML 時才判斷，git 對整批搬移候選只跑一次——live store 零成本。**誠實邊界**（沒接的寫入者，逐一點名）：`import-zotero` 與 `migrate-provenance` 是逐筆收容（每筆一個檔、寫入當下的拒絕逐筆回報，不撕裂），沒有接；`fmt`／`migrate-person-identity` 直接寫檔、不經 #631；`decodeCaptured` 的唯讀快照不標註（它的契約是不重讀磁碟，也沒有寫入者）。**觸發條件可檢查**（腳本見表下方）：legacy 殘留數應恆為 0；非零時 `akashic validate` 逐筆說哪一筆寫入時會被拒、為什麼，處置是人的——把 legacy 檔 commit（之後寫入會搬移它）、刪掉兩份裡的一份、或修好被隔離的目的檔 |
 | 41 | **零實例，而同一個值在兩層有相反的身分——作為位址合法、作為引用不合法**（#654：空內容的 digest，即 0 byte 的 SHA-256 `sha256:e3b0c442…`。#546 在 `store-source` 擋下了 0 byte 的內容，但引用端照收這個 digest——`enrich` 的 `sourceDigest`、`update-person` 的 references、`update-venue --paginated` 與各 undecided 腿的 rests-on、`record-divergence` 的依據、`akashic.sources`——所以一筆指向「空存檔」的 reference 仍寫得進去，只是 blob 不再會被存下來。2026-09-28 實測 live store：記錄 7,637 筆、`sha256:` 值 95 個、指向空內容 digest 的 **0** 個；另有 `sources/index.jsonl` 1 列指向空 blob、那個 blob 在場（#546 之前兩次失敗抓取留下的，沒有記錄引用它）。重跑腳本見表下方） | ✅ **寫（error 級、在 `ProvenanceReference.isValidDigest`；位址層另用只看形狀的 `isWellFormedDigest`）** | 第 32 列的理由是「前件寫寬的方向是放行」；這一列同形而放行的不是假號，是一個真的、形狀完全合法的值——它的錯不在形狀，在於它是常數、對所有空輸入都相同，不指認任何一份存檔，所以只看形狀的檢查全部報綠。**閘放在謂詞本身而不是 `enrich` 入口**（使用者 2026-09-28 裁決）：引用端的寫入面不只一個、再加上載入，逐面補會重演第 25 列「入口有五個」的形；修在共用謂詞一處全部關掉，同第 32 列。**裁決的第二半是把謂詞拆成兩個**：`sources/` 的路徑解析與 `index.jsonl` 的文法、以及 `AuthorListFingerprint` 的持久形只看形狀。live store 的 index 有一列指向空 blob，若 index 文法也排除它，那一列會被判成無法解析，而 index 有無法解析的行時 `store-source` 對**所有**新內容拒寫——一次為了守零實例而加的收緊會把一個能用的 store 關掉（負控實測：index 文法改回 `isValidDigest`，`store-source` 拒寫）。fingerprint 是作者清單的 domain-separated 雜湊、不是內容位址，空內容的 digest 不可能是它的值，那件事由比對時的「不符」說出來。**已入庫的處置是隔離**：digest 在 decode 時本來就驗、不合法整檔隔離，收緊謂詞之後空內容 digest 自然落進同一條路（同第 32 列），零實例所以不需要遷移（`no-compat-fallback`）；訊息說「0 byte」而不是「形狀必須是 …」——對一個形狀合法的值說形狀錯是假話。**誠實邊界**：那個空 blob 與它的 index 列仍在，清掉它需要一個移除存檔的面（#544 同族）；timeline 的舊 `source:` 若裝著它，`migrate-provenance` 略過並說 0 byte、原資料不動。**觸發條件可檢查**（腳本見表下方）：指向空內容 digest 的值應恆為 0；非零時那筆在新 binary 下會被隔離，修法是重新取得內容、`store-source` 存檔後改引用新的 digest |
 | 42 | **零實例，而重複 key 在兩個形狀有檢查、在另兩個形狀沒有——沒有檢查的那兩個，讀取時不是少報，是崩潰**（#669：兩筆 venue 或兩筆 organization 持同一個 key。`crossRecordIssues` 只查 citekey 與 person key；以 `Dictionary(uniqueKeysWithValues:)` 建 store key 查找表的地方遇到重複直接 trap——`export-bib`、`apa7Report`、CSL、Projection、attribute-org 的 org 表、migrate-identifiers 的 venue 表，連重複的 person key 在匯出端也一樣；其餘以 `uniquingKeysWith` 建表的地方安靜地留第一筆。同一輪查到同形的第二個來源：MCP／CLI 的 payload 以**消毒後**的字串為鍵，截斷不是單射——`enrich` 的 `provenanceOmitted`（#668 起收 `fields.<鍵>`）遇到兩個共用 80 字元前綴的欄位名，真 binary `Fatal error: Duplicate values for key`、rc=133。2026-09-28 實測 live store：venue 485、organization 13，同 kind 重複 key 0 組。重跑見表下方） | ✅ **寫（error 級、在 `crossRecordIssues`；讀取端不 trap；以 key 定位寫入的兩個面拒絕；源碼掃描守衛）** | 第 33 列的理由是「同一個檢查只寫了三分之一」；這一列同形而後果更重：沒有檢查的那一格讓讀取端**崩潰**——`uniqueKeysWithValues` 對重複鍵是 precondition failure，不是可捕捉的錯誤，一筆手改的 YAML 就讓 `export-bib` 與 MCP server 整個停掉。**severity 是 error**，與 citekey、person key 同級：key 是 `.key(…)` 參照、verdict holder 與每一個寫入面的定位依據，重複時改名與合併（`assertNoCrossRecordErrors`）要先停；第 38 列的定址拒絕原本是這兩個 kind 的重複**唯一**出聲的地方，它的訊息自本列起指路 validate。**讀取端留第一筆**：選哪一筆是列舉順序、不是判定，validate 的 error 說明了它（同 `fields` 的既有處置：消毒後的鍵先依原始鍵排序再留第一個）。**寫入面拒絕**：attribute-org（把 verdict 寫進那個 organization）與 migrate-identifiers（把 ISSN 搬進那個 venue）在重複時整批拒絕、零寫入——同 #627 對 citekey。**其餘寫入面由 #670 補上**：resolve-venues／resolve-organizations 的 verdict 寫入與 update-venue 原本不看跨記錄 error、安靜地留第一筆；現在比照 #627／#641 的無法唯一定位——顯式點名的腿整批拒絕，逐筆略過的腿（apply 的 D33、judge、undecided）具名略過，列表以 `unlocatableVenueKey`／`unlocatableOrganizationKey` 旗標標出（`unlocatableVenueKeys`／`unlocatableOrganizationKeys`）。index 重建對重複的 venue／person key 留第一筆（在此之前 PRIMARY KEY 擲錯，寫入面在檔案落地後才重建，一次不相干的合法寫入會回報失敗）。守衛是 `DuplicateVenueOrgKeyTests.testNoStoreKeyLookupTableTrapsOnDuplicates`：掃 `Sources/`，`uniqueKeysWithValues` 的來源以 `$0.key`／`$0.citekey`／`displaySafe…` 為鍵即紅（由生成器發的 ref 不在前件裡）。**觸發條件可檢查**：重複 key 應恆為 0；非零時先在 YAML 改掉其中一筆的 key——這個 error 在時改名與合併都先停，所以合併不是第一步；若兩筆其實是同一本刊，改完之後再走 record-divergence／resolve-divergence（#669 R1 verify：訊息原本把合併列成並列的出路，而合併正被同一個 error 擋住） |
+| 43 | **零實例，而它守的是合併把沿革安靜地拿掉**（#565：venue 合併時，被併者的名字段與倖存者（或先併入的被併者）同名，時間、source、note 不完全相同，又不能並存。先前 `mergedVenueKeeper` 以 `TemporalValue(value:)` 重建被併者的名字，時間、source、note 一律丟掉，同名段被 canonical 濾除而不出聲。2026-09-29 唯讀量測 live store：venue 485、名字段 537，帶時間 0、帶 source 0、帶 note 0；含 venue 候選的 divergence 0。重跑腳本見表下方） | ✅ **寫（不能並存的同名段具名拒絕、零寫入；其餘名字整段搬）** | 第 22 列替沿革在 spec 裡留了位置；這一列守那個位置的**另一端**：合併正是把落進位置的沿革拿掉的那一步，而結果是一筆看起來健康的 venue（第 4 列的偽裝性）。哪一段的時間才對是判斷，合併不猜，所以不能並存的同名段具名拒絕；能並存的整段搬（時間、source、note 都保留），被併者原本在 variant 的才標 variant，其餘併入後未標（#554 D1 的論證用在合併端）。「能不能並存」與 `validate()` 的近重複檢查共用 `Venue.sameNameSegmentsCanCoexist` 一份。**觸發條件可檢查**：帶時間、source 或 note 的名字段數 > 0——那時第 22 列的觸發條件也一起到期 |
+| 44 | **零實例，而設閘的判準早就寫在程式裡，只是答案剛變**（#567：format < 14 的 store 寫出帶 `variant` 的 venue。`migrate-venue-variants` 退場刪除之後，「有沒有 pre-bump 遷移」的答案從「有」變成「沒有」；`LibraryStore` 的註解本來就寫著「#567 退場時一併裁」。2026-09-29：live store format 18，format-13 的 store 零實例） | ✅ **寫（同 `paginated` 的閘：format < 14 且 variant 非空即拒）** | 與第 1 列同形——不寫的話，format-13 的 binary 會把異寫當一般名字顯示，而沒有任何跡象；差別在於這道閘不是新的判準，是既有判準在遷移退場後的答案。**誠實邊界**：`fmt` 不經 `assertVenueWritable`，不受這道閘管。**觸發條件可檢查**：`VenueStoreTests.testVariantWriteRefusedBelowFormat14` 釘住閘；live store 的 format 見表下方 |
+| 45 | **零實例，而上限守的是一個新開的通用寫入面**（#587：`update-venue --references`／MCP `references` 一次 200 筆、statement 4,096 位元組、rests-on 20 個、其餘字串 65,536 位元組；`add_issn` 對認不出的角色與角色衝突拒收。2026-09-29 唯讀量測：venue 485、ISSN 值 59、認不出的角色 0；venue 的 references 只有 resolution-confirmed 2,200 筆與 paginated 36 筆，`field: issn` 0 筆；最長 judgement 287 位元組、rests-on 最多 3 個。重跑腳本見表下方） | ✅ **寫（整批拒絕、零寫入、不截斷）** | 與第 30 列同形——上限只約束單次呼叫，累積由第 16 列的預算 warning 出聲；錨點取既有常數（`maxStatementBytes`、`maxRestsOnPerCall`、`AddOnlyEnrichment.maxValueBytes`），不另立數字。一次 200 筆同第 30 列的 id 數：限的是批次大小，沒有可量的母體，是推估。角色的拒收比遷移嚴：遷移面對既有資料，對認不出的寫法保留原值、報 warning；寫入面不寫一個 `validate` 會報的值 |
+| 46 | **零實例，而路由用的字典安靜地選一筆**（#610：同一個 `(library_id, zotero_key)` 被兩筆以上 entry 宣稱，主來源與附加來源都算。三張路由索引都是後寫覆蓋先寫的字典，匯入只更新其中一筆，沒有任何地方說出來。2026-09-29 唯讀量測：work 2,563、Zotero 來源 535 個（附加來源 3 個），多筆宣稱 0、legacy 來源 0。重跑指令見表下方） | ✅ **寫（warning 在 `crossRecordIssues`；匯入端不更新、不新建，報 `ambiguousSourceClaims`）** | 與第 33／42 列同形：隔壁的重複（DOI、標題）有檢查，宣稱者的重複沒有；後果是把 Zotero 的書目欄位寫進別的記錄。宣稱者的定義只有 `ZoteroSourceClaims` 一份，匯入、驗證、App 共用。**severity 是 warning**：升 error 會讓 `assertNoCrossRecordErrors` 擋下改名與合併，而合併正是修復的出路。可達路徑：手改、舊 binary、#607 修掉的 legacy 認領。**觸發條件可檢查**：宣稱者 ≥2 的來源數應恆為 0 |
+| 47 | **零實例，而同一個形狀已經真實發生過一次——零來自規則還不存在，不是來自清理**（#642：規則型／文件型 library 的既有成員不符規則、規則指向不在庫的 venue 或文件，以及未標性質的 library。2026-09-24 `akashic-work-references` 把 56 筆被引文獻掛進種子所屬的 library，其中 52 筆不是 Psychological Methods 的作品卻進了它的全量目錄；當時沒有任何守衛，是隔天的 verify 才發現，已在 store `2f18107a` 移除。2026-09-29 讀 live store：library 4 個、全部未標性質，規則型／文件型成員不符 **0**、讀不到的檔 0。重跑腳本見表下方） | ✅ **寫（warning；未標性質是 per-record，不符規則與懸空規則是跨記錄，每個 library 一則、點名前 5 筆）** | 第 13 列的零是「清理過之後的零」；這一列的形狀發生過一次，而今天的零來自 live store 的 4 個 library **都還沒標性質**——規則根本不存在，當然沒有東西不符。一旦有人 `set-kind`，零就取決於兩件事：`library add` 的逐筆比對（寫入端的閘，擋工具面），以及這盞燈。燈照的是閘擋不到的三個來源：format 21 之前的舊 binary（它保留性質卻不查規則，StoreVersion 21）、手改 YAML、以及 `set-kind` 當下就已經不符的既有成員（set-kind 只列出、不移除）。這是第 26 列「閘與守衛是同一條不變式的兩半」的形。**severity 是 warning**：成員關係錯了不毀資料，error 會讓 `assertNoCrossRecordErrors` 擋下不相干的改名與合併。**未標性質也報**：未標就沒有依據，`library add` 一律拒絕；不報的話使用者只會看到 add 被拒，看不到原因住在哪裡。**觸發條件可檢查**（指令見表下方）：不符數應恆為 0；非零時用 `library check <key>` 看是哪幾筆、為什麼，處置是人的——remove，或規則寫錯了就 `set-kind` 改規則 |
 
 對本表四類中的任一個做出下一次裁決（新增、不新增、保留、拿掉）= 在這張表加一列。
 
@@ -762,6 +767,8 @@ WriteGateRulings：resolve-venues 旗標 7｜裁決 7｜差異 []
 WriteGateRulings：CLI 葉命令 57｜裁決表 57｜只在 CLI []｜只在表 []｜不寫 20／不閘 17／逐腿 3／過閘 17
 # 2026-09-29 #567 之後（`migrate-venue-variants` 退場刪除——它是那一格「不寫」；其餘三行不變）：
 WriteGateRulings：CLI 葉命令 56｜裁決表 56｜只在 CLI []｜只在表 []｜不寫 19／不閘 17／逐腿 3／過閘 17
+# 2026-09-29 batch11 整合之後（#544／#614 的 `update-entry` 過閘；其餘三行不變）：
+WriteGateRulings：CLI 葉命令 57｜裁決表 57｜只在 CLI []｜只在表 []｜不寫 19／不閘 17／逐腿 3／過閘 18
 ```
 
 **第 38 列的量測（2026-09-28，可重跑）**：拒絕本身由 `PerRecordFullListingTests.testNotFoundAndDuplicateKeysAreRefusedNotGuessed` 釘住（store 裡沒有重複時
@@ -868,6 +875,94 @@ EOF
 
 **第 42 列的量測（2026-09-28，可重跑）**：`akashic validate 2>&1 | grep -c 'key「.*」重複——以 key 定位'`（用含這條檢查的 binary——同第 13 列的自證，舊 binary 印不出東西；錨在本列訊息自己的後半句上，不會數到第 33 列的懸空 venue key）。Python 對照見第 38 列的腳本——它逐 kind 數同 kind 重複 key（2026-09-28：全 0）。源碼那一半：`PATH=/usr/bin:$PATH swift test --filter DuplicateVenueOrgKeyTests/testNoStoreKeyLookupTableTrapsOnDuplicates`（2026-09-28：0 處違規）。
 
+**第 43 列的量測（2026-09-29，可重跑）**：唯讀，數帶時間、source 或 note 的名字段，以及含 venue 候選的 divergence（讀不到的檔計數，同第 24 列）：
+
+```bash
+python3 - <<'EOF'
+import glob, io, os, yaml
+segs = dated = sourced = noted = venue_div = bad = 0
+for f in glob.glob(os.path.expanduser('~/.akashic/entities') + '/*.yaml'):
+    try: d = yaml.safe_load(io.open(f, encoding='utf8'))
+    except Exception: bad += 1; continue
+    if not isinstance(d, dict): bad += 1; continue
+    if 'venue' in d:
+        for x in d.get('names') or []:
+            segs += 1
+            if isinstance(x, dict):
+                dated += any(x.get(k) is not None for k in ('start', 'end', 'ended-unknown', 'attested'))
+                sourced += x.get('source') is not None
+                noted += x.get('note') is not None
+    elif 'divergence' in d:
+        venue_div += any(isinstance(c, dict) and c.get('shape') == 'venue' for c in (d.get('candidates') or []))
+print(f"名字段 {segs}｜帶時間 {dated}｜帶 source {sourced}｜帶 note {noted}｜含 venue 候選的 divergence {venue_div}｜讀不到的檔 {bad}")
+EOF
+# 2026-09-29：名字段 537｜帶時間 0｜帶 source 0｜帶 note 0｜含 venue 候選的 divergence 0｜讀不到的檔 0
+```
+
+**第 44 列的量測（2026-09-29，可重跑）**：`grep '^format:' ~/.akashic/store.yaml`（2026-09-29：18）；閘本身由 `VenueStoreTests.testVariantWriteRefusedBelowFormat14` 釘住。
+
+**第 45 列的量測（2026-09-29，可重跑）**：唯讀（讀不到的檔計數，同第 24 列）：
+
+```bash
+python3 - <<'EOF'
+import glob, io, os, yaml, collections
+fields = collections.Counter(); issn = bad_q = jmax = rmax = bad = 0
+for f in glob.glob(os.path.expanduser('~/.akashic/entities') + '/*.yaml'):
+    try: d = yaml.safe_load(io.open(f, encoding='utf8'))
+    except Exception: bad += 1; continue
+    if not isinstance(d, dict) or 'venue' not in d: continue
+    for x in d.get('issn') or []:
+        issn += 1
+        q = x.get('qualifier') if isinstance(x, dict) else None
+        bad_q += q is not None and q not in ('print', 'electronic', 'linking')
+    for r in d.get('references') or []:
+        if not isinstance(r, dict): continue
+        fields[r.get('field')] += 1
+        j = r.get('judgement') or ''
+        if isinstance(j, str): jmax = max(jmax, len(j.encode()))
+        ro = r.get('rests-on') or []
+        if isinstance(ro, list): rmax = max(rmax, len(ro))
+print(f"ISSN 值 {issn}｜認不出的角色 {bad_q}｜references 各 field {dict(fields)}｜最長 judgement {jmax}｜rests-on 最多 {rmax}｜讀不到的檔 {bad}")
+EOF
+# 2026-09-29：ISSN 值 59｜認不出的角色 0｜references：resolution-confirmed 2200、paginated 36｜最長 judgement 287｜rests-on 最多 3｜讀不到的檔 0
+```
+
+**第 46 列的量測（2026-09-29，可重跑）**：`akashic validate --library <store> 2>&1 | grep -c 'Zotero 來源「.*」被 [0-9]* 筆 entry 宣稱'`（用含這條檢查的 binary——同第 13 列的自證，舊 binary 印不出東西）。Python 對照（不依賴 binary）：讀每筆 work 的 `provenance` 與 `provenance_additional`，把 `library_id:zotero_key` 以 citekey 去重分組，數宣稱者 ≥2 的組（2026-09-29：0；沒記 `library_id` 的 legacy 來源 0）。
+
+**第 47 列的量測（2026-09-29，可重跑，唯讀）**：`akashic validate 2>&1 | grep -c '筆成員不符規則：'` 與 `akashic validate 2>&1 | grep -c '沒有標成員性質（'`（用含這條檢查的 binary——同第 13 列的自證，舊 binary 印不出東西；2026-09-29 預期 0 與 4）。Python 對照（不依賴 binary；只做規則型與文件型的比對，懸空規則由 binary 報）：
+
+```bash
+python3 - <<'PY'
+import glob, io, os, yaml, collections
+root = os.path.expanduser('~/.akashic')
+libs, bad = {}, 0
+for f in glob.glob(root + '/libraries/*.yaml'):
+    try: d = yaml.safe_load(io.open(f, encoding='utf8'))
+    except Exception: bad += 1; continue
+    if isinstance(d, dict): libs[str(d.get('key'))] = d.get('membership')
+works = {}
+for f in glob.glob(root + '/entities/*.yaml'):
+    try: d = yaml.safe_load(io.open(f, encoding='utf8'))
+    except Exception: bad += 1; continue
+    if isinstance(d, dict) and 'work' in d: works[str(d.get('citekey'))] = d
+kinds = collections.Counter((m or {}).get('kind', 'unmarked') if isinstance(m, dict) or m is None else 'malformed' for m in libs.values())
+viol = 0
+for k, m in libs.items():
+    if not isinstance(m, dict) or m.get('kind') not in ('rule', 'document'): continue
+    for w in (w for w in works.values() if k in ((w.get('akashic') or {}).get('libraries') or [])):
+        if m['kind'] == 'rule':
+            keys = [v.get('key') for v in (w.get('venues') or []) if isinstance(v, dict) and 'key' in v]
+            ok = (w.get('citekey') not in (m.get('excluded') or [])) and m.get('venue') in keys \
+                 and (not m.get('types') or w.get('type') in m['types'])
+        else:
+            doc = [x for x in works.values() if x.get('citekey') == m.get('document')]
+            ok = len(doc) == 1 and w.get('citekey') in (((doc[0].get('akashic') or {}).get('relations') or {}).get('cites') or [])
+        viol += not ok
+print(f"library {len(libs)}｜性質 {dict(kinds)}｜規則型／文件型成員不符 {viol}｜讀不到的檔 {bad}")
+PY
+# 2026-09-29：library 4｜性質 {'unmarked': 4}｜規則型／文件型成員不符 0｜讀不到的檔 0
+```
+
 ## 各列共通的東西（觀察，不是判準）
 
 第 1–9 列與第 13、14 列的裁決都是「寫」（第 14 列是 2026-09-09 從「不寫」翻過來的）、第 10–12 列（皆出自 #365）是「不寫」，但**理由各不相同**，這正是不寫總括判準的原因：
@@ -920,6 +1015,11 @@ EOF
 - 第 40 列的理由是**拒絕問在錯的時間點**——第 21 列是謂詞問了那一類成員答不錯的問題、第 13 列是跡象住在錯的地方；這一列的謂詞答得對、跡象也在，錯在答案到達時寫入已經進行到一半。修法是同一組判斷換一個時間點再問一次，不是寫第二份判斷
 - 第 41 列的理由是**同一個值在兩層有相反的身分**——第 32 列放行的是形狀看起來對的假號；這一列的值形狀本來就對，錯在它不指認任何東西。閘在共用謂詞，而且要把謂詞拆成位址與引用兩個——否則為了守零實例而加的收緊會把 live store 的 `store-source` 關掉
 - 第 42 列的理由是**沒有檢查的那一格讓讀取端崩潰**——第 33 列的缺口是少報，這一列的缺口是 trap；重複 key 的檢查補在 `crossRecordIssues`，查找表改成不 trap，以 key 定位寫入的面拒絕
+- 第 43 列的理由是**合併是拿掉沿革的那一步**——第 22 列替沿革留位置，這一列守位置的另一端：落進去的東西不得在合併時安靜消失，而哪一段的時間對是判斷，合併不猜
+- 第 44 列的理由是**既有判準的答案變了**——閘不是新的裁決，是遷移退場之後「有沒有 pre-bump 遷移」從有變成沒有
+- 第 45 列的理由是**上限只擋單次**——同第 30 列，錨點取既有常數；累積由第 16 列出聲
+- 第 46 列的理由是**路由字典安靜地選一筆**——隔壁的重複有檢查、宣稱者的重複沒有，匯入時把欄位寫進別的記錄
+- 第 47 列的理由是**零來自規則還不存在**——第 13 列的零是清理過之後的零；這一列的形狀發生過一次（52 筆），今天的零是因為 live store 的 library 都還沒標性質。燈照的是寫入閘擋不到的三個來源（舊 binary、手改、set-kind 當下就不符的既有成員），同第 26 列閘與守衛的分工
 - 第 31 列的理由是**同一條曲線換了持有者**——第 16 列的燈只照 venue；新面（未決腿）讓 person 與 organization 也開始累積，第 30 列寫下的誠實邊界要有工具面兌現，否則就是一句沒有後續的散文
 - 第 39 列的理由是**單步的跳躍預警看不到**——第 16／31 列的燈在讀取面、照的是漸進的增長；一次寫入從門檻之下直接越過讀取上限時，燈來不及響，擋它的只能是寫入端。而那道閘要擋的不只是位元組：多檔寫入面在它觸發之前已有檔落盤，所以閘與零寫入的 preflight 同批
 - 第 24 列的理由是**半吊子已經誠實**——前二十三列裡只有第 22 列同樣是「不動既有的東西」（比的是裁決的**動作**：那一列的對象是 spec 文字、失敗是被當死重刪掉；本列的對象是程式的半吊子管線、失敗是使用者撞牆或被當成待修殘留而被人動手）。留著的代價不是零（記了就刪不掉——#586 在 2026-09-28 補了移除面，代價從「刪不掉」降為「要人判定放棄」），而是今天未兌現、且一出現就會出聲；動它的兩個方向（實作／拿掉）代價都更高。與第 10 列（缺用途）最像的是理由的**形**：實作那一半同樣是「形狀取決於還不存在的用途」；但第 10 列的對象根本不存在，這一列的對象已經在、且已經誠實

@@ -455,6 +455,7 @@ public final class LibraryStore {
         guard StoreKey.isValid(library.key) else {
             throw StoreIOError.invalidKey("library key", library.key)
         }
+        try Self.assertLibraryWritable(library, format: { try StoreVersion.read(root: self.root) })
         let yaml = try LibraryYAML.encode(library)
         let dest = libraryURL(key: library.key)
         // exclusive-create：並發 create 不得靜默互吃。改寫既有檔走下面的 `updateLibrary`（#642 起才有）
@@ -470,6 +471,7 @@ public final class LibraryStore {
         guard StoreKey.isValid(library.key) else {
             throw StoreIOError.invalidKey("library key", library.key)
         }
+        try Self.assertLibraryWritable(library, format: { try StoreVersion.read(root: self.root) })
         let dest = libraryURL(key: library.key)
         let current = (try? FileManager.default.attributesOfItem(atPath: dest.path))?[.size] as? Int
         guard let current else {
@@ -478,6 +480,26 @@ public final class LibraryStore {
         let yaml = try LibraryYAML.encode(library, replacing: current)   // #648：不增長的改寫才有寬限
         try atomicWrite(yaml, to: dest, mustCreate: false)
         return dest
+    }
+
+    /// registry 檔的 format 閘（#642，StoreVersion 21）：規則型與文件型的成員性質需要 format ≥ 21。format-20 binary 會保留
+    /// `membership:` 卻不查規則，`library add` 照樣寫進不符的成員；主題型不帶規則、不閘。`format` 是 lazy 的：未標性質與
+    /// 主題型不讀 marker（同 `assertEntryWritable`）。
+    public static func assertLibraryWritable(_ library: Library, format provider: () throws -> Int) throws {
+        switch library.membership {
+        case nil, .topic?:
+            return
+        case .rule?, .document?:
+            let format = try provider()
+            let need = StoreVersion.libraryMembershipFormat, prior = need - 1
+            guard format >= need else {
+                throw StoreIOError.invalidInput(
+                    what: "library「\(displaySafeInvisible(library.key, max: 120))」",
+                    why: "規則型與文件型的成員性質需要 store format ≥ \(need)；本 store 是 \(format)——" +
+                         "確認會碰這個 store 的 CLI/MCP/App 都已升級後，把 store.yaml 的 format: 改成 \(need)" +
+                         "（format-\(prior) binary 會保留性質卻不查規則，library add 照樣寫進不符的成員）")   // display-safe-exempt: need、prior 與 format 是 Int（StoreVersion 的門檻常量與 marker）
+            }
+        }
     }
 
     /// `writeEntry`／`writeEntryExclusive` 的**全部非 I/O 前置條件**（#455）：citekey 文法、識別碼 reference ≥13、

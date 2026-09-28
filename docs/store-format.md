@@ -405,9 +405,9 @@ membership:
 ```
 
 **`membership` 是 closed shape**：每一種性質只收自己的鍵（topic 只有 `kind`），值域（kind、entry type）與
-key 文法都驗，重複的 `types`／`excluded` 拒讀；形狀不符整檔 quarantine。**不 bump format**：`membership` 是 registry
-頂層的新鍵，舊 binary 走 tolerant-preserve 原樣保留（不解讀）——舊 binary 的 `library add` 不查規則，那一格由新 binary
-的 `validate` 報（見下）。
+key 文法都驗，重複的 `types`／`excluded` 拒讀；形狀不符整檔 quarantine。**store format 21**：`membership` 是 registry
+頂層的新鍵，舊 binary 走 tolerant-preserve 原樣保留卻不解讀——它的 `library add` 不查規則，對規則型與文件型照樣寫進
+不符的成員，所以要 marker 讓 refuse-if-newer 出聲（§5 版本表的 21 那一列）。寫入閘對 format < 21 拒寫規則型與文件型；主題型不閘。
 
 **寫入時的語意**（#642，使用者 2026-09-25／09-28）：`library add` 對規則型與文件型逐筆比對，不符的**不寫並具名**
 （不是拒絕整批、也不是照寫）；未標性質的 library 拒絕 add（查不到依據）；remove 不查。`library create` 要求 `--kind`；
@@ -1501,6 +1501,7 @@ index 一起被清掉。
 | 18 | work 的**附加 Zotero 來源**（頂層 `provenance_additional:`，sequence of mapping，元素形狀同 `provenance`，#605；見 §2.5.3） | **頂層鍵本屬 additive，仍 bump——理由是語意不是語法**（同 11／13／14 的裁決）：format-17 binary 走 tolerant-preserve **原樣保留而不解讀**，不拿附加來源比對 → 從附加來源所屬的 library 再匯入時安靜地新建一筆，把剛合併掉的攣生重新造出來；合併閘也照舊把不同 zotero key 當「來源衝突」擋下。不會大聲失敗，所以要 marker 讓 refuse-if-newer 出聲。write gate（`assertEntryWritable`）對 format < 18 拒寫帶附加來源的 entry。**無資料遷移**（空清單不寫出，既有記錄零 diff）。**升級前置**：CLI/MCP/App 全升 v18 世代 → 手動 `format: 18`；且 marker bump 前不 push store repo（同 15～17 的理由） |
 | 19 | verdict 的第三個值 `resolution-undecided`（查過、判不出來，可帶 rests-on；#619）＋ **判定層級參與記錄鍵**（`nominated` 與 `judged` 兩筆並存，#636；change `resolution-verdict-states`） | **non-additive，兩個理由各自足夠**：references 的 field 白名單是 strict，format-18 binary 讀到 `resolution-undecided` **整檔 quarantine**；舊 binary 的合併與 rename 以舊鍵收攏，會把並存的兩筆收成一筆、安靜丟掉一筆理由。write gate（`assertVerdictShapesWritable`）對 format < 19 拒寫這兩種形狀。**無資料遷移**。**升級前置**：CLI/MCP/App 全升 v19 世代 → 手動 `format: 19`；marker bump 前不 push store repo（同 15～18 的理由） |
 | 20 | work 的 `references` 多一格 **`date`**（頂層 `Entry.date` 的來源，#655；語意比照 `fields.<鍵>`，見 §3.5「work 的 `references`」） | **non-additive，理由同 16**：format-19 binary 的 `Entry.validateReferenceAttachment` 沒有 `date` case → 封閉 default 擲錯 → **整檔 quarantine**、rc=0——補過日期來源的 work 在舊 binary 上整筆消失，輸出與「這筆從未存在」不可分辨。write gate（`assertEntryWritable`）對 format < 20 拒寫帶這一格的 entry（門檻常數 `StoreVersion.workDateReferenceFormat`）；`enrich` 在**寫入之前**讀 marker，低於 20 時 date 照補、reference 不寫、理由進 item 的 `provenanceOmitted`——不讓整筆寫入失敗。**為什麼 #517 的 `fields.<鍵>` 那一格沒有自己的 bump**：它落地一小時後 format 17 就 bump 了（`b1027be0` 是那次 bump 的祖先），是順序的巧合、不是契約；而那一格原本沒有自己的 format 閘——`assertIdentifierReferencesWritable` 只認三個識別碼欄位，format < 17 的 store 寫得進 `fields.<鍵>` 的 reference（#668 補上，見 17 那一列）。本格不再依賴巧合。**無資料遷移**（這一格在 format 19 寫不出來，既有記錄零 diff）。**升級前置**：CLI/MCP/App 全升 v20 世代 → 手動 `format: 20`；marker bump 前不 push store repo（同 15～19 的理由） |
+| 21 | library registry 的**成員性質**（頂層 `membership:`，`topic`／`rule`／`document`，#642；見 §2.9） | **頂層鍵本屬 additive，仍 bump——理由是語意不是語法**（同 5、18 的「保留不等於遵守」）：format-20 binary 走 tolerant-preserve **原樣保留而不解讀**，它的 `library add` 不查規則，對規則型與文件型 library 照樣寫進不符的成員、不會出聲。write gate（`LibraryStore.assertLibraryWritable`，門檻 `StoreVersion.libraryMembershipFormat`）對 format < 21 拒寫規則型與文件型；**主題型不閘**（不帶規則，舊 binary 的行為與新語意相同）。**無資料遷移**（既有 registry 檔沒有這個鍵，零 diff）。**升級前置**：CLI/MCP/App 全升 v21 世代 → 手動 `format: 21`；marker bump 前不 push store repo（同 15～20 的理由） |
 
 3 與 4 曾經發生而未回寫本表（#81 補齊）；6 曾漏補（#74 一併回寫）。**「資料鍵變保留字」同屬版本歸屬**：`divergence` 成為形狀標籤使同名頂層鍵在 ≥5 成為保留字——這與形狀標籤機制（format 3）的既有語意一致，不另立規則（#74 後果二）。`akashic migrate` 是使用者知情動作：它把 store 升到 supported 版本，升版後舊 binary 整庫拒開是 refuse-if-newer 的**預期**行為，不是 migrate 的缺陷（#74 後果三，文件化現況）。
 

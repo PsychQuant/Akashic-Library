@@ -14,7 +14,8 @@ struct LibraryCmd: ParsableCommand {
         discussion: """
         每個 library 有成員性質（#642）：topic（主題型，成員由你挑，照寫）、rule（規則型，以 venue key 界定，可加 \
         --type 與 --exclude）、document（文件型，成員是一筆在庫文件的 cites）。add 對 rule／document 逐筆比對，\
-        不符的不寫並說出原因（不是拒絕整批，也不是照寫）；未標性質的 library 拒絕 add——先 set-kind。
+        不符的不寫並說出原因（不是拒絕整批，也不是照寫）；未標性質的 library 拒絕 add——先 set-kind。\
+        rule／document 需要 store format ≥ \(StoreVersion.libraryMembershipFormat)（topic 不需要）。
         """,
         subcommands: [LibraryList.self, LibraryCreate.self, LibraryAdd.self, LibraryRemove.self,
                       LibrarySetKind.self, LibraryCheck.self])

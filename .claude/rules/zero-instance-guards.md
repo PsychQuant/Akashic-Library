@@ -760,6 +760,8 @@ WriteGateRulings：resolve-people 旗標 14｜裁決 14｜差異 []
 WriteGateRulings：resolve-venues 旗標 7｜裁決 7｜差異 []
 # 2026-09-28 #586 R1 verify 之後（dismiss-divergence 改為過閘，其餘三行不變）：
 WriteGateRulings：CLI 葉命令 57｜裁決表 57｜只在 CLI []｜只在表 []｜不寫 20／不閘 17／逐腿 3／過閘 17
+# 2026-09-29 #567 之後（`migrate-venue-variants` 退場刪除——它是那一格「不寫」；其餘三行不變）：
+WriteGateRulings：CLI 葉命令 56｜裁決表 56｜只在 CLI []｜只在表 []｜不寫 19／不閘 17／逐腿 3／過閘 17
 ```
 
 **第 38 列的量測（2026-09-28，可重跑）**：拒絕本身由 `PerRecordFullListingTests.testNotFoundAndDuplicateKeysAreRefusedNotGuessed` 釘住（store 裡沒有重複時

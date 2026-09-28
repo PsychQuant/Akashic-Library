@@ -51,8 +51,8 @@ final class DestructiveTargetGateTests: XCTestCase {
     /// **機械稽核（命令 → 裁決）**：每個帶布林 `--apply` 的 subcommand 都要裁決為過閘。
     ///
     /// 這條防的是「新增了破壞性命令但忘了分類」。型別層零 destructive marker，所以漏掉不會有任何編譯期跡象。
-    /// 唯一的例外形狀是裁決為 `.readOnly`——`--apply` 一律拒絕、寫不了任何東西（`migrate-venue-variants`，D41），
-    /// 那一格的理由在表裡。`WriteGateRulingsTests` 另比對整張表與命令樹；這條多要求的是「有 `--apply` 就不得是 `.notGated`」。
+    /// 唯一的例外形狀是裁決為 `.readOnly`——`--apply` 一律拒絕、寫不了任何東西（當時的 `migrate-venue-variants`，D41；
+    /// #567 退場刪除之後這個例外沒有成員，形狀留著給下一個）。`WriteGateRulingsTests` 另比對整張表與命令樹；這條多要求的是「有 `--apply` 就不得是 `.notGated`」。
     func testEveryApplyCommandIsEnumerated() throws {
         let src = try allCommandSources()
         var currentCommand: String?

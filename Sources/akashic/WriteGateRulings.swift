@@ -117,7 +117,6 @@ extension DestructiveTargetGate {
         "file remove": .readOnly("只自 registry 除名，不刪除任何資料"),
         "references extract": .readOnly("skill 的中間運算（切分 pdftotext 輸出），不寫 store（#617）"),
         "references nominate": .readOnly("skill 的中間運算（兩源提名，唯讀查 DOI 是否已在庫），不寫 store（#617）"),
-        "migrate-venue-variants": .readOnly("--apply 自 #554 R15 起一律拒絕（D41），乾跑不寫；退場見 #567。先前列在 destructiveCommands 卻從未呼叫閘"),
     ]
 
     /// 逐腿裁決的三個命令。鍵是旗標的主名（`--holder` 的舊名 `--person` 是同一格）。

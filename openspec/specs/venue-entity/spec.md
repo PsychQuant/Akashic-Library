@@ -35,7 +35,6 @@ updated: 2026-08-28
 code:
   - Sources/AkashicMCPKit/AkashicService.swift
   - Sources/akashic/CLI.swift
-  - Sources/AkashicStoreIO/VenueVariantMigration.swift
   - Sources/akashic/VenueCommand.swift
 -->
 
@@ -67,7 +66,6 @@ updated: 2026-08-28
 code:
   - Sources/AkashicMCPKit/AkashicService.swift
   - Sources/akashic/CLI.swift
-  - Sources/AkashicStoreIO/VenueVariantMigration.swift
   - Sources/akashic/VenueCommand.swift
 -->
 

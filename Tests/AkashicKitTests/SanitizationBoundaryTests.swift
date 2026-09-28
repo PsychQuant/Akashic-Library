@@ -704,7 +704,6 @@ final class SanitizationBoundaryTests: XCTestCase {
             ("Sources/AkashicStoreIO/DivergenceResolve.swift", "的 verdict value 遷移寫入失敗：\\(displaySafeError(error, max: 4_096))", 6),
             ("Sources/akashic/Commands.swift", "displaySafeError(error, max: 4_096)", 6),
             ("Sources/AkashicStoreIO/IdentifierMigration.swift", "寫入前提不成立：\\(displaySafeError(error, max: 4_096))", 1),
-            ("Sources/AkashicStoreIO/VenueVariantMigration.swift", "\\(displaySafeError(error, max: 4_096))", 2),
             ("Sources/AkashicStoreIO/LibraryStore.swift", "reason: displaySafeError(error, max: 4_096)", 4),
         ]
         for (file, needle, count) in expected {
@@ -758,7 +757,6 @@ final class SanitizationBoundaryTests: XCTestCase {
             ("Sources/akashic/Commands.swift", "displaySafeClipOnly(f.reason, max: 4_096)"),
             ("Sources/akashic/Commands.swift", "displaySafeClipOnly(f.why, max: 4_096)"),
             ("Sources/akashic/Commands.swift", "displaySafeClipOnly(why, max: 4_096)"),
-            ("Sources/akashic/VenueCommand.swift", "displaySafeClipOnly(f.reason, max: 2_400)"),
             ("Sources/akashic/VenueCommand.swift", "displaySafeClipOnly(f.reason, max: 4_096)"),
             ("Sources/akashic/IdentifierMigrateCommand.swift", "displaySafeClipOnly(f, max: 4_096)"),
             ("Sources/AkashicAppKit/RecordIssuesSummary.swift", "displaySafeClipOnly($0.issue.message, max: 300)"),

@@ -4,7 +4,7 @@ import XCTest
 
 /// 遷移的「下一步」不得印降級指示（#472）。
 ///
-/// 三支遷移各自寫死自己那一代的目標（10／11／14）而**從不讀 marker**。store 今天是 16，
+/// 遷移各自寫死自己那一代的目標（10／11；14 那支 `migrate-venue-variants` 已於 #567 退場）而**從不讀 marker**。store 今天是 16，
 /// 所以無條件印「手動把 format 改成 14」是一道降級指示：format-14 binary 讀到帶
 /// `field: paginated` 的 venue 會**整檔 quarantine**（#422 verify DA 6 實測 406 → 373、
 /// rc=0）——照做等於手動重新開啟 format 15 存在的理由所要防的那個安靜失敗。
@@ -32,13 +32,12 @@ final class FormatBumpHintTests: XCTestCase {
         XCTAssertTrue(s.contains("讀不到"), s)
     }
 
-    /// 三支遷移的目標各自是常數，且**都低於現行 supported**——這正是缺陷的前提，
+    /// 仍在的遷移的目標各自是常數，且**都低於現行 supported**——這正是缺陷的前提，
     /// 釘住它讓「哪天某支的目標追上 supported」時有人看到（那時本族的提示會自然變成
     /// 「要升」，而不是靜默地繼續正確）。
     func testEveryMigrationTargetIsBehindSupportedToday() {
         for (name, t) in [("person-identity", PersonIdentityMigration.targetFormat),
-                          ("venues", VenueMigration.targetFormat),
-                          ("venue-variants", VenueVariantMigration.targetFormat)] {
+                          ("venues", VenueMigration.targetFormat)] {
             XCTAssertLessThan(t, StoreVersion.supported,
                               "\(name) 的目標 \(t) 已追上 supported \(StoreVersion.supported)"
                               + "——本族的前提變了，回來重讀 #472")

@@ -56,6 +56,31 @@ final class VenueStoreTests: XCTestCase {
         XCTAssertNoThrow(try store.writeEntry(plain))
     }
 
+    /// `variant` 是 format 14 的欄位（#422）。它當時不設寫入閘，因為補集遷移 `migrate-venue-variants` 必須跑在 bump 之前；
+    /// #567 把那支遷移退場刪除，依 `assertVenueWritable` 自己寫的判準（「有沒有 pre-bump 遷移」）補上閘——format-13
+    /// binary 讀到 `variant:` 原樣保留而不解讀，把異寫法當一般名字顯示、不出聲。沒有 variant 的 venue 照常可寫。
+    func testVariantWriteRefusedBelowFormat14() throws {
+        try StoreVersion.write(root: root, format: 13)
+        var v = sampleVenue()
+        v.names = Timeline([TemporalValue(value: "Journal of Computational and Graphical Statistics"),
+                            TemporalValue(value: "J COMPUT GRAPH STAT")])
+        v.variant = ["J COMPUT GRAPH STAT"]
+        XCTAssertThrowsError(try store.writeVenue(v)) { err in
+            guard case StoreIOError.invalidInput(let what, let why) = err else {
+                return XCTFail("預期 invalidInput，實得 \(err)")
+            }
+            XCTAssertTrue(what.contains("variant"), what)
+            XCTAssertTrue(why.contains("14"), "訊息要指向 format 14：\(why)")
+        }
+        XCTAssertTrue(try FileManager.default.contentsOfDirectory(
+            atPath: root.appendingPathComponent("entities").path).isEmpty, "拒寫即零副作用")
+        v.variant = []
+        XCTAssertNoThrow(try store.writeVenue(v), "沒有 variant 的 venue 在 format 13 照常可寫")
+        try StoreVersion.write(root: root, format: 14)
+        v.variant = ["J COMPUT GRAPH STAT"]
+        XCTAssertNoThrow(try store.writeVenue(v), "format 14 起可寫")
+    }
+
     // MARK: - 寫入與 load（task 2.2 / 形狀整合）
 
     func testVenueWriteAndLoadRoundTrip() throws {

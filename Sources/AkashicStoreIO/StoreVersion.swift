@@ -181,8 +181,8 @@ public enum StoreVersion {
 
     /// 遷移完成後的 format bump 提示——**只在真的要升的時候印**（#472）。
     ///
-    /// 三支遷移各自寫死自己那一代的目標（`migrate-person-identity` 10、`migrate-venues` 11、
-    /// `migrate-venue-variants` 14），而它們**從不讀 marker**。store 今天是 16，所以無條件
+    /// 遷移各自寫死自己那一代的目標（`migrate-person-identity` 10、`migrate-venues` 11；
+    /// 當時還有 `migrate-venue-variants` 14，#567 退場刪除），而它們**從不讀 marker**。store 今天是 16，所以無條件
     /// 印「手動把 format 改成 14」是一道**降級指示**：format-14 binary 讀到帶
     /// `field: paginated` 的 venue 會整檔 quarantine（#422 verify DA 6 實測 406 → 373、rc=0）
     /// ——照做等於手動重新開啟 format 15 存在的理由所要防的那個安靜失敗。

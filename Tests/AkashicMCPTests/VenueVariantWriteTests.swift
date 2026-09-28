@@ -5,7 +5,7 @@ import XCTest
 
 /// `variant` 的寫入面（#471）。
 ///
-/// 在此之前 variant **兩面都沒有寫入面**，唯一的寫入者是 `migrate-venue-variants`——而它
+/// 在此之前 variant **兩面都沒有寫入面**，唯一的寫入者是 `migrate-venue-variants`（#567 退場刪除）——而它
 /// 用的是「`authorized` 的補集」。**一個不做判定的操作成了唯一的判定寫入者**，正面撞上
 /// `identity-is-judged-not-matched`：「這個名字是那個名字的異寫」是判定，不是「不在對外
 /// 清單裡」的推論。
@@ -60,6 +60,18 @@ final class VenueVariantWriteTests: XCTestCase {
                                                      note: nil, type: nil,
                                                      addVariant: ["PLOS ONE"]))
         XCTAssertEqual(try venue().variant, [], "拒絕必須是零寫入")
+    }
+
+    /// **format < 14 的 store 寫 variant 整個呼叫拒絕、零寫入**（#567）：補集遷移退場後 `variant` 補上 format 14 的寫入閘，
+    /// 兩面同一道（`assertVenueWritable`）。訊息指向 bump 到 14。
+    func testAddVariantIsRefusedBelowFormat14() throws {
+        try StoreVersion.write(root: root, format: 13)
+        let before = try venue()
+        XCTAssertThrowsError(try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil,
+                                                     addVariant: ["PLoS One"])) { err in
+            XCTAssertTrue(String(describing: err).contains("14"), "\(err)")
+        }
+        XCTAssertEqual(try venue(), before, "拒絕必須是零寫入")
     }
 
     /// 空字串與空白被略過——不得把一個空名字寫進 names。

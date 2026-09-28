@@ -3679,7 +3679,7 @@ public final class AkashicService {
             if !venue.references.contains(where: { $0.byteExactKey == ref.byteExactKey }) { venue.references.append(ref) }
         }
         // **variant 的寫入面**（#471）。在此之前 variant **兩面都沒有寫入面**，唯一的
-        // 寫入者是 `migrate-venue-variants`——而它用的是「`authorized` 的補集」。
+        // 寫入者是 `migrate-venue-variants`（#567 退場刪除）——而它用的是「`authorized` 的補集」。
         // **一個不做判定的操作成了唯一的判定寫入者**，正面撞上
         // `identity-is-judged-not-matched`：「這個名字是那個名字的異寫」是判定，
         // 不是「不在對外清單裡」的推論。`two-kinds-of-edits` 同向：判定型的寫入要有

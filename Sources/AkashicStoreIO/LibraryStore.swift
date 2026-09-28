@@ -932,13 +932,22 @@ public final class LibraryStore {
         //   同一件事）。設閘的理由是「保留而不解讀」的後果：舊 binary 會把**已判定**的刊
         //   當成從未判定、安靜給出錯的 APA7 下限答案。
         //
-        //   **`variant` 刻意不設閘**（同 format 13 對識別碼欄位的 doctrine，見 :498-504）：
+        //   **`variant` 當時刻意不設閘**（同 format 13 對識別碼欄位的 doctrine，見 :498-504）：
         //   它有一個必須跑在 bump **之前**的遷移（`migrate-venue-variants`），對它設閘會讓
         //   遷移在 bump 之前跑不動；`paginated` 沒有 pre-bump 遷移，設閘零成本。判準是
         //   「有沒有 pre-bump 遷移」，不是「會不會 quarantine」。**R20 補記**（#554 R19 verify regression
         //   第 24 列）：D41 起 `migrate-venue-variants --apply` 一律拒絕，那條 pre-bump 遷移已不存在，依這個
-        //   判準答案變成「沒有」；閘仍不加——live store 已在 16／17、format-13 store 零實例，#567 把命令退場時
-        //   一併裁要不要補閘，不在這裡半做。
+        //   判準答案變成「沒有」。**#567（2026-09-29）**：命令退場刪除，依同一條判準補上閘（下一段）——
+        //   format-13 binary 讀到頂層 `variant:` 會原樣保留而不解讀，把異寫法當一般名字顯示、不出聲；
+        //   format-13 store 零實例，所以閘不拒絕任何既有工作流。
+        if format < 14, !v.variant.isEmpty {
+            throw StoreIOError.invalidInput(
+                what: "venue「\(displaySafeInvisible(v.key, max: 120))」的 variant",
+                why: "variant 是 format 14 的新欄位（#422）；本 store 是 \(format)——" +
+                     "確認會碰這個 store 的 CLI/MCP/App 都已升級後，把 store.yaml 的 " +
+                     "format: 改成 14（format-13 binary 讀到會原樣保留而不解讀——" +
+                     "把異寫法當一般名字顯示，不出聲）。舊的補集遷移 migrate-venue-variants 已退場（#567）")
+        }
         if format < 14, v.paginated != nil {
             throw StoreIOError.invalidInput(
                 what: "venue「\(displaySafeInvisible(v.key, max: 120))」的 paginated 值",

@@ -30,7 +30,7 @@ xlsx/CSV 用手邊可用的讀法（python＋openpyxl、`excel-to-json` skill、
 
 ### 2. DOI 補查（缺 DOI 的列）
 
-以**合取**判準查 Crossref：標題＋第一作者姓＋期刊＋年份同時相符才收。
+以**合取**判準查 Crossref：標題＋第一作者姓＋期刊＋年份同時相符才收。查詢一律經 safari-browser 取，程序與中止條款見 akashic-bootstrap 的 [web-access.md](../akashic-bootstrap/references/web-access.md)。
 
 - **標題相似度單獨不可信**——preprint 版的標題相似度可以比正式版還高；
   「像但不是」的三種記錄形態與合取判準的細節見 akashic-bootstrap 的

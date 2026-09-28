@@ -8,7 +8,7 @@
 
 | 原因 | 筆數 | 對策 |
 |---|---|---|
-| store 內該 work 無 DOI | 3 | 用標題搜：`https://api.openalex.org/works?filter=title.search:<標題前 120 字>` |
+| store 內該 work 無 DOI | 3 | 用標題搜：`https://api.openalex.org/works?filter=title.search:<標題前 120 字>`（經 safari-browser 取；標題是自由文字，先照 [web-access.md](../../akashic-bootstrap/references/web-access.md) 的〈插值前先驗形狀〉百分比編碼） |
 | DOI 回 404 | 1 | 同上。DOI 存在不等於 OpenAlex 收錄 |
 | **作者位對不上** | 5 | 見下 |
 | 姓名比對命中 0 或多人 | 5 | 印兩邊完整作者序列，人工對齊 |

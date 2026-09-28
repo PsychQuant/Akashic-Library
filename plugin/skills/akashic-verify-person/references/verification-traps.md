@@ -45,6 +45,8 @@ Institute of Statistical Science）——只比新名會漏掉整個 1980s 的�
 
 **處置**：先 `https://api.openalex.org/institutions?search=<名稱>` 解析出 institution
 ID，再用 ID 過濾作者／著作；隸屬史看 `authors` 端點的 affiliations 時間軸。
+（本檔的網址都是**要取的位址**，一律經 safari-browser 取——程序見
+[web-access.md](../../akashic-bootstrap/references/web-access.md)；`<名稱>` 是自由文字，先百分比編碼。）
 
 ## 兩個「看起來像互相印證、其實同源」的陷阱（2026-08-20 實測）
 
@@ -92,4 +94,5 @@ Scopus／Crossref 那些是廠商按名字聚合出來的。**只有 `source` �
   第 1 源空手不是「此人無著作」的證據，直接推進 OpenAlex
 - **請求節流**：對同一網域連發數十請求會觸發 403，且被擋看起來像「頁面不存在」
   （細節見 [person-sources.md](../../akashic-bootstrap/references/person-sources.md)
-  的抓取禮儀段）
+  的抓取禮儀段）。被擋（403／429 或任何被懷疑的訊號）就是中止條款、整批停，
+  不是放慢再試，也不是記成「查無」

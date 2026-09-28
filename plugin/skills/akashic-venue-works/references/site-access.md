@@ -1,19 +1,31 @@
 # 站點存取手冊 — venue → works 補完會碰到的網站怎麼爬
 
-本檔記「哪個網站用什麼工具、用什麼判準、踩過什麼坑」。**每一節的結論都是量過的**
+本檔記「哪個網站用什麼判準、踩過什麼坑」。**每一節的結論都是量過的**
 （附日期與當時條件，依 `assertions-must-be-measured`）；數字是單站單日的實測，
 **換網站或隔久了要重量，不得類推**。新網站＝加一節，不改總括判準（本檔刻意沒有）。
 
-## 升級階梯（先便宜後貴，逐級量測失敗形狀再升級)
+**取得一律經 safari-browser**（Akashic-Library 的專案預設，#634）：程序、分頁鎖定、
+插值前的形狀檢查與中止條款見 akashic-bootstrap 的
+[web-access.md](../../akashic-bootstrap/references/web-access.md)。本檔各節記的**其他
+工具**（curl／WebFetch、agent-browser、osascript）是 2026-08-31／09-01 量到的失敗形狀
+與當時的作法，**不是可選的路徑**。
 
-| 級 | 工具 | 適用 | 失敗時的樣子 |
-|---|---|---|---|
-| 1 | 結構化 API（OpenAlex／Crossref） | 永遠先試 | 欄位缺席（≠ 世界裡不存在，見 Crossref 節） |
-| 2 | 裸 HTTP（curl／WebFetch） | 靜態頁 | SPA 回 200 空殼——**狀態碼不是判準** |
-| 3 | 渲染瀏覽器（agent-browser Chromium） | 需要 JS 渲染的頁 | 指紋防護（Incapsula 等）回擋截頁 |
-| 4 | 真 Safari（使用者 session） | 指紋防護放行的唯一路 | 依賴使用者機器與登入態，無法 CI 化 |
+## 取得路徑，與已量過而不再走的路
 
-每一級失敗都要記下**失敗的形狀**（空殼／擋截頁／渲染節流），那決定該升級還是該收工。
+| 對象 | 路徑（一律經 safari-browser） | 失敗時的樣子 |
+|---|---|---|
+| 結構化 API（OpenAlex／Crossref） | 頁內 fetch（web-access.md 的〈取一次 API〉），永遠先試 | 欄位缺席（≠ 世界裡不存在，見 Crossref 節） |
+| 需要 JS 渲染的頁 | 使用者自己 profile 的真 Safari 分頁，讀渲染後的節點（web-access.md 的〈讀渲染後的頁面〉） | 依賴使用者機器與登入態，無法 CI 化 |
+
+已量過、**不再走**的（量測紀錄，留著是為了說明為什麼只剩上面兩條）：
+
+| 工具 | 量到的失敗形狀 |
+|---|---|
+| 裸 HTTP（curl／WebFetch） | SPA 回 200 空殼——**狀態碼不是判準** |
+| 渲染瀏覽器（agent-browser Chromium） | 指紋防護（Incapsula 等）回擋截頁 |
+
+失敗都要記下**失敗的形狀**（空殼／擋截頁／渲染節流）。2026-09-01 那批量測時的做法是被擋就換工具往上升級；
+**2026-09-24 起被擋就是中止條款、整批停**（web-access.md），不換工具、不換來源。
 
 ## OpenAlex（API——目錄與摘要的第一站）
 
@@ -44,18 +56,17 @@
 | curl／裸抓 | HTTP **200** 但 Angular 空殼——判準不可用狀態碼 |
 | agent-browser（Puppeteer Chromium） | **Incapsula 擋截頁**：`Request unsuccessful. Incapsula incident ID: …` |
 | safari-browser CLI | 可過，但 `open` 必前景（干擾使用者）；未鎖分頁時 **front-tab 漂移**——實測探測讀到使用者自己開的網站 |
-| **osascript 專用縮小視窗（正解）** | 過 Incapsula、完整渲染、不佔前景；~9 秒/筆 |
+| osascript 專用縮小視窗 | 過 Incapsula、完整渲染、不佔前景；~9 秒/筆（縮小不影響渲染，實測） |
 
-**正解的形狀**（單一視窗、單一分頁，全程 osascript）：
+**現行取法**：照 web-access.md 的〈讀渲染後的頁面〉——在使用者自己 profile 開一個帶一次性
+fragment 的分頁、以 `--url-exact` 鎖定；同一分頁重用，逐筆把 `location.href` 設成帶新 fragment
+的網址導航，再探測渲染後的節點。上表 safari-browser 那一列的 front-tab 漂移是**未鎖分頁**時量到的，
+現行鎖法就是針對它。
 
-```applescript
--- 一次性：建專用視窗並縮小（縮小不影響渲染，實測）
-make new document with properties {URL:"about:blank"}
-set miniaturized of window id WID to true
--- 每筆：重用同一分頁導航 + 鎖定探測
-set URL of current tab of window id WID to "<doi-url>"
-do JavaScript "…" in current tab of window id WID
-```
+2026-09-01 那批用的是最後一列的 osascript 縮小視窗——它不經 safari-browser、不帶 profile 鎖，
+**自 #634 起不是本 skill 的取得路徑**，所以本檔不再附它的 AppleScript。**沒量過的兩件事**：
+`open --new-tab` 現在還是不是必前景（上表是 2026-09-01 的量測，本檔改寫時沒有重量），
+以及 ~9 秒/筆的節奏在現行路徑下是否成立。下面各條的判準與坑與工具無關，照舊有效。
 
 - **判準是渲染後的摘要節點**（`.abstract, [class*="abstract" i], #abstract`），
   不是狀態碼、不是 landing URL。
@@ -66,8 +77,8 @@ do JavaScript "…" in current tab of window id WID
   取樣太早拿到的是中繼站 URL，分類 `landing-failed` 前先確認等完跳轉。
 - **VPN 幫倒忙**：Incapsula 放行靠的是住宅 IP＋真 Safari 指紋的組合；資料中心
   出口更容易被擋，批次中途換 IP 還會斷 session token。
-- 節奏：151 筆、~9 秒/筆、單日跑完無封鎖（2026-09-01）。大批量先放慢
-  （Cauchy 抖動，同 iss-compute 的既有做法），IP 輪換是最後手段。
+- 節奏：151 筆、~9 秒/筆、單日跑完無封鎖（2026-09-01，osascript 路徑）。大批量先放慢
+  （Cauchy 抖動，做法見 web-access.md 的〈取一次 API〉段末的「節奏」），**不換 IP**——被擋就是中止條款。
 
 ## 通用紀律（跨站）
 
@@ -78,11 +89,13 @@ do JavaScript "…" in current tab of window id WID
    第一版腳本把所有記錄過的 DOI 都算完成，failed 永遠不會重試（實測踩到）。
 3. 結果檔用 `store-source` 存進內容定址的 sources/（digest 可引用、blob 不進
    git remote）。
-4. 批次結束關掉自己開的視窗／分頁——第一版累積了 79 個分頁在使用者的 Safari 裡。
+4. 批次結束處理自己開的分頁——第一版累積了 79 個分頁在使用者的 Safari 裡。現行做法是把
+   開過的分頁（profile 與網址）列給使用者（web-access.md 的〈其他〉；關分頁的指令沒有查證過）。
+5. 取得途中出現懷疑是自動化的訊號（含 Incapsula 擋截頁）：整批停，見 web-access.md。
 
 ## 誠實邊界
 
-- 第 4 級（真 Safari）**綁定使用者的機器與登入態**：無法 headless、無法 CI、
+- 真 Safari **綁定使用者的機器與登入態**：無法 headless、無法 CI、
   無法換機器重現。它是「量過之後不得不」的選擇，不是偏好。
 - 本檔的通過／被擋結論都是**當日快照**——防護規則會改版，隔月重跑前先用 1 筆
-  重驗升級階梯，不要直接引本檔的結論開全量。
+  重驗，不要直接引本檔的結論開全量。

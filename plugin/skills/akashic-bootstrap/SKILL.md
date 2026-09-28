@@ -90,6 +90,8 @@ akashic_graph(focus: …, depth: …)     # 鄰域圖，person 節點會出現
 
 兩份都記錄了實測的覆蓋率數字與失敗模式，動手前讀對應那份。
 
+**怎麼取**：兩份指南寫的端點網址都是要取的位址，**一律經 safari-browser 取**——程序（問 profile、分頁鎖定、插值前的形狀檢查、頁內 fetch、中止條款）在 [`references/web-access.md`](references/web-access.md)，不要改用 `curl` 或 WebFetch。這兩份指南涵蓋的取得裡，唯一的例外是 `scripts/crossref_match.py`，它自己直連 Crossref、不受中止條款管（work-sources.md 文末有寫）。
+
 ### 3. 驗證：換路徑，不是換門檻
 
 **相似度高不等於是同一個東西。** 提高信心的方法不是把單一訊號的門檻拉高，而是再走一條**路徑不同**的檢核——路徑不同，錯誤才不會一致地重複。

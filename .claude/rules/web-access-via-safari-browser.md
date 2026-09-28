@@ -34,11 +34,17 @@ safari-browser，這可以是整個專案預設的」。
   回傳的 id 就是請求的 id）。#617 校準時有一批讀到上一批的結果、結束碼全為 0
   （PsychQuant/safari-browser#190）。範例見 `plugins/akashic-discovery/skills/akashic-work-references/`。
 - **持久狀態變更先告知**：清 cache、註銷 service worker、改 cookie／storage 要先說明並取得同意。
+- **操作程序的位置**：本規則在 plugin 安裝處讀不到，所以 `plugin/` 的 skill 引用的是
+  `plugin/skills/akashic-bootstrap/references/web-access.md`——它只寫怎麼做（問 profile、鎖分頁、
+  形狀檢查、頁內 fetch），理由與例外清單留在這裡。`plugins/akashic-discovery/` 是另一個 plugin，
+  不共用檔案，`akashic-work-references` 的第 2 步自帶一份程序：**兩份程序描述的是同一件事，改鎖法或
+  中止條款的做法時要一起改**。
 
 ## 例外：可以不經 safari-browser 的取得指令（封閉列舉，只有一類，不得依性質相似類推第二類）
 
 1. **本規則成文前已存在的檔（grandfathered）**，逐檔列在下方〈既有檔〉。可以修 bug；不得新增
-   同類指令，也不得在新 skill 裡照抄。遷移由 #634 追蹤，改完一檔就從清單拿掉。
+   同類指令，也不得在新 skill 裡照抄。遷移由 #634 追蹤，改完一檔就從清單拿掉（2026-09-29
+   散文檔遷移完，剩下的三個各有阻塞原因，見下）。
 
 ## 不適用（同樣是封閉列舉，只有三類）
 
@@ -48,33 +54,43 @@ safari-browser，這可以是整個專案預設的」。
 3. **使用者本人在瀏覽器上的操作**——登入、授權、付費牆後的點擊。那是人的動作；skill 不代按
    登入或授權按鈕。
 
-## 既有檔（grandfathered，2026-09-24 量、2026-09-25 補量）
+## 既有檔（grandfathered，2026-09-24 量、2026-09-25 補量、2026-09-29 #634 遷移後重量）
 
 量法（2026-09-25 #617 verify 放寬——原量法只看 SKILL.md 與 references、不看 `scripts/`，也不認
-ORCID／doi.org，漏了 3 個會直連的檔）：
+ORCID／doi.org，漏了 3 個會直連的檔；2026-09-29 #634 加最後一段）：
 
 ```bash
 grep -rlE 'api\.(openalex|crossref)\.org|pub\.orcid\.org|api\.orcid\.org|https?://(dx\.)?doi\.org/|curl |WebFetch|urllib\.request|requests\.get|URLSession' \
-  plugin/skills plugins/*/skills | grep -vE '__pycache__|/tests/'
+  plugin/skills plugins/*/skills | grep -vE '__pycache__|/tests/' | xargs grep -F -L 'web-access.md'
 ```
 
-命中 13 個檔，其中 2 個不算：`akashic-fetch-fulltext/scripts/fetch-fulltext.sh`（只解析 doi.org 字串，取得
-走 safari-browser）與 `akashic-work-references/SKILL.md`（網址交給 safari-browser 開）。其餘 11 個：
+最後一段是 #634 加的：已遷移的檔仍會寫端點網址（那是**要取的位址**），所以只看網址與工具字樣的
+原量法在遷移之後照樣命中它們。含 `web-access.md` 指標的檔視為已遷移——操作程序在
+`plugin/skills/akashic-bootstrap/references/web-access.md`（問 profile、`--profile`＋`--url-exact` 鎖分頁、
+插值前的形狀檢查、頁內 fetch、中止條款）；規則寫在這裡，程序寫在那裡，兩處各說各的事。
 
-- `plugin/skills/akashic-bootstrap/references/person-sources.md`（ORCID）
-- `plugin/skills/akashic-bootstrap/references/work-sources.md`
-- `plugin/skills/akashic-bootstrap/scripts/crossref_match.py`（`urllib.request` 直連 Crossref）
-- `plugin/skills/akashic-disambiguate/SKILL.md`
-- `plugin/skills/akashic-disambiguate/references/ambiguity-traps.md`
-- `plugin/skills/akashic-fetch-fulltext/SKILL.md`
-- `plugin/skills/akashic-fetch-fulltext/scripts/calibrate_title_match.py`（`urllib.request` 直連 Crossref）
-- `plugin/skills/akashic-venue-works/references/site-access.md`
-- `plugin/skills/akashic-verify-person/SKILL.md`
-- `plugin/skills/akashic-verify-person/references/verification-traps.md`
-- `plugin/skills/akashic-verify-venue/SKILL.md`
+2026-09-29 命中 6 個檔，其中 3 個不算：`akashic-fetch-fulltext/scripts/fetch-fulltext.sh`（只解析 doi.org
+字串，取得走 safari-browser）、`akashic-work-references/SKILL.md`（它自己的操作程序，網址交給
+safari-browser 開）、`akashic-bootstrap/references/web-access.md`（程序本身，提到 `curl` 是在說不要用）。
+其餘 **3 個**：
 
-其中 `akashic-fetch-fulltext` 與 `akashic-verify-person` 已部分使用 safari-browser；命中的是仍寫著
-裸 URL 或其他路徑的段落。這張清單只減不增——「不增」指的是不得新增新的直連檔。2026-09-25 補列的 3 個檔在本規則成文前就存在，是第一次的量法漏掉的（沒掃 `scripts/`、不認 ORCID），補列是更正量測，不是放寬例外。
+- `plugin/skills/akashic-bootstrap/scripts/crossref_match.py`（`urllib.request` 直連 Crossref；移植成 `akashic` CLI 子命令由 #629 追蹤）
+- `plugin/skills/akashic-fetch-fulltext/scripts/calibrate_title_match.py`（同上，#629）
+- `plugin/skills/akashic-verify-venue/SKILL.md`（三源查詢段經 MCP／WebFetch 送出；它的鎖分頁契約待使用者裁決，#593）
+
+歷史：2026-09-25 同一個量法（沒有最後一段）命中 13 個檔，其中 2 個不算，其餘 11 個。#634 於 2026-09-29
+遷移了其中 8 個：`akashic-bootstrap` 的 `person-sources.md`、`work-sources.md`，`akashic-disambiguate` 的
+`SKILL.md`、`ambiguity-traps.md`，`akashic-fetch-fulltext` 的 `SKILL.md`，`akashic-venue-works` 的
+`site-access.md`，`akashic-verify-person` 的 `SKILL.md`、`verification-traps.md`。
+
+**這個量法有兩個看不到的東西**（#634 逐檔讀出來的，不要當成量法涵蓋了）：
+
+1. **沒有網址或工具字樣的寫法**：`site-access.md` 的 osascript 專用視窗、fetch-fulltext SKILL.md 的
+   「一般 HTTP 下載」與 `publishers.md` 的一列、venue-works SKILL.md 階段 A 的 `works?filter=…`。
+   它們是逐檔讀才找到的。
+2. **指標是必要條件、不是充分條件**：一個檔同時有 `web-access.md` 的指標與殘留的直連指令，量法看不到。
+   所以已遷移的檔裡仍出現的 `curl`／WebFetch 字樣要逐條讀過——2026-09-29 逐條讀過，全部是「不要用」
+   的敘述或量測紀錄（說明那條路被擋過），不是取得指令。
 
 ## 為什麼
 
@@ -94,3 +110,4 @@ grep -rlE 'api\.(openalex|crossref)\.org|pub\.orcid\.org|api\.orcid\.org|https?:
 |---|---|---|
 | 2026-09-24 | #617 規劃時原打算照其他 skill 的慣例，把 OpenAlex 取得寫成 `curl` 指令；使用者指出 `Sources/` 本來就沒有 HTTP client，應仰賴 safari-browser 並設為專案預設 | 成文為本規則；`akashic-work-references` 從第一版起就經 safari-browser；既有 8 檔列為 grandfathered（#634） |
 | 2026-09-25 | #617 verify 指出三件事：規則推薦的 `--url` 鎖法會跨 profile 取分頁；grandfathered 清單的量法漏了 `scripts/` 與 ORCID（3 個直連檔未列）；新 skill 的建檔交給 bootstrap，而 bootstrap 仍直連 Crossref | 鎖法改為 `--profile`＋`--url-exact`＋一次性 fragment；量法放寬並補列 3 檔；SKILL 寫明 bootstrap 那段不在其中止條款範圍內（#634） |
+| 2026-09-29 | #634 遷移 8 個散文檔時，逐檔讀出量法看不到的取得路徑（見〈既有檔〉的兩個盲區）；讀 `crossref_match.py` 發現它的錯誤處理不是中止條款：查詢階段的請求失敗讓整支腳本以未捕捉的例外中止、反向驗證把錯誤寫進結果後繼續下一筆。另見 `fetch-fulltext.sh` 以視窗編號＋分頁位置鎖分頁（#613 的作法，`publishers.md` 記著理由），與上面的鎖法不同——它取得走 safari-browser、不在清單內，#634 沒有處理 | 8 檔改為指向 `web-access.md`；量法加「含指標即已遷移」與盲區說明；剩下 3 個各有阻塞原因（#629／#593），照實保留；`fetch-fulltext.sh` 的鎖法差異留給使用者裁決 |

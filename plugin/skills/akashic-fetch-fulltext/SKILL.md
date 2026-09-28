@@ -40,6 +40,7 @@ description: 取得 Akashic 條目的全文 PDF 並存進 store——EndNote「F
 1. **確認節奏工具**：`safari-browser wait --help` 有 `--jitter` 就用 `safari-browser wait --jitter cauchy`；沒有就用本 skill 的 `scripts/jitter.py`。**不要**用 safari-browser SKILL.md 舊的 `max(2, …)` 一行公式——它把 22.3% 的間隔堆在 2.0 秒（PsychQuant/safari-browser#182 的 10⁶ 次模擬）。
 2. **選視窗**：`safari-browser documents --json` 列出各視窗的 `profile`。只在**使用者自己的** profile 的視窗開分頁；其他 profile 是別人的 session。拿不準就問。
 3. **先載 `safari-browser` skill** 的 tab-locking 段（全域 CLAUDE.md 要求）。
+4. **第 2 步的 OpenAlex 查詢**（頁內 fetch）先照 [web-access.md](../akashic-bootstrap/references/web-access.md) 的〈開始前〉問 profile、建暫存目錄。
 
 ## 流程（逐篇，不平行）
 
@@ -49,8 +50,11 @@ description: 取得 Akashic 條目的全文 PDF 並存進 store——EndNote「F
 
 ### 2. 先找合法開放版本
 
-以 DOI 查 OpenAlex：`https://api.openalex.org/works/doi:<DOI>` 的 `best_oa_location`（**以 DOI 查單筆**；不要用 OpenAlex 關鍵字搜尋找作品，見 akashic-bootstrap 的 work-sources.md）。開放版本若是 OSF／機構典藏的直接 PDF，一般 HTTP 下載即可（2026-09-23：三份 OSF preprint 與一份 UvA 典藏直接下載成功）。
-出版商頁面即使標為開放取用，headless 下載也可能被拒（2026-09-23：SAGE、Wiley、Annual Reviews 對 curl 回 403，PMC 回防爬蟲頁）——那時走下一步。
+以 DOI 查 OpenAlex：`https://api.openalex.org/works/doi:<DOI>` 的 `best_oa_location`（**以 DOI 查單筆**；不要用 OpenAlex 關鍵字搜尋找作品，見 akashic-bootstrap 的 work-sources.md）。**這一步的取得經 safari-browser**：程序、鎖分頁與插值前的形狀檢查見 [web-access.md](../akashic-bootstrap/references/web-access.md)，是頁內 fetch，不是第 3 步的腳本；中止條款以本檔為準。
+
+有開放版本 → 第 3 步的 `--landing` 用它的 `landing_page_url`；沒有 → 用 `https://doi.org/<DOI>`。**不另走一般 HTTP 下載**（不用 `curl`、WebFetch）：2026-09-23 有三份 OSF preprint 與一份 UvA 典藏是那樣下載成功的（publishers.md 該列），但那是這條規矩之前的觀察，**經第 3 步的 Safari 路徑取這幾站沒有量過**——腳本找不到 PDF 連結會結束碼 3，照該碼處理。只有 `pdf_url`、沒有 `landing_page_url` 時停下來問使用者，**不要**把 PDF 網址當 `--landing`：讀碼（沒有實跑）——腳本讀不到 Safari 的 PDF 檢視器，會把它當「頁面讀不到、無從檢查」而以結束碼 6 整批停。
+
+出版商頁面即使標為開放取用，headless 取得也可能被拒（2026-09-23：SAGE、Wiley、Annual Reviews 對 `curl` 回 403，PMC 回防爬蟲頁）——那是量測紀錄，說明為什麼取得一律走使用者的 Safari；在 Safari 裡被拒是中止條款的訊號。
 
 ### 3. 用使用者的 Safari 下載
 

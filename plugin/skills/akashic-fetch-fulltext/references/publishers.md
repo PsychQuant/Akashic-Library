@@ -18,7 +18,7 @@
 | Annual Reviews（annualreviews.org）| 「download PDF」是 `href="#"` 的按鈕；第一個 `.pdf` 連結是**補充資料** | 按鈕外層是 POST 表單 `form.ft-download-content__form--pdf`，以表單送出 | 2026-09-23，1 篇 |
 | Oxford Academic（academic.oup.com）| 頁內 fetch PDF 回 403「Just a moment…」（Cloudflare）| **中止條款：整批停**（結束碼 6）。2026-09-23 當時是改找 PMC 作者稿繼續——那是在被懷疑之後換路，2026-09-24 起不再這樣做 | 2026-09-23，1 篇 |
 | PubMed Central（pmc.ncbi.nlm.nih.gov）| 頁內 fetch PDF 回約 1.8 KB 的防爬蟲驗證頁 | **事先**用 `--prime <PDF URL>`：像人一樣先在分頁開一次 PDF 網址，再從文章頁取。這是預先的一般瀏覽，不是被擋後的繞路；**prime 過仍出現驗證頁 → 中止條款，整批停** | 2026-09-23，1 篇成功 |
-| OSF／PsyArXiv、機構典藏（UvA）| — | 一般 HTTP 下載即可，不需 Safari | 2026-09-23，4 篇成功 |
+| OSF／PsyArXiv、機構典藏（UvA）| — | 2026-09-23 以一般 HTTP 下載成功；**這條路自 #634 起不是本 skill 的取得方式**（一律經 Safari），經腳本取這幾站沒有量過——遇到照結束碼處理，新量到的寫在這一列 | 2026-09-23，4 篇成功（一般 HTTP 下載）|
 
 ## 腳本已內建、不必每次想起的陷阱
 

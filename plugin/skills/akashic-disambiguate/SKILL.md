@@ -102,6 +102,8 @@ C-H Chen         vs  Chun Houh Chen
 
 ### 3. 庫內不夠時才往外
 
+**外部取得一律經 safari-browser**：程序、分頁鎖定、插值前的形狀檢查與中止條款見 [`web-access.md`](../akashic-bootstrap/references/web-access.md)。下面的網址是**要取的位址**；DOI 先照該檔的形狀表驗過才插進去。**遇到中止訊號整批停**，不是跳過這一列換下一列——歧義列是成批處理的（本 skill 的方法論來源 #384 是 100 筆的批次），同一站會被連續請求。
+
 依序（每源記 URL ＋ 取得日期）：
 
 1. **論文自己的登記機構**——`https://api.openalex.org/works/doi:<doi>`，取 `authorships[i].raw_affiliation_strings`

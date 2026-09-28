@@ -2,6 +2,8 @@
 
 補完一筆論文需要的東西通常是：DOI、卷期頁、作者機構。三者的來源不同，覆蓋率差很多。
 
+本檔寫的端點網址都是**要取的位址**，一律經 safari-browser 取——程序、分頁鎖定與中止條款見 [web-access.md](web-access.md)。例外只有文末〈附帶的腳本〉那一支，它自己直連。
+
 ## 決策順序
 
 ```
@@ -46,7 +48,7 @@
 
 **識別碼例外的判準本身，此處刻意不重述。** 它住在 Akashic repo 的 `.claude/rules/identity-is-judged-not-matched.md`（**該 repo 為 private，無存取權者取不到全文**）。重述過一次，被逐句比對後找出走樣，且往同一個方向錯：把原文對**某一條要求**的豁免寫成無條件的充分性，並丟掉原文唯一帶量測數字的但書。（**此處不寫確切筆數**——那個計數只存在於一則讀者多半取不到的 verify comment，寫一個他無法重跑的數字違反被引用那條規則的第 2 題。）讀不到時的出路是**明說讀不到**、請有存取權的人補——不是憑記憶重寫一份縮寫版。
 
-**不論那條例外怎麼說，下方「反向驗證（寫入前必做）」不因識別碼相等而豁免。** 這句寫在這裡是因為上一版的重述就夾在這兩道規定中間，而它讀起來像是允許跳過——本檔第 64–74 行整張表就是在講 Crossref 會回傳三種「像但不是」的記錄。
+**不論那條例外怎麼說，下方「反向驗證（寫入前必做）」不因識別碼相等而豁免。** 這句寫在這裡是因為上一版的重述就夾在這兩道規定中間，而它讀起來像是允許跳過——下方〈Crossref 會回傳三種「像但不是」的記錄〉那整張表就是在講這件事。（這裡原本寫行號「第 64–74 行」，本檔上方加段落後行號會漂，改指小節。）
 
 追蹤：Akashic-Library#393、#394。
 
@@ -59,7 +61,7 @@ https://api.crossref.org/works?query.bibliographic=<標題>&rows=5&filter=type:j
 https://api.crossref.org/works/<doi>
 ```
 
-免費、免金鑰。請帶 `User-Agent: <你的工具>/<版本> (mailto:<你的信箱>)`——Crossref 用它區分禮貌流量，會給比較好的服務。請求之間留 0.3–0.6 秒。
+免費、免金鑰。Crossref 以 `mailto` 區分禮貌流量，會給比較好的服務。頁內 `fetch` 送的是 Safari 自己的 User-Agent，所以信箱放進查詢字串：`&mailto=<你的信箱>`（Crossref 說明列的標示方式之一，另一種是 User-Agent；這個參數在頁內 fetch 下的效果沒有量過）。請求之間的節奏見 web-access.md。
 
 **回傳的欄位**：`DOI` `title` `container-title` `volume` `issue` `page` `published` `type` `author`。
 
@@ -91,7 +93,7 @@ https://api.crossref.org/works/<doi>
 
 ### 反向驗證（寫入前必做）
 
-拿到 DOI 後，用 `https://api.crossref.org/works/<doi>` 回查，比對標題／期刊／年份／type。方向與查詢階段相反，所以「查詢時選錯候選」這類錯誤不會一致地重複。
+拿到 DOI 後，經 safari-browser 取 `https://api.crossref.org/works/<doi>` 回查，比對標題／期刊／年份／type。方向與查詢階段相反，所以「查詢時選錯候選」這類錯誤不會一致地重複。
 
 實測 97 筆有 1 筆未過，人工核對後發現是 WoS 標題內嵌了更正註記：
 
@@ -190,25 +192,26 @@ query=TITLE:"<片段A>" AND TITLE:"<片段B>"
 
 ## 非生醫論文的機構：一條有明確順序的路
 
-Europe PMC 不收的那些（統計、數學、CS、環境），要一條一條試。以下順序來自三組獨立作業各自撞出來的結果——**它們互不知情卻收斂到同一組結論**，所以這個順序可信：
+Europe PMC 不收的那些（統計、數學、CS、環境），要一條一條試。以下順序來自三組獨立作業各自撞出來的結果——**它們互不知情卻收斂到同一組結論**，所以這個順序可信。每一條都經 safari-browser：API 以頁內 fetch、頁面讀 DOM（web-access.md），PDF 交給 akashic-fetch-fulltext（它的下載也經 safari-browser）：
 
 | 順位 | 路徑 | 實測 |
 |---:|---|---|
 | 0 | **先用 Unpaywall 問「有沒有合法免費版本」** | `https://api.unpaywall.org/v2/<doi>?email=<你的信箱>`。`is_oa=false` 且 `oa_locations` 為空 → **沒有任何開放版本**，別再找 PDF，直接跳到順位 2 |
-| 1 | **出版商的 open-access PDF**（`link.springer.com/content/pdf/<doi>.pdf` 之類） | 最可信——讀到的就是印刷版的作者註腳 |
-| 2 | **真的瀏覽器 session**（macOS 用 `safari-browser`） | **這條路在 headless 工具全滅時仍然通**。見下方 |
-| 3 | **arXiv 預印本 PDF** | 數學／統計論文常有，含完整機構與地址。**但那是預印本版本**，與出版版本可能有差異，要標明 |
+| 1 | **出版商的 open-access PDF**（`link.springer.com/content/pdf/<doi>.pdf` 之類；取 PDF 走 akashic-fetch-fulltext） | 最可信——讀到的就是印刷版的作者註腳 |
+| 2 | **出版商頁的 DOM**（在 safari-browser 的分頁裡讀，web-access.md 的〈讀渲染後的頁面〉） | **這條路在 headless 工具全滅時仍然通**。見下方 |
+| 3 | **arXiv 預印本 PDF**（取法同順位 1） | 數學／統計論文常有，含完整機構與地址。**但那是預印本版本**，與出版版本可能有差異，要標明 |
 | 4 | **DOAJ API**（開放取用的 Elsevier 文章） | Elsevier 自己餵的 metadata feed，離印刷版一步之遙 |
 | 5 | **OpenAlex `raw_affiliation_strings`** | 最後手段。見下方的重要區分 |
 
 ### 真的瀏覽器 session 能過 Cloudflare
 
-headless 工具（WebFetch、curl 不論什麼 UA、r.jina.ai proxy）對 ScienceDirect 全部 403；**同一個 URL 在真的 Safari 分頁裡正常載入**——因為那是帶著使用者 cookie 與（可能的）機構訂閱的真實 session。
+headless 工具（WebFetch、curl 不論什麼 UA、r.jina.ai proxy）對 ScienceDirect 全部 403；**同一個 URL 在真的 Safari 分頁裡正常載入**——因為那是帶著使用者 cookie 與（可能的）機構訂閱的真實 session。這是本 plugin 一律經 safari-browser 的理由之一；那幾個工具只留在這裡當量測紀錄，不是可選的路徑。
 
 更好的是：**ScienceDirect 把出版商自己的結構化機構資料嵌在頁面的 `<script>` JSON 裡**，包含逐字的 `source-text`：
 
+在出版商頁的分頁裡執行：照 web-access.md 的〈讀渲染後的頁面〉鎖定分頁、查過中止訊號，再以 `safari-browser js "${LOCK[@]}" "<下面這段>"` 跑（結果只有幾筆字串，不需要 `--large`）。
+
 ```js
-// 在該分頁執行
 for (const s of document.querySelectorAll("script")) {
   const t = s.textContent || "";
   if (!t.includes("source-text")) continue;
@@ -227,7 +230,7 @@ Springer 則在 DOM：`[data-test='author-affiliation']` / `.c-article-author-af
 
 | 來源 | 實測 |
 |---|---|
-| ScienceDirect / Elsevier 網頁（headless） | **全路徑被 Cloudflare 擋**——WebFetch、帶瀏覽器 UA 的 curl、帶 Googlebot UA 的 curl、r.jina.ai proxy 全部 403。**不要反覆重試**，改走真瀏覽器 |
+| ScienceDirect / Elsevier 網頁（headless） | **全路徑被 Cloudflare 擋**——WebFetch、帶瀏覽器 UA 的 curl、帶 Googlebot UA 的 curl、r.jina.ai proxy 全部 403。**不要反覆重試**；本 plugin 一律走 safari-browser，在那裡被擋就是中止條款 |
 | AMS 的文章頁 | JS 渲染的 SPA，headless 抓到的是空殼 |
 | PubMed E-utilities（非生醫論文） | 統計／數學／CS／環境期刊實測 0/4 收錄，與 Europe PMC 一致 |
 | 出版商頁面的 `citation_author_institution` meta | 0/4（Springer、Elsevier、AMS、Cambridge 抽樣）——這個 Google Scholar 標準多數出版商沒實作 |
@@ -301,4 +304,6 @@ Taiwan International Graduate Program, Academia Sinica
 
 ## 附帶的腳本
 
-`scripts/crossref_match.py` 實作了上面的比對＋反向驗證流程，可直接用或當範本改。它讀一份 `[{citekey, title, journal, year}]` 的 JSON，輸出每筆的判定（`confident` / `probable` / `needs_review`）與候選明細。
+`scripts/crossref_match.py` 實作了上面的比對＋反向驗證流程。它讀一份 `[{citekey, title, journal, year}]` 的 JSON，輸出每筆的判定（`confident` / `probable` / `needs_review`）與候選明細。
+
+**它自己以 `urllib.request` 直連 Crossref，不經 safari-browser，也不受 web-access.md 的中止條款管**——2026-09-29 讀碼：查詢階段的請求失敗（含 403／429）不會被接住，整支腳本以未捕捉的例外中止，而結果檔在迴圈跑完之後才寫，中止時已跑完的筆數只留在 stderr 的進度行；審稿報告後綴那一步吞掉例外，反向驗證把錯誤寫進該筆的 `reverse.error` 後繼續請求下一筆。兩者都不分辨「被擋」與「其他失敗」。它是 Akashic-Library web-access 規則的 grandfathered 例外，移植成 `akashic` CLI 子命令由 #629 追蹤。在那之前：比對邏輯（門檻、正規化、三類陷阱的繞行）可以當範本讀；要執行它，先告訴使用者這一段不在中止條款範圍內，輸出裡任何一筆帶 HTTP 錯誤就照中止條款停，不重跑。

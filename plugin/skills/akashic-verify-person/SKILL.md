@@ -55,6 +55,8 @@ CV」，**不是**「這篇裡的**每個** literal 都是他」。同一篇裡�
 
 依序而非並行，因為前一源的結果會縮小後一源的查詢（例如 Europe PMC 找到的 ORCID iD 直接餵給第 2 步）。
 
+**外部取得一律經 safari-browser**：程序、分頁鎖定、插值前的形狀檢查與中止條款見 [web-access.md](../akashic-bootstrap/references/web-access.md)。下表與下方的網址是**要取的位址**；姓名是自由文字，先照該檔百分比編碼再插進網址。**取證據時遇到中止訊號整批停**——不是這個配對查不出來、換下一個配對，也不是換一源繼續：那是在繞偵測。停下時已查到的來源與取得日期照樣寫進報告。
+
 **先看領域**：Europe PMC 只涵蓋生醫（統計／數學／CS 期刊實測 0/4 收錄，見 [work-sources.md](../akashic-bootstrap/references/work-sources.md)）——目標領域非生醫時，第 1 源**直接改走 OpenAlex（第 3 源）**，其餘順序不變。
 
 | # | 來源 | 查什麼 | 端點 |
@@ -62,7 +64,7 @@ CV」，**不是**「這篇裡的**每個** literal 都是他」。同一篇裡�
 | 1 | **Europe PMC** | 這個名字的著作軌跡（機構欄隨年份的變化）。**生醫限定**（見上） | `https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=AUTH:"<姓名>"&resultType=core&format=json`——**必帶 `resultType=core`**：預設 lite 不含 authorList／機構欄（見 work-sources.md 的 Europe PMC 段） |
 | 2 | **ORCID** | employment（自報、只列現職——見 person-sources.md）。**works 清單預設不是自報**，見下方〈ORCID 的著作清單通常是機器灌的〉 | 見 akashic-bootstrap 的 [person-sources.md](../akashic-bootstrap/references/person-sources.md)（端點、暱稱陷阱、employment 不回填歷史） |
 | 3 | **OpenAlex** | 隸屬**史**（依著作聚合的 institution 時間軸——ORCID 缺歷史時的主要救援） | `https://api.openalex.org/authors?search=<姓名>`；機構過濾用 institution ID 不用字串（見 traps） |
-| 4 | **出版商頁** | 逐作者機構綁定（破 Crossref 扁平陣列錯位的唯一辦法） | 論文 DOI 落地頁；同團隊姊妹作可佐證。headless 抓取常 403（ScienceDirect 實測全滅）——**不要反覆重試，改真瀏覽器**（safari-browser；見 work-sources.md 的出版商頁段） |
+| 4 | **出版商頁** | 逐作者機構綁定（破 Crossref 扁平陣列錯位的唯一辦法） | 論文 DOI 落地頁；同團隊姊妹作可佐證。出版商頁一律在 safari-browser 的分頁裡讀（web-access.md 的〈讀渲染後的頁面〉，取法見 work-sources.md 的出版商頁段）；headless 工具被 403（ScienceDirect 實測全滅）是量測紀錄，不是備選路徑 |
 
 ### 什麼算「決定性」（封閉列舉——現有 3 類，不得依性質相似類推第 4 類）
 
@@ -97,7 +99,7 @@ Scopus／Crossref 那些條目是**按名字做的消歧結果**——拿它去�
 所以**逐篇的機構（`authorships[i].institutions` 與 `raw_affiliation_strings`）是可信的，
 而作者實體上掛的 ORCID 不是**：前者來自論文，後者來自 OpenAlex 自己的消歧。
 
-實用查法（有 DOI 時最快）：
+實用查法（有 DOI 時最快；經 safari-browser 取，DOI 先驗形狀）：
 
 ```
 https://api.openalex.org/works/doi:<DOI>?mailto=<你的信箱>

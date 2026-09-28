@@ -166,6 +166,36 @@ final class OrgJudgeLegTests: XCTestCase {
         XCTAssertEqual(StoreHealthProbe.contradictions(store), 0)
     }
 
+    /// R4 verify DA（真 binary）：反方向——先逐篇判定一個拼法、再否決同一配對的另一個拼法，曾寫出 confirmed＋rejected 矛盾對。
+    /// reject 腿（MCP 逐 id）對已確認的配對（正規化鍵）略過並具名。
+    func testRejectingAVariantOfAConfirmedPairingIsSkipped() throws {
+        try org("as", "Sinica")
+        var e = Entry(id: UUID(), citekey: "ck2020", type: .periodicalArticle, title: "T",
+                      authors: [.literal("{Sinica}"), .literal("{SINICA}")], date: "2020")
+        e.fields = [:]
+        try store.writeEntry(e)
+        _ = try service.resolveOrganizations(apply: nil, judge: ["ck2020[0]::Sinica@as=論文署名"])
+        let out = json(try service.resolveOrganizations(apply: nil, reject: ["ck2020[1]::SINICA"]))
+        XCTAssertEqual((out["rejected"] as? [String])?.count ?? -1, 0, "\(out)")
+        XCTAssertEqual((out["skippedConfirmed"] as? [[String: Any]])?.count, 1, "\(out)")
+        XCTAssertEqual(StoreHealthProbe.contradictions(store), 0)
+    }
+
+    /// R4 verify Codex：judge 的否決略過以正規化鍵比對——歧義條目裡，對其中一個 org 否決過的配對以大小寫變體判給它，略過。
+    func testJudgeSkipsARejectedPairingThroughACaseVariant() throws {
+        try org("as", "Sinica")
+        var e = Entry(id: UUID(), citekey: "ck2020", type: .periodicalArticle, title: "T",
+                      authors: [.literal("{Sinica}"), .literal("{SINICA}")], date: "2020")
+        e.fields = [:]
+        try store.writeEntry(e)
+        _ = try service.resolveOrganizations(apply: nil, reject: ["ck2020[0]::Sinica"])
+        try org("iss", "Sinica")   // 讓 {SINICA} 成為歧義條目 {as, iss}（歧義的 orgKeys 不過濾否決）
+        let out = json(try service.resolveOrganizations(apply: nil, judge: ["ck2020[1]::SINICA@as=論文署名"]))
+        XCTAssertEqual((out["judged"] as? [[String: Any]])?.count ?? 0, 0, "\(out)")
+        XCTAssertTrue((((out["skipped"] as? [[String: Any]])?.first?["why"] as? String) ?? "").contains("已否決過"), "\(out)")
+        XCTAssertEqual(StoreHealthProbe.contradictions(store), 0)
+    }
+
     /// R2 verify DA：內容閘之外還有 #631 的目的檔檢查。legacy 佈局的 entry 未被 git 追蹤時，entry 的寫入會被拒——
     /// 那要在任何一筆落盤之前發生，person 不得先寫。
     func testDestinationChecksRunBeforeAnyWrite() throws {

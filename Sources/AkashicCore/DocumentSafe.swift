@@ -20,7 +20,7 @@ import Foundation
 /// ## 判準：只擋危險字元，不碰語法
 ///
 /// 跳脫的集合是 `UnsafeToEmitScalar.escapesInDocument`——輸出閘的同一份性質（#569），扣掉文件的正當內容
-/// （非 U+0020 的空白、SHY、私用區、ZWJ／ZWNJ），加上 XML 不收的 noncharacter；另外保留反斜線（上面的理由）
+/// （Zs 即非 U+0020 的空白、SHY、私用區、ZWJ／ZWNJ；變體選擇子不在其中，理由見該函式），加上 noncharacter；另外保留反斜線（上面的理由）
 /// 與 TAB、LF（文件的結構）。先前這裡是一張手抄的列舉（C0／C1／DEL、LS/PS、bidi、方向標記、BOM），#569 把輸出閘
 /// 改成性質之後它沒有跟著改，TAG 字元、ZWSP 經 `akashic_export`／`akashic_graph` 原樣進 LLM context
 /// （#569 R1 verify 三席同指）；R1 改接 `escapesInDisplay`，又把 NBSP、U+3000、SHY 在 `export-bib > refs.bib`
@@ -65,9 +65,10 @@ import Foundation
 /// 「截斷一份文件」永遠產生一份壞掉的文件。所以尺寸的處置只有兩種：不設限
 /// （CLI stdout——使用者自己要的），或**拒絕**（MCP——見 `AkashicService.export`）。
 /// 不存在「截一半還能用」的中間選項。
-/// `forLLM`：輸出回到 LLM context（MCP `akashic_export` 的 bib、`akashic_graph`）時為 true——改用 `escapesInLLMDocument`
+/// `forLLM` **沒有預設值**（R4 verify：預設 false 會讓日後回到 LLM 的呼叫端默默拿到較寬的集合）。
+/// 輸出回到 LLM context（MCP `akashic_export` 的 bib、`akashic_graph`）時為 true——改用 `escapesInLLMDocument`
 /// （人可讀輸出的集合加 noncharacter），因為扣掉排版字元的理由（下游是 TeX／XML、標記解不回來）對 LLM 不成立（#569 R3 verify）。
-public func documentSafe(_ s: String, forLLM: Bool = false) -> String {
+public func documentSafe(_ s: String, forLLM: Bool) -> String {
     var out = String.UnicodeScalarView()
     out.reserveCapacity(s.unicodeScalars.count + 16)
     for u in s.unicodeScalars {

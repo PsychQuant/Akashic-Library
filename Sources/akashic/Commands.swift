@@ -976,7 +976,7 @@ struct ResolveOrganizations: ParsableCommand {
     /// 選取機制：--reject 對收窄後的候選寫 verdict，且**必須**帶收窄條件——
     /// 全庫盲掃否決是把一次判斷放大成批次動作。
     @Flag(name: .long,
-          help: "否決收窄後的候選（寫 resolution-rejected verdict 到被判定的 organization；必須帶 --holder / --org）")
+          help: "否決收窄後的候選（寫 resolution-rejected verdict 到被判定的 organization；必須帶 --holder / --org）。那個 org 已確認過同一配對（含大小寫、空白、連字號變體）的候選略過並列出——否決另一個拼法會留下矛盾對（#647 R4）")
     var reject = false
 
     /// 查過、判不出來（change `org-undecided-leg`，#643）。
@@ -990,7 +990,7 @@ struct ResolveOrganizations: ParsableCommand {
 
     /// 逐篇判定（#647）：CLI 在此之前沒有逐 id 的歸戶，查過未決的候選被篩選式 --apply 排除後只能走 MCP。
     @Option(name: .long, parsing: .upToNextOption,
-            help: "逐篇判定（可重複）：<列表的 id>@<orgKey>=理由。id 的解析同 --undecided（歧義條目也收，可選其中一個 org）。把那一列歸戶到 orgKey，並寫一筆 org-judged 層級的 confirmed verdict，理由進記錄（必填、≤ 4,096 位元組）；已歸戶而理由存不進去時（同一配對已有理由不同的逐篇判定——verdict 不帶作者位索引；或 store format < 19 已有提名層判定），那一列印 ⚠ 說明原因。查過未決的候選也可以這樣歸戶。寫入前整個寫入集合先驗，任一筆不過零寫入。輸入錯整批拒絕、零寫入；citekey 重複的 work、上級機構判給自己或會成環、那個 org 已否決過這個配對、列表過期，該筆略過並具名。單獨呼叫，不與 --apply／--reject／--undecided／--holder／--org 組合")
+            help: "逐篇判定（可重複）：<列表的 id>@<orgKey>=理由。id 的解析同 --undecided（歧義條目也收，可選其中一個 org）。把那一列歸戶到 orgKey，並寫一筆 org-judged 層級的 confirmed verdict，理由進記錄（必填、≤ 4,096 位元組）；已歸戶而理由存不進去時（同一配對已有理由不同的逐篇判定——verdict 不帶作者位索引；或 store format < 19 已有提名層判定），那一列印 ⚠ 說明原因。查過未決的候選也可以這樣歸戶。寫入前整個寫入集合先驗，任一筆不過零寫入。輸入錯整批拒絕、零寫入；citekey 重複的 work、上級機構判給自己或會成環、判給歧義條目裡已否決過這個配對的 org、列表過期，該筆略過並具名（候選列上已否決配對的其他拼法不再列出——拿它的 id 是輸入錯）。單獨呼叫，不與 --apply／--reject／--undecided／--holder／--org 組合")
     var judge: [String] = []
 
     /// `--judge` 的結果（#647）。service 回來的字串已消毒；一筆都沒判成且有略過時非零結束（同 --undecided）。
@@ -1240,8 +1240,15 @@ struct ResolveOrganizations: ParsableCommand {
             let orgByKey = Dictionary(load.organizations.map { ($0.key, $0) },
                                       uniquingKeysWith: { a, _ in a })
             var grouped: [String: Organization] = [:]
+            var skippedConfirmed: [OrgResolutionCandidate] = []
             for c in candidates {
                 guard var o = grouped[c.orgKey] ?? orgByKey[c.orgKey] else { continue }
+                // 那個 org 已確認同一配對（正規化鍵）→ 略過並具名，不寫出矛盾對（#647 R4 verify；MCP 的 reject 腿同一個判準）
+                if OrgResolver.confirmedPairingsNormalized(o).contains(OrgResolver.normalizedRejection(ResolutionPairing(
+                    holderKind: pairingKind(c.holder), holder: c.holder.key, literal: c.literal, judgedKey: c.orgKey))) {
+                    skippedConfirmed.append(c)
+                    continue
+                }
                 // appendIfAbsent：同 holder 兩段同名 affiliation 產出兩筆相同候選時，
                 // verdict 只落一筆——計數不灌水（verify F(a)）
                 ResolutionLedger.appendIfAbsent(ResolutionLedger.record(
@@ -1263,8 +1270,14 @@ struct ResolveOrganizations: ParsableCommand {
                 for (k, why) in failed { print("  ✗ org \(displaySafeInvisible(k, max: 200)) — \(displaySafeClipOnly(why, max: 4_096))") }   // display-safe-exempt: why 已消毒（displaySafeError 產出，R30），只截
             }
             _ = try LibraryIndex(store: store).rebuild()
+            if !skippedConfirmed.isEmpty {
+                print("略過 \(skippedConfirmed.count) 筆：organization 已確認過同一配對（含大小寫、空白、連字號變體），否決另一個拼法會留下矛盾對：")   // display-safe-exempt: Int
+                for c in skippedConfirmed {
+                    print("  \(displaySafe(c.holder.key, max: 200))「\(displaySafe(c.literal, max: 200))」 → \(displaySafe(c.orgKey, max: 200))")
+                }
+            }
             if failed.isEmpty {
-                print("✓ 否決 \(candidates.count) 筆配對、改寫 \(wrote) 個 organization、index 已重建")
+                print("✓ 否決 \(candidates.count - skippedConfirmed.count) 筆配對、改寫 \(wrote) 個 organization、index 已重建")   // display-safe-exempt: Int
             } else {
                 print("⚠ 部分完成：改寫 \(wrote) 個 organization、\(failed.count) 個失敗、index 已重建")
                 throw ExitCode(1)
@@ -1626,7 +1639,7 @@ struct ExportBib: ParsableCommand {
             // 常態欄位，4000 上限會把它截成大括號不閉合的無效 .bib，且靜默。
             // 截斷一份文件永遠產生壞掉的文件；終端的量由 store 大小自然界定，
             // 而那是使用者自己要的。MCP 側因為下游是 LLM context，改為拒絕。
-            print(cslJson ? documentSafeJSON(content) : documentSafe(content), terminator: "")
+            print(cslJson ? documentSafeJSON(content) : documentSafe(content, forLLM: false), terminator: "")
         }
     }
 }

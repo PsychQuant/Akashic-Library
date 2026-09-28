@@ -205,7 +205,7 @@ final class ExportBoundaryTests: XCTestCase {
 
     /// **R2／R3 verify**：兩種文件出口、兩個集合。MCP 的 bib 與 graph 回到 LLM context，照人可讀輸出逃脫排版字元（SHY 在那裡是
     /// 隱藏通道）；檔案與終端出口逐位元組保留它們（CLI 那支釘住）。graphml 另逃 noncharacter（XML 1.0 不收 U+FFFF）。
-    func testDocumentExitsKeepTypographicContentAndStayValidXML() throws {
+    func testLLMDocumentExitsEscapeTypographyAndGraphMLStaysValidXML() throws {
         let content = "Exact coverage of\u{00A0}confidence intervals\u{3000}試驗 em\u{00AD}pirical n\u{2009}=\u{2009}234 造\u{E000}字"
         var e = Entry(id: UUID(), citekey: "typo2020", type: .periodicalArticle, title: content)
         e.date = "2020"
@@ -226,13 +226,20 @@ final class ExportBoundaryTests: XCTestCase {
     /// CLI `export-bib` 的預設 stdout 同一件事（真 binary）。
     func testCLIStdoutKeepsTypographicContent() throws {
         try CLIFixture.requireBinary()
-        // NBSP、U+3000、SHY、私用區造字、CJK IVS（葛＋VS17）——檔案與終端出口的正當內容（R2／R3 verify）
-        let content = "A\u{00A0}B\u{3000}C\u{00AD}D 造\u{E000}字 \u{845B}\u{E0100}"
+        // NBSP、U+3000、SHY、私用區造字——檔案與終端出口的正當內容（R2／R3 verify）
+        let content = "A\u{00A0}B\u{3000}C\u{00AD}D 造\u{E000}字"
         var e = Entry(id: UUID(), citekey: "typo2021", type: .periodicalArticle, title: content)
         e.date = "2021"
         try LibraryStore(root: root).writeEntry(e)
         let stdout = CLIFixture.run(["export-bib", "--library", root.path], home: fakeHome).stdout
         XCTAssertNotNil(stdout.range(of: content, options: .literal), stdout)
+        // 變體選擇子照逃（R4 verify：一串 VS17–256 接在 ASCII 後每個字元夾帶一個位元組，CLI stdout 會被 agent 讀進 LLM context）
+        var vs = Entry(id: UUID(), citekey: "vs2021", type: .periodicalArticle, title: "Hi\u{E0169}\u{E0167}there \u{845B}\u{E0100}")
+        vs.date = "2021"
+        try LibraryStore(root: root).writeEntry(vs)
+        let out2 = CLIFixture.run(["export-bib", "--library", root.path], home: fakeHome).stdout
+        XCTAssertFalse(out2.unicodeScalars.contains { (0xE0100...0xE01EF).contains($0.value) }, out2)
+        XCTAssertTrue(out2.contains("U+E0169"), out2)
     }
 
     // MARK: - CLI：真 binary、真 stdout

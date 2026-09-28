@@ -750,13 +750,19 @@ public enum UnsafeToEmitScalar {
 
     /// **文件出口**（`documentSafe`：`.bib`、mermaid／dot／graphml）要逃脫的集合——比 `escapesInDisplay` 窄，另有一個加項。
     ///
-    /// 扣掉的五類是**文件的正當內容**，而文件出口的標記 `U+XXXX` 是有損的（沒有任何 .bib／TeX／XML 消費端解得回來）：
+    /// 扣掉的四類是**文件的正當內容**，而文件出口的標記 `U+XXXX` 是有損的（沒有任何 .bib／TeX／XML 消費端解得回來）：
     /// - 非 U+0020 的 Zs（NBSP、thin space、en space、U+3000）：書目標題與摘要的排版空白，live store 有 16 筆 work 帶著它們；
     /// - SHY（U+00AD）：斷字提示；
     /// - 私用區 Co：台灣舊資料的造字；
-    /// - ZWJ／ZWNJ：波斯文、阿拉伯文、印度系文字的正字法；
-    /// - 變體選擇子（VS1–16、VS17–256，含 CJK 的 IVS 與蒙古文 FVS）：字形選擇（#569 R3 verify：造字的標準化後繼是 IVS，扣私用區不扣它說不通）。
+    /// - ZWJ／ZWNJ：波斯文、阿拉伯文、印度系文字的正字法。
+    ///
+    /// **變體選擇子（VS1–16、VS17–256，含 CJK IVS 與蒙古文 FVS）仍逃脫**——R3 曾扣掉它們，R4 verify（logic、security 兩席，真 binary）
+    /// 指出無條件的豁免讓一串 VS17–256 接在 ASCII 後面原樣通過 CLI stdout：每個字元夾帶一個位元組，是已知的隱藏文字通道，容量遠大於
+    /// SHY；而本 repo 的 skill 會經 Bash 把 CLI stdout 讀進 LLM context。只收「接在對應基底後面的單一選擇子」需要脈絡判斷，live store
+    /// 零實例，所以先退回逃脫：IVS 在檔案出口是有損的，這是記錄下來的取捨，等第一個實例出現再重開。其他 pre-#569 不動、現在會逃的
+    /// 碼位（CGJ、WJ、ZWSP、`rendersBlank`）同屬這個取捨。
     /// 這一條只管**檔案與終端的出口**；給 LLM 的出口用 `escapesInLLMDocument`（R3 verify：下游不是 TeX 時，上面的理由不成立）。
+    /// 注意 CLI stdout 也可能被 agent 讀進 LLM context——扣掉的四類都是低容量或具正字法意義的字元，高容量的隱藏通道（TAG、VS、ZWSP）照逃。
     /// #569 R1 把 `documentSafe` 直接接到 `escapesInDisplay`，這四類在 `export-bib > refs.bib`（預設路徑）被改寫成字面標記（R2 verify 三席）；
     /// #569 之前的 `documentSafe` 本來就不動它們。人可讀輸出逃脫它們是使用者裁決，文件出口不在那個裁決裡。
     ///
@@ -766,8 +772,7 @@ public enum UnsafeToEmitScalar {
     public static func escapesInDocument(_ u: Unicode.Scalar) -> Bool {
         if u.properties.isNoncharacterCodePoint { return true }
         let cat = u.properties.generalCategory
-        if cat == .spaceSeparator || cat == .privateUse || u.value == 0xAD || u.value == 0x200C || u.value == 0x200D
-            || u.properties.isVariationSelector { return false }
+        if cat == .spaceSeparator || cat == .privateUse || u.value == 0xAD || u.value == 0x200C || u.value == 0x200D { return false }
         return contains(u)
     }
 

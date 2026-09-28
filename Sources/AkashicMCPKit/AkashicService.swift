@@ -5069,9 +5069,18 @@ public final class AkashicService {
                 return c
             }
             var grouped: [String: Organization] = [:]
+            var rejectedIDs: [String] = []
+            var skippedConfirmed: [[String: String]] = []
             for c in chosen {
                 guard var o = grouped[c.orgKey] ?? byKey[c.orgKey] else {
                     throw ServiceError.notFound("organization「\(displaySafeInvisible(c.orgKey, max: 200))」")
+                }
+                // 那個 org 已確認同一配對（正規化鍵）→ 略過並具名，不寫出矛盾對（#647 R4 verify）
+                if OrgResolver.confirmedPairingsNormalized(o).contains(OrgResolver.normalizedRejection(ResolutionPairing(
+                    holderKind: c.holder.verdictHolderKind, holder: c.holder.key, literal: c.literal, judgedKey: c.orgKey))) {
+                    skippedConfirmed.append(["id": rowID(c),
+                                             "why": "organization 已確認過這個配對（含大小寫、空白、連字號變體）——否決另一個拼法會留下矛盾對，略過"])   // display-safe-exempt: id 是回程把手（逐字）、why 是常數
+                    continue
                 }
                 ResolutionLedger.appendIfAbsent(ResolutionLedger.record(
                     .rejected, holderKind: c.holder.verdictHolderKind,   // #483
@@ -5079,10 +5088,12 @@ public final class AkashicService {
                     rule: ResolutionLedger.orgRule,
                     statement: "resolve reject：使用者否決此配對"), to: &o.references, allowCoexistence: storeFormat >= 19)
                 grouped[c.orgKey] = o
+                rejectedIDs.append(rowID(c))
             }
             for key in grouped.keys.sorted() { try store.writeOrganization(grouped[key]!) }
-            try LibraryIndex(store: store).rebuild()
-            return try jsonString(["rejected": chosen.map { rowID($0) },
+            if !grouped.isEmpty { try LibraryIndex(store: store).rebuild() }
+            return try jsonString(["rejected": rejectedIDs,
+                                   "skippedConfirmed": skippedConfirmed,
                                    "organizationsRewritten": grouped.count] as [String: Any])   // display-safe-exempt: Int
         }
         guard let selected = apply, !selected.isEmpty else {

@@ -145,6 +145,26 @@ public enum OrgResolver {
                 entries: entries).candidates
     }
 
+    /// 否決比對的鍵：literal 取 `NameNormalization.matchingKey`，與提名、`verdictPairingKey`（矛盾掃描）同一套正規化。
+    ///
+    /// #647 R3 verify（DA 真 binary）：先前三處抑制都以 `ResolutionPairing` 的合成 `Hashable` 比原始 literal——那只折 canonical
+    /// equivalence，不折大小寫、空白、連字號家族、Cf。一次合法的 `--reject`（寫入以正規化鍵去重，`{Sinica}`／`{SINICA}` 只留一筆）
+    /// 之後，另一個拼法照樣被提名，`--apply` 或 `--judge` 寫下 confirmed，`validate` 報矛盾對。person 側（`rejectedNorm`，R1-fix I1）
+    /// 與 venue 側（R12）早就以 `matchingKey` 比，org 族是唯一的例外。judge 腿的略過（`OrgJudgedVerdicts`）用同一個函式。
+    /// 與 `ResolutionLedger.statePairing` 是同一個函式——這裡只是具名的入口，定義住在那邊（R4 verify：同一件事兩份描述會分岔）。
+    public static func normalizedRejection(_ p: ResolutionPairing) -> ResolutionPairing {
+        ResolutionLedger.statePairing(p)
+    }
+
+    /// 一個 organization 已確認的配對（正規化鍵，同 `normalizedRejection`）。reject 腿寫入前查它：那個 org 已對同一配對
+    /// （含大小寫、空白、連字號變體）持有 confirmed 時，否決另一個拼法會留下 confirmed＋rejected 的矛盾對（#486，處置沒有工具面）——
+    /// #647 R4 verify DA 真 binary：`--judge {Sinica}` 之後 `--reject` 同一 work 的 `{SINICA}`。與 judge 腿略過已否決配對對稱。
+    public static func confirmedPairingsNormalized(_ o: Organization) -> Set<ResolutionPairing> {
+        Set(ResolutionLedger.verdicts(references: o.references).verdicts.filter { $0.kind == .confirmed }.map {
+            normalizedRejection(ResolutionPairing(holderKind: $0.holderKind, holder: $0.holder, literal: $0.literal, judgedKey: o.key))
+        })
+    }
+
     /// 單一 traversal，`candidates` 與 `ambiguities` 的 source of truth（#231）。
     ///
     /// 與 person 側同理由：**不寫第二支遍歷**。這裡尤其重要——本函式的 parents 側
@@ -152,17 +172,6 @@ public enum OrgResolver {
     /// `rejected`：已否決配對（#232 design D5，語意同 `PersonResolver.resolve`）。
     /// holder 是持有 literal 的 person／organization key，judgedKey 是被判定的 org。
     /// **刻意無預設值**（同 `PersonResolver.resolve`——verify DA fix-10）。
-    /// 否決比對的鍵：literal 取 `NameNormalization.matchingKey`，與提名、`verdictPairingKey`（矛盾掃描）同一套正規化。
-    ///
-    /// #647 R3 verify（DA 真 binary）：先前三處抑制都以 `ResolutionPairing` 的合成 `Hashable` 比原始 literal——那只折 canonical
-    /// equivalence，不折大小寫、空白、連字號家族、Cf。一次合法的 `--reject`（寫入以正規化鍵去重，`{Sinica}`／`{SINICA}` 只留一筆）
-    /// 之後，另一個拼法照樣被提名，`--apply` 或 `--judge` 寫下 confirmed，`validate` 報矛盾對。person 側（`rejectedNorm`，R1-fix I1）
-    /// 與 venue 側（R12）早就以 `matchingKey` 比，org 族是唯一的例外。judge 腿的略過（`OrgJudgedVerdicts`）用同一個函式。
-    public static func normalizedRejection(_ p: ResolutionPairing) -> ResolutionPairing {
-        ResolutionPairing(holderKind: p.holderKind, holder: p.holder,
-                          literal: NameNormalization.matchingKey(p.literal), judgedKey: p.judgedKey)
-    }
-
     public static func resolve(people: [Person],
                                organizations: [Organization],
                                rejected: Set<ResolutionPairing>,

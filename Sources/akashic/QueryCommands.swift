@@ -136,7 +136,7 @@ struct Graph: ParsableCommand {
             // `xmlEscape`）處理的都是**各自格式的 metacharacter**——與 C0／bidi／
             // LS-PS 是兩組不相干的字元集。實測 graphml 輸出裡 ESC 與 U+202E 逐字
             // 抵達終端。這正是 #165 用來反駁「跳脫交給下游」的同一個論證。
-            print(documentSafe(content), terminator: "")
+            print(documentSafe(content, forLLM: false), terminator: "")
         }
     }
 }

@@ -1,5 +1,7 @@
 # 2026-09-29 既有 skill 的網頁取得指令遷移到 safari-browser（#634）
 
+> **更正（同日 #634 驗證 R1，見 `2026-09-29-b12-verify-r1.md`）**：下文的鎖法 `--profile`＋`--url-exact` 已改為 `--profile`＋`--url-endswith`；`akashic-fetch-fulltext` 不是「已遷移」——它的腳本鎖法仍是 `--window`，已列入規則檔〈既有檔〉形狀 (b)；`akashic-venue-works` 的 osascript 配方留回成「有量測的既有紀錄」；grandfathered 清單多了 `plugin/rules/assertions-must-be-measured.md`；`web-access.md` 現在有〈開哪個網址〉與自足區塊。
+
 `.claude/rules/web-access-via-safari-browser.md` 訂下「skill 讀外部網頁或 web API 一律經 safari-browser」時，有 11 個既有檔寫的是別的取得方式（直接給 API 網址、`curl`、WebFetch、`urllib.request`，另有 osascript 與「一般 HTTP 下載」）。兩條路並存的後果：中止條款與 profile 鎖只在其中一條生效，同一個網站會從另一條路繼續被請求。
 
 2026-09-29 量測：11 個檔裡有 8 個是散文（`SKILL.md`、`references/*.md`），可以只改文字；另外 3 個各有阻塞原因（見〈誠實邊界〉）。

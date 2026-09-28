@@ -63,7 +63,7 @@ metadata 的 DOI 會回這段。**不要把它放進 `create-entry` 的 `fields.
 **階段 B（瀏覽器渲染頁）**：**各站點的判準／坑見
 [references/site-access.md](references/site-access.md)**（取得路徑與已量過而不再走的路、
 psycnet 的 Incapsula 邊界、節奏——都是量過的）；取得本身一律經 safari-browser，見
-web-access.md。**先做攣生收攏（見下）再現算**
+web-access.md（PsycNet 的現行取法**沒有量過**：批次前先以 1 筆 PsycNet DOI 試跑，見 site-access.md）。**先做攣生收攏（見下）再現算**
 `has_abstract:false` 的清單
 ——順序錯了會把攣生的無摘要側白白送瀏覽器（Psychological Methods 實測：原始 261 筆，
 收攏後真缺 151 筆）。判準**不是 HTTP 狀態碼**——psycnet 對 headless 回 200 的空殼；判準

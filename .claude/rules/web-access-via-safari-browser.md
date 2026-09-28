@@ -17,18 +17,50 @@ safari-browser，這可以是整個專案預設的」。
 
 ## 使用紀律（每一條都有踩過的理由）
 
-- **分頁以 `--profile` ＋ `--url-exact` 鎖定，網址帶一次性 fragment**：
-  `LOCK=(--profile "<使用者的 profile>" --url-exact "<開分頁時用的完整網址>#akashic-<隨機碼>")`，
+- **分頁以 `--profile` ＋ `--url-endswith '#akashic-<碼>'` 鎖定，網址帶一次性 fragment**（2026-09-29 由
+  `--url-exact` 改，理由與查證見下一條）：
+  `LOCK=(--profile "<使用者的 profile>" --url-endswith "#akashic-<8 位十六進位隨機碼>")`，
   再用 `"${LOCK[@]}"`（陣列：zsh 不對未加引號的變數分詞）。fragment 不送伺服器，只讓這把鎖
   對得到唯一的分頁。**不要**用 `--url <子字串>`：它取第一個符合的分頁、而且跨所有 profile，
   別人的 session 開著同一站就會被選中（#617 verify）。**也不要**用 `--window N --tab-in-window T`：
-  視窗編號依前後順序排，使用者一切換就漂移（#617 落地時實際發生）。
-- **shell 變數不跨 Bash 呼叫保留**：一次取得的所有步驟寫在同一次呼叫裡，或每次呼叫把 profile
-  與網址寫成字面值；`LOCK` 若是空的，safari-browser 會退回 front tab。
+  視窗編號依前後順序排，使用者一切換就漂移（#617 落地時實際發生；`fetch-fulltext.sh` 仍是這個鎖法，
+  是 grandfathered 的例外，見〈例外〉）。**`documents` 一律帶 `--profile`**：不帶會把所有 profile
+  （含別人的 session）的分頁網址與標題整份倒進對話。
+- **為什麼從 `--url-exact` 改成 `--url-endswith`，查證了什麼，沒實測什麼**（CLAUDE.md〈Rules〉的執行語意第 2 條：
+  覺得規則錯了就顯式改、寫下為什麼、附上查證；#634 的驗證第 16 列指出）：
+  - 舊鎖法 `--url-exact "<開分頁時用的完整網址>#akashic-<碼>"` 比的是 **Safari 回報的網址**。`safari-browser open --help`
+    （2026-09-29 讀）：`--url-exact` 是「URL equals this string exactly (no normalization)」，「Trailing slash, query string,
+    and host case are all significant — use --url-endswith or --url-regex when normalization is desired」。我們拿去比的是
+    **自己組的字串**：轉址、百分比編碼（WHATWG 的路徑編碼集會編碼 `<` `>` `{` `}`，SICI 式 DOI 就有；這一點是依標準推論，沒有在
+    Safari 實測）與根路徑的尾隨 `/` 都會讓兩邊對不上。同一類失敗在 #556 已記過
+    （`changelog/2026-09-11-issn-on-demand.md` R12：路徑尾段對根路徑是 `/`、「`--url-exact` 讓回來的 URL 不同就停手成死分支、
+    真正的 miss 沒有處置」）——舊版 web-access.md 沒有把那條教訓帶進來。
+  - `--url-endswith`：`open`、`close`、`documents` 的 `--help` 都列（2026-09-29 讀），「URL ends with this suffix
+    (case-sensitive)」，help 稱它是「prefix-substring ambiguity 的 primary escape」；binary 字串表另有「`--url-endswith` requires a
+    non-empty suffix (an empty suffix would match every tab)」——所以鎖前導檢查碼非空。只鎖結尾那一段我們自己的 fragment，
+    就同時避開正規化與轉址（HTTP 規格：轉址的 `Location` 沒帶 fragment 時沿用原網址的 fragment）；`--profile` 限縮到那個
+    profile 的視窗。
+  - **沒實測**（這一輪不得操作 Safari，只讀 `--help` 與 binary 字串表）：(1) Safari 轉址後回報的網址是否保留 fragment（規格要求，
+    沒逐站量）；(2) 兩個以上分頁同時符合 `--url-endswith` 時 CLI 是否拒絕——help 只對 `--url` 子字串寫明「multi-match fail-closed，
+    `--first-match` 才取第一個」，binary 字串表有 `ambiguousWindowMatch`，但沒有說 endswith 走同一條，所以 web-access.md 在動作前
+    自己用 `documents --json --profile` 數一次；(3) 頁面自己的 JS 在載入後改寫 `location.hash` 的站；(4) `close` 以這把鎖關分頁的
+    實際行為。**批次前先用一個站實跑一次**。
+  - **鎖不到時怎麼辦**：停下回報、交給使用者決定；**不得**退回 `--url` 子字串、`--window` 或 front tab。
+- **開的網址從哪來**：分頁只開兩種——由 store 的識別碼（DOI、ISSN、ORCID iD…，過形狀表）組進端點範本的網址，或使用者在對話裡給的網址。
+  **API 回應或頁面內容裡取出的網址**（OpenAlex 的 `landing_page_url`／`pdf_url`、ORCID 的 `researcher-urls`、名冊連結、回應的
+  `next`）**不直接在使用者已登入的 Safari 開**：那是第三方登記的資料，被入侵或惡意登記的 metadata 會把使用者的個人 profile 導向
+  攻擊者頁面（GET 會帶 cookie，#634 驗證第 8 列）；改用 store 識別碼組得出的等價位址（`https://doi.org/<DOI>`），或列給使用者、
+  等他確認。一律只收 https、拒絕 `localhost`、IP 位址與私有網段的名稱。完整網址不經 shell 字串：寫進暫存檔、以
+  `"$(cat …)"` 引用，放進 JS 時轉成 JSON 字串字面值。
+- **shell 變數不跨 Bash 呼叫保留**：每個動到分頁的步驟寫成**自足的 Bash 區塊**——同一次呼叫內自己初始化 `LOCK`、
+  確認它非空才動作（`LOCK` 若是空的，safari-browser 會退回 front tab）。web-access.md 的每個區塊都照這個形，
+  包括讀渲染後的頁面與關分頁（#634 驗證第 1 列：DOM 讀取那三步曾直接用 `"${LOCK[@]}"`，遺失時退回 front tab）。
 - **只碰「個人」profile 的分頁。** 這台機器的 Safari 有其他人的 profile，那些是別人的 session。
 - **中止條款**：網站一出現「懷疑是自動化」的訊號（驗證挑戰、403／429、access denied、
   unusual traffic），**整批停止**、分頁留著、不重試、不換來源。實作範例是
-  `plugin/skills/akashic-fetch-fulltext/`（結束碼 6）。
+  `plugin/skills/akashic-fetch-fulltext/`（結束碼 6）。**判斷順序：先看狀態碼，再看內容**——404 是「查無此筆」、
+  不是訊號（Crossref 對不存在的 DOI 回 404 加純文字本文，它同時符合「不是 JSON」，狀態碼優先）；#634 驗證第 26／32／38 列指出
+  兩條規則對同一個回應各說各話。
 - **讀大型回應**：頁內 `fetch` 存進 `window` 變數（**每次請求換一個新的變數名**）→ `wait --js`
   等完成 → `js --large --output` 讀出，不依賴頁面渲染後的文字；讀回後**核對內容身分**（例如
   回傳的 id 就是請求的 id）。#617 校準時有一批讀到上一批的結果、結束碼全為 0
@@ -36,15 +68,32 @@ safari-browser，這可以是整個專案預設的」。
 - **持久狀態變更先告知**：清 cache、註銷 service worker、改 cookie／storage 要先說明並取得同意。
 - **操作程序的位置**：本規則在 plugin 安裝處讀不到，所以 `plugin/` 的 skill 引用的是
   `plugin/skills/akashic-bootstrap/references/web-access.md`——它只寫怎麼做（問 profile、鎖分頁、
-  形狀檢查、頁內 fetch），理由與例外清單留在這裡。`plugins/akashic-discovery/` 是另一個 plugin，
-  不共用檔案，`akashic-work-references` 的第 2 步自帶一份程序：**兩份程序描述的是同一件事，改鎖法或
-  中止條款的做法時要一起改**。
+  形狀檢查、頁內 fetch），理由與例外清單留在這裡。`plugins/akashic-discovery/` 是另一個 plugin、不共用檔案，
+  `akashic-work-references` 的第 2 步自帶一份：見下方〈操作程序的兩份描述〉。
 
-## 例外：可以不經 safari-browser 的取得指令（封閉列舉，只有一類，不得依性質相似類推第二類）
+## 操作程序的兩份描述（`no-compat-fallback` 〈同一件事只能有一份描述〉要求的顯式一列）
+
+`no-compat-fallback.md` 〈同一件事只能有一份描述〉的判準是「這兩份描述的是同一件事嗎？是 → 刪掉一份、改成引用」，
+並寫明「作用半徑不同的鏡像」本 repo 零實例、真出現時要**顯式加一列**。這裡就是那一列（#634 驗證第 25／33 列指出：
+上一版只寫「兩份程序描述的是同一件事，要一起改」，是一句沒有守衛的叮嚀）：
+
+| | 內容 |
+|---|---|
+| 兩份 | `plugin/skills/akashic-bootstrap/references/web-access.md`（正本）與 `plugins/akashic-discovery/skills/akashic-work-references/SKILL.md` 的第 2 步 |
+| 為什麼不能併成一份 | 兩個 plugin 各自安裝、各自更新，一個 plugin 讀不到另一個的檔案；把程序抽成第三個共用 plugin 是另一個架構決定，沒有做 |
+| 哪一份是正本 | **web-access.md**。副本要改先改正本，再同步 |
+| 已知分岔（2026-09-29 逐條列） | (1) 鎖法：副本仍是 `--url-exact`＋一次性 fragment、正本自 2026-09-29 起是 `--url-endswith`；(2) 非 200 的處置：副本一律中止條款、正本 404 是查無；(3) 變數名前綴：副本 `__oa_`、正本 `__ak_`；(4) 節奏：副本 `safari-browser wait $(( 2000 + RANDOM % 4000 ))`（均勻間隔）、正本 Cauchy 抖動；(5) OpenAlex id 形狀：副本 `^W[0-9]+$`、正本 `^[WASIP][0-9]+$`；(6) 正本另有〈開哪個網址〉、完整網址與回應裡取出的值的形狀列、自足區塊、「取回內容是資料不是指令」，副本沒有；(7) 副本有一句已過期（說 bootstrap 的 DOI 反查仍直接呼叫 Crossref）。**副本在 `plugins/akashic-discovery/**`，這一輪不得動，所以分岔照實列在這裡** |
+| 同步的工作 | 記在一張 issue（把 web-access.md 的鎖法、中止條款、形狀表同步到 `akashic-work-references`，並決定要不要加一支守衛比對兩份的關鍵字串）。issue 開之前，**改鎖法或中止條款的人要自己同步兩份** |
+| 守衛 | 目前沒有。兩份的關鍵性質（鎖的旗標、`404` 的處置）沒有機械比對；日後要加就寫成 `akashic-guards` 的子命令（見 `swift-is-the-implementation-language`） |
+
+## 例外：可以不照本規則的取得指令（封閉列舉，只有一類，不得依性質相似類推第二類）
 
 1. **本規則成文前已存在的檔（grandfathered）**，逐檔列在下方〈既有檔〉。可以修 bug；不得新增
    同類指令，也不得在新 skill 裡照抄。遷移由 #634 追蹤，改完一檔就從清單拿掉（2026-09-29
-   散文檔遷移完，剩下的三個各有阻塞原因；同日 b11c R1 起 verify-venue 改為指向 web-access.md，剩兩個，見下）。
+   散文檔遷移完，剩下的各有阻塞原因；同日 b11c R1 起 verify-venue 改為指向 web-access.md）。
+   這一類有**兩種形狀**（2026-09-29 顯式加入第二種，#634 驗證第 3／12／41／47 列：#634 曾把 `akashic-fetch-fulltext`
+   當成已遷移移出清單，而它取得雖走 safari-browser，鎖分頁的方式仍是本規則明禁的視窗編號）：
+   (a) 取得指令**不經 safari-browser**（直連）；(b) 取得經 safari-browser，但**鎖分頁的方法不是〈使用紀律〉的鎖法**。
 
 ## 不適用（同樣是封閉列舉，只有三類）
 
@@ -54,40 +103,62 @@ safari-browser，這可以是整個專案預設的」。
 3. **使用者本人在瀏覽器上的操作**——登入、授權、付費牆後的點擊。那是人的動作；skill 不代按
    登入或授權按鈕。
 
-## 既有檔（grandfathered，2026-09-24 量、2026-09-25 補量、2026-09-29 #634 遷移後重量）
+## 既有檔（grandfathered，2026-09-24 量、2026-09-25 補量、2026-09-29 #634 遷移後重量、同日 #634 驗證補量）
 
 量法（2026-09-25 #617 verify 放寬——原量法只看 SKILL.md 與 references、不看 `scripts/`，也不認
-ORCID／doi.org，漏了 3 個會直連的檔；2026-09-29 #634 加最後一段）：
+ORCID／doi.org，漏了 3 個會直連的檔；2026-09-29 #634 加最後一段；同日驗證補掃 `plugin/rules`——原量法掃的是
+`plugin/skills plugins/*/skills`，而 `plugin/rules/assertions-must-be-measured.md` 有兩個可執行的 `curl` 範例）：
 
 ```bash
 grep -rlE 'api\.(openalex|crossref)\.org|pub\.orcid\.org|api\.orcid\.org|https?://(dx\.)?doi\.org/|curl |WebFetch|urllib\.request|requests\.get|URLSession' \
-  plugin/skills plugins/*/skills | grep -vE '__pycache__|/tests/' | xargs grep -F -L 'web-access.md'
+  plugin/skills plugin/rules plugins/*/skills | grep -vE '__pycache__|/tests/' | xargs grep -F -L 'web-access.md'
 ```
 
 最後一段是 #634 加的：已遷移的檔仍會寫端點網址（那是**要取的位址**），所以只看網址與工具字樣的
 原量法在遷移之後照樣命中它們。含 `web-access.md` 指標的檔視為已遷移——操作程序在
-`plugin/skills/akashic-bootstrap/references/web-access.md`（問 profile、`--profile`＋`--url-exact` 鎖分頁、
+`plugin/skills/akashic-bootstrap/references/web-access.md`（問 profile、`--profile`＋`--url-endswith` 鎖分頁、
 插值前的形狀檢查、頁內 fetch、中止條款）；規則寫在這裡，程序寫在那裡，兩處各說各的事。
 
-2026-09-29 命中 6 個檔，其中 3 個不算：`akashic-fetch-fulltext/scripts/fetch-fulltext.sh`（只解析 doi.org
+**形狀 (a)（直連）**：2026-09-29 命中 6 個檔，其中 3 個不算：`akashic-fetch-fulltext/scripts/fetch-fulltext.sh`（只解析 doi.org
 字串，取得走 safari-browser）、`akashic-work-references/SKILL.md`（它自己的操作程序，網址交給
 safari-browser 開）、`akashic-bootstrap/references/web-access.md`（程序本身，提到 `curl` 是在說不要用）。
-其餘 3 個（2026-09-29 #634 遷移後量到；b11c R1 起第三個已遷移，見該項）：
+其餘 3 個（b11c R1 起 verify-venue 已遷移，見該項；同日驗證起加掃 `plugin/rules`，多出第三個）：
 
 - `plugin/skills/akashic-bootstrap/scripts/crossref_match.py`（`urllib.request` 直連 Crossref；移植成 `akashic` CLI 子命令由 #629 追蹤）
 - `plugin/skills/akashic-fetch-fulltext/scripts/calibrate_title_match.py`（同上，#629）
-- ~~`plugin/skills/akashic-verify-venue/SKILL.md`（三源查詢段經 MCP／WebFetch 送出；它的鎖分頁契約待使用者裁決，#593）~~ → **2026-09-29 b11c R1（#595 的驗證）起改為經 safari-browser、指向 web-access.md**（#595 加的「經 MCP／WebFetch 送出」是新增同類指令，而例外只讓 grandfathered 檔修 bug、不讓它們新增）。量法最後一段因此不再列它（同日重量：命中 5 個檔，同樣 3 個不算，其餘 2 個）；第 4 源（出版商頁）的瀏覽器契約仍待 #593，該 skill 不抓不讀那一源
+- `plugin/rules/assertions-must-be-measured.md`（兩個 `curl -sS --fail … https://api.crossref.org/works/…` 範例，2026-08-21 觀察的**可重跑量測指令**，
+  第 194、240 行前後）：它們是量測紀錄、不是 skill 的取得指令，而且「當次回傳」是照那個指令量的——改寫成頁內 fetch 會讓範例變成
+  另一個做法的觀察。**不遷移、列入清單**（#634 驗證第 20 列）；不得在這份規則檔裡再新增同類範例，日後要改寫時用
+  web-access.md 的形式並重量
+- ~~`plugin/skills/akashic-verify-venue/SKILL.md`（三源查詢段經 MCP／WebFetch 送出；它的鎖分頁契約待使用者裁決，#593）~~ → **2026-09-29 b11c R1（#595 的驗證）起改為經 safari-browser、指向 web-access.md**（#595 加的「經 MCP／WebFetch 送出」是新增同類指令，而例外只讓 grandfathered 檔修 bug、不讓它們新增）。量法最後一段因此不再列它；第 4 源（出版商頁）的瀏覽器契約仍待 #593，該 skill 不抓不讀那一源
+
+**形狀 (b)（經 safari-browser、但鎖法不是〈使用紀律〉的鎖法）**——量法：
+
+```bash
+grep -rlE -- '--tab-in-window' plugin/skills plugins/*/skills | grep -vE '__pycache__|/tests/'
+```
+
+2026-09-29 命中 3 個檔，其中 2 個不算（`web-access.md` 與 `akashic-work-references/SKILL.md` 提到它是在說「不要用」）；剩下的：
+
+- `plugin/skills/akashic-fetch-fulltext/scripts/fetch-fulltext.sh`，以及 `plugin/skills/akashic-fetch-fulltext/SKILL.md` 的第 3 步
+  （`scripts/fetch-fulltext.sh --window <N> …`）：**鎖法仍是 `--window N --tab-in-window T`（#613 的作法），#629 第二塊移植它時改**。
+  理由：`publishers.md` 記著——使用者已開著同一頁時，URL 鎖會比對到兩個分頁、safari-browser fail-closed。**便宜的解**（沒實測）：
+  對 `--landing` 加一次性 fragment，同一頁已開的問題自然消失（#634 驗證第 41 列）。這個 skill 因此**同時有兩個鎖法**：第 2 步（頁內
+  OpenAlex 查詢）用 web-access.md 的鎖，第 3 步（腳本）用腳本自己的視窗編號鎖；SKILL.md 第 3 步明寫兩者不混用。本輪不改腳本。
 
 歷史：2026-09-25 同一個量法（沒有最後一段）命中 13 個檔，其中 2 個不算，其餘 11 個。#634 於 2026-09-29
 遷移了其中 8 個：`akashic-bootstrap` 的 `person-sources.md`、`work-sources.md`，`akashic-disambiguate` 的
 `SKILL.md`、`ambiguity-traps.md`，`akashic-fetch-fulltext` 的 `SKILL.md`，`akashic-venue-works` 的
-`site-access.md`，`akashic-verify-person` 的 `SKILL.md`、`verification-traps.md`。
+`site-access.md`，`akashic-verify-person` 的 `SKILL.md`、`verification-traps.md`。**其中 `akashic-fetch-fulltext`
+只遷移了取得指令（OpenAlex 查詢與「一般 HTTP 下載」），第 3 步的腳本鎖法沒動**——所以它同時在形狀 (b) 的清單裡。
 
 **這個量法有兩個看不到的東西**（#634 逐檔讀出來的，不要當成量法涵蓋了）：
 
 1. **沒有網址或工具字樣的寫法**：`site-access.md` 的 osascript 專用視窗、fetch-fulltext SKILL.md 的
    「一般 HTTP 下載」與 `publishers.md` 的一列、venue-works SKILL.md 階段 A 的 `works?filter=…`。
-   它們是逐檔讀才找到的。
+   它們是逐檔讀才找到的。（`site-access.md` 的 osascript 配方 #634 曾整段拿掉，驗證指出那把「量過能用」換成了「沒量過」；
+   2026-09-29 把它留回去，**標成「有量測的既有紀錄，不是指示」**——它仍然不經 safari-browser、不帶 profile 鎖，所以不是
+   取得指令，量法看不到它，這一行就是它的登記。）
 2. **指標是必要條件、不是充分條件**：一個檔同時有 `web-access.md` 的指標與殘留的直連指令，量法看不到。
    所以已遷移的檔裡仍出現的 `curl`／WebFetch 字樣要逐條讀過——2026-09-29 逐條讀過，全部是「不要用」
    的敘述或量測紀錄（說明那條路被擋過），不是取得指令。
@@ -110,4 +181,5 @@ safari-browser 開）、`akashic-bootstrap/references/web-access.md`（程序本
 |---|---|---|
 | 2026-09-24 | #617 規劃時原打算照其他 skill 的慣例，把 OpenAlex 取得寫成 `curl` 指令；使用者指出 `Sources/` 本來就沒有 HTTP client，應仰賴 safari-browser 並設為專案預設 | 成文為本規則；`akashic-work-references` 從第一版起就經 safari-browser；既有 8 檔列為 grandfathered（#634） |
 | 2026-09-25 | #617 verify 指出三件事：規則推薦的 `--url` 鎖法會跨 profile 取分頁；grandfathered 清單的量法漏了 `scripts/` 與 ORCID（3 個直連檔未列）；新 skill 的建檔交給 bootstrap，而 bootstrap 仍直連 Crossref | 鎖法改為 `--profile`＋`--url-exact`＋一次性 fragment；量法放寬並補列 3 檔；SKILL 寫明 bootstrap 那段不在其中止條款範圍內（#634） |
-| 2026-09-29 | #634 遷移 8 個散文檔時，逐檔讀出量法看不到的取得路徑（見〈既有檔〉的兩個盲區）；讀 `crossref_match.py` 發現它的錯誤處理不是中止條款：查詢階段的請求失敗讓整支腳本以未捕捉的例外中止、反向驗證把錯誤寫進結果後繼續下一筆。另見 `fetch-fulltext.sh` 以視窗編號＋分頁位置鎖分頁（#613 的作法，`publishers.md` 記著理由），與上面的鎖法不同——它取得走 safari-browser、不在清單內，#634 沒有處理 | 8 檔改為指向 `web-access.md`；量法加「含指標即已遷移」與盲區說明；剩下 3 個各有阻塞原因（#629／#593），照實保留；`fetch-fulltext.sh` 的鎖法差異留給使用者裁決 |
+| 2026-09-29 | #634 遷移 8 個散文檔時，逐檔讀出量法看不到的取得路徑（見〈既有檔〉的兩個盲區）；讀 `crossref_match.py` 發現它的錯誤處理不是中止條款：查詢階段的請求失敗讓整支腳本以未捕捉的例外中止、反向驗證把錯誤寫進結果後繼續下一筆。另見 `fetch-fulltext.sh` 以視窗編號＋分頁位置鎖分頁（#613 的作法，`publishers.md` 記著理由），與上面的鎖法不同——它取得走 safari-browser、不在清單內，#634 沒有處理 | 8 檔改為指向 `web-access.md`；量法加「含指標即已遷移」與盲區說明；剩下 3 個各有阻塞原因（#629／#593），照實保留；`fetch-fulltext.sh` 的鎖法差異留給使用者裁決（**同日驗證後改為列入清單，見下一列**） |
+| 2026-09-29 | #634 的六席驗證（51 則）：(1) `--url-exact` 比的是 Safari 回報的網址而我們拿自己組的字串比，轉址與百分比編碼讓它鎖不到，且沒有 miss 處置（第 16 列）；(2) `web-access.md` 的 DOM 讀取步驟直接用 `"${LOCK[@]}"`，遺失時退回 front tab（第 1 列）；(3) `landing_page_url` 這類 API 回應裡的網址被交給使用者已登入的 Safari 開（第 8 列）；(4) 完整網址進 shell 字串（第 9 列）；(5) `akashic-fetch-fulltext` 被當成已遷移，而腳本鎖法沒動（第 3／12／41／47 列）；(6) 量法沒掃 `plugin/rules`（第 20 列）；(7) 兩份操作程序只靠叮嚀、已分岔（第 25／33 列）；(8) 404 與「不是 JSON」對同一個回應各說各話（第 26／32／38 列） | 鎖法改為 `--profile`＋`--url-endswith`（理由、查證、沒實測見〈使用紀律〉）；每個區塊自足；加〈開的網址從哪來〉與「完整網址」形狀列；判斷順序寫明；`fetch-fulltext` 列入形狀 (b)；量法補掃 `plugin/rules`；兩份程序的鏡像顯式成列（〈操作程序的兩份描述〉）。**沒有實跑 safari-browser**（限制：不得操作 Safari）：第 16 列的修法只讀了 `--help` 與 binary 字串表 |

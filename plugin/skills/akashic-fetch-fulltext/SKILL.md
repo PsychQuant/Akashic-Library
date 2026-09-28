@@ -1,6 +1,6 @@
 ---
 name: akashic-fetch-fulltext
-description: 取得 Akashic 條目的全文 PDF 並存進 store——EndNote「Find Full Text」的對應（#613）。給 citekey、library、或一批 DOI，逐篇：從 store 取 DOI 與書目 → 先找合法開放版本 → 否則用使用者自己 Safari 的既有登入狀態（機構訂閱）下載 → 比對頁數與首頁標題確認是這篇、分辨正式版／作者稿／補充資料 → `store-source` 存進 sources/（index 記下取得記錄）→ 用 `update-entry --add-source`（MCP `akashic_update_entry` 的 `add_sources`）把 digest 連回條目的 `akashic.sources`（要求 index 有取得記錄，孤兒 blob 與非普通檔拒絕）。當使用者說「幫我下載這些論文」「抓 PDF」「把全文存進 Akashic」「這批文獻要全文」「Find Full Text」「下載 paper」，或手上有一個 library 要補全文、要讀原文查證引用時使用。**不做**：繞過付費牆、代替使用者登入或按授權按鈕、平行大量下載。
+description: 取得 Akashic 條目的全文 PDF 並存進 store——EndNote「Find Full Text」的對應（#613）。給 citekey、library、或一批 DOI，逐篇：從 store 取 DOI 與書目 → 以 OpenAlex 查有沒有合法開放版本 → 一律用使用者自己 Safari 的既有登入狀態下載（開放版本與機構訂閱都走這條，不另走一般 HTTP）→ 比對頁數與首頁標題確認是這篇、分辨正式版／作者稿／補充資料 → `store-source` 存進 sources/（index 記下取得記錄）→ 用 `update-entry --add-source`（MCP `akashic_update_entry` 的 `add_sources`）把 digest 連回條目的 `akashic.sources`（要求 index 有取得記錄，孤兒 blob 與非普通檔拒絕）。當使用者說「幫我下載這些論文」「抓 PDF」「把全文存進 Akashic」「這批文獻要全文」「Find Full Text」「下載 paper」，或手上有一個 library 要補全文、要讀原文查證引用時使用。**不做**：繞過付費牆、代替使用者登入或按授權按鈕、平行大量下載。
 ---
 
 # 取得全文
@@ -38,7 +38,7 @@ description: 取得 Akashic 條目的全文 PDF 並存進 store——EndNote「F
 ## 開始前
 
 1. **確認節奏工具**：`safari-browser wait --help` 有 `--jitter` 就用 `safari-browser wait --jitter cauchy`；沒有就用本 skill 的 `scripts/jitter.py`。**不要**用 safari-browser SKILL.md 舊的 `max(2, …)` 一行公式——它把 22.3% 的間隔堆在 2.0 秒（PsychQuant/safari-browser#182 的 10⁶ 次模擬）。
-2. **選視窗**：`safari-browser documents --json` 列出各視窗的 `profile`。只在**使用者自己的** profile 的視窗開分頁；其他 profile 是別人的 session。拿不準就問。
+2. **選視窗**：`safari-browser documents --json --profile "<使用者自己的 profile>"` 只列那個 profile 的視窗（**不要不帶 `--profile`**：會把所有 profile、含別人的 session 的分頁網址與標題倒進對話）。選一個視窗編號 `<N>`，第 3 步的 `--window` 用它；其他 profile 是別人的 session。拿不準就問。
 3. **先載 `safari-browser` skill** 的 tab-locking 段（全域 CLAUDE.md 要求）。
 4. **第 2 步的 OpenAlex 查詢**（頁內 fetch）先照 [web-access.md](../akashic-bootstrap/references/web-access.md) 的〈開始前〉問 profile、建暫存目錄。
 
@@ -46,13 +46,15 @@ description: 取得 Akashic 條目的全文 PDF 並存進 store——EndNote「F
 
 ### 1. 從 store 取書目
 
-每筆 work 需要：DOI、標題、頁碼範圍（`fields.pages`，沒有就算了）、type——從 `akashic_get_entry` 讀。**DOI 只從它的 `doi` 取**（陣列：有多個時逐個各跑一次流程，不猜取哪個；零個就列入「需要人」）。這些值都是第三方字串（Crossref、WoS、Zotero 匯入的），插進網址或命令前要先驗形狀——見第 3 步；DOI 先過 [web-access.md](../akashic-bootstrap/references/web-access.md)〈插值前先驗形狀〉的 DOI 一列，不符（含 `#`、`?`、引號、`$`、反引號、反斜線、空白）就不插進任何網址或命令，該篇列入「需要人」、寫「DOI 格式異常」。**type 是 `unpublished-work` 或 DOI 前綴 `10.31234`（PsyArXiv）的就是 preprint**——從記錄判斷，不從檔案判斷：2026-09-24 量過，一份 PsyArXiv preprint 的前兩頁不含 psyarxiv／arxiv／preprint 任何一字。
+每筆 work 需要：DOI、標題、頁碼範圍（`fields.pages`，沒有就算了）、type——從 `akashic_get_entry` 讀。**DOI 只從它的 `doi` 取**（陣列：有多個時逐個各跑一次流程，不猜取哪個；零個就列入「需要人」）。這些值都是第三方字串（Crossref、WoS、Zotero 匯入的），插進網址或命令前要先驗形狀——見第 3 步；DOI 先過 [web-access.md](../akashic-bootstrap/references/web-access.md)〈插值前先驗形狀〉的 DOI 一列，不符（含 `#`、`?`、`%`、引號、`$`、反引號、反斜線、空白，或有 `.`／`..` 的路徑段）就不插進任何網址或命令，該篇列入「需要人」、寫「DOI 格式異常」。**type 是 `unpublished-work` 或 DOI 前綴 `10.31234`（PsyArXiv）的就是 preprint**——從記錄判斷，不從檔案判斷：2026-09-24 量過，一份 PsyArXiv preprint 的前兩頁不含 psyarxiv／arxiv／preprint 任何一字。
 
 ### 2. 先找合法開放版本
 
 以 DOI 查 OpenAlex：`https://api.openalex.org/works/doi:<DOI>` 的 `best_oa_location`（**以 DOI 查單筆**；不要用 OpenAlex 關鍵字搜尋找作品，見 akashic-bootstrap 的 work-sources.md）。**這一步的取得經 safari-browser**：程序、鎖分頁與插值前的形狀檢查見 [web-access.md](../akashic-bootstrap/references/web-access.md)，是頁內 fetch，不是第 3 步的腳本；中止條款以本檔為準。
 
-有開放版本 → 第 3 步的 `--landing` 用它的 `landing_page_url`；沒有 → 用 `https://doi.org/<DOI>`。**不另走一般 HTTP 下載**（不用 `curl`、WebFetch）：2026-09-23 有三份 OSF preprint 與一份 UvA 典藏是那樣下載成功的（publishers.md 該列），但那是這條規矩之前的觀察，**經第 3 步的 Safari 路徑取這幾站沒有量過**——腳本找不到 PDF 連結會結束碼 3，照該碼處理。只有 `pdf_url`、沒有 `landing_page_url` 時停下來問使用者，**不要**把 PDF 網址當 `--landing`：讀碼（沒有實跑）——腳本讀不到 Safari 的 PDF 檢視器，會把它當「頁面讀不到、無從檢查」而以結束碼 6 整批停。
+**第 3 步的 `--landing` 一律是 `https://doi.org/<DOI>`**，不論有沒有開放版本。`best_oa_location.landing_page_url` 與 `pdf_url` 是 OpenAlex 回應裡的字串（出版商與典藏庫登記的 metadata，第三方資料），**不直接在使用者已登入的 Safari 開**（web-access.md〈開哪個網址〉：被入侵或惡意登記的 metadata 會把使用者的個人 profile 導向攻擊者頁面）。有開放版本時，把它的位址（host 與路徑，不是要開的動作）列給使用者，由他決定要不要改用那個網址；**使用者在對話裡回覆確認後**它才算「使用者給定」，才可以當 `--landing`——而且**必須同時帶 `--doi <DOI>`**：腳本只有 `--landing` 是 doi.org 網址時才從網址取 DOI（`fetch-fulltext.sh` 的開頭），其他網址不帶 `--doi`，`verify_pdf.py` 沒有 DOI 可比，`doi_state` 是 `absent`，檔案必然存成 `*.unverified.pdf`、結束碼 5（讀碼確定，不是偶然）。
+
+**不另走一般 HTTP 下載**（不用 `curl`、WebFetch）：2026-09-23 有三份 OSF preprint 與一份 UvA 典藏是那樣下載成功的（publishers.md 該列），但那是這條規矩之前的觀察，**經第 3 步的 Safari 路徑取這幾站沒有量過**（DOI 經 `doi.org` 轉到那些站的頁面再找 PDF 連結，沒有實跑）——腳本找不到 PDF 連結會結束碼 3，照該碼處理。只有 `pdf_url`、沒有 `landing_page_url` 時停下來問使用者，**不要**把 PDF 網址當 `--landing`：讀碼（沒有實跑）——腳本在等頁面載完時讀 `document.readyState`，而 Safari 的 PDF 檢視器讀不到，60 秒後以「頁面沒載完（stalled）」結束碼 6 整批停。
 
 出版商頁面即使標為開放取用，headless 取得也可能被拒（2026-09-23：SAGE、Wiley、Annual Reviews 對 `curl` 回 403，PMC 回防爬蟲頁）——那是量測紀錄，說明為什麼取得一律走使用者的 Safari；在 Safari 裡被拒是中止條款的訊號。
 
@@ -68,7 +70,7 @@ scripts/fetch-fulltext.sh --window <N> --expect-profile "<使用者自己的 pro
 
 - **標題不直接寫進命令列**：用 Write 工具把記錄標題的原文寫進 `<暫存目錄>/<citekey>.title.txt`，再用 `--title "$(cat '…')"` 帶入——`$(…)` 的輸出不會被 shell 再展開，標題裡的 `"`、`$(…)`、反引號都只是字元。
 - `<DOI>`：第 1 步的形狀檢查已過才插；`--doi` 與 `--landing` 用同一個值。
-- `--landing`／`--prime` 的網址若來自 OpenAlex 回應（`landing_page_url`／`pdf_url`）也是第三方字串：不含空白、換行、`"`、反引號、`$`、反斜線才插進命令，否則停下來問使用者。
+- `--landing`／`--prime` 的網址若來自 OpenAlex 回應（`landing_page_url`／`pdf_url`）是第三方字串：**不直接使用**，見第 2 步；使用者確認過的網址才可以，而且要過 web-access.md〈插值前先驗形狀〉的「完整網址」一列（只收 https、不含空白、`"`、反引號、`$`、反斜線、`#`，也不是 `localhost` 或 IP 位址）才插進命令，否則停下來問使用者。
 - `--pages` 只在頁碼是 `數字--數字` 或單一數字的形狀時帶，否則不帶（它是選填的驗證資料）。
 - `<citekey>` 取自 store：載入時已驗過只含 `a–z 0–9 -`，可以直接用。
 
@@ -76,7 +78,9 @@ scripts/fetch-fulltext.sh --window <N> --expect-profile "<使用者自己的 pro
 - `--out` 要在 **git 工作樹之外**（或被該樹 ignore 的位置）；否則腳本在碰瀏覽器之前就拒絕——全文是第三方內容。
 - `--prime`：PMC 用。先像讀者點 PDF 連結那樣開一次 PDF 網址再關掉，之後才從文章頁取（見 publishers.md）。prime 的分頁一有起疑訊號就照中止條款停。
 
-- `--title`／`--pages`／`--doi`：驗證用的記錄資料。`--landing` 是 `https://doi.org/…` 時 DOI 自動從網址取；`--pages` 有就帶。
+- `--title`／`--pages`／`--doi`：驗證用的記錄資料。`--landing` 是 `https://doi.org/…` 時 DOI 自動從網址取；**不是 doi.org 的 `--landing` 一律要帶 `--doi <DOI>`**（否則驗證必然停在結束碼 5，見第 2 步）；`--pages` 有就帶。
+
+**這支腳本的鎖分頁與 web-access.md 不同**：腳本用 `--window <N>` 加它自己開的分頁位置（`--tab-in-window`，#613 的作法，理由見 publishers.md：使用者已開著同一頁時 URL 鎖會對到兩個分頁、safari-browser fail-closed），**不是** web-access.md 的 `--profile`＋`--url-endswith`。這是 grandfathered 的例外（規則檔〈既有檔〉形狀 (b)），**#629 移植腳本時改**。同一個 skill 因此有兩個鎖法，分工是：第 2 步的頁內 OpenAlex 查詢照 web-access.md、第 3 步只用腳本，兩者不混用；不要在第 3 步之外自己用 `--window` 動 Safari。
 
 **驗證怎麼判「是這篇」**（`verify_pdf.py`，2026-09-24 以 29 份真實 PDF 對 Crossref 量過）：首頁要有一行（或連續幾行）**就是**記錄標題，另外要有 DOI 證據，分三級：
 
@@ -110,7 +114,7 @@ scripts/fetch-fulltext.sh --window <N> --expect-profile "<使用者自己的 pro
 akashic_store_source(path=<pdf>, media_type="application/pdf",
                      retrieved="<取得時間，ISO 8601 帶 +08:00>",
                      origin="<實際取得的 PDF URL>",
-                     acquisition="browser-download"   # 開放版本直接下載用 "api" 或照實寫
+                     acquisition="browser-download"   # 本 skill 一律經使用者自己的 Safari 取得；照實寫
                      note="<版本：version of record / author manuscript / preprint；verify 摘要>")
 ```
 

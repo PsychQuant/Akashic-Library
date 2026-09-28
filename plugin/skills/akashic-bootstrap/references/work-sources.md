@@ -197,11 +197,13 @@ Europe PMC 不收的那些（統計、數學、CS、環境），要一條一條�
 | 順位 | 路徑 | 實測 |
 |---:|---|---|
 | 0 | **先用 Unpaywall 問「有沒有合法免費版本」** | `https://api.unpaywall.org/v2/<doi>?email=<你的信箱>`。`is_oa=false` 且 `oa_locations` 為空 → **沒有任何開放版本**，別再找 PDF，直接跳到順位 2 |
-| 1 | **出版商的 open-access PDF**（`link.springer.com/content/pdf/<doi>.pdf` 之類；取 PDF 走 akashic-fetch-fulltext） | 最可信——讀到的就是印刷版的作者註腳 |
+| 1 | **出版商的 open-access PDF**（`link.springer.com/content/pdf/<doi>.pdf` 之類；取 PDF 走 akashic-fetch-fulltext，用法見表後） | 最可信——讀到的就是印刷版的作者註腳 |
 | 2 | **出版商頁的 DOM**（在 safari-browser 的分頁裡讀，web-access.md 的〈讀渲染後的頁面〉） | **這條路在 headless 工具全滅時仍然通**。見下方 |
-| 3 | **arXiv 預印本 PDF**（取法同順位 1） | 數學／統計論文常有，含完整機構與地址。**但那是預印本版本**，與出版版本可能有差異，要標明 |
+| 3 | **arXiv 預印本 PDF**（取法同順位 1；arXiv 網址若是從 OpenAlex 回應取出的，要列給使用者確認才開，見 web-access.md〈開哪個網址〉） | 數學／統計論文常有，含完整機構與地址。**但那是預印本版本**，與出版版本可能有差異，要標明 |
 | 4 | **DOAJ API**（開放取用的 Elsevier 文章） | Elsevier 自己餵的 metadata feed，離印刷版一步之遙 |
 | 5 | **OpenAlex `raw_affiliation_strings`** | 最後手段。見下方的重要區分 |
+
+**順位 1、3 的「取 PDF 走 akashic-fetch-fulltext」是只讀不存的用法**：機構查證只需要讀註腳，不需要那個 skill 為 Find Full Text 做的整條流程。只用它第 3 步的下載腳本（一樣經使用者自己的 Safari、一樣受它的中止條款管），檔案留在暫存目錄，**讀完不 `store-source`、不連回記錄**（除非你本來就要它當承重存檔，那時才照該 skill 的第 4、5 步）。它的驗證照看但不當門檻：正式版通常帶 DOI 可過；**arXiv 預印本的 PDF 沒印出版版 DOI，驗證會停在結束碼 5、檔案存成 `*.unverified.pdf`**——檔案仍可讀，但那份機構證據要在結論裡標明「預印本、身分未驗證」，不當成印刷版的證據。這個用法沒有實跑過。
 
 ### 真的瀏覽器 session 能過 Cloudflare
 
@@ -306,4 +308,8 @@ Taiwan International Graduate Program, Academia Sinica
 
 `scripts/crossref_match.py` 實作了上面的比對＋反向驗證流程。它讀一份 `[{citekey, title, journal, year}]` 的 JSON，輸出每筆的判定（`confident` / `probable` / `needs_review`）與候選明細。
 
-**它自己以 `urllib.request` 直連 Crossref，不經 safari-browser，也不受 web-access.md 的中止條款管**——2026-09-29 讀碼：查詢階段的請求失敗（含 403／429）不會被接住，整支腳本以未捕捉的例外中止，而結果檔在迴圈跑完之後才寫，中止時已跑完的筆數只留在 stderr 的進度行；審稿報告後綴那一步吞掉例外，反向驗證把錯誤寫進該筆的 `reverse.error` 後繼續請求下一筆。兩者都不分辨「被擋」與「其他失敗」。它是 Akashic-Library web-access 規則的 grandfathered 例外，移植成 `akashic` CLI 子命令由 #629 追蹤。在那之前：比對邏輯（門檻、正規化、三類陷阱的繞行）可以當範本讀；要執行它，先告訴使用者這一段不在中止條款範圍內，輸出裡任何一筆帶 HTTP 錯誤就照中止條款停，不重跑。
+**它自己以 `urllib.request` 直連 Crossref，不經 safari-browser，也不受 web-access.md 的中止條款管**——2026-09-29 讀碼：查詢階段的請求失敗（含 403／429）不會被接住，整支腳本以未捕捉的例外中止，而結果檔在迴圈跑完之後才寫，中止時已跑完的筆數只留在 stderr 的進度行；審稿報告後綴那一步吞掉例外，反向驗證把錯誤寫進該筆的 `reverse.error` 後繼續請求下一筆。兩者都不分辨「被擋」與「其他失敗」。它是 Akashic-Library web-access 規則的 grandfathered 例外，移植成 `akashic` CLI 子命令由 #629 追蹤。在那之前：比對邏輯（門檻、正規化、三類陷阱的繞行）可以當範本讀；要執行它，先告訴使用者這一段不在中止條款範圍內。**怎麼讀它的輸出**（與 web-access.md〈中止條款〉同一個判斷順序：先看狀態碼）：
+
+- `reverse.error` 是 `HTTPError: HTTP Error 404: Not Found`——DOI 不在 Crossref（DataCite、mEDRA 註冊的 DOI 常見）。那是**查無此筆，不是中止訊號**：該筆本來就因反向驗證未過而是 `needs_review`，其餘照跑、照讀。
+- `reverse.error` 是 403、429、5xx、逾時或連線錯誤（`URLError`、`TimeoutError`）→ 照中止條款整批停，不重跑。
+- 查詢階段的請求失敗腳本自己會以未捕捉的例外中止，**不會有結果檔**（已跑完的筆數只在 stderr 的進度行）。那也是停下來回報，**不要重跑**——重跑就是把同一批請求再打一遍。

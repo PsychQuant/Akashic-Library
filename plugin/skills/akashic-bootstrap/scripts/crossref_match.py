@@ -13,6 +13,13 @@
 用法：
     python3 crossref_match.py works.json -o result.json --mailto you@example.com
     python3 crossref_match.py works.json --verify-only result.json    # 只跑反向驗證
+
+錯誤怎麼讀（與 references/web-access.md 的〈中止條款〉同一個判斷順序：先看狀態碼）：
+  - 反向驗證的 `reverse.error` 是 `HTTPError: HTTP Error 404: Not Found` ＝ 該 DOI 不在 Crossref
+    （DataCite、mEDRA 註冊的常見）：這是「查無此筆」、不是中止訊號，該筆維持 needs_review，其餘照跑。
+  - 403、429、5xx、逾時、連線錯誤：照中止條款整批停、不重跑。查詢階段的這類錯誤會讓本腳本以未捕捉的
+    例外中止，結果檔不會寫，已跑完的筆數只在 stderr 的進度行；那也是停下回報，不要重跑。
+本腳本自己以 urllib 直連 Crossref、不經 safari-browser（grandfathered，移植成 akashic CLI 子命令由 #629 追蹤）。
 """
 
 import argparse

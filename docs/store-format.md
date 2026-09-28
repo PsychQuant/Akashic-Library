@@ -331,7 +331,9 @@ work merge 的資料遺失閘也把 witness 當 canonical Akashic metadata：被
 紀錄**，不是作品的身分判準。
 
 - **身分**：再匯入時，`(library_id, zotero_key)` 命中主來源或任一附加來源，都對回同一筆 entry，
-  不新建。
+  不新建。比對順序（#607）：① 主來源完全相同 ② 附加來源完全相同 ③ 沒記 `library_id` 的舊檔以裸 key
+  比對——③ 只在沒有其他 library 的來源（主來源或附加來源）持有同一個裸 key 時才認領。②先於③：
+  附加來源是完全相同的身分，legacy 是歸屬不明的猜測。
 - **只有主來源更新書目欄位**：主來源命中 → 照 §2.5.2 的 update 條件改寫欄位；附加來源命中 →
   只更新該來源自己的 `zotero_version`／`zotero_hash`／`imported_at`，並清其 `orphaned_at`，
   **不動書目欄位**。附加來源 hash 變了而未套用 → 匯入報告列出（`secondarySourceChanged`）。

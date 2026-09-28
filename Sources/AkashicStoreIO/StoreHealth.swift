@@ -103,7 +103,7 @@ public struct StoreHealth {
     /// `perRecordIssues` 裡的重複判定記錄（D64）。計算屬性，與 `deadVerdicts` 同一個理由。
     /// **不含**一格：venue×work 的 confirmed、組裡每筆各有自己拼法**且 judgement／rests-on 全同**的「純拼法組」——那格由
     /// `confirmedLiteralAmbiguities`（第 27 列第二類）報、本族不重報（R25 D67／R26 D71）——**在每筆 venue 20 筆 work 的上限之內**：第 21 筆起第 27 列只剩
-    /// 一句概括、不點名，本族的 carve-out 仍成立，所以那幾筆兩族都不具名（R27 記錄；R26 verify 第 29／34 列，缺口屬 #581）。混合組（含位元組相同的重複）與 kind 有差異的組本族照報，
+    /// 一句概括、不點名，本族的 carve-out 仍成立，所以那幾筆兩族都不具名（R27 記錄；R26 verify 第 29／34 列）——#581 起逐筆看那本刊用 `validate --owner venue:<key>`，第 27 列那一族在那裡不截、全部具名。混合組（含位元組相同的重複）與 kind 有差異的組本族照報，
     /// 那時第 27 列與本族**各出一則、數字不同**（第 27 列數拼法、本族數記錄——R25 verify regression 第 41 列：兩則不是同一件事的兩份描述，是兩個
     /// 維度）。R24 的排除把混合組整組吞掉（第 27 列以位元組去重、看不到位元組相同的那對）、R25 的排除把 judgement 衝突整組吞掉（第 27 列只看
     /// literal、還叫人「留一筆」）——兩輪各關一半，家族計數在那些組上都曾回 0 而沒有線索。
@@ -177,7 +177,8 @@ public struct StoreHealth {
     /// **家族計數是下限**（R16；R15 verify 第 29 列）：每筆記錄至多 `Entry.perRecordWarningCap` 則進家族，其餘由一句概括
     /// （`Entry.perRecordCapSummaryPrefix`，**不在**任何家族裡）收尾——被截的記錄上，家族計數 ＝ min(受影響數, 上限)，
     /// 不是受影響數。**CLI `validate` 也拿不到被截的那幾則**（R24 D66；R23 verify Codex 第 2 列）：上限在本函式產生訊息時就生效，
-    /// CLI 只是不再加一層面級的 20 則截斷——被截的記錄在三個面都只有概括句，要全部只能讀 YAML（出口另案 #581）。**上限只在六族**（R25 D70 →
+    /// CLI 只是不再加一層面級的 20 則截斷——被截的記錄在三個面都只有概括句。**出口是單筆完整明細**（#581）：`perRecordIssues(from:owner:)`
+    /// ——CLI `validate --owner`、MCP `akashic_doctor` 的 `owner`——對指名的那一筆不套這一層（`PerRecordListing.full`）。**上限只在六族**（R25 D70 →
     /// R26 D72；R24 verify 第 12／14／37 列：R24 寫「每筆記錄每族」；R25 verify DA 第 2 列 HIGH、第 6／11／15 列：R25 寫「五族」而漏掉 person
     /// 近重複——它是組合式且當時無上限，200 個名字真 binary 吐 19,900 則、7.6 MB；R25 還說其餘家族「每筆至多一則、撐不爆」，對六族全假）：
     /// venue 名字內容、venue 近重複、**person 近重複**（R26 起）、重複 venue 邊、confirmed literal、重複判定記錄——它們的則數是每筆記錄的
@@ -279,56 +280,10 @@ public extension LibraryStore {
         } catch {
             auditError = displaySafeError(error, max: 2_400)
         }
-        // **各族逐一，順序與 CLI `validate` 相同**，好讓兩面的輸出逐行對照。
-        // 來源以本函式主體為準——寫死的族數在這裡漂過兩次（#416 第一版只寫了三族、
-        // 漏掉 organizations 與 divergences；#394 補 venue 時「五族」沒跟著改）。
-        var perRecord: [StoreHealth.OwnedIssue] = []
-        for e in load.entries {
-            perRecord += e.validate().map { .init(owner: e.citekey, kind: "entry", issue: $0) }
-        }
-        for p in load.people {
-            perRecord += p.validate().map { .init(owner: p.key, kind: "person", issue: $0) }
-        }
-        for l in load.libraries {
-            perRecord += l.validate().map { .init(owner: l.key, kind: "library", issue: $0) }
-        }
-        for o in load.organizations {
-            perRecord += o.validate().map { .init(owner: o.key, kind: "organization", issue: $0) }
-        }
-        // #394 task 4.3：**venue 是先前缺的第六族**。`Venue.validate()` 存在於
-        // `Venue.swift` 卻在全樹零呼叫端——於是 venue 的 key 格式錯誤、authorized 與
-        // names 不符、未知欄位警告全部看不見，而 #416 把這一族抽進 `StoreHealth` 時
-        // 也沒把它補上（那一輪的封閉列舉是「五族」，venue 不在裡面）。
-        // 這正是 `entity-backlink-completeness` 執行細節 2 記過的形狀：一個 entity kind
-        // 在讀取面沒有路徑，而缺席不會有任何跡象。
-        for v in load.venues {
-            perRecord += v.validate().map { .init(owner: v.key, kind: "venue", issue: $0) }
-        }
-        for d in load.divergences {
-            perRecord += d.validate().map {
-                .init(owner: d.id.uuidString, kind: "divergence", issue: $0)
-            }
-        }
-        // #464：死 verdict 掃描——跨記錄的一致性（holder 是否還在），單筆 `validate()`
-        // 結構上看不到。附加在各族之後：`errorsFirst` 是穩定分割，warning 內保持此序；MCP 面取
-        // `prefix(20)`（`AkashicService.doctor()` 的既有截斷），per-record warning 若累積到 20 以上
-        // （2026-09-03 實測 live store 2 條）這一族會被擠出 `first`——所以每一族都有專屬計數（R15 起含 #554 的兩族）。
-        perRecord += deadVerdictIssues(in: load)
-        perRecord += contradictoryVerdictIssues(in: load)   // #486
-        perRecord += unmergeableDivergenceIssues(in: load)   // #555 R2 D90：第 24 列的觸發條件由工具出聲
-        perRecord += duplicateVerdictRecordIssues(in: load)   // #554 D64
-        perRecord += duplicateReferenceIssues(in: load)   // #582：D64 的非判定鏡像
-        // #453：本機缺承重存檔——`missingSourceDigests` 先前零 production 呼叫端，doctor 只接
-        // `auditSourceIndex()`（blob↔index 兩向比對），捏造或未同步的 digest 兩邊都不在、兩邊一致、
-        // doctor 沉默（第 3 列「未涵蓋不得冒充通過」的形）。與死 verdict 同一形：per-record warning。
-        perRecord += danglingSourceIssues(in: load)
-        // #499：第 13 條邊在 venue 側是 O(catalog)——硬預算的一半處出聲、指名該 venue（裁決：候選 3）。
-        perRecord += venueVerdictBudgetIssues(in: load)
-        perRecord += holderVerdictBudgetIssues(in: load)
-        // #450：拆分後錨失效的兩種 warning——各段全不在的拆分記錄（owner 是 work）、literal 已被拆分
-        // 退役的 verdict（owner 是持有者）。跨記錄（work 的拆分記錄 vs person 的 verdict），單筆 validate()
-        // 看不到；同一形：per-record warning。
-        perRecord += orphanedSplitVerdictIssues(in: load)
+        // per-record 的組裝住在 `perRecordIssues(from:listing:only:)`——#581 起抽出，讓單筆完整明細
+        // （`validate --owner`／`akashic_doctor` 的 `owner`）走**同一份**族序與掃描清單；兩份清單會分岔
+        // （`no-compat-fallback` §「同一件事只能有一份描述」）。
+        let perRecord = perRecordIssues(from: load, listing: .capped, only: nil)
         return StoreHealth(
             crossRecordIssues: cross,
             fatalCrossRecordIssues: cross.filter { $0.severity == .error },
@@ -346,13 +301,82 @@ public extension LibraryStore {
             orphanedCitekeys: load.entries
                 .filter { $0.provenance?.orphanedAt != nil }
                 .map(\.citekey),
-            // **各族逐一，順序與 CLI `validate` 相同**（來源見上方主體）。
-            // **error 排在前面**（#416 R1 自審抓到）：MCP 面取 `prefix(20)`，而按族序
-            // 排的話一個有 25 筆 warning 的 store 會把後面族別的 error **整個截掉**
-            // ——`errors` 計數說「有一個」而 `first` 裡看不到它是哪一個。「知道有錯
-            // 但看不到是哪個」與「不知道有錯」在可行動性上幾乎一樣糟，而它更難察覺，
-            // 因為計數欄讓報告**看起來完整**（`lossless-intake` 執行細節 3 的形狀）。
-            perRecordIssues: StoreHealth.errorsFirst(perRecord))
+            // 族序與 error 先排（`errorsFirst`）都在 `perRecordIssues(from:listing:only:)` 裡（理由見那裡）。
+            perRecordIssues: perRecord)
+    }
+}
+
+extension LibraryStore {
+    /// 每筆記錄自己的驗證問題的**唯一**組裝點（#416 → #581）。`health(from:)` 以 `(.capped, nil)` 呼叫它；單筆完整明細
+    /// （`perRecordIssues(from:owner:)`）以 `(.full, owner)` 呼叫它——族序、掃描清單、error 先排都只有這一份。
+    ///
+    /// `only` 不是 nil 時只留那一筆記錄的問題：各族的 `validate` 只對那一筆跑；跨記錄掃描照全庫算（它們的判準要看其他記錄——
+    /// 死 verdict 要看 holder 在不在），再以 (族名, key) 篩。列出上限只有組合式的族吃 `listing`（`PerRecordListing` 的 doc）；
+    /// 線性家族本來就沒有上限，兩種模式下相同。
+    func perRecordIssues(from load: LibraryLoad, listing: PerRecordListing,
+                         only owner: RecordAddress?) -> [StoreHealth.OwnedIssue] {
+        func wanted(_ kind: String, _ key: String) -> Bool {
+            guard let owner else { return true }
+            return owner.ownedIssueKind == kind && owner.key == key
+        }
+        // **各族逐一，順序與 CLI `validate` 相同**，好讓兩面的輸出逐行對照。
+        // 來源以本函式主體為準——寫死的族數在這裡漂過兩次（#416 第一版只寫了三族、
+        // 漏掉 organizations 與 divergences；#394 補 venue 時「五族」沒跟著改）。
+        var perRecord: [StoreHealth.OwnedIssue] = []
+        for e in load.entries where wanted("entry", e.citekey) {
+            perRecord += e.validate(listing: listing).map { .init(owner: e.citekey, kind: "entry", issue: $0) }
+        }
+        for p in load.people where wanted("person", p.key) {
+            perRecord += p.validate(listing: listing).map { .init(owner: p.key, kind: "person", issue: $0) }
+        }
+        for l in load.libraries where wanted("library", l.key) {
+            perRecord += l.validate().map { .init(owner: l.key, kind: "library", issue: $0) }
+        }
+        for o in load.organizations where wanted("organization", o.key) {
+            perRecord += o.validate().map { .init(owner: o.key, kind: "organization", issue: $0) }
+        }
+        // #394 task 4.3：**venue 是先前缺的第六族**。`Venue.validate()` 存在於
+        // `Venue.swift` 卻在全樹零呼叫端——於是 venue 的 key 格式錯誤、authorized 與
+        // names 不符、未知欄位警告全部看不見，而 #416 把這一族抽進 `StoreHealth` 時
+        // 也沒把它補上（那一輪的封閉列舉是「五族」，venue 不在裡面）。
+        // 這正是 `entity-backlink-completeness` 執行細節 2 記過的形狀：一個 entity kind
+        // 在讀取面沒有路徑，而缺席不會有任何跡象。
+        for v in load.venues where wanted("venue", v.key) {
+            perRecord += v.validate(listing: listing).map { .init(owner: v.key, kind: "venue", issue: $0) }
+        }
+        for d in load.divergences where wanted("divergence", d.id.uuidString) {
+            perRecord += d.validate().map {
+                .init(owner: d.id.uuidString, kind: "divergence", issue: $0)
+            }
+        }
+        var scans: [StoreHealth.OwnedIssue] = []
+        // #464：死 verdict 掃描——跨記錄的一致性（holder 是否還在），單筆 `validate()`
+        // 結構上看不到。附加在各族之後：`errorsFirst` 是穩定分割，warning 內保持此序；MCP 面取
+        // `prefix(20)`（`AkashicService.doctor()` 的既有截斷），per-record warning 若累積到 20 以上
+        // （2026-09-03 實測 live store 2 條）這一族會被擠出 `first`——所以每一族都有專屬計數（R15 起含 #554 的兩族）。
+        scans += deadVerdictIssues(in: load)
+        scans += contradictoryVerdictIssues(in: load)   // #486
+        scans += unmergeableDivergenceIssues(in: load)   // #555 R2 D90：第 24 列的觸發條件由工具出聲
+        scans += duplicateVerdictRecordIssues(in: load, listing: listing, only: owner)   // #554 D64（組合式、有列出上限——listing 傳進去）
+        scans += duplicateReferenceIssues(in: load)   // #582：D64 的非判定鏡像
+        // #453：本機缺承重存檔——`missingSourceDigests` 先前零 production 呼叫端，doctor 只接
+        // `auditSourceIndex()`（blob↔index 兩向比對），捏造或未同步的 digest 兩邊都不在、兩邊一致、
+        // doctor 沉默（第 3 列「未涵蓋不得冒充通過」的形）。與死 verdict 同一形：per-record warning。
+        scans += danglingSourceIssues(in: load)
+        // #499：第 13 條邊在 venue 側是 O(catalog)——硬預算的一半處出聲、指名該 venue（裁決：候選 3）。
+        scans += venueVerdictBudgetIssues(in: load)
+        scans += holderVerdictBudgetIssues(in: load)
+        // #450：拆分後錨失效的兩種 warning——各段全不在的拆分記錄（owner 是 work）、literal 已被拆分
+        // 退役的 verdict（owner 是持有者）。跨記錄（work 的拆分記錄 vs person 的 verdict），單筆 validate()
+        // 看不到；同一形：per-record warning。
+        scans += orphanedSplitVerdictIssues(in: load)
+        perRecord += owner == nil ? scans : scans.filter { wanted($0.kind, $0.owner) }
+        // **error 排在前面**（#416 R1 自審抓到）：MCP 面取 `prefix(20)`，而按族序
+        // 排的話一個有 25 筆 warning 的 store 會把後面族別的 error **整個截掉**
+        // ——`errors` 計數說「有一個」而 `first` 裡看不到它是哪一個。「知道有錯
+        // 但看不到是哪個」與「不知道有錯」在可行動性上幾乎一樣糟，而它更難察覺，
+        // 因為計數欄讓報告**看起來完整**（`lossless-intake` 執行細節 3 的形狀）。
+        return StoreHealth.errorsFirst(perRecord)
     }
 }
 
@@ -546,7 +570,15 @@ public extension LibraryStore {
     /// 記錄擋住自己所有的寫入。處置寫在訊息裡：留一筆，或把其中一筆的 value 改成它實際描述的記錄。
     ///
     /// **2026-09-16 實測 live store：0 筆**（量法見 `zero-instance-guards` 第 28 列）。
-    func duplicateVerdictRecordIssues(in load: LibraryLoad) -> [StoreHealth.OwnedIssue] {
+    ///
+    /// `listing`／`only`（#581）：單筆完整明細只掃指名的那一筆、且不套每筆記錄的列出上限——掃描本身只看那筆記錄自己的 references，
+    /// 所以先篩記錄再掃，不必替其餘 holder 算一份不套上限的輸出。
+    func duplicateVerdictRecordIssues(in load: LibraryLoad, listing: PerRecordListing = .capped,
+                                      only address: RecordAddress? = nil) -> [StoreHealth.OwnedIssue] {
+        func wanted(_ kind: String, _ key: String) -> Bool {
+            guard let address else { return true }
+            return address.ownedIssueKind == kind && address.key == key
+        }
         func scan(_ refs: [ProvenanceReference], owner: String, kind: String) -> [StoreHealth.OwnedIssue] {
             // kinds 以 `kindByteKey` 計、spellings 以 literal 的 UTF-8 計（D65／R25 D67）——兩個維度分開，訊息才說得出是哪一個不同。
             var byKey: [[[UInt8]]: (first: ProvenanceReference, pairing: ProvenanceReference.VerdictPairingValue, count: Int,
@@ -573,7 +605,8 @@ public extension LibraryStore {
             // 「不做判定的刪除」）。這一族報的是它認不得的：位元組相同的重複、kind 有差異的組、rejected 的重複、person 配對的重複、person／
             // organization 持有的重複。
             // 上限在**渲染之前**套（R25 verify Codex 第 4 列：R25 先把全部組渲染完再 `prefix(cap)`，訊息建構成本不受上限管）：超額的組只計數。
-            let cap = Entry.perRecordWarningCap
+            // `.full`（#581，單筆完整明細）沒有這一層——概括句因此只在 `.capped` 出現。
+            let cap = listing.cap
             var issues: [StoreHealth.OwnedIssue] = []
             var unlisted = 0
             for k in order {
@@ -606,12 +639,12 @@ public extension LibraryStore {
             return issues + [StoreHealth.OwnedIssue(
                 owner: owner, kind: kind,
                 issue: ValidationIssue(severity: .warning,
-                                       message: "\(Entry.perRecordCapSummaryPrefix)：\(kind) '\(displaySafeInvisible(owner, max: 120))' 另有 \(unlisted) 個配對未列出（同樣持有重複的判定記錄；每筆記錄最多列 \(cap) 個）"))]   // display-safe-exempt: 前綴是常量；Int
+                                       message: "\(Entry.perRecordCapSummaryPrefix)：\(kind) '\(displaySafeInvisible(owner, max: 120))' 另有 \(unlisted) 個配對未列出（同樣持有重複的判定記錄；每筆記錄最多列 \(Entry.perRecordWarningCap) 個）"))]   // display-safe-exempt: 前綴是常量；Int
         }
         var out: [StoreHealth.OwnedIssue] = []
-        for p in load.people { out += scan(p.references, owner: p.key, kind: "person") }
-        for o in load.organizations { out += scan(o.references, owner: o.key, kind: "organization") }
-        for v in load.venues { out += scan(v.references, owner: v.key, kind: "venue") }
+        for p in load.people where wanted("person", p.key) { out += scan(p.references, owner: p.key, kind: "person") }
+        for o in load.organizations where wanted("organization", o.key) { out += scan(o.references, owner: o.key, kind: "organization") }
+        for v in load.venues where wanted("venue", v.key) { out += scan(v.references, owner: v.key, kind: "venue") }
         return out
     }
 }

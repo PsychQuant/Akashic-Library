@@ -96,7 +96,8 @@ struct RecordIssuesSection: View {
                     .help("有 \(summary.cappedRecords) 筆記錄的 per-record 問題超過每筆 \(Entry.perRecordWarningCap) 則的上限（#554 R18 D54）——"
                           + "上方的計數一律以下限呈現（≥；未必每一族都受影響）。上限在 validate() 裡、只套在組合式的六族（venue 名字內容、"
                           + "venue 近重複、person 近重複、重複 venue 邊、confirmed literal、重複判定記錄）、三面同：akashic validate 對它們也只列前 "
-                          + "\(Entry.perRecordWarningCap) 則加一句概括，被截的那幾則只能讀 YAML（R24 D66／R25 D70／R26 D72；出口另案 #581）。"
+                          + "\(Entry.perRecordWarningCap) 則加一句概括（R24 D66／R25 D70／R26 D72）。被截的那幾則逐筆看："
+                          + "akashic validate --owner <kind>:<key>（或 MCP akashic_doctor 的 owner）——對那一筆不套列出上限（#581）。"
                           + "其餘家族每筆 reference／配對／記錄各一則、無上限")
             }
         }

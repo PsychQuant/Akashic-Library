@@ -104,8 +104,11 @@ actor AkashicMCPServer {
              description: "人物實體列表／查詢（key、aliases、ORCID）。",
              inputSchema: obj(["query": str("關鍵字（比對 key 與所有 alias；省略＝全部）")])),
         Tool(name: "akashic_doctor",
-             description: "library 健康報告：entries/people/relations 統計、index 重建、quarantine、未解析作者數、orphans、unknownFieldFiles（含較新 schema 未知欄位的檔案，v1.3 tolerant-preserve 可見性面）；recordIssues 的 first 截 20 則且受 48 KiB 位元組預算約束（截掉時 firstCappedByBudget 為 true）；count／errors 是訊息則數、各族也是該族的訊息則數（一則可能對應一筆記錄、一個配對或一組重複——duplicateReferences 一組一則，同一筆記錄可以有好幾組），cappedRecords > 0 時三者都是下限（每筆記錄至多 20 則進來、其餘一句概括；cappedRecords 以記錄計，一筆記錄出幾句概括都算一筆；要逐則看用 CLI validate——它不加這裡的 20 則截斷；組合式的六族（venue 名字內容、venue 近重複、person 近重複、重複 venue 邊、confirmed literal、重複判定記錄）每筆記錄至多 20 則、三面共有，被截的記錄在 CLI 也只有概括句；其餘家族每筆 reference／配對／記錄各一則、無上限）；各族與 StoreHealth 的家族存取子一一對應（含 deadVerdicts、contradictoryVerdicts、duplicateVerdictRecords——它不計 venue×work 的 confirmed 裡每筆各有自己拼法且 judgement／rests-on 全同的純拼法組，那格由 confirmedLiteralAmbiguities 報、在每筆 venue 20 筆 work 的上限之內；kind 有差異的組照計——以及它的非判定鏡像 duplicateReferences，#582）。",
-             inputSchema: obj([:])),
+             description: "library 健康報告：entries/people/relations 統計、index 重建、quarantine、未解析作者數、orphans、unknownFieldFiles（含較新 schema 未知欄位的檔案，v1.3 tolerant-preserve 可見性面）；recordIssues 的 first 截 20 則且受 48 KiB 位元組預算約束（截掉時 firstCappedByBudget 為 true）；count／errors 是訊息則數、各族也是該族的訊息則數（一則可能對應一筆記錄、一個配對或一組重複——duplicateReferences 一組一則，同一筆記錄可以有好幾組），cappedRecords > 0 時三者都是下限（每筆記錄至多 20 則進來、其餘一句概括；cappedRecords 以記錄計，一筆記錄出幾句概括都算一筆；CLI validate 不加這裡的 20 則截斷，但組合式的六族（venue 名字內容、venue 近重複、person 近重複、重複 venue 邊、confirmed literal、重複判定記錄）每筆記錄至多 20 則、三面共有；其餘家族每筆 reference／配對／記錄各一則、無上限）；被截的那幾則的出口是 owner（#581）：帶 owner＝<kind>:<key>（kind 是 work／person／organization／venue／divergence，必填、不猜——不同 kind 的 key 可以相同；divergence 的 key 是 UUID）時只回那一筆記錄的 per-record 問題、不套每筆 20 則的列出上限（近重複的逐對求值上限照舊，觸頂時訊息自己會說），回 total／errors／issues（每則截 1,000 字元、受同一個 48 KiB 位元組預算，截掉時 truncated 為 true、total 是完整則數）／scope；owner 模式唯讀：不重建 index、不含跨記錄檢查與 quarantine；找不到或同 kind 同 key 兩筆以上時拒絕、不猜；各族與 StoreHealth 的家族存取子一一對應（含 deadVerdicts、contradictoryVerdicts、duplicateVerdictRecords——它不計 venue×work 的 confirmed 裡每筆各有自己拼法且 judgement／rests-on 全同的純拼法組，那格由 confirmedLiteralAmbiguities 報、在每筆 venue 20 筆 work 的上限之內；kind 有差異的組照計——以及它的非判定鏡像 duplicateReferences，#582）。",
+             inputSchema: obj([
+                "owner": str("選填：<kind>:<key>，只看這一筆記錄的完整 per-record 明細（#581；不套每筆 20 則的列出上限）。"
+                             + "kind 是 work／person／organization／venue／divergence，必填、不猜；省略＝全庫健康報告"),
+             ])),
         Tool(name: "akashic_files",
              description: "多檔案（#18）：list＝列出已註冊的實體庫（檔案）與 active root；use＝session 內切換到另一個檔案（互不相通——切換後所有 tool 都作用在新 universe；不寫 config，持久預設用 CLI akashic file use）。",
              inputSchema: obj([
@@ -497,7 +500,12 @@ actor AkashicMCPServer {
             case "akashic_people":
                 output = try service.people(query: arg("query"))
             case "akashic_doctor":
-                output = try service.doctor()
+                // #581：帶 owner＝單筆記錄的完整明細（唯讀）；不帶＝全庫健康報告（含 index 重建）
+                if let owner = try arg("owner") {
+                    output = try service.recordIssueDetail(owner: owner)
+                } else {
+                    output = try service.doctor()
+                }
             case "akashic_files":
                 output = try service.files(action: arg("action") ?? "list", key: arg("key"))
             case "akashic_person":

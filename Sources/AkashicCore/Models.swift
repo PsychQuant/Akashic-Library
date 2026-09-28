@@ -963,7 +963,9 @@ public enum StoreKey {
 extension Entry {
     private static let citekeyPattern = StoreKey.pattern
 
-    public func validate() -> [ValidationIssue] {
+    /// `listing`（#581）：`.capped` 是讀取路徑的預設（每筆記錄每族至多 `perRecordWarningCap` 則）；`.full` 是單筆完整明細
+    /// （`validate --owner`／`akashic_doctor` 的 `owner`）——只放寬「同一 venue 多條 key 邊」這一族的列出上限，理由見 `PerRecordListing`。
+    public func validate(listing: PerRecordListing = .capped) -> [ValidationIssue] {
         var issues: [ValidationIssue] = []
         if citekey.range(of: Self.citekeyPattern, options: .regularExpression) == nil {
             issues.append(ValidationIssue(
@@ -1032,7 +1034,7 @@ extension Entry {
         for (i, ref) in venues.enumerated() { if case .key(let k) = ref { keyed[k, default: []].append(i) } }
         var listed = 0, unlisted = 0
         for (k, idx) in keyed.sorted(by: { $0.key < $1.key }) where idx.count > 1 {
-            guard listed < Self.perRecordWarningCap else { unlisted += 1; continue }
+            guard listed < listing.cap else { unlisted += 1; continue }
             listed += 1
             issues.append(ValidationIssue(severity: .warning,
                 // `venues[].key` 沒有 StoreKey 約束（decode 只做 scalarString），所以以性質逃脫（R16 verify security 第 17 列）
@@ -1141,7 +1143,8 @@ extension Person {
         return names.authorized.first ?? key
     }
 
-    public func validate() -> [ValidationIssue] {
+    /// `listing`（#581）：只影響 #296 的近重複這一族（每筆記錄至多 `Entry.perRecordWarningCap` 組）；`.full` 是單筆完整明細。
+    public func validate(listing: PerRecordListing = .capped) -> [ValidationIssue] {
         var issues: [ValidationIssue] = []
         if !StoreKey.isValid(key) {
             issues.append(ValidationIssue(
@@ -1163,7 +1166,7 @@ extension Person {
                                                              ownerKey: key)
         // #296：近重複——配對判準視為同一、判定判準視為不同的兩個名字是**未決的問題**。
         // warning 級：不擋寫入（它們可能真的不同），但不得靜默。
-        issues += AuthorizedNames.validateNearDuplicates(names: names.all, ownerKey: key)
+        issues += AuthorizedNames.validateNearDuplicates(names: names.all, ownerKey: key, listing: listing)
         for f in unknownFields {
             issues.append(ValidationIssue(severity: .warning,
                 message: "未知欄位「\(displaySafeInvisible(f.key, max: 120))」——可能由較新版本寫入（已保留；升級 binary 或檢查 typo）"))

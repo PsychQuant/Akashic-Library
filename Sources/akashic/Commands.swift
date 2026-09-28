@@ -180,7 +180,53 @@ struct Validate: ParsableCommand {
 
     @OptionGroup var options: LibraryOptions
 
+    /// #581：被 per-record 上限截掉的明細的出口。只看字串就判得出來的檢查在 `validate()`（用法錯誤，exit 64）；
+    /// 找不到、或同 kind 同 key 兩筆以上是 store 的事，在 `run()` 以 `StoreIOError` 回（exit 1）。
+    @Option(name: .long, help: """
+        只看一筆記錄的完整 per-record 明細（#581）：<kind>:<key>，kind 是 work／person／organization／venue／divergence（divergence 的 key 是 UUID）。\
+        kind 必填、不猜——不同 kind 的 key 可以相同。對這一筆不套每筆 \(Entry.perRecordWarningCap) 則的列出上限（組合式六族：venue 名字內容、\
+        venue 近重複、person 近重複、重複 venue 邊、confirmed literal、重複判定記錄）；近重複的逐對求值上限（組內與整筆）與每則訊息內的列舉上限照舊。\
+        跨記錄檢查與 quarantine 不屬於單一記錄、不在範圍內——看全部用不帶 --owner 的 validate。這一筆有 error 時非零退出
+        """)
+    var owner: String?
+
+    func validate() throws {
+        guard let owner else { return }
+        do { _ = try RecordAddress.parse(owner) } catch { throw ValidationError(displaySafeErrorText(error)) }
+    }
+
+    /// 一行一則；回傳這一批裡有沒有 error。全庫與 `--owner` 兩條路徑共用這一個 sink（#581：兩份 print 迴圈會各自演化）。
+    private static func printPerRecord(_ issues: [StoreHealth.OwnedIssue]) -> Bool {
+        var failed = false
+        for owned in issues {
+            let mark = owned.issue.severity == .error ? "✗" : "⚠"
+            let label = owned.kind == "entry" ? "" : "\(owned.kind) "
+            print("\(mark) \(label)\(displaySafe(owned.owner, max: 200)): \(owned.issue.message)")   // display-safe-exempt: 訊息在 validate 裡已逐項消毒；CLI validate 逐行不截（R18）
+            if owned.issue.severity == .error { failed = true }
+        }
+        return failed
+    }
+
+    /// #581：單筆記錄的完整明細。不套每筆的列出上限（`PerRecordListing.full`），求值上限照舊；跨記錄與 quarantine 不在範圍內。
+    private func runOwner(_ raw: String) throws {
+        let address = try RecordAddress.parse(raw)
+        let store = try options.openStore()
+        let load = try store.load()
+        let issues = try store.perRecordIssues(from: load, owner: address)
+        let failed = Self.printPerRecord(issues)
+        let errors = issues.filter { $0.issue.severity == .error }.count
+        let who = "\(address.kind.rawValue) '\(displaySafe(address.key, max: 200))'"
+        print(issues.isEmpty
+              ? "✓ \(who) 沒有 per-record 問題（完整明細，#581）"
+              : "── \(who) 的完整 per-record 明細：\(issues.count) 則（error \(errors)）——不套每筆 \(Entry.perRecordWarningCap) 則的列出上限；"   // display-safe-exempt: who 由 rawValue 與 displaySafe 組成；其餘是 Int
+                + "求值上限觸頂時訊息自己會說（#581）")
+        print("   跨記錄檢查（懸空的作者／venue key、重複 key…）與 quarantine 不屬於單一記錄、不在 --owner 的範圍——看全部用不帶 --owner 的 validate"
+              + (load.quarantined.isEmpty ? "" : "（本 store 有 \(load.quarantined.count) 個檔被 quarantine）"))
+        if failed { throw ExitCode(1) }
+    }
+
     func run() throws {
+        if let owner { return try runOwner(owner) }
         let store = try options.openStore()
         let load = try store.load()
         let health = store.health(from: load)
@@ -199,17 +245,17 @@ struct Validate: ParsableCommand {
         // CLI 這一面的特徵是**不加面級截斷**（MCP 面截 20 則並送 count 當分母）——但 per-record 的上限（`Entry.perRecordWarningCap`）
         // 住在 `validate()`／`StoreHealth` 產生訊息的那一步，三個面共有：一筆記錄超過上限時這裡也只印前 20 則加一句概括——
         // **只套在組合式的六族**（venue 名字內容、venue 近重複、person 近重複、重複 venue 邊、confirmed literal、重複判定記錄；則數是每筆記錄的
-        // 配對／組數），死 verdict 等其餘家族每筆 reference／配對／記錄各一則、與記錄持有的 reference 數線性、無上限（R25 D70／R26 D72；出口另案 #581）
+        // 配對／組數），死 verdict 等其餘家族每筆 reference／配對／記錄各一則、與記錄持有的 reference 數線性、無上限（R25 D70／R26 D72）
         // （R24 D66；R23 verify Codex 第 2 列：R14–R23 之後「逐行、無截斷」為假；`ValidatePerRecordCapCLITests` 釘住實際契約）。
+        // 被截的那幾則的出口是 `--owner`（#581）：對一筆記錄不套列出上限。
         //
         // `load.organizations` / `organization.validate()` / `load.divergences` 這些
         // 走訪**沒有消失**，只是搬到 `health(from:)` 裡——`AuthorizedNameTests` 的
         // 機械守衛跟著搬（它釘的是「機構真的被驗證」這個性質，不是它住在哪個檔）。
-        for owned in health.perRecordIssues {
-            let mark = owned.issue.severity == .error ? "✗" : "⚠"
-            let label = owned.kind == "entry" ? "" : "\(owned.kind) "
-            print("\(mark) \(label)\(displaySafe(owned.owner, max: 200)): \(owned.issue.message)")   // display-safe-exempt: 訊息在 validate 裡已逐項消毒；CLI validate 逐行不截（R18）
-            if owned.issue.severity == .error { failed = true }
+        if Self.printPerRecord(health.perRecordIssues) { failed = true }
+        // #581：被截的記錄數＋出口——逐則的概括句已印在上面，這一行說怎麼拿到被截的那幾則。
+        if !health.cappedRecords.isEmpty {
+            print("被截的記錄: \(health.cappedRecords.count)（組合式六族每筆至多 \(Entry.perRecordWarningCap) 則；逐則看一筆：validate --owner <kind>:<key>，#581）")   // display-safe-exempt: Int
         }
         // #453：本機缺承重存檔的計數行——逐條已印在上面，這一行讓人一眼看出是整批
         // （其他 clone 上 sources/ 沒同步時會是全部）還是零星（一筆捏造）。

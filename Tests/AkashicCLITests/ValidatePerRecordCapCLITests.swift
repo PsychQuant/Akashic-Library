@@ -30,8 +30,9 @@ final class ValidatePerRecordCapCLITests: XCTestCase {
                             kind: .judgement(statement: "測試用判定", restsOn: []))
     }
 
-    /// 25 個配對各持兩筆重複的判定記錄 → CLI 印恰好 `perRecordWarningCap` 則家族訊息 ＋ 一句「另有 5 個配對未列出」；被截的 5 個在 CLI
-    /// 也拿不到定位資訊。這是契約不是缺陷（求值上限在讀取路徑上對未信任的 store 內容跑）——要全部只能讀 YAML。
+    /// 25 個配對各持兩筆重複的判定記錄 → CLI 印恰好 `perRecordWarningCap` 則家族訊息 ＋ 一句「另有 5 個配對未列出」；被截的 5 個在
+    /// 不帶 `--owner` 的 validate 裡拿不到定位資訊。這是契約不是缺陷（上限在讀取路徑上對未信任的 store 內容跑）——#581 起出口是
+    /// `validate --owner`（下一條測試），不帶它時最後一行指路。
     func testValidatePrintsAtMostTheCapPerRecordAndOneSummaryLine() throws {
         var o = Organization(key: "acme", names: TimelineOf([TemporalValue(value: "Acme")]))
         o.references = (1...25).flatMap { [verdict("w\($0)"), verdict("w\($0)")] }
@@ -49,5 +50,34 @@ final class ValidatePerRecordCapCLITests: XCTestCase {
         let named = Set((1...25).filter { i in family.contains { $0.contains("work:w\(i)，") } })
         XCTAssertEqual(named.count, Entry.perRecordWarningCap, "具名的配對數＝上限：\(named.sorted())")
         XCTAssertEqual(r.status, 0, "warning 級不改 exit")
+        // #581：被截的記錄數與出口
+        XCTAssertTrue(lines.contains { $0.hasPrefix("被截的記錄: 1") && $0.contains("validate --owner <kind>:<key>") }, r.output)
+    }
+
+    /// #581：`--owner organization:acme` 對那一筆不套列出上限——25 個配對全部具名、沒有概括句、最後一行說這是完整明細。
+    func testOwnerPrintsEveryPairingOfThatRecord() throws {
+        var o = Organization(key: "acme", names: TimelineOf([TemporalValue(value: "Acme")]))
+        o.references = (1...25).flatMap { [verdict("w\($0)"), verdict("w\($0)")] }
+        _ = try LibraryStore(root: root).writeOrganization(o)
+        let r = try CLITestHarness.run(["validate", "--library", root.path, "--owner", "organization:acme"],
+                                       env: ["AKASHIC_HOME": fakeHome.path])
+        let lines = r.output.split(separator: "\n").map(String.init)
+        let family = lines.filter { $0.contains("acme: \(StoreHealth.duplicateVerdictRecordPrefix)：") }
+        XCTAssertEqual(family.count, 25, r.output)
+        XCTAssertEqual(Set((1...25).filter { i in family.contains { $0.contains("work:w\(i)，") } }).count, 25)
+        XCTAssertFalse(lines.contains { $0.contains(Entry.perRecordCapSummaryPrefix) }, r.output)
+        XCTAssertTrue(lines.contains { $0.contains("organization 'acme' 的完整 per-record 明細") }, r.output)
+        XCTAssertTrue(lines.contains { $0.contains("不在 --owner 的範圍") }, "範圍要說出來：\(r.output)")
+        XCTAssertEqual(r.status, 0, "warning 級不改 exit")
+    }
+
+    /// kind 必填、不猜：只看字串就判得出來的錯是用法錯誤（exit 64）；store 裡找不到是執行期失敗（exit 1）。
+    func testOwnerRefusesMissingKindAsUsageErrorAndUnknownRecordAsRuntimeFailure() throws {
+        let bare = try CLITestHarness.run(["validate", "--library", root.path, "--owner", "acme"], env: ["AKASHIC_HOME": fakeHome.path])
+        XCTAssertEqual(bare.status, 64, bare.output)
+        XCTAssertTrue(bare.output.contains("沒有 kind"), bare.output)
+        let missing = try CLITestHarness.run(["validate", "--library", root.path, "--owner", "venue:nobody"], env: ["AKASHIC_HOME": fakeHome.path])
+        XCTAssertEqual(missing.status, 1, missing.output)
+        XCTAssertTrue(missing.output.contains("找不到已載入的 venue 記錄"), missing.output)
     }
 }

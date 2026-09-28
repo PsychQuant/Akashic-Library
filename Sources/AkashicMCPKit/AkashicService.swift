@@ -509,6 +509,45 @@ public final class AkashicService {
         return try jsonString(d)
     }
 
+    /// #581：`akashic_doctor` 帶 `owner` 時——**單筆記錄的完整 per-record 明細**。
+    ///
+    /// 不帶 owner 時，組合式六族在產生訊息那一步就每筆記錄至多 `Entry.perRecordWarningCap` 則、其餘一句概括，被截的那幾則在三個面都
+    /// 沒有出口（只能讀 YAML）。這裡對**一筆**記錄不套那一層（`PerRecordListing.full`）：上限存在的理由是對整份未信任 store 求值的界限，
+    /// 呼叫端指名一筆之後，輸出上界就是那一筆自己的組合數。組內與整筆的逐對求值上限照舊（CPU 的界限，不是列出的界限）。
+    ///
+    /// **面的呈現上限仍在**：輸出進 LLM context、呼叫端無法在收到後丟棄已付的代價（#236 的威脅模型），所以逐則受
+    /// `candidateByteBudget` 約束——與不帶 owner 時的 `recordIssues.first` 同一個預算、同一個單則截斷；截掉時 `truncated` 為 true、
+    /// `total` 是完整則數。要一則不漏看：CLI `validate --owner`（不截、不受位元組預算）。
+    ///
+    /// 與 `doctor()` 不同：**唯讀**——不重建 index、不算跨記錄檢查與 quarantine（它們不屬於任何一筆記錄）。
+    public func recordIssueDetail(owner rawOwner: String) throws -> String {
+        let address = try RecordAddress.parse(rawOwner)
+        let load = try store.load()
+        let issues = try store.perRecordIssues(from: load, owner: address)
+        var listed: [[String: Any]] = []
+        var listedBytes = 0, truncated = false
+        for o in issues {
+            let item: [String: Any] = ["severity": o.issue.severity == .error ? "error" : "warning",
+                                       "message": displaySafeClipOnly(o.issue.message, max: 1_000)]   // display-safe-exempt: 訊息在 validate 裡已逐項消毒，只截（與 doctor 的 first 同一個上限）
+            let cost = Self.jsonBytes(item)
+            if !listed.isEmpty, listedBytes + cost > Self.candidateByteBudget { truncated = true; break }
+            listedBytes += cost
+            listed.append(item)
+        }
+        return try jsonString([
+            "library": displaySafe(root.path, max: 800),
+            "owner": ["kind": address.kind.rawValue, "key": displaySafe(address.key, max: 200)] as [String: Any],
+            // `listing` 說這份明細是哪一種：`full`＝不套每筆記錄的列出上限（#581）。
+            "listing": "full",
+            "total": issues.count,
+            "errors": issues.filter { $0.issue.severity == .error }.count,
+            "issues": listed,
+            "truncated": truncated,
+            "scope": "只含這一筆記錄的 per-record 問題：不套每筆 \(Entry.perRecordWarningCap) 則的列出上限（組合式六族）；近重複的逐對求值上限照舊，觸頂時訊息自己會說。"
+                + "跨記錄檢查、quarantine、index 統計不在範圍內、index 不重建——看全部用不帶 owner 的 akashic_doctor；一則不漏看用 CLI validate --owner。",
+        ])
+    }
+
     /// #76：divergence 的 list-only 投影——「載入了幾筆、各是什麼」是可觀察性
     /// （#71 第 7 條自身的要求），與 doctor 計數同層。**不做**過濾與圖形化
     /// （那才是 #71 的「範圍外：歧異查詢或圖形化」）。

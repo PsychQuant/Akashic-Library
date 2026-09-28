@@ -201,7 +201,12 @@ public struct Venue: Equatable {
     }
 
     /// Schema 驗證（與 organization 對齊：key 格式＋authorized 子集＋未知欄位警告）。
-    public func validate() -> [ValidationIssue] {
+    ///
+    /// `listing`（#581）：`.capped` 是讀取路徑與寫入閘的預設；`.full` 是單筆完整明細，放寬三族的「每筆記錄至多
+    /// `Entry.perRecordWarningCap` 則／組／筆」——名字內容、names／authorized／variant 近重複、同一 work 多個 confirmed literal。
+    /// 求值上限（組內 5,000 對、整筆 100,000 對）與每組列 3 對不動（理由見 `PerRecordListing`）。寫入閘（`assertVenueWritable`）
+    /// 只看有沒有 error，不受列出上限影響，所以永遠用預設。
+    public func validate(listing: PerRecordListing = .capped) -> [ValidationIssue] {
         var issues: [ValidationIssue] = []
         if !StoreKey.isValid(key) {
             issues.append(ValidationIssue(
@@ -255,7 +260,7 @@ public struct Venue: Equatable {
         for (label, list) in [("names", names.entries.map(\.value)), ("authorized", authorized), ("variant", variant)] {
             for n in list {
                 if let why = NameIdentity.wellFormednessIssue(n) {
-                    guard listedNames < Entry.perRecordWarningCap else { unlistedNames += 1; continue }
+                    guard listedNames < listing.cap else { unlistedNames += 1; continue }
                     listedNames += 1
                     issues.append(ValidationIssue(
                         severity: .error,
@@ -369,7 +374,7 @@ public struct Venue: Equatable {
             guard !found.issues.isEmpty else { continue }
             // 配額只數真的出聲的組（D48）；出聲的組分兩類，概括句分開數、分開說（D52；R17 verify requirements 第 4 列、logic 第 14 列：
             // R17 的概括句對只觸發組內求值上限的組說「已評估且真的違反」，兩句都假）
-            guard listedGroups < Entry.perRecordWarningCap else { if found.capHit && !found.violating { unlistedCapHit += 1 } else { unlistedViolating += 1 }; continue }
+            guard listedGroups < listing.cap else { if found.capHit && !found.violating { unlistedCapHit += 1 } else { unlistedViolating += 1 }; continue }
             listedGroups += 1
             if found.truncated { listedCapHit += 1 }
             issues.append(contentsOf: found.issues)
@@ -390,7 +395,7 @@ public struct Venue: Equatable {
             }
             for k in keyOrder {
                 guard let dups = dupsByKey[k], let first = firstByKey[k] else { continue }
-                guard listedGroups < Entry.perRecordWarningCap else { unlistedViolating += 1; continue }
+                guard listedGroups < listing.cap else { unlistedViolating += 1; continue }
                 listedGroups += 1
                 issues.append(ValidationIssue(
                     severity: .error,
@@ -413,7 +418,7 @@ public struct Venue: Equatable {
             issues.append(ValidationIssue(
                 severity: unlistedViolating + unlistedCapHit > 0 ? .error : .warning,
                 message: "\(Entry.perRecordCapSummaryPrefix)：venue '\(displaySafeInvisible(key, max: 120))' 的 names／authorized／variant \(parts.joined(separator: "；"))"   // display-safe-exempt: 前綴是常量；parts 是本函式的字面常量＋Int
-                       + "——每筆記錄最多列 \(Entry.perRecordWarningCap) 組、組內至多評估 \(pairsToEvaluate) 對、整筆至多 \(pairsToEvaluatePerRecord) 對；本檢查在讀取路徑上對未信任的 store 內容跑"))   // display-safe-exempt: Int 常量
+                       + "——\(listing.listingClause(unit: "組"))、組內至多評估 \(pairsToEvaluate) 對、整筆至多 \(pairsToEvaluatePerRecord) 對；本檢查在讀取路徑上對未信任的 store 內容跑"))   // display-safe-exempt: listing 的子句是字面常量＋Int；其餘是 Int 常量
         }
         // **配對唯一性的第二半有掃描面了**（#554 R14，Claude 代裁 D36；`zero-instance-guards` 第 27 列）：同一 work 上 ≥2 個
         // 正規化後不同的 confirmed literal——§3.5 那句 normative 的後半。第一半（同一 work 兩條 key 邊指同一 venue）住在
@@ -449,7 +454,7 @@ public struct Venue: Equatable {
         for w in workOrder {
             let lits = literalsByWork[w]!
             guard lits.count > 1 else { continue }
-            guard listedWorks < Entry.perRecordWarningCap else { unlistedWorks += 1; continue }
+            guard listedWorks < listing.cap else { unlistedWorks += 1; continue }
             listedWorks += 1
             var firstByKey: [String: String] = [:]
             var countByKey: [String: Int] = [:]

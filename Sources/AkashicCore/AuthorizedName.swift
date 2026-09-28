@@ -251,8 +251,12 @@ public enum AuthorizedNames {
     /// **venue 側刻意不同**（第 43／45 列）：那邊觸頂是 error、整筆拒絕，任何一組觸頂結果都一樣，所以沿插入序、預算鎖存就夠；
     /// person 側只計數，順序才決定「哪些真違反看得到」。名字以 `displaySafeInvisible` 迴送（D74：person 名字沒有 venue 那道 D8 不變式，
     /// ZWSP／TAG 寫得進來）。
+    ///
+    /// `listing`（#581）：`.full` 放寬的只有「每筆記錄至多 `Entry.perRecordWarningCap` 組」這一層；組內與整筆的求值上限、每組列 3 對
+    /// 都不動（理由見 `PerRecordListing`）。
     public static func validateNearDuplicates(names: [String],
-                                              ownerKey: String) -> [ValidationIssue] {
+                                              ownerKey: String,
+                                              listing: PerRecordListing = .capped) -> [ValidationIssue] {
         let pairsToEvaluate = 5_000, pairsToList = 3
         // **整筆記錄的求值總量上限——venue 的第五層**（R27 D76；R26 verify requirements 第 7 列、logic 第 13／14 列、security 第 21 列、regression 第 37／38 列、
         // DA 第 27 列：R26 寫「與 venue 側同一套」而只搬了四層——組內 5,000 對的上限被「分組形狀」一步繞開（多組、每組剛好 100 個名字，C(100,2)=4,950
@@ -290,7 +294,7 @@ public enum AuthorizedNames {
             evaluatedTotal += evaluated
             guard !pairs.isEmpty || capHit else { continue }
             // 兩類分開記帳（R26 把 capHitGroups 在名額檢查之前遞增，一組同時進兩個計數、概括句把相交的集合當互斥報——regression 第 37 列）
-            guard listed < Entry.perRecordWarningCap else { if capHit && pairs.isEmpty { unlistedCapHit += 1 } else { unlistedViolating += 1 }; continue }
+            guard listed < listing.cap else { if capHit && pairs.isEmpty { unlistedCapHit += 1 } else { unlistedViolating += 1 }; continue }
             listed += 1
             if capHit { listedCapHit += 1 }
             if pairs.isEmpty {
@@ -324,7 +328,7 @@ public enum AuthorizedNames {
             issues.append(ValidationIssue(
                 severity: .warning,
                 message: "\(Entry.perRecordCapSummaryPrefix)：person '\(displaySafeInvisible(ownerKey, max: 120))' 的名字：\(parts.joined(separator: "；"))"   // display-safe-exempt: 前綴是常量；parts 是本函式的字面常量＋Int
-                    + "——每筆記錄最多列 \(Entry.perRecordWarningCap) 組、組內至多評估 \(pairsToEvaluate) 對、整筆至多 \(pairsToEvaluatePerRecord) 對；本檢查在讀取路徑上對未信任的 store 內容跑"))   // display-safe-exempt: Int 常量
+                    + "——\(listing.listingClause(unit: "組"))、組內至多評估 \(pairsToEvaluate) 對、整筆至多 \(pairsToEvaluatePerRecord) 對；本檢查在讀取路徑上對未信任的 store 內容跑"))   // display-safe-exempt: listing 的子句是字面常量＋Int；其餘是 Int 常量
         }
         return issues
     }

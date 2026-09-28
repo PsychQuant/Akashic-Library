@@ -335,15 +335,24 @@ final class AuthorizedNameTests: XCTestCase {
         // 這是本 session 第三次遇到「守衛釘住實作位置而非性質」（前兩次：
         // `EntityShapeLabelTests` 釘住一個已刪除的命令名、`VenueTests` 釘住訊息裡
         // 的小寫 `venue`）。三次同型，值得寫下來。
+        //
+        // **#581 起走訪再搬一次**：per-record 的組裝抽成 `perRecordIssues(from:listing:only:)`，`health(from:)` 與單筆完整明細
+        // （`validate --owner`）共用它。守衛跟著搬（同上一段的理由），並釘住 `health(from:)` 真的走這一份。
         let src = try String(contentsOf: repoRoot
             .appendingPathComponent("Sources/AkashicStoreIO/StoreHealth.swift"), encoding: .utf8)
         guard let healthBody = src.range(of: "func health(from load: LibraryLoad)")
             .map({ String(src[$0.lowerBound...].prefix(4000)) }) else {
             return XCTFail("找不到 health(from:)")
         }
-        XCTAssertTrue(healthBody.contains("load.organizations"),
-                      "health(from:) 必須走訪 organizations，否則機構的 authorized 不變式在使用層不生效")
-        XCTAssertTrue(healthBody.contains("o.validate()"),
+        XCTAssertTrue(healthBody.contains("perRecordIssues(from: load, listing: .capped, only: nil)"),
+                      "health(from:) 必須走 per-record 的唯一組裝點（#581）")
+        guard let assemblyBody = src.range(of: "func perRecordIssues(from load: LibraryLoad, listing: PerRecordListing,")
+            .map({ String(src[$0.lowerBound...].prefix(4000)) }) else {
+            return XCTFail("找不到 perRecordIssues(from:listing:only:)")
+        }
+        XCTAssertTrue(assemblyBody.contains("load.organizations"),
+                      "per-record 的組裝必須走訪 organizations，否則機構的 authorized 不變式在使用層不生效")
+        XCTAssertTrue(assemblyBody.contains("o.validate()"),
                       "而且要真的呼叫 validate()，不是只列舉")
         // **三個面都要拿得到**——搬家的理由正是這個，所以一併釘住。
         let cli = try String(contentsOf: repoRoot

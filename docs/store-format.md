@@ -985,6 +985,8 @@ judgement 衝突）；venue×work×confirmed 的排除只在**每筆各有自己
 confirmed-elsewhere 揭露（`PersonResolver`／`VenueResolver` 從 `confirmedByLiteral` 讀 rule）都不再看到弱出身；#468 保的那個警告在這一格只在
 `verdictsCollapsed` 出現一次。**家族計數是下限（D54）**：doctor／App 的兩族計數每筆記錄至多 20 則，`StoreHealth.cappedRecords`（doctor 的
 `recordIssues.cappedRecords`、App 摘要）說有幾筆記錄被截（R17 verify Codex 第 2 列：R17 的 MCP 描述寫「各族計數永遠完整」，與 `StoreHealth` 的 doc 矛盾）。
+被截的那幾則的出口是**單筆完整明細**（#581）：CLI `validate --owner <kind>:<key>`、MCP `akashic_doctor` 的 `owner`——對指名的一筆不套每筆 20 則的
+列出上限，求值上限照舊；kind 必填（organization 與 venue 有同 key 的記錄）。
 **以記錄計、且 App 面真的渲染（D56／D57，R19）**：R18 數的是概括句的行數，一筆 venue 同時出名字近重複與 confirmed-literal 兩句概括就多報一筆
 （R18 verify Codex 第 2 列）——現在以 (kind, owner) 去重；App 的側欄在 R18 只把數字放進摘要而沒有 View 消費它（第 3 列）——現在「被截的記錄」自成一列，
 有記錄被截時各家族的值前綴「≥」。雙 literal 的拒絕訊息把這次帶進來的

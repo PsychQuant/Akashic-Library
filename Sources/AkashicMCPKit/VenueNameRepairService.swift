@@ -29,7 +29,7 @@ public struct VenueNameRepairReport {
 ///
 /// 契約：
 /// - 乾跑與 `--apply` 算**同一份**計畫、跑**同一組**閘；乾跑把閘的拒絕當預告放進報告，`--apply` 遇到就擲錯。
-/// - 寫入前：每一筆要改寫的 venue 先過寫入閘（`assertVenueWritable`＋encode 自檢），再要求那些 venue 檔已在 git 裡 commit、乾淨
+/// - 寫入前：每一筆要改寫的 venue 先過 `writeVenue` 的全部前置（`preflightWrite`：寫入閘、encode 與位元組上限、#631 目的檔），再要求那些 venue 檔已在 git 裡 commit、乾淨
 ///   （`assertRecordsRecoverable`——被改寫前的位元組只剩 git 裡那一份）。任一筆不過即整批拒絕、零寫入。
 /// - 要人判斷的 venue 一筆都不動（計畫裡 `repaired == nil`）。
 extension AkashicService {
@@ -55,14 +55,15 @@ extension AkashicService {
                                      applied: true, applyRefusal: nil)
     }
 
-    /// 寫入前的兩道閘，乾跑與實跑共用：先寫入閘（format 閘、validate、encode 自檢），再 git 可回溯閘。
+    /// 寫入前的兩道閘，乾跑與實跑共用：先 `writeVenue` 的全部前置（`preflightWrite`），再 git 可回溯閘。
     private func assertVenueNameRepairWritable(_ targets: [Venue]) throws {
         guard !targets.isEmpty else { return }
-        let format = try StoreVersion.read(root: store.root)
+        // `preflightWrite`＝`writeVenue` 在寫入當下跑的每一道（store root、format 閘、validate、#648 的 encode 與位元組上限、
+        // #631 的目的檔檢查），不寫。先前這裡手寫了其中兩道（`assertVenueWritable`＋不帶 `replacing:` 的 encode），
+        // 少了目的檔檢查——那一道擲錯時前面幾筆已經落盤（#575 C2a verify）。
         for v in targets {
             do {
-                try LibraryStore.assertVenueWritable(v, format: format)
-                _ = try VenueYAML.encode(v)
+                try store.preflightWrite(v)
             } catch {
                 throw ServiceError.invalid(
                     "venue「\(displaySafeInvisible(v.key, max: 200))」改寫之後過不了寫入閘：\(displaySafeError(error, max: 2_000))"

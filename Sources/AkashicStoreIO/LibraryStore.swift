@@ -743,6 +743,20 @@ public final class LibraryStore {
                 }
             } catch { mark(false, i, error) }
         }
+        // 兩筆以上的 legacy person 共用同一個 id（#641 C2b verify，Codex HIGH）：目的檔此刻不存在，上面逐筆的 #631 檢查各自通過，
+        // 而第一筆搬進 `entities/<id>.yaml` 之後第二筆才撞上——preflight-then-write 在中途撕裂。逐筆看不出來，要跨記錄比。
+        // 只看 legacy 那一段：住在 `entities/` 的一筆與 legacy 共用 id 時，目的檔已存在、上面的檢查會擋下 legacy 那一筆。
+        var legacyByID: [UUID: [Int]] = [:]
+        for i in result.people.indices where i >= entitiesPeopleCount { legacyByID[result.people[i].id, default: []].append(i) }
+        for (id, group) in legacyByID where group.count > 1 {
+            for i in group where result.people[i].fileSituation.unwritableReason == nil {
+                let others = group.filter { $0 != i }
+                    .map { "people/\(displaySafeInvisible(result.people[$0].key, max: 200)).yaml" }.sorted().joined(separator: "、")
+                result.people[i].fileSituation.unwritableReason =
+                    "people/\(displaySafeInvisible(result.people[i].key, max: 200)).yaml 與 \(others) 共用 id \(id.uuidString)"   // display-safe-exempt: UUID 由型別保證
+                    + "——兩份都要搬進 entities/\(id.uuidString).yaml，第一筆寫入之後第二筆會撞上它（#641）"   // display-safe-exempt: UUID 由型別保證
+            }
+        }
         guard !moves.isEmpty else { return }
         var bad: [String: String] = [:]
         for b in Self.filesNotSafelyRecoverable(root: root, relativePaths: moves.map(\.label)) where bad[b.path] == nil {

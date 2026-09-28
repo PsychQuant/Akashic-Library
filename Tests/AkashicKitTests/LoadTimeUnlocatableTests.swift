@@ -161,6 +161,20 @@ final class LoadTimeUnlocatableTests: XCTestCase {
         XCTAssertThrowsError(try store.writePerson(b), "legacy 那一筆寫入當下被 #631 拒——load 已把它標出來")
     }
 
+    /// 兩筆**都還是** legacy、共用同一個 id（#641 C2b verify，Codex HIGH）：目的檔 `entities/<id>.yaml` 此刻不存在，逐筆的
+    /// #631 檢查各自通過；第一筆搬進去之後第二筆才撞上。load 要把兩筆都標出來，不讓 preflight-then-write 在中途撕裂。
+    func testTwoLegacyPeopleSharingAnIdentifierAreBothUnlocatable() throws {
+        let shared = UUID()
+        try writeLegacy(Person(key: "a-person", names: ["A"], id: shared))
+        try writeLegacy(Person(key: "b-person", names: ["B"], id: shared))
+        commit()   // 兩份都受追蹤且乾淨：逐筆看都「可以搬移」
+        let load = try store.load()
+        XCTAssertEqual(load.people.unlocatablePersonKeys, ["a-person", "b-person"])
+        let why = try XCTUnwrap(load.people.first { $0.key == "b-person" }?.fileSituation.unwritableReason)
+        XCTAssertTrue(why.contains("a-person") && why.contains(shared.uuidString), why)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: store.entityURL(id: shared).path), "load 不寫")
+    }
+
     /// 沒有 legacy 殘留時什麼都不標（live store 的現況：零成本、零誤報）。
     func testNoLegacyResidueMeansNoAnnotation() throws {
         try store.writeEntry(Entry(id: UUID(), citekey: "h2020", type: .periodicalArticle, title: "H"))
@@ -347,6 +361,25 @@ final class LoadTimeUnlocatableTests: XCTestCase {
         XCTAssertNoThrow(try AuthorizedNameMigration.run(store: store, apply: false), "乾跑照常出報告")
     }
 
+    /// 寫入集合裡有一筆指定之後會超過讀取上限（#648）：整批零寫入、marker 不動（#648 C2b verify）。
+    func testAuthorizeNamesWritesNothingWhenAnyPersonWouldExceedTheReadLimit() throws {
+        try store.writePerson(Person(key: "a-person", names: ["Guan, Yongtao"]))
+        // z-person 的檔恰在讀取上限之下：指定 authorized 會多出幾十個位元組，寫出後超過上限
+        var z = Person(key: "z-person", names: ["Zed, Zoe"])
+        z.note = ""
+        let overhead = try PersonYAML.encode(z).utf8.count
+        z.note = String(repeating: "a", count: Int(AliasEventBudget.maxBytes) - overhead - 1)   // 實測：檔恰等於上限（指定只多 3 個位元組）
+        let size = try PersonYAML.encode(z).utf8.count
+        XCTAssertTrue(size <= Int(AliasEventBudget.maxBytes) && size > Int(AliasEventBudget.maxBytes) - 32, "前提：\(size)")
+        try store.writePerson(z)
+        commit()
+        let before = try recordFiles()
+        let markerBefore = try StoreVersion.read(root: root)
+        XCTAssertThrowsError(try AuthorizedNameMigration.run(store: store, apply: true))
+        XCTAssertEqual(try recordFiles(), before, "a-person 不得先寫")
+        XCTAssertEqual(try StoreVersion.read(root: root), markerBefore)
+    }
+
     // MARK: - import-wos
 
     /// 回填（只多不少）要改寫既有記錄——寫不進去的那一筆先前在寫入當下擲出，整趟匯入中斷、報告丟掉。
@@ -371,5 +404,21 @@ final class LoadTimeUnlocatableTests: XCTestCase {
         XCTAssertEqual(report?.created.count, 1, "其餘照寫")
         XCTAssertEqual(try Data(contentsOf: legacyURL), legacyBefore)
         XCTAssertFalse(FileManager.default.fileExists(atPath: store.entityURL(id: existing.id).path), "沒有寫出第二份")
+    }
+
+    /// 寫入集合裡有一筆寫出後會超過讀取上限（#648）：整趟零寫入（#648 C2b verify，DA HIGH）。
+    /// 先前逐列寫：第一列的新作品已落盤，第二列才在寫入當下被拒、報告隨 throw 丟掉。
+    func testWoSImportWritesNothingWhenAnyRowWouldBeRefusedOnWrite() throws {
+        let header = "Authors\tArticle Title\tPublication Year\tDOI\tSource Title\tAbstract\n"
+        let huge = String(repeating: "a", count: Int(AliasEventBudget.maxBytes) + 1_024)
+        let tsv = header
+            + "Olsson, Ulf\tFirst Paper\t2024\t10.1/first\tJournal B\tshort\n"
+            + "Cheng, Che\tSecond Paper\t2025\t10.1/second\tJournal A\t\(huge)\n"
+        let before = try recordFiles()
+        XCTAssertThrowsError(try WoSImport.run(text: tsv, store: store)) { err in
+            let text = (err as? LocalizedError)?.errorDescription ?? "\(err)"
+            XCTAssertTrue(text.contains("cheng2025"), "拒絕要具名那一筆：\(text.prefix(400))")
+        }
+        XCTAssertEqual(try recordFiles(), before, "第一列不得先落盤")
     }
 }

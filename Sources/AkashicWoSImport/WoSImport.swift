@@ -311,6 +311,9 @@ public enum WoSImport {
         // （citekey 重複、與另一筆 work 共用 id、load 判定它的檔案寫入時會被拒）。先前這裡不問：共用 id 時改寫的是兄弟的檔，
         // 檔案寫入時會被拒的則在寫入當下擲出、整趟匯入中斷，前面幾列已經落盤而報告隨 throw 丟掉
         let unlocatable = load.entries.unlocatableCitekeys
+        // #648 C2b verify（DA HIGH）：寫入先收集、整個寫入集合逐筆 preflight 通過之後才寫。先前逐列寫、沒有收容，
+        // 第 N 列在寫入當下被拒（#648 的讀取上限、或任何寫入閘）時前 N−1 列已落盤、報告隨 throw 丟掉——與 #641 同一個撕裂形。
+        var pending: [Entry] = []
         /// DOI 命中優先；無 DOI 或查無才退回 (標題, 年份)。
         func existing(matching probe: Entry) -> Entry? {
             for d in probe.canonicalDOIs {
@@ -400,7 +403,7 @@ public enum WoSImport {
                                               + "（\(UnlocatableReason.work)）——不回填、零寫入（#641）")
                     continue
                 }
-                if !dryRun { try store.writeEntry(merged) }
+                if !dryRun { pending.append(merged) }
                 report.enriched.append(existing.citekey)
                 continue
             }
@@ -414,9 +417,13 @@ public enum WoSImport {
             if !venueCapable { e.venues = [] }
             for c in dropped { report.droppedColumns[c, default: 0] += 1 }
             taken.insert(e.citekey)
-            if !dryRun { try store.writeEntry(e) }
+            if !dryRun { pending.append(e) }
             report.created.append(e.citekey)
         }
+        // `preflightWrite`＝`writeEntry` 在寫入當下跑的每一道（寫入閘、#631 目的檔、#648 的 encode 與讀取上限），不寫。
+        // 任一筆不過即擲出、零寫入；錯誤訊息具名那一筆記錄
+        for e in pending { try store.preflightWrite(e) }
+        for e in pending { try store.writeEntry(e) }
         return report
     }
 }

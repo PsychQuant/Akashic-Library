@@ -155,6 +155,9 @@ public enum AuthorizedNameMigration {
                        + "\(shown)\(blocked.count > 20 ? "…" : "")——寫到一半會留下已指定卻沒 bump marker 的 store，"   // display-safe-exempt: shown 已逐項 displaySafeInvisible
                        + "整批拒絕、零寫入；先修好再跑（#641）")
             }
+            // #648 C2b verify：writePerson 在寫入當下跑的每一道（含 encode 與讀取上限）先對整個寫入集合跑一次——上面只擋了
+            // #641 的那一類，一筆寫出後超過讀取上限的 person 仍會在中途被拒、前面的指定已落盤而 marker 沒 bump
+            for updated in toWrite { try store.preflightWrite(updated) }
             for updated in toWrite { _ = try store.writePerson(updated) }
         }
         report.undecidedKeys.sort()

@@ -520,6 +520,14 @@ public final class AkashicService {
     /// `total` 是完整則數。要一則不漏看：CLI `validate --owner`（不截、不受位元組預算）。
     ///
     /// 與 `doctor()` 不同：**唯讀**——不重建 index、不算跨記錄檢查與 quarantine（它們不屬於任何一筆記錄）。
+    /// 單筆明細裡的一則訊息：截到 1,000 字元，並說出有沒有截。單則被截也要讓 `truncated` 為 true（#581 C2b verify，Codex）——
+    /// 先前只有整則被位元組預算省略時才設，一則被截短的訊息讓呼叫端以為拿到了全部。今天各族的訊息在產生端就已截過
+    /// （實測 268／368 字元），這一格是守未來的訊息。
+    static func detailMessage(_ raw: String) -> (message: String, clipped: Bool) {
+        let message = displaySafeClipOnly(raw, max: 1_000)   // display-safe-exempt: 訊息在 validate 裡已逐項消毒，只截（與 doctor 的 first 同一個上限）
+        return (message, message != raw)
+    }
+
     public func recordIssueDetail(owner rawOwner: String) throws -> String {
         let address = try RecordAddress.parse(rawOwner)
         let load = try store.load()
@@ -527,8 +535,10 @@ public final class AkashicService {
         var listed: [[String: Any]] = []
         var listedBytes = 0, truncated = false
         for o in issues {
+            let (message, clipped) = Self.detailMessage(o.issue.message)
+            if clipped { truncated = true }
             let item: [String: Any] = ["severity": o.issue.severity == .error ? "error" : "warning",
-                                       "message": displaySafeClipOnly(o.issue.message, max: 1_000)]   // display-safe-exempt: 訊息在 validate 裡已逐項消毒，只截（與 doctor 的 first 同一個上限）
+                                       "message": message]
             let cost = Self.jsonBytes(item)
             if !listed.isEmpty, listedBytes + cost > Self.candidateByteBudget { truncated = true; break }
             listedBytes += cost

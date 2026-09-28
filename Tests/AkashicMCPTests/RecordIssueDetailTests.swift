@@ -75,6 +75,14 @@ final class RecordIssueDetailTests: XCTestCase {
     }
 
     /// 定址錯誤、找不到都拒絕（不猜），訊息說出 kind 的值域。
+    /// 單則訊息被截短時要說出來（#581 C2b verify，Codex）：`recordIssueDetail` 以它設 `truncated`。
+    func testDetailMessageDisclosesClipping() {
+        let short = AkashicService.detailMessage("一則短訊息")
+        XCTAssertEqual(short.message, "一則短訊息"); XCTAssertFalse(short.clipped)
+        let long = AkashicService.detailMessage(String(repeating: "L", count: 1_500))
+        XCTAssertTrue(long.clipped); XCTAssertLessThan(long.message.count, 1_500)
+    }
+
     func testOwnerRefusesMissingKindAndUnknownRecords() throws {
         XCTAssertThrowsError(try service.recordIssueDetail(owner: "acme")) { error in
             XCTAssertTrue(displaySafeErrorText(error).contains("沒有 kind"), displaySafeErrorText(error))

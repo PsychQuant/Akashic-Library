@@ -120,6 +120,8 @@ extension DestructiveTargetGate {
         "file remove": .readOnly("只自 registry 除名，不刪除任何資料"),
         "references extract": .readOnly("skill 的中間運算（切分 pdftotext 輸出），不寫 store（#617）"),
         "references nominate": .readOnly("skill 的中間運算（兩源提名，唯讀查 DOI 是否已在庫），不寫 store（#617）"),
+        "literal-census": .readOnly("四域 literal 普查：只讀記錄檔的 YAML 原文與 store.yaml marker，不寫任何檔、不經 openStore（#629）"),
+        "scan-yaml-profile": .readOnly("開發用：掃 YAML 檔統計 profile 外的語法，只讀、不經 openStore（#629）"),
     ]
 
     /// 逐腿裁決的三個命令。鍵是旗標的主名（`--holder` 的舊名 `--person` 是同一格）。

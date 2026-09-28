@@ -247,6 +247,8 @@ pre-flight）的操作，MCP 的 LLM 消費者不是該角色；**候補缺席**
 | `export-tables --view`（#274） | 有理由缺席 | 匯出物是檔案樹，MCP 的回傳形狀未定——#274 註記的正式落位 |
 | `create-entry` 的 JSON 陣列與 `library` add／remove 的多 citekey（批次語意，#455） | 有理由缺席 | **批次屬操作者規模**（同三個 `bootstrap-*` 的既有裁決）：一次 load、批次內消解 citekey 碰撞、可預期失敗整批擋零寫入、I/O 逐筆收容、一次 rebuild，是目錄匯入（1545 筆量到 O(n²)）的使用形；MCP 的 `akashic_create_entry`／`akashic_libraries` 維持單筆——LLM 消費面逐筆顯式指名，且兩面**同一條實作路徑**（單筆是 `createEntries([draft])`／`setMembership(citekeys: [ck])` 的薄包裝），所以缺的只是「一次送多筆」的參數形狀，不是能力。日後若出現 LLM 流程需要一次建千筆，重新裁決的是 MCP 面的**位元組預算**（#388 的同一個論證），不是加參數 |
 | `references`（`extract`／`nominate`；#617） | 有理由缺席 | **skill 的內部步驟，不是 store 能力**：輸入是 `akashic-work-references` 經本機工具（`pdftotext`）與 safari-browser 取得後寫下的暫存檔，輸出是下一步（模型逐筆判定）的中間資料；不寫 store（`nominate` 唯讀查候選的 DOI 是否已在庫，那是這次比對的一個欄位，不是對外提供的查詢能力）。開 MCP 面等於要 LLM 呼叫端把 PDF 全文當工具參數送進來——呼叫端為大輸入付代價，與 #388 位元組預算論證同一個方向。不是維運例外（沒有不可逆操作），也不是候補缺席（缺的不是消費流程：唯一的消費流程就是那個 skill，而它在 shell 裡直接呼叫 CLI） |
+| `literal-census`（#629，由 literal-census.sh 移植） | 候補缺席 | **唯讀量測，是 `akashic-promote-literals` skill 每輪開場與收尾各跑一次的步驟**（進度數字落一筆 issue comment）；目前唯一的消費流程就是那個 skill 在 shell 裡直接呼叫 CLI。MCP 的 `akashic_doctor` 給的是 store 健康計數（含 `unresolvedAuthorLiterals`），口徑不同：普查是**四域**（author／venue／affiliation／org-parents）三個口徑（總邊／literal 邊／distinct），而且要在**讀端拒開的 store 上照樣出數字**（不經 `openStore()`，marker 壞掉或版號太新正是它標「這一輪的數字不能拿去定批次範圍」的情形）——兩者不重疊。**不是維運例外**（沒有不可逆操作）。需求出現（例如有 LLM 端自動跑 campaign 的流程要讀進度）即重啟裁決 |
+| `scan-yaml-profile`（#629，由 scan-yaml-profile.py 移植） | 有理由缺席 | **repo 開發者重測 #33（store YAML 輸入 profile）決策的證據工具**，不是使用者能力：對象是**檔案樹**（任何一個 store 目錄，含讀端拒開的），輸出是給人讀的統計表，用途是「corpus 有沒有長出 profile 外的語法」。MCP 的 LLM 消費者不做 corpus 遷移成本評估。不是維運例外，也不是候補缺席——沒有需要它的消費流程 |
 
 **機械檢查（CLI→MCP 方向）**：上方稽核程序的 ② 枚舉 CLI 全部註冊型別後，
 每個命令必須出現在 **MCP 表的「CLI 對應」欄**或**本表**其中之一——兩處都

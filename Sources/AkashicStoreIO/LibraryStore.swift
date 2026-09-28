@@ -2713,6 +2713,19 @@ public extension LibraryLoad {
             out.append(ValidationIssue(severity: .error,
                 message: "person key「\(displaySafeInvisible(k, max: 200))」重複"))
         }
+        // #669：venue／organization 的 key 同樣是唯一定位的依據——`.key(…)` 參照、verdict 的 holder、每一個寫入面都以它找
+        // 記錄。重複時讀取端各留第一筆（依列舉順序，不是判定），寫入面拒絕；error 與 citekey／person key 同級，
+        // 所以改名與合併（`assertNoCrossRecordErrors`）也先停下
+        for k in duplicates(venues.map(\.key)).sorted() {
+            out.append(ValidationIssue(severity: .error,
+                message: "venue key「\(displaySafeInvisible(k, max: 200))」重複"
+                       + "——以 key 定位的讀取與寫入分不出是哪一筆；改掉其中一筆的 key，或走 resolve-divergence 合併"))
+        }
+        for k in duplicates(organizations.map(\.key)).sorted() {
+            out.append(ValidationIssue(severity: .error,
+                message: "organization key「\(displaySafeInvisible(k, max: 200))」重複"
+                       + "——以 key 定位的讀取與寫入分不出是哪一筆；改掉其中一筆的 key"))
+        }
         // #641：load 判定寫入時一定會被拒的記錄（`FileSituation`）——寫入面在第一次寫入之前拒絕或略過它們。
         // warning 不是 error：記錄本身讀得到、內容完好，擋的是寫入；升 error 會讓 `assertNoCrossRecordErrors` 擋下不相干的改名與合併。
         // 兩份並存時 load 讀到兩筆、兩筆的原因是同一句——同一則訊息只出一次

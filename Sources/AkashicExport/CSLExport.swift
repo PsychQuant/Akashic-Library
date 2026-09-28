@@ -7,10 +7,10 @@ public enum CSLExport {
     public static func cslJSON(entries: [Entry], people: [Person],
                                organizations: [Organization] = [],
                                venues: [Venue]) throws -> String {
-        let peopleByKey = Dictionary(uniqueKeysWithValues: people.map { ($0.key, $0) })
+        // #669：重複的 key 留第一筆（列舉順序），不 trap——validate 以 error 報重複
+        let peopleByKey = Dictionary(people.map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
         let venuesByKey = Dictionary(venues.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
-        let organizationsByKey = Dictionary(
-            uniqueKeysWithValues: organizations.map { ($0.key, $0) })
+        let organizationsByKey = Dictionary(organizations.map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
         let items: [[String: Any]] = entries
             .sorted { $0.citekey < $1.citekey }
             .map { entry in

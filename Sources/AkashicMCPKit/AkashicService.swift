@@ -734,7 +734,8 @@ public final class AkashicService {
                 : try engine.personPublications(key: key, library: library)
             let co = try engine.coAuthors(of: key, library: library)
             // resolved 合著者的 name 給人讀的名字（people.names 首項），key 另放 person_key
-            let nameByKey = Dictionary(uniqueKeysWithValues: load.people.map { ($0.key, $0.displayName(in: .latn)) })
+            let nameByKey = Dictionary(load.people.map { ($0.key, $0.displayName(in: .latn)) },
+                                       uniquingKeysWith: { first, _ in first })   // #669：重複的 person key 不 trap（validate 報 error）
             // #171 複驗 (g)：`record == nil` 但 `allPubs` 非空時（key 只出現在 entry 的
             // `.key(...)` 參照、沒有 person 記錄），呼叫端的字串原樣回吐——而同一個
             // 回應的 `publications[].authors` 裡那同一份字串是包了的。
@@ -2468,14 +2469,16 @@ public final class AkashicService {
             // 而同一個 dict literal 裡其餘七個值全部消毒。
             // #206：欄位不再被丟棄，改以正規化後的原名入庫——鍵名跟著改，
             // 否則 MCP 面回給 LLM 的仍是「dropped」這個假訊號（verify H2）
-            "residualFields": Dictionary(uniqueKeysWithValues:
-                report.residualFields.map { (displaySafe($0.key, max: 200), $0.value) }),
+            // #669：消毒截斷不是單射——兩個共用前綴的鍵會撞成同一個字串；依原始鍵排序後留第一個，不 trap（同 fields 的既有處置）
+            "residualFields": Dictionary(
+                report.residualFields.sorted { $0.key < $1.key }.map { (displaySafe($0.key, max: 200), $0.value) },
+                uniquingKeysWith: { first, _ in first }),
             "unnormalizedDates": report.unnormalizedDates.map { displaySafe($0, max: 200) },
             "skippedLinkedAttachments": report.skippedLinkedAttachments,
         ]
         if !report.authorsPreserved.isEmpty { d["authorsPreserved"] = report.authorsPreserved.map { displaySafe($0, max: 200) } }
         if !report.quarantineConflicts.isEmpty { d["quarantineConflicts"] = report.quarantineConflicts.map { displaySafe($0, max: 200) } }
-        if !report.writeFailed.isEmpty { d["writeFailed"] = Dictionary(uniqueKeysWithValues: report.writeFailed.map { (displaySafeInvisible($0.key, max: 200), displaySafeClipOnly($0.value, max: 512)) }) }   // display-safe-exempt: value 已消毒（ZoteroImporter 的 writeFailed 由 displaySafeError 產出，R29 D81），只截
+        if !report.writeFailed.isEmpty { d["writeFailed"] = Dictionary(report.writeFailed.sorted { $0.key < $1.key }.map { (displaySafeInvisible($0.key, max: 200), displaySafeClipOnly($0.value, max: 512)) }, uniquingKeysWith: { first, _ in first }) }   // display-safe-exempt: value 已消毒（ZoteroImporter 的 writeFailed 由 displaySafeError 產出，R29 D81），只截
         return try jsonString(d)
     }
 
@@ -2529,9 +2532,9 @@ public final class AkashicService {
             "additions": plan.additions.sorted { $0.citekey < $1.citekey }.map { a -> [String: Any] in
                 var one: [String: Any] = [
                     "citekey": displaySafe(a.citekey, max: 200),
-                    "addedFields": Dictionary(uniqueKeysWithValues: a.addedFields.map {
+                    "addedFields": Dictionary(a.addedFields.sorted { $0.key < $1.key }.map {   // display-safe-exempt: 鍵與值在下一行各自 displaySafe（#669：截斷不是單射，依原始鍵排序後留第一個、不 trap）
                         (displaySafe($0.key, max: 80), displaySafe($0.value, max: 512))
-                    }),
+                    }, uniquingKeysWith: { first, _ in first }),
                 ]
                 if let dt = a.addedDate { one["addedDate"] = displaySafe(dt, max: 200) }
                 // 結構化識別碼與被拒項（#394 verify）——CLI 那面同步。
@@ -2572,9 +2575,9 @@ public final class AkashicService {
         ]
         if !dryRun { d["written"] = written.sorted().map { displaySafe($0, max: 200) } }
         if !writeFailed.isEmpty {
-            d["writeFailed"] = Dictionary(uniqueKeysWithValues: writeFailed.map {
+            d["writeFailed"] = Dictionary(writeFailed.sorted { $0.key < $1.key }.map {   // #669：截斷不是單射，不 trap
                 (displaySafeInvisible($0.key, max: 200), displaySafeClipOnly($0.value, max: 512))   // display-safe-exempt: value 已消毒（displaySafeError 產出，R29 D81），只截——R28 verify 第 9 列
-            })
+            }, uniquingKeysWith: { first, _ in first })
         }
         return try jsonString(d)
     }
@@ -2732,9 +2735,9 @@ public final class AkashicService {
                 // #655：來源齊備、值補了、reference 刻意不寫的欄位與理由（`authors` 一律；`date` 在 format < 20 時）。
                 // 與上面三個狀態鍵正交：`date` 寫得進去時它在 provenancePlanned／Written 裡，寫不進去時在這裡。
                 if !item.outcome.provenanceOmitted.isEmpty {
-                    one["provenanceOmitted"] = Dictionary(uniqueKeysWithValues: item.outcome.provenanceOmitted.map {
+                    one["provenanceOmitted"] = Dictionary(item.outcome.provenanceOmitted.sorted { $0.key < $1.key }.map {   // #669：截斷不是單射，不 trap
                         (displaySafe($0.key, max: 80), displaySafe($0.value, max: 600))
-                    })
+                    }, uniquingKeysWith: { first, _ in first })
                 }
                 if !item.outcome.refused.isEmpty {
                     one["refused"] = item.outcome.refused.map { displaySafe($0, max: 300) }
@@ -2750,9 +2753,9 @@ public final class AkashicService {
             d["indexRebuilt"] = indexRebuilt
         }
         if !writeFailed.isEmpty {
-            d["writeFailed"] = Dictionary(uniqueKeysWithValues: writeFailed.map {
+            d["writeFailed"] = Dictionary(writeFailed.sorted { $0.key < $1.key }.map {   // #669：截斷不是單射，不 trap
                 (displaySafeInvisible($0.key, max: 200), displaySafeClipOnly($0.value, max: 512))   // display-safe-exempt: value 已消毒（displaySafeError 產出，R29 D81），只截——R28 verify 第 9 列
-            })
+            }, uniquingKeysWith: { first, _ in first })
         }
         return try jsonString(d)
     }
@@ -2799,8 +2802,9 @@ public final class AkashicService {
         }
         if !report.droppedColumns.isEmpty {
             // 欄位名是第三方字串——鍵值都消毒（同 importZotero 的 residualFields 慣例）
-            d["droppedColumns"] = Dictionary(uniqueKeysWithValues:
-                report.droppedColumns.map { (displaySafe($0.key, max: 200), $0.value) })
+            d["droppedColumns"] = Dictionary(   // #669：截斷不是單射，不 trap
+                report.droppedColumns.sorted { $0.key < $1.key }.map { (displaySafe($0.key, max: 200), $0.value) },
+                uniquingKeysWith: { first, _ in first })
         }
         return try jsonString(d)
     }
@@ -4462,6 +4466,9 @@ public final class AkashicService {
                                    uniquingKeysWith: { _, last in last })
         let unlocatableCK = load.entries.unlocatableCitekeys   // #627
         let orgKeys = Set(load.organizations.map(\.key))
+        // #669：key 重複的 organization 以 key 定位會猜是哪一筆（verdict 要寫進它）——同 #627 對 citekey 的處置，整批拒絕
+        var seenOrgKeys = Set<String>(), duplicateOrgKeys = Set<String>()
+        for o in load.organizations where !seenOrgKeys.insert(o.key).inserted { duplicateOrgKeys.insert(o.key) }
 
         struct Plan { let citekey: String; let idx: Int; let orgKey: String
                       let literal: String; let judgement: String }
@@ -4487,6 +4494,11 @@ public final class AkashicService {
                     "organization「\(displaySafeInvisible(orgKey, max: 200))」"
                     + "——先用 add_organization 建檔（絕不自動建）")
             }
+            guard !duplicateOrgKeys.contains(orgKey) else {
+                throw ServiceError.invalid(
+                    "organization「\(displaySafeInvisible(orgKey, max: 200))」的 key 有不只一筆記錄——無法唯一定位，"
+                    + "整批拒絕、零寫入；先改掉其中一筆的 key（validate 會報，#669）")
+            }
             // **已歸戶的位置不得被覆寫**：`.key`（人）與 `.organization` 都是。
             // 改一個已歸戶的邊是**修正**不是升格，而那需要自己的出口（同 venue 的
             // `repoint`／`demote` 與 apply 分開的理由，#418）。
@@ -4509,8 +4521,9 @@ public final class AkashicService {
         // 最自然的用法。
         var entries: [String: Entry] = [:]
         for p in plans where entries[p.citekey] == nil { entries[p.citekey] = byCitekey[p.citekey]! }
-        var orgs = Dictionary(uniqueKeysWithValues:
-            load.organizations.filter { o in plans.contains { $0.orgKey == o.key } }.map { ($0.key, $0) })
+        // plan 的 orgKey 都已驗過不重複（#669），這裡的 key 唯一；仍用 uniquingKeysWith——`uniqueKeysWithValues` 對重複鍵是 trap
+        var orgs = Dictionary(load.organizations.filter { o in plans.contains { $0.orgKey == o.key } }.map { ($0.key, $0) },
+                              uniquingKeysWith: { first, _ in first })
         var rows: [[String: Any]] = []
         let orgFormat = (try? StoreVersion.read(root: store.root)) ?? 1
         for p in plans {

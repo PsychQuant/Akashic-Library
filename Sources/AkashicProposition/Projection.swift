@@ -297,11 +297,10 @@ public struct PropositionModel {
         }
 
         self.snapshotID = snapshotID
-        self.entriesByKey = Dictionary(uniqueKeysWithValues: entries.map { ($0.citekey, $0) })
-        self.peopleByKey = Dictionary(uniqueKeysWithValues: people.map { ($0.key, $0) })
-        self.organizationsByKey = Dictionary(
-            uniqueKeysWithValues: organizations.map { ($0.key, $0) }
-        )
+        // #669：重複的 key 留第一筆（列舉順序），不 trap——validate 以 error 報重複
+        self.entriesByKey = Dictionary(entries.map { ($0.citekey, $0) }, uniquingKeysWith: { first, _ in first })
+        self.peopleByKey = Dictionary(people.map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
+        self.organizationsByKey = Dictionary(organizations.map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
         self.snapshotQuarantine = snapshotQuarantine
     }
 

@@ -544,7 +544,17 @@ public enum IdentifierMigration {
 
         // venue 側：跨 work 累積之後**再去重一次**——同一份期刊被多篇引用時，
         // 各篇給的寫法可能不同（`0003-066x` 與 `0003-066X 1935-990X` 即實測案例）。
-        let existingVenues = Dictionary(uniqueKeysWithValues: load.venues.map { ($0.key, $0) })
+        // #669：venue key 重複時 ISSN 要搬進哪一筆無法判定——在任何寫入之前擋（乾跑與 apply 都擋，同上面的 quarantine 閘）
+        var seenVenueKeys = Set<String>(), duplicateVenueKeys = Set<String>()
+        for v in load.venues where !seenVenueKeys.insert(v.key).inserted { duplicateVenueKeys.insert(v.key) }
+        let blocked = duplicateVenueKeys.intersection(issnByVenue.keys)
+        guard blocked.isEmpty else {
+            throw StoreIOError.invalidInput(
+                what: "migrate-identifiers",
+                why: "venue key " + blocked.sorted().map { "「\(displaySafeInvisible($0, max: 200))」" }.joined(separator: "、")
+                      + " 有不只一筆記錄——ISSN 要搬進哪一筆無法判定。先改掉重複的 key（validate 會報，#669）")
+        }
+        let existingVenues = Dictionary(load.venues.map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
         for (vkey, raws) in issnByVenue.sorted(by: { $0.key < $1.key }) {
             var merged: [ISSN] = existingVenues[vkey]?.issn ?? []
             var mergedFrom: [String] = []

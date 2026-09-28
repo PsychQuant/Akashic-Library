@@ -174,9 +174,11 @@ final class PerRecordFullListingTests: XCTestCase {
         XCTAssertThrowsError(try store.perRecordIssues(from: load, owner: address("venue:twin"))) { error in
             let m = displaySafeErrorText(error)
             XCTAssertTrue(m.contains("有 2 筆") && m.contains("不猜"), m)
-            // 重複的 key 本身指不到檔——兩筆的 UUID 都要說出來；venue 的重複 key 沒有跨記錄檢查會報，訊息不得假稱 validate 會列出
+            // 重複的 key 本身指不到檔——兩筆的 UUID 都要說出來；venue 的重複 key 自 #669 起有跨記錄 error，訊息指路 validate
             XCTAssertTrue(m.contains(v.id.uuidString) && m.contains(v2.id.uuidString), m)
-            XCTAssertTrue(m.contains("目前沒有跨記錄檢查報 venue 的重複 key"), m)
+            XCTAssertTrue(m.contains("validate 以跨記錄 error 列出這個重複"), m)
+            XCTAssertTrue(load.crossRecordIssues().contains { $0.severity == .error && $0.message.hasPrefix("venue key「twin」重複") },
+                          "訊息說 validate 會列出——那句話要是真的")
         }
         // citekey 的重複有跨記錄 error——那時訊息指路 validate
         let e1 = Entry(id: UUID(), citekey: "twin2020", type: .periodicalArticle, title: "T", authors: [.literal("A B")], date: "2020")

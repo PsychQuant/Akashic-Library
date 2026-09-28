@@ -1178,8 +1178,10 @@ final class VerdictHolderGridTests: XCTestCase {
                                                kind: .judgement(statement: "人親自下的否決", restsOn: [digest]))
         let deadOther = verdict("resolution-confirmed", kind: .work, holder: "new2020a", literal: "Other Journal")
         // 三種形：R19 DA（死的反向＋活的同拼法）、R20 四席（只有死的、沒有任何被改寫的）、拼法無關
+        // 三輪換的是**同一筆** venue 的 references：id 固定，否則每輪多一個同 key 的檔，#669 起是跨記錄 error、rename 在那裡就先停
+        let alphaID = UUID()
         for refs in [[deadRejected, live], [deadRejected], [live, deadOther]] {
-            var v = Venue(key: "alpha", type: .periodical, names: Timeline([TemporalValue(value: "Alpha Journal")]), authorized: [])
+            var v = Venue(key: "alpha", type: .periodical, names: Timeline([TemporalValue(value: "Alpha Journal")]), authorized: [], id: alphaID)
             v.references = refs
             try store.writeVenue(v)
             let before = try store.load()

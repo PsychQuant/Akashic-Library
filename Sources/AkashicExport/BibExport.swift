@@ -364,8 +364,9 @@ public enum BibExport {
     public static func apa7Report(entries: [Entry], people: [Person],
                                   organizations: [Organization] = [],
                                   venues: [Venue]) -> APA7Report {
-        let peopleByKey = Dictionary(uniqueKeysWithValues: people.map { ($0.key, $0) })
-        let orgsByKey = Dictionary(uniqueKeysWithValues: organizations.map { ($0.key, $0) })
+        // #669：重複的 key 留第一筆（列舉順序），不 trap——validate 以 error 報重複
+        let peopleByKey = Dictionary(people.map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
+        let orgsByKey = Dictionary(organizations.map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
         let venuesByKey = Dictionary(venues.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
         var issues: [APA7Issue] = []
         var unchecked: [String] = []
@@ -442,10 +443,11 @@ public enum BibExport {
     public static func bibFile(entries: [Entry], people: [Person],
                                organizations: [Organization] = [],
                                venues: [Venue]) -> String {
-        let peopleByKey = Dictionary(uniqueKeysWithValues: people.map { ($0.key, $0) })
-        let orgsByKey = Dictionary(uniqueKeysWithValues: organizations.map { ($0.key, $0) })
+        // #669：重複的 key 留第一筆（列舉順序），不 trap——validate 以 error 報重複
+        let peopleByKey = Dictionary(people.map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
+        let orgsByKey = Dictionary(organizations.map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
         // #394 §8：ISSN 遷移到 venue 之後，work 的 .bib 要從這裡撈。
-        let venuesByKey = Dictionary(uniqueKeysWithValues: venues.map { ($0.key, $0) })
+        let venuesByKey = Dictionary(venues.map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
         return entries
             .sorted { $0.citekey < $1.citekey }
             .map { BibWriter.serialize(bibEntry(for: $0, people: peopleByKey,

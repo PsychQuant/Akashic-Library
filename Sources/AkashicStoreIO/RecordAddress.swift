@@ -75,7 +75,8 @@ public extension LibraryStore {
     /// 定位不唯一就拒絕、不猜：找不到（含被 quarantine 的檔——讀不進來的記錄沒有 key 可比）、或同 kind 同 key 有兩筆以上
     /// ——per-record 問題以 (族名, key) 標記，兩筆同 key 的記錄在那個結構裡分不開，篩出來的會是它們的聯集，而輸出的標題說「這一筆」
     /// （`zero-instance-guards` 第 38 列）。拒絕訊息列出各筆的 UUID（檔名），因為重複的 key 本身指不到任何一個檔。
-    /// **跨記錄檢查只報一部分的重複**：citekey 與 person key 有（`crossRecordIssues`），venue 與 organization 沒有——訊息照實說。
+    /// 同 kind 同 key 的重複，`crossRecordIssues` 都以 error 報：citekey 與 person key 原本就有，venue 與 organization 由 #669
+    /// 補上（在那之前這則訊息照實說「沒有檢查報它」）。divergence 的 key 是檔名 UUID，不會重複。
     /// 2026-09-28 實測 live store 同 kind 同 key 的重複 0 組。
     func perRecordIssues(from load: LibraryLoad, owner: RecordAddress) throws -> [StoreHealth.OwnedIssue] {
         let ids: [UUID]
@@ -96,14 +97,12 @@ public extension LibraryStore {
         }
         if found > 1 {
             let files = ids.map(\.uuidString).sorted().prefix(10).joined(separator: "、") + (found > 10 ? "…" : "")
-            let crossRecord = owner.kind == .work || owner.kind == .person
-                ? "不帶 --owner 的 validate 以跨記錄 error 列出這個重複"
-                : "目前沒有跨記錄檢查報 \(owner.kind.rawValue) 的重複 key（只有 citekey 與 person key 有），這一格要人看檔"
+            let crossRecord = "不帶 --owner 的 validate 以跨記錄 error 列出這個重複"
             throw StoreIOError.invalidInput(
                 what: "owner（CLI validate --owner／MCP akashic_doctor 的 owner）",
                 why: "有 \(found) 筆已載入的 \(owner.kind.rawValue) 記錄的 key 都是「\(displaySafeInvisible(owner.key, max: 120))」"
                     + "（entities/ 下的檔名 UUID：\(files)）"   // display-safe-exempt: files 是 UUID.uuidString（hex＋dash）
-                    + "——無法唯一定位，不猜（以 key 篩出的明細會是它們的聯集）；\(crossRecord)")   // display-safe-exempt: crossRecord 是字面常量＋EntityKind.rawValue
+                    + "——無法唯一定位，不猜（以 key 篩出的明細會是它們的聯集）；\(crossRecord)")   // display-safe-exempt: crossRecord 是字面常量
         }
         return perRecordIssues(from: load, listing: .full, only: owner)
     }

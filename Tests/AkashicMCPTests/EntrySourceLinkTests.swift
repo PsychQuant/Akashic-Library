@@ -109,6 +109,92 @@ final class EntrySourceLinkTests: XCTestCase {
         XCTAssertNoThrow(try service.updateEntry(citekey: "x2025", removeFields: nil, addSources: [good], dryRun: true))
     }
 
+    /// **blob 的位置只能是普通檔**（b11c R1 verify 第 3 列，Codex）：`fileExists(atPath:)` 對目錄也回 true，於是「已存的 blob 被換成同名目錄、
+    /// index 條目還在」時閘仍判 `.stored`——`--add-source --apply` 宣告了一份讀不到的副本。symlink 同理（`sources/` 由本工具寫成普通檔，
+    /// 位置上出現別的東西就是有人動過）。乾跑與實跑都拒絕、work 不變。
+    func testABlobPathThatIsNotARegularFileIsRefused() throws {
+        for kind in ["directory", "symlink"] {
+            let d = try stored("%PDF-1.7 \(kind)")
+            let hex = String(d.dropFirst("sha256:".count))
+            let blob = root.appendingPathComponent("sources/\(hex.prefix(2))/\(hex.dropFirst(2))")
+            try FileManager.default.removeItem(at: blob)
+            if kind == "directory" {
+                try FileManager.default.createDirectory(at: blob, withIntermediateDirectories: true)
+            } else {
+                let target = root.appendingPathComponent("elsewhere-\(UUID().uuidString)")
+                try Data("%PDF-1.7 target".utf8).write(to: target)
+                try FileManager.default.createSymbolicLink(at: blob, withDestinationURL: target)
+            }
+            let before = try Data(contentsOf: entryFile)
+            for dryRun in [true, false] {
+                XCTAssertThrowsError(try service.updateEntry(citekey: "x2025", removeFields: nil, addSources: [d], dryRun: dryRun), "\(kind) dryRun=\(dryRun)") { err in
+                    let s = String(describing: err)
+                    XCTAssertTrue(s.contains("不是普通檔"), "\(kind)：\(s)")
+                    XCTAssertTrue(s.contains(kind == "directory" ? "目錄" : "symlink"), "訊息要說是哪一種：\(s)")
+                }
+            }
+            XCTAssertEqual(try Data(contentsOf: entryFile), before, "\(kind)：零寫入")
+            XCTAssertEqual(try sources(), [])
+        }
+    }
+
+    /// **全是已連過的 digest 時不讀 index**（b11c R1 verify 第 4／20／30 列）：文件與 parity 列都說「已連過的是 no-op、不檢查」，
+    /// 而 `sourcePresence` 一開頭就 `scanIndex()`——index 不可讀時 no-op 呼叫反而失敗。空集合直接略過。
+    func testAllAlreadyLinkedDigestsNeverTouchTheIndex() throws {
+        let a = try stored("%PDF-1.7 a")
+        _ = try service.updateEntry(citekey: "x2025", removeFields: nil, addSources: [a], dryRun: false)
+        let index = root.appendingPathComponent("sources/index.jsonl")
+        try FileManager.default.removeItem(at: index)
+        try FileManager.default.createDirectory(at: index, withIntermediateDirectories: true)   // index 位置被目錄佔了：讀它會擲錯
+        for dryRun in [true, false] {
+            let out = try json(try service.updateEntry(citekey: "x2025", removeFields: nil, addSources: [a], dryRun: dryRun))
+            XCTAssertEqual(out["sourcesAlreadyPresent"] as? [String], [a], "dryRun=\(dryRun)")
+            XCTAssertEqual((out["sourcesAdded"] as? [[String: Any]])?.count, 0)
+        }
+    }
+
+    /// index 讀不到（而這次真的要新加）時，錯誤要具名——不是裸的 Foundation 訊息（不含 `sources/index.jsonl`、也不說怎麼辦）。
+    func testUnreadableIndexIsNamedNotARawFoundationError() throws {
+        let fresh = try stored("%PDF-1.7 fresh")
+        let index = root.appendingPathComponent("sources/index.jsonl")
+        try FileManager.default.removeItem(at: index)
+        try FileManager.default.createDirectory(at: index, withIntermediateDirectories: true)
+        XCTAssertThrowsError(try service.updateEntry(citekey: "x2025", removeFields: nil, addSources: [fresh], dryRun: true)) { err in
+            let s = String(describing: err)
+            XCTAssertTrue(s.contains("sources/index.jsonl") && s.contains("讀不到"), s)
+            XCTAssertFalse(s.contains("NSCocoaErrorDomain") || s.contains("couldn’t be opened") || s.contains("couldn't be opened"), s)
+        }
+        XCTAssertEqual(try sources(), [], "零寫入")
+    }
+
+    /// **MCP 面截 `sourcesAdded`、CLI 面全列**（b11c R1 verify 第 29／31 列）：每個 item 帶 index 的五個第三方字串（至多約 2 KB），
+    /// 一次至多 200 個 digest，輸出進 LLM context、呼叫端無法在收到後丟棄已付的代價——`akashic_enrich` 的 items 與 `verdictsRetired`
+    /// 的既有形：截 20 筆、`sourcesAddedTotal`／`truncated` 揭露。實跑照寫全部（截的只是報告，不是寫入）。
+    func testSourcesAddedIsCappedOnTheDefaultFaceAndListedInFullWhenAsked() throws {
+        let digests = try (0..<25).map { try stored("%PDF-1.7 blob \($0)") }
+        let capped = try json(try service.updateEntry(citekey: "x2025", removeFields: nil, addSources: digests, dryRun: true))
+        XCTAssertEqual((capped["sourcesAdded"] as? [[String: Any]])?.count, AkashicService.sourcesAddedCap)
+        XCTAssertEqual(capped["sourcesAddedTotal"] as? Int, 25)
+        XCTAssertEqual(capped["truncated"] as? Bool, true)
+        let full = try json(try service.updateEntry(citekey: "x2025", removeFields: nil, addSources: digests, dryRun: true, sourcesLimit: nil))
+        XCTAssertEqual((full["sourcesAdded"] as? [[String: Any]])?.count, 25)
+        XCTAssertEqual(full["sourcesAddedTotal"] as? Int, 25)
+        XCTAssertEqual(full["truncated"] as? Bool, false)
+        _ = try service.updateEntry(citekey: "x2025", removeFields: nil, addSources: digests, dryRun: false)
+        XCTAssertEqual(try sources().count, 25, "截的只是報告——實跑寫進全部")
+    }
+
+    /// **讀取面看得到連好的副本**（b11c R1 verify 第 11 列）：#614 讓 store 第一次出現帶 `akashic.sources` 的記錄，而
+    /// `get-entry`／`akashic_get_entry` 一直看不到它——能寫不能讀（#218／#219 的同一個形狀）。
+    func testGetEntryShowsTheLinkedSources() throws {
+        let a = try stored("%PDF-1.7 a"), b = try stored("%PDF-1.7 b")
+        let bare = try json(try service.getEntry(citekey: "x2025"))
+        XCTAssertNil((bare["akashic"] as? [String: Any])?["sources"], "沒有連過就不輸出這個鍵")
+        _ = try service.updateEntry(citekey: "x2025", removeFields: nil, addSources: [a, b], dryRun: false)
+        let got = try json(try service.getEntry(citekey: "x2025"))
+        XCTAssertEqual((got["akashic"] as? [String: Any])?["sources"] as? [String], [a, b])
+    }
+
     func testMalformedInputRejectsTheWholeCall() throws {
         let good = try stored("%PDF-1.7 a")
         let bad: [[String]] = [["sha256:" + String(repeating: "AB", count: 32)],          // 大寫：不是合法 digest

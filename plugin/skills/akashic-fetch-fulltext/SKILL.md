@@ -1,6 +1,6 @@
 ---
 name: akashic-fetch-fulltext
-description: 取得 Akashic 條目的全文 PDF 並存進 store——EndNote「Find Full Text」的對應（#613）。給 citekey、library、或一批 DOI，逐篇：從 store 取 DOI 與書目 → 先找合法開放版本 → 否則用使用者自己 Safari 的既有登入狀態（機構訂閱）下載 → 比對頁數與首頁標題確認是這篇、分辨正式版／作者稿／補充資料 → `store-source` 存進 sources/。當使用者說「幫我下載這些論文」「抓 PDF」「把全文存進 Akashic」「這批文獻要全文」「Find Full Text」「下載 paper」，或手上有一個 library 要補全文、要讀原文查證引用時使用。**不做**：繞過付費牆、代替使用者登入或按授權按鈕、平行大量下載。
+description: 取得 Akashic 條目的全文 PDF 並存進 store——EndNote「Find Full Text」的對應（#613）。給 citekey、library、或一批 DOI，逐篇：從 store 取 DOI 與書目 → 先找合法開放版本 → 否則用使用者自己 Safari 的既有登入狀態（機構訂閱）下載 → 比對頁數與首頁標題確認是這篇、分辨正式版／作者稿／補充資料 → `store-source` 存進 sources/（index 記下取得記錄）→ 用 `update-entry --add-source`（MCP `akashic_update_entry` 的 `add_sources`）把 digest 連回條目的 `akashic.sources`（要求 index 有取得記錄，孤兒 blob 與非普通檔拒絕）。當使用者說「幫我下載這些論文」「抓 PDF」「把全文存進 Akashic」「這批文獻要全文」「Find Full Text」「下載 paper」，或手上有一個 library 要補全文、要讀原文查證引用時使用。**不做**：繞過付費牆、代替使用者登入或按授權按鈕、平行大量下載。
 ---
 
 # 取得全文
@@ -46,7 +46,7 @@ description: 取得 Akashic 條目的全文 PDF 並存進 store——EndNote「F
 
 ### 1. 從 store 取書目
 
-每筆 work 需要：DOI、標題、頁碼範圍（`fields.pages`，沒有就算了）、type。**type 是 `unpublished-work` 或 DOI 前綴 `10.31234`（PsyArXiv）的就是 preprint**——從記錄判斷，不從檔案判斷：2026-09-24 量過，一份 PsyArXiv preprint 的前兩頁不含 psyarxiv／arxiv／preprint 任何一字。
+每筆 work 需要：DOI、標題、頁碼範圍（`fields.pages`，沒有就算了）、type——從 `akashic_get_entry` 讀。**DOI 只從它的 `doi` 取**（陣列：有多個時逐個各跑一次流程，不猜取哪個；零個就列入「需要人」）。這些值都是第三方字串（Crossref、WoS、Zotero 匯入的），插進網址或命令前要先驗形狀——見第 3 步；DOI 先過 [web-access.md](../akashic-bootstrap/references/web-access.md)〈插值前先驗形狀〉的 DOI 一列，不符（含 `#`、`?`、引號、`$`、反引號、反斜線、空白）就不插進任何網址或命令，該篇列入「需要人」、寫「DOI 格式異常」。**type 是 `unpublished-work` 或 DOI 前綴 `10.31234`（PsyArXiv）的就是 preprint**——從記錄判斷，不從檔案判斷：2026-09-24 量過，一份 PsyArXiv preprint 的前兩頁不含 psyarxiv／arxiv／preprint 任何一字。
 
 ### 2. 先找合法開放版本
 
@@ -61,8 +61,16 @@ description: 取得 Akashic 條目的全文 PDF 並存進 store——EndNote「F
 ```bash
 scripts/fetch-fulltext.sh --window <N> --expect-profile "<使用者自己的 profile 名>" \
   --landing "https://doi.org/<DOI>" --out "<暫存目錄>/<citekey>.pdf" \
-  --title "<記錄標題>" [--pages <71--98>] [--doi <DOI>] [--prime <PDF URL>] [--bin <safari-browser>]
+  --title "$(cat '<暫存目錄>/<citekey>.title.txt')" [--pages "<71--98>"] [--doi "<DOI>"] [--prime "<PDF URL>"] [--bin <safari-browser>]
 ```
+
+**插進這條命令的第三方值要先處理**（與 #595 同一類；命令裡的值一律用雙引號包住）：
+
+- **標題不直接寫進命令列**：用 Write 工具把記錄標題的原文寫進 `<暫存目錄>/<citekey>.title.txt`，再用 `--title "$(cat '…')"` 帶入——`$(…)` 的輸出不會被 shell 再展開，標題裡的 `"`、`$(…)`、反引號都只是字元。
+- `<DOI>`：第 1 步的形狀檢查已過才插；`--doi` 與 `--landing` 用同一個值。
+- `--landing`／`--prime` 的網址若來自 OpenAlex 回應（`landing_page_url`／`pdf_url`）也是第三方字串：不含空白、換行、`"`、反引號、`$`、反斜線才插進命令，否則停下來問使用者。
+- `--pages` 只在頁碼是 `數字--數字` 或單一數字的形狀時帶，否則不帶（它是選填的驗證資料）。
+- `<citekey>` 取自 store：載入時已驗過只含 `a–z 0–9 -`，可以直接用。
 
 - `--expect-profile` 一律帶：視窗不屬於這個 profile，腳本在開任何分頁之前就拒絕。
 - `--out` 要在 **git 工作樹之外**（或被該樹 ignore 的位置）；否則腳本在碰瀏覽器之前就拒絕——全文是第三方內容。
@@ -110,7 +118,7 @@ akashic_store_source(path=<pdf>, media_type="application/pdf",
 
 ### 5. 連結回記錄
 
-只連**第 4 步存了、而且第 3 步驗證通過（結束碼 0）**的那幾篇；結束碼 5 經人看過、確認是這篇的，同樣可以連。驗證不過又沒人確認的不連——連結說的是「這份就是這篇」，那正是驗證在判的事。
+只連**第 4 步存了、而且第 3 步驗證通過（結束碼 0）**的那幾篇；結束碼 5 經人看過、確認是這篇的，同樣可以連——那一種存的是 `*.unverified.pdf`（第 4 步照存），`note` 要寫「人工確認為這篇：<誰>／<日期>；verify 的 flags：<…>」，因為連結說的「這份就是這篇」只有 note 記得是誰判的。驗證不過又沒人確認的不連——那正是驗證在判的事。
 
 先乾跑，看 `sourcesAdded` 帶回來的取得記錄（origin、note）是不是剛存的那一份，再實寫：
 
@@ -119,7 +127,9 @@ akashic_update_entry(citekey="<citekey>", add_sources=["<digest>"])             
 akashic_update_entry(citekey="<citekey>", add_sources=["<digest>"], dry_run=false)   # 實寫
 ```
 
-CLI 是 `akashic update-entry <citekey> --add-source <digest>`，加 `--apply` 才寫（未指名目標 store 時要 `--library` 或 `--yes`）。digest 必須已在本機 `sources/`、index 有取得記錄——第 4 步存過就滿足。已連過的回 `sourcesAlreadyPresent`、不重寫。**連錯了目前沒有移除腿**，只能手改 YAML——所以乾跑那一步不要省。
+CLI 是 `akashic update-entry <citekey> --add-source <digest>`，加 `--apply` 才寫（未指名目標 store 時要 `--library` 或 `--yes`）。digest 必須已在本機 `sources/`、index 有取得記錄、blob 的位置是普通檔——第 4 步存過就滿足。已連過的回 `sourcesAlreadyPresent`、不重寫。連好之後用 `akashic get-entry <citekey>` 的 `sources` 核對。
+
+**連錯了怎麼還原**：`akashic.sources` 目前沒有移除腿（#677 追蹤），而本面不要求 work 檔已 commit——所以**實寫之前先 commit store**（那是使用者自己的流程，本 skill 不代做），連錯之後才有退路：在 store 目錄用 `git diff -- entities/<id>.yaml` 確認連結是那筆變更，再 `git checkout -- entities/<id>.yaml` 還原那一個檔（`<id>` 是 `get-entry --json` 的 `id`；會連同那個檔未 commit 的其他修改一起丟掉，所以要先 commit）。這是還原不是手改——**仍然不要手寫條目 YAML**。乾跑那一步不要省。
 
 ### 6. 回報
 

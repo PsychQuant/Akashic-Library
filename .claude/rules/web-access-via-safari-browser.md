@@ -44,7 +44,7 @@ safari-browser，這可以是整個專案預設的」。
 
 1. **本規則成文前已存在的檔（grandfathered）**，逐檔列在下方〈既有檔〉。可以修 bug；不得新增
    同類指令，也不得在新 skill 裡照抄。遷移由 #634 追蹤，改完一檔就從清單拿掉（2026-09-29
-   散文檔遷移完，剩下的三個各有阻塞原因，見下）。
+   散文檔遷移完，剩下的三個各有阻塞原因；同日 b11c R1 起 verify-venue 改為指向 web-access.md，剩兩個，見下）。
 
 ## 不適用（同樣是封閉列舉，只有三類）
 
@@ -72,11 +72,11 @@ grep -rlE 'api\.(openalex|crossref)\.org|pub\.orcid\.org|api\.orcid\.org|https?:
 2026-09-29 命中 6 個檔，其中 3 個不算：`akashic-fetch-fulltext/scripts/fetch-fulltext.sh`（只解析 doi.org
 字串，取得走 safari-browser）、`akashic-work-references/SKILL.md`（它自己的操作程序，網址交給
 safari-browser 開）、`akashic-bootstrap/references/web-access.md`（程序本身，提到 `curl` 是在說不要用）。
-其餘 **3 個**：
+其餘 3 個（2026-09-29 #634 遷移後量到；b11c R1 起第三個已遷移，見該項）：
 
 - `plugin/skills/akashic-bootstrap/scripts/crossref_match.py`（`urllib.request` 直連 Crossref；移植成 `akashic` CLI 子命令由 #629 追蹤）
 - `plugin/skills/akashic-fetch-fulltext/scripts/calibrate_title_match.py`（同上，#629）
-- `plugin/skills/akashic-verify-venue/SKILL.md`（三源查詢段經 MCP／WebFetch 送出；它的鎖分頁契約待使用者裁決，#593）
+- ~~`plugin/skills/akashic-verify-venue/SKILL.md`（三源查詢段經 MCP／WebFetch 送出；它的鎖分頁契約待使用者裁決，#593）~~ → **2026-09-29 b11c R1（#595 的驗證）起改為經 safari-browser、指向 web-access.md**（#595 加的「經 MCP／WebFetch 送出」是新增同類指令，而例外只讓 grandfathered 檔修 bug、不讓它們新增）。量法最後一段因此不再列它（同日重量：命中 5 個檔，同樣 3 個不算，其餘 2 個）；第 4 源（出版商頁）的瀏覽器契約仍待 #593，該 skill 不抓不讀那一源
 
 歷史：2026-09-25 同一個量法（沒有最後一段）命中 13 個檔，其中 2 個不算，其餘 11 個。#634 於 2026-09-29
 遷移了其中 8 個：`akashic-bootstrap` 的 `person-sources.md`、`work-sources.md`，`akashic-disambiguate` 的

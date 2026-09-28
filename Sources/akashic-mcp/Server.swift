@@ -77,7 +77,7 @@ actor AkashicMCPServer {
                 "library": str("store **內**的 membership 分類 key 篩選（省略＝全集）。**不是** store root——store 由伺服器啟動時決定，可用 akashic_files 的 use action 切換"),
              ])),
         Tool(name: "akashic_get_entry",
-             description: "以 citekey 取完整 entry（含 akashic namespace 與 provenance）。",
+             description: "以 citekey 取完整 entry（含 akashic namespace——tags／libraries／relations／sources 副本 digest——與 provenance）。",
              inputSchema: obj(["citekey": str("citekey")], required: ["citekey"])),
         Tool(name: "akashic_relations",
              description: "關係查詢：same-journal / same-author / cites / cited-by / related。",
@@ -190,9 +190,10 @@ actor AkashicMCPServer {
         Tool(name: "akashic_update_entry",
              description: "work 的部分更新（CLI `akashic update-entry --help`）。**dry_run 預設 true**，false 才寫。"
                  + "remove_fields 移除 fields 的值——判定：理由必填、只回在 fieldRemovals、不寫進 store；實寫要求該 work 檔已在 git 裡 commit、乾淨。"
-                 + "指向被移除鍵的 fields.<鍵> reference 一併刪除（referencesRemoved）；由被移除值推導的 literal venue 邊不動、列在 venueEdgesFromRemovedValues；"
-                 + "Zotero 來源的記錄附 zoteroNote。add_sources 把已存進 sources/ 的內容宣告為這篇的副本（akashic.sources）：add-only、冪等（sourcesAlreadyPresent），"
-                 + "sourcesAdded 帶 index 的取得記錄。兩條腿各自單獨呼叫。work 無法唯一定位時拒絕。",
+                 + "指向被移除鍵的 fields.<鍵> reference 一併刪除（referencesRemoved）；由被移除值推導的 venue 邊不動、列在 venueEdgesFromRemovedValues（literal）／"
+                 + "venueKeyEdgesFromRemovedValues（已歸戶，venue 上的 verdict 也留著）；reintroductionNote 說明 import-wos 回填、enrich、Zotero pull 會把值補回；"
+                 + "移除 APA7 必要欄位時附 apa7RequiredNowMissing。add_sources 把已存進 sources/ 的內容宣告為這篇的副本（akashic.sources）：add-only、冪等（sourcesAlreadyPresent），"
+                 + "sourcesAdded 帶 index 的取得記錄（至多 20 筆，sourcesAddedTotal／truncated 揭露；CLI 全列）。兩條腿各自單獨呼叫。work 無法唯一定位時拒絕。",
              inputSchema: obj([
                 "citekey": str("目標 work 的 citekey"),
                 "remove_fields": strArray("<鍵>=理由（鍵與 fields 現有的鍵逐字相符；理由 ≤ 4,096 位元組）。鍵不存在、同鍵兩次、理由空白或過長、超過 200 個 → 整批拒絕零寫入"),
@@ -481,6 +482,14 @@ actor AkashicMCPServer {
             }
             return strs
         }
+        /// **必填的字串**：缺少或全空白整個呼叫拒絕、零寫入（b11c R1 verify 第 42 列）。`arg(k) ?? ""` 讓缺 citekey 的呼叫走到服務裡才回
+        /// 「找不到：citekey「」」——那句話像是資料的問題，其實是呼叫端漏了參數。
+        func argRequired(_ key: String) throws -> String {
+            guard let v = try arg(key), !v.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw ServiceError.invalid("\(displaySafeInvisible(key, max: 60)) 是必填參數——缺少或只有空白；拒絕整個呼叫，零寫入")   // display-safe-exempt: key 是本檔的編譯期字面
+            }
+            return v
+        }
         /// **畸形 boolean 顯式拒絕，不靜默當未提供**（#406 R1 verify 的同一條理由）：
         /// `"false"`（字串）／null／數字被折成預設值的話，呼叫端以為的乾跑會變成寫入。
         func argFlag(_ key: String, default d: Bool) throws -> Bool {
@@ -630,7 +639,7 @@ actor AkashicMCPServer {
                     pmid: params.arguments?["pmid"] != nil ? argList("pmid") : nil,
                     isbn: params.arguments?["isbn"] != nil ? argList("isbn") : nil)
             case "akashic_update_entry":
-                output = try service.updateEntry(citekey: arg("citekey") ?? "",
+                output = try service.updateEntry(citekey: argRequired("citekey"),
                                                  removeFields: try argStrictList("remove_fields"),
                                                  addSources: try argStrictList("add_sources"),
                                                  dryRun: try argFlag("dry_run", default: true))

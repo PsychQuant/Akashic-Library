@@ -2,6 +2,7 @@ import XCTest
 @testable import AkashicCore
 @testable import AkashicMCPKit
 @testable import AkashicStoreIO
+@testable import AkashicEntity
 
 /// #544：`update-entry --remove-field`／`akashic_update_entry.remove_fields`。契約見 `EntryUpdate.swift` 的檔頭；這裡逐條釘住：
 /// 預設乾跑零寫入、實跑移除值與它的 `fields.<鍵>` reference（別的 reference 不動）、理由只進報告且不截斷、未 commit 拒絕、
@@ -140,6 +141,58 @@ final class EntryFieldRemovalTests: XCTestCase {
         XCTAssertEqual(out["venueEdgesFromRemovedValues"] as? [String], ["x2025:0 literal:科技部大專生研究計畫"])
         XCTAssertTrue((out["venueEdgesNote"] as? String)?.contains("--drop-venue") == true)
         XCTAssertEqual(try stored().venues, [.literal("科技部大專生研究計畫"), .literal("Other")], "邊是另一個判定——本面不動")
+    }
+
+    /// **已歸戶的 `.key` 邊與它的 confirmed verdict 也要出聲**（b11c R1 verify 第 23／35 列）：`venueEdgesFromRemovedValues` 只看 `.literal`
+    /// 邊，而 #544 針對的正是「補助計畫名稱被記成期刊」——若那個值先前已被 `resolve-venues apply` 升成 `.key` 邊，移除欄位後邊與 venue 上的
+    /// `work:<citekey> :: <literal>` verdict 原封不動、報告一句話都沒有，錯的歸屬繼續有效。本面仍不動它們（那是另一個判定），但要具名並指路。
+    func testAKeyEdgeResolvedFromTheRemovedValueIsNamedWithItsVerdict() throws {
+        _ = try service.addVenue(key: "grant-programme", names: ["科技部大專生研究計畫"], type: "periodical", note: nil, issn: nil)
+        try work(fields: ["journaltitle": "科技部大專生研究計畫"], venues: [.literal("科技部大專生研究計畫"), .literal("Other")])
+        _ = try service.resolveVenues(apply: ["x2025:0"])
+        let before = try stored()
+        XCTAssertEqual(before.venues.first, .key("grant-programme"), "fixture：邊已升成 key")
+        let out = try json(try service.committed(root).updateEntry(citekey: "x2025",
+                                                                   removeFields: ["journaltitle=補助計畫名稱，不是期刊"], dryRun: false))
+        let named = try XCTUnwrap(out["venueKeyEdgesFromRemovedValues"] as? [String], "\(out)")
+        XCTAssertEqual(named, ["x2025:0 key:grant-programme literal:科技部大專生研究計畫"])
+        XCTAssertTrue((out["venueEdgesNote"] as? String)?.contains("--demote") == true, "指路要指到 demote：\(out)")
+        XCTAssertNil(out["venueEdgesFromRemovedValues"], "literal 邊那一族沒有東西——不憑空出現")
+        XCTAssertEqual(try stored().venues, before.venues, "邊不動")
+        let venue = try XCTUnwrap(LibraryStore(root: root).load().venues.first { $0.key == "grant-programme" })
+        XCTAssertTrue(ResolutionLedger.verdicts(references: venue.references).0.contains { $0.kind == .confirmed && $0.holder == "x2025" },
+                      "venue 上的 confirmed verdict 也不動")
+    }
+
+    func testAKeyEdgeWhoseVerdictIsForAnotherLiteralIsNotNamed() throws {
+        _ = try service.addVenue(key: "psychometrika", names: ["Psychometrika"], type: "periodical", note: nil, issn: nil)
+        try work(fields: ["journaltitle": "Psychometrika", "publisher": "Some Publisher"], venues: [.literal("Psychometrika"), .literal("Some Publisher")])
+        _ = try service.resolveVenues(apply: ["x2025:0"])
+        let out = try json(try service.updateEntry(citekey: "x2025", removeFields: ["publisher=不是出版者"], dryRun: true))
+        XCTAssertNil(out["venueKeyEdgesFromRemovedValues"], "被移除的是 publisher；key 邊的 verdict 是 journaltitle 那個字——與這次移除無關")
+    }
+
+    /// **三條會把值補回去的路徑都要說**（b11c R1 verify 第 7／14 列）：`zoteroNote` 只講 Zotero pull，而 `import-wos` 的回填（只多不少：
+    /// 缺席的鍵會被補進去）與 `enrich`（add-only）在同一個鍵被移除之後同樣會把值補回來——store 裡沒有東西記得「這個值被判定過不屬於這裡」。
+    func testEveryReintroductionPathIsNamedNotJustZotero() throws {
+        try work(fields: ["abstract": crossrefErrorPage])
+        let out = try json(try service.updateEntry(citekey: "x2025", removeFields: ["abstract=錯誤頁"], dryRun: true))
+        let note = try XCTUnwrap(out["reintroductionNote"] as? String, "\(out)")
+        for path in ["import-wos", "enrich", "Zotero"] {
+            XCTAssertTrue(note.contains(path), "\(path) 沒被點名：\(note)")
+        }
+    }
+
+    /// **移除 APA7 必要欄位時，乾跑就要提醒**（b11c R1 verify 第 36 列）：`validate` 不報、`export-bib` 才印 `[ERROR] Missing required field`，
+    /// 而 `apa7-is-the-work-floor` 把「能產出正確 APA7」當下限。用既有的必要欄位表（`BibExport.apa7Report`），只報這次移除**新增**的缺漏。
+    func testRemovingAnApa7RequiredFieldIsFlaggedOnTheDryRun() throws {
+        try work(fields: ["journaltitle": "J One", "volume": "3", "abstract": "A"])
+        let out = try json(try service.updateEntry(citekey: "x2025", removeFields: ["journaltitle=x", "abstract=y"], dryRun: true))
+        let missing = try XCTUnwrap(out["apa7RequiredNowMissing"] as? [String], "\(out)")
+        XCTAssertEqual(missing, ["JOURNALTITLE"], "abstract 不是必要欄位；AUTHOR 等移除前就缺的不算這次造成的")
+        XCTAssertNotNil(out["apa7Note"])
+        let quiet = try json(try service.updateEntry(citekey: "x2025", removeFields: ["abstract=y"], dryRun: true))
+        XCTAssertNil(quiet["apa7RequiredNowMissing"], "沒有新增缺漏就不出聲")
     }
 
     func testNoVenueNoteWhenTheValueIsStillDerivable() throws {

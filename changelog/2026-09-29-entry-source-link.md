@@ -44,7 +44,10 @@ MCP `akashic_update_entry` 的 `add_sources`，同走 `AkashicService.updateEntr
 
 - 「必須在本機」只是寫入當下的閘。`sources/` 不進 git，別台 clone 讀到這條連結時內容可能不在——那照常載入、可回報缺席
   （§2.4.1；`akashic validate` 的「本機缺承重存檔」）。
-- **沒有移除腿**：連錯了只能手改 YAML。issue 只要求 add-only；移除面要不要有、要不要套移除面一族的裁決，另裁。
+- **閘不重新雜湊 blob**（b11c R1 verify 第 27 列，記錄不修）：位置是普通檔（R1 起）、index 有記錄，但位元組是不是真的雜湊成那個 digest
+  沒有驗——`sources/` 被同步或複製時截斷、換掉，這裡看不出來，`auditSourceIndex` 也不雜湊。要補是另一個面（重新雜湊要讀整個檔）。
+- **沒有移除腿**：連錯了目前只能以 git 還原那個 work 檔（本面不要求檔已 commit，所以連結前先 commit store 才有退路；b11c R1 起
+  fetch-fulltext SKILL 第 5 步寫出確切的還原程序，原本寫的「只能手改 YAML」與同檔「不得手改條目 YAML」互相矛盾）。移除腿由 #677 追蹤。
 - 驗證的證據只以 `store-source` 的 note 記在 index，store 裡沒有一筆「這份是這篇」的判定記錄——`akashic.sources`
   沒有放判定的位置，加它要改 store format。
 - `entity-backlink-completeness` 的關係邊封閉列舉（15 條）沒有 `Entry.akashic.sources → sources/ 的內容` 這一條；它自

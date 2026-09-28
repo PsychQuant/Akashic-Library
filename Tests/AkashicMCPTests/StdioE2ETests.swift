@@ -518,6 +518,13 @@ extension StdioE2ETests {
         let absent = try call(4, "akashic_update_entry",
                               ["citekey": "cheng2025identifiability", "add_sources": ["sha256:" + String(repeating: "cd", count: 32)]])
         XCTAssertTrue(absent.contains("本機沒有"), absent)
+
+        // b11c R1 verify 第 42 列：缺 citekey 是缺參數，不是「找不到：citekey「」」
+        let missing = try call(5, "akashic_update_entry", ["remove_fields": ["journaltitle=x"]])
+        XCTAssertTrue(missing.contains("citekey 是必填參數"), missing)
+        XCTAssertFalse(missing.contains("找不到"), missing)
+        let blank = try call(6, "akashic_update_entry", ["citekey": "   ", "remove_fields": ["journaltitle=x"]])
+        XCTAssertTrue(blank.contains("citekey 是必填參數"), blank)
     }
 }
 

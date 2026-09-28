@@ -51,6 +51,15 @@ libraries:
 目錄（primary_location 是 OpenAlex 的視圖；漏收要靠重跑與其他來源交叉）。結構化欄位＋
 摘要（`abstract_inverted_index` 還原）一次取齊。
 
+**還原出的摘要不是摘要的判準（#544）**：還原後的摘要以 Crossref 的無 metadata 樣板開頭——
+`This DOI is not currently attached to any metadata records`（與 `scripts/ndjson-abstracts-to-proposals.py`
+的 `CROSSREF_NO_METADATA` 同一個字串，改一處要一起改）——它是錯誤頁文字，OpenAlex 對沒有 Crossref
+metadata 的 DOI 會回這段。**不要把它放進 `create-entry` 的 `fields.abstract`**：該筆照建、只是不帶摘要，
+報告的排除計數帶「略過：樣板摘要 N 筆」（`lossless-intake` 執行細節 3：丟棄必須可見）。2026-09-01 的
+#423 階段 A 沒有這個判準，21 筆 work 就是這樣帶著錯誤頁當摘要進庫的（live store 的 git 史 `e3b25a6d`；
+已進庫的用 `update-entry --remove-field` 移除）。**這是 skill 這一層的判準，核心層
+（`create-entry`／`enrich`／`validate`）不過濾**——要不要在核心偵測是 #676 的裁決題。
+
 **階段 B（瀏覽器渲染頁）**：**各站點的判準／坑見
 [references/site-access.md](references/site-access.md)**（取得路徑與已量過而不再走的路、
 psycnet 的 Incapsula 邊界、節奏——都是量過的）；取得本身一律經 safari-browser，見
@@ -71,8 +80,8 @@ web-access.md。**先做攣生收攏（見下）再現算**
 > **`--out` 拒絕寫到非普通檔**（symlink／目錄／FIFO／…），零寫入並具名；寫入走同目錄 temp ＋ `os.replace` 原子替換，解析後的絕對路徑一律印到 stderr（#519 Expected 1）。**沒有 `--force`**——重跑覆寫這個中間產物是常態動作，把常態放進旗標會養出「反正都 force」的反射。
 → 數字對了才 `--apply`。**`proposals.json` 裝的是第三方逐字摘要（含出版商版權聲明），放 `$TMPDIR`
 不要放 repo 內**——本 repo 的 `.gitignore` 另擋 `proposals*.json` 當第二道。腳本只收 `status == got`、
-摘要非空、DOI 在場的列，摘要是 Crossref「這個 DOI 沒有 metadata」錯誤頁的也略過（`crossref-no-metadata`，#544：
-21 筆 work 曾這樣帶著錯誤頁當摘要進庫——已進庫的用 `update-entry --remove-field` 移除），其餘逐筆印在 stderr 的
+摘要非空、DOI 在場的列，摘要是 Crossref「這個 DOI 沒有 metadata」錯誤頁的也略過（`crossref-no-metadata`，#544——
+那 21 筆不是走這支腳本進庫的，是 #423 階段 A，見上；這道守衛擋的是移除之後被排回階段 B 的同一個樣板），其餘逐筆印在 stderr 的
 skip 報告（控制字元跳脫、長度截斷）；`doi` 原樣透傳
 （正規化由 core 吸收）；同 DOI 兩列而**摘要不同**會被報 `conflicting-duplicate`（取第一列）——那不是冗餘，
 要回頭看來源。**讀 counts 時要知道兩件事**（Psychological Methods 2026-09-07 實測，**下一本刊要重量**）：
@@ -102,7 +111,7 @@ APA 九〇年代的 DOI 正式形帶**雙斜線**（`10.1037//…`），OpenAlex
    確定要建也要在報告裡逐筆留下比對依據
 2. **一次** `create-entry --format json --file <drafts.json>`（#455）：整個陣列一次寫入——
    type `periodical-article`、authors 全部 `.literal`（`literal-first-then-key`：進庫不猜）、
-   fields 帶 `journaltitle`／`volume`／`number`／`pages`／`abstract`、識別碼 `doi`／`pmid`。
+   fields 帶 `journaltitle`／`volume`／`number`／`pages`／`abstract`（樣板摘要不帶，見階段 A）、識別碼 `doi`／`pmid`。
    **可預期的失敗整批擋、零寫入**（type 值域、識別碼形狀、欄位鍵、format 閘——訊息指名第幾筆），
    磁碟層失敗逐筆列出且 exit 非零；批次內同作者同年的 citekey 由 service 消解
 3. `migrate-venues` **乾跑逐筆過目** → `--apply`：從 `journaltitle` 回填 venues literal

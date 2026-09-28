@@ -196,7 +196,17 @@ public extension LibraryStore {
         guard FileManager.default.fileExists(atPath: sourceIndexURL.path) else {
             return ([], [], [:])
         }
-        let raw = try Data(contentsOf: sourceIndexURL)
+        // 讀不到要**具名**（b11c R1 verify 第 20 列）：裸的 Foundation 錯誤只說「The file … couldn't be opened」，不說是 index、也不說
+        // 後果。`fileExists` 對目錄也回 true，所以「位置被目錄佔了」與權限問題都落在這裡。三個消費端（存檔、audit、宣告副本）共用。
+        let raw: Data
+        do {
+            raw = try Data(contentsOf: sourceIndexURL)
+        } catch {
+            throw StoreIOError.invalidInput(
+                what: "sources/index.jsonl",
+                why: "讀不到（錯誤碼 \((error as NSError).code)）——檢查它的權限，以及那個位置是不是被目錄之類的東西佔了。"   // display-safe-exempt: error 只取 NSError 的 code（Int），不迴送訊息文字
+                    + "index 是取得記錄的唯一帳，讀不到時不能判定任何 digest 有沒有取得記錄")
+        }
         let text = String(decoding: raw, as: UTF8.self)   // lossy——絕不 throw
         var digests = Set<String>()
         var malformed: [Int] = []
@@ -226,6 +236,10 @@ public extension LibraryStore {
         case unindexed
         /// shard 目錄存在但列不出來——讀不到不等於缺席（#265 的同一條）
         case unreadable
+        /// blob 的位置上有東西、但不是普通檔（目錄、symlink、其他特殊檔案；值是給人看的種類名）——`fileExists(atPath:)` 對目錄也回 true，
+        /// 於是「已存的 blob 被換成同名目錄」會被判成 `.stored`（b11c R1 verify 第 3 列）。`sources/` 由本工具寫成普通檔，位置上出現
+        /// 別的東西就是有人動過；內容讀不到，不能宣告為副本。
+        case notRegularFile(String)
     }
 
     /// 逐個 digest 回報 `SourcePresence`。index 只掃一次（與 `storeSource`／`auditSourceIndex` 共用 `scanIndex`，
@@ -242,7 +256,12 @@ public extension LibraryStore {
                     what: "source digest",
                     why: "digest 形狀必須是 sha256: + 64 個小寫 hex，實得「\(displaySafeInvisible(d, max: 120))」")
             }
-            if fm.fileExists(atPath: url.path) {
+            // lstat 語意（`attributesOfItem` 不跟隨最後一段的 symlink）：拿得到屬性就是「那個位置上有東西」，種類要是普通檔
+            if let type = (try? fm.attributesOfItem(atPath: url.path))?[.type] as? FileAttributeType {
+                guard type == .typeRegular else {
+                    out[d] = .notRegularFile(type == .typeDirectory ? "目錄" : type == .typeSymbolicLink ? "symlink" : "特殊檔案")
+                    continue
+                }
                 if let entry = scan.entries[d] {
                     out[d] = .stored(entry)
                 } else if !scan.malformedLines.isEmpty {

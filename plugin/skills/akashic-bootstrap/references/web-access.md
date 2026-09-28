@@ -4,7 +4,7 @@
 
 各處寫的端點網址（例如 `https://api.crossref.org/works/<doi>`）是**要取的位址**：照本檔的程序取，不是給 `curl` 或 WebFetch 的參數。
 
-本 plugin 還有三處尚未遷移：`akashic-bootstrap/scripts/crossref_match.py` 與 `akashic-fetch-fulltext/scripts/calibrate_title_match.py` 自己以 `urllib.request` 直連 Crossref（移植成 `akashic` CLI 子命令由 #629 追蹤），以及 `akashic-verify-venue` 的三源查詢段（它的鎖分頁契約待使用者裁決，#593）。這三處各自在描述它們的地方寫明走的是別的路，**不在下面中止條款的涵蓋範圍內**。
+本 plugin 還有兩處尚未遷移：`akashic-bootstrap/scripts/crossref_match.py` 與 `akashic-fetch-fulltext/scripts/calibrate_title_match.py` 自己以 `urllib.request` 直連 Crossref（移植成 `akashic` CLI 子命令由 #629 追蹤）。這兩處各自在描述它們的地方寫明走的是別的路，**不在下面中止條款的涵蓋範圍內**。`akashic-verify-venue` 的三源查詢段自 b11c R1（#595）起經本檔取得；它的第 4 源（出版商頁）不抓不讀，瀏覽器契約仍待使用者裁決（#593）。
 
 ## 開始前
 

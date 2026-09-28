@@ -3329,6 +3329,11 @@ public final class AkashicService {
         if !entry.akashic.relations.related.isEmpty {
             akashic["related"] = entry.akashic.relations.related.map { displaySafe($0, max: 200) }
         }
+        // 「這些已儲存的內容是本作品的副本」（store-format §2.4.1）。#614 起有寫入入口（`update-entry --add-source`），而讀取面在此之前
+        // 一直看不到它——能寫不能讀（b11c R1 verify 第 11 列；#218／#219 的同一個形狀）。digest 只列，取得記錄在 `sources/index.jsonl`。
+        if !entry.akashic.sources.isEmpty {
+            akashic["sources"] = entry.akashic.sources   // display-safe-exempt: 每一項在 decode 時過 isValidDigest（sha256: 加小寫十六進位）
+        }
         d["akashic"] = akashic
         // #31：讀取面必須露出「這筆記錄有本 binary 不認得的欄位」。只給 key 不給值——
         // 值是未信任的逐字原文，灌進 LLM context 沒有意義且是注入面；key 足以讓使用者

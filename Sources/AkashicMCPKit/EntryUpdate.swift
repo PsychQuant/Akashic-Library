@@ -1,6 +1,8 @@
 import Foundation
 import AkashicCore
 import AkashicStoreIO
+import AkashicEntity
+import AkashicExport
 import AkashicIndex
 
 /// work（`Entry`）的部分更新面（`update-entry`／`akashic_update_entry`）。
@@ -12,9 +14,10 @@ import AkashicIndex
 /// attached to any metadata records…」），兩筆的 `journaltitle`／`publisher` 裝的是補助計畫名稱與總統令字號——唯一的路是手改 YAML。
 ///
 /// **它是判定**（`two-kinds-of-edits`）：「這段文字不是這篇的摘要」要讀內容才知道，字串謂詞做不出來。所以理由必填。
-/// 使用者 2026-09-27 對移除面一族的裁決（#588／#572／#586 同一條）：**理由只進報告**、不寫進 store、不改 store format；
+/// 使用者 2026-09-27 對移除面一族（#588／#572／#586：邊、識別碼、divergence 記錄）的裁決：**理由只進報告**、不寫進 store、不改 store format；
 /// 被移除的值住在 git 的移除前副本裡，所以移除前要求那筆 work 檔已 commit、乾淨（`assertRecordsRecoverable`）。
-/// #544 的 body 寫「留記錄、形狀取自 #450」——那是 2026-09-09 的預期，早於 09-27 的裁決，這裡照裁決。
+/// **本面把那條裁決延伸到 `fields` 的值——那個延伸是 Claude 代裁、待使用者確認**（b11c R1 verify 更正：原本寫成「照裁決」）。#544 的 body
+/// 要的是「留記錄、形狀取自 #450」（work 側 `references` 的退役記錄），沒有做：它要第 15 條邊的值域擴充與 store format 的變更，需要顯式裁決。
 ///
 /// **為什麼這不違反 `lossless-intake`**：那條規則管的是**進來的那一刻**——來源給了什麼就收什麼，不得在匯入時靜默丟棄。
 /// 本面管的是事後的更正：一個人讀過值之後判定「這不是來源給這個欄位的資料」（錯誤頁被當成內容收下，本身就是 lossless-intake
@@ -28,9 +31,12 @@ import AkashicIndex
 ///   「值出自這份來源」**安靜地翻成**「查過了、這份來源沒給」（#517 的負結果形），而那不是任何人判定過的事。逐鍵回報筆數。
 /// - 預設乾跑（`--apply`／`dry_run: false` 才寫）；乾跑不需要 git，實跑才驗。work 無法唯一定位時拒絕（#628／#641）。
 ///
-/// **誠實邊界**：由被移除的值推導出來的 literal venue 邊不動——那是另一個判定（`resolve-venues --drop-venue`，#572）；
-/// 報告以 `venueEdgesFromRemovedValues` 具名。主來源是 Zotero 的記錄，日後 pull 若更新這筆（Zotero 端有改、或對映演進）
-/// 會整份替換 `fields`、把值帶回來——報告以 `zoteroNote` 說出來。
+/// **誠實邊界**：由被移除的值推導出來的 venue 邊不動——那是另一個判定（`resolve-venues --drop-venue`，#572）：literal 邊以
+/// `venueEdgesFromRemovedValues` 具名；**已歸戶的 `.key` 邊連同 venue 上的 confirmed verdict 也不動**，以 `venueKeyEdgesFromRemovedValues`
+/// 具名（邊本身不記出處，出處只在 venue 的 `work:<citekey> :: <literal>` verdict 上；處置是先 `--demote` 再 `--drop-venue`）。
+/// **會把值補回去的路徑有三條**，報告的 `reintroductionNote` 全部點名：`import-wos` 回填（只多不少）、`enrich`（add-only）、
+/// Zotero pull（主來源是 Zotero 的記錄，另附 `zoteroNote`：日後 pull 若更新這筆會整份替換 `fields`）——store 不記得這個值被判定過不屬於這裡。
+/// 移除 APA7 必要欄位時報告附 `apa7RequiredNowMissing`（`BibExport.apa7Report` 的必要欄位表，只報這次新增的缺漏；`validate` 不報）。
 ///
 /// ## `--add-source`（`add_sources`，#614）：宣告已存的內容是這篇的副本
 ///
@@ -43,15 +49,18 @@ import AkashicIndex
 ///
 /// 契約：
 /// - digest 要合法（`isValidDigest`——空內容的 digest 以 #654 的原句拒絕）、同一次不重複、至多 200 個。
-/// - **每個要新加的 digest 都要已經在本機的 `sources/`、而且 index 有它的取得記錄**（`LibraryStore.sourcePresence`；已連過的是 no-op、不檢查）：本機沒有、
-///   孤兒 blob、shard 讀不到、index 壞到判不出來——整批拒絕、零寫入，逐個說原因。
+/// - **每個要新加的 digest 都要已經在本機的 `sources/`、而且 index 有它的取得記錄**（`LibraryStore.sourcePresence`；已連過的是 no-op、不檢查——
+///   全是已連過的就**不讀 index**）：本機沒有、孤兒 blob、shard 讀不到、blob 的位置不是普通檔（目錄、symlink）、index 讀不到（具名）或壞到判不出來——
+///   整批拒絕、零寫入，逐個說原因。
 /// - add-only、冪等：已在 `akashic.sources` 的列在 `sourcesAlreadyPresent`，沒有新東西就不寫；新的追加在後，既有的不動。
 /// - 走編碼器（`writeEntry`，format ≥ 9 的閘在那裡）；預設乾跑。報告逐個帶 index 的取得記錄（origin、media-type、note…），
-///   讓乾跑的人認得出這份內容是什麼。
+///   讓乾跑的人認得出這份內容是什麼。**MCP 面截 20 筆**（`sourcesAddedTotal`／`truncated` 揭露，`sourcesAddedCap`）、CLI 全列。
 /// - 不與 `remove_fields` 組合（一個是判定、一個是落地）。
 ///
 /// **誠實邊界**：「必須在本機」只是寫入當下的閘——`sources/` 不進 git，別台 clone 讀到這條連結時內容可能不在
-/// （§2.4.1：載入成功、可回報缺席，`akashic validate` 的「本機缺承重存檔」）。本面沒有移除腿：連錯了只能手改 YAML。
+/// （§2.4.1：載入成功、可回報缺席，`akashic validate` 的「本機缺承重存檔」）。**閘不重新雜湊 blob**：位置是普通檔、index 有記錄，
+/// 但位元組是不是真的雜湊成那個 digest 沒有驗（`sources/` 被同步或複製時截斷、換掉，這裡看不出來；`auditSourceIndex` 也不雜湊）。
+/// 本面沒有移除腿：連錯了目前只能以 git 還原那個 work 檔（本面不要求檔已 commit，連結前先 commit store 才有退路；#677 追蹤移除腿）。
 extension AkashicService {
 
     /// `--remove-field`（remove_fields）的一筆（只看參數的解析結果，#654 的形）。
@@ -145,12 +154,19 @@ extension AkashicService {
         return digests
     }
 
-    func addEntrySources(citekey: String, digests: [String], dryRun: Bool) throws -> String {
+    /// MCP 面 `sourcesAdded` 列幾筆（b11c R1 verify 第 29／31 列）。每個 item 帶 index 的五個第三方字串（至多約 2 KB），一次至多 200 個
+    /// digest，輸出進 LLM context、呼叫端無法在收到後丟棄已付的代價——`akashic_enrich` 的 items 與 `verdictsRetired` 的既有形：
+    /// 截 20 筆、`sourcesAddedTotal`／`truncated` 揭露。**只有 MCP 面截**：CLI 傳 `sourcesLimit: nil` 全列。
+    public static let sourcesAddedCap = 20
+
+    func addEntrySources(citekey: String, digests: [String], dryRun: Bool, sourcesLimit: Int?) throws -> String {
         var entry = try requireEntry(citekey)   // 無法唯一定位（#628／#641）與不存在都在這裡拒絕
         let already = digests.filter { entry.akashic.sources.contains($0) }
         let added = digests.filter { !entry.akashic.sources.contains($0) }
-        // 閘守的是寫入：已連過的是 no-op，不要求本機有位元組（別台 clone 上 `sources/` 本來就可能不在，§2.4.1）
-        let presence = try store.sourcePresence(digests: added)
+        // 閘守的是寫入：已連過的是 no-op，不要求本機有位元組（別台 clone 上 `sources/` 本來就可能不在，§2.4.1）。
+        // **沒有要新加的就不碰 index**（b11c R1 verify 第 4／20／30 列）：`sourcePresence` 一開頭就讀整個 index，index 不可讀時
+        // 「全是已連過的」這個 no-op 反而失敗——與文件說的「不檢查」不符。
+        let presence = added.isEmpty ? [:] : try store.sourcePresence(digests: added)
         var problems: [String] = []
         for d in added {
             switch presence[d] {
@@ -160,6 +176,8 @@ extension AkashicService {
                 problems.append("\(d)：blob 在、sources/index.jsonl 沒有它的取得記錄（孤兒 blob）——用 store-source 對同一份檔再存一次會補上條目")   // display-safe-exempt: d 已過 isValidDigest
             case .unreadable?:
                 problems.append("\(d)：所在的 shard 目錄讀不到——讀不到不等於缺席，先修好權限")   // display-safe-exempt: d 已過 isValidDigest
+            case .notRegularFile(let kind)?:
+                problems.append("\(d)：sources/ 裡它的位置是\(kind)、不是普通檔——內容讀不到，不能宣告為副本；先移走那個位置，再對同一份檔重跑 store-source")   // display-safe-exempt: d 已過 isValidDigest；kind 是 SourceStore 的三個固定字串
             case .absent?, nil:
                 problems.append("\(d)：本機沒有這份存檔——新內容先用 store-source 存；sources/ 不進 git，換機器後要重新取得")   // display-safe-exempt: d 已過 isValidDigest
             }
@@ -178,10 +196,13 @@ extension AkashicService {
                 try LibraryIndex(store: store).rebuild()
             }
         }
+        let shown = sourcesLimit.map { Array(added.prefix($0)) } ?? added
         var payload: [String: Any] = [
             "citekey": displaySafe(citekey, max: 200),
             "dryRun": dryRun,   // display-safe-exempt: Bool
-            "sourcesAdded": added.map { d -> [String: Any] in
+            "sourcesAddedTotal": added.count,   // display-safe-exempt: Int
+            "truncated": shown.count < added.count,   // display-safe-exempt: Bool
+            "sourcesAdded": shown.map { d -> [String: Any] in
                 var item: [String: Any] = ["digest": d]   // display-safe-exempt: d 已過 isValidDigest；其餘欄位是 index.jsonl 的字串，下面逐一消毒
                 if case .stored(let e)? = presence[d] {
                     for (from, to, cap) in [("media-type", "mediaType", 200), ("retrieved", "retrieved", 200),
@@ -205,10 +226,12 @@ extension AkashicService {
     static let removedValuePreviewScalars = 300
 
     /// `update-entry`／`akashic_update_entry` 的入口：只看參數的檢查在讀 store 之前（#654 的形），再分派到那一條腿。
-    public func updateEntry(citekey: String, removeFields: [String]?, addSources: [String]? = nil, dryRun: Bool) throws -> String {
+    /// `sourcesLimit`：`add_sources` 的報告列幾筆。預設是 MCP 面的上限（`sourcesAddedCap`），CLI 傳 nil 全列（`sourcesAddedCap` 的 doc）。
+    public func updateEntry(citekey: String, removeFields: [String]?, addSources: [String]? = nil, dryRun: Bool,
+                            sourcesLimit: Int? = AkashicService.sourcesAddedCap) throws -> String {
         switch try Self.parseUpdateEntryArguments(removeFields: removeFields, addSources: addSources) {
         case .removeFields(let specs): return try removeEntryFields(citekey: citekey, specs: specs, dryRun: dryRun)
-        case .addSources(let digests): return try addEntrySources(citekey: citekey, digests: digests, dryRun: dryRun)
+        case .addSources(let digests): return try addEntrySources(citekey: citekey, digests: digests, dryRun: dryRun, sourcesLimit: sourcesLimit)
         }
     }
 
@@ -243,6 +266,10 @@ extension AkashicService {
 
         // 寫入前的檢查兩種模式都跑（唯讀）：乾跑說「可以」時，實跑不會在內容閘上才被拒
         try store.preflightWrite(entry)
+        // 下面兩個提醒（已歸戶的 venue 邊、APA7 必要欄位）都要讀整個 store；在寫入**之前**算——乾跑也要看得到，且寫入不改 venue 與 people
+        let load = try store.load()
+        let keyEdges = Self.venueKeyEdgesFromRemovedValues(before: before, after: entry, venues: load.venues)
+        let apa7Missing = Self.apa7RequiredNowMissing(before: before, after: entry, load: load)
         if !dryRun {
             try assertRecordsRecoverable([(entry.id, "work「\(displaySafeInvisible(citekey, max: 200))」")],
                                          action: "這次會從 work「\(displaySafeInvisible(citekey, max: 200))」移除 \(specs.count) 個欄位",   // display-safe-exempt: specs.count 是 Int
@@ -263,9 +290,25 @@ extension AkashicService {
         let orphaned = Self.venueEdgesFromRemovedValues(before: before, after: entry)
         if !orphaned.isEmpty {
             payload["venueEdgesFromRemovedValues"] = orphaned
-            payload["venueEdgesNote"] = "這些 literal venue 邊是由被移除的值推導出來的，本面不動它們——"
-                + "要刪用 resolve-venues --drop-venue（MCP drop_venue，#572）；欄位移除之後 migrate-venues 不會再推導出它們"
         }
+        if !keyEdges.isEmpty {
+            payload["venueKeyEdgesFromRemovedValues"] = keyEdges
+        }
+        if !orphaned.isEmpty || !keyEdges.isEmpty {
+            payload["venueEdgesNote"] = "這些 venue 邊是由被移除的值推導出來的，本面不動它們。literal 邊要刪用 resolve-venues --drop-venue（MCP drop_venue，#572）；"
+                + "已歸戶的 key 邊（venueKeyEdgesFromRemovedValues）連同 venue 上的 confirmed verdict 一起留著、歸屬仍然有效——"
+                + "先用 resolve-venues --demote（MCP demote）把邊退回 literal（verdict 隨之處理），再用 --drop-venue 刪。"
+                + "欄位移除之後 migrate-venues 不會再推導出新的邊"
+        }
+        if !apa7Missing.isEmpty {
+            payload["apa7RequiredNowMissing"] = apa7Missing
+            payload["apa7Note"] = "這次移除讓這筆缺 APA7 必要欄位：export-bib 會對它印 ERROR，而 validate 不報（apa7-is-the-work-floor 的下限）。"
+                + "確認移除是有意的，或補上正確的值（enrich 補不存在的鍵）"
+        }
+        // 移除是在 store 裡刪一個值；下面三條路徑都會在同一個鍵缺席時把值補回來，而 store 裡沒有任何東西記得「這個值被判定過不屬於這裡」
+        payload["reintroductionNote"] = "被移除的值可能被三條路徑補回來：import-wos 回填（只多不少，缺席的鍵會被補進去）、enrich（add-only）、"
+            + "Zotero pull（主來源是 Zotero 的記錄；整份替換 fields）。store 不記得這個值被判定過不屬於這裡——重跑同一份來源它就回來；"
+            + "要擋住，改來源或下次別補這個鍵（#544；#676 討論的是核心層要不要偵測 Crossref 錯誤頁樣板）"
         if entry.provenance != nil {
             payload["zoteroNote"] = "這筆的主來源是 Zotero：日後 pull 若更新這筆（Zotero 端有改、或對映演進）會整份替換 fields、"
                 + "把被移除的值帶回來——在 Zotero 那邊一併改掉"
@@ -273,16 +316,54 @@ extension AkashicService {
         return try jsonString(payload)
     }
 
-    /// 移除之後不再能由 `fields` 推導出來、而本 work 仍掛著的 literal venue 邊（index 與字面；已消毒）。
-    static func venueEdgesFromRemovedValues(before: Entry, after: Entry) -> [String] {
+    /// 被移除的值曾經推導出、現在推導不出的 literal（`before` 有而 `after` 沒有）。
+    private static func removedDerivedLiterals(before: Entry, after: Entry) -> Set<String> {
         let still = Set(VenueDerivation.literals(for: after).compactMap { ref -> String? in
             if case .literal(let s) = ref { return s }
             return nil
         })
-        let gone = Set(VenueDerivation.literals(for: before).compactMap { ref -> String? in
+        return Set(VenueDerivation.literals(for: before).compactMap { ref -> String? in
             if case .literal(let s) = ref, !still.contains(s) { return s }
             return nil
         })
+    }
+
+    /// 移除之後，本 work 仍掛著的**已歸戶**（`.key`）venue 邊，而那個 venue 上有 confirmed verdict 的 literal 就是被移除的值（正規化後相等）——
+    /// 也就是這條邊當初是從那個值歸戶來的（b11c R1 verify 第 23／35 列）。歸戶時 `resolve-venues apply` 把 `work:<citekey> :: <literal>` 寫在 venue 上，
+    /// 所以那是**唯一**看得出邊的出處的地方；邊本身不記出處。只列，不動。
+    static func venueKeyEdgesFromRemovedValues(before: Entry, after: Entry, venues: [Venue]) -> [String] {
+        let gone = Set(removedDerivedLiterals(before: before, after: after).map { NameNormalization.matchingKey($0) })
+        guard !gone.isEmpty else { return [] }
+        // #669：重複的 venue key 留第一筆，不 trap
+        let byKey = Dictionary(venues.map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
+        var out: [String] = []
+        for (i, ref) in after.venues.enumerated() {
+            guard case .key(let k) = ref, let venue = byKey[k] else { continue }
+            let literals = ResolutionLedger.verdicts(references: venue.references).verdicts
+                .filter { $0.kind == .confirmed && $0.holderKind == .work && $0.holder == after.citekey
+                          && gone.contains(NameNormalization.matchingKey($0.literal)) }
+                .map(\.literal)
+            for lit in literals {
+                out.append("\(displaySafe(after.citekey, max: 200)):\(i) key:\(displaySafe(k, max: 200)) literal:\(displaySafe(lit, max: 300))")   // display-safe-exempt: i 是 Int
+            }
+        }
+        return out
+    }
+
+    /// 這次移除讓這筆**新增**缺哪些 APA7 必要欄位（欄位名，已排序）。用 `BibExport.apa7Report`——既有的必要欄位表，不另立第二份；
+    /// 只算移除**前**沒缺、移除**後**缺的（移除前就缺的——例如沒有作者——不是這次造成的）。
+    static func apa7RequiredNowMissing(before: Entry, after: Entry, load: LibraryLoad) -> [String] {
+        func missing(_ e: Entry) -> Set<String> {
+            let report = BibExport.apa7Report(entries: [e], people: load.people, organizations: load.organizations, venues: load.venues)
+            let prefix = "Missing required field: "
+            return Set(report.issues.filter { $0.severity == .error && $0.message.hasPrefix(prefix) }.map { String($0.message.dropFirst(prefix.count)) })
+        }
+        return missing(after).subtracting(missing(before)).sorted()
+    }
+
+    /// 移除之後不再能由 `fields` 推導出來、而本 work 仍掛著的 literal venue 邊（index 與字面；已消毒）。
+    static func venueEdgesFromRemovedValues(before: Entry, after: Entry) -> [String] {
+        let gone = removedDerivedLiterals(before: before, after: after)
         guard !gone.isEmpty else { return [] }
         return after.venues.enumerated().compactMap { i, ref in
             guard case .literal(let s) = ref, gone.contains(s) else { return nil }

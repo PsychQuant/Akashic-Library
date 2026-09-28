@@ -27,7 +27,11 @@ struct UpdateEntryCmd: ParsableCommand {
                              + "指向被移除鍵的 fields.<鍵> reference 一併刪除，逐鍵列筆數（referencesRemoved）。"
                              + "鍵不存在、同一鍵兩次、理由空白或過長、一次超過 200 個，都整批拒絕、零寫入。"
                              + "由被移除的值推導出來的 literal venue 邊不動、列在 venueEdgesFromRemovedValues"
-                             + "（要刪用 resolve-venues --drop-venue）；主來源是 Zotero 的記錄另附 zoteroNote（#544）"))
+                             + "（要刪用 resolve-venues --drop-venue）；已歸戶的 key 邊連同 venue 上的 confirmed verdict 也不動、"
+                             + "列在 venueKeyEdgesFromRemovedValues（先 resolve-venues --demote 再 --drop-venue）。"
+                             + "reintroductionNote 說明三條會把值補回來的路徑：import-wos 回填、enrich、Zotero pull"
+                             + "（主來源是 Zotero 的記錄另附 zoteroNote）——store 不記得這個值被判定過不屬於這裡。"
+                             + "移除 APA7 必要欄位時附 apa7RequiredNowMissing（export-bib 會印 ERROR，validate 不報）（#544）"))
     var removeField: [String] = []
 
     @Option(name: .customLong("add-source"), parsing: .upToNextOption,
@@ -35,7 +39,9 @@ struct UpdateEntryCmd: ParsableCommand {
                              + "store-format §2.4.1）。每個新加的 digest 都要已經在本機的 sources/、而且 sources/index.jsonl 有它的取得記錄"
                              + "（先用 store-source 存）——本機沒有、孤兒 blob、shard 讀不到、index 壞到判不出來，都整批拒絕、零寫入。"
                              + "add-only、冪等：已在的列在 sourcesAlreadyPresent，沒有新東西就不寫。報告逐個帶 index 的取得記錄"
-                             + "（origin、mediaType、note…），乾跑時用來確認是哪份內容。空內容的 digest、同一次重複、一次超過 200 個都拒絕。"
+                             + "（origin、mediaType、note…；CLI 全列，MCP 面截 20 筆），乾跑時用來確認是哪份內容。空內容的 digest、同一次重複、"
+                             + "一次超過 200 個、blob 的位置不是普通檔都拒絕。連好之後 get-entry 的 sources 看得到。"
+                             + "沒有移除腿（#677）：連錯了以 git 還原那個 work 檔——本面不要求檔已 commit，連結前先 commit store。"
                              + "不與 --remove-field 組合（#614）"))
     var addSource: [String] = []
 
@@ -53,6 +59,7 @@ struct UpdateEntryCmd: ParsableCommand {
         let service = AkashicService(root: store.root, key: store.key,
                                      environment: ProcessInfo.processInfo.environment)
         // 寫入面封閉例外形：只回 service payload（mcp-cli-parity 的既有裁決）
-        print(try service.updateEntry(citekey: citekey, removeFields: removeField, addSources: addSource, dryRun: !apply))
+        print(try service.updateEntry(citekey: citekey, removeFields: removeField, addSources: addSource, dryRun: !apply,
+                                      sourcesLimit: nil))   // CLI 全列（輸出進人的終端機）；MCP 面截 20 筆，理由見 `sourcesAddedCap`
     }
 }

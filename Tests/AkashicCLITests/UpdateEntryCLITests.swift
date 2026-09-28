@@ -89,5 +89,25 @@ final class UpdateEntryCLITests: XCTestCase {
         XCTAssertEqual(again.status, 0, again.output)
         XCTAssertTrue(again.output.contains("sourcesAlreadyPresent"), again.output)
         XCTAssertEqual(try Data(contentsOf: file), bytes, "冪等：沒有新東西就不寫")
+        // b11c R1 verify 第 11 列：連好的副本讀得出來（人可讀面與 --json 面）
+        let got = try CLITestHarness.run(["get-entry", "x2020y", "--library", root.path], env: ["AKASHIC_HOME": home.path])
+        XCTAssertEqual(got.status, 0, got.output)
+        XCTAssertTrue(got.output.contains("sources\t\(receipt.digest)"), "get-entry 要看得到連好的副本：\(got.output)")
+        let gotJSON = try CLITestHarness.run(["get-entry", "x2020y", "--json", "--library", root.path], env: ["AKASHIC_HOME": home.path])
+        XCTAssertTrue(gotJSON.output.contains(receipt.digest), gotJSON.output)
+    }
+
+    /// **CLI 全列、MCP 面才截**（b11c R1 verify 第 29／31 列）：21 份內容一次連，CLI 的報告要有全部 21 筆、`truncated` 是 false。
+    func testAddSourceListsEverythingOnTheCLI() throws {
+        let store = LibraryStore(root: root, key: nil, environment: [:])
+        let digests = try (0..<21).map { i in
+            try store.storeSource(Data("%PDF-1.7 blob \(i)".utf8), provenance: .init(
+                mediaType: "application/pdf", retrieved: "2026-09-29T10:00:00+08:00",
+                origin: "https://example.org/\(i).pdf", acquisition: "browser-download")).digest
+        }
+        let r = try CLITestHarness.run(["update-entry", "x2020y", "--add-source"] + digests + ["--library", root.path], env: ["AKASHIC_HOME": home.path])
+        XCTAssertEqual(r.status, 0, r.output)
+        XCTAssertEqual(digests.filter { r.output.contains($0) }.count, 21, "CLI 不截：\(r.output)")
+        XCTAssertTrue(r.output.contains("\"sourcesAddedTotal\" : 21") && r.output.contains("\"truncated\" : false"), r.output)
     }
 }

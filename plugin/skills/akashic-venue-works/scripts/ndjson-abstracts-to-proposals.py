@@ -10,8 +10,13 @@
 **三條紀律**：
 1. 只收 `status == "got"`、摘要非空、DOI 在場的列；其餘每一列在 stderr 逐筆具名
    （`skip\\t<reason>\\t<doi>\\tline <n>`）——丟棄必須可見（`lossless-intake` 執行細節 3）。
-   摘要是 Crossref「這個 DOI 沒有 metadata」的固定樣板時同樣略過（`crossref-no-metadata`，#544）：
-   那是 HTTP 200 的錯誤頁被當成內容收下，不是這篇的摘要——21 筆 work 就是這樣帶著錯誤頁當摘要進庫的。
+   摘要是 Crossref「這個 DOI 沒有 metadata」的固定樣板（開頭 `This DOI is not currently attached to any metadata records`）時
+   同樣略過（`crossref-no-metadata`，#544）：那是錯誤頁文字，不是這篇的摘要。
+   **這道守衛不是那 21 筆進庫的路徑**（b11c R1 verify 更正）：那 21 筆是 2026-09-01 的 #423 階段 A（OpenAlex `abstract_inverted_index`
+   還原 → `create-entry`）建檔時帶進來的，OpenAlex 回傳的摘要本身就是這段樣板（live store 的 git 史 `e3b25a6d`、階段 A 匯出檔可查）；
+   本腳本 2026-09-07 才新增。它守的是另一件事：`update-entry --remove-field` 把那 21 筆的摘要移除之後，它們沒有摘要、會被排回階段 B——
+   若階段 B 對它們抓到同一個樣板，這裡擋得住（階段 B 實際抓到什麼沒有量過）。階段 A 的同一個判準見 SKILL.md；
+   核心層（`create-entry`／`enrich`／`validate`）不過濾，那是 #676 的裁決題。
 2. `doi` **原樣透傳**：URL 前綴與大小寫由 core 的 `DOI` 正規化吸收，本腳本**不**複製那條
    規則。腳本自己只有一條更弱的身分規則——逐位元相同的 DOI 字串——大小寫／前綴不同的
    近重複兩筆都輸出、留給 core（它會把第二筆報成 `skipped`，不會靜默）。同 DOI 而摘要
@@ -43,7 +48,8 @@ import argparse, hashlib, json, os, pathlib, re, stat, sys, tempfile
 from collections import Counter
 
 DIGEST_RE = re.compile(r"^sha256:([0-9a-fA-F]{64})$")
-# Crossref 對沒有 metadata 的 DOI 回的固定樣板開頭（#544；live store 的 21 筆逐字以它開頭）
+# Crossref 對沒有 metadata 的 DOI 回的固定樣板開頭（#544；live store 的 21 筆逐字以它開頭）。
+# SKILL.md 階段 A 的判準寫的是同一個字串——改這裡要一起改那邊（兩處不得各寫一份不同的）
 CROSSREF_NO_METADATA = "This DOI is not currently attached to any metadata records"
 SKIP_MAX = 200
 

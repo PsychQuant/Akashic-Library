@@ -256,8 +256,9 @@ akashic:
   不同條件（同 §3.5 的既有契約）。
 - **寫入端**（#614）：`update-entry <citekey> --add-source <digest>`（MCP `akashic_update_entry` 的
   `add_sources`），預設乾跑、`--apply` 才寫。add-only、冪等；寫入當下要求每個新加的 digest 已在本機 `sources/`
-  且 `sources/index.jsonl` 有它的取得記錄——那是寫入閘，不是載入條件（上一條：別台 clone 讀到的連結
-  照常載入）。沒有移除面。
+  且 `sources/index.jsonl` 有它的取得記錄、blob 的位置是普通檔（目錄與 symlink 拒絕）——那是寫入閘，不是載入條件（上一條：別台 clone 讀到的連結
+  照常載入）；全是已連過的 digest 時不讀 index。沒有移除面（#677 追蹤；目前以 git 還原那個 work 檔）。
+- **讀取端**：`get-entry`／`akashic_get_entry` 的 `akashic.sources` 列出連好的 digest（取得記錄在 `sources/index.jsonl`）。
 
 ### 2.5 Namespace 契約（CRITICAL）
 
@@ -1150,6 +1151,8 @@ store 上：寫入閘拒寫，`enrich` 則在寫入前讀 marker、值照補、r
 **移除端**：`update-entry --remove-field <鍵>=理由`（MCP `akashic_update_entry` 的 `remove_fields`，#544）刪一個 `fields` 的值時，
 一併刪掉指向它的 `fields.<鍵>` reference——留著它，那筆的語意會從正結果（值出自這份來源）翻成負結果（查過了、這份來源沒給），
 而那不是任何人判定過的事。理由只進報告，移除前的檔在 git（實跑要求那筆 work 檔已 commit、乾淨）。
+**store 不記得被移除的值**：`import-wos` 回填（只多不少）、`enrich`（add-only）、Zotero pull 都會在鍵缺席時把值補回來（報告的 `reintroductionNote`）；
+issue 原本要的 #450 形記錄（留下「這個值被判定過不屬於這裡」）沒有做——2026-09-27 對移除面一族的裁決延伸到 `fields` 的值是 Claude 代裁、待使用者確認。
 
 ### venue 的 `references`：可附著的格與寫入面（#394／#406／#587）
 

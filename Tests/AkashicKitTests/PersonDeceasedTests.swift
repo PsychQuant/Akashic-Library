@@ -346,7 +346,7 @@ final class PersonDeceasedTests: XCTestCase {
 
     /// 衍生層的消費者看不到原始碼註解。「status 描述的是隸屬」必須寫在匯出的 schema 裡。
     func testTheExportedSchemaStatesWhatTheStatusColumnDescribes() {
-        let sql = RelationalExport.duckDBScript()
+        let sql = RelationalExport.duckDBScript(organizationParentLevels: 1)
         guard let statusLine = sql.components(separatedBy: "\n")
             .first(where: { $0.contains("status") && $0.contains("CHECK") }) else {
             return XCTFail("找不到 status 欄定義")

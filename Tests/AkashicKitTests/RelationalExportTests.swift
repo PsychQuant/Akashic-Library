@@ -57,7 +57,7 @@ final class RelationalExportTests: XCTestCase {
 
     /// load.sql 的 DDL 跟著加欄與外鍵（欄位順序與 CSV 相同——`INSERT … SELECT *` 依位置）。
     func testDDLDeclaresAuthorKindAndOrganizationFK() {
-        let sql = RelationalExport.duckDBScript(csvDirectory: "/tmp/x")
+        let sql = RelationalExport.duckDBScript(csvDirectory: "/tmp/x", organizationParentLevels: 1)
         XCTAssertTrue(sql.contains("author_kind    TEXT    NOT NULL"), sql)
         XCTAssertTrue(sql.contains("organization_id UUID   REFERENCES organization(organization_id)"), sql)
     }
@@ -251,7 +251,7 @@ final class RelationalExportTests: XCTestCase {
         XCTAssertEqual(RelationalExport.attestedCell(DateRange(attested: [""])), #"[""]"#)
         XCTAssertEqual(RelationalExport.attestedCell(DateRange(attested: ["2019;x"])), #"["2019;x"]"#)
         XCTAssertNil(RelationalExport.attestedCell(DateRange(start: "2010")))
-        let ddl = RelationalExport.duckDBScript()
+        let ddl = RelationalExport.duckDBScript(organizationParentLevels: 1)
         XCTAssertTrue(ddl.contains("'current', 'retired', 'undetermined'"), "CHECK 要收 undetermined")
         XCTAssertTrue(ddl.contains("valid_end_unknown IS NULL **且** valid_attested IS NULL"),
                       "進行中的判準要排除只被觀測到的段")
@@ -325,7 +325,7 @@ final class RelationalExportTests: XCTestCase {
 
     /// load.sql：建表、外鍵、主鍵、同一筆 work 內 DOI 不重複、drop 順序（子表先）、從 CSV 載入。
     func testDDLDeclaresPublicationDOI() throws {
-        let sql = RelationalExport.duckDBScript(csvDirectory: "/tmp/x")
+        let sql = RelationalExport.duckDBScript(csvDirectory: "/tmp/x", organizationParentLevels: 1)
         XCTAssertTrue(sql.contains("CREATE TABLE publication_doi ("), sql)
         XCTAssertTrue(sql.contains("publication_id UUID    NOT NULL REFERENCES publication(publication_id)"), sql)
         XCTAssertTrue(sql.contains("PRIMARY KEY (publication_id, doi_seq)"), sql)
@@ -342,7 +342,7 @@ final class RelationalExportTests: XCTestCase {
     /// load.sql 以 `INSERT … SELECT *` 依**位置**灌表：每張表的 DDL 欄位順序必須與 CSV 表頭逐欄一致。
     /// organization 例外——它分兩步、以欄名載入（#92），不靠位置。
     func testDDLColumnOrderMatchesCSVHeaderForEveryPositionallyLoadedTable() throws {
-        let sql = RelationalExport.duckDBScript()
+        let sql = RelationalExport.duckDBScript(organizationParentLevels: 1)
         for table in RelationalExport.tables(entries: [], people: []).all where table.name != "organization" {
             let start = try XCTUnwrap(sql.range(of: "CREATE TABLE \(table.name) ("), "DDL 沒有 \(table.name)")
             let end = try XCTUnwrap(sql.range(of: "\n);", range: start.upperBound..<sql.endIndex))

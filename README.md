@@ -1281,6 +1281,7 @@ checkout 抓得到）——每次 merge 後在 main 上驗一次。
 | 測試數下限 | 測試靜默地不再被執行（見上方說明）|
 | `load.sql` 端對端 | 「產生出來就跑不起來」的腳本。真的建 store、真的 `export-tables`、真的餵給 `duckdb` |
 | fixture 含母子機構 + 斷言 `parent_id` 非空 | 上一條的**前提**。#92 的觸發條件是自我參照 FK 非空，空 store 跑得過——不斷言 fixture 有效，端對端就是裝飾 |
+| fixture 的機構鏈有三層 + 斷言載入後 `parent_id` 全部回填 | 同一個前提再深一層（#667）：兩層時一句 UPDATE 就回填得完，三層才撞上 DuckDB 的自我參照外鍵檢查。live store 就有一條三層鏈 |
 | fixture 含一筆兩個 DOI 的 work + 斷言 `publication_doi.csv` 有兩列 | 同一個前提套在 `publication_doi`（#657）：原本的 fixture 沒有任何 work，那張表只有表頭，`load.sql` 灌它的那一行從沒灌過資料；兩個 DOI 才走得到 `doi_seq > 0` 的列 |
 
 最後一條是 #92 的直接教訓：那個 bug 之所以能活很久，正是因為既有測試斷言的是「產生的 SQL

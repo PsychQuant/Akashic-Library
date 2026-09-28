@@ -1615,7 +1615,8 @@ struct ExportTables: ParsableCommand {
             print("\(t.name): \(t.rows.count) 列 → \(url.lastPathComponent)")  // display-safe-exempt: t.name 是編譯期常數（RelationalExport 內寫死的表名），不含 store 衍生內容
         }
         let sql = dir.appendingPathComponent("load.sql")
-        try RelationalExport.duckDBScript(csvDirectory: dir.path)
+        try RelationalExport.duckDBScript(csvDirectory: dir.path,
+                                          organizationParentLevels: RelationalExport.organizationParentLevels(tables.organization))
             .write(to: sql, atomically: true, encoding: .utf8)
         print("載入腳本 → \(sql.path)")
         print("  duckdb akashic.db -c \".read \(sql.path)\"")

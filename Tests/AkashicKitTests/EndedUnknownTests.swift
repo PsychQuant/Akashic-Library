@@ -234,7 +234,7 @@ final class EndedUnknownTests: XCTestCase {
         let row = try XCTUnwrap(tl.rows.first)
         XCTAssertEqual(row[unknownIdx], "true", "timeline 行必須攜帶「已結束、時點未知」")
         XCTAssertNil(row[endIdx])
-        XCTAssertTrue(RelationalExport.duckDBScript().contains("valid_end_unknown"),
+        XCTAssertTrue(RelationalExport.duckDBScript(organizationParentLevels: 1).contains("valid_end_unknown"),
                       "load.sql 的 schema 要有這欄——匯出是全刪重建的衍生物，掉了就永遠消失")
     }
 }

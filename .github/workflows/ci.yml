@@ -193,6 +193,18 @@ jobs:
           - value:
               key: parent-org
           ORG
+          # #667：第三層。兩層時只要一句 UPDATE 就回填得完，三層才會撞上 DuckDB 的外鍵檢查——
+          # 與上面「fixture 必須含母子機構」同一個教訓，只是深一層。
+          cat > "$STORE/entities/44444444-4444-4444-8444-444444444444.yaml" <<'ORG'
+          organization:
+          id: 44444444-4444-4444-8444-444444444444
+          key: grandchild-org
+          names:
+          - value: Grandchild
+          parents:
+          - value:
+              key: child-org
+          ORG
           # #657：一筆帶兩個 DOI 的 work。沒有它 publication_doi.csv 只有表頭，load.sql 的那一行 INSERT 從沒灌過資料
           # （外鍵、主鍵、UNIQUE、型別都沒被執行到）——與上面母子機構同一個教訓。
           cat > "$STORE/entities/33333333-3333-4333-8333-333333333333.yaml" <<'WORK'
@@ -216,4 +228,6 @@ jobs:
           test "$(tail -n +2 "$TMP/out/publication_doi.csv" | wc -l | tr -d ' ')" = 2 \
             || { echo "::error::兩個 DOI 的 fixture 在 publication_doi.csv 沒有得到兩列——這一步就沒有灌過那張表"; exit 1; }
           duckdb "$TMP/probe.db" -c ".read $TMP/out/load.sql"
-          echo "✓ 含母子機構與多 DOI work 的 load.sql 可執行"
+          test "$(duckdb "$TMP/probe.db" -csv -noheader -c "SELECT count(*) FROM organization WHERE parent_id IS NOT NULL")" = 2 \
+            || { echo "::error::三層機構鏈載入後 parent_id 沒有全部回填"; exit 1; }
+          echo "✓ 含三層機構鏈與多 DOI work 的 load.sql 可執行"

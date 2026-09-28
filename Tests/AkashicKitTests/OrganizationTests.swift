@@ -224,7 +224,7 @@ final class OrganizationTests: XCTestCase {
         XCTAssertEqual(kind(dangling, "affiliation"), .some("organization"),
                        "懸空的 key 仍是 organization——它是斷掉的參照，不是未歸戶；value 同是 iss 也分得開")
         XCTAssertEqual(kind(dangling, "rank"), .some(nil), "非隸屬維度不適用")
-        XCTAssertTrue(RelationalExport.duckDBScript().contains("affiliation_kind"), "DDL 要宣告這一欄")
+        XCTAssertTrue(RelationalExport.duckDBScript(organizationParentLevels: 1).contains("affiliation_kind"), "DDL 要宣告這一欄")
     }
 
     /// #656：`researcher.affiliation_current` 只放顯示名，字面「iss」與 key「iss」印出來一樣。比照 #651，在最後加
@@ -255,7 +255,7 @@ final class OrganizationTests: XCTestCase {
         XCTAssertNil(try row(none)[kindIdx])
         XCTAssertNil(try row(none)[idIdx])
         // DDL 的宣告要與 columns 同序、帶型別與外鍵（R1 verify Codex：只查欄名出現，會被一句註解滿足）
-        let sql = RelationalExport.duckDBScript()
+        let sql = RelationalExport.duckDBScript(organizationParentLevels: 1)
         let kindDecl = try XCTUnwrap(sql.range(of: "affiliation_current_kind TEXT,"))
         let idDecl = try XCTUnwrap(sql.range(of: "affiliation_current_id   UUID REFERENCES organization(organization_id)"))
         XCTAssertLessThan(kindDecl.lowerBound, idDecl.lowerBound, "DDL 的欄序要與 columns 相同")
@@ -263,7 +263,7 @@ final class OrganizationTests: XCTestCase {
 
     /// 匯出腳本含機構表，且隸屬列的外鍵可空。
     func testDuckDBScriptDeclaresOrganization() {
-        let sql = RelationalExport.duckDBScript()
+        let sql = RelationalExport.duckDBScript(organizationParentLevels: 1)
         XCTAssertTrue(sql.contains("CREATE TABLE organization"))
         XCTAssertTrue(sql.contains("organization_id UUID REFERENCES organization(organization_id)"))
     }
@@ -286,7 +286,7 @@ final class OrganizationTests: XCTestCase {
     /// 有回填 parent_id 的 UPDATE」，而非釘住某段 SQL 字面——前者描述的是那個會讓
     /// 腳本跑不起來的性質本身。
     func testOrganizationLoadsInTwoStepsForSelfReferencingFK() {
-        let sql = RelationalExport.duckDBScript()
+        let sql = RelationalExport.duckDBScript(organizationParentLevels: 1)
         XCTAssertFalse(sql.contains("INSERT INTO organization\n            SELECT * FROM read_csv"),
                        "organization 不得用單一 SELECT * bulk insert——parent_id 的自我參照會 abort")
         XCTAssertTrue(sql.contains("UPDATE organization"),

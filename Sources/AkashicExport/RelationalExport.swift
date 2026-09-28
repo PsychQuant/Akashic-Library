@@ -297,12 +297,48 @@ public enum RelationalExport {
         return out
     }
 
+    /// 機構鏈的層數（#667）：根是第 0 層，母機構是根的機構是第 1 層。`duckDBScript` 依這個數
+    /// 逐層回填 `parent_id`。到不了根的列（成環）不計入——`load.sql` 尾端的檢查句會對它們出聲，
+    /// 這裡不替它決定層數。
+    public static func organizationParentLevels(_ organization: Table) -> Int {
+        guard let idIndex = organization.columns.firstIndex(of: "organization_id"),
+              let parentIndex = organization.columns.firstIndex(of: "parent_id") else { return 0 }
+        var parentOf: [String: String] = [:]
+        for row in organization.rows {
+            if let id = row[idIndex], let parent = row[parentIndex] { parentOf[id] = parent }
+        }
+        var deepest = 0
+        for start in parentOf.keys {
+            var node = start, depth = 0, seen: Set<String> = [start]
+            while let parent = parentOf[node] {
+                guard seen.insert(parent).inserted else { depth = 0; break }   // 成環：不計入
+                node = parent
+                depth += 1
+            }
+            deepest = max(deepest, depth)
+        }
+        return deepest
+    }
+
     /// DuckDB 可直接 `.read` 的建表 + 載入腳本。
     ///
     /// **不內嵌資料**——資料走 CSV，這裡只給 schema 與 `read_csv` 呼叫。把 536 筆資料
     /// 灌成 INSERT 字面值會讓腳本變成一個難以檢查的巨檔，而 CSV 可以用任何工具打開。
-    public static func duckDBScript(csvDirectory: String = ".") -> String {
-        """
+    ///
+    /// 唯一從資料來的是 `organizationParentLevels`（#667）：上級機構要逐層回填，而 SQL 腳本
+    /// 沒有迴圈，句數只能由匯出端算好——用 `organizationParentLevels(_:)` 從同一次匯出的
+    /// organization 表算。**刻意沒有預設值**：預設一層正是 #667 之前的行為，三層鏈會中止。
+    /// 層數少於 CSV 的實際深度時，腳本尾端的檢查句會中止並說出幾筆沒回填。
+    public static func duckDBScript(csvDirectory: String = ".", organizationParentLevels: Int) -> String {
+        let levels = max(0, organizationParentLevels)
+        let levelUpdates = levels == 0 ? "-- （沒有任何機構帶上級機構）" : (1...levels).map { k in
+            """
+            UPDATE organization SET parent_id = l.parent_id
+                    FROM akashic_organization_level l
+                    WHERE organization.organization_id = l.organization_id AND l.level = \(k);
+            """
+        }.joined(separator: "\n        ")
+        return """
         -- Akashic → DuckDB（#22）。**單向衍生**：這些表可隨時整個丟掉重建，
         -- canonical 永遠是 Akashic store 的 YAML 檔。
         --
@@ -450,10 +486,31 @@ public enum RelationalExport {
         INSERT INTO organization (organization_id, org_key, name_current, founded, dissolved)
             SELECT organization_id, org_key, name_current, founded, dissolved
             FROM read_csv('\(csvDirectory)/organization.csv', header = true);
-        UPDATE organization SET parent_id = c.parent_id
+        -- 回填也要逐層、由上而下（#667）。一句 UPDATE 同時設「b→a」與「c→b」，DuckDB
+        -- 會對三層鏈報外鍵錯誤；逐層時第 k 層的母機構已在前一句填好、子機構仍是 NULL，
+        -- 同一句裡沒有任何一列被另一列的新值參照。這份資料有 \(levels) 層。
+        CREATE OR REPLACE TEMP TABLE akashic_organization_level AS
+            WITH RECURSIVE lvl(organization_id, parent_id, level) AS (
+                SELECT organization_id, parent_id, 0
+                    FROM read_csv('\(csvDirectory)/organization.csv', header = true)
+                    WHERE parent_id IS NULL
+                UNION ALL
+                SELECT c.organization_id, c.parent_id, lvl.level + 1
+                    FROM read_csv('\(csvDirectory)/organization.csv', header = true) c
+                    JOIN lvl ON c.parent_id = lvl.organization_id
+            )
+            SELECT organization_id, parent_id, level FROM lvl;
+        \(levelUpdates)
+        -- 沒回填到的上級機構（成環，或這份腳本的層數與 CSV 不符）要中止，不留下安靜的 NULL。
+        -- 寫成 CREATE … AS：通過時零列、不印東西；裸 SELECT 會在 CLI 印出一個空表，看起來像出了事。
+        CREATE OR REPLACE TEMP TABLE akashic_organization_check AS
+            SELECT error('organization.csv 有 ' || count(*) || ' 筆的上級機構沒有回填（成環，或 load.sql 與 CSV 不是同一次匯出）') AS failure
             FROM read_csv('\(csvDirectory)/organization.csv', header = true) c
-            WHERE organization.organization_id = c.organization_id
-              AND c.parent_id IS NOT NULL;
+            JOIN organization o USING (organization_id)
+            WHERE c.parent_id IS NOT NULL AND o.parent_id IS NULL
+            HAVING count(*) > 0;
+        DROP TABLE akashic_organization_check;
+        DROP TABLE akashic_organization_level;
         INSERT INTO researcher
             SELECT * FROM read_csv('\(csvDirectory)/researcher.csv', header = true);
         INSERT INTO researcher_timeline

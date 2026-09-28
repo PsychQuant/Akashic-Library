@@ -495,3 +495,53 @@ extension StdioE2ETests {
         XCTAssertEqual(e.references.map(\.field), ["date"], "只有 date 有來源；authors 那一格不收 enrich 的 retrieval")
     }
 }
+
+/// #578：`tools/list` 回應的位元組上限。工具清單由每個 session、每個呼叫端付費，描述每長一句都是全體的成本。
+///
+/// 預算的規則（#578，使用者 2026-09-27 裁決「先精簡描述再設預算」）：**精簡後實測 × 1.25，無條件進位到下一個 1,000**。
+/// 2026-09-28（+08:00）量測：精簡前 56,382 bytes（32 個工具，超過單一 MCP 輸出的 48 KiB）、精簡後 39,164 bytes
+/// → 39,164 × 1.25 = 48,955 → 49,000。量的是 `tools/list` 回應那一行的原始位元組（不含換行）。
+/// 描述長到撞上它時，先把契約細節移回 CLI `--help` 或 docs/store-format.md，不是改這個數字；要調高須回 #578 重新裁決。
+extension StdioE2ETests {
+    static let toolsListByteBudget = 49_000
+
+    /// 讀一行原始回應位元組（不解析）。10 秒內讀不到整行就丟錯——空掃描不是通過。
+    private func readRawLine() throws -> Data {
+        var buffer = Data()
+        let deadline = Date().addingTimeInterval(10)
+        while Date() < deadline {
+            let chunk = reader.availableData
+            if chunk.isEmpty {
+                Thread.sleep(forTimeInterval: 0.05)
+                continue
+            }
+            buffer.append(chunk)
+            if let newline = buffer.firstIndex(of: UInt8(ascii: "\n")) {
+                return Data(buffer[..<newline])
+            }
+        }
+        struct NoLine: Error {}
+        XCTFail("10 秒內未收到完整的一行回應（已收 \(buffer.count) bytes）")
+        throw NoLine()
+    }
+
+    func testToolsListResponseStaysWithinByteBudget() throws {
+        try send(["jsonrpc": "2.0", "id": 1, "method": "initialize",
+                  "params": ["protocolVersion": "2024-11-05", "capabilities": [:] as [String: Any],
+                             "clientInfo": ["name": "t", "version": "1"]]])
+        _ = try readRawLine()
+        try send(["jsonrpc": "2.0", "method": "notifications/initialized"])
+        try send(["jsonrpc": "2.0", "id": 2, "method": "tools/list"])
+        let line = try readRawLine()
+        // 先確認量到的真的是 tools/list 的回應——量錯一行（錯誤回應、別的 id）會讓上限永遠綠
+        let obj = try XCTUnwrap(try JSONSerialization.jsonObject(with: line) as? [String: Any],
+                                "tools/list 的回應不是 JSON object")
+        XCTAssertEqual(obj["id"] as? Int, 2, "讀到的不是 tools/list 的回應：\(obj.keys.sorted())")
+        let tools = try XCTUnwrap((obj["result"] as? [String: Any])?["tools"] as? [[String: Any]],
+                                  "回應裡沒有 result.tools——沒有量到工具清單")
+        XCTAssertFalse(tools.isEmpty, "工具清單是空的——空掃描不是通過")
+        XCTAssertLessThanOrEqual(line.count, Self.toolsListByteBudget,
+                                 "tools/list 回應 \(line.count) bytes，超過預算 \(Self.toolsListByteBudget)（#578）。"
+                                 + "先精簡描述（契約細節移到 CLI --help／docs），要調高預算須回 #578 重新裁決")
+    }
+}

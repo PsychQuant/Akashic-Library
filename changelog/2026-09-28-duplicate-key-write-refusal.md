@@ -29,7 +29,7 @@
 - **index 重建對重複的 venue／person key 留第一筆**（`INSERT OR IGNORE`）：在此之前 PRIMARY KEY 擲錯，而寫入面在檔案落地**之後**才重建 index，所以對同一個 store 裡不相干記錄的一次合法寫入會回報失敗、index 停在舊的。index 是衍生層，留第一筆與 #669 讀取端的處置一致。`doctor` 在有跨記錄 error 時本來就不重建，行為不變。
 - `mcp-cli-parity` 的 update_venue、resolve_venues、resolve_organizations 三列加註；`zero-instance-guards` 第 42 列原本把這一格記為「另案 #670」，改成說明已補上。
 
-**不在本輪**：MCP 兩個 resolve 工具的描述還沒提到新的兩個列表旗標。#578 正在精簡那個檔的描述，等它合進來之後補。
+**MCP 描述**：兩個 resolve 工具的描述在本輪沒有提到新的兩個列表旗標（#578 當時正在精簡那個檔）。#578 合進來時一併補上：resolve_venues 列 `unlocatableVenueKey`、reject／repoint／demote 的拒絕含 venue；resolve_organizations 列 `unlocatableOrganizationKey`。
 
 ## 測試
 

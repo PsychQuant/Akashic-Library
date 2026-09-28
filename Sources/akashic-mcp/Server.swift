@@ -74,9 +74,7 @@ actor AkashicMCPServer {
                 "year_to": int("結束年"),
                 // #315：明寫它**不是** store root。CLI 的 `--library` 是那個意思，
                 // 而兩者同名、鄰接、錯用不會報錯（只回一個合理的錯子集）。
-                "library": str("store **內**的 membership 分類 key 篩選（#13 membership "
-                               + "views；省略＝全集）。**不是** store root——store 由伺服器"
-                               + "啟動時決定，可用 akashic_files 的 use action 切換（#310）"),
+                "library": str("store **內**的 membership 分類 key 篩選（省略＝全集）。**不是** store root——store 由伺服器啟動時決定，可用 akashic_files 的 use action 切換"),
              ])),
         Tool(name: "akashic_get_entry",
              description: "以 citekey 取完整 entry（含 akashic namespace 與 provenance）。",
@@ -104,28 +102,26 @@ actor AkashicMCPServer {
              description: "人物實體列表／查詢（key、aliases、ORCID）。",
              inputSchema: obj(["query": str("關鍵字（比對 key 與所有 alias；省略＝全部）")])),
         Tool(name: "akashic_doctor",
-             description: "library 健康報告：entries/people/relations 統計、index 重建、quarantine、未解析作者數、orphans、unknownFieldFiles（含較新 schema 未知欄位的檔案，v1.3 tolerant-preserve 可見性面）；recordIssues 的 first 截 20 則且受 48 KiB 位元組預算約束（截掉時 firstCappedByBudget 為 true）；count／errors 是訊息則數、各族也是該族的訊息則數（一則可能對應一筆記錄、一個配對或一組重複——duplicateReferences 一組一則，同一筆記錄可以有好幾組），cappedRecords > 0 時三者都是下限（每筆記錄至多 20 則進來、其餘一句概括；cappedRecords 以記錄計，一筆記錄出幾句概括都算一筆；CLI validate 不加這裡的 20 則截斷，但組合式的六族（venue 名字內容、venue 近重複、person 近重複、重複 venue 邊、confirmed literal、重複判定記錄）每筆記錄至多 20 則、三面共有；其餘家族每筆 reference／配對／記錄各一則、無上限）；被截的那幾則的出口是 owner（#581）：帶 owner＝<kind>:<key>（kind 是 work／person／organization／venue／divergence，必填、不猜——不同 kind 的 key 可以相同；divergence 的 key 是 UUID）時只回那一筆記錄的 per-record 問題、不套每筆 20 則的列出上限（近重複的逐對求值上限照舊，觸頂時訊息自己會說），回 total／errors／issues（每則截 1,000 字元、受同一個 48 KiB 位元組預算，截掉時 truncated 為 true、total 是完整則數）／scope；owner 模式唯讀：不重建 index、不含跨記錄檢查與 quarantine；找不到或同 kind 同 key 兩筆以上時拒絕、不猜；各族與 StoreHealth 的家族存取子一一對應（含 deadVerdicts、contradictoryVerdicts、duplicateVerdictRecords——它不計 venue×work 的 confirmed 裡每筆各有自己拼法且 judgement／rests-on 全同的純拼法組，那格由 confirmedLiteralAmbiguities 報、在每筆 venue 20 筆 work 的上限之內；kind 有差異的組照計——以及它的非判定鏡像 duplicateReferences，#582）。",
+             description: "library 健康報告：entries／people／relations 統計、index 重建、quarantine、未解析作者數、orphans、unknownFieldFiles（含較新 schema 未知欄位的檔案）、recordIssues（各族與 StoreHealth 的家族存取子一一對應，含 deadVerdicts、contradictoryVerdicts、duplicateVerdictRecords、duplicateReferences；duplicateVerdictRecords 不計的那一格見 docs/store-format.md §3.5）。recordIssues.first 截 20 則、受 48 KiB 位元組預算（被截時 firstCappedByBudget 為 true）。count／errors 與各族計數都是**訊息則數**（一則可能是一筆記錄、一個配對或一組重複）；cappedRecords（以記錄計）> 0 時都是下限：組合式的六族（清單見 CLI `akashic validate --help`）每筆記錄至多 20 則、其餘一句概括（CLI 同，只是不另截 20 則），其餘家族無此上限。owner 給定時同 CLI `akashic validate --owner`：只回那一筆記錄的 per-record 問題、不套每筆 20 則的列出上限：回 total／errors／issues（每則截 1,000 字元、同一個 48 KiB 預算，被截時 truncated 為 true、total 仍完整）／scope；唯讀，不重建 index、不含跨記錄檢查與 quarantine；找不到或同 kind 同 key 兩筆以上時拒絕。",
              inputSchema: obj([
-                "owner": str("選填：<kind>:<key>，只看這一筆記錄的完整 per-record 明細（#581；不套每筆 20 則的列出上限）。"
-                             + "kind 是 work／person／organization／venue／divergence，必填、不猜；省略＝全庫健康報告"),
+                "owner": str("選填：<kind>:<key>，只看這一筆記錄；kind 是 work／person／organization／venue／divergence，必填、不猜（divergence 的 key 是 UUID）；省略＝全庫健康報告"),
              ])),
         Tool(name: "akashic_files",
-             description: "多檔案（#18）：list＝列出已註冊的實體庫（檔案）與 active root；use＝session 內切換到另一個檔案（互不相通——切換後所有 tool 都作用在新 universe；不寫 config，持久預設用 CLI akashic file use）。",
+             description: "多檔案：list＝列出已註冊的實體庫（檔案）與 active root；use＝session 內切換到另一個檔案（互不相通——切換後所有 tool 都作用在新 universe；不寫 config，持久預設用 CLI akashic file use）。",
              inputSchema: obj([
                 "action": str("list 或 use"),
                 "key": str("use 時：已註冊的檔案 key"),
              ])),
         Tool(name: "akashic_person",
-             description: "人物檢索（#14）：person key 直查聚合（人物資料＋著作＋合著者統計，可選 library 過濾）；模糊姓名回候選清單（絕不自動選定——消歧交給 caller）。",
+             description: "人物檢索：person key 直查聚合（人物資料＋著作＋合著者統計，可選 library 過濾）；模糊姓名回候選清單（絕不自動選定——消歧交給 caller）。",
              inputSchema: obj([
                 "key": str("person key（與 name 互斥；直查聚合）"),
                 "name": str("模糊姓名（與 key 互斥；回候選，上限 50）"),
                 // #315：同上——這是 store 內的分類，不是 store root。
-                "library": str("store **內**的 membership 分類 key 過濾（選填，僅 key "
-                               + "直查時生效）。**不是** store root（見 #310／#315）"),
+                "library": str("store **內**的 membership 分類 key 過濾（選填，僅 key 直查時生效）。**不是** store root"),
              ])),
         Tool(name: "akashic_libraries",
-             description: "〔#628／#641：add／remove 指名的 work 無法唯一定位（\(UnlocatableReason.work)）時整批拒絕、零寫入〕具名 library（成員集合視角，#13）：list 列表含成員數；create 建 registry；add/remove 改 entry 的 akashic.libraries（衍生層）。store 是全集，library 不分割資料。",
+             description: "具名 library（成員集合視角）：list 列表含成員數；create 建 registry；add／remove 改 entry 的 akashic.libraries（衍生層），指名的 work 無法唯一定位（原因見 akashic validate）時整批拒絕、零寫入。store 是全集，library 不分割資料。",
              inputSchema: obj([
                 "action": str("list | create | add | remove"),
                 "key": str("library key（create/add/remove 必填；StoreKey 格式）"),
@@ -135,7 +131,7 @@ actor AkashicMCPServer {
              ], required: ["action"])),
         Tool(name: "akashic_set_status",
              description: "設定／清除 entry 的 akashic.status（衍生層；如 reading / read / to-read）。"
-                        + "給 status 設定；清除要顯式 clear:true。省略 status 不是清除——會被拒絕（#258）。",
+                        + "給 status 設定；清除要顯式 clear:true。省略 status 不是清除——會被拒絕。",
              inputSchema: obj([
                 "citekey": str("citekey"), "status": str("狀態字串（與 clear 互斥）"),
                 "clear": .object(["type": .string("boolean"),
@@ -155,22 +151,22 @@ actor AkashicMCPServer {
                 "add": strArray("要加的目標 citekeys"), "remove": strArray("要移除的目標"),
              ], required: ["citekey", "kind"])),
         Tool(name: "akashic_resolve_people",
-             description: "人物解析：不帶 apply/reject 回 {candidates, candidateTotal, candidateRowsDropped, rejected, rejectedTotal, rejectedRowsDropped, pendingTotal, undecidedTotal, people, ambiguities, ambiguityTotal, ambiguityRowsDropped, truncated}（另有 verdictMalformed/verdictMalformedTotal，僅在偵測到解析不了的 verdict 時出現）——candidates 是提名候選（#303 起四個信心層，每列帶 tier：exact＝alias 完全命中／confirmed-elsewhere＝同 literal 已於他處 confirmed／reorder＝token 重排命中／initials＝姓＋首字母命中——信心降冪排序；**tier 越低證據越弱，initials 的 apply 前必查證**；不歧義，可套用），每列帶 eliminatedPairings（>0＝淘汰而得的唯一命中：此位置其他人選已被否決、沒有人判定過剩下這一個；CLI 的篩選式 --apply 會排除它；以三段 id 點名的 apply 照寫、兩段 id 指到它會被拒——送 id 前自己判定，#624），候選所在的 work 無法唯一定位（\(UnlocatableReason.work)）時該列帶 unlocatableCitekey:true、候選指名的 person 無法唯一定位（\(UnlocatableReason.person)）時帶 unlocatablePersonKey:true（apply／reject 這種 id 會整批拒絕、judge／refute／undecided 該筆略過並具名——以 key 定位會猜是哪一筆、以 id 寫檔會寫到兄弟的檔、檔案寫入時會被拒的記錄會在多檔寫入的中途撕裂 store，先修好，#627／#641），每列帶 counts{confirmed,rejected,undecided,pending}（該列證據類別的四態**計數**——刻意不報比率／機率，pendingTotal 給未處理總量、undecidedTotal 給查過未決總量；查過未決的配對不算進 pending），查過未決的配對（有 resolution-undecided 記錄、尚未判定）該列與歧義條目帶 undecidedChecks（查過幾次；CLI 的篩選式 --apply 不帶走它，以三段 id 點名的 apply 照寫，#619）；rejected 是**已否決配對的獨立段**（排在 candidates 之後閱讀；帶 verdict:\"rejected\"、無 id，不可套用）——沉底而非隱藏；ambiguities 是同一 literal 在同一提名層對到 2+ person 的位置（帶 tier——initials 碰撞 ≠ exact 同名），**不可套用、需要人判斷**，每筆帶 personRefs（不透明 ref，非 person key）；區辨欄位在 people[ref] 只送一次（key/names/namesTotal/orcid/openalex/died/currentAffiliation 或 formerAffiliation+formerAffiliationEnd|formerAffiliationAttested，缺席即不出現），以便分辨「兩個同名的人」（各自歸屬）與「同一人兩筆記錄」（該合併）。帶 apply（候選 id 陣列）逐候選套用並在同一動作寫 resolution-confirmed verdict（store format < 8 時 verdict 跳過並以 verdictsSkipped 揭露）；帶 reject（候選 id 陣列）寫 resolution-rejected verdict 到該 person（entry 不動；需 store format ≥ 8），之後該配對不再被提名（同 literal 他 entry 照提）。apply 與 reject 都是顯式人為動作，無任何自動 verdict 路徑。**組合呼叫是兩段式**（#272）：reject 腿先完整提交，apply 腿以寫入後狀態重解析；回應改為 {legs:{reject,apply}} 按腿回報（單腿呼叫形狀不變）；同列兩邊都點到＝reject 贏、apply 以 skippedBecauseRejected 回報。上限：candidates／rejected／ambiguities 各自 48 KB 位元組預算，歧義至多 50 筆／每筆至多 20 個 personRefs／people 至多 60 筆／每人至多 2 個異名（超出時給 namesTotal），candidates 與 rejected 各至多 50 筆。吃不下預算的**整列不印**並計入 *RowsDropped；**任一軸被截**都會讓 truncated=true（*Total 給各自的總數）。絕不自動合併。單筆寫入失敗記入 writeFailed／confirmWriteFailed／rejectWriteFailed 並續跑（applied/rejected 只列實際落地者；confirm 的 verdict 只寫給真的改到的作者位——萬一有候選沒套用，不寫 verdict、以 notApplied＋notAppliedReason 回報；judge 同一次呼叫把同一作者位判給兩個人整批拒絕，#627）。",
+             description: "人物解析（literal → person；完整契約見 CLI `akashic resolve-people --help` 與 docs/store-format.md §3.5）。不帶寫入腿時回 {candidates, candidateTotal, candidateRowsDropped, rejected, rejectedTotal, rejectedRowsDropped, pendingTotal, undecidedTotal, people, ambiguities, ambiguityTotal, ambiguityRowsDropped, truncated}（verdictMalformed／verdictMalformedTotal 僅在有解析不了的 verdict 時出現）。candidates 是可套用的提名、信心降冪，每列帶 tier（exact＝alias 完全命中／confirmed-elsewhere＝同 literal 已於他處 confirmed／reorder＝token 重排／initials＝姓＋首字母；**initials 的 apply 前必查證**）、counts{confirmed,rejected,undecided,pending}（四態計數）、eliminatedPairings（>0＝淘汰而得，沒有人判定過剩下這一個；三段 id 的 apply 照寫、兩段 id 被拒）、undecidedChecks（查過未決的次數，歧義條目也帶；以 id 點名的 apply 照寫）、unlocatableCitekey／unlocatablePersonKey（work／person 無法唯一定位，原因見 akashic validate；這種 id 的 apply／reject 整批拒絕，其他腿該筆略過）。rejected 是已否決的配對（verdict:\"rejected\"、無 id、不可套用）。ambiguities 是同一 literal 在同一提名層對到 2+ person（帶 tier），**不可套用、需要判斷**；personRefs 是不透明 ref，區辨欄位（key/names/namesTotal/orcid/openalex/died/currentAffiliation 或 formerAffiliation+formerAffiliationEnd|formerAffiliationAttested，缺席即不出現）在 people[ref] 只送一次。上限：三段各 48 KB、各 50 筆（歧義每筆 20 個 personRefs；people 60 筆、每人 2 個異名，超出給 namesTotal）；吃不下的整列不印、計入 *RowsDropped，任一軸被截即 truncated=true。apply 寫 resolution-confirmed（store format < 8 時跳過、見 verdictsSkipped）。apply＋reject 可同一次呼叫：reject 先提交、apply 以寫入後狀態重解析，回 {legs:{reject,apply}}，同列兩邊都點＝reject 贏（skippedBecauseRejected）；其他寫入腿各自單獨呼叫，組合即整批拒絕。單筆寫入失敗記入 writeFailed／confirmWriteFailed／rejectWriteFailed 並續跑；沒套用到的候選不寫 verdict，見 notApplied＋notAppliedReason。絕不自動合併。",
              inputSchema: obj([
-                "apply": strArray("要套用的候選 id（三段形 citekey:authorIndex:personKey——#303 起 id 釘 person，提名改指時顯式拒絕；兩段 legacy 形僅當該位置提名仍唯一、且不是淘汰而得時等價）；省略＝只列候選"),
-                "reject": strArray("要否決的候選 id（同 apply 的三段形）——寫 resolution-rejected verdict（rule 依該候選的 tier 導出），entry 不動；省略＝不否決"),
-                "confirm_tiers": strArray("顯式承認要套用的寬鬆提名層（reorder / initials / confirmed-elsewhere，可多個）——apply 集含寬鬆層候選而該層未列於此＝整批拒絕零寫入（#307）；exact 免承認"),
-                "refute": strArray("逐篇**否決**（#386 的鏡像）：citekey:authorIndex:personKey=否決理由。與既有 reject 的差別是**歧義列也適用**（reject 只吃 resolver 提名出來的候選）。entry 不動，只寫 resolution-rejected verdict；之後該配對不再被提名。理由必填。失敗語意：輸入語法錯（缺 = ／非三段形／重複 id／理由空白／person 不存在）整批拒絕零寫入；store 狀態不符（work 不存在／索引越界／work 或 person 無法唯一定位（見 unlocatableCitekey／unlocatablePersonKey，#627／#641）／作者位目前就歸給這個人——否決會與既有歸戶矛盾）該筆略過並具名。單獨呼叫，不與 judge／apply／reject 組合（#635）。對共用 literal 來說「不是他」通常才是答案。理由 ≤ 4,096 位元組（與 undecided 的說明同一個上限，超過整批拒絕、不截斷，#648）；寫入前每筆 person 先驗，寫出後超過讀取上限（8 MiB）即零寫入"),
-"split_author": strArray("把一個作者位**拆成多個**（#443）：citekey:authorIndex:分隔符=理由。一個 literal 裝了兩個人時用它。**收分隔符不收拆好的名字**——後者等於讓呼叫端編造；收分隔符則拆出的每一段必然是原文的子字串。切出空段即拒絕；只作用於未歸戶的位置；拆出來的仍是 .literal（拆是形狀修正不是身分判定）。單獨呼叫，不與其餘腿組合——它改的是作者位的數量"),
-                "un_split": strArray("把拆分**合回**原 literal（#513，`split_author` 的具名逆操作）：citekey:原literal。**以值定位**——原 literal 逐字取自 store 的拆分記錄（#450 起 split 會寫一筆），不用索引。還原後那筆記錄被刪掉：它的存在理由是「authors 已經沒有原 literal 了」，而還原之後那句話為假，留著會讓 store 斷言一件假的事、並點亮 staleSplitRecords。歷史留在 git——所以刪之前要求那些 work 檔已在 git 裡 commit、乾淨（#659，比照 #573；store 不在 git 工作樹或檔案有未提交修改，整批拒絕零寫入）。任一段已升格為 .key／.organization（那是判定的逆轉，屬 demote 一族）、各段不連續同序、或同 value 多筆記錄 → 整批拒絕、零寫入。單獨呼叫，不與其餘腿組合"),
-                "drop_author": strArray("把一個作者位**移除**（#457）：citekey:literal=理由。三態（.key／.organization／.literal）都假設那一格背後有一個作者，而 PsycInfo 的 `No authorship indicated` 不是——它今天在 .bib 裡是 `AUTHOR = {indicated, No authorship}`，一個被捏造出來的人；APA7 §9.12 對無署名作品要求作者位是**空的**。**以值定位不用索引**（同 un_split）：索引在同一批的前一次移除之後會位移，而「這個字串不是人」本來就是關於字串的宣稱。理由必填（移除是判定）；只作用於未歸戶的 .literal；同一筆 work 的作者位裡出現多次即拒絕不判定。移除記錄（field: authors、statement `移除：理由`、value＝被移除的 literal 逐字）與作者位改寫同一次寫入，需要 store format ≥ 17。**沒有具名逆操作**：記錄留著被移除的字串，但刻意不留位置。單獨呼叫，不與其餘腿組合"),
-                "undecided": strArray("記下查過未決（change resolution-verdict-states，#619）：citekey:authorIndex:personKey=查了什麼、為何判不出來。寫一筆 resolution-undecided 到該 person，作者位不動；之後這個配對在列表的候選列／歧義條目帶 undecidedChecks、counts 的 undecided 與頂層 undecidedTotal 計入它（pending 不再算它）；CLI 的篩選式 --apply 不帶走它，以 id 點名的 apply 照寫。已判定的配對（有任一層級的 confirmed 或 rejected）、已歸戶的作者位、無法唯一定位的 work 或 person（見 unlocatableCitekey／unlocatablePersonKey，#641）該筆略過並在 skipped 具名；完全相同的記錄已在＝alreadyRecorded。輸入錯（缺 =、非三段、重複 id、說明空白、person 不存在、digest 形狀不合、store format < 19、rests_on 沒有伴隨 undecided）整批拒絕零寫入；一次超過 200 個 id、20 個 digest 或單句說明超過 4,096 位元組同樣整批拒絕（有界，不截斷）。單獨呼叫，不與其他腿組合"),
-                "rests_on": strArray("未決記錄的證據 digest（sha256:64hex，先用 akashic_store_source 存檔）。套用到這次呼叫的每一筆 undecided——不同配對要附不同證據就分次呼叫。只伴隨 undecided"),
-                "attribute_org": strArray("把作者位歸給**團體作者**（#443）：citekey:authorIndex:orgKey=判定理由。`.literal` → `.organization`——`Author` 三態裡在此之前只有兩態接得起來。理由必填；org 需已存在（絕不自動建）；已歸戶的位置拒絕；整批驗證通過才寫；作者位照常歸戶而理由存不進去時（store format < 19 已有提名層判定、或該配對已有理由不同的逐篇判定），該列帶 verdictNotRecorded 說明原因。單獨呼叫，不與 apply／reject 組合"),
-                                "judge": strArray("逐篇判定（#386）：citekey:authorIndex:personKey=判定理由，以**第一個 = 切**（理由可含等號）。與 apply 是不同種類的主張——apply 套用 resolver 提名出來的候選，judge 指名一個作者位並說明**憑什麼**，因此**歧義列也適用**（歧義的意思是提名器分不出來，不是人／AI 分不出來）。理由必填、≤ 4,096 位元組（與 undecided 的說明同一個上限，超過整批拒絕、不截斷，#648）且逐字寫進 verdict；literal 由 store 讀不由呼叫端提供。寫入前整個寫入集合（entry 與 person）先驗、含寫出後不得超過讀取上限 8 MiB，任一筆不過零寫入（#648）。輸入語法錯（缺 = ／非三段形／重複 id／理由空白／person 不存在／同一個作者位判給兩個人）整批拒絕零寫入；store 狀態不符（work 不存在／索引越界／位置已歸戶／work 或 person 無法唯一定位（見 unlocatableCitekey／unlocatablePersonKey），#627／#641）該筆略過並在 skipped 具名、不中止其餘。有寫入而之後 index 重建失敗時回錯誤，訊息逐行列出已判定與略過的 id——那時寫入已落地；沒有寫入時不重建。作者位已歸給同一個人時：已有這個配對、同一句理由的逐篇判定＝no-op，回在 alreadyJudged（理由不同則略過並具名，#636）；由其他規則歸戶的（例如 apply）：寫一筆逐篇判定與它並存、作者位不動，judged 列帶 coexistsWith:\"nominated\"（需 store format ≥ 19；change resolution-verdict-states，#636——判定層級 nominated／judged 參與去重）；refute 對既有的 reject 同理；作者位仍是 literal 而判定理由存不進去時（store format < 19 已有提名層判定、或該配對已有理由不同的逐篇判定——同一層級以配對去重），作者位照常歸戶、judged 列帶 verdictNotRecorded 說明原因；找不到原 literal 也略過並具名。judge／refute／undecided 各自單獨呼叫，不與彼此或 apply／reject 組合——組合整批拒絕（#635）。判定寫的 verdict rule 是 author-judged-per-work，會讓同 literal 在其他 work 以 confirmed-elsewhere 提名並在理由揭露血統——那仍是提名，仍須逐列決定。需 store format ≥ 8"),
+                "apply": strArray("要套用的候選 id（citekey:authorIndex:personKey，提名改指時拒絕；兩段 legacy 形只在該位置提名唯一且非淘汰而得時等價）；省略＝只列候選"),
+                "reject": strArray("要否決的候選 id（同 apply 的三段形）——寫 resolution-rejected verdict 到該 person（rule 依候選的 tier 導出；需 store format ≥ 8），entry 不動，之後該配對不再被提名"),
+                "confirm_tiers": strArray("顯式承認要套用的寬鬆提名層（reorder／initials／confirmed-elsewhere，可多個）——apply 集含寬鬆層候選而該層未列於此＝整批拒絕零寫入；exact 免承認"),
+                "refute": strArray("逐篇**否決**：citekey:authorIndex:personKey=否決理由（必填、≤ 4,096 位元組，超過整批拒絕、不截斷，#648）。歧義列也適用；entry 不動，只寫 resolution-rejected verdict；已有 reject 的配對寫一筆並存的逐篇否決。輸入錯（格式、重複 id、理由空白、person 不存在）整批拒絕零寫入；store 狀態不符（work 不存在、索引越界、work 或 person 無法唯一定位、作者位目前就歸給這個人）該筆略過並具名"),
+                "split_author": strArray("把一個作者位拆成多個（一個 literal 裝了兩個人）：citekey:authorIndex:分隔符=理由。收分隔符（不收拆好的名字）；切出空段即拒絕；只作用於未歸戶的位置；拆出來的仍是 .literal"),
+                "un_split": strArray("split_author 的逆操作：citekey:原literal（以值定位）。還原後刪掉那筆拆分記錄。整批拒絕零寫入：任一段已升格（屬 demote）、各段不連續同序、同 value 多筆記錄、那些 work 檔不在 git 或有未提交修改"),
+                "drop_author": strArray("移除不是作者的作者位（例如 PsycInfo 的 `No authorship indicated`）：citekey:literal=理由（必填）。以值定位；只作用於未歸戶的 .literal；同一筆 work 出現多次即拒絕。移除記錄（field: authors）與作者位改寫同一次寫入，需 store format ≥ 17；沒有具名逆操作"),
+                "undecided": strArray("記下查過未決：citekey:authorIndex:personKey=查了什麼、為何判不出來（需 store format ≥ 19）。寫一筆 resolution-undecided 到該 person，作者位不動。已判定的配對、已歸戶的作者位、無法唯一定位的 work 或 person 該筆略過並在 skipped 具名；相同記錄已在＝alreadyRecorded。整批拒絕零寫入：格式錯、重複 id、說明空白、person 不存在、digest 不合、rests_on 單獨出現、一次超過 200 個 id／20 個 digest／單句說明 4,096 位元組（不截斷）"),
+                "rests_on": strArray("未決記錄的證據 digest（sha256:64hex，先用 akashic_store_source 存檔），套用到這次呼叫的每一筆 undecided；只伴隨 undecided"),
+                "attribute_org": strArray("把作者位歸給團體作者（.literal → .organization）：citekey:authorIndex:orgKey=判定理由（必填）。org 需已存在（絕不自動建）；已歸戶的位置拒絕；整批驗證通過才寫。理由存不進去時照常歸戶、該列帶 verdictNotRecorded（含原因）"),
+                "judge": strArray("逐篇判定（#386）：citekey:authorIndex:personKey=判定理由（以第一個 = 切；必填、≤ 4,096 位元組，超過整批拒絕、不截斷，#648），理由逐字寫進 verdict。**歧義列也適用**。輸入錯（格式、重複 id、理由空白、person 不存在、同一作者位判給兩個人）整批拒絕零寫入；store 狀態不符（work 不存在、索引越界、位置已歸戶、work 或 person 無法唯一定位、找不到原 literal）該筆略過並在 skipped 具名。已歸給同一個人：同一句理由＝no-op（alreadyJudged），理由不同則略過；由 apply 等歸戶的寫一筆並存的逐篇判定（coexistsWith:\"nominated\"，需 format ≥ 19）；理由存不進去時照常歸戶（verdictNotRecorded）。rule 是 author-judged-per-work：同 literal 在他處會以 confirmed-elsewhere 提名，仍須逐列決定。需 store format ≥ 8"),
              ])),
         Tool(name: "akashic_create_entry",
-             description: "建庫外手動文獻（無 Zotero provenance；citekey 自動生成）。DOI 已在庫時照常建，回應的 doiHits 列出命中的 citekey（#637）——DOI 相等表示指的是同一篇，但 erratum 會與原文共用 DOI，所以不拒絕；要在建檔之前查，用 akashic_enrich 的乾跑（proposal 帶 doi）。",
+             description: "建庫外手動文獻（無 Zotero provenance；citekey 自動生成）。DOI 已在庫時照常建（erratum 會與原文共用 DOI），回應的 doiHits 列出命中的 citekey；建檔前可用 akashic_enrich 乾跑（proposal 帶 doi）查。",
              inputSchema: obj([
                 "type": str("biblatex type（article/book/…）"),
                 "title": str("標題"),
@@ -181,12 +177,12 @@ actor AkashicMCPServer {
                     "additionalProperties": .object(["type": .string("string")]),
                     "description": .string("其餘 biblatex 欄位（journaltitle/…；值必須是字串）"),
                 ]),
-                "doi": strArray("DOI（結構化欄位，非 fields；不合法即整個呼叫拒絕、零寫入。#394）"),
+                "doi": strArray("DOI（結構化欄位，非 fields；不合法即整個呼叫拒絕、零寫入）"),
                 "pmid": strArray("PMID（同上）"),
-                "isbn": strArray("ISBN（同上；ISBN-13 與 ISBN-10 是同一本書的兩個真的號）"),
+                "isbn": strArray("ISBN（同上；ISBN-13 與 ISBN-10 可並存）"),
              ], required: ["type", "title"])),
         Tool(name: "akashic_venue",
-             description: "看一個發表載體（#304）：記錄＋刊名沿革（names 時間軸）＋文章**編年 list**（依年升冪；反向邊現算，不存在記錄裡）。零篇是合法答案（workCount: 0），與查無此 venue（notFound）分開；store 有 quarantined 檔且查無時回「無法判定」。",
+             description: "看一個發表載體：記錄＋刊名沿革（names 時間軸）＋文章編年 list（依年升冪）。零篇是合法答案（workCount: 0），與查無此 venue（notFound）分開；store 有 quarantined 檔且查無時回「無法判定」。",
              inputSchema: obj([
                 "key": str("venue key（kebab-case）"),
              ], required: ["key"])),
@@ -194,67 +190,64 @@ actor AkashicMCPServer {
              description: "列出全部 venue（key/type/顯示名/文章數）。",
              inputSchema: obj([:])),
         Tool(name: "akashic_add_venue",
-             description: "建發表載體實體（venue:）。type 的值域是 \(VenueType.domainDescription)；names 全進沿革時間軸（無時間段）、authorized 留空——指定是人的判斷。需 store format ≥ 11。",
+             description: "建發表載體實體（venue:）。type 的值域是 \(VenueType.domainDescription)；names 全進沿革時間軸（無時間段），authorized 留空。需 store format ≥ 11。",
              inputSchema: obj([
                 "key": str("kebab-case venue key"),
-                "names": strArray("名稱變體（正式刊名、縮寫、WoS 大寫形）。契約同 update_venue 的 add_names（#554 D8）：以 canonical 形入庫（空白類——含 tab／換行／LS——收斂為單一空格、NFC）、近重複只留一筆、空白項略過；含其他控制／格式／不可見字元、拉丁或 CJK 之間的接合字元、或沒有任何字母或數字的字串**整個呼叫拒絕、零寫入**；全部空白＝沒有名字，同樣拒絕。回報：`names` 是存入的拼法；送進來的拼法若被折成 canonical 形才存（尾隨空白、NFD、同批去重）列在 `namesFolded`，真的沒進 store 的（整項空白）列在 `namesDropped`"),
+                "names": strArray("名稱變體（正式刊名、縮寫、WoS 大寫形）。檢查同 akashic_update_venue 的 add_names；空白項略過、近重複只留一筆，全部空白＝沒有名字 → 整個呼叫拒絕零寫入。回報：names（存入的拼法）、namesFolded、namesDropped"),
                 "type": str(VenueType.domainDescription),
                 "note": str("備註（選填）"),
-                "issn": strArray("ISSN（可多個——print 與 electronic 是兩個真的號；相等看正規形；任一不合法即整個呼叫拒絕、零寫入。#394）"),
+                "issn": strArray("ISSN（可多個：print 與 electronic 是兩個真的號；相等看正規形；任一不合法即整個呼叫拒絕、零寫入）"),
              ], required: ["key", "names", "type"])),
         Tool(name: "akashic_update_venue",
-             description: "venue 的部分更新（#306／#394／#471／#554）——append 語意：add_names／add_issn／add_variant 只附加不重複的值（整組替換刻意不提供）；authorize 是同書寫系統替換（不是 append，見該參數）；paginated 是判定（#406）；note／type 替換（選填）。沿革補全直接擴大 resolve_venues 的命中面（resolver 對沿革各段都配對）。需 store format ≥ 11。",
+             description: "venue 的部分更新（CLI 對應 `akashic update-venue --help`；名字的不變式見 docs/store-format.md §5.7）。add_names／add_issn／add_variant 是 append：只附加不重複的值，不提供整組替換；authorize 是同書寫系統替換；paginated／clear_paginated 是判定；note／type 替換（選填）。resolve_venues 對沿革各段都配對。需 store format ≥ 11。",
              inputSchema: obj([
                 "key": str("既有 venue key"),
-                "add_names": strArray("要附加的名稱變體。相等看 canonical（前後／連續空白、NFC）——近重複自動略過、以 namesAdded 回報實際寫入的拼法，送進來的拼法若 canonical 形本來就在 store 列在 namesAlreadyPresent（不論位元組——冪等但要說，同 alreadyAuthorized）、這次才存進去而拼法被折過的（尾隨空白、NFD、同批去重）列在 namesFolded、真的沒進 store 的（整項空白）列在 namesDropped；新名字以 canonical 形入庫：**空白類**（含 tab／換行／LS／PS／NEL）收斂為單一空格、NFC。**其他**控制／格式／不可見字元（bidi、零寬、變體選擇子、填充字元）、拉丁或 CJK 之間的接合字元（ZWJ／ZWNJ 只在使用 join control 的文字——阿拉伯系／印度系／蒙古文等——裡合法：virama 之後、左鄰是同文字的字母／標記／數字而右鄰是同文字的字母／數字（右鄰不收標記）、或 Devanagari／Bengali 的 virama 之前且其後接字母）、或沒有任何字母或數字的字串**整批拒絕零寫入**（同一呼叫的其他參數也不寫，#554 D8）"),
+                "add_names": strArray("要附加的名稱變體（相等看 canonical，以 canonical 形入庫）。回報：namesAdded／namesAlreadyPresent／namesFolded／namesDropped（各自的意思見 CLI help）。含不合法字元（規則見 §5.7）或沒有任何字母或數字的名字 → 整批拒絕零寫入（其他參數也不寫）"),
                 "note": str("備註（替換；選填）"),
                 "type": str("\(VenueType.domainDescription)（替換；選填）"),
-                "add_issn": strArray("要附加的 ISSN（append 語意，同 add_names；ISSN 本來就是清單——print 與 electronic 是兩個真的號。相等看正規形，`0003-066x` 與 `0003-066X` 不會變成兩筆；任一個不合法即整個呼叫拒絕、零寫入。#394）"),
-                "add_variant": strArray("要標成異寫法的名字（append 語意；相等看 canonical、新名字以 canonical 形入庫——空白類收斂為單一空格、NFC——其他控制／格式／不可見字元、拉丁或 CJK 之間的接合字元、無字母無數字即整批拒絕——同 add_names，#554 D8）。**不在 names 裡的一併加進 names**——兩個分割都是對 names 的標記，標一個 names 沒有的字串會造出孤兒 variant，而那自 #473 起是 error。在此之前 variant 兩面都沒有寫入面，唯一的寫入者是遷移，而遷移用的是「authorized 的補集」——一個不做判定的操作成了唯一的判定寫入者（#471）。整項空白的不算矛盾、不寫，但回報在 `variantDropped`（判定型寫入面上的靜默 no-op 要出聲，R12 verify 第 25 列）"),
-                "authorize": strArray("指定為對外形的名字。**不是 append**：authorized 每個書寫系統（han／latn／other）至多一個（`AuthorizedNames.validate` 的內容約束），同一書寫系統原本的指定會**移出 authorized、留在 names、不標 variant**（未標＝不作任何宣稱；回報在 `authorizedRemoved`）；不同書寫系統之間才是 append（注意 `other` 是一個桶：西里爾與假名互相替換）。同一次呼叫兩個同書寫系統的名字是矛盾，整批拒絕。不在 names 的一併加進 names；原本在 variant 的移出並回報 `liftedFromVariant`；已是 authorized 的回報 `alreadyAuthorized`；已是 authorized 但 store 裡的位元組不是 canonical（手改成 NFD）時換成 canonical 並回報 `authorizedRewritten`——唯一會宣告「store 位元組被改寫」的桶（R10）。這是 #553 攣生合併把某個名字「authorized → variant」那個降級在該名字上的逆操作——在此之前 authorized **沒有判定型寫入面**，唯一寫入者是 VenueBootstrap 取第一個名字的慣例，而那些機械值換不掉（append 會被「至多一個」擋）。不留 judgement（#564 另裁）。整項空白的回報在 `authorizeDropped`（不寫、不算矛盾——空白是「沒說話」）。#471 修了 variant 那一半、本參數修 authorized（#554）"),
-                "clear_paginated": ["type": "boolean", "description": "撤回 paginated 判定，回到誠實的未判定狀態（#500）。**撤回是一筆判定**：同樣要 judgement，並在 references 留下一筆 value=nil 的記錄（不是刪除——丟掉全部 reference 才是刪除，而那違反「翻轉留史」）。省略 paginated 的意思是「這次不動它」，不是清除；與 paginated 不得同時給"],
+                "add_issn": strArray("要附加的 ISSN（可多個；相等看正規形，0003-066x＝0003-066X）；任一個不合法即整個呼叫拒絕、零寫入"),
+                "add_variant": strArray("要標成異寫法的名字（append；名字檢查同 add_names）。不在 names 裡的一併加進 names。整項空白的不寫，回報在 variantDropped"),
+                "authorize": strArray("指定為對外形的名字。**不是 append**：每個書寫系統（han／latn／other）至多一個，同書寫系統原本的指定移出 authorized、留在 names、不標 variant（authorizedRemoved）；同一次呼叫兩個同書寫系統的名字整批拒絕。不在 names 的一併加進 names。其他回報：liftedFromVariant、alreadyAuthorized、authorizedRewritten、authorizeDropped"),
+                "clear_paginated": ["type": "boolean", "description": "撤回 paginated 判定、回到未判定狀態：同樣要 judgement，並在 references 留一筆 value=nil 的記錄。與 paginated 不得同時給"],
                 "paginated": .object(["type": .string("boolean"),
-                    "description": .string("「本刊是否使用頁碼」的判定（#406）：true＝傳統頁碼刊、false＝article-number 制。必附 judgement 與 rests_on（判定要留 verdict 與證據）；缺席＝不動既有值。nil 是誠實的未判定狀態，floor 檢查對它照報")]),
+                    "description": .string("「本刊是否使用頁碼」的判定：true＝傳統頁碼刊、false＝article-number 制。必附 judgement 與 rests_on；省略＝不動既有值（nil 是未判定狀態，floor 檢查對它照報）")]),
                 "judgement": str("paginated 判定的理由（設 paginated 時必填）"),
                 "rests_on": strArray("判定所依據的證據 digest（sha256:64hex，至少一個——先用 akashic_store_source 存證據拿 digest）"),
-                "remove_issn": strArray("移除 ISSN（#588）：<issn>=理由。理由必填、只回在 issnRemoved（全文）、不寫進 store；指向被移除號的 field: issn provenance reference 一併刪除，逐號回報在 issnRemoved[].referencesRemoved（筆數）。所以 venue 檔要已在 git 裡 commit——git 保存的是移除前的檔，理由要留在 git 得自己寫進 commit message；號不合法、這本刊沒有、重複、或同時在 add_issn 都整批拒絕、零寫入"),
+                "remove_issn": strArray("移除 ISSN：<issn>=理由（必填，只回在 issnRemoved、不寫進 store）；指向該號的 field: issn provenance 一併刪除（issnRemoved[].referencesRemoved）。venue 檔要已在 git 裡 commit、無未提交修改。號不合法、這本刊沒有、重複、或同時在 add_issn → 整批拒絕零寫入"),
              ], required: ["key"])),
         Tool(name: "akashic_resolve_venues",
-             description: "〔#628／#641：候選所在的 work 無法唯一定位（\(UnlocatableReason.work)）時該列帶 unlocatableCitekey:true，apply 逐筆略過並以 skippedUnlocatable 回報，reject／repoint／demote 整批拒絕〕venue 解析（resolve-people 契約形，#304）：不帶 apply/reject 回 {candidates, ambiguities}——candidates 是 venue name 完全命中且不歧義的 literal（正規化含 lowercase：WoS 全大寫形因此命中正式刊名）；ambiguities 是同一 literal 對到 2+ venue、需要人判斷。帶 apply（候選 id，形如 citekey:venueIndex）把 literal 升格為 key 並寫 resolution-confirmed verdict 到該 venue；帶 reject 寫 resolution-rejected（entry 不動）。組合呼叫兩段式（reject 腿先提交）。需 store format ≥ 11。絕不自動配對（literal-first-then-key）。帶 repoint（三段式 id citekey:venueIndex:newKey）把**已歸戶**的邊改指到另一個 venue——歸錯戶的退路（#418），兩側都寫 verdict（新的 confirmed、舊的 rejected）；語法錯或前提不符整批拒絕、零寫入；改指到自己是 no-op。repoint 不與 apply／reject 組合（不同階段）。帶 demote（citekey:venueIndex）把**誤升**的邊退回 literal——原字串從該 venue 上的 confirmed verdict 逐字取回（無損；取不到就拒絕，不拿顯示名頂替），並留 rejected verdict。repoint／demote 各自單獨呼叫。**repoint／demote 寫 verdict 時會刪掉同 holder 上同一配對的相反判定**（D20，#554）——那是一筆人的判定記錄（#553 合併搬進 keeper 的 `reject` 也算），唯一副本只剩 git，所以**會刪判定時要求那些 venue 檔已在 git 裡 commit**（#573：store 不在 git 工作樹、或檔案未 tracked／有未提交修改，整批拒絕零寫入——先 commit 再跑）；刪掉的每筆逐字列在 `verdictsRetired`（MCP 面截 20 筆，`verdictsRetiredTotal`／`truncated` 揭露；CLI 面全列）。三種前提不符整批拒絕零寫入：該 venue 上這筆 work 有 ≥2 個不同的 confirmed literal（D23）；配對由多條邊實例化——同一 work 兩條邊指同一 venue、或（repoint）另有 literal 邊同配對（D25）；repoint 讓**被動到的邊**與本 work 另一條邊指同一 venue、或同一批裡同一 work 的兩個 move 帶同一個 literal **且觸及同一個 venue**（D27；既有的重複邊與 venue 集合不相交的 move 不擋）。**apply 對會讓同一 work 兩條邊指同一 venue 的候選逐筆略過、其餘照寫**（D28／D33）：略過的列在 `skippedDuplicateVenueEdge`（id、venueKey、reason），且它會一直被提名——出路是以 drop_venue 刪掉多餘的邊（#572）；既有的重複邊由 validate 的 warning 報、不擋同一 work 上不相干的歸戶。**目的 venue 已對該 work 持有另一個 confirmed literal（沒有對應的邊——手改、舊 binary、R14 之前的合併）的候選同樣逐筆略過**（D38，列在 `skippedConflictingConfirmedLiteral`；相等比**位元組**，同一 literal 的另一個拼法也略過——寫下去不會多一筆，但之後 demote 會還回舊拼法而不是這條邊的原字串，D43；本檢查在重複邊檢查之後，所以「沒有對應的邊」為真，D44）——寫下第二個會讓那條邊立刻被 D23 鎖住；出路是刪掉那筆沒有邊的 confirmed。提名的否決抑制以正規化後的 literal 為鍵（R12）：對一個拼法的 reject／demote 會壓住同 work 同 venue 的其他拼法，撤回面見 #559。同一 work 兩條拼法不同的 literal 邊都指向同一 venue 時，**誰落地由 apply 陣列的順序決定（先到先寫）**，confirmed verdict 帶的就是那條邊的字。組合呼叫時 reject 腿以正規化配對壓掉 apply 腿的同配對 id（列在 `skippedBecauseRejected`）。",
+             description: "venue 解析（literal → venue；完整契約見 CLI `akashic resolve-venues --help` 與 docs/store-format.md §3.5）。不帶寫入腿回 {candidates, ambiguities}：candidates 是與 venue name 完全命中（正規化含 lowercase）且不歧義的 literal；ambiguities 是對到 2+ venue、需要判斷的；兩者帶 undecidedChecks；work 或 venue 無法唯一定位（原因見 akashic validate）時該列帶 unlocatableCitekey:true／unlocatableVenueKey:true。apply（citekey:venueIndex）升格 literal 並寫 resolution-confirmed 到該 venue；reject 寫 resolution-rejected（entry 不動）；apply＋reject 可同一次呼叫（reject 先提交，被它以正規化配對壓掉的 apply id 列在 skippedBecauseRejected）；repoint／demote／undecided／drop_venue 各自單獨呼叫。apply 逐筆略過、其餘照寫的三類：skippedUnlocatable、skippedDuplicateVenueEdge（會造成同一 work 兩條邊指同一 venue；既有的重複邊不擋）、skippedConflictingConfirmedLiteral（目的 venue 已對該 work 持有另一個 confirmed literal，比位元組）。reject／repoint／demote 遇到無法唯一定位的 work 或 venue（repoint 兩端都算）整批拒絕；repoint／demote 另在該 venue 對這筆 work 有 ≥2 個不同 confirmed literal、或配對由多條邊實例化時整批拒絕零寫入。repoint／demote 會刪掉同 holder 上同一配對的相反判定，所以那些 venue 檔要已在 git 裡 commit、無未提交修改（否則整批拒絕）；刪掉的逐字列在 verdictsRetired（截 20 筆，verdictsRetiredTotal／truncated）。需 store format ≥ 11。絕不自動配對。",
              inputSchema: obj([
                 "apply": strArray("要套用的候選 id（citekey:venueIndex）；省略＝只列候選"),
                 "reject": strArray("要否決的候選 id（同形）"),
-                "repoint": strArray("要改指的已歸戶邊（citekey:venueIndex:newKey）——不與 apply／reject／demote 組合；退役 from 上的 confirmed 與 to 上的 rejected（D20），改指後不得與本 work 另一條邊指同一 venue（D27），也不得讓目的 venue 對該 work 持有第二個 confirmed literal（相等比位元組——同一 literal 的另一個拼法也拒，D38／D43，整批拒絕零寫入）；同一條邊在同一批被指定兩次自成一句拒絕（R16）"),
-                "demote": strArray("要退回 literal 的已歸戶邊（citekey:venueIndex）——原字串從 verdict 取回、退役該 venue 上這個配對的 confirmed（D20）；不與其他組合"),
-                "undecided": strArray("記下查過未決（change resolution-verdict-states，#619）：citekey:venueIndex:venueKey=查了什麼、為何判不出來。寫一筆 resolution-undecided 到該 venue，邊不動；之後列表該列帶 undecidedChecks。已判定的配對、已歸戶的邊、無法唯一定位的 work（見 unlocatableCitekey，#641）該筆略過並在 skipped 具名；完全相同的記錄已在＝alreadyRecorded。輸入錯（缺 =、非三段、重複 id、說明空白、venue 不存在、digest 形狀不合、store format < 19、rests_on 沒有伴隨 undecided）整批拒絕零寫入；一次超過 200 個 id、20 個 digest 或單句說明超過 4,096 位元組同樣整批拒絕（有界，不截斷）。單獨呼叫"),
-                "rests_on": strArray("未決記錄的證據 digest（sha256:64hex，先用 akashic_store_source 存檔）。套用到這次呼叫的每一筆 undecided——不同配對要附不同證據就分次呼叫。只伴隨 undecided"),
-                "drop_venue": strArray("移除 venue 邊（#572）：citekey:venueIndex=理由。index 是原始位置，同一 work 多筆由實作處理位移。key 邊只在刪完後本 work 仍有另一條 key 邊指同一 venue 時可刪（否則先 demote 再刪 literal 邊）；literal 邊一律可刪。理由必填、只進報告（`venueEdgesRemoved`）——不寫進 store，要留在 git 寫進 commit message；移除前要求那些 work 檔已在 git 裡 commit、乾淨。格式錯、理由空白或超過 4,096 位元組、同一條邊出現兩次、越界、citekey 無法唯一定位、一次超過 200 條，整批拒絕零寫入。刪光一筆 work 的 venue 邊時列在 `emptied`（migrate-venues 與 Zotero pull 會重新推導）。單獨呼叫"),
+                "repoint": strArray("改指已歸戶的邊（citekey:venueIndex:newKey）：新 venue 寫 confirmed、舊的寫 rejected，並退役兩側的相反判定。整批拒絕零寫入：改指後本 work 兩條邊指同一 venue、目的 venue 會對該 work 持有第二個 confirmed literal（比位元組）、同一條邊指定兩次、同一批同一 work 的兩個 move 帶同一個 literal 且觸及同一 venue（既有的重複邊與 venue 集合不相交的 move 不擋）。改指到自己是 no-op"),
+                "demote": strArray("把誤升的邊退回 literal（citekey:venueIndex）：原字串從該 venue 的 confirmed verdict 逐字取回（取不到就拒絕），退役那筆 confirmed、留 rejected"),
+                "undecided": strArray("記下查過未決：citekey:venueIndex:venueKey=查了什麼、為何判不出來（需 store format ≥ 19）。寫一筆 resolution-undecided 到該 venue，邊不動。已判定的配對、已歸戶的邊、無法唯一定位的 work 該筆略過並在 skipped 具名；相同記錄已在＝alreadyRecorded。整批拒絕零寫入：格式錯、重複 id、說明空白、venue 不存在、digest 不合、rests_on 單獨出現、一次超過 200 個 id／20 個 digest／單句說明 4,096 位元組"),
+                "rests_on": strArray("未決記錄的證據 digest（sha256:64hex，先用 akashic_store_source 存檔），套用到這次呼叫的每一筆 undecided；只伴隨 undecided"),
+                "drop_venue": strArray("移除 venue 邊：citekey:venueIndex=理由（index 是原始位置）。key 邊只在刪完後本 work 仍有另一條 key 邊指同一 venue 時可刪（否則先 demote）；literal 邊一律可刪。理由必填、只進報告（venueEdgesRemoved）、不寫進 store；那些 work 檔要已在 git 裡 commit、乾淨。整批拒絕零寫入：格式錯、理由空白或超過 4,096 位元組、同一條邊兩次、越界、citekey 無法唯一定位、一次超過 200 條。刪光一筆 work 的 venue 邊時列在 emptied"),
              ])),
         Tool(name: "akashic_add_organization",
-             description: "建機構實體（organization:；#304 org 重啟後的單筆 MCP 面）。parent 以既有 org key 指涉（選填；literal parent 屬 bootstrap 面）。",
+             description: "建機構實體（organization:）。parent 以既有 org key 指涉（選填；literal parent 屬 bootstrap 面）。",
              inputSchema: obj([
                 "key": str("kebab-case organization key"),
                 "names": strArray("名稱變體（中文名、英文名、縮寫）"),
                 "parent_key": str("上級機構的 key（選填，需已存在）"),
                 "note": str("備註（選填）"),
-                "ror": str("ROR ID（選填；**純量不是清單**——一個機構只有一個 ROR，而 ISSN 的多值是真的。不合法即整個呼叫拒絕、零寫入。#394）"),
+                "ror": str("ROR ID（選填；純量——一個機構只有一個 ROR。不合法即整個呼叫拒絕、零寫入）"),
              ], required: ["key", "names"])),
         Tool(name: "akashic_resolve_organizations",
-             description: "〔#628／#641：作者位候選所在的 work 無法唯一定位（\(UnlocatableReason.work)）時該列帶 unlocatableCitekey:true、隸屬候選的 person 無法唯一定位（\(UnlocatableReason.person)）時帶 unlocatablePersonKey:true，apply／reject 這種 id 整批拒絕、judge／undecided 該筆略過〕org 解析（#304 parity 移轉）：不帶 apply/reject 回 {candidates, ambiguities}——candidates 是 person affiliations／org parents 的 literal 與某 org name 完全命中且不歧義者。帶 apply（候選 id，形如 holderKey::literal）歸戶並寫 confirmed verdict；帶 reject 寫 rejected verdict。需 store format ≥ 8（verdict）。候選列與歧義條目都帶 id 與 undecidedChecks（候選列是整數；歧義條目是 orgKey → 次數，只列非零），頂層 undecidedTotal（候選配對中查過未決、尚未判定的數目——與 CLI 四態計數行、resolve-people 同一個定義）與 ambiguityUndecidedTotal（歧義條目逐個 org 數，change org-undecided-leg，#643）。",
+             description: "org 解析（literal → organization；完整契約見 CLI `akashic resolve-organizations --help`）。不帶寫入腿回 {candidates, ambiguities}：candidates 是 person affiliations／org parents 的 literal 與某 org name 完全命中且不歧義者。候選列與歧義條目都帶 id 與 undecidedChecks（候選列是整數；歧義條目是 orgKey → 次數、只列非零）；頂層 undecidedTotal（候選配對中查過未決、尚未判定的數目）與 ambiguityUndecidedTotal（歧義條目逐個 org 數）。work、person 或 organization 無法唯一定位（原因見 akashic validate）時該列帶 unlocatableCitekey:true／unlocatablePersonKey:true／unlocatableOrganizationKey:true：這種 id 的 apply／reject 整批拒絕、judge／undecided 該筆略過。apply（候選 id，holderKey::literal）歸戶並寫 confirmed verdict；reject 寫 rejected verdict；需 store format ≥ 8。undecided、judge 各自單獨呼叫。",
              inputSchema: obj([
                 "apply": strArray("要套用的候選 id（holderKey::literal）；省略＝只列候選"),
-                "reject": strArray("要否決的候選 id（同形）。那個 org 已確認過同一配對（含大小寫、空白、連字號變體）時該筆略過、列在 skippedConfirmed——否決另一個拼法會留下矛盾對（#647 R4）"),
-                "undecided": strArray("記下查過未決（change org-undecided-leg，#643）：<列表的 id>@<orgKey>=查了什麼、為何判不出來。id 逐字取自這次不帶參數列出的候選列或歧義條目（work 作者位是 citekey[i]::literal）；解析在每個 @<orgKey>= 的位置試切，前綴必須與已知的 id 位元組相同——恰一個位置成立才收，零個或多個都整批拒絕（literal 或說明含 @、= 不會切錯；例外是某個 literal 恰為另一個 literal 接上 @<key>=）。person 與 organization 同 key 而兩列都在列表上時 id 相同，點到它整批拒絕。orgKey 必須是那一列提名的 org（歧義條目可逐個 org 記）。寫一筆 resolution-undecided 到該 org，holder 不動。記錄是 work 層級、不帶作者位（同 apply／reject 的 verdict）：同一筆 work 另一個同 literal 的作者位被 apply 後，這個配對就算已判定。已判定的配對（該 org 已有 confirmed 或 rejected）與 無法唯一定位的 work 或 person（見 unlocatableCitekey／unlocatablePersonKey，#641）該筆略過並在 skipped 具名；完全相同的記錄已在＝alreadyRecorded。輸入錯（切不出或切出多個、id 重複、說明空白、org 不存在或不屬於那一列、digest 形狀不合、store format < 19、rests_on 沒有伴隨 undecided）整批拒絕零寫入；一次超過 200 個 id、20 個 digest、單句說明超過 4,096 位元組或單筆 id 超過「最長列表 id ＋ 最長 orgKey ＋ 2 ＋ 4,096 位元組」同樣整批拒絕。單獨呼叫，不與 apply／reject 組合"),
+                "reject": strArray("要否決的候選 id（同形）。那個 org 已確認過同一配對（含拼法變體）時該筆略過、列在 skippedConfirmed"),
+                "undecided": strArray("記下查過未決：<列表的 id>@<orgKey>=查了什麼、為何判不出來（需 store format ≥ 19）。id 逐字取自這次列表的候選列或歧義條目（work 作者位是 citekey[i]::literal）；在每個 @<orgKey>= 處試切，恰一處的前綴與列表 id 位元組相同才收；orgKey 須是那一列提名的 org。寫一筆 resolution-undecided 到該 org（work 層級、不帶作者位），holder 不動。已判定的配對、無法唯一定位的 work 或 person 該筆略過並在 skipped 具名；相同記錄已在＝alreadyRecorded。整批拒絕零寫入：id 解析不出唯一位置或點到 person 與 organization 同 key 的兩列、id 重複、說明空白、org 不存在或不屬於那一列、digest 不合、rests_on 單獨出現、超過上限（200 個 id、20 個 digest、單句 4,096 位元組、單筆 id 長度，見 CLI help）"),
                 "rests_on": strArray("未決記錄的證據：sha256:<64 hex> digest，套用到這次呼叫的每一筆 undecided；只伴隨 undecided（空陣列與省略同義）"),
-                "judge": strArray("逐篇判定（#647）：<列表的 id>@<orgKey>=理由——id 解析同 undecided，歧義條目也收；把那一列歸戶到 orgKey 並寫 org-judged 層級的 confirmed verdict（理由必填、≤ 4,096 位元組）。輸入錯整批拒絕；citekey 重複、上級機構判給自己或會成環、判給歧義條目裡已否決過這個配對的 org、列表過期該筆略過並具名（候選列上已否決配對的其他拼法不再列出——拿它的 id 是輸入錯）。已歸戶而理由存不進去時（同一配對已有理由不同的逐篇判定——verdict 以 (holder, literal) 配對、不帶作者位索引；或 store format < 19 已有提名層判定），judged 列帶 verdictNotRecorded 說明原因。寫入前整個寫入集合先驗，任一筆不過零寫入。單獨呼叫，與 CLI --judge 同契約"),
+                "judge": strArray("逐篇判定：<列表的 id>@<orgKey>=理由（id 解析同 undecided，歧義條目也收）；歸戶到 orgKey 並寫 org-judged 層級的 confirmed verdict（理由必填、≤ 4,096 位元組）。輸入錯整批拒絕；citekey 重複、上級機構判給自己或會成環、判給歧義條目裡已否決過這個配對的 org、列表過期，該筆略過並具名。理由存不進去時 judged 列帶 verdictNotRecorded（含原因）。寫入集合先驗，任一筆不過零寫入"),
              ])),
         Tool(name: "akashic_store_source",
-             description: "存一份 source 的位元組進 sources/（內容定址，#264）。收**檔案路徑**"
-                 + "不收 base64——二進位塞進 JSON 會膨脹且整份進 context。冪等：同 digest 不重複"
-                 + "建 index 條目，但這次交來卻**沒被寫入**的敘述會以 discardedProvenance 回報"
-                 + "（分辨「早已記過」與「你這份敘述沒被寫入」）。retrieved 必填且是「你何時取得"
-                 + "這份內容」，不是「何時存進來」。exclusionVerified=false 時本呼叫會被拒絕"
-                 + "——sources/ 不進版控 remote 是承重約束。",
+             description: "存一份 source 的位元組進 sources/（內容定址）。收**檔案路徑**、不收 base64。"
+                 + "冪等：同 digest 不重複建 index 條目，但這次交來卻**沒被寫入**的敘述以 discardedProvenance 回報。"
+                 + "retrieved 必填，是「你何時取得這份內容」、不是存入時間。exclusionVerified=false 時拒絕（sources/ 不得進版控 remote）。",
              inputSchema: obj([
                 "path": str("要存入的檔案路徑（本機）"),
                 "media_type": str("內容的 media type，如 application/pdf"),
@@ -267,11 +260,11 @@ actor AkashicMCPServer {
              description: "建人物實體（people/<key>.yaml；aliases、ORCID、OpenAlex）。",
              inputSchema: obj([
                 "key": str("kebab-case person key"),
-                "names": strArray("aliases——全部進 variant 分割（#227：對外名字之後由 names.authorized 指定，建檔不偽造指定）"),
+                "names": strArray("aliases——全部進 variant 分割（對外名字之後由 names.authorized 指定，建檔不偽造指定）"),
                 "orcid": str("ORCID（可選）"), "openalex": str("OpenAlex author ID（可選）"),
              ], required: ["key", "names"])),
         Tool(name: "akashic_update_person",
-             description: "person 的部分更新（#68）：提及的欄位整個換、未提及一律不動。純量欄位（orcid/openalex/died/note）收字串或 null（null＝清除）；names 收 {authorized:[…], variant:[…]} object（全量替換；#227 巢狀化後平坦陣列拒收，頂層 authorized 鍵不存在）；profile 收維度 object（維度級覆寫，段形狀同 YAML：value/start/end/ended/source/note）；注意 contacts 是**一個**維度——提及它＝整個 contacts map 替換，未提及的子鍵（email/phone…）會消失。dry_run 時零寫入、回報會改什麼 + format gate 預演。；references 收 object 陣列（**append-only**——與其他欄位的替換語意刻意不同：references 持有 resolution verdict，全量替換會洗判定史；每項 {field, value?, kind: retrieval{url,retrieved,status,media_type,content}|judgement{statement,rests_on}}，(field,value,kind) 冪等——比**位元組**（#554 D73：只差 NFC／NFD 的兩筆都會進 store，偵測面缺口 #582）；verdict 欄位對拒收——只能經 resolve 流程寫；#308）",
+             description: "person 的部分更新：提及的欄位整個換、未提及不動。純量欄位（orcid/openalex/died/note）收字串或 null（null＝清除）；names 收 {authorized:[…], variant:[…]} object（全量替換；平坦陣列拒收，頂層 authorized 鍵不存在）；profile 收維度 object（維度級覆寫，段形狀同 YAML：value/start/end/ended/source/note）——contacts 是**一個**維度，提及它＝整個 contacts map 替換；references 收 object 陣列，**append-only**（每項 {field, value?, kind: retrieval{url,retrieved,status,media_type,content}|judgement{statement,rests_on}}，(field,value,kind) 冪等、比位元組——只差 NFC／NFD 的兩筆都會進 store），verdict 欄位對拒收（只能經 resolve 流程寫）。",
              inputSchema: obj([
                 "key": str("person key"),
                 "fields": .object([
@@ -279,22 +272,22 @@ actor AkashicMCPServer {
                     "description": .string("要更新的欄位（結構化 JSON，見工具描述）"),
                 ]),
                 "dry_run": .object(["type": .string("boolean"),
-                                    "description": .string("true＝只預告不寫入（預設 false）")]),
+                                    "description": .string("true＝只回報會改什麼並預演 format gate、零寫入（預設 false）")]),
              ], required: ["key", "fields"])),
         Tool(name: "akashic_divergences",
              description: "列出全部歧異記錄（id/question/候選/有無判斷）。list-only——消歧屬人工（CLI resolve-divergence）。",
              inputSchema: obj([:])),
         Tool(name: "akashic_record_divergence",
-             description: "記下未決的同一性問題（#77）——遇到「這兩筆可能是同一個」時當場記錄而非當場判斷。記下判斷不等於消歧；消歧（合併＋刪檔）屬人工操作（CLI resolve-divergence），本面刻意不提供。",
+             description: "記下未決的同一性問題——遇到「這兩筆可能是同一個」時當場記錄而非當場判斷。消歧（合併＋刪檔）只有 CLI resolve-divergence。",
              inputSchema: obj([
                 "question": str("未決的是什麼，一句話"),
-                "candidates": strArray("候選，形如 key:shape（shape 為 person / organization / work / venue；venue 自 #553 起）；需要兩個以上"),
+                "candidates": strArray("候選，形如 key:shape（shape 為 person／organization／work／venue）；需要兩個以上"),
                 "judgement": str("已形成的判斷（選填；給了就必須同時給 rests_on）"),
                 "rests_on": strArray("判斷依據的存檔 digest（sha256:64hex；URL 不是合法值——先用 akashic_store_source 存證據拿 digest；選填，與 judgement 成對）"),
-                "prefers": str("判斷傾向哪個候選的 key（選填，與 judgement 成對；必須是候選之一）——消歧會據以比對、不一致時拒絕，但**不代選**：倖存者仍須人工指定"),
+                "prefers": str("判斷傾向哪個候選的 key（選填，與 judgement 成對；必須是候選之一）——消歧時不一致即拒絕，但不代選倖存者"),
              ], required: ["question", "candidates"])),
         Tool(name: "akashic_dismiss_divergence",
-             description: "放棄一筆歧異記錄（#586）：只刪那筆記錄，候選實體與參照都不動——問題不成立、候選記錯了、或撞上沒有合併管線的 shape（organization）時用。理由必填、只進報告（不寫進 store；要留在 git 就寫進 commit message）；刪除前要求記錄檔已在 git 裡 commit、乾淨，否則拒絕零寫入。dry_run 只回報要刪哪一筆。與 CLI dismiss-divergence 同契約。合併（resolve-divergence）仍只有 CLI 面。",
+             description: "放棄一筆歧異記錄：只刪那筆記錄，候選實體與參照不動（問題不成立、候選記錯、或 shape 沒有合併管線時用）。理由必填、只進報告（不寫進 store）；刪除前要求記錄檔已在 git 裡 commit、乾淨，否則拒絕零寫入。dry_run 只回報要刪哪一筆。與 CLI dismiss-divergence 同契約；合併只有 CLI resolve-divergence。",
              inputSchema: obj([
                 "id": str("歧異記錄的 id（UUID；先用 akashic_divergences 列出）"),
                 "reason": str("為什麼這個問題不成立或不再延後判定（必填，至多 4,096 位元組）"),
@@ -307,11 +300,10 @@ actor AkashicMCPServer {
                 "library_id": int("只拉此 libraryID（省略＝全部 libraries）"),
              ])),
         Tool(name: "akashic_enrich_from_zotero",
-             description: "逐筆從 Zotero 補**缺著的**書目欄位（#340）。與 akashic_import_zotero 的 pull 語意刻意不同："
-                        + "只加原本不存在的鍵，既有值一個都不動；type／title／authors／venues／attachments 一律不碰。"
-                        + "五類「沒補到」全部回報（unchanged＝上游也沒有、noProvenance、zoteroMissing、notInStore、unlocatable＝無法唯一定位：\(UnlocatableReason.work)，#628／#641）——"
-                        + "「查過但上游沒有」與「根本沒查」必須分得開。建議先 dry_run:true 看計畫。"
-                        + "zotero_db 是 server 本機路徑（非內容上傳）。",
+             description: "逐筆從 Zotero 補**缺著的**書目欄位。與 akashic_import_zotero 的 pull 語意不同："
+                        + "只加原本不存在的鍵，既有值不動；type／title／authors／venues／attachments 不碰。"
+                        + "沒補到的五類都回報（unchanged＝上游也沒有、noProvenance、zoteroMissing、notInStore、unlocatable＝無法唯一定位，原因見 akashic validate）。"
+                        + "建議先 dry_run:true 看計畫。zotero_db 是 server 本機路徑。",
              inputSchema: obj([
                 "citekeys": .object([
                     "type": .string("array"),
@@ -324,22 +316,17 @@ actor AkashicMCPServer {
                                     "description": .string("true＝只回計畫不寫入")]),
              ])),
         Tool(name: "akashic_enrich",
-             description: "〔#628／#641：無法唯一定位（\(UnlocatableReason.work)）的提案歸 ambiguous、該筆零寫入，理由與 DOI 命中多筆分開說〕generic add-only 補值（#458）：每筆提案以 citekey 或 DOI（二擇一）指名一筆 work，"
-                        + "**只補 fields 裡不存在的鍵**——既有值一個都不動；doi／pmid／isbn 走結構化欄位（部分解析時原字串留在 fields）、"
-                        + "issn 一律拒（它識別期刊）、date 空才補、authors 完全為空且 include_absent_authors 才補 literal；"
-                        + "type／title／venues／attachments 一律不碰。與 akashic_enrich_from_zotero **同一份政策**（那是它的 Zotero adapter）。"
-                        + "DOI 反向命中 ≥2 筆＝ambiguous（matches 列全部 citekey、零寫入，不判定哪筆才對）。"
-                        + "雙摘要分鍵：第二個摘要由呼叫端具名 abstract-<lang>／abstract-2，落地為 abstract_es／abstract_2。"
-                        + "來源四個必要欄位（sourceDigest／sourceURL／sourceRetrieved／sourceStatus）齊備時（sourceMediaType 選填），"
-                        + "每個補進去的欄位（fields 的鍵、doi／pmid／isbn、date）同一次寫入一筆 retrieval reference；給了其中幾個卻不齊時不寫，缺哪些進 item 的 provenanceSkipped。"
-                        + "sourceDigest 不是合法 sha256 digest 時整批拒絕。item 的 provenance 狀態至多一個鍵：provenancePlanned（dry_run，apply 時會寫）／"
-                        + "provenanceWritten（已寫入）／provenanceNotWritten（那一筆寫入失敗）。"
-                        + "來源齊備、值補了而 reference 刻意不寫的欄位在 provenanceOmitted（欄位 → 理由，#655）：authors 一律不寫（field: authors 是作者位記錄的格子）；"
-                        + "date 的 reference 需要 store format ≥ \(StoreVersion.workDateReferenceFormat)，低於時 date 照補、reference 不寫（升級後重跑也不會補上——date 已在）；fields.<鍵> 的 reference 同理，門檻 ≥ \(StoreVersion.workFieldReferenceFormat)（#668）。來源 reference 的冪等比位元組（#554 D73：只差 NFC／NFD 的兩筆都落盤，偵測面缺口 #582）。"
-                        + "**dry_run 預設 true**；false 才寫入（一次 load、逐筆寫、一次 rebuild；I/O 失敗逐筆記 writeFailed 其餘照寫）。"
-                        + "輸入語法錯（兩鍵同給／皆無、fields 空且無 date 與 authors、鍵無法正規化、頂層未知鍵）→ **整批拒絕零寫入**；"
-                        + "ambiguous／notFound／rejected／skipped 逐筆具名。items 至多 \(enrichItemLimit) 筆（counts／written／writeFailed 永遠完整，"
-                        + "itemsTotal／truncated 說明有沒有被截）；要全部用 CLI `akashic enrich --from … --json`。",
+             description: "generic add-only 補值（CLI `akashic enrich --help`；與 akashic_enrich_from_zotero 同一份政策）。"
+                        + "每筆提案以 citekey 或 doi（恰一個）指名一筆 work，**只補 fields 裡不存在的鍵**，既有值不動；doi／pmid／isbn 走結構化欄位（部分解析時原字串留在 fields）、"
+                        + "issn 一律拒、date 空才補、authors 完全為空且 include_absent_authors 才補 literal；type／title／venues／attachments 不碰。"
+                        + "來源四欄（sourceDigest／sourceURL／sourceRetrieved／sourceStatus）齊備時，每個補進去的欄位（fields 的鍵、doi／pmid／isbn、date）同一次寫入一筆 retrieval reference（冪等比位元組）；"
+                        + "給了卻不齊時不寫，缺哪些列在 provenanceSkipped。item 的 provenance 狀態至多一個鍵：provenancePlanned（dry_run）／provenanceWritten／provenanceNotWritten（寫入失敗）；"
+                        + "值補了而 reference 刻意不寫的欄位在 provenanceOmitted（欄位 → 理由）：authors 一律不寫；date 需 store format ≥ \(StoreVersion.workDateReferenceFormat)、"
+                        + "fields.<鍵> 需 ≥ \(StoreVersion.workFieldReferenceFormat)，低於時值照補、reference 不寫。"
+                        + "**dry_run 預設 true**；false 才寫，I/O 失敗逐筆記 writeFailed、其餘照寫。"
+                        + "輸入錯（兩鍵同給或皆無、fields 空且無 date 與 authors、鍵無法正規化、頂層未知鍵、sourceDigest 不合法）整批拒絕零寫入；"
+                        + "ambiguous（DOI 命中 ≥2 筆，matches 列全部 citekey；或 work 無法唯一定位；該筆零寫入）／notFound／rejected／skipped 逐筆具名。"
+                        + "items 至多 \(enrichItemLimit) 筆（counts／written／writeFailed 永遠完整，itemsTotal／truncated 揭露）；要全部用 CLI `akashic enrich --from … --json`。",
              inputSchema: obj([
                 "proposals": .object([
                     "type": .string("array"),
@@ -353,11 +340,11 @@ actor AkashicMCPServer {
                             "fields": .object([
                                 "type": .string("object"),
                                 "additionalProperties": .object(["type": .string("string")]),
-                                "description": .string("要補的 biblatex 欄位（只補不存在的鍵；第二個摘要用 abstract-<lang>／abstract-2）"),
+                                "description": .string("要補的 biblatex 欄位（只補不存在的鍵；第二個摘要用 abstract-<lang>／abstract-2，落地為 abstract_es／abstract_2）"),
                             ]),
-                            "date": str("date（entry 的 date 為空時才補；來源齊備且 store format ≥ \(StoreVersion.workDateReferenceFormat) 時另寫一筆 field: date 的 reference）"),
-                            "authors": strArray("literal 作者名（entry 的 authors 完全為空且 include_absent_authors:true 時才補；不寫來源 reference，理由進 provenanceOmitted）"),
-                            "sourceDigest": str("來源存檔 digest（sha256: 加 64 個小寫十六進位；不合法整批拒絕）。四個必要來源欄位齊備才寫 retrieval reference"),
+                            "date": str("date（entry 的 date 為空時才補）"),
+                            "authors": strArray("literal 作者名（authors 完全為空且 include_absent_authors:true 時才補）"),
+                            "sourceDigest": str("來源存檔 digest（sha256: 加 64 個小寫十六進位；不合法整批拒絕）"),
                             "sourceURL": str("這次取得的 URL（寫 retrieval reference 的必要欄位）"),
                             "sourceRetrieved": str("取得日期（例如 2026-09-09；原樣記錄，不驗格式；寫 retrieval reference 的必要欄位）"),
                             "sourceMediaType": str("取得內容的 media type（選填，例如 application/json）"),
@@ -367,17 +354,15 @@ actor AkashicMCPServer {
                     ]),
                 ]),
                 "dry_run": .object(["type": .string("boolean"),
-                                    "description": .string("預設 true＝只回計畫不寫入；false 才寫")]),
+                                    "description": .string("預設 true（只回計畫）；false 才寫")]),
                 "include_absent_authors": .object(["type": .string("boolean"),
-                                                   "description": .string("預設 false；true 時 entry 的 authors 完全為空才補 literal 作者")]),
+                                                   "description": .string("預設 false")]),
              ], required: ["proposals"])),
         Tool(name: "akashic_import_wos",
              description: "匯入 Web of Science 匯出檔（tab-delimited；csv:true 改逗號分隔）。"
-                        + "無損匯入（#206）：12 具名欄對映＋其餘欄位殘餘收集原樣入 fields；"
-                        + "idempotent（citekey＋內容）、既有記錄只補缺欄（enriched）、內容分歧不覆寫（conflicts）。"
-                        + "回傳完整 report（created/unchanged/enriched/conflicts/aliasGroups/skippedRows/droppedColumns——丟棄必須可見）。"
-                        + "path 是 server 本機路徑（非內容上傳）。建議先 dry_run:true 看報告再寫入"
-                        + "（清單層 QA——DOI 補查、同篇雙列、分母定案——見 akashic-import-wos skill）。",
+                        + "無損匯入：12 具名欄對映＋其餘欄位原樣入 fields；idempotent（citekey＋內容）、既有記錄只補缺欄（enriched）、內容分歧不覆寫（conflicts）。"
+                        + "回傳完整 report（created/unchanged/enriched/conflicts/aliasGroups/skippedRows/droppedColumns）。"
+                        + "path 是 server 本機路徑。建議先 dry_run:true 看報告；清單層 QA 見 akashic-import-wos skill。",
              inputSchema: obj([
                 "path": str("WoS 匯出檔路徑（server 本機；~ 可用）"),
                 "csv": .object(["type": .string("boolean"),

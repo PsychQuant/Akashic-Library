@@ -335,7 +335,7 @@ actor AkashicMCPServer {
                         + "sourceDigest 不是合法 sha256 digest 時整批拒絕。item 的 provenance 狀態至多一個鍵：provenancePlanned（dry_run，apply 時會寫）／"
                         + "provenanceWritten（已寫入）／provenanceNotWritten（那一筆寫入失敗）。"
                         + "來源齊備、值補了而 reference 刻意不寫的欄位在 provenanceOmitted（欄位 → 理由，#655）：authors 一律不寫（field: authors 是作者位記錄的格子）；"
-                        + "date 的 reference 需要 store format ≥ \(StoreVersion.workDateReferenceFormat)，低於時 date 照補、reference 不寫（升級後重跑也不會補上——date 已在）。來源 reference 的冪等比位元組（#554 D73：只差 NFC／NFD 的兩筆都落盤，偵測面缺口 #582）。"
+                        + "date 的 reference 需要 store format ≥ \(StoreVersion.workDateReferenceFormat)，低於時 date 照補、reference 不寫（升級後重跑也不會補上——date 已在）；fields.<鍵> 的 reference 同理，門檻 ≥ \(StoreVersion.workFieldReferenceFormat)（#668）。來源 reference 的冪等比位元組（#554 D73：只差 NFC／NFD 的兩筆都落盤，偵測面缺口 #582）。"
                         + "**dry_run 預設 true**；false 才寫入（一次 load、逐筆寫、一次 rebuild；I/O 失敗逐筆記 writeFailed 其餘照寫）。"
                         + "輸入語法錯（兩鍵同給／皆無、fields 空且無 date 與 authors、鍵無法正規化、頂層未知鍵）→ **整批拒絕零寫入**；"
                         + "ambiguous／notFound／rejected／skipped 逐筆具名。items 至多 \(enrichItemLimit) 筆（counts／written／writeFailed 永遠完整，"

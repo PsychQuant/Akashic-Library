@@ -2609,7 +2609,8 @@ public final class AkashicService {
         // #655：`date` 的來源 reference 是 format 20 的格子。**寫入前**就讀 marker，低於門檻時讓 core 省略那一格並具名，
         // 而不是讓寫入閘在 apply 時擋下整筆（那會連同值與其他欄位一起 writeFailed，dry-run 還說「會寫」）。
         // 門檻與寫入閘是同一個常數（`StoreVersion.workDateReferenceFormat`）。
-        let dateReference: AddOnlyEnrichment.DateReferenceCell
+        let dateReference: AddOnlyEnrichment.ReferenceCell
+        let fieldsReference: AddOnlyEnrichment.ReferenceCell
         do {
             let f = try StoreVersion.read(root: store.root)
             let need = StoreVersion.workDateReferenceFormat, prior = need - 1
@@ -2619,17 +2620,28 @@ public final class AkashicService {
                     + "（format-\(prior) binary 讀到會整檔 quarantine）——date 照補、reference 不寫。"
                     + "三個 binary 都升級並把 store.yaml 改成 format: \(need) 之後，重跑也不會補上這一筆（date 已在，add-only 不再動它）"
                     + "，所以要記來源就先升級再補")
+            // #668：`fields.<鍵>` 那一格是 format 17 的（#517 落地時沒有自己的閘）。同一個判斷、同一個常數與寫入閘共用。
+            let fieldNeed = StoreVersion.workFieldReferenceFormat
+            fieldsReference = f >= fieldNeed
+                ? .writable
+                : .unavailable(reason: "本 store 是 format \(f)，欄位的來源 reference（fields.<鍵>）需要 ≥ \(fieldNeed)"
+                    + "（早於 #517 的 format-16 binary 讀到會整檔 quarantine）——值照補、reference 不寫。"
+                    + "升級並把 store.yaml 改成 format: \(fieldNeed) 之後，重跑也不會補上這一筆（值已在，add-only 不再動它）"
+                    + "，所以要記來源就先升級再補")
         } catch {
             // `load()` 剛解析過同一個 marker，走到這裡只剩兩次讀之間 marker 被改動。理由不帶錯誤原文：它會在 payload 端
             // 經 `displaySafe` 再逃一次（不冪等），而錯誤本身不改變處置——不確定收不收得下，就不寫。
             dateReference = .unavailable(reason: "讀不到 store format，無法確認這個 store 收得下 date 的來源 reference"
                 + "——date 照補、reference 不寫")
+            fieldsReference = .unavailable(reason: "讀不到 store format，無法確認這個 store 收得下欄位的來源 reference"
+                + "——值照補、reference 不寫")
         }
         let plan: AddOnlyEnrichment.Result
         do {
             plan = try AddOnlyEnrichment.plan(entries: load.entries, proposals: proposals,
                                               includeAbsentAuthors: includeAbsentAuthors,
-                                              dateReference: dateReference)
+                                              dateReference: dateReference,
+                                              fieldsReference: fieldsReference)
         } catch {
             // core 的 InputError 已指名第 N 筆與理由；欄位名來自呼叫端＝未信任字串，消毒後轉出。
             throw ServiceError.invalid(displaySafeError(error, max: 512))

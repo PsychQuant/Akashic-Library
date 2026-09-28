@@ -25,7 +25,7 @@ struct EnrichCmd: ParsableCommand {
 
     @OptionGroup var options: LibraryOptions
 
-    @Option(name: .long, help: "提案 JSON 檔：[{citekey|doi, fields{…}, date?, authors?, sourceDigest?, sourceURL?, sourceRetrieved?, sourceMediaType?, sourceStatus?}]（每筆 citekey 或 doi 恰一個；digest／URL／retrieved／status 四欄齊備才寫 retrieval reference——補進去的 fields 鍵、doi／pmid／isbn、date 各一筆，date 需要 store format ≥ \(StoreVersion.workDateReferenceFormat)；authors 不寫，理由印在報告）")
+    @Option(name: .long, help: "提案 JSON 檔：[{citekey|doi, fields{…}, date?, authors?, sourceDigest?, sourceURL?, sourceRetrieved?, sourceMediaType?, sourceStatus?}]（每筆 citekey 或 doi 恰一個；digest／URL／retrieved／status 四欄齊備才寫 retrieval reference——補進去的 fields 鍵、doi／pmid／isbn、date 各一筆，fields.<鍵> 需要 store format ≥ \(StoreVersion.workFieldReferenceFormat)、date 需要 ≥ \(StoreVersion.workDateReferenceFormat)，低於時值照補、reference 不寫；authors 不寫，理由印在報告）")
     var from: String
 
     @Flag(name: .long, help: "實際寫入（預設只列出計畫）")
@@ -123,7 +123,7 @@ struct EnrichCmd: ParsableCommand {
                     print("    來源：\(digest)（沒有補任何值，所以沒有 reference）")   // display-safe-exempt: service 已對每個值 displaySafe
                 } else {
                     // 補了值、卻一筆 reference 都沒有：補進去的只有 `provenanceOmitted` 列出的欄位（#655：authors 一律、
-                    // date 在 store format 低於 `StoreVersion.workDateReferenceFormat` 時）。理由逐欄印在下面。R1 verify（#542）實測：這裡曾印「沒有補任何值」，
+                    // date 在 store format 低於 `StoreVersion.workDateReferenceFormat` 時、fields.<鍵> 在低於 `workFieldReferenceFormat` 時——#668）。理由逐欄印在下面。R1 verify（#542）實測：這裡曾印「沒有補任何值」，
                     // 而上一行正列著 `+ date = …`。
                     print("    來源：\(digest)（補進去的值都不寫 reference，逐欄理由見下）")   // display-safe-exempt: service 已對每個值 displaySafe
                 }

@@ -144,6 +144,9 @@ public enum StoreVersion {
     ///   不是 `拆為 `，parse 回 nil，**同樣整檔 quarantine**。差別只在錯誤訊息會說「不是合法的
     ///   拆分文法」而不是「不認得的 field」，對使用者一樣是「這筆 work 消失了、rc=0」。
     ///   write gate（`assertEntryWritable`）對 format < 17 拒寫帶移除記錄的 entry。
+    ///   **`fields.<鍵>` 的來源 reference（#517）也是 17 的 vocabulary**：#517 早 17 約 1.5 小時合進來、沒有自己的
+    ///   bump，所以停在 16 卻早於 #517 的 binary 讀到它同樣走封閉 default、整檔 quarantine。寫入閘到 #668 才補上
+    ///   （`workFieldReferenceFormat`）；在那之前 format 13–16 的 store 照收這一格。
     /// - **18** ＝ work 的**附加 Zotero 來源**（`provenance_additional:`，#605）。record 層多一個
     ///   頂層鍵，依本檔頂部判準表是 additive——format-17 binary 走 tolerant-preserve **原樣保留而
     ///   不解讀**。**仍 bump 的理由是語意、不是語法**（同 11／13／14 的裁決）：舊 binary 保留了
@@ -163,12 +166,18 @@ public enum StoreVersion {
     ///   format < `workDateReferenceFormat` 拒寫帶這一格的 entry；`enrich` 在寫入之前就讀 marker，低於 20 時**值照補、
     ///   reference 不寫、理由進報告**（`provenanceOmitted`），不讓整筆寫入失敗。**無資料遷移**（這一格在 format 19
     ///   寫不出來，既有記錄零 diff）。**為什麼不像 #517 的 `fields.<鍵>` 那樣不 bump**：那一格落地時沒有自己的
-    ///   bump，是被同一天稍晚的 format 17 蓋住的（`b1027be0` 是 17 那次 bump 的祖先）——那是順序的巧合，不是契約。
+    ///   bump，是被同一天稍晚的 format 17 蓋住的（`b1027be0` 是 17 那次 bump 的祖先）——那是順序的巧合，不是契約
+    ///   （而且只蓋住了讀取端：寫入閘到 #668 才補上）。
     public static let supported = 20
 
     /// work 的 `date` 來源 reference（#655）需要的最低 store format。**寫入閘與 `enrich` 的事前判斷共用這一個數**
     /// ——兩邊各寫一個 20，會在下一次有人調整其中一邊時安靜地分岔（`enrich` 說「會寫」、寫入閘卻擋下）。
     public static let workDateReferenceFormat = 20
+
+    /// work 的 `fields.<鍵>` 來源 reference（#517）需要的最低 store format（#668）。理由同 `workDateReferenceFormat`：
+    /// 寫入閘與 `enrich` 的事前判斷共用這一個數。是 17 不是 16：#517 與 format 17 同一天合進來、#517 在前，
+    /// 所以支援 16 的 binary 有一部分早於 #517；17 的每一個 binary 都晚於它。
+    public static let workFieldReferenceFormat = 17
 
     /// 遷移完成後的 format bump 提示——**只在真的要升的時候印**（#472）。
     ///

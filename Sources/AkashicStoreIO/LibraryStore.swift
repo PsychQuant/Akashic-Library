@@ -514,6 +514,19 @@ public final class LibraryStore {
         // `Entry.validateReferenceAttachment` 沒有 `date` case → 封閉 default 擲錯 → **整檔 quarantine**、rc=0
         // （與 16 對 `authors` 同形）。`enrich` 在寫入前就依同一個數省略這一格並說明（StoreVersion 20）；
         // 這道閘是其餘寫入者的底線——手寫的提案流程、日後新的寫入面。
+        // v17 的 `fields.<鍵>` 來源 reference（#517，閘由 #668 補上）：format-16 的 binary 有一部分早於 #517，它們的
+        // 附著驗證沒有這一格 → 封閉 default 擲錯 → 整檔 quarantine（與 16 對 `authors` 同形）。
+        if entry.references.contains(where: { $0.field.hasPrefix(ProvenanceReference.workFieldPrefix) }) {
+            let format = try format()
+            let need = StoreVersion.workFieldReferenceFormat
+            guard format >= need else {
+                throw StoreIOError.invalidInput(
+                    what: "entry「\(displaySafeInvisible(entry.citekey, max: 120))」",
+                    why: "含欄位的來源 reference（field: fields.<鍵>），需要 store format ≥ \(need)；本 store 是 \(format)——" +
+                         "確認會碰這個 store 的 CLI/MCP/App 都已升級後，把 store.yaml 的 format: 改成 \(need)" +
+                         "（早於 #517 的 format-16 binary 讀到會整檔 quarantine，且 rc=0）")   // display-safe-exempt: need 與 format 是 Int（StoreVersion 的門檻常量與 marker）
+            }
+        }
         if entry.references.contains(where: { $0.field == ProvenanceReference.workDateField }) {
             let format = try format()
             let need = StoreVersion.workDateReferenceFormat, prior = need - 1

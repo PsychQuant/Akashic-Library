@@ -86,9 +86,13 @@ public enum AddOnlyEnrichment {
     /// （`LibraryStore.assertEntryWritable`）會具名擋下那一筆（writeFailed），不會安靜地造出舊 binary 讀不了的檔。
     /// 提案帶得了來源欄位的 production 呼叫端（`AkashicService.enrich`）一律顯式傳入；Zotero adapter 的提案
     /// 沒有來源欄位、產生不了任何 reference，這個參數對它不起作用。
-    public enum DateReferenceCell: Equatable {
+    ///
+    /// **同一個型別管兩格**（#668）：`fields.<鍵>` 那一格是 store format 17 的 vocabulary，形狀與 `date` 相同——
+    /// 呼叫端讀過 marker 再告訴 `plan` 寫不寫得進去。原名 `DateReferenceCell`，#668 起兩格共用，改名 `ReferenceCell`。
+    public enum ReferenceCell: Equatable {
         case writable
-        /// 值照補、reference 不寫；`reason` 原樣進 `Outcome.provenanceOmitted["date"]`。
+        /// 值照補、reference 不寫；`reason` 原樣進 `Outcome.provenanceOmitted`（鍵是那一格的 field 名：
+        /// `date`，或每一個補進去的 `fields.<鍵>`）。
         case unavailable(reason: String)
     }
 
@@ -336,9 +340,10 @@ public enum AddOnlyEnrichment {
         public var addedReferences: [ProvenanceReference]
         /// 有 digest 卻寫不成 reference 的理由（`lossless-intake` 執行細節 3：丟棄必須可見）。
         public var provenanceSkipped: String?
-        /// **來源齊備、值也補進去了，卻刻意不寫 reference 的欄位 → 理由**（#655）。封閉兩鍵：
-        /// `authors`（一律——那一格是作者位記錄的，`authorsProvenanceOmittedReason`）與 `date`（目標 store 低於
-        /// format 20 時——理由由呼叫端經 `DateReferenceCell.unavailable` 給）。與 `provenanceSkipped` 不重疊：那個是
+        /// **來源齊備、值也補進去了，卻刻意不寫 reference 的欄位 → 理由**（#655）。封閉三類鍵：
+        /// `authors`（一律——那一格是作者位記錄的，`authorsProvenanceOmittedReason`）、`date`（目標 store 低於
+        /// format 20 時）、每一個補進去的 `fields.<鍵>`（目標 store 低於 format 17 時，#668）——後兩類的理由由
+        /// 呼叫端經 `ReferenceCell.unavailable` 給。與 `provenanceSkipped` 不重疊：那個是
         /// 「來源欄位不齊、整筆都不寫」，這個只在來源齊備時才有。
         public var provenanceOmitted: [String: String]
 
@@ -390,10 +395,12 @@ public enum AddOnlyEnrichment {
     /// 同一批裡多筆提案指向同一筆記錄時**依序**計算：後面的提案看得到前面那筆會補的鍵
     /// （否則兩筆都報「added」而 apply 只寫得進一筆的內容）。
     ///
-    /// `dateReference`：目標 store 收不收得下 `date` 的來源 reference（#655，見 `DateReferenceCell`）。
+    /// `dateReference`／`fieldsReference`：目標 store 收不收得下 `date`（#655）與 `fields.<鍵>`（#668）的來源 reference
+    /// （見 `ReferenceCell`）。
     public static func plan(entries: [Entry], proposals: [Proposal],
                             includeAbsentAuthors: Bool = false,
-                            dateReference: DateReferenceCell = .writable) throws -> Result {
+                            dateReference: ReferenceCell = .writable,
+                            fieldsReference: ReferenceCell = .writable) throws -> Result {
         // 1. 整批驗證，零寫入——任一筆語法錯就不產生任何 item。
         let validated = try proposals.enumerated().map { try validate($1, index: $0 + 1) }
 
@@ -456,7 +463,8 @@ public enum AddOnlyEnrichment {
             let entry = working[citekey]!
             let (outcome, alreadyPresent, note) = policy(entry: entry, proposal: p,
                                                          includeAbsentAuthors: includeAbsentAuthors,
-                                                         dateReference: dateReference)
+                                                         dateReference: dateReference,
+                                                         fieldsReference: fieldsReference)
             let category: Category
             if outcome.nothingToAdd {
                 category = outcome.refused.isEmpty ? .skipped : .rejected
@@ -594,7 +602,7 @@ public enum AddOnlyEnrichment {
 
     /// 欄位政策本體——**逐字**自 `ZoteroEnrichment.plan` 搬入（#340／#394 verify R7–R9）。
     private static func policy(entry: Entry, proposal p: Validated, includeAbsentAuthors: Bool,
-                               dateReference: DateReferenceCell)
+                               dateReference: ReferenceCell, fieldsReference: ReferenceCell)
         -> (Outcome, alreadyPresent: [String], note: String?) {
         var added: [String: String] = [:]
         var addedDOIs: [DOI] = [], addedPMIDs: [PMID] = [], addedISBNs: [ISBN] = []
@@ -690,8 +698,13 @@ public enum AddOnlyEnrichment {
         var provenanceOmitted: [String: String] = [:]
         if let kind = p.raw.retrievalKind {
             for k in added.keys.sorted() {
-                addedReferences.append(ProvenanceReference(
-                    field: ProvenanceReference.workFieldPrefix + k, value: nil, kind: kind))
+                let field = ProvenanceReference.workFieldPrefix + k
+                switch fieldsReference {   // #668：`fields.<鍵>` 是 format 17 的格子；收不下時值照補、理由具名
+                case .writable:
+                    addedReferences.append(ProvenanceReference(field: field, value: nil, kind: kind))
+                case .unavailable(let reason):
+                    provenanceOmitted[field] = reason
+                }
             }
             // 識別碼帶 value——它是清單，要說支持哪一個（既有規則，本輪不改）
             for d in addedDOIs {

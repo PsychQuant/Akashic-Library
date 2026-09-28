@@ -104,11 +104,8 @@ extension AkashicService {
         try assertRecordsRecoverable(touched.map { ck in (byCitekey[ck]!.id, "work「\(displaySafeInvisible(ck, max: 200))」") },
                                      action: "這次會移除 \(drops.count) 條 venue 邊",   // display-safe-exempt: drops.count 是 Int
                                      issue: "#572")
-        let format = { try StoreVersion.read(root: self.store.root) }
-        for ck in touched {
-            try LibraryStore.assertEntryWritable(after[ck]!, format: format)
-            _ = try store.entryWritePlan(after[ck]!)
-        }
+        // #648：與其餘多檔寫入者同一個前置（`preflightWrite`＝writeEntry 在寫入當下跑的每一道），整批零寫入或整批寫
+        for ck in touched { try store.preflightWrite(after[ck]!) }
         for ck in touched { try store.writeEntry(after[ck]!) }
         try LibraryIndex(store: store).rebuild()
 

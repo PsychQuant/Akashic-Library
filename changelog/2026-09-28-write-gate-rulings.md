@@ -17,7 +17,7 @@
 **裁決表**：新檔 `Sources/akashic/WriteGateRulings.swift`。
 
 - `WriteGateRuling` 四個值：`.gated`、`.notGated(理由)`、`.readOnly(說明)`、`.perLeg`（只用在命令層，表示逐腿裁決）。
-- `commandRulings` 56 格：過閘 15、逐腿 3、不閘 18、不寫 20。`legRulings`：`resolve-people` 14 條腿、`resolve-venues` 7 條、`resolve-organizations` 7 條（收窄條件與伴隨參數也各記一格，裁決為不自己寫入）。
+- `commandRulings` 56 格：過閘 15、逐腿 3、不閘 18、不寫 20。與 #575 同批整合時補上 `repair-venue-names`（過閘：乾跑預設、`--apply` 才寫，同 `migrate` 族），成為 57 格、過閘 16——那個命令在本 change 之外寫成，由守衛在整合時指名。`legRulings`：`resolve-people` 14 條腿、`resolve-venues` 7 條、`resolve-organizations` 7 條（收窄條件與伴隨參數也各記一格，裁決為不自己寫入）。
 - `DestructiveTargetGate.destructiveCommands` 改由表現算，不再手寫。
 - `--yes` 的說明改由表產生。先前那一句手寫的清單在 #653、#572 各漂過一次。
 

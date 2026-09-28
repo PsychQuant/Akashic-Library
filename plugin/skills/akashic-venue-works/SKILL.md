@@ -68,7 +68,9 @@ libraries:
 > **`--out` 拒絕寫到非普通檔**（symlink／目錄／FIFO／…），零寫入並具名；寫入走同目錄 temp ＋ `os.replace` 原子替換，解析後的絕對路徑一律印到 stderr（#519 Expected 1）。**沒有 `--force`**——重跑覆寫這個中間產物是常態動作，把常態放進旗標會養出「反正都 force」的反射。
 → 數字對了才 `--apply`。**`proposals.json` 裝的是第三方逐字摘要（含出版商版權聲明），放 `$TMPDIR`
 不要放 repo 內**——本 repo 的 `.gitignore` 另擋 `proposals*.json` 當第二道。腳本只收 `status == got`、
-摘要非空、DOI 在場的列，其餘逐筆印在 stderr 的 skip 報告（控制字元跳脫、長度截斷）；`doi` 原樣透傳
+摘要非空、DOI 在場的列，摘要是 Crossref「這個 DOI 沒有 metadata」錯誤頁的也略過（`crossref-no-metadata`，#544：
+21 筆 work 曾這樣帶著錯誤頁當摘要進庫——已進庫的用 `update-entry --remove-field` 移除），其餘逐筆印在 stderr 的
+skip 報告（控制字元跳脫、長度截斷）；`doi` 原樣透傳
 （正規化由 core 吸收）；同 DOI 兩列而**摘要不同**會被報 `conflicting-duplicate`（取第一列）——那不是冗餘，
 要回頭看來源。**讀 counts 時要知道兩件事**（Psychological Methods 2026-09-07 實測，**下一本刊要重量**）：
 階段 B 對 keeper 的單／雙斜線兩個 DOI **各抓一列**，所以 148 列只有 82 筆 work（66 對重複，第二列被

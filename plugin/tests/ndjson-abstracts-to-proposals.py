@@ -22,7 +22,9 @@
    victim.txt**（逃逸到另一條路徑）。覆寫既有普通檔仍是常態、不收稅（**沒有 `--force`**），
    寫入走同目錄 temp ＋ `os.replace` 原子替換，解析後的絕對路徑一律印到 stderr。
 
-fixture 只有 9 列（含 BOM 與一個空行）、不碰網路、不需要 build。
+8. **Crossref「這個 DOI 沒有 metadata」的錯誤頁不是摘要**（#544）：以 `crossref-no-metadata` 略過並具名。
+
+fixture 只有 10 列（含 BOM 與一個空行）、不碰網路、不需要 build。
 """
 import hashlib, json, pathlib, subprocess, sys, tempfile
 
@@ -46,6 +48,8 @@ ROWS = [
     {"doi": "https://doi.org/10.1037/1082-989x.2.2.173", "status": "got", "abstract": "   ", "title": "T6", "year": 1997},
     {"doi": DOI1_UPPER, "status": "got", "abstract": "Abstract one.", "title": "T1", "year": 1998},   # 近重複穿透
     {"doi": FORGING_DOI, "status": "landing-failed", "abstract": "", "title": "T9", "year": 1999},    # 偽造嘗試
+    {"doi": "https://doi.org/10.1037/1082-989x.9.9.999", "status": "got", "title": "T10", "year": 2004,
+     "abstract": "This DOI is not currently attached to any metadata records. DOIs can’t actually ever be deleted"},   # #544：錯誤頁
 ]
 NDJSON = "﻿".encode("utf8") + "".join(("" if r is None else json.dumps(r, ensure_ascii=False)) + "\n" for r in ROWS).encode("utf8")
 HEX = hashlib.sha256(NDJSON).hexdigest()
@@ -56,7 +60,7 @@ EXPECTED = [
 ]
 EXPECTED_REASONS = sorted([
     "conflicting-duplicate", "duplicate-doi", "status:landing-failed", "status:none-verified",
-    "no-doi", "empty-abstract", "status:landing-failed",
+    "no-doi", "empty-abstract", "status:landing-failed", "crossref-no-metadata",
 ])
 
 def run(args):
@@ -71,7 +75,7 @@ with tempfile.TemporaryDirectory() as tmp:
     blob.parent.mkdir(parents=True)
     blob.write_bytes(NDJSON)
 
-    # 1. digest 形：BOM 可讀；2 筆提案（近重複穿透）；7 列 skip 逐筆具名；rows 不算空行
+    # 1. digest 形：BOM 可讀；2 筆提案（近重複穿透）；8 列 skip 逐筆具名（含 Crossref 錯誤頁，#544）；rows 不算空行
     r = run(["--library", str(root), "--source", DIGEST])
     if r.returncode != 0:
         fail(f"digest 形應 exit 0，得 {r.returncode}\n{r.stderr}")
@@ -82,9 +86,9 @@ with tempfile.TemporaryDirectory() as tmp:
         fail(f"skip 理由不符：{sorted(l.split(chr(9))[1] for l in skips)}\n{r.stderr}")
     if not any(l.startswith("skip\tno-doi\t(no doi)\tline 7") for l in skips):
         fail(f"no-doi 那列應印 (no doi) 與行號 7：\n{r.stderr}")
-    if "rows=9 proposals=2 skipped=7" not in r.stderr:
-        fail(f"總結行應是 rows=9 proposals=2 skipped=7（rows 不算空行）：\n{r.stderr}")
-    print("✓ digest 形：BOM 可讀、近重複穿透、衝突與冗餘分開具名、rows 不算空行")
+    if "rows=10 proposals=2 skipped=8" not in r.stderr:
+        fail(f"總結行應是 rows=10 proposals=2 skipped=8（rows 不算空行）：\n{r.stderr}")
+    print("✓ digest 形：BOM 可讀、近重複穿透、衝突與冗餘分開具名、Crossref 錯誤頁略過、rows 不算空行")
 
     # 2. skip 報告不可偽造：控制字元跳脫、長度上限；FORGED 不得成為獨立一行
     forged = [l for l in r.stderr.splitlines() if "FORGED" in l]

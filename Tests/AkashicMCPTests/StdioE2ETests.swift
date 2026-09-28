@@ -98,7 +98,7 @@ final class StdioE2ETests: XCTestCase {
         try send(["jsonrpc": "2.0", "id": 2, "method": "tools/list"])
         let listResponse = try readResponse()
         let tools = ((listResponse["result"] as? [String: Any])?["tools"] as? [[String: Any]]) ?? []
-        XCTAssertEqual(tools.count, 32)   // #586: + akashic_dismiss_divergence；#13/#14/#18/#77 歷次擴充；#76: + akashic_divergences；#68: + akashic_update_person；#290: + akashic_import_wos；#304: + venue×4 + org×2；#340: + akashic_enrich_from_zotero；#458: + akashic_enrich
+        XCTAssertEqual(tools.count, 33)   // #544: + akashic_update_entry；#586: + akashic_dismiss_divergence；#13/#14/#18/#77 歷次擴充；#76: + akashic_divergences；#68: + akashic_update_person；#290: + akashic_import_wos；#304: + venue×4 + org×2；#340: + akashic_enrich_from_zotero；#458: + akashic_enrich
         XCTAssertTrue(tools.contains { ($0["name"] as? String) == "akashic_enrich" })
         XCTAssertTrue(tools.contains { ($0["name"] as? String) == "akashic_record_divergence" })
         XCTAssertTrue(tools.contains { ($0["name"] as? String) == "akashic_import_wos" })
@@ -219,7 +219,7 @@ extension StdioE2ETests {
         try send(["jsonrpc": "2.0", "id": 8, "method": "tools/list", "params": [:]])
         let listResp = try readResponse()
         let tools = ((listResp["result"] as? [String: Any])?["tools"] as? [[String: Any]]) ?? []
-        XCTAssertEqual(tools.count, 32, "深度炸彈之後 server 必須照常服務：\(listResp)")
+        XCTAssertEqual(tools.count, 33, "深度炸彈之後 server 必須照常服務：\(listResp)")
         XCTAssertTrue(process.isRunning, "進程必須存活")
     }
 
@@ -493,6 +493,25 @@ extension StdioE2ETests {
         XCTAssertEqual(e.date, "2020")
         XCTAssertEqual(e.authors, [.literal("Some One")])
         XCTAssertEqual(e.references.map(\.field), ["date"], "只有 date 有來源；authors 那一格不收 enrich 的 retrieval")
+    }
+}
+
+/// #544：`akashic_update_entry` 不帶 `dry_run` 就是乾跑。**必須經真 binary**：dispatch 的 case 標籤打錯字只有實際呼叫抓得到
+/// （#138 F4 的教訓）；參數形狀錯（字串不是陣列）整個呼叫拒絕（#561 的同一條）。
+extension StdioE2ETests {
+    func testUpdateEntryDefaultsToDryRun() throws {
+        try initialize()
+        let text = try call(2, "akashic_update_entry",
+                            ["citekey": "cheng2025identifiability", "remove_fields": ["journaltitle=測試：乾跑不寫"]])
+        let obj = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any], text)
+        XCTAssertEqual(obj["dryRun"] as? Bool, true, "不帶 dry_run 就是乾跑：\(text)")
+        XCTAssertEqual((obj["fieldRemovals"] as? [[String: Any]])?.first?["field"] as? String, "journaltitle", text)
+        let e = try LibraryStore(root: root).load().entries.first { $0.citekey == "cheng2025identifiability" }
+        XCTAssertEqual(e?.fields["journaltitle"], "Psychometrika", "磁碟不動")
+
+        let bad = try call(3, "akashic_update_entry",
+                           ["citekey": "cheng2025identifiability", "remove_fields": "journaltitle=x"])
+        XCTAssertTrue(bad.contains("字串陣列"), bad)
     }
 }
 

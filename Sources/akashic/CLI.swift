@@ -84,6 +84,7 @@ struct AkashicCLI: ParsableCommand {
             EnrichCmd.self,          // #458：generic add-only 補值（citekey／DOI 定位；Zotero 版是它的 adapter）
             UpdatePersonCmd.self,
             Fmt.self, ViewCmd.self, CreateEntryCmd.self,
+            UpdateEntryCmd.self,   // #544：work 的部分更新（--remove-field）
             PersonCmd.self,   // #218：person 的讀取面（寫入面是上面的 UpdatePersonCmd）
             // #219：parity 家族其餘五格——讀取聚合 ×2 + 關係／狀態寫入 ×3
             PeopleCmd.self, GetEntryCmd.self,

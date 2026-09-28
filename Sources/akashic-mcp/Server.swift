@@ -181,6 +181,16 @@ actor AkashicMCPServer {
                 "pmid": strArray("PMID（同上）"),
                 "isbn": strArray("ISBN（同上；ISBN-13 與 ISBN-10 可並存）"),
              ], required: ["type", "title"])),
+        Tool(name: "akashic_update_entry",
+             description: "work 的部分更新（CLI `akashic update-entry --help`）。**dry_run 預設 true**，false 才寫。"
+                 + "remove_fields 移除 fields 的值——判定：理由必填、只回在 fieldRemovals、不寫進 store；實寫要求該 work 檔已在 git 裡 commit、乾淨。"
+                 + "指向被移除鍵的 fields.<鍵> reference 一併刪除（referencesRemoved）；由被移除值推導的 literal venue 邊不動、列在 venueEdgesFromRemovedValues；"
+                 + "Zotero 來源的記錄附 zoteroNote。work 無法唯一定位時拒絕。",
+             inputSchema: obj([
+                "citekey": str("目標 work 的 citekey"),
+                "remove_fields": strArray("<鍵>=理由（鍵與 fields 現有的鍵逐字相符；理由 ≤ 4,096 位元組）。鍵不存在、同鍵兩次、理由空白或過長、超過 200 個 → 整批拒絕零寫入"),
+                "dry_run": .object(["type": .string("boolean"), "description": .string("預設 true（只回計畫）；false 才寫")]),
+             ], required: ["citekey"])),
         Tool(name: "akashic_venue",
              description: "看一個發表載體：記錄＋刊名沿革（names 時間軸）＋文章編年 list（依年升冪）。零篇是合法答案（workCount: 0），與查無此 venue（notFound）分開；store 有 quarantined 檔且查無時回「無法判定」。",
              inputSchema: obj([
@@ -608,6 +618,10 @@ actor AkashicMCPServer {
                     doi: params.arguments?["doi"] != nil ? argList("doi") : nil,
                     pmid: params.arguments?["pmid"] != nil ? argList("pmid") : nil,
                     isbn: params.arguments?["isbn"] != nil ? argList("isbn") : nil)
+            case "akashic_update_entry":
+                output = try service.updateEntry(citekey: arg("citekey") ?? "",
+                                                 removeFields: try argStrictList("remove_fields"),
+                                                 dryRun: try argFlag("dry_run", default: true))
             case "akashic_venue":
                 output = try service.venue(key: arg("key") ?? "")
             case "akashic_venues":

@@ -67,6 +67,14 @@ final class ServiceArgvExitCodeTests: XCTestCase {
         try assertUsageError(["update-person", "--key", "p-one", "--fields", #"{"orcid": "nope"}"#], "不是合法的 ORCID")
     }
 
+    /// #544：`update-entry` 只看參數的檢查（服務的同一個函式）。
+    func testUpdateEntryArgvChecks() throws {
+        try assertUsageError(["update-entry", "a2020b"], "沒有要做的事")
+        try assertUsageError(["update-entry", "a2020b", "--remove-field", "abstract"], "缺少 `=`")
+        try assertUsageError(["update-entry", "a2020b", "--remove-field", "abstract= "], "的理由是空白")
+        try assertUsageError(["update-entry", "a2020b", "--remove-field", "abstract=a", "abstract=b"], "出現兩次")
+    }
+
     func testUpdateVenueArgvChecks() throws {
         try assertUsageError(["update-venue", "v-one", "--remove-issn", "0378-5955"], "缺少 `=`")
         try assertUsageError(["update-venue", "v-one", "--remove-issn", "0378-5955= "], "的理由是空白")

@@ -1104,6 +1104,10 @@ add-only 補值的前提是來源**給了**值；負結果的寫入端是查證�
 store 上：寫入閘拒寫，`enrich` 則在寫入前讀 marker、值照補、reference 不寫、理由進 `provenanceOmitted.date`；
 `fields.<鍵>` 那一格在 format < 17 的 store 上同理（#668），理由逐鍵進 `provenanceOmitted` 的 `fields.<鍵>`。
 
+**移除端**：`update-entry --remove-field <鍵>=理由`（MCP `akashic_update_entry` 的 `remove_fields`，#544）刪一個 `fields` 的值時，
+一併刪掉指向它的 `fields.<鍵>` reference——留著它，那筆的語意會從正結果（值出自這份來源）翻成負結果（查過了、這份來源沒給），
+而那不是任何人判定過的事。理由只進報告，移除前的檔在 git（實跑要求那筆 work 檔已 commit、乾淨）。
+
 ### venue 的 `references`：可附著的格與寫入面（#394／#406／#587）
 
 venue 的 `references:` 可附著的 `field` 是**封閉列舉**，唯一的列舉在 `Venue.validateReferenceAttachment`；下表是現況的摘寫，

@@ -10,6 +10,8 @@
 **三條紀律**：
 1. 只收 `status == "got"`、摘要非空、DOI 在場的列；其餘每一列在 stderr 逐筆具名
    （`skip\\t<reason>\\t<doi>\\tline <n>`）——丟棄必須可見（`lossless-intake` 執行細節 3）。
+   摘要是 Crossref「這個 DOI 沒有 metadata」的固定樣板時同樣略過（`crossref-no-metadata`，#544）：
+   那是 HTTP 200 的錯誤頁被當成內容收下，不是這篇的摘要——21 筆 work 就是這樣帶著錯誤頁當摘要進庫的。
 2. `doi` **原樣透傳**：URL 前綴與大小寫由 core 的 `DOI` 正規化吸收，本腳本**不**複製那條
    規則。腳本自己只有一條更弱的身分規則——逐位元相同的 DOI 字串——大小寫／前綴不同的
    近重複兩筆都輸出、留給 core（它會把第二筆報成 `skipped`，不會靜默）。同 DOI 而摘要
@@ -41,6 +43,8 @@ import argparse, hashlib, json, os, pathlib, re, stat, sys, tempfile
 from collections import Counter
 
 DIGEST_RE = re.compile(r"^sha256:([0-9a-fA-F]{64})$")
+# Crossref 對沒有 metadata 的 DOI 回的固定樣板開頭（#544；live store 的 21 筆逐字以它開頭）
+CROSSREF_NO_METADATA = "This DOI is not currently attached to any metadata records"
 SKIP_MAX = 200
 
 
@@ -106,6 +110,8 @@ def convert(data: bytes, digest: str):
             reason = f"status:{status}"
         elif not isinstance(abstract, str) or not abstract.strip():
             reason = "empty-abstract"
+        elif abstract.strip().startswith(CROSSREF_NO_METADATA):
+            reason = "crossref-no-metadata"
         elif doi in seen:
             reason = "duplicate-doi" if seen[doi] == abstract.strip() else "conflicting-duplicate"
         if reason:

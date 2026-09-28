@@ -115,19 +115,20 @@ extension AkashicService {
         var out: [OrgUndecidedSpec] = []
         var seen = Set<[UInt8]>()
         for spec in specs {
-            try Self.checkOrgIDSpecShapes([spec], noun: noun, tail: tail)
             guard spec.utf8.count <= maxSpecBytes else {
                 throw ServiceError.invalid(
                     "\(noun)「\(displaySafeInvisible(spec, max: 200))」長 \(spec.utf8.count) 位元組，超過任何合法 id 的上限 \(maxSpecBytes)"   // display-safe-exempt: noun 是呼叫端的字面常量；spec.utf8.count 與 maxSpecBytes 是 Int
                     + "（最長的列表 id ＋ 最長的 orgKey ＋ 2 ＋ \(tail)上限 \(Self.maxStatementBytes)）——精簡\(tail)"   // display-safe-exempt: tail 是呼叫端的字面常量；Self.maxStatementBytes 是 Int 常數
                     + (noun == "未決" ? "，承重內容用 rests_on 附存檔" : ""))
             }
+            // 形狀在長度之後（C2c R1 verify）：超長的輸入先以位元組數拒絕，不先掃一遍；整批的形狀檢查在讀 store 之前已跑過
+            try Self.checkOrgIDSpecShapes([spec], noun: noun, tail: tail)
             let r = Self.splitOrgUndecided(spec, knownRowIDs: known)
             guard r.accepted.count == 1, let s = r.accepted.first else {
                 let why: String
                 if r.accepted.count > 1 {
                     why = "有 \(r.accepted.count) 個位置都切得成已知的 id——無法確定是哪一列，不猜"   // display-safe-exempt: count 是 Int
-                } else {   // 沒有可切的位置已由迴圈開頭的 checkOrgIDSpecShapes 擋下，這裡的位置都切不到已知的 id
+                } else {   // 沒有可切的位置已由上面的 checkOrgIDSpecShapes 擋下，這裡的位置都切不到已知的 id
                     why = "@ 之前的部分不是這次列表的 id——那一列可能已歸戶或否決而離開列表，或 id 沒有逐字取自不帶參數列出的候選／歧義條目"
                 }
                 throw ServiceError.invalid("\(noun)「\(displaySafeInvisible(spec, max: 200))」\(why)")   // display-safe-exempt: noun 是呼叫端的字面常量；why 是本函式的固定訊息

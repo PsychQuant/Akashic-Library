@@ -76,6 +76,10 @@ final class ServiceArgvBeforeStoreTests: XCTestCase {
                                          addVariant: ["Alpha"], authorize: ["Alpha"])
         }
         assertInvalid("不是合法的 ORCID") { try self.service.addPerson(key: "p-one", names: ["X"], orcid: "0000", openalex: nil) }
+        // C2c R1 verify（Codex）：CLI 在 validate() 呼叫 checkUpdatePersonFields，MCP 面走 updatePerson——後者先讀 store、
+        // 先報「找不到 person」，參數錯誤被蓋掉
+        assertInvalid("不認得的欄位") { try self.service.updatePerson(key: "p-one", fields: ["bogus": 1], dryRun: true) }
+        assertInvalid("不是合法的 ORCID") { try self.service.updatePerson(key: "p-one", fields: ["orcid": "0000"], dryRun: false) }
         assertInvalid("不符合") { try self.service.addPerson(key: "Bad Key", names: ["X"], orcid: nil, openalex: nil) }
         assertInvalid("names 全是空白") { try self.service.addVenue(key: "v-one", names: ["  "], type: "periodical") }
         assertInvalid("mediaType 不可為空") {

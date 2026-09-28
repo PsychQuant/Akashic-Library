@@ -10,6 +10,8 @@ final class StdioE2ETests: XCTestCase {
     var stdinPipe: Pipe!
     var stdoutPipe: Pipe!
     var reader: FileHandle!
+    /// 讀到但還沒交出去的位元組：一次 read 可能拿到兩行，第二行留給下一次（#578 R1 verify）
+    var pending = Data()
 
     private var productsDirectory: URL {
         for bundle in Bundle.allBundles where bundle.bundlePath.hasSuffix(".xctest") {
@@ -43,6 +45,7 @@ final class StdioE2ETests: XCTestCase {
         process.standardError = Pipe()
         try process.run()
         reader = stdoutPipe.fileHandleForReading
+        Self.setNonBlocking(reader.fileDescriptor)
     }
 
     override func tearDownWithError() throws {
@@ -56,24 +59,9 @@ final class StdioE2ETests: XCTestCase {
         stdinPipe.fileHandleForWriting.write(Data("\n".utf8))
     }
 
-    /// 讀一行 JSON-RPC 回應（阻塞，10 秒 timeout）。
+    /// 讀一行 JSON-RPC 回應（10 秒 timeout，逾時丟錯）。讀行只有 `readRawLine` 一份實作，這裡只解析。
     private func readResponse() throws -> [String: Any] {
-        var buffer = Data()
-        let deadline = Date().addingTimeInterval(10)
-        while Date() < deadline {
-            let chunk = reader.availableData
-            if chunk.isEmpty {
-                Thread.sleep(forTimeInterval: 0.05)
-                continue
-            }
-            buffer.append(chunk)
-            if let newline = buffer.firstIndex(of: UInt8(ascii: "\n")) {
-                let line = buffer[..<newline]
-                return try JSONSerialization.jsonObject(with: Data(line)) as! [String: Any]
-            }
-        }
-        XCTFail("10 秒內未收到回應")
-        return [:]
+        try JSONSerialization.jsonObject(with: readRawLine()) as! [String: Any]
     }
 
     func testInitializeListCall() throws {
@@ -530,23 +518,83 @@ extension StdioE2ETests {
     static let toolsListByteBudget = 49_000
 
     /// 讀一行原始回應位元組（不解析）。10 秒內讀不到整行就丟錯——空掃描不是通過。
-    private func readRawLine() throws -> Data {
-        var buffer = Data()
-        let deadline = Date().addingTimeInterval(10)
-        while Date() < deadline {
-            let chunk = reader.availableData
-            if chunk.isEmpty {
-                Thread.sleep(forTimeInterval: 0.05)
-                continue
-            }
-            buffer.append(chunk)
-            if let newline = buffer.firstIndex(of: UInt8(ascii: "\n")) {
-                return Data(buffer[..<newline])
+    func readRawLine() throws -> Data {
+        try Self.readLine(fd: reader.fileDescriptor, pending: &pending, timeout: 10)
+    }
+
+    enum LineReadError: Error, CustomStringConvertible {
+        case timeout(received: Int), eof(received: Int), io(Int32)
+        var description: String {
+            switch self {
+            case .timeout(let n): return "期限內未收到完整的一行回應（已收 \(n) bytes）"
+            case .eof(let n): return "對端關閉，未收到完整的一行（已收 \(n) bytes）"
+            case .io(let e): return "read 失敗（errno \(e)）"
             }
         }
-        struct NoLine: Error {}
-        XCTFail("10 秒內未收到完整的一行回應（已收 \(buffer.count) bytes）")
-        throw NoLine()
+    }
+
+    static func setNonBlocking(_ fd: Int32) {
+        _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
+    }
+
+    /// 從 non-blocking 的 fd 讀到一行為止（不含換行）。
+    ///
+    /// 不用 `FileHandle.availableData`：它對 pipe 是阻塞呼叫，子行程開著 stdout 卻不輸出時會一直等，
+    /// 迴圈的期限永遠輪不到檢查（#578 R1 verify，Codex）。一次讀到的第二行留在 `pending`，下一次先交出它。
+    static func readLine(fd: Int32, pending: inout Data, timeout: TimeInterval) throws -> Data {
+        let deadline = Date().addingTimeInterval(timeout)
+        var chunk = [UInt8](repeating: 0, count: 65_536)
+        while true {
+            if let newline = pending.firstIndex(of: UInt8(ascii: "\n")) {
+                let line = Data(pending[pending.startIndex..<newline])
+                pending = Data(pending[pending.index(after: newline)...])
+                return line
+            }
+            let n = chunk.withUnsafeMutableBytes { read(fd, $0.baseAddress, $0.count) }
+            if n > 0 { pending.append(contentsOf: chunk[0..<n]); continue }
+            if n == 0 { throw LineReadError.eof(received: pending.count) }
+            let err = errno
+            guard err == EAGAIN || err == EWOULDBLOCK || err == EINTR else { throw LineReadError.io(err) }
+            if Date() >= deadline { throw LineReadError.timeout(received: pending.count) }
+            Thread.sleep(forTimeInterval: 0.02)
+        }
+    }
+
+    /// 負控：子行程開著 stdout 但不輸出——讀行要在期限內以逾時結束，不是掛住。
+    func testLineReaderTimesOutWhenThePeerStaysSilent() throws {
+        let sleeper = Process()
+        sleeper.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        sleeper.arguments = ["30"]
+        let out = Pipe()
+        sleeper.standardOutput = out
+        try sleeper.run()
+        defer { sleeper.terminate() }
+        // 父行程的寫端關掉：讀取若退回阻塞，會在子行程結束時以 EOF 失敗，而不是永遠掛住
+        try out.fileHandleForWriting.close()
+        let fd = out.fileHandleForReading.fileDescriptor
+        Self.setNonBlocking(fd)
+        var buffer = Data()
+        let started = Date()
+        XCTAssertThrowsError(try Self.readLine(fd: fd, pending: &buffer, timeout: 0.5)) { error in
+            guard case LineReadError.timeout = error else { return XCTFail("應是逾時：\(error)") }
+        }
+        XCTAssertLessThan(Date().timeIntervalSince(started), 5, "期限 0.5 秒，不得掛到子行程結束")
+    }
+
+    /// 一次 read 拿到兩行時，第二行留給下一次，不被丟掉。
+    func testLineReaderKeepsTheSecondLineOfOneRead() throws {
+        let printer = Process()
+        printer.executableURL = URL(fileURLWithPath: "/usr/bin/printf")
+        printer.arguments = ["first\\nsecond\\n"]
+        let out = Pipe()
+        printer.standardOutput = out
+        try printer.run()
+        printer.waitUntilExit()
+        let fd = out.fileHandleForReading.fileDescriptor
+        Self.setNonBlocking(fd)
+        var buffer = Data()
+        XCTAssertEqual(try Self.readLine(fd: fd, pending: &buffer, timeout: 5), Data("first".utf8))
+        XCTAssertEqual(try Self.readLine(fd: fd, pending: &buffer, timeout: 5), Data("second".utf8))
     }
 
     func testToolsListResponseStaysWithinByteBudget() throws {

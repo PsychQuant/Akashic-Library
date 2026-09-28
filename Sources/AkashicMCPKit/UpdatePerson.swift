@@ -150,6 +150,9 @@ public extension AkashicService {
     }
 
     func updatePerson(key: String, fields: [String: Any], dryRun: Bool) throws -> String {
+        // #654：只看參數的檢查在讀 store 之前跑，與 CLI 的 validate() 同一個函式（C2c R1 verify：MCP 面先前會先報
+        // 「找不到 person」，蓋掉參數錯誤）
+        try Self.checkUpdatePersonFields(fields)
         let load = try store.load()   // 寫前重讀（同 AppState.mutate 的防 lost-update 語意）
         guard var person = load.people.first(where: { $0.key == key }) else {
             throw ServiceError.notFound("person「\(displaySafeInvisible(key, max: 200))」")

@@ -1033,6 +1033,49 @@ refuse-if-newer 的一句「請升級」，取代 per-file quarantine。format <
 `verdictsSkipped` 揭露。實際 bump store marker 的程序見 #247（先同步 distribution
 再改 marker）。
 
+### work 的 `references`：可附著的格（#394／#450／#457／#517／#655）
+
+work（`Entry`）自 format 13 起有頂層 `references:`（`entity-backlink-completeness` 封閉列舉第 15 條邊）。
+可附著的 `field` 是**封閉列舉**，唯一的列舉在 `Entry.validateReferenceAttachment`；下表是現況的摘寫，
+兩者不符時以程式為準。
+
+| `field` | `value` | kind | 讀法 | 起始 |
+|---|---|---|---|---|
+| `doi`／`pmid`／`isbn` | 帶：那個號必須在清單內；不帶：必須是 retrieval | 帶 value 時兩種都收 | 帶 value＝那個號出自這份來源；不帶＝對這個欄位做過一次查找 | format 13（#394）；不帶 value 的查找 #517 |
+| `authors` | 必帶：被退役的原 literal 逐字 | 只收 judgement（`拆為 ⟦a⟧ ⟦b⟧：理由`／`移除：理由`） | 作者位記錄：拆分、移除 | format 16（#450）／17（#457） |
+| `fields.<鍵>` | 不收（D2：純量） | retrieval，或帶 digest 的 judgement | 見下方三種讀法 | #517（沒有自己的 bump，見 §5.0 format 20 那一列） |
+| `date` | 不收（D2：純量） | retrieval，或帶 digest 的 judgement | 頂層 `Entry.date` 的來源；三種讀法同下 | format 20（#655） |
+
+`title` 不在其中——`default` 照舊拒絕，**不得依「`date` 也收了」類推**。judgement 的空 `rests-on` 在
+平面 init 就被擋下（這些欄位都不在 `firstOrderRulingFields`——work 的格裡只有 `authors` 在），所以走 judgement 的
+必然帶著真的 digest——離線來源（紙本掃描件，沒有 url）因此也表達得出來。
+
+**純量格（`fields.<鍵>`、`date`）的三種讀法**。附著驗證**刻意不檢查**那個欄位在場，因為缺席正是負結果的形狀：
+
+| 記錄的欄位 | ＋ 一筆 reference | 讀法 |
+|---|---|---|
+| 在場 | 任一種 kind | 那個值出自這份來源 |
+| 缺席 | retrieval | **查過了，這份來源沒給** |
+| `date: n.d.`（`Entry.noDateSentinel`） | 任一種 kind | 「這筆作品沒有日期」這件事出自這份來源 |
+
+第二列與第三列是兩件事：`n.d.` 是關於**作品**的斷言，缺席 ＋ 查找記錄是關於**來源**的。代價寫出來：
+打錯的 `fields.<鍵>` 會靜靜附上去，沒有東西擋得住——要擋它就得放棄負結果的表達法。
+
+**`date` 另開一格，不借 `fields.date`**（使用者 2026-09-28 裁決）：`fields["date"]` 是 biblatex 殘留的
+另一個格子（2026-09-28 實測 live store 2,563 筆 work 裡 0 筆帶這個鍵，但 `lossless-intake` 讓它隨時可能
+出現）。兩者同名不同物，與下方「`fields.type` 與頂層 `type:` 同名」同形；無前綴的 `date` 只能指頂層那一個。
+
+**`authors` 不收 `enrich` 的來源**：`field: authors` 那一格已經有主人——作者位記錄的 value 是**已退役**的
+literal、kind 是 judgement；`enrich` 補進去的作者是**在場**的值、來源是一次取得。同一個 field 承載兩種
+相反的語意，讀它的每一處（附著驗證、`staleSplitRecords`、`contradictedRemovalRecords`、un-split）都得先猜
+是哪一種——那正是 `fields.` 前綴消掉的那種歧義。所以 `enrich` 補作者時不寫 reference，理由具名進 item 的
+`provenanceOmitted.authors`。作者位的來源若日後要記，要另開一格並替會被拆、被移除、被升格的作者位設計
+定位（另案）。
+
+**寫入端**：會寫 `fields.<鍵>`、`date` 與識別碼來源的只有 `enrich`（#517／#655），而且只寫正結果——
+add-only 補值的前提是來源**給了**值；負結果的寫入端是查證流程，另案。`date` 那一格在 format < 20 的
+store 上：寫入閘拒寫，`enrich` 則在寫入前讀 marker、值照補、reference 不寫、理由進 `provenanceOmitted.date`。
+
 ### 存檔佈局：`sources/`（內容定址，不進 remote）
 
 擷取的位元組住 `<store>/sources/<digest 前 2 字元>/<其餘 62 字元>`，**無副檔名**
@@ -1359,6 +1402,7 @@ index 一起被清掉。
 | 17 | work 側的**移除記錄**（同一格 `field: authors`，statement `移除：理由` 走 `AuthorRemovalRecordValue` 單一解析器，value＝被移除的原 literal 逐字，#457） | **non-additive，理由同 16 但成因不同**：format-16 binary 的 `authors` case **存在**，所以不是走到封閉 default，而是走到 `SplitRecordValue.parse(statement) != nil` 那道 guard——移除記錄的前綴是 `移除：` 不是 `拆為 `，parse 回 nil → **一樣整檔 quarantine 且 rc=0**。差別只在錯誤訊息會說「不是合法的拆分文法」而不是「不認得的 field」，對使用者一樣是「這筆 work 消失了」。write gate（`assertEntryWritable`）對 format < 17 拒寫帶移除記錄的 entry；`dropAuthors` 在**任何寫入之前**對全部計畫過閘（整批零寫入）。**為什麼不重用 `SplitRecordValue`**：它的 `init?` 要求段數 ≥ 2，放寬到 0 會讓 `unsplitAuthors` 把一次移除讀成可還原的拆分並把字串塞回作者位——正好是這個面要消除的東西；兩種記錄要在文法上就分得開。空 rests-on 沿用 format 16 那一列的 `firstOrderRulingFields`（`authors` 已在其中，不新增集合）。一致性條件與拆分**相反**：拆分要求「至少一段仍是作者位」（`staleSplitRecords`），移除要求那個字串**不在**作者位（`contradictedRemovalRecords`），兩者皆 warning。**無資料遷移**。**升級前置**：CLI/MCP/App 全升 v17 世代 → 手動 `format: 17`；且 marker bump 前不 push store repo（同 15／16 的理由） |
 | 18 | work 的**附加 Zotero 來源**（頂層 `provenance_additional:`，sequence of mapping，元素形狀同 `provenance`，#605；見 §2.5.3） | **頂層鍵本屬 additive，仍 bump——理由是語意不是語法**（同 11／13／14 的裁決）：format-17 binary 走 tolerant-preserve **原樣保留而不解讀**，不拿附加來源比對 → 從附加來源所屬的 library 再匯入時安靜地新建一筆，把剛合併掉的攣生重新造出來；合併閘也照舊把不同 zotero key 當「來源衝突」擋下。不會大聲失敗，所以要 marker 讓 refuse-if-newer 出聲。write gate（`assertEntryWritable`）對 format < 18 拒寫帶附加來源的 entry。**無資料遷移**（空清單不寫出，既有記錄零 diff）。**升級前置**：CLI/MCP/App 全升 v18 世代 → 手動 `format: 18`；且 marker bump 前不 push store repo（同 15～17 的理由） |
 | 19 | verdict 的第三個值 `resolution-undecided`（查過、判不出來，可帶 rests-on；#619）＋ **判定層級參與記錄鍵**（`nominated` 與 `judged` 兩筆並存，#636；change `resolution-verdict-states`） | **non-additive，兩個理由各自足夠**：references 的 field 白名單是 strict，format-18 binary 讀到 `resolution-undecided` **整檔 quarantine**；舊 binary 的合併與 rename 以舊鍵收攏，會把並存的兩筆收成一筆、安靜丟掉一筆理由。write gate（`assertVerdictShapesWritable`）對 format < 19 拒寫這兩種形狀。**無資料遷移**。**升級前置**：CLI/MCP/App 全升 v19 世代 → 手動 `format: 19`；marker bump 前不 push store repo（同 15～18 的理由） |
+| 20 | work 的 `references` 多一格 **`date`**（頂層 `Entry.date` 的來源，#655；語意比照 `fields.<鍵>`，見 §3.5「work 的 `references`」） | **non-additive，理由同 16**：format-19 binary 的 `Entry.validateReferenceAttachment` 沒有 `date` case → 封閉 default 擲錯 → **整檔 quarantine**、rc=0——補過日期來源的 work 在舊 binary 上整筆消失，輸出與「這筆從未存在」不可分辨。write gate（`assertEntryWritable`）對 format < 20 拒寫帶這一格的 entry（門檻常數 `StoreVersion.workDateReferenceFormat`）；`enrich` 在**寫入之前**讀 marker，低於 20 時 date 照補、reference 不寫、理由進 item 的 `provenanceOmitted`——不讓整筆寫入失敗。**為什麼 #517 的 `fields.<鍵>` 那一格沒有自己的 bump**：它落地一小時後 format 17 就 bump 了（`b1027be0` 是那次 bump 的祖先），是順序的巧合、不是契約；而那一格至今沒有自己的 format 閘——`assertIdentifierReferencesWritable` 只認三個識別碼欄位，format < 17 的 store 仍寫得進 `fields.<鍵>` 的 reference（既有缺口，不在 #655 範圍，另案）。本格不再依賴巧合。**無資料遷移**（這一格在 format 19 寫不出來，既有記錄零 diff）。**升級前置**：CLI/MCP/App 全升 v20 世代 → 手動 `format: 20`；marker bump 前不 push store repo（同 15～19 的理由） |
 
 3 與 4 曾經發生而未回寫本表（#81 補齊）；6 曾漏補（#74 一併回寫）。**「資料鍵變保留字」同屬版本歸屬**：`divergence` 成為形狀標籤使同名頂層鍵在 ≥5 成為保留字——這與形狀標籤機制（format 3）的既有語意一致，不另立規則（#74 後果二）。`akashic migrate` 是使用者知情動作：它把 store 升到 supported 版本，升版後舊 binary 整庫拒開是 refuse-if-newer 的**預期**行為，不是 migrate 的缺陷（#74 後果三，文件化現況）。
 

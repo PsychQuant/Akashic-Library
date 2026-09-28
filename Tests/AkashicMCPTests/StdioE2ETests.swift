@@ -439,6 +439,7 @@ extension StdioE2ETests {
         let desc = enrich["description"] as? String ?? ""
         XCTAssertFalse(desc.contains("只回顯進報告、不進 store"), "#517 之後為假的那句不得留在描述裡")
         XCTAssertTrue(desc.contains("provenanceWritten"), "描述要說出 payload 的 provenance 鍵")
+        XCTAssertTrue(desc.contains("provenanceOmitted"), "#655：描述要說出刻意不寫的欄位在哪個鍵")
     }
 
     /// #561 R1 verify：清單以外的讀取器同一條規則——給了而型別不對（null 也算）整個呼叫拒絕。
@@ -467,5 +468,30 @@ extension StdioE2ETests {
         let nullStr = try call(7, "akashic_set_status", ["citekey": NSNull(), "status": "read"])
         XCTAssertTrue(nullStr.contains("citekey 必須是字串"), nullStr)
         XCTAssertEqual(try snapshot(), before, "被拒絕的呼叫不得改任何記錄")
+    }
+}
+
+/// #655 的 MCP 面——**經真 binary**：`date` 在來源齊備時寫 `field: date` 的 reference，`authors` 不寫而理由進
+/// `provenanceOmitted`。service 層的測試（`EnrichDateProvenanceServiceTests`）釘住 payload；這裡釘住 server 的
+/// 參數解析與分派沒有把新鍵弄丟。
+extension StdioE2ETests {
+    func testEnrichWritesDateReferenceAndNamesWhyAuthorsHaveNone() throws {
+        try LibraryStore(root: root).writeEntry(Entry(id: UUID(), citekey: "anon2020x", type: .periodicalArticle, title: "Anon"))
+        try initialize()
+        let digest = "sha256:" + String(repeating: "b", count: 64)
+        let text = try call(2, "akashic_enrich", [
+            "proposals": [["citekey": "anon2020x", "date": "2020", "authors": ["Some One"], "sourceDigest": digest,
+                           "sourceURL": "https://example.org/x", "sourceRetrieved": "2026-09-28", "sourceStatus": 200]],
+            "include_absent_authors": true, "dry_run": false,
+        ])
+        let obj = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any], text)
+        let item = try XCTUnwrap((obj["items"] as? [[String: Any]])?.first, text)
+        XCTAssertEqual(item["provenanceWritten"] as? [String], ["date"], text)
+        let why = try XCTUnwrap((item["provenanceOmitted"] as? [String: String])?["authors"], text)
+        XCTAssertTrue(why.contains("field: authors"), why)
+        let e = try XCTUnwrap(try LibraryStore(root: root).load().entries.first { $0.citekey == "anon2020x" })
+        XCTAssertEqual(e.date, "2020")
+        XCTAssertEqual(e.authors, [.literal("Some One")])
+        XCTAssertEqual(e.references.map(\.field), ["date"], "只有 date 有來源；authors 那一格不收 enrich 的 retrieval")
     }
 }

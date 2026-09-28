@@ -181,14 +181,28 @@ code:
 -->
 
 ---
-### Requirement: Source digests are reported, never stored on the work
+### Requirement: Complete source fields write one retrieval reference per supplied value
 
-The `Proposal` shape SHALL include an optional `sourceDigest` used only for reporting. When present, the system SHALL echo it in the report item and SHALL NOT write it into `Entry.references`.
+The `Proposal` shape SHALL include optional source fields `sourceDigest`, `sourceURL`, `sourceRetrieved`, `sourceStatus` and `sourceMediaType`. When the four required fields (digest, URL, retrieval date, status) are all present, the system SHALL write, in the same write as the value, one `retrieval` reference into `Entry.references` for each value it adds: `fields.<key>` for each added `fields` key (#517), the identifier field with the normalized value for each added DOI, PMID or ISBN, and `date` for an added date (#655) when the target store's format admits that cell. When some but not all source fields are present, the system SHALL write no reference and SHALL name the missing fields in the report item.
 
-#### Scenario: Digest appears in the report only
+Added literal `authors` SHALL NOT receive a reference: the `authors` cell of `Entry.references` holds author-slot records (split and removal) whose value is a retired literal and whose kind is a judgement, so a retrieval for a present author would give one field two opposite meanings. The report item SHALL name this reason. When the target store's format is below the one that admits the `date` cell, the date SHALL still be added, its reference SHALL NOT be written, and the report item SHALL name the store format and the required format.
 
-- **WHEN** a proposal carries `sourceDigest: sha256:…` and is applied
-- **THEN** the report item shows that digest and the entry's `references` list is unchanged
+This requirement replaces the one written when the capability was archived ("source digests are reported, never stored on the work"), which #517 made false.
+
+#### Scenario: A date added from a complete source carries its reference
+
+- **WHEN** a proposal supplies `date` with all four required source fields for an entry whose `date` is empty, and the store format admits the `date` cell
+- **THEN** the entry gains the date and one `retrieval` reference with `field: date` and no value, and the report item lists `date` among the references planned or written
+
+#### Scenario: Authors are added without a reference
+
+- **WHEN** a proposal supplies literal `authors` with all four required source fields and the include-absent-authors flag is set
+- **THEN** the authors are added, no reference with `field: authors` is written, and the report item names the reason
+
+#### Scenario: A store below the required format keeps the date and omits its reference
+
+- **WHEN** the same date proposal is applied to a store whose format is below the one that admits the `date` cell
+- **THEN** the date is added, no reference is written, the write does not fail, and the report item names the store format and the required format
 
 <!-- @trace
 source: generic-add-only-enrich

@@ -104,7 +104,8 @@ public struct Entry: Equatable {
     public var isbn: [ISBN]
     /// 欄位層級的 provenance（#394 §5）。**本輪新增的一條邊**——在此之前 work 的識別碼
     /// 無法攜帶來源，而 spec 明寫「不能攜帶 reference 的識別碼不算記錄的一等公民」。
-    /// 值域：三個識別碼欄位 ＋ `authors`（拆分記錄——已退役的原 literal，#450；見 `validateReferenceAttachment`）。
+    /// 值域是封閉的幾格，唯一的列舉在 `validateReferenceAttachment`（此處不複述——#517 加 `fields.<鍵>` 時
+    /// 這一行沒跟著改，#655 加 `date` 時才發現它停在兩次擴充之前）。
     /// 空清單不序列化——既有記錄零 diff。
     public var references: [ProvenanceReference]
     /// 頂層未知欄位（tolerant-preserve，#23）。

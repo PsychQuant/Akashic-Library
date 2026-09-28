@@ -46,10 +46,10 @@
 | 12 | `Divergence.judgement.restsOn` | `sources/` 的內容 | 同 11 的定址法；**與 10 同一筆記錄的另一條邊** |
 | 13 | `Person.references` / `Organization.references` / `Venue.references` 中 verdict 欄位對的 `value` | work／person／organization／venue（by key） | **僅限封閉的 verdict 欄位**（#232 的欄位對；change `resolution-verdict-states` 起多一個 `resolution-undecided`，#619——同文法、同 holder，封閉三值）；value 文法 `<kind>:<key> :: <literal>`。正典側是**被判定的記錄**：verdict 是關於它的同一性的事實，存在 entry 側會讓 work 長出無上界的 per-person 清單，且 reject 依規格不動 entry。與 11 **不同條**：11 指向存檔內容（content-addressed），13 是 `ProvenanceReference.value` 首次成為跨 entity 指標（by key）——`rename` 因此必須遷移 `work:` value（#232 verify NEW-1 實測不遷移＝否決安靜變回待判）。`resolve-venues` 的 verdict 落被判定的 venue 記錄（#304，同一欄位對、同文法）。**venue 側是 O(catalog)**（#499，2026-09-04 裁決候選 3）：一本刊的 verdict 數＝被歸戶的作品數，`psychological-methods` 實測 1,352 筆；序列化位置**不改**，改在讀取上限的一半設 warning（`AliasEventBudget.recordFileWarningBytes`，量記錄檔的位元組——#645 R2 更正：原本以節點換算，而節點軸對不含 alias 的 store 檔不生效；`StoreHealth.venueVerdictBudgetWarnings`）。達門檻＝重開本條的規模化裁決，那時的形狀是 sidecar ledger（本表改指向 sidecar、12 格遷移改讀寫）——不是 per-literal 聚合（那會打回 #464／#463 的 per-holder 前提）。**person／organization 側另有一族**（#645，`StoreHealth.holderVerdictBudgetWarnings`，同門檻、同量法）：增長來源多了不退役的 `resolution-undecided`，處置先查重複記未決；sidecar 的形狀只對 venue 側裁過 |
 | 14 | `Entry.venues` | venue | `.key` 已歸戶／`.literal` 未歸戶，兩者都合法（與第 1 條同二態形；#304。作品側正典的六理由同適用——刊名沿革中舊文章掛舊刊名即第 4 條可表達性的 venue 版；編年 list 由本邊反向現算，venue 記錄**不存**文章清單） |
-| 15 | `Entry.references` | `sources/` 的內容 | 同第 11 條的定址法（content-addressed `sha256:`），但住在 **work** 上——#394 §5 新增。**正典側是 work**：識別碼（`doi`／`pmid`／`isbn`）是那筆作品的屬性，來源說的是「這個號是從哪裡查到的」，那件事只跟該作品有關。值域：三個識別碼欄位 ＋ **`authors`** ＋ **`fields.<鍵名>`**（#517，見下）（#450，2026-09-07：**拆分記錄**——value 是**已退役**的原 literal，與其他三格「值必須在場」的語意相反；一致性條件是 statement 各段至少一段仍是作者位，由 `StoreHealth` 報 warning（`staleSplitRecords`）而非 decode 拒收；statement 走 `SplitRecordValue` 單一解析器、空 rests-on 經 `firstOrderRulingFields` 放行、store format 16）。**#517 起多一格 `fields.<鍵名>`**（見表下方「第 15 條邊的兩次擴充」）——`title`／`date` 仍不得類推（`validateReferenceAttachment` 的 `default` 照舊拒絕）。 **為什麼在此之前不存在**：`Entry` 原本沒有 `references`，而 provenance-reference spec 明寫「不能攜帶 reference 的識別碼不算記錄的一等公民」——照字面，work 的三個識別碼在補上它之前不算一等公民，而那正是 #394 的標題所主張的東西 |
+| 15 | `Entry.references` | `sources/` 的內容 | 同第 11 條的定址法（content-addressed `sha256:`），但住在 **work** 上——#394 §5 新增。**正典側是 work**：識別碼（`doi`／`pmid`／`isbn`）是那筆作品的屬性，來源說的是「這個號是從哪裡查到的」，那件事只跟該作品有關。值域：三個識別碼欄位 ＋ **`authors`** ＋ **`fields.<鍵名>`**（#517）＋ **`date`**（#655；兩者見表下方）（#450，2026-09-07：**拆分記錄**——value 是**已退役**的原 literal，與其他三格「值必須在場」的語意相反；一致性條件是 statement 各段至少一段仍是作者位，由 `StoreHealth` 報 warning（`staleSplitRecords`）而非 decode 拒收；statement 走 `SplitRecordValue` 單一解析器、空 rests-on 經 `firstOrderRulingFields` 放行、store format 16）。**#517 起多一格 `fields.<鍵名>`、#655 起多一格 `date`**（見表下方「第 15 條邊的三次擴充」）——`title` 仍不得類推（`validateReferenceAttachment` 的 `default` 照舊拒絕）。 **為什麼在此之前不存在**：`Entry` 原本沒有 `references`，而 provenance-reference spec 明寫「不能攜帶 reference 的識別碼不算記錄的一等公民」——照字面，work 的三個識別碼在補上它之前不算一等公民，而那正是 #394 的標題所主張的東西 |
 
 
-#### 第 15 條邊的兩次擴充（#450 的 `authors`、#517 的 `fields.<鍵名>`）
+#### 第 15 條邊的三次擴充（#450 的 `authors`、#517 的 `fields.<鍵名>`、#655 的 `date`）
 
 > **`authors` 那一格自 #457 起收兩種記錄**（值域沒有再擴，收的仍是 `authors`）：拆分（`拆為 ⟦a⟧ ⟦b⟧：理由`，退役後留 N ≥ 2 段，format ≥ 16）與**移除**（`移除：理由`，留 0 段，format ≥ 17）。兩者的 value 語意相同——**已退役的作者 literal**——差別只在退役之後剩幾段，所以住同一個 field，由 statement 前綴分辨、各有唯一解析器。
 > **一致性條件相反**：拆分要求「至少一段仍是作者位」（`staleSplitRecords`），移除要求那個字串**不在**作者位（`contradictedRemovalRecords`），兩者都是 warning。
@@ -62,6 +62,13 @@
 - **kind 必須是 retrieval**，因為一次查找的 **url 與日期沒有別的地方記**：`sources/index.jsonl` 記 origin／retrieved／media-type，**不記 url**。
 - **空 rests-on 的 judgement 走不進來**（那是被否掉的另一條路）：`fields.*` 與識別碼都不在 `firstOrderRulingFields`，平面 init 已經擋下。所以走 judgement 的必然帶著真的 digest——離線來源（紙本掃描件）因此表達得出來，而 `retrieval` 的 url 是必填的。
 - **刻意不檢查 `fields[鍵]` 在場**：那正是負結果的形狀。代價寫出來——打錯的鍵名會靜靜附上去，沒有東西擋得住；要擋它就得放棄負結果的表達法。
+
+#655（使用者 2026-09-28 裁決）替**頂層 `date`** 開一格，語意逐條比照 `fields.<鍵名>`：
+
+- **不借 `fields.date`**：那是 `Entry.fields["date"]`——`lossless-intake` 收下的另一個格子（2026-09-28 實測 live store 2,563 筆 work 裡 0 筆，但隨時可能出現）。無前綴的 `date` 只能指頂層那一個，前綴規則讓兩者在文法上分得開，與 `fields.type`／頂層 `type:` 同形。
+- **不收 value、不驗 `date` 在場**：在場＝值出自這份來源；缺席 ＋ retrieval＝查過了、這份來源沒給；`n.d.` ＋ 一筆 reference＝「作品沒有日期」這件事出自這份來源——`n.d.` 是關於作品的斷言，缺席是關於來源的，兩者不同。
+- **值域擴充 ＝ store format 20**：format-19 binary 的 `default` 會整檔 quarantine，所以寫入閘擋 format < 20；`enrich` 在寫入前讀 marker，低於門檻時值照補、reference 不寫、理由具名（`provenanceOmitted.date`）。
+- **`authors` 不因此收 enrich 的來源**：`field: authors` 那一格已經有主人（作者位記錄，value 是**已退役**的 literal、kind 只收 judgement）；補進去的作者是在場的值、來源是一次取得。讓同一個 field 承載兩種相反語意，就是前綴要消掉的那種歧義換個位置再犯一次——`enrich` 補作者時不寫 reference，理由具名（`provenanceOmitted.authors`）。
 
 **每一條邊只存一次，存在上表指定的那一側。反向一律現算。**
 

@@ -134,12 +134,26 @@ final class EnrichCLITests: XCTestCase {
         let item = try XCTUnwrap((obj["items"] as? [[String: Any]])?.first, json.output)
         let written = try XCTUnwrap(item["provenanceWritten"] as? [String], "payload 要帶 provenanceWritten：\(json.output)")
         XCTAssertEqual(written, ["fields.note"], json.output)
-        // 只補 date：不產生 reference（#655），CLI 行不得說「沒有補任何值」
+        // 只補 date：#655 起它有自己的一格（store format ≥ 20），CLI 行說會寫那一筆、不得說「沒有補任何值」
         let dateOnly = try proposals(#"[{"citekey":"noauthor2020x","date":"2020","sourceDigest":"\#(digest)","sourceURL":"https://example.org/y","sourceRetrieved":"2026-09-09","sourceStatus":200}]"#)
         let d = try cli(["enrich", "--from", dateOnly])
         XCTAssertTrue(d.output.contains("+ date"), d.output)
-        XCTAssertTrue(d.output.contains("date／authors 不寫 reference"), d.output)
+        XCTAssertTrue(d.output.contains("--apply 時會寫 1 筆 reference（date）"), d.output)
         XCTAssertFalse(d.output.contains("沒有補任何值"), d.output)
+        XCTAssertFalse(d.output.contains("來源未記"), d.output)
+        // 只補 authors：一律不寫（field: authors 是作者位記錄的格子），逐欄理由印出來
+        let authorsOnly = try proposals(#"[{"citekey":"noauthor2020x","authors":["Some One"],"sourceDigest":"\#(digest)","sourceURL":"https://example.org/z","sourceRetrieved":"2026-09-09","sourceStatus":200}]"#)
+        let a = try cli(["enrich", "--from", authorsOnly, "--include-absent-authors"])
+        XCTAssertTrue(a.output.contains("補進去的值都不寫 reference"), a.output)
+        XCTAssertTrue(a.output.contains("來源未記：authors——") && a.output.contains("field: authors"), a.output)
+        XCTAssertFalse(a.output.contains("沒有補任何值"), a.output)
+        // store 低於 format 20：date 照補、reference 省略，理由在 dry-run 就印得出來
+        try StoreVersion.write(root: root, format: 19)
+        let old = try cli(["enrich", "--from", dateOnly])
+        XCTAssertEqual(old.status, 0, old.output)
+        XCTAssertTrue(old.output.contains("來源未記：date——本 store 是 format 19"), old.output)
+        XCTAssertFalse(old.output.contains("--apply 時會寫"), old.output)
+        try StoreVersion.write(root: root, format: StoreVersion.supported)
         // 只有 digest：不寫，理由具名；CLI 行不得說寫了
         let digestOnly = try proposals(#"[{"citekey":"cheng2025alpha","fields":{"note":"N"},"sourceDigest":"\#(digest)"}]"#)
         let skipped = try cli(["enrich", "--from", digestOnly, "--apply"])

@@ -2452,10 +2452,30 @@ public final class AkashicService {
             throw ServiceError.invalid("itemLimit 必須 ≥ 1（0 不是「全部」也不是「一個都不要」——要全部就不要給）")
         }
         let load = try store.load()
+        // #655：`date` 的來源 reference 是 format 20 的格子。**寫入前**就讀 marker，低於門檻時讓 core 省略那一格並具名，
+        // 而不是讓寫入閘在 apply 時擋下整筆（那會連同值與其他欄位一起 writeFailed，dry-run 還說「會寫」）。
+        // 門檻與寫入閘是同一個常數（`StoreVersion.workDateReferenceFormat`）。
+        let dateReference: AddOnlyEnrichment.DateReferenceCell
+        do {
+            let f = try StoreVersion.read(root: store.root)
+            let need = StoreVersion.workDateReferenceFormat, prior = need - 1
+            dateReference = f >= need
+                ? .writable
+                : .unavailable(reason: "本 store 是 format \(f)，date 的來源 reference 需要 ≥ \(need)"
+                    + "（format-\(prior) binary 讀到會整檔 quarantine）——date 照補、reference 不寫。"
+                    + "三個 binary 都升級並把 store.yaml 改成 format: \(need) 之後，重跑也不會補上這一筆（date 已在，add-only 不再動它）"
+                    + "，所以要記來源就先升級再補")
+        } catch {
+            // `load()` 剛解析過同一個 marker，走到這裡只剩兩次讀之間 marker 被改動。理由不帶錯誤原文：它會在 payload 端
+            // 經 `displaySafe` 再逃一次（不冪等），而錯誤本身不改變處置——不確定收不收得下，就不寫。
+            dateReference = .unavailable(reason: "讀不到 store format，無法確認這個 store 收得下 date 的來源 reference"
+                + "——date 照補、reference 不寫")
+        }
         let plan: AddOnlyEnrichment.Result
         do {
             plan = try AddOnlyEnrichment.plan(entries: load.entries, proposals: proposals,
-                                              includeAbsentAuthors: includeAbsentAuthors)
+                                              includeAbsentAuthors: includeAbsentAuthors,
+                                              dateReference: dateReference)
         } catch {
             // core 的 InputError 已指名第 N 筆與理由；欄位名來自呼叫端＝未信任字串，消毒後轉出。
             throw ServiceError.invalid(displaySafeError(error, max: 512))
@@ -2542,6 +2562,13 @@ public final class AkashicService {
                 }
                 if let s = item.outcome.provenanceSkipped {
                     one["provenanceSkipped"] = displaySafe(s, max: 300)
+                }
+                // #655：來源齊備、值補了、reference 刻意不寫的欄位與理由（`authors` 一律；`date` 在 format < 20 時）。
+                // 與上面三個狀態鍵正交：`date` 寫得進去時它在 provenancePlanned／Written 裡，寫不進去時在這裡。
+                if !item.outcome.provenanceOmitted.isEmpty {
+                    one["provenanceOmitted"] = Dictionary(uniqueKeysWithValues: item.outcome.provenanceOmitted.map {
+                        (displaySafe($0.key, max: 80), displaySafe($0.value, max: 600))
+                    })
                 }
                 if !item.outcome.refused.isEmpty {
                     one["refused"] = item.outcome.refused.map { displaySafe($0, max: 300) }

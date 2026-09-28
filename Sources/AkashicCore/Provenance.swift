@@ -56,6 +56,18 @@ public struct ProvenanceReference: Equatable {
     /// （`PATH_ROOTS`、`trigger-coverage` 的 `DATA`）。
     public static let workFieldPrefix = "fields."
 
+    /// work 的**頂層 `date`**（`Entry.date`）在 reference 上的欄位名（#655）。
+    ///
+    /// **不是 `fields.date`**：`fields` 底下的 `date` 是 `Entry.fields["date"]`——biblatex 殘留的另一個格子
+    /// （2026-09-28 實測 live store 2,563 筆 work 沒有一筆帶這個鍵，但 `lossless-intake` 讓它隨時可能出現）。
+    /// 兩個格子同名不同物，與 `fields.type`／頂層 `type:` 同形（store-format §「`fields.type` 與頂層
+    /// `type:` 同名」）。前綴讓兩者在文法上分得開：無前綴的 `date` 只能指頂層那一個。
+    ///
+    /// 語意與 `fields.<鍵>` 那一格相同（D2：純量欄位不收 value；不驗 `date` 在場——在場＝值出自這份來源、
+    /// 缺席＝查過了、這份來源沒給）。這一格是 store format 20 的 vocabulary：format-19 binary 的
+    /// `Entry.validateReferenceAttachment` 沒有它，讀到會走封閉 default → 整檔 quarantine。
+    public static let workDateField = "date"
+
     /// #232 verify（DA）：verdict `value` 的**單一文法**——`<kind>:<key> :: <literal>`。
     ///
     /// kind token **必填**且**兩族統一**：person 與 organization 的 key 可合法同名
@@ -789,11 +801,13 @@ extension Venue {
 /// 所以在本輪之前 work 的 `doi`／`pmid`／`isbn` 照該 requirement 的字面不算一等公民
 /// ——這正是本 change 的標題所主張的東西。使用者 2026-08-24 裁定補齊。
 ///
-/// **值域刻意只有三個識別碼欄位＋一格拆分記錄。** work 的其餘欄位（`title`／`date`／`fields.*`）
-/// 要不要能攜帶來源是另一個問題，#394 不裁決——寫在這裡是為了讓「只有這幾個」
+/// **值域是封閉列舉**：三個識別碼欄位、`authors`（作者位記錄，#450／#457）、`fields.<鍵>`（#517）、
+/// `date`（#655）——即下方 `switch` 的各個 case，格數以那裡為準、這裡不寫數字。#394 落地時只有三個識別碼，
+/// 其餘欄位（`title`／`date`／`fields.*`）要不要能攜帶來源當時不裁決；#450、#517、#655 各自顯式裁了一格。
+/// **`title` 仍不在其中**——`default` 照舊拒絕，不得依「`date` 也收了」類推。寫在這裡是為了讓「只有這幾格」
 /// 是一個看得見的選擇，而不是一個沒人注意到的省略。
 ///
-/// **`authors` 那一格的語意與其他三格相反**（#450）：識別碼 reference 附著在**當下存在**的值
+/// **`authors` 那一格的語意與識別碼那三格相反**（#450）：識別碼 reference 附著在**當下存在**的值
 /// （D2 以值定位、`identifierListContains` 驗值在場）；拆分記錄指向的是**已退役**的值（被拆掉的
 /// 原 literal），所以不驗 value 在場——它的一致性條件是「statement 各段至少一段仍是本 work 的
 /// 作者位」，而那放在 `StoreHealth`（warning），不在 decode 期：記錄合法，只是證據錨可能失效。
@@ -887,11 +901,28 @@ extension Entry {
                 // （`fields.*` 不在 `firstOrderRulingFields`），所以走這條必然帶著真的 digest
                 // ——離線來源（掃描的紙本頁）因此表達得出來，而 retrieval 的 url 是必填的。
                 break
+            case ProvenanceReference.workDateField:
+                // **頂層 `date` 的來源**（#655，使用者 2026-09-28 裁決：開新的一格，不借 `fields.date`）。
+                //
+                // 語意逐條比照上面 `fields.<鍵>` 那一格——兩格描述的是同一種東西（一個純量欄位的來源），
+                // 所以規則也只有一份說法：
+                // - **不收 value**（D2）：`date` 恰有一個值，沒有「支持哪一個」可說。
+                // - **不驗 `date` 在場**：在場＝值出自這份來源；缺席＝查過了，這份來源沒給。後者**不是**
+                //   `n.d.`（`Entry.noDateSentinel`）——`n.d.` 說「這筆作品確實沒有日期」，是關於作品的斷言；
+                //   缺席 ＋ 查找記錄說的是「這份來源沒有給日期」，是關於來源的。`date: n.d.` ＋ 一筆 reference
+                //   則是「作品沒有日期」這件事出自那份來源。三種讀法見 `docs/store-format.md` §3.5「work 的 `references`」。
+                // - kind 兩種都收：retrieval（url 與日期沒有別的地方記）或帶 digest 的 judgement（空 rests-on
+                //   已被平面 init 擋下——`date` 不在 `firstOrderRulingFields`）。
+                guard r.value == nil else {
+                    throw StoreYAMLError.invalidField(
+                        "entry.references(field: date)",
+                        "date 恰有一個值，reference 不收 value（D2，比照 fields.<鍵>）")
+                }
             default:
                 throw StoreYAMLError.invalidField(
                     "entry.references(field: \(displaySafeInvisible(r.field, max: 120)))",
                     "work 沒有可附著 reference 的欄位「\(displaySafeInvisible(r.field, max: 120))」"
-                    + "（合法：doi、pmid、isbn、authors、fields.<鍵名>）")
+                    + "（合法：doi、pmid、isbn、authors、date、fields.<鍵名>）")
             }
         }
     }

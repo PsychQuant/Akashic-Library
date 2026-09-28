@@ -2,6 +2,7 @@ import ArgumentParser
 import Foundation
 import AkashicCore
 import AkashicMCPKit
+import AkashicStoreIO
 
 /// generic add-only 補值（#458）：`akashic enrich --from <file.json> [--apply] [--include-absent-authors] [--json]`。
 ///
@@ -24,7 +25,7 @@ struct EnrichCmd: ParsableCommand {
 
     @OptionGroup var options: LibraryOptions
 
-    @Option(name: .long, help: "提案 JSON 檔：[{citekey|doi, fields{…}, date?, authors?, sourceDigest?, sourceURL?, sourceRetrieved?, sourceMediaType?, sourceStatus?}]（每筆 citekey 或 doi 恰一個；digest／URL／retrieved／status 四欄齊備才寫 retrieval reference）")
+    @Option(name: .long, help: "提案 JSON 檔：[{citekey|doi, fields{…}, date?, authors?, sourceDigest?, sourceURL?, sourceRetrieved?, sourceMediaType?, sourceStatus?}]（每筆 citekey 或 doi 恰一個；digest／URL／retrieved／status 四欄齊備才寫 retrieval reference——補進去的 fields 鍵、doi／pmid／isbn、date 各一筆，date 需要 store format ≥ \(StoreVersion.workDateReferenceFormat)；authors 不寫，理由印在報告）")
     var from: String
 
     @Flag(name: .long, help: "實際寫入（預設只列出計畫）")
@@ -109,6 +110,7 @@ struct EnrichCmd: ParsableCommand {
             // 只給 URL／日期、沒有 digest 的提案也要說（#542 R2 verify：先前這一行只在有 digest 時才印，那一格兩面都沉默）
             if item["sourceDigest"] != nil || item["provenanceSkipped"] != nil {
                 let digest = item["sourceDigest"] as? String ?? "（沒給 digest）"
+                let omitted = item["provenanceOmitted"] as? [String: String] ?? [:]
                 if let written = item["provenanceWritten"] as? [String], !written.isEmpty {
                     print("    來源：\(digest) → 已寫入 \(written.count) 筆 reference（\(written.joined(separator: "、"))）")   // display-safe-exempt: service 已對每個值 displaySafe；count 是 Int
                 } else if let planned = item["provenancePlanned"] as? [String], !planned.isEmpty {
@@ -120,9 +122,14 @@ struct EnrichCmd: ParsableCommand {
                 } else if (item["additions"] as? [[String: String]] ?? []).isEmpty {
                     print("    來源：\(digest)（沒有補任何值，所以沒有 reference）")   // display-safe-exempt: service 已對每個值 displaySafe
                 } else {
-                    // 補進去的只有 date／authors：它們不產生 retrieval reference（#655）。R1 verify 實測：這裡曾印
-                    // 「沒有補任何值」，而上一行正列著 `+ date = …`。
-                    print("    來源：\(digest)（補進去的 date／authors 不寫 reference——缺口 #655）")   // display-safe-exempt: service 已對每個值 displaySafe
+                    // 補了值、卻一筆 reference 都沒有：補進去的只有 `provenanceOmitted` 列出的欄位（#655：authors 一律、
+                    // date 在 store format 低於 `StoreVersion.workDateReferenceFormat` 時）。理由逐欄印在下面。R1 verify（#542）實測：這裡曾印「沒有補任何值」，
+                    // 而上一行正列著 `+ date = …`。
+                    print("    來源：\(digest)（補進去的值都不寫 reference，逐欄理由見下）")   // display-safe-exempt: service 已對每個值 displaySafe
+                }
+                // #655：與上面的狀態行正交——`date` 寫進去時它在「已寫入／會寫」那一行，寫不進去時在這裡。
+                for (field, why) in omitted.sorted(by: { $0.key < $1.key }) {
+                    print("    來源未記：\(field)——\(why)")   // display-safe-exempt: service 已對每個值 displaySafe
                 }
             }
         }

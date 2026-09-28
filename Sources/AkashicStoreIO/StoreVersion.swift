@@ -157,7 +157,18 @@ public enum StoreVersion {
     ///   org 檔消失）；(2) 舊 binary 的**合併**以舊鍵收攏（rename 自 D62 起只折整筆位元組相同的記錄、不受影響——R1 verify DA），會把並存的兩筆 confirmed 收成一筆、安靜丟掉其中一筆理由。
     ///   write gate（`assertVerdictShapesWritable`）對 format < 19 拒寫帶未決記錄、或同一配對兩個層級並存的 person／org／venue。
     ///   **無資料遷移**（兩種形狀在 format 18 都寫不出來，既有記錄零 diff）。
-    public static let supported = 19
+    /// - **20** ＝ work 的 `references` 多一格 `date`（頂層 `Entry.date` 的來源，#655）。**non-additive，理由同 16**：
+    ///   format-19 binary 的 `Entry.validateReferenceAttachment` 沒有 `date` case → 封閉 default 擲錯 → **整檔
+    ///   quarantine**、rc=0——補過日期來源的 work 在舊 binary 上整筆消失。write gate（`assertEntryWritable`）對
+    ///   format < `workDateReferenceFormat` 拒寫帶這一格的 entry；`enrich` 在寫入之前就讀 marker，低於 20 時**值照補、
+    ///   reference 不寫、理由進報告**（`provenanceOmitted`），不讓整筆寫入失敗。**無資料遷移**（這一格在 format 19
+    ///   寫不出來，既有記錄零 diff）。**為什麼不像 #517 的 `fields.<鍵>` 那樣不 bump**：那一格落地時沒有自己的
+    ///   bump，是被同一天稍晚的 format 17 蓋住的（`b1027be0` 是 17 那次 bump 的祖先）——那是順序的巧合，不是契約。
+    public static let supported = 20
+
+    /// work 的 `date` 來源 reference（#655）需要的最低 store format。**寫入閘與 `enrich` 的事前判斷共用這一個數**
+    /// ——兩邊各寫一個 20，會在下一次有人調整其中一邊時安靜地分岔（`enrich` 說「會寫」、寫入閘卻擋下）。
+    public static let workDateReferenceFormat = 20
 
     /// 遷移完成後的 format bump 提示——**只在真的要升的時候印**（#472）。
     ///

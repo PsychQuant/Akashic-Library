@@ -52,7 +52,45 @@ import Foundation
 /// 與日期沒有別的地方記（`sources/index.jsonl` 記 origin／retrieved／media-type，**不記 url**），
 /// 所以 digest 單獨湊不出一筆誠實的 retrieval。那時理由具名進 `Outcome.provenanceSkipped`
 /// ——不靜默。
+///
+/// ## `date` 與 `authors` 的來源（#655，使用者 2026-09-28 裁決）
+///
+/// #517 只替 `fields` 的鍵與三個識別碼寫 reference，補進去的 `date`／`authors` 沒有——store 記得值、
+/// 不記得它出自哪裡。兩者的處置**相反**，理由各自獨立：
+///
+/// - **`date` 寫**：第 15 條邊開新的一格 `date`（`ProvenanceReference.workDateField`，不借 `fields.date`——
+///   那是 `fields["date"]`，另一個格子）。語意逐條比照 `fields.<鍵>`：不收 value、`date` 在場＝值出自
+///   這份來源。這一格是 store format 20 的 vocabulary，所以 `plan` 收一個 `dateReference`：呼叫端讀過
+///   marker 之後告訴它寫不寫得進去；寫不進去時**值照補、reference 不寫**，理由進 `Outcome.provenanceOmitted`。
+/// - **`authors` 不寫**：`field: authors` 那一格已經有主人——作者位記錄（拆分 `拆為 …`／移除 `移除：…`，
+///   #450／#457）。那一格的 value 是**已退役**的 literal、kind 必須是 judgement；補進去的作者是**在場**的值、
+///   來源是一次取得（retrieval）。同一個欄位名承載兩種相反的語意，讀它的每個地方（附著驗證、
+///   `staleSplitRecords`、`contradictedRemovalRecords`、un-split）都得先猜是哪一種——那正是
+///   `workFieldPrefix` 用前綴消掉的那種歧義。另開一格（例如 `authors.<n>`）要替「作者位的來源」設計形狀，
+///   而作者位會被拆、被移除、被升格，索引不穩——不在本輪。理由進 `Outcome.provenanceOmitted["authors"]`
+///   （`authorsProvenanceOmittedReason`）。
 public enum AddOnlyEnrichment {
+
+    /// `authors` 為什麼不寫來源 reference（#655）。**報告面逐字用這一句**——兩面同一個 payload。
+    public static let authorsProvenanceOmittedReason =
+        "作者不寫來源 reference：field: authors 已是作者位記錄（拆分／移除）的格子——那裡的 value 是已退役的 literal、"
+        + "kind 必須是 judgement，而補進去的作者是在場的值、來源是一次取得（#655）"
+
+    /// 目標 store 收不收得下 `date` 的來源 reference（#655）。
+    ///
+    /// `plan` 是純函式、不讀 store；而 `date` 那一格是 store format 20 的 vocabulary（format-19 binary 讀到會整檔
+    /// quarantine）。所以呼叫端先讀 marker，再把結論傳進來——core 不知道 format 的數字，只收「寫得進去」或
+    /// 「寫不進去，理由是這句」。
+    ///
+    /// **預設 `.writable` 是本 binary 的能力**，不是對目標 store 的猜測：漏傳的呼叫端寫進舊 store 時，寫入閘
+    /// （`LibraryStore.assertEntryWritable`）會具名擋下那一筆（writeFailed），不會安靜地造出舊 binary 讀不了的檔。
+    /// 提案帶得了來源欄位的 production 呼叫端（`AkashicService.enrich`）一律顯式傳入；Zotero adapter 的提案
+    /// 沒有來源欄位、產生不了任何 reference，這個參數對它不起作用。
+    public enum DateReferenceCell: Equatable {
+        case writable
+        /// 值照補、reference 不寫；`reason` 原樣進 `Outcome.provenanceOmitted["date"]`。
+        case unavailable(reason: String)
+    }
 
     /// 單一字串的上限，**以 UTF-8 位元組計**（#519 Expected 2 裁決）。
     ///
@@ -292,20 +330,28 @@ public enum AddOnlyEnrichment {
         /// **部分成功**：一部分 token 解得出並已採用，其餘形狀不認得（#394 verify R9）。
         /// 刻意不併進 `refused`——那個欄位的契約是「刻意不採用」，而部分成功既不是刻意也不是不採用。
         public var partial: [String]
-        /// #517：每個補進去的欄位一筆 `retrieval` reference（`fields.<鍵>`／識別碼帶 value）。
+        /// #517：每個補進去的欄位一筆 `retrieval` reference（`fields.<鍵>`／識別碼帶 value；#655 起加 `date`，
+        /// 目標 store 收得下時）。`authors` 永遠沒有，理由在 `provenanceOmitted`。
         /// 三欄來源不齊時是空的，理由進 `provenanceSkipped`——不靜默。
         public var addedReferences: [ProvenanceReference]
         /// 有 digest 卻寫不成 reference 的理由（`lossless-intake` 執行細節 3：丟棄必須可見）。
         public var provenanceSkipped: String?
+        /// **來源齊備、值也補進去了，卻刻意不寫 reference 的欄位 → 理由**（#655）。封閉兩鍵：
+        /// `authors`（一律——那一格是作者位記錄的，`authorsProvenanceOmittedReason`）與 `date`（目標 store 低於
+        /// format 20 時——理由由呼叫端經 `DateReferenceCell.unavailable` 給）。與 `provenanceSkipped` 不重疊：那個是
+        /// 「來源欄位不齊、整筆都不寫」，這個只在來源齊備時才有。
+        public var provenanceOmitted: [String: String]
 
         public init(addedFields: [String: String] = [:], addedDate: String? = nil,
                     addedAuthors: [Author] = [], addedDOIs: [DOI] = [], addedPMIDs: [PMID] = [],
                     addedISBNs: [ISBN] = [], refused: [String] = [], partial: [String] = [],
-                    addedReferences: [ProvenanceReference] = [], provenanceSkipped: String? = nil) {
+                    addedReferences: [ProvenanceReference] = [], provenanceSkipped: String? = nil,
+                    provenanceOmitted: [String: String] = [:]) {
             self.addedFields = addedFields; self.addedDate = addedDate; self.addedAuthors = addedAuthors
             self.addedDOIs = addedDOIs; self.addedPMIDs = addedPMIDs; self.addedISBNs = addedISBNs
             self.refused = refused; self.partial = partial
             self.addedReferences = addedReferences; self.provenanceSkipped = provenanceSkipped
+            self.provenanceOmitted = provenanceOmitted
         }
 
         public var nothingToAdd: Bool {
@@ -343,8 +389,11 @@ public enum AddOnlyEnrichment {
     ///
     /// 同一批裡多筆提案指向同一筆記錄時**依序**計算：後面的提案看得到前面那筆會補的鍵
     /// （否則兩筆都報「added」而 apply 只寫得進一筆的內容）。
+    ///
+    /// `dateReference`：目標 store 收不收得下 `date` 的來源 reference（#655，見 `DateReferenceCell`）。
     public static func plan(entries: [Entry], proposals: [Proposal],
-                            includeAbsentAuthors: Bool = false) throws -> Result {
+                            includeAbsentAuthors: Bool = false,
+                            dateReference: DateReferenceCell = .writable) throws -> Result {
         // 1. 整批驗證，零寫入——任一筆語法錯就不產生任何 item。
         let validated = try proposals.enumerated().map { try validate($1, index: $0 + 1) }
 
@@ -406,7 +455,8 @@ public enum AddOnlyEnrichment {
             // 3. 政策（逐字自 ZoteroEnrichment.plan）
             let entry = working[citekey]!
             let (outcome, alreadyPresent, note) = policy(entry: entry, proposal: p,
-                                                         includeAbsentAuthors: includeAbsentAuthors)
+                                                         includeAbsentAuthors: includeAbsentAuthors,
+                                                         dateReference: dateReference)
             let category: Category
             if outcome.nothingToAdd {
                 category = outcome.refused.isEmpty ? .skipped : .rejected
@@ -539,7 +589,8 @@ public enum AddOnlyEnrichment {
     }
 
     /// 欄位政策本體——**逐字**自 `ZoteroEnrichment.plan` 搬入（#340／#394 verify R7–R9）。
-    private static func policy(entry: Entry, proposal p: Validated, includeAbsentAuthors: Bool)
+    private static func policy(entry: Entry, proposal p: Validated, includeAbsentAuthors: Bool,
+                               dateReference: DateReferenceCell)
         -> (Outcome, alreadyPresent: [String], note: String?) {
         var added: [String: String] = [:]
         var addedDOIs: [DOI] = [], addedPMIDs: [PMID] = [], addedISBNs: [ISBN] = []
@@ -632,6 +683,7 @@ public enum AddOnlyEnrichment {
         // 流程，另案。
         var addedReferences: [ProvenanceReference] = []
         var provenanceSkipped: String?
+        var provenanceOmitted: [String: String] = [:]
         if let kind = p.raw.retrievalKind {
             for k in added.keys.sorted() {
                 addedReferences.append(ProvenanceReference(
@@ -647,6 +699,20 @@ public enum AddOnlyEnrichment {
             for b in addedISBNs {
                 addedReferences.append(ProvenanceReference(field: "isbn", value: b.normalized, kind: kind))
             }
+            // #655：`date` 一格（純量、不收 value，同 `fields.<鍵>`）；目標 store 收不下時值照補、理由具名。
+            if addedDate != nil {
+                switch dateReference {
+                case .writable:
+                    addedReferences.append(ProvenanceReference(
+                        field: ProvenanceReference.workDateField, value: nil, kind: kind))
+                case .unavailable(let reason):
+                    provenanceOmitted[ProvenanceReference.workDateField] = reason
+                }
+            }
+            // #655：`authors` 不寫——那一格是作者位記錄的（見型別頂部），說出來而不是沉默。
+            if !addedAuthors.isEmpty {
+                provenanceOmitted["authors"] = authorsProvenanceOmittedReason   // display-safe-exempt: 本型別的字面常量，不是 store 字串；payload 端另逃一次
+            }
         } else if !p.raw.missingSourceFields.isEmpty {
             // 給了來源欄位卻寫不成 reference——說出來，不靜默（`lossless-intake` 執行細節 3）。
             // #542 R2 verify：先前只在「有 digest」時說；只給 URL 與日期的提案兩面都一聲不吭。
@@ -658,7 +724,8 @@ public enum AddOnlyEnrichment {
         let outcome = Outcome(addedFields: added, addedDate: addedDate, addedAuthors: addedAuthors,
                               addedDOIs: addedDOIs, addedPMIDs: addedPMIDs, addedISBNs: addedISBNs,
                               refused: refused, partial: partial,
-                              addedReferences: addedReferences, provenanceSkipped: provenanceSkipped)
+                              addedReferences: addedReferences, provenanceSkipped: provenanceSkipped,
+                              provenanceOmitted: provenanceOmitted)
         return (outcome, alreadyPresent, notes.isEmpty ? nil : notes.joined(separator: "；"))
     }
 

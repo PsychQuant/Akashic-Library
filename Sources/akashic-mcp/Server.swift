@@ -290,6 +290,13 @@ actor AkashicMCPServer {
                 "rests_on": strArray("判斷依據的存檔 digest（sha256:64hex；URL 不是合法值——先用 akashic_store_source 存證據拿 digest；選填，與 judgement 成對）"),
                 "prefers": str("判斷傾向哪個候選的 key（選填，與 judgement 成對；必須是候選之一）——消歧會據以比對、不一致時拒絕，但**不代選**：倖存者仍須人工指定"),
              ], required: ["question", "candidates"])),
+        Tool(name: "akashic_dismiss_divergence",
+             description: "放棄一筆歧異記錄（#586）：只刪那筆記錄，候選實體與參照都不動——問題不成立、候選記錯了、或撞上沒有合併管線的 shape（organization）時用。理由必填、只進報告（不寫進 store；要留在 git 就寫進 commit message）；刪除前要求記錄檔已在 git 裡 commit、乾淨，否則拒絕零寫入。dry_run 只回報要刪哪一筆。與 CLI dismiss-divergence 同契約。合併（resolve-divergence）仍只有 CLI 面。",
+             inputSchema: obj([
+                "id": str("歧異記錄的 id（UUID；先用 akashic_divergences 列出）"),
+                "reason": str("為什麼這個問題不成立或不再延後判定（必填，至多 4,096 位元組）"),
+                "dry_run": .object(["type": .string("boolean"), "description": .string("true＝只回報、不動檔案（預設 false，與 CLI 同）")]),
+             ], required: ["id", "reason"])),
         Tool(name: "akashic_import_zotero",
              description: "觸發 Zotero → Akashic 單向 pull（zotero.sqlite 唯讀）。回傳完整 import report；單筆寫入失敗記入 writeFailed 並續跑（index 照常重建）。",
              inputSchema: obj([
@@ -690,6 +697,9 @@ actor AkashicMCPServer {
                     question: arg("question") ?? "", candidates: argList("candidates"),
                     judgement: arg("judgement"), restsOn: argList("rests_on"),
                     prefers: arg("prefers"))
+            case "akashic_dismiss_divergence":
+                output = try service.dismissDivergence(id: arg("id") ?? "", reason: arg("reason") ?? "",
+                                                       dryRun: try argFlag("dry_run", default: false))
             case "akashic_import_zotero":
                 output = try service.importZotero(zoteroDb: arg("zotero_db"),
                                                   libraryID: argInt("library_id"))

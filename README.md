@@ -850,6 +850,9 @@ venue 域先前**沒有批次建檔的路徑**。person 與 organization 都有�
 不可逆」這個不對稱上，並為它提供退路。**venue 於 #553 補齊**（record↔record 的攣生
 合併，與 `--repoint`／`--demote` 是不同的東西：後兩者改的是**邊**，前者刪的是**記錄**）；
 `resolve-divergence` 現在接得住 person／work／venue，organization 仍拒。
+撞上 organization 的歧異記錄（或記錯的一筆）有出路了：`dismiss-divergence <id> --reason …`
+（MCP `akashic_dismiss_divergence`，#586）只刪那筆問題記錄、候選實體與參照都不動；理由只進報告，
+刪除前要求記錄檔已 commit。venue 邊則多一條 `resolve-venues --drop-venue`（#572）刪掉多餘的邊。
 
 > **這一段在 #553 close 的 doc-sync sweep 抓到過一次，而它抓到的不只是文件。**
 > 原文逐字引用著錯誤訊息「本版的消歧只處理 person 與 work」——去核對才發現

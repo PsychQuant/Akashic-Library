@@ -77,7 +77,7 @@ struct AkashicCLI: ParsableCommand {
             ResolvePeople.self, Doctor.self, Query.self, Graph.self, Rename.self, RenamePerson.self, LibraryCmd.self, FileCmd.self,
             Migrate.self, MigrateProvenance.self, MigratePersonIdentity.self,
             ExportTables.self, ImportWoS.self, BootstrapPeople.self,
-            ResolveDivergence.self, RecordDivergence.self, AuthorizeNames.self,
+            ResolveDivergence.self, DismissDivergence.self, RecordDivergence.self, AuthorizeNames.self,
             BootstrapOrganizations.self, ResolveOrganizations.self,
             BootstrapVenues.self,
             EnrichFromZotero.self,   // #340：逐筆補值（add-only；與 pull 語意刻意不同）

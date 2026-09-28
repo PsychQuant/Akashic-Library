@@ -3,12 +3,14 @@ import Foundation
 import AkashicCore
 import AkashicIndex
 import AkashicStoreIO
+import AkashicMCPKit
 
 /// 消歧：把一筆歧異記錄的候選合併到指定的倖存者，並刪除記錄與被併實體。
 ///
-/// **不提供「只刪記錄」的旗標。** 刪掉記錄卻不改寫參照，留下的是指向不存在鍵的
-/// 引用——spec 明文拒絕提供那個操作。要放棄一筆歧異只有兩條路：消歧掉它，或手動
-/// 編輯該檔（那時是人自己在承擔後果，不是工具替他做）。
+/// **不提供「只刪記錄」的旗標。** 刪掉被併的候選實體卻不改寫參照，留下的是指向不存在鍵的
+/// 引用——spec 明文拒絕提供那個操作。**要放棄一筆歧異（刪問題記錄本身）用 `dismiss-divergence`**
+/// （#586）：沒有任何記錄指向歧異記錄，刪它不留懸空引用——spec 裡是自己的一條 Requirement。
+/// 先前這裡寫「要放棄一筆歧異只有兩條路：消歧掉它，或手動編輯該檔」，把兩件事讀成了一件。
 struct ResolveDivergence: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "resolve-divergence",
@@ -140,5 +142,31 @@ struct ResolveDivergence: ParsableCommand {
         if report.hasFailures || rebuildError != nil {
             throw ExitCode.failure
         }
+    }
+}
+
+/// 放棄一筆歧異：只刪那筆記錄，候選實體與參照都不動（#586；spec `divergence-record` 的
+/// 「Dismissing a question SHALL delete only its record」）。理由必填、只印在報告裡；刪除前要求記錄檔已 commit。
+///
+/// 不過目標 store 確認閘：它以 UUID 定位，指錯 store 只會找不到那筆記錄——閘防的「在錯的 store 上照樣對得上」
+/// 在這裡不成立（`--drop-venue` 的 citekey 在兩個 store 可以同名，所以那一腿要閘）。
+struct DismissDivergence: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "dismiss-divergence",
+        abstract: "放棄一筆歧異：只刪記錄（候選實體與參照不動）；理由必填、只進報告；刪除前要求記錄檔已 commit（#586）")
+
+    @OptionGroup var options: LibraryOptions
+
+    @Argument(help: "歧異記錄的 id（UUID；先用 divergences 列出）") var id: String
+    @Option(name: .long, help: "為什麼這個問題不成立或不再延後判定——只印在報告裡，不寫進 store；要留在 git 就寫進 commit message")
+    var reason: String
+    @Flag(name: .long, help: "只預告會刪哪一筆，不動任何檔案")
+    var dryRun: Bool = false
+
+    func run() throws {
+        let store = try options.openStore()
+        let service = AkashicService(root: store.root, key: store.key,
+                                     environment: ProcessInfo.processInfo.environment)
+        print(try service.dismissDivergence(id: id, reason: reason, dryRun: dryRun))
     }
 }

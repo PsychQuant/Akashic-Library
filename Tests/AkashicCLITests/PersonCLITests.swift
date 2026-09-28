@@ -231,6 +231,7 @@ final class PersonCLITests: XCTestCase {
         let expectedFiles: Set<String> = [
             "Commands.swift",
             "CreateEntryCommand.swift",
+            "DivergenceCommands.swift",   // #586 dismiss-divergence
             "EnrichCommand.swift",
             "EntryEditCommands.swift",
             "GetEntryCommand.swift",

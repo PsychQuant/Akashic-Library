@@ -97,7 +97,8 @@ final class DestructiveTargetGateTests: XCTestCase {
         // resolve-organizations 的條件是 `apply || reject`（#580）：它的 --reject 也是篩選式寫入。
         let conditions = ["resolve-organizations": "apply || reject", "resolve-venues": "let leg = writeLeg",
                           // #653：預設就寫、以 --dry-run 預覽的命令只在不帶 --dry-run 時閘
-                          "migrate": "!dryRun", "migrate-provenance": "!dryRun", "resolve-divergence": "!dryRun"]
+                          "migrate": "!dryRun", "migrate-provenance": "!dryRun", "resolve-divergence": "!dryRun",
+                          "dismiss-divergence": "!dryRun"]   // #586 R1 verify
         // 沒有乾跑、每次都寫的命令無條件呼叫閘（#653／#650；#658 的 import-zotero）
         let unconditional: Set<String> = ["rename", "rename-person", "import-zotero"]
         for name in Self.enumerated {

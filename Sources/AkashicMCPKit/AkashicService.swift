@@ -1984,6 +1984,7 @@ public final class AkashicService {
                 // 條目由上方的 `personEntry` 建（**量測與輸出同一份**），這裡只做
                 // ref→條目的對應。ref 由生成器發，彼此必不同，故 `uniqueKeysWithValues`
                 // 安全——用 `displaySafe(key)` 當鍵才會 trap。
+                // unique-keys: ref 由生成器發、彼此必不同
                 "people": Dictionary(uniqueKeysWithValues:
                     refKeys.map { (refByKey[$0]!, personEntry($0)) }),
                 "ambiguityRowsDropped": droppedRows,
@@ -2598,7 +2599,9 @@ public final class AkashicService {
     /// 目標」，而本函式收的是逐筆顯式指名（citekey 或 DOI）的清單；CLI 的 `--apply` 在命令層走閘。
     ///
     /// `itemLimit`：MCP 面截 items（輸出進 LLM context，#236 的預算）；`counts`／`written`／
-    /// `writeFailed` **永遠完整**，`itemsTotal`／`truncated` 讓呼叫端知道自己看到的是不是全部。
+    /// `writeFailed` 不受它截斷，`itemsTotal`／`truncated` 讓呼叫端知道自己看到的是不是全部。
+    /// **例外（#669）**：`writeFailed` 以消毒後的 citekey 為鍵，兩筆 citekey 截斷或逃脫後相同時只列一筆
+    /// （依原始 citekey 排序留第一個）——那是顯示面的取捨，寫入本身不受影響。
     /// CLI 面傳 nil（人的終端機可捲、可 pipe）。
     public func enrich(proposals: [AddOnlyEnrichment.Proposal], dryRun: Bool,
                        includeAbsentAuthors: Bool, itemLimit: Int? = nil) throws -> String {
@@ -5096,8 +5099,12 @@ public final class AkashicService {
     /// #586 的 divergence 記錄；使用者 2026-09-27 裁決：移除面的理由只進報告與 git 歷史，所以 git 裡必須真的有副本）。
     /// 與 `resolve-divergence` 同一支檢查（`LibraryStore.filesNotSafelyRecoverable`：tracked、clean、HEAD 可解析、無 index 位元）。
     /// `items` 是（記錄 id, 人讀的標籤——已消毒）；`action` 是「這次會刪掉什麼」的一句（已消毒）。整批拒絕、零寫入。
-    func assertRecordsRecoverable(_ items: [(id: UUID, label: String)], action: String, issue: String) throws {
-        guard !items.isEmpty else { return }
+    ///
+    /// 回傳驗過的 id → 相對路徑（同一次列舉的結果）：要刪檔的呼叫端用它，不再列舉一次（#586 R1 verify——兩次列舉之間
+    /// 檔案可以被換掉，而刪的就不是驗過 git 狀態的那一個）。
+    @discardableResult
+    func assertRecordsRecoverable(_ items: [(id: UUID, label: String)], action: String, issue: String) throws -> [UUID: String] {
+        guard !items.isEmpty else { return [:] }
         // 先分辨「不在 git 裡」——否則下面那支檢查對非工作樹回的是「無法執行 git」，指錯原因
         guard LibraryStore.isInsideVersionedWorkTree(store.root) else {
             throw ServiceError.invalid(
@@ -5117,7 +5124,8 @@ public final class AkashicService {
         }
         let paths = items.compactMap { actual[$0.id] }
         let bad = LibraryStore.filesNotSafelyRecoverable(root: store.root, relativePaths: paths)
-        guard !bad.isEmpty else { return }
+        let ids = Set(items.map(\.id))
+        guard !bad.isEmpty else { return actual.filter { ids.contains($0.key) } }
         let labelByPath = Dictionary(items.compactMap { i in actual[i.id].map { ($0, i.label) } }, uniquingKeysWith: { a, _ in a })
         let lines = Self.listCapped(bad.map { "\(labelByPath[$0.path] ?? displaySafeInvisible($0.path, max: 200))：\($0.why)" }) { $0 }
         throw ServiceError.invalid(
@@ -5153,7 +5161,7 @@ public final class AkashicService {
     /// 只看含被動到的 index 的重複組（R12：既有的重複由 `Entry.validate()` 報），具名拒絕零寫入。`apply` 自 R12 起**不走這裡**：
     /// 它對會造出重複的候選逐筆略過並具名（D33，`resolveVenues` 的 `skippedDuplicateVenueEdge`）。D25 擋的是消費端（repoint／demote
     /// 遇到這個形拒絕）；兩條同刊名的 literal 邊不是手改產物——`VenueDerivation.literals` 從 journaltitle／booktitle／publisher 取值、
-    /// 只用精確 `==` 去重；移除面是 #572。
+    /// 只用精確 `==` 去重；刪掉多餘的邊用 `resolve-venues --drop-venue`（#572）。
     static func assertKeyEdgesAreUnique(_ entry: Entry, moved: Set<Int>, operation: String) throws {
         var seen: [String: [Int]] = [:]
         for (i, ref) in entry.venues.enumerated() { if case .key(let k) = ref { seen[k, default: []].append(i) } }
@@ -5187,7 +5195,7 @@ public final class AkashicService {
     /// venue 時只有一筆 confirmed（`appendIfAbsent`）——D20 退役它會讓另一條邊在任何工具面上都救不回來（demote／repoint
     /// 都撞「找不到 confirmed verdict」），而 R9 之前這個狀態會留一條 #486 warning、R9 之後 `validate` 全綠（DA 真 binary
     /// 重現）。另一條 **literal** 邊同一個配對（`matchingKey` 相等）同理：to-venue 上該配對的 rejected 可能是它的。
-    /// D23 的謂詞問的是 literal 個數不是邊的個數，剛好漏掉這格。**具名拒絕、零寫入**，出路是先把重複的邊處理掉（移除面：#572）。
+    /// D23 的謂詞問的是 literal 個數不是邊的個數，剛好漏掉這格。**具名拒絕、零寫入**，出路是先以 `resolve-venues --drop-venue`（MCP `drop_venue`，#572）刪掉重複的邊。
     /// live store 2026-09-14 實測：2,411 筆 work、3 筆有 >1 條 venue 邊、同 venue 兩條 key 邊 0、兩條 literal 邊同配對 0。
     /// **literal 邊那一支只對 repoint 算**（`countLiteralEdges`，R10 verify logic 第 7 列）：那條危害只在 repoint——to-venue 上該配對
     /// 的 rejected 可能是它的；demote 沒有 to-venue，而一條 literal 邊在該 venue 上不可能持有 confirmed（confirmed 只由 apply 對 key 邊寫），

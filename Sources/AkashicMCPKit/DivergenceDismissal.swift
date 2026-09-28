@@ -46,11 +46,12 @@ extension AkashicService {
             payload["note"] = "乾跑：不動任何檔案——實跑只刪這筆歧異記錄，候選實體與參照都不動"
             return try jsonString(payload)
         }
-        try assertRecordsRecoverable([(id, "歧異記錄「\(id.uuidString)」")],   // display-safe-exempt: UUID 由型別保證
-                                     action: "這次會刪掉 1 筆歧異記錄",
-                                     issue: "#586")
-        // 路徑取自磁碟上的實際檔名（`assertRecordsRecoverable` 已確認它存在）——不由 id 拼，小寫 UUID 檔名也對得上（#573 R1）
-        guard let rel = Self.entityRelativePaths(root: store.root)[id] else {
+        let verified = try assertRecordsRecoverable([(id, "歧異記錄「\(id.uuidString)」")],   // display-safe-exempt: UUID 由型別保證
+                                                    action: "這次會刪掉 1 筆歧異記錄",
+                                                    issue: "#586")
+        // 路徑取自磁碟上的實際檔名——不由 id 拼，小寫 UUID 檔名也對得上（#573 R1）。用驗證那一次列舉的結果、不再列舉一次：
+        // 兩次之間檔案可以被換掉，刪的就不是驗過 git 狀態的那一個（#586 R1 verify）
+        guard let rel = verified[id] else {
             throw ServiceError.notFound("歧異記錄「\(id.uuidString)」的檔案")   // display-safe-exempt: UUID 由型別保證
         }
         try FileManager.default.removeItem(at: store.root.appendingPathComponent(rel))

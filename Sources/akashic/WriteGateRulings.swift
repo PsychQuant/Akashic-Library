@@ -85,7 +85,7 @@ extension DestructiveTargetGate {
         "add-venue": .notGated("只新增一筆 venue 記錄，不改寫既有記錄"),
         "store-source": .notGated("只把一份內容以 digest 定址存進 sources/（不進 git），同一份內容冪等；不改寫任何記錄"),
         "record-divergence": .notGated("新增一筆歧異記錄，或對同一組候選的既有記錄補上／更新判斷（原子替換；無判斷的重錄不得抹掉既有的判斷與 prefers，#133／#159）；刪除面是 dismiss-divergence（#586）"),
-        "dismiss-divergence": .notGated("以 UUID 定位——指錯 store 只會找不到那筆記錄（#586 的裁決，見 DismissDivergence 的 doc）；刪除前要求記錄檔已 commit、乾淨"),
+        "dismiss-divergence": .gated,   // #586 R1 verify：UUID 由候選 key 決定，錯的 store 上照樣對得上（#580 的判準）；不帶 --dry-run 時閘
         "link": .notGated("集合語意、冪等：--add 與 --remove 互為逆操作（disambiguate-before-irreversible-writes 的不適用類）"),
         "tag": .notGated("集合語意、冪等：--add 與 --remove 互為逆操作（disambiguate-before-irreversible-writes 的不適用類）"),
         "set-status": .notGated("冪等：設定一個狀態值或 --clear（disambiguate-before-irreversible-writes 的不適用類）"),

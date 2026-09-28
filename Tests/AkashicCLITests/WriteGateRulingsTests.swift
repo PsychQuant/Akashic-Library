@@ -294,4 +294,21 @@ final class WriteGateRulingsTests: XCTestCase {
         let after = try LibraryStore(root: root, key: nil, environment: [:]).load().entries.first { $0.citekey == "x2020y" }
         XCTAssertEqual(after?.authors, [], "指名之後照常移除：\(done.output)")
     }
+
+    /// `dismiss-divergence` 實跑未指名目標就拒絕；乾跑不擋；指名之後照常往下走（#586 R1 verify）。
+    /// 歧異記錄的 UUID 由候選 key 決定，錯的 store 上照樣對得上——#580 的判準。
+    func testDismissDivergenceRefusesWithoutANamedTargetButNotOnDryRun() throws {
+        let id = UUID().uuidString
+        let arg = ["dismiss-divergence", id, "--reason", "記錯的一筆"]
+        let refused = try CLITestHarness.run(arg, env: unnamedEnv)
+        XCTAssertNotEqual(refused.status, 0, refused.output)
+        XCTAssertTrue(refused.output.contains("dismiss-divergence 拒絕執行：未指名目標 store"), refused.output)
+        XCTAssertTrue(refused.output.contains("加 --dry-run 可以先看到會改什麼"), "預覽提示要指向乾跑旗標：\n\(refused.output)")
+        // 乾跑、`--library`、`--yes` 都走過閘，止於這個 id 不存在
+        for extra in [["--dry-run"], ["--library", root.path], ["--yes"]] {
+            let r = try CLITestHarness.run(arg + extra, env: unnamedEnv)
+            XCTAssertFalse(r.output.contains("未指名目標 store"), "\(extra)：\(r.output)")
+            XCTAssertTrue(r.output.contains("找不到：歧異記錄"), "\(extra)：\(r.output)")
+        }
+    }
 }

@@ -107,6 +107,7 @@ struct GraphCanvasView: View {
                         if generation == gen { layout = l }
                     }
 
+                    // unique-keys: 節點 id 取自 Neighborhood.nodes，那是 GraphBuilder 以 id 為鍵的字典的 values，彼此必不同
                     let positions = Dictionary(uniqueKeysWithValues: l.nodes.map {
                         ($0.id, GraphGeometry.screenPoint($0.position, canvasSize: size, scale: scale))
                     })

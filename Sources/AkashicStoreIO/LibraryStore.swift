@@ -1231,6 +1231,7 @@ public final class LibraryStore {
         // Swift String equality 會把 NFC/NFD 視為相等；filesystem 與 revision 的 path
         // 身分則是 raw UTF-8。用 String 當 dictionary key，兩個可並存的 raw path 會在
         // `uniqueKeysWithValues` 直接 precondition trap，也會與 digest 的身分邊界分叉。
+        // unique-keys: 路徑來自各目錄的 contentsOfDirectory、前綴是目錄名，raw 位元組必不同
         let byRawPath = Dictionary(uniqueKeysWithValues: captured.yamlRecords.map {
             (Data($0.path.utf8), $0.bytes)
         })
@@ -2719,7 +2720,8 @@ public extension LibraryLoad {
         for k in duplicates(venues.map(\.key)).sorted() {
             out.append(ValidationIssue(severity: .error,
                 message: "venue key「\(displaySafeInvisible(k, max: 200))」重複"
-                       + "——以 key 定位的讀取與寫入分不出是哪一筆；改掉其中一筆的 key，或走 resolve-divergence 合併"))
+                       + "——以 key 定位的讀取與寫入分不出是哪一筆；先在 YAML 改掉其中一筆的 key（這個 error 在時改名與合併都會先停下），"
+                       + "若兩筆其實是同一本刊，改完之後再以 record-divergence／resolve-divergence 合併"))
         }
         for k in duplicates(organizations.map(\.key)).sorted() {
             out.append(ValidationIssue(severity: .error,

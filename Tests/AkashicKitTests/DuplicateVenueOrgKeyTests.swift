@@ -45,11 +45,12 @@ final class DuplicateVenueOrgKeyTests: XCTestCase {
         XCTAssertTrue(csl.contains("a2020x"))
     }
 
-    // MARK: - 守衛：以 store key 建的查找表不得用 `uniqueKeysWithValues`
+    // MARK: - 守衛：每個 `uniqueKeysWithValues` 都要寫明鍵為何唯一
 
-    /// 掃 `Sources/`：`Dictionary(uniqueKeysWithValues:)` 的來源若以 store key（`$0.key`／`$0.citekey`）或
-    /// 消毒後的字串（`displaySafe…`，截斷不是單射）當鍵，一次重複就 trap。唯一的例外是由生成器發、生成即唯一的
-    /// ref（AkashicService 的 `people`，那裡的註解寫著理由）——它的鍵不是這兩種，所以不在掃描的前件裡。
+    /// 掃 `Sources/`：`Dictionary(uniqueKeysWithValues:)` 遇到重複鍵是 precondition trap，以 store key 或消毒後的
+    /// 字串（截斷不是單射）當鍵，一次重複就讓整個 process 崩潰（#669）。每個呼叫點都要在前四行內寫一句
+    /// `unique-keys: <理由>`；寫不出理由的改用 `uniquingKeysWith`。守衛只驗那句話在不在，不驗理由對不對——
+    /// 理由由寫的人負責（`zero-instance-guards` 第 7 列的形：通過是必要條件，不是證明）。
     func testNoStoreKeyLookupTableTrapsOnDuplicates() throws {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -64,17 +65,21 @@ final class DuplicateVenueOrgKeyTests: XCTestCase {
             func code(_ l: String) -> String { l.range(of: "//").map { String(l[..<$0.lowerBound]) } ?? l }
             for (i, line) in lines.enumerated() where code(line).contains("uniqueKeysWithValues:") {
                 scannedSites += 1
-                // 這一行加上後兩行（多行的 `Dictionary(uniqueKeysWithValues:\n  xs.map { … })`）
-                let statement = lines[i..<min(i + 3, lines.count)].map(code).joined(separator: " ")
-                if statement.contains("$0.key") || statement.contains("$0.citekey") || statement.contains("displaySafe") {
+                // 每個呼叫點都要在前四行內寫一句 `unique-keys: <鍵為何唯一>`（#669 R1 verify）。先前只找
+                // `$0.key`／`$0.citekey`／`displaySafe` 三種字面：具名 closure 參數（`{ v in (v.key, v) }`）、
+                // KeyPath（`map(\.key)`）、超過三行的多行寫法都掃不到，而本 repo 三種寫法都在用。
+                // 改成白名單之後，新呼叫點不論怎麼寫都得有人說明鍵為何唯一。
+                let context = lines[max(0, i - 4)...i].joined(separator: " ")
+                if !context.contains("unique-keys:") {
                     offenders.append("\(rel):\(i + 1)：\(code(line).trimmingCharacters(in: .whitespaces))")
                 }
             }
         }
         XCTAssertGreaterThan(scannedSites, 0, "一個 uniqueKeysWithValues 都沒掃到——掃描壞了，不是沒有違規")
         XCTAssertTrue(offenders.isEmpty,
-                      "以 store key 或消毒後字串為鍵的 uniqueKeysWithValues 會在重複時 trap（#669）；改成"
-                      + " `uniquingKeysWith: { first, _ in first }`（消毒的鍵先依原始鍵排序）：\n"
+                      "uniqueKeysWithValues 在重複鍵時 trap（#669）；鍵不保證唯一就改成"
+                      + " `uniquingKeysWith: { first, _ in first }`（消毒的鍵先依原始鍵排序），"
+                      + "保證唯一就在前四行內寫一句 `// unique-keys: <理由>`：\n"
                       + offenders.joined(separator: "\n"))
     }
 }

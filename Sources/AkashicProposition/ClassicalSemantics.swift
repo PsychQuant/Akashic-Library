@@ -85,6 +85,7 @@ public struct ClassicalValuation: Equatable {
 
         validated.sort { canonicalBytesLess($0.canonicalBytes, $1.canonicalBytes) }
         self.entries = validated
+        // unique-keys: 上方迴圈對重複的 atom 擲 duplicateValuationAtom
         self.index = Dictionary(
             uniqueKeysWithValues: validated.map { ($0.atom, $0.value) }
         )
@@ -95,6 +96,7 @@ public struct ClassicalValuation: Equatable {
             Entry(atom: $0.atom, value: $0.value, canonicalBytes: Data())
         }
         self.entries = validated
+        // unique-keys: 兩個呼叫端傳入的是去重過的 canonical atom 清單（expression 的 atoms、canonicalAtomUnion）
         self.index = Dictionary(
             uniqueKeysWithValues: validated.map { ($0.atom, $0.value) }
         )

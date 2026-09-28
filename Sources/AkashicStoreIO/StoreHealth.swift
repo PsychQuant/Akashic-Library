@@ -477,7 +477,8 @@ public extension LibraryStore {
     /// **歧異記錄的候選 shape 不在 `DivergenceResolveError.mergeableShapes` 裡**——記得起來、解不掉（#555 R2，D90）。
     ///
     /// 一筆記錄一則（候選逐個點名、最多列 5 個），warning 級：記錄合法可載入，失效的是處置面；處置是重開
-    /// `zero-instance-guards` 第 24 列的裁決（實作或拿掉），移除面見 #586。值域從 `mergeableShapes` 讀、不手寫第二份：
+    /// `zero-instance-guards` 第 24 列的裁決（實作或拿掉）；放棄這一筆用 `dismiss-divergence`（#586，訊息直接點名命令——
+    /// 先前只寫「移除面見 #586」，使用者照著走會去讀 issue 而不是跑命令，#586 R1 verify）。值域從 `mergeableShapes` 讀、不手寫第二份：
     /// 「venue 在清單裡、org 仍擲 `unsupportedShape`」由 `testUnsupportedShapeMessageNamesTheRealDomain` 釘，
     /// 「org 不在清單裡」由 `UnmergeableDivergenceScanTests.testOrganizationCandidateIsReported` 釘（把 org 加進清單它就紅）。
     ///
@@ -501,7 +502,7 @@ public extension LibraryStore {
                     severity: .warning,
                     message: "\(StoreHealth.unmergeableDivergencePrefix)：候選 \(listed)\(more) 記得起來、resolveDivergence 解不掉"
                            + "（支援的是 \(supported)）——這是 zero-instance-guards 第 24 列「暫不做」的觸發條件之一（#555）；"
-                           + "處置是重開那個裁決（實作或拿掉），移除面見 #586"))
+                           + "處置是重開那個裁決（實作或拿掉）；要放棄這一筆：dismiss-divergence <id> --reason …（MCP akashic_dismiss_divergence，#586）"))
         }
     }
 

@@ -346,7 +346,7 @@ final class VenueNameInvariantTests: XCTestCase {
 
     /// **同一 work 兩條邊指同一 venue 要看得見**（R10 verify requirements 第 5 列：`StoreHealth` 沒有這條掃描，`validate`／`doctor`／
     /// App 對它一律綠燈，使用者直到想 demote 才知道；D28）：warning 級——記錄合法，失效的是 repoint／demote 的前提（D25），
-    /// 而修法只有手改 YAML（移除面：#572）。`zero-instance-guards` 第 26 列。
+    /// 而修法是 `resolve-venues --drop-venue` 刪掉多餘的邊（#572；落地之前只能手改 YAML）。`zero-instance-guards` 第 26 列。
     func testTwoKeyEdgesToOneVenueAreAWarningOnTheWork() {
         var e = Entry(id: UUID(), citekey: "x2025", type: .periodicalArticle, title: "T")
         e.venues = [.key("a"), .key("b"), .key("a")]

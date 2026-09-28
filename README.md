@@ -854,7 +854,7 @@ venue 域先前**沒有批次建檔的路徑**。person 與 organization 都有�
 `resolve-divergence` 現在接得住 person／work／venue，organization 仍拒。
 撞上 organization 的歧異記錄（或記錯的一筆）有出路了：`dismiss-divergence <id> --reason …`
 （MCP `akashic_dismiss_divergence`，#586）只刪那筆問題記錄、候選實體與參照都不動；理由只進報告，
-刪除前要求記錄檔已 commit。venue 邊則多一條 `resolve-venues --drop-venue`（#572）刪掉多餘的邊。
+刪除前要求記錄檔已 commit，CLI 實跑要指名目標 store（`--library` 或 `--yes`，同 `resolve-divergence`）。venue 邊則多一條 `resolve-venues --drop-venue`（#572）刪掉多餘的邊。
 
 > **這一段在 #553 close 的 doc-sync sweep 抓到過一次，而它抓到的不只是文件。**
 > 原文逐字引用著錯誤訊息「本版的消歧只處理 person 與 work」——去核對才發現

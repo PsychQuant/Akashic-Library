@@ -62,5 +62,5 @@
 - **逐腿只做三個命令。** `update-venue`、`update-person`、`library` 也有多個寫入旗標，但以命令為單位裁決。它們新長一個寫入旗標時，這張表看不到。
 - **理由是人寫的。** 測試只驗每一格都在、理由非空、過閘的格與閘的呼叫點一致、逐腿對真 binary 成立，驗不了理由對不對。裁決為不寫 store 的命令，測試只驗它不呼叫閘，不驗磁碟。
 - **不閘的格不都可逆。** #653 的判準是「只閘不可逆的」，而「可逆」的界線沒有一句可機械判定的判準：`resolve-people --judge`／`--attribute-org` 沒有把作者位退回 literal 的工具面；`update-person` 提及的欄位整個替換；新增記錄沒有刪除面。各格的理由只寫出自己的事實，不宣稱可逆。界線待裁。
-- **`dismiss-divergence` 不閘的理由在 #298 的事故形狀下不完全成立。** 它的理由是「以 UUID 定位，指錯 store 只會找不到那筆記錄」。但歧異記錄的 UUID 由候選 key 決定（`DeterministicUUID.forDivergence`），真 store 的副本裡同一筆記錄有同一個 UUID。它刪除前要求記錄檔已 commit，所以誤刪仍救得回來。本輪照 #586 的裁決不閘，只記在這裡。
+- **`dismiss-divergence` 不閘的理由在 #298 的事故形狀下不完全成立。** 它的理由是「以 UUID 定位，指錯 store 只會找不到那筆記錄」。但歧異記錄的 UUID 由候選 key 決定（`DeterministicUUID.forDivergence`），真 store 的副本裡同一筆記錄有同一個 UUID。它刪除前要求記錄檔已 commit，所以誤刪仍救得回來。本輪照 #586 的裁決不閘，只記在這裡。→ **同日 #586 R1 verify 改為過閘**（Codex 席指出同一件事；依 #580 的判準——閘防的是寫錯 store，錯的 store 上 id 照樣對得上），不帶 `--dry-run` 時閘。裁決表因此是過閘 17、不閘 17。
 - **`akashic --experimental-dump-help` 不能用來重算這張表。** CLI 頂層對輸出逐行截 400 字元、總行數截 200 行：2026-09-28 實測 dump-help 7,062 行被截成 200 行，zsh 補全腳本 1,083 行被截成 200 行。這是既有行為，不是本輪造成的。`--yes` 的說明變長後，它在 dump-help 裡也是一行超過 400 字元的字串。

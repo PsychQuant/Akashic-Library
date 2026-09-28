@@ -1032,7 +1032,7 @@ struct ResolveOrganizations: ParsableCommand {
 
     /// 查過、判不出來（change `org-undecided-leg`，#643）。
     @Option(name: .long, parsing: .upToNextOption,
-            help: "記下查過未決（可重複）：<列表的 id>@<orgKey>=查了什麼、為何判不出來。id 逐字取自不帶參數時列表每列的 id（work 作者位是 citekey[i]::literal）；在每個 @<orgKey>= 的位置試切，前綴必須與列表的 id 位元組相同，恰一個才收、零個或多個整批拒絕（例外：某個 literal 恰為另一個 literal 接上 @<key>= 時）。orgKey 必須是那一列提名的 org（歧義條目可逐個 org 記）。person 與 organization 同 key 而兩列都在列表上時 id 相同，點到它整批拒絕。寫一筆 resolution-undecided 到該 org，holder 不動；記錄是 work 層級、不帶作者位（同一筆 work 另一個同 literal 的作者位被 apply 後，這個配對就算已判定）；之後列表標「查過未決 N 次」、--apply 不帶走它。可附 --rests-on。已判定的配對、無法唯一定位的 work 或 person（\(UnlocatableReason.work)；\(UnlocatableReason.person)）該筆略過並具名。需要 store format ≥ 19；一次超過 200 個 id、20 個 digest、單句說明超過 4,096 位元組或單筆 id 超過「最長列表 id ＋ 最長 orgKey ＋ 2 ＋ 4,096 位元組」整批拒絕。單獨呼叫，不與 --apply／--reject／--holder／--org 組合。literal 含控制字元時終端機上複製回來會對不上，改用 MCP")
+            help: "記下查過未決（可重複）：<列表的 id>@<orgKey>=查了什麼、為何判不出來。id 逐字取自不帶參數時列表每列的 id（work 作者位是 citekey[i]::literal）；在每個 @<orgKey>= 的位置試切，前綴必須與列表的 id 位元組相同，恰一個才收、零個或多個整批拒絕（例外：某個 literal 恰為另一個 literal 接上 @<key>= 時）。orgKey 必須是那一列提名的 org（歧義條目可逐個 org 記）。person 與 organization 同 key 而兩列都在列表上時 id 相同，點到它整批拒絕。寫一筆 resolution-undecided 到該 org，holder 不動；記錄是 work 層級、不帶作者位（同一筆 work 另一個同 literal 的作者位被 apply 後，這個配對就算已判定）；之後列表標「查過未決 N 次」、--apply 不帶走它。可附 --rests-on。已判定的配對、無法唯一定位的 work、person 或 organization（work：\(UnlocatableReason.work)；person：\(UnlocatableReason.person)；organization：\(UnlocatableReason.organization)）該筆略過並具名。需要 store format ≥ 19；一次超過 200 個 id、20 個 digest、單句說明超過 4,096 位元組或單筆 id 超過「最長列表 id ＋ 最長 orgKey ＋ 2 ＋ 4,096 位元組」整批拒絕。單獨呼叫，不與 --apply／--reject／--holder／--org 組合。literal 含控制字元時終端機上複製回來會對不上，改用 MCP")
     var undecided: [String] = []
 
     @Option(name: .long, parsing: .upToNextOption,
@@ -1041,7 +1041,7 @@ struct ResolveOrganizations: ParsableCommand {
 
     /// 逐篇判定（#647）：CLI 在此之前沒有逐 id 的歸戶，查過未決的候選被篩選式 --apply 排除後只能走 MCP。
     @Option(name: .long, parsing: .upToNextOption,
-            help: "逐篇判定（可重複）：<列表的 id>@<orgKey>=理由。id 的解析同 --undecided（歧義條目也收，可選其中一個 org）。把那一列歸戶到 orgKey，並寫一筆 org-judged 層級的 confirmed verdict，理由進記錄（必填、≤ 4,096 位元組）；已歸戶而理由存不進去時（同一配對已有理由不同的逐篇判定——verdict 不帶作者位索引；或 store format < 19 已有提名層判定），那一列印 ⚠ 說明原因。查過未決的候選也可以這樣歸戶。寫入前整個寫入集合先驗，任一筆不過零寫入。輸入錯整批拒絕、零寫入；無法唯一定位的 work 或 person（\(UnlocatableReason.work)；\(UnlocatableReason.person)）、上級機構判給自己或會成環、判給歧義條目裡已否決過這個配對的 org、列表過期，該筆略過並具名（候選列上已否決配對的其他拼法不再列出——拿它的 id 是輸入錯）。單獨呼叫，不與 --apply／--reject／--undecided／--holder／--org 組合")
+            help: "逐篇判定（可重複）：<列表的 id>@<orgKey>=理由。id 的解析同 --undecided（歧義條目也收，可選其中一個 org）。把那一列歸戶到 orgKey，並寫一筆 org-judged 層級的 confirmed verdict，理由進記錄（必填、≤ 4,096 位元組）；已歸戶而理由存不進去時（同一配對已有理由不同的逐篇判定——verdict 不帶作者位索引；或 store format < 19 已有提名層判定），那一列印 ⚠ 說明原因。查過未決的候選也可以這樣歸戶。寫入前整個寫入集合先驗，任一筆不過零寫入。輸入錯整批拒絕、零寫入；無法唯一定位的 work、person 或 organization（work：\(UnlocatableReason.work)；person：\(UnlocatableReason.person)；organization：\(UnlocatableReason.organization)）、上級機構判給自己或會成環、判給歧義條目裡已否決過這個配對的 org、列表過期，該筆略過並具名（候選列上已否決配對的其他拼法不再列出——拿它的 id 是輸入錯）。單獨呼叫，不與 --apply／--reject／--undecided／--holder／--org 組合")
     var judge: [String] = []
 
     /// `--judge` 的結果（#647）。service 回來的字串已消毒；一筆都沒判成且有略過時非零結束（同 --undecided）。

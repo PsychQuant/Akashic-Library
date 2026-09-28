@@ -15,7 +15,7 @@ import AkashicIndex
 ///
 /// 契約：
 /// - **以 index 定位，不以值**。重複的兩條邊值相同，值定位分不出要刪哪一條——那正是這個面要處理的形狀。index 是
-///   呼叫端從 `resolve-venues`／`get-entry` 讀到的**原始**位置；同一筆 work 的多筆由大到小處理，呼叫端不必算位移。
+///   呼叫端從 `resolve-venues`／`get-entry` 讀到的**原始**位置；同一筆 work 的多筆一次過濾（以原始 index 的集合篩掉，不逐筆刪），呼叫端不必算位移。
 /// - **key 邊只在刪完之後本 work 仍有另一條 key 邊指同一 venue 時可刪**。那時 venue 上的 confirmed verdict 仍由剩下的
 ///   那條邊實例化；刪掉唯一的 key 邊會留下一筆沒有邊的 confirmed（之後 D38 會把同 work 的另一個拼法擋在外面），
 ///   而那筆 verdict 該不該留是判定——出路是先 `--demote`（它退役 confirmed、寫 rejected）再刪 literal 邊。

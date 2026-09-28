@@ -41,7 +41,7 @@ final class UnmergeableDivergenceScanTests: XCTestCase {
         XCTAssertEqual(health.unmergeableDivergences.count, 0, "\(health.unmergeableDivergences.map(\.issue.message))")
     }
 
-    /// 含 org 候選的記錄 → 一則 warning，說得出是哪筆、哪個候選、支援的是哪些 shape、處置指向第 24 列與 #586。
+    /// 含 org 候選的記錄 → 一則 warning，說得出是哪筆、哪個候選、支援的是哪些 shape、處置指向第 24 列與 dismiss-divergence（#586）。
     func testOrganizationCandidateIsReported() throws {
         try seedOrgs()
         let d = Divergence(id: UUID(), question: "同一個機構嗎",
@@ -58,6 +58,7 @@ final class UnmergeableDivergenceScanTests: XCTestCase {
         let m = first.issue.message
         XCTAssertTrue(m.hasPrefix(StoreHealth.unmergeableDivergencePrefix), m)
         XCTAssertTrue(m.contains("org-a") && m.contains("organization") && m.contains("#586") && m.contains("第 24 列"), m)
+        XCTAssertTrue(m.contains("dismiss-divergence"), "出路要點名命令，不是只給 issue 號（#586 R1 verify）：\(m)")
         for s in DivergenceResolveError.mergeableShapes { XCTAssertTrue(m.contains(s), "訊息要說出支援的 \(s)：\(m)") }
         XCTAssertTrue(health.perRecordIssues.contains { $0.issue.message == m }, "住在 perRecordIssues——三個面同一條路徑")
     }

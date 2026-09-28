@@ -148,8 +148,10 @@ struct ResolveDivergence: ParsableCommand {
 /// 放棄一筆歧異：只刪那筆記錄，候選實體與參照都不動（#586；spec `divergence-record` 的
 /// 「Dismissing a question SHALL delete only its record」）。理由必填、只印在報告裡；刪除前要求記錄檔已 commit。
 ///
-/// 不過目標 store 確認閘：它以 UUID 定位，指錯 store 只會找不到那筆記錄——閘防的「在錯的 store 上照樣對得上」
-/// 在這裡不成立（`--drop-venue` 的 citekey 在兩個 store 可以同名，所以那一腿要閘）。
+/// 實跑過目標 store 確認閘（#586 R1 verify）。原本以「UUID 定位，指錯 store 只會找不到那筆記錄」為由不閘，而那個前提是假的：
+/// 歧異記錄的 UUID 由候選 key 決定（`DeterministicUUID.forDivergence`），clone、worktree、備份，甚至兩個各自記下同一組
+/// 候選的 store，同一筆記錄的 UUID 都相同——正是 #580 裁決說的「從錯的 store 列出來的 id 在錯的 store 上照樣對得上」。
+/// 乾跑不閘（它不寫，而且正是確認目標的手段）。
 struct DismissDivergence: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "dismiss-divergence",
@@ -164,6 +166,7 @@ struct DismissDivergence: ParsableCommand {
     var dryRun: Bool = false
 
     func run() throws {
+        if !dryRun { try options.assertDestructiveTargetNamed("dismiss-divergence", flag: "", dryRunFlag: "--dry-run") }
         let store = try options.openStore()
         let service = AkashicService(root: store.root, key: store.key,
                                      environment: ProcessInfo.processInfo.environment)

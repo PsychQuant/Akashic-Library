@@ -16,6 +16,10 @@ public struct ImportReport: Equatable {
     /// #605：附加來源在 Zotero 端恢復、`orphaned_at` 被清除的 entries。與 `orphanCleared`
     /// 分開——後者的意思是整筆 entry 的主連結恢復。
     public var secondarySourceRestored: [String] = []
+    /// #610：同一個 Zotero 來源被多筆 entry 宣稱（主來源或附加來源都算）→ 宣稱它的 citekeys（排序）。
+    /// 鍵是 `<library_id>:<zotero_key>`；兩筆以上**沒記 library_id** 的舊檔宣稱同一個裸 key 時是 `?:<zotero_key>`。
+    /// 這些條目本趟**不更新任何一筆、也不新建**——路由分不出是哪一筆，猜錯會把一筆的書目欄位寫進另一筆。
+    public var ambiguousSourceClaims: [String: [String]] = [:]
     public var unchanged: Int = 0
     /// 解析過的作者被保留、未跟 Zotero 同步的 entries（資訊性）。
     public var authorsPreserved: [String] = []
@@ -71,8 +75,13 @@ public struct ZoteroImporter {
         report.skippedLinkedAttachments = readResult.skippedLinkedAttachments
         // 身分＝(libraryID, zoteroKey) 複合鍵（#3）；legacy 檔（library_id 缺）另建裸 key 索引，
         // 首次匹配時 backfill libraryID。
+        //
+        // #610：這兩張 composite 表（與下面的 `secondaryByComposite`）是「後寫覆蓋先寫」的字典——同一個來源被多筆
+        // entry 宣稱時只會留下一筆。所以路由前先查 `claimants`：被多筆宣稱的來源不進路由，這兩張表因此只會被
+        // 單一宣稱者的鍵查到。legacy 表收**全部**同裸 key 的舊檔，兩筆以上同樣不猜。
+        let claimants = ZoteroSourceClaims.claimants(load.entries)
         var byCompositeKey: [String: Entry] = [:]
-        var legacyByBareKey: [String: Entry] = [:]
+        var legacyByBareKey: [String: [Entry]] = [:]
         // #605：附加來源的 composite key → entry id。主來源優先（先查 byCompositeKey）。
         // libraryID 缺席的附加來源不進索引。這不是假設而是由合併閘保證的不變式：
         // `fieldsLostByMerging` 拒絕把沒記 libraryID 的來源收成附加來源（#605 R1 verify #1）。
@@ -98,7 +107,7 @@ public struct ZoteroImporter {
                 byCompositeKey["\(lid):\(prov.zoteroKey)"] = entry
                 claimedLibrariesByBareKey[prov.zoteroKey, default: []].insert(lid)
             } else {
-                legacyByBareKey[prov.zoteroKey] = entry
+                legacyByBareKey[prov.zoteroKey, default: []].append(entry)
             }
         }
         // quarantined 檔的 basename 佔住 citekey——否則新 entry 生成同名 key
@@ -151,17 +160,29 @@ public struct ZoteroImporter {
             // → ③ legacy 裸 key。②先於③：附加來源的比對是完全相同的身分，legacy 是歸屬不明的猜測——先前③排在②前面，
             // 群組條目會被一筆恰好同裸 key 的舊檔認領、改寫成那個 library，而真正持有它的附加來源從此不再被更新。
             // `ZoteroSourceRoutingTests` 釘住這個順序。
-            let composite = "\(item.libraryID):\(item.key)"
+            let composite = ZoteroSourceClaims.key(libraryID: item.libraryID, zoteroKey: item.key)
+            // #610：同一個來源被多筆 entry 宣稱 → 不更新任何一筆、不新建，報出來。猜一筆會把這個條目的書目欄位
+            // 寫進可能是另一篇的記錄，而另一筆從此安靜地停在舊版。處置是人的：兩筆是同一篇就合併（合併把來源併成一份），
+            // 其中一筆記錯了就拿掉那個來源。跨記錄檢查（`crossRecordIssues`）在載入時就說出同一件事。
+            if let owners = claimants[composite], owners.count > 1 {
+                report.ambiguousSourceClaims[composite] = owners.compactMap { current[$0]?.citekey }.sorted()
+                continue
+            }
             var matched = byCompositeKey[composite]
             let secondaryID = matched == nil ? secondaryByComposite[composite] : nil
             if matched == nil, secondaryID == nil,
-               let legacy = legacyByBareKey[item.key], !legacyMatched.contains(item.key) {
+               let legacies = legacyByBareKey[item.key], !legacyMatched.contains(item.key) {
                 // 歧義防線：同 bare key 已被「其他 library」的來源持有（主來源或附加來源，#607）
                 // → legacy 檔歸屬不明，scoped/全量都不認領（留待人工或全量 backfill 釐清）
                 let claimedByOtherLibrary = !(claimedLibrariesByBareKey[item.key] ?? [])
                     .subtracting([item.libraryID]).isEmpty
                 if !claimedByOtherLibrary {
-                    matched = legacy
+                    // #610：兩筆以上舊檔宣稱同一個裸 key——先前後讀到的那筆安靜勝出。不認領、不新建，報出來。
+                    guard legacies.count == 1 else {
+                        report.ambiguousSourceClaims["?:\(item.key)"] = legacies.map(\.citekey).sorted()
+                        continue
+                    }
+                    matched = legacies[0]
                     legacyMatched.insert(item.key)
                 }
             }

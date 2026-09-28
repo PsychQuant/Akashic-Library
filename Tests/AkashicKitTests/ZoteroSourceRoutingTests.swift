@@ -108,3 +108,100 @@ final class ZoteroSourceRoutingTests: XCTestCase {
         XCTAssertEqual(after.provenance?.libraryID, 1)
     }
 }
+
+// MARK: - #610：同一個來源被多筆 entry 宣稱
+
+extension ZoteroSourceRoutingTests {
+    private func article() throws -> Entry {
+        try store.load().entries.first { $0.provenance?.zoteroKey == "KEYART01" }!
+    }
+
+    /// 同一筆的複本：新 id、新 citekey，來源原樣。
+    @discardableResult
+    private func writeTwin(of entry: Entry, citekey: String) throws -> Entry {
+        var twin = entry
+        twin.id = UUID()
+        twin.citekey = citekey
+        try store.writeEntry(twin)
+        return twin
+    }
+
+    /// 兩筆 entry 的主來源是同一個 `(library_id, zotero_key)`：先前以字典收索引，後讀到的覆蓋先讀到的，
+    /// 路由安靜地只更新其中一筆。現在兩筆都不更新、報出來。
+    func testSourceClaimedAsPrimaryByTwoEntriesIsNotRoutedToEither() throws {
+        _ = try runImport()
+        let a = try article()
+        let b = try writeTwin(of: a, citekey: "cheng2025twin")
+        try fixture.db.execute("UPDATE items SET version = 6 WHERE itemID = 10")
+        try fixture.db.execute("UPDATE itemDataValues SET value = 'Edited upstream' WHERE valueID = 100")
+        let report = try runImport(at: 1_753_100_000)
+        let all = try store.load().entries
+        XCTAssertEqual(all.first { $0.id == a.id }?.title, a.title, "不得猜是哪一筆：\(report.updated)")
+        XCTAssertEqual(all.first { $0.id == b.id }?.title, b.title)
+        XCTAssertEqual(report.ambiguousSourceClaims, ["1:KEYART01": [a.citekey, b.citekey].sorted()])
+        XCTAssertEqual(report.created, [], "被多筆宣稱的來源不得再建第三筆")
+        XCTAssertEqual(all.count, 4)
+    }
+
+    /// 一筆的主來源、另一筆的附加來源是同一個來源：先前主來源那筆安靜勝出。
+    func testSourceClaimedAsPrimaryAndSecondaryIsNotRoutedToEither() throws {
+        _ = try runImport()
+        let all = try store.load().entries
+        var personal = all.first { $0.provenance?.zoteroKey == "KEYART01" }!
+        let group = all.first { $0.provenance?.zoteroKey == "KEYGRP01" }!
+        personal.additionalProvenance = [group.provenance!]
+        try store.writeEntry(personal)
+        try fixture.db.execute("UPDATE items SET version = 12 WHERE itemID = 31")
+        try fixture.db.execute("UPDATE itemDataValues SET value = 'Group edited title' WHERE valueID = 131")
+        let report = try runImport(at: 1_753_100_000)
+        let after = try store.load().entries
+        XCTAssertEqual(after.first { $0.id == group.id }?.title, group.title, "\(report.updated)")
+        XCTAssertEqual(after.first { $0.id == personal.id }?.additionalProvenance.first?.zoteroVersion, 9)
+        XCTAssertEqual(report.ambiguousSourceClaims, ["5:KEYGRP01": [personal.citekey, group.citekey].sorted()])
+    }
+
+    /// 兩筆沒記 library_id 的舊檔宣稱同一個裸 key：先前後讀到的那筆被認領、改寫。
+    func testTwoLegacyEntriesWithTheSameBareKeyAreNotClaimed() throws {
+        _ = try runImport()
+        var a = try article()
+        a.provenance?.libraryID = nil
+        a.provenance?.zoteroHash = nil
+        try store.writeEntry(a)
+        let b = try writeTwin(of: a, citekey: "cheng2025legacytwin")
+        let report = try runImport(at: 1_753_100_000)
+        let all = try store.load().entries
+        XCTAssertNil(all.first { $0.id == a.id }?.provenance?.libraryID, "\(report.updated)")
+        XCTAssertNil(all.first { $0.id == b.id }?.provenance?.libraryID)
+        XCTAssertEqual(report.ambiguousSourceClaims, ["?:KEYART01": [a.citekey, b.citekey].sorted()])
+        XCTAssertEqual(report.created, [])
+    }
+
+    /// doctor／validate／App 都讀 `crossRecordIssues`：多筆宣稱是一則 warning（載入時偵測，不等匯入）。
+    func testMultiClaimIsACrossRecordWarning() throws {
+        _ = try runImport()
+        let a = try article()
+        let b = try writeTwin(of: a, citekey: "cheng2025twin")
+        let issues = store.health(from: try store.load()).crossRecordIssues
+            .filter { $0.message.contains("1:KEYART01") }
+        XCTAssertEqual(issues.count, 1, "\(issues.map(\.message))")
+        XCTAssertEqual(issues.first?.severity, .warning)
+        XCTAssertTrue(issues.first?.message.contains("被 2 筆 entry 宣稱") ?? false, issues.first?.message ?? "")
+        XCTAssertTrue(issues.first?.message.contains(b.citekey) ?? false)
+    }
+
+    /// 同一筆 entry 的主來源與附加來源恰好是同一個來源：那不是多筆宣稱，照主來源更新（負控：
+    /// 宣稱者要以 entry 去重，否則同一筆會被數兩次）。
+    func testSameEntryClaimingASourceTwiceIsNotAmbiguous() throws {
+        _ = try runImport()
+        var a = try article()
+        a.additionalProvenance = [a.provenance!]
+        try store.writeEntry(a)
+        XCTAssertFalse(store.health(from: try store.load()).crossRecordIssues
+            .contains { $0.message.contains("KEYART01") })
+        try fixture.db.execute("UPDATE items SET version = 6 WHERE itemID = 10")
+        try fixture.db.execute("UPDATE itemDataValues SET value = 'Edited upstream' WHERE valueID = 100")
+        let report = try runImport(at: 1_753_100_000)
+        XCTAssertEqual(report.ambiguousSourceClaims, [:])
+        XCTAssertEqual(try store.load().entries.first { $0.id == a.id }?.title, "Edited upstream")
+    }
+}

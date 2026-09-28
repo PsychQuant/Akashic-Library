@@ -2489,6 +2489,10 @@ public final class AkashicService {
         ]
         if !report.authorsPreserved.isEmpty { d["authorsPreserved"] = report.authorsPreserved.map { displaySafe($0, max: 200) } }
         if !report.quarantineConflicts.isEmpty { d["quarantineConflicts"] = report.quarantineConflicts.map { displaySafe($0, max: 200) } }
+        // #610：同一個來源被多筆 entry 宣稱——本趟不更新、不新建。鍵消毒後可能相撞（截斷不是單射，#669），依原始鍵排序後留第一個
+        if !report.ambiguousSourceClaims.isEmpty {
+            d["ambiguousSourceClaims"] = Dictionary(report.ambiguousSourceClaims.sorted { $0.key < $1.key }.map { (displaySafe($0.key, max: 120), $0.value.map { displaySafe($0, max: 200) }) }, uniquingKeysWith: { first, _ in first })
+        }
         if !report.writeFailed.isEmpty { d["writeFailed"] = Dictionary(report.writeFailed.sorted { $0.key < $1.key }.map { (displaySafeInvisible($0.key, max: 200), displaySafeClipOnly($0.value, max: 512)) }, uniquingKeysWith: { first, _ in first }) }   // display-safe-exempt: value 已消毒（ZoteroImporter 的 writeFailed 由 displaySafeError 產出，R29 D81），只截
         return try jsonString(d)
     }

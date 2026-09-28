@@ -334,6 +334,11 @@ work merge 的資料遺失閘也把 witness 當 canonical Akashic metadata：被
   不新建。比對順序（#607）：① 主來源完全相同 ② 附加來源完全相同 ③ 沒記 `library_id` 的舊檔以裸 key
   比對——③ 只在沒有其他 library 的來源（主來源或附加來源）持有同一個裸 key 時才認領。②先於③：
   附加來源是完全相同的身分，legacy 是歸屬不明的猜測。
+- **一個來源只能由一筆 entry 宣稱**（#610）：同一個 `(library_id, zotero_key)` 出現在兩筆以上 entry 的主來源或
+  附加來源時，匯入對這個條目**不更新任何一筆、也不新建**，報告列在 `ambiguousSourceClaims`；兩筆以上沒記
+  `library_id` 的舊檔宣稱同一個裸 key 同樣不認領（鍵寫成 `?:<zotero_key>`）。`validate`／`doctor`／App 的跨記錄檢查
+  在載入時就報 warning。同一筆 entry 的主來源與附加來源恰好相同不算多筆宣稱。處置是人的：同一篇就合併
+  （`resolve-divergence` 把來源併成一份），記錯了就拿掉那個來源（活著的來源目前沒有移除面，只能手改 YAML）。
 - **只有主來源更新書目欄位**：主來源命中 → 照 §2.5.2 的 update 條件改寫欄位；附加來源命中 →
   只更新該來源自己的 `zotero_version`／`zotero_hash`／`imported_at`，並清其 `orphaned_at`，
   **不動書目欄位**。附加來源 hash 變了而未套用 → 匯入報告列出（`secondarySourceChanged`）。

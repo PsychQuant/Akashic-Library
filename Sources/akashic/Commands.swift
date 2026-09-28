@@ -1048,7 +1048,7 @@ struct ResolveOrganizations: ParsableCommand {
     var undecided: [String] = []
 
     @Option(name: .long, parsing: .upToNextOption,
-            help: "未決記錄的證據（可重複）：sha256:<64 hex>，先用 store-source 存檔。套用到這次呼叫的每一筆 --undecided；只伴隨 --undecided")
+            help: "未決記錄的證據（可重複）：sha256:<64 hex>，0 byte 內容的 digest 拒收，先用 store-source 存檔。套用到這次呼叫的每一筆 --undecided；只伴隨 --undecided")
     var restsOn: [String] = []
 
     /// 逐篇判定（#647）：CLI 在此之前沒有逐 id 的歸戶，查過未決的候選被篩選式 --apply 排除後只能走 MCP。
@@ -1828,7 +1828,7 @@ struct ResolvePeople: ParsableCommand {
 
     /// 未決記錄查了什麼（sha256 digest，先以 store-source 存檔）。
     @Option(name: .long, parsing: .upToNextOption,
-            help: "未決記錄的證據（可重複）：sha256:<64 hex>，先用 store-source 存檔。**套用到這次呼叫的每一筆 --undecided**——不同配對要附不同證據就分次呼叫。只伴隨 --undecided")
+            help: "未決記錄的證據（可重複）：sha256:<64 hex>，0 byte 內容的 digest 拒收，先用 store-source 存檔。**套用到這次呼叫的每一筆 --undecided**——不同配對要附不同證據就分次呼叫。只伴隨 --undecided")
     var restsOn: [String] = []
 
     /// 歧義段的列數上限（#388）。
@@ -2638,7 +2638,7 @@ struct RecordDivergence: ParsableCommand {
     var judgement: String?
 
     @Option(name: .long, parsing: .upToNextOption,
-            help: "判斷依據的存檔 digest（sha256:<64 hex>；URL 不是合法值——先用 store-source 存證據拿 digest）；可多個")
+            help: "判斷依據的存檔 digest（sha256:<64 hex>，0 byte 內容的 digest 拒收；URL 不是合法值——先用 store-source 存證據拿 digest）；可多個")
     var restsOn: [String] = []
 
     /// #159 verify 159-3：先前**只有 MCP** 能寫 `prefers`——LLM 寫得了、人寫不了。

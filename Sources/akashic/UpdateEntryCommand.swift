@@ -31,7 +31,7 @@ struct UpdateEntryCmd: ParsableCommand {
     var removeField: [String] = []
 
     @Option(name: .customLong("add-source"), parsing: .upToNextOption,
-            help: ArgumentHelp("宣告已存進 sources/ 的內容是這篇作品的副本（可多個 digest，sha256: 加 64 個小寫十六進位；寫進 akashic.sources，"
+            help: ArgumentHelp("宣告已存進 sources/ 的內容是這篇作品的副本（可多個 digest，sha256: 加 64 個小寫十六進位，0 byte 內容的 digest 拒收；寫進 akashic.sources，"
                              + "store-format §2.4.1）。每個新加的 digest 都要已經在本機的 sources/、而且 sources/index.jsonl 有它的取得記錄"
                              + "（先用 store-source 存）——本機沒有、孤兒 blob、shard 讀不到、index 壞到判不出來，都整批拒絕、零寫入。"
                              + "add-only、冪等：已在的列在 sourcesAlreadyPresent，沒有新東西就不寫。報告逐個帶 index 的取得記錄"

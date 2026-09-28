@@ -38,28 +38,36 @@ public extension AkashicService {
                     + "只能經 resolve 流程（apply／reject）寫，不收手供")
             }
             let value = item["value"] as? String
-            let kind: ProvenanceReference.Kind
-            switch item["kind"] as? String {
-            case "retrieval":
-                guard let url = item["url"] as? String,
-                      let retrieved = item["retrieved"] as? String,
-                      let content = item["content"] as? String else {
-                    throw ServiceError.invalid("retrieval reference 需 url／retrieved／content（sha256: digest）")
+            // 形狀驗證走平面 init——YAML decode 的同一個入口（digest 形狀、空內容 digest、判斷型 rests-on 非空）。
+            // 先前用不驗證的 init 組，digest 只在寫入閘的 canary 驗：參數階段與 dry-run 都放行、真跑才 exit 1（C2c R1 verify DA）。
+            let ref: ProvenanceReference
+            do {
+                switch item["kind"] as? String {
+                case "retrieval":
+                    guard let url = item["url"] as? String,
+                          let retrieved = item["retrieved"] as? String,
+                          let content = item["content"] as? String else {
+                        throw ServiceError.invalid("retrieval reference 需 url／retrieved／content（sha256: digest）")
+                    }
+                    ref = try ProvenanceReference(field: field, value: value, url: url, retrieved: retrieved,
+                                                  status: item["status"] as? Int ?? 200,
+                                                  mediaType: item["media_type"] as? String, content: content,
+                                                  judgement: nil, restsOn: [])
+                case "judgement":
+                    guard let statement = item["statement"] as? String else {
+                        throw ServiceError.invalid("judgement reference 需 statement")
+                    }
+                    ref = try ProvenanceReference(field: field, value: value, url: nil, retrieved: nil, status: nil,
+                                                  mediaType: nil, content: nil, judgement: statement,
+                                                  restsOn: item["rests_on"] as? [String] ?? [])
+                default:
+                    throw ServiceError.invalid("reference kind 需 retrieval 或 judgement")
                 }
-                kind = .retrieval(url: url, retrieved: retrieved,
-                                  status: item["status"] as? Int ?? 200,
-                                  mediaType: item["media_type"] as? String,
-                                  content: content)
-            case "judgement":
-                guard let statement = item["statement"] as? String else {
-                    throw ServiceError.invalid("judgement reference 需 statement")
-                }
-                kind = .judgement(statement: statement,
-                                  restsOn: item["rests_on"] as? [String] ?? [])
-            default:
-                throw ServiceError.invalid("reference kind 需 retrieval 或 judgement")
+            } catch let e as ServiceError {
+                throw e
+            } catch {
+                throw ServiceError.invalid("references：\(displaySafeError(error, max: 600))")
             }
-            let ref = ProvenanceReference(field: field, value: value, kind: kind)
             // append-only 的去重比**位元組**（R26 D73；R25 verify 第 7／25／29 列：三個 `==` 全是 canonical，只差 NFC／NFD 的一筆曾被靜默吞掉）
             guard !person.references.contains(where: { $0.byteExactKey == ref.byteExactKey }) else { continue }
             person.references.append(ref)

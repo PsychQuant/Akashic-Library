@@ -257,7 +257,7 @@ struct UpdateVenueCmd: ParsableCommand {
     var judgement: String?
 
     @Option(name: .customLong("rests-on"), parsing: .upToNextOption,
-            help: "判定所依據的證據 digest（sha256:64hex，至少一個——先用 store-source 存證據拿 digest）")
+            help: "判定所依據的證據 digest（sha256:64hex，0 byte 內容的 digest 拒收，至少一個——先用 store-source 存證據拿 digest）")
     var restsOn: [String] = []
 
     /// #587：venue 的通用 provenance 寫入面——與 `update-person` 的 `references` 同鍵名、同 append-only 語意。
@@ -345,7 +345,7 @@ struct ResolveVenuesCmd: ParsableCommand {
     var undecided: [String] = []
 
     @Option(name: .long, parsing: .upToNextOption,
-            help: "未決記錄的證據（可重複）：sha256:<64 hex>，先用 store-source 存檔。套用到這次呼叫的每一筆 --undecided——不同配對要附不同證據就分次呼叫。只伴隨 --undecided")
+            help: "未決記錄的證據（可重複）：sha256:<64 hex>，0 byte 內容的 digest 拒收，先用 store-source 存檔。套用到這次呼叫的每一筆 --undecided——不同配對要附不同證據就分次呼叫。只伴隨 --undecided")
     var restsOn: [String] = []
 
     @Option(name: .customLong("drop-venue"), parsing: .upToNextOption,

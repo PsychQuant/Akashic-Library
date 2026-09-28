@@ -171,7 +171,7 @@ per-id 顯式契約。兩面的失敗語意相同且刻意分兩類：輸入語�
 新增下一個工具 = 在這張表加一列。**不得依性質相似類推**「這個工具顯然不用 CLI」
 ——那個判斷要寫成表裡的一列（含理由或 issue 編號），不能只存在腦中。
 
-**工具描述有位元組預算（#578，2026-09-28）**：`tools/list` 回應整行不得超過 49,000 bytes（精簡後實測 39,164 × 1.25、進位到千），由 `StdioE2ETests.testToolsListResponseStaysWithinByteBudget` 走真 binary 量。#578 的 Expected 寫的是「源碼掃描守衛」，改用真 binary 量測是刻意的替代（R1 verify requirements 席指出這一點沒有寫出來）：呼叫端付的是 server 實際送出的那一行，源碼字串字面的加總量不到 input schema 的結構與 JSON 編碼，也會把不在那一行裡的字串算進去；這支測試在 pre-push 的 `swift test` 裡跑，超過即紅。描述只寫做什麼、輸入格式、拒絕類別、store format 與呼叫端要讀的回應鍵，完整契約指向 CLI `--help` 與 docs/store-format.md §3.5；裁決史與理由留在本檔與 changelog。要調高預算回 #578 重新裁決。
+**工具描述有位元組預算（#578，2026-09-28）**：`tools/list` 回應整行不得超過 49,000 bytes（精簡當下實測 39,164 × 1.25、進位到千。39,164 是補上 #670 兩個旗標的描述之前量的；`ee29fe47` 出貨時實測 39,285，照同一公式會得 50,000、超過單一 MCP 輸出的 48 KiB。預算維持 49,000，待使用者確認——#578 R1 verify DA），由 `StdioE2ETests.testToolsListResponseStaysWithinByteBudget` 走真 binary 量。#578 的 Expected 寫的是「源碼掃描守衛」，改用真 binary 量測是刻意的替代（R1 verify requirements 席指出這一點沒有寫出來）：呼叫端付的是 server 實際送出的那一行，源碼字串字面的加總量不到 input schema 的結構與 JSON 編碼，也會把不在那一行裡的字串算進去；這支測試在 pre-push 的 `swift test` 裡跑，超過即紅。描述只寫做什麼、輸入格式、拒絕類別、store format 與呼叫端要讀的回應鍵，完整契約指向 CLI `--help` 與 docs/store-format.md §3.5；裁決史與理由留在本檔與 changelog。要調高預算回 #578 重新裁決。
 
 ### 怎麼機械檢查這張表真的封閉
 

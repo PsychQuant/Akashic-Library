@@ -39,7 +39,7 @@ import AkashicCore
 ///    在 `run()` 裡、早於目標確認閘與開 store（`resolve-people` 先前把閘排在組合檢查前面，#654 對調）。
 ///
 /// 既有拋錯點的逐一歸類（2026-09-26）記在 `changelog/2026-09-26-cli-runtime-failure-exit-code.md`。
-/// `Sources/akashic/Reference*` 三個檔屬另一個 session 的 #617 範圍，本輪沒有動，該檔也記著。
+/// `Sources/akashic/Reference*` 三個檔（#617 的 references 子命令）本輪沒有動；它們的歸類由 #671 追蹤（等 #617 釋出那三個檔）。
 ///
 /// ## 消毒
 ///

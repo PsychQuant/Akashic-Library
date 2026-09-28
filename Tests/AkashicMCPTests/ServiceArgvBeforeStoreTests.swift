@@ -80,6 +80,18 @@ final class ServiceArgvBeforeStoreTests: XCTestCase {
         // 先報「找不到 person」，參數錯誤被蓋掉
         assertInvalid("不認得的欄位") { try self.service.updatePerson(key: "p-one", fields: ["bogus": 1], dryRun: true) }
         assertInvalid("不是合法的 ORCID") { try self.service.updatePerson(key: "p-one", fields: ["orcid": "0000"], dryRun: false) }
+        // C2c R1 verify DA：references 的 digest 先前只在寫入閘驗——參數階段與 dry-run 都放行，真跑才 exit 1
+        let retrieval: (String) -> [String: Any] = { content in
+            ["references": [["field": "openalex", "kind": "retrieval", "url": "https://x",
+                             "retrieved": "2026-09-28", "content": content]]]
+        }
+        assertInvalid("0 byte") { try self.service.updatePerson(key: "p-one", fields: retrieval(self.emptyDigest), dryRun: true) }
+        assertInvalid("digest 形狀") { try self.service.updatePerson(key: "p-one", fields: retrieval("sha256:zz"), dryRun: true) }
+        assertInvalid("0 byte") {
+            try self.service.updatePerson(key: "p-one", fields: ["references": [["field": "openalex", "kind": "judgement",
+                                                                                "statement": "s", "rests_on": [self.emptyDigest]]]],
+                                          dryRun: true)
+        }
         assertInvalid("不符合") { try self.service.addPerson(key: "Bad Key", names: ["X"], orcid: nil, openalex: nil) }
         assertInvalid("names 全是空白") { try self.service.addVenue(key: "v-one", names: ["  "], type: "periodical") }
         assertInvalid("mediaType 不可為空") {

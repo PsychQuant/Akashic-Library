@@ -135,6 +135,42 @@ final class OrgJudgeLegTests: XCTestCase {
         XCTAssertEqual(try store.load().entries.first?.authors, [.organization("apa"), .organization("apa")])
     }
 
+    /// R2 verify DA：歧義條目的 orgKeys 不過濾否決，id 驗得過而那個 org 已否決過這個配對——照寫會留下 confirmed＋rejected 的
+    /// 矛盾對。該筆略過並具名，不寫任何東西。
+    func testJudgingToAnOrganizationThatRejectedThePairingIsSkipped() throws {
+        try org("as", "Sinica")
+        try person("wang-x", affiliation: "Sinica")
+        _ = try service.resolveOrganizations(apply: nil, reject: ["wang-x::Sinica"])
+        try org("iss", "Sinica")
+        let out = json(try service.resolveOrganizations(apply: nil, judge: ["wang-x::Sinica@as=論文署名"]))
+        XCTAssertEqual((out["judged"] as? [[String: Any]])?.count ?? 0, 0, "\(out)")
+        let why = ((out["skipped"] as? [[String: Any]])?.first?["why"] as? String) ?? ""
+        XCTAssertTrue(why.contains("已否決過"), why)
+        XCTAssertEqual(try affiliation("wang-x"), .literal("Sinica"))
+        XCTAssertTrue(try judgedVerdicts("as").isEmpty)
+        XCTAssertEqual(StoreHealthProbe.contradictions(store), 0)
+    }
+
+    /// R2 verify DA：內容閘之外還有 #631 的目的檔檢查。legacy 佈局的 entry 未被 git 追蹤時，entry 的寫入會被拒——
+    /// 那要在任何一筆落盤之前發生，person 不得先寫。
+    func testDestinationChecksRunBeforeAnyWrite() throws {
+        try org("apa", "APA")
+        try person("pp", affiliation: "APA")
+        // 只放在 legacy 的 entries/ 下、未 commit：`entryWritePlan` 會拒（legacyCopyUnmovable）
+        let legacyDir = root.appendingPathComponent("entries")
+        try FileManager.default.createDirectory(at: legacyDir, withIntermediateDirectories: true)
+        var e = Entry(id: UUID(), citekey: "ck2020", type: .periodicalArticle, title: "T",
+                      authors: [.literal("{APA}")], date: "2020")
+        e.fields = [:]
+        try store.writeEntry(e)
+        let modern = try FileManager.default.contentsOfDirectory(at: root.appendingPathComponent("entities"), includingPropertiesForKeys: nil)
+            .first { (try? String(contentsOf: $0, encoding: .utf8))?.contains("ck2020") == true }
+        try FileManager.default.moveItem(at: try XCTUnwrap(modern), to: legacyDir.appendingPathComponent("ck2020.yaml"))
+        XCTAssertThrowsError(try service.resolveOrganizations(apply: nil, judge: ["pp::APA@apa=x", "ck2020[0]::APA@apa=y"]))
+        XCTAssertEqual(try affiliation("pp"), .literal("APA"), "person 不得先落盤")
+        XCTAssertTrue(try judgedVerdicts("apa").isEmpty)
+    }
+
     /// 輸入錯整批拒絕、零寫入：理由空白、同一列判兩次、與其他腿組合。
     func testInputErrorsRefuseTheWholeBatch() throws {
         try org("as", "Sinica")
@@ -150,5 +186,12 @@ final class OrgJudgeLegTests: XCTestCase {
                              "一筆 orgKey 不是那一列提名的——整批拒絕")
         XCTAssertEqual(try affiliation("lee-z"), .literal("NTU"), "整批拒絕零寫入")
         XCTAssertEqual(try affiliation("wang-x"), .literal("Sinica"))
+    }
+}
+
+/// 矛盾對計數的最小探針（避免測試依賴 StoreHealth 的完整建構）。
+enum StoreHealthProbe {
+    static func contradictions(_ store: LibraryStore) -> Int {
+        (try? store.health(from: store.load()).contradictoryVerdicts.count) ?? -1
     }
 }

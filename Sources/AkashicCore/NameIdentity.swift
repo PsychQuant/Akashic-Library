@@ -95,8 +95,8 @@ public enum NameIdentity {
     ///    （本型別的立場）；R3 把新條目存原樣，之後乾淨拼法永遠進不了 authorized。
     /// 2. **不含危險或不可見 scalar**——三份定義的聯集：輸出閘 `UnsafeToEmitScalar`（**同一份**，
     ///    #569 起它本身就是性質、涵蓋後兩份——下面兩份仍寫出來，是為了訊息分類）、generalCategory 的 Cc／Cf／Zl／Zp（性質）、以及 Unicode
-    ///    自己的 `Default_Ignorable_Code_Point`（性質；UAX #44，UTS #39 confusable 用的那個），再加一個
-    ///    三者都沒收的 U+2800 BRAILLE PATTERN BLANK。第三份是
+    ///    自己的 `Default_Ignorable_Code_Point`（性質；UAX #44，UTS #39 confusable 用的那個），再加
+    ///    三者都沒收、渲染成空白的幾個碼位（`UnsafeToEmitScalar.rendersBlank`：U+2800 與 #569 R1 補的四個）。第三份是
     ///    R5 verify 第 2 列補的：VS16（U+FE0F，網頁貼上常見）、CGJ（U+034F）是 **Mn**、Hangul filler
     ///    （U+3164）是 **Lo**——四類 generalCategory 都放行，`心\u{FE0F}理學報`／`心\u{034F}理學報`／`心理學報`
     ///    存成三筆「不同」名字、`add-venue --names $'\u{3164}'` 建出一筆 displayName 空白的 venue。

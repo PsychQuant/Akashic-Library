@@ -29,9 +29,9 @@ extension AkashicService {
         }
         let load = try store.load()
         // 只認這次**列表**上的列（帶否決過濾）：已否決或已歸戶的配對不在列表上，判它是輸入錯——id 不是這次列表的 id
+        let rejectedPairings = ResolutionLedger.rejectedPairings(organizations: load.organizations)
         let listed = OrgResolver.resolve(people: load.people, organizations: load.organizations,
-                                         rejected: ResolutionLedger.rejectedPairings(organizations: load.organizations),
-                                         entries: load.entries)
+                                         rejected: rejectedPairings, entries: load.entries)
         typealias Row = (holder: OrgResolutionCandidate.Holder, literal: String, orgKeys: Set<String>)
         var rows: [[UInt8]: [ProvenanceReference.VerdictHolderKind: Row]] = [:]
         func add(_ holder: OrgResolutionCandidate.Holder, _ literal: String, _ orgKeys: [String]) {
@@ -97,6 +97,14 @@ extension AkashicService {
         var accepted: [(spec: OrgUndecidedSpec, row: Row)] = []
         var skipped: [(id: String, why: String)] = []
         for (s, row) in zip(parsed, chosen) {
+            // 歧義條目的 orgKeys 取自原始命中集、不過濾否決（`OrgResolver` 刻意如此：唯一性由原始命中集決定），所以 id 驗得過
+            // 而那個 org 已經否決過這個配對。照寫會留下 confirmed＋rejected 的矛盾對（#486，處置沒有工具面）——store 狀態不符，
+            // 該筆略過並具名（#647 R2 verify DA）。翻轉判定不是這條腿的事。
+            if rejectedPairings.contains(ResolutionPairing(holderKind: row.holder.verdictHolderKind, holder: row.holder.key,
+                                                           literal: row.literal, judgedKey: s.orgKey)) {
+                skipped.append((s.id, "organization「\(displaySafe(s.orgKey, max: 200))」已否決過這個配對——逐篇判定不翻轉既有的否決，略過"))
+                continue
+            }
             switch row.holder {
             case let .work(citekey, _) where unlocatable.contains(citekey):
                 skipped.append((s.id, "work「\(displaySafe(citekey, max: 200))」的 citekey 重複或與另一筆 work 共用 id——無法確定是哪一筆，略過（#628）"))
@@ -158,7 +166,8 @@ extension AkashicService {
             var notRecorded: String?
             if !ResolutionLedger.appendIfAbsent(ref, to: &org.references, allowCoexistence: storeFormat >= 19),
                !org.references.contains(where: { $0.verdictRecordKey == ref.verdictRecordKey && $0.kindByteKey == ref.kindByteKey }) {
-                notRecorded = storeFormat >= 19
+                // 依**實際原因**選訊息，不依 format（R2 verify 三席）：同層級已有一筆 → 理由不同；否則是 format < 19 不讓提名層與逐篇並存
+                notRecorded = org.references.contains(where: { $0.verdictRecordKey == ref.verdictRecordKey })
                     ? "已歸戶；這個配對已有一筆理由不同的逐篇判定——判定以 (holder, literal) 配對去重，這次的理由沒有寫入"
                     : "已歸戶；這個配對已有提名層的判定，逐篇判定與它並存需要 store format ≥ 19"
                         + "（本 store 是 \(storeFormat)），這次的理由沒有寫入"   // display-safe-exempt: Int
@@ -172,10 +181,21 @@ extension AkashicService {
         let changedOrgKeys = Set(applied.organizations.filter { orgsBefore[$0.key] != $0 }.map(\.key)).union(touchedOrgs)
         // 寫入前先驗**整個寫入集合**，全部通過才寫（#647 R1 verify Codex HIGH：先前只驗收到 verdict 的目標 org，
         // person／entry／上級機構被改寫的 holder org 在寫入當下才被拒——前面的檔已經落盤）
+        // 內容閘之外還有 #631 的目的檔檢查（`personWritePlan`／`entryWritePlan`／`assertEntitiesDestination`）——write* 在寫入當下
+        // 才跑它，漏掉它就是同一種撕裂換一類拒絕（R2 verify DA 真 binary：legacy 未 commit 的 entry 讓 person 先落盤）。venue 路徑的先例同形。
         if !judged.isEmpty {
-            for p in changedPeople { try LibraryStore.assertPersonWritable(p, format: { storeFormat }) }
-            for e in changedEntries { try LibraryStore.assertEntryWritable(e, format: { storeFormat }) }
-            for key in changedOrgKeys.sorted() { try LibraryStore.assertOrganizationWritable(orgs[key]!, format: { storeFormat }) }
+            for p in changedPeople {
+                try LibraryStore.assertPersonWritable(p, format: { storeFormat })
+                _ = try store.personWritePlan(p)
+            }
+            for e in changedEntries {
+                try LibraryStore.assertEntryWritable(e, format: { storeFormat })
+                _ = try store.entryWritePlan(e)
+            }
+            for key in changedOrgKeys.sorted() {
+                try LibraryStore.assertOrganizationWritable(orgs[key]!, format: { storeFormat })
+                try store.assertEntitiesDestination(id: orgs[key]!.id, kind: .organization)
+            }
         }
         if !judged.isEmpty {
             for p in changedPeople { try store.writePerson(p) }

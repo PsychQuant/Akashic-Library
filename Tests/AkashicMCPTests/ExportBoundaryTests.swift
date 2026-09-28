@@ -191,15 +191,48 @@ final class ExportBoundaryTests: XCTestCase {
         e.date = "2020"
         try LibraryStore(root: root).writeEntry(e)
         let bib = try service.export(citekeys: ["tag2020"], format: "bib")
-        for s in [tag, zwsp, shy] { XCTAssertFalse(has(bib, s), "bib：raw \(s.unicodeScalars.first!.value)") }
+        for s in [tag, zwsp] { XCTAssertFalse(has(bib, s), "bib：raw \(s.unicodeScalars.first!.value)") }
         XCTAssertTrue(bib.contains("U+E0041"), bib)
-        XCTAssertTrue(has(bib, zwj), "文件保留 ZWJ（人讀的文件，同人可讀輸出）")
+        XCTAssertTrue(has(bib, zwj), "文件保留 ZWJ（比照人可讀輸出的裁決）")
+        XCTAssertTrue(has(bib, shy), "SHY 是斷字提示——文件的正當內容，文件出口不逃（R2 verify）")
         let json = try service.export(citekeys: ["tag2020"], format: "csl-json")
         for s in [tag, zwsp, shy, zwj] { XCTAssertFalse(has(json, s), "csl-json：raw \(s.unicodeScalars.first!.value)") }
         let parsed = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [[String: Any]])
         XCTAssertEqual(parsed.first?["title"] as? String, e.title, "CSL-JSON 的逃脫是 JSON 自己的語法，解回來逐字相同")
         let graph = try service.graph(focus: "tag2020", depth: 1, format: "mermaid")
         XCTAssertFalse(has(graph, tag), "graph：raw TAG")
+    }
+
+    /// **R2 verify（三席同指）**：R1 把 `documentSafe` 接到 `escapesInDisplay`，NBSP、thin space、U+3000、SHY、私用區造字在
+    /// `export-bib > refs.bib`（預設路徑）被改寫成字面 `U+00A0`——有損、TeX 解不回來。文件出口逐位元組保留它們；
+    /// graphml 另逃 noncharacter（XML 1.0 不收 U+FFFF）。
+    func testDocumentExitsKeepTypographicContentAndStayValidXML() throws {
+        let content = "Exact coverage of\u{00A0}confidence intervals\u{3000}試驗 em\u{00AD}pirical n\u{2009}=\u{2009}234 造\u{E000}字"
+        var e = Entry(id: UUID(), citekey: "typo2020", type: .periodicalArticle, title: content)
+        e.date = "2020"
+        try LibraryStore(root: root).writeEntry(e)
+        let bib = try service.export(citekeys: ["typo2020"], format: "bib")
+        XCTAssertNotNil(bib.range(of: content, options: .literal), "bib 要逐碼位保留（.literal 比 UTF-16，不比 grapheme）：\(bib)")
+        XCTAssertFalse(bib.contains("U+00A0") || bib.contains("U+3000") || bib.contains("U+00AD") || bib.contains("U+E000"), bib)
+        let mermaid = try service.graph(focus: "typo2020", depth: 1, format: "mermaid")
+        XCTAssertFalse(mermaid.contains("U+00A0"), mermaid)
+
+        var bad = Entry(id: UUID(), citekey: "nonchar2020", type: .periodicalArticle, title: "Title\u{FFFF}End")
+        bad.date = "2020"
+        try LibraryStore(root: root).writeEntry(bad)
+        let graphml = try service.graph(focus: "nonchar2020", depth: 1, format: "graphml")
+        XCTAssertFalse(graphml.unicodeScalars.contains { $0.value == 0xFFFF }, "noncharacter 原樣通過 → 不是合法 XML")
+        XCTAssertTrue(XMLParser(data: Data(graphml.utf8)).parse(), graphml)
+    }
+
+    /// CLI `export-bib` 的預設 stdout 同一件事（真 binary）。
+    func testCLIStdoutKeepsTypographicContent() throws {
+        try CLIFixture.requireBinary()
+        var e = Entry(id: UUID(), citekey: "typo2021", type: .periodicalArticle, title: "A\u{00A0}B\u{3000}C\u{00AD}D")
+        e.date = "2021"
+        try LibraryStore(root: root).writeEntry(e)
+        let stdout = CLIFixture.run(["export-bib", "--library", root.path], home: fakeHome).stdout
+        XCTAssertNotNil(stdout.range(of: "A\u{00A0}B\u{3000}C\u{00AD}D", options: .literal), stdout)
     }
 
     // MARK: - CLI：真 binary、真 stdout

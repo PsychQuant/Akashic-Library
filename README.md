@@ -590,9 +590,9 @@ store 內容是**未信任的**——來自 Zotero 匯入（出版商與網頁�
 
 | | `displaySafe` / `displaySafeMultiline` | `documentSafe` |
 |---|---|---|
-| 用在 | 錯誤訊息、識別字、單一欄位 | `.bib` / CSL-JSON / mermaid / dot / graphml 整份文件 |
+| 用在 | 錯誤訊息、識別字、單一欄位 | `.bib` / mermaid / dot / graphml 整份文件（CSL-JSON 走 `documentSafeJSON`：JSON 自己的 `\uXXXX`，無損，#569） |
 | 跳脫反斜線 | **是**——否則輸出可被內容偽造 | **否**——反斜線在那裡**是內容語法** |
-| 標記形式 | `\u{001B}` | `U+001B`（無反斜線／引號／角括號） |
+| 標記形式 | `\u{001B}` | `U+001B`（無反斜線／引號／角括號）；非 U+0020 空白、SHY、私用區、ZWJ／ZWNJ 不逃（文件的正當內容，`escapesInDocument`） |
 | 長度上限 | 有（訊息該短） | **無**——截斷一份文件永遠產生壞掉的文件 |
 
 分成兩個是因為 `displaySafe` 的反偽造設計套到文件上是**致命**的（#171）：實測

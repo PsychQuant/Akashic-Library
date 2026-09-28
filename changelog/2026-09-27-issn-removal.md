@@ -10,7 +10,7 @@ ISSN 的 mod-11 檢查碼擋得住亂碼，擋不住**合法但屬於姊妹刊�
 **移除面，兩面同契約**：CLI `update-venue --remove-issn <issn>=理由`，MCP `akashic_update_venue` 的 `remove_issn`，同走 `updateVenue`。
 
 - 理由必填，只進報告（`issnRemoved`），不寫進 store。這是使用者 2026-09-27 對三個移除面（#572／#586／#588）的裁決（原話「只進報告與 git 歷史」）。git 保存的是**移除前的檔**；理由要留在 git，得由操作者寫進後續的 commit message，工具不代寫——R1 verify 指出這一行初稿寫成「理由進 git 歷史」是過度宣稱。
-- 因為理由與被移除的號只剩 git 這一份副本，移除前要求那筆 venue 檔已 commit、沒有未提交修改。這道閘沿用 #573 的 `assertRetiredVerdictsRecoverable`，一般化成 `assertRecordsRecoverable`（#573 的呼叫改為呼叫它，行為不變）。
+- 被移除的號（以及 R1 起一併刪除的 `field: issn` provenance）只剩 git 裡移除前的那一份副本，所以移除前要求那筆 venue 檔已 commit、沒有未提交修改；理由不在那份副本裡（見上一條）。這道閘沿用 #573 的 `assertRetiredVerdictsRecoverable`，一般化成 `assertRecordsRecoverable`（#573 的呼叫改為呼叫它，行為不變）。
 - 整批拒絕、零寫入的情形：缺 `=`、號不合法、理由空白或超過 4,096 位元組、同一個號在一次呼叫裡重複、這本刊沒有這個號、同一個號同時在 `add_issn` 與 `remove_issn`。
 - 逆操作是 `--add-issn` 加回來。
 

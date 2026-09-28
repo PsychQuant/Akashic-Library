@@ -19,15 +19,19 @@ import Foundation
 ///
 /// ## 判準：只擋危險字元，不碰語法
 ///
-/// 跳脫的集合是 `UnsafeToEmitScalar.escapesInDisplay`——與 `displaySafe` 同一份性質（#569），
-/// 只少兩樣：反斜線（上面的理由），以及 TAB 與 LF（文件的結構）。先前這裡是一張手抄的列舉
-/// （C0／C1／DEL、LS/PS、bidi、方向標記、BOM），#569 把輸出閘改成性質之後它沒有跟著改，
-/// TAG 字元、ZWSP、SHY 經 `akashic_export`／`akashic_graph` 原樣進 LLM context（#569 R1 verify 三席同指）。
+/// 跳脫的集合是 `UnsafeToEmitScalar.escapesInDocument`——輸出閘的同一份性質（#569），扣掉文件的正當內容
+/// （非 U+0020 的空白、SHY、私用區、ZWJ／ZWNJ），加上 XML 不收的 noncharacter；另外保留反斜線（上面的理由）
+/// 與 TAB、LF（文件的結構）。先前這裡是一張手抄的列舉（C0／C1／DEL、LS/PS、bidi、方向標記、BOM），#569 把輸出閘
+/// 改成性質之後它沒有跟著改，TAG 字元、ZWSP 經 `akashic_export`／`akashic_graph` 原樣進 LLM context
+/// （#569 R1 verify 三席同指）；R1 改接 `escapesInDisplay`，又把 NBSP、U+3000、SHY 在 `export-bib > refs.bib`
+/// 改寫成字面標記（R2 verify 三席同指）——扣掉的那四類理由見 `escapesInDocument`。
 /// 這些字元與各格式自己的 metacharacter（`{}` `\` `%` `&`／`"` `\`／`<` `&`）是**兩組不相干的集合**，
 /// 所以各 renderer 的 escape 不涵蓋它們，而本函式也不會踩到它們。
 ///
-/// ZWJ／ZWNJ 保留：`.bib` 與圖是給人讀的文件，同人可讀輸出（使用者 2026-09-27 裁決）。CSL-JSON 是 JSON 出口，
-/// 走 `documentSafeJSON`——它以 JSON 自己的 `\uXXXX` 逃脫，連同 ZWJ／ZWNJ，而且無損。
+/// ZWJ／ZWNJ 在文件出口保留是**類推**，不是使用者裁決本身：2026-09-27 的裁決針對人可讀輸出，
+/// 文件出口比照它（`akashic_export` 的 bib 與 `akashic_graph` 回到 LLM context，零寬 joiner 串是
+/// 已記錄的殘餘風險）。CSL-JSON 是 JSON 出口，走 `documentSafeJSON`——它以 JSON 自己的 `\uXXXX`
+/// 逃脫，連同 ZWJ／ZWNJ，而且無損。
 ///
 /// 標記寫成 `U+001B` 而非 `\u{001B}`：**不含反斜線、引號或角括號**，因此在
 /// `.bib` 的大括號內、JSON 字串內、XML 文字節點內都是無害的字面文字。
@@ -62,7 +66,7 @@ public func documentSafe(_ s: String) -> String {
     for u in s.unicodeScalars {
         let v = u.value
         // 留 TAB 與 LF（文件的結構）；CR 仍跳脫——與 LF 並存會造成歧義
-        let escape = v != 0x09 && v != 0x0A && UnsafeToEmitScalar.escapesInDisplay(u)
+        let escape = v != 0x09 && v != 0x0A && UnsafeToEmitScalar.escapesInDocument(u)
         if escape {
             for c in String(format: "U+%04X", v).unicodeScalars { out.append(c) }
         } else {

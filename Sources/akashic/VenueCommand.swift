@@ -208,7 +208,7 @@ struct UpdateVenueCmd: ParsableCommand {
 
     /// #588：寫錯的號（常是姊妹刊的號）在此之前拿不掉，只能手改 YAML。
     @Option(name: .customLong("remove-issn"), parsing: .upToNextOption,
-            help: "移除 ISSN（可多個）：<issn>=理由。移除是判定的逆轉，理由必填；理由只印在報告（issnRemoved），不寫進 store，所以這個 venue 檔要已在 git 裡 commit（tracked、無未提交修改），否則整批拒絕。號不合法、這本刊沒有這個號、同一次呼叫裡重複、或同時出現在 --add-issn，都整批拒絕、零寫入（#588）")
+            help: "移除 ISSN（可多個）：<issn>=理由。移除是判定的逆轉，理由必填；理由只印在報告（issnRemoved，全文），不寫進 store。指向被移除號的 field: issn provenance reference 一併刪除，報告逐號列筆數（referencesRemoved）。所以這個 venue 檔要已在 git 裡 commit（tracked、無未提交修改），否則整批拒絕——git 保存的是移除前的檔，理由要留在 git 得自己寫進 commit message。號不合法、這本刊沒有這個號、同一次呼叫裡重複、或同時出現在 --add-issn，都整批拒絕、零寫入（#588）")
     var removeISSN: [String] = []
 
     @Option(name: .customLong("add-variant"), parsing: .upToNextOption,

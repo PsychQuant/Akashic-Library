@@ -73,6 +73,11 @@ final class ServiceArgvExitCodeTests: XCTestCase {
         try assertUsageError(["update-entry", "a2020b", "--remove-field", "abstract"], "缺少 `=`")
         try assertUsageError(["update-entry", "a2020b", "--remove-field", "abstract= "], "的理由是空白")
         try assertUsageError(["update-entry", "a2020b", "--remove-field", "abstract=a", "abstract=b"], "出現兩次")
+        // #614：--add-source 的 digest 形狀、空內容的 digest（#654）、同一次重複、不與 --remove-field 組合
+        try assertUsageError(["update-entry", "a2020b", "--add-source", "sha256:bad"], "不是合法的 digest")
+        try assertUsageError(["update-entry", "a2020b", "--add-source", emptyDigest], "0 byte")
+        try assertUsageError(["update-entry", "a2020b", "--add-source", digest, digest], "出現兩次")
+        try assertUsageError(["update-entry", "a2020b", "--add-source", digest, "--remove-field", "a=b"], "單獨呼叫")
     }
 
     func testUpdateVenueArgvChecks() throws {

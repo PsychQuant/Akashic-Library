@@ -12,7 +12,7 @@ import AkashicMCPKit
 struct UpdateEntryCmd: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "update-entry",
-        abstract: "work 的部分更新（預設乾跑，--apply 才寫）：--remove-field 移除 fields 的值（#544）")
+        abstract: "work 的部分更新（預設乾跑，--apply 才寫）：--remove-field 移除 fields 的值（#544）、--add-source 宣告已存的內容是這篇的副本（#614）；兩者各自單獨呼叫")
 
     @OptionGroup var options: LibraryOptions
 
@@ -30,11 +30,20 @@ struct UpdateEntryCmd: ParsableCommand {
                              + "（要刪用 resolve-venues --drop-venue）；主來源是 Zotero 的記錄另附 zoteroNote（#544）"))
     var removeField: [String] = []
 
+    @Option(name: .customLong("add-source"), parsing: .upToNextOption,
+            help: ArgumentHelp("宣告已存進 sources/ 的內容是這篇作品的副本（可多個 digest，sha256: 加 64 個小寫十六進位；寫進 akashic.sources，"
+                             + "store-format §2.4.1）。每個新加的 digest 都要已經在本機的 sources/、而且 sources/index.jsonl 有它的取得記錄"
+                             + "（先用 store-source 存）——本機沒有、孤兒 blob、shard 讀不到、index 壞到判不出來，都整批拒絕、零寫入。"
+                             + "add-only、冪等：已在的列在 sourcesAlreadyPresent，沒有新東西就不寫。報告逐個帶 index 的取得記錄"
+                             + "（origin、mediaType、note…），乾跑時用來確認是哪份內容。空內容的 digest、同一次重複、一次超過 200 個都拒絕。"
+                             + "不與 --remove-field 組合（#614）"))
+    var addSource: [String] = []
+
     @Flag(name: .long, help: "實際寫入（預設只列出會做什麼）")
     var apply = false
 
     func validate() throws {
-        try argvCheck { try AkashicService.checkUpdateEntryArguments(removeFields: removeField) }
+        try argvCheck { try AkashicService.checkUpdateEntryArguments(removeFields: removeField, addSources: addSource) }
     }
 
     func run() throws {
@@ -44,6 +53,6 @@ struct UpdateEntryCmd: ParsableCommand {
         let service = AkashicService(root: store.root, key: store.key,
                                      environment: ProcessInfo.processInfo.environment)
         // 寫入面封閉例外形：只回 service payload（mcp-cli-parity 的既有裁決）
-        print(try service.updateEntry(citekey: citekey, removeFields: removeField, dryRun: !apply))
+        print(try service.updateEntry(citekey: citekey, removeFields: removeField, addSources: addSource, dryRun: !apply))
     }
 }

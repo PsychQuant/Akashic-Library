@@ -254,6 +254,10 @@ akashic:
 - 空清單與缺席等價，encode 不 emit 空鍵。
 - digest 合法但本機無存檔＝**載入成功 + 可回報缺席**，與「記錄格式損毀」是兩種
   不同條件（同 §3.5 的既有契約）。
+- **寫入端**（#614）：`update-entry <citekey> --add-source <digest>`（MCP `akashic_update_entry` 的
+  `add_sources`），預設乾跑、`--apply` 才寫。add-only、冪等；寫入當下要求每個新加的 digest 已在本機 `sources/`
+  且 `sources/index.jsonl` 有它的取得記錄——那是寫入閘，不是載入條件（上一條：別台 clone 讀到的連結
+  照常載入）。沒有移除面。
 
 ### 2.5 Namespace 契約（CRITICAL）
 

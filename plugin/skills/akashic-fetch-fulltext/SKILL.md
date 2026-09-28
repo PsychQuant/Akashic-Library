@@ -10,7 +10,7 @@ description: 取得 Akashic 條目的全文 PDF 並存進 store——EndNote「F
 ## 這個 skill 能做到哪裡（誠實邊界）
 
 - **能**：取回 PDF、驗證、以 `store-source` 存進 `sources/`（內容定址、git 排除已驗證才寫），回報每筆的 digest。
-- **還不能**：把 digest 寫進條目的 `akashic.sources`。store 格式有這個欄位（store-format.md §2.4.1），但 **CLI 與 MCP 目前沒有任何入口寫它**——2026-09-24 在 `Sources/` grep 設值點只有 decode 與 init（#614）。在 #614 落地前，回報表就是連結的唯一紀錄；**不要手寫條目 YAML 補上**（writing-to-the-store.md：沒走編碼器又沒驗的手改是唯一真正錯的走法）。
+- **能**（#614 起）：把驗證過的 digest 寫進條目的 `akashic.sources`（store-format.md §2.4.1），宣告「這份內容是這篇的副本」——見第 5 步。**不要手寫條目 YAML 補上**（writing-to-the-store.md：沒走編碼器又沒驗的手改是唯一真正錯的走法）。
 - **只用使用者自己的存取權**。付費牆後面、使用者沒有權限的，就是拿不到——回報「無權限」，不找替代管道硬拿。
 
 ## 中止條款：網站一懷疑是自動化，整批就停
@@ -104,9 +104,22 @@ akashic_store_source(path=<pdf>, media_type="application/pdf",
 
 `retrieved` 是**取得**時間，不是存入時間。回傳的 digest 記進回報表。作者稿與預印本**照實在 note 寫版本**，不要讓它看起來像正式版。
 
-### 5. 回報
+### 5. 連結回記錄
 
-每筆一列：citekey、結果（stored／no access／no link／not verified）、版本、digest、頁數、來源。最後列出「需要人處理」的清單與原因（無權限的站、找不到連結的新站）。**不寫「應該有權限」「大概是這篇」**——量到什麼寫什麼，見 [`assertions-must-be-measured`](../../rules/assertions-must-be-measured.md)。
+只連**第 4 步存了、而且第 3 步驗證通過（結束碼 0）**的那幾篇；結束碼 5 經人看過、確認是這篇的，同樣可以連。驗證不過又沒人確認的不連——連結說的是「這份就是這篇」，那正是驗證在判的事。
+
+先乾跑，看 `sourcesAdded` 帶回來的取得記錄（origin、note）是不是剛存的那一份，再實寫：
+
+```text
+akashic_update_entry(citekey="<citekey>", add_sources=["<digest>"])                  # 乾跑（預設）
+akashic_update_entry(citekey="<citekey>", add_sources=["<digest>"], dry_run=false)   # 實寫
+```
+
+CLI 是 `akashic update-entry <citekey> --add-source <digest>`，加 `--apply` 才寫（未指名目標 store 時要 `--library` 或 `--yes`）。digest 必須已在本機 `sources/`、index 有取得記錄——第 4 步存過就滿足。已連過的回 `sourcesAlreadyPresent`、不重寫。**連錯了目前沒有移除腿**，只能手改 YAML——所以乾跑那一步不要省。
+
+### 6. 回報
+
+每筆一列：citekey、結果（stored／no access／no link／not verified）、版本、digest、是否已連回記錄、頁數、來源。最後列出「需要人處理」的清單與原因（無權限的站、找不到連結的新站）。**不寫「應該有權限」「大概是這篇」**——量到什麼寫什麼，見 [`assertions-must-be-measured`](../../rules/assertions-must-be-measured.md)。
 
 ## 不做的事
 

@@ -512,6 +512,11 @@ extension StdioE2ETests {
         let bad = try call(3, "akashic_update_entry",
                            ["citekey": "cheng2025identifiability", "remove_fields": "journaltitle=x"])
         XCTAssertTrue(bad.contains("字串陣列"), bad)
+
+        // #614：add_sources 接到服務（鍵名打錯的話會落到「沒有要做的事」）
+        let absent = try call(4, "akashic_update_entry",
+                              ["citekey": "cheng2025identifiability", "add_sources": ["sha256:" + String(repeating: "cd", count: 32)]])
+        XCTAssertTrue(absent.contains("本機沒有"), absent)
     }
 }
 

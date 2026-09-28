@@ -67,7 +67,7 @@ extension DestructiveTargetGate {
         "bootstrap-venues": .gated,
         "enrich": .gated,   // #458：只加不存在的鍵，但仍改寫既有記錄檔；閘的成本是一行
         "enrich-from-zotero": .gated,
-        "update-entry": .gated,   // #544：預設乾跑、--apply 才寫；--remove-field 刪 fields 的值（理由只進報告，比照 enrich 改寫既有記錄檔）
+        "update-entry": .gated,   // #544／#614：預設乾跑、--apply 才寫；--remove-field 刪 fields 的值、--add-source 追加副本引用——都改寫既有記錄檔（比照 enrich）
         "authorize-names": .gated,   // #580 R1 verify：全庫掃蕩的布林 --apply，曾因宣告寫成 `: Bool` 漏在稽核外
         "resolve-divergence": .gated,
         "rename": .gated,   // #650／#653

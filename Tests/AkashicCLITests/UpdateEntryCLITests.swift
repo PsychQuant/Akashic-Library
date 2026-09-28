@@ -63,4 +63,26 @@ final class UpdateEntryCLITests: XCTestCase {
         XCTAssertNil(e.fields["abstract"])
         XCTAssertEqual(e.fields["volume"], "3")
     }
+
+    /// #614：`--add-source` 把已存的內容寫進 `akashic.sources`——乾跑不寫、`--apply` 寫、再跑一次是 no-op。
+    func testAddSourceLinksStoredContent() throws {
+        let store = LibraryStore(root: root, key: nil, environment: [:])
+        let receipt = try store.storeSource(Data("%PDF-1.7 fixture".utf8), provenance: .init(
+            mediaType: "application/pdf", retrieved: "2026-09-29T10:00:00+08:00",
+            origin: "https://example.org/x.pdf", acquisition: "browser-download"))
+        let arg = ["update-entry", "x2020y", "--add-source", receipt.digest, "--library", root.path]
+        let dry = try CLITestHarness.run(arg, env: ["AKASHIC_HOME": home.path])
+        XCTAssertEqual(dry.status, 0, dry.output)
+        XCTAssertTrue(dry.output.contains("example.org") && dry.output.contains("\"mediaType\" : \"application"), "乾跑帶 index 的取得記錄：\(dry.output)")
+        XCTAssertEqual(try store.load().entries.first?.akashic.sources, [], "乾跑零寫入")
+
+        let done = try CLITestHarness.run(arg + ["--apply"], env: ["AKASHIC_HOME": home.path])
+        XCTAssertEqual(done.status, 0, done.output)
+        XCTAssertEqual(try store.load().entries.first?.akashic.sources, [receipt.digest])
+        let bytes = try Data(contentsOf: file)
+        let again = try CLITestHarness.run(arg + ["--apply"], env: ["AKASHIC_HOME": home.path])
+        XCTAssertEqual(again.status, 0, again.output)
+        XCTAssertTrue(again.output.contains("sourcesAlreadyPresent"), again.output)
+        XCTAssertEqual(try Data(contentsOf: file), bytes, "冪等：沒有新東西就不寫")
+    }
 }

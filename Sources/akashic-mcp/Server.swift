@@ -185,10 +185,12 @@ actor AkashicMCPServer {
              description: "work 的部分更新（CLI `akashic update-entry --help`）。**dry_run 預設 true**，false 才寫。"
                  + "remove_fields 移除 fields 的值——判定：理由必填、只回在 fieldRemovals、不寫進 store；實寫要求該 work 檔已在 git 裡 commit、乾淨。"
                  + "指向被移除鍵的 fields.<鍵> reference 一併刪除（referencesRemoved）；由被移除值推導的 literal venue 邊不動、列在 venueEdgesFromRemovedValues；"
-                 + "Zotero 來源的記錄附 zoteroNote。work 無法唯一定位時拒絕。",
+                 + "Zotero 來源的記錄附 zoteroNote。add_sources 把已存進 sources/ 的內容宣告為這篇的副本（akashic.sources）：add-only、冪等（sourcesAlreadyPresent），"
+                 + "sourcesAdded 帶 index 的取得記錄。兩條腿各自單獨呼叫。work 無法唯一定位時拒絕。",
              inputSchema: obj([
                 "citekey": str("目標 work 的 citekey"),
                 "remove_fields": strArray("<鍵>=理由（鍵與 fields 現有的鍵逐字相符；理由 ≤ 4,096 位元組）。鍵不存在、同鍵兩次、理由空白或過長、超過 200 個 → 整批拒絕零寫入"),
+                "add_sources": strArray("digest（sha256: 加 64 個小寫十六進位；先用 akashic_store_source 存）。本機 sources/ 沒有、index 沒有取得記錄、空內容的 digest、重複、超過 200 個 → 整批拒絕零寫入"),
                 "dry_run": .object(["type": .string("boolean"), "description": .string("預設 true（只回計畫）；false 才寫")]),
              ], required: ["citekey"])),
         Tool(name: "akashic_venue",
@@ -621,6 +623,7 @@ actor AkashicMCPServer {
             case "akashic_update_entry":
                 output = try service.updateEntry(citekey: arg("citekey") ?? "",
                                                  removeFields: try argStrictList("remove_fields"),
+                                                 addSources: try argStrictList("add_sources"),
                                                  dryRun: try argFlag("dry_run", default: true))
             case "akashic_venue":
                 output = try service.venue(key: arg("key") ?? "")

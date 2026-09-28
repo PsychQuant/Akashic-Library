@@ -190,25 +190,81 @@ public extension LibraryStore {
     ///   會在有空行時指錯行）。空行本身不算 malformed（手工編輯的常態）。
     /// - **非法 UTF-8 不 throw**（verify reg F1／sec HIGH-2：診斷工具不得被
     ///   sidecar 的腐爛殺死）：lossy 解碼，壞位元組落在哪一行、那一行就 malformed。
-    private func scanIndex() throws -> (digests: Set<String>, malformedLines: [Int]) {
+    /// `entries`：每個 digest **第一列**的字串欄位（`bytes` 之類的非字串欄位不收）——provenance 以先到的為準
+    /// （`storeSource` 的冪等語意），所以讀回來也取第一列（#614：宣告副本時讓人認得出這份內容是什麼）。
+    private func scanIndex() throws -> (digests: Set<String>, malformedLines: [Int], entries: [String: [String: String]]) {
         guard FileManager.default.fileExists(atPath: sourceIndexURL.path) else {
-            return ([], [])
+            return ([], [], [:])
         }
         let raw = try Data(contentsOf: sourceIndexURL)
         let text = String(decoding: raw, as: UTF8.self)   // lossy——絕不 throw
         var digests = Set<String>()
         var malformed: [Int] = []
+        var entries: [String: [String: String]] = [:]
         for (i, line) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
             if line.trimmingCharacters(in: .whitespaces).isEmpty { continue }
             if let obj = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
                let content = obj["content"] as? String,
                ProvenanceReference.isWellFormedDigest(content) {   // #654：index 的文法只看形狀——指向空 blob 的那一列（#546 之前）不是無法解析的行
                 digests.insert(content)
+                if entries[content] == nil { entries[content] = obj.compactMapValues { $0 as? String } }
             } else {
                 malformed.append(i + 1)
             }
         }
-        return (digests, malformed)
+        return (digests, malformed, entries)
+    }
+
+    /// 一個 digest 在本機 `sources/` 的狀態（#614）：把內容宣告為某篇 work 的副本（`akashic.sources`）之前，
+    /// 要確認位元組真的在這台機器上、而且有取得記錄。
+    enum SourcePresence: Equatable {
+        /// blob 在、index 有它的條目；值是那一列的字串欄位（media-type／retrieved／origin／acquisition／note）
+        case stored([String: String])
+        /// blob 不在本機——從未存過，或這台機器沒同步 `sources/`（它不進 git）
+        case absent
+        /// blob 在、index 沒有它：孤兒 blob，沒有取得記錄（`auditSourceIndex` 的 `orphanBlobs`）
+        case unindexed
+        /// shard 目錄存在但列不出來——讀不到不等於缺席（#265 的同一條）
+        case unreadable
+    }
+
+    /// 逐個 digest 回報 `SourcePresence`。index 只掃一次（與 `storeSource`／`auditSourceIndex` 共用 `scanIndex`，
+    /// 同一份檔案不得給出兩種讀法）。**index 有無法解析的行、而這個 digest 的 blob 在卻不在可解析的行裡**時擲錯：
+    /// 它的條目可能就藏在壞掉的那一行，判不出「沒有取得記錄」（`storeSource` 對同一情形 fail-closed 的同一條理由）。
+    /// 形狀不合法的 digest 也擲錯——呼叫端應先以 `ProvenanceReference.isValidDigest` 驗過。
+    func sourcePresence(digests: [String]) throws -> [String: SourcePresence] {
+        let scan = try scanIndex()
+        let fm = FileManager.default
+        var out: [String: SourcePresence] = [:]
+        for d in digests {
+            guard let url = sourceURL(digest: d) else {
+                throw StoreIOError.invalidInput(
+                    what: "source digest",
+                    why: "digest 形狀必須是 sha256: + 64 個小寫 hex，實得「\(displaySafeInvisible(d, max: 120))」")
+            }
+            if fm.fileExists(atPath: url.path) {
+                if let entry = scan.entries[d] {
+                    out[d] = .stored(entry)
+                } else if !scan.malformedLines.isEmpty {
+                    throw StoreIOError.invalidInput(
+                        what: "sources/index.jsonl",
+                        why: "有 \(scan.malformedLines.count) 行無法解析（行號 \(scan.malformedLines.map(String.init).joined(separator: ", "))）——"
+                            + "\(displaySafeInvisible(d, max: 120)) 的取得記錄可能就在那幾行裡，判不出它有沒有條目；先修好 index（akashic doctor 會列出）")
+                } else {
+                    out[d] = .unindexed
+                }
+                continue
+            }
+            let shardDir = url.deletingLastPathComponent()
+            var isDir: ObjCBool = false
+            if fm.fileExists(atPath: shardDir.path, isDirectory: &isDir), isDir.boolValue,
+               (try? fm.contentsOfDirectory(atPath: shardDir.path)) == nil {
+                out[d] = .unreadable
+            } else {
+                out[d] = .absent
+            }
+        }
+        return out
     }
 
     /// #224：blob ↔ index 的兩向一致性 + malformed 行回報。

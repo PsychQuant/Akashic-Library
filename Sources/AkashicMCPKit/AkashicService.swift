@@ -3714,7 +3714,8 @@ public final class AkashicService {
         // 「X 是對外形」，程式若把 Y 放進 variant 就是替它多說一句「Y 是異寫」——
         // `venue-entity` spec 的未標才是「不作任何宣稱」的誠實狀態；而 Y 若是沿革前身
         // （names 帶時間欄位），標成 variant 會直接撞 variant 的時間不變式、整個呼叫被拒。
-        // 這也是 #553 合併端那個「authorized → variant」降級在 A 這一個名字上的逆操作
+        // 這也是 #553 合併端那個「authorized → variant」降級在 A 這一個名字上的逆操作（#565 起合併不再標 variant，被併者的
+        // authorized 併入後未標；live store 裡 #553 時降過去的仍在 variant）
         // ——不是「精確」逆操作（那邊改一個名字的分類，這裡改兩個），所以命名是
         // `authorize` 不是 `add_*`（叫 add 會說謊）。不同 `WritingSystem`（han／latn／other）
         // 之間仍是 append——注意 `.other` 是一個桶：西里爾與假名互相替換。

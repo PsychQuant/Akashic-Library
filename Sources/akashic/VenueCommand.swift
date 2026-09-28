@@ -230,7 +230,7 @@ struct UpdateVenueCmd: ParsableCommand {
                              + "（han／latn／other）至多一個，同一書寫系統原本的指定會移出 authorized、"
                              + "留在 names、不標 variant（報告逐筆印出）；不同書寫系統之間才是 append。"
                              + "一次給兩個同書寫系統的名字是矛盾，整批拒絕。不在 names 的一併加進 names。"
-                             + "這是 #553 合併把某個名字降成 variant 那個動作在該名字上的逆操作——在此之前"
+                             + "這是合併拿掉某個名字 authorized 身分那個動作在該名字上的逆操作（#553 時那個名字進 variant、#565 起留在未標）——在此之前"
                              + "authorized 沒有判定型寫入面，唯一寫入者是 bootstrap 取第一個名字，而那些"
                              + "機械值換不掉。不留 judgement（#564 另裁）。報告的桶：authorizedRemoved（被換下來的舊指定）、"
                              + "liftedFromVariant（原本在 variant、被抬進 authorized）、alreadyAuthorized（no-op 但不沉默）、"

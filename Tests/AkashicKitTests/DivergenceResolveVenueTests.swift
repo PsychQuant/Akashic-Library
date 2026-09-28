@@ -77,7 +77,9 @@ final class DivergenceResolveVenueTests: XCTestCase {
 
     // MARK: - 合併本身
 
-    /// 被併者的寫法要**保留成 variant**，`Entry.venues` 要改指倖存者，被併檔要消失。
+    /// 被併者的寫法要**保留在 names**，`Entry.venues` 要改指倖存者，被併檔要消失。
+    /// #565 起它**不標 variant**——被併者原本在 variant 的才進 variant（D1 的同一個論證；細節在
+    /// `VenueMergeNameAbsorptionTests`）。seed 的被併者寫法是它的 authorized，所以併入後未標。
     ///
     /// 名字不保留的話，下次 `resolve-venues` 遇到 `AMERICAN STATISTICIAN` 會再分割
     /// 一次——`OrgBootstrap`／`PersonBootstrap` 的同一教訓。
@@ -103,7 +105,7 @@ final class DivergenceResolveVenueTests: XCTestCase {
         XCTAssertNotNil(try store.load().venues.first { $0.key == "american-statistician" }, "零寫入：被併檔仍在")
     }
 
-    func testMergesNamesIntoVariantAndRepointsEntryVenues() throws {
+    func testMergesNamesIntoNamesAndRepointsEntryVenues() throws {
         let d = try seed()
         let report = try store.resolveDivergence(id: d.id, survivor: "the-american-statistician")
         XCTAssertFalse(report.hasFailures, report.failures.joined(separator: "\n"))
@@ -115,8 +117,8 @@ final class DivergenceResolveVenueTests: XCTestCase {
         let v = try XCTUnwrap(load.venues.first)
         XCTAssertTrue(v.names.entries.map(\.value).contains("AMERICAN STATISTICIAN"),
                       "被併者的寫法沒有保留進 names：\(v.names.entries.map(\.value))")
-        XCTAssertEqual(v.variant, ["AMERICAN STATISTICIAN"],
-                       "被併者的寫法要落在 variant（不是 authorized）：\(v.variant)")
+        XCTAssertEqual(v.variant, [],
+                       "被併者的 authorized 併入後未標（#565：不替呼叫端多說「它是異寫」）：\(v.variant)")
         XCTAssertEqual(v.authorized, ["The American Statistician"],
                        "倖存者的對外形不得被聯集改變：\(v.authorized)")
         XCTAssertEqual(v.issn.map(\.raw), ["0003-1305"], "ISSN 不得在合併中消失")
@@ -592,9 +594,8 @@ final class DivergenceResolveVenueTests: XCTestCase {
         let d = try seed()
         let report = try store.resolveDivergence(id: d.id, survivor: "the-american-statistician")
         XCTAssertFalse(report.hasFailures, "authorized 不對稱不得擋下合併")
-        XCTAssertTrue(report.warnings.contains { $0.contains("AMERICAN STATISTICIAN")
-                                                 && $0.contains("成為") && $0.contains("variant") },
-                      "降級沒有被說出來（seed 的形狀是 becomesVariant，要說「成為」）：\(report.warnings)")
+        XCTAssertTrue(report.warnings.contains { $0.contains("AMERICAN STATISTICIAN") && $0.contains("成為未標") },
+                      "降級沒有被說出來（seed 的形狀是 becomesUnclassified，要說「成為未標」）：\(report.warnings)")
     }
 
     /// **dry-run 不得對降級沉默。**
@@ -607,8 +608,7 @@ final class DivergenceResolveVenueTests: XCTestCase {
         let d = try seed()
         let preview = try store.previewResolveDivergence(
             id: d.id, survivor: "the-american-statistician", overrideReason: nil)
-        XCTAssertTrue(preview.warnings.contains { $0.contains("AMERICAN STATISTICIAN")
-                                                  && $0.contains("成為") && $0.contains("variant") },
+        XCTAssertTrue(preview.warnings.contains { $0.contains("AMERICAN STATISTICIAN") && $0.contains("成為未標") },
                       "dry-run 沒有預告降級：\(preview.warnings)")
     }
 

@@ -345,7 +345,7 @@ public struct Venue: Equatable {
                         }
                         evaluated += 1
                         let a = segs[i].range, b = segs[j].range
-                        if a.makesTemporalClaim && b.makesTemporalClaim && Self.segmentsAreDisjoint(a, b) { continue }
+                        if Self.sameNameSegmentsCanCoexist(a, b) { continue }
                         listed += 1
                         let why = a.makesTemporalClaim && b.makesTemporalClaim
                             ? "兩段的時間重疊或無從判定不相交——同名的沿革段要一段有 end、另一段有 start，"
@@ -547,6 +547,13 @@ public struct Venue: Equatable {
     /// 哪些 error 是逐字串的、它已經自己具名過——兩邊若各寫一份格式，修復報告會對同一個字串說兩次、而且哪天分岔了沒有東西會紅。
     static func wellFormednessMessage(key: String, label: String, value: String, why: String) -> String {
         "venue '\(displaySafeInvisible(key, max: 120))' 的 \(label)「\(displaySafeInvisible(value, max: 120))」\(why)"   // display-safe-exempt: label 是呼叫端的字面常量（names／authorized／variant）；why 是 NameIdentity 的固定訊息（含 U+ 十六進位，非 store 字串）
+    }
+
+    /// 同名（canonical 相等）的兩段 `names` 能不能並存——沿革改回舊名的豁免：**兩段都作時間宣稱、且依
+    /// `segmentsAreDisjoint` 不相交**。`validate()` 的近重複檢查與 venue 合併（#565：被併者同名的一段能不能搬進
+    /// 倖存者）共用這一份——兩處若各寫一份，合併會放行一段寫入閘隨即拒絕的名字，或拒絕一段其實合法的沿革。
+    public static func sameNameSegmentsCanCoexist(_ a: DateRange, _ b: DateRange) -> Bool {
+        a.makesTemporalClaim && b.makesTemporalClaim && segmentsAreDisjoint(a, b)
     }
 
     /// 沿革豁免用的「不相交」——**保守方向**，與 `DateRange.overlaps` 刻意不同（R6 verify 第 9／35／47 列）。

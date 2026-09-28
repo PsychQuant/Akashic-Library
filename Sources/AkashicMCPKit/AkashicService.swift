@@ -3560,6 +3560,10 @@ public final class AkashicService {
                                                  authorize: authorize, paginated: paginated, clearPaginated: clearPaginated,
                                                  judgement: judgement, restsOn: restsOn, removeISSN: removeISSN)
         let load = try store.load()
+        // #670：key 重複時寫進哪一筆是猜——整批拒絕、零寫入（同 #627 對 citekey）
+        guard !load.venues.unlocatableVenueKeys.contains(key) else {
+            throw ServiceError.invalid("venue「\(displaySafeInvisible(key, max: 200))」無法唯一定位（\(UnlocatableReason.venue)）——整批拒絕、零寫入；先改掉其中一筆的 key")
+        }
         guard var venue = load.venues.first(where: { $0.key == key }) else {
             throw ServiceError.notFound("venue「\(displaySafeInvisible(key, max: 200))」")
         }
@@ -4665,11 +4669,17 @@ public final class AkashicService {
         }
         // #628：顯式 id 所在的 work 無法唯一定位（citekey 重複或與另一筆共用 id）→ 整批拒絕並具名（同 resolve-people，#627）
         let unlocatableCK = load.entries.unlocatableCitekeys
+        let unlocatableVK = load.venues.unlocatableVenueKeys   // #670：verdict 要寫進那個 venue
         func refuseUnlocatable(_ c: VenueResolutionCandidate, id: String) throws {
             if unlocatableCK.contains(c.citekey) {
                 throw ServiceError.invalid(
                     "候選 id「\(displaySafeInvisible(id, max: 200))」無法唯一定位（\(UnlocatableReason.work)）——"
                     + "整批拒絕、零寫入；先修好（#628／#641）")
+            }
+            if unlocatableVK.contains(c.venueKey) {
+                throw ServiceError.invalid(
+                    "候選 id「\(displaySafeInvisible(id, max: 200))」的 venue 無法唯一定位（\(UnlocatableReason.venue)）——"
+                    + "整批拒絕、零寫入；先改掉其中一筆的 key（#670）")
             }
         }
         let storeFormat = (try? StoreVersion.read(root: store.root)) ?? 1
@@ -4724,6 +4734,7 @@ public final class AkashicService {
                      "reason": displaySafe(c.reason, max: 400)]
                     // #628：apply／reject 這個 id 會整批拒絕——列表先標出來（同 resolve-people 的標記）
                     if unlocatableCK.contains(c.citekey) { row["unlocatableCitekey"] = true }
+                    if unlocatableVK.contains(c.venueKey) { row["unlocatableVenueKey"] = true }   // #670：apply 略過、reject 整批拒絕
                     let n = ResolutionLedger.undecidedChecks(in: venueUndecided, holder: c.citekey, literal: c.literal, judgedKey: c.venueKey)
                     if n > 0 {
                         row["undecidedChecks"] = n
@@ -4780,6 +4791,11 @@ public final class AkashicService {
             if unlocatableCK.contains(c.citekey) {
                 skippedUnlocatable.append(["id": c.rowID,
                                            "reason": "無法唯一定位（\(UnlocatableReason.work)）——略過不寫；先修好（#628／#641）"])   // display-safe-exempt: reason 是常數字面
+                continue
+            }
+            if unlocatableVK.contains(c.venueKey) {   // #670：verdict 要寫進那個 venue，key 重複時寫進哪一筆是猜——同一格略過並具名
+                skippedUnlocatable.append(["id": c.rowID,
+                                           "reason": "venue 無法唯一定位（\(UnlocatableReason.venue)）——略過不寫；先改掉其中一筆的 key（#670）"])   // display-safe-exempt: reason 是常數字面
                 continue
             }
             if let hit = keyed[c.citekey]?[c.venueKey] {
@@ -4931,6 +4947,12 @@ public final class AkashicService {
             }
             guard venueKeys.contains(newKey) else {
                 throw ServiceError.notFound("venue「\(displaySafeInvisible(newKey, max: 200))」")
+            }
+            // #670：兩端都會被寫 verdict（新的 confirmed、舊的 rejected）——任一端的 key 重複，寫進哪一筆是猜
+            for k in [oldKey, newKey] where load.venues.unlocatableVenueKeys.contains(k) {
+                throw ServiceError.invalid(
+                    "venue「\(displaySafeInvisible(k, max: 200))」無法唯一定位（\(UnlocatableReason.venue)）——"
+                    + "整批拒絕、零寫入；先改掉其中一筆的 key（#670）")
             }
             // entry 目前指著的 venue 也要在（#554 R6 verify 第 4／27 列：檔被手刪或 quarantine 後，
             // 下方 `venuesByKey[k]!` 對 `from` 是 crash 不是拒絕——MCP 面上是以合法參數殺死 server 的路徑）
@@ -5354,6 +5376,12 @@ public final class AkashicService {
                 throw ServiceError.invalid(
                     "work「\(displaySafeInvisible(citekey, max: 200))」的第 \(idx) 個 venue 邊已經是 literal")   // display-safe-exempt: Int
             }
+            // #670：原 literal 要從那個 venue 的 verdict 取回、rejected 也寫進它——key 重複時取哪一筆是猜
+            guard !load.venues.unlocatableVenueKeys.contains(vkey) else {
+                throw ServiceError.invalid(
+                    "venue「\(displaySafeInvisible(vkey, max: 200))」無法唯一定位（\(UnlocatableReason.venue)）——"
+                    + "整批拒絕、零寫入；先改掉其中一筆的 key（#670）")
+            }
             guard let venue = venuesByKey[vkey] else {
                 throw ServiceError.notFound("venue「\(displaySafeInvisible(vkey, max: 200))」")
             }
@@ -5496,19 +5524,26 @@ public final class AkashicService {
         // #641：以 person 為 holder 的候選（隸屬）同一個語意——apply 依序寫 people、orgs、entries、verdict，person 檔在寫入
         // 當下被 #631 拒絕時前面寫下的就留著（R2 verify 真 binary 重現）；key 重複時 `OrgResolver.apply` 以 key 對應也會猜
         let unlocatablePK = load.people.unlocatablePersonKeys
-        func isUnlocatable(_ c: OrgResolutionCandidate) -> Bool {
-            switch c.holder {
-            case let .work(citekey, _): return unlocatableCK.contains(citekey)
-            case let .person(k): return unlocatablePK.contains(k)
-            case .organization: return false   // organization 只住在 entities/、沒有 legacy 殘留；目的檔即它被讀出來的那個檔
+        // #670：organization 的 key 重複時，以它為 holder（上級機構）或為目標（verdict 寫進它）的候選同樣不猜
+        let unlocatableOK = load.organizations.unlocatableOrganizationKeys
+        /// 這個候選哪一格無法唯一定位（列表旗標、理由）；nil＝可以寫。holder 與目標 org 都會被寫
+        func unlocatable(_ c: OrgResolutionCandidate) -> (flag: String, why: String)? {
+            switch c.holder {   // #483：窮盡 switch
+            case let .work(citekey, _):
+                if unlocatableCK.contains(citekey) { return ("unlocatableCitekey", UnlocatableReason.work) }
+            case let .person(k):
+                if unlocatablePK.contains(k) { return ("unlocatablePersonKey", UnlocatableReason.person) }
+            case let .organization(k):
+                if unlocatableOK.contains(k) { return ("unlocatableOrganizationKey", UnlocatableReason.organization) }
             }
+            return unlocatableOK.contains(c.orgKey) ? ("unlocatableOrganizationKey", UnlocatableReason.organization) : nil
         }
+        func isUnlocatable(_ c: OrgResolutionCandidate) -> Bool { unlocatable(c) != nil }
         func refuseUnlocatable(_ c: OrgResolutionCandidate, id: String) throws {
-            if isUnlocatable(c) {
-                let why = { if case .person = c.holder { return UnlocatableReason.person }; return UnlocatableReason.work }()
+            if let u = unlocatable(c) {
                 throw ServiceError.invalid(
-                    "候選 id「\(displaySafeInvisible(id, max: 200))」所在的記錄無法唯一定位（\(why)）——"   // display-safe-exempt: why 是 UnlocatableReason 的常數字面
-                    + "整批拒絕、零寫入；先修好（#628／#641）")
+                    "候選 id「\(displaySafeInvisible(id, max: 200))」所在的記錄無法唯一定位（\(u.why)）——"   // display-safe-exempt: u.why 是 UnlocatableReason 的常數字面
+                    + "整批拒絕、零寫入；先修好（#628／#641／#670）")
             }
         }
         if let rejectIDs = reject, !rejectIDs.isEmpty {
@@ -5583,13 +5618,7 @@ public final class AkashicService {
                      "literal": displaySafe(c.literal, max: 200),
                      "orgKey": displaySafe(c.orgKey, max: 200),
                      "undecidedChecks": undecidedCount(c.holder, c.literal, c.orgKey)]   // display-safe-exempt: undecidedCount 回傳 Int
-                    if isUnlocatable(c) {   // #628；#641 起 person holder 另有自己的鍵——`unlocatableCitekey` 對隸屬列是錯的名字
-                        switch c.holder {   // #483：holder 的分類走窮盡 switch，第三種 holder 不得靜默落進 else
-                        case .person: row["unlocatablePersonKey"] = true
-                        case .work: row["unlocatableCitekey"] = true
-                        case .organization: break   // isUnlocatable 對 organization 恆為 false
-                        }
-                    }
+                    if let u = unlocatable(c) { row[u.flag] = true }   // #628／#641／#670：旗標的名字說出是哪一格
                     return row
                 },
                 "ambiguities": report.ambiguities.map { m -> [String: Any] in

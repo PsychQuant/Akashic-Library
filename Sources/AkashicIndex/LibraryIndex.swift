@@ -220,16 +220,19 @@ public struct LibraryIndex {
                 relationCount += 1
             }
         }
+        // #670：key 重複（#669 起是跨記錄 error）時留第一筆、不讓整次重建失敗——index 是衍生層，選哪一筆是列舉順序、
+        // 不是判定，validate 的 error 說明了它。在此之前重複的 venue／person key 讓 PRIMARY KEY 擲錯：寫入面在檔案落地
+        // **之後**才重建 index，於是一次對不相干記錄的合法寫入回報失敗、index 停在舊的。doctor 在有跨記錄 error 時本來就不重建。
         for venue in load.venues {
             // 收全部名字（時間軸各段）——檢索不因沿革段落而異（同 people 的紀律）。
-            try db.execute("INSERT INTO venues VALUES (?,?,?)",
+            try db.execute("INSERT OR IGNORE INTO venues VALUES (?,?,?)",
                            bind: [venue.key, venue.type.rawValue,
                                   venue.names.entries.map(\.value).joined(separator: "\n")])
         }
         for person in load.people {
             // #227：index 是搜尋用衍生層——收**全部**名字（authorized + variant），
             // 檢索不因指定與否而異。
-            try db.execute("INSERT INTO people VALUES (?,?)",
+            try db.execute("INSERT OR IGNORE INTO people VALUES (?,?)",   // #670：同上
                            bind: [person.key, person.names.all.joined(separator: "\n")])
         }
         try db.execute("COMMIT")

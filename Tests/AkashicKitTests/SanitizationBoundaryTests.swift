@@ -228,7 +228,7 @@ final class SanitizationBoundaryTests: XCTestCase {
         ("^T\\.shapeDescription$", "型別的字面描述"),
         ("^(WorkType|VenueType)\\.domainDescription$", "封閉值域現算的字面描述"),
         ("^ProvenanceReference\\.workFieldPrefix$", "常量"),
-        ("^UnlocatableReason\\.(work|person)$", "常量字面：「無法唯一定位」的那一句（#641）"),
+        ("^UnlocatableReason\\.(work|person|venue|organization)$", "常量字面：「無法唯一定位」的那一句（#641；venue／organization 由 #670 加入）"),
         ("^[A-Za-z_.]*id\\.uuidString$", "UUID 文法固定（d.id／witness 等）"),
         ("^[A-Za-z_.!]+\\.count$", "Int"),
         ("^[A-Za-z_.!]+\\.rawValue$", "封閉列舉的 rawValue"),

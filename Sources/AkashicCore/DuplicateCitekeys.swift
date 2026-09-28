@@ -107,3 +107,33 @@ extension Collection where Element == Person {
         return out
     }
 }
+
+// MARK: - venue／organization（#670）
+
+extension UnlocatableReason {
+    /// #669 讓 venue／organization 的重複 key 成為跨記錄 error；#670 讓以 key 定位寫入它們的面不猜寫進哪一筆。
+    public static let venue = "venue key 有不只一筆記錄——akashic validate 以跨記錄 error 列出（#669）"
+    public static let organization = "organization key 有不只一筆記錄——akashic validate 以跨記錄 error 列出（#669）"
+}
+
+extension Collection where Element == Venue {
+    /// 以 key 定位寫入時分不出是哪一筆的 venue key（#670）。
+    ///
+    /// 只有一類：同 key 兩筆以上。venue 只住在 `entities/`、沒有 legacy 殘留，所以沒有 `FileSituation` 那一半（與 person 不同）。
+    /// 寫 venue 的面（resolve-venues 的 apply／reject／repoint／demote／undecided、update-venue）在第一次寫入之前問它：
+    /// 命中就整批拒絕（呼叫端顯式點名的 id）或具名略過（篩選式批次）——與同一面對 `unlocatableCitekeys` 的處置相同。
+    public var unlocatableVenueKeys: Set<String> {
+        var seen = Set<String>(), dup = Set<String>()
+        for v in self where !seen.insert(v.key).inserted { dup.insert(v.key) }
+        return dup
+    }
+}
+
+extension Collection where Element == Organization {
+    /// 以 key 定位寫入時分不出是哪一筆的 organization key（#670）。理由同 `unlocatableVenueKeys`。
+    public var unlocatableOrganizationKeys: Set<String> {
+        var seen = Set<String>(), dup = Set<String>()
+        for o in self where !seen.insert(o.key).inserted { dup.insert(o.key) }
+        return dup
+    }
+}

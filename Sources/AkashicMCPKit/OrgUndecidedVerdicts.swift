@@ -225,6 +225,7 @@ extension AkashicService {
         // #641：person holder 同一個語意（與 apply／reject／judge 一致）——這條腿只寫 org，但 verdict 以 person key 點名配對，
         // key 重複時它說不出是哪一個人
         let unlocatablePeople = load.people.unlocatablePersonKeys
+        let unlocatableOrgs = load.organizations.unlocatableOrganizationKeys   // #670：未決記錄寫進目標 org；org holder 同理
         var recorded: [(id: String, literal: String, statement: String)] = []
         var skipped: [(id: String, why: String)] = []
         var already: [String] = []
@@ -237,6 +238,12 @@ extension AkashicService {
             }
             if case let .person(k) = row.holder, unlocatablePeople.contains(k) {
                 skipped.append((s.id, "person「\(displaySafe(k, max: 200))」無法唯一定位（\(UnlocatableReason.person)）——略過（#641）"))
+                continue
+            }
+            var orgSlots = [s.orgKey]
+            if case let .organization(k) = row.holder { orgSlots.append(k) }   // 上級機構那一格的 holder 也是 organization
+            if let k = orgSlots.first(where: { unlocatableOrgs.contains($0) }) {
+                skipped.append((s.id, "organization「\(displaySafe(k, max: 200))」無法唯一定位（\(UnlocatableReason.organization)）——略過（#670）"))
                 continue
             }
             let kind = row.holder.verdictHolderKind

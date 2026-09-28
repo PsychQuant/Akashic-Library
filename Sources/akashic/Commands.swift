@@ -1137,15 +1137,18 @@ struct ResolveOrganizations: ParsableCommand {
         // #641：以 person 為 holder 的候選（隸屬）同一個語意——apply 依序寫 people、orgs、entries，person 檔在寫入當下被拒時
         // 前面寫下的就留著（R2 verify 真 binary 重現）
         let unlocatablePK = load.people.unlocatablePersonKeys
-        func isUnlocatable(_ c: OrgResolutionCandidate) -> Bool {
-            if case let .work(citekey, _) = c.holder { return unlocatableCK.contains(citekey) }
-            if case let .person(k) = c.holder { return unlocatablePK.contains(k) }
-            return false
+        // #670：organization 的 key 重複時，以它為 holder（上級機構）或為目標（verdict 寫進它）的候選同樣不猜
+        let unlocatableOK = load.organizations.unlocatableOrganizationKeys
+        /// 這個候選為什麼無法唯一定位；nil＝可以寫。holder 與目標 org 都會被寫
+        func unlocatableWhy(_ c: OrgResolutionCandidate) -> String? {
+            switch c.holder {   // #483：窮盡 switch
+            case let .work(citekey, _): if unlocatableCK.contains(citekey) { return UnlocatableReason.work }
+            case let .person(k): if unlocatablePK.contains(k) { return UnlocatableReason.person }
+            case let .organization(k): if unlocatableOK.contains(k) { return UnlocatableReason.organization }
+            }
+            return unlocatableOK.contains(c.orgKey) ? UnlocatableReason.organization : nil
         }
-        func isPersonHolder(_ c: OrgResolutionCandidate) -> Bool {
-            if case .person = c.holder { return true }
-            return false
-        }
+        func isUnlocatable(_ c: OrgResolutionCandidate) -> Bool { unlocatableWhy(c) != nil }
         let inScope = all.filter {
             (hkSet.isEmpty || hkSet.contains($0.holder.key))
                 && (okSet.isEmpty || okSet.contains($0.orgKey))
@@ -1161,7 +1164,7 @@ struct ResolveOrganizations: ParsableCommand {
         let undecidedSkipped = apply ? inScope.filter { !isUnlocatable($0) && checks($0) > 0 } : []
         let candidates = inScope.filter { !isUnlocatable($0) && !(apply && checks($0) > 0) }
         if (apply || reject), !unlocatableSkipped.isEmpty {
-            print("⚠ 所在 work 或 person 無法唯一定位的候選 \(unlocatableSkipped.count) 筆不寫入（work：\(UnlocatableReason.work)；person：\(UnlocatableReason.person)——#628／#641）：")
+            print("⚠ 所在記錄無法唯一定位的候選 \(unlocatableSkipped.count) 筆不寫入（work：\(UnlocatableReason.work)；person：\(UnlocatableReason.person)；organization：\(UnlocatableReason.organization)——#628／#641／#670）：")
             for c in unlocatableSkipped {
                 print("  \(displaySafe(c.holder.key, max: 200)) 「\(displaySafe(c.literal, max: 200))」 → \(displaySafe(c.orgKey, max: 200))")
             }
@@ -1363,7 +1366,7 @@ struct ResolveOrganizations: ParsableCommand {
         for c in all {
             let mark = (apply && !selected.contains("\(c.holder)#\(c.literal)")) ? "  (skip) " : "  "
             // #628（R1 verify）：列表模式也標出來——不必送出 --apply 才知道它會被排除
-            let tag = isUnlocatable(c) ? " ⟨無法唯一定位（\(isPersonHolder(c) ? UnlocatableReason.person : UnlocatableReason.work)）：不寫入，先修好⟩" : ""
+            let tag = unlocatableWhy(c).map { " ⟨無法唯一定位（\($0)）：不寫入，先修好⟩" } ?? ""
             let n = checks(c)
             let checked = n > 0 ? " ⟨查過未決 \(n) 次\(apply ? "：不套用" : "")⟩" : ""   // display-safe-exempt: n 是 Int
             print("\(mark)\(label(c.holder)) 「\(displaySafe(c.literal, max: 200))」 → \(displaySafe(c.orgKey, max: 200))（\(displaySafe(c.reason, max: 300))）\(tag)\(checked)")

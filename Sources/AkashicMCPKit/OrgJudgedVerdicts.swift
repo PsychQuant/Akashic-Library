@@ -89,6 +89,7 @@ extension AkashicService {
         // ── store 狀態：逐筆決定套用或略過（此段不寫任何東西）──
         let unlocatable = load.entries.unlocatableCitekeys
         let unlocatablePeople = load.people.unlocatablePersonKeys   // #641
+        let unlocatableOrgs = load.organizations.unlocatableOrganizationKeys   // #670：目標 org 與 org holder
         // 上級機構的環：既有的 `.key` parents ＋ 本次已接受的判定（同 `OrgResolver.resolve` 的 #166 守衛——
         // 歧義報告刻意不過濾會成環的候選，那一道要在寫入端做）
         var edges: [String: Set<String>] = [:]
@@ -117,7 +118,14 @@ extension AkashicService {
                 skipped.append((s.id, "organization「\(displaySafe(s.orgKey, max: 200))」已否決過這個配對——逐篇判定不翻轉既有的否決，略過"))
                 continue
             }
+            if unlocatableOrgs.contains(s.orgKey) {   // #670：判定要寫進這個 organization，key 重複時寫進哪一筆是猜
+                skipped.append((s.id, "organization「\(displaySafe(s.orgKey, max: 200))」無法唯一定位（\(UnlocatableReason.organization)）——略過（#670）"))
+                continue
+            }
             switch row.holder {
+            case let .organization(k) where unlocatableOrgs.contains(k):
+                skipped.append((s.id, "organization「\(displaySafe(k, max: 200))」無法唯一定位（\(UnlocatableReason.organization)）——略過（#670）"))
+                continue
             case let .work(citekey, _) where unlocatable.contains(citekey):
                 skipped.append((s.id, "work「\(displaySafe(citekey, max: 200))」無法唯一定位（\(UnlocatableReason.work)）——略過（#628／#641）"))
                 continue

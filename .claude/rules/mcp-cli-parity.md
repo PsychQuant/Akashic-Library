@@ -103,7 +103,7 @@ CLI-only 能力已於同日一次性補裁（見 CLI-only 表）——此前的�
 
 **#513 起多一個把上面那個拆分合回去的面**（`--un-split` / `un_split`，兩面同走 `unsplitAuthors`）：#450 讓拆分的判定持久化到 work 側，於是 **un-split 所需的全部資訊自此在 store 內**——但沒有面把它合回去，還原只能手改 YAML（三個動作要一致，而那是 `replace-endnote-and-zotero` 第 4 條要防的安靜失敗）。
 
-**以值定位**（`citekey:原literal`，`ProvenanceReference` 的既有立場 D2），**同 value 多筆記錄拒絕不判定**——那時兩筆記錄的 `parts` 可能不同，而「哪幾個作者位屬於哪一筆」store 裡沒有東西說得出來（形狀取自 `akashic_enrich` 對 DOI 命中 ≥2 筆的 `ambiguous`）。**還原後刪掉那筆記錄**：它的存在理由是「`authors` 已經沒有原 literal 了」，還原之後那句話為假——留著會讓 store 斷言一件假的事，並點亮 `staleSplitRecords`（一次合法的 un-split 製造一條永久 warning）。歷史留在 git，與 #443 那 4 筆的既有取捨相同。
+**以值定位**（`citekey:原literal`，`ProvenanceReference` 的既有立場 D2），**同 value 多筆記錄拒絕不判定**——那時兩筆記錄的 `parts` 可能不同，而「哪幾個作者位屬於哪一筆」store 裡沒有東西說得出來（形狀取自 `akashic_enrich` 對 DOI 命中 ≥2 筆的 `ambiguous`）。**還原後刪掉那筆記錄**：它的存在理由是「`authors` 已經沒有原 literal 了」，還原之後那句話為假——留著會讓 store 斷言一件假的事，並點亮 `staleSplitRecords`（一次合法的 un-split 製造一條永久 warning）。歷史留在 git，與 #443 那 4 筆的既有取捨相同。**#659 起兩面同時要求那個 git 真的在**：刪記錄之前比照 #573 檢查那些 work 檔已 commit、乾淨，否則整批拒絕、零寫入（使用者 2026-09-27 對移除面一族的裁決——要求已 commit、不改 store format——套在這裡，所以不改成留一筆「已還原」記錄）。
 
 **兩面同契約**：per-id 顯式、整批拒絕零寫入、**與 `split_author`／`attribute_org` 三者互斥且都不與其餘腿組合**（它同樣改作者位的數量，N → 1）。段已升格為 `.key`／`.organization` 時拒絕並**指向 `demote`**——把已歸戶的身分塞回黏著的 literal 是判定的逆轉，不屬本面。
 

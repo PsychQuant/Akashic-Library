@@ -3890,6 +3890,12 @@ public final class AkashicService {
                          "droppedReason": displaySafe(p.reason, max: 300),
                          "recordRemoved": true])   // display-safe-exempt: Bool
         }
+        // #659：刪掉的拆分記錄（原 literal、拆法、理由）只剩 git 裡的副本——比照 #573，那些 work 檔要已 commit、乾淨。
+        // 使用者 2026-09-27 對移除面一族的裁決（要求已 commit、不改 store format）套在這裡：不改成留一筆「已還原」記錄。
+        try assertRecordsRecoverable(entries.values.sorted(by: { $0.citekey < $1.citekey })
+                                        .map { ($0.id, "work「\(displaySafeInvisible($0.citekey, max: 200))」") },
+                                     action: "這次會刪掉 \(plans.count) 筆拆分記錄",   // display-safe-exempt: plans.count 是 Int
+                                     issue: "#659")
         for e in entries.values {
             try LibraryStore.assertEntryWritable(e, format: { try StoreVersion.read(root: store.root) })
         }

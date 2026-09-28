@@ -1711,7 +1711,7 @@ struct ResolvePeople: ParsableCommand {
 
     /// `--split-author` 的具名逆操作（#513）。以值定位（citekey:原literal），還原後刪掉那筆記錄。
     @Option(name: .customLong("un-split"), parsing: .upToNextOption,
-            help: "把拆分合回原 literal（可重複）：citekey:原literal。以值定位——原 literal 逐字取自 store 的拆分記錄（akashic get-entry 看得到）；還原後那筆記錄會被刪掉（理由見 service 的裁決 ②）。任一段已升格為 .key／.organization、各段不連續、或同 value 多筆記錄即整批拒絕、零寫入。不與其他腿組合")
+            help: "把拆分合回原 literal（可重複）：citekey:原literal。以值定位——原 literal 逐字取自 store 的拆分記錄（akashic get-entry 看得到）；還原後那筆記錄會被刪掉（理由見 service 的裁決 ②）——刪之前要求那些 work 檔已在 git 裡 commit、乾淨，否則整批拒絕零寫入（#659，比照 #573）。任一段已升格為 .key／.organization、各段不連續、或同 value 多筆記錄即整批拒絕、零寫入。不與其他腿組合")
     var unSplit: [String] = []
 
     /// **把一個作者位移除**（#457）：那一格裝的不是作者。

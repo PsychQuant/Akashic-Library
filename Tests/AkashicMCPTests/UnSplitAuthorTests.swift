@@ -47,7 +47,7 @@ final class UnSplitAuthorTests: XCTestCase {
         XCTAssertEqual(try loaded().authors.count, 4, "前提：拆完是 4 個作者位")
         XCTAssertEqual(try loaded().splitRecords.count, 1)
 
-        let out = try json(try service.unsplitAuthors(["chen2020a:某人與雷庚玲"]))
+        let out = try json(try service.committed(root).unsplitAuthors(["chen2020a:某人與雷庚玲"]))
         XCTAssertEqual(out["count"] as? Int, 1)
         let e = try loaded()
         XCTAssertEqual(e.authors, [.literal("甲"), .literal("乙"), .literal("某人與雷庚玲")],
@@ -57,10 +57,25 @@ final class UnSplitAuthorTests: XCTestCase {
         XCTAssertFalse(e.references.contains { $0.field == "authors" })
     }
 
+    /// #659：拆分記錄刪掉之後只剩 git 裡的副本——store 不在 git、或 work 檔有未提交修改，都整批拒絕、零寫入（比照 #573）。
+    func testUnsplitRefusesWhenTheRecordWouldHaveNoCopyInGit() throws {
+        try splitOnce()
+        XCTAssertThrowsError(try service.unsplitAuthors(["chen2020a:某人與雷庚玲"])) { err in
+            XCTAssertTrue(String(describing: err).contains("git"), "\(err)")
+        }
+        XCTAssertEqual(try loaded().splitRecords.count, 1, "不在 git：零寫入")
+        StoreGitCommit.commitAll(root)
+        var e = try loaded(); e.title = "改過"; _ = try store.writeEntry(e)   // 未提交的修改
+        XCTAssertThrowsError(try service.unsplitAuthors(["chen2020a:某人與雷庚玲"])) { err in
+            XCTAssertTrue(String(describing: err).contains("#659"), "\(err)")
+        }
+        XCTAssertEqual(try loaded().splitRecords.count, 1, "未提交：零寫入")
+    }
+
     /// **被刪掉的理由要說出來**——丟棄必須可見（`lossless-intake` 執行細節 3）。
     func testTheDroppedReasonIsReported() throws {
         try splitOnce()
-        let out = try json(try service.unsplitAuthors(["chen2020a:某人與雷庚玲"]))
+        let out = try json(try service.committed(root).unsplitAuthors(["chen2020a:某人與雷庚玲"]))
         let rows = try XCTUnwrap(out["unsplit"] as? [[String: Any]])
         XCTAssertEqual(rows[0]["droppedReason"] as? String, "兩位作者被匯出黏成一格")
         XCTAssertEqual(rows[0]["restored"] as? String, "某人與雷庚玲")
@@ -132,7 +147,7 @@ final class UnSplitAuthorTests: XCTestCase {
         let before = store.health(from: try store.load()).orphanedSplitVerdicts.count
         XCTAssertGreaterThan(before, 0, "前提：拆分後那條 verdict 的錨失效")
 
-        _ = try service.unsplitAuthors(["chen2020a:某人與雷庚玲"])
+        _ = try service.committed(root).unsplitAuthors(["chen2020a:某人與雷庚玲"])
         XCTAssertEqual(store.health(from: try store.load()).orphanedSplitVerdicts.count, 0,
                        "錨重新有效——掃描自然回綠，不需要另外處理")
     }

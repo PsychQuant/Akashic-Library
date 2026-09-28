@@ -728,8 +728,8 @@ public enum UnsafeToEmitScalar {
     /// 性質涵蓋不到它們：U+2800 BRAILLE PATTERN BLANK 與 U+1D159 MUSICAL SYMBOL NULL NOTEHEAD 是 So、U+13441／U+13442
     /// EGYPTIAN HIEROGLYPH FULL／HALF BLANK 是 Lo（連「至少一個字母」都通過）、U+16FE4 KHITAN SMALL SCRIPT FILLER 是 Mn。
     /// U+2800 是 #554 R6 verify 第 20 列加的；其餘四個來自 #569 R1 verify DA 的名稱掃描——走完 0…0x10FFFF，挑出名稱含
-    /// FILLER、BLANK、NULL、SPACE 而不在前面各類的碼位——**再經人工判定只收參考字形渲染為空白的**。掃描本身命中約 90 個
-    /// （R2 verify 以 Python unicodedata 15.1 重跑），沒收的是看得見的字形：名稱含 SPACE 的 MATHEMATICAL MONOSPACE 字母與數字、
+    /// FILLER、BLANK、NULL、SPACE 而不在前面各類的碼位——**再經人工判定只收參考字形渲染為空白的**。掃描本身命中 82 個
+    /// （R2 verify 以 Python unicodedata 15.1 重跑、R3 verify 重量），沒收的是看得見的字形：名稱含 SPACE 的 MATHEMATICAL MONOSPACE 字母與數字、
     /// U+2400／U+2420 這類控制圖示、各文字的 GAP FILLER 標點（Po）。U+303F IDEOGRAPHIC HALF FILL SPACE 沒收：參考字形是一個
     /// 看得見的半格框，判定不確定，記在這裡。名稱不含這四個字、卻渲染成空白的碼位不在清單裡，那是誠實邊界，不是遺漏。
     public static func rendersBlank(_ v: UInt32) -> Bool {
@@ -750,21 +750,32 @@ public enum UnsafeToEmitScalar {
 
     /// **文件出口**（`documentSafe`：`.bib`、mermaid／dot／graphml）要逃脫的集合——比 `escapesInDisplay` 窄，另有一個加項。
     ///
-    /// 扣掉的四類是**文件的正當內容**，而文件出口的標記 `U+XXXX` 是有損的（沒有任何 .bib／TeX／XML 消費端解得回來）：
+    /// 扣掉的五類是**文件的正當內容**，而文件出口的標記 `U+XXXX` 是有損的（沒有任何 .bib／TeX／XML 消費端解得回來）：
     /// - 非 U+0020 的 Zs（NBSP、thin space、en space、U+3000）：書目標題與摘要的排版空白，live store 有 16 筆 work 帶著它們；
     /// - SHY（U+00AD）：斷字提示；
     /// - 私用區 Co：台灣舊資料的造字；
-    /// - ZWJ／ZWNJ：波斯文、阿拉伯文、印度系文字的正字法。
+    /// - ZWJ／ZWNJ：波斯文、阿拉伯文、印度系文字的正字法；
+    /// - 變體選擇子（VS1–16、VS17–256，含 CJK 的 IVS 與蒙古文 FVS）：字形選擇（#569 R3 verify：造字的標準化後繼是 IVS，扣私用區不扣它說不通）。
+    /// 這一條只管**檔案與終端的出口**；給 LLM 的出口用 `escapesInLLMDocument`（R3 verify：下游不是 TeX 時，上面的理由不成立）。
     /// #569 R1 把 `documentSafe` 直接接到 `escapesInDisplay`，這四類在 `export-bib > refs.bib`（預設路徑）被改寫成字面標記（R2 verify 三席）；
     /// #569 之前的 `documentSafe` 本來就不動它們。人可讀輸出逃脫它們是使用者裁決，文件出口不在那個裁決裡。
     ///
-    /// 加項是 noncharacter（U+FFFE、U+FFFF 等）：XML 1.0 的 Char 產生式排除它們，graphml 帶著它就不是合法 XML（R2 verify DA）。
+    /// 加項是 noncharacter：XML 1.0 的 Char 產生式排除 U+FFFE／U+FFFF，graphml 帶著它就不是合法 XML（R2 verify DA）；其餘
+    /// noncharacter（U+FDD0–FDEF、各平面的 xxFFFE／xxFFFF）XML 雖然接受，但 Unicode 規定不得交換，一併逃脫。
     /// TAB 與 LF 由呼叫端保留（文件的結構）。
     public static func escapesInDocument(_ u: Unicode.Scalar) -> Bool {
         if u.properties.isNoncharacterCodePoint { return true }
         let cat = u.properties.generalCategory
-        if cat == .spaceSeparator || cat == .privateUse || u.value == 0xAD || u.value == 0x200C || u.value == 0x200D { return false }
+        if cat == .spaceSeparator || cat == .privateUse || u.value == 0xAD || u.value == 0x200C || u.value == 0x200D
+            || u.properties.isVariationSelector { return false }
         return contains(u)
+    }
+
+    /// **給 LLM 的文件出口**（MCP `akashic_export` 的 bib、`akashic_graph`）要逃脫的集合：人可讀輸出的集合（`escapesInDisplay`）
+    /// 加上 noncharacter。#569 R3 verify：`escapesInDocument` 扣掉那幾類的理由是「下游是 TeX／XML，標記解不回來」，那個前提對
+    /// LLM context 不成立——LLM 讀得懂 `U+00AD`，而 SHY、補充私用區是零寬或不渲染的隱藏通道。所以兩種文件出口分兩個集合。
+    public static func escapesInLLMDocument(_ u: Unicode.Scalar) -> Bool {
+        u.properties.isNoncharacterCodePoint || escapesInDisplay(u)
     }
 
     /// `displaySafe` 的 `\u{%04X}` 逃脫對碼位 `v` 產出的 scalar 數：BMP 是 8（`\u{` ＋ 四位 ＋ `}`），U+10000 以上是 9 或 10
@@ -828,8 +839,8 @@ public enum UnsafeToEmitScalar {
 /// `displaySafe` 之後再以**性質**逃脫不可見 scalar（#554 R12／R13）：`displaySafe` 的列舉不含 TAG 字元、ZWSP、變體選擇子、
 /// CGJ、Hangul filler，而名字不變式（§5.7 第 2 條）與 `verdictsRetired`（迴送 verdict 的 value／statement）都需要這一組——
 /// 訊息在結構上保證帶著它剛拒掉的那個字元（R12 verify security 第 14 列）。類別：`Default_Ignorable_Code_Point`、Cc／Cf／Zl／Zp、
-/// 非 U+0020 的 Zs（NBSP／NNBSP／U+3000——名字側被 canonical 折掉，verdict literal 側沒有，第 27 列）、私用區 Co、`rendersBlank` 的碼位
-/// BRAILLE PATTERN BLANK（名字不變式的顯式成員，第 22 列）。碼位補零到四位（與 `displaySafe` 的 `%04X` 一致，第 26 列）。
+/// 非 U+0020 的 Zs（NBSP／NNBSP／U+3000——名字側被 canonical 折掉，verdict literal 側沒有，第 27 列）、私用區 Co、
+/// `UnsafeToEmitScalar.rendersBlank` 的五個碼位（U+2800 是名字不變式的顯式成員，第 22 列；另四個 #569 R1 補）。碼位補零到四位（與 `displaySafe` 的 `%04X` 一致，第 26 列）。
 /// 套在 `displaySafe` 之後：原始反斜線已被逃成 `\u{005C}`，這裡新加的 `\u{…}` 不會被再逃一次、store 裡字面寫著 `\u{200B}`
 /// 的字串也偽造不了本函式的輸出。#569 之前它是局部圍堵；#569 起 `displaySafe` 本身就逃脫同一個集合，這裡多做的只剩 ZWJ／ZWNJ——
 /// 名字閘的拒絕訊息要讓人看得見那個被拒的接合字元。

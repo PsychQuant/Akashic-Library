@@ -990,7 +990,7 @@ struct ResolveOrganizations: ParsableCommand {
 
     /// 逐篇判定（#647）：CLI 在此之前沒有逐 id 的歸戶，查過未決的候選被篩選式 --apply 排除後只能走 MCP。
     @Option(name: .long, parsing: .upToNextOption,
-            help: "逐篇判定（可重複）：<列表的 id>@<orgKey>=理由。id 的解析同 --undecided（歧義條目也收，可選其中一個 org）。把那一列歸戶到 orgKey，並寫一筆 org-judged 層級的 confirmed verdict，理由進記錄（必填、≤ 4,096 位元組）。查過未決的候選也可以這樣歸戶。輸入錯整批拒絕、零寫入；citekey 重複的 work、上級機構判給自己或會成環、列表過期，該筆略過並具名。單獨呼叫，不與 --apply／--reject／--undecided／--holder／--org 組合")
+            help: "逐篇判定（可重複）：<列表的 id>@<orgKey>=理由。id 的解析同 --undecided（歧義條目也收，可選其中一個 org）。把那一列歸戶到 orgKey，並寫一筆 org-judged 層級的 confirmed verdict，理由進記錄（必填、≤ 4,096 位元組）；已歸戶而理由存不進去時（同一配對已有理由不同的逐篇判定——verdict 不帶作者位索引；或 store format < 19 已有提名層判定），那一列印 ⚠ 說明原因。查過未決的候選也可以這樣歸戶。寫入前整個寫入集合先驗，任一筆不過零寫入。輸入錯整批拒絕、零寫入；citekey 重複的 work、上級機構判給自己或會成環、那個 org 已否決過這個配對、列表過期，該筆略過並具名。單獨呼叫，不與 --apply／--reject／--undecided／--holder／--org 組合")
     var judge: [String] = []
 
     /// `--judge` 的結果（#647）。service 回來的字串已消毒；一筆都沒判成且有略過時非零結束（同 --undecided）。

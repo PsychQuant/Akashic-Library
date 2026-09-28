@@ -28,6 +28,11 @@ import Foundation
 /// 這些字元與各格式自己的 metacharacter（`{}` `\` `%` `&`／`"` `\`／`<` `&`）是**兩組不相干的集合**，
 /// 所以各 renderer 的 escape 不涵蓋它們，而本函式也不會踩到它們。
 ///
+/// **兩種文件出口、兩個集合**（#569 R3 verify）：上面扣掉排版字元的理由是「下游是 TeX／XML、標記解不回來」，那只對
+/// **檔案與終端**的出口（CLI `export-bib`／`graph` 的 stdout）成立。MCP `akashic_export` 的 bib 與 `akashic_graph` 回到
+/// LLM context，以 `forLLM: true` 呼叫、改用 `escapesInLLMDocument`（人可讀輸出的集合加 noncharacter）——LLM 讀得懂
+/// `U+00AD`，而 SHY、補充私用區在那裡是隱藏通道。
+///
 /// ZWJ／ZWNJ 在文件出口保留是**類推**，不是使用者裁決本身：2026-09-27 的裁決針對人可讀輸出，
 /// 文件出口比照它（`akashic_export` 的 bib 與 `akashic_graph` 回到 LLM context，零寬 joiner 串是
 /// 已記錄的殘餘風險）。CSL-JSON 是 JSON 出口，走 `documentSafeJSON`——它以 JSON 自己的 `\uXXXX`
@@ -60,13 +65,16 @@ import Foundation
 /// 「截斷一份文件」永遠產生一份壞掉的文件。所以尺寸的處置只有兩種：不設限
 /// （CLI stdout——使用者自己要的），或**拒絕**（MCP——見 `AkashicService.export`）。
 /// 不存在「截一半還能用」的中間選項。
-public func documentSafe(_ s: String) -> String {
+/// `forLLM`：輸出回到 LLM context（MCP `akashic_export` 的 bib、`akashic_graph`）時為 true——改用 `escapesInLLMDocument`
+/// （人可讀輸出的集合加 noncharacter），因為扣掉排版字元的理由（下游是 TeX／XML、標記解不回來）對 LLM 不成立（#569 R3 verify）。
+public func documentSafe(_ s: String, forLLM: Bool = false) -> String {
     var out = String.UnicodeScalarView()
     out.reserveCapacity(s.unicodeScalars.count + 16)
     for u in s.unicodeScalars {
         let v = u.value
         // 留 TAB 與 LF（文件的結構）；CR 仍跳脫——與 LF 並存會造成歧義
-        let escape = v != 0x09 && v != 0x0A && UnsafeToEmitScalar.escapesInDocument(u)
+        let escape = v != 0x09 && v != 0x0A
+            && (forLLM ? UnsafeToEmitScalar.escapesInLLMDocument(u) : UnsafeToEmitScalar.escapesInDocument(u))
         if escape {
             for c in String(format: "U+%04X", v).unicodeScalars { out.append(c) }
         } else {

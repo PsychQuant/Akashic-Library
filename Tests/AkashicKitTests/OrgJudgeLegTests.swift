@@ -151,6 +151,21 @@ final class OrgJudgeLegTests: XCTestCase {
         XCTAssertEqual(StoreHealthProbe.contradictions(store), 0)
     }
 
+    /// R3 verify DA（真 binary）：否決比對曾比原始 literal——`{Sinica}` 否決之後 `{SINICA}` 照樣被提名，apply 或 judge 寫下
+    /// confirmed、`validate` 報矛盾對。現在與 person／venue 同一套正規化：另一個拼法不再提名，judge 那一列的 id 不在列表上。
+    func testRejectionSuppressesCaseVariantsOfTheSameLiteral() throws {
+        try org("as", "Sinica")
+        var e = Entry(id: UUID(), citekey: "ck2020", type: .periodicalArticle, title: "T",
+                      authors: [.literal("{Sinica}"), .literal("{SINICA}")], date: "2020")
+        e.fields = [:]
+        try store.writeEntry(e)
+        _ = try service.resolveOrganizations(apply: nil, reject: ["ck2020[0]::Sinica"])
+        let listed = json(try service.resolveOrganizations(apply: nil))
+        XCTAssertTrue(((listed["candidates"] as? [[String: Any]]) ?? []).isEmpty, "\(listed)")
+        XCTAssertThrowsError(try service.resolveOrganizations(apply: nil, judge: ["ck2020[1]::SINICA@as=論文署名"]))
+        XCTAssertEqual(StoreHealthProbe.contradictions(store), 0)
+    }
+
     /// R2 verify DA：內容閘之外還有 #631 的目的檔檢查。legacy 佈局的 entry 未被 git 追蹤時，entry 的寫入會被拒——
     /// 那要在任何一筆落盤之前發生，person 不得先寫。
     func testDestinationChecksRunBeforeAnyWrite() throws {
@@ -166,7 +181,10 @@ final class OrgJudgeLegTests: XCTestCase {
         let modern = try FileManager.default.contentsOfDirectory(at: root.appendingPathComponent("entities"), includingPropertiesForKeys: nil)
             .first { (try? String(contentsOf: $0, encoding: .utf8))?.contains("ck2020") == true }
         try FileManager.default.moveItem(at: try XCTUnwrap(modern), to: legacyDir.appendingPathComponent("ck2020.yaml"))
-        XCTAssertThrowsError(try service.resolveOrganizations(apply: nil, judge: ["pp::APA@apa=x", "ck2020[0]::APA@apa=y"]))
+        XCTAssertThrowsError(try service.resolveOrganizations(apply: nil, judge: ["pp::APA@apa=x", "ck2020[0]::APA@apa=y"])) { error in
+            // 釘住拒絕來自目的檔檢查，不是更早的輸入錯或 git 前提（R3 verify）
+            XCTAssertTrue("\(error)".contains("legacyCopyUnmovable") || "\(error)".contains("ck2020.yaml"), "\(error)")
+        }
         XCTAssertEqual(try affiliation("pp"), .literal("APA"), "person 不得先落盤")
         XCTAssertTrue(try judgedVerdicts("apa").isEmpty)
     }

@@ -30,6 +30,7 @@ extension AkashicService {
         let load = try store.load()
         // 只認這次**列表**上的列（帶否決過濾）：已否決或已歸戶的配對不在列表上，判它是輸入錯——id 不是這次列表的 id
         let rejectedPairings = ResolutionLedger.rejectedPairings(organizations: load.organizations)
+        let rejectedNorm = Set(rejectedPairings.map(OrgResolver.normalizedRejection))
         let listed = OrgResolver.resolve(people: load.people, organizations: load.organizations,
                                          rejected: rejectedPairings, entries: load.entries)
         typealias Row = (holder: OrgResolutionCandidate.Holder, literal: String, orgKeys: Set<String>)
@@ -98,10 +99,12 @@ extension AkashicService {
         var skipped: [(id: String, why: String)] = []
         for (s, row) in zip(parsed, chosen) {
             // 歧義條目的 orgKeys 取自原始命中集、不過濾否決（`OrgResolver` 刻意如此：唯一性由原始命中集決定），所以 id 驗得過
-            // 而那個 org 已經否決過這個配對。照寫會留下 confirmed＋rejected 的矛盾對（#486，處置沒有工具面）——store 狀態不符，
+            // 而那個 org 已經否決過這個配對（候選列自 R3 起以正規化鍵過濾，走不到這裡）。照寫會留下 confirmed＋rejected 的矛盾對（#486，處置沒有工具面）——store 狀態不符，
             // 該筆略過並具名（#647 R2 verify DA）。翻轉判定不是這條腿的事。
-            if rejectedPairings.contains(ResolutionPairing(holderKind: row.holder.verdictHolderKind, holder: row.holder.key,
-                                                           literal: row.literal, judgedKey: s.orgKey)) {
+            // 比對用正規化鍵（`OrgResolver.normalizedRejection`，與矛盾掃描同一套）——R3 verify：比原始 literal 時，大小寫變體繞得過
+            if rejectedNorm.contains(OrgResolver.normalizedRejection(ResolutionPairing(
+                holderKind: row.holder.verdictHolderKind, holder: row.holder.key,
+                literal: row.literal, judgedKey: s.orgKey))) {
                 skipped.append((s.id, "organization「\(displaySafe(s.orgKey, max: 200))」已否決過這個配對——逐篇判定不翻轉既有的否決，略過"))
                 continue
             }

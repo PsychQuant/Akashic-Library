@@ -152,10 +152,22 @@ public enum OrgResolver {
     /// `rejected`：已否決配對（#232 design D5，語意同 `PersonResolver.resolve`）。
     /// holder 是持有 literal 的 person／organization key，judgedKey 是被判定的 org。
     /// **刻意無預設值**（同 `PersonResolver.resolve`——verify DA fix-10）。
+    /// 否決比對的鍵：literal 取 `NameNormalization.matchingKey`，與提名、`verdictPairingKey`（矛盾掃描）同一套正規化。
+    ///
+    /// #647 R3 verify（DA 真 binary）：先前三處抑制都以 `ResolutionPairing` 的合成 `Hashable` 比原始 literal——那只折 canonical
+    /// equivalence，不折大小寫、空白、連字號家族、Cf。一次合法的 `--reject`（寫入以正規化鍵去重，`{Sinica}`／`{SINICA}` 只留一筆）
+    /// 之後，另一個拼法照樣被提名，`--apply` 或 `--judge` 寫下 confirmed，`validate` 報矛盾對。person 側（`rejectedNorm`，R1-fix I1）
+    /// 與 venue 側（R12）早就以 `matchingKey` 比，org 族是唯一的例外。judge 腿的略過（`OrgJudgedVerdicts`）用同一個函式。
+    public static func normalizedRejection(_ p: ResolutionPairing) -> ResolutionPairing {
+        ResolutionPairing(holderKind: p.holderKind, holder: p.holder,
+                          literal: NameNormalization.matchingKey(p.literal), judgedKey: p.judgedKey)
+    }
+
     public static func resolve(people: [Person],
                                organizations: [Organization],
                                rejected: Set<ResolutionPairing>,
                                entries: [Entry] = []) -> OrgResolutionReport {
+        let rejectedNorm = Set(rejected.map(normalizedRejection))
         // 正規化 org name variant → org keys（同名對 2+ org＝歧義）
         var nameMap: [String: Set<String>] = [:]
         for org in organizations {
@@ -210,9 +222,9 @@ public enum OrgResolver {
                 guard case let .literal(literal) = seg.value,
                       let key = unambiguousMatch(literal, holder: .person(person.key), range: seg.range)
                 else { continue }
-                guard !rejected.contains(ResolutionPairing(
+                guard !rejectedNorm.contains(Self.normalizedRejection(ResolutionPairing(
                     holderKind: .person, holder: person.key,
-                    literal: literal, judgedKey: key)) else { continue }
+                    literal: literal, judgedKey: key))) else { continue }
                 result.append(OrgResolutionCandidate(
                     holder: .person(person.key), literal: literal, orgKey: key,
                     reason: "org name 完全命中"))
@@ -241,9 +253,9 @@ public enum OrgResolver {
                                                                 authorIndex: i)
                 guard let key = unambiguousMatch(literal, holder: holder,
                                                  range: DateRange()) else { continue }
-                guard !rejected.contains(ResolutionPairing(
+                guard !rejectedNorm.contains(Self.normalizedRejection(ResolutionPairing(
                     holderKind: .work, holder: entry.citekey,
-                    literal: literal, judgedKey: key)) else { continue }
+                    literal: literal, judgedKey: key))) else { continue }
                 result.append(OrgResolutionCandidate(
                     holder: holder, literal: literal, orgKey: key,
                     reason: "org name 完全命中（作者位的團體名）"))
@@ -285,9 +297,9 @@ public enum OrgResolver {
                 // 是被下一行擋下的（同 `ISO8601Prefix.compatible` 的分隔點檢查）。
                 guard key != org.key else { continue }
                 guard !reaches(key, org.key) else { continue }  // 會成環（含自身）
-                guard !rejected.contains(ResolutionPairing(
+                guard !rejectedNorm.contains(Self.normalizedRejection(ResolutionPairing(
                     holderKind: .org, holder: org.key,
-                    literal: literal, judgedKey: key)) else { continue }
+                    literal: literal, judgedKey: key))) else { continue }
                 edges[org.key, default: []].insert(key)         // 本輪已接受的也算數
                 result.append(OrgResolutionCandidate(
                     holder: .organization(org.key), literal: literal, orgKey: key,

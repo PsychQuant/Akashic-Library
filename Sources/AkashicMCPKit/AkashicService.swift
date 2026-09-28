@@ -227,9 +227,9 @@ public final class AkashicService {
         // 與 `export` 同一個邊界（#171 verify 171-4）：整份圖當 tool result 回 LLM，
         // 三個 renderer 的 escape 只管各自格式的 metacharacter，不管 C0／bidi。
         switch format {
-        case "mermaid": return documentSafe(GraphRenderer.mermaid(neighborhood))
-        case "dot": return documentSafe(GraphRenderer.dot(neighborhood))
-        case "graphml": return documentSafe(GraphRenderer.graphml(neighborhood))
+        case "mermaid": return documentSafe(GraphRenderer.mermaid(neighborhood), forLLM: true)
+        case "dot": return documentSafe(GraphRenderer.dot(neighborhood), forLLM: true)
+        case "graphml": return documentSafe(GraphRenderer.graphml(neighborhood), forLLM: true)
         default: throw ServiceError.invalid("format 必須是 mermaid / dot / graphml")
         }
     }
@@ -279,7 +279,7 @@ public final class AkashicService {
             // **量消毒之後的長度**（#171 複驗 b′）：`documentSafe` 是 6 倍膨脹器
             // （實測 1 MB 全 ESC → 6 MB），量 `s` 會讓最壞情況真正進 context 的是
             // 48 MB 而不是 8 MB——「小到不會毀掉 context」在對抗性內容下不成立。
-            let out = json ? documentSafeJSON(s) : documentSafe(s)
+            let out = json ? documentSafeJSON(s) : documentSafe(s, forLLM: true)
             guard out.utf8.count <= Self.maxExportBytes else {
                 // **指路只能指呼叫端真的有的旋鈕**（#171 複驗 b）：`akashic_export`
                 // 的 schema 只有 `citekeys` 與 `format`——原本寫的 `--library`／`--tag`

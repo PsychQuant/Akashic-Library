@@ -194,7 +194,7 @@ final class ExportBoundaryTests: XCTestCase {
         for s in [tag, zwsp] { XCTAssertFalse(has(bib, s), "bib：raw \(s.unicodeScalars.first!.value)") }
         XCTAssertTrue(bib.contains("U+E0041"), bib)
         XCTAssertTrue(has(bib, zwj), "文件保留 ZWJ（比照人可讀輸出的裁決）")
-        XCTAssertTrue(has(bib, shy), "SHY 是斷字提示——文件的正當內容，文件出口不逃（R2 verify）")
+        XCTAssertFalse(has(bib, shy), "MCP 的 bib 回到 LLM context，SHY 照人可讀輸出逃脫（R3 verify；檔案出口保留它，見 CLI 那支）")
         let json = try service.export(citekeys: ["tag2020"], format: "csl-json")
         for s in [tag, zwsp, shy, zwj] { XCTAssertFalse(has(json, s), "csl-json：raw \(s.unicodeScalars.first!.value)") }
         let parsed = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [[String: Any]])
@@ -203,19 +203,17 @@ final class ExportBoundaryTests: XCTestCase {
         XCTAssertFalse(has(graph, tag), "graph：raw TAG")
     }
 
-    /// **R2 verify（三席同指）**：R1 把 `documentSafe` 接到 `escapesInDisplay`，NBSP、thin space、U+3000、SHY、私用區造字在
-    /// `export-bib > refs.bib`（預設路徑）被改寫成字面 `U+00A0`——有損、TeX 解不回來。文件出口逐位元組保留它們；
-    /// graphml 另逃 noncharacter（XML 1.0 不收 U+FFFF）。
+    /// **R2／R3 verify**：兩種文件出口、兩個集合。MCP 的 bib 與 graph 回到 LLM context，照人可讀輸出逃脫排版字元（SHY 在那裡是
+    /// 隱藏通道）；檔案與終端出口逐位元組保留它們（CLI 那支釘住）。graphml 另逃 noncharacter（XML 1.0 不收 U+FFFF）。
     func testDocumentExitsKeepTypographicContentAndStayValidXML() throws {
         let content = "Exact coverage of\u{00A0}confidence intervals\u{3000}試驗 em\u{00AD}pirical n\u{2009}=\u{2009}234 造\u{E000}字"
         var e = Entry(id: UUID(), citekey: "typo2020", type: .periodicalArticle, title: content)
         e.date = "2020"
         try LibraryStore(root: root).writeEntry(e)
         let bib = try service.export(citekeys: ["typo2020"], format: "bib")
-        XCTAssertNotNil(bib.range(of: content, options: .literal), "bib 要逐碼位保留（.literal 比 UTF-16，不比 grapheme）：\(bib)")
-        XCTAssertFalse(bib.contains("U+00A0") || bib.contains("U+3000") || bib.contains("U+00AD") || bib.contains("U+E000"), bib)
+        XCTAssertTrue(bib.contains("U+00AD") && bib.contains("U+00A0") && bib.contains("U+E000"), "LLM 出口照人可讀輸出逃脫：\(bib)")
         let mermaid = try service.graph(focus: "typo2020", depth: 1, format: "mermaid")
-        XCTAssertFalse(mermaid.contains("U+00A0"), mermaid)
+        XCTAssertTrue(mermaid.contains("U+00A0"), mermaid)   // label 截在前 30 字左右，SHY 在截斷點之後
 
         var bad = Entry(id: UUID(), citekey: "nonchar2020", type: .periodicalArticle, title: "Title\u{FFFF}End")
         bad.date = "2020"
@@ -228,11 +226,13 @@ final class ExportBoundaryTests: XCTestCase {
     /// CLI `export-bib` 的預設 stdout 同一件事（真 binary）。
     func testCLIStdoutKeepsTypographicContent() throws {
         try CLIFixture.requireBinary()
-        var e = Entry(id: UUID(), citekey: "typo2021", type: .periodicalArticle, title: "A\u{00A0}B\u{3000}C\u{00AD}D")
+        // NBSP、U+3000、SHY、私用區造字、CJK IVS（葛＋VS17）——檔案與終端出口的正當內容（R2／R3 verify）
+        let content = "A\u{00A0}B\u{3000}C\u{00AD}D 造\u{E000}字 \u{845B}\u{E0100}"
+        var e = Entry(id: UUID(), citekey: "typo2021", type: .periodicalArticle, title: content)
         e.date = "2021"
         try LibraryStore(root: root).writeEntry(e)
         let stdout = CLIFixture.run(["export-bib", "--library", root.path], home: fakeHome).stdout
-        XCTAssertNotNil(stdout.range(of: "A\u{00A0}B\u{3000}C\u{00AD}D", options: .literal), stdout)
+        XCTAssertNotNil(stdout.range(of: content, options: .literal), stdout)
     }
 
     // MARK: - CLI：真 binary、真 stdout

@@ -4,7 +4,7 @@ R2 只審 R1 的兩個修正 commit（`32be9f9a`、`a44ea26f`），六席回報 
 
 ## #569 文件出口：R1 把正當內容改寫成字面標記（HIGH，三席同指）
 
-R1 讓 `documentSafe` 改接 `escapesInDisplay`，這個集合含非 U+0020 的空白、SHY 與私用區。`export-bib` 的預設 stdout（`> refs.bib`、`| pbcopy`）與 `graph` 因此把 NBSP、thin space、U+3000、SHY、造字改寫成字面的 `U+00A0`。這個標記有損，沒有任何 .bib、TeX 或 XML 消費端解得回來。live store 有 16 筆 work 帶著這些字元（U+2009 ×27、U+2002 ×23、U+00A0 ×12、U+00AD ×5）。#569 之前的 `documentSafe` 本來不動它們；人可讀輸出逃脫它們是使用者的裁決，文件出口不在那個裁決裡。
+R1 讓 `documentSafe` 改接 `escapesInDisplay`，這個集合含非 U+0020 的空白、SHY 與私用區。`export-bib` 的預設 stdout（`> refs.bib`、`| pbcopy`）與 `graph` 因此把 NBSP、thin space、U+3000、SHY、造字改寫成字面的 `U+00A0`。這個標記有損，沒有任何 .bib、TeX 或 XML 消費端解得回來。live store 有 16 筆 work 帶著這些字元（work 內 U+2009 ×27、U+2002 ×23、U+00A0 ×6、U+00AD ×3；另有 3 筆 person 帶 NBSP ×6、SHY ×2——R3 verify 重量更正：原先把全庫合計寫成只在 work）。#569 之前的 `documentSafe` 本來不動它們；人可讀輸出逃脫它們是使用者的裁決，文件出口不在那個裁決裡。
 
 新的 `UnsafeToEmitScalar.escapesInDocument` 從輸出閘的性質扣掉文件的正當內容：
 - 非 U+0020 的 Zs；

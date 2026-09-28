@@ -1086,6 +1086,31 @@ add-only 補值的前提是來源**給了**值；負結果的寫入端是查證�
 store 上：寫入閘拒寫，`enrich` 則在寫入前讀 marker、值照補、reference 不寫、理由進 `provenanceOmitted.date`；
 `fields.<鍵>` 那一格在 format < 17 的 store 上同理（#668），理由逐鍵進 `provenanceOmitted` 的 `fields.<鍵>`。
 
+### venue 的 `references`：可附著的格與寫入面（#394／#406／#587）
+
+venue 的 `references:` 可附著的 `field` 是**封閉列舉**，唯一的列舉在 `Venue.validateReferenceAttachment`；下表是現況的摘寫，
+兩者不符時以程式為準。
+
+| `field` | `value` | kind | 寫入面 |
+|---|---|---|---|
+| `names`／`authorized` | 必帶：那個名字要在該清單內 | 兩種都收 | `update-venue --references`／MCP `references`（#587） |
+| `issn` | 必帶：那個號（比對看正規形；寫入面以正規形入庫） | 兩種都收 | 同上；`--remove-issn` 對被移除的號連帶刪除（#588） |
+| `note` | 不收（D2：純量）；記錄要有 `note` | 兩種都收 | 同上 |
+| `paginated` | `true`／`false`／`nil`（撤回） | 只收 judgement | 只經 `--paginated`／`--clear-paginated`（#406／#500） |
+| `resolution-*`（三個 verdict 欄位） | `<kind>:<key> :: <literal>` | 只收 judgement | 只經 `resolve-venues`（#232／#304／#619） |
+
+**通用寫入面不收最後兩列**：那兩條路同時改記錄的值（`paginated`、venue 邊）與判定史，通用面寫進去會讓兩者分岔。
+通用面的物件鍵名與 `update-person` 的 references 相同（`media_type`／`statement`／`rests_on`），**不是**上方 YAML 的
+`media-type`／`judgement`／`rests-on`；retrieval 的 `status` 必填，不預設 200（#542 R2 對 `enrich` 的同一個裁決）。
+形狀驗證走 `ProvenanceReference` 的平面 init（YAML decode 的同一個入口）；附著在合進記錄後驗，所以同一次呼叫加的號與名字
+可以被指向；`issn` 的 value 以正規形入庫、`names`／`authorized` 的 value 以記錄上的拼法入庫（相等看 canonical——只差 NFC／NFD 或空白的兩筆否則是兩筆位元組不同的記錄，#582 的掃描會報它們）。append-only：位元組相同的一筆略過。`field: issn` 的 reference 要 store format ≥ 13（#394 的寫入閘）。
+venue 的 reference **沒有移除面**——`--remove-issn` 的連帶刪除之外，寫錯的只能手改 YAML。
+
+**ISSN 的角色**：`issn[].qualifier` 自 format 13 起就在（`print`／`electronic`／`linking`，ISSN 標準的三個角色；
+認不出的舊寫法原值保留、`validate` 報 warning）。寫入面（`add-venue --issn`／`update-venue --add-issn`）自 #587 起收
+`NNNN-NNNN (print)` 的寫法，入庫寫封閉值域的寫法；認不出的角色拒收（寫入面不寫一個 `validate` 會報的值）。已在而沒有角色的號
+補上角色；已記的角色與這次不同即整批拒絕——改寫既有角色沒有面。
+
 ### 存檔佈局：`sources/`（內容定址，不進 remote）
 
 擷取的位元組住 `<store>/sources/<digest 前 2 字元>/<其餘 62 字元>`，**無副檔名**

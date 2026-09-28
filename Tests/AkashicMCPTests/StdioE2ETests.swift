@@ -545,3 +545,35 @@ extension StdioE2ETests {
                                  + "先精簡描述（契約細節移到 CLI --help／docs），要調高預算須回 #578 重新裁決")
     }
 }
+
+/// #587：`akashic_update_venue` 的 `references` 與帶角色的 `add_issn`、`akashic_add_venue` 帶角色的 `issn`——**必須經真 binary**：
+/// `references` 的物件陣列解析住在 server 的分派閉包裡（`argObjectList`），服務層測不到它。
+extension StdioE2ETests {
+    func testVenueReferencesAndMediumReachTheService() throws {
+        try initialize()
+        let digest = "sha256:" + String(repeating: "ab", count: 32)
+        let created = try call(2, "akashic_add_venue", ["key": "ampsy", "type": "periodical",
+                                                        "names": ["American Psychologist"], "issn": ["0003-066X (print)"]])
+        XCTAssertTrue(created.contains("issnMediumRecorded"), created)
+        let updated = try call(3, "akashic_update_venue", [
+            "key": "ampsy",
+            "references": [["field": "issn", "value": "0003-066X", "kind": "retrieval",
+                            "url": "https://portal.issn.org/resource/ISSN/0003-066X", "retrieved": "2026-09-29",
+                            "status": 200, "media_type": "text/html", "content": digest]],
+        ])
+        XCTAssertTrue(updated.contains("\"referencesAdded\":1") || updated.contains("\"referencesAdded\" : 1"), updated)
+        let view = try call(4, "akashic_venue", ["key": "ampsy"])
+        XCTAssertTrue(view.contains("\"medium\":\"print\"") || view.contains("\"medium\" : \"print\""), "回讀要帶角色：\(view)")
+
+        let bare = try call(5, "akashic_update_venue", ["key": "ampsy", "references": "issn"])
+        XCTAssertTrue(bare.contains("references 必須是物件陣列"), bare)
+        let strings = try call(6, "akashic_update_venue", ["key": "ampsy", "references": ["issn"]])
+        XCTAssertTrue(strings.contains("references 的每個元素都必須是物件"), strings)
+        let boolStatus = try call(7, "akashic_update_venue", [
+            "key": "ampsy",
+            "references": [["field": "issn", "value": "0003-066X", "kind": "retrieval", "url": "u", "retrieved": "d",
+                            "status": true, "content": digest]],
+        ])
+        XCTAssertTrue(boolStatus.contains("status 必須是整數"), "JSON 的 true 經 valueToAny 是 NSNumber，不得被當成 1：\(boolStatus)")
+    }
+}

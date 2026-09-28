@@ -3299,7 +3299,7 @@ public final class AkashicService {
     /// `add_venue` 只看參數的檢查（#654）：type 值域、key 格式、名字（`vetVenueNames`——canonical、逐項驗、去重）、ISSN。
     /// 回傳型別化的值；「已存在」要讀 store，不在這裡。CLI 的 `validate()` 呼叫同一個函式。
     public static func addVenueArguments(key: String, names: [String], type rawType: String,
-                                         issn: [String]?) throws -> (type: VenueType, names: [String], issn: [ISSN]) {
+                                         issn: [String]?) throws -> (type: VenueType, names: [String], issn: [ISSN], issnDropped: [String]) {
         guard let vtype = VenueType(rawValue: rawType) else {
             throw ServiceError.invalid(
                 "type「\(displaySafeInvisible(rawType, max: 60))」不在封閉列舉（\(VenueType.domainDescription)）")   // display-safe-exempt: domainDescription 由 VenueType.allCases 的 rawValue 組成，那些是 Swift 原始碼裡的識別字（編譯期常量），不含使用者資料
@@ -3316,22 +3316,14 @@ public final class AkashicService {
             throw ServiceError.invalid(names.isEmpty ? "names 是空的——一筆 venue 至少要有一個名字"
                                                      : "names 全是空白——一筆 venue 至少要有一個名字")
         }
-        // 不合法即整個拒絕、零寫入（同 `updateVenue`）；相等看正規形。
-        var parsed: [ISSN] = []
-        var seen = Set<String>()
-        for r in issn ?? [] where !r.trimmingCharacters(in: .whitespaces).isEmpty {
-            guard let one = ISSN(r) else {
-                throw ServiceError.invalid(
-                    "issn「\(displaySafeInvisible(r, max: 60))」不是合法的 ISSN——拒絕整個呼叫，零寫入")
-            }
-            if seen.insert(one.normalized).inserted { parsed.append(one) }
-        }
-        return (vtype, vetted, parsed)
+        // 不合法即整個拒絕、零寫入（同 `updateVenue`）；相等看正規形；可帶角色（#587，解析與 add_issn 同一個函式）
+        let parsed = try parseISSNItems(issn, parameter: "issn（--issn）")
+        return (vtype, vetted, parsed?.issns ?? [], parsed?.dropped ?? [])
     }
 
     public func addVenue(key: String, names: [String], type rawType: String,
                          note: String? = nil, issn: [String]? = nil) throws -> String {
-        let (vtype, vetted, issns) = try Self.addVenueArguments(key: key, names: names, type: rawType, issn: issn)
+        let (vtype, vetted, issns, issnDropped) = try Self.addVenueArguments(key: key, names: names, type: rawType, issn: issn)
         let load = try store.load()
         guard !load.venues.contains(where: { $0.key == key }) else {
             throw ServiceError.invalid("venue key「\(displaySafeInvisible(key, max: 200))」已存在")
@@ -3350,7 +3342,17 @@ public final class AkashicService {
                                "namesFolded": report.folded.map { displaySafeInvisible($0, max: 200) },
                                "namesDropped": report.dropped.map { displaySafeInvisible($0, max: 200) },
                                // display-safe-exempt: ISSN.normalized 由型別保證只含 [0-9X-]
-                               "issn": venue.issn.map(\.normalized)])
+                               "issn": venue.issn.map(\.normalized),
+                               // #587：這次寫進去的角色（號 → print／electronic／linking）；空白項不寫、回報
+                               "issnMediumRecorded": Self.mediumReport(venue.issn),   // display-safe-exempt: 鍵是 ISSN.normalized（[0-9X-]）、值是 ISSNMedium.rawValue
+                               "issnDropped": issnDropped.map { displaySafeInvisible($0, max: 60) }])
+    }
+
+    /// 號 → 角色（#587）：有角色的才列。鍵是正規形（只含 [0-9X-]），值是封閉值域的 rawValue。
+    static func mediumReport(_ issns: [ISSN]) -> [String: String] {
+        issns.reduce(into: [String: String]()) { acc, i in
+            if let m = i.medium { acc[i.normalized] = m.rawValue }
+        }
     }
 
     /// 呼叫端送的拼法與 store 的對照（R10 verify logic 第 14 列、regression 第 20 列；R11 verify 第 15／19／21 列改成三桶）：
@@ -3390,10 +3392,14 @@ public final class AkashicService {
         let authorizeIn: [String]
         let authorizeBlanks: [String]
         let type: VenueType?
-        /// nil＝這次沒給 add_issn；空陣列＝給了但全是空白
+        /// nil＝這次沒給 add_issn；空陣列＝給了但全是空白。可帶角色（#587）
         let addISSN: [ISSN]?
+        /// add_issn 裡整項空白的原字串（#587：先前靜默略過）
+        let issnDropped: [String]
         /// nil＝這次不動 paginated
         let paginatedReference: ProvenanceReference?
+        /// nil＝這次沒給 references（#587）；形狀已過平面 init
+        let references: [ProvenanceReference]?
     }
 
     /// CLI 的 `validate()` 用（#654）：`update-venue` 只看參數的全部檢查——與服務在讀 store 之前跑的是同一個函式。
@@ -3401,10 +3407,11 @@ public final class AkashicService {
                                                  addVariant: [String]?, authorize: [String]?,
                                                  paginated: Bool?, clearPaginated: Bool,
                                                  judgement: String?, restsOn: [String]?,
-                                                 removeISSN: [String]?) throws {
+                                                 removeISSN: [String]?, references: [Any]? = nil) throws {
         _ = try updateVenueArguments(addNames: addNames, type: rawType, addISSN: addISSN, addVariant: addVariant,
                                      authorize: authorize, paginated: paginated, clearPaginated: clearPaginated,
-                                     judgement: judgement, restsOn: restsOn, removeISSN: removeISSN)
+                                     judgement: judgement, restsOn: restsOn, removeISSN: removeISSN,
+                                     references: references)
     }
 
     /// `updateVenue` 裡只看參數的檢查（#654 原樣搬出；訊息逐字不變）：remove_issn 的形狀、理由、重複與 add_issn 矛盾；三組名字的
@@ -3412,11 +3419,16 @@ public final class AkashicService {
     /// 以及那筆 reference 本身（rests-on 的非空與 digest 形狀由 ProvenanceReference 平面 init 驗）；authorize 的兩種自相矛盾。
     /// 先前它們排在讀 store、確認 venue 存在之後，與 store 狀態的檢查交錯；現在全部在讀 store 之前。要讀 store 才判得出來的
     /// （venue 不存在、這本刊沒有要移除的號、舊指定被 reference 指著……）仍在 `updateVenue` 裡。
+    /// #587 起多兩項、改一項：`add_issn` 的解析搬到 `parseISSNItems`（收角色；訊息改帶參數名與寫法，與 `add_venue.issn` 同一個函式）、
+    /// `references` 的形狀（`parseVenueReferences`）、以及 references 指向 remove_issn 的號這個矛盾。附著要合進記錄才判得出來，仍在 `updateVenue`。
     static func updateVenueArguments(addNames: [String]?, type rawType: String?, addISSN: [String]?,
                                      addVariant: [String]?, authorize: [String]?,
                                      paginated: Bool?, clearPaginated: Bool,
                                      judgement: String?, restsOn: [String]?,
-                                     removeISSN: [String]?) throws -> UpdateVenueArguments {
+                                     removeISSN: [String]?, references: [Any]? = nil) throws -> UpdateVenueArguments {
+        // add_issn 先解析：下面的 remove_issn 矛盾檢查要認得帶角色的寫法（#587——`ISSN("0035-9254 (print)")` 是 nil）
+        let parsedISSN = try parseISSNItems(addISSN, parameter: "add_issn（--add-issn）")
+        let parsedReferences = try parseVenueReferences(references)
         var removals: [(issn: ISSN, reason: String)] = []
         if let specs = removeISSN, !specs.isEmpty {
             var seen = Set<String>()
@@ -3437,8 +3449,13 @@ public final class AkashicService {
                 guard seen.insert(one.normalized).inserted else {
                     throw ServiceError.invalid("remove_issn「\(one.normalized)」在一次呼叫裡重複")   // display-safe-exempt: one.normalized 只含 [0-9X-]
                 }
-                if let adds = addISSN, adds.contains(where: { ISSN($0)?.normalized == one.normalized }) {
+                if let adds = parsedISSN?.issns, adds.contains(where: { $0.normalized == one.normalized }) {
                     throw ServiceError.invalid("ISSN「\(one.normalized)」同時在 add_issn 與 remove_issn——兩句矛盾的話，拒絕整個呼叫")   // display-safe-exempt: one.normalized 只含 [0-9X-]
+                }
+                // #587：這次要附的 reference 指向這個號——移除之後它是孤兒，兩句矛盾的話
+                if let refs = parsedReferences,
+                   refs.contains(where: { $0.field == "issn" && $0.value.flatMap(ISSN.init)?.normalized == one.normalized }) {
+                    throw ServiceError.invalid("ISSN「\(one.normalized)」在 remove_issn，這次的 references 卻有一筆指向它——兩句矛盾的話，拒絕整個呼叫")   // display-safe-exempt: one.normalized 只含 [0-9X-]
                 }
                 removals.append((one, reason))
             }
@@ -3454,18 +3471,6 @@ public final class AkashicService {
                     "type「\(displaySafeInvisible(rawType, max: 60))」不在封閉列舉（\(VenueType.domainDescription)）")   // display-safe-exempt: domainDescription 由 VenueType.allCases 的 rawValue 組成，那些是 Swift 原始碼裡的識別字（編譯期常量），不含使用者資料
             }
             vtype = t
-        }
-        var issns: [ISSN]?
-        if let raws = addISSN {
-            var parsed: [ISSN] = []
-            for r in raws where !r.trimmingCharacters(in: .whitespaces).isEmpty {
-                guard let one = ISSN(r) else {
-                    throw ServiceError.invalid(
-                        "issn「\(displaySafeInvisible(r, max: 60))」不是合法的 ISSN——拒絕整個呼叫，零寫入")
-                }
-                parsed.append(one)
-            }
-            issns = parsed
         }
         // #406／#500 的判定輸入（理由見 `updateVenue` 裡那段的長註解）：撤回與設定互斥、兩者都必附理由；
         // 沒有判定就沒有判定的理由。
@@ -3537,7 +3542,8 @@ public final class AkashicService {
         return UpdateVenueArguments(removeISSN: removals, namesIn: namesIn,
                                     variantsIn: variantsIn, variantBlanks: variantBlanks,
                                     authorizeIn: authorizeIn, authorizeBlanks: authorizeBlanks,
-                                    type: vtype, addISSN: issns, paginatedReference: paginatedRef)
+                                    type: vtype, addISSN: parsedISSN?.issns, issnDropped: parsedISSN?.dropped ?? [],
+                                    paginatedReference: paginatedRef, references: parsedReferences)
     }
 
     /// venue 異名補寫（#306）——**append 語意**：`addNames` 只把不重複的名字附加進
@@ -3568,10 +3574,12 @@ public final class AkashicService {
                             paginated: Bool? = nil, clearPaginated: Bool = false,
                             judgement: String? = nil,
                             restsOn: [String]? = nil,
-                            removeISSN: [String]? = nil) throws -> String {
+                            removeISSN: [String]? = nil,
+                            references: [Any]? = nil) throws -> String {
         let args = try Self.updateVenueArguments(addNames: addNames, type: rawType, addISSN: addISSN, addVariant: addVariant,
                                                  authorize: authorize, paginated: paginated, clearPaginated: clearPaginated,
-                                                 judgement: judgement, restsOn: restsOn, removeISSN: removeISSN)
+                                                 judgement: judgement, restsOn: restsOn, removeISSN: removeISSN,
+                                                 references: references)
         let load = try store.load()
         // #670：key 重複時寫進哪一筆是猜——整批拒絕、零寫入（同 #627 對 citekey）
         guard !load.venues.unlocatableVenueKeys.contains(key) else {
@@ -3646,13 +3654,34 @@ public final class AkashicService {
         // **相等看正規形**：`0003-066x` 與 `0003-066X` 是同一個號。這與
         // `IdentifierMigration.normalizedUnique` 的既有立場一致——兩個面若用不同的相等，
         // 對「這本刊有幾個 ISSN」會給出不同答案。
+        //
+        // **角色**（#587）：帶角色的號寫進去就帶著它；已在的號**沒有**角色而這次帶了，補上（填一個缺席的格——add-only，
+        // 同 `mergePreferringQualified` 的既有立場），報在 `issnMediumRecorded`。已在的號**有**角色（含認不出的舊寫法，
+        // 如遷移留下的 `Online`）而這次說的不同：兩句矛盾的話，整批拒絕——改寫既有角色不在本面。
         var issnAdded: [String] = []
+        var issnAlreadyPresent: [String] = []
+        var issnMediumRecorded: [String: String] = [:]
         if let parsed = args.addISSN {
-            var existing = Set(venue.issn.map(\.normalized))
-            for one in parsed where !existing.contains(one.normalized) {
+            for one in parsed {
+                if let idx = venue.issn.firstIndex(where: { $0.normalized == one.normalized }) {
+                    let existing = venue.issn[idx]
+                    guard let medium = one.medium else { issnAlreadyPresent.append(one.normalized); continue }
+                    if let recorded = existing.qualifierRaw {
+                        guard existing.medium == medium else {
+                            throw ServiceError.invalid(
+                                "venue「\(displaySafeInvisible(key, max: 200))」的 ISSN「\(one.normalized)」已記為「\(displaySafeInvisible(recorded, max: 40))」，"   // display-safe-exempt: one.normalized 只含 [0-9X-]
+                                + "這次說 \(medium.rawValue)——兩句矛盾的話，拒絕整個呼叫，零寫入（改寫既有角色不在 add_issn）")   // display-safe-exempt: rawValue 是 enum 常數
+                        }
+                        issnAlreadyPresent.append(one.normalized)
+                        continue
+                    }
+                    venue.issn[idx] = existing.withQualifier(medium.rawValue)
+                    issnMediumRecorded[one.normalized] = medium.rawValue
+                    continue
+                }
                 venue.issn.append(one)
-                existing.insert(one.normalized)
                 issnAdded.append(one.normalized)
+                if let m = one.medium { issnMediumRecorded[one.normalized] = m.rawValue }
             }
         }
         if let note { venue.note = note }
@@ -3792,6 +3821,33 @@ public final class AkashicService {
             else if already { alreadyAuthorized.append(x) }
             else { authorizedAdded.append(x) }   // 冪等，但要說
         }
+        // **通用 references**（#587）：append-only、位元組相同的略過（同 `update_person`）。附在最後——同一次呼叫加的號與名字
+        // 已經落到記錄上，reference 可以指向它們。形狀已在讀 store 之前過平面 init（`parseVenueReferences`）；附著（那個號、
+        // 那個名字在不在記錄上）要合進記錄才判得出來，在這裡以 `validateReferenceAttachment`（載入的同一個驗證）驗——
+        // 寫入時的 canary 也會擋，但那時錯誤說不出是哪個參數。
+        var referencesAdded = 0
+        var referencesAlreadyPresent = 0
+        if let refs = args.references {
+            for given in refs {
+                // 名字的定位值換成**記錄上的拼法**（同上方 `resolveSpelling` 的相等：canonical）——只差 NFC／NFD 或空白的兩筆
+                // 否則是位元組不同的兩筆，#582 的重複 reference 掃描會報它們，而它們指的是同一個名字。找不到就原樣留著，
+                // 由下面的附著驗證具名拒絕。
+                var ref = given
+                if ref.field == "names" || ref.field == "authorized", let v = ref.value {
+                    let pool = ref.field == "names" ? venue.names.entries.map(\.value) : venue.authorized
+                    if let hit = pool.first(where: { NameIdentity.canonical($0) == NameIdentity.canonical(v) }) { ref.value = hit }
+                }
+                if venue.references.contains(where: { $0.byteExactKey == ref.byteExactKey }) {
+                    referencesAlreadyPresent += 1
+                } else {
+                    venue.references.append(ref)
+                    referencesAdded += 1
+                }
+            }
+            do { try venue.validateReferenceAttachment() } catch {
+                throw ServiceError.invalid("references 附不上這筆 venue：\(displaySafeError(error, max: 600))——拒絕整個呼叫，零寫入")
+            }
+        }
         // 分割互斥與孤兒檢查由 `writeVenue` → `assertVenueWritable` → `Venue.validate()`
         // 擋——這裡不重造一份（同 ISSN 那段的立場）。
         try store.writeVenue(venue)
@@ -3807,6 +3863,12 @@ public final class AkashicService {
                                       "namesTotal": venue.names.entries.count,
                                       // display-safe-exempt: ISSN.normalized 由型別保證只含 [0-9X-]
                                       "issnAdded": issnAdded,
+                                      // #587：本來就在（冪等，但要說）、這次寫下的角色、整項空白的
+                                      "issnAlreadyPresent": issnAlreadyPresent,   // display-safe-exempt: ISSN.normalized 只含 [0-9X-]
+                                      "issnMediumRecorded": issnMediumRecorded,   // display-safe-exempt: 鍵是 ISSN.normalized、值是 ISSNMedium.rawValue
+                                      "issnDropped": args.issnDropped.map { displaySafeInvisible($0, max: 60) },
+                                      "referencesAdded": referencesAdded,   // display-safe-exempt: Int
+                                      "referencesAlreadyPresent": referencesAlreadyPresent,   // display-safe-exempt: Int
                                       // #588：理由只在這裡——store 不留，歷史在 git
                                       "issnRemoved": issnRemoved.map { r -> [String: Any] in
                                           // 理由不進 store，報告是它唯一的一份——不截在入口上限之下（R1 verify：曾截 600、入口收 4,096 位元組）

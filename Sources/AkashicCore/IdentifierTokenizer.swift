@@ -113,6 +113,27 @@ public enum IdentifierTokenizer {
         return out
     }
 
+    /// **寫入面**的一項：恰好一個值，後面至多緊跟一個括號註記（#587）。形狀不是這樣就回 `nil`——不猜。
+    ///
+    /// 與 `qualifiedCandidates` 同一套切法（同一個 tokenizer），差別只在嚴格：遷移讀的是別人的髒資料，所以寬容
+    /// （前面沒有值的括號丟掉、第二個註記覆寫第一個、未閉合的括號讀到結尾）；寫入面收的是呼叫端**這一次**說的話，
+    /// 那些形狀在這裡都是「兩句話或半句話」，而寬容的後果是靜默丟一個角色或把兩個號當一個。所以要求：
+    /// 切出恰好一個值；括號的開、閉與註記三個計數都等於「這個值有沒有註記」（0 或 1）——前置、重複、未閉合、
+    /// 空括號都因此不成立。只對會剝括號的種類（`absorbsMultipleValues`）有意義；其餘種類括號是值的一部分，直接回整串。
+    public static func singleQualified(_ raw: String, field: String) -> (value: String, qualifier: String?)? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        guard absorbsMultipleValues(field: field) else { return (trimmed, nil) }
+        let pairs = qualifiedCandidates(trimmed, field: field)
+        guard pairs.count == 1 else { return nil }
+        let expected = pairs[0].qualifier == nil ? 0 : 1
+        let opens = trimmed.unicodeScalars.filter { $0 == "(" }.count
+        let closes = trimmed.unicodeScalars.filter { $0 == ")" }.count
+        guard opens == expected, closes == expected,
+              candidatesWithAnnotations(trimmed, field: field).annotations.count == expected else { return nil }
+        return pairs[0]
+    }
+
     /// 把一個識別碼併進清單：相等時**有 qualifier 的勝過沒有的**（#425 verify HIGH）。
     ///
     /// 抽出來是因為這條規則先前只寫在 `normalizedUniqueQualified`（單一欄位內的多值），

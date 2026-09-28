@@ -170,7 +170,7 @@ struct AddVenueCmd: ParsableCommand {
     /// #394：建檔時就知道 ISSN 是常見的。少了它得「先建再更新」——一次操作變兩次，
     /// 中間有一個 ISSN 不在的狀態。不合法即整個拒絕、零寫入；相等看正規形。
     @Option(name: .long, parsing: .upToNextOption,
-            help: "ISSN（可多個；print 與 electronic 是兩個真的號。不合法即整批拒絕）")
+            help: "ISSN（可多個；print 與 electronic 是兩個真的號）。可緊跟一個角色：\"NNNN-NNNN (print)\"（print／electronic／linking，#587）。一項一個號；號不合法、角色不在三值內、同一個號兩個角色，都整批拒絕。整項空白的不寫、回報在 issnDropped；寫下的角色回報在 issnMediumRecorded")
     var issn: [String] = []
 
     /// type 值域、key 格式、名字與 ISSN 的形狀只看 argv——早於開 store（#654）；檢查本身在 service，兩面同一個函式
@@ -191,7 +191,7 @@ struct AddVenueCmd: ParsableCommand {
 struct UpdateVenueCmd: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "update-venue",
-        abstract: "venue 的部分更新（#306／#394／#471／#554）——append 語意：--add-name／--add-issn／--add-variant 只附加不重複的值（整組替換刻意不提供）；--authorize 是同書寫系統替換（不是 append，見其 help）；--note／--type 替換。venue 無法唯一定位（\(UnlocatableReason.venue)）時整批拒絕、零寫入（#670）")
+        abstract: "venue 的部分更新（#306／#394／#471／#554／#587）——append 語意：--add-name／--add-issn／--add-variant／--references 只附加不重複的值（整組替換刻意不提供）；--authorize 是同書寫系統替換（不是 append，見其 help）；--note／--type 替換。venue 無法唯一定位（\(UnlocatableReason.venue)）時整批拒絕、零寫入（#670）")
 
     @OptionGroup var options: LibraryOptions
 
@@ -211,7 +211,7 @@ struct UpdateVenueCmd: ParsableCommand {
     /// **append 語意，與 `--add-name` 一致**（#394）。ISSN 本來就是清單——print 與
     /// electronic 是兩個真的號。相等看正規形；任一個不合法即整個呼叫拒絕、零寫入。
     @Option(name: .customLong("add-issn"), parsing: .upToNextOption,
-            help: "要附加的 ISSN（可多個；正規形相同者自動略過，不合法即整批拒絕）")
+            help: "要附加的 ISSN（可多個；相等看正規形）。可緊跟一個角色：\"NNNN-NNNN (print)\"（print／electronic／linking，#587）——已在而沒有角色的號補上角色，已記的角色與這次不同即整批拒絕（改寫既有角色不在本面）。號不合法、角色不在三值內、一項兩個號或兩個角色，都整批拒絕、零寫入。報告：issnAdded（新號）、issnAlreadyPresent（本來就在、沒有新資訊）、issnMediumRecorded（這次寫下的角色）、issnDropped（整項空白）")
     var addISSN: [String] = []
 
     /// #588：寫錯的號（常是姊妹刊的號）在此之前拿不掉，只能手改 YAML。
@@ -260,8 +260,31 @@ struct UpdateVenueCmd: ParsableCommand {
             help: "判定所依據的證據 digest（sha256:64hex，至少一個——先用 store-source 存證據拿 digest）")
     var restsOn: [String] = []
 
+    /// #587：venue 的通用 provenance 寫入面——與 `update-person` 的 `references` 同鍵名、同 append-only 語意。
+    @Option(name: .customLong("references"),
+            help: ArgumentHelp("要附加的 provenance（JSON 物件陣列，append-only；位元組相同的略過，報 referencesAlreadyPresent，#587）",
+                               discussion: "每項同 update-person 的 references：{field, value?, kind: retrieval|judgement, …}。"
+                                   + "retrieval 要 url／retrieved／status（整數，不預設 200）／content（sha256: digest），media_type 選填；"
+                                   + "judgement 要 statement（≤ 4,096 位元組）／rests_on（1–20 個 digest）。"
+                                   + "field 只收 names／authorized／issn／note：清單欄位（names／authorized／issn）要帶 value 指名那一個，"
+                                   + "issn 的 value 以正規形入庫、names／authorized 的 value 以記錄上的拼法入庫（相等看 canonical）；那個號或名字要在記錄上（同一次呼叫 --add-issn／--add-name 加的也算）。"
+                                   + "verdict 欄位只經 resolve-venues 寫、paginated 判定只經 --paginated／--clear-paginated 寫，都拒收。"
+                                   + "鍵名嚴格（不認得的鍵拒收；判斷型的斷言鍵是 statement）；一次至多 200 筆、字串各至多 65,536 位元組。"
+                                   + "任一筆不合，整批拒絕、零寫入（同一次呼叫的其他參數也不寫）。報告：referencesAdded"))
+    var references: String?
+
+    /// `--references` 的 JSON——不是 JSON 陣列是用法錯誤（64），在 `validate()` 擋；`run()` 用同一個解析。
+    static func referencesArray(_ raw: String?) throws -> [Any]? {
+        guard let raw else { return nil }
+        guard let arr = (try? JSONSerialization.jsonObject(with: Data(raw.utf8))) as? [Any] else {
+            throw ValidationError("--references 必須是 JSON 陣列（每項一個物件）")
+        }
+        return arr
+    }
+
     /// 只看 argv 的檢查早於開 store（#654）：與服務在讀 store 之前跑的是同一個函式，參數的對映與 `run()` 相同。
     func validate() throws {
+        let refs = try Self.referencesArray(references)
         try argvCheck {
             try AkashicService.checkUpdateVenueArguments(addNames: addName.isEmpty ? nil : addName, type: type,
                                                          addISSN: addISSN.isEmpty ? nil : addISSN,
@@ -269,7 +292,8 @@ struct UpdateVenueCmd: ParsableCommand {
                                                          authorize: authorize.isEmpty ? nil : authorize,
                                                          paginated: paginated, clearPaginated: clearPaginated,
                                                          judgement: judgement, restsOn: restsOn.isEmpty ? nil : restsOn,
-                                                         removeISSN: removeISSN.isEmpty ? nil : removeISSN)
+                                                         removeISSN: removeISSN.isEmpty ? nil : removeISSN,
+                                                         references: refs)
         }
     }
 
@@ -288,7 +312,8 @@ struct UpdateVenueCmd: ParsableCommand {
                                       clearPaginated: clearPaginated,
                                       judgement: judgement,
                                       restsOn: restsOn.isEmpty ? nil : restsOn,
-                                      removeISSN: removeISSN.isEmpty ? nil : removeISSN))
+                                      removeISSN: removeISSN.isEmpty ? nil : removeISSN,
+                                      references: try Self.referencesArray(references)))
     }
 }
 

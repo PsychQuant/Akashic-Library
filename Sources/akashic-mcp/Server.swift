@@ -196,7 +196,7 @@ actor AkashicMCPServer {
                 "names": strArray("名稱變體（正式刊名、縮寫、WoS 大寫形）。檢查同 akashic_update_venue 的 add_names；空白項略過、近重複只留一筆，全部空白＝沒有名字 → 整個呼叫拒絕零寫入。回報：names（存入的拼法）、namesFolded、namesDropped"),
                 "type": str(VenueType.domainDescription),
                 "note": str("備註（選填）"),
-                "issn": strArray("ISSN（可多個：print 與 electronic 是兩個真的號；相等看正規形；任一不合法即整個呼叫拒絕、零寫入）"),
+                "issn": strArray("ISSN（可多個：print 與 electronic 是兩個真的號；相等看正規形）；角色寫法同 akashic_update_venue 的 add_issn。任一不合法即整個呼叫拒絕、零寫入。回報 issnMediumRecorded、issnDropped"),
              ], required: ["key", "names", "type"])),
         Tool(name: "akashic_update_venue",
              description: "venue 的部分更新（CLI 對應 `akashic update-venue --help`；名字的不變式見 docs/store-format.md §5.7）。add_names／add_issn／add_variant 是 append：只附加不重複的值，不提供整組替換；authorize 是同書寫系統替換；paginated／clear_paginated 是判定；note／type 替換（選填）。resolve_venues 對沿革各段都配對。需 store format ≥ 11。",
@@ -205,7 +205,7 @@ actor AkashicMCPServer {
                 "add_names": strArray("要附加的名稱變體（相等看 canonical，以 canonical 形入庫）。回報：namesAdded／namesAlreadyPresent／namesFolded／namesDropped（各自的意思見 CLI help）。含不合法字元（規則見 §5.7）或沒有任何字母或數字的名字 → 整批拒絕零寫入（其他參數也不寫）"),
                 "note": str("備註（替換；選填）"),
                 "type": str("\(VenueType.domainDescription)（替換；選填）"),
-                "add_issn": strArray("要附加的 ISSN（可多個；相等看正規形，0003-066x＝0003-066X）；任一個不合法即整個呼叫拒絕、零寫入"),
+                "add_issn": strArray("要附加的 ISSN（相等看正規形，0003-066x＝0003-066X）。可緊跟角色：\"NNNN-NNNN (print)\"（print／electronic／linking）；已在而無角色的號補上，已記的角色不同即拒。號或角色不合法 → 整個呼叫拒絕零寫入。回報 issnAdded／issnAlreadyPresent／issnMediumRecorded／issnDropped"),
                 "add_variant": strArray("要標成異寫法的名字（append；名字檢查同 add_names）。不在 names 裡的一併加進 names。整項空白的不寫，回報在 variantDropped"),
                 "authorize": strArray("指定為對外形的名字。**不是 append**：每個書寫系統（han／latn／other）至多一個，同書寫系統原本的指定移出 authorized、留在 names、不標 variant（authorizedRemoved）；同一次呼叫兩個同書寫系統的名字整批拒絕。不在 names 的一併加進 names。其他回報：liftedFromVariant、alreadyAuthorized、authorizedRewritten、authorizeDropped"),
                 "clear_paginated": ["type": "boolean", "description": "撤回 paginated 判定、回到未判定狀態：同樣要 judgement，並在 references 留一筆 value=nil 的記錄。與 paginated 不得同時給"],
@@ -214,6 +214,8 @@ actor AkashicMCPServer {
                 "judgement": str("paginated 判定的理由（設 paginated 時必填）"),
                 "rests_on": strArray("判定所依據的證據 digest（sha256:64hex，至少一個——先用 akashic_store_source 存證據拿 digest）"),
                 "remove_issn": strArray("移除 ISSN：<issn>=理由（必填，只回在 issnRemoved、不寫進 store）；指向該號的 field: issn provenance 一併刪除（issnRemoved[].referencesRemoved）。venue 檔要已在 git 裡 commit、無未提交修改。號不合法、這本刊沒有、重複、或同時在 add_issn → 整批拒絕零寫入"),
+                "references": .object(["type": .string("array"), "items": .object(["type": .string("object")]),
+                    "description": .string("append-only 的 provenance，物件形同 akashic_update_person 的 references（retrieval 的 status 必填）。field 限 names／authorized／issn／note；清單欄位帶 value（issn 以正規形、名字以記錄上的拼法入庫），那個值要在記錄上（同一次呼叫加的也算）。verdict 與 paginated 拒收。位元組相同的略過。任一筆不合 → 整個呼叫拒絕零寫入（上限與鍵名見 CLI help）。回報 referencesAdded／referencesAlreadyPresent")]),
              ], required: ["key"])),
         Tool(name: "akashic_resolve_venues",
              description: "venue 解析（literal → venue；完整契約見 CLI `akashic resolve-venues --help` 與 docs/store-format.md §3.5）。不帶寫入腿回 {candidates, ambiguities}：candidates 是與 venue name 完全命中（正規化含 lowercase）且不歧義的 literal；ambiguities 是對到 2+ venue、需要判斷的；兩者帶 undecidedChecks；work 或 venue 無法唯一定位（原因見 akashic validate）時該列帶 unlocatableCitekey:true／unlocatableVenueKey:true。apply（citekey:venueIndex）升格 literal 並寫 resolution-confirmed 到該 venue；reject 寫 resolution-rejected（entry 不動）；apply＋reject 可同一次呼叫（reject 先提交，被它以正規化配對壓掉的 apply id 列在 skippedBecauseRejected）；repoint／demote／undecided／drop_venue 各自單獨呼叫。apply 逐筆略過、其餘照寫的三類：skippedUnlocatable、skippedDuplicateVenueEdge（會造成同一 work 兩條邊指同一 venue；既有的重複邊不擋）、skippedConflictingConfirmedLiteral（目的 venue 已對該 work 持有另一個 confirmed literal，比位元組）。reject／repoint／demote 遇到無法唯一定位的 work 或 venue（repoint 兩端都算）整批拒絕；repoint／demote 另在該 venue 對這筆 work 有 ≥2 個不同 confirmed literal、或配對由多條邊實例化時整批拒絕零寫入。repoint／demote 會刪掉同 holder 上同一配對的相反判定，所以那些 venue 檔要已在 git 裡 commit、無未提交修改（否則整批拒絕）；刪掉的逐字列在 verdictsRetired（截 20 筆，verdictsRetiredTotal／truncated）。需 store format ≥ 11。絕不自動配對。",
@@ -431,6 +433,20 @@ actor AkashicMCPServer {
             }
             return strs
         }
+        /// 物件陣列（#587 `update_venue.references`）：沒給鍵回 nil；非陣列、或任一元素不是物件，整個呼叫拒絕（#561 的同形——
+        /// 不靜默當未提供）。空陣列原樣交給服務（服務對它有自己的一句話）。元素轉成 `[String: Any]`，型別由服務逐鍵驗。
+        func argObjectList(_ key: String) throws -> [Any]? {
+            guard let value = params.arguments?[key] else { return nil }
+            guard case .array(let arr) = value else {
+                throw ServiceError.invalid("\(displaySafeInvisible(key, max: 60)) 必須是物件陣列——收到別的型別；拒絕整個呼叫，零寫入")
+            }
+            return try arr.map { item in
+                guard case .object = item, let obj = valueToAny(item) as? [String: Any] else {
+                    throw ServiceError.invalid("\(displaySafeInvisible(key, max: 60)) 的每個元素都必須是物件（且巢狀深度不超過 64）；拒絕整個呼叫，零寫入")
+                }
+                return obj
+            }
+        }
         /// 同 `argList`（#561 的同形）：`create_entry` 的 `fields: {"year": 2020}` 先前被 `compactMapValues`
         /// 靜默丟掉那個欄位——`lossless-intake` 說的「靜默是最糟的形式」。現在非物件、或任何非字串的值都整個呼叫拒絕。
         func argDict(_ key: String) throws -> [String: String] {
@@ -627,7 +643,8 @@ actor AkashicMCPServer {
                     clearPaginated: try argFlag("clear_paginated", default: false),
                     judgement: arg("judgement"),
                     restsOn: params.arguments?["rests_on"] != nil ? argList("rests_on") : nil,
-                    removeISSN: try argStrictList("remove_issn"))
+                    removeISSN: try argStrictList("remove_issn"),
+                    references: try argObjectList("references"))
             case "akashic_resolve_venues":
                 let vApplyProvided = params.arguments?["apply"] != nil
                 let vRejectProvided = params.arguments?["reject"] != nil

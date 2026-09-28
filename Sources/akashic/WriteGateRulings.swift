@@ -95,7 +95,7 @@ extension DestructiveTargetGate {
         "file add": .notGated("store 路徑由參數顯式給、不經 registry 的 current 解析；寫 registry，並在佈局不存在時建立佈局"),
         "update-person": .notGated("逐筆指名一個 person key、有 --dry-run；提及的欄位整個替換、未提及的不動，references 只追加（被替換的舊值只在 git 歷史）。" + outsideNamedFamily),
         "fmt": .notGated("把全庫記錄重寫成 canonical form——字面上的 encode(decode(x)) 往返，只改排版不改內容，冪等；--check 只回報不寫。不是 #653 點名的格式遷移：遷移改格式版本與內容形狀，fmt 兩者都不改"),
-        "update-venue": .notGated("逐筆指名一個 venue key；名字與 ISSN 以追加為主，--authorize 同書寫系統替換（舊指定留在 names）、--note／--type 替換，--remove-issn 要求 venue 檔已 commit、乾淨（#588）。" + outsideNamedFamily),
+        "update-venue": .notGated("逐筆指名一個 venue key；名字、ISSN（含角色，已記的角色不改寫）與 --references 以追加為主（#587），--authorize 同書寫系統替換（舊指定留在 names）、--note／--type 替換，--remove-issn 要求 venue 檔已 commit、乾淨（#588）。" + outsideNamedFamily),
 
         // ── 不寫 store ──
         "validate": .readOnly("schema 驗證與健康報告：只讀記錄、不寫任何檔"),

@@ -193,10 +193,27 @@ jobs:
           - value:
               key: parent-org
           ORG
+          # #657：一筆帶兩個 DOI 的 work。沒有它 publication_doi.csv 只有表頭，load.sql 的那一行 INSERT 從沒灌過資料
+          # （外鍵、主鍵、UNIQUE、型別都沒被執行到）——與上面母子機構同一個教訓。
+          cat > "$STORE/entities/33333333-3333-4333-8333-333333333333.yaml" <<'WORK'
+          work:
+          id: 33333333-3333-4333-8333-333333333333
+          citekey: tryon2001evaluating
+          type: periodical-article
+          title: Evaluating statistical difference
+          authors:
+          - literal: Tryon, Warren W.
+          date: 2001
+          doi:
+          - 10.1037/1082-989x.6.4.371
+          - 10.1037//1082-989x.6.4.371
+          WORK
           .build/release/akashic validate --library "$STORE"
           .build/release/akashic export-tables --library "$STORE" -o "$TMP/out"
           grep -q 'parent-org' "$TMP/out/organization.csv" || { echo "::error::fixture 沒進匯出"; exit 1; }
           test -n "$(awk -F, 'NR>1 && $NF != "" {print}' "$TMP/out/organization.csv")" \
             || { echo "::error::匯出的 organization.csv 沒有非空的 parent_id——這一步就抓不到 #92 那類 bug"; exit 1; }
+          test "$(tail -n +2 "$TMP/out/publication_doi.csv" | wc -l | tr -d ' ')" = 2 \
+            || { echo "::error::兩個 DOI 的 fixture 在 publication_doi.csv 沒有得到兩列——這一步就沒有灌過那張表"; exit 1; }
           duckdb "$TMP/probe.db" -c ".read $TMP/out/load.sql"
-          echo "✓ 含母子機構的 load.sql 可執行"
+          echo "✓ 含母子機構與多 DOI work 的 load.sql 可執行"

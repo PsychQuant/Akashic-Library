@@ -54,7 +54,7 @@ akashic_person(key: "cheng-che")      # 確定的人 → 著作 + 合著者
 - **DOI**：`akashic_enrich`（`dry_run` 預設就是 true）或 `akashic enrich --from <提案檔>`（不帶 `--apply` 就是乾跑），提案只帶 `doi`。零寫入，回的是命中的 citekey、`ambiguous`（多筆命中）或 `notFound`。CLI 另外可以用 `akashic create-entry --dry-run`：它會列出 DOI 已在庫的那幾筆（#637）。
   - **命中了就不要再建**：DOI 相等表示指的是同一篇。例外是 erratum 這類與原文共用 DOI 的另一份文件，它才該另建一筆。
   - 真的建了重複的，`create-entry` 事後也會以 `doiHits`／⚠ 回報，那時走攣生合併。
-- **標題**：`akashic export-tables`（只有 CLI 面）的 `publication` 表逐筆比對標題與年份；同一張表的 `doi` 欄只放每筆的第一個 DOI（#657）。
+- **標題**：`akashic export-tables`（只有 CLI 面）的 `publication` 表逐筆比對標題與年份；同一張表的 `doi` 欄只放每筆的第一個 DOI，全部的 DOI 在 `publication_doi` 表（一個 DOI 一列，#657）。
 
 `akashic_person(name:)` 會回兩種候選：
 

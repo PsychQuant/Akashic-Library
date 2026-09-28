@@ -257,6 +257,105 @@ final class RelationalExportTests: XCTestCase {
                       "進行中的判準要排除只被觀測到的段")
     }
 
+    // MARK: - 一筆 work 多個 DOI（#657）
+
+    private func withDOIs(_ ck: String, _ dois: [String]) -> Entry {
+        var e = entry(ck, authors: [.literal("X")])
+        e.doi = dois.compactMap(DOI.init)
+        XCTAssertEqual(e.doi.count, dois.count, "fixture 的 DOI 必須都合法")
+        return e
+    }
+
+    /// #657：`publication` 一列一筆 work，DOI 卻是清單。三個 DOI 的 work 在 publication_doi 得三列、依序，
+    /// doi_seq 0 ＝ 第一個＝ publication.doi；一個 DOI 得一列；沒有 DOI 的 work 沒有列。
+    func testEveryDOIGetsAPublicationDOIRowInOrder() throws {
+        let three = withDOIs("tryon2001", ["10.1037/1082-989x.6.4.371", "10.1037//1082-989x.6.4.371",
+                                           "10.1037//1082-989x.6.4.371-386"])
+        let one = withDOIs("single2020", ["10.1000/one"])
+        let none = entry("nodoi2020", authors: [.literal("X")])
+        let t = RelationalExport.tables(entries: [three, one, none], people: [])
+        let pd = t.publicationDOI
+        XCTAssertEqual(pd.name, "publication_doi")
+        XCTAssertEqual(pd.columns, ["publication_id", "doi_seq", "doi"])
+        XCTAssertEqual(pd.rows.filter { $0[0] == three.id.uuidString },
+                       [[three.id.uuidString, "0", "10.1037/1082-989x.6.4.371"],
+                        [three.id.uuidString, "1", "10.1037//1082-989x.6.4.371"],
+                        [three.id.uuidString, "2", "10.1037//1082-989x.6.4.371-386"]])
+        XCTAssertEqual(pd.rows.filter { $0[0] == one.id.uuidString },
+                       [[one.id.uuidString, "0", "10.1000/one"]])
+        XCTAssertTrue(pd.rows.allSatisfy { $0[0] != none.id.uuidString }, "沒有 DOI 的 work 不得有列")
+        XCTAssertEqual(pd.rows.count, 4)
+        // publication.doi 保留第一個（主 DOI，#543 的裁決），與 doi_seq 0 那一列相同
+        let doiCol = try XCTUnwrap(t.publication.columns.firstIndex(of: "doi"))
+        let byID = Dictionary(uniqueKeysWithValues: t.publication.rows.map { ($0[0]!, $0[doiCol]) })
+        XCTAssertEqual(byID[three.id.uuidString], "10.1037/1082-989x.6.4.371")
+        XCTAssertEqual(byID[one.id.uuidString], "10.1000/one")
+        XCTAssertEqual(byID[none.id.uuidString], .some(nil))
+        for row in pd.rows where row[1] == "0" {
+            XCTAssertEqual(byID[row[0]!], row[2], "publication.doi 必須等於 doi_seq 0 那一列")
+        }
+    }
+
+    /// 正規形相同的重複只出一列（與 `.bib` 的 `otherDOIs` 同一條：同一個號印兩次是雜訊，下游數 DOI 會多算），
+    /// doi_seq 在去重之後連續。
+    func testDuplicateNormalizedDOIsYieldOneRow() {
+        let e = withDOIs("dup2020", ["10.1000/ABC", "10.1000/abc", "https://doi.org/10.1000/def"])
+        let rows = RelationalExport.tables(entries: [e], people: []).publicationDOI.rows
+        XCTAssertEqual(rows.map { $0[1] }, ["0", "1"])
+        XCTAssertEqual(rows.map { $0[2] }, ["10.1000/abc", "10.1000/def"])
+    }
+
+    /// 遷移前只有 `fields.doi` 殘留的記錄：publication.doi 讀 `canonicalDOIs`，publication_doi 讀同一份，不會一邊有一邊沒有。
+    func testResidueOnlyDOIStillYieldsARow() throws {
+        var e = entry("residue2020", authors: [.literal("X")])
+        e.fields["doi"] = "10.1000/residue"
+        let t = RelationalExport.tables(entries: [e], people: [])
+        XCTAssertEqual(t.publicationDOI.rows, [[e.id.uuidString, "0", "10.1000/residue"]])
+        let doiCol = try XCTUnwrap(t.publication.columns.firstIndex(of: "doi"))
+        XCTAssertEqual(t.publication.rows[0][doiCol], "10.1000/residue")
+    }
+
+    /// 新表要進 `all`（CLI 依它寫檔），而且排在 publication 之後（外鍵的載入順序）。
+    func testPublicationDOIIsExportedAfterPublication() throws {
+        let names = RelationalExport.tables(entries: [], people: []).all.map(\.name)
+        let p = try XCTUnwrap(names.firstIndex(of: "publication"))
+        let d = try XCTUnwrap(names.firstIndex(of: "publication_doi"), "publication_doi 必須在 all 裡：\(names)")
+        XCTAssertLessThan(p, d)
+    }
+
+    /// load.sql：建表、外鍵、主鍵、同一筆 work 內 DOI 不重複、drop 順序（子表先）、從 CSV 載入。
+    func testDDLDeclaresPublicationDOI() throws {
+        let sql = RelationalExport.duckDBScript(csvDirectory: "/tmp/x")
+        XCTAssertTrue(sql.contains("CREATE TABLE publication_doi ("), sql)
+        XCTAssertTrue(sql.contains("publication_id UUID    NOT NULL REFERENCES publication(publication_id)"), sql)
+        XCTAssertTrue(sql.contains("PRIMARY KEY (publication_id, doi_seq)"), sql)
+        XCTAssertTrue(sql.contains("UNIQUE (publication_id, doi)"), sql)
+        XCTAssertTrue(sql.contains("read_csv('/tmp/x/publication_doi.csv', header = true)"), sql)
+        let dropChild = try XCTUnwrap(sql.range(of: "DROP TABLE IF EXISTS publication_doi;"))
+        let dropParent = try XCTUnwrap(sql.range(of: "DROP TABLE IF EXISTS publication;"))
+        XCTAssertLessThan(dropChild.lowerBound, dropParent.lowerBound, "子表要先 drop，否則外鍵擋住")
+        let loadParent = try XCTUnwrap(sql.range(of: "INSERT INTO publication\n"))
+        let loadChild = try XCTUnwrap(sql.range(of: "INSERT INTO publication_doi\n"))
+        XCTAssertLessThan(loadParent.lowerBound, loadChild.lowerBound, "母表要先載入")
+    }
+
+    /// load.sql 以 `INSERT … SELECT *` 依**位置**灌表：每張表的 DDL 欄位順序必須與 CSV 表頭逐欄一致。
+    /// organization 例外——它分兩步、以欄名載入（#92），不靠位置。
+    func testDDLColumnOrderMatchesCSVHeaderForEveryPositionallyLoadedTable() throws {
+        let sql = RelationalExport.duckDBScript()
+        for table in RelationalExport.tables(entries: [], people: []).all where table.name != "organization" {
+            let start = try XCTUnwrap(sql.range(of: "CREATE TABLE \(table.name) ("), "DDL 沒有 \(table.name)")
+            let end = try XCTUnwrap(sql.range(of: "\n);", range: start.upperBound..<sql.endIndex))
+            let body = sql[start.upperBound..<end.lowerBound]
+            let declared = body.split(separator: "\n").compactMap { line -> String? in
+                let s = line.trimmingCharacters(in: .whitespaces)
+                guard !s.isEmpty, !s.hasPrefix("--"), !s.hasPrefix("PRIMARY KEY"), !s.hasPrefix("UNIQUE") else { return nil }
+                return s.split(separator: " ").first.map(String.init)
+            }
+            XCTAssertEqual(declared, table.columns, "\(table.name) 的 DDL 欄位順序與 CSV 表頭不一致")
+        }
+    }
+
     /// researcher 的主鍵用**UUID 而非 key**——key 是稱呼會改，surrogate id 才適合當 FK。
     func testResearcherUsesStableIDNotKey() {
         let p = Person(key: "cheng-che", names: ["Che Cheng"], orcid: ORCID("0000-0001-2345-6789"))

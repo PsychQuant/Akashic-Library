@@ -79,6 +79,28 @@ final class ViewExportTests: XCTestCase {
         XCTAssertFalse(authorIDs.contains(nil), "已歸戶作者在 view 匯出中不得退化成 NULL")
     }
 
+    /// #657：view 匯出的 publication_doi 只含外延內的 work，外鍵閉合（每列都指向 publication 表裡的一列）。
+    func testScopedExportCarriesOnlyInViewDOIs() throws {
+        try person("member", affiliation: .key("iss"))
+        try person("outsider", affiliation: .key("other"))
+        var inWork = Entry(id: UUID(), citekey: "in2020member", type: .periodicalArticle, title: "T")
+        inWork.authors = [.key("member")]; inWork.date = "2020"
+        inWork.doi = ["10.1037/abc", "10.1037//abc"].compactMap(DOI.init)
+        try store.writeEntry(inWork)
+        var outWork = Entry(id: UUID(), citekey: "out2020outsider", type: .periodicalArticle, title: "T")
+        outWork.authors = [.key("outsider")]; outWork.date = "2020"
+        outWork.doi = ["10.1037/out"].compactMap(DOI.init)
+        try store.writeEntry(outWork)
+        let load = try store.load()
+        let scoped = def.extension_(in: load).scope(load)
+        let tables = RelationalExport.tables(entries: scoped.entries, people: scoped.people,
+                                             organizations: scoped.organizations)
+        XCTAssertEqual(tables.publicationDOI.rows.map { $0[2] }, ["10.1037/abc", "10.1037//abc"])
+        let pubIDs = Set(tables.publication.rows.compactMap { $0[0] })
+        XCTAssertTrue(tables.publicationDOI.rows.allSatisfy { pubIDs.contains($0[0]!) },
+                      "publication_doi 的 publication_id 必須指向匯出集合內的 publication 列")
+    }
+
     /// 未歸戶的 literal 作者照樣 NULL——那是誠實狀態，scope 不改變它。
     func testLiteralAuthorStaysNullInScopedExport() throws {
         try person("member", affiliation: .key("iss"))

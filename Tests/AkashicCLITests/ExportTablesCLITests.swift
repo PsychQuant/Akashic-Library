@@ -33,6 +33,30 @@ final class ExportTablesCLITests: XCTestCase {
         XCTAssertTrue(r.output.contains("（2 筆作者 key 懸空"), r.output)
     }
 
+    /// #657：真的 binary 寫出 publication_doi.csv——三個 DOI 的 work 三列、依序；publication.csv 的 doi 欄只放第一個；
+    /// 結尾說出有幾筆 work 帶多個 DOI（publication.doi 只放第一個，要全部得 join 新表——不說的話讀 publication.csv 的人會以為那是全部）。
+    func testMultipleDOIsLandInPublicationDOICSV() throws {
+        var e = Entry(id: UUID(), citekey: "tryon2001", type: .periodicalArticle, title: "T",
+                      authors: [.literal("Tryon, W. W.")], date: "2001")
+        e.doi = ["10.1037/1082-989x.6.4.371", "10.1037//1082-989x.6.4.371",
+                 "10.1037//1082-989x.6.4.371-386"].compactMap(DOI.init)
+        try store.writeEntry(e)
+        let home = root.appendingPathComponent("home")
+        let r = try CLITestHarness.run(["export-tables", "--output", out.path, "--library", root.path],
+                                       env: ["AKASHIC_HOME": home.path])
+        XCTAssertEqual(r.status, 0, r.output)
+        XCTAssertTrue(r.output.contains("publication_doi: 3 列"), r.output)
+        XCTAssertTrue(r.output.contains("（1 筆 work 帶多個 DOI"), r.output)
+        let csv = try String(contentsOf: out.appendingPathComponent("publication_doi.csv"), encoding: .utf8)
+        XCTAssertEqual(csv, "publication_id,doi_seq,doi\n"
+                       + "\(e.id.uuidString),0,10.1037/1082-989x.6.4.371\n"
+                       + "\(e.id.uuidString),1,10.1037//1082-989x.6.4.371\n"
+                       + "\(e.id.uuidString),2,10.1037//1082-989x.6.4.371-386\n")
+        let pub = try String(contentsOf: out.appendingPathComponent("publication.csv"), encoding: .utf8)
+        XCTAssertTrue(pub.contains(",10.1037/1082-989x.6.4.371,"), pub)
+        XCTAssertFalse(pub.contains("371-386"), "publication.doi 只放第一個")
+    }
+
     /// 已歸戶的團體作者（org 存在）不算未歸戶、也不算懸空。
     func testResolvedCorporateAuthorIsNeitherUnresolvedNorDangling() throws {
         var org = Organization(key: "moonshot")

@@ -1565,6 +1565,11 @@ struct ExportTables: ParsableCommand {
         if dangling > 0 {
             print("  （\(dangling) 筆作者 key 懸空——author_kind 為 person／organization 而 id 為 NULL，store 裡沒有對應記錄）")
         }
+        // #657：publication.doi 只放第一個 DOI。說出有幾筆 work 不只一個，讀 publication.csv 的人才不會以為那是全部。
+        let multiDOI = Set(tables.publicationDOI.rows.filter { $0[1] != "0" }.compactMap { $0[0] }).count
+        if multiDOI > 0 {
+            print("  （\(multiDOI) 筆 work 帶多個 DOI：publication.doi 只放第一個，全部在 publication_doi）")
+        }
     }
 }
 

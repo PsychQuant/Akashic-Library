@@ -23,6 +23,12 @@ import AkashicCore
 /// 在匯出裡同形——#378 把團體作者接到 `.organization`，到了這一層又被折回 literal 的樣子。「未歸戶」的查詢是
 /// `WHERE author_kind = 'literal'`；懸空的 key（指向不存在的記錄）kind 照實、id 是 NULL，不造 id。
 ///
+/// ## 清單欄位另立子表，不塞分隔符
+///
+/// `Entry.doi` 是清單（#394），`publication` 一列一筆 work。全部的 DOI 在 `publication_doi(publication_id, doi_seq, doi)`，
+/// 一個 DOI 一列；`publication.doi` 只放第一個（主 DOI），等於 `doi_seq = 0` 那一列（#657）。與 `publication_author` 同一個形狀：
+/// 清單進子表、以序號保留順序。
+///
 /// ## temporal 維度怎麼出（#20 落地後）
 ///
 /// `PersonProfile` 的每個維度是**一條時間軸**，關係式端對應一張 **long-format** 表
@@ -50,11 +56,24 @@ public enum RelationalExport {
         public var researcherTimeline: Table
         public var publication: Table
         public var publicationAuthor: Table
+        /// 一筆 work 的全部 DOI，一個 DOI 一列（#657）。
+        public var publicationDOI: Table
         public var organization: Table
 
         public var all: [Table] {
-            [organization, researcher, researcherTimeline, publication, publicationAuthor]
+            [organization, researcher, researcherTimeline, publication, publicationAuthor, publicationDOI]
         }
+    }
+
+    /// 一筆 work 要匯出的 DOI：`canonicalDOIs` 的正規形、依 store 裡的順序、去掉重複（#657）。
+    ///
+    /// `publication.doi` 取這份清單的第一個、`publication_doi` 逐一列出同一份清單——**兩張表讀同一個函式**，
+    /// 所以「publication.doi 等於 doi_seq 0 那一列」由構造成立，不靠兩處各自取 `.first` 碰巧一致。
+    /// 去重與 `.bib` 的 `BibExport.otherDOIs` 同一條（正規形相同即同一個號，印兩次是雜訊、下游數 DOI 會多算）；
+    /// 讀 `canonicalDOIs` 而不是 `doi`，是因為 `publication.doi` 從 #394 起就讀它（只有 `fields.doi` 殘留的記錄也要有列）。
+    static func exportedDOIs(_ e: Entry) -> [String] {
+        var seen = Set<String>()
+        return e.canonicalDOIs.map(\.normalized).filter { seen.insert($0).inserted }
     }
 
     /// researcher.status（#661）：current／retired／undetermined，沒有隸屬資料時 nil。
@@ -168,12 +187,23 @@ public enum RelationalExport {
              // `canonicalDOIs` 而非 `fields["doi"]`（#394 verify）——§8 的遷移把 664 筆
              // 的 `fields.doi` 移除後，這一欄對它們全為 NULL。
              //
-             // **`.first` 是零實例下的顯式裁決**（`zero-instance-guards`）：本表一列一筆
-             // work，而 DOI 是清單。裁決當時全庫**帶 >1 個 DOI 的 work ＝ 0 筆**，所以取第一個
-             // 不丟任何東西。**觸發條件**（出現任何一筆帶兩個結構化 DOI 的 work 即重裁）**已經成立**：
-             // #543 量到 202 筆——這一欄現在會丟掉第 2 個以後的 DOI。重裁記在 #657（候選是另立一張
-             // publication_doi 表，不是在 CSV 欄位裡塞分隔符——那會把解析責任推給下游）。
-             e.canonicalDOIs.first?.normalized, e.akashic.status]
+             // **只放第一個（主 DOI）**。本表一列一筆 work，而 DOI 是清單。這一欄原本是零實例下的顯式裁決
+             // （2026-08-25，#394）：裁決當時全庫帶 >1 個 DOI 的 work ＝ 0 筆，取第一個不丟任何東西；觸發條件寫的是
+             // 「`akashic validate` 出現任何一筆帶兩個結構化 DOI 的 work 即重裁，正解是另立一張 publication_doi 表，
+             // 不是在 CSV 欄位裡塞分隔符——那會把解析責任推給下游」。觸發條件最晚在 2026-09-09 已經成立（#543 立案時
+             // 量到 196 筆），而那句是散文、沒有任何機制會叫醒人（`validate` 不報多 DOI）：這一欄一直安靜地丟掉第 2 個
+             // 以後的 DOI，直到 2026-09-27 #543 R1 verify 指出（#657，當時 202 筆）。2026-09-28 依那句重裁（#657）：
+             // 另立 publication_doi 表（一個 DOI 一列，見下），這一欄保留第一個——與 `.bib` 的 `DOI` 欄、csl-json 的
+             // `DOI` 同一條（#543：第一個是主 DOI），既有的下游查詢不必改。要全部的號就 join publication_doi。
+             exportedDOIs(e).first, e.akashic.status]
+        }
+
+        // #657：一個 DOI 一列。doi_seq 0 ＝ publication.doi（同一份清單的第一個）；沒有 DOI 的 work 沒有列。
+        var doiRows: [[String?]] = []
+        for e in sortedEntries {
+            for (i, d) in exportedDOIs(e).enumerated() {
+                doiRows.append([e.id.uuidString, String(i), d])
+            }
         }
 
         // key → person id。**用 people 的實際內容解析，不重算 UUID**——
@@ -226,6 +256,9 @@ public enum RelationalExport {
                                                "researcher_id", "name_full",
                                                "author_kind", "organization_id"],
                                      rows: authorRows),
+            publicationDOI: Table(name: "publication_doi",
+                                  columns: ["publication_id", "doi_seq", "doi"],
+                                  rows: doiRows),
             organization: Table(name: "organization",
                                 columns: ["organization_id", "org_key", "name_current",
                                           "founded", "dissolved", "parent_id"],
@@ -275,6 +308,7 @@ public enum RelationalExport {
         --
         -- 用法：akashic export-tables --output <dir> && duckdb x.db -c ".read <dir>/load.sql"
 
+        DROP TABLE IF EXISTS publication_doi;
         DROP TABLE IF EXISTS publication_author;
         DROP TABLE IF EXISTS organization_pending;
         DROP TABLE IF EXISTS publication;
@@ -378,8 +412,22 @@ public enum RelationalExport {
             date_raw       TEXT,
             year           INTEGER,
             venue          TEXT,
+            -- 只放第一個 DOI（主 DOI，與 .bib／csl-json 的 DOI 欄同一條，#543）。一筆 work 可以有多個 DOI，
+            -- 全部在 publication_doi（#657）；這一欄等於那張表 doi_seq = 0 的列。
             doi            TEXT,
             status         TEXT
+        );
+
+        -- #657：一筆 work 的全部 DOI，一個 DOI 一列。多個 DOI 是真的（多數是 APA 一九九〇年代的 10.1037//x 與 10.1037/x
+        -- 成對，兩個都是有效的號），所以不在 publication.doi 裡塞分隔符——那會把解析責任推給下游。
+        -- doi_seq 0 ＝ 主 DOI ＝ publication.doi；其餘依 store 裡的順序，正規形（小寫）相同的只留一列，doi_seq 在去重之後連續。
+        -- 沒有 DOI 的 work 沒有列。同一個 DOI 可以出現在兩筆 work（跨記錄的重複，#79），所以 doi 不設全域 UNIQUE。
+        CREATE TABLE publication_doi (
+            publication_id UUID    NOT NULL REFERENCES publication(publication_id),
+            doi_seq        INTEGER NOT NULL,
+            doi            TEXT    NOT NULL,
+            PRIMARY KEY (publication_id, doi_seq),
+            UNIQUE (publication_id, doi)
         );
 
         -- author_kind：person（researcher_id 指向 researcher）／organization（organization_id 指向 organization，
@@ -414,6 +462,8 @@ public enum RelationalExport {
             SELECT * FROM read_csv('\(csvDirectory)/publication.csv', header = true);
         INSERT INTO publication_author
             SELECT * FROM read_csv('\(csvDirectory)/publication_author.csv', header = true);
+        INSERT INTO publication_doi
+            SELECT * FROM read_csv('\(csvDirectory)/publication_doi.csv', header = true);
 
         """
     }

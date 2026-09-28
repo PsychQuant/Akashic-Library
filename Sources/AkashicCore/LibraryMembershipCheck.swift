@@ -31,7 +31,7 @@ public enum LibraryMembershipViolation: Equatable {
             return "venue 是「" + keys.prefix(5).map { displaySafeInvisible($0, max: 200) }.joined(separator: "、")
                  + "」" + (keys.count > 5 ? "等 \(keys.count) 個" : "") + "，不是規則的 venue"   // display-safe-exempt: Int
         case .typeNotAllowed(let t):
-            return "type 是 \(t.rawValue)，不在規則的 type 集合內"   // display-safe-exempt: WorkType.rawValue 是封閉值域
+            return "type 是 \(t.rawValue)，不在規則的 type 集合內"   // display-safe-exempt: t.rawValue：WorkType.rawValue 是封閉值域
         case .excluded:
             return "在規則的排除清單裡（依裁決不收）"
         case .documentMissing(let ck):

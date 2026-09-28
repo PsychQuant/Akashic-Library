@@ -72,7 +72,7 @@ private func applyEdit(_ e: AGMEdit, _ text: String) -> String? {
         return text.replacingCharacters(in: r, with: e.b)
     case "perturbTable":         return perturbTable(text)
     case "perturbRanges":        return perturbRanges(text)
-    case "prependAsciiRange":    return "41 41\n" + text  // display-safe-exempt: 這是 edit 的回傳值（寫進 temp copy 的檔案），不是使用者可見輸出
+    case "prependAsciiRange":    return "41 41\n" + text  // display-safe-exempt: text：這是 edit 的回傳值（寫進 temp copy 的檔案），不是使用者可見輸出
     case "removeTableSeparator":
         return text.replacingOccurrences(of: #"(?m)^\|[-\s|:]+\|\s*$"#,
                                          with: "（表分隔線已移除）", options: .regularExpression)

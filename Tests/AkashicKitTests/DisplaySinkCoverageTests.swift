@@ -11,8 +11,13 @@ import Foundation
 /// 贏不了「每次改動都可能新增一條路徑」，所以判準必須機械化。
 ///
 /// 判準：CLI / MCP 的原始碼裡，任何把 **store 衍生字串**插值進輸出的位置，該表達式
-/// 必須含 `displaySafe(`。要例外就在同一行寫 `// display-safe-exempt: <理由>`——
+/// 必須含 `displaySafe(`。要例外就在同一行寫 `// display-safe-exempt: <運算式> <理由>`——
 /// 逼人講出理由，而不是安靜跳過。
+///
+/// **豁免是逐運算式的**（#584）：註記要**具名**它豁免的運算式（運算式的第一個識別字以完整字詞出現在標記**之後**的文字裡），
+/// 沒被具名的運算式照報——一句註記不再讓整行免檢。規則與擲出站點守衛（`SanitizationBoundaryTests`）共用同一份
+/// （`DisplaySafeExemption`）。粒度是第一個識別字：同一行的 `entry.citekey` 與 `entry.title` 共用 `entry`，具名其一就兩個都放行
+///（已知邊界，`testKnownBoundaryMembersOfTheSameObjectShareAnExemption` 釘住）。
 ///
 /// ## 守衛的涵蓋邊界（#141——誠實記錄「行級文字掃描」照不到的形狀）
 ///
@@ -866,7 +871,7 @@ final class DisplaySinkCoverageTests: XCTestCase {
             let allLines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
             let continuations = Self.continuationKinds(allLines)
             for (idx, line) in allLines.enumerated() {
-                let l = String(line)
+                var l = String(line)
                 // 前一行是否為 `case …:` 結尾（ConfigError 的 case/return 跨兩行——
                 // #149 verify F2）。**往回跳過註解與空行**（#149 R2 F4：case 與
                 // return 之間常夾說明註解——愈認真解釋為什麼要消毒，愈把守衛的
@@ -883,7 +888,13 @@ final class DisplaySinkCoverageTests: XCTestCase {
                 }
                 // 註解行不算輸出
                 if l.trimmingCharacters(in: .whitespaces).hasPrefix("//") { continue }
-                if l.contains("display-safe-exempt:") { continue }
+                // 豁免是**逐運算式**的（#584）：註記具名什麼就免檢什麼，與擲出站點守衛同一條規則（`DisplaySafeExemption`）。
+                // 先前這裡是 `if l.contains("display-safe-exempt:") { continue }`——一句註記讓整行所有運算式免檢，不論它講的是哪一個
+                //（#554 R30 verify 對擲出站點守衛判為缺陷的同一個形狀，R31／R32 修了那一支、沒修這一支）。
+                // 帶註記的行先剝掉行尾註解再分類、再抽運算式：註記文字本身不是輸出——註記裡的 `print(` 不得把非 sink 的行變成 sink
+                // （先前整行跳過，註記從來沒被看過；現在這一行會走完整條判準，所以註記要先剝掉）
+                let notes = DisplaySafeExemption.notes(in: [l])
+                if !notes.isEmpty { l = SanitizationBoundaryTests.strippingLineComments(l) }
                 // 只看真正的輸出面：print(…) 與 JSON dict 的字串值
 
                 let implicitReturn = Self.isImplicitReturnStringBody(
@@ -938,6 +949,8 @@ final class DisplaySinkCoverageTests: XCTestCase {
                     // 後續行——closure 體若是 `case` 行則落入上方 case 豁免的
                     // 誠實邊界，否則仍會被逐行掃到
                     if expr.hasSuffix(" in") || expr.hasSuffix("{") { continue }
+                    // 同一行的註記具名這個運算式（第一個識別字）才放行
+                    if DisplaySafeExemption.names(expr, in: notes) { continue }
                     var axes: Set<Axis> = []
                     if isSink { axes.insert(.sink) }
                     if isErrorSink && !caseReturn { axes.insert(.errorThrow) }
@@ -971,7 +984,8 @@ final class DisplaySinkCoverageTests: XCTestCase {
 
             修法二選一：
               1. 包上 displaySafe(…)——資料面用 max: 800，識別字用 max: 200
-              2. 確定安全 → 同一行加 `// display-safe-exempt: <理由>`，把理由寫出來
+              2. 確定安全 → 同一行加 `// display-safe-exempt: <運算式> <理由>`，把理由寫出來——
+                 註記要具名這個運算式（第一個識別字，例如 `entry.citekey`、`idx 是 Int`），沒具名的不算豁免（#584）
             """)
     }
 
@@ -1086,8 +1100,8 @@ final class DisplaySinkCoverageTests: XCTestCase {
         // #381 新增 `.implicitReturn`，下限 **2**，而它低得反常——理由要寫出來，
         // 否則下一個人會以為是校準失誤而「順手調高」。
         //
-        // strip-all 只拔 `displaySafe(`，**不拔 `display-safe-exempt:` 註解**（而掃描
-        // 在最前面就跳過帶那個註解的行）。所以**被豁免的站點對本測試永遠不可見**。
+        // strip-all 只拔 `displaySafe(`，**不拔 `display-safe-exempt:` 註解**（而掃描放行註記具名的運算式；#584 之前是
+        // 在最前面就跳過帶那個註解的整行）。所以**被具名豁免的運算式對本測試永遠不可見**——同一行沒被具名的運算式照掃。
         // 這一軸加進來時實測 14 條，逐條裁決後 11 條是豁免（rowID／pinnedID 是 apply
         // 的回程把手、Equatable 的比較鍵、內部 Set 的成員判定鍵），只有 1 條是真違規
         //（`DivergenceResolve.describe` → `migrationCollision` 的 errorDescription）
@@ -1148,7 +1162,7 @@ final class DisplaySinkCoverageTests: XCTestCase {
 
         // **反面**：不是隱式 return 的 `{ "` 不該無限擴張判準——這裡釘的是
         // 「豁免註解仍然有效」，而非某個特定形狀被排除
-        let exempt = #"    func f() -> String { "\(entry.title)" }   // display-safe-exempt: 測試用"#
+        let exempt = #"    func f() -> String { "\(entry.title)" }   // display-safe-exempt: entry.title 測試用"#
         XCTAssertTrue(scanViolations(name: "probe.swift", text: exempt).isEmpty,
                       "帶理由的豁免必須讓新軸也閉嘴")
     }
@@ -1164,6 +1178,66 @@ final class DisplaySinkCoverageTests: XCTestCase {
         XCTAssertEqual(scanViolations(name: "x.swift", text: bare).count, 1, "裸插值照抓")
         XCTAssertEqual(scanViolations(name: "x.swift", text: safe.replacingOccurrences(of: "displaySafeInvisible(", with: "")).count, 1,
                        "拔掉消毒要變紅")
+    }
+
+    // MARK: - #584：豁免是逐運算式的
+
+    /// 一行裡有兩個 tainted 運算式、註記只具名其中一個 → 沒被具名的那個照報。
+    ///
+    /// 這條是 mutation 靶：把 `scanViolations` 的豁免改回整行毯式（有 `display-safe-exempt:` 就整行跳過，#584 之前的形狀），
+    /// 第一條斷言就紅——那正是 #554 R30 verify 對擲出站點守衛判為缺陷、R31／R32 修了那一支而 sink 守衛仍在的形狀。
+    func testExemptionNamesOnlyTheExpressionItNames() {
+        let base = #"    print("\(entry.citekey) \(summary.title)")"#
+        func scan(_ note: String) -> [String] {
+            scanViolations(name: "probe.swift", text: base + "   // display-safe-exempt: " + note).map(\.text)
+        }
+        // 註記只講 entry.citekey → summary.title 照報（毯式豁免會讓它靜默免檢）
+        XCTAssertEqual(scan("entry.citekey 過 load 端 quarantine"), ["probe.swift:1  summary.title"],
+                       "註記只具名 entry.citekey，同一行的 summary.title 不得跟著免檢")
+        // 兩個都具名 → 全放行（放行是正常路徑，不是被守衛擋掉）
+        XCTAssertEqual(scan("entry.citekey、summary.title 都是消毒投影"), [])
+        // 一個都沒具名 → 兩個都報；註記的存在本身不是豁免
+        XCTAssertEqual(scan("已消毒").sorted(), ["probe.swift:1  entry.citekey", "probe.swift:1  summary.title"],
+                       "沒有任何具名的註記不得放行任何運算式")
+        // 拿掉具名：同一行、同一句理由，只差識別字——具名拿掉就要紅
+        XCTAssertEqual(scan("過 load 端 quarantine").count, 2)
+    }
+
+    /// 只有註記**標記之後**的文字算具名（#554 R31：標記之前是程式碼，運算式的識別字必然出現在那裡）。
+    /// 註記文字本身不是輸出：分類（是不是 sink）與運算式抽取都在剝掉行尾註解之後做。
+    func testOnlyTheTextAfterTheMarkerNamesAnExpression() {
+        // 識別字只出現在標記之前（就是運算式本身）——註記沒講它，照報
+        let unnamed = #"    print("\(entry.title)")   // display-safe-exempt: 這行沒有具名任何運算式"#
+        XCTAssertEqual(scanViolations(name: "probe.swift", text: unnamed).count, 1)
+        // 註記文字不是輸出：`print(` 只出現在註記裡的行不是 sink（不剝掉行尾註解時，註記裡的 `print(` 會把這行判成 sink，
+        // 於是程式碼那一半的 `entry.title` 被誤報——那個運算式不在任何輸出面上）
+        let inNote = #"    let t = "\(entry.title)"   // display-safe-exempt: 之後才 print(t)，這行本身沒有輸出"#
+        XCTAssertTrue(scanViolations(name: "probe.swift", text: inNote).isEmpty,
+                      "註記文字裡的 print( 不得把非 sink 的行變成 sink")
+        // 沒有標記的行照舊整行掃（行尾一般註解不帶豁免）
+        let plain = #"    print("\(entry.title)")   // entry.title 已消毒"#
+        XCTAssertEqual(scanViolations(name: "probe.swift", text: plain).count, 1)
+    }
+
+    /// `displaySafeClipOnly(x, max:)` 只截不逃——註記要擔保的是載體 `x` 已經消毒過，所以要具名的是載體，不是函式名。
+    /// 註記只寫「已消毒，只截」而沒具名載體，讓同一個函式吃進未消毒字串的那一天看不出來。
+    func testClipOnlyExemptionMustNameTheCarrier() {
+        let line = #"    print("\(displaySafeClipOnly(entry.reason, max: 300))")"#
+        func scan(_ note: String) -> Int {
+            scanViolations(name: "probe.swift", text: line + "   // display-safe-exempt: " + note).count
+        }
+        XCTAssertEqual(scan("entry.reason 已消毒，只截"), 0, "具名載體即放行")
+        XCTAssertEqual(scan("displaySafeClipOnly 已消毒，只截"), 1, "只具名函式名不算——它不指認任何值")
+        XCTAssertEqual(scan("已消毒，只截"), 1)
+    }
+
+    /// **已知邊界，釘成斷言**（#584 的誠實邊界）：豁免的粒度是運算式的**第一個識別字**（與擲出站點守衛同一條規則，`DisplaySafeExemption`），
+    /// 所以同一個物件的兩個成員（`entry.citekey`／`entry.title`）在同一行時，註記具名其一就讓兩個都放行。
+    /// 這條在守衛收緊到成員層級時會紅——那時要一起更新 changelog 與 `DisplaySafeExemption` 的型別 doc。
+    func testKnownBoundaryMembersOfTheSameObjectShareAnExemption() {
+        let line = #"    print("\(entry.citekey) \(entry.title)")   // display-safe-exempt: entry.citekey 過 quarantine"#
+        XCTAssertEqual(scanViolations(name: "probe.swift", text: line).count, 0,
+                       "今天：第一個識別字 entry 被具名，同一行的 entry.title 也放行——若這條紅了，粒度已收緊到成員層級，請更新文件")
     }
 
     func testGuardItselfIsNotVacuous() throws {

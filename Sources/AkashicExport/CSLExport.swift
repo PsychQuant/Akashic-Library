@@ -18,9 +18,9 @@ public enum CSLExport {
                 // 原始位元組是對的。消毒屬**輸出邊界**（CLI 的 stdout 分支、MCP 的
                 // tool result），修在這裡會破壞匯出檔的正確性。追蹤於 #165。
                 var item: [String: Any] = [
-                    "id": entry.citekey,   // display-safe-exempt: 序列化面，消毒屬輸出邊界（#165）
+                    "id": entry.citekey,   // display-safe-exempt: entry.citekey：序列化面，消毒屬輸出邊界（#165）
                     "type": entry.type.cslType,
-                    "title": entry.title,   // display-safe-exempt: 同上（#165）
+                    "title": entry.title,   // display-safe-exempt: entry.title：同上（#165）
                 ]
                 if !entry.authors.isEmpty {
                     item["author"] = entry.authors.map { author -> [String: Any] in

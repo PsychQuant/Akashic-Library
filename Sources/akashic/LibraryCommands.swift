@@ -42,7 +42,7 @@ struct LibraryList: ParsableCommand {
             // 分隔的 U+3000 是程式自己放的、只消毒 store 字串——整串一起消毒會把分隔符印成 `\u{3000}`（#569 R1 verify：
             // 非 U+0020 的 Zs 自 #569 起在人可讀輸出逃脫）
             let desc = library.description.map { "　" + displaySafe($0, max: 800) } ?? ""
-            print("\(displaySafe(library.key, max: 200))\t\(displaySafe(library.name, max: 800))（\(counts[library.key] ?? 0) entries）\(desc)")   // display-safe-exempt: dict 查找，值是 Int 計數；key 只是索引不進輸出
+            print("\(displaySafe(library.key, max: 200))\t\(displaySafe(library.name, max: 800))（\(counts[library.key] ?? 0) entries）\(desc)")   // display-safe-exempt: counts[library.key]：dict 查找，值是 Int 計數；key 只是索引不進輸出
             // #642：性質與依據——要問「掛哪個 library」的地方要看得到它，不再只靠讀描述
             var basis = "  " + LibraryMembershipCheck.basis(of: library.membership)   // display-safe-exempt: basis 在 LibraryMembershipCheck 裡已逐項消毒
             if library.membership != nil {
@@ -179,7 +179,7 @@ private func printViolations(_ violations: [(citekey: String, violation: Library
     }
     print("  \(members) 筆成員裡 \(violations.count) 筆不符（不自動移除；確認後用 akashic library remove \(displaySafe(key, max: 200)) <citekey>...）：")   // display-safe-exempt: Int
     for v in violations {
-        print("  ✕ \(displaySafe(v.citekey, max: 200))：\(v.violation.message)")   // display-safe-exempt: message 已逐項消毒
+        print("  ✕ \(displaySafe(v.citekey, max: 200))：\(v.violation.message)")   // display-safe-exempt: v.violation.message：message 已逐項消毒
     }
 }
 
@@ -232,7 +232,7 @@ struct LibraryAdd: ParsableCommand {
             print("added: \(displaySafe(ck, max: 200)) → \(displaySafe(libraryKey, max: 200))")
         }
         for skip in report.skipped {
-            print("  ✕ 不符規則、未寫：\(displaySafe(skip.citekey, max: 200))——\(displaySafeClipOnly(skip.reason, max: 1_200))")   // display-safe-exempt: reason 已逐項消毒（LibraryMembershipViolation.message），只截
+            print("  ✕ 不符規則、未寫：\(displaySafe(skip.citekey, max: 200))——\(displaySafeClipOnly(skip.reason, max: 1_200))")   // display-safe-exempt: skip.reason：reason 已逐項消毒（LibraryMembershipViolation.message），只截
         }
         // 全數不符＝零寫入：非零結束（#624 全數排除的同形）。部分不符照常結束——寫了的就是正確的那部分
         if report.written.isEmpty, !report.skipped.isEmpty {

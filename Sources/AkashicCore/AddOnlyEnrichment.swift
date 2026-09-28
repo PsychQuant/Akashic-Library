@@ -728,7 +728,7 @@ public enum AddOnlyEnrichment {
             }
             // #655：`authors` 不寫——那一格是作者位記錄的（見型別頂部），說出來而不是沉默。
             if !addedAuthors.isEmpty {
-                provenanceOmitted["authors"] = authorsProvenanceOmittedReason   // display-safe-exempt: 本型別的字面常量，不是 store 字串；payload 端另逃一次
+                provenanceOmitted["authors"] = authorsProvenanceOmittedReason   // display-safe-exempt: authorsProvenanceOmittedReason：本型別的字面常量，不是 store 字串；payload 端另逃一次
             }
         } else if !p.raw.missingSourceFields.isEmpty {
             // 給了來源欄位卻寫不成 reference——說出來，不靜默（`lossless-intake` 執行細節 3）。

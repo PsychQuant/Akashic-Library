@@ -33,7 +33,7 @@ struct GetEntryCmd: ParsableCommand {
               let d = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw RuntimeFailure.state("service 回應不是預期的 JSON 物件")
         }
-        print("citekey\t\(d["citekey"] as? String ?? "")")   // display-safe-exempt: 值取自 AkashicService.getEntry（entryDict 已逐欄位 displaySafe），二次消毒非冪等（\u{5C} 逃逸）
+        print("citekey\t\(d["citekey"] as? String ?? "")")   // display-safe-exempt: d["citekey"]：值取自 AkashicService.getEntry（entryDict 已逐欄位 displaySafe），二次消毒非冪等（\u{5C} 逃逸）
         print("type\t\(d["type"] as? String ?? "")")   // display-safe-exempt: 值取自 AkashicService.getEntry（entryDict 已逐欄位 displaySafe），二次消毒非冪等（\u{5C} 逃逸）
         print("title\t\(d["title"] as? String ?? "")")   // display-safe-exempt: 值取自 AkashicService.getEntry（entryDict 已逐欄位 displaySafe），二次消毒非冪等（\u{5C} 逃逸）
         if let date = d["date"] as? String { print("date\t\(date)") }   // display-safe-exempt: 值取自 AkashicService.getEntry（entryDict 已逐欄位 displaySafe），二次消毒非冪等（\u{5C} 逃逸）

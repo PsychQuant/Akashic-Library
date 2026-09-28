@@ -76,7 +76,7 @@ struct PeopleResolveView: View {
                                 // 那是本 change 造成的覆蓋倒退：修之前這行看得見。
                                 // 拆成兩行，各自只承載一種。
                                 Text("「\(candidate.displayLiteral)」 →")
-                                    + Text(" \(candidate.personKey)")   // display-safe-exempt: person.key，load 端 quarantine 驗過 StoreKey
+                                    + Text(" \(candidate.personKey)")   // display-safe-exempt: candidate.personKey：person.key，load 端 quarantine 驗過 StoreKey
                                 // #303：tier 標示（信心層）。`tier.rawValue` 是封閉 enum 的
                                 // 固定字面（exact/confirmed-elsewhere/reorder/initials），
                                 // 非 store 衍生——同 `personKey` 的理由不給 display* 投影，
@@ -145,7 +145,7 @@ struct OrphanView: View {
                                     HStack {
                                         VStack(alignment: .leading) {
                                             Text(entry.displayTitleOrCitekey).lineLimit(1)
-                                            Text("\(entry.citekey) — Zotero 端已刪除")   // display-safe-exempt: citekey 過 load 端 quarantine（StoreKey）
+                                            Text("\(entry.citekey) — Zotero 端已刪除")   // display-safe-exempt: entry.citekey：citekey 過 load 端 quarantine（StoreKey）
                                                 .font(.caption)
                                                 .foregroundStyle(.secondary)
                                         }
@@ -166,7 +166,7 @@ struct OrphanView: View {
                                     HStack {
                                         VStack(alignment: .leading) {
                                             Text(entry.displayTitleOrCitekey).lineLimit(1)
-                                            Text("\(entry.citekey) — 已刪除：\(entry.displayOrphanedAdditionalSources)")   // display-safe-exempt: citekey 過 load 端 quarantine；後者是消毒投影
+                                            Text("\(entry.citekey) — 已刪除：\(entry.displayOrphanedAdditionalSources)")   // display-safe-exempt: entry.citekey：citekey 過 load 端 quarantine；後者是消毒投影
                                                 .font(.caption)
                                                 .foregroundStyle(.secondary)
                                         }

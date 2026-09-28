@@ -81,7 +81,7 @@ extension DestructiveTargetGate {
         // ── 會寫 store、刻意不閘 ──
         "doctor": .notGated("只在佈局不存在時建立佈局（ensureLayout），並重建衍生的 index；不改寫任何既有記錄"),
         "import-wos": .notGated("只新增記錄、只補既有記錄上不存在的鍵；與來源不一致時拒絕覆寫、交人（conflicts）；有 --dry-run"),
-        "create-entry": .notGated("只新增記錄（citekey 碰撞在批次內消解），不改寫既有記錄；有 --dry-run"),   // display-safe-exempt: 編譯期字面常數（裁決理由），不含 store 衍生內容——「citekey」是欄位名不是某筆記錄的 citekey
+        "create-entry": .notGated("只新增記錄（citekey 碰撞在批次內消解），不改寫既有記錄；有 --dry-run"),   // display-safe-exempt: notGated：編譯期字面常數（裁決理由），不含 store 衍生內容——「citekey」是欄位名不是某筆記錄的 citekey
         "add-person": .notGated("只新增一筆 person 記錄，不改寫既有記錄"),
         "add-venue": .notGated("只新增一筆 venue 記錄，不改寫既有記錄"),
         "store-source": .notGated("只把一份內容以 digest 定址存進 sources/（不進 git），同一份內容冪等；不改寫任何記錄"),

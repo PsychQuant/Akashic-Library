@@ -230,7 +230,7 @@ public enum AdjudicationRefusal:
         case .expressionMismatch:
             return "裁決使用了另一個命題的 valuation，拒絕接受"
         case .stanceIsNotAssertion(let stance):
-            return "立場是 \(stance.rawValue)，不是 asserted——只有主張能被裁決為事實" // display-safe-exempt: Stance 是封閉 enum
+            return "立場是 \(stance.rawValue)，不是 asserted——只有主張能被裁決為事實" // display-safe-exempt: stance.rawValue：Stance 是封閉 enum
         case .notEstablished:
             return "命題在指定 snapshot 與 valid day 下未成立——不得接受為事實"
         }

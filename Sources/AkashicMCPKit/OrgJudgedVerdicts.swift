@@ -33,7 +33,7 @@ extension AkashicService {
         let storeFormat = (try? StoreVersion.read(root: store.root)) ?? 1
         guard storeFormat >= 8 else {
             throw ServiceError.invalid(
-                "逐篇判定要寫 resolution-confirmed verdict，需要 store format ≥ 8（本 store 是 \(storeFormat)）")   // display-safe-exempt: Int
+                "逐篇判定要寫 resolution-confirmed verdict，需要 store format ≥ 8（本 store 是 \(storeFormat)）")   // display-safe-exempt: storeFormat 是 Int
         }
         let load = try store.load()
         // 只認這次**列表**上的列（帶否決過濾）：已否決或已歸戶的配對不在列表上，判它是輸入錯——id 不是這次列表的 id

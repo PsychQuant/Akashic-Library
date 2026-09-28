@@ -71,7 +71,7 @@ public enum VenueNameRepair {
 
     /// 三張清單的 store 原字串（清單名 → 字串，`names` 依時間軸 entries 的序列化順序）。計畫的內部資料，不是輸出面。
     static func values(_ v: Venue) -> [String: [String]] {
-        ["names": v.names.entries.map(\.value), "authorized": v.authorized, "variant": v.variant]   // display-safe-exempt: 計畫的內部資料（清單名 → store 原字串），不進任何輸出面；輸出面各自逃脫
+        ["names": v.names.entries.map(\.value), "authorized": v.authorized, "variant": v.variant]   // display-safe-exempt: v.names.entries：計畫的內部資料（清單名 → store 原字串），不進任何輸出面；輸出面各自逃脫
     }
 
     /// 一筆 venue 的修復計畫。名字內容沒有違反（沒有字串違反第 1–3 條、三張清單都沒有 canonical 相同的兩筆）時回 `nil`；

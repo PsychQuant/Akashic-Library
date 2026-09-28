@@ -43,7 +43,7 @@ public enum StoreIOError: Error, LocalizedError, Equatable, SanitizedErrorDescri
             // 兩個參數在擲出端就已逐項消毒（`assertNoErrors` 的 key、validate() 的訊息、DivergenceResolve 的候選鍵／statement——
             // `SanitizationBoundaryTests.testInvalidInputThrowSitesSanitizeStoreStrings` 掃全樹），這裡只截：R27 把它換成
             // displaySafeInvisible 是與同一個 enum 另外兩格相反的方向，`fmt` 疊到第三層（R27 verify 第 5／12／14 列）。
-            return "\(displaySafeClipOnly(what, max: 960)) 無效：\(displaySafeClipOnly(why, max: 3_200))"   // display-safe-exempt: 已消毒（擲出端），只截——R28 D80
+            return "\(displaySafeClipOnly(what, max: 960)) 無效：\(displaySafeClipOnly(why, max: 3_200))"   // display-safe-exempt: what、why：已消毒（擲出端），只截——R28 D80
         case let .inconsistentStore(action, issues):
             // action 是呼叫端字面量（"rename"/"resolve-divergence"）、issues 已消毒
             return "store 有 \(issues.count) 個跨記錄不一致，\(action) 拒絕執行"   // display-safe-exempt: action 是呼叫端字面量
@@ -57,13 +57,13 @@ public enum StoreIOError: Error, LocalizedError, Equatable, SanitizedErrorDescri
             // **輸入** scalar，每個被逃脫的 scalar 輸出 8 個字元，value ≤ 200 scalar 逃脫後可到 1,600 字，holder 行**會**被截（截掉的是 literal
             // 的尾巴，不是定位那一行所需的 holder／欄位）；digest 行恆為 71 個 ASCII（`isValidDigest` 釘死 `sha256:` + 64 hex）——那才是「每個
             // digest 自己一行」成立的理由。這裡截在 sink 上限減去截斷標記的長度，讓 sink 不會再截第二次（第二次會把標記切在 `\u{` 中途）。
-            return "目的鍵「\(key)」上已有 verdict 指向它——目的鍵此刻不存在，所以它們是死 verdict（#464），"   // display-safe-exempt: 已消毒
+            return "目的鍵「\(key)」上已有 verdict 指向它——目的鍵此刻不存在，所以它們是死 verdict（#464），"   // display-safe-exempt: key：已消毒
                  + "但 \(action) 不替你判定它們在講哪一筆記錄（它們可能是舊 binary 沒遷走、人對另一筆仍存在的記錄親自下的判定）。"   // display-safe-exempt: action 是呼叫端字面量
                  + "請逐筆處置後再重跑——已解析的命中：把那一行的 value 改成它實際描述的記錄的鍵（改該記錄 YAML 的那一行；目的鍵此刻不存在，所以沒有邊可以 repoint）"
                  + "或刪掉那一行；quarantined 檔的命中：修好或移走那個檔。merge 對同一形狀同樣拒絕（D31／D34）。\n"
                  + lines.map { displaySafeClipOnly($0, max: Self.refusalLineMax) }.joined(separator: "\n")   // display-safe-exempt: 已消毒，只截
         case let .destinationHoldsAnotherRecord(id, detail):
-            return "目的檔 entities/\(id.uuidString).yaml 已經存在，但它\(displaySafeClipOnly(detail, max: 600))——寫入會把它整個蓋掉，拒絕。"   // display-safe-exempt: detail 已消毒（擲出端），只截
+            return "目的檔 entities/\(id.uuidString).yaml 已經存在，但它\(displaySafeClipOnly(detail, max: 600))——寫入會把它整個蓋掉，拒絕。"   // display-safe-exempt: id.uuidString：detail 已消毒（擲出端），只截
                  + "先看那個檔：修好、移走，或確認它不該存在後刪掉（store 受 git 追蹤，刪檔可還原）。akashic validate 會列出被 quarantine 的檔（#631）"
         case .legacyCopyPresent(let file):
             return "同一筆記錄有兩份：legacy \(displaySafeInvisible(file, max: 300)) 與 entities/ 裡同一個 id 的那份——"
@@ -75,7 +75,7 @@ public enum StoreIOError: Error, LocalizedError, Equatable, SanitizedErrorDescri
         case .invalidKey(let kind, let value):
             // #142：value 是 caller 剛送進來的畸形 key——原始 ESC/bidi 位元組經
             // MCP error 直達 LLM context；kind 是程式字面量
-            return "\(kind)「\(displaySafeInvisible(value, max: 200))」不符合 \(StoreKey.pattern)，拒絕寫入"   // display-safe-exempt: kind 是程式字面量、pattern 是常量
+            return "\(kind)「\(displaySafeInvisible(value, max: 200))」不符合 \(StoreKey.pattern)，拒絕寫入"   // display-safe-exempt: StoreKey.pattern：kind 是程式字面量、pattern 是常量
         
         }
     }
@@ -1989,7 +1989,7 @@ extension LibraryStore {
         for var p in load.people {
             if let m = Self.migratedVerdicts(p.references, from: oldKey, to: newKey, holderKind: .work) {
                 p.references = m.refs; peopleToRewrite.append(p)
-                collapsedVerdicts.append(contentsOf: m.collapsed.map { "person「\(p.key)」：\($0)" })   // display-safe-exempt: report 是資料面，消毒在 sink（CLI displaySafeInvisible(max: 1_000)、App displaySafeInvisible(max: 1_000)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
+                collapsedVerdicts.append(contentsOf: m.collapsed.map { "person「\(p.key)」：\($0)" })   // display-safe-exempt: p.key：report 是資料面，消毒在 sink（CLI displaySafeInvisible(max: 1_000)、App displaySafeInvisible(max: 1_000)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
             }
         }
         // venue 同型（#460）：#304 之後 venue 也持 `work:` holder 的 verdict
@@ -2000,7 +2000,7 @@ extension LibraryStore {
         for var vn in load.venues {
             if let m = Self.migratedVerdicts(vn.references, from: oldKey, to: newKey, holderKind: .work) {
                 vn.references = m.refs; venuesToRewrite.append(vn)
-                collapsedVerdicts.append(contentsOf: m.collapsed.map { "venue「\(vn.key)」：\($0)" })   // display-safe-exempt: report 是資料面，消毒在 sink（CLI displaySafeInvisible(max: 1_000)、App displaySafeInvisible(max: 1_000)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
+                collapsedVerdicts.append(contentsOf: m.collapsed.map { "venue「\(vn.key)」：\($0)" })   // display-safe-exempt: vn.key：report 是資料面，消毒在 sink（CLI displaySafeInvisible(max: 1_000)、App displaySafeInvisible(max: 1_000)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
             }
         }
         // organization 同型（#463，網格的 rename×org 格）：#443／OrgResolver 在 organization 記錄上落
@@ -2010,7 +2010,7 @@ extension LibraryStore {
         for var org in load.organizations {
             if let m = Self.migratedVerdicts(org.references, from: oldKey, to: newKey, holderKind: .work) {
                 org.references = m.refs; orgsToRewrite.append(org)
-                collapsedVerdicts.append(contentsOf: m.collapsed.map { "organization「\(org.key)」：\($0)" })   // display-safe-exempt: report 是資料面，消毒在 sink（CLI displaySafeInvisible(max: 1_000)、App displaySafeInvisible(max: 1_000)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
+                collapsedVerdicts.append(contentsOf: m.collapsed.map { "organization「\(org.key)」：\($0)" })   // display-safe-exempt: org.key：report 是資料面，消毒在 sink（CLI displaySafeInvisible(max: 1_000)、App displaySafeInvisible(max: 1_000)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
             }
         }
 
@@ -2190,7 +2190,7 @@ extension LibraryStore {
             if let m = Self.migratedVerdicts(p.references, from: oldKey, to: newKey, holderKind: .person) {
                 p.references = m.refs
                 peopleToRewrite.append(p)
-                collapsedVerdicts.append(contentsOf: m.collapsed.map { "person「\(p.key)」：\($0)" })   // display-safe-exempt: report 是資料面，消毒在 sink（CLI displaySafeInvisible(max: 1_000)、App displaySafeInvisible(max: 1_000)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
+                collapsedVerdicts.append(contentsOf: m.collapsed.map { "person「\(p.key)」：\($0)" })   // display-safe-exempt: p.key：report 是資料面，消毒在 sink（CLI displaySafeInvisible(max: 1_000)、App displaySafeInvisible(max: 1_000)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
             }
         }
         var orgsToRewrite: [Organization] = []
@@ -2198,7 +2198,7 @@ extension LibraryStore {
             if let m = Self.migratedVerdicts(o.references, from: oldKey, to: newKey, holderKind: .person) {
                 o.references = m.refs
                 orgsToRewrite.append(o)
-                collapsedVerdicts.append(contentsOf: m.collapsed.map { "organization「\(o.key)」：\($0)" })   // display-safe-exempt: report 是資料面，消毒在 sink（CLI displaySafeInvisible(max: 1_000)、App displaySafeInvisible(max: 1_000)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
+                collapsedVerdicts.append(contentsOf: m.collapsed.map { "organization「\(o.key)」：\($0)" })   // display-safe-exempt: o.key：report 是資料面，消毒在 sink（CLI displaySafeInvisible(max: 1_000)、App displaySafeInvisible(max: 1_000)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
             }
         }
         // venue 同型（#463，verify security 席：venue 記錄今天只由 resolve-venues 落 `work:` holder，但寫入閘收任何
@@ -2208,7 +2208,7 @@ extension LibraryStore {
             if let m = Self.migratedVerdicts(vn.references, from: oldKey, to: newKey, holderKind: .person) {
                 vn.references = m.refs
                 venuesToRewrite.append(vn)
-                collapsedVerdicts.append(contentsOf: m.collapsed.map { "venue「\(vn.key)」：\($0)" })   // display-safe-exempt: report 是資料面，消毒在 sink（CLI displaySafeInvisible(max: 1_000)、App displaySafeInvisible(max: 1_000)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
+                collapsedVerdicts.append(contentsOf: m.collapsed.map { "venue「\(vn.key)」：\($0)" })   // display-safe-exempt: vn.key：report 是資料面，消毒在 sink（CLI displaySafeInvisible(max: 1_000)、App displaySafeInvisible(max: 1_000)）；在這裡先消毒會被 sink 二次逃脫——displaySafe 不冪等
             }
         }
         // 被改名的那一筆自己也可能持有指向自己的 verdict

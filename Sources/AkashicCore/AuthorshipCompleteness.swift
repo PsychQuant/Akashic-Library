@@ -164,9 +164,9 @@ public enum AuthorListCompletenessBindingIssue: Equatable, Hashable, Sendable {
     fileprivate var stableKey: String {
         switch self {
         case let .workID(witness, current):
-            return "0\u{0}\(witness.uuidString)\u{0}\(current.uuidString)"   // display-safe-exempt: UUID.uuidString 是固定 ASCII hex+dash；本值只作排序鍵、不進輸出
+            return "0\u{0}\(witness.uuidString)\u{0}\(current.uuidString)"   // display-safe-exempt: witness.uuidString、current.uuidString：UUID.uuidString 是固定 ASCII hex+dash；本值只作排序鍵、不進輸出
         case let .authorSnapshot(attested, current):
-            return "1\u{0}\(attested.digest)\u{0}\(current.digest)"   // display-safe-exempt: fingerprint 已 strict 限為固定長度 sha256 小寫 hex；本值只作排序鍵、不進輸出
+            return "1\u{0}\(attested.digest)\u{0}\(current.digest)"   // display-safe-exempt: attested.digest、current.digest：fingerprint 已 strict 限為固定長度 sha256 小寫 hex；本值只作排序鍵、不進輸出
         }
     }
 }
@@ -191,9 +191,9 @@ public struct AuthorListCompletenessBindingError:
         let parts = displayed.map { issue in
             switch issue {
             case let .workID(witness, current):
-                return "work UUID 不符（witness \(witness.uuidString)，current \(current.uuidString)）"   // display-safe-exempt: UUID.uuidString 是固定 ASCII hex+dash
+                return "work UUID 不符（witness \(witness.uuidString)，current \(current.uuidString)）"   // display-safe-exempt: witness.uuidString、current.uuidString：UUID.uuidString 是固定 ASCII hex+dash
             case let .authorSnapshot(attested, current):
-                return "ordered raw author snapshot 不符（attested \(attested.digest)，current \(current.digest)）"   // display-safe-exempt: fingerprint 已 strict 限為固定長度 sha256 小寫 hex
+                return "ordered raw author snapshot 不符（attested \(attested.digest)，current \(current.digest)）"   // display-safe-exempt: attested.digest、current.digest：fingerprint 已 strict 限為固定長度 sha256 小寫 hex
             }
         }
         var message = "author-list completeness binding error：" + parts.joined(separator: "；")

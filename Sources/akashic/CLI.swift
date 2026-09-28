@@ -198,6 +198,6 @@ extension LibraryLoad {
     /// 不截斷且可含 double-quoted scalar 解碼出的真 ESC——經 displaySafe
     /// 消毒後才進 stdout（未消毒時可清螢幕並在報告裡偽造統計行）。
     var quarantineLines: [String] {
-        quarantined.map { "  ✗ \(displaySafeInvisible($0.file, max: 200)) — \(displaySafeClipOnly($0.reason, max: 4_096))" }   // display-safe-exempt: reason 已消毒（QuarantinedFile 生產端 displaySafeInvisible，R27 D75），只截——displaySafe 不冪等
+        quarantined.map { "  ✗ \(displaySafeInvisible($0.file, max: 200)) — \(displaySafeClipOnly($0.reason, max: 4_096))" }   // display-safe-exempt: $0.reason：reason 已消毒（QuarantinedFile 生產端 displaySafeInvisible，R27 D75），只截——displaySafe 不冪等
     }
 }

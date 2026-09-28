@@ -108,7 +108,7 @@ public extension AkashicService {
                     guard let o = ORCID(raw) else {
                         throw ServiceError.invalid(
                             "欄位「orcid」的值「\(displaySafeInvisible(raw, max: 120))」不是合法的 ORCID"
-                            + "（\(ORCID.shapeDescription)）")   // display-safe-exempt: 型別的靜態常數（預期形狀說明），非 store 內容
+                            + "（\(ORCID.shapeDescription)）")   // display-safe-exempt: ORCID.shapeDescription：型別的靜態常數（預期形狀說明），非 store 內容
                     }
                     person.orcid = o
                 } else {
@@ -180,7 +180,7 @@ public extension AkashicService {
                 // `guard updatable.contains(k)` + 下方 `switch k { case "orcid" … }`
                 // 雙重約束成那六個**字面量**之一（`updatableKeys` 由 `knownPersonKeys`
                 // 這個字面 Set 推導）。不是 store 內容。
-                "wouldChange": changes.keys.sorted(),   // display-safe-exempt: key 受 updatable 白名單約束成字面量
+                "wouldChange": changes.keys.sorted(),   // display-safe-exempt: changes.keys：key 受 updatable 白名單約束成字面量
             ]
             if !validationErrors.isEmpty {
                 out["blockedByValidation"] = validationErrors.prefix(5)
@@ -208,7 +208,7 @@ public extension AkashicService {
         try store.writePerson(person)   // v6 gate／canary／tolerant-preserve 全在這條路上
         try LibraryIndex(store: store).rebuild()
         return try jsonString(["key": displaySafe(key, max: 200),
-                               "updated": changes.keys.sorted()])   // display-safe-exempt: 同上，key 受白名單約束
+                               "updated": changes.keys.sorted()])   // display-safe-exempt: changes.keys：同上，key 受白名單約束
     }
 
     // MARK: - JSON 邊界
@@ -287,6 +287,6 @@ public extension AkashicService {
             return try Node(dict.sorted { $0.key < $1.key }
                 .map { (Node($0.key), try jsonToNode($0.value, depth: depth + 1)) })
         }
-        throw ServiceError.invalid("無法轉換的 JSON 值型別：\(type(of: v))")   // display-safe-exempt: Swift 型別名，非資料
+        throw ServiceError.invalid("無法轉換的 JSON 值型別：\(type(of: v))")   // display-safe-exempt: type(of: v)：Swift 型別名，非資料
     }
 }

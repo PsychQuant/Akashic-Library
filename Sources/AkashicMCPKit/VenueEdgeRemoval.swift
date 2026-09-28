@@ -96,7 +96,7 @@ extension AkashicService {
             guard idx < entry.venues.count else {
                 throw ServiceError.invalid(
                     "work「\(displaySafeInvisible(citekey, max: 200))」只有 \(entry.venues.count) 個 venue 邊，"   // display-safe-exempt: Int
-                    + "index \(idx) 越界")   // display-safe-exempt: Int
+                    + "index \(idx) 越界")   // display-safe-exempt: idx 是 Int
             }
             drops.append(Drop(citekey: citekey, index: idx, reason: reason))
         }
@@ -114,7 +114,7 @@ extension AkashicService {
                 guard case .key(let k) = ref else { continue }
                 if !remaining.contains(.key(k)) {
                     throw ServiceError.invalid(
-                        "work「\(displaySafeInvisible(ck, max: 200))」的第 \(i) 條邊是 venue「\(displaySafeInvisible(k, max: 200))」唯一的 key 邊——"   // display-safe-exempt: Int
+                        "work「\(displaySafeInvisible(ck, max: 200))」的第 \(i) 條邊是 venue「\(displaySafeInvisible(k, max: 200))」唯一的 key 邊——"   // display-safe-exempt: i 是 Int
                         + "刪掉它會讓那本刊上的 confirmed verdict 沒有邊。先 --demote 這條邊（退回 literal、改記 rejected），再移除 literal 邊；整批拒絕、零寫入")
                 }
             }

@@ -258,7 +258,7 @@ struct PersonCmd: ParsableCommand {
                 let authors = (p["authors"] as? [String])?.joined(separator: "; ") ?? ""
                 let citekey = (p["citekey"] as? String) ?? "?"
                 let title = (p["title"] as? String) ?? ""
-                print("\(citekey)\t\(year)\t\(authors)\t\(title)")   // display-safe-exempt: 值取自 AkashicService.summaryDict，該處已逐欄位 displaySafe；再呼叫一次會二次逃脫（displaySafe 逃脫 0x5C，不冪等）——見本函式 doc
+                print("\(citekey)\t\(year)\t\(authors)\t\(title)")   // display-safe-exempt: citekey、authors、title、year：值取自 AkashicService.summaryDict，該處已逐欄位 displaySafe；再呼叫一次會二次逃脫（displaySafe 逃脫 0x5C，不冪等）——見本函式 doc
             }
         }
 

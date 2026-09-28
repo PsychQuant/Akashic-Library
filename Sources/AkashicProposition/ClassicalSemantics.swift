@@ -526,9 +526,9 @@ private extension Data {
 private func classicalAtomDisplay(_ atom: Proposition) -> String {
     switch atom {
     case let .authored(person, work):
-        return "authored(\(classicalReferenceDisplay(person)), \(classicalReferenceDisplay(work)))" // display-safe-exempt: helper 已逐一以 displaySafe 限制 reference
+        return "authored(\(classicalReferenceDisplay(person)), \(classicalReferenceDisplay(work)))" // display-safe-exempt: classicalReferenceDisplay：helper 已逐一以 displaySafe 限制 reference
     case let .affiliated(person, organization):
-        return "affiliated(\(classicalReferenceDisplay(person)), \(classicalReferenceDisplay(organization)))" // display-safe-exempt: helper 已逐一以 displaySafe 限制 reference
+        return "affiliated(\(classicalReferenceDisplay(person)), \(classicalReferenceDisplay(organization)))" // display-safe-exempt: classicalReferenceDisplay：helper 已逐一以 displaySafe 限制 reference
     }
 }
 

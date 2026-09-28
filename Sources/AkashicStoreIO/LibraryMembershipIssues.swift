@@ -35,7 +35,7 @@ extension LibraryLoad {
             let bad = LibraryMembershipCheck(library: lib, entries: entries).nonconformingMembers()
             guard !bad.isEmpty else { continue }
             let examples = bad.prefix(Self.libraryViolationExamples)
-                .map { "\(displaySafeInvisible($0.citekey, max: 200))（\($0.violation.message)）" }   // display-safe-exempt: violation.message 在 LibraryMembershipViolation 裡已逐項消毒
+                .map { "\(displaySafeInvisible($0.citekey, max: 200))（\($0.violation.message)）" }   // display-safe-exempt: $0.violation.message：violation.message 在 LibraryMembershipViolation 裡已逐項消毒
                 .joined(separator: "；")
             let more = bad.count > Self.libraryViolationExamples ? "；…" : ""
             out.append(ValidationIssue(severity: .warning,

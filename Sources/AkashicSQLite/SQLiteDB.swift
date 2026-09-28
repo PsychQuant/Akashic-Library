@@ -16,14 +16,14 @@ public enum SQLiteError: Error, LocalizedError {
         // 唯一的 SQL 內插點：`AkashicQuery/QueryEngine.swift:100` 的 `\(whereClause)`，
         // 內插的是 `conditions` 陣列（全為程式字面片段 + `?`），值全走 bind。
         case .prepareFailed(let m, let sql): return "SQLite prepare 失敗：\(m)（\(sql)）"   // display-safe-exempt: m 是 errmsg；sql 見上方不變式
-        case .stepFailed(let m, let sql): return "SQLite step 失敗：\(m)（\(sql)）"   // display-safe-exempt: 同 prepareFailed 的不變式
+        case .stepFailed(let m, let sql): return "SQLite step 失敗：\(m)（\(sql)）"   // display-safe-exempt: m、sql：同 prepareFailed 的不變式
         // #158 verify R4：**這條與上面三條不同**——`bindFailed` 的 payload 曾經是
         // **caller 傳進來的 bind 值**（`String(describing: value)`），不是 errmsg 也不是
         // SQL。目前那條路徑已把 payload 收斂成型別名（見下方 `run(_:bind:)` 的 `default:` 分支）。
         //
         //（不寫死行號：R4 席位指出前一版指向的 `:79` 在我自己的修改之後就 stale 了。
         // 「見下方某某分支」這種符號式引用不會隨行號漂移。）
-        case .bindFailed(let m): return "SQLite bind 失敗：\(m)"   // display-safe-exempt: payload 兩個來源都不含 caller 值——(1) run(_:bind:) 的 default: 收斂成型別名（ObjC 橋接實例會是 CF 實作名如 __NSCFNumber，那是真實動態型別，不做映射）(2) sqlite3_errmsg（同 openFailed）。這一行已連續三次寫錯（stale :79 → 「收斂成型別名」曾不成立 → 符號名 bind 不存在），它是守衛唯一逼人寫、卻沒有測試看著的那句話
+        case .bindFailed(let m): return "SQLite bind 失敗：\(m)"   // display-safe-exempt: m：payload 兩個來源都不含 caller 值——(1) run(_:bind:) 的 default: 收斂成型別名（ObjC 橋接實例會是 CF 實作名如 __NSCFNumber，那是真實動態型別，不做映射）(2) sqlite3_errmsg（同 openFailed）。這一行已連續三次寫錯（stale :79 → 「收斂成型別名」曾不成立 → 符號名 bind 不存在），它是守衛唯一逼人寫、卻沒有測試看著的那句話
         }
     }
 }

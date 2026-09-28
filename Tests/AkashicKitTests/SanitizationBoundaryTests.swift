@@ -585,14 +585,10 @@ final class SanitizationBoundaryTests: XCTestCase {
                 // 只看 `display-safe-exempt:` **之後**的註記文字（R31；R30 verify 第 4／19／25 列：R30 拿整個語句的原始行比對，而引數的識別字必然
                 // 出現在那幾行——它就是引數本身——於是一句不相干的註記讓該語句全部引數免檢，74/540 站點、87/834 引數處在毯式豁免下，
                 // mutation 拿掉兩個 sanitizer 兩套守衛都綠）
-                let notes = rawLines[(site.line - 1)...min(rawLines.count - 1, site.line - 1 + span)].compactMap { line -> String? in
-                    guard let r = line.range(of: "display-safe-exempt:") else { return nil }
-                    return String(line[r.upperBound...])
-                }.joined(separator: "\n")
+                let notes = DisplaySafeExemption.notes(in: Array(rawLines[(site.line - 1)...min(rawLines.count - 1, site.line - 1 + span)]))
                 func exempted(_ expr: String) -> Bool {
-                    // 同一個語句的註記以 `display-safe-exempt:` 具名這個引數（例如 `why 是 NameIdentity 的固定訊息`）即放行——與 sink 守衛同一種豁免形狀
-                    guard !notes.isEmpty, let ident = expr.split(whereSeparator: { !$0.isLetter && !$0.isNumber && $0 != "_" && $0 != "$" }).first else { return false }
-                    return notes.range(of: "(?<![A-Za-z0-9_$])\(NSRegularExpression.escapedPattern(for: String(ident)))(?![A-Za-z0-9_])", options: .regularExpression) != nil
+                    // 同一個語句的註記以 `display-safe-exempt:` 具名這個引數（例如 `why 是 NameIdentity 的固定訊息`）即放行——規則與 sink 守衛共用一份（#584）
+                    DisplaySafeExemption.names(expr, in: notes)
                 }
                 if m.allSatisfy({ $0 == .unused }) && !args.isEmpty { unusedSites["\(t.qualified).\(site.caseName)", default: 0] += 1 }
                 for (arg, mode) in zip(args, m) {

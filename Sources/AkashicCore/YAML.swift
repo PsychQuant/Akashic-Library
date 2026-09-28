@@ -22,7 +22,7 @@ public enum StoreYAMLError: Error, LocalizedError, Equatable, SanitizedErrorDesc
         switch self {
         case .notAMapping: return "YAML 頂層不是 mapping"
         case .missingField(let f): return "缺少必要欄位：\(f)"   // display-safe-exempt: f 是呼叫端字面欄位名；store 字串在**擲出端**逐項 displaySafeInvisible（R28 D80，`SanitizationBoundaryTests` 掃全部 throw 站點）——sink 只截
-        case .invalidField(let f, let why): return "欄位 \(f) 無效：\(why)"   // display-safe-exempt: 同上——why 在擲出端逐項消毒（R28 D80），sink 只截
+        case .invalidField(let f, let why): return "欄位 \(f) 無效：\(why)"   // display-safe-exempt: f、why：同上——why 在擲出端逐項消毒（R28 D80），sink 只截
         case .unknownShapeLabel(let stray):
             // 具名 + 重導。只說「不認得」只證明它在這個位置沒有意義；
             // 讀者還需要知道哪個位置有意義。

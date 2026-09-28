@@ -237,7 +237,7 @@ extension AkashicService {
                 "valueBytes": value.utf8.count,   // display-safe-exempt: Int
                 // 理由不進 store，報告是它唯一的一份——不截在入口上限之下（#588 R1 verify 的同一條）
                 "reason": displaySafe(s.reason, max: Self.maxStatementBytes),   // display-safe-exempt: reason 是呼叫端原文、在這裡消毒一次
-                "referencesRemoved": referencesRemoved[s.key] ?? 0,   // display-safe-exempt: Int
+                "referencesRemoved": referencesRemoved[s.key] ?? 0,   // display-safe-exempt: referencesRemoved[s.key] 是 Int
             ])
         }
 

@@ -217,7 +217,7 @@ public enum AdjudicationError: Error, LocalizedError, Equatable, SanitizedErrorD
         case .reasonRequired:
             return "拿掉來源要寫理由——理由只出現在這次的結果裡、不寫進 store，請寫進 commit message（#609）"
         case .reasonTooLong(let bytes):
-            return "理由 \(bytes) 位元組，上限 4,096——已拒絕、零寫入，不截斷（#609）"   // display-safe-exempt: Int
+            return "理由 \(bytes) 位元組，上限 4,096——已拒絕、零寫入，不截斷（#609）"   // display-safe-exempt: bytes 是 Int
         case .notRecoverable(let key, let why):
             return "「\(displaySafeInvisible(key, max: 200))」的記錄檔不能確認 git 裡有副本：\(displaySafeClipOnly(why, max: 600))"   // display-safe-exempt: why 是 filesNotSafelyRecoverable／本檔的固定句，只截
                 + "——被拿掉的來源只會留在 git 裡，先 commit 再做。已拒絕、零寫入（#609）"

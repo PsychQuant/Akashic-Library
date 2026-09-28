@@ -13,7 +13,7 @@ struct EntryListView: View {
                 Text(entry.displayTitleOrCitekey)
                     .lineLimit(1)
                 HStack(spacing: 6) {
-                    Text(entry.citekey)   // display-safe-exempt: citekey 過 load 端 quarantine（StoreKey）
+                    Text(entry.citekey)   // display-safe-exempt: entry.citekey：citekey 過 load 端 quarantine（StoreKey）
                         .font(.caption.monospaced())
                     if let date = entry.date {
                         Text(date)
@@ -87,7 +87,7 @@ struct EntryDetailView: View {
                 Section("書目（唯讀——過渡期歸 Zotero pull 管）") {
                     LabeledContent("Citekey") {
                         HStack {
-                            Text(entry.citekey).font(.body.monospaced())   // display-safe-exempt: 同上
+                            Text(entry.citekey).font(.body.monospaced())   // display-safe-exempt: entry.citekey：同上
                             Button("改名…") {
                                 renameTarget = entry.citekey
                                 showRename = true
@@ -189,7 +189,7 @@ struct EntryDetailView: View {
                 }
             }
             .formStyle(.grouped)
-            .navigationTitle(entry.citekey)   // display-safe-exempt: 同上
+            .navigationTitle(entry.citekey)   // display-safe-exempt: entry.citekey：同上
         } else {
             ContentUnavailableView("找不到 \(citekey)", systemImage: "questionmark.circle")   // display-safe-exempt: citekey 過 load 端 quarantine（LibraryStore.swift 的 StoreKey.isValid 檢查）
         }

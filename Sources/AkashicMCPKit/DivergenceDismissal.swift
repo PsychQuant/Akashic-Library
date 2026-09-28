@@ -26,13 +26,13 @@ extension AkashicService {
         }
         let load = try store.load()
         guard let d = load.divergences.first(where: { $0.id == id }) else {
-            throw ServiceError.notFound("歧異記錄「\(id.uuidString)」")   // display-safe-exempt: UUID 由型別保證
+            throw ServiceError.notFound("歧異記錄「\(id.uuidString)」")   // display-safe-exempt: id.uuidString：UUID 由型別保證
         }
         // **讀不懂的記錄不刪**（#75 的同一條理由）：一個帶未知欄位的記錄可能由較新的 binary 寫入，那個欄位也許正是
         // 「不要放棄這一筆」。刪除前 git 有副本，但刪掉自己讀不懂的東西仍是不該由工具做的判斷——拒絕並指向升級。
         guard d.unknownFields.isEmpty else {
             throw ServiceError.invalid(
-                "歧異記錄「\(id.uuidString)」帶 \(d.unknownFields.count) 個本 binary 不認得的欄位——可能由較新版本寫入；"   // display-safe-exempt: UUID 由型別保證；Int
+                "歧異記錄「\(id.uuidString)」帶 \(d.unknownFields.count) 個本 binary 不認得的欄位——可能由較新版本寫入；"   // display-safe-exempt: id.uuidString：UUID 由型別保證；Int
                 + "讀不懂的記錄不刪（同 resolve-divergence 的 #75），升級 binary 後再跑；零寫入")
         }
         var payload: [String: Any] = [
@@ -52,7 +52,7 @@ extension AkashicService {
         // 路徑取自磁碟上的實際檔名——不由 id 拼，小寫 UUID 檔名也對得上（#573 R1）。用驗證那一次列舉的結果、不再列舉一次：
         // 兩次之間檔案可以被換掉，刪的就不是驗過 git 狀態的那一個（#586 R1 verify）
         guard let rel = verified[id] else {
-            throw ServiceError.notFound("歧異記錄「\(id.uuidString)」的檔案")   // display-safe-exempt: UUID 由型別保證
+            throw ServiceError.notFound("歧異記錄「\(id.uuidString)」的檔案")   // display-safe-exempt: id.uuidString：UUID 由型別保證
         }
         try FileManager.default.removeItem(at: store.root.appendingPathComponent(rel))
         try LibraryIndex(store: store).rebuild()

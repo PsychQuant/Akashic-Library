@@ -62,9 +62,9 @@ struct RepairVenueNames: ParsableCommand {
                 for j in p.judgments.prefix(judgmentsPerVenue) {
                     switch j.subject {
                     case .value(let list, let index, let value):
-                        print("    \(list)[\(index)]「\(displaySafeInvisible(value, max: 200))」：\(displaySafeClipOnly(j.reason, max: 4_096))")   // display-safe-exempt: reason 是 NameIdentity 的固定訊息或本 package 的固定句（已消毒），只截；list 是字面清單名、index 是 Int
+                        print("    \(list)[\(index)]「\(displaySafeInvisible(value, max: 200))」：\(displaySafeClipOnly(j.reason, max: 4_096))")   // display-safe-exempt: j.reason：reason 是 NameIdentity 的固定訊息或本 package 的固定句（已消毒），只截；list 是字面清單名、index 是 Int
                     case .record:
-                        print("    記錄：\(displaySafeClipOnly(j.reason, max: 4_096))")   // display-safe-exempt: reason 是 validate() 的訊息（生產端已逐項 displaySafeInvisible）或本 package 的固定句，只截
+                        print("    記錄：\(displaySafeClipOnly(j.reason, max: 4_096))")   // display-safe-exempt: j.reason：reason 是 validate() 的訊息（生產端已逐項 displaySafeInvisible）或本 package 的固定句，只截
                     }
                 }
                 if p.judgments.count > judgmentsPerVenue {

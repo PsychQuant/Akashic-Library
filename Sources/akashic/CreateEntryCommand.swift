@@ -380,9 +380,9 @@ struct CreateEntryCmd: ParsableCommand {
         // documentSafe/displaySafe 分界：內容面保真、訊息面消毒。守衛的 `return "`
         // 判準分不出「回傳一個值」與「回傳一句話」，這是它的已知形狀。
         case 2 where !parts[1].isEmpty:
-            return "\(parts[1]) \(parts[0])"   // display-safe-exempt: 見上——組的是姓名內容非訊息
+            return "\(parts[1]) \(parts[0])"   // display-safe-exempt: parts：見上——組的是姓名內容非訊息
         case 3 where !parts[1].isEmpty && !parts[2].isEmpty:
-            return "\(parts[2]) \(parts[0]) \(parts[1])"   // display-safe-exempt: 同上
+            return "\(parts[2]) \(parts[0]) \(parts[1])"   // display-safe-exempt: parts：同上
         default:
             return name   // 四段以上不猜——原樣保留比重組錯誤好
         }

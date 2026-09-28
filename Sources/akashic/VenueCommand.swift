@@ -112,7 +112,7 @@ struct VenueCmd: ParsableCommand {
         if let works = obj["works"] as? [[String: Any]] {
             for w in works {
                 let year = (w["year"] as? Int).map(String.init) ?? "—"
-                print("\(w["citekey"] as? String ?? "?")\t\(year)\t\(w["title"] as? String ?? "")")   // display-safe-exempt: service 已逐欄位消毒（citekey 200／title 500），displaySafe 不冪等
+                print("\(w["citekey"] as? String ?? "?")\t\(year)\t\(w["title"] as? String ?? "")")   // display-safe-exempt: w["citekey"]、w["title"]：service 已逐欄位消毒（citekey 200／title 500），displaySafe 不冪等
             }
         }
         if count == 0 { print("（零篇——這是結果，不是錯誤）") }
@@ -450,7 +450,7 @@ struct MigrateVenues: ParsableCommand {
             if !report.failed.isEmpty {
                 print("拒寫 \(report.failed.count) 筆（其餘照常；commit 後重跑——遷移是冪等的）：")
                 for f in report.failed.prefix(20) {
-                    print("  ⚠ \(displaySafeInvisible(f.citekey, max: 200))——\(displaySafeClipOnly(f.reason, max: 4_096))")   // display-safe-exempt: reason 已消毒（建構點 displaySafeInvisible／displaySafeError，R30；R29 verify 第 2 列），只截
+                    print("  ⚠ \(displaySafeInvisible(f.citekey, max: 200))——\(displaySafeClipOnly(f.reason, max: 4_096))")   // display-safe-exempt: f.reason：reason 已消毒（建構點 displaySafeInvisible／displaySafeError，R30；R29 verify 第 2 列），只截
                 }
             }
         }

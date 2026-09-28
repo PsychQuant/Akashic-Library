@@ -105,8 +105,8 @@ public enum OrgBootstrap {
         public static func == (a: Result, b: Result) -> Bool {
             a.candidates == b.candidates
                 && a.pendingResolution == b.pendingResolution
-                && a.dropped.map { "\($0.name)|\($0.occurrences)" }   // display-safe-exempt: Equatable 的比較鍵，不進任何輸出面
-                    == b.dropped.map { "\($0.name)|\($0.occurrences)" }   // display-safe-exempt: Equatable 的比較鍵，不進任何輸出面
+                && a.dropped.map { "\($0.name)|\($0.occurrences)" }   // display-safe-exempt: $0.name：Equatable 的比較鍵，不進任何輸出面
+                    == b.dropped.map { "\($0.name)|\($0.occurrences)" }   // display-safe-exempt: $0.name：Equatable 的比較鍵，不進任何輸出面
         }
     }
 

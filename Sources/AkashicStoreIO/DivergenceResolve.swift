@@ -66,7 +66,7 @@ public enum DivergenceResolveError: Error, LocalizedError, SanitizedErrorDescrip
     public var errorDescription: String? {
         switch self {
         case let .recordNotFound(id):
-            return "找不到 id 為 \(id.uuidString) 的歧異記錄"   // display-safe-exempt: UUID.uuidString 是 hex+dash
+            return "找不到 id 為 \(id.uuidString) 的歧異記錄"   // display-safe-exempt: id.uuidString：UUID.uuidString 是 hex+dash
         case let .survivorNotACandidate(survivor, candidates):
             return "倖存者「\(displaySafeInvisible(survivor, max: 200))」不在候選清單內；"
                  + "實際候選為 \(candidates.map { displaySafeInvisible($0, max: 200) }.joined(separator: "、"))"
@@ -141,7 +141,7 @@ public enum DivergenceResolveError: Error, LocalizedError, SanitizedErrorDescrip
                  + losses.map { displaySafeClipOnly($0, max: 2_400) }.joined(separator: "；")   // display-safe-exempt: 已消毒（fieldsLostByMerging 回傳前逐條 displaySafeInvisible，R28 D80），只截
                  + "。先把要保留的搬到倖存者身上（或確認可以丟棄後手動清除），再消歧。"
         case let .wouldContradictVerdicts(record, survivor, details, totalPairs):
-            return "拒絕合併：併入「\(displaySafeInvisible(survivor, max: 200))」之後，\(Self.whoWouldHold(record, survivor: survivor))會對同一個配對同時持有"   // display-safe-exempt: whoWouldHold 內部逐項 displaySafe
+            return "拒絕合併：併入「\(displaySafeInvisible(survivor, max: 200))」之後，\(Self.whoWouldHold(record, survivor: survivor))會對同一個配對同時持有"   // display-safe-exempt: Self.whoWouldHold：whoWouldHold 內部逐項 displaySafe
                  + "相反的判定（confirmed 與 rejected；literal 正規化後相等）——這次合併帶進來的：\n"
                  + details.map { "  • " + $0 }.joined(separator: "\n")   // display-safe-exempt: details 由 describeVerdictSource 組裝且已在生產端截到 5 個配對（R27 D78），store 字串已逐項 displaySafeInvisible（displaySafe 不冪等）
                  + (totalPairs > details.count ? "\n  …共 \(totalPairs) 個配對" : "")   // display-safe-exempt: Int
@@ -154,7 +154,7 @@ public enum DivergenceResolveError: Error, LocalizedError, SanitizedErrorDescrip
             // 刪第一筆重跑仍被拒）：帶進來的才是要處理的；倖存配對既有的列出供對照，明說不擋。**「帶進來的」自 R16 起包含合併前住在
             // 被併鍵上的**（R15 verify 第 20 列：R15 末句寫「含住在被併鍵上的不擋」，而被搬到別的配對上、把它的歧義變大的那幾筆正是
             // 住在被併鍵上——訊息與判準互相矛盾；D45 的判準寫在末句）
-            return "拒絕合併：併入「\(displaySafeInvisible(survivor, max: 200))」之後，\(Self.whoWouldHold(record, survivor: survivor))對 work"   // display-safe-exempt: whoWouldHold 內部逐項 displaySafe
+            return "拒絕合併：併入「\(displaySafeInvisible(survivor, max: 200))」之後，\(Self.whoWouldHold(record, survivor: survivor))對 work"   // display-safe-exempt: Self.whoWouldHold：whoWouldHold 內部逐項 displaySafe
                  + "「\(displaySafeInvisible(citekey, max: 200))」會持有兩個以上正規化後不同的 confirmed literal——這次合併帶進來的（合併前住在被併記錄裡、或住在被併鍵上）：\n"
                  + brought.map { "  • " + $0 }.joined(separator: "\n")   // display-safe-exempt: brought 由 describeVerdictSource 組裝且已在擲出端截到 5 筆（R28），store 字串已逐項 displaySafeInvisible（displaySafe 不冪等）
                  + (broughtTotal > brought.count ? "\n  …共 \(broughtTotal) 筆" : "")   // display-safe-exempt: Int
@@ -249,8 +249,8 @@ public struct ResolveReport: Equatable {
         a.rewritten == b.rewritten && a.merged == b.merged
             && a.removedDivergences == b.removedDivergences && a.failures == b.failures
             && a.warnings == b.warnings
-            && a.collapsedDetails.map { "\($0.id)|\($0.question)" }   // display-safe-exempt: Equatable 的比較鍵，不進任何輸出面
-                == b.collapsedDetails.map { "\($0.id)|\($0.question)" }   // display-safe-exempt: Equatable 的比較鍵，不進任何輸出面
+            && a.collapsedDetails.map { "\($0.id)|\($0.question)" }   // display-safe-exempt: $0.question：Equatable 的比較鍵，不進任何輸出面
+                == b.collapsedDetails.map { "\($0.id)|\($0.question)" }   // display-safe-exempt: $0.question：Equatable 的比較鍵，不進任何輸出面
             && a.survivorUpdated == b.survivorUpdated
             // #467：先前刻意不進 `==`，理由是「preview 側算不出來」——preview 補上之後
             // 那個理由消失了。留在外面等於讓 preview-vs-actual 的一致性測試對整個 verdict
@@ -1901,7 +1901,7 @@ extension LibraryStore {
                 _ = try writeOrganization(org)
                 report.verdictValuesRewritten.append(HolderRecord(.organization, org.key))
                 report.verdictsCollapsed.append(   // display-safe-exempt: report 是資料面；CLI 印出時逐列過 displaySafeInvisible(c, max: 1_000)（DivergenceCommands），與 failures 同一條消毒點
-                    contentsOf: collapsed.map { "organization「\(org.key)」：\($0)" })   // display-safe-exempt: 同上
+                    contentsOf: collapsed.map { "organization「\(org.key)」：\($0)" })   // display-safe-exempt: org.key：同上
             } catch {
                 report.failures.append(
                     "organization「\(displaySafeInvisible(org.key, max: 200))」的 verdict value 遷移寫入失敗：\(displaySafeError(error, max: 4_096))")
@@ -1918,7 +1918,7 @@ extension LibraryStore {
                 _ = try writeVenue(venue)
                 report.verdictValuesRewritten.append(HolderRecord(.venue, venue.key))
                 report.verdictsCollapsed.append(   // display-safe-exempt: 同上
-                    contentsOf: collapsed.map { "venue「\(venue.key)」：\($0)" })   // display-safe-exempt: 同上
+                    contentsOf: collapsed.map { "venue「\(venue.key)」：\($0)" })   // display-safe-exempt: venue.key：同上
             } catch {
                 report.failures.append(
                     "venue「\(displaySafeInvisible(venue.key, max: 200))」的 verdict value 遷移寫入失敗：\(displaySafeError(error, max: 4_096))")
@@ -1934,7 +1934,7 @@ extension LibraryStore {
                 try writePerson(person)
                 report.verdictValuesRewritten.append(HolderRecord(.person, person.key))
                 report.verdictsCollapsed.append(   // display-safe-exempt: 同上
-                    contentsOf: collapsed.map { "person「\(person.key)」：\($0)" })   // display-safe-exempt: 同上
+                    contentsOf: collapsed.map { "person「\(person.key)」：\($0)" })   // display-safe-exempt: person.key：同上
             } catch {
                 report.failures.append(
                     "person「\(displaySafeInvisible(person.key, max: 200))」的 verdict value 遷移寫入失敗：\(displaySafeError(error, max: 4_096))")
@@ -2145,7 +2145,7 @@ extension LibraryStore {
             return "——留下的那筆或被丟的這筆無法解析為配對，拼法無從比"   // R18；R17 verify requirements 第 24 列：靜默回空＝揭露不兌現而沒有跡象
         }
         guard Array(d.literal.utf8) != Array(k.literal.utf8) else { return "" }
-        return "——留「\(clipScalars(k.literal, 200))」（正規化後相等、位元組不同）"   // display-safe-exempt: report 是資料面；四個 sink（CLI merge preview／report、CLI rename、App rename）逐列過 displaySafeInvisible
+        return "——留「\(clipScalars(k.literal, 200))」（正規化後相等、位元組不同）"   // display-safe-exempt: clipScalars：report 是資料面；四個 sink（CLI merge preview／report、CLI rename、App rename）逐列過 displaySafeInvisible
     }
 
     private func resolveWorkDivergence(record: Divergence, survivor: String,
@@ -2223,7 +2223,7 @@ extension LibraryStore {
                 try writePerson(person)
                 report.verdictValuesRewritten.append(HolderRecord(.person, person.key))
                 report.verdictsCollapsed.append(   // display-safe-exempt: report 是資料面；CLI 印出時逐列過 displaySafeInvisible(c, max: 1_000)（DivergenceCommands），與 failures 同一條消毒點
-                    contentsOf: collapsed.map { "person「\(person.key)」：\($0)" })   // display-safe-exempt: 同上——在此消毒會讓 CLI 二次消毒（displaySafe 不冪等）
+                    contentsOf: collapsed.map { "person「\(person.key)」：\($0)" })   // display-safe-exempt: person.key：同上——在此消毒會讓 CLI 二次消毒（displaySafe 不冪等）
             } catch {
                 report.failures.append(
                     "person「\(displaySafeInvisible(person.key, max: 200))」的 verdict value 遷移寫入失敗：\(displaySafeError(error, max: 4_096))")
@@ -2243,7 +2243,7 @@ extension LibraryStore {
                 _ = try writeVenue(venue)
                 report.verdictValuesRewritten.append(HolderRecord(.venue, venue.key))
                 report.verdictsCollapsed.append(   // display-safe-exempt: report 是資料面；CLI 印出時逐列過 displaySafeInvisible(c, max: 1_000)（DivergenceCommands），與 failures 同一條消毒點
-                    contentsOf: collapsed.map { "venue「\(venue.key)」：\($0)" })   // display-safe-exempt: 同上——在此消毒會讓 CLI 二次消毒（displaySafe 不冪等）
+                    contentsOf: collapsed.map { "venue「\(venue.key)」：\($0)" })   // display-safe-exempt: venue.key：同上——在此消毒會讓 CLI 二次消毒（displaySafe 不冪等）
             } catch {
                 report.failures.append(
                     "venue「\(displaySafeInvisible(venue.key, max: 200))」的 verdict value 遷移寫入失敗：\(displaySafeError(error, max: 4_096))")
@@ -2261,7 +2261,7 @@ extension LibraryStore {
                 _ = try writeOrganization(org)
                 report.verdictValuesRewritten.append(HolderRecord(.organization, org.key))
                 report.verdictsCollapsed.append(   // display-safe-exempt: report 是資料面；CLI 印出時逐列過 displaySafeInvisible(c, max: 1_000)（DivergenceCommands），與 failures 同一條消毒點
-                    contentsOf: collapsed.map { "organization「\(org.key)」：\($0)" })   // display-safe-exempt: 同上——在此消毒會讓 CLI 二次消毒（displaySafe 不冪等）
+                    contentsOf: collapsed.map { "organization「\(org.key)」：\($0)" })   // display-safe-exempt: org.key：同上——在此消毒會讓 CLI 二次消毒（displaySafe 不冪等）
             } catch {
                 report.failures.append(
                     "organization「\(displaySafeInvisible(org.key, max: 200))」的 verdict value 遷移寫入失敗：\(displaySafeError(error, max: 4_096))")
@@ -2799,7 +2799,7 @@ extension LibraryStore {
         if !lostVenues.isEmpty {
             losses.append("venues: " + lostVenues.map { ref -> String in
                 switch ref {
-                case .key(let k): return "key:\(k)"   // display-safe-exempt: losses 在 fieldsLostByMerging 回傳前逐條 displaySafeInvisible（R28 D80）
+                case .key(let k): return "key:\(k)"   // display-safe-exempt: k：losses 在 fieldsLostByMerging 回傳前逐條 displaySafeInvisible（R28 D80）
                 case .literal(let l): return l   // display-safe-exempt: 同上
                 }
             }.joined(separator: "、"))
@@ -2889,17 +2889,17 @@ extension LibraryStore {
         // `identity` 的回傳值**只當比對鍵**（進 Set / 相等比較），不進任何輸出面。
         func identity(_ a: Author) -> String {
             switch a {
-            case let .key(k): return "key:\(k)"       // display-safe-exempt: 比對鍵，不進輸出
-            case let .organization(k): return "org:\(k)"  // display-safe-exempt: 同上（#323）
-            case let .literal(s): return "literal:\(s)"   // display-safe-exempt: 同上
+            case let .key(k): return "key:\(k)"       // display-safe-exempt: k：比對鍵，不進輸出
+            case let .organization(k): return "org:\(k)"  // display-safe-exempt: k：同上（#323）
+            case let .literal(s): return "literal:\(s)"   // display-safe-exempt: s：同上
             }
         }
         // `display` 的回傳值會進 `losses`，而 `losses` 的**每一項**在本函式 `return` 時逐條 `displaySafeInvisible`（R28 D80；
         // 下游 `wouldLoseFields` 的 errorDescription 只截）——與同函式其他所有 losses 條目同一條保險。
         func display(_ a: Author) -> String {
             switch a {
-            case let .key(k): return "已歸戶 \(k)"     // display-safe-exempt: 進 losses，回傳前整批 displaySafeInvisible（R28 D80）
-            case let .organization(k): return "已歸戶團體 \(k)"  // display-safe-exempt: 同上（#323）
+            case let .key(k): return "已歸戶 \(k)"     // display-safe-exempt: k：進 losses，回傳前整批 displaySafeInvisible（R28 D80）
+            case let .organization(k): return "已歸戶團體 \(k)"  // display-safe-exempt: k：同上（#323）
             case let .literal(s): return s
             }
         }

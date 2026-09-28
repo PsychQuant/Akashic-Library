@@ -33,7 +33,7 @@ struct Doctor: ParsableCommand {
         let fatalCross = health.fatalCrossRecordIssues
         if !cross.isEmpty {
             print("cross-record: \(cross.count)")
-            for i in cross { print("  \(i.severity == .error ? "✗" : "⚠") \(i.message)") }   // display-safe-exempt: 訊息在 StoreHealth 裡已逐項消毒（R18：.message 入 tainted 清單，sink 只印）
+            for i in cross { print("  \(i.severity == .error ? "✗" : "⚠") \(i.message)") }   // display-safe-exempt: i.message：訊息在 StoreHealth 裡已逐項消毒（R18：.message 入 tainted 清單，sink 只印）
         }
         // #107：佈局殘留——依 format/key 不該存在、且為空目錄或純衍生物的路徑。
         // **只在命中時輸出，報告不動手刪**（#79 的形狀：讓看不見的變看見，處置留給人）。
@@ -206,7 +206,7 @@ struct Validate: ParsableCommand {
         for owned in issues {
             let mark = owned.issue.severity == .error ? "✗" : "⚠"
             let label = owned.kind == "entry" ? "" : "\(owned.kind) "
-            print("\(mark) \(label)\(displaySafe(owned.owner, max: 200)): \(owned.issue.message)")   // display-safe-exempt: 訊息在 validate 裡已逐項消毒；CLI validate 逐行不截（R18）
+            print("\(mark) \(label)\(displaySafe(owned.owner, max: 200)): \(owned.issue.message)")   // display-safe-exempt: owned.issue.message：訊息在 validate 裡已逐項消毒；CLI validate 逐行不截（R18）
             if owned.issue.severity == .error { failed = true }
         }
         return failed
@@ -294,7 +294,7 @@ struct Validate: ParsableCommand {
         // #7b：跨記錄檢查——單筆 validate() 結構上看不到的那一層
         for issue in health.crossRecordIssues {
             let mark = issue.severity == .error ? "✗" : "⚠"
-            print("\(mark) [跨記錄] \(issue.message)")   // display-safe-exempt: 訊息在 StoreHealth 裡已逐項消毒（R18）
+            print("\(mark) [跨記錄] \(issue.message)")   // display-safe-exempt: issue.message：訊息在 StoreHealth 裡已逐項消毒（R18）
             if issue.severity == .error { failed = true }
         }
         if failed {
@@ -493,7 +493,7 @@ struct MigrateProvenance: ParsableCommand {
         if !report.failures.isEmpty {
             print("寫入失敗 \(report.failures.count) 筆（其餘已落地，可修好後重跑——遷移是冪等的）：")
             for f in report.failures.prefix(20) {
-                print("  ✗ \(displaySafeInvisible(f.record, max: 200)) — \(displaySafeClipOnly(f.reason, max: 4_096))")   // display-safe-exempt: 已消毒——migrate-provenance 的 reason 是字面常量或 displaySafeError 的產出（R30；R29 verify 第 2 列：混合載體），只截
+                print("  ✗ \(displaySafeInvisible(f.record, max: 200)) — \(displaySafeClipOnly(f.reason, max: 4_096))")   // display-safe-exempt: f.reason：已消毒——migrate-provenance 的 reason 是字面常量或 displaySafeError 的產出（R30；R29 verify 第 2 列：混合載體），只截
             }
         }
         if dryRun {
@@ -559,7 +559,7 @@ struct MigratePersonIdentity: ParsableCommand {
             if !report.failed.isEmpty {
                 print("處理失敗 \(report.failed.count) 筆（其餘照常；修好後重跑——遷移是冪等的）：")
                 for f in report.failed.prefix(20) {
-                    print("  ⚠ \(displaySafeInvisible(f.file, max: 200))——\(displaySafeClipOnly(f.reason, max: 4_096))")   // display-safe-exempt: reason 已消毒（每個建構點的 store 字串逐項 displaySafeInvisible、錯誤走 displaySafeError，R30；R29 verify 第 2 列）；file 是原始檔名，逃一次
+                    print("  ⚠ \(displaySafeInvisible(f.file, max: 200))——\(displaySafeClipOnly(f.reason, max: 4_096))")   // display-safe-exempt: f.reason：reason 已消毒（每個建構點的 store 字串逐項 displaySafeInvisible、錯誤走 displaySafeError，R30；R29 verify 第 2 列）；file 是原始檔名，逃一次
                 }
                 if report.failed.count > 20 { print("  …另 \(report.failed.count - 20) 筆") }
             }
@@ -641,17 +641,17 @@ struct BootstrapPeople: ParsableCommand {
             let payload: [String: Any] = [
                 "candidates": report.candidates
                     .filter { $0.occurrences >= minOccurrences }
-                    .map { ["key": $0.key, "names": $0.names, "occurrences": $0.occurrences] },   // display-safe-exempt: JSON 面的消毒層是序列化器 ＋ 序列化後的 escapingUnsafeScalars（與 displaySafe 同源）；消毒會破壞餵回 add-person 的逐字 literal
+                    .map { ["key": $0.key, "names": $0.names, "occurrences": $0.occurrences] },   // display-safe-exempt: $0.key、$0.names：JSON 面的消毒層是序列化器 ＋ 序列化後的 escapingUnsafeScalars（與 displaySafe 同源）；消毒會破壞餵回 add-person 的逐字 literal
                 "unkeyable": report.unkeyable
                     .filter { $0.occurrences >= minOccurrences }
-                    .map { ["names": $0.names, "occurrences": $0.occurrences, "reason": $0.reason] },   // display-safe-exempt: 同上——序列化器 ＋ 序列化後的 escapingUnsafeScalars
+                    .map { ["names": $0.names, "occurrences": $0.occurrences, "reason": $0.reason] },   // display-safe-exempt: $0.names、$0.reason：同上——序列化器 ＋ 序列化後的 escapingUnsafeScalars
                 "pendingResolution": report.pendingResolution
                     .filter { $0.occurrences >= minOccurrences }
-                    .map { ["names": $0.names, "occurrences": $0.occurrences,   // display-safe-exempt: 同上——序列化器 ＋ 序列化後的 escapingUnsafeScalars
+                    .map { ["names": $0.names, "occurrences": $0.occurrences,   // display-safe-exempt: $0.names：同上——序列化器 ＋ 序列化後的 escapingUnsafeScalars
                             "matchedKeys": $0.matchedKeys] },
                 "pendingMutual": report.pendingMutual
                     .filter { $0.occurrences >= minOccurrences }
-                    .map { ["names": $0.names, "occurrences": $0.occurrences,   // display-safe-exempt: 同上——序列化器 ＋ 序列化後的 escapingUnsafeScalars
+                    .map { ["names": $0.names, "occurrences": $0.occurrences,   // display-safe-exempt: $0.names：同上——序列化器 ＋ 序列化後的 escapingUnsafeScalars
                             "sharedKeys": $0.sharedKeys] },
             ]
             let data = try JSONSerialization.data(
@@ -1374,7 +1374,7 @@ struct ResolveOrganizations: ParsableCommand {
             printOrgAmbiguities()   // 沒有唯一候選時，歧義**更**該被看見
             return
         }
-        let selected = Set(candidates.map { "\($0.holder)#\($0.literal)" })   // display-safe-exempt: 內部 Set 的成員判定鍵，不進輸出面
+        let selected = Set(candidates.map { "\($0.holder)#\($0.literal)" })   // display-safe-exempt: $0.literal：內部 Set 的成員判定鍵，不進輸出面
         for c in all {
             let mark = (apply && !selected.contains("\(c.holder)#\(c.literal)")) ? "  (skip) " : "  "
             // #628（R1 verify）：列表模式也標出來——不必送出 --apply 才知道它會被排除
@@ -1459,7 +1459,7 @@ struct ResolveOrganizations: ParsableCommand {
             // verdict 到被判定的 organization——但**只寫 holder 記錄改寫成功的那些**
             // （verify C-2：誇報 verdict 比漏寫更糟，person 面在 AkashicService 有
             // 同一道閘）。第二輪獨立寫入、獨立回報，排在 rebuild 之前。
-            let failedHolderKeys = Set(failed.map { "\($0.kind):\($0.key)" })   // display-safe-exempt: 內部 Set 的成員判定鍵，不進輸出面
+            let failedHolderKeys = Set(failed.map { "\($0.kind):\($0.key)" })   // display-safe-exempt: $0.key：內部 Set 的成員判定鍵，不進輸出面
             func holderFailed(_ h: OrgResolutionCandidate.Holder) -> Bool {
                 switch h {
                 case let .person(k): return failedHolderKeys.contains("person:\(k)")
@@ -1975,7 +1975,7 @@ struct ResolvePeople: ParsableCommand {
             print("✓ 合回 \(rows.count) 個作者位、index 已重建")   // display-safe-exempt: Int
             for r in rows {
                 let from = (r["from"] as? [String] ?? []).joined(separator: "、")
-                print("  \(r["citekey"] as? String ?? "")[\(r["authorIndex"] as? Int ?? -1)] "   // display-safe-exempt: 值取自 unsplitAuthors（已逐欄位 displaySafe），二次消毒非冪等
+                print("  \(r["citekey"] as? String ?? "")[\(r["authorIndex"] as? Int ?? -1)] "   // display-safe-exempt: r["citekey"]：值取自 unsplitAuthors（已逐欄位 displaySafe），二次消毒非冪等
                     + "\(from) → 「\(r["restored"] as? String ?? "")」")   // display-safe-exempt: 同上
                 // 被刪掉的拆分理由要說出來——丟棄必須可見（lossless-intake 執行細節 3）
                 print("    已刪掉的拆分記錄，理由：\(r["droppedReason"] as? String ?? "")（完整原值在 git 歷史）")   // display-safe-exempt: 同上

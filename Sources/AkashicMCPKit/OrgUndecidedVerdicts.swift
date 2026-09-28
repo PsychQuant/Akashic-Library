@@ -14,8 +14,8 @@ extension AkashicService {
     /// 列表的回程把手（#378）——候選列、歧義條目、未決 id 共用這一個定義。**刻意不消毒**：呼叫端要逐字送回來，
     /// 消毒會讓它對不上（且 `displaySafe` 不冪等）。控制字元由 JSON 編碼處理；CLI 印出時自己消毒。
     public static func orgRowID(_ holder: OrgResolutionCandidate.Holder, literal: String) -> String {
-        if case let .work(citekey, i) = holder { return "\(citekey)[\(i)]::\(literal)" }   // display-safe-exempt: 回程把手須逐字
-        return "\(holder.key)::\(literal)"   // display-safe-exempt: 同上
+        if case let .work(citekey, i) = holder { return "\(citekey)[\(i)]::\(literal)" }   // display-safe-exempt: citekey：回程把手須逐字
+        return "\(holder.key)::\(literal)"   // display-safe-exempt: holder.key：同上
     }
 
     /// 一筆 org 未決（輸入驗證後的形狀）。

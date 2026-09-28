@@ -248,7 +248,7 @@ public final class AkashicService {
                 // 分支的呼叫端會把「或許在 quarantine 裡」當成「確定不存在」。
                 if !load.quarantined.isEmpty {
                     throw ServiceError.undeterminable(
-                        "citekeys：\(safeNames)——store 另有 \(load.quarantined.count) 個檔 "   // display-safe-exempt: names 在上方建構時已逐項 displaySafeInvisible(max: 200)；displaySafe 不冪等，再包一次會逃脫反斜線自身。count 是 Int
+                        "citekeys：\(safeNames)——store 另有 \(load.quarantined.count) 個檔 "   // display-safe-exempt: safeNames：names 在上方建構時已逐項 displaySafeInvisible(max: 200)；displaySafe 不冪等，再包一次會逃脫反斜線自身。count 是 Int
                         + "quarantined（可能是未遷移的舊形狀，該 citekey 或許在其中）；"
                         + "見 akashic doctor")
                 }
@@ -286,7 +286,7 @@ public final class AkashicService {
                 // 這裡不存在，而 MCP client 一般也跑不了 CLI。三個建議裡兩個是假的。
                 throw ServiceError.invalid(
                     "匯出 \(out.utf8.count / 1024) KB 超過 MCP 上限 "   // display-safe-exempt: Int 算術
-                    + "\(Self.maxExportBytes / 1024) KB（本庫 \(entries.count) 筆）"   // display-safe-exempt: Int
+                    + "\(Self.maxExportBytes / 1024) KB（本庫 \(entries.count) 筆）"   // display-safe-exempt: Self.maxExportBytes 是 Int
                     + "——tool result 進的是 LLM context。改傳 citekeys 分批匯出"
                     + "（本工具唯一的縮小方式）；要全庫請在終端跑 "
                     + "akashic export-bib --output <path>")
@@ -368,7 +368,7 @@ public final class AkashicService {
                 "count": cross.count,
                 "first": cross.prefix(20).map {
                     ["severity": $0.severity == .error ? "error" : "warning",
-                     "message": displaySafeClipOnly($0.message, max: 300)]   // display-safe-exempt: 已消毒（crossRecordIssues 在生產端 displaySafeInvisible，R27 D75／R28 D80），只截——R27 verify 第 2／4 列
+                     "message": displaySafeClipOnly($0.message, max: 300)]   // display-safe-exempt: $0.message：已消毒（crossRecordIssues 在生產端 displaySafeInvisible，R27 D75／R28 D80），只截——R27 verify 第 2／4 列
                 },
             ] as [String: Any]
         }
@@ -386,7 +386,7 @@ public final class AkashicService {
                 let item: [String: Any] = ["severity": o.issue.severity == .error ? "error" : "warning",
                                            "kind": o.kind,
                                            "key": displaySafe(o.owner, max: 200),
-                                           "message": displaySafeClipOnly(o.issue.message, max: 1_000)]   // display-safe-exempt: 訊息在 validate 裡已逐項消毒，只截（R16／R17）
+                                           "message": displaySafeClipOnly(o.issue.message, max: 1_000)]   // display-safe-exempt: o.issue.message：訊息在 validate 裡已逐項消毒，只截（R16／R17）
                 let cost = Self.jsonBytes(item)
                 if !first.isEmpty, firstBytes + cost > Self.candidateByteBudget { firstCapped = true; break }
                 firstBytes += cost
@@ -463,7 +463,7 @@ public final class AkashicService {
             // R11（R10-verify M19）：reason 含 Yams 展開的逐字檔案內容且不截斷——
             // MCP 情境下是直接灌進 LLM context 的無上限未信任字串。
             d["quarantined"] = health.quarantined.map {
-                ["file": displaySafeInvisible($0.file, max: 300), "reason": displaySafeClipOnly($0.reason, max: 512)]   // display-safe-exempt: reason 已消毒（QuarantinedFile 生產端，R27 D75／R28 D80），只截；file 是原始檔名——R27 verify 第 3 列
+                ["file": displaySafeInvisible($0.file, max: 300), "reason": displaySafeClipOnly($0.reason, max: 512)]   // display-safe-exempt: $0.reason：reason 已消毒（QuarantinedFile 生產端，R27 D75／R28 D80），只截；file 是原始檔名——R27 verify 第 3 列
             }
         }
         // #23 tolerant-preserve：較新 schema 的檔案可用但應提示升級
@@ -889,7 +889,7 @@ public final class AkashicService {
                 || p.key.lowercased().contains(needle) {
                 candidates.append(["person_key": displaySafe(p.key, max: 200),
                                    "names": p.names.all.map { displaySafe($0, max: 200) },
-                                   "publications": keyPubCount[p.key] ?? 0])   // display-safe-exempt: dict 查找，值是 Int 計數
+                                   "publications": keyPubCount[p.key] ?? 0])   // display-safe-exempt: keyPubCount[p.key]：dict 查找，值是 Int 計數
             }
             for (literal, count) in literalCounts.sorted(by: { $0.key < $1.key }) {
                 // #141 verify 實測：`literal` 是 Zotero 匯入的作者原字串（第三方最
@@ -953,7 +953,7 @@ public final class AkashicService {
         }
         func storeKey(_ v: String, _ what: String) throws -> String {
             guard StoreKey.isValid(v) else {
-                throw ServiceError.invalid("\(what)「\(displaySafeInvisible(v, max: 200))」不符合 \(StoreKey.pattern)")   // display-safe-exempt: what 是本函式的字面常量、pattern 是常量
+                throw ServiceError.invalid("\(what)「\(displaySafeInvisible(v, max: 200))」不符合 \(StoreKey.pattern)")   // display-safe-exempt: StoreKey.pattern：what 是本函式的字面常量、pattern 是常量
             }
             return v
         }
@@ -978,9 +978,9 @@ public final class AkashicService {
             var types: [WorkType] = []
             for raw in input.types {
                 guard let t = WorkType(rawValue: raw) else {
-                    throw ServiceError.invalid("types「\(displaySafeInvisible(raw, max: 120))」不是 entry type（\(WorkType.domainDescription)）")   // display-safe-exempt: domainDescription 是封閉值域的常量
+                    throw ServiceError.invalid("types「\(displaySafeInvisible(raw, max: 120))」不是 entry type（\(WorkType.domainDescription)）")   // display-safe-exempt: WorkType.domainDescription：domainDescription 是封閉值域的常量
                 }
-                guard !types.contains(t) else { throw ServiceError.invalid("types 有重複的「\(t.rawValue)」") }   // display-safe-exempt: WorkType.rawValue 是封閉值域
+                guard !types.contains(t) else { throw ServiceError.invalid("types 有重複的「\(t.rawValue)」") }   // display-safe-exempt: t.rawValue：WorkType.rawValue 是封閉值域
                 types.append(t)
             }
             var excluded: [String] = []
@@ -1053,7 +1053,7 @@ public final class AkashicService {
     public func libraryViolations(key: String) throws
         -> (library: Library, members: Int, violations: [(citekey: String, violation: LibraryMembershipViolation)]) {
         guard StoreKey.isValid(key) else {
-            throw ServiceError.invalid("library key「\(displaySafeInvisible(key, max: 200))」不符合 \(StoreKey.pattern)")   // display-safe-exempt: pattern 是常量
+            throw ServiceError.invalid("library key「\(displaySafeInvisible(key, max: 200))」不符合 \(StoreKey.pattern)")   // display-safe-exempt: StoreKey.pattern：pattern 是常量
         }
         let load = try store.load()
         guard let lib = load.libraries.first(where: { $0.key == key }) else {
@@ -1081,7 +1081,7 @@ public final class AkashicService {
             return try jsonString(load.libraries.map { lib -> [String: Any] in
                 var d: [String: Any] = ["key": displaySafe(lib.key, max: 200),
                                         "name": displaySafe(lib.name, max: 200),
-                                        "members": counts[lib.key] ?? 0]   // display-safe-exempt: dict 查找，值是 Int 計數
+                                        "members": counts[lib.key] ?? 0]   // display-safe-exempt: counts[lib.key]：dict 查找，值是 Int 計數
                 // #156 verify R4：library 的自由文字，與 name 同源（上面兩行已消毒）
                 if let desc = lib.description {
                     d["description"] = displaySafe(desc, max: 800)
@@ -1099,7 +1099,7 @@ public final class AkashicService {
             }
             // 驗證先行：未驗證 key 不得進任何路徑組合（存在性 oracle 防護）
             guard StoreKey.isValid(key) else {
-                throw ServiceError.invalid("library key「\(displaySafeInvisible(key, max: 200))」不符合 \(StoreKey.pattern)，拒絕寫入")   // display-safe-exempt: pattern 是常量
+                throw ServiceError.invalid("library key「\(displaySafeInvisible(key, max: 200))」不符合 \(StoreKey.pattern)，拒絕寫入")   // display-safe-exempt: StoreKey.pattern：pattern 是常量
             }
             guard let membership = try Self.parseLibraryMembership(input) else {
                 throw ServiceError.invalid("create 需要 kind（topic／rule／document）——library 的成員性質是寫入時查證的依據，不標就無從查證（#642）")
@@ -1113,7 +1113,7 @@ public final class AkashicService {
         case "set-kind":
             guard let key else { throw ServiceError.invalid("set-kind 需要 key") }
             guard StoreKey.isValid(key) else {
-                throw ServiceError.invalid("library key「\(displaySafeInvisible(key, max: 200))」不符合 \(StoreKey.pattern)")   // display-safe-exempt: pattern 是常量
+                throw ServiceError.invalid("library key「\(displaySafeInvisible(key, max: 200))」不符合 \(StoreKey.pattern)")   // display-safe-exempt: StoreKey.pattern：pattern 是常量
             }
             guard let membership = try Self.parseLibraryMembership(input) else {
                 throw ServiceError.invalid("set-kind 需要 kind（topic／rule／document）")
@@ -1130,7 +1130,7 @@ public final class AkashicService {
                                       "basis": LibraryMembershipCheck.basis(of: membership),
                                       "nonconforming": bad.count]   // display-safe-exempt: Int
             if !bad.isEmpty {
-                out["first"] = bad.prefix(20).map { ["citekey": displaySafe($0.citekey, max: 200), "reason": $0.violation.message] }   // display-safe-exempt: message 已逐項消毒
+                out["first"] = bad.prefix(20).map { ["citekey": displaySafe($0.citekey, max: 200), "reason": $0.violation.message] }   // display-safe-exempt: $0.violation.message：message 已逐項消毒
                 out["note"] = "現有成員有 \(bad.count) 筆不符這條規則——不自動移除；逐筆看 action check，確認後用 action remove"   // display-safe-exempt: Int
             }
             return try jsonString(out)
@@ -1140,7 +1140,7 @@ public final class AkashicService {
             var items: [[String: Any]] = []
             var bytes = 0, capped = false
             for b in bad {
-                let item: [String: Any] = ["citekey": displaySafe(b.citekey, max: 200), "reason": b.violation.message]   // display-safe-exempt: message 已逐項消毒
+                let item: [String: Any] = ["citekey": displaySafe(b.citekey, max: 200), "reason": b.violation.message]   // display-safe-exempt: b.violation.message：message 已逐項消毒
                 let cost = Self.jsonBytes(item)
                 if !items.isEmpty, bytes + cost > Self.candidateByteBudget { capped = true; break }
                 bytes += cost
@@ -1162,8 +1162,8 @@ public final class AkashicService {
                 throw ServiceError.invalid("寫入失敗：" + (report.writeFailures.first?.error ?? "未知"))
             }
             var out: [String: Any] = ["citekey": displaySafe(citekey, max: 200),
-                                      "libraries": report.libraries[citekey] ?? [],   // display-safe-exempt: library key 由 StoreKey 文法保證只含 [a-z0-9-]（寫入端 assertEntryWritable 驗過）
-                                      "written": report.written.contains(citekey)]   // display-safe-exempt: Bool
+                                      "libraries": report.libraries[citekey] ?? [],   // display-safe-exempt: report.libraries[citekey]：library key 由 StoreKey 文法保證只含 [a-z0-9-]（寫入端 assertEntryWritable 驗過）
+                                      "written": report.written.contains(citekey)]   // display-safe-exempt: report.written：Bool
             if action == "add" { out["basis"] = report.basis }
             if let skip = report.skipped.first { out["skipped"] = skip.reason }   // display-safe-exempt: reason 已逐項消毒（LibraryMembershipViolation.message）
             return try jsonString(out)
@@ -1200,7 +1200,7 @@ public final class AkashicService {
         }
         guard !citekeys.isEmpty else { throw ServiceError.invalid("citekeys 不得為空") }
         guard StoreKey.isValid(key) else {
-            throw ServiceError.invalid("library key「\(displaySafeInvisible(key, max: 200))」不符合 \(StoreKey.pattern)")   // display-safe-exempt: pattern 是常量
+            throw ServiceError.invalid("library key「\(displaySafeInvisible(key, max: 200))」不符合 \(StoreKey.pattern)")   // display-safe-exempt: StoreKey.pattern：pattern 是常量
         }
         let load = try store.load()
         // add 要求 registry 存在；remove 不要求——dangling membership（spec 允許）
@@ -1795,9 +1795,9 @@ public final class AkashicService {
                     + "\(displaySafe(p.personKey, max: 200))",
                  "literal": displaySafe(p.literal, max: 300),
                  "judgement": displaySafe(p.judgement, max: 800)]
-                    .merging(coexisting.contains("\(p.citekey):\(p.authorIndex):\(p.personKey)")   // display-safe-exempt: 集合鍵
+                    .merging(coexisting.contains("\(p.citekey):\(p.authorIndex):\(p.personKey)")   // display-safe-exempt: p.citekey、p.personKey：集合鍵
                              ? ["coexistsWith": "nominated"] : [:]) { a, _ in a }
-                    .merging(verdictNotRecorded["\(p.citekey):\(p.authorIndex):\(p.personKey)"]   // display-safe-exempt: 集合鍵
+                    .merging(verdictNotRecorded["\(p.citekey):\(p.authorIndex):\(p.personKey)"]   // display-safe-exempt: p.citekey、p.personKey：集合鍵
                                 .map { ["verdictNotRecorded": $0] } ?? [:]) { a, _ in a }   // display-safe-exempt: 本函式組裝的固定訊息，只插 Int
             },
             "skipped": skipped.map {
@@ -1872,7 +1872,7 @@ public final class AkashicService {
                     throw ServiceError.invalid(
                         "候選 id「\(displaySafeInvisible(id, max: 200))」的提名已改指："
                         + "該位置現在提名的是「\(displaySafeInvisible(now.personKey, max: 200))」"
-                        + "（tier \(now.tier.rawValue)）——重新列出候選後再決定")   // display-safe-exempt: tier.rawValue 封閉 enum
+                        + "（tier \(now.tier.rawValue)）——重新列出候選後再決定")   // display-safe-exempt: now.tier.rawValue：tier.rawValue 封閉 enum
                 }
             } else if parts.count == 2, let c = byRowID[id] {
                 // #624 R1 verify：兩段形只指到位置、沒點名人。淘汰而得的唯一候選是「原本
@@ -1944,7 +1944,7 @@ public final class AkashicService {
                 // R4-8 三段 pinned 形；R5 raw 不截斷——citekey/personKey 受 load 端
                 // StoreKey quarantine 把關（列表 id 同一 exempt 理由），截斷會讓
                 // 超長 citekey 的回音 id 不可重用
-                "rejected": landed.map { "\($0.citekey):\($0.authorIndex):\($0.personKey)" },   // display-safe-exempt: StoreKey 受 quarantine 把關（#171）
+                "rejected": landed.map { "\($0.citekey):\($0.authorIndex):\($0.personKey)" },   // display-safe-exempt: $0.citekey、$0.personKey、landed.map：StoreKey 受 quarantine 把關（#171）
                 "personsRewritten": grouped.count - rejectWriteFailed.count,
             ]
             if !rejectWriteFailed.isEmpty { result["rejectWriteFailed"] = rejectWriteFailed }
@@ -2272,7 +2272,7 @@ public final class AkashicService {
         if !unacknowledged.isEmpty {
             let need = unacknowledged.map(\.rawValue).sorted().joined(separator: "、")
             throw ServiceError.invalid(
-                "apply 集含寬鬆提名層（\(need)）——請在 confirm_tiers 列出以顯式承認"   // display-safe-exempt: 封閉 enum rawValue
+                "apply 集含寬鬆提名層（\(need)）——請在 confirm_tiers 列出以顯式承認"   // display-safe-exempt: need：封閉 enum rawValue
                 + "（寬鬆層 apply 前必查證；exact 免承認）")
         }
         let applied = PersonResolver.apply(chosen, to: load.entries)
@@ -2342,12 +2342,12 @@ public final class AkashicService {
         // R3-1 附帶：applied 回音同列表三段 pinned 形；R5 raw 不截斷（同 rejected
         // 回音理由——StoreKey 受 quarantine 把關）
         let appliedActual = chosen.filter { changedSlots.contains(slot($0)) && writeFailed[$0.citekey] == nil }
-            .map { "\($0.citekey):\($0.authorIndex):\($0.personKey)" }   // display-safe-exempt: StoreKey 受 quarantine 把關（#171）
+            .map { "\($0.citekey):\($0.authorIndex):\($0.personKey)" }   // display-safe-exempt: $0.citekey、$0.personKey：StoreKey 受 quarantine 把關（#171）
         var result: [String: Any] = ["applied": appliedActual, "entriesRewritten": written]
         // #627 R1：沒套用的候選具名回報——不說就與「套用了」在回應裡長得一樣
         if !notApplied.isEmpty {
             result["notApplied"] = notApplied.map {
-                "\($0.citekey):\($0.authorIndex):\($0.personKey)"   // display-safe-exempt: StoreKey 受 quarantine 把關（#171）
+                "\($0.citekey):\($0.authorIndex):\($0.personKey)"   // display-safe-exempt: $0.citekey、$0.personKey：StoreKey 受 quarantine 把關（#171）
             }
             result["notAppliedReason"] = "這幾筆的作者位沒有被改寫（entry 無法唯一定位，"
                 + "或作者位已不是候選的 literal）——未歸戶、未寫 verdict"
@@ -2463,7 +2463,7 @@ public final class AkashicService {
                 planned.append(try validatedEntry(from: d, existing: &existing, format: gateFormat))
             } catch {
                 throw ServiceError.invalid(
-                    "第 \(i + 1) 筆「\(displaySafeInvisible(d.title, max: 120))」：\(displaySafeError(error, max: 400))——整批拒絕，零寫入")   // display-safe-exempt: Int；title 以性質逃脫（R28 E2E：TAG 字元曾原樣進 MCP 錯誤）
+                    "第 \(i + 1) 筆「\(displaySafeInvisible(d.title, max: 120))」：\(displaySafeError(error, max: 400))——整批拒絕，零寫入")   // display-safe-exempt: i：Int；title 以性質逃脫（R28 E2E：TAG 字元曾原樣進 MCP 錯誤）
             }
         }
         var report = BatchCreateReport()
@@ -2518,7 +2518,7 @@ public final class AkashicService {
         guard let workType = WorkType(rawValue: d.type) else {
             throw ServiceError.invalid(
                 "type「\(displaySafeInvisible(d.type, max: 80))」不在封閉列舉"
-                + "（\(WorkType.domainDescription)）")   // display-safe-exempt: 由 allCases 生成，編譯期常量
+                + "（\(WorkType.domainDescription)）")   // display-safe-exempt: WorkType.domainDescription：由 allCases 生成，編譯期常量
         }
         var entry = Entry(id: d.id ?? UUID(), citekey: citekey, type: workType, title: d.title,
                           authors: d.authors.map { .literal($0) }, date: d.date)
@@ -2626,7 +2626,7 @@ public final class AkashicService {
         guard let o = ORCID(raw) else {
             throw ServiceError.invalid(
                 "欄位「orcid」的值「\(displaySafeInvisible(raw, max: 120))」不是合法的 ORCID"
-                + "（\(ORCID.shapeDescription)）")   // display-safe-exempt: 型別的靜態常數（預期形狀說明），非 store 內容
+                + "（\(ORCID.shapeDescription)）")   // display-safe-exempt: ORCID.shapeDescription：型別的靜態常數（預期形狀說明），非 store 內容
         }
         return o
     }
@@ -2785,7 +2785,7 @@ public final class AkashicService {
             "additions": plan.additions.sorted { $0.citekey < $1.citekey }.map { a -> [String: Any] in
                 var one: [String: Any] = [
                     "citekey": displaySafe(a.citekey, max: 200),
-                    "addedFields": Dictionary(a.addedFields.sorted { $0.key < $1.key }.map {   // display-safe-exempt: 鍵與值在下一行各自 displaySafe（#669：截斷不是單射，依原始鍵排序後留第一個、不 trap）
+                    "addedFields": Dictionary(a.addedFields.sorted { $0.key < $1.key }.map {   // display-safe-exempt: Dictionary：鍵與值在下一行各自 displaySafe（#669：截斷不是單射，依原始鍵排序後留第一個、不 trap）
                         (displaySafe($0.key, max: 80), displaySafe($0.value, max: 512))
                     }, uniquingKeysWith: { first, _ in first }),
                 ]
@@ -3912,7 +3912,7 @@ public final class AkashicService {
                         guard existing.medium == medium else {
                             throw ServiceError.invalid(
                                 "venue「\(displaySafeInvisible(key, max: 200))」的 ISSN「\(one.normalized)」已記為「\(displaySafeInvisible(recorded, max: 40))」，"   // display-safe-exempt: one.normalized 只含 [0-9X-]
-                                + "這次說 \(medium.rawValue)——兩句矛盾的話，拒絕整個呼叫，零寫入（改寫既有角色不在 add_issn）")   // display-safe-exempt: rawValue 是 enum 常數
+                                + "這次說 \(medium.rawValue)——兩句矛盾的話，拒絕整個呼叫，零寫入（改寫既有角色不在 add_issn）")   // display-safe-exempt: medium.rawValue：rawValue 是 enum 常數
                         }
                         issnAlreadyPresent.append(one.normalized)
                         continue
@@ -4178,7 +4178,7 @@ public final class AkashicService {
             // 改寫的陣列依序套用——結果是長度不對的靜默毀損。一個 slot 一次只能拆一次。
             guard seen.insert("\(citekey)#\(idx)").inserted else {   // display-safe-exempt: idx 是 Int
                 throw ServiceError.invalid(
-                    "「\(displaySafeInvisible(citekey, max: 200))」的作者位 \(idx) 被指定了兩次"   // display-safe-exempt: Int
+                    "「\(displaySafeInvisible(citekey, max: 200))」的作者位 \(idx) 被指定了兩次"   // display-safe-exempt: idx 是 Int
                     + "——同一個作者位一次只能拆一次")
             }
             out.append(SplitAuthorSpec(judgement: judgement, citekey: citekey, sep: sep, idx: idx))
@@ -4252,12 +4252,12 @@ public final class AkashicService {
             }
             guard entry.authors.indices.contains(idx) else {
                 throw ServiceError.invalid(
-                    "作者索引 \(idx) 超出範圍（0…\(entry.authors.count - 1)）")   // display-safe-exempt: Int
+                    "作者索引 \(idx) 超出範圍（0…\(entry.authors.count - 1)）")   // display-safe-exempt: idx 是 Int
             }
             // **只作用於 `.literal`**：已歸戶的位置拆開會讓那個 key 的身分不明。
             guard case .literal(let lit) = entry.authors[idx] else {
                 throw ServiceError.invalid(
-                    "「\(displaySafeInvisible(citekey, max: 200))」的作者位 \(idx) 已歸戶"   // display-safe-exempt: Int
+                    "「\(displaySafeInvisible(citekey, max: 200))」的作者位 \(idx) 已歸戶"   // display-safe-exempt: idx 是 Int
                     + "——拆開只作用於 .literal")
             }
             guard lit.contains(sep) else {
@@ -4809,7 +4809,7 @@ public final class AkashicService {
             }
             guard entry.authors.indices.contains(idx) else {
                 throw ServiceError.invalid(
-                    "作者索引 \(idx) 超出範圍（0…\(entry.authors.count - 1)）")   // display-safe-exempt: Int
+                    "作者索引 \(idx) 超出範圍（0…\(entry.authors.count - 1)）")   // display-safe-exempt: idx 是 Int
             }
             guard orgKeys.contains(orgKey) else {
                 throw ServiceError.notFound(
@@ -4826,7 +4826,7 @@ public final class AkashicService {
             // `repoint`／`demote` 與 apply 分開的理由，#418）。
             guard case .literal(let lit) = entry.authors[idx] else {
                 throw ServiceError.invalid(
-                    "「\(displaySafeInvisible(citekey, max: 200))」的作者位 \(idx) 已歸戶"   // display-safe-exempt: Int
+                    "「\(displaySafeInvisible(citekey, max: 200))」的作者位 \(idx) 已歸戶"   // display-safe-exempt: idx 是 Int
                     + "——升格只作用於 .literal；改已歸戶的邊是修正，需要自己的出口")
             }
             plans.append(Plan(citekey: citekey, idx: idx, orgKey: orgKey,
@@ -5004,7 +5004,7 @@ public final class AkashicService {
         if let rejectIDs = reject, !rejectIDs.isEmpty {
             guard storeFormat >= 11 else {
                 throw ServiceError.invalid(
-                    "venue verdict 需要 store format ≥ 11（本 store 是 \(storeFormat)）")   // display-safe-exempt: Int
+                    "venue verdict 需要 store format ≥ 11（本 store 是 \(storeFormat)）")   // display-safe-exempt: storeFormat 是 Int
             }
             let chosen = try dedupe(rejectIDs).map { id -> VenueResolutionCandidate in
                 guard let c = byID[id] else {
@@ -5075,7 +5075,7 @@ public final class AkashicService {
         }
         guard storeFormat >= 11 else {
             throw ServiceError.invalid(
-                "venue 歸戶需要 store format ≥ 11（本 store 是 \(storeFormat)）")   // display-safe-exempt: Int
+                "venue 歸戶需要 store format ≥ 11（本 store 是 \(storeFormat)）")   // display-safe-exempt: storeFormat 是 Int
         }
         let requested = try dedupe(selected).map { id -> VenueResolutionCandidate in
             guard let c = byID[id] else {
@@ -5144,7 +5144,7 @@ public final class AkashicService {
                 if !conflict.isEmpty {
                     skippedConflict.append(["id": c.rowID,
                                             "venueKey": displaySafe(c.venueKey, max: 200),
-                                            "reason": conflict.describe(candidate: c.literal, operation: "略過不寫")])   // display-safe-exempt: describe 內部逐項 displaySafeInvisible
+                                            "reason": conflict.describe(candidate: c.literal, operation: "略過不寫")])   // display-safe-exempt: conflict.describe：describe 內部逐項 displaySafeInvisible
                     continue
                 }
             }
@@ -5214,7 +5214,7 @@ public final class AkashicService {
             // 覆蓋前者而 supersede 對兩個 venue 各寫一筆 confirmed——雖被同 literal 相交的檢查擋下，訊息卻說「兩條邊」、出路叫人刪一條邊）
             if let earlier = targetByEdge["\(citekey)\u{0}\(idx)"] {
                 throw ServiceError.invalid(
-                    "同一批裡 work「\(displaySafeInvisible(citekey, max: 200))」的 index \(idx) 這同一條邊被指定了兩次"   // display-safe-exempt: Int
+                    "同一批裡 work「\(displaySafeInvisible(citekey, max: 200))」的 index \(idx) 這同一條邊被指定了兩次"   // display-safe-exempt: idx 是 Int
                     + "（改指到「\(displaySafeInvisible(earlier, max: 200))」與「\(displaySafeInvisible(newKey, max: 200))」）——一條邊一次只能改指到一個 venue；出路：只留一個")
             }
             targetByEdge["\(citekey)\u{0}\(idx)"] = newKey
@@ -5234,7 +5234,7 @@ public final class AkashicService {
         let storeFormat = (try? StoreVersion.read(root: store.root)) ?? 1
         guard storeFormat >= 11 else {
             throw ServiceError.invalid(
-                "venue 改指需要 store format ≥ 11（本 store 是 \(storeFormat)）")   // display-safe-exempt: Int
+                "venue 改指需要 store format ≥ 11（本 store 是 \(storeFormat)）")   // display-safe-exempt: storeFormat 是 Int
         }
         let venueKeys = Set(load.venues.map(\.key))
         var byCitekey = Dictionary(load.entries.map { ($0.citekey, $0) }, uniquingKeysWith: { a, _ in a })
@@ -5256,11 +5256,11 @@ public final class AkashicService {
             guard idx < entry.venues.count else {
                 throw ServiceError.invalid(
                     "work「\(displaySafeInvisible(citekey, max: 200))」只有 \(entry.venues.count) 個 venue 邊，"   // display-safe-exempt: Int
-                    + "index \(idx) 越界")   // display-safe-exempt: Int
+                    + "index \(idx) 越界")   // display-safe-exempt: idx 是 Int
             }
             guard case let .key(oldKey) = entry.venues[idx] else {
                 throw ServiceError.invalid(
-                    "work「\(displaySafeInvisible(citekey, max: 200))」的第 \(idx) 個 venue 邊還是 literal"   // display-safe-exempt: Int
+                    "work「\(displaySafeInvisible(citekey, max: 200))」的第 \(idx) 個 venue 邊還是 literal"   // display-safe-exempt: idx 是 Int
                     + "——那要用 --apply 升格，不是改指")
             }
             guard venueKeys.contains(newKey) else {
@@ -5278,7 +5278,7 @@ public final class AkashicService {
                 // `--demote` 對同一個懸空狀態也是 notFound（它要從那筆 venue 的 verdict 取回 literal），
                 // 指路要指得到（R7 verify 第 4 列）：唯一的出路是救回檔案，或手改 work 的 YAML 把這條邊改回 literal
                 throw ServiceError.notFound(
-                    "work「\(displaySafeInvisible(citekey, max: 200))」的第 \(idx) 個 venue 邊指著 venue「\(displaySafeInvisible(oldKey, max: 200))」，"   // display-safe-exempt: Int
+                    "work「\(displaySafeInvisible(citekey, max: 200))」的第 \(idx) 個 venue 邊指著 venue「\(displaySafeInvisible(oldKey, max: 200))」，"   // display-safe-exempt: idx 是 Int
                     + "但那筆記錄不在 store 裡（檔被刪或被 quarantine）——把檔案救回來，"
                     + "或手改這筆 work 的 YAML 把這條邊改回 `- literal: <原刊名>`")
             }
@@ -5332,7 +5332,7 @@ public final class AkashicService {
                     let spelled = Array(a.literal.utf8) == Array(b.literal.utf8) ? "「\(displaySafeInvisible(b.literal, max: 120))」"
                         : "「\(displaySafeInvisible(a.literal, max: 120))」／「\(displaySafeInvisible(b.literal, max: 120))」（正規化後相等）"
                     throw ServiceError.invalid(
-                        "同一批裡 work「\(displaySafeInvisible(ck, max: 200))」的 index \(a.index) 與 index \(b.index) 兩條邊帶同一個 literal"   // display-safe-exempt: Int
+                        "同一批裡 work「\(displaySafeInvisible(ck, max: 200))」的 index \(a.index) 與 index \(b.index) 兩條邊帶同一個 literal"   // display-safe-exempt: a.index、b.index 是 Int
                         + "\(spelled)且觸及同一個 venue——verdict 以 (work, literal) 為鍵、不帶 index，"   // display-safe-exempt: spelled 由上一行逐項 displaySafeInvisible 組成
                         + "兩個 move 對同一配對的退役會互相覆蓋，留下哪一側的證據取決於輸入順序。出路：先以 resolve-venues --drop-venue（MCP drop_venue）刪掉重複的邊（#572）")
                     }
@@ -5524,7 +5524,7 @@ public final class AkashicService {
             throw ServiceError.invalid(
                 "work「\(displaySafeInvisible(entry.citekey, max: 200))」的配對（literal「\(displaySafeInvisible(literal, max: 120))」）由 "
                 + "\(others.count + 1) 條邊實例化（\(IndexList.render(([index] + others).sorted()))）"   // display-safe-exempt: Int 序列（IndexList 有上限）
-                + "——verdict 不帶 index，\(operation)退役那筆 verdict 會把另一條邊的證據一起刪、之後那條邊在任何工具面上都救不回來。"   // display-safe-exempt: 固定字串（改指／降格）
+                + "——verdict 不帶 index，\(operation)退役那筆 verdict 會把另一條邊的證據一起刪、之後那條邊在任何工具面上都救不回來。"   // display-safe-exempt: operation：固定字串（改指／降格）
                 + "出路：以 resolve-venues --drop-venue（MCP drop_venue）刪掉重複的邊（#572），再重跑")
         }
     }
@@ -5603,7 +5603,7 @@ public final class AkashicService {
         case 0:
             throw ServiceError.invalid(
                 "venue「\(displaySafeInvisible(venue.key, max: 200))」上找不到 work「\(displaySafeInvisible(citekey, max: 200))」"
-                + "的 confirmed verdict——原 literal 無從取回，\(operation)會寫出一筆不知道原文是什麼的 verdict。"   // display-safe-exempt: 固定字串（改指／降格）
+                + "的 confirmed verdict——原 literal 無從取回，\(operation)會寫出一筆不知道原文是什麼的 verdict。"   // display-safe-exempt: operation：固定字串（改指／降格）
                 + "不拿 work 的 title 或 venue 的顯示名頂替：那不是這筆記錄原本寫的字，用它會安靜改寫書目資料。"
                 + "出路：手改這筆 work 的 YAML 把這條邊改回 `- literal: <原刊名>`，再用 `resolve-venues --apply` 重新歸戶"
                 + "（那一步會寫下 verdict）")
@@ -5613,7 +5613,7 @@ public final class AkashicService {
                 + "\(literals.count) 個不同的 confirmed literal（"   // display-safe-exempt: Int
                 + literals.prefix(5).map { "「\(displaySafeInvisible($0, max: 120))」" }.joined(separator: "、")
                 + (literals.count > 5 ? "…" : "")   // 列舉有上限（#562 那一族，R11 verify security 第 20 列）；literal 以性質逃脫（R12 verify 第 14 列）
-                + "）——verdict 不帶 index，分不出這條邊原本寫的是哪一個，\(operation)會把錯的 literal 寫進 verdict。"   // display-safe-exempt: 固定字串（改指／降格）
+                + "）——verdict 不帶 index，分不出這條邊原本寫的是哪一個，\(operation)會把錯的 literal 寫進 verdict。"   // display-safe-exempt: operation：固定字串（改指／降格）
                 + "出路：把不屬於這條邊的那筆 confirmed verdict 從 venue 的 YAML 刪掉（或先改指另一條邊），再重跑")
         }
     }
@@ -5664,7 +5664,7 @@ public final class AkashicService {
         let storeFormat = (try? StoreVersion.read(root: store.root)) ?? 1
         guard storeFormat >= 11 else {
             throw ServiceError.invalid(
-                "venue 降格需要 store format ≥ 11（本 store 是 \(storeFormat)）")   // display-safe-exempt: Int
+                "venue 降格需要 store format ≥ 11（本 store 是 \(storeFormat)）")   // display-safe-exempt: storeFormat 是 Int
         }
         var byCitekey = Dictionary(load.entries.map { ($0.citekey, $0) }, uniquingKeysWith: { a, _ in a })
         let unlocatableForRepointDemote = load.entries.unlocatableCitekeys   // #628：迴圈外算一次（R1 verify：逐 id 重算是 O(M×N)）
@@ -5686,11 +5686,11 @@ public final class AkashicService {
             guard idx < entry.venues.count else {
                 throw ServiceError.invalid(
                     "work「\(displaySafeInvisible(citekey, max: 200))」只有 \(entry.venues.count) 個 venue 邊，"   // display-safe-exempt: Int
-                    + "index \(idx) 越界")   // display-safe-exempt: Int
+                    + "index \(idx) 越界")   // display-safe-exempt: idx 是 Int
             }
             guard case let .key(vkey) = entry.venues[idx] else {
                 throw ServiceError.invalid(
-                    "work「\(displaySafeInvisible(citekey, max: 200))」的第 \(idx) 個 venue 邊已經是 literal")   // display-safe-exempt: Int
+                    "work「\(displaySafeInvisible(citekey, max: 200))」的第 \(idx) 個 venue 邊已經是 literal")   // display-safe-exempt: idx 是 Int
             }
             // #670：原 literal 要從那個 venue 的 verdict 取回、rejected 也寫進它——key 重複時取哪一筆是猜
             guard !load.venues.unlocatableVenueKeys.contains(vkey) else {
@@ -5865,7 +5865,7 @@ public final class AkashicService {
         if let rejectIDs = reject, !rejectIDs.isEmpty {
             guard storeFormat >= 8 else {
                 throw ServiceError.invalid(
-                    "resolution verdict 需要 store format ≥ 8（本 store 是 \(storeFormat)）")   // display-safe-exempt: Int
+                    "resolution verdict 需要 store format ≥ 8（本 store 是 \(storeFormat)）")   // display-safe-exempt: storeFormat 是 Int
             }
             let chosen = try dedupe(rejectIDs).map { id -> OrgResolutionCandidate in
                 guard let c = byID[id] else {
@@ -5944,7 +5944,7 @@ public final class AkashicService {
                         let n = undecidedCount(m.holder, m.literal, k)
                         if n > 0 { perOrg[displaySafe(k, max: 200)] = n }
                     }
-                    return ["id": Self.orgRowID(m.holder, literal: m.literal),   // display-safe-exempt: 回程把手須逐字（同候選列的 rowID，#378）；控制字元由 JSON 編碼處理
+                    return ["id": Self.orgRowID(m.holder, literal: m.literal),   // display-safe-exempt: Self.orgRowID：回程把手須逐字（同候選列的 rowID，#378）；控制字元由 JSON 編碼處理
                             "holder": displaySafe(m.holder.key, max: 200),
                             "literal": displaySafe(m.literal, max: 200),
                             "orgKeys": m.orgKeys.map { displaySafe($0, max: 200) },

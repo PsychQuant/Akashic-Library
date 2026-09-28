@@ -174,7 +174,7 @@ struct SidebarView: View {
                         Button {
                             onSwitchFile(file.key)
                         } label: {
-                            Label(file.key, systemImage:   // display-safe-exempt: registry key，AkashicConfig decode 驗 StoreKey
+                            Label(file.key, systemImage:   // display-safe-exempt: file.key：registry key，AkashicConfig decode 驗 StoreKey
                                     state.root.path == (file.path as NSString).expandingTildeInPath
                                     ? "externaldrive.fill" : "externaldrive")
                         }

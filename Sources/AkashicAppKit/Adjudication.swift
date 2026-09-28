@@ -195,6 +195,12 @@ public enum AdjudicationError: Error, LocalizedError, Equatable, SanitizedErrorD
     case reasonTooLong(bytes: Int)
     /// #609：移除之前那筆記錄檔要在 git 裡有副本（同一族裁決；`filesNotSafelyRecoverable` 那一支閘）。`why` 是本 package 的固定句。
     case notRecoverable(citekey: String, why: String)
+    /// #609 R1 verify：使用者確認的那一組已刪除來源，與動作當下磁碟上的那一組不同（外部匯入又標了新的、或有一個已恢復）——
+    /// 拿掉的只能是使用者看到並確認的那一組，所以拒絕。`seen`／`now` 是排序過、以「、」相接的來源鍵（`<library_id>:<zotero_key>`，
+    /// store 字串）：**擲出端消毒一次**（描述端原樣印出，不再逃一次）；空的一組寫「（無）」。
+    case orphanedSourcesChanged(citekey: String, seen: String, now: String)
+    /// #609 R1 verify：git 閘通過之後、寫入之前，那筆記錄又被外部改過——閘的結論不再適用於現在的內容，拒絕（不用閘之前的快照整檔寫回）。
+    case changedDuringCheck(String)
 
     public var errorDescription: String? {
         switch self {
@@ -214,6 +220,12 @@ public enum AdjudicationError: Error, LocalizedError, Equatable, SanitizedErrorD
         case .noOrphanedAdditionalSource(let key):
             return "「\(displaySafeInvisible(key, max: 200))」已不是「主連結仍在、附加來源已刪除」的形狀——外部同步可能已恢復來源；"
                 + "整筆 orphan 請改用「與 Zotero 脫鉤」。已拒絕（#609）"
+        case .orphanedSourcesChanged(let key, let seen, let now):
+            return "「\(displaySafeInvisible(key, max: 200))」已刪除的附加來源與你確認時看到的不同——"
+                + "確認的：\(seen)；現在：\(now)。"   // display-safe-exempt: seen／now 在擲出端已消毒
+                + "外部匯入可能又標了新的來源、或有一個已恢復；拿掉的只能是你確認的那一組，已拒絕、零寫入。請重新檢視清單再確認（#609）"
+        case .changedDuringCheck(let key):
+            return "「\(displaySafeInvisible(key, max: 200))」的記錄在檢查 git 副本的期間被外部改動——檢查的結論不再適用，已拒絕、零寫入。請重新整理再做（#609）"
         case .reasonRequired:
             return "拿掉來源要寫理由——理由只出現在這次的結果裡、不寫進 store，請寫進 commit message（#609）"
         case .reasonTooLong(let bytes):
@@ -223,6 +235,33 @@ public enum AdjudicationError: Error, LocalizedError, Equatable, SanitizedErrorD
                 + "——被拿掉的來源只會留在 git 裡，先 commit 再做。已拒絕、零寫入（#609）"
         }
     }
+}
+
+/// #609 R1 verify：「拿掉已刪除的來源」對話框裡的理由草稿。
+///
+/// 兩件事：動作失敗（最可能是記錄檔還沒 commit）之後使用者重開同一筆，已打的理由還在，不必重打；
+/// 理由是空的時候破壞性按鈕不能按（先前只在按下之後才被 `reasonRequired` 拒絕）。
+/// 抽成值型別是為了能在沒有 SwiftUI 的測試裡驗——view 只綁 `text` 與 `isSubmittable`。
+public struct RemovalReasonDraft: Equatable {
+    public private(set) var citekey: String?
+    public var text: String = ""
+
+    public init() {}
+
+    /// 開對話框：同一筆再開（上一次失敗）保留理由，換另一筆就清空。
+    public mutating func open(for citekey: String) {
+        if self.citekey != citekey { text = "" }
+        self.citekey = citekey
+    }
+
+    /// 動作成功之後清掉——理由已經進了結果報告。
+    public mutating func clearAfterSuccess() {
+        text = ""
+        citekey = nil
+    }
+
+    /// 理由非空（去掉前後空白之後）才可送出。
+    public var isSubmittable: Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 }
 
 /// 裁決台②Orphans：等待（預設）／刪檔（垃圾桶可救回）／轉純 Akashic entry。
@@ -248,10 +287,14 @@ public final class OrphanModel {
     public func resolve(citekey: String, action: Action) throws {
         // 破壞性動作當下重新讀盤驗證——確認對話框開啟期間 Zotero pull 可能
         // 已把 entry 恢復正常（TOCTOU）；記憶體清單不可作為安全邊界。
-        guard let entry = try state.store.load().entries
-            .first(where: { $0.citekey == citekey }) else {
+        let load = try state.store.load()
+        guard let entry = load.entries.first(where: { $0.citekey == citekey }) else {
             throw AdjudicationError.entryNotFound(citekey)
         }
+        // 三個寫入動作的定位守衛一致（#609 R1 verify）：citekey 重複、或與另一筆共用 id 時 `first(where:)` 會猜是哪一筆——
+        // 垃圾桶丟的可能是兄弟的檔、脫鉤寫進猜出來的那筆，而兩者都是不可逆的來源刪除。與 `removeOrphanedAdditionalSources`、
+        // `AppState.mutate` 同一條（`unlocatableCitekeys`，#628／#641）。
+        if load.entries.unlocatableCitekeys.contains(citekey) { throw AdjudicationError.unlocatableCitekey(citekey) }
         // 整筆 orphan 的判準只有一份（`Entry.zoteroLinkState`，#609）：「只有附加來源、全部已刪除」也在內——
         // 先前這裡只看主來源，那種 entry 列不進清單、也動不了。
         guard entry.zoteroLinkState == .orphaned else {
@@ -286,7 +329,10 @@ public final class OrphanModel {
     ///
     /// 移除面一族的使用者裁決（2026-09-27）：理由必填、只進回傳的報告（不寫進 store）；移除前要求那筆記錄檔已 commit、乾淨
     /// （被拿掉的來源只剩 git 裡那一份）。動作當下重新讀盤驗證形狀（TOCTOU，同 `resolve`）。回傳給人看的報告。
-    public func removeOrphanedAdditionalSources(citekey: String, reason: String) throws -> String {
+    ///
+    /// `seen` 是使用者在清單與對話框上看到並確認的那一組（`Entry.orphanedAdditionalSourceKeys`）：動作當下磁碟上的那一組
+    /// 若與它不同就拒絕，不猜「使用者大概也想拿掉新出現的」——拿掉的只能是他確認的那一組（#609 R1 verify）。
+    public func removeOrphanedAdditionalSources(citekey: String, reason: String, seen: [String]) throws -> String {
         let trimmed = reason.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw AdjudicationError.reasonRequired }
         let byteCount = trimmed.utf8.count
@@ -299,7 +345,20 @@ public final class OrphanModel {
         guard entry.zoteroLinkState == .additionalSourceOrphaned else {
             throw AdjudicationError.noOrphanedAdditionalSource(citekey)
         }
+        let now = entry.orphanedAdditionalSourceKeys
+        guard Set(seen) == Set(now) else {
+            throw AdjudicationError.orphanedSourcesChanged(
+                citekey: citekey,
+                seen: displaySafeInvisible(seen.isEmpty ? "（無）" : seen.sorted().joined(separator: "、"), max: 600),
+                now: displaySafeInvisible(now.isEmpty ? "（無）" : now.sorted().joined(separator: "、"), max: 600))
+        }
         try assertRecordFileRecoverable(entry)
+        try afterRecoverabilityGate?()
+        // 閘是多個子程序、有時間窗：閘通過之後那筆記錄若又被外部改過，閘的結論就不適用於現在的內容，而下面要寫回的是閘之前的快照——
+        // 重讀一次，不一致就拒絕，不整檔覆寫（#609 R1 verify，security）。
+        guard try state.store.load().entries.first(where: { $0.citekey == citekey }) == entry else {
+            throw AdjudicationError.changedDuringCheck(citekey)
+        }
         let removed = entry.additionalProvenance.filter { $0.orphanedAt != nil }
         var updated = entry
         updated.additionalProvenance.removeAll { $0.orphanedAt != nil }
@@ -312,6 +371,9 @@ public final class OrphanModel {
             + "理由：\(displaySafeInvisible(trimmed, max: 4_096))。"
             + "移除前的版本在 git 裡；理由不寫進 store，要留下請寫進 commit message（#609）"
     }
+
+    /// 測試接縫：git 閘通過之後、寫入之前呼叫。只給測試模擬「閘的時間窗裡記錄被外部改動」；正式程式路徑不設。
+    var afterRecoverabilityGate: (() throws -> Void)?
 
     /// 那筆記錄檔在 git 裡有 tracked、clean 的副本——與 `AkashicService.assertRecordsRecoverable` 同一支檢查
     /// （`LibraryStore.filesNotSafelyRecoverable`），路徑取自磁碟上的實際檔名（`entityRelativePaths`，#573 R1）。

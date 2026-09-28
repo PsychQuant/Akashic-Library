@@ -2698,13 +2698,21 @@ public final class AkashicService {
         let report = try ZoteroImporter(store: store)
             .run(zoteroDB: URL(fileURLWithPath: path), libraryID: libraryID)
         // R10（R9-verify M3/M5）：rebuild 擲錯不得吞掉整份 import report——
-        // 磁碟滿等原因與 writeFailed 正相關，最需要報告的場景恰好最易被吞
+        // 磁碟滿等原因與 writeFailed 正相關，最需要報告的場景恰好最易被吞。
+        // #610 R1 verify：先前那條分支只帶四個計數，`ambiguousSourceClaims`（有條目本趟被整個略過）與 `secondarySource*` 都消失——
+        // 現在把成功時回傳的那一份報告原樣放進錯誤訊息，兩條路徑同一個 payload、不會再各漏各的。
+        let payload = Self.importReportPayload(report)
         do {
             try LibraryIndex(store: store).rebuild()
         } catch {
             throw ServiceError.invalid(
-                "index rebuild 失敗：\(displaySafeError(error, max: 512))（本趟 import 已落地：created \(report.created.count)、updated \(report.updated.count)、orphaned \(report.orphaned.count)；writeFailed \(report.writeFailed.count) 筆：\(report.writeFailed.keys.sorted().map { displaySafeInvisible($0, max: 200) }.joined(separator: ", "))）")
+                "index rebuild 失敗：\(displaySafeError(error, max: 512))（本趟 import 已落地，完整報告如下）：\n\(try jsonString(payload))")   // display-safe-exempt: jsonString 的輸出已由序列化器逐項消毒（escapingUnsafeScalars）
         }
+        return try jsonString(payload)
+    }
+
+    /// `import-zotero` 的報告 payload——rebuild 成功與失敗兩條路徑共用（#610 R1 verify）。
+    static func importReportPayload(_ report: ImportReport) -> [String: Any] {
         var d: [String: Any] = [
             "created": report.created.map { displaySafe($0, max: 200) },
             "updated": report.updated.map { displaySafe($0, max: 200) },
@@ -2732,7 +2740,7 @@ public final class AkashicService {
             d["ambiguousSourceClaims"] = Dictionary(report.ambiguousSourceClaims.sorted { $0.key < $1.key }.map { (displaySafe($0.key, max: 120), $0.value.map { displaySafe($0, max: 200) }) }, uniquingKeysWith: { first, _ in first })
         }
         if !report.writeFailed.isEmpty { d["writeFailed"] = Dictionary(report.writeFailed.sorted { $0.key < $1.key }.map { (displaySafeInvisible($0.key, max: 200), displaySafeClipOnly($0.value, max: 512)) }, uniquingKeysWith: { first, _ in first }) }   // display-safe-exempt: value 已消毒（ZoteroImporter 的 writeFailed 由 displaySafeError 產出，R29 D81），只截
-        return try jsonString(d)
+        return d
     }
 
     /// 逐筆 Zotero 補值的 MCP 面（#340）。

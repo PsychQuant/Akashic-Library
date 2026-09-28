@@ -100,7 +100,7 @@ struct Doctor: ParsableCommand {
             print("divergences: \(load.divergences.count)")
         }
         print("relations: \(stats.relations)")
-        // 讀 `health`，不自己推導（#609）：這裡先前自己寫 `provenance?.orphanedAt != nil`，與 `StoreHealth` 是兩份判準——
+        // 讀 `health`，不自己推導（#609）：這裡先前自己從主來源的 orphan 標記推導，與 `StoreHealth` 是兩份判準——
         // 「只有附加來源、全部已刪除」的 entry 在這一行看不見，而 #609 把判準收成 `Entry.zoteroLinkState` 一份。
         let orphaned = health.orphanedCitekeys
         print("orphaned: \(orphaned.count)\(orphaned.isEmpty ? "" : "（" + orphaned.map { displaySafe($0, max: 200) }.joined(separator: ", ") + "）")")

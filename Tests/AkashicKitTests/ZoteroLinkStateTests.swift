@@ -3,6 +3,7 @@ import XCTest
 @testable import AkashicStoreIO
 @testable import AkashicIndex
 @testable import AkashicSQLite
+@testable import AkashicMCPKit
 
 /// #609：附加來源被標 orphan 之後，doctor 與 index 都看得到。
 ///
@@ -87,5 +88,23 @@ final class ZoteroLinkStateTests: XCTestCase {
         let db = try SQLiteDB(path: store.indexURL.path, readOnly: true)
         let rows = try db.query("SELECT citekey FROM entries WHERE orphaned = 1 ORDER BY citekey")
         XCTAssertEqual(rows.compactMap { $0["citekey"] as? String }, ["allgone2020", "primarygone2020"])
+    }
+
+    /// MCP `akashic_doctor` 的 payload（#609 R1 verify）：`orphaned` 讀 health（含「只有附加來源、全部已刪除」），新鍵
+    /// `orphanedAdditionalSources` 列出主連結仍在、附加來源已刪除的 entry——與 `orphaned` 不相交。先前 kit 層之外沒有證據。
+    func testMCPDoctorPayloadListsBothShapes() throws {
+        try seedShapes()
+        let service = AkashicService(root: root, key: nil, environment: ["AKASHIC_HOME": home.path])
+        let obj = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(try service.doctor().utf8)) as? [String: Any])
+        XCTAssertEqual(Set(try XCTUnwrap(obj["orphaned"] as? [String])), ["allgone2020", "primarygone2020"])
+        XCTAssertEqual(obj["orphanedAdditionalSources"] as? [String], ["partial2020"])
+    }
+
+    func testMCPDoctorPayloadHasEmptyListsOnAHealthyStore() throws {
+        try store.writeEntry(entry("alive2020", primary: source("A", lib: 1, orphaned: false), additional: []))
+        let service = AkashicService(root: root, key: nil, environment: ["AKASHIC_HOME": home.path])
+        let obj = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(try service.doctor().utf8)) as? [String: Any])
+        XCTAssertEqual(obj["orphaned"] as? [String], [])
+        XCTAssertEqual(obj["orphanedAdditionalSources"] as? [String], [], "鍵一定在，空清單不是缺席")
     }
 }

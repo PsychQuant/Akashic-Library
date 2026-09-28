@@ -39,6 +39,11 @@ final class OrphanedAdditionalSourceTests: XCTestCase {
         try LibraryStore(root: root).load().entries.first { $0.citekey == citekey }
     }
 
+    /// 使用者在清單上看到、並在對話框裡確認的那一組來源（`Entry.orphanedAdditionalSourceKeys`）。
+    private func seen(_ citekey: String) throws -> [String] {
+        try XCTUnwrap(try entry(citekey)).orphanedAdditionalSourceKeys
+    }
+
     // MARK: - git fixture（移除前要求記錄檔已 commit——移除面一族的使用者裁決，2026-09-27）
 
     /// 剝除 GIT_*（#234）：從 git hook 裡跑測試時，hook 環境帶著 GIT_DIR，`-C` 擋不住它。
@@ -89,7 +94,7 @@ final class OrphanedAdditionalSourceTests: XCTestCase {
         commitAll()
         let before = try XCTUnwrap(try entry("partial2020"))
         let report = try OrphanModel(state: state)
-            .removeOrphanedAdditionalSources(citekey: "partial2020", reason: "群組那份已刪、不再等")
+            .removeOrphanedAdditionalSources(citekey: "partial2020", reason: "群組那份已刪、不再等", seen: try seen("partial2020"))
         let after = try XCTUnwrap(try entry("partial2020"))
         XCTAssertEqual(after.provenance, before.provenance, "主來源不動")
         XCTAssertEqual(after.additionalProvenance.map(\.zoteroKey), ["K3"], "活著的附加來源不動")
@@ -103,7 +108,7 @@ final class OrphanedAdditionalSourceTests: XCTestCase {
         let before = try XCTUnwrap(try entry("partial2020"))
         // 不在 git 工作樹
         XCTAssertThrowsError(try OrphanModel(state: state)
-            .removeOrphanedAdditionalSources(citekey: "partial2020", reason: "r")) { err in
+            .removeOrphanedAdditionalSources(citekey: "partial2020", reason: "r", seen: ["5:K2"])) { err in
             XCTAssertTrue(err.localizedDescription.contains("git"), err.localizedDescription)
         }
         XCTAssertEqual(try entry("partial2020"), before, "零寫入")
@@ -114,14 +119,14 @@ final class OrphanedAdditionalSourceTests: XCTestCase {
         try LibraryStore(root: root).writeEntry(dirty)
         try state.load()
         XCTAssertThrowsError(try OrphanModel(state: state)
-            .removeOrphanedAdditionalSources(citekey: "partial2020", reason: "r"))
+            .removeOrphanedAdditionalSources(citekey: "partial2020", reason: "r", seen: ["5:K2"]))
         XCTAssertEqual(try entry("partial2020")?.additionalProvenance.count, 2, "零寫入")
     }
 
     func testRemovalRequiresAReason() throws {
         commitAll()
         for r in ["", "   \n"] {
-            XCTAssertThrowsError(try OrphanModel(state: state).removeOrphanedAdditionalSources(citekey: "partial2020", reason: r))
+            XCTAssertThrowsError(try OrphanModel(state: state).removeOrphanedAdditionalSources(citekey: "partial2020", reason: r, seen: ["5:K2"]))
         }
         XCTAssertEqual(try entry("partial2020")?.additionalProvenance.count, 2, "零寫入")
     }
@@ -130,16 +135,125 @@ final class OrphanedAdditionalSourceTests: XCTestCase {
     func testRemovalRevalidatesTheShapeAtActionTime() throws {
         commitAll()
         let model = OrphanModel(state: state)
-        XCTAssertThrowsError(try model.removeOrphanedAdditionalSources(citekey: "alive2020", reason: "r"))
-        XCTAssertThrowsError(try model.removeOrphanedAdditionalSources(citekey: "allgone2020", reason: "r"))
-        XCTAssertThrowsError(try model.removeOrphanedAdditionalSources(citekey: "ghost2000x", reason: "r"))
+        XCTAssertThrowsError(try model.removeOrphanedAdditionalSources(citekey: "alive2020", reason: "r", seen: []))
+        XCTAssertThrowsError(try model.removeOrphanedAdditionalSources(citekey: "allgone2020", reason: "r", seen: ["5:K4"]))
+        XCTAssertThrowsError(try model.removeOrphanedAdditionalSources(citekey: "ghost2000x", reason: "r", seen: ["5:K2"]))
         // 清單開著的時候，外部把那個來源恢復了
         let store = LibraryStore(root: root)
         var restored = try XCTUnwrap(try entry("partial2020"))
         restored.additionalProvenance[0].orphanedAt = nil
         try store.writeEntry(restored)
         commitAll()
-        XCTAssertThrowsError(try model.removeOrphanedAdditionalSources(citekey: "partial2020", reason: "r"))
+        XCTAssertThrowsError(try model.removeOrphanedAdditionalSources(citekey: "partial2020", reason: "r", seen: ["5:K2"]))
         XCTAssertEqual(try entry("partial2020")?.additionalProvenance.count, 2)
+    }
+
+    // MARK: - #609 R1 verify：拿掉的是使用者看到並確認的那一組
+
+    /// 清單顯示之後、按下「拿掉」之前，一次匯入又把另一個附加來源標成已刪除。動作只能拿掉使用者看到的那一組——
+    /// 先前 `removeAll { orphanedAt != nil }` 連沒看過的也拿掉，只在事後的報告裡才說。
+    func testRemovalRefusesWhenTheOrphanedSetDiffersFromTheOneTheUserSaw() throws {
+        commitAll()
+        let saw = try seen("partial2020")
+        XCTAssertEqual(saw, ["5:K2"])
+        // 外部：K3（lib 7）也在 Zotero 端被刪了
+        let store = LibraryStore(root: root)
+        var changed = try XCTUnwrap(try entry("partial2020"))
+        changed.additionalProvenance[1].orphanedAt = gone
+        try store.writeEntry(changed)
+        commitAll()
+        let model = OrphanModel(state: state)
+        XCTAssertThrowsError(try model.removeOrphanedAdditionalSources(citekey: "partial2020", reason: "r", seen: saw)) { err in
+            XCTAssertEqual(err as? AdjudicationError,
+                           .orphanedSourcesChanged(citekey: "partial2020", seen: "5:K2", now: "5:K2、7:K3"), "\(err)")
+        }
+        XCTAssertEqual(try entry("partial2020")?.additionalProvenance.count, 2, "零寫入：沒看過的 K3 不得被拿掉")
+        // 看到目前這一組並確認之後才動手
+        _ = try model.removeOrphanedAdditionalSources(citekey: "partial2020", reason: "r", seen: ["7:K3", "5:K2"])
+        XCTAssertEqual(try entry("partial2020")?.additionalProvenance, [])
+    }
+
+    /// 反方向：使用者看到的來源之一已在 Zotero 端恢復——同樣不是他確認的那一組，拒絕。
+    func testRemovalRefusesWhenASeenSourceIsNoLongerOrphaned() throws {
+        commitAll()
+        let model = OrphanModel(state: state)
+        XCTAssertThrowsError(try model.removeOrphanedAdditionalSources(
+            citekey: "partial2020", reason: "r", seen: ["5:K2", "7:K3"]))
+        XCTAssertThrowsError(try model.removeOrphanedAdditionalSources(citekey: "partial2020", reason: "r", seen: []))
+        XCTAssertEqual(try entry("partial2020")?.additionalProvenance.count, 2)
+    }
+
+    /// LOW（security）：形狀重驗發生在慢速 git 閘之前、寫入卻用閘之前的快照。閘通過之後那筆記錄被外部恢復了一個來源，
+    /// 動作必須拒絕，而不是用舊快照整檔寫回、把剛恢復的來源拿掉。
+    func testRemovalRefusesWhenTheRecordChangesAfterTheGitGate() throws {
+        commitAll()
+        let model = OrphanModel(state: state)
+        let saw = try seen("partial2020")
+        model.afterRecoverabilityGate = {
+            var restored = try XCTUnwrap(try self.entry("partial2020"))
+            restored.additionalProvenance[0].orphanedAt = nil
+            try LibraryStore(root: self.root).writeEntry(restored)
+        }
+        XCTAssertThrowsError(try model.removeOrphanedAdditionalSources(citekey: "partial2020", reason: "r", seen: saw)) { err in
+            XCTAssertEqual(err as? AdjudicationError, .changedDuringCheck("partial2020"), "\(err)")
+        }
+        let after = try XCTUnwrap(try entry("partial2020"))
+        XCTAssertEqual(after.additionalProvenance.map(\.zoteroKey), ["K2", "K3"], "剛恢復的來源不得被拿掉")
+        XCTAssertNil(after.additionalProvenance[0].orphanedAt)
+    }
+
+    // MARK: - #609 R1 verify（security）：三個 App 寫入動作的定位守衛一致
+
+    /// 同一個 citekey 有兩份記錄檔：以 citekey 定位會猜是哪一筆。垃圾桶、脫鉤、拿掉來源三個動作都拒絕、零寫入。
+    func testAllThreeOrphanActionsRefuseAnUnlocatableCitekey() throws {
+        commitAll()
+        let entities = root.appendingPathComponent("entities")
+        var snapshots: [String: Data] = [:]
+        for ck in ["allgone2020", "partial2020"] {
+            let e = try XCTUnwrap(try entry(ck))
+            let dir = root.appendingPathComponent("entries")
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            try EntryYAML.encode(e).write(to: dir.appendingPathComponent("\(ck).yaml"), atomically: true, encoding: .utf8)
+            snapshots[ck] = try Data(contentsOf: entities.appendingPathComponent("\(e.id.uuidString).yaml"))
+        }
+        try state.load()
+        XCTAssertEqual(state.entries.filter { $0.citekey == "allgone2020" }.count, 2, "前提：兩份都讀到")
+        let model = OrphanModel(state: state)
+        for action in [OrphanModel.Action.moveToTrash, .detachFromZotero] {
+            XCTAssertThrowsError(try model.resolve(citekey: "allgone2020", action: action)) { err in
+                XCTAssertEqual(err as? AdjudicationError, .unlocatableCitekey("allgone2020"), "\(action)：\(err)")
+            }
+        }
+        XCTAssertThrowsError(try model.removeOrphanedAdditionalSources(
+            citekey: "partial2020", reason: "r", seen: ["5:K2"])) { err in
+            XCTAssertEqual(err as? AdjudicationError, .unlocatableCitekey("partial2020"), "\(err)")
+        }
+        for (ck, bytes) in snapshots {
+            let e = try XCTUnwrap(state.entries.first { $0.citekey == ck })
+            XCTAssertEqual(try Data(contentsOf: entities.appendingPathComponent("\(e.id.uuidString).yaml")), bytes, "\(ck) 一個位元都不動")
+        }
+    }
+
+    // MARK: - #609 R1 verify：失敗之後保留已打的理由；空理由不能按
+
+    func testReasonDraftSurvivesAFailureAndIsClearedOnSuccess() {
+        var draft = RemovalReasonDraft()
+        XCTAssertFalse(draft.isSubmittable, "還沒打理由")
+        draft.open(for: "partial2020")
+        draft.text = "群組那份已刪、不再等"
+        XCTAssertTrue(draft.isSubmittable)
+        // 動作失敗（例如記錄檔還沒 commit）→ 使用者 commit 之後重開同一筆：理由還在
+        draft.open(for: "partial2020")
+        XCTAssertEqual(draft.text, "群組那份已刪、不再等")
+        // 換另一筆：不帶著別筆的理由
+        draft.open(for: "other2020")
+        XCTAssertEqual(draft.text, "")
+        draft.text = "  \n\t"
+        XCTAssertFalse(draft.isSubmittable, "只有空白＝空理由")
+        draft.text = "x"
+        draft.clearAfterSuccess()
+        XCTAssertEqual(draft.text, "")
+        draft.open(for: "other2020")
+        XCTAssertEqual(draft.text, "", "成功之後不留舊理由")
     }
 }

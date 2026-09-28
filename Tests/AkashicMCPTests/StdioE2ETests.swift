@@ -430,6 +430,19 @@ extension StdioE2ETests {
         XCTAssertTrue(desc.contains("provenanceOmitted"), "#655：描述要說出刻意不寫的欄位在哪個鍵")
     }
 
+    /// #610 R1 verify：`ambiguousSourceClaims` 只在非空時出現，只讀描述的 LLM 呼叫端沒有理由去檢查它——而它代表「有條目本趟被整個略過」，
+    /// 重要性與 writeFailed 相當。描述要點名這個鍵。
+    func testImportZoteroDescriptionNamesTheAmbiguousClaimsKey() throws {
+        try initialize()
+        try send(["jsonrpc": "2.0", "id": 2, "method": "tools/list"])
+        let r = try readResponse()
+        let tools = ((r["result"] as? [String: Any])?["tools"] as? [[String: Any]]) ?? []
+        let tool = try XCTUnwrap(tools.first { $0["name"] as? String == "akashic_import_zotero" })
+        let desc = tool["description"] as? String ?? ""
+        XCTAssertTrue(desc.contains("ambiguousSourceClaims"), desc)
+        XCTAssertTrue(desc.contains("writeFailed"), "既有的 writeFailed 說明不得被擠掉：\(desc)")
+    }
+
     /// #561 R1 verify：清單以外的讀取器同一條規則——給了而型別不對（null 也算）整個呼叫拒絕。
     /// 最尖的是 `dry_run: "true"`：先前被折成 false，呼叫端要的乾跑變成真的寫入。
     func testMalformedScalarArgumentsAreRefused() throws {

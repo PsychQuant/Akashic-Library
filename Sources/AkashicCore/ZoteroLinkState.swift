@@ -28,3 +28,12 @@ public extension Entry {
         return additionalProvenance.allSatisfy { $0.orphanedAt != nil } ? .orphaned : .additionalSourceOrphaned
     }
 }
+
+public extension Entry {
+    /// 已在 Zotero 端刪除的附加來源的來源鍵（`<library_id>:<zotero_key>`，沒記 library_id 的是 `?:<zotero_key>`），依附加來源的順序。
+    /// 裁決台的「拿掉已刪除的來源」以它當**使用者看到並確認的那一組**：動作當下若目前的這一組與確認的不同就拒絕（#609 R1 verify）。
+    var orphanedAdditionalSourceKeys: [String] {
+        additionalProvenance.filter { $0.orphanedAt != nil }
+            .map { ZoteroSourceClaims.key(libraryID: $0.libraryID, zoteroKey: $0.zoteroKey) }
+    }
+}

@@ -340,9 +340,14 @@ work merge 的資料遺失閘也把 witness 當 canonical Akashic metadata：被
   附加來源是完全相同的身分，legacy 是歸屬不明的猜測。
 - **一個來源只能由一筆 entry 宣稱**（#610）：同一個 `(library_id, zotero_key)` 出現在兩筆以上 entry 的主來源或
   附加來源時，匯入對這個條目**不更新任何一筆、也不新建**，報告列在 `ambiguousSourceClaims`；兩筆以上沒記
-  `library_id` 的舊檔宣稱同一個裸 key 同樣不認領（鍵寫成 `?:<zotero_key>`）。`validate`／`doctor`／App 的跨記錄檢查
-  在載入時就報 warning。同一筆 entry 的主來源與附加來源恰好相同不算多筆宣稱。處置是人的：同一篇就合併
-  （`resolve-divergence` 把來源併成一份），記錯了就拿掉那個來源（活著的來源目前沒有移除面，只能手改 YAML）。
+  `library_id` 的舊檔宣稱同一個裸 key 同樣不認領（鍵寫成 `?:<zotero_key>`）——且**先問有幾筆舊檔宣稱、再問其他 library
+  是否持有同一個裸 key**，所以別的 library 也持有它時，兩筆舊檔的歧義照樣被報、條目照樣不新建。宣稱者的定義只有一份
+  （`ZoteroSourceClaims`，匯入端與跨記錄檢查共用），因此兩種鍵都在載入時由 `validate`／`doctor`／App 的跨記錄檢查報
+  warning（舊檔那一桶寫成「沒記 library_id 的 Zotero 來源（裸 key「K」）」）。同一筆 entry 的主來源與附加來源恰好相同
+  不算多筆宣稱；同一筆 entry 被讀到兩次（兩份並存，#631）也只算一次。舊檔與某個 library 的來源同裸 key 不算多筆宣稱
+  （歸屬不明不是確定的重複），匯入端照上一條不認領。處置是人的：同一篇就合併（`record-divergence` 記下、
+  `resolve-divergence` 把來源併成一份；兩筆都沒記 `library_id` 的舊檔同樣可併），記錯了就在 YAML 拿掉那個來源、或補上它
+  真正的 `library_id`（活著的來源目前沒有移除面）。
 - **只有主來源更新書目欄位**：主來源命中 → 照 §2.5.2 的 update 條件改寫欄位；附加來源命中 →
   只更新該來源自己的 `zotero_version`／`zotero_hash`／`imported_at`，並清其 `orphaned_at`，
   **不動書目欄位**。附加來源 hash 變了而未套用 → 匯入報告列出（`secondarySourceChanged`）。
@@ -374,6 +379,11 @@ Zotero 端刪除 ≠ Akashic 刪除。pull 只在 `provenance.orphaned_at` 蓋�
 | 完好 | 其餘（含沒有任何 Zotero 來源） | — | — |
 
 兩張清單不相交。「沒有主來源、附加來源全部已刪除」在 #609 之前只看主來源，哪一面都看不見。
+
+App 裁決台的三個寫入動作（移到垃圾桶、與 Zotero 脫鉤、拿掉已刪除的附加來源）共用同一條定位守衛：citekey 重複、或與另一筆
+共用 id 時拒絕、零寫入。「拿掉已刪除的附加來源」拿掉的只能是使用者在清單與對話框上**看到並確認的那一組**：動作當下磁碟上
+的那一組與確認的不同（外部匯入又標了新的來源、或有一個已恢復）就拒絕；git 副本檢查通過之後、寫入之前記錄又被外部改過，
+同樣拒絕，不用檢查之前的快照整檔寫回。
 
 ## 2.9 Library registry（`libraries/<key>.yaml`，v1.2 新增）
 

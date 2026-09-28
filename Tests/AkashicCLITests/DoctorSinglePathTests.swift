@@ -24,14 +24,16 @@ final class DoctorSinglePathTests: XCTestCase {
     func testDoctorReadsHealthFactsFromStoreHealth() throws {
         let body = try doctorBody()
         for needle in ["store.health(from:", "health.crossRecordIssues", "health.fatalCrossRecordIssues",
-                       "health.layoutResidue", "health.sourcesAudit", "health.sourcesAuditError"] {
+                       "health.layoutResidue", "health.sourcesAudit", "health.sourcesAuditError",
+                       // #609：兩張 orphan 清單都讀 health——CLI doctor 先前自己推導 `provenance?.orphanedAt != nil`，是第二份判準
+                       "health.orphanedCitekeys", "health.orphanedAdditionalSourceCitekeys"] {
             XCTAssertTrue(body.contains(needle), "Doctor.run 沒有從 StoreHealth 讀 \(needle)")
         }
     }
 
     func testDoctorDoesNotRecomputeWhatStoreHealthAlreadyHolds() throws {
         let body = try doctorBody()
-        for forbidden in ["auditSourceIndex()", "layoutResidue()", "crossRecordIssues()"] {
+        for forbidden in ["auditSourceIndex()", "layoutResidue()", "crossRecordIssues()", "provenance?.orphanedAt"] {
             XCTAssertFalse(body.contains(forbidden),
                            "Doctor.run 仍直接呼叫 \(forbidden)——那是 health(from:) 之外的第二條路徑（#504）")
         }

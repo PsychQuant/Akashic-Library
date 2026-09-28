@@ -76,12 +76,14 @@ public struct ZoteroImporter {
         // 身分＝(libraryID, zoteroKey) 複合鍵（#3）；legacy 檔（library_id 缺）另建裸 key 索引，
         // 首次匹配時 backfill libraryID。
         //
-        // #610：這兩張 composite 表（與下面的 `secondaryByComposite`）是「後寫覆蓋先寫」的字典——同一個來源被多筆
-        // entry 宣稱時只會留下一筆。所以路由前先查 `claimants`：被多筆宣稱的來源不進路由，這兩張表因此只會被
-        // 單一宣稱者的鍵查到。legacy 表收**全部**同裸 key 的舊檔，兩筆以上同樣不猜。
+        // #610：這兩張 composite 表（與下面的 `secondaryByComposite`、`legacyByBareKey`）是「後寫覆蓋先寫」的字典——同一個
+        // 來源被多筆 entry 宣稱時只會留下一筆。所以路由前先查 `claimants`：被多筆宣稱的來源不進路由，這幾張表因此只會被
+        // 單一宣稱者的鍵查到。舊檔（沒記 library_id）的裸 key 是 `claimants` 裡的 `?:<key>` 桶，同一份定義。
         let claimants = ZoteroSourceClaims.claimants(load.entries)
         var byCompositeKey: [String: Entry] = [:]
-        var legacyByBareKey: [String: [Entry]] = [:]
+        // legacy 檔（沒記 library_id 的主來源）：裸 key → entry。只在 `claimants` 說「恰好一筆」時才被取用——
+        // 兩筆以上不猜，所以這張表不必自己數（#610 R1 verify：先前在這裡另有一份 legacy 的宣稱者定義）。
+        var legacyByBareKey: [String: Entry] = [:]
         // #605：附加來源的 composite key → entry id。主來源優先（先查 byCompositeKey）。
         // libraryID 缺席的附加來源不進索引。這不是假設而是由合併閘保證的不變式：
         // `fieldsLostByMerging` 拒絕把沒記 libraryID 的來源收成附加來源（#605 R1 verify #1）。
@@ -97,17 +99,17 @@ public struct ZoteroImporter {
             current[entry.id] = entry
             for extra in entry.additionalProvenance {
                 if let lid = extra.libraryID {
-                    secondaryByComposite["\(lid):\(extra.zoteroKey)"] = entry.id
+                    secondaryByComposite[ZoteroSourceClaims.key(libraryID: lid, zoteroKey: extra.zoteroKey)] = entry.id
                     claimedLibrariesByBareKey[extra.zoteroKey, default: []].insert(lid)
                 }
             }
             existingCitekeys.insert(entry.citekey)
             guard let prov = entry.provenance else { continue }
             if let lid = prov.libraryID {
-                byCompositeKey["\(lid):\(prov.zoteroKey)"] = entry
+                byCompositeKey[ZoteroSourceClaims.key(libraryID: lid, zoteroKey: prov.zoteroKey)] = entry
                 claimedLibrariesByBareKey[prov.zoteroKey, default: []].insert(lid)
             } else {
-                legacyByBareKey[prov.zoteroKey, default: []].append(entry)
+                legacyByBareKey[prov.zoteroKey] = entry
             }
         }
         // quarantined 檔的 basename 佔住 citekey——否則新 entry 生成同名 key
@@ -147,7 +149,7 @@ public struct ZoteroImporter {
             }
         }
 
-        let importedComposite = Set(items.map { "\($0.libraryID):\($0.key)" })
+        let importedComposite = Set(items.map { ZoteroSourceClaims.key(libraryID: $0.libraryID, zoteroKey: $0.key) })
         let importedBare = Set(items.map(\.key))
         var legacyMatched = Set<String>()   // 已被 item 認領的 legacy 裸 key
 
@@ -170,19 +172,22 @@ public struct ZoteroImporter {
             }
             var matched = byCompositeKey[composite]
             let secondaryID = matched == nil ? secondaryByComposite[composite] : nil
-            if matched == nil, secondaryID == nil,
-               let legacies = legacyByBareKey[item.key], !legacyMatched.contains(item.key) {
-                // 歧義防線：同 bare key 已被「其他 library」的來源持有（主來源或附加來源，#607）
+            if matched == nil, secondaryID == nil, !legacyMatched.contains(item.key),
+               let legacyOwners = claimants[ZoteroSourceClaims.key(libraryID: nil, zoteroKey: item.key)] {
+                // #610：**先問有幾筆舊檔宣稱這個裸 key**——兩筆以上不認領、不新建、報出來（先前後讀到的那筆安靜勝出），
+                // 而且不看別的 library 是否持有同一個裸 key（R1 verify：先前那個條件把這道數量檢查整個跳過，歧義的條目照走
+                // 「建新 entry」、報告裡也看不到）。宣稱者的定義與 composite 同一份（`ZoteroSourceClaims`，含 `?:<裸 key>` 這一桶）。
+                let legacyKey = ZoteroSourceClaims.key(libraryID: nil, zoteroKey: item.key)
+                guard legacyOwners.count == 1 else {
+                    report.ambiguousSourceClaims[legacyKey] = legacyOwners.compactMap { current[$0]?.citekey }.sorted()
+                    continue
+                }
+                // 只有唯一一筆舊檔時，才判斷歧義防線：同 bare key 已被「其他 library」的來源持有（主來源或附加來源，#607）
                 // → legacy 檔歸屬不明，scoped/全量都不認領（留待人工或全量 backfill 釐清）
                 let claimedByOtherLibrary = !(claimedLibrariesByBareKey[item.key] ?? [])
                     .subtracting([item.libraryID]).isEmpty
                 if !claimedByOtherLibrary {
-                    // #610：兩筆以上舊檔宣稱同一個裸 key——先前後讀到的那筆安靜勝出。不認領、不新建，報出來。
-                    guard legacies.count == 1 else {
-                        report.ambiguousSourceClaims["?:\(item.key)"] = legacies.map(\.citekey).sorted()
-                        continue
-                    }
-                    matched = legacies[0]
+                    matched = legacyByBareKey[item.key]
                     legacyMatched.insert(item.key)
                 }
             }
@@ -328,7 +333,7 @@ public struct ZoteroImporter {
                 var isOrphan = false
                 if let lid = prov.libraryID {
                     if libraryID == nil || lid == libraryID {   // 視野外，不動
-                        isOrphan = !importedComposite.contains("\(lid):\(prov.zoteroKey)")
+                        isOrphan = !importedComposite.contains(ZoteroSourceClaims.key(libraryID: lid, zoteroKey: prov.zoteroKey))
                     }
                 } else if libraryID == nil {   // 部分 import 不裁決 legacy 檔
                     isOrphan = !importedBare.contains(prov.zoteroKey)
@@ -344,7 +349,7 @@ public struct ZoteroImporter {
                 let src = entry.additionalProvenance[i]
                 guard src.orphanedAt == nil, let lid = src.libraryID else { continue }
                 if let wanted = libraryID, lid != wanted { continue }
-                if importedComposite.contains("\(lid):\(src.zoteroKey)") { continue }
+                if importedComposite.contains(ZoteroSourceClaims.key(libraryID: lid, zoteroKey: src.zoteroKey)) { continue }
                 entry.additionalProvenance[i].orphanedAt = now
                 secondaryOrphaned = true
             }

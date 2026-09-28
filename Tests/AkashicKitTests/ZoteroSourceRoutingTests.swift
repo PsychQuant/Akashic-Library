@@ -205,3 +205,173 @@ extension ZoteroSourceRoutingTests {
         XCTAssertEqual(try store.load().entries.first { $0.id == a.id }?.title, "Edited upstream")
     }
 }
+
+// MARK: - #610 R1 verify：legacy 的重複也是宣稱、宣稱者的定義只有一份
+
+extension ZoteroSourceRoutingTests {
+    /// 舊佈局的複本（#631 的兩份並存）：同 id、同 citekey——`load()` 會把同一筆讀到兩次。
+    private func writeLegacyCopy(of entry: Entry) throws {
+        let dir = store.root.appendingPathComponent("entries")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try EntryYAML.encode(entry).write(
+            to: dir.appendingPathComponent("\(entry.citekey).yaml"), atomically: true, encoding: .utf8)
+    }
+
+    private func crossRecordClaimWarnings() throws -> [ValidationIssue] {
+        store.health(from: try store.load()).crossRecordIssues.filter { $0.message.contains("宣稱") }
+    }
+
+    /// Codex MEDIUM：兩筆 legacy 同裸 key，而**另一個 library 也持有同一個裸 key**。先前「其他 library 已持有」的條件把
+    /// legacy 的數量檢查整個跳過，條目照走「建新 entry」，而且報告裡沒有歧義——#610 的契約在這個組合失效。
+    /// 現在先問「有幾筆 legacy 宣稱」，再問「其他 library 是否持有」。
+    func testTwoLegacyTwinsAreReportedEvenWhenAnotherLibraryHoldsTheKey() throws {
+        _ = try runImport()
+        var a = try article()
+        a.provenance?.libraryID = nil
+        a.provenance?.zoteroHash = nil
+        try store.writeEntry(a)
+        let b = try writeTwin(of: a, citekey: "cheng2025legacytwin")
+        // 另一個 library 的一筆以 composite 持有同一個裸 key
+        var other = Entry(id: UUID(), citekey: "other2020holder", type: .periodicalArticle, title: "Held in lib 5")
+        other.provenance = Provenance(zoteroKey: "KEYART01", zoteroVersion: 1, libraryID: 5)
+        try store.writeEntry(other)
+        let report = try runImport(at: 1_753_100_000)
+        let all = try store.load().entries
+        XCTAssertEqual(report.ambiguousSourceClaims["?:KEYART01"], [a.citekey, b.citekey].sorted(), "\(report.ambiguousSourceClaims)")
+        XCTAssertFalse(all.contains { $0.provenance?.libraryID == 1 && $0.provenance?.zoteroKey == "KEYART01" },
+                       "歧義的條目不得新建：\(report.created)")
+        XCTAssertNil(all.first { $0.id == a.id }?.provenance?.libraryID, "兩筆 legacy 都不得被認領")
+        XCTAssertNil(all.first { $0.id == b.id }?.provenance?.libraryID)
+    }
+
+    /// 只有一筆 legacy、而另一個 library 持有同一個裸 key：照 #607 的規則不認領、條目走建新——不是歧義，報告不列。
+    func testSingleLegacyWithAnotherLibraryHoldingTheKeyIsNotAmbiguous() throws {
+        _ = try runImport()
+        var a = try article()
+        a.provenance?.libraryID = nil
+        a.provenance?.zoteroHash = nil
+        try store.writeEntry(a)
+        var other = Entry(id: UUID(), citekey: "other2020holder", type: .periodicalArticle, title: "Held in lib 5")
+        other.provenance = Provenance(zoteroKey: "KEYART01", zoteroVersion: 1, libraryID: 5)
+        try store.writeEntry(other)
+        let report = try runImport(at: 1_753_100_000)
+        XCTAssertEqual(report.ambiguousSourceClaims, [:])
+        XCTAssertNil(try store.load().entries.first { $0.id == a.id }?.provenance?.libraryID, "legacy 檔歸屬不明，不認領")
+    }
+
+    /// 宣稱者的定義只有一份：兩筆沒記 library_id 的舊檔宣稱同一個裸 key，載入時就是一則 warning（不必等匯入），
+    /// 而且處置的兩條出路都說對。
+    func testTwoLegacyTwinsAreACrossRecordWarning() throws {
+        _ = try runImport()
+        var a = try article()
+        a.provenance?.libraryID = nil
+        a.provenance?.zoteroHash = nil
+        try store.writeEntry(a)
+        let b = try writeTwin(of: a, citekey: "cheng2025legacytwin")
+        let issues = try crossRecordClaimWarnings().filter { $0.message.contains("KEYART01") }
+        XCTAssertEqual(issues.count, 1, "\(issues.map(\.message))")
+        let message = try XCTUnwrap(issues.first?.message)
+        XCTAssertEqual(issues.first?.severity, .warning)
+        XCTAssertTrue(message.contains("被 2 筆 entry 宣稱"), message)
+        XCTAssertTrue(message.contains(a.citekey) && message.contains(b.citekey), message)
+        XCTAssertTrue(message.contains("沒記 library_id 的 Zotero 來源（裸 key「KEYART01」）"), "要說出這是沒記 library_id 的來源：\(message)")
+        XCTAssertTrue(message.contains("record-divergence") && message.contains("resolve-divergence"), "合併的出路：\(message)")
+        XCTAssertTrue(message.contains("YAML"), "記錯了的出路：\(message)")
+    }
+
+    /// 邊界（照舊）：一筆 legacy 與某個 library 的來源同裸 key 不算多筆宣稱——歸屬不明不是確定的重複。
+    func testLegacyAndCompositeSharingABareKeyIsNotAMultiClaim() throws {
+        _ = try runImport()
+        var a = try article()
+        a.provenance?.libraryID = nil
+        a.provenance?.zoteroHash = nil
+        try store.writeEntry(a)
+        var other = Entry(id: UUID(), citekey: "other2020holder", type: .periodicalArticle, title: "Held in lib 5")
+        other.provenance = Provenance(zoteroKey: "KEYART01", zoteroVersion: 1, libraryID: 5)
+        try store.writeEntry(other)
+        XCTAssertEqual(try crossRecordClaimWarnings().filter { $0.message.contains("KEYART01") }.count, 0)
+    }
+
+    /// 宣稱者的單一定義：主來源與附加來源以 `<library_id>:<zotero_key>`、沒記 library_id 的主來源以 `?:<zotero_key>`；
+    /// 沒記 library_id 的**附加來源**不算（匯入端對回不了它，合併閘也不讓它進來）。
+    func testClaimantsBucketsALegacyPrimaryByBareKey() {
+        func entry(_ citekey: String, primary: Provenance?, additional: [Provenance] = []) -> Entry {
+            var e = Entry(id: UUID(), citekey: citekey, type: .periodicalArticle, title: citekey)
+            e.provenance = primary
+            e.additionalProvenance = additional
+            return e
+        }
+        let l1 = entry("l1", primary: Provenance(zoteroKey: "K", zoteroVersion: 1))
+        let l2 = entry("l2", primary: Provenance(zoteroKey: "K", zoteroVersion: 1))
+        let c = entry("c", primary: Provenance(zoteroKey: "K", zoteroVersion: 1, libraryID: 1),
+                      additional: [Provenance(zoteroKey: "X", zoteroVersion: 1)])   // 沒記 library_id 的附加來源
+        let claims = ZoteroSourceClaims.claimants([l1, l2, c])
+        XCTAssertEqual(claims["?:K"], [l1.id, l2.id])
+        XCTAssertEqual(claims["1:K"], [c.id])
+        XCTAssertNil(claims["?:X"], "沒記 library_id 的附加來源不算")
+        XCTAssertEqual(ZoteroSourceClaims.key(libraryID: nil, zoteroKey: "K"), "?:K")
+        XCTAssertEqual(ZoteroSourceClaims.key(libraryID: 5, zoteroKey: "K"), "5:K")
+    }
+
+    /// LOW（regression／DA）：同一筆 entry 被 load 讀到兩次（#631 的兩份並存、同一個 id）不是它自己的攣生——
+    /// 宣稱者以 entry id 去重。先前 validate 印「被 2 筆 entry 宣稱（x, x）」並建議把一筆 entry 和它自己合併。
+    func testAnEntryLoadedTwiceIsNotItsOwnTwin() throws {
+        _ = try runImport()
+        let a = try article()
+        try writeLegacyCopy(of: a)
+        let load = try store.load()
+        XCTAssertEqual(load.entries.filter { $0.id == a.id }.count, 2, "前提：同一筆讀到兩次")
+        XCTAssertEqual(ZoteroSourceClaims.claimants(load.entries)["1:KEYART01"], [a.id])
+        XCTAssertEqual(try crossRecordClaimWarnings().filter { $0.message.contains("KEYART01") }.count, 0)
+        let report = try runImport(at: 1_753_100_000)
+        XCTAssertEqual(report.ambiguousSourceClaims, [:], "同一筆的兩份複本不是多筆宣稱")
+    }
+
+    /// 同上，legacy 那一桶：同一筆 legacy 讀到兩次不算兩筆——匯入端照常認領它，不報歧義。
+    func testALegacyEntryLoadedTwiceIsNotAmbiguous() throws {
+        _ = try runImport()
+        var a = try article()
+        a.provenance?.libraryID = nil
+        a.provenance?.zoteroHash = nil
+        try store.writeEntry(a)
+        try writeLegacyCopy(of: a)
+        XCTAssertEqual(ZoteroSourceClaims.claimants(try store.load().entries)["?:KEYART01"], [a.id])
+        let report = try runImport(at: 1_753_100_000)
+        XCTAssertEqual(report.ambiguousSourceClaims, [:])
+    }
+
+    /// 警告裡每一筆 entry 只列一次：一筆讀到兩次的 entry 加上真的攣生，名單是兩個 citekey，不是三個。
+    func testWarningNamesEachEntryOnceWhenOneOfThemIsLoadedTwice() throws {
+        _ = try runImport()
+        let a = try article()
+        let b = try writeTwin(of: a, citekey: "cheng2025twin")
+        try writeLegacyCopy(of: a)
+        let issues = try crossRecordClaimWarnings().filter { $0.message.contains("KEYART01") }
+        XCTAssertEqual(issues.count, 1, "\(issues.map(\.message))")
+        let message = try XCTUnwrap(issues.first?.message)
+        XCTAssertTrue(message.contains("被 2 筆 entry 宣稱"), message)
+        XCTAssertEqual(message.components(separatedBy: a.citekey).count - 1, 1, "\(a.citekey) 只列一次：\(message)")
+        XCTAssertTrue(message.contains(b.citekey), message)
+    }
+
+    /// 警告說的合併出路是真的：兩筆都沒記 library_id 的舊檔（`isSameSource` 把 nil 視為同一 library）走 `record-divergence`
+    /// ＋`resolve-divergence` 併成一筆，來源併成一份、警告消失。訊息與文件都寫了這條出路，這裡釘住它做得到。
+    func testTwoLegacyTwinsCanBeMergedThroughTheDivergencePath() throws {
+        _ = try runImport()
+        var a = try article()
+        a.provenance?.libraryID = nil
+        a.provenance?.zoteroHash = nil
+        try store.writeEntry(a)
+        let b = try writeTwin(of: a, citekey: "cheng2025legacytwin")
+        try StoreVersion.write(root: store.root, format: StoreVersion.supported)
+        GitFixture.initRepo(store.root)
+        let d = try store.recordDivergence(
+            question: "是否同一篇", candidates: [(a.citekey, .work), (b.citekey, .work)], judgement: nil, restsOn: [])
+        GitFixture.commitAll(store.root, message: "seed")
+        XCTAssertEqual(try crossRecordClaimWarnings().filter { $0.message.contains("KEYART01") }.count, 1, "前提：合併之前有警告")
+        _ = try store.resolveDivergence(id: d.id, survivor: a.citekey)
+        let after = try store.load().entries.filter { $0.provenance?.zoteroKey == "KEYART01" }
+        XCTAssertEqual(after.map(\.citekey), [a.citekey], "被併者消失、倖存者留下")
+        XCTAssertEqual(try crossRecordClaimWarnings().filter { $0.message.contains("KEYART01") }.count, 0, "警告隨合併消失")
+    }
+}

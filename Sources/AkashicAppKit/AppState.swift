@@ -190,8 +190,9 @@ public final class AppState {
     public var unresolvedLiteralCount: Int { health?.unresolvedAuthorLiterals ?? 0 }
 
     /// **哪些是 orphan 由 `health` 決定**（#484）——這裡只負責把 citekey 換回 `Entry`
-    /// （裁決台需要整筆記錄，不只是計數）。謂詞原本在這裡複製了一份
-    /// （`provenance?.orphanedAt != nil`），與 `StoreHealth.orphanedCitekeys` 逐字相同。
+    /// （裁決台需要整筆記錄，不只是計數）。判準只有一份：`Entry.zoteroLinkState == .orphaned`（#609），
+    /// 即 `StoreHealth.orphanedCitekeys`——主來源已刪除，或沒有主來源而附加來源全部已刪除。
+    /// 謂詞先前在這裡複製了一份（只看主來源），#484 收掉、#609 換成上面那個判準。
     public var orphanedEntries: [Entry] {
         guard let keys = health.map({ Set($0.orphanedCitekeys) }) else { return [] }
         return entries.filter { keys.contains($0.citekey) }

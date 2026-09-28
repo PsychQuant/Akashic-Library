@@ -3023,17 +3023,27 @@ public extension LibraryLoad {
         // **同一個 Zotero 來源被多筆 entry 宣稱**（#610）。匯入以 `(library_id, zotero_key)` 對回 entry，而先前的索引是
         // 「後寫覆蓋先寫」的字典——路由安靜地只更新其中一筆。匯入端現在對這種來源不更新任何一筆；這裡讓它在載入時就被看見，
         // 不必等下一次匯入。成因是手改、舊 binary、或 #607 修掉的 legacy 認領。warning：兩筆都讀得到，處置是判斷
-        // （同一篇就合併、記錯了就拿掉那個來源）。宣稱者的定義與匯入端同一份（`ZoteroSourceClaims`）。
+        // （同一篇就合併、記錯了就拿掉那個來源）。宣稱者的定義與匯入端同一份（`ZoteroSourceClaims`）——包括沒記 library_id 的
+        // 舊檔宣稱同一個裸 key（`?:<key>` 桶，#610 R1 verify：先前那一桶只有匯入端知道、這裡看不到）。
+        // 一筆 entry 讀到兩次（#631 的兩份並存）只算一次，所以名單也以 id 查（第一次讀到的那份），不用 `filter` 撈全部。
+        var firstByID: [UUID: Entry] = [:]
+        for e in entries where firstByID[e.id] == nil { firstByID[e.id] = e }
         for (source, ids) in ZoteroSourceClaims.claimants(entries).sorted(by: { $0.key < $1.key }) where ids.count > 1 {
-            let idSet = Set(ids)
-            let names = entries.filter { idSet.contains($0.id) }.map { displaySafeInvisible($0.citekey, max: 200) }.sorted()
+            let names = ids.compactMap { firstByID[$0] }.map { displaySafeInvisible($0.citekey, max: 200) }.sorted()
             let shown = names.prefix(10).joined(separator: ", ") + (names.count > 10 ? "…共 \(names.count) 筆" : "")   // display-safe-exempt: Int
+            let isBareKey = source.hasPrefix("?:")
+            let label = isBareKey
+                ? "沒記 library_id 的 Zotero 來源（裸 key「\(displaySafeInvisible(String(source.dropFirst(2)), max: 120))」）"
+                : "Zotero 來源「\(displaySafeInvisible(source, max: 120))」"
+            let fix = isBareKey
+                ? "其中一筆記錯了就在 YAML 拿掉那個來源，或補上它真正的 library_id（#610）"
+                : "其中一筆記錯了就在 YAML 拿掉那個來源（#610）"
             out.append(ValidationIssue(
                 severity: .warning,
-                message: "Zotero 來源「\(displaySafeInvisible(source, max: 120))」被 \(ids.count) 筆 entry 宣稱（\(shown)）"   // display-safe-exempt: Int；shown 的每一項已消毒
+                message: "\(label)被 \(ids.count) 筆 entry 宣稱（\(shown)）"   // display-safe-exempt: Int；shown 的每一項已消毒；label 已逐項消毒；ids 是 Array
                        + "——再匯入分不出要更新哪一筆，import-zotero 對這個條目不更新任何一筆、也不新建。"
                        + "兩筆是同一篇就用 record-divergence 記下、resolve-divergence 合併（合併把來源併成一份）；"
-                       + "其中一筆記錯了就在 YAML 拿掉那個來源（#610）"))
+                       + fix))
         }
         out += libraryMembershipIssues()
         // **排序是刻意的**（#579 R2 verify）：參照完整性的警告（懸空的作者、團體作者、venue、歧異候選、library）

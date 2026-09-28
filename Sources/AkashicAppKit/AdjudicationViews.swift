@@ -127,9 +127,16 @@ struct OrphanView: View {
     @State private var model: OrphanModel?
     @State private var pendingTrash: String?
     @State private var errorMessage: String?
-    /// #609：等著填理由的「拿掉已刪除的附加來源」
-    @State private var pendingRemoval: String?
-    @State private var removalReason = ""
+    /// #609：等著填理由的「拿掉已刪除的附加來源」。`seen` 是按下按鈕那一刻清單上的那一組來源鍵——動作當下磁碟上的那一組
+    /// 若與它不同就拒絕（拿掉的只能是使用者看到並確認的那一組，R1 verify）。
+    struct PendingRemoval: Equatable {
+        let citekey: String
+        let seen: [String]
+        let sourcesLabel: String   // `Entry.displayOrphanedAdditionalSources` 的消毒投影
+    }
+    @State private var pendingRemoval: PendingRemoval?
+    /// 理由草稿：失敗之後重開同一筆還在（不必重打），空理由時破壞性按鈕停用。
+    @State private var removalDraft = RemovalReasonDraft()
     @State private var resultMessage: String?
 
     var body: some View {
@@ -172,8 +179,11 @@ struct OrphanView: View {
                                         }
                                         Spacer()
                                         Button("拿掉已刪除的來源…") {
-                                            removalReason = ""
-                                            pendingRemoval = entry.citekey
+                                            removalDraft.open(for: entry.citekey)
+                                            pendingRemoval = PendingRemoval(
+                                                citekey: entry.citekey,
+                                                seen: entry.orphanedAdditionalSourceKeys,
+                                                sourcesLabel: entry.displayOrphanedAdditionalSources)
                                         }
                                     }
                                     .padding(.vertical, 4)
@@ -204,19 +214,26 @@ struct OrphanView: View {
         }
         .alert("拿掉已刪除的附加來源？", isPresented: Binding(
             get: { pendingRemoval != nil },
-            set: { if !$0 { pendingRemoval = nil } })) {
-            TextField("理由（必填）", text: $removalReason)
+            set: { if !$0 { pendingRemoval = nil } }), presenting: pendingRemoval) { pending in
+            TextField("理由（必填）", text: $removalDraft.text)
             Button("拿掉", role: .destructive) {
-                if let citekey = pendingRemoval, let model {
-                    // 動作當下重新讀盤驗證形狀、確認記錄檔已 commit（kit 層）
-                    let reason = removalReason
-                    attempt { resultMessage = try model.removeOrphanedAdditionalSources(citekey: citekey, reason: reason) }
+                if let model {
+                    // 動作當下重新讀盤驗證形狀與「這一組」、確認記錄檔已 commit（kit 層）
+                    let reason = removalDraft.text
+                    let done = attempt {
+                        resultMessage = try model.removeOrphanedAdditionalSources(
+                            citekey: pending.citekey, reason: reason, seen: pending.seen)
+                    }
+                    // 失敗就保留已打的理由：最可能的失敗是記錄檔還沒 commit，commit 之後重開不必重打
+                    if done { removalDraft.clearAfterSuccess() }
                 }
                 pendingRemoval = nil
             }
+            .disabled(!removalDraft.isSubmittable)
             Button("取消", role: .cancel) { pendingRemoval = nil }
-        } message: {
-            Text("只拿掉在 Zotero 端已刪除的那幾個來源；主來源與活著的來源不動，書目欄位不動。"
+        } message: { pending in
+            Text("將拿掉這幾個在 Zotero 端已刪除的來源：\(pending.sourcesLabel)。"   // display-safe-exempt: pending.sourcesLabel 是 `displayOrphanedAdditionalSources` 的消毒投影
+                 + "主來源與活著的來源不動，書目欄位不動。"
                  + "記錄檔要先 commit——移除前的版本只留在 git 裡。理由不寫進 store，請寫進 commit message。")
         }
         .alert("已拿掉", isPresented: Binding(
@@ -231,9 +248,12 @@ struct OrphanView: View {
         } message: { Text(errorMessage ?? "") }
     }
 
-    private func attempt(_ action: () throws -> Void) {
-        do { try action() } catch {
+    /// 跑動作；成功回 true，失敗把錯誤放進提示並回 false。
+    @discardableResult
+    private func attempt<T>(_ action: () throws -> T) -> Bool {
+        do { _ = try action(); return true } catch {
             errorMessage = displaySafeErrorMultiline(error)
+            return false
         }
     }
 }

@@ -239,6 +239,7 @@ final class PersonCLITests: XCTestCase {
             "PeopleCommand.swift",
             "PersonCommand.swift",
             "PersonDivergenceCommands.swift",
+            "RepairVenueNamesCommand.swift",   // #575
             "StoreSourceCommand.swift",
             "UpdatePersonCommand.swift",
             "VenueCommand.swift",

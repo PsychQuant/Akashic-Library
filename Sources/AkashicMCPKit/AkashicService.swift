@@ -5258,7 +5258,11 @@ public final class AkashicService {
                      "orgKey": displaySafe(c.orgKey, max: 200),
                      "undecidedChecks": undecidedCount(c.holder, c.literal, c.orgKey)]   // display-safe-exempt: undecidedCount 回傳 Int
                     if isUnlocatable(c) {   // #628；#641 起 person holder 另有自己的鍵——`unlocatableCitekey` 對隸屬列是錯的名字
-                        if case .person = c.holder { row["unlocatablePersonKey"] = true } else { row["unlocatableCitekey"] = true }
+                        switch c.holder {   // #483：holder 的分類走窮盡 switch，第三種 holder 不得靜默落進 else
+                        case .person: row["unlocatablePersonKey"] = true
+                        case .work: row["unlocatableCitekey"] = true
+                        case .organization: break   // isUnlocatable 對 organization 恆為 false
+                        }
                     }
                     return row
                 },

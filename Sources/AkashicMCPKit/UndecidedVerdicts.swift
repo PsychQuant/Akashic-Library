@@ -132,6 +132,8 @@ extension AkashicService {
         let load = try store.load()
         let byCitekey = Dictionary(load.entries.map { ($0.citekey, $0) }, uniquingKeysWith: { _, last in last })
         let unlocatable = load.entries.unlocatableCitekeys
+        // #641：這條腿寫的是 person——它寫入時會被拒（或 key 重複）就在任何寫入之前略過，不在迴圈中途撕裂
+        let unlocatablePeople = load.people.unlocatablePersonKeys
         var people = Dictionary(load.people.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
         for s in parsed where people[s.entityKey] == nil {
             throw ServiceError.notFound("person「\(displaySafeInvisible(s.entityKey, max: 200))」")
@@ -144,7 +146,11 @@ extension AkashicService {
         var writtenThisCall = Set<[[UInt8]]>()
         for s in parsed {
             guard !unlocatable.contains(s.citekey) else {
-                skipped.append((s.id, "work「\(displaySafe(s.citekey, max: 200))」的 citekey 重複或與另一筆 work 共用 id——無法確定是哪一筆，略過（#627）"))
+                skipped.append((s.id, "work「\(displaySafe(s.citekey, max: 200))」無法唯一定位（\(UnlocatableReason.work)）——略過（#627／#641）"))
+                continue
+            }
+            guard !unlocatablePeople.contains(s.entityKey) else {
+                skipped.append((s.id, "person「\(displaySafe(s.entityKey, max: 200))」無法唯一定位（\(UnlocatableReason.person)）——略過（#641）"))
                 continue
             }
             guard let entry = byCitekey[s.citekey] else {
@@ -212,7 +218,7 @@ extension AkashicService {
         var writtenThisCall = Set<[[UInt8]]>()
         for s in parsed {
             guard !unlocatable.contains(s.citekey) else {
-                skipped.append((s.id, "work「\(displaySafe(s.citekey, max: 200))」的 citekey 重複或與另一筆 work 共用 id——無法確定是哪一筆，略過（#628）"))
+                skipped.append((s.id, "work「\(displaySafe(s.citekey, max: 200))」無法唯一定位（\(UnlocatableReason.work)）——略過（#628／#641）"))
                 continue
             }
             guard let entry = byCitekey[s.citekey] else {

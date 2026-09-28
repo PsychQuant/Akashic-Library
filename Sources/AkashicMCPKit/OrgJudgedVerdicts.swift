@@ -13,7 +13,8 @@ import AkashicIndex
 /// 契約與 resolve-people 的 judge 同形（兩類失敗分開）：
 /// - **輸入錯整批拒絕、零寫入**：格式、id 不在這次列表上、orgKey 不是那一列提名的、理由空白或過長、同一列判給兩個 org、
 ///   person 與 organization 同 key 而兩列都在列表上。
-/// - **store 狀態不符該筆略過並具名**：work 的 citekey 重複或共用 id、上級機構判給自己或會成環、套用時那個位置已不是那個 literal。
+/// - **store 狀態不符該筆略過並具名**：work 或 person holder 無法唯一定位（重複、共用 id，或 load 判定它的檔案寫入時會被拒——
+///   #641）、上級機構判給自己或會成環、套用時那個位置已不是那個 literal。
 ///
 /// id 的解析與 #643 的未決腿共用（`parseOrgIDSpecs`）；歧義條目也收——歧義的意思是提名器分不出來，不是人分不出來。
 extension AkashicService {
@@ -80,6 +81,7 @@ extension AkashicService {
 
         // ── store 狀態：逐筆決定套用或略過（此段不寫任何東西）──
         let unlocatable = load.entries.unlocatableCitekeys
+        let unlocatablePeople = load.people.unlocatablePersonKeys   // #641
         // 上級機構的環：既有的 `.key` parents ＋ 本次已接受的判定（同 `OrgResolver.resolve` 的 #166 守衛——
         // 歧義報告刻意不過濾會成環的候選，那一道要在寫入端做）
         var edges: [String: Set<String>] = [:]
@@ -110,7 +112,11 @@ extension AkashicService {
             }
             switch row.holder {
             case let .work(citekey, _) where unlocatable.contains(citekey):
-                skipped.append((s.id, "work「\(displaySafe(citekey, max: 200))」的 citekey 重複或與另一筆 work 共用 id——無法確定是哪一筆，略過（#628）"))
+                skipped.append((s.id, "work「\(displaySafe(citekey, max: 200))」無法唯一定位（\(UnlocatableReason.work)）——略過（#628／#641）"))
+                continue
+            case let .person(k) where unlocatablePeople.contains(k):
+                // #641：寫入前的整批驗證（下方）會對它整批拒絕——在這裡具名略過，其餘照寫（store 狀態不符＝該筆略過）
+                skipped.append((s.id, "person「\(displaySafe(k, max: 200))」無法唯一定位（\(UnlocatableReason.person)）——略過（#641）"))
                 continue
             case let .organization(k) where s.orgKey == k || reaches(s.orgKey, k):
                 skipped.append((s.id, s.orgKey == k ? "上級機構不能是自己" : "判給這個上級機構會讓 organization 階層成環"))

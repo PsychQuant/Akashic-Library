@@ -338,7 +338,7 @@ struct MigrateVenueVariants: ParsableCommand {
 struct ResolveVenuesCmd: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "resolve-venues",
-        abstract: "venue 解析：不帶參數列候選與歧義；--apply 升格 literal 為 key（寫 confirmed verdict；會讓同一 work 兩條邊指同一 venue 的候選逐筆略過並回報 skippedDuplicateVenueEdge；目的 venue 已對該 work 持有另一個 confirmed literal（沒有對應的邊；相等比位元組，同一 literal 的另一個拼法也略過——之後 demote 會還回舊拼法）的候選逐筆略過並回報 skippedConflictingConfirmedLiteral，D38／D43，且在重複邊檢查之後判，D44；同一 work 兩條拼法不同的 literal 邊指向同一 venue 時誰落地由 --apply 的順序決定，先到先寫，D28／D33）；--reject 否決（寫 rejected verdict）；--repoint 改指已歸戶的邊（兩側都寫 verdict）；--demote 退回 literal（原字串從 verdict 取回，#418）。--drop-venue 移除一條邊（理由只進報告，#572）。--repoint／--demote 寫 verdict 時會刪掉同 holder 上同一配對的相反判定（D20，逐筆列在 verdictsRetired、截 20 筆），前提不符整批拒絕零寫入（≥2 個不同 confirmed literal D23；配對由多條邊實例化 D25；被動到的邊與另一條邊同 venue、或同一批同一 literal 且觸及同一 venue D27；改指後目的 venue 會對該 work 持有第二個 confirmed literal——相等比位元組、另一個拼法也算 D38／D43；同一條邊在同一批被指定兩次 R16）。提名的否決抑制以正規化後的 literal 為鍵（R12）：對一個拼法的 --reject／--demote 會壓住同 work 同 venue 的其他拼法，撤回面見 #559。候選所在的 work 無法唯一定位（citekey 重複或與另一筆共用 id）時 --apply 逐筆略過並回報 skippedUnlocatable，--reject／--repoint／--demote 整批拒絕（#628）")
+        abstract: "venue 解析：不帶參數列候選與歧義；--apply 升格 literal 為 key（寫 confirmed verdict；會讓同一 work 兩條邊指同一 venue 的候選逐筆略過並回報 skippedDuplicateVenueEdge；目的 venue 已對該 work 持有另一個 confirmed literal（沒有對應的邊；相等比位元組，同一 literal 的另一個拼法也略過——之後 demote 會還回舊拼法）的候選逐筆略過並回報 skippedConflictingConfirmedLiteral，D38／D43，且在重複邊檢查之後判，D44；同一 work 兩條拼法不同的 literal 邊指向同一 venue 時誰落地由 --apply 的順序決定，先到先寫，D28／D33）；--reject 否決（寫 rejected verdict）；--repoint 改指已歸戶的邊（兩側都寫 verdict）；--demote 退回 literal（原字串從 verdict 取回，#418）。--drop-venue 移除一條邊（理由只進報告，#572）。--repoint／--demote 寫 verdict 時會刪掉同 holder 上同一配對的相反判定（D20，逐筆列在 verdictsRetired、截 20 筆），前提不符整批拒絕零寫入（≥2 個不同 confirmed literal D23；配對由多條邊實例化 D25；被動到的邊與另一條邊同 venue、或同一批同一 literal 且觸及同一 venue D27；改指後目的 venue 會對該 work 持有第二個 confirmed literal——相等比位元組、另一個拼法也算 D38／D43；同一條邊在同一批被指定兩次 R16）。提名的否決抑制以正規化後的 literal 為鍵（R12）：對一個拼法的 --reject／--demote 會壓住同 work 同 venue 的其他拼法，撤回面見 #559。候選所在的 work 無法唯一定位（\(UnlocatableReason.work)）時 --apply 逐筆略過並回報 skippedUnlocatable，--reject／--repoint／--demote 整批拒絕（#628／#641）")
 
     @OptionGroup var options: LibraryOptions
 
@@ -359,7 +359,7 @@ struct ResolveVenuesCmd: ParsableCommand {
     var demote: [String] = []
 
     @Option(name: .long, parsing: .upToNextOption,
-            help: "記下查過未決（可重複）：citekey:venueIndex:venueKey=查了什麼、為何判不出來。寫一筆 resolution-undecided 到該 venue，邊不動；之後列表標 undecidedChecks。可附 --rests-on。已判定的配對、已歸戶的邊、citekey 重複的 work 該筆略過並具名。需要 store format ≥ 19；一次超過 200 個 id、20 個 digest 或單句說明超過 4,096 位元組同樣整批拒絕（有界，不截斷）。單獨呼叫（change resolution-verdict-states，#619）")
+            help: "記下查過未決（可重複）：citekey:venueIndex:venueKey=查了什麼、為何判不出來。寫一筆 resolution-undecided 到該 venue，邊不動；之後列表標 undecidedChecks。可附 --rests-on。已判定的配對、已歸戶的邊、無法唯一定位的 work（\(UnlocatableReason.work)）該筆略過並具名。需要 store format ≥ 19；一次超過 200 個 id、20 個 digest 或單句說明超過 4,096 位元組同樣整批拒絕（有界，不截斷）。單獨呼叫（change resolution-verdict-states，#619）")
     var undecided: [String] = []
 
     @Option(name: .long, parsing: .upToNextOption,

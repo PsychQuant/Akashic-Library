@@ -113,6 +113,7 @@ public enum AuthorizedNameMigration {
         }
         var report = Report()
         report.total = load.people.count
+        var toWrite: [Person] = []   // 先算完整個寫入集合，才決定寫不寫（#641）
         for person in load.people {
             guard person.names.authorized.isEmpty else {
                 report.alreadyDesignated += 1
@@ -132,13 +133,29 @@ public enum AuthorizedNameMigration {
             } else {
                 report.peopleWithoutNames += 1
             }
-            guard apply, !plan.authorized.isEmpty else { continue }
+            guard !plan.authorized.isEmpty else { continue }
             var updated = person
             // #227：指定是把名字**搬進** authorized 分割，不是複製——同一字串留在
             // variant 會在序列化裡出現兩次，違反「每個名字恰好出現一次」。
             updated.names.authorized = plan.authorized
             updated.names.variant = updated.names.variant.filter { !plan.authorized.contains($0) }
-            _ = try store.writePerson(updated)
+            toWrite.append(updated)
+        }
+        // #641：apply 逐筆寫 person、最後才 bump marker。其中一筆寫入時被 #631 拒絕（legacy 殘留加上 quarantine、兩份並存、
+        // 不能安全搬移），前面的指定已經落盤而 marker 沒 bump——舊 binary 會照舊語意讀新格式，正是 marker 要擋的情境。
+        // 寫入集合裡有無法唯一定位的，就在第一次寫入之前整批拒絕（乾跑照常出報告：它看得到那些人，報告是完整的）。
+        if apply {
+            let unlocatable = load.people.unlocatablePersonKeys
+            let blocked = toWrite.map(\.key).filter { unlocatable.contains($0) }
+            guard blocked.isEmpty else {
+                let shown = blocked.prefix(20).map { displaySafeInvisible($0, max: 120) }.joined(separator: "、")
+                throw StoreIOError.invalidInput(
+                    what: "authorize-names",
+                    why: "要寫的 person 裡有 \(blocked.count) 筆無法唯一定位（\(UnlocatableReason.person)）："   // display-safe-exempt: blocked.count 是 Int；UnlocatableReason 是常數字面
+                       + "\(shown)\(blocked.count > 20 ? "…" : "")——寫到一半會留下已指定卻沒 bump marker 的 store，"   // display-safe-exempt: shown 已逐項 displaySafeInvisible
+                       + "整批拒絕、零寫入；先修好再跑（#641）")
+            }
+            for updated in toWrite { _ = try store.writePerson(updated) }
         }
         report.undecidedKeys.sort()
         // 寫入後 store 就**帶著新語意**了：`authorized` 指定了對外名字，而 `names` 的順序

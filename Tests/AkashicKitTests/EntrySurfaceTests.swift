@@ -170,6 +170,7 @@ final class EntrySurfaceTests: XCTestCase {
             "id": "內部 UUID 身分，任何 entity 的讀取面都不輸出它（venue／person 同）",
             "unknownFields": "tolerant-preserve 的未知鍵；`entryDict` 不逐一列舉它們"
                 + "（`akashic doctor` 是它們的出口）",
+            "fileSituation": "不是記錄內容，是 load 對檔案處境的觀察（#641）；出口是 validate／doctor／App 的跨記錄 warning",
         ]
         let source = try Self.serviceSource()
         guard let body = Self.functionBody(of: "func entryDict(_ entry: Entry) -> [String: Any] {",
@@ -214,7 +215,7 @@ final class EntrySurfaceTests: XCTestCase {
         // 全域豁免——與姊妹測試 `testEveryFieldReachesTheReadSurface` 的 `exempt` 同一組
         // （沒有任何讀取面輸出它們）。刻意不抽成共用常數:兩支測試問的是不同的命題,
         // 而共用會讓其中一支的豁免悄悄擴張到另一支。
-        let globallyExempt: Set<String> = ["id", "unknownFields"]
+        let globallyExempt: Set<String> = ["id", "unknownFields", "fileSituation"]
         // 逐面豁免:那個面**在設計上**不該顯示這個欄位。
         let perSurfaceExempt: [String: Set<String>] = [
             "App（EntryDetailView）": ["attachments", "provenance", "akashic", "references"],

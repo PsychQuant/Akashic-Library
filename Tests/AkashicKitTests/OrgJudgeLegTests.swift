@@ -198,7 +198,9 @@ final class OrgJudgeLegTests: XCTestCase {
 
     /// R2 verify DA：內容閘之外還有 #631 的目的檔檢查。legacy 佈局的 entry 未被 git 追蹤時，entry 的寫入會被拒——
     /// 那要在任何一筆落盤之前發生，person 不得先寫。
-    func testDestinationChecksRunBeforeAnyWrite() throws {
+    /// #641 起這一格在 load 時就被標成無法唯一定位：store 狀態不符＝該筆具名略過、其餘照寫，受損的 entry 一個位元都不動
+    /// （先前是整批拒絕）。寫入前整個寫入集合的驗證仍在，是它的最後一道防線。
+    func testUnwritableEntryIsSkippedBeforeAnyWrite() throws {
         try org("apa", "APA")
         try person("pp", affiliation: "APA")
         // 只放在 legacy 的 entries/ 下、未 commit：`entryWritePlan` 會拒（legacyCopyUnmovable）
@@ -210,13 +212,16 @@ final class OrgJudgeLegTests: XCTestCase {
         try store.writeEntry(e)
         let modern = try FileManager.default.contentsOfDirectory(at: root.appendingPathComponent("entities"), includingPropertiesForKeys: nil)
             .first { (try? String(contentsOf: $0, encoding: .utf8))?.contains("ck2020") == true }
-        try FileManager.default.moveItem(at: try XCTUnwrap(modern), to: legacyDir.appendingPathComponent("ck2020.yaml"))
-        XCTAssertThrowsError(try service.resolveOrganizations(apply: nil, judge: ["pp::APA@apa=x", "ck2020[0]::APA@apa=y"])) { error in
-            // 釘住拒絕來自目的檔檢查，不是更早的輸入錯或 git 前提（R3 verify）
-            XCTAssertTrue("\(error)".contains("legacyCopyUnmovable") || "\(error)".contains("ck2020.yaml"), "\(error)")
-        }
-        XCTAssertEqual(try affiliation("pp"), .literal("APA"), "person 不得先落盤")
-        XCTAssertTrue(try judgedVerdicts("apa").isEmpty)
+        let legacyURL = legacyDir.appendingPathComponent("ck2020.yaml")
+        try FileManager.default.moveItem(at: try XCTUnwrap(modern), to: legacyURL)
+        let before = try Data(contentsOf: legacyURL)
+        let out = json(try service.resolveOrganizations(apply: nil, judge: ["pp::APA@apa=x", "ck2020[0]::APA@apa=y"]))
+        let skipped = out["skipped"] as? [[String: Any]] ?? []
+        XCTAssertTrue(skipped.contains { ($0["id"] as? String ?? "").contains("ck2020") && ($0["why"] as? String ?? "").contains("#641") },
+                      "\(out)")
+        XCTAssertEqual(try affiliation("pp"), .key("apa"), "其餘照寫")
+        XCTAssertEqual(try Data(contentsOf: legacyURL), before, "受損的 entry 一個位元都不動")
+        XCTAssertEqual(try judgedVerdicts("apa").count, 1, "只有 pp 那一筆落地")
     }
 
     /// 輸入錯整批拒絕、零寫入：理由空白、同一列判兩次、與其他腿組合。

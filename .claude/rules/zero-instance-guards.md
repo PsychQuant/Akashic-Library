@@ -60,7 +60,7 @@
 會在邊界上自己長出沒人同意的答案，而那句話與下表**是兩份不會一起改的規格**。要判斷新情形，
 讀下表的理由欄，然後**加一列**。
 
-## 裁決史（封閉列舉——現有 39 列，一列不多一列不少）
+## 裁決史（封閉列舉——現有 40 列，一列不多一列不少）
 
 | # | 情形 | 裁決 | 理由 |
 |---|---|---|---|
@@ -103,6 +103,7 @@
 | 37 | **零實例，而舊稽核的謂詞對新長出來的寫入面結構上不可能為真——而正確的謂詞不存在**（#658：CLI 的每一個葉命令、`resolve-people`／`resolve-venues`／`resolve-organizations` 的每一條腿，都要在 `Sources/akashic/WriteGateRulings.swift` 的裁決表有一格——過閘、不閘並寫出這一格自己的理由、或不寫 store。舊稽核（`DestructiveTargetGateTests`）只認布林的 `--apply`／`--reject` 宣告：預設就寫的命令與逐 id 的寫入腿長出來時它不會紅（#653 R1 verify requirements 席）。同一形狀先前的實例：#580 R1 的 `authorize-names`（宣告寫成 `: Bool` 而漏網，也一直沒有閘）、#650 的 `rename`（沒有閘）與 `rename-person`（呼叫閘卻不在手寫清單），以及本輪才發現的手寫清單裡的 `migrate-venue-variants`（列為過閘卻從未呼叫閘——它的 `--apply` 自 #554 R15 起一律拒絕）。2026-09-28 實測：CLI 葉命令 56 個、裁決 56 格、兩個差集皆空（過閘 15、逐腿 3、不閘 18、不寫 20）；三個逐腿命令的旗標 14／7／7 條、差集皆空。重跑指令見表下方） | ✅ **寫（測試：執行期命令樹雙向比對、不閘的格理由非空、過閘的集合由表現算且與閘的呼叫點一致、逐腿以真 binary 驗）** | 第 21 列的理由是「既有守衛的謂詞對那一類成員結構上不可能為真」——那一列換一個謂詞（棘輪）就解決了；這一列換不了，因為**「該不該閘」是裁決不是性質**：#653 的「只閘不可逆的」沒有一句可機械判定的「可逆」（`resolve-people` 的逐篇判定沒有把作者位退回 literal 的工具面，而它不閘）。所以守衛不判斷對錯，只要求**每一格都有裁決、不閘的寫出自己的理由**，並釘住兩件可機械核對的事：表說過閘的命令原始碼真的呼叫閘、反之亦然；逐腿的裁決對真 binary 成立（過閘的腿未指名目標時被擋、不閘的腿的樣本走得到參數檢查之後）。這是第 7 列的形：它兌現的是一個嚴格更弱的命題——通過不代表理由對，理由仍是人寫的。**過閘的集合改由表現算**：先前手寫的 `destructiveCommands` 與測試裡的第二份清單已經分岔（測試那份漏了 `migrate-identifiers`／`enrich`／`enrich-from-zotero`，「成員真的呼叫閘」對那三個從沒驗過），`--yes` 的說明也改由同一張表產生。**誠實邊界**：逐腿只做三個命令——`update-venue`、`update-person`、`library` 以命令為單位裁決，它們新長一個寫入旗標時看不到；裁決為不寫 store 的命令，測試只驗它不呼叫閘、不驗磁碟。**觸發條件可檢查**（指令見表下方）：兩個差集應恆為空；非空時在表加一格——過閘、不閘（寫理由）或不寫 store，不從鄰居類推 |
 | 38 | **零實例，而它守的是讀取面對「哪一筆」的回答——兩筆同 kind 同 key 的記錄會讓一份「單筆明細」變成兩筆的聯集**（#581：`validate --owner`／MCP `akashic_doctor` 的 `owner` 以 (kind, key) 定位一筆記錄，per-record 問題以 (族名, key) 篩出——同 kind 同 key 兩筆以上時篩出的是它們的聯集，而輸出的標題說「這一筆」。**跨 kind 同 key 不是零實例**：2026-09-28 實測 organization 與 venue 共用 2 個 key（`american-psychological-association`、`american-educational-research-association`），那是 kind 必填的理由、不是本列。**同 kind 的重複只有一部分有既有檢查**：`crossRecordIssues` 報 citekey 與 person key 的重複，venue 與 organization 的重複 key 沒有任何檢查會報（兩筆照常載入）。2026-09-28 實測 live store：person 4,575、work 2,563、venue 485、organization 13、divergence 1 筆，同 kind 重複 key **0**。重跑腳本見表下方） | ✅ **寫（拒絕、不猜——訊息列出各筆的檔名 UUID；CLI exit 1、MCP 回錯誤）** | 第 4 列的理由是「錯誤的偽裝性」——猜錯的結果看起來是對的；這一列同形而位置不同：前面各列守的是 store 的內容，這一列守的是**讀取面對「哪一筆」的回答**。聯集裡的每一則都是真的，錯在標題——而使用者正是為了看「那一筆」才指名的；在全庫輸出裡兩筆同 key 至少還有 citekey／person key 的跨記錄 error 旁證，在單筆明細裡什麼都沒有。**不選「兩筆都列、各自標記」**：`OwnedIssue` 以 (族名, key) 為身分，兩筆同 key 的記錄在那個結構裡本來就分不開，要分得開得讓每一則帶 UUID——那是換 `OwnedIssue` 的形狀、動到三個面，為一個零實例的形狀付出不成比例的代價。**訊息列出各筆的檔名 UUID**，因為重複的 key 本身指不到任何一個檔（`entities/` 以 UUID 命名）。**誠實邊界**：venue 與 organization 的重複 key 沒有跨記錄檢查，所以在這兩個 kind 上本列的拒絕是那個重複**唯一**會出聲的地方，而且只在有人剛好指名那個 key 時出聲；訊息照實說「目前沒有跨記錄檢查報」、不假稱 validate 會列出（#581 首版就這樣假稱過，同輪改掉）。補上那兩個 kind 的跨記錄檢查不在 #581 的範圍，記在 #669（2026-09-28 開立：讀取端還有七處以 `uniqueKeysWithValues` 建查找表，重複 key 會讓 `export-bib` 等直接崩潰）。成本是一個計數比較。**觸發條件可檢查**（腳本見表下方）：同 kind 重複 key 應恆為 0；非零時先修重複（citekey 與 person key 由 `validate` 的跨記錄 error 指路，venue 與 organization 要看檔），再用 owner |
 | 39 | **零實例，而它守的是單步的跳躍——一次寫入把一筆讀得回來的記錄推過讀取上限，漸進的預警看不到**（#648，使用者 2026-09-28 裁決兩件都做：(a) 寫出的位元組上限是讀取上限 `AliasEventBudget.maxBytes`（8 MiB），`writePathMultiplier` 的 2 倍只給**不增長**的改寫——寫出的位元組 ≤ 目的檔目前的位元組（`writeByteLimit(replacing:)`）；(b) resolve-people 的 judge／refute 理由上限 4,096 位元組，與未決腿同一個常數（`maxStatementBytes`）。**issue 的前提有一半不成立**（2026-09-28 讀碼並以測試確認）：「寫得進去、讀不回來」在 encode 層不會發生——語意 canary（`decode(out)`）一直以 1 倍擋著，只是拒絕不具名（`fileTooLarge`，訊息說「單一超大節點」），2 倍的外層檢查對位元組從未生效；成立的是另一半：多檔寫入面在那道拒絕觸發之前已有檔落盤（judge 先寫 entry、person 被拒——作者位歸戶而 verdict 沒寫）。2026-09-28 實測 live store：5 族 7,637 筆記錄，最大檔 268,627 bytes（venue `psychological-methods`）、超過 8,388,608 的 **0**；判定記錄最長理由 687 位元組。重跑腳本見表下方） | ✅ **寫（encode 層具名拒絕、零寫入；寬限只給不增長的改寫；多檔寫入面在任何檔落盤之前逐筆 preflight；judge／refute 理由整批拒絕、不截斷）** | 第 31 列的理由是「同一條曲線換了持有者」，它自己寫下的誠實邊界是「warning 只在讀取面、一次夠大的寫入從門檻之下直接跳過讀取上限」——這一列兌現那句邊界的另一半：**漸進的增長由第 16／31 列出聲，單步的跳躍要在寫入端擋**。與第 18 列（入口的字串上限）同形而對象不同：那一列限一個字串，這一列限寫出的整筆記錄，而兩種上限各自都不夠——字串上限擋不住很多個字串（未決腿一次 200 × 4,096 位元組，控制字元經 YAML 跳脫成 4 倍，約 3.3 MB），記錄上限擋不住多檔面的撕裂。所以裁決有三半：寫入閘在 encode（`AliasEventBudget.checkWriteSize`，六個 encoder 共用，拒絕具名記錄與兩個位元組數）、多檔寫入面逐筆 `preflightWrite`（writeX 在寫入當下跑的每一道，含 #631 目的檔與 encode）、judge／refute 的理由在輸入端先擋。**不另立控制字元規則**（使用者 2026-09-28）：4 倍跳脫是 YAML 的合法表示，由 1 倍寫入閘擋下。**寬限只作用於已經讀不回來的檔**：目的檔 ≤ 讀取上限時，不增長的改寫本來就在上限之內；目的檔超過時它在載入時已被 quarantine，entities 佈局的 #631 拒絕覆寫它，寬限只在 legacy 佈局落地——它從不把一個讀得回來的檔變成讀不回來。**誠實邊界**：(1) preflight 以每筆記錄 encode 兩次換零寫入；(2) 有逐筆收容語意的面（resolve-people 的 apply／reject、resolve-venues 的 reject）不 preflight——它們既有的契約是逐筆回報寫入失敗，拒絕現在具名，但仍可能部分落地；(3) 不經 encode 的文字層遷移（`IdentifierMigration` 的形狀升級）不受本閘管；(4) rename 與合併的 preflight dry-encode 不傳目的檔大小，比實際寫入嚴（fail-closed）——對 legacy 佈局裡已讀不回來的檔不給寬限。**觸發條件可檢查**（腳本見表下方）：超過讀取上限的檔數應恆為 0；最大檔逼近上限時第 16／31 列的 warning 先響，那時同時查是否有單一呼叫帶進大量內容 |
+| 40 | **零實例，而拒絕一直都在——只是問在錯的時間點**（#641：legacy 殘留（`entries/<citekey>.yaml`／`people/<key>.yaml`）加上三者之一——未受 git 追蹤或有未 commit 的修改、目的檔 `entities/<id>.yaml` 被隔離或是另一種記錄、同一個 id 兩份並存——的 work／person，寫入當下一定被 #631 的前置拒絕；那個拒絕發生在多檔寫入者的中途時，前面幾筆已經落盤。#631 R2 verify 以真 binary 重現 judge、refute、org apply、repoint／demote、migrate-identifiers 的撕裂，最後一處讓 ISSN 從 work 移除卻沒寫進 venue、重跑也救不回。2026-09-28 實測 live store：legacy 殘留 `entries/` **0** 個檔、`people/` **0** 個檔——load 不判斷任何記錄。重跑腳本見表下方） | ✅ **寫（load 時以同一組前置判斷標註，併進 `unlocatableCitekeys` 與新增的 `unlocatablePersonKeys`；validate 報 warning）** | 第 21 列的理由是「既有守衛的謂詞對那一類成員結構上不可能為真」；這一列的謂詞沒有問題——#631 的前置判斷對這些記錄答得完全正確，錯在**問的時間**：寫入當下才問，「拒絕」到達時同一個操作的前幾筆已經落盤。所以修法不是換謂詞，是**把同一組判斷（`assertEntitiesDestination`、`legacyMoveCandidate`、`filesNotSafelyRecoverable`）搬到 load 再問一次**，不另寫一份（`no-compat-fallback` §同一件事只能有一份描述）；答案記在記錄旁（`FileSituation`：不參與相等、不序列化），併進「無法唯一定位」的定義，#627／#628 已接好的各面閘因此在第一次寫入之前就拒絕或具名略過——那些面一行不改就拿到第 3 類；person 側的寫入者（judge／refute／apply／reject／undecided、org 以 person 為 holder 的各腿、App 的 accept、authorize-names）另接新的 `unlocatablePersonKeys`。寫入當下的檢查留著當最後一道防線：load 到寫入之間檔案處境可以變（有人在中間 commit 或刪檔），那一段的撕裂本列擋不住。**person 側只收兩類**（key 重複、檔案處境）：作品側的「共用 id」不收——people 表以 key 為主鍵，entities 佈局下共用 id 必然有一筆是 legacy（它已經落在檔案處境那一類），收進來只會多擋住住在 `entities/` 那一筆寫得進去的記錄（`unlocatablePersonKeys` 的 doc 逐條寫著）。**severity 是 warning**：記錄讀得到、內容完好，擋的是寫入；升 error 會讓 `assertNoCrossRecordErrors` 擋下不相干的改名與合併。**成本**：只有 `entries/` 或 `people/` 裡真的有 YAML 時才判斷，git 對整批搬移候選只跑一次——live store 零成本。**誠實邊界**（沒接的寫入者，逐一點名）：`import-zotero` 與 `migrate-provenance` 是逐筆收容（每筆一個檔、寫入當下的拒絕逐筆回報，不撕裂），沒有接；`fmt`／`migrate-person-identity` 直接寫檔、不經 #631；`decodeCaptured` 的唯讀快照不標註（它的契約是不重讀磁碟，也沒有寫入者）。**觸發條件可檢查**（腳本見表下方）：legacy 殘留數應恆為 0；非零時 `akashic validate` 逐筆說哪一筆寫入時會被拒、為什麼，處置是人的——把 legacy 檔 commit（之後寫入會搬移它）、刪掉兩份裡的一份、或修好被隔離的目的檔 |
 
 對本表四類中的任一個做出下一次裁決（新增、不新增、保留、拿掉）= 在這張表加一列。
 
@@ -755,6 +756,8 @@ WriteGateRulings：CLI 葉命令 56｜裁決表 56｜只在 CLI []｜只在表 [
 WriteGateRulings：resolve-organizations 旗標 7｜裁決 7｜差異 []
 WriteGateRulings：resolve-people 旗標 14｜裁決 14｜差異 []
 WriteGateRulings：resolve-venues 旗標 7｜裁決 7｜差異 []
+```
+
 **第 38 列的量測（2026-09-28，可重跑）**：拒絕本身由 `PerRecordFullListingTests.testNotFoundAndDuplicateKeysAreRefusedNotGuessed` 釘住（store 裡沒有重複時
 binary 沒有東西可印，自證要靠測試）。Python 對照（不依賴 binary；讀不到的檔計數，同第 24 列；work 的 key 是 citekey、divergence 的 key 是檔名 UUID）：
 
@@ -775,6 +778,8 @@ cross = {f'{a}×{b}': sorted(set(keys[a]) & set(keys[b])) for a, b in itertools.
 print({k: len(v) for k, v in keys.items()}, '｜同 kind 重複 key', {k: len(v) for k, v in dup.items()}, '｜跨 kind 同 key', cross, '｜讀不到的檔', bad)
 EOF
 # 2026-09-28：person 4575、work 2563、venue 485、divergence 1、organization 13｜同 kind 重複 key 全 0｜跨 kind 同 key 只有 organization×venue 2 個｜讀不到的檔 0
+```
+
 **第 39 列的量測（2026-09-28，可重跑）**：唯讀，量的就是讀取路徑比的那個數——記錄檔的位元組（讀不到的檔計數，同第 24 列）；判定記錄的理由長度與 judge／refute 的上限對照（上限量的是呼叫端送來的理由，store 裡存的另含 `[rule: …]` 尾註，所以這個數偏大、方向安全）：
 
 ```bash
@@ -801,6 +806,19 @@ print(f'超過讀取上限 {LIMIT} 的檔 {over}｜判定記錄最長理由 {jma
 EOF
 # 2026-09-28：person 4575／work 2563／venue 485／organization 13／divergence 1；最大檔 venue 268627（psychological-methods）、
 #   person 10869、work 5602、divergence 1004、organization 717；超過讀取上限 0｜最長理由 687 位元組｜讀不到 0
+```
+
+**第 40 列的量測（2026-09-28，可重跑）**：`akashic validate 2>&1 | grep -c '^⚠ \[跨記錄\] \(work\|person\)「.*」的檔案寫入時會被拒——'`（用含這條檢查的 binary——同第 13 列的自證，舊 binary 印不出東西；行首錨在 binary 自己印的前綴上，同第 24 列）。Python 對照（不依賴 binary；legacy 殘留是本列的前提——沒有它，load 不判斷任何記錄）：
+
+```bash
+python3 - <<'EOF'
+import glob, os
+root = os.path.expanduser('~/.akashic')
+for d in ('entries', 'people'):
+    n = len([f for f in glob.glob(os.path.join(root, d, '*')) if f.lower().endswith('.yaml')])
+    print(f"legacy 殘留 {d}/：{n} 個檔")
+EOF
+# 2026-09-28：entries/ 0 個檔、people/ 0 個檔
 ```
 
 ## 各列共通的東西（觀察，不是判準）
@@ -852,6 +870,7 @@ EOF
 - 第 36 列的理由是**假號的來源是合法的號掛錯地方**——第 4 列是猜錯的結果看起來對、第 32 列是謂詞寬到放行假號；這一列的號本身合法，錯在它屬於哪本刊，只有跨記錄比對看得到，且守衛要與移除面同批，否則 warning 沒有工具面的出口
 - 第 37 列的理由是**舊謂詞對新形狀結構上不可能為真，而正確的謂詞不存在**——第 21 列換一個謂詞就好；這一列換不了，因為「該不該閘」是裁決不是性質，所以守衛只要求每一格都有裁決並寫出自己的理由（第 7 列的形：通過不代表理由對）
 - 第 38 列的理由是**錯在標題不在內容**——第 4 列是猜錯的結果看起來對；這一列聯集裡的每一則都是真的，錯的是「這一筆」這個標題，而讀的人正是為了那個標題才指名。守的是讀取面的定址，不是 store 的內容
+- 第 40 列的理由是**拒絕問在錯的時間點**——第 21 列是謂詞問了那一類成員答不錯的問題、第 13 列是跡象住在錯的地方；這一列的謂詞答得對、跡象也在，錯在答案到達時寫入已經進行到一半。修法是同一組判斷換一個時間點再問一次，不是寫第二份判斷
 - 第 31 列的理由是**同一條曲線換了持有者**——第 16 列的燈只照 venue；新面（未決腿）讓 person 與 organization 也開始累積，第 30 列寫下的誠實邊界要有工具面兌現，否則就是一句沒有後續的散文
 - 第 39 列的理由是**單步的跳躍預警看不到**——第 16／31 列的燈在讀取面、照的是漸進的增長；一次寫入從門檻之下直接越過讀取上限時，燈來不及響，擋它的只能是寫入端。而那道閘要擋的不只是位元組：多檔寫入面在它觸發之前已有檔落盤，所以閘與零寫入的 preflight 同批
 - 第 24 列的理由是**半吊子已經誠實**——前二十三列裡只有第 22 列同樣是「不動既有的東西」（比的是裁決的**動作**：那一列的對象是 spec 文字、失敗是被當死重刪掉；本列的對象是程式的半吊子管線、失敗是使用者撞牆或被當成待修殘留而被人動手）。留著的代價不是零（記了就刪不掉——#586 在 2026-09-28 補了移除面，代價從「刪不掉」降為「要人判定放棄」），而是今天未兌現、且一出現就會出聲；動它的兩個方向（實作／拿掉）代價都更高。與第 10 列（缺用途）最像的是理由的**形**：實作那一半同樣是「形狀取決於還不存在的用途」；但第 10 列的對象根本不存在，這一列的對象已經在、且已經誠實

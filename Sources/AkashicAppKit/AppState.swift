@@ -325,7 +325,7 @@ public final class AppState {
         let entries = try store.load().entries
         // #628（R1 verify）：citekey 重複或與另一筆共用 id 時 `first(where:)` 會猜是哪一筆——拒絕
         if entries.unlocatableCitekeys.contains(citekey) {
-            throw StoreIOError.invalidKey("citekey（重複或與另一筆 work 共用 id，無法確定是哪一筆；先修正，#628）", citekey)
+            throw StoreIOError.invalidKey("citekey（無法唯一定位：\(UnlocatableReason.work)；先修好，#628／#641）", citekey)
         }
         guard var entry = entries.first(where: { $0.citekey == citekey }) else {
             throw StoreIOError.invalidKey("citekey（不存在）", citekey)

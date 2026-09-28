@@ -1136,8 +1136,12 @@ extension ServiceTests {
 // R9（R8-verify M15）：resolve-people 的 per-item 收容契約 regression
 extension ServiceTests {
     func testResolvePeopleContainsWriteFailurePerItem() throws {
-        // 凍結記錄（decode 容忍、encode 平移不變式拒寫）+ literal 作者可解析
+        // 凍結記錄（decode 容忍、encode 平移不變式拒寫）+ literal 作者可解析。
+        // #641：放在 entities/ 而不是 legacy 的 entries/——這個 store 是 entities 佈局、不在 git 裡，legacy 單份刪了回不來，
+        // load 會把它標成無法唯一定位、apply 在寫入之前整批拒絕；本測試要驗的是寫入當下的逐筆收容，所以記錄要寫得到那一步
+        let frozenFile = root.appendingPathComponent("entities/7C1F6C2E-0000-0000-0000-00000000CC01.yaml")
         let frozen = """
+        work:
         id: 7C1F6C2E-0000-0000-0000-00000000CC01
         citekey: frozen3
         type: periodical-article
@@ -1150,9 +1154,7 @@ extension ServiceTests {
             weird: [a,
           b]
         """
-        try (frozen + "\n").write(
-            to: root.appendingPathComponent("entries/frozen3.yaml"),
-            atomically: true, encoding: .utf8)
+        try (frozen + "\n").write(to: frozenFile, atomically: true, encoding: .utf8)
         // #231：no-apply 回應由陣列改為 {candidates, ambiguities}
         let list = (try json(try service.resolvePeople(apply: nil)) as! [String: Any])["candidates"] as! [[String: Any]]
         let ids = list.compactMap { $0["id"] as? String }
@@ -1164,8 +1166,7 @@ extension ServiceTests {
         XCTAssertEqual(out["applied"] as? [String], [])
         XCTAssertEqual(out["entriesRewritten"] as? Int, 0)
         // 磁碟原封不動（fail-closed 不毀檔）
-        let onDisk = try String(
-            contentsOf: root.appendingPathComponent("entries/frozen3.yaml"), encoding: .utf8)
+        let onDisk = try String(contentsOf: frozenFile, encoding: .utf8)
         XCTAssertTrue(onDisk.contains("- literal: Che Cheng"))
     }
 }

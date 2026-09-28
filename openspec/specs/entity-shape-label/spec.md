@@ -70,7 +70,7 @@ code:
 ---
 ### Requirement: A write SHALL NOT overwrite an entity file holding another record (#631)
 
-In the entities layout every record is written to `entities/<id>.yaml`. Before writing, the system SHALL confirm that the destination either does not exist or decodes to a record of the same shape and the same identifier; otherwise it SHALL refuse the write by name and leave the destination untouched. When a work or person exists only as a legacy copy (`entries/<citekey>.yaml` or `people/<key>.yaml` with the same identifier, and no file under `entities/`), writing it SHALL move it: the record is written under `entities/` and the legacy copy is removed, because the single copy is the source of the new content. The legacy copy SHALL only be removed when its key is valid and matches its file name, and when it is tracked by git with no uncommitted changes; otherwise the write SHALL be refused by name and the file left unchanged. When both a legacy copy and the `entities/` file exist for the same identifier, the write SHALL be refused by name and neither copy SHALL be deleted, because the two may have diverged. Multi-file operations (rename, rename-person, merges, venue apply) SHALL run these checks for every record they will write before the first write. A destination quarantined for its shape label, its identifier or an invalid key counts as holding another record.
+In the entities layout every record is written to `entities/<id>.yaml`. Before writing, the system SHALL confirm that the destination either does not exist or decodes to a record of the same shape and the same identifier; otherwise it SHALL refuse the write by name and leave the destination untouched. When a work or person exists only as a legacy copy (`entries/<citekey>.yaml` or `people/<key>.yaml` with the same identifier, and no file under `entities/`), writing it SHALL move it: the record is written under `entities/` and the legacy copy is removed, because the single copy is the source of the new content. The legacy copy SHALL only be removed when its key is valid and matches its file name, and when it is tracked by git with no uncommitted changes; otherwise the write SHALL be refused by name and the file left unchanged. When both a legacy copy and the `entities/` file exist for the same identifier, the write SHALL be refused by name and neither copy SHALL be deleted, because the two may have diverged. Multi-file operations (rename, rename-person, merges, venue apply) SHALL run these checks for every record they will write before the first write. When legacy copies are present, loading the store SHALL run the same checks for every work and person and SHALL mark each record whose write they would refuse as not uniquely locatable, so that every writer that refuses or skips records it cannot uniquely locate does so before its first write; the write-time checks remain the last line of defence (#641). A destination quarantined for its shape label, its identifier or an invalid key counts as holding another record.
 
 #### Scenario: The destination is a quarantined record
 
@@ -89,6 +89,12 @@ In the entities layout every record is written to `entities/<id>.yaml`. Before w
 - **GIVEN** a work with both `entries/<citekey>.yaml` and `entities/<id>.yaml` for the same identifier
 - **WHEN** the work is written
 - **THEN** the write is refused by name and both files are unchanged
+
+#### Scenario: A record whose write would be refused is refused before any write (#641)
+
+- **GIVEN** a person whose only copy is `people/<key>.yaml`, not tracked by git, and a work whose author is the literal nominated to that person
+- **WHEN** that author position is judged to the person
+- **THEN** the judgement is skipped by name before any write, and neither the work file nor the person file changes
 
 ### Requirement: Shape labels SHALL be drawn from a closed set
 

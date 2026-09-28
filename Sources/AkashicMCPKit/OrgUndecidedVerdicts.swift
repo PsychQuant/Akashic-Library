@@ -205,6 +205,9 @@ extension AkashicService {
             throw ServiceError.notFound("organization「\(displaySafeInvisible(s.orgKey, max: 200))」")
         }
         let unlocatable = load.entries.unlocatableCitekeys
+        // #641：person holder 同一個語意（與 apply／reject／judge 一致）——這條腿只寫 org，但 verdict 以 person key 點名配對，
+        // key 重複時它說不出是哪一個人
+        let unlocatablePeople = load.people.unlocatablePersonKeys
         var recorded: [(id: String, literal: String, statement: String)] = []
         var skipped: [(id: String, why: String)] = []
         var already: [String] = []
@@ -212,7 +215,11 @@ extension AkashicService {
         var writtenThisCall = Set<[[UInt8]]>()   // 鍵帶被判 org（同 people／venues 的 R2 修正）
         for (s, row) in zip(parsed, chosen) {
             if case let .work(citekey, _) = row.holder, unlocatable.contains(citekey) {
-                skipped.append((s.id, "work「\(displaySafe(citekey, max: 200))」的 citekey 重複或與另一筆 work 共用 id——無法確定是哪一筆，略過（#628）"))
+                skipped.append((s.id, "work「\(displaySafe(citekey, max: 200))」無法唯一定位（\(UnlocatableReason.work)）——略過（#628／#641）"))
+                continue
+            }
+            if case let .person(k) = row.holder, unlocatablePeople.contains(k) {
+                skipped.append((s.id, "person「\(displaySafe(k, max: 200))」無法唯一定位（\(UnlocatableReason.person)）——略過（#641）"))
                 continue
             }
             let kind = row.holder.verdictHolderKind

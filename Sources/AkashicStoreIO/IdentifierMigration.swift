@@ -626,6 +626,16 @@ public enum IdentifierMigration {
                 blockedEntries.insert(updated.citekey)
             }
         }
+        // #641：無法唯一定位的 work 整筆不動——citekey 重複、與另一筆共用 id，或 load 判定它的檔案寫入時會被 #631 拒絕
+        // （legacy 殘留加上 quarantine、兩份並存或不能安全搬移）。先前這一格在寫入迴圈中途才被拒：前一筆的 `fields.issn`
+        // 已刪、venue 還沒寫，ISSN 兩邊都沒有、重跑也救不回（R2 verify 真 binary 重現）。與上面兩類同一個處置：列進
+        // blockers、本筆不寫——它的 ISSN 照樣進 venue 計畫，所以號不會消失，只是 work 上的殘留留著。
+        let unlocatable = load.entries.unlocatableCitekeys
+        for updated in updatedEntries
+        where unlocatable.contains(updated.citekey) && blockedEntries.insert(updated.citekey).inserted {
+            report.blockers.append(
+                "\(displaySafeInvisible(updated.citekey, max: 200))：無法唯一定位（\(UnlocatableReason.work)）——本筆整筆略過（#641）")
+        }
 
         guard apply else { return report }
 

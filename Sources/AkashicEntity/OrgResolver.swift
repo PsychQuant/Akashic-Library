@@ -339,6 +339,7 @@ public enum OrgResolver {
                              organizations: [Organization],
                              entries: [Entry] = []) -> Applied {
         var byPerson = Dictionary(people.map { ($0.key, $0) }, uniquingKeysWith: { _, last in last })
+        let unlocatablePeople = people.unlocatablePersonKeys   // #641
         var byOrg = Dictionary(organizations.map { ($0.key, $0) },
                                uniquingKeysWith: { _, last in last })
 
@@ -380,7 +381,10 @@ public enum OrgResolver {
                 else { continue }
                 outEntries[i].authors[index] = .organization(c.orgKey)
             case let .person(key):
-                guard var person = byPerson[key],
+                // #641：無法唯一定位的 person 一律不改（同作品側）——key 重複時 `byPerson` 以 key 對應會把同 key 的
+                // 每一筆換成同一份，檔案處境寫入時會被拒的則會在寫入當下撕裂；上游各腿另行拒絕或具名略過
+                guard !unlocatablePeople.contains(key),
+                      var person = byPerson[key],
                       let migrated = migrate(person.profile.affiliations,
                                              literal: c.literal, to: c.orgKey) else { continue }
                 person.profile.affiliations = migrated
@@ -396,7 +400,9 @@ public enum OrgResolver {
                 byOrg[key] = org
             }
         }
-        return Applied(people: people.map { byPerson[$0.key] ?? $0 },
+        // 無法唯一定位的 person 原樣回傳（#641）——key 重複時 `byPerson[key]` 是最後一筆，拿它換掉第一筆會讓呼叫端把
+        // 一筆沒改的記錄當成「改過」而寫它
+        return Applied(people: people.map { unlocatablePeople.contains($0.key) ? $0 : (byPerson[$0.key] ?? $0) },
                        organizations: organizations.map { byOrg[$0.key] ?? $0 },
                        entries: outEntries)
     }

@@ -155,6 +155,31 @@ final class ResolveVerdictCLITests: XCTestCase {
         XCTAssertTrue(r.output.contains("citekey 重複"), "要另列：\n\(r.output)")
     }
 
+    /// #641：person 那一格同理——只住在 legacy、刪了回不來的 person（這個 store 不在 git 裡）不進篩選式批次，另列，
+    /// 其餘照寫。沙箱：`AKASHIC_HOME` 指到一次性的暫存目錄。
+    func testFilteredApplyExcludesAnUnwritablePersonAndWritesTheRest() throws {
+        try store.writePerson(Person(key: "cheng-che", names: ["Che Cheng"]))
+        try FileManager.default.createDirectory(at: store.peopleDir, withIntermediateDirectories: true)
+        let legacy = store.personURL(key: "olsson-ulf")
+        try PersonYAML.encode(Person(key: "olsson-ulf", names: ["Ulf Olsson"]))
+            .write(to: legacy, atomically: true, encoding: .utf8)
+        try store.writeEntry(Entry(id: UUID(), citekey: "a2020x", type: .periodicalArticle,
+                                   title: "T", authors: [.literal("Che Cheng")], date: "2020"))
+        try store.writeEntry(Entry(id: UUID(), citekey: "b2021y", type: .periodicalArticle,
+                                   title: "U", authors: [.literal("Ulf Olsson")], date: "2021"))
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent("akashic-641-home-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: home) }
+        let personBefore = try Data(contentsOf: legacy)
+        let r = try CLITestHarness.run(["resolve-people", "--apply", "--tier", "exact", "--library", root.path],
+                                       env: ["AKASHIC_HOME": home.path])
+        XCTAssertEqual(r.status, 0, r.output)
+        let load = try reload()
+        XCTAssertEqual(load.entries.first { $0.citekey == "a2020x" }?.authors, [.key("cheng-che")], "其餘照寫：\n\(r.output)")
+        XCTAssertEqual(load.entries.first { $0.citekey == "b2021y" }?.authors, [.literal("Ulf Olsson")], r.output)
+        XCTAssertEqual(try Data(contentsOf: legacy), personBefore)
+        XCTAssertTrue(r.output.contains("person key 重複") && r.output.contains("olsson-ulf"), "要另列：\n\(r.output)")
+    }
+
     /// #627 R3：judge 全部略過時沒有寫入——不印 ✓、不說「其餘已落地」、非零結束。
     func testJudgeAllSkippedExitsNonZeroWithoutClaimingWrites() throws {
         try store.writePerson(Person(key: "cheng-che", names: ["Che Cheng"]))

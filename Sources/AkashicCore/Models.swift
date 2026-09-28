@@ -110,6 +110,8 @@ public struct Entry: Equatable {
     public var references: [ProvenanceReference]
     /// 頂層未知欄位（tolerant-preserve，#23）。
     public var unknownFields: [UnknownField]
+    /// `LibraryStore.load()` 對這筆記錄**檔案處境**的觀察（#641）——不是記錄內容，見 `FileSituation`。
+    public var fileSituation = FileSituation()
 
     public init(id: UUID, citekey: String, type: WorkType, title: String,
                 authors: [Author] = [], venues: [VenueRef] = [], date: String? = nil,
@@ -537,6 +539,8 @@ public struct Person: Equatable {
     public var references: [ProvenanceReference]
     /// 頂層未知欄位（tolerant-preserve，#23）。
     public var unknownFields: [UnknownField]
+    /// `LibraryStore.load()` 對這筆記錄**檔案處境**的觀察（#641）——不是記錄內容，見 `FileSituation`。
+    public var fileSituation = FileSituation()
 
     /// `id` 省略時**發一個新的 v4**（#241）——身分只有一個產生事件：建立。
     ///

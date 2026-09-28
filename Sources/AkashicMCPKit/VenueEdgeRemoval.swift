@@ -64,8 +64,8 @@ extension AkashicService {
             }
             if unlocatable.contains(citekey) {
                 throw ServiceError.invalid(
-                    "work「\(displaySafeInvisible(citekey, max: 200))」的 citekey 重複或與另一筆 work 共用 id——"
-                    + "無法確定是哪一筆，整批拒絕、零寫入；先修正重複的 citekey 或 id（#628）")
+                    "work「\(displaySafeInvisible(citekey, max: 200))」無法唯一定位（\(UnlocatableReason.work)）——"
+                    + "整批拒絕、零寫入；先修好（#628／#641）")
             }
             guard let entry = byCitekey[citekey] else {
                 throw ServiceError.notFound("work「\(displaySafeInvisible(citekey, max: 200))」")

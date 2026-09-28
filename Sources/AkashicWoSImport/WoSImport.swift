@@ -307,6 +307,10 @@ public enum WoSImport {
         }
         let byIdentity = Dictionary(load.entries.map { (titleYearIdentity($0), $0) },
                                     uniquingKeysWith: { a, _ in a })
+        // #641：回填以 id 定檔改寫既有記錄，寫之前要能唯一定位那一筆——`unlocatableCitekeys` 的三類
+        // （citekey 重複、與另一筆 work 共用 id、load 判定它的檔案寫入時會被拒）。先前這裡不問：共用 id 時改寫的是兄弟的檔，
+        // 檔案寫入時會被拒的則在寫入當下擲出、整趟匯入中斷，前面幾列已經落盤而報告隨 throw 丟掉
+        let unlocatable = load.entries.unlocatableCitekeys
         /// DOI 命中優先；無 DOI 或查無才退回 (標題, 年份)。
         func existing(matching probe: Entry) -> Entry? {
             for d in probe.canonicalDOIs {
@@ -388,6 +392,12 @@ public enum WoSImport {
                 mergedCheck.id = probeCheck.id; mergedCheck.citekey = probeCheck.citekey
                 guard !addedKeys.isEmpty || addedVenues, mergedCheck == probeCheck else {
                     report.conflicts.append(existing.citekey)
+                    continue
+                }
+                guard !unlocatable.contains(existing.citekey) else {
+                    // citekey 受 StoreKey 約束（load 已驗）；報告在 CLI／MCP 兩個出口各自 displaySafe
+                    report.skippedRows.append("第 \(i + 2) 列：對應的 work「\(existing.citekey)」無法唯一定位"
+                                              + "（\(UnlocatableReason.work)）——不回填、零寫入（#641）")
                     continue
                 }
                 if !dryRun { try store.writeEntry(merged) }

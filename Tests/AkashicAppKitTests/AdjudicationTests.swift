@@ -78,6 +78,27 @@ final class AdjudicationTests: XCTestCase {
             p.references.contains { ($0.value ?? "").contains("work:a2020paper ") } })
     }
 
+    /// #641：accept 寫完 work 才寫 person 的 verdict。person 只住在 legacy、刪了回不來（這個 store 不在 git 裡）——
+    /// load 把它標成無法唯一定位，accept 在任何寫入之前具名拒絕；先前是作者位已升格、verdict 在寫入當下被拒。
+    func testAcceptRefusesAnUnwritablePersonBeforeAnyWrite() throws {
+        let person = try XCTUnwrap(state.people.first { $0.key == "cheng-che" })
+        let entitiesFile = root.appendingPathComponent("entities/\(person.id.uuidString).yaml")
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("people"), withIntermediateDirectories: true)
+        let legacy = root.appendingPathComponent("people/cheng-che.yaml")
+        try FileManager.default.moveItem(at: entitiesFile, to: legacy)
+        try state.load()
+        let entry = try XCTUnwrap(state.entries.first { $0.citekey == "a2020paper" })
+        let entryFile = root.appendingPathComponent("entities/\(entry.id.uuidString).yaml")
+        let (entryBefore, personBefore) = (try Data(contentsOf: entryFile), try Data(contentsOf: legacy))
+        let model = PeopleResolveModel(state: state)
+        let cand = try XCTUnwrap(model.candidates.first { $0.citekey == "a2020paper" })
+        XCTAssertThrowsError(try model.accept(cand)) { err in
+            XCTAssertEqual(err as? AdjudicationError, .unlocatablePerson("cheng-che"))
+        }
+        XCTAssertEqual(try Data(contentsOf: entryFile), entryBefore, "作者位不得先升格")
+        XCTAssertEqual(try Data(contentsOf: legacy), personBefore)
+    }
+
     /// #303 task 3.3：resolver 的 tier 原樣進到裁決台的候選列（顯示面消費新欄）。
     func testPeopleResolveCandidatesCarryTier() throws {
         // 追加一筆 token 重排形：「Cheng Che」↔ alias「Che Cheng」

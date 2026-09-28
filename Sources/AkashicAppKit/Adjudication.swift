@@ -121,6 +121,10 @@ public final class PeopleResolveModel {
         if state.entries.unlocatableCitekeys.contains(candidate.citekey) {
             throw AdjudicationError.unlocatableCitekey(candidate.citekey)
         }
+        // #641：accept 寫完 work 才寫 person 的 verdict——person 檔寫入時會被拒（或 key 重複）就在任何寫入之前拒絕
+        if state.people.unlocatablePersonKeys.contains(candidate.personKey) {
+            throw AdjudicationError.unlocatablePerson(candidate.personKey)
+        }
         let applied = PersonResolver.apply([candidate], to: state.entries)
         // R7（R6-verify M21）：per-item 收容——先寫完能寫的、reindex 保持一致，
         // 再把第一個失敗往上拋給 UI（不留「部分改寫 + index stale」）
@@ -178,7 +182,11 @@ public enum AdjudicationError: Error, LocalizedError, Equatable, SanitizedErrorD
     /// #605：主來源已刪除，但附加來源（例如群組 library 那份）仍在 Zotero 裡。
     case hasLiveAdditionalSource(String)
     /// #627：候選所在的 citekey 在 store 裡不只一筆、或該 work 與另一筆共用 id——以 citekey 定位會猜是哪一筆、以 id 寫檔會寫到兄弟的檔，拒絕。
+    /// #641 起也含 load 判定它的檔案寫入時會被拒的 work（`unlocatableCitekeys` 的第 3 類）。
     case unlocatableCitekey(String)
+    /// #641：候選指名的 person 無法唯一定位（key 重複，或 load 判定它的檔案寫入時會被拒）——accept 寫完 work
+    /// 才寫 person 的 verdict，那一格在寫入當下被拒會留下已升格而沒有 verdict 的作者位，拒絕。
+    case unlocatablePerson(String)
 
     public var errorDescription: String? {
         switch self {
@@ -192,7 +200,9 @@ public enum AdjudicationError: Error, LocalizedError, Equatable, SanitizedErrorD
         case .hasLiveAdditionalSource(let key):
             return "「\(displaySafeInvisible(key, max: 200))」只有主來源在 Zotero 端被刪除，另一個 library 的附加來源仍在——丟垃圾桶會連它一起丟掉，已拒絕；請改用「與 Zotero 脫鉤」（拿掉已刪除的來源、保留另一個 library 的紀錄，欄位不再被 Zotero 改寫）"
         case .unlocatableCitekey(let key):
-            return "citekey「\(displaySafeInvisible(key, max: 200))」在 store 裡不只一筆、或與另一筆 work 共用 id——無法確定是哪一筆，已拒絕歸戶；請先修正重複的 citekey 或 id（#627）"
+            return "citekey「\(displaySafeInvisible(key, max: 200))」無法唯一定位（\(UnlocatableReason.work)）——已拒絕歸戶；請先修好（#627／#641）"
+        case .unlocatablePerson(let key):
+            return "person「\(displaySafeInvisible(key, max: 200))」無法唯一定位（\(UnlocatableReason.person)）——已拒絕歸戶；請先修好（#641）"
         }
     }
 }

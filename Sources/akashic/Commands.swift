@@ -1030,7 +1030,7 @@ struct ResolveOrganizations: ParsableCommand {
 
     /// 查過、判不出來（change `org-undecided-leg`，#643）。
     @Option(name: .long, parsing: .upToNextOption,
-            help: "記下查過未決（可重複）：<列表的 id>@<orgKey>=查了什麼、為何判不出來。id 逐字取自不帶參數時列表每列的 id（work 作者位是 citekey[i]::literal）；在每個 @<orgKey>= 的位置試切，前綴必須與列表的 id 位元組相同，恰一個才收、零個或多個整批拒絕（例外：某個 literal 恰為另一個 literal 接上 @<key>= 時）。orgKey 必須是那一列提名的 org（歧義條目可逐個 org 記）。person 與 organization 同 key 而兩列都在列表上時 id 相同，點到它整批拒絕。寫一筆 resolution-undecided 到該 org，holder 不動；記錄是 work 層級、不帶作者位（同一筆 work 另一個同 literal 的作者位被 apply 後，這個配對就算已判定）；之後列表標「查過未決 N 次」、--apply 不帶走它。可附 --rests-on。已判定的配對、citekey 重複的 work 該筆略過並具名。需要 store format ≥ 19；一次超過 200 個 id、20 個 digest、單句說明超過 4,096 位元組或單筆 id 超過「最長列表 id ＋ 最長 orgKey ＋ 2 ＋ 4,096 位元組」整批拒絕。單獨呼叫，不與 --apply／--reject／--holder／--org 組合。literal 含控制字元時終端機上複製回來會對不上，改用 MCP")
+            help: "記下查過未決（可重複）：<列表的 id>@<orgKey>=查了什麼、為何判不出來。id 逐字取自不帶參數時列表每列的 id（work 作者位是 citekey[i]::literal）；在每個 @<orgKey>= 的位置試切，前綴必須與列表的 id 位元組相同，恰一個才收、零個或多個整批拒絕（例外：某個 literal 恰為另一個 literal 接上 @<key>= 時）。orgKey 必須是那一列提名的 org（歧義條目可逐個 org 記）。person 與 organization 同 key 而兩列都在列表上時 id 相同，點到它整批拒絕。寫一筆 resolution-undecided 到該 org，holder 不動；記錄是 work 層級、不帶作者位（同一筆 work 另一個同 literal 的作者位被 apply 後，這個配對就算已判定）；之後列表標「查過未決 N 次」、--apply 不帶走它。可附 --rests-on。已判定的配對、無法唯一定位的 work 或 person（\(UnlocatableReason.work)；\(UnlocatableReason.person)）該筆略過並具名。需要 store format ≥ 19；一次超過 200 個 id、20 個 digest、單句說明超過 4,096 位元組或單筆 id 超過「最長列表 id ＋ 最長 orgKey ＋ 2 ＋ 4,096 位元組」整批拒絕。單獨呼叫，不與 --apply／--reject／--holder／--org 組合。literal 含控制字元時終端機上複製回來會對不上，改用 MCP")
     var undecided: [String] = []
 
     @Option(name: .long, parsing: .upToNextOption,
@@ -1039,7 +1039,7 @@ struct ResolveOrganizations: ParsableCommand {
 
     /// 逐篇判定（#647）：CLI 在此之前沒有逐 id 的歸戶，查過未決的候選被篩選式 --apply 排除後只能走 MCP。
     @Option(name: .long, parsing: .upToNextOption,
-            help: "逐篇判定（可重複）：<列表的 id>@<orgKey>=理由。id 的解析同 --undecided（歧義條目也收，可選其中一個 org）。把那一列歸戶到 orgKey，並寫一筆 org-judged 層級的 confirmed verdict，理由進記錄（必填、≤ 4,096 位元組）；已歸戶而理由存不進去時（同一配對已有理由不同的逐篇判定——verdict 不帶作者位索引；或 store format < 19 已有提名層判定），那一列印 ⚠ 說明原因。查過未決的候選也可以這樣歸戶。寫入前整個寫入集合先驗，任一筆不過零寫入。輸入錯整批拒絕、零寫入；citekey 重複的 work、上級機構判給自己或會成環、判給歧義條目裡已否決過這個配對的 org、列表過期，該筆略過並具名（候選列上已否決配對的其他拼法不再列出——拿它的 id 是輸入錯）。單獨呼叫，不與 --apply／--reject／--undecided／--holder／--org 組合")
+            help: "逐篇判定（可重複）：<列表的 id>@<orgKey>=理由。id 的解析同 --undecided（歧義條目也收，可選其中一個 org）。把那一列歸戶到 orgKey，並寫一筆 org-judged 層級的 confirmed verdict，理由進記錄（必填、≤ 4,096 位元組）；已歸戶而理由存不進去時（同一配對已有理由不同的逐篇判定——verdict 不帶作者位索引；或 store format < 19 已有提名層判定），那一列印 ⚠ 說明原因。查過未決的候選也可以這樣歸戶。寫入前整個寫入集合先驗，任一筆不過零寫入。輸入錯整批拒絕、零寫入；無法唯一定位的 work 或 person（\(UnlocatableReason.work)；\(UnlocatableReason.person)）、上級機構判給自己或會成環、判給歧義條目裡已否決過這個配對的 org、列表過期，該筆略過並具名（候選列上已否決配對的其他拼法不再列出——拿它的 id 是輸入錯）。單獨呼叫，不與 --apply／--reject／--undecided／--holder／--org 組合")
     var judge: [String] = []
 
     /// `--judge` 的結果（#647）。service 回來的字串已消毒；一筆都沒判成且有略過時非零結束（同 --undecided）。
@@ -1123,8 +1123,16 @@ struct ResolveOrganizations: ParsableCommand {
         // #628：作者位候選所在的 work 無法唯一定位（citekey 重複或與另一筆共用 id）→ 不進篩選式批次，另列
         // （比照 resolve-people 的 #627：以 citekey 定位會猜是哪一筆，寫入以 id 定檔會寫到兄弟的檔）
         let unlocatableCK = load.entries.unlocatableCitekeys
+        // #641：以 person 為 holder 的候選（隸屬）同一個語意——apply 依序寫 people、orgs、entries，person 檔在寫入當下被拒時
+        // 前面寫下的就留著（R2 verify 真 binary 重現）
+        let unlocatablePK = load.people.unlocatablePersonKeys
         func isUnlocatable(_ c: OrgResolutionCandidate) -> Bool {
             if case let .work(citekey, _) = c.holder { return unlocatableCK.contains(citekey) }
+            if case let .person(k) = c.holder { return unlocatablePK.contains(k) }
+            return false
+        }
+        func isPersonHolder(_ c: OrgResolutionCandidate) -> Bool {
+            if case .person = c.holder { return true }
             return false
         }
         let inScope = all.filter {
@@ -1142,11 +1150,11 @@ struct ResolveOrganizations: ParsableCommand {
         let undecidedSkipped = apply ? inScope.filter { !isUnlocatable($0) && checks($0) > 0 } : []
         let candidates = inScope.filter { !isUnlocatable($0) && !(apply && checks($0) > 0) }
         if (apply || reject), !unlocatableSkipped.isEmpty {
-            print("⚠ 所在 work 的 citekey 重複或與另一筆共用 id 的候選 \(unlocatableSkipped.count) 筆不寫入（無法確定是哪一筆 work）：")
+            print("⚠ 所在 work 或 person 無法唯一定位的候選 \(unlocatableSkipped.count) 筆不寫入（work：\(UnlocatableReason.work)；person：\(UnlocatableReason.person)——#628／#641）：")
             for c in unlocatableSkipped {
                 print("  \(displaySafe(c.holder.key, max: 200)) 「\(displaySafe(c.literal, max: 200))」 → \(displaySafe(c.orgKey, max: 200))")
             }
-            print("  → 先修正重複的 citekey 或共用的 id 再重跑（#628）")
+            print("  → 先修好再重跑（#628／#641）")
         }
         // 持有者可能是 person 或 organization——**標出來**。少了它，兩類候選在
         // 輸出裡長得一樣，而它們寫進的是不同記錄的不同欄位（#166）。
@@ -1344,7 +1352,7 @@ struct ResolveOrganizations: ParsableCommand {
         for c in all {
             let mark = (apply && !selected.contains("\(c.holder)#\(c.literal)")) ? "  (skip) " : "  "
             // #628（R1 verify）：列表模式也標出來——不必送出 --apply 才知道它會被排除
-            let tag = isUnlocatable(c) ? " ⟨citekey 重複或共用 id：不寫入，先修正⟩" : ""
+            let tag = isUnlocatable(c) ? " ⟨無法唯一定位（\(isPersonHolder(c) ? UnlocatableReason.person : UnlocatableReason.work)）：不寫入，先修好⟩" : ""
             let n = checks(c)
             let checked = n > 0 ? " ⟨查過未決 \(n) 次\(apply ? "：不套用" : "")⟩" : ""   // display-safe-exempt: n 是 Int
             print("\(mark)\(label(c.holder)) 「\(displaySafe(c.literal, max: 200))」 → \(displaySafe(c.orgKey, max: 200))（\(displaySafe(c.reason, max: 300))）\(tag)\(checked)")
@@ -1360,9 +1368,9 @@ struct ResolveOrganizations: ParsableCommand {
                 print("  \(label(c.holder)) 「\(displaySafe(c.literal, max: 200))」 → \(displaySafe(c.orgKey, max: 200))")
             }
             if candidates.isEmpty {
-                // 排除有兩個來源（#628 的 citekey 重複、查過未決）；全數排除時兩者都可能有份（#643 R2 verify）
+                // 排除有兩個來源（#628／#641 的無法唯一定位、查過未決）；全數排除時兩者都可能有份（#643 R2 verify）
                 print(unlocatableSkipped.isEmpty ? "⚠ 收窄後的候選全部查過未決——沒有寫入"
-                                                 : "⚠ 收窄後的候選全部被排除（查過未決，或 citekey 重複、見上）——沒有寫入")
+                                                 : "⚠ 收窄後的候選全部被排除（查過未決，或無法唯一定位、見上）——沒有寫入")
                 throw ExitCode(1)
             }
         }
@@ -1739,7 +1747,7 @@ struct ResolvePeople: ParsableCommand {
     /// 而批次會讓它退化成罐頭字串——罐頭 judgement 等於沒有判定。同 `mcp-cli-parity`
     /// 已載明的既有不對稱（tier 閘只加在 CLI 的篩選式批次）。
     @Option(name: .long, parsing: .upToNextOption,
-            help: "逐篇判定（可重複）：citekey:authorIndex:personKey=判定理由。理由必填、≤ 4,096 位元組（與 --undecided 的說明同一個上限，超過整批拒絕、不截斷，#648）且逐字寫進 verdict；literal 由 store 讀。歧義列也適用——歧義的意思是提名器分不出來，不是人分不出來。不提供批次形式。同一次呼叫把同一個作者位判給兩個人整批拒絕；citekey 重複或與另一筆共用 id 的 work 該筆略過並具名；全部略過時沒有寫入、非零結束（作者位已歸給同一個人：已有同一句理由的逐篇判定＝no-op 成功，理由不同則略過；以 --apply 等歸戶的：寫一筆逐篇判定與它並存、作者位不動（需要 store format ≥ 19，change resolution-verdict-states，#636）；作者位仍是 literal 而理由存不進去時照常歸戶並印「⚠ 這次的理由沒有寫入」與原因）；有寫入而之後 index 重建失敗時回錯誤、寫入已落地，訊息逐行列出已判定與略過的 id（#627）。寫入前整個寫入集合先驗（含寫出後不得超過讀取上限 8 MiB），任一筆不過零寫入（#648）。單獨呼叫，不與 --refute／--apply／--reject 組合（#635）；--undecided 同為單獨呼叫")
+            help: "逐篇判定（可重複）：citekey:authorIndex:personKey=判定理由。理由必填、≤ 4,096 位元組（與 --undecided 的說明同一個上限，超過整批拒絕、不截斷，#648）且逐字寫進 verdict；literal 由 store 讀。歧義列也適用——歧義的意思是提名器分不出來，不是人分不出來。不提供批次形式。同一次呼叫把同一個作者位判給兩個人整批拒絕；無法唯一定位的 work 或 person（\(UnlocatableReason.work)；\(UnlocatableReason.person)，#641）該筆略過並具名；全部略過時沒有寫入、非零結束（作者位已歸給同一個人：已有同一句理由的逐篇判定＝no-op 成功，理由不同則略過；以 --apply 等歸戶的：寫一筆逐篇判定與它並存、作者位不動（需要 store format ≥ 19，change resolution-verdict-states，#636）；作者位仍是 literal 而理由存不進去時照常歸戶並印「⚠ 這次的理由沒有寫入」與原因）；有寫入而之後 index 重建失敗時回錯誤、寫入已落地，訊息逐行列出已判定與略過的 id（#627）。寫入前整個寫入集合先驗（含寫出後不得超過讀取上限 8 MiB），任一筆不過零寫入（#648）。單獨呼叫，不與 --refute／--apply／--reject 組合（#635）；--undecided 同為單獨呼叫")
     var judge: [String] = []
 
     /// **團體作者的升格**（#443）：`.literal` → `.organization`。
@@ -1783,12 +1791,12 @@ struct ResolvePeople: ParsableCommand {
     /// 而對共用 literal 來說「不是他」才是絕大多數的答案——實測 69 筆歧義裡 22 筆已確定
     /// 答案不在候選裡。**entry 不動**（否決不歸戶），只寫 verdict。
     @Option(name: .long, parsing: .upToNextOption,
-            help: "判定式否決（可重複）：citekey:authorIndex:personKey=否決理由。理由必填、≤ 4,096 位元組（超過整批拒絕、不截斷，#648）；寫入前每筆 person 先驗、寫出後超過讀取上限 8 MiB 即零寫入。歧義列也適用——既有 --reject 只吃候選。entry 不動，只寫 resolution-rejected verdict；之後該配對不再被提名。citekey 重複或與另一筆共用 id 的 work、以及作者位目前就歸給這個人的（否決會與既有歸戶矛盾）該筆略過並具名；全部略過時沒有寫入、非零結束（#627）。單獨呼叫，不與 --judge／--apply／--reject 組合（#635）")
+            help: "判定式否決（可重複）：citekey:authorIndex:personKey=否決理由。理由必填、≤ 4,096 位元組（超過整批拒絕、不截斷，#648）；寫入前每筆 person 先驗、寫出後超過讀取上限 8 MiB 即零寫入。歧義列也適用——既有 --reject 只吃候選。entry 不動，只寫 resolution-rejected verdict；之後該配對不再被提名。無法唯一定位的 work 或 person（\(UnlocatableReason.work)；\(UnlocatableReason.person)，#641）、以及作者位目前就歸給這個人的（否決會與既有歸戶矛盾）該筆略過並具名；全部略過時沒有寫入、非零結束（#627）。單獨呼叫，不與 --judge／--apply／--reject 組合（#635）")
     var refute: [String] = []
 
     /// 查過、判不出來（change `resolution-verdict-states`，#619）。
     @Option(name: .long, parsing: .upToNextOption,
-            help: "記下查過未決（可重複）：citekey:authorIndex:personKey=查了什麼、為何判不出來。說明必填。寫一筆 resolution-undecided 到該 person，作者位不動；之後這個配對在列表標「查過未決 N 次」、篩選式 --apply 不帶走它（要歸戶就用 --judge）。可附 --rests-on。已判定的配對（有 confirmed 或 rejected）、citekey 重複的 work、已歸戶的作者位該筆略過並具名；全部略過時非零結束。需要 store format ≥ 19；一次超過 200 個 id、20 個 digest 或單句說明超過 4,096 位元組同樣整批拒絕（有界，不截斷）。單獨呼叫，不與 --judge／--refute／--apply／--reject 組合")
+            help: "記下查過未決（可重複）：citekey:authorIndex:personKey=查了什麼、為何判不出來。說明必填。寫一筆 resolution-undecided 到該 person，作者位不動；之後這個配對在列表標「查過未決 N 次」、篩選式 --apply 不帶走它（要歸戶就用 --judge）。可附 --rests-on。已判定的配對（有 confirmed 或 rejected）、無法唯一定位的 work 或 person（\(UnlocatableReason.work)；\(UnlocatableReason.person)）、已歸戶的作者位該筆略過並具名；全部略過時非零結束。需要 store format ≥ 19；一次超過 200 個 id、20 個 digest 或單句說明超過 4,096 位元組同樣整批拒絕（有界，不截斷）。單獨呼叫，不與 --judge／--refute／--apply／--reject 組合")
     var undecided: [String] = []
 
     /// 未決記錄查了什麼（sha256 digest，先以 store-source 存檔）。
@@ -2078,19 +2086,24 @@ struct ResolvePeople: ParsableCommand {
         // #627：citekey 重複的候選同樣不進批次——以 citekey 定位會猜是哪一筆。比照淘汰所得
         // 排除並另列，而不是讓 service 端的拒絕把整批卡死。
         let duplicatedCK = load.entries.unlocatableCitekeys   // #627 R2：含與另一筆共用 id 的
+        // #641：person 那一格同理——apply 寫完 work 才寫 person 的 verdict，person 檔寫不進去時作者位已升格
+        let unlocatablePK = load.people.unlocatablePersonKeys
+        func unlocatable(_ c: ResolutionCandidate) -> Bool {
+            duplicatedCK.contains(c.citekey) || unlocatablePK.contains(c.personKey)
+        }
         // change `resolution-verdict-states`（#619）：查過未決的配對同樣不進批次——有人查過而判不出來，
         // 照清單全收等於替他判了。比照淘汰所得排除並另列；要寫它就逐筆 --judge（必附理由）。
         let undecidedChecks = ResolutionLedger.undecidedChecks(holders: load.people.map { ($0.key, $0.references) })
         func checks(_ c: ResolutionCandidate) -> Int {
             ResolutionLedger.undecidedChecks(in: undecidedChecks, holder: c.citekey, literal: c.literal, judgedKey: c.personKey)
         }
-        let duplicateSkipped = candidates.filter { duplicatedCK.contains($0.citekey) }
+        let duplicateSkipped = candidates.filter { unlocatable($0) }
         let applySet = candidates.filter {
-            $0.eliminatedPairings == 0 && !duplicatedCK.contains($0.citekey) && checks($0) == 0
+            $0.eliminatedPairings == 0 && !unlocatable($0) && checks($0) == 0
         }
-        let eliminatedSkipped = candidates.filter { $0.eliminatedPairings > 0 && !duplicatedCK.contains($0.citekey) }
+        let eliminatedSkipped = candidates.filter { $0.eliminatedPairings > 0 && !unlocatable($0) }
         let undecidedSkipped = candidates.filter {
-            $0.eliminatedPairings == 0 && !duplicatedCK.contains($0.citekey) && checks($0) > 0
+            $0.eliminatedPairings == 0 && !unlocatable($0) && checks($0) > 0
         }
         // R1-fix B1＋R2-fix R3-3（使用者裁決：不豁免）：套用集含寬鬆 tier 時，
         // **不論怎麼收窄**都要 `--tier` 具名——`--person` 恰是同名碰撞問題最糟的
@@ -2108,7 +2121,7 @@ struct ResolvePeople: ParsableCommand {
                 + (eliminatedSkipped.isEmpty ? "" :
                     "另有 \(eliminatedSkipped.count) 筆淘汰而得的唯一候選不論 --tier 都不套用，要逐筆 --judge（#624）。")
                 + (duplicateSkipped.isEmpty ? "" :
-                    "另有 \(duplicateSkipped.count) 筆候選所在的 citekey 重複或與另一筆共用 id，不論 --tier 都不套用——先修正重複的 citekey 或 id（#627）。")
+                    "另有 \(duplicateSkipped.count) 筆候選所在的 work 或 person 無法唯一定位（work：\(UnlocatableReason.work)；person：\(UnlocatableReason.person)），不論 --tier 都不套用——先修好（#627／#641）。")
                 + (undecidedSkipped.isEmpty ? "" :
                     "另有 \(undecidedSkipped.count) 筆查過未決的候選不論 --tier 都不套用，要逐筆 --judge（#619）。"))
         }
@@ -2324,7 +2337,7 @@ struct ResolvePeople: ParsableCommand {
             // 被篩掉的候選仍列出，但標明不會套用——收窄範圍不等於「其他不存在」
             let mark = (apply && !selected.contains(c.pinnedID)) ? "  (skip) " : "  "
             // #624：列表模式也標出淘汰所得——不必等到 --apply 才知道哪幾列不會被套用
-            let tag = duplicatedCK.contains(c.citekey) ? " ⟨citekey 重複或共用 id：--apply 不套用，先修正⟩"
+            let tag = unlocatable(c) ? " ⟨無法唯一定位（\(duplicatedCK.contains(c.citekey) ? UnlocatableReason.work : UnlocatableReason.person)）：--apply 不套用，先修好⟩"
                 : c.eliminatedPairings > 0 ? " ⟨淘汰而得：--apply 不套用，要逐筆 --judge⟩"
                 : checks(c) > 0 ? " ⟨查過未決 \(checks(c)) 次：--apply 不套用，要逐筆 --judge⟩" : ""
             print("\(mark)\(displaySafe(c.citekey, max: 200))[\(c.authorIndex)] 「\(displaySafe(c.literal, max: 200))」 → \(displaySafe(c.personKey, max: 200))（\(displaySafe(c.reason, max: 300))）\(tag)")
@@ -2347,11 +2360,11 @@ struct ResolvePeople: ParsableCommand {
                 print("  → 查證後逐筆送：resolve-people --judge <citekey:authorIndex:personKey>=理由，或 MCP 以三段 id apply（#624）")
             }
             if !duplicateSkipped.isEmpty {
-                print("\n⚠ citekey 重複或與另一筆共用 id 的候選 \(duplicateSkipped.count) 筆不套用（無法確定是哪一筆 work）：")
+                print("\n⚠ 所在 work 或 person 無法唯一定位的候選 \(duplicateSkipped.count) 筆不套用（work：\(UnlocatableReason.work)；person：\(UnlocatableReason.person)——#627／#641）：")
                 for c in duplicateSkipped {
                     print("  \(displaySafe(c.citekey, max: 200))[\(c.authorIndex)] 「\(displaySafe(c.literal, max: 200))」 → \(displaySafe(c.personKey, max: 200))")
                 }
-                print("  → 先修正重複的 citekey 或共用的 id 再重跑——重複 citekey 由 akashic validate 列出，共用 id 在 index 重建時以 UNIQUE entries.uuid 報出（#627）")
+                print("  → 先修好再重跑（#627／#641）")
             }
             if !undecidedSkipped.isEmpty {
                 print("\n⚠ 查過未決的候選 \(undecidedSkipped.count) 筆不套用（有人查過而判不出來，批次不替他判）：")
@@ -2362,8 +2375,8 @@ struct ResolvePeople: ParsableCommand {
             }
             if applySet.isEmpty {
                 throw RuntimeFailure.state(
-                    "套用集沒有可套用的候選（淘汰而得 \(eliminatedSkipped.count) 筆、citekey 重複或共用 id \(duplicateSkipped.count) 筆、查過未決 \(undecidedSkipped.count) 筆），不寫入——"
-                    + "淘汰而得與查過未決的要逐筆 --judge <citekey:authorIndex:personKey>=理由；citekey 重複或共用 id 的先修正")
+                    "套用集沒有可套用的候選（淘汰而得 \(eliminatedSkipped.count) 筆、無法唯一定位 \(duplicateSkipped.count) 筆、查過未決 \(undecidedSkipped.count) 筆），不寫入——"
+                    + "淘汰而得與查過未決的要逐筆 --judge <citekey:authorIndex:personKey>=理由；無法唯一定位的先修好（akashic validate 列出原因）")
             }
             // #232：apply 改走 **AkashicService**（與 MCP 同一條實作路徑）——
             // service 端做 per-item 收容（R7/M21）、先報失敗再 rebuild（R9/M8）、

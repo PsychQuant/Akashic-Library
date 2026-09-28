@@ -971,8 +971,8 @@ public final class AkashicService {
         for ck in citekeys where seen.insert(ck).inserted {
             if unlocatableCK.contains(ck) {
                 throw ServiceError.invalid(
-                    "work「\(displaySafeInvisible(ck, max: 200))」的 citekey 重複或與另一筆 work 共用 id——"
-                    + "無法確定是哪一筆，整批拒絕、零寫入；先修正重複的 citekey 或 id（#628）")
+                    "work「\(displaySafeInvisible(ck, max: 200))」無法唯一定位（\(UnlocatableReason.work)）——"
+                    + "整批拒絕、零寫入；先修好（#628／#641）")
             }
             guard var entry = byCitekey[ck] else {
                 throw ServiceError.notFound("citekey「\(displaySafeInvisible(ck, max: 200))」——整批拒絕，零寫入")
@@ -1199,6 +1199,9 @@ public final class AkashicService {
         let byCitekey = Dictionary(load.entries.map { ($0.citekey, $0) },
                                    uniquingKeysWith: { _, last in last })
         let unlocatableCK = load.entries.unlocatableCitekeys   // #627
+        // #641：person 側的同一件事——key 重複，或 load 判定它的檔案寫入時會被拒。先前判定寫完 work 才寫 person，
+        // person 那一格在寫入當下被 #631 拒絕時作者位已升格、verdict 卻沒寫（R2 verify 真 binary 重現）
+        let unlocatablePK = load.people.unlocatablePersonKeys
         let byKey = Dictionary(load.people.map { ($0.key, $0) },
                                uniquingKeysWith: { a, _ in a })
 
@@ -1266,7 +1269,12 @@ public final class AkashicService {
             // #627：citekey 重複時以 citekey 定位會猜是哪一筆，猜錯就寫到另一筆 work 的另一個作者。
             // store 狀態不符 → 該筆略過並具名（與下方「work 不存在」同語意），其餘照寫
             guard !unlocatableCK.contains(citekey) else {
-                skipped.append((id, "work「\(displaySafe(citekey, max: 200))」的 citekey 重複或與另一筆 work 共用 id——無法確定是哪一筆，略過（先修正重複的 citekey 或 id，#627）"))
+                skipped.append((id, "work「\(displaySafe(citekey, max: 200))」無法唯一定位（\(UnlocatableReason.work)）——略過（#627／#641）"))
+                continue
+            }
+            // #641：寫入 person 的那一半同樣在第一次寫入之前擋——否則 work 已升格才撞上 person 檔的拒絕
+            guard !unlocatablePK.contains(personKey) else {
+                skipped.append((id, "person「\(displaySafe(personKey, max: 200))」無法唯一定位（\(UnlocatableReason.person)）——略過（#641）"))
                 continue
             }
             guard let entry = byCitekey[citekey] else {
@@ -1468,7 +1476,7 @@ public final class AkashicService {
             let doneWord = isConfirm ? "已判定" : "已否決"
             let skippedLines = lines(skipped.map(\.id))
             let doneLines = lines(pairings.map { $0.citekey + ":" + String($0.authorIndex) + ":" + $0.personKey })
-            throw ServiceError.invalid("index rebuild 失敗（本批已改寫 \(wroteEntries) 筆 work、\(grouped.count) 筆 person 記錄；\(doneWord) \(pairings.count) 筆、略過 \(skipped.count) 筆、已是這個判定 \(alreadyJudged.count) 筆，逐筆如下）：\(displaySafeError(error, max: 200))\n略過（store 狀態不符，例如 citekey 重複或與另一筆共用 id、work 不存在、作者位的歸戶與這次的主張不合）：\(skippedLines)\n\(doneWord)（已落地）：\(doneLines)")   // display-safe-exempt: wroteEntries／count 是 Int；doneWord 是字面；skippedLines／doneLines 已逐筆 displaySafeInvisible
+            throw ServiceError.invalid("index rebuild 失敗（本批已改寫 \(wroteEntries) 筆 work、\(grouped.count) 筆 person 記錄；\(doneWord) \(pairings.count) 筆、略過 \(skipped.count) 筆、已是這個判定 \(alreadyJudged.count) 筆，逐筆如下）：\(displaySafeError(error, max: 200))\n略過（store 狀態不符，例如 work 或 person 無法唯一定位（重複、共用 id，或檔案寫入時會被拒）、work 不存在、作者位的歸戶與這次的主張不合）：\(skippedLines)\n\(doneWord)（已落地）：\(doneLines)")   // display-safe-exempt: wroteEntries／count 是 Int；doneWord 是字面；skippedLines／doneLines 已逐筆 displaySafeInvisible
         } }
 
         return try jsonString([
@@ -1526,11 +1534,25 @@ public final class AkashicService {
         // 的情形，出現次數都抓不到，而它們同樣在猜是哪一筆 entry（#624 R2 的 idMultiplicity
         // 只涵蓋三段 id 恰好相同那一格）。
         let unlocatableCK = load.entries.unlocatableCitekeys
+        // #641：apply 寫完 work 才寫 person 的 confirmed verdict、reject 只寫 person——person 那一格在寫入當下被拒時，
+        // apply 留下已升格而沒有 verdict 的作者位。與 citekey 同一個語意：整批拒絕，在任何寫入之前
+        let unlocatablePK = load.people.unlocatablePersonKeys
         func candidate(for id: String) throws -> ResolutionCandidate {
+            let c = try locateCandidate(for: id)
+            if unlocatablePK.contains(c.personKey) {
+                throw ServiceError.invalid(
+                    "候選 id「\(displaySafeInvisible(id, max: 200))」的 person「\(displaySafeInvisible(c.personKey, max: 200))」無法唯一定位"
+                    + "（\(UnlocatableReason.person)）——"
+                    + "整批拒絕、零寫入；先修好再套用（#641）")
+            }
+            return c
+        }
+        func locateCandidate(for id: String) throws -> ResolutionCandidate {
             if let ck = id.split(separator: ":").first.map(String.init), unlocatableCK.contains(ck) {
                 throw ServiceError.invalid(
-                    "候選 id「\(displaySafeInvisible(id, max: 200))」的 citekey 重複或與另一筆 work 共用 id——"
-                    + "無法確定是哪一筆，整批拒絕；先修正重複的 citekey 或 id 再套用（#627）")
+                    "候選 id「\(displaySafeInvisible(id, max: 200))」所在的 work 無法唯一定位"
+                    + "（\(UnlocatableReason.work)）——"
+                    + "整批拒絕；先修好再套用（#627／#641）")
             }
             if let c = byID[id] { return c }
             let parts = id.split(separator: ":")
@@ -1774,6 +1796,7 @@ public final class AkashicService {
             var candidateBytes = 0
             var candidatesDropped = 0
             let unlocatableCK = load.entries.unlocatableCitekeys   // #627
+            let unlocatablePK = load.people.unlocatablePersonKeys   // #641
             // change `resolution-verdict-states`（#619）：查過未決的配對照常提名，但揭露查過幾次——
             // CLI 的篩選式 --apply 據此排除；MCP 的 apply 是逐 id 顯式指名，不排除（同 #624 的面不對稱）
             let undecidedChecks = ResolutionLedger.undecidedChecks(holders: load.people.map { ($0.key, $0.references) })
@@ -1795,6 +1818,8 @@ public final class AkashicService {
                 // #627 R1：citekey 在 store 裡不只一筆——apply／reject 這個 id 會整批拒絕。
                 // 列表先標出來，呼叫端不必送出去才知道（CLI 列表的 ⟨citekey 重複⟩ 同一件事）
                 if unlocatableCK.contains(pair.candidate.citekey) { row["unlocatableCitekey"] = true }
+                // #641：person 那一格同理——apply／reject 這個 id 會整批拒絕、judge／refute／undecided 該筆略過
+                if unlocatablePK.contains(pair.candidate.personKey) { row["unlocatablePersonKey"] = true }
                 let n = ResolutionLedger.undecidedChecks(in: undecidedChecks, holder: pair.candidate.citekey,
                                                          literal: pair.candidate.literal,
                                                          judgedKey: pair.candidate.personKey)
@@ -2700,8 +2725,8 @@ public final class AkashicService {
         // #628（R1 verify）：tag／link／set-status 經這裡定位——`first(where:)` 在 citekey 重複或共用 id 時會猜是哪一筆
         if entries.unlocatableCitekeys.contains(citekey) {
             throw ServiceError.invalid(
-                "work「\(displaySafeInvisible(citekey, max: 200))」的 citekey 重複或與另一筆 work 共用 id——"
-                + "無法確定是哪一筆，拒絕寫入；先修正重複的 citekey 或 id（#628）")
+                "work「\(displaySafeInvisible(citekey, max: 200))」無法唯一定位（\(UnlocatableReason.work)）——"
+                + "拒絕寫入；先修好（#628／#641）")
         }
         guard let entry = entries.first(where: { $0.citekey == citekey }) else {
             throw ServiceError.notFound("citekey「\(displaySafeInvisible(citekey, max: 200))」")
@@ -3699,8 +3724,8 @@ public final class AkashicService {
             if unlocatableCK.contains(citekey) {
                 // #627：citekey 重複時以 citekey 定位會猜是哪一筆——整批拒絕、零寫入，不猜
                 throw ServiceError.invalid(
-                    "work「\(displaySafeInvisible(citekey, max: 200))」的 citekey 重複或與另一筆 work 共用 id——"
-                    + "無法確定是哪一筆，整批拒絕、零寫入；先修正重複的 citekey 或 id（#627）")
+                    "work「\(displaySafeInvisible(citekey, max: 200))」無法唯一定位（\(UnlocatableReason.work)）——"
+                    + "整批拒絕、零寫入；先修好（#627／#641）")
             }
             guard let entry = byCitekey[citekey] else {
                 throw ServiceError.notFound("work「\(displaySafeInvisible(citekey, max: 200))」")
@@ -3877,8 +3902,8 @@ public final class AkashicService {
             if unlocatableCK.contains(citekey) {
                 // #627：citekey 重複時以 citekey 定位會猜是哪一筆——整批拒絕、零寫入，不猜
                 throw ServiceError.invalid(
-                    "work「\(displaySafeInvisible(citekey, max: 200))」的 citekey 重複或與另一筆 work 共用 id——"
-                    + "無法確定是哪一筆，整批拒絕、零寫入；先修正重複的 citekey 或 id（#627）")
+                    "work「\(displaySafeInvisible(citekey, max: 200))」無法唯一定位（\(UnlocatableReason.work)）——"
+                    + "整批拒絕、零寫入；先修好（#627／#641）")
             }
             guard let entry = byCitekey[citekey] else {
                 throw ServiceError.notFound("work「\(displaySafeInvisible(citekey, max: 200))」")
@@ -4056,8 +4081,8 @@ public final class AkashicService {
             if unlocatableCK.contains(citekey) {
                 // #627：citekey 重複時以 citekey 定位會猜是哪一筆——整批拒絕、零寫入，不猜
                 throw ServiceError.invalid(
-                    "work「\(displaySafeInvisible(citekey, max: 200))」的 citekey 重複或與另一筆 work 共用 id——"
-                    + "無法確定是哪一筆，整批拒絕、零寫入；先修正重複的 citekey 或 id（#627）")
+                    "work「\(displaySafeInvisible(citekey, max: 200))」無法唯一定位（\(UnlocatableReason.work)）——"
+                    + "整批拒絕、零寫入；先修好（#627／#641）")
             }
             guard let entry = byCitekey[citekey] else {
                 throw ServiceError.notFound("work「\(displaySafeInvisible(citekey, max: 200))」")
@@ -4181,8 +4206,8 @@ public final class AkashicService {
             if unlocatableCK.contains(citekey) {
                 // #627：citekey 重複時以 citekey 定位會猜是哪一筆——整批拒絕、零寫入，不猜
                 throw ServiceError.invalid(
-                    "work「\(displaySafeInvisible(citekey, max: 200))」的 citekey 重複或與另一筆 work 共用 id——"
-                    + "無法確定是哪一筆，整批拒絕、零寫入；先修正重複的 citekey 或 id（#627）")
+                    "work「\(displaySafeInvisible(citekey, max: 200))」無法唯一定位（\(UnlocatableReason.work)）——"
+                    + "整批拒絕、零寫入；先修好（#627／#641）")
             }
             guard let entry = byCitekey[citekey] else {
                 throw ServiceError.notFound("work「\(displaySafeInvisible(citekey, max: 200))」")
@@ -4364,8 +4389,8 @@ public final class AkashicService {
         func refuseUnlocatable(_ c: VenueResolutionCandidate, id: String) throws {
             if unlocatableCK.contains(c.citekey) {
                 throw ServiceError.invalid(
-                    "候選 id「\(displaySafeInvisible(id, max: 200))」的 citekey 重複或與另一筆 work 共用 id——"
-                    + "無法確定是哪一筆，整批拒絕、零寫入；先修正重複的 citekey 或 id（#628）")
+                    "候選 id「\(displaySafeInvisible(id, max: 200))」無法唯一定位（\(UnlocatableReason.work)）——"
+                    + "整批拒絕、零寫入；先修好（#628／#641）")
             }
         }
         let storeFormat = (try? StoreVersion.read(root: store.root)) ?? 1
@@ -4475,7 +4500,7 @@ public final class AkashicService {
             // （apply 的既有契約是 D33：整批拒絕讓一筆毒候選殺掉同批無關的候選；R1 verify DA 指出整批拒絕違反它）
             if unlocatableCK.contains(c.citekey) {
                 skippedUnlocatable.append(["id": c.rowID,
-                                           "reason": "citekey 重複或與另一筆 work 共用 id——無法確定是哪一筆，略過不寫；先修正重複的 citekey 或 id（#628）"])   // display-safe-exempt: reason 是常數字面
+                                           "reason": "無法唯一定位（\(UnlocatableReason.work)）——略過不寫；先修好（#628／#641）"])   // display-safe-exempt: reason 是常數字面
                 continue
             }
             if let hit = keyed[c.citekey]?[c.venueKey] {
@@ -4585,8 +4610,8 @@ public final class AkashicService {
             // #628：byCitekey 前者勝——citekey 重複或與另一筆共用 id 時會猜是哪一筆。整批拒絕（同本函式的前提不符語意）
             if unlocatableForRepointDemote.contains(citekey) {
                 throw ServiceError.invalid(
-                    "work「\(displaySafeInvisible(citekey, max: 200))」的 citekey 重複或與另一筆 work 共用 id——"
-                    + "無法確定是哪一筆，整批拒絕、零寫入；先修正重複的 citekey 或 id（#628）")
+                    "work「\(displaySafeInvisible(citekey, max: 200))」無法唯一定位（\(UnlocatableReason.work)）——"
+                    + "整批拒絕、零寫入；先修好（#628／#641）")
             }
             guard let entry = byCitekey[citekey] else {
                 throw ServiceError.notFound("work「\(displaySafeInvisible(citekey, max: 200))」")
@@ -4988,8 +5013,8 @@ public final class AkashicService {
             // #628：byCitekey 前者勝——citekey 重複或與另一筆共用 id 時會猜是哪一筆。整批拒絕（同本函式的前提不符語意）
             if unlocatableForRepointDemote.contains(citekey) {
                 throw ServiceError.invalid(
-                    "work「\(displaySafeInvisible(citekey, max: 200))」的 citekey 重複或與另一筆 work 共用 id——"
-                    + "無法確定是哪一筆，整批拒絕、零寫入；先修正重複的 citekey 或 id（#628）")
+                    "work「\(displaySafeInvisible(citekey, max: 200))」無法唯一定位（\(UnlocatableReason.work)）——"
+                    + "整批拒絕、零寫入；先修好（#628／#641）")
             }
             guard let entry = byCitekey[citekey] else {
                 throw ServiceError.notFound("work「\(displaySafeInvisible(citekey, max: 200))」")
@@ -5142,15 +5167,22 @@ public final class AkashicService {
         }
         // #628：作者位（.work holder）的候選所在的 work 無法唯一定位 → 顯式 id 整批拒絕並具名（同 resolve-people，#627）
         let unlocatableCK = load.entries.unlocatableCitekeys
+        // #641：以 person 為 holder 的候選（隸屬）同一個語意——apply 依序寫 people、orgs、entries、verdict，person 檔在寫入
+        // 當下被 #631 拒絕時前面寫下的就留著（R2 verify 真 binary 重現）；key 重複時 `OrgResolver.apply` 以 key 對應也會猜
+        let unlocatablePK = load.people.unlocatablePersonKeys
         func isUnlocatable(_ c: OrgResolutionCandidate) -> Bool {
-            if case let .work(citekey, _) = c.holder { return unlocatableCK.contains(citekey) }
-            return false
+            switch c.holder {
+            case let .work(citekey, _): return unlocatableCK.contains(citekey)
+            case let .person(k): return unlocatablePK.contains(k)
+            case .organization: return false   // organization 只住在 entities/、沒有 legacy 殘留；目的檔即它被讀出來的那個檔
+            }
         }
         func refuseUnlocatable(_ c: OrgResolutionCandidate, id: String) throws {
             if isUnlocatable(c) {
+                let why = { if case .person = c.holder { return UnlocatableReason.person }; return UnlocatableReason.work }()
                 throw ServiceError.invalid(
-                    "候選 id「\(displaySafeInvisible(id, max: 200))」所在 work 的 citekey 重複或與另一筆 work 共用 id——"
-                    + "無法確定是哪一筆，整批拒絕、零寫入；先修正重複的 citekey 或 id（#628）")
+                    "候選 id「\(displaySafeInvisible(id, max: 200))」所在的記錄無法唯一定位（\(why)）——"   // display-safe-exempt: why 是 UnlocatableReason 的常數字面
+                    + "整批拒絕、零寫入；先修好（#628／#641）")
             }
         }
         if let rejectIDs = reject, !rejectIDs.isEmpty {
@@ -5225,7 +5257,9 @@ public final class AkashicService {
                      "literal": displaySafe(c.literal, max: 200),
                      "orgKey": displaySafe(c.orgKey, max: 200),
                      "undecidedChecks": undecidedCount(c.holder, c.literal, c.orgKey)]   // display-safe-exempt: undecidedCount 回傳 Int
-                    if isUnlocatable(c) { row["unlocatableCitekey"] = true }   // #628
+                    if isUnlocatable(c) {   // #628；#641 起 person holder 另有自己的鍵——`unlocatableCitekey` 對隸屬列是錯的名字
+                        if case .person = c.holder { row["unlocatablePersonKey"] = true } else { row["unlocatableCitekey"] = true }
+                    }
                     return row
                 },
                 "ambiguities": report.ambiguities.map { m -> [String: Any] in
@@ -5256,8 +5290,12 @@ public final class AkashicService {
         let applied = OrgResolver.apply(chosen, to: load.people,
                                         organizations: load.organizations,
                                         entries: load.entries)
-        // #378：作者位歸戶會改寫 entry
-        let changedEntries = applied.entries.filter { e in !load.entries.contains(where: { $0 == e }) }
+        // #641：只寫**真的改到的**記錄，並在第一次寫入之前驗整個寫入集合。先前每一筆 person 與 organization 都重寫——
+        // store 裡任何一筆寫入時會被 #631 拒絕的 person（與這次的候選毫無關係）都會在迴圈中途撞上拒絕，前面已寫的
+        // 隸屬歸戶留著、verdict 卻沒寫（R2 verify 真 binary 重現）。`OrgResolver.apply` 保序，逐位置比對即可。
+        let changedPeople = zip(load.people, applied.people).compactMap { $0 != $1 ? $1 : nil }
+        let changedOrgs = zip(load.organizations, applied.organizations).compactMap { $0 != $1 ? $1 : nil }
+        let changedEntries = zip(load.entries, applied.entries).compactMap { $0 != $1 ? $1 : nil }   // #378：作者位歸戶
         // confirmed verdicts（#648：先算好、與上面三組一起 preflight 之後才寫——先前 person／org／entry 已落盤，
         // verdict 那一筆才在寫入當下被拒）
         var grouped: [String: Organization] = [:]
@@ -5276,19 +5314,23 @@ public final class AkashicService {
                 statement: "resolve apply：org name 完全命中，使用者確認"), to: &o.references, allowCoexistence: storeFormat >= 19)
             grouped[c.orgKey] = o
         }
-        // #648：寫入集合依寫入順序逐筆 preflight（writeX 在寫入當下跑的每一道，含寫出後的讀取上限），全部通過才寫
-        for p in applied.people { try store.preflightWrite(p) }
-        for o in applied.organizations { try store.preflightWrite(o) }
+        // 上級機構改寫過的 org 與收到 verdict 的 org 合成一份寫入集合（後者由 `byKeyAfter` 建、已含前者的改寫）
+        var orgsToWrite = Dictionary(changedOrgs.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
+        for (k, o) in grouped { orgsToWrite[k] = o }
+        // 寫入前先驗**整個寫入集合**（#641：只含真的改到的記錄；#648：`preflightWrite` 與 write* 共用同一個函式——
+        // 內容閘、#631 的目的檔檢查、寫出後的讀取上限都在裡面），全部通過才寫。漏掉任何一道，都是同一種撕裂換一類拒絕
+        for p in changedPeople { try store.preflightWrite(p) }
+        for key in orgsToWrite.keys.sorted() { try store.preflightWrite(orgsToWrite[key]!) }
         for e in changedEntries { try store.preflightWrite(e) }
-        for key in grouped.keys.sorted() { try store.preflightWrite(grouped[key]!) }
-        for p in applied.people { try store.writePerson(p) }
-        for o in applied.organizations { try store.writeOrganization(o) }
+        for p in changedPeople { try store.writePerson(p) }
+        for key in orgsToWrite.keys.sorted() { try store.writeOrganization(orgsToWrite[key]!) }
         for e in changedEntries { try store.writeEntry(e) }
-        for key in grouped.keys.sorted() { try store.writeOrganization(grouped[key]!) }
         try LibraryIndex(store: store).rebuild()
         return try jsonString(["applied": chosen.map { rowID($0) },
-                               "peopleRewritten": applied.people.count,        // display-safe-exempt: Int
-                               "organizationsRewritten": grouped.count] as [String: Any])   // display-safe-exempt: Int
+                               // #641：只數真的改寫的——先前 person 報的是全庫筆數（每一筆都重寫）、organization 只數收到 verdict 的
+                               // （上級機構被改寫的 holder org 也寫了卻沒算）；與 `judgeOrganizations` 的計法一致
+                               "peopleRewritten": changedPeople.count,        // display-safe-exempt: Int
+                               "organizationsRewritten": orgsToWrite.count] as [String: Any])   // display-safe-exempt: Int
     }
 
     /// CLI `--json` 與 MCP 回應共用的序列化點。序列化**之後**以 `escapingUnsafeScalars` 改寫字串字面值裡的危險 scalar（#569）：

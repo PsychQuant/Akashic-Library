@@ -636,10 +636,26 @@ public final class LibraryStore {
     ///    讀不出來的 legacy 檔不算——它本來就被 quarantine，寫 entities 不碰它。
     ///
     /// 多檔操作（rename、rename-person、合併、venue apply）在第一次寫入之前對每一筆呼叫它——
-    /// 寫到一半才撞上拒絕會把 store 撕成一半（#631 R1 verify 以真 binary 重現）。
+    /// 寫到一半才撞上拒絕會把 store 撕成一半（#631 R1 verify 以真 binary 重現）。load 也用同一組判斷
+    /// （`annotateFileSituations`，#641）先把一定寫不進去的記錄標成無法唯一定位——這裡是它們的最後一道防線。
     func entitiesWritePlan(id: UUID, kind: EntityKind, legacy: URL?, legacyLabel: String,
                            expectedKey: String) throws -> URL? {
         try assertEntitiesDestination(id: id, kind: kind)
+        guard let legacy = try legacyMoveCandidate(id: id, kind: kind, legacy: legacy,
+                                                   legacyLabel: legacyLabel, expectedKey: expectedKey) else { return nil }
+        // (2) 刪了回得來：受 git 追蹤且沒有未 commit 的修改（R2 verify security：合併會收攏 verdict 列，新內容不是舊內容的
+        // 超集；「store 受 git 追蹤」這句要驗，不能假設——同 D86 的閘）
+        if let bad = Self.filesNotSafelyRecoverable(root: root, relativePaths: [legacyLabel]).first {
+            throw Self.legacyUnrecoverable(legacyLabel, gitWhy: bad.why)
+        }
+        return legacy
+    }
+
+    /// `entitiesWritePlan` 的 legacy 那一半、**不含 git 檢查**（#641 抽出：load 對一整批候選只跑一次 git，
+    /// 寫入當下仍逐筆跑）。回傳「只有這一份、key 對得上」的 legacy 檔——呼叫端再確認它刪了回得來才算可以搬。
+    /// 讀不出來的 legacy 檔不算——它本來就被 quarantine，寫 entities 不碰它。
+    func legacyMoveCandidate(id: UUID, kind: EntityKind, legacy: URL?, legacyLabel: String,
+                             expectedKey: String) throws -> URL? {
         guard let legacy, FileManager.default.fileExists(atPath: legacy.path),
               let text = try? String(contentsOf: legacy, encoding: .utf8) else { return nil }
         let decoded: (id: UUID, key: String)?
@@ -658,12 +674,71 @@ public final class LibraryStore {
             throw StoreIOError.legacyCopyUnmovable(
                 file: legacyLabel, why: "它的 key 不合法或與檔名不符（load 會隔離它，它不是這次寫入內容的來源）")
         }
-        // (2) 刪了回得來：受 git 追蹤且沒有未 commit 的修改（R2 verify security：合併會收攏 verdict 列，新內容不是舊內容的
-        // 超集；「store 受 git 追蹤」這句要驗，不能假設——同 D86 的閘）
-        if let bad = Self.filesNotSafelyRecoverable(root: root, relativePaths: [legacyLabel]).first {
-            throw StoreIOError.legacyCopyUnmovable(file: legacyLabel, why: displaySafeInvisible(bad.why, max: 400))
-        }
         return legacy
+    }
+
+    /// legacy 單份刪了回不來（`filesNotSafelyRecoverable` 的一筆結果）時的拒絕——寫入當下與 load 的標註共用同一句話。
+    static func legacyUnrecoverable(_ legacyLabel: String, gitWhy: String) -> StoreIOError {
+        StoreIOError.legacyCopyUnmovable(file: legacyLabel, why: displaySafeInvisible(gitWhy, max: 400))
+    }
+
+    /// load 時標註一定寫不進去的 work／person（#641，見 `FileSituation`）。判斷與寫入當下的 #631 前置**同一組**
+    /// （`assertEntitiesDestination`＋`legacyMoveCandidate`＋`filesNotSafelyRecoverable`），不另寫一份。
+    ///
+    /// 只看得到拒絕的候選才花成本——entities 佈局下沒有 legacy 殘留（`entries/`、`people/` 沒有 yaml）時什麼都不做，
+    /// 所以正常的 store 零成本（live store 實測 legacy 殘留 0）：
+    /// - 從 legacy 目錄讀進來的記錄：目的檔檢查＋legacy 檢查（它自己就是那份 legacy）。
+    /// - 從 `entities/` 讀進來的記錄：目的檔就是它剛被讀出來的那個檔（load 已驗同一種記錄、同一個 id、key 合法），
+    ///   所以只剩 legacy 那一半——且只在 `entries/<citekey>.yaml`／`people/<key>.yaml` 真的存在時才讀它。
+    /// git 對整批搬移候選只跑一次（`filesNotSafelyRecoverable` 收一整份路徑）。
+    ///
+    /// - Parameters:
+    ///   - entitiesEntryCount／entitiesPeopleCount：`result.entries`／`result.people` 的前幾筆來自 `entities/`
+    ///     （load 先讀 entities 再讀 legacy，排序之前呼叫）。
+    private func annotateFileSituations(_ result: inout LibraryLoad, entitiesEntryCount: Int, entitiesPeopleCount: Int) {
+        var moves: [(isEntry: Bool, index: Int, label: String)] = []
+        func mark(_ isEntry: Bool, _ i: Int, _ error: Error) {
+            let why = displaySafeError(error, max: 1_200)
+            if isEntry { result.entries[i].fileSituation.unwritableReason = why }
+            else { result.people[i].fileSituation.unwritableReason = why }
+        }
+        for i in result.entries.indices {
+            let e = result.entries[i]
+            let legacyURL = entryURL(citekey: e.citekey)
+            let fromLegacy = i >= entitiesEntryCount
+            guard fromLegacy || FileManager.default.fileExists(atPath: legacyURL.path) else { continue }
+            let label = "entries/\(e.citekey).yaml"   // display-safe-exempt: 描述端 displaySafeInvisible（同 entryWritePlan）
+            do {
+                if fromLegacy { try assertEntitiesDestination(id: e.id, kind: .work) }
+                if try legacyMoveCandidate(id: e.id, kind: .work, legacy: legacyURL, legacyLabel: label,
+                                           expectedKey: e.citekey) != nil {
+                    moves.append((true, i, label))
+                }
+            } catch { mark(true, i, error) }
+        }
+        for i in result.people.indices {
+            let p = result.people[i]
+            let legacyURL = personURL(key: p.key)
+            let fromLegacy = i >= entitiesPeopleCount
+            guard fromLegacy || FileManager.default.fileExists(atPath: legacyURL.path) else { continue }
+            let label = "people/\(p.key).yaml"   // display-safe-exempt: 描述端 displaySafeInvisible（同 personWritePlan）
+            do {
+                if fromLegacy { try assertEntitiesDestination(id: p.id, kind: .person) }
+                if try legacyMoveCandidate(id: p.id, kind: .person, legacy: legacyURL, legacyLabel: label,
+                                           expectedKey: p.key) != nil {
+                    moves.append((false, i, label))
+                }
+            } catch { mark(false, i, error) }
+        }
+        guard !moves.isEmpty else { return }
+        var bad: [String: String] = [:]
+        for b in Self.filesNotSafelyRecoverable(root: root, relativePaths: moves.map(\.label)) where bad[b.path] == nil {
+            bad[b.path] = b.why
+        }
+        for m in moves {
+            guard let why = bad[m.label] else { continue }
+            mark(m.isEntry, m.index, Self.legacyUnrecoverable(m.label, gitWhy: why))
+        }
     }
 
     /// work 的寫入前置（不寫）。`legacyCitekey` 省略時查這筆記錄自己的 citekey；rename 傳舊的 citekey。
@@ -1135,7 +1210,7 @@ public final class LibraryStore {
                 if let injected = textOverrides[url.path] { return Data(injected.utf8) }
                 return try Data(contentsOf: url)
             })
-        return try load(from: source)
+        return try load(from: source, annotateFileSituations: true)
     }
 
     /// snapshot 接受 capture 後的純記憶體 decode seam；不得在這條路徑重新讀磁碟。
@@ -1161,10 +1236,11 @@ public final class LibraryStore {
                 }
                 return bytes
             })
-        return try load(from: source)
+        // 快照不標註檔案處境（#641）：那個判斷要讀磁碟並呼叫版本控制，而這條路徑的契約是不重讀磁碟；快照是唯讀產物，沒有寫入者
+        return try load(from: source, annotateFileSituations: false)
     }
 
-    private func load(from source: CanonicalLoadSource) throws -> LibraryLoad {
+    private func load(from source: CanonicalLoadSource, annotateFileSituations annotate: Bool) throws -> LibraryLoad {
         // #24：refuse-if-newer 必須在**逐檔 decode 之前**。等到 decode 現場才發現
         // 不對，使用者拿到的是一堆難解的 per-file 錯誤，而不是一句「請升級 binary」。
         let format = try StoreVersion.read(data: source.markerData, path: source.markerPath)
@@ -1291,7 +1367,9 @@ public final class LibraryStore {
             }
         }
 
-        for path in try source.paths("entries") {
+        let entitiesEntryCount = result.entries.count, entitiesPeopleCount = result.people.count   // #641：之後讀進來的是 legacy
+        let legacyEntryPaths = try source.paths("entries")
+        for path in legacyEntryPaths {
             let name = path
             do {
                 let entry = try EntryYAML.decode(try source.text(path))
@@ -1335,7 +1413,8 @@ public final class LibraryStore {
                     reason: displaySafeError(error, max: 4_096)))
             }
         }
-        for path in try source.paths("people") {
+        let legacyPeoplePaths = try source.paths("people")
+        for path in legacyPeoplePaths {
             let name = path
             do {
                 let text = try source.text(path)
@@ -1390,6 +1469,11 @@ public final class LibraryStore {
                     file: name,
                     reason: displaySafeError(error, max: 4_096)))
             }
+        }
+        // #641：entities 佈局下有 legacy 殘留時，把寫入當下一定會被 #631 拒絕的記錄標成無法唯一定位——要在排序之前，
+        // 那時陣列的前段仍是 entities/ 讀進來的。format 1 的 legacy 目錄是正典位置、不是殘留，不標。
+        if annotate, format >= 2, !legacyEntryPaths.isEmpty || !legacyPeoplePaths.isEmpty {
+            annotateFileSituations(&result, entitiesEntryCount: entitiesEntryCount, entitiesPeopleCount: entitiesPeopleCount)
         }
         result.entries.sort { $0.citekey < $1.citekey }
         result.people.sort { $0.key < $1.key }
@@ -2615,6 +2699,28 @@ public extension LibraryLoad {
         for k in duplicates(people.map(\.key)).sorted() {
             out.append(ValidationIssue(severity: .error,
                 message: "person key「\(displaySafeInvisible(k, max: 200))」重複"))
+        }
+        // #641：load 判定寫入時一定會被拒的記錄（`FileSituation`）——寫入面在第一次寫入之前拒絕或略過它們。
+        // warning 不是 error：記錄本身讀得到、內容完好，擋的是寫入；升 error 會讓 `assertNoCrossRecordErrors` 擋下不相干的改名與合併。
+        // 兩份並存時 load 讀到兩筆、兩筆的原因是同一句——同一則訊息只出一次
+        var fileSituationSeen = Set<String>()
+        for e in entries {
+            guard let why = e.fileSituation.unwritableReason,
+                  fileSituationSeen.insert("work\u{0}\(e.citekey)\u{0}\(why)").inserted else { continue }   // display-safe-exempt: 集合鍵，不輸出
+            out.append(ValidationIssue(
+                severity: .warning,
+                message: "work「\(displaySafeInvisible(e.citekey, max: 200))」的檔案寫入時會被拒——"
+                       + displaySafeClipOnly(why, max: 1_200)   // display-safe-exempt: why 已消毒（load 以 displaySafeError 建構），只截
+                       + "——以 citekey 定位的寫入面拒絕或略過它；修好檔案之後重跑（#641）"))
+        }
+        for p in people {
+            guard let why = p.fileSituation.unwritableReason,
+                  fileSituationSeen.insert("person\u{0}\(p.key)\u{0}\(why)").inserted else { continue }   // display-safe-exempt: 集合鍵，不輸出
+            out.append(ValidationIssue(
+                severity: .warning,
+                message: "person「\(displaySafeInvisible(p.key, max: 200))」的檔案寫入時會被拒——"
+                       + displaySafeClipOnly(why, max: 1_200)   // display-safe-exempt: why 已消毒（load 以 displaySafeError 建構），只截
+                       + "——以 key 定位的寫入面拒絕或略過它；修好檔案之後重跑（#641）"))
         }
         for k in duplicates(libraries.map(\.key)).sorted() {
             out.append(ValidationIssue(severity: .error,

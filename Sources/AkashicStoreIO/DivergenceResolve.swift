@@ -2991,7 +2991,9 @@ extension LibraryStore {
     /// rot 的地方失明。
     /// #605：第 18 個是 `additionalProvenance`——`fieldsLostByMerging` 的 provenance 段逐一比對
     /// 被併者的主＋附加來源，`Provenance.mergeSources` 把它們帶到倖存者。
-    static let entryFieldsCoveredByMergeCheck = 18
+    /// #641：第 19 個是 `fileSituation`——**刻意排除**。它不是記錄內容，是 load 對這筆記錄的檔案處境的觀察；
+    /// 合併寫的是倖存者的檔、刪的是被併者的檔（兩者都先過 #631 的前置），觀察隨下一次 load 重算，沒有東西會遺失。
+    static let entryFieldsCoveredByMergeCheck = 19
 
     /// 合併後倖存者的 Zotero 來源（#605）：實跑與 dry-run 共用同一個計算，兩邊才不會分岔。
     static func absorbingZoteroSources(_ keeper: Entry, doomed: [Entry]) -> Entry {
@@ -3022,7 +3024,8 @@ extension LibraryStore {
     }
 
     /// 本函式涵蓋的 `Person` 儲存屬性數。`DivergenceHardeningTests.testPersonFieldCoverageOfMergeCheck` 拿它與反射比對。
-    static let personFieldsCoveredByMergeCheck = 10
+    /// #641：第 11 個是 `fileSituation`——刻意排除，理由同 work 側（`entryFieldsCoveredByMergeCheck` 的 doc）。
+    static let personFieldsCoveredByMergeCheck = 11
 
     // MARK: - 小工具
 

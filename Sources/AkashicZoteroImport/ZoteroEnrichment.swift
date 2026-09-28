@@ -89,7 +89,7 @@ public enum ZoteroEnrichment {
         public var zoteroMissing: [String] = []
         /// 指名的 citekey 不在 store 裡。
         public var notInStore: [String] = []
-        /// #628：citekey 在 store 裡不只一筆、或與另一筆 work 共用 id——無法確定是哪一筆，零寫入。
+        /// #628：無法唯一定位（`unlocatableCitekeys`：citekey 重複、與另一筆 work 共用 id，#641 起還有檔案寫入時會被拒的）——零寫入。
         public var unlocatable: [String] = []
         /// **只有被拒絕的識別碼、沒有任何可補值**的 citekey（#394 verify）。
         /// 與 `unchanged` 分開：那一類是「Zotero 給不出缺著的欄位」，這一類是

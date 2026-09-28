@@ -930,6 +930,9 @@ final class DisplaySinkCoverageTests: XCTestCase {
                     //（#78-7 akashic-mcp）與 dict 值抽取（#138 F2）後的交叉誤中
                     if expr.hasPrefix("str(\"") || expr.hasPrefix("strArray(\"")
                         || expr.hasPrefix(".string(\"") { continue }
+                    // 「無法唯一定位」的那一句是 AkashicCore 的常數字面（#641：二十幾個寫入面共用、不各寫一份）——
+                    // 與 SanitizationBoundaryTests 的 programBuilt 表同一格；只認完整的成員名，不認前綴
+                    if expr == "UnlocatableReason.work" || expr == "UnlocatableReason.person" { continue }
                     // 多行 closure 的開頭行（`… { author -> T in`）：實際輸出在
                     // 後續行——closure 體若是 `case` 行則落入上方 case 豁免的
                     // 誠實邊界，否則仍會被逐行掃到

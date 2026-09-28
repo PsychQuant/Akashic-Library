@@ -399,7 +399,7 @@ public enum AddOnlyEnrichment {
 
         var working: [String: Entry] = [:]
         for e in entries { working[e.citekey] = e }
-        // #628：citekey 在 store 裡不只一筆、或與另一筆共用 id——`working` 是後者勝的字典，補值會落到猜的那一筆
+        // #628：citekey 在 store 裡不只一筆、或與另一筆共用 id——`working` 是後者勝的字典，補值會落到猜的那一筆；#641 起也含檔案寫入時會被拒的
         let unlocatable = entries.unlocatableCitekeys
 
         var result = Result()
@@ -448,7 +448,7 @@ public enum AddOnlyEnrichment {
             if unlocatable.contains(citekey) {
                 result.items.append(Item(proposalIndex: i, citekey: nil, category: .ambiguous,
                                          outcome: Outcome(), additions: [], alreadyPresent: [],
-                                         reason: "citekey「\(citekey)」在 store 裡不只一筆、或與另一筆 work 共用 id——無法確定是哪一筆，零寫入；先修正重複的 citekey 或 id（#628）",
+                                         reason: "citekey「\(citekey)」無法唯一定位（\(UnlocatableReason.work)）——零寫入；先修好（#628／#641）",
                                          matches: [citekey], sourceDigest: digest))
                 continue
             }

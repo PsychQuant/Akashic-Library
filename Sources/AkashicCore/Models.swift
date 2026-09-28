@@ -756,7 +756,8 @@ public func displaySafeAssembled(_ s: String, maxLineLength: Int = 400,
 ///
 /// **這個範圍由機械守衛維持，不靠記憶**（#28）：`DisplaySinkCoverageTests` 掃描
 /// CLI / MCP 原始碼，任何把 store 衍生字串插值進輸出而未經本函式的位置都會讓測試
-/// 失敗；要例外必須在同一行寫 `// display-safe-exempt: <理由>`。**新增輸出路徑時
+/// 失敗；要例外必須在同一行寫 `// display-safe-exempt: <運算式> <理由>`——註記要**具名**它豁免的每一個運算元（複合運算式的每個帶資料的運算元都要具名；
+/// 規則見 `Tests/AkashicKitTests/DisplaySafeExemption.swift` 的型別 doc，#584），沒具名的照報，一句只有理由的註記不豁免任何東西。**新增輸出路徑時
 /// 不要回頭憑記憶檢查 sink 清單**——#23 的 R11→R12→R13 三輪都那樣做、三輪都漏，
 /// 第三輪漏的還是最常用的 `akashic query`。
 ///

@@ -1163,7 +1163,7 @@ public final class AkashicService {
             }
             var out: [String: Any] = ["citekey": displaySafe(citekey, max: 200),
                                       "libraries": report.libraries[citekey] ?? [],   // display-safe-exempt: report.libraries[citekey]：library key 由 StoreKey 文法保證只含 [a-z0-9-]（寫入端 assertEntryWritable 驗過）
-                                      "written": report.written.contains(citekey)]   // display-safe-exempt: report.written：Bool
+                                      "written": report.written.contains(citekey)]   // display-safe-exempt: report.written、citekey：Bool（contains 的結果；citekey 只是查找鍵，不進結果）
             if action == "add" { out["basis"] = report.basis }
             if let skip = report.skipped.first { out["skipped"] = skip.reason }   // display-safe-exempt: reason 已逐項消毒（LibraryMembershipViolation.message）
             return try jsonString(out)
@@ -2663,7 +2663,7 @@ public final class AkashicService {
             let parts = spec.split(separator: ":", maxSplits: 1).map(String.init)
             guard parts.count == 2, let shape = EntityKind(rawValue: parts[1]) else {
                 throw ServiceError.invalid(
-                    "候選格式為 `key:shape`（shape ∈ \(EntityKind.allCases.filter { $0 != .divergence }.map(\.rawValue).joined(separator: " / "))），得到「\(displaySafeInvisible(spec, max: 120))」")   // display-safe-exempt: EntityKind 是封閉列舉，rawValue 是編譯期字面量；spec 已 displaySafe
+                    "候選格式為 `key:shape`（shape ∈ \(EntityKind.allCases.filter { $0 != .divergence }.map(\.rawValue).joined(separator: " / "))），得到「\(displaySafeInvisible(spec, max: 120))」")   // display-safe-exempt: EntityKind、$0：封閉列舉的成員，rawValue 是編譯期字面量；spec 已 displaySafe
             }
             return (key: parts[0], shape: shape)
         }
@@ -2706,7 +2706,7 @@ public final class AkashicService {
             try LibraryIndex(store: store).rebuild()
         } catch {
             throw ServiceError.invalid(
-                "index rebuild 失敗：\(displaySafeError(error, max: 512))（本趟 import 已落地，完整報告如下）：\n\(try jsonString(payload))")   // display-safe-exempt: jsonString 的輸出已由序列化器逐項消毒（escapingUnsafeScalars）
+                "index rebuild 失敗：\(displaySafeError(error, max: 512))（本趟 import 已落地，完整報告如下）：\n\(try jsonString(payload))")   // display-safe-exempt: jsonString、payload：jsonString 的輸出已由序列化器逐項消毒（escapingUnsafeScalars）；payload 是這個函式自己組的 report 字典
         }
         return try jsonString(payload)
     }
@@ -5160,7 +5160,7 @@ public final class AkashicService {
                 if !conflict.isEmpty {
                     skippedConflict.append(["id": c.rowID,
                                             "venueKey": displaySafe(c.venueKey, max: 200),
-                                            "reason": conflict.describe(candidate: c.literal, operation: "略過不寫")])   // display-safe-exempt: conflict.describe：describe 內部逐項 displaySafeInvisible
+                                            "reason": conflict.describe(candidate: c.literal, operation: "略過不寫")])   // display-safe-exempt: conflict.describe、c.literal：describe 內部逐項 displaySafeInvisible（含它收到的 candidate）
                     continue
                 }
             }
@@ -5493,7 +5493,7 @@ public final class AkashicService {
         for (k, idx) in seen.sorted(by: { $0.key < $1.key }) where idx.count > 1 && !moved.isDisjoint(with: idx) {
             throw ServiceError.invalid(
                 "\(operation)後 work「\(displaySafeInvisible(entry.citekey, max: 200))」會有 \(idx.count) 條邊指向同一 venue"   // display-safe-exempt: operation 是固定字串（改指）；Int
-                + "「\(displaySafeInvisible(k, max: 200))」（\(IndexList.render(idx))）"   // display-safe-exempt: Int 序列（IndexList 有上限）
+                + "「\(displaySafeInvisible(k, max: 200))」（\(IndexList.render(idx))）"   // display-safe-exempt: IndexList.render、idx：Int 序列（IndexList 有上限）
                 + "——配對只能由一條邊實例化（verdict 不帶 index，D25），之後這兩條邊在 repoint／demote 上都會被拒。"
                 + "出路：那是同一本刊的重複來源欄位（journaltitle／booktitle／publisher），先以 resolve-venues --drop-venue（MCP drop_venue）"
                 + "刪掉多餘的邊（#572），再重跑")
@@ -5539,7 +5539,7 @@ public final class AkashicService {
         guard others.isEmpty else {
             throw ServiceError.invalid(
                 "work「\(displaySafeInvisible(entry.citekey, max: 200))」的配對（literal「\(displaySafeInvisible(literal, max: 120))」）由 "
-                + "\(others.count + 1) 條邊實例化（\(IndexList.render(([index] + others).sorted()))）"   // display-safe-exempt: Int 序列（IndexList 有上限）
+                + "\(others.count + 1) 條邊實例化（\(IndexList.render(([index] + others).sorted()))）"   // display-safe-exempt: IndexList.render、index、others：Int 序列（IndexList 有上限）
                 + "——verdict 不帶 index，\(operation)退役那筆 verdict 會把另一條邊的證據一起刪、之後那條邊在任何工具面上都救不回來。"   // display-safe-exempt: operation：固定字串（改指／降格）
                 + "出路：以 resolve-venues --drop-venue（MCP drop_venue）刪掉重複的邊（#572），再重跑")
         }
@@ -5949,7 +5949,7 @@ public final class AkashicService {
                      "holder": displaySafe(c.holder.key, max: 200),
                      "literal": displaySafe(c.literal, max: 200),
                      "orgKey": displaySafe(c.orgKey, max: 200),
-                     "undecidedChecks": undecidedCount(c.holder, c.literal, c.orgKey)]   // display-safe-exempt: undecidedCount 回傳 Int
+                     "undecidedChecks": undecidedCount(c.holder, c.literal, c.orgKey)]   // display-safe-exempt: undecidedCount、c：undecidedCount 回傳 Int；c 的三個欄位只是查找引數，不進結果
                     if let u = unlocatable(c) { row[u.flag] = true }   // #628／#641／#670：旗標的名字說出是哪一格
                     return row
                 },
@@ -5960,7 +5960,7 @@ public final class AkashicService {
                         let n = undecidedCount(m.holder, m.literal, k)
                         if n > 0 { perOrg[displaySafe(k, max: 200)] = n }
                     }
-                    return ["id": Self.orgRowID(m.holder, literal: m.literal),   // display-safe-exempt: Self.orgRowID：回程把手須逐字（同候選列的 rowID，#378）；控制字元由 JSON 編碼處理
+                    return ["id": Self.orgRowID(m.holder, literal: m.literal),   // display-safe-exempt: Self.orgRowID、m：回程把手須逐字（m.holder／m.literal 是把手的組成；同候選列的 rowID，#378）；控制字元由 JSON 編碼處理
                             "holder": displaySafe(m.holder.key, max: 200),
                             "literal": displaySafe(m.literal, max: 200),
                             "orgKeys": m.orgKeys.map { displaySafe($0, max: 200) },

@@ -141,7 +141,7 @@ public enum DivergenceResolveError: Error, LocalizedError, SanitizedErrorDescrip
                  + losses.map { displaySafeClipOnly($0, max: 2_400) }.joined(separator: "；")   // display-safe-exempt: 已消毒（fieldsLostByMerging 回傳前逐條 displaySafeInvisible，R28 D80），只截
                  + "。先把要保留的搬到倖存者身上（或確認可以丟棄後手動清除），再消歧。"
         case let .wouldContradictVerdicts(record, survivor, details, totalPairs):
-            return "拒絕合併：併入「\(displaySafeInvisible(survivor, max: 200))」之後，\(Self.whoWouldHold(record, survivor: survivor))會對同一個配對同時持有"   // display-safe-exempt: Self.whoWouldHold：whoWouldHold 內部逐項 displaySafe
+            return "拒絕合併：併入「\(displaySafeInvisible(survivor, max: 200))」之後，\(Self.whoWouldHold(record, survivor: survivor))會對同一個配對同時持有"   // display-safe-exempt: Self.whoWouldHold、record、survivor：whoWouldHold 內部逐項 displaySafe
                  + "相反的判定（confirmed 與 rejected；literal 正規化後相等）——這次合併帶進來的：\n"
                  + details.map { "  • " + $0 }.joined(separator: "\n")   // display-safe-exempt: details 由 describeVerdictSource 組裝且已在生產端截到 5 個配對（R27 D78），store 字串已逐項 displaySafeInvisible（displaySafe 不冪等）
                  + (totalPairs > details.count ? "\n  …共 \(totalPairs) 個配對" : "")   // display-safe-exempt: Int
@@ -154,7 +154,7 @@ public enum DivergenceResolveError: Error, LocalizedError, SanitizedErrorDescrip
             // 刪第一筆重跑仍被拒）：帶進來的才是要處理的；倖存配對既有的列出供對照，明說不擋。**「帶進來的」自 R16 起包含合併前住在
             // 被併鍵上的**（R15 verify 第 20 列：R15 末句寫「含住在被併鍵上的不擋」，而被搬到別的配對上、把它的歧義變大的那幾筆正是
             // 住在被併鍵上——訊息與判準互相矛盾；D45 的判準寫在末句）
-            return "拒絕合併：併入「\(displaySafeInvisible(survivor, max: 200))」之後，\(Self.whoWouldHold(record, survivor: survivor))對 work"   // display-safe-exempt: Self.whoWouldHold：whoWouldHold 內部逐項 displaySafe
+            return "拒絕合併：併入「\(displaySafeInvisible(survivor, max: 200))」之後，\(Self.whoWouldHold(record, survivor: survivor))對 work"   // display-safe-exempt: Self.whoWouldHold、record、survivor：whoWouldHold 內部逐項 displaySafe
                  + "「\(displaySafeInvisible(citekey, max: 200))」會持有兩個以上正規化後不同的 confirmed literal——這次合併帶進來的（合併前住在被併記錄裡、或住在被併鍵上）：\n"
                  + brought.map { "  • " + $0 }.joined(separator: "\n")   // display-safe-exempt: brought 由 describeVerdictSource 組裝且已在擲出端截到 5 筆（R28），store 字串已逐項 displaySafeInvisible（displaySafe 不冪等）
                  + (broughtTotal > brought.count ? "\n  …共 \(broughtTotal) 筆" : "")   // display-safe-exempt: Int
@@ -2380,7 +2380,7 @@ extension LibraryStore {
             return "——留下的那筆或被丟的這筆無法解析為配對，拼法無從比"   // R18；R17 verify requirements 第 24 列：靜默回空＝揭露不兌現而沒有跡象
         }
         guard Array(d.literal.utf8) != Array(k.literal.utf8) else { return "" }
-        return "——留「\(clipScalars(k.literal, 200))」（正規化後相等、位元組不同）"   // display-safe-exempt: clipScalars：report 是資料面；四個 sink（CLI merge preview／report、CLI rename、App rename）逐列過 displaySafeInvisible
+        return "——留「\(clipScalars(k.literal, 200))」（正規化後相等、位元組不同）"   // display-safe-exempt: clipScalars、k：report 是資料面；四個 sink（CLI merge preview／report、CLI rename、App rename）逐列過 displaySafeInvisible
     }
 
     private func resolveWorkDivergence(record: Divergence, survivor: String,

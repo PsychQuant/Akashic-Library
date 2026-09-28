@@ -586,53 +586,10 @@ final class SanitizationBoundaryTests: XCTestCase {
                 // 出現在那幾行——它就是引數本身——於是一句不相干的註記讓該語句全部引數免檢，74/540 站點、87/834 引數處在毯式豁免下，
                 // mutation 拿掉兩個 sanitizer 兩套守衛都綠）
                 let notes = DisplaySafeExemption.notes(in: Array(rawLines[(site.line - 1)...min(rawLines.count - 1, site.line - 1 + span)]))
-                func exempted(_ expr: String) -> Bool {
-                    // 同一個語句的註記以 `display-safe-exempt:` 具名這個引數（例如 `why 是 NameIdentity 的固定訊息`）即放行——規則與 sink 守衛共用一份（#584）
-                    DisplaySafeExemption.names(expr, in: notes)
-                }
                 if m.allSatisfy({ $0 == .unused }) && !args.isEmpty { unusedSites["\(t.qualified).\(site.caseName)", default: 0] += 1 }
-                for (arg, mode) in zip(args, m) {
-                    var value = arg
-                    if let r = value.range(of: #"^[A-Za-z_]\w*:\s*"#, options: .regularExpression) { value = String(value[r.upperBound...]) }
-                    // 豁免的粒度（R32；R31 verify 第 1 列 HIGH）：**只有非字面的裸引數**可以整段豁免；字面（含串接）逐插值、逐運算元各自對照註記——
-                    // R31 拿字面的第一個識別字去比註記，`"\(label)「\(displaySafeInvisible(n…))」"` 的註記說 `label` 就讓 store 名字 `n` 的消毒免檢（mutation 綠）
-                    let literal = Self.isLiteralPiece(value)
-                    if !literal && exempted(value) { continue }
-                    if mode != .unused && mode != .typed { checkedArgs += 1 }
-                    let site_ = "\(site.path):\(site.line) \(t.qualified).\(site.caseName)"
-                    switch mode {
-                    case .unused, .typed: continue
-                    case .unclassified:
-                        offenders.append("\(site_) 描述端用到這個 payload，但守衛分不出逃／截／原樣（helper 不在 descriptionHelpers 表、既逃又原樣、或新形狀）：\(value.prefix(60))")
-                    case .escaped:
-                        if !literal, Self.isSanitized(value) { offenders.append("\(site_) 的描述已逃脫這個 payload，擲出端不得再逃：\(value.prefix(60))") }
-                        if literal {
-                            for piece in Self.concatenationPieces(of: value) {
-                                let interps = Self.interpolations(in: piece)   // 與 .clipped／.raw 同一個入口條件（R33；R32 verify 第 20／28 列）
-                                if Self.isLiteralPiece(piece) || !interps.isEmpty {
-                                    for e in interps where Self.isSanitized(e) { offenders.append("\(site_) 的描述已逃脫這個 payload，字面裡的插值不得再逃：\\(\(e.prefix(60)))") }
-                                } else if Self.isSanitized(piece) { offenders.append("\(site_) 的描述已逃脫這個 payload，串接的運算元不得再逃：\(piece.prefix(60))") }
-                            }
-                        }
-                    case .clipped, .raw:
-                        if literal {
-                            for piece in Self.concatenationPieces(of: value) {
-                                // 字面（`"`／`#"`／`[`）與**含字面插值的表達式**（`xs.map { "「\(displaySafeInvisible($0…))」" }`）逐插值檢查；其餘表達式整段要是
-                                // 消毒／字面值／程式構造值／具名豁免
-                                let interps = Self.interpolations(in: piece)
-                                if Self.isLiteralPiece(piece) || !interps.isEmpty {
-                                    for e in interps where !Self.isSanitized(e) && !Self.isProgramBuilt(e) && !exempted(e) {
-                                        offenders.append("\(site_) \\(\(e.prefix(60)))")
-                                    }
-                                } else if !Self.isSanitized(piece) && !Self.isPlainValue(piece) && !Self.isProgramBuilt(piece) && !exempted(piece) {
-                                    offenders.append("\(site_) 串接的運算元：\(piece.prefix(80))")
-                                }
-                            }
-                        } else if !Self.isSanitized(value) && !Self.isPlainValue(value) && !Self.isProgramBuilt(value) {
-                            offenders.append("\(site_) 裸引數：\(value.prefix(80))")
-                        }
-                    }
-                }
+                let (found, checked) = Self.checkThrowSiteArguments(
+                    site_: "\(site.path):\(site.line) \(t.qualified).\(site.caseName)", args: args, modes: m, notes: notes)
+                offenders += found; checkedArgs += checked
             }
         }
         // CLI 的 ValidationError 是 struct init、單一 payload、描述原樣：擲出端全逃
@@ -658,6 +615,59 @@ final class SanitizationBoundaryTests: XCTestCase {
         let knownUnused: [String: String] = [:]
         XCTAssertEqual(Set(unusedSites.keys).subtracting(knownUnused.keys), [], "描述端沒用到任何 payload 的擲出站點（守衛對它們是啞的）：\(unusedSites)")
         XCTAssertEqual(offenders, [], offenders.joined(separator: "\n"))
+    }
+
+    /// 一個擲出站點的逐引數檢查——從 `testEveryThrowSiteEscapesEachPayloadExactlyOnce` 抽出，讓**豁免的粒度**可以拿合成站點測
+    ///（#584 R1 verify 第 14 列：sink 那一半有三支行為測試，這一半只有結構釘，把 `exempted` 改回「有註記整條免檢」五十二支全綠）。
+    /// `notes` 是站點語句各行的註記文字；`modes` 是描述端對每個引數的處置（與 `args` 等長）。回傳違規清單與檢查過的引數數。
+    static func checkThrowSiteArguments(site_: String, args: [String], modes m: [PayloadMode], notes: String) -> (offenders: [String], checked: Int) {
+        var offenders: [String] = []; var checkedArgs = 0
+        func exempted(_ expr: String) -> Bool {
+            // 同一個語句的註記以 `display-safe-exempt:` 具名這個引數（例如 `why 是 NameIdentity 的固定訊息`）即放行——規則與 sink 守衛共用一份（#584）
+            DisplaySafeExemption.names(expr, in: notes)
+        }
+        for (arg, mode) in zip(args, m) {
+            var value = arg
+            if let r = value.range(of: #"^[A-Za-z_]\w*:\s*"#, options: .regularExpression) { value = String(value[r.upperBound...]) }
+            // 豁免的粒度（R32；R31 verify 第 1 列 HIGH）：**只有非字面的裸引數**可以整段豁免；字面（含串接）逐插值、逐運算元各自對照註記——
+            // R31 拿字面的第一個識別字去比註記，`"\(label)「\(displaySafeInvisible(n…))」"` 的註記說 `label` 就讓 store 名字 `n` 的消毒免檢（mutation 綠）
+            let literal = Self.isLiteralPiece(value)
+            if !literal && exempted(value) { continue }
+            if mode != .unused && mode != .typed { checkedArgs += 1 }
+            switch mode {
+            case .unused, .typed: continue
+            case .unclassified:
+                offenders.append("\(site_) 描述端用到這個 payload，但守衛分不出逃／截／原樣（helper 不在 descriptionHelpers 表、既逃又原樣、或新形狀）：\(value.prefix(60))")
+            case .escaped:
+                if !literal, Self.isSanitized(value) { offenders.append("\(site_) 的描述已逃脫這個 payload，擲出端不得再逃：\(value.prefix(60))") }
+                if literal {
+                    for piece in Self.concatenationPieces(of: value) {
+                        let interps = Self.interpolations(in: piece)   // 與 .clipped／.raw 同一個入口條件（R33；R32 verify 第 20／28 列）
+                        if Self.isLiteralPiece(piece) || !interps.isEmpty {
+                            for e in interps where Self.isSanitized(e) { offenders.append("\(site_) 的描述已逃脫這個 payload，字面裡的插值不得再逃：\\(\(e.prefix(60)))") }
+                        } else if Self.isSanitized(piece) { offenders.append("\(site_) 的描述已逃脫這個 payload，串接的運算元不得再逃：\(piece.prefix(60))") }
+                    }
+                }
+            case .clipped, .raw:
+                if literal {
+                    for piece in Self.concatenationPieces(of: value) {
+                        // 字面（`"`／`#"`／`[`）與**含字面插值的表達式**（`xs.map { "「\(displaySafeInvisible($0…))」" }`）逐插值檢查；其餘表達式整段要是
+                        // 消毒／字面值／程式構造值／具名豁免
+                        let interps = Self.interpolations(in: piece)
+                        if Self.isLiteralPiece(piece) || !interps.isEmpty {
+                            for e in interps where !Self.isSanitized(e) && !Self.isProgramBuilt(e) && !exempted(e) {
+                                offenders.append("\(site_) \\(\(e.prefix(60)))")
+                            }
+                        } else if !Self.isSanitized(piece) && !Self.isPlainValue(piece) && !Self.isProgramBuilt(piece) && !exempted(piece) {
+                            offenders.append("\(site_) 串接的運算元：\(piece.prefix(80))")
+                        }
+                    }
+                } else if !Self.isSanitized(value) && !Self.isPlainValue(value) && !Self.isProgramBuilt(value) {
+                    offenders.append("\(site_) 裸引數：\(value.prefix(80))")
+                }
+            }
+        }
+        return (offenders, checkedArgs)
     }
 
     /// Error → 文字只有一個入口（`ErrorDisplay.describe`）；其餘每個把 `Error` 變成字串的地方都走 `displaySafeError`／`displaySafeErrorText`／

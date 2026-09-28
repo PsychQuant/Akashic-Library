@@ -16,8 +16,9 @@ import Foundation
 ///
 /// **豁免是逐運算式的**（#584）：註記要**具名**它豁免的運算式（運算式的第一個識別字以完整字詞出現在標記**之後**的文字裡），
 /// 沒被具名的運算式照報——一句註記不再讓整行免檢。規則與擲出站點守衛（`SanitizationBoundaryTests`）共用同一份
-/// （`DisplaySafeExemption`）。粒度是第一個識別字：同一行的 `entry.citekey` 與 `entry.title` 共用 `entry`，具名其一就兩個都放行
-///（已知邊界，`testKnownBoundaryMembersOfTheSameObjectShareAnExemption` 釘住）。
+/// （`DisplaySafeExemption`）。粒度是**運算元的頭識別字**：同一行的 `entry.citekey` 與 `entry.title` 共用 `entry`，具名其一就兩個都放行
+///（已知邊界，`testKnownBoundaryMembersOfTheSameObjectShareAnExemption` 釘住）；但**複合運算式**（`??`、三元、`+`、呼叫引數、閉包 body）
+/// 的每個帶資料的運算元都要各自具名，拆不開的形狀一律不豁免（#584 R1 verify；`testCompoundExpressionNeedsEveryOperandNamed` 釘住）。
 ///
 /// ## 守衛的涵蓋邊界（#141——誠實記錄「行級文字掃描」照不到的形狀）
 ///
@@ -923,8 +924,11 @@ final class DisplaySinkCoverageTests: XCTestCase {
                    l.trimmingCharacters(in: .whitespaces).hasPrefix("case ") { continue }
 
                 // 去重：插值與裸鏈可能抽到同一段（`Text("\(entry.title)")` 兩邊都中）
+                // 候選先去掉前後空白：帶註記的行剝掉行尾註解後尾巴是一串空白，`… .map {   ` 就不以 `{` 結尾、多行 closure 的開頭行判不出來
+                // （#584 R1：`AkashicService.swift:2796` 靠註記過關，而它本來就該被下面的 `hasSuffix("{")` 略過）
                 var seen = Set<String>()
                 let candidates = (interpolations(in: l) + dictValues(in: l) + bareChains(in: l))
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
                     .filter { seen.insert($0).inserted }
                 for expr in candidates {
                     let tokenMatched = Self.taintedTokens.contains(where: { expr.contains($0) })
@@ -1231,7 +1235,26 @@ final class DisplaySinkCoverageTests: XCTestCase {
         XCTAssertEqual(scan("已消毒，只截"), 1)
     }
 
-    /// **已知邊界，釘成斷言**（#584 的誠實邊界）：豁免的粒度是運算式的**第一個識別字**（與擲出站點守衛同一條規則，`DisplaySafeExemption`），
+    /// 複合運算式：一個插值裡有兩個運算元、註記只具名條件（或第一個運算元）→ 沒被具名的那個照報。
+    /// 先前的規則只看整條運算式的第一個識別字，`\(flag ? entry.title : "")` 講 `flag` 就整條放行（#584 R1 verify 第 4／10／23 列）。
+    func testCompoundExpressionNeedsEveryOperandNamed() {
+        func scan(_ line: String, _ note: String) -> [String] {
+            scanViolations(name: "probe.swift", text: line + "   // display-safe-exempt: " + note).map(\.text)
+        }
+        let ternary = #"    print("\(flag ? entry.title : "")")"#
+        XCTAssertEqual(scan(ternary, "flag 是 Bool"), [#"probe.swift:1  flag ? entry.title : """#], "只具名條件，沒具名的分支照報")
+        XCTAssertEqual(scan(ternary, "flag 是 Bool；entry.title 是消毒投影"), [])
+        let coalesce = #"    print("\(counts[key] ?? entry.title)")"#
+        XCTAssertEqual(scan(coalesce, "counts 是 dict 查找").count, 1, "`?? entry.title` 的 fallback 是 store 內容——註記只具名 counts 不夠")
+        XCTAssertEqual(scan(#"    print("\(counts[key] ?? 0)")"#, "counts 是 dict 查找，值是 Int 計數"), [], "fallback 是數字常量，只需具名 counts")
+        let call = #"    print("\(fmt(entry.title))")"#
+        XCTAssertEqual(scan(call, "fmt 是純函式").count, 1, "呼叫的引數也是運算元")
+        // 字串字面後接成員呼叫：拆不開，不論註記寫什麼
+        let tail = #"    print("\("x".appending(entry.title))")"#
+        XCTAssertEqual(scan(tail, "entry.title 已消毒").count, 1)
+    }
+
+    /// **已知邊界，釘成斷言**（#584 的誠實邊界）：豁免的粒度是運算元的**頭識別字**（與擲出站點守衛同一條規則，`DisplaySafeExemption`），
     /// 所以同一個物件的兩個成員（`entry.citekey`／`entry.title`）在同一行時，註記具名其一就讓兩個都放行。
     /// 這條在守衛收緊到成員層級時會紅——那時要一起更新 changelog 與 `DisplaySafeExemption` 的型別 doc。
     func testKnownBoundaryMembersOfTheSameObjectShareAnExemption() {

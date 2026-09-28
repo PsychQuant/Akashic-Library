@@ -124,9 +124,9 @@ private extension UnprojectableReason {
 private func propositionTruthDisplay(_ proposition: Proposition) -> String {
     switch proposition {
     case let .authored(person, work):
-        return "authored(\(referenceTruthDisplay(person)), \(referenceTruthDisplay(work)))" // display-safe-exempt: referenceTruthDisplay：helper 已逐一以 displaySafe 限制 reference
+        return "authored(\(referenceTruthDisplay(person)), \(referenceTruthDisplay(work)))" // display-safe-exempt: referenceTruthDisplay、person、work：helper 已逐一以 displaySafe 限制 reference
     case let .affiliated(person, organization):
-        return "affiliated(\(referenceTruthDisplay(person)), \(referenceTruthDisplay(organization)))" // display-safe-exempt: referenceTruthDisplay：helper 已逐一以 displaySafe 限制 reference
+        return "affiliated(\(referenceTruthDisplay(person)), \(referenceTruthDisplay(organization)))" // display-safe-exempt: referenceTruthDisplay、person、organization：helper 已逐一以 displaySafe 限制 reference
     }
 }
 

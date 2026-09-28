@@ -562,12 +562,15 @@ store 內容是**未信任的**——來自 Zotero 匯入（出版商與網頁�
 > 拆鏈之後豁免只作用於它自己那一條。`displaySafe( … )` 的內容先**塗白**（不是整段
 > 跳過，那會重演同一個洞）。
 >
-> **`// display-safe-exempt:` 註記也是逐運算式的**（#584）。註記要**具名**它放行的運算式
-> （第一個識別字以完整字詞出現在標記**之後**的文字裡，例如 `entry.citekey 過 quarantine`、
-> `idx 是 Int`），沒被具名的運算式照報；先前是整行毯式，一句註記讓同一行所有運算式免檢，
-> 不論它講的是哪一個。規則與擲出站點守衛共用一份（`DisplaySafeExemption`）。粒度是第一個
-> 識別字：同一行的 `entry.citekey` 與 `entry.title` 共用 `entry`，具名其一就兩個都放行
-> ——已知邊界，不是理想。
+> **`// display-safe-exempt:` 註記也是逐運算式的**（#584）。註記要**具名**它放行的運算式：每一個帶執行期資料的運算元的
+> 第一個識別字，要以完整字詞出現在**註解裡**標記之後的文字（例如 `entry.citekey 過 quarantine`、`idx 是 Int`；註記寫
+> `entry.title` 不指認裸的 `title`，標記出現在字串字面裡也不算註記）。**複合運算式**（`??`、三元、`+`、比較、呼叫引數、閉包 body）
+> 的每個運算元都要各自具名——`\(flag ? entry.title : "")` 只講 `flag` 不放行 `entry.title`；**拆不開的形狀一律不豁免**
+>（字串字面後面接成員呼叫、沒有空白的運算子、if 運算式…；fail-closed，不是「拆不開就放行」）。沒被具名的運算式照報；
+> 先前是整行毯式，一句註記讓同一行所有運算式免檢，不論它講的是哪一個。規則與擲出站點守衛共用一份
+>（`DisplaySafeExemption`，型別 doc 有完整的拆解規則）。**已知邊界**：粒度是運算元的頭識別字、不是成員路徑——同一行的
+> `entry.citekey` 與 `entry.title` 共用 `entry`，具名其一就兩個都放行；無標籤的下標引數（`counts[lib.key]` 的 `lib.key`）視為查找鍵、
+> 不要求具名。
 >
 > 行為證明（verify-181-182 的兩個 mutation，過去全綠）：`EntryViews.swift:13` 與
 > `AdjudicationViews` 的 OrphanView 換回裸欄位 → 現在各自變紅（`entry.title`、

@@ -8,8 +8,8 @@
 
 - **一份規則，兩支守衛共用**：`Tests/AkashicKitTests/DisplaySafeExemption.swift`（新）。規則是 R31／R32 的那一條：只看標記之後的文字；一個運算式被豁免，當且僅當它的**第一個識別字**以完整字詞出現在那段文字裡。三件事在取「第一個識別字」之前先取運算式的主詞（封閉列舉）：開頭的 `return`／`try`／`await` 不算；整條是 `displaySafeClipOnly(x, max: …)` 時主詞是載體 `x`（那個函式只截不逃，註記要擔保的是載體已消毒，不是函式名）；以字串字面開頭的運算式逐段對照（每個非字面運算元、字面裡的每個插值各自被具名）。
 - `DisplaySinkCoverageTests.scanViolations`：整行跳過改成 `DisplaySafeExemption.names(expr, in: notes)`。帶註記的行先剝掉行尾註解再分類、再抽運算式——先前這一行從沒被看過，現在走完整條判準，註記裡的 `print(` 不得把非 sink 的行變成 sink。
-- `SanitizationBoundaryTests.testEveryThrowSiteEscapesEachPayloadExactlyOnce`：自己那份 `notes` 與 `exempted` 換成同一個 helper。行為差異只有一處，且只放寬到「載體具名」：`displaySafeClipOnly(x, …)` 引數過去要具名函式名，現在具名 `x`（該守衛全綠，沒有站點靠舊寫法過關）。
-- **註記要逐條具名**：守衛改嚴之後，2026-09-29 在 `def4ce7c` 上實測 **191 個運算式、162 行、44 個檔**沒被具名（issue 在 `58bab46d` 量到 161，其後新增的程式帶進更多）。每一條逐一判讀，沒有一條是真的未消毒 store 字串進 sink，所以全部是改註記，沒有改任何執行碼。粗分（依運算式的形狀分桶，桶界是機械規則不是逐條人工歸類）：
+- `SanitizationBoundaryTests.testEveryThrowSiteEscapesEachPayloadExactlyOnce`：自己那份 `notes` 與 `exempted` 換成同一個 helper。**行為差異有三處，方向不同**（初稿寫成「只有一處」，驗證指出不準）：(1) `displaySafeClipOnly(x, …)` 引數過去要具名函式名，現在具名載體 `x`（放寬）；(2) 開頭的 `return`／`try`／`try?`／`try!`／`await` 過去算第一個識別字（註記得寫 `try` 才算具名），現在不算（放寬）；(3) 以字串字面開頭的運算式過去只取第一個識別字，現在逐段對照（收緊）。整棵樹 0 個站點因這三處改變狀態（守衛全綠）。
+- **註記要逐條具名**：守衛改嚴之後，2026-09-29 在 `def4ce7c` 上實測 **191 個運算式、162 行、44 個檔**沒被具名（issue 在 `58bab46d` 量到 161，其後新增的程式帶進更多）。判讀的方式是**依運算式的形狀分桶、加上抽查各桶對應的生產端與 sink 端程式**，不是逐條重跑資料流（初稿寫「每一條逐一判讀」，驗證指出比實際強）；「沒有一條是真的未消毒 store 字串進 sink」繼承的是各條註記原本的理由，抽查沒有找到反例，但不是新的逐條證明。所以全部是改註記，沒有改任何執行碼（三個驗證席各自把 162 行剝掉行尾註解後逐行比對：執行碼 0 差異）。粗分（桶界是機械規則不是逐條人工歸類）：
   - StoreKey 受 load 端驗過的 key、回程把手（`rowID`／`pinnedID` 必須逐字，消毒會讓 apply 對不上）、比對鍵：46
   - 生產端已消毒的訊息與 helper 回傳值、資料面（sink 端才消毒）、序列化面（JSON 的消毒層是序列化器）、內部比對鍵：54
   - Int、Bool、計數、dict 查找取到的 Int：41
@@ -37,7 +37,8 @@
 
 ## 誠實邊界
 
-- **粒度是第一個識別字，不是成員路徑。** 同一行的 `entry.citekey` 與 `entry.title` 共用 `entry`，註記具名其一就兩個都放行——而「同一個物件的另一個成員」恰好是最自然的夾帶形狀。這是 issue 指定的粒度（與擲出站點守衛同一條），本輪沒有收緊。用一個暫時的記錄器量過：兩支守衛的 461 次具名放行裡，440 次的註記寫出了運算式的完整成員鏈，其餘 21 次只寫到物件名或去掉尾端方法呼叫的鏈（`v.names.entries.map`、`stage.rawValue` 之類）；收緊到成員層級大約要改二十條擲出站點那一側的註記。`testKnownBoundaryMembersOfTheSameObjectShareAnExemption` 把今天的行為釘成斷言，收緊時它會紅、提醒回來改這一節與 `DisplaySafeExemption` 的型別 doc。
+- **（R1 驗證後更新：複合運算式已收緊，見 `2026-09-29-b12-verify-r1.md`）** 初稿的粒度是整條運算式的第一個識別字，於是 `\(flag ? entry.title : "")`、`counts[k] ?? entry.title`、`fmt(entry.title)` 講第一個名字就整條放行，而這正是 issue 原情境在單一運算式內部的版本；R1 起每個帶資料的運算元都要各自具名、拆不開的形狀不豁免。以下「成員路徑」的邊界仍然成立。
+- **粒度是頭識別字，不是成員路徑。** 同一行的 `entry.citekey` 與 `entry.title` 共用 `entry`，註記具名其一就兩個都放行——而「同一個物件的另一個成員」恰好是最自然的夾帶形狀。這是 issue 指定的粒度（與擲出站點守衛同一條），本輪沒有收緊。用一個暫時的記錄器量過：兩支守衛的 461 次具名放行裡，440 次的註記寫出了運算式的完整成員鏈，其餘 21 次只寫到物件名或去掉尾端方法呼叫的鏈（`v.names.entries.map`、`stage.rawValue` 之類）；收緊到成員層級大約要改二十條擲出站點那一側的註記。`testKnownBoundaryMembersOfTheSameObjectShareAnExemption` 把今天的行為釘成斷言，收緊時它會紅、提醒回來改這一節與 `DisplaySafeExemption` 的型別 doc。
 - 註記仍然要在**同一行**。多行語句的註記與運算式在不同行時，運算式要在自己那一行具名。
 - **同族的另外幾個守衛仍是行級**：`SanitizationBoundaryTests` 裡 `testErrorToTextEntriesGoThroughTheSingleEntryPoint`（行上有標記就整行跳過）、`testSanitizedCarrierSinksOnlyClip`（標記加「未消毒」）、`InvisibleEscapeCoverageTests`（`displaySafeClipOnly(` 那一行要有標記加「已消毒」）。它們各自掃的不是「一行裡的多個運算式」（每行至多一個入口），本輪沒有動；若日後某一行長出第二個入口，要一起改成走 `DisplaySafeExemption`。
-- 這 191 條的判讀依據是各條註記原本的理由與對應的生產端／sink 端程式（抽查：`verdictsCollapsed` 在 CLI 的 merge／rename 報告與 App 的 rename 報告都過 `displaySafeInvisible`、`LibraryMembershipViolation.message` 的每個 store 字串逐項消毒、venue 的文章清單逐欄 `displaySafe`）；沒有對 191 條逐條重跑資料流，那是這支行級守衛從來沒有的能力。守衛全綠仍不等於這一面安全（見 README 的盲區清單）。
+- 這 191 條的判讀依據是各條註記原本的理由與對應的生產端／sink 端程式（**依形狀分桶＋抽查，不是逐條**；抽查：`verdictsCollapsed` 在 CLI 的 merge／rename 報告與 App 的 rename 報告都過 `displaySafeInvisible`、`LibraryMembershipViolation.message` 的每個 store 字串逐項消毒、venue 的文章清單逐欄 `displaySafe`）；沒有對 191 條逐條重跑資料流，那是這支行級守衛從來沒有的能力。守衛全綠仍不等於這一面安全（見 README 的盲區清單）。

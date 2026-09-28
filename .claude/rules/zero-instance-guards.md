@@ -60,7 +60,7 @@
 會在邊界上自己長出沒人同意的答案，而那句話與下表**是兩份不會一起改的規格**。要判斷新情形，
 讀下表的理由欄，然後**加一列**。
 
-## 裁決史（封閉列舉——現有 49 列，一列不多一列不少）
+## 裁決史（封閉列舉——現有 50 列，一列不多一列不少）
 
 | # | 情形 | 裁決 | 理由 |
 |---|---|---|---|
@@ -113,6 +113,7 @@
 | 47 | **零實例，而同一個形狀已經真實發生過一次——零來自規則還不存在，不是來自清理**（#642：規則型／文件型 library 的既有成員不符規則、規則指向不在庫的 venue 或文件，以及未標性質的 library。2026-09-24 `akashic-work-references` 把 56 筆被引文獻掛進種子所屬的 library，其中 52 筆不是 Psychological Methods 的作品卻進了它的全量目錄；當時沒有任何守衛，是隔天的 verify 才發現，已在 store `2f18107a` 移除。2026-09-29 讀 live store：library 4 個、全部未標性質，規則型／文件型成員不符 **0**、讀不到的檔 0。重跑腳本見表下方） | ✅ **寫（warning；未標性質是 per-record，不符規則與懸空規則是跨記錄，每個 library 一則、點名前 5 筆）** | 第 13 列的零是「清理過之後的零」；這一列的形狀發生過一次，而今天的零來自 live store 的 4 個 library **都還沒標性質**——規則根本不存在，當然沒有東西不符。一旦有人 `set-kind`，零就取決於兩件事：`library add` 的逐筆比對（寫入端的閘，擋工具面），以及這盞燈。燈照的是閘擋不到的三個來源：format 21 之前的舊 binary（它保留性質卻不查規則，StoreVersion 21）、手改 YAML、以及 `set-kind` 當下就已經不符的既有成員（set-kind 只列出、不移除）。這是第 26 列「閘與守衛是同一條不變式的兩半」的形。**severity 是 warning**：成員關係錯了不毀資料，error 會讓 `assertNoCrossRecordErrors` 擋下不相干的改名與合併。**未標性質也報**：未標就沒有依據，`library add` 一律拒絕；不報的話使用者只會看到 add 被拒，看不到原因住在哪裡。**觸發條件可檢查**（指令見表下方）：不符數應恆為 0；非零時用 `library check <key>` 看是哪幾筆、為什麼，處置是人的——remove，或規則寫錯了就 `set-kind` 改規則 |
 | 48 | **零實例，而角色是新開的寫入通道每次查證都會寫的東西**（#587 R1 verify：venue 合併不比同一個 ISSN 的角色——被併者有角色而倖存者沒有、或兩邊不同（含遷移留下認不出的寫法），合併之後角色安靜消失。#587 起 `add_issn` 收角色、`akashic-verify-venue` 查證時會寫；同一輪 `field: issn`／`names` 的 reference 開放寫入，而合併原本對它們一律拒絕。2026-09-29 唯讀量測 live store：venue 485、ISSN 值 59、帶角色 9（print 4／electronic 4／linking 1）、含 venue 候選的 divergence 0、同一個號掛 2+ venue 0、`field: issn`／`names` 的 reference 0（venue 其餘非 verdict reference 只有 paginated 36）、讀不到的檔 0。重跑腳本見表下方） | ✅ **寫（角色遺失具名拒絕、零寫入、出路逐格；`field: issn`／`names` 的 reference 隨合併逐位元組搬）** | 第 4 列的理由是「錯誤的偽裝性」；這一列同形——角色掉了之後記錄仍是一筆看起來健康的 venue，`validate` 不會報——而可達性是 #587 的寫入面造成的（第 23 列的形），所以裁決與新面同批。角色比 `qualifierRaw` 的位元組（認不出的寫法也算，否則遷移留下的 `Online` 會被安靜覆寫）；被併者有而倖存者沒有、或兩邊不同，都具名拒絕，出路各寫（`--add-issn "號 (角色)"`；角色不同時先 `--remove-issn` 再 `--add-issn`，並說明會連帶刪那個號的 reference；認不出的寫法手改 YAML）。reference 那一半不是拒絕而是搬：`field: issn`／`names` 的值在倖存者上存在就逐位元組搬（`byteExactKey` 去重），乾跑與實跑共用 `venueReferenceCarry` 一份；`paginated`、手改的 `authorized`、`note` 仍拒絕——那幾格沒有工具面能搬。**誠實邊界**：搬過去的 reference 在倖存者上沒有移除面（#673）；名字存在與否以 `String ==` 判，倖存者以髒寫法持有同名時，搬過去的 value 位元組可以與名字不同。**觸發條件可檢查**（腳本見表下方）：含 venue 候選的 divergence 數 > 0 時這兩道才會被走到；守衛測試是 `VenueMergeReferencesAndISSNRolesTests` 的角色四支與 reference 四支 |
 | 49 | **零實例，而形狀是一次裁決之後才合法、先前哪一面都看不見**（#609：附加來源已刪除而主連結仍在，以及沒有主來源、附加來源全部已刪除——#605 R1 裁決之後兩者都是合法狀態，但 `doctor`、index 的 `orphaned` 欄、App 裁決台都只看主來源。2026-09-29 唯讀量測 live store：work 2,568、Zotero 來源 535（附加 3）、整筆 orphan 0、附加來源已刪除 0、只有附加來源的 entry 0、讀不到的檔 0。重跑腳本見表下方） | ✅ **寫（列表面：`StoreHealth.orphanedCitekeys`／`orphanedAdditionalSourceCitekeys`；判準只有 `Entry.zoteroLinkState` 一份；處置在 App 裁決台）** | 第 46 列的理由是「路由字典安靜地選一筆」；這一列與它成對而守的東西不同：**合法狀態的可見性**。前面各列的零是壞形狀還沒發生，這一列的形狀是合法的，缺的是能看見它的判準——`.orphaned` 的母體在 #605 R1 之後擴大，每個 orphan 介面的判準卻還停在只看主來源，於是一筆作品已經從每一個連結的 library 消失，卻在每個介面都看不見。不寫的代價與第 1 列同形（第一次發生時沒有跡象）；成本是一個三值判準。判準只有一份（health、index、App 共用），各寫一份會分岔。它不是守衛（沒有 severity、不進 `validate`），所以這一列記的是「為什麼列表算數」。**誠實邊界**：index 的 `orphaned` 欄語意改了而沒有 schema bump，目前沒有讀者；「與 Zotero 脫鉤」延伸到新形狀而仍不帶理由與 git 閘，待使用者裁決。**觸發條件可檢查**（腳本見表下方）：兩個計數任一 > 0 即出現在 `akashic doctor`（`orphaned:`／`orphaned additional sources:`）、MCP `akashic_doctor`（`orphaned`／`orphanedAdditionalSources`）與 App 側欄 |
+| 50 | **零實例，而檢查只問「在不在」，沒問「是不是一份檔」**（#614 b11c verify R1：`update-entry --add-source`／MCP `add_sources` 要求 digest 的內容已存在本機 `sources/`，而先前用 `fileExists(atPath:)` 判斷——它對同名的**目錄**也回 true；blob 被換成目錄或 symlink、index 那一列還在時，add-source 會宣告一份讀不到的副本而不出聲。2026-09-29 唯讀量測 live store：`sources/` 的 blob 99 個，非普通檔 0、`index.jsonl` 是普通檔。重跑腳本見表下方） | ✅ **寫（`SourcePresence.notRegularFile`，以 lstat 的類型判定；目錄、symlink、特殊檔案具名拒絕，乾跑與實跑一致、零寫入）** | 第 1 列的理由是「失敗的不可見性」；這一列同形——不寫的話，那個形狀第一次出現時 add-source 照常回報成功，而宣告的那份副本打不開。與第 15 列（本機缺承重存檔）相鄰而不同：那一列問的是位元組在不在這台機器上，這一列問的是在那個位置上的東西是不是一份檔。前件精確（lstat 的類型不是 regular），成本是一個屬性檢查。**symlink 也拒**：`sources/` 由 `store-source` 寫成普通檔，store 沒有任何一條路徑會寫出 symlink；若日後有意用 symlink 共用 blob，要回來改這一列。**誠實邊界**：只看類型、不重新雜湊內容（位元組與 digest 是否相符不在這道檢查裡）。**觸發條件可檢查**（腳本見表下方）：非普通檔數應恆為 0；非零時先查是誰放的，再依 add-source 的拒絕訊息處置 |
 
 對本表四類中的任一個做出下一次裁決（新增、不新增、保留、拿掉）= 在這張表加一列。
 
@@ -1059,6 +1060,28 @@ PY
 # 2026-09-29：work 2568｜Zotero 來源 535（附加 3）｜整筆 orphan 0｜附加來源已刪除 0｜只有附加來源的 entry 0｜讀不到的檔 0
 ```
 
+**第 50 列的量測（2026-09-29，可重跑，唯讀）**：閘本身由 `EntrySourceLinkTests.testABlobPathThatIsNotARegularFileIsRefused` 釘住（live store 沒有非普通檔，binary 沒有東西可印）。Python 對照（以 lstat 判類型，不跟隨 symlink）：
+
+```bash
+python3 - <<'PY'
+import os, stat
+root = os.path.expanduser('~/.akashic/sources')
+n = 0; other = []; idx_kind = None
+try: shards = sorted(os.listdir(root))
+except OSError as e: raise SystemExit(f'讀不到 {root}：{e}')
+for shard in shards:
+    p = os.path.join(root, shard)
+    if len(shard) != 2 or not stat.S_ISDIR(os.lstat(p).st_mode): continue
+    for f in sorted(os.listdir(p)):
+        st = os.lstat(os.path.join(p, f)); n += 1
+        if not stat.S_ISREG(st.st_mode): other.append((shard + f, stat.filemode(st.st_mode)))
+ip = os.path.join(root, 'index.jsonl')
+if os.path.lexists(ip): idx_kind = stat.filemode(os.lstat(ip).st_mode)
+print(f"sources/ blob {n}｜非普通檔 {len(other)} {other}｜index.jsonl {idx_kind}")
+PY
+# 2026-09-29：sources/ blob 99｜非普通檔 0 []｜index.jsonl -rw-r--r--
+```
+
 ## 各列共通的東西（觀察，不是判準）
 
 第 1–9 列與第 13、14 列的裁決都是「寫」（第 14 列是 2026-09-09 從「不寫」翻過來的）、第 10–12 列（皆出自 #365）是「不寫」，但**理由各不相同**，這正是不寫總括判準的原因：
@@ -1118,6 +1141,7 @@ PY
 - 第 47 列的理由是**零來自規則還不存在**——第 13 列的零是清理過之後的零；這一列的形狀發生過一次（52 筆），今天的零是因為 live store 的 library 都還沒標性質。燈照的是寫入閘擋不到的三個來源（舊 binary、手改、set-kind 當下就不符的既有成員），同第 26 列閘與守衛的分工
 - 第 48 列的理由是**新開的通道讓偽裝可達**——同第 4 列，角色掉了之後記錄看起來健康；可達性是 #587 的寫入面造成的（第 23 列的形），所以閘與新面同批，而 reference 那一半改成搬而不是拒絕
 - 第 49 列的理由是**合法狀態的可見性**——前面各列的零是壞形狀還沒發生；這一列的形狀是合法的，缺的是能看見它的判準，而判準只有一份
+- 第 50 列的理由是**「在不在」不等於「是不是一份檔」**——同第 1 列不寫就沒有跡象；與第 15 列相鄰：那一列問位元組在不在這台機器上，這一列問那個位置上是不是一份檔
 - 第 31 列的理由是**同一條曲線換了持有者**——第 16 列的燈只照 venue；新面（未決腿）讓 person 與 organization 也開始累積，第 30 列寫下的誠實邊界要有工具面兌現，否則就是一句沒有後續的散文
 - 第 39 列的理由是**單步的跳躍預警看不到**——第 16／31 列的燈在讀取面、照的是漸進的增長；一次寫入從門檻之下直接越過讀取上限時，燈來不及響，擋它的只能是寫入端。而那道閘要擋的不只是位元組：多檔寫入面在它觸發之前已有檔落盤，所以閘與零寫入的 preflight 同批
 - 第 24 列的理由是**半吊子已經誠實**——前二十三列裡只有第 22 列同樣是「不動既有的東西」（比的是裁決的**動作**：那一列的對象是 spec 文字、失敗是被當死重刪掉；本列的對象是程式的半吊子管線、失敗是使用者撞牆或被當成待修殘留而被人動手）。留著的代價不是零（記了就刪不掉——#586 在 2026-09-28 補了移除面，代價從「刪不掉」降為「要人判定放棄」），而是今天未兌現、且一出現就會出聲；動它的兩個方向（實作／拿掉）代價都更高。與第 10 列（缺用途）最像的是理由的**形**：實作那一半同樣是「形狀取決於還不存在的用途」；但第 10 列的對象根本不存在，這一列的對象已經在、且已經誠實

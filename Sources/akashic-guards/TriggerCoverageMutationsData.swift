@@ -10,6 +10,16 @@
 // 原生成方式（存查）：`ast` 走訪 `case`／`warn_case` 呼叫 → dict key（含用模組常數的）→
 // `Lambda.body.args` 逐一 `literal_eval`。**該腳本已刪除，此段只為說明既有條目的來歷。**
 
+// **#629：注入的宿主從 Python／shell 守衛換成 Swift 守衛。** 這批 case 原本把探針行注入 `plugin/tests/plugin-store-format-parity.py`
+// （讀取形狀）、`plugin/tests/review-claim-audit.sh` 與 `plugin/tests/rule-coverage.sh`（宣告形狀），三個檔隨移植一起刪了。
+// 現在的宿主是 `PluginStoreFormatParity.swift`（讀取形狀與大部分宣告形狀）與 `RuleCoverage.swift`（它自己那條真宣告）：
+// 錨點 `let src = rawFile(…)`／`import Foundation`／`// trigger-coverage: reads plugin/rules/*.md` 都是這兩個檔裡各自唯一的行。
+// 被測的東西是 `trigger-coverage` 對「路徑字面、probe token、宣告樣式」的**文字層**判斷，與宿主的語言無關，所以每格的預期
+// 訊息不變。**讀取**的探針行改寫成 Swift 的等價形狀（`rawFile(`）；**absence probe** 的三個 case 刻意保留 Python 形狀
+// （`os.path.exists(`、`).exists()` 後綴）——那兩個 token 仍在 `PROBE_PREFIXES`／後綴清單裡（樹裡還有 Python 守衛），
+// 本 harness 是文字層的，注入的行不必是宿主語言的合法程式碼；Swift 形狀的 probe 由 `fileExists(`／`profileExists(` 兩個 case 涵蓋。
+// 樹裡最後一支 Python 守衛退場時，那三個 case 與這兩個 token 一起處理。
+
 struct TCMCase {
     let isWarn: Bool
     let desc: String
@@ -27,10 +37,10 @@ let triggerCoverageMutationCases: [TCMCase] = [
     // 管的正是這個。這裡改成把涵蓋範圍寫出來。
     TCMCase(isWarn: false, desc: "名字碰巧以允許 token 結尾的函式（profileExists）不得豁免",
         edits: [
-            (path: "plugin/tests/plugin-store-format-parity.py",
-             old: "src = (ROOT / \"Sources/AkashicStoreIO/StoreVersion.swift\").read_text(encoding=\"utf8\")\n",
-             new: "src = (ROOT / \"Sources/AkashicStoreIO/StoreVersion.swift\").read_text(encoding=\"utf8\")\n"
-                + "_q = profileExists(\"plugin/tests/gone-r3-no-boundary.py\")\n"),
+            (path: "Sources/akashic-guards/PluginStoreFormatParity.swift",
+             old: "    let src = rawFile(\"Sources/AkashicStoreIO/StoreVersion.swift\")\n",
+             new: "    let src = rawFile(\"Sources/AkashicStoreIO/StoreVersion.swift\")\n"
+                + "    let _q = profileExists(\"plugin/tests/gone-r3-no-boundary.py\")\n"),
         ], expect: "引用了 `plugin/tests/gone-r3-no-boundary.py`，而**那個檔不存在**"),
     // **#521 R3 的負控（四）：邊界檢查不得做在剝光空白的字串上。**
     // 這是上一格修法自帶的陷阱（Codex 同席指名）：把空白全剝掉之後，`if os.path.exists(`
@@ -39,11 +49,11 @@ let triggerCoverageMutationCases: [TCMCase] = [
     // （必須報）。前綴側若退回全剝，probe 會多出一條缺口，這一格就以「另有無關缺口」失敗。
     TCMCase(isWarn: false, desc: "`if` 緊接的 absence probe 仍須豁免（邊界不得在剝空白後判）",
         edits: [
-            (path: "plugin/tests/plugin-store-format-parity.py",
-             old: "src = (ROOT / \"Sources/AkashicStoreIO/StoreVersion.swift\").read_text(encoding=\"utf8\")\n",
-             new: "src = (ROOT / \"Sources/AkashicStoreIO/StoreVersion.swift\").read_text(encoding=\"utf8\")\n"
-                + "_gone = (ROOT / \"plugin/tests/gone-r3-if-boundary.py\").read_text()\n"
-                + "if os.path.exists(\"plugin/tests/absent-if-probe-r3.py\"):\n    pass\n"),
+            (path: "Sources/akashic-guards/PluginStoreFormatParity.swift",
+             old: "    let src = rawFile(\"Sources/AkashicStoreIO/StoreVersion.swift\")\n",
+             new: "    let src = rawFile(\"Sources/AkashicStoreIO/StoreVersion.swift\")\n"
+                + "    let _gone = rawFile(\"plugin/tests/gone-r3-if-boundary.py\")\n"
+                + "    if os.path.exists(\"plugin/tests/absent-if-probe-r3.py\"):\n        pass\n"),
         ], expect: "引用了 `plugin/tests/gone-r3-if-boundary.py`，而**那個檔不存在**"),
     // **#521 R3 的負控（一）：豁免的 probe token 不得以任意接收者結尾。**
     // R2 的修法把豁免綁到字面的前後緊鄰文字，但前綴清單裡留了一支**裸的** `exists(`，
@@ -51,10 +61,10 @@ let triggerCoverageMutationCases: [TCMCase] = [
     // 不存在的檔——正確行為是報一條缺口。裸 `exists(` 若回來，這一格會以「rc=0」失敗。
     TCMCase(isWarn: false, desc: "任意接收者的 .exists(\"死引用\") 不得被當成 absence probe",
         edits: [
-            (path: "plugin/tests/plugin-store-format-parity.py",
-             old: "src = (ROOT / \"Sources/AkashicStoreIO/StoreVersion.swift\").read_text(encoding=\"utf8\")\n",
-             new: "src = (ROOT / \"Sources/AkashicStoreIO/StoreVersion.swift\").read_text(encoding=\"utf8\")\n"
-                + "_q = REGISTRY.exists(\"plugin/tests/gone-r3-bare-exists.py\")\n"),
+            (path: "Sources/akashic-guards/PluginStoreFormatParity.swift",
+             old: "    let src = rawFile(\"Sources/AkashicStoreIO/StoreVersion.swift\")\n",
+             new: "    let src = rawFile(\"Sources/AkashicStoreIO/StoreVersion.swift\")\n"
+                + "    let _q = registry.exists(\"plugin/tests/gone-r3-bare-exists.py\")\n"),
         ], expect: "引用了 `plugin/tests/gone-r3-bare-exists.py`，而**那個檔不存在**"),
     // **#521 R3 的負控（二）：跨行 absence probe 的豁免不得被縮排推出窗外。**
     // 訊息與註解都承諾「去掉空白後緊鄰即豁免」，而 R2 的窗是在**剝空白之前**取 40 個
@@ -63,12 +73,12 @@ let triggerCoverageMutationCases: [TCMCase] = [
     // 這一格就以「另有 1 條無關缺口」失敗。50 是刻意選的：> 40（舊窗）且 < 400（新窗）。
     TCMCase(isWarn: false, desc: "縮排 50 格的跨行 absence probe 仍須豁免",
         edits: [
-            (path: "plugin/tests/plugin-store-format-parity.py",
-             old: "src = (ROOT / \"Sources/AkashicStoreIO/StoreVersion.swift\").read_text(encoding=\"utf8\")\n",
-             new: "src = (ROOT / \"Sources/AkashicStoreIO/StoreVersion.swift\").read_text(encoding=\"utf8\")\n"
-                + "_ok = os.path.exists(\n" + String(repeating: " ", count: 50)
+            (path: "Sources/akashic-guards/PluginStoreFormatParity.swift",
+             old: "    let src = rawFile(\"Sources/AkashicStoreIO/StoreVersion.swift\")\n",
+             new: "    let src = rawFile(\"Sources/AkashicStoreIO/StoreVersion.swift\")\n"
+                + "    let _ok = fileExists(\n" + String(repeating: " ", count: 50)
                 + "\"plugin/tests/deliberately-absent-r3-probe.py\"\n)\n"
-                + "_gone = (ROOT / \"plugin/tests/gone-across-lines-r3.py\").read_text()\n"),
+                + "    let _gone = rawFile(\"plugin/tests/gone-across-lines-r3.py\")\n"),
         ], expect: "引用了 `plugin/tests/gone-across-lines-r3.py`，而**那個檔不存在**"),
     // **#521 R2 的負控：豁免不得溢出到同行的其他字面。**
     // R2 verify（Codex 跨模型席）在第一版的豁免上找到一個我自己引入的 false negative：
@@ -79,9 +89,9 @@ let triggerCoverageMutationCases: [TCMCase] = [
     // absence probe。正確行為是恰好一條缺口（讀取那個），probe 那個不算。
     TCMCase(isWarn: false, desc: "同行的無關 absence probe 不得消音真正的死引用",
         edits: [
-            (path: "plugin/tests/plugin-store-format-parity.py",
-             old: "src = (ROOT / \"Sources/AkashicStoreIO/StoreVersion.swift\").read_text(encoding=\"utf8\")\n",
-             new: "src = (ROOT / \"Sources/AkashicStoreIO/StoreVersion.swift\").read_text(encoding=\"utf8\")\n_d = (ROOT / \"plugin/tests/gone-by-433.py\").read_text(); _o = os.path.exists(\"plugin/.claude-plugin/plugin.json\")\n"),
+            (path: "Sources/akashic-guards/PluginStoreFormatParity.swift",
+             old: "    let src = rawFile(\"Sources/AkashicStoreIO/StoreVersion.swift\")\n",
+             new: "    let src = rawFile(\"Sources/AkashicStoreIO/StoreVersion.swift\")\n    let _d = rawFile(\"plugin/tests/gone-by-433.py\"); let _o = os.path.exists(\"plugin/.claude-plugin/plugin.json\")\n"),
         ], expect: "引用了 `plugin/tests/gone-by-433.py`，而**那個檔不存在**"),
     // **#521 的負控**：讓一支守衛引用一個**不存在**的檔。這是 #518 那個 case 的鏡像
     // ——那個驗「存在但未受保護」，這個驗「根本不存在」。兩者共用同一個出口。
@@ -99,11 +109,11 @@ let triggerCoverageMutationCases: [TCMCase] = [
     // probe 會多出一條缺口，這一格就會以「另有 N 條無關缺口」失敗。
     TCMCase(isWarn: false, desc: "守衛讀取一個不存在的來源（同一格驗 absence probe 豁免）",
         edits: [
-            (path: "plugin/tests/plugin-store-format-parity.py",
-             old: "src = (ROOT / \"Sources/AkashicStoreIO/StoreVersion.swift\").read_text(encoding=\"utf8\")\n",
-             new: "src = (ROOT / \"Sources/AkashicStoreIO/StoreVersion.swift\").read_text(encoding=\"utf8\")\n"
-                + "_gone = (ROOT / \"plugin/tests/this-file-was-deleted-by-433.py\").read_text()\n"
-                + "_ok = (ROOT / \"plugin/tests/deliberately-absent-probe.py\").exists()\n"),
+            (path: "Sources/akashic-guards/PluginStoreFormatParity.swift",
+             old: "    let src = rawFile(\"Sources/AkashicStoreIO/StoreVersion.swift\")\n",
+             new: "    let src = rawFile(\"Sources/AkashicStoreIO/StoreVersion.swift\")\n"
+                + "    let _gone = rawFile(\"plugin/tests/this-file-was-deleted-by-433.py\")\n"
+                + "    let _ok = (ROOT / \"plugin/tests/deliberately-absent-probe.py\").exists()\n"),
         ], expect: "引用了 `plugin/tests/this-file-was-deleted-by-433.py`，而**那個檔不存在**"),
     // **#518 的負控**：讓一支守衛開始引用一個存在、但不在受保護集合裡的檔。
     // 這正是 #516 的形狀——守衛進了人口、它讀的檔沒進，而報表照印「無缺口」。
@@ -111,14 +121,19 @@ let triggerCoverageMutationCases: [TCMCase] = [
     // （`main.swift` 沒有對應的 `case`），所以它永遠不會因為別的原因進 `PROTECTED`。
     TCMCase(isWarn: false, desc: "讓守衛引用一個未受保護的檔",
         edits: [
-            (path: "plugin/tests/plugin-store-format-parity.py",
-             old: "src = (ROOT / \"Sources/AkashicStoreIO/StoreVersion.swift\").read_text(encoding=\"utf8\")\n",
-             new: "src = (ROOT / \"Sources/AkashicStoreIO/StoreVersion.swift\").read_text(encoding=\"utf8\")\n_probe = ROOT / \"Sources/akashic-guards/ShellLex.swift\"\n"),
+            (path: "Sources/akashic-guards/PluginStoreFormatParity.swift",
+             old: "    let src = rawFile(\"Sources/AkashicStoreIO/StoreVersion.swift\")\n",
+             new: "    let src = rawFile(\"Sources/AkashicStoreIO/StoreVersion.swift\")\n    let _probe = rawFile(\"Sources/akashic-guards/ShellLex.swift\")\n"),
         ], expect: "讀 `Sources/akashic-guards/ShellLex.swift`"),
+    // **#629：這兩格的預期文字放寬成「守衛名 ＋ 不在」。** 原本的守衛（`store-marker-parity.sh`）除了 `run-guards.sh` 之外，
+    // 還被 workflow 的一個獨立 step 直接執行，所以從 run-guards 拿掉它只會少一條 pre-push 的缺口。現在所有守衛都**只**經
+    // `run-guards.sh` 執行（pre-push 與 CI 共用），拿掉那一行等於兩邊都不跑：除了「不在 pre-push 裡」，它讀的每個受保護檔
+    // 都多一條「改 X 時它不在任何 CI workflow 跑」——它們是**同一個注入的後果**，不是無關缺口，且每一條都以守衛名開頭
+    // 說「不在」。所以第三段判準（不得有無關缺口）以「守衛名 ＋ 不在」為共同前綴。
     TCMCase(isWarn: false, desc: "從守衛清單拿掉一支守衛",
         edits: [
-            (path: ".githooks/run-guards.sh", old: "bash plugin/skills/akashic-promote-literals/scripts/tests/store-marker-parity.sh\n", new: ""),
-        ], expect: "store-marker-parity.sh 不在 pre-push 裡"),
+            (path: ".githooks/run-guards.sh", old: ".build/debug/akashic-guards plugin-store-format-parity\n", new: ""),
+        ], expect: "PluginStoreFormatParity.swift 不在"),
     TCMCase(isWarn: false, desc: "從 workflow 的 paths 拿掉一個受保護檔",
         edits: [
             (path: ".github/workflows/census-parity.yml", old: "      - \"plugin/**\"\n", new: ""),
@@ -129,8 +144,8 @@ let triggerCoverageMutationCases: [TCMCase] = [
         ], expect: "不在任何 CI workflow 跑"),
     TCMCase(isWarn: false, desc: "把守衛清單裡的一支換成只提到它的註解",
         edits: [
-            (path: ".githooks/run-guards.sh", old: "bash plugin/skills/akashic-promote-literals/scripts/tests/store-marker-parity.sh\n", new: "# TODO: 之後再接 plugin/skills/akashic-promote-literals/scripts/tests/store-marker-parity.sh\n"),
-        ], expect: "store-marker-parity.sh 不在 pre-push 裡"),
+            (path: ".githooks/run-guards.sh", old: ".build/debug/akashic-guards plugin-store-format-parity\n", new: "# TODO: 之後再接 .build/debug/akashic-guards plugin-store-format-parity\n"),
+        ], expect: "PluginStoreFormatParity.swift 不在"),
     TCMCase(isWarn: false, desc: "把 workflow 的一個 run: 換成只印檔名的 echo",
         edits: [
             (path: ".github/workflows/census-parity.yml", old: "run: bash .githooks/run-guards.sh", new: "run: echo \"見 .githooks/run-guards.sh 的說明\""),
@@ -141,15 +156,15 @@ let triggerCoverageMutationCases: [TCMCase] = [
         ], expect: "不在任何 CI workflow 跑"),
     TCMCase(isWarn: false, desc: "把守衛掛到 `||` 之後（語意判不出，守衛須說明而非斷言）",
         edits: [
-            (path: ".github/workflows/census-parity.yml", old: "run: bash .githooks/run-guards.sh", new: "run: test -f /nonexistent || bash plugin/tests/rule-coverage.sh"),
+            (path: ".github/workflows/census-parity.yml", old: "run: bash .githooks/run-guards.sh", new: "run: test -f /nonexistent || bash .githooks/run-guards.sh"),
         ], expect: "不在任何 CI workflow 跑"),
     TCMCase(isWarn: true, desc: "守衛用純 glob 讀宣告的目錄、從不寫目錄名（宣告為真，不得誤殺）",
         edits: [
-            (path: "plugin/tests/review-claim-audit.sh", old: "#!/bin/bash", new: "#!/bin/bash\n# trigger-coverage: reads plugin/rules/*.md\nfor f in \"$(dirname \"$0\")\"/../*/*.md; do :; done"),
+            (path: "Sources/akashic-guards/PluginStoreFormatParity.swift", old: "import Foundation", new: "import Foundation\n// trigger-coverage: reads plugin/rules/*.md\nfor f in glob(\"../*/*.md\") { _ = f }"),
         ], expect: "一次都沒出現過"),
     TCMCase(isWarn: true, desc: "編造宣告 + 一句含該目錄名的散文（有提到但非路徑脈絡）",
         edits: [
-            (path: "plugin/tests/review-claim-audit.sh", old: "#!/bin/bash", new: "#!/bin/bash\n# trigger-coverage: reads Sources/AkashicCore/*.swift\n# 註：本檔不碰 AkashicCore，只重建審查者的失敗情境。"),
+            (path: "Sources/akashic-guards/PluginStoreFormatParity.swift", old: "import Foundation", new: "import Foundation\n# trigger-coverage: reads Sources/AkashicCore/*.swift\n# 註：本檔不碰 AkashicCore，只重建審查者的失敗情境。"),
         ], expect: "有出現但不在路徑脈絡裡"),
     TCMCase(isWarn: false, desc: "把 run: 換成 `cat <守衛> | bash`（直譯器從 stdin 讀）",
         edits: [
@@ -157,39 +172,39 @@ let triggerCoverageMutationCases: [TCMCase] = [
         ], expect: "不在任何 CI workflow 跑"),
     TCMCase(isWarn: true, desc: "宣告指向守衛自己所在的目錄（可能多餘、也可能必要）",
         edits: [
-            (path: "plugin/tests/review-claim-audit.sh", old: "#!/bin/bash", new: "#!/bin/bash\n# trigger-coverage: reads plugin/tests/*.sh"),
+            (path: "Sources/akashic-guards/PluginStoreFormatParity.swift", old: "import Foundation", new: "import Foundation\n// trigger-coverage: reads Sources/akashic-guards/*.swift"),
         ], expect: "那正是它自己所在的目錄"),
     TCMCase(isWarn: false, desc: "啞宣告①：少了註解標記",
         edits: [
-            (path: "plugin/tests/review-claim-audit.sh", old: "#!/bin/bash", new: "#!/bin/bash\ntrigger-coverage: reads plugin/rules/*.md"),
+            (path: "Sources/akashic-guards/PluginStoreFormatParity.swift", old: "import Foundation", new: "import Foundation\ntrigger-coverage: reads plugin/rules/*.md"),
         ], expect: "這一行是啞的"),
     TCMCase(isWarn: false, desc: "啞宣告②：行尾多一句註記（DECLARE 要求行尾就結束）",
         edits: [
-            (path: "plugin/tests/review-claim-audit.sh", old: "#!/bin/bash", new: "#!/bin/bash\n# trigger-coverage: reads plugin/rules/*.md  # 新增"),
+            (path: "Sources/akashic-guards/PluginStoreFormatParity.swift", old: "import Foundation", new: "import Foundation\n// trigger-coverage: reads plugin/rules/*.md  // 新增"),
         ], expect: "這一行是啞的"),
     TCMCase(isWarn: false, desc: "啞宣告③：沒給 glob",
         edits: [
-            (path: "plugin/tests/review-claim-audit.sh", old: "#!/bin/bash", new: "#!/bin/bash\n# trigger-coverage: reads"),
+            (path: "Sources/akashic-guards/PluginStoreFormatParity.swift", old: "import Foundation", new: "import Foundation\n# trigger-coverage: reads"),
         ], expect: "這一行是啞的"),
     TCMCase(isWarn: false, desc: "啞宣告⑤：Swift 的 `///` doc comment",
         edits: [
-            (path: "plugin/tests/review-claim-audit.sh", old: "#!/bin/bash", new: "#!/bin/bash\n/// trigger-coverage: reads plugin/rules/*.md"),
+            (path: "Sources/akashic-guards/PluginStoreFormatParity.swift", old: "import Foundation", new: "import Foundation\n/// trigger-coverage: reads plugin/rules/*.md"),
         ], expect: "這一行是啞的"),
     TCMCase(isWarn: false, desc: "啞宣告⑥：shell 的段標 `##`",
         edits: [
-            (path: "plugin/tests/review-claim-audit.sh", old: "#!/bin/bash", new: "#!/bin/bash\n## trigger-coverage: reads plugin/rules/*.md"),
+            (path: "Sources/akashic-guards/PluginStoreFormatParity.swift", old: "import Foundation", new: "import Foundation\n## trigger-coverage: reads plugin/rules/*.md"),
         ], expect: "這一行是啞的"),
     TCMCase(isWarn: false, desc: "啞宣告④：關鍵字打成 read",
         edits: [
-            (path: "plugin/tests/review-claim-audit.sh", old: "#!/bin/bash", new: "#!/bin/bash\n# trigger-coverage: read plugin/rules/*.md"),
+            (path: "Sources/akashic-guards/PluginStoreFormatParity.swift", old: "import Foundation", new: "import Foundation\n// trigger-coverage: read plugin/rules/*.md"),
         ], expect: "這一行是啞的"),
     TCMCase(isWarn: true, desc: "編造宣告 + 巧合子串（`rulesets` 含 `rules`，非路徑脈絡）",
         edits: [
-            (path: "plugin/tests/review-claim-audit.sh", old: "#!/bin/bash", new: "#!/bin/bash\n# trigger-coverage: reads plugin/rules/*.md\n# 說明：本檔不處理 rulesets，只重建審查者的失敗情境。"),
+            (path: "Sources/akashic-guards/PluginStoreFormatParity.swift", old: "import Foundation", new: "import Foundation\n# trigger-coverage: reads plugin/rules/*.md\n# 說明：本檔不處理 rulesets，只重建審查者的失敗情境。"),
         ], expect: "有出現但不在路徑脈絡裡"),
     TCMCase(isWarn: true, desc: "宣告用中間萬用字元（`Sources/*/*.swift`）——痕跡走回 `Sources`",
         edits: [
-            (path: "plugin/tests/rule-coverage.sh", old: "# trigger-coverage: reads plugin/rules/*.md", new: "# trigger-coverage: reads Sources/*/*.swift"),
+            (path: "Sources/akashic-guards/RuleCoverage.swift", old: "// trigger-coverage: reads plugin/rules/*.md", new: "// trigger-coverage: reads Sources/*/*.swift"),
         ], expect: "一次都沒出現過"),
     TCMCase(isWarn: false, desc: "把某個守衛改成 block scalar 形式呼叫（續行要讀得到）",
         edits: [
@@ -205,11 +220,11 @@ let triggerCoverageMutationCases: [TCMCase] = [
         ], expect: "不在任何 CI workflow 跑"),
     TCMCase(isWarn: false, desc: "把 run: 換成 shellcheck（靜態檢查，不執行守衛）",
         edits: [
-            (path: ".github/workflows/census-parity.yml", old: "run: bash .githooks/run-guards.sh", new: "run: shellcheck plugin/tests/rule-coverage.sh"),
+            (path: ".github/workflows/census-parity.yml", old: "run: bash .githooks/run-guards.sh", new: "run: shellcheck .githooks/run-guards.sh"),
         ], expect: "不在任何 CI workflow 跑"),
     TCMCase(isWarn: false, desc: "把 run: 改成管線形式（`cat x | bash <守衛>` 後半換成 echo）",
         edits: [
-            (path: ".github/workflows/census-parity.yml", old: "run: bash .githooks/run-guards.sh", new: "run: cat /dev/null | echo \"見 plugin/tests/rule-coverage.sh\""),
+            (path: ".github/workflows/census-parity.yml", old: "run: bash .githooks/run-guards.sh", new: "run: cat /dev/null | echo \"見 .githooks/run-guards.sh\""),
         ], expect: "不在任何 CI workflow 跑"),
     TCMCase(isWarn: false, desc: "把 run: 換成印出 ./ 形式檔名的 echo（R20 修法的殘留半邊）",
         edits: [
@@ -217,22 +232,22 @@ let triggerCoverageMutationCases: [TCMCase] = [
         ], expect: "不在任何 CI workflow 跑"),
     TCMCase(isWarn: false, desc: "把 run 改成 `bash setup.sh && bash <守衛>` 再把後半換成 echo",
         edits: [
-            (path: ".github/workflows/census-parity.yml", old: "run: bash .githooks/run-guards.sh", new: "run: bash scripts/setup.sh && echo \"見 plugin/tests/rule-coverage.sh\""),
+            (path: ".github/workflows/census-parity.yml", old: "run: bash .githooks/run-guards.sh", new: "run: bash scripts/setup.sh && echo \"見 .githooks/run-guards.sh\""),
         ], expect: "不在任何 CI workflow 跑"),
     TCMCase(isWarn: false, desc: "在真宣告旁邊多寫一行教學範例（DA 指名的類別）",
         edits: [
-            (path: "plugin/tests/rule-coverage.sh", old: "# trigger-coverage: reads plugin/rules/*.md", new: "# trigger-coverage: reads plugin/rules/*.md\n# trigger-coverage: reads plugin/rules/*.md"),
+            (path: "Sources/akashic-guards/RuleCoverage.swift", old: "// trigger-coverage: reads plugin/rules/*.md", new: "// trigger-coverage: reads plugin/rules/*.md\n// trigger-coverage: reads plugin/rules/*.md"),
         ], expect: "重複的宣告樣式"),
     TCMCase(isWarn: true, desc: "給一個不讀 rules/ 的守衛加一條格式正確的誤宣告",
         edits: [
-            (path: "plugin/tests/review-claim-audit.sh", old: "#!/bin/bash", new: "#!/bin/bash\n# trigger-coverage: reads plugin/rules/*.md"),
+            (path: "Sources/akashic-guards/PluginStoreFormatParity.swift", old: "import Foundation", new: "import Foundation\n// trigger-coverage: reads plugin/rules/*.md"),
         ], expect: "一次都沒出現過"),
     TCMCase(isWarn: false, desc: "把宣告改成 `reads *.sh`（比例判準會放過，結構判準擋下）",
         edits: [
-            (path: "plugin/tests/rule-coverage.sh", old: "# trigger-coverage: reads plugin/rules/*.md", new: "# trigger-coverage: reads *.sh"),
+            (path: "Sources/akashic-guards/RuleCoverage.swift", old: "// trigger-coverage: reads plugin/rules/*.md", new: "// trigger-coverage: reads *.sh"),
         ], expect: "第一段是萬用字元"),
     TCMCase(isWarn: false, desc: "把宣告改成 `reads */*.sh`（含斜線但第一段是萬用字元）",
         edits: [
-            (path: "plugin/tests/rule-coverage.sh", old: "# trigger-coverage: reads plugin/rules/*.md", new: "# trigger-coverage: reads */*.sh"),
+            (path: "Sources/akashic-guards/RuleCoverage.swift", old: "// trigger-coverage: reads plugin/rules/*.md", new: "// trigger-coverage: reads */*.sh"),
         ], expect: "第一段是萬用字元"),
 ]

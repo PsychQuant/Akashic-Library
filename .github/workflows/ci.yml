@@ -22,12 +22,10 @@ name: CI
 # 已有五支守衛。現在留著它的理由純粹是計費：一次改 skill 散文不該點一台 10×
 # 的 macOS runner。守衛當時由 .github/workflows/plugin-guards.yml（ubuntu，1×）涵蓋
 # 純 python／bash 的三支——那個 workflow 已於 40977531 刪除（#435），現在全部守衛由
-# .github/workflows/census-parity.yml 的「全部守衛」step 跑（#626）；parity 那兩支同樣由 census-parity.yml
-# 涵蓋——**不是**由本檔下方那個 step。理由：本檔的觸發是 push-to-main ＋ 這份
-# paths-ignore，所以一個只改 census 的變更會讓整個 job 被跳過，而 census 正是
-# parity 的受測對象（#407 R7 verify 量到：守衛的觸發條件與它保護的檔案剛好
-# 互斥）。下方那個 step 保留為第二層——一次 push 同時含 Swift 與 plugin 變更時
-# 它會跑到。
+# .github/workflows/census-parity.yml 的「全部守衛」step 跑（#626）。（#629 前，census 的 parity 兩支也由
+# census-parity.yml 涵蓋而**不是**本檔下方那個 step：本檔的觸發是 push-to-main ＋ 這份 paths-ignore，
+# 所以一個只改 census 的變更會讓整個 job 被跳過，而 census 正是 parity 的受測對象——#407 R7 verify 量到守衛的
+# 觸發條件與它保護的檔案剛好互斥。parity 已隨 census 移植成 Swift 退場，這段只保留「為什麼守衛不在本檔」的理由。）
 # 本機 pre-push 全套仍是每次 push 的主閘，此處只省 CI 面。
 on:
   push:
@@ -95,22 +93,9 @@ jobs:
           set -o pipefail
           swift test -Xswiftc -warnings-as-errors 2>&1 | tee /tmp/test.log
 
-      # **Plugin parity 守衛**（#407）。放這個 job 而不是當時的 plugin-guards.yml（已刪，40977531），
-      # 因為它們拿**建好的 CLI** 當 oracle——比對 census 的 store-marker 解析
-      # 與 StoreVersion.read 對同一批 fixture 的裁決是否一致。ubuntu 上沒有
-      # binary 可以問，所以只能在這裡。
-      #
-      # 第二支是第一支的 negative control：證明那張 fixture 矩陣真的會紅。
-      # 它 mutate 的是複製到 tempdir 的 census，**不碰出貨檔**。
-      - name: Plugin parity 守衛
-        run: |
-          bash plugin/skills/akashic-promote-literals/scripts/tests/store-marker-parity.sh
-          # #521：原本是 `python3 …/marker-parity-mutations.py`，而該檔在 `989ac64`
-          # （#433 Step 5「Python 歸零」）刪除。`bash -e` 下這一行失敗會讓整個 step 掛掉，
-          # 而它後面還有四步——測試數下限／Tractatus／**AkashicApp（`swift test` 涵蓋不到
-          # 的那塊，#101 的立案理由）**／端對端 load.sql——CI 恢復後全部到不了。
-          # 這台是 macos-15 且第 4 步已經 `swift build`，所以直接用 Swift 子命令。
-          .build/debug/akashic-guards marker-parity-mutations
+      # （#629：這裡原本有「Plugin parity 守衛」step——`store-marker-parity.sh` 加它的 negative control `marker-parity-mutations`。
+      #  census 改成 `akashic literal-census`、marker 直接呼叫 `StoreVersion.read` 之後，「census 與讀端的 marker 解析是否分岔」
+      #  結構上不成立，兩者一併移除；fixture 矩陣留成 `StoreMarkerMatrixTests`，由上面的 `swift test` 跑。）
 
       # 測試「跑到一半崩掉」由 exit code 擋（fatal error 會讓程序非零退出）。
       # 這一步擋的是**另一種**失敗：測試靜默地不再被執行——整個 suite 沒編進

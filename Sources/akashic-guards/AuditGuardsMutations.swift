@@ -3,36 +3,19 @@
 // **判準三段**：(1) rc≠0、(2) 訊息指名了它、(3) `ROBUST` 那一組反過來——注入純重排時
 // **維持綠且輸出與未注入逐字相同**。
 //
-// **52 個 case 的字串在 `AuditGuardsMutationsData.swift`，機械抽出不手抄**（#433）。
+// **case 的字串在 `AuditGuardsMutationsData.swift`，機械抽出不手抄**（#433）。
+//
+// **#629：`rule-coverage` 與 `plugin-store-format-parity` 移植成子命令後，它們的 case 改以 `akashic-guards <子命令>` 為受測對象**
+// （與其餘 Swift 守衛同一條路：在 copy 的 cwd 裡跑編譯好的 binary）；`hash-table-drift`、`multiscalar-parity`、
+// `review-claim-audit`、`literal-scalar-parity` 隨 census 移植成 Swift 而退場，它們的 case 一併移除。
 //
 // trigger-coverage: reads plugin/rules/*.md
 
 import Foundation
 
-// ── 八個特殊 edit（資料化不了的那些）────────────────────────────────────
-// 其餘 44 個是 `replace`、2 個是 `delete`，都在資料檔裡。
-
-/// 第一個非註解非空行：把首 token 的末字元換成 `F`（尾隨空白改不了語意，所以不用它）。
-private func perturbTable(_ t: String) -> String {
-    var lines = t.components(separatedBy: "\n")
-    for (i, l) in lines.enumerated() {
-        let s = l.trimmingCharacters(in: .whitespaces)
-        if s.isEmpty || l.drop(while: { $0 == " " || $0 == "\t" }).hasPrefix("#") { continue }
-        guard let first = l.split(separator: " ", omittingEmptySubsequences: true).first else { break }
-        let repl = String(first.dropLast()) + "F"
-        if let r = l.range(of: String(first)) { lines[i] = l.replacingCharacters(in: r, with: repl) }
-        break
-    }
-    return lines.joined(separator: "\n")
-}
-
-/// 第一個 `0x` 起算 6 個字元換成 `0xFFFE`。
-private func perturbRanges(_ t: String) -> String {
-    guard let r = t.range(of: "0x") else { return t }
-    let start = t.distance(from: t.startIndex, to: r.lowerBound)
-    let end = t.index(t.startIndex, offsetBy: min(start + 6, t.count))
-    return String(t[t.startIndex..<r.lowerBound]) + "0xFFFE" + String(t[end...])
-}
+// ── 特殊 edit（資料化不了的那些）────────────────────────────────────
+// 其餘是 `replace` 與 `delete`，都在資料檔裡。（#629：`perturbTable`／`perturbRanges`／`prependAsciiRange` 三個
+// 服務 `hash-table-drift` 的 edit 隨它一起退場。）
 
 /// **刻意不寫死列數**（#414）：先前三個 case 各自寫死 `現有 6 列` 當字面錨，而那是規則檔
 /// 那個數字的**第二份副本**——規則檔加一列（6 → 7）時三個 case 同時失效，且失效的方式是
@@ -70,9 +53,6 @@ private func applyEdit(_ e: AGMEdit, _ text: String) -> String? {
     case "replaceFirst":
         guard let r = text.range(of: e.a) else { return text }
         return text.replacingCharacters(in: r, with: e.b)
-    case "perturbTable":         return perturbTable(text)
-    case "perturbRanges":        return perturbRanges(text)
-    case "prependAsciiRange":    return "41 41\n" + text  // display-safe-exempt: text：這是 edit 的回傳值（寫進 temp copy 的檔案），不是使用者可見輸出
     case "removeTableSeparator":
         return text.replacingOccurrences(of: #"(?m)^\|[-\s|:]+\|\s*$"#,
                                          with: "（表分隔線已移除）", options: .regularExpression)
@@ -122,6 +102,10 @@ func auditGuardsMutations() -> Int32 {
         // **CLAUDE.md 是檔案不是目錄**，不在上面那個迴圈裡（#407 R67g）——少了它，針對
         // `measured-numbers-audit` 的注入會以「檔案不存在」失敗，那是與注入無關的紅。
         try? fm.copyItem(atPath: "\(repoRoot)/CLAUDE.md", toPath: tmp + "/CLAUDE.md")
+        // **巢狀的單檔**：`mcpb/` 整個子樹裝著 `.mcpb` bundle 與大型 binary（不能整個複製），而
+        // `plugin-store-format-parity` 只讀它的 manifest（#629）。
+        try? fm.createDirectory(atPath: tmp + "/mcpb", withIntermediateDirectories: true)
+        try? fm.copyItem(atPath: "\(repoRoot)/mcpb/manifest.json", toPath: tmp + "/mcpb/manifest.json")
 
         // **同一個 path 的多個 edit 依序套用，套完才檢查「有沒有改到東西」。**
         //
@@ -263,26 +247,20 @@ func auditGuardsMutations() -> Int32 {
     }
 
     let before = mtimes()
-    let hasSwift = exec(["/usr/bin/which", "swift"], cwd: repoRoot).0 == 0
     if !fm.isExecutableFile(atPath: BIN) {
         print("ℹ \(BIN) 不存在——`MIGRATED` 的 \(agmMigrated.count) 支只驗 Python 版，"
             + "實際在 run-guards.sh 跑的 Swift 版**在這台機器上沒有負控**。"
             + "先跑 `swift build --product akashic-guards`。")
     }
-    let COVERAGE = "plugin/tests/rule-coverage.sh"
-    let DRIFT = "plugin/skills/akashic-promote-literals/scripts/tests/hash-table-drift.sh"
-    for rel in [COVERAGE] + (hasSwift ? [DRIFT] : []) {
-        let r = exec(["/bin/bash", "\(repoRoot)/\(rel)"], cwd: repoRoot)
-        if r.0 != 0 { print("✗ baseline 就紅了：\(rel)\n\(r.1)"); return 1 }
-    }
+    // （#629：這裡原本先直接跑 `rule-coverage.sh` 與 `hash-table-drift.sh` 兩支腳本驗 baseline。兩者現在不是腳本了——
+    //  rule-coverage 是 `akashic-guards` 子命令、已在下面逐守衛的 baseline 迴圈裡；hash-table-drift 隨 census 退場。）
     // **每一支被當成受測對象的守衛都要驗 baseline**（#407 R67j）：上一版只驗這兩支，於是
     // 其餘守衛若在注入**之前**就已經紅，它們的控制組會平白通過——控制組宣稱「注入造成了
     // 紅」，而紅早就在那裡。
     // **`AKASHIC_SKIP_CASES`**：只跑 ROBUST（對應 Python 版的 `mod.CASES = []`）——
     // oracle 要驗的是 ROBUST oracle 的降級，跑 45 個 CASES 只是浪費。
     let cases = ProcessInfo.processInfo.environment["AKASHIC_SKIP_CASES"] != nil ? [] : agmCases
-    var tested = Array(Set((cases + agmRobust).map { $0.guardRel })).sorted()
-    if !hasSwift { tested = tested.filter { !$0.hasSuffix(".swift") && $0 != DRIFT } }
+    let tested = Array(Set((cases + agmRobust).map { $0.guardRel })).sorted()
     var dirty: [(String, String)] = []
     for rel in tested {
         abort = nil
@@ -300,14 +278,10 @@ func auditGuardsMutations() -> Int32 {
     print("baseline：\(tested.count) 支皆綠 ✓（\(cases.count) 個 mutation 待跑）\n")
     sourceInjected.removeAll()      // baseline 階段的計數不算——那裡 edits 是空的
 
-    // **缺 swift 時大聲跳過，不假裝乾淨**（#407 R42）：`lossless-intake` 的「靜默是最糟的形式」。
-    var skipped: [String] = []
-    if !hasSwift {
-        skipped = cases.filter { $0.guardRel.hasSuffix(".swift") || $0.guardRel == DRIFT }.map { $0.desc }
-        print("⚠ 此環境沒有 swift——跳過 \(skipped.count) 個需要 Swift toolchain 的 case：")
-        for n in skipped { print("    · \(n)") }
-        print("  （其餘 case 照跑。「跳過」不等於「檢查過且乾淨」。）\n")
-    }
+    // （#629：先前這裡有「缺 swift 時大聲跳過需要 Swift toolchain 的 case」——那些 case 是直譯 `.swift` 腳本的
+    //  `multiscalar-parity` 與 `hash-table-drift`，兩者都已退場；現在所有受測守衛都是編譯好的 `akashic-guards` 子命令，
+    //  不需要 toolchain 就能跑，這道分支沒有東西可跳過。）
+    let skipped: [String] = []
 
     let pairedFlat = Set(agmPairedIdentical.flatMap { $0 })
     var ok = 0

@@ -38,6 +38,6 @@
 
 ## 注入到消費端
 
-**plugin 副本尚未落地（2026-09-29）**：本規則要同時放 `plugin/rules/upstream-first-bibliographic-updates.md`（隨 `akashic-mcp` plugin 安裝到消費端 repo，由 skill 以相對路徑引用——見 `CLAUDE.md`〈plugin 另有自己的規則目錄〉段；副本頂部寫清楚它是同步副本，`che-apple-mail-mcp` 的 `compose-wrapper-free.md` 是既有先例）。那一半卡在 `plugin/tests/rule-coverage.sh`：`plugins/akashic-discovery/rules` 是指向 `plugin/rules` 的 symlink，所以 `plugins/akashic-discovery/skills/akashic-work-references/SKILL.md` 也得引用這條規則，而那個檔由 #617 的工作線持有。等使用者確認可以在那個檔加一行引用，plugin 副本與各 skill 的引用一起落地（#599）。在那之前，本檔只約束在本 repo 工作的人與模型。
+**plugin 副本尚未落地（2026-09-29）**：本規則要同時放 `plugin/rules/upstream-first-bibliographic-updates.md`（隨 `akashic-mcp` plugin 安裝到消費端 repo，由 skill 以相對路徑引用——見 `CLAUDE.md`〈plugin 另有自己的規則目錄〉段；副本頂部寫清楚它是同步副本，`che-apple-mail-mcp` 的 `compose-wrapper-free.md` 是既有先例）。那一半卡在 `akashic-guards rule-coverage`（#629 前是 `plugin/tests/rule-coverage.sh`，判定不變）：`plugins/akashic-discovery/rules` 是指向 `plugin/rules` 的 symlink，所以 `plugins/akashic-discovery/skills/akashic-work-references/SKILL.md` 也得引用這條規則，而那個檔由 #617 的工作線持有。等使用者確認可以在那個檔加一行引用，plugin 副本與各 skill 的引用一起落地（#599）。在那之前，本檔只約束在本 repo 工作的人與模型。
 
 **全域鏡像（`che-claude-config` 的 `common-mail-compose.md` 對 mail MCP 的既有模式，本檔尚未做）**：那份鏡像住在使用者的 `~/Developer/che-claude-config/rules/`，是另一個 repo，本次變更的 worktree 沒有它的存取範圍。這是本規則落地時明確留下的缺口，不是遺漏——記在這裡，下次有 `che-claude-config` 存取範圍的變更要把它補上，並讓三份互相指向（比照 `common-mail-compose.md` 開頭「這是全域鏡像——那份規則只在該 repo 內載入」的寫法）。

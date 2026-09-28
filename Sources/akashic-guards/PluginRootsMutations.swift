@@ -138,7 +138,7 @@ func pluginRootsMutations() -> Int32 {
                                 "\"./plugins/akashic-discovery-missing\"") },
               expect: "akashic-discovery"),
         .init(desc: "discovery 新增一個沒引用任何規則的 skill",
-              guardArgv: ["bash", "plugin/tests/rule-coverage.sh", disc],
+              guardArgv: ["rule-coverage", disc],
               setup: { _ in true },
               mutate: { write($0, disc + "/skills/probe-skill/SKILL" + ".md",
                               "---\nname: probe-skill\ndescription: probe\n---\n\n沒有引用任何規則。\n") },

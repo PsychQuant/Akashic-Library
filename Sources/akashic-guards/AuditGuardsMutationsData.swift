@@ -26,42 +26,36 @@ let agmCases: [AGMCase] = [
     AGMCase(desc: "migrated：runner 多一支沒有負控的守衛", guardRel: "akashic-guards migrated-guard-control", edits: [
         AGMEdit(path: ".githooks/run-guards.sh", kind: "replaceFirst", a: ".build/debug/akashic-guards migrated-guard-control", b: ".build/debug/akashic-guards fake-guard\n.build/debug/akashic-guards migrated-guard-control"),
     ], expect: ["缺負控", "fake-guard"]),
-    AGMCase(desc: "coverage①：連結整個拿掉（沒有任何可解析的相對路徑）", guardRel: "plugin/tests/rule-coverage.sh", edits: [
+    // ── plugin-store-format-parity（#408／#629）：宣告的 store format 必須等於 `StoreVersion.supported` ──
+    // 注入不寫死數字（寫死就是第三份副本）：在 `supported` 前面塞一個 `9`（`21` → `921`）、或在宣告的數字前塞一個 `9`，
+    // 讓兩邊必然不等，而不必知道當下的版號。
+    AGMCase(desc: "psfp：唯一來源 bump 了而兩份宣告沒跟上", guardRel: "akashic-guards plugin-store-format-parity", edits: [
+        AGMEdit(path: "Sources/AkashicStoreIO/StoreVersion.swift", kind: "replaceFirst", a: "public static let supported = ", b: "public static let supported = 9"),
+    ], expect: ["store format 宣告與唯一來源不一致", "plugin/.claude-plugin/plugin.json: 宣告", "mcpb/manifest.json: 宣告"]),
+    AGMCase(desc: "psfp：mcpb 出貨物的宣告被改（Claude Desktop 安裝者看到的那份）", guardRel: "akashic-guards plugin-store-format-parity", edits: [
+        AGMEdit(path: "mcpb/manifest.json", kind: "replaceFirst", a: "Store format ", b: "Store format 9"),
+    ], expect: ["mcpb/manifest.json: 宣告"]),
+    AGMCase(desc: "psfp：plugin.json 的 `Store format N.` 被拿掉（宣告消失不得當成一致）", guardRel: "akashic-guards plugin-store-format-parity", edits: [
+        AGMEdit(path: "plugin/.claude-plugin/plugin.json", kind: "replaceFirst", a: "Store format ", b: "Store fmt "),
+    ], expect: ["找不到 `Store format N.`"]),
+    AGMCase(desc: "psfp：宣告來源檔整個不見（不是「沒有宣告」）", guardRel: "akashic-guards plugin-store-format-parity", edits: [
+        AGMEdit(path: "mcpb/manifest.json", kind: "delete", a: "", b: ""),
+    ], expect: ["mcpb/manifest.json 不存在或讀不到"]),
+    AGMCase(desc: "psfp：marketplace 條目帶了 description（會覆蓋 plugin.json 的第四份副本）", guardRel: "akashic-guards plugin-store-format-parity", edits: [
+        AGMEdit(path: ".claude-plugin/marketplace.json", kind: "replaceFirst", a: "\"source\": \"./plugin\",", b: "\"source\": \"./plugin\",\n      \"description\": \"override\","),
+    ], expect: ["條目帶了 description", "akashic-mcp"]),
+    AGMCase(desc: "psfp：marketplace manifest 不見（前提「marketplace 在本 repo」不成立）", guardRel: "akashic-guards plugin-store-format-parity", edits: [
+        AGMEdit(path: ".claude-plugin/marketplace.json", kind: "delete", a: "", b: ""),
+    ], expect: ["marketplace.json 不存在"]),
+    AGMCase(desc: "coverage①：連結整個拿掉（沒有任何可解析的相對路徑）", guardRel: "akashic-guards rule-coverage", edits: [
         AGMEdit(path: "plugin/skills/akashic-promote-literals/SKILL.md", kind: "replaceAll", a: "../../rules/assertions-must-be-measured.md", b: "見規則目錄"),
     ], expect: ["沒有指向這條規則的可解析相對路徑"]),
-    AGMCase(desc: "coverage②：token 是別的檔名（引用不是這條規則本身）", guardRel: "plugin/tests/rule-coverage.sh", edits: [
+    AGMCase(desc: "coverage②：token 是別的檔名（引用不是這條規則本身）", guardRel: "akashic-guards rule-coverage", edits: [
         AGMEdit(path: "plugin/skills/akashic-promote-literals/SKILL.md", kind: "replaceFirst", a: "../../rules/assertions-must-be-measured.md", b: "../../rules/assertions-must-be-measured-v2.md"),
     ], expect: ["的引用不是這條規則本身"]),
-    AGMCase(desc: "coverage③：basename 相同但目錄錯（`-f` 解析不到——`.md.bak` 教訓的那一格）", guardRel: "plugin/tests/rule-coverage.sh", edits: [
+    AGMCase(desc: "coverage③：basename 相同但目錄錯（`-f` 解析不到——`.md.bak` 教訓的那一格）", guardRel: "akashic-guards rule-coverage", edits: [
         AGMEdit(path: "plugin/skills/akashic-promote-literals/SKILL.md", kind: "replaceFirst", a: "../../rules/assertions-must-be-measured.md", b: "../../rulez/assertions-must-be-measured.md"),
     ], expect: ["的相對路徑解析不到"]),
-    AGMCase(desc: "drift：生成的表被人手改了一段", guardRel: "plugin/skills/akashic-promote-literals/scripts/tests/hash-table-drift.sh", edits: [
-        AGMEdit(path: "plugin/skills/akashic-promote-literals/scripts/hash-merging-ranges.txt", kind: "perturbTable", a: "", b: ""),
-    ], expect: ["inline RANGES 與生成的表不一致"]),
-    AGMCase(desc: "drift：multiscalar 的 inline RANGES 與表脫節", guardRel: "plugin/skills/akashic-promote-literals/scripts/tests/hash-table-drift.sh", edits: [
-        AGMEdit(path: "plugin/skills/akashic-promote-literals/scripts/tests/multiscalar-parity.swift", kind: "perturbRanges", a: "", b: ""),
-    ], expect: ["inline RANGES 與生成的表不一致"]),
-    AGMCase(desc: "drift：表中混進一個 ASCII range（快速路徑的不變式）", guardRel: "plugin/skills/akashic-promote-literals/scripts/tests/hash-table-drift.sh", edits: [
-        AGMEdit(path: "plugin/skills/akashic-promote-literals/scripts/hash-merging-ranges.txt", kind: "prependAsciiRange", a: "", b: ""),
-    ], expect: ["ASCII range"]),
-    AGMCase(desc: "review：把 5000 前導零 fixture 改回會退化的長度", guardRel: "plugin/tests/review-claim-audit.sh", edits: [
-        AGMEdit(path: "plugin/skills/akashic-promote-literals/scripts/tests/store-marker-parity.sh", kind: "replaceAll", a: "printf '%05000d'", b: "printf '%0500d'"),
-    ], expect: ["出貨的 parity 測試已改用新寫法且有長度斷言"]),
-    AGMCase(desc: "review：把生成表從 parity workflow 的 paths 拿掉", guardRel: "plugin/tests/review-claim-audit.sh", edits: [
-        AGMEdit(path: ".github/workflows/census-parity.yml", kind: "replaceAll", a: "      - \"plugin/skills/akashic-promote-literals/scripts/hash-merging-ranges.txt\"\n", b: ""),
-    ], expect: ["生成表現在在 parity workflow 的 paths"]),
-    AGMCase(desc: "review：讓生成器真的去讀 CommandLine.arguments", guardRel: "plugin/tests/review-claim-audit.sh", edits: [
-        AGMEdit(path: "plugin/skills/akashic-promote-literals/scripts/tests/derive-hash-extenders.swift", kind: "replaceFirst", a: "import Foundation", b: "import Foundation\nlet _ = CommandLine.arguments"),
-    ], expect: ["確實從未讀 CommandLine.arguments"]),
-    AGMCase(desc: "review：把宣稱 --check 的那句註解加回去", guardRel: "plugin/tests/review-claim-audit.sh", edits: [
-        AGMEdit(path: "plugin/skills/akashic-promote-literals/scripts/tests/derive-hash-extenders.swift", kind: "replaceFirst", a: "import Foundation", b: "// 用法：derive-hash-extenders.swift --check <生成的表>\nimport Foundation"),
-    ], expect: ["宣稱 --check 的那句註解已移除"]),
-    AGMCase(desc: "multi：模型把 inTable 的判定反過來", guardRel: "plugin/skills/akashic-promote-literals/scripts/tests/multiscalar-parity.swift", edits: [
-        AGMEdit(path: "plugin/skills/akashic-promote-literals/scripts/tests/multiscalar-parity.swift", kind: "replaceFirst", a: "return f < 0x80 ? true : !inTable(f)", b: "return f < 0x80 ? true : inTable(f)"),
-    ], expect: ["分歧數：11"]),
-    AGMCase(desc: "multi：模型改看最後一個 scalar", guardRel: "plugin/skills/akashic-promote-literals/scripts/tests/multiscalar-parity.swift", edits: [
-        AGMEdit(path: "plugin/skills/akashic-promote-literals/scripts/tests/multiscalar-parity.swift", kind: "replaceFirst", a: "guard let f = cps.first else { return true }", b: "guard let f = cps.last else { return true }"),
-    ], expect: ["分歧數：4"]),
     AGMCase(desc: "numbers：把某個數字唯一的行內時間錨拿掉", guardRel: "akashic-guards measured-numbers-audit", edits: [
         AGMEdit(path: ".claude/rules/literal-first-then-key.md", kind: "replaceFirst", a: "（#303 實測：2,123/3,720 邊，57.1%）", b: "（實測：2,123/3,720 邊，57.1%）"),
     ], expect: ["沒有時間錨"]),
@@ -149,9 +143,6 @@ let agmCases: [AGMCase] = [
     AGMCase(desc: "parity：退場的列沒劃掉（孤兒列）", guardRel: "akashic-guards parity-table-drift", edits: [
         AGMEdit(path: ".claude/rules/mcp-cli-parity.md", kind: "replaceFirst", a: "| ~~`migrate-work-types`~~", b: "| `migrate-work-types`"),
     ], expect: ["已不在 CLI.swift"]),
-    AGMCase(desc: "scalar：`_scalar` 的最後一個分支被砍掉（切片可能被截斷）", guardRel: "akashic-guards literal-scalar-parity", edits: [
-        AGMEdit(path: "plugin/skills/akashic-promote-literals/scripts/literal-census.sh", kind: "replaceFirst", a: "        i = s.find(' #')\n        return (s[:i] if i >= 0 else s).strip()\n", b: "        pass\n"),
-    ], expect: ["本體最後一行不是 `return`"]),
     AGMCase(desc: "zi-rows：某一列裁決「寫」而它引用的編號在 Sources 裡不存在", guardRel: "akashic-guards zero-instance-rows-audit", edits: [
         // **改既有列的編號，不再注入新列**（#365 fix，2026-09-02）。前兩版都靠注入一列：
         // 先是插在第 4 列前編號 `5`（列號連續檢查先觸發、蓋掉本 case 的訊息），再改成
@@ -216,9 +207,6 @@ let agmCases: [AGMCase] = [
     AGMCase(desc: "ratchet：Swift 多一個非純量欄位而沒被裁決", guardRel: "akashic-guards backlink-field-ratchet", edits: [
         AGMEdit(path: "Sources/AkashicCore/Models.swift", kind: "replaceFirst", a: "public var authors:", b: "public var brandNewEdge: [VenueRef] = []\n    public var authors:"),
     ], expect: ["brandNewEdge", "新欄位未經裁決"]),
-    AGMCase(desc: "multi：案例表被清空（fixture 蒸發不得靜默通過）", guardRel: "plugin/skills/akashic-promote-literals/scripts/tests/multiscalar-parity.swift", edits: [
-        AGMEdit(path: "plugin/skills/akashic-promote-literals/scripts/tests/multiscalar-parity.swift", kind: "replaceFirst", a: "let cases: [(String, [UInt32])] = [", b: "let cases: [(String, [UInt32])] = []\nlet _unused: [(String, [UInt32])] = ["),
-    ], expect: ["案例只剩"]),
 ]
 
 let agmRobust: [AGMCase] = [
@@ -252,9 +240,6 @@ let agmRobust: [AGMCase] = [
     AGMCase(desc: "Swift 裡多一個不平衡的大括號字串字面（不得讓區段暴走）", guardRel: "akashic-guards parity-table-drift", edits: [
         AGMEdit(path: "Sources/akashic/CreateEntryCommand.swift", kind: "replaceFirst", a: "struct CreateEntryCmd: ParsableCommand {", b: "struct CreateEntryCmd: ParsableCommand {\n    static let brace = \"{\""),
     ], expect: ["三面皆同步"]),
-    AGMCase(desc: "在 `_scalar` 裡插一行縮排不足的註解（不得截斷切片）", guardRel: "akashic-guards literal-scalar-parity", edits: [
-        AGMEdit(path: "plugin/skills/akashic-promote-literals/scripts/literal-census.sh", kind: "replaceFirst", a: "        # 未加引號：", b: "# 範圍說明\n        # 未加引號："),
-    ], expect: ["全部一致"]),
     AGMCase(desc: "把巢狀型別（enum Format）搬到 configuration 之前（純重排，不得被當成缺陷）", guardRel: "akashic-guards parity-table-drift", edits: [
         AGMEdit(path: "Sources/akashic/CreateEntryCommand.swift", kind: "moveNestedStruct", a: "", b: ""),
     ], expect: ["三面皆同步"]),
@@ -262,22 +247,19 @@ let agmRobust: [AGMCase] = [
 
 /// 出貨檔監看清單——結束前比對 mtime，確認 harness 沒有動到版控中的檔案。
 let agmWatched: [String] = [
-    "plugin/tests/rule-coverage.sh",
-    "plugin/skills/akashic-promote-literals/scripts/tests/hash-table-drift.sh",
-    "plugin/skills/akashic-promote-literals/scripts/hash-merging-ranges.txt",
-    "plugin/skills/akashic-promote-literals/scripts/tests/multiscalar-parity.swift",
     "plugin/rules/assertions-must-be-measured.md",
-    "plugin/tests/review-claim-audit.sh",
-    "plugin/skills/akashic-promote-literals/scripts/tests/store-marker-parity.sh",
-    "plugin/skills/akashic-promote-literals/scripts/tests/derive-hash-extenders.swift",
     ".github/workflows/census-parity.yml",
+    // #629 新增的 psfp 各 case 改寫的來源（都只在 copy 裡被改，出貨檔不得被開啟以寫入）
+    "plugin/.claude-plugin/plugin.json",
+    "mcpb/manifest.json",
+    ".claude-plugin/marketplace.json",
+    "Sources/AkashicStoreIO/StoreVersion.swift",
     ".claude/rules/entity-backlink-completeness.md",
     ".claude/rules/mcp-cli-parity.md",
     "Sources/akashic-mcp/Server.swift",
     "Sources/AkashicCore/Models.swift",
     ".claude/rules/zero-instance-guards.md",
     "Sources/akashic/CreateEntryCommand.swift",
-    "plugin/skills/akashic-promote-literals/scripts/literal-census.sh",
 ]
 
 /// 遷移期兩版並驗的守衛。刪掉 Python 版時這張表自然清空。

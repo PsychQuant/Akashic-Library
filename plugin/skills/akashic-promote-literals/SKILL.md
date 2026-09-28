@@ -16,27 +16,28 @@ description: literal 歸零 campaign 的編排層（#303）——以「全 entit
 ### 0. Census（每輪開場與收尾各跑一次）
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/skills/akashic-promote-literals/scripts/literal-census.sh"   # 預設 ~/.akashic
+akashic literal-census            # 目前的 store（$AKASHIC_LIBRARY 或 registry 的 current）；指定 store 用 --library <路徑>
 ```
+
+（這是 `akashic` CLI 的子命令，唯讀。它原本是這個 skill 目錄裡的 `literal-census.sh`——shell 包著 573 行內嵌 Python，
+自己重寫一份讀端的 marker 判定；現在普查就在讀端的 binary 裡，marker 直接由讀端判。）
 
 四域各報**總邊／literal 邊／distinct 三個口徑**——「literal 邊」是歸零的終局量測，distinct 是查證工作量估計。
 
-**先看 store 那一行下面有沒有 ⚠。**（它印在**第二行**——第一行是 `store: <路徑>（format …）`。上一版寫「第一行」，#407 R8 verify 抓到。） marker 壞到讀端會整體拒開此 store（不合 grammar／讀不到／版號超過本機支援上限）時，census 會在 store 那一行下面印一條 ⚠——**那一輪的每一列都不能拿去定 campaign 的批次範圍**，不只 venue。author 才是歸零的終局量測，而先前只有 venue 那一列掛但書。
+**先看 store 那一行下面有沒有 ⚠。**（它印在**第二行**——第一行是 `store: <路徑>（format …）`。上一版寫「第一行」，#407 R8 verify 抓到。） marker 壞到讀端會整體拒開此 store（不合 grammar／讀不到／版號超過這個 binary 的支援上限）時，census 會在 store 那一行下面印一條 ⚠——**那一輪的每一列都不能拿去定 campaign 的批次範圍**，不只 venue。author 才是歸零的終局量測，而先前只有 venue 那一列掛但書。
 
 **venue 那一列的輸出，各代表不同的事**（#407 R6／R7 起；先前只有「未部署」一種，於是「還沒部署」「marker 壞了」「量到邊但 marker 說沒有」被折在一起）：
 
 | 輸出 | 意思 | 該做什麼 |
 |---|---|---|
-| 正常三個口徑 | marker 讀得到，版號 ≥ 11 且未超過本機支援上限 | 照常進 venue 輪 |
-| 三個口徑 ＋ ⚠「超過你的 binary 支援上限」 | **問過實際 binary**（`AKASHIC_BIN`／PATH 上的 `akashic`／repo 的 `.build`），它說它開不了 | 先處理版本，數字不可用 |
-| 三個口徑 ＋ ⚠「這份 checkout 的 source 上限低於…」 | 只讀得到原始碼、**沒問到 binary**——source 與 binary 可能不同版，所以**不知道**開不開得起來 | 設 `AKASHIC_BIN=<path>` 或讓 `akashic` 在 PATH 上再重跑，才知道 |
-| 三個口徑 ＋「無法判斷是否超過支援上限」的 ⚠ | **plugin 單獨安裝的常態**：找不到 Sources/，所以不知道你的 binary 支援到第幾版 | 若 format 數字不尋常先確認；要消除這個未知就在 repo 內跑，或設 `AKASHIC_REPO=<repo 路徑>` |
+| 正常三個口徑 | marker 讀得到，版號 ≥ 11 且未超過這個 binary 的支援上限 | 照常進 venue 輪 |
+| 三個口徑 ＋ ⚠「超過你的 binary 支援上限」 | 讀端說它開不了。**普查與讀端是同一個 `akashic`**，所以這句話是確定的，不再有「問到的 binary 與實際操作的不同版」或「只讀到原始碼、不知道」兩種降級措辭 | 先處理版本（CLI／akashic-mcp／App 三者各自獨立，都要升），數字不可用 |
 | `未部署`（無 store.yaml） | 讀端明訂缺檔即 format 1，而 venue 邊自 format 11 起才存在 | 缺席不是零；先走部署鏈。**沒有東西要修**——缺檔是合法狀態 |
 | `未部署`（marker 說 format N < 11） | 該版本沒有 venue 邊，且本輪零 venue 邊 | 同上 |
 | 三個口徑 ＋「兩者不一致」註記 | **量到 venue 邊，而 marker 說的版號沒有這種邊** | 以量測為準，但先查 store 狀態 |
 | `**未知**` | marker 不合 grammar／讀不到，且零 venue 邊 | 無法區分「未部署」與「已部署但為 0」。先修 `store.yaml` 再重跑 |
 
-marker 的解析與讀端的一致性由 `scripts/tests/store-marker-parity.sh` 量測（拿真的 CLI 當 oracle），`scripts/tests/marker-parity-mutations.py` 證明那張矩陣會紅。
+marker 的判定就是讀端自己做的（普查直接呼叫它），所以沒有「普查與讀端是否一致」要量測——那個命題曾經需要一支 parity 測試、一支負控與一個生成表的漂移守衛，現在只剩一份實作。**計數本身**仍是對 YAML 原文的結構掃描（不經 loader）：這是刻意的，讀端拒開的 store 才印得出「這些數字是掃出來的、不代表任何 binary 讀得到」。
 
 ### 1. 看提名現況
 

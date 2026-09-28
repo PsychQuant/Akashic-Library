@@ -116,7 +116,7 @@ code:
 ---
 ### Requirement: Rule coverage runs per plugin root
 
-`plugin/tests/rule-coverage.sh` SHALL accept an optional plugin root argument, defaulting to `plugin`. The guard entry point SHALL run it once for every root printed by `akashic-guards plugin-roots`. A root with no `skills/` directory, or with zero skill directories, SHALL print a line stating that it has 0 skills and is vacuously covered, and SHALL pass.
+`akashic-guards rule-coverage` (formerly the script `plugin/tests/rule-coverage.sh`; same call shape and same verdicts since the #629 port to Swift) SHALL accept an optional plugin root argument, defaulting to `plugin`. The guard entry point SHALL run it once for every root printed by `akashic-guards plugin-roots`. A root with no `skills/` directory, or with zero skill directories, SHALL print a line stating that it has 0 skills and is vacuously covered, and SHALL pass.
 
 #### Scenario: Plugin with no skills passes visibly
 

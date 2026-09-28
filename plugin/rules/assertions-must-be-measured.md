@@ -39,9 +39,9 @@
 - 證據不是指令能取得的（人的裁定、印刷文獻、需要綜合判斷的身分歸屬）→ 寫出證據**來源**與**取得方式**。身分與歸屬的判定另有規定：見下方第 5 節。
 - **取不到證據** → 走第 4 題。
 
-**還要問一次工具本身：它分得清「沒有」與「讀不到」嗎？** 本 plugin 出過一個實例：`literal-census.sh` 把「讀不到 `store.yaml`」與「檔案裡沒有 format 標記」都折成 `0`，於是報告印出「store format 0」——而 store 從來沒有 format 0。**儀器造假時，四個問題全部誠實回答仍然沒用**，因為你量到的就是假的。
+**還要問一次工具本身：它分得清「沒有」與「讀不到」嗎？** 本 plugin 出過一個實例：普查（原本是 skill 目錄裡的 shell 腳本 `literal-census.sh`，#629 起是 `akashic literal-census`）把「讀不到 `store.yaml`」與「檔案裡沒有 format 標記」都折成 `0`，於是報告印出「store format 0」——而 store 從來沒有 format 0。**儀器造假時，四個問題全部誠實回答仍然沒用**，因為你量到的就是假的。
 
-**這個實例的修復史，本身就是本題的第二課。** 第一次修：把狀態分開——而兩個標籤寫反了（缺檔與無標記對調），讀一次讀端就能查證。第二次修：對照讀端改對標籤——而註解裡新寫的「對照讀端」仍是**宣稱**，跨模型審查實測出六種輸入形狀分歧，其中三種讓一個讀端整體拒開的 store 被報成健康。第三次才把那句話變成可重跑的東西：`scripts/tests/store-marker-parity.sh` 拿真的 CLI 當 oracle 跑 fixture 矩陣，`scripts/tests/marker-parity-mutations.py` 證明那張矩陣真的會紅。
+**這個實例的修復史，本身就是本題的第二課。** 第一次修：把狀態分開——而兩個標籤寫反了（缺檔與無標記對調），讀一次讀端就能查證。第二次修：對照讀端改對標籤——而註解裡新寫的「對照讀端」仍是**宣稱**，跨模型審查實測出六種輸入形狀分歧，其中三種讓一個讀端整體拒開的 store 被報成健康。第三次才把那句話變成可重跑的東西：一支 parity 測試拿真的 CLI 當 oracle 跑 fixture 矩陣，一支負控 harness 證明那張矩陣真的會紅。**第四次（#629）把「兩份實作會不會分岔」這個問題本身拿掉**：普查移植成 Swift、直接呼叫讀端自己的 marker 判定，只剩一份實作——最強的 parity 是沒有第二份東西可以分岔；那張矩陣留下來，但它現在量的是讀端本身。
 
 **兩次「已修」都是未量測的完成宣告，而它們寫在一份教人量測的規則裡。** 對照第 4 題的硬界線：完成宣告正是不得只靠語氣放行的那一類。
 
@@ -270,7 +270,7 @@ done
 
 **掛載機制只碰得到 skill 檔，而且「碰得到」比看起來弱。** 本規則由各 skill 的 see-also 引用而生效，所以它實際到得了的是**寫 skill 時**與**跑 skill 時**。
 
-**一個 markdown 連結不等於規則已載入**：它只是一行字，能不能變成行為取決於讀 skill 的那個 agent 有沒有去讀它、以及讀了之後有沒有照做。`plugin/tests/rule-coverage.sh` 驗的是**引用存在且路徑解析得到**——那是必要條件，不是充分條件。真正的載入保證需要別的機制（skill 執行時強制讀入，或撰寫時的 gate）。這一句寫在這裡，是因為「6 個 skill 都引用了」很容易被讀成「6 個 skill 都遵守了」，而那兩件事之間沒有任何東西。而上面兩個立案失敗一個在 GitHub issue 的 Expected、一個在分析報告裡——**兩者都不在 skill 檔內**。這是已知缺口，不是尚未發現的問題：**掛載面比適用面窄**。要真正涵蓋 issue 與報告，需要的是別的機制（撰寫時的 gate 或審查時的檢查），不是這份檔案。
+**一個 markdown 連結不等於規則已載入**：它只是一行字，能不能變成行為取決於讀 skill 的那個 agent 有沒有去讀它、以及讀了之後有沒有照做。repo 裡的 `akashic-guards rule-coverage` 守衛（原為 `plugin/tests/rule-coverage.sh`）驗的是**引用存在且路徑解析得到**——那是必要條件，不是充分條件。真正的載入保證需要別的機制（skill 執行時強制讀入，或撰寫時的 gate）。這一句寫在這裡，是因為「6 個 skill 都引用了」很容易被讀成「6 個 skill 都遵守了」，而那兩件事之間沒有任何東西。而上面兩個立案失敗一個在 GitHub issue 的 Expected、一個在分析報告裡——**兩者都不在 skill 檔內**。這是已知缺口，不是尚未發現的問題：**掛載面比適用面窄**。要真正涵蓋 issue 與報告，需要的是別的機制（撰寫時的 gate 或審查時的檢查），不是這份檔案。
 
 **「曾經為真、因世界改變而變假」——本清單管得到寫下的那一刻，管不到之後。**
 
@@ -284,14 +284,13 @@ done
 
 | 陳述 | 怎麼取得 | 何時 |
 |---|---|---|
-| ⚠ **標 ↗ 的那幾列是會長的數字**，不是恆定性質——它們每輪加 fixture 就變。本表 2026-08-22 重量八列，**兩列已過期**（parity 26→46、mutation 11→14），而過期的正是那兩個 ↗ 列。這張表是本規則的旗艦論證，所以它自己過期這件事留在這裡：**數字會過期不是缺陷，把會長的數字寫得像恆定事實才是。** | 重跑下面每一列的指令 | 2026-08-22 |
+| ⚠ **會長的數字不要寫進本表**。本表 2026-08-22 重量八列，**兩列已過期**（marker fixture 26→46、mutation 11→14），過期的正是那兩個每輪加格就變的數字。這張表是本規則的旗艦論證，所以它自己過期這件事留在這裡：**數字會過期不是缺陷，把會長的數字寫得像恆定事實才是。** #629 起那兩列的受測物（parity 腳本與它的負控 harness）不存在了，改成下面**不寫格數**的一列，而不是換一個新的數字——沒有會長的數字，就沒有東西會過期 | 重跑下面每一列的指令 | 2026-09-29 |
 | `VenueType` 是六值（上一版寫的是「三值」）| `awk '/^public enum VenueType/{f=1} f&&/^}/{exit} f&&/^    case /{n++} END{print n+0}' Sources/AkashicCore/Venue.swift` → `6`。**本檔上一版出貨的是 `grep -c '^    case ' Sources/AkashicCore/Venue.swift`，跑出來是 `8`**——它數的是整個檔案的 case 行，括號裡寫著「取 `enum VenueType` 區塊」而指令並沒有取。旗艦主張的自我量測指令，第一列就不成立。（**repo 為 private，無存取權者跑不了這條**；另可用 `akashic add-venue --help` 讀由 `allCases` 生成的值域字串） | 2026-08-21 |
 | 兩筆記錄回傳 `article-number` 23／78 | 本檔第二個實例的 `curl`，同時印 `page`／`article-number`／`volume`／`issue` | 2026-08-21 |
 | `plugin.json` 寫 format 10、本機 store 寫 12 | `grep '"description"' plugin/.claude-plugin/plugin.json` 與 `grep '^format:' <store>/store.yaml`。**單機單樣本**——未查該描述寫下時是否正確、也未查兩者是否相容 | 2026-08-21 |
 | 本檔提到的 repo 中，**存放兩個立案實例的那兩個**皆為 private（marketplace repo 不在此列——它是公開的，見下一列） | `gh repo view <repo> --json isPrivate` → 兩者皆 `true`（repo 名不寫在這裡，理由見立案一末的裁決） | 2026-08-21 |
-| census 曾把「讀不到」印成 `format 0` | 讀該腳本的解析段；並以缺 `store.yaml`／有檔無標記兩種 fixture 實跑對照 | 2026-08-21 |
-| ↗ census 的 marker 解析在 **46** 格 fixture 上與讀端裁決一致（**不是「一致」的全稱句**——那需要窮舉輸入空間，而這裡量的是 46 個具名形狀；**2026-08-21 是 26 格**，每輪都在加） | `plugin/skills/akashic-promote-literals/scripts/tests/store-marker-parity.sh`（需先 `swift build`；拿真的 CLI 當 oracle） | 2026-08-22 |
-| ↗ 上一句那張矩陣真的會紅 | `plugin/skills/akashic-promote-literals/scripts/tests/marker-parity-mutations.py` → **14/14**（2026-08-21 是 11/11） | 2026-08-22 |
+| 普查曾把「讀不到」印成 `format 0` | 那個 shell 腳本已於 #629 移除，歷史陳述無法再讀原碼。現況可重跑：對缺 `store.yaml`、與有檔而沒有 `format:` 行（例如只有 `current: main`）兩種 fixture 跑 `akashic literal-census --library <fixture>`，前者印 `format 1（無 store.yaml；讀端語意：缺檔即 format 1）`、後者印 `format **未知**——marker 不合 grammar`，兩者都不是 `format 0` | 2026-09-29 |
+| 普查的 marker 判定就是讀端自己做的，marker 的裁決在一張具名形狀矩陣上與預期一致（**不是「一致」的全稱句**——那需要窮舉輸入空間，而這裡量的是有限個具名形狀；**格數不寫進本表**，理由見上面第一列） | 對 `swift test --filter StoreMarkerMatrixTests` 的結果（repo 為 private，無存取權者跑不了；該測試檔在 `Tests/` 下，每格帶預期裁決） | 2026-09-29 |
 | 本 plugin 經由**公開**的 marketplace 發布 | 兩步都在公開處：`gh repo view PsychQuant/Akashic-Library --json isPrivate` → `false`，且本 repo 的 `.claude-plugin/marketplace.json` 列出 `akashic-mcp`（2 個 plugin 之一）。**#625 起 marketplace 搬進本 repo**：2026-08-21 這一列的量法指向 psychquant-claude-plugins，#625 之後那個量法會量到「沒有列出」——斷言沒變、量法過期，所以重量而不是改字。更早一版引的是本 repo 的 README，而本 repo 當時是 private，讀者查不到 | 2026-09-24 |
 
 ### 一次對本規則自己的效力稽核（#407 R28b，2026-08-23）

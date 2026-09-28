@@ -115,16 +115,12 @@ case "rule-prose-guards":
     exit(ruleProseGuards(argv: Array(CommandLine.arguments.dropFirst(2))))
 case "measured-claims-audit":
     exit(measuredClaimsAudit())
-case "literal-scalar-parity":
-    exit(literalScalarParity())
 case "migrated-guard-control":
     exit(migratedGuardControl())
 case "decision-matrix-mutations":
     exit(decisionMatrixMutations())
 case "rule-prose-guards-mutations":
     exit(ruleProseGuardsMutations())
-case "marker-parity-mutations":
-    exit(markerParityMutations())
 case "trigger-coverage-mutations":
     exit(triggerCoverageMutations())
 case "plugin-roots":   // #625：plugin 根目錄的唯一來源，給 shell 端用
@@ -135,6 +131,10 @@ case "marketplace-consistency":   // #625：plugin 根與 marketplace manifest �
     exit(marketplaceConsistency())
 case "plugin-roots-mutations":   // #625：plugin/ 以外的 plugin 根，守衛看得見嗎
     exit(pluginRootsMutations())
+case "plugin-store-format-parity":   // #408／#629：宣告的 store format 必須等於 StoreVersion.supported
+    exit(pluginStoreFormatParity())
+case "rule-coverage":   // #407／#629：plugin 根的每條規則被每個 skill 掛到（`rule-coverage [plugin-root]`）
+    exit(ruleCoverage(argv: Array(CommandLine.arguments.dropFirst(2))))
 case "audit-guards-mutations":
     exit(auditGuardsMutations())
 case "oracle-precondition-control":

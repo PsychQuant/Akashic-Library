@@ -38,8 +38,6 @@ func repoTopLevelRoots() -> [String] {
 /// 抽出來的理由不是重用，是**不得有第二份**：棘輪檔要比對的正是這份清單，而一個自己
 /// 算一遍的棘輪只會證明它自己與自己一致。
 func protectedInventory() -> (guards: [String], data: [String]) {
-    // 生成器不是守衛——它由 hash-table-drift.sh 呼叫，自己不做斷言。
-    let GENERATORS: Set<String> = ["derive-hash-extenders.swift"]
     // **逐段相加而非一個大表達式**：合成一式時 Swift 的型別檢查逾時（實測），
     // 而那個失敗看起來像「這段程式有問題」而不是「這一式太長」。
     // #625：同一組 pattern 套到**每一個** plugin 根（原本只有 `plugin/`——放在
@@ -53,13 +51,14 @@ func protectedInventory() -> (guards: [String], data: [String]) {
         }
     }
     scripts = realRepoRelative(scripts)
-    let GUARDS = (scripts.filter { !GENERATORS.contains(base($0)) } + swiftGuards()).sorted()
+    // （#629 前這裡有一個 `GENERATORS` 集合，排除 `derive-hash-extenders.swift`——那支生成器由 `hash-table-drift.sh` 呼叫、
+    //  自己不做斷言。census 移植成 Swift 之後兩者都不存在，集合隨之退場。）
+    let GUARDS = (scripts + swiftGuards()).sorted()
 
     // 守衛之外，還被守衛讀的東西。**每一條都必須存在**（坑 1）。
+    // （#629：census 的三條——`literal-census.sh`、`hash-merging-ranges.txt`、`derive-hash-extenders.swift`——隨 census 移植成
+    //  `akashic literal-census` 而退場，不再是守衛的輸入。）
     var DATA = [
-        "plugin/skills/akashic-promote-literals/scripts/literal-census.sh",
-        "plugin/skills/akashic-promote-literals/scripts/hash-merging-ranges.txt",
-        "plugin/skills/akashic-promote-literals/scripts/tests/derive-hash-extenders.swift",
         // ── 以下八條是 #518 補進來的 ─────────────────────────────────────────
         //
         // **為什麼是顯式條目而不是放寬 glob。** 兩個方案各有一個沉默方向：
@@ -128,7 +127,8 @@ func protectedInventory() -> (guards: [String], data: [String]) {
         "plugin/.claude-plugin/plugin.json",
         "Sources/akashic-mcp/Server.swift",
         "Sources/akashic/CLI.swift",
-        "Sources/akashic-guards/MarkerParityMutationsData.swift",
+        // （#629：原本這裡有 `Sources/akashic-guards/MarkerParityMutationsData.swift`——`RuleProseGuards` 第 6 項數它的 mutation 表。
+        //  那個檔與第 6 項一起退場，見 `RuleProseGuards.swift` 的說明。）
         "Sources/akashic-guards/main.swift",
         ".githooks/run-guards.sh",
         // `mcpb/manifest.json` 這一條由新檢查自己找出來（立案時的手工掃描漏了那個路徑根）——

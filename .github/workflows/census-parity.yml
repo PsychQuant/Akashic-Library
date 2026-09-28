@@ -1,5 +1,12 @@
 name: Census parity
 
+# **這個 workflow 的名字是歷史的（#629）。** 它建立時的唯一任務是「census 與讀端的 store-marker 解析 parity」——那個命題
+# 在 census 移植成 `akashic literal-census`（直接呼叫 `StoreVersion.read`）之後結構上不成立，三個 parity step 一併移除。
+# 現在它只做一件事：在 macOS runner 上 build 之後跑 `.githooks/run-guards.sh`（與 pre-push 同一份守衛清單）。
+# 改名會牽動 `protected-ratchet.txt`、`trigger-coverage`、三份 rules 與 changelog 的引用，另案處理；名字會說謊，所以寫在這裡。
+#
+# 以下 #407 R7–R8 的歷史說明保留原文（它們解釋的是「為什麼觸發面要窄、為什麼要有這個 workflow」，與 parity 的存廢無關）：
+#
 # **為什麼要第三個 workflow**
 #
 # #407 R7 verify 量到一個難堪的形狀：parity 守衛在 CI **只會在它的受測檔案沒被
@@ -28,14 +35,11 @@ on:
   push:
     branches: [main]
     paths: &parity_paths
-      - "plugin/skills/akashic-promote-literals/scripts/literal-census.sh"
-      # census 的 runtime 資料依賴。漏了它的話，「只改這份生成表」的 PR
-      # 不會觸發任何 workflow——而那正是 drift guard 最需要跑的情況
-      # （#407 R10 verify）。
-      - "plugin/skills/akashic-promote-literals/scripts/hash-merging-ranges.txt"
-      - "plugin/skills/akashic-promote-literals/scripts/tests/**"
+      # （#629：原本這裡有 census 的三條路徑——`literal-census.sh`、`hash-merging-ranges.txt`、`scripts/tests/**`。
+      #  census 是 Swift 之後沒有守衛讀它了：它的原始碼（`Sources/AkashicStoreIO/`、`Sources/akashic/`）與測試（`Tests/`）由 `ci.yml` 的
+      #  `swift test` 涵蓋——那個 workflow 對 `Sources/`、`Tests/` 的改動都會觸發；本 workflow 只跑守衛。）
       - "Sources/AkashicStoreIO/StoreVersion.swift"
-      # plugin-store-format-parity.py 的第三份宣告來源。它是**出貨物**
+      # `plugin-store-format-parity`（守衛；#629 前是 .py）的第三份宣告來源。它是**出貨物**
       # （release-signed.sh 會 zip 進 .mcpb），改它而守衛不跑＝出貨一個過期數字。
       # 承接自已刪除的 plugin-guards.yml（#408 新增、#435 合併）。
       - "mcpb/manifest.json"
@@ -111,27 +115,19 @@ jobs:
           key: ${{ runner.os }}-spm-${{ hashFiles('Package.resolved', 'Package.swift') }}
           restore-keys: ${{ runner.os }}-spm-
 
-      # parity 拿建好的 CLI 當 oracle——這是它非 macOS 不可的唯一理由。
-      - name: Build（只為了拿到 oracle）
+      # 守衛是 `akashic-guards` 的子命令，需要 Swift toolchain 先 build——這是它非 macOS 不可的理由
+      # （#629 前另有 parity 拿建好的 CLI 當 oracle）。
+      - name: Build（守衛需要 .build/debug/akashic-guards）
         run: |
-          # store-marker-parity.sh 從 .build/debug/akashic、run-guards.sh 從 .build/debug/akashic-guards 找 binary——
+          # run-guards.sh 從 .build/debug/akashic-guards 找 binary——
           # 建完核對 .build/debug 解析到的就是這次的產物目錄（#577：預設建置系統，不再釘 native）。
           swift build
           [ "$(cd .build/debug && pwd -P)" = "$(cd "$(swift build --show-bin-path)" && pwd -P)" ] \
             || { echo ".build/debug 沒有指向這次建置的產物目錄" >&2; exit 1; }
 
-      # 生成的 `#` grapheme 表有沒有隨 Swift／Unicode 版本漂移。一張生成的表
-      # 有它自己的失效模式：版本一動它就過期，而過期是安靜的。
-      - name: hash 表漂移
-        run: bash plugin/skills/akashic-promote-literals/scripts/tests/hash-table-drift.sh
-
-      # 表是逐 code point 的——這支證明對「# + 多 scalar 序列」那樣就夠。
-      - name: 多 scalar 序列 parity
-        run: swift plugin/skills/akashic-promote-literals/scripts/tests/multiscalar-parity.swift
-
-      - name: store-marker parity
-        run: bash plugin/skills/akashic-promote-literals/scripts/tests/store-marker-parity.sh
-
+      # （#629：這裡原本有三個 step——`hash-table-drift.sh`、`multiscalar-parity.swift`、`store-marker-parity.sh`。
+      #  它們守的是「census 自己實作的 marker 解析與讀端不分岔」，census 改成呼叫 `StoreVersion.read` 之後只剩一份實作，
+      #  該守的東西不存在了；46 格 fixture 矩陣留成 `StoreMarkerMatrixTests`，由 `swift test` 跑。）
       # **這裡原本有兩個 step，#521 刪掉了。** 它們跑的是
       #   plugin/skills/akashic-promote-literals/scripts/tests/marker-parity-mutations.py
       #   plugin/tests/audit-guards-mutations.py

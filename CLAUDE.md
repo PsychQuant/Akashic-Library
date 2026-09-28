@@ -430,6 +430,11 @@ Foresay 管**人機確認的格式與迴圈**，本 repo 的規則管**哪些寫
 > `akashic` binary 當 oracle（`store-marker-parity.sh` 找不到就 `exit 2`），而那需要
 > `swift build`——所以它只能在 macOS。
 >
+> **（#629 更正）** 上一段與上方耗時表描述的 `marker-parity-mutations` 與 `store-marker-parity.sh` 已隨 census 移植成
+> `akashic literal-census` 而退場（普查直接呼叫讀端的 marker 判定，「兩份實作會不會分岔」結構上不成立）。這兩段是它們存在時
+> 的量測記錄，保留原文——現況是最大一支換成 `audit-guards-mutations`，而那條「它只能在 macOS」的理由對現存的守衛整組成立
+> （全部是 `akashic-guards` 的子命令，需要 `swift build`）。
+>
 > **與 `--no-verify` 無關的遠端強制點目前不存在**：branch protection 的 required status
 > checks 在這個 repo **結構上不可用**——重跑指令與當次輸出：
 >

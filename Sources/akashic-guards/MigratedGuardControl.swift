@@ -37,9 +37,13 @@ func migratedGuardControl() -> Int32 {
     // 只認**行首**的實際呼叫，不認註解裡提到的（`codeOnly` 剝掉整行註解，而 run-guards.sh
     // 的註解密度很高——不剝的話一句「`akashic-guards X` 的映射」就會被算成執行了它）。
     let rg = codeOnly(runner)
-    let executed = matches(rg, #"(?m)^\.build/debug/akashic-guards ([a-z][a-z0-9-]*)"#).map {
+    // **允許縮排**（#629）：`rule-coverage` 在 `run-guards.sh` 裡是 `for root in $plugin_roots` 迴圈內逐根呼叫，
+    // 行首有縮排；只認行首的版本會讓它「實際在跑、卻不在被檢查的名單裡」——這支守衛要防的正是那個形狀。
+    // 同一支守衛可以在多處被呼叫（`rule-prose-guards` 先跑一次完整版、再逐根跑 `--prose-only`），要去重再數。
+    var seenSubs = Set<String>()
+    let executed = matches(rg, #"(?m)^\s*\.build/debug/akashic-guards ([a-z][a-z0-9-]*)"#).map {
         (rg as NSString).substring(with: $0.range(at: 1))
-    }
+    }.filter { seenSubs.insert($0).inserted }
     guard !executed.isEmpty else {
         print("✗ \(runner) 裡一個 `akashic-guards <子命令>` 都抽不到——抽取式與寫法脫節了")
         return 1
@@ -113,7 +117,7 @@ func migratedGuardControl() -> Int32 {
     // **這是啟發式**：一個用別的方式 spawn 的 harness 會被判成非 harness（方向是**誤報**
     // ——它會被要求負控，而那是可見可裁決的，不是靜默漏放）。
     // **不列舉路徑前綴。** 上一版寫 `plugin/tests/`，而 `marker-parity-mutations` 執行的是
-    // `plugin/skills/.../store-marker-parity.sh`——判準比它要描述的東西窄，於是一支真的
+    // `plugin/skills/.../store-marker-parity.sh`（#629 已退場）——判準比它要描述的東西窄，於是一支真的
     // harness 被要求負控。改成拿 `run-guards.sh` 裡**實際跑的每一支守衛的檔名**去比對：
     // 那份清單本來就是唯一來源，不需要另外維護一組前綴。
     let guardNames = Set(matches(rg, #"(?m)^(?:python3|bash|swift) (\S+)"#).map {

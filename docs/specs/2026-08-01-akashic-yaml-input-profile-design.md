@@ -40,7 +40,7 @@
 
 本 spec 的 **§2 現況證據**（536 檔 corpus 的實測 profile：0 anchor、0 alias、0 自訂 tag、
 0 merge key）仍然有效且有用——`AliasBudget` 的門檻設定就是用它校準的，`docs/store-format.md`
-§5 的揭露也引用它。`scripts/scan-yaml-profile.py` 保留，供日後 corpus 變化時重測。
+§5 的揭露也引用它。`akashic scan-yaml-profile` 保留（#629 起；原為 `scripts/scan-yaml-profile.py`），供日後 corpus 變化時重測。
 
 **本 spec 自 2026-08-02 起為 historical design record**，不作為實作指引。
 

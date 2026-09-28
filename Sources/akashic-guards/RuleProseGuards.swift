@@ -35,7 +35,7 @@ func ruleProseGuards(argv: [String]) -> Int32 {
     var plugin = "\(repoRoot)/plugin"
     var venueArg: String? = nil
     // `--prose-only`（#644）：只跑第 1、2 項。那兩項對**每一個** plugin 根都成立（`run-guards.sh` 照 `plugin-roots` 逐根跑）；
-    // 第 3–6 項綁著 `plugin/` 專屬的內容（`assertions-must-be-measured`、`VenueType`、自我量測表），在別的根上沒有意義。
+    // 第 3–5 項綁著 `plugin/` 專屬的內容（`assertions-must-be-measured`、`VenueType`），在別的根上沒有意義。
     var proseOnly = false
     // `--root <dir>` / `--venue <path>`：讓 negative control 能對**一份 copy** 跑，而不是
     // 就地改寫出貨檔。前一版的 harness 改的是版控中的規則檔，而跨模型審查在審查期間實際
@@ -102,7 +102,7 @@ func ruleProseGuards(argv: [String]) -> Int32 {
     // 而**當兩者都是空 list 時（唯一的通過狀態）順序不可觀察**。
     let allFiles = walkFiles(plugin).sorted()
     // 空掃描不是通過（#644 R2 verify）：根打錯或不存在時 `walkFiles` 回空，第 1、2 項對空清單照樣 PASS——未涵蓋冒充了乾淨。
-    // 全六項的跑法另有規則檔的讀取擋著；`--prose-only` 沒有，所以在這裡擋。
+    // 全五項的跑法另有規則檔的讀取擋著；`--prose-only` 沒有，所以在這裡擋。
     if proseOnly && allFiles.isEmpty {
         print("✗ --prose-only：\(plugin) 不存在或沒有任何 .md／.sh／.py——空掃描不是通過")
         return 1
@@ -286,50 +286,15 @@ func ruleProseGuards(argv: [String]) -> Int32 {
     check(5, "規則對 VenueType 的數量與值一致，且它展示的指令真的印出該數字"
            + "（實測 \(nCase)：\(cases.joined(separator: "／"))）", wrong, [])
 
-    // ── 6. 規則檔自我量測表裡「會長的數字」是否還等於當下實測 ───────────────
+    // ── 6. （已移除，#629）規則檔自我量測表裡「會長的數字」是否還等於當下實測 ──────
     //
-    // 那張表是本規則的旗艦論證（「我說的每句話都量過」）。2026-08-22 重量八列，
-    // **兩列已過期**——parity 26→46、mutation 11→14。過期的正是兩個「會長」的數字：
-    // 每輪加 fixture 就變，而表格把它們寫得跟「VenueType 是六值」一樣像恆定事實。
-    //
-    // 這一項只做**靜態計數**（數 fixture 定義與 mutation 項目），不跑那兩支腳本——
-    // parity 需要 swift build、mutation 要數分鐘。實測靜態計數與實跑一致，而會漂的是
-    // 計數本身，不是通過率。
-    let PARITY = "\(plugin)/skills/akashic-promote-literals/scripts/tests/store-marker-parity.sh"
-    // **來源換成 Swift 資料檔**（#433 Step 5）：`marker-parity-mutations.py` 已刪除，
-    // 那 14 個 mutation 現在住在 `MarkerParityMutationsData.swift`（機械抽出時生成的）。
-    // 數的仍是同一件事——那張自我量測表裡「會長的數字」有沒有跟上實際的 mutation 數。
-    let MUTS = abspath("\(plugin)/../Sources/akashic-guards/MarkerParityMutationsData.swift")
-    guard FileManager.default.fileExists(atPath: PARITY),
-          FileManager.default.fileExists(atPath: MUTS) else {
-        return skipExit(6, ["[6] SKIP  取不到 parity／mutation 腳本——**本項未執行**", ""])
-    }
-    let parityTxt = (try? String(contentsOfFile: PARITY, encoding: .utf8)) ?? ""
-    let mutTxt = (try? String(contentsOfFile: MUTS, encoding: .utf8)) ?? ""
-    var stale: [String] = []
-    let nFix = matches(parityTxt, #"(?m)^check "#).count
-    var nMut = -1
-    if let mm = matches(mutTxt, #"(?s)markerParityMutationsTable[^=]*=\s*\[(.*?)\n\]"#).first {
-        let blk = (mutTxt as NSString).substring(with: mm.range(at: 1))
-        nMut = matches(blk, #"(?m)^\s{4}\(old:"#).count
-    }
-    if nMut < 0 { stale.append("數不到 mutation 表的項目數——抽取式已與宣告寫法脫節") }
-    // **proxy 的有效前件也要驗**（#407 R20）：`^check ` 只認 column 0。若有人把一個
-    // check 移進 if／函式區塊，實跑的 fixture 數不變而靜態計數少一——散文若跟著改成
-    // 那個錯的數字，這一項會綠而表格已與實際不符。
-    let indented = matches(parityTxt, #"(?m)^\s+check "#).count
-    if indented > 0 {
-        stale.append("store-marker-parity.sh 有 \(indented) 個縮排的 check——"
-                   + "靜態計數（只認 column 0）不再等於實跑的 fixture 數，本項的 proxy 前件失效")
-    }
-    // 表格裡標 ↗ 的那兩列必須帶當下的數字。
-    if !ruleTxt.contains("**\(nFix)** 格 fixture") {
-        stale.append("自我量測表的 parity 列不是當下的 \(nFix) 格")
-    }
-    if !ruleTxt.contains("**\(nMut)/\(nMut)**") {
-        stale.append("自我量測表的 mutation 列不是當下的 \(nMut)/\(nMut)")
-    }
-    check(6, "自我量測表裡會長的數字仍等於實測（parity \(nFix) 格、mutation \(nMut)）", stale, [])
+    // 這一項曾經數兩個東西並與規則檔自我量測表對帳：`store-marker-parity.sh` 的 fixture 格數與
+    // `marker-parity-mutations` 的 mutation 數（2026-08-22 重量八列，兩列已過期——parity 26→46、mutation 11→14——
+    // 而過期的正是兩個「會長」的數字，所以才有這一項）。census 移植成 Swift 之後，那兩支腳本與 mutation harness
+    // 都不存在了。fixture 矩陣搬進 `StoreMarkerMatrixTests`，但**它的格數沒有留在表裡**：一個只被這一項讀取的數字
+    // 是一個為了守衛而存在的數字（要把測試檔放進受保護清單、CI paths 與三份 harness 的複製清單，換來守一個沒有人
+    // 依賴的計數）。規則檔的那一列改成指向測試、不引用格數——沒有會長的數字，這一項就沒有東西要守。
+    // 其餘五項的編號不動（負控 `RuleProseGuardsMutations` 以「恰好第 n 項紅」判定，重編會讓歷史紀錄對不上）。
 
     // ── 考慮過但**不加**的檢查：「散文裡的 repo 路徑必須存在」 ──────────────
     //

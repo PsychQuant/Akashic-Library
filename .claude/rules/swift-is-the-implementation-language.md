@@ -42,23 +42,24 @@
 
 ## 既有檔（grandfathered，2026-09-24 量，tracked）
 
-**shell（七個，不含例外 1 的四個）**：
+**shell（二個，不含例外 1 的四個）**：
 `plugin/skills/akashic-fetch-fulltext/scripts/fetch-fulltext.sh`、
-`plugin/skills/akashic-fetch-fulltext/scripts/tests/fetch-fulltext-paths.sh`、
-`plugin/skills/akashic-promote-literals/scripts/literal-census.sh`、
-`plugin/skills/akashic-promote-literals/scripts/tests/hash-table-drift.sh`、
-`plugin/skills/akashic-promote-literals/scripts/tests/store-marker-parity.sh`、
-`plugin/tests/review-claim-audit.sh`、`plugin/tests/rule-coverage.sh`
+`plugin/skills/akashic-fetch-fulltext/scripts/tests/fetch-fulltext-paths.sh`
 
-**Python（十一個）**：
+**Python（九個）**：
 `plugin/skills/akashic-bootstrap/scripts/crossref_match.py`、
 `plugin/skills/akashic-fetch-fulltext/scripts/{bot_signals,calibrate_title_match,jitter,pdf_url_rules,verify_pdf}.py`、
 `plugin/skills/akashic-fetch-fulltext/scripts/tests/test_rules_and_verify.py`、
 `plugin/skills/akashic-venue-works/scripts/ndjson-abstracts-to-proposals.py`、
-`plugin/tests/ndjson-abstracts-to-proposals.py`、`plugin/tests/plugin-store-format-parity.py`、
-`scripts/scan-yaml-profile.py`
+`plugin/tests/ndjson-abstracts-to-proposals.py`
 
 這張清單只減不增：檔案移植成 Swift 或刪除時從這裡拿掉，新檔不得加進來。
+
+**已移植（#629 第一塊，2026-09-29）**：`plugin-store-format-parity.py`、`rule-coverage.sh`、`review-claim-audit.sh`、
+`scan-yaml-profile.py`、promote-literals 的四支 shell（`literal-census.sh` ＋ 三支守它的測試）已從清單拿掉——
+去處與理由見 `changelog/2026-09-29-guards-and-census-to-swift.md`（兩個守衛成為 `akashic-guards` 子命令、普查成為
+`akashic literal-census`、YAML profile 掃描成為 `akashic scan-yaml-profile`；`review-claim-audit` 與 census 的
+parity 測試不是「移植」而是**受測物不存在後退場**）。
 
 ## 為什麼
 
@@ -77,7 +78,7 @@
 | 2026-09-24 | #625：官方 plugin 驗證守衛第一版寫成 `plugin/tests/official-validate.py`，與 #433 的方向相反；使用者問「本體是不是改成 swift」才發現 | 同一輪改寫成 `akashic-guards official-validate`（`OfficialValidate.swift`），四個情境（實際 repo、未知欄位、允許清單過期、沒有 CLI）輸出與 Python 版一致 |
 | 2026-09-23～24 | akashic-fetch-fulltext skill 新增 5 支 Python 與 1 支 Python 測試（`verify_pdf.py` 等），在本規則成文之前 | 列入〈既有檔〉；移植成 `akashic` CLI 子命令由 #629 追蹤 |
 
-## 語言組成（2026-09-24 量，tracked，排除 `repos/`、`docs/`、`changelog/`、`openspec/`）
+## 語言組成（tracked，排除 `repos/`、`docs/`、`changelog/`、`openspec/`）
 
-Swift 372、Python 11、shell 11（含沒有副檔名的 `.githooks/pre-push`）。量法：
-`git ls-files` 依副檔名計數。數字會隨移植下降，以重量為準，不要照抄這一行。
+**2026-09-29（#629 第一塊移植後）**：Swift 472、Python 9、shell 6（含沒有副檔名的 `.githooks/pre-push`）。
+成文當日（2026-09-24）是 372／11／11。量法：`git ls-files` 依副檔名計數。數字會隨移植下降，以重量為準，不要照抄這一行。

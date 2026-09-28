@@ -54,17 +54,12 @@ func oraclePreconditionControl() -> Int32 {
         return (Int(ns.substring(with: m.range(at: 1))) ?? -1, Int(ns.substring(with: m.range(at: 2))) ?? -1)
     }
 
-    let hasSwift = FileManager.default.isExecutableFile(atPath: "/usr/bin/swift")
-        || FileManager.default.isExecutableFile(atPath: "/usr/local/bin/swift")
-    let DRIFT = "plugin/skills/akashic-promote-literals/scripts/tests/hash-table-drift.sh"
+    // （#629：先前這裡依「有沒有 swift toolchain」過濾掉 `.swift` 腳本與 `hash-table-drift.sh` 的 ROBUST case。
+    //  那兩類守衛都已退場，所有 ROBUST 守衛都是編譯好的子命令，不需要過濾。）
     var counts: [String: Int] = [:]
-    for c in agmRobust {
-        if !hasSwift && (c.guardRel.hasSuffix(".swift") || c.guardRel == DRIFT) { continue }
-        counts[c.guardRel, default: 0] += 1
-    }
+    for c in agmRobust { counts[c.guardRel, default: 0] += 1 }
     guard !counts.isEmpty else {
-        print("✗ 過濾後沒有任何可毒化的 ROBUST 守衛——本控制組在此環境退化成空的。"
-            + "（全部 ROBUST 守衛都需要 Swift 而此環境沒有？）")
+        print("✗ 沒有任何可毒化的 ROBUST 守衛——本控制組退化成空的。")
         return 1
     }
     // 挑 ROBUST case 最多的那一支——**這支控制組要測的是「那一支的 case 全部不計入」**，

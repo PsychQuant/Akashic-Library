@@ -46,11 +46,8 @@ func ruleProseGuardsMutations() -> Int32 {
         let root = tmp + "/plugin"
         try? FileManager.default.createDirectory(atPath: tmp, withIntermediateDirectories: true)
         try? FileManager.default.copyItem(atPath: PLUGIN, toPath: root)
-        // **`Sources/` 也要複製**（#433 Step 5）：第 6 項數的 mutation 表在
-        // `Sources/akashic-guards/MarkerParityMutationsData.swift`（Python 版時它在
-        // `plugin/skills/.../marker-parity-mutations.py`，本來就在複製範圍內）。少了它，
-        // 那一項走 SKIP 出口回 rc=2，而 harness 的 baseline 要求 rc=0——整支在 baseline
-        // 就停住，且訊息說「先修守衛」而守衛沒壞。
+        // **`Sources/` 也要複製**（第 5 項讀 `Sources/AkashicCore/Venue.swift`）。（#433 Step 5 起第 6 項數的 mutation 表也在
+        // `Sources/` 裡——#629 移除了第 6 項，這個理由隨之消失，複製仍在是因為第 5 項。）
         try? FileManager.default.copyItem(atPath: "\(repoRoot)/Sources",
                                           toPath: tmp + "/Sources")
         try? mutatedRule.write(toFile: root + "/" + RULE_REL, atomically: true, encoding: .utf8)
@@ -115,12 +112,7 @@ func ruleProseGuardsMutations() -> Int32 {
     results.append(swap("`periodical`／`conference`／`publisher`／`database`／`socialMedia`／`website`",
                         "`journal`／`conference`／`publisher`／`database`／`socialMedia`／`website`",
                         5, "把值域裡的一個值改成已被更名的舊值"))
-    // 第 6 項：把自我量測表裡「會長的數字」改回過期的值。這一格驗的正是 2026-08-22 真實
-    // 發生過的事——**這不是零實例守衛**，是已發生的形狀。
-    results.append(swap("**46** 格 fixture", "**26** 格 fixture", 6,
-                        "把自我量測表的 parity 格數改回過期的 26"))
-    results.append(swap("**14/14**", "**11/11**", 6,
-                        "把自我量測表的 mutation 數改回過期的 11/11"))
+    // （第 6 項的負控——把自我量測表的 parity 格數改回過期的 26、mutation 數改回 11/11——隨第 6 項一起移除，#629。）
     // 把自我量測表展示的指令換回**原缺陷那一條**（數整個檔案的 case 行 → 印 8）。
     results.append(swap("awk '/^public enum VenueType/{f=1} f&&/^}/{exit} f&&/^    case /{n++} "
                         + "END{print n+0}' Sources/AkashicCore/Venue.swift",

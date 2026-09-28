@@ -42,6 +42,20 @@
 
 
 
+## #629 — 普查從 skill 目錄裡的 shell 腳本變成 `akashic literal-census`
+
+**使用者可見的改變**（`akashic-promote-literals` skill）：
+
+- Census 步驟的指令從 `bash ${CLAUDE_PLUGIN_ROOT}/skills/akashic-promote-literals/scripts/literal-census.sh`
+  變成 `akashic literal-census`（預設用目前的 store；指定 store 用 `--library <路徑>`）。計數與版面逐行相同
+  （83 個 fixture 與真實 store 上對照過）。
+- **`AKASHIC_BIN` 與 `AKASHIC_REPO` 不再有作用。** 它們只服務舊腳本判斷「你的 binary 支援到第幾版」的三層降級
+  （問 binary／讀 checkout 原始碼／未知）。現在普查就是那個 binary，「超過你的 binary 支援上限」是確定的話；
+  SKILL.md 那張 venue 輸出表少了「只讀到 source」與「無法判斷」兩列。
+- `scripts/` 目錄整個移除（腳本、生成的 `#` grapheme 表、三支守它們的測試）。
+
+**沒變的**：計數仍是對 YAML 原文的結構掃描，不經 loader——讀端拒開的 store（版號太新、marker 壞掉）照樣印出數字並掛全域 ⚠。
+
 ## R67m — architecture 席三輪都沒跑完，那四個問題自己量
 
 三輪 ensemble 的 architecture 席**每一輪都 errored**（harness 依 fail-closed 記成 HIGH

@@ -26,9 +26,6 @@ Sources/akashic-guards/AuditGuardsMutations.swift
 Sources/akashic-guards/BacklinkFieldRatchet.swift
 Sources/akashic-guards/DecisionMatrixDrift.swift
 Sources/akashic-guards/DecisionMatrixMutations.swift
-Sources/akashic-guards/LiteralScalarParity.swift
-Sources/akashic-guards/MarkerParityMutations.swift
-Sources/akashic-guards/MarkerParityMutationsData.swift
 Sources/akashic-guards/MarketplaceConsistency.swift
 Sources/akashic-guards/MeasuredClaimsAudit.swift
 Sources/akashic-guards/MeasuredNumbersAudit.swift
@@ -38,7 +35,9 @@ Sources/akashic-guards/OraclePreconditionControl.swift
 Sources/akashic-guards/ParityTableDrift.swift
 Sources/akashic-guards/PluginRoots.swift
 Sources/akashic-guards/PluginRootsMutations.swift
+Sources/akashic-guards/PluginStoreFormatParity.swift
 Sources/akashic-guards/ProtectedRatchet.swift
+Sources/akashic-guards/RuleCoverage.swift
 Sources/akashic-guards/RuleProseGuards.swift
 Sources/akashic-guards/RuleProseGuardsMutations.swift
 Sources/akashic-guards/TriggerCoverage.swift
@@ -57,15 +56,6 @@ plugin/rules/source-of-truth-over-consent.md
 plugin/skills/akashic-fetch-fulltext/scripts/tests/fetch-fulltext-paths.sh
 plugin/skills/akashic-fetch-fulltext/scripts/tests/test_rules_and_verify.py
 plugin/skills/akashic-promote-literals/SKILL.md
-plugin/skills/akashic-promote-literals/scripts/hash-merging-ranges.txt
-plugin/skills/akashic-promote-literals/scripts/literal-census.sh
-plugin/skills/akashic-promote-literals/scripts/tests/derive-hash-extenders.swift
-plugin/skills/akashic-promote-literals/scripts/tests/hash-table-drift.sh
-plugin/skills/akashic-promote-literals/scripts/tests/multiscalar-parity.swift
-plugin/skills/akashic-promote-literals/scripts/tests/store-marker-parity.sh
 plugin/skills/akashic-venue-works/scripts/ndjson-abstracts-to-proposals.py
 plugin/tests/ndjson-abstracts-to-proposals.py
-plugin/tests/plugin-store-format-parity.py
-plugin/tests/review-claim-audit.sh
-plugin/tests/rule-coverage.sh
 plugins/akashic-discovery/.claude-plugin/plugin.json

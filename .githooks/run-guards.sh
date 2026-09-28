@@ -36,23 +36,25 @@ fi
 # 那一份，這裡不另存。清單為空要紅——否則迴圈跑零次、照樣綠燈。
 plugin_roots=$(.build/debug/akashic-guards plugin-roots)
 [ -n "$plugin_roots" ] || { echo "✗ akashic-guards plugin-roots 沒有輸出任何根"; exit 1; }
+# #629：原為 `bash plugin/tests/rule-coverage.sh "$root"`，現在是同名子命令（呼叫形狀不變：root 是 repo 相對路徑）。
 for root in $plugin_roots; do
-  bash plugin/tests/rule-coverage.sh "$root"
+  .build/debug/akashic-guards rule-coverage "$root"
 done
 # #625：官方 plugin／marketplace 驗證（`--json` ＋ 只有一項的封閉允許清單，理由在
 # `OfficialValidate.swift` 開頭）。沒有 claude CLI 時（CI runner）印出略過——不靜默。
 .build/debug/akashic-guards official-validate
-# 逐條重建審查者宣稱的失敗情境——一條 finding 若重建不出它宣稱的失敗，
-# 那條就是未經量測的（#407 R10 的九條裡有一條正是如此）。
-bash plugin/tests/review-claim-audit.sh
+# （原本這裡有 `bash plugin/tests/review-claim-audit.sh`——逐條重建 #407 R10 審查者宣稱的失敗情境。#629 移除它：
+#  九條 finding 的受測物（`literal-census.sh` 的探測寫法、`store-marker-parity.sh` 的 5000 前導零 fixture、
+#  parity workflow 的生成表 paths、`derive-hash-extenders.swift` 的假 `--check`）隨 census 移植成 Swift 而全部不存在，
+#  剩下的只是對 sed／printf／seq 行為的示範，不守任何 repo 內的東西。逐條處置見 `changelog/2026-09-29-guards-and-census-to-swift.md`。）
 # **Swift 版**（#433 C 批 1/3）。驗證：乾淨樹逐位元相同、負控的 **14 個 case 兩版並驗**
 # （`rule-prose-guards-mutations.py` 對每個 case 同時跑兩版並要求 stdout 與 rc 逐字相同）。
 # 這支不需要 source-injection 豁免：mutation 只作用在 copy 的 plugin 樹上，守衛在原位。
 .build/debug/akashic-guards protected-ratchet
 .build/debug/akashic-guards workflow-run-scripts
 .build/debug/akashic-guards rule-prose-guards --venue Sources/AkashicCore/Venue.swift
-# #644：第 1、2 項（repo 專屬路徑不可跟隨、要在同一行揭露）對每個 plugin 根都跑；上一行已涵蓋 `plugin`（六項全跑），
-# 其餘的根只跑那兩項——第 3–6 項綁著 `plugin/` 專屬的內容。根的清單同樣只取自 `plugin-roots`。
+# #644：第 1、2 項（repo 專屬路徑不可跟隨、要在同一行揭露）對每個 plugin 根都跑；上一行已涵蓋 `plugin`（五項全跑；第 6 項於 #629 移除），
+# 其餘的根只跑那兩項——第 3–5 項綁著 `plugin/` 專屬的內容。根的清單同樣只取自 `plugin-roots`。
 for root in $plugin_roots; do
   [ "$root" = plugin ] && continue
   .build/debug/akashic-guards rule-prose-guards --root "$root" --prose-only
@@ -60,16 +62,10 @@ done
 # **Swift 版**（#433，第二支遷移的 harness）。乾淨樹逐位元相同（19 行、rc=0）。
 # 15 個 case（#644 起含一格 plugin/ 以外的根、一格不存在的根）＋ 一個注入 PoC（不只看守衛紅不紅，還看**副作用有沒有發生**）。
 .build/debug/akashic-guards rule-prose-guards-mutations
-bash plugin/skills/akashic-promote-literals/scripts/tests/hash-table-drift.sh
-# 表是逐 code point 的——這支證明對「# + 多 scalar 序列」那樣就夠
-# （12 種序列零分歧；理由見該檔）。
-swift plugin/skills/akashic-promote-literals/scripts/tests/multiscalar-parity.swift
-bash plugin/skills/akashic-promote-literals/scripts/tests/store-marker-parity.sh
-# **Swift 版**（#433，第三支遷移的 harness）。乾淨樹逐位元相同（19 行、rc=0）。
-# 14 個 mutation 的字串**機械抽出不手抄**（`MarkerParityMutationsData.swift`，由
-# `ast.literal_eval` 從 .py 生成）——它們是多行 Python 程式碼片段，而 harness 斷言每段
-# 必須在 census 裡逐字唯一命中，手抄一個空白之差就中止且失敗看起來像「census 改了」。
-.build/debug/akashic-guards marker-parity-mutations
+# （原本這裡有 census 的四件套：`hash-table-drift.sh`、`multiscalar-parity.swift`、`store-marker-parity.sh`、
+#  `marker-parity-mutations`。#629 移除：census 改成 `akashic literal-census`，marker 直接呼叫 `StoreVersion.read`——
+#  「兩份實作會不會分岔」的命題結構上不再成立。那張 46 格的 fixture 矩陣與 `_scalar` 的解碼對照搬進了
+#  `Tests/AkashicKitTests/StoreMarkerMatrixTests.swift` 與 `LiteralCensusTests.swift`。）
 # 觸發點自己的守衛：每個受保護檔案改動時，讀它的守衛真的會跑起來嗎？
 # 判準是**逐對**而非聯集——CLAUDE.md 那張手寫的觸發點表由它量。
 # **Swift 版**（#433 B 批 4/4，全樹最大的一支 846 行）。驗證：乾淨樹逐位元相同、
@@ -113,7 +109,7 @@ bash plugin/skills/akashic-promote-literals/scripts/tests/store-marker-parity.sh
 # 它自己就是 `decision-matrix-drift` 的負控，並在 `runBoth` 裡對每個 case 同時跑守衛的
 # 兩版、要求輸出逐字相同——刪掉 Python 守衛時把那一半拿掉即可。
 .build/debug/akashic-guards decision-matrix-mutations
-# rule-coverage 與 hash-table-drift 的 negative control（#407 R32）——它們先前
+# rule-coverage 的 negative control（#407 R32；#629 起 hash-table-drift 已隨 census 退場，只剩前者）——它先前
 # 每次都綠而從沒紅過，落在本 issue 自己的立場之外。
 # **Swift 版**（#433，最大的一支 835 行）。52 個 case 機械抽出＋**自我驗證**（抽出的
 # edits 套用結果必須與原 lambda 逐字相同）——那道驗證當場抓到兩個會靜默的抽取缺陷：
@@ -146,24 +142,20 @@ bash plugin/skills/akashic-promote-literals/scripts/tests/store-marker-parity.sh
 # ——`guards-python-final` 這個 tag 是參照點,但 oracle 要能**跑**（第 3a 步要兩版
 # 在同一批 mutation 上逐一比對）。實測:乾淨樹 ＋ 四個 mutation,輸出**逐字相同**。
 .build/debug/akashic-guards zero-instance-rows-audit
-# census 抽 `literal:` 值的解碼 vs YAML 純量語義（#407 R62）——distinct literal 是
-# 整個 campaign 的分母，而它先前 8 種寫法有 7 種分岔。
-# **Swift 版**（#433 C 批 3/3——C 批完成）。乾淨樹逐位元相同，負控進 `MIGRATED` 兩版並驗。
-# **它仍 spawn `python3`**，而那不是遷移沒做完：被測的東西**就是** census.sh 內嵌的 Python
-# 函數（該檔 598 行裡 573 行是內嵌 Python）。用 Swift 重寫一份等價解碼，驗的就變成我寫的
-# 那份，而不是實際在跑的那份。
-.build/debug/akashic-guards literal-scalar-parity
+# （原本這裡有 `literal-scalar-parity`——census 抽 `literal:` 值的解碼 vs YAML 純量語義（#407 R62）。#629 移植成
+#  `LiteralCensusTests.testScalarDecoderAgreesWithYams`：census 現在是 Swift，解碼函數可以直接呼叫，
+#  oracle 是 Yams（store 讀端本來就用它），不必再從 shell 檔裡抽出 Python 函數來 spawn。）
 
 
 # plugin.json 的 description 宣告 store format，而它與 `StoreVersion.supported`
 # 是同一份規格的**三個**副本（第三份是出貨物 `mcpb/manifest.json`，
 # `release-signed.sh` 會 zip 進 .mcpb）。實測三次漂移零次被發現（#408）。
 #
-# **這支仍是 Python**——#433 的 16 支遷完之後 main 才長出它（#408），所以它不在那批
-# 裡。放在這裡不是「還沒遷」的暫存：它只讀三個檔的文字、不需要 build，遷成 Swift
-# 得不到任何東西（#433 的遷移理由是「ubuntu runner 沒有 toolchain」，而現在兩個
-# workflow 已合併成一個 macOS 的，那個理由對新守衛不再適用）。
-python3 plugin/tests/plugin-store-format-parity.py
+# **這支原本是 Python**（`plugin/tests/plugin-store-format-parity.py`）——#433 的 16 支遷完之後 main 才長出它（#408），
+# 所以它不在那批裡；當時的判斷是「只讀三個檔的文字、不需要 build，遷成 Swift 得不到任何東西」。#629 起
+# `swift-is-the-implementation-language` 規定新的程式一律是 Swift，且它現在與其餘守衛住在同一個 binary 裡，
+# 所以移植成 `akashic-guards plugin-store-format-parity`（判定不變；負控在 `AuditGuardsMutationsData.swift`）。
+.build/debug/akashic-guards plugin-store-format-parity
 
 # 階段 B 摘要存檔（NDJSON）→ `[Proposal]` 的轉換腳本（#516）。fixture 6 列、純 Python、
 # 不需要 build：釘住「只收 got＋非空摘要＋DOI 在場、其餘逐筆具名」「doi 原樣透傳」

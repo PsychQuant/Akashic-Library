@@ -61,6 +61,7 @@ extension DestructiveTargetGate {
         "migrate-person-identity": .gated,
         "migrate-identifiers": .gated,   // #394：識別碼自 fields 升格、work 的 issn 移位至 venue——改寫既有記錄
         "migrate-venues": .gated,
+        "repair-venue-names": .gated,   // #575：改寫既有 venue 的名字；乾跑預設、--apply 才寫（同 migrate 族）
         "bootstrap-people": .gated,
         "bootstrap-organizations": .gated,
         "bootstrap-venues": .gated,

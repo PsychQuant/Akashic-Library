@@ -259,7 +259,7 @@ public struct Venue: Equatable {
                     listedNames += 1
                     issues.append(ValidationIssue(
                         severity: .error,
-                        message: "venue '\(displaySafeInvisible(key, max: 120))' 的 \(label)「\(displaySafeInvisible(n, max: 120))」\(why)"))   // display-safe-exempt: label 是本函式的字面常量；why 是 NameIdentity 的固定訊息（含 U+ 十六進位，非 store 字串）
+                        message: Self.wellFormednessMessage(key: key, label: label, value: n, why: why)))
                 }
             }
         }
@@ -536,6 +536,12 @@ public struct Venue: Equatable {
                 message: "未知欄位「\(displaySafeInvisible(f.key, max: 120))」——可能由較新版本寫入（已保留；升級 binary 或檢查 typo）"))
         }
         return issues
+    }
+
+    /// 一個字串違反名字內容不變式時的訊息（#554 D8）。**單一定義**：`validate()` 用它組訊息，`VenueNameRepair`（#575）用它認出
+    /// 哪些 error 是逐字串的、它已經自己具名過——兩邊若各寫一份格式，修復報告會對同一個字串說兩次、而且哪天分岔了沒有東西會紅。
+    static func wellFormednessMessage(key: String, label: String, value: String, why: String) -> String {
+        "venue '\(displaySafeInvisible(key, max: 120))' 的 \(label)「\(displaySafeInvisible(value, max: 120))」\(why)"   // display-safe-exempt: label 是呼叫端的字面常量（names／authorized／variant）；why 是 NameIdentity 的固定訊息（含 U+ 十六進位，非 store 字串）
     }
 
     /// 沿革豁免用的「不相交」——**保守方向**，與 `DateRange.overlaps` 刻意不同（R6 verify 第 9／35／47 列）。

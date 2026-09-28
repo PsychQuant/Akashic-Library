@@ -169,7 +169,7 @@ code:
 ---
 ### Requirement: Venue name well-formedness
 
-Every string in a venue's `names[].value`, `authorized`, and `variant` SHALL satisfy the following invariants at write time. A violation SHALL fail validation at error level, so every write surface refuses to write the record until it is fixed. Decoding SHALL NOT enforce them: a stored record that violates them still loads, and `validate`, the MCP `akashic_doctor` payload, and the App report it (the CLI `doctor` prints no per-record issues). The fix is a human edit of the YAML; no write surface SHALL silently rewrite a stored name.
+Every string in a venue's `names[].value`, `authorized`, and `variant` SHALL satisfy the following invariants at write time. A violation SHALL fail validation at error level, so every write surface refuses to write the record until it is fixed. Decoding SHALL NOT enforce them: a stored record that violates them still loads, and `validate`, the MCP `akashic_doctor` payload, and the App report it (the CLI `doctor` prints no per-record issues). The fix is a human edit of the YAML, with one mechanical exception: a string whose only violation is invariant 1, whose canonical form satisfies every other invariant, and whose record passes validation once all such strings in it are rewritten, MAY be rewritten by `akashic repair-venue-names`, which lists every rewrite in a dry run and writes only with `--apply`. No write surface SHALL silently rewrite a stored name.
 
 1. **Canonical form.** The string SHALL be NFC, with no leading or trailing whitespace, and every run of `White_Space` scalars inside it collapsed to a single U+0020. Canonicalization removes only whitespace; no other scalar is dropped.
 2. **No dangerous or invisible scalar.** The string SHALL contain no member of the output gate `UnsafeToEmitScalar`, except private-use (Co) scalars. ZWJ (U+200D) and ZWNJ (U+200C) are accepted only in the two joiner contexts defined in `docs/store-format.md` §5.7, and are rejected anywhere else.
@@ -229,6 +229,20 @@ The scalar classes behind invariant 2 (the output gate's property: Default_Ignor
 - **GIVEN** a venue whose `names` contains more than 100 canonically equal segments, each a disjoint renaming-history segment
 - **WHEN** the store validates it
 - **THEN** validation fails at error level, because the group exceeds 5,000 pairwise comparisons
+
+#### Scenario: A trailing-whitespace name is rewritten only on explicit apply
+
+- **GIVEN** a stored venue whose `names` and `authorized` both contain `Psychometrika ` with a trailing space, in a store whose venue files are committed
+- **WHEN** the operator runs `akashic repair-venue-names`
+- **THEN** it lists both rewrites to `Psychometrika` and writes nothing
+- **AND WHEN** the operator runs it again with `--apply`
+- **THEN** both strings become `Psychometrika` and the record passes validation
+
+#### Scenario: A name that needs judgment is only named
+
+- **GIVEN** a stored venue whose `names` contains a string with U+200B
+- **WHEN** the operator runs `akashic repair-venue-names --apply`
+- **THEN** the record is not modified and the report names the string and the reason
 
 <!-- @trace
 source: venue-name-wellformedness-spec

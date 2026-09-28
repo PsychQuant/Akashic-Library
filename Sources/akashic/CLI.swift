@@ -95,6 +95,7 @@ struct AkashicCLI: ParsableCommand {
             VenueCmd.self, VenuesCmd.self, AddVenueCmd.self, UpdateVenueCmd.self, ResolveVenuesCmd.self,
             MigrateVenues.self,
             MigrateVenueVariants.self,
+            RepairVenueNames.self,   // #575：venue 名字 canonical 形的機械修復（乾跑預設，CLI-only 維運例外）
         MigrateIdentifiers.self,
             ReferencesCmd.self,   // #617：skill 的中間運算（extract），不寫 store、不打網路
         ])

@@ -82,7 +82,8 @@ public enum NameIdentity {
 
     /// **名字內容的不變式**（#554 R4 verify，使用者裁決 D8）：這個字串能不能作為一個名字
     /// 進 store。回 `nil`＝可以；否則回一句**對操作者**說的理由（修法是人改 YAML，訊息要說
-    /// 改什麼，不得叫他呼叫一個 Swift 函式——R5 verify 第 17 列）。
+    /// 改什麼，不得叫他呼叫一個 Swift 函式——R5 verify 第 17 列）。第 1 條（canonical 形）另有
+    /// 一個機械修復面：`akashic repair-venue-names`（#575，`VenueNameRepair`），只改確定性的那一類。
     ///
     /// 住在這裡而不是某個寫入面，是因為 R2→R4 三輪把閘裝在 `updateVenue` 的三個迴圈裡，
     /// 而同一個欄位還有 `addVenue` 與 `VenueBootstrap` 兩個寫入者——「守衛住在 validate →
@@ -128,8 +129,11 @@ public enum NameIdentity {
         let canon = canonical(name)
         if canon.isEmpty { return "是空白——沒有名字，請刪掉這一筆" }
         if Array(name.utf8) != Array(canon.utf8) {   // 只比位元組——Swift `!=` 是 canonical equivalence，位元組相等蘊含它，那個析取項恆為死碼（R16 verify logic 第 25 列）
+            // 這一條是唯一有機械修復面的（#575）：正規化之後合法、且整筆記錄改完之後通過 validate 的，`repair-venue-names` 乾跑列出、
+            // `--apply` 改寫；其餘它只具名。這句只會出現在 store 裡的字串上——寫入面（`vetVenueNames`）與 bootstrap 都先 canonical 再問
             return "不是 canonical 形（前後／連續空白、tab 或未 NFC）——請在 YAML 裡把這一筆改成"
-                 + "去掉前後空白、連續空白收成一個、NFC 的寫法"
+                 + "去掉前後空白、連續空白收成一個、NFC 的寫法；或跑 akashic repair-venue-names 先看它能確定性改寫哪幾筆、"
+                 + "確認後加 --apply（正規化後仍不合法、或改完會與同清單另一筆重複的，它只具名不改，#575）"
         }
         let scalars = Array(name.unicodeScalars)
         for (i, u) in scalars.enumerated() {

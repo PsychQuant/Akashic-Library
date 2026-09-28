@@ -1607,7 +1607,7 @@ encode/decode 等冪。
   掛死。但對**完整性與顯示安全**而言它是未信任的：檔案可能由別的 binary、別人、
   Dropbox 同步寫入，所以未知欄位 key 與 quarantine reason 一律經 `displaySafe`。
   兩者不矛盾——是同一份資料在不同軸上的不同假設，而 DoS 那條軸的防線還沒蓋。
-### 5.7 venue 的名字內容：寫入期不變式（normative，#554 D8；R6／R7／R9／R10／R11 補記）
+### 5.7 venue 的名字內容：寫入期不變式（normative，#554 D8；R6／R7／R9／R10／R11 補記；修復面 #575）
 
 `venue:` 記錄的 `names[].value`／`authorized[]`／`variant[]` 每一筆字串在**寫入期**
 （`writeVenue`／`fmt`／合併的 keeper 寫回／work・person 合併對持有被併鍵 verdict 的 holder 遷移——venue、
@@ -1680,9 +1680,30 @@ organization 零 error——擴閘不拒絕任何既有記錄；閘在 `fieldsLo
 整筆上限擋掉的組時是 warning，不重複第 6 條的 fail-closed。第 5 條的「超過即 error」說的是**那一組**的訊息，不是概括句。
 
 **修法是人改 YAML**（不猜、不靜默修）：訊息逐條說改什麼——改成 canonical 寫法、刪掉那個
-字元、刪掉那一筆、或把沿革段補上不相交的時間。工具不提供 `--repair`。同一句訊息也出現在
+字元、刪掉那一筆、或把沿革段補上不相交的時間。同一句訊息也出現在
 寫入面（`add-venue`／`update-venue`）與合併 dry-run 的拒絕裡——那時「請刪掉它」指的是呼叫端
 的輸入、「被併的 X 的 names…」指的是被併記錄的 YAML。
+
+**第 1 條有一個機械修復面，只管確定性的那一類**（#575，使用者 2026-09-28 裁決）：
+`akashic repair-venue-names`。乾跑是預設——逐筆列出「venue／清單[index]：before → after」與改了什麼
+（未 NFC、前後空白、內部空白；NFC 把單一碼位換成另一個時逐碼位說出來，例如 CJK 相容表意文字
+U+FA10 → U+585A——那是位元組層有損的，見下方誠實邊界），`--apply` 才改寫。它改寫的只有同時滿足
+四個條件的字串（封閉，不得依性質相似類推第五個）：
+
+1. 違反的**只有**不變式第 1 條——`NameIdentity.canonical` 的結果非空，且正規化之後通過不變式第 2、3 條；
+2. 沒有 `field: names`／`field: authorized` 的 reference 以**位元組**指著這個拼法（改寫會讓那筆 provenance
+   對不上，要不要跟著改是判斷）；
+3. 這一筆 venue 的全部確定性改寫做完之後，`Venue.validate()` 沒有 error——沒造出不變式第 4 條的近重複（沿革段的豁免照
+   本節自己的定義判）、`authorized ⊆ names` 與兩個分割的互斥仍成立、記錄沒有任何其他 error；
+4. 改寫之後 reference 的附著驗證仍通過（上面第 2 個條件擋位元組相同的；這一個接住只差 canonical 等價的那幾筆）。
+
+其餘——不變式第 2、3 條的違反、空白、近重複對、正規化之後仍不合法、同一筆記錄的其他 error——**只具名與理由，一筆都不動**；
+同一筆記錄只要還有一項要判斷，它的確定性改寫**全部延後**（記錄還有 error 就寫不進去），照列但不寫。`--apply` 要求
+那些 venue 檔已在 git 裡 commit、乾淨（被改寫前的位元組只剩 git 那一份），任一筆過不了寫入閘（format 閘、validate、
+encode 自檢）即整批拒絕、零寫入；乾跑把同一組閘的拒絕當預告印出來。`--apply` 要過 #298 的目標 store 確認閘，乾跑不受它管制。
+這是程式編輯（`two-kinds-of-edits`）、CLI-only 的維運例外（`mcp-cli-parity`），沒有 MCP 面。`fmt` 仍對帶 error 的
+記錄拒絕——它的語意是 canonical 序列化，不修內容。寫回走 `VenueYAML.encode`，所以檔案原本若不是 §3.4 的 canonical
+序列化，git diff 會多出排版差異；名字以外的內容不變。
 
 **誠實邊界（fail-closed，不是靜默損失）**：第 2 條的「DI 一律不可見」擋掉幾類真實正字法用字
 ——CJK 表意文字變體序列（IVS，U+E0100–E01EF）、蒙古文 FVS／MVS（U+180B–180F）、希伯來文的
@@ -1698,7 +1719,8 @@ R8 verify 第 21／28／38 列；理由句 R10 依 R9 verify 第 24 列改寫—
 **部署視窗（R5 verify 第 16 列）**：這條不變式沒有 format bump，refuse-if-newer 管不到。
 三個 binary（CLI／`akashic-mcp`／App）**全部**升到 #554 世代之前，舊 binary 仍可寫入
 `"X "` 這類字串——它在舊 binary 合法、在新 binary 之後對**那筆 venue 的所有寫入**拒絕
-（含 `add_names`、`paginated`、verdict 寫回），且沒有面能修（只能手改）。所以升級順序是
+（含 `add_names`、`paginated`、verdict 寫回），且在 #575 之前沒有面能修（只能手改；#575 起第 1 條的確定性那一類
+可以用 `repair-venue-names` 修，其餘仍只能手改）。所以升級順序是
 「三 binary 全升 → 跑 `akashic validate` 確認名字內容 error 為 0 → 才視為生效」；視窗
 期間發現的違反照上一段修。2026-09-12 實測 live store 485 筆 venue 違反 0。
 

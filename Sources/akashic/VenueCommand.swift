@@ -338,7 +338,7 @@ struct MigrateVenueVariants: ParsableCommand {
 struct ResolveVenuesCmd: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "resolve-venues",
-        abstract: "venue 解析：不帶參數列候選與歧義；--apply 升格 literal 為 key（寫 confirmed verdict；會讓同一 work 兩條邊指同一 venue 的候選逐筆略過並回報 skippedDuplicateVenueEdge；目的 venue 已對該 work 持有另一個 confirmed literal（沒有對應的邊；相等比位元組，同一 literal 的另一個拼法也略過——之後 demote 會還回舊拼法）的候選逐筆略過並回報 skippedConflictingConfirmedLiteral，D38／D43，且在重複邊檢查之後判，D44；同一 work 兩條拼法不同的 literal 邊指向同一 venue 時誰落地由 --apply 的順序決定，先到先寫，D28／D33）；--reject 否決（寫 rejected verdict）；--repoint 改指已歸戶的邊（兩側都寫 verdict）；--demote 退回 literal（原字串從 verdict 取回，#418）。--repoint／--demote 寫 verdict 時會刪掉同 holder 上同一配對的相反判定（D20，逐筆列在 verdictsRetired、截 20 筆），前提不符整批拒絕零寫入（≥2 個不同 confirmed literal D23；配對由多條邊實例化 D25；被動到的邊與另一條邊同 venue、或同一批同一 literal 且觸及同一 venue D27；改指後目的 venue 會對該 work 持有第二個 confirmed literal——相等比位元組、另一個拼法也算 D38／D43；同一條邊在同一批被指定兩次 R16）。提名的否決抑制以正規化後的 literal 為鍵（R12）：對一個拼法的 --reject／--demote 會壓住同 work 同 venue 的其他拼法，撤回面見 #559。候選所在的 work 無法唯一定位（citekey 重複或與另一筆共用 id）時 --apply 逐筆略過並回報 skippedUnlocatable，--reject／--repoint／--demote 整批拒絕（#628）")
+        abstract: "venue 解析：不帶參數列候選與歧義；--apply 升格 literal 為 key（寫 confirmed verdict；會讓同一 work 兩條邊指同一 venue 的候選逐筆略過並回報 skippedDuplicateVenueEdge；目的 venue 已對該 work 持有另一個 confirmed literal（沒有對應的邊；相等比位元組，同一 literal 的另一個拼法也略過——之後 demote 會還回舊拼法）的候選逐筆略過並回報 skippedConflictingConfirmedLiteral，D38／D43，且在重複邊檢查之後判，D44；同一 work 兩條拼法不同的 literal 邊指向同一 venue 時誰落地由 --apply 的順序決定，先到先寫，D28／D33）；--reject 否決（寫 rejected verdict）；--repoint 改指已歸戶的邊（兩側都寫 verdict）；--demote 退回 literal（原字串從 verdict 取回，#418）。--drop-venue 移除一條邊（理由只進報告，#572）。--repoint／--demote 寫 verdict 時會刪掉同 holder 上同一配對的相反判定（D20，逐筆列在 verdictsRetired、截 20 筆），前提不符整批拒絕零寫入（≥2 個不同 confirmed literal D23；配對由多條邊實例化 D25；被動到的邊與另一條邊同 venue、或同一批同一 literal 且觸及同一 venue D27；改指後目的 venue 會對該 work 持有第二個 confirmed literal——相等比位元組、另一個拼法也算 D38／D43；同一條邊在同一批被指定兩次 R16）。提名的否決抑制以正規化後的 literal 為鍵（R12）：對一個拼法的 --reject／--demote 會壓住同 work 同 venue 的其他拼法，撤回面見 #559。候選所在的 work 無法唯一定位（citekey 重複或與另一筆共用 id）時 --apply 逐筆略過並回報 skippedUnlocatable，--reject／--repoint／--demote 整批拒絕（#628）")
 
     @OptionGroup var options: LibraryOptions
 
@@ -366,9 +366,24 @@ struct ResolveVenuesCmd: ParsableCommand {
             help: "未決記錄的證據（可重複）：sha256:<64 hex>，先用 store-source 存檔。套用到這次呼叫的每一筆 --undecided——不同配對要附不同證據就分次呼叫。只伴隨 --undecided")
     var restsOn: [String] = []
 
+    @Option(name: .customLong("drop-venue"), parsing: .upToNextOption,
+            help: "移除 venue 邊（可重複）：citekey:venueIndex=理由（#572）。index 是原始位置。key 邊只在刪完後本 work 仍有另一條 key 邊指同一 venue 時可刪（否則先 --demote 再刪 literal 邊）；literal 邊一律可刪。理由必填、只印在報告裡——不寫進 store，要留在 git 就寫進 commit message；移除前要求那些 work 檔已 commit、乾淨。格式錯、理由空白、同一條邊兩次、越界、citekey 無法唯一定位，整批拒絕零寫入。刪光一筆 work 的 venue 邊時會具名（migrate-venues 與 Zotero pull 會重新推導）。單獨呼叫")
+    var dropVenue: [String] = []
+
     func run() throws {
         if !restsOn.isEmpty && undecided.isEmpty {
             throw ValidationError("--rests-on 只伴隨 --undecided 使用（#619）")
+        }
+        if !dropVenue.isEmpty {
+            guard apply.isEmpty, reject.isEmpty, repoint.isEmpty, demote.isEmpty, undecided.isEmpty else {
+                throw ValidationError("--drop-venue 單獨呼叫（不與 --apply／--reject／--repoint／--demote／--undecided 組合）")
+            }
+            try options.assertDestructiveTargetNamed("resolve-venues", flag: "--drop-venue", hasDryRun: false)
+            let store = try options.openStore()
+            let service = AkashicService(root: store.root, key: store.key,
+                                         environment: ProcessInfo.processInfo.environment)
+            print(try service.resolveVenues(apply: nil, drop: dropVenue))
+            return
         }
         if !undecided.isEmpty {
             guard apply.isEmpty, reject.isEmpty, repoint.isEmpty, demote.isEmpty else {

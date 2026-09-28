@@ -894,15 +894,15 @@ confirmed literal 會讓倖存者對某個 work 持有 ≥2 個正規化後不�
 合併的事；D33 的勝者由**呼叫端的順序**決定（先到先寫，`apply` 陣列保序不排序——同一 work 兩條拼法不同的
 literal 邊誰落地、confirmed 帶哪個字串，都取決於呼叫端送的順序），略過訊息分「既有的 key 邊」與「同一批稍早的
 候選」兩種來源。**合併本身是一種移除面**（R12 verify logic 第 38 列）：`resolveVenueDivergence` 對 entry 的 key
-邊去重時，與被併鍵無關的既有重複 key 邊也會被收成一條（#553 起）、報告只有 `entriesRewritten` 的計數——#572
-落地前留著，這裡把它寫出來。
+邊去重時，與被併鍵無關的既有重複 key 邊也會被收成一條（#553 起）、報告只有 `entriesRewritten` 的計數——#572 的
+`resolve-venues --drop-venue`（2026-09-28）落地後它不再是唯一的移除面，這裡仍把它寫出來。
 既有的違反：第一半（同一 work 兩條 key 邊指同一 venue）由 `Entry.validate()` 報 warning（`zero-instance-guards`
 第 26 列）；第二半（同一 (venue, work) 上 ≥2 個正規化後不同的 confirmed literal，以及只差位元組的重複記錄）由 `Venue.validate()`
 報 warning（第 27 列，R14／R15——R13 之前這一半全庫沒有掃描面，而真正造出它的路徑（work 合併）結構上不會點亮第一半的燈，
 R13 verify DA 第 16 列）。**第二半的掃描面只有 venue×work**（R20 更正，R19 verify requirements 第 4 列）：person／organization 持 work、三種 holder
 持 person 的六格沒有對應的 `validate()` 掃描，「應恆為 0」對那六格不是量測、是沒量——rename 的收攏對它們同樣不判定（§3.5）。兩族自 R15 起各有 `StoreHealth` 家族（doctor 的 `recordIssues` 與 App 側欄各一個計數）、每筆記錄最多列
 20 則——概括句自 R16 起用自己的前綴（`Entry.perRecordCapSummaryPrefix`）、不進任何家族，所以家族計數是「受影響數，至多上限」
-（R15 verify 第 29 列：R15 讓概括句帶家族前綴，被截的記錄計數變 21）。修法都是手改 YAML——刪掉多餘的邊、或刪掉不屬於那條邊的 confirmed verdict——移除面是 #572。
+（R15 verify 第 29 列：R15 讓概括句帶家族前綴，被截的記錄計數變 21）。修法：多餘的邊用 `resolve-venues --drop-venue` 刪（#572；key 邊只在同一 venue 還有另一條 key 邊時可刪）；不屬於那條邊的 confirmed verdict 仍只能手改 YAML——verdict 沒有移除面。
 **R14 把三處閘收成一個謂詞**（R13 verify 33 列、6 席齊）：R13 的 keeper 路徑用「被併者對累積中的 keeper 找相反鍵」的
 delta 謂詞——漏掉矛盾整組住在同一筆被併者裡、以及單一被併者自帶兩個 literal 而倖存者對該 work 無 verdict（D32 多了「keeper
 已有 ≥1」的前提）；holder 路徑用整份清單的絕對謂詞——既有且與被併鍵無關的 #486 矛盾對擋下不相干的合併、訊息把因果歸給這次

@@ -1023,7 +1023,7 @@ extension Entry {
         // **兩條 key 邊指同一 venue 要出聲**（#554 R11，D28；`zero-instance-guards` 第 26 列）：verdict 以 (work, literal) 為鍵、
         // 不帶 venue index，這種 work 在 repoint／demote 上都會被拒（D25），而工具面自 R11 起造不出它（apply／repoint 的閘）——
         // 只有手改或舊 binary 寫的，而 R10 verify 之前 `validate`／`doctor`／App 對它一律綠燈。warning：記錄合法，失效的是判定
-        // 逆轉的前提；修法只有手改 YAML（移除面：#572）。literal 邊不算——那是尚未判定的誠實狀態。
+        // 逆轉的前提；修法是 resolve-venues --drop-venue 刪掉多餘的邊（#572）。literal 邊不算——那是尚未判定的誠實狀態。
         // 則數有上限（R15；R14 verify logic 第 16 列、security 第 18 列：本檢查在讀取路徑上對未信任的 store 內容跑，
         // 同一輪為近重複檢查加了上限、這裡卻逐筆無上限）；概括句用 `perRecordCapSummaryPrefix`、**不帶**家族前綴（R16；R15 verify
         // 第 29 列：帶了家族前綴，`StoreHealth.duplicateVenueEdges` 把它算成一則——家族計數因此是「至多上限」，不是「印了幾行」）。
@@ -1037,7 +1037,7 @@ extension Entry {
                 // `venues[].key` 沒有 StoreKey 約束（decode 只做 scalarString），所以以性質逃脫（R16 verify security 第 17 列）
                 message: "\(Self.duplicateVenueEdgePrefix)：venues 有 \(idx.count) 條邊指向同一 venue「\(displaySafeInvisible(k, max: 120))」（\(IndexList.render(idx))）"   // display-safe-exempt: 前綴是常量；Int 序列（IndexList 有上限）
                        + "——配對只能由一條邊實例化（verdict 不帶 index），resolve-venues 的 repoint／demote 對它會拒絕；"
-                       + "請在 YAML 裡刪掉多餘的邊（移除面：#572）"))
+                       + "以 resolve-venues --drop-venue（MCP drop_venue）刪掉多餘的邊（#572）"))
         }
         if unlisted > 0 {
             issues.append(ValidationIssue(severity: .warning,

@@ -815,7 +815,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
             XCTAssertThrowsError(try op()) { err in
                 let s = String(describing: err)
                 XCTAssertTrue(s.contains("2 條邊") || s.contains("兩條邊"), s)
-                XCTAssertTrue(s.contains("YAML") && s.contains("#572"), "要說怎麼修、指向移除面的 issue：\(s)")
+                XCTAssertTrue(s.contains("--drop-venue") && s.contains("#572"), "要說怎麼修、指向移除面：\(s)")
             }
         }
         XCTAssertEqual(try store.load().entries.first?.venues, [.key("some-journal"), .key("some-journal")], "零寫入")

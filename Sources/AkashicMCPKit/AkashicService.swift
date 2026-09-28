@@ -4180,6 +4180,7 @@ public final class AkashicService {
     public func resolveVenues(apply: [String]?, reject: [String]? = nil,
                               repoint: [String]? = nil, demote: [String]? = nil,
                               undecided: [String]? = nil, restsOn: [String]? = nil,
+                              drop: [String]? = nil,
                               retiredLimit: Int? = AkashicService.retiredItemsCap) throws -> String {
         // 負數上限要在任何寫入之前拒絕：`prefix` 對負數是 precondition failure，而 retiredPayload 在寫完之後才組（#573 R1）
         if (retiredLimit ?? 0) < 0 {
@@ -4189,6 +4190,13 @@ public final class AkashicService {
         let present = { (x: [String]?) in !(x ?? []).isEmpty }
         if present(restsOn) && !present(undecided) {
             throw ServiceError.invalid("rests_on 只伴隨 undecided 使用（它是未決記錄查了什麼的證據，#619）")
+        }
+        // #572：移除腿單獨呼叫——它改的是邊的數量，混在一批裡會讓其他腿的 index 意義改變（同 split_author 的既有契約）
+        if present(drop) {
+            guard ![present(apply), present(reject), present(repoint), present(demote), present(undecided)].contains(true) else {
+                throw ServiceError.invalid("drop 單獨呼叫，不得與 apply／reject／repoint／demote／undecided 組合——分次呼叫（#572）")
+            }
+            return try dropVenueEdges(drop ?? [])
         }
         if present(undecided) {
             guard ![present(apply), present(reject), present(repoint), present(demote)].contains(true) else {
@@ -4361,7 +4369,7 @@ public final class AkashicService {
         // 提名面不變所以每次重列都再提（campaign 是照 listing 全量 apply）；既有的重複邊（手改／舊 binary／合併後的 literal 邊）會把
         // 同一 work 上不相干的歸戶鎖死，訊息還把因果歸給這次 apply（第 4／9／12／14 列）。store 狀態不符是「該筆略過並具名」
         // 那一類（`judge` 的先例：語法錯整批拒、store 狀態不符逐筆略過），只有**這次會製造**的重複才擋，既有的重複交給
-        // `Entry.validate()` 的 warning。略過的候選會一直被提名（提名面不看 key 邊）——出路是刪掉多餘的邊（#572）。
+        // `Entry.validate()` 的 warning。略過的候選會一直被提名（提名面不看 key 邊）——出路是 --drop-venue 刪掉多餘的邊（#572）。
         // **勝者由呼叫端的順序決定**（先到先寫；`dedupe` 保序不排序，MCP 收的是呼叫端任意順序的陣列——兩面描述都寫明）。
         // 兩種來源分開措辭（R12 verify 第 19／21／23 列）：既有的 key 邊 vs 同一批稍早的候選（那條邊此刻還是 literal）。
         let requestedWorks = Set(requested.map(\.citekey))   // O(entries)（R12 verify regression 第 33 列：contains(where:) 是平方）
@@ -4394,7 +4402,7 @@ public final class AkashicService {
                                 "venueKey": displaySafe(c.venueKey, max: 200),
                                 "reason": head + "——配對只能由一條邊實例化（verdict 不帶 index，D25），"
                                     + "這條 literal 邊是同一本刊的重複來源欄位（journaltitle／booktitle／publisher）；略過不寫，"
-                                    + "它會一直被提名——出路是手改這筆 work 的 YAML 刪掉多餘的邊（移除面：#572）"])
+                                    + "它會一直被提名——出路是以 resolve-venues --drop-venue（MCP drop_venue）刪掉這條 literal 邊：\(displaySafe(c.rowID, max: 200))=理由（#572）"])
                 continue
             }
             // **目的 venue 已對這筆 work 持有另一個 confirmed literal 的候選逐筆略過**（R15，Claude 代裁 D38；R14 verify Codex 第 1 列
@@ -4573,7 +4581,7 @@ public final class AkashicService {
                     throw ServiceError.invalid(
                         "同一批裡 work「\(displaySafeInvisible(ck, max: 200))」的 index \(a.index) 與 index \(b.index) 兩條邊帶同一個 literal"   // display-safe-exempt: Int
                         + "\(spelled)且觸及同一個 venue——verdict 以 (work, literal) 為鍵、不帶 index，"   // display-safe-exempt: spelled 由上一行逐項 displaySafeInvisible 組成
-                        + "兩個 move 對同一配對的退役會互相覆蓋，留下哪一側的證據取決於輸入順序。出路：先刪掉重複的邊（移除面：#572）")
+                        + "兩個 move 對同一配對的退役會互相覆蓋，留下哪一側的證據取決於輸入順序。出路：先以 resolve-venues --drop-venue（MCP drop_venue）刪掉重複的邊（#572）")
                     }
                 }
             }
@@ -4718,8 +4726,8 @@ public final class AkashicService {
                 "\(operation)後 work「\(displaySafeInvisible(entry.citekey, max: 200))」會有 \(idx.count) 條邊指向同一 venue"   // display-safe-exempt: operation 是固定字串（改指）；Int
                 + "「\(displaySafeInvisible(k, max: 200))」（\(IndexList.render(idx))）"   // display-safe-exempt: Int 序列（IndexList 有上限）
                 + "——配對只能由一條邊實例化（verdict 不帶 index，D25），之後這兩條邊在 repoint／demote 上都會被拒。"
-                + "出路：那是同一本刊的重複來源欄位（journaltitle／booktitle／publisher），先手改這筆 work 的 YAML 刪掉多餘的邊"
-                + "（移除面：#572），再重跑")
+                + "出路：那是同一本刊的重複來源欄位（journaltitle／booktitle／publisher），先以 resolve-venues --drop-venue（MCP drop_venue）"
+                + "刪掉多餘的邊（#572），再重跑")
         }
     }
 
@@ -4764,7 +4772,7 @@ public final class AkashicService {
                 "work「\(displaySafeInvisible(entry.citekey, max: 200))」的配對（literal「\(displaySafeInvisible(literal, max: 120))」）由 "
                 + "\(others.count + 1) 條邊實例化（\(IndexList.render(([index] + others).sorted()))）"   // display-safe-exempt: Int 序列（IndexList 有上限）
                 + "——verdict 不帶 index，\(operation)退役那筆 verdict 會把另一條邊的證據一起刪、之後那條邊在任何工具面上都救不回來。"   // display-safe-exempt: 固定字串（改指／降格）
-                + "出路：手改這筆 work 的 YAML 刪掉重複的邊（移除面：#572），再重跑")
+                + "出路：以 resolve-venues --drop-venue（MCP drop_venue）刪掉重複的邊（#572），再重跑")
         }
     }
 

@@ -78,7 +78,7 @@ struct RecordIssuesSection: View {
             if summary.duplicateVenueEdges > 0 {
                 LabeledContent("同一 venue 多條 key 邊", value: summary.lowerBound(summary.duplicateVenueEdges))
                     .help("一筆 work 有兩條以上 key 邊指向同一 venue（#554 D28）。配對只能由一條邊實例化，"
-                          + "resolve-venues 的 repoint／demote 對它會拒絕；在 YAML 裡刪掉多餘的邊（移除面：#572）。")
+                          + "resolve-venues 的 repoint／demote 對它會拒絕；以 resolve-venues --drop-venue 刪掉多餘的邊（#572）。")
             }
             if summary.confirmedLiteralAmbiguities > 0 {
                 LabeledContent("同一 work 多個 confirmed literal", value: summary.lowerBound(summary.confirmedLiteralAmbiguities))

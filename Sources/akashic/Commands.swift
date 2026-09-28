@@ -100,8 +100,13 @@ struct Doctor: ParsableCommand {
             print("divergences: \(load.divergences.count)")
         }
         print("relations: \(stats.relations)")
-        let orphaned = load.entries.filter { $0.provenance?.orphanedAt != nil }
-        print("orphaned: \(orphaned.count)\(orphaned.isEmpty ? "" : "（" + orphaned.map { displaySafe($0.citekey, max: 200) }.joined(separator: ", ") + "）")")
+        // 讀 `health`，不自己推導（#609）：這裡先前自己寫 `provenance?.orphanedAt != nil`，與 `StoreHealth` 是兩份判準——
+        // 「只有附加來源、全部已刪除」的 entry 在這一行看不見，而 #609 把判準收成 `Entry.zoteroLinkState` 一份。
+        let orphaned = health.orphanedCitekeys
+        print("orphaned: \(orphaned.count)\(orphaned.isEmpty ? "" : "（" + orphaned.map { displaySafe($0, max: 200) }.joined(separator: ", ") + "）")")
+        // #609：主連結仍在、附加來源已在 Zotero 端刪除——與上一行不相交；處置在 App 裁決台（拿掉已刪除的附加來源）
+        let partial = health.orphanedAdditionalSourceCitekeys
+        print("orphaned additional sources: \(partial.count)\(partial.isEmpty ? "" : "（" + partial.map { displaySafe($0, max: 200) }.joined(separator: ", ") + "——App 裁決台 Orphans 可拿掉已刪除的來源）")")
         let unresolved = load.entries.flatMap { entry in
             entry.authors.compactMap { if case .literal(let s) = $0 { return s } else { return nil } }
         }

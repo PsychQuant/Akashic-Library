@@ -121,39 +121,72 @@ struct PeopleResolveView: View {
     }
 }
 
-/// 裁決台②：orphan 三選（等待／垃圾桶／轉純 Akashic）。
+/// 裁決台②：orphan 三選（等待／垃圾桶／轉純 Akashic）；#609 起另一節列出附加來源已刪除的 entry（等待／拿掉已刪除的來源）。
 struct OrphanView: View {
     @Environment(AppState.self) private var state
     @State private var model: OrphanModel?
     @State private var pendingTrash: String?
     @State private var errorMessage: String?
+    /// #609：等著填理由的「拿掉已刪除的附加來源」
+    @State private var pendingRemoval: String?
+    @State private var removalReason = ""
+    @State private var resultMessage: String?
 
     var body: some View {
         Group {
             if let model {
-                if model.orphans.isEmpty {
+                if model.orphans.isEmpty && model.orphanedAdditionalSourceEntries.isEmpty {
                     ContentUnavailableView("沒有 orphan", systemImage: "checkmark.seal")
                 } else {
-                    List(model.orphans, id: \.citekey) { entry in
-                        HStack {
-                            VStack(alignment: .leading) {
-                                Text(entry.displayTitleOrCitekey).lineLimit(1)
-                                Text("\(entry.citekey) — Zotero 端已刪除")   // display-safe-exempt: citekey 過 load 端 quarantine（StoreKey）
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                    List {
+                        if !model.orphans.isEmpty {
+                            Section("整筆 orphan（Zotero 端已刪除）") {
+                                ForEach(model.orphans, id: \.citekey) { entry in
+                                    HStack {
+                                        VStack(alignment: .leading) {
+                                            Text(entry.displayTitleOrCitekey).lineLimit(1)
+                                            Text("\(entry.citekey) — Zotero 端已刪除")   // display-safe-exempt: citekey 過 load 端 quarantine（StoreKey）
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                        Spacer()
+                                        Button("轉純 Akashic") {
+                                            attempt { try model.resolve(citekey: entry.citekey, action: .detachFromZotero) }
+                                        }
+                                        Button("刪除…", role: .destructive) { pendingTrash = entry.citekey }
+                                    }
+                                    .padding(.vertical, 4)
+                                }
                             }
-                            Spacer()
-                            Button("轉純 Akashic") {
-                                attempt { try model.resolve(citekey: entry.citekey, action: .detachFromZotero) }
-                            }
-                            Button("刪除…", role: .destructive) { pendingTrash = entry.citekey }
                         }
-                        .padding(.vertical, 4)
+                        if !model.orphanedAdditionalSourceEntries.isEmpty {
+                            // #609：主連結仍在，只有附加來源（另一個 library 的那份）被刪。先前除了 get_entry 沒有地方看得到。
+                            Section("附加來源已刪除（主連結仍在）") {
+                                ForEach(model.orphanedAdditionalSourceEntries, id: \.citekey) { entry in
+                                    HStack {
+                                        VStack(alignment: .leading) {
+                                            Text(entry.displayTitleOrCitekey).lineLimit(1)
+                                            Text("\(entry.citekey) — 已刪除：\(entry.displayOrphanedAdditionalSources)")   // display-safe-exempt: citekey 過 load 端 quarantine；後者是消毒投影
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                        Spacer()
+                                        Button("拿掉已刪除的來源…") {
+                                            removalReason = ""
+                                            pendingRemoval = entry.citekey
+                                        }
+                                    }
+                                    .padding(.vertical, 4)
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
-        .navigationTitle("Orphans（\(model?.orphans.count ?? 0)）")
+        .navigationTitle("Orphans（\(model?.orphans.count ?? 0)"
+                         + ((model?.orphanedAdditionalSourceEntries.count ?? 0) > 0
+                            ? "＋\(model!.orphanedAdditionalSourceEntries.count) 附加來源" : "") + "）")
         .task(id: state.reloadCount) { model = OrphanModel(state: state) }
         .confirmationDialog("刪除這筆 entry？檔案會移到垃圾桶（可救回）。",
                             isPresented: Binding(
@@ -169,6 +202,28 @@ struct OrphanView: View {
             }
             Button("取消", role: .cancel) { pendingTrash = nil }
         }
+        .alert("拿掉已刪除的附加來源？", isPresented: Binding(
+            get: { pendingRemoval != nil },
+            set: { if !$0 { pendingRemoval = nil } })) {
+            TextField("理由（必填）", text: $removalReason)
+            Button("拿掉", role: .destructive) {
+                if let citekey = pendingRemoval, let model {
+                    // 動作當下重新讀盤驗證形狀、確認記錄檔已 commit（kit 層）
+                    let reason = removalReason
+                    attempt { resultMessage = try model.removeOrphanedAdditionalSources(citekey: citekey, reason: reason) }
+                }
+                pendingRemoval = nil
+            }
+            Button("取消", role: .cancel) { pendingRemoval = nil }
+        } message: {
+            Text("只拿掉在 Zotero 端已刪除的那幾個來源；主來源與活著的來源不動，書目欄位不動。"
+                 + "記錄檔要先 commit——移除前的版本只留在 git 裡。理由不寫進 store，請寫進 commit message。")
+        }
+        .alert("已拿掉", isPresented: Binding(
+            get: { resultMessage != nil },
+            set: { if !$0 { resultMessage = nil } })) {
+            Button("好") { resultMessage = nil }
+        } message: { Text(resultMessage ?? "") }   // display-safe-exempt: 報告在 kit 層逐項消毒
         .alert("操作失敗", isPresented: Binding(
             get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } })) {

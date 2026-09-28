@@ -187,6 +187,14 @@ public enum AdjudicationError: Error, LocalizedError, Equatable, SanitizedErrorD
     /// #641：候選指名的 person 無法唯一定位（key 重複，或 load 判定它的檔案寫入時會被拒）——accept 寫完 work
     /// 才寫 person 的 verdict，那一格在寫入當下被拒會留下已升格而沒有 verdict 的作者位，拒絕。
     case unlocatablePerson(String)
+    /// #609：「拿掉已刪除的附加來源」只作用在主連結仍在、至少一個附加來源已刪除的 entry——動作當下重新讀盤已不是這個形狀。
+    case noOrphanedAdditionalSource(String)
+    /// #609：移除面要理由（移除面一族的使用者裁決，2026-09-27）——理由只進報告，不寫進 store。
+    case reasonRequired
+    /// 理由上限 4,096 位元組（與 resolve 族的說明上限同值）——超過整筆拒絕、不截斷。
+    case reasonTooLong(bytes: Int)
+    /// #609：移除之前那筆記錄檔要在 git 裡有副本（同一族裁決；`filesNotSafelyRecoverable` 那一支閘）。`why` 是本 package 的固定句。
+    case notRecoverable(citekey: String, why: String)
 
     public var errorDescription: String? {
         switch self {
@@ -203,6 +211,16 @@ public enum AdjudicationError: Error, LocalizedError, Equatable, SanitizedErrorD
             return "citekey「\(displaySafeInvisible(key, max: 200))」無法唯一定位（\(UnlocatableReason.work)）——已拒絕歸戶；請先修好（#627／#641）"
         case .unlocatablePerson(let key):
             return "person「\(displaySafeInvisible(key, max: 200))」無法唯一定位（\(UnlocatableReason.person)）——已拒絕歸戶；請先修好（#641）"
+        case .noOrphanedAdditionalSource(let key):
+            return "「\(displaySafeInvisible(key, max: 200))」已不是「主連結仍在、附加來源已刪除」的形狀——外部同步可能已恢復來源；"
+                + "整筆 orphan 請改用「與 Zotero 脫鉤」。已拒絕（#609）"
+        case .reasonRequired:
+            return "拿掉來源要寫理由——理由只出現在這次的結果裡、不寫進 store，請寫進 commit message（#609）"
+        case .reasonTooLong(let bytes):
+            return "理由 \(bytes) 位元組，上限 4,096——已拒絕、零寫入，不截斷（#609）"   // display-safe-exempt: Int
+        case .notRecoverable(let key, let why):
+            return "「\(displaySafeInvisible(key, max: 200))」的記錄檔不能確認 git 裡有副本：\(displaySafeClipOnly(why, max: 600))"   // display-safe-exempt: why 是 filesNotSafelyRecoverable／本檔的固定句，只截
+                + "——被拿掉的來源只會留在 git 裡，先 commit 再做。已拒絕、零寫入（#609）"
         }
     }
 }
@@ -217,6 +235,8 @@ public final class OrphanModel {
     }
 
     public var orphans: [Entry] { state.orphanedEntries }
+    /// 主連結仍在、至少一個附加來源已在 Zotero 端刪除（#609）——與 `orphans` 不相交。
+    public var orphanedAdditionalSourceEntries: [Entry] { state.entriesWithOrphanedAdditionalSource }
 
     public enum Action {
         /// 檔案進垃圾桶（FileManager.trashItem——可救回，比 CLI 寬容的 App 專屬安全網）
@@ -232,7 +252,9 @@ public final class OrphanModel {
             .first(where: { $0.citekey == citekey }) else {
             throw AdjudicationError.entryNotFound(citekey)
         }
-        guard entry.provenance?.orphanedAt != nil else {
+        // 整筆 orphan 的判準只有一份（`Entry.zoteroLinkState`，#609）：「只有附加來源、全部已刪除」也在內——
+        // 先前這裡只看主來源，那種 entry 列不進清單、也動不了。
+        guard entry.zoteroLinkState == .orphaned else {
             throw AdjudicationError.notAnOrphan(citekey)
         }
         // #605：附加來源若仍活著，作品在另一個 library 還在。
@@ -258,6 +280,59 @@ public final class OrphanModel {
             try state.store.writeEntry(detached)
         }
         try state.reindexAndReload()
+    }
+
+    /// 拿掉已在 Zotero 端刪除的附加來源（#609）——作用在主連結仍在的 entry；主來源與活著的附加來源不動，書目欄位不動。
+    ///
+    /// 移除面一族的使用者裁決（2026-09-27）：理由必填、只進回傳的報告（不寫進 store）；移除前要求那筆記錄檔已 commit、乾淨
+    /// （被拿掉的來源只剩 git 裡那一份）。動作當下重新讀盤驗證形狀（TOCTOU，同 `resolve`）。回傳給人看的報告。
+    public func removeOrphanedAdditionalSources(citekey: String, reason: String) throws -> String {
+        let trimmed = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { throw AdjudicationError.reasonRequired }
+        let byteCount = trimmed.utf8.count
+        guard byteCount <= 4_096 else { throw AdjudicationError.reasonTooLong(bytes: byteCount) }   // display-safe-exempt: byteCount 是 Int
+        let load = try state.store.load()
+        guard let entry = load.entries.first(where: { $0.citekey == citekey }) else {
+            throw AdjudicationError.entryNotFound(citekey)
+        }
+        if load.entries.unlocatableCitekeys.contains(citekey) { throw AdjudicationError.unlocatableCitekey(citekey) }
+        guard entry.zoteroLinkState == .additionalSourceOrphaned else {
+            throw AdjudicationError.noOrphanedAdditionalSource(citekey)
+        }
+        try assertRecordFileRecoverable(entry)
+        let removed = entry.additionalProvenance.filter { $0.orphanedAt != nil }
+        var updated = entry
+        updated.additionalProvenance.removeAll { $0.orphanedAt != nil }
+        try state.store.writeEntry(updated)
+        try state.reindexAndReload()
+        let sources = removed.map { p in
+            "\(p.libraryID.map(String.init) ?? "?"):\(displaySafeInvisible(p.zoteroKey, max: 120))"
+        }.joined(separator: "、")
+        return "已從「\(displaySafeInvisible(citekey, max: 200))」拿掉 \(removed.count) 個已在 Zotero 端刪除的附加來源：\(sources)。"   // display-safe-exempt: Int；sources 已逐項消毒
+            + "理由：\(displaySafeInvisible(trimmed, max: 4_096))。"
+            + "移除前的版本在 git 裡；理由不寫進 store，要留下請寫進 commit message（#609）"
+    }
+
+    /// 那筆記錄檔在 git 裡有 tracked、clean 的副本——與 `AkashicService.assertRecordsRecoverable` 同一支檢查
+    /// （`LibraryStore.filesNotSafelyRecoverable`），路徑取自磁碟上的實際檔名（`entityRelativePaths`，#573 R1）。
+    private func assertRecordFileRecoverable(_ entry: Entry) throws {
+        let root = state.store.root
+        guard LibraryStore.isInsideVersionedWorkTree(root) else {
+            throw AdjudicationError.notRecoverable(citekey: entry.citekey, why: "store 不在 git 工作樹裡")
+        }
+        let rel: String?
+        if state.store.usesEntitiesLayout {
+            rel = LibraryStore.entityRelativePaths(root: root)[entry.id]
+        } else {
+            let legacy = "entries/\(entry.citekey).yaml"
+            rel = FileManager.default.fileExists(atPath: root.appendingPathComponent(legacy).path) ? legacy : nil
+        }
+        guard let rel else {
+            throw AdjudicationError.notRecoverable(citekey: entry.citekey, why: "找不到記錄檔")
+        }
+        if let bad = LibraryStore.filesNotSafelyRecoverable(root: root, relativePaths: [rel]).first {
+            throw AdjudicationError.notRecoverable(citekey: entry.citekey, why: bad.why)   // display-safe-exempt: bad 的 why 是 filesNotSafelyRecoverable 的固定句
+        }
     }
 }
 
@@ -315,6 +390,12 @@ public extension ResolutionCandidate {
 /// #161：`Entry` 的顯示投影。`title` 是自由字串（Zotero／出版商／網頁），
 /// `citekey` 則過 load 端的 `StoreKey` quarantine——**只有前者需要**。
 public extension Entry {
+    /// #609：已在 Zotero 端刪除的附加來源，`<library_id>:<zotero_key>`（zotero key 是 store 字串，消毒）。
+    var displayOrphanedAdditionalSources: String {
+        additionalProvenance.filter { $0.orphanedAt != nil }
+            .map { "\($0.libraryID.map(String.init) ?? "?"):\(displaySafeInvisible($0.zoteroKey, max: 120))" }
+            .joined(separator: "、")
+    }
     var displayTitle: String { displaySafe(title, max: 800) }
     /// 清單常見的「有標題用標題、沒有就退回 citekey」。退回值不需消毒，
     /// 但包成一個投影可以讓 View 端不必自己判斷哪一半危險。

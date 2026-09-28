@@ -197,6 +197,13 @@ public final class AppState {
         return entries.filter { keys.contains($0.citekey) }
     }
 
+    /// 主連結仍在、至少一個附加來源已在 Zotero 端刪除的 entry（#609）——同樣由 `health` 決定，這裡只換回 `Entry`。
+    /// 與 `orphanedEntries` 不相交；裁決台的處置是「拿掉已刪除的附加來源」。
+    public var entriesWithOrphanedAdditionalSource: [Entry] {
+        guard let keys = health.map({ Set($0.orphanedAdditionalSourceCitekeys) }) else { return [] }
+        return entries.filter { keys.contains($0.citekey) }
+    }
+
     public var filteredEntries: [Entry] {
         entries.filter { entry in
             if let type = filterType, entry.type.rawValue != type { return false }

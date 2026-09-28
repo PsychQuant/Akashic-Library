@@ -56,8 +56,13 @@ public struct StoreHealth {
     /// 這個數會因此上升——那是一個合成的假人變成 N 個誠實的未歸戶名字，趨勢要與拆分次數
     /// 並讀（#451；store 不記得哪些位置是拆出來的，機械標註等 #450 的持久化）。
     public let unresolvedAuthorLiterals: Int
-    /// 上游已消失（Zotero 端刪除）的 entry 的 citekey。
+    /// 上游已消失（Zotero 端刪除）的 entry 的 citekey——判準是 `Entry.zoteroLinkState == .orphaned`（#609）：
+    /// 主來源已刪除，或沒有主來源而附加來源全部已刪除。後者先前在這裡、index、App 裁決台都看不見。
     public let orphanedCitekeys: [String]
+    /// 主連結仍在、但至少一個附加來源已在 Zotero 端刪除的 entry（`zoteroLinkState == .additionalSourceOrphaned`，#609）。
+    /// 與 `orphanedCitekeys` 不相交：整筆 orphan 的已刪除附加來源由「與 Zotero 脫鉤」一併處理，這一張清單的處置是
+    /// App 裁決台的「拿掉已刪除的附加來源」。先前除了 `get_entry` 與當次匯入報告，沒有任何地方看得到它們。
+    public let orphanedAdditionalSourceCitekeys: [String]
     /// **每筆記錄自己的驗證問題**（`Entry.validate()` 一族），附它屬於誰（#416）。
     ///
     /// 先前這一族**只有 CLI 的 `validate` 看得到**——`Entry.validate()` 在全樹的
@@ -299,7 +304,10 @@ public extension LibraryStore {
                 }.count
             },
             orphanedCitekeys: load.entries
-                .filter { $0.provenance?.orphanedAt != nil }
+                .filter { $0.zoteroLinkState == .orphaned }
+                .map(\.citekey),
+            orphanedAdditionalSourceCitekeys: load.entries
+                .filter { $0.zoteroLinkState == .additionalSourceOrphaned }
                 .map(\.citekey),
             // 族序與 error 先排（`errorsFirst`）都在 `perRecordIssues(from:listing:only:)` 裡（理由見那裡）。
             perRecordIssues: perRecord)

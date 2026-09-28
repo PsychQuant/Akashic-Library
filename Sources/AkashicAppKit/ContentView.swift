@@ -88,6 +88,11 @@ struct SidebarView: View {
                 LabeledContent("People", value: "\(state.people.count)")
                 LabeledContent("未解析作者", value: "\(state.unresolvedLiteralCount)")
                 LabeledContent("Orphans", value: "\(state.orphanedEntries.count)")
+                // #609：主連結仍在、附加來源已在 Zotero 端刪除——與 Orphans 不相交。0 時不顯示。
+                if !state.entriesWithOrphanedAdditionalSource.isEmpty {
+                    LabeledContent("附加來源已刪除", value: "\(state.entriesWithOrphanedAdditionalSource.count)")
+                        .help("另一個 Zotero library 的那份已被刪除，主連結仍在。到「裁決台：Orphans」拿掉已刪除的來源，或繼續等。")
+                }
                 LabeledContent("Quarantined", value: "\(state.quarantined.count)")
                 // #31：與 Quarantined 並列但語意相反——這些檔**正常載入且完整保留**，
                 // 只是本 binary 看不懂其中一部分。0 時不顯示，避免噪音。

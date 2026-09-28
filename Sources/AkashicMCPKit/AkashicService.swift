@@ -484,6 +484,9 @@ public final class AkashicService {
         d["relations"] = stats.relations
         d["unresolvedAuthorLiterals"] = health.unresolvedAuthorLiterals
         d["orphaned"] = health.orphanedCitekeys.map { displaySafe($0, max: 200) }
+        // #609：主連結仍在、至少一個附加來源已在 Zotero 端刪除的 entry——與 `orphaned` 不相交（整筆 orphan 的已刪除附加來源由脫鉤一併處理）。
+        // 先前除了 get_entry 與當次匯入報告沒有任何地方看得到；處置在 App 裁決台（拿掉已刪除的附加來源）
+        d["orphanedAdditionalSources"] = health.orphanedAdditionalSourceCitekeys.map { displaySafe($0, max: 200) }
         // #146：digest 形式的 source 殘留。**這一項是本檔案自己那條規矩的直接
         // 應用**——「CLI doctor 的普查面 MCP 也要有，同一個 store 不得從兩個
         // consumer 看到不同的事實」（#138 verify F3，見下方註解）。第一版只加了
@@ -5210,15 +5213,8 @@ public final class AkashicService {
             + lines + "。先 commit 再跑（\(issue)）；整批拒絕、零寫入")   // display-safe-exempt: lines 的 label 已消毒、why 是本 package 的固定句；issue 是字面常量
     }
 
-    /// `entities/` 裡每個以 UUID 為名的記錄檔：id → 以 store root 為基準的相對路徑，檔名保留磁碟上的大小寫（#573 R1）。
-    static func entityRelativePaths(root: URL) -> [UUID: String] {
-        let names = (try? FileManager.default.contentsOfDirectory(atPath: root.appendingPathComponent("entities").path)) ?? []
-        var out: [UUID: String] = [:]
-        for name in names where name.lowercased().hasSuffix(".yaml") {
-            if let id = UUID(uuidString: String(name.dropLast(5))) { out[id] = "entities/" + name }
-        }
-        return out
-    }
+    /// `entities/` 裡每個以 UUID 為名的記錄檔的相對路徑——實作在 `LibraryStore.entityRelativePaths(root:)`（#609 起 App 也用，搬到 StoreIO）。
+    static func entityRelativePaths(root: URL) -> [UUID: String] { LibraryStore.entityRelativePaths(root: root) }
 
     /// `verdictsRetired` 的上限與揭露（R10 verify security 第 16 列、regression 第 19 列；Claude 代裁 D30）：它是 repoint／demote
     /// payload 裡唯一由 **store 內容**而非呼叫端輸入決定體積的欄位——`supersede` 退役 holder 上**每一筆**同鍵的相反判定，手改或

@@ -19,11 +19,20 @@ struct EntryListView: View {
                         Text(date)
                             .font(.caption)
                     }
-                    if entry.provenance?.orphanedAt != nil {
+                    // 判準只有一份（`Entry.zoteroLinkState`，#609）：「只有附加來源、全部已刪除」也是 orphan
+                    switch entry.zoteroLinkState {
+                    case .orphaned:
                         Text("orphan")
                             .font(.caption2)
                             .padding(.horizontal, 4)
                             .background(.orange.opacity(0.3), in: Capsule())
+                    case .additionalSourceOrphaned:
+                        Text("來源已刪")
+                            .font(.caption2)
+                            .padding(.horizontal, 4)
+                            .background(.orange.opacity(0.15), in: Capsule())
+                    case .intact:
+                        EmptyView()
                     }
                     // #605：同一作品在其他 Zotero library 也有一份。
                     if !entry.additionalProvenance.isEmpty {

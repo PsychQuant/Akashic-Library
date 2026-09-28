@@ -176,8 +176,9 @@ public struct LibraryIndex {
                     entry.date.flatMap(Self.extractYear),
                     entry.fields["journaltitle"],
                     entry.akashic.status,
-                    // orphan 只看主來源（#605）：附加來源被刪只標在該來源上，作品本身仍連著主來源。
-                    entry.provenance?.orphanedAt == nil ? 0 : 1,
+                    // 整筆 orphan（#609）：主來源已刪除，或沒有主來源而附加來源全部已刪除。只有部分附加來源被刪
+                    // 時作品仍連著上游，不算——判準與 `StoreHealth.orphanedCitekeys` 同一個（`Entry.zoteroLinkState`）。
+                    entry.zoteroLinkState == .orphaned ? 1 : 0,
                 ])
             for (i, author) in entry.authors.enumerated() {
                 switch author {

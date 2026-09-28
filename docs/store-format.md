@@ -360,6 +360,17 @@ work merge 的資料遺失閘也把 witness 當 canonical Akashic metadata：被
 Zotero 端刪除 ≠ Akashic 刪除。pull 只在 `provenance.orphaned_at` 蓋時間戳，
 檔案保留，人工裁決（刪檔或抹掉 provenance 轉為純 Akashic entry）。
 
+**逐來源標記之後，entry 層的狀態是封閉三值**（#609，`Entry.zoteroLinkState`；`StoreHealth`、index 的 `orphaned`
+欄、App 裁決台共用這一個判準）：
+
+| 狀態 | 條件 | doctor | App 裁決台的處置 |
+|---|---|---|---|
+| 整筆 orphan | 主來源已刪除；或沒有主來源、附加來源（≥1）全部已刪除 | `orphaned` | 等待／移到垃圾桶（有活著的附加來源時拒絕）／與 Zotero 脫鉤 |
+| 附加來源已刪除 | 主連結仍在（主來源活著，或沒有主來源而仍有活著的附加來源），且至少一個附加來源已刪除 | `orphanedAdditionalSources` | 等待／拿掉已刪除的附加來源（理由必填、只進結果；記錄檔要先 commit） |
+| 完好 | 其餘（含沒有任何 Zotero 來源） | — | — |
+
+兩張清單不相交。「沒有主來源、附加來源全部已刪除」在 #609 之前只看主來源，哪一面都看不見。
+
 ## 2.9 Library registry（`libraries/<key>.yaml`，v1.2 新增）
 
 具名 library＝**成員集合視角**（阿卡夏理念：store 是全集、不分割；「加入 library」只是標記）。

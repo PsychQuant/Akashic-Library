@@ -93,28 +93,35 @@ APA 九〇年代的 DOI 正式形帶**雙斜線**（`10.1037//…`），OpenAlex
 
 ## 匯入序（全部走既有面——不另寫 importer）
 
-1. `akashic library create <venue-key>-catalog`（已存在則略過）
-2. **增量 diff**：讀庫內全部 DOI（正規形）；已在庫 → **跳過並記 conflict**
+1. **增量 diff**：讀庫內全部 DOI（正規形）；已在庫 → **跳過並記 conflict**
    （`import-wos` 語意：拒絕覆寫——期刊目錄是一次性快照，store 可能比它新，#420 裁決 (c)）。
    攣生候選同上節。無 DOI 的來源記錄：title+year 折疊**只是提名**——不確定就跳過並具名，
    確定要建也要在報告裡逐筆留下比對依據
-3. **一次** `create-entry --format json --file <drafts.json>`（#455）：整個陣列一次寫入——
+2. **一次** `create-entry --format json --file <drafts.json>`（#455）：整個陣列一次寫入——
    type `periodical-article`、authors 全部 `.literal`（`literal-first-then-key`：進庫不猜）、
    fields 帶 `journaltitle`／`volume`／`number`／`pages`／`abstract`、識別碼 `doi`／`pmid`。
    **可預期的失敗整批擋、零寫入**（type 值域、識別碼形狀、欄位鍵、format 閘——訊息指名第幾筆），
    磁碟層失敗逐筆列出且 exit 非零；批次內同作者同年的 citekey 由 service 消解
-4. **一次** `library add <venue-key>-catalog <citekey>...`（#455；冪等：已是成員即 no-op——
-   重跑安全，中斷後重跑會補上漏掉的 membership；任一 citekey 不存在即整批拒絕）
-5. `migrate-venues` **乾跑逐筆過目** → `--apply`：從 `journaltitle` 回填 venues literal
-6. `resolve-venues` **先列候選過目**（歧義與未命中要報出來）→ `--apply`。exact 命中寫
+3. `migrate-venues` **乾跑逐筆過目** → `--apply`：從 `journaltitle` 回填 venues literal
+4. `resolve-venues` **先列候選過目**（歧義與未命中要報出來）→ `--apply`。exact 命中寫
    confirmed verdict 是該面的既有契約（#304 的 venue-name-exact）；本刊零歧義是
    **這一刊的結果，不外推**——下一刊有歧義就逐筆人裁
+5. 目錄 library（#642：**規則型**——成員由「這本刊的 periodical-article」這條規則決定，不由誰點頭決定）：
+   `akashic library list` 看 `<venue-key>-catalog` 在不在、性質是什麼——
+   - 不在 → `akashic library create <venue-key>-catalog --name "<刊名>（期刊目錄）" --kind rule --venue <venue-key> --type periodical-article --source openalex:<S…>`
+     （venue 要先在庫，所以這一步排在第 4 步之後；`--source` 只記來歷，不作檢查依據）
+   - 在、但是 `未標性質` → 同樣的規則用 `akashic library set-kind` 標上；它列出的現有不符成員**先停下來回報**，不代使用者移除
+   - 在、而規則的 venue 不是 `<venue-key>` → 停下來回報，不改別人的規則
+6. **一次** `library add <venue-key>-catalog <citekey>...`（#455；冪等：已是成員即 no-op——
+   重跑安全，中斷後重跑會補上漏掉的 membership；任一 citekey 不存在即整批拒絕）。
+   規則型 library 只收 venue 已歸戶到 `<venue-key>` 的 `periodical-article`：第 4 步沒歸戶的
+   （歧義、未命中）這一步會列成「不符規則、未寫」——**那是對的**，照原樣進報告，不要繞過
 7. OpenAlex 給的 ISSN 若庫內缺：ISSN 寫入是 venue 身分斷言，不是順手動作——**停下來，照
    [`akashic-verify-venue`](../akashic-verify-venue/SKILL.md) Step 3 的 ISSN 那一條走**（為這一本刊單獨產一份含「報告第 4 項」的
-   報告，閘見那一份的 Step 3；apply／reject 本管線第 6 步已做、不重做；本管線第 8 步的報告沒有第 4 項）。紀律只寫在那一份，這裡不複述（R3 曾在這裡抄七項、抄漏兩項——R3 verify）。
+   報告，閘見那一份的 Step 3；apply／reject 本管線第 4 步已做、不重做；本管線第 8 步的報告沒有第 4 項）。紀律只寫在那一份，這裡不複述（R3 曾在這裡抄七項、抄漏兩項——R3 verify）。
    這一步曾寫「先核對 print／electronic 角色」——那時角色只能記在報告裡；#587 起兩個寫入面都收得下角色，核對與寫法都在那一份，這裡仍不複述
 8. **報告（逐筆可審的實體）**：新增／conflict／twin-candidates／各排除類計數／
-   缺摘要清單（階段 B 輸入）——每筆帶 citekey 或 DOI 與處置，不只總數
+   不符目錄規則、未掛的（第 6 步，連原因）／缺摘要清單（階段 B 輸入）——每筆帶 citekey 或 DOI 與處置，不只總數
 
 ## 驗收基準（Psychological Methods，2026-09-01 實測——單刊數字，換刊要重量）
 

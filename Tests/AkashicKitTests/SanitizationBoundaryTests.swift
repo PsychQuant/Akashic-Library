@@ -691,7 +691,7 @@ final class SanitizationBoundaryTests: XCTestCase {
             ("Sources/AkashicAppKit/AdjudicationViews.swift", "errorMessage = displaySafeErrorMultiline(error)", 3),
             ("Sources/AkashicAppKit/GraphView.swift", "loadError = displaySafeErrorMultiline(error)", 2),
             ("Sources/AkashicAppKit/AppState.swift", "underlying: displaySafeError(error, max: 2_400)", 1),
-            ("Sources/akashic/LibraryCommands.swift", "throw RuntimeFailure.state(displaySafeErrorText(", 2),
+            ("Sources/akashic/LibraryCommands.swift", "throw RuntimeFailure.state(displaySafeErrorText(", 4),   // #642：set-kind、check 各一
             ("Sources/akashic/Commands.swift", "throw RuntimeFailure.state(displaySafeErrorText(error))", 1),
             ("Sources/akashic/CLI.swift", "throw RuntimeFailure.state(displaySafeErrorText(error))", 1),
             ("Sources/akashic/EnrichCommand.swift", "throw RuntimeFailure.state(displaySafeErrorText(e))", 1),

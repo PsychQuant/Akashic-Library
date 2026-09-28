@@ -870,7 +870,7 @@ extension ServiceTests {
 extension ServiceTests {
     func testLibrariesLifecycleViaService() throws {
         _ = try service.libraries(action: "create", key: "sinica", name: "中研院",
-                                  description: nil, citekey: nil)
+                                  description: nil, citekey: nil, membership: .init(kind: "topic"))
         let list = try json(service.libraries(action: "list", key: nil, name: nil,
                                               description: nil, citekey: nil)) as! [[String: Any]]
         XCTAssertEqual(list.count, 1)
@@ -892,12 +892,12 @@ extension ServiceTests {
         XCTAssertThrowsError(try service.libraries(action: "bogus", key: nil, name: nil,
                                                    description: nil, citekey: nil))
         XCTAssertThrowsError(try service.libraries(action: "create", key: nil, name: "X",
-                                                   description: nil, citekey: nil),
+                                                   description: nil, citekey: nil, membership: .init(kind: "topic")),
                              "create 缺 key 要拒")
         _ = try service.libraries(action: "create", key: "sinica", name: "中研院",
-                                  description: nil, citekey: nil)
+                                  description: nil, citekey: nil, membership: .init(kind: "topic"))
         XCTAssertThrowsError(try service.libraries(action: "create", key: "sinica", name: "重複",
-                                                   description: nil, citekey: nil),
+                                                   description: nil, citekey: nil, membership: .init(kind: "topic")),
                              "重複 create 要拒")
         XCTAssertThrowsError(try service.libraries(action: "add", key: "ghostlib", name: nil,
                                                    description: nil, citekey: "cheng2025identifiability"),
@@ -909,7 +909,7 @@ extension ServiceTests {
 extension ServiceTests {
     func testGetEntryIncludesLibraries() throws {
         _ = try service.libraries(action: "create", key: "sinica", name: "中研院",
-                                  description: nil, citekey: nil)
+                                  description: nil, citekey: nil, membership: .init(kind: "topic"))
         _ = try service.libraries(action: "add", key: "sinica", name: nil,
                                   description: nil, citekey: "cheng2025identifiability")
         let entry = try json(service.getEntry(citekey: "cheng2025identifiability")) as! [String: Any]
@@ -920,7 +920,7 @@ extension ServiceTests {
 
     func testRemoveWorksOnDanglingMembership() throws {
         _ = try service.libraries(action: "create", key: "sinica", name: "中研院",
-                                  description: nil, citekey: nil)
+                                  description: nil, citekey: nil, membership: .init(kind: "topic"))
         _ = try service.libraries(action: "add", key: "sinica", name: nil,
                                   description: nil, citekey: "cheng2025identifiability")
         // registry 檔被手動刪除 → dangling membership；remove 仍須可清理
@@ -939,7 +939,7 @@ extension ServiceTests {
                       atomically: true, encoding: .utf8)
         do {
             _ = try service.libraries(action: "create", key: "../oracle", name: "X",
-                                      description: nil, citekey: nil)
+                                      description: nil, citekey: nil, membership: .init(kind: "topic"))
             XCTFail("畸形 key 必須擲錯")
         } catch {
             let msg = (error as? LocalizedError)?.errorDescription ?? "\(error)"
@@ -953,7 +953,7 @@ extension ServiceTests {
 extension ServiceTests {
     func testServiceRecoversFromStaleSchemaIndex() throws {
         _ = try service.libraries(action: "create", key: "sinica", name: "中研院",
-                                  description: nil, citekey: nil)
+                                  description: nil, citekey: nil, membership: .init(kind: "topic"))
         _ = try service.libraries(action: "add", key: "sinica", name: nil,
                                   description: nil, citekey: "cheng2025identifiability")
         // 模擬舊 binary 建的 index：砍新表 + 版本歸零
@@ -994,7 +994,7 @@ extension ServiceTests {
 
     func testPersonScopedByLibrary() throws {
         _ = try service.libraries(action: "create", key: "sinica", name: "中研院",
-                                  description: nil, citekey: nil)
+                                  description: nil, citekey: nil, membership: .init(kind: "topic"))
         let none = try json(service.person(key: "cheng-che", name: nil, library: "sinica")) as! [String: Any]
         XCTAssertTrue((none["publications"] as! [Any]).isEmpty, "未加入 library 前 scoped 應為空")
         _ = try service.libraries(action: "add", key: "sinica", name: nil,
@@ -1020,7 +1020,7 @@ extension ServiceTests {
 
     func testPersonScopedCoAuthorsConsistentWithLibrary() throws {
         _ = try service.libraries(action: "create", key: "sinica", name: "中研院",
-                                  description: nil, citekey: nil)
+                                  description: nil, citekey: nil, membership: .init(kind: "topic"))
         // 未加入 library：scoped 聚合的 publications 與 co_authors 都必須為空（內部一致）
         let none = try json(service.person(key: "cheng-che", name: nil, library: "sinica")) as! [String: Any]
         XCTAssertTrue((none["publications"] as! [Any]).isEmpty)
@@ -1036,7 +1036,7 @@ extension ServiceTests {
         e.authors = [.key("olsson-ulf")]
         try LibraryStore(root: root).writeEntry(e)
         _ = try service.libraries(action: "create", key: "empty-lib", name: "空庫",
-                                  description: nil, citekey: nil)
+                                  description: nil, citekey: nil, membership: .init(kind: "topic"))
         // scoped 查詢：全集有著作 → 不得 notFound；scoped publications 空
         let out = try json(service.person(key: "olsson-ulf", name: nil, library: "empty-lib")) as! [String: Any]
         XCTAssertTrue((out["publications"] as! [Any]).isEmpty)

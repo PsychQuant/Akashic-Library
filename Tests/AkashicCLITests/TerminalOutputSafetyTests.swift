@@ -114,7 +114,7 @@ final class TerminalOutputSafetyTests: XCTestCase {
     func testLibraryListKeepsItsOwnSeparator() throws {
         let home = root.appendingPathComponent("home")
         let env = ["AKASHIC_HOME": home.path]
-        _ = try CLITestHarness.run(["library", "create", "lab", "--library", root.path, "--name", "Lab",
+        _ = try CLITestHarness.run(["library", "create", "lab", "--library", root.path, "--name", "Lab", "--kind", "topic",
                                     "--description", "我的研究室"], env: env)
         let r = try CLITestHarness.run(["library", "list", "--library", root.path], env: env)
         XCTAssertEqual(r.status, 0, r.output)

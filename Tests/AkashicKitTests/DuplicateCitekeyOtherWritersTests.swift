@@ -48,7 +48,7 @@ final class DuplicateCitekeyOtherWritersTests: XCTestCase {
     }
 
     func testLibraryAddRefusesADuplicatedCitekeyWholeBatch() throws {
-        try store.writeLibrary(Library(key: "lab", name: "Lab"))
+        try store.writeLibrary(Library(key: "lab", name: "Lab", membership: .topic))
         let before = try dups()
         assertRefused { try self.service.setMembership(action: "add", key: "lab", citekeys: ["d2021", "c2020"]) }
         XCTAssertEqual(try dups(), before)
@@ -108,7 +108,7 @@ final class DuplicateCitekeyOtherWritersTests: XCTestCase {
 
     /// 共用 id（citekey 不同）也算無法唯一定位：library add 整批拒絕。
     func testLibraryAddRefusesAWorkSharingItsIdentifier() throws {
-        try store.writeLibrary(Library(key: "lab", name: "Lab"))
+        try store.writeLibrary(Library(key: "lab", name: "Lab", membership: .topic))
         let shared = UUID()
         try FileManager.default.createDirectory(at: store.entriesDir, withIntermediateDirectories: true)
         _ = try store.writeEntry(Entry(id: shared, citekey: "x2019", type: .periodicalArticle, title: "X"))

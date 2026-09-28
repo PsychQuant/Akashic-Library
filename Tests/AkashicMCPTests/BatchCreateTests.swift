@@ -74,7 +74,7 @@ final class BatchCreateTests: XCTestCase {
 extension BatchCreateTests {
     private func seedTwoEntriesAndALibrary() throws {
         _ = try service.createEntries([draft("Alpha study"), draft("Gamma study")])
-        _ = try service.libraries(action: "create", key: "reading", name: "Reading", description: nil, citekey: nil)
+        _ = try service.libraries(action: "create", key: "reading", name: "Reading", description: nil, citekey: nil, membership: .init(kind: "topic"))
     }
 
     /// 兩個 citekey 其中一個不存在：整批拒絕、零寫入（存在的那筆 membership 不變）。

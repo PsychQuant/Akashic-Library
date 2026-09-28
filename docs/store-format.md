@@ -385,7 +385,36 @@ citekey rename 免遷移、與 tags 同寫入邊界、與 Zotero 天然脫鉤）
 key: sinica          # 必要；＝檔名 stem；StoreKey 格式
 name: 中研院          # 必要；顯示名稱
 description: 選填
+membership:          # #642：成員性質（缺席＝未標性質）
+  kind: topic        # topic｜rule｜document（封閉列舉）
 ```
+
+規則型與文件型：
+
+```yaml
+membership:
+  kind: rule
+  venue: psychological-methods     # 必要：venue key（成員要有一條指向它的 .key 邊）
+  types: [periodical-article]      # 選填：限定 entry type；缺席＝不限
+  excluded: [some2020appendix]     # 選填：依裁決不收的 citekey
+  source: openalex:S45419345       # 選填：這份目錄從哪裡取得——只記來歷，不作檢查依據
+---
+membership:
+  kind: document
+  document: cheng2026critique      # 必要：一筆在庫文件的 citekey；成員是它的 akashic.relations.cites
+```
+
+**`membership` 是 closed shape**：每一種性質只收自己的鍵（topic 只有 `kind`），值域（kind、entry type）與
+key 文法都驗，重複的 `types`／`excluded` 拒讀；形狀不符整檔 quarantine。**不 bump format**：`membership` 是 registry
+頂層的新鍵，舊 binary 走 tolerant-preserve 原樣保留（不解讀）——舊 binary 的 `library add` 不查規則，那一格由新 binary
+的 `validate` 報（見下）。
+
+**寫入時的語意**（#642，使用者 2026-09-25／09-28）：`library add` 對規則型與文件型逐筆比對，不符的**不寫並具名**
+（不是拒絕整批、也不是照寫）；未標性質的 library 拒絕 add（查不到依據）；remove 不查。`library create` 要求 `--kind`；
+既有 library 用 `library set-kind` 標（改寫 registry 檔的唯一路徑，`LibraryStore.updateLibrary`——registry 在 #642 之前
+只有 exclusive create）。`validate` 對未標性質的 library 報 per-record warning，對規則指向不在庫的 venue／文件、
+以及不符規則的既有成員報跨記錄 warning（每個 library 一則，點名前 5 筆，全部用 `library check`）。
+規則指涉的 citekey 與 venue 是 `entity-backlink-completeness` 的第 16 條邊：改名與合併不遷移它，所以被指涉時拒絕。
 
 load 語意驗證同 entries/people：key 格式不符或與 stem 不符 → quarantine。
 membership 與 Zotero 完全脫鉤（pull 永不讀寫）。刪 registry 檔後殘留在 entry 上的

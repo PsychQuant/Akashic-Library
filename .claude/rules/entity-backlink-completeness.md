@@ -28,7 +28,7 @@
 > 那份文件明寫它是**思考輔助不是裁決程序**：它的輸出必須落回下表，不允許讀者拿它
 > 自行類推出沒寫下的邊。本規則只引用它、不複製（複製 = 兩份會分岔的規格）。
 
-以下 **15 條**是 store 裡**僅有的**關係邊。**封閉列舉，不得依性質相似類推下一條**：
+以下 **16 條**是 store 裡**僅有的**關係邊。**封閉列舉，不得依性質相似類推下一條**：
 
 | # | 存在哪 | 指向 | 邊界條件 |
 |---|---|---|---|
@@ -47,6 +47,7 @@
 | 13 | `Person.references` / `Organization.references` / `Venue.references` 中 verdict 欄位對的 `value` | work／person／organization／venue（by key） | **僅限封閉的 verdict 欄位**（#232 的欄位對；change `resolution-verdict-states` 起多一個 `resolution-undecided`，#619——同文法、同 holder，封閉三值）；value 文法 `<kind>:<key> :: <literal>`。正典側是**被判定的記錄**：verdict 是關於它的同一性的事實，存在 entry 側會讓 work 長出無上界的 per-person 清單，且 reject 依規格不動 entry。與 11 **不同條**：11 指向存檔內容（content-addressed），13 是 `ProvenanceReference.value` 首次成為跨 entity 指標（by key）——`rename` 因此必須遷移 `work:` value（#232 verify NEW-1 實測不遷移＝否決安靜變回待判）。`resolve-venues` 的 verdict 落被判定的 venue 記錄（#304，同一欄位對、同文法）。**venue 側是 O(catalog)**（#499，2026-09-04 裁決候選 3）：一本刊的 verdict 數＝被歸戶的作品數，`psychological-methods` 實測 1,352 筆；序列化位置**不改**，改在讀取上限的一半設 warning（`AliasEventBudget.recordFileWarningBytes`，量記錄檔的位元組——#645 R2 更正：原本以節點換算，而節點軸對不含 alias 的 store 檔不生效；`StoreHealth.venueVerdictBudgetWarnings`）。達門檻＝重開本條的規模化裁決，那時的形狀是 sidecar ledger（本表改指向 sidecar、12 格遷移改讀寫）——不是 per-literal 聚合（那會打回 #464／#463 的 per-holder 前提）。**person／organization 側另有一族**（#645，`StoreHealth.holderVerdictBudgetWarnings`，同門檻、同量法）：增長來源多了不退役的 `resolution-undecided`，處置先查重複記未決；sidecar 的形狀只對 venue 側裁過 |
 | 14 | `Entry.venues` | venue | `.key` 已歸戶／`.literal` 未歸戶，兩者都合法（與第 1 條同二態形；#304。作品側正典的六理由同適用——刊名沿革中舊文章掛舊刊名即第 4 條可表達性的 venue 版；編年 list 由本邊反向現算，venue 記錄**不存**文章清單） |
 | 15 | `Entry.references` | `sources/` 的內容 | 同第 11 條的定址法（content-addressed `sha256:`），但住在 **work** 上——#394 §5 新增。**正典側是 work**：識別碼（`doi`／`pmid`／`isbn`）是那筆作品的屬性，來源說的是「這個號是從哪裡查到的」，那件事只跟該作品有關。值域：三個識別碼欄位 ＋ **`authors`** ＋ **`fields.<鍵名>`**（#517）＋ **`date`**（#655；兩者見表下方）（#450，2026-09-07：**拆分記錄**——value 是**已退役**的原 literal，與其他三格「值必須在場」的語意相反；一致性條件是 statement 各段至少一段仍是作者位，由 `StoreHealth` 報 warning（`staleSplitRecords`）而非 decode 拒收；statement 走 `SplitRecordValue` 單一解析器、空 rests-on 經 `firstOrderRulingFields` 放行、store format 16）。**#517 起多一格 `fields.<鍵名>`、#655 起多一格 `date`**（見表下方「第 15 條邊的三次擴充」）——`title` 仍不得類推（`validateReferenceAttachment` 的 `default` 照舊拒絕）。 **為什麼在此之前不存在**：`Entry` 原本沒有 `references`，而 provenance-reference spec 明寫「不能攜帶 reference 的識別碼不算記錄的一等公民」——照字面，work 的三個識別碼在補上它之前不算一等公民，而那正是 #394 的標題所主張的東西 |
+| 16 | `Library.membership` | venue／work | **#642 新增**（使用者 2026-09-28 照提案定案）：library 的成員性質與規則，住在 `libraries/<key>.yaml`。三種性質是封閉列舉（`topic`／`rule`／`document`），其中兩種帶邊：**規則型**的 `venue`（venue key——成員必須有一條指向它的 `.key` 邊）與 `excluded`（依裁決不收的 citekey），**文件型**的 document（一筆在庫文件的 citekey——成員是它的 `cites`）；主題型不帶邊。**正典側是 library**：規則是「這個 library 收什麼」的定義，屬於 library；venue 與文件不知道自己界定了哪個目錄，刪掉 library 規則就該一起消失（存在依賴），反過來刪掉 venue 或文件則規則懸空、由 `validate` 報 warning。外部來源 id（`source`，例如 OpenAlex source id）**不是邊**——它指向 store 之外，只記來歷、不作檢查依據（上方外部識別碼的判準）。**生命週期**：規則不隨改名與合併遷移，所以 `rename` 對被規則指涉的 citekey、work 合併對被指涉的被併者、venue 合併對被規則以 venue 界定的被併者**一律拒絕、零寫入**，訊息指路 `library set-kind`（`LibraryLoad.librariesNaming`，preview 與實跑共用）。成員清單本身仍**不存**在 library 上（第 5 條的反向，見下方不得儲存） |
 
 
 #### 第 15 條邊的三次擴充（#450 的 `authors`、#517 的 `fields.<鍵名>`、#655 的 `date`）
@@ -171,6 +172,10 @@ grep -nE "public var" Sources/AkashicCore/{Models,Organization,Divergence,Tempor
   問題」由掃 divergence 記錄算出，不在被指涉的那一側存一份
 - venue 記錄的 `works:`／文章清單（14 的反向）——編年 list 由 `venue_refs` 索引
   現算（`QueryEngine.venueWorks`），期刊的「編年期刊 list」是呈現不是欄位（#304 裁決五a）
+- library 記錄的成員清單（5 的反向）——成員關係住在各 entry 的 `akashic.libraries`；#642 的規則說的是
+  「誰**可以**是成員」，不是成員清單本身
+- venue 的「以我界定的目錄」、work 的「我是哪個 library 的文件」（16 的反向）——掃 registry 現算
+  （`LibraryLoad.librariesNaming`）
 
 `PersonCLITests.testPersonTypeHasNoWorksMember`（型別反射）與
 `testHandWrittenWorksFieldLandsInUnknownFields`（tolerant-preserve 反向）是第一條的機械防線。

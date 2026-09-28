@@ -492,14 +492,18 @@ claude plugin install akashic-discovery@akashic   # 文獻探索 skills；會自
 git-subdir 時代只抓 `plugin/`。
 Library 解析與 CLI 共用同一條鏈（見下方「環境變數」）。
 
-多 library（#13，membership views）：`akashic library list/create/add/remove` 管理具名
+多 library（#13，membership views）：`akashic library list/create/add/remove/set-kind/check` 管理具名
 成員集合（如 `sinica`、`psychology`），`akashic query --in-library <key>` 篩選；MCP 有
 `akashic_libraries` tool 與 `akashic_search` 的 `library` 參數；App sidebar 可切換 view。
 store 永遠是全集——library 只是視角，成員關係存在 entry 的 `akashic.libraries`（與 Zotero 脫鉤）。
+每個 library 有**成員性質**（#642）：`topic`（主題型，照你挑的寫）、`rule`（規則型，以 venue key
+界定，可加 `--type` 與 `--exclude`）、`document`（文件型，成員是一筆在庫文件的 `cites`）。
+`create` 要求 `--kind`，既有的用 `library set-kind` 標；`add` 對規則型與文件型逐筆比對，**不符的不寫並說出
+原因**，未標性質的拒絕 add；`library check` 列出不符規則的現有成員，`validate` 也會報。
 ⚠ 並發限制：對**同一 entry** 並發執行 membership 寫入（CLI 與 MCP 同時 `library add/remove`）
 不保證安全——read-modify-write 無跨程序鎖，後寫者可能靜默蓋掉先寫者（跨程序鎖為 #7
 store 硬化範疇）。`create` 為 exclusive-create（並發同 key 恰一方成功）。單一操作者依序使用不受影響。
-工具面：**31 tools**（實測 `grep -oE 'Tool\(name: "akashic_[a-z_]+"' Sources/akashic-mcp/Server.swift | sort -u | wc -l`；逐格裁決見 `.claude/rules/mcp-cli-parity.md` 的封閉列舉）——9 讀（search/get_entry/relations/graph/export/people/person/doctor/divergences 列歧異）+ akashic_files（list/use——多檔案切換）+ akashic_libraries（list/create/add/remove）+
+工具面：**31 tools**（實測 `grep -oE 'Tool\(name: "akashic_[a-z_]+"' Sources/akashic-mcp/Server.swift | sort -u | wc -l`；逐格裁決見 `.claude/rules/mcp-cli-parity.md` 的封閉列舉）——9 讀（search/get_entry/relations/graph/export/people/person/doctor/divergences 列歧異）+ akashic_files（list/use——多檔案切換）+ akashic_libraries（list/create/add/remove/set-kind/check）+
 8 寫（**只碰衍生層**：set_status/tag/link/resolve_people 逐候選/create_entry 庫外/add_person/import_zotero/record_divergence 記歧異**不**消歧——消歧屬人工）。
 biblatex 面向唯讀——過渡期歸 Zotero pull 管。並發（MCP 與 CLI 並用）：per-file atomic
 write、last-wins、index 冪等重建（單人場景設計）。

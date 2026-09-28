@@ -253,7 +253,8 @@ struct EntryDetailView: View {
                 } else {
                     Menu("加入…") {
                         ForEach(available, id: \.key) { lib in
-                            Button(lib.name.isEmpty ? lib.key : "\(lib.displayName)（\(lib.key)）") {   // display-safe-exempt: lib.key 過 load 端 quarantine（key 不符 StoreKey 即整筆隔離）
+                            // #642：選單要看得到成員性質——掛錯目錄的起點是「只看得到名字」
+                            Button((lib.name.isEmpty ? lib.key : "\(lib.displayName)（\(lib.key)）") + "・\(lib.membershipLabel)") {   // display-safe-exempt: lib.key 過 load 端 quarantine（key 不符 StoreKey 即整筆隔離）；membershipLabel 是常量
                                 attempt {
                                     try state.addToLibrary(citekey: entry.citekey,
                                                            libraryKey: lib.key)

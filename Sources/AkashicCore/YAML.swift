@@ -1239,6 +1239,10 @@ public enum LibraryYAML {
         if let description = library.description {
             pairs.append((Node("description"), Node(description)))
         }
+        // #642：未標性質不寫出任何鍵（既有 registry 檔零 diff）
+        if let membership = library.membership {
+            pairs.append((Node("membership"), membershipNode(membership)))
+        }
         var out = try Yams.serialize(node: Node(pairs), allowUnicode: true)
         try EntryYAML.appendRawBlocks(library.unknownFields, to: &out, targetIndent: 0,
                                       context: "library")
@@ -1254,6 +1258,7 @@ public enum LibraryYAML {
             if a.key != b.key { bad.append("key") }
             if a.name != b.name { bad.append("name") }
             if a.description != b.description { bad.append("description") }
+            if a.membership != b.membership { bad.append("membership") }
             let detail = bad.isEmpty ? "未知欄位 key 序列不符" : "欄位不符：\(bad.joined(separator: "、"))"
             throw StoreYAMLError.invalidField(
                 "library", "encode 語意自檢失敗——\(detail)，拒絕寫出")
@@ -1268,7 +1273,93 @@ public enum LibraryYAML {
         return out
     }
 
-    static let knownLibraryKeys: Set<String> = ["key", "name", "description"]
+    static let knownLibraryKeys: Set<String> = ["key", "name", "description", "membership"]
+
+    /// #642：成員性質的鍵域——**每一種性質只收自己的鍵**（closed shape，未知鍵整檔拒讀）。
+    /// 形狀演化不入 tolerant 範圍：日後加鍵要改這張表並裁決舊 binary 的讀法（`StoreVersion` 的判準表）。
+    static let membershipKeys: [String: Set<String>] = [
+        "topic": ["kind"],
+        "rule": ["kind", "venue", "types", "excluded", "source"],
+        "document": ["kind", "document"],
+    ]
+
+    static func membershipNode(_ m: LibraryMembership) -> Node {
+        var pairs: [(Node, Node)] = [(Node("kind"), Node(m.kind))]
+        switch m {
+        case .topic:
+            break
+        case .rule(let r):
+            pairs.append((Node("venue"), Node(r.venue)))
+            if !r.types.isEmpty { pairs.append((Node("types"), Node(r.types.map { Node($0.rawValue) }))) }
+            if !r.excluded.isEmpty { pairs.append((Node("excluded"), Node(r.excluded.map { Node($0) }))) }
+            if let s = r.source { pairs.append((Node("source"), Node(s))) }
+        case .document(let ck):
+            pairs.append((Node("document"), Node(ck)))
+        }
+        return Node(pairs)
+    }
+
+    /// 嚴格解讀 `membership:`。任何形狀不符都擲錯——load 端把整個 registry 檔 quarantine（成員關係因此懸空、
+    /// validate 會報），而不是把一條看不懂的規則當成沒有規則。
+    static func decodeMembership(_ node: Yams.Node) throws -> LibraryMembership {
+        let ctx = "library.membership"
+        guard let map = node.mapping else {
+            throw StoreYAMLError.invalidField(ctx, "形狀不符——必須是 mapping（kind 加上該性質的欄位）")   // display-safe-exempt: ctx 是本函式的字面常量
+        }
+        guard let kind = try EntryYAML.requireShape(map["kind"], field: "\(ctx).kind", expect: "scalar",
+                                                    { $0.scalar?.string }) else {
+            throw StoreYAMLError.missingField("membership.kind")
+        }
+        guard let allowed = membershipKeys[kind] else {
+            throw StoreYAMLError.invalidField(
+                "\(ctx).kind", "「\(displaySafeInvisible(kind, max: 120))」不在值域內（\(LibraryMembership.kinds.joined(separator: "／"))）")   // display-safe-exempt: ctx 是本函式的字面常量；LibraryMembership.kinds 是封閉值域的常量
+        }
+        try EntryYAML.rejectUnknownKeys(map, known: allowed, context: ctx)
+        func key(_ field: String) throws -> String? {
+            guard let v = try EntryYAML.requireShape(map[field], field: "\(ctx).\(field)", expect: "scalar",
+                                                     { $0.scalar?.string }) else { return nil }
+            guard StoreKey.isValid(v) else {
+                throw StoreYAMLError.invalidField("\(ctx).\(field)",   // display-safe-exempt: ctx 是本函式的字面常量、field 是呼叫端字面量（venue／document／types／excluded）
+                    "「\(displaySafeInvisible(v, max: 120))」不符合 \(StoreKey.pattern)")
+            }
+            return v
+        }
+        func list(_ field: String) throws -> [String] {
+            guard let seq = try EntryYAML.requireShape(map[field], field: "\(ctx).\(field)", expect: "sequence",
+                                                       nullIsAbsent: true, { $0.sequence }) else { return [] }
+            let values = try EntryYAML.stringList(seq, context: "\(ctx).\(field)")
+            guard Set(values).count == values.count else {
+                throw StoreYAMLError.invalidField("\(ctx).\(field)", "有重複的值")   // display-safe-exempt: ctx 是本函式的字面常量、field 是呼叫端字面量（venue／document／types／excluded）
+            }
+            return values
+        }
+        switch kind {
+        case "topic":
+            return .topic
+        case "document":
+            guard let ck = try key("document") else { throw StoreYAMLError.missingField("membership.document") }
+            return .document(citekey: ck)
+        default:   // "rule"——值域已由 membershipKeys 收窄
+            guard let venue = try key("venue") else { throw StoreYAMLError.missingField("membership.venue") }
+            let types = try list("types").map { raw -> WorkType in
+                guard let t = WorkType(rawValue: raw) else {
+                    throw StoreYAMLError.invalidField("\(ctx).types", "「\(displaySafeInvisible(raw, max: 120))」不是 entry type")   // display-safe-exempt: ctx 是本函式的字面常量
+                }
+                return t
+            }
+            let excluded = try list("excluded")
+            for ck in excluded where !StoreKey.isValid(ck) {
+                throw StoreYAMLError.invalidField("\(ctx).excluded",   // display-safe-exempt: ctx 是本函式的字面常量
+                    "「\(displaySafeInvisible(ck, max: 120))」不符合 \(StoreKey.pattern)")
+            }
+            let source = try EntryYAML.requireShape(map["source"], field: "\(ctx).source", expect: "scalar",
+                                                    { $0.scalar?.string })
+            if let source, source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                throw StoreYAMLError.invalidField("\(ctx).source", "空的來歷——不記就不要寫這個鍵")   // display-safe-exempt: ctx 是本函式的字面常量
+            }
+            return .rule(LibraryRule(venue: venue, types: types, excluded: excluded, source: source))
+        }
+    }
 
     public static func decode(_ yaml: String) throws -> Library { try decode(yaml, isWritePath: false) }
 
@@ -1302,6 +1393,9 @@ public enum LibraryYAML {
         library.description = try EntryYAML.requireShape(
             map["description"], field: "library.description",
             expect: "scalar") { $0.scalar?.string }
+        if let node = map["membership"] {
+            library.membership = try decodeMembership(node)
+        }
         return library
     }
 }

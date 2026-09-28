@@ -457,8 +457,26 @@ public final class LibraryStore {
         }
         let yaml = try LibraryYAML.encode(library)
         let dest = libraryURL(key: library.key)
-        // exclusive-create：registry 無 update 路徑，並發 create 不得靜默互吃
+        // exclusive-create：並發 create 不得靜默互吃。改寫既有檔走下面的 `updateLibrary`（#642 起才有）
         try atomicWrite(yaml, to: dest, mustCreate: true)
+        return dest
+    }
+
+    /// 改寫一筆**已存在**的 registry 檔（#642：`library set-kind` 標性質與規則）。不順便建檔——建檔只走
+    /// `writeLibrary` 的 exclusive create，兩條路的語意不混。成員關係不在這個檔，所以改寫不動任何 entry。
+    @discardableResult
+    public func updateLibrary(_ library: Library) throws -> URL {
+        try assertStoreRoot()
+        guard StoreKey.isValid(library.key) else {
+            throw StoreIOError.invalidKey("library key", library.key)
+        }
+        let dest = libraryURL(key: library.key)
+        let current = (try? FileManager.default.attributesOfItem(atPath: dest.path))?[.size] as? Int
+        guard let current else {
+            throw StoreIOError.invalidKey("library（registry 檔不存在——先 library create）", library.key)
+        }
+        let yaml = try LibraryYAML.encode(library, replacing: current)   // #648：不增長的改寫才有寬限
+        try atomicWrite(yaml, to: dest, mustCreate: false)
         return dest
     }
 
@@ -1835,6 +1853,16 @@ extension LibraryStore {
         guard var entry = load.entries.first(where: { $0.citekey == oldKey }) else {
             throw StoreIOError.invalidKey("citekey（來源不存在）", oldKey)
         }
+        // #642：library 的成員規則以 citekey 指涉 work（文件型的文件、規則型的排除清單，第 16 條邊）。改名不遷移
+        // registry 檔——改了規則就安靜懸空（排除清單尤其安靜：被排除的那筆換了名字就不再被排除）。先擋，零寫入
+        let naming = load.librariesNaming(citekey: oldKey)
+        guard naming.isEmpty else {
+            throw StoreIOError.invalidInput(
+                what: "改名「\(displaySafeInvisible(oldKey, max: 200))」",
+                why: "library「" + naming.map { displaySafeInvisible($0, max: 200) }.joined(separator: "、")
+                   + "」的成員規則以這個 citekey 指涉它（文件型的文件或規則型的排除清單）；規則不隨改名遷移，改了會安靜懸空"
+                   + "——先以 akashic library set-kind 改掉那條規則再改名（#642）")
+        }
         // #631：entities 佈局下 rename 原地覆寫 entities/<id>.yaml、不刪舊檔——前提是「format 2 沒有舊檔」。
         // legacy 殘留 entries/<舊ck>.yaml 違反這個前提：改名後兩個 citekey 共用同一個 UUID（#627 R2 verify 真 binary 重現）。
         // 在任何寫入之前擋（writeEntry 只查新 citekey 的 legacy 檔，查不到舊的）。
@@ -2985,6 +3013,7 @@ public extension LibraryLoad {
                        + "兩筆是同一篇就用 record-divergence 記下、resolve-divergence 合併（合併把來源併成一份）；"
                        + "其中一筆記錯了就在 YAML 拿掉那個來源（#610）"))
         }
+        out += libraryMembershipIssues()
         // **排序是刻意的**（#579 R2 verify）：參照完整性的警告（懸空的作者、團體作者、venue、歧異候選、library）
         // 排在 DOI／標題重複這類整理提示之前。MCP `doctor` 只送前 20 則，live store 的 DOI／標題重複有 60 則，
         // 排在後面的完整性警告在那個面上永遠送不出去。

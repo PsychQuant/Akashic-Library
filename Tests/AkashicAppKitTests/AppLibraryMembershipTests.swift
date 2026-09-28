@@ -14,8 +14,8 @@ final class AppLibraryMembershipTests: XCTestCase {
             .appendingPathComponent("akashic-alm-\(UUID().uuidString)")
         let store = LibraryStore(root: root)
         try store.ensureLayout()
-        try store.writeLibrary(Library(key: "reading", name: "待讀"))
-        try store.writeLibrary(Library(key: "cited", name: "已引用"))
+        try store.writeLibrary(Library(key: "reading", name: "待讀", membership: .topic))
+        try store.writeLibrary(Library(key: "cited", name: "已引用", membership: .topic))
         try store.writeEntry(Entry(id: UUID(), citekey: "a2020a", type: .periodicalArticle,
                                    title: "T", authors: [.literal("X")], date: "2020"))
         state = AppState(root: root)
@@ -88,5 +88,30 @@ final class AppLibraryMembershipTests: XCTestCase {
         try state.addToLibrary(citekey: "a2020a", libraryKey: "reading")
         let fresh = try LibraryStore(root: root).load()
         XCTAssertEqual(fresh.entries[0].akashic.libraries, ["reading"])
+    }
+
+    /// #642：App 是第三個寫入面——同一份規則判定（`LibraryMembershipCheck`），不符就不寫並說原因。
+    func testUnmarkedLibraryRefusesAdd() throws {
+        try LibraryStore(root: root).writeLibrary(Library(key: "old", name: "舊"))
+        try state.load()
+        XCTAssertThrowsError(try state.addToLibrary(citekey: "a2020a", libraryKey: "old")) {
+            guard case AppStateError.libraryUnmarked(let k) = $0 else { return XCTFail("應為 libraryUnmarked，實得 \($0)") }
+            XCTAssertEqual(k, "old")
+            XCTAssertTrue(($0 as? LocalizedError)?.errorDescription?.contains("set-kind") ?? false)
+        }
+        XCTAssertEqual(libs("a2020a"), [])
+    }
+
+    func testRuleLibraryRefusesANonconformingEntryAndSaysWhy() throws {
+        try LibraryStore(root: root).writeLibrary(Library(key: "pm-catalog", name: "PM",
+            membership: .rule(LibraryRule(venue: "psychological-methods"))))
+        try state.load()
+        XCTAssertThrowsError(try state.addToLibrary(citekey: "a2020a", libraryKey: "pm-catalog")) {
+            guard case AppStateError.libraryRuleViolation(_, _, let reason) = $0 else {
+                return XCTFail("應為 libraryRuleViolation，實得 \($0)")
+            }
+            XCTAssertTrue(reason.contains("venue"), reason)
+        }
+        XCTAssertEqual(libs("a2020a"), [], "不符規則的不寫")
     }
 }

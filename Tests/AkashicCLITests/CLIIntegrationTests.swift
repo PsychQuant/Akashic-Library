@@ -214,7 +214,7 @@ extension CLIIntegrationTests {
 extension CLIIntegrationTests {
     func testLibraryLifecycleAndQueryFilter() throws {
         // create + list
-        var r = try runCLI(["library", "create", "sinica", "--name", "中研院"] + lib)
+        var r = try runCLI(["library", "create", "sinica", "--name", "中研院", "--kind", "topic"] + lib)
         XCTAssertEqual(r.status, 0, r.stderr)
         r = try runCLI(["library", "list"] + lib)
         XCTAssertEqual(r.status, 0, r.stderr)
@@ -240,7 +240,7 @@ extension CLIIntegrationTests {
     func testLibraryCreateRejectsBadKeyAndAddRejectsUnknown() throws {
         var r = try runCLI(["library", "create", "Bad Key", "--name", "X"] + lib)
         XCTAssertNotEqual(r.status, 0, "不合 StoreKey 的 key 要失敗")
-        _ = try runCLI(["library", "create", "sinica", "--name", "中研院"] + lib)
+        _ = try runCLI(["library", "create", "sinica", "--name", "中研院", "--kind", "topic"] + lib)
         r = try runCLI(["library", "add", "sinica", "ghost2000x"] + lib)
         XCTAssertNotEqual(r.status, 0, "未知 citekey 要失敗")
         r = try runCLI(["library", "add", "ghostlib", "cheng2025identifiability"] + lib)
@@ -249,7 +249,7 @@ extension CLIIntegrationTests {
 
     /// #455：`library add|remove` 收多個 citekey，一次 load、一次 rebuild；任一 citekey 不存在 → 整批拒絕零寫入。
     func testLibraryAddAcceptsSeveralCitekeysAndRejectsTheBatchOnUnknown() throws {
-        _ = try runCLI(["library", "create", "sinica", "--name", "中研院"] + lib)
+        _ = try runCLI(["library", "create", "sinica", "--name", "中研院", "--kind", "topic"] + lib)
         var r = try runCLI(["library", "add", "sinica", "cheng2025identifiability", "olsson1979maximum"] + lib)
         XCTAssertEqual(r.status, 0, r.stderr)
         let entries = libraryRoot.appendingPathComponent("entries")
@@ -261,6 +261,73 @@ extension CLIIntegrationTests {
         XCTAssertNotEqual(r.status, 0, "未知 citekey 要讓整批失敗")
         let cheng = try String(contentsOf: entries.appendingPathComponent("cheng2025identifiability.yaml"), encoding: .utf8)
         XCTAssertTrue(cheng.contains("- sinica"), "整批拒絕：存在的那筆不得被動")
+    }
+}
+
+/// #642：library 的成員性質在 CLI 面——create 要求 --kind、add 不符規則的不寫並說原因、check／set-kind／list 看得見依據。
+/// fixture 是 legacy 佈局（format 1，寫不進 venue），所以用文件型：`cheng2025identifiability` 的 cites 只有 `olsson1979maximum`。
+extension CLIIntegrationTests {
+    func testLibraryCreateRequiresAKindAndItsReferents() throws {
+        var r = try runCLI(["library", "create", "paper", "--name", "P"] + lib)
+        XCTAssertEqual(r.status, 64, "缺 --kind 是用法錯誤：\(r.stderr)")
+        XCTAssertTrue(r.stderr.contains("--kind"), r.stderr)
+        r = try runCLI(["library", "create", "paper", "--name", "P", "--kind", "document", "--document", "ghost2026a"] + lib)
+        XCTAssertEqual(r.status, 1, "文件不在庫是執行期失敗：\(r.stderr)")
+        r = try runCLI(["library", "create", "paper", "--name", "P", "--kind", "topic", "--venue", "x"] + lib)
+        XCTAssertEqual(r.status, 64, "topic 不收 --venue：\(r.stderr)")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: libraryRoot.appendingPathComponent("libraries/paper.yaml").path))
+    }
+
+    func testDocumentLibraryAddWritesOnlyTheCitedAndNamesTheRest() throws {
+        var r = try runCLI(["library", "create", "paper", "--name", "P", "--kind", "document",
+                            "--document", "cheng2025identifiability"] + lib)
+        XCTAssertEqual(r.status, 0, r.stderr)
+        r = try runCLI(["library", "add", "paper", "olsson1979maximum", "cheng2025identifiability"] + lib)
+        XCTAssertEqual(r.status, 0, "部分不符照常結束——寫了的就是正確的那部分：\(r.stderr)")
+        XCTAssertTrue(r.stdout.contains("added: olsson1979maximum"), r.stdout)
+        XCTAssertTrue(r.stdout.contains("✕") && r.stdout.contains("沒有引用它"), r.stdout)
+        XCTAssertTrue(r.stdout.contains("依據：文件型"), r.stdout)
+        let cheng = try String(contentsOf: libraryRoot.appendingPathComponent("entries/cheng2025identifiability.yaml"), encoding: .utf8)
+        XCTAssertFalse(cheng.contains("- paper"), "不符規則的不寫")
+        r = try runCLI(["library", "add", "paper", "cheng2025identifiability"] + lib)
+        XCTAssertEqual(r.status, 1, "全部不符＝零寫入，非零結束：\(r.stdout)\(r.stderr)")
+    }
+
+    func testUnmarkedLibraryIsVisibleAndCanBeMarked() throws {
+        try FileManager.default.createDirectory(at: libraryRoot.appendingPathComponent("libraries"),
+                                                withIntermediateDirectories: true)
+        try """
+        key: old
+        name: 舊的
+        """.write(to: libraryRoot.appendingPathComponent("libraries/old.yaml"), atomically: true, encoding: .utf8)
+        var r = try runCLI(["library", "add", "old", "olsson1979maximum"] + lib)
+        XCTAssertNotEqual(r.status, 0)
+        XCTAssertTrue(r.stderr.contains("set-kind"), r.stderr)
+        r = try runCLI(["validate"] + lib)
+        XCTAssertTrue(r.stdout.contains("沒有標成員性質"), r.stdout)
+        r = try runCLI(["library", "list"] + lib)
+        XCTAssertTrue(r.stdout.contains("未標性質"), r.stdout)
+        r = try runCLI(["library", "set-kind", "old", "--kind", "topic"] + lib)
+        XCTAssertEqual(r.status, 0, r.stderr)
+        r = try runCLI(["library", "add", "old", "olsson1979maximum"] + lib)
+        XCTAssertEqual(r.status, 0, r.stderr)
+        r = try runCLI(["library", "check", "old"] + lib)
+        XCTAssertEqual(r.status, 0, r.stderr)
+        XCTAssertTrue(r.stdout.contains("主題型"), r.stdout)
+    }
+
+    func testSetKindListsCurrentViolationsWithoutRemovingThem() throws {
+        _ = try runCLI(["library", "create", "paper", "--name", "P", "--kind", "topic"] + lib)
+        _ = try runCLI(["library", "add", "paper", "cheng2025identifiability", "olsson1979maximum"] + lib)
+        var r = try runCLI(["library", "set-kind", "paper", "--kind", "document", "--document", "cheng2025identifiability"] + lib)
+        XCTAssertEqual(r.status, 0, r.stderr)
+        XCTAssertTrue(r.stdout.contains("✕ cheng2025identifiability"), r.stdout)
+        r = try runCLI(["library", "check", "paper"] + lib)
+        XCTAssertTrue(r.stdout.contains("1 筆不符"), r.stdout)
+        r = try runCLI(["validate"] + lib)
+        XCTAssertTrue(r.stdout.contains("1 筆成員不符規則"), r.stdout)
+        let cheng = try String(contentsOf: libraryRoot.appendingPathComponent("entries/cheng2025identifiability.yaml"), encoding: .utf8)
+        XCTAssertTrue(cheng.contains("- paper"), "set-kind 不自動移除")
     }
 }
 

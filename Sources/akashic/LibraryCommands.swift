@@ -10,8 +10,14 @@ import AkashicIndex
 struct LibraryCmd: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "library",
-        abstract: "具名 library（成員集合視角）管理：list / create / add / remove。注意：同一 store 的並發 add/remove/create（如 CLI 與 MCP 同時操作）不保證安全——見 README",
-        subcommands: [LibraryList.self, LibraryCreate.self, LibraryAdd.self, LibraryRemove.self])
+        abstract: "具名 library（成員集合視角）管理：list / create / add / remove / set-kind / check。注意：同一 store 的並發 add/remove/create（如 CLI 與 MCP 同時操作）不保證安全——見 README",
+        discussion: """
+        每個 library 有成員性質（#642）：topic（主題型，成員由你挑，照寫）、rule（規則型，以 venue key 界定，可加 \
+        --type 與 --exclude）、document（文件型，成員是一筆在庫文件的 cites）。add 對 rule／document 逐筆比對，\
+        不符的不寫並說出原因（不是拒絕整批，也不是照寫）；未標性質的 library 拒絕 add——先 set-kind。
+        """,
+        subcommands: [LibraryList.self, LibraryCreate.self, LibraryAdd.self, LibraryRemove.self,
+                      LibrarySetKind.self, LibraryCheck.self])
 }
 
 struct LibraryList: ParsableCommand {
@@ -24,7 +30,7 @@ struct LibraryList: ParsableCommand {
         let store = try options.openStore()
         let load = try store.load()
         if load.libraries.isEmpty {
-            print("（無 library——用 akashic library create <key> --name <名> 建立）")
+            print("（無 library——用 akashic library create <key> --name <名> --kind <topic|rule|document> 建立）")
             return
         }
         var counts: [String: Int] = [:]
@@ -36,6 +42,13 @@ struct LibraryList: ParsableCommand {
             // 非 U+0020 的 Zs 自 #569 起在人可讀輸出逃脫）
             let desc = library.description.map { "　" + displaySafe($0, max: 800) } ?? ""
             print("\(displaySafe(library.key, max: 200))\t\(displaySafe(library.name, max: 800))（\(counts[library.key] ?? 0) entries）\(desc)")   // display-safe-exempt: dict 查找，值是 Int 計數；key 只是索引不進輸出
+            // #642：性質與依據——要問「掛哪個 library」的地方要看得到它，不再只靠讀描述
+            var basis = "  " + LibraryMembershipCheck.basis(of: library.membership)   // display-safe-exempt: basis 在 LibraryMembershipCheck 裡已逐項消毒
+            if library.membership != nil {
+                let bad = LibraryMembershipCheck(library: library, entries: load.entries).nonconformingMembers().count
+                if bad > 0 { basis += "——\(bad) 筆成員不符規則（akashic library check \(displaySafe(library.key, max: 200))）" }   // display-safe-exempt: Int
+            }
+            print(basis)
         }
     }
 }
@@ -48,22 +61,124 @@ struct LibraryCreate: ParsableCommand {
     @Argument(help: "library key（StoreKey 格式：小寫英數與連字號）") var key: String
     @Option(name: .long, help: "顯示名稱") var name: String
     @Option(name: .long, help: "描述（選填）") var description: String?
+    @Option(name: .long, help: "成員性質（必填，#642）：topic｜rule｜document——見 akashic library --help") var kind: String?
+    @Option(name: .long, help: "rule：venue key——成員必須有一條指向它的 key 邊（venue 要先在庫）") var venue: String?
+    @Option(name: .customLong("type"), help: "rule：限定 entry type（可重複；不給＝不限）") var types: [String] = []
+    @Option(name: .customLong("exclude"), help: "rule：依裁決不收的 citekey（可重複）") var excluded: [String] = []
+    @Option(name: .long, help: "document：文件的 citekey——它的 cites 即成員（文件要先在庫）") var document: String?
+    @Option(name: .long, help: "rule：這份目錄從哪裡取得（例如 openalex:S45419345；只記來歷，不作檢查依據）") var source: String?
+
+    var membershipInput: AkashicService.LibraryMembershipInput {
+        .init(kind: kind, venue: venue, types: types, excluded: excluded, document: document, source: source)
+    }
 
     /// 驗證先行：未驗證 key 不得進任何路徑組合（存在性 oracle 防護）。放在 `validate()` 而不是 `run()`（#549 R1）：
     /// 它只看 argv，要早於開 store——否則 store 缺佈局時先報執行期失敗，同一個打錯的 key 得到不同的 exit code。
+    func validate() throws {
+        try requireValidLibraryKey(key)
+        try argvCheck {
+            guard try AkashicService.parseLibraryMembership(membershipInput) != nil else {
+                throw ServiceError.invalid("create 需要 --kind（topic／rule／document）——library 的成員性質是寫入時查證的依據（#642）")
+            }
+        }
+    }
+
+    /// 建檔走 service（與 MCP `create` 同一條路徑）：規則指涉的 venue／文件要在庫。
+    func run() throws {
+        let store = try options.openStore()
+        let service = AkashicService(root: store.root, key: store.key, environment: ProcessInfo.processInfo.environment)
+        do {
+            _ = try service.libraries(action: "create", key: key, name: name, description: description,
+                                      citekey: nil, membership: membershipInput)
+        } catch {
+            throw RuntimeFailure.state(displaySafeErrorText(error))
+        }
+        print("created: \(displaySafe(key, max: 200)).yaml")
+        print("  " + LibraryMembershipCheck.basis(of: try? AkashicService.parseLibraryMembership(membershipInput)))   // display-safe-exempt: basis 在 LibraryMembershipCheck 裡已逐項消毒
+    }
+}
+
+/// #642：標一個既有 library 的成員性質與規則。現有成員不符新規則時列出來、不自動移除——移除是另一個寫入。
+struct LibrarySetKind: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "set-kind",
+        abstract: "標 library 的成員性質與規則（topic／rule／document）；現有成員不符時列出、不自動移除")
+
+    @OptionGroup var options: LibraryOptions
+    @Argument(help: "library key") var key: String
+    @Option(name: .long, help: "成員性質（必填）：topic｜rule｜document——見 akashic library --help") var kind: String?
+    @Option(name: .long, help: "rule：venue key——成員必須有一條指向它的 key 邊（venue 要先在庫）") var venue: String?
+    @Option(name: .customLong("type"), help: "rule：限定 entry type（可重複；不給＝不限）") var types: [String] = []
+    @Option(name: .customLong("exclude"), help: "rule：依裁決不收的 citekey（可重複）") var excluded: [String] = []
+    @Option(name: .long, help: "document：文件的 citekey——它的 cites 即成員（文件要先在庫）") var document: String?
+    @Option(name: .long, help: "rule：這份目錄從哪裡取得（例如 openalex:S45419345；只記來歷，不作檢查依據）") var source: String?
+
+    var membershipInput: AkashicService.LibraryMembershipInput {
+        .init(kind: kind, venue: venue, types: types, excluded: excluded, document: document, source: source)
+    }
+
+    func validate() throws {
+        try requireValidLibraryKey(key)
+        try argvCheck {
+            guard try AkashicService.parseLibraryMembership(membershipInput) != nil else {
+                throw ServiceError.invalid("set-kind 需要 --kind（topic／rule／document）")
+            }
+        }
+    }
+
+    func run() throws {
+        let store = try options.openStore()
+        let service = AkashicService(root: store.root, key: store.key, environment: ProcessInfo.processInfo.environment)
+        do {
+            _ = try service.libraries(action: "set-kind", key: key, name: nil, description: nil,
+                                      citekey: nil, membership: membershipInput)
+            let check = try service.libraryViolations(key: key)
+            print("set-kind: \(displaySafe(key, max: 200))")
+            print("  " + LibraryMembershipCheck.basis(of: check.library.membership))   // display-safe-exempt: basis 已逐項消毒
+            printViolations(check.violations, members: check.members, key: key)
+        } catch let e as ServiceError {
+            throw RuntimeFailure.state(displaySafeErrorText(e))
+        }
+    }
+}
+
+/// #642：列出一個 library 不符成員規則的成員（全部，不截）。唯讀。
+struct LibraryCheck: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "check", abstract: "列出 library 裡不符成員規則的成員與原因（唯讀）")
+
+    @OptionGroup var options: LibraryOptions
+    @Argument(help: "library key") var key: String
+
     func validate() throws { try requireValidLibraryKey(key) }
 
     func run() throws {
         let store = try options.openStore()
-        guard !FileManager.default.fileExists(atPath: store.libraryURL(key: key).path) else {
-            throw RuntimeFailure.state("library「\(displaySafeInvisible(key, max: 200))」已存在")
-        }
+        let service = AkashicService(root: store.root, key: store.key, environment: ProcessInfo.processInfo.environment)
         do {
-            let url = try store.writeLibrary(Library(key: key, name: name, description: description))
-            print("created: \(url.lastPathComponent)")
-        } catch {
-            throw RuntimeFailure.state(displaySafeErrorText(error))
+            let check = try service.libraryViolations(key: key)
+            print("\(displaySafe(key, max: 200))：" + LibraryMembershipCheck.basis(of: check.library.membership))   // display-safe-exempt: basis 已逐項消毒
+            guard check.library.membership != nil else {
+                print("  " + Library.unmarkedMessage)
+                return
+            }
+            printViolations(check.violations, members: check.members, key: key)
+        } catch let e as ServiceError {
+            throw RuntimeFailure.state(displaySafeErrorText(e))
         }
+    }
+}
+
+/// set-kind 與 check 共用的渲染：CLI 不截（輸出進人的終端機，#388 的分工）。
+private func printViolations(_ violations: [(citekey: String, violation: LibraryMembershipViolation)],
+                             members: Int, key: String) {
+    guard !violations.isEmpty else {
+        print("  \(members) 筆成員全部符合")   // display-safe-exempt: Int
+        return
+    }
+    print("  \(members) 筆成員裡 \(violations.count) 筆不符（不自動移除；確認後用 akashic library remove \(displaySafe(key, max: 200)) <citekey>...）：")   // display-safe-exempt: Int
+    for v in violations {
+        print("  ✕ \(displaySafe(v.citekey, max: 200))：\(v.violation.message)")   // display-safe-exempt: message 已逐項消毒
     }
 }
 
@@ -100,7 +215,7 @@ private func runMembership(options: LibraryOptions, action: String, libraryKey: 
 struct LibraryAdd: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "add",
-        abstract: "把 entry 加入 library（寫 entry 的 akashic.libraries）。可一次給多個 citekey：任一不存在即整批拒絕（#455）")
+        abstract: "把 entry 加入 library（寫 entry 的 akashic.libraries）。可一次給多個 citekey：任一不存在即整批拒絕（#455）；不符 library 成員規則的不寫、逐筆說原因，全部不符則非零結束；未標性質的 library 拒絕（#642）")
 
     @OptionGroup var options: LibraryOptions
     @Argument(help: "library key") var libraryKey: String
@@ -110,8 +225,17 @@ struct LibraryAdd: ParsableCommand {
 
     func run() throws {
         let report = try runMembership(options: options, action: "add", libraryKey: libraryKey, citekeys: citekeys)
+        // #642：要求／依據／實際寫入——三格都印（不符的不寫，逐筆說原因）
+        print("依據：" + report.basis)   // display-safe-exempt: basis 在 LibraryMembershipCheck 裡已逐項消毒
         for ck in report.written {
             print("added: \(displaySafe(ck, max: 200)) → \(displaySafe(libraryKey, max: 200))")
+        }
+        for skip in report.skipped {
+            print("  ✕ 不符規則、未寫：\(displaySafe(skip.citekey, max: 200))——\(displaySafeClipOnly(skip.reason, max: 1_200))")   // display-safe-exempt: reason 已逐項消毒（LibraryMembershipViolation.message），只截
+        }
+        // 全數不符＝零寫入：非零結束（#624 全數排除的同形）。部分不符照常結束——寫了的就是正確的那部分
+        if report.written.isEmpty, !report.skipped.isEmpty {
+            throw RuntimeFailure.state("\(report.skipped.count) 筆全部不符 library「\(displaySafeInvisible(libraryKey, max: 200))」的成員規則，零寫入")   // display-safe-exempt: Int
         }
     }
 }

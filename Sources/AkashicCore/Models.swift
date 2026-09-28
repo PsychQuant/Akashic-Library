@@ -374,15 +374,94 @@ public struct Library: Equatable {
     public var key: String
     public var name: String
     public var description: String?
+    /// 成員性質與規則（#642）。`nil` ＝**未標性質**：查不到成員的依據，所以 add 拒絕、validate 警告——
+    /// 不推一個預設值出來（`no-compat-fallback` 第 1 類）。缺席的語意就是「還沒有人宣告這個 library 是什麼」。
+    public var membership: LibraryMembership?
     /// 頂層未知欄位（tolerant-preserve，#23）。
     public var unknownFields: [UnknownField]
 
     public init(key: String, name: String, description: String? = nil,
+                membership: LibraryMembership? = nil,
                 unknownFields: [UnknownField] = []) {
         self.key = key
         self.name = name
         self.description = description
+        self.membership = membership
         self.unknownFields = unknownFields
+    }
+}
+
+/// library 的成員性質（#642，使用者 2026-09-28 照提案定案）。三種，**封閉列舉**——與 plugin 規則
+/// `source-of-truth-over-consent` 的三列 library 成員逐一對應，那張表才是它們依據的定義：
+///
+/// | 性質 | 成員的依據 | 寫入時的檢查 |
+/// |---|---|---|
+/// | `topic` | 使用者的選擇 | 無（使用者的話就是依據） |
+/// | `rule` | 一條以 store 內資料界定的規則（venue key，可加 type 集合與逐筆排除） | 逐筆比對，不符的不寫 |
+/// | `document` | 一筆在庫文件的參考文獻（它的 `akashic.relations.cites`） | 逐筆比對，不符的不寫 |
+///
+/// sum type 而不是 `kind` 字串加一堆選填欄位：兩個欄位可以互相矛盾（topic 帶 venue），一個 sum type 不會。
+public enum LibraryMembership: Equatable {
+    case topic
+    case rule(LibraryRule)
+    case document(citekey: String)
+
+    /// 序列化與兩個寫入面共用的值域字串。
+    public var kind: String {
+        switch self {
+        case .topic: return "topic"
+        case .rule: return "rule"
+        case .document: return "document"
+        }
+    }
+
+    /// 封閉值域，順序即說明順序。
+    public static let kinds = ["topic", "rule", "document"]
+
+    /// 人讀的性質名（App 選單、CLI 列表）。
+    public var kindLabel: String {
+        switch self {
+        case .topic: return "主題型"
+        case .rule: return "規則型"
+        case .document: return "文件型"
+        }
+    }
+
+    /// 這條規則指涉的 work（文件型的文件、規則型的排除清單）——改名與合併的守衛問的是這個集合：
+    /// 規則是 library 的屬性（`entity-backlink-completeness` 第 16 條邊），被指涉的一方不知道自己在規則裡。
+    public var referencedCitekeys: [String] {
+        switch self {
+        case .topic: return []
+        case .rule(let r): return r.excluded
+        case .document(let ck): return [ck]
+        }
+    }
+
+    /// 規則型指涉的 venue。
+    public var referencedVenue: String? {
+        if case .rule(let r) = self { return r.venue }
+        return nil
+    }
+}
+
+/// 規則型 library 的規則（#642 row 2）：**以 store 裡可以檢查的資料界定**。寫入時的檢查與 `validate`／`doctor`
+/// 都在本機離線跑（`Sources/` 沒有 HTTP client），所以外部來源 id 只記在 `source`、不參與檢查。
+public struct LibraryRule: Equatable {
+    /// 成員必須有一條指向這個 venue 的 `.key` 邊。
+    public var venue: String
+    /// 空＝不限 type；非空＝成員的 `type` 必須在集合內。
+    public var types: [WorkType]
+    /// 逐筆明列、依裁決**不收**的 work（符合 venue 與 type 也不是成員）——「附錄等依裁決排除」的那一種。
+    /// 名字寫成 `excluded` 而不是「例外」：方向要在資料裡說清楚（排除，不是額外收錄）。
+    public var excluded: [String]
+    /// 這份目錄從哪裡取得（例如 `openalex:S45419345`）——**只記來歷，不作檢查依據**。
+    public var source: String?
+
+    public init(venue: String, types: [WorkType] = [], excluded: [String] = [], source: String? = nil) {
+        self.venue = venue
+        self.types = types
+        self.excluded = excluded
+        self.source = source
     }
 }
 
@@ -1111,6 +1190,10 @@ extension Library {
             issues.append(ValidationIssue(
                 severity: .error,
                 message: "library key '\(displaySafeInvisible(key, max: 120))' 不符合 \(StoreKey.pattern)"))
+        }
+        // #642：未標性質＝查不到成員的依據。add 因此拒絕；這裡讓它在不寫的時候也看得見
+        if membership == nil {
+            issues.append(ValidationIssue(severity: .warning, message: Library.unmarkedMessage))
         }
         for f in unknownFields {
             issues.append(ValidationIssue(severity: .warning,

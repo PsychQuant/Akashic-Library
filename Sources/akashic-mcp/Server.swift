@@ -121,13 +121,19 @@ actor AkashicMCPServer {
                 "library": str("store **內**的 membership 分類 key 過濾（選填，僅 key 直查時生效）。**不是** store root"),
              ])),
         Tool(name: "akashic_libraries",
-             description: "具名 library（成員集合視角）：list 列表含成員數；create 建 registry；add／remove 改 entry 的 akashic.libraries（衍生層），指名的 work 無法唯一定位（原因見 akashic validate）時整批拒絕、零寫入。store 是全集，library 不分割資料。",
+             description: "具名 library（成員集合視角）：list 列表含成員數、kind 與規則；create 建 registry（kind 必填）；set-kind 標性質與規則；check 列不符規則的成員；add／remove 改 entry 的 akashic.libraries，指名的 work 無法唯一定位時整批拒絕、零寫入。kind：topic 照寫；rule 以 venue 界定；document 以文件的 cites 界定。add 不符規則的不寫（回 written:false、skipped 原因、basis），未標性質的 library 拒絕 add。細節見 akashic library --help。",
              inputSchema: obj([
-                "action": str("list | create | add | remove"),
-                "key": str("library key（create/add/remove 必填；StoreKey 格式）"),
+                "action": str("list | create | add | remove | set-kind | check"),
+                "key": str("library key（list 以外必填）"),
                 "name": str("顯示名稱（create 必填）"),
                 "description": str("描述（create 選填）"),
                 "citekey": str("目標 entry（add/remove 必填）"),
+                "kind": str("topic | rule | document（create／set-kind 必填）"),
+                "venue": str("rule：venue key"),
+                "types": strArray("rule：限定的 entry type（選填）"),
+                "excluded": strArray("rule：不收的 citekey（選填）"),
+                "document": str("document：文件 citekey"),
+                "source": str("rule：來歷，只記不查（選填）"),
              ], required: ["action"])),
         Tool(name: "akashic_set_status",
              description: "設定／清除 entry 的 akashic.status（衍生層；如 reading / read / to-read）。"
@@ -527,7 +533,10 @@ actor AkashicMCPServer {
             case "akashic_libraries":
                 output = try service.libraries(
                     action: arg("action") ?? "", key: arg("key"), name: arg("name"),
-                    description: arg("description"), citekey: arg("citekey"))
+                    description: arg("description"), citekey: arg("citekey"),
+                    membership: .init(kind: arg("kind"), venue: arg("venue"), types: argList("types"),
+                                      excluded: argList("excluded"), document: arg("document"),
+                                      source: arg("source")))
             case "akashic_set_status":
                 let clearFlag = try argFlag("clear", default: false)
                 output = try service.setStatus(citekey: arg("citekey") ?? "",

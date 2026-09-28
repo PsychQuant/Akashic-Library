@@ -82,7 +82,7 @@ final class RefuseIfNewerGateTests: XCTestCase {
         try "format: banana\n".write(
             to: StoreVersion.url(in: root), atomically: true, encoding: .utf8)
         let r = try CLITestHarness.run(
-            ["library", "create", "sinica", "--name", "中研院", "--library", root.path], env: [:])
+            ["library", "create", "sinica", "--name", "中研院", "--kind", "topic", "--library", root.path], env: [:])
         XCTAssertNotEqual(r.status, 0, "malformed marker 上 library create 必須拒絕：\(r.output)")
         XCTAssertFalse(FileManager.default.fileExists(
                            atPath: root.appendingPathComponent("libraries/sinica.yaml").path),

@@ -25,7 +25,14 @@ let adjudicated: Set<String> = [
     "Models.tags", "Models.thesis", "Models.title",
     "Models.type", "Models.unknownFields", "Models.variant",
     "Models.venues", "Models.zoteroHash", "Models.zoteroKey",
-    "Models.zoteroVersion", "Organization.authorized", "Organization.displayName",
+    "Models.zoteroVersion",
+    // #642：library 的成員性質（`Library.membership`，第 16 條邊）。`venue`／`excluded` 是邊（LibraryRule：venue key、
+    // 不收的 citekey；文件型的 document 是 enum 的關聯值、不是 public var，邊由 `membership` 那一列涵蓋）；
+    // `types` 是 WorkType 值域、`source` 是外部來歷（指向 store 之外，不是邊）；`kindLabel`／`referencedCitekeys`／
+    // `referencedVenue` 是 computed、不序列化
+    "Models.membership", "Models.venue", "Models.types", "Models.excluded", "Models.source",
+    "Models.kindLabel", "Models.referencedCitekeys", "Models.referencedVenue",
+    "Organization.authorized", "Organization.displayName",
     "Organization.dissolved", "Organization.founded", "Organization.id",
     "Organization.key", "Organization.names", "Organization.note",
     "Organization.parents", "Organization.references", "Organization.ror",
@@ -59,6 +66,9 @@ let edgeTypes: [String: String] = [
     "Models.authors": "[Author]",
     "Models.cites": "[String]",
     "Models.libraries": "[String]",
+    "Models.membership": "LibraryMembership?",
+    "Models.venue": "String",
+    "Models.excluded": "[String]",
     "Models.references": "[ProvenanceReference]",
     "Models.related": "[String]",
     "Models.tags": "[String]",

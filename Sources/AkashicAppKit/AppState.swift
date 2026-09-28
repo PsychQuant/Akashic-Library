@@ -246,8 +246,15 @@ public final class AppState {
     /// `#7b` 的跨記錄驗證會把它報成 warning，但更好的做法是**一開始就不讓它發生**。
     /// 所以這裡 fail-loud，UI 端則只提供選單而非自由輸入。
     public func addToLibrary(citekey: String, libraryKey: String) throws {
-        guard libraries.contains(where: { $0.key == libraryKey }) else {
+        guard let library = libraries.first(where: { $0.key == libraryKey }) else {
             throw AppStateError.unknownLibrary(libraryKey)
+        }
+        // #642：App 是第三個寫入面。依據與 CLI／MCP 的 add 同一份判定（`LibraryMembershipCheck`）：
+        // 未標性質＝查不到依據→不寫；規則型／文件型不符→不寫並說原因（不是照寫）
+        guard library.membership != nil else { throw AppStateError.libraryUnmarked(libraryKey) }
+        if let entry = entries.first(where: { $0.citekey == citekey }),
+           let v = LibraryMembershipCheck(library: library, entries: entries).violation(of: entry) {
+            throw AppStateError.libraryRuleViolation(library: libraryKey, citekey: citekey, reason: v.message)   // display-safe-exempt: v.message 已逐項消毒（LibraryMembershipViolation.message）；libraryKey／citekey 在描述端逃
         }
         try mutate(citekey) {
             if !$0.akashic.libraries.contains(libraryKey) {
@@ -355,12 +362,21 @@ public enum AppStateError: Error, LocalizedError, SanitizedErrorDescription {
     case renamedButReloadFailed(report: RenameReport, underlying: String)
     /// #15：library key 是**參照**不是自由字串——加進不存在的 library 會產生懸空成員關係。
     case unknownLibrary(String)
+    /// #642：library 沒有標成員性質——查不到成員的依據，不寫。
+    case libraryUnmarked(String)
+    /// #642：entry 不符 library 的成員規則。`reason` 已逐項消毒（`LibraryMembershipViolation.message`）。
+    case libraryRuleViolation(library: String, citekey: String, reason: String)
 
     public var errorDescription: String? {
         switch self {
         case .unknownLibrary(let key):
             return "library「\(displaySafeInvisible(key, max: 200))」不在 registry 裡"
                  + "——先用 akashic library create 建立，或從清單挑一個既有的"
+        case .libraryUnmarked(let key):
+            return "library「\(displaySafeInvisible(key, max: 200))」：\(Library.unmarkedMessage)"   // display-safe-exempt: Library.unmarkedMessage 是常量
+        case let .libraryRuleViolation(library, citekey, reason):
+            return "「\(displaySafeInvisible(citekey, max: 200))」不符 library「\(displaySafeInvisible(library, max: 200))」的成員規則，未加入——"
+                 + displaySafeClipOnly(reason, max: 1_200)   // display-safe-exempt: reason 已逐項消毒（LibraryMembershipViolation.message），只截
         // #155：key／path 來自 config.yaml 與使用者輸入——同 unknownLibrary 消毒
         case .unknownFile(let key):
             return "檔案 key「\(displaySafeInvisible(key, max: 200))」未註冊於 config"

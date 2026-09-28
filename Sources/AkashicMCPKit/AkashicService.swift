@@ -916,9 +916,161 @@ public final class AkashicService {
         throw ServiceError.invalid("內部錯誤：person 的參數檢查應已保證 key 或 name 恰一個")
     }
 
-    /// #13 多 library：registry 管理 + 成員操作（衍生層寫入邊界內）。
+    /// #642：library 成員性質的寫入參數——CLI 旗標（`--kind --venue --type --exclude --document --source`）與 MCP 參數同形。
+    /// 只看參數的檢查在 `parseLibraryMembership`（CLI 的 `validate()` 呼叫同一個函式，#654）。
+    public struct LibraryMembershipInput: Equatable {
+        public var kind: String?
+        public var venue: String?
+        public var types: [String]
+        public var excluded: [String]
+        public var document: String?
+        public var source: String?
+        public init(kind: String? = nil, venue: String? = nil, types: [String] = [], excluded: [String] = [],
+                    document: String? = nil, source: String? = nil) {
+            self.kind = kind; self.venue = venue; self.types = types; self.excluded = excluded
+            self.document = document; self.source = source
+        }
+        public var isEmpty: Bool {
+            kind == nil && venue == nil && types.isEmpty && excluded.isEmpty && document == nil && source == nil
+        }
+    }
+
+    /// 規則型的 `source`（來歷）上限：只記「從哪裡取得」，一行就夠。
+    public static let maxLibrarySourceBytes = 512
+
+    /// #642：只看參數。`nil` ＝沒有給 kind（也沒有給任何伴隨參數）。每一種性質只收自己的參數——
+    /// 兩個參數互相矛盾（topic 帶 venue）時拒絕，不猜哪一個才是本意。
+    public static func parseLibraryMembership(_ input: LibraryMembershipInput) throws -> LibraryMembership? {
+        guard let kind = input.kind else {
+            guard input.isEmpty else {
+                throw ServiceError.invalid("venue／types／excluded／document／source 只伴隨 kind（topic／rule／document）")
+            }
+            return nil
+        }
+        let k = displaySafeInvisible(kind, max: 60)
+        func forbid(_ present: Bool, _ what: String) throws {
+            if present { throw ServiceError.invalid("kind \(k) 不收 \(what)——每一種性質只收自己的參數（#642）") }   // display-safe-exempt: k 已以 displaySafeInvisible 消毒、what 是呼叫端字面量
+        }
+        func storeKey(_ v: String, _ what: String) throws -> String {
+            guard StoreKey.isValid(v) else {
+                throw ServiceError.invalid("\(what)「\(displaySafeInvisible(v, max: 200))」不符合 \(StoreKey.pattern)")   // display-safe-exempt: what 是本函式的字面常量、pattern 是常量
+            }
+            return v
+        }
+        switch kind {
+        case "topic":
+            try forbid(input.venue != nil, "venue"); try forbid(!input.types.isEmpty, "types")
+            try forbid(!input.excluded.isEmpty, "excluded"); try forbid(input.document != nil, "document")
+            try forbid(input.source != nil, "source")
+            return .topic
+        case "document":
+            try forbid(input.venue != nil, "venue"); try forbid(!input.types.isEmpty, "types")
+            try forbid(!input.excluded.isEmpty, "excluded"); try forbid(input.source != nil, "source")
+            guard let d = input.document else {
+                throw ServiceError.invalid("kind document 需要 document（文件的 citekey——它的 cites 即成員）")
+            }
+            return .document(citekey: try storeKey(d, "document"))
+        case "rule":
+            try forbid(input.document != nil, "document")
+            guard let v = input.venue else {
+                throw ServiceError.invalid("kind rule 需要 venue（venue key——成員必須有一條指向它的 key 邊）")
+            }
+            var types: [WorkType] = []
+            for raw in input.types {
+                guard let t = WorkType(rawValue: raw) else {
+                    throw ServiceError.invalid("types「\(displaySafeInvisible(raw, max: 120))」不是 entry type（\(WorkType.domainDescription)）")   // display-safe-exempt: domainDescription 是封閉值域的常量
+                }
+                guard !types.contains(t) else { throw ServiceError.invalid("types 有重複的「\(t.rawValue)」") }   // display-safe-exempt: WorkType.rawValue 是封閉值域
+                types.append(t)
+            }
+            var excluded: [String] = []
+            for ck in input.excluded {
+                let ck = try storeKey(ck, "excluded")
+                guard !excluded.contains(ck) else { throw ServiceError.invalid("excluded 有重複的「\(ck)」") }   // display-safe-exempt: ck 已通過 StoreKey 文法
+                excluded.append(ck)
+            }
+            var source: String?
+            if let raw = input.source {
+                let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !s.isEmpty else { throw ServiceError.invalid("source 是空的——不記來歷就不要給這個參數") }
+                guard s.utf8.count <= maxLibrarySourceBytes else {
+                    throw ServiceError.invalid("source 超過 \(maxLibrarySourceBytes) 位元組——只記來歷（例如 openalex:S45419345）")   // display-safe-exempt: maxLibrarySourceBytes 是常量
+                }
+                source = s
+            }
+            return .rule(LibraryRule(venue: try storeKey(v, "venue"), types: types, excluded: excluded, source: source))
+        default:
+            throw ServiceError.invalid("kind「\(k)」不在值域內（\(LibraryMembership.kinds.joined(separator: "／"))）")   // display-safe-exempt: k 已以 displaySafeInvisible 消毒；LibraryMembership.kinds 是封閉值域的常量
+        }
+    }
+
+    /// 規則指涉的東西要在庫——寫入的依據要查得到（`source-of-truth-over-consent` 第 4 條）。建檔與 set-kind 共用。
+    static func requireMembershipReferents(_ m: LibraryMembership, in load: LibraryLoad) throws {
+        switch m {
+        case .topic:
+            return
+        case .rule(let r):
+            guard load.venues.contains(where: { $0.key == r.venue }) else {
+                throw ServiceError.notFound("venue「\(displaySafeInvisible(r.venue, max: 200))」——規則型 library 以在庫的 venue 界定成員，先建那筆 venue")
+            }
+            guard !load.venues.unlocatableVenueKeys.contains(r.venue) else {
+                throw ServiceError.invalid("venue key「\(displaySafeInvisible(r.venue, max: 200))」有不只一筆記錄——分不出規則指的是哪一筆（#670）")
+            }
+        case .document(let ck):
+            let hits = load.entries.filter { $0.citekey == ck }.count
+            guard hits > 0 else {
+                throw ServiceError.notFound("文件「\(displaySafeInvisible(ck, max: 200))」——文件型 library 的依據是一筆在庫的文件"
+                    + "（寫作中的論文建成 unpublished-work），先建它")
+            }
+            guard hits == 1 else {
+                throw ServiceError.invalid("文件 citekey「\(displaySafeInvisible(ck, max: 200))」有 \(hits) 筆——分不出是哪一份的參考文獻")   // display-safe-exempt: hits 是 Int
+            }
+        }
+    }
+
+    /// 成員性質的回應形（list／create／set-kind／check 共用）。`excluded` 截 50 筆、`excludedTotal` 說總數。
+    static func membershipPayload(_ m: LibraryMembership?) -> [String: Any] {
+        var d: [String: Any] = ["kind": m?.kind ?? "unmarked"]
+        switch m {
+        case .rule(let r)?:
+            d["venue"] = displaySafe(r.venue, max: 200)
+            if !r.types.isEmpty { d["types"] = r.types.map(\.rawValue) }
+            if !r.excluded.isEmpty {
+                d["excluded"] = r.excluded.prefix(50).map { displaySafe($0, max: 200) }
+                d["excludedTotal"] = r.excluded.count   // display-safe-exempt: Int
+            }
+            if let s = r.source { d["source"] = displaySafe(s, max: 600) }
+        case .document(let ck)?:
+            d["document"] = displaySafe(ck, max: 200)
+        case .topic?, nil:
+            break
+        }
+        return d
+    }
+
+    /// #642：一個 library 的成員數與不符規則的成員（依 citekey 排序）。CLI `library check`／`set-kind` 全部渲染，
+    /// MCP `check` 受位元組預算——判定只有 `LibraryMembershipCheck` 一份。唯讀。
+    public func libraryViolations(key: String) throws
+        -> (library: Library, members: Int, violations: [(citekey: String, violation: LibraryMembershipViolation)]) {
+        guard StoreKey.isValid(key) else {
+            throw ServiceError.invalid("library key「\(displaySafeInvisible(key, max: 200))」不符合 \(StoreKey.pattern)")   // display-safe-exempt: pattern 是常量
+        }
+        let load = try store.load()
+        guard let lib = load.libraries.first(where: { $0.key == key }) else {
+            throw ServiceError.notFound("library「\(displaySafeInvisible(key, max: 200))」")
+        }
+        let members = load.entries.filter { $0.akashic.libraries.contains(key) }.count
+        return (lib, members, LibraryMembershipCheck(library: lib, entries: load.entries).nonconformingMembers())
+    }
+
+    /// #13 多 library：registry 管理 + 成員操作（衍生層寫入邊界內）。#642 起多兩個 action：`set-kind`（標性質與規則）、
+    /// `check`（列出不符規則的成員）；`create` 要求性質；`add` 對規則型／文件型逐筆比對、不符的不寫。
     public func libraries(action: String, key: String?, name: String?,
-                          description: String?, citekey: String?) throws -> String {
+                          description: String?, citekey: String?,
+                          membership input: LibraryMembershipInput = LibraryMembershipInput()) throws -> String {
+        if !input.isEmpty, action != "create", action != "set-kind" {
+            throw ServiceError.invalid("kind／venue／types／excluded／document／source 只伴隨 create 與 set-kind")
+        }
         switch action {
         case "list":
             let load = try store.load()
@@ -934,6 +1086,11 @@ public final class AkashicService {
                 if let desc = lib.description {
                     d["description"] = displaySafe(desc, max: 800)
                 }
+                // #642：性質與規則——問使用者要掛哪個 library 的地方要看得到它（不再只靠讀描述）
+                d.merge(Self.membershipPayload(lib.membership)) { a, _ in a }
+                if lib.membership != nil {
+                    d["nonconforming"] = LibraryMembershipCheck(library: lib, entries: load.entries).nonconformingMembers().count   // display-safe-exempt: Int
+                }
                 return d
             })
         case "create":
@@ -944,11 +1101,57 @@ public final class AkashicService {
             guard StoreKey.isValid(key) else {
                 throw ServiceError.invalid("library key「\(displaySafeInvisible(key, max: 200))」不符合 \(StoreKey.pattern)，拒絕寫入")   // display-safe-exempt: pattern 是常量
             }
+            guard let membership = try Self.parseLibraryMembership(input) else {
+                throw ServiceError.invalid("create 需要 kind（topic／rule／document）——library 的成員性質是寫入時查證的依據，不標就無從查證（#642）")
+            }
             guard !FileManager.default.fileExists(atPath: store.libraryURL(key: key).path) else {
                 throw ServiceError.invalid("library「\(displaySafeInvisible(key, max: 200))」已存在")
             }
-            _ = try store.writeLibrary(Library(key: key, name: name, description: description))
-            return try jsonString(["created": key])
+            try Self.requireMembershipReferents(membership, in: try store.load())
+            _ = try store.writeLibrary(Library(key: key, name: name, description: description, membership: membership))
+            return try jsonString(["created": key, "membership": Self.membershipPayload(membership)] as [String: Any])
+        case "set-kind":
+            guard let key else { throw ServiceError.invalid("set-kind 需要 key") }
+            guard StoreKey.isValid(key) else {
+                throw ServiceError.invalid("library key「\(displaySafeInvisible(key, max: 200))」不符合 \(StoreKey.pattern)")   // display-safe-exempt: pattern 是常量
+            }
+            guard let membership = try Self.parseLibraryMembership(input) else {
+                throw ServiceError.invalid("set-kind 需要 kind（topic／rule／document）")
+            }
+            let load = try store.load()
+            guard var lib = load.libraries.first(where: { $0.key == key }) else {
+                throw ServiceError.notFound("library「\(displaySafeInvisible(key, max: 200))」")
+            }
+            try Self.requireMembershipReferents(membership, in: load)
+            lib.membership = membership
+            try store.updateLibrary(lib)
+            let bad = LibraryMembershipCheck(library: lib, entries: load.entries).nonconformingMembers()
+            var out: [String: Any] = ["key": key, "membership": Self.membershipPayload(membership),
+                                      "basis": LibraryMembershipCheck.basis(of: membership),
+                                      "nonconforming": bad.count]   // display-safe-exempt: Int
+            if !bad.isEmpty {
+                out["first"] = bad.prefix(20).map { ["citekey": displaySafe($0.citekey, max: 200), "reason": $0.violation.message] }   // display-safe-exempt: message 已逐項消毒
+                out["note"] = "現有成員有 \(bad.count) 筆不符這條規則——不自動移除；逐筆看 action check，確認後用 action remove"   // display-safe-exempt: Int
+            }
+            return try jsonString(out)
+        case "check":
+            guard let key else { throw ServiceError.invalid("check 需要 key") }
+            let (lib, members, bad) = try libraryViolations(key: key)
+            var items: [[String: Any]] = []
+            var bytes = 0, capped = false
+            for b in bad {
+                let item: [String: Any] = ["citekey": displaySafe(b.citekey, max: 200), "reason": b.violation.message]   // display-safe-exempt: message 已逐項消毒
+                let cost = Self.jsonBytes(item)
+                if !items.isEmpty, bytes + cost > Self.candidateByteBudget { capped = true; break }
+                bytes += cost
+                items.append(item)
+            }
+            var out: [String: Any] = ["key": displaySafe(key, max: 200), "membership": Self.membershipPayload(lib.membership),
+                                      "basis": LibraryMembershipCheck.basis(of: lib.membership),
+                                      "members": members,   // display-safe-exempt: Int
+                                      "nonconforming": items, "total": bad.count, "truncated": capped]   // display-safe-exempt: Int／Bool
+            if lib.membership == nil { out["note"] = Library.unmarkedMessage }
+            return try jsonString(out)
         case "add", "remove":
             guard let key, let citekey else {
                 throw ServiceError.invalid("\(displaySafeInvisible(action, max: 120)) 需要 key 與 citekey")
@@ -958,10 +1161,14 @@ public final class AkashicService {
             guard report.writeFailures.isEmpty else {
                 throw ServiceError.invalid("寫入失敗：" + (report.writeFailures.first?.error ?? "未知"))
             }
-            return try jsonString(["citekey": displaySafe(citekey, max: 200),
-                                   "libraries": report.libraries[citekey] ?? []])   // display-safe-exempt: library key 由 StoreKey 文法保證只含 [a-z0-9-]（寫入端 assertEntryWritable 驗過）
+            var out: [String: Any] = ["citekey": displaySafe(citekey, max: 200),
+                                      "libraries": report.libraries[citekey] ?? [],   // display-safe-exempt: library key 由 StoreKey 文法保證只含 [a-z0-9-]（寫入端 assertEntryWritable 驗過）
+                                      "written": report.written.contains(citekey)]   // display-safe-exempt: Bool
+            if action == "add" { out["basis"] = report.basis }
+            if let skip = report.skipped.first { out["skipped"] = skip.reason }   // display-safe-exempt: reason 已逐項消毒（LibraryMembershipViolation.message）
+            return try jsonString(out)
         default:
-            throw ServiceError.invalid("未知 action「\(displaySafeInvisible(action, max: 120))」（list/create/add/remove）")
+            throw ServiceError.invalid("未知 action「\(displaySafeInvisible(action, max: 120))」（list/create/add/remove/set-kind/check）")
         }
     }
 
@@ -969,10 +1176,16 @@ public final class AkashicService {
     /// 整批 throw；這裡只有磁碟層的逐筆結果。
     public struct MembershipReport: Equatable {
         public struct WriteFailure: Equatable { public let citekey: String; public let error: String }
+        /// #642：不符成員規則而沒寫的一筆。`reason` 已逐項消毒（`LibraryMembershipViolation.message`）。
+        public struct Skip: Equatable { public let citekey: String; public let reason: String }
         /// 成功寫入的 citekey（依呼叫順序）。
         public var written: [String] = []
         public var writeFailures: [WriteFailure] = []
-        /// 每個成功寫入的 citekey 寫後的 membership。
+        /// 不符 library 成員規則、沒寫的（依呼叫順序）——「要求／依據／實際寫入」的第三格（#642）。
+        public var skipped: [Skip] = []
+        /// 這個 library 的成員依據（人讀；add 才有意義，remove 不查依據）。
+        public var basis: String = ""
+        /// 寫入或略過的 citekey 當下的 membership（略過的是未改動的原值）。
         public var libraries: [String: [String]] = [:]
         public init() {}
     }
@@ -980,6 +1193,7 @@ public final class AkashicService {
     /// library membership 的批次 add／remove（#455 同族）：**一次** `load()`、整批驗證（library 存在＋每個
     /// citekey 存在，任一不在 → 整批拒絕零寫入）、逐筆寫（I/O 失敗收容）、**一次** rebuild。
     /// 單筆的 `libraries(action:"add"|"remove")` 是它的薄包裝。
+    /// #642：add 先要求 library 已標性質（未標＝整批拒絕），再逐筆問 `LibraryMembershipCheck`——不符的不寫、進 `skipped`。
     public func setMembership(action: String, key: String, citekeys: [String]) throws -> MembershipReport {
         guard action == "add" || action == "remove" else {
             throw ServiceError.invalid("未知 action「\(displaySafeInvisible(action, max: 120))」（add/remove）")
@@ -991,13 +1205,24 @@ public final class AkashicService {
         let load = try store.load()
         // add 要求 registry 存在；remove 不要求——dangling membership（spec 允許）
         // 必須能用正式介面清理
-        if action == "add", !load.libraries.contains(where: { $0.key == key }) {
-            throw ServiceError.notFound("library「\(displaySafeInvisible(key, max: 200))」")
+        var rule: LibraryMembershipCheck?
+        if action == "add" {
+            guard let lib = load.libraries.first(where: { $0.key == key }) else {
+                throw ServiceError.notFound("library「\(displaySafeInvisible(key, max: 200))」")
+            }
+            // #642：未標性質＝查不到成員的依據 → 不寫（source-of-truth-over-consent 第 4 條）。remove 不查依據：
+            // 清掉錯的成員關係永遠可以
+            guard lib.membership != nil else {
+                throw ServiceError.invalid("library「\(displaySafeInvisible(key, max: 200))」：\(Library.unmarkedMessage)——整批拒絕、零寫入")   // display-safe-exempt: Library.unmarkedMessage 是常量
+            }
+            rule = LibraryMembershipCheck(library: lib, entries: load.entries)
         }
         var byCitekey: [String: Entry] = [:]
         for e in load.entries { byCitekey[e.citekey] = e }
         // 1. 整批驗證，零寫入
         var planned: [Entry] = []
+        var skipped: [MembershipReport.Skip] = []
+        var currentLibraries: [String: [String]] = [:]
         var seen = Set<String>()
         let unlocatableCK = load.entries.unlocatableCitekeys   // #628：byCitekey 後者勝——重複或共用 id 時會猜是哪一筆
         for ck in citekeys where seen.insert(ck).inserted {
@@ -1009,7 +1234,14 @@ public final class AkashicService {
             guard var entry = byCitekey[ck] else {
                 throw ServiceError.notFound("citekey「\(displaySafeInvisible(ck, max: 200))」——整批拒絕，零寫入")
             }
-            if action == "add" {
+            if let rule {
+                // #642：不符規則的不寫——不是拒絕整批、也不是照寫：改成正確的再寫（使用者 2026-09-25，Clarity row 1）
+                if let v = rule.violation(of: entry) {
+                    let already = entry.akashic.libraries.contains(key) ? "（它已經是成員——不該在的用 library remove 移除）" : ""
+                    skipped.append(.init(citekey: ck, reason: v.message + already))
+                    currentLibraries[ck] = entry.akashic.libraries
+                    continue
+                }
                 if !entry.akashic.libraries.contains(key) { entry.akashic.libraries.append(key) }
             } else {
                 entry.akashic.libraries.removeAll { $0 == key }
@@ -1018,6 +1250,9 @@ public final class AkashicService {
         }
         // 2. 逐筆寫，I/O 失敗收容
         var report = MembershipReport()
+        report.skipped = skipped
+        report.basis = rule?.basis ?? ""
+        report.libraries = currentLibraries
         for entry in planned {
             do {
                 try store.writeEntry(entry)

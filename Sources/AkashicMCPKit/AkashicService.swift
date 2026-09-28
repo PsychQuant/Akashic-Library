@@ -4070,6 +4070,9 @@ public final class AkashicService {
         var referencesAdded = 0
         var referencesAlreadyPresent = 0
         if let refs = args.references {
+            // 去重鍵算一次、以 Set 查（#587 R1 verify security：先前在 closure 裡對每個既有元素重算 `ref.byteExactKey`——單筆最多
+            // 3×64 KB 的位元組複製，K 筆 × N 筆既有 reference 是 K×N×size 的記憶體流量，寫入閘在那之後才以 8 MiB 拒絕）
+            var presentBytes = Set(venue.references.map(\.byteExactKey))
             for given in refs {
                 // 名字的定位值換成**記錄上的拼法**（同上方 `resolveSpelling` 的相等：canonical）——只差 NFC／NFD 或空白的兩筆
                 // 否則是位元組不同的兩筆，#582 的重複 reference 掃描會報它們，而它們指的是同一個名字。找不到就原樣留著，
@@ -4079,11 +4082,11 @@ public final class AkashicService {
                     let pool = ref.field == "names" ? venue.names.entries.map(\.value) : venue.authorized
                     if let hit = pool.first(where: { NameIdentity.canonical($0) == NameIdentity.canonical(v) }) { ref.value = hit }
                 }
-                if venue.references.contains(where: { $0.byteExactKey == ref.byteExactKey }) {
-                    referencesAlreadyPresent += 1
-                } else {
+                if presentBytes.insert(ref.byteExactKey).inserted {
                     venue.references.append(ref)
                     referencesAdded += 1
+                } else {
+                    referencesAlreadyPresent += 1
                 }
             }
             do { try venue.validateReferenceAttachment() } catch {

@@ -28,6 +28,9 @@ extension AkashicService {
     /// 認不出就拒絕，不寫一個 validate 會報的值。入庫寫封閉值域的寫法（`print`），不寫呼叫端的大小寫。
     ///
     /// **既有寫法照收**：整串先試 `ISSN(_:)`——它本來就收空白與無連字號（`0003 066X`），那些不得因為多了括號的解析而改判。
+    /// 邊界（#587 R1 verify regression 第 67 列）：那句只對**沒有角色**的形成立——`0003 066X (print)`（空白分隔又帶角色）會被拒：
+    /// 整串的 `ISSN(_:)` 因為多了括號而不是 8 個字元，`IdentifierTokenizer.singleQualified` 又把空白切成兩個 token。
+    /// 無連字號的 `1935990x (electronic)` 是一個 token，可行。拒絕是具名、整批零寫入；要帶角色就寫 `NNNN-NNNN (角色)`。
     static func parseISSNItems(_ raws: [String]?, parameter: String) throws -> ParsedISSNItems? {
         guard let raws else { return nil }
         var out: [ISSN] = []
@@ -81,11 +84,11 @@ extension AkashicService {
     ///
     /// **形狀驗證走平面 init**（`ProvenanceReference.init(field:value:url:…)`，YAML decode 的同一個入口）：擷取型四欄必要、兩種
     /// 互斥、判斷型的 rests-on 非空、digest 的形狀與「不是空內容的 digest」——那套規則只有一份，這裡不重寫。
-    /// 寫入面自己只多四件事，都是 init 管不到的：
+    /// 寫入面自己只多四件事，都是 init 管不到的（#587 R1 起 field 也收窄成 `issn`／`names`，理由在下方 switch）：
     /// 1. **鍵名嚴格**、型別不猜（`status` 要是整數——boolean 與 200.5 不是，#542 R2：不預設 200）；
     /// 2. **`kind` 必須與給的欄位一致**（init 從在場的欄位推 kind；呼叫端說 retrieval 卻只給了 statement，是兩句不一致的話）；
     /// 3. **欄位的歸屬**：verdict 三個欄位只經 `resolve-venues` 寫，`paginated` 判定只經 `paginated`／`clear_paginated` 寫——
-    ///    那兩條路同時改記錄本身的值與判定史，通用面寫進去會讓判定與值分岔；
+    ///    那兩條路同時改記錄本身的值與判定史，通用面寫進去會讓判定與值分岔；**通用面自己只收 `issn` 與 `names`**（R1）；
     /// 4. **有界**：一次至多 `maxReferencesPerCall` 筆、`statement` 至多 `maxStatementBytes` 位元組、`rests_on` 至多 `maxRestsOnPerCall`
     ///    個、其餘字串各至多 `AddOnlyEnrichment.maxValueBytes`（`enrich` 對來源字串的同一個上限）。
     ///
@@ -136,6 +139,23 @@ extension AkashicService {
             throw ServiceError.invalid(
                 "\(at) 的 field「paginated」是判定——改用 paginated／clear_paginated ＋ judgement ＋ rests_on"   // display-safe-exempt: at 是字面＋Int
                 + "（那條路同時改記錄的值與判定史；通用面寫進去會讓兩者分岔）")
+        }
+        // 通用面只收 `issn` 與 `names`（#587 R1 verify，四席指出；整合者裁定）。venue 的 reference **沒有移除面**，所以每多收一格，
+        // 就多一個「寫得進去、之後只能手改 YAML 才出得來」的死角。`authorized`：reference 會鎖住 `authorize` 的換名（舊指定被指著時
+        // 具名拒絕），對外形之後再也換不了；`note`：note 沒有工具寫入面。issue Expected 只點名 `issn` 那一格。
+        switch field {
+        case "issn", "names":
+            break
+        case "authorized":
+            throw ServiceError.invalid(
+                "\(at) 的 field「authorized」不收——這一格的 reference 會讓 authorize 換不了對外形（舊指定被 reference 指著時 authorize 具名拒絕），"   // display-safe-exempt: at 是字面＋Int
+                + "而 venue 的 reference 沒有移除面，只能手改 YAML。要記「這個名字是對外形」的來源，記在 field: names（value 是那個名字）")
+        case "note":
+            throw ServiceError.invalid(
+                "\(at) 的 field「note」不收——venue 的 note 沒有工具寫入面，附在它上面的 reference 沒有面能移除；通用面只收 issn 與 names")   // display-safe-exempt: at 是字面＋Int
+        default:
+            throw ServiceError.invalid(
+                "\(at) 的 field「\(displaySafeInvisible(field, max: 60))」不收——通用 references 面只收 issn 與 names（其餘欄位的來源另有專屬寫入面或尚無寫入面）")   // display-safe-exempt: at 是字面＋Int
         }
         guard let kindName = try string("kind"), ["retrieval", "judgement"].contains(kindName) else {
             throw ServiceError.invalid("\(at) 的 kind 必須是 retrieval 或 judgement")   // display-safe-exempt: at 是字面＋Int

@@ -255,7 +255,7 @@ final class VenueReferenceWriteTests: XCTestCase {
             ("判斷型帶 content", [retrieval(extra: ["statement": "s"])], "不得帶 content"),
             ("兩種 kind 混用", [["field": "names", "value": "American Psychologist", "kind": "judgement",
                               "url": "https://x/", "statement": "s", "rests_on": [digest]]], "不得混用"),
-            ("kind 與欄位不符", [["field": "note", "kind": "retrieval", "statement": "s", "rests_on": [digest]]], "給的欄位卻是另一種"),
+            ("kind 與欄位不符", [["field": "names", "value": "American Psychologist", "kind": "retrieval", "statement": "s", "rests_on": [digest]]], "給的欄位卻是另一種"),
             ("kind 不認得", [retrieval(extra: ["kind": "citation"])], "kind 必須是"),
             ("judgement 沒有 rests_on", [["field": "names", "value": "American Psychologist", "kind": "judgement", "statement": "s"]], "rests-on"),
             ("rests_on 不是字串陣列", [["field": "names", "value": "American Psychologist", "kind": "judgement",
@@ -265,12 +265,13 @@ final class VenueReferenceWriteTests: XCTestCase {
             ("元素不是物件", ["issn"], "必須是物件"),
             ("空陣列", [], "空陣列"),
             ("field 空白", [retrieval(field: "")], "缺 field"),
-            ("venue 沒有的欄位", [retrieval(field: "title", value: nil)], "references 附不上」＋「沒有可附著"),
+            ("通用面不收的欄位", [retrieval(field: "title", value: nil)], "通用 references 面只收 issn 與 names"),
+            ("authorized 拒收（會鎖住 authorize 的換名）", [retrieval(field: "authorized", value: "American Psychologist")], "會讓 authorize 換不了對外形」＋「沒有移除面"),
             ("號不在 issn 清單", [retrieval(value: "1935-990X")], "references 附不上」＋「不在 issn 清單內"),
             ("號帶角色", [retrieval(value: "0003-066X (print)")], "不是合法的 ISSN"),
             ("issn 沒帶 value", [retrieval(value: nil)], "references 附不上」＋「必須帶 value"),
             ("name 不在 names", [["field": "names", "value": "Amer Psych", "kind": "judgement", "statement": "s", "rests_on": [digest]]], "references 附不上」＋「不在 names 內"),
-            ("記錄沒有 note", [retrieval(field: "note", value: nil)], "references 附不上」＋「記錄沒有 note"),
+            ("note 拒收（沒有寫入面）", [retrieval(field: "note", value: nil)], "venue 的 note 沒有工具寫入面"),
             ("statement 超過 4,096 位元組", [["field": "names", "value": "American Psychologist", "kind": "judgement",
                                          "statement": String(repeating: "理", count: 1_366), "rests_on": [digest]]], "statement 超過"),
             ("rests_on 超過 20 個", [["field": "names", "value": "American Psychologist", "kind": "judgement", "statement": "s",
@@ -290,6 +291,19 @@ final class VenueReferenceWriteTests: XCTestCase {
             XCTAssertThrowsError(try update(addNames: ["APA Journal"], references: refs), label)
         }
         XCTAssertEqual(try snapshot(), before, "零寫入")
+    }
+
+    /// #587 R1（regression 席以真 service 重現）：通用面若收 `field: authorized`，寫進去之後 `authorize` 換對外形會被那筆 reference
+    /// 擋下（「移出後它們成孤兒」），而 venue 的 reference 沒有移除面——只能手改 YAML。通用面不收它，換名就不會被鎖。
+    func testAuthorizedReferenceIsRefusedSoAuthorizeCanStillChangeTheDisplayForm() throws {
+        _ = try service.addVenue(key: "ampsy", names: ["Alpha Journal", "Beta Journal"], type: "periodical", note: nil)
+        _ = try json(try service.updateVenue(key: "ampsy", addNames: nil, note: nil, type: nil, authorize: ["Alpha Journal"]))
+        XCTAssertThrowsError(try update(references: [retrieval(field: "authorized", value: "Alpha Journal")])) { error in
+            XCTAssertTrue("\(error)".contains("authorize"), "\(error)")
+        }
+        let out = try json(try service.updateVenue(key: "ampsy", addNames: nil, note: nil, type: nil, authorize: ["Beta Journal"]))
+        XCTAssertEqual(out["authorizedAdded"] as? [String], ["Beta Journal"], "換對外形沒被鎖：\(out)")
+        XCTAssertEqual(try venue().authorized, ["Beta Journal"])
     }
 
     /// 指向同一次呼叫裡被移除的號：兩句矛盾的話，在讀 store 之前擋。

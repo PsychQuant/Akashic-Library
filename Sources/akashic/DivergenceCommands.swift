@@ -101,6 +101,10 @@ struct ResolveDivergence: ParsableCommand {
             print("verdict 已隨合併遷移到倖存者：\(report.verdictReferencesMigrated.count) 筆"
                 + "（\(report.verdictReferencesMigrated.map { displaySafe($0, max: 200) }.joined(separator: "；"))）")
         }
+        if !report.referencesCarried.isEmpty {   // #587 R1：查證的來源記錄隨合併搬走也要說出來
+            print("reference 已隨合併遷移到倖存者：\(report.referencesCarried.count) 筆"
+                + "（\(report.referencesCarried.map { displaySafe($0, max: 300) }.joined(separator: "；"))）")
+        }
         if !report.verdictValuesRewritten.isEmpty {
             // **#498 起清單帶 kind**（`HolderRecord`）——這段先前寫著「使用者面不標 kind…
             // 扁平清單不帶 kind 的既有缺口」，那個缺口已經修掉了。跨型別同名鍵實測 2 個，

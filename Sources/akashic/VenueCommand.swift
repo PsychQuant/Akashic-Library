@@ -266,9 +266,10 @@ struct UpdateVenueCmd: ParsableCommand {
                                discussion: "每項同 update-person 的 references：{field, value?, kind: retrieval|judgement, …}。"
                                    + "retrieval 要 url／retrieved／status（整數，不預設 200）／content（sha256: digest），media_type 選填；"
                                    + "judgement 要 statement（≤ 4,096 位元組）／rests_on（1–20 個 digest）。"
-                                   + "field 只收 names／authorized／issn／note：清單欄位（names／authorized／issn）要帶 value 指名那一個，"
-                                   + "issn 的 value 以正規形入庫、names／authorized 的 value 以記錄上的拼法入庫（相等看 canonical）；那個號或名字要在記錄上（同一次呼叫 --add-issn／--add-name 加的也算）。"
-                                   + "verdict 欄位只經 resolve-venues 寫、paginated 判定只經 --paginated／--clear-paginated 寫，都拒收。"
+                                   + "field 只收 issn 與 names，都要帶 value 指名那一個："
+                                   + "issn 的 value 以正規形入庫、names 的 value 以記錄上的拼法入庫（相等看 canonical）；那個號或名字要在記錄上（同一次呼叫 --add-issn／--add-name 加的也算）。"
+                                   + "authorized 與 note 拒收（venue 的 reference 沒有移除面：authorized 的 reference 會鎖住 --authorize 換對外形，note 沒有寫入面）；"
+                                   + "verdict 欄位只經 resolve-venues 寫、paginated 判定只經 --paginated／--clear-paginated 寫，也拒收。"
                                    + "鍵名嚴格（不認得的鍵拒收；判斷型的斷言鍵是 statement）；一次至多 200 筆、字串各至多 65,536 位元組。"
                                    + "任一筆不合，整批拒絕、零寫入（同一次呼叫的其他參數也不寫）。報告：referencesAdded"))
     var references: String?

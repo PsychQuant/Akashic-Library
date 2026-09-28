@@ -696,9 +696,12 @@ final class DivergenceResolveVenueTests: XCTestCase {
         XCTAssertEqual(v.variant, ["AMERICAN STATISTICIAN"])
     }
 
-    /// **被併者的髒名字若 canonical 等於倖存者已有的名字，根本不會搬進倖存者——不必為此拒絕**（R7 verify 第 13 列）：
-    /// `mergedVenueKeeper` 先以 canonical 對倖存者 `names` 濾除；`"AMERICAN STATISTICIAN "` 對倖存者已有的
-    /// `"AMERICAN STATISTICIAN"` 會被濾掉，合併結果合法，而 R7 仍要求操作者去修一筆下一步就刪掉的檔。
+    /// **被併者的髒名字若 canonical 等於倖存者已有的名字、而且那一段的時間、source、note 逐位元組相同，整段不搬——不必為此拒絕**
+    /// （R7 verify 第 13 列；#565 起規則是這樣，先前寫「以 canonical 對倖存者 names 濾除」，那句話對任何同名而 metadata 不同的段為假：
+    /// 那種段是衝突、拒絕合併，見 `VenueMergeNameAbsorptionTests`）：`venueNameAbsorption` 以 canonical 鍵判名字的身分，
+    /// `"AMERICAN STATISTICIAN "` 與倖存者已有的 `"AMERICAN STATISTICIAN"` 是同一個名字、兩段都不帶時間、source、note——
+    /// 完全相同，不搬；合併結果合法，而 R7 仍要求操作者去修一筆下一步就刪掉的檔。本測試的 fixture 除了尾隨空白之外沒有任何差異，
+    /// 所以它只釘住「名字身分是 canonical、完全相同的段整段不搬」這一半。
     func testDoomedDirtNameThatWouldBeFilteredOutDoesNotBlockTheMerge() throws {
         var keeper = Venue(key: "the-american-statistician", type: .periodical,
                            names: Timeline([TemporalValue(value: "The American Statistician"),

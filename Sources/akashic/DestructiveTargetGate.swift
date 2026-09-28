@@ -30,64 +30,32 @@ import AkashicCore
 ///
 /// ## 只擋 CLI，不擋 MCP（面不對稱，有先例）
 ///
-/// 六個命令裡 `resolve-people` / `resolve-organizations` 有 MCP 面。#310 裁決記載
-/// 「MCP 面的 active store 是 session 狀態，『本次呼叫有沒有顯式指定』恆為否」——但那
-/// 個約束**只在閘門要作用於 MCP 時才綁**。
+/// 過閘的命令裡有好幾個也有 MCP 面（`resolve-people`、`resolve-venues`、`resolve-organizations`、
+/// `import-zotero`、`enrich`……）。#310 裁決記載「MCP 面的 active store 是 session 狀態，『本次呼叫有沒有
+/// 顯式指定』恆為否」——以「有沒有指名」為判準的閘在 MCP 面只會退化成一律擋或一律放，所以不作用於 MCP。
 ///
-/// 本閘門不作用於 MCP，理由不是規避而是**兩面的動作形狀不同**：CLI 的 `--apply` 是
-/// **篩選式批次掃蕩**（`--holder` / `--org` 收窄，其餘全掃），MCP 的 apply 收**逐 id
-/// 顯式指名**的清單。
-///
-/// `mcp-cli-parity` 對**同一組命令**已記錄同型的不對稱：「tier 閘只在 CLI 篩選式批次
-/// （MCP per-id 顯式＋tier 可見，刻意不閘）」。所以這不是臨時挖的洞，是已裁決過的
-/// 形狀再次適用。
+/// 這一段先前的理由是「CLI 的 `--apply` 是篩選式批次掃蕩、MCP 收逐 id 清單」；#580 把逐 id 的
+/// `resolve-venues`／`enrich` 也放進閘之後那個理由不再成立（`mcp-cli-parity` 的 `--yes` 列同批更正過），
+/// 留下的是上面那一條：閘防的寫錯 store，只在 CLI 那一面有「每次呼叫重新解析」的形狀。
 enum DestructiveTargetGate {
 
-    /// 破壞性 CLI 命令的**封閉列舉**（#298 D3）。
-    ///
-    /// **不得用名字猜。** 型別層零 destructive marker——38 個 subcommand 完全等價，
-    /// 而任何模式規則都會在邊界上出錯：`rename` 與 `resolve-divergence` 都不以
-    /// `migrate` 開頭，卻同樣不可逆。
-    ///
-    /// 新增會改寫或刪除記錄的命令時**必須在同一個變更裡加進這裡**。
-    /// `DestructiveTargetGateTests` 的雙向機械稽核接住漏網的。
-    ///
-    /// ## 本表是什麼、不是什麼（#580）
-    ///
-    /// 本表是**會呼叫本閘的命令**的清單，不是「會寫 store 的命令」的清單。閘防的是**寫錯 store**
-    /// （#298：呼叫者以為自己在 scratch），而不是寫錯哪幾筆——從錯的 store 列出來的 id 在錯的
-    /// store 上全部對得上，所以逐 id 指名的寫入腿同樣受它保護（`enrich`／`enrich-from-zotero`／
-    /// `resolve-venues` 都是逐 id 的，都在表內）。各成員的觸發條件由命令自己決定：多數是布林
-    /// `--apply`；`resolve-organizations` 另含篩選式 `--reject` 與逐 id 的 `--undecided`（R2 verify）、`--judge`（#647）；`resolve-venues` 是任一寫入腿。
-    ///
-    /// **表外仍有會寫 store 的命令沒有閘**（#653，使用者 2026-09-27 裁決：只閘不可逆的，點名的是格式遷移、合併、改名）。
-    /// 不是每一個不閘的都可逆：`resolve-people --drop-author` 沒有具名逆操作、`import-zotero` 會覆寫欄位與作者——這兩個要不要閘、
-    /// 以及稽核怎麼抓到新的未閘寫入命令，記在 #658。本段不重抄命令清單（#580 R1 寫過「不閘的只有一類」，當場被找到六個反例）。
-    ///
-    /// 稽核（`DestructiveTargetGateTests`）認得布林旗標的兩種宣告寫法：省略型別與寫出 `: Bool`
-    /// （`authorize-names` 曾因後者漏網）。這段 doc 不逐字寫出宣告——稽核以字面比對，會把 doc 當成命令。
-    static let destructiveCommands: Set<String> = [
-        // #394：識別碼自 fields 升格、work 的 issn 移位至 venue——改寫既有記錄。
-        "migrate-identifiers",
-        "migrate-person-identity",
-        "migrate-venues", "migrate-venue-variants",
-        "bootstrap-people",
-        "bootstrap-organizations",
-        "bootstrap-venues",
-        "resolve-people",
-        "resolve-organizations",
-        "enrich-from-zotero",
-        // #458：generic add-only 補值——只加不存在的鍵，但它仍改寫既有記錄檔；閘的成本是一行。
-        "enrich",
-        // #580：逐 id 的寫入腿（apply／reject／repoint／demote／undecided），比照 enrich
-        "resolve-venues",
-        // #580 R1 verify：全庫掃蕩的布林 --apply，先前因宣告寫成 `: Bool` 而漏在稽核之外
-        "authorize-names",
-        // #653（使用者 2026-09-27 裁決：只閘不可逆的）與 #650：預設就寫的格式遷移、全庫改寫的合併與改名
-        "migrate", "migrate-provenance", "resolve-divergence", "rename",
-        // #650 R1 verify：rename-person 一直呼叫本閘，卻不在表內
-        "rename-person",
-    ]
+    // ## 哪些命令過閘（#298 D3 → #658）
+    //
+    // **不得用名字猜。** 型別層零 destructive marker，任何模式規則都會在邊界上出錯：`rename` 與
+    // `resolve-divergence` 都不以 `migrate` 開頭，卻同樣不可逆。所以過閘的集合是一張封閉的裁決表——
+    // `WriteGateRulings.swift` 的 `commandRulings`（CLI 每一個葉命令一格）與 `legRulings`（三個逐腿命令的
+    // 每一條腿一格），`destructiveCommands` 由它現算。#658 之前這裡是一份手寫的 `destructiveCommands`，
+    // 它只列過閘的命令，不閘的理由散在各處（#580 R1 寫過「不閘的只有一類」，當場被找到六個反例），
+    // 而稽核只認布林的 `--apply`／`--reject`——預設就寫的命令與逐 id 的寫入腿長出來時它看不到。
+    //
+    // 本閘防的是**寫錯 store**（#298：呼叫者以為自己在 scratch），不是寫錯哪幾筆——從錯的 store 列出來的
+    // id 在錯的 store 上全部對得上，所以逐 id 的寫入腿同樣受它保護（#580）。各格的觸發條件由命令自己決定：
+    // 多數是布林 `--apply`；預設就寫的（migrate 族、`resolve-divergence`）在不帶 `--dry-run` 時；沒有乾跑的
+    // （`rename`、`rename-person`、`import-zotero`）無條件；逐腿的是那一條腿。
+    //
+    // 表外（`.notGated`）的每一格都寫著自己的理由（#653：只閘使用者點名的不可逆寫入；#658：
+    // `resolve-people --drop-author` 與 `import-zotero` 自 2026-09-28 起過閘）。新增命令或新腿要在表裡加一格，
+    // `WriteGateRulingsTests` 與 `DestructiveTargetGateTests` 會紅。
 
     /// 呼叫者有沒有指名目標 store。**只在真的要寫的時候呼叫**——dry-run 不得被擋
     /// （它不寫東西，而且正是使用者用來確認目標的手段）。

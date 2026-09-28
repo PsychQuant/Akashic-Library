@@ -49,31 +49,32 @@ AkashicKit（Package.swift）      核心 Swift package：八模組 + akashic CL
                                  authorize-names / fmt / library / file / migrate /
                                  migrate-person-identity（#227/#241，dry-run 預設）
 
-                                 **破壞性寫入的目標 store 須指名（#298）**：會改寫
-                                 或刪除記錄的命令——`migrate-person-identity` /
-                                 `migrate-venues` / `migrate-identifiers` /
-                                 `bootstrap-people` / `bootstrap-organizations` /
-                                 `bootstrap-venues` / `resolve-people` /
-                                 `resolve-organizations` / `enrich-from-zotero` / `enrich`
-                                 （唯一來源是 `DestructiveTargetGate.destructiveCommands`；
-                                 **這裡刻意不寫個數**——先前寫「六個」而原始碼已是九個，
-                                 數字與清單分岔過一次）——在 `--apply` 時若既未給
-                                 `--library` 也未給 `--yes`，**拒絕執行**，並在訊息裡
-                                 說出實際解析到的 store 絕對路徑與「與你目前所在的目錄
-                                 無關」。**dry-run 不被擋**（不帶 `--apply` 時零拒絕）
-                                 ——它不寫東西，且正是用來確認目標的手段。
+                                 **破壞性寫入的目標 store 須指名（#298）**：過閘的寫入
+                                 若既未給 `--library` 也未給 `--yes`，**拒絕執行**，並在
+                                 訊息裡說出實際解析到的 store 絕對路徑與「與你目前所在的
+                                 目錄無關」。哪些命令、哪些寫入腿過閘，唯一來源是
+                                 `Sources/akashic/WriteGateRulings.swift` 的裁決表（#658）：
+                                 CLI 每一個葉命令記一格——過閘、不閘（寫出這一格自己的
+                                 理由）、或不寫 store；`resolve-people`／`resolve-venues`／
+                                 `resolve-organizations` 另逐腿記一格。`--yes` 的說明由同一
+                                 張表產生，`WriteGateRulingsTests` 以執行期的命令樹雙向
+                                 比對：新命令或新寫入腿沒有裁決就紅。**這裡刻意不列命令
+                                 也不寫個數**——先前寫過「六個」與十個命令的清單，都與
+                                 原始碼分岔過。觸發條件依命令而定：多數是 `--apply`；
+                                 預設就寫的（migrate 族、`resolve-divergence`）在不帶
+                                 `--dry-run` 時；沒有乾跑的（`rename`、`rename-person`、
+                                 `import-zotero`）無條件；逐腿的是那一條腿（#658 起含
+                                 `resolve-people --drop-author`）。**乾跑不被擋**——它不寫
+                                 東西，且正是用來確認目標的手段。
                                  起因是 2026-08-16 的事故：在 scratch 目錄執行無
                                  `--library` 的 `migrate-person-identity --apply`，
                                  `LibraryLocator` 對 CWD 零感知、循 registry 的
                                  `current` 解析到真 store，867 個 person 檔被改名重發
                                  id。核心不是解析錯了（解析完全按設計），是**呼叫者
                                  以為自己在 scratch** 而沒有任何東西告訴他。
-                                 破壞性是**封閉列舉**不是判準（型別層零 marker，
-                                 `rename` 與 `resolve-divergence` 都不以 `migrate`
-                                 開頭卻同樣不可逆），雙向機械稽核測試守住它。
-                                 閘門**只作用於 CLI**：MCP 的 apply 收逐 id 顯式清單，
-                                 CLI 的 `--apply` 是篩選式批次掃蕩——同型不對稱見
-                                 `.claude/rules/mcp-cli-parity.md` 的 tier 閘先例。
+                                 閘門**只作用於 CLI**：MCP 的 active store 是 session
+                                 狀態，「本次呼叫有沒有指名」恆為否（#310）——理由見
+                                 `.claude/rules/mcp-cli-parity.md` 橫切選項表的 `--yes` 列。
 mcps/                            MCP server submodules（che-zotero-mcp、che-biblatex-mcp）
 repos/                           共用 library submodules（biblatex-apa-swift = canonical）
 plugin/                          akashic-mcp 的 Claude Code plugin shell（#275 起住本 repo）：

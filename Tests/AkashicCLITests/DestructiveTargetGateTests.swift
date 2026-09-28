@@ -1,4 +1,5 @@
 import XCTest
+@testable import akashic
 
 /// 破壞性寫入的目標 store 必須被指名（#298）。
 ///
@@ -42,32 +43,20 @@ final class DestructiveTargetGateTests: XCTestCase {
             .joined(separator: "\n")
     }
 
-    /// 封閉列舉的全部成員——三條稽核共用這一份（R2 verify：先前三份寫死的清單在 #653 加了五個命令之後都沒跟上）。
-    static let enumerated = ["migrate-person-identity", "migrate-venues", "bootstrap-people",
-                             "bootstrap-organizations", "bootstrap-venues",
-                             "resolve-people", "resolve-organizations", "resolve-venues", "authorize-names",
-                             // #653（使用者 2026-09-27 裁決：只閘不可逆的）與 #650
-                             "migrate", "migrate-provenance", "resolve-divergence", "rename", "rename-person"]
+    /// 過閘的全部命令——由裁決表現算（#658）。先前這裡是第四份手寫清單：#653 R2 verify 抓到三份寫死的清單在加了五個命令
+    /// 之後都沒跟上，收成一份之後它仍漏了 `migrate-identifiers`／`enrich`／`enrich-from-zotero`（它們在閘的表裡、不在這份），
+    /// 於是「每個成員都真的呼叫閘」對那三個從沒驗過。表與命令樹的雙向比對在 `WriteGateRulingsTests`。
+    static var enumerated: [String] { DestructiveTargetGate.destructiveCommands.sorted() }
 
-    /// 封閉列舉的每個成員都在 `destructiveCommands` 裡，且各自具名。
+    /// **機械稽核（命令 → 裁決）**：每個帶布林 `--apply` 的 subcommand 都要裁決為過閘。
     ///
-    /// 數字寫死是刻意的（同本 repo 其他「一格不多一格不少」的守衛）：新增破壞性命令
-    /// 時這條會紅，逼人在同一個變更裡做出裁決。
-    func testEnumerationIsClosed() throws {
-        let src = try source("Sources/akashic/DestructiveTargetGate.swift")
-        for name in Self.enumerated {
-            XCTAssertTrue(src.contains("\"\(name)\""), "封閉列舉缺 \(name)")
-        }
-    }
-
-    /// **機械稽核（命令 → 列舉）**：每個帶 `--apply` 的 subcommand 都必須在列舉內。
-    ///
-    /// 這條防的是「新增了破壞性命令但忘了分類」。型別層零 destructive marker——
-    /// 38 個 subcommand 完全等價，所以漏掉不會有任何編譯期跡象。
+    /// 這條防的是「新增了破壞性命令但忘了分類」。型別層零 destructive marker，所以漏掉不會有任何編譯期跡象。
+    /// 唯一的例外形狀是裁決為 `.readOnly`——`--apply` 一律拒絕、寫不了任何東西（`migrate-venue-variants`，D41），
+    /// 那一格的理由在表裡。`WriteGateRulingsTests` 另比對整張表與命令樹；這條多要求的是「有 `--apply` 就不得是 `.notGated`」。
     func testEveryApplyCommandIsEnumerated() throws {
-        let gate = try source("Sources/akashic/DestructiveTargetGate.swift")
         let src = try allCommandSources()
         var currentCommand: String?
+        var found = 0
         for line in src.split(separator: "\n", omittingEmptySubsequences: false) {
             if let r = line.range(of: "commandName: \"") {
                 let rest = line[r.upperBound...]
@@ -77,11 +66,14 @@ final class DestructiveTargetGateTests: XCTestCase {
             // authorize-names 寫成後者，稽核因此看不到它、它也一直沒有閘）
             guard line.range(of: #"var apply(: Bool)? = false"#, options: .regularExpression) != nil,
                   let cmd = currentCommand else { continue }
-            XCTAssertTrue(gate.contains("\"\(cmd)\""),
-                          "`\(cmd)` 有 --apply 但不在 destructiveCommands 內"
-                          + "——新增破壞性命令必須在同一個變更裡加進封閉列舉（#298 D3）")
+            found += 1
             currentCommand = nil
+            if case .readOnly(_)? = DestructiveTargetGate.commandRulings[cmd] { continue }
+            XCTAssertTrue(DestructiveTargetGate.destructiveCommands.contains(cmd),
+                          "`\(cmd)` 有 --apply 但沒有裁決為過閘"
+                          + "——新增破壞性命令必須在同一個變更裡在裁決表加一格（#298 D3、#658）")
         }
+        XCTAssertGreaterThan(found, 5, "空掃描不是通過：只找到 \(found) 個布林 --apply")
     }
 
     /// **機械稽核（列舉 → 命令）**：列舉的每個名字都要對得到一個真實 subcommand。
@@ -96,7 +88,7 @@ final class DestructiveTargetGateTests: XCTestCase {
         }
     }
 
-    /// 六個命令都真的呼叫了閘門，且**條件是 `apply`**。
+    /// 過閘的每個命令（由裁決表現算，#658）都真的呼叫了閘門，且**條件對得上**——多數是 `apply`，例外逐一寫在下面。
     ///
     /// 沒有這條，列舉可以是完整的而閘門一次都沒被呼叫——那正是 #264 的
     /// `storeSource`（API 完整、零 production 呼叫端）的形狀。
@@ -106,8 +98,8 @@ final class DestructiveTargetGateTests: XCTestCase {
         let conditions = ["resolve-organizations": "apply || reject", "resolve-venues": "let leg = writeLeg",
                           // #653：預設就寫、以 --dry-run 預覽的命令只在不帶 --dry-run 時閘
                           "migrate": "!dryRun", "migrate-provenance": "!dryRun", "resolve-divergence": "!dryRun"]
-        // 沒有乾跑、每次都寫的命令無條件呼叫閘（#653／#650）
-        let unconditional: Set<String> = ["rename", "rename-person"]
+        // 沒有乾跑、每次都寫的命令無條件呼叫閘（#653／#650；#658 的 import-zotero）
+        let unconditional: Set<String> = ["rename", "rename-person", "import-zotero"]
         for name in Self.enumerated {
             let cond = conditions[name] ?? "apply"
             let needle = unconditional.contains(name)

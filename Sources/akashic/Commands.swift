@@ -258,7 +258,7 @@ struct Validate: ParsableCommand {
 
 struct ImportZotero: ParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "import-zotero", abstract: "Zotero → Akashic 單向 pull（zotero.sqlite 唯讀）")
+        commandName: "import-zotero", abstract: "Zotero → Akashic 單向 pull（zotero.sqlite 唯讀）；沒有乾跑，未指名目標 store（--library 或 --yes）即拒絕（#658）")
 
     @OptionGroup var options: LibraryOptions
 
@@ -269,6 +269,9 @@ struct ImportZotero: ParsableCommand {
     var libraryId: Int?
 
     func run() throws {
+        // #658（使用者 2026-09-28 裁決）：pull 整份替換 `fields`、覆寫未歸戶的 literal 作者（fieldsRemovedByPull／
+        // authorsOverwritten），再跑一次回不去，而且沒有乾跑——寫錯 store 的代價要靠 git 收拾。沒有寫入旗標可掛，flag 傳空字串。
+        try options.assertDestructiveTargetNamed("import-zotero", flag: "", hasDryRun: false)
         let store = try options.openOrCreateStore()
         let dbURL = URL(fileURLWithPath: (zoteroDb as NSString).expandingTildeInPath)
         guard FileManager.default.fileExists(atPath: dbURL.path) else {
@@ -1725,7 +1728,7 @@ struct ResolvePeople: ParsableCommand {
     /// `No authorship indicated` 不是——它今天在 `.bib` 裡是 `AUTHOR = {indicated, No authorship}`，
     /// 一個被捏造出來的人。以值定位（同 `--un-split`），理由必填，記錄留在 work 側。
     @Option(name: .customLong("drop-author"), parsing: .upToNextOption,
-            help: "把一個作者位移除（可重複）：citekey:literal=理由。理由必填；以值定位（不用索引）；只作用於未歸戶的 .literal；同一筆 work 的作者位裡出現多次即拒絕不判定。移除記錄（field: authors、`移除：理由`）與作者位改寫同一次寫入，需要 store format ≥ 17。**沒有具名逆操作**——記錄留著被移除的字串，但不留位置。不與其他腿組合")
+            help: "把一個作者位移除（可重複）：citekey:literal=理由。理由必填；以值定位（不用索引）；只作用於未歸戶的 .literal；同一筆 work 的作者位裡出現多次即拒絕不判定。移除記錄（field: authors、`移除：理由`）與作者位改寫同一次寫入，需要 store format ≥ 17。**沒有具名逆操作**——記錄留著被移除的字串，但不留位置。不與其他腿組合。未指名目標 store（--library 或 --yes）即拒絕（#658）")
     var dropAuthor: [String] = []
 
     /// 判定式否決（#386 的鏡像）：查證後說「**不是他**」。
@@ -1841,6 +1844,9 @@ struct ResolvePeople: ParsableCommand {
                     + "混在一起時只有一條腿會執行；分次呼叫（#635）")
             }
         }
+        // #658（使用者 2026-09-28 裁決）：--drop-author 沒有具名逆操作，被移除的作者位不留位置（#457）——
+        // 寫錯 store 要靠 git 收拾。放在參數組合檢查之後：先報呼叫端的矛盾。其餘逐 id 腿的裁決見 `legRulings`。
+        if !dropAuthor.isEmpty { try options.assertDestructiveTargetNamed("resolve-people", flag: "--drop-author", hasDryRun: false) }
         let store = try options.openStore()
 
         // verdict 寫入走 **AkashicService**——與 MCP `akashic_resolve_people` 同一條

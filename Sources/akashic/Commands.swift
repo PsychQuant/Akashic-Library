@@ -1739,7 +1739,7 @@ struct ResolvePeople: ParsableCommand {
     /// 而批次會讓它退化成罐頭字串——罐頭 judgement 等於沒有判定。同 `mcp-cli-parity`
     /// 已載明的既有不對稱（tier 閘只加在 CLI 的篩選式批次）。
     @Option(name: .long, parsing: .upToNextOption,
-            help: "逐篇判定（可重複）：citekey:authorIndex:personKey=判定理由。理由必填且逐字寫進 verdict；literal 由 store 讀。歧義列也適用——歧義的意思是提名器分不出來，不是人分不出來。不提供批次形式。同一次呼叫把同一個作者位判給兩個人整批拒絕；citekey 重複或與另一筆共用 id 的 work 該筆略過並具名；全部略過時沒有寫入、非零結束（作者位已歸給同一個人：已有同一句理由的逐篇判定＝no-op 成功，理由不同則略過；以 --apply 等歸戶的：寫一筆逐篇判定與它並存、作者位不動（需要 store format ≥ 19，change resolution-verdict-states，#636）；作者位仍是 literal 而理由存不進去時照常歸戶並印「⚠ 這次的理由沒有寫入」與原因）；有寫入而之後 index 重建失敗時回錯誤、寫入已落地，訊息逐行列出已判定與略過的 id（#627）。單獨呼叫，不與 --refute／--apply／--reject 組合（#635）；--undecided 同為單獨呼叫")
+            help: "逐篇判定（可重複）：citekey:authorIndex:personKey=判定理由。理由必填、≤ 4,096 位元組（與 --undecided 的說明同一個上限，超過整批拒絕、不截斷，#648）且逐字寫進 verdict；literal 由 store 讀。歧義列也適用——歧義的意思是提名器分不出來，不是人分不出來。不提供批次形式。同一次呼叫把同一個作者位判給兩個人整批拒絕；citekey 重複或與另一筆共用 id 的 work 該筆略過並具名；全部略過時沒有寫入、非零結束（作者位已歸給同一個人：已有同一句理由的逐篇判定＝no-op 成功，理由不同則略過；以 --apply 等歸戶的：寫一筆逐篇判定與它並存、作者位不動（需要 store format ≥ 19，change resolution-verdict-states，#636）；作者位仍是 literal 而理由存不進去時照常歸戶並印「⚠ 這次的理由沒有寫入」與原因）；有寫入而之後 index 重建失敗時回錯誤、寫入已落地，訊息逐行列出已判定與略過的 id（#627）。寫入前整個寫入集合先驗（含寫出後不得超過讀取上限 8 MiB），任一筆不過零寫入（#648）。單獨呼叫，不與 --refute／--apply／--reject 組合（#635）；--undecided 同為單獨呼叫")
     var judge: [String] = []
 
     /// **團體作者的升格**（#443）：`.literal` → `.organization`。
@@ -1783,7 +1783,7 @@ struct ResolvePeople: ParsableCommand {
     /// 而對共用 literal 來說「不是他」才是絕大多數的答案——實測 69 筆歧義裡 22 筆已確定
     /// 答案不在候選裡。**entry 不動**（否決不歸戶），只寫 verdict。
     @Option(name: .long, parsing: .upToNextOption,
-            help: "判定式否決（可重複）：citekey:authorIndex:personKey=否決理由。理由必填。歧義列也適用——既有 --reject 只吃候選。entry 不動，只寫 resolution-rejected verdict；之後該配對不再被提名。citekey 重複或與另一筆共用 id 的 work、以及作者位目前就歸給這個人的（否決會與既有歸戶矛盾）該筆略過並具名；全部略過時沒有寫入、非零結束（#627）。單獨呼叫，不與 --judge／--apply／--reject 組合（#635）")
+            help: "判定式否決（可重複）：citekey:authorIndex:personKey=否決理由。理由必填、≤ 4,096 位元組（超過整批拒絕、不截斷，#648）；寫入前每筆 person 先驗、寫出後超過讀取上限 8 MiB 即零寫入。歧義列也適用——既有 --reject 只吃候選。entry 不動，只寫 resolution-rejected verdict；之後該配對不再被提名。citekey 重複或與另一筆共用 id 的 work、以及作者位目前就歸給這個人的（否決會與既有歸戶矛盾）該筆略過並具名；全部略過時沒有寫入、非零結束（#627）。單獨呼叫，不與 --judge／--apply／--reject 組合（#635）")
     var refute: [String] = []
 
     /// 查過、判不出來（change `resolution-verdict-states`，#619）。

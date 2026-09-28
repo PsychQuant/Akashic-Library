@@ -421,9 +421,9 @@ extension LibraryStore {
         // 誤導，真正的問題是路徑根本不存在
         try assertStoreRoot()
         try assertDivergenceWritable(d)
-        let yaml = try DivergenceYAML.encode(d)
-        try assertEntitiesDestination(id: d.id, kind: .divergence)   // #631
         let dest = entityURL(id: d.id)
+        let yaml = try DivergenceYAML.encode(d, replacing: Self.currentFileBytes(at: dest))   // #648
+        try assertEntitiesDestination(id: d.id, kind: .divergence)   // #631
         try FileManager.default.createDirectory(at: entitiesDir, withIntermediateDirectories: true)
         try atomicWrite(yaml, to: dest)
         return dest

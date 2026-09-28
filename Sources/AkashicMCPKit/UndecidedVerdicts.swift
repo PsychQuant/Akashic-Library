@@ -178,9 +178,9 @@ extension AkashicService {
             }
         }
         // 寫入前先驗每一筆（R1 verify Codex：逐筆寫、第二筆的內容驗證失敗時第一筆已落地而呼叫端只看到錯誤）。
-        // 驗證失敗 → 整批拒絕、零寫入。
-        let format = (try? StoreVersion.read(root: store.root)) ?? 1
-        for key in touched.sorted() { try LibraryStore.assertPersonWritable(people[key]!, format: { format }) }
+        // 驗證失敗 → 整批拒絕、零寫入。#648 起驗的是 `writePerson` 在寫入當下跑的每一道（含 encode 與讀取上限）——
+        // 一次呼叫最多 200 × 4,096 位元組，YAML 把控制字元跳脫成 4 倍，把一筆接近上限的記錄推過去時要在這裡擋下
+        for key in touched.sorted() { try store.preflightWrite(people[key]!) }
         var landed: [String] = []
         do {
             for key in touched.sorted() { try store.writePerson(people[key]!); landed.append(key) }
@@ -246,9 +246,8 @@ extension AkashicService {
             }
         }
         // 寫入前先驗每一筆（R1 verify Codex：逐筆寫、第二筆的內容驗證失敗時第一筆已落地而呼叫端只看到錯誤）。
-        // 驗證失敗 → 整批拒絕、零寫入。
-        let format = (try? StoreVersion.read(root: store.root)) ?? 1
-        for key in touched.sorted() { try LibraryStore.assertVenueWritable(venues[key]!, format: format) }
+        // 驗證失敗 → 整批拒絕、零寫入。#648 起驗的是 `writeVenue` 在寫入當下跑的每一道（含 encode 與讀取上限）
+        for key in touched.sorted() { try store.preflightWrite(venues[key]!) }
         var landed: [String] = []
         do {
             for key in touched.sorted() { try store.writeVenue(venues[key]!); landed.append(key) }

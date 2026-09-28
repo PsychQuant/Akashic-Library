@@ -1234,6 +1234,13 @@ public final class AkashicService {
                     "判定「\(displaySafeInvisible(id, max: 200))」的 judgement 是空白"
                     + "——judgement 是「憑什麼這樣判」的紀錄，沒有它的配對與猜測無法區分")
             }
+            // #648：理由有界——與未決腿同一個常數。輸入錯，整批拒絕、零寫入、不截斷（`lossless-intake` 的有界拒絕）。
+            // 在任何 store 狀態分支之前擋，理由同上一道（空白）：一筆過長的理由不得因為那一格恰好被略過而回報成功
+            guard judgement.utf8.count <= Self.maxStatementBytes else {
+                throw ServiceError.invalid(
+                    "判定「\(displaySafeInvisible(id, max: 200))」的理由 \(judgement.utf8.count) 位元組，超過 \(Self.maxStatementBytes) 位元組"   // display-safe-exempt: judgement.utf8.count 與 Self.maxStatementBytes 是 Int
+                    + "——精簡它，承重內容先用 store-source 存檔（理由與未決腿的說明同一個上限，#648）")
+            }
             // #627 R3：以解析後的形式去重——`d:0:p` 與 `d:00:p` 是同一個判定，不得被下一道
             // 「判給了兩個人」的檢查接住（那句話對同一人是假的）
             guard seen.insert("\(citekey):\(idx):\(personKey)").inserted else {   // display-safe-exempt: 集合鍵，不輸出
@@ -1373,18 +1380,18 @@ public final class AkashicService {
             pairings.append(p)
         }
 
-        // ── 寫入（entry → person verdict → rebuild）──
+        // ── 算出寫入集合（entry → person verdict），先不寫 ──
+        // #648：先前 entry 在 person 之前就落盤，person 那一筆若被寫入閘拒絕（例如長過讀取上限），作者位已歸戶而 verdict
+        // 沒寫——撕裂。現在整個寫入集合先算好、逐筆過 `preflightWrite`（writeX 在寫入當下跑的每一道），全部通過才寫。
         var wroteEntries = 0
+        var entriesToWrite: [Entry] = []
         if isConfirm {
             let pinned = { (p: JudgedPairing) in "\(p.citekey):\(p.authorIndex):\(p.personKey)" }   // display-safe-exempt: 集合鍵，不輸出
             let updated = PersonResolver.apply(pairings.filter { !verdictOnly.contains(pinned($0)) }, to: load.entries)
             // #627 R2：confirm 的 verdict 只寫給真的改到的作者位——apply 會略過它無法唯一定位的格，
             // 那些判定沒有落地，寫 verdict 等於 ledger 宣稱一次沒發生的歸戶（#232 D6）
             let changed = PersonResolver.changedSlots(before: load.entries, after: updated)
-            for (before, after) in zip(load.entries, updated) where before != after {
-                try store.writeEntry(after)
-                wroteEntries += 1
-            }
+            entriesToWrite = zip(load.entries, updated).filter { $0.0 != $0.1 }.map(\.1)
             let landed = { (p: JudgedPairing) in
                 verdictOnly.contains(pinned(p)) || changed.contains("\(p.citekey):\(p.authorIndex)")   // display-safe-exempt: 集合鍵，不輸出
             }
@@ -1433,6 +1440,14 @@ public final class AkashicService {
                             + "這一筆沒有寫入（#636）"))
         }
         pairings.removeAll { refuteCollisions.contains("\($0.citekey):\($0.authorIndex):\($0.personKey)") }   // display-safe-exempt: 集合鍵
+        // ── 寫入前的最後一道：整個寫入集合逐筆 preflight，任一筆不過零寫入（#648）──
+        for e in entriesToWrite { try store.preflightWrite(e) }
+        for key in grouped.keys.sorted() { try store.preflightWrite(grouped[key]!) }
+        // ── 寫入（entry → person verdict → rebuild）──
+        for e in entriesToWrite {
+            try store.writeEntry(e)
+            wroteEntries += 1
+        }
         for key in grouped.keys.sorted() { try store.writePerson(grouped[key]!) }
         // #627 R2：不再吞掉 rebuild 失敗——CLI 會照回應印「index 已重建」，吞掉就是一句假話。
         // 什麼都沒寫時不重建：損壞態的 store 本來就重建不了，那時的錯誤會蓋掉逐筆的具名略過。
@@ -3779,11 +3794,9 @@ public final class AkashicService {
                          "into": p.parts.map { displaySafe($0, max: 200) }])
         }
         // **format 閘在任何寫入之前對全部計畫求值**（#450）：拆分記錄需要 format ≥ 16，而逐筆寫入
-        // 遇閘會留下「一半套用」——先全部過閘，整批零寫入或整批寫。
-        let root = store.root
-        for e in entries.values {
-            try LibraryStore.assertEntryWritable(e, format: { try StoreVersion.read(root: root) })
-        }
+        // 遇閘會留下「一半套用」——先全部過閘，整批零寫入或整批寫。#648 起過的是 `writeEntry` 在寫入當下跑的
+        // 每一道（含 #631 目的檔與寫出後的讀取上限）
+        for e in entries.values { try store.preflightWrite(e) }
         for e in entries.values.sorted(by: { $0.citekey < $1.citekey }) { try store.writeEntry(e) }
         try LibraryIndex(store: store).rebuild()
         return try jsonString(["split": rows, "count": rows.count])   // display-safe-exempt: Int
@@ -3962,9 +3975,8 @@ public final class AkashicService {
                                         .map { ($0.id, "work「\(displaySafeInvisible($0.citekey, max: 200))」") },
                                      action: "這次會刪掉 \(plans.count) 筆拆分記錄",   // display-safe-exempt: plans.count 是 Int
                                      issue: "#659")
-        for e in entries.values {
-            try LibraryStore.assertEntryWritable(e, format: { try StoreVersion.read(root: store.root) })
-        }
+        // #648：`writeEntry` 在寫入當下跑的每一道（含 #631 目的檔與寫出後的讀取上限）先全部過，整批零寫入或整批寫
+        for e in entries.values { try store.preflightWrite(e) }
         for e in entries.values.sorted(by: { $0.citekey < $1.citekey }) { try store.writeEntry(e) }
         try LibraryIndex(store: store).rebuild()
         return try jsonString(["unsplit": rows, "count": rows.count])   // display-safe-exempt: Int
@@ -4100,10 +4112,8 @@ public final class AkashicService {
                          "authorsLeft": entries[p.citekey]!.authors.count])   // display-safe-exempt: Int
         }
         // format 閘（≥ 17）在任何寫入之前對全部計畫求值——逐筆寫入遇閘會留下「一半套用」。
-        let root = store.root
-        for e in entries.values {
-            try LibraryStore.assertEntryWritable(e, format: { try StoreVersion.read(root: root) })
-        }
+        // #648 起過的是 `writeEntry` 在寫入當下跑的每一道（含 #631 目的檔與寫出後的讀取上限）
+        for e in entries.values { try store.preflightWrite(e) }
         for e in entries.values.sorted(by: { $0.citekey < $1.citekey }) { try store.writeEntry(e) }
         try LibraryIndex(store: store).rebuild()
         return try jsonString(["dropped": rows, "count": rows.count])   // display-safe-exempt: Int
@@ -4238,6 +4248,10 @@ public final class AkashicService {
             }
             rows.append(row)
         }
+        // #648：寫入集合先逐筆過 writeX 在寫入當下跑的每一道（內容閘、#631 目的檔、寫出後的讀取上限）——
+        // 「整批驗證通過才寫」在此之前只驗了輸入，org 那一筆若在寫入當下被拒，entry 已經落盤（撕裂）
+        for e in entries.values.sorted(by: { $0.citekey < $1.citekey }) { try store.preflightWrite(e) }
+        for o in orgs.values.sorted(by: { $0.key < $1.key }) { try store.preflightWrite(o) }
         for e in entries.values.sorted(by: { $0.citekey < $1.citekey }) { try store.writeEntry(e) }
         for o in orgs.values.sorted(by: { $0.key < $1.key }) { try store.writeOrganization(o) }
         try LibraryIndex(store: store).rebuild()
@@ -4516,11 +4530,10 @@ public final class AkashicService {
         // entry 已升格成 `.key`、verdict 沒落、錯誤訊息像「什麼都沒寫」。`rename` 那條
         // （`LibraryStore.assertVenueWritable` 的 preflight）已是這個形狀；D8 把 venue 的
         // 拒絕條件從三個罕見形狀擴到最常見的手改痕跡，撕裂不再是理論。repoint／demote 同序。
-        for key in grouped.keys.sorted() {
-            try LibraryStore.assertVenueWritable(grouped[key]!, format: storeFormat)
-            try store.assertEntitiesDestination(id: grouped[key]!.id, kind: .venue)   // #631
-        }
-        for entry in changed { _ = try store.entryWritePlan(entry) }   // #631：寫到一半才撞上拒絕會撕裂（D11 同理）
+        // #648 起過的是 writeX 在寫入當下跑的每一道（內容閘、#631 目的檔、寫出後的讀取上限）——
+        // venue 是 O(catalog) 的 verdict 持有者（#499），長過讀取上限的就是它
+        for key in grouped.keys.sorted() { try store.preflightWrite(grouped[key]!) }
+        for entry in changed { try store.preflightWrite(entry) }   // #631：寫到一半才撞上拒絕會撕裂（D11 同理）
         for entry in changed { try store.writeEntry(entry) }
         for key in grouped.keys.sorted() { try store.writeVenue(grouped[key]!) }
         try LibraryIndex(store: store).rebuild()
@@ -4706,7 +4719,9 @@ public final class AkashicService {
         }
         let changedVenues = Set(moves.flatMap { [$0.from, $0.to] })
         try assertRetiredVerdictsRecoverable(retiredOn.sorted().compactMap { k in load.venues.first { $0.key == k } }, count: retired.count)
-        for k in changedVenues.sorted() { try LibraryStore.assertVenueWritable(venuesByKey[k]!, format: storeFormat) }
+        // #648：寫入集合逐筆過 writeX 在寫入當下跑的每一道（內容閘、#631 目的檔、寫出後的讀取上限），全部通過才寫
+        for k in changedVenues.sorted() { try store.preflightWrite(venuesByKey[k]!) }
+        for ck in touched.sorted() { try store.preflightWrite(byCitekey[ck]!) }
         for ck in touched.sorted() { try store.writeEntry(byCitekey[ck]!) }
         for k in changedVenues.sorted() { try store.writeVenue(venuesByKey[k]!) }
         try LibraryIndex(store: store).rebuild()
@@ -5023,7 +5038,9 @@ public final class AkashicService {
         }
         let changedVenues = Set(plan.map(\.venueKey))
         try assertRetiredVerdictsRecoverable(retiredOn.sorted().compactMap { k in load.venues.first { $0.key == k } }, count: retired.count)
-        for k in changedVenues.sorted() { try LibraryStore.assertVenueWritable(venuesByKey[k]!, format: storeFormat) }
+        // #648：寫入集合逐筆過 writeX 在寫入當下跑的每一道（內容閘、#631 目的檔、寫出後的讀取上限），全部通過才寫
+        for k in changedVenues.sorted() { try store.preflightWrite(venuesByKey[k]!) }
+        for ck in touched.sorted() { try store.preflightWrite(byCitekey[ck]!) }
         for ck in touched.sorted() { try store.writeEntry(byCitekey[ck]!) }
         for k in changedVenues.sorted() { try store.writeVenue(venuesByKey[k]!) }
         try LibraryIndex(store: store).rebuild()
@@ -5170,6 +5187,8 @@ public final class AkashicService {
                 grouped[c.orgKey] = o
                 rejectedIDs.append(rowID(c))
             }
+            // #648：寫入集合先逐筆過 writeOrganization 在寫入當下跑的每一道（含寫出後的讀取上限），全部通過才寫
+            for key in grouped.keys.sorted() { try store.preflightWrite(grouped[key]!) }
             for key in grouped.keys.sorted() { try store.writeOrganization(grouped[key]!) }
             if !grouped.isEmpty { try LibraryIndex(store: store).rebuild() }
             return try jsonString(["rejected": rejectedIDs,
@@ -5237,13 +5256,10 @@ public final class AkashicService {
         let applied = OrgResolver.apply(chosen, to: load.people,
                                         organizations: load.organizations,
                                         entries: load.entries)
-        for p in applied.people { try store.writePerson(p) }
-        for o in applied.organizations { try store.writeOrganization(o) }
         // #378：作者位歸戶會改寫 entry
-        for e in applied.entries where !load.entries.contains(where: { $0 == e }) {
-            try store.writeEntry(e)
-        }
-        // confirmed verdicts
+        let changedEntries = applied.entries.filter { e in !load.entries.contains(where: { $0 == e }) }
+        // confirmed verdicts（#648：先算好、與上面三組一起 preflight 之後才寫——先前 person／org／entry 已落盤，
+        // verdict 那一筆才在寫入當下被拒）
         var grouped: [String: Organization] = [:]
         let byKeyAfter = Dictionary((applied.organizations.isEmpty ? load.organizations : applied.organizations)
             .map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
@@ -5260,6 +5276,14 @@ public final class AkashicService {
                 statement: "resolve apply：org name 完全命中，使用者確認"), to: &o.references, allowCoexistence: storeFormat >= 19)
             grouped[c.orgKey] = o
         }
+        // #648：寫入集合依寫入順序逐筆 preflight（writeX 在寫入當下跑的每一道，含寫出後的讀取上限），全部通過才寫
+        for p in applied.people { try store.preflightWrite(p) }
+        for o in applied.organizations { try store.preflightWrite(o) }
+        for e in changedEntries { try store.preflightWrite(e) }
+        for key in grouped.keys.sorted() { try store.preflightWrite(grouped[key]!) }
+        for p in applied.people { try store.writePerson(p) }
+        for o in applied.organizations { try store.writeOrganization(o) }
+        for e in changedEntries { try store.writeEntry(e) }
         for key in grouped.keys.sorted() { try store.writeOrganization(grouped[key]!) }
         try LibraryIndex(store: store).rebuild()
         return try jsonString(["applied": chosen.map { rowID($0) },

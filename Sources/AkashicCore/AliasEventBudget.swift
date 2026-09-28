@@ -242,11 +242,51 @@ public enum AliasEventBudget {
     /// 199,999 節點的記錄讀得進來，但下一次編輯只要多一個節點就**永遠寫不回**，
     /// 而使用者的修改被丟掉。YAML.swift 的 R9 註解逐字寫過這個危害
     /// （「放寬為 2×，避免『讀得到但永遠寫不回』的邊界檔」）——同一個道理。
+    ///
+    /// **#648 起它對位元組只是寬限的天花板，不是寫入的上限**：寫入的位元組上限由 `writeByteLimit(replacing:)` 決定——
+    /// 讀取上限（1 倍），只有不增長的改寫可用到這個倍數。在此之前 canary 的外層檢查以 2 倍放行，而緊接其後的語意
+    /// canary（`decode(out)`）又以 1 倍擋下——2 倍對位元組從未生效，超過 8 MiB 的寫入一直是以一句不具名的
+    /// `fileTooLarge`（「單一超大節點…」）被拒，而多檔寫入在那之前已落盤的檔不會回滾（2026-09-28 實測）。
     public static let writePathMultiplier = 2
+
+    /// **這次寫入可寫出的位元組上限**（#648，使用者 2026-09-28 裁決）：讀取上限，只有**不增長的改寫**可用到
+    /// `writePathMultiplier` 倍。
+    ///
+    /// **不增長**的精確定義：寫出的 UTF-8 位元組數 ≤ 寫入**目的檔**目前的位元組數（`currentBytes`；目的地沒有檔＝nil，
+    /// 那是新建不是改寫，沒有寬限）。比的是位元組，不是語意——一筆語意上沒變、但被 emitter 重新展開而變大的記錄算增長。
+    ///
+    /// 上限＝`max(maxBytes, min(currentBytes ?? 0, maxBytes × writePathMultiplier))`，三段：
+    /// - `currentBytes` 是 nil 或 ≤ `maxBytes`：上限就是 `maxBytes`。讀得進來的記錄都在這一段，不增長的改寫本來就在上限之內，寬限沒有作用。
+    /// - `currentBytes` 在 (`maxBytes`, 2 倍]：上限是 `currentBytes`——可以原樣或縮小改寫一個已經讀不回來的檔，不能再長。
+    /// - `currentBytes` > 2 倍：上限是 2 倍。
+    ///
+    /// **寬限只會作用在已經讀不回來的檔上**：目的檔超過讀取上限，它在載入時就被 quarantine，而 entities 佈局的寫入端
+    /// 拒絕覆寫讀不出一筆完整記錄的目的檔（#631 `assertEntitiesDestination`）——所以寬限在 entities 佈局不會落地，
+    /// legacy 佈局（`people/<key>.yaml`／`entries/<citekey>.yaml`）沒有那道目的檔檢查，才是它唯一能落地的地方。
+    /// 它從不把一個讀得回來的檔變成讀不回來。
+    public static func writeByteLimit(replacing currentBytes: Int?) -> Int {
+        max(maxBytes, min(currentBytes ?? 0, maxBytes * writePathMultiplier))
+    }
+
+    /// 寫出前的位元組檢查（#648）：超過 `writeByteLimit(replacing:)` 即拒絕寫出，錯誤具名記錄與兩個位元組數。
+    /// `kind` 是呼叫端的字面形狀名（work／person／…），`key` 是記錄的 key（在這裡逃脫一次）。
+    public static func checkWriteSize(_ text: String, kind: String, key: String,
+                                      replacing currentBytes: Int?) throws {
+        let bytes = text.utf8.count
+        let limit = writeByteLimit(replacing: currentBytes)
+        guard bytes <= limit else {
+            throw StoreYAMLError.writeExceedsReadLimit(
+                record: "\(kind)「\(displaySafeInvisible(key, max: 120))」",   // display-safe-exempt: kind 是呼叫端的字面形狀名
+                bytes: bytes,   // display-safe-exempt: bytes 是 Int
+                limit: limit,   // display-safe-exempt: limit 是 Int
+                currentBytes: currentBytes)   // display-safe-exempt: currentBytes 是 Int?
+        }
+    }
 
     /// compose **之前**的守衛。
     ///
-    /// `isWritePath` 為 true 時門檻放寬 `writePathMultiplier` 倍（見上）。
+    /// `isWritePath` 為 true 時門檻放寬 `writePathMultiplier` 倍（見上）。寫入端的位元組去留由 `checkWriteSize`
+    /// 在這之前精確裁決，這裡的 2 倍只是讓 encode 的 canary 讀得回寬限內的產物。
     public static func check(_ text: String, context: String,
                              isWritePath: Bool = false) throws {
         let mult = isWritePath ? writePathMultiplier : 1

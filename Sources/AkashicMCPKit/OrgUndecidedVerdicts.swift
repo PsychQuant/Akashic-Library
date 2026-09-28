@@ -238,9 +238,8 @@ extension AkashicService {
                 already.append(s.id)
             }
         }
-        // 寫入前先驗每一筆，全部通過才寫（同 people／venues 的 R1 修正）
-        let format = (try? StoreVersion.read(root: store.root)) ?? 1
-        for key in touched.sorted() { try LibraryStore.assertOrganizationWritable(orgs[key]!, format: { format }) }
+        // 寫入前先驗每一筆，全部通過才寫（同 people／venues 的 R1 修正；#648 起含 encode 與讀取上限）
+        for key in touched.sorted() { try store.preflightWrite(orgs[key]!) }
         var landed: [String] = []
         do {
             for key in touched.sorted() { try store.writeOrganization(orgs[key]!); landed.append(key) }

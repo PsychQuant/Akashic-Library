@@ -776,7 +776,7 @@ public extension LibraryStore {
         guard let size = bytes, size >= threshold else { return nil }
         let verdicts = references.filter { ProvenanceReference.resolutionVerdictFields.contains($0.field) }.count
         return "記錄檔 \(size) 位元組，達門檻 \(threshold)（讀取上限 \(AliasEventBudget.maxBytes) 的一半；"   // display-safe-exempt: Int
-            + "超過上限的檔在下次載入時被 quarantine，寫入路徑有 2 倍寬限擋不住）；其中 resolution verdict \(verdicts) 筆"   // display-safe-exempt: Int
+            + "超過上限的檔在下次載入時被 quarantine；寫入閘拒絕讓記錄長過上限（#648），到那時這筆記錄的寫入會被整批擋下）；其中 resolution verdict \(verdicts) 筆"   // display-safe-exempt: Int
     }
 
     /// **person／organization 的記錄檔逼近讀取上限**（#645）——venue 族（#499）的同形擴充，同一個門檻、同一個量法。

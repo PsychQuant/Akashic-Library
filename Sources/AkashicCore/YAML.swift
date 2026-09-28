@@ -13,6 +13,9 @@ public enum StoreYAMLError: Error, LocalizedError, Equatable, SanitizedErrorDesc
     case ambiguousShapeLabels([String])
     /// 標籤與 `type:` 各自指向不同形狀。不得挑一邊。
     case shapeLabelContradiction(label: String, typeField: String)
+    /// #648：寫出的位元組超過這次寫入的上限（`AliasEventBudget.writeByteLimit`）——拒絕寫出。
+    /// `record` 在擲出端逃脫（`AliasEventBudget.checkWriteSize`）；其餘是位元組數。
+    case writeExceedsReadLimit(record: String, bytes: Int, limit: Int, currentBytes: Int?)
 
     public var errorDescription: String? {
         let known = EntityKind.knownLabels.sorted().joined(separator: "、")
@@ -45,6 +48,13 @@ public enum StoreYAMLError: Error, LocalizedError, Equatable, SanitizedErrorDesc
                 形狀標籤「\(displaySafeInvisible(label))」與 type 欄位的「\(displaySafeInvisible(typeField))」矛盾。\
                 type 是 work 專屬的書目類型，不是形狀名；兩者衝突時不得挑一邊。
                 """
+        case let .writeExceedsReadLimit(record, bytes, limit, current):
+            // 單行（quarantine 與兩面的 sink 都逐行截）。record 在擲出端已逃脫；其餘是 Int。
+            let now = current.map { "目的檔目前 \($0) 位元組，" } ?? "目的地沒有既有的檔，"
+            return "\(record)寫出後 \(bytes) 位元組，超過這次寫入的上限 \(limit)——拒絕寫出這筆記錄。"   // display-safe-exempt: record 在擲出端逃脫；bytes／limit 是 Int
+                + "讀取上限是 \(AliasEventBudget.maxBytes) 位元組，超過它的檔在下次載入時會被 quarantine（從所有面消失、指向它的 key 懸空）；"
+                + now + "只有不增長的改寫可用到讀取上限的 \(AliasEventBudget.writePathMultiplier) 倍（#648）。"
+                + "處置：先查這次呼叫是否帶了過長的內容或重複的記錄；若是 verdict 在這筆記錄上累積，重開第 13 條邊的規模化裁決（#499），不要只放寬上限"
         }
     }
 }
@@ -62,7 +72,9 @@ private let isoFormatter: ISO8601DateFormatter = {
 /// authors → date → fields → attachments → provenance → akashic），
 /// 空集合省略——round-trip 以值相等為準。
 public enum EntryYAML {
-    public static func encode(_ entry: Entry) throws -> String {
+    /// - Parameter currentBytes: 寫入目的檔目前的位元組數（#648；沒有檔或呼叫端不知道＝nil）。它只決定寬限——
+    ///   `AliasEventBudget.writeByteLimit(replacing:)`；省略時上限就是讀取上限，任何寫入者預設都寫不出讀不回來的檔。
+    public static func encode(_ entry: Entry, replacing currentBytes: Int? = nil) throws -> String {
         var pairs: [(Node, Node)] = []
         // 形狀裸標籤放最前面：讀檔的人第一眼看到的就是「這是什麼」。
         // 值是空 scalar，序列化成 `work:`（無值）。
@@ -195,8 +207,10 @@ public enum EntryYAML {
         //     路徑（emitter plain 樣式與 decode 嚴格性不對合時，寫得出、讀不回）。
         // (2) 比較對象是「正規化後的模型」不是 identity——store 只存秒精度，
         //     次秒 Date 必須先截到 encoder 精度，否則合法寫入被誤拒（R5 CRITICAL）。
+        // #648：位元組的去留在 canary 之前精確裁決（具名、兩個數）；之後的讀回走寫入路徑的預算，只驗語意
+        try AliasEventBudget.checkWriteSize(out, kind: "work", key: entry.citekey, replacing: currentBytes)
         try encodeCanary(out, context: "entry")
-        let rd = try decode(out)
+        let rd = try decode(out, isWritePath: true)
         var ca = rd, cb = canaryNormalized(entry)
         ca.unknownFields = []; cb.unknownFields = []
         ca.akashic.unknownFields = []; cb.akashic.unknownFields = []
@@ -213,7 +227,8 @@ public enum EntryYAML {
         // R8：encode 側預算同樣單次呼叫共用（跨 entry/akashic 兩層）。
         // R10 更正（R9-verify L18/L26）：R9 的 2× 放寬無效——實際約束是上方
         // canary 的內層 decode（自帶 200k），且 compose 不計預算、兩側消耗
-        // 對稱。維持與 decode 相同的 200k。
+        // 對稱。維持與 decode 相同的 200k。（#648 起內層 decode 走寫入路徑的預算；
+        // 節點軸只在含 alias 時生效，而 emitter 的產物不含 alias，這裡的 200k 不受影響。）
         var encodeBudget = 200_000
         try verifyUnknownValuesPreserved(rd.unknownFields, entry.unknownFields,
                                          context: "entry", budget: &encodeBudget)
@@ -804,6 +819,8 @@ public enum EntryYAML {
         do {
             // #36：canary 同樣先過預算——emitter 若寫出超預算的東西，那是 bug
             // 不是攻擊，要在這裡就爆而不是留給下一次 decode。
+            // #648：位元組的去留不在這裡裁決——呼叫端在這之前已跑過 `AliasEventBudget.checkWriteSize`
+            // （讀取上限；只有不增長的改寫可到 2 倍）。這裡的 2 倍只是天花板，讓寬限內的產物過得了 canary。
             try AliasEventBudget.check(out, context: "encode canary", isWritePath: true)
             _ = try Yams.compose(yaml: out)
         } catch {
@@ -849,13 +866,17 @@ public enum EntryYAML {
         yaml.hasPrefix("\u{FEFF}") ? String(yaml.dropFirst()) : yaml
     }
 
-    public static func decode(_ yaml: String) throws -> Entry {
+    public static func decode(_ yaml: String) throws -> Entry { try decode(yaml, isWritePath: false) }
+
+    /// #648：encode 的語意 canary 讀回自己的產物時走 `isWritePath: true`——位元組的去留已在 `AliasEventBudget.checkWriteSize`
+    /// 精確裁決過（讀取上限，或不增長改寫的寬限），這裡只驗讀不讀得回同一個值。讀取路徑一律走上面那個入口（1 倍）。
+    static func decode(_ yaml: String, isWritePath: Bool) throws -> Entry {
         let yaml = stripLeadingBOM(yaml)
         try assertNoLossyContentChars(yaml, context: "entry")
         // #36：alias 展開預算在 compose **之前**。判準走 parser 的 event 層
         // （`yaml_parser_parse` 不展開 alias），不是文字掃描——後者在本 repo 失敗過
         // 五次，見 docs/store-format.md §5 的排除表。
-        try AliasEventBudget.check(yaml, context: "entry")
+        try AliasEventBudget.check(yaml, context: "entry", isWritePath: isWritePath)
         guard let root = try Yams.compose(yaml: yaml), let map = root.mapping else {
             throw StoreYAMLError.notAMapping
         }
@@ -1207,7 +1228,7 @@ public enum EntryYAML {
 
 /// Library registry YAML（#13）：metadata-only，strict decode。
 public enum LibraryYAML {
-    public static func encode(_ library: Library) throws -> String {
+    public static func encode(_ library: Library, replacing currentBytes: Int? = nil) throws -> String {
         var pairs: [(Node, Node)] = [
             (Node("key"), Node(library.key)),
             (Node("name"), Node(library.name)),
@@ -1219,8 +1240,9 @@ public enum LibraryYAML {
         try EntryYAML.appendRawBlocks(library.unknownFields, to: &out, targetIndent: 0,
                                       context: "library")
         // 語意 canary（R4；R6 起無條件執行，比較基準見 EntryYAML.encode 註解）
+        try AliasEventBudget.checkWriteSize(out, kind: "library", key: library.key, replacing: currentBytes)   // #648
         try EntryYAML.encodeCanary(out, context: "library")
-        let rd = try decode(out)
+        let rd = try decode(out, isWritePath: true)
         var a = rd, b = library
         a.unknownFields = []; b.unknownFields = []
         guard a == b, rd.unknownFields.map(\.key) == library.unknownFields.map(\.key) else {
@@ -1245,13 +1267,17 @@ public enum LibraryYAML {
 
     static let knownLibraryKeys: Set<String> = ["key", "name", "description"]
 
-    public static func decode(_ yaml: String) throws -> Library {
+    public static func decode(_ yaml: String) throws -> Library { try decode(yaml, isWritePath: false) }
+
+    /// #648：encode 的語意 canary 讀回自己的產物時走 `isWritePath: true`——位元組的去留已在 `AliasEventBudget.checkWriteSize`
+    /// 精確裁決過（讀取上限，或不增長改寫的寬限），這裡只驗讀不讀得回同一個值。讀取路徑一律走上面那個入口（1 倍）。
+    static func decode(_ yaml: String, isWritePath: Bool) throws -> Library {
         let yaml = EntryYAML.stripLeadingBOM(yaml)
         try EntryYAML.assertNoLossyContentChars(yaml, context: "library")
         // #36：alias 展開預算在 compose **之前**。判準走 parser 的 event 層
         // （`yaml_parser_parse` 不展開 alias），不是文字掃描——後者在本 repo 失敗過
         // 五次，見 docs/store-format.md §5 的排除表。
-        try AliasEventBudget.check(yaml, context: "person")
+        try AliasEventBudget.check(yaml, context: "person", isWritePath: isWritePath)
         guard let root = try Yams.compose(yaml: yaml), let map = root.mapping else {
             throw StoreYAMLError.notAMapping
         }
@@ -1278,7 +1304,7 @@ public enum LibraryYAML {
 }
 
 public enum PersonYAML {
-    public static func encode(_ person: Person) throws -> String {
+    public static func encode(_ person: Person, replacing currentBytes: Int? = nil) throws -> String {
         // 形狀裸標籤放最前面（取代原本的 `type: person`）。
         // 原本用 `type:` 標形狀，使形式種類與書目類型成為同一個 key 的平輩值——
         // 那正是 `type: view` 看起來合理的原因。標籤與 `type:` 現在分屬兩層。
@@ -1322,8 +1348,9 @@ public enum PersonYAML {
         try EntryYAML.appendRawBlocks(person.unknownFields, to: &out, targetIndent: 0,
                                       context: "person")
         // 語意 canary（R4；R6 起無條件執行，比較基準見 EntryYAML.encode 註解）
+        try AliasEventBudget.checkWriteSize(out, kind: "person", key: person.key, replacing: currentBytes)   // #648
         try EntryYAML.encodeCanary(out, context: "person")
-        let rd = try decode(out)
+        let rd = try decode(out, isWritePath: true)
         var a = rd, b = person
         a.unknownFields = []; b.unknownFields = []
         guard a == b, rd.unknownFields.map(\.key) == person.unknownFields.map(\.key) else {
@@ -1364,13 +1391,17 @@ public enum PersonYAML {
                                                    "references"])
         .union(EntityKind.knownLabels)
 
-    public static func decode(_ yaml: String) throws -> Person {
+    public static func decode(_ yaml: String) throws -> Person { try decode(yaml, isWritePath: false) }
+
+    /// #648：encode 的語意 canary 讀回自己的產物時走 `isWritePath: true`——位元組的去留已在 `AliasEventBudget.checkWriteSize`
+    /// 精確裁決過（讀取上限，或不增長改寫的寬限），這裡只驗讀不讀得回同一個值。讀取路徑一律走上面那個入口（1 倍）。
+    static func decode(_ yaml: String, isWritePath: Bool) throws -> Person {
         let yaml = EntryYAML.stripLeadingBOM(yaml)
         try EntryYAML.assertNoLossyContentChars(yaml, context: "person")
         // #36：alias 展開預算在 compose **之前**。判準走 parser 的 event 層
         // （`yaml_parser_parse` 不展開 alias），不是文字掃描——後者在本 repo 失敗過
         // 五次，見 docs/store-format.md §5 的排除表。
-        try AliasEventBudget.check(yaml, context: "library")
+        try AliasEventBudget.check(yaml, context: "library", isWritePath: isWritePath)
         guard let root = try Yams.compose(yaml: yaml), let map = root.mapping else {
             throw StoreYAMLError.notAMapping
         }
@@ -1971,7 +2002,7 @@ public enum OrganizationYAML {
                                              "parents", "note", "references"])
         .union(EntityKind.knownLabels)
 
-    public static func encode(_ org: Organization) throws -> String {
+    public static func encode(_ org: Organization, replacing currentBytes: Int? = nil) throws -> String {
         var pairs: [(Node, Node)] = [(Node(EntityKind.organization.rawValue), Node("")),
                                      (Node("id"), Node(org.id.uuidString)),
                                      (Node("key"), Node(org.key))]
@@ -1997,18 +2028,23 @@ public enum OrganizationYAML {
         var text = try Yams.serialize(node: Node(pairs), allowUnicode: true)
         try EntryYAML.appendRawBlocks(org.unknownFields, to: &text, targetIndent: 0,
                                       context: "organization")
+        try AliasEventBudget.checkWriteSize(text, kind: "organization", key: org.key, replacing: currentBytes)   // #648
         // canary：寫出去的東西必須讀得回同一個值，否則拒寫（v1.3 fail-closed）。
-        let back = try decode(text)
+        let back = try decode(text, isWritePath: true)
         guard back == org else {
             throw StoreYAMLError.invalidField("organization", "encode 自檢失敗：讀回的值與原值不符")
         }
         return text
     }
 
-    public static func decode(_ yaml: String) throws -> Organization {
+    public static func decode(_ yaml: String) throws -> Organization { try decode(yaml, isWritePath: false) }
+
+    /// #648：encode 的語意 canary 讀回自己的產物時走 `isWritePath: true`——位元組的去留已在 `AliasEventBudget.checkWriteSize`
+    /// 精確裁決過（讀取上限，或不增長改寫的寬限），這裡只驗讀不讀得回同一個值。讀取路徑一律走上面那個入口（1 倍）。
+    static func decode(_ yaml: String, isWritePath: Bool) throws -> Organization {
         let yaml = EntryYAML.stripLeadingBOM(yaml)
         try EntryYAML.assertNoLossyContentChars(yaml, context: "organization")
-        try AliasEventBudget.check(yaml, context: "library")
+        try AliasEventBudget.check(yaml, context: "library", isWritePath: isWritePath)
         guard let root = try Yams.compose(yaml: yaml), let map = root.mapping else {
             throw StoreYAMLError.notAMapping
         }
@@ -2178,7 +2214,7 @@ public enum VenueYAML {
                                              "issn", "note", "references"])
         .union(EntityKind.knownLabels)
 
-    public static func encode(_ v: Venue) throws -> String {
+    public static func encode(_ v: Venue, replacing currentBytes: Int? = nil) throws -> String {
         var pairs: [(Node, Node)] = [(Node(EntityKind.venue.rawValue), Node("")),
                                      (Node("id"), Node(v.id.uuidString)),
                                      (Node("key"), Node(v.key)),
@@ -2204,17 +2240,22 @@ public enum VenueYAML {
         var text = try Yams.serialize(node: Node(pairs), allowUnicode: true)
         try EntryYAML.appendRawBlocks(v.unknownFields, to: &text, targetIndent: 0,
                                       context: "venue")
-        let back = try decode(text)
+        try AliasEventBudget.checkWriteSize(text, kind: "venue", key: v.key, replacing: currentBytes)   // #648
+        let back = try decode(text, isWritePath: true)
         guard back == v else {
             throw StoreYAMLError.invalidField("venue", "encode 自檢失敗：讀回的值與原值不符")
         }
         return text
     }
 
-    public static func decode(_ yaml: String) throws -> Venue {
+    public static func decode(_ yaml: String) throws -> Venue { try decode(yaml, isWritePath: false) }
+
+    /// #648：encode 的語意 canary 讀回自己的產物時走 `isWritePath: true`——位元組的去留已在 `AliasEventBudget.checkWriteSize`
+    /// 精確裁決過（讀取上限，或不增長改寫的寬限），這裡只驗讀不讀得回同一個值。讀取路徑一律走上面那個入口（1 倍）。
+    static func decode(_ yaml: String, isWritePath: Bool) throws -> Venue {
         let yaml = EntryYAML.stripLeadingBOM(yaml)
         try EntryYAML.assertNoLossyContentChars(yaml, context: "venue")
-        try AliasEventBudget.check(yaml, context: "library")
+        try AliasEventBudget.check(yaml, context: "library", isWritePath: isWritePath)
         guard let root = try Yams.compose(yaml: yaml), let map = root.mapping else {
             throw StoreYAMLError.notAMapping
         }
@@ -2303,7 +2344,7 @@ public enum DivergenceYAML {
 
     static let knownCandidateKeys: Set<String> = Set(["key", "shape"])
 
-    public static func encode(_ d: Divergence) throws -> String {
+    public static func encode(_ d: Divergence, replacing currentBytes: Int? = nil) throws -> String {
         var pairs: [(Node, Node)] = [(Node(EntityKind.divergence.rawValue), Node("")),
                                      (Node("id"), Node(d.id.uuidString)),
                                      (Node("question"), Node(d.question))]
@@ -2322,18 +2363,23 @@ public enum DivergenceYAML {
         var text = try Yams.serialize(node: Node(pairs), allowUnicode: true)
         try EntryYAML.appendRawBlocks(d.unknownFields, to: &text, targetIndent: 0,
                                       context: "divergence")
+        try AliasEventBudget.checkWriteSize(text, kind: "divergence", key: d.id.uuidString, replacing: currentBytes)   // #648
         // canary：寫出去的東西必須讀得回同一個值，否則拒寫（v1.3 fail-closed）。
-        let back = try decode(text)
+        let back = try decode(text, isWritePath: true)
         guard back == d else {
             throw StoreYAMLError.invalidField("divergence", "encode 自檢失敗：讀回的值與原值不符")
         }
         return text
     }
 
-    public static func decode(_ yaml: String) throws -> Divergence {
+    public static func decode(_ yaml: String) throws -> Divergence { try decode(yaml, isWritePath: false) }
+
+    /// #648：encode 的語意 canary 讀回自己的產物時走 `isWritePath: true`——位元組的去留已在 `AliasEventBudget.checkWriteSize`
+    /// 精確裁決過（讀取上限，或不增長改寫的寬限），這裡只驗讀不讀得回同一個值。讀取路徑一律走上面那個入口（1 倍）。
+    static func decode(_ yaml: String, isWritePath: Bool) throws -> Divergence {
         let yaml = EntryYAML.stripLeadingBOM(yaml)
         try EntryYAML.assertNoLossyContentChars(yaml, context: "divergence")
-        try AliasEventBudget.check(yaml, context: "entity")
+        try AliasEventBudget.check(yaml, context: "entity", isWritePath: isWritePath)
         guard let root = try Yams.compose(yaml: yaml), let map = root.mapping else {
             throw StoreYAMLError.notAMapping
         }

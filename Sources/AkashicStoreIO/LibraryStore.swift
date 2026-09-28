@@ -688,15 +688,24 @@ public final class LibraryStore {
 
     @discardableResult
     public func writeEntry(_ entry: Entry) throws -> URL {
+        let w = try plannedWrite(entry)
+        try atomicWrite(w.yaml, to: w.dest)
+        if let moveFrom = w.moveFrom { try FileManager.default.removeItem(at: moveFrom) }   // #631：搬移完成
+        return w.dest
+    }
+
+    /// #648：`writeEntry` 在寫入當下跑的每一道（store root、內容閘、#631 目的檔、encode 含讀取上限），不寫任何東西。
+    /// 多檔操作在第一次寫入之前對寫入集合的每一筆呼叫它——拒絕發生在任何檔落盤之前。`writeEntry` 自己也走同一個函式。
+    public func preflightWrite(_ entry: Entry) throws { _ = try plannedWrite(entry) }
+
+    func plannedWrite(_ entry: Entry) throws -> PlannedWrite {
         try assertStoreRoot()
         try Self.assertEntryWritable(entry, format: { try StoreVersion.read(root: self.root) })
         let moveFrom = try entryWritePlan(entry)   // #631：目的檔檢查；legacy 單份 → 寫完搬移，兩份 → 拒絕
-        let yaml = try EntryYAML.encode(entry)
         // #35：format 2 走 entities/<uuid>.yaml，legacy 走 entries/<citekey>.yaml
         let dest = usesEntitiesLayout ? entityURL(id: entry.id) : entryURL(citekey: entry.citekey)
-        try atomicWrite(yaml, to: dest)
-        if let moveFrom { try FileManager.default.removeItem(at: moveFrom) }   // #631：搬移完成
-        return dest
+        let yaml = try EntryYAML.encode(entry, replacing: Self.currentFileBytes(at: dest))   // #648
+        return PlannedWrite(yaml: yaml, dest: dest, moveFrom: moveFrom)
     }
 
     /// exclusive-create 版 writeEntry：目的檔已存在（含檢查後才出現的並發寫入）
@@ -706,7 +715,7 @@ public final class LibraryStore {
     public func writeEntryExclusive(_ entry: Entry) throws -> URL {
         try assertStoreRoot()
         try Self.assertEntryWritable(entry, format: { try StoreVersion.read(root: self.root) })   // 同一組閘（#455）
-        let yaml = try EntryYAML.encode(entry)
+        let yaml = try EntryYAML.encode(entry)   // #648：exclusive-create，目的地沒有既有的檔——上限是讀取上限
         let dest = usesEntitiesLayout ? entityURL(id: entry.id) : entryURL(citekey: entry.citekey)
         try atomicWrite(yaml, to: dest, mustCreate: true)
         return dest
@@ -856,13 +865,21 @@ public final class LibraryStore {
     /// 發表載體只存在於 entities 佈局（format 11 起，#304）。
     @discardableResult
     public func writeVenue(_ v: Venue) throws -> URL {
+        let w = try plannedWrite(v)
+        try atomicWrite(w.yaml, to: w.dest)
+        return w.dest
+    }
+
+    /// #648：`writeVenue` 的全部前置，不寫（同 `preflightWrite(_: Entry)`）。
+    public func preflightWrite(_ v: Venue) throws { _ = try plannedWrite(v) }
+
+    func plannedWrite(_ v: Venue) throws -> PlannedWrite {
         try assertStoreRoot()
         try Self.assertVenueWritable(v, format: try StoreVersion.read(root: root))
-        let yaml = try VenueYAML.encode(v)
-        try assertEntitiesDestination(id: v.id, kind: .venue)   // #631
         let dest = entityURL(id: v.id)
-        try atomicWrite(yaml, to: dest)
-        return dest
+        let yaml = try VenueYAML.encode(v, replacing: Self.currentFileBytes(at: dest))   // #648
+        try assertEntitiesDestination(id: v.id, kind: .venue)   // #631
+        return PlannedWrite(yaml: yaml, dest: dest, moveFrom: nil)
     }
 
     /// `writeOrganization` 的**全部非 I/O 前置條件**——寫入端與 `renameEntry` 的前置閘共用同一個函式，
@@ -927,13 +944,21 @@ public final class LibraryStore {
     /// 機構只存在於 entities 佈局（format 4 起）——legacy 佈局沒有它的位置。
     @discardableResult
     public func writeOrganization(_ org: Organization) throws -> URL {
+        let w = try plannedWrite(org)
+        try atomicWrite(w.yaml, to: w.dest)
+        return w.dest
+    }
+
+    /// #648：`writeOrganization` 的全部前置，不寫（同 `preflightWrite(_: Entry)`）。
+    public func preflightWrite(_ org: Organization) throws { _ = try plannedWrite(org) }
+
+    func plannedWrite(_ org: Organization) throws -> PlannedWrite {
         try assertStoreRoot()
         try Self.assertOrganizationWritable(org, format: { try StoreVersion.read(root: self.root) })
-        let yaml = try OrganizationYAML.encode(org)
-        try assertEntitiesDestination(id: org.id, kind: .organization)   // #631
         let dest = entityURL(id: org.id)
-        try atomicWrite(yaml, to: dest)
-        return dest
+        let yaml = try OrganizationYAML.encode(org, replacing: Self.currentFileBytes(at: dest))   // #648
+        try assertEntitiesDestination(id: org.id, kind: .organization)   // #631
+        return PlannedWrite(yaml: yaml, dest: dest, moveFrom: nil)
     }
 
     /// `writePerson` 的**全部非 I/O 前置條件**——與 `assertOrganizationWritable`／`assertVenueWritable` 同型，寫入端與
@@ -1024,14 +1049,22 @@ public final class LibraryStore {
     /// 移位到 helper 上——pre-push 的 `-warnings-as-errors` 建置擋下（`swift test` 不帶該旗標，全綠仍會漏）。
     @discardableResult
     public func writePerson(_ person: Person) throws -> URL {
+        let w = try plannedWrite(person)
+        try atomicWrite(w.yaml, to: w.dest)
+        if let moveFrom = w.moveFrom { try FileManager.default.removeItem(at: moveFrom) }   // #631：搬移完成
+        return w.dest
+    }
+
+    /// #648：`writePerson` 的全部前置，不寫（同 `preflightWrite(_: Entry)`）。
+    public func preflightWrite(_ person: Person) throws { _ = try plannedWrite(person) }
+
+    func plannedWrite(_ person: Person) throws -> PlannedWrite {
         try assertStoreRoot()
         try Self.assertPersonWritable(person, format: { try StoreVersion.read(root: self.root) })
-        let yaml = try PersonYAML.encode(person)
-        let moveFrom = try personWritePlan(person)   // #631：同 writeEntry
         let dest = usesEntitiesLayout ? entityURL(id: person.id) : personURL(key: person.key)
-        try atomicWrite(yaml, to: dest)
-        if let moveFrom { try FileManager.default.removeItem(at: moveFrom) }   // #631：搬移完成
-        return dest
+        let yaml = try PersonYAML.encode(person, replacing: Self.currentFileBytes(at: dest))   // #648
+        let moveFrom = try personWritePlan(person)   // #631：同 writeEntry
+        return PlannedWrite(yaml: yaml, dest: dest, moveFrom: moveFrom)
     }
 
     /// **`.error` 等級的不變式住在寫入邊界**（#229）。
@@ -1390,6 +1423,21 @@ public final class LibraryStore {
 
     private func readUTF8(_ url: URL) throws -> String {
         try String(contentsOf: url, encoding: .utf8)
+    }
+
+    /// 一筆記錄寫入前算好的全部東西（#648）：寫出的文字、目的檔、寫完要刪的 legacy 拷貝（#631）。
+    /// `writeX` 與 `preflightWrite` 走同一個 `plannedWrite`，兩邊不會分岔。
+    struct PlannedWrite {
+        let yaml: String
+        let dest: URL
+        let moveFrom: URL?
+    }
+
+    /// #648：寫入目的檔**目前**的位元組數（沒有檔＝nil）——`AliasEventBudget.writeByteLimit(replacing:)` 的「不增長」比的就是它。
+    /// 量的是這次寫入要取代的那個檔（跟隨 symlink）；讀取端的 `recordBytes` 量的是同一個檔讀進來的 UTF-8 位元組
+    /// （store 寫出的檔是 UTF-8、無 BOM，兩個數相同）。
+    static func currentFileBytes(at url: URL) -> Int? {
+        (try? FileManager.default.attributesOfItem(atPath: url.resolvingSymlinksInPath().path))?[.size] as? Int
     }
 
     /// temp 檔寫在同一目錄 + rename 取代——中斷不留半寫檔。

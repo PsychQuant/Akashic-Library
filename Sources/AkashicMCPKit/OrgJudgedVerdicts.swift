@@ -186,19 +186,11 @@ extension AkashicService {
         // person／entry／上級機構被改寫的 holder org 在寫入當下才被拒——前面的檔已經落盤）
         // 內容閘之外還有 #631 的目的檔檢查（`personWritePlan`／`entryWritePlan`／`assertEntitiesDestination`）——write* 在寫入當下
         // 才跑它，漏掉它就是同一種撕裂換一類拒絕（R2 verify DA 真 binary：legacy 未 commit 的 entry 讓 person 先落盤）。venue 路徑的先例同形。
+        // #648：三族的前置收成 `preflightWrite`——writeX 在寫入當下跑的每一道（內容閘、#631 目的檔、encode 含讀取上限）。
         if !judged.isEmpty {
-            for p in changedPeople {
-                try LibraryStore.assertPersonWritable(p, format: { storeFormat })
-                _ = try store.personWritePlan(p)
-            }
-            for e in changedEntries {
-                try LibraryStore.assertEntryWritable(e, format: { storeFormat })
-                _ = try store.entryWritePlan(e)
-            }
-            for key in changedOrgKeys.sorted() {
-                try LibraryStore.assertOrganizationWritable(orgs[key]!, format: { storeFormat })
-                try store.assertEntitiesDestination(id: orgs[key]!.id, kind: .organization)
-            }
+            for p in changedPeople { try store.preflightWrite(p) }
+            for e in changedEntries { try store.preflightWrite(e) }
+            for key in changedOrgKeys.sorted() { try store.preflightWrite(orgs[key]!) }
         }
         if !judged.isEmpty {
             for p in changedPeople { try store.writePerson(p) }

@@ -25,6 +25,7 @@ final class ByteExactKeySiteInventoryTests: XCTestCase {
             "Sources/AkashicCore/VerdictRecordKey.swift",        // 未決記錄的記錄鍵（change resolution-verdict-states，#619）
             "Sources/AkashicMCPKit/UndecidedVerdicts.swift",     // 同一次呼叫寫下的未決記錄（R1 verify：第二個相同 id 不報成「已在」）
             "Sources/AkashicMCPKit/OrgUndecidedVerdicts.swift",  // org 族的同一件事（change org-undecided-leg，#643）
+            "Sources/AkashicMCPKit/OrgJudgedVerdicts.swift",     // org 逐篇判定：理由被去重吃掉時，完全相同的一筆不算沒寫（#647 R1 verify）
         ]
         let sources = Self.repoRoot.appendingPathComponent("Sources")
         var found: Set<String> = []

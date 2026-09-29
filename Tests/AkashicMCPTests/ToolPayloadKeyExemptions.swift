@@ -2,16 +2,15 @@ import Foundation
 
 /// 刻意不寫進工具說明的回應鍵——**逐鍵具名、逐鍵寫理由**（`common-spec-prose-enumeration`：能列舉的就列舉，不寫萬用豁免）。
 ///
-/// 四種理由（封閉列舉；新的理由要在這裡加一種並說明，不得從既有的類推）：
+/// 三種理由（封閉列舉；新的理由要在這裡加一種並說明，不得從既有的類推）：
 /// - `echo`：回顯呼叫端自己給的值，名稱就是意思，呼叫端手上已經有它。
-/// - `derived`：由同一個 payload 裡另一個鍵完全決定（清單的長度），說明那個鍵就夠。
 /// - `advisory`：給人讀的固定說明句，內容隨情境變動、呼叫端不需要依它分支。
 /// - `standard`：該格式的公開標準欄位（CSL-JSON），契約是那份標準，不是本工具。
 ///
 /// 豁免不是永久的許可：`testEveryExemptionIsLive` 要求每個豁免的鍵**真的出現在** payload、且**真的沒被說明提到**——
 /// 說明一旦寫了它、或 payload 不再有它，豁免就紅，逼人把這一列刪掉。
 enum ToolPayloadKeyExemptions {
-    enum Category: String { case echo, derived, advisory, standard }
+    enum Category: String { case echo, advisory, standard }
 
     struct Exemption {
         let category: Category

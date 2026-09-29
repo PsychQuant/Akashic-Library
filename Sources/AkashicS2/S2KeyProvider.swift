@@ -29,13 +29,13 @@ public enum S2KeyError: Error, Equatable, CustomStringConvertible, SanitizedErro
         let doc = S2Settings.setupDocument
         switch self {
         case .missing(let s, let a):
-            return "找不到 Semantic Scholar 的 API 金鑰：keychain 裡沒有 service「\(s)」、account「\(a)」的項目。設定方法見 \(doc)"
+            return "找不到 Semantic Scholar 的 API 金鑰：keychain 裡沒有 service「\(s)」、account「\(a)」的項目。設定方法見 \(doc)"   // display-safe-exempt: s、a 建構端已 displaySafeInvisible；doc 是常量
         case .notReadable(let s, let a):
-            return "keychain 裡有 service「\(s)」、account「\(a)」的項目，但它的存取權限不允許在不跳出授權框的情況下讀取。請把該項目改成所有 app 可讀，做法見 \(doc)"
+            return "keychain 裡有 service「\(s)」、account「\(a)」的項目，但它的存取權限不允許在不跳出授權框的情況下讀取。請把該項目改成所有 app 可讀，做法見 \(doc)"   // display-safe-exempt: s、a 建構端已 displaySafeInvisible；doc 是常量
         case .invalidValue(let s, let a):
-            return "keychain 項目 service「\(s)」、account「\(a)」的內容不是可用的金鑰（空的、不是 UTF-8，或含換行等控制字元）。請重新存入，做法見 \(doc)"
+            return "keychain 項目 service「\(s)」、account「\(a)」的內容不是可用的金鑰（空的、不是 UTF-8，或含換行等控制字元）。請重新存入，做法見 \(doc)"   // display-safe-exempt: s、a 建構端已 displaySafeInvisible；doc 是常量
         case .keychain(let status):
-            return "讀取 keychain 失敗（OSStatus \(status)）"
+            return "讀取 keychain 失敗（OSStatus \(status)）"   // display-safe-exempt: status 是 OSStatus（Int32）
         }
     }
 }

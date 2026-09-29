@@ -7,7 +7,7 @@ public enum S2ThrottleError: Error, Equatable, CustomStringConvertible, Sanitize
 
     public var description: String {
         switch self {
-        case .stateFile(let path, let e): return "無法使用 S2 節流狀態檔 \(path)（errno \(e)）"
+        case .stateFile(let path, let e): return "無法使用 S2 節流狀態檔 \(path)（errno \(e)）"   // display-safe-exempt: path 擲出端已 displaySafeInvisible；e 是 errno（Int32）
         }
     }
 }

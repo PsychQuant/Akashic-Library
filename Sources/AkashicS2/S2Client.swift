@@ -107,11 +107,11 @@ public enum S2SettingsError: Error, Equatable, CustomStringConvertible, Sanitize
     public var description: String {
         switch self {
         case .baseURLNotLoopback(let raw):
-            return "AKASHIC_S2_BASE_URL 只接受本機位址（http://127.0.0.1、http://localhost、http://[::1]，可帶 port）；收到「\(raw)」"
+            return "AKASHIC_S2_BASE_URL 只接受本機位址（http://127.0.0.1、http://localhost、http://[::1]，可帶 port）；收到「\(raw)」"   // display-safe-exempt: raw 擲出端已 displaySafeInvisible
         case .keychainServiceNotForTests(let raw):
-            return "AKASHIC_S2_KEYCHAIN_SERVICE 只接受以「akashic-test-」開頭的測試用名稱；收到「\(raw)」"
+            return "AKASHIC_S2_KEYCHAIN_SERVICE 只接受以「akashic-test-」開頭的測試用名稱；收到「\(raw)」"   // display-safe-exempt: raw 擲出端已 displaySafeInvisible
         case .stateDirectoryNotAbsolute(let raw):
-            return "AKASHIC_S2_STATE_DIR 必須是絕對路徑；收到「\(raw)」"
+            return "AKASHIC_S2_STATE_DIR 必須是絕對路徑；收到「\(raw)」"   // display-safe-exempt: raw 擲出端已 displaySafeInvisible
         }
     }
 }
@@ -159,17 +159,17 @@ public enum S2Error: Error, Equatable, CustomStringConvertible, SanitizedErrorDe
         case .keyUnavailable(let e):
             return displaySafeErrorText(e)
         case .notFound(let endpoint, let subject):
-            return "Semantic Scholar 找不到「\(subject)」（\(endpoint)）"
+            return "Semantic Scholar 找不到「\(subject)」（\(endpoint)）"   // display-safe-exempt: subject、endpoint 擲出端已 displaySafeInvisible
         case .rateLimited(let endpoint, let reason):
-            return "Semantic Scholar 限流用盡（\(endpoint)）：\(reason)"
+            return "Semantic Scholar 限流用盡（\(endpoint)）：\(reason)"   // display-safe-exempt: endpoint、reason 擲出端已 displaySafeInvisible
         case .http(let endpoint, let status):
-            return "Semantic Scholar 回應錯誤：\(endpoint) 回 HTTP \(status)"
+            return "Semantic Scholar 回應錯誤：\(endpoint) 回 HTTP \(status)"   // display-safe-exempt: endpoint 擲出端已 displaySafeInvisible；status 是 HTTP 狀態碼（Int）
         case .network(let endpoint, let reason):
-            return "連線 Semantic Scholar 失敗（\(endpoint)）：\(reason)"
+            return "連線 Semantic Scholar 失敗（\(endpoint)）：\(reason)"   // display-safe-exempt: endpoint、reason 擲出端已 displaySafeInvisible
         case .invalidResponse(let endpoint):
-            return "Semantic Scholar 的回應無法解讀（\(endpoint)）"
+            return "Semantic Scholar 的回應無法解讀（\(endpoint)）"   // display-safe-exempt: endpoint 擲出端已 displaySafeInvisible
         case .invalidRequest(let endpoint):
-            return "無法組出 \(endpoint) 的請求網址"
+            return "無法組出 \(endpoint) 的請求網址"   // display-safe-exempt: endpoint 擲出端已 displaySafeInvisible
         }
     }
 }

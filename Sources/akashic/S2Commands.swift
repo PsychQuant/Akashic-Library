@@ -258,7 +258,7 @@ struct S2StatusCmd: ParsableCommand {
             print(S2Output.statusJSON(settings: settings, probe: probe))
         } else {
             let yn: (Bool?) -> String = { $0.map { $0 ? "是" : "否" } ?? "未檢查（AKASHIC_S2_BASE_URL 已設定，不讀 keychain）" }
-            print(displaySafeAssembled("keychain：service「\(settings.keychainService)」account「\(settings.keychainAccount)」存在：\(yn(probe?.present)) 可讀：\(yn(probe?.readable))"))
+            print(displaySafeAssembled("keychain：service「\(settings.keychainService)」account「\(settings.keychainAccount)」存在：\(yn(probe?.present)) 可讀：\(yn(probe?.readable))"))   // display-safe-exempt: settings 的 keychainService／keychainAccount 是常量或已驗證的 akashic-test- 名稱
             print(displaySafeAssembled("節流狀態檔：\(throttle.stateFile.path) 下次可送：\(next ?? "無紀錄")"))
             print(displaySafeAssembled("主機：\(host)"))
         }

@@ -130,6 +130,15 @@ extension DestructiveTargetGate {
         "fulltext calibrate": .readOnly("開發用：在本機 PDF 資料夾與 Crossref 回應目錄上量驗證規則，只讀（#629）"),
         "crossref-match": .readOnly("比對本機的作品清單與 Crossref 回應檔，只寫 --out 指定的結果檔，不經 openStore、不寫 store（#629）"),
         "abstracts-to-proposals": .readOnly("adapter：把摘要 NDJSON 轉成 enrich 的提案 JSON，只讀 sources/ 的存檔、只寫 --out 指定的檔，不寫 store（#629）"),
+        "s2 author-papers": .readOnly("查 Semantic Scholar，不開 store（#664）"),
+        "s2 author-search": .readOnly("查 Semantic Scholar，不開 store（#664）"),
+        "s2 batch": .readOnly("查 Semantic Scholar，不開 store（#664）"),
+        "s2 citations": .readOnly("查 Semantic Scholar，不開 store（#664）"),
+        "s2 match": .readOnly("查 Semantic Scholar，不開 store（#664）"),
+        "s2 paper": .readOnly("查 Semantic Scholar，不開 store（#664）"),
+        "s2 recommend": .readOnly("查 Semantic Scholar，不開 store（#664）"),
+        "s2 references": .readOnly("查 Semantic Scholar，不開 store（#664）"),
+        "s2 status": .readOnly("只看金鑰讀不讀得到與節流狀態檔，不連網、不開 store（#664）"),
     ]
 
     /// 逐腿裁決的三個命令。鍵是旗標的主名（`--holder` 的舊名 `--person` 是同一格）。

@@ -32,16 +32,16 @@ public enum S2ArgumentError: Error, Equatable, CustomStringConvertible, Sanitize
 
     public var description: String {
         switch self {
-        case .emptyIdentifier(let e): return "\(e) 需要非空的識別碼"
-        case .batchSize(let n): return "batch 一次要 1 到 500 個 id；收到 \(n) 個"
+        case .emptyIdentifier(let e): return "\(e) 需要非空的識別碼"   // display-safe-exempt: e 擲出端已 displaySafeInvisible 或是字面
+        case .batchSize(let n): return "batch 一次要 1 到 500 個 id；收到 \(n) 個"   // display-safe-exempt: n 是 Int
         case .limitOutOfRange(let e, let l, let lo, let hi):
             if let hi { return "\(e) 的 --limit 要在 \(lo) 到 \(hi) 之間；收到 \(l)" }
             return "\(e) 的 --limit 至少 \(lo)；收到 \(l)"
-        case .negativeOffset(let o): return "--offset 不得為負；收到 \(o)"
-        case .invalidIdentifier(let e, let id): return "\(e) 的識別碼「\(id)」含 . 或 .. 路徑片段，不接受"
+        case .negativeOffset(let o): return "--offset 不得為負；收到 \(o)"   // display-safe-exempt: o 是 Int
+        case .invalidIdentifier(let e, let id): return "\(e) 的識別碼「\(id)」含 . 或 .. 路徑片段，不接受"   // display-safe-exempt: e、id 擲出端已 displaySafeInvisible
         case .unknownEndpoint(let e):
-            return "endpoint 必須是 \(S2Tool.endpointNames.joined(separator: "、")) 之一；收到「\(e)」"
-        case .missingArgument(let e, let n): return "\(e) 需要參數 \(n)"
+            return "endpoint 必須是 \(S2Tool.endpointNames.joined(separator: "、")) 之一；收到「\(e)」"   // display-safe-exempt: S2Tool 的 endpointNames 是常量清單；e 擲出端已 displaySafeInvisible
+        case .missingArgument(let e, let n): return "\(e) 需要參數 \(n)"   // display-safe-exempt: e、n 擲出端已 displaySafeInvisible
         }
     }
 }

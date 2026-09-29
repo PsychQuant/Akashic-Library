@@ -19,7 +19,7 @@
 
 ## 5. CLI 面
 
-- [ ] 5.1 先寫測試再實作 `akashic s2` 子命令群：八個端點各一個子命令，外加 `status`（design「每個端點一個具型別子命令」）；`--json` 信封含 `source`、`endpoint`、`request`、`fetchedAt`（帶本機時區 offset）、`total`、`data`，並有同源的人可讀輸出；結束碼 3、4、5、64 依 design 的表對應（Requirement「The CLI prints complete results in two forms」「A missing key stops the command with setup guidance」「Status reports readiness without revealing the key」）。驗證：`S2CommandTests` 中，`AKASHIC_S2_KEYCHAIN_SERVICE=akashic-test-<隨機>` 時 `akashic s2 paper DOI:10.1037/a0038889` 以 3 結束、訊息含 service、account 與設定文件路徑（此測試不設 `AKASHIC_S2_BASE_URL`；讀不到金鑰時不發出請求由 in-process 測試以 stub 驗證）；`CLITestHarness` 對未指定 keychain service 的 `s2` 呼叫補上 `akashic-test-harness`；`status --json` 不含金鑰；`references --limit 50 --json` 得 50 筆。
+- [x] 5.1 先寫測試再實作 `akashic s2` 子命令群：八個端點各一個子命令，外加 `status`（design「每個端點一個具型別子命令」）；`--json` 信封含 `source`、`endpoint`、`request`、`fetchedAt`（帶本機時區 offset）、`total`、`data`，並有同源的人可讀輸出；結束碼 3、4、5、64 依 design 的表對應（Requirement「The CLI prints complete results in two forms」「A missing key stops the command with setup guidance」「Status reports readiness without revealing the key」）。驗證：`S2CommandTests` 中，`AKASHIC_S2_KEYCHAIN_SERVICE=akashic-test-<隨機>` 時 `akashic s2 paper DOI:10.1037/a0038889` 以 3 結束、訊息含 service、account 與設定文件路徑（此測試不設 `AKASHIC_S2_BASE_URL`；讀不到金鑰時不發出請求由 in-process 測試以 stub 驗證）；`CLITestHarness` 對未指定 keychain service 的 `s2` 呼叫補上 `akashic-test-harness`；`status --json` 不含金鑰；`references --limit 50 --json` 得 50 筆。
 - [ ] 5.2 跨程序節流驗收：兩個 `akashic` 子程序共用同一個 `AKASHIC_S2_STATE_DIR`，各送 3 個請求到 loopback stub（Requirement「Requests are throttled machine-wide」）。驗證：`S2CommandTests` 記錄 stub 收到的 6 個請求時間，兩兩間隔至少 1 秒（容許 50 ms）。
 
 ## 6. MCP 面

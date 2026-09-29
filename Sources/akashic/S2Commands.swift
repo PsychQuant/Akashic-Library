@@ -1,0 +1,241 @@
+import AkashicCore
+import AkashicS2
+import ArgumentParser
+import Foundation
+
+/// #664：Semantic Scholar 共用接口的 CLI 面。與 MCP 的 `akashic_s2` 共用 `AkashicS2`，
+/// 不經 `AkashicService`、不開 store。結束碼：3 金鑰不可用、4 限流用盡、5 S2 或網路錯誤、
+/// 64 參數錯誤。
+struct S2Cmd: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "s2",
+        abstract: "查詢 Semantic Scholar（金鑰從 keychain 讀取；全機每秒至多 1 個請求）",
+        discussion: """
+        金鑰存在 keychain：service「semantic-scholar」、account「default」。設定方法見 \(S2Settings.setupDocument)。
+        結束碼：0 成功、3 金鑰不可用、4 限流用盡、5 S2 或網路錯誤、64 參數錯誤。
+        """,
+        subcommands: [S2PaperCmd.self, S2MatchCmd.self, S2BatchCmd.self, S2ReferencesCmd.self,
+                      S2CitationsCmd.self, S2RecommendCmd.self, S2AuthorSearchCmd.self,
+                      S2AuthorPapersCmd.self, S2StatusCmd.self])
+}
+
+struct S2Options: ParsableArguments {
+    @Flag(name: .long, help: "輸出 JSON（source、endpoint、request、fetchedAt、total、data）")
+    var json = false
+
+    @Option(name: .long, help: "逗號分隔的 S2 欄位名，照原樣轉給 S2；省略時論文類預設 title,year,authors、作者類預設 name,paperCount")
+    var fields: String?
+
+    func fieldList(default fallback: [String]) -> [String] {
+        guard let fields else { return fallback }
+        return fields.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+    }
+}
+
+struct S2PageOptions: ParsableArguments {
+    @Option(name: .long, help: "至多取幾筆（省略＝全部）")
+    var limit: Int?
+
+    @Option(name: .long, help: "從第幾筆開始（0 起算）")
+    var offset: Int = 0
+}
+
+enum S2CLI {
+    static let paperFields = ["title", "year", "authors"]
+    static let authorFields = ["name", "paperCount"]
+
+    /// 解析設定 → 組 client → 跑查詢 → 清理 → 印出。錯誤依類型對應結束碼。
+    static func run(_ options: S2Options,
+                    _ op: @escaping @Sendable (S2Endpoints) async throws -> S2Result) throws {
+        let settings = try resolveSettings()
+        let client = S2Client(settings: settings,
+                              keyProvider: S2KeychainKeyProvider(settings: settings),
+                              throttle: S2FileThrottle(stateDirectory: settings.stateDirectory))
+        let endpoints = S2Endpoints(client: client)
+        let result: S2Result
+        do {
+            result = try runBlocking { try await op(endpoints) }
+        } catch let e as S2Error {
+            try fail(e.description, code: exitCode(for: e))
+        } catch let e as S2ArgumentError {
+            throw ValidationError(displaySafe(e.description))
+        } catch let e as S2ThrottleError {
+            try fail(e.description, code: 1)
+        }
+        let clean = S2Output.sanitized(result)
+        print(options.json ? S2Output.cliJSON(clean, fetchedAt: Date()) : S2Output.humanReadable(clean))
+    }
+
+    static func resolveSettings() throws -> S2Settings {
+        do { return try S2Settings.resolve() } catch let e as S2SettingsError {
+            throw ValidationError(displaySafe(e.description, max: 800))
+        }
+    }
+
+    static func exitCode(for error: S2Error) -> Int32 {
+        switch error {
+        case .keyUnavailable: return 3
+        case .rateLimited: return 4
+        case .notFound, .http, .network, .invalidResponse, .invalidRequest: return 5
+        }
+    }
+
+    /// 訊息印到 stderr（經 CLI 全域的清理），再以指定的碼結束。`main()` 對 `ExitCode` 不再印字。
+    static func fail(_ message: String, code: Int32) throws -> Never {
+        try? FileHandle.standardError.write(contentsOf: Data((displaySafeAssembled(message) + "\n").utf8))
+        throw ExitCode(code)
+    }
+
+    /// 同步的 `run()` 裡跑 async 查詢。根命令刻意維持同步（見 `AkashicCLI.main()` 的註解），
+    /// 所以在這裡橋接；查詢跑在 detached task 上，不依賴主執行緒。
+    static func runBlocking<T: Sendable>(_ op: @escaping @Sendable () async throws -> T) throws -> T {
+        let done = DispatchSemaphore(value: 0)
+        let box = ResultBox<T>()
+        Task.detached {
+            do { box.set(.success(try await op())) } catch { box.set(.failure(error)) }
+            done.signal()
+        }
+        done.wait()
+        return try box.get()
+    }
+
+    final class ResultBox<T: Sendable>: @unchecked Sendable {
+        private let lock = NSLock()
+        private var result: Result<T, Error>?
+        func set(_ r: Result<T, Error>) { lock.lock(); result = r; lock.unlock() }
+        func get() throws -> T {
+            lock.lock(); defer { lock.unlock() }
+            guard let result else { throw ExitCode.failure }
+            return try result.get()
+        }
+    }
+}
+
+struct S2PaperCmd: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "paper", abstract: "查一篇論文（DOI:…、CorpusId:…、S2 paperId；以 10. 開頭的裸 DOI 自動加 DOI:）")
+    @Argument(help: "論文識別碼") var paperID: String
+    @OptionGroup var options: S2Options
+    func run() throws {
+        let id = paperID, fields = options.fieldList(default: S2CLI.paperFields)
+        try S2CLI.run(options) { try await $0.paper(id: id, fields: fields) }
+    }
+}
+
+struct S2MatchCmd: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "match", abstract: "以標題比對一篇論文")
+    @Option(name: .long, help: "論文標題") var title: String
+    @Option(name: .long, help: "出版年（可省略）") var year: String?
+    @OptionGroup var options: S2Options
+    func run() throws {
+        let t = title, y = year, fields = options.fieldList(default: S2CLI.paperFields)
+        try S2CLI.run(options) { try await $0.match(title: t, year: y, fields: fields) }
+    }
+}
+
+struct S2BatchCmd: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "batch", abstract: "批次查詢（檔案一行一個 id，至多 500 個）")
+    @Option(name: .long, help: "id 清單檔") var idsFile: String
+    @OptionGroup var options: S2Options
+    func run() throws {
+        let text: String
+        do { text = try String(contentsOfFile: idsFile, encoding: .utf8) } catch {
+            throw ValidationError("讀不到 --ids-file：\(displaySafe(idsFile, max: 800))")
+        }
+        let ids = text.split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        let fields = options.fieldList(default: S2CLI.paperFields)
+        try S2CLI.run(options) { try await $0.batch(ids: ids, fields: fields) }
+    }
+}
+
+struct S2ReferencesCmd: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "references", abstract: "一篇論文的參考文獻（預設全部）")
+    @Argument(help: "論文識別碼") var paperID: String
+    @OptionGroup var page: S2PageOptions
+    @OptionGroup var options: S2Options
+    func run() throws {
+        let id = paperID, limit = page.limit, offset = page.offset, fields = options.fieldList(default: S2CLI.paperFields)
+        try S2CLI.run(options) { try await $0.references(id: id, fields: fields, limit: limit, offset: offset) }
+    }
+}
+
+struct S2CitationsCmd: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "citations", abstract: "引用一篇論文的論文（預設全部）")
+    @Argument(help: "論文識別碼") var paperID: String
+    @OptionGroup var page: S2PageOptions
+    @OptionGroup var options: S2Options
+    func run() throws {
+        let id = paperID, limit = page.limit, offset = page.offset, fields = options.fieldList(default: S2CLI.paperFields)
+        try S2CLI.run(options) { try await $0.citations(id: id, fields: fields, limit: limit, offset: offset) }
+    }
+}
+
+struct S2RecommendCmd: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "recommend", abstract: "與一篇論文相似的論文")
+    @Argument(help: "論文識別碼") var paperID: String
+    @Option(name: .long, help: "筆數（1–500）") var limit: Int = 100
+    @OptionGroup var options: S2Options
+    func run() throws {
+        let id = paperID, l = limit, fields = options.fieldList(default: S2CLI.paperFields)
+        try S2CLI.run(options) { try await $0.recommend(id: id, limit: l, fields: fields) }
+    }
+}
+
+struct S2AuthorSearchCmd: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "author-search", abstract: "以姓名搜尋作者（預設 100 筆）")
+    @Option(name: .long, help: "姓名") var name: String
+    @OptionGroup var page: S2PageOptions
+    @OptionGroup var options: S2Options
+    func run() throws {
+        let n = name, limit = page.limit, offset = page.offset, fields = options.fieldList(default: S2CLI.authorFields)
+        try S2CLI.run(options) { try await $0.authorSearch(name: n, fields: fields, limit: limit, offset: offset) }
+    }
+}
+
+struct S2AuthorPapersCmd: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "author-papers", abstract: "一位作者的著作（預設全部）")
+    @Argument(help: "S2 authorId") var authorID: String
+    @OptionGroup var page: S2PageOptions
+    @OptionGroup var options: S2Options
+    func run() throws {
+        let id = authorID, limit = page.limit, offset = page.offset, fields = options.fieldList(default: S2CLI.paperFields)
+        try S2CLI.run(options) { try await $0.authorPapers(id: id, fields: fields, limit: limit, offset: offset) }
+    }
+}
+
+/// 不連網。回報 keychain 項目存在與否、可否讀取、節流狀態；**不印金鑰，也不印它的長度**。
+/// 結束碼：金鑰存在且可讀為 0，否則 3——skill 只看結束碼就能決定要不要提示設定。
+struct S2StatusCmd: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "status", abstract: "檢查金鑰與節流狀態（不連網、不印金鑰）")
+    @Flag(name: .long, help: "輸出 JSON") var json = false
+
+    func run() throws {
+        let settings = try S2CLI.resolveSettings()
+        let probe: S2KeyProbe? = settings.readsKeychain ? S2KeychainKeyProvider(settings: settings).probe() : nil
+        let throttle = S2FileThrottle(stateDirectory: settings.stateDirectory)
+        let next = throttle.peekNextAllowedAt().map(S2Output.timestamp)
+        let host = settings.baseURL.host ?? ""
+
+        if json {
+            let keychain: S2JSON = .object([
+                "service": .string(settings.keychainService), "account": .string(settings.keychainAccount),
+                "present": probe.map { .bool($0.present) } ?? .null,
+                "readable": probe.map { .bool($0.readable) } ?? .null,
+            ])
+            let out: S2JSON = .object([
+                "keychain": keychain,
+                "throttle": .object(["stateFile": .string(throttle.stateFile.path),
+                                     "nextAllowedAt": next.map(S2JSON.string) ?? .null]),
+                "host": .string(host),
+            ])
+            let text = (try? S2Output.encoder().encode(S2Output.sanitized(out))).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+            print(text)
+        } else {
+            let yn: (Bool?) -> String = { $0.map { $0 ? "是" : "否" } ?? "未檢查（AKASHIC_S2_BASE_URL 已設定，不讀 keychain）" }
+            print(displaySafeAssembled("keychain：service「\(settings.keychainService)」account「\(settings.keychainAccount)」存在：\(yn(probe?.present)) 可讀：\(yn(probe?.readable))"))
+            print(displaySafeAssembled("節流狀態檔：\(throttle.stateFile.path) 下次可送：\(next ?? "無紀錄")"))
+            print(displaySafeAssembled("主機：\(host)"))
+        }
+        if let probe, !(probe.present && probe.readable) { throw ExitCode(3) }
+    }
+}

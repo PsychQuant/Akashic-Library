@@ -1,7 +1,14 @@
+import AkashicCore
 import Foundation
 
-public enum S2ThrottleError: Error, Equatable {
+public enum S2ThrottleError: Error, Equatable, CustomStringConvertible {
     case stateFile(path: String, errno: Int32)
+
+    public var description: String {
+        switch self {
+        case .stateFile(let path, let e): return "無法使用 S2 節流狀態檔 \(displaySafe(path, max: 800))（errno \(e)）"
+        }
+    }
 }
 
 /// 跨程序節流：以 `flock` 鎖住狀態檔預約送出時段（design〈跨程序節流：預約時段，429 退避共用〉）。
@@ -25,6 +32,14 @@ public final class S2FileThrottle: S2Throttling, @unchecked Sendable {
     }
 
     public var stateFile: URL { stateDirectory.appendingPathComponent(Self.fileName) }
+
+    /// `akashic s2 status` 用：讀出下次可送時間，**不建立**目錄或檔案；沒有狀態檔時回 nil。
+    public func peekNextAllowedAt() -> Date? {
+        guard let data = FileManager.default.contents(atPath: stateFile.path),
+              let state = try? JSONDecoder().decode(State.self, from: data), state.nextAllowedAt > 0
+        else { return nil }
+        return Date(timeIntervalSince1970: state.nextAllowedAt)
+    }
 
     /// 狀態檔內容。`blockedUntil` 由 429 退避寫入（任務 3.2）。
     struct State: Codable, Equatable {

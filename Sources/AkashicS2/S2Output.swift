@@ -103,3 +103,92 @@ public enum S2Output {
         return S2MCPPage(text: text, returned: n, truncated: final.truncated, nextOffset: final.nextOffset)
     }
 }
+
+// MARK: - CLI 面（任務 5.1）
+
+extension S2Output {
+    /// ISO 8601，帶本機時區 offset（例：`2026-09-29T09:30:00+08:00`）。
+    public static func timestamp(_ date: Date) -> String {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        f.timeZone = .current
+        return f.string(from: date)
+    }
+
+    struct CLIEnvelope: Encodable {
+        let data: S2JSON
+        let endpoint: String
+        let fetchedAt: String
+        let request: [String: S2JSON]
+        let source = "semantic-scholar"
+        let total: Int?
+
+        enum CodingKeys: String, CodingKey { case data, endpoint, fetchedAt, request, source, total }
+        func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encode(data, forKey: .data)
+            try c.encode(endpoint, forKey: .endpoint)
+            try c.encode(fetchedAt, forKey: .fetchedAt)
+            try c.encode(request, forKey: .request)
+            try c.encode(source, forKey: .source)
+            try c.encode(total, forKey: .total)
+        }
+    }
+
+    /// `--json` 的輸出。傳入的 `result` 須已經過 `sanitized`。
+    public static func cliJSON(_ result: S2Result, fetchedAt: Date) -> String {
+        let env = CLIEnvelope(data: result.data, endpoint: result.endpoint, fetchedAt: timestamp(fetchedAt),
+                              request: result.request, total: result.total)
+        return (try? encoder().encode(env)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+    }
+
+    /// 人可讀的輸出，與 `--json` 出自同一份（已清理的）結果：標頭一行，之後一筆一行。
+    public static func humanReadable(_ result: S2Result) -> String {
+        var lines: [String] = []
+        let records: [S2JSON]
+        if case .array(let a) = result.data { records = a } else { records = [result.data] }
+        var header = "\(result.endpoint)：\(records.count) 筆"
+        if let total = result.total { header += "（S2 共 \(total) 筆）" }
+        lines.append(header)
+        for record in records {
+            switch result.endpoint {
+            case "references": lines.append(paperLine(record["citedPaper"] ?? record))
+            case "citations": lines.append(paperLine(record["citingPaper"] ?? record))
+            case "author-search": lines.append(authorLine(record))
+            default: lines.append(paperLine(record))
+            }
+        }
+        if result.endpoint == "paper", case .object(let o) = result.data {
+            for key in o.keys.sorted() where !["paperId", "title", "year", "authors"].contains(key) {
+                let value = (try? encoder().encode(o[key]!)).flatMap { String(data: $0, encoding: .utf8) } ?? ""
+                lines.append("  \(key): \(value)")
+            }
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    static func string(_ j: S2JSON?) -> String? {
+        if case .string(let s)? = j { return s }
+        return nil
+    }
+
+    /// `年份  標題 — 第一作者 等  [paperId]`。缺的部分省略；null（batch 查不到的 id）印成「(查無此篇)」。
+    static func paperLine(_ p: S2JSON) -> String {
+        if p == .null { return "(查無此篇)" }
+        let year = p["year"]?.intValue.map(String.init) ?? "----"
+        var line = "\(year)  \(string(p["title"]) ?? "(無標題)")"
+        if let authors = p["authors"]?.arrayValue, let first = string(authors.first?["name"]) {
+            line += " — \(first)" + (authors.count > 1 ? " 等" : "")
+        }
+        if let id = string(p["paperId"]) { line += "  [\(id)]" }
+        return line
+    }
+
+    /// `姓名  [authorId]  papers=N`。
+    static func authorLine(_ a: S2JSON) -> String {
+        var line = string(a["name"]) ?? "(無姓名)"
+        if let id = string(a["authorId"]) { line += "  [\(id)]" }
+        if let n = a["paperCount"]?.intValue { line += "  papers=\(n)" }
+        return line
+    }
+}

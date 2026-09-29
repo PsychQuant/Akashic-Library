@@ -1,3 +1,4 @@
+import AkashicCore
 import Foundation
 
 /// S2 回應的 JSON 值。整數與小數分開存，原樣輸出時 `1000` 不會變成 `1000.0`。
@@ -19,12 +20,24 @@ public struct S2Result: Sendable, Equatable {
     public let data: S2JSON
 }
 
-public enum S2ArgumentError: Error, Equatable {
+public enum S2ArgumentError: Error, Equatable, CustomStringConvertible {
     case emptyIdentifier(endpoint: String)
     case batchSize(Int)
     case limitOutOfRange(endpoint: String, limit: Int, range: ClosedRange<Int>)
     case negativeOffset(Int)
     case invalidIdentifier(endpoint: String, identifier: String)
+
+    public var description: String {
+        switch self {
+        case .emptyIdentifier(let e): return "\(e) 需要非空的識別碼"
+        case .batchSize(let n): return "batch 一次要 1 到 500 個 id；收到 \(n) 個"
+        case .limitOutOfRange(let e, let l, let r):
+            return r.upperBound == Int.max ? "\(e) 的 --limit 至少 \(r.lowerBound)；收到 \(l)"
+                                          : "\(e) 的 --limit 要在 \(r.lowerBound) 到 \(r.upperBound) 之間；收到 \(l)"
+        case .negativeOffset(let o): return "--offset 不得為負；收到 \(o)"
+        case .invalidIdentifier(let e, let id): return "\(e) 的識別碼「\(displaySafe(id))」含 . 或 .. 路徑片段，不接受"
+        }
+    }
 }
 
 extension S2JSON: Codable {

@@ -27,6 +27,16 @@ enum CLITestHarness {
         process.arguments = args
         var childEnv = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("AKASHIC_") }
         for (k, v) in env { childEnv[k] = v }
+        // #664：`s2` 呼叫沒指定就補上測試用的 keychain service 與暫存狀態目錄——一個忘了設
+        // 覆寫的測試最壞只會以結束碼 3 結束，不會讀到開發機上真的金鑰、也不會連到真的 S2。
+        if args.first == "s2" {
+            if childEnv["AKASHIC_S2_KEYCHAIN_SERVICE"] == nil {
+                childEnv["AKASHIC_S2_KEYCHAIN_SERVICE"] = "akashic-test-harness"
+            }
+            if childEnv["AKASHIC_S2_STATE_DIR"] == nil {
+                childEnv["AKASHIC_S2_STATE_DIR"] = NSTemporaryDirectory() + "akashic-s2-harness"
+            }
+        }
         process.environment = childEnv
         let pipe = Pipe()
         process.standardOutput = pipe

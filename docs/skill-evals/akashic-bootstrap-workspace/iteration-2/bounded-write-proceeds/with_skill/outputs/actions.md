@@ -4,8 +4,8 @@
 
 ## 1. 讀 skill 指引
 
-- `/Users/che/Developer/psychquant-claude-plugins/plugins/akashic-mcp/skills/akashic-bootstrap/SKILL.md`
-- `/Users/che/Developer/psychquant-claude-plugins/plugins/akashic-mcp/skills/akashic-bootstrap/references/writing-to-the-store.md`
+- `~/Developer/psychquant-claude-plugins/plugins/akashic-mcp/skills/akashic-bootstrap/SKILL.md`
+- `~/Developer/psychquant-claude-plugins/plugins/akashic-mcp/skills/akashic-bootstrap/references/writing-to-the-store.md`
 
 ## 2. 找到目標記錄
 
@@ -57,4 +57,4 @@ akashic doctor --library <store>
 
 ## 7. 未使用的機制
 
-未呼叫任何 `mcp__*akashic*` MCP 工具（依指示）；未觸碰 `~/.akashic`；未 rebuild Swift package（沿用預先建好的 binary）；未在 `/Users/che/Developer/Akashic-Library` 建立或留下任何暫存檔。
+未呼叫任何 `mcp__*akashic*` MCP 工具（依指示）；未觸碰 `~/.akashic`；未 rebuild Swift package（沿用預先建好的 binary）；未在 `~/Developer/Akashic-Library` 建立或留下任何暫存檔。

@@ -256,9 +256,9 @@ grep -nE "public var" Sources/AkashicCore/{Models,Organization,Divergence,Tempor
   **≥ 20 筆**，或**單一容器被 ≥ 5 筆共用**
   ```bash
   python3 - <<'EOF'
-  import glob, io, re, collections
+  import glob, io, os, re, collections
   uncov = collections.Counter()
-  for f in glob.glob('/Users/che/.akashic/entities/*.yaml'):
+  for f in glob.glob(os.path.expanduser('~/.akashic/entities') + '/*.yaml'):
       t = io.open(f, encoding='utf8').read()
       m = re.search(r'^  booktitle: (.+)$', t, re.M)
       if m and not re.search(r'^venues:\n- key: ', t, re.M):

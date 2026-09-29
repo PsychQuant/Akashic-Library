@@ -826,9 +826,9 @@ python3 -c "import json; [print(json.loads(l).get('retrieved')) for l in open('$
 
 ```bash
 python3 - <<'EOF'
-import glob, io, re, collections
+import glob, io, os, re, collections
 uncov = collections.Counter()
-for f in glob.glob('/Users/che/.akashic/entities/*.yaml'):
+for f in glob.glob(os.path.expanduser('~/.akashic/entities') + '/*.yaml'):
     s = io.open(f, encoding='utf8').read()
     m = re.search(r'^  booktitle: (.+)$', s, re.M)
     if m and not re.search(r'^venues:\n- key: ', s, re.M):

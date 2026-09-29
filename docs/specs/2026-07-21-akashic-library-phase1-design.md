@@ -39,7 +39,7 @@ Akashic 是比 Zotero 更全面的資料庫——差異化在衍生知識層（�
 ### 3.1 Umbrella 佈局
 
 ```
-/Users/che/Developer/Akashic-Library/     ← umbrella meta-repo（remote: PsychQuant/Akashic-Library）
+~/Developer/Akashic-Library/     ← umbrella meta-repo（remote: PsychQuant/Akashic-Library）
 ├── AkashicKit/                  ← 核心 Swift package（umbrella 本體內容）
 ├── mcps/                        ← MCP server submodules
 │   ├── che-zotero-mcp           ← submodule（原 repo 不搬家；可同時被 che-mcps 引用）

@@ -1,7 +1,7 @@
 # Actions（chen2020association 補 PMID）
 
-Store: `/Users/che/Developer/psychquant-claude-plugins/plugins/akashic-mcp/skills/akashic-bootstrap-workspace/iteration-1/update-existing-record/with_skill/store`
-CLI: `/Users/che/Developer/Akashic-Library/.build/arm64-apple-macosx/debug/akashic`
+Store: `~/Developer/psychquant-claude-plugins/plugins/akashic-mcp/skills/akashic-bootstrap-workspace/iteration-1/update-existing-record/with_skill/store`
+CLI: `~/Developer/Akashic-Library/.build/arm64-apple-macosx/debug/akashic`
 
 未使用任何 `mcp__*akashic*` MCP 工具（依指示，全程 CLI / 自寫 script）。
 
@@ -26,7 +26,7 @@ curl -s 'https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=DOI:"10.2
 ```bash
 swift run UpdatePmid                    # 不帶 --apply，純檢查
 swift run UpdatePmid -- --show-diff     # 額外把 encode 後的內容寫到 job tmp 目錄做 diff 預覽，不碰 store
-diff <store 原檔> /Users/che/.claude/jobs/5a115bd1/tmp/pmid_out.yaml
+diff <store 原檔> ~/.claude/jobs/5a115bd1/tmp/pmid_out.yaml
 ```
 實際執行。確認只會新增一行 `pmid: 32334497`（依欄位字母序插在 `pages` 與 `url` 之間），沒有其他改動。
 
@@ -50,7 +50,7 @@ akashic doctor --library "$STORE"      # entries: 12, orphaned: 0
 ## 6. 清理
 
 ```bash
-rm -rf /Users/che/Developer/Akashic-Library/Snippets
+rm -rf ~/Developer/Akashic-Library/Snippets
 ```
 實際執行——刪掉步驟 3/4 用的一次性 script，沒有留在 Akashic-Library repo 裡（該 repo 本身未被 commit，只是暫時借它的 Swift package 環境跑一次性程式）。
 

@@ -1,7 +1,7 @@
 # Actions log — chen2020association PMID 補完
 
-STORE=/Users/che/Developer/psychquant-claude-plugins/plugins/akashic-mcp/skills/akashic-bootstrap-workspace/iteration-2/bounded-write-proceeds/without_skill/store
-AKASHIC=/Users/che/Developer/Akashic-Library/.build/arm64-apple-macosx/debug/akashic
+STORE=~/Developer/psychquant-claude-plugins/plugins/akashic-mcp/skills/akashic-bootstrap-workspace/iteration-2/bounded-write-proceeds/without_skill/store
+AKASHIC=~/Developer/Akashic-Library/.build/arm64-apple-macosx/debug/akashic
 
 ## 是否實際寫入 store
 

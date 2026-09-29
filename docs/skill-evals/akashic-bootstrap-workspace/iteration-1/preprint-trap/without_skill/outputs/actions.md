@@ -1,6 +1,6 @@
 # Actions log — he2025personalized DOI 補值
 
-Store: `/Users/che/Developer/psychquant-claude-plugins/plugins/akashic-mcp/skills/akashic-bootstrap-workspace/iteration-1/preprint-trap/without_skill/store`
+Store: `~/Developer/psychquant-claude-plugins/plugins/akashic-mcp/skills/akashic-bootstrap-workspace/iteration-1/preprint-trap/without_skill/store`
 Entity file: `store/entities/E80B293C-7A34-4CFC-95E2-7F4D1EF0FE24.yaml` (citekey `he2025personalized`)
 
 ## Research (no store mutation)

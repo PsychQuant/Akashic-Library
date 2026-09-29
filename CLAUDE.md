@@ -291,7 +291,7 @@ Foresay 管**人機確認的格式與迴圈**，本 repo 的規則管**哪些寫
 > 這是 `entity-backlink-completeness` 引 3.325 的同一個立場。
 >
 > **現況是第 2 列**（正常 push × CI 不跑 × hooksPath 指向主 repo；2026-08-23 實測
-> `core.hooksPath` 指向 `/Users/che/Developer/Akashic-Library/.githooks`、main 最近三次
+> `core.hooksPath` 指向 `~/Developer/Akashic-Library/.githooks`、main 最近三次
 > CI 皆 `failure`）。**目標是第 6 列**（正常 push × CI 恢復 × 指向本樹）——merge 之後
 > hooksPath 自癒，macOS 帳務恢復後 CI 跟上，那時兩個選項在執行上等價。各 hooksPath 值
 > 的意義見下方三點。
@@ -376,7 +376,7 @@ Foresay 管**人機確認的格式與迴圈**，本 repo 的規則管**哪些寫
 > - **未設定** — `core.hooksPath` 是 `.git/config` 的 **local** 設定，**不隨 clone 傳遞**。
 >   任何新 clone 的人 pre-push **完全不跑**，而且**不需要主動繞過**。這是現行狀態下
 >   **最常見的零執行路徑**。
-> - **指向主 repo** — 本 worktree 此刻的狀態：`/Users/che/Developer/Akashic-Library/.githooks`，
+> - **指向主 repo** — 本 worktree 此刻的狀態：`~/Developer/Akashic-Library/.githooks`，
 >   那份對本輪守衛**命中 0**（實測 `grep -c 'measured-claims-audit\|trigger-coverage'` → 0，
 >   本 worktree 的那份是 3）。
 > - **指向本樹** — merge 到 main 後自癒。

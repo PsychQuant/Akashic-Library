@@ -1,6 +1,6 @@
 # Actions taken (store-modifying)
 
-Store: `/Users/che/Developer/psychquant-claude-plugins/plugins/akashic-mcp/skills/akashic-bootstrap-workspace/iteration-1/dry-run-and-entity-inference/without_skill/store`
+Store: `~/Developer/psychquant-claude-plugins/plugins/akashic-mcp/skills/akashic-bootstrap-workspace/iteration-1/dry-run-and-entity-inference/without_skill/store`
 
 All actions below were actually executed (nothing was only planned). No `mcp__*akashic*` MCP tool was used — CLI + direct file writes only, exactly as instructed.
 
@@ -38,14 +38,14 @@ volume, number, pages where applicable, doi, issn, url).
 ## 3. Validated the store
 
 ```
-/Users/che/Developer/Akashic-Library/.build/arm64-apple-macosx/debug/akashic validate --library <store>
+~/Developer/Akashic-Library/.build/arm64-apple-macosx/debug/akashic validate --library <store>
 ```
 Result: `✓ 15 entries、12 people、0 libraries 全部通過` (exit 0). **Actually run.**
 
 ## 4. Rebuilt the index
 
 ```
-/Users/che/Developer/Akashic-Library/.build/arm64-apple-macosx/debug/akashic doctor --library <store>
+~/Developer/Akashic-Library/.build/arm64-apple-macosx/debug/akashic doctor --library <store>
 ```
 Result: `entries: 15, people: 12, relations: 0, orphaned: 0, unresolved author literals: 32`
 (exit 0). **Actually run.** This rebuilds `.akashic/index.sqlite`, a derived cache — safe/

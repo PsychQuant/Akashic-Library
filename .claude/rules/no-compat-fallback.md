@@ -143,6 +143,7 @@ v5 的決定性（同輸入必得同輸出）在兩個場景是相反的：
 | 實例 | 兩份 | 條件（四條缺一不可） |
 |---|---|---|
 | 外部取得的操作程序 | 正本 `plugin/skills/akashic-bootstrap/references/web-access.md`；副本 `plugins/akashic-discovery/skills/akashic-work-references/SKILL.md` 的第 2 步 | (1) **指定正本**，副本要改先改正本；(2) **副本已知的分岔逐條列出**——列在 `web-access-via-safari-browser.md` 〈操作程序的兩份描述〉，不寫在副本自己身上讓它假裝一致；(3) **同步的工作記在一張 issue**（不是一句叮嚀；外部取得的操作程序是 #687）；(4) 沒有機械守衛之前，改正本的人自己同步副本 |
+| 上游優先的規則（交付層只投影） | 正本 `.claude/rules/upstream-first-bibliographic-updates.md`；副本 `che-claude-config` repo 的 `rules/common-akashic-upstream-first.md`（使用者的全域規則目錄，另一個 repo） | (1) 正本是本 repo 那一份，鏡像開頭寫明衝突時以正本為準；(2) 刻意的差異列在正本的〈注入到消費端〉段，規則段（第 1–4 條）兩份一致；(3) 落地紀錄在 #599，目前沒有待同步的分岔，出現分岔時另開 issue；(4) 鏡像住在另一個 repo，本 repo 的守衛讀不到它，改正本規則段的人同一個變更裡改鏡像 |
 
 下一個鏡像照這一列的四條加一列，不得從這一列推導「凡是跨 plugin 的都可以複製」。
 

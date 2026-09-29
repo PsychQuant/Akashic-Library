@@ -1273,6 +1273,24 @@ generic `enrich --from <file.json>`／`akashic_enrich` 的 **Zotero adapter**：
 `fieldMap` 沒有 `encyclopediaTitle`／`meetingName`，於是它們走殘餘路徑以別的鍵名入庫。
 **殘餘收集保證「來源給的都收」，但收進來的鍵名若不是 export 面認得的那個，下限仍然跌破。**
 
+### 把 Zotero 附件複製進 `sources/`，為日後切斷 Zotero 鋪路（#606）
+
+`attachments: [{zotero: storage/ABCD1234/paper.pdf}]` 只是指向 Zotero 資料目錄的相對路徑——PDF 本體只在 Zotero 那邊，停用 `import-zotero` 或清理
+Zotero 之後就失聯（`replace-endnote-and-zotero` 第 1、2 條：檔案要住在 Akashic 裡、位元組要複製一份進 store）。
+
+`copy-zotero-attachments`（**只有 CLI**——批次、操作者規模、讀本機的 Zotero 資料目錄，見 `mcp-cli-parity` 的 CLI-only 表）把那些檔複製進內容定址區
+`sources/`（經 `SourceStore.storeSource`：`sources/` 沒被版控排除就拒寫——第三方版權位元組不得進 remote），再把 digest **追加**到那筆 work 的
+`akashic.sources`（既有形狀，store-format §2.4.1）。**不改寫 `attachments`**：那是 Zotero 擁有的區塊（pull 整批以 Zotero 為準，改了下一次匯入就被還原），
+它同時就是這份副本的來源記錄——`sources/index.jsonl` 的 `origin` 寫 `zotero:storage/<KEY>/<檔名>`。
+
+```bash
+akashic copy-zotero-attachments                   # 乾跑：列出每個檔的 work、路徑、大小、digest，什麼都不寫
+akashic copy-zotero-attachments --apply           # 實跑：要求被改的 work 檔已 commit、乾淨；任何一道閘過不了就整批零寫入
+```
+
+可重跑（digest 已連過的不重複；前一次跑到一半的只補連結）；路徑不是 `storage/<KEY>/<檔名>`、檔案不在、不是普通檔、0 byte 的附件逐筆具名略過、其餘照跑。
+連錯的宣告用 `update-entry <citekey> --remove-source <digest>=理由` 收回。
+
 ### 補欄位讓分類器算對節，什麼時候可以（#355）
 
 ch10 有三節不由 entry type 單獨決定，需要一個欄位配合。判準不是「送不送得出」，

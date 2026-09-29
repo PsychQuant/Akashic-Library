@@ -79,6 +79,39 @@ public extension LibraryStore {
     /// digest 形狀不合法回 nil；不檢查檔案存在與否。
     func sourceBlobURL(digest: String) -> URL? { sourceURL(digest: digest) }
 
+    /// 內容的 digest（`sha256:` + 小寫十六進位，算在原始位元組上）。`storeSource` 落地的位址就是它；只有這一份公式（#606：多筆操作要在寫入之前
+    /// 算出 digest 做預演與去重，再自己算一遍就是兩份會分岔的位址規格）。
+    static func contentDigest(of data: Data) -> String {
+        "sha256:" + SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// #224 verify（Codex #4）：sidecar 已腐壞時不可宣稱冪等——malformed 行讓重複檢查不可靠（同 digest 可能藏在解析不出的行裡）。
+    /// `storeSource` 與 `preflightStoreSource` 共用這一句。
+    private func assertIndexHasNoMalformedLines(_ malformedLines: [Int]) throws {
+        guard malformedLines.isEmpty else {
+            throw StoreIOError.invalidInput(
+                what: "sources/index.jsonl",
+                why: "有 \(malformedLines.count) 行無法解析（行號 \(malformedLines.map(String.init).joined(separator: ", "))）。"   // display-safe-exempt: malformedLines.map(String.init).joined(separator: ", ")：行號 Int 清單（scanIndex 產出的 1-based 行號）
+                    + "index 腐壞時不可判定冪等——先修復（akashic doctor 會列出），再存新 source")
+        }
+    }
+
+    /// #606：`storeSource` 在**任何磁碟寫入之前**會擋的閘（index 有壞行、這個 digest 的 blob 路徑與 index 路徑沒被版控排除、git 不可用），
+    /// 不寫任何東西。多筆操作（`copy-zotero-attachments`）在第一次寫入之前對每個要存的 digest 預演它：乾跑說「可以」時，實跑不會在第一個
+    /// `storeSource` 才被拒；被拒時零寫入、不留孤兒 blob。排除驗證問的是**這個 digest 的實際路徑**（#145：寫死的探測路徑會 fail-open），
+    /// 所以每個 digest 各問一次。
+    func preflightStoreSource(digest: String) throws {
+        guard ProvenanceReference.isWellFormedDigest(digest) else {
+            throw StoreIOError.invalidInput(
+                what: "source digest",
+                why: "digest 形狀必須是 sha256: + 64 個小寫 hex，實得「\(displaySafeInvisible(digest, max: 120))」")
+        }
+        try assertIndexHasNoMalformedLines(try scanIndex().malformedLines)
+        let hex = String(digest.dropFirst("sha256:".count))
+        try assertSourcesExcluded(relativePath: "sources/\(hex.prefix(2))/\(hex.dropFirst(2))")
+        try assertSourcesExcluded(relativePath: "sources/index.jsonl")
+    }
+
     /// #224：存 source 的**唯一**公開動作——blob 與它的 provenance 條目一起落地。
     ///
     /// 序：先 blob（含 fail-closed 排除驗證）、成功後 append index 條目。部分失敗
@@ -103,12 +136,7 @@ public extension LibraryStore {
         // 重複檢查不可靠（同 digest 可能藏在解析不出的行裡）。fail-closed：先修再寫。
         // 這個檢查在**任何**磁碟寫入之前——拒寫時不留孤兒 blob。
         let scan = try scanIndex()
-        guard scan.malformedLines.isEmpty else {
-            throw StoreIOError.invalidInput(
-                what: "sources/index.jsonl",
-                why: "有 \(scan.malformedLines.count) 行無法解析（行號 \(scan.malformedLines.map(String.init).joined(separator: ", "))）。"
-                    + "index 腐壞時不可判定冪等——先修復（akashic doctor 會列出），再存新 source")
-        }
+        try assertIndexHasNoMalformedLines(scan.malformedLines)
         let blob = try writeBlob(data)
         if scan.digests.contains(blob.digest) {
             // 冪等早退。丟棄了呼叫端的 provenance——這必須**可見**（verify D2 /
@@ -337,8 +365,8 @@ public extension LibraryStore {
     /// - 寫入前驗證版控排除（見 `assertSourcesExcluded`）；驗證先於**任何**磁碟
     ///   寫入——拒寫時不留內容。
     private func writeBlob(_ data: Data) throws -> SourceReceipt {
-        let hex = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-        let digest = "sha256:\(hex)"
+        let digest = Self.contentDigest(of: data)
+        let hex = String(digest.dropFirst("sha256:".count))
         // 排除驗證問的必須是**即將寫入的那條路徑**（#145 verify F1）：曾用寫死的
         // 探測路徑 `sources/00/probe`——任何碰巧命中它的無關規則（basename
         // `probe`、窄的 `sources/00/`、使用者全域 gitignore 的一行）都會讓驗證

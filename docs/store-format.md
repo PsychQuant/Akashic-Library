@@ -224,7 +224,9 @@ thesis:
 
 一律相對路徑，不記絕對路徑（換機器不斷鏈）：
 - `zotero:`＝相對 Zotero 資料目錄（`storage/<attachmentKey>/<檔名>`）。
-Phase 1 的 Zotero pull 只記 `zotero:` reference、不搬檔。
+Phase 1 的 Zotero pull 只記 `zotero:` reference、不搬檔。搬檔是另一個顯式動作（#606）：`akashic copy-zotero-attachments`（只有 CLI）把附件的位元組
+複製進 `sources/`、把 digest 追加到那筆 work 的 `akashic.sources`（§2.4.1），**不改寫 `zotero:` 記錄**——它是 Zotero 擁有的區塊（§2.5，pull 整批以 Zotero 為準），
+同時就是那份副本的來源記錄（`sources/index.jsonl` 的 `origin: zotero:storage/<KEY>/<檔名>`）。不需要新的附件形狀，也不改 store format。
 
 **鍵域是一的封閉列舉（format 9 起，#223）。** 可 ingest 的內容一律以 digest 引用、
 不以檔案系統路徑引用——路徑會因搬移或改名斷鏈，且無法偵測內容變更。僅存的路徑型
@@ -265,6 +267,9 @@ akashic:
   報告在 MCP 面**每一筆都列**（`digest`＋`reason`——理由只在報告裡有一份，不截），只有前 20 筆多帶 index 的取得記錄（第三方字串），其後的以 `detailsTruncated`／`detailsListed` 揭露；CLI 全列。
   寫檔之後 `index` 重建失敗時呼叫仍回成功、報告多 `indexRebuilt: false`／`indexNote`（不擲錯：錯誤出口逐行截 400 字元，一段長理由會被截掉；MCP 的讀取面依 mtime 自動重建，CLI 的 `query` 不會，要跑 `akashic doctor`）——三條移除腿與 `update-venue --remove-reference` 同一個處置。
   （這裡說的是 `akashic.sources` 的副本；work 記下的 Zotero 來源的移除面是另一條腿 `--remove-zotero-source`，§2.5.3，#680。四條腿——`--remove-field`、`--add-source`、`--remove-zotero-source`、`--remove-source`——兩兩不組合。）
+- **第二個寫入者**（#606）：`akashic copy-zotero-attachments [--apply]`（只有 CLI）批次地把 `zotero:` 附件的位元組存進 `sources/`（`storeSource`，取得記錄同落）再連到 `akashic.sources`——
+  同一個形狀、add-only、冪等；與 `--add-source` 的差別只在位元組**從哪裡來**（Zotero 資料目錄的 `storage/`，而不是先用 `store-source` 存好）。乾跑預設；實跑要求被改寫的 work 檔已在 git 裡 commit、乾淨，
+  且每個要存的 digest 過 `storeSource` 的全部前置（`sources/` 被版控排除、index 沒有壞行）——任何一道過不了就整批零寫入。
 - **讀取端**：`get-entry`／`akashic_get_entry` 的 `akashic.sources` 列出連好的 digest（取得記錄在 `sources/index.jsonl`）。
 
 ### 2.5 Namespace 契約（CRITICAL）

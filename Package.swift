@@ -29,6 +29,10 @@ let package = Package(
             .product(name: "Yams", package: "Yams"),
         ]),
         .target(name: "AkashicEntity", dependencies: ["AkashicCore"]),
+        // skill 的決定論中間運算（#629 由 Python／shell 移植）：全文 PDF 的驗證與抓取編排、Crossref 比對、
+        // 階段 B 摘要 → 提案。**不含任何 HTTP client**——取得由 skill 經 safari-browser 完成
+        // （`.claude/rules/web-access-via-safari-browser.md`），這裡只吃本機檔或替 safari-browser 編排。
+        .target(name: "AkashicSkillTools", dependencies: ["AkashicCore", "AkashicStoreIO"]),
         .target(name: "AkashicProposition", dependencies: ["AkashicCore", "AkashicStoreIO"]),
         .target(name: "AkashicSQLite"),
         .target(name: "AkashicZoteroImport", dependencies: ["AkashicStoreIO", "AkashicSQLite"]),
@@ -42,7 +46,7 @@ let package = Package(
         ]),
         .executableTarget(name: "akashic", dependencies: [
             "AkashicCore", "AkashicStoreIO", "AkashicEntity", "AkashicZoteroImport",
-            "AkashicWoSImport",
+            "AkashicWoSImport", "AkashicSkillTools",
             "AkashicExport", "AkashicIndex", "AkashicQuery", "AkashicGraph",
             "AkashicMCPKit",   // #68：update-person 與 MCP 面共用同一條合併路徑
             .product(name: "ArgumentParser", package: "swift-argument-parser"),
@@ -84,7 +88,7 @@ let package = Package(
         .testTarget(name: "AkashicKitTests", dependencies: [
             "AkashicCore", "AkashicStoreIO", "AkashicEntity", "AkashicZoteroImport",
             "AkashicExport", "AkashicIndex", "AkashicQuery", "AkashicGraph", "AkashicSQLite",
-            "AkashicWoSImport", "AkashicTestGuard",
+            "AkashicWoSImport", "AkashicSkillTools", "AkashicTestGuard",
             // AkashicMCPKit：四個測試檔 `@testable import` 它（StoreSourceEntryPointTests、JudgedAuthorshipServiceTests…）。
             // 不變式是「import 的模組要在宣告依賴的**閉包**內」（不是「要直接宣告」——另外三個 test target 有九個 import 沒直接
             // 宣告而在閉包內，建得起來）：AkashicMCPKit 在 AkashicKitTests 的宣告集合下游、不在閉包內，是唯一一格；native

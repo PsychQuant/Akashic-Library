@@ -122,6 +122,14 @@ extension DestructiveTargetGate {
         "references nominate": .readOnly("skill 的中間運算（兩源提名，唯讀查 DOI 是否已在庫），不寫 store（#617）"),
         "literal-census": .readOnly("四域 literal 普查：只讀記錄檔的 YAML 原文與 store.yaml marker，不寫任何檔、不經 openStore（#629）"),
         "scan-yaml-profile": .readOnly("開發用：掃 YAML 檔統計 profile 外的語法，只讀、不經 openStore（#629）"),
+        "fulltext verify": .readOnly("比對本機 PDF 與記錄、印 JSON 判定，不寫任何檔、不經 openStore（#629）"),
+        "fulltext url-rule": .readOnly("純字串運算：從落地頁網址推出出版商 PDF 網址（#629）"),
+        "fulltext bot-signals": .readOnly("從 stdin 比對頁面文字的起疑訊號，不寫任何檔（#629）"),
+        "fulltext jitter": .readOnly("睡一個抽出來的間隔，不寫任何檔（#629）"),
+        "fulltext fetch": .readOnly("替 safari-browser 編排一次全文抓取，只寫 --out 指定的檔（在 git 工作樹之外），不經 openStore、不寫 store；存進 store 是之後的 store-source（#629）"),
+        "fulltext calibrate": .readOnly("開發用：在本機 PDF 資料夾與 Crossref 回應目錄上量驗證規則，只讀（#629）"),
+        "crossref-match": .readOnly("比對本機的作品清單與 Crossref 回應檔，只寫 --out 指定的結果檔，不經 openStore、不寫 store（#629）"),
+        "abstracts-to-proposals": .readOnly("adapter：把摘要 NDJSON 轉成 enrich 的提案 JSON，只讀 sources/ 的存檔、只寫 --out 指定的檔，不寫 store（#629）"),
     ]
 
     /// 逐腿裁決的三個命令。鍵是旗標的主名（`--holder` 的舊名 `--person` 是同一格）。

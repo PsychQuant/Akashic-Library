@@ -75,6 +75,10 @@ public extension LibraryStore {
             .appendingPathComponent(String(hex.dropFirst(2)))
     }
 
+    /// 存檔在 `sources/` 的路徑（#629：階段 B 摘要轉換要讀存檔的位元組，而分片慣例只能有一份描述——就是上面那個 `sourceURL`）。
+    /// digest 形狀不合法回 nil；不檢查檔案存在與否。
+    func sourceBlobURL(digest: String) -> URL? { sourceURL(digest: digest) }
+
     /// #224：存 source 的**唯一**公開動作——blob 與它的 provenance 條目一起落地。
     ///
     /// 序：先 blob（含 fail-closed 排除驗證）、成功後 append index 條目。部分失敗

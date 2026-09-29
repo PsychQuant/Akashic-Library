@@ -53,9 +53,5 @@ mcpb/manifest.json
 plugin/.claude-plugin/plugin.json
 plugin/rules/assertions-must-be-measured.md
 plugin/rules/source-of-truth-over-consent.md
-plugin/skills/akashic-fetch-fulltext/scripts/tests/fetch-fulltext-paths.sh
-plugin/skills/akashic-fetch-fulltext/scripts/tests/test_rules_and_verify.py
 plugin/skills/akashic-promote-literals/SKILL.md
-plugin/skills/akashic-venue-works/scripts/ndjson-abstracts-to-proposals.py
-plugin/tests/ndjson-abstracts-to-proposals.py
 plugins/akashic-discovery/.claude-plugin/plugin.json

@@ -123,7 +123,8 @@ func protectedInventory() -> (guards: [String], data: [String]) {
         // 合計 **6 支守衛／9 對／8 個相異檔**（`.githooks/run-guards.sh` 被兩支守衛引用，
         // 在對數裡算兩次、在檔數裡算一次）。受保護 41 → 49。
         // 手維護清單不自我維持，自此不再是推論而是 n=6 的量測。
-        "plugin/skills/akashic-venue-works/scripts/ndjson-abstracts-to-proposals.py",
+        // （#629：原本這裡有 `plugin/skills/akashic-venue-works/scripts/ndjson-abstracts-to-proposals.py`——它與它的守衛同名的那個例子見
+        //  `TriggerCoverage.swift` 的撞名消歧段。腳本移植成 `akashic abstracts-to-proposals`，測試成為 `AbstractProposalsTests`，兩個檔都退場。）
         "plugin/.claude-plugin/plugin.json",
         "Sources/akashic-mcp/Server.swift",
         "Sources/akashic/CLI.swift",

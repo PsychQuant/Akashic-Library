@@ -381,7 +381,7 @@ func triggerCoverage(argv: [String]) -> Int32 {
     // 報表原本一律印 `base(f)`，而**守衛與它的被測檔可以同名**——
     // `plugin/tests/ndjson-abstracts-to-proposals.py`（守衛）與
     // `plugin/skills/akashic-venue-works/scripts/ndjson-abstracts-to-proposals.py`
-    // （被測腳本）就是。同名時報表會印出兩列逐字相同的結果，而在被測檔還沒進
+    // （被測腳本）就是（#629 起兩個都已退場，例子保留當作那個形狀的紀錄）。同名時報表會印出兩列逐字相同的結果，而在被測檔還沒進
     // `PROTECTED` 的那段期間更糟：唯一那列是**守衛在保護它自己**，卻讀起來像被測檔被涵蓋了
     // ——缺口不是沉默，是**偽裝成一個通過**。
     //

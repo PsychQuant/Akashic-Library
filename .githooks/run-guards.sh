@@ -157,20 +157,10 @@ done
 # 所以移植成 `akashic-guards plugin-store-format-parity`（判定不變；負控在 `AuditGuardsMutationsData.swift`）。
 .build/debug/akashic-guards plugin-store-format-parity
 
-# 階段 B 摘要存檔（NDJSON）→ `[Proposal]` 的轉換腳本（#516）。fixture 6 列、純 Python、
-# 不需要 build：釘住「只收 got＋非空摘要＋DOI 在場、其餘逐筆具名」「doi 原樣透傳」
-# 「digest 內容定址」「輸出決定論」。住 plugin skill 而非 CLI 的理由在腳本 docstring。
-python3 plugin/tests/ndjson-abstracts-to-proposals.py
-
-# 取全文 skill 的純函數（#613）：出版商 PDF 網址規則、下載檔「是不是這篇」的判定、
-# 網站起疑訊號的偵測。純 Python、不連網、不需要 build、不叫 pdftotext——Safari 那一半
-# 只能有人看著跑，這裡釘住的是可以離線釘住的那一半。最要緊的一條反例是付費牆的
-# Loading 殼**不得**被當成起疑：那會把「沒有權限」誤報成「被當成機器人」。
-python3 plugin/skills/akashic-fetch-fulltext/scripts/tests/test_rules_and_verify.py
-# fetch-fulltext.sh 的結束碼是它對 agent 的契約：6 是「整批停」（中止條款），1 是「看一眼、
-# 也許重試」。落錯碼就是把中止條款悄悄變成重試——2026-09-24 審查在三處找到這個缺陷。
-# 對一個 stub 瀏覽器跑 19 條路徑（含驗證步驟端到端：DOI 從 doi.org landing 取、首頁 DOI 對不上就不收），
-# 不碰 Safari、不連網。量過（2026-09-24）：修正前的 fetch-fulltext.sh（daaf3b57）搭配現行
-# verify_pdf.py 在這裡 12 條失敗（負對照）；腳本裡 11 個結束碼 6 的呼叫點逐一改回 1（窮舉），
-# 每一個都恰好讓一條失敗。新增呼叫點時重跑那個窮舉，這段數字才不會變成過期的宣稱。
-bash plugin/skills/akashic-fetch-fulltext/scripts/tests/fetch-fulltext-paths.sh
+# （#629：原本這裡有三條 skill 腳本的測試——`plugin/tests/ndjson-abstracts-to-proposals.py`（階段 B 摘要 → 提案的 fixture）、
+#  `akashic-fetch-fulltext/scripts/tests/test_rules_and_verify.py`（54 個純函式測試）、`fetch-fulltext-paths.sh`（對 stub 瀏覽器的
+#  19 條路徑）。受測物都移植成 `akashic` 的子命令（`Sources/AkashicSkillTools/`），測試成為 Swift 測試——
+#  `AbstractProposalsTests`、`FulltextRulesTests`（54 個逐案移植）、`FulltextFetchPathTests`（對記憶體內的假瀏覽器跑同樣 19 條路徑，
+#  `SafariBrowser` 介面讓中止條款的每個出口都能在測試裡逐條斷言）、`CrossrefMatchTests`、`TitleCalibrationTests`、
+#  `SkillToolsCLITests`——由 pre-push 的 `swift test` 跑，不再需要這裡。**最要緊的一條反例照樣被釘住**：付費牆的 Loading 殼
+#  不得被當成起疑（`BotSignalsTests.testPaywallLoadingShellIsNotSuspicion`、`FulltextFetchPathTests.testPaywallShellIsNoAccess`）。）

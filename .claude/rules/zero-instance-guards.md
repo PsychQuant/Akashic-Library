@@ -60,7 +60,7 @@
 會在邊界上自己長出沒人同意的答案，而那句話與下表**是兩份不會一起改的規格**。要判斷新情形，
 讀下表的理由欄，然後**加一列**。
 
-## 裁決史（封閉列舉——現有 60 列，一列不多一列不少）
+## 裁決史（封閉列舉——現有 61 列，一列不多一列不少）
 
 | # | 情形 | 裁決 | 理由 |
 |---|---|---|---|
@@ -124,6 +124,7 @@
 | 58 | **零實例，而半套的數字讀起來像完整的**（#629 第二塊：`akashic fulltext calibrate` 讀本機的 Crossref 回應目錄計分；缺任何一筆記錄時列出缺的網址並以結束碼 3 結束、不出數字，`--partial` 才照已有的量。校準從未在本機跑過——2026-09-24 那批語料本機找不到，重取要連網） | ✅ **寫（缺記錄預設不出數字）** | 第 3 列的理由是「未涵蓋不得冒充通過」；這一列同形：`22/28`、`0/808` 這類數字若只涵蓋有記錄的那一部分，讀的人會當成全部。拒絕輸出是預設，放行要顯式帶 `--partial`，而那時輸出本身就說明它是部分的。**誠實邊界**：移植時舊校準數字（自己 22/28、別篇 0/808）沒有重跑，替代證據是新舊判定規則的差分（十七萬餘案 0 不一致）——它證明新舊判得一樣，不證明那組數字在新語料上仍成立。**觸發條件可檢查**：`SkillToolsCLITests.testCalibrateListsMissingCrossrefRecordsAndMeasuresTheRest` 釘住結束碼 3 與缺記錄清單 |
 | 59 | **零實例，而「移哪一筆」對兩筆完全相同的記錄沒有判定內容可依**（#673：`update-venue --remove-reference` 以 field＋value＋位元組鍵定位；兩筆 reference 的 `byteExactKey` 完全相同時具名拒絕、不挑一筆移。2026-09-29 唯讀量測 live store：venue 485、帶通用 reference 的 venue 0、位元組相同的重複組 0。重跑腳本見表下方） | ❌ **不寫（不給完全相同的重複一條移除路徑）** | 與第 10 列同形：形狀取決於一個還沒出現的用途——要嘛加 ordinal 指定第幾筆，要嘛一條「重複全收成一筆」的腿，兩者的語意不同，而今天沒有實例可以告訴我們哪一種才是使用者要的。先具名拒絕是可逆的；選錯一個形狀則是固定了一個介面。這種重複本來就由 `StoreHealth.duplicateReferences`（第 35 列）報出。**屬前言四類的第 1 類（守衛）**（b13f R1 verify 第 28 列）：本列裁的對象是那道具名拒絕——「無法判定移哪一筆」時 `--remove-reference` 拒絕、不挑——要不要**放行成一條移除路徑**；不寫的是放行，不是那道守衛；不是新的一類（前言明寫沒有「零實例的移除腿」這一類）。**觸發條件可檢查**（腳本見表下方）：位元組相同的重複組 > 0，或 `akashic validate` 對 venue 報「重複的 reference：」——那時重開，由使用者選形狀 |
 | 60 | **零實例，而上限沒有量測依據、也不是位元組界線**（#673：venue 讀取面（CLI `venue`、MCP `akashic_venue`）顯示非判定的 references，至多 `venueReferencesCap`＝25 筆、每筆 `rests_on` 至多 5 個，以 `referencesTotal`／`referencesTruncated`／`rests_on_total` 揭露。2026-09-29 唯讀量測 live store：帶通用 reference 的 venue 0，單筆 venue 最多 0 筆） | ✅ **寫（第 1 類，守衛：上限 25 筆、`rests_on` 前 5 個，截斷一律揭露）** | 第 18 列的理由是「零量的是出口而守衛裝在入口」；這一列同形，差別在錨點：第 18 列夾在兩個量測之間，這一列**一個量測都沒有**——25 是**選的數字**（live store 沒有任何一筆通用 reference 可量），量級考量是一本刊的 ISSN 與名字各有幾筆來源記錄、再留一個數量級的餘裕。首版把它寫成「單筆各字串上限之和約 1.4 KB、25 筆約 35 KB、落在 MCP 單一輸出 48 KiB 之內」，b13f R1 verify 抓到三處錯：(1) 1.4 KB 把各字串的**字元**上限相加、當成位元組——CJK 一個字元 3 位元組；`displaySafe` 在逃脫模式數輸入 scalar，一個控制字元逃成 `\u{XXXX}`（8 字元），JSON 序列化再把反斜線加倍，最壞單筆約 6 KB（retrieval：value 200＋url 300＋retrieved 與 media_type 各 60 個 scalar 全是控制字元）、25 筆約 150 KB（推估）；(2) 48 KiB 是 `tools/list` 與 `candidateByteBudget`（resolve 候選、doctor 的 per-record 清單）的預算，**`akashic_venue` 沒有單一輸出的位元組預算**；(3) 同一個 payload 的 `works` 編年清單本來就無界（live：`psychological-methods` 1,352 筆、每筆標題至多 500 字元），所以這個上限保護不了輸出大小。**它實際做的事**：不讓 `references` 這一段跟著一本異常刊無限長（筆數上界）；單筆的字串各有字元上限。不設上限的代價是讀取面對未信任的 store 內容線性長大（第 16 列那一族）。**誠實邊界**：要限位元組得另設預算（`candidateByteBudget` 的形），此刻沒有實例；讀取面對 value 截在 200、url／statement 截在 300，逐字定位要對照 YAML。**觸發條件可檢查**：任一 venue 的輸出帶 `referencesTruncated: true`——那時才有實際分布可量，重量上限（並一併決定要不要設位元組預算） |
+| 61 | **零實例，而上限守的是「理由只在報告裡」的那份輸出**（#680、#677、#673 的 b13f verify R1：移除面一族的報告輸出有上限——`update-entry --remove-zotero-source` 的 `zoteroSourcesRemaining` 兩面都截 20（`zoteroSourcesRemainingCap`，附總數）；`remove_sources` 的取得記錄（`sourcesAddedCap`）與 `remove_reference` 的 reference 內容（`removalDetailCap`）只在 MCP 面截 20，其後仍逐筆列定位鍵與理由，以 `detailsTruncated`／`detailsListed` 揭露。2026-09-29 唯讀量測 live store：work 2,572、有附加 Zotero 來源的 work 3（單筆最多 1）、單筆 work 最多 `akashic.sources` 0、venue 485、通用 reference 0、讀不到的檔 0。重跑腳本見表下方） | ✅ **寫（輸出上限，截斷一律揭露；理由逐筆不截）** | 第 60 列的理由是「上限只有算術可依」；這一列同形（20 是選的數字、限筆數不限位元組），差別在這一族每筆都帶理由，而理由依 2026-09-27 的裁決只在報告裡有一份——所以不截整筆、只截第三方的內容，與 `add_sources` 截整筆的先例刻意不同：截掉第 21 筆以後的理由就無處可記。**誠實邊界**：省略的內容只在 git 的移除前副本與 CLI 輸出裡；上限不保證輸出位元組。**觸發條件可檢查**（腳本見表下方）：出現 `detailsTruncated: true`，或 `zoteroSourcesRemainingTotal` > 20 時重量 |
 
 對本表四類中的任一個做出下一次裁決（新增、不新增、保留、拿掉）= 在這張表加一列。
 
@@ -1234,6 +1235,31 @@ PY
 # 2026-09-29：venue 485｜帶通用 reference 的 venue 0｜通用 reference 0（單筆 venue 最多 0）｜位元組相同的重複組 0｜work 2569｜帶 akashic.sources 的 work 0（0 條）｜讀不到的檔 0
 ```
 
+**第 61 列的量測（2026-09-29，可重跑，唯讀）**：
+
+```bash
+python3 - <<'PY'
+import glob, io, os, yaml
+root = os.path.expanduser('~/.akashic/entities')
+works = with_add = maxadd = maxsrc = bad = venues = generic = 0
+for f in glob.glob(root + '/*.yaml'):
+    try: d = yaml.safe_load(io.open(f, encoding='utf8'))
+    except Exception: bad += 1; continue
+    if not isinstance(d, dict): bad += 1; continue
+    if 'work' in d or 'citekey' in d:
+        works += 1
+        add = d.get('provenance_additional') or []
+        if add: with_add += 1; maxadd = max(maxadd, len(add))
+        maxsrc = max(maxsrc, len((d.get('akashic') or {}).get('sources') or []))
+    elif 'venue' in d:
+        venues += 1
+        generic += sum(1 for r in (d.get('references') or []) if isinstance(r, dict)
+                       and not str(r.get('field', '')).startswith('resolution-') and r.get('field') != 'paginated')
+print(f"work {works}｜有附加 Zotero 來源的 work {with_add}（單筆最多 {maxadd}）｜單筆 work 最多 akashic.sources {maxsrc}｜venue {venues}｜通用 reference {generic}｜讀不到的檔 {bad}")
+PY
+# 2026-09-29：work 2572｜有附加 Zotero 來源的 work 3（單筆最多 1）｜單筆 work 最多 akashic.sources 0｜venue 485｜通用 reference 0｜讀不到的檔 0
+```
+
 ## 各列共通的東西（觀察，不是判準）
 
 第 1–9 列與第 13、14 列的裁決都是「寫」（第 14 列是 2026-09-09 從「不寫」翻過來的）、第 10–12 列（皆出自 #365）是「不寫」，但**理由各不相同**，這正是不寫總括判準的原因：
@@ -1304,6 +1330,7 @@ PY
 - 第 58 列的理由是**半套的數字不得冒充全部**——同第 3 列，缺記錄時預設不出數字
 - 第 59 列的理由是**形狀取決於還沒出現的用途**——同第 10 列，ordinal 與「全收成一筆」語意不同，先具名拒絕是可逆的
 - 第 60 列的理由是**上限沒有量測依據、也不是位元組界線**——同第 18 列的出口與入口，差別在錨點：25 是選的數字；首版拿各字串的字元上限相加當位元組的算術並不成立（b13f R1 verify）
+- 第 61 列的理由是**理由只有一份，所以只截第三方內容**——同第 60 列上限是選的數字；差別在逐筆帶理由，截整筆就等於丟理由
 - 第 31 列的理由是**同一條曲線換了持有者**——第 16 列的燈只照 venue；新面（未決腿）讓 person 與 organization 也開始累積，第 30 列寫下的誠實邊界要有工具面兌現，否則就是一句沒有後續的散文
 - 第 39 列的理由是**單步的跳躍預警看不到**——第 16／31 列的燈在讀取面、照的是漸進的增長；一次寫入從門檻之下直接越過讀取上限時，燈來不及響，擋它的只能是寫入端。而那道閘要擋的不只是位元組：多檔寫入面在它觸發之前已有檔落盤，所以閘與零寫入的 preflight 同批
 - 第 24 列的理由是**半吊子已經誠實**——前二十三列裡只有第 22 列同樣是「不動既有的東西」（比的是裁決的**動作**：那一列的對象是 spec 文字、失敗是被當死重刪掉；本列的對象是程式的半吊子管線、失敗是使用者撞牆或被當成待修殘留而被人動手）。留著的代價不是零（記了就刪不掉——#586 在 2026-09-28 補了移除面，代價從「刪不掉」降為「要人判定放棄」），而是今天未兌現、且一出現就會出聲；動它的兩個方向（實作／拿掉）代價都更高。與第 10 列（缺用途）最像的是理由的**形**：實作那一半同樣是「形狀取決於還不存在的用途」；但第 10 列的對象根本不存在，這一列的對象已經在、且已經誠實

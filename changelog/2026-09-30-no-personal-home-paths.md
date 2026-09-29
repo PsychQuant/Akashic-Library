@@ -18,7 +18,7 @@ git grep -nE '/Users/[A-Za-z]|/home/[a-z]' -- . ':!repos/'
 | `CLAUDE.md` 兩處（2026-08-23 量到的 `core.hooksPath` 值） | 改成 `~/Developer/Akashic-Library/.githooks`，量測值不變、只拿掉使用者名稱 |
 | `docs/specs/2026-07-21-akashic-library-phase1-design.md` 的佈局圖 | 同上改成 `~/…`（箭頭順帶與下面幾行對齊） |
 | `docs/skill-evals/akashic-bootstrap-workspace/` 五個 `outputs/actions.md` | skill 評測當時的輸出紀錄。只把 `/Users/<名字>/` 換成 `~/`，其餘一字不動 |
-| `LiteralCensus.swift` 的 doc comment、`LiteralCensusTests`（`/home/ann`） | 保留：測試 `tilde` 比到路徑邊界的虛構 fixture |
-| `SanitizationBoundaryTests`（`/Users/someone`）、`ReferenceWriteContractTests`（`file:///Users/x/…`）、三個 S2 測試檔（`/Users/tester`） | 保留：虛構的 fixture 路徑，不是任何人的家目錄 |
+| `LiteralCensus.swift` 的 doc comment、`LiteralCensusTests`（`/home` 底下的虛構家目錄 `ann`） | 保留：測試 `tilde` 比到路徑邊界的虛構 fixture |
+| `SanitizationBoundaryTests`（虛構家目錄 `someone`）、`ReferenceWriteContractTests`（虛構家目錄 `x` 底下的 `file://` URL）、三個 S2 測試檔（虛構家目錄 `tester`） | 保留：虛構的 fixture 路徑，不是任何人的家目錄 |
 
-修後命中只剩上表「保留」的 7 個檔。`changelog/` 沒有命中。
+修後命中只剩上表「保留」的 7 個檔。`changelog/` 沒有命中——本檔描述那幾個 fixture 時刻意不寫出完整路徑，否則它自己會成為第 8 個命中。

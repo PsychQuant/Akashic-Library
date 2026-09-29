@@ -3,7 +3,7 @@ import XCTest
 @testable import AkashicMCPKit
 @testable import AkashicStoreIO
 
-/// b13f R1 verify 第 1 列：移除面一族（`update-entry` 的三條移除腿、`update-venue --remove-reference`）寫檔之後 `LibraryIndex.rebuild()` 若擲錯，
+/// b13f R1 verify 第 1 列：移除面一族（`update-entry` 的三條移除腿、`update-venue --remove-reference`／`--edit-name-segment`）寫檔之後 `LibraryIndex.rebuild()` 若擲錯，
 /// 移除已經落盤、理由只在報告裡（使用者 2026-09-27 的裁決：不寫進 store），重試又會因為東西已經不在而被拒——報告不得跟著消失。
 /// 選的做法是**呼叫回成功、報告多 `indexRebuilt: false`／`indexRebuildError`／`indexNote`**（不是擲錯並把報告塞進錯誤訊息——
 /// 那條路上錯誤出口逐行截 400 字元，一段長理由會被截掉；見 `RemovalReportSupport.swift`）。
@@ -109,6 +109,20 @@ final class RemovalIndexRebuildFailureTests: XCTestCase {
         XCTAssertEqual((out["referencesRemoved"] as? [[String: Any]])?.first?["reason"] as? String, longReason)
         let v = try XCTUnwrap(try LibraryStore(root: root).load().venues.first { $0.key == "ampsy" })
         XCTAssertEqual(v.references.filter { $0.field == "issn" }.count, 0, "移除已經落盤")
+    }
+
+    /// #675：名字段的編輯面是同一族——改寫已經落盤、理由只在報告裡，index 重建失敗時報告不得消失；`indexNote` 說的是「改寫」而不是「移除」。
+    func testEditNameSegmentKeepsTheFullReportWhenTheIndexRebuildFails() throws {
+        _ = try working.addVenue(key: "sankhya", names: ["Sankhyā", "Sankhya Old"], type: "periodical", note: nil)
+        StoreGitCommit.commitAll(root)
+        let out = try json(try failing.updateVenue(key: "sankhya", addNames: nil, note: nil, type: nil, editNameSegment: [
+            ["name": "Sankhyā", "set": ["start": "1933", "end": "1960"], "reason": longReason] as [String: Any],
+        ]))
+        assertReportSurvives(out)
+        XCTAssertTrue((out["indexNote"] as? String)?.contains("改寫已經寫入磁碟") == true, "\(out)")
+        XCTAssertEqual((out["nameSegments"] as? [[String: Any]])?.first?["reason"] as? String, longReason, "理由只在報告裡，全文都要在")
+        let v = try XCTUnwrap(try LibraryStore(root: root).load().venues.first { $0.key == "sankhya" })
+        XCTAssertEqual(v.names.entries.first { $0.value == "Sankhyā" }?.range.start, "1933", "改寫已經落盤")
     }
 
     /// 成功路徑的報告不變：不多出 `indexRebuilt` 之類的鍵。

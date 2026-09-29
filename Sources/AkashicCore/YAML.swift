@@ -1811,16 +1811,9 @@ extension PersonYAML {
     /// decoder 會拒絕那個輸出，於是 `decode(encode(model))` 不安全（encode canary
     /// 只會報難懂的自檢失敗）。與 decode 端同一條「拒絕、不猜」：在寫出前指明矛盾。
     static func rejectContradictoryRange(_ r: DateRange) throws {
-        if r.end != nil && r.endedUnknown {
-            throw StoreYAMLError.invalidField(
-                "timeline.range", "end 與 endedUnknown 並存是矛盾——end 有值即已結束於該時點")
-        }
-        // #70：attested 是「起訖皆不明」的知識狀態——起點/終點若已知就不是它
-        if !r.attested.isEmpty && (r.start != nil || r.end != nil || r.endedUnknown) {
-            throw StoreYAMLError.invalidField(
-                "timeline.range",
-                "attested 與 start/end/ended 並存是矛盾——觀測點列表只用於起訖皆不明；"
-                + "起點已知請用 start（觀測點可留在 note 或日後的 reference）")
+        // 判準與訊息在 `DateRange.contradictionDescription`（#675：寫入面的輸入檢查共用同一份）
+        if let why = r.contradictionDescription {
+            throw StoreYAMLError.invalidField("timeline.range", why)   // display-safe-exempt: why 是 DateRange.contradictionDescription 的固定字串（字面常量，不含 store 字串）
         }
     }
 

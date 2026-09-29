@@ -581,13 +581,40 @@ public struct Venue: Equatable {
     }
 
     /// 在場的端點都是 ISO 8601 前綴，且 `start` 不晚於 `end`（較粗粒度截斷後比較；同年內的細粒度 `end` 合法）。
-    static func segmentIsWellFormed(_ r: DateRange) -> Bool {
-        for p in [r.start, r.end] { if let p, !ISO8601Prefix.isValid(p) { return false } }
+    static func segmentIsWellFormed(_ r: DateRange) -> Bool { endpointIssue(r) == nil }
+
+    /// `segmentIsWellFormed` 不成立時的一句說明（回 nil 即成立）。判準只有這一份——沿革豁免的放行條件（`segmentsAreDisjoint`）與
+    /// 寫入面在寫之前的輸入檢查（`nameSegmentRangeIssue`）各自呼叫它，兩處不會對「這個區間有效嗎」給出不同的答案。
+    /// 成功路徑不配置任何東西、不建陣列（`segmentsAreDisjoint` 在同名組的求值迴圈裡最多跑 100,000 次）。
+    static func endpointIssue(_ r: DateRange) -> String? {
+        func notISO(_ label: String, _ p: String) -> String {
+            "\(label)「\(displaySafeInvisible(p, max: 40))」不是 ISO 8601 前綴（YYYY、YYYY-MM、YYYY-MM-DD；月 01–12、日 01–31）"   // display-safe-exempt: label 是本函式的字面常量
+        }
+        if let p = r.start, !ISO8601Prefix.isValid(p) { return notISO("start", p) }
+        if let p = r.end, !ISO8601Prefix.isValid(p) { return notISO("end", p) }
         if let s = r.start, let e = r.end {
             let n = min(s.count, e.count)
-            if String(s.prefix(n)) > String(e.prefix(n)) { return false }
+            if String(s.prefix(n)) > String(e.prefix(n)) {
+                return "start「\(displaySafeInvisible(s, max: 40))」晚於 end「\(displaySafeInvisible(e, max: 40))」（以兩者較粗的粒度截斷後比較）——起訖倒置的區間不是一段沿革"
+            }
         }
-        return true
+        return nil
+    }
+
+    /// 一段 `names` 的時間欄位能不能寫進去（#675，`update-venue --edit-name-segment` 在寫之前的輸入檢查）——回 nil 表示可以，
+    /// 否則是一句說明。判準：欄位之間不矛盾（`DateRange.contradictionDescription`，YAML 邊界用的同一份）、`start`／`end` 是有效區間
+    /// （`endpointIssue`）、`attested` 的每個觀測點是 ISO 8601 前綴。
+    ///
+    /// **這是寫入面的輸入檢查，不是 store 的不變式**：載入端對 venue `names` 的日期不驗（#85，`dateFieldAnomalies` 也不掃 venue），
+    /// 手改出來的非 ISO 值照樣載入——工具面只是不替它造出新的一筆。要不要把它升成 `validate()` 的 error 是另一個裁決（會讓
+    /// 既有的手改值從「載入得了」變成「所有寫入被拒」）。
+    public static func nameSegmentRangeIssue(_ r: DateRange) -> String? {
+        if let why = r.contradictionDescription { return why }
+        if let why = endpointIssue(r) { return why }
+        for point in r.attested where !ISO8601Prefix.isValid(point) {
+            return "attested 的觀測點「\(displaySafeInvisible(point, max: 40))」不是 ISO 8601 前綴（YYYY、YYYY-MM、YYYY-MM-DD；月 01–12、日 01–31）"
+        }
+        return nil
     }
 
     /// 對外可稱呼的名稱：authorized 書寫系統相符者 → 任一 authorized →

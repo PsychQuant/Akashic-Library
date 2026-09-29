@@ -244,7 +244,7 @@ actor AkashicMCPServer {
                 "issn": strArray("ISSN（可多個：print 與 electronic 是兩個真的號；相等看正規形）；角色寫法同 akashic_update_venue 的 add_issn。任一不合法即整個呼叫拒絕、零寫入。回報 issnMediumRecorded、issnDropped"),
              ], required: ["key", "names", "type"])),
         Tool(name: "akashic_update_venue",
-             description: "venue 的部分更新（CLI 對應 `akashic update-venue --help`；名字的不變式見 docs/store-format.md §5.7）。add_names／add_issn／add_variant 是 append：只附加不重複的值，不提供整組替換；authorize 是同書寫系統替換；paginated／clear_paginated 是判定；remove_issn／remove_reference 是移除（判定；remove_reference 單獨呼叫）；note／type 替換（選填）。resolve_venues 對沿革各段都配對。各 *Total（namesTotal／issnTotal／variantTotal／authorizedTotal／referencesTotal）是寫後總數；authorizedAdded／variantAdded 是新指定／新標的名字。需 store format ≥ 11。",
+             description: "venue 的部分更新（CLI 對應 `akashic update-venue --help`；名字的不變式見 docs/store-format.md §5.7）。add_names／add_issn／add_variant 是 append：只附加不重複的值，不提供整組替換；authorize 是同書寫系統替換；paginated／clear_paginated 是判定；remove_issn／remove_reference 是移除（判定；remove_reference 單獨呼叫）；edit_name_segment 改或刪名字段（判定）；note／type 替換（選填）。resolve_venues 對沿革各段都配對。各 *Total（namesTotal／issnTotal／variantTotal／authorizedTotal／referencesTotal）是寫後總數；authorizedAdded／variantAdded 是新指定／新標的名字。需 store format ≥ 11。",
              inputSchema: obj([
                 "key": str("既有 venue key"),
                 "add_names": strArray("要附加的名稱變體（相等看 canonical，以 canonical 形入庫）。回報：namesAdded（新加入）、namesAlreadyPresent（本來就在，不論位元組）、namesFolded（折成 canonical 才存，或同批位元組相同的重複）、namesDropped（空白或近重複，沒進）。含不合法字元（規則見 §5.7）或沒有任何字母或數字的名字 → 整批拒絕零寫入（其他參數也不寫）"),
@@ -261,6 +261,8 @@ actor AkashicMCPServer {
                 "remove_issn": strArray("移除 ISSN：<issn>=理由（必填，只回在 issnRemoved、不寫進 store）；指向該號的 field: issn provenance 一併刪除（issnRemoved[].referencesRemoved）。venue 檔要已在 git 裡 commit、無未提交修改。號不合法、這本刊沒有、重複、或同時在 add_issn → 整批拒絕零寫入"),
                 "remove_reference": .object(["type": .string("array"), "items": .object(["type": .string("object")]),
                     "description": .string("移除 references（單獨呼叫）：物件 {field: names|authorized|issn|note, value, reason（必填，只回在 referencesRemoved、不寫進 store）, 選填縮小鍵 kind／url／…（同 references）}；位元組相等定位。venue 檔要已 commit、乾淨。定位不到或多筆、verdict／paginated 欄位、理由缺、超過 200 筆 → 整批拒絕零寫入")]),
+                "edit_name_segment": .object(["type": .string("array"), "items": .object(["type": .string("object")]),
+                    "description": .string("改或刪名字段（單獨呼叫）：物件 {name, match?, set 或 remove:true, reason（必填，只回在報告）}；鍵、null 的意思、git 閘（venue 檔要已 commit）與拒絕類別見 CLI help。回報 nameSegments")]),
                 "references": .object(["type": .string("array"), "items": .object(["type": .string("object")]),
                     "description": .string("append-only 的 provenance，與 akashic_update_person 的 references 同一個解析與契約。field 只收 issn／names、帶 value，值要在記錄上（同一次呼叫加的也算）；authorized、note、verdict、paginated 拒收。位元組相同的略過；任一筆不合整個呼叫拒絕零寫入。回報 referencesAdded／referencesAlreadyPresent")]),
              ], required: ["key"])),
@@ -748,7 +750,8 @@ actor AkashicMCPServer {
                     restsOn: params.arguments?["rests_on"] != nil ? argList("rests_on") : nil,
                     removeISSN: try argStrictList("remove_issn"),
                     references: try argObjectList("references"),
-                    removeReference: try argObjectList("remove_reference"))
+                    removeReference: try argObjectList("remove_reference"),
+                    editNameSegment: try argObjectList("edit_name_segment"))
             case "akashic_resolve_venues":
                 let vApplyProvided = params.arguments?["apply"] != nil
                 let vRejectProvided = params.arguments?["reject"] != nil

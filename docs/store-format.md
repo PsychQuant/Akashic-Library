@@ -1922,7 +1922,27 @@ organization 零 error——擴閘不拒絕任何既有記錄；閘在 `fieldsLo
 **修法是人改 YAML**（不猜、不靜默修）：訊息逐條說改什麼——改成 canonical 寫法、刪掉那個
 字元、刪掉那一筆、或把沿革段補上不相交的時間。同一句訊息也出現在
 寫入面（`add-venue`／`update-venue`）與合併 dry-run 的拒絕裡——那時「請刪掉它」指的是呼叫端
-的輸入、「被併的 X 的 names…」指的是被併記錄的 YAML。
+的輸入、「被併的 X 的 names…」指的是被併記錄的 YAML。（同名段的時間欄位、`source`、`note` 與刪段自 #675 起有編輯面，見下一段；
+其餘仍是手改。）
+
+**名字段的時間欄位、`source`、`note` 有編輯面**（#675）：`update-venue --edit-name-segment`／MCP `edit_name_segment`。
+在此之前 `names` 的每一段（`TemporalValue`）可以帶這幾格，卻沒有任何工具面能改它們——`--add-name` 只加新名字、`--authorize`／`--add-variant` 只改分類——
+而 #565 起 venue 合併對「同名、時間／`source`／`note` 不同、又不能並存」的兩段具名拒絕，出路只有手改 YAML。它收一個 JSON 物件陣列
+`{name, match?, set 或 remove, reason}`：`name` 以 canonical 相等定位；`match`（選填）在同名不只一段時縮小到一段，鍵與 `set` 相同
+（`start`／`end`／`ended`／`attested`／`source`／`note`——鍵名同 `venue` 讀取面的 `names[]`），給了的鍵都要相符、字串與陣列比 UTF-8 位元組，
+`null` 是「要求缺席」（`"start": null` 選沒有起點的那一段；#673 的 `--remove-reference` 縮小鍵寫不出「沒有」，而 #565 的拒絕形狀恰是「一段有 `source`、另一段沒有」）；
+`set` 逐鍵覆寫、沒給的鍵不動（字串給 `null`、`ended` 給 `false`、`attested` 給 `[]` 或 `null` 是清除）；`remove: true` 刪掉那一段，與 `set` 擇一。
+定位在**呼叫前的記錄**上（不依陣列順序）；定位不到、定位到多段（列出各段的區別讓呼叫端加 `match`）、兩項指到同一段、逐位元組完全相同的重複段都整批拒絕、零寫入。
+改完的時間欄位要成立：`end` 與 `ended: true` 不得並存、`attested` 與起訖不得並存（與 YAML 邊界同一份判準，`DateRange.contradictionDescription`）、
+`start`／`end`／`attested` 是 ISO 8601 前綴、`start` 不晚於 `end`（`Venue.nameSegmentRangeIssue`——載入端對 venue 日期不驗（#85），這是**寫入面的輸入檢查**，
+不是 store 的不變式）；只改 `source`／`note` 時不重驗區間。改完的記錄仍要過上面六條與 `validate()` 的其餘 error——**這次造出的**違反在寫之前具名拒絕、歸因到這次呼叫
+（例：時間欄位落在 `variant` 的名字上——異寫法沒有生效期間；把兩段沿革改成重疊），記錄原本就有的違反不在這裡歸咎、寫入閘照舊會擋；
+同一次呼叫的各項是先全部套用、再驗，所以兩段要一起改成不相交可以放在同一次呼叫裡。**移除一個名字的最後一段**時，那個名字若還在 `authorized`／`variant`／`field: names` 的 reference 裡，
+或移除後 venue 沒有任何名字，具名拒絕並指路（`--authorize`、`--remove-reference`；`variant` 目前沒有移除面，只能手改 YAML）——程式不替人動那些判定。
+它是判定（`two-kinds-of-edits`）：理由必填、只進報告（`nameSegments[].reason`，全文）、不寫進 store、不改 store format；改寫前要求該 venue 檔已在 git 裡 commit、乾淨
+（移除面一族的裁決，使用者 2026-09-27）；每一項改完都與現在逐位元組相同時不寫檔也不過 git 閘（報告 `written: false`）；單獨呼叫；一次至多 200 筆。
+MCP 面的報告只有前 20 項帶改寫前後的內容（理由每一項都在），CLI 全列；寫檔之後 index 重建失敗時呼叫仍回成功、報告多 `indexRebuilt: false`／`indexNote`（同上方移除面一族）。
+`venue`／`akashic_venue` 的 `names[]` 自此多帶 `source`／`note`（各截 300 字元）——`match`／`set` 收這兩個鍵，讀取面看不到它們就認不出「只差 `source` 或 `note` 的同名段」。
 
 **第 1 條有一個機械修復面，只管確定性的那一類**（#575，使用者 2026-09-28 裁決）：
 `akashic repair-venue-names`。乾跑是預設——逐筆列出「venue／清單[index]：before → after」與改了什麼

@@ -1892,14 +1892,15 @@ extension LibraryStore {
         var line = "names「\(clipScalars(c.segment.value, 120))」（\(describeNameSegmentMetadata(c.segment))）"   // display-safe-exempt: 本行組裝後整條 displaySafeInvisible
         if let other = c.existingFrom {
             line += "與先併入的被併者「\(clipScalars(other, 120))」同名的那一段（\(describeNameSegmentMetadata(c.existing))）不能並存——"   // display-safe-exempt: 同上
-                + "這是兩個被併者互相衝突，合併不替你判定哪一段對：改其中一筆（「\(clipScalars(c.from, 120))」或「\(clipScalars(other, 120))」）的 YAML——"   // display-safe-exempt: 同上
-                + "刪掉不要的那一段，或把兩段的時間改成互不相交（同名的沿革段要兩段都帶不相交的時間）；"
+                + "這是兩個被併者互相衝突，合併不替你判定哪一段對：改其中一筆（「\(clipScalars(c.from, 120))」或「\(clipScalars(other, 120))」）——"   // display-safe-exempt: 同上
+                + "用 update-venue --edit-name-segment 刪掉不要的那一段（remove），或把兩段的時間改成互不相交（set；同名的沿革段要兩段都帶不相交的時間）"
+                + "（#675；也可以手改 YAML）；"
                 + "把這一段寫進倖存者只會讓倖存者與「\(clipScalars(other, 120))」那段重疊，分兩次合併也解不掉"   // display-safe-exempt: 同上
         } else {
             line += "與倖存者同名的那一段（\(describeNameSegmentMetadata(c.existing))）不能並存——"   // display-safe-exempt: 同上
-                + "合併不替你判定哪一段對：以倖存者「\(clipScalars(survivor, 120))」那一段為準，就從被併者「\(clipScalars(c.from, 120))」的 YAML 刪掉它那一段；"   // display-safe-exempt: 同上
-                + "以被併者那一段為準，就把倖存者自己的那一段改成它（時間、source、note 逐字）——只把被併者的寫進倖存者不夠，"
-                + "無日期段與有日期段是同名近重複、被寫入閘擋下（同名的沿革段要兩段都帶不相交的時間）"
+                + "合併不替你判定哪一段對：以倖存者「\(clipScalars(survivor, 120))」那一段為準，就用 update-venue --edit-name-segment 對被併者「\(clipScalars(c.from, 120))」刪掉它那一段（remove）；"   // display-safe-exempt: 同上
+                + "以被併者那一段為準，就對倖存者自己的那一段用 set 改成它（時間、source、note 逐字）——只把被併者的寫進倖存者不夠，"
+                + "無日期段與有日期段是同名近重複、被寫入閘擋下（同名的沿革段要兩段都帶不相交的時間）（#675；也可以手改 YAML）"
         }
         return displaySafeInvisible(line, max: 900)
     }

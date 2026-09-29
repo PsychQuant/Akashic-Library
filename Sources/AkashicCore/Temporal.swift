@@ -59,6 +59,21 @@ public struct DateRange: Equatable, Hashable, Comparable, Sendable {
         self.attested = attested
     }
 
+    /// 矛盾的組合（`end` 與 `endedUnknown` 並存、`attested` 與起訖並存）的一句說明；沒有矛盾回 nil。
+    /// YAML 的 encode／decode（`PersonYAML.rejectContradictoryRange`）與寫入面在寫之前的輸入檢查（`Venue.nameSegmentRangeIssue`，#675）
+    /// 共用這一份——兩處各寫一份，工具面說「可以」的組合會被 store 邊界以另一句話拒絕。
+    public var contradictionDescription: String? {
+        if end != nil && endedUnknown {
+            return "end 與 endedUnknown 並存是矛盾——end 有值即已結束於該時點"
+        }
+        // #70：attested 是「起訖皆不明」的知識狀態——起點/終點若已知就不是它
+        if !attested.isEmpty && (start != nil || end != nil || endedUnknown) {
+            return "attested 與 start/end/ended 並存是矛盾——觀測點列表只用於起訖皆不明；"
+                + "起點已知請用 start（觀測點可留在 note 或日後的 reference）"
+        }
+        return nil
+    }
+
     /// 是否仍在進行中——`current`／status 推導的根。
     /// attested-only 段不是進行中：有觀測不等於現況（#70）。
     public var isOpen: Bool { end == nil && !endedUnknown && attested.isEmpty }

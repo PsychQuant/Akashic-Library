@@ -65,6 +65,9 @@ struct VenueCmd: ParsableCommand {
                     span.append("attested \(a.joined(separator: ","))")
                 }
                 if !span.isEmpty { line += "（\(span.joined(separator: "、"))）" }
+                // source／note（#675）：update-venue --edit-name-segment 的 match／set 收這兩個鍵，同名的段只差它們時要看得出區別
+                if let src = n["source"] as? String { line += " source 「\(src)」" }
+                if let note = n["note"] as? String { line += " note 「\(note)」" }
                 print(line)
             }
         }
@@ -218,7 +221,7 @@ struct AddVenueCmd: ParsableCommand {
 struct UpdateVenueCmd: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "update-venue",
-        abstract: "venue 的部分更新（#306／#394／#471／#554／#587／#673）——append 語意：--add-name／--add-issn／--add-variant／--references 只附加不重複的值（整組替換刻意不提供）；--authorize 是同書寫系統替換（不是 append，見其 help）；--note／--type 替換；--remove-issn／--remove-reference 是移除（判定，理由只進報告，要求 venue 檔已 commit）。venue 無法唯一定位（\(UnlocatableReason.venue)）時整批拒絕、零寫入（#670）")
+        abstract: "venue 的部分更新（#306／#394／#471／#554／#587／#673／#675）——append 語意：--add-name／--add-issn／--add-variant／--references 只附加不重複的值（整組替換刻意不提供）；--authorize 是同書寫系統替換（不是 append，見其 help）；--note／--type 替換；--remove-issn／--remove-reference 是移除（判定，理由只進報告，要求 venue 檔已 commit）；--edit-name-segment 改或刪名字段的時間欄位、source、note（判定，同上，#675）。venue 無法唯一定位（\(UnlocatableReason.venue)）時整批拒絕、零寫入（#670）")
 
     @OptionGroup var options: LibraryOptions
 
@@ -317,7 +320,27 @@ struct UpdateVenueCmd: ParsableCommand {
                                    + "寫檔之後 index 重建失敗時呼叫仍回成功、報告多 indexRebuilt: false 與 indexNote（要跑 akashic doctor 重建）。沒有乾跑，CLI 也不過目標 store 確認閘：防線是 git 閘與整批拒絕零寫入"))
     var removeReference: String?
 
-    /// `--references`／`--remove-reference` 的 JSON——不是 JSON 陣列是用法錯誤（64），在 `validate()` 擋；`run()` 用同一個解析。
+    /// #675：names 的名字段（`TemporalValue`）帶時間欄位、source、note，卻沒有任何面改得了它們；#565 起合併對「同名而這幾格不同」的兩段具名拒絕，出路只有手改 YAML。
+    @Option(name: .customLong("edit-name-segment"),
+            help: ArgumentHelp("要改或刪的名字段（JSON 物件陣列，#675）；單獨呼叫，不與本命令的任何其他參數組合",
+                               discussion: "每項 {name, match?, set 或 remove, reason}：name 是要改的那一段的名字（相等看 canonical）；"
+                                   + "同名不只一段時用 match 縮小到一段——match 與 set 收同樣六個鍵 start／end／ended（布林）／attested（字串陣列）／source／note，"
+                                   + "match 給了的鍵都要相符（字串與陣列比位元組），null 是「要求缺席」（\"start\": null 選沒有起點的那一段）；"
+                                   + "set 逐鍵覆寫、沒給的鍵不動（字串給 null、ended 給 false、attested 給 [] 或 null 是清除）；remove: true 刪掉這一段，與 set 擇一。"
+                                   + "改完的時間欄位要成立：end 與 ended: true 不得並存、attested 與起訖不得並存、start／end／attested 是 ISO 8601 前綴（YYYY、YYYY-MM、YYYY-MM-DD）、start 不晚於 end；"
+                                   + "source／note 給字串時不得是空白、至多 65,536 位元組。時間請寫成字串（\"1933\"，不是 1933）。"
+                                   + "reason 必填、至多 4,096 位元組。定位不到、定位到多段（列出各段的區別讓你加 match 縮小）、兩項指到同一段、逐位元組完全相同的重複段，都整批拒絕、零寫入。"
+                                   + "改完的記錄仍要過 store 的不變式（Venue.validate 的 error）——這次造出的違反會在寫之前具名拒絕（例如時間欄位落在 variant 的名字上：異寫法沒有生效期間）。"
+                                   + "移除一個名字的最後一段時，該名字若還在 authorized／variant／field: names 的 reference 裡，具名拒絕並指路（--authorize／--remove-reference；variant 目前沒有移除面，只能手改 YAML）；"
+                                   + "移除後 venue 沒有任何名字也拒絕。用 `akashic venue <key>` 的 names 看現有各段（含 source／note）。"
+                                   + "改寫是判定：理由只印在報告（nameSegments[].reason，全文），不寫進 store——要留在 git 就寫進 commit message；"
+                                   + "改寫前的內容只剩 git 的副本，所以這個 venue 檔要已在 git 裡 commit（tracked、無未提交修改），否則整批拒絕。"
+                                   + "每一項都沒有變動時不寫檔、不過 git 閘（報告 written: false）。一次至多 200 筆。"
+                                   + "報告：nameSegments（逐項 name／action：set／remove／unchanged、before／after 的欄位、reason）、namesTotal；"
+                                   + "寫檔之後 index 重建失敗時呼叫仍回成功、報告多 indexRebuilt: false 與 indexNote（要跑 akashic doctor 重建）。沒有乾跑，CLI 也不過目標 store 確認閘：防線是 git 閘與整批拒絕零寫入"))
+    var editNameSegment: String?
+
+    /// `--references`／`--remove-reference`／`--edit-name-segment` 的 JSON——不是 JSON 陣列是用法錯誤（64），在 `validate()` 擋；`run()` 用同一個解析。
     static func referencesArray(_ raw: String?) throws -> [Any]? { try jsonObjectArray(raw, flag: "--references") }
 
     static func jsonObjectArray(_ raw: String?, flag: String) throws -> [Any]? {
@@ -332,6 +355,7 @@ struct UpdateVenueCmd: ParsableCommand {
     func validate() throws {
         let refs = try Self.referencesArray(references)
         let removeRefs = try Self.jsonObjectArray(removeReference, flag: "--remove-reference")
+        let editSegments = try Self.jsonObjectArray(editNameSegment, flag: "--edit-name-segment")
         try argvCheck {
             try AkashicService.checkUpdateVenueArguments(addNames: addName.isEmpty ? nil : addName, type: type,
                                                          addISSN: addISSN.isEmpty ? nil : addISSN,
@@ -340,7 +364,8 @@ struct UpdateVenueCmd: ParsableCommand {
                                                          paginated: paginated, clearPaginated: clearPaginated,
                                                          judgement: judgement, restsOn: restsOn.isEmpty ? nil : restsOn,
                                                          removeISSN: removeISSN.isEmpty ? nil : removeISSN,
-                                                         references: refs, note: note, removeReference: removeRefs)
+                                                         references: refs, note: note, removeReference: removeRefs,
+                                                         editNameSegment: editSegments)
         }
     }
 
@@ -362,6 +387,7 @@ struct UpdateVenueCmd: ParsableCommand {
                                       removeISSN: removeISSN.isEmpty ? nil : removeISSN,
                                       references: try Self.referencesArray(references),
                                       removeReference: try Self.jsonObjectArray(removeReference, flag: "--remove-reference"),
+                                      editNameSegment: try Self.jsonObjectArray(editNameSegment, flag: "--edit-name-segment"),
                                       removalDetailLimit: nil))   // CLI 全列（輸出進人的終端機）；MCP 面截，理由見 `removalDetailCap`
     }
 }

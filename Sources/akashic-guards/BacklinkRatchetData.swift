@@ -40,6 +40,9 @@ let adjudicated: Set<String> = [
     // Provenance.byteExactKey（#554 R24 D65）：computed、不序列化、由已裁決的 field／value／kind 現算——不是關係邊，
     // 是「兩筆完全相同」的位元組鍵（entity-backlink-completeness 第 ③ 步兩問皆否）
     "Provenance.byteExactKey",
+    // Temporal.contradictionDescription（#675）：`DateRange` 的 computed 屬性，回一句矛盾說明——不序列化、不指涉另一個實體或存檔內容，
+    // 不是關係邊（entity-backlink-completeness 第 ③ 步兩問皆否）
+    "Temporal.contradictionDescription",
     // Provenance.kindByteKey（#554 R25 D67）：byteExactKey 的 kind 那一半，同一個理由——computed、不序列化、非關係邊
     "Provenance.kindByteKey", "Provenance.encoded", "Provenance.field",
     "Provenance.holder", "Provenance.holderKind", "Provenance.kind",

@@ -3456,14 +3456,11 @@ public final class AkashicService {
             "key": displaySafe(record.key, max: 200),
             "type": record.type.rawValue,
             // 沿革：時間軸各段（序列化順序；四個時間欄位全帶——#218 R2 的教訓）
+            // #675 起多帶 `source`／`note`：`update-venue --edit-name-segment` 的 `match`／`set` 收這六個鍵，而在此之前讀取面看不到後兩個——
+            // 同名的兩段只差 source 或 note 時（#565 起合併會拒絕的那種），呼叫端無從認出要改哪一段（能寫不能讀，#218／#219 的形狀）
             "names": record.names.inSerializationOrder.map { seg -> [String: Any] in
-                var n: [String: Any] = ["value": displaySafe(seg.value, max: 200)]
-                if let st = seg.range.start { n["start"] = displaySafe(st, max: 40) }
-                if let en = seg.range.end { n["end"] = displaySafe(en, max: 40) }
-                if seg.range.endedUnknown { n["ended"] = true }   // display-safe-exempt: Bool
-                if !seg.range.attested.isEmpty {
-                    n["attested"] = seg.range.attested.map { displaySafe($0, max: 40) }
-                }
+                var n = Self.nameSegmentFieldsDict(seg)
+                n["value"] = displaySafe(seg.value, max: 200)
                 return n
             },
             // 編年（依年升冪；QueryEngine 排序）——空陣列也要出現（零篇是答案不是缺席）
@@ -3746,6 +3743,8 @@ public final class AkashicService {
         let references: [ProvenanceReference]?
         /// 空＝這次沒給 remove_reference（#673）；給了就是單獨呼叫，其餘腿都沒給
         let removeReferences: [RemoveReferenceSpec]
+        /// 空＝這次沒給 edit_name_segment（#675）；給了就是單獨呼叫，其餘腿都沒給
+        let nameSegmentEdits: [NameSegmentEditSpec]
     }
 
     /// CLI 的 `validate()` 用（#654）：`update-venue` 只看參數的全部檢查——與服務在讀 store 之前跑的是同一個函式。
@@ -3754,11 +3753,13 @@ public final class AkashicService {
                                                  paginated: Bool?, clearPaginated: Bool,
                                                  judgement: String?, restsOn: [String]?,
                                                  removeISSN: [String]?, references: [Any]? = nil,
-                                                 note: String? = nil, removeReference: [Any]? = nil) throws {
+                                                 note: String? = nil, removeReference: [Any]? = nil,
+                                                 editNameSegment: [Any]? = nil) throws {
         _ = try updateVenueArguments(addNames: addNames, type: rawType, addISSN: addISSN, addVariant: addVariant,
                                      authorize: authorize, paginated: paginated, clearPaginated: clearPaginated,
                                      judgement: judgement, restsOn: restsOn, removeISSN: removeISSN,
-                                     references: references, note: note, removeReference: removeReference)
+                                     references: references, note: note, removeReference: removeReference,
+                                     editNameSegment: editNameSegment)
     }
 
     /// `updateVenue` 裡只看參數的檢查（#654 原樣搬出；訊息逐字不變）：remove_issn 的形狀、理由、重複與 add_issn 矛盾；三組名字的
@@ -3773,11 +3774,15 @@ public final class AkashicService {
                                      paginated: Bool?, clearPaginated: Bool,
                                      judgement: String?, restsOn: [String]?,
                                      removeISSN: [String]?, references: [Any]? = nil,
-                                     note: String? = nil, removeReference: [Any]? = nil) throws -> UpdateVenueArguments {
-        // remove_reference（#673）單獨呼叫：它是判定、其餘腿改記錄的值與名字分割，混在一次呼叫裡「移除的是哪一筆」與報告、git 閘的語意都交錯
-        // （例：remove_issn 會連帶刪掉指向該號的 reference，同一次再定位它就落空）。形狀先驗，再驗有沒有其他腿——一次呼叫同時有兩種錯時先報這一種。
+                                     note: String? = nil, removeReference: [Any]? = nil,
+                                     editNameSegment: [Any]? = nil) throws -> UpdateVenueArguments {
+        // remove_reference（#673）與 edit_name_segment（#675）各自單獨呼叫：它們是判定、其餘腿改記錄的值與名字分割，混在一次呼叫裡「移除／改的是哪一筆」與
+        // 報告、git 閘的語意都交錯（例：remove_issn 會連帶刪掉指向該號的 reference，同一次再定位它就落空；add_names／add_variant／authorize 會增減
+        // 同一份 names，「定位的是哪一段」取決於它們有沒有先跑）。形狀先驗，再驗有沒有其他腿——一次呼叫同時有兩種錯時先報這一種。
         let removeReferenceSpecs = try parseRemoveReferenceSpecs(removeReference)
-        if !removeReferenceSpecs.isEmpty {
+        let nameSegmentEditSpecs = try parseNameSegmentEditSpecs(editNameSegment)
+        /// 除了「這一條腿自己」之外，這次呼叫還給了哪些參數（字面參數名，依固定順序）。兩條單獨呼叫的腿彼此也是「其他腿」。
+        func otherLegs(excluding own: String) -> [String] {
             var others: [String] = []
             if addNames != nil { others.append("add_names") }
             if note != nil { others.append("note") }
@@ -3791,10 +3796,24 @@ public final class AkashicService {
             if restsOn != nil { others.append("rests_on") }
             if removeISSN != nil { others.append("remove_issn") }
             if references != nil { others.append("references") }
+            if own != "remove_reference", removeReference != nil { others.append("remove_reference") }
+            if own != "edit_name_segment", editNameSegment != nil { others.append("edit_name_segment") }
+            return others
+        }
+        if !removeReferenceSpecs.isEmpty {
+            let others = otherLegs(excluding: "remove_reference")
             guard others.isEmpty else {
                 throw ServiceError.invalid(
                     "remove_reference（--remove-reference）單獨呼叫——不與 \(others.joined(separator: "、")) 組合（移除是判定，其餘腿改記錄的值與名字分割，"   // display-safe-exempt: others 是本函式的字面參數名
                     + "混在一次呼叫裡報告與 git 閘的語意會交錯）；整批拒絕、零寫入")
+            }
+        }
+        if !nameSegmentEditSpecs.isEmpty {
+            let others = otherLegs(excluding: "edit_name_segment")
+            guard others.isEmpty else {
+                throw ServiceError.invalid(
+                    "edit_name_segment（--edit-name-segment）單獨呼叫——不與 \(others.joined(separator: "、")) 組合（改寫名字段是判定，其餘腿改記錄的值、名字分割與同一份 names，"   // display-safe-exempt: others 是本函式的字面參數名
+                    + "「定位的是哪一段」與報告、git 閘的語意會交錯）；整批拒絕、零寫入")
             }
         }
         // add_issn 先解析：下面的 remove_issn 矛盾檢查要認得帶角色的寫法（#587——`ISSN("0035-9254 (print)")` 是 nil）
@@ -3915,7 +3934,7 @@ public final class AkashicService {
                                     authorizeIn: authorizeIn, authorizeBlanks: authorizeBlanks,
                                     type: vtype, addISSN: parsedISSN?.issns, issnDropped: parsedISSN?.dropped ?? [],
                                     paginatedReference: paginatedRef, references: parsedReferences,
-                                    removeReferences: removeReferenceSpecs)
+                                    removeReferences: removeReferenceSpecs, nameSegmentEdits: nameSegmentEditSpecs)
     }
 
     /// venue 異名補寫（#306）——**append 語意**：`addNames` 只把不重複的名字附加進
@@ -3949,11 +3968,17 @@ public final class AkashicService {
                             removeISSN: [String]? = nil,
                             references: [Any]? = nil,
                             removeReference: [Any]? = nil,
+                            editNameSegment: [Any]? = nil,
                             removalDetailLimit: Int? = AkashicService.removalDetailCap) throws -> String {
         let args = try Self.updateVenueArguments(addNames: addNames, type: rawType, addISSN: addISSN, addVariant: addVariant,
                                                  authorize: authorize, paginated: paginated, clearPaginated: clearPaginated,
                                                  judgement: judgement, restsOn: restsOn, removeISSN: removeISSN,
-                                                 references: references, note: note, removeReference: removeReference)
+                                                 references: references, note: note, removeReference: removeReference,
+                                                 editNameSegment: editNameSegment)
+        // #675：名字段的編輯面——同 remove_reference，單獨呼叫（`updateVenueArguments` 已驗過沒有其他腿），自己載入、定位、驗、過 git 閘、寫入
+        if !args.nameSegmentEdits.isEmpty {
+            return try editVenueNameSegments(key: key, specs: args.nameSegmentEdits, detailLimit: removalDetailLimit)   // CLI 傳 nil 全列；MCP 面截（`removalDetailCap` 的 doc）
+        }
         // #673：references 的移除面——單獨呼叫（`updateVenueArguments` 已驗過沒有其他腿），自己載入、定位、過 git 閘、寫入
         if !args.removeReferences.isEmpty {
             return try removeVenueReferences(key: key, specs: args.removeReferences, detailLimit: removalDetailLimit)   // CLI 傳 nil 全列；MCP 面截（`removalDetailCap` 的 doc）

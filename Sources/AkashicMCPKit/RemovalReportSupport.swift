@@ -3,7 +3,7 @@ import AkashicCore
 import AkashicStoreIO
 import AkashicIndex
 
-/// 移除面一族（`update-entry` 的三條移除腿、`update-venue --remove-reference`）寫檔之後的共用兩件事。
+/// 移除面一族（`update-entry` 的三條移除腿、`update-venue --remove-reference`／`--edit-name-segment`）寫檔之後的共用兩件事。
 ///
 /// ## index 重建失敗不得讓報告消失（b13f R1 verify 第 1 列）
 ///
@@ -32,11 +32,13 @@ extension AkashicService {
         }
     }
 
-    /// 把 index 重建失敗併進報告（`indexRebuilt: false`、`indexRebuildError`、`indexNote`）。
-    static func noteIndexRebuildFailure(_ error: Error, in payload: inout [String: Any]) {
+    /// 把 index 重建失敗併進報告（`indexRebuilt: false`、`indexRebuildError`、`indexNote`）。`written` 是「已經寫進磁碟的是什麼、為什麼先存報告」
+    /// 那一句——移除腿用預設；名字段編輯（#675）改的是「改寫」，重試被拒的理由也不同。
+    static func noteIndexRebuildFailure(_ error: Error, in payload: inout [String: Any],
+                                        written: String = "移除已經寫入磁碟——理由與被移除的內容都在這份報告裡，重試會因為東西已經不在而被拒，先把報告存下來。") {
         payload["indexRebuilt"] = false   // display-safe-exempt: Bool
         payload["indexRebuildError"] = displaySafeError(error, max: 512)
-        payload["indexNote"] = "移除已經寫入磁碟——理由與被移除的內容都在這份報告裡，重試會因為東西已經不在而被拒，先把報告存下來。"
+        payload["indexNote"] = written
             + "衍生的 index 沒有重建成功：MCP 的讀取面依 mtime 自動重建；CLI 的 query 不看 mtime、不會自己重建，要跑 akashic doctor"
     }
 }

@@ -768,3 +768,39 @@ extension StdioE2ETests {
         XCTAssertTrue(notObjects.contains("remove_reference 的每個元素都必須是物件"), notObjects)
     }
 }
+
+/// #675：`akashic_update_venue` 的 `edit_name_segment`——**必須經真 binary**：物件陣列的解析住在 server 的分派閉包裡（`argObjectList`），
+/// JSON 的 `true` 是 NSNumber 布林、`null` 是 NSNull、整數不是字串，這幾件事服務層測不到。
+extension StdioE2ETests {
+    func testEditNameSegmentReachesTheService() throws {
+        try initialize()
+        let created = try call(2, "akashic_add_venue", ["key": "sankhya", "type": "periodical", "names": ["Sankhyā", "Sankhya Old"]])
+        XCTAssertTrue(created.contains("sankhya"), created)
+
+        // 鍵名接到服務：有變動的編輯走到 git 閘（store 不在 git 裡）；remove: true 是布林、被解析成移除而不是型別錯誤
+        let set: [[String: Any]] = [["name": "Sankhyā", "set": ["start": "1933", "end": NSNull()], "reason": "r"]]
+        let gated = try call(3, "akashic_update_venue", ["key": "sankhya", "edit_name_segment": set])
+        XCTAssertTrue(gated.contains("#675") && gated.contains("git"), "edit_name_segment 要走到編輯面（有變動要 git 閘）：\(gated)")
+        let removal: [[String: Any]] = [["name": "Sankhya Old", "remove": true, "reason": "r"]]
+        let gatedRemoval = try call(4, "akashic_update_venue", ["key": "sankhya", "edit_name_segment": removal])
+        XCTAssertTrue(gatedRemoval.contains("#675") && gatedRemoval.contains("git"), "remove: true 要被解析成布林：\(gatedRemoval)")
+
+        // null 是清除：這一段本來就沒有 note，所以沒有變動——不過 git 閘、不寫
+        let noop = try call(5, "akashic_update_venue", ["key": "sankhya", "edit_name_segment": [["name": "Sankhyā", "set": ["note": NSNull()], "reason": "r"]]])
+        XCTAssertTrue(noop.contains("unchanged") && noop.contains("nameSegments"), "null 經 valueToAny 是 NSNull，要被讀成清除：\(noop)")
+
+        // 型別錯誤
+        let stringBool = try call(6, "akashic_update_venue", ["key": "sankhya", "edit_name_segment": [["name": "Sankhya Old", "remove": "true", "reason": "r"]]])
+        XCTAssertTrue(stringBool.contains("remove 必須是布林"), "字串 \"true\" 不是 true：\(stringBool)")
+        let intStart = try call(7, "akashic_update_venue", ["key": "sankhya", "edit_name_segment": [["name": "Sankhyā", "set": ["start": 1933], "reason": "r"]]])
+        XCTAssertTrue(intStart.contains("必須是字串或 null"), "整數不是字串：\(intStart)")
+        let notArray = try call(8, "akashic_update_venue", ["key": "sankhya", "edit_name_segment": "Sankhyā"])
+        XCTAssertTrue(notArray.contains("edit_name_segment 必須是物件陣列"), notArray)
+        let notObjects = try call(9, "akashic_update_venue", ["key": "sankhya", "edit_name_segment": ["Sankhyā"]])
+        XCTAssertTrue(notObjects.contains("edit_name_segment 的每個元素都必須是物件"), notObjects)
+        let combined = try call(10, "akashic_update_venue", ["key": "sankhya", "edit_name_segment": set, "add_names": ["X"]])
+        XCTAssertTrue(combined.contains("單獨呼叫"), combined)
+        let notFound = try call(11, "akashic_update_venue", ["key": "sankhya", "edit_name_segment": [["name": "No Such", "set": ["note": "n"], "reason": "r"]]])
+        XCTAssertTrue(notFound.contains("沒有") && notFound.contains("Sankhya Old"), "定位不到要具名並列出現有的名字：\(notFound)")
+    }
+}

@@ -43,7 +43,7 @@ MCP 面每個 citekey 清單至多 20 筆（依 citekey 排序留前面的）：
 - `residualFields` 不截：鍵是 Zotero 的欄位名，筆數受 schema 的欄位表限制，不隨一次匯入的筆數成長。
 - CLI 不受此上限。
 
-`tools/list` 從 48,150 位元組變成 48,357（預算 49,000）。
+`tools/list` 從 48,150 位元組變成 48,357——量的是合併 #664／#672 之前的樹，不是 main 頂端。這句原本寫「預算 49,000」：寫下它的 commit（`a447b6d3`）的祖先裡已經有把預算調高到 52,000 的 `56b6657b`，所以那時的預算是 52,000（R1 verify devil's advocate 第 61 則）。
 
 **不加零實例列**：`zero-instance-guards` 管的是當下零實例的形狀。這裡的形狀早有實例——一次首次匯入的 `created` 就是整個 Zotero library 的筆數（第 68 列記的唯讀量測：Zotero 來源 535 筆），mapping 定義演進時被改寫的主來源也是全部。第 68 列（`ambiguousSourceClaims`）量到的是 0，情況不同。
 

@@ -175,6 +175,8 @@ per-id 顯式契約。兩面的失敗語意相同且刻意分兩類：輸入語�
 
 **工具描述有位元組預算（#578，2026-09-28）**：`tools/list` 回應整行不得超過 49,000 bytes（精簡當下實測 39,164 × 1.25、進位到千。39,164 是補上 #670 兩個旗標的描述之前量的；`ee29fe47` 出貨時實測 39,285，照同一公式會得 50,000、超過單一 MCP 輸出的 48 KiB。預算維持 49,000，待使用者確認——#578 R1 verify DA），由 `StdioE2ETests.testToolsListResponseStaysWithinByteBudget` 走真 binary 量。#578 的 Expected 寫的是「源碼掃描守衛」，改用真 binary 量測是刻意的替代（R1 verify requirements 席指出這一點沒有寫出來）：呼叫端付的是 server 實際送出的那一行，源碼字串字面的加總量不到 input schema 的結構與 JSON 編碼，也會把不在那一行裡的字串算進去；這支測試在 pre-push 的 `swift test` 裡跑，超過即紅。描述只寫做什麼、輸入格式、拒絕類別、store format 與呼叫端要讀的回應鍵，完整契約指向 CLI `--help` 與 docs/store-format.md §3.5；裁決史與理由留在本檔與 changelog。要調高預算回 #578 重新裁決。
 
+**每個回應鍵都要出現在該工具的說明裡（#672，2026-09-29）**：`ToolPayloadKeyGuardTests` 對每個工具走各條主要的腿（`ToolPayloadScenarios`，fixture store 上的真實呼叫），取回應的頂層鍵（陣列取元素鍵），要求每一個以**識別字邊界**（不是子字串）出現在該工具在真 binary `tools/list` 裡的說明文字——`description` 加各參數的 `description`，呼叫端讀得到的就是這兩處。刻意不寫的鍵在 `ToolPayloadKeyExemptions` 逐鍵具名、附理由（`echo`、`derived`、`advisory`、`standard` 四種，封閉列舉；豁免本身也被守衛：鍵必須真的出現在 payload、且真的沒被說明提到，否則紅）。新增工具要同時加情境（工具清單與情境對不上即紅）；新增回應鍵要同時補說明（只寫鍵名加一句意思）或豁免。**它與上面的位元組預算是同一件事的兩個約束**：鍵名只能寫進說明、預算又不許長，所以新鍵的那句話要從別處省。**沒涵蓋的腿**（誠實邊界）寫在測試檔頭：只在特定 store 狀態才出現的鍵、`akashic_files` 的 `use`、錯誤回應。
+
 ### 怎麼機械檢查這張表真的封閉
 
 不要相信作者窮舉過（`entity-backlink-completeness` 的表錯過兩次，教訓同形）：

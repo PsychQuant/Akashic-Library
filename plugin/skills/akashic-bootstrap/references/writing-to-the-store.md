@@ -128,7 +128,7 @@ akashic doctor        # 佈局、index、孤兒、未歸戶計數
  "note": "<未正規化／未決問題／對應 issue>"}
 ```
 
-檔案放 `sources/<hash 前 2 碼>/<其餘>`，無副檔名。
+檔案放 `sources/<hash 前 2 碼>/<其餘>`，無副檔名。上例是 API 直接回應的寫法；經 safari-browser 讀到的內容（頁內 fetch、DOM 讀取）怎麼寫 `acquisition`／`origin`／`media-type`，見 [web-access.md](web-access.md)〈承重存檔〉——那不是伺服器的原始位元組，不要照抄 `"api"`。
 
 **`sources/` 通常被 gitignore 擋住**（第三方原始位元組只留 local）。存之前用 `git check-ignore -v sources/` 確認擋住了——這件事失敗是不可逆的（推上去就在遠端了）。
 

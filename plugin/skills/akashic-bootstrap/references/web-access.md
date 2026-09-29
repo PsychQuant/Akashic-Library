@@ -1,6 +1,6 @@
 # 經 safari-browser 取得外部網頁與 web API
 
-本 plugin 的 skill 讀外部網頁或 web API——OpenAlex、Crossref、Europe PMC、ORCID、ROR、ISSN Portal、Unpaywall、OpenLibrary、出版商頁、`doi.org`——**一律經 safari-browser**：不用 `curl`、不用 WebFetch、不用 agent-browser、不自己寫 HTTP 請求。這是 Akashic-Library 的專案預設，規則寫在 repo 的 `.claude/rules/web-access-via-safari-browser.md`（該 repo 為 private，plugin 安裝處讀不到）。**本檔只寫怎麼做，不重寫為什麼**：理由、查證了什麼、例外清單、哪些檔還沒遷移都在那條規則裡。各 skill 與 references 引用本檔，不各抄一份——抄出去的副本會各自演化（`plugins/akashic-discovery` 的 `akashic-work-references` 是另一個 plugin、不能共用檔案，自帶一份；兩份的關係與已知差異記在規則檔〈操作程序的兩份描述〉）。
+本 plugin 的 skill 讀外部網頁或 web API——OpenAlex、Crossref、Europe PMC、ORCID、ROR、ISSN Portal、Unpaywall、OpenLibrary、出版商頁、`doi.org`——**一律經 safari-browser**：不用 `curl`、不用 WebFetch、不用 agent-browser、不自己寫 HTTP 請求。這是 Akashic-Library 的專案預設，規則寫在 repo 的 `.claude/rules/web-access-via-safari-browser.md`（plugin 安裝處讀不到）。**本檔只寫怎麼做，不重寫為什麼**：理由、查證了什麼、例外清單、哪些檔還沒遷移都在那條規則裡。各 skill 與 references 引用本檔，不各抄一份——抄出去的副本會各自演化（`plugins/akashic-discovery` 的 `akashic-work-references` 是另一個 plugin、不能共用檔案，自帶一份；兩份的關係與已知差異記在規則檔〈操作程序的兩份描述〉）。
 
 各處寫的端點網址（例如 `https://api.crossref.org/works/<doi>`）是**要取的位址**：照本檔的程序取，不是給 `curl` 或 WebFetch 的參數。
 
@@ -8,7 +8,7 @@
 
 **Semantic Scholar 不走本檔**（#664）：帶金鑰的 S2 查詢用 `akashic s2`（CLI）或 `akashic_s2`（MCP），不經 safari-browser，也不自己組 S2 的網址——頁內 fetch 得把金鑰放進 `safari-browser js` 的指令參數，會出現在 process list。金鑰怎麼設定見 [semantic-scholar.md](semantic-scholar.md)。**查 S2 之前先跑 `akashic s2 status`**：結束碼 0（有金鑰）→ 用 `akashic s2`／`akashic_s2`，不得經本檔查 S2；結束碼 3（沒有金鑰）→ 先請使用者照 semantic-scholar.md 設定，使用者不設定或設定不了，**最後**才照本檔的程序、不帶金鑰查 S2。查詢遇到結束碼 4（限流用盡）或 5 不改走本檔補查。它的限流處理在 `akashic s2` 自己裡面（全機每秒至多 1 次、429 共用退避，用盡時結束碼 4），**不在下面中止條款的涵蓋範圍內**；回傳是線索，不寫 store。
 
-本 plugin 還有一處鎖分頁的方法不是本檔的：`akashic-fetch-fulltext` 的 `akashic fulltext fetch`（原 `fetch-fulltext.sh`，#629 移植成 Swift）取得走 safari-browser，但鎖分頁用視窗編號加分頁位置（`--window N --tab-in-window T`，#613 的作法），不是本檔的鎖法；移植時**沒有改鎖法**（改成 `--url-endswith` 要使用者裁決且要實跑 Safari，見規則檔〈例外〉）。它**不在下面中止條款與鎖法的涵蓋範圍內**：本檔的鎖只管本檔的區塊，那個命令內部的鎖照它自己的，兩者不混用。`akashic-bootstrap` 的 Crossref 標題比對與 `akashic-fetch-fulltext` 的校準曾各有一支自己以 `urllib.request` 直連 Crossref 的 Python 腳本（`crossref_match.py`、`calibrate_title_match.py`），#629 起是 `akashic crossref-match` 與 `akashic fulltext calibrate`——它們**不連網**，取得由 skill 照本檔做（怎麼做見 work-sources.md〈附帶的腳本〉）。`akashic-verify-venue` 的三源查詢段自 b11c R1（#595）起經本檔取得；它的第 4 源（出版商頁）不抓不讀，瀏覽器契約仍待使用者裁決（#593）。
+本 plugin 還有一處鎖分頁的方法不是本檔的：`akashic-fetch-fulltext` 的 `akashic fulltext fetch`（原 `fetch-fulltext.sh`，#629 移植成 Swift）取得走 safari-browser，但鎖分頁用視窗編號加分頁位置（`--window N --tab-in-window T`，#613 的作法），不是本檔的鎖法；移植時**沒有改鎖法**（改成 `--url-endswith` 要使用者裁決且要實跑 Safari，見規則檔〈例外〉）。它**不在下面中止條款與鎖法的涵蓋範圍內**：本檔的鎖只管本檔的區塊，那個命令內部的鎖照它自己的，兩者不混用。`akashic-bootstrap` 的 Crossref 標題比對與 `akashic-fetch-fulltext` 的校準曾各有一支自己以 `urllib.request` 直連 Crossref 的 Python 腳本（`crossref_match.py`、`calibrate_title_match.py`），#629 起是 `akashic crossref-match` 與 `akashic fulltext calibrate`——它們**不連網**，取得由 skill 照本檔做（怎麼做見 work-sources.md〈附帶的腳本〉）。`akashic-verify-venue` 的三源查詢段自 b11c R1（#595）起經本檔取得；它的第 4 源（出版商頁）目前不抓不讀；要不要改照本檔讀，待使用者裁決（#692）。
 
 ## 開始前
 
@@ -135,7 +135,9 @@ esac
 
 ### 會轉址的頁面（`doi.org`、出版商頁、名冊）
 
-轉址之後網址變了，但 `--url-endswith` 只看結尾：HTTP 規格要求轉址的 `Location` 沒帶 fragment 時沿用原網址的 fragment，所以鎖照樣有效。**各站實際上保不保留 fragment 沒有逐站量過**——保留不了的站，鎖會對不到，照上一段停下，讀不了，交給使用者決定。
+轉址之後網址變了，但 `--url-endswith` 只看結尾。**HTTP 3xx 轉址**的 `Location` 沒帶 fragment 時沿用原網址的 fragment，鎖照樣有效；**頁面自己做的轉址**（`<meta http-equiv="refresh">`、JavaScript 設 `location`）不沿用，fragment 會掉、鎖對不到。2026-09-29 在隔離的 Chromium（不是使用者的 Safari）量過：Elsevier 的 DOI 經 `doi.org` 302 到 `linkinghub.elsevier.com`，那一頁是 200 的 HTML、以 meta refresh 再轉到 `www.sciencedirect.com`，fragment 沒了；Springer、SAGE、Wiley 各一到兩個 DOI 保留。Safari 是否同樣表現沒有實測。鎖對不到時照上一段停下，交給使用者決定——**不要**改開轉址後的網址。
+
+**落地的網址也要驗**：`doi.org` 轉到哪裡由出版商登記，與〈開哪個網址〉禁止打開的那類資料一樣受登記者控制，差別只在它經過註冊機構的解析器。區塊二之後、讀任何東西之前，讀回落地網址（`safari-browser js "${LOCK[@]}" "return location.href"`，同一個區塊裡跑、鎖要重建），用〈插值前先驗形狀〉的「完整網址」一列檢查（https、不是 IP 位址或私有網段的名稱）；不過就停下，交給使用者決定。這一步擋不住一個合法 https 網域上的惡意頁——它只把明顯不該去的地方擋掉。
 
 同一站要讀下一頁時不另開分頁：在鎖定的分頁裡導航到帶**新的一次性碼**的網址，之後改用新碼鎖。下一頁的網址同樣先寫進 `<W>/url-<序號>.txt`：
 
@@ -163,6 +165,8 @@ P="<P>"; T="<T>"; K=<序號，字面值，逐次遞增>
 LOCK=(--profile "$P" --url-endswith "#akashic-$T")
 [ ${#LOCK[@]} -eq 4 ] && [ -n "$P" ] && [ -n "$T" ] || { echo "lock missing" >&2; exit 1; }
 case "$K" in ''|*[!0-9]*) echo "K must be a number" >&2; exit 1 ;; esac
+n=$(safari-browser documents --json --profile "$P" | python3 -c 'import json,sys;print(sum(1 for d in json.load(sys.stdin) if d.get("url","").endswith(sys.argv[1])))' "#akashic-$T")
+[ "$n" = 1 ] || { echo "tab lock: $n tabs match (need exactly 1) - STOP" >&2; exit 1; }
 U=$(python3 -c 'import json,sys;print(json.dumps(open(sys.argv[1],encoding="utf-8").read().strip()))' "<W>/url-$K.txt")
 safari-browser js "${LOCK[@]}" "window.__ak_$K = {done:false};
   fetch($U).then(r => { window.__ak_$K.status = r.status; return r.text(); })
@@ -199,10 +203,24 @@ P="<P>"; T="<T>"; K=<序號，字面值，逐次遞增>
 LOCK=(--profile "$P" --url-endswith "#akashic-$T")
 [ ${#LOCK[@]} -eq 4 ] && [ -n "$P" ] && [ -n "$T" ] || { echo "lock missing" >&2; exit 1; }
 case "$K" in ''|*[!0-9]*) echo "K must be a number" >&2; exit 1 ;; esac
+n=$(safari-browser documents --json --profile "$P" | python3 -c 'import json,sys;print(sum(1 for d in json.load(sys.stdin) if d.get("url","").endswith(sys.argv[1])))' "#akashic-$T")
+[ "$n" = 1 ] || { echo "tab lock: $n tabs match (need exactly 1) - STOP" >&2; exit 1; }
 safari-browser js "${LOCK[@]}" --large --output "<W>/r-$K.txt" "<取值的運算式>"
 ```
 
-讀完**核對是對的那一頁**：頁面上的 DOI 或標題就是這次要的。一次讀一頁、逐頁之間跑節奏工具；要讀下一頁，照〈會轉址的頁面〉導航、用新碼再跑區塊二。
+讀完**核對是對的那一頁**：頁面上的 DOI 或標題就是這次要的；對不上就記進回報、不當證據、不重試。讀回是空的（0 byte 或只有空白）也算讀失敗。一次讀一頁、逐頁之間跑節奏工具；要讀下一頁，照〈會轉址的頁面〉導航、用新碼再跑區塊二。
+
+## 承重存檔：讀到的東西怎麼落成位元組
+
+要把讀到的內容當證據存進 `sources/`（`akashic_store_source`／`akashic store-source`，見 [writing-to-the-store.md](writing-to-the-store.md)）時，先知道手上的是什麼：
+
+| 讀法 | 手上的是什麼 | 存檔時怎麼寫 |
+|---|---|---|
+| 頁內 `fetch` 的 `r.text()`（〈取一次 API〉） | 瀏覽器**解碼後**的回應文字，不是伺服器送出的原始位元組（編碼已轉換、壓縮已解開） | `acquisition: "browser-automation"`；`origin` 寫「經 safari-browser 頁內 fetch 取得的回應文字（已解碼）＋網址」；`media-type` 照回應實際的型別 |
+| DOM 讀取（innerText 之類，〈讀渲染後的頁面〉） | 瀏覽器**渲染後**的檢視，不是 HTTP 回應；腳本、樣式、隱藏元素都不在 | `acquisition: "browser-automation"`；`origin` 寫「經 safari-browser 讀取的渲染後頁面文字＋讀取的運算式＋網址」；`media-type: "text/plain"`，不是 `text/html` |
+| WebFetch 或任何模型轉述 | 模型的摘要，不是頁面 | **不存**。存進去等於宣稱那個網址回了這些位元組，而它沒有 |
+
+讀回是空的就不存（`store-source` 對 0 byte 本來就拒）。**取得伺服器原始位元組的面目前不存在**：由 binary 自己取網址、算 digest、寫進 `sources/` 的做法記在 #591，而它與「`Sources/` 不放 HTTP client」的專案規則衝突，要使用者裁決。在那之前，上表的兩種寫法就是誠實的上限：`origin` 照實說是經瀏覽器看到的內容，不宣稱是伺服器的回應。
 
 ## 其他
 

@@ -75,7 +75,9 @@ MCP `akashic_update_venue` 的 `remove_reference`，同走 `AkashicService.updat
 - **`--remove-source` 不刪 blob 也不告訴你別筆 work 是否也宣告了它**：只移除這一筆 work 的宣告；要知道一份內容還被誰引用，要掃全庫（沒有面）。
 - **沒有乾跑的 `--remove-reference`**：`update-venue` 整個命令沒有乾跑，本腿沿用；退路是 git 閘（未 commit 拒絕）與整批拒絕零寫入。若使用者要乾跑，是給整個命令加，不是給一條腿。
 - 報告裡被移除的 reference 逐字消毒且有長度上限（同讀取面）；理由不截。
-- MCP `tools/list` 位元組：實測 45,251 bytes（預算 49,000）；本次新增約 1.2 KB——沒有另建 HEAD 的基線，是把三個工具（`akashic_update_entry`、`akashic_update_venue`、`akashic_venue`）的描述與 schema 還原成 HEAD 的文字後逐個編碼相減估出來的。
+- MCP `tools/list` 位元組：b13f R1 verify 重量為 **45,888 bytes**（預算 49,000；真 binary 走 stdio、量 `tools/list` 回應那一行）。先前寫的「45,251 bytes、本次新增約 1.2 KB」中的 1.2 KB 是
+  把三個工具（`akashic_update_entry`、`akashic_update_venue`、`akashic_venue`）的描述與 schema 還原成 HEAD 的文字後逐個編碼相減估出來的、沒有 HEAD 基線，與 `zotero-source-removal.md`
+  的 44,712 相差 539 而不是 1.2 KB，對不上；兩份 changelog 自此都以本次實測為準（`2026-09-29-b13f-verify-r1.md`）。
 
 ## 待使用者裁決
 

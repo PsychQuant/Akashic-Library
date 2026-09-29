@@ -18,10 +18,10 @@
 
 ## #679：沒記 library_id 的附加來源，validate 報 warning
 
-**問題**：附加來源沒記 `library_id` 時，`secondaryByComposite`、`claimedLibrariesByBareKey`、`ZoteroSourceClaims.claimants` 都略過它，所以再匯入時同一個 Zotero 條目會另建一筆 twin；decode 接受、`Entry.validate()` 不檢查。`ZoteroSourceClaims` 的註解說這個形狀「由合併閘保證」不會出現——合併閘只保證**合併**不會把被併者的這種來源新收成附加來源，管不到手改與舊檔。
+**問題**：附加來源沒記 `library_id` 時，`secondaryByComposite`、`claimedLibrariesByBareKey`、`ZoteroSourceClaims.claimants` 都略過它，所以再匯入時同一個 Zotero 條目（沒有別的 entry 宣稱它時）會另建一筆 twin；decode 接受、`Entry.validate()` 不檢查。`ZoteroSourceClaims` 的註解說這個形狀「由合併閘保證」不會出現——合併閘只保證**合併**不會把被併者的這種來源新收成附加來源，管不到手改與舊檔。
 
 **改了什麼**：
-- `Entry.validate()` 對它報 **warning**（不 decode 拒收——拒收會讓既有的檔整個被隔離）：每筆 entry 一則、至多列 5 個來源鍵（`?:<zotero_key>`，也是 #680 的定位鍵）、超過說總數；訊息說出後果（再匯入會另建 twin）與兩條出路（補真正的 `library_id`、或用 #680 的面移除）。來源鍵經 `displaySafeInvisible`。
+- `Entry.validate()` 對它報 **warning**（不 decode 拒收——拒收會讓既有的檔整個被隔離）：每筆 entry 一則、至多列 5 個來源鍵（`?:<zotero_key>`，也是 #680 的定位鍵）、超過說總數；訊息說出後果（沒有別的 entry 宣稱那個條目時，再匯入會另建 twin；b13f R1 verify 起是有條件的說法）與兩條出路（補真正的 `library_id`、或用 #680 的面移除）。來源鍵經 `displaySafeInvisible`。
 - `ZoteroSourceClaims` 與 `ZoteroImporter` 的註解不再說「由合併閘保證」，照實說。`docs/store-format.md` §2.5.3 加一條。
 - 警告說的後果用行為釘住（`AdditionalSourceWithoutLibraryReimportTests`：再匯入確實另建一筆），警告與行為不會分岔。
 - 2026-09-29 唯讀量測 live store：work 2,569、主來源 532（沒記 library_id 0）、附加來源 3（沒記 library_id 0）、被 ≥2 筆宣稱的來源 0——零實例。`zero-instance-guards` 的一列見整合者報告（不在本次改動裡加）。
@@ -36,7 +36,7 @@
 
 **移除主來源而附加來源仍在**：附加來源**不升格**（升格會把書目欄位的改寫權交給另一個 library，與 App 的「與 Zotero 脫鉤」同一條既有裁決），沒有主來源、只有附加來源是合法狀態；連結狀態照 `Entry.zoteroLinkState` 的既有定義具名（`zoteroLinkState.before／after`，那個定義沒動）；`primaryRemovedNote` 說明。同一筆 work 的主來源與附加來源恰好同一個來源時兩處都拿掉。
 
-**跨面**：CLI `--remove-zotero-source`、MCP `remove_zotero_sources`（兩面同一個 `AkashicService.updateEntry`，同一個 payload）；`mcp-cli-parity` 的 `akashic_update_entry` 列、`two-kinds-of-edits` 加一列（AI 欄）、`WriteGateRulings` 的 `update-entry` 格（整個命令一格，第三條腿不新增格，註解更新）。跨記錄 warning（#610）與 #679 的 warning 的出路都改指這條腿，並給出可貼上的定位鍵。`docs/store-format.md` §2.5.3 與 `EntryUpdate.swift` 檔頭同步。MCP `tools/list` 44,712 bytes（預算 49,000）。
+**跨面**：CLI `--remove-zotero-source`、MCP `remove_zotero_sources`（兩面同一個 `AkashicService.updateEntry`，同一個 payload）；`mcp-cli-parity` 的 `akashic_update_entry` 列、`two-kinds-of-edits` 加一列（AI 欄）、`WriteGateRulings` 的 `update-entry` 格（整個命令一格，第三條腿不新增格，註解更新）。跨記錄 warning（#610）與 #679 的 warning 的出路都改指這條腿，並給出可貼上的定位鍵。`docs/store-format.md` §2.5.3 與 `EntryUpdate.swift` 檔頭同步。MCP `tools/list` 最終實測 45,888 bytes（預算 49,000；b13f R1 verify 重量。先前寫的 44,712 是 #680 單獨落地那一刻的數字，與整合後不在同一棵樹上，見 `2026-09-29-b13f-verify-r1.md`）。
 
 ## 測試與負控
 
@@ -51,7 +51,9 @@
 
 ## 誠實邊界
 
-- **移除之後再匯入會另建一筆**：被移除的來源若在 Zotero 端仍有那個條目，下一次 `import-zotero` 會為它新建一筆 entry。本面不做「移到另一筆 work」；要讓它落在另一筆上，那筆要先宣稱這個來源（攣生合併，或手改 YAML）。報告的 `reimportNote` 說出來。
+- **移除之後再匯入會不會另建一筆，依移除之後還有沒有別的 entry 宣稱這個來源而定**（b13f R1 verify 更正：首版無條件說「會新建一筆」，在雙宣稱與 `?:` 附加來源兩個形狀為假）：
+  沒有任何 entry 宣稱它、Zotero 端仍有那個條目時才另建一筆；另一筆仍宣稱它則匯入路由到那一筆、不新建；`?:` 附加來源本來就不是宣稱者、移除它不改變匯入行為。
+  本面不做「移到另一筆 work」；要讓它落在另一筆上，那筆要先宣稱這個來源（攣生合併，或手改 YAML）。報告的 `reimportNote`／每個來源的 `reimportEffect` 逐來源說出來。
 - **沒有具名逆操作**：被移除的來源只在 git 的移除前副本與報告裡；重新匯入不會接回這一筆。
 - **legacy 桶的 orphan 標記只在歸屬沒有爭議時才清**：別的 library 持有同一個裸 key 時保守留著（清錯的代價是 Orphans 頁少列一筆真的已刪除的）；那是 #607 對舊檔的既有立場，不是本次新增的限制。
 - **警告只在讀取面出聲**：#679 的 warning 是 per-record warning，`validate` exit 仍 0（「掃得到」不「叫醒」，同 #464 一族）。

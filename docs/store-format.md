@@ -262,6 +262,8 @@ akashic:
   移除是判定（「這份內容不是這篇的副本」）：理由必填、只進報告、不寫進 store，實跑要求那筆 work 檔已在 git 裡 commit、乾淨（移除面一族的
   裁決，使用者 2026-09-27）。digest 要在該 work 的 `akashic.sources` 上；**只移除宣告**——`sources/` 的 blob 與 `index.jsonl` 的取得記錄不動
   （可能被別筆 work 宣告、被欄位層級的 reference 引用），欄位層級的 references 也不動；不要求本機有位元組。
+  報告在 MCP 面**每一筆都列**（`digest`＋`reason`——理由只在報告裡有一份，不截），只有前 20 筆多帶 index 的取得記錄（第三方字串），其後的以 `detailsTruncated`／`detailsListed` 揭露；CLI 全列。
+  寫檔之後 `index` 重建失敗時呼叫仍回成功、報告多 `indexRebuilt: false`／`indexNote`（不擲錯：錯誤出口逐行截 400 字元，一段長理由會被截掉；MCP 的讀取面依 mtime 自動重建，CLI 的 `query` 不會，要跑 `akashic doctor`）——三條移除腿與 `update-venue --remove-reference` 同一個處置。
   （這裡說的是 `akashic.sources` 的副本；work 記下的 Zotero 來源的移除面是另一條腿 `--remove-zotero-source`，§2.5.3，#680。四條腿——`--remove-field`、`--add-source`、`--remove-zotero-source`、`--remove-source`——兩兩不組合。）
 - **讀取端**：`get-entry`／`akashic_get_entry` 的 `akashic.sources` 列出連好的 digest（取得記錄在 `sources/index.jsonl`）。
 
@@ -358,14 +360,19 @@ work merge 的資料遺失閘也把 witness 當 canonical Akashic metadata：被
   `resolve-divergence` 把來源併成一份；兩筆都沒記 `library_id` 的舊檔同樣可併），記錯了就在 YAML 拿掉那個來源、或補上它
   真正的 `library_id`；記錯了的移除面是 `update-entry --remove-zotero-source`（#680，見下）。
 - **附加來源要記 `library_id`**（#679）：匯入端以 `(library_id, zotero_key)` 比對附加來源，沒記 `library_id` 的附加來源對不回任何條目，
-  也不算宣稱者（`ZoteroSourceClaims.claims(of:)`）——再匯入時 Zotero 端仍有的那個條目會另建一筆 twin。decode 接受這個形狀
+  也不算宣稱者（`ZoteroSourceClaims.claims(of:)`）——再匯入時 Zotero 端仍有的那個條目，在沒有別的 entry 以 `(library_id, zotero_key)` 宣稱它時會另建一筆 twin
+  （有的話匯入照常路由到那一筆；單筆 `validate` 看不到別的 entry，所以警告說成有條件的）。decode 接受這個形狀
   （拒收會讓既有的檔整個被隔離）；合併閘只擋合併新收這種來源，管不到手改與舊檔。`Entry.validate()` 對它報 warning
   （每筆 entry 一則、至多列 5 個），出路是補上真正的 `library_id`，或用 `update-entry --remove-zotero-source` 移除（#680；定位鍵 `?:<zotero_key>`）。
 - **移除面**（#680）：`update-entry <citekey> --remove-zotero-source <來源鍵>=理由`（MCP `akashic_update_entry` 的 `remove_zotero_sources`），
   預設乾跑、`--apply` 才寫。來源鍵是 `<library_id>:<zotero_key>`，沒記 `library_id` 的來源是 `?:<zotero_key>`（與跨記錄警告、
   `ambiguousSourceClaims` 同一種鍵）；主來源與附加來源都能移除。判定：理由必填、只進報告、不寫進 store（不改 store format），
   實跑要求那筆 work 檔已在 git 裡 commit、乾淨。主來源移除而附加來源仍在時附加來源**不升格**（同「與 Zotero 脫鉤」）；
-  被移除的來源若在 Zotero 端仍有那個條目，下一次 `import-zotero` 會為它另建一筆新 entry（沒有 entry 宣稱它了）。
+  移除之後對下一次 `import-zotero` 的意義**依還有沒有別的 entry 宣稱這個來源而定**（`reimportNote`，每個來源另有 `reimportEffect`；宣稱者用
+  `ZoteroSourceClaims` 那一份定義算）：沒有任何 entry 宣稱它 → Zotero 端仍有那個條目時會另建一筆新 entry（`newEntry`；另有舊檔宣稱同一個裸 key 時依 #607 可能認領）；
+  另一筆仍宣稱它 → 匯入照常路由到那一筆、不新建（`routesToOther`，#610 的多筆宣稱是這個面的主場景）；仍有兩筆以上 → 仍略過並列在 `ambiguousSourceClaims`
+  （`stillAmbiguous`）；沒記 `library_id` 的附加來源本來就不算宣稱者、匯入端一向忽略它 → 移除它不改變任何匯入行為（`notAClaim`）。已在 Zotero 端刪除的來源不說。
+  移除讓這筆從非 orphaned 變成 orphaned（只剩已在 Zotero 端刪除的附加來源）時另附 `orphanedNote`：App 的 Orphans 頁會列它並提供破壞性動作，而這筆的 Zotero 條目並沒有被刪。
 - **只有主來源更新書目欄位**：主來源命中 → 照 §2.5.2 的 update 條件改寫欄位；附加來源命中 →
   只更新該來源自己的 `zotero_version`／`zotero_hash`／`imported_at`，並清其 `orphaned_at`，
   **不動書目欄位**。附加來源 hash 變了而未套用 → 匯入報告列出（`secondarySourceChanged`）。
@@ -1200,16 +1207,18 @@ venue 的 `references:` 可附著的 `field` 是**封閉列舉**，唯一的列�
 形狀驗證走 `ProvenanceReference` 的平面 init（YAML decode 的同一個入口）；附著在合進記錄後驗，所以同一次呼叫加的號與名字
 可以被指向；`issn` 的 value 以正規形入庫、`names`／`authorized` 的 value 以記錄上的拼法入庫（相等看 canonical——只差 NFC／NFD 或空白的兩筆否則是兩筆位元組不同的記錄，#582 的掃描會報它們）。append-only：位元組相同的一筆略過。`field: issn` 的 reference 要 store format ≥ 13（#394 的寫入閘）。
 **讀取面與移除面**（#673）：`venue`／`akashic_venue` 的 `references` 列出通用 references（不是 verdict、不是 `paginated` 判定的那些；鍵名同上一段的輸入形；至多 25 筆，`referencesTotal`／`referencesTruncated` 揭露；`rests_on` 只列前 5 個，`rests_on_total` 揭露；沒有就不輸出）。
+**25 是選的數字、沒有量測依據**（live store 的通用 reference 是 0 筆），限的是筆數、**不保證輸出位元組**：字串是逐項消毒且各有字元上限，但 CJK 一個字元 3 位元組、控制字元逃脫後會膨脹，`akashic_venue` 也沒有單一輸出的位元組預算（同一個 payload 的 `works` 編年清單本來就無界）。
 `update-venue --remove-reference`／MCP `remove_reference` 收一個 JSON 物件陣列 `{field, value?, reason, …縮小定位的鍵}`：`field` 收 `names`／`authorized`／`issn`／`note` 四格
 （移除面比通用寫入面寬：手改或舊資料可能有 `authorized`／`note` 的 reference）；定位＝`field` ＋ `value` 的**位元組**相等，可再以 `kind`／`url`／`retrieved`／`status`／`media_type`／`content`／`statement`／`rests_on` 縮小；
-定位不到、定位到多筆（位元組完全相同的重複不判定移哪一筆）、兩個定位指到同一筆都整批拒絕、零寫入。verdict 三欄與 `paginated` 不在本面（各走 `resolve-venues`、`--clear-paginated`）。
+定位不到、定位到多筆（位元組完全相同的重複不判定移哪一筆）、兩個定位指到同一筆都整批拒絕、零寫入。**縮小鍵只能指名有值的欄位**：沒給的鍵是「不參與比對」，不是「要求缺席」，所以寫不出「沒有 `media_type`」——同一個 `(field, value)` 有兩筆 retrieval、只差其中一筆帶 `media_type` 時，先移除帶的那一筆、再對剩下的呼叫第二次。verdict 三欄與 `paginated` 不在本面（各走 `resolve-venues`、`--clear-paginated`）。
 理由必填、只進報告、不寫進 store；移除前要求該 venue 檔已在 git 裡 commit、乾淨（移除面一族的裁決，使用者 2026-09-27）；單獨呼叫；只移除 reference，它指的號或名字仍在。
 
 **合併時 `field: issn`／`names` 的 reference 隨被併者逐位元組搬到倖存者**（#587 R1；`resolve-divergence`）：查證流程對每個寫進去的號
 附一筆來源，「查證兩筆是不是同一本刊」又是合併的前置動作，兩次取得的日期或 url 必然不同——不搬的話每個查證過的被併者都合併不了。
 搬的條件是它指的號或名字在合併後的倖存者上存在（`validateReferenceAttachment` 驗得了），倖存者已有位元組相同的一筆不重複搬（`byteExactKey`），
 kind 不看。搬了什麼在報告的 `referencesCarried`（dry-run 也預告）。其餘欄位的 reference（`paginated` 的判定、手改寫進去的 `authorized`／`note`）
-沒有工具面能搬，照舊拒絕合併並具名。
+沒有工具面能搬，照舊拒絕合併並具名，**出路依欄位不同**：`authorized`／`note` 可以逐字加進倖存者的 YAML，或確認可丟棄後用 `update-venue --remove-reference` 從被併者移除（先 commit 被併者的檔）；
+`paginated` 的判定沒有工具面能單獨移除（`--remove-reference` 明文拒收 `paginated`；`--clear-paginated` 是再寫一筆撤回判定、被併者仍帶舊的），出路只有逐字加進倖存者的 YAML，或確認可丟棄後手改被併者的 YAML 刪掉它。
 
 **ISSN 的角色**：`issn[].qualifier` 自 format 13 起就在（`print`／`electronic`／`linking`，ISSN 標準的三個角色；
 認不出的舊寫法原值保留、`validate` 報 warning）。寫入面（`add-venue --issn`／`update-venue --add-issn`）自 #587 起收

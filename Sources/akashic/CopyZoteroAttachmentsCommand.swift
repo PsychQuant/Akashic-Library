@@ -127,7 +127,7 @@ struct CopyZoteroAttachments: ParsableCommand {
             print("")
             print("補存失敗（連結沒動、work 檔沒動；重跑會再補）: \(r.restoreFailed.count)")   // display-safe-exempt: Int
             for f in r.restoreFailed {
-                print("  ✗ \(displaySafeInvisible(f.item.citekey, max: 200))  \(displaySafeInvisible(f.item.path, max: 300)) — \(displaySafeClipOnly(f.message, max: 4_096))")   // display-safe-exempt: message 已消毒（service 以 displaySafeError 產出），只截
+                print("  ✗ \(displaySafeInvisible(f.item.citekey, max: 200))  \(displaySafeInvisible(f.item.path, max: 300)) — \(displaySafeClipOnly(f.message, max: 4_096))")   // display-safe-exempt: f.message 已消毒（service 以 displaySafeError 產出），只截
             }
         }
         if let why = r.indexRebuildFailure {

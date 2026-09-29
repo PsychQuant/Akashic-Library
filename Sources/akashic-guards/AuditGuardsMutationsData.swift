@@ -26,6 +26,22 @@ let agmCases: [AGMCase] = [
     AGMCase(desc: "migrated：runner 多一支沒有負控的守衛", guardRel: "akashic-guards migrated-guard-control", edits: [
         AGMEdit(path: ".githooks/run-guards.sh", kind: "replaceFirst", a: ".build/debug/akashic-guards migrated-guard-control", b: ".build/debug/akashic-guards fake-guard\n.build/debug/akashic-guards migrated-guard-control"),
     ], expect: ["缺負控", "fake-guard"]),
+    // #689：負控在不在，要看負控的**實體**——source 檔、`main.swift` 的分派、`run-guards.sh` 的那一行。
+    // 先前判準是「守衛名的字串出現在 `Sources/akashic-guards/` 的任何地方」，而 `main.swift` 的 `case "<名>":`
+    // 讓它永遠成立：刪掉 `NetworkConfinementMutations.swift` 仍報「無缺口」。三格各拆掉一樣。
+    AGMCase(desc: "migrated：負控的 source 檔被刪（runner 仍跑它）", guardRel: "akashic-guards migrated-guard-control", edits: [
+        AGMEdit(path: "Sources/akashic-guards/NetworkConfinementMutations.swift", kind: "delete", a: "", b: ""),
+    ], expect: ["缺負控", "`akashic-guards network-confinement` 在 run-guards.sh 裡跑", "source 檔不存在"]),
+    AGMCase(desc: "migrated：負控在 main.swift 的分派被拿掉", guardRel: "akashic-guards migrated-guard-control", edits: [
+        AGMEdit(path: "Sources/akashic-guards/main.swift", kind: "replaceFirst", a: "case \"network-confinement-mutations\":", b: "case \"network-confinement-mutations-gone\":"),
+    ], expect: ["缺負控", "`akashic-guards network-confinement` 在 run-guards.sh 裡跑", "main.swift 沒有分派它"]),
+    AGMCase(desc: "migrated：負控不在 run-guards.sh 裡跑", guardRel: "akashic-guards migrated-guard-control", edits: [
+        AGMEdit(path: ".githooks/run-guards.sh", kind: "replaceFirst", a: ".build/debug/akashic-guards network-confinement-mutations\n", b: ""),
+    ], expect: ["缺負控", "`akashic-guards network-confinement` 在 run-guards.sh 裡跑"]),
+    // 命令替換裡的呼叫也是實際執行（`plugin_roots=$(… plugin-roots)` 的形狀）；只認行首時它不在名單裡。
+    AGMCase(desc: "migrated：命令替換裡跑的守衛沒有負控", guardRel: "akashic-guards migrated-guard-control", edits: [
+        AGMEdit(path: ".githooks/run-guards.sh", kind: "replaceFirst", a: ".build/debug/akashic-guards migrated-guard-control", b: "probe=$(.build/debug/akashic-guards fake-subst-guard)\n.build/debug/akashic-guards migrated-guard-control"),
+    ], expect: ["缺負控", "fake-subst-guard"]),
     // ── plugin-store-format-parity（#408／#629）：宣告的 store format 必須等於 `StoreVersion.supported` ──
     // 注入不寫死數字（寫死就是第三份副本）：在 `supported` 前面塞一個 `9`（`21` → `921`）、或在宣告的數字前塞一個 `9`，
     // 讓兩邊必然不等，而不必知道當下的版號。

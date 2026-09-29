@@ -127,6 +127,8 @@ case "plugin-roots":   // #625：plugin 根目錄的唯一來源，給 shell 端
     exit(pluginRootsCommand())
 case "official-validate":   // #625：claude plugin validate ＋ 只有一項的封閉允許清單
     exit(officialValidate())
+case "official-validate-mutations":   // #689：假的 claude 印出錯的報告，official-validate 會紅嗎
+    exit(officialValidateMutations())
 case "marketplace-consistency":   // #625：plugin 根與 marketplace manifest 雙向一致
     exit(marketplaceConsistency())
 case "plugin-roots-mutations":   // #625：plugin/ 以外的 plugin 根，守衛看得見嗎

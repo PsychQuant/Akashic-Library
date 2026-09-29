@@ -33,6 +33,7 @@ Sources/akashic-guards/MigratedGuardControl.swift
 Sources/akashic-guards/NetworkConfinement.swift
 Sources/akashic-guards/NetworkConfinementMutations.swift
 Sources/akashic-guards/OfficialValidate.swift
+Sources/akashic-guards/OfficialValidateMutations.swift
 Sources/akashic-guards/OraclePreconditionControl.swift
 Sources/akashic-guards/ParityTableDrift.swift
 Sources/akashic-guards/PluginRoots.swift

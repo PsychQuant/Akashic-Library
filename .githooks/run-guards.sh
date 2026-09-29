@@ -43,6 +43,8 @@ done
 # #625：官方 plugin／marketplace 驗證（`--json` ＋ 只有一項的封閉允許清單，理由在
 # `OfficialValidate.swift` 開頭）。沒有 claude CLI 時（CI runner）印出略過——不靜默。
 .build/debug/akashic-guards official-validate
+# #689：它的負對照。用假的 `claude` 印出錯的報告，所以 CI runner（沒有 claude CLI）上每一格也都會跑。
+.build/debug/akashic-guards official-validate-mutations
 # （原本這裡有 `bash plugin/tests/review-claim-audit.sh`——逐條重建 #407 R10 審查者宣稱的失敗情境。#629 移除它：
 #  九條 finding 的受測物（`literal-census.sh` 的探測寫法、`store-marker-parity.sh` 的 5000 前導零 fixture、
 #  parity workflow 的生成表 paths、`derive-hash-extenders.swift` 的假 `--check`）隨 census 移植成 Swift 而全部不存在，

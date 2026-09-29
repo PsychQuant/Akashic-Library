@@ -46,6 +46,8 @@ final class FulltextFetchPathTests: XCTestCase {
         var onCall: ((String) -> Void)?
         /// `js --large --output` 被叫時，輸出檔所在的暫存目錄的權限位元（八進位）。
         var scratchMode: Int?
+        /// 開始取 PDF 的那段 JS（`fetch(…)` 那一段）的原文；nil＝fetch 沒有發。
+        var fetchSource: String?
         init(_ s: Scenario) { scenario = s }
 
         private func opt(_ args: [String], _ name: String) -> String? { args.firstIndex(of: name).flatMap { $0 + 1 < args.count ? args[$0 + 1] : nil } }
@@ -81,7 +83,7 @@ final class FulltextFetchPathTests: XCTestCase {
                     if let redirect = scenario.redirectAfterCheck, !checked { tabs[k - 1].url = redirect; checked = true }
                     return SafariRun(status: 0, stdout: scenario.pageText + "\n")
                 }
-                if src.contains("window.__aff = ") { return SafariRun(status: 0, stdout: "started\n") }
+                if src.contains("window.__aff = ") { fetchSource = src; return SafariRun(status: 0, stdout: "started\n") }
                 if file != nil { return SafariRun(status: 0, stdout: scenario.link + "\n") }
                 if src.contains("JSON.stringify({s:") { return SafariRun(status: 0, stdout: (scenario.meta ?? "") + "\n") }
                 if let output = opt(args, "--output") {
@@ -282,7 +284,7 @@ final class FulltextFetchPathTests: XCTestCase {
         try Data("*\n".utf8).write(to: decoy.appendingPathComponent(".git/info/exclude"))
         setenv("GIT_DIR", decoy.appendingPathComponent(".git").path, 1)
         defer { unsetenv("GIT_DIR") }
-        XCTAssertEqual(LibraryStore.scrubbedGitEnvironment.keys.filter { $0.hasPrefix("GIT_") }, ["GIT_ATTR_NOSYSTEM"], "剝除後只剩 helper 自己設的那一個 GIT_*")
+        XCTAssertNil(LibraryStore.scrubbedGitEnvironment["GIT_DIR"], "呼叫端的 GIT_DIR 不得留到閘的 git 裡")   // 不釘 helper 自己設哪些 GIT_*（那是另一個模組的細節，R2 verify 第 41 則）
         browser = FakeBrowser(base); stdout = []; stderr = []
         let fetcher = FulltextFetch(browser: browser, sleeper: { _ in }, out: { self.stdout.append($0) }, err: { self.stderr.append($0) })
         let code = fetcher.run(.init(window: 5, landing: Self.landing, out: target.appendingPathComponent("w.pdf").path))

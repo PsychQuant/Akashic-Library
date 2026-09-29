@@ -92,7 +92,7 @@ final class FulltextFetchHardeningTests: XCTestCase {
         try write("old", to: target)
         XCTAssertEqual(run(base), 0, errText)
         XCTAssertEqual(try Data(contentsOf: target), FulltextFetchPathTests.pdfBody)
-        let leftovers = try FileManager.default.contentsOfDirectory(atPath: outDir.path).filter { $0.hasSuffix(".tmp") }
+        let leftovers = try FileManager.default.contentsOfDirectory(atPath: outDir.path).filter { $0.hasPrefix(".") }
         XCTAssertEqual(leftovers, [], "不留暫存檔")
     }
 
@@ -133,7 +133,9 @@ final class FulltextFetchHardeningTests: XCTestCase {
     func testAWriteFailureAfterTheTempFileWasCreatedKeepsTheOriginalFile() throws {
         let target = outDir.appendingPathComponent("w.pdf")
         try write("original", to: target)
-        signal(SIGXFSZ, SIG_IGN)
+        // 行程層級的狀態：只在這幾行之間改，結束時還原成**原本的**處置與上限（R2 verify 第 41 則：先前還原成 SIG_DFL）。
+        // 測試是依序跑的；平行執行（`--parallel`）時同一段時間裡別的寫入會碰到 EFBIG——這支測試因此不適合平行跑。
+        let previousHandler = signal(SIGXFSZ, SIG_IGN)
         var previous = rlimit()
         XCTAssertEqual(getrlimit(RLIMIT_FSIZE, &previous), 0)
         var small = rlimit(rlim_cur: 16, rlim_max: previous.rlim_max)
@@ -141,10 +143,10 @@ final class FulltextFetchHardeningTests: XCTestCase {
         var thrown: Error?
         do { try OutputFile.replace(path: target.path, with: Data(repeating: 0x41, count: 4096)) } catch { thrown = error }
         setrlimit(RLIMIT_FSIZE, &previous)
-        signal(SIGXFSZ, SIG_DFL)
+        signal(SIGXFSZ, previousHandler)
         XCTAssertNotNil(thrown, "寫不下去要丟錯，不是靜默成功")
         XCTAssertEqual(try String(contentsOf: target, encoding: .utf8), "original")
-        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: outDir.path).filter { $0.hasSuffix(".tmp") }, [], "不留暫存檔")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: outDir.path).filter { $0.hasPrefix(".") }, [], "不留暫存檔")
     }
 
     // MARK: 網址：只收 https
@@ -158,6 +160,25 @@ final class FulltextFetchHardeningTests: XCTestCase {
         XCTAssertEqual(run(base, configure: { $0.prime = "http://pub.example/x.pdf" }), 1)
         XCTAssertTrue(browser.calls.isEmpty, "\(browser.calls)")
         XCTAssertTrue(errText.contains("--prime must be an https"), errText)
+    }
+
+    /// 兩個網址都在使用者已登入的 profile 裡開：主機要是公開的網域名稱——web-access.md〈插值前先驗形狀〉「完整網址」一列的主機部分與禁用字元
+    /// （R2 verify 第 34 則：先前只查 `https://` 前綴）。路徑的字元集不套那一列：SICI 式 DOI 的 `<`、`>` 在 doi.org 網址裡是合法的。
+    func testLandingAndPrimeMustHaveAPublicHostName() {
+        let bad = ["https://localhost/x", "https://127.0.0.1/x", "https://[::1]/x", "https://router.local/x", "https://svc.corp/x", "https://intranet/x",
+                   "https://user@doi.org/10.1/x", "https://doi.org:8443/10.1/x", "https://doi.org./10.1/x", "https://doi.org/10.1/../x",
+                   "https://doi.org/10.1/%2e%2E/x", "https://doi.org/10.1/x#frag", "https://doi.org/10.1/x\"y", "https://doi.org/10.1/x y",
+                   "https://doi.org/10.1/x$(id)", #"https://doi.org/10.1/x\y"#, "https://1.2.3.4/x"]
+        for url in bad {
+            XCTAssertEqual(run(base, landing: url), 1, url)
+            XCTAssertTrue(browser.calls.isEmpty, "\(url)：\(browser.calls)")
+            XCTAssertTrue(errText.contains("--landing must be an https"), "\(url)：\(errText)")
+        }
+        XCTAssertEqual(run(base, configure: { $0.prime = "https://127.0.0.1/x.pdf" }), 1)
+        XCTAssertTrue(errText.contains("--prime must be an https"), errText)
+        for url in ["https://doi.org/10.1002/(sici)1097-0258(19980430)17:8<873::aid-sim777>3.0.co;2-B", "https://dx.doi.org/10.1/x", "https://DOI.org/10.1/a?b=c"] {
+            XCTAssertEqual(run(base, landing: url), 0, "\(url)：\(errText)")
+        }
     }
 
     // MARK: 頁面連結的來源：帶 credentials 的 fetch 不打到頁面選的別的站
@@ -178,21 +199,57 @@ final class FulltextFetchHardeningTests: XCTestCase {
         }
     }
 
-    func testSameSiteAndRelativeLinksAreAllowed() {
-        var s = base; s.link = "GET /doi/pdf/10.1/x"
-        XCTAssertEqual(run(s), 0, errText)
-        s.link = "GET //pub.example/doi/pdf/10.1/x"
-        XCTAssertEqual(run(s), 0, errText)
-        s.link = "GET https://PUB.example/doi/pdf/10.1/x"
-        XCTAssertEqual(run(s), 0, errText)
+    /// 同站的絕對網址放行，而且**發出去的就是驗過的那一串**（`fetch.js` 裡的字串字面值）。
+    func testSameSiteAbsoluteLinksAreAllowedAndTheValidatedStringIsTheFetchedString() {
+        for link in ["https://pub.example/doi/pdf/10.1/x", "https://PUB.example/doi/pdf/10.1/x", "https://pub.example/a.pdf?x=1#frag"] {
+            var s = base; s.link = "GET " + link
+            XCTAssertEqual(run(s), 0, "\(link)：\(errText)")
+            XCTAssertTrue(browser.fetchSource?.contains("fetch(\(PyJSON.javaScriptLiteral(link)),") == true, "\(link)：\(browser.fetchSource ?? "<no fetch>")")
+        }
     }
 
-    func testFetchTargetOriginResolution() {
-        XCTAssertEqual(FulltextFetch.fetchTargetOrigin("/a/b.pdf", page: "https://pub.example/x"), "https://pub.example")
-        XCTAssertEqual(FulltextFetch.fetchTargetOrigin("//cdn.example/a.pdf", page: "https://pub.example/x"), "https://cdn.example")
-        XCTAssertEqual(FulltextFetch.fetchTargetOrigin("https://cdn.example/a.pdf", page: "https://pub.example/x"), "https://cdn.example")
-        XCTAssertNil(FulltextFetch.fetchTargetOrigin("javascript:1", page: "https://pub.example/x"))
-        XCTAssertNil(FulltextFetch.fetchTargetOrigin("data:text/plain,x", page: "https://pub.example/x"))
+    /// #629 R2 verify 第 0／9／12／20 則：Swift 側的檢查曾用 `urlsplit` 式的解析，瀏覽器的 `fetch` 用 WHATWG——反斜線當斜線、`https:` 後面
+    /// 多出來的斜線當主機分隔。下面每一串在舊檢查裡都判成「同站」，瀏覽器卻打到 `evil.example`（驗證席以 Node 的 `new URL(u, 頁面)` 實測）。
+    /// 現在 `linkJS` 在頁面裡把連結解析成絕對網址，Swift 只收「`https://` 開頭、沒有反斜線、空白或控制字元」的字串再比 origin；
+    /// 相對或協定相對的形狀只會在瀏覽器解析失敗時原樣回來，一律拒絕。
+    func testBackslashSlashRunAndRelativeLinksAreRefusedNotFetched() {
+        let bad = [
+            #"\\evil.example/x.pdf"#, #"\evil.example/x.pdf"#, #"/\evil.example/x.pdf"#, #"\/evil.example/x.pdf"#,
+            "///evil.example/x.pdf", "////evil.example/x.pdf", "  //evil.example/x.pdf", "//pub.example/doi/pdf/10.1/x", "/doi/pdf/10.1/x",
+            "https:///evil.example/x.pdf", #"https:\\evil.example/x.pdf"#, #"https://\evil.example/x.pdf"#, #"https:/\evil.example/x.pdf"#,
+            #"https://pub.example\@evil.example/x.pdf"#, "https://pub.example@evil.example/x.pdf", "https://pub.example:443@evil.example/x.pdf",
+            "https://pub.example/x\t.pdf", "https://pub.example/x .pdf", "http://pub.example/x.pdf",
+        ]
+        for link in bad {
+            var s = base; s.link = "GET " + link
+            XCTAssertEqual(run(s), 1, "\(link)：\(errText)")
+            XCTAssertTrue(errText.contains("refusing a credentialed fetch"), "\(link)：\(errText)")
+            XCTAssertNil(browser.fetchSource, "\(link)：fetch 不該發出")
+        }
+    }
+
+    /// 頁面有惡意的 `<base href>` 時，`linkJS` 以 `document.baseURI` 解析出的是別站的絕對網址——這是它交回來的樣子，要被拒。
+    func testALinkResolvedAgainstAHostileBaseIsRefused() {
+        var s = base; s.link = "GET https://evil.example/doi/pdf/10.1/x"
+        XCTAssertEqual(run(s), 1, errText)
+        XCTAssertNil(browser.fetchSource)
+    }
+
+    /// `citation_pdf_url` 的 `content` 是原始字串（不像 `a.href`、`form.action` 已被瀏覽器解析）：要在頁面裡用 WHATWG 解析成絕對網址再交回，
+    /// 解析失敗才原樣交回（Swift 側一律拒絕非絕對的形狀）。
+    func testTheMetaLinkIsResolvedInThePage() {
+        XCTAssertTrue(FulltextFetch.linkJS.contains("if (m && m.content) { try { return 'GET ' + new URL(m.content, document.baseURI).href; } catch (e) { return 'GET ' + m.content; } }\n"), FulltextFetch.linkJS)
+        XCTAssertFalse(FulltextFetch.linkJS.contains("if (m && m.content) return 'GET ' + m.content;"))
+    }
+
+    func testFetchTargetOrigin() {
+        XCTAssertEqual(FulltextFetch.fetchTargetOrigin("https://pub.example/a/b.pdf"), "https://pub.example")
+        XCTAssertEqual(FulltextFetch.fetchTargetOrigin("https://cdn.example/a.pdf"), "https://cdn.example")
+        XCTAssertEqual(FulltextFetch.fetchTargetOrigin("HTTPS://Pub.Example/a.pdf"), "https://pub.example")
+        for u in ["/a/b.pdf", "//cdn.example/a.pdf", "javascript:1", "data:text/plain,x", "blob:https://pub.example/u", "http://pub.example/a.pdf",
+                  #"\\evil.example/a"#, "///evil.example/a", "https:///evil.example/a", #"https://pub.example\x"#, "https://pub.example/a b", "https://"] {
+            XCTAssertNil(FulltextFetch.fetchTargetOrigin(u), u)
+        }
     }
 
     // MARK: base64、暫存目錄權限
@@ -305,6 +362,36 @@ final class FulltextFetchHardeningTests: XCTestCase {
         XCTAssertEqual(GitFixture.run(["config", "core.fsmonitor", hook.path], in: repo), 0)
         XCTAssertEqual(fetch(into: repo), 1, "repo 沒忽略輸出檔：\(errText)")
         XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path), "閘不得執行目標 repo 設定的命令")
+    }
+
+    // MARK: 原子替換的暫存檔也在 git 閘裡（R2 verify 第 2／33 則）
+
+    /// 暫存檔名保留目的地的整個檔名當尾巴：以副檔名忽略的規則（`*.pdf`、`*.response.txt`）同樣蓋得到它。
+    func testTheTempNameKeepsTheDestinationNameAsItsSuffix() {
+        XCTAssertEqual(OutputFile.tempPath(for: "/a/b/w.pdf", token: "T0K"), "/a/b/.T0K.w.pdf")
+        XCTAssertEqual(OutputFile.tempPath(for: "/a/b/w.response.txt", token: "T0K"), "/a/b/.T0K.w.response.txt")
+        XCTAssertEqual(OutputFile.tempPath(for: "w.pdf", token: "T0K"), "./.T0K.w.pdf")
+    }
+
+    /// 只以 `*.pdf`、`*.response.txt` 忽略輸出的樹：真的 git 也把三個暫存檔名判成已忽略——寫到一半被中斷，留下的暫存檔也不會被 `git add -A` 收進去。
+    func testSuffixIgnoreRulesAlsoCoverTheTempNames() throws {
+        let repo = try initRepo("repo-suffix")
+        try write("*.pdf\n*.response.txt\n", to: repo.appendingPathComponent(".gitignore"))
+        for name in ["w.pdf", "w.unverified.pdf", "w.response.txt"] {
+            let temp = OutputFile.tempPath(for: repo.appendingPathComponent(name).path, token: UUID().uuidString)
+            XCTAssertEqual(GitFixture.run(["check-ignore", "-q", "--", temp], in: repo), 0, temp)
+        }
+        XCTAssertEqual(fetch(into: repo), 0, errText)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: repo.path).filter { $0.hasPrefix(".") && $0 != ".git" && $0 != ".gitignore" }, [], "不留暫存檔")
+    }
+
+    /// 只忽略三個最終檔名（逐字）的樹：暫存檔名沒被忽略，閘在碰瀏覽器之前就拒絕、說出是暫存檔。
+    func testATreeThatIgnoresOnlyTheFinalNamesIsRefusedBecauseOfTheTempName() throws {
+        let repo = try initRepo("repo-exact")
+        try write("/w.pdf\n/w.unverified.pdf\n/w.response.txt\n", to: repo.appendingPathComponent(".gitignore"))
+        XCTAssertEqual(fetch(into: repo), 1, errText)
+        XCTAssertTrue(browser.calls.isEmpty, "\(browser.calls)")
+        XCTAssertTrue(errText.contains("temporary name"), errText)
     }
 
     // MARK: ToolRunner 的逾時（poppler 對第三方 PDF）

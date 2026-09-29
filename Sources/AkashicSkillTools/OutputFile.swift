@@ -44,8 +44,19 @@ enum OutputFile {
         return (st.st_mode & S_IFMT) == S_IFREG ? .regular : .other(kindName(st.st_mode))
     }
 
+    /// 原子替換用的暫存檔：`<目的地目錄>/.<token>.<目的地檔名>`。
+    ///
+    /// **尾巴是目的地的整個檔名**（R2 verify 第 2／33 則）：先前是 `.<檔名>.<UUID>.tmp`，而只以 `*.pdf`、`*.response.txt` 忽略輸出的
+    /// 工作樹不忽略 `.tmp`——第三方全文在寫入期間（行程被殺時則永久）以一個沒被忽略的名字躺在工作樹裡。尾巴保留檔名，以副檔名忽略的規則
+    /// 就同樣蓋得到它；`fulltext fetch` 的 git 閘另外拿**同一個 token** 算出的名字去問 `check-ignore`，只逐字忽略最終檔名的樹會被拒絕。
+    static func tempPath(for path: String, token: String) -> String {
+        let dir = (path as NSString).deletingLastPathComponent
+        let name = (path as NSString).lastPathComponent
+        return (dir.isEmpty ? "." : dir) + "/.\(token).\(name)"
+    }
+
     /// 原子替換（或建立）`path` 為 `data`。目的地是普通檔或不存在才動手；任何一步失敗都不留暫存檔、不動原本的東西。
-    static func replace(path: String, with data: Data) throws {
+    static func replace(path: String, with data: Data, token: String = UUID().uuidString) throws {
         let shown = displaySafeInvisible(path, max: 400)
         switch try inspect(path) {
         case .other(let kind):
@@ -53,9 +64,7 @@ enum OutputFile {
         case .absent, .regular:
             break
         }
-        let dir = (path as NSString).deletingLastPathComponent
-        let name = (path as NSString).lastPathComponent
-        let tmp = (dir.isEmpty ? "." : dir) + "/.\(name).\(UUID().uuidString).tmp"
+        let tmp = tempPath(for: path, token: token)
         let fd = open(tmp, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o666)
         guard fd >= 0 else {
             throw SkillToolError.failure("cannot write \(shown): \(displaySafeInvisible(String(cString: strerror(errno)), max: 200))")   // display-safe-exempt: shown 上面已 displaySafeInvisible

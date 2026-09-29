@@ -36,8 +36,9 @@ import AkashicStoreIO
 ///   特殊檔具名拒絕。覆寫普通檔是同目錄暫存＋`rename` 的原子替換（`OutputFile`）——不遞迴刪任何東西、失敗時原檔還在。
 /// - **git 閘 fail-closed**：輸出目錄的祖先有 `.git` 時，git 執行不起來、`rev-parse` 非零、`check-ignore` 不是 0／1，一律拒絕。git 一律走
 ///   `LibraryStore.hardenedGit`（#585 的同一支）。
-/// - `--landing`、`--prime` 只收 `https://`；頁面自己給的 PDF 連結（DOM 來的）origin 要與頁面相同才發 `credentials:'include'` 的 fetch，
-///   出版商規則（`PdfUrlRules`）產生的網址不受此限。`--expect-profile` 在命令列層必填。
+/// - `--landing`、`--prime` 只收 `https://`；頁面自己給的 PDF 連結（DOM 來的）在頁面裡以 WHATWG 解析成絕對網址（`linkJS`），Swift 只收
+///   `https://` 開頭、沒有反斜線／空白／控制字元、origin 與頁面相同的字串，才發 `credentials:'include'` 的 fetch——發出去的就是驗過的
+///   那一串（R2 verify 第 0 則）。出版商規則（`PdfUrlRules`）產生的網址不受此限。`--expect-profile` 在命令列層必填。
 /// - 暫存目錄 0700；poppler 對第三方 PDF 有逾時（`ToolRunner.popplerTimeout`）。
 ///
 /// **仍沒有的**：沒對真的 `safari-browser` 跑過（只對記憶體內的假瀏覽器與舊 Python stub）；`siteGuard` 的七個呼叫點沒有逐一被測試單獨釘住
@@ -76,11 +77,15 @@ public final class FulltextFetch {
     /// 我們自己開的分頁在視窗裡的位置；空字串＝目前沒有。
     private var ownTab = ""
     private var scratch = URL(fileURLWithPath: "/")
+    /// 這一次執行寫輸出檔時用的暫存檔 token：git 閘問的暫存檔名與真的寫下的是同一個（`OutputFile.tempPath`）。
+    private var outputToken = UUID().uuidString
 
     public init(browser: SafariBrowser, sleeper: @escaping (Double) -> Void = { Thread.sleep(forTimeInterval: $0) },
                 out: @escaping (String) -> Void, err: @escaping (String) -> Void,
-                git: @escaping GitRunner = { LibraryStore.hardenedGit($0, in: $1) }) {
-        self.browser = browser; self.sleeper = sleeper; self.out = out; self.err = err; self.git = git
+                git: GitRunner? = nil) {
+        // nil＝預設的加固 git（`hardenedGit` 是 `package` 存取層級，不能當公開 init 的預設引數值）
+        self.browser = browser; self.sleeper = sleeper; self.out = out; self.err = err
+        self.git = git ?? { LibraryStore.hardenedGit($0, in: $1) }
     }
 
     /// 跑完整條流程，回結束碼。
@@ -217,10 +222,11 @@ public final class FulltextFetch {
         defer { try? FileManager.default.removeItem(at: scratch) }
 
         // --- 網址與檔案落在哪裡：在碰瀏覽器**之前**檢查 ---
-        // 兩個網址都會在使用者已登入的 profile 裡開：只收 https（`file:`、`javascript:`、`http:` 一律拒絕，R1 verify 第 31 則）
+        // 兩個網址都會在使用者已登入的 profile 裡開：只收 https（`file:`、`javascript:`、`http:` 一律拒絕，R1 verify 第 31 則），主機要是
+        // 公開的網域名稱（R2 verify 第 34 則，`landingShapeProblem`）
         for (flag, value) in [("--landing", o.landing), ("--prime", o.prime ?? "")] where !value.isEmpty {
-            guard value.lowercased().hasPrefix("https://") else {
-                throw fail("\(flag) must be an https:// URL: \(displaySafeInvisible(value, max: 300))")
+            if let why = FulltextFetch.landingShapeProblem(value) {
+                throw fail("\(flag) must be an https:// URL with a public host name (\(why)): \(displaySafeInvisible(value, max: 300))")
             }
         }
         let outURL = URL(fileURLWithPath: o.out)
@@ -242,7 +248,9 @@ public final class FulltextFetch {
                 throw Stop(code: 1)
             }
         }
-        try outputGitGate(outDir: outDir, files: [outPath, unverified, response])
+        outputToken = UUID().uuidString
+        let finals = [outPath, unverified, response]
+        try outputGitGate(outDir: outDir, files: finals, temps: finals.map { OutputFile.tempPath(for: $0, token: outputToken) })
 
         // 視窗不存在，或它的分頁都沒有 profile 欄位：兩者對這支程式是同一件事——無從確認它屬於誰，不碰
         let profile = Set(docs().filter { $0.window == window }.compactMap(\.profile).filter { !$0.isEmpty }).sorted().joined(separator: ",")
@@ -305,9 +313,9 @@ public final class FulltextFetch {
             // 頁面自己的連結來自 DOM（`citation_pdf_url`、`a[href]`、表單的 `action`），下面的 fetch 帶 `credentials:'include'`：
             // 頁面說了算的目標若不是這個站，就會用使用者的 session 打到頁面選的位置（R1 verify 第 31 則）。規則檔（出版商網址規則）
             // 產生的網址不受此限——它們是本 repo 寫死的。拒絕不是中止條款（不是網站起疑，是頁面給了一個不能照做的連結）：結束碼 1，分頁留著。
-            let target = FulltextFetch.fetchTargetOrigin(pdfURL, page: final)
-            if target?.lowercased() != site.lowercased() {
-                throw fail("the page's PDF link points off-site (\(displaySafeInvisible(target ?? "not an http(s) URL", max: 200)), page origin \(displaySafeInvisible(site, max: 200))): \(displaySafeInvisible(pdfURL, max: 400)) — refusing a credentialed fetch to a target the page chose")
+            let target = FulltextFetch.fetchTargetOrigin(pdfURL)
+            if target != site.lowercased() {
+                throw fail("the page's PDF link points off-site (\(displaySafeInvisible(target ?? "not an absolute https URL", max: 200)), page origin \(displaySafeInvisible(site, max: 200))): \(displaySafeInvisible(pdfURL, max: 400)) — refusing a credentialed fetch to a target the page chose")
             }
         } else {
             err("no PDF link on \(displaySafeInvisible(final, max: 600))")
@@ -363,12 +371,12 @@ public final class FulltextFetch {
             let (verdict, ok) = FulltextFetch.verdictJSON(path: staged.path, title: title, pages: o.pages, doi: doi)
             out("verify: \(verdict)")
             if !ok {
-                try OutputFile.replace(path: unverified, with: body)
+                try OutputFile.replace(path: unverified, with: body, token: outputToken)
                 err("kept as \(displaySafeInvisible(unverified, max: 400))")
                 throw Stop(code: 5)
             }
         }
-        try OutputFile.replace(path: outPath, with: body)
+        try OutputFile.replace(path: outPath, with: body, token: outputToken)
         out("OK \(body.count) bytes -> \(displaySafeInvisible(outPath, max: 400))")
     }
 
@@ -384,9 +392,12 @@ public final class FulltextFetch {
     /// - git 一律走 `LibraryStore.hardenedGit`（#585 的同一支：絕對路徑、剝 `GIT_*`、`core.fsmonitor=false`、`core.attributesFile`），
     ///   所以 PATH 上的 shim 不能替 `check-ignore` 作答、目標 repo 的 `core.fsmonitor` 不會在閘裡執行。
     ///
-    /// **範圍照實寫**：這道閘擋的是「輸出目錄的某個祖先有 `.git`、而那個 repo 沒有忽略這三個檔」。它不管 git 的環境變數之外的事：
-    /// repo 自己的 `.gitattributes`、`info/attributes`、global config 裡被它點名的 filter driver 仍是 `hardenedGit` 記著的邊界。
-    private func outputGitGate(outDir: String, files: [String]) throws {
+    /// - 三個最終檔名之外，也問**寫入時的暫存檔名**（`temps`，與真的寫入同一個 token）：原子替換先把全文寫進暫存檔再 `rename`，暫存檔名
+    ///   沒被忽略的話，寫入期間（行程被殺時則永久）全文以一個版控看得到的名字躺在工作樹裡（R2 verify 第 2／33 則）。
+    ///
+    /// **範圍照實寫**：這道閘擋的是「輸出目錄的某個祖先有 `.git`、而那個 repo 沒有忽略這三個檔（或它們的暫存檔名）」。它不管 git 的環境變數
+    /// 之外的事：repo 自己的 `.gitattributes`、`info/attributes`、global config 裡被它點名的 filter driver 仍是 `hardenedGit` 記著的邊界。
+    private func outputGitGate(outDir: String, files: [String], temps: [String]) throws {
         let dir = URL(fileURLWithPath: outDir)
         guard LibraryStore.isInsideVersionedWorkTree(dir) else { return }
         func refuse(_ why: String) -> Stop {
@@ -400,7 +411,7 @@ public final class FulltextFetch {
         guard inside.status == 0, inside.out.trimmingCharacters(in: .whitespacesAndNewlines) == "true" else {
             throw refuse("git could not confirm the working tree (rev-parse exit \(inside.status))")   // display-safe-exempt: inside：status 是 Int32 結束碼
         }
-        for f in files {
+        for f in files + temps {
             guard let r = git(["check-ignore", "-q", "--", f], dir) else {
                 throw refuse("git cannot be run, so it cannot be confirmed that \(displaySafeInvisible(f, max: 400)) is ignored")
             }
@@ -408,7 +419,8 @@ public final class FulltextFetch {
             case 0: continue
             case 1:
                 let top = git(["rev-parse", "--show-toplevel"], dir).map { $0.out.trimmingCharacters(in: .whitespacesAndNewlines) } ?? ""
-                err("✗ refusing: \(displaySafeInvisible(f, max: 400)) would land in the git working tree \(displaySafeInvisible(top, max: 400)), which does not ignore it.")
+                let what = temps.contains(f) ? "\(displaySafeInvisible(f, max: 400)) (the temporary name written before the atomic rename)" : displaySafeInvisible(f, max: 400)
+                err("✗ refusing: \(what) would land in the git working tree \(displaySafeInvisible(top, max: 400)), which does not ignore it.")
                 err("  Full text is third-party content. Write to a scratch directory outside git, then store it with akashic store-source.")
                 throw Stop(code: 1)
             default:
@@ -420,7 +432,7 @@ public final class FulltextFetch {
     /// 存不是 PDF 的回應本文給人看。存不成不改變結束碼（2／4 仍是那個意思），但不能說「saved」。
     private func savedResponse(_ body: Data, at path: String) -> String {
         do {
-            try OutputFile.replace(path: path, with: body)
+            try OutputFile.replace(path: path, with: body, token: outputToken)
             return "saved as \(displaySafeInvisible(path, max: 400))"
         } catch {
             err("⚠ could not save the response body: \(displaySafeErrorText(error))")
@@ -428,16 +440,55 @@ public final class FulltextFetch {
         }
     }
 
-    /// `fetch(url)` 會打到哪個 origin：相對路徑落在頁面的 origin；`//host/…` 用頁面的 scheme；有 scheme 卻沒有主機
-    /// （`javascript:`、`data:`、`blob:`）不是任何網站，回 nil。
-    static func fetchTargetOrigin(_ url: String, page: String) -> String? {
+    /// 頁面給的 PDF 連結會打到哪個 origin（小寫）；不是「可以照字面比 origin 的絕對 https 網址」就回 nil＝拒絕。
+    ///
+    /// **只收 `linkJS` 在頁面裡解析好的絕對網址**（R2 verify 第 0、9、12、20 則）。先前這裡自己解析相對網址（`urlsplit` 的子集），而 `fetch` 在
+    /// 瀏覽器裡走 WHATWG：`\\evil.example/x`、`/\evil.example/x`、`///evil.example/x`、`https:///evil.example/x` 在這裡是「同站的路徑」，
+    /// 在瀏覽器裡是 `https://evil.example/x`。現在：開頭必須是 `https://`；整串不得有反斜線、空白或控制字元（WHATWG 序列化出來的網址
+    /// 不會有）；`://` 之後到第一個 `/?#` 的主機段不得是空的。主機段含 `@`（帶帳密）或埠號時照字面比，與頁面 origin 對不上＝拒絕。
+    static func fetchTargetOrigin(_ url: String) -> String? {
+        guard url.lowercased().hasPrefix("https://"),
+              !url.unicodeScalars.contains(where: { $0 == "\\" || $0.value < 0x21 || (0x7F...0x9F).contains($0.value) || $0.properties.isWhitespace })
+        else { return nil }
         let parts = URLSplit(url)
-        if parts.netloc.isEmpty { return parts.scheme.isEmpty ? URLSplit(page).origin : nil }
-        let scheme = parts.scheme.isEmpty ? URLSplit(page).scheme : parts.scheme
-        return "\(PyText.string(scheme))://\(PyText.string(parts.netloc))"
+        guard !parts.netloc.isEmpty else { return nil }
+        return "https://\(PyText.string(parts.netloc))".lowercased()
     }
 
     // MARK: 純函式（測試直接呼叫）
+
+    /// `--landing`／`--prime` 的形狀：web-access.md〈插值前先驗形狀〉「完整網址」一列的**主機部分與禁用字元**（R2 verify 第 34 則；先前只查
+    /// `https://` 前綴，`https://127.0.0.1/`、`https://router.local/`、`https://user@host/` 都會在使用者已登入的 profile 裡開）。回 nil＝通過。
+    ///
+    /// - 只收 `https://`；整串不得有 `'`、`"`、反斜線、反引號、`$`、`#`、空白或控制字元；
+    /// - 主機＝`([A-Za-z0-9-]+\.)+[A-Za-z]{2,}`（至少一個點、最後一段是字母——擋掉 `localhost`、IP 位址、帶埠號或 `user@` 的主機），最後一段
+    ///   不是 `local`、`localhost`、`internal`、`lan`、`intranet`、`corp`、`arpa`；
+    /// - 路徑段（百分比解碼後）不是 `.` 或 `..`。
+    ///
+    /// **路徑的字元集不套那一列**：`--landing` 通常是 `https://doi.org/<DOI>`，SICI 式 DOI 的 `<`、`>` 在那裡是合法的（DOI 一列管它）。
+    static func landingShapeProblem(_ url: String) -> String? {
+        guard url.lowercased().hasPrefix("https://") else { return "not https://" }
+        let forbidden = Set("'\"\\`$#".unicodeScalars)
+        if let bad = url.unicodeScalars.first(where: { forbidden.contains($0) || $0.value < 0x21 || (0x7F...0x9F).contains($0.value) || $0.properties.isWhitespace }) {
+            return String(format: "contains U+%04X", bad.value)
+        }
+        let parts = URLSplit(url)
+        let host = PyText.string(parts.netloc)
+        let labels = host.split(separator: ".", omittingEmptySubsequences: false)
+        let isLabel: (Substring) -> Bool = { !$0.isEmpty && $0.unicodeScalars.allSatisfy { $0.isASCII && ($0.properties.isAlphabetic || ("0"..."9").contains($0) || $0 == "-") } }
+        guard labels.count >= 2, labels.allSatisfy(isLabel), let last = labels.last, last.count >= 2,
+              last.unicodeScalars.allSatisfy({ $0.isASCII && $0.properties.isAlphabetic }) else {
+            return "the host is not a public DNS name: no localhost, IP address, port or user@"
+        }
+        if ["local", "localhost", "internal", "lan", "intranet", "corp", "arpa"].contains(last.lowercased()) {
+            return "the host ends in a private-network name"
+        }
+        for segment in parts.path.split(separator: "/", omittingEmptySubsequences: false) {
+            let decoded = String(segment).removingPercentEncoding ?? String(segment)
+            if decoded == "." || decoded == ".." { return "a path segment is . or .." }
+        }
+        return nil
+    }
 
     /// `cd dir && pwd -P`：解開全部 symlink 的實體路徑（`realpath(3)`）。解不開時原樣回傳。
     static func physicalPath(_ path: String) -> String {
@@ -535,12 +586,14 @@ public final class FulltextFetch {
 
     """
 
-    /// 讀頁面的 PDF 連結：表單（POST）、`citation_pdf_url` 中繼標籤、或幾種連結樣式（GET）。
+    /// 讀頁面的 PDF 連結：表單（POST）、`citation_pdf_url` 中繼標籤、或幾種連結樣式（GET）。`f.action` 與 `a.href` 瀏覽器已解析成絕對網址；
+    /// 中繼標籤的 `content` 是原始字串，用 `new URL(…, document.baseURI)` 照 `fetch` 會用的同一個基準解析（頁面的 `<base href>` 指到別站時
+    /// 解析出來就是別站，由 `fetchTargetOrigin` 拒絕）。解析失敗時原樣交回，Swift 側拒絕（它不是 `https://` 開頭的絕對網址）。
     static let linkJS = """
     const f = document.querySelector('form.ft-download-content__form--pdf');
     if (f) return 'POST ' + f.action;
     const m = document.querySelector('meta[name=citation_pdf_url]');
-    if (m && m.content) return 'GET ' + m.content;
+    if (m && m.content) { try { return 'GET ' + new URL(m.content, document.baseURI).href; } catch (e) { return 'GET ' + m.content; } }
     for (const s of ['a[href*="/doi/pdf/"]','a[href*="pdfdirect"]','a[href$=".pdf"]','a[href*=".pdf?"]','a[href^="/record/"]']) {
       const a = document.querySelector(s); if (a) return 'GET ' + a.href;
     }

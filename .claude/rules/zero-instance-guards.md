@@ -60,7 +60,7 @@
 會在邊界上自己長出沒人同意的答案，而那句話與下表**是兩份不會一起改的規格**。要判斷新情形，
 讀下表的理由欄，然後**加一列**。
 
-## 裁決史（封閉列舉——現有 61 列，一列不多一列不少）
+## 裁決史（封閉列舉——現有 68 列，一列不多一列不少）
 
 | # | 情形 | 裁決 | 理由 |
 |---|---|---|---|
@@ -125,6 +125,13 @@
 | 59 | **零實例，而「移哪一筆」對兩筆完全相同的記錄沒有判定內容可依**（#673：`update-venue --remove-reference` 以 field＋value＋位元組鍵定位；兩筆 reference 的 `byteExactKey` 完全相同時具名拒絕、不挑一筆移。2026-09-29 唯讀量測 live store：venue 485、帶通用 reference 的 venue 0、位元組相同的重複組 0。重跑腳本見表下方） | ❌ **不寫（不給完全相同的重複一條移除路徑）** | 與第 10 列同形：形狀取決於一個還沒出現的用途——要嘛加 ordinal 指定第幾筆，要嘛一條「重複全收成一筆」的腿，兩者的語意不同，而今天沒有實例可以告訴我們哪一種才是使用者要的。先具名拒絕是可逆的；選錯一個形狀則是固定了一個介面。這種重複本來就由 `StoreHealth.duplicateReferences`（第 35 列）報出。**屬前言四類的第 1 類（守衛）**（b13f R1 verify 第 28 列）：本列裁的對象是那道具名拒絕——「無法判定移哪一筆」時 `--remove-reference` 拒絕、不挑——要不要**放行成一條移除路徑**；不寫的是放行，不是那道守衛；不是新的一類（前言明寫沒有「零實例的移除腿」這一類）。**觸發條件可檢查**（腳本見表下方）：位元組相同的重複組 > 0，或 `akashic validate` 對 venue 報「重複的 reference：」——那時重開，由使用者選形狀 |
 | 60 | **零實例，而上限沒有量測依據、也不是位元組界線**（#673：venue 讀取面（CLI `venue`、MCP `akashic_venue`）顯示非判定的 references，至多 `venueReferencesCap`＝25 筆、每筆 `rests_on` 至多 5 個，以 `referencesTotal`／`referencesTruncated`／`rests_on_total` 揭露。2026-09-29 唯讀量測 live store：帶通用 reference 的 venue 0，單筆 venue 最多 0 筆） | ✅ **寫（第 1 類，守衛：上限 25 筆、`rests_on` 前 5 個，截斷一律揭露）** | 第 18 列的理由是「零量的是出口而守衛裝在入口」；這一列同形，差別在錨點：第 18 列夾在兩個量測之間，這一列**一個量測都沒有**——25 是**選的數字**（live store 沒有任何一筆通用 reference 可量），量級考量是一本刊的 ISSN 與名字各有幾筆來源記錄、再留一個數量級的餘裕。首版把它寫成「單筆各字串上限之和約 1.4 KB、25 筆約 35 KB、落在 MCP 單一輸出 48 KiB 之內」，b13f R1 verify 抓到三處錯：(1) 1.4 KB 把各字串的**字元**上限相加、當成位元組——CJK 一個字元 3 位元組；`displaySafe` 在逃脫模式數輸入 scalar，一個控制字元逃成 `\u{XXXX}`（8 字元），JSON 序列化再把反斜線加倍，最壞單筆約 6 KB（retrieval：value 200＋url 300＋retrieved 與 media_type 各 60 個 scalar 全是控制字元）、25 筆約 150 KB（推估）；(2) 48 KiB 是 `tools/list` 與 `candidateByteBudget`（resolve 候選、doctor 的 per-record 清單）的預算，**`akashic_venue` 沒有單一輸出的位元組預算**；(3) 同一個 payload 的 `works` 編年清單本來就無界（live：`psychological-methods` 1,352 筆、每筆標題至多 500 字元），所以這個上限保護不了輸出大小。**它實際做的事**：不讓 `references` 這一段跟著一本異常刊無限長（筆數上界）；單筆的字串各有字元上限。不設上限的代價是讀取面對未信任的 store 內容線性長大（第 16 列那一族）。**誠實邊界**：要限位元組得另設預算（`candidateByteBudget` 的形），此刻沒有實例；讀取面對 value 截在 200、url／statement 截在 300，逐字定位要對照 YAML。**觸發條件可檢查**：任一 venue 的輸出帶 `referencesTruncated: true`——那時才有實際分布可量，重量上限（並一併決定要不要設位元組預算） |
 | 61 | **零實例，而上限守的是「理由只在報告裡」的那份輸出**（#680、#677、#673 的 b13f verify R1：移除面一族的報告輸出有上限——`update-entry --remove-zotero-source` 的 `zoteroSourcesRemaining` 兩面都截 20（`zoteroSourcesRemainingCap`，附總數）；`remove_sources` 的取得記錄（`sourcesAddedCap`）與 `remove_reference` 的 reference 內容（`removalDetailCap`）只在 MCP 面截 20，其後仍逐筆列定位鍵與理由，以 `detailsTruncated`／`detailsListed` 揭露。2026-09-29 唯讀量測 live store：work 2,572、有附加 Zotero 來源的 work 3（單筆最多 1）、單筆 work 最多 `akashic.sources` 0、venue 485、通用 reference 0、讀不到的檔 0。重跑腳本見表下方） | ✅ **寫（輸出上限，截斷一律揭露；理由逐筆不截）** | 第 60 列的理由是「上限只有算術可依」；這一列同形（20 是選的數字、限筆數不限位元組），差別在這一族每筆都帶理由，而理由依 2026-09-27 的裁決只在報告裡有一份——所以不截整筆、只截第三方的內容，與 `add_sources` 截整筆的先例刻意不同：截掉第 21 筆以後的理由就無處可記。**誠實邊界**：省略的內容只在 git 的移除前副本與 CLI 輸出裡；上限不保證輸出位元組。**觸發條件可檢查**（腳本見表下方）：出現 `detailsTruncated: true`，或 `zoteroSourcesRemainingTotal` > 20 時重量 |
+| 62 | **零實例，而失敗是刪掉使用者已有的資料、而且發生在「下載成功」之後**（#629 R1 verify：`akashic fulltext fetch` 的輸出步驟對已存在的目的地「先刪再搬」——`--out` 是非空目錄時遞迴刪光，是普通檔時搬失敗前原檔已毀。2026-09-29 唯讀量測：`~/Downloads` 兩層內名為 `*.pdf` 的目錄或 symlink **0**。重跑指令見表下方） | ✅ **寫（三個目的地先 lstat、同目錄暫存檔＋rename）** | 第 1 列的理由是不寫就沒有跡象；這一列多一層：**跡象指向錯的方向**——命令回報下載成功，被刪的是使用者原本就有的東西。成本是一次 lstat。釘住 `FulltextFetchHardeningTests.testANonEmptyDirectoryAtOutIsRefusedAndKept` 與 `testAWriteFailureAfterTheTempFileWasCreatedKeepsTheOriginalFile`（後者以 `RLIMIT_FSIZE` 讓寫入在暫存檔建立後失敗） |
+| 63 | **零實例，而「git 答不出來」與「不在 repo 裡」在輸出上分不開，閘又是隱私閘**（#629 R1 verify：fetch 的 git 閘寫成「git 回 0 才算在 repo 裡」，git 起不來、rev-parse 非零、dubious ownership 全被讀成「不在工作樹」而放行——PDF 可能寫進一個會推上 remote 的 repo。2026-09-29 唯讀量測：`$TMPDIR`、`~`、`~/Downloads`、`/tmp` 逐層往上都沒有 `.git`） | ✅ **寫（祖先沒有 `.git` 由檔案系統事實判；有才問 git，答不出來一律拒絕）** | 第 3 列同形——沒被檢查冒充成檢查過且乾淨——而後果更重：外流進 remote 不可逆（git 隱私邊界）。git 呼叫改走 `LibraryStore.hardenedGit`（#585 那一份），不另寫第三份。釘住 `FulltextFetchHardeningTests` 的 git 一族七個測試 |
+| 64 | **零實例，而兩個 JSON 解析器對同一份輸入安靜地給出不同答案**（#629 R1 verify：`JSONSerialization` 對重複鍵取第一個、吃掉字串開頭的 U+FEFF、接受尾隨逗號、拒 NaN，Python `json.loads` 四處都相反；從 Python 移植過來的 `abstracts-to-proposals`、`crossref-match` 因此可能對同一份檔讀出不同的欄位值。2026-09-29 唯讀量測（表下方腳本）：`~/.akashic/sources/` 裡整份可解析的 JSON 文件 88 份，重複鍵 0、尾隨逗號 0、字串值開頭是 U+FEFF 的 0；#629 R1 以另一個量法報 1,800 個文件，母體不同，兩數都不為 0 的只有文件數） | ✅ **寫（`PyJSONParser`，照 `json.loads` 的文法）** | 第 4 列的偽裝性：解析成功、欄位有值，只是那個值不是來源的意思；`lossless-intake` 的「來源給什麼收什麼」在解析這一層就可能失真。釘住 `PyJSONParserTests`（38 個 Python 案例）與 `AbstractProposalsPythonJSONTests`。**誠實邊界**：仍有三處與 Python 不同（深度上限 512、孤立代理對拒絕、超出 `Int` 的整數退成 `Double`），寫在型別 doc |
+| 65 | **零實例，而同一個推導有四份、各自讀起來都通順**（#663：CLI、MCP、App 三個讀取面與匯出端各自推導「這個人的隸屬現況」，只被觀測到的段在三個面說成「曾隸屬」、匯出端說 `undetermined`，要拿兩者對照才看得出。2026-09-29 唯讀量測 live store：person 4,575，無隸屬 4,413、現職 116、只有已結束 46、只被觀測到 0、混合 0；Core 以外直接用 `latestPastSegment` 的檔 0） | ✅ **寫（源碼掃描守衛）** | 第 13 列同形（清理過之後的零）：四份併成 `TimelineOf.standing` 一份之後，第五個讀取面若又自己寫 `current ?? latestPastSegment`，不會有任何跡象。`entity-backlink-completeness` 執行細節 2 的「一個讀取面只能有一條實作路徑」在這裡由源碼掃描兌現。守衛 `TimelineStandingTests.testNoReadSurfaceCallsLatestPastSegmentDirectly`，負控 `testTheScanRecognisesAViolationAndAllowsTheCoreFiles` |
+| 66 | **零實例，而帳密一旦寫進 git 追蹤的 YAML 就收不回來**（#674：person 與 venue 的 references 寫入面對 retrieval 的 `url` 只收 http／https 且不含帳密、`retrieved` 是 ISO 8601、`status` 在 100–599。2026-09-29 唯讀量測：person、venue、organization 的 retrieval reference 0 筆（references 8,693 筆全是 judgement）；work 的 33 筆全是 https、無帳密、`YYYY-MM-DD`、status 200。重跑腳本見表下方） | ✅ **寫（入口拒絕，整批零寫入）** | 第 18 列同形：零量的是出口，守衛裝在入口。多一層：url 裡的帳密是秘密（`lossless-intake` 不收的第 1 類），寫進去之後 git 歷史裡永遠在。**誠實邊界**：只擋 userinfo，query 或路徑裡的 token 擋不到；`enrich` 的來源欄位沒有跟著收緊，是另一份契約 |
+| 67 | **零實例，而欄位的語意改了、卻沒有任何讀者**（#684：index 的 `entries.orphaned` 在 #609 改由 `Entry.zoteroLinkState == .orphaned` 判定，`schemaVersion` 仍是 5。2026-09-29 量測：`Sources/` 讀這一欄的地方 0 處、建表恰 1 處） | ❌ **暫不做（不 bump）** | 第 10 列同形——要不要做取決於一個還不存在的東西，這裡是讀者。index 是衍生物，store 一寫就因 mtime 過期重建，舊 binary 建的 index 到那時自癒；沒有讀者就沒有東西受漂移影響，bump 只會讓每個使用者白重建一次。**觸發條件**：出現第一個讀者時，`schemaVersion` 與 `PRAGMA user_version = 5` 兩處同步升 6（後者是寫死的重複） |
+| 68 | **零實例，而清單會由一次匯入一步跨過**（#684：MCP `akashic_import_zotero` 的 `ambiguousSourceClaims` 至多 20 個來源、每個來源 20 個宣稱者，揭露 `ambiguousSourceClaimsTotal`／`ambiguousSourceClaimsTruncated`；CLI 全列。2026-09-29 唯讀量測：work 2,572、Zotero 來源 535、被 ≥2 筆宣稱 0、最大宣稱者數 1。重跑腳本見表下方） | ✅ **寫** | 與第 18、30 列同形：沒有曲線，實例會由一次匯入一步跨過；上限保護的是 LLM context，不是 store。**觸發條件**：任一次匯入回 `ambiguousSourceClaimsTruncated: true` 就重開 |
 
 對本表四類中的任一個做出下一次裁決（新增、不新增、保留、拿掉）= 在這張表加一列。
 
@@ -1260,6 +1267,102 @@ PY
 # 2026-09-29：work 2572｜有附加 Zotero 來源的 work 3（單筆最多 1）｜單筆 work 最多 akashic.sources 0｜venue 485｜通用 reference 0｜讀不到的檔 0
 ```
 
+**第 62 列的量測（2026-09-29，可重跑，唯讀）**：`find ~/Downloads -maxdepth 2 \( -type d -o -type l \) -name '*.pdf' | wc -l`（2026-09-29：0）。
+
+**第 63 列的量測（2026-09-29，可重跑，唯讀）**：
+
+```bash
+python3 -c "
+import os
+for d in (os.environ.get('TMPDIR','/tmp'), os.path.expanduser('~'), os.path.expanduser('~/Downloads'), '/tmp'):
+    p = os.path.realpath(d); hit = None
+    while True:
+        if os.path.exists(os.path.join(p, '.git')): hit = p; break
+        if p == '/': break
+        p = os.path.dirname(p)
+    print(d, hit)"
+# 2026-09-29：四個都 None
+```
+
+**第 64 列的量測（2026-09-29，可重跑，唯讀）**：
+
+```bash
+python3 - <<'PY'
+import glob, io, json, os
+root = os.path.expanduser('~/.akashic/sources'); docs = dup = trail = bom = 0
+def hook(pairs):
+    global dup
+    keys = [k for k, _ in pairs]
+    if len(keys) != len(set(keys)): dup += 1
+    return dict(pairs)
+def walk(o):
+    global bom
+    if isinstance(o, str) and o.startswith('\ufeff'): bom += 1
+    elif isinstance(o, dict): [walk(v) for v in o.values()]
+    elif isinstance(o, list): [walk(v) for v in o]
+for f in glob.glob(root + '/*/*'):
+    try: b = io.open(f, encoding='utf-8').read()
+    except Exception: continue
+    for chunk in ([b] if b.lstrip()[:1] in '[{' else b.splitlines()):
+        if not chunk.strip(): continue
+        try: o = json.loads(chunk, object_pairs_hook=hook)
+        except Exception:
+            if ',}' in chunk.replace(' ', '') or ',]' in chunk.replace(' ', ''): trail += 1
+            continue
+        docs += 1; walk(o)
+print(f"JSON 文件 {docs}｜重複鍵 {dup}｜尾隨逗號 {trail}｜字串開頭是 U+FEFF {bom}")
+PY
+# 2026-09-29：88｜0｜0｜0（母體是整份或逐行解得出的 JSON；#629 R1 報的 1,800 是另一個量法，不要拿兩個數相比）
+```
+
+**第 65 列的量測（2026-09-29，可重跑，唯讀）**：`grep -rl latestPastSegment Sources | grep -v -e AkashicCore/Temporal.swift -e AkashicCore/TimelineStanding.swift -e akashic-guards/BacklinkRatchetData.swift | wc -l`（應為 0）；live store 的分布由 `TimelineStandingTests` 的形狀清單對照，量法見 changelog `2026-09-29-attested-affiliation-wording.md`。
+
+**第 66 列的量測（2026-09-29，可重跑，唯讀）**：
+
+```bash
+python3 - <<'PY'
+import glob, io, os, re, yaml, collections
+root = os.path.expanduser('~/.akashic/entities'); bad = 0
+retr = collections.Counter(); judg = collections.Counter(); userinfo = []; scheme = collections.Counter(); status = collections.Counter()
+for f in glob.glob(root + '/*.yaml'):
+    try: d = yaml.safe_load(io.open(f, encoding='utf8'))
+    except Exception: bad += 1; continue
+    if not isinstance(d, dict): bad += 1; continue
+    holder = next((k for k in ('person', 'organization', 'venue', 'work', 'divergence') if k in d), None)
+    for r in d.get('references') or []:
+        if not isinstance(r, dict): continue
+        if 'url' in r:
+            retr[holder] += 1; u = str(r['url'])
+            m = re.match(r'^([A-Za-z][A-Za-z0-9+.-]*):', u); scheme[(holder, m.group(1).lower() if m else 'none')] += 1
+            if re.match(r'^[a-z]+://[^/]*@', u): userinfo.append((holder, u))
+            status[(holder, r.get('status'))] += 1
+        elif 'judgement' in r: judg[holder] += 1
+print('retrieval', dict(retr), '｜judgement', dict(judg), '｜scheme', dict(scheme), '｜status', dict(status), '｜帶帳密', len(userinfo), '｜讀不到的檔', bad)
+PY
+# 2026-09-29：retrieval 只有 work 33（https、status 200）｜person／venue／organization 0｜帶帳密 0
+```
+
+**第 67 列的量測（2026-09-29，可重跑，唯讀）**：`grep -rnE '(SELECT|WHERE|ORDER BY|GROUP BY|JOIN)[^"]*\borphaned\b|row\["orphaned"\]|\$0\["orphaned"\]' Sources --include='*.swift' | wc -l`（應為 0）；對照 `grep -rn 'orphaned INT' Sources --include='*.swift' | wc -l`（建表恰 1）。
+
+**第 68 列的量測（2026-09-29，可重跑，唯讀）**：
+
+```bash
+cd ~/.akashic/entities && python3 - <<'PY'
+import glob, io, collections, yaml
+claims = collections.defaultdict(set); works = bad = 0
+for f in glob.glob('*.yaml'):
+    try: d = yaml.safe_load(io.open(f, encoding='utf8'))
+    except Exception: bad += 1; continue
+    if not isinstance(d, dict) or 'work' not in d: continue
+    works += 1; cite = str(d.get('citekey'))
+    provs = ([d['provenance']] if isinstance(d.get('provenance'), dict) else []) + [p for p in (d.get('provenance_additional') or []) if isinstance(p, dict)]
+    for p in provs:
+        if p.get('zotero_key'): claims[f"{p.get('library_id','?')}:{p['zotero_key']}"].add(cite)
+print(f"work {works}｜來源 {len(claims)}｜被 ≥2 筆宣稱 {sum(len(v)>=2 for v in claims.values())}｜最大宣稱者數 {max((len(v) for v in claims.values()), default=0)}｜讀不到的檔 {bad}")
+PY
+# 2026-09-29：work 2572｜來源 535｜被 ≥2 筆宣稱 0｜最大宣稱者數 1｜讀不到的檔 0
+```
+
 ## 各列共通的東西（觀察，不是判準）
 
 第 1–9 列與第 13、14 列的裁決都是「寫」（第 14 列是 2026-09-09 從「不寫」翻過來的）、第 10–12 列（皆出自 #365）是「不寫」，但**理由各不相同**，這正是不寫總括判準的原因：
@@ -1331,6 +1434,13 @@ PY
 - 第 59 列的理由是**形狀取決於還沒出現的用途**——同第 10 列，ordinal 與「全收成一筆」語意不同，先具名拒絕是可逆的
 - 第 60 列的理由是**上限沒有量測依據、也不是位元組界線**——同第 18 列的出口與入口，差別在錨點：25 是選的數字；首版拿各字串的字元上限相加當位元組的算術並不成立（b13f R1 verify）
 - 第 61 列的理由是**理由只有一份，所以只截第三方內容**——同第 60 列上限是選的數字；差別在逐筆帶理由，截整筆就等於丟理由
+- 第 62 列的理由是**失敗看起來像成功**——第 1 列的不可見性再加一層：命令回報成功，被刪的是使用者原本就有的資料
+- 第 63 列的理由是**答不出來被讀成否**——第 3 列同形，而閘是隱私閘，外流進 remote 不可逆
+- 第 64 列的理由是**解析成功而值不是來源的意思**——第 4 列的偽裝性落在解析層，兩個實作對同一份輸入安靜地分岔
+- 第 65 列的理由是**第五份推導不會有跡象**——第 13 列同形，四份併成一份之後由源碼掃描守單一路徑
+- 第 66 列的理由是**秘密一進 git 就收不回來**——第 18 列的入口守衛，對象是 url 裡的帳密
+- 第 67 列的理由是**沒有讀者就沒有漂移的受害者**——第 10 列同形的「不做」，觸發條件是第一個讀者
+- 第 68 列的理由是**清單由一次匯入一步跨過**——同第 18、30 列，上限保護的是 LLM context
 - 第 31 列的理由是**同一條曲線換了持有者**——第 16 列的燈只照 venue；新面（未決腿）讓 person 與 organization 也開始累積，第 30 列寫下的誠實邊界要有工具面兌現，否則就是一句沒有後續的散文
 - 第 39 列的理由是**單步的跳躍預警看不到**——第 16／31 列的燈在讀取面、照的是漸進的增長；一次寫入從門檻之下直接越過讀取上限時，燈來不及響，擋它的只能是寫入端。而那道閘要擋的不只是位元組：多檔寫入面在它觸發之前已有檔落盤，所以閘與零寫入的 preflight 同批
 - 第 24 列的理由是**半吊子已經誠實**——前二十三列裡只有第 22 列同樣是「不動既有的東西」（比的是裁決的**動作**：那一列的對象是 spec 文字、失敗是被當死重刪掉；本列的對象是程式的半吊子管線、失敗是使用者撞牆或被當成待修殘留而被人動手）。留著的代價不是零（記了就刪不掉——#586 在 2026-09-28 補了移除面，代價從「刪不掉」降為「要人判定放棄」），而是今天未兌現、且一出現就會出聲；動它的兩個方向（實作／拿掉）代價都更高。與第 10 列（缺用途）最像的是理由的**形**：實作那一半同樣是「形狀取決於還不存在的用途」；但第 10 列的對象根本不存在，這一列的對象已經在、且已經誠實

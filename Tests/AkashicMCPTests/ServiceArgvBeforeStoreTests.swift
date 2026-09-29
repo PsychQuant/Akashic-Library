@@ -83,7 +83,7 @@ final class ServiceArgvBeforeStoreTests: XCTestCase {
         // C2c R1 verify DA：references 的 digest 先前只在寫入閘驗——參數階段與 dry-run 都放行，真跑才 exit 1
         let retrieval: (String) -> [String: Any] = { content in
             ["references": [["field": "openalex", "kind": "retrieval", "url": "https://x",
-                             "retrieved": "2026-09-28", "content": content]]]
+                             "retrieved": "2026-09-28", "status": 200, "content": content]]]
         }
         assertInvalid("0 byte") { try self.service.updatePerson(key: "p-one", fields: retrieval(self.emptyDigest), dryRun: true) }
         assertInvalid("digest 形狀") { try self.service.updatePerson(key: "p-one", fields: retrieval("sha256:zz"), dryRun: true) }
@@ -91,6 +91,25 @@ final class ServiceArgvBeforeStoreTests: XCTestCase {
             try self.service.updatePerson(key: "p-one", fields: ["references": [["field": "openalex", "kind": "judgement",
                                                                                 "statement": "s", "rests_on": [self.emptyDigest]]]],
                                           dryRun: true)
+        }
+        // #674：status 必填不預設 200、鍵名嚴格、url 只收 http／https——兩個 references 面同一個解析，都在讀 store 之前
+        let good = "sha256:" + String(repeating: "a", count: 64)
+        assertInvalid("status") {
+            try self.service.updatePerson(key: "p-one", fields: ["references": [["field": "openalex", "kind": "retrieval", "url": "https://x",
+                                                                                "retrieved": "2026-09-28", "content": good]]], dryRun: true)
+        }
+        assertInvalid("不認得的鍵") {
+            try self.service.updatePerson(key: "p-one", fields: ["references": [["field": "openalex", "kind": "judgement", "statement": "s",
+                                                                                "rests_on": [good], "restson": [good]]]], dryRun: true)
+        }
+        assertInvalid("http／https") {
+            try self.service.updatePerson(key: "p-one", fields: ["references": [["field": "openalex", "kind": "retrieval", "url": "file:///x",
+                                                                                "retrieved": "2026-09-28", "status": 200, "content": good]]], dryRun: true)
+        }
+        assertInvalid("status") {
+            try self.service.updateVenue(key: "v-one", addNames: nil, note: nil, type: nil,
+                                         references: [["field": "issn", "value": "0003-066X", "kind": "retrieval", "url": "https://x",
+                                                       "retrieved": "2026-09-28", "content": good]])
         }
         assertInvalid("不符合") { try self.service.addPerson(key: "Bad Key", names: ["X"], orcid: nil, openalex: nil) }
         assertInvalid("names 全是空白") { try self.service.addVenue(key: "v-one", names: ["  "], type: "periodical") }

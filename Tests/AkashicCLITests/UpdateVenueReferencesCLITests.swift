@@ -111,8 +111,13 @@ final class UpdateVenueReferencesCLITests: XCTestCase {
             (["update-venue", "v-one", "--references",
               #"[{"field":"paginated","value":"true","kind":"judgement","statement":"s","rests_on":["\#(digest)"]}]"#],
              "clear_paginated"),
-            (["update-venue", "v-one", "--references", #"[{"field":"issn","value":"0003-066X","kind":"retrieval","url":"u","retrieved":"d","content":"\#(digest)"}]"#],
+            (["update-venue", "v-one", "--references", #"[{"field":"issn","value":"0003-066X","kind":"retrieval","url":"https://portal.issn.org/resource/ISSN/0003-066X","retrieved":"2026-09-29","content":"\#(digest)"}]"#],
              "status"),
+            // #674：url 只收 http／https、retrieved 是 ISO 8601——兩個 references 面同一個解析
+            (["update-venue", "v-one", "--references", #"[{"field":"issn","value":"0003-066X","kind":"retrieval","url":"file:///x","retrieved":"2026-09-29","status":200,"content":"\#(digest)"}]"#],
+             "http／https"),
+            (["update-venue", "v-one", "--references", #"[{"field":"issn","value":"0003-066X","kind":"retrieval","url":"https://x.org/a","retrieved":"d","status":200,"content":"\#(digest)"}]"#],
+             "ISO 8601"),
             (["update-venue", "v-one", "--add-issn", "0003-066X (Online)"], "不是 ISSN 標準的三個角色"),
             // #673：--remove-reference 的 JSON、形狀、單獨呼叫
             (["update-venue", "v-one", "--remove-reference", "{}"], "--remove-reference 必須是 JSON 陣列"),

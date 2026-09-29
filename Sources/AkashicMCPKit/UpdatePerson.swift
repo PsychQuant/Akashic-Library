@@ -23,51 +23,16 @@ public extension AkashicService {
     ///   - dryRun: true 時零寫入，回報會改什麼 + gate 預演。
     /// #308：JSON 陣列 → ProvenanceReference 逐筆 append（冪等；verdict 欄位對拒收）。
     /// 回傳實際附加筆數。
+    ///
+    /// 解析與驗證是 `update_venue` 的 references **同一個函式**（`parseReferenceObjects`，#674）：鍵名嚴格、`status` 必填不預設 200、
+    /// `url` 只收 http／https 且不含帳密、有界——契約在 `ReferenceWriteParsing.swift`。person 自己的政策只有一條：
+    /// verdict 欄位對（封閉三值）不收手供，只能經 resolve 流程寫。空陣列仍是 no-op（venue 側拒絕，有記錄的差異，見 `parseReferenceObjects`）。
     private static func appendReferences(_ raw: Any, to person: inout Person) throws -> Int {
-        guard let arr = raw as? [[String: Any]] else {
+        guard let arr = raw as? [Any] else {
             throw ServiceError.invalid("references 必須是 object 陣列（append-only）")
         }
         var added = 0
-        for item in arr {
-            guard let field = item["field"] as? String, !field.isEmpty else {
-                throw ServiceError.invalid("reference 缺 field")
-            }
-            guard !ProvenanceReference.resolutionVerdictFields.contains(field) else {
-                throw ServiceError.invalid(
-                    "欄位對「\(displaySafeInvisible(field, max: 60))」是 resolution verdict——"
-                    + "只能經 resolve 流程（apply／reject）寫，不收手供")
-            }
-            let value = item["value"] as? String
-            // 形狀驗證走平面 init——YAML decode 的同一個入口（digest 形狀、空內容 digest、判斷型 rests-on 非空）。
-            // 先前用不驗證的 init 組，digest 只在寫入閘的 canary 驗：參數階段與 dry-run 都放行、真跑才 exit 1（C2c R1 verify DA）。
-            let ref: ProvenanceReference
-            do {
-                switch item["kind"] as? String {
-                case "retrieval":
-                    guard let url = item["url"] as? String,
-                          let retrieved = item["retrieved"] as? String,
-                          let content = item["content"] as? String else {
-                        throw ServiceError.invalid("retrieval reference 需 url／retrieved／content（sha256: digest）")
-                    }
-                    ref = try ProvenanceReference(field: field, value: value, url: url, retrieved: retrieved,
-                                                  status: item["status"] as? Int ?? 200,
-                                                  mediaType: item["media_type"] as? String, content: content,
-                                                  judgement: nil, restsOn: [])
-                case "judgement":
-                    guard let statement = item["statement"] as? String else {
-                        throw ServiceError.invalid("judgement reference 需 statement")
-                    }
-                    ref = try ProvenanceReference(field: field, value: value, url: nil, retrieved: nil, status: nil,
-                                                  mediaType: nil, content: nil, judgement: statement,
-                                                  restsOn: item["rests_on"] as? [String] ?? [])
-                default:
-                    throw ServiceError.invalid("reference kind 需 retrieval 或 judgement")
-                }
-            } catch let e as ServiceError {
-                throw e
-            } catch {
-                throw ServiceError.invalid("references：\(displaySafeError(error, max: 600))")
-            }
+        for ref in try parseReferenceObjects(arr, policy: personReferencePolicy) {
             // append-only 的去重比**位元組**（R26 D73；R25 verify 第 7／25／29 列：三個 `==` 全是 canonical，只差 NFC／NFD 的一筆曾被靜默吞掉）
             guard !person.references.contains(where: { $0.byteExactKey == ref.byteExactKey }) else { continue }
             person.references.append(ref)
@@ -75,6 +40,15 @@ public extension AkashicService {
         }
         return added
     }
+
+    /// person 收哪些 field：verdict 以外的都收（附著由 `Person.validateReferenceAttachment` 在寫入時驗）。
+    private static let personReferencePolicy = ReferenceHolderPolicy(admitField: { field, at in
+        guard !ProvenanceReference.resolutionVerdictFields.contains(field) else {
+            throw ServiceError.invalid(
+                "\(at) 的欄位對「\(displaySafeInvisible(field, max: 60))」是 resolution verdict——"   // display-safe-exempt: at 是字面＋Int
+                + "只能經 resolve 流程（apply／reject）寫，不收手供")
+        }
+    })
 
     /// CLI 的 `validate()` 用（#654）：`--fields`（argv）只看參數的檢查——欄位名在白名單內、各欄位的形狀（純量／null、names 的兩個分割、
     /// profile 的段、references 的形狀）。套在一筆空白的暫存記錄上，與服務套在既有記錄上的是同一個函式；要合併到既有記錄才判得出來的

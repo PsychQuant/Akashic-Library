@@ -726,8 +726,8 @@ extension StdioE2ETests {
         XCTAssertTrue(strings.contains("references 的每個元素都必須是物件"), strings)
         let boolStatus = try call(7, "akashic_update_venue", [
             "key": "ampsy",
-            "references": [["field": "issn", "value": "0003-066X", "kind": "retrieval", "url": "u", "retrieved": "d",
-                            "status": true, "content": digest]],
+            "references": [["field": "issn", "value": "0003-066X", "kind": "retrieval", "url": "https://portal.issn.org/resource/ISSN/0003-066X",
+                            "retrieved": "2026-09-29", "status": true, "content": digest]],
         ])
         XCTAssertTrue(boolStatus.contains("status 必須是整數"), "JSON 的 true 經 valueToAny 是 NSNumber，不得被當成 1：\(boolStatus)")
 

@@ -1217,6 +1217,13 @@ venue 的 `references:` 可附著的 `field` 是**封閉列舉**，唯一的列�
 （value 是那個名字）。`issn` 是 issue 真正點名的一格，`names` 是 `akashic-verify-venue` 的判定證據要落的地方。
 通用面的物件鍵名與 `update-person` 的 references 相同（`media_type`／`statement`／`rests_on`），**不是**上方 YAML 的
 `media-type`／`judgement`／`rests-on`；retrieval 的 `status` 必填，不預設 200（#542 R2 對 `enrich` 的同一個裁決）。
+**兩個面是同一份契約、同一個解析函式**（#674；`update-person` 的 `references` 與 `update-venue` 的 `--references`，解析住在 `ReferenceWriteParsing.swift`）：
+鍵名嚴格（不認得的鍵拒收）、型別不猜（`value`／`media_type`／`url` 要是字串、`rests_on` 要是字串陣列、`status` 要是整數）、`status` 在 100–599、
+`url` 只收 http／https 且主機非空、不含帳密（`user:password@`；拒絕訊息不回顯原值）、`retrieved` 是 ISO 8601（`YYYY-MM-DD`，或再接 `THH:MM[:SS[.fff]]` 與 `Z`／`±HH:MM`；
+裸日期照收——store 既有的擷取型 reference 全是裸日期，#262 的「帶 UTC offset」契約寫在 `sources/index.jsonl` 的 `retrieved`、尚未在任何寫入面強制）、
+一次至多 200 筆、`statement` 至多 4,096 位元組、`rests_on` 至多 20 個；任一筆不合整個呼叫拒絕、零寫入。載入既有記錄走 `ProvenanceReference` 的平面 init，
+**不受這些寫入面檢查影響**（`url`／`retrieved`／`status` 範圍只在寫入面驗）。兩個面各自的政策不同：person 收 verdict 以外的欄位（附著在寫入時驗），venue 只收 `issn` 與 `names`。
+空陣列的處置是有記錄的差異：venue 的 `--references` 是獨立參數、給了卻沒東西要附是錯；person 的是 `fields` 這個物件裡被提及的一格，仍是 no-op。
 形狀驗證走 `ProvenanceReference` 的平面 init（YAML decode 的同一個入口）；附著在合進記錄後驗，所以同一次呼叫加的號與名字
 可以被指向；`issn` 的 value 以正規形入庫、`names`／`authorized` 的 value 以記錄上的拼法入庫（相等看 canonical——只差 NFC／NFD 或空白的兩筆否則是兩筆位元組不同的記錄，#582 的掃描會報它們）。append-only：位元組相同的一筆略過。`field: issn` 的 reference 要 store format ≥ 13（#394 的寫入閘）。
 **讀取面與移除面**（#673）：`venue`／`akashic_venue` 的 `references` 列出通用 references（不是 verdict、不是 `paginated` 判定的那些；鍵名同上一段的輸入形；至多 25 筆，`referencesTotal`／`referencesTruncated` 揭露；`rests_on` 只列前 5 個，`rests_on_total` 揭露；沒有就不輸出）。

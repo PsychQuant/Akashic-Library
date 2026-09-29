@@ -67,6 +67,19 @@ final class ServiceArgvExitCodeTests: XCTestCase {
         try assertUsageError(["update-person", "--key", "p-one", "--fields", #"{"orcid": "nope"}"#], "不是合法的 ORCID")
     }
 
+    /// #674：兩個 references 面同一個解析，CLI 對它的拒絕是用法錯誤（64），早於開 store。person 走 `--fields` 的 JSON 內、venue 走 `--references`。
+    func testReferencesContractIsAUsageErrorOnBothFaces() throws {
+        func person(_ refs: String) -> [String] { ["update-person", "--key", "p-one", "--fields", "{\"references\": \(refs)}"] }
+        let noStatus = #"[{"field":"openalex","kind":"retrieval","url":"https://x.org/a","retrieved":"2026-09-29","content":"\#(digest)"}]"#
+        try assertUsageError(person(noStatus), "status")
+        try assertUsageError(person(#"[{"field":"openalex","kind":"retrieval","url":"https://u:p@x.org/a","retrieved":"2026-09-29","status":200,"content":"\#(digest)"}]"#), "帳密")
+        try assertUsageError(person(#"[{"field":"openalex","kind":"judgement","statement":"s","rests_on":["\#(digest)"],"restson":[]}]"#), "不認得的鍵")
+        try assertUsageError(["update-venue", "v-one", "--references",
+                              #"[{"field":"issn","value":"0003-066X","kind":"retrieval","url":"https://x.org/a","retrieved":"2026-09-29","content":"\#(digest)"}]"#], "status")
+        try assertUsageError(["update-venue", "v-one", "--references",
+                              #"[{"field":"issn","value":"0003-066X","kind":"retrieval","url":"file:///x","retrieved":"2026-09-29","status":200,"content":"\#(digest)"}]"#], "http／https")
+    }
+
     /// #544：`update-entry` 只看參數的檢查（服務的同一個函式）。
     func testUpdateEntryArgvChecks() throws {
         try assertUsageError(["update-entry", "a2020b"], "沒有要做的事")

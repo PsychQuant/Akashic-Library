@@ -290,8 +290,8 @@ struct UpdateVenueCmd: ParsableCommand {
     /// #587：venue 的通用 provenance 寫入面——與 `update-person` 的 `references` 同鍵名、同 append-only 語意。
     @Option(name: .customLong("references"),
             help: ArgumentHelp("要附加的 provenance（JSON 物件陣列，append-only；位元組相同的略過，報 referencesAlreadyPresent，#587）",
-                               discussion: "每項同 update-person 的 references：{field, value?, kind: retrieval|judgement, …}。"
-                                   + "retrieval 要 url／retrieved／status（整數，不預設 200）／content（sha256: digest），media_type 選填；"
+                               discussion: "每項同 update-person 的 references（同一個解析函式，#674）：{field, value?, kind: retrieval|judgement, …}。"
+                                   + "retrieval 要 url（只收 http／https、不含帳密；離線來源改用 judgement）／retrieved（ISO 8601：YYYY-MM-DD，或再接 THH:MM[:SS] 與 Z／±HH:MM）／status（整數 100–599，不預設 200）／content（sha256: digest），media_type 選填；"
                                    + "judgement 要 statement（≤ 4,096 位元組）／rests_on（1–20 個 digest）。"
                                    + "field 只收 issn 與 names，都要帶 value 指名那一個："
                                    + "issn 的 value 以正規形入庫、names 的 value 以記錄上的拼法入庫（相等看 canonical）；那個號或名字要在記錄上（同一次呼叫 --add-issn／--add-name 加的也算）。"

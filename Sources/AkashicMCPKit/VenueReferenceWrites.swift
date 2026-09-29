@@ -71,66 +71,38 @@ extension AkashicService {
 
     // MARK: - references
 
-    /// JSON 物件的鍵名——**與 `update_person` 的 references 相同**（`media_type`／`statement`／`rests_on`），不是 YAML 的
-    /// `media-type`／`judgement`／`rests-on`。鍵是嚴格的：不認得的鍵整批拒絕（person 側會靜默忽略它，#587 不沿用那個寬容）。
-    static let referenceJSONKeys: Set<String> = [
-        "field", "value", "kind", "url", "retrieved", "status", "media_type", "content", "statement", "rests_on",
-    ]
-
-    /// 一次呼叫至多幾筆（與未決腿同一個量級：CLI 單批 triage）。有界拒絕，不截斷。
-    static let maxReferencesPerCall = 200
-
     /// venue 的通用 `references`（#587）——JSON 物件陣列 → `ProvenanceReference`。
     ///
-    /// **形狀驗證走平面 init**（`ProvenanceReference.init(field:value:url:…)`，YAML decode 的同一個入口）：擷取型四欄必要、兩種
-    /// 互斥、判斷型的 rests-on 非空、digest 的形狀與「不是空內容的 digest」——那套規則只有一份，這裡不重寫。
-    /// 寫入面自己只多四件事，都是 init 管不到的（#587 R1 起 field 也收窄成 `issn`／`names`，理由在下方 switch）：
-    /// 1. **鍵名嚴格**、型別不猜（`status` 要是整數——boolean 與 200.5 不是，#542 R2：不預設 200）；
-    /// 2. **`kind` 必須與給的欄位一致**（init 從在場的欄位推 kind；呼叫端說 retrieval 卻只給了 statement，是兩句不一致的話）；
-    /// 3. **欄位的歸屬**：verdict 三個欄位只經 `resolve-venues` 寫，`paginated` 判定只經 `paginated`／`clear_paginated` 寫——
-    ///    那兩條路同時改記錄本身的值與判定史，通用面寫進去會讓判定與值分岔；**通用面自己只收 `issn` 與 `names`**（R1）；
-    /// 4. **有界**：一次至多 `maxReferencesPerCall` 筆、`statement` 至多 `maxStatementBytes` 位元組、`rests_on` 至多 `maxRestsOnPerCall`
-    ///    個、其餘字串各至多 `AddOnlyEnrichment.maxValueBytes`（`enrich` 對來源字串的同一個上限）。
+    /// 解析與驗證是 `update_person` 的 references **同一個函式**（`parseReferenceObjects`，#674）：鍵名嚴格、`status` 必填、
+    /// `url` 只收 http／https、有界——契約在 `ReferenceWriteParsing.swift`，這裡不重寫。本檔只留 **venue 自己的政策**：
     ///
-    /// `field: issn` 的 `value` 以正規形入庫（識別碼在寫入面正規化，#394）。附著（那個號、那個名字在不在記錄上）要合進記錄才判得出來，
-    /// 在 `updateVenue` 裡以 `validateReferenceAttachment` 驗。
+    /// 1. **空陣列拒絕**：`references` 是獨立參數，給了卻沒東西要附是呼叫端的錯；
+    /// 2. **欄位的歸屬**：verdict 三個欄位只經 `resolve-venues` 寫，`paginated` 判定只經 `paginated`／`clear_paginated` 寫——
+    ///    那兩條路同時改記錄本身的值與判定史，通用面寫進去會讓判定與值分岔；**通用面自己只收 `issn` 與 `names`**（見 `admitVenueReferenceField`）；
+    /// 3. **`field: issn` 的 `value` 以正規形入庫**（識別碼在寫入面正規化，#394）。
+    ///
+    /// 附著（那個號、那個名字在不在記錄上）要合進記錄才判得出來，在 `updateVenue` 裡以 `validateReferenceAttachment` 驗。
     static func parseVenueReferences(_ raw: [Any]?) throws -> [ProvenanceReference]? {
         guard let raw else { return nil }
         guard !raw.isEmpty else {
             throw ServiceError.invalid("references 是空陣列——沒有要附的 reference 就不要給這個參數")
         }
-        guard raw.count <= maxReferencesPerCall else {
-            throw ServiceError.invalid("references 一次最多 \(maxReferencesPerCall) 筆（這次 \(raw.count) 筆）——分次送")   // display-safe-exempt: maxReferencesPerCall 與 raw.count 是 Int
-        }
-        return try raw.enumerated().map { i, item in try parseVenueReference(item, index: i) }
+        return try parseReferenceObjects(raw, policy: venueReferencePolicy)
     }
 
-    private static func parseVenueReference(_ item: Any, index i: Int) throws -> ProvenanceReference {
-        let at = "references[\(i)]"   // display-safe-exempt: i 是 Int
-        guard let obj = item as? [String: Any] else {
-            throw ServiceError.invalid("\(at) 必須是物件（{field, value?, kind, …}）")   // display-safe-exempt: at 是字面＋Int
-        }
-        let unknown = obj.keys.filter { !referenceJSONKeys.contains($0) }.sorted()
-        if !unknown.isEmpty {
-            throw ServiceError.invalid(
-                "\(at) 有不認得的鍵「\(Self.listCapped(unknown) { displaySafeInvisible($0, max: 60) })」——"   // display-safe-exempt: at 是字面＋Int
-                + "合法的鍵：" + referenceJSONKeys.sorted().joined(separator: "、")   // display-safe-exempt: referenceJSONKeys 是本檔的字面集合
-                + "（判斷型的斷言鍵是 statement，同 update_person）")
-        }
-        func string(_ key: String, cap: Int = AddOnlyEnrichment.maxValueBytes) throws -> String? {
-            guard let v = obj[key], !(v is NSNull) else { return nil }
-            guard let s = v as? String else {
-                throw ServiceError.invalid("\(at).\(key) 必須是字串")   // display-safe-exempt: at 是字面＋Int；key 取自上方的封閉鍵集合
+    static let venueReferencePolicy = ReferenceHolderPolicy(
+        admitField: admitVenueReferenceField,
+        normalizeValue: { field, value, at in
+            guard field == "issn" else { return value }
+            // 定位值是一個號，不是 add_issn 的一項——帶角色的寫法在這裡不合法（角色是號的屬性，走 add_issn）
+            guard let n = ISSN(value) else {
+                throw ServiceError.invalid(
+                    "\(at).value「\(displaySafeInvisible(value, max: 80))」不是合法的 ISSN——只給號（NNNN-NNNN）；角色寫在 add_issn")   // display-safe-exempt: at 是字面＋Int
             }
-            guard s.utf8.count <= cap else {
-                throw ServiceError.invalid("\(at).\(key) 超過 \(cap) 位元組（實得 \(s.utf8.count)）——拒絕，不截斷")   // display-safe-exempt: at 是字面＋Int；key 取自封閉鍵集合；cap 與 s.utf8.count 是 Int
-            }
-            return s
-        }
-        guard let field = try string("field"),
-              !field.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw ServiceError.invalid("\(at) 缺 field（這筆 reference 支持哪個欄位）")   // display-safe-exempt: at 是字面＋Int
-        }
+            return n.normalized
+        })
+
+    private static func admitVenueReferenceField(_ field: String, at: String) throws {
         if ProvenanceReference.resolutionVerdictFields.contains(field) {
             throw ServiceError.invalid(
                 "\(at) 的 field「\(displaySafeInvisible(field, max: 60))」是 resolution verdict——只經 resolve-venues 寫，不收手供")   // display-safe-exempt: at 是字面＋Int
@@ -159,56 +131,6 @@ extension AkashicService {
         default:
             throw ServiceError.invalid(
                 "\(at) 的 field「\(displaySafeInvisible(field, max: 60))」不收——通用 references 面只收 issn 與 names（其餘欄位的來源另有專屬寫入面或尚無寫入面）")   // display-safe-exempt: at 是字面＋Int
-        }
-        guard let kindName = try string("kind"), ["retrieval", "judgement"].contains(kindName) else {
-            throw ServiceError.invalid("\(at) 的 kind 必須是 retrieval 或 judgement")   // display-safe-exempt: at 是字面＋Int
-        }
-        var status: Int?
-        if let v = obj["status"], !(v is NSNull) {
-            guard let n = v as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID(),
-                  let exact = Int(exactly: n.doubleValue) else {
-                throw ServiceError.invalid("\(at).status 必須是整數（HTTP 狀態碼；離線來源改用 judgement 型）")   // display-safe-exempt: at 是字面＋Int
-            }
-            status = exact
-        }
-        var restsOn: [String] = []
-        if let v = obj["rests_on"], !(v is NSNull) {
-            guard let arr = v as? [Any], let strs = arr as? [String], strs.count == arr.count else {
-                throw ServiceError.invalid("\(at).rests_on 必須是字串陣列（sha256: digest）")   // display-safe-exempt: at 是字面＋Int
-            }
-            guard strs.count <= maxRestsOnPerCall else {
-                throw ServiceError.invalid("\(at).rests_on 最多 \(maxRestsOnPerCall) 個 digest（這次 \(strs.count) 個）")   // display-safe-exempt: at 是字面＋Int；maxRestsOnPerCall 與 strs.count 是 Int
-            }
-            restsOn = strs
-        }
-        var value = try string("value")
-        if field == "issn", let v = value {
-            // 定位值是一個號，不是 add_issn 的一項——帶角色的寫法在這裡不合法（角色是號的屬性，走 add_issn）
-            guard let n = ISSN(v) else {
-                throw ServiceError.invalid(
-                    "\(at).value「\(displaySafeInvisible(v, max: 80))」不是合法的 ISSN——只給號（NNNN-NNNN）；角色寫在 add_issn")   // display-safe-exempt: at 是字面＋Int
-            }
-            value = n.normalized
-        }
-        let reference: ProvenanceReference
-        do {
-            reference = try ProvenanceReference(
-                field: field, value: value,
-                url: try string("url"), retrieved: try string("retrieved"), status: status,
-                mediaType: try string("media_type"), content: try string("content"),
-                judgement: try string("statement", cap: maxStatementBytes), restsOn: restsOn)
-        } catch let e as ServiceError {
-            throw e
-        } catch {
-            throw ServiceError.invalid("\(at)：\(displaySafeError(error, max: 600))")   // display-safe-exempt: at 是字面＋Int
-        }
-        switch (kindName, reference.kind) {
-        case ("retrieval", .retrieval), ("judgement", .judgement):
-            return reference
-        default:
-            throw ServiceError.invalid(
-                "\(at) 的 kind 是 \(kindName)，給的欄位卻是另一種——retrieval 用 url／retrieved／status／content（media_type 選填），"   // display-safe-exempt: at 是字面＋Int；kindName 已限定為兩個字面之一
-                + "judgement 用 statement／rests_on")
         }
     }
 }

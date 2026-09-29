@@ -56,6 +56,12 @@ let agmCases: [AGMCase] = [
     AGMCase(desc: "coverage③：basename 相同但目錄錯（`-f` 解析不到——`.md.bak` 教訓的那一格）", guardRel: "akashic-guards rule-coverage", edits: [
         AGMEdit(path: "plugin/skills/akashic-promote-literals/SKILL.md", kind: "replaceFirst", a: "../../rules/assertions-must-be-measured.md", b: "../../rulez/assertions-must-be-measured.md"),
     ], expect: ["的相對路徑解析不到"]),
+    // **#629 R1 verify 第 22 則**：零條規則的分支是移植時新增的（shell 版是意外變紅、Swift 版的空迴圈會直接印綠燈）。它的證據原本是
+    // 「移植時的新舊差分（不在 repo）」，於是這條分支沒有任何東西釘住。刪光 `plugin/rules/` 底下的 `.md`（目錄還在）即得那個狀態。
+    AGMCase(desc: "coverage④：規則目錄在、一條 .md 規則都沒有（空集合不得冒充通過）", guardRel: "akashic-guards rule-coverage", edits: [
+        AGMEdit(path: "plugin/rules/assertions-must-be-measured.md", kind: "delete", a: "", b: ""),
+        AGMEdit(path: "plugin/rules/source-of-truth-over-consent.md", kind: "delete", a: "", b: ""),
+    ], expect: ["沒有任何 .md 規則檔"]),
     AGMCase(desc: "numbers：把某個數字唯一的行內時間錨拿掉", guardRel: "akashic-guards measured-numbers-audit", edits: [
         AGMEdit(path: ".claude/rules/literal-first-then-key.md", kind: "replaceFirst", a: "（#303 實測：2,123/3,720 邊，57.1%）", b: "（實測：2,123/3,720 邊，57.1%）"),
     ], expect: ["沒有時間錨"]),

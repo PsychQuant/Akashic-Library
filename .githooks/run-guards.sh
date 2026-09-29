@@ -47,8 +47,8 @@ done
 #  九條 finding 的受測物（`literal-census.sh` 的探測寫法、`store-marker-parity.sh` 的 5000 前導零 fixture、
 #  parity workflow 的生成表 paths、`derive-hash-extenders.swift` 的假 `--check`）隨 census 移植成 Swift 而全部不存在，
 #  剩下的只是對 sed／printf／seq 行為的示範，不守任何 repo 內的東西。逐條處置見 `changelog/2026-09-29-guards-and-census-to-swift.md`。）
-# **Swift 版**（#433 C 批 1/3）。驗證：乾淨樹逐位元相同、負控的 **14 個 case 兩版並驗**
-# （`rule-prose-guards-mutations.py` 對每個 case 同時跑兩版並要求 stdout 與 rc 逐字相同）。
+# **Swift 版**（#433 C 批 1/3）。遷移當時的驗證是乾淨樹逐位元相同、負控兩版並驗；Python 版已退場（`989ac64`），現在的負控見下方的
+# `rule-prose-guards-mutations`。
 # 這支不需要 source-injection 豁免：mutation 只作用在 copy 的 plugin 樹上，守衛在原位。
 .build/debug/akashic-guards protected-ratchet
 .build/debug/akashic-guards workflow-run-scripts
@@ -60,7 +60,8 @@ for root in $plugin_roots; do
   .build/debug/akashic-guards rule-prose-guards --root "$root" --prose-only
 done
 # **Swift 版**（#433，第二支遷移的 harness）。乾淨樹逐位元相同（19 行、rc=0）。
-# 15 個 case（#644 起含一格 plugin/ 以外的根、一格不存在的根）＋ 一個注入 PoC（不只看守衛紅不紅，還看**副作用有沒有發生**）。
+# case 數以它印的 `negative control N/N` 為準（#644 起含一格 plugin/ 以外的根、一格不存在的根；#629 移除第 6 項時少了兩格，
+# 2026-09-29 實測 14/14，先前這裡與 changelog 寫 15）＋ 一個注入 PoC（不只看守衛紅不紅，還看**副作用有沒有發生**）。
 .build/debug/akashic-guards rule-prose-guards-mutations
 # （原本這裡有 census 的四件套：`hash-table-drift.sh`、`multiscalar-parity.swift`、`store-marker-parity.sh`、
 #  `marker-parity-mutations`。#629 移除：census 改成 `akashic literal-census`，marker 直接呼叫 `StoreVersion.read`——
@@ -78,8 +79,8 @@ done
 # **不寫死格數**：它每輪都在長。
 # 另含 `shlex(posix, punctuation_chars)` 的等價實作，差分測試 63 個 case 逐 token 相同。
 .build/debug/akashic-guards trigger-coverage
-# **Swift 版**（#433，第四支遷移的 harness）。32 個 mutation（26 case ＋ 6 warn_case）
-# 的字串**機械抽出不手抄**（`TriggerCoverageMutationsData.swift`）——它們全是
+# **Swift 版**（#433，第四支遷移的 harness）。mutation 的格數以它印的 `negative control N/N` 為準（不寫死：它隨 case 增減，
+# 這裡先前寫的「32 個（26 case ＋ 6 warn_case）」在 #629 時已是 37）。字串**機械抽出不手抄**（`TriggerCoverageMutationsData.swift`）——它們全是
 # `t.replace(字面, 字面)`，而 harness 斷言注入必須真的改到東西，手抄一個空白之差會讓
 # case 靜默失效而輸出看起來像「被注入的檔案改了」。
 .build/debug/akashic-guards trigger-coverage-mutations

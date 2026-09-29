@@ -37,7 +37,8 @@ description: 取得 Akashic 條目的全文 PDF 並存進 store——EndNote「F
 
 ## 開始前
 
-1. **確認節奏工具**：`safari-browser wait --help` 有 `--jitter` 就用 `safari-browser wait --jitter cauchy`；沒有就用 `akashic fulltext jitter`（同一個分布與預設值；印出秒數再睡）。**不要**用 safari-browser SKILL.md 舊的 `max(2, …)` 一行公式——它把 22.3% 的間隔堆在 2.0 秒（PsychQuant/safari-browser#182 的 10⁶ 次模擬）。
+0. **確認 `akashic` CLI 含 #629 的 `fulltext` 子命令**（照 [web-access.md](../akashic-bootstrap/references/web-access.md)〈開始前〉第 4 點）：這個 skill 的取得、驗證、中止條款偵測、節奏全部是那組子命令，plugin 只自動下載 `akashic-mcp`、不出貨 `akashic` CLI，所以 plugin 文字可能比使用者機器上的 CLI 新。舊 binary 的症狀是 `akashic fulltext …` 印 `unexpected arguments: 'fulltext'`、結束碼 64。**確認不了就停，不要改回舊的腳本或略過檢查。**
+1. **確認節奏工具**：`safari-browser wait --help` 有 `--jitter` 就用 `safari-browser wait --jitter cauchy`；沒有就用 `akashic fulltext jitter`（同一個分布與預設值；印出秒數再睡；**跑不起來就停下，不要略過節奏**）。**不要**用 safari-browser SKILL.md 舊的 `max(2, …)` 一行公式——它把 22.3% 的間隔堆在 2.0 秒（PsychQuant/safari-browser#182 的 10⁶ 次模擬）。
 2. **選視窗**：`safari-browser documents --json --profile "<使用者自己的 profile>"` 只列那個 profile 的視窗（**不要不帶 `--profile`**：會把所有 profile、含別人的 session 的分頁網址與標題倒進對話）。選一個視窗編號 `<N>`，第 3 步的 `--window` 用它；其他 profile 是別人的 session。拿不準就問。
 3. **先載 `safari-browser` skill** 的 tab-locking 段（全域 CLAUDE.md 要求）。
 4. **第 2 步的 OpenAlex 查詢**（頁內 fetch）先照 [web-access.md](../akashic-bootstrap/references/web-access.md) 的〈開始前〉問 profile、建暫存目錄。
@@ -84,7 +85,7 @@ akashic fulltext fetch --window <N> --expect-profile "<使用者自己的 profil
 
 **這條命令的鎖分頁與 web-access.md 不同**：`fetch` 用 `--window <N>` 加它自己開的分頁位置（`--tab-in-window`，#613 的作法，理由見 publishers.md：使用者已開著同一頁時 URL 鎖會對到兩個分頁、safari-browser fail-closed），**不是** web-access.md 的 `--profile`＋`--url-endswith`。這是 grandfathered 的例外（規則檔〈既有檔〉形狀 (b)）。**#629 把腳本移植成 `akashic fulltext fetch` 時沒有改鎖法**（改成 `--profile`＋`--url-endswith` 要使用者裁決、而且要實跑 Safari；規則檔記著便宜的解：對 `--landing` 加一次性 fragment，沒實測）。同一個 skill 因此有兩個鎖法，分工是：第 2 步的頁內 OpenAlex 查詢照 web-access.md、第 3 步只用 `fetch`，兩者不混用；不要在第 3 步之外自己用 `--window` 動 Safari。
 
-**驗證怎麼判「是這篇」**（`akashic fulltext verify`；程式與校準表在 akashic repo 的 `Sources/AkashicSkillTools/FulltextVerify.swift`，該 repo 為 private、plugin 安裝處讀不到；門檻是 2026-09-24 以 29 份真實 PDF 對 Crossref 量過的，#629 移植後**沒有重跑那組校準**——那 29 份 PDF 不在本機，見 changelog `2026-09-29-fulltext-scripts-to-swift.md`）：首頁要有一行（或連續幾行）**就是**記錄標題，另外要有 DOI 證據，分三級：
+**驗證怎麼判「是這篇」**（`akashic fulltext verify`；程式與校準表在 akashic repo 的 `Sources/AkashicSkillTools/FulltextVerify.swift`，該 repo 為 private、plugin 安裝處讀不到；門檻是 2026-09-24 以 29 份真實 PDF 對 Crossref 量過的（自己的標題被收 22/28、別篇 0/808，**那是舊 Python 腳本量的**）；#629 移植後**沒有重跑那組 29 份**——那批 PDF 與當時的 Crossref 標題不在本機，新舊工具只在本機湊得到的較小語料上對跑過、輸出逐字相同。怎麼重量見 [references/calibrate.md](references/calibrate.md)）：首頁要有一行（或連續幾行）**就是**記錄標題，另外要有 DOI 證據，分三級：
 
 - **檔案自己的中繼資料（XMP）DOI** 等於記錄 DOI → 收（頁數不衝突即可）。不等於 → 不收：檔案自己說它是另一篇。
 - 沒有中繼資料時，**首頁印的第一個 DOI** 等於記錄 DOI → 還要頁數**吻合**才收——勘誤或回應文可能先印原文的 DOI。不等於 → 不收。

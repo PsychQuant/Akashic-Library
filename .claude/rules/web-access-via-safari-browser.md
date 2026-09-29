@@ -188,6 +188,10 @@ safari-browser 開）、`akashic-bootstrap/references/web-access.md`（程序本
 web-access.md 的一次取得，403／429／5xx 在取得那一步就是中止條款，404 存成 `.404` 標記＝查無此筆。
 量法上一個新的判斷（不是機械結果）：`Sources/` 沒有 HTTP client，量法第一行的 `URLSession` 字樣在 `Sources/` 的命中是 0（2026-09-29 重量）。
 
+**量法不涵蓋、也不算「已遷移」的一個檔**：`docs/skill-evals/akashic-bootstrap-workspace/skill-snapshot-old/scripts/crossref_match.py` 仍是 `urllib` 直連 Crossref
+的舊腳本，是評測 A／B 比對的**凍結基準線**（`swift-is-the-implementation-language` 〈不適用〉第 5 類），不被任何 skill、CLI、守衛或測試執行，
+也不在上面量法的掃描路徑裡。它不是「遷移過了」（沒有），是「不適用」——寫在這裡，免得下一個人量到它時以為量法漏了一個要遷移的檔（#629 R1 verify 第 44 則）。
+
 **形狀 (b)（經 safari-browser、但鎖法不是〈使用紀律〉的鎖法）**——量法（#629 起加掃 `Sources`：腳本移進 Swift 之後，鎖法的程式在那裡）：
 
 ```bash

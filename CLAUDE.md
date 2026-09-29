@@ -120,9 +120,12 @@ Foresay 管**人機確認的格式與迴圈**，本 repo 的規則管**哪些寫
 > 刻意不列進上表：那張表的語意是「自動注入的 repo 規則」，
 > 混進去會讓那個性質變成謊話（#407）。
 >
-> **那條規則有守衛，而守衛有 negative control。** `plugin/tests/`（覆蓋、散文，
-> 純 python／bash）與 `plugin/skills/akashic-promote-literals/scripts/tests/`
-> （store-marker parity ＋ hash 表漂移，拿建好的 CLI／Swift 當 oracle）。**支數不寫死**——每輪都在長，而寫死的計數會與目錄分岔（這正是本 repo 反覆記過的形狀）。要知道有幾支就跑 `ls plugin/tests/*.{sh,py} plugin/skills/*/scripts/tests/*.{sh,py}`。
+> **那條規則有守衛，而守衛有 negative control。** 守衛是 `Sources/akashic-guards/` 的子命令
+> （`akashic-guards <名字>`，`.githooks/run-guards.sh` 是唯一的呼叫點），負控是同目錄的 `*-mutations`
+> 子命令與 `Tests/` 的測試（census 的 store marker 解析對照是 `StoreMarkerMatrixTests`）。
+> 先前這裡指的 `plugin/tests/` 與 `plugin/skills/akashic-promote-literals/scripts/tests/`（python／bash）在 #433／#629 之後
+> 已整個不存在，照著跑那條 `ls` 會 `no matches found`（#629 R1 verify 第 32 則）。**支數不寫死**——每輪都在長，而寫死的計數會與目錄分岔
+> （這正是本 repo 反覆記過的形狀）。要知道有幾支就跑 `.build/debug/akashic-guards trigger-coverage | head -1`（印「守衛 N 支」）。
 >
 > **觸發點已接上，但 2026-08-21 實測：一個都沒在跑**（#407 R8 verify）：
 >
@@ -447,8 +450,8 @@ Foresay 管**人機確認的格式與迴圈**，本 repo 的規則管**哪些寫
 > **所以這是待解，不是已權衡完畢。** 兩條可能的出路（都未做）：(a) macOS runner 恢復後
 > 把它移出 pre-push、只留 CI；(b) repo 轉公開或升級方案後加 required status check。
 >
-> **上表的「已接上」那一欄現在有守衛在量**（`plugin/tests/trigger-coverage.py`，
-> #407 R19）。它問的不是聯集而是**逐對**：對每個受保護檔案 × 每個讀它的守衛，
+> **上表的「已接上」那一欄現在有守衛在量**（`akashic-guards trigger-coverage`；#433 前是
+> `plugin/tests/trigger-coverage.py`，#407 R19）。它問的不是聯集而是**逐對**：對每個受保護檔案 × 每個讀它的守衛，
 > 是否存在一個 workflow 同時在該檔改動時觸發、且執行該守衛。判準取自
 > `census-parity.yml` 自己的檔頭——「兩者合起來涵蓋五支」在檔案集合的聯集意義上
 > 成立，在任一次變更的意義上不成立，而後者才是觸發點要保證的事。當下實測**零缺口**，

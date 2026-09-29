@@ -24,8 +24,10 @@ import AkashicCore
 ///    `create-entry`）建檔時帶進來的，OpenAlex 回傳的摘要本身就是這段樣板；本轉換 2026-09-07 才新增。它守的是另一件事：
 ///    `update-entry --remove-field` 把那 21 筆的摘要移除之後，它們沒有摘要、會被排回階段 B——若階段 B 對它們抓到同一個樣板，
 ///    這裡擋得住。核心層（`create-entry`／`enrich`／`validate`）不過濾，那是 #676 的裁決題。
-///    **這個字串現在只有一份**（`crossrefNoMetadata`）：舊腳本與 `SKILL.md` 階段 A 各寫一份、要一起改（#629 之前是兩份會分岔的
-///    描述）；階段 A 的判準改成引用這個常數的位置。
+///    **這個字串在程式裡只有一份**（`crossrefNoMetadata`），但 plugin 的 `akashic-venue-works/SKILL.md` 階段 A 另抄了一份——plugin 讀者
+///    讀不到這個 private repo 的 Swift 檔，判準得寫在他們讀得到的地方（#629 R1 verify 第 48 則：先前這裡寫「只有一份」，與 SKILL.md 並存的
+///    事實不符）。兩份之間由 `AbstractProposalsPythonJSONTests.testTheSkillsCopyOfTheNoMetadataTemplateEqualsTheConstant` 對帳，
+///    改字串時那個測試會紅。
 /// 2. `doi` **原樣透傳**：URL 前綴與大小寫由 core 的 `DOI` 正規化吸收，這裡**不**複製那條規則。轉換自己只有一條更弱的身分規則
 ///    ——逐位元相同的 DOI 字串——大小寫／前綴不同的近重複兩筆都輸出、留給 core（它會把第二筆報成 `skipped`，不會靜默）。
 ///    同 DOI 而摘要**不同**不是冗餘是衝突：理由印 `conflicting-duplicate`，與 `duplicate-doi` 分開具名（#516 verify）。

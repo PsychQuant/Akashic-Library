@@ -139,6 +139,16 @@ final class AbstractProposalsPythonJSONTests: XCTestCase {
         }
     }
 
+    /// 程式裡的樣板常數與 plugin SKILL.md 階段 A 抄的那一份要相同（plugin 讀者讀不到 Swift，所以判準必須寫在 SKILL.md）。
+    func testTheSkillsCopyOfTheNoMetadataTemplateEqualsTheConstant() throws {
+        var dir = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        while dir.path != "/", !FileManager.default.fileExists(atPath: dir.appendingPathComponent("plugin/skills/akashic-venue-works/SKILL.md").path) {
+            dir = dir.deletingLastPathComponent()
+        }
+        let skill = try String(contentsOf: dir.appendingPathComponent("plugin/skills/akashic-venue-works/SKILL.md"), encoding: .utf8)
+        XCTAssertTrue(skill.contains(AbstractProposals.crossrefNoMetadata), "SKILL.md 階段 A 的樣板字串與 `AbstractProposals.crossrefNoMetadata` 不一致")
+    }
+
     /// 形狀合法的 digest，store 解析失敗：錯誤原樣往上，不說成「不是合法的 digest」。
     func testAStoreResolutionFailureIsNotReportedAsAnInvalidDigest() {
         struct NoStore: Error, LocalizedError { var errorDescription: String? { "no library selected" } }

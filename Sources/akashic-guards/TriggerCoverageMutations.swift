@@ -149,8 +149,8 @@ func triggerCoverageMutations() -> Int32 {
             // 三段判準，第三段是 #407 R20d 補的：前兩段（守衛變紅、訊息指名了它）不足以說
             // 這格**鑑別**了它具名的缺陷——一個注入若順帶打壞別的東西，紅的原因就分不出來。
             // 姊妹 harness 在 R18b 已經吃過這個虧（四格宣告「第 1 項」的注入實際紅 [1, 2]）。
-            let hit = out.contains(c.expect)
-            let stray = gaps.filter { !$0.contains(c.expect) }
+            let hit = out.contains(c.expect) && c.alsoExpect.allSatisfy { out.contains($0) }
+            let stray = gaps.filter { gap in !gap.contains(c.expect) && !c.alsoExpect.contains { gap.contains($0) } }
             let ok = rc != 0 && hit && stray.isEmpty
             if ok {
                 print("✓ \(c.desc) → rc=\(rc)，指名了它"

@@ -31,7 +31,7 @@
    小改；**不得在它們旁邊新增同類檔案**，也不得把新功能長在它們裡面。大幅改寫時移植成
    上表的 Swift 形式。
 
-## 不適用（同樣是封閉列舉，只有四類）
+## 不適用（同樣是封閉列舉，只有五類）
 
 1. **`SKILL.md` 與文件裡給模型或人照著執行的指令列**——呼叫 `akashic`、`safari-browser`、
    `pdftotext`、`gh` 等。那是使用工具，不是在 repo 裡新增程式。
@@ -39,6 +39,12 @@
 3. **`repos/` 底下的 submodule**——各自是獨立的 repo。
 4. **不 commit 的一次性量測腳本**——放暫存目錄、量完即丟；要留下來重跑的，就不是一次性的，
    依上表寫成 Swift。
+5. **`docs/skill-evals/**/skill-snapshot-*/` 底下的舊 skill 快照**（2026-09-29 #629 R1 加入，使用者可翻）。目前恰一個：
+   `docs/skill-evals/akashic-bootstrap-workspace/skill-snapshot-old/scripts/crossref_match.py`。它是評測 A／B 比對用的**基準線**——
+   當時的 skill 長什麼樣子（含它自己以 `urllib` 直連 Crossref 的腳本）就是被比較的東西；刪掉它、或移植它，會讓基準線失去意義。它不被
+   任何 skill、CLI、守衛或測試執行。**第一版把這件事寫成一節〈誰沒被「移植」〉而沒有加進這張封閉列舉**（R1 verify 第 44 則：那是在
+   列舉之外新增第五類卻不改列舉）；現在顯式加列。判準不是「凡是 `docs/` 底下的都不適用」——**只有凍結的評測快照**；`docs/` 底下若有
+   會被執行的腳本，它仍然適用本規則。要推翻這一列：刪掉那個快照檔，並把本列與〈誰沒被「移植」〉一併拿掉。
 
 ## 既有檔（grandfathered，2026-09-24 量，tracked）
 
@@ -74,8 +80,10 @@ parity 測試不是「移植」而是**受測物不存在後退場**）。
 
 ## 誰沒被「移植」：`docs/skill-evals/` 底下的舊快照
 
-`docs/skill-evals/akashic-bootstrap-workspace/skill-snapshot-old/scripts/crossref_match.py` 是評測用的**舊 skill 快照**，在 `docs/` 底下、不是
-可執行的程式碼（語言組成的量法排除 `docs/`），也不是 skill 現行的內容。它沒有動；它提到的 `scripts/crossref_match.py` 是快照當時的樣子。
+`docs/skill-evals/akashic-bootstrap-workspace/skill-snapshot-old/scripts/crossref_match.py` 是評測用的**舊 skill 快照**（基準線），不是
+可執行的程式碼、也不是 skill 現行的內容。它沒有動；它提到的 `scripts/crossref_match.py` 是快照當時的樣子。它屬於上面〈不適用〉第 5 類。
+`.claude/rules/web-access-via-safari-browser.md` 的直連量法（只掃 `plugin/skills`、`plugins/*/skills`、`Sources`）同樣不涵蓋它，
+理由相同：凍結的基準線，不被執行。
 
 ## 為什麼
 

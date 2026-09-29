@@ -29,6 +29,19 @@ import AkashicStoreIO
 ///   `web-access-via-safari-browser.md` 的 `--profile`＋`--url-endswith`。這是規則檔〈例外〉第二種形狀的 grandfathered 項目；
 ///   改成 `--url-endswith` 要使用者裁決、而且要實跑 Safari（規則檔記著便宜的解：對 `--landing` 加一次性 fragment）。
 /// - 環境變數 `FETCH_FULLTEXT_NAP`（路徑測試用來把等待歸零）不再存在——等待由建構子的 `sleeper` 注入。
+///
+/// # 不變量（#629 R1 verify 之後由程式強制，不只寫在文件裡）
+///
+/// - **輸出目的地**（`--out`、`*.unverified.pdf`、`*.response.txt`）在碰瀏覽器之前 `lstat`：只有「不存在」或「普通檔」放行；目錄、symlink、
+///   特殊檔具名拒絕。覆寫普通檔是同目錄暫存＋`rename` 的原子替換（`OutputFile`）——不遞迴刪任何東西、失敗時原檔還在。
+/// - **git 閘 fail-closed**：輸出目錄的祖先有 `.git` 時，git 執行不起來、`rev-parse` 非零、`check-ignore` 不是 0／1，一律拒絕。git 一律走
+///   `LibraryStore.hardenedGit`（#585 的同一支）。
+/// - `--landing`、`--prime` 只收 `https://`；頁面自己給的 PDF 連結（DOM 來的）origin 要與頁面相同才發 `credentials:'include'` 的 fetch，
+///   出版商規則（`PdfUrlRules`）產生的網址不受此限。`--expect-profile` 在命令列層必填。
+/// - 暫存目錄 0700；poppler 對第三方 PDF 有逾時（`ToolRunner.popplerTimeout`）。
+///
+/// **仍沒有的**：沒對真的 `safari-browser` 跑過（只對記憶體內的假瀏覽器與舊 Python stub）；`siteGuard` 的七個呼叫點沒有逐一被測試單獨釘住
+/// （相鄰的守衛互相遮蔽，拿掉任一個測試都不變紅——舊 shell 的 `guard;` 同樣沒有；退出點 `botStop` 則逐一有測試，R1 verify 第 55 則）。
 public final class FulltextFetch {
     public struct Options {
         public var window: Int

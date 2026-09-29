@@ -166,3 +166,35 @@ final class CauchyJitterTests: XCTestCase {
         }
     }
 }
+
+/// NFKC：Foundation 的一步 `precomposedStringWithCompatibilityMapping` 對相容分解後的組合序列與 Python 不同（R1 verify 第 42、47 則）；
+/// `PyText.nfkc` 現在是 NFC(NFKD(s))。**期望值取自 Python 3.13 的 `unicodedata.normalize("NFKC", …)`**。
+final class PyTextNFKCTests: XCTestCase {
+    private func nfkc(_ scalars: [UInt32]) -> [UInt32] {
+        PyText.nfkc(Scalars(scalars.compactMap(Unicode.Scalar.init))).map(\.value)
+    }
+
+    func testHalfWidthKatakanaWithVoicedMarkComposes() {
+        XCTAssertEqual(nfkc([0xFF76, 0xFF9E]), [0x30AC])   // ｶﾞ → ガ
+        XCTAssertEqual(nfkc([0xFF8A, 0xFF9F]), [0x30D1])   // ﾊﾟ → パ
+    }
+
+    func testCompatibilityDecompositionFollowedByMarksIsReorderedAndComposedLikePython() {
+        XCTAssertEqual(nfkc([0x01C5, 0x0323]), [0x44, 0x1E93, 0x30C])   // ǅ＋U+0323 → D ẓ ˇ
+        XCTAssertEqual(nfkc([0x01C6, 0x0323]), [0x64, 0x1E93, 0x30C])
+        XCTAssertEqual(nfkc([0x1E9B, 0x0323]), [0x1E69])
+    }
+
+    /// 標題規則的後果：記錄與首頁對同一個標題用半形／全形假名寫，舊實作收（`exact`），一步版的 Foundation NFKC 拒收。
+    func testTitleMatchAcrossHalfAndFullWidthKanaAgreesWithPython() {
+        XCTAssertEqual(FulltextVerify.titleMatch("\u{FF76}\u{FF9E}\u{FF78}", firstPages: "\u{30AC}\u{30AF}\nabstract"), "exact")
+        XCTAssertEqual(FulltextVerify.titleMatch("\u{30AC}\u{30AF}", firstPages: "\u{FF76}\u{FF9E}\u{FF78}\nabstract"), "exact")
+        XCTAssertEqual(FulltextVerify.titleMatch("\u{01C6}\u{0323}x", firstPages: "\u{01C6}\u{0323}x\nabstract"), "exact")
+    }
+
+    func testOrdinaryTextIsUnchanged() {
+        XCTAssertEqual(nfkc(Array("Ｔｅｓｔ ①２ ﬁ".unicodeScalars.map(\.value))), Array("Test 12 fi".unicodeScalars.map(\.value)))
+        XCTAssertEqual(nfkc(Array("é".unicodeScalars.map(\.value))), [0xE9])
+        XCTAssertEqual(nfkc(Array("e\u{0301}".unicodeScalars.map(\.value))), [0xE9])
+    }
+}

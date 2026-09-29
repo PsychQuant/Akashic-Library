@@ -25,6 +25,12 @@ struct TCMCase {
     let desc: String
     let edits: [(path: String, old: String, new: String)]
     let expect: String
+    /// **同一個注入必須同時出現的其他訊息**（#629 R1 verify 第 11 則）。預設空＝只要求 `expect`。
+    /// 「從守衛清單拿掉一支守衛」現在有**兩路**後果：「<守衛> 不在 pre-push 裡」（pre-push 那一路）與「改 X 時 <守衛> 不在任何
+    /// CI workflow 跑」（CI 那一路，因為 CI 也只經 `run-guards.sh` 跑守衛）。#629 第一版把 `expect` 放寬成共同前綴
+    /// （`<守衛>.swift 不在`），於是停用 pre-push 那一路的訊息，負控仍全綠——全樹只有這兩格驗過它。現在 `expect` 指名 pre-push 那一路，
+    /// `alsoExpect` 指名 CI 那一路，兩者都必須出現；第三段判準（不得有無關缺口）對兩者都放行。
+    var alsoExpect: [String] = []
 }
 
 let triggerCoverageMutationCases: [TCMCase] = [
@@ -125,15 +131,18 @@ let triggerCoverageMutationCases: [TCMCase] = [
              old: "    let src = rawFile(\"Sources/AkashicStoreIO/StoreVersion.swift\")\n",
              new: "    let src = rawFile(\"Sources/AkashicStoreIO/StoreVersion.swift\")\n    let _probe = rawFile(\"Sources/akashic-guards/ShellLex.swift\")\n"),
         ], expect: "讀 `Sources/akashic-guards/ShellLex.swift`"),
-    // **#629：這兩格的預期文字放寬成「守衛名 ＋ 不在」。** 原本的守衛（`store-marker-parity.sh`）除了 `run-guards.sh` 之外，
+    // **#629：這兩格要求兩路訊息都出現。** 原本的守衛（`store-marker-parity.sh`）除了 `run-guards.sh` 之外，
     // 還被 workflow 的一個獨立 step 直接執行，所以從 run-guards 拿掉它只會少一條 pre-push 的缺口。現在所有守衛都**只**經
     // `run-guards.sh` 執行（pre-push 與 CI 共用），拿掉那一行等於兩邊都不跑：除了「不在 pre-push 裡」，它讀的每個受保護檔
-    // 都多一條「改 X 時它不在任何 CI workflow 跑」——它們是**同一個注入的後果**，不是無關缺口，且每一條都以守衛名開頭
-    // 說「不在」。所以第三段判準（不得有無關缺口）以「守衛名 ＋ 不在」為共同前綴。
+    // 都多一條「改 X 時它不在任何 CI workflow 跑」——它們是**同一個注入的後果**，不是無關缺口。
+    // **第一版（7d34e7f7）把 `expect` 放寬成共同前綴 `PluginStoreFormatParity.swift 不在`，而那個字串也被 CI 那一路滿足**：
+    // 停用 pre-push 那一路的訊息（`TriggerCoverage.swift` 的 `uncoveredHook` 迴圈改成空的），兩格照樣 ✓、`37/37`
+    // （R1 verify 第 11 則實測）——「守衛不在 pre-push」是這支守衛的核心職責，卻沒有任何負控。現在 `expect` 指名 pre-push 那一路、
+    // `alsoExpect` 指名 CI 那一路，缺哪一路都紅。
     TCMCase(isWarn: false, desc: "從守衛清單拿掉一支守衛",
         edits: [
             (path: ".githooks/run-guards.sh", old: ".build/debug/akashic-guards plugin-store-format-parity\n", new: ""),
-        ], expect: "PluginStoreFormatParity.swift 不在"),
+        ], expect: "PluginStoreFormatParity.swift 不在 pre-push 裡", alsoExpect: ["PluginStoreFormatParity.swift 不在任何 CI workflow 跑"]),
     TCMCase(isWarn: false, desc: "從 workflow 的 paths 拿掉一個受保護檔",
         edits: [
             (path: ".github/workflows/census-parity.yml", old: "      - \"plugin/**\"\n", new: ""),
@@ -145,7 +154,7 @@ let triggerCoverageMutationCases: [TCMCase] = [
     TCMCase(isWarn: false, desc: "把守衛清單裡的一支換成只提到它的註解",
         edits: [
             (path: ".githooks/run-guards.sh", old: ".build/debug/akashic-guards plugin-store-format-parity\n", new: "# TODO: 之後再接 .build/debug/akashic-guards plugin-store-format-parity\n"),
-        ], expect: "PluginStoreFormatParity.swift 不在"),
+        ], expect: "PluginStoreFormatParity.swift 不在 pre-push 裡", alsoExpect: ["PluginStoreFormatParity.swift 不在任何 CI workflow 跑"]),
     TCMCase(isWarn: false, desc: "把 workflow 的一個 run: 換成只印檔名的 echo",
         edits: [
             (path: ".github/workflows/census-parity.yml", old: "run: bash .githooks/run-guards.sh", new: "run: echo \"見 .githooks/run-guards.sh 的說明\""),

@@ -15,7 +15,15 @@
 1. 先載 `safari-browser` skill 的 tab-locking 段。
 2. **Profile**：問使用者他自己的 Safari profile 名稱（Safari 視窗標題列「`<profile> — <標題>`」的前綴），**不要猜**。以下寫成 `<P>`。它不含 `"`、`$`、反引號、反斜線或換行；不符合就停下來問。其他 profile 是別人的 session，不碰。**不要跑不帶 `--profile` 的 `documents`**：它會把所有 profile 的分頁網址與標題整份倒進對話，其中有別人的 session。確認名稱有效、只印個數：`safari-browser documents --json --profile "<P>" | python3 -c 'import json,sys;print(len(json.load(sys.stdin)))'`——印 0 或失敗就停下來問（`--profile` 對不存在的名稱怎麼回應沒有實測）。
 3. **暫存目錄**：`mktemp -d`，印出路徑，以下寫成 `<W>`。回應是第三方內容，只留在這裡，不進任何 repo；承重的那幾份另以 `store-source` 存進 `sources/`（見 [writing-to-the-store.md](writing-to-the-store.md)）。
-4. **每一次 Bash 呼叫是新的 shell，變數不跨呼叫保留**：下面每個動到分頁的區塊都是**自足**的——同一次呼叫內自己設 `P`、`T`、`LOCK`，並確認非空才動作（鎖若是空的，safari-browser 會退回 front tab，那可能是別人 profile 的分頁）。**不要**把區塊裡的單一行拆出去單獨跑，也不要在另一次呼叫裡沿用上一次的 `$LOCK`。字面值（`<P>`、`<T>`、`<W>`、`<序號>`）每次都寫進命令。
+4. **`akashic` 要含 #629 的子命令**（`fulltext`、`crossref-match`、`abstracts-to-proposals`、`literal-census`）。這些原本是隨 plugin 出貨的 python／shell 腳本，現在是 `akashic` CLI 的子命令；plugin 只自動下載 `akashic-mcp`、**不出貨 `akashic` CLI**，所以 plugin 的文字可能比使用者機器上的 CLI 新。舊 binary 的症狀：`akashic fulltext bot-signals` 印 `Error: … unexpected arguments: 'fulltext', 'bot-signals'`、結束碼 64（子命令不存在）。**中止條款靠它**，所以先確認再開始：
+
+   ```bash
+   akashic fulltext bot-signals --help >/dev/null 2>&1 && akashic fulltext jitter --dry-run >/dev/null 2>&1 \
+     || { echo "akashic CLI 太舊（沒有 fulltext 子命令）——先更新 CLI，不要跳過中止條款的檢查與節奏" >&2; exit 1; }
+   ```
+
+   確認不了就停下來告訴使用者；不要改成「沒有這個檢查也照跑」。
+5. **每一次 Bash 呼叫是新的 shell，變數不跨呼叫保留**：下面每個動到分頁的區塊都是**自足**的——同一次呼叫內自己設 `P`、`T`、`LOCK`，並確認非空才動作（鎖若是空的，safari-browser 會退回 front tab，那可能是別人 profile 的分頁）。**不要**把區塊裡的單一行拆出去單獨跑，也不要在另一次呼叫裡沿用上一次的 `$LOCK`。字面值（`<P>`、`<T>`、`<W>`、`<序號>`）每次都寫進命令。
 
 ## 中止條款：網站一懷疑是自動化，整批就停
 
@@ -28,7 +36,7 @@
 3. **其他非 200 的狀態碼**（5xx 等）→ 中止條款。
 4. **200 才看內容**：JSON 端點回的不是 JSON（驗證頁、擋截頁）、`fetch` 拋錯、回應 60 秒沒完成、回應是空的 → 中止條款。
 
-頁面文字可以交給 `akashic fulltext bot-signals` 比對（從 stdin 讀；命中時印出訊號、結束碼 0，沒命中不印、結束碼 1；`--status <N>` 帶 HTTP 狀態碼，403／429 本身就是訊號）。它只認得一份清單，沒命中不代表乾淨。
+頁面文字可以交給 `akashic fulltext bot-signals` 比對（從 stdin 讀；命中時印出訊號、結束碼 0，沒命中不印、結束碼 1；`--status <N>` 帶 HTTP 狀態碼，403／429 本身就是訊號）。它只認得一份清單，沒命中不代表乾淨。**只有結束碼 1 才是「沒有訊號」**：其他任何結束碼（64＝子命令不存在的舊 binary、127＝沒裝、當掉的 132／133）都是「這個檢查沒有跑成」，當作無從檢查＝有疑慮，**停下**——不要讓 `if cmd; then … fi` 把「命令失敗」讀成「沒有訊號」。
 
 ## 開哪個網址
 
@@ -108,7 +116,12 @@ n=$(safari-browser documents --json --profile "$P" | python3 -c 'import json,sys
 [ "$n" = 1 ] || { echo "tab lock: $n tabs match (need exactly 1) - STOP" >&2; exit 1; }
 safari-browser wait "${LOCK[@]}" --js "['complete','interactive'].includes(document.readyState)" --timeout 60000
 safari-browser js "${LOCK[@]}" "return document.title + '\\n' + (document.body ? document.body.innerText.slice(0, 3000) : '')" > "<W>/first-<T>.txt"
-if akashic fulltext bot-signals < "<W>/first-<T>.txt"; then echo "stop signal - STOP THE WHOLE RUN" >&2; exit 2; fi
+rc=0; akashic fulltext bot-signals < "<W>/first-<T>.txt" || rc=$?
+case "$rc" in
+  1) ;;   # 結束碼 1＝沒有訊號；只有這個碼才往下走
+  0) echo "stop signal - STOP THE WHOLE RUN" >&2; exit 2 ;;   # 結束碼 0＝命中（標籤已印出）
+  *) echo "bot-signals did not run (exit $rc; akashic older than this plugin?) - cannot check, treat as suspicion - STOP THE WHOLE RUN" >&2; exit 2 ;;
+esac
 ```
 
 `akashic fulltext bot-signals` 命中時已印出訊號標籤。區塊結束後**也自己讀一遍** `<W>/first-<T>.txt`：60 秒沒載完、有訊號、頁面讀不到，都是中止條款——**不發下一個 `fetch`**。
@@ -173,7 +186,7 @@ safari-browser js "${LOCK[@]}" "delete window.__ak_$K; return 'ok'"
 
 為什麼每次換變數名、而且一定要核對：PsychQuant/safari-browser#190（2026-09-24 校準時第二批存下的檔案與第一批逐位元相同，每一步結束碼都是 0，成因沒有定論）。換變數名只擋得住「開始 fetch 那一步沒生效」；核對身分兩種都擋得住。
 
-**節奏**：逐筆、不平行，請求之間跑節奏工具（同 akashic-fetch-fulltext SKILL.md〈開始前〉第 1 點：`safari-browser wait --help` 有 `--jitter` 就用 `safari-browser wait --jitter cauchy`，沒有就用 `akashic fulltext jitter`）。
+**節奏**：逐筆、不平行，請求之間跑節奏工具（同 akashic-fetch-fulltext SKILL.md〈開始前〉第 1 點：`safari-browser wait --help` 有 `--jitter` 就用 `safari-browser wait --jitter cauchy`，沒有就用 `akashic fulltext jitter`）。**節奏工具跑不起來（子命令不存在、非零結束）就停下，不要略過節奏繼續發請求**。
 
 ## 讀渲染後的頁面
 

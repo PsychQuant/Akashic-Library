@@ -32,6 +32,8 @@ final class FulltextFetchPathTests: XCTestCase {
         var fetchWaitRC: Int32 = 0
         /// `js --large --output` 寫出的 base64 折成 64 字元一行（`base64 -D` 容忍、`Data(base64Encoded:)` 預設不容忍）。
         var foldBase64 = false
+        /// 設了就原樣寫成 `js --large --output` 的輸出（不是 base64 的東西：測試嚴格解碼）。
+        var base64Override: String?
     }
 
     final class FakeBrowser: SafariBrowser {
@@ -83,7 +85,7 @@ final class FulltextFetchPathTests: XCTestCase {
                 if file != nil { return SafariRun(status: 0, stdout: scenario.link + "\n") }
                 if src.contains("JSON.stringify({s:") { return SafariRun(status: 0, stdout: (scenario.meta ?? "") + "\n") }
                 if let output = opt(args, "--output") {
-                    let encoded = scenario.foldBase64 ? scenario.body.base64EncodedString(options: .lineLength64Characters) : scenario.body.base64EncodedString()
+                    let encoded = scenario.base64Override ?? (scenario.foldBase64 ? scenario.body.base64EncodedString(options: .lineLength64Characters) : scenario.body.base64EncodedString())
                     try? Data(encoded.utf8).write(to: URL(fileURLWithPath: output))
                     scratchMode = ((try? FileManager.default.attributesOfItem(atPath: (output as NSString).deletingLastPathComponent))?[.posixPermissions] as? NSNumber)?.intValue
                     return SafariRun(status: 0)
@@ -265,6 +267,9 @@ final class FulltextFetchPathTests: XCTestCase {
         XCTAssertEqual(fetcher.run(.init(window: 5, landing: Self.landing, out: repo.appendingPathComponent("w.pdf").path)), 0, errText)
     }
 
+    /// **只涵蓋 `GIT_DIR` 這一類**（#629 R1 verify 第 56 則指出原先的名稱與註解過寬）：git 答不出來的其他形狀——git 起不來、`rev-parse` 非零、
+    /// `check-ignore` 出錯、PATH 上的 shim、目標 repo 的 `core.fsmonitor`——各自的測試在 `FulltextFetchHardeningTests`。
+    ///
     /// `git -C` 擋不住 `GIT_DIR`（#234／#239）：從 git hook 裡執行時它指向呼叫 hook 的 repo。這裡造一個「什麼都忽略」的誘餌 repo，
     /// 把 `GIT_DIR` 指過去；閘若沒剝除環境，`check-ignore` 問的是誘餌、答「已忽略」而放行——第三方全文寫進沒忽略它的工作樹。
     func testGitDirInTheCallersEnvironmentCannotMakeTheGateFailOpen() throws {

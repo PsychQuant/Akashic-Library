@@ -511,11 +511,12 @@ public final class FulltextFetch {
 
     private func decodeBase64File(_ path: String) throws -> Data {
         guard let raw = FileManager.default.contents(atPath: path) else { throw fail("read: no output file") }
-        var bytes = Array(raw)
-        while let f = bytes.first, f == 0x0A || f == 0x0D || f == 0x20 { bytes.removeFirst() }
-        while let l = bytes.last, l == 0x0A || l == 0x0D || l == 0x20 { bytes.removeLast() }
-        // `.ignoreUnknownCharacters`：舊實作的 `base64 -D` 容忍任意位置的換行（`Data(base64Encoded:)` 預設不容忍，R1 verify 第 37 則）
-        guard let decoded = Data(base64Encoded: Data(bytes), options: .ignoreUnknownCharacters) else { throw fail("base64 decode failed") }
+        // 舊實作的 `base64 -D` 容忍任意位置的換行；`Data(base64Encoded:)` 預設不容忍（R1 verify 第 37 則）。只拿掉換行與頭尾空白、其餘照嚴格解碼：
+        // 不用 `.ignoreUnknownCharacters`（它會把任何非 base64 字元靜默丟掉，一段錯誤頁文字會「解」成垃圾位元組而不是明確失敗）
+        var bytes = Array(raw).filter { $0 != 0x0A && $0 != 0x0D }
+        while let f = bytes.first, f == 0x20 { bytes.removeFirst() }
+        while let l = bytes.last, l == 0x20 { bytes.removeLast() }
+        guard let decoded = Data(base64Encoded: Data(bytes)) else { throw fail("base64 decode failed") }
         return decoded
     }
 

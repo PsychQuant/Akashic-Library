@@ -128,6 +128,25 @@ final class FulltextFetchHardeningTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: target.appendingPathComponent("keep.txt"), encoding: .utf8), "precious")
     }
 
+    /// 寫入中途失敗（暫存檔已建立、寫不下去）：原檔還在、不留暫存檔。用 `RLIMIT_FSIZE` 讓 `write(2)` 回 `EFBIG`——
+    /// 先前的「先刪再搬」在這種失敗發生時原檔已經被刪。
+    func testAWriteFailureAfterTheTempFileWasCreatedKeepsTheOriginalFile() throws {
+        let target = outDir.appendingPathComponent("w.pdf")
+        try write("original", to: target)
+        signal(SIGXFSZ, SIG_IGN)
+        var previous = rlimit()
+        XCTAssertEqual(getrlimit(RLIMIT_FSIZE, &previous), 0)
+        var small = rlimit(rlim_cur: 16, rlim_max: previous.rlim_max)
+        XCTAssertEqual(setrlimit(RLIMIT_FSIZE, &small), 0)
+        var thrown: Error?
+        do { try OutputFile.replace(path: target.path, with: Data(repeating: 0x41, count: 4096)) } catch { thrown = error }
+        setrlimit(RLIMIT_FSIZE, &previous)
+        signal(SIGXFSZ, SIG_DFL)
+        XCTAssertNotNil(thrown, "寫不下去要丟錯，不是靜默成功")
+        XCTAssertEqual(try String(contentsOf: target, encoding: .utf8), "original")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: outDir.path).filter { $0.hasSuffix(".tmp") }, [], "不留暫存檔")
+    }
+
     // MARK: 網址：只收 https
 
     func testLandingAndPrimeMustBeHTTPS() {
@@ -186,6 +205,14 @@ final class FulltextFetchHardeningTests: XCTestCase {
         s.foldBase64 = true
         XCTAssertEqual(run(s), 0, errText)
         XCTAssertEqual(try? Data(contentsOf: outDir.appendingPathComponent("w.pdf")), s.body)
+    }
+
+    /// 只容忍換行；其他非 base64 字元照嚴格解碼失敗（`.ignoreUnknownCharacters` 會把一段錯誤頁文字「解」成垃圾位元組）。
+    func testNonBase64GarbageStillFailsToDecode() {
+        var s = base
+        s.base64Override = "<html>Access to this page is @@ not base64 ##</html>"
+        XCTAssertEqual(run(s), 1, errText)
+        XCTAssertTrue(errText.contains("base64 decode failed"), errText)
     }
 
     func testTheScratchDirectoryIsPrivate() {

@@ -60,7 +60,7 @@
 會在邊界上自己長出沒人同意的答案，而那句話與下表**是兩份不會一起改的規格**。要判斷新情形，
 讀下表的理由欄，然後**加一列**。
 
-## 裁決史（封閉列舉——現有 58 列，一列不多一列不少）
+## 裁決史（封閉列舉——現有 60 列，一列不多一列不少）
 
 | # | 情形 | 裁決 | 理由 |
 |---|---|---|---|
@@ -122,6 +122,8 @@
 | 56 | **零實例，而 decode 接受它、唯一守著它的合併閘只擋一條進入路徑**（#679：附加 Zotero 來源沒記 `library_id`——匯入端與 `ZoteroSourceClaims.claims(of:)` 都對不回它，再匯入會另建一筆 twin；先前註解宣稱「由合併閘保證不會出現」，而合併閘只擋合併新收，管不到手改與舊檔。2026-09-29 唯讀量測 live store：work 2,569、主來源 532（沒記 `library_id` 0）、附加來源 3（沒記 `library_id` 0）、被 ≥2 筆宣稱的來源 0、讀不到的檔 0。重跑腳本見表下方） | ✅ **寫（warning、在 `Entry.validate()`，每筆 entry 一則、至多列 5 個來源鍵；訊息說出後果與兩條出路：補真正的 `library_id`，或以 `update-entry --remove-zotero-source` 移除）** | 第 4 列的理由是「錯誤的偽裝性」；這一列同形——那筆記錄看起來連著 Zotero，而下一次匯入會安靜地另建一筆，結果是一對看起來各自健康的攣生。與第 33 列也同形：同一族的檢查（#610 的多筆宣稱）只照到有 `library_id` 的那一半。**severity 是 warning**：記錄合法可載入；decode 拒收會讓既有的檔整個被隔離（`writeEntry` 不對 `Entry.validate()` 的 error 設閘，所以升 error 也擋不住寫入，那不是理由）。警告說的後果由 `AdditionalSourceWithoutLibraryReimportTests` 釘住，警告與行為不會分岔。**觸發條件可檢查**（腳本見表下方）：`akashic validate 2>&1 | grep -c '附加 Zotero 來源沒記 library_id'` 應恆為 0；非零時照訊息給的定位鍵處置 |
 | 57 | **零實例，而錯的回應看起來是對的**（#629 第二塊：`akashic crossref-match` 以重播協定讀 skill 經 safari-browser 取回的 Crossref 回應，回應的 DOI 與請求的 DOI 不同時拒絕；DOI 插進網址前先驗形狀（`^10\.[0-9]{4,9}/` 後接不含空白、引號、反斜線、`$`、反引號、`#`、`?`、`%` 的字元，且沒有 `.`／`..` 路徑段）。指令從未對真回應跑過。2026-09-29 唯讀量測 live store：work 的 DOI 2,449 個，形狀檢查不過 0、讀不到的檔 0。重跑腳本見表下方） | ✅ **寫（身分不符具名拒絕、形狀不過的 DOI 不組成請求）** | 第 4 列的理由是「錯誤的偽裝性」；這一列同形：把另一個 DOI 的回應讀成這一個，比對照樣成功、結束碼 0，而結果是一筆看起來查證過的錯資料。這個形狀在頁內 fetch 已經發生過一次（PsychQuant/safari-browser#190：一批讀到上一批的結果、結束碼全為 0），所以讀回後核對身分是 `web-access-via-safari-browser` 的既有紀律，這裡把它落實成程式。形狀檢查與 `web-access.md` 的形狀表同一條。**觸發條件可檢查**：形狀不過的 DOI 數應恆為 0；身分檢查由 `CrossrefMatchTests.testReverseVerifyRejectsAResponseAboutAnotherDOI` 與 `testAnUnsafeCandidateDOIIsNeverTurnedIntoARequest` 釘住 |
 | 58 | **零實例，而半套的數字讀起來像完整的**（#629 第二塊：`akashic fulltext calibrate` 讀本機的 Crossref 回應目錄計分；缺任何一筆記錄時列出缺的網址並以結束碼 3 結束、不出數字，`--partial` 才照已有的量。校準從未在本機跑過——2026-09-24 那批語料本機找不到，重取要連網） | ✅ **寫（缺記錄預設不出數字）** | 第 3 列的理由是「未涵蓋不得冒充通過」；這一列同形：`22/28`、`0/808` 這類數字若只涵蓋有記錄的那一部分，讀的人會當成全部。拒絕輸出是預設，放行要顯式帶 `--partial`，而那時輸出本身就說明它是部分的。**誠實邊界**：移植時舊校準數字（自己 22/28、別篇 0/808）沒有重跑，替代證據是新舊判定規則的差分（十七萬餘案 0 不一致）——它證明新舊判得一樣，不證明那組數字在新語料上仍成立。**觸發條件可檢查**：`SkillToolsCLITests.testCalibrateListsMissingCrossrefRecordsAndMeasuresTheRest` 釘住結束碼 3 與缺記錄清單 |
+| 59 | **零實例，而「移哪一筆」對兩筆完全相同的記錄沒有判定內容可依**（#673：`update-venue --remove-reference` 以 field＋value＋位元組鍵定位；兩筆 reference 的 `byteExactKey` 完全相同時具名拒絕、不挑一筆移。2026-09-29 唯讀量測 live store：venue 485、帶通用 reference 的 venue 0、位元組相同的重複組 0。重跑腳本見表下方） | ❌ **不寫（不給完全相同的重複一條移除路徑）** | 與第 10 列同形：形狀取決於一個還沒出現的用途——要嘛加 ordinal 指定第幾筆，要嘛一條「重複全收成一筆」的腿，兩者的語意不同，而今天沒有實例可以告訴我們哪一種才是使用者要的。先具名拒絕是可逆的；選錯一個形狀則是固定了一個介面。這種重複本來就由 `StoreHealth.duplicateReferences`（第 35 列）報出。**觸發條件可檢查**（腳本見表下方）：位元組相同的重複組 > 0，或 `akashic validate` 對 venue 報「重複的 reference：」——那時重開，由使用者選形狀 |
+| 60 | **零實例，而上限是算出來的、不是量出來的**（#673：venue 讀取面（CLI `venue`、MCP `akashic_venue`）顯示非判定的 references，至多 `venueReferencesCap`＝25 筆、每筆 `rests_on` 至多 5 個，以 `referencesTotal`／`referencesTruncated`／`rests_on_total` 揭露。2026-09-29 唯讀量測 live store：帶通用 reference 的 venue 0，單筆 venue 最多 0 筆） | ✅ **寫（上限 25 筆、`rests_on` 前 5 個，截斷一律揭露）** | 第 18 列的理由是「零量的是出口而守衛裝在入口」；這一列同形，差別在上限的錨點：第 18 列夾在兩個量測之間，這一列只有算術——單筆各字串上限之和約 1.4 KB，25 筆約 35 KB，落在 MCP 單一輸出 48 KiB 之內——因為 live store 沒有任何一筆可量。不設上限的代價是讀取面對未信任的 store 內容線性長大（第 16 列那一族）。**誠實邊界**：25 是推估，不是量測；讀取面對 value 截在 200、url／statement 截在 300，逐字定位要對照 YAML。**觸發條件可檢查**：任一 venue 的輸出帶 `referencesTruncated: true`——那時才有實際分布可量，重量上限 |
 
 對本表四類中的任一個做出下一次裁決（新增、不新增、保留、拿掉）= 在這張表加一列。
 
@@ -1202,6 +1204,36 @@ PY
 
 **第 58 列的量測**：沒有可量的母體（校準從未在本機跑過）；閘由上面那支 CLI 測試釘住。
 
+**第 59–60 列的量測（2026-09-29，可重跑，唯讀）**：兩列共用一支腳本（它另外數了帶 `akashic.sources` 的 work，是 #677 移除腿的母體）：
+
+```bash
+python3 - <<'PY'
+import glob, io, os, yaml, collections
+root = os.path.expanduser('~/.akashic/entities')
+venues = with_generic = generic = dup_groups = works = works_with_sources = sources_total = bad = 0
+maxn = 0
+for f in glob.glob(root + '/*.yaml'):
+    try: d = yaml.safe_load(io.open(f, encoding='utf8'))
+    except Exception: bad += 1; continue
+    if not isinstance(d, dict): bad += 1; continue
+    if 'venue' in d:
+        venues += 1
+        gen = [r for r in (d.get('references') or []) if isinstance(r, dict)
+               and not str(r.get('field', '')).startswith('resolution-') and r.get('field') != 'paginated']
+        if gen: with_generic += 1
+        generic += len(gen); maxn = max(maxn, len(gen))
+        c = collections.Counter(repr(sorted((k, str(v)) for k, v in r.items())) for r in gen)
+        dup_groups += sum(1 for n in c.values() if n > 1)
+    elif 'work' in d:
+        works += 1
+        s = (d.get('akashic') or {}).get('sources') or []
+        if s: works_with_sources += 1; sources_total += len(s)
+print(f"venue {venues}｜帶通用 reference 的 venue {with_generic}｜通用 reference {generic}（單筆 venue 最多 {maxn}）｜位元組相同的重複組 {dup_groups}"
+      f"｜work {works}｜帶 akashic.sources 的 work {works_with_sources}（{sources_total} 條）｜讀不到的檔 {bad}")
+PY
+# 2026-09-29：venue 485｜帶通用 reference 的 venue 0｜通用 reference 0（單筆 venue 最多 0）｜位元組相同的重複組 0｜work 2569｜帶 akashic.sources 的 work 0（0 條）｜讀不到的檔 0
+```
+
 ## 各列共通的東西（觀察，不是判準）
 
 第 1–9 列與第 13、14 列的裁決都是「寫」（第 14 列是 2026-09-09 從「不寫」翻過來的）、第 10–12 列（皆出自 #365）是「不寫」，但**理由各不相同**，這正是不寫總括判準的原因：
@@ -1270,6 +1302,8 @@ PY
 - 第 56 列的理由是**守著它的閘只擋一條路**——同第 4 列，對不回的來源讓再匯入安靜地造出攣生；合併閘管不到手改與舊檔
 - 第 57 列的理由是**讀回後核對身分**——同第 4 列，別筆的回應看起來是對的；那個形狀在頁內 fetch 已經發生過，這裡把紀律落實成程式
 - 第 58 列的理由是**半套的數字不得冒充全部**——同第 3 列，缺記錄時預設不出數字
+- 第 59 列的理由是**形狀取決於還沒出現的用途**——同第 10 列，ordinal 與「全收成一筆」語意不同，先具名拒絕是可逆的
+- 第 60 列的理由是**上限只有算術可依**——同第 18 列的出口與入口，差別在錨點是各字串上限之和而不是量測
 - 第 31 列的理由是**同一條曲線換了持有者**——第 16 列的燈只照 venue；新面（未決腿）讓 person 與 organization 也開始累積，第 30 列寫下的誠實邊界要有工具面兌現，否則就是一句沒有後續的散文
 - 第 39 列的理由是**單步的跳躍預警看不到**——第 16／31 列的燈在讀取面、照的是漸進的增長；一次寫入從門檻之下直接越過讀取上限時，燈來不及響，擋它的只能是寫入端。而那道閘要擋的不只是位元組：多檔寫入面在它觸發之前已有檔落盤，所以閘與零寫入的 preflight 同批
 - 第 24 列的理由是**半吊子已經誠實**——前二十三列裡只有第 22 列同樣是「不動既有的東西」（比的是裁決的**動作**：那一列的對象是 spec 文字、失敗是被當死重刪掉；本列的對象是程式的半吊子管線、失敗是使用者撞牆或被當成待修殘留而被人動手）。留著的代價不是零（記了就刪不掉——#586 在 2026-09-28 補了移除面，代價從「刪不掉」降為「要人判定放棄」），而是今天未兌現、且一出現就會出聲；動它的兩個方向（實作／拿掉）代價都更高。與第 10 列（缺用途）最像的是理由的**形**：實作那一半同樣是「形狀取決於還不存在的用途」；但第 10 列的對象根本不存在，這一列的對象已經在、且已經誠實

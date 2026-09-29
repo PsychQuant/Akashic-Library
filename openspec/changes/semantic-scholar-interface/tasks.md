@@ -10,7 +10,7 @@
 ## 3. 節流與退避
 
 - [x] 3.1 [P] 先寫測試再實作 `S2Throttle` 的時段預約：以 `flock` 鎖住狀態檔、讀寫 `nextAllowedAt`、解鎖後才等待；存的時間比現在晚超過 60 秒時視為過期並從現在重設；狀態檔預設在 `~/Library/Caches/akashic/s2-throttle`（Requirement「Requests are throttled machine-wide」；design「跨程序節流：預約時段，429 退避共用」）。驗證：`S2ThrottleTests` 跑 spec 的 Slot reservation 例子（A 在 0.00 送出，B 在 0.30 要求、於 1.00 以後送出）與過期重設。
-- [ ] 3.2 先寫測試再實作 429 退避與重試：把共用的 `nextAllowedAt` 推到「現在＋`Retry-After`」（秒數或 HTTP-date），沒有 header 時依序等 2、4、8 秒，同一請求最多重試 3 次，`Retry-After` 超過 60 秒直接判限流用盡（Requirement「Rate-limit responses back off for every caller」）。驗證：`S2ClientTests` 以 stub 跑 spec 的 Retry budget 四列；`S2ThrottleTests` 驗證 A 在 1.00 收到 `Retry-After: 3` 後，B 的下一個請求不早於 4.00。
+- [x] 3.2 先寫測試再實作 429 退避與重試：把共用的 `nextAllowedAt` 推到「現在＋`Retry-After`」（秒數或 HTTP-date），沒有 header 時依序等 2、4、8 秒，同一請求最多重試 3 次，`Retry-After` 超過 60 秒直接判限流用盡（Requirement「Rate-limit responses back off for every caller」）。驗證：`S2ClientTests` 以 stub 跑 spec 的 Retry budget 四列；`S2ThrottleTests` 驗證 A 在 1.00 收到 `Retry-After: 3` 後，B 的下一個請求不早於 4.00。
 
 ## 4. 端點、分頁與輸出
 

@@ -64,10 +64,11 @@
 
 ### 跨程序節流：預約時段，429 退避共用
 
-狀態檔 `~/Library/Caches/akashic/s2-throttle`（目錄 0700、檔案 0600），內容是 JSON `{"nextAllowedAt": <Unix 秒，Double>}`。
+狀態檔 `~/Library/Caches/akashic/s2-throttle`（目錄 0700、檔案 0600），內容是 JSON `{"nextAllowedAt": <Unix 秒，Double>, "blockedUntil": <Unix 秒，Double，可省略>}`。
 
 - **預約**：以 `flock(LOCK_EX)` 鎖住狀態檔 → 讀出 `nextAllowedAt` → `slot = max(now, nextAllowedAt)` → 寫回 `nextAllowedAt = slot + 1.05` → 解鎖 → 睡到 `slot` 才送出。睡眠期間不持有鎖，其他程序可以接著預約下一個時段，順序接近先到先得。
-- **429 退避**：收到 429 時鎖住狀態檔，把 `nextAllowedAt` 推到 `max(nextAllowedAt, now + retryAfter)`，所有呼叫者一起等。`Retry-After` 可以是秒數或 HTTP-date；沒有這個 header 時依序用 2、4、8 秒。
+- **429 退避**：收到 429 時鎖住狀態檔，把 `nextAllowedAt` 與 `blockedUntil` 都推到至少 `now + retryAfter`，所有呼叫者一起等。
+- **醒來後重新檢查**：只推 `nextAllowedAt` 不夠——已經預約了較早時段、正在睡的呼叫者不會受影響（實作任務 3.2 時發現）。所以每個呼叫者睡醒後、送出前，在鎖內再看一次 `blockedUntil`；仍在封鎖期就重新預約。`Retry-After` 可以是秒數或 HTTP-date；沒有這個 header 時依序用 2、4、8 秒。
 - **上限**：同一請求最多重試 3 次；`Retry-After` 超過 60 秒視為限流用盡，不等。讀到的 `nextAllowedAt` 比現在晚超過 60 秒（時鐘回撥或狀態檔損毀）時視為過期，以現在為準重設。
 - `flock` 隨檔案描述子關閉而釋放，程序中途死掉不會留下鎖。
 - 狀態檔不放在 `~/.akashic`：`RealHomeSandboxGuard` 監看那裡，全套測試期間的寫入會被判成沙箱逃逸。

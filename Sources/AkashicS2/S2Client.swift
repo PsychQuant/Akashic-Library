@@ -184,13 +184,15 @@ public final class S2Client: Sendable {
     let keyProvider: S2KeyProviding
     let throttle: S2Throttling
     let session: URLSession
+    let now: @Sendable () -> Date
 
     public init(settings: S2Settings, keyProvider: S2KeyProviding, throttle: S2Throttling,
-                session: URLSession = .shared) {
+                session: URLSession = .shared, now: @escaping @Sendable () -> Date = { Date() }) {
         self.settings = settings
         self.keyProvider = keyProvider
         self.throttle = throttle
         self.session = session
+        self.now = now
     }
 
     /// 送出一個請求並回傳回應本文。讀不到金鑰時在送出任何請求之前就停下。
@@ -203,30 +205,60 @@ public final class S2Client: Sendable {
         }
         let urlRequest = try makeURLRequest(request, key: key)
 
-        try await throttle.acquire()
-        let data: Data
-        let response: URLResponse
-        do {
-            (data, response) = try await session.data(for: urlRequest)
-        } catch let e as URLError {
-            throw S2Error.network(endpoint: request.endpoint,
-                                  reason: "URLError \(e.code.rawValue)：\(e.localizedDescription)")
-        } catch {
-            throw S2Error.network(endpoint: request.endpoint, reason: String(describing: type(of: error)))
+        for attempt in 0...Self.maxRetries {
+            try await throttle.acquire()
+            let data: Data
+            let response: URLResponse
+            do {
+                (data, response) = try await session.data(for: urlRequest)
+            } catch let e as URLError {
+                throw S2Error.network(endpoint: request.endpoint,
+                                      reason: "URLError \(e.code.rawValue)：\(e.localizedDescription)")
+            } catch {
+                throw S2Error.network(endpoint: request.endpoint, reason: String(describing: type(of: error)))
+            }
+            guard let http = response as? HTTPURLResponse else {
+                throw S2Error.invalidResponse(endpoint: request.endpoint)
+            }
+            switch http.statusCode {
+            case 200..<300:
+                return data
+            case 404:
+                throw S2Error.notFound(endpoint: request.endpoint, subject: request.subject ?? request.path)
+            case 429:
+                if attempt == Self.maxRetries {
+                    throw S2Error.rateLimited(endpoint: request.endpoint,
+                                              reason: "重試 \(Self.maxRetries) 次後仍是 429")
+                }
+                let delay = Self.retryAfter(http.value(forHTTPHeaderField: "Retry-After"), now: now())
+                    ?? Self.defaultBackOff[attempt]
+                if delay > Self.maxRetryAfter {
+                    throw S2Error.rateLimited(endpoint: request.endpoint,
+                                              reason: "Retry-After 為 \(Int(delay)) 秒，超過 \(Int(Self.maxRetryAfter)) 秒")
+                }
+                try throttle.backOff(until: now().addingTimeInterval(delay))
+            default:
+                throw S2Error.http(endpoint: request.endpoint, status: http.statusCode)
+            }
         }
-        guard let http = response as? HTTPURLResponse else {
-            throw S2Error.invalidResponse(endpoint: request.endpoint)
-        }
-        switch http.statusCode {
-        case 200..<300:
-            return data
-        case 404:
-            throw S2Error.notFound(endpoint: request.endpoint, subject: request.subject ?? request.path)
-        case 429:
-            throw S2Error.rateLimited(endpoint: request.endpoint, reason: "S2 回應 429")
-        default:
-            throw S2Error.http(endpoint: request.endpoint, status: http.statusCode)
-        }
+        throw S2Error.rateLimited(endpoint: request.endpoint, reason: "重試 \(Self.maxRetries) 次後仍是 429")
+    }
+
+    static let maxRetries = 3
+    static let maxRetryAfter: TimeInterval = 60
+    /// 沒有 `Retry-After` 時第 1、2、3 次重試前的等待。
+    static let defaultBackOff: [TimeInterval] = [2, 4, 8]
+
+    /// `Retry-After` 可以是秒數或 HTTP-date（RFC 9110）；無法解讀時回 nil。
+    static func retryAfter(_ header: String?, now: Date) -> TimeInterval? {
+        guard let raw = header?.trimmingCharacters(in: .whitespaces), !raw.isEmpty else { return nil }
+        if let seconds = Int(raw), seconds >= 0 { return TimeInterval(seconds) }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "GMT")
+        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss 'GMT'"
+        guard let date = formatter.date(from: raw) else { return nil }
+        return Swift.max(0, date.timeIntervalSince(now))
     }
 
     /// 組出 `URLRequest`。`x-api-key` 只在 `attachesKey(to:)` 成立時附上。

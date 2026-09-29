@@ -45,13 +45,35 @@ public final class S2FileThrottle: S2Throttling, @unchecked Sendable {
         }
     }
 
+    /// 預約時段、睡到時段；醒來後在鎖內再看一次 429 的封鎖期——預約之後才被
+    /// 別的程序的 429 擋住時，重新預約（spec「A 429 delays the other session too」）。
     public func acquire() async throws {
-        let slot = try reserveSlot()
-        let wait = slot.timeIntervalSince(now())
-        if wait > 0 { try await sleep(wait) }
+        while true {
+            let slot = try reserveSlot()
+            let wait = slot.timeIntervalSince(now())
+            if wait > 0 { try await sleep(wait) }
+            if try !isBlocked() { return }
+        }
     }
 
-    public func backOff(until: Date) throws {}
+    /// 記下 429 的退避：`until` 之前任何呼叫者都不送出。
+    public func backOff(until: Date) throws {
+        try withLockedState { state in
+            let u = until.timeIntervalSince1970
+            state.blockedUntil = Swift.max(state.blockedUntil ?? 0, u)
+            state.nextAllowedAt = Swift.max(state.nextAllowedAt, u)
+        }
+    }
+
+    /// 仍在封鎖期內？封鎖期比現在晚超過 60 秒視為過期（時鐘回撥或檔案損毀）。
+    func isBlocked() throws -> Bool {
+        try withLockedState { state in
+            guard let blocked = state.blockedUntil else { return false }
+            let t = now().timeIntervalSince1970
+            if blocked - t > Self.staleAfter { state.blockedUntil = nil; return false }
+            return blocked > t
+        }
+    }
 
     /// 開檔 → `flock(LOCK_EX)` → 讀 → 改 → 寫回 → 關檔（關檔即解鎖，程序中途死掉也不留鎖）。
     func withLockedState<T>(_ body: (inout State) throws -> T) throws -> T {

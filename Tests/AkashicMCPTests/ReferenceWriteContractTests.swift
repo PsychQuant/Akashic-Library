@@ -154,6 +154,38 @@ final class ReferenceWriteContractTests: XCTestCase {
         }
     }
 
+    /// #674 R1 verify 第 26 列：沒有合法 scheme、後面卻出現 `://` 的 url——`://` 之前那一段不是 scheme，可能正是帳密，不回顯；
+    /// 真的是 scheme 形（`^[A-Za-z][A-Za-z0-9+.-]*$`）的才回顯。
+    func testASchemelessURLWithCredentialsIsNotEchoedButARealSchemeIs() throws {
+        for isPerson in [true, false] {
+            var item = retrievalBase(person: isPerson)
+            item["url"] = "alice:hunter2@example.org/?next=https://x"
+            XCTAssertThrowsError(try isPerson ? person([item]) : venue([item])) { error in
+                let why = message(error)
+                XCTAssertTrue(why.contains("http／https"), why)
+                XCTAssertFalse(why.contains("hunter2") || why.contains("alice") || why.contains("scheme 是"), "不是 scheme 就不回顯：\(why)")
+            }
+            item["url"] = "ftp://example.org/x"
+            XCTAssertThrowsError(try isPerson ? person([item]) : venue([item])) { error in
+                XCTAssertTrue(message(error).contains("scheme 是「ftp」"), "真的 scheme 照樣說出來：\(message(error))")
+            }
+        }
+    }
+
+    /// #674 R1 verify 第 28 列：「缺 status」先於 url／retrieved 的形狀——一筆什麼都沒給對的 retrieval，先被告知的是 #674 點名的那一項
+    /// （既有測試改用合法的 url／retrieved 之後，這個先後就沒有測試釘住了）。
+    func testMissingStatusIsReportedBeforeAMalformedURLOrRetrieved() throws {
+        for isPerson in [true, false] {
+            var item = retrievalBase(person: isPerson)
+            item["status"] = nil
+            item["url"] = "u"
+            item["retrieved"] = "d"
+            XCTAssertThrowsError(try isPerson ? person([item]) : venue([item])) { error in
+                XCTAssertTrue(message(error).contains("沒有 status"), message(error))
+            }
+        }
+    }
+
     /// 一次上限 200 筆，兩個面同一句。
     func testBothFacesCapTheBatchAtTwoHundred() throws {
         for isPerson in [true, false] {

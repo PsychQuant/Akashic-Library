@@ -163,8 +163,8 @@ extension AkashicService {
     /// `url` 只收 http／https 網址，主機非空，不含帳密（userinfo）。
     ///
     /// **只在寫入面**：載入既有記錄走 `ProvenanceReference.init`，不驗 url——收緊寫入不能讓既有記錄讀不進來。
-    /// **不回顯原值**：帳密若在 url 裡，把它印進錯誤訊息就是把它送進 log 與 MCP 的對話紀錄；只說是哪一種錯，scheme 只在確定是
-    /// `scheme://` 形時回顯（至多 20 字）。
+    /// **不回顯原值**：帳密若在 url 裡，把它印進錯誤訊息就是把它送進 log 與 MCP 的對話紀錄；只說是哪一種錯，scheme 只在 `://` 之前那一段
+    /// 符合 `^[A-Za-z][A-Za-z0-9+.-]*$` 時回顯（至多 20 字）。
     /// 誠實邊界：query 裡的 token（`?token=…`）與路徑裡的機密看不出來，這裡不猜。
     static func vetRetrievalURL(_ url: String, at: String) throws {
         let lower = url.lowercased()
@@ -174,7 +174,12 @@ extension AkashicService {
         } else if lower.hasPrefix("http://") {
             afterScheme = url.dropFirst(7)
         } else {
-            let shape = url.range(of: "://").map { "（scheme 是「\(displaySafeInvisible(String(url[..<$0.lowerBound].prefix(20)), max: 20))」）" } ?? ""   // display-safe-exempt: 已逐項 displaySafeInvisible
+            // `://` 之前那一段要真的是 scheme 形（RFC 3986：字母開頭，其後字母、數字、`+`、`-`、`.`）才回顯——否則它可能就是帳密
+            // （`alice:hunter2@example.org/?next=https://x`，#674 R1 verify 第 26 列）
+            var shape = ""
+            if let r = url.range(of: "://"), Self.looksLikeURLScheme(url[..<r.lowerBound]) {
+                shape = "（scheme 是「\(displaySafeInvisible(String(url[..<r.lowerBound].prefix(20)), max: 20))」）"
+            }
             throw ServiceError.invalid(
                 "\(at).url 只收 http／https 網址\(shape)——離線來源（本機檔案、掃描檔）改用 judgement 型（statement＋rests_on 指向存檔）")   // display-safe-exempt: at 是字面＋Int；shape 已消毒
         }
@@ -187,6 +192,13 @@ extension AkashicService {
         guard !host.isEmpty else {
             throw ServiceError.invalid("\(at).url 缺主機（https:// 之後要有網域或位址）")   // display-safe-exempt: at 是字面＋Int
         }
+    }
+
+    /// RFC 3986 的 scheme 形：ASCII 字母開頭，其後 ASCII 字母、數字、`+`、`-`、`.`。
+    static func looksLikeURLScheme(_ s: Substring) -> Bool {
+        func letter(_ u: Unicode.Scalar) -> Bool { ("a"..."z").contains(u) || ("A"..."Z").contains(u) }
+        guard let first = s.unicodeScalars.first, letter(first) else { return false }
+        return s.unicodeScalars.allSatisfy { letter($0) || ("0"..."9").contains($0) || $0 == "+" || $0 == "-" || $0 == "." }
     }
 
     /// `retrieved` 是 ISO 8601：`YYYY-MM-DD`（月 01–12、日 01–31，不驗日曆，同 `ISO8601Prefix`），可再接

@@ -36,7 +36,7 @@ comment 要兩個 references 面對齊時「一併裁決要不要只收 http／h
 | `retrieved` 是 ISO 8601（`YYYY-MM-DD`，或再接 `THH:MM[:SS[.fff]]` 與 `Z`／`±HH:MM`），**裸日期照收** | 收緊 | store 既有的 33 筆擷取型 reference 全是裸日期，store-format 的範例也是；#262 的「帶 UTC offset」契約寫在 `sources/index.jsonl` 的 `retrieved`、尚未在任何寫入面強制，這裡不替它先行 |
 | `status` 在 100–599 | 收緊 | HTTP 狀態碼的值域 |
 
-query 裡的 token（`?token=…`）與路徑裡的機密看不出來，不猜（誠實邊界）。`enrich` 的 `sourceURL`／`sourceRetrieved`／`sourceStatus` 是另一個寫入面的契約，不在「兩個 references 面」的範圍，沒有動；列為 follow-up。
+query 裡的 token（`?token=…`）與路徑裡的機密看不出來，不猜（誠實邊界）。`enrich` 的 `sourceURL`／`sourceRetrieved`／`sourceStatus` 是另一個寫入面的契約，不在「兩個 references 面」的範圍，沒有動；追蹤於 #695（待使用者裁決）。
 
 ### 行為改變：先前寫得進去、現在整個呼叫拒絕的輸入類別
 
@@ -104,7 +104,7 @@ grep 確認：程式碼裡 `maxStatementBytes = <字面量>` 只有一處（Stor
 
 ## 誠實邊界
 
-- **`enrich` 的 `sourceURL`／`sourceRetrieved`／`sourceStatus` 沒有對齊**：三個 references 相關寫入面（`update_person`、`update_venue`、`enrich`）現在有兩份契約——前兩者同一份、`enrich` 沒有 url 形狀／retrieved 形狀／status 範圍的檢查。`enrich` 是判定不同的另一個面（add-only 補值），要不要對齊是另一個裁決。
+- **`enrich` 的 `sourceURL`／`sourceRetrieved`／`sourceStatus` 沒有對齊**：三個 references 相關寫入面（`update_person`、`update_venue`、`enrich`）現在有兩份契約——前兩者同一份、`enrich` 沒有 url 形狀／retrieved 形狀／status 範圍的檢查。`enrich` 是判定不同的另一個面（add-only 補值），要不要對齊是另一個裁決（#695）。
 - **url 的 query／路徑裡的機密看不出來**：只擋 userinfo；`?token=…` 這類收得進來。
 - **#262 的「retrieved 帶 UTC offset」仍未在任何寫入面強制**：本次接受裸日期，理由見上。
 - **空陣列的差異**（person no-op、venue 錯）是有記錄的，不是對齊完成。
@@ -115,6 +115,22 @@ grep 確認：程式碼裡 `maxStatementBytes = <字面量>` 只有一處（Stor
 
 ## 待使用者裁決
 
-1. `enrich` 的來源欄位要不要也收 url／retrieved／status 的形狀檢查。
+1. `enrich` 的來源欄位要不要也收 url／retrieved／status 的形狀檢查（#695）。
 2. `update-person` 的 references 在 `two-kinds-of-edits` 的歸類（AI 判定型，與 venue 那列同形）。
 3. 空陣列要不要對齊成錯（往 venue 收）。
+
+## Verify R1 修正（#674）
+
+以下的「第 N 列」是 batch14 verify R1（b14f）報告的列號。
+
+**scheme 的回顯只在真的是 scheme 時（第 26 列）。** `vetRetrievalURL` 對非 http／https 的 url 回顯 `://` 之前的前 20 字——檔頭承諾「只在確定是 `scheme://` 形時回顯」，實作卻沒檢查那一段像不像 scheme。`alice:hunter2@example.org/?next=https://x` 的錯誤訊息因此帶出「scheme 是「alice:hunter2@exampl」」，帳密進了 log 與 MCP 的對話紀錄。現在 `://` 之前那一段要符合 `^[A-Za-z][A-Za-z0-9+.-]*$`（`looksLikeURLScheme`）才回顯，否則不說 scheme。
+
+**「缺 status」先於 url／retrieved 的形狀，補回測試（第 28 列後半）。** 本輪把兩支既有測試改用合法的 url／retrieved，程式註解承諾的先後因此沒有測試釘住；補一支（status 缺、url 與 retrieved 都壞 → 先說缺 status）。
+
+**follow-up 補上號碼（第 8、15 列）。** `enrich` 的 `sourceURL`／`sourceRetrieved`／`sourceStatus` 沒有跟著收緊——而 live store 僅有的 33 筆 retrieval url 正是經它寫入的（兩個被收緊的面在 live store 上零實例）。本檔、`mcp-cli-parity` 的 `akashic_update_person` 列、`zero-instance-guards` 第 66 列原本寫「列為 follow-up」沒有號碼，現在都指向 #695（待使用者裁決）。`enrich` 的行為這一輪不動。
+
+**plugin CHANGELOG（第 28、30 列）。** plugin 的 wrapper 自動下載新 binary、skill 文字可能是舊的：`plugin/CHANGELOG.md` 補一段，列出 `akashic_update_person` 的 `references` 新拒收的輸入類別，以及 #663 的 `formerAffiliationAttested` 換成 `observedAffiliation`／`observedAffiliationAt`。plugin 版號沒有動。
+
+**未改（第 37、42 列）**：收緊的範圍超出 issue 本文三項（url、retrieved、status 範圍來自 issue 的 comment）與 `retrieved` 不收 `+0800` 這類基本格式偏移——兩者都是有記錄的取捨，行為不動。
+
+**負控**：`looksLikeURLScheme` 恆真 → 新測試紅；「缺 status」的檢查關掉 → 先後測試紅。兩者都以反向編輯還原、`cmp` 一致。

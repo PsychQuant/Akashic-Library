@@ -42,6 +42,22 @@
 
 
 
+## #674、#663 — MCP 呼叫端看得到的契約改變（不相容）
+
+plugin 的 wrapper 會自動下載新版 `akashic-mcp`，skill 文字可能比 binary 舊，所以把會讓既有呼叫失敗或讀不到值的改變寫在這裡。plugin 版號沒有動。
+
+**`akashic_update_person` 的 `references`（#674）收緊成與 `akashic_update_venue` 同一個解析**，下列輸入先前寫得進去、現在整個呼叫拒絕：
+
+- retrieval 沒給 `status`（先前預設 200）；`status` 不是 100–599 的整數。
+- 不認得的鍵（先前靜默忽略）；`value`／`media_type` 不是字串、`rests_on` 有非字串元素。
+- 一次超過 200 筆、`statement` 超過 4,096 位元組、`rests_on` 超過 20 個。
+- `url` 不是 http／https（`file:`、`ftp:`、沒有 scheme）、主機為空、或含帳密（`user:pass@`）——離線來源改用 judgement 型。
+- `retrieved` 不是 ISO 8601 日期或日期時間（裸日期 `YYYY-MM-DD` 照收）。
+
+`akashic_enrich` 的 `sourceURL`／`sourceRetrieved`／`sourceStatus` 沒有跟著收緊（#695，待裁決）。
+
+**`akashic_resolve_people` 的隸屬欄位（#663）**：只被觀測到（`attested`）的隸屬先前給 `formerAffiliation` 加 `formerAffiliationAttested`，現在給 `observedAffiliation` 加 `observedAffiliationAt`；`formerAffiliationAttested` 拿掉了，`formerAffiliation` 只給宣稱已結束的段。讀 `formerAffiliation` 判斷「這個人離開了哪裡」的呼叫端，對只被觀測到的人現在讀不到值——那正是這次要修的誤讀（被看到過不等於離開了）。
+
 ## #629 R2 驗證的補充
 
 - `--landing`、`--prime` 的主機要是公開的網域名稱：`localhost`、IP 位址、帶埠號或 `user@` 的主機、以 `local`／`internal`／`corp` 等結尾的名稱、

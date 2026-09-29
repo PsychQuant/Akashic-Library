@@ -87,7 +87,7 @@ U=$(python3 -c 'import json,sys;print(json.dumps(open(sys.argv[1],encoding="utf-
 LOCK=(--profile "$P" --url-endswith "#akashic-$T")
 ```
 
-`--url-endswith` 只比結尾那一段我們自己的 fragment，不受轉址與百分比編碼影響（`--url-exact` 比的是 Safari 回報的網址、不正規化，我們自己組的字串常對不上）。**沒實測**的兩件事：Safari 轉址後回報的網址是否保留 fragment；有兩個以上分頁同時符合時 CLI 會不會拒絕（所以區塊二自己數一次）。理由與查證了什麼見規則檔〈使用紀律〉。
+`--url-endswith` 只比結尾那一段我們自己的 fragment，不受百分比編碼影響（`--url-exact` 比的是 Safari 回報的網址、不正規化，我們自己組的字串常對不上）；轉址見〈會轉址的頁面〉。有兩個以上分頁同時符合時 CLI 會不會拒絕沒有實測，所以每個動到分頁的區塊動作前自己數一次。理由與查證了什麼見規則檔〈使用紀律〉。
 
 **不要**用 `--url <子字串>` 鎖（取第一個符合的分頁，而且跨所有 profile），也**不要**用 `--window N --tab-in-window T` 鎖（視窗編號依前後順序排，使用者一切換視窗，同一個編號就指到別的視窗），**更不要**讓鎖是空的（退回 front tab）。
 
@@ -135,9 +135,7 @@ esac
 
 ### 會轉址的頁面（`doi.org`、出版商頁、名冊）
 
-轉址之後網址變了，但 `--url-endswith` 只看結尾。**HTTP 3xx 轉址**的 `Location` 沒帶 fragment 時沿用原網址的 fragment，鎖照樣有效；**頁面自己做的轉址**（`<meta http-equiv="refresh">`、JavaScript 設 `location`）不沿用，fragment 會掉、鎖對不到。2026-09-29 在隔離的 Chromium（不是使用者的 Safari）量過：Elsevier 的 DOI 經 `doi.org` 302 到 `linkinghub.elsevier.com`，那一頁是 200 的 HTML、以 meta refresh 再轉到 `www.sciencedirect.com`，fragment 沒了；Springer、SAGE、Wiley 各一到兩個 DOI 保留。Safari 是否同樣表現沒有實測。鎖對不到時照上一段停下，交給使用者決定——**不要**改開轉址後的網址。
-
-**落地的網址也要驗**：`doi.org` 轉到哪裡由出版商登記，與〈開哪個網址〉禁止打開的那類資料一樣受登記者控制，差別只在它經過註冊機構的解析器。區塊二之後、讀任何東西之前，讀回落地網址（`safari-browser js "${LOCK[@]}" "return location.href"`，同一個區塊裡跑、鎖要重建），用〈插值前先驗形狀〉的「完整網址」一列檢查（https、不是 IP 位址或私有網段的名稱）；不過就停下，交給使用者決定。這一步擋不住一個合法 https 網域上的惡意頁——它只把明顯不該去的地方擋掉。
+轉址之後網址變了，但 `--url-endswith` 只看結尾。**HTTP 3xx 轉址**的 `Location` 沒帶 fragment 時沿用原網址的 fragment，鎖照樣有效；**頁面自己做的轉址**（`<meta http-equiv="refresh">`、JavaScript 設 `location`）不沿用，fragment 會掉、鎖對不到。2026-09-29 在隔離的 Chromium（不是使用者的 Safari）量過：Elsevier 的 DOI 經 `doi.org` 302 到 `linkinghub.elsevier.com`，那一頁是 200 的 HTML、以 meta refresh 再轉到 `www.sciencedirect.com`，fragment 沒了；Springer、SAGE、Wiley 各一到兩個 DOI 保留。Safari 是否同樣表現沒有實測。鎖對不到時照上一段停下，交給使用者決定——**不要**改開轉址後的網址。轉到哪裡由出版商在 `doi.org` 登記，本檔不驗落地的網址。
 
 同一站要讀下一頁時不另開分頁：在鎖定的分頁裡導航到帶**新的一次性碼**的網址，之後改用新碼鎖。下一頁的網址同樣先寫進 `<W>/url-<序號>.txt`：
 
@@ -146,6 +144,8 @@ set -euo pipefail
 P="<P>"; T="<T>"
 LOCK=(--profile "$P" --url-endswith "#akashic-$T")
 [ ${#LOCK[@]} -eq 4 ] && [ -n "$P" ] && [ -n "$T" ] || { echo "lock missing" >&2; exit 1; }
+n=$(safari-browser documents --json --profile "$P" | python3 -c 'import json,sys;print(sum(1 for d in json.load(sys.stdin) if d.get("url","").endswith(sys.argv[1])))' "#akashic-$T")
+[ "$n" = 1 ] || { echo "tab lock: $n tabs match (need exactly 1) - STOP" >&2; exit 1; }
 T2=$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')
 [ "${#T2}" -eq 8 ] || { echo "T2 missing" >&2; exit 1; }
 U=$(python3 -c 'import json,sys;print(json.dumps(open(sys.argv[1],encoding="utf-8").read().strip()+sys.argv[2]))' "<W>/url-<序號>.txt" "#akashic-$T2")
@@ -169,11 +169,11 @@ n=$(safari-browser documents --json --profile "$P" | python3 -c 'import json,sys
 [ "$n" = 1 ] || { echo "tab lock: $n tabs match (need exactly 1) - STOP" >&2; exit 1; }
 U=$(python3 -c 'import json,sys;print(json.dumps(open(sys.argv[1],encoding="utf-8").read().strip()))' "<W>/url-$K.txt")
 safari-browser js "${LOCK[@]}" "window.__ak_$K = {done:false};
-  fetch($U).then(r => { window.__ak_$K.status = r.status; return r.text(); })
+  fetch($U).then(r => { window.__ak_$K.status = r.status; window.__ak_$K.ctype = r.headers.get('content-type'); return r.text(); })
   .then(t => { window.__ak_$K.body = t; window.__ak_$K.done = true; })
   .catch(e => { window.__ak_$K.err = String(e); window.__ak_$K.done = true; }); return 'started'"
 safari-browser wait "${LOCK[@]}" --js "window.__ak_$K && window.__ak_$K.done" --timeout 60000
-R=$(safari-browser js "${LOCK[@]}" "return JSON.stringify({s: window.__ak_$K.status, e: window.__ak_$K.err || null})")
+R=$(safari-browser js "${LOCK[@]}" "return JSON.stringify({s: window.__ak_$K.status, c: window.__ak_$K.ctype || null, e: window.__ak_$K.err || null})")
 echo "$R"
 S=$(printf '%s' "$R" | python3 -c 'import json,sys;print(json.load(sys.stdin)["s"])')
 case "$S" in
@@ -183,6 +183,7 @@ case "$S" in
 esac
 safari-browser js "${LOCK[@]}" --large --output "<W>/r-$K.json" "window.__ak_$K.body || ''"
 safari-browser js "${LOCK[@]}" "delete window.__ak_$K; return 'ok'"
+grep -q '[^[:space:]]' "<W>/r-$K.json" || { echo "STOP THE WHOLE RUN: empty response body" >&2; exit 2; }
 ```
 
 - `<W>/url-<序號>.txt` 裡的網址與分頁同一個站（分頁開在那個站，請求才是同源）。ORCID 要回 JSON：`fetch($U, {headers: {Accept: 'application/json'}})`。
@@ -206,21 +207,22 @@ case "$K" in ''|*[!0-9]*) echo "K must be a number" >&2; exit 1 ;; esac
 n=$(safari-browser documents --json --profile "$P" | python3 -c 'import json,sys;print(sum(1 for d in json.load(sys.stdin) if d.get("url","").endswith(sys.argv[1])))' "#akashic-$T")
 [ "$n" = 1 ] || { echo "tab lock: $n tabs match (need exactly 1) - STOP" >&2; exit 1; }
 safari-browser js "${LOCK[@]}" --large --output "<W>/r-$K.txt" "<取值的運算式>"
+grep -q '[^[:space:]]' "<W>/r-$K.txt" || { echo "empty read - read failed" >&2; exit 1; }
 ```
 
 讀完**核對是對的那一頁**：頁面上的 DOI 或標題就是這次要的；對不上就記進回報、不當證據、不重試。讀回是空的（0 byte 或只有空白）也算讀失敗。一次讀一頁、逐頁之間跑節奏工具；要讀下一頁，照〈會轉址的頁面〉導航、用新碼再跑區塊二。
 
 ## 承重存檔：讀到的東西怎麼落成位元組
 
-要把讀到的內容當證據存進 `sources/`（`akashic_store_source`／`akashic store-source`，見 [writing-to-the-store.md](writing-to-the-store.md)）時，先知道手上的是什麼：
+要把讀到的內容當證據存進 `sources/`（`akashic_store_source`／`akashic store-source`，見 [writing-to-the-store.md](writing-to-the-store.md)）時，先知道手上的是什麼。經使用者的 Safari 取得的一律寫 `acquisition: "browser-download"`（與 akashic-fetch-fulltext 同一個值），手上是什麼由 `origin` 說：
 
 | 讀法 | 手上的是什麼 | 存檔時怎麼寫 |
 |---|---|---|
-| 頁內 `fetch` 的 `r.text()`（〈取一次 API〉） | 瀏覽器**解碼後**的回應文字，不是伺服器送出的原始位元組（編碼已轉換、壓縮已解開） | `acquisition: "browser-automation"`；`origin` 寫「經 safari-browser 頁內 fetch 取得的回應文字（已解碼）＋網址」；`media-type` 照回應實際的型別 |
-| DOM 讀取（innerText 之類，〈讀渲染後的頁面〉） | 瀏覽器**渲染後**的檢視，不是 HTTP 回應；腳本、樣式、隱藏元素都不在 | `acquisition: "browser-automation"`；`origin` 寫「經 safari-browser 讀取的渲染後頁面文字＋讀取的運算式＋網址」；`media-type: "text/plain"`，不是 `text/html` |
+| 頁內 `fetch` 的 `r.text()`（〈取一次 API〉） | 瀏覽器**解碼後**的回應文字，不是伺服器送出的位元組（編碼已轉換、壓縮已解開） | `origin` 寫「經 safari-browser 頁內 fetch 取得的回應文字（已解碼）＋網址」；`media-type` 照區塊印出的 `c`（回應的 `Content-Type`） |
+| DOM 讀取（innerText 之類，〈讀渲染後的頁面〉） | 瀏覽器**渲染後**的檢視，不是 HTTP 回應；腳本、樣式、隱藏元素都不在 | `origin` 寫「經 safari-browser 讀取的渲染後頁面文字＋讀取的運算式＋網址」；`media-type: "text/plain"`，不是 `text/html` |
 | WebFetch 或任何模型轉述 | 模型的摘要，不是頁面 | **不存**。存進去等於宣稱那個網址回了這些位元組，而它沒有 |
 
-讀回是空的就不存（`store-source` 對 0 byte 本來就拒）。**取得伺服器原始位元組的面目前不存在**：由 binary 自己取網址、算 digest、寫進 `sources/` 的做法記在 #591，而它與「`Sources/` 不放 HTTP client」的專案規則衝突，要使用者裁決。在那之前，上表的兩種寫法就是誠實的上限：`origin` 照實說是經瀏覽器看到的內容，不宣稱是伺服器的回應。
+讀回是空的就不存（`store-source` 對 0 byte 本來就拒）。頁內 `fetch` 若讀 `r.arrayBuffer()`，拿到的是回應本文的位元組（`Content-Encoding` 的壓縮已解開、沒有字元集轉換）——`akashic fulltext fetch` 存 PDF 就是這樣；本檔的區塊讀 `r.text()`，所以是上表第一列。由 binary 自己取網址的做法記在 #591。
 
 ## 其他
 
@@ -233,6 +235,8 @@ safari-browser js "${LOCK[@]}" --large --output "<W>/r-$K.txt" "<取值的運算
   P="<P>"; T="<T>"
   LOCK=(--profile "$P" --url-endswith "#akashic-$T")
   [ ${#LOCK[@]} -eq 4 ] && [ -n "$P" ] && [ -n "$T" ] || { echo "lock missing" >&2; exit 1; }
+  n=$(safari-browser documents --json --profile "$P" | python3 -c 'import json,sys;print(sum(1 for d in json.load(sys.stdin) if d.get("url","").endswith(sys.argv[1])))' "#akashic-$T")
+  [ "$n" = 1 ] || { echo "tab lock: $n tabs match (need exactly 1) - STOP" >&2; exit 1; }
   safari-browser close "${LOCK[@]}"
   ```
 

@@ -45,10 +45,9 @@ Crossref、ORCID、DOI 解析、出版商頁面）一直是 skill 層的事；�
   - `--url-endswith`：`open`、`close`、`documents` 的 `--help` 都列（2026-09-29 讀），「URL ends with this suffix
     (case-sensitive)」，help 稱它是「prefix-substring ambiguity 的 primary escape」；binary 字串表另有「`--url-endswith` requires a
     non-empty suffix (an empty suffix would match every tab)」——所以鎖前導檢查碼非空。只鎖結尾那一段我們自己的 fragment，
-    就同時避開正規化與轉址（HTTP 規格：轉址的 `Location` 沒帶 fragment 時沿用原網址的 fragment）；`--profile` 限縮到那個
-    profile 的視窗。
-  - **沒實測**（這一輪不得操作 Safari，只讀 `--help` 與 binary 字串表）：(1) Safari 轉址後回報的網址是否保留 fragment（規格要求，
-    沒逐站量）；(2) 兩個以上分頁同時符合 `--url-endswith` 時 CLI 是否拒絕——help 只對 `--url` 子字串寫明「multi-match fail-closed，
+    就避開正規化；轉址時 fragment 留不留得住見 web-access.md〈會轉址的頁面〉；`--profile` 限縮到那個 profile 的視窗。
+  - **沒實測**（這一輪不得操作 Safari，只讀 `--help` 與 binary 字串表）：(1) Safari 轉址後回報的網址是否保留 fragment（web-access.md〈會轉址的頁面〉
+    的量測是在 Chromium）；(2) 兩個以上分頁同時符合 `--url-endswith` 時 CLI 是否拒絕——help 只對 `--url` 子字串寫明「multi-match fail-closed，
     `--first-match` 才取第一個」，binary 字串表有 `ambiguousWindowMatch`，但沒有說 endswith 走同一條，所以 web-access.md 在動作前
     自己用 `documents --json --profile` 數一次；(3) 頁面自己的 JS 在載入後改寫 `location.hash` 的站；(4) `close` 以這把鎖關分頁的
     實際行為。**批次前先用一個站實跑一次**。
@@ -144,7 +143,7 @@ Crossref、ORCID、DOI 解析、出版商頁面）一直是 skill 層的事；�
 - **這是 skill 選路的規則，不是介面的行為。** `akashic s2` 本身沒有匿名模式——沒有金鑰就以結束碼 3
   停下（〈例外〉第 2 類最後一條）；退到 safari-browser 的是 skill，不是 CLI。
 
-## 不適用（同樣是封閉列舉，只有三類）
+## 不適用（同樣是封閉列舉，只有四類）
 
 1. **開發與發布工具鏈自身的網路操作**——`git`、`gh`、`swift` 的套件解析、`claude plugin`、
    `xcrun notarytool`。它們不是 skill 在「取得資料」，是工具在做自己的工作。
@@ -154,6 +153,9 @@ Crossref、ORCID、DOI 解析、出版商頁面）一直是 skill 層的事；�
    它點名排除，而不是讓「本機工具」這個字面把一個連網的子命令收進來。
 3. **使用者本人在瀏覽器上的操作**——登入、授權、付費牆後的點擊。那是人的動作；skill 不代按
    登入或授權按鈕。
+4. **凍結的評測快照**——`docs/skill-evals/**/skill-snapshot-*/` 底下的舊 skill（與 `swift-is-the-implementation-language`
+   〈不適用〉第 5 類同一批檔，2026-09-29 #629 R2 加列）。它是 A／B 比對的基準線，不被任何 skill、CLI、守衛或測試執行；
+   改寫它就不再是基準線。
 
 ## 既有檔（grandfathered，2026-09-24 量、2026-09-25 補量、2026-09-29 #634 遷移後重量、同日 #634 驗證補量、同日 #629 第二塊移植後重量）
 
@@ -178,7 +180,7 @@ safari-browser 開）、`akashic-bootstrap/references/web-access.md`（程序本
   第 194、240 行前後）：它們是量測紀錄、不是 skill 的取得指令，而且「當次回傳」是照那個指令量的——改寫成頁內 fetch 會讓範例變成
   另一個做法的觀察。**不遷移、列入清單**（#634 驗證第 20 列）；不得在這份規則檔裡再新增同類範例，日後要改寫時用
   web-access.md 的形式並重量
-- ~~`plugin/skills/akashic-verify-venue/SKILL.md`（三源查詢段經 MCP／WebFetch 送出；它的鎖分頁契約待使用者裁決，#593）~~ → **2026-09-29 b11c R1（#595 的驗證）起改為經 safari-browser、指向 web-access.md**（#595 加的「經 MCP／WebFetch 送出」是新增同類指令，而例外只讓 grandfathered 檔修 bug、不讓它們新增）。量法最後一段因此不再列它；第 4 源（出版商頁）的瀏覽器契約仍待 #593，該 skill 不抓不讀那一源
+- ~~`plugin/skills/akashic-verify-venue/SKILL.md`（三源查詢段經 MCP／WebFetch 送出；它的鎖分頁契約待使用者裁決，#593）~~ → **2026-09-29 b11c R1（#595 的驗證）起改為經 safari-browser、指向 web-access.md**（#595 加的「經 MCP／WebFetch 送出」是新增同類指令，而例外只讓 grandfathered 檔修 bug、不讓它們新增）。量法最後一段因此不再列它；第 4 源（出版商頁）該 skill 不抓不讀，要不要改照 web-access.md 讀待使用者裁決（#692）
 
 **同日（#629 第二塊）從這個清單拿掉的兩個**：`plugin/skills/akashic-bootstrap/scripts/crossref_match.py`（`urllib.request` 直連 Crossref）與
 `plugin/skills/akashic-fetch-fulltext/scripts/calibrate_title_match.py`（同上）——移植成 `akashic crossref-match` 與 `akashic fulltext calibrate`，
@@ -188,9 +190,8 @@ safari-browser 開）、`akashic-bootstrap/references/web-access.md`（程序本
 web-access.md 的一次取得，403／429／5xx 在取得那一步就是中止條款，404 存成 `.404` 標記＝查無此筆。
 量法上一個新的判斷（不是機械結果）：`Sources/` 沒有 HTTP client，量法第一行的 `URLSession` 字樣在 `Sources/` 的命中是 0（2026-09-29 重量）。
 
-**量法不涵蓋、也不算「已遷移」的一個檔**：`docs/skill-evals/akashic-bootstrap-workspace/skill-snapshot-old/scripts/crossref_match.py` 仍是 `urllib` 直連 Crossref
-的舊腳本，是評測 A／B 比對的**凍結基準線**（`swift-is-the-implementation-language` 〈不適用〉第 5 類），不被任何 skill、CLI、守衛或測試執行，
-也不在上面量法的掃描路徑裡。它不是「遷移過了」（沒有），是「不適用」——寫在這裡，免得下一個人量到它時以為量法漏了一個要遷移的檔（#629 R1 verify 第 44 則）。
+**量法不涵蓋的一個檔**：`docs/skill-evals/akashic-bootstrap-workspace/skill-snapshot-old/scripts/crossref_match.py` 仍以 `urllib` 直連 Crossref，
+屬上面〈不適用〉第 4 類，不在量法的掃描路徑裡（#629 R1 verify 第 44 則；R2 verify 第 42 則指出先前稱它「不適用」卻不在那張封閉列舉裡）。
 
 **形狀 (b)（經 safari-browser、但鎖法不是〈使用紀律〉的鎖法）**——量法（#629 起加掃 `Sources`：腳本移進 Swift 之後，鎖法的程式在那裡）：
 

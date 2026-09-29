@@ -27,7 +27,7 @@ MCP `akashic_update_entry` 的 `remove_sources`，同走 `AkashicService.updateE
   #544 同族的事。`Entry.references`（欄位層級的 digest 證據）也不動（§2.4.1：兩種關係不得合併）。
 - **不要求本機有位元組**：別台 clone 上 `sources/` 本來就可能不在，連錯的宣告在那裡照樣要收得回來（與 `--add-source` 的存在性閘相反——那個閘守的是「新連的內容要在」）。
   報告帶 index 的取得記錄（origin、mediaType、note…）只是讓乾跑的人認得出是哪份內容；本機沒有存檔或 index 讀不到時省略（`contentInfoUnreadable`）。
-- 三條腿（`remove_fields`／`add_sources`／`remove_sources`）各自單獨呼叫；預設乾跑，`--apply`（MCP `dry_run:false`）才寫；CLI 的 `--apply` 過 `update-entry` 那一格的閘。
+- **四條腿兩兩互斥**（`remove_fields`／`add_sources`／`remove_zotero_sources`〔#680〕／`remove_sources`，共 6 對，各自單獨呼叫，訊息「兩兩各自單獨呼叫」）；預設乾跑，`--apply`（MCP `dry_run:false`）才寫；CLI 的 `--apply` 過 `update-entry` 那一格的閘。
 - 整批拒絕、零寫入：缺 `=`、digest 形狀不對、理由空白或超過 4,096 位元組、同一個 digest 兩次、一次超過 200 個、digest 不在清單上；work 無法唯一定位時拒絕。
 
 ### `update-venue --remove-reference '<JSON>'`（#673）
@@ -60,8 +60,9 @@ MCP `akashic_update_venue` 的 `remove_reference`，同走 `AkashicService.updat
 - `EntrySourceRemovalTests` 12 支、`VenueReferenceRemovalTests` 22 支（服務層，真檔案系統與 git fixture）；CLI 真 binary：`UpdateEntryCLITests.testRemoveSourceRetractsTheDeclarationOnly`、
   `UpdateVenueReferencesCLITests.testRemoveReferenceThroughTheCLI` 與六格參數錯（exit 64）；`ServiceArgvExitCodeTests.testUpdateEntryArgvChecks` 多六格；
   `StdioE2ETests` 兩處（`remove_sources`、`remove_reference` 與讀取面）接到服務。
+- 與 #680 的 `--remove-zotero-source` 整合後補測試：`ServiceArgvExitCodeTests.testUpdateEntryLegsAreMutuallyExclusive`（CLI，六對 exit 64）、`EntrySourceRemovalTests.testAllFourLegsAreMutuallyExclusive`（服務層，六對 × 乾跑／實跑）、`StdioE2ETests.testUpdateEntryDefaultsToDryRun`（MCP，六對）；負控三個（`remove_sources` 或 `remove_zotero_sources` 不算一條腿、只放行 zotero＋sources 一對）都轉紅。
 - 先寫測試：新簽章編不過（`removeSources:`／`removeReference:` 不存在）才實作。
-- #677 負控（反向編輯、`cmp` 確認還原）10 個：拿掉「不在清單上」的具名拒絕、拿掉 git 閘、乾跑也寫、不移除、全部移除、三條腿放行組合、理由截斷、MCP 不接 `remove_sources`、
+- #677 負控（反向編輯、`cmp` 確認還原）10 個：拿掉「不在清單上」的具名拒絕、拿掉 git 閘、乾跑也寫、不移除、全部移除、四條腿放行組合、理由截斷、MCP 不接 `remove_sources`、
   CLI `run()` 不送、CLI `validate()` 不檢查——每一個都讓對應的測試轉紅。
 - #673 負控 23 個（同一套反向編輯；`cmp` 確認還原）：value 改比 canonical、不比 value、拿掉縮小鍵 `url`／`kind` 的比對、多筆時放行取第一筆、兩個定位指到同一筆放行、拿掉 git 閘、
   不移除、全部移除、移除時連 `paginated` 也刪、verdict 欄位與 `paginated` 不具名指路、放行組合、單獨呼叫不看 `note`、理由截斷、拿掉 venue key 重複的拒絕、讀取面不列 references、

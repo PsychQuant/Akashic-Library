@@ -77,3 +77,15 @@
 - 只處理三個讀取面對隸屬的**顯示**。`akashic person` 的完整時間軸列印、`akashic_person` 的時間軸列，本來就逐段列出每一段與它的時間欄位，沒有「現況」的推導，不在這張的範圍。
 - `AkashicApp/`（XcodeGen 專案，不在 `Package.swift` 內）沒有引用被改的成員；本次只編了 `AkashicAppKit`，沒有跑 XcodeGen 專案。
 - `formerAffiliation` 收窄語意是一個對 MCP 呼叫端可見的變更。這個 repo 內沒有任何 skill 或 plugin 文件讀這幾個鍵（grep 過 `plugin/`、`plugins/`），但外部消費端讀舊鍵會得到缺席。
+
+## Verify R1 修正（#663）
+
+以下的「第 N 列」是 batch14 verify R1（b14f）報告的列號。
+
+**App 裁決台的觀測段不再被長機構名稱擠掉（第 2、23 列）。** 混合情形先前把「曾隸屬:…」與「觀測到隸屬:…」接成一行再整行截 160——上一版把上限從 80 拉到 160，註解說「觀測段不能被截掉」，但第一段的機構名稱一長（論文登記的機構 literal 常含系所、學院、地址），後面的觀測段整段消失，重現 #663 要修的誤讀；新測試只用了短名稱。現在隸屬的各段（`affiliationParts`）各自消毒、各自截 80：標籤在每段最前面，截的只是名稱的尾巴。`discriminators(for:)` 的 `affiliation` 仍是接好的一行（既有呼叫端與測試不變）。新測試用一個約 170 字元的「曾隸屬」機構名稱，先紅（觀測段整段不見）、改完綠；負控：改回整行截 160 → 紅。
+
+**store-format 的 attested 規則編號（第 24、31 列）。** 新增的第 4 條插在原第 4 條前面，清單成了 1、2、3、4、4、5。改成 1–6：新增的是第 4 條（本檔上面「加第 4 條」的說法不變），原第 4 條（format 7 專屬）成第 5 條、原第 5 條（發表年不得填進 `start`）成第 6 條。全 repo grep 過以條號引用這張清單的地方：只有兩份 changelog 引用第 2 條與新增的第 4 條，兩者編號沒有變。
+
+**plugin CHANGELOG（第 30 列）。** `formerAffiliationAttested` 換成 `observedAffiliation`／`observedAffiliationAt`、`formerAffiliation` 收窄，對外部 MCP 呼叫端是不相容的改變；`plugin/CHANGELOG.md` 補了一段（與 #674 同一段）。
+
+**未改**：三個讀取面對觀測點的投影仍不同——CLI 依儲存順序印至多 4 點、MCP 與 App 只給 `attested.max()`（第 23、30 列後半，本批之前就是這樣）；`status` 不比日期（1995 年的觀測在 2000–2010 的已結束段旁邊仍讓 `status` 成 `undetermined`，#661 刻意的保守裁決，第 40 列）。

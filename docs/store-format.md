@@ -559,9 +559,9 @@ displayName(script) =
    沒有進行中的段時，宣稱已結束的段說「曾隸屬」（MCP `formerAffiliation*`），只被觀測到的段說「觀測到隸屬」
    （MCP `observedAffiliation*`）——**MUST NOT** 把後者說成「曾隸屬」；混合情形（有 end 的段加上觀測段）兩者都給。
    `status` 是 `undetermined` ⟺ 讀取面看得到「觀測到隸屬」（沒有現職時）。
-4. **format 7 專屬**（段內鍵 strict → non-additive）：write gate 對 format < 7 的
+5. **format 7 專屬**（段內鍵 strict → non-additive）：write gate 對 format < 7 的
    store 拒寫＋指路，同 `ended` 的 v6 gate 機制（版本歸屬見 §5 版本對照表的 7 行）。
-5. 把發表年填進 `start` 是「從那年起」的**偽造斷言**——`attested` 存在的理由就是
+6. 把發表年填進 `start` 是「從那年起」的**偽造斷言**——`attested` 存在的理由就是
    讓這個常見的資料輸入偽造有一個誠實的替代。
 
 ### 時間軸段的 `ended`：已結束、時點未知（#63）

@@ -290,6 +290,25 @@ final class AdjudicationTests: XCTestCase {
         XCTAssertTrue(mixed.contains("觀測到隸屬:ISS（2015）"), "觀測段不得消失：\(mixed)")
     }
 
+    /// #663 R1 verify 第 2／23 列：混合情形兩個機構名稱都很長時，整行截在一個上限會把後面的「觀測到隸屬」整段截掉——
+    /// 那正是 #663 要修的誤讀。兩段各自消毒、各自截，標籤與內容都要留下。
+    func testLongOrganizationNamesDoNotPushTheObservedAffiliationOffTheLine() throws {
+        // 機構 literal 是論文登記的原文，長的會有兩三百字元（系所＋學院＋大學＋地址）
+        let former = "National Taiwan University Graduate Institute of Epidemiology and Preventive Medicine, College of Public Health, "
+            + "No. 17 Xuzhou Road, Zhongzheng District, Taipei 100, Taiwan"
+        let observed = "Institute of Statistical Science Academia Sinica Research Center for Humanities and Social Sciences"
+        var p = Person(key: "long-names", names: ["Long Names"])
+        p.profile.affiliations = TimelineOf([
+            TemporalValue(value: OrgRef.literal(former), range: DateRange(start: "2000", end: "2010")),
+            TemporalValue(value: OrgRef.literal(observed), range: DateRange(attested: ["2015"])),
+        ])
+        try LibraryStore(root: root).writePerson(p)
+        try state.load()
+        let line = PeopleResolveModel(state: state).discriminatorLine(for: "long-names")
+        XCTAssertTrue(line.contains("曾隸屬:National Taiwan"), line)
+        XCTAssertTrue(line.contains("觀測到隸屬:Institute of Statistical"), "觀測段的標籤與內容都要在：\(line)")
+    }
+
     /// #236 R4：**一篇文獻可以有多個歧義作者／多個候選作者**，所以 `entryID` 與
     /// `citekey` 單獨都不是唯一識別。
     ///

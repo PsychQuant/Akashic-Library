@@ -72,8 +72,9 @@ public final class PeopleResolveModel {
         if let o = d.orcid { bits.append("orcid:" + displaySafe(o, max: 40)) }
         if let o = d.openalex { bits.append("openalex:" + displaySafe(o, max: 40)) }
         if let x = d.died { bits.append("卒:" + displaySafe(x, max: 20)) }
-        // 已含 隸屬:／曾隸屬:／觀測到隸屬: 前綴；混合情形是兩段，上限比單段的 80 寬（#663：觀測段不能被截掉）
-        if let a = d.affiliation { bits.append(displaySafe(a, max: 160)) }
+        // 已含 隸屬:／曾隸屬:／觀測到隸屬: 前綴。**每一段各自消毒、各自截**（#663 R1 verify 第 2／23 列）：混合情形先前是兩段接起來再整行截 160，
+        // 第一段的機構名稱一長，後面的「觀測到隸屬」整段被截掉——那正是 #663 要修的誤讀。各段的標籤在最前面，截的只是名稱的尾巴。
+        for part in affiliationParts(for: key) { bits.append(displaySafe(part, max: 80)) }
         let tail = bits.isEmpty ? "⚠ 無任何區辨欄位" : bits.joined(separator: "  ")
         return "→ " + displaySafe(key, max: 200) + "  " + tail
     }
@@ -90,6 +91,16 @@ public final class PeopleResolveModel {
     public func discriminators(for key: String) -> (names: [String], orcid: String?,
                                                     openalex: String?, died: String?,
                                                     affiliation: String?) {
+        let p = state.people.first { $0.key == key }
+        let parts = affiliationParts(for: key)
+        let aff: String? = parts.isEmpty ? nil : parts.joined(separator: "  ")
+        // #227：呈現面列**全部**名字（authorized + variant）——這裡是身分判斷的
+        // 佐證資訊，缺一個變體就少一條線索。
+        return (p?.names.all ?? [], p?.orcid?.normalized, p?.openalex, p?.died, aff)
+    }
+
+    /// 隸屬的各段（未消毒——呼叫端各自消毒；`discriminators` 接成一行、`discriminatorLine` 逐段截）。
+    private func affiliationParts(for key: String) -> [String] {
         let p = state.people.first { $0.key == key }
         // **current 與 former 不可塌成一個欄位**（#236 R3）：「現在在 X」與
         // 「曾經在 X」對區辨的意義完全不同——後者配上時間才有辨別力，而把兩者
@@ -121,10 +132,7 @@ public final class PeopleResolveModel {
                 }
             }
         }
-        let aff: String? = parts.isEmpty ? nil : parts.joined(separator: "  ")
-        // #227：呈現面列**全部**名字（authorized + variant）——這裡是身分判斷的
-        // 佐證資訊，缺一個變體就少一條線索。
-        return (p?.names.all ?? [], p?.orcid?.normalized, p?.openalex, p?.died, aff)
+        return parts
     }
 
     public func accept(_ candidate: ResolutionCandidate) throws {

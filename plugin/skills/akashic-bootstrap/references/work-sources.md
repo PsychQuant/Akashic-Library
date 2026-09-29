@@ -304,12 +304,23 @@ Taiwan International Graduate Program, Academia Sinica
 
 這條路慢且每篇都要人看。**若目的只是判定「某作者是否屬於某機構」，該機構自己的名冊或作者的 ORCID employment 往往更快更準**——而且是當事人或機構自己維護的，不必穿過出版商的排版。走出版商路線的理由應該是「需要發表當下的機構」（名冊只有現況），不是「想要更權威」。
 
-## 附帶的腳本
+## 附帶的比對工具：`akashic crossref-match`
 
-`scripts/crossref_match.py` 實作了上面的比對＋反向驗證流程。它讀一份 `[{citekey, title, journal, year}]` 的 JSON，輸出每筆的判定（`confident` / `probable` / `needs_review`）與候選明細。
+`akashic crossref-match` 實作了上面的比對＋反向驗證流程（#629 起；原 `scripts/crossref_match.py` 自己以 `urllib` 直連 Crossref、不經 safari-browser，已移除）。它讀一份 `[{citekey, title, journal, year}]` 的 JSON，輸出每筆的判定（`confident` / `probable` / `needs_review` / `no_result`）與候選明細。比對與計分邏輯原封搬過來（四訊號合取、門檻、三段式解決、反向驗證；30 個種子、1,860 筆作品對舊實作，結果檔逐位元相同，見 changelog）。
 
-**它自己以 `urllib.request` 直連 Crossref，不經 safari-browser，也不受 web-access.md 的中止條款管**——2026-09-29 讀碼：查詢階段的請求失敗（含 403／429）不會被接住，整支腳本以未捕捉的例外中止，而結果檔在迴圈跑完之後才寫，中止時已跑完的筆數只留在 stderr 的進度行；審稿報告後綴那一步吞掉例外，反向驗證把錯誤寫進該筆的 `reverse.error` 後繼續請求下一筆。兩者都不分辨「被擋」與「其他失敗」。它是 Akashic-Library web-access 規則的 grandfathered 例外，移植成 `akashic` CLI 子命令由 #629 追蹤。在那之前：比對邏輯（門檻、正規化、三類陷阱的繞行）可以當範本讀；要執行它，先告訴使用者這一段不在中止條款範圍內。**怎麼讀它的輸出**（與 web-access.md〈中止條款〉同一個判斷順序：先看狀態碼）：
+**它不連網，取得是你的事（經 safari-browser，程序見 [web-access.md](web-access.md)）。** 它是「重播式」的：每次都從頭重算，狀態就是一個放回應的目錄，所以任何時候中止、重跑都安全：
 
-- `reverse.error` 是 `HTTPError: HTTP Error 404: Not Found`——DOI 不在 Crossref（DataCite、mEDRA 註冊的 DOI 常見）。那是**查無此筆，不是中止訊號**：該筆本來就因反向驗證未過而是 `needs_review`，其餘照跑、照讀。
-- `reverse.error` 是 403、429、5xx、逾時或連線錯誤（`URLError`、`TimeoutError`）→ 照中止條款整批停，不重跑。
-- 查詢階段的請求失敗腳本自己會以未捕捉的例外中止，**不會有結果檔**（已跑完的筆數只在 stderr 的進度行）。那也是停下來回報，**不要重跑**——重跑就是把同一批請求再打一遍。
+1. 建回應目錄 `<W>/cr`（`<W>` 是 web-access.md 的暫存目錄）。
+2. `akashic crossref-match --works <works.json> --responses "<W>/cr" -o <result.json> [--mailto <你的信箱>]`（`--no-verify` 跳過反向驗證，不建議）。
+3. **結束碼 3＝還有請求要取**：stdout 是 `{"pending": [{"id": "…", "url": "…"}, …], "resolved": N, "total": M}`。對每個 pending 請求：把 `url` 寫進 `<W>/url-<序號>.txt`，照 web-access.md〈取一次 API〉取（頁內 fetch、逐筆、請求之間跑節奏工具；`url` 是 CLI 自己組的——標題與信箱已百分比編碼、DOI 已過形狀檢查——仍要過〈插值前先驗形狀〉的「完整網址」一列）。**狀態碼決定存法**：200 → 把 `<W>/r-<序號>.json` 存成 `<W>/cr/<id>.json`；**404 → 建一個空檔 `<W>/cr/<id>.404`**（查無此筆，不是中止訊號）；403、429、5xx、逾時、連線錯誤、200 但本文不是 JSON → **中止條款，整批停，不存檔、不重跑**。
+4. 存好這一輪所有請求的回應，重跑第 2 步；每輪至少推進一個請求，每筆作品最多四個請求（一般查詢 → 剝審稿後綴的單筆查詢 → 限定 journal-article 重查 → 反向驗證的單筆查詢）。**結束碼 0＝全部判定完成、結果檔已寫**；1＝輸入或回應檔壞了（訊息具名）。
+5. 回應檔以 URL 的雜湊命名（`id`），所以換 `--mailto` 不讓已取的回應失效；同一個請求同時有 `.json` 與 `.404` 會被拒絕。
+
+**怎麼讀它的輸出**（與 web-access.md〈中止條款〉同一個判斷順序：先看狀態碼）：
+
+- `reverse.error` 是 `HTTPError: HTTP Error 404: Not Found`——DOI 不在 Crossref（DataCite、mEDRA 註冊的 DOI 常見）。那是**查無此筆，不是中止訊號**：該筆本來就因反向驗證未過而是 `needs_review`，其餘照跑、照讀。（字串與舊腳本相同。）
+- `reverse.error` 是 `IdentityMismatch: …`（#629 新增）：以 DOI 單筆查詢的回應，裡面的 DOI 不是請求的那個——web-access.md〈取一次 API〉「讀回後核對身分」由這個命令替你做（PsychQuant/safari-browser#190 的形狀）。該筆維持 `needs_review`；同一個請求的回應若整批都是這樣，回頭查你的取得步驟（變數名、鎖）。
+- `reverse.error` 是 `UnsafeDOI: …`（#629 新增）：候選的 DOI 缺少或形狀不合格（含 `#`、`?`、`%`、空白，或有 `.`／`..` 的路徑段），**不拿去組請求**。該筆維持 `needs_review`，人工核對。舊腳本會把它百分比編碼後照送。
+- 查詢端點（一般查詢與限定 journal-article 的重查）的回應是 404 或形狀不對：這個命令以結束碼 1 具名中止（訊息含請求 id）。查詢端點不會 404，那是你的取得步驟出了問題——照中止條款的精神停下回報，不要重跑。
+- **搜尋類請求沒有單一 id 可核對**：存完一個搜尋回應，與上一個搜尋回應比對（`cmp -s`）；逐位元相同而且不是空結果，就是 #190 的形狀，照中止條款停（見 web-access.md）。
+

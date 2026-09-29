@@ -90,7 +90,7 @@ safari-browser，這可以是整個專案預設的」。
 
 1. **本規則成文前已存在的檔（grandfathered）**，逐檔列在下方〈既有檔〉。可以修 bug；不得新增
    同類指令，也不得在新 skill 裡照抄。遷移由 #634 追蹤，改完一檔就從清單拿掉（2026-09-29
-   散文檔遷移完，剩下的各有阻塞原因；同日 b11c R1 起 verify-venue 改為指向 web-access.md）。
+   散文檔遷移完；同日 b11c R1 起 verify-venue 改為指向 web-access.md；同日 #629 第二塊移植掉兩支直連 Crossref 的 Python 腳本，形狀 (a) 只剩一個量測範例檔）。
    這一類有**兩種形狀**（2026-09-29 顯式加入第二種，#634 驗證第 3／12／41／47 列：#634 曾把 `akashic-fetch-fulltext`
    當成已遷移移出清單，而它取得雖走 safari-browser，鎖分頁的方式仍是本規則明禁的視窗編號）：
    (a) 取得指令**不經 safari-browser**（直連）；(b) 取得經 safari-browser，但**鎖分頁的方法不是〈使用紀律〉的鎖法**。
@@ -103,7 +103,7 @@ safari-browser，這可以是整個專案預設的」。
 3. **使用者本人在瀏覽器上的操作**——登入、授權、付費牆後的點擊。那是人的動作；skill 不代按
    登入或授權按鈕。
 
-## 既有檔（grandfathered，2026-09-24 量、2026-09-25 補量、2026-09-29 #634 遷移後重量、同日 #634 驗證補量）
+## 既有檔（grandfathered，2026-09-24 量、2026-09-25 補量、2026-09-29 #634 遷移後重量、同日 #634 驗證補量、同日 #629 第二塊移植後重量）
 
 量法（2026-09-25 #617 verify 放寬——原量法只看 SKILL.md 與 references、不看 `scripts/`，也不認
 ORCID／doi.org，漏了 3 個會直連的檔；2026-09-29 #634 加最後一段；同日驗證補掃 `plugin/rules`——原量法掃的是
@@ -119,32 +119,39 @@ grep -rlE 'api\.(openalex|crossref)\.org|pub\.orcid\.org|api\.orcid\.org|https?:
 `plugin/skills/akashic-bootstrap/references/web-access.md`（問 profile、`--profile`＋`--url-endswith` 鎖分頁、
 插值前的形狀檢查、頁內 fetch、中止條款）；規則寫在這裡，程序寫在那裡，兩處各說各的事。
 
-**形狀 (a)（直連）**：2026-09-29 命中 6 個檔，其中 3 個不算：`akashic-fetch-fulltext/scripts/fetch-fulltext.sh`（只解析 doi.org
-字串，取得走 safari-browser）、`akashic-work-references/SKILL.md`（它自己的操作程序，網址交給
-safari-browser 開）、`akashic-bootstrap/references/web-access.md`（程序本身，提到 `curl` 是在說不要用）。
-其餘 3 個（b11c R1 起 verify-venue 已遷移，見該項；同日驗證起加掃 `plugin/rules`，多出第三個）：
+**形狀 (a)（直連）**：2026-09-29（#629 第二塊移植後重量）命中 3 個檔，其中 2 個不算：`akashic-work-references/SKILL.md`（它自己的操作程序，網址交給
+safari-browser 開）、`akashic-bootstrap/references/web-access.md`（程序本身，提到 `curl` 是在說不要用）。**剩下的 1 個**：
 
-- `plugin/skills/akashic-bootstrap/scripts/crossref_match.py`（`urllib.request` 直連 Crossref；移植成 `akashic` CLI 子命令由 #629 追蹤）
-- `plugin/skills/akashic-fetch-fulltext/scripts/calibrate_title_match.py`（同上，#629）
 - `plugin/rules/assertions-must-be-measured.md`（兩個 `curl -sS --fail … https://api.crossref.org/works/…` 範例，2026-08-21 觀察的**可重跑量測指令**，
   第 194、240 行前後）：它們是量測紀錄、不是 skill 的取得指令，而且「當次回傳」是照那個指令量的——改寫成頁內 fetch 會讓範例變成
   另一個做法的觀察。**不遷移、列入清單**（#634 驗證第 20 列）；不得在這份規則檔裡再新增同類範例，日後要改寫時用
   web-access.md 的形式並重量
 - ~~`plugin/skills/akashic-verify-venue/SKILL.md`（三源查詢段經 MCP／WebFetch 送出；它的鎖分頁契約待使用者裁決，#593）~~ → **2026-09-29 b11c R1（#595 的驗證）起改為經 safari-browser、指向 web-access.md**（#595 加的「經 MCP／WebFetch 送出」是新增同類指令，而例外只讓 grandfathered 檔修 bug、不讓它們新增）。量法最後一段因此不再列它；第 4 源（出版商頁）的瀏覽器契約仍待 #593，該 skill 不抓不讀那一源
 
-**形狀 (b)（經 safari-browser、但鎖法不是〈使用紀律〉的鎖法）**——量法：
+**同日（#629 第二塊）從這個清單拿掉的兩個**：`plugin/skills/akashic-bootstrap/scripts/crossref_match.py`（`urllib.request` 直連 Crossref）與
+`plugin/skills/akashic-fetch-fulltext/scripts/calibrate_title_match.py`（同上）——移植成 `akashic crossref-match` 與 `akashic fulltext calibrate`，
+**兩者都不連網**：比對與計分邏輯進 Swift，取得回到 skill 經 safari-browser 做（`crossref-match` 是重播式狀態機：缺的請求以 JSON 列出、exit 3，
+由 skill 照 web-access.md 取回後存進回應目錄再跑；`calibrate` 讀本機的 Crossref 回應目錄）。這同時關掉 #634 記著的缺口——那支腳本的
+錯誤處理不是中止條款（查詢階段的請求失敗讓整支腳本以未捕捉的例外中止、反向驗證把錯誤寫進結果後繼續下一筆）：現在每個請求都是 skill 經
+web-access.md 的一次取得，403／429／5xx 在取得那一步就是中止條款，404 存成 `.404` 標記＝查無此筆。
+量法上一個新的判斷（不是機械結果）：`Sources/` 沒有 HTTP client，量法第一行的 `URLSession` 字樣在 `Sources/` 的命中是 0（2026-09-29 重量）。
+
+**形狀 (b)（經 safari-browser、但鎖法不是〈使用紀律〉的鎖法）**——量法（#629 起加掃 `Sources`：腳本移進 Swift 之後，鎖法的程式在那裡）：
 
 ```bash
-grep -rlE -- '--tab-in-window' plugin/skills plugins/*/skills | grep -vE '__pycache__|/tests/'
+grep -rlE -- '--tab-in-window' plugin/skills plugins/*/skills Sources | grep -vE '__pycache__|/tests/'
 ```
 
-2026-09-29 命中 3 個檔，其中 2 個不算（`web-access.md` 與 `akashic-work-references/SKILL.md` 提到它是在說「不要用」）；剩下的：
+2026-09-29（#629 第二塊移植後）命中 4 個檔，其中 2 個不算（`web-access.md` 與 `akashic-work-references/SKILL.md` 提到它是在說「不要用」）；剩下的：
 
-- `plugin/skills/akashic-fetch-fulltext/scripts/fetch-fulltext.sh`，以及 `plugin/skills/akashic-fetch-fulltext/SKILL.md` 的第 3 步
-  （`scripts/fetch-fulltext.sh --window <N> …`）：**鎖法仍是 `--window N --tab-in-window T`（#613 的作法），#629 第二塊移植它時改**。
+- `Sources/AkashicSkillTools/FulltextFetch.swift`（`akashic fulltext fetch`，原 `fetch-fulltext.sh`），以及 `plugin/skills/akashic-fetch-fulltext/SKILL.md` 的第 3 步
+  （描述那條命令）：**鎖法仍是 `--window N --tab-in-window T`（#613 的作法）；#629 移植時沒有改，改成 `--url-endswith` 仍待使用者裁決、且要實跑 Safari**。
   理由：`publishers.md` 記著——使用者已開著同一頁時，URL 鎖會比對到兩個分頁、safari-browser fail-closed。**便宜的解**（沒實測）：
   對 `--landing` 加一次性 fragment，同一頁已開的問題自然消失（#634 驗證第 41 列）。這個 skill 因此**同時有兩個鎖法**：第 2 步（頁內
-  OpenAlex 查詢）用 web-access.md 的鎖，第 3 步（腳本）用腳本自己的視窗編號鎖；SKILL.md 第 3 步明寫兩者不混用。本輪不改腳本。
+  OpenAlex 查詢）用 web-access.md 的鎖，第 3 步（`fetch`）用命令自己的視窗編號鎖；SKILL.md 第 3 步明寫兩者不混用。**移植後這條鎖法有一個
+  比以前好的地方**：`SafariBrowser` 介面讓「這支程式對瀏覽器說了什麼」可以在測試裡逐條斷言（`FulltextFetchPathTests`），改鎖法時測試會告訴你哪些
+  引數向量變了——以前只有一個 Python stub 的結束碼。**要改時**：`FulltextFetch.swift` 的三個引數向量建構點（`open`／`close`／`js`／`wait` 的 `--window`
+  `--tab-in-window`）改成 `--profile`＋`--url-endswith`，`currentTab()` 與「以位置認分頁」的整套邏輯要重想（分頁由 fragment 認，不需要位置）。
 
 歷史：2026-09-25 同一個量法（沒有最後一段）命中 13 個檔，其中 2 個不算，其餘 11 個。#634 於 2026-09-29
 遷移了其中 8 個：`akashic-bootstrap` 的 `person-sources.md`、`work-sources.md`，`akashic-disambiguate` 的
@@ -183,3 +190,4 @@ grep -rlE -- '--tab-in-window' plugin/skills plugins/*/skills | grep -vE '__pyca
 | 2026-09-25 | #617 verify 指出三件事：規則推薦的 `--url` 鎖法會跨 profile 取分頁；grandfathered 清單的量法漏了 `scripts/` 與 ORCID（3 個直連檔未列）；新 skill 的建檔交給 bootstrap，而 bootstrap 仍直連 Crossref | 鎖法改為 `--profile`＋`--url-exact`＋一次性 fragment；量法放寬並補列 3 檔；SKILL 寫明 bootstrap 那段不在其中止條款範圍內（#634） |
 | 2026-09-29 | #634 遷移 8 個散文檔時，逐檔讀出量法看不到的取得路徑（見〈既有檔〉的兩個盲區）；讀 `crossref_match.py` 發現它的錯誤處理不是中止條款：查詢階段的請求失敗讓整支腳本以未捕捉的例外中止、反向驗證把錯誤寫進結果後繼續下一筆。另見 `fetch-fulltext.sh` 以視窗編號＋分頁位置鎖分頁（#613 的作法，`publishers.md` 記著理由），與上面的鎖法不同——它取得走 safari-browser、不在清單內，#634 沒有處理 | 8 檔改為指向 `web-access.md`；量法加「含指標即已遷移」與盲區說明；剩下 3 個各有阻塞原因（#629／#593），照實保留；`fetch-fulltext.sh` 的鎖法差異留給使用者裁決（**同日驗證後改為列入清單，見下一列**） |
 | 2026-09-29 | #634 的六席驗證（51 則）：(1) `--url-exact` 比的是 Safari 回報的網址而我們拿自己組的字串比，轉址與百分比編碼讓它鎖不到，且沒有 miss 處置（第 16 列）；(2) `web-access.md` 的 DOM 讀取步驟直接用 `"${LOCK[@]}"`，遺失時退回 front tab（第 1 列）；(3) `landing_page_url` 這類 API 回應裡的網址被交給使用者已登入的 Safari 開（第 8 列）；(4) 完整網址進 shell 字串（第 9 列）；(5) `akashic-fetch-fulltext` 被當成已遷移，而腳本鎖法沒動（第 3／12／41／47 列）；(6) 量法沒掃 `plugin/rules`（第 20 列）；(7) 兩份操作程序只靠叮嚀、已分岔（第 25／33 列）；(8) 404 與「不是 JSON」對同一個回應各說各話（第 26／32／38 列） | 鎖法改為 `--profile`＋`--url-endswith`（理由、查證、沒實測見〈使用紀律〉）；每個區塊自足；加〈開的網址從哪來〉與「完整網址」形狀列；判斷順序寫明；`fetch-fulltext` 列入形狀 (b)；量法補掃 `plugin/rules`；兩份程序的鏡像顯式成列（〈操作程序的兩份描述〉）。**沒有實跑 safari-browser**（限制：不得操作 Safari）：第 16 列的修法只讀了 `--help` 與 binary 字串表 |
+| 2026-09-29 | #629 第二塊：把 `crossref_match.py`、`calibrate_title_match.py`（直連 Crossref 的 Python 腳本）與 `fetch-fulltext.sh`（視窗編號鎖）移植成 Swift。直連的兩支若照字面移植就是在 `Sources/` 新增 HTTP client；`fetch-fulltext.sh` 若順手改鎖法，就是在沒有裁決、沒有實跑 Safari 的情況下改動一條安全紀律 | `crossref-match` 做成重播式（取得回到 skill，缺的請求以 JSON 列出、exit 3）、`calibrate` 讀本機目錄，`Sources/` 仍沒有 HTTP client；`fetch` 鎖法不變（〈例外〉第二種形狀），改 `--url-endswith` 仍待使用者裁決。新舊差分（17 萬個判定案例、1,860 筆 Crossref 比對、18 條 fetch 路徑對同一個 stub）記在 changelog；**Swift 版 `fetch` 沒有對真的 safari-browser 跑過**（不得操作 Safari），引數向量逐字沿用舊腳本、由測試逐條斷言 |

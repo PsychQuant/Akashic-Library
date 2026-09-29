@@ -42,6 +42,31 @@
 
 
 
+## #629 — 取全文、Crossref 比對與摘要轉換的腳本變成 `akashic` 子命令
+
+**使用者可見的改變**（`akashic-fetch-fulltext`、`akashic-bootstrap`、`akashic-venue-works` 三個 skill；**這三個 skill 現在需要含這些子命令的 `akashic` binary**，
+舊 binary 上 skill 的指令會失敗於「找不到子命令」）：
+
+| 舊 | 新 |
+|---|---|
+| `scripts/fetch-fulltext.sh` | `akashic fulltext fetch`（旗標與結束碼契約不變） |
+| `scripts/verify_pdf.py` | `akashic fulltext verify` |
+| `scripts/pdf_url_rules.py` | `akashic fulltext url-rule` |
+| `scripts/bot_signals.py` | `akashic fulltext bot-signals` |
+| `scripts/jitter.py` | `akashic fulltext jitter` |
+| `scripts/calibrate_title_match.py` | `akashic fulltext calibrate --crossref <目錄>`（**不再連網**：Crossref 記錄讀本機目錄，缺的 DOI 列出來由 skill 取回） |
+| `scripts/crossref_match.py` | `akashic crossref-match`（**不再連網**，重播式：缺的請求以 JSON 列出、exit 3，skill 經 safari-browser 取回、存進回應目錄後重跑） |
+| `scripts/ndjson-abstracts-to-proposals.py` | `akashic abstracts-to-proposals` |
+
+- 三個 skill 的 `scripts/` 目錄整個移除（沒有 Python、沒有 shell 了）。
+- **`akashic fulltext fetch`**：命令列打錯（缺必填旗標、視窗編號不是數字、未知旗標）現在是結束碼 **64** 而不是 1；環境變數
+  `FETCH_FULLTEXT_NAP`（舊路徑測試用來把等待歸零）不再存在。鎖分頁的方式**沒有改**（仍是 `--window` 加分頁位置）。
+- **`akashic crossref-match`** 的判定與結果檔與舊腳本逐位元相同（30 個種子、1,860 筆作品）；行為差異只有三個保守的收緊：回應裡的 DOI 與請求的不符
+  → `reverse.error` 是 `IdentityMismatch`；候選 DOI 缺少或形狀不合格（`#`、`?`、`%`、空白、`..` 路徑段）→ `UnsafeDOI`、不組請求；查詢端點回 404
+  或形狀不對 → 以結束碼 1 具名中止。`--delay` 沒有了（節奏是 skill 的事）；`--mailto` 進請求網址的 `mailto` 參數，不再進 User-Agent。
+- **`akashic abstracts-to-proposals`**：`--library` 的解析與其他 CLI 命令同一條（含 registry 的 `current`）；舊腳本只有 `--library` → `$AKASHIC_LIBRARY` → `~/.akashic` 三段。
+  skip 報告的控制字元逃脫格式從 `\x1b` 變成 `\u{001B}`（repo 全域的 `displaySafe` 格式）。
+
 ## #629 — 普查從 skill 目錄裡的 shell 腳本變成 `akashic literal-census`
 
 **使用者可見的改變**（`akashic-promote-literals` skill）：

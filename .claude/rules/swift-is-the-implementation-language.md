@@ -42,24 +42,40 @@
 
 ## 既有檔（grandfathered，2026-09-24 量，tracked）
 
-**shell（二個，不含例外 1 的四個）**：
-`plugin/skills/akashic-fetch-fulltext/scripts/fetch-fulltext.sh`、
-`plugin/skills/akashic-fetch-fulltext/scripts/tests/fetch-fulltext-paths.sh`
-
-**Python（九個）**：
-`plugin/skills/akashic-bootstrap/scripts/crossref_match.py`、
-`plugin/skills/akashic-fetch-fulltext/scripts/{bot_signals,calibrate_title_match,jitter,pdf_url_rules,verify_pdf}.py`、
-`plugin/skills/akashic-fetch-fulltext/scripts/tests/test_rules_and_verify.py`、
-`plugin/skills/akashic-venue-works/scripts/ndjson-abstracts-to-proposals.py`、
-`plugin/tests/ndjson-abstracts-to-proposals.py`
-
-這張清單只減不增：檔案移植成 Swift 或刪除時從這裡拿掉，新檔不得加進來。
+**2026-09-29（#629 第二塊移植後）：清單是空的。** shell 與 Python 各為零個既有檔；例外 2 的「逐檔列在這裡」目前沒有任何成員。
+成文當日（2026-09-24）是 shell 七個（不含例外 1 的四個）、Python 十一個；第一塊（守衛與普查）拿掉了其中的 shell 五個、Python 二個，
+第二塊（下面）拿掉其餘的。這張清單只減不增——**空了之後，新檔更不得加進來**（例外 2 是為「成文前已存在」的檔開的，不是一扇會再開的門）。
 
 **已移植（#629 第一塊，2026-09-29）**：`plugin-store-format-parity.py`、`rule-coverage.sh`、`review-claim-audit.sh`、
 `scan-yaml-profile.py`、promote-literals 的四支 shell（`literal-census.sh` ＋ 三支守它的測試）已從清單拿掉——
 去處與理由見 `changelog/2026-09-29-guards-and-census-to-swift.md`（兩個守衛成為 `akashic-guards` 子命令、普查成為
 `akashic literal-census`、YAML profile 掃描成為 `akashic scan-yaml-profile`；`review-claim-audit` 與 census 的
 parity 測試不是「移植」而是**受測物不存在後退場**）。
+
+**已移植（#629 第二塊，2026-09-29）**：`akashic-fetch-fulltext` 的 `scripts/`（`verify_pdf.py`、`pdf_url_rules.py`、`bot_signals.py`、
+`jitter.py`、`calibrate_title_match.py`、`fetch-fulltext.sh`、`tests/test_rules_and_verify.py`、`tests/fetch-fulltext-paths.sh`）、
+`akashic-bootstrap/scripts/crossref_match.py`、`akashic-venue-works/scripts/ndjson-abstracts-to-proposals.py` 與它的測試
+`plugin/tests/ndjson-abstracts-to-proposals.py`——去處與新舊比對的證據見 `changelog/2026-09-29-fulltext-scripts-to-swift.md`。對映：
+
+| 舊檔 | 新去處 |
+|---|---|
+| `verify_pdf.py`、`pdf_url_rules.py`、`bot_signals.py`、`jitter.py` | `akashic fulltext verify`／`url-rule`／`bot-signals`／`jitter`（`Sources/AkashicSkillTools/`） |
+| `calibrate_title_match.py` | `akashic fulltext calibrate`（Crossref 記錄改讀本機目錄，**不連網**） |
+| `fetch-fulltext.sh` ＋ `fetch-fulltext-paths.sh` | `akashic fulltext fetch`（`FulltextFetch`，對 `SafariBrowser` 介面編排；路徑測試對記憶體內的假瀏覽器跑） |
+| `crossref_match.py` | `akashic crossref-match`（重播式：缺的請求由 skill 經 safari-browser 取回，**不連網**） |
+| `ndjson-abstracts-to-proposals.py` ＋ 它的測試 | `akashic abstracts-to-proposals`（`AbstractProposals`） |
+| `test_rules_and_verify.py`（54 個） | `Tests/AkashicKitTests/FulltextRulesTests.swift`（54 個逐案移植） |
+
+**`fetch-fulltext.sh` 與 `fetch-fulltext-paths.sh` 沒有改列為例外 1，而是移進 Swift**（issue 的判準是「純串接者可改列為例外、含判斷者移進 Swift」）。
+判斷的依據：領域判斷（起疑訊號、出版商網址規則、驗證）搬走之後，剩下的腳本**仍然有判斷**——每個結束碼落在哪條路徑（中止條款的 11 個出口
+各自是 6 而不是 1）、「頁面沒落定」「本文是 0 位元組」「分頁跑到別的站」各算不算起疑、Loading 殼算無權限（4）而不是起疑（6）、
+判定不過時檔案存成什麼名字。這些是**中止條款的政策**，不是串接；而例外 1 的定義是「只做串接——檢查 binary、依序呼叫、下載、編排外部 CLI」。
+它的測試也帶著一個 Python stub 與一個 Python 產生器（內嵌在 shell 裡），留著就是把兩個 runtime 留在 skill 目錄。
+
+## 誰沒被「移植」：`docs/skill-evals/` 底下的舊快照
+
+`docs/skill-evals/akashic-bootstrap-workspace/skill-snapshot-old/scripts/crossref_match.py` 是評測用的**舊 skill 快照**，在 `docs/` 底下、不是
+可執行的程式碼（語言組成的量法排除 `docs/`），也不是 skill 現行的內容。它沒有動；它提到的 `scripts/crossref_match.py` 是快照當時的樣子。
 
 ## 為什麼
 
@@ -80,5 +96,5 @@ parity 測試不是「移植」而是**受測物不存在後退場**）。
 
 ## 語言組成（tracked，排除 `repos/`、`docs/`、`changelog/`、`openspec/`）
 
-**2026-09-29（#629 第一塊移植後）**：Swift 472、Python 9、shell 6（含沒有副檔名的 `.githooks/pre-push`）。
-成文當日（2026-09-24）是 372／11／11。量法：`git ls-files` 依副檔名計數。數字會隨移植下降，以重量為準，不要照抄這一行。
+**2026-09-29（#629 第二塊移植後）**：Swift 497、Python 0、shell 4（含沒有副檔名的 `.githooks/pre-push`；恰為例外 1 的四個檔）。
+第一塊移植後是 472／9／6，成文當日（2026-09-24）是 372／11／11。量法：`git ls-files` 依副檔名計數。數字會隨移植下降，以重量為準，不要照抄這一行。

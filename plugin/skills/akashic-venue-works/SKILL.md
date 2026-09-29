@@ -52,8 +52,9 @@ libraries:
 摘要（`abstract_inverted_index` 還原）一次取齊。
 
 **還原出的摘要不是摘要的判準（#544）**：還原後的摘要以 Crossref 的無 metadata 樣板開頭——
-`This DOI is not currently attached to any metadata records`（與 `scripts/ndjson-abstracts-to-proposals.py`
-的 `CROSSREF_NO_METADATA` 同一個字串，改一處要一起改）——它是錯誤頁文字，OpenAlex 對沒有 Crossref
+`This DOI is not currently attached to any metadata records`（與 `akashic abstracts-to-proposals` 的
+`AbstractProposals.crossrefNoMetadata`（akashic repo 的 Swift 原始碼，該 repo 為 private、plugin 安裝處讀不到）同一個字串；#629 起它在 Swift 裡
+**只有一份**，這裡引用它的位置而不是各存一份）——它是錯誤頁文字，OpenAlex 對沒有 Crossref
 metadata 的 DOI 會回這段。**不要把它放進 `create-entry` 的 `fields.abstract`**：該筆照建、只是不帶摘要，
 報告的排除計數帶「略過：樣板摘要 N 筆」（`lossless-intake` 執行細節 3：丟棄必須可見）。2026-09-01 的
 #423 階段 A 沒有這個判準，21 筆 work 就是這樣帶著錯誤頁當摘要進庫的（live store 的 git 史 `e3b25a6d`；
@@ -72,21 +73,25 @@ web-access.md（PsycNet 的現行取法**沒有量過**：批次前先以 1 筆 
 
 **遲到摘要的出口（#516）**：conflict＝拒絕覆寫，所以**重跑不會把遲到的摘要補進已建記錄**
 ——走 add-only 那條路：階段 B 的 NDJSON 先存進 `sources/`（`akashic store-source`），再
-`scripts/ndjson-abstracts-to-proposals.py --library <root> --source sha256:<digest> --out "${TMPDIR:-/tmp}/proposals.json"`
+`akashic abstracts-to-proposals --library <root> --source sha256:<digest> --out "${TMPDIR:-/tmp}/proposals.json"`
 → `akashic enrich --library <root> --from "${TMPDIR:-/tmp}/proposals.json" --json`（dry-run 先看 counts）
 
-> **這支腳本的 `--library` 解析鏈比 CLI 窄，只有三段**：`--library` → `$AKASHIC_LIBRARY` → `~/.akashic`。它**不讀** `$AKASHIC_HOME/config.yaml` 的 `current`——`README.md` 記的那條四段鏈是 **CLI** 的，對 CLI 為真、對本腳本不為真（#519 Expected 3）。裁決是「明寫限制」而不是「接上 registry」：接上去等於在 Python 這一側**重新實作**解析鏈，那是把一份**描述**的副本換成一份**實作**的副本，而後者更糟——描述分岔讀得出來，實作分岔只在特定 profile 下顯形。風險有界：`--source` 是 digest 時走內容定址，library 取錯只會「找不到那個 digest」，是可見的失敗。
+> **`--library` 的解析與 CLI 其他命令同一條**（`--library` → `$AKASHIC_LIBRARY` → `~/.akashic/config.yaml` 的 registry）。#629 之前這支是 Python 腳本，
+> 解析鏈只有三段、**不讀** registry 的 `current`（#519 Expected 3 裁決「明寫限制而不是接上去」：在 Python 這一側重新實作解析鏈，會把一份描述的
+> 副本換成一份**實作**的副本）；移植成 `akashic` 子命令之後它直接用 CLI 的解析函式，那個限制連同它的理由一起消失。只有 `--source` 是 digest 形
+> 時才解析 store；路徑形不需要。`--source` 是 digest 時走內容定址（`sources/<前 2 hex>/<其餘 62>`，路徑由 `LibraryStore` 給）並驗 sha256，
+> library 取錯只會「找不到那個 digest」，是可見的失敗。
 >
-> **`--out` 拒絕寫到非普通檔**（symlink／目錄／FIFO／…），零寫入並具名；寫入走同目錄 temp ＋ `os.replace` 原子替換，解析後的絕對路徑一律印到 stderr（#519 Expected 1）。**沒有 `--force`**——重跑覆寫這個中間產物是常態動作，把常態放進旗標會養出「反正都 force」的反射。
+> **`--out` 拒絕寫到非普通檔**（symlink／目錄／FIFO／…），零寫入並具名；寫入走同目錄 temp ＋ `rename` 原子替換，解析後的絕對路徑一律印到 stderr（#519 Expected 1）。**沒有 `--force`**——重跑覆寫這個中間產物是常態動作，把常態放進旗標會養出「反正都 force」的反射。覆寫既有檔後它的權限會變 `0600`（刻意，內容是第三方逐字摘要）。
 → 數字對了才 `--apply`。**`proposals.json` 裝的是第三方逐字摘要（含出版商版權聲明），放 `$TMPDIR`
-不要放 repo 內**——本 repo 的 `.gitignore` 另擋 `proposals*.json` 當第二道。腳本只收 `status == got`、
+不要放 repo 內**——本 repo 的 `.gitignore` 另擋 `proposals*.json` 當第二道。轉換只收 `status == got`、
 摘要非空、DOI 在場的列，摘要是 Crossref「這個 DOI 沒有 metadata」錯誤頁的也略過（`crossref-no-metadata`，#544——
-那 21 筆不是走這支腳本進庫的，是 #423 階段 A，見上；這道守衛擋的是移除之後被排回階段 B 的同一個樣板），其餘逐筆印在 stderr 的
+那 21 筆不是走這個轉換進庫的，是 #423 階段 A，見上；這道守衛擋的是移除之後被排回階段 B 的同一個樣板），其餘逐筆印在 stderr 的
 skip 報告（控制字元跳脫、長度截斷）；`doi` 原樣透傳
 （正規化由 core 吸收）；同 DOI 兩列而**摘要不同**會被報 `conflicting-duplicate`（取第一列）——那不是冗餘，
 要回頭看來源。**讀 counts 時要知道兩件事**（Psychological Methods 2026-09-07 實測，**下一本刊要重量**）：
 階段 B 對 keeper 的單／雙斜線兩個 DOI **各抓一列**，所以 148 列只有 82 筆 work（66 對重複，第二列被
-core 報 `skipped`）——「這個 `skipped` 不是錯」**只在兩列摘要逐字相同時成立**（本刊實測 0 對相異；腳本
+core 報 `skipped`）——「這個 `skipped` 不是錯」**只在兩列摘要逐字相同時成立**（本刊實測 0 對相異；轉換
 與 core 都不比對摘要，所以先看 skip 報告有沒有 `conflicting-duplicate`）；原已有摘要的 work 也是
 `skipped`（`alreadyPresent: [abstract]`）。實跑：`added 73／skipped 75／notFound 0／ambiguous 0`、`written` 73。
 

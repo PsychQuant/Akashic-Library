@@ -358,9 +358,10 @@ final class OrphanedAdditionalSourceTests: XCTestCase {
     /// 其他兩個動作（轉純 Akashic、垃圾桶）不在提示裡跑：失敗時畫面上沒有提示，錯誤立刻顯示；成功時提示不動。
     func testAttemptShowsAFailureImmediatelyAndLeavesSuccessAlone() throws {
         var alert = OrphanAlertState()
-        XCTAssertTrue(OrphanModel.attempt(alert: &alert) { try OrphanModel(state: self.state).resolve(citekey: "allgone2020", action: .detachFromZotero) })
+        OrphanModel.attempt(alert: &alert) { try OrphanModel(state: self.state).resolve(citekey: "allgone2020", action: .detachFromZotero) }
         XCTAssertEqual(alert, OrphanAlertState(), "成功不彈任何提示")
-        XCTAssertFalse(OrphanModel.attempt(alert: &alert) { try OrphanModel(state: self.state).resolve(citekey: "ghost2000x", action: .moveToTrash) })
+        XCTAssertNil(try entry("allgone2020")?.provenance, "前提：動作真的成功了（不是沒跑）")
+        OrphanModel.attempt(alert: &alert) { try OrphanModel(state: self.state).resolve(citekey: "ghost2000x", action: .moveToTrash) }
         guard case .failed(let message)? = alert.presented else { return XCTFail("失敗要立刻顯示：\(alert)") }
         XCTAssertFalse(message.isEmpty)
         XCTAssertNil(alert.queued)

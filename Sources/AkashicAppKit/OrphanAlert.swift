@@ -73,15 +73,12 @@ struct OrphanAlertState: Equatable {
 }
 
 extension OrphanModel {
-    /// 跑一個動作；失敗就把錯誤放進提示。成功回 true。
-    @discardableResult
-    static func attempt(alert: inout OrphanAlertState, _ action: () throws -> Void) -> Bool {
+    /// 跑一個動作；失敗就把錯誤放進提示，成功不動提示。
+    static func attempt(alert: inout OrphanAlertState, _ action: () throws -> Void) {
         do {
             try action()
-            return true
         } catch {
             alert.show(.failed(displaySafeErrorMultiline(error)))
-            return false
         }
     }
 

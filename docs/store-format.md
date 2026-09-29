@@ -1953,6 +1953,10 @@ organization 零 error——擴閘不拒絕任何既有記錄；閘在 `fieldsLo
 （移除面一族的裁決，使用者 2026-09-27）；每一項改完都與現在逐位元組相同時不寫檔也不過 git 閘（報告 `written: false`）；單獨呼叫；一次至多 200 筆。
 MCP 面的報告只有前 20 項帶改寫前後的內容（理由每一項都在），CLI 全列；寫檔之後 index 重建失敗時呼叫仍回成功、報告多 `indexRebuilt: false`／`indexNote`（同上方移除面一族）。
 `venue`／`akashic_venue` 的 `names[]` 自此多帶 `source`／`note`（各截 300 字元）——`match`／`set` 收這兩個鍵，讀取面看不到它們就認不出「只差 `source` 或 `note` 的同名段」。
+**R1 verify 補的三件事**：`set` 的 `source`／`note` 不收控制、格式、方向與不可見字元（`UnsafeToEmitScalar` 人可讀輸出要逃脫的集合扣掉私用區——TAB、換行、NBSP 也在內；
+`match` 照收，修手改進來的髒值要逐字比到它）——**這是寫入面的輸入檢查，不是 store 的不變式**：上面六條只管名字本身，`source`／`note` 經匯入或手改照樣可以帶這些字元；
+寫入前重讀閘回傳的那個檔，閘之後被別的寫入者改過就整批拒絕、不以讀到的舊內容覆寫；沒有 `authorized` 的 venue 只編時間欄位也可能換掉顯示名（`displayName` 在時間軸帶時間宣稱時走現行的那一段），
+報告多 `displayNameChanged: {before, after}`。
 
 **第 1 條有一個機械修復面，只管確定性的那一類**（#575，使用者 2026-09-28 裁決）：
 `akashic repair-venue-names`。乾跑是預設——逐筆列出「venue／清單[index]：before → after」與改了什麼

@@ -200,6 +200,15 @@ extension AkashicService {
             if forSet, s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 throw ServiceError.invalid("\(at).\(key) 是空白——空白不是值；要清除這個欄位給 null")   // display-safe-exempt: at 是字面＋Int；key 取自封閉鍵集合
             }
+            // source／note 是散文，寫進 YAML 後在 git diff 與編輯器裡看不出控制、格式、方向與不可見字元（NUL、RLO……）。
+            // 危險 scalar 的定義只有一份（`UnsafeToEmitScalar`，名字閘與輸出閘同一份）：人可讀輸出要逃脫的集合（ZWJ／ZWNJ 放行——散文不看脈絡）
+            // 扣掉私用區（名字閘同一個取捨）。TAB、換行、NBSP 也在集合裡：寫成一般空白。match 不擋——修一個手改進來的髒值要逐字比對到它。
+            if forSet, key == "source" || key == "note",
+               let bad = s.unicodeScalars.first(where: { UnsafeToEmitScalar.escapesInDisplay($0) && $0.properties.generalCategory != .privateUse }) {
+                let code = String(format: "%04X", bad.value)
+                throw ServiceError.invalid(
+                    "\(at).\(key) 含控制、格式或不可見字元 U+\(code)——寫進 YAML 後看不出它；改用一般空白或刪掉它（#675）")   // display-safe-exempt: at 是字面＋Int；key 取自封閉鍵集合；code 是十六進位碼位（[0-9A-F]+），不是 store 字串
+            }
             return .text(s)
         }
         var f = NameSegmentFields()
@@ -222,6 +231,9 @@ extension AkashicService {
                 }
                 guard strs.count <= maxNameSegmentAttestedPoints else {
                     throw ServiceError.invalid("\(at).attested 最多 \(maxNameSegmentAttestedPoints) 個觀測點（這次 \(strs.count) 個）")   // display-safe-exempt: at 是字面＋Int；maxNameSegmentAttestedPoints 是 Int 常量；strs.count 是 Int
+                }
+                if let long = strs.firstIndex(where: { $0.utf8.count > AddOnlyEnrichment.maxValueBytes }) {
+                    throw ServiceError.invalid("\(at).attested[\(long)] 超過 \(AddOnlyEnrichment.maxValueBytes) 位元組——拒絕，不截斷")   // display-safe-exempt: at 是字面＋Int；long 是 Int；AddOnlyEnrichment.maxValueBytes 是 Int 常量
                 }
                 if forSet {
                     guard Set(strs.map { Array($0.utf8) }).count == strs.count else {
@@ -390,7 +402,7 @@ extension AkashicService {
         }
         var edited = venue
         edited.names = Timeline(entries.enumerated().filter { !removed.contains($0.offset) }.map(\.element))
-        if !removed.isEmpty { try assertRemovalLeavesNoOrphan(original: venue, edited: edited, venueLabel: venueLabel) }
+        if !removed.isEmpty { try assertRemovalLeavesNoOrphan(original: venue, removed: removed, venueLabel: venueLabel) }
         // 這次編輯造出的 store 不變式違反（`Venue.validate()` 的 error）：與寫入閘同一份判準，這裡只把它歸因到這次呼叫。原本就有的違反不歸咎——
         // 寫入閘照舊會擋。訊息取自 validate（逐項已消毒）。
         let existing = Set(venue.validate().filter { $0.severity == .error }.map(\.message))
@@ -405,44 +417,34 @@ extension AkashicService {
     }
 
     /// 移除讓一個名字**整個消失**（它的每一段都被移除）時：不得留下指著它的 `authorized`／`variant`／`field: names` reference，也不得讓 venue 沒有任何名字。
-    /// 程式不替人動那些判定——具名拒絕並指路。
-    private static func assertRemovalLeavesNoOrphan(original: Venue, edited: Venue, venueLabel: String) throws {
-        guard !edited.names.entries.isEmpty else {
+    /// 程式不替人動那些判定——具名拒絕並指路。判準是 `Venue.nameSegmentRemovalBlocker`（#565 合併拒絕訊息推不推薦 remove 也問它），這裡只負責訊息。
+    private static func assertRemovalLeavesNoOrphan(original: Venue, removed: Set<Int>, venueLabel: String) throws {
+        guard let blocker = original.nameSegmentRemovalBlocker(removing: removed) else { return }
+        switch blocker {
+        case .noNamesLeft:
             throw ServiceError.invalid("這次移除之後\(venueLabel)沒有任何名字——venue 至少要有一個名字（add_venue 同）；整批拒絕、零寫入")   // display-safe-exempt: venueLabel 已消毒
-        }
-        let remaining = Set(edited.names.entries.map { NameIdentity.canonical($0.value) })
-        var vanished: [String] = []
-        var seen = Set<String>()
-        for e in original.names.entries {
-            let k = NameIdentity.canonical(e.value)
-            if !remaining.contains(k), seen.insert(k).inserted { vanished.append(e.value) }
-        }
-        for name in vanished {
-            let k = NameIdentity.canonical(name)
-            let shown = "「\(displaySafeInvisible(name, max: 120))」"
-            if edited.authorized.contains(where: { NameIdentity.canonical($0) == k }) {
-                throw ServiceError.invalid(
-                    "移除「\(displaySafeInvisible(name, max: 120))」的最後一段會讓它在\(venueLabel)的 authorized 裡成孤兒——程式不替人改對外形的判定；"   // display-safe-exempt: venueLabel 已消毒；name 已消毒
-                    + "先用 --authorize（MCP authorize）把同書寫系統的對外形換成別的名字（這個名字會留在 names、移出 authorized），再重跑；整批拒絕、零寫入")
-            }
-            if edited.variant.contains(where: { NameIdentity.canonical($0) == k }) {
-                throw ServiceError.invalid(
-                    "移除\(shown)的最後一段會讓它在\(venueLabel)的 variant 裡成孤兒（分割是對 names 的標記，孤兒 variant 是 error）——程式不替人改異寫法的判定；"   // display-safe-exempt: shown 與 venueLabel 已消毒
-                    + "variant 目前沒有移除面，只能手改 YAML 把它從 variant 拿掉，再重跑；整批拒絕、零寫入")
-            }
-            let pinned = edited.references.filter { $0.field == "names" && $0.value.map { NameIdentity.canonical($0) == k } == true }
-            if !pinned.isEmpty {
-                throw ServiceError.invalid(
-                    "移除\(shown)的最後一段會讓\(venueLabel)有 \(pinned.count) 筆 `field: names` 的 reference 成孤兒（值被改寫後 provenance 成了孤兒、寫入會被拒）——"   // display-safe-exempt: shown 與 venueLabel 已消毒；pinned.count 是 Int
-                    + "先用 --remove-reference（MCP remove_reference）移除它們，再重跑；整批拒絕、零寫入")
-            }
+        case .authorized(let name):
+            throw ServiceError.invalid(
+                "移除「\(displaySafeInvisible(name, max: 120))」的最後一段會讓它在\(venueLabel)的 authorized 裡成孤兒——程式不替人改對外形的判定；"   // display-safe-exempt: venueLabel 已消毒；name 已消毒
+                + "先用 --authorize（MCP authorize）把同書寫系統的對外形換成別的名字（這個名字會留在 names、移出 authorized），再重跑；整批拒絕、零寫入")
+        case .variant(let name):
+            throw ServiceError.invalid(
+                "移除「\(displaySafeInvisible(name, max: 120))」的最後一段會讓它在\(venueLabel)的 variant 裡成孤兒（分割是對 names 的標記，孤兒 variant 是 error）——程式不替人改異寫法的判定；"   // display-safe-exempt: name 與 venueLabel 已消毒
+                + "variant 目前沒有移除面，只能手改 YAML 把它從 variant 拿掉，再重跑；整批拒絕、零寫入")
+        case .pinnedByReferences(let name, let count):
+            throw ServiceError.invalid(
+                "移除「\(displaySafeInvisible(name, max: 120))」的最後一段會讓\(venueLabel)有 \(count) 筆 `field: names` 的 reference 成孤兒（值被改寫後 provenance 成了孤兒、寫入會被拒）——"   // display-safe-exempt: name 與 venueLabel 已消毒；count 是 Int
+                + "先用 --remove-reference（MCP remove_reference）移除它們，再重跑；整批拒絕、零寫入")
         }
     }
 
     // MARK: - 寫入與報告
 
     /// `update-venue` 的入口在確認參數合法、且沒有其他腿之後呼叫。載入、定位、驗、git 閘、寫入、重建 index；回報。
-    func editVenueNameSegments(key: String, specs: [NameSegmentEditSpec], detailLimit: Int? = AkashicService.removalDetailCap) throws -> String {
+    ///
+    /// `afterRecoverabilityGate` 是測試接縫（git 閘通過之後、重讀之前呼叫，模擬閘的時間窗裡記錄被外部改動）；正式路徑不設。
+    func editVenueNameSegments(key: String, specs: [NameSegmentEditSpec], detailLimit: Int? = AkashicService.removalDetailCap,
+                               afterRecoverabilityGate: (() throws -> Void)? = nil) throws -> String {
         let load = try store.load()
         // #670：key 重複時寫進哪一筆是猜——整批拒絕、零寫入（同 #627 對 citekey）
         guard !load.venues.unlocatableVenueKeys.contains(key) else {
@@ -457,9 +459,16 @@ extension AkashicService {
         var written = false
         var rebuildFailure: Error?
         if changed > 0 {
-            try assertRecordsRecoverable([(venue.id, "venue「\(displaySafeInvisible(key, max: 200))」")],
-                                         action: "這次會改寫 venue「\(displaySafeInvisible(key, max: 200))」的 \(changed) 段名字（時間欄位、source、note 或移除）",   // display-safe-exempt: changed 是 Int
-                                         issue: "#675")
+            let paths = try assertRecordsRecoverable([(venue.id, "venue「\(displaySafeInvisible(key, max: 200))」")],
+                                                     action: "這次會改寫 venue「\(displaySafeInvisible(key, max: 200))」的 \(changed) 段名字（時間欄位、source、note 或移除）",   // display-safe-exempt: changed 是 Int
+                                                     issue: "#675")
+            try afterRecoverabilityGate?()
+            // 閘證的是「此刻磁碟上的檔已 commit、乾淨」，不是「它還等於這次讀到的記錄」：重讀閘回傳的那個檔，不同就不寫（#675 R1 verify；#606 同一條）
+            guard let path = paths[venue.id], try store.rereadVenue(atRelativePath: path) == venue else {
+                throw ServiceError.invalid(
+                    "venue「\(displaySafeInvisible(key, max: 200))」的記錄檔在檢查期間被改過（與這次讀到的不同）——不以讀到的舊內容覆寫它；"
+                    + "重跑（會對新的內容重新定位）；整批拒絕、零寫入")
+            }
             try store.writeVenue(plan.venue)
             written = true
             rebuildFailure = rebuildIndexCapturingFailure()
@@ -483,6 +492,10 @@ extension AkashicService {
             "reasonNote": "理由只在這份報告裡——要留在 git，寫進接下來的 commit message（#675，使用者 2026-09-27 對移除面一族的裁決）",
         ]
         if !written { payload["writeNote"] = "沒有任何一段有變動（每一項改完與現在逐位元組相同）——沒有寫檔、沒有過 git 閘" }
+        // 沒有 authorized 的 venue，顯示名在時間軸帶時間宣稱時改走現行的那一段——只編時間欄位也會換掉它（R1 verify 第 35 列）；變了要說出來
+        if written, venue.displayName != plan.venue.displayName {
+            payload["displayNameChanged"] = ["before": displaySafe(venue.displayName, max: 200), "after": displaySafe(plan.venue.displayName, max: 200)]
+        }
         if let limit = detailLimit, specs.count > limit {
             payload["detailsTruncated"] = true   // display-safe-exempt: Bool
             payload["detailsListed"] = limit   // display-safe-exempt: Int

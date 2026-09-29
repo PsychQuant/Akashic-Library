@@ -451,6 +451,8 @@ final class VenueNameSegmentEditTests: XCTestCase {
             ("attested 重複", [x(["set": ["attested": ["1950", "1950"]]])]),
             ("source 是空白", [x(["set": ["source": "  "]])]),
             ("note 過長", [x(["set": ["note": String(repeating: "x", count: 65_537)]])]),
+            ("attested 的一個點過長", [x(["set": ["attested": [String(repeating: "1", count: 65_537)]]])]),
+            ("match 的 attested 一個點過長", [x(["match": ["attested": [String(repeating: "1", count: 65_537)]]])]),
             ("第二筆才錯", [x([:]), x(["reason": String(repeating: "x", count: 4_097)])]),
             ("超過 200 筆", (0...200).map { _ in x([:]) }),
         ]
@@ -604,5 +606,118 @@ final class VenueNameSegmentEditTests: XCTestCase {
         XCTAssertFalse(report.hasFailures, report.failures.joined(separator: "\n"))
         let shared = try venue("k").names.entries.filter { $0.value == "Shared Title" }
         XCTAssertEqual(shared.map { "\($0.range.start ?? "")-\($0.range.end ?? "")" }.sorted(), ["1933-1960", "2002-2007"])
+    }
+
+    // MARK: - R1 verify（#675）
+
+    /// 第 12 列：兩筆重複的 venue 通常以同一個名字當對外形——衝突的正是被併者的 authorized（也是它唯一的名字）。
+    /// 以前拒絕訊息推薦 `remove`，而編輯面必拒；現在推薦 `set`（改成與倖存者那一段逐字相同），照做之後合併走得過。
+    func testTheMergeRefusalRecommendsSetWhenTheDoomedSegmentIsItsAuthorizedName() throws {
+        try store.writeVenue(Venue(key: "k", type: .periodical, names: Timeline([seg("Sankhya")]), authorized: ["Sankhya"]))
+        try store.writeVenue(Venue(key: "d", type: .periodical, names: Timeline([seg("Sankhya", start: "1933", end: "1960")]),
+                                   authorized: ["Sankhya"]))
+        let dv = Divergence(id: UUID(), question: "同一本刊嗎",
+                            candidates: [DivergenceCandidate(key: "k", shape: .venue), DivergenceCandidate(key: "d", shape: .venue)])
+        try store.writeDivergence(dv)
+        StoreGitCommit.commitAll(root)
+        var refusal = ""
+        XCTAssertThrowsError(try store.previewResolveDivergence(id: dv.id, survivor: "k", overrideReason: nil)) { refusal = msg($0) }
+        XCTAssertTrue(refusal.contains("set 成與倖存者那一段逐字相同"), "刪不掉時要推薦 set：\(refusal)")
+        XCTAssertFalse(refusal.contains("刪掉它那一段（remove）"), "不得推薦編輯面會拒絕的那一條：\(refusal)")
+        XCTAssertTrue(refusal.contains("remove）會被拒"), "要說 remove 為什麼不行：\(refusal)")
+        // 訊息說的 remove 確實會被拒（同一份判準）
+        XCTAssertThrowsError(try edit([item("Sankhya", remove: true)], key: "d"))
+        // 照訊息做：set 成與倖存者那一段逐字相同（倖存者沒有起訖，給 null）
+        _ = try edit([item("Sankhya", set: ["start": NSNull(), "end": NSNull()], reason: "以倖存者為準")], key: "d")
+        StoreGitCommit.commitAll(root)
+        let report = try store.resolveDivergence(id: dv.id, survivor: "k")
+        XCTAssertFalse(report.hasFailures, report.failures.joined(separator: "\n"))
+        XCTAssertEqual(try venue("k").names.entries.map(\.value), ["Sankhya"])
+    }
+
+    /// 兩個被併者互相衝突、兩段都是各自的對外形：訊息不推薦 remove，推薦 set。
+    func testTheMergeRefusalBetweenTwoDoomedRecordsOnlyOffersRemoveWhereItWorks() throws {
+        try store.writeVenue(Venue(key: "k", type: .periodical, names: Timeline([seg("Keeper Journal")]), authorized: ["Keeper Journal"]))
+        try store.writeVenue(Venue(key: "d1", type: .periodical, names: Timeline([seg("Shared", source: "https://a.example")]), authorized: ["Shared"]))
+        try store.writeVenue(Venue(key: "d2", type: .periodical, names: Timeline([seg("Shared", source: "https://b.example")]), authorized: ["Shared"]))
+        let dv = Divergence(id: UUID(), question: "同一本刊嗎", candidates: ["k", "d1", "d2"].map { DivergenceCandidate(key: $0, shape: .venue) })
+        try store.writeDivergence(dv)
+        StoreGitCommit.commitAll(root)
+        XCTAssertThrowsError(try store.previewResolveDivergence(id: dv.id, survivor: "k", overrideReason: nil)) { err in
+            let s = msg(err)
+            XCTAssertTrue(s.contains("set 成與另一段逐字相同"), s)
+            XCTAssertFalse(s.contains("刪掉不要的那一段（remove）"), "兩段都刪不掉：\(s)")
+            XCTAssertTrue(s.contains("remove）會被拒"), s)
+        }
+    }
+
+    /// 第 27 列：git 閘通過之後、寫入之前，另一個寫入者改了這筆 venue 並 commit——不以閘之前讀到的內容覆寫。
+    func testAnEditCommittedDuringTheGateIsNotOverwritten() throws {
+        try seedSankhya()
+        StoreGitCommit.commitAll(root)
+        let specs = try AkashicService.parseNameSegmentEditSpecs([item("Sankhya Old", set: ["note": "舊寫法"], reason: "補註")])
+        XCTAssertThrowsError(try service.editVenueNameSegments(key: "sankhya", specs: specs, afterRecoverabilityGate: {
+            var v = try self.venue()
+            v.note = "另一個寫入者剛改的"
+            try self.store.writeVenue(v)
+            StoreGitCommit.commitAll(self.root)
+        })) { err in
+            XCTAssertTrue(msg(err).contains("檢查期間被改過"), msg(err))
+        }
+        XCTAssertEqual(try venue().note, "另一個寫入者剛改的", "那次修改不得被覆寫")
+        XCTAssertNil(try segments().first { $0.value == "Sankhya Old" }?.note, "這次的編輯沒有寫")
+    }
+
+    /// 第 34 列：`set` 的 source／note 不收控制、格式、方向與不可見字元（寫進 YAML 後看不出來）；散文用得到的 ZWNJ 與私用區照收；
+    /// `match` 照收（修手改進來的髒值要逐字比到它）。
+    func testSourceAndNoteRefuseControlFormatAndInvisibleScalarsInSetButNotInMatch() throws {
+        try seedSankhya()
+        let svc = service.committed(root)
+        let before = try snapshot()
+        for (label, value, code) in [("NUL", "a\u{0}b", "U+0000"), ("RLO", "a\u{202E}b", "U+202E"), ("ZWSP", "a\u{200B}b", "U+200B"),
+                                     ("TAB", "a\tb", "U+0009"), ("LS", "a\u{2028}b", "U+2028"), ("TAG", "a\u{E0041}b", "U+E0041")] {
+            for key in ["source", "note"] {
+                XCTAssertThrowsError(try edit([item("Sankhya Old", set: [key: value])], on: svc), "\(key)：\(label)") { err in
+                    XCTAssertTrue(msg(err).contains("set.\(key)") && msg(err).contains(code), "要指名欄位與碼位：\(msg(err))")
+                }
+            }
+        }
+        XCTAssertEqual(try snapshot(), before, "零寫入")
+        _ = try edit([item("Sankhya Old", set: ["note": "نشریه\u{200C}روان", "source": "造字\u{E000}"])], on: svc)
+        XCTAssertEqual(try segments().first { $0.value == "Sankhya Old" }?.note, "نشریه\u{200C}روان")
+        // 手改進來的髒值：match 照收，才修得掉它
+        var v = try venue()
+        var entries = v.names.entries
+        let i = try XCTUnwrap(entries.firstIndex { $0.value == "Sankhya Old" })
+        entries[i].note = "a\u{202E}b"
+        v.names = Timeline(entries)
+        try store.writeVenue(v)
+        _ = try edit([item("Sankhya Old", match: ["note": "a\u{202E}b"], set: ["note": NSNull()], reason: "清掉 RLO")], on: service.committed(root))
+        XCTAssertNil(try segments().first { $0.value == "Sankhya Old" }?.note)
+    }
+
+    /// 第 35 列：沒有 authorized 的 venue，只編一個時間欄位就可能換掉顯示名——報告要說出前後。有 authorized 的不會變，也不出這個鍵。
+    func testAChangedDisplayNameIsReported() throws {
+        try seedVenue(Venue(key: "e", type: .periodical, names: Timeline([seg("Alpha Journal"), seg("Beta Journal")])))
+        let before = try venue("e").displayName
+        let out = try edit([item("Beta Journal", set: ["start": "1990"], reason: "1990 年起用這個名字")], key: "e", on: service.committed(root))
+        let change = try XCTUnwrap(out["displayNameChanged"] as? [String: Any], "\(out)")
+        XCTAssertEqual(change["before"] as? String, before)
+        XCTAssertEqual(change["after"] as? String, try venue("e").displayName)
+        XCTAssertNotEqual(before, try venue("e").displayName, "前提：顯示名真的換了")
+        try seedSankhya()
+        let steady = try edit([item("Sankhya Old", set: ["note": "n"])], on: service.committed(root))
+        XCTAssertNil(steady["displayNameChanged"], "顯示名沒變就不出這個鍵")
+    }
+
+    /// 第 43 列：`attested` 的每個點也有 65,536 位元組上限，在解析時就拒（先前只有個數上限，超長的點要到 ISO 檢查或定位時才失敗）。
+    func testAnOversizedAttestedPointIsRefusedWhileParsing() throws {
+        for part in ["set", "match"] {
+            var d: [String: Any] = ["name": "Sankhya Old", "reason": "r", "set": ["note": "n"]]
+            d[part] = ["attested": [String(repeating: "1", count: 65_537)]]
+            XCTAssertThrowsError(try AkashicService.parseNameSegmentEditSpecs([d]), part) { err in
+                XCTAssertTrue(msg(err).contains("\(part).attested[0] 超過"), msg(err))
+            }
+        }
     }
 }

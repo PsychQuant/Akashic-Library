@@ -749,3 +749,40 @@ public enum VenueDerivation {
         return out.map { .literal($0) }
     }
 }
+
+// MARK: - 刪掉名字段的前提（#675／#565 R1 verify）
+
+extension Venue {
+    /// 刪掉 `names` 的某幾段之後會出事的原因。封閉列舉，順序就是檢查順序。
+    public enum NameSegmentRemovalBlocker: Equatable {
+        /// 刪完 venue 沒有任何名字（venue 至少要有一個名字，`add_venue` 同）。
+        case noNamesLeft
+        /// 被刪光的名字還在 `authorized`（改對外形是判定，程式不替人改）。
+        case authorized(name: String)
+        /// 被刪光的名字還在 `variant`（孤兒 variant 是 error）。
+        case variant(name: String)
+        /// 被刪光的名字有 `field: names` 的 reference 指著它（provenance 成孤兒、寫入會被拒）。
+        case pinnedByReferences(name: String, count: Int)
+    }
+
+    /// 刪掉 `names.entries` 裡位置在 `removing` 的那幾段之後，第一個會出事的原因；`nil`＝可以刪。
+    ///
+    /// **只有這一份判準**：`update-venue --edit-name-segment` 的 `remove` 以它拒絕（逐條訊息在那邊），venue 合併的 #565 拒絕訊息以它決定
+    /// 要不要推薦 `remove`——兩處各寫一份的話，訊息推薦的路會被編輯面拒絕而沒有人發現（#675 R1 verify 第 12 列：最常見的形狀——衝突的名字
+    /// 是被併者的對外形或唯一的名字——訊息推 `remove`，編輯面必拒）。一個名字只有在**它的每一段都被刪掉**時才算消失；相等看 canonical。
+    public func nameSegmentRemovalBlocker(removing: Set<Int>) -> NameSegmentRemovalBlocker? {
+        let kept = names.entries.enumerated().filter { !removing.contains($0.offset) }.map(\.element)
+        guard !kept.isEmpty else { return .noNamesLeft }
+        let remaining = Set(kept.map { NameIdentity.canonical($0.value) })
+        var seen = Set<String>()
+        for e in names.entries {
+            let k = NameIdentity.canonical(e.value)
+            guard !remaining.contains(k), seen.insert(k).inserted else { continue }
+            if authorized.contains(where: { NameIdentity.canonical($0) == k }) { return .authorized(name: e.value) }
+            if variant.contains(where: { NameIdentity.canonical($0) == k }) { return .variant(name: e.value) }
+            let pinned = references.filter { $0.field == "names" && $0.value.map { NameIdentity.canonical($0) == k } == true }.count
+            if pinned > 0 { return .pinnedByReferences(name: e.value, count: pinned) }
+        }
+        return nil
+    }
+}

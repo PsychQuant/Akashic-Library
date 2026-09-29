@@ -1375,9 +1375,10 @@ extension LibraryStore {
         let absorption = Self.venueNameAbsorption(keeper: keeper, doomed: doomed)
         // 衝突依被併者分組一次（O(C)，不是每個被併者重掃全部衝突）；清單有上限（`describeNameSegmentConflicts`）
         let conflictsByDoomed = Dictionary(grouping: absorption.conflicts, by: \.from)
+        let doomedByKey = Dictionary(doomed.map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
         for v in doomed {
             let losses = Self.fieldsLostByMerging(v, into: keeper, absorption: absorption)
-                + Self.describeNameSegmentConflicts(conflictsByDoomed[v.key] ?? [], survivor: survivor)
+                + Self.describeNameSegmentConflicts(conflictsByDoomed[v.key] ?? [], survivor: survivor, doomedByKey: doomedByKey)
             guard losses.isEmpty else {
                 throw DivergenceResolveError.wouldLoseFields(
                     merged: v.key, survivor: survivor, losses: losses)
@@ -1872,8 +1873,9 @@ extension LibraryStore {
     static let maxListedNameConflicts = Entry.perRecordWarningCap
 
     /// 不能並存的同名段，逐組一條 loss，至多 `maxListedNameConflicts` 組、其餘一句概括並給總數（#565 R1 verify）。
-    static func describeNameSegmentConflicts(_ conflicts: [VenueNameAbsorption.Conflict], survivor: String) -> [String] {
-        var lines = conflicts.prefix(maxListedNameConflicts).map { describeNameSegmentConflict($0, survivor: survivor) }
+    static func describeNameSegmentConflicts(_ conflicts: [VenueNameAbsorption.Conflict], survivor: String,
+                                             doomedByKey: [String: Venue]) -> [String] {
+        var lines = conflicts.prefix(maxListedNameConflicts).map { describeNameSegmentConflict($0, survivor: survivor, doomedByKey: doomedByKey) }
         if conflicts.count > maxListedNameConflicts {
             lines.append("另有 \(conflicts.count - maxListedNameConflicts) 組不能並存的同名段未列出"   // display-safe-exempt: Int
                 + "（共 \(conflicts.count) 組；每次至多列 \(maxListedNameConflicts) 組）")   // display-safe-exempt: Int
@@ -1888,17 +1890,41 @@ extension LibraryStore {
     /// 無日期段」不夠——兩段仍是同名近重複、被寫入閘擋下，操作者要連倖存者自己的那一段一起換掉；另一方是先併入的被併者時，
     /// 把這一段寫進倖存者只會讓倖存者與那個被併者的段重疊，能解的是改其中一個被併者的 YAML（分兩次合併也解不掉：先併入的那段
     /// 進了倖存者，下一次照樣衝突）。
-    static func describeNameSegmentConflict(_ c: VenueNameAbsorption.Conflict, survivor: String) -> String {
+    ///
+    /// **只推薦編輯面真的會收的那一條**（#675 R1 verify 第 12 列）：刪掉被併者那一段（`remove`）在最常見的形狀下會被 `--edit-name-segment`
+    /// 拒絕——兩筆重複的 venue 通常以同一個名字當對外形，衝突的正是被併者的 authorized，或它唯一的名字。能不能刪問的是編輯面用的同一份判準
+    /// （`Venue.nameSegmentRemovalBlocker`）；刪不掉時推薦 `set`：把被併者那一段改成與另一段逐字相同（對方沒有的欄位給 null），合併就把它當成
+    /// 同一段、不搬、不衝突。
+    static func describeNameSegmentConflict(_ c: VenueNameAbsorption.Conflict, survivor: String, doomedByKey: [String: Venue]) -> String {
+        /// 在 `key` 那筆被併者上，刪掉逐位元組等於 `segment` 的那一段會不會被編輯面收。找不到那一段（例如它來自孤兒 variant、不在 names 裡）＝不會。
+        func removable(_ key: String, _ segment: TemporalValue<String>) -> Bool {
+            guard let d = doomedByKey[key],
+                  let i = d.names.entries.firstIndex(where: {
+                      Array($0.value.utf8) == Array(segment.value.utf8) && nameSegmentByteKey($0) == nameSegmentByteKey(segment)
+                  }) else { return false }
+            return d.nameSegmentRemovalBlocker(removing: [i]) == nil
+        }
+        let refusedWhy = "它是那筆唯一的名字，或還在它的 authorized／variant／references 裡"
         var line = "names「\(clipScalars(c.segment.value, 120))」（\(describeNameSegmentMetadata(c.segment))）"   // display-safe-exempt: 本行組裝後整條 displaySafeInvisible
         if let other = c.existingFrom {
             line += "與先併入的被併者「\(clipScalars(other, 120))」同名的那一段（\(describeNameSegmentMetadata(c.existing))）不能並存——"   // display-safe-exempt: 同上
-                + "這是兩個被併者互相衝突，合併不替你判定哪一段對：改其中一筆（「\(clipScalars(c.from, 120))」或「\(clipScalars(other, 120))」）——"   // display-safe-exempt: 同上
-                + "用 update-venue --edit-name-segment 刪掉不要的那一段（remove），或把兩段的時間改成互不相交（set；同名的沿革段要兩段都帶不相交的時間）"
+                + "這是兩個被併者互相衝突，合併不替你判定哪一段對：改其中一筆（「\(clipScalars(c.from, 120))」或「\(clipScalars(other, 120))」）——用 update-venue --edit-name-segment "   // display-safe-exempt: 同上
+            let canRemove = [(c.from, c.segment), (other, c.existing)].filter { removable($0.0, $0.1) }.map(\.0)
+            if canRemove.count == 2 {
+                line += "刪掉不要的那一段（remove），"
+            } else if let only = canRemove.first {
+                line += "刪掉「\(clipScalars(only, 120))」那一段（remove；另一筆的那一段刪不掉：\(refusedWhy)），"   // display-safe-exempt: 同上
+            }
+            line += "把其中一段 set 成與另一段逐字相同（對方沒有的欄位給 null），或把兩段的時間改成互不相交（set；同名的沿革段要兩段都帶不相交的時間）"
+                + (canRemove.isEmpty ? "——刪掉（remove）會被拒：\(refusedWhy)" : "")
                 + "（#675；也可以手改 YAML）；"
                 + "把這一段寫進倖存者只會讓倖存者與「\(clipScalars(other, 120))」那段重疊，分兩次合併也解不掉"   // display-safe-exempt: 同上
         } else {
             line += "與倖存者同名的那一段（\(describeNameSegmentMetadata(c.existing))）不能並存——"   // display-safe-exempt: 同上
-                + "合併不替你判定哪一段對：以倖存者「\(clipScalars(survivor, 120))」那一段為準，就用 update-venue --edit-name-segment 對被併者「\(clipScalars(c.from, 120))」刪掉它那一段（remove）；"   // display-safe-exempt: 同上
+                + "合併不替你判定哪一段對：以倖存者「\(clipScalars(survivor, 120))」那一段為準，就用 update-venue --edit-name-segment 對被併者「\(clipScalars(c.from, 120))」"   // display-safe-exempt: 同上
+                + (removable(c.from, c.segment)
+                   ? "刪掉它那一段（remove），或把它那一段 set 成與倖存者那一段逐字相同（倖存者沒有的欄位給 null）；"
+                   : "把它那一段 set 成與倖存者那一段逐字相同（倖存者沒有的欄位給 null）——刪掉它（remove）會被拒：\(refusedWhy)；")
                 + "以被併者那一段為準，就對倖存者自己的那一段用 set 改成它（時間、source、note 逐字）——只把被併者的寫進倖存者不夠，"
                 + "無日期段與有日期段是同名近重複、被寫入閘擋下（同名的沿革段要兩段都帶不相交的時間）（#675；也可以手改 YAML）"
         }

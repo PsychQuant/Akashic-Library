@@ -95,3 +95,25 @@ live store 今天沒有實例（2026-09-29 唯讀量測：485 筆 venue、537 �
 - **沒有乾跑**：`update-venue` 整個命令沒有；git 閘與整批拒絕零寫入是退路。要不要有乾跑（連帶要不要過 #298 的目標 store 確認閘）待使用者裁決，這裡沒有動。
 - `openspec/specs/venue-entity` 沒有動：這條腿是「既有 tool 的新參數」（#554 的同一個裁決），規格語言的 Requirement 要走 spectra-propose。
 - 零實例：新的輸入上限（一次 200 項、理由 4,096 位元組、`source`／`note` 65,536 位元組、`attested` 200 點）與 ISO 入口檢查守的都是零實例形狀；`zero-instance-guards` 的新列由整合者加（提案在報告裡）。
+
+## Verify R1 修正（#675）
+
+以下的「第 N 列」是 batch14 verify R1（b14f）報告的列號。
+
+**合併拒絕訊息只推薦編輯面真的會收的那一條（第 12 列）。** #565 的拒絕訊息推薦「對被併者刪掉它那一段（remove）」，而兩筆重複的 venue 通常以同一個名字當對外形——衝突的正是被併者的 authorized，或它唯一的名字——編輯面對這種 remove 必拒（「沒有任何名字」或「在 authorized 裡成孤兒」）。原本的測試讓衝突發生在第二個名字上，恰好避開了最常見的形狀。現在「能不能刪」只有一份判準 `Venue.nameSegmentRemovalBlocker`（AkashicCore）：編輯面的 remove 以它拒絕（訊息不變，只是從各寫一份改成共用），合併訊息以它決定要不要推薦 remove；刪不掉時推薦 `set`——把被併者那一段改成與另一段逐字相同（對方沒有的欄位給 null），合併就把它當同一段、不搬、不衝突——並說出 remove 為什麼不行。兩個被併者互相衝突時同一個處理：只對刪得掉的那一筆推薦 remove，兩筆都刪不掉就只推薦 set。
+
+**寫入前重讀（第 27 列）。** 閘之後、`writeVenue` 之前讀可回溯閘回傳的那個檔（`LibraryStore.rereadVenue`），與這次讀到的不同就整批拒絕、零寫入——不以閘之前的內容覆寫別的寫入者剛 commit 的修改（#606 同一條；App #609 的 `changedDuringCheck` 是先例）。
+
+**`source`／`note` 不收控制、格式、方向與不可見字元（第 34 列）。** `set` 給的 `source`／`note` 含 `UnsafeToEmitScalar` 人可讀輸出要逃脫的字元（扣掉私用區）就拒絕，訊息指名欄位與碼位（NUL、RLO、ZWSP、TAB、LS、TAG 字元……）；散文用得到的 ZWJ／ZWNJ 與私用區照收。危險 scalar 的定義沿用那一份，沒有新寫清單。`match` 照收——修一個手改進來的髒值要逐字比到它。這是寫入面的輸入檢查，不是 store 的不變式：`source`／`note` 經匯入或手改仍可帶這些字元（§5.7 寫明）。
+
+**顯示名變了要說出來（第 35 列）。** 沒有 `authorized` 的 venue，`displayName` 在時間軸帶時間宣稱時改走現行的那一段——只編一個時間欄位就可能換掉對外顯示的刊名。報告在那時多 `displayNameChanged: {before, after}`；沒變就不出這個鍵。
+
+**`attested` 每個點也有上限（第 43 列）。** 先前只有個數上限（200 點），超長的點要到 ISO 檢查或定位時才失敗；現在每個點與其他字串一樣至多 65,536 位元組，在解析時拒絕（`set` 與 `match` 都是）。
+
+**MCP 描述與 payload 守衛（第 5、13、16 列）。** `edit_name_segment` 的參數說明補上 `match`／`set` 的六個鍵名與 `null` 的兩種意思（`match`＝要求缺席、`set`＝清除），回應鍵補上 `written`、`writeNote`、`displayNameChanged`、`detailsTruncated`／`detailsListed`；`ToolPayloadScenarios` 加三個情境（有變動且顯示名跟著換、沒有變動、超過 20 項）。加情境之後守衛先紅（五個鍵不在說明裡），補說明後綠。
+
+**未改（第 9、41、47、50 列）**：`update-venue` 的三條判定腿沒有乾跑、CLI 不過目標 store 確認閘——待使用者裁決（`WriteGateRulings` 的 `update-venue` 一格與上面的誠實邊界都寫著），這一輪沒有動。
+
+**測試**：`VenueNameSegmentEditTests` +7（被併者的對外形衝突時訊息推薦 set 而不是 remove、照做之後合併成立；兩個被併者都刪不掉時只推薦 set；閘之後被改過並 commit 時拒絕且修改保留；`source`／`note` 的六種危險字元逐一拒絕、ZWNJ 與私用區照收、`match` 修得掉手改進來的 RLO；顯示名換了才出 `displayNameChanged`；`attested` 超長的點在解析時拒絕）＋ 輸入錯的表多兩列。
+
+**負控**（反向編輯、`cmp` 確認還原）：合併訊息的「刪得掉」恆真 → 2 支紅；拿掉重讀比對 → 1 支紅；拿掉 `source`／`note` 的字元檢查 → 1 支紅；拿掉 `displayNameChanged` → 1 支紅；拿掉 `attested` 單點上限 → 1 支紅。

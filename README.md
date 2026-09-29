@@ -1288,7 +1288,7 @@ akashic copy-zotero-attachments                   # 乾跑：列出每個檔的 
 akashic copy-zotero-attachments --apply           # 實跑：要求被改的 work 檔已 commit、乾淨；任何一道閘過不了就整批零寫入
 ```
 
-可重跑（digest 已連過的不重複；前一次跑到一半的只補連結）；路徑不是 `storage/<KEY>/<檔名>`、檔案不在、不是普通檔、0 byte 的附件逐筆具名略過、其餘照跑。
+可重跑（digest 已連過、位元組也在本機的不重複；前一次跑到一半的只補連結；已連過而本機 `sources/` 沒有位元組的——別台 clone——只補存位元組、不改連結）；路徑不是 `storage/<KEY>/<檔名>`、檔案不在、不是普通檔、0 byte 的附件逐筆具名略過、其餘照跑。
 連錯的宣告用 `update-entry <citekey> --remove-source <digest>=理由` 收回。
 
 ### 補欄位讓分類器算對節，什麼時候可以（#355）

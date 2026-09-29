@@ -101,6 +101,28 @@ extension LibraryStore {
         return RecordRecoverability(refusal: refusal, paths: resolved)
     }
 
+    /// **閘之後、寫入之前重讀一筆記錄**（#606／#675 R1 verify）：可回溯閘證的是「磁碟上**此刻**的檔已 commit、乾淨」，不是「它還等於
+    /// 我手上的快照」。閘是多個子程序、有時間窗；寫入端若把閘之前 load 的快照整筆寫回，窗內別的寫入者（MCP server、App、另一個 CLI）
+    /// 改過並 commit 的內容就被覆蓋、而且不在 git 裡——閘的前提不成立。App 的 #609 移除面以整個 store 重 load 比對（`changedDuringCheck`）；
+    /// 批次寫入面每筆重 load 整個 store 太貴，所以讀**閘回傳的那個路徑**的單一檔，經與 load 相同的解碼與正規化（`normalizedAfterDecode`）。
+    /// 呼叫端比相等：不同就不寫、具名回報。
+    public func rereadEntry(atRelativePath path: String) throws -> Entry {
+        Self.normalizedAfterDecode(try EntryYAML.decode(try rereadText(path)))
+    }
+
+    /// `rereadEntry` 的 venue 版（load 對 venue 沒有正規化）。
+    public func rereadVenue(atRelativePath path: String) throws -> Venue {
+        try VenueYAML.decode(try rereadText(path))
+    }
+
+    private func rereadText(_ path: String) throws -> String {
+        let bytes = try Data(contentsOf: root.appendingPathComponent(path))
+        guard let text = String(data: bytes, encoding: .utf8) else {
+            throw StoreIOError.invalidInput(what: displaySafeInvisible(path, max: 200), why: "canonical YAML 不是 UTF-8")
+        }
+        return text
+    }
+
     /// 進拒絕訊息的清單上限：列 10 項、其餘只說數量（與 `AkashicService.listCapped` 同一個上限；那邊在 MCPKit，這裡不能引用）。
     private static func capped(_ items: [String]) -> String {
         let cap = 10

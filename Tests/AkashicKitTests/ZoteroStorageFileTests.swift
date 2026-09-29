@@ -93,6 +93,75 @@ final class ZoteroStorageFileTests: XCTestCase {
         XCTAssertEqual(f.bytes, 23)
     }
 
+    // MARK: 讀（#606 R1 verify）：定位之後、讀取之前被換掉的東西不跟
+
+    private func located(_ path: String) throws -> ZoteroStorageFile.Located {
+        guard case .found(let f) = ZoteroStorageFile.locate(dataDir: dir, attachmentPath: path) else {
+            XCTFail("前提：\(path) 要定位得到")
+            throw CocoaError(.fileNoSuchFile)
+        }
+        return f
+    }
+
+    func testReadReturnsTheBytesOfALocatedFile() throws {
+        try put("storage/ABCD1234/paper.pdf", "%PDF-1.7 hello")
+        let f = try located("storage/ABCD1234/paper.pdf")
+        XCTAssertEqual(ZoteroStorageFile.read(dataDir: dir, located: f), .data(Data("%PDF-1.7 hello".utf8)))
+    }
+
+    /// 定位之後檔案被換成 symlink（指到資料目錄外）：以路徑重讀會跟過去；從 descriptor 讀的版本以 `O_NOFOLLOW` 拒絕。
+    func testAFileSwappedForASymlinkAfterLocateIsRefused() throws {
+        try put("storage/ABCD1234/paper.pdf", "%PDF-1.7 hello")
+        try put("secret.txt", "outside storage")
+        let f = try located("storage/ABCD1234/paper.pdf")
+        try FileManager.default.removeItem(at: f.url)
+        try FileManager.default.createSymbolicLink(at: f.url, withDestinationURL: dir.appendingPathComponent("secret.txt"))
+        XCTAssertEqual(ZoteroStorageFile.read(dataDir: dir, located: f), .refused(.notRegularFile("symlink")))
+    }
+
+    /// 定位之後 KEY 目錄被換成指出去的 symlink（裡面有同名的檔）：最後一段是普通檔、`O_NOFOLLOW` 擋不到，
+    /// 要靠 kernel 回報的真實位置擋。
+    func testAKeyDirectorySwappedOutsideStorageAfterLocateIsRefused() throws {
+        try put("storage/ABCD1234/paper.pdf", "%PDF-1.7 hello")
+        try put("elsewhere/paper.pdf", "%PDF elsewhere")
+        let f = try located("storage/ABCD1234/paper.pdf")
+        try FileManager.default.removeItem(at: storage.appendingPathComponent("ABCD1234"))
+        try FileManager.default.createSymbolicLink(at: storage.appendingPathComponent("ABCD1234"),
+                                                   withDestinationURL: dir.appendingPathComponent("elsewhere"))
+        XCTAssertEqual(ZoteroStorageFile.read(dataDir: dir, located: f), .refused(.outsideStorage))
+    }
+
+    /// 換進來的是 FIFO：開啟不能卡住（`O_NONBLOCK`），以種類拒絕。
+    func testAFifoSwappedInIsRefusedWithoutBlocking() throws {
+        try put("storage/ABCD1234/paper.pdf", "%PDF-1.7 hello")
+        let f = try located("storage/ABCD1234/paper.pdf")
+        try FileManager.default.removeItem(at: f.url)
+        XCTAssertEqual(mkfifo(f.url.path, 0o644), 0)
+        XCTAssertEqual(ZoteroStorageFile.read(dataDir: dir, located: f), .refused(.notRegularFile("特殊檔案")))
+    }
+
+    /// 定位之後被清空：不存 0 byte 的內容。
+    func testAFileTruncatedAfterLocateIsRefusedAsEmpty() throws {
+        try put("storage/ABCD1234/paper.pdf", "%PDF-1.7 hello")
+        let f = try located("storage/ABCD1234/paper.pdf")
+        try Data().write(to: f.url)
+        XCTAssertEqual(ZoteroStorageFile.read(dataDir: dir, located: f), .refused(.empty))
+    }
+
+    /// `storage/` 本身是 symlink 時，兩邊都經 kernel 問真實位置，仍讀得到。
+    func testReadThroughALinkedStorageDirectory() throws {
+        let real = dir.appendingPathComponent("realstorage")
+        try FileManager.default.createDirectory(at: real.appendingPathComponent("KEYAAAA1"), withIntermediateDirectories: true)
+        try Data("%PDF via linked storage".utf8).write(to: real.appendingPathComponent("KEYAAAA1/x.pdf"))
+        let data2 = dir.appendingPathComponent("data2")
+        try FileManager.default.createDirectory(at: data2, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: data2.appendingPathComponent("storage"), withDestinationURL: real)
+        guard case .found(let f) = ZoteroStorageFile.locate(dataDir: data2, attachmentPath: "storage/KEYAAAA1/x.pdf") else {
+            return XCTFail("前提：定位得到")
+        }
+        XCTAssertEqual(ZoteroStorageFile.read(dataDir: data2, located: f), .data(Data("%PDF via linked storage".utf8)))
+    }
+
     func testMediaTypeFollowsTheExtensionAndFallsBackToOctetStream() {
         XCTAssertEqual(ZoteroStorageFile.mediaType(forFilename: "Paper.PDF"), "application/pdf")
         XCTAssertEqual(ZoteroStorageFile.mediaType(forFilename: "snapshot.html"), "text/html")

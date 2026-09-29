@@ -45,7 +45,7 @@
 
 ## 代裁（使用者可翻）
 
-1. **不改寫 `attachments`**（#606）：issue Expected 與任務說明寫「改寫附件記錄指向新位置、保留原 Zotero 來源作為 provenance」。既有形狀下，位元組的位置由 `akashic.sources` 表達，`zotero:` 記錄原樣保留當來源記錄；改寫它會被下一次 pull 還原，且 `attachments` 鍵域是封閉的一。翻的方式：日後真的切斷 Zotero 時，先 `update-entry --remove-zotero-source` 拿掉來源（之後 pull 不再管它的 `attachments`），再另案決定要不要清掉 `zotero:` 記錄。
+1. **不改寫 `attachments`**（#606）——**待使用者裁決，issue 上沒有使用者對這一條的裁決紀錄**（R1 verify 第 3 列）：issue Expected 與任務說明寫「改寫附件記錄指向新位置、保留原 Zotero 來源作為 provenance」。既有形狀下，位元組的位置由 `akashic.sources` 表達，`zotero:` 記錄原樣保留當來源記錄；改寫它會被下一次 pull 還原，且 `attachments` 鍵域是封閉的一。翻的方式：日後真的切斷 Zotero 時，先 `update-entry --remove-zotero-source` 拿掉來源（之後 pull 不再管它的 `attachments`），再另案決定要不要清掉 `zotero:` 記錄。
 2. **`retrieved` 用複製當下、修改時間進 note**：Zotero 端檔案真正的取得時間不可得；`retrieved` 是「你何時取得」，從 Akashic 的角度就是複製當下。
 3. **實跑要求 work 檔已 commit**（任務說明的要求）：它是追加、不刪任何東西，嚴格說不需要；照說明保守處理，且被改寫前的位元組只剩 git 那一份。
 4. **`--zotero-db` 而非 `--zotero-dir`**：與 `import-zotero`／`enrich-from-zotero` 同一個旗標，資料目錄取 `zotero.sqlite` 的父目錄；要求它存在、且旁邊有 `storage/`。
@@ -55,9 +55,27 @@
 ## 誠實邊界
 
 - **只複製附件記錄的那一個檔**：HTML snapshot 同目錄的資源檔（`storage/<KEY>/` 底下的其他檔）不複製。
-- **`sources/` 不進 git**：別台 clone 讀到 `akashic.sources` 時位元組不在（§2.4.1：載入成功、可報缺席）；`validate` 的「本機缺承重存檔」在那裡會列出來。
-- **沒有大小上限**：檔案以 mmap 讀入（不常駐記憶體），但複製 GB 級附件會佔磁碟。
+- **`sources/` 不進 git**：別台 clone 讀到 `akashic.sources` 時位元組不在（§2.4.1：載入成功、可報缺席）；`validate` 的「本機缺承重存檔」在那裡會列出來。~~本命令在那台機器上把它們列為「已連過」、不補~~ → R1 起在那台機器上重跑會補存（見下）。
+- **沒有大小上限**：~~檔案以 mmap 讀入（不常駐記憶體）~~ → R1 起每個檔整份讀進記憶體、存完即釋放（mmap 在檔案被截短時會讓行程收到 SIGBUS）；複製 GB 級附件會佔磁碟。
 - **Zotero 端之後再變**（重新下載、註記編輯）不會回頭更新已複製的副本——那是另一份內容、另一個 digest，下一次跑再連一份；舊的要用 `update-entry --remove-source` 收回。
 - **乾跑不保證實跑**：閘在乾跑與實跑之間可以變（有人 commit 或改檔）；計畫之後檔案內容被換掉由 digest 對不上偵測（`changedDuringRun`），檔案不見則落在 `unreadable`。
 - **沒有跑過真的 Zotero 資料目錄**：測試用假目錄；live store 唯讀量測 2026-09-29：work 2,572 筆、帶 `zotero:` 附件的 51 筆（51 個附件）、`akashic.sources` 的 digest 0 個。
 - **`zero-instance-guards` 沒有需要加的列**：兩件事都不是「為還沒發生的形狀寫守衛」——#608 是報告多一格（不是守衛），#606 是一個有實例的能力（live store 51 個附件、0 個 digest）；整合者若判斷不同再加。
+
+## Verify R1 修正（#606）
+
+以下的「第 N 列」是 batch14 verify R1（b14f）報告的列號。
+
+**計畫之後被改過的 work 不以舊快照覆寫（第 0、7 列）。** 實跑以前在可回溯閘之後把計畫時 load 的整筆記錄寫回。閘證的是「此刻磁碟上的檔已 commit、乾淨」，不是「它還等於計畫時的快照」；閘與複製迴圈之間別的寫入者（MCP server、App、另一個 CLI）改過並 commit 的內容會被整筆蓋掉，而且那次修改不在任何地方。現在寫 work 之前讀閘回傳的那個檔（`LibraryStore.rereadEntry`，與 load 同一份解碼與正規化——load 對 `akashic.libraries` 的去重抽成 `normalizedAfterDecode` 一份），與快照不同就不寫、記進 `writeFailed`（「計畫之後這筆 work 的記錄檔被改過」），其餘照跑；位元組已存進 `sources/`，重跑以新的內容重新計畫、補上連結。App 的 #609 移除面以整個 store 重 load 比對；這裡是批次，逐筆重 load 整個 store 太貴（live store 副本上一次 `validate` 約 6 秒，debug 建置），所以只讀單一檔。**誠實邊界**：重讀與寫入之間仍有很短的窗（沒有 store 層的鎖）。
+
+**「已連過」看本機位元組，不看連結（第 1、6、11、14 列）。** `akashic.sources` 在 git 裡、`sources/` 不在：別台 clone 上連結都在、位元組都不在，以前全部列成「已連過」、印「沒有新東西要複製」，`validate` 同時報「本機缺承重存檔」。現在已連過的 digest 一次查 `sourcePresence`（#614）：在（含只缺取得記錄的孤兒 blob）才算 `alreadyLinked`；不在的進新的 `restoredLocally`——只存位元組與取得記錄、不改連結、不寫 work 檔（所以不過可回溯閘，只過存檔前置）；位置上是目錄／symlink、分片讀不到、或 index 壞到判不出的，以新的略過原因 `localCopyUnverifiable` 具名、不重存。CLI 分一段印「已連過、但本機 sources/ 沒有位元組——要補存／已補存」，這種情形不再印「沒有新東西要複製」。
+
+**丟棄的取得記錄要看得到（第 14 列後半）。** `storeSource` 冪等早退時回 `discardedProvenance`（這次的 `origin: zotero:…` 與 note 沒有寫進 index），以前只記成一個計數 `blobsAlreadyStored`，「自己上次跑到一半」與「同一份位元組先前經別的路徑存過、這次的 Zotero 來源沒落地」混成同一個數。現在逐檔列在 `provenanceNotRecorded`，附 index 保留的那一條的 `origin`（讀自 `sourcePresence`）；`blobsAlreadyStored` 改成它的個數。
+
+**讀 Zotero 檔只開一次（第 25 列）。** `ZoteroStorageFile.read`：`O_NOFOLLOW | O_NONBLOCK` 開啟、`fstat` 確認是非空普通檔、以 `F_GETPATH` 問 kernel 這個 descriptor 的真實位置在 `storage/` 之內（`storage/` 自己也經 descriptor 問，兩邊同一種寫法），再從同一個 descriptor 讀完。計畫與實跑兩次讀都走它。以前兩次都是 `Data(contentsOf:, .mappedIfSafe)` 以路徑讀——`locate` 之後把檔換成 symlink 或把 KEY 目錄換成指出去的 symlink，兩次讀都會跟過去且 digest 一致；mmap 在檔案被截短時會 SIGBUS。
+
+**未改（第 3 列）**：「改寫附件記錄」的替代仍是待使用者裁決的代裁 1，行為不動；上面的代裁 1 已寫明 issue 上沒有使用者的裁決紀錄。
+
+**測試**：`ZoteroAttachmentCopyTests` +4（閘之後改過並 commit 的 work 不被覆寫且重跑補上、連結在而本機缺位元組的補存不改連結且不要求 work 檔乾淨、本機那一份位置上是目錄時具名略過、丟棄的取得記錄附保留的 origin）；`CopyZoteroAttachmentsCLITests` +1（真 binary：第二份 clone 拿掉 `sources/` 後重跑補回、work 檔位元組不變、`validate` 不再報缺）；`ZoteroStorageFileTests` +6（讀回位元組、定位後換成 symlink、KEY 目錄換成指出去的 symlink、換成 FIFO 不卡住、被清空、`storage/` 本身是 symlink）。
+
+**負控**（反向編輯、`cmp` 確認還原）：拿掉重讀比對 → 1 支紅（閘之後改過的那支）；`.absent` 當成已連過 → 2 支紅（服務層與 CLI 的補存）；不記丟棄的取得記錄 → 3 支紅（新的一支與既有兩支 `blobsAlreadyStored`）；`read` 拿掉 `O_NOFOLLOW` → 1 支紅（換成 symlink）；拿掉 kernel 真實位置的前綴比對 → 1 支紅（KEY 目錄換出去）。`O_NONBLOCK` 沒有做負控：拿掉它的結果是測試卡住，不是紅。

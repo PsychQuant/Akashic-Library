@@ -317,6 +317,101 @@ final class ZoteroAttachmentCopyTests: XCTestCase {
         }
     }
 
+    // MARK: R1 verify（#606）
+
+    /// 計畫之後、寫入之前，另一個寫入者改了這筆 work **並 commit**：可回溯閘看到的是已 commit、乾淨的檔而放行，
+    /// 以前會把計畫時的快照整筆寫回、蓋掉那次修改（而且那次修改不在任何地方）。現在重讀、不同就不寫、具名，其餘照跑。
+    func testAWorkEditedAndCommittedAfterPlanningIsNotOverwritten() throws {
+        let bytes = try put("storage/ABCD1234/paper.pdf", "%PDF-1.7 the paper")
+        let other = try put("storage/OTHERKY1/other.pdf", "%PDF other")
+        try addWork("a2025", attachments: ["storage/ABCD1234/paper.pdf"])
+        try addWork("b2025", attachments: ["storage/OTHERKY1/other.pdf"])
+        commit()
+        let r = try service.copyZoteroAttachments(zoteroDb: dbPath, citekeys: nil, apply: true,
+                                                  now: Date(timeIntervalSince1970: 1_790_000_000),
+                                                  afterPlanning: {
+            var e = try self.work("a2025")
+            e.title = "edited after planning"
+            _ = try self.store.writeEntry(e)
+            self.commit()
+        })
+        XCTAssertEqual(try work("a2025").title, "edited after planning", "計畫之後的修改不得被舊快照蓋掉")
+        XCTAssertEqual(try work("a2025").akashic.sources, [], "被改過的那筆不寫連結")
+        XCTAssertTrue(r.writeFailed["a2025"]?.contains("計畫之後") == true, "具名：\(r.writeFailed)")
+        XCTAssertEqual(r.written, ["b2025"], "其餘照跑")
+        XCTAssertEqual(try work("b2025").akashic.sources, [digest(other)])
+        XCTAssertEqual(r.planned.map(\.citekey), ["b2025"], "報告的已複製清單不含沒寫連結的那一筆")
+        // 重跑：以新的內容重新計畫，補上連結、保留修改
+        commit()
+        let again = try run(apply: true)
+        XCTAssertEqual(again.written, ["a2025"], "\(again.writeFailed)")
+        XCTAssertEqual(try work("a2025").title, "edited after planning")
+        XCTAssertEqual(try work("a2025").akashic.sources, [digest(bytes)])
+    }
+
+    /// 連結在、本機 `sources/` 沒有位元組（別台 clone：`sources/` 不進 git）：以前被列為「已連過」、什麼都不做；
+    /// 現在只存位元組與取得記錄，不改連結、不寫 work 檔，也不因此要求 work 檔已 commit。
+    func testALinkedDigestWhoseBytesAreMissingLocallyIsRestoredWithoutRelinking() throws {
+        let bytes = try put("storage/ABCD1234/paper.pdf", "%PDF-1.7 on another clone")
+        let e = try addWork("a2025", attachments: ["storage/ABCD1234/paper.pdf"], sources: [digest(bytes)])
+        commit()
+        let fileBefore = try entryFileBytes(e)
+        let dry = try run(apply: false)
+        XCTAssertEqual(dry.planned, [])
+        XCTAssertEqual(dry.alreadyLinked, [], "本機沒有位元組就不是「已連過、做完了」")
+        XCTAssertEqual(dry.restoredLocally.map(\.digest), [digest(bytes)])
+        XCTAssertNil(dry.applyRefusal, "\(dry.applyRefusal ?? "")")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: blob(digest(bytes)).path), "乾跑不存")
+        // work 檔有未 commit 的修改也不擋：補存不改寫它
+        var edited = e
+        edited.title = "uncommitted, and nothing to rewrite here"
+        _ = try store.writeEntry(edited)
+        let editedBytes = try entryFileBytes(e)
+        let r = try run(apply: true)
+        XCTAssertTrue(r.applied)
+        XCTAssertEqual(r.written, [], "不改連結")
+        XCTAssertEqual(r.restoredLocally.map(\.digest), [digest(bytes)])
+        XCTAssertEqual(try Data(contentsOf: blob(digest(bytes))), bytes, "位元組補回本機")
+        XCTAssertEqual(try entryFileBytes(e), editedBytes, "work 檔一個位元組都不動")
+        XCTAssertNotEqual(editedBytes, fileBefore)
+        let obj = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(try XCTUnwrap(indexLines().first).utf8)) as? [String: Any])
+        XCTAssertEqual(obj["origin"] as? String, "zotero:storage/ABCD1234/paper.pdf", "取得記錄照記")
+        // 再跑一次：這次是真的已連過
+        let again = try run(apply: false)
+        XCTAssertEqual(again.alreadyLinked.map(\.digest), [digest(bytes)])
+        XCTAssertEqual(again.restoredLocally, [])
+    }
+
+    /// 連結在、本機那一份的位置上是目錄：判不出位元組在不在——不重存、不動連結、具名略過，其餘照跑。
+    func testALinkedDigestWithAnUnusableLocalCopyIsSkippedByName() throws {
+        let bytes = try put("storage/ABCD1234/paper.pdf", "%PDF-1.7 dir in the way")
+        try addWork("a2025", attachments: ["storage/ABCD1234/paper.pdf"], sources: [digest(bytes)])
+        commit()
+        try FileManager.default.createDirectory(at: blob(digest(bytes)), withIntermediateDirectories: true)
+        let r = try run(apply: true)
+        XCTAssertEqual(r.alreadyLinked, [])
+        XCTAssertEqual(r.restoredLocally, [])
+        guard case .localCopyUnverifiable(let why)? = r.skipped.first?.reason else {
+            return XCTFail("要具名略過：\(r.skipped)")
+        }
+        XCTAssertTrue(why.contains("目錄"), why)
+    }
+
+    /// `storeSource` 冪等早退時丟棄了這次的取得記錄：逐檔列出、附 index 保留的那一條的 origin（丟棄必須可見）。
+    func testDiscardedProvenanceIsReportedWithTheKeptOrigin() throws {
+        let bytes = try put("storage/ABCD1234/paper.pdf", "%PDF-1.7 stored earlier")
+        try addWork("a2025", attachments: ["storage/ABCD1234/paper.pdf"])
+        commit()
+        _ = try store.storeSource(bytes, provenance: LibraryStore.SourceProvenance(
+            mediaType: "application/pdf", retrieved: "2026-09-01T00:00:00Z", origin: "https://publisher.example/paper.pdf", acquisition: "manual"))
+        let r = try run(apply: true)
+        XCTAssertEqual(r.written, ["a2025"])
+        XCTAssertEqual(r.provenanceNotRecorded.map(\.item.path), ["storage/ABCD1234/paper.pdf"])
+        XCTAssertEqual(r.provenanceNotRecorded.first?.keptOrigin, "https://publisher.example/paper.pdf",
+                       "保留的是先到的那一條——這次的 zotero: 來源沒有寫進 index，報告要說出來")
+        XCTAssertEqual(r.blobsAlreadyStored, 1)
+    }
+
     /// 內容在計畫之後、複製之前被換掉：以實際存進去的為準——digest 對不上就略過那個檔、不寫連結，並具名（`changedDuringRun`）。
     /// 測試接縫是 service 的 internal 變體 `afterPlanning`（在計畫算完、第一次寫入之前呼叫），對外的 `copyZoteroAttachments` 沒有這個參數。
     func testAFileChangedBetweenPlanAndCopyIsSkippedNotMislinked() throws {

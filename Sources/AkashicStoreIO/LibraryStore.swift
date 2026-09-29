@@ -1261,6 +1261,15 @@ public final class LibraryStore {
         }
     }
 
+    /// load 對解碼後的 work 做的正規化——**只有這一份**：entities 與 legacy 兩條路徑、以及閘之後重讀一筆記錄（`rereadEntry`，
+    /// #606 R1 verify）都經它，重讀的結果才能與 load 的快照直接比相等。目前只有一件事：`akashic.libraries` 去重保序（#13 verify 的 DA 裁決）。
+    static func normalizedAfterDecode(_ entry: Entry) -> Entry {
+        var out = entry
+        var seen = Set<String>()
+        out.akashic.libraries = entry.akashic.libraries.filter { seen.insert($0).inserted }
+        return out
+    }
+
     /// 掃描整個 library。schema 不合的檔案進 quarantined 報告，不靜默略過、
     /// 也不讓單一壞檔中斷整批載入。
     public func load() throws -> LibraryLoad {
@@ -1432,11 +1441,8 @@ public final class LibraryStore {
                             file: name, reason: "akashic.libraries 含不合法 key「\(displaySafeInvisible(bad, max: 120))」"))
                         continue
                     }
-                    var e2 = entry
-                    var seen = Set<String>()
-                    e2.akashic.libraries = entry.akashic.libraries.filter { seen.insert($0).inserted }
                     if !entry.unknownFields.isEmpty { result.unknownFieldFiles.append(name) }
-                    result.entries.append(e2)
+                    result.entries.append(Self.normalizedAfterDecode(entry))
                 }
             } catch {
                 result.quarantined.append(QuarantinedFile(
@@ -1478,9 +1484,7 @@ public final class LibraryStore {
                 // 純重複（格式合法）→ auto-dedupe 保序（DA 裁決：quarantine 對可用性
                 // 過重；集合語意有唯一無歧義修法）。注意：去重在 load 即完成、屬靜默
                 // 正規化——validate() 的重複警告只對未正規化的記憶體物件（寫前 lint）有效。
-                var entry2 = entry
-                var seen = Set<String>()
-                entry2.akashic.libraries = entry.akashic.libraries.filter { seen.insert($0).inserted }
+                let entry2 = Self.normalizedAfterDecode(entry)
                 if !entry2.unknownFields.isEmpty || !entry2.akashic.unknownFields.isEmpty {
                     result.unknownFieldFiles.append(name)
                 }

@@ -95,6 +95,27 @@ final class CopyZoteroAttachmentsCLITests: XCTestCase {
         XCTAssertFalse(r.output.contains("已寫入") || r.output.contains("乾跑"), r.output)
     }
 
+    /// #606 R1 verify：第二份 clone（`sources/` 不進 git，所以不在）重跑——以前印「沒有新東西要複製、已連過：1」而位元組仍不在，
+    /// `validate` 同時報「本機缺承重存檔」。現在補存位元組、不改連結。
+    func testASecondCloneWithoutSourcesGetsTheBytesBack() throws {
+        XCTAssertEqual(try cli(["copy-zotero-attachments", "--apply"] + dbArgs).status, 0)
+        git(["add", "-A"]); git(["commit", "-q", "-m", "copied"])
+        try FileManager.default.removeItem(at: root.appendingPathComponent("sources"))   // 模擬 clone：sources/ 不在 git 裡
+        let workFile = LibraryStore(root: root, key: nil, environment: [:]).entityURL(id: entry.id)
+        let before = try Data(contentsOf: workFile)
+        let dry = try cli(["copy-zotero-attachments"] + dbArgs)
+        XCTAssertEqual(dry.status, 0, dry.output)
+        XCTAssertTrue(dry.output.contains("要補存") && dry.output.contains(digest), dry.output)
+        let r = try cli(["copy-zotero-attachments", "--apply"] + dbArgs)
+        XCTAssertEqual(r.status, 0, r.output)
+        XCTAssertFalse(r.output.contains("沒有新東西要複製"), "本機沒有位元組時不得說沒有東西要做：\(r.output)")
+        XCTAssertTrue(r.output.contains("已補存"), r.output)
+        XCTAssertEqual(try Data(contentsOf: blob()), pdf)
+        XCTAssertEqual(try Data(contentsOf: workFile), before, "不改連結、不動 work 檔")
+        let v = try cli(["validate"])
+        XCTAssertFalse(v.output.contains("本機缺承重存檔"), v.output)
+    }
+
     /// #298 閘真的接上了：假 home 的 registry 把 current 指到這個 scratch store，不帶 `--library` 的 `--apply` 拒絕且零寫入、
     /// 乾跑不被擋（它是用來確認目標的手段）、`--yes` 是知情同意的出路。
     func testApplyWithoutNamedTargetIsRefusedButDryRunIsNot() throws {

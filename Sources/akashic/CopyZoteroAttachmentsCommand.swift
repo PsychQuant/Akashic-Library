@@ -59,8 +59,12 @@ struct CopyZoteroAttachments: ParsableCommand {
               : applyRequested ? "Zotero 附件複製（#606）——--apply：沒有新東西要複製，store 沒有被改動"
               : "Zotero 附件複製（#606）——乾跑，store 沒有被改動")
         print("帶 zotero 附件記錄的 work：\(r.considered)；\(r.applied ? "已複製" : "要複製")：\(r.planned.count) 個檔；已連過：\(r.alreadyLinked.count)；略過：\(r.skipped.count)")
-        for item in r.planned {
-            print("  \(displaySafeInvisible(item.citekey, max: 200))  \(displaySafeInvisible(item.path, max: 300))  \(item.bytes) bytes  \(displaySafeInvisible(item.mediaType, max: 100))  \(item.digest)")   // display-safe-exempt: bytes 是 Int；digest 是本 binary 算的 SHA-256 十六進位
+        for item in r.planned { print(itemLine(item)) }
+        if !r.restoredLocally.isEmpty {
+            // #606 R1 verify：「已連過」看的是本機位元組，不是連結——sources/ 不進 git，別台 clone 的連結在、位元組不在
+            print("")
+            print("已連過、但本機 sources/ 沒有位元組——\(r.applied ? "已補存" : "要補存")（不改連結、不動 work 檔）：\(r.restoredLocally.count) 個檔")   // display-safe-exempt: Int
+            for item in r.restoredLocally { print(itemLine(item)) }
         }
         if !r.skipped.isEmpty {
             print("")
@@ -84,7 +88,17 @@ struct CopyZoteroAttachments: ParsableCommand {
         }
         if r.applied {
             print("")
-            print("已改寫 \(r.written.count) 筆 work 的 akashic.sources；\(r.blobsAlreadyStored) 個檔的位元組早就在 sources/（不重複寫）")   // display-safe-exempt: Int
+            print("已改寫 \(r.written.count) 筆 work 的 akashic.sources")   // display-safe-exempt: Int
+            if !r.provenanceNotRecorded.isEmpty {
+                // lossless-intake：丟棄必須可見——位元組早就在，index 的取得記錄以先到的為準，這次的 Zotero 來源沒有寫進去
+                print("位元組早就在 sources/、這次的 Zotero 來源（origin 與 note）沒有寫進 index（以先到的那一條為準）：\(r.provenanceNotRecorded.count) 個檔")   // display-safe-exempt: Int
+                for n in r.provenanceNotRecorded.prefix(Entry.perRecordWarningCap * 5) {
+                    print("  \(displaySafeInvisible(n.item.citekey, max: 200))  \(displaySafeInvisible(n.item.path, max: 300))  保留的 origin：\(n.keptOrigin.map { displaySafeClipOnly($0, max: 300) } ?? "（讀不到）")")   // display-safe-exempt: keptOrigin 已由 service 以 displaySafeInvisible 消毒，只截
+                }
+                if r.provenanceNotRecorded.count > Entry.perRecordWarningCap * 5 {
+                    print("  …另有 \(r.provenanceNotRecorded.count - Entry.perRecordWarningCap * 5) 個未列出")   // display-safe-exempt: Int
+                }
+            }
             switch r.exclusionVerified {
             case .some(true): print("sources/ 的版控排除已驗證")
             case .some(false): print("⚠ store 不在 git 裡：sources/ 的版控排除沒有驗證——確認它不會被推上 remote")
@@ -108,7 +122,7 @@ struct CopyZoteroAttachments: ParsableCommand {
         print("")
         if r.applied {
             print("接下來：`akashic validate` 確認，然後 commit。連錯的副本宣告用 `update-entry <citekey> --remove-source <digest>=理由` 收回。")
-        } else if !r.planned.isEmpty {
+        } else if !r.planned.isEmpty || !r.restoredLocally.isEmpty {
             print("確認以上無誤後加 --apply（要求被改寫的 work 檔已在 git 裡 commit、乾淨，且 sources/ 已被版控排除）。")
         }
     }
@@ -122,6 +136,11 @@ struct CopyZoteroAttachments: ParsableCommand {
         case .file(.empty): return "0 byte（空內容的 digest 不指認任何一份存檔）"
         case .unreadable: return "檔案在、但讀不出來"
         case .changedDuringRun: return "計畫算完之後內容變了（digest 對不上）——不存、不連；重跑會重新計畫"
+        case .localCopyUnverifiable(let why): return "已連過，但判不出本機 sources/ 有沒有這份位元組（\(displaySafeClipOnly(why, max: 600))）——不重存、不動連結；用 akashic doctor 查 sources/"   // display-safe-exempt: why 已由 service 消毒，只截
         }
+    }
+
+    private static func itemLine(_ item: ZoteroAttachmentCopyReport.Item) -> String {
+        "  \(displaySafeInvisible(item.citekey, max: 200))  \(displaySafeInvisible(item.path, max: 300))  \(item.bytes) bytes  \(displaySafeInvisible(item.mediaType, max: 100))  \(item.digest)"   // display-safe-exempt: bytes 是 Int；digest 是本 binary 算的 SHA-256 十六進位
     }
 }

@@ -59,6 +59,56 @@ public enum ZoteroStorageFile {
         return .found(Located(url: url, bytes: size, modified: attrs[.modificationDate] as? Date))
     }
 
+    /// 讀一個已定位的檔的結果。拒絕沿用 `Refusal`（每一筆各自略過）；`unreadable` 是開得了卻讀不出來、或 kernel 答不出位置。
+    public enum Contents: Equatable {
+        case data(Data)
+        case refused(Refusal)
+        case unreadable
+    }
+
+    /// 讀 `locate` 找到的檔（#606 R1 verify）：**只開一次、從同一個 descriptor 判斷並讀完**，不再以路徑重讀。
+    ///
+    /// `locate` 的檢查（lstat、真實路徑前綴）與之後的讀取之間有時間窗：若在那之間檔案被換成 symlink、或 KEY 目錄被換成指出去的 symlink，
+    /// 以路徑再讀一次就會跟過去。這裡以 `O_NOFOLLOW` 開啟（最後一段是 symlink 就失敗）、`fstat` 確認開到的是非空普通檔、再以
+    /// `F_GETPATH` 問 kernel 這個 descriptor 的真實位置、要求它在 `storage/` 之內（`storage/` 自己也經 descriptor 問，兩邊同一種寫法，
+    /// 大小寫與 `/private` 前綴不會對不上）。`O_NONBLOCK`：換進來的若是 FIFO，開啟不會卡住（隨後以種類拒絕）。
+    /// 內容整份讀進記憶體（不 mmap——檔案在讀的時候被截短，mmap 會讓行程收到 SIGBUS）；每個檔算完 digest、存完即釋放。
+    public static func read(dataDir: URL, located: Located) -> Contents {
+        let dirFD = open(dataDir.appendingPathComponent("storage").path, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+        guard dirFD >= 0 else { return .unreadable }
+        defer { close(dirFD) }
+        guard let realStorage = kernelPath(dirFD) else { return .unreadable }
+        let fd = open(located.url.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
+        guard fd >= 0 else {
+            switch errno {
+            case ELOOP: return .refused(.notRegularFile("symlink"))
+            case ENOENT: return .refused(.missing)
+            default: return .unreadable
+            }
+        }
+        let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+        var st = stat()
+        guard fstat(fd, &st) == 0 else { return .unreadable }
+        switch st.st_mode & S_IFMT {
+        case S_IFREG: break
+        case S_IFDIR: return .refused(.notRegularFile("目錄"))
+        default: return .refused(.notRegularFile("特殊檔案"))
+        }
+        guard let realFile = kernelPath(fd) else { return .unreadable }
+        guard realFile.hasPrefix(realStorage + "/") else { return .refused(.outsideStorage) }
+        guard st.st_size > 0 else { return .refused(.empty) }
+        guard let data = try? handle.readToEnd() else { return .unreadable }
+        guard !data.isEmpty else { return .refused(.empty) }
+        return .data(data)
+    }
+
+    /// descriptor 的真實位置（kernel 的 `F_GETPATH`）。答不出來回 nil。
+    private static func kernelPath(_ fd: Int32) -> String? {
+        var buf = [CChar](repeating: 0, count: Int(PATH_MAX) + 1)
+        guard fcntl(fd, F_GETPATH, &buf) != -1 else { return nil }
+        return String(cString: buf)
+    }
+
     /// 由副檔名推 media type；認不得的是 `application/octet-stream`。Zotero 的 `itemAttachments.contentType` 不在附件記錄裡
     /// （`attachments` 只存 path），所以這裡只能看檔名——它只進 `sources/index.jsonl` 的 `media-type` 欄位，不影響 digest 與身分。
     public static func mediaType(forFilename name: String) -> String {

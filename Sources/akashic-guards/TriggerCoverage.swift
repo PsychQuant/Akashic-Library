@@ -348,6 +348,23 @@ func swiftGuards() -> [String] {   // #522：ProtectedInventory 也要用
     return out
 }
 
+/// **宣告範圍裡、不在受保護集合的檔，CI 不跑讀它的守衛——已知且待裁決的那幾條**（#690）。
+///
+/// 封閉列舉，只有這兩條，不得依性質相似類推第三條。每一條都要附 issue 號：它不是豁免，是
+/// 「這個缺口看得見、有人在處理」的標記。守衛的處置：
+///   · 列在這裡的缺口照樣印出來（`⊘`），不計入 rc；
+///   · 不在這裡的同類缺口是 `fails`；
+///   · 列在這裡、但缺口已經不在（例如 workflow 的 `paths:` 補上了）→ 也是 `fails`，要人把這一條
+///     拿掉——留著的豁免會變成沒人記得的放行（`official-validate` 允許清單的同一條紀律）。
+///
+/// 兩條同一個形狀：兩支守衛都宣告讀 `Sources/*/*.swift`（`fnmatch` 不帶 `FNM_PATHNAME`，`*` 跨
+/// 目錄，等於整個 `Sources/`），而唯一跑守衛的 workflow（`census-parity.yml`）的 `paths:` 只列了
+/// `Sources/` 的幾個子路徑。擴大觸發面是 macOS runner（10× 計費）的成本決定，由 #690 裁決。
+let acknowledgedCIGaps: [(guardFile: String, pattern: String, issue: String)] = [
+    ("Sources/akashic-guards/NetworkConfinement.swift", "Sources/*/*.swift", "#690"),
+    ("Sources/akashic-guards/ZeroInstanceRowsAudit.swift", "Sources/*/*.swift", "#690"),
+]
+
 func triggerCoverage(argv: [String]) -> Int32 {
     let (GUARDS, DATA) = protectedInventory()
 
@@ -810,6 +827,59 @@ func triggerCoverage(argv: [String]) -> Int32 {
         }
     }
 
+    // ── 宣告範圍裡不在受保護集合的檔（#690）─────────────────────────────
+    //
+    // 上面的逐對迴圈只走 `PROTECTED`。而宣告可以指向一整片不受保護的檔——`Sources/*/*.swift`
+    // 在 2026-09-30 是 224 個檔，受保護的只有 34 個。其餘那些改動時，讀它們的守衛在 CI 上跑不跑，
+    // 逐對迴圈**結構上看不到**，報表照印「無缺口」。這裡把宣告展開成磁碟上的檔，逐檔問同一個
+    // 問題：有沒有一個 workflow 同時在它改動時觸發、且執行這支守衛。
+    //
+    // **只展開宣告，不展開啟發式讀取**：啟發式認的是 basename，basename 本來就只在受保護集合裡比。
+    // 解析不到任何受保護檔、或第一段是萬用字元的宣告，上面已經是缺口，這裡不重複報。
+    var known: [String] = []
+    var ackHit = Set<Int>()
+    var scopeLines: [String] = []
+    for g in GUARDS {
+        for line in rawFile(g).components(separatedBy: "\n") {
+            guard let m = matches(line, DECLARE).first else { continue }
+            let pat = (line as NSString).substring(with: m.range(at: 1))
+            let first = pat.components(separatedBy: "/")[0]
+            guard !first.contains("*"), !first.contains("?"),
+                  PROTECTED.contains(where: { globMatch($0, pat) }) else { continue }
+            let outside = globFiles(pat).filter { !PROTECTED.contains($0) }
+            if outside.isEmpty { continue }
+            let uncovered = outside.filter { f in
+                !WORKFLOWS.contains { w in
+                    guard let p = w.paths["paths"], !p.isEmpty, pathsMatch(p, f) else { return false }
+                    if pathsMatch(w.paths["paths-ignore"] ?? [], f) { return false }
+                    return w.runs.contains(base(g))
+                }
+            }
+            let ackIndex = acknowledgedCIGaps.firstIndex(where: { $0.guardFile == g && $0.pattern == pat })
+            let mark = uncovered.isEmpty ? "✓" : (ackIndex == nil ? "✗" : "⊘")
+            scopeLines.append("\(mark) \(pad(label(g), 40)) 宣告 `\(pat)`："
+                + "不在受保護集合 \(outside.count) 個｜CI 未覆蓋 \(uncovered.count) 個")
+            if uncovered.isEmpty { continue }
+            let whereS = HOOK.contains(base(g)) ? "pre-push 有" : "pre-push 也沒有"
+            let msg = "\(base(g)) 宣告讀 `\(pat)`：其中 \(uncovered.count) 個不在受保護集合的檔改動時，"
+                + "它不在任何 CI workflow 跑（\(whereS)；例：\(uncovered.prefix(3).joined(separator: "、"))）"
+            if let i = ackIndex {
+                ackHit.insert(i)
+                known.append(msg + "——已知缺口，\(acknowledgedCIGaps[i].issue) 待裁決")
+            } else {
+                fails.append(msg)
+            }
+        }
+    }
+    for (i, a) in acknowledgedCIGaps.enumerated() where !ackHit.contains(i) {
+        fails.append("已知缺口清單（`acknowledgedCIGaps`）的 \(base(a.guardFile)) 宣告 `\(a.pattern)`（\(a.issue)）"
+            + "已經沒有缺口——把它從清單拿掉，並回 \(a.issue) 記錄")
+    }
+    if !scopeLines.isEmpty {
+        print("\n宣告範圍裡不在受保護集合的檔（上面的逐對表只走受保護集合，看不到它們）：")
+        for s in scopeLines { print(s) }
+    }
+
     // pre-push 是唯一目前真的會跑的路徑（CLAUDE.md 的觸發點表有量測），所以它必須涵蓋
     // 全部守衛——這一條與上面的逐對檢查是不同的性質。
     let uncoveredHook = GUARDS.filter { !HOOK.contains(base($0)) }
@@ -817,6 +887,10 @@ func triggerCoverage(argv: [String]) -> Int32 {
         + "\(GUARDS.count - uncoveredHook.count)/\(GUARDS.count) 支守衛")
     for g in uncoveredHook { fails.append("\(base(g)) 不在 pre-push 裡") }
 
+    if !known.isEmpty {
+        print("\n══ 已知缺口 \(known.count)（有 issue 待裁決，不計入 rc；清單在 `acknowledgedCIGaps`）══")
+        for m in known { print("  ⊘ \(m)") }
+    }
     if !warnings.isEmpty {
         print("\n══ 待人確認 \(warnings.count)（啟發式警告，不構成缺口）══")
         for m in warnings { print("  ? \(m)") }
@@ -826,6 +900,8 @@ func triggerCoverage(argv: [String]) -> Int32 {
         for m in fails { print("  · \(m)") }
         return 1
     }
-    print("\n══ 觸發點覆蓋無缺口（逐對意義，非聯集）══")
+    // 已知缺口還在時不說「無缺口」——那是同一份輸出裡兩句矛盾的話
+    print(known.isEmpty ? "\n══ 觸發點覆蓋無缺口（逐對意義，非聯集）══"
+                        : "\n══ 觸發點覆蓋沒有未列管的缺口（逐對意義，非聯集；已知缺口 \(known.count) 條見上）══")
     return 0
 }

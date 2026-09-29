@@ -211,9 +211,12 @@ let triggerCoverageMutationCases: [TCMCase] = [
         edits: [
             (path: "Sources/akashic-guards/PluginStoreFormatParity.swift", old: "import Foundation", new: "import Foundation\n# trigger-coverage: reads plugin/rules/*.md\n# 說明：本檔不處理 rulesets，只重建審查者的失敗情境。"),
         ], expect: "有出現但不在路徑脈絡裡"),
-    TCMCase(isWarn: true, desc: "宣告用中間萬用字元（`Sources/*/*.swift`）——痕跡走回 `Sources`",
+    // **#690 起換成 `Sources/*/Venue.swift`**：原本注入 `Sources/*/*.swift`，而那個範圍有 115 個不受保護、CI 不跑的檔，
+    // 新的「宣告範圍」檢查會對它報一條缺口——那是真的缺口，但這一格要驗的只是「中間萬用字元時痕跡走回 `Sources`」。
+    // 換成只命中一個受保護檔的樣式，要驗的東西不變（dirname 仍是 `Sources/*`）。
+    TCMCase(isWarn: true, desc: "宣告用中間萬用字元（`Sources/*/Venue.swift`）——痕跡走回 `Sources`",
         edits: [
-            (path: "Sources/akashic-guards/RuleCoverage.swift", old: "// trigger-coverage: reads plugin/rules/*.md", new: "// trigger-coverage: reads Sources/*/*.swift"),
+            (path: "Sources/akashic-guards/RuleCoverage.swift", old: "// trigger-coverage: reads plugin/rules/*.md", new: "// trigger-coverage: reads Sources/*/Venue.swift"),
         ], expect: "一次都沒出現過"),
     TCMCase(isWarn: false, desc: "把某個守衛改成 block scalar 形式呼叫（續行要讀得到）",
         edits: [
@@ -259,4 +262,16 @@ let triggerCoverageMutationCases: [TCMCase] = [
         edits: [
             (path: "Sources/akashic-guards/RuleCoverage.swift", old: "// trigger-coverage: reads plugin/rules/*.md", new: "// trigger-coverage: reads */*.sh"),
         ], expect: "第一段是萬用字元"),
+    // ── #690：宣告範圍裡不在受保護集合的檔 ──────────────────────────────
+    // 逐對表只走受保護集合；宣告卻可以指向一整片不受保護的檔。一支守衛新宣告讀 `Sources/*/*.swift`，
+    // 而那片範圍有 CI 不跑它的檔、它又不在 `acknowledgedCIGaps`——必須是缺口。
+    TCMCase(isWarn: false, desc: "宣告範圍裡有 CI 不跑的不受保護檔，而它不在已知缺口清單",
+        edits: [
+            (path: "Sources/akashic-guards/PluginStoreFormatParity.swift", old: "import Foundation", new: "import Foundation\n// trigger-coverage: reads Sources/*/*.swift"),
+        ], expect: "PluginStoreFormatParity.swift 宣告讀 `Sources/*/*.swift`：其中"),
+    // 已知缺口補上了（workflow 的 `paths:` 涵蓋整個 `Sources/`），清單那兩條卻還在——留著的豁免要出聲。
+    TCMCase(isWarn: false, desc: "已知缺口已經不在、清單那一條卻沒拿掉",
+        edits: [
+            (path: ".github/workflows/census-parity.yml", old: "      - \"Sources/akashic-guards/**\"\n", new: "      - \"Sources/**\"\n      - \"Sources/akashic-guards/**\"\n"),
+        ], expect: "已經沒有缺口"),
 ]

@@ -80,6 +80,9 @@ import AkashicIndex
 /// - **不要求本機有位元組**：別台 clone 上 `sources/` 本來就可能不在（§2.4.1），連錯的宣告在那裡照樣要收得回來。報告帶 index 的取得記錄
 ///   （origin、mediaType、note…）只是讓乾跑的人認得出是哪份內容——本機沒有存檔或 index 讀不到時省略（`contentInfoUnreadable`）。
 /// - 預設乾跑、實跑要 git 閘；無法唯一定位的 work 拒絕（#628／#641）。與 `remove_fields`／`add_sources`／`remove_zotero_sources` 互斥（四條腿兩兩不組合，各自單獨呼叫）。
+/// - **MCP 面只有前 `sourcesLimit`（20）筆帶 index 的取得記錄**（origin、note… 是第三方字串、每筆至多約 2 KB）；其後的只回 `digest` 與 `reason`
+///   （**理由是這一族唯一的一份，不截**），`detailsTruncated`／`detailsListed` 揭露。CLI 全列。
+///
 /// ## `--remove-zotero-source`（`remove_zotero_sources`，#680）：移除 work 記下的 Zotero 來源
 ///
 /// 在此之前活著的 Zotero 來源（主來源或附加來源）**沒有任何移除面**：#610 對「其中一筆記錯了」的處置是「手改 YAML」，#679 對「附加來源沒記
@@ -98,9 +101,16 @@ import AkashicIndex
 ///   沒有主來源、只有附加來源是合法狀態。連結狀態的前後照 `Entry.zoteroLinkState` 的既有定義具名（`zoteroLinkState`）。書目欄位不動。
 /// - 預設乾跑；乾跑不需要 git，實跑才驗。work 無法唯一定位時拒絕（#628／#641）。
 ///
-/// **誠實邊界**：被移除的來源若在 Zotero 端仍有那個條目，下一次 `import-zotero` 會為它另建一筆新 entry（沒有 entry 宣稱它了）——報告的
-/// `reimportNote` 說出這件事，行為由 `ZoteroSourceRemovalReimportTests` 釘住。要讓那個條目落在另一筆 work 上，那筆要先宣稱這個來源（攣生合併，
-/// 或手改 YAML）；本面不做「移到另一筆」。沒有具名逆操作：被移除的來源只在 git 的移除前副本與報告裡。
+/// **誠實邊界**：移除對「下一次 `import-zotero`」的意義**依移除之後還有沒有別的 entry 宣稱這個來源而定**，報告的 `reimportNote`
+/// （與每個被移除來源的 `reimportEffect`）逐來源說出來，宣稱者用 `ZoteroSourceClaims` 那一份定義算（匯入端路由與跨記錄檢查同一份，不另寫一份）：
+/// - `newEntry`：移除之後沒有任何 entry 宣稱它——Zotero 端仍有那個條目時，下一次匯入會另建一筆新 entry（行為由 `ZoteroSourceRemovalReimportTests` 釘住）；
+///   要讓它落在另一筆 work 上，那筆要先宣稱這個來源（攣生合併，或手改 YAML），本面不做「移到另一筆」。
+/// - `routesToOther`：仍由另一筆宣稱——匯入照常路由到那一筆、更新它、不新建（#610 的多筆宣稱是這個面的主場景：兩筆宣稱同一來源、其中一筆記錯了）。
+/// - `stillAmbiguous`：仍有兩筆以上宣稱——匯入端對它不更新任何一筆、不新建，列在 `ambiguousSourceClaims`。
+/// - `notAClaim`：沒記 `library_id` 的**附加**來源本來就不算宣稱者（`ZoteroSourceClaims.claims(of:)`），匯入端一向忽略它——移除它不改變任何匯入行為
+///   （#679 的出路：那個 twin 早在第一次匯入就造出來了，要另外處理）。
+/// 已在 Zotero 端刪除的來源（`orphaned`）不說——Zotero 端沒有那個條目，沒有「再匯入」可言。
+/// 沒有具名逆操作：被移除的來源只在 git 的移除前副本與報告裡。
 extension AkashicService {
 
     /// `--remove-field`（remove_fields）的一筆（只看參數的解析結果，#654 的形）。
@@ -303,6 +313,10 @@ extension AkashicService {
     /// MCP 面 `sourcesAdded` 列幾筆（b11c R1 verify 第 29／31 列）。每個 item 帶 index 的五個第三方字串（至多約 2 KB），一次至多 200 個
     /// digest，輸出進 LLM context、呼叫端無法在收到後丟棄已付的代價——`akashic_enrich` 的 items 與 `verdictsRetired` 的既有形：
     /// 截 20 筆、`sourcesAddedTotal`／`truncated` 揭露。**只有 MCP 面截**：CLI 傳 `sourcesLimit: nil` 全列。
+    ///
+    /// **`remove_sources` 也用這個上限（b13f R1 verify 第 30 列），形狀不同**：`sourcesRemoved` 逐筆帶的是**理由**（呼叫端送來、只進報告、
+    /// 全文不截——這一族的理由沒有別的地方記）與 index 的取得記錄（第三方字串，才是要限的）。所以 MCP 面**每一筆都列**（`digest`＋`reason`），
+    /// 只有前 `sourcesLimit` 筆多帶取得記錄，其後的省略並以 `detailsTruncated`／`detailsListed` 揭露——截掉整筆會讓第 21 筆以後的理由無處可記。
     public static let sourcesAddedCap = 20
 
     func addEntrySources(citekey: String, digests: [String], dryRun: Bool, sourcesLimit: Int?) throws -> String {
@@ -381,7 +395,7 @@ extension AkashicService {
         case .removeFields(let specs): return try removeEntryFields(citekey: citekey, specs: specs, dryRun: dryRun)
         case .addSources(let digests): return try addEntrySources(citekey: citekey, digests: digests, dryRun: dryRun, sourcesLimit: sourcesLimit)
         case .removeZoteroSources(let specs): return try removeEntryZoteroSources(citekey: citekey, specs: specs, dryRun: dryRun)
-        case .removeSources(let specs): return try removeEntrySources(citekey: citekey, specs: specs, dryRun: dryRun)
+        case .removeSources(let specs): return try removeEntrySources(citekey: citekey, specs: specs, dryRun: dryRun, sourcesLimit: sourcesLimit)
         }
     }
 
@@ -407,6 +421,7 @@ extension AkashicService {
     /// - 判定：理由必填、只進報告；實跑要求 work 檔已 commit 且乾淨（被移除的來源只剩 git 裡那一份）。預設乾跑，乾跑不需要 git。
     func removeEntryZoteroSources(citekey: String, specs: [RemoveZoteroSourceSpec], dryRun: Bool) throws -> String {
         var entry = try requireEntry(citekey)   // 無法唯一定位（#628／#641）與不存在都在這裡拒絕
+        let before = entry
         let stateBefore = entry.zoteroLinkState
         let present = ZoteroSourceClaims.sources(of: entry)
         let label = "work「\(displaySafeInvisible(citekey, max: 200))」"
@@ -423,8 +438,9 @@ extension AkashicService {
         }
         let reasonByKey = Dictionary(specs.map { ($0.source, $0.reason) }, uniquingKeysWith: { first, _ in first })
         var removed: [[String: Any]] = []
+        var removedKeys: [String] = []   // removed 的逐項來源鍵（對 reimportEffect 用）
         var removedPrimary = false
-        var anyLive = false
+        var liveKeys = Set<String>()   // 被移除的來源鍵之中，至少有一處在 Zotero 端沒被刪的（再匯入才有意義）
         var dropAdditional = Set<Int>()
         for s in present {
             guard let given = reasonByKey[s.key] else { continue }
@@ -437,7 +453,8 @@ extension AkashicService {
             case .additional(let i):
                 provenance = entry.additionalProvenance[i]; role = "additional"; dropAdditional.insert(i)
             }
-            if provenance.orphanedAt == nil { anyLive = true }
+            if provenance.orphanedAt == nil { liveKeys.insert(s.key) }
+            removedKeys.append(s.key)
             removed.append([
                 "source": displaySafeInvisible(s.key, max: 200),
                 "role": role,
@@ -454,12 +471,19 @@ extension AkashicService {
 
         // 寫入前的檢查兩種模式都跑（唯讀）：乾跑說「可以」時，實跑不會在內容閘上才被拒
         try store.preflightWrite(entry)
+        // 移除之後別的 entry 還宣稱這個來源嗎——決定 reimportNote 說什麼（b13f R1 verify 第 2／4／6／11 列）。乾跑也算，寫入不改別的 entry
+        let others = try store.load().entries.filter { $0.id != entry.id }
+        let fates = Self.reimportFates(liveKeys: liveKeys, before: before, others: others)
+        var rebuildFailure: Error?
         if !dryRun {
             try assertRecordsRecoverable([(entry.id, label)],
                                          action: "這次會從 \(label)移除 \(removed.count) 個 Zotero 來源",   // display-safe-exempt: removed.count 是 Int
                                          issue: "#680")
             try store.writeEntry(entry)
-            try LibraryIndex(store: store).rebuild()
+            rebuildFailure = rebuildIndexCapturingFailure()
+        }
+        for i in removed.indices {
+            if let fate = fates[removedKeys[i]] { removed[i]["reimportEffect"] = fate.effect }
         }
 
         let remaining = ZoteroSourceClaims.sources(of: entry)
@@ -488,15 +512,79 @@ extension AkashicService {
             payload["primaryRemovedNote"] = "主來源已移除；剩下的附加來源不升格為主來源——升格會把書目欄位的改寫權交給另一個 library"
                 + "（與 App 的「與 Zotero 脫鉤」同一條裁決）。這筆的書目欄位之後不再被任何 Zotero 條目改寫"
         }
-        if anyLive {
-            payload["reimportNote"] = "被移除的來源若在 Zotero 端仍有那個條目，下一次 import-zotero 會為它另建一筆新 entry（已沒有任何 entry 宣稱它）；"
-                + "要讓它落在另一筆 work 上，那筆要先宣稱這個來源（攣生合併，或手改 YAML）"
+        // 這次移除讓這筆從「不是整筆 orphan」變成 orphaned：App 的 Orphans 頁會把它列在「整筆 orphan（Zotero 端已刪除）」並提供
+        // 移到垃圾桶／與 Zotero 脫鉤兩個破壞性動作——而這筆的 Zotero 條目並沒有被刪（b13f R1 verify 第 22 列）
+        if entry.zoteroLinkState == .orphaned && stateBefore != .orphaned {
+            payload["orphanedNote"] = "這次移除讓這筆的連結狀態變成 orphaned：App 的 Orphans 頁會把它列在「整筆 orphan（Zotero 端已刪除）」，"
+                + "並提供移到垃圾桶與「與 Zotero 脫鉤」兩個破壞性動作——但這筆沒有 Zotero 條目被刪，只是剩下的附加來源都已在 Zotero 端刪除；動手前先確認"
         }
+        if !fates.isEmpty {
+            payload["reimportNote"] = fates.keys.sorted().compactMap { fates[$0]?.note }.joined(separator: "\n")   // display-safe-exempt: fates 的每個 note 在 reimportFates 內已逐項 displaySafeInvisible（來源鍵與 citekey），其餘是字面
+        }
+        if let rebuildFailure { Self.noteIndexRebuildFailure(rebuildFailure, in: &payload) }
         return try jsonString(payload)
     }
 
+    /// 一個被移除的來源在移除之後對「下一次 import-zotero」的意義（見檔頭〈誠實邊界〉）。`effect` 是封閉四值，`note` 是給人看的一句話（已消毒）。
+    struct ReimportFate {
+        let effect: String
+        let note: String
+    }
+
+    /// `liveKeys`：被移除的來源鍵之中，至少有一處在 Zotero 端沒被刪的。`before`：移除之前的這一筆；`others`：store 裡的其他 entry。
+    /// 宣稱者用 `ZoteroSourceClaims`（匯入端路由與跨記錄檢查的同一份定義）：「本來是不是宣稱者」看 `claims(of: before)`（沒記 `library_id` 的
+    /// 附加來源不算），「移除之後還有誰宣稱」看 `claimants(others)`（本筆已經不宣稱這個來源了——移除的就是它）。
+    static func reimportFates(liveKeys: Set<String>, before: Entry, others: [Entry]) -> [String: ReimportFate] {
+        guard !liveKeys.isEmpty else { return [:] }
+        let claimedBefore = Set(ZoteroSourceClaims.claims(of: before).map(\.key))
+        let claimants = ZoteroSourceClaims.claimants(others)
+        var citekeyByID: [UUID: String] = [:]
+        for e in others where citekeyByID[e.id] == nil { citekeyByID[e.id] = e.citekey }
+        func names(_ ids: [UUID]) -> [String] { ids.compactMap { citekeyByID[$0] }.sorted() }
+        func listed(_ citekeys: [String]) -> String {
+            citekeys.prefix(5).map { "「" + displaySafeInvisible($0, max: 120) + "」" }.joined(separator: "、")
+                + (citekeys.count > 5 ? "…共 \(citekeys.count) 筆" : "")   // display-safe-exempt: Int
+        }
+        var out: [String: ReimportFate] = [:]
+        for key in liveKeys {
+            let label = "來源「\(displaySafeInvisible(key, max: 200))」"
+            guard claimedBefore.contains(key) else {
+                out[key] = ReimportFate(effect: "notAClaim", note: label
+                    + "是沒記 library_id 的附加來源：本來就不算宣稱者（匯入端一向忽略它），移除它不改變任何匯入行為——"
+                    + "若這個條目曾因它另建過一筆 twin，那一筆要另外處理（攣生合併）")   // display-safe-exempt: label 已消毒；其餘是字面
+                continue
+            }
+            let holders = names(claimants[key] ?? [])
+            let legacyCaveat = key.hasPrefix("?:") ? "（舊檔的認領還要看別的 library 是否持有同一個裸 key，#607）" : ""
+            switch holders.count {
+            case 0:
+                var note = label + "移除之後沒有任何 entry 宣稱它：它在 Zotero 端仍有那個條目時，下一次 import-zotero 會為它另建一筆新 entry；"
+                    + "要讓它落在另一筆 work 上，那筆要先宣稱這個來源（攣生合併，或手改 YAML）"
+                // 複合鍵的來源，匯入端在複合鍵對不到時會退到「沒記 library_id 的舊檔」的裸 key 認領（#607）
+                if let colon = key.firstIndex(of: ":"), !key.hasPrefix("?:") {
+                    let bare = ZoteroSourceClaims.key(libraryID: nil, zoteroKey: String(key[key.index(after: colon)...]))
+                    let legacy = names(claimants[bare] ?? [])
+                    if !legacy.isEmpty {
+                        note += "。另有 \(legacy.count) 筆舊檔（沒記 library_id 的主來源）宣稱同一個裸 key：\(listed(legacy))——匯入端依 #607 的規則"   // display-safe-exempt: legacy.count 是 Int；listed 已消毒
+                            + "可能把它認領到那一筆（不新建）、或舊檔兩筆以上時整個略過，其餘情形才另建一筆"
+                    }
+                }
+                out[key] = ReimportFate(effect: "newEntry", note: note)
+            case 1:
+                out[key] = ReimportFate(effect: "routesToOther", note: label
+                    + "移除之後仍由\(listed(holders))宣稱：下一次 import-zotero 照常路由到那一筆（更新它、不新建）\(legacyCaveat)")   // display-safe-exempt: label 與 listed 已消毒；legacyCaveat 是字面
+            default:
+                out[key] = ReimportFate(effect: "stillAmbiguous", note: label
+                    + "移除之後仍有 \(holders.count) 筆 entry 宣稱它（\(listed(holders))）：下一次 import-zotero 對它不更新任何一筆的書目欄位、不新建，"   // display-safe-exempt: holders.count 是 Int；listed 已消毒
+                    + "列在 ambiguousSourceClaims；處置見 akashic validate 的跨記錄警告")
+            }
+        }
+        return out
+    }
+
     /// `--remove-source`（#677）：收回 `akashic.sources` 上的宣告。契約見本檔檔頭。
-    func removeEntrySources(citekey: String, specs: [RemoveSourceSpec], dryRun: Bool) throws -> String {
+    func removeEntrySources(citekey: String, specs: [RemoveSourceSpec], dryRun: Bool,
+                            sourcesLimit: Int? = AkashicService.sourcesAddedCap) throws -> String {
         var entry = try requireEntry(citekey)   // 無法唯一定位（#628／#641）與不存在都在這裡拒絕
         let missing = specs.filter { !entry.akashic.sources.contains($0.digest) }.map(\.digest)
         guard missing.isEmpty else {
@@ -510,21 +598,23 @@ extension AkashicService {
         entry.akashic.sources.removeAll { gone.contains($0) }
         // 寫入前的檢查兩種模式都跑（唯讀）：乾跑說「可以」時，實跑不會在內容閘上才被拒
         try store.preflightWrite(entry)
+        var rebuildFailure: Error?
         if !dryRun {
             try assertRecordsRecoverable([(entry.id, "work「\(displaySafeInvisible(citekey, max: 200))」")],
                                          action: "這次會從 work「\(displaySafeInvisible(citekey, max: 200))」收回 \(specs.count) 份副本宣告",   // display-safe-exempt: specs.count 是 Int
                                          issue: "#677")
             try store.writeEntry(entry)
-            try LibraryIndex(store: store).rebuild()
+            rebuildFailure = rebuildIndexCapturingFailure()
         }
         var payload: [String: Any] = [
             "citekey": displaySafe(citekey, max: 200),
             "dryRun": dryRun,   // display-safe-exempt: Bool
-            "sourcesRemoved": specs.map { s -> [String: Any] in
+            "sourcesRemoved": specs.enumerated().map { i, s -> [String: Any] in
                 var item: [String: Any] = ["digest": s.digest,   // display-safe-exempt: 已過 isWellFormedDigest
                                            // 理由不進 store，報告是它唯一的一份——不截在入口上限之下（#588 R1 verify 的同一條）
                                            "reason": displaySafe(s.reason, max: Self.maxStatementBytes)]   // display-safe-exempt: reason 是呼叫端原文、在這裡消毒一次
-                if case .stored(let e)? = presence?[s.digest] {
+                // 取得記錄（第三方字串）只帶前 sourcesLimit 筆（`sourcesAddedCap` 的 doc：理由不截，取得記錄才是要限的）
+                if sourcesLimit.map({ i < $0 }) ?? true, case .stored(let e)? = presence?[s.digest] {
                     for (from, to, cap) in [("media-type", "mediaType", 200), ("retrieved", "retrieved", 200),
                                             ("origin", "origin", 800), ("acquisition", "acquisition", 200),
                                             ("note", "note", 800)] {
@@ -538,9 +628,14 @@ extension AkashicService {
             "blobNote": "只收回宣告：sources/ 裡的內容與 index.jsonl 的取得記錄原封不動（可能被別筆 work 宣告或被欄位層級的 reference 引用）；刪存檔是另一件事",
         ]
         if presence == nil { payload["contentInfoUnreadable"] = true }   // display-safe-exempt: Bool
+        if let limit = sourcesLimit, specs.count > limit {
+            payload["detailsTruncated"] = true   // display-safe-exempt: Bool
+            payload["detailsListed"] = limit   // display-safe-exempt: Int
+        }
         if dryRun {
             payload["dryRunNote"] = "乾跑：沒有寫入。實跑（CLI --apply、MCP dry_run:false）要求這筆 work 的檔已在 git 裡 commit、乾淨"
         }
+        if let rebuildFailure { Self.noteIndexRebuildFailure(rebuildFailure, in: &payload) }
         return try jsonString(payload)
     }
 
@@ -579,12 +674,13 @@ extension AkashicService {
         let load = try store.load()
         let keyEdges = Self.venueKeyEdgesFromRemovedValues(before: before, after: entry, venues: load.venues)
         let apa7Missing = Self.apa7RequiredNowMissing(before: before, after: entry, load: load)
+        var rebuildFailure: Error?
         if !dryRun {
             try assertRecordsRecoverable([(entry.id, "work「\(displaySafeInvisible(citekey, max: 200))」")],
                                          action: "這次會從 work「\(displaySafeInvisible(citekey, max: 200))」移除 \(specs.count) 個欄位",   // display-safe-exempt: specs.count 是 Int
                                          issue: "#544")
             try store.writeEntry(entry)
-            try LibraryIndex(store: store).rebuild()
+            rebuildFailure = rebuildIndexCapturingFailure()
         }
 
         var payload: [String: Any] = [
@@ -622,6 +718,7 @@ extension AkashicService {
             payload["zoteroNote"] = "這筆的主來源是 Zotero：日後 pull 若更新這筆（Zotero 端有改、或對映演進）會整份替換 fields、"
                 + "把被移除的值帶回來——在 Zotero 那邊一併改掉"
         }
+        if let rebuildFailure { Self.noteIndexRebuildFailure(rebuildFailure, in: &payload) }
         return try jsonString(payload)
     }
 

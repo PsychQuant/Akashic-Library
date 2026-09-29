@@ -79,6 +79,40 @@ final class DuplicateReferenceScanTests: XCTestCase {
         XCTAssertEqual(Set(found.map(\.owner)), ["a2020a"])
     }
 
+    /// b13f R1 verify 第 18 列：處置依種類與欄位。venue 上**位元組不同**的變體有工具面（`update-venue --remove-reference` 以位元組定位，#673）；
+    /// 位元組完全相同的重複沒有（`--remove-reference` 對它具名拒絕，`zero-instance-guards` 第 59 列）；`paginated` 與其他種類都沒有。
+    /// 首版一律說「目前沒有工具面，手改 YAML」——對 venue 的位元組變體已是過期的出路。
+    func testTheDispositionNamesTheRemovalFaceOnlyWhereItReallyWorks() throws {
+        let content = "sha256:" + String(repeating: "c", count: 64)
+        func namesRef(_ value: String) -> ProvenanceReference {
+            ProvenanceReference(field: "names", value: value,
+                                kind: .retrieval(url: "https://example.org/a", retrieved: "2026-09-29", status: 200, mediaType: nil, content: content))
+        }
+        func namedVenue(_ key: String, _ refs: [ProvenanceReference]) throws {
+            var v = Venue(key: key, type: .periodical)
+            v.names = TimelineOf([TemporalValue(value: "Sankhy\u{0101}", range: DateRange())])
+            v.references = refs
+            try store.writeVenue(v)
+        }
+        let nfc = "Sankhy\u{0101}", nfd = "Sankhya\u{0304}"
+        try namedVenue("variant", [namesRef(nfc), namesRef(nfd)])                 // 只差位元組
+        try namedVenue("identical", [namesRef(nfc), namesRef(nfc)])              // 位元組完全相同
+        try namedVenue("mixed", [namesRef(nfc), namesRef(nfc), namesRef(nfd)])   // 兩種都有
+        try venue("pag", [paginated("不印頁碼"), paginated("不印頁碼")])           // paginated：移除面明文不收
+        func message(_ owner: String) throws -> String {
+            try XCTUnwrap(store.health(from: try store.load()).duplicateReferences.first { $0.owner == owner }?.issue.message)
+        }
+        let variant = try message("variant")
+        XCTAssertTrue(variant.contains("update-venue --remove-reference 以位元組定位移除多的那一筆"), variant)
+        XCTAssertFalse(variant.contains("目前沒有工具面"), "位元組不同的變體有工具面：\(variant)")
+        let identical = try message("identical")
+        XCTAssertTrue(identical.contains("目前沒有工具面，手改 YAML") && !identical.contains("--remove-reference"), identical)
+        let mixed = try message("mixed")
+        XCTAssertTrue(mixed.contains("位元組不同的變體用 update-venue --remove-reference") && mixed.contains("位元組完全相同的重複目前沒有工具面"), mixed)
+        let pag = try message("pag")
+        XCTAssertTrue(pag.contains("目前沒有工具面，手改 YAML") && !pag.contains("--remove-reference"), "paginated 明文不收：\(pag)")
+    }
+
     /// 判定欄位歸 D64 管，本族不重報——同一件事出兩則是雜訊。
     func testVerdictFieldsAreLeftToTheVerdictFamily() throws {
         let v = ProvenanceReference(field: ProvenanceReference.resolutionConfirmedField,

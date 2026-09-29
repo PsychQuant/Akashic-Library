@@ -101,8 +101,11 @@ struct VenueCmd: ParsableCommand {
                 let value = (r["value"] as? String).map { " 「\($0)」" } ?? ""
                 var line = "    [\(field)]\(value)"   // display-safe-exempt: service 已逐欄位消毒，displaySafe 不冪等
                 if r["kind"] as? String == "judgement" {
-                    let n = (r["rests_on"] as? [String])?.count ?? 0
-                    line += " judgement：\(r["statement"] as? String ?? "")（證據 \(n) 份）"   // display-safe-exempt: statement 取自 service（已 displaySafe）；n 是 Int
+                    // `rests_on` 只列前 5 個（`referenceDictRestsOnCap`），總數在 `rests_on_total`——數陣列長度會在超過 5 個時印出錯的數字（b13f R1 verify 第 17 列）
+                    let listedCount = (r["rests_on"] as? [String])?.count ?? 0
+                    let n = r["rests_on_total"] as? Int ?? listedCount
+                    let capped = n > listedCount ? "，`--json` 也只列前 \(listedCount) 個 digest、逐字對照看 YAML" : ""   // display-safe-exempt: Int
+                    line += " judgement：\(r["statement"] as? String ?? "")（證據 \(n) 份\(capped)）"   // display-safe-exempt: statement 取自 service（已 displaySafe）；n 與 capped 是 Int／字面
                 } else {
                     var bits: [String] = []
                     if let u = r["url"] as? String { bits.append("url \(u)") }
@@ -304,13 +307,14 @@ struct UpdateVenueCmd: ParsableCommand {
                                discussion: "每項 {field, value?, reason, …縮小定位的鍵}：field 收 names／authorized／issn／note（通用寫入面只收前兩格，移除面收全部四格——"
                                    + "手改或舊資料可能有 authorized／note 的 reference），names／authorized／issn 要帶 value（note 不帶）；reason 必填、至多 4,096 位元組。"
                                    + "定位是 field ＋ value 的位元組相等（canonical 相等而位元組不同的是另一筆），可再以 kind／url／retrieved／status／media_type／content／statement／rests_on"
-                                   + "（同 --references 的鍵名）縮小——給了的鍵都要相符。定位不到、定位到多筆（列出各筆的區別讓你加鍵縮小；位元組完全相同的重複不判定）、"
+                                   + "（同 --references 的鍵名）縮小——給了的鍵都要相符；縮小鍵只能指名有值的欄位，寫不出「沒有 media_type」（要移除沒有的那一筆，先移除帶的那一筆再呼叫第二次）。定位不到、定位到多筆（列出各筆的區別讓你加鍵縮小；位元組完全相同的重複不判定）、"
                                    + "兩個定位指到同一筆，都整批拒絕、零寫入。用 `akashic venue <key>` 的 references 看現有的。"
                                    + "移除是判定：理由只印在報告（referencesRemoved，全文），不寫進 store——要留在 git 就寫進 commit message；"
                                    + "被移除的 reference 只剩 git 的移除前副本，所以這個 venue 檔要已在 git 裡 commit（tracked、無未提交修改），否則整批拒絕。"
                                    + "只移除 reference：它指的號或名字仍在（移除號用 --remove-issn）。"
                                    + "resolution verdict 三欄不在本面（resolve-venues --demote／--reject）、paginated 的判定不在本面（--clear-paginated），都具名拒絕並指路。"
-                                   + "一次至多 200 筆。報告：referencesRemoved（逐筆帶被移除 reference 的內容與理由）、referencesTotal（剩下幾筆）"))
+                                   + "一次至多 200 筆。報告：referencesRemoved（逐筆帶被移除 reference 的內容與理由）、referencesTotal（剩下幾筆）；"
+                                   + "寫檔之後 index 重建失敗時呼叫仍回成功、報告多 indexRebuilt: false 與 indexNote（要跑 akashic doctor 重建）。沒有乾跑，CLI 也不過目標 store 確認閘：防線是 git 閘與整批拒絕零寫入"))
     var removeReference: String?
 
     /// `--references`／`--remove-reference` 的 JSON——不是 JSON 陣列是用法錯誤（64），在 `validate()` 擋；`run()` 用同一個解析。
@@ -357,7 +361,8 @@ struct UpdateVenueCmd: ParsableCommand {
                                       restsOn: restsOn.isEmpty ? nil : restsOn,
                                       removeISSN: removeISSN.isEmpty ? nil : removeISSN,
                                       references: try Self.referencesArray(references),
-                                      removeReference: try Self.jsonObjectArray(removeReference, flag: "--remove-reference")))
+                                      removeReference: try Self.jsonObjectArray(removeReference, flag: "--remove-reference"),
+                                      removalDetailLimit: nil))   // CLI 全列（輸出進人的終端機）；MCP 面截，理由見 `removalDetailCap`
     }
 }
 

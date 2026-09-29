@@ -136,6 +136,7 @@ final class VenueReferenceRemovalTests: XCTestCase {
             let s = String(describing: err)
             XCTAssertTrue(s.contains("2 筆"), s)
             XCTAssertTrue(s.contains("portal.issn.org") && s.contains("crossref.org"), "要列出各筆的區別：\(s)")
+            XCTAssertFalse(s.contains("寫不出「沒有 media_type」"), "這兩筆的差別是 url，不是 media_type 的有無——不提那個限制：\(s)")
         }
         XCTAssertEqual(try snapshot(), before, "零寫入")
         _ = try remove([item("issn", "0003-066X", extra: ["url": "https://www.crossref.org/x"])], on: svc)
@@ -322,6 +323,79 @@ final class VenueReferenceRemovalTests: XCTestCase {
         _ = try store.writeVenue(v)
         _ = try remove([item("authorized", "American Psychologist"), item("note", nil)], on: service.committed(root))
         XCTAssertEqual(try venue().references.map(\.field), ["issn", "issn", "names"])
+    }
+
+
+    // MARK: - b13f R1 verify
+
+    /// 第 20 列：縮小鍵只能指名有值的欄位——沒給的鍵是「不參與比對」，不是「要求缺席」，所以**寫不出「沒有 media_type」**。
+    /// 同一 (field, value) 兩筆 retrieval、只差其中一筆帶 media_type 時：拒絕訊息要說出這個限制（首版叫人「加鍵縮小」，而那個形狀加什麼鍵都選不到沒有的那一筆），
+    /// 並列出各筆的 media_type；實際的出路是兩次呼叫（先移除帶的、再移除剩下的）。
+    func testTheLocatorCannotExpressAnAbsentMediaTypeAndTheMessageSaysSo() throws {
+        try seed()
+        var noMedia = retrieval()
+        noMedia["media_type"] = nil   // 與 seed 的第一筆逐欄相同，只差沒有 media_type
+        _ = try service.updateVenue(key: "ampsy", addNames: nil, note: nil, type: nil, references: [noMedia])
+        let svc = service.committed(root)
+        let before = try snapshot()
+        XCTAssertThrowsError(try remove([item("issn", "0003-066X")], on: svc)) { err in
+            let s = String(describing: err)
+            XCTAssertTrue(s.contains("2 筆") && s.contains("寫不出「沒有 media_type」"), "要說出限制：\(s)")
+            XCTAssertTrue(s.contains("media_type=text/html") && s.contains("media_type=（無）"), "要列出各筆的 media_type 讓人看得到差別：\(s)")
+        }
+        XCTAssertEqual(try snapshot(), before, "零寫入")
+        // 給 media_type 只選得到帶的那一筆
+        _ = try remove([item("issn", "0003-066X", extra: ["media_type": "text/html"])], on: svc)
+        let left = try venue().references.filter { $0.field == "issn" && $0.value == "0003-066X" }
+        XCTAssertEqual(left.count, 1)
+        if case .retrieval(_, _, _, let media, _) = try XCTUnwrap(left.first).kind { XCTAssertNil(media, "剩下的是沒有 media_type 的那一筆") } else { XCTFail("retrieval") }
+        // 第二次呼叫：現在只剩一筆，不縮小就定位得到（上一次寫入之後要重新 commit，閘看的是工作樹乾不乾淨）
+        _ = try remove([item("issn", "0003-066X")], on: service.committed(root))
+        XCTAssertEqual(try venue().references.filter { $0.field == "issn" && $0.value == "0003-066X" }.count, 0)
+    }
+
+    /// 第 30 列：MCP 面的移除報告每一筆都列（`field`／`value`／`reason`——理由只在報告裡有一份，不截），只有前 `removalDetailCap` 筆多帶 reference 的其餘內容
+    /// （第三方字串）；其後的省略並以 `detailsTruncated`／`detailsListed` 揭露。CLI（`removalDetailLimit: nil`）全列。
+    func testTheMCPReportKeepsEveryReasonButOnlyTheFirstTwentyDetails() throws {
+        _ = try service.addVenue(key: "ampsy", names: ["American Psychologist"], type: "periodical", note: nil)
+        var v = try venue()
+        let total = AkashicService.removalDetailCap + 2
+        for i in 0..<total {
+            v.references.append(try ProvenanceReference(field: "names", value: "American Psychologist", url: "https://example.org/\(i)",
+                                                        retrieved: "2026-09-29", status: 200, mediaType: nil, content: digest, judgement: nil, restsOn: []))
+        }
+        _ = try store.writeVenue(v)
+        let svc = service.committed(root)
+        let items: [Any] = (0..<total).map { i in item("names", "American Psychologist", reason: "理由 \(i)", extra: ["url": "https://example.org/\(i)"]) }
+        let out = try json(try svc.updateVenue(key: "ampsy", addNames: nil, note: nil, type: nil, removeReference: items))
+        let removed = try XCTUnwrap(out["referencesRemoved"] as? [[String: Any]])
+        XCTAssertEqual(removed.count, total, "每一筆都列")
+        XCTAssertEqual(removed.map { $0["reason"] as? String }, (0..<total).map { "理由 \($0)" }, "理由是唯一的一份，逐筆都在、不截")
+        XCTAssertEqual(removed.map { $0["field"] as? String }, Array(repeating: "names", count: total))
+        XCTAssertNotNil(removed[AkashicService.removalDetailCap - 1]["url"], "前 20 筆帶完整內容")
+        XCTAssertNil(removed[AkashicService.removalDetailCap]["url"], "第 21 筆起只回 field／value／reason")
+        XCTAssertNil(removed[total - 1]["kind"])
+        XCTAssertEqual(removed[total - 1]["value"] as? String, "American Psychologist")
+        XCTAssertEqual(out["detailsTruncated"] as? Bool, true)
+        XCTAssertEqual(out["detailsListed"] as? Int, AkashicService.removalDetailCap)
+        XCTAssertEqual(try venue().references.count, 0)
+    }
+
+    func testTheCLIReportListsEveryDetail() throws {
+        _ = try service.addVenue(key: "ampsy", names: ["American Psychologist"], type: "periodical", note: nil)
+        var v = try venue()
+        let total = AkashicService.removalDetailCap + 2
+        for i in 0..<total {
+            v.references.append(try ProvenanceReference(field: "names", value: "American Psychologist", url: "https://example.org/\(i)",
+                                                        retrieved: "2026-09-29", status: 200, mediaType: nil, content: digest, judgement: nil, restsOn: []))
+        }
+        _ = try store.writeVenue(v)
+        let items: [Any] = (0..<total).map { i in item("names", "American Psychologist", reason: "理由 \(i)", extra: ["url": "https://example.org/\(i)"]) }
+        let out = try json(try service.committed(root).updateVenue(key: "ampsy", addNames: nil, note: nil, type: nil, removeReference: items, removalDetailLimit: nil))
+        let removed = try XCTUnwrap(out["referencesRemoved"] as? [[String: Any]])
+        XCTAssertEqual(removed.count, total)
+        XCTAssertTrue(removed.allSatisfy { $0["url"] != nil && $0["kind"] as? String == "retrieval" }, "CLI 全列")
+        XCTAssertNil(out["detailsTruncated"])
     }
 
     // MARK: - 讀取面

@@ -3917,14 +3917,15 @@ public final class AkashicService {
                             restsOn: [String]? = nil,
                             removeISSN: [String]? = nil,
                             references: [Any]? = nil,
-                            removeReference: [Any]? = nil) throws -> String {
+                            removeReference: [Any]? = nil,
+                            removalDetailLimit: Int? = AkashicService.removalDetailCap) throws -> String {
         let args = try Self.updateVenueArguments(addNames: addNames, type: rawType, addISSN: addISSN, addVariant: addVariant,
                                                  authorize: authorize, paginated: paginated, clearPaginated: clearPaginated,
                                                  judgement: judgement, restsOn: restsOn, removeISSN: removeISSN,
                                                  references: references, note: note, removeReference: removeReference)
         // #673：references 的移除面——單獨呼叫（`updateVenueArguments` 已驗過沒有其他腿），自己載入、定位、過 git 閘、寫入
         if !args.removeReferences.isEmpty {
-            return try removeVenueReferences(key: key, specs: args.removeReferences)
+            return try removeVenueReferences(key: key, specs: args.removeReferences, detailLimit: removalDetailLimit)   // CLI 傳 nil 全列；MCP 面截（`removalDetailCap` 的 doc）
         }
         let load = try store.load()
         // #670：key 重複時寫進哪一筆是猜——整批拒絕、零寫入（同 #627 對 citekey）

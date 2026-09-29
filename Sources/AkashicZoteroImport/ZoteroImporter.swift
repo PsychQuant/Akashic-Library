@@ -21,6 +21,8 @@ public struct ImportReport: Equatable {
     /// 這些條目本趟**不更新任何一筆書目欄位、也不新建**——路由分不出是哪一筆，猜錯會把一筆的書目欄位寫進另一筆。
     /// 但 orphan 標記照常處理（#682）：Zotero 端刪除時各宣稱者都被標（偵測迴圈逐筆看每一筆自己的來源）、復原時各宣稱者的標記都清
     /// （清掉的列在 `orphanCleared`／`secondarySourceRestored`）——「item 在不在」不需要先判定哪一筆是正主。
+    /// **一個保守的例外**：`?:<zotero_key>`（沒記 library_id 的舊檔）那一桶只在歸屬沒有爭議——沒有別的 library 持有同一個裸 key——時才清
+    /// （與單一舊檔認領同一個條件，#607），別的 library 也持有它時標記留著。這是刻意的保守，不是比實作寬的承諾。
     public var ambiguousSourceClaims: [String: [String]] = [:]
     public var unchanged: Int = 0
     /// 解析過的作者被保留、未跟 Zotero 同步的 entries（資訊性）。
@@ -89,7 +91,7 @@ public struct ZoteroImporter {
         // #605：附加來源的 composite key → entry id。主來源優先（先查 byCompositeKey）。
         // libraryID 缺席的附加來源不進索引，也不是宣稱者（`ZoteroSourceClaims.claims(of:)`）。合併閘（`fieldsLostByMerging`）只保證合併
         // 不會把被併者的這種來源新收成附加來源（#605 R1 verify #1）；手改與舊檔裡已經有的不受它約束——這種來源對不回任何條目，再匯入時
-        // 同一個 Zotero 條目會另建一筆 twin（#679）。`Entry.validate()` 對它報 warning，出路是補 library_id 或用 #680 的移除面拿掉。
+        // 同一個 Zotero 條目在沒有別的 entry 宣稱它時會另建一筆 twin（#679）。`Entry.validate()` 對它報 warning，出路是補 library_id 或用 #680 的移除面拿掉。
         var secondaryByComposite: [String: UUID] = [:]
         // #607：裸 key → 以 composite 持有它的 library（主來源與附加來源都算）。legacy 檔只在
         // 這個集合**不含其他 library** 時才以裸 key 認領——附加來源持有的裸 key 同樣是「已被持有」。

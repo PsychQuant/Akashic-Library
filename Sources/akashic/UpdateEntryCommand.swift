@@ -53,7 +53,10 @@ struct UpdateEntryCmd: ParsableCommand {
                              + "要留在 git 就寫進 commit message。被移除的來源只剩 git 的移除前副本，所以實跑要求這筆 work 的檔已在 git 裡 commit、乾淨。"
                              + "主來源移除而附加來源仍在時，附加來源不升格為主來源（升格會把書目欄位的改寫權交給另一個 library，同 App 的「與 Zotero 脫鉤」；"
                              + "primaryRemovedNote 說明）；連結狀態前後在 zoteroLinkState（intact／orphaned／additionalSourceOrphaned）。"
-                             + "被移除的來源若在 Zotero 端仍有那個條目，下一次 import-zotero 會為它另建一筆新 entry（reimportNote）。"
+                             + "移除之後再匯入的後果依「還有沒有別的 entry 宣稱這個來源」而定（reimportNote，每個來源另有 reimportEffect）："
+                             + "沒有＝Zotero 端仍有那個條目時下一次 import-zotero 會另建一筆新 entry（newEntry）；只剩一筆＝照常路由到那一筆（routesToOther）；"
+                             + "兩筆以上＝仍略過、列在 ambiguousSourceClaims（stillAmbiguous）；沒記 library_id 的附加來源本來就不算宣稱者、移除它不改變匯入行為（notAClaim）。"
+                             + "移除讓這筆變成 orphaned（只剩已在 Zotero 端刪除的附加來源）時另附 orphanedNote。"
                              + "這筆沒有的來源、同來源兩次、形狀錯、理由空白或過長、一次超過 200 個，都整批拒絕、零寫入（#680）"))
     var removeZoteroSource: [String] = []
 
@@ -64,6 +67,7 @@ struct UpdateEntryCmd: ParsableCommand {
                              + "reference 引用；報告的 blobNote 說明），欄位層級的 references 也不動。不要求本機有位元組；報告帶 index 的取得記錄"
                              + "（origin、mediaType、note…）讓乾跑時認得出是哪份內容。實跑要求這筆 work 的檔已在 git 裡 commit、乾淨。"
                              + "格式錯、digest 形狀不對、理由空白或過長、同一個 digest 兩次、一次超過 200 個，都整批拒絕、零寫入。"
+                             + "寫檔之後 index 重建失敗時呼叫仍回成功、報告多 indexRebuilt: false 與 indexNote（要跑 akashic doctor 重建）；MCP 面只有前 20 筆帶取得記錄（CLI 全列）。"
                              + "不與另外三條腿（--remove-field／--add-source／--remove-zotero-source）組合（#677）"))
     var removeSource: [String] = []
 

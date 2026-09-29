@@ -30,6 +30,8 @@ final class AdditionalSourceWithoutLibraryTests: XCTestCase {
         XCTAssertEqual(issue.severity, .warning, "decode 不拒收，validate 出聲")
         XCTAssertTrue(issue.message.contains("?:GROUPKEY"), "要列出來源鍵（也是移除面的定位鍵）：\(issue.message)")
         XCTAssertTrue(issue.message.contains("twin") && issue.message.contains("再匯入"), "後果：\(issue.message)")
+        // b13f R1 verify 第 36 列：單筆 validate 看不到別的 entry——「另建 twin」是有條件的（另一筆已宣稱那個條目時匯入路由到那一筆）
+        XCTAssertTrue(issue.message.contains("若沒有別的 entry") && issue.message.contains("照常路由"), "後果是有條件的：\(issue.message)")
         XCTAssertTrue(issue.message.contains("補上") && issue.message.contains("library_id"), "出路一：補 library_id：\(issue.message)")
         XCTAssertTrue(issue.message.contains("remove-zotero-source") && issue.message.contains("remove_zotero_sources"),
                       "出路二：移除面（CLI 與 MCP 各一個名字）：\(issue.message)")
@@ -155,5 +157,94 @@ final class ZoteroSourceRemovalReimportTests: XCTestCase {
         let created = try XCTUnwrap(try store.load().entries.first { $0.citekey == after.created[0] })
         XCTAssertEqual(created.provenance?.zoteroKey, "KEYGRP01")
         XCTAssertEqual(created.provenance?.libraryID, 5)
+    }
+}
+
+
+/// b13f R1 verify 第 2／4／6／11 列：#680 的 `reimportNote` 首版無條件說「下一次匯入會另建一筆新 entry（已沒有任何 entry 宣稱它）」。
+/// 報告說出口的後果要用匯入的行為釘住——兩個首版說假話的形狀：
+/// (1) #610 的主場景：兩筆宣稱同一個來源，從記錯的那一筆移除之後另一筆仍宣稱它，匯入路由到那一筆、**不新建**；
+/// (2) #679 的出路：沒記 library_id 的附加來源本來就不算宣稱者，移除它**不改變任何匯入行為**。
+final class ZoteroSourceRemovalReimportBehaviourTests: XCTestCase {
+    private var dir: URL!
+    private var store: LibraryStore!
+    private var importer: ZoteroImporter!
+    private var service: AkashicService!
+    private var fixture: ZoteroFixture!
+
+    override func setUpWithError() throws {
+        dir = FileManager.default.temporaryDirectory.appendingPathComponent("akashic-zrm-imp2-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let home = dir.appendingPathComponent("home")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        store = LibraryStore(root: dir.appendingPathComponent("library"), key: nil, environment: ["AKASHIC_HOME": home.path])
+        try store.ensureLayout()
+        fixture = try ZoteroFixture(dir: dir)
+        try fixture.seedStandard()
+        try fixture.db.execute("INSERT INTO items VALUES (31,1,'KEYGRP01',9,5)")
+        try fixture.addField(item: 31, field: 1, value: "Identifiability of polychoric models (group copy)", valueID: 131)
+        importer = ZoteroImporter(store: store)
+        _ = try importer.run(zoteroDB: fixture.dbURL, now: Date(timeIntervalSince1970: 1_753_000_000))
+        service = AkashicService(root: store.root, key: nil, environment: ["AKASHIC_HOME": home.path])
+    }
+    override func tearDownWithError() throws { try? FileManager.default.removeItem(at: dir) }
+
+    private func entry(zoteroKey: String) throws -> Entry {
+        try XCTUnwrap(try store.load().entries.first { $0.provenance?.zoteroKey == zoteroKey })
+    }
+    private func commit() throws {
+        try StoreVersion.write(root: store.root, format: StoreVersion.supported)
+        GitFixture.initRepo(store.root)
+        GitFixture.commitAll(store.root, message: "seed")
+    }
+    private func removeSource(_ spec: String, from citekey: String) throws -> [String: Any] {
+        let out = try service.updateEntry(citekey: citekey, removeFields: nil, addSources: nil, removeZoteroSources: [spec], dryRun: false)
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: Data(out.utf8)) as? [String: Any])
+    }
+
+    /// 兩筆都宣稱 `5:KEYGRP01`（個人那筆的附加來源＋群組那筆的主來源）：匯入不更新任何一筆、不新建。從個人那筆移除之後，
+    /// 群組那筆是唯一宣稱者——匯入路由到它、不新建，歧義消失。報告的 `reimportEffect` 是 `routesToOther`，而不是 `newEntry`。
+    func testRemovingFromOneOfTwoClaimantsMakesTheImportRouteToTheOtherAndCreateNothing() throws {
+        var personal = try entry(zoteroKey: "KEYART01")
+        let group = try entry(zoteroKey: "KEYGRP01")
+        personal.additionalProvenance = [group.provenance!]
+        try store.writeEntry(personal)   // 群組那筆的檔仍在——兩筆都宣稱同一個來源
+
+        let before = try importer.run(zoteroDB: fixture.dbURL, now: Date(timeIntervalSince1970: 1_753_100_000))
+        XCTAssertEqual(before.ambiguousSourceClaims["5:KEYGRP01"]?.count, 2, "前提：兩筆宣稱，匯入報歧義")
+        XCTAssertEqual(before.created, [])
+
+        try commit()
+        let out = try removeSource("5:KEYGRP01=群組那份屬於群組那筆", from: personal.citekey)
+        let item = try XCTUnwrap((out["zoteroSourceRemovals"] as? [[String: Any]])?.first)
+        XCTAssertEqual(item["reimportEffect"] as? String, "routesToOther", "\(out)")
+        XCTAssertTrue((out["reimportNote"] as? String)?.contains(group.citekey) == true, "\(out)")
+
+        let entriesBefore = try store.load().entries.count
+        let after = try importer.run(zoteroDB: fixture.dbURL, now: Date(timeIntervalSince1970: 1_753_200_000))
+        XCTAssertEqual(after.created, [], "報告說的後果是真的：另一筆仍宣稱它，匯入不新建")
+        XCTAssertTrue(after.ambiguousSourceClaims.isEmpty, "歧義隨那一筆的移除消失：\(after.ambiguousSourceClaims)")
+        XCTAssertEqual(try store.load().entries.count, entriesBefore)
+    }
+
+    /// #679 的形狀：沒記 library_id 的附加來源（`?:KEYGRP01`）。第一次匯入就已經另建過一筆 twin（宣稱 `5:KEYGRP01`）——移除這個附加來源之後，
+    /// 再匯入**什麼都不改變**：報告說的 `notAClaim` 是真的。
+    func testRemovingAnUnclaimableAdditionalSourceChangesNothingOnTheNextImport() throws {
+        var personal = try entry(zoteroKey: "KEYART01")
+        let group = try entry(zoteroKey: "KEYGRP01")
+        personal.additionalProvenance = [Provenance(zoteroKey: "KEYGRP01", zoteroVersion: 9)]   // 沒記 library_id
+        try store.writeEntry(personal)
+        try FileManager.default.removeItem(at: store.entityURL(id: group.id))
+        let first = try importer.run(zoteroDB: fixture.dbURL, now: Date(timeIntervalSince1970: 1_753_100_000))
+        XCTAssertEqual(first.created.count, 1, "前提：對不回附加來源，第一次匯入就造出 twin")
+
+        try commit()
+        let out = try removeSource("?:KEYGRP01=沒記 library_id、對不回任何條目", from: personal.citekey)
+        XCTAssertEqual((out["zoteroSourceRemovals"] as? [[String: Any]])?.first?["reimportEffect"] as? String, "notAClaim", "\(out)")
+
+        let entriesBefore = try store.load().entries.count
+        let second = try importer.run(zoteroDB: fixture.dbURL, now: Date(timeIntervalSince1970: 1_753_200_000))
+        XCTAssertEqual(second.created, [], "報告說的後果是真的：移除它不改變匯入行為，不再多造一筆")
+        XCTAssertEqual(try store.load().entries.count, entriesBefore)
     }
 }

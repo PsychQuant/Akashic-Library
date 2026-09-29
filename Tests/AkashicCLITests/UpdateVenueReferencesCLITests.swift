@@ -68,6 +68,22 @@ final class UpdateVenueReferencesCLITests: XCTestCase {
         XCTAssertFalse(after.output.contains("references（"), "沒有通用 reference 時不印這一段：\(after.output)")
     }
 
+    /// b13f R1 verify 第 17 列：`referenceDict` 的 `rests_on` 只列前 5 個、總數在 `rests_on_total`；人可讀面數陣列長度會在超過 5 個時印出「證據 5 份」。
+    func testTheHumanReadableEvidenceCountUsesTheTotalNotTheCappedList() throws {
+        XCTAssertEqual(try run(["add-venue", "ampsy", "--names", "American Psychologist", "--type", "periodical", "--issn", "0003-066X (print)"]).status, 0)
+        let digests = (0..<7).map { "\"sha256:" + String(format: "%02x", $0 + 1) + String(repeating: "ef", count: 31) + "\"" }.joined(separator: ",")
+        let refs = #"[{"field":"issn","value":"0003-066X","kind":"judgement","statement":"七份證據","rests_on":[\#(digests)]}]"#
+        let added = try run(["update-venue", "ampsy", "--references", refs])
+        XCTAssertEqual(added.status, 0, added.output)
+        let view = try run(["venue", "ampsy"])
+        XCTAssertEqual(view.status, 0, view.output)
+        XCTAssertTrue(view.output.contains("證據 7 份"), "總數不是被截到 5 的陣列長度：\(view.output)")
+        XCTAssertTrue(view.output.contains("只列前 5 個"), "被截時要說：\(view.output)")
+        XCTAssertFalse(view.output.contains("證據 5 份"), view.output)
+        let json = try run(["venue", "ampsy", "--json"])
+        XCTAssertTrue(json.output.contains("\"rests_on_total\" : 7"), json.output)
+    }
+
     func testMediumAndProvenanceLandThroughTheCLI() throws {
         let created = try run(["add-venue", "ampsy", "--names", "American Psychologist", "--type", "periodical",
                                "--issn", "0003-066X (print)"])

@@ -81,6 +81,32 @@ final class EntrySourceRemovalTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: root.appendingPathComponent("sources/index.jsonl")), indexBefore)
     }
 
+    /// b13f R1 verify 第 30 列：MCP 面的 `sourcesRemoved` 每一筆都列（`digest`／`reason`——理由只在報告裡有一份，不截），只有前 `sourcesAddedCap` 筆多帶
+    /// index 的取得記錄（第三方字串）；其後的省略並以 `detailsTruncated`／`detailsListed` 揭露。CLI（`sourcesLimit: nil`）全列。
+    func testTheMCPReportKeepsEveryReasonButOnlyTheFirstTwentyAcquisitionRecords() throws {
+        let total = AkashicService.sourcesAddedCap + 2
+        var digests: [String] = []
+        for i in 0..<total { digests.append(try linked("doc\(i)")) }
+        let svc = service.committed(root)
+        let specs = digests.enumerated().map { "\($1)=理由 \($0)" }
+        let out = try json(try svc.updateEntry(citekey: "x2025", removeFields: nil, addSources: nil, removeSources: specs, dryRun: true))
+        let items = try XCTUnwrap(out["sourcesRemoved"] as? [[String: Any]])
+        XCTAssertEqual(items.count, total, "每一筆都列")
+        XCTAssertEqual(items.map { $0["reason"] as? String }, (0..<total).map { "理由 \($0)" }, "理由逐筆都在、不截")
+        XCTAssertEqual(items.map { $0["digest"] as? String }, digests)
+        XCTAssertNotNil(items[AkashicService.sourcesAddedCap - 1]["origin"], "前 20 筆帶取得記錄")
+        XCTAssertNil(items[AkashicService.sourcesAddedCap]["origin"], "第 21 筆起只回 digest 與理由")
+        XCTAssertNil(items[total - 1]["mediaType"])
+        XCTAssertEqual(out["detailsTruncated"] as? Bool, true)
+        XCTAssertEqual(out["detailsListed"] as? Int, AkashicService.sourcesAddedCap)
+
+        // CLI（sourcesLimit: nil）全列，不揭露截斷
+        let full = try json(try svc.updateEntry(citekey: "x2025", removeFields: nil, addSources: nil, removeSources: specs, dryRun: true, sourcesLimit: nil))
+        let all = try XCTUnwrap(full["sourcesRemoved"] as? [[String: Any]])
+        XCTAssertTrue(all.allSatisfy { $0["origin"] != nil }, "CLI 全列")
+        XCTAssertNil(full["detailsTruncated"])
+    }
+
     func testRemovingTheLastSourceLeavesAnEmptyList() throws {
         let a = try linked("a")
         _ = try service.committed(root).updateEntry(citekey: "x2025", removeFields: nil, addSources: nil,

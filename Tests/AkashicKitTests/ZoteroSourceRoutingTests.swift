@@ -513,6 +513,24 @@ extension ZoteroSourceRoutingTests {
         XCTAssertEqual(report.orphanCleared, [])
     }
 
+    /// scoped import（`libraryID` 給定）下同樣清標記：清標記走的是與全量匯入同一條路（b13f R1 verify 第 15 列：先前只有全量匯入的測試）。
+    func testScopedImportClearsOrphanMarksOnEveryClaimantToo() throws {
+        _ = try runImport()
+        var a = try firstArticle()
+        a.provenance?.orphanedAt = Date(timeIntervalSince1970: 1_752_000_000)
+        try store.writeEntry(a)
+        let b = try twin(of: a, citekey: "cheng2025twin")   // 帶著同一個 orphan 標記
+
+        let report = try ZoteroImporter(store: store).run(zoteroDB: fixture.dbURL, libraryID: 1, now: Date(timeIntervalSince1970: 1_753_100_000))
+
+        XCTAssertNil(try entry(a.id).provenance?.orphanedAt)
+        XCTAssertNil(try entry(b.id).provenance?.orphanedAt)
+        XCTAssertEqual(report.ambiguousSourceClaims, ["1:KEYART01": [a.citekey, b.citekey].sorted()])
+        XCTAssertEqual(report.orphanCleared, [a.citekey, b.citekey].sorted())
+        XCTAssertEqual(report.updated, [])
+        XCTAssertEqual(report.created, [])
+    }
+
     /// 沒有標記就什麼都不寫：多筆宣稱的來源、兩筆都沒有 orphan 標記——檔案位元組不動（清標記不得順手改寫檔案）。
     func testAmbiguousSourceWithoutOrphanMarksWritesNothing() throws {
         _ = try runImport()

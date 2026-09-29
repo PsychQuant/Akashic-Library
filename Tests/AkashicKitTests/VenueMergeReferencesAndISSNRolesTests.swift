@@ -2,6 +2,7 @@ import XCTest
 import Foundation
 @testable import AkashicCore
 @testable import AkashicStoreIO
+@testable import AkashicMCPKit
 
 /// venue 合併與 #587 的兩個寫入面之間的耦合（#587 R1 verify）。
 ///
@@ -123,10 +124,42 @@ final class VenueMergeReferencesAndISSNRolesTests: XCTestCase {
         XCTAssertThrowsError(try store.previewResolveDivergence(id: d.id, survivor: "k", overrideReason: nil)) { err in
             let s = (err as? LocalizedError)?.errorDescription ?? String(describing: err)
             XCTAssertTrue(s.contains("references（1 筆，欄位：paginated"), "只有 paginated 一筆：\(s)")
-            XCTAssertTrue(s.contains("沒有工具面能把它逐位元組搬到倖存者"), s)
+            XCTAssertTrue(s.contains("paginated 的判定 reference 沒有工具面能搬過去或單獨移除"), s)
             XCTAssertFalse(s.contains("欄位：issn"), "issn 的來源記錄會被搬，不在拒絕清單：\(s)")
+            // b13f R1 verify 第 3／7／8／12 列：`--remove-reference` 明文拒收 paginated（撤回用 `--clear-paginated`，那是再寫一筆判定、不刪舊的），
+            // 首版對 paginated 也指向「確認可丟棄後用 update-venue --remove-reference 從被併者移除」——一條走不通的出路，而 live store 唯一存在的 handOnly 種類正是 paginated
+            XCTAssertFalse(s.contains("用 update-venue --remove-reference 從被併者移除"), "不得把 paginated 指向會拒絕它的面：\(s)")
+            XCTAssertTrue(s.contains("--remove-reference 拒收 paginated"), "要說出為什麼那個面不行：\(s)")
+            XCTAssertTrue(s.contains("手改被併者的 YAML") && s.contains("先 commit 被併者的檔"), "做得到的出路要完整（也不能被 400 字元的上限截掉）：\(s)")
         }
         XCTAssertEqual(Set(try LibraryStore(root: root).load().venues.map(\.key)), ["k", "d"], "零寫入")
+    }
+
+    /// 上面那句話對 paginated 是假的，前提是 `--remove-reference` 真的拒收它——把這個前提也釘住，兩邊不會安靜分岔
+    /// （訊息說「拒收」、面卻收了；或訊息指向面、面卻拒收）。
+    func testTheRemovalFaceReallyRefusesPaginatedAndAcceptsAuthorizedAndNote() throws {
+        XCTAssertThrowsError(try AkashicService.parseRemoveReferenceSpecs([["field": "paginated", "value": "true", "reason": "r"] as [String: Any]])) { err in
+            XCTAssertTrue(String(describing: err).contains("--clear-paginated"), "\(err)")
+        }
+        for field in ["authorized", "note"] {
+            XCTAssertNoThrow(try AkashicService.parseRemoveReferenceSpecs([["field": field, "value": "V", "reason": "r"] as [String: Any]]), field)
+        }
+    }
+
+    /// `paginated` 與 `authorized` 同時在被併者身上：兩類各說各的出路——`--remove-reference` 只對 authorized 說，paginated 那句仍是手改。
+    func testMixedPaginatedAndAuthorizedGetTheirOwnDispositions() throws {
+        let paginatedRef = ProvenanceReference(field: "paginated", value: "true",
+                                               kind: .judgement(statement: "出版商頁逐篇有頁碼", restsOn: [digest]))
+        var doomed = venue("d", names: ["Doomed Journal"], issn: [try issn("0003-066X")],
+                           refs: [paginatedRef, judgement("authorized", value: "Doomed Journal")])
+        doomed.paginated = true
+        let keeper = venue("k", names: ["Keeper Journal"], issn: [try issn("0003-066X")])
+        let d = try seed(keeper: keeper, doomed: [doomed])
+        XCTAssertThrowsError(try store.previewResolveDivergence(id: d.id, survivor: "k", overrideReason: nil)) { err in
+            let s = (err as? LocalizedError)?.errorDescription ?? String(describing: err)
+            XCTAssertTrue(s.contains("authorized 的 reference 沒有工具面能逐位元組搬到倖存者") && s.contains("用 update-venue --remove-reference 從被併者移除"), s)
+            XCTAssertTrue(s.contains("paginated 的判定 reference 沒有工具面能搬過去或單獨移除"), s)
+        }
     }
 
     /// 手改出來的 `field: authorized`／`note` reference（通用面不收，只有手改寫得出來）：合併照舊拒絕，且不說它們是 issn／names 的搬不了。
@@ -137,7 +170,22 @@ final class VenueMergeReferencesAndISSNRolesTests: XCTestCase {
         let d = try seed(keeper: keeper, doomed: [doomed])
         XCTAssertThrowsError(try store.previewResolveDivergence(id: d.id, survivor: "k", overrideReason: nil)) { err in
             let s = (err as? LocalizedError)?.errorDescription ?? String(describing: err)
-            XCTAssertTrue(s.contains("欄位：authorized") && s.contains("通用 references 面只收 issn、names"), s)
+            XCTAssertTrue(s.contains("欄位：authorized"), s)
+            // authorized／note 的 reference 收得掉：`update-venue --remove-reference`（#673，b13f R1 verify 前後的措辭：出路只對這兩格說）
+            XCTAssertTrue(s.contains("authorized 的 reference 沒有工具面能逐位元組搬到倖存者") && s.contains("用 update-venue --remove-reference 從被併者移除"), s)
+            XCTAssertFalse(s.contains("paginated"), "沒有 paginated 的 reference，不提它：\(s)")
+        }
+    }
+
+    func testHandWrittenNoteReferenceRefusesTheMergeAndPointsAtTheRemovalFace() throws {
+        var doomed = venue("d", names: ["Doomed Journal"], issn: [try issn("0003-066X")],
+                           refs: [ProvenanceReference(field: "note", value: nil, kind: .judgement(statement: "備註的來源", restsOn: [digest]))])
+        doomed.note = "備註"   // note 的 reference 要求記錄有 note（`Venue.validateReferenceAttachment`）
+        let keeper = venue("k", names: ["Keeper Journal"], issn: [try issn("0003-066X")])
+        let d = try seed(keeper: keeper, doomed: [doomed])
+        XCTAssertThrowsError(try store.previewResolveDivergence(id: d.id, survivor: "k", overrideReason: nil)) { err in
+            let s = (err as? LocalizedError)?.errorDescription ?? String(describing: err)
+            XCTAssertTrue(s.contains("欄位：note") && s.contains("用 update-venue --remove-reference 從被併者移除"), s)
         }
     }
 

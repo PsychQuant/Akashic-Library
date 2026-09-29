@@ -701,12 +701,25 @@ extension LibraryStore {
                     parts.append("其中 \(identicalExtra) 筆與另一筆位元組完全相同——同一個動作做了兩次（移除與拆分記錄不去重），或手改、舊 binary 寫的")
                 }
                 let valuePart = g.first.value.map { "（value「\(displaySafeInvisible($0, max: 120))」）" } ?? ""
+                // 處置依種類與欄位（b13f R1 verify 第 18 列）：venue 上**位元組不同**的變體有工具面——`update-venue --remove-reference` 以位元組定位移除其中一筆
+                // （#673；`names`／`authorized`／`issn`／`note` 四格，`paginated` 明文不收）；**位元組完全相同的重複沒有**（`--remove-reference` 對它具名拒絕、
+                // 不替呼叫端挑，`zero-instance-guards` 第 59 列）。其餘種類都沒有移除面。
+                let removableOnVenue = kind == "venue" && ["names", "authorized", "issn", "note"].contains(g.first.field)
+                let handOnly = "目前沒有工具面，手改 YAML"
+                let disposition: String
+                if removableOnVenue && identicalExtra == 0 {
+                    disposition = "update-venue --remove-reference 以位元組定位移除多的那一筆（#673）"
+                } else if removableOnVenue && g.spellings.count > 1 {
+                    disposition = "位元組不同的變體用 update-venue --remove-reference 以位元組定位移除（#673）；位元組完全相同的重複\(handOnly)"
+                } else {
+                    disposition = handOnly
+                }
                 return StoreHealth.OwnedIssue(
                     owner: owner, kind: kind,
                     issue: ValidationIssue(
                         severity: .warning,
                         message: "\(StoreHealth.duplicateReferencePrefix)：\(displaySafeInvisible(g.first.field, max: 120))\(valuePart) 共 \(g.count) 筆彼此相等；"   // display-safe-exempt: 前綴是常量；Int
-                               + parts.joined(separator: "；") + "。處置：確認說的是同一件事後留一筆（目前沒有工具面，手改 YAML）"))   // display-safe-exempt: parts 是兩句字面常量＋Int
+                               + parts.joined(separator: "；") + "。處置：確認說的是同一件事後留一筆（\(disposition)）"))   // display-safe-exempt: parts 是兩句字面常量＋Int；disposition 是本函式的字面句
             }
         }
         var out: [StoreHealth.OwnedIssue] = []

@@ -1503,18 +1503,30 @@ extension LibraryStore {
         let plan = Self.venueReferenceCarry(v, into: keeper, mergedNames: keeper.names.entries.map(\.value) + absorb.incoming.map(\.segment.value))
         if !plan.lost.isEmpty {
             // 出路逐格準確：只有真的沒有工具面的才說「沒有工具面」。`paginated` 的判定 `update-venue --paginated` 寫的是**新的**一筆，
-            // 通用 references 面不收它；`authorized`／`note` 的 reference 只有手改 YAML 寫得出來（通用面不收，#587 R1）；
+            // 通用 references 面不收它；`authorized`／`note` 的 reference 只有手改 YAML 寫得出來（通用面不收，#587 R1），而 #673 的
+            // `--remove-reference` 收得掉它們；**`paginated` 的 reference `--remove-reference` 明文拒收**（撤回用 `--clear-paginated`，那是再寫一筆帶
+            // 理由與證據的判定、翻轉留史，不刪舊的）——所以這一類的出路只有手改被併者的 YAML，處置文字要依欄位分開寫（b13f R1 verify 第 3／7／8／12 列：
+            // 首版對整個 handOnly 一律指向 `--remove-reference`，而 live store 唯一存在的 handOnly 種類正是 `paginated`，那條出路對它是死路）。
             // `issn`／`names` 的 reference 走到這裡是因為它指的號或名字不在合併後的倖存者上——搬過去會成孤兒。
             // canonical 相等、位元組不同的那一筆（`canonicalTwinNote`）**照樣拒絕**：那是 D65／D69 零位元組損失的取捨。
             // live store 2026-09-17：485 筆 venue 裡 33 筆帶 paginated reference（36 筆）、venue divergence 0 筆——今天零回歸；
             // #566 的 campaign 下次跑會撞到約 7% 的 venue。
             let handOnly = plan.lost.filter { !Self.carriableVenueReferenceFields.contains($0.field) }
             let orphaned = plan.lost.filter { Self.carriableVenueReferenceFields.contains($0.field) }
+            // handOnly 的欄位只可能是 paginated／authorized／note（decode 只收這幾種非 verdict 的 venue reference 欄位，`Venue.validateReferenceAttachment`）；
+            // `--remove-reference` 收 authorized／note、明文拒收 paginated，所以兩類的出路不同
+            let paginatedLost = handOnly.filter { $0.field == "paginated" }
+            let removableLost = handOnly.filter { $0.field != "paginated" }
             var line = "references（\(plan.lost.count) 筆，欄位："
                 + plan.lost.map { $0.field + Self.canonicalTwinNote($0, in: keeper.references) }.joined(separator: "、") + "）"
-            if !handOnly.isEmpty {
-                line += "；沒有工具面能把它逐位元組搬到倖存者——把那一筆逐字加進倖存者的 YAML，或確認可丟棄後用 update-venue --remove-reference 從被併者移除（先 commit 被併者的檔，#673）"
-                    + "（`paginated` 的判定 update-venue --paginated 寫的是新的一筆；通用 references 面只收 issn、names）"
+            if !removableLost.isEmpty {
+                let fields = Set(removableLost.map { displaySafeInvisible($0.field, max: 60) }).sorted().joined(separator: "／")
+                line += "；\(fields) 的 reference 沒有工具面能逐位元組搬到倖存者——把那一筆逐字加進倖存者的 YAML，或確認可丟棄後用 update-venue --remove-reference 從被併者移除（先 commit 被併者的檔，#673）"   // display-safe-exempt: fields 逐項 displaySafeInvisible
+            }
+            if !paginatedLost.isEmpty {
+                // 400 字元的上限（下方 `displaySafeInvisible(…, max: 400)`）要容得下這一句：出路在句尾
+                line += "；paginated 的判定 reference 沒有工具面能搬過去或單獨移除（--remove-reference 拒收 paginated；--clear-paginated 只是再寫一筆撤回、舊的仍在）"
+                    + "——逐字加進倖存者的 YAML，或確認可丟棄後手改被併者的 YAML 刪掉它（先 commit 被併者的檔）"
             }
             if !orphaned.isEmpty {
                 line += "；issn／names 的 reference 指的號或名字不在合併後的倖存者上，搬過去會成孤兒"

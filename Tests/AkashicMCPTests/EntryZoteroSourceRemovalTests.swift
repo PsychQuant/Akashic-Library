@@ -74,6 +74,7 @@ final class EntryZoteroSourceRemovalTests: XCTestCase {
         let state = try XCTUnwrap(out["zoteroLinkState"] as? [String: String])
         XCTAssertEqual(state, ["before": "intact", "after": "intact"])
         XCTAssertNotNil(out["reimportNote"], "活著的來源被移除：Zotero 端還有那個條目時再匯入會另建一筆——要說")
+        XCTAssertEqual((out["zoteroSourceRemovals"] as? [[String: Any]])?.first?["reimportEffect"] as? String, "newEntry", "沒有別的 entry 宣稱它：\(out)")
         XCTAssertEqual(out["zoteroSourcesRemaining"] as? [String], ["primary 1:PRIM0001", "additional 6:GRP00002"])
     }
 
@@ -90,6 +91,7 @@ final class EntryZoteroSourceRemovalTests: XCTestCase {
         let note = try XCTUnwrap(out["primaryRemovedNote"] as? String, "\(out)")
         XCTAssertTrue(note.contains("不升格"), note)
         XCTAssertEqual(out["zoteroSourcesRemaining"] as? [String], ["additional 5:GRP00001"])
+        XCTAssertNil(out["orphanedNote"], "intact → intact：沒有變成整筆 orphan，不必警告 Orphans 頁")
     }
 
     /// 連結狀態的變化用既有定義判：移除主來源之後只剩已刪除的附加來源 → 整筆 orphan（裁決台看得到它）。報告要把這個變化說出來。
@@ -97,6 +99,9 @@ final class EntryZoteroSourceRemovalTests: XCTestCase {
         try work(additional: [Provenance(zoteroKey: "GRP00001", zoteroVersion: 9, libraryID: 5, orphanedAt: t0)])
         let out = try remove(["1:PRIM0001=記錯了"], dryRun: true)
         XCTAssertEqual(out["zoteroLinkState"] as? [String: String], ["before": "additionalSourceOrphaned", "after": "orphaned"], "\(out)")
+        // b13f R1 verify 第 22 列：這次移除讓 Zotero 端沒被刪的一筆進了 App 的 Orphans 頁（有破壞性動作）——要說出來
+        let note = try XCTUnwrap(out["orphanedNote"] as? String, "\(out)")
+        XCTAssertTrue(note.contains("Orphans") && note.contains("破壞性") && note.contains("沒有 Zotero 條目被刪"), note)
     }
 
     /// 已在 Zotero 端刪除的來源也能移除（App 的裁決台只處理附加來源那一條路；這個面不分活著與否）；已刪除的不必說再匯入會另建。
@@ -138,6 +143,69 @@ final class EntryZoteroSourceRemovalTests: XCTestCase {
         XCTAssertNil(e.provenance)
         XCTAssertEqual(e.additionalProvenance.map(\.zoteroKey), ["GRP00001"])
         XCTAssertEqual((out["zoteroSourceRemovals"] as? [[String: Any]])?.map { $0["role"] as? String }, ["primary", "additional"])
+    }
+
+    // MARK: 再匯入的後果依「移除之後還有沒有別的 entry 宣稱它」而定（b13f R1 verify 第 2／4／6／11 列）
+
+    private func effect(_ out: [String: Any]) -> String? {
+        (out["zoteroSourceRemovals"] as? [[String: Any]])?.first?["reimportEffect"] as? String
+    }
+
+    /// #610 的主場景：兩筆宣稱同一個來源、其中一筆記錯了。從記錯的那一筆移除之後，另一筆仍宣稱它——匯入照常路由到那一筆、**不會新建**。
+    /// 報告不得再說「已沒有任何 entry 宣稱它、會另建一筆」（首版無條件說了）。
+    func testRemovingFromOneOfTwoClaimantsSaysTheImportRoutesToTheOther() throws {
+        let shared = Provenance(zoteroKey: "SHARED01", zoteroVersion: 1, libraryID: 5)
+        try work(citekey: "wrong2025", primary: nil, additional: [shared])
+        try work(citekey: "right2025", primary: shared)
+        let out = try remove(["5:SHARED01=這個來源屬於 right2025"], dryRun: true, citekey: "wrong2025")
+        XCTAssertEqual(effect(out), "routesToOther", "\(out)")
+        let note = try XCTUnwrap(out["reimportNote"] as? String)
+        XCTAssertTrue(note.contains("right2025") && note.contains("照常路由"), note)
+        XCTAssertFalse(note.contains("另建一筆新 entry；") || note.contains("已沒有任何 entry 宣稱它"), "不得說沒人宣稱它：\(note)")
+    }
+
+    /// 移除之後仍有兩筆以上宣稱：匯入端對它仍不更新任何一筆、不新建（`ambiguousSourceClaims`）——不是「路由到那一筆」，也不是「另建」。
+    func testRemovingFromOneOfThreeClaimantsSaysItIsStillAmbiguous() throws {
+        let shared = Provenance(zoteroKey: "SHARED01", zoteroVersion: 1, libraryID: 5)
+        try work(citekey: "wrong2025", primary: nil, additional: [shared])
+        try work(citekey: "b2025", primary: shared)
+        try work(citekey: "c2025", primary: nil, additional: [shared])
+        let out = try remove(["5:SHARED01=記錯了"], dryRun: true, citekey: "wrong2025")
+        XCTAssertEqual(effect(out), "stillAmbiguous", "\(out)")
+        let note = try XCTUnwrap(out["reimportNote"] as? String)
+        XCTAssertTrue(note.contains("b2025") && note.contains("c2025") && note.contains("ambiguousSourceClaims"), note)
+    }
+
+    /// 沒記 library_id 的**附加**來源（#679 的出路）本來就不是宣稱者：移除它不改變任何匯入行為，報告不得預告「另建」。
+    func testRemovingAnAdditionalSourceWithoutLibraryIDSaysItChangesNoImportBehaviour() throws {
+        try work(additional: [Provenance(zoteroKey: "NOLIB001", zoteroVersion: 1)])
+        let out = try remove(["?:NOLIB001=沒記 library_id、對不回任何條目"], dryRun: true)
+        XCTAssertEqual(effect(out), "notAClaim", "\(out)")
+        let note = try XCTUnwrap(out["reimportNote"] as? String)
+        XCTAssertTrue(note.contains("本來就不算宣稱者") && note.contains("不改變任何匯入行為"), note)
+        XCTAssertFalse(note.contains("另建一筆新 entry；"), note)
+    }
+
+    /// 複合鍵的來源移除之後沒有 entry 以複合鍵宣稱它，但另有舊檔（沒記 library_id 的主來源）宣稱同一個裸 key：匯入端可能依 #607 認領——不能斷言「會另建」。
+    func testALegacyBareKeyClaimantIsNamedWhenNoOneClaimsTheCompositeKey() throws {
+        try work(citekey: "a2025", primary: nil, additional: [Provenance(zoteroKey: "SHARED01", zoteroVersion: 1, libraryID: 5)])
+        try work(citekey: "legacy2025", primary: Provenance(zoteroKey: "SHARED01", zoteroVersion: 1))   // 沒記 library_id 的舊檔
+        let out = try remove(["5:SHARED01=記錯了"], dryRun: true, citekey: "a2025")
+        XCTAssertEqual(effect(out), "newEntry", "\(out)")
+        let note = try XCTUnwrap(out["reimportNote"] as? String)
+        XCTAssertTrue(note.contains("legacy2025") && note.contains("#607"), note)
+    }
+
+    /// 已在 Zotero 端刪除的來源不說（沒有「再匯入」可言）；活著的與已刪除的混在一次呼叫時只對活著的說。
+    func testOnlyTheLiveSourcesGetAReimportEffect() throws {
+        try work(additional: [Provenance(zoteroKey: "GRP00001", zoteroVersion: 9, libraryID: 5, orphanedAt: t0),
+                              Provenance(zoteroKey: "GRP00002", zoteroVersion: 2, libraryID: 6)])
+        let out = try remove(["5:GRP00001=Zotero 端已刪", "6:GRP00002=記錯了"], dryRun: true)
+        let items = try XCTUnwrap(out["zoteroSourceRemovals"] as? [[String: Any]])
+        XCTAssertNil(items.first { $0["source"] as? String == "5:GRP00001" }?["reimportEffect"])
+        XCTAssertEqual(items.first { $0["source"] as? String == "6:GRP00002" }?["reimportEffect"] as? String, "newEntry")
+        let note = try XCTUnwrap(out["reimportNote"] as? String)
+        XCTAssertTrue(note.contains("6:GRP00002") && !note.contains("5:GRP00001"), note)
     }
 
     // MARK: 拒絕（整批、零寫入）

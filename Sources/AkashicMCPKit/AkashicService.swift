@@ -2070,13 +2070,25 @@ public final class AkashicService {
                 // `endedUnknown`(#63)／`attested`(#70) 被 `isOpen` 正確排除在現職外，
                 // 但那不代表沒有資訊。三種過去狀態**各自有自己的欄位名**——把觀測點
                 // 叫成 end 是捏造（#236 R4）。
-                if let a = p?.profile.affiliations.current?.value {
-                    d["currentAffiliation"] = displaySafe(a.displayName, max: 120)
-                } else if let last = p?.profile.affiliations.latestPastSegment {
-                    d["formerAffiliation"] = displaySafe(last.value.displayName, max: 120)
-                    if let e = last.range.end { d["formerAffiliationEnd"] = displaySafe(e, max: 40) }
-                    else if last.range.endedUnknown { d["formerAffiliationEnd"] = "unknown" }
-                    else if let a = last.range.attested.max() { d["formerAffiliationAttested"] = displaySafe(a, max: 40) }
+                //
+                // **「former」只給宣稱已結束的段**（#663）：只被觀測到的段是 `observedAffiliation`／
+                // `observedAffiliationAt`——被看到過不等於離開了，匯出端對這種人說 `undetermined`（#661）。
+                // 混合情形兩組都送。舊鍵 `formerAffiliationAttested` 退場、不改語意沿用：讀它的呼叫端得到缺席，
+                // 不是一個換了意思的值。推導只有 `TimelineOf.standing` 一份（與匯出端、CLI、App 同）。
+                if let s = p?.profile.affiliations.standing {
+                    if let a = s.current?.value {
+                        d["currentAffiliation"] = displaySafe(a.displayName, max: 120)
+                    } else {
+                        if let ended = s.lastEnded {
+                            d["formerAffiliation"] = displaySafe(ended.value.displayName, max: 120)
+                            if let e = ended.range.end { d["formerAffiliationEnd"] = displaySafe(e, max: 40) }
+                            else if ended.range.endedUnknown { d["formerAffiliationEnd"] = "unknown" }
+                        }
+                        if let seen = s.lastObserved {
+                            d["observedAffiliation"] = displaySafe(seen.value.displayName, max: 120)
+                            if let a = seen.range.attested.max() { d["observedAffiliationAt"] = displaySafe(a, max: 40) }
+                        }
+                    }
                 }
                 entryCache[raw] = d
                 return d

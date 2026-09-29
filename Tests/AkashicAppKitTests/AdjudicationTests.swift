@@ -253,6 +253,41 @@ final class AdjudicationTests: XCTestCase {
         XCTAssertTrue(observed.contains("觀測"), "#70 只有觀測點 → 標成觀測：\(observed)")
         XCTAssertFalse(observed.contains("–2020"),
                        "**不得**印成終止——沒有任何資料主張他 2020 年離開：\(observed)")
+        // #663：措辭也不能是「曾隸屬」——那是一個離開的斷言，而匯出端對這種人說 undetermined
+        XCTAssertTrue(observed.contains("觀測到隸屬:Some Lab"), observed)
+        XCTAssertFalse(observed.contains("曾隸屬"), "只被觀測到的隸屬不是「曾」：\(observed)")
+    }
+
+    /// #663：四種形狀在裁決台的措辭（與 CLI、MCP 同一個 `TimelineOf.standing`）。
+    /// 混合情形兩者都要看得到——先前只剩「曾隸屬:NTU（–2010）」，2015 年在 ISS 的觀測整個不見。
+    func testAdjudicationAffiliationWordingForTheFourShapes() throws {
+        var seq = 0
+        func aff(_ segs: [(String, DateRange)]) throws -> String {
+            seq += 1
+            let key = "shape-person-\(seq)"
+            var p = Person(key: key, names: ["Shape Person \(seq)"])
+            p.profile.affiliations = TimelineOf(segs.map {
+                TemporalValue(value: OrgRef.literal($0.0), range: $0.1)
+            })
+            try LibraryStore(root: root).writePerson(p)
+            try state.load()
+            let model = PeopleResolveModel(state: state)
+            XCTAssertTrue(model.discriminatorLine(for: key).contains(model.discriminators(for: key).affiliation ?? "\u{0}"),
+                          "一行區辨欄位要帶得出隸屬那一段（未被截斷）")
+            return model.discriminators(for: key).affiliation ?? ""
+        }
+        let current = try aff([("ISS", DateRange(start: "2020")), ("NTU", DateRange(attested: ["2012"]))])
+        XCTAssertEqual(current, "隸屬:ISS")
+
+        let ended = try aff([("Old Lab", DateRange(start: "1990", end: "1995"))])
+        XCTAssertEqual(ended, "曾隸屬:Old Lab（–1995）")
+
+        let attestedOnly = try aff([("ISS", DateRange(attested: ["2019-05", "2021"]))])
+        XCTAssertEqual(attestedOnly, "觀測到隸屬:ISS（2021）")
+
+        let mixed = try aff([("NTU", DateRange(start: "2000", end: "2010")), ("ISS", DateRange(attested: ["2015"]))])
+        XCTAssertTrue(mixed.contains("曾隸屬:NTU（–2010）"), mixed)
+        XCTAssertTrue(mixed.contains("觀測到隸屬:ISS（2015）"), "觀測段不得消失：\(mixed)")
     }
 
     /// #236 R4：**一篇文獻可以有多個歧義作者／多個候選作者**，所以 `entryID` 與

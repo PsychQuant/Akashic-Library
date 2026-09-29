@@ -536,6 +536,10 @@ displayName(script) =
    `retired` 的來源。
 3. 觀測點**不合併**：同 org 的多個觀測各自成點（每點日後可掛 #66 的 reference
    逐點溯源——本版尚未接，觀測來源暫記 `source`／`note`）。
+4. 讀取面（CLI／MCP／App 的隸屬顯示）與衍生層的 `status` **MUST** 讀同一個推導（`TimelineOf.standing`，#663）：
+   沒有進行中的段時，宣稱已結束的段說「曾隸屬」（MCP `formerAffiliation*`），只被觀測到的段說「觀測到隸屬」
+   （MCP `observedAffiliation*`）——**MUST NOT** 把後者說成「曾隸屬」；混合情形（有 end 的段加上觀測段）兩者都給。
+   `status` 是 `undetermined` ⟺ 讀取面看得到「觀測到隸屬」（沒有現職時）。
 4. **format 7 專屬**（段內鍵 strict → non-additive）：write gate 對 format < 7 的
    store 拒寫＋指路，同 `ended` 的 v6 gate 機制（版本歸屬見 §5 版本對照表的 7 行）。
 5. 把發表年填進 `start` 是「從那年起」的**偽造斷言**——`attested` 存在的理由就是

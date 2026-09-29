@@ -72,7 +72,8 @@ public final class PeopleResolveModel {
         if let o = d.orcid { bits.append("orcid:" + displaySafe(o, max: 40)) }
         if let o = d.openalex { bits.append("openalex:" + displaySafe(o, max: 40)) }
         if let x = d.died { bits.append("卒:" + displaySafe(x, max: 20)) }
-        if let a = d.affiliation { bits.append(displaySafe(a, max: 80)) }   // 已含 隸屬:/曾隸屬: 前綴
+        // 已含 隸屬:／曾隸屬:／觀測到隸屬: 前綴；混合情形是兩段，上限比單段的 80 寬（#663：觀測段不能被截掉）
+        if let a = d.affiliation { bits.append(displaySafe(a, max: 160)) }
         let tail = bits.isEmpty ? "⚠ 無任何區辨欄位" : bits.joined(separator: "  ")
         return "→ " + displaySafe(key, max: 200) + "  " + tail
     }
@@ -93,24 +94,34 @@ public final class PeopleResolveModel {
         // **current 與 former 不可塌成一個欄位**（#236 R3）：「現在在 X」與
         // 「曾經在 X」對區辨的意義完全不同——後者配上時間才有辨別力，而把兩者
         // 印成同一個「隸屬:X」會讓讀的人以為那是現職。
-        let aff: String?
-        if let cur = p?.profile.affiliations.current?.value.displayName {
-            aff = "隸屬:" + cur
-        } else if let last = p?.profile.affiliations.latestPastSegment {
-            // **三種時間狀態不可共用一種措辭**（#236 R4）。先前一律套 `（–X）`，
-            // 於是 `attested:[2020]`（只是「2020 年被看到在這裡」）被印成
-            // 「（–2020）」＝「2020 年結束」——**那是捏造**：那個人沒有任何資料
-            // 主張他何時離開。CLI 與 MCP 都分得開，只有這一面把它們塌在一起。
-            let r = last.range
-            let when: String
-            if let e = r.end { when = "（–\(e)）" }                       // 確實結束於 e
-            else if r.endedUnknown { when = "（已結束・時點未知）" }        // #63
-            else if let a = r.attested.max() { when = "（觀測:\(a)）" }     // #70：不是終止
-            else { when = "" }
-            aff = "曾隸屬:" + last.value.displayName + when
-        } else {
-            aff = nil
+        //
+        // **三種說法各自的措辭，混合情形兩者都印**（#663）。推導只有 `TimelineOf.standing` 一份，
+        // 與匯出端、CLI、MCP 讀同一個：「曾隸屬」只給宣稱已結束的段；只被觀測到的段是「觀測到隸屬」——
+        // 被看到過不等於離開了，匯出端對這種人說 `undetermined`（#661）。
+        var parts: [String] = []
+        if let s = p?.profile.affiliations.standing {
+            if let cur = s.current?.value.displayName {
+                parts.append("隸屬:" + cur)
+            } else {
+                if let ended = s.lastEnded {
+                    // **已結束的兩種時間狀態不可共用一種措辭**（#236 R4）。先前一律套 `（–X）`，
+                    // 於是 `endedUnknown` 的 start 被印成終止——**那是捏造**。
+                    let r = ended.range
+                    let when: String
+                    if let e = r.end { when = "（–\(e)）" }                       // 確實結束於 e
+                    else if r.endedUnknown { when = "（已結束・時點未知）" }        // #63
+                    else { when = "" }
+                    parts.append("曾隸屬:" + ended.value.displayName + when)
+                }
+                if let seen = s.lastObserved {
+                    // #70：觀測點不是終止日期——`attested:[2020]` 只是「2020 年被看到在這裡」，
+                    // 印成「（–2020）」＝「2020 年結束」是捏造（#236 R4：那個人沒有任何資料主張他何時離開）。
+                    let at = seen.range.attested.max().map { "（\($0)）" } ?? ""
+                    parts.append("觀測到隸屬:" + seen.value.displayName + at)
+                }
+            }
         }
+        let aff: String? = parts.isEmpty ? nil : parts.joined(separator: "  ")
         // #227：呈現面列**全部**名字（authorized + variant）——這裡是身分判斷的
         // 佐證資訊，缺一個變體就少一條線索。
         return (p?.names.all ?? [], p?.orcid?.normalized, p?.openalex, p?.died, aff)

@@ -990,6 +990,12 @@ func namesLabel(_ names: [String]) -> String {
     return shown.joined(separator: "、") + (dropped > 0 ? " …+\(dropped)" : "")
 }
 
+/// 觀測點（#70）的顯示：最多 4 個、以「、」分隔，多的以「…」收尾。`rangeLabel` 與「觀測到隸屬」共用（#663）。
+func attestedPointsLabel(_ r: DateRange) -> String {
+    let pts = r.attested.prefix(4).map { displaySafe($0, max: 24) }.joined(separator: "、")
+    return "\(pts)\(r.attested.count > 4 ? "…" : "")"
+}
+
 /// 把 `DateRange` 的**四個**欄位都表示出來（#236 R2）。
 ///
 /// `start`/`end` 之外還有 `endedUnknown`（#63：已結束但時點未知——43 位退休 PI 的
@@ -1003,8 +1009,7 @@ func rangeLabel(_ r: DateRange) -> String {
     // **內聯 `displaySafe`，不用區域別名**——`DisplaySinkCoverageTests` 是文字掃描，
     // 別名會讓它認不出消毒已經發生，於是守衛失效而程式看起來沒問題。
     if !r.attested.isEmpty {
-        let pts = r.attested.prefix(4).map { displaySafe($0, max: 24) }.joined(separator: "、")
-        return "觀測:\(pts)\(r.attested.count > 4 ? "…" : "")"
+        return "觀測:\(attestedPointsLabel(r))"   // display-safe-exempt: attestedPointsLabel 內部已消毒
     }
     switch (r.start, r.end, r.endedUnknown) {
     case (nil, nil, false):     return ""
@@ -2230,13 +2235,26 @@ struct ResolvePeople: ParsableCommand {
                     // `endedUnknown`（#63）與 `attested`（#70）排除在「現職」外，
                     // 但只印 current 會讓「只有已結束隸屬」的人看起來**毫無隸屬
                     // 資訊**——甚至被判成「無任何區辨欄位」，而那是假的。
-                    // 沒有現職就退到最近一段，並把時間狀態標出來。
-                    if let cur = p?.profile.affiliations.current?.value {
-                        bits.append("隸屬:\(displaySafe(cur.displayName, max: 60))")
-                    } else if let last = p?.profile.affiliations.latestPastSegment {
-                        let when = rangeLabel(last.range)
-                        bits.append("曾隸屬:\(displaySafe(last.value.displayName, max: 60))"
-                                    + (when.isEmpty ? "" : "（\(when)）"))   // display-safe-exempt: rangeLabel 內部已消毒（不冪等，不得再包）
+                    // 沒有現職就退到過去的段，並把時間狀態標出來。
+                    //
+                    // **三種說法各自的措辭**（#663）：「曾隸屬」只給宣稱已結束的段；只被觀測到的段是
+                    // 「觀測到隸屬」——被看到過不等於離開了，匯出端對這種人說 `undetermined`（#661）。
+                    // 混合情形（有 end 的段加上觀測段）兩者都印。推導只有 `TimelineOf.standing` 一份，
+                    // 與匯出端、MCP、App 讀同一個。
+                    if let s = p?.profile.affiliations.standing {
+                        if let cur = s.current?.value {
+                            bits.append("隸屬:\(displaySafe(cur.displayName, max: 60))")
+                        } else {
+                            if let ended = s.lastEnded {
+                                let when = rangeLabel(ended.range)
+                                bits.append("曾隸屬:\(displaySafe(ended.value.displayName, max: 60))"
+                                            + (when.isEmpty ? "" : "（\(when)）"))   // display-safe-exempt: rangeLabel 內部已消毒（不冪等，不得再包）
+                            }
+                            if let seen = s.lastObserved {
+                                bits.append("觀測到隸屬:\(displaySafe(seen.value.displayName, max: 60))"
+                                            + "（\(attestedPointsLabel(seen.range))）")   // display-safe-exempt: attestedPointsLabel 內部已消毒（不冪等，不得再包）
+                            }
+                        }
                     }
                     let names = namesLabel(p?.names.all ?? [])   // display-safe-exempt: namesLabel 內部已消毒（displaySafe 不冪等，不得再包）
                     let extra = bits.isEmpty ? "  ⚠ 無任何區辨欄位" : "  " + bits.joined(separator: "  ")

@@ -76,16 +76,6 @@ public enum RelationalExport {
         return e.canonicalDOIs.map(\.normalized).filter { seen.insert($0).inserted }
     }
 
-    /// researcher.status（#661）：current／retired／undetermined，沒有隸屬資料時 nil。
-    static func researcherStatus<V>(_ affiliations: TimelineOf<V>) -> String? {
-        if affiliations.isEmpty { return nil }
-        if affiliations.current != nil { return "current" }
-        let observedOnly = affiliations.entries.contains {
-            $0.range.end == nil && !$0.range.endedUnknown && !$0.range.attested.isEmpty
-        }
-        return observedOnly ? "undetermined" : "retired"
-    }
-
     /// researcher_timeline.valid_attested（#661）：觀測點依序寫成 **JSON 陣列**（`["2019-05","2021"]`），沒有時 NULL。
     ///
     /// R1 用 `;` 串接，理由是「ISO 8601 前綴不含 `;`」——而 store 不驗觀測點的值域（decode 只要求 scalar），所以手改的
@@ -131,7 +121,9 @@ public enum RelationalExport {
              // **沒資料不猜成 current**——那會讓 43 位退休者被算成現職。
              // #661：沒有開放段、但有一段只被觀測到（attested、沒有 end、不是 ended-unknown）＝ undetermined。
              // 那一段不算現職（`isOpen` 的 #70 裁決），也不能算結束——寫 retired 就是「把被看到過誤當成離開了」。
-             researcherStatus(p.profile.affiliations),
+             // #663：推導只有一份——`TimelineOf.standing`（AkashicCore），CLI／MCP／App 三個讀取面讀的是同一個，
+             // 所以「說 retired 的人，讀取面說曾隸屬；說 undetermined 的人，讀取面說觀測到隸屬」不再是各自維護的巧合。
+             p.profile.affiliations.standing?.status.rawValue,
              // #67：逝世日期。**與 status 正交**——status 描述隸屬，這欄描述這個人。
              // NULL ＝ 右設限（尚未觀察到死亡），**不是**「在世」的斷言。
              p.died,

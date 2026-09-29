@@ -203,6 +203,11 @@ public struct TimelineOf<V: Equatable & Comparable>: Equatable {
     /// **必須自己看 `range` 決定措辭。** 把第 3 層印成終止日期是捏造——那個人沒有
     /// 任何資料主張他何時離開（R4 HIGH：App 印成「（–2020）」）。
     ///
+    /// **讀取面不要直接用這個成員**（#663）：它把三層塌成一個答案，混合情形（有 end 的段加上較晚的
+    /// 觀測段）只剩第 1 層、觀測段整個不見，而匯出端對同一人說 `undetermined`。讀取面用
+    /// `TimelineOf.standing`（`TimelineStanding.swift`）——現職、已結束、只被觀測到三者各自分開給，
+    /// 由 `TimelineStandingTests` 守住 Core 以外沒有第二個呼叫端。
+    ///
     /// ## 兩個刻意的限制
     ///
     /// 日期比較沿用**字串序**，與同檔 `DateRange.<` 一致。刻意不另立精度感知的第二套
@@ -212,25 +217,41 @@ public struct TimelineOf<V: Equatable & Comparable>: Equatable {
     /// 層內同分時取**序列化順序較後者**——這只是為了讓結果穩定可重現，
     /// **不宣稱它較近**。先前靠 `max` 的未定行為決勝，兩個 `==` 相等的時間軸會報出
     /// 不同的隸屬（R4 MEDIUM）。
-    public var latestPastSegment: TemporalValue<V>? {
-        /// 層內挑選：有 key 的優先，key 相同或皆無 key 時取索引較後者。
-        func pick(_ xs: [(TemporalValue<V>, String?)]) -> TemporalValue<V>? {
-            xs.enumerated().max { a, b in
-                switch (a.element.1, b.element.1) {
-                case let (l?, r?): return l == r ? a.offset < b.offset : l < r
-                case (nil, _?):    return true       // 無 key < 有 key
-                case (_?, nil):    return false
-                case (nil, nil):   return a.offset < b.offset
-                }
-            }?.element.0
-        }
+    public var latestPastSegment: TemporalValue<V>? { latestEndedSegment ?? latestObservedSegment }
+
+    /// 層 1–2：**宣稱已結束**的段（有已知 `end`，或 `endedUnknown`）中最近的一段。
+    ///
+    /// 從 `latestPastSegment` 拆出來（#663）：讀取面要分開說「曾隸屬」（這一層）與「觀測到隸屬」（下一層），
+    /// 而分層挑選的規則（見上）只有一份。**內部成員**——讀取面走 `TimelineOf.standing`，不直接用它。
+    var latestEndedSegment: TemporalValue<V>? {
         let ended = entries.filter { $0.range.end != nil }
-        if !ended.isEmpty { return pick(ended.map { ($0, $0.range.end) }) }
+        if !ended.isEmpty { return Self.pickLatest(ended.map { ($0, $0.range.end) }) }
         let unknown = entries.filter(\.range.endedUnknown)
-        if !unknown.isEmpty { return pick(unknown.map { ($0, $0.range.start) }) }
-        let attested = entries.filter { !$0.range.attested.isEmpty }
-        if !attested.isEmpty { return pick(attested.map { ($0, $0.range.attested.max()) }) }
+        if !unknown.isEmpty { return Self.pickLatest(unknown.map { ($0, $0.range.start) }) }
         return nil
+    }
+
+    /// 層 3：**只被觀測到**的段（#70：有觀測點、沒有 `end`、不是 `endedUnknown`）中最近的一段。
+    ///
+    /// 判準與匯出端 `researcher.status` 的 `undetermined` 是同一個（#661）：這一層非空，就是「說不出來」。
+    /// 有 `end` 或 `endedUnknown` 又帶觀測點的段是 store 拒收的矛盾組合，不在這一層（它在 `latestEndedSegment`）。
+    var latestObservedSegment: TemporalValue<V>? {
+        let observed = entries.filter {
+            $0.range.end == nil && !$0.range.endedUnknown && !$0.range.attested.isEmpty
+        }
+        return observed.isEmpty ? nil : Self.pickLatest(observed.map { ($0, $0.range.attested.max()) })
+    }
+
+    /// 層內挑選：有 key 的優先，key 相同或皆無 key 時取索引較後者。
+    private static func pickLatest(_ xs: [(TemporalValue<V>, String?)]) -> TemporalValue<V>? {
+        xs.enumerated().max { a, b in
+            switch (a.element.1, b.element.1) {
+            case let (l?, r?): return l == r ? a.offset < b.offset : l < r
+            case (nil, _?):    return true       // 無 key < 有 key
+            case (_?, nil):    return false
+            case (nil, nil):   return a.offset < b.offset
+            }
+        }?.element.0
     }
 
     /// 依時間排序（全序：同區間時按值排）。**供相等性使用**——`==` 定義為

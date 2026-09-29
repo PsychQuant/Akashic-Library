@@ -353,6 +353,64 @@ final class ResolveAmbiguityCLITests: XCTestCase {
                        "有已結束隸屬就不是「無任何區辨欄位」：\n\(r.output)")
     }
 
+    // MARK: - #663：只被觀測到的隸屬不說「曾隸屬」
+
+    private var standSeq = 0
+
+    /// 一個帶指定隸屬時間軸的人（與一個同名、帶 ORCID 的對照者，於是有歧義段）的那一行區辨欄位。
+    /// 同一個測試可以呼叫多次：每次用自己的 key 與名字，不與先前的呼叫共用記錄（`Person(key:names:)` 每次
+    /// 產生新的 id，同 key 再寫一次是第二個檔，那會讓 key 重複）。
+    private func standingLine(_ segments: [(String, DateRange)]) throws -> String {
+        standSeq += 1
+        let n = standSeq
+        var x = Person(key: "stand-x\(n)", names: PersonNames(variant: ["Stand Same \(n)"]))
+        x.profile.affiliations = TimelineOf(segments.map {
+            TemporalValue(value: OrgRef.literal($0.0), range: $0.1)
+        })
+        try store.writePerson(x)
+        try writePerson(key: "stand-y\(n)", names: ["Stand Same \(n)"], died: "2001")
+        try store.writeEntry(Entry(id: UUID(), citekey: "stand\(n)a2020", type: .periodicalArticle,
+                                   title: "X", authors: [.literal("Stand Same \(n)")], date: "2020"))
+        let r = try runCLI(["resolve-people"])
+        XCTAssertEqual(r.status, 0, r.output)
+        return try XCTUnwrap(r.output.split(separator: "\n").first { $0.contains("stand-x\(n)  [") }.map(String.init),
+                             "要有 stand-x\(n) 那一行：\n\(r.output)")
+    }
+
+    /// **觀測不是離開。** `attested` 只是「這幾個時點觀測到成立」，匯出端對這種人說 `undetermined`；
+    /// CLI 先前印「曾隸屬:X（觀測:2021）」——一個離開的斷言。
+    func testAttestedOnlyAffiliationIsObservedNotFormer() throws {
+        let line = try standingLine([("ISS", DateRange(attested: ["2019-05", "2021"]))])
+        XCTAssertTrue(line.contains("觀測到隸屬:ISS"), line)
+        XCTAssertTrue(line.contains("2019-05") && line.contains("2021"), "觀測點要印出來：\(line)")
+        XCTAssertFalse(line.contains("曾隸屬"), "沒有任何一段宣稱結束——不得說曾隸屬：\(line)")
+        XCTAssertFalse(line.contains("無任何區辨欄位"), line)
+    }
+
+    func testOnlyEndedAffiliationIsStillFormer() throws {
+        let line = try standingLine([("Old Institute", DateRange(start: "1990", end: "1995"))])
+        XCTAssertTrue(line.contains("曾隸屬:Old Institute（1990–1995）"), line)
+        XCTAssertFalse(line.contains("觀測到隸屬"), line)
+        let unknown = try standingLine([("Gone Lab", DateRange(endedUnknown: true))])
+        XCTAssertTrue(unknown.contains("曾隸屬:Gone Lab") && unknown.contains("已結束・時點未知"), unknown)
+    }
+
+    /// **混合情形兩者都要看得到**：先前只剩「曾隸屬 NTU（2000–2010）」，2015 年在 ISS 的觀測整個不見，
+    /// 而匯出對同一人說 `undetermined`。
+    func testMixedAffiliationShowsBothTheEndedAndTheObservedSegment() throws {
+        let line = try standingLine([("NTU", DateRange(start: "2000", end: "2010")),
+                                     ("ISS", DateRange(attested: ["2015"]))])
+        XCTAssertTrue(line.contains("曾隸屬:NTU（2000–2010）"), line)
+        XCTAssertTrue(line.contains("觀測到隸屬:ISS（2015）"), "觀測段不得消失：\(line)")
+    }
+
+    func testCurrentAffiliationIsStillJustAffiliation() throws {
+        let line = try standingLine([("ISS", DateRange(start: "2020")),
+                                     ("NTU", DateRange(attested: ["2012"]))])
+        XCTAssertTrue(line.contains("隸屬:ISS"), line)
+        XCTAssertFalse(line.contains("曾隸屬") || line.contains("觀測到隸屬"), "有現職就是現職：\(line)")
+    }
+
     /// #236 R3：兩個 key 在 `displaySafe` 後可能印得**逐位元組相同**（截斷）。
     /// 列內序號讓人至少知道那是兩筆不同的記錄，而不是同一人被列了兩次。
     func testAmbiguityRowsAreNumberedSoCollidingKeysStayDistinct() throws {

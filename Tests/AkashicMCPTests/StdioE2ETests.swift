@@ -540,6 +540,20 @@ extension StdioE2ETests {
                               ["citekey": "cheng2025identifiability", "add_sources": ["sha256:" + String(repeating: "cd", count: 32)]])
         XCTAssertTrue(absent.contains("本機沒有"), absent)
 
+        // #680：remove_zotero_sources 接到服務（鍵名打錯的話會落到「沒有要做的事」），乾跑回報告、磁碟不動
+        var withSource = Entry(id: UUID(), citekey: "zsrc2025", type: .periodicalArticle, title: "T")
+        withSource.provenance = Provenance(zoteroKey: "PRIM0001", zoteroVersion: 5, libraryID: 1)
+        withSource.additionalProvenance = [Provenance(zoteroKey: "GRP00001", zoteroVersion: 9, libraryID: 5)]
+        try LibraryStore(root: root).writeEntry(withSource)
+        let zs = try call(7, "akashic_update_entry", ["citekey": "zsrc2025", "remove_zotero_sources": ["5:GRP00001=E2E：乾跑"]])
+        let zsObj = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(zs.utf8)) as? [String: Any], zs)
+        XCTAssertEqual(zsObj["dryRun"] as? Bool, true, zs)
+        XCTAssertEqual((zsObj["zoteroSourceRemovals"] as? [[String: Any]])?.first?["source"] as? String, "5:GRP00001", zs)
+        let stillThere = try LibraryStore(root: root).load().entries.first { $0.citekey == "zsrc2025" }
+        XCTAssertEqual(stillThere?.additionalProvenance.count, 1, "乾跑，磁碟不動")
+        let notArray = try call(8, "akashic_update_entry", ["citekey": "zsrc2025", "remove_zotero_sources": "5:GRP00001=x"])
+        XCTAssertTrue(notArray.contains("字串陣列"), notArray)
+
         // b11c R1 verify 第 42 列：缺 citekey 是缺參數，不是「找不到：citekey「」」
         let missing = try call(5, "akashic_update_entry", ["remove_fields": ["journaltitle=x"]])
         XCTAssertTrue(missing.contains("citekey 是必填參數"), missing)

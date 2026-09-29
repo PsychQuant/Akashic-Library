@@ -257,7 +257,7 @@ akashic:
 - **寫入端**（#614）：`update-entry <citekey> --add-source <digest>`（MCP `akashic_update_entry` 的
   `add_sources`），預設乾跑、`--apply` 才寫。add-only、冪等；寫入當下要求每個新加的 digest 已在本機 `sources/`
   且 `sources/index.jsonl` 有它的取得記錄、blob 的位置是普通檔（目錄與 symlink 拒絕）——那是寫入閘，不是載入條件（上一條：別台 clone 讀到的連結
-  照常載入）；全是已連過的 digest 時不讀 index。沒有移除面（#677 追蹤；目前以 git 還原那個 work 檔）。
+  照常載入）；全是已連過的 digest 時不讀 index。沒有移除面（#677 追蹤；目前以 git 還原那個 work 檔）——這裡說的是 `akashic.sources` 的副本；work 記下的 Zotero 來源的移除面是 `--remove-zotero-source`（§2.5.3，#680）。
 - **讀取端**：`get-entry`／`akashic_get_entry` 的 `akashic.sources` 列出連好的 digest（取得記錄在 `sources/index.jsonl`）。
 
 ### 2.5 Namespace 契約（CRITICAL）
@@ -351,11 +351,16 @@ work merge 的資料遺失閘也把 witness 當 canonical Akashic metadata：被
   不算多筆宣稱；同一筆 entry 被讀到兩次（兩份並存，#631）也只算一次。舊檔與某個 library 的來源同裸 key 不算多筆宣稱
   （歸屬不明不是確定的重複），匯入端照上一條不認領。處置是人的：同一篇就合併（`record-divergence` 記下、
   `resolve-divergence` 把來源併成一份；兩筆都沒記 `library_id` 的舊檔同樣可併），記錯了就在 YAML 拿掉那個來源、或補上它
-  真正的 `library_id`（活著的來源目前沒有移除面）。
+  真正的 `library_id`；記錯了的移除面是 `update-entry --remove-zotero-source`（#680，見下）。
 - **附加來源要記 `library_id`**（#679）：匯入端以 `(library_id, zotero_key)` 比對附加來源，沒記 `library_id` 的附加來源對不回任何條目，
   也不算宣稱者（`ZoteroSourceClaims.claims(of:)`）——再匯入時 Zotero 端仍有的那個條目會另建一筆 twin。decode 接受這個形狀
   （拒收會讓既有的檔整個被隔離）；合併閘只擋合併新收這種來源，管不到手改與舊檔。`Entry.validate()` 對它報 warning
   （每筆 entry 一則、至多列 5 個），出路是補上真正的 `library_id`，或用 `update-entry --remove-zotero-source` 移除（#680；定位鍵 `?:<zotero_key>`）。
+- **移除面**（#680）：`update-entry <citekey> --remove-zotero-source <來源鍵>=理由`（MCP `akashic_update_entry` 的 `remove_zotero_sources`），
+  預設乾跑、`--apply` 才寫。來源鍵是 `<library_id>:<zotero_key>`，沒記 `library_id` 的來源是 `?:<zotero_key>`（與跨記錄警告、
+  `ambiguousSourceClaims` 同一種鍵）；主來源與附加來源都能移除。判定：理由必填、只進報告、不寫進 store（不改 store format），
+  實跑要求那筆 work 檔已在 git 裡 commit、乾淨。主來源移除而附加來源仍在時附加來源**不升格**（同「與 Zotero 脫鉤」）；
+  被移除的來源若在 Zotero 端仍有那個條目，下一次 `import-zotero` 會為它另建一筆新 entry（沒有 entry 宣稱它了）。
 - **只有主來源更新書目欄位**：主來源命中 → 照 §2.5.2 的 update 條件改寫欄位；附加來源命中 →
   只更新該來源自己的 `zotero_version`／`zotero_hash`／`imported_at`，並清其 `orphaned_at`，
   **不動書目欄位**。附加來源 hash 變了而未套用 → 匯入報告列出（`secondarySourceChanged`）。

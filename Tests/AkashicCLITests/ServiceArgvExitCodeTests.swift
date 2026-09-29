@@ -78,6 +78,12 @@ final class ServiceArgvExitCodeTests: XCTestCase {
         try assertUsageError(["update-entry", "a2020b", "--add-source", emptyDigest], "0 byte")
         try assertUsageError(["update-entry", "a2020b", "--add-source", digest, digest], "出現兩次")
         try assertUsageError(["update-entry", "a2020b", "--add-source", digest, "--remove-field", "a=b"], "單獨呼叫")
+        // #680：--remove-zotero-source 的形狀、理由、來源鍵，以及不與其他兩條腿組合
+        try assertUsageError(["update-entry", "a2020b", "--remove-zotero-source", "5:K"], "缺少 `=`")
+        try assertUsageError(["update-entry", "a2020b", "--remove-zotero-source", "5:K= "], "理由是空白")
+        try assertUsageError(["update-entry", "a2020b", "--remove-zotero-source", "K=理由"], "不是來源鍵")
+        try assertUsageError(["update-entry", "a2020b", "--remove-zotero-source", "5:K=a", "5:K=b"], "出現兩次")
+        try assertUsageError(["update-entry", "a2020b", "--remove-zotero-source", "5:K=a", "--remove-field", "a=b"], "單獨呼叫")
     }
 
     func testUpdateVenueArgvChecks() throws {

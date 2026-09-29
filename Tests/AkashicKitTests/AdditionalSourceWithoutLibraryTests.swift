@@ -4,6 +4,7 @@ import Foundation
 @testable import AkashicStoreIO
 @testable import AkashicSQLite
 @testable import AkashicZoteroImport
+@testable import AkashicMCPKit
 
 /// #679：沒記 `library_id` 的附加 Zotero 來源。匯入端以 `(library_id, zotero_key)` 比對附加來源，`ZoteroSourceClaims.claims(of:)` 不把
 /// 這種來源算成宣稱——所以它對不回任何 Zotero 條目，再匯入時同一個條目會另建一筆 twin。decode 接受它（拒收會讓既有的檔整個被隔離），
@@ -111,5 +112,48 @@ final class AdditionalSourceWithoutLibraryReimportTests: XCTestCase {
 
         let report = try importer.run(zoteroDB: fixture.dbURL, now: Date(timeIntervalSince1970: 1_753_100_000))
         XCTAssertEqual(report.created.count, 1, "警告說的後果：沒記 library_id 的附加來源對不回條目，另建了一筆：\(report.created)")
+    }
+}
+
+/// #680：移除面的報告（`reimportNote`）說「被移除的來源若在 Zotero 端仍有那個條目，下一次 import-zotero 會為它另建一筆新 entry」。
+/// 說出口的後果要用行為釘住：移除之前匯入對回持有它的附加來源、不新建；移除之後沒有任何 entry 宣稱它，匯入新建一筆。
+final class ZoteroSourceRemovalReimportTests: XCTestCase {
+    func testRemovingALiveAdditionalSourceMakesTheNextImportCreateANewEntry() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("akashic-zrm-imp-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let home = dir.appendingPathComponent("home")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        let store = LibraryStore(root: dir.appendingPathComponent("library"), key: nil, environment: ["AKASHIC_HOME": home.path])
+        try store.ensureLayout()
+        let fixture = try ZoteroFixture(dir: dir)
+        try fixture.seedStandard()
+        try fixture.db.execute("INSERT INTO items VALUES (31,1,'KEYGRP01',9,5)")
+        try fixture.addField(item: 31, field: 1, value: "Identifiability of polychoric models (group copy)", valueID: 131)
+        let importer = ZoteroImporter(store: store)
+        _ = try importer.run(zoteroDB: fixture.dbURL, now: Date(timeIntervalSince1970: 1_753_000_000))
+        let all = try store.load().entries
+        var personal = all.first { $0.provenance?.zoteroKey == "KEYART01" }!
+        let group = all.first { $0.provenance?.zoteroKey == "KEYGRP01" }!
+        personal.additionalProvenance = [group.provenance!]   // 合併後的形狀：個人那筆持有群組來源當附加來源
+        try store.writeEntry(personal)
+        try FileManager.default.removeItem(at: store.entityURL(id: group.id))
+
+        let stable = try importer.run(zoteroDB: fixture.dbURL, now: Date(timeIntervalSince1970: 1_753_100_000))
+        XCTAssertEqual(stable.created, [], "前提：來源被持有時匯入對得回去，不新建")
+
+        try StoreVersion.write(root: store.root, format: StoreVersion.supported)
+        GitFixture.initRepo(store.root)
+        GitFixture.commitAll(store.root, message: "seed")
+        let service = AkashicService(root: store.root, key: nil, environment: ["AKASHIC_HOME": home.path])
+        let out = try service.updateEntry(citekey: personal.citekey, removeFields: nil, addSources: nil,
+                                          removeZoteroSources: ["5:KEYGRP01=群組那份屬於另一篇"], dryRun: false)
+        XCTAssertTrue(out.contains("reimportNote"), "活著的來源被移除，報告要說再匯入會另建：\(out)")
+
+        let after = try importer.run(zoteroDB: fixture.dbURL, now: Date(timeIntervalSince1970: 1_753_200_000))
+        XCTAssertEqual(after.created.count, 1, "報告說的後果是真的：沒有 entry 宣稱它了，匯入新建一筆：\(after.created)")
+        let created = try XCTUnwrap(try store.load().entries.first { $0.citekey == after.created[0] })
+        XCTAssertEqual(created.provenance?.zoteroKey, "KEYGRP01")
+        XCTAssertEqual(created.provenance?.libraryID, 5)
     }
 }

@@ -61,6 +61,29 @@ import AkashicIndex
 /// （§2.4.1：載入成功、可回報缺席，`akashic validate` 的「本機缺承重存檔」）。**閘不重新雜湊 blob**：位置是普通檔、index 有記錄，
 /// 但位元組是不是真的雜湊成那個 digest 沒有驗（`sources/` 被同步或複製時截斷、換掉，這裡看不出來；`auditSourceIndex` 也不雜湊）。
 /// 本面沒有移除腿：連錯了目前只能以 git 還原那個 work 檔（本面不要求檔已 commit，連結前先 commit store 才有退路；#677 追蹤移除腿）。
+/// **`--remove-zotero-source` 不是它的逆操作**——那條腿移除的是 work 記下的 Zotero 來源（`provenance`／`provenance_additional`），不是 `akashic.sources` 的副本。
+///
+/// ## `--remove-zotero-source`（`remove_zotero_sources`，#680）：移除 work 記下的 Zotero 來源
+///
+/// 在此之前活著的 Zotero 來源（主來源或附加來源）**沒有任何移除面**：#610 對「其中一筆記錯了」的處置是「手改 YAML」，#679 對「附加來源沒記
+/// `library_id`」的出路也只能是手改。App 的裁決台只處理**已在 Zotero 端刪除**的來源。
+///
+/// **它是判定**（`two-kinds-of-edits`）：「這個 Zotero 條目不屬於這一筆」要讀內容才知道。移除面一族（#572／#588／#586／#544）的使用者裁決
+/// （2026-09-27）：理由必填、**只進報告**、不寫進 store、不改 store format；被移除的來源住在 git 的移除前副本裡，所以實跑要求那筆 work 檔已
+/// commit、乾淨（`assertRecordsRecoverable`）。
+///
+/// 契約：
+/// - `<來源鍵>=理由`。來源鍵與跨記錄警告、`ambiguousSourceClaims` 同一種：`<library_id>:<zotero_key>`，沒記 `library_id` 的來源是 `?:<zotero_key>`
+///   （`ZoteroSourceClaims.key`，全樹產生它的唯一位置）；`05:K` 與 `5:K` 是同一個來源。每個來源鍵都要在這筆 work 命中至少一處，否則整批拒絕、
+///   零寫入（訊息列出這筆現有的來源）；同一來源兩次、形狀錯、理由空白或過長、一次超過 200 個，同樣整批拒絕。
+/// - 同一筆 work 的主來源與附加來源恰好是同一個來源時兩處都拿掉（那筆宣稱的是「這個來源」，只拿一處它仍然宣稱）。
+/// - **主來源被移除而附加來源仍在：附加來源不升格為主來源**（升格會把書目欄位的改寫權交給另一個 library，與 App 的「與 Zotero 脫鉤」同一條裁決）；
+///   沒有主來源、只有附加來源是合法狀態。連結狀態的前後照 `Entry.zoteroLinkState` 的既有定義具名（`zoteroLinkState`）。書目欄位不動。
+/// - 預設乾跑；乾跑不需要 git，實跑才驗。work 無法唯一定位時拒絕（#628／#641）。
+///
+/// **誠實邊界**：被移除的來源若在 Zotero 端仍有那個條目，下一次 `import-zotero` 會為它另建一筆新 entry（沒有 entry 宣稱它了）——報告的
+/// `reimportNote` 說出這件事，行為由 `ZoteroSourceRemovalReimportTests` 釘住。要讓那個條目落在另一筆 work 上，那筆要先宣稱這個來源（攣生合併，
+/// 或手改 YAML）；本面不做「移到另一筆」。沒有具名逆操作：被移除的來源只在 git 的移除前副本與報告裡。
 extension AkashicService {
 
     /// `--remove-field`（remove_fields）的一筆（只看參數的解析結果，#654 的形）。
@@ -69,33 +92,93 @@ extension AkashicService {
         let reason: String
     }
 
-    /// 一次呼叫做的那一件事（兩條腿各自單獨呼叫）。
+    /// `--remove-zotero-source`（remove_zotero_sources）的一筆（只看參數的解析結果，#654 的形）。`source` 是正規化後的來源鍵
+    /// （`ZoteroSourceClaims.key`：`<library_id>:<zotero_key>`，沒記 library_id 的是 `?:<zotero_key>`）。
+    struct RemoveZoteroSourceSpec {
+        let source: String
+        let reason: String
+    }
+
+    /// 一次呼叫做的那一件事（三條腿各自單獨呼叫）。
     enum UpdateEntryLeg {
         case removeFields([RemoveFieldSpec])
         case addSources([String])
+        case removeZoteroSources([RemoveZoteroSourceSpec])
     }
 
     /// CLI 的 `validate()` 用（#654 的形）：`update-entry` 只看參數的全部檢查——與服務在讀 store 之前跑的是同一個函式。
-    public static func checkUpdateEntryArguments(removeFields: [String]?, addSources: [String]? = nil) throws {
-        _ = try parseUpdateEntryArguments(removeFields: removeFields, addSources: addSources)
+    public static func checkUpdateEntryArguments(removeFields: [String]?, addSources: [String]? = nil,
+                                                 removeZoteroSources: [String]? = nil) throws {
+        _ = try parseUpdateEntryArguments(removeFields: removeFields, addSources: addSources, removeZoteroSources: removeZoteroSources)
     }
 
-    /// 至少要有一件事、兩條腿不組合，再交給各自的形狀檢查。**不組合的理由**：`remove_fields` 是判定（理由只進報告、要 git 閘），
-    /// `add_sources` 是落地（程式編輯）——`two-kinds-of-edits` 要求兩種寫入分開，混在一次呼叫裡報告與閘的語意也跟著混。
-    static func parseUpdateEntryArguments(removeFields: [String]?, addSources: [String]?) throws -> UpdateEntryLeg {
-        let removals = removeFields ?? [], additions = addSources ?? []
-        switch (removals.isEmpty, additions.isEmpty) {
-        case (true, true):
-            throw ServiceError.invalid("沒有要做的事：remove_fields（--remove-field）或 add_sources（--add-source）給一個")
-        case (false, false):
+    /// 至少要有一件事、三條腿不組合，再交給各自的形狀檢查。**不組合的理由**：`remove_fields` 與 `remove_zotero_sources` 是判定
+    /// （理由只進報告、要 git 閘，而被移除的東西不同），`add_sources` 是落地（程式編輯）——`two-kinds-of-edits` 要求兩種寫入分開，
+    /// 混在一次呼叫裡報告與閘的語意也跟著混。
+    static func parseUpdateEntryArguments(removeFields: [String]?, addSources: [String]?,
+                                          removeZoteroSources: [String]? = nil) throws -> UpdateEntryLeg {
+        let removals = removeFields ?? [], additions = addSources ?? [], zoteroRemovals = removeZoteroSources ?? []
+        let given = [!removals.isEmpty, !additions.isEmpty, !zoteroRemovals.isEmpty].filter { $0 }.count
+        guard given > 0 else {
             throw ServiceError.invalid(
-                "remove_fields（--remove-field）與 add_sources（--add-source）各自單獨呼叫——一個是判定、一個是落地，"
-                + "混在一次呼叫裡會讓報告與 git 閘的語意混在一起；整批拒絕、零寫入")
-        case (false, true):
-            return .removeFields(try parseRemoveFieldSpecs(removals))
-        case (true, false):
-            return .addSources(try parseAddSources(additions))
+                "沒有要做的事：remove_fields（--remove-field）、add_sources（--add-source）或 remove_zotero_sources（--remove-zotero-source）給一個")
         }
+        guard given == 1 else {
+            throw ServiceError.invalid(
+                "remove_fields（--remove-field）、add_sources（--add-source）、remove_zotero_sources（--remove-zotero-source）各自單獨呼叫——"
+                + "有的是判定、有的是落地，混在一次呼叫裡會讓報告與 git 閘的語意混在一起；整批拒絕、零寫入")
+        }
+        if !removals.isEmpty { return .removeFields(try parseRemoveFieldSpecs(removals)) }
+        if !additions.isEmpty { return .addSources(try parseAddSources(additions)) }
+        return .removeZoteroSources(try parseRemoveZoteroSourceSpecs(zoteroRemovals))
+    }
+
+    /// `--remove-zotero-source` 的來源鍵：`<library_id>:<zotero_key>` 或 `?:<zotero_key>`（沒記 library_id 的來源）。library_id 要是 ASCII 數字
+    /// （至多 18 位，不溢位）；正規化成 `ZoteroSourceClaims.key` 產生的形（`05:K` 與 `5:K` 是同一個來源）。不合形狀回 nil。
+    static func canonicalZoteroSourceKey(_ locator: String) -> String? {
+        guard let colon = locator.firstIndex(of: ":") else { return nil }
+        let prefix = String(locator[..<colon]), zoteroKey = String(locator[locator.index(after: colon)...])
+        guard !zoteroKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        if prefix == "?" { return ZoteroSourceClaims.key(libraryID: nil, zoteroKey: zoteroKey) }
+        guard (1...18).contains(prefix.count), prefix.allSatisfy({ $0.isASCII && $0.isNumber }), let lid = Int(prefix) else { return nil }
+        return ZoteroSourceClaims.key(libraryID: lid, zoteroKey: zoteroKey)
+    }
+
+    /// 一次的上限、`<來源鍵>=理由` 的形狀、理由的空白與長度、同一來源兩次（正規化後）。
+    static func parseRemoveZoteroSourceSpecs(_ specs: [String]) throws -> [RemoveZoteroSourceSpec] {
+        guard specs.count <= Self.maxSpecsPerCall else {
+            throw ServiceError.invalid("一次最多移除 \(Self.maxSpecsPerCall) 個 Zotero 來源（這次 \(specs.count) 個）——分次送")   // display-safe-exempt: Self.maxSpecsPerCall 與 specs.count 都是 Int
+        }
+        var out: [RemoveZoteroSourceSpec] = []
+        var seen = Set<String>()
+        for raw in specs {
+            guard let eq = raw.firstIndex(of: "=") else {
+                throw ServiceError.invalid(
+                    "remove_zotero_sources「\(displaySafeInvisible(raw, max: 200))」缺少 `=`——格式是 <來源鍵>=理由（來源鍵是 <library_id>:<zotero_key>，"
+                    + "沒記 library_id 的來源是 ?:<zotero_key>），理由必填；整批拒絕、零寫入")
+            }
+            let locator = String(raw[..<eq])
+            let reason = String(raw[raw.index(after: eq)...])
+            guard let source = Self.canonicalZoteroSourceKey(locator) else {
+                throw ServiceError.invalid(
+                    "remove_zotero_sources「\(displaySafeInvisible(locator, max: 200))」不是來源鍵——形狀是 <library_id>:<zotero_key>（library_id 是 ASCII 數字）"
+                    + "或 ?:<zotero_key>（沒記 library_id 的來源）；先用 get-entry 看這筆的 provenance；整批拒絕、零寫入")
+            }
+            if reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                throw ServiceError.invalid(
+                    "remove_zotero_sources「\(displaySafeInvisible(source, max: 200))」的理由是空白——移除是判定，要寫為什麼這個來源不屬於這一筆；報告與 commit 靠它")
+            }
+            guard reason.utf8.count <= Self.maxStatementBytes else {
+                throw ServiceError.invalid(
+                    "remove_zotero_sources「\(displaySafeInvisible(source, max: 200))」的理由超過 \(Self.maxStatementBytes) 位元組——精簡它")   // display-safe-exempt: Self.maxStatementBytes 是 Int 常數
+            }
+            guard seen.insert(source).inserted else {
+                throw ServiceError.invalid(
+                    "remove_zotero_sources「\(displaySafeInvisible(source, max: 200))」在一次呼叫裡出現兩次——整批拒絕、零寫入")
+            }
+            out.append(RemoveZoteroSourceSpec(source: source, reason: reason))
+        }
+        return out
     }
 
     /// 一次的上限、`<鍵>=理由` 的形狀、理由的空白與長度、同一鍵兩次。
@@ -227,12 +310,124 @@ extension AkashicService {
 
     /// `update-entry`／`akashic_update_entry` 的入口：只看參數的檢查在讀 store 之前（#654 的形），再分派到那一條腿。
     /// `sourcesLimit`：`add_sources` 的報告列幾筆。預設是 MCP 面的上限（`sourcesAddedCap`），CLI 傳 nil 全列（`sourcesAddedCap` 的 doc）。
-    public func updateEntry(citekey: String, removeFields: [String]?, addSources: [String]? = nil, dryRun: Bool,
+    public func updateEntry(citekey: String, removeFields: [String]?, addSources: [String]? = nil,
+                            removeZoteroSources: [String]? = nil, dryRun: Bool,
                             sourcesLimit: Int? = AkashicService.sourcesAddedCap) throws -> String {
-        switch try Self.parseUpdateEntryArguments(removeFields: removeFields, addSources: addSources) {
+        switch try Self.parseUpdateEntryArguments(removeFields: removeFields, addSources: addSources, removeZoteroSources: removeZoteroSources) {
         case .removeFields(let specs): return try removeEntryFields(citekey: citekey, specs: specs, dryRun: dryRun)
         case .addSources(let digests): return try addEntrySources(citekey: citekey, digests: digests, dryRun: dryRun, sourcesLimit: sourcesLimit)
+        case .removeZoteroSources(let specs): return try removeEntryZoteroSources(citekey: citekey, specs: specs, dryRun: dryRun)
         }
+    }
+
+    /// MCP 面 `zoteroSourcesRemaining` 列幾筆（一筆 entry 的來源數不受本工具限制，手改的 store 可以有很多個附加來源）。
+    static let zoteroSourcesRemainingCap = 20
+
+    private static func linkStateName(_ state: ZoteroLinkState) -> String {
+        switch state {
+        case .intact: return "intact"
+        case .orphaned: return "orphaned"
+        case .additionalSourceOrphaned: return "additionalSourceOrphaned"
+        }
+    }
+
+    /// `--remove-zotero-source`（remove_zotero_sources，#680）：從一筆 work 拿掉它記下的 Zotero 來源（主來源或附加來源）。
+    ///
+    /// 見檔頭的契約；這一條腿的形狀：
+    /// - `<來源鍵>=理由`，來源鍵是 `<library_id>:<zotero_key>`（沒記 library_id 的來源是 `?:<zotero_key>`，與跨記錄警告、`ambiguousSourceClaims` 同一種鍵）。
+    ///   每個來源鍵都要在這筆 work 裡命中至少一處，否則整批拒絕、零寫入（訊息列出這筆現有的來源）。同一筆 work 的主來源與附加來源恰好是
+    ///   同一個來源時兩處都拿掉——移除的是「這筆宣稱這個來源」，只拿掉一處它仍然宣稱。
+    /// - 主來源被移除而附加來源仍在：**不升格**（升格會把書目欄位的改寫權交給另一個 library，與 App 的「與 Zotero 脫鉤」同一條裁決）；
+    ///   沒有主來源、只有附加來源是合法狀態。連結狀態的變化照 `Entry.zoteroLinkState` 的既有定義具名（`zoteroLinkState.before／after`）。
+    /// - 判定：理由必填、只進報告；實跑要求 work 檔已 commit 且乾淨（被移除的來源只剩 git 裡那一份）。預設乾跑，乾跑不需要 git。
+    func removeEntryZoteroSources(citekey: String, specs: [RemoveZoteroSourceSpec], dryRun: Bool) throws -> String {
+        var entry = try requireEntry(citekey)   // 無法唯一定位（#628／#641）與不存在都在這裡拒絕
+        let stateBefore = entry.zoteroLinkState
+        let present = ZoteroSourceClaims.sources(of: entry)
+        let label = "work「\(displaySafeInvisible(citekey, max: 200))」"
+        guard !present.isEmpty else {
+            throw ServiceError.invalid("\(label)沒有任何 Zotero 來源——沒有東西可移除；整批拒絕、零寫入")   // display-safe-exempt: label 已含 displaySafeInvisible(citekey)
+        }
+        let presentKeys = Set(present.map(\.key))
+        for s in specs where !presentKeys.contains(s.source) {
+            let current = present.prefix(10).map { displaySafeInvisible($0.key, max: 200) }.joined(separator: "、")
+            throw ServiceError.invalid(
+                "\(label)沒有來源「\(displaySafeInvisible(s.source, max: 200))」——這筆現有的來源：\(current)"   // display-safe-exempt: label 與 current 的每一項都已 displaySafeInvisible
+                + (present.count > 10 ? "…共 \(present.count) 個" : "")   // display-safe-exempt: Int
+                + "。library_id 要與來源記的相符（沒記的用 ?:）；整批拒絕、零寫入")
+        }
+        let reasonByKey = Dictionary(specs.map { ($0.source, $0.reason) }, uniquingKeysWith: { first, _ in first })
+        var removed: [[String: Any]] = []
+        var removedPrimary = false
+        var anyLive = false
+        var dropAdditional = Set<Int>()
+        for s in present {
+            guard let given = reasonByKey[s.key] else { continue }
+            let provenance: Provenance
+            let role: String
+            switch s.role {
+            case .primary:
+                guard let p = entry.provenance else { continue }
+                provenance = p; role = "primary"; removedPrimary = true
+            case .additional(let i):
+                provenance = entry.additionalProvenance[i]; role = "additional"; dropAdditional.insert(i)
+            }
+            if provenance.orphanedAt == nil { anyLive = true }
+            removed.append([
+                "source": displaySafeInvisible(s.key, max: 200),
+                "role": role,
+                "orphaned": provenance.orphanedAt != nil,   // display-safe-exempt: Bool
+                "zoteroVersion": provenance.zoteroVersion,   // display-safe-exempt: Int
+                // 理由不進 store，報告是它唯一的一份——不截在入口上限之下（#588 R1 verify 的同一條）
+                "reason": displaySafe(given, max: Self.maxStatementBytes),   // display-safe-exempt: given 是呼叫端原文、在這裡消毒一次
+            ])
+        }
+        if removedPrimary { entry.provenance = nil }
+        if !dropAdditional.isEmpty {
+            entry.additionalProvenance = entry.additionalProvenance.enumerated().filter { !dropAdditional.contains($0.offset) }.map(\.element)
+        }
+
+        // 寫入前的檢查兩種模式都跑（唯讀）：乾跑說「可以」時，實跑不會在內容閘上才被拒
+        try store.preflightWrite(entry)
+        if !dryRun {
+            try assertRecordsRecoverable([(entry.id, label)],
+                                         action: "這次會從 \(label)移除 \(removed.count) 個 Zotero 來源",   // display-safe-exempt: removed.count 是 Int
+                                         issue: "#680")
+            try store.writeEntry(entry)
+            try LibraryIndex(store: store).rebuild()
+        }
+
+        let remaining = ZoteroSourceClaims.sources(of: entry)
+        var payload: [String: Any] = [
+            "citekey": displaySafe(citekey, max: 200),
+            "dryRun": dryRun,   // display-safe-exempt: Bool
+            "zoteroSourceRemovals": removed,
+            "zoteroLinkState": ["before": Self.linkStateName(stateBefore), "after": Self.linkStateName(entry.zoteroLinkState)],
+            "zoteroSourcesRemaining": remaining.prefix(Self.zoteroSourcesRemainingCap).map { s -> String in
+                var orphaned = false
+                switch s.role {
+                case .primary: orphaned = entry.provenance?.orphanedAt != nil
+                case .additional(let i): orphaned = entry.additionalProvenance[i].orphanedAt != nil
+                }
+                let role: String
+                if case .primary = s.role { role = "primary" } else { role = "additional" }
+                return "\(role) \(displaySafeInvisible(s.key, max: 200))" + (orphaned ? "（已刪除）" : "")   // display-safe-exempt: role 是兩個固定字串；key 已消毒
+            },
+            "zoteroSourcesRemainingTotal": remaining.count,   // display-safe-exempt: Int
+            "reasonNote": "理由只在這份報告裡——要留在 git，寫進接下來的 commit message（#680，使用者 2026-09-27 對移除面一族的裁決）",
+        ]
+        if dryRun {
+            payload["dryRunNote"] = "乾跑：沒有寫入。實跑（CLI --apply、MCP dry_run:false）要求這筆 work 的檔已在 git 裡 commit、乾淨"
+        }
+        if removedPrimary && !entry.additionalProvenance.isEmpty {
+            payload["primaryRemovedNote"] = "主來源已移除；剩下的附加來源不升格為主來源——升格會把書目欄位的改寫權交給另一個 library"
+                + "（與 App 的「與 Zotero 脫鉤」同一條裁決）。這筆的書目欄位之後不再被任何 Zotero 條目改寫"
+        }
+        if anyLive {
+            payload["reimportNote"] = "被移除的來源若在 Zotero 端仍有那個條目，下一次 import-zotero 會為它另建一筆新 entry（已沒有任何 entry 宣稱它）；"
+                + "要讓它落在另一筆 work 上，那筆要先宣稱這個來源（攣生合併，或手改 YAML）"
+        }
+        return try jsonString(payload)
     }
 
     func removeEntryFields(citekey: String, specs: [RemoveFieldSpec], dryRun: Bool) throws -> String {

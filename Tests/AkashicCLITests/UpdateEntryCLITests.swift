@@ -9,6 +9,7 @@ final class UpdateEntryCLITests: XCTestCase {
     private var root: URL!
     private var home: URL!
     private var file: URL!
+    private var zFile: URL!
 
     /// #239：hook 環境帶 `GIT_DIR`，`-C` 擋不住它——不剝的話 fixture 的 commit 會寫進使用者的 repo。
     private var scrubbedGitEnvironment: [String: String] {
@@ -35,6 +36,11 @@ final class UpdateEntryCLITests: XCTestCase {
         let e = Entry(id: UUID(), citekey: "x2020y", type: .periodicalArticle, title: "T",
                       fields: ["abstract": "This DOI is not currently attached to any metadata records.", "volume": "3"])
         file = try store.writeEntry(e)
+        // #680：帶兩個 Zotero 來源的 work（主來源 1:PRIM0001、附加來源 5:GRP00001）
+        var withSources = Entry(id: UUID(), citekey: "z2020y", type: .periodicalArticle, title: "Z")
+        withSources.provenance = Provenance(zoteroKey: "PRIM0001", zoteroVersion: 5, libraryID: 1)
+        withSources.additionalProvenance = [Provenance(zoteroKey: "GRP00001", zoteroVersion: 9, libraryID: 5)]
+        zFile = try store.writeEntry(withSources)
         git(["init", "-q"]); git(["add", "-A"]); git(["commit", "-q", "-m", "fixture"])
     }
     override func tearDownWithError() throws { try? FileManager.default.removeItem(at: root.deletingLastPathComponent()) }
@@ -109,5 +115,45 @@ final class UpdateEntryCLITests: XCTestCase {
         XCTAssertEqual(r.status, 0, r.output)
         XCTAssertEqual(digests.filter { r.output.contains($0) }.count, 21, "CLI 不截：\(r.output)")
         XCTAssertTrue(r.output.contains("\"sourcesAddedTotal\" : 21") && r.output.contains("\"truncated\" : false"), r.output)
+    }
+
+    /// #680：`--remove-zotero-source`——乾跑不寫也不過閘、`--apply` 未指名目標被閘擋下（拒絕在讀 store 之前）、指名之後照常寫，
+    /// 理由只在報告裡（檔案裡找不到），報告帶連結狀態前後。用真 binary。
+    func testRemoveZoteroSourceDryRunGateAndApply() throws {
+        let args = ["update-entry", "z2020y", "--remove-zotero-source", "5:GRP00001=這個來源屬於另一篇，CLI 測試"]
+        let before = try Data(contentsOf: zFile)
+        let dry = try CLITestHarness.run(args + ["--library", root.path], env: ["AKASHIC_HOME": home.path])
+        XCTAssertEqual(dry.status, 0, dry.output)
+        XCTAssertTrue(dry.output.contains("\"dryRun\" : true") && dry.output.contains("\"source\" : \"5:GRP00001\""), dry.output)
+        XCTAssertEqual(try Data(contentsOf: zFile), before, "乾跑零寫入")
+        let unnamedDry = try CLITestHarness.run(args, env: unnamedEnv)
+        XCTAssertEqual(unnamedDry.status, 0, "乾跑不經過閘：\(unnamedDry.output)")
+
+        let refused = try CLITestHarness.run(args + ["--apply"], env: unnamedEnv)
+        XCTAssertNotEqual(refused.status, 0, refused.output)
+        XCTAssertTrue(refused.output.contains("update-entry --apply 拒絕執行：未指名目標 store"), refused.output)
+        XCTAssertEqual(try Data(contentsOf: zFile), before, "被擋的呼叫不得寫")
+
+        let done = try CLITestHarness.run(args + ["--apply", "--library", root.path], env: ["AKASHIC_HOME": home.path])
+        XCTAssertEqual(done.status, 0, done.output)
+        XCTAssertTrue(done.output.contains("\"dryRun\" : false") && done.output.contains("zoteroLinkState"), done.output)
+        let store = LibraryStore(root: root, key: nil, environment: [:])
+        let z = try XCTUnwrap(store.load().entries.first { $0.citekey == "z2020y" })
+        XCTAssertEqual(z.additionalProvenance, [], "附加來源移除")
+        XCTAssertEqual(z.provenance?.zoteroKey, "PRIM0001", "主來源不動")
+        XCTAssertFalse(try String(contentsOf: zFile, encoding: .utf8).contains("CLI 測試"), "理由不寫進 store")
+    }
+
+    /// #680：未 commit 的修改讓 `--apply` 被拒（走真 binary，證明 CLI 面接到同一道閘）。
+    func testRemoveZoteroSourceApplyRefusesAnUncommittedWork() throws {
+        var z = try XCTUnwrap(LibraryStore(root: root, key: nil, environment: [:]).load().entries.first { $0.citekey == "z2020y" })
+        z.fields["volume"] = "9"   // 未提交的修改
+        _ = try LibraryStore(root: root, key: nil, environment: [:]).writeEntry(z)
+        let r = try CLITestHarness.run(["update-entry", "z2020y", "--remove-zotero-source", "5:GRP00001=x", "--apply", "--library", root.path],
+                                       env: ["AKASHIC_HOME": home.path])
+        XCTAssertNotEqual(r.status, 0, r.output)
+        XCTAssertTrue(r.output.contains("#680"), r.output)
+        let after = try XCTUnwrap(LibraryStore(root: root, key: nil, environment: [:]).load().entries.first { $0.citekey == "z2020y" })
+        XCTAssertEqual(after.additionalProvenance.count, 1, "零寫入")
     }
 }

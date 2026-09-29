@@ -193,11 +193,14 @@ actor AkashicMCPServer {
                  + "指向被移除鍵的 fields.<鍵> reference 一併刪除（referencesRemoved）；由被移除值推導的 venue 邊不動、列在 venueEdgesFromRemovedValues（literal）／"
                  + "venueKeyEdgesFromRemovedValues（已歸戶，venue 上的 verdict 也留著）；reintroductionNote 說明 import-wos 回填、enrich、Zotero pull 會把值補回；"
                  + "移除 APA7 必要欄位時附 apa7RequiredNowMissing。add_sources 把已存進 sources/ 的內容宣告為這篇的副本（akashic.sources）：add-only、冪等（sourcesAlreadyPresent），"
-                 + "sourcesAdded 帶 index 的取得記錄（至多 20 筆，sourcesAddedTotal／truncated 揭露；CLI 全列）。兩條腿各自單獨呼叫。work 無法唯一定位時拒絕。",
+                 + "sourcesAdded 帶 index 的取得記錄（至多 20 筆，sourcesAddedTotal／truncated 揭露；CLI 全列）。"
+                 + "remove_zotero_sources 移除這筆記下的 Zotero 來源（主來源或附加來源；判定：理由必填、只回在 zoteroSourceRemovals；實寫要求 work 檔已 commit、乾淨）："
+                 + "主來源移除後附加來源不升格（primaryRemovedNote），zoteroLinkState 回連結狀態前後。三條腿各自單獨呼叫。work 無法唯一定位時拒絕。",
              inputSchema: obj([
                 "citekey": str("目標 work 的 citekey"),
                 "remove_fields": strArray("<鍵>=理由（鍵與 fields 現有的鍵逐字相符；理由 ≤ 4,096 位元組）。鍵不存在、同鍵兩次、理由空白或過長、超過 200 個 → 整批拒絕零寫入"),
                 "add_sources": strArray("digest（sha256: 加 64 個小寫十六進位，0 byte 內容的 digest 拒收；先用 akashic_store_source 存）。本機 sources/ 沒有、index 沒有取得記錄、空內容的 digest、重複、超過 200 個 → 整批拒絕零寫入"),
+                "remove_zotero_sources": strArray("<library_id>:<zotero_key>=理由（沒記 library_id 的來源用 ?:<zotero_key>；理由 ≤ 4,096 位元組）。這筆沒有的來源、同來源兩次、形狀錯、理由空白或過長、超過 200 個 → 整批拒絕零寫入"),
                 "dry_run": .object(["type": .string("boolean"), "description": .string("預設 true（只回計畫）；false 才寫")]),
              ], required: ["citekey"])),
         Tool(name: "akashic_venue",
@@ -642,6 +645,7 @@ actor AkashicMCPServer {
                 output = try service.updateEntry(citekey: argRequired("citekey"),
                                                  removeFields: try argStrictList("remove_fields"),
                                                  addSources: try argStrictList("add_sources"),
+                                                 removeZoteroSources: try argStrictList("remove_zotero_sources"),
                                                  dryRun: try argFlag("dry_run", default: true))
             case "akashic_venue":
                 output = try service.venue(key: arg("key") ?? "")

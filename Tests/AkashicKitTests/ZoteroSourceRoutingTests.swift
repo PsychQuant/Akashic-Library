@@ -187,6 +187,9 @@ extension ZoteroSourceRoutingTests {
         XCTAssertEqual(issues.first?.severity, .warning)
         XCTAssertTrue(issues.first?.message.contains("被 2 筆 entry 宣稱") ?? false, issues.first?.message ?? "")
         XCTAssertTrue(issues.first?.message.contains(b.citekey) ?? false)
+        XCTAssertTrue(issues.first?.message.contains("remove-zotero-source") == true
+                      && issues.first?.message.contains("定位鍵 1:KEYART01") == true,
+                      "記錯了的出路是移除面，並給出可貼上的定位鍵（#680）：\(issues.first?.message ?? "")")
     }
 
     /// 同一筆 entry 的主來源與附加來源恰好是同一個來源：那不是多筆宣稱，照主來源更新（負控：
@@ -276,7 +279,9 @@ extension ZoteroSourceRoutingTests {
         XCTAssertTrue(message.contains(a.citekey) && message.contains(b.citekey), message)
         XCTAssertTrue(message.contains("沒記 library_id 的 Zotero 來源（裸 key「KEYART01」）"), "要說出這是沒記 library_id 的來源：\(message)")
         XCTAssertTrue(message.contains("record-divergence") && message.contains("resolve-divergence"), "合併的出路：\(message)")
-        XCTAssertTrue(message.contains("YAML"), "記錯了的出路：\(message)")
+        XCTAssertTrue(message.contains("remove-zotero-source") && message.contains("定位鍵 ?:KEYART01"),
+                      "記錯了的出路：移除面與它的定位鍵（#680）：\(message)")
+        XCTAssertTrue(message.contains("library_id") && message.contains("YAML"), "另一條出路：補上真正的 library_id：\(message)")
     }
 
     /// 邊界（照舊）：一筆 legacy 與某個 library 的來源同裸 key 不算多筆宣稱——歸屬不明不是確定的重複。

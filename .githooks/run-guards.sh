@@ -60,7 +60,7 @@ for root in $plugin_roots; do
   .build/debug/akashic-guards rule-prose-guards --root "$root" --prose-only
 done
 # **Swift 版**（#433，第二支遷移的 harness）。乾淨樹逐位元相同（19 行、rc=0）。
-# case 數以它印的 `negative control N/N` 為準（#644 起含一格 plugin/ 以外的根、一格不存在的根；#629 移除第 6 項時少了兩格，
+# case 數以它印的 `negative control N/N` 為準（#644 起含一格 plugin/ 以外的根、一格不存在的根；#629 移除第 6 項的 case 後數字下降，
 # 2026-09-29 實測 14/14，先前這裡與 changelog 寫 15）＋ 一個注入 PoC（不只看守衛紅不紅，還看**副作用有沒有發生**）。
 .build/debug/akashic-guards rule-prose-guards-mutations
 # （原本這裡有 census 的四件套：`hash-table-drift.sh`、`multiscalar-parity.swift`、`store-marker-parity.sh`、

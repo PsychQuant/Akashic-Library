@@ -107,7 +107,7 @@ SKILL.md 那張 venue 輸出表因此少了兩列。
   換成 `PluginStoreFormatParity.swift`／`RuleCoverage.swift`（被測的是 `trigger-coverage` 對路徑字面、probe token、宣告樣式的**文字層**判斷，與宿主語言無關）。
   **兩個 case 的預期文字放寬**：「從守衛清單拿掉一支守衛」原本只會多一條 pre-push 的缺口（那支守衛另被 workflow 的獨立 step 直接執行）；現在所有守衛都只經 `run-guards.sh`，拿掉那一行兩邊都不跑，
   它讀的每個受保護檔多一條「不在任何 CI workflow 跑」——是同一個注入的後果，共同前綴是「守衛名 ＋ 不在」。
-- `rule-prose-guards-mutations` 15/15、`plugin-roots-mutations` 11/11（`rule-coverage` 的呼叫改為子命令）、`oracle-precondition-control` 兩個自檢都乾淨降級。
+- `rule-prose-guards-mutations` 14/14（這裡原本寫 15/15，R1 驗證重跑得 14——移除第 6 項的 case 後沒有跟著更新這個數字，見 `2026-09-29-b13p-verify-r1.md`）、`plugin-roots-mutations` 11/11（`rule-coverage` 的呼叫改為子命令）、`oracle-precondition-control` 兩個自檢都乾淨降級。
 - `migrated-guard-control`：「實際在跑」的抽取式**允許縮排**——`rule-coverage` 在 `run-guards.sh` 裡是迴圈內逐根呼叫，行首有縮排，只認行首的版本會讓它「實際在跑卻不在被檢查的名單裡」（這支守衛要防的正是那個形狀）；同一支守衛在多處被呼叫時去重再數。
 
 ## 受保護清單與棘輪

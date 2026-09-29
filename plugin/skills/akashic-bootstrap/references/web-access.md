@@ -18,11 +18,12 @@
 4. **`akashic` 要含 #629 的子命令**（`fulltext`、`crossref-match`、`abstracts-to-proposals`、`literal-census`）。這些原本是隨 plugin 出貨的 python／shell 腳本，現在是 `akashic` CLI 的子命令；plugin 只自動下載 `akashic-mcp`、**不出貨 `akashic` CLI**，所以 plugin 的文字可能比使用者機器上的 CLI 新。舊 binary 的症狀：`akashic fulltext bot-signals` 印 `Error: … unexpected arguments: 'fulltext', 'bot-signals'`、結束碼 64（子命令不存在）。**中止條款靠它**，所以先確認再開始：
 
    ```bash
-   akashic fulltext bot-signals --help >/dev/null 2>&1 && akashic fulltext jitter --dry-run >/dev/null 2>&1 \
-     || { echo "akashic CLI 太舊（沒有 fulltext 子命令）——先更新 CLI，不要跳過中止條款的檢查與節奏" >&2; exit 1; }
+   rc=0; printf 'ok' | akashic fulltext bot-signals >/dev/null 2>&1 || rc=$?
+   [ "$rc" -eq 1 ] && akashic fulltext jitter --dry-run >/dev/null 2>&1 \
+     || { echo "akashic CLI 太舊或沒裝（沒有 fulltext 子命令）——先更新 CLI，不要跳過中止條款的檢查與節奏" >&2; exit 1; }
    ```
 
-   確認不了就停下來告訴使用者；不要改成「沒有這個檢查也照跑」。
+   探測用**真的呼叫**（乾淨文字的結束碼要恰好是 1、`jitter --dry-run` 要成功），**不是 `--help`**：ArgumentParser 對舊 binary 的 `akashic fulltext bot-signals --help` 也回 0（印根命令的用法），探不出子命令不存在（2026-09-29 實測）。確認不了就停下來告訴使用者；不要改成「沒有這個檢查也照跑」。
 5. **每一次 Bash 呼叫是新的 shell，變數不跨呼叫保留**：下面每個動到分頁的區塊都是**自足**的——同一次呼叫內自己設 `P`、`T`、`LOCK`，並確認非空才動作（鎖若是空的，safari-browser 會退回 front tab，那可能是別人 profile 的分頁）。**不要**把區塊裡的單一行拆出去單獨跑，也不要在另一次呼叫裡沿用上一次的 `$LOCK`。字面值（`<P>`、`<T>`、`<W>`、`<序號>`）每次都寫進命令。
 
 ## 中止條款：網站一懷疑是自動化，整批就停

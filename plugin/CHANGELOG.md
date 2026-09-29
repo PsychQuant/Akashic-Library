@@ -42,6 +42,35 @@
 
 
 
+## #629 R1 驗證的補充——使用者可見的改變與 skill 對 `akashic` CLI 的版本需求
+
+**先決條件（三個 skill 與 `references/web-access.md`）**：`akashic-fetch-fulltext`、`akashic-bootstrap`、`akashic-venue-works`、`akashic-promote-literals` 現在要呼叫
+`akashic fulltext …`／`crossref-match`／`abstracts-to-proposals`／`literal-census`。plugin 只自動下載 `akashic-mcp`、**不出貨 `akashic` CLI**，
+所以 plugin 的文字可能比你機器上的 CLI 新。舊 binary 的症狀：`akashic fulltext bot-signals` 印 `unexpected arguments: 'fulltext', 'bot-signals'`、
+結束碼 64。**中止條款靠這組子命令**，所以 web-access.md〈開始前〉第 4 點要先確認；片段也改成依結束碼處理——只有 `bot-signals` 的結束碼 1 才是「沒有訊號」，
+0 是命中、其他任何碼（64、127、當掉）都當成「這個檢查沒有跑成」＝有疑慮，停下。`plugin.json` 的 `binary_version`（0.12.1）要在含這些子命令的 release 之後升。**目前 `akashic` CLI 沒有 release asset**（`akashic-mcp-wrapper.sh` 只下載 `akashic-mcp`、
+`scripts/release-signed.sh` 只發布那個 asset）：CLI 只能由 repo 建置（`swift build --product akashic`）。plugin 使用者怎麼取得它是另案（把 CLI 加進 release asset，或讓 wrapper 一併下載）。
+
+**這一輪額外改變的行為**（`akashic fulltext fetch`，程式現在強制過去只寫在文件裡的不變量）：
+
+- `--expect-profile` **命令列必填**（缺＝結束碼 64）；`--landing`、`--prime` 只收 `https://`；頁面自己給的 PDF 連結若 origin 與頁面不同，
+  不發 `credentials:'include'` 的 fetch（結束碼 1、分頁留著）。
+- 三個輸出目的地（`--out`、`*.unverified.pdf`、`*.response.txt`）若已存在且是目錄、symlink 或特殊檔，在碰瀏覽器之前就拒絕（結束碼 1）；覆寫普通檔改為
+  同目錄暫存＋原子替換，失敗時原檔還在。
+- 輸出目錄的祖先有 `.git` 時，git 答不出來（起不來、`rev-parse` 非零、`check-ignore` 出錯）一律拒絕，不再放行。
+- `--title`／`--pages`／`--doi` 的值可以以連字號開頭。
+- 用法錯誤結束碼：`fetch`（缺必填旗標、未知旗標）1→64；`verify` 缺 `--title` 2→64；`url-rule` 缺引數 2→64；`jitter` 參數不合 1→64。
+
+**`akashic fulltext calibrate`**：新增 [`references/calibrate.md`](skills/akashic-fetch-fulltext/references/calibrate.md)（怎麼準備 Crossref 回應目錄、結束碼 0／1／3／4、`--partial`）。
+缺記錄時列出**完整網址**；DOI 形狀不合格的不組網址；一個檔案都沒量到 → 結束碼 4（先前 0）。原本那組 29 份的校準數字（22/28、0/808）是舊腳本量的，
+**移植後沒有重跑**（那批 PDF 不在本機）。
+
+**`akashic crossref-match`**：`-o` 拒絕寫到既有的 symlink／目錄、原子替換、權限 0600；查詢回應形狀不對（`message` 不是物件、`items` 不是陣列）→ 具名中止（結束碼 1），
+不當成「沒有候選」。**`akashic abstracts-to-proposals`**：JSON 語意與 Python 的 `json.loads` 一致（重複鍵取最後一個、字串內的 U+FEFF 保留、尾隨逗號拒絕）；
+store 解析失敗時訊息是解析失敗本身，不是「不是合法的 digest」。
+
+**`akashic literal-census`**：`entities/`、`entries/`、`people/` 任一個存在但列不出來，一律具名拒絕輸出計數（exit 3），不再印全零的四域報告（那讀起來像「literal 歸零」）。
+
 ## #629 — 取全文、Crossref 比對與摘要轉換的腳本變成 `akashic` 子命令
 
 **使用者可見的改變**（`akashic-fetch-fulltext`、`akashic-bootstrap`、`akashic-venue-works` 三個 skill；**這三個 skill 現在需要含這些子命令的 `akashic` binary**，

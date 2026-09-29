@@ -104,5 +104,6 @@ parity 測試不是「移植」而是**受測物不存在後退場**）。
 
 ## 語言組成（tracked，排除 `repos/`、`docs/`、`changelog/`、`openspec/`）
 
-**2026-09-29（#629 第二塊移植後）**：Swift 497、Python 0、shell 4（含沒有副檔名的 `.githooks/pre-push`；恰為例外 1 的四個檔）。
-第一塊移植後是 472／9／6，成文當日（2026-09-24）是 372／11／11。量法：`git ls-files` 依副檔名計數。數字會隨移植下降，以重量為準，不要照抄這一行。
+**2026-09-29（#629 R1 修正後重量）**：Swift 511、Python 0、shell 4（含沒有副檔名的 `.githooks/pre-push`；恰為例外 1 的四個檔）。
+第一版這裡寫 Swift 497，驗證席在同一個 commit 上重量得 501（R1 verify 第 20 則；497 是 rebase 之前量的）——**這個數字隨每個 commit 變動**（別的工作線也在加 Swift 檔），
+不要照抄，重量。第一塊移植後是 472／9／6，成文當日（2026-09-24）是 372／11／11。量法：`git ls-files` 依副檔名計數，排除 `repos/`、`docs/`、`changelog/`、`openspec/`。

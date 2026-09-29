@@ -202,10 +202,12 @@ public enum AdjudicationError: Error, LocalizedError, Equatable, SanitizedErrorD
     case noOrphanedAdditionalSource(String)
     /// #609：移除面要理由（移除面一族的使用者裁決，2026-09-27）——理由只進報告，不寫進 store。
     case reasonRequired
-    /// 理由上限 4,096 位元組（與 resolve 族的說明上限同值）——超過整筆拒絕、不截斷。
+    /// 理由上限（`LibraryStore.maxStatementBytes`，與 resolve 族的說明上限同一個值，#683）——超過整筆拒絕、不截斷。
     case reasonTooLong(bytes: Int)
-    /// #609：移除之前那筆記錄檔要在 git 裡有副本（同一族裁決；`filesNotSafelyRecoverable` 那一支閘）。`why` 是本 package 的固定句。
-    case notRecoverable(citekey: String, why: String)
+    /// #609：移除之前那筆記錄檔要在 git 裡有副本（同一族裁決）。**整句取自 `LibraryStore.recordRecoverability` 的拒絕**（#683——
+    /// 與 `AkashicService.assertRecordsRecoverable` 同一份判斷與同一份措辭，兩面對同一個 store 說同一句話）：`refusal` 在擲出端已消毒
+    /// （動作句與標籤逐項 `displaySafeInvisible`、原因是 `filesNotSafelyRecoverable` 的固定句），描述端只截。
+    case notRecoverable(refusal: String)
     /// #609 R1 verify：使用者確認的那一組已刪除來源，與動作當下磁碟上的那一組不同（外部匯入又標了新的、或有一個已恢復）——
     /// 拿掉的只能是使用者看到並確認的那一組，所以拒絕。`seen`／`now` 是排序過、以「、」相接的來源鍵（`<library_id>:<zotero_key>`，
     /// store 字串）：**擲出端消毒一次**（描述端原樣印出，不再逃一次）；空的一組寫「（無）」。
@@ -240,10 +242,9 @@ public enum AdjudicationError: Error, LocalizedError, Equatable, SanitizedErrorD
         case .reasonRequired:
             return "拿掉來源要寫理由——理由只出現在這次的結果裡、不寫進 store，請寫進 commit message（#609）"
         case .reasonTooLong(let bytes):
-            return "理由 \(bytes) 位元組，上限 4,096——已拒絕、零寫入，不截斷（#609）"   // display-safe-exempt: bytes 是 Int
-        case .notRecoverable(let key, let why):
-            return "「\(displaySafeInvisible(key, max: 200))」的記錄檔不能確認 git 裡有副本：\(displaySafeClipOnly(why, max: 600))"   // display-safe-exempt: why 是 filesNotSafelyRecoverable／本檔的固定句，只截
-                + "——被拿掉的來源只會留在 git 裡，先 commit 再做。已拒絕、零寫入（#609）"
+            return "理由 \(bytes) 位元組，上限 \(LibraryStore.maxStatementBytes)——已拒絕、零寫入，不截斷（#609）"   // display-safe-exempt: bytes 與 LibraryStore.maxStatementBytes 是 Int
+        case .notRecoverable(let refusal):
+            return displaySafeClipOnly(refusal, max: 1_200)   // display-safe-exempt: refusal 在擲出端已消毒（recordRecoverability 的整句：動作句與標籤逐項消毒、原因是固定句），只截
         }
     }
 }
@@ -347,7 +348,7 @@ public final class OrphanModel {
         let trimmed = reason.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw AdjudicationError.reasonRequired }
         let byteCount = trimmed.utf8.count
-        guard byteCount <= 4_096 else { throw AdjudicationError.reasonTooLong(bytes: byteCount) }   // display-safe-exempt: byteCount 是 Int
+        guard byteCount <= LibraryStore.maxStatementBytes else { throw AdjudicationError.reasonTooLong(bytes: byteCount) }   // display-safe-exempt: byteCount 是 Int
         let load = try state.store.load()
         guard let entry = load.entries.first(where: { $0.citekey == citekey }) else {
             throw AdjudicationError.entryNotFound(citekey)
@@ -363,14 +364,14 @@ public final class OrphanModel {
                 seen: displaySafeInvisible(seen.isEmpty ? "（無）" : seen.sorted().joined(separator: "、"), max: 600),
                 now: displaySafeInvisible(now.isEmpty ? "（無）" : now.sorted().joined(separator: "、"), max: 600))
         }
-        try assertRecordFileRecoverable(entry)
+        let removed = entry.additionalProvenance.filter { $0.orphanedAt != nil }
+        try assertRecordFileRecoverable(entry, removing: removed.count)
         try afterRecoverabilityGate?()
         // 閘是多個子程序、有時間窗：閘通過之後那筆記錄若又被外部改過，閘的結論就不適用於現在的內容，而下面要寫回的是閘之前的快照——
         // 重讀一次，不一致就拒絕，不整檔覆寫（#609 R1 verify，security）。
         guard try state.store.load().entries.first(where: { $0.citekey == citekey }) == entry else {
             throw AdjudicationError.changedDuringCheck(citekey)
         }
-        let removed = entry.additionalProvenance.filter { $0.orphanedAt != nil }
         var updated = entry
         updated.additionalProvenance.removeAll { $0.orphanedAt != nil }
         try state.store.writeEntry(updated)
@@ -379,33 +380,25 @@ public final class OrphanModel {
             "\(p.libraryID.map(String.init) ?? "?"):\(displaySafeInvisible(p.zoteroKey, max: 120))"
         }.joined(separator: "、")
         return "已從「\(displaySafeInvisible(citekey, max: 200))」拿掉 \(removed.count) 個已在 Zotero 端刪除的附加來源：\(sources)。"   // display-safe-exempt: Int；sources 已逐項消毒
-            + "理由：\(displaySafeInvisible(trimmed, max: 4_096))。"
+            + "理由：\(displaySafeInvisible(trimmed, max: LibraryStore.maxStatementBytes))。"
             + "移除前的版本在 git 裡；理由不寫進 store，要留下請寫進 commit message（#609）"
     }
 
     /// 測試接縫：git 閘通過之後、寫入之前呼叫。只給測試模擬「閘的時間窗裡記錄被外部改動」；正式程式路徑不設。
     var afterRecoverabilityGate: (() throws -> Void)?
 
-    /// 那筆記錄檔在 git 裡有 tracked、clean 的副本——與 `AkashicService.assertRecordsRecoverable` 同一支檢查
-    /// （`LibraryStore.filesNotSafelyRecoverable`），路徑取自磁碟上的實際檔名（`entityRelativePaths`，#573 R1）。
-    private func assertRecordFileRecoverable(_ entry: Entry) throws {
-        let root = state.store.root
-        guard LibraryStore.isInsideVersionedWorkTree(root) else {
-            throw AdjudicationError.notRecoverable(citekey: entry.citekey, why: "store 不在 git 工作樹裡")
-        }
-        let rel: String?
-        if state.store.usesEntitiesLayout {
-            rel = LibraryStore.entityRelativePaths(root: root)[entry.id]
-        } else {
-            let legacy = "entries/\(entry.citekey).yaml"
-            rel = FileManager.default.fileExists(atPath: root.appendingPathComponent(legacy).path) ? legacy : nil
-        }
-        guard let rel else {
-            throw AdjudicationError.notRecoverable(citekey: entry.citekey, why: "找不到記錄檔")
-        }
-        if let bad = LibraryStore.filesNotSafelyRecoverable(root: root, relativePaths: [rel]).first {
-            throw AdjudicationError.notRecoverable(citekey: entry.citekey, why: bad.why)   // display-safe-exempt: bad 的 why 是 filesNotSafelyRecoverable 的固定句
-        }
+    /// 那筆記錄檔在 git 裡有 tracked、clean 的副本——**與 `AkashicService.assertRecordsRecoverable` 同一支**（`LibraryStore.recordRecoverability`，#683）：
+    /// 路徑取自磁碟上的實際檔名、找不到檔就拒絕、拒絕的整句同一份措辭。這裡只做兩件 service 沒有的事：(1) legacy 佈局（format < 2）的 store
+    /// 開得起來，記錄檔是 `entries/<citekey>.yaml`（與 `writeEntry` 選目的地的同一個判準）；(2) 把整句包成 App 這一層的錯誤型別。
+    private func assertRecordFileRecoverable(_ entry: Entry, removing count: Int) throws {
+        let label = displaySafeInvisible(entry.citekey, max: 200)
+        let check = LibraryStore.recordRecoverability(
+            root: state.store.root,
+            items: [(entry.id, "work「\(label)」")],
+            legacyPaths: state.store.usesEntitiesLayout ? [:] : [entry.id: "entries/\(entry.citekey).yaml"],
+            action: "這次會從 work「\(label)」拿掉 \(count) 個已在 Zotero 端刪除的附加來源",   // display-safe-exempt: label 已消毒；count 是 Int
+            issue: "#609")
+        if let refusal = check.refusal { throw AdjudicationError.notRecoverable(refusal: refusal) }   // display-safe-exempt: refusal 由 recordRecoverability 組裝——動作句與標籤在上面逐項 displaySafeInvisible、原因是 filesNotSafelyRecoverable 的固定句
     }
 }
 

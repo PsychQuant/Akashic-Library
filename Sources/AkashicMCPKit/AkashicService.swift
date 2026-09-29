@@ -5547,27 +5547,13 @@ public final class AkashicService {
     func assertRecordsRecoverable(_ items: [(id: UUID, label: String)],
                                   libraries: [(key: String, label: String)] = [],
                                   action: String, issue: String) throws -> [UUID: String] {
-        guard !items.isEmpty || !libraries.isEmpty else { return [:] }
-        // 路徑取自磁碟上的實際檔名，不由 id 拼（#573 R1 verify Codex HIGH、DA 第 32 列）：load 接受小寫 UUID 檔名，git 的 pathspec 分大小寫——
-        // 拼成大寫會對一個已 commit 的檔永遠回「未被追蹤」。而共用的檢查對不存在的路徑是略過（刪檔的語意），在這裡等於沒檢查：
-        // 找不到檔就拒絕，不放行。
-        let actual = items.isEmpty ? [:] : Self.entityRelativePaths(root: store.root)
-        var present: [(path: String, label: String)] = items.compactMap { i in actual[i.id].map { ($0, i.label) } }
-        var missing = items.filter { actual[$0.id] == nil }.map(\.label)
-        for lib in libraries {
-            let rel = LibraryStore.libraryRelativePath(key: lib.key)
-            if FileManager.default.fileExists(atPath: store.root.appendingPathComponent(rel).path) {
-                present.append((rel, lib.label))
-            } else {
-                missing.append(lib.label)
-            }
-        }
-        if let refusal = LibraryStore.recoverabilityRefusal(root: store.root, present: present, missing: missing,
-                                                            action: action, issue: issue) {
+        // 解析（路徑取自磁碟上的實際檔名、找不到檔就拒絕）與拒絕的整句都在 StoreIO 那一份（#683）——App 的裁決台呼叫同一支；
+        // 這裡只把整句包成 service 這一層的錯誤型別。
+        let check = LibraryStore.recordRecoverability(root: store.root, items: items, libraries: libraries, action: action, issue: issue)
+        if let refusal = check.refusal {
             throw ServiceError.invalid(refusal)   // display-safe-exempt: refusal 由 recoverabilityRefusal 組裝——action 與標籤由呼叫端消毒、why 是 filesNotSafelyRecoverable 的固定句
         }
-        let ids = Set(items.map(\.id))
-        return actual.filter { ids.contains($0.key) }
+        return check.paths
     }
 
     /// `entities/` 裡每個以 UUID 為名的記錄檔的相對路徑——實作在 `LibraryStore.entityRelativePaths(root:)`（#609 起 App 也用，搬到 StoreIO）。

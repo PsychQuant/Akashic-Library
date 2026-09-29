@@ -30,7 +30,8 @@ extension AkashicService {
     /// 數字的來源：rests-on 取「一次查證會存的頁面數」的寬鬆上界；說明取 `displaySafe` 對資料面的 800 字之數倍，
     /// 讓一段完整的查證敘述放得下；一次的 id 數取 CLI 單批 triage 的量級。
     static let maxRestsOnPerCall = 20
-    static let maxStatementBytes = 4_096
+    /// 值只有一份，住在 StoreIO（`LibraryStore.maxStatementBytes`，#683）——App 也用它，而 App 與 MCPKit 互不能 import。這裡是同一個值的別名。
+    static let maxStatementBytes = LibraryStore.maxStatementBytes
     static let maxSpecsPerCall = 200
 
     /// 三個未決腿（people／venues／organizations，change `org-undecided-leg`）共用的整批檢查：上限、format 閘、

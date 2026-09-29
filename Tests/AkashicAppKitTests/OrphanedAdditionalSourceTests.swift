@@ -123,6 +123,57 @@ final class OrphanedAdditionalSourceTests: XCTestCase {
         XCTAssertEqual(try entry("partial2020")?.additionalProvenance.count, 2, "零寫入")
     }
 
+    /// #683：App 的閘與 `AkashicService.assertRecordsRecoverable` 是**同一份**（`LibraryStore.recordRecoverability`）——拒絕的整句逐字取自共用函式，
+    /// 不是 App 自己組的一句。兩種原因（不在 git 裡、未 commit）各驗一次；「找不到記錄檔」在 `RecordRecoverabilityTests`（App 的路徑先重讀 entry，找不到會先報 entryNotFound）。
+    func testRefusalSentenceIsTheSharedGateSentence() throws {
+        let partial = try XCTUnwrap(try entry("partial2020"))
+        func shared() -> String {
+            LibraryStore.recordRecoverability(
+                root: root, items: [(partial.id, "work「partial2020」")],
+                action: "這次會從 work「partial2020」拿掉 1 個已在 Zotero 端刪除的附加來源", issue: "#609").refusal ?? "（共用函式說可以）"
+        }
+        func app() throws -> String {
+            var caught = ""
+            XCTAssertThrowsError(try OrphanModel(state: state)
+                .removeOrphanedAdditionalSources(citekey: "partial2020", reason: "r", seen: ["5:K2"])) { err in
+                guard case AdjudicationError.notRecoverable(let refusal) = err else { return XCTFail("\(err)") }
+                XCTAssertEqual(err.localizedDescription, refusal, "描述端只截、不改寫")
+                caught = refusal
+            }
+            return caught
+        }
+        // 不在 git 工作樹
+        XCTAssertEqual(try app(), shared())
+        XCTAssertTrue(shared().contains("不在 git 工作樹裡"), shared())
+        // 在 git 裡、但記錄檔有未提交修改
+        commitAll()
+        var dirty = partial
+        dirty.title = "Edited, not committed"
+        try LibraryStore(root: root).writeEntry(dirty)
+        try state.load()
+        XCTAssertEqual(try app(), shared())
+        XCTAssertTrue(shared().contains("不能確認可回溯"), shared())
+    }
+
+    /// #683：理由上限是 StoreIO 那一個常數（`LibraryStore.maxStatementBytes`）——剛好等於上限收、多一個位元組拒絕。以位元組計、不截斷。
+    func testReasonLimitIsTheSharedConstant() throws {
+        commitAll()
+        let model = OrphanModel(state: state)
+        let over = String(repeating: "a", count: LibraryStore.maxStatementBytes + 1)
+        XCTAssertThrowsError(try model.removeOrphanedAdditionalSources(citekey: "partial2020", reason: over, seen: ["5:K2"])) { err in
+            XCTAssertEqual(err as? AdjudicationError, .reasonTooLong(bytes: LibraryStore.maxStatementBytes + 1), "\(err)")
+            XCTAssertTrue(err.localizedDescription.contains("\(LibraryStore.maxStatementBytes)"), "訊息的上限讀同一個常數：\(err.localizedDescription)")
+        }
+        // 三位元組的字元：以位元組計，不是字元數
+        let cjkOver = String(repeating: "理", count: LibraryStore.maxStatementBytes / 3 + 1)
+        XCTAssertThrowsError(try model.removeOrphanedAdditionalSources(citekey: "partial2020", reason: cjkOver, seen: ["5:K2"]))
+        XCTAssertEqual(try entry("partial2020")?.additionalProvenance.count, 2, "零寫入")
+        let exact = String(repeating: "a", count: LibraryStore.maxStatementBytes)
+        let report = try model.removeOrphanedAdditionalSources(citekey: "partial2020", reason: exact, seen: ["5:K2"])
+        XCTAssertTrue(report.contains(exact), "理由全文進報告、不截斷")
+        XCTAssertEqual(try entry("partial2020")?.additionalProvenance.map(\.zoteroKey), ["K3"])
+    }
+
     func testRemovalRequiresAReason() throws {
         commitAll()
         for r in ["", "   \n"] {

@@ -92,6 +92,8 @@ akashic_graph(focus: …, depth: …)     # 鄰域圖，person 節點會出現
 
 **怎麼取**：兩份指南寫的端點網址都是要取的位址，**一律經 safari-browser 取**——程序（問 profile、分頁鎖定、插值前的形狀檢查、頁內 fetch、中止條款）在 [`references/web-access.md`](references/web-access.md)，不要改用 `curl` 或 WebFetch。標題比對用 `akashic crossref-match`（#629 起；原本自己直連 Crossref 的 `scripts/crossref_match.py` 已移除）：它**不連網**，缺的請求由你照 web-access.md 取回、存進它的回應目錄後重跑，中止條款因此涵蓋到它的每一個請求（work-sources.md〈附帶的比對工具〉）。
 
+**Semantic Scholar 是另一條路**：它需要金鑰，不經 safari-browser——用 MCP 工具 `akashic_s2`（CLI 為 `akashic s2`）。金鑰設定、結束碼與頻率限制見 [`references/semantic-scholar.md`](references/semantic-scholar.md)。它的回應是線索，不是寫入的依據。
+
 ### 3. 驗證：換路徑，不是換門檻
 
 **相似度高不等於是同一個東西。** 提高信心的方法不是把單一訊號的門檻拉高，而是再走一條**路徑不同**的檢核——路徑不同，錯誤才不會一致地重複。

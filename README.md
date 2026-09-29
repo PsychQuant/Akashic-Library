@@ -506,9 +506,19 @@ store 永遠是全集——library 只是視角，成員關係存在 entry 的 `
 ⚠ 並發限制：對**同一 entry** 並發執行 membership 寫入（CLI 與 MCP 同時 `library add/remove`）
 不保證安全——read-modify-write 無跨程序鎖，後寫者可能靜默蓋掉先寫者（跨程序鎖為 #7
 store 硬化範疇）。`create` 為 exclusive-create（並發同 key 恰一方成功）。單一操作者依序使用不受影響。
-工具面：**33 tools**（2026-09-29 實測 `grep -oE 'Tool\(name: "akashic_[a-z_]+"' Sources/akashic-mcp/Server.swift | sort -u | wc -l`；讀寫分類與逐格裁決見 `.claude/rules/mcp-cli-parity.md` 的封閉列舉——這裡不另列清單，列過的兩次都與 `Server.swift` 分岔）。
+工具面：**34 tools**（2026-09-29 實測 `grep -oE 'Tool\(name: "akashic_[a-z0-9_]+"' Sources/akashic-mcp/Server.swift | sort -u | wc -l`——字元集要含數字，`akashic_s2` 有個 2；讀寫分類與逐格裁決見 `.claude/rules/mcp-cli-parity.md` 的封閉列舉——這裡不另列清單，列過的兩次都與 `Server.swift` 分岔）。
 biblatex 面向唯讀——過渡期歸 Zotero pull 管。並發（MCP 與 CLI 並用）：per-file atomic
 write、last-wins、index 冪等重建（單人場景設計）。
+
+### Semantic Scholar（`akashic s2` 與 `akashic_s2`，#664）
+
+`akashic s2 <子命令>`（CLI）與 MCP 工具 `akashic_s2` 查 Semantic Scholar（S2）：單篇（`paper`）、標題比對（`match`）、批次（`batch`）、參考文獻（`references`）、被引（`citations`）、相似論文（`recommend`）、作者搜尋（`author-search`）、作者著作（`author-papers`），另有不連網的 `status`。兩面共用 `Sources/AkashicS2/`，不經 `AkashicService`、不開 store。**只讀，回傳的是線索**：其中的值要進 store，依據仍是作品本身（`plugin/rules/source-of-truth-over-consent.md`）。
+
+- **金鑰在 keychain**：generic password，service `semantic-scholar`、account `default`；不收環境變數或指令參數。沒有金鑰就停在結束碼 3，不退回匿名請求。存法、ACL 的取捨與結束碼 3 的兩種原因見 [`plugin/skills/akashic-bootstrap/references/semantic-scholar.md`](plugin/skills/akashic-bootstrap/references/semantic-scholar.md)；`akashic s2 status` 檢查金鑰是否存在且可讀，不印金鑰。
+- **全機每秒至多 1 個請求**：CLI、MCP server 與多個 session 共用狀態檔 `~/Library/Caches/akashic/s2-throttle` 排送出時段；收到 429 時所有呼叫者一起退避。
+- **結束碼**：0 成功、1 環境覆寫或輸入檔有誤、3 金鑰不可用、4 限流用盡、5 S2 或網路錯誤、64 參數錯誤。逐碼的意思在上面那份文件。
+- **兩面的差別**：CLI 的輸出不截（`--json` 為 `{source, endpoint, request, fetchedAt, total, data}`）；MCP 一次只回完整的筆數、整份以 48 KiB 為上限，`truncated` 時以 `nextOffset` 續查。
+- **這是 Akashic 唯一會連網、會讀 keychain 的 Swift 程式碼**：`URLSession`、`SecItem` 這類網路與 keychain API 只准出現在 `Sources/AkashicS2/`，由 `akashic-guards network-confinement` 機械地檢查。其他外部取得（OpenAlex、Crossref、ORCID、出版商頁）照舊由 skill 經 safari-browser 做（`.claude/rules/web-access-via-safari-browser.md`）；帶金鑰的 S2 呼叫是那條規則的封閉例外，因為頁內 fetch 得把金鑰交給 `safari-browser js` 的指令參數，會出現在 process list（#640）。
 
 ## 輸出消毒（`displaySafe` / `documentSafe`）與它的機械守衛
 

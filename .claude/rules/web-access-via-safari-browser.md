@@ -204,7 +204,8 @@ grep -rlE -- '--tab-in-window' plugin/skills plugins/*/skills Sources | grep -vE
 - `Sources/AkashicSkillTools/FulltextFetch.swift`（`akashic fulltext fetch`，原 `fetch-fulltext.sh`），以及 `plugin/skills/akashic-fetch-fulltext/SKILL.md` 的第 3 步
   （描述那條命令）：**鎖法仍是 `--window N --tab-in-window T`（#613 的作法）；#629 移植時沒有改，改成 `--url-endswith` 仍待使用者裁決、且要實跑 Safari**。
   理由：`publishers.md` 記著——使用者已開著同一頁時，URL 鎖會比對到兩個分頁、safari-browser fail-closed。**便宜的解**（沒實測）：
-  對 `--landing` 加一次性 fragment，同一頁已開的問題自然消失（#634 驗證第 41 列）。這個 skill 因此**同時有兩個鎖法**：第 2 步（頁內
+  對 `--landing` 加一次性 fragment，同一頁已開的問題自然消失（#634 驗證第 41 列）。**但 `--landing` 的形狀檢查（`landingShapeProblem`）
+  自 #629 R2 起拒絕 `#`**：照這個解做，得先讓形狀檢查放行結尾的那一段 fragment，或由工具在檢查之後自己加上（#629 R3 verify 第 2、42 則）。這個 skill 因此**同時有兩個鎖法**：第 2 步（頁內
   OpenAlex 查詢）用 web-access.md 的鎖，第 3 步（`fetch`）用命令自己的視窗編號鎖；SKILL.md 第 3 步明寫兩者不混用。**移植後這條鎖法有一個
   比以前好的地方**：`SafariBrowser` 介面讓「這支程式對瀏覽器說了什麼」可以在測試裡逐條斷言（`FulltextFetchPathTests`），改鎖法時測試會告訴你哪些
   引數向量變了——以前只有一個 Python stub 的結束碼。**要改時**：`FulltextFetch.swift` 的三個引數向量建構點（`open`／`close`／`js`／`wait` 的 `--window`

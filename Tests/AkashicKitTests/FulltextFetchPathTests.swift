@@ -331,11 +331,16 @@ final class FulltextFetchPathTests: XCTestCase {
 
     func testDOIFromTheLandingURL() {
         XCTAssertEqual(FulltextFetch.doiFromLanding("https://doi.org/10.1037/a0038889?x=1#f"), "10.1037/a0038889")
-        XCTAssertEqual(FulltextFetch.doiFromLanding("http://doi.org/10.1/x"), "10.1/x")
         XCTAssertEqual(FulltextFetch.doiFromLanding("https://dx.doi.org/10.1/x"), "10.1/x")
-        XCTAssertNil(FulltextFetch.doiFromLanding("http://dx.doi.org/10.1/x"), "舊實作只認這三個前綴（bash 的 case）")
-        XCTAssertNil(FulltextFetch.doiFromLanding("HTTPS://doi.org/10.1/x"), "區分大小寫")
+        // #629 R3 verify：`--landing` 只收 https，`http://doi.org/` 那個前綴永遠走不到——與 SKILL.md 說的兩個前綴對齊
+        XCTAssertNil(FulltextFetch.doiFromLanding("http://doi.org/10.1/x"))
+        XCTAssertNil(FulltextFetch.doiFromLanding("http://dx.doi.org/10.1/x"))
+        // scheme 與主機不分大小寫：形狀檢查收 `https://DOI.org/…`，而先前這裡比大小寫、安靜地取不到 DOI（結束碼 5，沒有訊息指向大小寫）
+        XCTAssertEqual(FulltextFetch.doiFromLanding("https://DOI.org/10.1/x"), "10.1/x")
+        XCTAssertEqual(FulltextFetch.doiFromLanding("HTTPS://Dx.Doi.Org/10.1/AbC"), "10.1/AbC", "DOI 本身原樣保留")
+        XCTAssertNil(FulltextFetch.doiFromLanding("https://doi.org.pub.example/10.1/x"), "主機要恰好是 doi.org")
         XCTAssertNil(FulltextFetch.doiFromLanding("https://pub.example/doi/10.1/x"))
+        XCTAssertNil(FulltextFetch.doiFromLanding("https://doi.org/"), "沒有 DOI")
     }
 
     func testMetaParsing() {
@@ -345,6 +350,10 @@ final class FulltextFetchPathTests: XCTestCase {
         XCTAssertNil(FulltextFetch.parseMeta("not json"))
         XCTAssertNil(FulltextFetch.parseMeta(""))
         XCTAssertNil(FulltextFetch.parseMeta("[1,2]"))
+        // #629 R3 verify：取回的網址離開了頁面的 origin
+        XCTAssertEqual(FulltextFetch.parseMeta("{\"s\":200,\"l\":0,\"e\":null,\"o\":\"https://evil.example/x\"}")?.offsite, "https://evil.example/x")
+        XCTAssertNil(FulltextFetch.parseMeta("{\"s\":200,\"l\":5,\"e\":null,\"o\":null}")?.offsite)
+        XCTAssertNil(FulltextFetch.parseMeta("{\"s\":200,\"l\":5,\"e\":null}")?.offsite)
     }
 
     func testContainsLoadingIsCaseInsensitiveOverBytes() {
@@ -353,11 +362,16 @@ final class FulltextFetchPathTests: XCTestCase {
         XCTAssertFalse(FulltextFetch.containsLoading(Data("load ing".utf8)))
     }
 
-    /// 頁內取 PDF 的 JS 與 Python 舊腳本產生的逐字相同（`json.dumps(url)` 的 ASCII 逃脫、GET／POST 兩種本文）。
+    /// 頁內取 PDF 的 JS：網址以 JS 字串字面值寫入（`json.dumps(url)` 的 ASCII 逃脫，與 Python 舊腳本相同）、GET／POST 兩種本文，
+    /// 加上 #629 R3 verify 的轉址 origin 檢查——`fetch` 預設跟著轉址走，同源檢查原本只綁第一跳；取回的網址（`r.url`）離開頁面的 origin 就不讀本文、
+    /// 記下那個網址（`offsite`），由 Swift 以結束碼 1 拒絕。
     func testFetchJSMatchesTheOldGeneratorByteForByte() {
         let get = "\nwindow.__aff = {done:false};\nfetch(\"https://pub.example/doi/pdf/10.1/x?a=b&c=\\u00e9\", {method:\"GET\", credentials:'include', body:undefined})\n"
-            + " .then(r => { window.__aff.status = r.status; window.__aff.ctype = r.headers.get('content-type'); return r.arrayBuffer(); })\n"
-            + " .then(b => { const u = new Uint8Array(b); let s = '';\n"
+            + " .then(r => { window.__aff.status = r.status; window.__aff.ctype = r.headers.get('content-type');\n"
+            + "   let o = null; try { o = new URL(r.url).origin; } catch (e) {}\n"
+            + "   if (o !== location.origin) { window.__aff.offsite = r.url || '(no url)'; return null; }\n"
+            + "   return r.arrayBuffer(); })\n"
+            + " .then(b => { if (b === null) { window.__aff.done = true; return; } const u = new Uint8Array(b); let s = '';\n"
             + "   for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000));\n"
             + "   window.__aff.b64 = btoa(s); window.__aff.len = u.length; window.__aff.done = true; })\n"
             + " .catch(e => { window.__aff.err = String(e); window.__aff.done = true; });\nreturn 'started';\n"
@@ -378,5 +392,21 @@ final class FulltextFetchPathTests: XCTestCase {
         """)
         XCTAssertTrue(FulltextFetch.linkJS.hasPrefix("const f = document.querySelector('form.ft-download-content__form--pdf');\nif (f) return 'POST ' + f.action;\n"))
         XCTAssertTrue(FulltextFetch.linkJS.hasSuffix("  const a = document.querySelector(s); if (a) return 'GET ' + a.href;\n}\nreturn '';\n"))
+    }
+}
+
+// MARK: - #629 R3 verify：轉址離開頁面的 origin
+
+extension FulltextFetchPathTests {
+    /// 頁面給的同源連結被站上的轉址（open redirect、307／308）帶到別的 origin：`fetch` 照樣跟過去、帶著 credentials。
+    /// 頁內 JS 看到 `r.url` 的 origin 不是頁面的 origin 就不讀本文、回報那個網址；這裡以結束碼 1 拒絕（與「頁面的連結指向站外」同一個結束碼），不存任何檔。
+    func testAResponseRedirectedOffSiteIsRefused() {
+        var s = base
+        s.meta = "{\"s\":200,\"c\":\"application/pdf\",\"l\":null,\"e\":null,\"o\":\"https://evil.example/stolen.pdf\"}"
+        XCTAssertEqual(run(s), 1, errText)
+        XCTAssertTrue(errText.contains("off-site") && errText.contains("evil.example"), errText)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outFile), "不存本文")
+        XCTAssertTrue(browser.fetchSource?.contains("if (o !== location.origin) { window.__aff.offsite = r.url || '(no url)'; return null; }") == true,
+                      "發出去的 JS 帶著轉址後的 origin 檢查：\(browser.fetchSource ?? "nil")")
     }
 }

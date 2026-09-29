@@ -53,7 +53,7 @@ description: 取得 Akashic 條目的全文 PDF 並存進 store——EndNote「F
 
 以 DOI 查 OpenAlex：`https://api.openalex.org/works/doi:<DOI>` 的 `best_oa_location`（**以 DOI 查單筆**；不要用 OpenAlex 關鍵字搜尋找作品，見 akashic-bootstrap 的 work-sources.md）。**這一步的取得經 safari-browser**：程序、鎖分頁與插值前的形狀檢查見 [web-access.md](../akashic-bootstrap/references/web-access.md)，是頁內 fetch，不是第 3 步的 `fetch`；中止條款以本檔為準。
 
-**第 3 步的 `--landing` 一律是 `https://doi.org/<DOI>`**，不論有沒有開放版本。`best_oa_location.landing_page_url` 與 `pdf_url` 是 OpenAlex 回應裡的字串（出版商與典藏庫登記的 metadata，第三方資料），**不直接在使用者已登入的 Safari 開**（web-access.md〈開哪個網址〉：被入侵或惡意登記的 metadata 會把使用者的個人 profile 導向攻擊者頁面）。有開放版本時，把它的位址（host 與路徑，不是要開的動作）列給使用者，由他決定要不要改用那個網址；**使用者在對話裡回覆確認後**它才算「使用者給定」，才可以當 `--landing`——而且**必須同時帶 `--doi <DOI>`**：`akashic fulltext fetch` 只有 `--landing` 是 doi.org 網址時才從網址取 DOI（`FulltextFetch.doiFromLanding`：`https://doi.org/`、`https://dx.doi.org/` 兩個前綴、區分大小寫；`--landing` 只收 https），其他網址不帶 `--doi`，`akashic fulltext verify` 沒有 DOI 可比，`doi_state` 是 `absent`，檔案必然存成 `*.unverified.pdf`、結束碼 5（讀碼確定，不是偶然）。
+**第 3 步的 `--landing` 一律是 `https://doi.org/<DOI>`**，不論有沒有開放版本。`best_oa_location.landing_page_url` 與 `pdf_url` 是 OpenAlex 回應裡的字串（出版商與典藏庫登記的 metadata，第三方資料），**不直接在使用者已登入的 Safari 開**（web-access.md〈開哪個網址〉：被入侵或惡意登記的 metadata 會把使用者的個人 profile 導向攻擊者頁面）。有開放版本時，把它的位址（host 與路徑，不是要開的動作）列給使用者，由他決定要不要改用那個網址；**使用者在對話裡回覆確認後**它才算「使用者給定」，才可以當 `--landing`——而且**必須同時帶 `--doi <DOI>`**：`akashic fulltext fetch` 只有 `--landing` 是 doi.org 網址時才從網址取 DOI（`FulltextFetch.doiFromLanding`：`https://doi.org/`、`https://dx.doi.org/` 兩個前綴，scheme 與主機不分大小寫；`--landing` 只收 https），其他網址不帶 `--doi`，`akashic fulltext verify` 沒有 DOI 可比，`doi_state` 是 `absent`，檔案必然存成 `*.unverified.pdf`、結束碼 5（讀碼確定，不是偶然）。
 
 **不另走一般 HTTP 下載**（不用 `curl`、WebFetch）：2026-09-23 有三份 OSF preprint 與一份 UvA 典藏是那樣下載成功的（publishers.md 該列），但那是這條規矩之前的觀察，**經第 3 步的 Safari 路徑取這幾站沒有量過**（DOI 經 `doi.org` 轉到那些站的頁面再找 PDF 連結，沒有實跑）——找不到 PDF 連結會結束碼 3，照該碼處理。只有 `pdf_url`、沒有 `landing_page_url` 時停下來問使用者，**不要**把 PDF 網址當 `--landing`：讀碼（沒有實跑）——`fetch` 在等頁面載完時讀 `document.readyState`，而 Safari 的 PDF 檢視器讀不到，60 秒後以「頁面沒載完（stalled）」結束碼 6 整批停。
 
@@ -67,7 +67,7 @@ akashic fulltext fetch --window <N> --expect-profile "<使用者自己的 profil
   --title "$(cat '<暫存目錄>/<citekey>.title.txt')" [--pages "<71--98>"] [--doi "<DOI>"] [--prime "<PDF URL>"] [--bin <safari-browser>]
 ```
 
-（#629 之前這是 `scripts/fetch-fulltext.sh`，驗證與規則是同目錄的 Python 腳本；現在全是 `akashic` 的子命令，沒有 Python、沒有 shell。結束碼 0–6 的意思沒變；**其餘呼叫端看得到的改變**（必填的 `--expect-profile`、只收公開主機的 https 網址、會被拒絕的輸入、命令列打錯是 64）逐條列在 plugin 的 [CHANGELOG.md](../../CHANGELOG.md) 的 #629 各節——先前這裡寫「只有兩點差別」，驗證之後不止兩點。）
+（#629 之前這是 `scripts/fetch-fulltext.sh`，驗證與規則是同目錄的 Python 腳本；現在全是 `akashic` 的子命令，沒有 Python、沒有 shell。結束碼 0–6 的意思沒變；**其餘呼叫端看得到的改變**（必填的 `--expect-profile`、只收主機形狀像一般網域名稱的 https 網址、會被拒絕的輸入、命令列打錯是 64）逐條列在 plugin 的 [CHANGELOG.md](../../CHANGELOG.md) 的 #629 各節——先前這裡寫「只有兩點差別」，驗證之後不止兩點。）
 
 **插進這條命令的第三方值要先處理**（與 #595 同一類；命令裡的值一律用雙引號包住）：
 
@@ -78,12 +78,12 @@ akashic fulltext fetch --window <N> --expect-profile "<使用者自己的 profil
 - `<citekey>` 取自 store：載入時已驗過只含 `a–z 0–9 -`，可以直接用。
 
 - `--expect-profile` 一律帶：視窗不屬於這個 profile，`fetch` 在開任何分頁之前就拒絕。
-- `--out` 要在 **git 工作樹之外**（或被該樹 ignore 的位置）；否則 `fetch` 在碰瀏覽器之前就拒絕——全文是第三方內容。
+- `--out` 要在 **git 工作樹之外**（或被該樹 ignore 的位置）；否則 `fetch` 在碰瀏覽器之前就拒絕——全文是第三方內容。**這道閘只問 `--out` 的目錄**：下載中的位元組先寫進 `$TMPDIR` 底下的暫存目錄（跑完即刪），那裡不經檢查。macOS 預設的 `$TMPDIR` 在 `/var/folders`、不在任何 repo；若把 `$TMPDIR` 設進某個 git 工作樹，行程被殺時部分全文會留在那裡、沒有被忽略。
 - `--prime`：PMC 用。先像讀者點 PDF 連結那樣開一次 PDF 網址再關掉，之後才從文章頁取（見 publishers.md）。prime 的分頁一有起疑訊號就照中止條款停。
 
 - `--title`／`--pages`／`--doi`：驗證用的記錄資料。`--landing` 是 `https://doi.org/…` 時 DOI 自動從網址取；**不是 doi.org 的 `--landing` 一律要帶 `--doi <DOI>`**（否則驗證必然停在結束碼 5，見第 2 步）；`--pages` 有就帶。
 
-**這條命令的鎖分頁與 web-access.md 不同**：`fetch` 用 `--window <N>` 加它自己開的分頁位置（`--tab-in-window`，#613 的作法，理由見 publishers.md：使用者已開著同一頁時 URL 鎖會對到兩個分頁、safari-browser fail-closed），**不是** web-access.md 的 `--profile`＋`--url-endswith`。這是 grandfathered 的例外（規則檔〈既有檔〉形狀 (b)）。**#629 把腳本移植成 `akashic fulltext fetch` 時沒有改鎖法**（改成 `--profile`＋`--url-endswith` 要使用者裁決、而且要實跑 Safari；規則檔記著便宜的解：對 `--landing` 加一次性 fragment，沒實測）。同一個 skill 因此有兩個鎖法，分工是：第 2 步的頁內 OpenAlex 查詢照 web-access.md、第 3 步只用 `fetch`，兩者不混用；不要在第 3 步之外自己用 `--window` 動 Safari。
+**這條命令的鎖分頁與 web-access.md 不同**：`fetch` 用 `--window <N>` 加它自己開的分頁位置（`--tab-in-window`，#613 的作法，理由見 publishers.md：使用者已開著同一頁時 URL 鎖會對到兩個分頁、safari-browser fail-closed），**不是** web-access.md 的 `--profile`＋`--url-endswith`。這是 grandfathered 的例外（規則檔〈既有檔〉形狀 (b)）。**#629 把腳本移植成 `akashic fulltext fetch` 時沒有改鎖法**（改成 `--profile`＋`--url-endswith` 要使用者裁決、而且要實跑 Safari；規則檔記著便宜的解：對 `--landing` 加一次性 fragment，沒實測；`--landing` 現在拒絕 `#`，照那個解做得先改形狀檢查）。同一個 skill 因此有兩個鎖法，分工是：第 2 步的頁內 OpenAlex 查詢照 web-access.md、第 3 步只用 `fetch`，兩者不混用；不要在第 3 步之外自己用 `--window` 動 Safari。
 
 **驗證怎麼判「是這篇」**（`akashic fulltext verify`；程式與校準表在 akashic repo 的 `Sources/AkashicSkillTools/FulltextVerify.swift`，plugin 安裝處讀不到；門檻是 2026-09-24 以 29 份真實 PDF 對 Crossref 量過的（自己的標題被收 22/28、別篇 0/808，**那是舊 Python 腳本量的**）；#629 移植後**沒有重跑那組 29 份**——那批 PDF 與當時的 Crossref 標題不在本機，新舊工具只在本機湊得到的較小語料上對跑過、輸出逐字相同。怎麼重量見 [references/calibrate.md](references/calibrate.md)）：首頁要有一行（或連續幾行）**就是**記錄標題，另外要有 DOI 證據，分三級：
 
@@ -105,7 +105,7 @@ akashic fulltext fetch --window <N> --expect-profile "<使用者自己的 profil
 | 4 | 無權限（網站給了登入殼）| **停止這個站**，列入「需要人」 |
 | 6 | **網站懷疑是自動化** | **整批停止**，見「中止條款」；分頁留著 |
 | 5 | 是 PDF 但驗證不是這篇 | 看 `*.unverified.pdf` 與 verify JSON：`flags` 有 `supplement` 是抓到補充資料；`title_match` 為 null 是首頁沒有任何一行等於記錄標題（別篇，或記錄與 PDF 用字不同，例如繁簡字）；`doi_state` 是 `metadata-mismatch`／`page-mismatch` 是檔案或首頁指向別的 DOI；`page-match` 而 `pages_ok` 不是 true、或 `title_match` 為 `main-title-response`（標題後接回應／更正類字樣），是只有首頁印的 DOI、不夠確定；`absent` 是沒有任何 DOI 可比。看了再決定 |
-| 1 | 自動化失敗（視窗、profile 不符、輸出位置、讀取或解碼失敗；命令列打錯是 64）；或頁面給的 PDF 連結不是同站的絕對 https 網址（stderr 寫 `points off-site`） | 看 stderr；分頁若留著，**先看分頁**——讀起來像起疑就照中止條款停，確定是操作問題才修好再繼續。`points off-site` 是頁面本身的性質、不是操作問題：列入「需要人」，不重試 |
+| 1 | 自動化失敗（視窗、profile 不符、輸出位置、讀取或解碼失敗；命令列打錯是 64）；或頁面給的 PDF 連結不是同站的絕對 https 網址（stderr 寫 `points off-site`）；或取 PDF 的請求被轉址到別的 origin（stderr 寫 `redirected off-site`，本文不讀、不存） | 看 stderr；分頁若留著，**先看分頁**——讀起來像起疑就照中止條款停，確定是操作問題才修好再繼續。`points off-site`／`redirected off-site` 是網站本身的性質、不是操作問題：列入「需要人」，不重試 |
 
 每篇之間跑一次節奏工具。
 

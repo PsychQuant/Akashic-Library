@@ -222,11 +222,11 @@ public final class FulltextFetch {
         defer { try? FileManager.default.removeItem(at: scratch) }
 
         // --- 網址與檔案落在哪裡：在碰瀏覽器**之前**檢查 ---
-        // 兩個網址都會在使用者已登入的 profile 裡開：只收 https（`file:`、`javascript:`、`http:` 一律拒絕，R1 verify 第 31 則），主機要是
-        // 公開的網域名稱（R2 verify 第 34 則，`landingShapeProblem`）
+        // 兩個網址都會在使用者已登入的 profile 裡開：只收 https（`file:`、`javascript:`、`http:` 一律拒絕，R1 verify 第 31 則），主機要**長得像**
+        // 公開的網域名稱（R2 verify 第 34 則，`landingShapeProblem`）——這是字面的形狀檢查，不解析 DNS（R3 verify：解析到私有位址的名稱照樣通過）
         for (flag, value) in [("--landing", o.landing), ("--prime", o.prime ?? "")] where !value.isEmpty {
             if let why = FulltextFetch.landingShapeProblem(value) {
-                throw fail("\(flag) must be an https:// URL with a public host name (\(why)): \(displaySafeInvisible(value, max: 300))")
+                throw fail("\(flag) must be an https:// URL whose host looks like a plain DNS name (\(why)): \(displaySafeInvisible(value, max: 300))")
             }
         }
         let outURL = URL(fileURLWithPath: o.out)
@@ -334,11 +334,17 @@ public final class FulltextFetch {
             throw botStop("fetch stalled: no answer in 120 s", site)
         }
         try siteGuard(site)
-        let meta = browser.run(["js"] + lock + ["return JSON.stringify({s:window.__aff.status,c:window.__aff.ctype,l:window.__aff.len,e:window.__aff.err||null})"]).value
+        let meta = browser.run(["js"] + lock + ["return JSON.stringify({s:window.__aff.status,c:window.__aff.ctype,l:window.__aff.len,e:window.__aff.err||null,o:window.__aff.offsite||null})"]).value
         out("response: \(meta.isEmpty ? "<unreadable>" : displaySafeInvisible(meta, max: 600))")
         guard let parsed = FulltextFetch.parseMeta(meta) else { throw botStop("response unreadable: could not check it", site) }
         // 拋錯的 fetch 通常是請求被轉到站外或被拒——與挑戰同一族。空本文是卡住的回應。
         if parsed.hadError { throw botStop("fetch error: \(meta)", site) }
+        // #629 R3 verify：同源檢查只綁得住第一跳——`fetch` 預設跟著轉址走（站上的 open redirect、307／308），帶著 credentials 到別的 origin。
+        // 頁內 JS 看到 `r.url` 的 origin 不是頁面的就不讀本文；這裡拒絕，結束碼與「頁面的連結指向站外」相同（不是中止條款，分頁留著）。
+        // 不改成 `redirect: 'manual'`：那會讓同站內的合法轉址（出版商常見）全部失敗。
+        if let off = parsed.offsite {
+            throw fail("the PDF request was redirected off-site (to \(displaySafeInvisible(off, max: 400)), page origin \(displaySafeInvisible(site, max: 200))) — refusing the body of a credentialed fetch that left the page's origin")
+        }
         if parsed.length == 0 { throw botStop("empty response", site) }
         try siteGuard(site)
         let b64 = scratch.appendingPathComponent("b64").path
@@ -465,6 +471,10 @@ public final class FulltextFetch {
     ///   不是 `local`、`localhost`、`internal`、`lan`、`intranet`、`corp`、`arpa`；
     /// - 路徑段（百分比解碼後）不是 `.` 或 `..`。
     ///
+    /// **這是字面的形狀檢查，不保證主機是公開的**（R3 verify）：不解析 DNS，所以解析到 loopback 或私有位址的名稱（`localtest.me`、
+    /// `127.0.0.1.nip.io`）與清單外的私有字尾（`.home`、`.localdomain`、`.test`）照樣通過；最後一段只收 ASCII 字母，合法的 IDN 頂級網域
+    /// （`xn--p1ai`）反而被拒。它擋的是 localhost、IP 位址、埠號、帳密與幾個已知的私有字尾。
+    ///
     /// **路徑的字元集不套那一列**：`--landing` 通常是 `https://doi.org/<DOI>`，SICI 式 DOI 的 `<`、`>` 在那裡是合法的（DOI 一列管它）。
     static func landingShapeProblem(_ url: String) -> String? {
         guard url.lowercased().hasPrefix("https://") else { return "not https://" }
@@ -478,7 +488,7 @@ public final class FulltextFetch {
         let isLabel: (Substring) -> Bool = { !$0.isEmpty && $0.unicodeScalars.allSatisfy { $0.isASCII && ($0.properties.isAlphabetic || ("0"..."9").contains($0) || $0 == "-") } }
         guard labels.count >= 2, labels.allSatisfy(isLabel), let last = labels.last, last.count >= 2,
               last.unicodeScalars.allSatisfy({ $0.isASCII && $0.properties.isAlphabetic }) else {
-            return "the host is not a public DNS name: no localhost, IP address, port or user@"
+            return "the host is not a plain DNS name: no localhost, IP address, port, user@, and the last label must be letters"
         }
         if ["local", "localhost", "internal", "lan", "intranet", "corp", "arpa"].contains(last.lowercased()) {
             return "the host ends in a private-network name"
@@ -496,18 +506,27 @@ public final class FulltextFetch {
         return realpath(path, &buffer) != nil ? String(cString: buffer) : path
     }
 
-    /// `--landing` 是 doi.org 網址時的 DOI：`${LANDING#*doi.org/}` 再去掉第一個 `?` 或 `#` 起的部分。只認這三個前綴、區分大小寫
-    /// （舊實作是 bash 的 `case`）。
+    /// `--landing` 是 doi.org 網址時的 DOI：前綴之後的部分，再去掉第一個 `?` 或 `#` 起的部分。只認 `https://doi.org/` 與
+    /// `https://dx.doi.org/` 兩個前綴；scheme 與主機不分大小寫（只折 ASCII），DOI 原樣保留。#629 R3 verify：舊實作（bash 的 `case`）
+    /// 還認 `http://doi.org/`，而 `--landing` 只收 https，那個前綴走不到；它又區分大小寫，形狀檢查收 `https://DOI.org/…` 卻取不到 DOI，
+    /// 沒有 `--doi` 時必然存成 `*.unverified.pdf`、結束碼 5，沒有訊息指向大小寫。
     static func doiFromLanding(_ landing: String) -> String? {
-        guard ["https://doi.org/", "http://doi.org/", "https://dx.doi.org/"].contains(where: landing.hasPrefix),
-              let r = landing.range(of: "doi.org/") else { return nil }
-        var doi = String(landing[r.upperBound...])
-        if let cut = doi.firstIndex(where: { $0 == "?" || $0 == "#" }) { doi = String(doi[..<cut]) }
-        return doi
+        let scalars = Array(landing.unicodeScalars)
+        // scheme 與主機不分大小寫、只折 ASCII 字母（Unicode 的大小寫轉換會把 K 之類的字元折成 ASCII）
+        func asciiLower(_ s: Unicode.Scalar) -> Unicode.Scalar { ("A"..."Z").contains(s) ? Unicode.Scalar(s.value + 32)! : s }
+        for prefix in ["https://doi.org/", "https://dx.doi.org/"] {
+            let p = Array(prefix.unicodeScalars)
+            guard scalars.count > p.count, zip(scalars, p).allSatisfy({ asciiLower($0) == $1 }) else { continue }
+            var doi = String(String.UnicodeScalarView(scalars[p.count...]))
+            if let cut = doi.firstIndex(where: { $0 == "?" || $0 == "#" }) { doi = String(doi[..<cut]) }
+            return doi.isEmpty ? nil : doi
+        }
+        return nil
     }
 
-    /// `JSON.stringify({s,c,l,e})` 的回傳。解析失敗（空、不是 JSON、不是物件）回 nil＝「讀不到」。
-    struct Meta { var status: Int; var length: Int; var hadError: Bool }
+    /// `JSON.stringify({s,c,l,e,o})` 的回傳。解析失敗（空、不是 JSON、不是物件）回 nil＝「讀不到」。
+    /// `offsite`：取回的網址（`r.url`）離開了頁面的 origin 時那個網址（未消毒）；nil＝沒離開（#629 R3 verify）。
+    struct Meta { var status: Int; var length: Int; var hadError: Bool; var offsite: String? = nil }
 
     static func parseMeta(_ text: String) -> Meta? {
         guard let obj = (try? JSONSerialization.jsonObject(with: Data(text.utf8), options: [])) as? [String: Any] else { return nil }
@@ -527,7 +546,8 @@ public final class FulltextFetch {
             default: return true
             }
         }
-        return Meta(status: number(obj["s"]), length: number(obj["l"]), hadError: truthy(obj["e"]))
+        let offsite = (obj["o"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        return Meta(status: number(obj["s"]), length: number(obj["l"]), hadError: truthy(obj["e"]), offsite: offsite)
     }
 
     /// `grep -qi loading`（位元組層、不分大小寫的 ASCII）。
@@ -608,8 +628,11 @@ public final class FulltextFetch {
 
         window.__aff = {done:false};
         fetch(\(PyJSON.javaScriptLiteral(url)), {method:\(PyJSON.javaScriptLiteral(method)), credentials:'include', body:\(body)})
-         .then(r => { window.__aff.status = r.status; window.__aff.ctype = r.headers.get('content-type'); return r.arrayBuffer(); })
-         .then(b => { const u = new Uint8Array(b); let s = '';
+         .then(r => { window.__aff.status = r.status; window.__aff.ctype = r.headers.get('content-type');
+           let o = null; try { o = new URL(r.url).origin; } catch (e) {}
+           if (o !== location.origin) { window.__aff.offsite = r.url || '(no url)'; return null; }
+           return r.arrayBuffer(); })
+         .then(b => { if (b === null) { window.__aff.done = true; return; } const u = new Uint8Array(b); let s = '';
            for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000));
            window.__aff.b64 = btoa(s); window.__aff.len = u.length; window.__aff.done = true; })
          .catch(e => { window.__aff.err = String(e); window.__aff.done = true; });

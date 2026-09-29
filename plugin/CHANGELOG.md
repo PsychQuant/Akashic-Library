@@ -58,9 +58,18 @@ plugin 的 wrapper 會自動下載新版 `akashic-mcp`，skill 文字可能比 b
 
 **`akashic_resolve_people` 的隸屬欄位（#663）**：只被觀測到（`attested`）的隸屬先前給 `formerAffiliation` 加 `formerAffiliationAttested`，現在給 `observedAffiliation` 加 `observedAffiliationAt`；`formerAffiliationAttested` 拿掉了，`formerAffiliation` 只給宣稱已結束的段。讀 `formerAffiliation` 判斷「這個人離開了哪裡」的呼叫端，對只被觀測到的人現在讀不到值——那正是這次要修的誤讀（被看到過不等於離開了）。
 
+## #629 R3 驗證的補充
+
+- 取 PDF 的請求被站上的轉址帶到別的 origin 時，`fetch` 不讀本文、不存任何檔，結束碼 1、stderr 寫 `redirected off-site`（先前同源檢查只綁
+  第一跳，`fetch` 跟著轉址走、帶著 credentials）。與 `points off-site` 同一個處置：網站本身的性質，列入需要人、不重試。
+- `--landing` 是 doi.org 網址時取 DOI：scheme 與主機不分大小寫（`https://DOI.org/…` 先前取不到 DOI、必然停在結束碼 5），只認
+  `https://doi.org/` 與 `https://dx.doi.org/`。
+- 說明更正：`--landing`／`--prime` 的主機檢查是字面的形狀檢查、不解析 DNS，先前寫成「公開的網域名稱」；錯誤訊息改成
+  `must be an https:// URL whose host looks like a plain DNS name`。
+
 ## #629 R2 驗證的補充
 
-- `--landing`、`--prime` 的主機要是公開的網域名稱：`localhost`、IP 位址、帶埠號或 `user@` 的主機、以 `local`／`internal`／`corp` 等結尾的名稱、
+- `--landing`、`--prime` 的主機要長得像一般的網域名稱（字面的形狀檢查、不解析 DNS——解析到私有位址的名稱照樣通過）：`localhost`、IP 位址、帶埠號或 `user@` 的主機、以 `local`／`internal`／`corp` 等結尾的名稱、
   `.`／`..` 路徑段、引號／反斜線／`$`／`#`／空白一律拒絕（結束碼 1，碰瀏覽器之前）。doi.org 網址裡 SICI 式 DOI 的 `<`、`>` 照收。
 - 頁面自己給的 PDF 連結在頁面裡解析成絕對網址再比 origin；不是同站的 `https://` 絕對網址（含反斜線、`///host` 這類瀏覽器會解成別站的形狀）
   一律拒絕，stderr 寫 `points off-site`（結束碼 1；是頁面的性質，不是操作錯誤）。

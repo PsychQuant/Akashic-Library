@@ -14,8 +14,12 @@ public enum BotSignals {
     /// Python `\w`（str 樣式）的補集當「不是字詞字元」：Python 的 `\b` 只把字母、數字與底線當字詞字元，組合標記與 ZWJ／ZWNJ
     /// **不是**；ICU 的 `\b` 相反（`\w` 含 `\p{M}` 與 U+200C／U+200D）。同一句 `rate limit` 後面接一個組合標記或 ZWJ，Python 命中、
     /// ICU 的 `\b` 不命中——中止條款的下限變弱（#629 R1 verify 第 25／43 則）。所以兩個 `\b` 都換成明寫字元類的前後查（測試對全部
-    /// Unicode scalar 驗這個類與 `PyText.isWord` 一致）。
-    static let wordClass = #"[\p{L}\p{N}_]"#
+    /// Unicode scalar 驗這個類與 `PyText.isWord` 一致——**用生產的編譯選項**）。
+    ///
+    /// 字元類包在 `(?-i:…)` 裡：ICU 在 `.caseInsensitive` 下會把字元類對大小寫折疊取閉包，U+0345（COMBINING GREEK YPOGEGRAMMENI，Mn）折成
+    /// U+03B9（ι）而被拉進 `[\p{L}\p{N}_]`，於是 `access denied` 後面緊接 U+0345 時不命中；Python 不會（R2 verify 第 19 則）。字元類本身不需要
+    /// 不分大小寫——字母不論大小寫都已在 `\p{L}` 裡。
+    static let wordClass = #"(?-i:[\p{L}\p{N}_])"#
     static let wordStart = "(?<!" + wordClass + ")"
     static let wordEnd = "(?!" + wordClass + ")"
 
@@ -39,8 +43,11 @@ public enum BotSignals {
     /// 403 與 429 本身就是起疑：付費牆回 200 加登入頁（PsycNet，2026-09-23），不是 403。OUP 的 403 是 Cloudflare 頁。
     static let suspiciousStatus: Set<Int> = [403, 429]
 
+    /// 生產的編譯選項（測試用同一份，R2 verify 第 19 則）。
+    static let regexOptions: NSRegularExpression.Options = [.caseInsensitive]
+
     private static let compiled: [(label: String, regex: NSRegularExpression)] = signals.map {
-        ($0.label, try! NSRegularExpression(pattern: $0.pattern, options: [.caseInsensitive]))   // 樣式是編譯期常數
+        ($0.label, try! NSRegularExpression(pattern: $0.pattern, options: regexOptions))   // 樣式是編譯期常數
     }
 
     /// Python 的 `re.I` 把 U+0130（İ）與 U+0131（ı）當成 `i`（簡單大小寫對映）；ICU 的不分大小寫比對不會（土耳其文 i 的兩種寫法）。

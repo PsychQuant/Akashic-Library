@@ -66,7 +66,7 @@ public enum TitleCalibration {
         let names = ((try? fm.contentsOfDirectory(atPath: directory)) ?? []).filter { $0.hasSuffix(".json") && !$0.hasPrefix(".") }.sorted()
         for name in names {
             guard let data = fm.contents(atPath: directory + "/" + name),
-                  let root = (try? PyJSONParser.parse(data)) as? [String: Any] else { unusable += 1; continue }
+                  let root = (try? PyJSONParser.parse(data, loneSurrogates: .replacementCharacter)) as? [String: Any] else { unusable += 1; continue }
             let message = (root["message"] as? [String: Any]) ?? root
             guard let doi = message["DOI"] as? String, !doi.isEmpty else { unusable += 1; continue }
             records[FulltextVerify.normDOI(doi)] = message

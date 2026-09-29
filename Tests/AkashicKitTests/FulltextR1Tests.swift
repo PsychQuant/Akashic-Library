@@ -64,6 +64,15 @@ final class BotSignalsPythonBoundaryTests: XCTestCase {
         XCTAssertEqual(BotSignals.detect("\u{200D}access denied"), "access-denied")
     }
 
+    /// U+0345 COMBINING GREEK YPOGEGRAMMENI（Mn）：Python 的 `\b` 不把它當字詞字元，所以四句都命中。ICU 在 `.caseInsensitive` 下把字元類
+    /// 對大小寫折疊取閉包，U+0345 折成 U+03B9（ι）而被拉進 `[\p{L}\p{N}_]`——兩個前後查把它當字詞字元，四句全漏（R2 verify 第 19 則）。
+    func testYpogegrammeniNextToAPhraseDoesNotHideTheSignal() {
+        XCTAssertEqual(BotSignals.detect("access denied\u{0345}"), "access-denied")
+        XCTAssertEqual(BotSignals.detect("\u{0345}access denied"), "access-denied")
+        XCTAssertEqual(BotSignals.detect("rate limited\u{0345}"), "rate-limit")
+        XCTAssertEqual(BotSignals.detect("rate limit\u{0345}"), "rate-limit")
+    }
+
     /// 邊界仍是邊界：字母、數字、底線緊貼時不命中。
     func testAdjacentWordCharactersStillSuppressTheMatch() {
         XCTAssertNil(BotSignals.detect("xaccess denied"))
@@ -80,8 +89,10 @@ final class BotSignalsPythonBoundaryTests: XCTestCase {
     }
 
     /// 兩個 `\b` 換成的字元類必須與 Python 的 `\w`（`PyText.isWord`）在全部 Unicode scalar 上一致；差異會回到「某些字元旁邊漏訊號」。
+    /// **用生產的編譯選項**（`BotSignals.regexOptions`，含 `.caseInsensitive`）：先前這裡不帶任何選項編譯，驗的是另一套設定，漏掉 U+0345
+    /// （R2 verify 第 19 則）。
     func testTheWordClassAgreesWithPythonsWordOnEveryScalar() throws {
-        let regex = try NSRegularExpression(pattern: "^" + BotSignals.wordClass + "$")
+        let regex = try NSRegularExpression(pattern: "^" + BotSignals.wordClass + "$", options: BotSignals.regexOptions)
         var differences: [String] = []
         for value in UInt32(0)...0x10FFFF {
             guard let scalar = Unicode.Scalar(value) else { continue }

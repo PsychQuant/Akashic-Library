@@ -89,6 +89,20 @@ final class PyJSONParserTests: XCTestCase {
         XCTAssertNoThrow(try PyJSONParser.parse(Data(ok.utf8)))
     }
 
+    /// Crossref 回應的讀法（`loneSurrogates: .replacementCharacter`）：Python 接受孤立的代理對，而一個合法的 200 回應裡有它時，拒絕會被當成
+    /// 「不是 JSON」＝中止條款、整批停（R2 verify 第 27 則）。換成 U+FFFD 只影響那一個字元；預設（摘要進 store 的路徑）仍拒絕。
+    func testLoneSurrogatesBecomeTheReplacementCharacterWhenAsked() throws {
+        func parse(_ s: String) throws -> String? { try PyJSONParser.parse(Data(s.utf8), loneSurrogates: .replacementCharacter) as? String }
+        XCTAssertEqual(try parse(#""\ud800""#), "\u{FFFD}")
+        XCTAssertEqual(try parse(#""a\udc00b""#), "a\u{FFFD}b")
+        XCTAssertEqual(try parse(#""\ud800x""#), "\u{FFFD}x")
+        XCTAssertEqual(try parse(#""\ud800\u0041""#), "\u{FFFD}A", "高代理後接的不是低代理：那個跳脫照常解")
+        XCTAssertEqual(try parse(#""\ud800\ud83d\ude00""#), "\u{FFFD}😀", "高代理後接另一對完整的代理")
+        XCTAssertEqual(try parse(#""\ud83d\ude00""#), "😀")
+        XCTAssertThrowsError(try parse(#""\ud800\uZZZZ""#), "壞的 \\u 跳脫仍拒絕（Python 同）")
+        XCTAssertThrowsError(try PyJSONParser.parse(Data(#""\ud800""#.utf8)), "預設仍拒絕")
+    }
+
     /// `json.load(open(path, encoding="utf-8"))` 對非 UTF-8 拋 `UnicodeDecodeError`：這裡也拒絕，不換成 U+FFFD。
     func testInvalidUTF8IsRejected() {
         XCTAssertThrowsError(try PyJSONParser.parse(Data([0x22, 0xFF, 0x22])))

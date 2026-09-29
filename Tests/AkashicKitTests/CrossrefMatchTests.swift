@@ -296,4 +296,17 @@ final class CrossrefMatchTests: XCTestCase {
         XCTAssertThrowsError(try src.response(for: other))
         XCTAssertThrowsError(try DirectoryResponseSource(directory: dir.path + "/missing"))
     }
+
+    /// 合法的 200 回應裡有孤立的代理對（Python 的 `json.loads` 接受）：不是「不是 JSON」，不得觸發中止條款（R2 verify 第 27 則）。
+    func testALoneSurrogateInALegitimateResponseIsNotAnAbortSignal() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("crossref-dir-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let src = try DirectoryResponseSource(directory: dir.path)
+        let req = searchRequest()
+        try Data(#"{"message":{"items":[{"title":["a\ud800b"]}]}}"#.utf8).write(to: dir.appendingPathComponent(req.id + ".json"))
+        guard case .json(let root)? = try src.response(for: req),
+              let items = ((root as? [String: Any])?["message"] as? [String: Any])?["items"] as? [[String: Any]] else { return XCTFail() }
+        XCTAssertEqual(items.first?["title"] as? [String], ["a\u{FFFD}b"])
+    }
 }

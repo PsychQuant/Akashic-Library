@@ -498,7 +498,7 @@ public struct DirectoryResponseSource: CrossrefMatch.ResponseSource {
             throw SkillToolError.failure("讀不到回應檔 \(request.id).json")   // display-safe-exempt: request：id 是 URL 的十六進位雜湊
         }
         do {
-            return .json(try PyJSONParser.parse(data))
+            return .json(try PyJSONParser.parse(data, loneSurrogates: .replacementCharacter))
         } catch {
             // 200 的 JSON 端點回了不是 JSON 的本文（驗證頁、擋截頁）是中止條款；檔案不該被存下來（web-access.md〈中止條款〉第 4 點）
             throw SkillToolError.failure("回應檔 \(request.id).json 不是合法 JSON：\(displaySafeErrorText(error))——那是中止條款的訊號，不要重試")   // display-safe-exempt: request：id 是 URL 的十六進位雜湊

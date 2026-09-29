@@ -20,9 +20,9 @@ import Foundation
 /// `*keyword*` 標記，parser 層 0 命中。
 ///
 /// **`package` 存取層級，不是 `public`**（#629 R1 verify 第 36 則）：這是 repo 開發者重測 #33 的證據工具（`mcp-cli-parity`
-/// 那列寫「不是使用者能力」），不該成為 `AkashicKit` 產品（MCP／App 都連結）的公開 API。它放在 `AkashicCore` 而不是 `akashic`
-/// 執行檔 target，是因為 libyaml 的 C 模組（`CYaml`）只在這個 target 的依賴裡，而測試要 import 它；`package` 讓同一個 package 的
-/// CLI 與測試看得到，package 外的使用者看不到。
+/// 那列寫「不是使用者能力」），不該成為 `AkashicKit` 產品的公開 API。它放在 `AkashicCore` 而不是 `akashic` 執行檔 target，是因為
+/// libyaml 的 C 模組（`CYaml`）只在這個 target 的依賴裡，而測試要 import 它。`package` 讓同一個 package 的所有 target（CLI、MCP、
+/// AppKit、測試）看得到，package 外的使用者（例如 Xcode 的 App 專案）看不到（R2 verify 第 38 則更正：先前寫成 MCP 看不到）。
 package enum YAMLProfileScan {
 
     /// profile 外的語法（顯示順序即輸出順序）。

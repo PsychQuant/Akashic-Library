@@ -3753,9 +3753,10 @@ extension LibraryStore {
     /// 隱私／安全閘，不能讓 `PATH`（shim）、目標 repo 的 `core.fsmonitor`、`core.attributesFile` 決定答案。第一版在那個 target 裡
     /// 另寫了一個 `/usr/bin/env git`、只剝 `GIT_*` 的 helper：#585 記過的 `PATH` shim 與 fsmonitor 向量兩個都開著
     /// （R1 verify 實測：repo 設 `core.fsmonitor=<腳本>`，閘的 `check-ignore` 就執行了那個腳本）。**不寫第三份**——這裡只是把
-    /// `git(_:in:)` 公開，行為（絕對路徑、剝 `GIT_*`、`-c core.fsmonitor=false`、`-c core.attributesFile=/dev/null`、`GIT_ATTR_NOSYSTEM`）
-    /// 逐項相同。回傳 nil = 執行不起來，呼叫端一律 fail-closed。
-    public static func hardenedGit(_ args: [String], in dir: URL) -> (status: Int32, out: String)? {
+    /// `git(_:in:)` 以 `package` 開放給同一個 package 的 target（不是 `AkashicKit` 產品的公開 API，R2 verify 第 38 則），行為（絕對路徑、
+    /// 剝 `GIT_*`、`-c core.fsmonitor=false`、`-c core.attributesFile=/dev/null`、`GIT_ATTR_NOSYSTEM`）逐項相同。回傳 nil = 執行不起來，
+    /// 呼叫端一律 fail-closed。
+    package static func hardenedGit(_ args: [String], in dir: URL) -> (status: Int32, out: String)? {
         git(args, in: dir)
     }
 

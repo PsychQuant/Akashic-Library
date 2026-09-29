@@ -114,8 +114,11 @@ final class RecordingThrottle: S2Throttling, @unchecked Sendable {
     private let lock = NSLock()
     private(set) var acquires = 0
     private(set) var backOffs: [Date] = []
-    func acquire() async throws { lock.lock(); acquires += 1; lock.unlock() }
+    // NSLock 的 lock()／unlock() 在 async context 不可用（Swift 6 語言模式；pre-push 以 -warnings-as-errors 擋下），
+    // 所以計數放在同步的 helper 裡。
+    func acquire() async throws { recordAcquire() }
     func backOff(until: Date) throws { lock.lock(); backOffs.append(until); lock.unlock() }
+    private func recordAcquire() { lock.lock(); acquires += 1; lock.unlock() }
 }
 
 /// #664 任務 3.2：重試上限（spec Example「Retry budget」四列）。

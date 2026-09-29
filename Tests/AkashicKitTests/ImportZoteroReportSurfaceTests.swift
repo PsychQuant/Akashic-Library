@@ -64,6 +64,30 @@ final class ImportZoteroReportSurfaceTests: XCTestCase {
         XCTAssertEqual(claims, ["1:KEYART01": [a.citekey, b.citekey].sorted()])
     }
 
+    /// #608：附加來源「只有 hash 變了」的一格在 MCP payload 裡，與「內容變了」那一格分開、都在（空陣列也在，與其餘 `secondarySource*` 同形）。
+    func testPayloadSeparatesHashOnlyFromContentChangeForAdditionalSources() throws {
+        _ = try importPayload()
+        let all = try store.load().entries
+        var personal = try XCTUnwrap(all.first { $0.provenance?.zoteroKey == "KEYART01" })
+        try fixture.db.execute("INSERT INTO items VALUES (31,1,'KEYGRP01',9,5)")
+        try fixture.addField(item: 31, field: 1, value: "Group copy", valueID: 131)
+        _ = try importPayload()
+        let group = try XCTUnwrap(try store.load().entries.first { $0.provenance?.zoteroKey == "KEYGRP01" })
+        personal.additionalProvenance = [group.provenance!]
+        personal.additionalProvenance[0].zoteroHash = "stale"   // 只有 hash 不同、Zotero 的 version 沒動
+        try store.writeEntry(personal)
+        try FileManager.default.removeItem(at: store.entityURL(id: group.id))
+        let first = try importPayload()
+        XCTAssertEqual(first["secondarySourceHashOnly"] as? [String], [personal.citekey], "\(first)")
+        XCTAssertEqual(first["secondarySourceChanged"] as? [String], [], "沒有人改內容：\(first)")
+        // hash 已重算存回；這次 Zotero 端真的改了內容（version 前進）
+        try fixture.db.execute("UPDATE items SET version = 12 WHERE itemID = 31")
+        try fixture.db.execute("UPDATE itemDataValues SET value = 'Group edited' WHERE valueID = 131")
+        let second = try importPayload()
+        XCTAssertEqual(second["secondarySourceChanged"] as? [String], [personal.citekey], "\(second)")
+        XCTAssertEqual(second["secondarySourceHashOnly"] as? [String], [], "\(second)")
+    }
+
     /// 舊檔的裸 key 桶（`?:<key>`）同樣出現在 payload——與 composite 同一個欄位、同一份定義。
     func testPayloadCarriesTheLegacyBareKeyBucket() throws {
         _ = try importPayload()

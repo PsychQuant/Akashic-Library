@@ -677,6 +677,96 @@ extension ZoteroImportTests {
     }
 }
 
+// MARK: - #608 附加來源的 hash 變動：內容真的變了，還是 mapping 定義變了
+
+extension ZoteroImportTests {
+    /// #608 的判準：Zotero 的 `version` 是條目自己的修改序號。hash 不同而 version **沒前進** ＝ Zotero 沒有人改這個條目，
+    /// 變的是我們算 hash 的方式（mapping 定義演進）——不得與「有人改了內容」報在同一格。模擬 mapping 定義改變的方式是把存下的
+    /// 舊 hash 換成一個不同的值（舊 hash 是舊版 mapping 算的），Zotero 端一個 byte 都不動。
+    func testHashOnlyDifferenceOnAdditionalSourceIsNotReportedAsContentChange() throws {
+        var merged = try seedMergedTwin608()
+        merged.additionalProvenance[0].zoteroHash = "stale-\(UUID().uuidString)"
+        try store.writeEntry(merged)
+        let report = try runImport()
+        XCTAssertFalse(report.secondarySourceChanged.contains(merged.citekey),
+                       "Zotero 端沒有人改（version 沒前進）——不得報成內容變動：\(report.secondarySourceChanged)")
+        XCTAssertTrue(report.secondarySourceHashOnly.contains(merged.citekey),
+                      "hash 不同而 version 沒前進要報在自己那一格：\(report.secondarySourceHashOnly)")
+        // 書目欄位與版本都不動；本地 hash 已重算存回，下一趟兩格都不再列
+        let after = try store.load().entries.first { $0.id == merged.id }!
+        XCTAssertEqual(after.title, merged.title)
+        XCTAssertNotEqual(after.additionalProvenance[0].zoteroHash, merged.additionalProvenance[0].zoteroHash, "hash 要重算存回")
+        let again = try runImport()
+        XCTAssertFalse(again.secondarySourceHashOnly.contains(merged.citekey), "已重算存回，不重複列出")
+        XCTAssertFalse(again.secondarySourceChanged.contains(merged.citekey))
+    }
+
+    /// 對照組：Zotero 端真的有人改了內容（version 前進、欄位變了）→ 報成內容變動，不進 hash-only 那一格。
+    func testContentChangeOnAdditionalSourceIsStillReportedAsContentChange() throws {
+        let merged = try seedMergedTwin608()
+        try fixture.db.execute("UPDATE items SET version = 12 WHERE itemID = 31")
+        try fixture.db.execute("UPDATE itemDataValues SET value = 'Group edited title' WHERE valueID = 131")
+        let report = try runImport()
+        XCTAssertTrue(report.secondarySourceChanged.contains(merged.citekey), "\(report.secondarySourceChanged)")
+        XCTAssertFalse(report.secondarySourceHashOnly.contains(merged.citekey), "有人改了內容不得被說成定義變了：\(report.secondarySourceHashOnly)")
+    }
+
+    /// version 前進而 hash 沒變（改的是 hash 不涵蓋的東西，例如 tag）：本來就不報，也不進新格。
+    func testVersionBumpWithSameHashIsInNeitherBucket() throws {
+        let merged = try seedMergedTwin608()
+        try fixture.db.execute("UPDATE items SET version = 12 WHERE itemID = 31")
+        let report = try runImport()
+        XCTAssertFalse(report.secondarySourceChanged.contains(merged.citekey))
+        XCTAssertFalse(report.secondarySourceHashOnly.contains(merged.citekey))
+        let after = try store.load().entries.first { $0.id == merged.id }!
+        XCTAssertEqual(after.additionalProvenance[0].zoteroVersion, 12, "版本照常更新")
+    }
+
+    /// version 倒退（Zotero 端 library 被重設或回復）而 hash 不同：無從判定是定義變了——保守留在內容變動那一格（寧可多報，不說一句沒把握的話）。
+    func testVersionRegressionWithDifferentHashStaysInContentChange() throws {
+        var merged = try seedMergedTwin608()
+        merged.additionalProvenance[0].zoteroVersion = 40
+        merged.additionalProvenance[0].zoteroHash = "stale-\(UUID().uuidString)"
+        try store.writeEntry(merged)
+        let report = try runImport()   // Zotero 端 version 是 9
+        XCTAssertTrue(report.secondarySourceChanged.contains(merged.citekey), "\(report.secondarySourceChanged)")
+        XCTAssertFalse(report.secondarySourceHashOnly.contains(merged.citekey))
+    }
+
+    /// 同一趟裡兩個附加來源各自屬於不同的情形：各進各的格，互不牽連。
+    func testTwoAdditionalSourcesAreClassifiedIndependently() throws {
+        var merged = try seedMergedTwin608()
+        try fixture.db.execute("INSERT INTO items VALUES (32,1,'KEYGRP02',9,6)")
+        try fixture.addField(item: 32, field: 1, value: "Third library copy", valueID: 132)
+        _ = try runImport()
+        let third = try store.load().entries.first { $0.provenance?.zoteroKey == "KEYGRP02" }!
+        merged = try store.load().entries.first { $0.id == merged.id }!
+        merged.additionalProvenance.append(third.provenance!)
+        merged.additionalProvenance[0].zoteroHash = "stale-\(UUID().uuidString)"   // 第一個：只有 hash 不同
+        try store.writeEntry(merged)
+        try FileManager.default.removeItem(at: store.entityURL(id: third.id))
+        try fixture.db.execute("UPDATE items SET version = 13 WHERE itemID = 32")   // 第二個：內容真的變了
+        try fixture.db.execute("UPDATE itemDataValues SET value = 'Third edited' WHERE valueID = 132")
+        let report = try runImport()
+        XCTAssertTrue(report.secondarySourceChanged.contains(merged.citekey), "第二個來源的內容變動要報：\(report.secondarySourceChanged)")
+        XCTAssertTrue(report.secondarySourceHashOnly.contains(merged.citekey), "第一個來源的 hash-only 要報：\(report.secondarySourceHashOnly)")
+    }
+
+    /// 與 `seedMergedTwin`（`private`，#605 那組測試）相同的 fixture——這一組在另一個 extension、用自己的一份，避免動既有測試的可見性。
+    private func seedMergedTwin608() throws -> Entry {
+        try fixture.db.execute("INSERT INTO items VALUES (31,1,'KEYGRP01',9,5)")
+        try fixture.addField(item: 31, field: 1, value: "Identifiability of polychoric models (group copy)", valueID: 131)
+        _ = try runImport()
+        let all = try store.load().entries
+        var personal = all.first { $0.provenance?.zoteroKey == "KEYART01" }!
+        let group = all.first { $0.provenance?.zoteroKey == "KEYGRP01" }!
+        personal.additionalProvenance = [group.provenance!]
+        try store.writeEntry(personal)
+        try FileManager.default.removeItem(at: store.entityURL(id: group.id))
+        return personal
+    }
+}
+
 // MARK: - #605 附加 Zotero 來源
 
 extension ZoteroImportTests {

@@ -2780,6 +2780,7 @@ public final class AkashicService {
             "orphaned": report.orphaned.map { displaySafe($0, max: 200) },
             "orphanCleared": report.orphanCleared.map { displaySafe($0, max: 200) },
             "secondarySourceChanged": report.secondarySourceChanged.map { displaySafe($0, max: 200) },
+            "secondarySourceHashOnly": report.secondarySourceHashOnly.map { displaySafe($0, max: 200) },   // #608
             "secondarySourceOrphaned": report.secondarySourceOrphaned.map { displaySafe($0, max: 200) },
             "secondarySourceRestored": report.secondarySourceRestored.map { displaySafe($0, max: 200) },
             "unchanged": report.unchanged,

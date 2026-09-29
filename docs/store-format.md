@@ -375,7 +375,11 @@ work merge 的資料遺失閘也把 witness 當 canonical Akashic metadata：被
   移除讓這筆從非 orphaned 變成 orphaned（只剩已在 Zotero 端刪除的附加來源）時另附 `orphanedNote`：App 的 Orphans 頁會列它並提供破壞性動作，而這筆的 Zotero 條目並沒有被刪。
 - **只有主來源更新書目欄位**：主來源命中 → 照 §2.5.2 的 update 條件改寫欄位；附加來源命中 →
   只更新該來源自己的 `zotero_version`／`zotero_hash`／`imported_at`，並清其 `orphaned_at`，
-  **不動書目欄位**。附加來源 hash 變了而未套用 → 匯入報告列出（`secondarySourceChanged`）。
+  **不動書目欄位**。附加來源 hash 變了而未套用 → 匯入報告列出，**分兩格**（#608）：Zotero 的 `version` 前進（或倒退）而 hash 不同
+  ＝ 條目在 Zotero 端有變 → `secondarySourceChanged`；`version` **沒動**而 hash 不同 ＝ 沒有人改這個條目、變的是 hash 的算法（mapping
+  定義演進）或它涵蓋的子項附件集合 → `secondarySourceHashOnly`（報告只說觀察到的事實，不宣稱原因——附加來源不存附件清單、hash 是單一雜湊、
+  舊版 mapping 與舊內容都不在手邊，兩種原因分不開；也因此不需要任何新的存檔欄位、不改 store format）。兩格都已把該來源的 version／hash
+  重算存回，下一趟不會再列。沒有舊 hash 的來源（pre-v1.1）只在 version 前進時報 `secondarySourceChanged`。
 - **orphan 逐來源**：某 library 刪了條目，只標那個來源的 `orphaned_at`。
 - **合併**（`resolve-divergence`）：倖存者主來源**原樣保留**，倖存者沒有主來源就維持沒有（不升格——
   保留那筆的欄位是人選的版本，Zotero 不因合併取得改寫權）；其餘來源併入附加來源，

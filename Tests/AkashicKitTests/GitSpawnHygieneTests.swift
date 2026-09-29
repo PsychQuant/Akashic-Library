@@ -54,6 +54,7 @@ final class GitSpawnHygieneTests: XCTestCase {
         "PrePushHookTests.swift",      // #585 擴大偵測後才看見；當時沒剝 GIT_*，同輪補上
         "StoreGitCommit.swift",        // #573 的測試 helper：repoint／demote 前先 commit
         "RepairVenueNamesCLITests.swift", // #575：--apply 前先 commit fixture
+        "CopyZoteroAttachmentsCLITests.swift", // #606：--apply 前先 commit fixture（GIT_* 前綴剝除）
         "UpdateEntryCLITests.swift",      // #544：--remove-field 的實跑要求 work 檔已 commit
         "UpdateVenueReferencesCLITests.swift", // #673：--remove-reference 的實跑要求 venue 檔已 commit
         "OrphanedAdditionalSourceTests.swift", // #609：App 裁決台的移除面前先 commit fixture

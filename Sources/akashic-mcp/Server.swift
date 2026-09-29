@@ -3,6 +3,7 @@ import MCP
 import AkashicMCPKit
 import AkashicStoreIO
 import AkashicCore
+import AkashicS2
 
 /// akashic-mcp — Akashic-Library 的 MCP 工具面（Phase 2）。
 /// 讀走 index；寫只碰衍生層（akashic namespace／人物解析／庫外 entry／import 觸發）。
@@ -63,6 +64,21 @@ actor AkashicMCPServer {
     // MARK: - Tools
 
     static let tools: [Tool] = [
+        // #664：Semantic Scholar。與 CLI `akashic s2` 共用 AkashicS2；契約細節在 `akashic s2 --help`。
+        Tool(name: "akashic_s2",
+             description: "查 Semantic Scholar（金鑰在 keychain、全機每秒至多 1 次、不寫 store）。回傳 {endpoint,total,returned,truncated,offset,nextOffset,data}，上限 48 KiB、只放完整筆數；truncated 時以 nextOffset 續查。缺金鑰時的設定見 akashic s2 --help",
+             inputSchema: obj([
+                "endpoint": .object(["type": .string("string"),
+                                     "enum": .array(S2Tool.endpointNames.map { .string($0) })]),
+                "id": str("論文（DOI:…、CorpusId:…；裸 DOI 自動加 DOI:）或作者識別碼"),
+                "title": str("match 的標題"),
+                "year": str("match 的出版年（可省略）"),
+                "name": str("author_search 的姓名"),
+                "ids": strArray("batch 的 id（1–500）"),
+                "fields": strArray("S2 欄位名，照原樣轉給 S2"),
+                "offset": int("起始筆數"),
+                "limit": int("向 S2 要幾筆（分頁端點預設 100；recommend 1–500）"),
+             ], required: ["endpoint"])),
         Tool(name: "akashic_search",
              description: "搜尋文獻庫（欄位篩選；全走本地 index）。回傳 citekey/type/title/year/journal/authors 的 JSON 陣列。",
              inputSchema: obj([
@@ -411,8 +427,46 @@ actor AkashicMCPServer {
             guard let self else {
                 return CallTool.Result(content: [.text(text: "server unavailable", annotations: nil, _meta: nil)], isError: true)
             }
+            // #664：S2 需要網路、必須 async——另走一條路；其他工具照舊走同步的 handleToolCall。
+            if params.name == "akashic_s2" { return await AkashicMCPServer.callS2(params) }
             return await self.handleToolCall(params)
         }
+    }
+
+    /// `akashic_s2` 的參數解析：與 `handleToolCall` 同一條規則——鍵不在＝沒給；給了而型別不對（null 也算）整個呼叫拒絕。
+    static func callS2(_ params: CallTool.Parameters) async -> CallTool.Result {
+        func refuse(_ key: String, _ expected: String) -> CallTool.Result {
+            CallTool.Result(content: [.text(
+                text: "Error: \(displaySafeInvisible(key, max: 60)) 必須是\(expected)——收到別的型別（null 也算）；要省略就不要給這個鍵。拒絕整個呼叫",   // display-safe-exempt: expected 是本檔的編譯期字面
+                annotations: nil, _meta: nil)], isError: true)
+        }
+        let a = params.arguments ?? [:]
+        var parsed = S2ToolArguments(endpoint: "")
+        for key in ["endpoint", "id", "title", "year", "name"] {
+            guard let v = a[key] else { continue }
+            guard let s = v.stringValue else { return refuse(key, "字串") }
+            switch key {
+            case "endpoint": parsed.endpoint = s
+            case "id": parsed.id = s
+            case "title": parsed.title = s
+            case "year": parsed.year = s
+            default: parsed.name = s
+            }
+        }
+        for key in ["ids", "fields"] {
+            guard let v = a[key] else { continue }
+            guard case .array(let arr) = v else { return refuse(key, "字串陣列") }
+            let strs = arr.compactMap(\.stringValue)
+            guard strs.count == arr.count else { return refuse(key, "字串陣列") }
+            if key == "ids" { parsed.ids = strs } else { parsed.fields = strs }
+        }
+        for key in ["offset", "limit"] {
+            guard let v = a[key] else { continue }
+            guard case .int(let n) = v else { return refuse(key, "整數") }
+            if key == "offset" { parsed.offset = n } else { parsed.limit = n }
+        }
+        let outcome = await S2Tool.run(parsed)
+        return CallTool.Result(content: [.text(text: outcome.text, annotations: nil, _meta: nil)], isError: outcome.isError)
     }
 
     private func handleToolCall(_ params: CallTool.Parameters) -> CallTool.Result {

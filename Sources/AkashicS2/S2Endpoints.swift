@@ -27,6 +27,8 @@ public enum S2ArgumentError: Error, Equatable, CustomStringConvertible, Sanitize
     case limitOutOfRange(endpoint: String, limit: Int, min: Int, max: Int?)
     case negativeOffset(Int)
     case invalidIdentifier(endpoint: String, identifier: String)
+    case unknownEndpoint(String)
+    case missingArgument(endpoint: String, name: String)
 
     public var description: String {
         switch self {
@@ -37,6 +39,9 @@ public enum S2ArgumentError: Error, Equatable, CustomStringConvertible, Sanitize
             return "\(e) 的 --limit 至少 \(lo)；收到 \(l)"
         case .negativeOffset(let o): return "--offset 不得為負；收到 \(o)"
         case .invalidIdentifier(let e, let id): return "\(e) 的識別碼「\(id)」含 . 或 .. 路徑片段，不接受"
+        case .unknownEndpoint(let e):
+            return "endpoint 必須是 \(S2Tool.endpointNames.joined(separator: "、")) 之一；收到「\(e)」"
+        case .missingArgument(let e, let n): return "\(e) 需要參數 \(n)"
         }
     }
 }
@@ -96,6 +101,9 @@ public struct S2Endpoints: Sendable {
     static let recommendRange = 1...500
     /// `author-search` 未指定 `--limit` 時的筆數。
     public static let defaultSearchLimit = 100
+    /// 未指定欄位時：論文類端點與作者類端點各自的預設（CLI 與 MCP 共用）。
+    public static let defaultPaperFields = ["title", "year", "authors"]
+    public static let defaultAuthorFields = ["name", "paperCount"]
 
     let client: S2Client
     public init(client: S2Client) { self.client = client }

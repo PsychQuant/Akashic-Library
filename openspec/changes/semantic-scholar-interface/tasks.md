@@ -24,7 +24,7 @@
 
 ## 6. MCP 面
 
-- [ ] 6.1 先寫測試再在 `Sources/akashic-mcp/Server.swift` 註冊 `akashic_s2`，在 async 的 `CallTool` handler 內分流：`akashic_s2` 走 async 的處理函式，其餘工具照舊走同步的 `handleToolCall`（design「MCP 面的 async 路徑」與「兩個面都做，MCP 面有位元組上限」）；上限取 48 KiB，錯誤回 `isError: true`，文字與 CLI 相同。驗證：`S2ToolTests` 中 references 截斷為 120 筆時回 `total: 1000`、`returned: 120`、`truncated: true`、`nextOffset: 120`，缺金鑰時的錯誤文字與 CLI 相同；既有的 `AkashicMCPTests` 全數照過。
+- [x] 6.1 先寫測試再在 `Sources/akashic-mcp/Server.swift` 註冊 `akashic_s2`，在 async 的 `CallTool` handler 內分流：`akashic_s2` 走 async 的處理函式，其餘工具照舊走同步的 `handleToolCall`（design「MCP 面的 async 路徑」與「兩個面都做，MCP 面有位元組上限」）；上限取 48 KiB，錯誤回 `isError: true`，文字與 CLI 相同。驗證：`S2ToolTests` 中 references 截斷為 120 筆時回 `total: 1000`、`returned: 120`、`truncated: true`、`nextOffset: 120`，缺金鑰時的錯誤文字與 CLI 相同；既有的 `AkashicMCPTests` 全數照過。
 
 ## 7. 守衛
 

@@ -50,8 +50,8 @@ struct S2PageOptions: ParsableArguments {
 }
 
 enum S2CLI {
-    static let paperFields = ["title", "year", "authors"]
-    static let authorFields = ["name", "paperCount"]
+    static let paperFields = S2Endpoints.defaultPaperFields
+    static let authorFields = S2Endpoints.defaultAuthorFields
 
     /// 解析設定 → 組 client → 跑查詢 → 清理 → 印出。錯誤依類型對應結束碼。
     static func run(_ options: S2Options,
@@ -255,19 +255,7 @@ struct S2StatusCmd: ParsableCommand {
         let host = settings.baseURL.host ?? ""
 
         if json {
-            let keychain: S2JSON = .object([
-                "service": .string(settings.keychainService), "account": .string(settings.keychainAccount),
-                "present": probe.map { .bool($0.present) } ?? .null,
-                "readable": probe.map { .bool($0.readable) } ?? .null,
-            ])
-            let out: S2JSON = .object([
-                "keychain": keychain,
-                "throttle": .object(["stateFile": .string(throttle.stateFile.path),
-                                     "nextAllowedAt": next.map(S2JSON.string) ?? .null]),
-                "host": .string(host),
-            ])
-            let text = (try? S2Output.encoder().encode(S2Output.sanitized(out))).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
-            print(text)
+            print(S2Output.statusJSON(settings: settings, probe: probe))
         } else {
             let yn: (Bool?) -> String = { $0.map { $0 ? "是" : "否" } ?? "未檢查（AKASHIC_S2_BASE_URL 已設定，不讀 keychain）" }
             print(displaySafeAssembled("keychain：service「\(settings.keychainService)」account「\(settings.keychainAccount)」存在：\(yn(probe?.present)) 可讀：\(yn(probe?.readable))"))

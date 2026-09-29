@@ -107,6 +107,24 @@ public enum S2Output {
 // MARK: - CLI 面（任務 5.1）
 
 extension S2Output {
+    /// `status` 的 JSON（CLI `--json` 與 MCP 共用）。不連網；**不含金鑰，也不含它的長度**。
+    /// 請求不送 S2 主機時（base URL 覆寫）不讀 keychain，`present`／`readable` 為 null。
+    public static func statusJSON(settings: S2Settings, probe: S2KeyProbe?) -> String {
+        let throttle = S2FileThrottle(stateDirectory: settings.stateDirectory)
+        let keychain: S2JSON = .object([
+            "service": .string(settings.keychainService), "account": .string(settings.keychainAccount),
+            "present": probe.map { .bool($0.present) } ?? .null,
+            "readable": probe.map { .bool($0.readable) } ?? .null,
+        ])
+        let out: S2JSON = .object([
+            "keychain": keychain,
+            "throttle": .object(["stateFile": .string(throttle.stateFile.path),
+                                 "nextAllowedAt": throttle.peekNextAllowedAt().map { .string(timestamp($0)) } ?? .null]),
+            "host": .string(settings.baseURL.host ?? ""),
+        ])
+        return (try? encoder().encode(sanitized(out))).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+    }
+
     /// ISO 8601，帶本機時區 offset（例：`2026-09-29T09:30:00+08:00`）。
     public static func timestamp(_ date: Date) -> String {
         let f = ISO8601DateFormatter()

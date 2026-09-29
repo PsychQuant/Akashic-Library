@@ -45,6 +45,7 @@
     - Sources/AkashicS2/S2KeyProvider.swift
     - Sources/AkashicS2/S2Throttle.swift
     - Sources/AkashicS2/S2Output.swift
+    - Sources/AkashicS2/S2Tool.swift
     - Sources/akashic/S2Commands.swift
     - Sources/akashic-guards/NetworkConfinement.swift
     - Sources/akashic-guards/NetworkConfinementMutations.swift

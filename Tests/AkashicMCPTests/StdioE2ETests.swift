@@ -86,7 +86,7 @@ final class StdioE2ETests: XCTestCase {
         try send(["jsonrpc": "2.0", "id": 2, "method": "tools/list"])
         let listResponse = try readResponse()
         let tools = ((listResponse["result"] as? [String: Any])?["tools"] as? [[String: Any]]) ?? []
-        XCTAssertEqual(tools.count, 33)   // #544: + akashic_update_entry；#586: + akashic_dismiss_divergence；#13/#14/#18/#77 歷次擴充；#76: + akashic_divergences；#68: + akashic_update_person；#290: + akashic_import_wos；#304: + venue×4 + org×2；#340: + akashic_enrich_from_zotero；#458: + akashic_enrich
+        XCTAssertEqual(tools.count, 34)   // #664: + akashic_s2；#544: + akashic_update_entry；#586: + akashic_dismiss_divergence；#13/#14/#18/#77 歷次擴充；#76: + akashic_divergences；#68: + akashic_update_person；#290: + akashic_import_wos；#304: + venue×4 + org×2；#340: + akashic_enrich_from_zotero；#458: + akashic_enrich
         XCTAssertTrue(tools.contains { ($0["name"] as? String) == "akashic_enrich" })
         XCTAssertTrue(tools.contains { ($0["name"] as? String) == "akashic_record_divergence" })
         XCTAssertTrue(tools.contains { ($0["name"] as? String) == "akashic_import_wos" })
@@ -207,7 +207,7 @@ extension StdioE2ETests {
         try send(["jsonrpc": "2.0", "id": 8, "method": "tools/list", "params": [:]])
         let listResp = try readResponse()
         let tools = ((listResp["result"] as? [String: Any])?["tools"] as? [[String: Any]]) ?? []
-        XCTAssertEqual(tools.count, 33, "深度炸彈之後 server 必須照常服務：\(listResp)")
+        XCTAssertEqual(tools.count, 34, "深度炸彈之後 server 必須照常服務：\(listResp)")
         XCTAssertTrue(process.isRunning, "進程必須存活")
     }
 
@@ -595,7 +595,7 @@ extension StdioE2ETests {
 /// 2026-09-28（+08:00）量測：精簡前 56,382 bytes（32 個工具，超過單一 MCP 輸出的 48 KiB）、精簡後 39,164 bytes
 /// → 39,164 × 1.25 = 48,955 → 49,000。量的是 `tools/list` 回應那一行的原始位元組（不含換行）。
 /// 39,164 是補上 #670 兩個旗標的描述之前量的；`ee29fe47` 出貨時實測 39,285（照同一公式得 50,000，超過 48 KiB），
-/// 預算維持 49,000、待使用者確認（#578 R1 verify DA）。2026-09-29 的樹（33 個工具）實測 43,021。
+/// 預算維持 49,000、待使用者確認（#578 R1 verify DA）。2026-09-29 的樹（33 個工具）實測 43,021；同日 #664 加 `akashic_s2` 後（34 個工具）實測 44,451。
 /// 描述長到撞上它時，先把契約細節移回 CLI `--help` 或 docs/store-format.md，不是改這個數字；要調高須回 #578 重新裁決。
 extension StdioE2ETests {
     static let toolsListByteBudget = 49_000

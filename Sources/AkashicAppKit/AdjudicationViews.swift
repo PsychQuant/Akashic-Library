@@ -198,8 +198,9 @@ struct OrphanView: View {
                             titleVisibility: .visible) {
             Button("移到垃圾桶", role: .destructive) {
                 if let citekey = pendingTrash, let model {
-                    // resolve 動作當下會重新讀盤驗證 orphan 狀態（TOCTOU 守衛在 kit 層）
-                    OrphanModel.attempt(alert: &alert) { try model.resolve(citekey: citekey, action: .moveToTrash) }
+                    // resolve 動作當下會重新讀盤驗證 orphan 狀態（TOCTOU 守衛在 kit 層）。這個按鈕在正在關閉的對話框裡：失敗排隊，
+                    // 等對話框關掉（下面的 onChange(of: pendingTrash)）才顯示（#684 R1 verify）
+                    OrphanModel.attempt(alert: &alert, fromDismissingPresentation: true) { try model.resolve(citekey: citekey, action: .moveToTrash) }
                 }
                 pendingTrash = nil
             }
@@ -236,6 +237,12 @@ struct OrphanView: View {
         .onChange(of: alert.presented) { _, presented in
             // 提示關掉了而還有排隊中的：等一個 runloop 再顯示，讓 isPresented 真的走一次 false → true
             if presented == nil, alert.hasQueued {
+                DispatchQueue.main.async { alert.presentQueued() }
+            }
+        }
+        .onChange(of: pendingTrash) { _, pending in
+            // 垃圾桶的對話框關掉了而它的失敗在排隊：同樣等一個 runloop 再顯示
+            if pending == nil, alert.hasQueued, !alert.isPresenting {
                 DispatchQueue.main.async { alert.presentQueued() }
             }
         }

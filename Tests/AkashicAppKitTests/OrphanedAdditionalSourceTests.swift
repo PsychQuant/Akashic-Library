@@ -355,7 +355,8 @@ final class OrphanedAdditionalSourceTests: XCTestCase {
         XCTAssertEqual(alert.presented?.title, "操作失敗")
     }
 
-    /// 其他兩個動作（轉純 Akashic、垃圾桶）不在提示裡跑：失敗時畫面上沒有提示，錯誤立刻顯示；成功時提示不動。
+    /// 「轉純 Akashic」的按鈕在清單列上：失敗時畫面上沒有任何呈現，錯誤立刻顯示；成功時提示不動。
+    /// （垃圾桶的按鈕在 `confirmationDialog` 裡——對話框正在關閉，見下一支。）
     func testAttemptShowsAFailureImmediatelyAndLeavesSuccessAlone() throws {
         var alert = OrphanAlertState()
         OrphanModel.attempt(alert: &alert) { try OrphanModel(state: self.state).resolve(citekey: "allgone2020", action: .detachFromZotero) }
@@ -365,5 +366,19 @@ final class OrphanedAdditionalSourceTests: XCTestCase {
         guard case .failed(let message)? = alert.presented else { return XCTFail("失敗要立刻顯示：\(alert)") }
         XCTAssertFalse(message.isEmpty)
         XCTAssertNil(alert.queued)
+    }
+
+    /// #684 R1 verify 第 19／21 列：垃圾桶在 `confirmationDialog` 的按鈕裡跑，失敗時對話框正在關閉——錯誤要排隊，
+    /// 等對話框關掉之後才顯示（直接顯示會被那次關閉抹掉，`OrphanAlertState` 檔頭的同一條理由）。
+    func testAttemptFromADismissingDialogQueuesTheFailure() throws {
+        var alert = OrphanAlertState()
+        OrphanModel.attempt(alert: &alert, fromDismissingPresentation: true) {
+            try OrphanModel(state: self.state).resolve(citekey: "ghost2000x", action: .moveToTrash)
+        }
+        XCTAssertNil(alert.presented, "對話框正在關閉：不立刻顯示")
+        guard case .failed(let message)? = alert.queued else { return XCTFail("失敗要排隊：\(alert)") }
+        XCTAssertFalse(message.isEmpty)
+        alert.presentQueued()
+        XCTAssertEqual(alert.presented?.title, "操作失敗")
     }
 }

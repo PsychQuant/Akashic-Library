@@ -94,6 +94,18 @@ final class OrphanAlertStateTests: XCTestCase {
     }
 
     /// 三種提示的標題不同、且跟著 case 走——單一 `.alert` 靠它決定標題。
+    /// #684 R1 verify 第 19／21 列：垃圾桶的失敗發生在 `confirmationDialog` 的按鈕裡——那個對話框不是 `OrphanAlertState` 的一部分，
+    /// 「畫面上有沒有提示」答「沒有」，但它正在關閉。這時要排隊、不能立刻顯示；對話框關掉之後 view 才 `presentQueued()`。
+    func testShowAfterDismissalQueuesEvenWhenNoAlertIsPresented() {
+        var s = OrphanAlertState()
+        s.showAfterDismissal(.failed("移到垃圾桶失敗"))
+        XCTAssertNil(s.presented, "對話框正在關閉：不立刻顯示")
+        XCTAssertEqual(s.queued, .failed("移到垃圾桶失敗"))
+        s.presentQueued()
+        XCTAssertEqual(s.presented, .failed("移到垃圾桶失敗"), "對話框關掉之後輪到它")
+        XCTAssertNil(s.queued)
+    }
+
     func testEachCaseHasItsOwnTitle() {
         let titles = [OrphanAlert.confirmRemoval(pending), .removed("r"), .failed("e")].map(\.title)
         XCTAssertEqual(titles, ["拿掉已刪除的附加來源？", "已拿掉", "操作失敗"])

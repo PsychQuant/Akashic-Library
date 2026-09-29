@@ -81,7 +81,7 @@
 ### 誠實邊界
 
 - **畫面上的行為沒有驗證。** 這個 session 沒有 UI 可跑，`AkashicApp/` 也沒有 UI 測試基礎設施。我能保證的是狀態轉換（有測試）與型別檢查（嚴格建置通過）；「SwiftUI 在按鈕動作之後才設 isPresented=false」是從既有的 SwiftUI 行為推得的，`presentQueued` 延後一個 runloop 是為了讓 false → true 真的發生，兩者都沒有在真的畫面上看過。第一次手動點過「拿掉已刪除的來源」（成功一次、失敗一次）才算數。
-- 垃圾桶的 `confirmationDialog` 不是 `.alert`，沒有併進去；它按下後若失敗，錯誤走 `attempt` 立刻顯示，與確認對話框的關閉同時發生——和先前一樣，沒有處理。
+- 垃圾桶的 `confirmationDialog` 不是 `.alert`，沒有併進去；~~它按下後若失敗，錯誤走 `attempt` 立刻顯示，與確認對話框的關閉同時發生——和先前一樣，沒有處理~~ → R1 起失敗排隊、等對話框關掉才顯示（見下）。
 - `ambiguousSourceClaims` 之外的清單（`created`／`updated`／`orphaned`／`writeFailed`……）在 MCP 面仍沒有上限，與 #684 的範圍一致，沒動。
 
 ## 位元組預算
@@ -99,6 +99,18 @@
 **本批自己的新腿要有情境（第 5、13 列，與 #675 同一件事）。** `akashic_update_venue` 的 `edit_name_segment` 沒有情境，它的 `written`、`writeNote`、`detailsTruncated`／`detailsListed` 不在說明裡——#672 要防的分岔在同一批裡重演。加了三個情境（有變動、沒有變動、超過 20 項），守衛先紅（五個鍵，含 #675 R1 新增的 `displayNameChanged`），補說明後綠。守衛自己的規則「新增工具要同時加情境」只擋新工具，擋不到既有工具的新腿——這一點沒有機械化，靠的是寫新腿的人記得加情境。
 
 **位元組**：`tools/list` 48,150 → **48,554 bytes**（`edit_name_segment` 的鍵名與 `null` 規則 +201、`unknownFields`／`provenance_additional` 三處 +203）。預算當時 49,000（整合時依使用者裁決調高到 52,000，見 #578）。
+
+## Verify R1 修正（#684）
+
+以下的「第 N 列」是 batch14 verify R1（b14f）報告的列號。
+
+**垃圾桶的失敗也走排隊（第 19、21 列）。** 「移到垃圾桶」在 `confirmationDialog` 的按鈕裡跑，失敗時 `attempt` 立刻顯示錯誤——`OrphanAlertState` 看不到那個對話框（`presented` 是 nil），而它正在關閉，正是 `queued` 存在的理由（動作裡直接改會被那次關閉抹掉）要防的形狀。現在 `attempt` 多一個 `fromDismissingPresentation`：為真時錯誤一律排隊（新的 `showAfterDismissal`），view 在 `pendingTrash` 變回 nil 之後、下一個 runloop 呼叫 `presentQueued()`。「轉純 Akashic」在清單列上、沒有正在關閉的呈現，維持立刻顯示。原本那支測試的註解說垃圾桶「畫面上沒有提示」——對話框就在畫面上，註解改掉、另加一支測對話框裡的失敗會排隊。`SanitizationBoundaryTests` 的 Error → 文字入口表多一列（`showAfterDismissal` 那一處）。
+
+**測試**：`OrphanAlertStateTests` +1（閒置時 `showAfterDismissal` 也排隊，`presentQueued` 之後才顯示）、`OrphanedAdditionalSourceTests` +1（真的 `OrphanModel`：對話框裡的垃圾桶失敗排成 `.failed`、畫面上不立刻出現）。負控：`showAfterDismissal` 改成走 `show`（立刻顯示）→ 2 支紅，反向編輯還原、`cmp` 一致。
+
+**誠實邊界**：view 那一半（按鈕傳 `fromDismissingPresentation: true`、`onChange(of: pendingTrash)`）沒有測試能碰到——`AkashicApp/` 沒有 UI 測試，這個 session 也沒有畫面可跑；「一個 runloop 之後對話框已經關完」與既有的 `.alert` 路徑是同一個未在畫面上驗證過的假設。
+
+**未改（第 18 列）**：`ambiguousSourceClaims` 的上限只有筆數（20 個來源 × 20 個宣稱者）、沒有位元組預算——與 issue Expected「比照 `akashic_enrich` 截 20 筆並揭露」一致，`enrich` 本身也只有筆數；citekey 是 StoreKey，實際的大小遠小於 48 KiB。第 36、46 列是 INFO，與既有記錄一致，不動。
 
 ## 與 #664 合併（2026-09-29）
 

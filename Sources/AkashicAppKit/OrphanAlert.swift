@@ -59,6 +59,13 @@ struct OrphanAlertState: Equatable {
         }
     }
 
+    /// 要求在**另一個呈現正在關閉時**顯示一個提示——`confirmationDialog` 的按鈕動作裡（#684 R1 verify 第 19／21 列）。那個對話框不歸這個型別管，
+    /// `presented` 是 nil，但它正在關閉：立刻顯示會被那次關閉抹掉（與 `queued` 存在的理由相同）。所以一律排隊，對話框關掉之後由 view 呼叫
+    /// `presentQueued()`。
+    mutating func showAfterDismissal(_ alert: OrphanAlert) {
+        queued = alert
+    }
+
     /// SwiftUI 已經關掉目前的提示（任何按鈕、或點外面）。`queued` 不動——它要等到關閉之後才輪到。
     mutating func dismissed() {
         presented = nil
@@ -73,12 +80,17 @@ struct OrphanAlertState: Equatable {
 }
 
 extension OrphanModel {
-    /// 跑一個動作；失敗就把錯誤放進提示，成功不動提示。
-    static func attempt(alert: inout OrphanAlertState, _ action: () throws -> Void) {
+    /// 跑一個動作；失敗就把錯誤放進提示，成功不動提示。`fromDismissingPresentation`：動作在一個正在關閉的呈現（`confirmationDialog`）的按鈕裡——
+    /// 錯誤排隊、等它關掉才顯示（`showAfterDismissal`）。
+    static func attempt(alert: inout OrphanAlertState, fromDismissingPresentation: Bool = false, _ action: () throws -> Void) {
         do {
             try action()
         } catch {
-            alert.show(.failed(displaySafeErrorMultiline(error)))
+            if fromDismissingPresentation {
+                alert.showAfterDismissal(.failed(displaySafeErrorMultiline(error)))
+            } else {
+                alert.show(.failed(displaySafeErrorMultiline(error)))
+            }
         }
     }
 

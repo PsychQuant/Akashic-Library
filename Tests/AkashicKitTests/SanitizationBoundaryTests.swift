@@ -696,6 +696,7 @@ final class SanitizationBoundaryTests: XCTestCase {
             ("Sources/AkashicAppKit/EntryViews.swift", "errorMessage = displaySafeErrorMultiline(error)", 3),
             ("Sources/AkashicAppKit/AdjudicationViews.swift", "errorMessage = displaySafeErrorMultiline(error)", 2),   // #684：OrphanView 的一個搬到 OrphanAlert.swift（提示合成單一狀態）
             ("Sources/AkashicAppKit/OrphanAlert.swift", "alert.show(.failed(displaySafeErrorMultiline(error)))", 2),   // #684：`attempt` 與 `confirmRemoval` 各一
+            ("Sources/AkashicAppKit/OrphanAlert.swift", "alert.showAfterDismissal(.failed(displaySafeErrorMultiline(error)))", 1),   // #684 R1：`attempt` 在正在關閉的對話框裡
             ("Sources/AkashicAppKit/GraphView.swift", "loadError = displaySafeErrorMultiline(error)", 2),
             ("Sources/AkashicAppKit/AppState.swift", "underlying: displaySafeError(error, max: 2_400)", 1),
             ("Sources/akashic/LibraryCommands.swift", "throw RuntimeFailure.state(displaySafeErrorText(", 4),   // #642：set-kind、check 各一

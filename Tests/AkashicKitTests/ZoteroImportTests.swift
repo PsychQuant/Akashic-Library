@@ -52,6 +52,18 @@ struct ZoteroFixture {
         try db.execute("INSERT INTO itemData VALUES (?,?,?)", bind: [item, field, valueID])
     }
 
+    /// 實際的 Zotero schema 有 `items.synced`（預設 0；同步後 1、本機修改後回到 0）。最小 fixture 沒有這一欄＝importer 讀成「無從判斷」（#608／#694）。
+    /// 加欄之後，五個值的 `INSERT INTO items VALUES (...)` 會失敗——所以要在這個測試的 item 都插入之後才呼叫。
+    func setSynced(_ value: Int, itemIDs: [Int]? = nil) throws {
+        let columns = try db.query("PRAGMA table_info(items)").compactMap { $0["name"] as? String }
+        if !columns.contains("synced") { try db.execute("ALTER TABLE items ADD COLUMN synced INT NOT NULL DEFAULT 0") }
+        if let ids = itemIDs {
+            for id in ids { try db.execute("UPDATE items SET synced = ? WHERE itemID = ?", bind: [value, id]) }
+        } else {
+            try db.execute("UPDATE items SET synced = ?", bind: [value])
+        }
+    }
+
     /// 標準 fixture：一篇 article（雙作者、tag、storage 附件）+ 一本 book。
     func seedStandard() throws {
         try db.execute("INSERT INTO items VALUES (10,1,'KEYART01',5,1)")
@@ -677,21 +689,183 @@ extension ZoteroImportTests {
     }
 }
 
+// MARK: - #694 主來源的 hash 變動：報告分兩格，寫入不變
+
+extension ZoteroImportTests {
+    private func primaryArticle694(in s: LibraryStore? = nil) throws -> Entry {
+        try XCTUnwrap(try (s ?? store).load().entries.first { $0.provenance?.zoteroKey == "KEYART01" })
+    }
+
+    /// 把存下的主來源 hash 換成舊值——模擬「hash 的算法變了」（舊 hash 是舊版 mapping 算的），Zotero 端一個 byte 都不動（同 #608 的做法）。
+    private func staleStoredHash694(title: String? = nil) throws -> Entry {
+        var article = try primaryArticle694()
+        article.provenance?.zoteroHash = "stale-\(UUID().uuidString)"
+        if let title { article.title = title }
+        try store.writeEntry(article)
+        return article
+    }
+
+    /// (c) Zotero 那一列已同步（synced = 1）、version > 0 且沒變，而存下的 hash 不同 → 列在 `updatedHashOnly`，不在 `updated`。
+    /// 書目欄位照常改寫；hash 重算存回，下一趟兩格都不列。
+    func testPrimaryHashOnlyDifferenceIsReportedInItsOwnBucket() throws {
+        _ = try runImport()
+        let article = try staleStoredHash694(title: "Stale local title")   // 讓這一趟真的有東西可改寫
+        try fixture.setSynced(1)
+        let report = try runImport()
+        XCTAssertEqual(report.updatedHashOnly, [article.citekey], "\(report)")
+        XCTAssertEqual(report.updated, [], "\(report)")
+        let after = try primaryArticle694()
+        XCTAssertEqual(after.title, "Identifiability of polychoric models", "書目欄位照常改寫")
+        XCTAssertNotEqual(after.provenance?.zoteroHash, article.provenance?.zoteroHash, "hash 要重算存回")
+        let again = try runImport()
+        XCTAssertEqual(again.updatedHashOnly, [], "已重算存回，不重複列出")
+        XCTAssertEqual(again.updated, [])
+    }
+
+    /// (a) Zotero 端**本機改了內容、還沒同步**：synced = 0、version 沒變——這是內容變動，要在 `updated`，而且照常改寫。
+    /// #608 初版只看 version，這一種會被報成「只有 hash 不同」（#608 verify R1）。
+    func testPrimaryUnsyncedLocalEditStaysInUpdatedAndIsRewritten() throws {
+        _ = try runImport()
+        try fixture.db.execute("UPDATE itemDataValues SET value='Locally edited title' WHERE valueID=100")
+        try fixture.setSynced(0)
+        let report = try runImport()
+        XCTAssertEqual(report.updated, ["cheng2025identifiability"], "\(report)")
+        XCTAssertEqual(report.updatedHashOnly, [], "本機未同步的修改不得被報成只有 hash 不同：\(report)")
+        XCTAssertEqual(try primaryArticle694().title, "Locally edited title", "照常改寫")
+    }
+
+    /// (b) version 是 0（從未同步的 library，每個條目都是 0）：「沒變」不帶任何資訊——就算 synced 是 1 也留在 `updated`。
+    func testPrimaryVersionZeroStaysInUpdated() throws {
+        try fixture.db.execute("UPDATE items SET version = 0")
+        _ = try runImport()
+        let article = try staleStoredHash694()
+        try fixture.setSynced(1)
+        let report = try runImport()
+        XCTAssertEqual(report.updated, [article.citekey], "\(report)")
+        XCTAssertEqual(report.updatedHashOnly, [], "\(report)")
+    }
+
+    /// (d) 資料庫沒有 `synced` 欄：無從判斷，留在 `updated`（最小 fixture 就是這個形狀）。
+    func testPrimaryWithoutASyncedColumnStaysInUpdated() throws {
+        _ = try runImport()
+        let article = try staleStoredHash694()
+        let report = try runImport()
+        XCTAssertEqual(report.updated, [article.citekey], "\(report)")
+        XCTAssertEqual(report.updatedHashOnly, [], "\(report)")
+    }
+
+    /// 對照組：version 前進而 hash 不同（有同步進來的修改）→ 仍是 `updated`，不進新格。
+    func testPrimaryVersionBumpWithContentChangeStaysInUpdated() throws {
+        _ = try runImport()
+        try fixture.db.execute("UPDATE itemDataValues SET value='Updated title' WHERE valueID=100")
+        try fixture.db.execute("UPDATE items SET version=9 WHERE itemID=10")
+        try fixture.setSynced(1)
+        let report = try runImport()
+        XCTAssertEqual(report.updated, ["cheng2025identifiability"], "\(report)")
+        XCTAssertEqual(report.updatedHashOnly, [], "\(report)")
+    }
+
+    /// version 倒退（library 被重設或回復）而 hash 不同：不知道發生什麼，保守留在 `updated`（同 #608 的倒退處置）。
+    func testPrimaryVersionRegressionWithDifferentHashStaysInUpdated() throws {
+        _ = try runImport()
+        var article = try primaryArticle694()
+        article.provenance?.zoteroVersion = 40
+        article.provenance?.zoteroHash = "stale-\(UUID().uuidString)"
+        try store.writeEntry(article)
+        try fixture.setSynced(1)
+        let report = try runImport()   // Zotero 端 version 是 5
+        XCTAssertEqual(report.updated, [article.citekey], "\(report)")
+        XCTAssertEqual(report.updatedHashOnly, [], "\(report)")
+    }
+
+    /// version 前進而 hash 相同：新格的判準是 hash 不同，這一筆不進新格；它照舊改寫並列在 `updated`（既有行為，本 issue 不動）。
+    func testPrimaryVersionBumpWithSameHashStaysInUpdated() throws {
+        _ = try runImport()
+        try fixture.db.execute("UPDATE items SET version=9 WHERE itemID=10")
+        try fixture.setSynced(1)
+        let report = try runImport()
+        XCTAssertEqual(report.updated, ["cheng2025identifiability"], "\(report)")
+        XCTAssertEqual(report.updatedHashOnly, [], "\(report)")
+    }
+
+    /// 沒有舊 hash（pre-Phase-2 記錄）：無從比較，留在 `updated`（寧可多報）——就算 Zotero 那一列已同步、version 沒變。
+    func testPrimaryMissingHashStaysInUpdated() throws {
+        _ = try runImport()
+        var article = try primaryArticle694()
+        article.provenance?.zoteroHash = nil
+        try store.writeEntry(article)
+        try fixture.setSynced(1)
+        let report = try runImport()
+        XCTAssertEqual(report.updated, [article.citekey], "\(report)")
+        XCTAssertEqual(report.updatedHashOnly, [], "\(report)")
+    }
+
+    /// **寫入不變**（#694 的關鍵）：同一筆記錄、同一份 Zotero 內容，只差存下的 version——一份落在 `updatedHashOnly`（version 相同）、
+    /// 一份落在 `updated`（version 較舊）。兩份寫出來的檔**逐位元組相同**，報告裡描述寫入效果的欄位也相同。
+    /// 所以新格只改報告的分類：分類若不小心也改到寫入（例如 hash-only 那一格不再改寫、或少了 `fields` 的整份替換），這裡會紅。
+    func testWriteIsIdenticalWhicheverBucketTheUpdateLandsIn() throws {
+        _ = try runImport()
+        var article = try primaryArticle694()
+        article.title = "Stale local title"
+        article.fields["note"] = "hand-added"            // pull 會整份替換 fields → 消失（fieldsRemovedByPull）
+        article.authors = [.literal("Someone Else")]     // 未歸戶作者會被覆寫（authorsOverwritten）
+        article.provenance?.zoteroHash = "stale-\(UUID().uuidString)"
+        try store.writeEntry(article)
+        try fixture.setSynced(1)
+        // 第二個 store：同一批記錄，只有這一筆存下的 version 較舊 → 走 `updated`
+        let storeB = LibraryStore(root: dir.appendingPathComponent("libraryB"))
+        try storeB.ensureLayout()
+        for e in try store.load().entries {
+            var copy = e
+            if copy.id == article.id { copy.provenance?.zoteroVersion = 4 }
+            try storeB.writeEntry(copy)
+        }
+        let now = Date(timeIntervalSince1970: 1_753_000_000)
+        let a = try ZoteroImporter(store: store).run(zoteroDB: fixture.dbURL, now: now)
+        let b = try ZoteroImporter(store: storeB).run(zoteroDB: fixture.dbURL, now: now)
+        XCTAssertEqual(a.updatedHashOnly, [article.citekey], "前提：A 落在新格：\(a)")
+        XCTAssertEqual(a.updated, [], "\(a)")
+        XCTAssertEqual(b.updated, [article.citekey], "前提：B 落在 updated：\(b)")
+        XCTAssertEqual(b.updatedHashOnly, [], "\(b)")
+
+        let writtenA = try String(contentsOf: store.entityURL(id: article.id), encoding: .utf8)
+        let writtenB = try String(contentsOf: storeB.entityURL(id: article.id), encoding: .utf8)
+        XCTAssertEqual(writtenA, writtenB, "兩格的寫入必須逐位元組相同")
+        let afterA = try primaryArticle694()
+        XCTAssertEqual(afterA, try primaryArticle694(in: storeB))
+        // 真的改寫了（不是兩邊都沒寫所以相等）
+        XCTAssertEqual(afterA.title, "Identifiability of polychoric models")
+        XCTAssertNil(afterA.fields["note"])
+        XCTAssertEqual(afterA.authors, [.literal("Che Cheng"), .literal("Hau-Hung Yang")])
+        XCTAssertEqual(afterA.provenance?.zoteroVersion, 5)
+        XCTAssertEqual(afterA.provenance?.importedAt, now)
+        // 描述寫入效果的報告欄位兩邊相同
+        XCTAssertEqual(a.fieldsRemovedByPull, b.fieldsRemovedByPull)
+        XCTAssertEqual(a.fieldsRemovedByPull["note"], 1)
+        XCTAssertEqual(a.authorsOverwritten, b.authorsOverwritten)
+        XCTAssertEqual(a.authorsOverwritten, [article.citekey])
+        XCTAssertEqual(a.authorsPreserved, b.authorsPreserved)
+        XCTAssertEqual(a.unnormalizedDates, b.unnormalizedDates)
+        XCTAssertEqual(a.writeFailed, b.writeFailed)
+    }
+}
+
 // MARK: - #608 附加來源的 hash 變動：內容真的變了，還是 mapping 定義變了
 
 extension ZoteroImportTests {
-    /// #608 的判準：Zotero 的 `version` 是條目自己的修改序號。hash 不同而 version **沒前進** ＝ Zotero 沒有人改這個條目，
-    /// 變的是我們算 hash 的方式（mapping 定義演進）——不得與「有人改了內容」報在同一格。模擬 mapping 定義改變的方式是把存下的
-    /// 舊 hash 換成一個不同的值（舊 hash 是舊版 mapping 算的），Zotero 端一個 byte 都不動。
+    /// #608 的判準（verify R1 起）：hash 不同，而 Zotero 那一列已同步（synced = 1）、version > 0 且沒變 → 報在自己那一格，
+    /// 不與內容變動報在同一格。只說觀察到的事實、不宣稱原因。模擬 mapping 定義改變的方式是把存下的舊 hash 換成一個不同的值
+    /// （舊 hash 是舊版 mapping 算的），Zotero 端一個 byte 都不動。
     func testHashOnlyDifferenceOnAdditionalSourceIsNotReportedAsContentChange() throws {
         var merged = try seedMergedTwin608()
         merged.additionalProvenance[0].zoteroHash = "stale-\(UUID().uuidString)"
         try store.writeEntry(merged)
+        try fixture.setSynced(1)
         let report = try runImport()
         XCTAssertFalse(report.secondarySourceChanged.contains(merged.citekey),
-                       "Zotero 端沒有人改（version 沒前進）——不得報成內容變動：\(report.secondarySourceChanged)")
+                       "已同步、version 沒變——不得報成內容變動：\(report.secondarySourceChanged)")
         XCTAssertTrue(report.secondarySourceHashOnly.contains(merged.citekey),
-                      "hash 不同而 version 沒前進要報在自己那一格：\(report.secondarySourceHashOnly)")
+                      "hash 不同而已同步、version 沒變要報在自己那一格：\(report.secondarySourceHashOnly)")
         // 書目欄位與版本都不動；本地 hash 已重算存回，下一趟兩格都不再列
         let after = try store.load().entries.first { $0.id == merged.id }!
         XCTAssertEqual(after.title, merged.title)
@@ -699,6 +873,39 @@ extension ZoteroImportTests {
         let again = try runImport()
         XCTAssertFalse(again.secondarySourceHashOnly.contains(merged.citekey), "已重算存回，不重複列出")
         XCTAssertFalse(again.secondarySourceChanged.contains(merged.citekey))
+    }
+
+    /// verify R1 (a)：群組那份在 Zotero 端**本機改了內容、還沒同步**（synced = 0、version 沒變）→ 內容變動那一格。初版把它報成「只有 hash 不同」。
+    func testUnsyncedLocalEditOnAdditionalSourceIsReportedAsContentChange() throws {
+        let merged = try seedMergedTwin608()
+        try fixture.db.execute("UPDATE itemDataValues SET value = 'Group edited locally' WHERE valueID = 131")
+        try fixture.setSynced(0)
+        let report = try runImport()
+        XCTAssertTrue(report.secondarySourceChanged.contains(merged.citekey), "\(report.secondarySourceChanged)")
+        XCTAssertFalse(report.secondarySourceHashOnly.contains(merged.citekey), "\(report.secondarySourceHashOnly)")
+    }
+
+    /// verify R1 (b)：version 是 0（從未同步的 library）→ 內容變動那一格，就算 synced 是 1。
+    func testVersionZeroOnAdditionalSourceIsReportedAsContentChange() throws {
+        var merged = try seedMergedTwin608()
+        try fixture.db.execute("UPDATE items SET version = 0 WHERE itemID = 31")
+        merged.additionalProvenance[0].zoteroVersion = 0
+        merged.additionalProvenance[0].zoteroHash = "stale-\(UUID().uuidString)"
+        try store.writeEntry(merged)
+        try fixture.setSynced(1)
+        let report = try runImport()
+        XCTAssertTrue(report.secondarySourceChanged.contains(merged.citekey), "\(report.secondarySourceChanged)")
+        XCTAssertFalse(report.secondarySourceHashOnly.contains(merged.citekey), "\(report.secondarySourceHashOnly)")
+    }
+
+    /// verify R1 (d)：資料庫沒有 `synced` 欄 → 無從判斷，內容變動那一格。
+    func testAdditionalSourceWithoutASyncedColumnIsReportedAsContentChange() throws {
+        var merged = try seedMergedTwin608()
+        merged.additionalProvenance[0].zoteroHash = "stale-\(UUID().uuidString)"
+        try store.writeEntry(merged)
+        let report = try runImport()
+        XCTAssertTrue(report.secondarySourceChanged.contains(merged.citekey), "\(report.secondarySourceChanged)")
+        XCTAssertFalse(report.secondarySourceHashOnly.contains(merged.citekey), "\(report.secondarySourceHashOnly)")
     }
 
     /// 對照組：Zotero 端真的有人改了內容（version 前進、欄位變了）→ 報成內容變動，不進 hash-only 那一格。
@@ -747,6 +954,7 @@ extension ZoteroImportTests {
         try FileManager.default.removeItem(at: store.entityURL(id: third.id))
         try fixture.db.execute("UPDATE items SET version = 13 WHERE itemID = 32")   // 第二個：內容真的變了
         try fixture.db.execute("UPDATE itemDataValues SET value = 'Third edited' WHERE valueID = 132")
+        try fixture.setSynced(1)
         let report = try runImport()
         XCTAssertTrue(report.secondarySourceChanged.contains(merged.citekey), "第二個來源的內容變動要報：\(report.secondarySourceChanged)")
         XCTAssertTrue(report.secondarySourceHashOnly.contains(merged.citekey), "第一個來源的 hash-only 要報：\(report.secondarySourceHashOnly)")

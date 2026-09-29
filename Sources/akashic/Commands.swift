@@ -331,6 +331,11 @@ struct ImportZotero: ParsableCommand {
         let report = try ZoteroImporter(store: store).run(zoteroDB: dbURL, libraryID: libraryId)
         print("created: \(report.created.count)")
         print("updated: \(report.updated.count)\(report.updated.isEmpty ? "" : "（" + report.updated.map { displaySafe($0, max: 200) }.joined(separator: ", ") + "）")")
+        if !report.updatedHashOnly.isEmpty {
+            // #694：主來源 hash 不同，而 Zotero 那一列已同步、version 沒變（判準 ZoteroImporter.isHashOnlyDifference）——照常改寫
+            // （與 updated 那一格同一段寫入），只是分開列。只說觀察到的事實，不宣稱原因。
+            print("updated（只有 mapping hash 不同：Zotero 那一列已同步、version 沒變；照常改寫；不宣稱原因——多半是 mapping 定義演進，或子項附件增減，#694）: \(report.updatedHashOnly.count)（\(report.updatedHashOnly.map { displaySafe($0, max: 200) }.joined(separator: ", "))）")
+        }
         print("orphaned: \(report.orphaned.count)\(report.orphaned.isEmpty ? "" : "（" + report.orphaned.map { displaySafe($0, max: 200) }.joined(separator: ", ") + "）")")
         print("unchanged: \(report.unchanged)")
         if !report.orphanCleared.isEmpty {
@@ -340,9 +345,9 @@ struct ImportZotero: ParsableCommand {
             print("附加來源有變動、未套用（只有主來源更新書目欄位，#605）: \(report.secondarySourceChanged.map { displaySafe($0, max: 200) }.joined(separator: ", "))")
         }
         if !report.secondarySourceHashOnly.isEmpty {
-            // #608：Zotero 的 version 沒前進＝沒有人改這個條目。hash 不同多半是 mapping 定義演進（也可能是子項附件集合有異動），
-            // 這裡說觀察到的事實、不宣稱原因；本地 hash 已重算存回，下一趟不會再列。
-            print("附加來源只有 mapping hash 不同（Zotero 版本沒前進、沒有人改條目；多半是 mapping 定義演進，子項附件異動也會；未套用、hash 已重算存回，#608）: \(report.secondarySourceHashOnly.map { displaySafe($0, max: 200) }.joined(separator: ", "))")
+            // #608：hash 不同，而 Zotero 那一列已同步、version 沒變（verify R1 起看 synced；還沒同步的本機修改與從未同步的 library 不在這一行）。
+            // 只說觀察到的事實、不宣稱原因；本地 hash 已重算存回，下一趟不會再列。
+            print("附加來源只有 mapping hash 不同（Zotero 那一列已同步、version 沒變；不宣稱原因——多半是 mapping 定義演進，或子項附件增減；未套用、hash 已重算存回，#608）: \(report.secondarySourceHashOnly.map { displaySafe($0, max: 200) }.joined(separator: ", "))")
         }
         if !report.secondarySourceRestored.isEmpty {
             print("附加來源在 Zotero 端恢復（#605）: \(report.secondarySourceRestored.map { displaySafe($0, max: 200) }.joined(separator: ", "))")

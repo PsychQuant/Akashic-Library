@@ -5,20 +5,35 @@ import AkashicStoreIO
 public struct ImportReport: Equatable {
     public var created: [String] = []
     public var updated: [String] = []
+    /// #694：**主來源**的 mapping hash 與存下的不同，而 Zotero 那一列說這個條目已同步（`synced` = 1）、`version` > 0 且與存下的相同
+    /// （判準是 `ZoteroImporter.isHashOnlyDifference`，與 `secondarySourceHashOnly` 同一份）。書目欄位**照常改寫**——寫入與 `updated`
+    /// 那一格完全相同（同一段程式、同一份內容），這一格只改報告的分類，不改這一趟寫不寫、寫什麼。
+    ///
+    /// **只說觀察到的事實、不宣稱原因**：多半是 mapping 定義演進，也可能是子項附件的增減（子項有自己的 version，不推進父條目的）。
+    /// 它分出來的用處是 mapping 定義一演進，每一筆主來源不再全被列成 `updated`。
+    ///
+    /// 其餘一律留在 `updated`：`version` 前進或倒退；`synced` 為 0（有本機修改還沒同步——`version` 只在同步時才變）；`version` 是 0
+    /// （從未同步的 library，每個條目都是 0）；資料庫沒有 `synced` 欄（無從判斷）；沒有舊 hash（pre-Phase-2，無從比較）；
+    /// `version` 前進而 hash 相同也照舊改寫、列在 `updated`。
+    public var updatedHashOnly: [String] = []
     public var orphaned: [String] = []
     /// Zotero 端復原、orphan 標記被清除的 entries。
     public var orphanCleared: [String] = []
     /// #605：附加來源在 Zotero 端有變（內容 hash 不同、且 Zotero 的 version 前進或倒退——或沒有舊 hash 而 version 較新），
     /// 但依「只有主來源更新書目欄位」**未套用**的 entries。不靜默——使用者要能看到群組那份被別人改過。
     ///
-    /// **不含「只有 hash 變了」的那一種**（#608，它在 `secondarySourceHashOnly`）：那時 Zotero 端的 version 沒有前進，
-    /// 沒有人改過這個條目——被改的是我們算 hash 的方式。兩者先前報在同一格，於是 mapping 定義一演進
-    /// （`ZoteroMapping.mappingHash` 的注解記著這是刻意的、可見的大批更新），每個附加來源都被列成「有人改了」。
+    /// **不含 `secondarySourceHashOnly` 那一種**（#608）：hash 不同、而 Zotero 那一列已同步且 `version` 沒變。
+    /// 兩者先前報在同一格，於是 mapping 定義一演進（`ZoteroMapping.mappingHash` 的注解記著這是刻意的、可見的大批更新），
+    /// 每個附加來源都被列成「有人改了」。hash 不同而 `synced` 為 0、`version` 為 0 或沒有 `synced` 欄時仍在這一格（#608 verify R1）。
     public var secondarySourceChanged: [String] = []
-    /// #608：附加來源的 mapping hash 與存下的不同，**而 Zotero 的 version 沒有前進**——Zotero 端沒有人改這個條目（version 是條目自己的
-    /// 修改序號），差別來自我們算 hash 的方式（mapping 定義演進），或它涵蓋的子項（附件）集合有異動——子項有自己的 version，
-    /// 不推進父條目的。兩種原因在附加來源上分不開：附加來源不存附件清單，hash 是單一雜湊，舊版 mapping 與舊內容都不在手邊、無從重算舊 hash。
-    /// 所以這一格說的是**觀察到的事實**（hash 不同、version 沒動），不宣稱原因。
+    /// #608：附加來源的 mapping hash 與存下的不同，而 Zotero 那一列說這個條目已同步（`synced` = 1）、`version` > 0 且與存下的相同
+    /// （`ZoteroImporter.isHashOnlyDifference`，與 `updatedHashOnly` 同一份判準）。**只說觀察到的事實、不宣稱原因**：多半是 mapping 定義演進，
+    /// 也可能是它涵蓋的子項（附件）集合有增減（子項有自己的 version，不推進父條目的）。兩者在附加來源上分不開：附加來源不存附件清單，
+    /// hash 是單一雜湊，舊版 mapping 與舊內容都不在手邊、無從重算舊 hash。
+    ///
+    /// **#608 verify R1 更正**：初版只看「version 沒變」，並把它說成「Zotero 端沒有人改這個條目」。但 Zotero 的 `version` 只在同步時才變——
+    /// 還沒同步的本機修改 `synced` = 0、`version` 不動；從未同步的 library 每個條目的 `version` 都是 0——這兩種在初版都被報成「只有 hash 不同」，
+    /// 而 #608 之前它們在 `secondarySourceChanged`。現在它們回到那一格。
     /// 本地的 hash 已重算存回，下一趟不會再列。書目欄位同樣**未套用**（只有主來源更新書目欄位）。
     public var secondarySourceHashOnly: [String] = []
     /// #605：附加來源在 Zotero 端已刪除、被標上 `orphaned_at` 的 entries（entry 本身與主來源不動）。
@@ -74,6 +89,21 @@ public struct ZoteroImporter {
 
     public init(store: LibraryStore) {
         self.store = store
+    }
+
+    /// #608／#694：hash 不同時，能不能把它報成「只有 mapping hash 不同」——主來源（`updatedHashOnly`）與附加來源
+    /// （`secondarySourceHashOnly`）共用這一份判準。四個條件都要成立：
+    /// 1. 有舊 hash、且與現在不同（沒有舊 hash 無從比較）；
+    /// 2. Zotero 那一列說這個條目已同步（`synced` = 1）——`version` 只在同步時才變，還沒同步的本機修改 `synced` = 0、`version` 不動；
+    ///    資料庫沒有 `synced` 欄時是 nil＝無從判斷；
+    /// 3. `version` > 0——從未同步的 library 每個條目都是 0，「沒變」不帶任何資訊；
+    /// 4. `version` 與存下的相同——前進是有同步進來的修改，倒退時不知道發生什麼。
+    ///
+    /// 成立時報告**只說觀察到的事實**，不宣稱原因（多半是 mapping 定義演進，也可能是子項附件的增減）；不成立的一律留在「有變動」那一格。
+    /// 這個判準**只決定報告的分類**，不參與任何寫入的決定。
+    static func isHashOnlyDifference(storedHash: String?, storedVersion: Int, item: ZoteroItem, itemHash: String) -> Bool {
+        guard let old = storedHash, old != itemHash else { return false }
+        return item.synced == true && item.version > 0 && item.version == storedVersion
     }
 
     public func run(zoteroDB: URL, libraryID: Int? = nil, now: Date = Date()) throws -> ImportReport {
@@ -265,6 +295,9 @@ public struct ZoteroImporter {
                 // update 條件（Phase 2）：version 較新 OR mapping hash 不同
                 // （hash 缺席＝pre-Phase-2 舊檔 → 視為不同、補建一次）
                 if item.version > prov.zoteroVersion || prov.zoteroHash != itemHash {
+                    // #694：**只決定這一筆列在報告的哪一格**，不參與下面任何一個寫入的決定——兩格走同一段改寫、同一次寫入。
+                    let hashOnly = Self.isHashOnlyDifference(storedHash: prov.zoteroHash, storedVersion: prov.zoteroVersion,
+                                                             item: item, itemHash: itemHash)
                     let hadResolvedAuthors = existing.authors.contains {
                         if case .key = $0 { return true } else { return false }
                     }
@@ -313,7 +346,7 @@ public struct ZoteroImporter {
                         libraryID: item.libraryID, zoteroHash: itemHash,
                         importedAt: now, orphanedAt: nil)
                     if guardedWrite(existing, report: &report) {
-                        report.updated.append(existing.citekey)
+                        if hashOnly { report.updatedHashOnly.append(existing.citekey) } else { report.updated.append(existing.citekey) }
                         if let raw = item.fields["date"], DateNormalizer.normalize(raw) == nil {
                             report.unnormalizedDates.append(existing.citekey)
                         }
@@ -327,7 +360,7 @@ public struct ZoteroImporter {
                           $0.libraryID == item.libraryID && $0.zoteroKey == item.key }) {
                 // #605：附加來源命中——只更新該來源自己的 version／hash／orphan，**不動書目欄位**
                 // （只有主來源能改寫欄位）。hash 變了而未套用 → secondarySourceChanged，不靜默；
-                // hash 變了而 Zotero 的 version 沒動 → secondarySourceHashOnly（#608，沒有人改條目、變的是 hash 的算法或子項集合）。
+                // hash 變了而 Zotero 那一列已同步、version 沒變 → secondarySourceHashOnly（#608，不宣稱原因；判準見 isHashOnlyDifference）。
                 var src = existing.additionalProvenance[idx]
                 var changed = false
                 var cleared = false
@@ -337,10 +370,14 @@ public struct ZoteroImporter {
                 if item.version > src.zoteroVersion || src.zoteroHash != itemHash {
                     if let oldHash = src.zoteroHash {
                         if oldHash != itemHash {
-                            // #608：hash 不同而 Zotero 的 version 恰好沒動 → Zotero 端沒有人改這個條目，不算「內容變了」，另記一格。
-                            // 只在**相等**時這樣說：version 前進是有人改了；倒退（library 被重設或回復）時不知道發生什麼，
-                            // 維持在內容變動那一格——寧可多報，不對一件沒把握的事下「只是定義變了」的結論。
-                            if item.version == src.zoteroVersion { hashOnly = true } else { contentChanged = true }
+                            // #608：判準只有一份（isHashOnlyDifference）；不成立的一律留在內容變動那一格——寧可多報，
+                            // 不對一件沒把握的事下「只是定義變了」的結論。
+                            if Self.isHashOnlyDifference(storedHash: oldHash, storedVersion: src.zoteroVersion,
+                                                         item: item, itemHash: itemHash) {
+                                hashOnly = true
+                            } else {
+                                contentChanged = true
+                            }
                         }
                     } else {
                         // 沒有舊雜湊（pre-v1.1 記錄）時無從比較內容，版本前進就視為有變動——
@@ -428,6 +465,7 @@ public struct ZoteroImporter {
 
         report.created.sort()
         report.updated.sort()
+        report.updatedHashOnly.sort()
         report.orphaned.sort()
         report.orphanCleared.sort()
         report.secondarySourceChanged.sort()

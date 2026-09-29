@@ -13,6 +13,10 @@ public struct ZoteroItem: Equatable {
     public var tags: [String]
     /// 已正規化為 storage/<KEY>/<file> 的 reference。
     public var attachmentPaths: [String]
+    /// Zotero `items.synced`（#608／#694）：true＝這個條目目前的狀態已與伺服器同步；false＝有本機修改還沒同步（或這個 library
+    /// 從未同步）；nil＝資料庫沒有這一欄，無從判斷。`version` 只在同步時才變，所以「version 沒變」只有在 synced 為 true 時
+    /// 才表示「上次匯入之後這個條目沒被改過」。同步狀態不是內容，不參與相等、不進 mapping hash。
+    public var synced: Bool? = nil
 
     public static func == (lhs: ZoteroItem, rhs: ZoteroItem) -> Bool {
         lhs.key == rhs.key && lhs.version == rhs.version && lhs.libraryID == rhs.libraryID
@@ -47,18 +51,22 @@ public enum ZoteroReader {
         let deleted = Set(try db.query("SELECT itemID FROM deletedItems")
             .compactMap { $0["itemID"] as? Int })
 
-        // itemID → (key, version, typeName, libraryID)；一次撈全表在記憶體組裝（個人庫規模）
-        var meta: [Int: (key: String, version: Int, type: String, libraryID: Int)] = [:]
+        // `items.synced`（#608／#694）：實際的 Zotero schema 有這一欄；沒有的話（最小 fixture、未知的舊 schema）讀成 nil＝無從判斷。
+        let hasSynced = try db.query("PRAGMA table_info(items)").contains { ($0["name"] as? String) == "synced" }
+
+        // itemID → (key, version, typeName, libraryID, synced)；一次撈全表在記憶體組裝（個人庫規模）
+        var meta: [Int: (key: String, version: Int, type: String, libraryID: Int, synced: Bool?)] = [:]
         for row in try db.query("""
             SELECT i.itemID AS itemID, i.key AS key, i.version AS version,
-                   i.libraryID AS libraryID, t.typeName AS typeName
+                   i.libraryID AS libraryID, t.typeName AS typeName\(hasSynced ? ", i.synced AS synced" : "")
             FROM items i JOIN itemTypes t ON i.itemTypeID = t.itemTypeID
             """) {
             guard let itemID = row["itemID"] as? Int, let key = row["key"] as? String,
                   let version = row["version"] as? Int, let type = row["typeName"] as? String else {
                 continue
             }
-            meta[itemID] = (key, version, type, row["libraryID"] as? Int ?? 1)
+            let synced = hasSynced ? (row["synced"] as? Int).map { $0 != 0 } : nil
+            meta[itemID] = (key, version, type, row["libraryID"] as? Int ?? 1, synced)
         }
 
         var fieldsByItem: [Int: [String: String]] = [:]
@@ -177,7 +185,8 @@ public enum ZoteroReader {
                 fields: fieldsByItem[itemID] ?? [:],
                 authors: authors,
                 tags: (tagsByItem[itemID] ?? []).sorted(),
-                attachmentPaths: (attachmentsByParent[itemID] ?? []).sorted()))
+                attachmentPaths: (attachmentsByParent[itemID] ?? []).sorted(),
+                synced: m.synced))
         }
         return ZoteroReadResult(items: items.sorted { $0.key < $1.key },
                                 skippedLinkedAttachments: skippedLinked)

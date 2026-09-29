@@ -2753,9 +2753,15 @@ public final class AkashicService {
     /// `claimLimit`（#684）：MCP 面截 `ambiguousSourceClaims`——至多這麼多個來源、每個來源至多這麼多個宣稱者（輸出進 LLM context，
     /// 呼叫端無法在收到後丟棄已付的代價；`akashic_enrich` 的 `itemLimit` 同一個理由）。截掉時 `ambiguousSourceClaimsTotal`
     /// 給完整的來源數、`ambiguousSourceClaimsTruncated` 為 true；nil＝全列（CLI 不經過這個函式，逐行印全部）。
-    public func importZotero(zoteroDb: String?, libraryID: Int?, claimLimit: Int? = nil) throws -> String {
+    ///
+    /// `listLimit`（#696）：同一個理由，套在報告其餘的 citekey 清單（`importReportCappedLists`）——每個清單至多這麼多筆
+    /// （依 citekey 排序留前面的）；`listTotals` 給每個清單的完整筆數、`truncatedLists` 列出被截的清單。上限只截報告，不截寫入；nil＝全列。
+    public func importZotero(zoteroDb: String?, libraryID: Int?, claimLimit: Int? = nil, listLimit: Int? = nil) throws -> String {
         if let limit = claimLimit, limit < 1 {
             throw ServiceError.invalid("claimLimit 必須 ≥ 1（0 不是「全部」也不是「一個都不要」——要全部就不要給）")
+        }
+        if let limit = listLimit, limit < 1 {
+            throw ServiceError.invalid("listLimit 必須 ≥ 1（0 不是「全部」也不是「一個都不要」——要全部就不要給）")
         }
         let path = ((zoteroDb ?? "~/Zotero/zotero.sqlite") as NSString).expandingTildeInPath
         guard FileManager.default.fileExists(atPath: path) else {
@@ -2768,7 +2774,7 @@ public final class AkashicService {
         // 磁碟滿等原因與 writeFailed 正相關，最需要報告的場景恰好最易被吞。
         // #610 R1 verify：先前那條分支只帶四個計數，`ambiguousSourceClaims`（有條目本趟被整個略過）與 `secondarySource*` 都消失——
         // 現在把成功時回傳的那一份報告原樣放進錯誤訊息，兩條路徑同一個 payload、不會再各漏各的。
-        let payload = Self.importReportPayload(report, claimLimit: claimLimit)
+        let payload = Self.importReportPayload(report, claimLimit: claimLimit, listLimit: listLimit)
         do {
             try LibraryIndex(store: store).rebuild()
         } catch {
@@ -2778,31 +2784,50 @@ public final class AkashicService {
         return try jsonString(payload)
     }
 
+    /// MCP 面有 `listLimit` 上限的 citekey 清單（#696）：鍵 → 報告裡的值、這一格是否永遠在（否＝只在非空時出現）。
+    /// `writeFailed`（citekey → 錯誤訊息）另外處理，截的是條目數。不在這裡的集合：`ambiguousSourceClaims`（#684 自己的上限與鍵）、
+    /// `residualFields`（鍵是 Zotero 的欄位名，受 schema 的欄位表限制、不隨一次匯入的筆數成長）。
+    static func importReportCappedLists(_ r: ImportReport) -> [(key: String, list: [String], always: Bool)] {
+        [("created", r.created, true), ("updated", r.updated, true), ("updatedHashOnly", r.updatedHashOnly, true),   // #694
+         ("orphaned", r.orphaned, true), ("orphanCleared", r.orphanCleared, true),
+         ("secondarySourceChanged", r.secondarySourceChanged, true),
+         ("secondarySourceHashOnly", r.secondarySourceHashOnly, true),   // #608
+         ("secondarySourceOrphaned", r.secondarySourceOrphaned, true),
+         ("secondarySourceRestored", r.secondarySourceRestored, true),
+         ("unnormalizedDates", r.unnormalizedDates, true),
+         ("authorsPreserved", r.authorsPreserved, false), ("quarantineConflicts", r.quarantineConflicts, false)]
+    }
+
     /// `import-zotero` 的報告 payload——rebuild 成功與失敗兩條路徑共用（#610 R1 verify）。
-    static func importReportPayload(_ report: ImportReport, claimLimit: Int? = nil) -> [String: Any] {
+    ///
+    /// #696：每個 citekey 清單依 citekey 排序後留前 `listLimit` 筆。揭露是**一對鍵**，形照 `akashic_enrich` 的 `counts`（封閉列舉的名字 → 完整筆數）
+    /// 加截斷揭露：`listTotals`（每個有上限的清單 → 完整筆數；十三個名字都在，空清單是 0）與 `truncatedLists`（被截的清單名，排序；沒有截就是空陣列）。
+    /// 兩個鍵永遠在，呼叫端不必猜「沒有鍵＝沒有截」。不逐清單加 `…Total`／`…Truncated`：十三對鍵名會吃掉 tools/list 的位元組預算（#578）。
+    /// 各清單自己的出現規則不變（`authorsPreserved`／`quarantineConflicts`／`writeFailed` 只在非空時出現）。
+    /// 計數（`unchanged`、`skippedLinkedAttachments`）永遠完整；`ambiguousSourceClaims` 維持 #684 自己的鍵。
+    static func importReportPayload(_ report: ImportReport, claimLimit: Int? = nil, listLimit: Int? = nil) -> [String: Any] {
         var d: [String: Any] = [
-            "created": report.created.map { displaySafe($0, max: 200) },
-            "updated": report.updated.map { displaySafe($0, max: 200) },
-            "orphaned": report.orphaned.map { displaySafe($0, max: 200) },
-            "orphanCleared": report.orphanCleared.map { displaySafe($0, max: 200) },
-            "secondarySourceChanged": report.secondarySourceChanged.map { displaySafe($0, max: 200) },
-            "secondarySourceHashOnly": report.secondarySourceHashOnly.map { displaySafe($0, max: 200) },   // #608
-            "secondarySourceOrphaned": report.secondarySourceOrphaned.map { displaySafe($0, max: 200) },
-            "secondarySourceRestored": report.secondarySourceRestored.map { displaySafe($0, max: 200) },
             "unchanged": report.unchanged,
             // #171 verify 171-5(d)：key 是 Zotero 未映射的欄位名＝第三方字串，
-            // 而同一個 dict literal 裡其餘七個值全部消毒。
+            // 而同一份 payload 裡其餘的字串值全部消毒。
             // #206：欄位不再被丟棄，改以正規化後的原名入庫——鍵名跟著改，
             // 否則 MCP 面回給 LLM 的仍是「dropped」這個假訊號（verify H2）
             // #669：消毒截斷不是單射——兩個共用前綴的鍵會撞成同一個字串；依原始鍵排序後留第一個，不 trap（同 fields 的既有處置）
             "residualFields": Dictionary(
                 report.residualFields.sorted { $0.key < $1.key }.map { (displaySafe($0.key, max: 200), $0.value) },
                 uniquingKeysWith: { first, _ in first }),
-            "unnormalizedDates": report.unnormalizedDates.map { displaySafe($0, max: 200) },
             "skippedLinkedAttachments": report.skippedLinkedAttachments,
         ]
-        if !report.authorsPreserved.isEmpty { d["authorsPreserved"] = report.authorsPreserved.map { displaySafe($0, max: 200) } }
-        if !report.quarantineConflicts.isEmpty { d["quarantineConflicts"] = report.quarantineConflicts.map { displaySafe($0, max: 200) } }
+        var listTotals: [String: Int] = [:]
+        var truncatedLists: [String] = []
+        for (key, list, always) in importReportCappedLists(report) {
+            listTotals[key] = list.count
+            guard always || !list.isEmpty else { continue }
+            let all = list.sorted()
+            let shown = listLimit.map { Array(all.prefix($0)) } ?? all
+            d[key] = shown.map { displaySafe($0, max: 200) }
+            if shown.count < all.count { truncatedLists.append(key) }
+        }
         // #610：同一個來源被多筆 entry 宣稱——本趟不更新、不新建。鍵消毒後可能相撞（截斷不是單射，#669），依原始鍵排序後留第一個
         // #684：MCP 面有上限（`claimLimit`）——來源數與每個來源的宣稱者數各截到上限，`…Total` 給完整的來源數，`…Truncated`
         // 說有沒有截（來源被截、或任一來源的宣稱者被截都算）。三個鍵同進同出：沒有歧義時都不出現。
@@ -2819,7 +2844,16 @@ public final class AkashicService {
             d["ambiguousSourceClaimsTotal"] = all.count   // display-safe-exempt: Int
             d["ambiguousSourceClaimsTruncated"] = shown.count < all.count || ownersCut   // display-safe-exempt: Bool
         }
-        if !report.writeFailed.isEmpty { d["writeFailed"] = Dictionary(report.writeFailed.sorted { $0.key < $1.key }.map { (displaySafeInvisible($0.key, max: 200), displaySafeClipOnly($0.value, max: 512)) }, uniquingKeysWith: { first, _ in first }) }   // display-safe-exempt: value 已消毒（ZoteroImporter 的 writeFailed 由 displaySafeError 產出，R29 D81），只截
+        // #696：writeFailed 截的是條目數（依 citekey 排序留前面的），完整筆數在 `listTotals`
+        listTotals["writeFailed"] = report.writeFailed.count
+        if !report.writeFailed.isEmpty {
+            let all = report.writeFailed.sorted { $0.key < $1.key }
+            let shown = listLimit.map { Array(all.prefix($0)) } ?? all
+            d["writeFailed"] = Dictionary(shown.map { (displaySafeInvisible($0.key, max: 200), displaySafeClipOnly($0.value, max: 512)) }, uniquingKeysWith: { first, _ in first })   // display-safe-exempt: value 已消毒（ZoteroImporter 的 writeFailed 由 displaySafeError 產出，R29 D81），只截
+            if shown.count < all.count { truncatedLists.append("writeFailed") }
+        }
+        d["listTotals"] = listTotals   // display-safe-exempt: 鍵是封閉列舉的清單名、值是 Int
+        d["truncatedLists"] = truncatedLists.sorted()   // display-safe-exempt: 封閉列舉的清單名
         return d
     }
 

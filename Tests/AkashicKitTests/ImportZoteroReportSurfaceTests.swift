@@ -77,9 +77,10 @@ final class ImportZoteroReportSurfaceTests: XCTestCase {
         personal.additionalProvenance[0].zoteroHash = "stale"   // 只有 hash 不同、Zotero 的 version 沒動
         try store.writeEntry(personal)
         try FileManager.default.removeItem(at: store.entityURL(id: group.id))
+        try fixture.setSynced(1)   // 已同步——#608 verify R1：沒有這一欄或 synced = 0 時不算「只有 hash 不同」
         let first = try importPayload()
         XCTAssertEqual(first["secondarySourceHashOnly"] as? [String], [personal.citekey], "\(first)")
-        XCTAssertEqual(first["secondarySourceChanged"] as? [String], [], "沒有人改內容：\(first)")
+        XCTAssertEqual(first["secondarySourceChanged"] as? [String], [], "version 沒前進，不列在內容變動那一格：\(first)")
         // hash 已重算存回；這次 Zotero 端真的改了內容（version 前進）
         try fixture.db.execute("UPDATE items SET version = 12 WHERE itemID = 31")
         try fixture.db.execute("UPDATE itemDataValues SET value = 'Group edited' WHERE valueID = 131")
@@ -228,5 +229,186 @@ final class ImportZoteroReportSurfaceTests: XCTestCase {
             XCTAssertTrue("\(error)".contains("claimLimit"), "\(error)")
         }
         XCTAssertEqual(try store.load().entries.count, before, "被拒絕的呼叫不得匯入任何東西")
+    }
+}
+
+// MARK: - #694：主來源「只有 hash 不同」在 payload 裡是自己一格
+
+extension ImportZoteroReportSurfaceTests {
+    /// `updatedHashOnly` 與 `updated` 同形：永遠在（空陣列也在）。hash 不同而 Zotero 那一列已同步、version 沒變的主來源列在這裡、不列在 `updated`。
+    func testPayloadSeparatesPrimaryHashOnlyFromUpdated() throws {
+        let first = try importPayload()
+        XCTAssertEqual(first["updatedHashOnly"] as? [String], [], "空的也要在：\(first)")
+        var a = try XCTUnwrap(try store.load().entries.first { $0.provenance?.zoteroKey == "KEYART01" })
+        a.provenance?.zoteroHash = "stale"   // 只有 hash 不同、Zotero 的 version 沒動
+        try store.writeEntry(a)
+        try fixture.setSynced(1)
+        let second = try importPayload()
+        XCTAssertEqual(second["updatedHashOnly"] as? [String], [a.citekey], "\(second)")
+        XCTAssertEqual(second["updated"] as? [String], [], "\(second)")
+    }
+}
+
+// MARK: - #696：其餘清單在 MCP 面同樣有上限
+
+extension ImportZoteroReportSurfaceTests {
+    /// MCP 面有上限的清單（#696）。`writeFailed` 是 citekey → 錯誤訊息，截的是條目數。後三個只在非空時出現，其餘永遠在。
+    static let cappedLists = ["created", "updated", "updatedHashOnly", "orphaned", "orphanCleared",
+                              "secondarySourceChanged", "secondarySourceHashOnly", "secondarySourceOrphaned",
+                              "secondarySourceRestored", "unnormalizedDates",
+                              "authorsPreserved", "quarantineConflicts", "writeFailed"]
+    static let conditionalLists: Set<String> = ["authorsPreserved", "quarantineConflicts", "writeFailed"]
+
+    /// `ImportReport` 裡刻意**不**截的集合型欄位 → 理由。新增一個集合型欄位而沒有放進 `cappedLists` 或這裡，
+    /// `testEveryReportCollectionIsCappedOrNamed` 會紅。
+    static let uncappedCollections: [String: String] = [
+        "ambiguousSourceClaims": "#684 另有上限與自己的鍵（ambiguousSourceClaimsTotal／ambiguousSourceClaimsTruncated）",
+        "residualFields": "鍵是 Zotero 的欄位名，筆數受 Zotero schema 的欄位表限制、不隨一次匯入的筆數成長",
+        "authorsOverwritten": "不在 MCP payload（CLI 只印筆數）——既有的兩面差異，不在 #696 範圍",
+        "fieldsRemovedByPull": "不在 MCP payload（CLI 印欄位名×次數）——既有的兩面差異，不在 #696 範圍",
+    ]
+    /// payload 裡是集合、但不是報告清單的鍵（#696 的揭露本身）。
+    static let disclosureKeys: Set<String> = ["listTotals", "truncatedLists"]
+
+    /// 每個清單都放 `n` 筆，citekey 依序遞增（`ck01`…）；刻意以逆序放入，驗證截的是**排序後**的前面。
+    private func fullReport(_ n: Int) -> ImportReport {
+        let keys = (1...n).map { String(format: "ck%02d", $0) }
+        let reversed = Array(keys.reversed())
+        var r = ImportReport()
+        r.created = reversed; r.updated = reversed; r.updatedHashOnly = reversed
+        r.orphaned = reversed; r.orphanCleared = reversed
+        r.secondarySourceChanged = reversed; r.secondarySourceHashOnly = reversed
+        r.secondarySourceOrphaned = reversed; r.secondarySourceRestored = reversed
+        r.unnormalizedDates = reversed; r.authorsPreserved = reversed; r.quarantineConflicts = reversed
+        r.writeFailed = Dictionary(uniqueKeysWithValues: keys.map { ($0, "boom") })
+        r.ambiguousSourceClaims = ["1:KEY": ["a", "b"]]
+        r.residualFields = ["extra": n]
+        r.authorsOverwritten = reversed
+        r.fieldsRemovedByPull = ["note": n]
+        r.unchanged = 7
+        return r
+    }
+
+    private func shown(_ p: [String: Any], _ key: String) throws -> [String] {
+        if key == "writeFailed" { return try XCTUnwrap(p[key] as? [String: String], "\(key)：\(p)").keys.sorted() }
+        return try XCTUnwrap(p[key] as? [String], "\(key)：\(p)")
+    }
+
+    private func totals(_ p: [String: Any]) throws -> [String: Int] {
+        try XCTUnwrap(p["listTotals"] as? [String: Int], "listTotals：\(p)")
+    }
+
+    private func truncated(_ p: [String: Any]) throws -> [String] {
+        try XCTUnwrap(p["truncatedLists"] as? [String], "truncatedLists：\(p)")
+    }
+
+    /// 超過上限：每個清單留排序後的前 N 筆；`listTotals` 給每個清單的完整筆數，`truncatedLists` 列出全部被截的清單（排序）。計數不受影響。
+    func testEveryListIsCappedAndTheCutIsDisclosed() throws {
+        let p = AkashicService.importReportPayload(fullReport(3), listLimit: 2)
+        for key in Self.cappedLists {
+            XCTAssertEqual(try shown(p, key), ["ck01", "ck02"], "\(key) 依 citekey 排序留前兩筆")
+        }
+        XCTAssertEqual(try totals(p), Dictionary(uniqueKeysWithValues: Self.cappedLists.map { ($0, 3) }), "分母是完整筆數")
+        XCTAssertEqual(try truncated(p), Self.cappedLists.sorted())
+        XCTAssertEqual(p["unchanged"] as? Int, 7, "計數不截")
+    }
+
+    /// 上限之內：全列，`listTotals` 照給、`truncatedLists` 是空陣列（呼叫端不必猜「沒有鍵＝沒有截」，#684 同一條）。
+    func testListsWithinTheLimitAreFullAndNothingIsListedAsTruncated() throws {
+        let p = AkashicService.importReportPayload(fullReport(3), listLimit: 5)
+        for key in Self.cappedLists {
+            XCTAssertEqual(try shown(p, key), ["ck01", "ck02", "ck03"], key)
+        }
+        XCTAssertEqual(try totals(p).values.sorted(), Array(repeating: 3, count: Self.cappedLists.count))
+        XCTAssertEqual(try truncated(p), [])
+    }
+
+    /// 沒給上限（CLI 之外的呼叫端、既有測試）＝全列，兩個鍵照給。
+    func testWithoutAListLimitEveryListIsFullAndTheTotalsAreStillGiven() throws {
+        let p = AkashicService.importReportPayload(fullReport(3))
+        for key in Self.cappedLists {
+            XCTAssertEqual(try shown(p, key).count, 3, key)
+        }
+        XCTAssertEqual(try totals(p).count, Self.cappedLists.count)
+        XCTAssertEqual(try truncated(p), [])
+    }
+
+    /// 出現規則：兩個揭露鍵永遠在；`listTotals` 每個清單都有一格（空的是 0），只在非空時出現的三個清單空的時候本身不出現。
+    func testEmptyListsKeepTheirPresenceRuleAndTotalsAreZero() throws {
+        let p = AkashicService.importReportPayload(ImportReport(), listLimit: 20)
+        for key in Self.cappedLists {
+            if Self.conditionalLists.contains(key) {
+                XCTAssertNil(p[key], key)
+            } else {
+                XCTAssertEqual(p[key] as? [String], [], key)
+            }
+        }
+        XCTAssertEqual(try totals(p), Dictionary(uniqueKeysWithValues: Self.cappedLists.map { ($0, 0) }))
+        XCTAssertEqual(try truncated(p), [])
+    }
+
+    /// **不讓下一個清單安靜地長出來**：`ImportReport` 的每個集合型欄位不是有上限（`cappedLists`），就是在 `uncappedCollections`
+    /// 具名寫了理由；payload 裡每個陣列／物件值同樣如此；`listTotals` 的名字恰好是 `cappedLists`。新增一個清單而忘了截，這裡會紅。
+    func testEveryReportCollectionIsCappedOrNamed() throws {
+        let capped = Set(Self.cappedLists)
+        var collections: [String] = []
+        for child in Mirror(reflecting: ImportReport()).children {
+            guard let label = child.label else { continue }
+            if child.value is [Any] || child.value is [String: Any] { collections.append(label) }
+        }
+        XCTAssertGreaterThanOrEqual(collections.count, capped.count, "Mirror 掃不到集合欄位——空掃描不是通過：\(collections)")
+        for label in collections {
+            XCTAssertTrue(capped.contains(label) || Self.uncappedCollections[label] != nil,
+                          "ImportReport.\(label) 是集合、沒有 MCP 上限也沒有具名理由——加進 cappedLists 或 uncappedCollections")
+        }
+        for key in Self.cappedLists {
+            XCTAssertTrue(collections.contains(key), "cappedLists 列了 ImportReport 沒有的欄位 \(key)")
+        }
+        let p = AkashicService.importReportPayload(fullReport(3), listLimit: 2)
+        for (key, value) in p where value is [Any] || value is [String: Any] {
+            XCTAssertTrue(capped.contains(key) || Self.uncappedCollections[key] != nil || Self.disclosureKeys.contains(key),
+                          "payload 的 \(key) 是集合、沒有上限也沒有具名理由")
+        }
+        XCTAssertEqual(Set(try totals(p).keys), capped, "listTotals 的名字要恰好是有上限的清單")
+        for key in ["authorsOverwritten", "fieldsRemovedByPull"] {
+            XCTAssertNil(p[key], "\(key) 若進了 MCP payload，就要決定它的上限（改 uncappedCollections 的理由）")
+        }
+    }
+
+    /// 服務層：上限只截報告，不截寫入——兩筆都建了，payload 只列一筆並說總數。
+    func testServiceCapsTheListsButNotTheWrites() throws {
+        let out = try payload(try service.importZotero(zoteroDb: fixture.dbURL.path, libraryID: nil, listLimit: 1))
+        XCTAssertEqual((out["created"] as? [String])?.count, 1, "\(out)")
+        XCTAssertEqual(try totals(out)["created"], 2, "\(out)")
+        XCTAssertEqual(try truncated(out), ["created"], "\(out)")
+        XCTAssertEqual(try store.load().entries.count, 2, "上限只截報告，兩筆都要寫進去")
+    }
+
+    /// 上限 < 1 沒有意義——比照 `claimLimit`，在動 store 之前拒絕。
+    func testAListLimitBelowOneIsRefusedBeforeAnythingIsTouched() throws {
+        XCTAssertThrowsError(try service.importZotero(zoteroDb: fixture.dbURL.path, libraryID: nil, listLimit: 0)) { error in
+            XCTAssertTrue("\(error)".contains("listLimit"), "\(error)")
+        }
+        XCTAssertEqual(try store.load().entries.count, 0, "被拒絕的呼叫不得匯入任何東西")
+    }
+
+    /// index rebuild 失敗的那條路徑帶同一份報告，所以同樣受上限（#684 同一條）。
+    func testTheIndexRebuildFailurePathCarriesTheListCaps() throws {
+        let (_, b) = try seedTwins()
+        for n in 1...2 {   // 這一趟新建兩筆，上限 1 → created 被截
+            try fixture.db.execute("INSERT INTO items VALUES (\(60 + n),1,'KEYNEW0\(n)',3,1)")
+            try fixture.addField(item: 60 + n, field: 1, value: "New paper \(n)", valueID: 600 + n)
+        }
+        // 讓 index rebuild 必然失敗：同一筆 entry 有兩份記錄檔（#631）
+        let dup = store.root.appendingPathComponent("entries")
+        try FileManager.default.createDirectory(at: dup, withIntermediateDirectories: true)
+        try EntryYAML.encode(b).write(to: dup.appendingPathComponent("\(b.citekey).yaml"), atomically: true, encoding: .utf8)
+        XCTAssertThrowsError(try service.importZotero(zoteroDb: fixture.dbURL.path, libraryID: nil, listLimit: 1)) { error in
+            let text = "\(error)".replacingOccurrences(of: "\\\"", with: "\"").replacingOccurrences(of: "\\n", with: "\n")
+            XCTAssertTrue(text.contains("index rebuild 失敗"), text)
+            XCTAssertTrue(text.contains("\"created\" : 2"), "失敗路徑的報告也要帶總數：\(text)")
+            let cut = text.range(of: "\"truncatedLists\" : [").map { text[$0.upperBound...].prefix { $0 != "]" } }
+            XCTAssertEqual(cut.map { $0.filter { !$0.isWhitespace } }, "\"created\"", "只有 created 被截：\(text)")
+        }
     }
 }

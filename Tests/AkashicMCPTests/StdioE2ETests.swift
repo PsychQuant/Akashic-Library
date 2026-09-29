@@ -488,6 +488,22 @@ extension StdioE2ETests {
         XCTAssertEqual(obj["ambiguousSourceClaimsTruncated"] as? Bool, true)
     }
 
+    /// #696：其餘清單在 MCP 面同樣有上限——釘住 `Server.swift` 真的把 `listLimit:` 傳給服務（漏掉的話 service 層測試照綠，
+    /// 而 MCP 面無上限）。一次首次匯入就是 `created` 最長的時候：整個 Zotero library 的筆數。
+    func testImportZoteroCapsEveryListAtTheServer() throws {
+        let limit = 20   // = `AkashicMCPServer.importListLimit`；執行檔 target 測試 import 不到，這個數字是描述裡對呼叫端的承諾
+        let count = limit + 2
+        let zotero = try PayloadZoteroDB(dir: root, itemCount: count)
+        try initialize()
+        let text = try call(2, "akashic_import_zotero", ["zotero_db": zotero.url.path])
+        let obj = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any], text)
+        XCTAssertEqual((obj["created"] as? [String])?.count, limit, "MCP 面截到上限：\(text.prefix(300))")
+        XCTAssertEqual((obj["listTotals"] as? [String: Int])?["created"], count, "分母是完整的筆數：\(text.prefix(300))")
+        XCTAssertEqual(obj["truncatedLists"] as? [String], ["created"])
+        XCTAssertEqual(try LibraryStore(root: root).load().entries.filter { $0.provenance != nil }.count, count,
+                       "上限只截報告，每一筆都寫進去（fixture 另有一筆非 Zotero 的 entry，不算）")
+    }
+
     /// #561 R1 verify：清單以外的讀取器同一條規則——給了而型別不對（null 也算）整個呼叫拒絕。
     /// 最尖的是 `dry_run: "true"`：先前被折成 false，呼叫端要的乾跑變成真的寫入。
     func testMalformedScalarArgumentsAreRefused() throws {

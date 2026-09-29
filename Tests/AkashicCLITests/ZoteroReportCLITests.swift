@@ -101,6 +101,19 @@ final class ZoteroReportCLITests: XCTestCase {
         XCTAssertFalse(r.output.contains("被多筆 entry 宣稱"), r.output)
     }
 
+    /// #694：主來源 hash 不同、Zotero 那一列已同步且 version 沒動——自己一行、不算進 `updated:`；這一行只說觀察到的事實、不宣稱原因。
+    func testImportPrintsThePrimaryHashOnlyLineApartFromUpdated() throws {
+        try write("hashonly2025", primary: Provenance(zoteroKey: "KEYART01", zoteroVersion: 5, libraryID: 1, zoteroHash: "stale"))
+        let db = try SQLiteDB(path: zoteroDB.path, readOnly: false)
+        try db.execute("ALTER TABLE items ADD COLUMN synced INT NOT NULL DEFAULT 1")   // 實際的 Zotero schema 有這一欄
+        let r = try cli(["import-zotero", "--zotero-db", zoteroDB.path])
+        XCTAssertEqual(r.status, 0, r.output)
+        XCTAssertTrue(r.output.contains("updated: 0\n"), "hash-only 的那一筆不算進 updated：\(r.output)")
+        let line = try XCTUnwrap(r.output.split(separator: "\n").first { $0.hasPrefix("updated（只有 mapping hash 不同") }, r.output)
+        XCTAssertTrue(line.contains("hashonly2025") && line.contains("#694"), String(line))
+        XCTAssertTrue(line.contains("不宣稱原因") && !line.contains("沒有人改"), "只說觀察到的事實：\(line)")
+    }
+
     // MARK: - doctor
 
     /// `orphaned:` 一行改讀 `health`（先前自己推導 `provenance?.orphanedAt != nil`，看不見「只有附加來源、全部已刪除」）；

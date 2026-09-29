@@ -60,7 +60,7 @@
 會在邊界上自己長出沒人同意的答案，而那句話與下表**是兩份不會一起改的規格**。要判斷新情形，
 讀下表的理由欄，然後**加一列**。
 
-## 裁決史（封閉列舉——現有 55 列，一列不多一列不少）
+## 裁決史（封閉列舉——現有 58 列，一列不多一列不少）
 
 | # | 情形 | 裁決 | 理由 |
 |---|---|---|---|
@@ -119,6 +119,9 @@
 | 53 | **零實例，而同一個不明確的依據設定時被拒、使用時被放行**（#642 b11d verify R1：規則型 library 的 venue key 之後變成重複、或排除清單的 citekey 打錯或已不在庫——`create`／`set-kind` 本來就拒絕重複的 venue key，`library add` 卻只比 key 字串；排除清單則從不查存在，打錯一個字排除就無聲失效。2026-09-29 唯讀量測 live store：library 4、規則型 0、排除清單指向不在庫 0、規則的 venue key 重複 0。重跑腳本見表下方） | ✅ **寫（寫入閘與 warning 同批：`LibraryMembershipCheck` 的 `ruleVenueAmbiguous`，三面都不寫、`library check` 揭露；`create`／`set-kind` 對不在庫的排除 citekey 具名拒絕；validate 報兩種 warning）** | 第 47 列的理由是「零來自規則還不存在」，燈照的是寫入閘擋不到的來源；這一列補兩個它沒照到的：依據本身出了問題（venue key 重複）與排除清單懸空。前者是第 26 列「閘與守衛是同一條不變式的兩半」的形——同一個依據在設定時被閘擋下、在使用時卻被放行，等於那條不變式只有一半；後者讓同一份程式對「排除清單是不是參照」給出相反的答案（改名與合併的守衛把它當參照，建立時卻不查）。**severity 是 warning**：成員關係錯了不毀資料，與第 47 列同級。**誠實邊界**：規則依據不明確時，連被排除的成員也回「依據不明確」而不是「排除」（Claude 代裁，依據問題優先）。**觸發條件可檢查**（腳本見表下方）：兩個數應恆為 0；非零時用 `library check <key>` 看是哪一條規則、哪個 citekey |
 | 54 | **零實例，而先前的守衛是一條走不通的出路**（#642 b11d verify R1：改名碰到被 library 規則指涉的 citekey——文件型的 `document`、規則型的 `excluded`。#642 首版一律拒絕並指路「先 set-kind 改規則」，而文件型的 `set-kind` 要求新 citekey 已在庫、`rename` 要求它不在庫，出路是死路。2026-09-29 唯讀量測 live store：規則型與文件型 library 都是 0，被規則指涉的 citekey 0） | ✅ **寫（`renameEntry` 同批遷移規則裡的 citekey，registry 檔進同一批預檢與寫入，逐條列在 `RenameReport.libraryRulesRewritten`；三個前置拒絕、零寫入：新 citekey 已被規則指涉、被隔離的 registry 檔提到舊或新 citekey、要遷移的 registry 檔不可回溯）** | 改名不改身分，而 library 規則是關係邊第 16 條——改名本來就該遷移指向舊 key 的邊（第 13 條邊的 verdict value 是先例）。三個前置拒絕各擋一種遷移會造成的安靜錯誤：新 citekey 已被規則指涉時，改名會讓一條懸空的規則「復活」成指向另一筆；被隔離的 registry 檔看不到，遷移會漏掉它；registry 檔不可回溯時，被改寫的規則沒有舊值可取回。work 與 venue 合併維持拒絕，訊息改成可照做的 `set-kind` 命令、不經過 topic。**觸發條件可檢查**：規則型或文件型 library 出現之後，改名一筆被指涉的 citekey 時報告會多一段「library 成員規則已遷移」；守衛測試是 `LibraryMembershipStoreTests` 的改名六支 |
 | 55 | **零實例，而整值替換會丟掉人的裁決，舊值只剩 git 那一份**（#642 b11d verify R1：`set-kind` 替換一個既有的成員性質時，排除清單這類逐筆寫下的裁決整份被換掉，先前不回顯舊值、也不要求舊值取得回來。2026-09-29 唯讀量測 live store：4 個 library 全未標性質，從未標標成任何一種不經這道閘，所以零實例） | ✅ **寫（替換既有性質時要求 `libraries/<key>.yaml` 已 commit 且乾淨；兩面回顯先前的性質；可回溯閘抽成共用核心 `LibraryStore.recoverabilityRefusal`，與 #573 那一族同一支）** | 第 44 列的理由是「既有判準的答案變了」；這一列同形而對象不同：#573 那一族的閘原本只看 `entities/` 的記錄檔，registry 檔在 `libraries/`，於是移除面一族的判準（舊值要能從 git 取回，使用者 2026-09-27 裁決）在這裡沒有套上。修法是把閘抽成共用核心、多收一種檔，不是複製一份邏輯。**Claude 代裁**：閘也涵蓋把 topic 換成別的性質（topic 沒有參數可失去，比必要的嚴）。**沒做的**：把規則放寬（降成 topic、清掉排除清單、換 venue）時要不要另外要求明確確認——待使用者決定；目前的防線只有回顯與 git。**觸發條件可檢查**：有 library 標了性質之後，替換它而 registry 檔未 commit 時 `set-kind` 拒絕；測試是 `LibraryMembershipServiceTests.testReplacingAnExistingMembershipRequiresACommittedRegistryFile`（回顯由 `testSetKindEchoesThePreviousMembership` 釘住） |
+| 56 | **零實例，而 decode 接受它、唯一守著它的合併閘只擋一條進入路徑**（#679：附加 Zotero 來源沒記 `library_id`——匯入端與 `ZoteroSourceClaims.claims(of:)` 都對不回它，再匯入會另建一筆 twin；先前註解宣稱「由合併閘保證不會出現」，而合併閘只擋合併新收，管不到手改與舊檔。2026-09-29 唯讀量測 live store：work 2,569、主來源 532（沒記 `library_id` 0）、附加來源 3（沒記 `library_id` 0）、被 ≥2 筆宣稱的來源 0、讀不到的檔 0。重跑腳本見表下方） | ✅ **寫（warning、在 `Entry.validate()`，每筆 entry 一則、至多列 5 個來源鍵；訊息說出後果與兩條出路：補真正的 `library_id`，或以 `update-entry --remove-zotero-source` 移除）** | 第 4 列的理由是「錯誤的偽裝性」；這一列同形——那筆記錄看起來連著 Zotero，而下一次匯入會安靜地另建一筆，結果是一對看起來各自健康的攣生。與第 33 列也同形：同一族的檢查（#610 的多筆宣稱）只照到有 `library_id` 的那一半。**severity 是 warning**：記錄合法可載入；decode 拒收會讓既有的檔整個被隔離（`writeEntry` 不對 `Entry.validate()` 的 error 設閘，所以升 error 也擋不住寫入，那不是理由）。警告說的後果由 `AdditionalSourceWithoutLibraryReimportTests` 釘住，警告與行為不會分岔。**觸發條件可檢查**（腳本見表下方）：`akashic validate 2>&1 | grep -c '附加 Zotero 來源沒記 library_id'` 應恆為 0；非零時照訊息給的定位鍵處置 |
+| 57 | **零實例，而錯的回應看起來是對的**（#629 第二塊：`akashic crossref-match` 以重播協定讀 skill 經 safari-browser 取回的 Crossref 回應，回應的 DOI 與請求的 DOI 不同時拒絕；DOI 插進網址前先驗形狀（`^10\.[0-9]{4,9}/` 後接不含空白、引號、反斜線、`$`、反引號、`#`、`?`、`%` 的字元，且沒有 `.`／`..` 路徑段）。指令從未對真回應跑過。2026-09-29 唯讀量測 live store：work 的 DOI 2,449 個，形狀檢查不過 0、讀不到的檔 0。重跑腳本見表下方） | ✅ **寫（身分不符具名拒絕、形狀不過的 DOI 不組成請求）** | 第 4 列的理由是「錯誤的偽裝性」；這一列同形：把另一個 DOI 的回應讀成這一個，比對照樣成功、結束碼 0，而結果是一筆看起來查證過的錯資料。這個形狀在頁內 fetch 已經發生過一次（PsychQuant/safari-browser#190：一批讀到上一批的結果、結束碼全為 0），所以讀回後核對身分是 `web-access-via-safari-browser` 的既有紀律，這裡把它落實成程式。形狀檢查與 `web-access.md` 的形狀表同一條。**觸發條件可檢查**：形狀不過的 DOI 數應恆為 0；身分檢查由 `CrossrefMatchTests.testReverseVerifyRejectsAResponseAboutAnotherDOI` 與 `testAnUnsafeCandidateDOIIsNeverTurnedIntoARequest` 釘住 |
+| 58 | **零實例，而半套的數字讀起來像完整的**（#629 第二塊：`akashic fulltext calibrate` 讀本機的 Crossref 回應目錄計分；缺任何一筆記錄時列出缺的網址並以結束碼 3 結束、不出數字，`--partial` 才照已有的量。校準從未在本機跑過——2026-09-24 那批語料本機找不到，重取要連網） | ✅ **寫（缺記錄預設不出數字）** | 第 3 列的理由是「未涵蓋不得冒充通過」；這一列同形：`22/28`、`0/808` 這類數字若只涵蓋有記錄的那一部分，讀的人會當成全部。拒絕輸出是預設，放行要顯式帶 `--partial`，而那時輸出本身就說明它是部分的。**誠實邊界**：移植時舊校準數字（自己 22/28、別篇 0/808）沒有重跑，替代證據是新舊判定規則的差分（十七萬餘案 0 不一致）——它證明新舊判得一樣，不證明那組數字在新語料上仍成立。**觸發條件可檢查**：`SkillToolsCLITests.testCalibrateListsMissingCrossrefRecordsAndMeasuresTheRest` 釘住結束碼 3 與缺記錄清單 |
 
 對本表四類中的任一個做出下一次裁決（新增、不新增、保留、拿掉）= 在這張表加一列。
 
@@ -1141,6 +1144,64 @@ PY
 # 2026-09-29：library 4｜規則型 0｜排除清單指向不在庫 0｜規則的 venue key 重複 0｜文件型 0（文件不在庫或重複 0）｜讀不到的檔 0
 ```
 
+**第 56 列的量測（2026-09-29，可重跑，唯讀）**：`akashic validate 2>&1 | grep -c '附加 Zotero 來源沒記 library_id'`（用含這條檢查的 binary——同第 13 列的自證，舊 binary 印不出東西）。Python 對照（讀不到的檔計數，同第 24 列）：
+
+```bash
+python3 - <<'PY'
+import glob, io, os, yaml, collections
+n_work = additional = additional_nolib = primary_nolib = primary = 0
+claims = collections.defaultdict(set)
+bad = 0
+for f in glob.glob(os.path.expanduser('~/.akashic/entities') + '/*.yaml'):
+    try: d = yaml.safe_load(io.open(f, encoding='utf8'))
+    except Exception: bad += 1; continue
+    if not isinstance(d, dict): bad += 1; continue
+    if 'work' not in d and 'citekey' not in d: continue   # 只看 work
+    if 'citekey' not in d: continue
+    n_work += 1
+    eid = str(d.get('id') or f)
+    p = d.get('provenance')
+    if isinstance(p, dict):
+        primary += 1
+        lid = p.get('library_id')
+        if lid is None: primary_nolib += 1
+        claims[f"{lid if lid is not None else '?'}:{p.get('zotero_key')}"].add(eid)
+    for x in (d.get('provenance_additional') or []):
+        if not isinstance(x, dict): continue
+        additional += 1
+        lid = x.get('library_id')
+        if lid is None: additional_nolib += 1
+        else: claims[f"{lid}:{x.get('zotero_key')}"].add(eid)
+multi = sum(1 for k, v in claims.items() if len(v) > 1)
+print(f"work {n_work}｜主來源 {primary}（沒記 library_id {primary_nolib}）｜附加來源 {additional}（沒記 library_id {additional_nolib}）｜被 ≥2 筆宣稱的來源 {multi}｜讀不到的檔 {bad}")
+PY
+# 2026-09-29：work 2569｜主來源 532（沒記 library_id 0）｜附加來源 3（沒記 library_id 0）｜被 ≥2 筆宣稱的來源 0｜讀不到的檔 0
+```
+
+**第 57 列的量測（2026-09-29，可重跑，唯讀）**：
+
+```bash
+python3 - <<'PY'
+import glob, io, os, re, yaml
+pat = re.compile(r'^10\.[0-9]{4,9}/[^\s\'"\\$`#?%]+$')
+n = bad = unreadable = 0; badlist = []
+for f in glob.glob(os.path.expanduser('~/.akashic/entities') + '/*.yaml'):
+    try: d = yaml.safe_load(io.open(f, encoding='utf8'))
+    except Exception: unreadable += 1; continue
+    if not isinstance(d, dict): unreadable += 1; continue
+    if 'work' not in d: continue
+    dois = d.get('doi') or []
+    for x in (dois if isinstance(dois, list) else [dois]):
+        v = str(x.get('value') if isinstance(x, dict) else x); n += 1
+        segs = v.split('/')[1:]
+        if not pat.fullmatch(v) or any(s in ('.', '..') for s in segs): bad += 1; badlist.append(v)
+print(f"work DOI {n}｜形狀檢查不過 {bad} {badlist[:5]}｜讀不到的檔 {unreadable}")
+PY
+# 2026-09-29：work DOI 2449｜形狀檢查不過 0 []｜讀不到的檔 0
+```
+
+**第 58 列的量測**：沒有可量的母體（校準從未在本機跑過）；閘由上面那支 CLI 測試釘住。
+
 ## 各列共通的東西（觀察，不是判準）
 
 第 1–9 列與第 13、14 列的裁決都是「寫」（第 14 列是 2026-09-09 從「不寫」翻過來的）、第 10–12 列（皆出自 #365）是「不寫」，但**理由各不相同**，這正是不寫總括判準的原因：
@@ -1206,6 +1267,9 @@ PY
 - 第 53 列的理由是**同一個依據兩個時間點給相反的答案**——設定時擋、使用時放，是第 26 列那條不變式只剩一半；排除清單懸空則讓同一份程式對「是不是參照」答兩種
 - 第 54 列的理由是**守衛的出路要走得通**——一律拒絕而出路是死路的守衛等於沒有出路；改名本來就該遷移指向舊 key 的邊，三個前置拒絕擋住遷移本身的安靜錯誤
 - 第 55 列的理由是**判準已經有了，只是沒套到這種檔**——同第 44 列既有判準的答案變了；registry 檔不在 `entities/`，移除面一族的可回溯要求原本照不到它
+- 第 56 列的理由是**守著它的閘只擋一條路**——同第 4 列，對不回的來源讓再匯入安靜地造出攣生；合併閘管不到手改與舊檔
+- 第 57 列的理由是**讀回後核對身分**——同第 4 列，別筆的回應看起來是對的；那個形狀在頁內 fetch 已經發生過，這裡把紀律落實成程式
+- 第 58 列的理由是**半套的數字不得冒充全部**——同第 3 列，缺記錄時預設不出數字
 - 第 31 列的理由是**同一條曲線換了持有者**——第 16 列的燈只照 venue；新面（未決腿）讓 person 與 organization 也開始累積，第 30 列寫下的誠實邊界要有工具面兌現，否則就是一句沒有後續的散文
 - 第 39 列的理由是**單步的跳躍預警看不到**——第 16／31 列的燈在讀取面、照的是漸進的增長；一次寫入從門檻之下直接越過讀取上限時，燈來不及響，擋它的只能是寫入端。而那道閘要擋的不只是位元組：多檔寫入面在它觸發之前已有檔落盤，所以閘與零寫入的 preflight 同批
 - 第 24 列的理由是**半吊子已經誠實**——前二十三列裡只有第 22 列同樣是「不動既有的東西」（比的是裁決的**動作**：那一列的對象是 spec 文字、失敗是被當死重刪掉；本列的對象是程式的半吊子管線、失敗是使用者撞牆或被當成待修殘留而被人動手）。留著的代價不是零（記了就刪不掉——#586 在 2026-09-28 補了移除面，代價從「刪不掉」降為「要人判定放棄」），而是今天未兌現、且一出現就會出聲；動它的兩個方向（實作／拿掉）代價都更高。與第 10 列（缺用途）最像的是理由的**形**：實作那一半同樣是「形狀取決於還不存在的用途」；但第 10 列的對象根本不存在，這一列的對象已經在、且已經誠實

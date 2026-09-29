@@ -300,3 +300,156 @@ final class S2ClientRequestTests: XCTestCase {
         }
     }
 }
+
+/// #664 任務 4.1：端點與分頁（Requirement「One interface serves both faces」）。
+/// stub 每頁最多回 100 筆，模擬 S2 回得比要求的少。
+final class S2EndpointsTests: XCTestCase {
+    private func endpoints() throws -> S2Endpoints {
+        let settings = try S2Settings.resolve(environment: ["HOME": "/Users/tester"])
+        return S2Endpoints(client: S2Client(settings: settings,
+                                            keyProvider: CountingKeyProvider(.success(S2APIKey(value: "k-123"))),
+                                            throttle: NoThrottle(), session: StubURLProtocol.session()))
+    }
+
+    private static func json(_ object: Any) -> StubURLProtocol.Reply {
+        .init(status: 200, headers: [:], body: try! JSONSerialization.data(withJSONObject: object))
+    }
+
+    private static func queryValue(_ request: URLRequest, _ name: String) -> String? {
+        URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?
+            .queryItems?.first { $0.name == name }?.value
+    }
+
+    /// 1,000 筆參考文獻：分頁 10 次、referenceCount 1 次。
+    private func installReferences(count: Int = 1000, countStatus: Int = 200) {
+        StubURLProtocol.install { request in
+            let path = request.url!.absoluteString
+            if path.contains("/references") {
+                let offset = Int(Self.queryValue(request, "offset") ?? "0")!
+                let limit = Int(Self.queryValue(request, "limit") ?? "100")!
+                let end = min(count, offset + min(limit, 100))
+                let data = (offset..<end).map { ["citedPaper": ["paperId": "p\($0)"]] }
+                var body: [String: Any] = ["offset": offset, "data": data]
+                if end < count { body["next"] = end }
+                return Self.json(body)
+            }
+            if countStatus != 200 { return .init(status: countStatus, headers: [:], body: Data()) }
+            return Self.json(["paperId": "seed", "referenceCount": count])
+        }
+    }
+
+    func testReferencesFollowEveryPageAndReportTotal() async throws {
+        installReferences()
+        let r = try await endpoints().references(id: "DOI:10.1037/a0038889", fields: ["title"], limit: nil, offset: 0)
+        guard case .array(let records) = r.data else { return XCTFail("data should be an array") }
+        XCTAssertEqual(records.count, 1000)
+        XCTAssertEqual(records.first, .object(["citedPaper": .object(["paperId": .string("p0")])]))
+        XCTAssertEqual(records.last, .object(["citedPaper": .object(["paperId": .string("p999")])]))
+        XCTAssertEqual(r.total, 1000)
+        let pages = StubURLProtocol.requests.filter { $0.url!.absoluteString.contains("/references") }
+        XCTAssertEqual(pages.count, 10)
+        XCTAssertEqual(Self.queryValue(pages[0], "fields"), "title")
+    }
+
+    func testLimitCapsTheRecords() async throws {
+        installReferences()
+        let r = try await endpoints().references(id: "DOI:10.1037/a0038889", fields: [], limit: 50, offset: 0)
+        guard case .array(let records) = r.data else { return XCTFail("data should be an array") }
+        XCTAssertEqual(records.count, 50)
+        let pages = StubURLProtocol.requests.filter { $0.url!.absoluteString.contains("/references") }
+        XCTAssertEqual(pages.count, 1)
+        XCTAssertEqual(Self.queryValue(pages[0], "limit"), "50")
+    }
+
+    func testTotalIsNullWhenTheCountRequestFails() async throws {
+        installReferences(count: 30, countStatus: 500)
+        let r = try await endpoints().references(id: "DOI:10.1037/a0038889", fields: [], limit: nil, offset: 0)
+        guard case .array(let records) = r.data else { return XCTFail("data should be an array") }
+        XCTAssertEqual(records.count, 30)
+        XCTAssertNil(r.total)
+    }
+
+    func testBareDOIGetsThePrefixAndIdentifiersAreEncoded() async throws {
+        StubURLProtocol.install { _ in Self.json(["paperId": "x"]) }
+        _ = try await endpoints().paper(id: "10.1037/a0038889", fields: [])
+        XCTAssertTrue(StubURLProtocol.requests[0].url!.absoluteString
+            .hasSuffix("/graph/v1/paper/DOI:10.1037/a0038889"), StubURLProtocol.requests[0].url!.absoluteString)
+
+        _ = try await endpoints().paper(id: "abc?fields=x#y z", fields: [])
+        let url = StubURLProtocol.requests.last!.url!
+        XCTAssertNil(url.query, url.absoluteString)
+        XCTAssertNil(url.fragment, url.absoluteString)
+        XCTAssertTrue(url.absoluteString.hasSuffix("/graph/v1/paper/abc%3Ffields=x%23y%20z"), url.absoluteString)
+    }
+
+    func testDotSegmentsInIdentifiersAreRefused() async throws {
+        StubURLProtocol.install { _ in Self.json(["paperId": "x"]) }
+        for bad in ["../../author/1", "..", "DOI:10.1/./x"] {
+            do {
+                _ = try await endpoints().paper(id: bad, fields: [])
+                XCTFail("expected invalidIdentifier for \(bad)")
+            } catch {
+                XCTAssertEqual(error as? S2ArgumentError, .invalidIdentifier(endpoint: "paper", identifier: bad))
+            }
+        }
+        XCTAssertEqual(StubURLProtocol.requests.count, 0)
+        _ = try await endpoints().paper(id: "10.1000/abc..def", fields: [])   // DOI 裡的 .. 不是路徑片段
+        XCTAssertEqual(StubURLProtocol.requests.count, 1)
+    }
+
+    func testQueryValuesEncodePlusSigns() async throws {
+        StubURLProtocol.install { _ in Self.json(["data": [["paperId": "m"]]]) }
+        _ = try await endpoints().match(title: "C++ & you", year: nil, fields: [])
+        let query = StubURLProtocol.requests[0].url!.query ?? ""
+        XCTAssertTrue(query.contains("query=C%2B%2B%20%26%20you"), query)
+    }
+
+    func testBatchPostsTheIDsAndRejectsMoreThan500() async throws {
+        StubURLProtocol.install { _ in Self.json([["paperId": "a"], NSNull()]) }
+        let r = try await endpoints().batch(ids: ["DOI:10.1/a", "DOI:10.1/b"], fields: ["title"])
+        let sent = StubURLProtocol.requests[0]
+        XCTAssertEqual(sent.httpMethod, "POST")
+        XCTAssertTrue(sent.url!.absoluteString.contains("/graph/v1/paper/batch"))
+        XCTAssertEqual(r.data, .array([.object(["paperId": .string("a")]), .null]))
+
+        let tooMany = (0..<501).map { "DOI:10.1/\($0)" }
+        do {
+            _ = try await endpoints().batch(ids: tooMany, fields: [])
+            XCTFail("expected batchSize error")
+        } catch {
+            XCTAssertEqual(error as? S2ArgumentError, .batchSize(501))
+        }
+    }
+
+    func testRecommendRejectsLimitOutsideOneTo500() async throws {
+        for bad in [0, 501] {
+            do {
+                _ = try await endpoints().recommend(id: "DOI:10.1/a", limit: bad, fields: [])
+                XCTFail("expected limitOutOfRange for \(bad)")
+            } catch {
+                XCTAssertEqual(error as? S2ArgumentError,
+                               .limitOutOfRange(endpoint: "recommend", limit: bad, range: 1...500))
+            }
+        }
+    }
+
+    func testEndpointPaths() async throws {
+        StubURLProtocol.install { request in
+            let s = request.url!.absoluteString
+            if s.contains("/search/match") { return Self.json(["data": [["paperId": "m", "matchScore": 97.5]]]) }
+            if s.contains("/forpaper/") { return Self.json(["recommendedPapers": [["paperId": "r"]]]) }
+            if s.contains("/author/search") { return Self.json(["total": 1, "offset": 0, "data": [["authorId": "1"]]]) }
+            return Self.json(["offset": 0, "data": [["paperId": "q"]]])
+        }
+        let e = try endpoints()
+        let m = try await e.match(title: "Critique", year: "2015", fields: [])
+        XCTAssertEqual(m.data, .array([.object(["paperId": .string("m"), "matchScore": .double(97.5)])]))
+        let rec = try await e.recommend(id: "DOI:10.1/a", limit: 100, fields: [])
+        XCTAssertEqual(rec.data, .array([.object(["paperId": .string("r")])]))
+        let a = try await e.authorSearch(name: "Hamaker", fields: [], limit: 10, offset: 0)
+        XCTAssertEqual(a.total, 1)
+        let urls = StubURLProtocol.requests.map { $0.url!.absoluteString }
+        XCTAssertTrue(urls.contains { $0.contains("/recommendations/v1/papers/forpaper/DOI:10.1/a") }, "\(urls)")
+        XCTAssertTrue(urls.contains { $0.contains("/graph/v1/author/search") }, "\(urls)")
+    }
+}

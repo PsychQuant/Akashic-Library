@@ -270,7 +270,13 @@ public final class S2Client: Sendable {
               var comps = URLComponents(url: settings.baseURL, resolvingAgainstBaseURL: false)
         else { throw S2Error.invalidRequest(endpoint: request.endpoint) }
         comps.percentEncodedPath = request.path
-        comps.queryItems = request.query.isEmpty ? nil : request.query
+        // 自行編碼 query：URLComponents 預設不編碼 `+`，伺服器可能把它當成空白。
+        var queryAllowed = CharacterSet.urlQueryAllowed
+        queryAllowed.remove(charactersIn: "+&=?")
+        func enc(_ v: String) -> String? { v.addingPercentEncoding(withAllowedCharacters: queryAllowed) }
+        comps.percentEncodedQueryItems = request.query.isEmpty ? nil : request.query.map {
+            URLQueryItem(name: enc($0.name) ?? $0.name, value: $0.value.flatMap(enc))
+        }
         guard let url = comps.url else { throw S2Error.invalidRequest(endpoint: request.endpoint) }
 
         var urlRequest = URLRequest(url: url)

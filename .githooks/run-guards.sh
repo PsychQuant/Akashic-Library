@@ -87,6 +87,9 @@ done
 # 以及 plugin/ 以外的根真的被守衛看見的負對照（每格含對照組）。
 .build/debug/akashic-guards marketplace-consistency
 .build/debug/akashic-guards plugin-roots-mutations
+# #664：網路與 keychain API（九個字樣的封閉列舉）只准出現在 Sources/AkashicS2/，及其負對照（九個字樣各注入一次）。
+.build/debug/akashic-guards network-confinement
+.build/debug/akashic-guards network-confinement-mutations
 # 那張四列判準表的現查（#407 R26b）——表自己的四個宣稱也是可否證的。
 # 語法相容性要**最先**跑（#394 verify R9）：它便宜（秒級）,而它防的失效會讓
 # `guard-python-compat.py` 已退場（#433 Step 5）：它的存在理由是「Python 守衛要能在

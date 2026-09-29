@@ -135,6 +135,10 @@ case "plugin-store-format-parity":   // #408／#629：宣告的 store format 必
     exit(pluginStoreFormatParity())
 case "rule-coverage":   // #407／#629：plugin 根的每條規則被每個 skill 掛到（`rule-coverage [plugin-root]`）
     exit(ruleCoverage(argv: Array(CommandLine.arguments.dropFirst(2))))
+case "network-confinement":   // #664：網路與 keychain API 只准出現在 Sources/AkashicS2/
+    exit(networkConfinement())
+case "network-confinement-mutations":   // #664：九個字樣各注入一次，守衛會紅嗎
+    exit(networkConfinementMutations())
 case "audit-guards-mutations":
     exit(auditGuardsMutations())
 case "oracle-precondition-control":

@@ -30,6 +30,8 @@ Sources/akashic-guards/MarketplaceConsistency.swift
 Sources/akashic-guards/MeasuredClaimsAudit.swift
 Sources/akashic-guards/MeasuredNumbersAudit.swift
 Sources/akashic-guards/MigratedGuardControl.swift
+Sources/akashic-guards/NetworkConfinement.swift
+Sources/akashic-guards/NetworkConfinementMutations.swift
 Sources/akashic-guards/OfficialValidate.swift
 Sources/akashic-guards/OraclePreconditionControl.swift
 Sources/akashic-guards/ParityTableDrift.swift

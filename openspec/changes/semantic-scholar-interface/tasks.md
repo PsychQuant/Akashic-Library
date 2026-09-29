@@ -28,7 +28,7 @@
 
 ## 7. 守衛
 
-- [ ] 7.1 [P] 先寫負對照 `akashic-guards network-confinement-mutations`（RED），再寫 `akashic-guards network-confinement`，並在 `Sources/akashic-guards/main.swift` 註冊（Requirement「Networking and keychain APIs are confined to AkashicS2」與「A mutation control proves the guard fires」；design「守衛：網路與 keychain API 只准出現在 AkashicS2」）。兩者接進 `.githooks/run-guards.sh`（Requirement「The guard runs with the other guards」）。驗證：兩個子命令都 exit 0，負對照回報九個模式各一個失敗的 mutation、一個在 `Sources/AkashicS2/` 內通過的放置、一個通過的原樣副本；`bash .githooks/run-guards.sh` 全綠。
+- [x] 7.1 [P] 先寫負對照 `akashic-guards network-confinement-mutations`（RED），再寫 `akashic-guards network-confinement`，並在 `Sources/akashic-guards/main.swift` 註冊（Requirement「Networking and keychain APIs are confined to AkashicS2」與「A mutation control proves the guard fires」；design「守衛：網路與 keychain API 只准出現在 AkashicS2」）。兩者接進 `.githooks/run-guards.sh`（Requirement「The guard runs with the other guards」）。驗證：兩個子命令都 exit 0，負對照回報九個模式各一個失敗的 mutation、一個在 `Sources/AkashicS2/` 內通過的放置、一個通過的原樣副本；`bash .githooks/run-guards.sh` 全綠。
 
 ## 8. 規則、文件與整體驗證
 

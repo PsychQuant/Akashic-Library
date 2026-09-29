@@ -1327,7 +1327,7 @@ extension LibraryStore {
             guard naming.isEmpty else {
                 throw DivergenceResolveError.namedByLibraryRule(
                     merged: e.citekey, shape: "work", libraries: naming,
-                    steps: snapshot.libraryRuleMergeSteps(libraries: naming, merged: e.citekey, survivor: survivor))   // display-safe-exempt: snapshot.libraryRuleMergeSteps 逐項 displaySafeInvisible（命令裡只有 StoreKey 與 entry type）
+                    steps: snapshot.libraryRuleMergeSteps(libraries: naming, merged: e.citekey, survivor: survivor))   // display-safe-exempt: snapshot.libraryRuleMergeSteps 逐項 displaySafeInvisible，引數 naming、e.citekey、survivor 都在它裡面消毒（命令裡只有 StoreKey 與 entry type）
             }
         }
         // holder 閘在欄位遺失之後——理由同 person 側（R9 verify regression 第 9 列）
@@ -1387,7 +1387,7 @@ extension LibraryStore {
             guard naming.isEmpty else {
                 throw DivergenceResolveError.namedByLibraryRule(
                     merged: v.key, shape: "venue", libraries: naming,
-                    steps: snapshot.libraryRuleMergeSteps(libraries: naming, merged: v.key, survivor: survivor))   // display-safe-exempt: snapshot.libraryRuleMergeSteps 逐項 displaySafeInvisible（命令裡只有 StoreKey 與 entry type）
+                    steps: snapshot.libraryRuleMergeSteps(libraries: naming, merged: v.key, survivor: survivor))   // display-safe-exempt: snapshot.libraryRuleMergeSteps 逐項 displaySafeInvisible，引數 naming、v.key、survivor 都在它裡面消毒（命令裡只有 StoreKey 與 entry type）
             }
             for inc in absorption.incoming where inc.from == v.key {
                 if let why = NameIdentity.wellFormednessIssue(inc.segment.value) {

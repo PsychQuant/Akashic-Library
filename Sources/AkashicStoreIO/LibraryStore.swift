@@ -1900,7 +1900,7 @@ extension LibraryStore {
         guard quarantinedRegistry.isEmpty else {
             throw StoreIOError.invalidInput(
                 what: "改名「\(displaySafeInvisible(oldKey, max: 200))」→「\(displaySafeInvisible(newKey, max: 200))」",
-                why: Self.quarantinedRegistryRefusal(files: quarantinedRegistry, why: "這個 citekey"))   // display-safe-exempt: Self.quarantinedRegistryRefusal 的檔名逐項 displaySafeInvisible、why 是字面常量
+                why: Self.quarantinedRegistryRefusal(files: quarantinedRegistry, why: "這個 citekey"))   // display-safe-exempt: Self.quarantinedRegistryRefusal 對引數 quarantinedRegistry 的檔名逐項 displaySafeInvisible、why 是字面常量
         }
         // (c) 要遷移的規則，registry 檔要在 git 裡 tracked、clean——被換掉的舊值只剩 git 那一份（#573 一族的同一支判斷）
         let libraryRewrites = load.libraryRulesMigrating(citekey: oldKey, to: newKey)

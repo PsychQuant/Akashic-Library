@@ -35,6 +35,10 @@ actor AkashicMCPServer {
     /// 丟棄已付的代價）。`counts`／`written`／`writeFailed` 不受此限；要全部用 CLI。
     static let enrichItemLimit = 20
 
+    /// `akashic_import_zotero` 的 `ambiguousSourceClaims` 上限（#684，同一個預算形）：至多 20 個來源、每個來源至多 20 個宣稱者。
+    /// 完整清單在 CLI `import-zotero`（逐行全列）；截掉時回應帶 `ambiguousSourceClaimsTotal`／`ambiguousSourceClaimsTruncated`。
+    static let ambiguousClaimsLimit = 20
+
     // MARK: - Schema 小工具
 
     private static func obj(_ props: [String: Value], required: [String] = []) -> Value {
@@ -339,7 +343,7 @@ actor AkashicMCPServer {
                 "dry_run": .object(["type": .string("boolean"), "description": .string("true＝只回報、不動檔案（預設 false，與 CLI 同）")]),
              ], required: ["id", "reason"])),
         Tool(name: "akashic_import_zotero",
-             description: "觸發 Zotero → Akashic 單向 pull（zotero.sqlite 唯讀）。回傳完整 import report：created／updated／orphaned／orphanCleared（citekeys；後兩者＝Zotero 端整筆已刪／恢復）、secondarySourceChanged／secondarySourceOrphaned／secondarySourceRestored（附加來源變動，entry 與主來源不動）、unchanged（筆數）、residualFields（未映射欄位→次數）、unnormalizedDates、skippedLinkedAttachments；單筆寫入失敗記入 writeFailed 並續跑（index 照常重建）。同一個來源被多筆 entry 宣稱（含兩筆以上沒記 library_id 的舊檔同裸 key）的條目本趟不更新書目欄位、不新建（歸屬沒有爭議時 orphan 標記照清），列在 ambiguousSourceClaims（來源鍵→citekeys，只在非空時出現；跨記錄警告見 akashic_doctor）；index rebuild 失敗時錯誤訊息帶完整報告。",
+             description: "觸發 Zotero → Akashic 單向 pull（zotero.sqlite 唯讀）。回傳完整 import report：created／updated／orphaned／orphanCleared（citekeys；後兩者＝Zotero 端整筆已刪／恢復）、secondarySourceChanged／secondarySourceOrphaned／secondarySourceRestored（附加來源變動，entry 與主來源不動）、unchanged（筆數）、residualFields（未映射欄位→次數）、unnormalizedDates、skippedLinkedAttachments；單筆寫入失敗記入 writeFailed 並續跑（index 照常重建）。同一個來源被多筆 entry 宣稱（含兩筆以上沒記 library_id 的舊檔同裸 key）的條目本趟不更新書目欄位、不新建（歸屬沒有爭議時 orphan 標記照清），列在 ambiguousSourceClaims（來源鍵→citekeys，只在非空時出現；至多 20 個來源、每個至多 20 個 citekey，ambiguousSourceClaimsTotal＝來源總數、ambiguousSourceClaimsTruncated＝有沒有截，CLI 全列；跨記錄警告見 akashic_doctor）；index rebuild 失敗時錯誤訊息帶完整報告。",
              inputSchema: obj([
                 "zotero_db": str("zotero.sqlite 路徑（預設 ~/Zotero/zotero.sqlite）"),
                 "library_id": int("只拉此 libraryID（省略＝全部 libraries）"),
@@ -814,7 +818,8 @@ actor AkashicMCPServer {
                                                        dryRun: try argFlag("dry_run", default: false))
             case "akashic_import_zotero":
                 output = try service.importZotero(zoteroDb: arg("zotero_db"),
-                                                  libraryID: argInt("library_id"))
+                                                  libraryID: argInt("library_id"),
+                                                  claimLimit: AkashicMCPServer.ambiguousClaimsLimit)
             case "akashic_enrich_from_zotero":
                 let enrichKeys = try argList("citekeys")
                 let enrichDryRun = try argFlag("dry_run", default: false)

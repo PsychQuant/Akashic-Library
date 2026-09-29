@@ -464,6 +464,30 @@ extension StdioE2ETests {
         XCTAssertTrue(desc.contains("writeFailed"), "既有的 writeFailed 說明不得被擠掉：\(desc)")
     }
 
+    /// #684：`ambiguousSourceClaims` 在 MCP 面有上限——**dispatch 層真的把上限傳給服務**。service 層的測試
+    /// （`ImportZoteroReportSurfaceTests`）釘住截斷本身；這裡釘住 `Server.swift` 沒有漏掉 `claimLimit:` 那個引數
+    /// （漏掉的話所有 service 層測試照綠，而 MCP 面無上限）。
+    func testImportZoteroCapsTheAmbiguousClaimsAtTheServer() throws {
+        let limit = 20   // = `AkashicMCPServer.ambiguousClaimsLimit`；執行檔 target 測試 import 不到，這個數字是描述裡對呼叫端的承諾
+        let count = limit + 2
+        let zotero = try PayloadZoteroDB(dir: root, itemCount: count)
+        let store = LibraryStore(root: root)
+        for n in 1...count {
+            for twin in ["a", "b"] {
+                var e = Entry(id: UUID(), citekey: "claimed\(String(format: "%02d", n))\(twin)", type: .periodicalArticle, title: "C\(n)\(twin)")
+                e.provenance = Provenance(zoteroKey: String(format: "KEYART%02d", n), zoteroVersion: 1, libraryID: 1)
+                try store.writeEntry(e)
+            }
+        }
+        try initialize()
+        let text = try call(2, "akashic_import_zotero", ["zotero_db": zotero.url.path])
+        let obj = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any], text)
+        let claims = try XCTUnwrap(obj["ambiguousSourceClaims"] as? [String: [String]], text)
+        XCTAssertEqual(claims.count, limit, "MCP 面截到上限")
+        XCTAssertEqual(obj["ambiguousSourceClaimsTotal"] as? Int, count, "分母是完整的來源數")
+        XCTAssertEqual(obj["ambiguousSourceClaimsTruncated"] as? Bool, true)
+    }
+
     /// #561 R1 verify：清單以外的讀取器同一條規則——給了而型別不對（null 也算）整個呼叫拒絕。
     /// 最尖的是 `dry_run: "true"`：先前被折成 false，呼叫端要的乾跑變成真的寫入。
     func testMalformedScalarArgumentsAreRefused() throws {

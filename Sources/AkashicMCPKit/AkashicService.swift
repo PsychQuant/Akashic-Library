@@ -2750,7 +2750,13 @@ public final class AkashicService {
         ] as [String: Any])
     }
 
-    public func importZotero(zoteroDb: String?, libraryID: Int?) throws -> String {
+    /// `claimLimit`（#684）：MCP 面截 `ambiguousSourceClaims`——至多這麼多個來源、每個來源至多這麼多個宣稱者（輸出進 LLM context，
+    /// 呼叫端無法在收到後丟棄已付的代價；`akashic_enrich` 的 `itemLimit` 同一個理由）。截掉時 `ambiguousSourceClaimsTotal`
+    /// 給完整的來源數、`ambiguousSourceClaimsTruncated` 為 true；nil＝全列（CLI 不經過這個函式，逐行印全部）。
+    public func importZotero(zoteroDb: String?, libraryID: Int?, claimLimit: Int? = nil) throws -> String {
+        if let limit = claimLimit, limit < 1 {
+            throw ServiceError.invalid("claimLimit 必須 ≥ 1（0 不是「全部」也不是「一個都不要」——要全部就不要給）")
+        }
         let path = ((zoteroDb ?? "~/Zotero/zotero.sqlite") as NSString).expandingTildeInPath
         guard FileManager.default.fileExists(atPath: path) else {
             throw ServiceError.notFound("zotero.sqlite：\(displaySafeInvisible(path, max: 300))")
@@ -2762,7 +2768,7 @@ public final class AkashicService {
         // 磁碟滿等原因與 writeFailed 正相關，最需要報告的場景恰好最易被吞。
         // #610 R1 verify：先前那條分支只帶四個計數，`ambiguousSourceClaims`（有條目本趟被整個略過）與 `secondarySource*` 都消失——
         // 現在把成功時回傳的那一份報告原樣放進錯誤訊息，兩條路徑同一個 payload、不會再各漏各的。
-        let payload = Self.importReportPayload(report)
+        let payload = Self.importReportPayload(report, claimLimit: claimLimit)
         do {
             try LibraryIndex(store: store).rebuild()
         } catch {
@@ -2773,7 +2779,7 @@ public final class AkashicService {
     }
 
     /// `import-zotero` 的報告 payload——rebuild 成功與失敗兩條路徑共用（#610 R1 verify）。
-    static func importReportPayload(_ report: ImportReport) -> [String: Any] {
+    static func importReportPayload(_ report: ImportReport, claimLimit: Int? = nil) -> [String: Any] {
         var d: [String: Any] = [
             "created": report.created.map { displaySafe($0, max: 200) },
             "updated": report.updated.map { displaySafe($0, max: 200) },
@@ -2798,8 +2804,20 @@ public final class AkashicService {
         if !report.authorsPreserved.isEmpty { d["authorsPreserved"] = report.authorsPreserved.map { displaySafe($0, max: 200) } }
         if !report.quarantineConflicts.isEmpty { d["quarantineConflicts"] = report.quarantineConflicts.map { displaySafe($0, max: 200) } }
         // #610：同一個來源被多筆 entry 宣稱——本趟不更新、不新建。鍵消毒後可能相撞（截斷不是單射，#669），依原始鍵排序後留第一個
+        // #684：MCP 面有上限（`claimLimit`）——來源數與每個來源的宣稱者數各截到上限，`…Total` 給完整的來源數，`…Truncated`
+        // 說有沒有截（來源被截、或任一來源的宣稱者被截都算）。三個鍵同進同出：沒有歧義時都不出現。
         if !report.ambiguousSourceClaims.isEmpty {
-            d["ambiguousSourceClaims"] = Dictionary(report.ambiguousSourceClaims.sorted { $0.key < $1.key }.map { (displaySafe($0.key, max: 120), $0.value.map { displaySafe($0, max: 200) }) }, uniquingKeysWith: { first, _ in first })
+            let all = report.ambiguousSourceClaims.sorted { $0.key < $1.key }
+            let shown = claimLimit.map { Array(all.prefix($0)) } ?? all
+            var ownersCut = false
+            let rows: [(String, [String])] = shown.map { source, owners in
+                let kept = claimLimit.map { Array(owners.prefix($0)) } ?? owners
+                if kept.count < owners.count { ownersCut = true }
+                return (displaySafe(source, max: 120), kept.map { displaySafe($0, max: 200) })
+            }
+            d["ambiguousSourceClaims"] = Dictionary(rows, uniquingKeysWith: { first, _ in first })
+            d["ambiguousSourceClaimsTotal"] = all.count   // display-safe-exempt: Int
+            d["ambiguousSourceClaimsTruncated"] = shown.count < all.count || ownersCut   // display-safe-exempt: Bool
         }
         if !report.writeFailed.isEmpty { d["writeFailed"] = Dictionary(report.writeFailed.sorted { $0.key < $1.key }.map { (displaySafeInvisible($0.key, max: 200), displaySafeClipOnly($0.value, max: 512)) }, uniquingKeysWith: { first, _ in first }) }   // display-safe-exempt: value 已消毒（ZoteroImporter 的 writeFailed 由 displaySafeError 產出，R29 D81），只截
         return d

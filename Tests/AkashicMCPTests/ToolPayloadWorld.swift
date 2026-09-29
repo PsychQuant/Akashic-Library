@@ -132,7 +132,8 @@ final class PayloadWorld {
 struct PayloadZoteroDB {
     let url: URL
 
-    init(dir: URL) throws {
+    /// `itemCount` 個 journalArticle：key 是 `KEYART01`…、都在 libraryID 1、共用同一位作者。
+    init(dir: URL, itemCount: Int = 1) throws {
         url = dir.appendingPathComponent("zotero.sqlite")
         let db = try SQLiteDB(path: url.path, readOnly: false)
         for sql in [
@@ -154,12 +155,17 @@ struct PayloadZoteroDB {
         try db.execute("INSERT INTO creatorTypes VALUES (1,'author')")
         try db.execute("INSERT INTO itemTypeCreatorTypes VALUES (1,1,1)")
         try db.execute("INSERT INTO fields VALUES (1,'title'),(2,'date'),(3,'publicationTitle')")
-        try db.execute("INSERT INTO items VALUES (10,1,'KEYART01',5,1)")
-        for (i, (field, value)) in [(1, "Identifiability of polychoric models"), (2, "2025-04-01"), (3, "Psychometrika")].enumerated() {
-            try db.execute("INSERT INTO itemDataValues VALUES (?,?)", bind: [100 + i, value])
-            try db.execute("INSERT INTO itemData VALUES (?,?,?)", bind: [10, field, 100 + i])
-        }
         try db.execute("INSERT INTO creators VALUES (1,'Che','Cheng',0)")
-        try db.execute("INSERT INTO itemCreators VALUES (10,1,1,0)")
+        for n in 1...max(itemCount, 1) {
+            let item = 9 + n
+            try db.execute("INSERT INTO items VALUES (?,1,?,5,1)", bind: [item, String(format: "KEYART%02d", n)])
+            let title = n == 1 ? "Identifiability of polychoric models" : "Article number \(n)"
+            for (i, (field, value)) in [(1, title), (2, "2025-04-01"), (3, "Psychometrika")].enumerated() {
+                let valueID = 100 + 3 * (n - 1) + i
+                try db.execute("INSERT INTO itemDataValues VALUES (?,?)", bind: [valueID, value])
+                try db.execute("INSERT INTO itemData VALUES (?,?,?)", bind: [item, field, valueID])
+            }
+            try db.execute("INSERT INTO itemCreators VALUES (?,1,1,0)", bind: [item])
+        }
     }
 }

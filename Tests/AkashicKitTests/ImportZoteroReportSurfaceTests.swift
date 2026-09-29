@@ -135,4 +135,98 @@ final class ImportZoteroReportSurfaceTests: XCTestCase {
             XCTAssertTrue(text.contains("1:KEYART01") && text.contains(a.citekey) && text.contains(b.citekey), text)
         }
     }
+
+    // MARK: - #684：MCP 面的 ambiguousSourceClaims 有上限，截斷要說出來
+
+    /// `count` 個來源、每個 `owners` 筆 entry 宣稱（同 library、同 key）。Zotero 端各有一個 item，所以匯入會把它們都判成歧義。
+    private func seedClaimed(sources count: Int, owners: Int = 2) throws {
+        for n in 1...count {
+            let key = String(format: "KEYCAP%02d", n)
+            let item = 500 + n
+            try fixture.db.execute("INSERT INTO items VALUES (\(item),1,'\(key)',3,1)")
+            try fixture.addField(item: item, field: 1, value: "Claimed \(n)", valueID: 5000 + item)
+            for o in 1...owners {
+                var e = Entry(id: UUID(), citekey: "claimed\(String(format: "%02d", n))o\(o)", type: .periodicalArticle, title: "C\(n)o\(o)")
+                e.provenance = Provenance(zoteroKey: key, zoteroVersion: 1, libraryID: 1)
+                try store.writeEntry(e)
+            }
+        }
+    }
+
+    private func claims(_ p: [String: Any]) throws -> [String: [String]] {
+        try XCTUnwrap(p["ambiguousSourceClaims"] as? [String: [String]], "\(p)")
+    }
+
+    /// 上限之內：全列，而且**總數與截斷旗標仍然給**（呼叫端不必猜「沒有旗標＝沒有截」）。
+    func testClaimsWithinTheLimitAreListedInFullWithTotalAndNoTruncation() throws {
+        try seedClaimed(sources: 3)
+        let out = try payload(try service.importZotero(zoteroDb: fixture.dbURL.path, libraryID: nil, claimLimit: 5))
+        XCTAssertEqual(try claims(out).keys.sorted(), ["1:KEYCAP01", "1:KEYCAP02", "1:KEYCAP03"])
+        XCTAssertEqual(out["ambiguousSourceClaimsTotal"] as? Int, 3)
+        XCTAssertEqual(out["ambiguousSourceClaimsTruncated"] as? Bool, false)
+    }
+
+    /// 超過上限：依來源鍵排序留前 N 個，`Total` 是完整的來源數，`Truncated` 為 true。
+    func testClaimsBeyondTheLimitAreCutInKeyOrderAndTheCutIsDisclosed() throws {
+        try seedClaimed(sources: 3)
+        let out = try payload(try service.importZotero(zoteroDb: fixture.dbURL.path, libraryID: nil, claimLimit: 2))
+        XCTAssertEqual(try claims(out).keys.sorted(), ["1:KEYCAP01", "1:KEYCAP02"], "依原始鍵排序留前兩個，不是任意兩個")
+        XCTAssertEqual(out["ambiguousSourceClaimsTotal"] as? Int, 3, "分母是完整的來源數，不是顯示的數")
+        XCTAssertEqual(out["ambiguousSourceClaimsTruncated"] as? Bool, true)
+    }
+
+    /// 沒給上限（CLI 之外的呼叫端、既有測試）＝全列，行為與 #610 相同。
+    func testWithoutALimitEveryClaimIsListed() throws {
+        try seedClaimed(sources: 3)
+        let out = try payload(try service.importZotero(zoteroDb: fixture.dbURL.path, libraryID: nil))
+        XCTAssertEqual(try claims(out).count, 3)
+        XCTAssertEqual(out["ambiguousSourceClaimsTotal"] as? Int, 3)
+        XCTAssertEqual(out["ambiguousSourceClaimsTruncated"] as? Bool, false)
+    }
+
+    /// 單一來源的宣稱者也有上限，並算進 `Truncated`——來源數在上限之內時，它仍可能被截。
+    func testOwnersOfASingleSourceAreCappedAndCountAsTruncation() throws {
+        try seedClaimed(sources: 1, owners: 4)
+        let out = try payload(try service.importZotero(zoteroDb: fixture.dbURL.path, libraryID: nil, claimLimit: 2))
+        let owners = try XCTUnwrap(try claims(out)["1:KEYCAP01"])
+        XCTAssertEqual(owners, ["claimed01o1", "claimed01o2"], "依 citekey 排序留前兩個")
+        XCTAssertEqual(out["ambiguousSourceClaimsTotal"] as? Int, 1, "只有一個來源")
+        XCTAssertEqual(out["ambiguousSourceClaimsTruncated"] as? Bool, true, "來源數沒超過、宣稱者被截了，仍是截斷")
+    }
+
+    /// 沒有歧義時三個鍵都不出現（「只在非空時出現」的既有慣例延伸到新鍵）。
+    func testNoAmbiguityMeansNoneOfTheThreeKeysAppear() throws {
+        let clean = try payload(try service.importZotero(zoteroDb: fixture.dbURL.path, libraryID: nil, claimLimit: 20))
+        XCTAssertNil(clean["ambiguousSourceClaims"])
+        XCTAssertNil(clean["ambiguousSourceClaimsTotal"])
+        XCTAssertNil(clean["ambiguousSourceClaimsTruncated"])
+    }
+
+    /// index rebuild 失敗的那條路徑帶同一份報告（R10、#610 R1 verify），所以同樣受上限——兩條路徑不得各漏各的。
+    func testTheIndexRebuildFailurePathCarriesTheSameCap() throws {
+        try seedClaimed(sources: 3)
+        // 讓 index rebuild 必然失敗：同一筆 entry 有兩份記錄檔（#631）
+        let twin = try XCTUnwrap(try store.load().entries.first { $0.citekey == "claimed01o1" })
+        let dup = store.root.appendingPathComponent("entries")
+        try FileManager.default.createDirectory(at: dup, withIntermediateDirectories: true)
+        try EntryYAML.encode(twin).write(to: dup.appendingPathComponent("\(twin.citekey).yaml"), atomically: true, encoding: .utf8)
+        XCTAssertThrowsError(try service.importZotero(zoteroDb: fixture.dbURL.path, libraryID: nil, claimLimit: 1)) { error in
+            // `\(error)` 是 Swift 的除錯描述：引號與換行被跳脫，還原後才看得出報告裡的 JSON
+            let text = "\(error)".replacingOccurrences(of: "\\\"", with: "\"").replacingOccurrences(of: "\\n", with: "\n")
+            XCTAssertTrue(text.contains("index rebuild 失敗"), text)
+            XCTAssertTrue(text.contains("\"ambiguousSourceClaimsTotal\" : 3"), "失敗路徑的報告也要說總數：\(text)")
+            XCTAssertTrue(text.contains("\"ambiguousSourceClaimsTruncated\" : true"), text)
+            XCTAssertTrue(text.contains("1:KEYCAP01") && !text.contains("1:KEYCAP02"), "只列上限內的來源：\(text)")
+        }
+    }
+
+    /// 上限 < 1 沒有意義（0 不是「全部」也不是「一個都不要」）——比照 `enrich` 的 itemLimit，在動 store 之前拒絕。
+    func testALimitBelowOneIsRefusedBeforeAnythingIsTouched() throws {
+        try seedClaimed(sources: 1)
+        let before = try store.load().entries.count
+        XCTAssertThrowsError(try service.importZotero(zoteroDb: fixture.dbURL.path, libraryID: nil, claimLimit: 0)) { error in
+            XCTAssertTrue("\(error)".contains("claimLimit"), "\(error)")
+        }
+        XCTAssertEqual(try store.load().entries.count, before, "被拒絕的呼叫不得匯入任何東西")
+    }
 }

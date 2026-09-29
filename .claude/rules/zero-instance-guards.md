@@ -60,7 +60,7 @@
 會在邊界上自己長出沒人同意的答案，而那句話與下表**是兩份不會一起改的規格**。要判斷新情形，
 讀下表的理由欄，然後**加一列**。
 
-## 裁決史（封閉列舉——現有 52 列，一列不多一列不少）
+## 裁決史（封閉列舉——現有 55 列，一列不多一列不少）
 
 | # | 情形 | 裁決 | 理由 |
 |---|---|---|---|
@@ -116,6 +116,9 @@
 | 50 | **零實例，而檢查只問「在不在」，沒問「是不是一份檔」**（#614 b11c verify R1：`update-entry --add-source`／MCP `add_sources` 要求 digest 的內容已存在本機 `sources/`，而先前用 `fileExists(atPath:)` 判斷——它對同名的**目錄**也回 true；blob 被換成目錄或 symlink、index 那一列還在時，add-source 會宣告一份讀不到的副本而不出聲。2026-09-29 唯讀量測 live store：`sources/` 的 blob 99 個，非普通檔 0、`index.jsonl` 是普通檔。重跑腳本見表下方） | ✅ **寫（`SourcePresence.notRegularFile`，以 lstat 的類型判定；目錄、symlink、特殊檔案具名拒絕，乾跑與實跑一致、零寫入）** | 第 1 列的理由是「失敗的不可見性」；這一列同形——不寫的話，那個形狀第一次出現時 add-source 照常回報成功，而宣告的那份副本打不開。與第 15 列（本機缺承重存檔）相鄰而不同：那一列問的是位元組在不在這台機器上，這一列問的是在那個位置上的東西是不是一份檔。前件精確（lstat 的類型不是 regular），成本是一個屬性檢查。**symlink 也拒**：`sources/` 由 `store-source` 寫成普通檔，store 沒有任何一條路徑會寫出 symlink；若日後有意用 symlink 共用 blob，要回來改這一列。**誠實邊界**：只看類型、不重新雜湊內容（位元組與 digest 是否相符不在這道檢查裡）。**觸發條件可檢查**（腳本見表下方）：非普通檔數應恆為 0；非零時先查是誰放的，再依 add-source 的拒絕訊息處置 |
 | 51 | **零實例，而「沒有東西可檢查」與「檢查過且乾淨」在輸出上分不開**（#629 移植 `rule-coverage` 成 `akashic-guards rule-coverage`：某個 plugin 根的 `rules/` 底下一條 `.md` 都沒有時，舊 shell 版因 glob 不命中而**意外**變紅，Swift 版的空迴圈會印綠燈。2026-09-29 量測：兩個 plugin 根（`plugin`、`plugins/akashic-discovery`）各 2 條規則，空的 `rules/` 0 個） | ✅ **寫（`RuleCoverage.swift` 對零條規則顯式 rc=1 並具名）** | 第 3 列的理由是「未涵蓋不得冒充通過」；這一列同形，差別在它是**移植時才可能長出來的沉默**：舊實作的紅是 glob 的副作用，不是裁決，換一個語言就換掉了。所以移植要把那個副作用寫成顯式的判定。成本一個分支。**誠實邊界**：守衛 harness 還沒有「刪光某根的 `rules/*.md` → 紅」的負控 case；行為證據是移植時的新舊差分（不在 repo）。**觸發條件可檢查**：`ls <plugin 根>/rules/*.md | wc -l` 應恆 ≥ 1；等於 0 時守衛紅，處置是補規則檔或把那個根移出 `plugin-roots` |
 | 52 | **零實例，而少算一個檔的普查與「查完歸零」無法區分**（#629 移植 `literal-census.sh` 成 `akashic literal-census`：記錄檔讀不進來或不是一般檔時，Python 版 traceback、shell 版少算，Swift 版具名 exit 3 拒絕輸出計數（`LiteralCensus.Failure.unreadableRecord`）。2026-09-29 唯讀量測 live store：`entities/`／`entries/`／`people/` 的 `.yaml` 7,643 個，不可讀或非一般檔 0。重跑腳本見表下方） | ✅ **寫（exit 3、具名那個檔，不輸出任何計數）** | 第 3 列的理由是「守衛沉默時要不要說話」；這一列同形而後果更具體：普查的輸出是 `literal-first-then-key` 終局的**進度量測**（literal 邊數的趨勢），少算一個檔會讓數字往「歸零」那一側偏，而那正是量測要回答的問題。所以不是略過並警告，是整次拒絕輸出。釘住它的測試是 `LiteralCensusTests.testUnreadableRecordRefusesToCountRatherThanUndercount`。**觸發條件可檢查**（腳本見表下方）：不可讀或非一般檔數應恆為 0；非零時先修那個檔的權限或類型，再跑普查 |
+| 53 | **零實例，而同一個不明確的依據設定時被拒、使用時被放行**（#642 b11d verify R1：規則型 library 的 venue key 之後變成重複、或排除清單的 citekey 打錯或已不在庫——`create`／`set-kind` 本來就拒絕重複的 venue key，`library add` 卻只比 key 字串；排除清單則從不查存在，打錯一個字排除就無聲失效。2026-09-29 唯讀量測 live store：library 4、規則型 0、排除清單指向不在庫 0、規則的 venue key 重複 0。重跑腳本見表下方） | ✅ **寫（寫入閘與 warning 同批：`LibraryMembershipCheck` 的 `ruleVenueAmbiguous`，三面都不寫、`library check` 揭露；`create`／`set-kind` 對不在庫的排除 citekey 具名拒絕；validate 報兩種 warning）** | 第 47 列的理由是「零來自規則還不存在」，燈照的是寫入閘擋不到的來源；這一列補兩個它沒照到的：依據本身出了問題（venue key 重複）與排除清單懸空。前者是第 26 列「閘與守衛是同一條不變式的兩半」的形——同一個依據在設定時被閘擋下、在使用時卻被放行，等於那條不變式只有一半；後者讓同一份程式對「排除清單是不是參照」給出相反的答案（改名與合併的守衛把它當參照，建立時卻不查）。**severity 是 warning**：成員關係錯了不毀資料，與第 47 列同級。**誠實邊界**：規則依據不明確時，連被排除的成員也回「依據不明確」而不是「排除」（Claude 代裁，依據問題優先）。**觸發條件可檢查**（腳本見表下方）：兩個數應恆為 0；非零時用 `library check <key>` 看是哪一條規則、哪個 citekey |
+| 54 | **零實例，而先前的守衛是一條走不通的出路**（#642 b11d verify R1：改名碰到被 library 規則指涉的 citekey——文件型的 `document`、規則型的 `excluded`。#642 首版一律拒絕並指路「先 set-kind 改規則」，而文件型的 `set-kind` 要求新 citekey 已在庫、`rename` 要求它不在庫，出路是死路。2026-09-29 唯讀量測 live store：規則型與文件型 library 都是 0，被規則指涉的 citekey 0） | ✅ **寫（`renameEntry` 同批遷移規則裡的 citekey，registry 檔進同一批預檢與寫入，逐條列在 `RenameReport.libraryRulesRewritten`；三個前置拒絕、零寫入：新 citekey 已被規則指涉、被隔離的 registry 檔提到舊或新 citekey、要遷移的 registry 檔不可回溯）** | 改名不改身分，而 library 規則是關係邊第 16 條——改名本來就該遷移指向舊 key 的邊（第 13 條邊的 verdict value 是先例）。三個前置拒絕各擋一種遷移會造成的安靜錯誤：新 citekey 已被規則指涉時，改名會讓一條懸空的規則「復活」成指向另一筆；被隔離的 registry 檔看不到，遷移會漏掉它；registry 檔不可回溯時，被改寫的規則沒有舊值可取回。work 與 venue 合併維持拒絕，訊息改成可照做的 `set-kind` 命令、不經過 topic。**觸發條件可檢查**：規則型或文件型 library 出現之後，改名一筆被指涉的 citekey 時報告會多一段「library 成員規則已遷移」；守衛測試是 `LibraryMembershipStoreTests` 的改名六支 |
+| 55 | **零實例，而整值替換會丟掉人的裁決，舊值只剩 git 那一份**（#642 b11d verify R1：`set-kind` 替換一個既有的成員性質時，排除清單這類逐筆寫下的裁決整份被換掉，先前不回顯舊值、也不要求舊值取得回來。2026-09-29 唯讀量測 live store：4 個 library 全未標性質，從未標標成任何一種不經這道閘，所以零實例） | ✅ **寫（替換既有性質時要求 `libraries/<key>.yaml` 已 commit 且乾淨；兩面回顯先前的性質；可回溯閘抽成共用核心 `LibraryStore.recoverabilityRefusal`，與 #573 那一族同一支）** | 第 44 列的理由是「既有判準的答案變了」；這一列同形而對象不同：#573 那一族的閘原本只看 `entities/` 的記錄檔，registry 檔在 `libraries/`，於是移除面一族的判準（舊值要能從 git 取回，使用者 2026-09-27 裁決）在這裡沒有套上。修法是把閘抽成共用核心、多收一種檔，不是複製一份邏輯。**Claude 代裁**：閘也涵蓋把 topic 換成別的性質（topic 沒有參數可失去，比必要的嚴）。**沒做的**：把規則放寬（降成 topic、清掉排除清單、換 venue）時要不要另外要求明確確認——待使用者決定；目前的防線只有回顯與 git。**觸發條件可檢查**：有 library 標了性質之後，替換它而 registry 檔未 commit 時 `set-kind` 拒絕；測試是 `LibraryMembershipServiceTests.testReplacingAnExistingMembershipRequiresACommittedRegistryFile`（回顯由 `testSetKindEchoesThePreviousMembership` 釘住） |
 
 對本表四類中的任一個做出下一次裁決（新增、不新增、保留、拿掉）= 在這張表加一列。
 
@@ -1110,6 +1113,34 @@ PY
 # 2026-09-29：記錄檔 7643｜不可讀或非一般檔 0 []
 ```
 
+**第 53–55 列的量測（2026-09-29，可重跑，唯讀）**：三列共用一支腳本；第 54、55 列看的是規則型、文件型 library 的筆數（都是 0，所以被規則指涉的 citekey 與標了性質可被替換的 library 都是 0）：
+
+```bash
+python3 - <<'PY'
+import glob, io, os, yaml, collections
+root = os.path.expanduser('~/.akashic')
+libs, works, venues, bad = {}, [], [], 0
+for f in glob.glob(root + '/libraries/*.yaml'):
+    try: d = yaml.safe_load(io.open(f, encoding='utf8'))
+    except Exception: bad += 1; continue
+    if isinstance(d, dict): libs[str(d.get('key'))] = d.get('membership')
+for f in glob.glob(root + '/entities/*.yaml'):
+    try: d = yaml.safe_load(io.open(f, encoding='utf8'))
+    except Exception: bad += 1; continue
+    if not isinstance(d, dict): bad += 1; continue
+    if 'work' in d: works.append(str(d.get('citekey')))
+    elif 'venue' in d: venues.append(str(d.get('key')))
+have = set(works); vcount = collections.Counter(venues)
+rules = {k: m for k, m in libs.items() if isinstance(m, dict) and m.get('kind') == 'rule'}
+dangling = sum(1 for m in rules.values() for ck in (m.get('excluded') or []) if str(ck) not in have)
+ambiguous = sum(1 for m in rules.values() if vcount[str(m.get('venue'))] > 1)
+docs = {k: m for k, m in libs.items() if isinstance(m, dict) and m.get('kind') == 'document'}
+doc_bad = sum(1 for m in docs.values() if works.count(str(m.get('document'))) != 1)
+print(f"library {len(libs)}｜規則型 {len(rules)}｜排除清單指向不在庫 {dangling}｜規則的 venue key 重複 {ambiguous}｜文件型 {len(docs)}（文件不在庫或重複 {doc_bad}）｜讀不到的檔 {bad}")
+PY
+# 2026-09-29：library 4｜規則型 0｜排除清單指向不在庫 0｜規則的 venue key 重複 0｜文件型 0（文件不在庫或重複 0）｜讀不到的檔 0
+```
+
 ## 各列共通的東西（觀察，不是判準）
 
 第 1–9 列與第 13、14 列的裁決都是「寫」（第 14 列是 2026-09-09 從「不寫」翻過來的）、第 10–12 列（皆出自 #365）是「不寫」，但**理由各不相同**，這正是不寫總括判準的原因：
@@ -1172,6 +1203,9 @@ PY
 - 第 50 列的理由是**「在不在」不等於「是不是一份檔」**——同第 1 列不寫就沒有跡象；與第 15 列相鄰：那一列問位元組在不在這台機器上，這一列問那個位置上是不是一份檔
 - 第 51 列的理由是**移植會換掉意外的紅燈**——同第 3 列未涵蓋不得冒充通過；舊實作的紅是 glob 的副作用，換語言時要寫成顯式判定
 - 第 52 列的理由是**進度量測不得往終局偏**——普查的數字就是 literal 歸零的進度，少算一個檔等於假進步，所以整次拒絕輸出
+- 第 53 列的理由是**同一個依據兩個時間點給相反的答案**——設定時擋、使用時放，是第 26 列那條不變式只剩一半；排除清單懸空則讓同一份程式對「是不是參照」答兩種
+- 第 54 列的理由是**守衛的出路要走得通**——一律拒絕而出路是死路的守衛等於沒有出路；改名本來就該遷移指向舊 key 的邊，三個前置拒絕擋住遷移本身的安靜錯誤
+- 第 55 列的理由是**判準已經有了，只是沒套到這種檔**——同第 44 列既有判準的答案變了；registry 檔不在 `entities/`，移除面一族的可回溯要求原本照不到它
 - 第 31 列的理由是**同一條曲線換了持有者**——第 16 列的燈只照 venue；新面（未決腿）讓 person 與 organization 也開始累積，第 30 列寫下的誠實邊界要有工具面兌現，否則就是一句沒有後續的散文
 - 第 39 列的理由是**單步的跳躍預警看不到**——第 16／31 列的燈在讀取面、照的是漸進的增長；一次寫入從門檻之下直接越過讀取上限時，燈來不及響，擋它的只能是寫入端。而那道閘要擋的不只是位元組：多檔寫入面在它觸發之前已有檔落盤，所以閘與零寫入的 preflight 同批
 - 第 24 列的理由是**半吊子已經誠實**——前二十三列裡只有第 22 列同樣是「不動既有的東西」（比的是裁決的**動作**：那一列的對象是 spec 文字、失敗是被當死重刪掉；本列的對象是程式的半吊子管線、失敗是使用者撞牆或被當成待修殘留而被人動手）。留著的代價不是零（記了就刪不掉——#586 在 2026-09-28 補了移除面，代價從「刪不掉」降為「要人判定放棄」），而是今天未兌現、且一出現就會出聲；動它的兩個方向（實作／拿掉）代價都更高。與第 10 列（缺用途）最像的是理由的**形**：實作那一半同樣是「形狀取決於還不存在的用途」；但第 10 列的對象根本不存在，這一列的對象已經在、且已經誠實

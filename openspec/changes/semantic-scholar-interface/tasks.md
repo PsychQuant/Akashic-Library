@@ -15,7 +15,7 @@
 ## 4. 端點、分頁與輸出
 
 - [x] 4.1 先寫測試再實作八個端點的請求組裝與分頁（`S2Endpoints`）：以 `10.` 開頭的裸 DOI 補上 `DOI:`、id 百分比編碼、batch 至多 500 個 id、references／citations／author-papers 翻頁直到結果或上限用盡，並依 design 的來源取得 `total`（Requirement「One interface serves both faces」）。驗證：`S2ClientTests` 以 stub 分 10 頁回 1,000 筆時得到 1,000 筆且 `total` 為 1000；`paper 10.1037/a0038889` 送出的路徑是 `DOI:10.1037/a0038889`。
-- [ ] 4.2 [P] 先寫測試再實作 `S2Output`：S2 回應中的每個字串遞迴經過 `displaySafe`；依傳入的位元組上限只保留完整筆數，回報 `returned`、`truncated`、`nextOffset`（Requirement「Text from Semantic Scholar is sanitized before display」與「The MCP tool bounds its result by bytes」）。驗證：`S2OutputTests` 中含 U+202E 的標題輸出後不含 U+202E；48 KiB 只放得下 120 筆時得 `returned: 120`、`truncated: true`、`nextOffset: 120`，且沒有半筆。
+- [x] 4.2 [P] 先寫測試再實作 `S2Output`：S2 回應中的每個字串遞迴經過 `displaySafe`；依傳入的位元組上限只保留完整筆數，回報 `returned`、`truncated`、`nextOffset`（Requirement「Text from Semantic Scholar is sanitized before display」與「The MCP tool bounds its result by bytes」）。驗證：`S2OutputTests` 中含 U+202E 的標題輸出後不含 U+202E；48 KiB 只放得下 120 筆時得 `returned: 120`、`truncated: true`、`nextOffset: 120`，且沒有半筆。
 
 ## 5. CLI 面
 

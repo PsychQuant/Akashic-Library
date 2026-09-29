@@ -32,6 +32,6 @@
 
 ## 8. 規則、文件與整體驗證
 
-- [ ] 8.1 [P] 改寫 `.claude/rules/web-access-via-safari-browser.md`：第 2 條改為只有 `Sources/AkashicS2/` 例外；例外清單從一類改為兩類（帶金鑰的 S2 呼叫經 `akashic s2` 與 `akashic_s2`）；「不適用」第 2 類把 `akashic s2` 排除；〈為什麼〉與〈觸發過的實例〉各補 #664。同步 `CLAUDE.md` 的規則索引；`.claude/rules/mcp-cli-parity.md` 的 MCP 表加 `akashic_s2` 對 `s2` 一列，工具數 33 改為 34，寫明兩面有記錄的差異（MCP 位元組上限、CLI 不截）。驗證：`akashic-guards parity-table-drift` 與 rule-prose 類守衛全綠；逐段讀過，例外與不適用仍是封閉列舉。
+- [x] 8.1 [P] 改寫 `.claude/rules/web-access-via-safari-browser.md`：第 2 條改為只有 `Sources/AkashicS2/` 例外；例外清單從一類改為兩類（帶金鑰的 S2 呼叫經 `akashic s2` 與 `akashic_s2`）；「不適用」第 2 類把 `akashic s2` 排除；〈為什麼〉與〈觸發過的實例〉各補 #664。同步 `CLAUDE.md` 的規則索引；`.claude/rules/mcp-cli-parity.md` 的 MCP 表加 `akashic_s2` 對 `s2` 一列，工具數 33 改為 34，寫明兩面有記錄的差異（MCP 位元組上限、CLI 不截）。驗證：`akashic-guards parity-table-drift` 與 rule-prose 類守衛全綠；逐段讀過，例外與不適用仍是封閉列舉。
 - [ ] 8.2 [P] 寫設定文件 `plugin/skills/akashic-bootstrap/references/semantic-scholar.md`（存金鑰的指令、ACL 取捨、以 `akashic s2 status` 確認、結束碼 3 的兩種原因），並在 `README.md` 加 S2 段落。驗證：文件裡的 service、account、路徑與 CLI 錯誤訊息逐字一致；rule-coverage 守衛全綠。
 - [ ] 8.3 整體驗證：`swift build` 與 `swift test` 全綠，且 `RealHomeSandboxGuard` 未報錯；`bash .githooks/run-guards.sh` 全綠；`spectra validate semantic-scholar-interface` 通過。實機（使用者機器、真金鑰，不進自動測試）：`akashic s2 status` 回報 present 與 readable 皆為 true，`akashic s2 paper DOI:10.1037/a0038889 --json` 回傳該論文。

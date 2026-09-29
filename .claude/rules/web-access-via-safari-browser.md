@@ -3,17 +3,24 @@
 使用者 2026-09-24（+08:00）在 #617 規劃時定調：「Sources 中並沒有 HTTP client，可以讓她仰賴
 safari-browser，這可以是整個專案預設的」。
 
-**本 repo 的本體是離線的**：`Sources/` 內沒有任何 HTTP client（2026-09-24 量：`URLSession`／
-`URLRequest` 0 處）。對外查詢（OpenAlex、Crossref、ORCID、DOI 解析、出版商頁面）一直是 skill
-層的事；本規則把「skill 層用什麼去拿」定成一條路徑。
+**本 repo 的本體是離線的，只有一個目錄例外**：2026-09-24 量 `Sources/` 內 `URLSession`／
+`URLRequest` 0 處；#664（2026-09-29）起 `Sources/AkashicS2/` 是本體裡唯一可以連網、唯一可以讀
+keychain 的地方，其餘由 `akashic-guards network-confinement` 機械地擋。對外查詢（OpenAlex、
+Crossref、ORCID、DOI 解析、出版商頁面）一直是 skill 層的事；本規則把「skill 層用什麼去拿」定成
+一條路徑，唯一走本體的是帶金鑰的 Semantic Scholar 查詢（〈例外〉第 2 類）。
 
 ## 規則
 
 1. **skill 為了取得資料而讀外部網頁或 web API，一律經 safari-browser。** SKILL.md 與它的
    references 文件寫的取得指令，是 safari-browser 的指令，不是 `curl`、`WebFetch` 或裸 URL。
-2. **`Sources/` 不新增 HTTP client。** 需要外部資料的能力，由 skill 經 safari-browser 取得後，
-   以本機檔案交給 `akashic` CLI 處理（見 [swift-is-the-implementation-language.md](swift-is-the-implementation-language.md)
-   的放置表）。
+   例外只有〈例外〉列的兩類。
+2. **`Sources/` 不新增 HTTP client，只有 `Sources/AkashicS2/` 例外。** 網路與 keychain 的 API
+   只准出現在那個目錄——哪些字樣算數是 `akashic-guards network-confinement` 的封閉清單，不在這裡
+   另抄一份；`network-confinement-mutations` 證明守衛會開火（#664）。那個目錄只做 Semantic
+   Scholar：其他需要外部資料的能力，照舊由 skill 經 safari-browser 取得後，以本機檔案交給
+   `akashic` CLI 處理（見 [swift-is-the-implementation-language.md](swift-is-the-implementation-language.md)
+   的放置表）。讓第二個 target 連網、或讓 `AkashicS2` 接第二個 API，是改本條與守衛的封閉清單，
+   不從「它也需要金鑰」類推。
 
 ## 使用紀律（每一條都有踩過的理由）
 
@@ -68,7 +75,9 @@ safari-browser，這可以是整個專案預設的」。
 - **持久狀態變更先告知**：清 cache、註銷 service worker、改 cookie／storage 要先說明並取得同意。
 - **操作程序的位置**：本規則在 plugin 安裝處讀不到，所以 `plugin/` 的 skill 引用的是
   `plugin/skills/akashic-bootstrap/references/web-access.md`——它只寫怎麼做（問 profile、鎖分頁、
-  形狀檢查、頁內 fetch），理由與例外清單留在這裡。`plugins/akashic-discovery/` 是另一個 plugin、不共用檔案，
+  形狀檢查、頁內 fetch），理由與例外清單留在這裡。例外清單的第 2 類在那份檔裡另有一句指路
+  （#664）：plugin 讀者讀不到本規則，而照「一律經 safari-browser」去打 S2 正是金鑰外露的那條路。
+  `plugins/akashic-discovery/` 是另一個 plugin、不共用檔案，
   `akashic-work-references` 的第 2 步自帶一份：見下方〈操作程序的兩份描述〉。
 
 ## 操作程序的兩份描述（`no-compat-fallback` 〈同一件事只能有一份描述〉要求的顯式一列）
@@ -86,7 +95,7 @@ safari-browser，這可以是整個專案預設的」。
 | 同步的工作 | #687（把 web-access.md 的鎖法、中止條款、形狀表同步到 `akashic-work-references`，並決定要不要加一支守衛比對兩份的關鍵字串；等 #617 釋出 `plugins/akashic-discovery/**`）。在它完成之前，**改鎖法或中止條款的人要自己同步兩份** |
 | 守衛 | 目前沒有。兩份的關鍵性質（鎖的旗標、`404` 的處置）沒有機械比對；日後要加就寫成 `akashic-guards` 的子命令（見 `swift-is-the-implementation-language`） |
 
-## 例外：可以不照本規則的取得指令（封閉列舉，只有一類，不得依性質相似類推第二類）
+## 例外：可以不照本規則的取得指令（封閉列舉，只有兩類，不得依性質相似類推第三類）
 
 1. **本規則成文前已存在的檔（grandfathered）**，逐檔列在下方〈既有檔〉。可以修 bug；不得新增
    同類指令，也不得在新 skill 裡照抄。遷移由 #634 追蹤，改完一檔就從清單拿掉（2026-09-29
@@ -94,12 +103,35 @@ safari-browser，這可以是整個專案預設的」。
    這一類有**兩種形狀**（2026-09-29 顯式加入第二種，#634 驗證第 3／12／41／47 列：#634 曾把 `akashic-fetch-fulltext`
    當成已遷移移出清單，而它取得雖走 safari-browser，鎖分頁的方式仍是本規則明禁的視窗編號）：
    (a) 取得指令**不經 safari-browser**（直連）；(b) 取得經 safari-browser，但**鎖分頁的方法不是〈使用紀律〉的鎖法**。
+2. **帶金鑰的 Semantic Scholar 查詢，經 `akashic s2`（CLI）或 `akashic_s2`（MCP）**（#664，
+   2026-09-29 起）。邊界逐條：
+   - **只有這兩個面。** skill 不自己組 S2 的網址，也不以 `curl`、WebFetch 或頁內 fetch 帶金鑰打
+     S2——頁內 fetch 得把金鑰交給 `safari-browser js` 的指令參數，會出現在 process list（#640），
+     本類就是為了取代那條路。涵蓋的是 `Sources/AkashicS2/` 實作的八個端點（`paper`、`match`、
+     `batch`、`references`、`citations`、`recommend`、`author-search`、`author-papers`）與不連網的
+     `status`。
+   - **金鑰只在程序內從 keychain 讀**（service `semantic-scholar`、account `default`，非互動），
+     不收指令參數或環境變數；`x-api-key` 只附給 scheme 為 `https`、host 恰為
+     `api.semanticscholar.org` 的請求。
+   - **全機合計每秒至多 1 個請求。** 所有呼叫者以檔案鎖預約送出時段，429 的退避也共用；重試
+     用盡或 `Retry-After` 超過 60 秒即停（CLI 結束碼 4）。這是本類自帶的限流處理，不在上面
+     〈使用紀律〉中止條款的涵蓋範圍內——那條中止條款管的是 safari-browser 那條路。
+   - **回傳是線索，不是寫入。** 兩個面都不開 store；要把 S2 給的值寫進 store，依據照
+     `plugin/rules/source-of-truth-over-consent.md` 另行取得。
+   - **沒有金鑰就停**（CLI 結束碼 3、MCP `isError: true`），訊息寫明 keychain 的 service／account
+     並指向設定文件，不退回匿名請求。
+   - **本類是 Semantic Scholar 這一個 API，不是「需要金鑰的 API」這個性質。** OpenAlex、
+     Crossref、ORCID 等不需金鑰的 API 照舊經 safari-browser；出現第二個需要金鑰的 API 時，要顯式
+     新增一類（連同規則第 2 條與守衛的封閉清單），不從本類類推。
 
 ## 不適用（同樣是封閉列舉，只有三類）
 
 1. **開發與發布工具鏈自身的網路操作**——`git`、`gh`、`swift` 的套件解析、`claude plugin`、
    `xcrun notarytool`。它們不是 skill 在「取得資料」，是工具在做自己的工作。
-2. **本機檔案與本機工具**——`pdftotext`、`akashic` CLI、`akashic-guards`。沒有網路。
+2. **本機檔案與不連網的本機工具**——`pdftotext`、`akashic` CLI 與 `akashic-mcp`、`akashic-guards`。
+   **`akashic s2` 與 `akashic_s2` 不在此類**：它們連網，歸上面〈例外〉第 2 類，受那一類的邊界
+   約束。#664 之前本類寫的是「`akashic` CLI……沒有網路」，`akashic s2` 落地後那句為假；所以把
+   它點名排除，而不是讓「本機工具」這個字面把一個連網的子命令收進來。
 3. **使用者本人在瀏覽器上的操作**——登入、授權、付費牆後的點擊。那是人的動作；skill 不代按
    登入或授權按鈕。
 
@@ -172,15 +204,26 @@ grep -rlE -- '--tab-in-window' plugin/skills plugins/*/skills Sources | grep -vE
 
 ## 為什麼
 
-1. **本體已經是離線的**。把 HTTP client 加進 `Sources/` 是架構上的改變，不該為了某一個 skill
-   方便就發生；所有外部取得都在 skill 層，路徑統一才看得清楚。
+1. **本體除了一個目錄以外是離線的**。把 HTTP client 加進 `Sources/` 是架構上的改變，不該為了
+   某一個 skill 方便就發生；不需金鑰的外部取得都在 skill 層，路徑統一才看得清楚。這個改變只發生
+   過一次（#664，見第 4 點），而且被守衛鎖在一個目錄裡。
 2. **Safari 帶著使用者的 session 與一般瀏覽器指紋**。2026-09-17 實測：Bargh 等 (1996)、
    Greenwald 等 (1998)、Gignac 與 Zajenkowski (2020) 的摘要，PsycNet 回 loading 頁、
    ScienceDirect 回 403、OpenAlex 一篇空白一篇對錯篇，開 Safari 則都讀得到（使用者全域規則
    「網頁抓不到就開 Safari」記載的事例）。
 3. **只有一條路徑，中止條款才涵蓋得到**。fetch-fulltext 的「懷疑是自動化就整批停」只作用在
    它自己走的那條路；若同一個 repo 裡還有 `curl` 與 `WebFetch` 在跑，同一個網站會從別的路徑
-   繼續被打。
+   繼續被打。#664 的 S2 例外是另一個主機、另一條路徑，所以它的限流處理寫在它自己的邊界裡
+   （〈例外〉第 2 類），不假裝被這條中止條款涵蓋。
+4. **帶金鑰的查詢不能經 safari-browser，也不該由各 skill 各做一份**（#664，2026-09-29）。頁內
+   fetch 要把金鑰交給 `safari-browser js` 的指令參數，會出現在 process list（#640 指出）。要用
+   S2 的工作線有五條（#640、#620、#621、#622、#665），各自實作就是五份金鑰處理與節流；而 S2 的
+   額度是一把金鑰全機共用（有金鑰時所有端點合計每秒 1 次），CLI 與 MCP server 是不同程序，兩個
+   session 各自節流仍會一起超速——跨程序節流只有一個共用的實作做得到。所以放進本體，而且是獨立的
+   `AkashicS2` target 而不是 `AkashicCore`：網路程式與離線本體混在同一個 target 時，守衛只能靠掃
+   字串分辨哪些檔可以連網；獨立 target 讓「可以連網的地方」等於一個目錄。使用者在 #664 的
+   Clarity Surface 與 spectra-discuss 定案：一個共用接口、兩個面都要、帶金鑰的 S2 呼叫列為本規則的
+   封閉例外、只在本機使用、沒有金鑰就提示設定。
 
 ## 觸發過的實例
 
@@ -191,3 +234,4 @@ grep -rlE -- '--tab-in-window' plugin/skills plugins/*/skills Sources | grep -vE
 | 2026-09-29 | #634 遷移 8 個散文檔時，逐檔讀出量法看不到的取得路徑（見〈既有檔〉的兩個盲區）；讀 `crossref_match.py` 發現它的錯誤處理不是中止條款：查詢階段的請求失敗讓整支腳本以未捕捉的例外中止、反向驗證把錯誤寫進結果後繼續下一筆。另見 `fetch-fulltext.sh` 以視窗編號＋分頁位置鎖分頁（#613 的作法，`publishers.md` 記著理由），與上面的鎖法不同——它取得走 safari-browser、不在清單內，#634 沒有處理 | 8 檔改為指向 `web-access.md`；量法加「含指標即已遷移」與盲區說明；剩下 3 個各有阻塞原因（#629／#593），照實保留；`fetch-fulltext.sh` 的鎖法差異留給使用者裁決（**同日驗證後改為列入清單，見下一列**） |
 | 2026-09-29 | #634 的六席驗證（51 則）：(1) `--url-exact` 比的是 Safari 回報的網址而我們拿自己組的字串比，轉址與百分比編碼讓它鎖不到，且沒有 miss 處置（第 16 列）；(2) `web-access.md` 的 DOM 讀取步驟直接用 `"${LOCK[@]}"`，遺失時退回 front tab（第 1 列）；(3) `landing_page_url` 這類 API 回應裡的網址被交給使用者已登入的 Safari 開（第 8 列）；(4) 完整網址進 shell 字串（第 9 列）；(5) `akashic-fetch-fulltext` 被當成已遷移，而腳本鎖法沒動（第 3／12／41／47 列）；(6) 量法沒掃 `plugin/rules`（第 20 列）；(7) 兩份操作程序只靠叮嚀、已分岔（第 25／33 列）；(8) 404 與「不是 JSON」對同一個回應各說各話（第 26／32／38 列） | 鎖法改為 `--profile`＋`--url-endswith`（理由、查證、沒實測見〈使用紀律〉）；每個區塊自足；加〈開的網址從哪來〉與「完整網址」形狀列；判斷順序寫明；`fetch-fulltext` 列入形狀 (b)；量法補掃 `plugin/rules`；兩份程序的鏡像顯式成列（〈操作程序的兩份描述〉）。**沒有實跑 safari-browser**（限制：不得操作 Safari）：第 16 列的修法只讀了 `--help` 與 binary 字串表 |
 | 2026-09-29 | #629 第二塊：把 `crossref_match.py`、`calibrate_title_match.py`（直連 Crossref 的 Python 腳本）與 `fetch-fulltext.sh`（視窗編號鎖）移植成 Swift。直連的兩支若照字面移植就是在 `Sources/` 新增 HTTP client；`fetch-fulltext.sh` 若順手改鎖法，就是在沒有裁決、沒有實跑 Safari 的情況下改動一條安全紀律 | `crossref-match` 做成重播式（取得回到 skill，缺的請求以 JSON 列出、exit 3）、`calibrate` 讀本機目錄，`Sources/` 仍沒有 HTTP client；`fetch` 鎖法不變（〈例外〉第二種形狀），改 `--url-endswith` 仍待使用者裁決。新舊差分（17 萬個判定案例、1,860 筆 Crossref 比對、18 條 fetch 路徑對同一個 stub）記在 changelog；**Swift 版 `fetch` 沒有對真的 safari-browser 跑過**（不得操作 Safari），引數向量逐字沿用舊腳本、由測試逐條斷言 |
+| 2026-09-29 | #664：使用者有 Semantic Scholar 的 API 金鑰，想讓 Akashic 用它查詢。照本規則只能經 safari-browser 頁內 fetch，而那得把金鑰放進 `safari-browser js` 的指令參數、出現在 process list（#640 指出）；五條要用 S2 的工作線（#640、#620、#621、#622、#665）各自實作又會有五份金鑰處理與節流。本規則當時的第 2 條（`Sources/` 不新增 HTTP client）與「不適用」第 2 類（「`akashic` CLI……沒有網路」）都擋在這條路上 | 使用者在 Clarity Surface 與 spectra-discuss 定案後，Spectra change `semantic-scholar-interface` 新增 `AkashicS2` target、`akashic s2` 子命令群與 `akashic_s2` MCP 工具；第 2 條改為只有 `Sources/AkashicS2/` 例外、〈例外〉從一類改為兩類、「不適用」第 2 類點名排除 `akashic s2`；`akashic-guards network-confinement`（負對照 `network-confinement-mutations`）把網路與 keychain API 鎖在那個目錄 |

@@ -97,8 +97,9 @@ func parityTableDrift() -> Int32 {
     var fails: [String] = []
 
     // ① MCP 面：嚴格集合相等，兩個方向都驗。
-    let real = Set(captures(server, #"Tool\(name: "(akashic_[a-z_]+)""#))
-    let listed = Set(captures(rule, #"^\| `(akashic_[a-z_]+)`"#, multiline: true))
+    // 名稱允許數字（#664：`akashic_s2`）——`[a-z_]+` 會把它整個漏掉，而兩邊一起漏時集合仍相等、守衛照綠。
+    let real = Set(captures(server, #"Tool\(name: "(akashic_[a-z0-9_]+)""#))
+    let listed = Set(captures(rule, #"^\| `(akashic_[a-z0-9_]+)`"#, multiline: true))
     if real.isEmpty {
         fails.append("從 Server.swift 抽不到任何 `Tool(name:)`——抽取式與宣告寫法脫節了")
     }
@@ -112,7 +113,8 @@ func parityTableDrift() -> Int32 {
     // ② CLI 面
     var types: [String] = []
     if let arr = firstGroup(cli, #"subcommands:\s*\[(.*?)\]"#, dotAll: true) {
-        types = captures(arr, #"([A-Za-z]+)\.self"#)
+        // 型別名允許數字（#664：`S2Cmd.self` 在 `[A-Za-z]+` 下被讀成 `Cmd`、抽不到 commandName）。
+        types = captures(arr, #"([A-Za-z][A-Za-z0-9]*)\.self"#)
     } else {
         fails.append("在 CLI.swift 找不到 subcommands 陣列——抽取式脫節了")
     }

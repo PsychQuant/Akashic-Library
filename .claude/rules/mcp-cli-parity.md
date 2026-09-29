@@ -17,9 +17,10 @@ CLI-only 能力已於同日一次性補裁（見 CLI-only 表）——此前的�
 **在 `Server.swift` 新增一個工具的同一個變更裡，必須裁決它的 CLI 面**，二選一：
 
 1. **同時補 CLI subcommand**（照 `PersonCommand.swift` 模式：同一個
-   `AkashicService` 函式、`key:` 必帶；**讀取面**須 `--json` 原樣轉印 + 人可讀
-   同源。**寫入面是封閉例外**：只回 service payload、不設 `--json` 旗標也無人可讀
-   分支——`link`／`tag`／`set-status` 即此形；例外只有這一類，不得類推），**並在
+   `AkashicService` 函式、`key:` 必帶（能力不開 store 時改為兩面同一個不經服務層的
+   library 函式、沒有 `key:`——目前只有 `akashic_s2`／`s2` 一列，走 `AkashicS2`，理由見
+   該列）；**讀取面**須 `--json` 原樣轉印 + 人可讀同源。**寫入面是封閉例外**：只回
+   service payload、不設 `--json` 旗標也無人可讀分支——`link`／`tag`／`set-status` 即此形；例外只有這一類，不得類推），**並在
    下表加一列**；或
 2. **記錄一個有理由的缺席**——開 issue 載明為什麼這個能力可以只有 MCP 面
    （判準見下），並在下表加一列指向該 issue。
@@ -34,7 +35,7 @@ CLI-only 能力已於同日一次性補裁（見 CLI-only 表）——此前的�
 
 （#206 對匯入面的原話：「能不能無損匯入，不該取決於使用者會不會寫 script。」）
 
-## 裁決史（封閉列舉——現有 33 工具，一格不多一格不少）
+## 裁決史（封閉列舉——現有 34 工具，一格不多一格不少）
 
 | MCP 工具 | CLI 對應 | 裁決 |
 |---|---|---|
@@ -108,7 +109,7 @@ CLI-only 能力已於同日一次性補裁（見 CLI-only 表）——此前的�
 
 **兩面同契約**：per-id 顯式、整批拒絕零寫入、**與 `split_author`／`attribute_org` 三者互斥且都不與其餘腿組合**（它同樣改作者位的數量，N → 1）。段已升格為 `.key`／`.organization` 時拒絕並**指向 `demote`**——把已歸戶的身分塞回黏著的 literal 是判定的逆轉，不屬本面。
 
-**它不是新的一列，是既有 `akashic_resolve_people` 的一個參數**——加列會讓上表的封閉列舉與機械稽核（`grep -oE 'Tool\(name: "akashic_[a-z_]+"'`）對不上。#513 的 Expected 寫「兩張表各加一列」，那個寫法會壞掉本檔自己的稽核程序。
+**它不是新的一列，是既有 `akashic_resolve_people` 的一個參數**——加列會讓上表的封閉列舉與機械稽核（`grep -oE 'Tool\(name: "akashic_[a-z0-9_]+"'`）對不上。#513 的 Expected 寫「兩張表各加一列」，那個寫法會壞掉本檔自己的稽核程序。
 
 **#443 起多一個團體作者的升格面**（`--attribute-org` / `attribute_org`，兩面同走
 `attributeToOrganizations`）：`.literal` → **`.organization`**。`Author` 的三態
@@ -165,6 +166,7 @@ per-id 顯式契約。兩面的失敗語意相同且刻意分兩類：輸入語�
 | `akashic_store_source` | `store-source` | ✅（#264；**讀取面慣例**而非寫入面封閉例外——receipt 的 `discardedProvenance` 攜帶「你這份敘述沒被寫入」，人需要看得懂，故 `--json` 原樣轉印＋人可讀同源。收**檔案路徑**不收 base64／stdin：MCP 面無 stdin 會讓兩面分岔，base64 把二進位塞進 JSON 會膨脹並整份進 context（#165 的既有威脅模型）。`SourceStore.storeSource` 的寫入面防護 #224 已完成，本格只補呼叫端——先前全樹零 production 呼叫端，能力只有寫 Swift 的人做得到，#206 判準的同形）|
 | `akashic_enrich_from_zotero` | `enrich-from-zotero` | ✅（#340；**#206／#290 判準的第三次套用**——那句原話是「能不能無損匯入，不該取決於使用者會不會寫 script」，在這裡是「能不能把一筆跌破下限的記錄補回下限，不該取決於面」。兩面同走 `ZoteroEnrichment.plan`。**契約有記錄的差異**：CLI 的 `--apply`走 #298 的破壞性閘、MCP 面用 `dry_run` 且**不設閘**——該閘擋的是「篩選式批次寫入未指名目標」，而本 tool 收的是逐筆顯式指名的 citekey 清單，與 `resolve-people` 的 tier 閘同型不對稱。**與 `akashic_import_zotero` 刻意不同語意**：那是 pull（整份替換 `fields`、重設 `type`、覆寫未歸戶作者），這是 add-only；同一個 store 上兩種語意並存是設計，不是重複） **#628 重新確認，裁決不變、契約有改**：citekey 重複或與另一筆 work 共用 id 的歸新的 `unlocatable` 類，兩面同一個 plan。 **#641**：`unlocatable` 自此含load 以 #631 的同一組前置判斷標出的、寫入時一定會被拒的 work（legacy 殘留加上未受 git 追蹤、目的檔被隔離或兩份並存）。 |
 | `akashic_enrich` | `enrich` | ✅（#458；**#554 R26 D73 重新確認（R27 補記），裁決不變、契約有改**：`applied` 的來源 reference 冪等自此比位元組（`byteExactKey`），同一次呼叫送兩次只差 NFC／NFD 的 judgement 兩筆都落盤、沒有掃描面看得到——缺口記 #582；generic add-only 補值——`akashic_enrich_from_zotero` 那列的**一般化**：政策抽成 `AddOnlyEnrichment`（AkashicCore）一份，Zotero 版降為它的 adapter，兩面同走 `AkashicService.enrich`。輸入以 citekey 或 DOI 定位（DOI 相等是 `identity-is-judged-not-matched` 的識別碼例外，對回 citekey 由程式做；命中 ≥2 筆＝`ambiguous`、具名全部 citekey、零寫入——不判定哪筆才對，那是 #459）。雙摘要分鍵（`abstract-<lang>`／`abstract-2` → `abstract_es`／`abstract_2`）；`sourceDigest` 只回顯不進 store（第 15 條邊的值域是 #450 的裁決；**#517 起不再成立**，見本列後段）。**契約差異沿上一列**：CLI `--apply` 走 #298 閘、MCP `dry_run` 預設 true 且**不設閘**（逐筆顯式指名）。**第二個有記錄的差異**：MCP 面 items 截 20 筆（`counts`／`written`／`writeFailed` 永遠完整、`itemsTotal`／`truncated` 揭露）、CLI 不截——同 #388 `--rows` 那格的理由：上限保護的是消費端，MCP 的輸出進 LLM context。兩面**同一個 JSON 解析器**（`AddOnlyEnrichment.decodeProposals`：CLI 讀 `--from` 檔、MCP 把 `Value` 編回 JSON 再解），頂層未知鍵整批拒絕——把 `abstract` 寫在頂層而非 `fields` 是最容易犯的錯，靜默略過會讓那筆看起來「補了」）。**#517 起 `sourceDigest` 寫得進 store**：提案多收 `sourceURL`／`sourceRetrieved`／`sourceMediaType`／`sourceStatus`（蛇形同收），三欄齊備時每個補進去的欄位寫一筆 `retrieval` reference（**#542 R2 起是四欄**：`sourceStatus` 必要、不再預設 200——一份離線掃描檔曾因此被記成 HTTP 200；給了幾個卻不齊時缺哪些進 `provenanceSkipped`，不只「有 digest」那一種；三個來源字串納入 #519 的長度上限；digest 不合法整批拒絕）（`fields.<鍵>`／識別碼帶 value），與被補的值**同一次寫入**；**只給 digest 仍只回顯**，理由具名進 `provenanceSkipped`——一次取得的 url 與日期沒有別的地方記，digest 單獨湊不出一筆誠實的 retrieval。新鍵**不必逐面加**：兩面本來就同一個解析器（本列既有記載），這是那個設計的第一次兌現——**但這句只對解析器成立，對 MCP 的 input schema 不成立**（#542 R1 verify 兩席 HIGH）：proposals item 宣告 `additionalProperties: false` 而只列了 `sourceDigest`，照 schema 呼叫的 client 送不出另外四個欄位。#542 起 schema 列齊五個來源欄位；**#542 重新確認，裁決不變、契約有改**：item 的 provenance 狀態三個鍵擇一（`provenancePlanned`／`provenanceWritten`／`provenanceNotWritten`），兩面同一個 payload；~~date／authors 不產生 reference（#655）~~ → 見本列末 #655 **#628 重新確認，裁決不變、契約有改**：citekey（直接給或由 DOI 對回）無法唯一定位時，該筆歸 `ambiguous`、理由與 DOI 多筆命中分開說，兩面同一個 core plan。 **#641**：`ambiguous` 的無法唯一定位自此含load 以 #631 的同一組前置判斷標出的、寫入時一定會被拒的 work（legacy 殘留加上未受 git 追蹤、目的檔被隔離或兩份並存）。 **#655 重新確認，裁決不變、契約有改**（使用者 2026-09-28 裁決）：補進去的 `date` 在來源四欄齊備時也寫一筆 retrieval reference（第 15 條邊的新格 `field: date`，store format ≥ 20），與其他欄位同走 `provenancePlanned`／`provenanceWritten`／`provenanceNotWritten`；補進去的 `authors` 一律不寫（`field: authors` 是作者位記錄的格子）。兩面同時新增 item 的 **`provenanceOmitted`**（欄位 → 理由）：來源齊備、值補了、reference 刻意不寫的欄位——`authors` 一律、`date` 在 store format 低於 20 時（值照補，理由說出 format 與門檻）。它與三個狀態鍵**正交**，刻意不借 `provenanceNotWritten`：那個鍵的語意是「apply 時那一筆寫入失敗」（#542 的「鍵名本身說出事實」），刻意不寫與寫入失敗是兩件事。format 由 service 在寫入前讀 marker 判定（`StoreVersion.workDateReferenceFormat`，與寫入閘同一個常數），兩面同一條 service 路徑；MCP schema 的 `date`／`authors` 描述與 CLI `--from` 的 help 同批改寫，CLI 逐欄印「來源未記：」。 **#654 重新確認，裁決不變、契約有改**：`sourceDigest` 是空內容的 digest（0 byte 的 SHA-256）時整批拒絕、訊息說 0 byte 而不說形狀錯。閘是 `ProvenanceReference.isValidDigest` 本身（兩面同一個 core 驗證），所以收 digest 的其他面——`akashic_update_person` 的 references、`akashic_update_venue` 的 `paginated` rests-on、三個 resolve 族的 undecided rests-on、`akashic_record_divergence` 的依據——兩面同時拒收，那幾列不逐列重述。 **#668 重新確認，裁決不變、契約有改**：store format 低於 `StoreVersion.workFieldReferenceFormat`（17）時，`fields.<鍵>` 的值照補、reference 不寫，理由逐鍵進 `provenanceOmitted`（鍵是 `fields.<鍵>`）——與 `date` 在 20 以下的處置同形，兩面同一個 payload。 |
+| `akashic_s2` | `s2`（`paper`／`match`／`batch`／`references`／`citations`／`recommend`／`author-search`／`author-papers`／`status`）| ✅（#664；Spectra change `semantic-scholar-interface`）。**本表第一個連網的工具**：兩面同走 `AkashicS2`（`S2Endpoints`／`S2Client`／`S2Output`），**不經 `AkashicService`、不開 store**——S2 的回傳是線索，不是寫入；包進綁 store 的服務層只會多一層只轉呼叫的 adapter（design 的否決理由）。網路與 keychain API 只准出現在 `Sources/AkashicS2/`（`akashic-guards network-confinement`，負對照 `network-confinement-mutations`），這個例外的理由在 `web-access-via-safari-browser` 的〈例外〉第 2 類。**兩面同契約**：金鑰只從 keychain（service `semantic-scholar`、account `default`）在程序內非互動讀取，不收參數或環境變數，缺金鑰不退回匿名請求；`x-api-key` 只附給 `https` 且 host 恰為 `api.semanticscholar.org` 的請求；全機合計每秒至多 1 個請求、429 共用退避、同一請求至多重試 3 次；以 `10.` 開頭的裸 DOI 補 `DOI:`；S2 的每個字串經 `displaySafe`；`status` 兩面同一份 JSON（`S2Output.statusJSON`），不連網、不含金鑰也不含它的長度。**錯誤文字兩面逐字相同**：金鑰不可用、限流用盡、S2／網路錯誤都經 `displaySafeErrorMultiline(_:prefix: "Error: ")`，CLI 以結束碼 3／4／5 區分，MCP 回 `isError: true`。CLI 另有兩個碼（MCP 一律 `isError: true`）：1＝要讀 argv 以外才判得出的錯（環境覆寫被拒、`--ids-file` 讀不到或筆數不合、節流狀態檔無法使用——#549 的判準），64＝只看 argv 判得出的錯（`--limit`／`--offset` 的範圍、識別碼空白或含 `.`／`..` 路徑片段，在 `validate()` 檢查、早於任何 I/O）。**有記錄的差異**：(a) **位元組上限**——MCP 受 48 KiB（`S2Output.mcpByteBudget`，與 `akashic_doctor` 的 `candidateByteBudget` 同值），只放完整的筆數，以 `total`／`returned`／`truncated`／`offset`／`nextOffset` 揭露、`truncated` 時以 `nextOffset` 續查；CLI 不截。理由同本表 `akashic_doctor` 列與 #388 `--rows` 那格的面級分工：MCP 的輸出進 LLM context，呼叫端收到後無法退回已付的代價；CLI 的輸出進人的終端機。(b) **分頁**——CLI 的 `references`／`citations`／`author-papers` 省略 `--limit` 時翻完全部頁；MCP 的分頁端點省略 `limit` 時一次只向 S2 要 100 筆（`S2Tool.defaultPageLimit`），其餘以 `offset` 續查——一次呼叫不拉回上千筆。`author-search` 省略時兩面都是 100 筆，`recommend` 兩面都是 1–500、預設 100。(c) **輸出形**——CLI 預設印人可讀（一行一筆），`--json` 是 `{source,endpoint,request,fetchedAt,total,data}` 信封，兩者同源；MCP 只回 `{endpoint,total,returned,truncated,offset,nextOffset,data}`。(d) **輸入形**——`batch` 在 CLI 收 `--ids-file`（一行一個 id）、在 MCP 收 `ids` 陣列；端點名 CLI 用連字號（`author-search`）、MCP 用底線（`author_search`）。(e) **`status` 的結束狀態**——CLI 在金鑰不存在或讀不到時以 3 結束（skill 只看結束碼就能決定要不要提示設定），MCP 照常回成功、由呼叫端讀 `keychain.present`／`keychain.readable`——與 #624 全數排除「CLI 非零結束、MCP 由呼叫端讀欄位」同形 |
 
 **#654 重新確認（2026-09-28），各列裁決不變、兩面契約有一處改**：服務層只看參數的檢查——id 與 `key:shape` 的形狀、理由的空白與長度、同一批重複、一次的上限、rests-on 的 digest、key 的格式、互斥與必填——抽成不碰 store 的 static 函式，服務方法在讀 store 之前呼叫，CLI 的 `validate()` 呼叫同一個函式（同一件事只有一份描述）。兩面拒絕的集合不變，變的是**先後**：一次呼叫同時有參數錯與 store 狀態不符時，兩面都先報參數錯（先前依迴圈順序，可能先報 store 狀態或 format 閘）；add_person／add_venue 的 key 格式先前在寫入閘擋、訊息是 store 層的，現在服務先擋。CLI 面對這些錯誤自此回 64（用法錯誤）而不是 1——判準與仍是 1 的站點在 `RuntimeFailure` 的 doc。涵蓋 resolve_people（judge／refute／undecided／split／un-split／drop／attribute-org）、resolve_venues（repoint／demote／drop／undecided）、resolve_organizations（undecided 與 judge 的一次上限、undecided 的 rests-on digest、連一個 `@<orgKey>=` 位置都沒有的 id）、update_venue、add_venue、add_person、update_person（CLI 只在 `--fields` 時）、record_divergence、store_source、person、venue、link、tag、set_status 這幾列，各列不逐列重述。
 
@@ -178,8 +180,10 @@ per-id 顯式契約。兩面的失敗語意相同且刻意分兩類：輸入語�
 不要相信作者窮舉過（`entity-backlink-completeness` 的表錯過兩次，教訓同形）：
 
 ```bash
-# ① MCP 面的全部工具名（實測：恰 30，與表零差集）
-grep -oE 'Tool\(name: "akashic_[a-z_]+"' Sources/akashic-mcp/Server.swift | sort -u
+# ① MCP 面的全部工具名（2026-09-29 #664 量：恰 34，與表零差集）。字元類要含 0-9：
+#    `akashic_s2` 是第一個名字帶數字的工具，先前的 `[a-z_]+` 在 Server.swift 與表兩邊
+#    一起漏掉它——兩邊的數字仍然相等（33 對 33），什麼都不會紅
+grep -oE 'Tool\(name: "akashic_[a-z0-9_]+"' Sources/akashic-mcp/Server.swift | sort -u
 # ② CLI 面的全部註冊型別（取 subcommands 陣列整段，不靠型別命名慣例——
 #    第一版寫 '[A-Za-z]+Cmd?\.self' 只命中 11/30：`Cmd?` 是「Cm+可選 d」，
 #    #219 verify 三個 lens 獨立抓到。稽核程序自己也要被稽核）

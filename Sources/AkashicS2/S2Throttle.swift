@@ -1,12 +1,13 @@
 import AkashicCore
 import Foundation
 
-public enum S2ThrottleError: Error, Equatable, CustomStringConvertible {
+/// path 在擲出端逃脫一次，描述原樣組句（#554）。
+public enum S2ThrottleError: Error, Equatable, CustomStringConvertible, SanitizedErrorDescription {
     case stateFile(path: String, errno: Int32)
 
     public var description: String {
         switch self {
-        case .stateFile(let path, let e): return "無法使用 S2 節流狀態檔 \(displaySafe(path, max: 800))（errno \(e)）"
+        case .stateFile(let path, let e): return "無法使用 S2 節流狀態檔 \(path)（errno \(e)）"
         }
     }
 }
@@ -97,15 +98,15 @@ public final class S2FileThrottle: S2Throttling, @unchecked Sendable {
             attributes: [.posixPermissions: 0o700])
         let path = stateFile.path
         let fd = open(path, O_RDWR | O_CREAT, 0o600)
-        guard fd >= 0 else { throw S2ThrottleError.stateFile(path: path, errno: errno) }
+        guard fd >= 0 else { throw S2ThrottleError.stateFile(path: displaySafeInvisible(path, max: 800), errno: errno) }
         defer { close(fd) }
-        guard flock(fd, LOCK_EX) == 0 else { throw S2ThrottleError.stateFile(path: path, errno: errno) }
+        guard flock(fd, LOCK_EX) == 0 else { throw S2ThrottleError.stateFile(path: displaySafeInvisible(path, max: 800), errno: errno) }
 
         var bytes = Data()
         var buffer = [UInt8](repeating: 0, count: 4096)
         while true {
             let n = read(fd, &buffer, buffer.count)
-            if n < 0 { throw S2ThrottleError.stateFile(path: path, errno: errno) }
+            if n < 0 { throw S2ThrottleError.stateFile(path: displaySafeInvisible(path, max: 800), errno: errno) }
             if n == 0 { break }
             bytes.append(buffer, count: n)
         }
@@ -115,10 +116,10 @@ public final class S2FileThrottle: S2Throttling, @unchecked Sendable {
 
         let out = try JSONEncoder().encode(state)
         guard ftruncate(fd, 0) == 0, lseek(fd, 0, SEEK_SET) == 0 else {
-            throw S2ThrottleError.stateFile(path: path, errno: errno)
+            throw S2ThrottleError.stateFile(path: displaySafeInvisible(path, max: 800), errno: errno)
         }
         let written = out.withUnsafeBytes { write(fd, $0.baseAddress, out.count) }
-        guard written == out.count else { throw S2ThrottleError.stateFile(path: path, errno: errno) }
+        guard written == out.count else { throw S2ThrottleError.stateFile(path: displaySafeInvisible(path, max: 800), errno: errno) }
         return result
     }
 }

@@ -215,12 +215,22 @@ final class S2CommandTests: XCTestCase {
         }
     }
 
-    /// spec Scenario「A base URL pointing elsewhere is refused」。
-    func testBaseURLOutsideLoopbackExits64() throws {
+    /// spec Scenario「A base URL pointing elsewhere is refused」：環境變數不是 argv（#549），回 1。
+    func testBaseURLOutsideLoopbackExitsOne() throws {
         let r = try CLITestHarness.run(["s2", "paper", "DOI:10.1/x"],
                                        env: env(["AKASHIC_S2_BASE_URL": "https://example.org"]))
-        XCTAssertEqual(r.status, 64, r.output)
-        XCTAssertTrue(r.output.contains("AKASHIC_S2_BASE_URL"), r.output)   // 64 來自覆寫被拒，不是未知子命令
+        XCTAssertEqual(r.status, 1, r.output)
+        XCTAssertTrue(r.output.contains("AKASHIC_S2_BASE_URL"), r.output)
+    }
+
+    /// 只看 argv 判得出的錯誤在 validate() 回 64（#549）：--limit 0、識別碼含 .. 路徑片段。
+    func testArgvErrorsExit64() throws {
+        let limit = try CLITestHarness.run(["s2", "references", "DOI:10.1/x", "--limit", "0"], env: env())
+        XCTAssertEqual(limit.status, 64, limit.output)
+        let dots = try CLITestHarness.run(["s2", "paper", "../../author/1"], env: env())
+        XCTAssertEqual(dots.status, 64, dots.output)
+        let rec = try CLITestHarness.run(["s2", "recommend", "DOI:10.1/x", "--limit", "501"], env: env())
+        XCTAssertEqual(rec.status, 64, rec.output)
     }
 }
 

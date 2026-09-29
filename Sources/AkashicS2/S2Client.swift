@@ -51,21 +51,21 @@ public struct S2Settings: Sendable, Equatable {
 
         var target = Target.semanticScholar
         if let raw = value("AKASHIC_S2_BASE_URL") {
-            guard let url = loopbackURL(raw) else { throw S2SettingsError.baseURLNotLoopback(raw) }
+            guard let url = loopbackURL(raw) else { throw S2SettingsError.baseURLNotLoopback(displaySafeInvisible(raw)) }
             target = .loopback(url)
         }
 
         var service = keychainService
         if let raw = value("AKASHIC_S2_KEYCHAIN_SERVICE") {
             guard raw.hasPrefix(testServicePrefix), raw.count > testServicePrefix.count else {
-                throw S2SettingsError.keychainServiceNotForTests(raw)
+                throw S2SettingsError.keychainServiceNotForTests(displaySafeInvisible(raw))
             }
             service = raw
         }
 
         let stateDirectory: URL
         if let raw = value("AKASHIC_S2_STATE_DIR") {
-            guard raw.hasPrefix("/") else { throw S2SettingsError.stateDirectoryNotAbsolute(raw) }
+            guard raw.hasPrefix("/") else { throw S2SettingsError.stateDirectoryNotAbsolute(displaySafeInvisible(raw)) }
             stateDirectory = URL(fileURLWithPath: raw, isDirectory: true)
         } else if let home = value("HOME") {
             // 依注入的 HOME 展開（#309 的教訓：NSHomeDirectory() 無視 $HOME）。
@@ -98,7 +98,8 @@ public struct S2Settings: Sendable, Equatable {
     }
 }
 
-public enum S2SettingsError: Error, Equatable, CustomStringConvertible {
+/// payload 在擲出端逃脫一次（`displaySafeInvisible`），描述原樣組句——repo 的消毒紀律（#554）。
+public enum S2SettingsError: Error, Equatable, CustomStringConvertible, SanitizedErrorDescription {
     case baseURLNotLoopback(String)
     case keychainServiceNotForTests(String)
     case stateDirectoryNotAbsolute(String)
@@ -106,11 +107,11 @@ public enum S2SettingsError: Error, Equatable, CustomStringConvertible {
     public var description: String {
         switch self {
         case .baseURLNotLoopback(let raw):
-            return "AKASHIC_S2_BASE_URL 只接受本機位址（http://127.0.0.1、http://localhost、http://[::1]，可帶 port）；收到「\(displaySafe(raw))」"
+            return "AKASHIC_S2_BASE_URL 只接受本機位址（http://127.0.0.1、http://localhost、http://[::1]，可帶 port）；收到「\(raw)」"
         case .keychainServiceNotForTests(let raw):
-            return "AKASHIC_S2_KEYCHAIN_SERVICE 只接受以「akashic-test-」開頭的測試用名稱；收到「\(displaySafe(raw))」"
+            return "AKASHIC_S2_KEYCHAIN_SERVICE 只接受以「akashic-test-」開頭的測試用名稱；收到「\(raw)」"
         case .stateDirectoryNotAbsolute(let raw):
-            return "AKASHIC_S2_STATE_DIR 必須是絕對路徑；收到「\(displaySafe(raw))」"
+            return "AKASHIC_S2_STATE_DIR 必須是絕對路徑；收到「\(raw)」"
         }
     }
 }
@@ -143,7 +144,8 @@ public struct S2Request: Sendable, Equatable {
 }
 
 /// 錯誤文字只含端點、狀態碼、識別碼與錯誤類別——**不含任何請求 header**。
-public enum S2Error: Error, Equatable, CustomStringConvertible {
+/// payload 在擲出端逃脫一次，描述原樣組句（#554）。
+public enum S2Error: Error, Equatable, CustomStringConvertible, SanitizedErrorDescription {
     case keyUnavailable(S2KeyError)
     case notFound(endpoint: String, subject: String)
     case rateLimited(endpoint: String, reason: String)
@@ -155,9 +157,9 @@ public enum S2Error: Error, Equatable, CustomStringConvertible {
     public var description: String {
         switch self {
         case .keyUnavailable(let e):
-            return e.description
+            return displaySafeErrorText(e)
         case .notFound(let endpoint, let subject):
-            return "Semantic Scholar 找不到「\(displaySafe(subject))」（\(endpoint)）"
+            return "Semantic Scholar 找不到「\(subject)」（\(endpoint)）"
         case .rateLimited(let endpoint, let reason):
             return "Semantic Scholar 限流用盡（\(endpoint)）：\(reason)"
         case .http(let endpoint, let status):
@@ -199,7 +201,7 @@ public final class S2Client: Sendable {
     public func send(_ request: S2Request) async throws -> Data {
         let key: S2APIKey?
         if settings.readsKeychain {
-            do { key = try keyProvider.key() } catch let e as S2KeyError { throw S2Error.keyUnavailable(e) }
+            do { key = try keyProvider.key() } catch let e as S2KeyError { throw S2Error.keyUnavailable(e) }   // display-safe-exempt: e 是 S2KeyError（SanitizedErrorDescription，建構端已逃）
         } else {
             key = nil
         }
@@ -212,36 +214,35 @@ public final class S2Client: Sendable {
             do {
                 (data, response) = try await session.data(for: urlRequest)
             } catch let e as URLError {
-                throw S2Error.network(endpoint: request.endpoint,
-                                      reason: "URLError \(e.code.rawValue)：\(e.localizedDescription)")
+                throw S2Error.network(endpoint: displaySafeInvisible(request.endpoint), reason: displaySafeInvisible("URLError \(e.code.rawValue)"))
             } catch {
-                throw S2Error.network(endpoint: request.endpoint, reason: String(describing: type(of: error)))
+                throw S2Error.network(endpoint: displaySafeInvisible(request.endpoint), reason: displaySafeInvisible("\(type(of: error))"))
             }
             guard let http = response as? HTTPURLResponse else {
-                throw S2Error.invalidResponse(endpoint: request.endpoint)
+                throw S2Error.invalidResponse(endpoint: displaySafeInvisible(request.endpoint))
             }
             switch http.statusCode {
             case 200..<300:
                 return data
             case 404:
-                throw S2Error.notFound(endpoint: request.endpoint, subject: request.subject ?? request.path)
+                throw S2Error.notFound(endpoint: displaySafeInvisible(request.endpoint), subject: displaySafeInvisible(request.subject ?? request.path))
             case 429:
                 if attempt == Self.maxRetries {
-                    throw S2Error.rateLimited(endpoint: request.endpoint,
-                                              reason: "重試 \(Self.maxRetries) 次後仍是 429")
+                    throw S2Error.rateLimited(endpoint: displaySafeInvisible(request.endpoint),
+                                              reason: displaySafeInvisible("重試 \(Self.maxRetries) 次後仍是 429"))
                 }
                 let delay = Self.retryAfter(http.value(forHTTPHeaderField: "Retry-After"), now: now())
                     ?? Self.defaultBackOff[attempt]
                 if delay > Self.maxRetryAfter {
-                    throw S2Error.rateLimited(endpoint: request.endpoint,
-                                              reason: "Retry-After 為 \(Int(delay)) 秒，超過 \(Int(Self.maxRetryAfter)) 秒")
+                    throw S2Error.rateLimited(endpoint: displaySafeInvisible(request.endpoint),
+                                              reason: displaySafeInvisible("Retry-After 為 \(Int(delay)) 秒，超過 \(Int(Self.maxRetryAfter)) 秒"))
                 }
                 try throttle.backOff(until: now().addingTimeInterval(delay))
             default:
-                throw S2Error.http(endpoint: request.endpoint, status: http.statusCode)
+                throw S2Error.http(endpoint: displaySafeInvisible(request.endpoint), status: http.statusCode)   // display-safe-exempt: http.statusCode 是 Int
             }
         }
-        throw S2Error.rateLimited(endpoint: request.endpoint, reason: "重試 \(Self.maxRetries) 次後仍是 429")
+        throw S2Error.rateLimited(endpoint: displaySafeInvisible(request.endpoint), reason: displaySafeInvisible("重試 \(Self.maxRetries) 次後仍是 429"))
     }
 
     static let maxRetries = 3
@@ -268,7 +269,7 @@ public final class S2Client: Sendable {
         guard request.path.hasPrefix("/"),
               request.path.unicodeScalars.allSatisfy({ allowed.contains($0) }),
               var comps = URLComponents(url: settings.baseURL, resolvingAgainstBaseURL: false)
-        else { throw S2Error.invalidRequest(endpoint: request.endpoint) }
+        else { throw S2Error.invalidRequest(endpoint: displaySafeInvisible(request.endpoint)) }
         comps.percentEncodedPath = request.path
         // 自行編碼 query：URLComponents 預設不編碼 `+`，伺服器可能把它當成空白。
         var queryAllowed = CharacterSet.urlQueryAllowed
@@ -277,7 +278,7 @@ public final class S2Client: Sendable {
         comps.percentEncodedQueryItems = request.query.isEmpty ? nil : request.query.map {
             URLQueryItem(name: enc($0.name) ?? $0.name, value: $0.value.flatMap(enc))
         }
-        guard let url = comps.url else { throw S2Error.invalidRequest(endpoint: request.endpoint) }
+        guard let url = comps.url else { throw S2Error.invalidRequest(endpoint: displaySafeInvisible(request.endpoint)) }
 
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = request.method.rawValue

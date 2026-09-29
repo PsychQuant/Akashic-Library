@@ -20,10 +20,11 @@ public struct S2Result: Sendable, Equatable {
     public let data: S2JSON
 }
 
-public enum S2ArgumentError: Error, Equatable, CustomStringConvertible {
+/// 字串 payload 在擲出端逃脫一次，描述原樣組句（#554）。上限以兩個整數表示——`nil` 表示沒有上限。
+public enum S2ArgumentError: Error, Equatable, CustomStringConvertible, SanitizedErrorDescription {
     case emptyIdentifier(endpoint: String)
     case batchSize(Int)
-    case limitOutOfRange(endpoint: String, limit: Int, range: ClosedRange<Int>)
+    case limitOutOfRange(endpoint: String, limit: Int, min: Int, max: Int?)
     case negativeOffset(Int)
     case invalidIdentifier(endpoint: String, identifier: String)
 
@@ -31,11 +32,11 @@ public enum S2ArgumentError: Error, Equatable, CustomStringConvertible {
         switch self {
         case .emptyIdentifier(let e): return "\(e) 需要非空的識別碼"
         case .batchSize(let n): return "batch 一次要 1 到 500 個 id；收到 \(n) 個"
-        case .limitOutOfRange(let e, let l, let r):
-            return r.upperBound == Int.max ? "\(e) 的 --limit 至少 \(r.lowerBound)；收到 \(l)"
-                                          : "\(e) 的 --limit 要在 \(r.lowerBound) 到 \(r.upperBound) 之間；收到 \(l)"
+        case .limitOutOfRange(let e, let l, let lo, let hi):
+            if let hi { return "\(e) 的 --limit 要在 \(lo) 到 \(hi) 之間；收到 \(l)" }
+            return "\(e) 的 --limit 至少 \(lo)；收到 \(l)"
         case .negativeOffset(let o): return "--offset 不得為負；收到 \(o)"
-        case .invalidIdentifier(let e, let id): return "\(e) 的識別碼「\(displaySafe(id))」含 . 或 .. 路徑片段，不接受"
+        case .invalidIdentifier(let e, let id): return "\(e) 的識別碼「\(id)」含 . 或 .. 路徑片段，不接受"
         }
     }
 }
@@ -141,7 +142,7 @@ public struct S2Endpoints: Sendable {
 
     public func recommend(id: String, limit: Int, fields: [String]) async throws -> S2Result {
         guard Self.recommendRange.contains(limit) else {
-            throw S2ArgumentError.limitOutOfRange(endpoint: "recommend", limit: limit, range: Self.recommendRange)
+            throw S2ArgumentError.limitOutOfRange(endpoint: "recommend", limit: limit, min: 1, max: 500)   // display-safe-exempt: limit 是 Int
         }
         let pid = Self.normalizePaperID(id)
         let page = try await get("recommend",
@@ -199,7 +200,7 @@ public struct S2Endpoints: Sendable {
                           subject: String) async throws -> ([S2JSON], S2JSON?) {
         guard offset >= 0 else { throw S2ArgumentError.negativeOffset(offset) }
         if let limit, limit < 1 {
-            throw S2ArgumentError.limitOutOfRange(endpoint: endpoint, limit: limit, range: 1...Int.max)
+            throw S2ArgumentError.limitOutOfRange(endpoint: displaySafeInvisible(endpoint), limit: limit, min: 1, max: nil)   // display-safe-exempt: limit 是 Int
         }
         var records: [S2JSON] = []
         var cursor = offset
@@ -228,7 +229,7 @@ public struct S2Endpoints: Sendable {
 
     static func decode(_ data: Data, endpoint: String) throws -> S2JSON {
         do { return try JSONDecoder().decode(S2JSON.self, from: data) } catch {
-            throw S2Error.invalidResponse(endpoint: endpoint)
+            throw S2Error.invalidResponse(endpoint: displaySafeInvisible(endpoint))
         }
     }
 
@@ -240,23 +241,23 @@ public struct S2Endpoints: Sendable {
     static func list(_ fields: [String]) -> S2JSON { .array(fields.map(S2JSON.string)) }
 
     /// 以 `10.` 開頭的裸 DOI 補上 `DOI:`。
-    static func normalizePaperID(_ raw: String) -> String {
+    public static func normalizePaperID(_ raw: String) -> String {
         let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         return t.hasPrefix("10.") ? "DOI:" + t : t
     }
 
     /// 識別碼的路徑編碼：保留 `/` 與 `:`（S2 官方範例的 DOI 路徑不編碼 `/`），`?`、`#`、`%`、
     /// 空白等一律編碼。含 `.` 或 `..` 路徑片段的識別碼拒絕——正規化後可能指到別的端點。
-    static func segment(_ raw: String, endpoint: String) throws -> String {
+    public static func segment(_ raw: String, endpoint: String) throws -> String {
         let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !t.isEmpty else { throw S2ArgumentError.emptyIdentifier(endpoint: endpoint) }
+        guard !t.isEmpty else { throw S2ArgumentError.emptyIdentifier(endpoint: displaySafeInvisible(endpoint)) }
         if t.split(separator: "/", omittingEmptySubsequences: false).contains(where: { $0 == "." || $0 == ".." }) {
-            throw S2ArgumentError.invalidIdentifier(endpoint: endpoint, identifier: raw)
+            throw S2ArgumentError.invalidIdentifier(endpoint: displaySafeInvisible(endpoint), identifier: displaySafeInvisible(raw))
         }
         // `urlPathAllowed` 不含 `:`，但 S2 的識別碼語法（`DOI:…`、`CorpusId:…`）需要它原樣出現。
         let allowed = CharacterSet.urlPathAllowed.union(CharacterSet(charactersIn: ":"))
         guard let encoded = t.addingPercentEncoding(withAllowedCharacters: allowed) else {
-            throw S2ArgumentError.invalidIdentifier(endpoint: endpoint, identifier: raw)
+            throw S2ArgumentError.invalidIdentifier(endpoint: displaySafeInvisible(endpoint), identifier: displaySafeInvisible(raw))
         }
         return encoded
     }

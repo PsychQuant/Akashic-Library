@@ -139,19 +139,24 @@ The interface SHALL accept three environment overrides and SHALL refuse any valu
 - `AKASHIC_S2_KEYCHAIN_SERVICE`: only names that begin with `akashic-test-`
 - `AKASHIC_S2_STATE_DIR`: only absolute paths
 
-A refused value SHALL stop the command before any request, with exit code 64 on the CLI. While `AKASHIC_S2_BASE_URL` is set, the interface SHALL NOT read the keychain and SHALL NOT attach a key, because no request goes to the Semantic Scholar host.
+A refused value SHALL stop the command before any request, with exit code 1 on the CLI: environment variables are not command-line arguments, and exit code 64 is reserved for errors decidable from the arguments alone. While `AKASHIC_S2_BASE_URL` is set, the interface SHALL NOT read the keychain and SHALL NOT attach a key, because no request goes to the Semantic Scholar host.
 
 #### Scenario: A base URL pointing elsewhere is refused
 
 - **GIVEN** `AKASHIC_S2_BASE_URL` is `https://example.org`
 - **WHEN** any endpoint is requested
-- **THEN** the command SHALL exit with code 64 and SHALL send no request
+- **THEN** the command SHALL exit with code 1, SHALL name `AKASHIC_S2_BASE_URL`, and SHALL send no request
 
 #### Scenario: A keychain override naming a real item is refused
 
 - **GIVEN** `AKASHIC_S2_KEYCHAIN_SERVICE` is `stat-sinica-compute`
 - **WHEN** any endpoint is requested
-- **THEN** the command SHALL exit with code 64 and SHALL NOT read the keychain
+- **THEN** the command SHALL exit with code 1 and SHALL NOT read the keychain
+
+#### Scenario: Argument errors are caught before any I/O
+
+- **WHEN** the user runs `akashic s2 references DOI:10.1/x --limit 0`, `akashic s2 paper ../../author/1`, or `akashic s2 recommend DOI:10.1/x --limit 501`
+- **THEN** each command SHALL exit with code 64 without reading the keychain or sending a request
 
 ### Requirement: Status reports readiness without revealing the key
 

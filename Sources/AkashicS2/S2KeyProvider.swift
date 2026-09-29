@@ -1,3 +1,4 @@
+import AkashicCore
 import Foundation
 import LocalAuthentication
 import Security
@@ -13,7 +14,8 @@ public struct S2APIKey: Sendable, CustomStringConvertible, CustomDebugStringConv
     public var customMirror: Mirror { Mirror(self, children: [], displayStyle: .struct) }
 }
 
-public enum S2KeyError: Error, Equatable, CustomStringConvertible {
+/// service／account 在建構端逃脫一次（它們可來自測試覆寫的環境變數），描述原樣組句（#554）。
+public enum S2KeyError: Error, Equatable, CustomStringConvertible, SanitizedErrorDescription {
     /// keychain 沒有這個項目。
     case missing(service: String, account: String)
     /// 項目存在，但它的存取權限不允許在不跳授權框的情況下讀取。
@@ -69,7 +71,9 @@ public struct S2KeychainKeyProvider: S2KeyProviding {
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query(returningData: true) as CFDictionary, &result)
         if let error = Self.classify(status: status, service: service, account: account) { throw error }
-        guard let data = result as? Data else { throw S2KeyError.invalidValue(service: service, account: account) }
+        guard let data = result as? Data else {
+            throw S2KeyError.invalidValue(service: displaySafeInvisible(service), account: displaySafeInvisible(account))
+        }
         return try Self.decode(data, service: service, account: account)
     }
 
@@ -105,8 +109,10 @@ public struct S2KeychainKeyProvider: S2KeyProviding {
     static func classify(status: Int32, service: String, account: String) -> S2KeyError? {
         switch status {
         case errSecSuccess: return nil
-        case errSecItemNotFound: return .missing(service: service, account: account)
-        case errSecInteractionNotAllowed, errSecAuthFailed: return .notReadable(service: service, account: account)
+        case errSecItemNotFound:
+            return .missing(service: displaySafeInvisible(service), account: displaySafeInvisible(account))
+        case errSecInteractionNotAllowed, errSecAuthFailed:
+            return .notReadable(service: displaySafeInvisible(service), account: displaySafeInvisible(account))
         default: return .keychain(status: status)
         }
     }
@@ -114,12 +120,12 @@ public struct S2KeychainKeyProvider: S2KeyProviding {
     /// 去掉前後的空白與換行；內部含控制字元（含換行）、空值、非 UTF-8 一律拒絕。
     static func decode(_ data: Data, service: String, account: String) throws -> S2APIKey {
         guard let text = String(data: data, encoding: .utf8) else {
-            throw S2KeyError.invalidValue(service: service, account: account)
+            throw S2KeyError.invalidValue(service: displaySafeInvisible(service), account: displaySafeInvisible(account))
         }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty,
               !trimmed.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) })
-        else { throw S2KeyError.invalidValue(service: service, account: account) }
+        else { throw S2KeyError.invalidValue(service: displaySafeInvisible(service), account: displaySafeInvisible(account)) }
         return S2APIKey(value: trimmed)
     }
 }

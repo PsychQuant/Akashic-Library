@@ -131,7 +131,10 @@ in-process 的 client 測試用 `URLProtocol` stub 攔截請求，並注入替�
 | 3 | 金鑰不可用：keychain 沒有這個項目，或 ACL 不允許非互動讀取。訊息寫明 service／account，並指向 `plugin/skills/akashic-bootstrap/references/semantic-scholar.md`；ACL 的情形另外說明要改成所有 app 可讀 |
 | 4 | 限流用盡：同一請求 429 重試 3 次後仍是 429，或 `Retry-After` 超過 60 秒 |
 | 5 | S2 或網路錯誤：404（訊息說明是哪一個 id 找不到）、其他 4xx、5xx、連線失敗 |
-| 64 | 參數錯誤（ArgumentParser 既有），包括 base URL 覆寫不在允許的範圍 |
+| 1 | 需要讀 argv 以外才判得出的錯誤（#549 的判準，`RuntimeFailure`）：環境覆寫被拒、`--ids-file` 讀不到或筆數不合、節流狀態檔無法使用 |
+| 64 | 只看 argv 就判得出的參數錯誤（ArgumentParser 既有）：`--limit`、`--offset` 的範圍、識別碼空白或含 `.`／`..` 路徑片段——在 `validate()` 檢查，早於任何 I/O |
+
+錯誤文字依 repo 既有的消毒紀律（#554）：字串 payload 在擲出端以 `displaySafeInvisible` 逃脫一次，描述原樣組句，五個錯誤型別宣告 `SanitizedErrorDescription`，之後每一層只截。CLI 與 MCP 都以 `displaySafeErrorMultiline(_:prefix: "Error: ")` 輸出錯誤，兩面逐字相同。（實作任務 5.1 時由 `SanitizationBoundaryTests` 抓出：初版在描述端才清理、方向相反。）
 
 **MCP 工具 `akashic_s2`**：
 

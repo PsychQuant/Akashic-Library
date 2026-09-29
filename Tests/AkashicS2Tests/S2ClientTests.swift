@@ -428,7 +428,7 @@ final class S2EndpointsTests: XCTestCase {
                 XCTFail("expected limitOutOfRange for \(bad)")
             } catch {
                 XCTAssertEqual(error as? S2ArgumentError,
-                               .limitOutOfRange(endpoint: "recommend", limit: bad, range: 1...500))
+                               .limitOutOfRange(endpoint: "recommend", limit: bad, min: 1, max: 500))
             }
         }
     }

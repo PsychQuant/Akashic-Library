@@ -4,15 +4,16 @@ import ArgumentParser
 import Foundation
 
 /// #664：Semantic Scholar 共用接口的 CLI 面。與 MCP 的 `akashic_s2` 共用 `AkashicS2`，
-/// 不經 `AkashicService`、不開 store。結束碼：3 金鑰不可用、4 限流用盡、5 S2 或網路錯誤、
-/// 64 參數錯誤。
+/// 不經 `AkashicService`、不開 store。結束碼：3 金鑰不可用、4 限流用盡、5 S2 或網路錯誤；
+/// 依 #549 的判準，只看 argv 判得出的錯誤在 `validate()` 回 64，要讀 argv 以外（環境變數、
+/// 輸入檔、節流狀態檔）才判得出的回 1（`RuntimeFailure`）。
 struct S2Cmd: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "s2",
         abstract: "查詢 Semantic Scholar（金鑰從 keychain 讀取；全機每秒至多 1 個請求）",
         discussion: """
         金鑰存在 keychain：service「semantic-scholar」、account「default」。設定方法見 \(S2Settings.setupDocument)。
-        結束碼：0 成功、3 金鑰不可用、4 限流用盡、5 S2 或網路錯誤、64 參數錯誤。
+        結束碼：0 成功、1 環境覆寫或輸入檔有誤、3 金鑰不可用、4 限流用盡、5 S2 或網路錯誤、64 參數錯誤。
         """,
         subcommands: [S2PaperCmd.self, S2MatchCmd.self, S2BatchCmd.self, S2ReferencesCmd.self,
                       S2CitationsCmd.self, S2RecommendCmd.self, S2AuthorSearchCmd.self,
@@ -38,6 +39,14 @@ struct S2PageOptions: ParsableArguments {
 
     @Option(name: .long, help: "從第幾筆開始（0 起算）")
     var offset: Int = 0
+
+    /// 只看 argv 的檢查（#549）。
+    func validate() throws {
+        if let limit, limit < 1 {
+            throw ValidationError(displaySafeErrorText(S2ArgumentError.limitOutOfRange(endpoint: "s2", limit: limit, min: 1, max: nil)))
+        }
+        if offset < 0 { throw ValidationError(displaySafeErrorText(S2ArgumentError.negativeOffset(offset))) }
+    }
 }
 
 enum S2CLI {
@@ -56,19 +65,28 @@ enum S2CLI {
         do {
             result = try runBlocking { try await op(endpoints) }
         } catch let e as S2Error {
-            try fail(e.description, code: exitCode(for: e))
+            try fail(e, code: exitCode(for: e))
         } catch let e as S2ArgumentError {
-            throw ValidationError(displaySafe(e.description))
+            // 走到這裡的是要讀輸入檔才判得出的（batch 的筆數）；argv 的檢查在 validate()。
+            throw RuntimeFailure.state(displaySafeErrorText(e))
         } catch let e as S2ThrottleError {
-            try fail(e.description, code: 1)
+            throw RuntimeFailure.state(displaySafeErrorText(e))
         }
         let clean = S2Output.sanitized(result)
         print(options.json ? S2Output.cliJSON(clean, fetchedAt: Date()) : S2Output.humanReadable(clean))
     }
 
+    /// 環境變數不是 argv（#549）：覆寫被拒回 1，不是 64。
     static func resolveSettings() throws -> S2Settings {
         do { return try S2Settings.resolve() } catch let e as S2SettingsError {
-            throw ValidationError(displaySafe(e.description, max: 800))
+            throw RuntimeFailure.state(displaySafeErrorText(e))
+        }
+    }
+
+    /// 識別碼的 argv 檢查（空值、`.`／`..` 路徑片段）——與 `S2Endpoints` 送出前的是同一個函式。
+    static func checkIdentifier(_ raw: String, endpoint: String) throws {
+        do { _ = try S2Endpoints.segment(S2Endpoints.normalizePaperID(raw), endpoint: endpoint) } catch let e as S2ArgumentError {
+            throw ValidationError(displaySafeErrorText(e))
         }
     }
 
@@ -80,9 +98,11 @@ enum S2CLI {
         }
     }
 
-    /// 訊息印到 stderr（經 CLI 全域的清理），再以指定的碼結束。`main()` 對 `ExitCode` 不再印字。
-    static func fail(_ message: String, code: Int32) throws -> Never {
-        try? FileHandle.standardError.write(contentsOf: Data((displaySafeAssembled(message) + "\n").utf8))
+    /// 與 MCP 的錯誤出口同一個函式（`displaySafeErrorMultiline(_:prefix: "Error: ")`），兩面逐字相同。
+    /// 印到 stderr 後以指定的碼結束；`main()` 對 `ExitCode` 不再印字。
+    static func fail(_ error: S2Error, code: Int32) throws -> Never {
+        let text = displaySafeErrorMultiline(error, prefix: "Error: ")
+        try? FileHandle.standardError.write(contentsOf: Data((text + "\n").utf8))
         throw ExitCode(code)
     }
 
@@ -115,6 +135,9 @@ struct S2PaperCmd: ParsableCommand {
     static let configuration = CommandConfiguration(commandName: "paper", abstract: "查一篇論文（DOI:…、CorpusId:…、S2 paperId；以 10. 開頭的裸 DOI 自動加 DOI:）")
     @Argument(help: "論文識別碼") var paperID: String
     @OptionGroup var options: S2Options
+    func validate() throws {
+        try S2CLI.checkIdentifier(paperID, endpoint: "paper")
+    }
     func run() throws {
         let id = paperID, fields = options.fieldList(default: S2CLI.paperFields)
         try S2CLI.run(options) { try await $0.paper(id: id, fields: fields) }
@@ -139,7 +162,7 @@ struct S2BatchCmd: ParsableCommand {
     func run() throws {
         let text: String
         do { text = try String(contentsOfFile: idsFile, encoding: .utf8) } catch {
-            throw ValidationError("讀不到 --ids-file：\(displaySafe(idsFile, max: 800))")
+            throw RuntimeFailure.state("讀不到 --ids-file：\(displaySafeInvisible(idsFile, max: 300))")
         }
         let ids = text.split(whereSeparator: \.isNewline)
             .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
@@ -153,6 +176,9 @@ struct S2ReferencesCmd: ParsableCommand {
     @Argument(help: "論文識別碼") var paperID: String
     @OptionGroup var page: S2PageOptions
     @OptionGroup var options: S2Options
+    func validate() throws {
+        try S2CLI.checkIdentifier(paperID, endpoint: "references")
+    }
     func run() throws {
         let id = paperID, limit = page.limit, offset = page.offset, fields = options.fieldList(default: S2CLI.paperFields)
         try S2CLI.run(options) { try await $0.references(id: id, fields: fields, limit: limit, offset: offset) }
@@ -164,6 +190,9 @@ struct S2CitationsCmd: ParsableCommand {
     @Argument(help: "論文識別碼") var paperID: String
     @OptionGroup var page: S2PageOptions
     @OptionGroup var options: S2Options
+    func validate() throws {
+        try S2CLI.checkIdentifier(paperID, endpoint: "citations")
+    }
     func run() throws {
         let id = paperID, limit = page.limit, offset = page.offset, fields = options.fieldList(default: S2CLI.paperFields)
         try S2CLI.run(options) { try await $0.citations(id: id, fields: fields, limit: limit, offset: offset) }
@@ -175,6 +204,12 @@ struct S2RecommendCmd: ParsableCommand {
     @Argument(help: "論文識別碼") var paperID: String
     @Option(name: .long, help: "筆數（1–500）") var limit: Int = 100
     @OptionGroup var options: S2Options
+    func validate() throws {
+        try S2CLI.checkIdentifier(paperID, endpoint: "recommend")
+        if !(1...500).contains(limit) {
+            throw ValidationError(displaySafeErrorText(S2ArgumentError.limitOutOfRange(endpoint: "recommend", limit: limit, min: 1, max: 500)))
+        }
+    }
     func run() throws {
         let id = paperID, l = limit, fields = options.fieldList(default: S2CLI.paperFields)
         try S2CLI.run(options) { try await $0.recommend(id: id, limit: l, fields: fields) }
@@ -197,6 +232,9 @@ struct S2AuthorPapersCmd: ParsableCommand {
     @Argument(help: "S2 authorId") var authorID: String
     @OptionGroup var page: S2PageOptions
     @OptionGroup var options: S2Options
+    func validate() throws {
+        try S2CLI.checkIdentifier(authorID, endpoint: "author-papers")
+    }
     func run() throws {
         let id = authorID, limit = page.limit, offset = page.offset, fields = options.fieldList(default: S2CLI.paperFields)
         try S2CLI.run(options) { try await $0.authorPapers(id: id, fields: fields, limit: limit, offset: offset) }

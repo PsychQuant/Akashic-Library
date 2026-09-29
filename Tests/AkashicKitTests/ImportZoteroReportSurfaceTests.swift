@@ -247,25 +247,46 @@ extension ImportZoteroReportSurfaceTests {
         XCTAssertEqual(second["updatedHashOnly"] as? [String], [a.citekey], "\(second)")
         XCTAssertEqual(second["updated"] as? [String], [], "\(second)")
     }
+
+    /// R1 verify：落在 `updatedHashOnly` 的那一筆與 `updated` 同一段整份替換——手加的欄位被拿掉、未歸戶的作者被覆寫。
+    /// 先前 MCP payload 沒有 `authorsOverwritten`／`fieldsRemovedByPull`，呼叫端只看到一個讀起來無害的分類。
+    func testHashOnlyUpdateStillShowsWhatThePullRemoved() throws {
+        _ = try importPayload()
+        var a = try XCTUnwrap(try store.load().entries.first { $0.provenance?.zoteroKey == "KEYART01" })
+        a.fields["note"] = "hand-added"
+        a.authors = [.literal("Someone Else")]
+        a.provenance?.zoteroHash = "stale"
+        try store.writeEntry(a)
+        try fixture.setSynced(1)
+        let out = try importPayload()
+        XCTAssertEqual(out["updatedHashOnly"] as? [String], [a.citekey], "前提：落在只有 hash 不同那一格：\(out)")
+        XCTAssertEqual(out["authorsOverwritten"] as? [String], [a.citekey], "\(out)")
+        XCTAssertEqual(out["fieldsRemovedByPull"] as? [String: Int], ["note": 1], "\(out)")
+    }
 }
 
 // MARK: - #696：其餘清單在 MCP 面同樣有上限
 
 extension ImportZoteroReportSurfaceTests {
-    /// MCP 面有上限的清單（#696）。`writeFailed` 是 citekey → 錯誤訊息，截的是條目數。後三個只在非空時出現，其餘永遠在。
+    /// MCP 面有上限的清單（#696）。後兩個只在非空時出現，其餘永遠在。它們描述的都是**寫進去了**的記錄——結果在 store 裡、
+    /// 這一趟的改動在 store 的 git diff 裡看得到（R1 verify：`authorsOverwritten` 自此進 MCP payload，同一個上限）。
     static let cappedLists = ["created", "updated", "updatedHashOnly", "orphaned", "orphanCleared",
                               "secondarySourceChanged", "secondarySourceHashOnly", "secondarySourceOrphaned",
                               "secondarySourceRestored", "unnormalizedDates",
-                              "authorsPreserved", "quarantineConflicts", "writeFailed"]
-    static let conditionalLists: Set<String> = ["authorsPreserved", "quarantineConflicts", "writeFailed"]
+                              "authorsPreserved", "authorsOverwritten"]
+    static let conditionalLists: Set<String> = ["authorsPreserved", "authorsOverwritten"]
+    /// 失敗清單（R1 verify）：**不截**、只在非空時出現、不在 `listTotals`。沒寫進去的記錄在 store 裡沒有痕跡，
+    /// 原因只在這份報告；重跑會再寫一次而不是重播，截掉的就拿不回來（`akashic_enrich` 的 writeFailed 同）。
+    static let failureLists = ["writeFailed", "quarantineConflicts"]
 
     /// `ImportReport` 裡刻意**不**截的集合型欄位 → 理由。新增一個集合型欄位而沒有放進 `cappedLists` 或這裡，
     /// `testEveryReportCollectionIsCappedOrNamed` 會紅。
     static let uncappedCollections: [String: String] = [
         "ambiguousSourceClaims": "#684 另有上限與自己的鍵（ambiguousSourceClaimsTotal／ambiguousSourceClaimsTruncated）",
         "residualFields": "鍵是 Zotero 的欄位名，筆數受 Zotero schema 的欄位表限制、不隨一次匯入的筆數成長",
-        "authorsOverwritten": "不在 MCP payload（CLI 只印筆數）——既有的兩面差異，不在 #696 範圍",
-        "fieldsRemovedByPull": "不在 MCP payload（CLI 印欄位名×次數）——既有的兩面差異，不在 #696 範圍",
+        "fieldsRemovedByPull": "鍵是被整份替換拿掉的欄位名、值是次數——筆數隨 store 的欄位種類、不隨一次匯入的筆數成長（同 residualFields）",
+        "writeFailed": "失敗清單：沒寫進去的記錄在 store 裡沒有痕跡、原因只在這份報告，截掉就拿不回來",
+        "quarantineConflicts": "失敗清單：同 writeFailed",
     ]
     /// payload 裡是集合、但不是報告清單的鍵（#696 的揭露本身）。
     static let disclosureKeys: Set<String> = ["listTotals", "truncatedLists"]
@@ -313,6 +334,27 @@ extension ImportZoteroReportSurfaceTests {
         XCTAssertEqual(p["unchanged"] as? Int, 7, "計數不截")
     }
 
+    /// R1 verify：失敗清單不截——上限之外的第 N 筆失敗與它的原因，呼叫端事後從哪裡都拿不回來。
+    /// 也不在 `listTotals`／`truncatedLists`（那一對鍵只描述有上限的清單）。
+    func testFailureListsAreNeverCapped() throws {
+        let p = AkashicService.importReportPayload(fullReport(3), listLimit: 2)
+        for key in Self.failureLists {
+            XCTAssertEqual(try shown(p, key), ["ck01", "ck02", "ck03"], "\(key) 全列")
+            XCTAssertNil(try totals(p)[key], "\(key) 沒有上限，不進 listTotals")
+            XCTAssertFalse(try truncated(p).contains(key), key)
+        }
+        XCTAssertEqual((p["writeFailed"] as? [String: String])?["ck03"], "boom", "原因也在")
+    }
+
+    /// R1 verify（#694／#608 的 `updatedHashOnly` 讀起來像無害，而同一次改寫照樣拿掉手加的欄位、覆寫 literal 作者）：
+    /// `authorsOverwritten` 與 `fieldsRemovedByPull` 在 MCP payload 裡——`lossless-intake`：丟棄必須可見，兩面都要看得到。
+    func testPullOverwritesAreVisibleInThePayload() throws {
+        let p = AkashicService.importReportPayload(fullReport(3), listLimit: 2)
+        XCTAssertEqual(try shown(p, "authorsOverwritten"), ["ck01", "ck02"], "citekey 清單，同一個上限")
+        XCTAssertEqual(try totals(p)["authorsOverwritten"], 3)
+        XCTAssertEqual(p["fieldsRemovedByPull"] as? [String: Int], ["note": 3], "欄位名 → 次數，不截")
+    }
+
     /// 上限之內：全列，`listTotals` 照給、`truncatedLists` 是空陣列（呼叫端不必猜「沒有鍵＝沒有截」，#684 同一條）。
     func testListsWithinTheLimitAreFullAndNothingIsListedAsTruncated() throws {
         let p = AkashicService.importReportPayload(fullReport(3), listLimit: 5)
@@ -343,6 +385,9 @@ extension ImportZoteroReportSurfaceTests {
                 XCTAssertEqual(p[key] as? [String], [], key)
             }
         }
+        for key in Self.failureLists + ["fieldsRemovedByPull"] {
+            XCTAssertNil(p[key], "\(key) 只在非空時出現")
+        }
         XCTAssertEqual(try totals(p), Dictionary(uniqueKeysWithValues: Self.cappedLists.map { ($0, 0) }))
         XCTAssertEqual(try truncated(p), [])
     }
@@ -370,8 +415,9 @@ extension ImportZoteroReportSurfaceTests {
                           "payload 的 \(key) 是集合、沒有上限也沒有具名理由")
         }
         XCTAssertEqual(Set(try totals(p).keys), capped, "listTotals 的名字要恰好是有上限的清單")
-        for key in ["authorsOverwritten", "fieldsRemovedByPull"] {
-            XCTAssertNil(p[key], "\(key) 若進了 MCP payload，就要決定它的上限（改 uncappedCollections 的理由）")
+        // 每個集合欄位都要進 payload——具名不截的理由不是「不給 MCP 看」（R1 verify：authorsOverwritten／fieldsRemovedByPull 曾經只在 CLI）
+        for label in collections {
+            XCTAssertNotNil(p[label], "ImportReport.\(label) 不在 MCP payload——兩面要看得到同一份報告")
         }
     }
 
@@ -406,6 +452,7 @@ extension ImportZoteroReportSurfaceTests {
         XCTAssertThrowsError(try service.importZotero(zoteroDb: fixture.dbURL.path, libraryID: nil, listLimit: 1)) { error in
             let text = "\(error)".replacingOccurrences(of: "\\\"", with: "\"").replacingOccurrences(of: "\\n", with: "\n")
             XCTAssertTrue(text.contains("index rebuild 失敗"), text)
+            XCTAssertFalse(text.contains("完整報告"), "清單被截了，不能說是完整報告（R1 verify）：\(text)")
             XCTAssertTrue(text.contains("\"created\" : 2"), "失敗路徑的報告也要帶總數：\(text)")
             let cut = text.range(of: "\"truncatedLists\" : [").map { text[$0.upperBound...].prefix { $0 != "]" } }
             XCTAssertEqual(cut.map { $0.filter { !$0.isWhitespace } }, "\"created\"", "只有 created 被截：\(text)")

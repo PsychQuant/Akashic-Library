@@ -343,7 +343,7 @@ work merge 的資料遺失閘也把 witness 當 canonical Akashic metadata：被
   還沒同步：`version` 只在同步時才變，上一條說的「本機未同步修改」就是這一種）、`version` = 0（從未同步的 library）、資料庫沒有
   `synced` 欄（無從判斷）、沒有舊 hash、`version` 前進而 hash 相同。判準只有一份（`ZoteroImporter.isHashOnlyDifference`），附加來源的
   `secondarySourceHashOnly` 用同一份（§2.5.3）。**兩格的寫入完全相同**（同一段改寫、同一次寫入），分格只改報告。`updatedHashOnly`
-  只說觀察到的事實、不宣稱原因（多半是 mapping 定義演進，也可能是子項附件的增減）；它分出來的用處是 mapping 定義一演進，每一筆主來源
+  只說觀察到的事實、不排原因（可能是 mapping 定義改了，也可能是子項附件的增減，報告分不出是哪一個）；它分出來的用處是 mapping 定義一演進，每一筆主來源
   不再全被列成 `updated`。沒有改動任何寫入，也不改 store format（`synced` 是讀 Zotero 的欄，不存進 store）。
 - **date 正規化**：ISO-ish 前綴（`YYYY[-MM[-DD]]`）、`00` 月/日截斷（`1989-00-00 1989` → `1989`）；
   解析不了保留原字串並列入 report `unnormalized dates`。
@@ -389,7 +389,7 @@ work merge 的資料遺失閘也把 witness 當 canonical Akashic metadata：被
   只更新該來源自己的 `zotero_version`／`zotero_hash`／`imported_at`，並清其 `orphaned_at`，
   **不動書目欄位**。附加來源 hash 變了而未套用 → 匯入報告列出，**分兩格**（#608）：Zotero 的 `version` 前進（或倒退）而 hash 不同
   ＝ 條目在 Zotero 端有變 → `secondarySourceChanged`；hash 不同而 Zotero 那一列**已同步（`synced` = 1）、`version` > 0 且沒動** →
-  `secondarySourceHashOnly`（判準與主來源的 `updatedHashOnly` 同一份，§2.5.2；報告只說觀察到的事實，不宣稱原因：多半是 mapping 定義演進，
+  `secondarySourceHashOnly`（判準與主來源的 `updatedHashOnly` 同一份，§2.5.2；報告只說觀察到的事實，不排原因：可能是 mapping 定義改了，
   也可能是它涵蓋的子項附件集合有增減。附加來源不存附件清單、hash 是單一雜湊、舊版 mapping 與舊內容都不在手邊，兩者分不開；也因此不需要
   任何新的存檔欄位、不改 store format）。`synced` = 0（本機修改還沒同步）、`version` = 0（從未同步）或沒有 `synced` 欄時，hash 不同
   一律是 `secondarySourceChanged`——#608 verify R1 更正：初版只看 `version` 沒動，並把那一格說成「沒有人改這個條目」，於是這幾種

@@ -9,7 +9,7 @@ public struct ImportReport: Equatable {
     /// （判準是 `ZoteroImporter.isHashOnlyDifference`，與 `secondarySourceHashOnly` 同一份）。書目欄位**照常改寫**——寫入與 `updated`
     /// 那一格完全相同（同一段程式、同一份內容），這一格只改報告的分類，不改這一趟寫不寫、寫什麼。
     ///
-    /// **只說觀察到的事實、不宣稱原因**：多半是 mapping 定義演進，也可能是子項附件的增減（子項有自己的 version，不推進父條目的）。
+    /// **只說觀察到的事實、不排原因**：可能是 mapping 定義改了，也可能是子項附件的增減（子項有自己的 version，不推進父條目的）——報告分不出是哪一個。
     /// 它分出來的用處是 mapping 定義一演進，每一筆主來源不再全被列成 `updated`。
     ///
     /// 其餘一律留在 `updated`：`version` 前進或倒退；`synced` 為 0（有本機修改還沒同步——`version` 只在同步時才變）；`version` 是 0
@@ -27,7 +27,7 @@ public struct ImportReport: Equatable {
     /// 每個附加來源都被列成「有人改了」。hash 不同而 `synced` 為 0、`version` 為 0 或沒有 `synced` 欄時仍在這一格（#608 verify R1）。
     public var secondarySourceChanged: [String] = []
     /// #608：附加來源的 mapping hash 與存下的不同，而 Zotero 那一列說這個條目已同步（`synced` = 1）、`version` > 0 且與存下的相同
-    /// （`ZoteroImporter.isHashOnlyDifference`，與 `updatedHashOnly` 同一份判準）。**只說觀察到的事實、不宣稱原因**：多半是 mapping 定義演進，
+    /// （`ZoteroImporter.isHashOnlyDifference`，與 `updatedHashOnly` 同一份判準）。**只說觀察到的事實、不排原因**：可能是 mapping 定義改了，
     /// 也可能是它涵蓋的子項（附件）集合有增減（子項有自己的 version，不推進父條目的）。兩者在附加來源上分不開：附加來源不存附件清單，
     /// hash 是單一雜湊，舊版 mapping 與舊內容都不在手邊、無從重算舊 hash。
     ///
@@ -99,7 +99,7 @@ public struct ZoteroImporter {
     /// 3. `version` > 0——從未同步的 library 每個條目都是 0，「沒變」不帶任何資訊；
     /// 4. `version` 與存下的相同——前進是有同步進來的修改，倒退時不知道發生什麼。
     ///
-    /// 成立時報告**只說觀察到的事實**，不宣稱原因（多半是 mapping 定義演進，也可能是子項附件的增減）；不成立的一律留在「有變動」那一格。
+    /// 成立時報告**只說觀察到的事實**，不排原因（可能是 mapping 定義改了，也可能是子項附件的增減）；不成立的一律留在「有變動」那一格。
     /// 這個判準**只決定報告的分類**，不參與任何寫入的決定。
     static func isHashOnlyDifference(storedHash: String?, storedVersion: Int, item: ZoteroItem, itemHash: String) -> Bool {
         guard let old = storedHash, old != itemHash else { return false }

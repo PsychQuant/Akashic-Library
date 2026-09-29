@@ -39,8 +39,9 @@ actor AkashicMCPServer {
     /// 完整清單在 CLI `import-zotero`（逐行全列）；截掉時回應帶 `ambiguousSourceClaimsTotal`／`ambiguousSourceClaimsTruncated`。
     static let ambiguousClaimsLimit = 20
 
-    /// `akashic_import_zotero` 其餘 citekey 清單的上限（#696，同一個預算形）：`created`、`updated`、`writeFailed`…每個至多 20 筆，
+    /// `akashic_import_zotero` 其餘 citekey 清單的上限（#696，同一個預算形）：`created`、`updated`、`authorsOverwritten`…每個至多 20 筆，
     /// 完整筆數在 `listTotals`、被截的清單名在 `truncatedLists`。一次首次匯入的 `created` 就是整個 Zotero library 的筆數。CLI `import-zotero` 不受此限。
+    /// 失敗清單（`writeFailed`、`quarantineConflicts`）不截（R1 verify：沒寫進去的記錄在 store 裡沒有痕跡，截掉就拿不回來）。
     static let importListLimit = 20
 
     // MARK: - Schema 小工具
@@ -349,7 +350,7 @@ actor AkashicMCPServer {
                 "dry_run": .object(["type": .string("boolean"), "description": .string("true＝只回報、不動檔案（預設 false，與 CLI 同）")]),
              ], required: ["id", "reason"])),
         Tool(name: "akashic_import_zotero",
-             description: "觸發 Zotero → Akashic 單向 pull（zotero.sqlite 唯讀）。回傳 import report：created／updated／orphaned／orphanCleared（citekeys；後兩者＝Zotero 端整筆已刪／恢復）、updatedHashOnly（主來源 hash 不同、Zotero 已同步且 version 沒變；照常改寫，不宣稱原因）、secondarySourceChanged／secondarySourceOrphaned／secondarySourceRestored（附加來源變動，entry 與主來源不動）、secondarySourceHashOnly（附加來源，同一判準）、unchanged（筆數）、residualFields（未映射欄位→次數）、unnormalizedDates、skippedLinkedAttachments；單筆寫入失敗記入 writeFailed 並續跑（index 照常重建）。每個 citekey 清單至多 20 筆：listTotals＝各清單完整筆數，truncatedLists＝被截的清單（CLI 不截）。同一個來源被多筆 entry 宣稱（含兩筆以上沒記 library_id 的舊檔同裸 key）的條目本趟不更新書目欄位、不新建（歸屬沒有爭議時 orphan 標記照清），列在 ambiguousSourceClaims（來源鍵→citekeys，只在非空時出現；至多 20 個來源、每個至多 20 個 citekey，ambiguousSourceClaimsTotal＝來源總數、ambiguousSourceClaimsTruncated＝有沒有截，CLI 全列；跨記錄警告見 akashic_doctor）；index rebuild 失敗時錯誤訊息帶完整報告。",
+             description: "觸發 Zotero → Akashic 單向 pull（zotero.sqlite 唯讀）。回傳 import report：created／updated／orphaned／orphanCleared（citekeys；後兩者＝Zotero 端整筆已刪／恢復）、updatedHashOnly（主來源 hash 不同、Zotero 已同步且 version 沒變；照常改寫，不宣稱原因）、secondarySourceChanged／secondarySourceOrphaned／secondarySourceRestored（附加來源變動，entry 與主來源不動）、secondarySourceHashOnly（附加來源，同一判準）、unchanged（筆數）、residualFields（未映射欄位→次數）、unnormalizedDates、skippedLinkedAttachments；單筆寫入失敗記入 writeFailed 並續跑（index 照常重建）。pull 整份替換 fields、覆寫未歸戶作者（updatedHashOnly 也是）：authorsOverwritten（citekeys）、fieldsRemovedByPull（被拿掉的欄位→次數），非空才出現。citekey 清單至多 20 筆：listTotals＝各清單完整筆數，truncatedLists＝被截的清單；writeFailed、quarantineConflicts 不截（CLI 都不截）。同一個來源被多筆 entry 宣稱（含兩筆以上沒記 library_id 的舊檔同裸 key）的條目本趟不更新書目欄位、不新建（歸屬沒有爭議時 orphan 標記照清），列在 ambiguousSourceClaims（來源鍵→citekeys，只在非空時出現；至多 20 個來源、每個至多 20 個 citekey，ambiguousSourceClaimsTotal＝來源總數、ambiguousSourceClaimsTruncated＝有沒有截，CLI 全列；跨記錄警告見 akashic_doctor）；index rebuild 失敗時錯誤訊息帶同一份報告。",
              inputSchema: obj([
                 "zotero_db": str("zotero.sqlite 路徑（預設 ~/Zotero/zotero.sqlite）"),
                 "library_id": int("只拉此 libraryID（省略＝全部 libraries）"),

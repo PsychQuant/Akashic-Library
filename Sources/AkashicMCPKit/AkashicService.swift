@@ -2756,6 +2756,7 @@ public final class AkashicService {
     ///
     /// `listLimit`（#696）：同一個理由，套在報告其餘的 citekey 清單（`importReportCappedLists`）——每個清單至多這麼多筆
     /// （依 citekey 排序留前面的）；`listTotals` 給每個清單的完整筆數、`truncatedLists` 列出被截的清單。上限只截報告，不截寫入；nil＝全列。
+    /// 失敗清單（`writeFailed`、`quarantineConflicts`）不截（R1 verify，見 `importReportPayload`）。
     public func importZotero(zoteroDb: String?, libraryID: Int?, claimLimit: Int? = nil, listLimit: Int? = nil) throws -> String {
         if let limit = claimLimit, limit < 1 {
             throw ServiceError.invalid("claimLimit 必須 ≥ 1（0 不是「全部」也不是「一個都不要」——要全部就不要給）")
@@ -2779,14 +2780,17 @@ public final class AkashicService {
             try LibraryIndex(store: store).rebuild()
         } catch {
             throw ServiceError.invalid(
-                "index rebuild 失敗：\(displaySafeError(error, max: 512))（本趟 import 已落地，完整報告如下）：\n\(try jsonString(payload))")   // display-safe-exempt: jsonString、payload：jsonString 的輸出已由序列化器逐項消毒（escapingUnsafeScalars）；payload 是這個函式自己組的 report 字典
+                "index rebuild 失敗：\(displaySafeError(error, max: 512))（本趟 import 已落地，報告如下——清單有上限，被截的見 truncatedLists）：\n\(try jsonString(payload))")   // display-safe-exempt: jsonString、payload：jsonString 的輸出已由序列化器逐項消毒（escapingUnsafeScalars）；payload 是這個函式自己組的 report 字典
         }
         return try jsonString(payload)
     }
 
     /// MCP 面有 `listLimit` 上限的 citekey 清單（#696）：鍵 → 報告裡的值、這一格是否永遠在（否＝只在非空時出現）。
-    /// `writeFailed`（citekey → 錯誤訊息）另外處理，截的是條目數。不在這裡的集合：`ambiguousSourceClaims`（#684 自己的上限與鍵）、
-    /// `residualFields`（鍵是 Zotero 的欄位名，受 schema 的欄位表限制、不隨一次匯入的筆數成長）。
+    /// 這些清單描述的都是**寫進去了**的記錄：結果在 store 裡，這一趟改了哪些檔在 store 的 git diff 裡看得到，所以截掉的成員找得回來
+    /// （`authorsPreserved`／`authorsOverwritten` 在寫入之前就記下——沒寫進去的那一筆也在不截的 `writeFailed` 或 `quarantineConflicts` 裡）。
+    /// 不在這裡的集合：失敗清單 `writeFailed`／`quarantineConflicts`（**不截**——沒寫進去的記錄在 store 裡沒有痕跡、原因只在這份報告，
+    /// 重跑是再寫一次、不是重播；`akashic_enrich` 的 writeFailed 同，R1 verify）；`ambiguousSourceClaims`（#684 自己的上限與鍵）；
+    /// `residualFields` 與 `fieldsRemovedByPull`（鍵是欄位名、值是次數，筆數隨欄位種類、不隨一次匯入的筆數成長）。
     static func importReportCappedLists(_ r: ImportReport) -> [(key: String, list: [String], always: Bool)] {
         [("created", r.created, true), ("updated", r.updated, true), ("updatedHashOnly", r.updatedHashOnly, true),   // #694
          ("orphaned", r.orphaned, true), ("orphanCleared", r.orphanCleared, true),
@@ -2795,15 +2799,25 @@ public final class AkashicService {
          ("secondarySourceOrphaned", r.secondarySourceOrphaned, true),
          ("secondarySourceRestored", r.secondarySourceRestored, true),
          ("unnormalizedDates", r.unnormalizedDates, true),
-         ("authorsPreserved", r.authorsPreserved, false), ("quarantineConflicts", r.quarantineConflicts, false)]
+         ("authorsPreserved", r.authorsPreserved, false),
+         ("authorsOverwritten", r.authorsOverwritten, false)]   // R1 verify：pull 覆寫的未歸戶作者，先前只在 CLI
+    }
+
+    /// 欄位名 → 次數的表（`residualFields`、`fieldsRemovedByPull`）：鍵是第三方字串，消毒後可能相撞（截斷不是單射，#669）——
+    /// 依原始鍵排序後留第一個，不 trap（同 fields 的既有處置）。
+    private static func sanitizedFieldCounts(_ counts: [String: Int]) -> [String: Int] {
+        Dictionary(counts.sorted { $0.key < $1.key }.map { (displaySafe($0.key, max: 200), $0.value) },
+                   uniquingKeysWith: { first, _ in first })
     }
 
     /// `import-zotero` 的報告 payload——rebuild 成功與失敗兩條路徑共用（#610 R1 verify）。
     ///
-    /// #696：每個 citekey 清單依 citekey 排序後留前 `listLimit` 筆。揭露是**一對鍵**，形照 `akashic_enrich` 的 `counts`（封閉列舉的名字 → 完整筆數）
-    /// 加截斷揭露：`listTotals`（每個有上限的清單 → 完整筆數；十三個名字都在，空清單是 0）與 `truncatedLists`（被截的清單名，排序；沒有截就是空陣列）。
-    /// 兩個鍵永遠在，呼叫端不必猜「沒有鍵＝沒有截」。不逐清單加 `…Total`／`…Truncated`：十三對鍵名會吃掉 tools/list 的位元組預算（#578）。
-    /// 各清單自己的出現規則不變（`authorsPreserved`／`quarantineConflicts`／`writeFailed` 只在非空時出現）。
+    /// #696：每個有上限的 citekey 清單（`importReportCappedLists`）依 citekey 排序後留前 `listLimit` 筆。揭露是**一對鍵**：
+    /// `listTotals`（每個有上限的清單 → 完整筆數；每個名字都在，空清單是 0）與 `truncatedLists`（被截的清單名，排序；沒有截就是空陣列）。
+    /// 兩個鍵永遠在，呼叫端不必猜「沒有鍵＝沒有截」。不逐清單加 `…Total`／`…Truncated`：十幾對鍵名會吃掉 tools/list 的位元組預算（#578）。
+    /// **失敗清單不截**（R1 verify）：`writeFailed`、`quarantineConflicts` 全列、不在 `listTotals`——`akashic_enrich` 這個先例只截明細、
+    /// 不截失敗清單，而 #696 初版把它們也截了，第 21 筆之後的失敗與原因從哪裡都拿不回來。
+    /// 各清單自己的出現規則不變（`authorsPreserved`／`authorsOverwritten`／`quarantineConflicts`／`writeFailed`／`fieldsRemovedByPull` 只在非空時出現）。
     /// 計數（`unchanged`、`skippedLinkedAttachments`）永遠完整；`ambiguousSourceClaims` 維持 #684 自己的鍵。
     static func importReportPayload(_ report: ImportReport, claimLimit: Int? = nil, listLimit: Int? = nil) -> [String: Any] {
         var d: [String: Any] = [
@@ -2813,11 +2827,14 @@ public final class AkashicService {
             // #206：欄位不再被丟棄，改以正規化後的原名入庫——鍵名跟著改，
             // 否則 MCP 面回給 LLM 的仍是「dropped」這個假訊號（verify H2）
             // #669：消毒截斷不是單射——兩個共用前綴的鍵會撞成同一個字串；依原始鍵排序後留第一個，不 trap（同 fields 的既有處置）
-            "residualFields": Dictionary(
-                report.residualFields.sorted { $0.key < $1.key }.map { (displaySafe($0.key, max: 200), $0.value) },
-                uniquingKeysWith: { first, _ in first }),
+            "residualFields": sanitizedFieldCounts(report.residualFields),
             "skippedLinkedAttachments": report.skippedLinkedAttachments,
         ]
+        // R1 verify：pull 整份替換 `fields` 拿掉的欄位（名 → 次數）——`lossless-intake`：丟棄必須可見，先前只在 CLI 印。
+        // `updatedHashOnly` 那一格與 `updated` 同一段改寫，讀起來無害的分類底下照樣會拿掉手加的欄位。
+        if !report.fieldsRemovedByPull.isEmpty {
+            d["fieldsRemovedByPull"] = sanitizedFieldCounts(report.fieldsRemovedByPull)
+        }
         var listTotals: [String: Int] = [:]
         var truncatedLists: [String] = []
         for (key, list, always) in importReportCappedLists(report) {
@@ -2844,13 +2861,13 @@ public final class AkashicService {
             d["ambiguousSourceClaimsTotal"] = all.count   // display-safe-exempt: Int
             d["ambiguousSourceClaimsTruncated"] = shown.count < all.count || ownersCut   // display-safe-exempt: Bool
         }
-        // #696：writeFailed 截的是條目數（依 citekey 排序留前面的），完整筆數在 `listTotals`
-        listTotals["writeFailed"] = report.writeFailed.count
+        // 失敗清單不截（R1 verify）：沒寫進去的記錄在 store 裡沒有痕跡，截掉就拿不回來。只在非空時出現。
+        if !report.quarantineConflicts.isEmpty {
+            d["quarantineConflicts"] = report.quarantineConflicts.sorted().map { displaySafe($0, max: 200) }
+        }
         if !report.writeFailed.isEmpty {
             let all = report.writeFailed.sorted { $0.key < $1.key }
-            let shown = listLimit.map { Array(all.prefix($0)) } ?? all
-            d["writeFailed"] = Dictionary(shown.map { (displaySafeInvisible($0.key, max: 200), displaySafeClipOnly($0.value, max: 512)) }, uniquingKeysWith: { first, _ in first })   // display-safe-exempt: value 已消毒（ZoteroImporter 的 writeFailed 由 displaySafeError 產出，R29 D81），只截
-            if shown.count < all.count { truncatedLists.append("writeFailed") }
+            d["writeFailed"] = Dictionary(all.map { (displaySafeInvisible($0.key, max: 200), displaySafeClipOnly($0.value, max: 512)) }, uniquingKeysWith: { first, _ in first })   // display-safe-exempt: value 已消毒（ZoteroImporter 的 writeFailed 由 displaySafeError 產出，R29 D81），只截
         }
         d["listTotals"] = listTotals   // display-safe-exempt: 鍵是封閉列舉的清單名、值是 Int
         d["truncatedLists"] = truncatedLists.sorted()   // display-safe-exempt: 封閉列舉的清單名

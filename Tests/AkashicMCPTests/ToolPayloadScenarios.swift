@@ -217,6 +217,17 @@ enum ToolPayloadScenarios {
             try $0.duplicateFirstZoteroEntry()
             return try $0.service.importZotero(zoteroDb: z.url.path, libraryID: nil)
         },
+        // #696 R1 verify：pull 拿掉的欄位與覆寫的未歸戶作者要出現在 MCP payload（authorsOverwritten／fieldsRemovedByPull）
+        PayloadScenario("akashic_import_zotero", "pull overwrites") {
+            let z = try PayloadZoteroDB(dir: $0.dir)
+            _ = try $0.service.importZotero(zoteroDb: z.url.path, libraryID: nil)
+            var imported = try XCTUnwrap(try $0.store.load().entries.first { $0.provenance?.zoteroKey == "KEYART01" })
+            imported.fields["note"] = "hand-added"
+            imported.authors = [.literal("Someone Else")]
+            imported.provenance?.zoteroHash = "stale"
+            try $0.store.writeEntry(imported)
+            return try $0.service.importZotero(zoteroDb: z.url.path, libraryID: nil)
+        },
         PayloadScenario("akashic_enrich_from_zotero", "dry_run") {
             let z = try PayloadZoteroDB(dir: $0.dir)
             _ = try $0.service.importZotero(zoteroDb: z.url.path, libraryID: nil)

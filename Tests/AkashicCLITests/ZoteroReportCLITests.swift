@@ -101,7 +101,7 @@ final class ZoteroReportCLITests: XCTestCase {
         XCTAssertFalse(r.output.contains("被多筆 entry 宣稱"), r.output)
     }
 
-    /// #694：主來源 hash 不同、Zotero 那一列已同步且 version 沒動——自己一行、不算進 `updated:`；這一行只說觀察到的事實、不宣稱原因。
+    /// #694：主來源 hash 不同、Zotero 那一列已同步且 version 沒動——自己一行、不算進 `updated:`；這一行只說觀察到的事實、可能的原因不排序。
     func testImportPrintsThePrimaryHashOnlyLineApartFromUpdated() throws {
         try write("hashonly2025", primary: Provenance(zoteroKey: "KEYART01", zoteroVersion: 5, libraryID: 1, zoteroHash: "stale"))
         let db = try SQLiteDB(path: zoteroDB.path, readOnly: false)
@@ -111,7 +111,11 @@ final class ZoteroReportCLITests: XCTestCase {
         XCTAssertTrue(r.output.contains("updated: 0\n"), "hash-only 的那一筆不算進 updated：\(r.output)")
         let line = try XCTUnwrap(r.output.split(separator: "\n").first { $0.hasPrefix("updated（只有 mapping hash 不同") }, r.output)
         XCTAssertTrue(line.contains("hashonly2025") && line.contains("#694"), String(line))
-        XCTAssertTrue(line.contains("不宣稱原因") && !line.contains("沒有人改"), "只說觀察到的事實：\(line)")
+        XCTAssertTrue(!line.contains("沒有人改"), "只說觀察到的事實：\(line)")
+        // R1 verify：先說「不宣稱原因」又說「多半是 mapping 定義演進」是自相矛盾——兩個可能都列、不排序
+        XCTAssertTrue(line.contains("mapping 定義改了") && line.contains("子項附件增減") && !line.contains("多半"), String(line))
+        // 同一段整份替換照樣拿掉手加的欄位、覆寫未歸戶作者——這一行要指向說出這件事的那兩行
+        XCTAssertTrue(line.contains("authors overwritten") && line.contains("fields removed by pull"), String(line))
     }
 
     // MARK: - doctor

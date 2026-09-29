@@ -497,7 +497,8 @@ public final class LibraryStore {
                     what: "library「\(displaySafeInvisible(library.key, max: 120))」",
                     why: "規則型與文件型的成員性質需要 store format ≥ \(need)；本 store 是 \(format)——" +
                          "確認會碰這個 store 的 CLI/MCP/App 都已升級後，把 store.yaml 的 format: 改成 \(need)" +
-                         "（format-\(prior) binary 會保留性質卻不查規則，library add 照樣寫進不符的成員）")   // display-safe-exempt: need、prior 與 format 是 Int（StoreVersion 的門檻常量與 marker）
+                         "（format-\(prior) binary 會保留性質卻不查規則，library add 照樣寫進不符的成員）。" +
+                         "不要改標 topic 來解鎖：topic 不檢查成員，等於回到沒有規則的狀態（升到 \(need) 之前，規則型保護不存在）")   // display-safe-exempt: need、prior 與 format 是 Int（StoreVersion 的門檻常量與 marker）
             }
         }
     }
@@ -1760,17 +1761,22 @@ public struct RenameReport: Equatable {
     public var verdictsCollapsed: [String]
     /// 這次改名沒有掃描到的 quarantine 檔（#497）——理由見 `PersonRenameReport.quarantinedNotScanned`。
     public var quarantinedNotScanned: [String]
+    /// 同批遷移的 library 成員規則（#642，第 16 條邊）：文件型的文件、規則型的排除清單裡的舊 citekey 換成新的。
+    /// 改名不改身分，規則是 library 的屬性——所以遷移它，不是拒絕它。逐條列出，不印等於沒發生過。
+    public var libraryRulesRewritten: [LibraryRuleRewrite]
 
     public init(relationsRewritten: [String] = [],
                 divergenceCandidatesRewritten: [String] = [],
                 verdictValuesRewritten: [HolderRecord] = [],
                 verdictsCollapsed: [String] = [],
-                quarantinedNotScanned: [String] = []) {
+                quarantinedNotScanned: [String] = [],
+                libraryRulesRewritten: [LibraryRuleRewrite] = []) {
         self.relationsRewritten = relationsRewritten
         self.divergenceCandidatesRewritten = divergenceCandidatesRewritten
         self.verdictValuesRewritten = verdictValuesRewritten
         self.verdictsCollapsed = verdictsCollapsed
         self.quarantinedNotScanned = quarantinedNotScanned
+        self.libraryRulesRewritten = libraryRulesRewritten
     }
 }
 
@@ -1875,15 +1881,45 @@ extension LibraryStore {
         guard var entry = load.entries.first(where: { $0.citekey == oldKey }) else {
             throw StoreIOError.invalidKey("citekey（來源不存在）", oldKey)
         }
-        // #642：library 的成員規則以 citekey 指涉 work（文件型的文件、規則型的排除清單，第 16 條邊）。改名不遷移
-        // registry 檔——改了規則就安靜懸空（排除清單尤其安靜：被排除的那筆換了名字就不再被排除）。先擋，零寫入
-        let naming = load.librariesNaming(citekey: oldKey)
-        guard naming.isEmpty else {
+        // #642：library 的成員規則以 citekey 指涉 work（文件型的文件、規則型的排除清單，第 16 條邊）。改名不改身分，
+        // 規則是 library 的屬性——所以**同批遷移**（下面 `libraryRewrites`，與其他被改寫的記錄同一批預檢、同一批寫入），
+        // 不是拒絕、也不是安靜懸空。R1 verify 前這裡一律拒絕並指路 `set-kind`，而文件型的出路不通（set-kind 要新 citekey 已在庫，
+        // 改名要它不在庫）。三個前置，全部在動任何磁碟之前：
+        // (a) 新 citekey 已被某條規則指涉（懸空的文件或排除）→ 拒絕：改名之後那條規則會「復活」成指向另一筆 work，
+        //     文件型變成把改名後的 work 當文件、規則型把它排除，沒有任何檢查或訊息
+        let namingNew = load.librariesNaming(citekey: newKey)
+        guard namingNew.isEmpty else {
             throw StoreIOError.invalidInput(
-                what: "改名「\(displaySafeInvisible(oldKey, max: 200))」",
-                why: "library「" + naming.map { displaySafeInvisible($0, max: 200) }.joined(separator: "、")
-                   + "」的成員規則以這個 citekey 指涉它（文件型的文件或規則型的排除清單）；規則不隨改名遷移，改了會安靜懸空"
-                   + "——先以 akashic library set-kind 改掉那條規則再改名（#642）")
+                what: "改名「\(displaySafeInvisible(oldKey, max: 200))」→「\(displaySafeInvisible(newKey, max: 200))」",
+                why: "新 citekey 已被 library「" + namingNew.map { displaySafeInvisible($0, max: 200) }.joined(separator: "、")
+                   + "」的成員規則指涉（文件型的文件或規則型的排除清單，而那筆 work 目前不在庫）；改名之後那條規則會安靜地指向這筆 work。"
+                   + "先用 akashic library check 讀出完整規則，再以 akashic library set-kind 把規則改成不指涉這個 citekey，或改用別的新 citekey（#642）")
+        }
+        // (b) 被隔離的 registry 檔提到舊或新 citekey → 拒絕：它的規則讀不出來，遷移與 (a) 都看不見它
+        let quarantinedRegistry = quarantinedRegistryFiles(mentioning: [oldKey, newKey], in: load)
+        guard quarantinedRegistry.isEmpty else {
+            throw StoreIOError.invalidInput(
+                what: "改名「\(displaySafeInvisible(oldKey, max: 200))」→「\(displaySafeInvisible(newKey, max: 200))」",
+                why: Self.quarantinedRegistryRefusal(files: quarantinedRegistry, why: "這個 citekey"))   // display-safe-exempt: Self.quarantinedRegistryRefusal 的檔名逐項 displaySafeInvisible、why 是字面常量
+        }
+        // (c) 要遷移的規則，registry 檔要在 git 裡 tracked、clean——被換掉的舊值只剩 git 那一份（#573 一族的同一支判斷）
+        let libraryRewrites = load.libraryRulesMigrating(citekey: oldKey, to: newKey)
+        var registryPresent: [(path: String, label: String)] = []
+        var registryMissing: [String] = []
+        for r in libraryRewrites {
+            let rel = Self.libraryRelativePath(key: r.before.key)
+            let label = "library「\(displaySafeInvisible(r.before.key, max: 200))」"
+            if FileManager.default.fileExists(atPath: root.appendingPathComponent(rel).path) {
+                registryPresent.append((rel, label))
+            } else {
+                registryMissing.append(label)
+            }
+        }
+        if let refusal = Self.recoverabilityRefusal(
+            root: root, present: registryPresent, missing: registryMissing,
+            action: "改名會改寫 \(libraryRewrites.count) 個 library 的成員規則（把規則裡的 citekey 換成新的）",   // display-safe-exempt: Int
+            issue: "#642") {
+            throw StoreIOError.invalidInput(what: "改名「\(displaySafeInvisible(oldKey, max: 200))」", why: refusal)   // display-safe-exempt: refusal 由 recoverabilityRefusal 組裝——action 是字面加 Int、標籤逐項 displaySafeInvisible、why 是 filesNotSafelyRecoverable 的固定句
         }
         // #631：entities 佈局下 rename 原地覆寫 entities/<id>.yaml、不刪舊檔——前提是「format 2 沒有舊檔」。
         // legacy 殘留 entries/<舊ck>.yaml 違反這個前提：改名後兩個 citekey 共用同一個 UUID（#627 R2 verify 真 binary 重現）。
@@ -2062,6 +2098,13 @@ extension LibraryStore {
             try Self.assertOrganizationWritable(o, format: gateFormat)
             _ = try OrganizationYAML.encode(o)
         }
+        // registry 檔的寫入前置條件與 `updateLibrary` **同一個函式**（format 閘＋encode）——同一批預檢，遷移到一半才撞上拒絕
+        // 會把 store 撕成一半（work 已改名、規則仍指舊 citekey）
+        for r in libraryRewrites {
+            try Self.assertLibraryWritable(r.after, format: gateFormat)
+            let current = (try? FileManager.default.attributesOfItem(atPath: libraryURL(key: r.after.key).path))?[.size] as? Int
+            _ = try LibraryYAML.encode(r.after, replacing: current)
+        }
         // 3. 寫記錄本身。
         //
         // **#35：format 2 下 rename 不搬檔案。** 檔名是 UUID，而 rename 不改 UUID——
@@ -2100,6 +2143,8 @@ extension LibraryStore {
             _ = try writeOrganization(o)
             verdictKeys.append(HolderRecord(.organization, o.key))
         }
+        // library 成員規則（#642）：registry 檔原地改寫（`updateLibrary`，不建檔）
+        for r in libraryRewrites { try updateLibrary(r.after) }
         // 4. 刪舊檔（僅 legacy 佈局——format 2 沒有舊檔，見上）
         if !usesEntitiesLayout {
             try FileManager.default.removeItem(at: entryURL(citekey: oldKey))
@@ -2108,7 +2153,8 @@ extension LibraryStore {
                             divergenceCandidatesRewritten: divergenceIDs.sorted(),
                             verdictValuesRewritten: verdictKeys.sorted(),
                             verdictsCollapsed: collapsedVerdicts.sorted(),
-                            quarantinedNotScanned: load.quarantined.map(\.file).sorted())
+                            quarantinedNotScanned: load.quarantined.map(\.file).sorted(),
+                            libraryRulesRewritten: libraryRewrites.flatMap(\.rewrites))
     }
 
 

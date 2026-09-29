@@ -11,11 +11,11 @@ final class UpdateEntryCLITests: XCTestCase {
     private var file: URL!
 
     /// #239：hook 環境帶 `GIT_DIR`，`-C` 擋不住它——不剝的話 fixture 的 commit 會寫進使用者的 repo。
-    /// #239：hook 環境帶 `GIT_DIR`，`-C` 擋不住它——不剝的話 fixture 的 commit 會寫進使用者的 repo。
     private var scrubbedGitEnvironment: [String: String] {
         ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("GIT_") }
     }
 
+    /// fixture 的 git：固定 `/usr/bin/git`（不經 PATH）、以 `-C` 指向 store、環境用上面剝掉 `GIT_*` 的那份。
     private func git(_ args: [String]) {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/git")

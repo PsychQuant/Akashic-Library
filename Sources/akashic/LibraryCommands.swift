@@ -15,7 +15,11 @@ struct LibraryCmd: ParsableCommand {
         每個 library 有成員性質（#642）：topic（主題型，成員由你挑，照寫）、rule（規則型，以 venue key 界定，可加 \
         --type 與 --exclude）、document（文件型，成員是一筆在庫文件的 cites）。add 對 rule／document 逐筆比對，\
         不符的不寫並說出原因（不是拒絕整批，也不是照寫）；未標性質的 library 拒絕 add——先 set-kind。\
-        rule／document 需要 store format ≥ \(StoreVersion.libraryMembershipFormat)（topic 不需要）。
+        rule／document 需要 store format ≥ \(StoreVersion.libraryMembershipFormat)（topic 不需要）；\
+        **不要為了讓 add 通過而標 topic**——topic 不檢查成員。\
+        set-kind 是整值替換（--type／--exclude／--source 沒再給就是清掉）：輸出帶被換掉的舊規則；規則指涉的 venue、\
+        文件與排除的 citekey 都要在庫；替換一條既有的性質要求 registry 檔已 commit 且乾淨（舊值只剩 git 那一份）。\
+        library check 印出完整規則（含每一個排除的 citekey）。
         """,
         subcommands: [LibraryList.self, LibraryCreate.self, LibraryAdd.self, LibraryRemove.self,
                       LibrarySetKind.self, LibraryCheck.self])
@@ -46,7 +50,7 @@ struct LibraryList: ParsableCommand {
             // #642：性質與依據——要問「掛哪個 library」的地方要看得到它，不再只靠讀描述
             var basis = "  " + LibraryMembershipCheck.basis(of: library.membership)   // display-safe-exempt: basis 在 LibraryMembershipCheck 裡已逐項消毒
             if library.membership != nil {
-                let bad = LibraryMembershipCheck(library: library, entries: load.entries).nonconformingMembers().count
+                let bad = LibraryMembershipCheck(library: library, entries: load.entries, venues: load.venues).nonconformingMembers().count
                 if bad > 0 { basis += "——\(bad) 筆成員不符規則（akashic library check \(displaySafe(library.key, max: 200))）" }   // display-safe-exempt: Int
             }
             print(basis)
@@ -103,7 +107,7 @@ struct LibraryCreate: ParsableCommand {
 struct LibrarySetKind: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "set-kind",
-        abstract: "標 library 的成員性質與規則（topic／rule／document）；現有成員不符時列出、不自動移除")
+        abstract: "標 library 的成員性質與規則（topic／rule／document；整值替換，輸出帶先前的規則，替換既有性質要求 registry 檔已 commit）；現有成員不符時列出、不自動移除")
 
     @OptionGroup var options: LibraryOptions
     @Argument(help: "library key") var key: String
@@ -131,22 +135,28 @@ struct LibrarySetKind: ParsableCommand {
         let store = try options.openStore()
         let service = AkashicService(root: store.root, key: store.key, environment: ProcessInfo.processInfo.environment)
         do {
-            _ = try service.libraries(action: "set-kind", key: key, name: nil, description: nil,
-                                      citekey: nil, membership: membershipInput)
-            let check = try service.libraryViolations(key: key)
+            let change = try service.setLibraryKind(key: key, membership: membershipInput)
             print("set-kind: \(displaySafe(key, max: 200))")
-            print("  " + LibraryMembershipCheck.basis(of: check.library.membership))   // display-safe-exempt: basis 已逐項消毒
-            printViolations(check.violations, members: check.members, key: key)
+            // 整值替換：先印被換掉的舊規則（完整，含每一個排除的 citekey）——不印就只能去讀 git 才知道換掉了什麼
+            if change.previous != nil {
+                print("  先前（已被替換；舊版在 git 裡）：")
+                for line in LibraryMembershipCheck.details(of: change.previous) { print("    " + line) }   // display-safe-exempt: details 已逐項消毒
+            } else {
+                print("  先前：未標性質")
+            }
+            print("  現在：" + LibraryMembershipCheck.basis(of: change.library.membership))   // display-safe-exempt: basis 已逐項消毒
+            if let problem = change.basisProblem { print("  ⚠ 依據不明確：" + problem.message) }   // display-safe-exempt: message 已逐項消毒
+            printViolations(change.violations, members: change.members, key: key)
         } catch let e as ServiceError {
             throw RuntimeFailure.state(displaySafeErrorText(e))
         }
     }
 }
 
-/// #642：列出一個 library 不符成員規則的成員（全部，不截）。唯讀。
+/// #642：印出一個 library 的完整成員規則，並列出不符規則的成員（全部，不截）。唯讀。
 struct LibraryCheck: ParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "check", abstract: "列出 library 裡不符成員規則的成員與原因（唯讀）")
+        commandName: "check", abstract: "印出 library 的完整成員規則，並列出不符規則的成員與原因（唯讀）")
 
     @OptionGroup var options: LibraryOptions
     @Argument(help: "library key") var key: String
@@ -163,6 +173,9 @@ struct LibraryCheck: ParsableCommand {
                 print("  " + Library.unmarkedMessage)
                 return
             }
+            // 完整規則（含每一個排除的 citekey）：`set-kind` 是整值替換，要改規則得先看得到現在的全部——list 只印摘要
+            for line in LibraryMembershipCheck.details(of: check.library.membership) { print("  " + line) }   // display-safe-exempt: details 已逐項消毒
+            if let problem = check.basisProblem { print("  ⚠ 依據不明確：" + problem.message) }   // display-safe-exempt: message 已逐項消毒
             printViolations(check.violations, members: check.members, key: key)
         } catch let e as ServiceError {
             throw RuntimeFailure.state(displaySafeErrorText(e))

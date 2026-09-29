@@ -1016,6 +1016,16 @@ public final class AkashicService {
             guard !load.venues.unlocatableVenueKeys.contains(r.venue) else {
                 throw ServiceError.invalid("venue key「\(displaySafeInvisible(r.venue, max: 200))」有不只一筆記錄——分不出規則指的是哪一筆（#670）")
             }
+            // 排除清單的 citekey 也是參照，同樣要在庫（#642 R1 verify）：打錯的 citekey 讓排除無聲失效——被排除的那筆照樣被收進來，
+            // 而 create／set-kind 成功、basis 印「排除 1 筆」、validate 零診斷。改名與合併的守衛把 excluded 當必須保護的參照，
+            // 建規則的這一端不能對「它是不是參照」給出相反的答案
+            let entryKeys = Set(load.entries.map(\.citekey))
+            let ghosts = r.excluded.filter { !entryKeys.contains($0) }
+            guard ghosts.isEmpty else {
+                throw ServiceError.notFound("excluded 的 citekey 不在庫：" + Self.listCapped(ghosts) { displaySafeInvisible($0, max: 200) }
+                    + "——排除清單以在庫的 work 界定；打錯的 citekey 會讓排除無聲失效（該筆照樣被收進來）。"
+                    + "檢查拼法，或先建那筆 work")
+            }
         case .document(let ck):
             let hits = load.entries.filter { $0.citekey == ck }.count
             guard hits > 0 else {
@@ -1050,8 +1060,10 @@ public final class AkashicService {
 
     /// #642：一個 library 的成員數與不符規則的成員（依 citekey 排序）。CLI `library check`／`set-kind` 全部渲染，
     /// MCP `check` 受位元組預算——判定只有 `LibraryMembershipCheck` 一份。唯讀。
+    /// `basisProblem`：規則的依據本身有問題（venue key 重複、文件不在庫或重複）——零成員的 library 也照樣揭露。
     public func libraryViolations(key: String) throws
-        -> (library: Library, members: Int, violations: [(citekey: String, violation: LibraryMembershipViolation)]) {
+        -> (library: Library, members: Int, violations: [(citekey: String, violation: LibraryMembershipViolation)],
+            basisProblem: LibraryMembershipViolation?) {
         guard StoreKey.isValid(key) else {
             throw ServiceError.invalid("library key「\(displaySafeInvisible(key, max: 200))」不符合 \(StoreKey.pattern)")   // display-safe-exempt: StoreKey.pattern：pattern 是常量
         }
@@ -1060,7 +1072,51 @@ public final class AkashicService {
             throw ServiceError.notFound("library「\(displaySafeInvisible(key, max: 200))」")
         }
         let members = load.entries.filter { $0.akashic.libraries.contains(key) }.count
-        return (lib, members, LibraryMembershipCheck(library: lib, entries: load.entries).nonconformingMembers())
+        let check = LibraryMembershipCheck(library: lib, entries: load.entries, venues: load.venues)
+        return (lib, members, check.nonconformingMembers(), check.basisProblem)
+    }
+
+    /// `set-kind` 的結果：改寫後的 library、**被換掉的先前性質**（整值替換，舊值不回顯就無從核對——#642 R1 verify）、
+    /// 現有成員對新規則的判定。
+    public struct LibraryKindChange {
+        public let library: Library
+        public let previous: LibraryMembership?
+        public let members: Int
+        public let violations: [(citekey: String, violation: LibraryMembershipViolation)]
+        public let basisProblem: LibraryMembershipViolation?
+    }
+
+    /// #642：標一個既有 library 的成員性質與規則（**整值替換**——`types`／`excluded`／`source` 沒再給就是清掉）。
+    /// - 規則指涉的東西要在庫（`requireMembershipReferents`，含排除清單）。
+    /// - **替換一條既有的性質時**（原本不是 nil、且新值不同），registry 檔要在 git 裡 tracked、clean——舊值只剩 git 那一份
+    ///   （與 #573 一族同一支閘，涵蓋 registry 檔）。從未標性質標成任何一種不需要這道：沒有東西被換掉。
+    /// - 現有成員不符新規則時只列出、不自動移除（移除是另一個寫入）。
+    /// CLI 與 MCP 共用這一個函式；CLI 直接渲染回傳值（不必再 load 一次）。
+    public func setLibraryKind(key: String, membership input: LibraryMembershipInput) throws -> LibraryKindChange {
+        guard StoreKey.isValid(key) else {
+            throw ServiceError.invalid("library key「\(displaySafeInvisible(key, max: 200))」不符合 \(StoreKey.pattern)")   // display-safe-exempt: StoreKey.pattern：pattern 是常量
+        }
+        guard let membership = try Self.parseLibraryMembership(input) else {
+            throw ServiceError.invalid("set-kind 需要 kind（topic／rule／document）")
+        }
+        let load = try store.load()
+        guard var lib = load.libraries.first(where: { $0.key == key }) else {
+            throw ServiceError.notFound("library「\(displaySafeInvisible(key, max: 200))」")
+        }
+        try Self.requireMembershipReferents(membership, in: load)
+        let previous = lib.membership
+        if let previous, previous != membership {
+            try assertRecordsRecoverable(
+                [], libraries: [(key, "library「\(displaySafeInvisible(key, max: 200))」")],
+                action: "set-kind 會整值替換 library「\(displaySafeInvisible(key, max: 200))」既有的成員性質與規則（\(previous.kindLabel)）",   // display-safe-exempt: previous.kindLabel 是常量
+                issue: "#642")
+        }
+        lib.membership = membership
+        try store.updateLibrary(lib)
+        let check = LibraryMembershipCheck(library: lib, entries: load.entries, venues: load.venues)
+        let members = load.entries.filter { $0.akashic.libraries.contains(key) }.count
+        return LibraryKindChange(library: lib, previous: previous, members: members,
+                                 violations: check.nonconformingMembers(), basisProblem: check.basisProblem)
     }
 
     /// #13 多 library：registry 管理 + 成員操作（衍生層寫入邊界內）。#642 起多兩個 action：`set-kind`（標性質與規則）、
@@ -1089,7 +1145,7 @@ public final class AkashicService {
                 // #642：性質與規則——問使用者要掛哪個 library 的地方要看得到它（不再只靠讀描述）
                 d.merge(Self.membershipPayload(lib.membership)) { a, _ in a }
                 if lib.membership != nil {
-                    d["nonconforming"] = LibraryMembershipCheck(library: lib, entries: load.entries).nonconformingMembers().count   // display-safe-exempt: Int
+                    d["nonconforming"] = LibraryMembershipCheck(library: lib, entries: load.entries, venues: load.venues).nonconformingMembers().count   // display-safe-exempt: Int
                 }
                 return d
             })
@@ -1107,36 +1163,28 @@ public final class AkashicService {
             guard !FileManager.default.fileExists(atPath: store.libraryURL(key: key).path) else {
                 throw ServiceError.invalid("library「\(displaySafeInvisible(key, max: 200))」已存在")
             }
-            try Self.requireMembershipReferents(membership, in: try store.load())
+            // 主題型不指涉任何東西——不必為它讀整份 store（#642 R1 verify：先前每次建 library 都 load）
+            if membership != .topic { try Self.requireMembershipReferents(membership, in: try store.load()) }
             _ = try store.writeLibrary(Library(key: key, name: name, description: description, membership: membership))
             return try jsonString(["created": key, "membership": Self.membershipPayload(membership)] as [String: Any])
         case "set-kind":
             guard let key else { throw ServiceError.invalid("set-kind 需要 key") }
-            guard StoreKey.isValid(key) else {
-                throw ServiceError.invalid("library key「\(displaySafeInvisible(key, max: 200))」不符合 \(StoreKey.pattern)")   // display-safe-exempt: StoreKey.pattern：pattern 是常量
-            }
-            guard let membership = try Self.parseLibraryMembership(input) else {
-                throw ServiceError.invalid("set-kind 需要 kind（topic／rule／document）")
-            }
-            let load = try store.load()
-            guard var lib = load.libraries.first(where: { $0.key == key }) else {
-                throw ServiceError.notFound("library「\(displaySafeInvisible(key, max: 200))」")
-            }
-            try Self.requireMembershipReferents(membership, in: load)
-            lib.membership = membership
-            try store.updateLibrary(lib)
-            let bad = LibraryMembershipCheck(library: lib, entries: load.entries).nonconformingMembers()
-            var out: [String: Any] = ["key": key, "membership": Self.membershipPayload(membership),
-                                      "basis": LibraryMembershipCheck.basis(of: membership),
-                                      "nonconforming": bad.count]   // display-safe-exempt: Int
-            if !bad.isEmpty {
-                out["first"] = bad.prefix(20).map { ["citekey": displaySafe($0.citekey, max: 200), "reason": $0.violation.message] }   // display-safe-exempt: $0.violation.message：message 已逐項消毒
-                out["note"] = "現有成員有 \(bad.count) 筆不符這條規則——不自動移除；逐筆看 action check，確認後用 action remove"   // display-safe-exempt: Int
+            let change = try setLibraryKind(key: key, membership: input)
+            var out: [String: Any] = ["key": displaySafe(key, max: 200), "membership": Self.membershipPayload(change.library.membership),
+                                      "basis": LibraryMembershipCheck.basis(of: change.library.membership),
+                                      // 整值替換：被換掉的先前性質與規則（excluded 至多 50 筆、excludedTotal 說總數；CLI `library check` 印全部）
+                                      "previous": Self.membershipPayload(change.previous),
+                                      "previousBasis": LibraryMembershipCheck.basis(of: change.previous),
+                                      "nonconforming": change.violations.count]   // display-safe-exempt: Int
+            if let problem = change.basisProblem { out["basisProblem"] = problem.message }   // display-safe-exempt: message 已逐項消毒
+            if !change.violations.isEmpty {
+                out["first"] = change.violations.prefix(20).map { ["citekey": displaySafe($0.citekey, max: 200), "reason": $0.violation.message] }   // display-safe-exempt: $0.violation.message：message 已逐項消毒
+                out["note"] = "現有成員有 \(change.violations.count) 筆不符這條規則——不自動移除；逐筆看 action check，確認後用 action remove"   // display-safe-exempt: Int
             }
             return try jsonString(out)
         case "check":
             guard let key else { throw ServiceError.invalid("check 需要 key") }
-            let (lib, members, bad) = try libraryViolations(key: key)
+            let (lib, members, bad, basisProblem) = try libraryViolations(key: key)
             var items: [[String: Any]] = []
             var bytes = 0, capped = false
             for b in bad {
@@ -1151,6 +1199,7 @@ public final class AkashicService {
                                       "members": members,   // display-safe-exempt: Int
                                       "nonconforming": items, "total": bad.count, "truncated": capped]   // display-safe-exempt: Int／Bool
             if lib.membership == nil { out["note"] = Library.unmarkedMessage }
+            if let basisProblem { out["basisProblem"] = basisProblem.message }   // display-safe-exempt: message 已逐項消毒
             return try jsonString(out)
         case "add", "remove":
             guard let key, let citekey else {
@@ -1215,7 +1264,7 @@ public final class AkashicService {
             guard lib.membership != nil else {
                 throw ServiceError.invalid("library「\(displaySafeInvisible(key, max: 200))」：\(Library.unmarkedMessage)——整批拒絕、零寫入")   // display-safe-exempt: Library.unmarkedMessage 是常量
             }
-            rule = LibraryMembershipCheck(library: lib, entries: load.entries)
+            rule = LibraryMembershipCheck(library: lib, entries: load.entries, venues: load.venues)
         }
         var byCitekey: [String: Entry] = [:]
         for e in load.entries { byCitekey[e.citekey] = e }
@@ -5431,37 +5480,37 @@ public final class AkashicService {
     /// 與 `resolve-divergence` 同一支檢查（`LibraryStore.filesNotSafelyRecoverable`：tracked、clean、HEAD 可解析、無 index 位元）。
     /// `items` 是（記錄 id, 人讀的標籤——已消毒）；`action` 是「這次會刪掉什麼」的一句（已消毒）。整批拒絕、零寫入。
     ///
+    /// **`libraries`（#642 R1 verify）**：registry 檔（`libraries/<key>.yaml`）不在 `entities/`、沒有 UUID——`set-kind` 整值替換一條規則、
+    /// 改名把規則裡的 citekey 換掉，舊值同樣只剩 git 那一份。它們走**同一支**判斷（`LibraryStore.recoverabilityRefusal`），
+    /// 不另寫一份；找不到 registry 檔一律拒絕（同實體記錄）。
+    ///
     /// 回傳驗過的 id → 相對路徑（同一次列舉的結果）：要刪檔的呼叫端用它，不再列舉一次（#586 R1 verify——兩次列舉之間
     /// 檔案可以被換掉，而刪的就不是驗過 git 狀態的那一個）。
     @discardableResult
-    func assertRecordsRecoverable(_ items: [(id: UUID, label: String)], action: String, issue: String) throws -> [UUID: String] {
-        guard !items.isEmpty else { return [:] }
-        // 先分辨「不在 git 裡」——否則下面那支檢查對非工作樹回的是「無法執行 git」，指錯原因
-        guard LibraryStore.isInsideVersionedWorkTree(store.root) else {
-            throw ServiceError.invalid(
-                "\(action)，而 store 不在 git 工作樹裡——被刪的東西不會留下任何副本。"   // display-safe-exempt: action 由呼叫端組、已消毒
-                + "把 store 放進 git 並 commit 後再跑（\(issue)）；整批拒絕、零寫入")   // display-safe-exempt: issue 是字面常量
-        }
+    func assertRecordsRecoverable(_ items: [(id: UUID, label: String)],
+                                  libraries: [(key: String, label: String)] = [],
+                                  action: String, issue: String) throws -> [UUID: String] {
+        guard !items.isEmpty || !libraries.isEmpty else { return [:] }
         // 路徑取自磁碟上的實際檔名，不由 id 拼（#573 R1 verify Codex HIGH、DA 第 32 列）：load 接受小寫 UUID 檔名，git 的 pathspec 分大小寫——
         // 拼成大寫會對一個已 commit 的檔永遠回「未被追蹤」。而共用的檢查對不存在的路徑是略過（刪檔的語意），在這裡等於沒檢查：
         // 找不到檔就拒絕，不放行。
-        let actual = Self.entityRelativePaths(root: store.root)
-        let missing = items.filter { actual[$0.id] == nil }
-        guard missing.isEmpty else {
-            let missingLabels = Self.listCapped(missing.map(\.label)) { $0 }
-            throw ServiceError.invalid(
-                "\(action)，但下列記錄在 entities/ 找不到記錄檔、無從確認 git 裡有副本："   // display-safe-exempt: action 已消毒
-                + missingLabels + "（\(issue)）；整批拒絕、零寫入")   // display-safe-exempt: missingLabels 的每一項由呼叫端消毒；issue 是字面常量
+        let actual = items.isEmpty ? [:] : Self.entityRelativePaths(root: store.root)
+        var present: [(path: String, label: String)] = items.compactMap { i in actual[i.id].map { ($0, i.label) } }
+        var missing = items.filter { actual[$0.id] == nil }.map(\.label)
+        for lib in libraries {
+            let rel = LibraryStore.libraryRelativePath(key: lib.key)
+            if FileManager.default.fileExists(atPath: store.root.appendingPathComponent(rel).path) {
+                present.append((rel, lib.label))
+            } else {
+                missing.append(lib.label)
+            }
         }
-        let paths = items.compactMap { actual[$0.id] }
-        let bad = LibraryStore.filesNotSafelyRecoverable(root: store.root, relativePaths: paths)
+        if let refusal = LibraryStore.recoverabilityRefusal(root: store.root, present: present, missing: missing,
+                                                            action: action, issue: issue) {
+            throw ServiceError.invalid(refusal)   // display-safe-exempt: refusal 由 recoverabilityRefusal 組裝——action 與標籤由呼叫端消毒、why 是 filesNotSafelyRecoverable 的固定句
+        }
         let ids = Set(items.map(\.id))
-        guard !bad.isEmpty else { return actual.filter { ids.contains($0.key) } }
-        let labelByPath = Dictionary(items.compactMap { i in actual[i.id].map { ($0, i.label) } }, uniquingKeysWith: { a, _ in a })
-        let lines = Self.listCapped(bad.map { "\(labelByPath[$0.path] ?? displaySafeInvisible($0.path, max: 200))：\($0.why)" }) { $0 }
-        throw ServiceError.invalid(
-            "\(action)，而它們的唯一副本會是 git——下列記錄檔不能確認可回溯："   // display-safe-exempt: action 已消毒
-            + lines + "。先 commit 再跑（\(issue)）；整批拒絕、零寫入")   // display-safe-exempt: lines 的 label 已消毒、why 是本 package 的固定句；issue 是字面常量
+        return actual.filter { ids.contains($0.key) }
     }
 
     /// `entities/` 裡每個以 UUID 為名的記錄檔的相對路徑——實作在 `LibraryStore.entityRelativePaths(root:)`（#609 起 App 也用，搬到 StoreIO）。

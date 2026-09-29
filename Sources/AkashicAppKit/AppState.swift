@@ -247,17 +247,20 @@ public final class AppState {
     /// `#7b` 的跨記錄驗證會把它報成 warning，但更好的做法是**一開始就不讓它發生**。
     /// 所以這裡 fail-loud，UI 端則只提供選單而非自由輸入。
     public func addToLibrary(citekey: String, libraryKey: String) throws {
-        guard let library = libraries.first(where: { $0.key == libraryKey }) else {
-            throw AppStateError.unknownLibrary(libraryKey)
-        }
-        // #642：App 是第三個寫入面。依據與 CLI／MCP 的 add 同一份判定（`LibraryMembershipCheck`）：
-        // 未標性質＝查不到依據→不寫；規則型／文件型不符→不寫並說原因（不是照寫）
-        guard library.membership != nil else { throw AppStateError.libraryUnmarked(libraryKey) }
-        if let entry = entries.first(where: { $0.citekey == citekey }),
-           let v = LibraryMembershipCheck(library: library, entries: entries).violation(of: entry) {
-            throw AppStateError.libraryRuleViolation(library: libraryKey, citekey: citekey, reason: v.message)   // display-safe-exempt: v.message 已逐項消毒（LibraryMembershipViolation.message）；libraryKey／citekey 在描述端逃
-        }
-        try mutate(citekey) {
+        // #642 R1 verify：規則判定用**磁碟上剛讀到的** registry 與 entries，不用記憶體快照。`FileWatcher` 不監看 `libraries/`，
+        // 而 `mutate()` 只重讀 entries——CLI／MCP 把一個 library 從 topic 改成 rule 之後，快照裡它仍是 topic，選單加入完全不比對規則
+        // （一直要到下一次 entities 變動才更新）。比照 `mutate()` 的理由：「三面同一份判定」的宣稱，輸入也要是同一份。
+        try mutate(citekey, checking: { load, entry in
+            guard let library = load.libraries.first(where: { $0.key == libraryKey }) else {
+                throw AppStateError.unknownLibrary(libraryKey)
+            }
+            // #642：App 是第三個寫入面。依據與 CLI／MCP 的 add 同一份判定（`LibraryMembershipCheck`）：
+            // 未標性質＝查不到依據→不寫；規則型／文件型不符→不寫並說原因（不是照寫）
+            guard library.membership != nil else { throw AppStateError.libraryUnmarked(libraryKey) }
+            if let v = LibraryMembershipCheck(library: library, entries: load.entries, venues: load.venues).violation(of: entry) {
+                throw AppStateError.libraryRuleViolation(library: libraryKey, citekey: citekey, reason: v.message)   // display-safe-exempt: v.message 已逐項消毒（LibraryMembershipViolation.message）；libraryKey／citekey 在描述端逃
+            }
+        }) {
             if !$0.akashic.libraries.contains(libraryKey) {
                 $0.akashic.libraries.append(libraryKey)
                 $0.akashic.libraries.sort()   // 穩定順序——避免 diff 噪音
@@ -334,10 +337,17 @@ public final class AppState {
     // MARK: - Internals
 
     func mutate(_ citekey: String, _ change: (inout Entry) -> Void) throws {
+        try mutate(citekey, checking: nil, change)
+    }
+
+    /// `checking`：寫入前拿**同一次從磁碟讀到的**整份 store 與那筆 entry 做檢查（可 throw，throw 即零寫入）——
+    /// 需要看 registry 或其他記錄的寫入（`addToLibrary` 的成員規則）用它，不必再 load 一次、也不會拿記憶體快照判定。
+    func mutate(_ citekey: String, checking: ((LibraryLoad, Entry) throws -> Void)?, _ change: (inout Entry) -> Void) throws {
         // 從磁碟重讀最新版本再 patch——記憶體快照可能落後外部工具（CLI/MCP/
         // Zotero pull）最多一個 FileWatcher debounce 視窗；用舊快照整筆寫回
         // 會把外部剛更新的書目層（title/authors/fields）蓋回舊值（lost update）。
-        let entries = try store.load().entries
+        let load = try store.load()
+        let entries = load.entries
         // #628（R1 verify）：citekey 重複或與另一筆共用 id 時 `first(where:)` 會猜是哪一筆——拒絕
         if entries.unlocatableCitekeys.contains(citekey) {
             throw StoreIOError.invalidKey("citekey（無法唯一定位：\(UnlocatableReason.work)；先修好，#628／#641）", citekey)
@@ -345,6 +355,7 @@ public final class AppState {
         guard var entry = entries.first(where: { $0.citekey == citekey }) else {
             throw StoreIOError.invalidKey("citekey（不存在）", citekey)
         }
+        try checking?(load, entry)
         change(&entry)
         try store.writeEntry(entry)
         try reindexAndReload()
@@ -374,7 +385,9 @@ public enum AppStateError: Error, LocalizedError, SanitizedErrorDescription {
             return "library「\(displaySafeInvisible(key, max: 200))」不在 registry 裡"
                  + "——先用 akashic library create 建立，或從清單挑一個既有的"
         case .libraryUnmarked(let key):
-            return "library「\(displaySafeInvisible(key, max: 200))」：\(Library.unmarkedMessage)"   // display-safe-exempt: Library.unmarkedMessage 是常量
+            // App 沒有標性質的面（#642 R1 verify）：訊息裡的 set-kind 是 CLI／MCP 的動作，GUI 使用者要知道去哪裡做
+            return "library「\(displaySafeInvisible(key, max: 200))」：\(Library.unmarkedMessage)。"   // display-safe-exempt: Library.unmarkedMessage 是常量
+                 + "App 沒有標性質的面——請在終端機執行 akashic library set-kind，標完再回來加入"
         case let .libraryRuleViolation(library, citekey, reason):
             return "「\(displaySafeInvisible(citekey, max: 200))」不符 library「\(displaySafeInvisible(library, max: 200))」的成員規則，未加入——"
                  + displaySafeClipOnly(reason, max: 1_200)   // display-safe-exempt: reason 已逐項消毒（LibraryMembershipViolation.message），只截

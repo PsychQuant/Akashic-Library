@@ -2473,7 +2473,13 @@ struct ResolvePeople: ParsableCommand {
 
 struct Rename: ParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "rename", abstract: "citekey 改名：搬檔 + 全庫 relations 遷移（UUID 不變）")
+        commandName: "rename",
+        abstract: "citekey 改名：搬檔 + 全庫 relations／歧異候選／消解判定／library 成員規則遷移（UUID 不變）",
+        discussion: """
+        library 的成員規則（文件型的文件、規則型的排除清單）以 citekey 指涉 work——改名時同批遷移，逐條列在輸出裡；\
+        要改寫的 library 檔必須已 commit 且乾淨（舊值只剩 git 那一份）。新 citekey 若已被某條規則指涉、\
+        或被隔離的 registry 檔提到這個 citekey，拒絕並說出哪個 library／檔案。
+        """)
 
     @OptionGroup var options: LibraryOptions
 
@@ -2498,6 +2504,11 @@ struct Rename: ParsableCommand {
         // verdict value 同理（#232 verify NEW-1）——判定史跟著 citekey 走
         if !report.verdictValuesRewritten.isEmpty {
             print("消解判定已遷移：\(report.verdictValuesRewritten.map(\.describedSafely).joined(separator: ", "))")   // display-safe-exempt: HolderRecord.describedSafely 已對 key 套 displaySafe(max: 200)
+        }
+        // library 的成員規則（第 16 條邊，#642）同批遷移——改寫了**別的**記錄，逐條印
+        if !report.libraryRulesRewritten.isEmpty {
+            print("library 成員規則已遷移（registry 檔已改寫；舊值在 git）：")
+            for r in report.libraryRulesRewritten { print("  · " + r.describedSafely) }   // display-safe-exempt: describedSafely 已對 key 套 displaySafeInvisible(max: 200)
         }
         if !report.quarantinedNotScanned.isEmpty {   // #497：未掃描不得看起來像掃過且沒有
             print("⚠ \(report.quarantinedNotScanned.count) 個 quarantine 檔未解析——"

@@ -173,7 +173,6 @@ public enum StoreVersion {
     ///   （同 5、18 的「保留不等於遵守」）：舊 binary 的 `library add` 不查規則，對規則型與文件型 library 照樣寫進不符的
     ///   成員，不會大聲失敗。write gate（`assertLibraryWritable`）對 format < 21 拒寫**規則型與文件型**；主題型不帶規則、
     ///   舊 binary 的行為與新語意相同，不閘。**無資料遷移**（既有 registry 檔沒有這個鍵，零 diff）。
-    ///   實作 agent 原本記「不 bump」（頂層新鍵），整合時依這張表的 5／18 先例改判。
     public static let supported = 21
 
     /// work 的 `date` 來源 reference（#655）需要的最低 store format。**寫入閘與 `enrich` 的事前判斷共用這一個數**
@@ -186,7 +185,7 @@ public enum StoreVersion {
     public static let workFieldReferenceFormat = 17
 
     /// library 的規則型／文件型成員性質（#642）需要的最低 store format。寫入閘與測試共用這一個數。
-    public static let libraryMembershipFormat = 21
+    public static let libraryMembershipFormat = LibraryMembership.requiredStoreFormat
 
     /// 遷移完成後的 format bump 提示——**只在真的要升的時候印**（#472）。
     ///

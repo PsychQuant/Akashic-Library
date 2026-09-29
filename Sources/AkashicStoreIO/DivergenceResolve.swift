@@ -20,7 +20,8 @@ public enum DivergenceResolveError: Error, LocalizedError, SanitizedErrorDescrip
     /// #642：被併的記錄被 library 的成員規則指涉（work：文件型的文件或規則型的排除清單；venue：規則型的 venue）。
     /// 合併不遷移 registry 檔——被併鍵消失之後規則安靜懸空（或換了一份文件、換了一本刊而沒有人決定過）。
     /// `libraries` 是 library key（StoreKey 文法），描述端逐項消毒。
-    case namedByLibraryRule(merged: String, shape: String, libraries: [String])
+    /// `steps` 是逐個 library 可直接照做的 `set-kind` 命令（`libraryRuleMergeSteps`，已消毒）。
+    case namedByLibraryRule(merged: String, shape: String, libraries: [String], steps: [String])
     /// 被併記錄自己違反寫入期不變式（#554 D8 的名字內容檢查）——合併會把它的名字搬進倖存者，
     /// 倖存者因此寫不進去，而訊息若指著倖存者的 YAML，那個字串根本不在那個檔裡（R6 verify 第 28 列）。
     case doomedRecordInvalid(merged: String, why: String)
@@ -130,11 +131,14 @@ public enum DivergenceResolveError: Error, LocalizedError, SanitizedErrorDescrip
         case let .doomedRecordInvalid(merged, why):
             return "拒絕合併：被併的「\(displaySafeInvisible(merged, max: 200))」自己違反 venue 的寫入期不變式——\(why)"   // display-safe-exempt: why 由 NameIdentity 的固定訊息與已 displaySafe 的名字組成
                  + "。先修它的 YAML（docs/store-format.md §5.7）再合併；不猜、不靜默修"
-        case let .namedByLibraryRule(merged, shape, libraries):
+        case let .namedByLibraryRule(merged, shape, libraries, steps):
             return "拒絕合併：被併的\(shape)「\(displaySafeInvisible(merged, max: 200))」被 library「"   // display-safe-exempt: shape 是呼叫端字面量（work／venue）
                  + libraries.map { displaySafeInvisible($0, max: 200) }.joined(separator: "、")
-                 + "」的成員規則指涉，合併不遷移規則、被併鍵消失之後規則會安靜懸空"
-                 + "——先以 akashic library set-kind 把規則改成倖存者（或確認規則該怎麼寫），再消歧（#642）"
+                 + "」的成員規則指涉，合併不遷移規則、被併鍵消失之後規則會安靜懸空。"
+                 + "出路（不經過 topic：規則全程都在，只是換了指涉的對象；set-kind 替換既有規則要求 registry 檔已 commit）——"
+                 + "每個 library 各做一次，做完重跑這次消歧：\n"
+                 + steps.map { "  • " + $0 }.joined(separator: "\n")   // display-safe-exempt: steps 由 libraryRuleMergeSteps 組裝、逐項 displaySafeInvisible
+                 + "\n（要先讀出完整規則：akashic library check <library>；#642）"
         case let .wouldLoseFields(merged, survivor, losses):
             return "拒絕合併：被併的「\(displaySafeInvisible(merged, max: 200))」帶有倖存者"
                  + "「\(displaySafeInvisible(survivor, max: 200))」沒有的資料，合併會讓它隨檔案消失——"
@@ -1321,7 +1325,9 @@ extension LibraryStore {
             // #642：library 的成員規則以 citekey 指涉被併者（第 16 條邊）——preview 與實跑共用這一份
             let naming = snapshot.librariesNaming(citekey: e.citekey)
             guard naming.isEmpty else {
-                throw DivergenceResolveError.namedByLibraryRule(merged: e.citekey, shape: "work", libraries: naming)
+                throw DivergenceResolveError.namedByLibraryRule(
+                    merged: e.citekey, shape: "work", libraries: naming,
+                    steps: snapshot.libraryRuleMergeSteps(libraries: naming, merged: e.citekey, survivor: survivor))   // display-safe-exempt: snapshot.libraryRuleMergeSteps 逐項 displaySafeInvisible（命令裡只有 StoreKey 與 entry type）
             }
         }
         // holder 閘在欄位遺失之後——理由同 person 側（R9 verify regression 第 9 列）
@@ -1379,7 +1385,9 @@ extension LibraryStore {
             // #642：規則型 library 以被併的 venue 界定成員（第 16 條邊）——preview 與實跑共用這一份
             let naming = snapshot.librariesNaming(venue: v.key)
             guard naming.isEmpty else {
-                throw DivergenceResolveError.namedByLibraryRule(merged: v.key, shape: "venue", libraries: naming)
+                throw DivergenceResolveError.namedByLibraryRule(
+                    merged: v.key, shape: "venue", libraries: naming,
+                    steps: snapshot.libraryRuleMergeSteps(libraries: naming, merged: v.key, survivor: survivor))   // display-safe-exempt: snapshot.libraryRuleMergeSteps 逐項 displaySafeInvisible（命令裡只有 StoreKey 與 entry type）
             }
             for inc in absorption.incoming where inc.from == v.key {
                 if let why = NameIdentity.wellFormednessIssue(inc.segment.value) {

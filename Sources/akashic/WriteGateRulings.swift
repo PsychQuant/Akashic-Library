@@ -92,7 +92,7 @@ extension DestructiveTargetGate {
         "set-status": .notGated("冪等：設定一個狀態值或 --clear（disambiguate-before-irreversible-writes 的不適用類）"),
         "library create": .notGated("只新增一筆 library 記錄，不動任何 entry"),
         "library add": .notGated("集合語意、冪等：與 library remove 互為逆操作；#642 起對規則型／文件型逐筆比對規則，不符的不寫"),
-        "library set-kind": .notGated("只改一筆 library 記錄的成員性質與規則、不動任何 entry；再跑一次就改回，舊值在 git（#642）"),
+        "library set-kind": .notGated("只改一筆 library 記錄的成員性質與規則、不動任何 entry；整值替換會回顯先前的值，替換既有性質時要求 registry 檔 tracked 且 clean（#573 一族的可回溯閘），所以舊值在 git、再跑一次就改回（#642）"),
         "library remove": .notGated("集合語意、冪等：與 library add 互為逆操作"),
         "file add": .notGated("store 路徑由參數顯式給、不經 registry 的 current 解析；寫 registry，並在佈局不存在時建立佈局"),
         "update-person": .notGated("逐筆指名一個 person key、有 --dry-run；提及的欄位整個替換、未提及的不動，references 只追加（被替換的舊值只在 git 歷史）。" + outsideNamedFamily),

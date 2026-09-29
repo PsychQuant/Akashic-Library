@@ -53,4 +53,18 @@ final class LibraryMembershipFormatGateTests: XCTestCase {
         try store.writeLibrary(Library(key: "t", name: "T", membership: .topic))
         XCTAssertEqual(try store.load().libraries.count, 3)
     }
+
+    /// #642 R1 verify：撞閘的訊息要說出**為什麼不能改標 topic 來解鎖**——升到 21 之前唯一標得上的性質是 topic，
+    /// 而 topic 不檢查成員，一行就回到 #642 起因的狀態。未標性質的拒絕訊息（add／validate）同樣要說。
+    func testTheGateMessageAndTheUnmarkedMessageBothWarnAgainstMarkingTopicToUnblock() throws {
+        try StoreVersion.write(root: root, format: 20)
+        XCTAssertThrowsError(try store.writeLibrary(Library(key: "x", name: "X", membership: rule))) { error in
+            let m = "\(error)"
+            XCTAssertTrue(m.contains("不要改標 topic 來解鎖") && m.contains("topic 不檢查成員"), m)
+            XCTAssertTrue(m.contains("規則型保護不存在"), "說出 marker 升到 21 之前的處境：\(m)")
+        }
+        let unmarked = Library.unmarkedMessage
+        XCTAssertTrue(unmarked.contains("store format ≥ 21") && unmarked.contains("不要改標 topic") && unmarked.contains("topic 不檢查成員"), unmarked)
+        XCTAssertTrue(Library(key: "u", name: "U").validate().contains { $0.message == unmarked }, "validate 的 warning 用同一句")
+    }
 }

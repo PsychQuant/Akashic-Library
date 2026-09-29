@@ -56,6 +56,8 @@ final class GitSpawnHygieneTests: XCTestCase {
         "RepairVenueNamesCLITests.swift", // #575：--apply 前先 commit fixture
         "UpdateEntryCLITests.swift",      // #544：--remove-field 的實跑要求 work 檔已 commit
         "OrphanedAdditionalSourceTests.swift", // #609：App 裁決台的移除面前先 commit fixture
+        "LibraryRuleCLITests.swift",      // #642：替換既有規則與改名遷移規則前要求 registry 檔已 commit
+        "CLIIntegrationTests.swift",      // #642：替換既有成員性質前要求 registry 檔已 commit
         // 這條清單是封閉列舉：多了會紅（stale），少了也會紅（spawn git 卻未登記——#585 R1 verify 第 16／36 列：先前只有
         // 「沒剝環境」才紅，有剝環境但沒登記的檔安靜通過，於是清單與實際分岔而守衛照綠）。
         //

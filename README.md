@@ -500,7 +500,9 @@ store 永遠是全集——library 只是視角，成員關係存在 entry 的 `
 每個 library 有**成員性質**（#642）：`topic`（主題型，照你挑的寫）、`rule`（規則型，以 venue key
 界定，可加 `--type` 與 `--exclude`）、`document`（文件型，成員是一筆在庫文件的 `cites`）。
 `create` 要求 `--kind`，既有的用 `library set-kind` 標；`add` 對規則型與文件型逐筆比對，**不符的不寫並說出
-原因**，未標性質的拒絕 add；`library check` 列出不符規則的現有成員，`validate` 也會報。
+原因**，未標性質的拒絕 add（性質由你決定；rule／document 需要 store format ≥ 21，**不要為了讓 add 通過而標 topic**——topic 不檢查成員）；
+`library check` 印出完整規則並列出不符規則的現有成員，`validate` 也會報。`set-kind` 是整值替換：輸出帶被換掉的舊規則，
+替換既有規則要求 registry 檔已 commit；規則指涉的 citekey 在 `rename` 時同批遷移。
 ⚠ 並發限制：對**同一 entry** 並發執行 membership 寫入（CLI 與 MCP 同時 `library add/remove`）
 不保證安全——read-modify-write 無跨程序鎖，後寫者可能靜默蓋掉先寫者（跨程序鎖為 #7
 store 硬化範疇）。`create` 為 exclusive-create（並發同 key 恰一方成功）。單一操作者依序使用不受影響。

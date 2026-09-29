@@ -51,7 +51,7 @@ batch11 由六個分支各自實作，整合在同一條分支上接起來：
 
 - 受保護清單棘輪收進新的規則檔 `upstream-first-bibliographic-updates.md`（#599）。它在 CLAUDE.md 的 Rules 表裡有讀者，棘輪現為 71 條。
 - README 的工具數改成實測 33。另有一處「31 tools」改成指向工具面那一段，不再複述數字。
-- `akashic-verify-venue` 的誠實邊界原本寫「寫錯了沒有移除面、也沒有重號偵測面」，這在 #588 之後已經不成立。改成指向 `--remove-issn` 與 `validate` 的重號 warning，並寫明偵測面看不到的那一格：號只掛在錯的那一本時。
+- `akashic-verify-venue` 的誠實邊界原本寫「寫錯了沒有移除面、也沒有重號偵測面」，這在 #588 之後已經不成立。改成指向 `--remove-issn` 與 `validate` 的重號 warning，並寫明偵測面看不到的那一格：號只掛在錯的那一本時。**（R1 verify：同一個檔還有兩處過期敘述沒改——步驟 3(c) 的「全庫沒有重號掃描」「沒有移除面，只能手改 YAML」、以及「非陣列會被 `argList` 折成空陣列」（#561 起是拒絕）。整合時只 grep 了一處。已在 `2026-09-29-library-membership-r1.md` 補改。）**
 - `UpdateEntryCLITests` 改用 `scrubbedGitEnvironment`，並登記進 `GitSpawnHygieneTests` 的稽核清單。
 
 ## 測試與負控
@@ -71,3 +71,11 @@ batch11 由六個分支各自實作，整合在同一條分支上接起來：
 
 - CLI、akashic-mcp、App 三個 binary 全部升到 v21 世代之後，才把 live store 的 `format:` 改成 21；marker 升上去之前不要 push store repo。
 - live store 的 4 個 library 都還沒標性質。標成規則型或文件型需要 format 21，主題型不需要。
+- **marker 升到 21 之前，live store 上規則型保護不存在**（#642 R1 verify 補記）：live marker 是 18，規則型與文件型標不上（`set-kind`／`create` 撞寫入閘），
+  唯一標得上的性質是 `topic`——而 `topic` 不檢查成員，等於回到 #642 起因的狀態。**不要為了讓 `library add` 恢復而改標 `topic`**；
+  在 marker 升上去之前，4 個 unmarked library 的 `add` 被拒絕是預期的、也是唯一的保護。拒絕訊息、validate 的 warning、`akashic-venue-works` 都已寫明這一點。
+- **`authorize-names --apply` 與 `migrate` 會無條件把 marker 寫成 `StoreVersion.supported`**（`AuthorizedNameMigration.swift`、`StoreMigration.swift`；過度升級是既有行為，
+  它們各自只需要自己那一代的版本）。`supported` 從 20 變 21 之後，在 live store 上跑其中任何一個，都會**提早替你把 marker 升到 21**，繞過上面「三個 binary 都升級之後才手動改」的順序。
+  升級順序沒走完之前不要跑它們；`authorize-names` 改成只升到它需要的版本沒做（需要先確認 marker < 該版本時的寫法對 format-1 legacy store 不會破壞佈局判定，那不是一行的事），`migrate` 升到 `supported` 是它的語意。
+- **release 時 `binary_version` 要同批 bump**：`plugin.json` 與 `manifest.json` 的描述已寫「Store format 21」（`plugin-store-format-parity` 守衛要求描述與 `StoreVersion.supported` 一致），
+  但 `binary_version` 仍是 0.12.1（format 20 世代的 binary）。format 19、20 的 bump 同型；在發出 v21 世代的 binary 之前，plugin 的描述比實際下載到的 binary 先走一步。

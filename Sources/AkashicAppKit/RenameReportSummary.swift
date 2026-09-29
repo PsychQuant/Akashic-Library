@@ -46,9 +46,16 @@ enum RenameReportSummary {
             return xs.isEmpty ? "\(label)：0 筆"
                               : "\(label)：\(xs.count) 筆（\(shown)\(xs.count > 5 ? "…" : "")）"
         }
+        func libraryRuleLine(_ label: String, _ xs: [LibraryRuleRewrite]) -> String {
+            let shown = xs.prefix(5).map(\.describedSafely).joined(separator: "、")   // display-safe-exempt: describedSafely 內已套 displaySafeInvisible(max: 200)
+            return xs.isEmpty ? "\(label)：0 筆"
+                              : "\(label)：\(xs.count) 筆（\(shown)\(xs.count > 5 ? "…" : "")）"
+        }
         return [line("relations 已遷移", r.relationsRewritten),
                 line("歧異候選已遷移", r.divergenceCandidatesRewritten),
                 holderLine("消解判定已遷移", r.verdictValuesRewritten),
+                // #642：library 成員規則同批遷移（`describedSafely` 已消毒，同 `holderLine` 的理由）
+                libraryRuleLine("library 成員規則已遷移", r.libraryRulesRewritten),
                 // #495：收攏丟棄的列。**與上面三行不同，這裡的元素是敘述不是 key**
                 // （`<kind>「<持有記錄>」：<field> <遷移前的原值>——丟棄 <來源>`），上限自 R21 起與 CLI 同為 1,000
                 // （R21 verify 第 19 列：這裡曾寫「200 字的截斷」而那一行已改）。alert 本來就只是提示，完整清單看 CLI `rename`。

@@ -379,4 +379,16 @@ final class FileWatcherWatchTargetsTests: XCTestCase {
                                      root.appendingPathComponent("entities").path]),
                        "format 1 + 既存 entities/：存在的全都要監看——按 format 猜就會缺角")
     }
+
+    /// #642 R1 verify：`set-kind` 改寫 registry 檔而不動任何 entity——不監看 `libraries/`，App 的 library 快照
+    /// 要等到下一次 entities 變動才更新。目錄存在就要監看；不存在不列（監看不存在的目錄是靜默缺角的來源）。
+    func testWatchTargetsIncludeTheRegistryDirectoryWhenItExists() throws {
+        try StoreVersion.write(root: root, format: StoreVersion.supported)
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("entities"), withIntermediateDirectories: true)
+        let store = LibraryStore(root: root, key: nil, environment: ["AKASHIC_HOME": root.path])
+        XCTAssertFalse(FileWatcher.watchTargets(for: store).map(\.path).contains(root.appendingPathComponent("libraries").path))
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("libraries"), withIntermediateDirectories: true)
+        XCTAssertTrue(FileWatcher.watchTargets(for: store).map(\.path).contains(root.appendingPathComponent("libraries").path),
+                      "libraries/ 存在就要監看")
+    }
 }

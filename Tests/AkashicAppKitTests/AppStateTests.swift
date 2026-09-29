@@ -129,18 +129,29 @@ final class AppStateTests: XCTestCase {
                                                          divergenceCandidatesRewritten: [],
                                                          verdictValuesRewritten: [HolderRecord(.person, "some-person")]))
         let lines = text.split(separator: "\n").map(String.init)
-        XCTAssertEqual(lines.count, 4, "#495 起多一行 verdict 收攏：\(text)")
+        XCTAssertEqual(lines.count, 5, "#495 起多一行 verdict 收攏、#642 起多一行 library 成員規則：\(text)")
         XCTAssertEqual(lines[0], "relations 已遷移：7 筆（w1、w2、w3、w4、w5…）")
         XCTAssertEqual(lines[1], "歧異候選已遷移：0 筆")
         XCTAssertEqual(lines[2], "消解判定已遷移：1 筆（person「some-person」）",
                        "#498：帶 kind——跨型別同名鍵時分得出是哪一筆")
-        XCTAssertEqual(lines[3], "verdict 收攏丟棄：0 筆", "#495：丟棄必須可見，零也要說")
+        XCTAssertEqual(lines[3], "library 成員規則已遷移：0 筆", "#642：改名同批遷移的規則，零也要說")
+        XCTAssertEqual(lines[4], "verdict 收攏丟棄：0 筆", "#495：丟棄必須可見，零也要說")
         // 帶 from/to 的版本第一行說出改成了什麼——與一次不編輯的點擊不同形（DA-2）
         let full = RenameReportSummary.receipt(RenameReport(), from: "a2020a", to: "a2020b")
         XCTAssertEqual(full.split(separator: "\n").first.map(String.init), "✓ a2020a → a2020b")
-        XCTAssertEqual(full.split(separator: "\n").count, 5)
+        XCTAssertEqual(full.split(separator: "\n").count, 6)
         XCTAssertEqual(full, "✓ a2020a → a2020b\nrelations 已遷移：0 筆\n歧異候選已遷移：0 筆"
-                           + "\n消解判定已遷移：0 筆\nverdict 收攏丟棄：0 筆")
+                           + "\n消解判定已遷移：0 筆\nlibrary 成員規則已遷移：0 筆\nverdict 收攏丟棄：0 筆")
+    }
+
+    /// #642：library 的成員規則同批遷移——App 回執逐條說出（不然使用者看不到「我的 library 規則被改了」）。
+    func testRenameReportSummaryNamesTheMigratedLibraryRules() {
+        let text = RenameReportSummary.lines(RenameReport(libraryRulesRewritten: [
+            LibraryRuleRewrite(library: "paper", role: .document, from: "draft2026a", to: "draft2026b"),
+            LibraryRuleRewrite(library: "pm-catalog", role: .excluded, from: "draft2026a", to: "draft2026b"),
+        ]))
+        XCTAssertTrue(text.contains("library 成員規則已遷移：2 筆（library「paper」的文件：draft2026a → draft2026b、"
+                                    + "library「pm-catalog」的排除：draft2026a → draft2026b）"), text)
     }
 
     /// 消毒與 CLI 同立場：控制字元被逃脫、超長 key 被截（displaySafe(max: 200)）。

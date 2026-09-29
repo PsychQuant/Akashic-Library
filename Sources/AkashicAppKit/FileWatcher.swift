@@ -97,9 +97,11 @@ public final class FileWatcher {
     /// inode——**in-place 覆寫**既有檔案不保證觸發，那不是本 repo 任何寫入端的行為）
     /// + 該 store **實際存在**的 canonical 目錄。不看 format 猜佈局——`migrate` 前後、
     /// 就地遷移殘留（空 legacy 目錄）都以磁碟現況為準。
+    /// `libraries/`（registry）也在內（#642 R1 verify）：`set-kind` 改寫 registry 檔不動任何 entity，
+    /// 不監看它，App 的 library 快照要等到下一次 entities 變動才更新。
     public static func watchTargets(for store: LibraryStore) -> [URL] {
         ([store.root, StoreVersion.url(in: store.root),
-          store.entitiesDir, store.entriesDir, store.peopleDir])
+          store.entitiesDir, store.entriesDir, store.peopleDir, store.librariesDir])
             .filter { FileManager.default.fileExists(atPath: $0.path) }
     }
 

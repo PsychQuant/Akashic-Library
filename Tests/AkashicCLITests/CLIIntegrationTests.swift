@@ -278,6 +278,23 @@ extension CLIIntegrationTests {
         libraryRoot.appendingPathComponent("entities/7C1F6C2E-0000-0000-0000-000000000001.yaml")
     }
 
+    /// #239：hook 環境帶 `GIT_DIR`，`-C` 擋不住它——不剝的話 fixture 的 commit 會寫進使用者的 repo。
+    private var scrubbedGitEnvironment: [String: String] {
+        ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("GIT_") }
+    }
+
+    /// 把 fixture store 放進 git 並 commit（替換既有成員性質的閘要求 registry 檔 tracked 且 clean）。
+    private func commitFixture() {
+        for args in [["init", "-q"], ["add", "-A"], ["commit", "-q", "--allow-empty", "-m", "fixture"]] {
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+            p.arguments = ["-C", libraryRoot.path, "-c", "user.email=t@t", "-c", "user.name=t"] + args
+            p.environment = scrubbedGitEnvironment
+            p.standardOutput = Pipe(); p.standardError = Pipe()
+            try? p.run(); p.waitUntilExit()
+        }
+    }
+
     func testLibraryCreateRequiresAKindAndItsReferents() throws {
         var r = try runCLI(["library", "create", "paper", "--name", "P"] + lib)
         XCTAssertEqual(r.status, 64, "缺 --kind 是用法錯誤：\(r.stderr)")
@@ -332,8 +349,14 @@ extension CLIIntegrationTests {
         try migrateFixtureToCurrentFormat()
         _ = try runCLI(["library", "create", "paper", "--name", "P", "--kind", "topic"] + lib)
         _ = try runCLI(["library", "add", "paper", "cheng2025identifiability", "olsson1979maximum"] + lib)
+        // 替換一條既有的性質（topic → document）要求 registry 檔已 commit——舊值只剩 git 那一份（#642 R1 verify）
         var r = try runCLI(["library", "set-kind", "paper", "--kind", "document", "--document", "cheng2025identifiability"] + lib)
+        XCTAssertNotEqual(r.status, 0, "fixture 不在 git 裡：\(r.stdout)")
+        XCTAssertTrue(r.stderr.contains("git 工作樹"), r.stderr)
+        commitFixture()
+        r = try runCLI(["library", "set-kind", "paper", "--kind", "document", "--document", "cheng2025identifiability"] + lib)
         XCTAssertEqual(r.status, 0, r.stderr)
+        XCTAssertTrue(r.stdout.contains("先前（已被替換；舊版在 git 裡）") && r.stdout.contains("主題型"), r.stdout)
         XCTAssertTrue(r.stdout.contains("✕ cheng2025identifiability"), r.stdout)
         r = try runCLI(["library", "check", "paper"] + lib)
         XCTAssertTrue(r.stdout.contains("1 筆不符"), r.stdout)

@@ -23,7 +23,7 @@
 
 **看得見既有的錯誤**：`Library.validate()` 對未標性質報 per-record warning；跨記錄 warning 報規則指向不在庫的 venue、文件不在庫或 citekey 重複、以及不符規則的既有成員（每個 library 一則，點名前 5 筆，指路 `library check`）。warning 不是 error：成員關係錯了不毀資料，error 會擋下不相干的改名與合併。
 
-**新的關係邊**：規則的 venue、排除清單與文件是 `entity-backlink-completeness` 的第 16 條邊（`Library.membership`，正典側是 library）。規則不隨改名與合併遷移，所以 `rename` 對被規則指涉的 citekey、work 合併對被指涉的被併者、venue 合併對被規則以 venue 界定的被併者一律拒絕、零寫入，訊息指路 `library set-kind`。
+**新的關係邊**：規則的 venue、排除清單與文件是 `entity-backlink-completeness` 的第 16 條邊（`Library.membership`，正典側是 library）。規則不隨改名與合併遷移，所以 `rename` 對被規則指涉的 citekey、work 合併對被指涉的被併者、venue 合併對被規則以 venue 界定的被併者一律拒絕、零寫入，訊息指路 `library set-kind`。**（R1 verify 更正：`rename` 自此改成同批遷移規則，合併仍拒絕但訊息給出可照做的命令——見 `2026-09-29-library-membership-r1.md`。）**
 
 ## 測試與負控
 
@@ -37,8 +37,8 @@
 
 ## 誠實邊界
 
-- **部署之後，live store 的 4 個 library 全部是未標性質**（2026-09-29 讀取量測），`library add` 對它們一律拒絕，直到有人 `set-kind`。標成規則型或文件型要先把 marker 升到 21（CLI、akashic-mcp、App 全部升級之後）；主題型不需要。Psychological Methods 目錄可以直接標成規則型（`--venue psychological-methods --type periodical-article`，1,344 筆成員全部符合）。另外三個依描述是文件型，但它們的文件不在庫，標不上文件型；要先建那筆文件，或由使用者決定性質。
+- **部署之後，live store 的 4 個 library 全部是未標性質**（2026-09-29 讀取量測），`library add` 對它們一律拒絕，直到有人 `set-kind`。標成規則型或文件型要先把 marker 升到 21（CLI、akashic-mcp、App 全部升級之後）；主題型不需要。Psychological Methods 目錄可以直接標成規則型（`--venue psychological-methods --type periodical-article`，1,344 筆成員全部符合）。另外三個依描述是文件型，但它們的文件不在庫，標不上文件型；要先建那筆文件，或由使用者決定性質。**（R1 verify 更正：「文件不在庫」只是其中一個原因。文件型一個 library 只能指**一份**文件（`LibraryMembership.document(citekey:)` 是單一 citekey），而 `psy1007-115-1`（臺大普通心理學投影片與課本章節的參考文獻，成員來自不只一份來源）即使把文件建進庫也標不成文件型——要嘛另建一筆彙整用的合成文件並手動維護它的 `cites`，要嘛模型需要多份文件。多份文件的支援沒做，記為 follow-up 提案。）**
 - 工具只比對，不判定：venue 沒歸戶的作品判「查不出」而不寫；文件自己沒登記 `cites` 的，判不是成員。
 - 目錄完整性（符合規則卻不是成員的作品）不在本次的檢查裡。live store 有 8 筆 Psychological Methods 的 periodical-article 不在目錄裡。
 - `excluded` 只做排除，不做「額外收錄」。提案寫的是「逐筆明列的例外」，這裡依描述「附錄等依裁決排除」讀成排除方向，並把欄位命名成 `excluded` 讓方向寫在資料裡。
-- `akashic-work-references` 的 D5（往回追怎麼掛 library）要改成讀 `kind` 而不是讀描述，那個目錄由另一個工作線持有，這次沒有動。
+- `akashic-work-references` 的 D5（往回追怎麼掛 library）要改成讀 `kind` 而不是讀描述，那個目錄由另一個工作線持有，這次沒有動——R1 verify 起追蹤在 #678（等 #617 釋出後做）；`plugin/rules/source-of-truth-over-consent.md` 對 skill 的要求（讀 `kind`、不讀描述猜性質）寫成規則的要求，不是現況。

@@ -409,6 +409,27 @@ extension StdioE2ETests {
         XCTAssertTrue(fields.contains("volume"), "要點名是哪個鍵：\(fields)")
     }
 
+    /// #642 R1 verify（Codex）：`akashic_libraries` 的 `types`／`excluded` 是規則——`set-kind` 又是整值替換。字串型（少一層括號）
+    /// 若被折成空陣列，規則就被存成比要求更寬鬆的樣子。**必須經真 binary**：陣列解析住在 server 的分派閉包裡（`argList`），
+    /// 服務層測試用的是已定型的 `[String]`，覆蓋不到。整次拒絕、registry 位元組不變。
+    func testStringTypedRuleArraysAreRefusedAndTheRegistryIsUntouched() throws {
+        let store = LibraryStore(root: root)
+        try store.writeLibrary(Library(key: "reading", name: "R", membership: .topic))
+        let before = try Data(contentsOf: store.libraryURL(key: "reading"))
+        try initialize()
+        let types = try call(2, "akashic_libraries", ["action": "set-kind", "key": "reading", "kind": "rule",
+                                                     "venue": "psychometrika", "types": "periodical-article"])
+        XCTAssertTrue(types.contains("types 必須是字串陣列"), types)
+        let excluded = try call(3, "akashic_libraries", ["action": "set-kind", "key": "reading", "kind": "rule",
+                                                        "venue": "psychometrika", "excluded": "someone2020a"])
+        XCTAssertTrue(excluded.contains("excluded 必須是字串陣列"), excluded)
+        let mixed = try call(4, "akashic_libraries", ["action": "create", "key": "new-lib", "name": "N", "kind": "rule",
+                                                     "venue": "psychometrika", "excluded": ["a2020a", 42]])
+        XCTAssertTrue(mixed.contains("excluded 的每個元素都必須是字串"), mixed)
+        XCTAssertEqual(try Data(contentsOf: store.libraryURL(key: "reading")), before, "被拒絕的 set-kind 不得動 registry 檔")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: store.libraryURL(key: "new-lib").path), "被拒絕的 create 不得建檔")
+    }
+
     /// #542 R1 verify（兩席 HIGH）：`akashic_enrich` 的 proposals item schema 宣告 `additionalProperties: false`，先前只列
     /// `sourceDigest`——照 schema 呼叫的 client 送不出 `sourceURL`／`sourceRetrieved`，三個 provenance 鍵在 MCP 面上出不來。
     func testEnrichSchemaListsEverySourceField() throws {

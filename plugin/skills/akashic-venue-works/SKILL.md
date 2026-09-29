@@ -119,15 +119,25 @@ APA 九〇年代的 DOI 正式形帶**雙斜線**（`10.1037//…`），OpenAlex
    confirmed verdict 是該面的既有契約（#304 的 venue-name-exact）；本刊零歧義是
    **這一刊的結果，不外推**——下一刊有歧義就逐筆人裁
 5. 目錄 library（#642：**規則型**——成員由「這本刊的 periodical-article」這條規則決定，不由誰點頭決定）：
-   `akashic library list` 看 `<venue-key>-catalog` 在不在、性質是什麼——
-   - 不在 → `akashic library create <venue-key>-catalog --name "<刊名>（期刊目錄）" --kind rule --venue <venue-key> --type periodical-article --source openalex:<S…>`
-     （venue 要先在庫，所以這一步排在第 4 步之後；`--source` 只記來歷，不作檢查依據）
-   - 在、但是 `未標性質` → 同樣的規則用 `akashic library set-kind` 標上；它列出的現有不符成員**先停下來回報**，不代使用者移除
-   - 在、而規則的 venue 不是 `<venue-key>` → 停下來回報，不改別人的規則
+   `akashic library list`（MCP：`akashic_libraries action:list`）看 `<venue-key>-catalog` 在不在、`kind` 是什麼——
+   - **不在** → 本 skill 自己建的全量目錄，依定義就是該 venue 的規則型目錄（這是本 skill 的定義，不是替使用者挑性質）：
+     建成規則型，並**告訴使用者**建了什麼（key、規則、來歷）。優先用 MCP 的結構化參數，不經 shell：
+     `akashic_libraries {action:"create", key:"<venue-key>-catalog", name:"<刊名>（期刊目錄）", kind:"rule", venue:"<venue-key>", types:["periodical-article"], source:"openalex:<S…>"}`
+     （venue 要先在庫，所以這一步排在第 4 步之後；`source` 只記來歷，不作檢查依據）。
+     用 CLI 時（`akashic library create … --kind rule --venue <venue-key> --type periodical-article --source openalex:<S…>`）：
+     命令裡插的值**只從 store 取**——`<venue-key>` 與 `<刊名>` 取自庫內那筆 venue 記錄（不取自 OpenAlex 頁面的原文）；
+     `<S…>` 先驗符合 `^S[0-9]+$` 才組成 `openalex:S…`；`--name` 的值用單引號括起、值內的 `'` 換成 `'\''`
+   - **已存在**——不論 `kind` 是 `未標性質`、`topic`、`document`，或 `rule` 但規則的 venue 不是 `<venue-key>`——
+     **停下來問使用者**：說出它現在的 kind 與規則（`akashic library check <key>` 讀出完整規則）。**不代他分類、不改別人標好的性質、
+     不改別人的規則**；也**不要為了讓第 6 步通過而 `set-kind` 成 `topic`**（topic 不檢查成員，那正是 #642 起因的狀態）。
+     只有 `rule` 且規則的 venue 就是 `<venue-key>` 才繼續（現有成員不符規則的，`library check` 列出、先停下來回報，不代使用者移除）
+   - **撞 store format 閘**（create 回「規則型與文件型的成員性質需要 store format ≥ 21」）→ **停下來回報**：store 的 format 由使用者確認
+     所有 CLI／MCP／App 都升級後手動升。**不得改標 `topic` 解鎖**——那等於在升級之前把規則型保護換成沒有保護；第 6 步不做，報告寫明
 6. **一次** `library add <venue-key>-catalog <citekey>...`（#455；冪等：已是成員即 no-op——
    重跑安全，中斷後重跑會補上漏掉的 membership；任一 citekey 不存在即整批拒絕）。
    規則型 library 只收 venue 已歸戶到 `<venue-key>` 的 `periodical-article`：第 4 步沒歸戶的
-   （歧義、未命中）這一步會列成「不符規則、未寫」——**那是對的**，照原樣進報告，不要繞過
+   （歧義、未命中）這一步會列成「不符規則、未寫」——**那是對的**，照原樣進報告，不要繞過。
+   第 5 步停下來的（library 已存在而不是這本刊的規則型目錄、或撞 format 閘），第 6 步不做
 7. OpenAlex 給的 ISSN 若庫內缺：ISSN 寫入是 venue 身分斷言，不是順手動作——**停下來，照
    [`akashic-verify-venue`](../akashic-verify-venue/SKILL.md) Step 3 的 ISSN 那一條走**（為這一本刊單獨產一份含「報告第 4 項」的
    報告，閘見那一份的 Step 3；apply／reject 本管線第 4 步已做、不重做；本管線第 8 步的報告沒有第 4 項）。紀律只寫在那一份，這裡不複述（R3 曾在這裡抄七項、抄漏兩項——R3 verify）。

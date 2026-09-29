@@ -260,6 +260,10 @@ struct EntryDetailView: View {
                                                            libraryKey: lib.key)
                                 }
                             }
+                            // #642 R1 verify：問使用者要掛哪個 library 的地方要看得到**描述**與性質（issue Expected 第 4 條）——
+                            // 選單項目的 tooltip 帶描述；未標性質的 library 加入必被拒（App 沒有標性質的面），直接停用而不是點了才報錯
+                            .help(Self.libraryMenuHelp(lib))
+                            .disabled(lib.membership == nil)
                         }
                     }
                     .menuStyle(.borderlessButton).fixedSize()
@@ -350,6 +354,15 @@ struct EntryDetailView: View {
     }
 
     // 摘要住在 `RenameReportSummary`（View 之外的 nonisolated formatter）——`AppStateError` 也用它。
+
+    /// 「加入…」選單項目的 tooltip：描述與性質（#642 R1 verify——issue Expected 第 4 條要求問使用者掛哪個 library 的地方看得到描述）。
+    /// 抽成 static 是為了可測；未標性質的說明它為什麼被停用。
+    nonisolated static func libraryMenuHelp(_ lib: Library) -> String {
+        let desc = lib.description.map { displaySafe($0, max: 800) } ?? "（沒有描述）"
+        let base = desc + "・" + lib.membershipLabel   // display-safe-exempt: desc 已 displaySafe；membershipLabel 是常量
+        guard lib.membership == nil else { return base }
+        return base + "——沒有標成員性質，加入會被拒絕；App 沒有標性質的面，請在終端機用 akashic library set-kind"
+    }
 
     /// 回執標題。抽成 static 是為了**可測**——「標題會變」若只寫在 View 的行內三元式裡，
     /// 就只是一句斷言（`assertions-must-be-measured`）。

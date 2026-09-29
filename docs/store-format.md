@@ -424,8 +424,13 @@ key 文法都驗，重複的 `types`／`excluded` 拒讀；形狀不符整檔 qu
 （不是拒絕整批、也不是照寫）；未標性質的 library 拒絕 add（查不到依據）；remove 不查。`library create` 要求 `--kind`；
 既有 library 用 `library set-kind` 標（改寫 registry 檔的唯一路徑，`LibraryStore.updateLibrary`——registry 在 #642 之前
 只有 exclusive create）。`validate` 對未標性質的 library 報 per-record warning，對規則指向不在庫的 venue／文件、
-以及不符規則的既有成員報跨記錄 warning（每個 library 一則，點名前 5 筆，全部用 `library check`）。
-規則指涉的 citekey 與 venue 是 `entity-backlink-completeness` 的第 16 條邊：改名與合併不遷移它，所以被指涉時拒絕。
+不符規則的既有成員、規則的依據不明確（venue key 重複、文件不在庫或重複）、排除清單指向不在庫的 citekey 報跨記錄 warning
+（每個 library 一則，點名前 5 筆，全部用 `library check`）。
+規則指涉的 citekey 與 venue 是 `entity-backlink-completeness` 的第 16 條邊：**改名同批遷移它**（文件型的文件、規則型的排除清單；
+registry 檔要 tracked 且 clean、寫入前置與其他被改寫的記錄同一批預檢；新 citekey 已被規則指涉、或被隔離的 registry 檔提到這個 citekey 時拒絕）；
+work 合併與 venue 合併不遷移它，被指涉的被併者一律拒絕，訊息給出可直接照做的 `set-kind` 命令。
+**`set-kind` 是整值替換**（`types`／`excluded`／`source` 沒再給就是清掉）：回應與 CLI 輸出帶被換掉的先前性質；規則指涉的 venue、文件
+與排除的 work 都要在庫；替換一條既有的性質時 registry 檔要 tracked 且 clean（舊值只剩 git 那一份），從未標性質標成任何一種不需要。
 
 load 語意驗證同 entries/people：key 格式不符或與 stem 不符 → quarantine。
 membership 與 Zotero 完全脫鉤（pull 永不讀寫）。刪 registry 檔後殘留在 entry 上的

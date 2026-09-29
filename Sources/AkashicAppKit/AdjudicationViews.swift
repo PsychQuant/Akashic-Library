@@ -122,22 +122,15 @@ struct PeopleResolveView: View {
 }
 
 /// 裁決台②：orphan 三選（等待／垃圾桶／轉純 Akashic）；#609 起另一節列出附加來源已刪除的 entry（等待／拿掉已刪除的來源）。
+///
+/// **提示只有一個 `.alert`**（#684）：確認、結果、失敗三種提示合成 `OrphanAlert`，狀態轉換在 `OrphanAlertState`（有測試）。
 struct OrphanView: View {
     @Environment(AppState.self) private var state
     @State private var model: OrphanModel?
     @State private var pendingTrash: String?
-    @State private var errorMessage: String?
-    /// #609：等著填理由的「拿掉已刪除的附加來源」。`seen` 是按下按鈕那一刻清單上的那一組來源鍵——動作當下磁碟上的那一組
-    /// 若與它不同就拒絕（拿掉的只能是使用者看到並確認的那一組，R1 verify）。
-    struct PendingRemoval: Equatable {
-        let citekey: String
-        let seen: [String]
-        let sourcesLabel: String   // `Entry.displayOrphanedAdditionalSources` 的消毒投影
-    }
-    @State private var pendingRemoval: PendingRemoval?
+    @State private var alert = OrphanAlertState()
     /// 理由草稿：失敗之後重開同一筆還在（不必重打），空理由時破壞性按鈕停用。
     @State private var removalDraft = RemovalReasonDraft()
-    @State private var resultMessage: String?
 
     var body: some View {
         Group {
@@ -158,7 +151,7 @@ struct OrphanView: View {
                                         }
                                         Spacer()
                                         Button("轉純 Akashic") {
-                                            attempt { try model.resolve(citekey: entry.citekey, action: .detachFromZotero) }
+                                            OrphanModel.attempt(alert: &alert) { try model.resolve(citekey: entry.citekey, action: .detachFromZotero) }
                                         }
                                         Button("刪除…", role: .destructive) { pendingTrash = entry.citekey }
                                     }
@@ -180,10 +173,10 @@ struct OrphanView: View {
                                         Spacer()
                                         Button("拿掉已刪除的來源…") {
                                             removalDraft.open(for: entry.citekey)
-                                            pendingRemoval = PendingRemoval(
+                                            alert.show(.confirmRemoval(PendingRemoval(
                                                 citekey: entry.citekey,
                                                 seen: entry.orphanedAdditionalSourceKeys,
-                                                sourcesLabel: entry.displayOrphanedAdditionalSources)
+                                                sourcesLabel: entry.displayOrphanedAdditionalSources)))
                                         }
                                     }
                                     .padding(.vertical, 4)
@@ -206,54 +199,45 @@ struct OrphanView: View {
             Button("移到垃圾桶", role: .destructive) {
                 if let citekey = pendingTrash, let model {
                     // resolve 動作當下會重新讀盤驗證 orphan 狀態（TOCTOU 守衛在 kit 層）
-                    attempt { try model.resolve(citekey: citekey, action: .moveToTrash) }
+                    OrphanModel.attempt(alert: &alert) { try model.resolve(citekey: citekey, action: .moveToTrash) }
                 }
                 pendingTrash = nil
             }
             Button("取消", role: .cancel) { pendingTrash = nil }
         }
-        .alert("拿掉已刪除的附加來源？", isPresented: Binding(
-            get: { pendingRemoval != nil },
-            set: { if !$0 { pendingRemoval = nil } }), presenting: pendingRemoval) { pending in
-            TextField("理由（必填）", text: $removalDraft.text)
-            Button("拿掉", role: .destructive) {
-                if let model {
-                    // 動作當下重新讀盤驗證形狀與「這一組」、確認記錄檔已 commit（kit 層）
-                    let reason = removalDraft.text
-                    let done = attempt {
-                        resultMessage = try model.removeOrphanedAdditionalSources(
-                            citekey: pending.citekey, reason: reason, seen: pending.seen)
-                    }
-                    // 失敗就保留已打的理由：最可能的失敗是記錄檔還沒 commit，commit 之後重開不必重打
-                    if done { removalDraft.clearAfterSuccess() }
+        // 單一提示：標題與內容跟著 `OrphanAlert` 的 case 走。按鈕動作裡產生的下一個提示只排進 `queued`，等這個提示關掉、
+        // 下一個 runloop 才顯示（SwiftUI 在按鈕動作之後才把 isPresented 設成 false，動作裡直接改會被那次關閉抹掉）。
+        .alert(alert.presented?.title ?? "", isPresented: Binding(
+            get: { alert.isPresenting },
+            set: { if !$0 { alert.dismissed() } }), presenting: alert.presented) { presented in
+            switch presented {
+            case .confirmRemoval(let pending):
+                TextField("理由（必填）", text: $removalDraft.text)
+                Button("拿掉", role: .destructive) {
+                    model?.confirmRemoval(pending, draft: &removalDraft, alert: &alert)
                 }
-                pendingRemoval = nil
+                .disabled(!removalDraft.isSubmittable)
+                Button("取消", role: .cancel) {}
+            case .removed, .failed:
+                Button("好") {}
             }
-            .disabled(!removalDraft.isSubmittable)
-            Button("取消", role: .cancel) { pendingRemoval = nil }
-        } message: { pending in
-            Text("將拿掉這幾個在 Zotero 端已刪除的來源：\(pending.sourcesLabel)。"   // display-safe-exempt: pending.sourcesLabel 是 `displayOrphanedAdditionalSources` 的消毒投影
-                 + "主來源與活著的來源不動，書目欄位不動。"
-                 + "記錄檔要先 commit——移除前的版本只留在 git 裡。理由不寫進 store，請寫進 commit message。")
+        } message: { presented in
+            switch presented {
+            case .confirmRemoval(let pending):
+                Text("將拿掉這幾個在 Zotero 端已刪除的來源：\(pending.sourcesLabel)。"   // display-safe-exempt: pending.sourcesLabel 是 `displayOrphanedAdditionalSources` 的消毒投影
+                     + "主來源與活著的來源不動，書目欄位不動。"
+                     + "記錄檔要先 commit——移除前的版本只留在 git 裡。理由不寫進 store，請寫進 commit message。")
+            case .removed(let report):
+                Text(report)   // display-safe-exempt: 報告在 kit 層逐項消毒
+            case .failed(let message):
+                Text(message)   // display-safe-exempt: 訊息已由 `displaySafeErrorMultiline` 逐行消毒
+            }
         }
-        .alert("已拿掉", isPresented: Binding(
-            get: { resultMessage != nil },
-            set: { if !$0 { resultMessage = nil } })) {
-            Button("好") { resultMessage = nil }
-        } message: { Text(resultMessage ?? "") }   // display-safe-exempt: 報告在 kit 層逐項消毒
-        .alert("操作失敗", isPresented: Binding(
-            get: { errorMessage != nil },
-            set: { if !$0 { errorMessage = nil } })) {
-            Button("好") { errorMessage = nil }
-        } message: { Text(errorMessage ?? "") }
-    }
-
-    /// 跑動作；成功回 true，失敗把錯誤放進提示並回 false。
-    @discardableResult
-    private func attempt<T>(_ action: () throws -> T) -> Bool {
-        do { _ = try action(); return true } catch {
-            errorMessage = displaySafeErrorMultiline(error)
-            return false
+        .onChange(of: alert.presented) { _, presented in
+            // 提示關掉了而還有排隊中的：等一個 runloop 再顯示，讓 isPresented 真的走一次 false → true
+            if presented == nil, alert.hasQueued {
+                DispatchQueue.main.async { alert.presentQueued() }
+            }
         }
     }
 }

@@ -307,4 +307,62 @@ final class OrphanedAdditionalSourceTests: XCTestCase {
         draft.open(for: "other2020")
         XCTAssertEqual(draft.text, "", "成功之後不留舊理由")
     }
+
+    // MARK: - #684：確認提示按下「拿掉」之後的全部狀態轉換（單一 `.alert` 的狀態，`OrphanAlertState`）
+
+    /// 使用者看著確認提示：狀態機裡確認提示在畫面上，`confirmRemoval` 的結果要排在它後面。
+    private func confirming(_ citekey: String) throws -> (PendingRemoval, OrphanAlertState) {
+        let pending = PendingRemoval(citekey: citekey, seen: try seen(citekey), sourcesLabel: "5:K2")
+        var alert = OrphanAlertState()
+        alert.show(.confirmRemoval(pending))
+        return (pending, alert)
+    }
+
+    func testConfirmRemovalSuccessQueuesTheReportAndClearsTheDraft() throws {
+        commitAll()
+        let (pending, initial) = try confirming("partial2020")
+        var alert = initial
+        var draft = RemovalReasonDraft()
+        draft.open(for: "partial2020")
+        draft.text = "群組那份已刪、不再等"
+        OrphanModel(state: state).confirmRemoval(pending, draft: &draft, alert: &alert)
+        XCTAssertEqual(try entry("partial2020")?.additionalProvenance.map(\.zoteroKey), ["K3"], "真的拿掉了")
+        XCTAssertEqual(alert.presented, .confirmRemoval(pending), "確認提示還在畫面上，結果不搶它")
+        guard case .removed(let report)? = alert.queued else { return XCTFail("成功要排 .removed：\(String(describing: alert.queued))") }
+        XCTAssertTrue(report.contains("5:K2") && report.contains("群組那份已刪、不再等"), "報告帶來源鍵與理由全文：\(report)")
+        XCTAssertEqual(draft.text, "", "理由已進報告，草稿清掉")
+        // 關掉確認提示之後結果提示才輪到
+        alert.dismissed()
+        alert.presentQueued()
+        XCTAssertEqual(alert.presented?.title, "已拿掉")
+    }
+
+    func testConfirmRemovalFailureQueuesTheErrorAndKeepsTheDraft() throws {
+        // 不在 git 裡：移除面一族要求記錄檔已 commit——最常見的失敗
+        let (pending, initial) = try confirming("partial2020")
+        var alert = initial
+        var draft = RemovalReasonDraft()
+        draft.open(for: "partial2020")
+        draft.text = "群組那份已刪、不再等"
+        OrphanModel(state: state).confirmRemoval(pending, draft: &draft, alert: &alert)
+        XCTAssertEqual(try entry("partial2020")?.additionalProvenance.count, 2, "零寫入")
+        guard case .failed(let message)? = alert.queued else { return XCTFail("失敗要排 .failed：\(String(describing: alert.queued))") }
+        XCTAssertTrue(message.contains("git"), message)
+        XCTAssertEqual(draft.text, "群組那份已刪、不再等", "失敗保留理由——commit 之後重開同一筆不必重打")
+        XCTAssertTrue(draft.isSubmittable)
+        alert.dismissed()
+        alert.presentQueued()
+        XCTAssertEqual(alert.presented?.title, "操作失敗")
+    }
+
+    /// 其他兩個動作（轉純 Akashic、垃圾桶）不在提示裡跑：失敗時畫面上沒有提示，錯誤立刻顯示；成功時提示不動。
+    func testAttemptShowsAFailureImmediatelyAndLeavesSuccessAlone() throws {
+        var alert = OrphanAlertState()
+        XCTAssertTrue(OrphanModel.attempt(alert: &alert) { try OrphanModel(state: self.state).resolve(citekey: "allgone2020", action: .detachFromZotero) })
+        XCTAssertEqual(alert, OrphanAlertState(), "成功不彈任何提示")
+        XCTAssertFalse(OrphanModel.attempt(alert: &alert) { try OrphanModel(state: self.state).resolve(citekey: "ghost2000x", action: .moveToTrash) })
+        guard case .failed(let message)? = alert.presented else { return XCTFail("失敗要立刻顯示：\(alert)") }
+        XCTAssertFalse(message.isEmpty)
+        XCTAssertNil(alert.queued)
+    }
 }

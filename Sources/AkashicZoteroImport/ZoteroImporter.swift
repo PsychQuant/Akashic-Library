@@ -87,8 +87,9 @@ public struct ZoteroImporter {
         // 兩筆以上不猜，所以這張表不必自己數（#610 R1 verify：先前在這裡另有一份 legacy 的宣稱者定義）。
         var legacyByBareKey: [String: Entry] = [:]
         // #605：附加來源的 composite key → entry id。主來源優先（先查 byCompositeKey）。
-        // libraryID 缺席的附加來源不進索引。這不是假設而是由合併閘保證的不變式：
-        // `fieldsLostByMerging` 拒絕把沒記 libraryID 的來源收成附加來源（#605 R1 verify #1）。
+        // libraryID 缺席的附加來源不進索引，也不是宣稱者（`ZoteroSourceClaims.claims(of:)`）。合併閘（`fieldsLostByMerging`）只保證合併
+        // 不會把被併者的這種來源新收成附加來源（#605 R1 verify #1）；手改與舊檔裡已經有的不受它約束——這種來源對不回任何條目，再匯入時
+        // 同一個 Zotero 條目會另建一筆 twin（#679）。`Entry.validate()` 對它報 warning，出路是補 library_id 或用 #680 的移除面拿掉。
         var secondaryByComposite: [String: UUID] = [:]
         // #607：裸 key → 以 composite 持有它的 library（主來源與附加來源都算）。legacy 檔只在
         // 這個集合**不含其他 library** 時才以裸 key 認領——附加來源持有的裸 key 同樣是「已被持有」。

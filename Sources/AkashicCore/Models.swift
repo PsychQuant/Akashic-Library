@@ -1132,6 +1132,22 @@ extension Entry {
                 message: "\(Self.perRecordCapSummaryPrefix)：另有 \(unlisted) 個 venue 未列出（同樣被多條 key 邊指向；每筆記錄最多列 \(Self.perRecordWarningCap) 個"   // display-safe-exempt: 前綴是常量；Int
                        + "——本檢查在讀取路徑上對未信任的 store 內容跑）"))
         }
+        // **沒記 library_id 的附加 Zotero 來源要出聲**（#679）：匯入端以 `(library_id, zotero_key)` 比對附加來源、
+        // `ZoteroSourceClaims.claims(of:)` 也不把它算成宣稱，所以它對不回任何 Zotero 條目——再匯入時 Zotero 端仍有的那個條目會另建一筆
+        // twin。decode 接受它（拒收會讓既有的檔整個被隔離）；合併閘只擋合併新收這種來源，管不到手改與舊檔，所以這裡是唯一會說出來的地方。
+        // 一筆 entry 一則、列出至多 5 個（讀取路徑上對未信任的 store 內容跑）。warning：記錄合法可載入，處置是人的。
+        // 沒記 library_id 的**主來源**不在這裡——那是 pre-Phase-2 舊檔，有自己的裸 key 桶與 #607 的認領規則。
+        let unclaimable = additionalProvenance.filter { $0.libraryID == nil }
+        if !unclaimable.isEmpty {
+            let shown = unclaimable.prefix(5)
+                .map { "?:" + displaySafeInvisible($0.zoteroKey, max: 120) }.joined(separator: "、")
+            let total = unclaimable.count > 5 ? "…共 \(unclaimable.count) 個" : ""   // display-safe-exempt: Int
+            issues.append(ValidationIssue(severity: .warning,
+                message: "附加 Zotero 來源沒記 library_id（\(shown)\(total)）"   // display-safe-exempt: shown 的每一項已消毒；total 是 Int
+                       + "——匯入端以 (library_id, zotero_key) 比對附加來源，對不回這種來源：再匯入時 Zotero 端仍有的那個條目會另建一筆新 entry（twin）。"
+                       + "出路：在 YAML 的 provenance_additional 補上它真正的 library_id，或移除那個附加來源"
+                       + "（update-entry --remove-zotero-source／MCP update_entry 的 remove_zotero_sources，定位鍵就是上面的 ?:<zotero_key>；#679、#680）"))
+        }
         issues += Self.pagesShapeIssues(fields["pages"])
         // #394 task 4.3：非正規形的識別碼要出聲（值保留、但不靜默）。
         issues += IdentifierDiagnostics.nonNormal(doi, field: "doi")

@@ -13,6 +13,8 @@ public struct S2Settings: Sendable, Equatable {
     /// 測試覆寫的 service 名稱必須以此開頭——讓測試走完「沒有金鑰」路徑，
     /// 但無法把讀取指向任何真實項目。
     public static let testServicePrefix = "akashic-test-"
+    /// 給使用者的金鑰設定文件（錯誤訊息引用它）。
+    public static let setupDocument = "plugin/skills/akashic-bootstrap/references/semantic-scholar.md"
 
     /// 請求送往哪裡。「讀不讀 keychain」由它推導，不另設旗標——
     /// 兩者分開存放時會出現「覆寫了網址卻還讀金鑰」這種不一致的組合。

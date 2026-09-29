@@ -4,7 +4,7 @@
 
 ## 2. 金鑰與 host 規則
 
-- [ ] 2.1 [P] 先寫測試再實作 `S2KeyProvider`：以 Security framework（`kSecUseAuthenticationContext` 搭配 `interactionNotAllowed = true` 的 `LAContext`）非互動讀取 service `semantic-scholar`、account `default`，區分「項目不存在」「ACL 不允許非互動讀取」「其他 keychain 錯誤」三種結果；持有金鑰的型別描述一律回 `<redacted>`（Requirement「The key is read from the keychain without interaction and never exposed」；design「金鑰：程序內非互動讀取，ACL 所有 app 可讀，header 只送 S2 主機」）。非互動讀取的 API 寫法先查 Apple 官方文件再寫，不憑記憶。驗證：`S2ClientTests` 中，金鑰型別以字串插值與 `String(describing:)` 都得到 `<redacted>`；`akashic-test-<隨機>` 回「不存在」且不跳授權框。
+- [x] 2.1 [P] 先寫測試再實作 `S2KeyProvider`：以 Security framework（`kSecUseAuthenticationContext` 搭配 `interactionNotAllowed = true` 的 `LAContext`）非互動讀取 service `semantic-scholar`、account `default`，區分「項目不存在」「ACL 不允許非互動讀取」「其他 keychain 錯誤」三種結果；持有金鑰的型別描述一律回 `<redacted>`（Requirement「The key is read from the keychain without interaction and never exposed」；design「金鑰：程序內非互動讀取，ACL 所有 app 可讀，header 只送 S2 主機」）。非互動讀取的 API 寫法先查 Apple 官方文件再寫，不憑記憶。驗證：`S2ClientTests` 中，金鑰型別以字串插值與 `String(describing:)` 都得到 `<redacted>`；`akashic-test-<隨機>` 回「不存在」且不跳授權框。
 - [ ] 2.2 先寫測試再實作 `S2Client` 的 host 規則與錯誤分類：`x-api-key` 只附給 `https://api.semanticscholar.org`，loopback 覆寫一律不帶；404 回報找不到的識別碼，其他 4xx、5xx、連線失敗回報端點與狀態碼或錯誤類別，錯誤文字不含任何 header（Requirement「The key header is sent only to the Semantic Scholar host」與「Other failures are reported with their cause」）。驗證：`S2ClientTests` 以 `URLProtocol` stub 斷言 header 的有無、網址中不含金鑰、500 的錯誤文字不含 header、404 的訊息含 `DOI:10.0000/none`。
 
 ## 3. 節流與退避

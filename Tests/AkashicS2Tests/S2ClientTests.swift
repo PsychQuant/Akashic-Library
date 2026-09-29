@@ -88,3 +88,60 @@ final class S2SettingsTests: XCTestCase {
         XCTAssertTrue(try S2Settings.resolve(environment: home).readsKeychain)
     }
 }
+
+/// #664 任務 2.1：金鑰讀取（Requirement「The key is read from the keychain without
+/// interaction and never exposed」）。不建立任何 keychain 項目——ACL 分支以純函式測，
+/// 狀態碼是 Apple 定義的字面值。
+final class S2KeyProviderTests: XCTestCase {
+    func testKeyNeverPrintsItsValue() {
+        let key = S2APIKey(value: "sk-live-abc123")
+        XCTAssertEqual("\(key)", "<redacted>")
+        XCTAssertEqual(String(describing: key), "<redacted>")
+        XCTAssertEqual(String(reflecting: key), "<redacted>")
+        var dumped = ""
+        dump(key, to: &dumped)
+        XCTAssertFalse(dumped.contains("sk-live"), dumped)
+    }
+
+    func testMissingItemIsReportedAsMissing() {
+        let service = "akashic-test-\(UUID().uuidString)"
+        let provider = S2KeychainKeyProvider(service: service, account: "default")
+        XCTAssertThrowsError(try provider.key()) { error in
+            XCTAssertEqual(error as? S2KeyError, .missing(service: service, account: "default"))
+        }
+        XCTAssertEqual(provider.probe(), S2KeyProbe(present: false, readable: false))
+    }
+
+    func testStatusClassification() {
+        let s = "akashic-test-x", a = "default"
+        XCTAssertNil(S2KeychainKeyProvider.classify(status: 0, service: s, account: a))
+        XCTAssertEqual(S2KeychainKeyProvider.classify(status: -25300, service: s, account: a),
+                       .missing(service: s, account: a))       // errSecItemNotFound
+        XCTAssertEqual(S2KeychainKeyProvider.classify(status: -25308, service: s, account: a),
+                       .notReadable(service: s, account: a))   // errSecInteractionNotAllowed
+        XCTAssertEqual(S2KeychainKeyProvider.classify(status: -25293, service: s, account: a),
+                       .notReadable(service: s, account: a))   // errSecAuthFailed
+        XCTAssertEqual(S2KeychainKeyProvider.classify(status: -34018, service: s, account: a),
+                       .keychain(status: -34018))              // 其他狀態原樣回報
+    }
+
+    func testDecodeTrimsEdgesAndRejectsUnsafeValues() throws {
+        let s = "akashic-test-x", a = "default"
+        XCTAssertEqual(try S2KeychainKeyProvider.decode(Data("abc123\n".utf8), service: s, account: a).value, "abc123")
+        XCTAssertEqual(try S2KeychainKeyProvider.decode(Data("  abc123 ".utf8), service: s, account: a).value, "abc123")
+        for bad in [Data(), Data("   ".utf8), Data("ab\ncd".utf8), Data("ab\u{0}cd".utf8), Data([0xff, 0xfe])] {
+            XCTAssertThrowsError(try S2KeychainKeyProvider.decode(bad, service: s, account: a)) { error in
+                XCTAssertEqual(error as? S2KeyError, .invalidValue(service: s, account: a))
+            }
+        }
+    }
+
+    func testErrorMessagesNameTheItemAndTheSetupDocument() {
+        let missing = String(describing: S2KeyError.missing(service: "semantic-scholar", account: "default"))
+        XCTAssertTrue(missing.contains("semantic-scholar"), missing)
+        XCTAssertTrue(missing.contains("default"), missing)
+        XCTAssertTrue(missing.contains("semantic-scholar.md"), missing)
+        let unreadable = String(describing: S2KeyError.notReadable(service: "semantic-scholar", account: "default"))
+        XCTAssertTrue(unreadable.contains("所有 app"), unreadable)
+    }
+}

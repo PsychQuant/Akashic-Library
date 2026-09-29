@@ -145,3 +145,158 @@ final class S2KeyProviderTests: XCTestCase {
         XCTAssertTrue(unreadable.contains("所有 app"), unreadable)
     }
 }
+
+// MARK: - 測試替身（同 target 的其他測試檔共用）
+
+/// 攔截所有請求的 URLProtocol。**不連網**：回應由 `handler` 決定，收到的請求記在 `requests`。
+final class StubURLProtocol: URLProtocol {
+    struct Reply { let status: Int; let headers: [String: String]; let body: Data }
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var _handler: ((URLRequest) throws -> Reply)?
+    nonisolated(unsafe) private static var _requests: [URLRequest] = []
+
+    static func install(_ handler: @escaping (URLRequest) throws -> Reply) {
+        lock.lock(); defer { lock.unlock() }
+        _handler = handler
+        _requests = []
+    }
+    static var requests: [URLRequest] { lock.lock(); defer { lock.unlock() }; return _requests }
+
+    static func session() -> URLSession {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [StubURLProtocol.self]
+        return URLSession(configuration: config)
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        Self.lock.lock()
+        Self._requests.append(request)
+        let handler = Self._handler
+        Self.lock.unlock()
+        do {
+            guard let handler else { throw URLError(.unsupportedURL) }
+            let reply = try handler(request)
+            let response = HTTPURLResponse(url: request.url!, statusCode: reply.status,
+                                           httpVersion: "HTTP/1.1", headerFields: reply.headers)!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: reply.body)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch {
+            client?.urlProtocol(self, didFailWithError: error)
+        }
+    }
+    override func stopLoading() {}
+}
+
+/// 不節流（任務 3 之前的測試用）。
+struct NoThrottle: S2Throttling {
+    func acquire() async throws {}
+    func backOff(until: Date) throws {}
+}
+
+/// 固定回同一把金鑰，並計算被呼叫幾次。
+final class CountingKeyProvider: S2KeyProviding, @unchecked Sendable {
+    private let lock = NSLock()
+    private var _calls = 0
+    private let result: Result<S2APIKey, S2KeyError>
+    init(_ result: Result<S2APIKey, S2KeyError>) { self.result = result }
+    var calls: Int { lock.lock(); defer { lock.unlock() }; return _calls }
+    func key() throws -> S2APIKey {
+        lock.lock(); _calls += 1; lock.unlock()
+        return try result.get()
+    }
+}
+
+/// #664 任務 2.2：host 規則與錯誤分類（Requirement「The key header is sent only to the
+/// Semantic Scholar host」「Other failures are reported with their cause」）。
+final class S2ClientRequestTests: XCTestCase {
+    private let home = ["HOME": "/Users/tester"]
+    private let paper = S2Request(endpoint: "paper", path: "/graph/v1/paper/DOI:10.1037/a0038889",
+                                  subject: "DOI:10.1037/a0038889")
+
+    private func client(_ env: [String: String], key: CountingKeyProvider) throws -> S2Client {
+        S2Client(settings: try S2Settings.resolve(environment: home.merging(env) { $1 }),
+                 keyProvider: key, throttle: NoThrottle(), session: StubURLProtocol.session())
+    }
+
+    func testKeyIsAttachedOnlyForTheSemanticScholarHost() async throws {
+        StubURLProtocol.install { _ in .init(status: 200, headers: [:], body: Data("{}".utf8)) }
+        let key = CountingKeyProvider(.success(S2APIKey(value: "k-123")))
+        _ = try await client([:], key: key).send(paper)
+        let sent = try XCTUnwrap(StubURLProtocol.requests.first)
+        XCTAssertEqual(sent.url?.host, "api.semanticscholar.org")
+        XCTAssertEqual(sent.value(forHTTPHeaderField: "x-api-key"), "k-123")
+        XCTAssertFalse(sent.url!.absoluteString.contains("k-123"))
+    }
+
+    func testLoopbackTargetNeverReadsTheKeychainNorSendsAKey() async throws {
+        StubURLProtocol.install { _ in .init(status: 200, headers: [:], body: Data("{}".utf8)) }
+        let key = CountingKeyProvider(.success(S2APIKey(value: "k-123")))
+        _ = try await client(["AKASHIC_S2_BASE_URL": "http://127.0.0.1:8765"], key: key).send(paper)
+        let sent = try XCTUnwrap(StubURLProtocol.requests.first)
+        XCTAssertEqual(sent.url?.host, "127.0.0.1")
+        XCTAssertEqual(sent.url?.port, 8765)
+        XCTAssertNil(sent.value(forHTTPHeaderField: "x-api-key"))
+        XCTAssertEqual(key.calls, 0)
+    }
+
+    func testAttachesKeyRequiresHttpsAndTheExactHost() {
+        XCTAssertTrue(S2Client.attachesKey(to: URL(string: "https://api.semanticscholar.org/graph/v1/paper/x")!))
+        XCTAssertFalse(S2Client.attachesKey(to: URL(string: "http://api.semanticscholar.org/graph/v1/paper/x")!))
+        XCTAssertFalse(S2Client.attachesKey(to: URL(string: "https://api.semanticscholar.org.evil.com/x")!))
+        XCTAssertFalse(S2Client.attachesKey(to: URL(string: "https://127.0.0.1:8765/x")!))
+    }
+
+    func testUnavailableKeySendsNoRequest() async throws {
+        StubURLProtocol.install { _ in .init(status: 200, headers: [:], body: Data("{}".utf8)) }
+        let missing = S2KeyError.missing(service: "semantic-scholar", account: "default")
+        do {
+            _ = try await client([:], key: CountingKeyProvider(.failure(missing))).send(paper)
+            XCTFail("expected keyUnavailable")
+        } catch {
+            XCTAssertEqual(error as? S2Error, .keyUnavailable(missing))
+        }
+        XCTAssertEqual(StubURLProtocol.requests.count, 0)
+    }
+
+    func testNotFoundNamesTheIdentifier() async throws {
+        StubURLProtocol.install { _ in .init(status: 404, headers: [:], body: Data("{\"error\":\"not found\"}".utf8)) }
+        let req = S2Request(endpoint: "paper", path: "/graph/v1/paper/DOI:10.0000/none", subject: "DOI:10.0000/none")
+        do {
+            _ = try await client([:], key: CountingKeyProvider(.success(S2APIKey(value: "k-123")))).send(req)
+            XCTFail("expected notFound")
+        } catch {
+            XCTAssertEqual(error as? S2Error, .notFound(endpoint: "paper", subject: "DOI:10.0000/none"))
+            XCTAssertTrue(String(describing: error).contains("DOI:10.0000/none"))
+        }
+    }
+
+    func testServerErrorReportsStatusWithoutHeadersOrKey() async throws {
+        StubURLProtocol.install { _ in .init(status: 500, headers: [:], body: Data()) }
+        do {
+            _ = try await client([:], key: CountingKeyProvider(.success(S2APIKey(value: "k-123")))).send(paper)
+            XCTFail("expected http error")
+        } catch {
+            XCTAssertEqual(error as? S2Error, .http(endpoint: "paper", status: 500))
+            let text = String(describing: error)
+            XCTAssertTrue(text.contains("500"), text)
+            XCTAssertFalse(text.contains("k-123"), text)
+            XCTAssertFalse(text.lowercased().contains("x-api-key"), text)
+        }
+    }
+
+    func testConnectionFailureIsANetworkError() async throws {
+        StubURLProtocol.install { _ in throw URLError(.notConnectedToInternet) }
+        do {
+            _ = try await client([:], key: CountingKeyProvider(.success(S2APIKey(value: "k-123")))).send(paper)
+            XCTFail("expected network error")
+        } catch {
+            guard case .network(let endpoint, _)? = error as? S2Error else {
+                return XCTFail("expected .network, got \(error)")
+            }
+            XCTAssertEqual(endpoint, "paper")
+        }
+    }
+}

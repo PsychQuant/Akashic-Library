@@ -190,6 +190,31 @@ final class S2CommandTests: XCTestCase {
         XCTAssertEqual(server.seen.count, 1)
     }
 
+    /// #664 任務 5.2：兩個程序共用同一個狀態目錄、各送 3 個請求——6 個送達時間兩兩間隔
+    /// 至少 1 秒（容許 50 ms）。author-search 不另查 total，每頁 1 筆＋`--limit 3` 恰為 3 個請求。
+    func testTwoProcessesShareTheOneRequestPerSecondBudget() throws {
+        let server = try LoopbackS2Server { _, target in
+            let comps = URLComponents(string: "http://x" + target)!
+            let offset = comps.queryItems?.first { $0.name == "offset" }?.value.flatMap(Int.init) ?? 0
+            let body: [String: Any] = ["total": 100, "offset": offset, "next": offset + 1,
+                                       "data": [["authorId": "a\(offset)", "name": "N\(offset)"]]]
+            return (200, [:], try! JSONSerialization.data(withJSONObject: body))
+        }
+        defer { server.stop() }
+        let shared = env(["AKASHIC_S2_BASE_URL": server.baseURL])
+        let statuses = ThreadSafeStatuses()
+        DispatchQueue.concurrentPerform(iterations: 2) { i in
+            let r = try? CLITestHarness.run(["s2", "author-search", "--name", "Lane \(i)", "--limit", "3"], env: shared)
+            statuses.append(r?.status ?? -1)
+        }
+        XCTAssertEqual(statuses.values.sorted(), [0, 0])
+        let times = server.seen.map(\.at).sorted()
+        XCTAssertEqual(times.count, 6)
+        for (a, b) in zip(times, times.dropFirst()) {
+            XCTAssertGreaterThanOrEqual(b.timeIntervalSince(a), 1.0 - 0.05, "\(times)")
+        }
+    }
+
     /// spec Scenario「A base URL pointing elsewhere is refused」。
     func testBaseURLOutsideLoopbackExits64() throws {
         let r = try CLITestHarness.run(["s2", "paper", "DOI:10.1/x"],
@@ -197,4 +222,11 @@ final class S2CommandTests: XCTestCase {
         XCTAssertEqual(r.status, 64, r.output)
         XCTAssertTrue(r.output.contains("AKASHIC_S2_BASE_URL"), r.output)   // 64 來自覆寫被拒，不是未知子命令
     }
+}
+
+final class ThreadSafeStatuses: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _values: [Int32] = []
+    var values: [Int32] { lock.lock(); defer { lock.unlock() }; return _values }
+    func append(_ v: Int32) { lock.lock(); _values.append(v); lock.unlock() }
 }

@@ -70,7 +70,7 @@ actor AkashicMCPServer {
     static let tools: [Tool] = [
         // #664：Semantic Scholar。與 CLI `akashic s2` 共用 AkashicS2；契約細節在 `akashic s2 --help`。
         Tool(name: "akashic_s2",
-             description: "查 Semantic Scholar（金鑰在 keychain、全機每秒至多 1 次、不寫 store）。回傳 {endpoint,total,returned,truncated,offset,nextOffset,data}，上限 48 KiB、只放完整筆數；truncated 時以 nextOffset 續查。缺金鑰時的設定見 akashic s2 --help",
+             description: "查 Semantic Scholar（金鑰在 keychain、全機每秒至多 1 次、不寫 store）。回傳 {endpoint,total,returned,truncated,offset,nextOffset,data}，上限 48 KiB、只放完整筆數；truncated 時以 nextOffset 續查。endpoint=status 回 {keychain,throttle,host}。缺金鑰時的設定見 akashic s2 --help",
              inputSchema: obj([
                 "endpoint": .object(["type": .string("string"),
                                      "enum": .array(S2Tool.endpointNames.map { .string($0) })]),

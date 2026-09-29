@@ -87,3 +87,12 @@
 ## 位元組預算
 
 `tools/list`：**45,888（開工時）→ 48,419 bytes**（#672 補回應鍵 +2,374、#684 補上限說明 +157），預算 49,000，餘量 581 bytes。量法與 `StdioE2ETests.testToolsListResponseStaysWithinByteBudget` 相同（真 binary、回應那一行）。
+
+## 與 #664 合併（2026-09-29）
+
+rebase 到 #664 之後，守衛的「每個工具都有情境」檢查立刻抓到 `akashic_s2` 沒有情境——這正是它要擋的形狀。補了兩條情境（`Tests/AkashicMCPTests/ToolPayloadScenariosS2.swift`）：
+
+- 分頁端點（references）：base URL 覆寫到本機、請求由 `S2ToolStub` 攔截，不連網、不讀 keychain。
+- `status`：回 `{keychain, throttle, host}`，這三個鍵先前不在描述裡，已補進 `akashic_s2` 的說明。
+
+`S2Tool.run` 是 async，情境閉包是同步的，以 semaphore 等結果。負控：從描述拿掉這三個鍵名，`testEveryPayloadKeyIsDescribedOrExempt` 轉紅；還原後轉綠。

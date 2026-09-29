@@ -25,7 +25,7 @@ struct PayloadScenario {
 /// - `akashic_files` 的 `use`：切換 session 的 active store，需要 registry；`list` 有涵蓋。
 /// - 需要外部網路或使用者本機資料的分支：本檔全部用本機 fixture，不打網路。
 enum ToolPayloadScenarios {
-    static let all: [PayloadScenario] = reading + entries + libraries + persons + venues + organizations + divergences + imports + resolvePeople + resolveVenues + resolveOrganizations
+    static let all: [PayloadScenario] = reading + entries + libraries + persons + venues + organizations + divergences + imports + resolvePeople + resolveVenues + resolveOrganizations + s2
 
     private static let firstEntry = "cheng2025identifiability"
 

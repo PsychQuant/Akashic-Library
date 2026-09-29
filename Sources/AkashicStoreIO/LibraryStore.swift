@@ -3032,15 +3032,21 @@ public extension LibraryLoad {
         // 上面的懸空作者相同。DA 的更正指出它的實際後果不是安全問題（候選鍵從未進過
         // 任何路徑），而是**那筆記錄永遠無法被消歧**——`resolveDivergence` 只會擲
         // `candidateMissing`，而在這條檢查之前沒有任何輸出說它壞了。
-        let entityKeys: [EntityKind: Set<String>] = [
-            .person: Set(people.map(\.key)),
-            .work: Set(entries.map(\.citekey)),
-            .organization: Set(organizations.map(\.key)),
+        // 窮舉 switch 而不是字典字面值（#699）：字面值漏了 `.venue`，#553 起合法的 venue 候選全被誤報懸空，
+        // 編譯器看不出來。switch 讓下一個新形狀在這裡編不過。
+        var entityKeys: [EntityKind: Set<String>] = [:]
+        for kind in EntityKind.allCases {
+            switch kind {
+            case .person: entityKeys[kind] = Set(people.map(\.key))
+            case .work: entityKeys[kind] = Set(entries.map(\.citekey))
+            case .organization: entityKeys[kind] = Set(organizations.map(\.key))
+            case .venue: entityKeys[kind] = Set(venues.map(\.key))
             // 歧異記錄沒有 key（身分是 UUID），所以以它為形狀的候選永遠對不到任何
             // 東西。給它一個空集合會讓每一筆都被誤報懸空——那是雜訊不是訊號；
             // 這種候選的正確處置是 decode 就拒收（見 DivergenceYAML.decode）。
-            .divergence: [],
-        ]
+            case .divergence: entityKeys[kind] = []
+            }
+        }
         var danglingCandidates: [String: Int] = [:]
         for d in divergences {
             for c in d.candidates where !(entityKeys[c.shape]?.contains(c.key) ?? false) {

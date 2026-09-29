@@ -451,6 +451,27 @@ final class DivergenceHardeningTests: XCTestCase {
                        "懸空參照在本 store 是 warning 而非 error——error 會鎖住整個寫入面")
     }
 
+    /// #699：venue 是合法的候選形狀（#553），兩筆 venue 都在時不得報懸空；指到不存在的 venue 照樣報。
+    ///
+    /// 查找表先前只有 person／work／organization／divergence，每一筆 venue 候選都被報成「沒有對應的記錄」，
+    /// 而同一個 store 上 `resolve-divergence --dry-run` 其實成功。
+    func testVenueCandidatesAreNotReportedAsDangling() throws {
+        for key in ["some-journal", "some-journal-2"] {
+            _ = try store.writeVenue(Venue(key: key, type: .periodical,
+                                           names: TimelineOf([TemporalValue(value: "Some Journal")])))
+        }
+        try store.writeDivergence(Divergence(id: UUID(), question: "同一本刊？",
+                                             candidates: [DivergenceCandidate(key: "some-journal", shape: .venue),
+                                                          DivergenceCandidate(key: "some-journal-2", shape: .venue)]))
+        try store.writeDivergence(Divergence(id: UUID(), question: "同一本刊？",
+                                             candidates: [DivergenceCandidate(key: "some-journal", shape: .venue),
+                                                          DivergenceCandidate(key: "gone-journal", shape: .venue)]))
+
+        let messages = try store.load().crossRecordIssues().map(\.message).filter { $0.contains("歧異候選") }
+        XCTAssertEqual(messages.count, 1, "只有指到不存在 venue 的那一個候選該被報：\(messages)")
+        XCTAssertTrue(messages.first?.contains("gone-journal") ?? false, "\(messages)")
+    }
+
     // MARK: - R3：DA 抓到的、R2 修復自己引入的缺陷
 
     /// **倖存者比被併者豐富**時照樣合併——這是消歧的常態，不是例外。

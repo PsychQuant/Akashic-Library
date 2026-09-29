@@ -1,6 +1,6 @@
 ## 1. Target 與測試接縫
 
-- [ ] 1.1 在 `Package.swift` 新增 library target `AkashicS2`（依賴 `AkashicCore`）與 test target `AkashicS2Tests`，讓 `akashic` 與 `akashic-mcp` 依賴它（design「S2 放在獨立 target，不進 AkashicService 也不進 AkashicCore」）。先寫測試（RED）再實作三個環境覆寫的解析，以 `environment:` 參數注入：`AKASHIC_S2_BASE_URL` 只收 loopback 的 http，`AKASHIC_S2_KEYCHAIN_SERVICE` 只收 `akashic-test-` 開頭，`AKASHIC_S2_STATE_DIR` 只收絕對路徑（Requirement「Test overrides are confined」；design「測試接縫：三個受限的覆寫」）。驗證：`swift build` 成功；`S2ClientTests` 中 `https://example.org`、`stat-sinica-compute`、相對路徑三種值都被拒絕，且拒絕發生在任何請求之前。
+- [x] 1.1 在 `Package.swift` 新增 library target `AkashicS2`（依賴 `AkashicCore`）與 test target `AkashicS2Tests`，讓 `akashic` 與 `akashic-mcp` 依賴它（design「S2 放在獨立 target，不進 AkashicService 也不進 AkashicCore」）。先寫測試（RED）再實作三個環境覆寫的解析，以 `environment:` 參數注入：`AKASHIC_S2_BASE_URL` 只收 loopback 的 http，`AKASHIC_S2_KEYCHAIN_SERVICE` 只收 `akashic-test-` 開頭，`AKASHIC_S2_STATE_DIR` 只收絕對路徑（Requirement「Test overrides are confined」；design「測試接縫：三個受限的覆寫」）。驗證：`swift build` 成功；`S2ClientTests` 中 `https://example.org`、`stat-sinica-compute`、相對路徑三種值都被拒絕，且拒絕發生在任何請求之前。
 
 ## 2. 金鑰與 host 規則
 

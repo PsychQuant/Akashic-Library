@@ -40,6 +40,9 @@ let package = Package(
         .target(name: "AkashicQuery", dependencies: ["AkashicIndex", "AkashicSQLite", "AkashicCore"]),
         .target(name: "AkashicGraph", dependencies: ["AkashicIndex", "AkashicSQLite", "AkashicCore"]),
         .target(name: "AkashicWoSImport", dependencies: ["AkashicCore", "AkashicStoreIO"]),
+        // #664：Semantic Scholar 共用接口。本體裡唯一可以連網、唯一可以讀 keychain 的
+        // target——`akashic-guards network-confinement` 把相關 API 鎖在這個目錄。
+        .target(name: "AkashicS2", dependencies: ["AkashicCore"]),
         .target(name: "AkashicExport", dependencies: [
             "AkashicStoreIO",
             .product(name: "BiblatexAPA", package: "biblatex-apa-swift"),
@@ -49,6 +52,7 @@ let package = Package(
             "AkashicWoSImport", "AkashicSkillTools",
             "AkashicExport", "AkashicIndex", "AkashicQuery", "AkashicGraph",
             "AkashicMCPKit",   // #68：update-person 與 MCP 面共用同一條合併路徑
+            "AkashicS2",       // #664：`akashic s2` 子命令群
             .product(name: "ArgumentParser", package: "swift-argument-parser"),
         ]),
         .target(name: "AkashicAppKit", dependencies: [
@@ -63,6 +67,7 @@ let package = Package(
         ]),
         .executableTarget(name: "akashic-mcp", dependencies: [
             "AkashicMCPKit", "AkashicStoreIO",
+            "AkashicS2",       // #664：`akashic_s2` 直接呼叫 AkashicS2，不經 AkashicService
             .product(name: "MCP", package: "swift-sdk"),
         ]),
         .target(name: "TractatusDocs", dependencies: [
@@ -104,8 +109,9 @@ let package = Package(
             dependencies: ["AkashicProposition", "AkashicCore", "AkashicStoreIO"],
             resources: [.copy("Fixtures")]
         ),
+        .testTarget(name: "AkashicS2Tests", dependencies: ["AkashicS2", "AkashicCore", "AkashicTestGuard"]),
         .testTarget(name: "AkashicCLITests", dependencies: ["akashic", "AkashicTestGuard"]),
-        .testTarget(name: "AkashicMCPTests", dependencies: ["AkashicMCPKit", "akashic-mcp", "AkashicTestGuard", "AkashicQuery", "AkashicGraph", "AkashicStoreIO"]),
+        .testTarget(name: "AkashicMCPTests", dependencies: ["AkashicMCPKit", "akashic-mcp", "AkashicTestGuard", "AkashicQuery", "AkashicGraph", "AkashicStoreIO", "AkashicS2"]),
         .testTarget(name: "AkashicAppKitTests",
                     dependencies: ["AkashicAppKit", "AkashicCore", "AkashicStoreIO", "AkashicTestGuard"]),
         .testTarget(name: "TractatusDocsTests", dependencies: [

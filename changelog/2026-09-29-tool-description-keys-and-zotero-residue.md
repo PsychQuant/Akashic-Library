@@ -88,6 +88,18 @@
 
 `tools/list`：**45,888（開工時）→ 48,419 bytes**（#672 補回應鍵 +2,374、#684 補上限說明 +157），預算 49,000，餘量 581 bytes。量法與 `StdioE2ETests.testToolsListResponseStaysWithinByteBudget` 相同（真 binary、回應那一行）。
 
+## Verify R1 修正（#672）
+
+以下的「第 N 列」是 batch14 verify R1（b14f）報告的列號。
+
+**守衛的盲區寫出來（第 4、13、22 列）。** 守衛只取回應物件的**頂層鍵**（整個回應是陣列時取元素鍵），物件底下的陣列或物件的鍵它看不到：`akashic_enrich` 的 `items[]`（#672 issue 點名的 `provenancePlanned`／`provenanceWritten`／`provenanceNotWritten`／`provenanceOmitted` 就在這裡，另有 `provenanceSkipped`、`refused`……）、`akashic_resolve_people` 的 `people[ref]`（含本批新增的 `observedAffiliation*`）、`akashic_update_entry` 的 `sourcesAdded[]`、`akashic_update_venue` 的 `nameSegments[]`、`akashic_person` 的 `person.unknownFields`。**所以 issue 點名的 enrich 四個 provenance 鍵沒有被這個守衛保護**——說明拿掉它們，守衛照綠。上面「誠實邊界」只寫了「陣列回應只守元素鍵的聯集」，沒寫這一格；現在寫進測試檔頭的「沒有涵蓋的腿」與 `mcp-cli-parity` 的守衛段。遞迴一層會讓說明長出幾百個鍵名、撐爆 #578 的位元組預算，這一輪不做，follow-up 另案。
+
+**有才出現、情境沒走到的鍵（第 22 列）。** `unknownFields`（`akashic_get_entry`／`akashic_people`／`akashic_venue`）與 `provenance_additional`（`akashic_get_entry`，#605 加的）不在任何說明裡、也沒有情境產生它們。三個工具的說明各補一句（「有才出現的 unknownFields」「附加來源在 provenance_additional」）；情境仍沒有產生它們，所以日後說明拿掉它們守衛看不到——這一點也寫進測試檔頭。
+
+**本批自己的新腿要有情境（第 5、13 列，與 #675 同一件事）。** `akashic_update_venue` 的 `edit_name_segment` 沒有情境，它的 `written`、`writeNote`、`detailsTruncated`／`detailsListed` 不在說明裡——#672 要防的分岔在同一批裡重演。加了三個情境（有變動、沒有變動、超過 20 項），守衛先紅（五個鍵，含 #675 R1 新增的 `displayNameChanged`），補說明後綠。守衛自己的規則「新增工具要同時加情境」只擋新工具，擋不到既有工具的新腿——這一點沒有機械化，靠的是寫新腿的人記得加情境。
+
+**位元組**：`tools/list` 48,150 → **48,554 bytes**（`edit_name_segment` 的鍵名與 `null` 規則 +201、`unknownFields`／`provenance_additional` 三處 +203）。預算當時 49,000（整合時依使用者裁決調高到 52,000，見 #578）。
+
 ## 與 #664 合併（2026-09-29）
 
 rebase 到 #664 之後，守衛的「每個工具都有情境」檢查立刻抓到 `akashic_s2` 沒有情境——這正是它要擋的形狀。補了兩條情境（`Tests/AkashicMCPTests/ToolPayloadScenariosS2.swift`）：

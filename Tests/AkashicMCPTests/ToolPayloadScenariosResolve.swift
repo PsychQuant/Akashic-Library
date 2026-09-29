@@ -56,6 +56,25 @@ extension ToolPayloadScenarios {
             removal["reason"] = "這份來源查錯了刊"
             return try $0.service.updateVenue(key: "psychometrika", addNames: nil, note: nil, type: nil, removeReference: [removal])
         },
+        // #675（R1 verify 第 5／13 列）：edit_name_segment 的三種回應形狀——有變動（沒有 authorized 的 venue 顯示名跟著換）、
+        // 沒有變動（writeNote）、超過 20 項（detailsTruncated／detailsListed）
+        PayloadScenario("akashic_update_venue", "edit_name_segment") {
+            _ = try $0.service.updateVenue(key: "psychometrika", addNames: ["Psychometrika Old"], note: nil, type: nil)
+            $0.commit()
+            return try $0.service.updateVenue(key: "psychometrika", addNames: nil, note: nil, type: nil, editNameSegment: [
+                ["name": "Psychometrika Old", "set": ["start": "1990"], "reason": "1990 年起用這個刊名"]])
+        },
+        PayloadScenario("akashic_update_venue", "edit_name_segment unchanged") {
+            try $0.service.updateVenue(key: "psychometrika", addNames: nil, note: nil, type: nil, editNameSegment: [
+                ["name": "Psychometrika", "set": ["source": NSNull()], "reason": "本來就沒有 source"]])
+        },
+        PayloadScenario("akashic_update_venue", "edit_name_segment over 20") {
+            let extra = (1...20).map { String(format: "Psychometrika Variant %02d", $0) }
+            _ = try $0.service.updateVenue(key: "psychometrika", addNames: extra, note: nil, type: nil)
+            $0.commit()
+            return try $0.service.updateVenue(key: "psychometrika", addNames: nil, note: nil, type: nil,
+                                              editNameSegment: (["Psychometrika"] + extra).map { ["name": $0, "set": ["note": "n"], "reason": "r"] })
+        },
     ]
 
     // MARK: - resolve_people

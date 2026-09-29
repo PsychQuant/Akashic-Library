@@ -59,6 +59,14 @@ enum ToolPayloadKeyCheck {
 ///   `authorsPreserved`、`quarantineConflicts`、`writeFailed`；各寫入工具在 I/O 失敗時的 `writeFailed`、`skipped` 等。
 /// - `akashic_files` 的 `use`（切換 session 的 active store，需要 registry）。
 /// - 錯誤回應（`isError`）：那是訊息文字，不是 payload。
+/// - **物件裡的巢狀鍵**（#672 R1 verify 第 4／13／22 列）：`PayloadShape.of` 只取物件的頂層鍵（整個回應是陣列時取元素鍵），物件底下的陣列或物件
+///   的鍵不看——`akashic_enrich` 的 `items[]`（`provenancePlanned`／`provenanceWritten`／`provenanceNotWritten`／`provenanceOmitted`／`provenanceSkipped`
+///   ／`refused`……，#672 issue 點名的那四個就在這裡）、`akashic_resolve_people` 的 `people[ref]`（含 `observedAffiliation*`）、`akashic_update_entry`
+///   的 `sourcesAdded[]`、`akashic_update_venue` 的 `nameSegments[]`（`action`／`before`／`after`）與 `displayNameChanged` 的 `before`／`after`、
+///   `akashic_person` 的 `person.unknownFields`。說明拿掉這些鍵名，守衛照綠。遞迴一層會讓說明長出幾百個鍵、撐爆 #578 的位元組預算，這一輪不做；
+///   follow-up 另案。
+/// - **有才出現、情境沒走到的鍵**：`unknownFields`（`akashic_get_entry`／`akashic_people`／`akashic_venue`）、`provenance_additional`（`akashic_get_entry`）
+///   已寫進說明，但沒有情境產生它們——說明日後拿掉它們，守衛看不到。
 final class ToolPayloadKeyGuardTests: XCTestCase {
     private static let manifest: Result<[String: ToolManifest.Tool], Error> = Result { try ToolManifest.load() }
 

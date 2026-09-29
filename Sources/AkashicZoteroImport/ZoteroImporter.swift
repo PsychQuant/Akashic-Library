@@ -18,7 +18,9 @@ public struct ImportReport: Equatable {
     public var secondarySourceRestored: [String] = []
     /// #610：同一個 Zotero 來源被多筆 entry 宣稱（主來源或附加來源都算）→ 宣稱它的 citekeys（排序）。
     /// 鍵是 `<library_id>:<zotero_key>`；兩筆以上**沒記 library_id** 的舊檔宣稱同一個裸 key 時是 `?:<zotero_key>`。
-    /// 這些條目本趟**不更新任何一筆、也不新建**——路由分不出是哪一筆，猜錯會把一筆的書目欄位寫進另一筆。
+    /// 這些條目本趟**不更新任何一筆書目欄位、也不新建**——路由分不出是哪一筆，猜錯會把一筆的書目欄位寫進另一筆。
+    /// 但 orphan 標記照常處理（#682）：Zotero 端刪除時各宣稱者都被標（偵測迴圈逐筆看每一筆自己的來源）、復原時各宣稱者的標記都清
+    /// （清掉的列在 `orphanCleared`／`secondarySourceRestored`）——「item 在不在」不需要先判定哪一筆是正主。
     public var ambiguousSourceClaims: [String: [String]] = [:]
     public var unchanged: Int = 0
     /// 解析過的作者被保留、未跟 Zotero 同步的 entries（資訊性）。
@@ -149,6 +151,38 @@ public struct ZoteroImporter {
             }
         }
 
+        // #682：被多筆 entry 宣稱的來源，本趟不更新書目欄位、不動 version／hash，但**仍清掉各宣稱者身上這個來源的 orphan 標記**。
+        // orphan 標記說的是「Zotero 那個 item 在不在」——這件事不需要判定哪一筆是正主就能確定（item 在，就是在）。標記留著的後果是
+        // App 的 Orphans 頁把復原的 item 列成「已刪除」，而那一頁的動作是破壞性的（移到垃圾桶、脫鉤）。
+        // 找宣稱者身上的來源用 `ZoteroSourceClaims.claims(of:)`（宣稱者的定義只有那一份）；沒有標記就不寫。
+        // 報告：主來源的清除進 `orphanCleared`、附加來源的進 `secondarySourceRestored`（與 #605 的既有分工同一條）。
+        func clearOrphanMarks(ofSource source: String, owners: [UUID], report: inout ImportReport) {
+            for id in owners {
+                guard var entry = current[id] else { continue }
+                var primaryCleared = false
+                var additionalCleared = false
+                for claim in ZoteroSourceClaims.claims(of: entry) where claim.key == source {
+                    switch claim.role {
+                    case .primary:
+                        if entry.provenance?.orphanedAt != nil {
+                            entry.provenance?.orphanedAt = nil
+                            primaryCleared = true
+                        }
+                    case .additional(let i):
+                        if entry.additionalProvenance[i].orphanedAt != nil {
+                            entry.additionalProvenance[i].orphanedAt = nil
+                            additionalCleared = true
+                        }
+                    }
+                }
+                guard primaryCleared || additionalCleared else { continue }
+                if guardedWrite(entry, report: &report) {
+                    if primaryCleared { report.orphanCleared.append(entry.citekey) }
+                    if additionalCleared { report.secondarySourceRestored.append(entry.citekey) }
+                }
+            }
+        }
+
         let importedComposite = Set(items.map { ZoteroSourceClaims.key(libraryID: $0.libraryID, zoteroKey: $0.key) })
         let importedBare = Set(items.map(\.key))
         var legacyMatched = Set<String>()   // 已被 item 認領的 legacy 裸 key
@@ -168,6 +202,7 @@ public struct ZoteroImporter {
             // 其中一筆記錯了就拿掉那個來源。跨記錄檢查（`crossRecordIssues`）在載入時就說出同一件事。
             if let owners = claimants[composite], owners.count > 1 {
                 report.ambiguousSourceClaims[composite] = owners.compactMap { current[$0]?.citekey }.sorted()
+                clearOrphanMarks(ofSource: composite, owners: owners, report: &report)   // #682：書目欄位不動，orphan 標記照清
                 continue
             }
             var matched = byCompositeKey[composite]
@@ -178,14 +213,20 @@ public struct ZoteroImporter {
                 // 而且不看別的 library 是否持有同一個裸 key（R1 verify：先前那個條件把這道數量檢查整個跳過，歧義的條目照走
                 // 「建新 entry」、報告裡也看不到）。宣稱者的定義與 composite 同一份（`ZoteroSourceClaims`，含 `?:<裸 key>` 這一桶）。
                 let legacyKey = ZoteroSourceClaims.key(libraryID: nil, zoteroKey: item.key)
-                guard legacyOwners.count == 1 else {
-                    report.ambiguousSourceClaims[legacyKey] = legacyOwners.compactMap { current[$0]?.citekey }.sorted()
-                    continue
-                }
-                // 只有唯一一筆舊檔時，才判斷歧義防線：同 bare key 已被「其他 library」的來源持有（主來源或附加來源，#607）
-                // → legacy 檔歸屬不明，scoped/全量都不認領（留待人工或全量 backfill 釐清）
+                // 同 bare key 已被「其他 library」的來源持有（主來源或附加來源，#607）→ legacy 檔歸屬不明，scoped/全量都不認領
+                // （留待人工或全量 backfill 釐清）
                 let claimedByOtherLibrary = !(claimedLibrariesByBareKey[item.key] ?? [])
                     .subtracting([item.libraryID]).isEmpty
+                guard legacyOwners.count == 1 else {
+                    report.ambiguousSourceClaims[legacyKey] = legacyOwners.compactMap { current[$0]?.citekey }.sorted()
+                    // #682：清 orphan 標記的條件與單一舊檔認領同一條——別的 library 也持有這個裸 key 時，這個條目在不在不能拿來證明
+                    // 「這些舊檔的那個 item 在」（歸屬不明），所以不清；只有歸屬沒有爭議時才清
+                    if !claimedByOtherLibrary {
+                        clearOrphanMarks(ofSource: legacyKey, owners: legacyOwners, report: &report)
+                    }
+                    continue
+                }
+                // 只有唯一一筆舊檔時，才走認領
                 if !claimedByOtherLibrary {
                     matched = legacyByBareKey[item.key]
                     legacyMatched.insert(item.key)

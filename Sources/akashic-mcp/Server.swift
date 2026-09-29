@@ -315,7 +315,7 @@ actor AkashicMCPServer {
                 "dry_run": .object(["type": .string("boolean"), "description": .string("true＝只回報、不動檔案（預設 false，與 CLI 同）")]),
              ], required: ["id", "reason"])),
         Tool(name: "akashic_import_zotero",
-             description: "觸發 Zotero → Akashic 單向 pull（zotero.sqlite 唯讀）。回傳完整 import report；單筆寫入失敗記入 writeFailed 並續跑（index 照常重建）。同一個來源被多筆 entry 宣稱（含兩筆以上沒記 library_id 的舊檔同裸 key）的條目本趟不更新、不新建，列在 ambiguousSourceClaims（來源鍵→citekeys，只在非空時出現；跨記錄警告見 akashic_doctor）；index rebuild 失敗時錯誤訊息帶完整報告。",
+             description: "觸發 Zotero → Akashic 單向 pull（zotero.sqlite 唯讀）。回傳完整 import report；單筆寫入失敗記入 writeFailed 並續跑（index 照常重建）。同一個來源被多筆 entry 宣稱（含兩筆以上沒記 library_id 的舊檔同裸 key）的條目本趟不更新書目欄位、不新建（orphan 標記照常處理），列在 ambiguousSourceClaims（來源鍵→citekeys，只在非空時出現；跨記錄警告見 akashic_doctor）；index rebuild 失敗時錯誤訊息帶完整報告。",
              inputSchema: obj([
                 "zotero_db": str("zotero.sqlite 路徑（預設 ~/Zotero/zotero.sqlite）"),
                 "library_id": int("只拉此 libraryID（省略＝全部 libraries）"),

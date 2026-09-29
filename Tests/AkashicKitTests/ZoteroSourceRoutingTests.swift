@@ -375,3 +375,150 @@ extension ZoteroSourceRoutingTests {
         XCTAssertEqual(try crossRecordClaimWarnings().filter { $0.message.contains("KEYART01") }.count, 0, "警告隨合併消失")
     }
 }
+
+// MARK: - #682：多筆宣稱的來源，Zotero 端復原之後 orphan 標記照常清除
+
+extension ZoteroSourceRoutingTests {
+    private func firstArticle() throws -> Entry {
+        try store.load().entries.first { $0.provenance?.zoteroKey == "KEYART01" }!
+    }
+
+    @discardableResult
+    private func twin(of entry: Entry, citekey: String) throws -> Entry {
+        var copy = entry
+        copy.id = UUID()
+        copy.citekey = citekey
+        try store.writeEntry(copy)
+        return copy
+    }
+
+    private func entry(_ id: UUID) throws -> Entry {
+        try XCTUnwrap(store.load().entries.first { $0.id == id })
+    }
+
+    /// orphan 標記說的是「Zotero 那個 item 在不在」，判它不需要先判定哪一筆是正主。先前多筆宣稱的來源在路由前就被略過，連
+    /// 標記的清除一起略過：Zotero 端復原之後兩筆的 `orphanedAt` 都還在，App 的 Orphans 頁把它們列成「已刪除」，
+    /// 而那一頁的動作是破壞性的（移到垃圾桶、脫鉤）。現在書目欄位與 version／hash 照舊不動，標記逐筆清掉、報告仍列歧義。
+    func testRestoredItemClearsOrphanMarksOnEveryClaimantWhileTheSourceStaysAmbiguous() throws {
+        _ = try runImport()
+        let a = try firstArticle()
+        let b = try twin(of: a, citekey: "cheng2025twin")
+
+        // 反方向（現況，pin 住）：Zotero 端刪了 item，兩筆宣稱者都被標 orphan——偵測迴圈逐筆看每一筆的來源，不看宣稱者的數量
+        try fixture.db.execute("INSERT INTO deletedItems VALUES (10)")
+        let gone = try runImport(at: 1_753_100_000)
+        XCTAssertEqual(gone.orphaned, [a.citekey, b.citekey].sorted(), "刪除時每一個宣稱者都要被標")
+        XCTAssertNotNil(try entry(a.id).provenance?.orphanedAt)
+        XCTAssertNotNil(try entry(b.id).provenance?.orphanedAt)
+
+        // 復原，而且上游在這段期間改過（version、標題）——被多筆宣稱的來源不更新書目欄位
+        try fixture.db.execute("DELETE FROM deletedItems WHERE itemID = 10")
+        try fixture.db.execute("UPDATE items SET version = 6 WHERE itemID = 10")
+        try fixture.db.execute("UPDATE itemDataValues SET value = 'Edited upstream' WHERE valueID = 100")
+        let back = try runImport(at: 1_753_200_000)
+
+        let afterA = try entry(a.id), afterB = try entry(b.id)
+        XCTAssertNil(afterA.provenance?.orphanedAt, "a 的 orphan 標記要清")
+        XCTAssertNil(afterB.provenance?.orphanedAt, "b 的 orphan 標記要清")
+        XCTAssertEqual(afterA.title, a.title, "書目欄位不動")
+        XCTAssertEqual(afterB.title, b.title)
+        XCTAssertEqual(afterA.provenance?.zoteroVersion, a.provenance?.zoteroVersion, "version 不動：那是更新，不是清標記")
+        XCTAssertEqual(afterB.provenance?.zoteroHash, b.provenance?.zoteroHash)
+        XCTAssertEqual(back.ambiguousSourceClaims, ["1:KEYART01": [a.citekey, b.citekey].sorted()], "歧義照舊報")
+        XCTAssertEqual(back.orphanCleared, [a.citekey, b.citekey].sorted(), "清掉的兩筆要列在報告")
+        XCTAssertEqual(back.updated, [], "清標記不是更新")
+        XCTAssertEqual(back.created, [], "不得為被多筆宣稱的來源再建一筆")
+        // 標記清掉之後，Orphans 清單（`zoteroLinkState == .orphaned`）不再有這兩筆
+        XCTAssertEqual(afterA.zoteroLinkState, .intact)
+        XCTAssertEqual(afterB.zoteroLinkState, .intact)
+    }
+
+    /// 宣稱者的角色不必相同：一筆是主來源、另一筆是附加來源，兩邊各自的標記都清（附加來源的清除進 `secondarySourceRestored`，
+    /// 與 #605 的既有分工同一條）。
+    func testRestoredItemClearsTheMarkOnAPrimaryAndOnAnAdditionalClaimant() throws {
+        _ = try runImport()
+        let all = try store.load().entries
+        var personal = all.first { $0.provenance?.zoteroKey == "KEYART01" }!
+        let group = all.first { $0.provenance?.zoteroKey == "KEYGRP01" }!
+        personal.additionalProvenance = [group.provenance!]
+        try store.writeEntry(personal)
+
+        try fixture.db.execute("INSERT INTO deletedItems VALUES (31)")
+        let gone = try runImport(at: 1_753_100_000)
+        XCTAssertEqual(gone.orphaned, [group.citekey], "主來源那筆整筆 orphan")
+        XCTAssertEqual(gone.secondarySourceOrphaned, [personal.citekey], "附加來源那筆只標那個來源")
+
+        try fixture.db.execute("DELETE FROM deletedItems WHERE itemID = 31")
+        try fixture.db.execute("UPDATE items SET version = 12 WHERE itemID = 31")
+        try fixture.db.execute("UPDATE itemDataValues SET value = 'Group edited title' WHERE valueID = 131")
+        let back = try runImport(at: 1_753_200_000)
+
+        XCTAssertNil(try entry(group.id).provenance?.orphanedAt)
+        XCTAssertNil(try entry(personal.id).additionalProvenance.first?.orphanedAt)
+        XCTAssertEqual(try entry(group.id).title, group.title, "書目欄位不動")
+        XCTAssertEqual(try entry(personal.id).additionalProvenance.first?.zoteroVersion, group.provenance?.zoteroVersion, "附加來源的 version 也不動")
+        XCTAssertEqual(back.ambiguousSourceClaims, ["5:KEYGRP01": [personal.citekey, group.citekey].sorted()])
+        XCTAssertEqual(back.orphanCleared, [group.citekey])
+        XCTAssertEqual(back.secondarySourceRestored, [personal.citekey])
+        XCTAssertEqual(back.updated, [])
+    }
+
+    /// 沒記 `library_id` 的舊檔那一桶（`?:<key>`）同理：兩筆舊檔宣稱同一個裸 key、都帶著 orphan 標記，全庫匯入時這個裸 key 的條目在，
+    /// 標記清掉、欄位不動、歧義照舊報。
+    func testRestoredItemClearsOrphanMarksOnTwoLegacyClaimants() throws {
+        _ = try runImport()
+        var a = try firstArticle()
+        a.provenance?.libraryID = nil
+        a.provenance?.zoteroHash = nil
+        a.provenance?.orphanedAt = Date(timeIntervalSince1970: 1_752_000_000)
+        try store.writeEntry(a)
+        let b = try twin(of: a, citekey: "cheng2025legacytwin")
+
+        let report = try runImport(at: 1_753_100_000)
+
+        XCTAssertNil(try entry(a.id).provenance?.orphanedAt)
+        XCTAssertNil(try entry(b.id).provenance?.orphanedAt)
+        XCTAssertNil(try entry(a.id).provenance?.libraryID, "舊檔照 #607 不認領：library_id 不補")
+        XCTAssertEqual(try entry(a.id).title, a.title)
+        XCTAssertEqual(report.ambiguousSourceClaims, ["?:KEYART01": [a.citekey, b.citekey].sorted()])
+        XCTAssertEqual(report.orphanCleared, [a.citekey, b.citekey].sorted())
+        XCTAssertEqual(report.updated, [])
+        XCTAssertEqual(report.created, [])
+    }
+
+    /// 舊檔那一桶的清除條件與單一舊檔認領同一條：別的 library 也持有同一個裸 key 時歸屬不明——條目在不在不能證明「這些舊檔的那個
+    /// item 在」，所以標記留著（保守側；清錯的代價是 Orphans 頁少列一筆真的已刪除的）。歧義照舊報。
+    func testLegacyClaimantsKeepTheirMarksWhenAnotherLibraryHoldsTheBareKey() throws {
+        _ = try runImport()
+        var a = try firstArticle()
+        a.provenance?.libraryID = nil
+        a.provenance?.zoteroHash = nil
+        a.provenance?.orphanedAt = Date(timeIntervalSince1970: 1_752_000_000)
+        try store.writeEntry(a)
+        let b = try twin(of: a, citekey: "cheng2025legacytwin")
+        var other = Entry(id: UUID(), citekey: "other2020holder", type: .periodicalArticle, title: "Held in lib 5")
+        other.provenance = Provenance(zoteroKey: "KEYART01", zoteroVersion: 1, libraryID: 5)
+        try store.writeEntry(other)
+
+        let report = try runImport(at: 1_753_100_000)
+
+        XCTAssertNotNil(try entry(a.id).provenance?.orphanedAt, "歸屬不明，標記留著")
+        XCTAssertNotNil(try entry(b.id).provenance?.orphanedAt)
+        XCTAssertEqual(report.ambiguousSourceClaims["?:KEYART01"], [a.citekey, b.citekey].sorted())
+        XCTAssertEqual(report.orphanCleared, [])
+    }
+
+    /// 沒有標記就什麼都不寫：多筆宣稱的來源、兩筆都沒有 orphan 標記——檔案位元組不動（清標記不得順手改寫檔案）。
+    func testAmbiguousSourceWithoutOrphanMarksWritesNothing() throws {
+        _ = try runImport()
+        let a = try firstArticle()
+        let b = try twin(of: a, citekey: "cheng2025twin")
+        let before = (try Data(contentsOf: store.entityURL(id: a.id)), try Data(contentsOf: store.entityURL(id: b.id)))
+        try fixture.db.execute("UPDATE items SET version = 6 WHERE itemID = 10")
+        let report = try runImport(at: 1_753_100_000)
+        XCTAssertEqual(try Data(contentsOf: store.entityURL(id: a.id)), before.0)
+        XCTAssertEqual(try Data(contentsOf: store.entityURL(id: b.id)), before.1)
+        XCTAssertEqual(report.orphanCleared, [])
+        XCTAssertEqual(report.secondarySourceRestored, [])
+    }
+}

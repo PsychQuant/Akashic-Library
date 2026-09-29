@@ -340,7 +340,10 @@ work merge 的資料遺失閘也把 witness 當 canonical Akashic metadata：被
   比對——③ 只在沒有其他 library 的來源（主來源或附加來源）持有同一個裸 key 時才認領。②先於③：
   附加來源是完全相同的身分，legacy 是歸屬不明的猜測。
 - **一個來源只能由一筆 entry 宣稱**（#610）：同一個 `(library_id, zotero_key)` 出現在兩筆以上 entry 的主來源或
-  附加來源時，匯入對這個條目**不更新任何一筆、也不新建**，報告列在 `ambiguousSourceClaims`；兩筆以上沒記
+  附加來源時，匯入對這個條目**不更新任何一筆的書目欄位（含 version／hash）、也不新建**，報告列在 `ambiguousSourceClaims`；
+  **orphan 標記照常處理**（#682）：orphan 標記說的是「Zotero 那個 item 在不在」，判它不需要先判定哪一筆是正主——Zotero 端刪除時
+  各宣稱者都被標，復原時各宣稱者的標記都清（清掉的列在 `orphanCleared`／`secondarySourceRestored`，寫入只動標記）；
+  舊檔那一桶只在歸屬沒有爭議（沒有別的 library 持有同一個裸 key）時才清。兩筆以上沒記
   `library_id` 的舊檔宣稱同一個裸 key 同樣不認領（鍵寫成 `?:<zotero_key>`）——且**先問有幾筆舊檔宣稱、再問其他 library
   是否持有同一個裸 key**，所以別的 library 也持有它時，兩筆舊檔的歧義照樣被報、條目照樣不新建。宣稱者的定義只有一份
   （`ZoteroSourceClaims`，匯入端與跨記錄檢查共用），因此兩種鍵都在載入時由 `validate`／`doctor`／App 的跨記錄檢查報

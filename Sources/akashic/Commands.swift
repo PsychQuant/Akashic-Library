@@ -347,7 +347,8 @@ struct ImportZotero: ParsableCommand {
         }
         if !report.ambiguousSourceClaims.isEmpty {
             // #610：路由分不出是哪一筆，本趟對這些條目不更新、不新建。鍵是 `<library_id>:<zotero_key>`，舊檔的裸 key 是 `?:<zotero_key>`。
-            print("同一個 Zotero 來源被多筆 entry 宣稱、本趟未更新任何一筆（#610；處置見 akashic validate 的跨記錄警告）:")
+            // #682：書目欄位不動，但 orphan 標記照常處理（復原的清掉、刪除的各筆都標）——清掉的列在上面的 orphan cleared／附加來源恢復
+            print("同一個 Zotero 來源被多筆 entry 宣稱、本趟未更新任何一筆（#610；書目欄位不動，orphan 標記照常處理，#682；處置見 akashic validate 的跨記錄警告）:")
             for (source, cites) in report.ambiguousSourceClaims.sorted(by: { $0.key < $1.key }) {
                 print("  ⚠ \(displaySafe(source, max: 120))：\(cites.map { displaySafe($0, max: 200) }.joined(separator: ", "))")
             }

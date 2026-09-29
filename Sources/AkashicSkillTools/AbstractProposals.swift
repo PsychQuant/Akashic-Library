@@ -104,7 +104,7 @@ public enum AbstractProposals {
             rows += 1
             let row: [String: Any]
             do {
-                guard let obj = try JSONSerialization.jsonObject(with: Data(raw.utf8), options: [.fragmentsAllowed]) as? [String: Any] else {
+                guard let obj = try PyJSONParser.parse(Data(raw.utf8)) as? [String: Any] else {
                     throw SkillToolError.failure("✗ 第 \(n) 行不是 JSON 物件")   // display-safe-exempt: n 是 Int 行號
                 }
                 row = obj
@@ -171,14 +171,16 @@ public enum AbstractProposals {
     }
 
     /// 回 (位元組, digest)。digest 形（`sha256:` 開頭，不分大小寫判斷「是不是 digest 形」）走內容定址並驗雜湊；否則當路徑、由位元組算 digest。
-    /// - Parameter blobURL: 由 digest 給存檔路徑的函式（`LibraryStore.sourceBlobURL`）；只有 digest 形會用到。
-    public static func resolveSource(_ source: String, blobURL: (String) -> URL?) throws -> (data: Data, digest: String) {
+    /// - Parameter blobURL: 由 digest 給存檔路徑的函式（`LibraryStore.sourceBlobURL`）；只有 digest 形會用到。擲出的錯誤原樣往上；回 nil＝digest 形狀不合法。
+    public static func resolveSource(_ source: String, blobURL: (String) throws -> URL?) throws -> (data: Data, digest: String) {
         if source.lowercased().hasPrefix("sha256:") {
             guard let hex = digestHex(source) else {
                 throw SkillToolError.failure("✗ 不是合法的 digest（sha256: 之後須恰 64 個 hex）：\(displaySafeInvisible(source, max: 90))")
             }
             let digest = "sha256:\(hex)"
-            guard let url = blobURL(digest) else { throw SkillToolError.failure("✗ 不是合法的 digest：\(displaySafeInvisible(source, max: 90))") }
+            // store 解析失敗（沒有 --library、registry 沒有 current……）由 `blobURL` 擲出、原樣往上：第一版把它吞成 nil，於是報出
+            // 「不是合法的 digest」——形狀合法的 digest 被說成形狀錯，診斷指錯方向（R1 verify 第 38 則）
+            guard let url = try blobURL(digest) else { throw SkillToolError.failure("✗ 不是合法的 digest：\(displaySafeInvisible(source, max: 90))") }
             var isDir: ObjCBool = false
             guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), !isDir.boolValue else {
                 throw SkillToolError.failure("✗ 存檔不存在：\(displaySafeInvisible(url.path, max: 400))（digest \(digest)）")   // display-safe-exempt: digest：由 digestHex 驗過的 `sha256:` 加 64 個十六進位字元

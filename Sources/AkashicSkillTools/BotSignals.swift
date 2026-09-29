@@ -11,6 +11,14 @@ import Foundation
 /// 刻意的——停下的回報會寫明訊號，由使用者決定那一篇要不要重跑。為了避免誤判而收窄樣式，是拿方便換漏掉挑戰頁，而那是貴的
 /// 方向。
 public enum BotSignals {
+    /// Python `\w`（str 樣式）的補集當「不是字詞字元」：Python 的 `\b` 只把字母、數字與底線當字詞字元，組合標記與 ZWJ／ZWNJ
+    /// **不是**；ICU 的 `\b` 相反（`\w` 含 `\p{M}` 與 U+200C／U+200D）。同一句 `rate limit` 後面接一個組合標記或 ZWJ，Python 命中、
+    /// ICU 的 `\b` 不命中——中止條款的下限變弱（#629 R1 verify 第 25／43 則）。所以兩個 `\b` 都換成明寫字元類的前後查（測試對全部
+    /// Unicode scalar 驗這個類與 `PyText.isWord` 一致）。
+    static let wordClass = #"[\p{L}\p{N}_]"#
+    static let wordStart = "(?<!" + wordClass + ")"
+    static let wordEnd = "(?!" + wordClass + ")"
+
     /// 每一項是（標籤，樣式）。有觀察日期的是實際遇到的；其餘是常見挑戰頁的標準用語，留著是因為「停」是便宜的那一邊。
     static let signals: [(label: String, pattern: String)] = [
         // 先列廠商專屬的，讓停止報告點名廠商而不是泛稱（captcha-delivery.com 含 "captcha"）。這個 skill 的 run 還沒遇過；
@@ -23,8 +31,8 @@ public enum BotSignals {
         ("captcha", #"captcha|hcaptcha|recaptcha|turnstile"#),
         ("human-check", #"are you (a )?(robot|human)|verify (that )?you('| a)re (a )?human|prove you('| a)re human|i'?m not a robot"#),
         ("unusual-traffic", #"unusual (traffic|activity)|automated (access|requests|queries|traffic)|suspicious activity"#),
-        ("rate-limit", #"too many requests|rate limit(ed)?\b"#),
-        ("access-denied", #"\baccess denied\b|request (was )?blocked|you have been blocked"#),
+        ("rate-limit", #"too many requests|rate limit(ed)?\#(BotSignals.wordEnd)"#),
+        ("access-denied", #"\#(BotSignals.wordStart)access denied\#(BotSignals.wordEnd)|request (was )?blocked|you have been blocked"#),
         ("pmc-pow-challenge", #"preparing to download|proof[- ]of[- ]work|checking your browser"#),   // PMC, 2026-09-23
     ]
 
@@ -35,9 +43,18 @@ public enum BotSignals {
         ($0.label, try! NSRegularExpression(pattern: $0.pattern, options: [.caseInsensitive]))   // 樣式是編譯期常數
     }
 
+    /// Python 的 `re.I` 把 U+0130（İ）與 U+0131（ı）當成 `i`（簡單大小寫對映）；ICU 的不分大小寫比對不會（土耳其文 i 的兩種寫法）。
+    /// `innerText` 會套用 CSS `text-transform: uppercase`，`lang=tr` 的頁面把 `i` 變成 `İ`，所以這不是純理論。比對前先折成 `i`
+    /// （其餘 `ſ`、Kelvin sign 兩邊本來就一致，測試釘住）。
+    static func foldDotlessAndDottedI(_ text: String) -> String {
+        guard text.unicodeScalars.contains(where: { $0.value == 0x130 || $0.value == 0x131 }) else { return text }
+        return String(String.UnicodeScalarView(text.unicodeScalars.map { $0.value == 0x130 || $0.value == 0x131 ? "i" : $0 }))
+    }
+
     /// 命中的訊號標籤；沒有則 nil。`status` 是 403／429 時直接回 `http-<status>`。
     public static func detect(_ text: String, status: Int? = nil) -> String? {
         if let status, suspiciousStatus.contains(status) { return "http-\(status)" }
+        let text = foldDotlessAndDottedI(text)
         let range = NSRange(text.startIndex..., in: text)
         for (label, regex) in compiled where regex.firstMatch(in: text, options: [], range: range) != nil {
             return label

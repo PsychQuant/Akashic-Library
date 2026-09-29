@@ -133,7 +133,7 @@ final class SkillToolsCLITests: XCTestCase {
     }
 
     func testFetchRefusesAMissingSafariBrowserAndAMissingWindow() throws {
-        let missing = try runSplit(["fulltext", "fetch", "--window", "1", "--landing", "https://doi.org/10.1/x", "--out", base.appendingPathComponent("w.pdf").path,
+        let missing = try runSplit(["fulltext", "fetch", "--window", "1", "--expect-profile", "own", "--landing", "https://doi.org/10.1/x", "--out", base.appendingPathComponent("w.pdf").path,
                                     "--bin", base.appendingPathComponent("no-such-binary").path])
         XCTAssertEqual(missing.status, 1)
         XCTAssertTrue(missing.err.contains("safari-browser not found"), missing.err)
@@ -142,12 +142,32 @@ final class SkillToolsCLITests: XCTestCase {
         let log = base.appendingPathComponent("calls.log")
         try "#!/bin/sh\necho \"$@\" >> '\(log.path)'\nif [ \"$1\" = documents ]; then echo '[]'; fi\n".write(to: stub, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: stub.path)
-        let r = try runSplit(["fulltext", "fetch", "--window", "5", "--landing", "https://doi.org/10.1/x", "--out", base.appendingPathComponent("w.pdf").path, "--bin", stub.path])
+        let r = try runSplit(["fulltext", "fetch", "--window", "5", "--expect-profile", "own", "--landing", "https://doi.org/10.1/x", "--out", base.appendingPathComponent("w.pdf").path, "--bin", stub.path])
         XCTAssertEqual(r.status, 1, r.err)
         XCTAssertTrue(r.err.contains("Safari window 5 not found"), r.err)
         let calls = try String(contentsOf: log, encoding: .utf8)
         XCTAssertEqual(calls, "documents --json\n", "只該問過 documents：\(calls)")
-        XCTAssertEqual(try runSplit(["fulltext", "fetch", "--window", "0", "--landing", "x", "--out", "y"]).status, 64)
+        XCTAssertEqual(try runSplit(["fulltext", "fetch", "--window", "0", "--expect-profile", "own", "--landing", "x", "--out", "y"]).status, 64)
+    }
+
+    /// `--expect-profile` 是唯一防止動到別人的 Safari session 的檢查：文件一直寫「一律帶」，命令列現在強制（R1 verify 第 31 則）。
+    func testFetchRequiresAnExpectedProfile() throws {
+        let noProfile = try runSplit(["fulltext", "fetch", "--window", "5", "--landing", "https://doi.org/10.1/x", "--out", base.appendingPathComponent("w.pdf").path])
+        XCTAssertEqual(noProfile.status, 64, noProfile.err)
+        XCTAssertTrue(noProfile.err.contains("expect-profile"), noProfile.err)
+        let empty = try runSplit(["fulltext", "fetch", "--window", "5", "--expect-profile", "", "--landing", "https://doi.org/10.1/x", "--out", base.appendingPathComponent("w.pdf").path])
+        XCTAssertEqual(empty.status, 64, empty.err)
+    }
+
+    /// 標題可以以連字號開頭：ArgumentParser 預設的 `.next` 策略會把它當成另一個旗標而 exit 64；舊 shell 的 `TITLE=$2` 什麼值都收。
+    func testATitleThatStartsWithAHyphenIsAValueNotAFlag() throws {
+        for title in ["-Omics of things", "-1 to 1", "--weird"] {
+            let r = try runSplit(["fulltext", "verify", base.appendingPathComponent("missing.pdf").path, "--title", title, "--doi", "-x"])
+            XCTAssertEqual(r.status, 1, "\(title)：\(r.err)")   // 檔案不存在 → 判定 JSON 的 error、結束碼 1；重點是沒有 64
+            XCTAssertTrue(r.out.contains("\"is_article\": false"), r.out)
+        }
+        let equalsForm = try runSplit(["fulltext", "verify", base.appendingPathComponent("missing.pdf").path, "--title=-Omics"])
+        XCTAssertEqual(equalsForm.status, 1, equalsForm.err)
     }
 
     func testCalibrateListsMissingCrossrefRecordsAndMeasuresTheRest() throws {
@@ -171,6 +191,36 @@ final class SkillToolsCLITests: XCTestCase {
         XCTAssertEqual(done.status, 0, done.out + done.err)
         XCTAssertTrue(done.out.contains("files with a DOI and a Crossref title: 2"), done.out)
         XCTAssertTrue(done.out.contains("wrong title accepted:      0/2"), done.out)
+    }
+
+    /// 缺記錄的清單帶完整網址（不是要人自己拼的模板）；形狀不合格的 DOI 不組網址、單獨列出，而且同樣算「沒量到」（結束碼 3）。
+    func testCalibrateListsFullURLsAndKeepsUnsafeDOIsOutOfThem() throws {
+        try XCTSkipUnless(hasPoppler(), "需要 poppler")
+        let pdfs = base.appendingPathComponent("pdfs"), cr = base.appendingPathComponent("crossref")
+        try FileManager.default.createDirectory(at: pdfs, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: cr, withIntermediateDirectories: true)
+        try makePDF(lines: ["Paper A", "doi:10.1234/a(b)c", "Abstract"]).write(to: pdfs.appendingPathComponent("a.pdf"))
+        try makePDF(lines: ["Paper B", "doi:10.1234/x$y", "Abstract"]).write(to: pdfs.appendingPathComponent("b.pdf"))
+        let r = try runSplit(["fulltext", "calibrate", pdfs.path, "--crossref", cr.path])
+        XCTAssertEqual(r.status, 3, r.err)
+        XCTAssertTrue(r.out.contains("10.1234/a(b)c\thttps://api.crossref.org/works/10.1234/a%28b%29c"), "完整、百分比編碼的網址：\(r.out)")
+        XCTAssertTrue(r.out.contains("另有 1 個 DOI 形狀不合格"), r.out)
+        XCTAssertTrue(r.out.contains("10.1234/x$y"), r.out)
+        XCTAssertFalse(r.out.contains("works/10.1234/x"), "不合格的 DOI 不組網址：\(r.out)")
+    }
+
+    /// 全零的數字不是校準結果：資料夾不存在是具名失敗，沒有任何可量的檔案是結束碼 4（不是 0）。
+    func testCalibrateDoesNotReportAnEmptyMeasurementAsSuccess() throws {
+        let cr = base.appendingPathComponent("crossref")
+        try FileManager.default.createDirectory(at: cr, withIntermediateDirectories: true)
+        let missingFolder = try runSplit(["fulltext", "calibrate", base.appendingPathComponent("no-such-folder").path, "--crossref", cr.path])
+        XCTAssertEqual(missingFolder.status, 1, missingFolder.err)
+        XCTAssertTrue(missingFolder.err.contains("不是資料夾"), missingFolder.err)
+        let empty = base.appendingPathComponent("empty")
+        try FileManager.default.createDirectory(at: empty, withIntermediateDirectories: true)
+        let none = try runSplit(["fulltext", "calibrate", empty.path, "--crossref", cr.path])
+        XCTAssertEqual(none.status, 4, none.out + none.err)
+        XCTAssertTrue(none.err.contains("沒有量到任何檔案"), none.err)
     }
 
     // MARK: crossref-match

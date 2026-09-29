@@ -18,30 +18,54 @@ import Foundation
 ///
 /// 2026-08-01 的實測（Python 版）：13 個 anchor/alias regex 命中全部是期刊名裡的 `&amp;` 與引號內的
 /// `*keyword*` 標記，parser 層 0 命中。
-public enum YAMLProfileScan {
+///
+/// **`package` 存取層級，不是 `public`**（#629 R1 verify 第 36 則）：這是 repo 開發者重測 #33 的證據工具（`mcp-cli-parity`
+/// 那列寫「不是使用者能力」），不該成為 `AkashicKit` 產品（MCP／App 都連結）的公開 API。它放在 `AkashicCore` 而不是 `akashic`
+/// 執行檔 target，是因為 libyaml 的 C 模組（`CYaml`）只在這個 target 的依賴裡，而測試要 import 它；`package` 讓同一個 package 的
+/// CLI 與測試看得到，package 外的使用者看不到。
+package enum YAMLProfileScan {
 
     /// profile 外的語法（顯示順序即輸出順序）。
-    public static let features = [
+    package static let features = [
         "BOM", "NEL/LS/PS", "tab", "CR", "comment line", "inline comment",
         "multi-doc ---", "anchor/alias", "explicit tag", "merge key",
         "block scalar |>", "flow seq [..]", "flow map {..}", "complex key ? k",
     ]
 
-    public struct Result {
-        public var root: String
+    package struct Result {
+        package var root: String
         /// 掃到的 `.yaml` 檔（相對路徑排序不保證；只用名字與計數）。
-        public var files: [String] = []
+        package var files: [String] = []
         /// feature → 命中的檔名（掃描順序）
-        public var buckets: [String: [String]] = [:]
+        package var buckets: [String: [String]] = [:]
         /// max 縮排／2 → 檔數
-        public var depth: [Int: Int] = [:]
+        package var depth: [Int: Int] = [:]
         /// parser 層：真 anchor、非標準 tag、顯式 core tag、parse 失敗
-        public var anchored: [String] = []
-        public var tagged: [String] = []
-        public var taggedCore: [String] = []
-        public var failed: [(name: String, reason: String)] = []
+        package var anchored: [String] = []
+        package var tagged: [String] = []
+        package var taggedCore: [String] = []
+        package var failed: [(name: String, reason: String)] = []
         /// `--inspect`：regex 命中的實際文字（`檔名: 行`，前 110 字元）
-        public var inspected: [String] = []
+        package var inspected: [String] = []
+    }
+
+    /// 掃不下去的原因。**不得靜默少算**（R1 verify 第 5、12、27 則）：這支工具的輸出是「corpus 有沒有長出 profile 外語法」的證據，
+    /// 根不是資料夾就印全零、讀不到的檔或子資料夾被略過，都讓「少算」與「查完歸零」無法區分——與 `literal-census` 的同一個立場。
+    package enum Failure: Error, Equatable {
+        /// 根不存在或不是資料夾。
+        case notADirectory(root: String)
+        /// 某個 `.yaml` 讀不進來（權限、是目錄），或走訪時某個子資料夾列不出來。`detail` 是程式的固定說明。
+        case unreadable(path: String, detail: String)
+
+        /// 已消毒的訊息。
+        package var message: String {
+            switch self {
+            case .notADirectory(let root):
+                return "✗ \(displaySafeInvisible(root, max: 300)) 不存在或不是資料夾"
+            case .unreadable(let path, let detail):
+                return "✗ 讀不進 \(displaySafeInvisible(path, max: 300))：\(detail)——拒絕輸出計數（少算一個檔與「查完歸零」無法區分）"   // display-safe-exempt: detail：程式的固定說明字串
+            }
+        }
     }
 
     // MARK: - Python 的 `\s`
@@ -83,16 +107,33 @@ public enum YAMLProfileScan {
 
     // MARK: - 掃描
 
-    public static func scan(root: String, inspect: Bool = false) throws -> Result {
+    package static func scan(root: String, inspect: Bool = false) throws -> Result {
         var result = Result(root: root)
         for f in features { result.buckets[f] = [] }
         let fm = FileManager.default
-        guard let e = fm.enumerator(atPath: root) else { return result }
+        var isDir: ObjCBool = false
+        guard fm.fileExists(atPath: root, isDirectory: &isDir), isDir.boolValue else { throw Failure.notADirectory(root: root) }
+        // 走訪的錯誤（某個子資料夾列不出來）不得被 `enumerator(atPath:)` 靜默略過：用帶 errorHandler 的版本，第一個錯誤就停下並具名拒絕
+        var walkFailure: Failure?
+        let rootURL = URL(fileURLWithPath: root)
+        guard let e = fm.enumerator(at: rootURL, includingPropertiesForKeys: nil, options: [], errorHandler: { url, error in
+            walkFailure = .unreadable(path: url.path, detail: "列不出來（\((error as NSError).localizedFailureReason ?? "權限或 I/O 錯誤")）")   // display-safe-exempt: 說明來自系統的錯誤原因字串，不是 store 內容
+            return false
+        }) else { throw Failure.unreadable(path: root, detail: "列不出來") }
         // `Path.rglob('*.yaml')`：遞迴、大小寫敏感；排序讓輸出可重現
-        let rels = e.compactMap { $0 as? String }.filter { $0.hasSuffix(".yaml") }.sorted()
+        let prefix = rootURL.standardizedFileURL.path + "/"
+        let rels = e.compactMap { ($0 as? URL)?.standardizedFileURL.path }
+            .map { $0.hasPrefix(prefix) ? String($0.dropFirst(prefix.count)) : $0 }
+            .filter { $0.hasSuffix(".yaml") }.sorted()
+        if let walkFailure { throw walkFailure }
         for rel in rels {
             let name = (rel as NSString).lastPathComponent
-            guard let data = fm.contents(atPath: "\(root)/\(rel)") else { continue }
+            var entryIsDir: ObjCBool = false
+            let full = "\(root)/\(rel)"
+            guard let data = fm.contents(atPath: full) else {
+                let isDirectory = fm.fileExists(atPath: full, isDirectory: &entryIsDir) && entryIsDir.boolValue
+                throw Failure.unreadable(path: full, detail: isDirectory ? "是目錄" : "讀不到")
+            }
             result.files.append(name)
             func mark(_ feature: String) { result.buckets[feature]!.append(name) }
 
@@ -158,6 +199,7 @@ public enum YAMLProfileScan {
                 var anchor: UnsafePointer<UInt8>?, tag: UnsafePointer<UInt8>?
                 switch event.type {
                 case YAML_STREAM_END_EVENT: break loop
+                case YAML_ALIAS_EVENT: anchor = event.data.alias.anchor.map { UnsafePointer($0) }   // PyYAML 的 AliasEvent 帶 `anchor`，Python 版把它算成 anchor（R1 verify 第 27 則）
                 case YAML_SCALAR_EVENT: anchor = event.data.scalar.anchor.map { UnsafePointer($0) }; tag = event.data.scalar.tag.map { UnsafePointer($0) }
                 case YAML_SEQUENCE_START_EVENT: anchor = event.data.sequence_start.anchor.map { UnsafePointer($0) }; tag = event.data.sequence_start.tag.map { UnsafePointer($0) }
                 case YAML_MAPPING_START_EVENT: anchor = event.data.mapping_start.anchor.map { UnsafePointer($0) }; tag = event.data.mapping_start.tag.map { UnsafePointer($0) }
@@ -217,7 +259,7 @@ public enum YAMLProfileScan {
     // MARK: - 呈現
 
     /// 報告文字行。檔名與行內容是 store 衍生字串，一律消毒。
-    public static func render(_ r: Result, inspect: Bool) -> [String] {
+    package static func render(_ r: Result, inspect: Bool) -> [String] {
         func name(_ s: String) -> String { displaySafeInvisible(s, max: 120) }
         func pad(_ s: String, _ n: Int) -> String { s.count >= n ? s : s + String(repeating: " ", count: n - s.count) }
         func lpad(_ s: String, _ n: Int) -> String { s.count >= n ? s : String(repeating: " ", count: n - s.count) + s }

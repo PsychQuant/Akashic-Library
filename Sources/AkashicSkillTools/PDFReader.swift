@@ -22,12 +22,12 @@ public enum PDFReader {
             throw SkillToolError.failure("讀不到 \(displaySafeInvisible(path, max: 300))：\(displaySafeErrorText(error))")
         }
         guard head == Data("%PDF-".utf8) else { throw SkillToolError.failure("not a PDF (no %PDF- header)") }
-        let info = try ToolRunner.run(["pdfinfo", path])
+        let info = try ToolRunner.run(["pdfinfo", path], timeout: ToolRunner.popplerTimeout)
         guard info.status == 0 else { throw SkillToolError.failure("pdfinfo failed (exit \(info.status))") }   // display-safe-exempt: info：status 是 Int 結束碼
         guard let count = pageCount(fromPdfinfo: String(decoding: info.stdout, as: UTF8.self)) else {
             throw SkillToolError.failure("pdfinfo reported no page count")
         }
-        let text = try ToolRunner.run(["pdftotext", "-l", "2", path, "-"])
+        let text = try ToolRunner.run(["pdftotext", "-l", "2", path, "-"], timeout: ToolRunner.popplerTimeout)
         guard text.status == 0 else { throw SkillToolError.failure("pdftotext failed (exit \(text.status))") }   // display-safe-exempt: text：status 是 Int 結束碼
         guard let firstPages = String(data: text.stdout, encoding: .utf8) else {
             throw SkillToolError.failure("pdftotext output is not valid UTF-8")
@@ -57,7 +57,7 @@ public enum PDFReader {
 
     /// PDF 自己的 XMP 中繼資料裡的 DOI——檔案的身分，不是引用。`pdfinfo -meta` 沒有輸出或沒有 DOI 時回 nil。
     public static func metadataDOI(path: String) throws -> String? {
-        let r = try ToolRunner.run(["pdfinfo", "-meta", path])
+        let r = try ToolRunner.run(["pdfinfo", "-meta", path], timeout: ToolRunner.popplerTimeout)
         return FulltextVerify.doiFromXMP(String(decoding: r.stdout, as: UTF8.self))
     }
 }

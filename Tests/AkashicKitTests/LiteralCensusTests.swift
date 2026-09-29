@@ -255,6 +255,23 @@ final class LiteralCensusTests: XCTestCase {
         }
     }
 
+    /// 列不出來的目錄不得被當成空：第一版 `(try? contentsOfDirectory) ?? []` 讓不可列的 `entities/` 印出全零的四域普查
+    /// （那讀起來像「literal 歸零」），而 `entitiesWithoutYAML` 也因為第二次列出仍是 `[]` 而不觸發（R1 verify 第 4 則）。
+    func testAnUnlistableScanDirectoryRefusesToCountRatherThanReportZero() throws {
+        for sub in ["entities", "entries", "people"] {
+            let root = try makeStore(sub + "-store", files: ["\(sub)/ok.yaml": work("authors:\n- literal: A\n")], entitiesDir: sub == "entities")
+            let dir = root + "/" + sub
+            XCTAssertEqual(chmod(dir, 0o000), 0)
+            defer { chmod(dir, 0o755) }
+            XCTAssertThrowsError(try LiteralCensus.run(root: root), sub) {
+                guard case .unlistableDirectory(let path, _)? = $0 as? LiteralCensus.Failure else { return XCTFail("\($0)") }
+                XCTAssertEqual(path, dir)
+                XCTAssertEqual(($0 as? LiteralCensus.Failure)?.exitCode, 3)
+                XCTAssertTrue(($0 as? LiteralCensus.Failure)?.message.contains("拒絕輸出計數") == true)
+            }
+        }
+    }
+
     // MARK: - YAML 單行純量解碼
 
     private func decoded(_ raw: String) -> String {

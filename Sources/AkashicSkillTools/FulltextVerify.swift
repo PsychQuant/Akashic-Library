@@ -324,11 +324,29 @@ public enum FulltextVerify {
         return false
     }
 
-    /// 補充資料標題：這一行（去掉前導空白後）以補充資料的標記開頭，且標記後是字詞邊界。
+    /// 補充資料標題：前 `headLines` 個非空行**以換行接起來**的文字裡，某一行（去掉前導空白後）以補充資料的標記開頭，
+    /// 且標記後是字詞邊界；片語內的空白**含換行**（PDF 的標題常被斷行：`Supplemental` ⏎ `Material for`）。
+    ///
     /// `^\s*(supplement(al|ary)\s+(material|text|information|appendix|methods)s?|supporting\s+information|electronic\s+supplementary\s+material|online\s+supplement)\b`
-    static func isSupplementHeadLine(_ line: Scalars) -> Bool {
-        var s = PyText.lower(line)
-        while let f = s.first, PyText.isSpace(f) { s.removeFirst() }
+    /// 以 `re.I | re.M` 對「前三個非空行用 `\n` 接起來」的整段文字跑——`^` 只在整段的開頭與每個 `\n` 之後成立，`\s+` 可以跨過
+    /// `\n`。**#629 第一版逐行判斷（「逐行照舊」），把跨行的片語放過去了**（R1 verify 第 3 則：`Supplemental` ⏎ `Material for`
+    /// 在舊實作被標成補充、新版判成正式版——中止補充檔當正文的那道閘，方向是 fail-open）。
+    static func hasSupplementHead(lines: [Scalars]) -> Bool {
+        var joined = Scalars()
+        for (i, line) in lines.enumerated() {
+            if i > 0 { joined.append("\n") }
+            joined.append(contentsOf: line)
+        }
+        let s = PyText.lower(joined)
+        var starts = [0]
+        for (i, c) in s.enumerated() where c == "\n" { starts.append(i + 1) }
+        return starts.contains { supplementMarker(in: s, from: $0) }
+    }
+
+    /// `s`（已小寫）在 `from` 這個行首之後：略過空白，接著是不是補充資料的標記，標記後是字詞邊界。
+    private static func supplementMarker(in s: Scalars, from start: Int) -> Bool {
+        var first = start
+        while first < s.count, PyText.isSpace(s[first]) { first += 1 }
         func word(_ w: String, at i: Int) -> Int? {
             let p = Scalars(w.unicodeScalars)
             return PyText.hasPrefix(s, p, at: i) ? i + p.count : nil
@@ -341,7 +359,7 @@ public enum FulltextVerify {
         func boundary(at i: Int) -> Bool { i == s.count || !PyText.isWord(s[i]) }
 
         // supplement(al|ary)\s+(material|text|information|appendix|methods)s?
-        if let a = word("supplement", at: 0) {
+        if let a = word("supplement", at: first) {
             for suffix in ["al", "ary"] {
                 guard let b = word(suffix, at: a), let c = spaces(at: b) else { continue }
                 for noun in ["material", "text", "information", "appendix", "methods"] {
@@ -352,12 +370,12 @@ public enum FulltextVerify {
             }
         }
         // supporting\s+information
-        if let a = word("supporting", at: 0), let b = spaces(at: a), let c = word("information", at: b), boundary(at: c) { return true }
+        if let a = word("supporting", at: first), let b = spaces(at: a), let c = word("information", at: b), boundary(at: c) { return true }
         // electronic\s+supplementary\s+material
-        if let a = word("electronic", at: 0), let b = spaces(at: a), let c = word("supplementary", at: b),
+        if let a = word("electronic", at: first), let b = spaces(at: a), let c = word("supplementary", at: b),
            let d = spaces(at: c), let e = word("material", at: d), boundary(at: e) { return true }
         // online\s+supplement
-        if let a = word("online", at: 0), let b = spaces(at: a), let c = word("supplement", at: b), boundary(at: c) { return true }
+        if let a = word("online", at: first), let b = spaces(at: a), let c = word("supplement", at: b), boundary(at: c) { return true }
         return false
     }
 
@@ -367,7 +385,7 @@ public enum FulltextVerify {
         let nonEmpty = PyText.splitLines(page).filter { !PyText.strip($0).isEmpty }
         let head = Array(nonEmpty.prefix(headLines))
         var flags: [String] = []
-        if head.contains(where: isSupplementHeadLine) { flags.append("supplement") }
+        if hasSupplementHead(lines: head) { flags.append("supplement") }
         if hasAuthorManuscript(page) { flags.append("author-manuscript") }
         let score = titleScore(title, firstPage: firstPage)
         let expected = expectedPageCount(pages)

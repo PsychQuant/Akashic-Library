@@ -1,5 +1,6 @@
 import XCTest
 @testable import AkashicSkillTools
+@testable import AkashicStoreIO
 
 /// `FulltextFetch` 的路徑測試（#629，由 `tests/fetch-fulltext-paths.sh` 移植）——對一個**記憶體內的假瀏覽器**跑，不碰 Safari、
 /// 不連網。
@@ -29,6 +30,8 @@ final class FulltextFetchPathTests: XCTestCase {
         var meta: String?
         var body = Data()
         var fetchWaitRC: Int32 = 0
+        /// `js --large --output` 寫出的 base64 折成 64 字元一行（`base64 -D` 容忍、`Data(base64Encoded:)` 預設不容忍）。
+        var foldBase64 = false
     }
 
     final class FakeBrowser: SafariBrowser {
@@ -37,11 +40,16 @@ final class FulltextFetchPathTests: XCTestCase {
         var current = 1
         var checked = false
         var calls: [String] = []
+        /// 每次呼叫前被叫一次（參數是子命令名）。測試用它在流程中途改動檔案系統。
+        var onCall: ((String) -> Void)?
+        /// `js --large --output` 被叫時，輸出檔所在的暫存目錄的權限位元（八進位）。
+        var scratchMode: Int?
         init(_ s: Scenario) { scenario = s }
 
         private func opt(_ args: [String], _ name: String) -> String? { args.firstIndex(of: name).flatMap { $0 + 1 < args.count ? args[$0 + 1] : nil } }
 
         func run(_ args: [String]) -> SafariRun {
+            onCall?(args[0])
             switch args[0] {
             case "documents":
                 let items = tabs.enumerated().map { i, t in
@@ -75,7 +83,9 @@ final class FulltextFetchPathTests: XCTestCase {
                 if file != nil { return SafariRun(status: 0, stdout: scenario.link + "\n") }
                 if src.contains("JSON.stringify({s:") { return SafariRun(status: 0, stdout: (scenario.meta ?? "") + "\n") }
                 if let output = opt(args, "--output") {
-                    try? Data(scenario.body.base64EncodedString().utf8).write(to: URL(fileURLWithPath: output))
+                    let encoded = scenario.foldBase64 ? scenario.body.base64EncodedString(options: .lineLength64Characters) : scenario.body.base64EncodedString()
+                    try? Data(encoded.utf8).write(to: URL(fileURLWithPath: output))
+                    scratchMode = ((try? FileManager.default.attributesOfItem(atPath: (output as NSString).deletingLastPathComponent))?[.posixPermissions] as? NSNumber)?.intValue
                     return SafariRun(status: 0)
                 }
                 if src.contains("delete window.__aff") { return SafariRun(status: 0, stdout: "ok\n") }
@@ -235,8 +245,7 @@ final class FulltextFetchPathTests: XCTestCase {
     func testOutInsideAGitTreeThatDoesNotIgnoreItIsRefusedBeforeAnyBrowserCall() throws {
         let repo = root.appendingPathComponent("repo")
         try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
-        let git = try ToolRunner.git(["-C", repo.path, "init", "-q"])
-        XCTAssertEqual(git.status, 0)
+        XCTAssertEqual(GitFixture.run(["init", "-q"], in: repo), 0)
         browser = FakeBrowser(base); stdout = []; stderr = []
         let fetcher = FulltextFetch(browser: browser, sleeper: { _ in }, out: { self.stdout.append($0) }, err: { self.stderr.append($0) })
         let code = fetcher.run(.init(window: 5, landing: Self.landing, out: repo.appendingPathComponent("w.pdf").path))
@@ -249,7 +258,7 @@ final class FulltextFetchPathTests: XCTestCase {
     func testOutInsideAGitTreeThatIgnoresItIsAllowed() throws {
         let repo = root.appendingPathComponent("repo2")
         try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
-        _ = try ToolRunner.git(["-C", repo.path, "init", "-q"])
+        XCTAssertEqual(GitFixture.run(["init", "-q"], in: repo), 0)
         try Data("*.pdf\n*.response.txt\n".utf8).write(to: repo.appendingPathComponent(".gitignore"))
         browser = FakeBrowser(base); stdout = []; stderr = []
         let fetcher = FulltextFetch(browser: browser, sleeper: { _ in }, out: { self.stdout.append($0) }, err: { self.stderr.append($0) })
@@ -263,12 +272,12 @@ final class FulltextFetchPathTests: XCTestCase {
         let decoy = root.appendingPathComponent("gate-decoy")
         for d in [target, decoy] {
             try FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
-            XCTAssertEqual(try ToolRunner.git(["-C", d.path, "init", "-q"]).status, 0)
+            XCTAssertEqual(GitFixture.run(["init", "-q"], in: d), 0)
         }
         try Data("*\n".utf8).write(to: decoy.appendingPathComponent(".git/info/exclude"))
         setenv("GIT_DIR", decoy.appendingPathComponent(".git").path, 1)
         defer { unsetenv("GIT_DIR") }
-        XCTAssertFalse(ToolRunner.scrubbedGitEnvironment.keys.contains { $0.hasPrefix("GIT_") }, "剝除後不得留下任何 GIT_*")
+        XCTAssertEqual(LibraryStore.scrubbedGitEnvironment.keys.filter { $0.hasPrefix("GIT_") }, ["GIT_ATTR_NOSYSTEM"], "剝除後只剩 helper 自己設的那一個 GIT_*")
         browser = FakeBrowser(base); stdout = []; stderr = []
         let fetcher = FulltextFetch(browser: browser, sleeper: { _ in }, out: { self.stdout.append($0) }, err: { self.stderr.append($0) })
         let code = fetcher.run(.init(window: 5, landing: Self.landing, out: target.appendingPathComponent("w.pdf").path))

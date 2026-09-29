@@ -70,7 +70,7 @@ public enum LiteralCensus {
         public var orgParents = Domain()
     }
 
-    /// 普查跑不起來的三種原因（封閉列舉）；exit code 沿用 shell 版的 2／3。
+    /// 普查跑不起來的四種原因（封閉列舉）；exit code 沿用 shell 版的 2／3。
     public enum Failure: Error, Equatable {
         /// `entities/`、`entries/`、`people/` 皆缺——那不是 Akashic store。exit 2。
         case notAStore(root: String)
@@ -79,11 +79,15 @@ public enum LiteralCensus {
         /// 某個 `.yaml` 讀不進來（權限、是目錄…）。**不得靜默少算**——少算一個檔的普查與「查完歸零」
         /// 無法區分。exit 3。`detail` 是程式自己的固定說明（「是目錄」「讀不到」），不是 store 內容。
         case unreadableRecord(path: String, detail: String)
+        /// 某個要掃的目錄（`entities/`、`entries/`、`people/`）存在但列不出來（權限、I/O）。第一版把列目錄的錯誤轉成空清單，於是
+        /// 一個不可列的 `entities/` 讓 `entitiesWithoutYAML` 也不觸發，印出全零的四域普查——那讀起來像「literal 歸零」（campaign 的
+        /// 終點），實際是 store 讀不了（R1 verify 第 4 則）。「不存在」「空」「列不出來」是三件事。exit 3。
+        case unlistableDirectory(path: String, detail: String)
 
         public var exitCode: Int32 {
             switch self {
             case .notAStore: return 2
-            case .entitiesWithoutYAML, .unreadableRecord: return 3
+            case .entitiesWithoutYAML, .unreadableRecord, .unlistableDirectory: return 3
             }
         }
 
@@ -94,6 +98,8 @@ public enum LiteralCensus {
                 return "✗ 「\(displaySafeInvisible(LiteralCensus.tilde(root), max: 300))」不是 Akashic store（entities/／entries/／people/ 皆缺）"
             case .entitiesWithoutYAML(let root):
                 return "✗ entities/ 非空但匹配不到任何 .yaml——路徑或權限異常，拒絕輸出計數（\(displaySafeInvisible(LiteralCensus.tilde(root), max: 300))）"
+            case .unlistableDirectory(let path, let detail):
+                return "✗ 列不出 \(displaySafeInvisible(LiteralCensus.tilde(path), max: 300)) 的內容：\(detail)——拒絕輸出計數（少算與「查完歸零」無法區分）"   // display-safe-exempt: detail：程式的固定說明字串
             case .unreadableRecord(let path, let detail):
                 return "✗ 讀不進 \(displaySafeInvisible(LiteralCensus.tilde(path), max: 300))：\(detail)——拒絕輸出計數（少算一個檔與「查完歸零」無法區分）"   // display-safe-exempt: detail：程式的固定說明字串（「是目錄」「讀不到」），不是 store 內容
             }
@@ -119,16 +125,21 @@ public enum LiteralCensus {
         }
 
         var files: [String] = []
+        var entitiesListing: [String] = []
         for sub in ["entities", "entries", "people"] {
             let dir = "\(root)/\(sub)"
             guard isDirectory(dir) else { continue }
-            for name in ((try? fm.contentsOfDirectory(atPath: dir)) ?? []).sorted()
-            where name.hasSuffix(".yaml") && !name.hasPrefix(".") {
+            // 列不出來 ≠ 空：錯誤具名拒絕，不轉成空清單
+            let listing: [String]
+            do { listing = try fm.contentsOfDirectory(atPath: dir) } catch {
+                throw Failure.unlistableDirectory(path: dir, detail: errnoName(of: error))
+            }
+            if sub == "entities" { entitiesListing = listing }
+            for name in listing.sorted() where name.hasSuffix(".yaml") && !name.hasPrefix(".") {
                 files.append("\(dir)/\(name)")
             }
         }
-        if files.isEmpty, isDirectory("\(root)/entities"),
-           !((try? fm.contentsOfDirectory(atPath: "\(root)/entities")) ?? []).isEmpty {
+        if files.isEmpty, !entitiesListing.isEmpty {
             throw Failure.entitiesWithoutYAML(root: root)
         }
 

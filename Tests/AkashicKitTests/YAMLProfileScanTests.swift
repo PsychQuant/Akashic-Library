@@ -159,4 +159,54 @@ final class YAMLProfileScanTests: XCTestCase {
         let text = YAMLProfileScan.render(r, inspect: false).joined(separator: "\n")
         XCTAssertFalse(text.contains("\u{1B}"))
     }
+
+    // MARK: 錯誤路徑：不得靜默少算（R1 verify 第 5、12、27 則）
+
+    func testARootThatIsNotADirectoryIsANamedFailureNotAnEmptyReport() throws {
+        let file = root.appendingPathComponent("store.yaml")
+        try Data("a: 1\n".utf8).write(to: file)
+        XCTAssertThrowsError(try YAMLProfileScan.scan(root: file.path)) {
+            XCTAssertEqual($0 as? YAMLProfileScan.Failure, .notADirectory(root: file.path))
+        }
+        XCTAssertThrowsError(try YAMLProfileScan.scan(root: root.path + "/nowhere")) {
+            XCTAssertEqual($0 as? YAMLProfileScan.Failure, .notADirectory(root: root.path + "/nowhere"))
+        }
+    }
+
+    func testAnUnreadableYamlFileRefusesToScanInsteadOfUndercounting() throws {
+        try write(["ok.yaml": Data("a: 1\n".utf8), "locked.yaml": Data("b: 2\n".utf8)])
+        let locked = root.appendingPathComponent("locked.yaml").path
+        XCTAssertEqual(chmod(locked, 0o000), 0)
+        defer { chmod(locked, 0o644) }
+        XCTAssertThrowsError(try YAMLProfileScan.scan(root: root.path)) {
+            guard case .unreadable(let path, _)? = $0 as? YAMLProfileScan.Failure else { return XCTFail("\($0)") }
+            XCTAssertEqual(path, locked)
+            XCTAssertTrue(($0 as? YAMLProfileScan.Failure)?.message.contains("拒絕輸出計數") == true)
+        }
+    }
+
+    func testADirectoryNamedLikeARecordAndAnUnlistableSubdirectoryAreNamedFailures() throws {
+        try write(["ok.yaml": Data("a: 1\n".utf8)])
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("dir.yaml"), withIntermediateDirectories: true)
+        XCTAssertThrowsError(try YAMLProfileScan.scan(root: root.path)) {
+            guard case .unreadable(_, let detail)? = $0 as? YAMLProfileScan.Failure else { return XCTFail("\($0)") }
+            XCTAssertEqual(detail, "是目錄")
+        }
+        try FileManager.default.removeItem(at: root.appendingPathComponent("dir.yaml"))
+        let sub = root.appendingPathComponent("sub")
+        try write(["sub/inner.yaml": Data("a: 1\n".utf8)])
+        XCTAssertEqual(chmod(sub.path, 0o000), 0)
+        defer { chmod(sub.path, 0o755) }
+        XCTAssertThrowsError(try YAMLProfileScan.scan(root: root.path)) {
+            guard case .unreadable(let path, _)? = $0 as? YAMLProfileScan.Failure else { return XCTFail("\($0)") }
+            XCTAssertTrue(path.hasSuffix("/sub"), path)
+        }
+    }
+
+    /// PyYAML 的 `AliasEvent` 帶 `anchor`，Python 版把懸空的 alias 也算成 anchor（`a: *x` 沒有對應的 `&x`）。
+    func testADanglingAliasCountsAsAnAnchorLikePyYAML() throws {
+        let r = try scan(["d.yaml": "a: *x\nb: !custom 1\n"])
+        XCTAssertEqual(r.anchored, ["d.yaml"])
+        XCTAssertEqual(r.tagged, [])
+    }
 }

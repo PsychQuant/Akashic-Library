@@ -62,6 +62,42 @@ final class LiteralCensusCLITests: XCTestCase {
         XCTAssertTrue(r.output.contains("不是 Akashic store"), r.output)
     }
 
+    /// `entities/` 存在但列不出來：exit 3、stdout 沒有任何計數（不是全零的報告、exit 0）。
+    func testAnUnlistableEntitiesDirectoryExitsThreeWithoutCounts() throws {
+        let root = try makeStore(marker: "format: 12\n")
+        let entities = root.appendingPathComponent("entities").path
+        XCTAssertEqual(chmod(entities, 0o000), 0)
+        defer { chmod(entities, 0o755) }
+        let r = try run(["literal-census", "--library", root.path])
+        XCTAssertEqual(r.status, 3, r.output)
+        XCTAssertTrue(r.output.contains("拒絕輸出計數"), r.output)
+        XCTAssertFalse(r.output.contains("literal 邊"), "不得印出任何計數：\(r.output)")
+    }
+
+    // MARK: scan-yaml-profile 的錯誤路徑與路徑縮寫（R1 verify 第 12、52 則）
+
+    func testScanYAMLProfileRefusesANonDirectoryRootAndAnEmptyScan() throws {
+        let file = home.appendingPathComponent("store.yaml")
+        try "a: 1\n".write(to: file, atomically: true, encoding: .utf8)
+        let notDir = try run(["scan-yaml-profile", "--library", file.path])
+        XCTAssertEqual(notDir.status, 1, notDir.output)
+        XCTAssertTrue(notDir.output.contains("不存在或不是資料夾"), notDir.output)
+        XCTAssertFalse(notDir.output.contains("total files"), "不得印全零報告：\(notDir.output)")
+        let empty = home.appendingPathComponent("empty-lib")
+        try FileManager.default.createDirectory(at: empty, withIntermediateDirectories: true)
+        let none = try run(["scan-yaml-profile", "--library", empty.path])
+        XCTAssertEqual(none.status, 3, none.output)
+        XCTAssertTrue(none.output.contains("沒有掃到任何 .yaml 檔"), none.output)
+    }
+
+    func testScanYAMLProfilePrintsTheRootWithTheHomePrefixShrunkToTilde() throws {
+        let root = try makeStore(marker: "format: 12\n")
+        let r = try run(["scan-yaml-profile", "--library", root.path])
+        XCTAssertEqual(r.status, 0, r.output)
+        XCTAssertTrue(r.output.contains("library root : ~/store"), r.output)
+        XCTAssertFalse(r.output.contains(home.path), "輸出會貼進 issue，不印使用者名：\(r.output)")
+    }
+
     /// 唯讀：跑完之後 store 底下沒有多任何檔、marker 沒被動（普查不得為了報告去「修」一個壞的 marker）。
     func testDoesNotWriteAnythingIntoTheStore() throws {
         let root = try makeStore(marker: "garbage\n")

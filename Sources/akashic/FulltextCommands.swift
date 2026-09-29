@@ -26,13 +26,15 @@ struct FulltextVerifyCmd: ParsableCommand {
     @Argument(help: "要驗證的 PDF 檔")
     var pdf: String
 
-    @Option(name: .long, help: "記錄的標題（必填）")
+    // `.unconditional`：標題可以以連字號開頭（`-Omics of things`、`-1 to 1`）；預設的 `.next` 策略把它當成另一個旗標而拒收
+    // （舊 shell 的 `TITLE=$2` 什麼值都收，R1 verify 第 24／57 則）。代價：`--title --pages` 會把 `--pages` 當標題——那是使用者給的值。
+    @Option(name: .long, parsing: .unconditional, help: "記錄的標題（必填）")
     var title: String
 
-    @Option(name: .long, help: "記錄的頁碼範圍，如 71--98（選填；有才比頁數）")
+    @Option(name: .long, parsing: .unconditional, help: "記錄的頁碼範圍，如 71--98（選填；有才比頁數）")
     var pages: String?
 
-    @Option(name: .long, help: "記錄的 DOI（選填；沒有就沒有 DOI 可比，永不自動收）")
+    @Option(name: .long, parsing: .unconditional, help: "記錄的 DOI（選填；沒有就沒有 DOI 可比，永不自動收）")
     var doi: String?
 
     func run() throws {
@@ -129,16 +131,16 @@ struct FulltextFetchCmd: ParsableCommand {
     @Option(name: .long, help: "輸出的 PDF 路徑；必須在 git 工作樹之外，或被該樹 ignore（全文是第三方內容）")
     var out: String
 
-    @Option(name: .customLong("expect-profile"), help: "這個視窗必須屬於的 Safari profile（使用者自己的）；不符就在開任何分頁之前拒絕")
-    var expectProfile: String?
+    @Option(name: .customLong("expect-profile"), help: "這個視窗必須屬於的 Safari profile（使用者自己的；必填）；不符就在開任何分頁之前拒絕")
+    var expectProfile: String
 
-    @Option(name: .long, help: "記錄的標題（驗證用；不給就不驗證）")
+    @Option(name: .long, parsing: .unconditional, help: "記錄的標題（驗證用；不給就不驗證）；可以以連字號開頭")
     var title: String?
 
-    @Option(name: .long, help: "記錄的頁碼範圍（驗證用），如 71--98")
+    @Option(name: .long, parsing: .unconditional, help: "記錄的頁碼範圍（驗證用），如 71--98")
     var pages: String?
 
-    @Option(name: .long, help: "記錄的 DOI（驗證用）；--landing 是 doi.org 網址時自動取")
+    @Option(name: .long, parsing: .unconditional, help: "記錄的 DOI（驗證用）；--landing 是 doi.org 網址時自動取")
     var doi: String?
 
     @Option(name: .long, help: "先在自己的分頁開這個網址、像讀者點 PDF 連結那樣，再關掉（PMC 用）")
@@ -149,6 +151,8 @@ struct FulltextFetchCmd: ParsableCommand {
 
     func validate() throws {
         guard window >= 1 else { throw ValidationError("--window 必須是 1 以上的整數") }
+        // 視窗屬於誰是唯一防止「動到別人的 Safari session」的檢查：文件一直寫「一律帶」，程式現在也強制（R1 verify 第 31 則）
+        guard !expectProfile.isEmpty else { throw ValidationError("--expect-profile 不可為空：它是唯一防止動到別人的 Safari session 的檢查") }
     }
 
     func run() throws {
@@ -173,8 +177,11 @@ struct FulltextCalibrateCmd: ParsableCommand {
         abstract: "在一個資料夾的 PDF 上量驗證規則（自己的標題／主標題被收幾份、別篇標題被收幾份）；Crossref 記錄讀本機目錄",
         discussion: """
         --crossref 目錄裡每個檔是 https://api.crossref.org/works/<DOI> 的回應（{"message": {…}}），檔名不重要。缺哪些 DOI 的回應，\
-        會列出來（含要取的網址）並以結束碼 3 結束，由 skill 經 safari-browser 取回、存進那個目錄後重跑；\
-        數字只涵蓋有記錄的檔案時不宣稱是全部（--partial 才照量）。有任何「別篇標題被收」時結束碼 1。
+        會逐個列出（DOI 與完整網址）並以結束碼 3 結束，由 skill 經 safari-browser 取回、存進那個目錄後重跑；\
+        首頁讀出的 DOI 形狀不合格的（含引號、`$`、`#`、`?`、`%`、`..` 等）不列網址、不取，同樣算「沒量到」。\
+        數字只涵蓋有記錄的檔案時不宣稱是全部（--partial 才照量）。\
+        結束碼：0 量完且沒有別篇標題被收；1 有「別篇標題被收」；3 缺記錄（沒有 --partial）；4 一個檔案都沒量到\
+        （資料夾裡沒有首頁帶 DOI 的 PDF，或它們的記錄都沒有）——全零的數字不是校準結果。資料夾不存在或 --crossref 不是目錄是一般失敗（1）。
         """)
 
     @Argument(help: "放 PDF 的資料夾（遞迴）")
@@ -197,14 +204,26 @@ struct FulltextCalibrateCmd: ParsableCommand {
         if loaded.withoutDOI > 0 {
             FileHandle.standardError.write(Data("首頁沒有 DOI 而略過的 PDF：\(loaded.withoutDOI) 個\n".utf8))
         }
-        if !loaded.missing.isEmpty {
-            print("缺 \(loaded.missing.count) 個 DOI 的 Crossref 回應（經 safari-browser 取 https://api.crossref.org/works/<DOI>，存進 --crossref 目錄後重跑）：")
-            for doi in loaded.missing { print("  \(displaySafeInvisible(doi, max: 200))") }
+        if !loaded.missing.isEmpty || !loaded.unsafeDOIs.isEmpty {
+            if !loaded.missing.isEmpty {
+                print("缺 \(loaded.missing.count) 個 DOI 的 Crossref 回應（經 safari-browser 取下面的網址，存進 --crossref 目錄後重跑）：")
+                for doi in loaded.missing {
+                    print("  \(displaySafeInvisible(doi, max: 200))\t\(displaySafeInvisible(TitleCalibration.crossrefURL(forDOI: doi) ?? "", max: 400))")
+                }
+            }
+            if !loaded.unsafeDOIs.isEmpty {
+                print("另有 \(loaded.unsafeDOIs.count) 個 DOI 形狀不合格（含引號、`$`、`#`、`?`、`%` 或 `..` 路徑段），不列網址、不取，那些檔量不到：")
+                for doi in loaded.unsafeDOIs { print("  \(displaySafeInvisible(doi, max: 200))") }
+            }
             if !partial { throw ExitCode(3) }
             print("--partial：以下數字只涵蓋有 Crossref 記錄的 \(loaded.rows.count) 個檔案")
         }
         let report = TitleCalibration.evaluate(rows: loaded.rows)
         for line in report.lines { print(line) }   // display-safe-exempt: line：整行由 evaluate 組成，檔名與標題逐項過 displaySafeInvisible，其餘是計數
+        if loaded.rows.isEmpty {
+            FileHandle.standardError.write(Data("✗ 沒有量到任何檔案：資料夾裡沒有「首頁帶 DOI、而且 --crossref 目錄有那個 DOI 的記錄」的 PDF。上面的 0／0 不是校準結果。\n".utf8))
+            throw ExitCode(4)
+        }
         if report.wrongAccepts > 0 { throw ExitCode(1) }
     }
 }

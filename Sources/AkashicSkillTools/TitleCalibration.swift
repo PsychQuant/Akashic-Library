@@ -34,8 +34,11 @@ public enum TitleCalibration {
 
     public struct Loaded {
         public var rows: [Row]
-        /// 首頁有 DOI、但 `--crossref` 目錄裡沒有它的回應。
+        /// 首頁有 DOI、但 `--crossref` 目錄裡沒有它的回應，**而且 DOI 形狀合格**（可以放心組成網址交給 skill 取）。
         public var missing: [String]
+        /// 首頁讀出的 DOI 形狀不合格（含 `'`、`$`、反引號、`#`、`?`、`%`、`.`／`..` 路徑段……）——它來自第三方 PDF 的文字層，
+        /// 不組成網址、不交給 agent 取，這個檔就量不到（R1 verify 第 30 則：`crossref-match` 對 DOI 有同一道形狀檢查，calibrate 沒有）。
+        public var unsafeDOIs: [String] = []
         /// 首頁沒有 DOI 而略過的 PDF 數。
         public var withoutDOI: Int
         /// `--crossref` 目錄裡讀不了或不是 Crossref 回應的檔數。
@@ -63,7 +66,7 @@ public enum TitleCalibration {
         let names = ((try? fm.contentsOfDirectory(atPath: directory)) ?? []).filter { $0.hasSuffix(".json") && !$0.hasPrefix(".") }.sorted()
         for name in names {
             guard let data = fm.contents(atPath: directory + "/" + name),
-                  let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { unusable += 1; continue }
+                  let root = (try? PyJSONParser.parse(data)) as? [String: Any] else { unusable += 1; continue }
             let message = (root["message"] as? [String: Any]) ?? root
             guard let doi = message["DOI"] as? String, !doi.isEmpty else { unusable += 1; continue }
             records[FulltextVerify.normDOI(doi)] = message
@@ -75,6 +78,11 @@ public enum TitleCalibration {
     public static func load(folder: String, crossrefDirectory: String) throws -> Loaded {
         let (records, unusable) = try loadCrossref(directory: crossrefDirectory)
         let fm = FileManager.default
+        // 資料夾不存在（或不是資料夾）不是「零個 PDF」：那會印出全零的量測結果並以 0 結束（R1 verify 第 26 則）
+        var isDir: ObjCBool = false
+        guard fm.fileExists(atPath: folder, isDirectory: &isDir), isDir.boolValue else {
+            throw SkillToolError.failure("不是資料夾：\(displaySafeInvisible(folder, max: 300))")
+        }
         guard let walker = fm.enumerator(at: URL(fileURLWithPath: folder), includingPropertiesForKeys: [.isRegularFileKey],
                                          options: [.skipsHiddenFiles]) else {
             throw SkillToolError.failure("讀不到資料夾：\(displaySafeInvisible(folder, max: 300))")
@@ -84,23 +92,33 @@ public enum TitleCalibration {
         pdfs.sort()
         var loaded = Loaded(rows: [], missing: [], withoutDOI: 0, unusableResponses: unusable, crossrefRecords: records.count)
         for path in pdfs {
-            let first = try ToolRunner.run(["pdftotext", "-l", "1", path, "-"])
+            let first = try ToolRunner.run(["pdftotext", "-l", "1", path, "-"], timeout: ToolRunner.popplerTimeout)
             let text1 = Scalars(String(decoding: first.stdout, as: UTF8.self).unicodeScalars)
             guard let found = FulltextVerify.findDOI(in: text1, stop: FulltextVerify.xmlDOIStop) else { loaded.withoutDOI += 1; continue }
             let doi = PyText.string(PyText.rstrip(found, Set(".,;)".unicodeScalars)))
             guard let message = records[FulltextVerify.normDOI(doi)] else {
-                if !loaded.missing.contains(doi) { loaded.missing.append(doi) }
+                if CrossrefMatch.isSafeDOI(doi) {
+                    if !loaded.missing.contains(doi) { loaded.missing.append(doi) }
+                } else if !loaded.unsafeDOIs.contains(doi) {
+                    loaded.unsafeDOIs.append(doi)
+                }
                 continue
             }
             let (title, pages) = titleAndPages(message)
             guard let title else { continue }
-            let info = try ToolRunner.run(["pdfinfo", path])
+            let info = try ToolRunner.run(["pdfinfo", path], timeout: ToolRunner.popplerTimeout)
             guard let count = PDFReader.pageCount(fromPdfinfo: String(decoding: info.stdout, as: UTF8.self)) else { continue }
-            let two = try ToolRunner.run(["pdftotext", "-l", "2", path, "-"])
+            let two = try ToolRunner.run(["pdftotext", "-l", "2", path, "-"], timeout: ToolRunner.popplerTimeout)
             loaded.rows.append(Row(file: (path as NSString).lastPathComponent, doi: doi, title: title, pages: pages, count: count,
                                    text: String(decoding: two.stdout, as: UTF8.self), meta: try PDFReader.metadataDOI(path: path)))
         }
         return loaded
+    }
+
+    /// 取這個 DOI 的 Crossref 回應要打的網址（`https://api.crossref.org/works/<百分比編碼的 DOI>`）；DOI 形狀不合格回 nil。
+    /// 與 `crossref-match` 組單筆查詢網址是同一條路（`quotePath` ＋ `isSafeDOI`），calibrate 印給 skill 的網址不再是要人自己拼的模板。
+    public static func crossrefURL(forDOI doi: String) -> String? {
+        CrossrefMatch.isSafeDOI(doi) ? CrossrefMatch.endpoint + "/" + CrossrefMatch.quotePath(doi) : nil
     }
 
     /// 主標題：第一個 `:` `?` `—`（含）之前的部分，去掉尾端的 `:` `—` 與空白。

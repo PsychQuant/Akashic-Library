@@ -41,7 +41,7 @@ public enum CrossrefMatch {
     /// 解析輸入 JSON：`[{"citekey", "title", "journal", "year"}, …]`（`journal`、`year` 可缺，但缺了會削弱判定）。
     public static func parseWorks(_ data: Data) throws -> [Work] {
         let root: Any
-        do { root = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) } catch {
+        do { root = try PyJSONParser.parse(data) } catch {
             throw SkillToolError.failure("works 檔不是合法 JSON：\(displaySafeErrorText(error))")
         }
         guard let items = root as? [Any] else { throw SkillToolError.failure("works 檔的頂層必須是陣列：[{citekey, title, journal, year}, …]") }
@@ -335,7 +335,11 @@ public enum CrossrefMatch {
             // 一般查詢端點不會 404；回應是 404 或形狀不對，是 skill 的取得步驟出了問題，不是「沒有結果」
             throw SkillToolError.failure("查詢回應無法使用（請求 \(request.id)）：\(f.text)")   // display-safe-exempt: request：id 是 URL 的十六進位雜湊；f：text 由本檔組成（DOI 已 displaySafeInvisible，其餘是固定文字）
         }
-        let items = (((obj["message"] as? [String: Any])?["items"]) as? [Any]) ?? []
+        // 200 而形狀不對（`message` 不是物件、`items` 不是陣列——`{"status":"failed","message":"rate limited"}` 之類）是取得步驟出了問題，
+        // 不是「沒有候選」：當成空清單會讓「查無此筆」與「回應壞了」在輸出裡不可區分（R1 verify 第 40 則；舊腳本在這裡拋 AttributeError）
+        guard let message = obj["message"] as? [String: Any], let items = message["items"] as? [Any] else {
+            throw SkillToolError.failure("查詢回應形狀不對（請求 \(request.id)）：需要 message.items 陣列——那是取得步驟出了問題，不是「沒有結果」，不要重試同一個回應")   // display-safe-exempt: request：id 是 URL 的十六進位雜湊
+        }
         return rank(try items.map { item in
             guard let dict = item as? [String: Any] else { throw SkillToolError.failure("查詢回應（請求 \(request.id)）的 items 含非物件項目") }   // display-safe-exempt: request：id 是 URL 的十六進位雜湊
             return score(dict, work)
@@ -494,7 +498,7 @@ public struct DirectoryResponseSource: CrossrefMatch.ResponseSource {
             throw SkillToolError.failure("讀不到回應檔 \(request.id).json")   // display-safe-exempt: request：id 是 URL 的十六進位雜湊
         }
         do {
-            return .json(try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]))
+            return .json(try PyJSONParser.parse(data))
         } catch {
             // 200 的 JSON 端點回了不是 JSON 的本文（驗證頁、擋截頁）是中止條款；檔案不該被存下來（web-access.md〈中止條款〉第 4 點）
             throw SkillToolError.failure("回應檔 \(request.id).json 不是合法 JSON：\(displaySafeErrorText(error))——那是中止條款的訊號，不要重試")   // display-safe-exempt: request：id 是 URL 的十六進位雜湊

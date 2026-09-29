@@ -28,7 +28,8 @@ struct AbstractsToProposalsCmd: ParsableCommand {
         do {
             resolved = try AbstractProposals.resolveSource(source) { digest in
                 // 路徑形不需要 store；只有 digest 形才解析 store（--library → $AKASHIC_LIBRARY → registry，與其他命令同一條）
-                guard let root = try? options.resolved().root else { return nil }
+                // 解析失敗要說出來（不是「不是合法的 digest」）：錯誤原樣往上
+                let root = try options.resolved().root
                 return LibraryStore(root: root).sourceBlobURL(digest: digest)
             }
         } catch {

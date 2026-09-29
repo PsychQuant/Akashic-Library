@@ -47,7 +47,6 @@ final class GitSpawnHygieneTests: XCTestCase {
     private let auditedFiles: Set<String> = [
         // Sources/
         "DivergenceResolve.swift",     // 共用 helper git(_:in:)；SourceStore 與刪除閘都走它
-        "ToolRunner.swift",            // #629：AkashicSkillTools 的唯一 spawn git 點（`git(_:)`）；fulltext fetch 的「輸出路徑會不會落進沒忽略它的工作樹」閘走它
         "Validation.swift",            // TractatusDocs 的歷史驗證（兩處），隨 #237 進 main
         // Tests/
         "GitFixture.swift",            // #234 的原始現場

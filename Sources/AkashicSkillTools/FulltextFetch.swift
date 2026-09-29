@@ -1,5 +1,6 @@
 import Foundation
 import AkashicCore
+import AkashicStoreIO
 
 /// 透過使用者自己的 Safari session 取一篇 work 的全文 PDF（#629 由 `fetch-fulltext.sh` 移植）。
 ///
@@ -48,10 +49,15 @@ public final class FulltextFetch {
     /// 以某個結束碼結束（訊息已經印出）。
     struct Stop: Error { let code: Int32 }
 
+    /// 在目錄裡跑一次 git；nil＝執行不起來。預設是 repo 既有的加固 helper（`/usr/bin/git` 絕對路徑、剝 `GIT_*`、
+    /// `core.fsmonitor=false`、`core.attributesFile=/dev/null`，#585）；測試注入「起不來」的版本。
+    public typealias GitRunner = ([String], URL) -> (status: Int32, out: String)?
+
     private let browser: SafariBrowser
     private let sleeper: (Double) -> Void
     private let out: (String) -> Void
     private let err: (String) -> Void
+    private let git: GitRunner
 
     private var window = 0
     /// 我們自己開的分頁在視窗裡的位置；空字串＝目前沒有。
@@ -59,8 +65,9 @@ public final class FulltextFetch {
     private var scratch = URL(fileURLWithPath: "/")
 
     public init(browser: SafariBrowser, sleeper: @escaping (Double) -> Void = { Thread.sleep(forTimeInterval: $0) },
-                out: @escaping (String) -> Void, err: @escaping (String) -> Void) {
-        self.browser = browser; self.sleeper = sleeper; self.out = out; self.err = err
+                out: @escaping (String) -> Void, err: @escaping (String) -> Void,
+                git: @escaping GitRunner = { LibraryStore.hardenedGit($0, in: $1) }) {
+        self.browser = browser; self.sleeper = sleeper; self.out = out; self.err = err; self.git = git
     }
 
     /// 跑完整條流程，回結束碼。
@@ -192,34 +199,37 @@ public final class FulltextFetch {
         if doi.isEmpty { doi = FulltextFetch.doiFromLanding(o.landing) ?? "" }
 
         scratch = FileManager.default.temporaryDirectory.appendingPathComponent("fetch-fulltext-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        // 0700：暫存目錄裡有下載來的第三方全文（舊 `mktemp -d` 是 0700；預設屬性會是 0755，R1 verify 第 50 則）
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         defer { try? FileManager.default.removeItem(at: scratch) }
 
-        // --- 檔案落在哪裡：在碰瀏覽器**之前**檢查 ---
+        // --- 網址與檔案落在哪裡：在碰瀏覽器**之前**檢查 ---
+        // 兩個網址都會在使用者已登入的 profile 裡開：只收 https（`file:`、`javascript:`、`http:` 一律拒絕，R1 verify 第 31 則）
+        for (flag, value) in [("--landing", o.landing), ("--prime", o.prime ?? "")] where !value.isEmpty {
+            guard value.lowercased().hasPrefix("https://") else {
+                throw fail("\(flag) must be an https:// URL: \(displaySafeInvisible(value, max: 300))")
+            }
+        }
         let outURL = URL(fileURLWithPath: o.out)
         let outDirURL = outURL.deletingLastPathComponent()
         var isDir: ObjCBool = false
         guard FileManager.default.fileExists(atPath: outDirURL.path, isDirectory: &isDir), isDir.boolValue else {
-            throw fail("--out directory does not exist: \(outDirURL.path)")
+            throw fail("--out directory does not exist: \(displaySafeInvisible(outDirURL.path, max: 400))")
         }
         let outDir = FulltextFetch.physicalPath(outDirURL.path)   // `pwd -P`：`resolvingSymlinksInPath` 會把 `/private/var` 縮成 `/var`，與 `pwd -P` 不同
         let outPath = outDir + "/" + outURL.lastPathComponent
         let stem = outPath.hasSuffix(".pdf") ? String(outPath.dropLast(4)) : outPath
         let unverified = stem + ".unverified.pdf"
         let response = stem + ".response.txt"
-        if let inside = try? ToolRunner.git(["-C", outDir, "rev-parse", "--is-inside-work-tree"]), inside.status == 0 {
-            for f in [outPath, unverified, response] {
-                let ignored = (try? ToolRunner.git(["-C", outDir, "check-ignore", "-q", "--", f]))?.status == 0
-                if !ignored {
-                    let top = (try? ToolRunner.git(["-C", outDir, "rev-parse", "--show-toplevel"])).map {
-                        String(decoding: $0.stdout, as: UTF8.self).trimmingTrailingNewlines()
-                    } ?? ""
-                    err("✗ refusing: \(displaySafeInvisible(f, max: 400)) would land in the git working tree \(displaySafeInvisible(top, max: 400)), which does not ignore it.")
-                    err("  Full text is third-party content. Write to a scratch directory outside git, then store it with akashic store-source.")
-                    throw Stop(code: 1)
-                }
+        // 三個目的地都得是「不存在或普通檔」：目錄、symlink、特殊檔具名拒絕。第一版對已存在的目的地「先 removeItem 再 moveItem」，
+        // `--out` 指著非空目錄時遞迴刪掉整個目錄（R1 verify 第 1 則）
+        for f in [outPath, unverified, response] {
+            if case .other(let kind) = try OutputFile.inspect(f) {
+                err("✗ refusing: \(displaySafeInvisible(f, max: 400)) already exists and is a \(displaySafeInvisible(kind, max: 40)), not a regular file — this command only writes regular files and never deletes a directory or follows a symlink.")
+                throw Stop(code: 1)
             }
         }
+        try outputGitGate(outDir: outDir, files: [outPath, unverified, response])
 
         // 視窗不存在，或它的分頁都沒有 profile 欄位：兩者對這支程式是同一件事——無從確認它屬於誰，不碰
         let profile = Set(docs().filter { $0.window == window }.compactMap(\.profile).filter { !$0.isEmpty }).sorted().joined(separator: ",")
@@ -279,6 +289,13 @@ public final class FulltextFetch {
             method = "GET"
         } else if !link.isEmpty, !pageLink.contains("/record/") {
             pdfURL = pageLink
+            // 頁面自己的連結來自 DOM（`citation_pdf_url`、`a[href]`、表單的 `action`），下面的 fetch 帶 `credentials:'include'`：
+            // 頁面說了算的目標若不是這個站，就會用使用者的 session 打到頁面選的位置（R1 verify 第 31 則）。規則檔（出版商網址規則）
+            // 產生的網址不受此限——它們是本 repo 寫死的。拒絕不是中止條款（不是網站起疑，是頁面給了一個不能照做的連結）：結束碼 1，分頁留著。
+            let target = FulltextFetch.fetchTargetOrigin(pdfURL, page: final)
+            if target?.lowercased() != site.lowercased() {
+                throw fail("the page's PDF link points off-site (\(displaySafeInvisible(target ?? "not an http(s) URL", max: 200)), page origin \(displaySafeInvisible(site, max: 200))): \(displaySafeInvisible(pdfURL, max: 400)) — refusing a credentialed fetch to a target the page chose")
+            }
         } else {
             err("no PDF link on \(displaySafeInvisible(final, max: 600))")
             closeOwnTab(site)
@@ -314,15 +331,15 @@ public final class FulltextFetch {
             if let hit = BotSignals.detect(String(decoding: body, as: UTF8.self), status: parsed.status) {
                 throw botStop("\(hit) (fetch response)", site)
             }
-            try? body.write(to: URL(fileURLWithPath: response))
+            let saved = savedResponse(body, at: response)
             closeOwnTab(site)
             // PsycNet 無權限時對每篇文章回 200 與約 8 KB、寫著「Loading…」的 app 外殼（2026-09-23 觀察）：「無權限」，停這個站。
             if body.count < 20000, FulltextFetch.containsLoading(body) {
-                err("no access: \(body.count)-byte shell from \(displaySafeInvisible(site, max: 300)) (saved as \(displaySafeInvisible(response, max: 400)))")
+                err("no access: \(body.count)-byte shell from \(displaySafeInvisible(site, max: 300)) (\(saved))")
                 throw Stop(code: 4)
             }
             let head = String(String(decoding: body.prefix(80), as: UTF8.self).unicodeScalars.filter { (0x20...0x7E).contains($0.value) })
-            err("not a PDF (\(body.count) bytes, HTTP \(parsed.status); saved as \(displaySafeInvisible(response, max: 400))): \(displaySafeInvisible(head, max: 120))")
+            err("not a PDF (\(body.count) bytes, HTTP \(parsed.status); \(saved)): \(displaySafeInvisible(head, max: 120))")
             throw Stop(code: 2)
         }
 
@@ -333,15 +350,78 @@ public final class FulltextFetch {
             let (verdict, ok) = FulltextFetch.verdictJSON(path: staged.path, title: title, pages: o.pages, doi: doi)
             out("verify: \(verdict)")
             if !ok {
-                try? FileManager.default.removeItem(atPath: unverified)
-                try FileManager.default.moveItem(atPath: staged.path, toPath: unverified)
+                try OutputFile.replace(path: unverified, with: body)
                 err("kept as \(displaySafeInvisible(unverified, max: 400))")
                 throw Stop(code: 5)
             }
         }
-        try? FileManager.default.removeItem(atPath: outPath)
-        try FileManager.default.moveItem(atPath: staged.path, toPath: outPath)
+        try OutputFile.replace(path: outPath, with: body)
         out("OK \(body.count) bytes -> \(displaySafeInvisible(outPath, max: 400))")
+    }
+
+    // MARK: 輸出路徑的 git 閘
+
+    /// 全文是第三方內容，不得落進沒有忽略它的 git 工作樹（`.claude/rules` 的隱私邊界）。**fail-closed**（R1 verify 第 8、10、28 則）：
+    ///
+    /// - 用檔案系統事實先問「輸出目錄的祖先有沒有 `.git`」（`LibraryStore.isInsideVersionedWorkTree`，不呼叫 git）。**沒有**＝不在任何
+    ///   repo 裡，不需要 git 回答，直接放行。
+    /// - **有**——之後每一步 git 答不出來都拒絕、說原因：`git` 執行不起來（`/usr/bin/git` 不在）、`rev-parse` 非零（`.git` 指向不存在
+    ///   的 gitdir、`safe.directory` 的 dubious ownership 回 128、`.git` 壞了）、`rev-parse` 不是 `true`、`check-ignore` 是 0（已忽略）
+    ///   與 1（沒忽略）以外的碼。第一版與舊 shell 一樣把「git 答不出來」讀成「不在工作樹」而放行——那是隱私閘，方向錯了。
+    /// - git 一律走 `LibraryStore.hardenedGit`（#585 的同一支：絕對路徑、剝 `GIT_*`、`core.fsmonitor=false`、`core.attributesFile`），
+    ///   所以 PATH 上的 shim 不能替 `check-ignore` 作答、目標 repo 的 `core.fsmonitor` 不會在閘裡執行。
+    ///
+    /// **範圍照實寫**：這道閘擋的是「輸出目錄的某個祖先有 `.git`、而那個 repo 沒有忽略這三個檔」。它不管 git 的環境變數之外的事：
+    /// repo 自己的 `.gitattributes`、`info/attributes`、global config 裡被它點名的 filter driver 仍是 `hardenedGit` 記著的邊界。
+    private func outputGitGate(outDir: String, files: [String]) throws {
+        let dir = URL(fileURLWithPath: outDir)
+        guard LibraryStore.isInsideVersionedWorkTree(dir) else { return }
+        func refuse(_ why: String) -> Stop {
+            err("✗ refusing: \(displaySafeInvisible(outDir, max: 400)) is inside a git working tree and \(why).")
+            err("  Full text is third-party content. Write to a scratch directory outside git, then store it with akashic store-source.")
+            return Stop(code: 1)
+        }
+        guard let inside = git(["rev-parse", "--is-inside-work-tree"], dir) else {
+            throw refuse("git cannot be run, so it cannot be confirmed that the output files are ignored")
+        }
+        guard inside.status == 0, inside.out.trimmingCharacters(in: .whitespacesAndNewlines) == "true" else {
+            throw refuse("git could not confirm the working tree (rev-parse exit \(inside.status))")   // display-safe-exempt: inside：status 是 Int32 結束碼
+        }
+        for f in files {
+            guard let r = git(["check-ignore", "-q", "--", f], dir) else {
+                throw refuse("git cannot be run, so it cannot be confirmed that \(displaySafeInvisible(f, max: 400)) is ignored")
+            }
+            switch r.status {
+            case 0: continue
+            case 1:
+                let top = git(["rev-parse", "--show-toplevel"], dir).map { $0.out.trimmingCharacters(in: .whitespacesAndNewlines) } ?? ""
+                err("✗ refusing: \(displaySafeInvisible(f, max: 400)) would land in the git working tree \(displaySafeInvisible(top, max: 400)), which does not ignore it.")
+                err("  Full text is third-party content. Write to a scratch directory outside git, then store it with akashic store-source.")
+                throw Stop(code: 1)
+            default:
+                throw refuse("git could not answer whether \(displaySafeInvisible(f, max: 400)) is ignored (check-ignore exit \(r.status))")   // display-safe-exempt: r：status 是 Int32 結束碼
+            }
+        }
+    }
+
+    /// 存不是 PDF 的回應本文給人看。存不成不改變結束碼（2／4 仍是那個意思），但不能說「saved」。
+    private func savedResponse(_ body: Data, at path: String) -> String {
+        do {
+            try OutputFile.replace(path: path, with: body)
+            return "saved as \(displaySafeInvisible(path, max: 400))"
+        } catch {
+            err("⚠ could not save the response body: \(displaySafeErrorText(error))")
+            return "the body was NOT saved"
+        }
+    }
+
+    /// `fetch(url)` 會打到哪個 origin：相對路徑落在頁面的 origin；`//host/…` 用頁面的 scheme；有 scheme 卻沒有主機
+    /// （`javascript:`、`data:`、`blob:`）不是任何網站，回 nil。
+    static func fetchTargetOrigin(_ url: String, page: String) -> String? {
+        let parts = URLSplit(url)
+        if parts.netloc.isEmpty { return parts.scheme.isEmpty ? URLSplit(page).origin : nil }
+        let scheme = parts.scheme.isEmpty ? URLSplit(page).scheme : parts.scheme
+        return "\(PyText.string(scheme))://\(PyText.string(parts.netloc))"
     }
 
     // MARK: 純函式（測試直接呼叫）
@@ -421,7 +501,8 @@ public final class FulltextFetch {
         var bytes = Array(raw)
         while let f = bytes.first, f == 0x0A || f == 0x0D || f == 0x20 { bytes.removeFirst() }
         while let l = bytes.last, l == 0x0A || l == 0x0D || l == 0x20 { bytes.removeLast() }
-        guard let decoded = Data(base64Encoded: Data(bytes)) else { throw fail("base64 decode failed") }
+        // `.ignoreUnknownCharacters`：舊實作的 `base64 -D` 容忍任意位置的換行（`Data(base64Encoded:)` 預設不容忍，R1 verify 第 37 則）
+        guard let decoded = Data(base64Encoded: Data(bytes), options: .ignoreUnknownCharacters) else { throw fail("base64 decode failed") }
         return decoded
     }
 

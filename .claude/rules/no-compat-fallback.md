@@ -119,7 +119,7 @@ v5 的決定性（同輸入必得同輸出）在兩個場景是相反的：
 | 同一件事的第二條**實作**路徑 | `id ?? forPerson(key:)`（#241） | 本規則主文；兩條路各自演化，而分岔是安靜的 |
 | 同一件事的第二份**描述** | 寫死的計數 vs 它描述的集合——`zero-instance-guards` 的表頭、`CLAUDE.md` 的耗時表、`PersonCLITests` 的 `XCTAssertEqual(constructions, 23)`（#503） | 計數與集合是兩份不會一起改的規格。#503 被抓到時計數是 `23` 而**同一個字串裡**的散文仍寫「共二十二處」——分岔已經發生在一行之內 |
 
-**允許（兩類，各一個實例）**。第一類——之所以允許，是因為**它不是同一件事**：
+**允許（兩類）**。第一類——之所以允許，是因為**它不是同一件事**：
 
 `ndjson-abstracts-to-proposals.py` 的 `--library` 解析鏈比 CLI 窄，而 `README.md:223`
 記的是 **CLI** 的那條（#519 Expected 3）。兩份描述講的是**兩個不同的東西**，只是長得像。
@@ -143,9 +143,9 @@ v5 的決定性（同輸入必得同輸出）在兩個場景是相反的：
 | 實例 | 兩份 | 條件（四條缺一不可） |
 |---|---|---|
 | 外部取得的操作程序 | 正本 `plugin/skills/akashic-bootstrap/references/web-access.md`；副本 `plugins/akashic-discovery/skills/akashic-work-references/SKILL.md` 的第 2 步 | (1) **指定正本**，副本要改先改正本；(2) **副本已知的分岔逐條列出**——列在 `web-access-via-safari-browser.md` 〈操作程序的兩份描述〉，不寫在副本自己身上讓它假裝一致；(3) **同步的工作記在一張 issue**（不是一句叮嚀；外部取得的操作程序是 #687）；(4) 沒有機械守衛之前，改正本的人自己同步副本 |
-| 上游優先的規則（交付層只投影） | 正本 `.claude/rules/upstream-first-bibliographic-updates.md`；副本 `che-claude-config` repo 的 `rules/common-akashic-upstream-first.md`（使用者的全域規則目錄，另一個 repo） | (1) 正本是本 repo 那一份，鏡像開頭寫明衝突時以正本為準；(2) 刻意的差異列在正本的〈注入到消費端〉段，規則段（第 1–4 條）兩份一致；(3) 落地紀錄在 #599，目前沒有待同步的分岔，出現分岔時另開 issue；(4) 鏡像住在另一個 repo，本 repo 的守衛讀不到它，改正本規則段的人同一個變更裡改鏡像 |
+| 上游優先的規則（交付層只投影） | 正本 `.claude/rules/upstream-first-bibliographic-updates.md`；副本在使用者的全域規則目錄（另一個私有 repo）的 `rules/common-akashic-upstream-first.md`；第三份 plugin 副本未落地 | (1) 正本是本 repo 那一份，兩份開頭都寫明衝突時以正本為準；(2) 規則段（第 1–4 條）逐字相同，唯一差異（第 3 條 (b) 去掉對本條規則的引用）與其他各段的縮寫列在正本〈注入到消費端〉段；(3) 同步的工作記在 #691；(4) 副本住在另一個 repo，本 repo 的守衛讀不到它——改正本規則段的人同一個變更裡改鏡像，沒有另一個 repo 的存取範圍時在 #691 記下哪一條還沒跟 |
 
-下一個鏡像照這一列的四條加一列，不得從這一列推導「凡是跨 plugin 的都可以複製」。
+下一個鏡像照上面的四條加一列，不得從既有列推導「凡是跨 plugin（或跨 repo）的都可以複製」。
 
 ## 與其他規則的關係
 

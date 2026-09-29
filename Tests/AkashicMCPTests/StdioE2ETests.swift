@@ -554,6 +554,32 @@ extension StdioE2ETests {
         let notArray = try call(8, "akashic_update_entry", ["citekey": "zsrc2025", "remove_zotero_sources": "5:GRP00001=x"])
         XCTAssertTrue(notArray.contains("字串陣列"), notArray)
 
+        // #677：remove_sources 接到服務（鍵名打錯的話會落到「沒有要做的事」）——digest 不在清單上是具名拒絕
+        let notListed = try call(9, "akashic_update_entry",
+                                 ["citekey": "cheng2025identifiability", "remove_sources": ["sha256:" + String(repeating: "cd", count: 32) + "=連錯了"]])
+        XCTAssertTrue(notListed.contains("akashic.sources 沒有"), notListed)
+        XCTAssertFalse(notListed.contains("沒有要做的事"), notListed)
+
+        // 四條腿（remove_fields／add_sources／remove_zotero_sources／remove_sources）任兩條組合都被拒（#680／#677）：6 對，每一對都是同一個具名拒絕、磁碟不動
+        let legArgs: [(String, [String])] = [
+            ("remove_fields", ["journaltitle=x"]),
+            ("add_sources", ["sha256:" + String(repeating: "cd", count: 32)]),
+            ("remove_zotero_sources", ["5:GRP00001=x"]),
+            ("remove_sources", ["sha256:" + String(repeating: "cd", count: 32) + "=x"]),
+        ]
+        var pairId = 20, pairsChecked = 0
+        for i in legArgs.indices {
+            for j in legArgs.indices where j > i {
+                let out = try call(pairId, "akashic_update_entry",
+                                   ["citekey": "zsrc2025", legArgs[i].0: legArgs[i].1, legArgs[j].0: legArgs[j].1, "dry_run": false])
+                XCTAssertTrue(out.contains("兩兩各自單獨呼叫"), "\(legArgs[i].0)＋\(legArgs[j].0)：\(out)")
+                pairId += 1; pairsChecked += 1
+            }
+        }
+        XCTAssertEqual(pairsChecked, 6)
+        let afterPairs = try LibraryStore(root: root).load().entries.first { $0.citekey == "zsrc2025" }
+        XCTAssertEqual(afterPairs?.additionalProvenance.count, 1, "被拒的組合零寫入")
+
         // b11c R1 verify 第 42 列：缺 citekey 是缺參數，不是「找不到：citekey「」」
         let missing = try call(5, "akashic_update_entry", ["remove_fields": ["journaltitle=x"]])
         XCTAssertTrue(missing.contains("citekey 是必填參數"), missing)
@@ -704,5 +730,17 @@ extension StdioE2ETests {
                             "status": true, "content": digest]],
         ])
         XCTAssertTrue(boolStatus.contains("status 必須是整數"), "JSON 的 true 經 valueToAny 是 NSNumber，不得被當成 1：\(boolStatus)")
+
+        // #673：讀取面看得到通用 references；remove_reference 接到服務（鍵名打錯的話不會走到移除面）——store 不在 git 裡，所以停在 git 閘
+        XCTAssertTrue(view.contains("\"references\"") && view.contains("portal.issn.org"), "venue 讀取面要列出通用 references：\(view)")
+        let removal: [[String: Any]] = [["field": "issn", "value": "0003-066X", "reason": "r"]]
+        let gated = try call(8, "akashic_update_venue", ["key": "ampsy", "remove_reference": removal])
+        XCTAssertTrue(gated.contains("#673") && gated.contains("git"), "remove_reference 要走到移除面（實跑要 git 閘）：\(gated)")
+        let missing = try call(9, "akashic_update_venue", ["key": "ampsy", "remove_reference": [["field": "issn", "value": "0000-0000", "reason": "r"]]])
+        XCTAssertTrue(missing.contains("沒有 field「issn」 value「0000-0000」"), "定位不到要具名：\(missing)")
+        let combined = try call(10, "akashic_update_venue", ["key": "ampsy", "remove_reference": removal, "add_names": ["X"]])
+        XCTAssertTrue(combined.contains("單獨呼叫"), combined)
+        let notObjects = try call(11, "akashic_update_venue", ["key": "ampsy", "remove_reference": ["issn"]])
+        XCTAssertTrue(notObjects.contains("remove_reference 的每個元素都必須是物件"), notObjects)
     }
 }

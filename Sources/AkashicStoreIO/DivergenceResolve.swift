@@ -1513,7 +1513,7 @@ extension LibraryStore {
             var line = "references（\(plan.lost.count) 筆，欄位："
                 + plan.lost.map { $0.field + Self.canonicalTwinNote($0, in: keeper.references) }.joined(separator: "、") + "）"
             if !handOnly.isEmpty {
-                line += "；沒有工具面能把它逐位元組搬到倖存者——把那一筆逐字加進倖存者的 YAML，或確認可丟棄後從被併者的 YAML 刪掉"
+                line += "；沒有工具面能把它逐位元組搬到倖存者——把那一筆逐字加進倖存者的 YAML，或確認可丟棄後用 update-venue --remove-reference 從被併者移除（先 commit 被併者的檔，#673）"
                     + "（`paginated` 的判定 update-venue --paginated 寫的是新的一筆；通用 references 面只收 issn、names）"
             }
             if !orphaned.isEmpty {

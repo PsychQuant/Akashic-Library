@@ -3472,6 +3472,15 @@ public final class AkashicService {
             }
         if !pagJudgements.isEmpty { d["paginatedJudgements"] = pagJudgements }
         if let note = record.note { d["note"] = displaySafe(note, max: 500) }
+        // **通用 references**（#673）：不是 verdict、不是 `paginated` 判定的那些（`issn`／`names` 的來源記錄，手改或舊資料另可能有
+        // `authorized`／`note`）。在此之前**寫得進去（#587）、讀不出來**——要定位一筆來移除（`update-venue --remove-reference`）得先開 YAML。
+        // 鍵名同 `--references` 的輸入形；有界（`venueReferencesCap`），超過的以 `referencesTotal`／`referencesTruncated` 揭露；沒有就不輸出這些鍵。
+        let genericReferences = record.references.filter(Self.isGenericVenueReference)
+        if !genericReferences.isEmpty {
+            d["references"] = genericReferences.prefix(Self.venueReferencesCap).map(Self.referenceDict)
+            d["referencesTotal"] = genericReferences.count   // display-safe-exempt: Int
+            if genericReferences.count > Self.venueReferencesCap { d["referencesTruncated"] = true }   // display-safe-exempt: Bool
+        }
         // ISSN（#394 §5／verify）。**在此之前兩個讀取面都看不到它**——§8 的遷移把
         // 39 個 venue 的 ISSN 寫進磁碟，而 `akashic venue` 與 `--json` 都沒有這一格，
         // 於是「庫裡有這個號」與「查不到這個號」在使用者眼中完全一樣。
@@ -3704,6 +3713,8 @@ public final class AkashicService {
         let paginatedReference: ProvenanceReference?
         /// nil＝這次沒給 references（#587）；形狀已過平面 init
         let references: [ProvenanceReference]?
+        /// 空＝這次沒給 remove_reference（#673）；給了就是單獨呼叫，其餘腿都沒給
+        let removeReferences: [RemoveReferenceSpec]
     }
 
     /// CLI 的 `validate()` 用（#654）：`update-venue` 只看參數的全部檢查——與服務在讀 store 之前跑的是同一個函式。
@@ -3711,11 +3722,12 @@ public final class AkashicService {
                                                  addVariant: [String]?, authorize: [String]?,
                                                  paginated: Bool?, clearPaginated: Bool,
                                                  judgement: String?, restsOn: [String]?,
-                                                 removeISSN: [String]?, references: [Any]? = nil) throws {
+                                                 removeISSN: [String]?, references: [Any]? = nil,
+                                                 note: String? = nil, removeReference: [Any]? = nil) throws {
         _ = try updateVenueArguments(addNames: addNames, type: rawType, addISSN: addISSN, addVariant: addVariant,
                                      authorize: authorize, paginated: paginated, clearPaginated: clearPaginated,
                                      judgement: judgement, restsOn: restsOn, removeISSN: removeISSN,
-                                     references: references)
+                                     references: references, note: note, removeReference: removeReference)
     }
 
     /// `updateVenue` 裡只看參數的檢查（#654 原樣搬出；訊息逐字不變）：remove_issn 的形狀、理由、重複與 add_issn 矛盾；三組名字的
@@ -3729,7 +3741,31 @@ public final class AkashicService {
                                      addVariant: [String]?, authorize: [String]?,
                                      paginated: Bool?, clearPaginated: Bool,
                                      judgement: String?, restsOn: [String]?,
-                                     removeISSN: [String]?, references: [Any]? = nil) throws -> UpdateVenueArguments {
+                                     removeISSN: [String]?, references: [Any]? = nil,
+                                     note: String? = nil, removeReference: [Any]? = nil) throws -> UpdateVenueArguments {
+        // remove_reference（#673）單獨呼叫：它是判定、其餘腿改記錄的值與名字分割，混在一次呼叫裡「移除的是哪一筆」與報告、git 閘的語意都交錯
+        // （例：remove_issn 會連帶刪掉指向該號的 reference，同一次再定位它就落空）。形狀先驗，再驗有沒有其他腿——一次呼叫同時有兩種錯時先報這一種。
+        let removeReferenceSpecs = try parseRemoveReferenceSpecs(removeReference)
+        if !removeReferenceSpecs.isEmpty {
+            var others: [String] = []
+            if addNames != nil { others.append("add_names") }
+            if note != nil { others.append("note") }
+            if rawType != nil { others.append("type") }
+            if addISSN != nil { others.append("add_issn") }
+            if addVariant != nil { others.append("add_variant") }
+            if authorize != nil { others.append("authorize") }
+            if paginated != nil { others.append("paginated") }
+            if clearPaginated { others.append("clear_paginated") }
+            if judgement != nil { others.append("judgement") }
+            if restsOn != nil { others.append("rests_on") }
+            if removeISSN != nil { others.append("remove_issn") }
+            if references != nil { others.append("references") }
+            guard others.isEmpty else {
+                throw ServiceError.invalid(
+                    "remove_reference（--remove-reference）單獨呼叫——不與 \(others.joined(separator: "、")) 組合（移除是判定，其餘腿改記錄的值與名字分割，"   // display-safe-exempt: others 是本函式的字面參數名
+                    + "混在一次呼叫裡報告與 git 閘的語意會交錯）；整批拒絕、零寫入")
+            }
+        }
         // add_issn 先解析：下面的 remove_issn 矛盾檢查要認得帶角色的寫法（#587——`ISSN("0035-9254 (print)")` 是 nil）
         let parsedISSN = try parseISSNItems(addISSN, parameter: "add_issn（--add-issn）")
         let parsedReferences = try parseVenueReferences(references)
@@ -3847,7 +3883,8 @@ public final class AkashicService {
                                     variantsIn: variantsIn, variantBlanks: variantBlanks,
                                     authorizeIn: authorizeIn, authorizeBlanks: authorizeBlanks,
                                     type: vtype, addISSN: parsedISSN?.issns, issnDropped: parsedISSN?.dropped ?? [],
-                                    paginatedReference: paginatedRef, references: parsedReferences)
+                                    paginatedReference: paginatedRef, references: parsedReferences,
+                                    removeReferences: removeReferenceSpecs)
     }
 
     /// venue 異名補寫（#306）——**append 語意**：`addNames` 只把不重複的名字附加進
@@ -3879,11 +3916,16 @@ public final class AkashicService {
                             judgement: String? = nil,
                             restsOn: [String]? = nil,
                             removeISSN: [String]? = nil,
-                            references: [Any]? = nil) throws -> String {
+                            references: [Any]? = nil,
+                            removeReference: [Any]? = nil) throws -> String {
         let args = try Self.updateVenueArguments(addNames: addNames, type: rawType, addISSN: addISSN, addVariant: addVariant,
                                                  authorize: authorize, paginated: paginated, clearPaginated: clearPaginated,
                                                  judgement: judgement, restsOn: restsOn, removeISSN: removeISSN,
-                                                 references: references)
+                                                 references: references, note: note, removeReference: removeReference)
+        // #673：references 的移除面——單獨呼叫（`updateVenueArguments` 已驗過沒有其他腿），自己載入、定位、過 git 閘、寫入
+        if !args.removeReferences.isEmpty {
+            return try removeVenueReferences(key: key, specs: args.removeReferences)
+        }
         let load = try store.load()
         // #670：key 重複時寫進哪一筆是猜——整批拒絕、零寫入（同 #627 對 citekey）
         guard !load.venues.unlocatableVenueKeys.contains(key) else {
@@ -3911,7 +3953,8 @@ public final class AkashicService {
             let gone = Set(issnRemoved.map(\.issn))
             venue.issn.removeAll { gone.contains($0.normalized) }
             // 指向被移除號的 `field: issn` provenance 一併移除（#588 R1 verify 兩席）：留著它，寫入閘會以「值被改寫、provenance
-            // 成了孤兒」拒絕整個呼叫，而沒有任何面刪得掉 venue 的 reference（#587）——出路又回到手改 YAML。它們與被移除的號
+            // 成了孤兒」拒絕整個呼叫，而當時沒有任何面刪得掉 venue 的 reference（#587；#673 起有 `--remove-reference`，但這裡的連帶刪除仍是對的：
+            // 它讓「移除一個號」一次做完、不必再逐筆定位那些只為這個號而存在的 reference）——出路又回到手改 YAML。它們與被移除的號
             // 同一個命運：號不屬於這本刊，「這個號從哪裡查到的」也就不再是這本刊的記錄。git 閘已確認移除前的檔有副本，報告逐號回報筆數。
             venue.references.removeAll { r in
                 guard r.field == "issn", let v = r.value, let n = ISSN(v)?.normalized, gone.contains(n) else { return false }
@@ -4102,7 +4145,7 @@ public final class AkashicService {
                             throw ServiceError.invalid(
                                 "authorize「\(displaySafeInvisible(x, max: 120))」會把「\(displaySafeInvisible(y, max: 120))」移出 authorized，"
                                 + "但這筆 venue 有 \(pinned.count) 筆 `field: authorized` 的 reference 指著它——移出後它們成孤兒、寫入會被拒；"
-                                + "程式不替人改判定。請先把那幾筆 reference 的 value 改成新的對外形、或刪掉它們，再重跑")
+                                + "程式不替人改判定。請先把那幾筆 reference 的 value 改成新的對外形（手改 YAML）、或用 update-venue --remove-reference 刪掉它們（#673），再重跑")
                         }
                         authorizedRemoved.append(y)
                     }

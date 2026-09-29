@@ -67,7 +67,7 @@ extension DestructiveTargetGate {
         "bootstrap-venues": .gated,
         "enrich": .gated,   // #458：只加不存在的鍵，但仍改寫既有記錄檔；閘的成本是一行
         "enrich-from-zotero": .gated,
-        "update-entry": .gated,   // #544／#614／#680：預設乾跑、--apply 才寫；--remove-field 刪 fields 的值、--add-source 追加副本引用、--remove-zotero-source 拿掉記下的 Zotero 來源——都改寫既有記錄檔（比照 enrich）；三條腿同一格：閘在命令入口（--apply），不分腿
+        "update-entry": .gated,   // #544／#614／#680／#677：預設乾跑、--apply 才寫；--remove-field 刪 fields 的值、--add-source 追加副本引用、--remove-zotero-source 拿掉記下的 Zotero 來源、--remove-source 收回副本引用——都改寫既有記錄檔（比照 enrich）；四條腿同一格：閘在命令入口（--apply），不分腿
         "authorize-names": .gated,   // #580 R1 verify：全庫掃蕩的布林 --apply，曾因宣告寫成 `: Bool` 漏在稽核外
         "resolve-divergence": .gated,
         "rename": .gated,   // #650／#653
@@ -97,7 +97,7 @@ extension DestructiveTargetGate {
         "file add": .notGated("store 路徑由參數顯式給、不經 registry 的 current 解析；寫 registry，並在佈局不存在時建立佈局"),
         "update-person": .notGated("逐筆指名一個 person key、有 --dry-run；提及的欄位整個替換、未提及的不動，references 只追加（被替換的舊值只在 git 歷史）。" + outsideNamedFamily),
         "fmt": .notGated("把全庫記錄重寫成 canonical form——字面上的 encode(decode(x)) 往返，只改排版不改內容，冪等；--check 只回報不寫。不是 #653 點名的格式遷移：遷移改格式版本與內容形狀，fmt 兩者都不改"),
-        "update-venue": .notGated("逐筆指名一個 venue key；名字、ISSN（含角色，已記的角色不改寫）與 --references 以追加為主（#587），--authorize 同書寫系統替換（舊指定留在 names）、--note／--type 替換，--remove-issn 要求 venue 檔已 commit、乾淨（#588）。" + outsideNamedFamily),
+        "update-venue": .notGated("逐筆指名一個 venue key；名字、ISSN（含角色，已記的角色不改寫）與 --references 以追加為主（#587），--authorize 同書寫系統替換（舊指定留在 names）、--note／--type 替換，--remove-issn 與 --remove-reference 要求 venue 檔已 commit、乾淨（#588／#673）。" + outsideNamedFamily),
 
         // ── 不寫 store ──
         "validate": .readOnly("schema 驗證與健康報告：只讀記錄、不寫任何檔"),

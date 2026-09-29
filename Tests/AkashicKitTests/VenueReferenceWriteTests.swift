@@ -266,7 +266,7 @@ final class VenueReferenceWriteTests: XCTestCase {
             ("空陣列", [], "空陣列"),
             ("field 空白", [retrieval(field: "")], "缺 field"),
             ("通用面不收的欄位", [retrieval(field: "title", value: nil)], "通用 references 面只收 issn 與 names"),
-            ("authorized 拒收（會鎖住 authorize 的換名）", [retrieval(field: "authorized", value: "American Psychologist")], "會讓 authorize 換不了對外形」＋「沒有移除面"),
+            ("authorized 拒收（會鎖住 authorize 的換名）", [retrieval(field: "authorized", value: "American Psychologist")], "會讓 authorize 換不了對外形」＋「不收進通用寫入面」＋「--remove-reference"),
             ("號不在 issn 清單", [retrieval(value: "1935-990X")], "references 附不上」＋「不在 issn 清單內"),
             ("號帶角色", [retrieval(value: "0003-066X (print)")], "不是合法的 ISSN"),
             ("issn 沒帶 value", [retrieval(value: nil)], "references 附不上」＋「必須帶 value"),
@@ -294,7 +294,7 @@ final class VenueReferenceWriteTests: XCTestCase {
     }
 
     /// #587 R1（regression 席以真 service 重現）：通用面若收 `field: authorized`，寫進去之後 `authorize` 換對外形會被那筆 reference
-    /// 擋下（「移出後它們成孤兒」），而 venue 的 reference 沒有移除面——只能手改 YAML。通用面不收它，換名就不會被鎖。
+    /// 擋下（「移出後它們成孤兒」），而 #587 當時 venue 的 reference 沒有移除面——只能手改 YAML（#673 起有 `--remove-reference`，通用面仍不收它——待裁）。通用面不收它，換名就不會被鎖。
     func testAuthorizedReferenceIsRefusedSoAuthorizeCanStillChangeTheDisplayForm() throws {
         _ = try service.addVenue(key: "ampsy", names: ["Alpha Journal", "Beta Journal"], type: "periodical", note: nil)
         _ = try json(try service.updateVenue(key: "ampsy", addNames: nil, note: nil, type: nil, authorize: ["Alpha Journal"]))

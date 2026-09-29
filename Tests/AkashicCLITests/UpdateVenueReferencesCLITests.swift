@@ -24,6 +24,49 @@ final class UpdateVenueReferencesCLITests: XCTestCase {
     private func venue(_ key: String) throws -> Venue {
         try XCTUnwrap(try LibraryStore(root: root).load().venues.first { $0.key == key })
     }
+    /// #239：hook 環境帶 `GIT_DIR`，`-C` 擋不住它——不剝的話 fixture 的 commit 會寫進使用者的 repo。
+    private var scrubbedGitEnvironment: [String: String] {
+        ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("GIT_") }
+    }
+    private func commitStore() {
+        for args in [["init", "-q"], ["add", "-A"], ["commit", "-q", "--allow-empty", "-m", "fixture"]] {
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+            p.arguments = ["-C", root.path, "-c", "user.email=t@t", "-c", "user.name=t"] + args
+            p.environment = scrubbedGitEnvironment
+            p.standardOutput = Pipe(); p.standardError = Pipe()
+            try? p.run(); p.waitUntilExit()
+        }
+    }
+
+    /// #673：讀取面列出通用 references（人可讀與 --json 同源），`--remove-reference` 移除被定位到的那一筆——未 commit 拒絕、commit 後成功、
+    /// 只移除 reference（號仍在）、理由只進報告。用真 binary：CLI 的選項名、`validate()` 的 JSON 解析與 `run()` 的轉送都只有實際呼叫抓得到。
+    func testRemoveReferenceThroughTheCLI() throws {
+        XCTAssertEqual(try run(["add-venue", "ampsy", "--names", "American Psychologist", "--type", "periodical", "--issn", "0003-066X (print)"]).status, 0)
+        let refs = #"[{"field":"issn","value":"0003-066X","kind":"retrieval","url":"https://portal.issn.org/resource/ISSN/0003-066X","retrieved":"2026-09-29","status":200,"media_type":"text/html","content":"\#(digest)"}]"#
+        XCTAssertEqual(try run(["update-venue", "ampsy", "--references", refs]).status, 0)
+
+        let view = try run(["venue", "ampsy"])
+        XCTAssertEqual(view.status, 0, view.output)
+        XCTAssertTrue(view.output.contains("references（1）") && view.output.contains("portal.issn.org") && view.output.contains("retrieval"), "人可讀面：\(view.output)")
+        let viewJSON = try run(["venue", "ampsy", "--json"])
+        XCTAssertTrue(viewJSON.output.contains("\"references\"") && viewJSON.output.contains("\"referencesTotal\" : 1"), "--json 同源：\(viewJSON.output)")
+
+        let removal = #"[{"field":"issn","value":"0003-066X","reason":"來源網址貼錯本刊"}]"#
+        let notInGit = try run(["update-venue", "ampsy", "--remove-reference", removal])
+        XCTAssertNotEqual(notInGit.status, 0, notInGit.output)
+        XCTAssertTrue(notInGit.output.contains("git"), notInGit.output)
+        XCTAssertEqual(try venue("ampsy").references.count, 1, "被閘擋下的呼叫不得寫")
+
+        commitStore()
+        let done = try run(["update-venue", "ampsy", "--remove-reference", removal])
+        XCTAssertEqual(done.status, 0, done.output)
+        XCTAssertTrue(done.output.contains("referencesRemoved") && done.output.contains("來源網址貼錯本刊"), done.output)
+        XCTAssertEqual(try venue("ampsy").references.count, 0)
+        XCTAssertEqual(try venue("ampsy").issn.map(\.normalized), ["0003-066X"], "只移除 reference，號仍在")
+        let after = try run(["venue", "ampsy"])
+        XCTAssertFalse(after.output.contains("references（"), "沒有通用 reference 時不印這一段：\(after.output)")
+    }
 
     func testMediumAndProvenanceLandThroughTheCLI() throws {
         let created = try run(["add-venue", "ampsy", "--names", "American Psychologist", "--type", "periodical",
@@ -55,6 +98,13 @@ final class UpdateVenueReferencesCLITests: XCTestCase {
             (["update-venue", "v-one", "--references", #"[{"field":"issn","value":"0003-066X","kind":"retrieval","url":"u","retrieved":"d","content":"\#(digest)"}]"#],
              "status"),
             (["update-venue", "v-one", "--add-issn", "0003-066X (Online)"], "不是 ISSN 標準的三個角色"),
+            // #673：--remove-reference 的 JSON、形狀、單獨呼叫
+            (["update-venue", "v-one", "--remove-reference", "{}"], "--remove-reference 必須是 JSON 陣列"),
+            (["update-venue", "v-one", "--remove-reference", #"[{"field":"issn","value":"0003-066X"}]"#], "缺理由"),
+            (["update-venue", "v-one", "--remove-reference", #"[{"field":"resolution-confirmed","value":"work:x :: Y","reason":"r"}]"#], "resolve-venues"),
+            (["update-venue", "v-one", "--remove-reference", #"[{"field":"paginated","value":"true","reason":"r"}]"#], "--clear-paginated"),
+            (["update-venue", "v-one", "--remove-reference", #"[{"field":"issn","value":"0003-066X","reason":"r"}]"#, "--add-name", "X"], "單獨呼叫"),
+            (["update-venue", "v-one", "--remove-reference", #"[{"field":"issn","value":"0003-066X","reason":"r"}]"#, "--note", "n"], "單獨呼叫"),
             (["add-venue", "v-one", "--names", "X", "--type", "periodical", "--issn", "0003-066X (print) (electronic)"],
              "不是合法的 ISSN"),
         ]

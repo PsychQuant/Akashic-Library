@@ -5,15 +5,15 @@ import AkashicMCPKit
 
 /// work（entry）的部分更新（`update-entry`）——MCP `akashic_update_entry` 的 CLI 面，兩面同一個 `AkashicService.updateEntry`。
 ///
-/// 契約寫在 service（`EntryUpdate.swift` 的檔頭），這裡不複製一份會分岔的副本。CLI 面只有三個自己的決定（三條腿——`--remove-field`、
-/// `--add-source`、`--remove-zotero-source`——各自單獨呼叫，同一份決定）：
+/// 契約寫在 service（`EntryUpdate.swift` 的檔頭），這裡不複製一份會分岔的副本。CLI 面只有三個自己的決定（四條腿——`--remove-field`、
+/// `--add-source`、`--remove-zotero-source`、`--remove-source`——兩兩不組合、各自單獨呼叫，同一份決定）：
 /// 1. **預設乾跑**，`--apply` 才寫；`--apply` 走 #298 的目標確認閘（`WriteGateRulings` 的 `update-entry` 格）。
 /// 2. 寫入面封閉例外形：只印 service payload，不設 `--json`、沒有人可讀分支（`mcp-cli-parity` 的既有裁決）。
 /// 3. 只看參數的檢查在 `validate()`、早於開 store（#654 的形）。
 struct UpdateEntryCmd: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "update-entry",
-        abstract: "work 的部分更新（預設乾跑，--apply 才寫）：--remove-field 移除 fields 的值（#544）、--add-source 宣告已存的內容是這篇的副本（#614）、--remove-zotero-source 移除記下的 Zotero 來源（#680）；三者各自單獨呼叫")
+        abstract: "work 的部分更新（預設乾跑，--apply 才寫）：--remove-field 移除 fields 的值（#544）、--add-source 宣告已存的內容是這篇的副本（#614）、--remove-zotero-source 移除記下的 Zotero 來源（#680）、--remove-source 收回一條副本宣告（#677）；四者兩兩各自單獨呼叫")
 
     @OptionGroup var options: LibraryOptions
 
@@ -42,8 +42,7 @@ struct UpdateEntryCmd: ParsableCommand {
                              + "add-only、冪等：已在的列在 sourcesAlreadyPresent，沒有新東西就不寫。報告逐個帶 index 的取得記錄"
                              + "（origin、mediaType、note…；CLI 全列，MCP 面截 20 筆），乾跑時用來確認是哪份內容。空內容的 digest、同一次重複、"
                              + "一次超過 200 個、blob 的位置不是普通檔都拒絕。連好之後 get-entry 的 sources 看得到。"
-                             + "沒有移除腿（#677）：連錯了以 git 還原那個 work 檔——本面不要求檔已 commit，連結前先 commit store。"
-                             + "不與 --remove-field 組合（#614）"))
+                             + "連錯了用 --remove-source 收回（#677）。不與另外三條腿（--remove-field／--remove-zotero-source／--remove-source）組合（#614）"))
     var addSource: [String] = []
 
     @Option(name: .customLong("remove-zotero-source"), parsing: .upToNextOption,
@@ -58,13 +57,23 @@ struct UpdateEntryCmd: ParsableCommand {
                              + "這筆沒有的來源、同來源兩次、形狀錯、理由空白或過長、一次超過 200 個，都整批拒絕、零寫入（#680）"))
     var removeZoteroSource: [String] = []
 
+    @Option(name: .customLong("remove-source"), parsing: .upToNextOption,
+            help: ArgumentHelp("收回一條副本宣告（可多個）：<digest>=理由。收回是判定（「這份內容不是這篇的副本」），理由必填、至多 4,096 位元組；"
+                             + "理由只印在報告（sourcesRemoved，全文），不寫進 store——要留在 git 就寫進 commit message。digest 要在這筆 work 的 akashic.sources 上"
+                             + "（先用 get-entry 看），不在就整批拒絕。只移除宣告：sources/ 裡的內容與 index.jsonl 的取得記錄原封不動（可能被別筆 work 宣告或被欄位層級的 "
+                             + "reference 引用；報告的 blobNote 說明），欄位層級的 references 也不動。不要求本機有位元組；報告帶 index 的取得記錄"
+                             + "（origin、mediaType、note…）讓乾跑時認得出是哪份內容。實跑要求這筆 work 的檔已在 git 裡 commit、乾淨。"
+                             + "格式錯、digest 形狀不對、理由空白或過長、同一個 digest 兩次、一次超過 200 個，都整批拒絕、零寫入。"
+                             + "不與另外三條腿（--remove-field／--add-source／--remove-zotero-source）組合（#677）"))
+    var removeSource: [String] = []
+
     @Flag(name: .long, help: "實際寫入（預設只列出會做什麼）")
     var apply = false
 
     func validate() throws {
         try argvCheck {
             try AkashicService.checkUpdateEntryArguments(removeFields: removeField, addSources: addSource,
-                                                         removeZoteroSources: removeZoteroSource)
+                                                         removeZoteroSources: removeZoteroSource, removeSources: removeSource)
         }
     }
 
@@ -76,7 +85,7 @@ struct UpdateEntryCmd: ParsableCommand {
                                      environment: ProcessInfo.processInfo.environment)
         // 寫入面封閉例外形：只回 service payload（mcp-cli-parity 的既有裁決）
         print(try service.updateEntry(citekey: citekey, removeFields: removeField, addSources: addSource,
-                                      removeZoteroSources: removeZoteroSource, dryRun: !apply,
+                                      removeZoteroSources: removeZoteroSource, removeSources: removeSource, dryRun: !apply,
                                       sourcesLimit: nil))   // CLI 全列（輸出進人的終端機）；MCP 面截 20 筆，理由見 `sourcesAddedCap`
     }
 }

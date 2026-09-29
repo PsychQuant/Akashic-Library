@@ -257,7 +257,12 @@ akashic:
 - **寫入端**（#614）：`update-entry <citekey> --add-source <digest>`（MCP `akashic_update_entry` 的
   `add_sources`），預設乾跑、`--apply` 才寫。add-only、冪等；寫入當下要求每個新加的 digest 已在本機 `sources/`
   且 `sources/index.jsonl` 有它的取得記錄、blob 的位置是普通檔（目錄與 symlink 拒絕）——那是寫入閘，不是載入條件（上一條：別台 clone 讀到的連結
-  照常載入）；全是已連過的 digest 時不讀 index。沒有移除面（#677 追蹤；目前以 git 還原那個 work 檔）——這裡說的是 `akashic.sources` 的副本；work 記下的 Zotero 來源的移除面是 `--remove-zotero-source`（§2.5.3，#680）。
+  照常載入）；全是已連過的 digest 時不讀 index。
+- **移除端**（#677）：`update-entry <citekey> --remove-source <digest>=理由`（MCP `remove_sources`）收回一條宣告，預設乾跑、`--apply` 才寫。
+  移除是判定（「這份內容不是這篇的副本」）：理由必填、只進報告、不寫進 store，實跑要求那筆 work 檔已在 git 裡 commit、乾淨（移除面一族的
+  裁決，使用者 2026-09-27）。digest 要在該 work 的 `akashic.sources` 上；**只移除宣告**——`sources/` 的 blob 與 `index.jsonl` 的取得記錄不動
+  （可能被別筆 work 宣告、被欄位層級的 reference 引用），欄位層級的 references 也不動；不要求本機有位元組。
+  （這裡說的是 `akashic.sources` 的副本；work 記下的 Zotero 來源的移除面是另一條腿 `--remove-zotero-source`，§2.5.3，#680。四條腿——`--remove-field`、`--add-source`、`--remove-zotero-source`、`--remove-source`——兩兩不組合。）
 - **讀取端**：`get-entry`／`akashic_get_entry` 的 `akashic.sources` 列出連好的 digest（取得記錄在 `sources/index.jsonl`）。
 
 ### 2.5 Namespace 契約（CRITICAL）
@@ -1178,15 +1183,15 @@ venue 的 `references:` 可附著的 `field` 是**封閉列舉**，唯一的列�
 
 | `field` | `value` | kind | 寫入面 |
 |---|---|---|---|
-| `names` | 必帶：那個名字要在該清單內 | 兩種都收 | `update-venue --references`／MCP `references`（#587） |
+| `names` | 必帶：那個名字要在該清單內 | 兩種都收 | 寫入：`update-venue --references`／MCP `references`（#587）；移除：`--remove-reference`／MCP `remove_reference`（#673） |
 | `issn` | 必帶：那個號（比對看正規形；寫入面以正規形入庫） | 兩種都收 | 同上；`--remove-issn` 對被移除的號連帶刪除（#588） |
-| `authorized` | 必帶：那個名字要在該清單內 | 兩種都收 | **只有手改 YAML**——通用面不收（#587 R1，見下） |
-| `note` | 不收（D2：純量）；記錄要有 `note` | 兩種都收 | **只有手改 YAML**——通用面不收（#587 R1，見下） |
+| `authorized` | 必帶：那個名字要在該清單內 | 兩種都收 | 寫入：**只有手改 YAML**——通用寫入面不收（#587 R1，見下）；移除：`--remove-reference`（#673） |
+| `note` | 不收（D2：純量）；記錄要有 `note` | 兩種都收 | 寫入：**只有手改 YAML**——通用寫入面不收（#587 R1，見下）；移除：`--remove-reference`（#673） |
 | `paginated` | `true`／`false`／`nil`（撤回） | 只收 judgement | 只經 `--paginated`／`--clear-paginated`（#406／#500） |
 | `resolution-*`（三個 verdict 欄位） | `<kind>:<key> :: <literal>` | 只收 judgement | 只經 `resolve-venues`（#232／#304／#619） |
 
 **通用寫入面只收 `issn` 與 `names`**（#587 R1 verify，四席指出；整合者裁定）。`paginated` 與 verdict 兩列不收：那兩條路同時改記錄的值
-（`paginated`、venue 邊）與判定史，通用面寫進去會讓兩者分岔。`authorized` 與 `note` 不收：venue 的 reference **沒有移除面**，每多收一格
+（`paginated`、venue 邊）與判定史，通用面寫進去會讓兩者分岔。`authorized` 與 `note` 不收：當時 venue 的 reference **沒有移除面**（#673 起有，見下；要不要收回通用寫入面待使用者裁決），每多收一格
 就多一個「寫得進去、之後只能手改 YAML 才出得來」的死角——`authorized` 的 reference 會讓 `authorize` 換對外形被拒（「移出後它們成孤兒」，
 訊息叫人刪掉那些 reference，而沒有面刪得掉）；`note` 沒有工具寫入面。要記「這個名字是對外形」的來源，記在 `field: names`
 （value 是那個名字）。`issn` 是 issue 真正點名的一格，`names` 是 `akashic-verify-venue` 的判定證據要落的地方。
@@ -1194,7 +1199,11 @@ venue 的 `references:` 可附著的 `field` 是**封閉列舉**，唯一的列�
 `media-type`／`judgement`／`rests-on`；retrieval 的 `status` 必填，不預設 200（#542 R2 對 `enrich` 的同一個裁決）。
 形狀驗證走 `ProvenanceReference` 的平面 init（YAML decode 的同一個入口）；附著在合進記錄後驗，所以同一次呼叫加的號與名字
 可以被指向；`issn` 的 value 以正規形入庫、`names`／`authorized` 的 value 以記錄上的拼法入庫（相等看 canonical——只差 NFC／NFD 或空白的兩筆否則是兩筆位元組不同的記錄，#582 的掃描會報它們）。append-only：位元組相同的一筆略過。`field: issn` 的 reference 要 store format ≥ 13（#394 的寫入閘）。
-venue 的 reference **沒有移除面**——`--remove-issn` 的連帶刪除之外，寫錯的只能手改 YAML。
+**讀取面與移除面**（#673）：`venue`／`akashic_venue` 的 `references` 列出通用 references（不是 verdict、不是 `paginated` 判定的那些；鍵名同上一段的輸入形；至多 25 筆，`referencesTotal`／`referencesTruncated` 揭露；`rests_on` 只列前 5 個，`rests_on_total` 揭露；沒有就不輸出）。
+`update-venue --remove-reference`／MCP `remove_reference` 收一個 JSON 物件陣列 `{field, value?, reason, …縮小定位的鍵}`：`field` 收 `names`／`authorized`／`issn`／`note` 四格
+（移除面比通用寫入面寬：手改或舊資料可能有 `authorized`／`note` 的 reference）；定位＝`field` ＋ `value` 的**位元組**相等，可再以 `kind`／`url`／`retrieved`／`status`／`media_type`／`content`／`statement`／`rests_on` 縮小；
+定位不到、定位到多筆（位元組完全相同的重複不判定移哪一筆）、兩個定位指到同一筆都整批拒絕、零寫入。verdict 三欄與 `paginated` 不在本面（各走 `resolve-venues`、`--clear-paginated`）。
+理由必填、只進報告、不寫進 store；移除前要求該 venue 檔已在 git 裡 commit、乾淨（移除面一族的裁決，使用者 2026-09-27）；單獨呼叫；只移除 reference，它指的號或名字仍在。
 
 **合併時 `field: issn`／`names` 的 reference 隨被併者逐位元組搬到倖存者**（#587 R1；`resolve-divergence`）：查證流程對每個寫進去的號
 附一筆來源，「查證兩筆是不是同一本刊」又是合併的前置動作，兩次取得的日期或 url 必然不同——不搬的話每個查證過的被併者都合併不了。

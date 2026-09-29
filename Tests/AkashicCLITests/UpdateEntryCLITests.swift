@@ -103,6 +103,39 @@ final class UpdateEntryCLITests: XCTestCase {
         XCTAssertTrue(gotJSON.output.contains(receipt.digest), gotJSON.output)
     }
 
+    /// #677：`--remove-source` 收回一條副本宣告——乾跑不寫、`--apply` 要指名目標、實寫只移除宣告（blob 與 index 不動）、理由只進報告。
+    /// 用真 binary：CLI 的選項名、`validate()` 早退（64）與 `run()` 的閘都只有實際呼叫抓得到。
+    func testRemoveSourceRetractsTheDeclarationOnly() throws {
+        let store = LibraryStore(root: root, key: nil, environment: [:])
+        let receipt = try store.storeSource(Data("%PDF-1.7 fixture".utf8), provenance: .init(
+            mediaType: "application/pdf", retrieved: "2026-09-29T10:00:00+08:00",
+            origin: "https://example.org/x.pdf", acquisition: "browser-download"))
+        let link = try CLITestHarness.run(["update-entry", "x2020y", "--add-source", receipt.digest, "--apply", "--library", root.path],
+                                          env: ["AKASHIC_HOME": home.path])
+        XCTAssertEqual(link.status, 0, link.output)
+        git(["add", "-A"]); git(["commit", "-q", "-m", "linked"])   // 實跑要求 work 檔已 commit、乾淨
+        let indexBefore = try Data(contentsOf: root.appendingPathComponent("sources/index.jsonl"))
+        let arg = ["update-entry", "x2020y", "--remove-source", "\(receipt.digest)=連到別篇的 PDF"]
+
+        let dry = try CLITestHarness.run(arg + ["--library", root.path], env: ["AKASHIC_HOME": home.path])
+        XCTAssertEqual(dry.status, 0, dry.output)
+        XCTAssertTrue(dry.output.contains("example.org") && dry.output.contains("連到別篇的 PDF"), "乾跑帶取得記錄與理由：\(dry.output)")
+        XCTAssertEqual(try store.load().entries.first?.akashic.sources, [receipt.digest], "乾跑零寫入")
+
+        let refused = try CLITestHarness.run(arg + ["--apply"], env: unnamedEnv)
+        XCTAssertNotEqual(refused.status, 0, refused.output)
+        XCTAssertTrue(refused.output.contains("update-entry --apply 拒絕執行：未指名目標 store"), refused.output)
+        XCTAssertEqual(try store.load().entries.first?.akashic.sources, [receipt.digest], "被閘擋下的呼叫不得寫")
+
+        let done = try CLITestHarness.run(arg + ["--apply", "--library", root.path], env: ["AKASHIC_HOME": home.path])
+        XCTAssertEqual(done.status, 0, done.output)
+        XCTAssertEqual(try store.load().entries.first?.akashic.sources, [], "宣告收回了")
+        XCTAssertEqual(try Data(contentsOf: root.appendingPathComponent("sources/index.jsonl")), indexBefore, "取得記錄不動")
+        let hex = String(receipt.digest.dropFirst("sha256:".count))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent("sources/\(hex.prefix(2))/\(hex.dropFirst(2))").path), "blob 不動")
+        XCTAssertFalse(try String(contentsOf: file, encoding: .utf8).contains("連到別篇的 PDF"), "理由不寫進 store")
+    }
+
     /// **CLI 全列、MCP 面才截**（b11c R1 verify 第 29／31 列）：21 份內容一次連，CLI 的報告要有全部 21 筆、`truncated` 是 false。
     func testAddSourceListsEverythingOnTheCLI() throws {
         let store = LibraryStore(root: root, key: nil, environment: [:])

@@ -55,14 +55,31 @@ import AkashicIndex
 /// - add-only、冪等：已在 `akashic.sources` 的列在 `sourcesAlreadyPresent`，沒有新東西就不寫；新的追加在後，既有的不動。
 /// - 走編碼器（`writeEntry`，format ≥ 9 的閘在那裡）；預設乾跑。報告逐個帶 index 的取得記錄（origin、media-type、note…），
 ///   讓乾跑的人認得出這份內容是什麼。**MCP 面截 20 筆**（`sourcesAddedTotal`／`truncated` 揭露，`sourcesAddedCap`）、CLI 全列。
-/// - 不與 `remove_fields` 組合（一個是判定、一個是落地）。
+/// - 不與另外三條腿（`remove_fields`、`remove_zotero_sources`、`remove_sources`）組合（移除是判定、加入是落地；四條腿兩兩互斥）。
 ///
 /// **誠實邊界**：「必須在本機」只是寫入當下的閘——`sources/` 不進 git，別台 clone 讀到這條連結時內容可能不在
 /// （§2.4.1：載入成功、可回報缺席，`akashic validate` 的「本機缺承重存檔」）。**閘不重新雜湊 blob**：位置是普通檔、index 有記錄，
 /// 但位元組是不是真的雜湊成那個 digest 沒有驗（`sources/` 被同步或複製時截斷、換掉，這裡看不出來；`auditSourceIndex` 也不雜湊）。
-/// 本面沒有移除腿：連錯了目前只能以 git 還原那個 work 檔（本面不要求檔已 commit，連結前先 commit store 才有退路；#677 追蹤移除腿）。
+/// 這條腿本身不要求檔已 commit（它是加，不刪任何東西）；連錯了用下面的 `--remove-source` 收回。
 /// **`--remove-zotero-source` 不是它的逆操作**——那條腿移除的是 work 記下的 Zotero 來源（`provenance`／`provenance_additional`），不是 `akashic.sources` 的副本。
 ///
+/// ## `--remove-source`（`remove_sources`，#677）：收回一條副本宣告
+///
+/// `--add-source` 只能加：宣告錯了（連到別篇的 PDF）沒有任何面收得回來，唯一的路是手改 YAML——`replace-endnote-and-zotero` 第 4 條
+/// 要防的形狀。**移除面一族**（#588／#572／#586／#544）的第五個實例，套用使用者 2026-09-27 的裁決：理由必填、只進報告、
+/// 不寫進 store、不改 store format，移除前要求那筆 work 檔已在 git 裡 commit、乾淨（`assertRecordsRecoverable`）。
+///
+/// **它是判定**（`two-kinds-of-edits` 的 AI 欄）：「這份內容不是這篇的副本」要讀內容才知道（與 `--add-source` 相反，那條是把上游已判定的連結
+/// 落地）。所以理由必填。
+///
+/// 契約：
+/// - `<digest>=理由`（第一個 `=` 切分——digest 不含 `=`）；digest 要是合法形狀（`isWellFormedDigest`）、**要在該 work 的 `akashic.sources` 上**
+///   （不在就具名拒絕）；理由必填、至多 4,096 位元組；同一個 digest 兩次、一次超過 200 個——整批拒絕、零寫入。
+/// - **只移除宣告**：`sources/` 裡的 blob 與 `index.jsonl` 的取得記錄原封不動——同一份內容可能被別筆 work 宣告、被欄位層級的 reference 引用，
+///   刪存檔是另一件事（`#544` 同族的移除面，另案）。也不動 `Entry.references`（欄位層級的 digest 證據，§2.4.1 第一條：兩種關係不得合併）。
+/// - **不要求本機有位元組**：別台 clone 上 `sources/` 本來就可能不在（§2.4.1），連錯的宣告在那裡照樣要收得回來。報告帶 index 的取得記錄
+///   （origin、mediaType、note…）只是讓乾跑的人認得出是哪份內容——本機沒有存檔或 index 讀不到時省略（`contentInfoUnreadable`）。
+/// - 預設乾跑、實跑要 git 閘；無法唯一定位的 work 拒絕（#628／#641）。與 `remove_fields`／`add_sources`／`remove_zotero_sources` 互斥（四條腿兩兩不組合，各自單獨呼叫）。
 /// ## `--remove-zotero-source`（`remove_zotero_sources`，#680）：移除 work 記下的 Zotero 來源
 ///
 /// 在此之前活著的 Zotero 來源（主來源或附加來源）**沒有任何移除面**：#610 對「其中一筆記錯了」的處置是「手改 YAML」，#679 對「附加來源沒記
@@ -99,38 +116,49 @@ extension AkashicService {
         let reason: String
     }
 
-    /// 一次呼叫做的那一件事（三條腿各自單獨呼叫）。
+    /// `--remove-source`（remove_sources）的一筆（只看參數的解析結果，#654 的形）。
+    struct RemoveSourceSpec {
+        let digest: String
+        let reason: String
+    }
+
+    /// 一次呼叫做的那一件事（四條腿兩兩互斥，各自單獨呼叫）。
     enum UpdateEntryLeg {
         case removeFields([RemoveFieldSpec])
         case addSources([String])
         case removeZoteroSources([RemoveZoteroSourceSpec])
+        case removeSources([RemoveSourceSpec])
     }
 
     /// CLI 的 `validate()` 用（#654 的形）：`update-entry` 只看參數的全部檢查——與服務在讀 store 之前跑的是同一個函式。
     public static func checkUpdateEntryArguments(removeFields: [String]?, addSources: [String]? = nil,
-                                                 removeZoteroSources: [String]? = nil) throws {
-        _ = try parseUpdateEntryArguments(removeFields: removeFields, addSources: addSources, removeZoteroSources: removeZoteroSources)
+                                                 removeZoteroSources: [String]? = nil, removeSources: [String]? = nil) throws {
+        _ = try parseUpdateEntryArguments(removeFields: removeFields, addSources: addSources,
+                                          removeZoteroSources: removeZoteroSources, removeSources: removeSources)
     }
 
-    /// 至少要有一件事、三條腿不組合，再交給各自的形狀檢查。**不組合的理由**：`remove_fields` 與 `remove_zotero_sources` 是判定
-    /// （理由只進報告、要 git 閘，而被移除的東西不同），`add_sources` 是落地（程式編輯）——`two-kinds-of-edits` 要求兩種寫入分開，
-    /// 混在一次呼叫裡報告與閘的語意也跟著混。
+    /// 至少要有一件事、四條腿兩兩不組合，再交給各自的形狀檢查。**不組合的理由**：`remove_fields`、`remove_zotero_sources`、`remove_sources`
+    /// 是判定（理由只進報告、要 git 閘，而被移除的東西各不相同：`fields` 的值、Zotero 來源、`akashic.sources` 的副本宣告），`add_sources` 是落地
+    /// （程式編輯）——`two-kinds-of-edits` 要求兩種寫入分開，混在一次呼叫裡報告與閘的語意也跟著混；三條移除腿的報告形狀與閘的標籤不同，同樣不混。
     static func parseUpdateEntryArguments(removeFields: [String]?, addSources: [String]?,
-                                          removeZoteroSources: [String]? = nil) throws -> UpdateEntryLeg {
-        let removals = removeFields ?? [], additions = addSources ?? [], zoteroRemovals = removeZoteroSources ?? []
-        let given = [!removals.isEmpty, !additions.isEmpty, !zoteroRemovals.isEmpty].filter { $0 }.count
+                                          removeZoteroSources: [String]? = nil, removeSources: [String]? = nil) throws -> UpdateEntryLeg {
+        let removals = removeFields ?? [], additions = addSources ?? [], zoteroRemovals = removeZoteroSources ?? [], sourceRemovals = removeSources ?? []
+        let given = [!removals.isEmpty, !additions.isEmpty, !zoteroRemovals.isEmpty, !sourceRemovals.isEmpty].filter { $0 }.count
         guard given > 0 else {
             throw ServiceError.invalid(
-                "沒有要做的事：remove_fields（--remove-field）、add_sources（--add-source）或 remove_zotero_sources（--remove-zotero-source）給一個")
+                "沒有要做的事：remove_fields（--remove-field）、add_sources（--add-source）、remove_zotero_sources（--remove-zotero-source）"
+                + "或 remove_sources（--remove-source）給一個")
         }
         guard given == 1 else {
             throw ServiceError.invalid(
-                "remove_fields（--remove-field）、add_sources（--add-source）、remove_zotero_sources（--remove-zotero-source）各自單獨呼叫——"
-                + "有的是判定、有的是落地，混在一次呼叫裡會讓報告與 git 閘的語意混在一起；整批拒絕、零寫入")
+                "remove_fields（--remove-field）、add_sources（--add-source）、remove_zotero_sources（--remove-zotero-source）、"
+                + "remove_sources（--remove-source）兩兩各自單獨呼叫——有的是判定、有的是落地，被移除的東西也各不相同，"
+                + "混在一次呼叫裡會讓報告與 git 閘的語意混在一起；整批拒絕、零寫入")
         }
         if !removals.isEmpty { return .removeFields(try parseRemoveFieldSpecs(removals)) }
         if !additions.isEmpty { return .addSources(try parseAddSources(additions)) }
-        return .removeZoteroSources(try parseRemoveZoteroSourceSpecs(zoteroRemovals))
+        if !zoteroRemovals.isEmpty { return .removeZoteroSources(try parseRemoveZoteroSourceSpecs(zoteroRemovals)) }
+        return .removeSources(try parseRemoveSourceSpecs(sourceRemovals))
     }
 
     /// `--remove-zotero-source` 的來源鍵：`<library_id>:<zotero_key>` 或 `?:<zotero_key>`（沒記 library_id 的來源）。library_id 要是 ASCII 數字
@@ -177,6 +205,41 @@ extension AkashicService {
                     "remove_zotero_sources「\(displaySafeInvisible(source, max: 200))」在一次呼叫裡出現兩次——整批拒絕、零寫入")
             }
             out.append(RemoveZoteroSourceSpec(source: source, reason: reason))
+        }
+        return out
+    }
+
+    /// `--remove-source`（remove_sources）的形狀：`<digest>=理由`、digest 的形狀、理由的空白與長度、同一個 digest 兩次、一次的上限。
+    static func parseRemoveSourceSpecs(_ specs: [String]) throws -> [RemoveSourceSpec] {
+        guard specs.count <= Self.maxSpecsPerCall else {
+            throw ServiceError.invalid("一次最多收回 \(Self.maxSpecsPerCall) 份副本宣告（這次 \(specs.count) 份）——分次送")   // display-safe-exempt: Self.maxSpecsPerCall 與 specs.count 都是 Int
+        }
+        var out: [RemoveSourceSpec] = []
+        var seen = Set<String>()
+        for raw in specs {
+            guard let eq = raw.firstIndex(of: "=") else {
+                throw ServiceError.invalid(
+                    "remove_sources「\(displaySafeInvisible(raw, max: 200))」缺少 `=`——格式是 <digest>=理由，理由必填；整批拒絕、零寫入")
+            }
+            let digest = String(raw[..<eq])
+            let reason = String(raw[raw.index(after: eq)...])
+            guard ProvenanceReference.isWellFormedDigest(digest) else {
+                throw ServiceError.invalid(
+                    "remove_sources「\(displaySafeInvisible(digest, max: 120))」不是合法的 digest（sha256: 加 64 個小寫十六進位）"
+                    + "——先用 get-entry 看這筆 work 的 sources；整批拒絕、零寫入")
+            }
+            if reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                throw ServiceError.invalid(
+                    "remove_sources「\(digest)」的理由是空白——收回宣告是判定，要寫為什麼這份內容不是這篇的副本；報告與 commit 靠它")   // display-safe-exempt: digest 已過 isWellFormedDigest，只含 sha256: 與小寫十六進位
+            }
+            guard reason.utf8.count <= Self.maxStatementBytes else {
+                throw ServiceError.invalid(
+                    "remove_sources「\(digest)」的理由超過 \(Self.maxStatementBytes) 位元組——精簡它")   // display-safe-exempt: digest 已過 isWellFormedDigest；Self.maxStatementBytes 是 Int 常數
+            }
+            guard seen.insert(digest).inserted else {
+                throw ServiceError.invalid("remove_sources「\(digest)」在一次呼叫裡出現兩次——整批拒絕、零寫入")   // display-safe-exempt: digest 已過 isWellFormedDigest
+            }
+            out.append(RemoveSourceSpec(digest: digest, reason: reason))
         }
         return out
     }
@@ -311,12 +374,14 @@ extension AkashicService {
     /// `update-entry`／`akashic_update_entry` 的入口：只看參數的檢查在讀 store 之前（#654 的形），再分派到那一條腿。
     /// `sourcesLimit`：`add_sources` 的報告列幾筆。預設是 MCP 面的上限（`sourcesAddedCap`），CLI 傳 nil 全列（`sourcesAddedCap` 的 doc）。
     public func updateEntry(citekey: String, removeFields: [String]?, addSources: [String]? = nil,
-                            removeZoteroSources: [String]? = nil, dryRun: Bool,
+                            removeZoteroSources: [String]? = nil, removeSources: [String]? = nil, dryRun: Bool,
                             sourcesLimit: Int? = AkashicService.sourcesAddedCap) throws -> String {
-        switch try Self.parseUpdateEntryArguments(removeFields: removeFields, addSources: addSources, removeZoteroSources: removeZoteroSources) {
+        switch try Self.parseUpdateEntryArguments(removeFields: removeFields, addSources: addSources,
+                                                  removeZoteroSources: removeZoteroSources, removeSources: removeSources) {
         case .removeFields(let specs): return try removeEntryFields(citekey: citekey, specs: specs, dryRun: dryRun)
         case .addSources(let digests): return try addEntrySources(citekey: citekey, digests: digests, dryRun: dryRun, sourcesLimit: sourcesLimit)
         case .removeZoteroSources(let specs): return try removeEntryZoteroSources(citekey: citekey, specs: specs, dryRun: dryRun)
+        case .removeSources(let specs): return try removeEntrySources(citekey: citekey, specs: specs, dryRun: dryRun)
         }
     }
 
@@ -426,6 +491,55 @@ extension AkashicService {
         if anyLive {
             payload["reimportNote"] = "被移除的來源若在 Zotero 端仍有那個條目，下一次 import-zotero 會為它另建一筆新 entry（已沒有任何 entry 宣稱它）；"
                 + "要讓它落在另一筆 work 上，那筆要先宣稱這個來源（攣生合併，或手改 YAML）"
+        }
+        return try jsonString(payload)
+    }
+
+    /// `--remove-source`（#677）：收回 `akashic.sources` 上的宣告。契約見本檔檔頭。
+    func removeEntrySources(citekey: String, specs: [RemoveSourceSpec], dryRun: Bool) throws -> String {
+        var entry = try requireEntry(citekey)   // 無法唯一定位（#628／#641）與不存在都在這裡拒絕
+        let missing = specs.filter { !entry.akashic.sources.contains($0.digest) }.map(\.digest)
+        guard missing.isEmpty else {
+            throw ServiceError.invalid(
+                "work「\(displaySafeInvisible(citekey, max: 200))」的 akashic.sources 沒有 \(missing.count) 個 digest：\(missing.joined(separator: "、"))"   // display-safe-exempt: missing.count 是 Int；每個 digest 已過 isWellFormedDigest
+                + "——digest 要逐字相符（先用 get-entry 看）；整批拒絕、零寫入")
+        }
+        // 取得記錄只為了讓人認得出是哪份內容：index 讀不到、本機沒有存檔都不擋移除（別台 clone 上 `sources/` 本來就可能不在，§2.4.1）
+        let presence = try? store.sourcePresence(digests: specs.map(\.digest))
+        let gone = Set(specs.map(\.digest))
+        entry.akashic.sources.removeAll { gone.contains($0) }
+        // 寫入前的檢查兩種模式都跑（唯讀）：乾跑說「可以」時，實跑不會在內容閘上才被拒
+        try store.preflightWrite(entry)
+        if !dryRun {
+            try assertRecordsRecoverable([(entry.id, "work「\(displaySafeInvisible(citekey, max: 200))」")],
+                                         action: "這次會從 work「\(displaySafeInvisible(citekey, max: 200))」收回 \(specs.count) 份副本宣告",   // display-safe-exempt: specs.count 是 Int
+                                         issue: "#677")
+            try store.writeEntry(entry)
+            try LibraryIndex(store: store).rebuild()
+        }
+        var payload: [String: Any] = [
+            "citekey": displaySafe(citekey, max: 200),
+            "dryRun": dryRun,   // display-safe-exempt: Bool
+            "sourcesRemoved": specs.map { s -> [String: Any] in
+                var item: [String: Any] = ["digest": s.digest,   // display-safe-exempt: 已過 isWellFormedDigest
+                                           // 理由不進 store，報告是它唯一的一份——不截在入口上限之下（#588 R1 verify 的同一條）
+                                           "reason": displaySafe(s.reason, max: Self.maxStatementBytes)]   // display-safe-exempt: reason 是呼叫端原文、在這裡消毒一次
+                if case .stored(let e)? = presence?[s.digest] {
+                    for (from, to, cap) in [("media-type", "mediaType", 200), ("retrieved", "retrieved", 200),
+                                            ("origin", "origin", 800), ("acquisition", "acquisition", 200),
+                                            ("note", "note", 800)] {
+                        if let v = e[from] { item[to] = displaySafe(v, max: cap) }
+                    }
+                }
+                return item
+            },
+            "sourcesTotal": entry.akashic.sources.count,   // display-safe-exempt: Int
+            "reasonNote": "理由只在這份報告裡——要留在 git，寫進接下來的 commit message（#677，使用者 2026-09-27 對移除面一族的裁決）",
+            "blobNote": "只收回宣告：sources/ 裡的內容與 index.jsonl 的取得記錄原封不動（可能被別筆 work 宣告或被欄位層級的 reference 引用）；刪存檔是另一件事",
+        ]
+        if presence == nil { payload["contentInfoUnreadable"] = true }   // display-safe-exempt: Bool
+        if dryRun {
+            payload["dryRunNote"] = "乾跑：沒有寫入。實跑（CLI --apply、MCP dry_run:false）要求這筆 work 的檔已在 git 裡 commit、乾淨"
         }
         return try jsonString(payload)
     }

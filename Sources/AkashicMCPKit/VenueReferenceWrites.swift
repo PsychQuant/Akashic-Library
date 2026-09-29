@@ -140,19 +140,22 @@ extension AkashicService {
                 "\(at) 的 field「paginated」是判定——改用 paginated／clear_paginated ＋ judgement ＋ rests_on"   // display-safe-exempt: at 是字面＋Int
                 + "（那條路同時改記錄的值與判定史；通用面寫進去會讓兩者分岔）")
         }
-        // 通用面只收 `issn` 與 `names`（#587 R1 verify，四席指出；整合者裁定）。venue 的 reference **沒有移除面**，所以每多收一格，
+        // 通用面只收 `issn` 與 `names`（#587 R1 verify，四席指出；整合者裁定）。當時 venue 的 reference **沒有移除面**，所以每多收一格，
         // 就多一個「寫得進去、之後只能手改 YAML 才出得來」的死角。`authorized`：reference 會鎖住 `authorize` 的換名（舊指定被指著時
         // 具名拒絕），對外形之後再也換不了；`note`：note 沒有工具寫入面。issue Expected 只點名 `issn` 那一格。
+        // **#673 起移除面存在**（`update-venue --remove-reference`，收 names／authorized／issn／note 四格），「沒有移除面」這個理由自此不成立；
+        // `authorized`／`note` 要不要回到通用**寫入**面是使用者的裁決（#673 明寫落地後重新裁決），這裡不動——收窄的範圍維持 #587 R1 的樣子。
         switch field {
         case "issn", "names":
             break
         case "authorized":
             throw ServiceError.invalid(
                 "\(at) 的 field「authorized」不收——這一格的 reference 會讓 authorize 換不了對外形（舊指定被 reference 指著時 authorize 具名拒絕），"   // display-safe-exempt: at 是字面＋Int
-                + "而 venue 的 reference 沒有移除面，只能手改 YAML。要記「這個名字是對外形」的來源，記在 field: names（value 是那個名字）")
+                + "所以這一格目前不收進通用寫入面（要不要收回是待裁的事，#673）；已存在的 authorized reference 用 update-venue --remove-reference 移除。"
+                + "要記「這個名字是對外形」的來源，記在 field: names（value 是那個名字）")
         case "note":
             throw ServiceError.invalid(
-                "\(at) 的 field「note」不收——venue 的 note 沒有工具寫入面，附在它上面的 reference 沒有面能移除；通用面只收 issn 與 names")   // display-safe-exempt: at 是字面＋Int
+                "\(at) 的 field「note」不收——venue 的 note 沒有工具寫入面，附在它上面的 reference 沒有寫入的理由（已存在的 note reference 用 update-venue --remove-reference 移除，#673）；通用面只收 issn 與 names")   // display-safe-exempt: at 是字面＋Int
         default:
             throw ServiceError.invalid(
                 "\(at) 的 field「\(displaySafeInvisible(field, max: 60))」不收——通用 references 面只收 issn 與 names（其餘欄位的來源另有專屬寫入面或尚無寫入面）")   // display-safe-exempt: at 是字面＋Int

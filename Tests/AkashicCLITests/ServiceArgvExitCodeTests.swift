@@ -78,12 +78,38 @@ final class ServiceArgvExitCodeTests: XCTestCase {
         try assertUsageError(["update-entry", "a2020b", "--add-source", emptyDigest], "0 byte")
         try assertUsageError(["update-entry", "a2020b", "--add-source", digest, digest], "出現兩次")
         try assertUsageError(["update-entry", "a2020b", "--add-source", digest, "--remove-field", "a=b"], "單獨呼叫")
-        // #680：--remove-zotero-source 的形狀、理由、來源鍵，以及不與其他兩條腿組合
+        // #680：--remove-zotero-source 的形狀、理由、來源鍵，以及不與其他腿組合
         try assertUsageError(["update-entry", "a2020b", "--remove-zotero-source", "5:K"], "缺少 `=`")
         try assertUsageError(["update-entry", "a2020b", "--remove-zotero-source", "5:K= "], "理由是空白")
         try assertUsageError(["update-entry", "a2020b", "--remove-zotero-source", "K=理由"], "不是來源鍵")
         try assertUsageError(["update-entry", "a2020b", "--remove-zotero-source", "5:K=a", "5:K=b"], "出現兩次")
         try assertUsageError(["update-entry", "a2020b", "--remove-zotero-source", "5:K=a", "--remove-field", "a=b"], "單獨呼叫")
+        // #677：--remove-source 的形狀（`<digest>=理由`）、digest 形狀、理由、同一次重複，以及不與另外三條腿組合
+        try assertUsageError(["update-entry", "a2020b", "--remove-source", digest], "缺少 `=`")
+        try assertUsageError(["update-entry", "a2020b", "--remove-source", "sha256:bad=r"], "不是合法的 digest")
+        try assertUsageError(["update-entry", "a2020b", "--remove-source", "\(digest)= "], "的理由是空白")
+        try assertUsageError(["update-entry", "a2020b", "--remove-source", "\(digest)=a", "\(digest)=b"], "出現兩次")
+        try assertUsageError(["update-entry", "a2020b", "--remove-source", "\(digest)=r", "--add-source", digest], "單獨呼叫")
+        try assertUsageError(["update-entry", "a2020b", "--remove-source", "\(digest)=r", "--remove-field", "a=b"], "單獨呼叫")
+    }
+
+    /// 四條腿（`--remove-field`、`--add-source`、`--remove-zotero-source`、`--remove-source`）**任兩條組合都被拒**（#680／#677）：
+    /// C(4,2)＝6 對，每一對都是 exit 64（用法錯誤）、早於開 store。上面各腿的測試只釘到其中幾對。
+    func testUpdateEntryLegsAreMutuallyExclusive() throws {
+        let legs: [(name: String, args: [String])] = [
+            ("--remove-field", ["--remove-field", "a=b"]),
+            ("--add-source", ["--add-source", digest]),
+            ("--remove-zotero-source", ["--remove-zotero-source", "5:K=r"]),
+            ("--remove-source", ["--remove-source", "\(digest)=r"]),
+        ]
+        var pairs = 0
+        for i in legs.indices {
+            for j in legs.indices where j > i {
+                try assertUsageError(["update-entry", "a2020b"] + legs[i].args + legs[j].args, "單獨呼叫")
+                pairs += 1
+            }
+        }
+        XCTAssertEqual(pairs, 6, "四條腿有 6 對")
     }
 
     func testUpdateVenueArgvChecks() throws {

@@ -56,6 +56,7 @@ final class GitSpawnHygieneTests: XCTestCase {
         "StoreGitCommit.swift",        // #573 的測試 helper：repoint／demote 前先 commit
         "RepairVenueNamesCLITests.swift", // #575：--apply 前先 commit fixture
         "UpdateEntryCLITests.swift",      // #544：--remove-field 的實跑要求 work 檔已 commit
+        "UpdateVenueReferencesCLITests.swift", // #673：--remove-reference 的實跑要求 venue 檔已 commit
         "OrphanedAdditionalSourceTests.swift", // #609：App 裁決台的移除面前先 commit fixture
         "LibraryRuleCLITests.swift",      // #642：替換既有規則與改名遷移規則前要求 registry 檔已 commit
         "CLIIntegrationTests.swift",      // #642：替換既有成員性質前要求 registry 檔已 commit

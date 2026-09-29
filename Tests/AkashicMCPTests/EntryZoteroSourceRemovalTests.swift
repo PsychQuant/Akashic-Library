@@ -6,7 +6,7 @@ import XCTest
 /// #680：`update-entry --remove-zotero-source`／`akashic_update_entry.remove_zotero_sources`——移除面一族（#572／#588／#586 的形）套在
 /// work 的 Zotero 來源上：`<來源鍵>=理由`（來源鍵是 `<library_id>:<zotero_key>` 或 `?:<zotero_key>`）、理由必填且只進報告、實跑要求 work 檔
 /// 已 commit 且乾淨、預設乾跑、不改 store format。逐條釘住：乾跑零寫入、主來源與附加來源都能移除、沒記 library_id 的來源用 `?:` 定位
-/// （#679 的出路）、移除主來源時附加來源不升格、連結狀態變化具名、輸入錯整批拒絕零寫入、不與其他兩條腿組合。
+/// （#679 的出路）、移除主來源時附加來源不升格、連結狀態變化具名、輸入錯整批拒絕零寫入、不與其他三條腿組合（四條腿兩兩互斥，全部六對見 `EntrySourceRemovalTests.testAllFourLegsAreMutuallyExclusive`）。
 final class EntryZoteroSourceRemovalTests: XCTestCase {
     private var root: URL!
     private var service: AkashicService!
@@ -211,7 +211,7 @@ final class EntryZoteroSourceRemovalTests: XCTestCase {
         }
     }
 
-    /// 三條腿各自單獨呼叫：移除 Zotero 來源是判定，不與 `remove_fields`（判定，另一份 git 閘語意）或 `add_sources`（落地）混在一次呼叫裡。
+    /// 四條腿兩兩各自單獨呼叫：移除 Zotero 來源是判定，不與 `remove_fields`（判定，另一份 git 閘語意）、`add_sources`（落地）或 `remove_sources`（判定）混在一次呼叫裡。這裡只釘它與前兩者的兩對，全部六對見 `EntrySourceRemovalTests`。
     func testTheThreeLegsDoNotCombine() throws {
         try work(additional: [Provenance(zoteroKey: "GRP00001", zoteroVersion: 9, libraryID: 5)])
         let d = "sha256:" + String(repeating: "ab", count: 32)

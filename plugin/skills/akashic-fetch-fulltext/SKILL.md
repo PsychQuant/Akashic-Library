@@ -135,7 +135,7 @@ akashic_update_entry(citekey="<citekey>", add_sources=["<digest>"], dry_run=fals
 
 CLI 是 `akashic update-entry <citekey> --add-source <digest>`，加 `--apply` 才寫（未指名目標 store 時要 `--library` 或 `--yes`）。digest 必須已在本機 `sources/`、index 有取得記錄、blob 的位置是普通檔——第 4 步存過就滿足。已連過的回 `sourcesAlreadyPresent`、不重寫。連好之後用 `akashic get-entry <citekey>` 的 `sources` 核對。
 
-**連錯了怎麼還原**：`akashic.sources` 目前沒有移除腿（#677 追蹤），而本面不要求 work 檔已 commit——所以**實寫之前先 commit store**（那是使用者自己的流程，本 skill 不代做），連錯之後才有退路：在 store 目錄用 `git diff -- entities/<id>.yaml` 確認連結是那筆變更，再 `git checkout -- entities/<id>.yaml` 還原那一個檔（`<id>` 是 `get-entry --json` 的 `id`；會連同那個檔未 commit 的其他修改一起丟掉，所以要先 commit）。這是還原不是手改——**仍然不要手寫條目 YAML**。乾跑那一步不要省。
+**連錯了怎麼收回**：用 `update-entry <citekey> --remove-source <digest>=理由`（MCP `update_entry` 的 `remove_sources`，#677）收回那一條宣告。先乾跑（預設）——`sourcesRemoved` 帶回 index 的取得記錄（origin、note），確認要收回的是那一份，再加 `--apply`（MCP `dry_run=false`）實寫。實寫要求這筆 work 的檔已在 git 裡 commit、乾淨（理由只進報告、不寫進 store，要留在 git 就寫進 commit message）；所以連結後、下一次寫入前先 commit store（那是使用者自己的流程，本 skill 不代做）。**只收回宣告**：`sources/` 裡的內容與取得記錄不動（可能被別筆 work 宣告）。理由含引號、`$` 或反引號時走 MCP（結構化參數，不經 shell），不要放進 shell 命令。**仍然不要手寫條目 YAML。**
 
 ### 6. 回報
 

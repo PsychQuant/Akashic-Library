@@ -195,16 +195,19 @@ actor AkashicMCPServer {
                  + "移除 APA7 必要欄位時附 apa7RequiredNowMissing。add_sources 把已存進 sources/ 的內容宣告為這篇的副本（akashic.sources）：add-only、冪等（sourcesAlreadyPresent），"
                  + "sourcesAdded 帶 index 的取得記錄（至多 20 筆，sourcesAddedTotal／truncated 揭露；CLI 全列）。"
                  + "remove_zotero_sources 移除這筆記下的 Zotero 來源（主來源或附加來源；判定：理由必填、只回在 zoteroSourceRemovals；實寫要求 work 檔已 commit、乾淨）："
-                 + "主來源移除後附加來源不升格（primaryRemovedNote），zoteroLinkState 回連結狀態前後。三條腿各自單獨呼叫。work 無法唯一定位時拒絕。",
+                 + "主來源移除後附加來源不升格（primaryRemovedNote），zoteroLinkState 回連結狀態前後。"
+                 + "remove_sources 收回一條副本宣告（判定：理由必填、只回在 sourcesRemoved；只移除宣告，sources/ 的內容與取得記錄不動；實寫要求 work 檔已 commit、乾淨）。"
+                 + "四條腿兩兩不組合。work 無法唯一定位時拒絕。",
              inputSchema: obj([
                 "citekey": str("目標 work 的 citekey"),
                 "remove_fields": strArray("<鍵>=理由（鍵與 fields 現有的鍵逐字相符；理由 ≤ 4,096 位元組）。鍵不存在、同鍵兩次、理由空白或過長、超過 200 個 → 整批拒絕零寫入"),
                 "add_sources": strArray("digest（sha256: 加 64 個小寫十六進位，0 byte 內容的 digest 拒收；先用 akashic_store_source 存）。本機 sources/ 沒有、index 沒有取得記錄、空內容的 digest、重複、超過 200 個 → 整批拒絕零寫入"),
                 "remove_zotero_sources": strArray("<library_id>:<zotero_key>=理由（沒記 library_id 的來源用 ?:<zotero_key>；理由 ≤ 4,096 位元組）。這筆沒有的來源、同來源兩次、形狀錯、理由空白或過長、超過 200 個 → 整批拒絕零寫入"),
+                "remove_sources": strArray("<digest>=理由（digest 要在該 work 的 akashic.sources 上；理由 ≤ 4,096 位元組）。不在清單上、digest 形狀不對、理由空白或過長、同一 digest 兩次、超過 200 個 → 整批拒絕零寫入"),
                 "dry_run": .object(["type": .string("boolean"), "description": .string("預設 true（只回計畫）；false 才寫")]),
              ], required: ["citekey"])),
         Tool(name: "akashic_venue",
-             description: "看一個發表載體：記錄＋刊名沿革（names 時間軸）＋文章編年 list（依年升冪）。零篇是合法答案（workCount: 0），與查無此 venue（notFound）分開；store 有 quarantined 檔且查無時回「無法判定」。",
+             description: "看一個發表載體：記錄＋刊名沿革（names 時間軸）＋通用 references（issn／names 等來源記錄，至多 25 筆，referencesTotal／referencesTruncated 揭露）＋文章編年 list（依年升冪）。零篇是合法答案（workCount: 0），與查無此 venue（notFound）分開；store 有 quarantined 檔且查無時回「無法判定」。",
              inputSchema: obj([
                 "key": str("venue key（kebab-case）"),
              ], required: ["key"])),
@@ -221,7 +224,7 @@ actor AkashicMCPServer {
                 "issn": strArray("ISSN（可多個：print 與 electronic 是兩個真的號；相等看正規形）；角色寫法同 akashic_update_venue 的 add_issn。任一不合法即整個呼叫拒絕、零寫入。回報 issnMediumRecorded、issnDropped"),
              ], required: ["key", "names", "type"])),
         Tool(name: "akashic_update_venue",
-             description: "venue 的部分更新（CLI 對應 `akashic update-venue --help`；名字的不變式見 docs/store-format.md §5.7）。add_names／add_issn／add_variant 是 append：只附加不重複的值，不提供整組替換；authorize 是同書寫系統替換；paginated／clear_paginated 是判定；note／type 替換（選填）。resolve_venues 對沿革各段都配對。需 store format ≥ 11。",
+             description: "venue 的部分更新（CLI 對應 `akashic update-venue --help`；名字的不變式見 docs/store-format.md §5.7）。add_names／add_issn／add_variant 是 append：只附加不重複的值，不提供整組替換；authorize 是同書寫系統替換；paginated／clear_paginated 是判定；remove_issn／remove_reference 是移除（判定；remove_reference 單獨呼叫）；note／type 替換（選填）。resolve_venues 對沿革各段都配對。需 store format ≥ 11。",
              inputSchema: obj([
                 "key": str("既有 venue key"),
                 "add_names": strArray("要附加的名稱變體（相等看 canonical，以 canonical 形入庫）。回報：namesAdded（新加入）、namesAlreadyPresent（本來就在，不論位元組）、namesFolded（折成 canonical 才存，或同批位元組相同的重複）、namesDropped（空白或近重複，沒進）。含不合法字元（規則見 §5.7）或沒有任何字母或數字的名字 → 整批拒絕零寫入（其他參數也不寫）"),
@@ -236,8 +239,10 @@ actor AkashicMCPServer {
                 "judgement": str("paginated 判定的理由（設 paginated 時必填）"),
                 "rests_on": strArray("判定所依據的證據 digest（sha256:64hex，0 byte 內容的 digest 拒收，至少一個——先用 akashic_store_source 存證據拿 digest）"),
                 "remove_issn": strArray("移除 ISSN：<issn>=理由（必填，只回在 issnRemoved、不寫進 store）；指向該號的 field: issn provenance 一併刪除（issnRemoved[].referencesRemoved）。venue 檔要已在 git 裡 commit、無未提交修改。號不合法、這本刊沒有、重複、或同時在 add_issn → 整批拒絕零寫入"),
+                "remove_reference": .object(["type": .string("array"), "items": .object(["type": .string("object")]),
+                    "description": .string("移除 references（單獨呼叫）：物件 {field: names|authorized|issn|note, value, reason（必填，只回在 referencesRemoved、不寫進 store）, 選填縮小鍵 kind／url／…（同 references）}；位元組相等定位。venue 檔要已 commit、乾淨。定位不到或多筆、verdict／paginated 欄位、理由缺、超過 200 筆 → 整批拒絕零寫入")]),
                 "references": .object(["type": .string("array"), "items": .object(["type": .string("object")]),
-                    "description": .string("append-only 的 provenance，鍵名同 akashic_update_person 的 references，但 retrieval 的 status 必填、不認得的鍵拒收、有上限。field 只收 issn／names，帶 value（issn 以正規形、名字以記錄上的拼法入庫），那個值要在記錄上（同一次呼叫加的也算）。authorized、note、verdict、paginated 拒收（venue 的 reference 沒有移除面）。位元組相同的略過。任一筆不合 → 整個呼叫拒絕零寫入（上限與鍵名見 CLI help）。回報 referencesAdded／referencesAlreadyPresent")]),
+                    "description": .string("append-only 的 provenance，鍵名同 akashic_update_person 的 references，但 retrieval 的 status 必填、不認得的鍵拒收、有上限。field 只收 issn／names，帶 value（issn 以正規形、名字以記錄上的拼法入庫），那個值要在記錄上（同一次呼叫加的也算）。authorized、note、verdict、paginated 拒收（已存在的用 remove_reference 移除）。位元組相同的略過。任一筆不合 → 整個呼叫拒絕零寫入（上限與鍵名見 CLI help）。回報 referencesAdded／referencesAlreadyPresent")]),
              ], required: ["key"])),
         Tool(name: "akashic_resolve_venues",
              description: "venue 解析（literal → venue；完整契約見 CLI `akashic resolve-venues --help` 與 docs/store-format.md §3.5）。不帶寫入腿回 {candidates, ambiguities}：candidates 是與 venue name 完全命中（正規化含 lowercase）且不歧義的 literal；ambiguities 是對到 2+ venue、需要判斷的；兩者帶 undecidedChecks；work 或 venue 無法唯一定位（原因見 akashic validate）時該列帶 unlocatableCitekey:true／unlocatableVenueKey:true。apply（citekey:venueIndex）升格 literal 並寫 resolution-confirmed 到該 venue；reject 寫 resolution-rejected（entry 不動）；apply＋reject 可同一次呼叫（reject 先提交，被它以正規化配對壓掉的 apply id 列在 skippedBecauseRejected）；repoint／demote／undecided／drop_venue 各自單獨呼叫。apply 逐筆略過、其餘照寫的三類：skippedUnlocatable、skippedDuplicateVenueEdge（會造成同一 work 兩條邊指同一 venue；既有的重複邊不擋）、skippedConflictingConfirmedLiteral（目的 venue 已對該 work 持有另一個 confirmed literal，比位元組）。reject／repoint／demote 遇到無法唯一定位的 work 或 venue（repoint 兩端都算）整批拒絕；repoint／demote 另在該 venue 對這筆 work 有 ≥2 個不同 confirmed literal、或配對由多條邊實例化時整批拒絕零寫入。repoint／demote 會刪掉同 holder 上同一配對的相反判定，所以那些 venue 檔要已在 git 裡 commit、無未提交修改（否則整批拒絕）；刪掉的逐字列在 verdictsRetired（截 20 筆，verdictsRetiredTotal／truncated）。需 store format ≥ 11。絕不自動配對。",
@@ -646,6 +651,7 @@ actor AkashicMCPServer {
                                                  removeFields: try argStrictList("remove_fields"),
                                                  addSources: try argStrictList("add_sources"),
                                                  removeZoteroSources: try argStrictList("remove_zotero_sources"),
+                                                 removeSources: try argStrictList("remove_sources"),
                                                  dryRun: try argFlag("dry_run", default: true))
             case "akashic_venue":
                 output = try service.venue(key: arg("key") ?? "")
@@ -683,7 +689,8 @@ actor AkashicMCPServer {
                     judgement: arg("judgement"),
                     restsOn: params.arguments?["rests_on"] != nil ? argList("rests_on") : nil,
                     removeISSN: try argStrictList("remove_issn"),
-                    references: try argObjectList("references"))
+                    references: try argObjectList("references"),
+                    removeReference: try argObjectList("remove_reference"))
             case "akashic_resolve_venues":
                 let vApplyProvided = params.arguments?["apply"] != nil
                 let vRejectProvided = params.arguments?["reject"] != nil

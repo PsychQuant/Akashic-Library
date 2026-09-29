@@ -91,6 +91,30 @@ struct VenueCmd: ParsableCommand {
             print("  ISSN：\(rendered.joined(separator: "、"))")   // display-safe-exempt: service 已逐值消毒（40），displaySafe 不冪等
         }
         if let note = obj["note"] as? String { print("  note：\(note)") }
+        // 通用 references（#673）：issn／names 的來源記錄等——要移除一筆（update-venue --remove-reference）先從這裡認出它
+        if let refs = obj["references"] as? [[String: Any]], !refs.isEmpty {
+            let total = obj["referencesTotal"] as? Int ?? refs.count
+            let more = obj["referencesTruncated"] as? Bool == true ? "，只列前 \(refs.count) 筆" : ""   // display-safe-exempt: Int
+            print("  references（\(total)\(more)）：")   // display-safe-exempt: total 是 Int；more 是本函式的字面＋Int
+            for r in refs {
+                let field = r["field"] as? String ?? "?"
+                let value = (r["value"] as? String).map { " 「\($0)」" } ?? ""
+                var line = "    [\(field)]\(value)"   // display-safe-exempt: service 已逐欄位消毒，displaySafe 不冪等
+                if r["kind"] as? String == "judgement" {
+                    let n = (r["rests_on"] as? [String])?.count ?? 0
+                    line += " judgement：\(r["statement"] as? String ?? "")（證據 \(n) 份）"   // display-safe-exempt: statement 取自 service（已 displaySafe）；n 是 Int
+                } else {
+                    var bits: [String] = []
+                    if let u = r["url"] as? String { bits.append("url \(u)") }
+                    if let t = r["retrieved"] as? String { bits.append("retrieved \(t)") }
+                    if let st = r["status"] as? Int { bits.append("status \(st)") }
+                    if let m = r["media_type"] as? String { bits.append("media_type \(m)") }
+                    if let c = r["content"] as? String { bits.append("content \(c)") }
+                    line += " retrieval：" + bits.joined(separator: "；")   // display-safe-exempt: bits 取自 service（已逐欄位消毒）
+                }
+                print(line)
+            }
+        }
         if let vs = obj["verdicts"] as? [[String: Any]], !vs.isEmpty {
             print("  歸戶判定（\(vs.count)）：")
             for v in vs {
@@ -191,7 +215,7 @@ struct AddVenueCmd: ParsableCommand {
 struct UpdateVenueCmd: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "update-venue",
-        abstract: "venue 的部分更新（#306／#394／#471／#554／#587）——append 語意：--add-name／--add-issn／--add-variant／--references 只附加不重複的值（整組替換刻意不提供）；--authorize 是同書寫系統替換（不是 append，見其 help）；--note／--type 替換。venue 無法唯一定位（\(UnlocatableReason.venue)）時整批拒絕、零寫入（#670）")
+        abstract: "venue 的部分更新（#306／#394／#471／#554／#587／#673）——append 語意：--add-name／--add-issn／--add-variant／--references 只附加不重複的值（整組替換刻意不提供）；--authorize 是同書寫系統替換（不是 append，見其 help）；--note／--type 替換；--remove-issn／--remove-reference 是移除（判定，理由只進報告，要求 venue 檔已 commit）。venue 無法唯一定位（\(UnlocatableReason.venue)）時整批拒絕、零寫入（#670）")
 
     @OptionGroup var options: LibraryOptions
 
@@ -268,17 +292,34 @@ struct UpdateVenueCmd: ParsableCommand {
                                    + "judgement 要 statement（≤ 4,096 位元組）／rests_on（1–20 個 digest）。"
                                    + "field 只收 issn 與 names，都要帶 value 指名那一個："
                                    + "issn 的 value 以正規形入庫、names 的 value 以記錄上的拼法入庫（相等看 canonical）；那個號或名字要在記錄上（同一次呼叫 --add-issn／--add-name 加的也算）。"
-                                   + "authorized 與 note 拒收（venue 的 reference 沒有移除面：authorized 的 reference 會鎖住 --authorize 換對外形，note 沒有寫入面）；"
+                                   + "authorized 與 note 拒收（authorized 的 reference 會鎖住 --authorize 換對外形，note 沒有寫入面；要不要收回待裁，#673——已存在的用 --remove-reference 移除）；"
                                    + "verdict 欄位只經 resolve-venues 寫、paginated 判定只經 --paginated／--clear-paginated 寫，也拒收。"
                                    + "鍵名嚴格（不認得的鍵拒收；判斷型的斷言鍵是 statement）；一次至多 200 筆、字串各至多 65,536 位元組。"
                                    + "任一筆不合，整批拒絕、零寫入（同一次呼叫的其他參數也不寫）。報告：referencesAdded"))
     var references: String?
 
-    /// `--references` 的 JSON——不是 JSON 陣列是用法錯誤（64），在 `validate()` 擋；`run()` 用同一個解析。
-    static func referencesArray(_ raw: String?) throws -> [Any]? {
+    /// #673：venue 的 reference 寫得進去（#587）之後的移除面。單獨呼叫；理由只進報告；移除前要求 venue 檔已 commit（同 --remove-issn）。
+    @Option(name: .customLong("remove-reference"),
+            help: ArgumentHelp("要移除的 reference（JSON 物件陣列，#673）；單獨呼叫，不與本命令的任何其他參數組合",
+                               discussion: "每項 {field, value?, reason, …縮小定位的鍵}：field 收 names／authorized／issn／note（通用寫入面只收前兩格，移除面收全部四格——"
+                                   + "手改或舊資料可能有 authorized／note 的 reference），names／authorized／issn 要帶 value（note 不帶）；reason 必填、至多 4,096 位元組。"
+                                   + "定位是 field ＋ value 的位元組相等（canonical 相等而位元組不同的是另一筆），可再以 kind／url／retrieved／status／media_type／content／statement／rests_on"
+                                   + "（同 --references 的鍵名）縮小——給了的鍵都要相符。定位不到、定位到多筆（列出各筆的區別讓你加鍵縮小；位元組完全相同的重複不判定）、"
+                                   + "兩個定位指到同一筆，都整批拒絕、零寫入。用 `akashic venue <key>` 的 references 看現有的。"
+                                   + "移除是判定：理由只印在報告（referencesRemoved，全文），不寫進 store——要留在 git 就寫進 commit message；"
+                                   + "被移除的 reference 只剩 git 的移除前副本，所以這個 venue 檔要已在 git 裡 commit（tracked、無未提交修改），否則整批拒絕。"
+                                   + "只移除 reference：它指的號或名字仍在（移除號用 --remove-issn）。"
+                                   + "resolution verdict 三欄不在本面（resolve-venues --demote／--reject）、paginated 的判定不在本面（--clear-paginated），都具名拒絕並指路。"
+                                   + "一次至多 200 筆。報告：referencesRemoved（逐筆帶被移除 reference 的內容與理由）、referencesTotal（剩下幾筆）"))
+    var removeReference: String?
+
+    /// `--references`／`--remove-reference` 的 JSON——不是 JSON 陣列是用法錯誤（64），在 `validate()` 擋；`run()` 用同一個解析。
+    static func referencesArray(_ raw: String?) throws -> [Any]? { try jsonObjectArray(raw, flag: "--references") }
+
+    static func jsonObjectArray(_ raw: String?, flag: String) throws -> [Any]? {
         guard let raw else { return nil }
         guard let arr = (try? JSONSerialization.jsonObject(with: Data(raw.utf8))) as? [Any] else {
-            throw ValidationError("--references 必須是 JSON 陣列（每項一個物件）")
+            throw ValidationError("\(flag) 必須是 JSON 陣列（每項一個物件）")
         }
         return arr
     }
@@ -286,6 +327,7 @@ struct UpdateVenueCmd: ParsableCommand {
     /// 只看 argv 的檢查早於開 store（#654）：與服務在讀 store 之前跑的是同一個函式，參數的對映與 `run()` 相同。
     func validate() throws {
         let refs = try Self.referencesArray(references)
+        let removeRefs = try Self.jsonObjectArray(removeReference, flag: "--remove-reference")
         try argvCheck {
             try AkashicService.checkUpdateVenueArguments(addNames: addName.isEmpty ? nil : addName, type: type,
                                                          addISSN: addISSN.isEmpty ? nil : addISSN,
@@ -294,7 +336,7 @@ struct UpdateVenueCmd: ParsableCommand {
                                                          paginated: paginated, clearPaginated: clearPaginated,
                                                          judgement: judgement, restsOn: restsOn.isEmpty ? nil : restsOn,
                                                          removeISSN: removeISSN.isEmpty ? nil : removeISSN,
-                                                         references: refs)
+                                                         references: refs, note: note, removeReference: removeRefs)
         }
     }
 
@@ -314,7 +356,8 @@ struct UpdateVenueCmd: ParsableCommand {
                                       judgement: judgement,
                                       restsOn: restsOn.isEmpty ? nil : restsOn,
                                       removeISSN: removeISSN.isEmpty ? nil : removeISSN,
-                                      references: try Self.referencesArray(references)))
+                                      references: try Self.referencesArray(references),
+                                      removeReference: try Self.jsonObjectArray(removeReference, flag: "--remove-reference")))
     }
 }
 

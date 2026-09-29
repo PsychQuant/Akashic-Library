@@ -110,10 +110,28 @@ final class CopyZoteroAttachmentsCLITests: XCTestCase {
         XCTAssertEqual(r.status, 0, r.output)
         XCTAssertFalse(r.output.contains("沒有新東西要複製"), "本機沒有位元組時不得說沒有東西要做：\(r.output)")
         XCTAssertTrue(r.output.contains("已補存"), r.output)
+        // #606 R2 verify：只補存、沒有改寫任何 work 檔——標題不說「已寫入」，結尾不叫人 commit（sources/ 不進 git）
+        XCTAssertFalse(r.output.contains("已寫入"), r.output)
+        XCTAssertFalse(r.output.contains("然後 commit"), r.output)
+        XCTAssertTrue(r.output.contains("沒有東西要 commit"), r.output)
         XCTAssertEqual(try Data(contentsOf: blob()), pdf)
         XCTAssertEqual(try Data(contentsOf: workFile), before, "不改連結、不動 work 檔")
         let v = try cli(["validate"])
         XCTAssertFalse(v.output.contains("本機缺承重存檔"), v.output)
+    }
+
+    /// #606 R2 verify：blob 被清掉、index 的條目還在——補存寫出位元組，而這一次的取得記錄因 index 已有條目被丟棄。
+    /// 同一份輸出不得一邊說「已補存」、一邊說「位元組早就在 sources/」。
+    func testRestoredBytesAreNotDescribedAsAlreadyStored() throws {
+        XCTAssertEqual(try cli(["copy-zotero-attachments", "--apply"] + dbArgs).status, 0)
+        git(["add", "-A"]); git(["commit", "-q", "-m", "copied"])
+        try FileManager.default.removeItem(at: blob())   // 只清 blob，index.jsonl 留著
+        let r = try cli(["copy-zotero-attachments", "--apply"] + dbArgs)
+        XCTAssertEqual(r.status, 0, r.output)
+        XCTAssertTrue(r.output.contains("已補存"), r.output)
+        XCTAssertFalse(r.output.contains("早就在"), r.output)
+        XCTAssertTrue(r.output.contains("位元組這一次才存進 sources/"), r.output)
+        XCTAssertEqual(try Data(contentsOf: blob()), pdf)
     }
 
     /// #298 閘真的接上了：假 home 的 registry 把 current 指到這個 scratch store，不帶 `--library` 的 `--apply` 拒絕且零寫入、

@@ -50,14 +50,17 @@ struct CopyZoteroAttachments: ParsableCommand {
                                      environment: ProcessInfo.processInfo.environment)
         let report = try service.copyZoteroAttachments(zoteroDb: zoteroDb, citekeys: citekeyList, apply: apply)
         Self.render(report, applyRequested: apply)
-        // 有單筆寫入失敗仍以非零退出（收容不是吞掉——自動化才看得到，`import-zotero` 的同一條）
-        if !report.writeFailed.isEmpty { throw ExitCode(1) }
+        // 有單筆寫入失敗或補存失敗仍以非零退出（收容不是吞掉——自動化才看得到，`import-zotero` 的同一條）
+        if !report.writeFailed.isEmpty || !report.restoreFailed.isEmpty { throw ExitCode(1) }
     }
 
     static func render(_ r: ZoteroAttachmentCopyReport, applyRequested: Bool) {
-        print(r.applied ? "Zotero 附件複製（#606）——已寫入"
-              : applyRequested ? "Zotero 附件複製（#606）——--apply：沒有新東西要複製，store 沒有被改動"
-              : "Zotero 附件複製（#606）——乾跑，store 沒有被改動")
+        // #606 R2 verify：`applied` 只說走到了寫入那一段；標題要說真的改了什麼（全部略過時不說「已寫入」，只補存時不說改寫了 work）
+        print(!r.applied ? (applyRequested ? "Zotero 附件複製（#606）——--apply：沒有新東西要複製，store 沒有被改動"
+                                           : "Zotero 附件複製（#606）——乾跑，store 沒有被改動")
+              : !r.written.isEmpty ? "Zotero 附件複製（#606）——已寫入"
+              : r.changedAnything ? "Zotero 附件複製（#606）——已補存本機 sources/，沒有改寫任何 work 檔"
+              : "Zotero 附件複製（#606）——--apply：沒有改寫任何 work 檔、也沒有補存任何檔（見下方的略過與失敗）")
         print("帶 zotero 附件記錄的 work：\(r.considered)；\(r.applied ? "已複製" : "要複製")：\(r.planned.count) 個檔；已連過：\(r.alreadyLinked.count)；略過：\(r.skipped.count)")
         for item in r.planned { print(itemLine(item)) }
         if !r.restoredLocally.isEmpty {
@@ -65,6 +68,12 @@ struct CopyZoteroAttachments: ParsableCommand {
             print("")
             print("已連過、但本機 sources/ 沒有位元組——\(r.applied ? "已補存" : "要補存")（不改連結、不動 work 檔）：\(r.restoredLocally.count) 個檔")   // display-safe-exempt: Int
             for item in r.restoredLocally { print(itemLine(item)) }
+        }
+        if !r.recordRestored.isEmpty {
+            // #606 R2 verify：位元組在、index 沒有條目（孤兒 blob）——以前算已連過，每次重跑都說做完了
+            print("")
+            print("已連過、位元組在本機，但 sources/index.jsonl 沒有它的取得記錄——\(r.applied ? "已補記" : "要補記")（位元組不重寫、不改連結、不動 work 檔）：\(r.recordRestored.count) 個檔")   // display-safe-exempt: Int
+            for item in r.recordRestored { print(itemLine(item)) }
         }
         if !r.skipped.isEmpty {
             print("")
@@ -90,10 +99,12 @@ struct CopyZoteroAttachments: ParsableCommand {
             print("")
             print("已改寫 \(r.written.count) 筆 work 的 akashic.sources")   // display-safe-exempt: Int
             if !r.provenanceNotRecorded.isEmpty {
-                // lossless-intake：丟棄必須可見——位元組早就在，index 的取得記錄以先到的為準，這次的 Zotero 來源沒有寫進去
-                print("位元組早就在 sources/、這次的 Zotero 來源（origin 與 note）沒有寫進 index（以先到的那一條為準）：\(r.provenanceNotRecorded.count) 個檔")   // display-safe-exempt: Int
+                // lossless-intake：丟棄必須可見——index 已有這份內容的條目、以先到的為準，這次的 Zotero 來源沒有寫進去。
+                // 位元組可能早就在，也可能這一次才存（index 留著、blob 被清過）——逐行說是哪一種（#606 R2 verify：以前一律說「早就在」）
+                print("index 已有這份內容的取得記錄、這次的 Zotero 來源（origin 與 note）沒有寫進去（以先到的那一條為準）：\(r.provenanceNotRecorded.count) 個檔")   // display-safe-exempt: Int
                 for n in r.provenanceNotRecorded.prefix(Entry.perRecordWarningCap * 5) {
-                    print("  \(displaySafeInvisible(n.item.citekey, max: 200))  \(displaySafeInvisible(n.item.path, max: 300))  保留的 origin：\(n.keptOrigin.map { displaySafeClipOnly($0, max: 300) } ?? "（讀不到）")")   // display-safe-exempt: keptOrigin 已由 service 以 displaySafeInvisible 消毒，只截
+                    let bytes = n.bytesWereAlreadyStored ? "位元組已在（先前或這一趟稍早存的）" : "位元組這一次才存進 sources/"
+                    print("  \(displaySafeInvisible(n.item.citekey, max: 200))  \(displaySafeInvisible(n.item.path, max: 300))  \(bytes)；保留的 origin：\(n.keptOrigin.map { displaySafeClipOnly($0, max: 300) } ?? "（讀不到）")")   // display-safe-exempt: keptOrigin 已由 service 以 displaySafeInvisible 消毒，只截；bytes 是本檔的固定句
                 }
                 if r.provenanceNotRecorded.count > Entry.perRecordWarningCap * 5 {
                     print("  …另有 \(r.provenanceNotRecorded.count - Entry.perRecordWarningCap * 5) 個未列出")   // display-safe-exempt: Int
@@ -112,6 +123,13 @@ struct CopyZoteroAttachments: ParsableCommand {
                 print("  ✗ \(displaySafeInvisible(key, max: 200)) — \(displaySafeClipOnly(r.writeFailed[key]!, max: 4_096))")   // display-safe-exempt: 已消毒（service 以 displaySafeError 產出），只截
             }
         }
+        if !r.restoreFailed.isEmpty {
+            print("")
+            print("補存失敗（連結沒動、work 檔沒動；重跑會再補）: \(r.restoreFailed.count)")   // display-safe-exempt: Int
+            for f in r.restoreFailed {
+                print("  ✗ \(displaySafeInvisible(f.item.citekey, max: 200))  \(displaySafeInvisible(f.item.path, max: 300)) — \(displaySafeClipOnly(f.message, max: 4_096))")   // display-safe-exempt: message 已消毒（service 以 displaySafeError 產出），只截
+            }
+        }
         if let why = r.indexRebuildFailure {
             print("⚠ index rebuild 失敗（記錄與存檔都已落地）：\(displaySafeClipOnly(why, max: 1_024))；跑 `akashic doctor` 重建")   // display-safe-exempt: 已消毒（service 以 displaySafeError 產出），只截
         }
@@ -120,9 +138,12 @@ struct CopyZoteroAttachments: ParsableCommand {
             print("--apply 會整批拒絕、零寫入：\(displaySafeClipOnly(refusal, max: 4_096))")   // display-safe-exempt: 已消毒（service 以 displaySafeError 產出），只截
         }
         print("")
-        if r.applied {
+        if r.applied && !r.written.isEmpty {
             print("接下來：`akashic validate` 確認，然後 commit。連錯的副本宣告用 `update-entry <citekey> --remove-source <digest>=理由` 收回。")
-        } else if !r.planned.isEmpty || !r.restoredLocally.isEmpty {
+        } else if r.applied {
+            // 只補存或全部略過：沒有 work 檔被改寫，sources/ 不進 git（#606 R2 verify）
+            print("沒有改寫任何 work 檔，沒有東西要 commit（sources/ 不進 git）。")
+        } else if !r.planned.isEmpty || !r.restoredLocally.isEmpty || !r.recordRestored.isEmpty {
             print("確認以上無誤後加 --apply（要求被改寫的 work 檔已在 git 裡 commit、乾淨，且 sources/ 已被版控排除）。")
         }
     }

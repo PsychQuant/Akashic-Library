@@ -268,7 +268,7 @@ akashic:
   寫檔之後 `index` 重建失敗時呼叫仍回成功、報告多 `indexRebuilt: false`／`indexNote`（不擲錯：錯誤出口逐行截 400 字元，一段長理由會被截掉；MCP 的讀取面依 mtime 自動重建，CLI 的 `query` 不會，要跑 `akashic doctor`）——三條移除腿與 `update-venue --remove-reference` 同一個處置。
   （這裡說的是 `akashic.sources` 的副本；work 記下的 Zotero 來源的移除面是另一條腿 `--remove-zotero-source`，§2.5.3，#680。四條腿——`--remove-field`、`--add-source`、`--remove-zotero-source`、`--remove-source`——兩兩不組合。）
 - **第二個寫入者**（#606）：`akashic copy-zotero-attachments [--apply]`（只有 CLI）批次地把 `zotero:` 附件的位元組存進 `sources/`（`storeSource`，取得記錄同落）再連到 `akashic.sources`——
-  同一個形狀、add-only、冪等（「已連過」看本機位元組：連結在而本機 `sources/` 沒有的只補存、不改連結；寫 work 前重讀記錄檔，計畫之後被改過的不以舊快照覆寫，#606 R1）；與 `--add-source` 的差別只在位元組**從哪裡來**（Zotero 資料目錄的 `storage/`，而不是先用 `store-source` 存好）。乾跑預設；實跑要求被改寫的 work 檔已在 git 裡 commit、乾淨，
+  同一個形狀、add-only、冪等（「已連過」看本機存檔：連結在而本機 `sources/` 沒有的只補存、不改連結；位元組在而 index 沒有條目的只補記取得記錄，#606 R2；寫 work 前重讀記錄檔，計畫之後被改過的不以舊快照覆寫，#606 R1）；與 `--add-source` 的差別只在位元組**從哪裡來**（Zotero 資料目錄的 `storage/`，而不是先用 `store-source` 存好）。乾跑預設；實跑要求被改寫的 work 檔已在 git 裡 commit、乾淨，
   且每個要存的 digest 過 `storeSource` 的全部前置（`sources/` 被版控排除、index 沒有壞行）——任何一道過不了就整批零寫入。
 - **讀取端**：`get-entry`／`akashic_get_entry` 的 `akashic.sources` 列出連好的 digest（取得記錄在 `sources/index.jsonl`）。
 

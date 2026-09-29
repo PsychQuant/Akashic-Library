@@ -28,6 +28,9 @@ public extension LibraryStore {
         /// 這次交來、但**沒有被寫入**的 provenance（既有條目以先到為準）。
         /// nil = 沒有丟棄任何東西。
         public let discardedProvenance: SourceProvenance?
+        /// 這次呼叫有沒有**寫出** blob（false＝同 digest 的 blob 已經在 `sources/`）。與 `indexEntryCreated` 是兩件事：
+        /// index 有條目而 blob 被清過時，這次寫出位元組、卻不新增條目（#606 R2 verify：呼叫端要能分辨「位元組早就在」與「這次才存」）。
+        public let bytesWritten: Bool
     }
 
     /// #224：存 source 時**必須**一起提供的 provenance——blob 本身只是位元組，
@@ -145,13 +148,15 @@ public extension LibraryStore {
             return SourceReceipt(digest: blob.digest,
                                  exclusionVerified: blob.exclusionVerified,
                                  indexEntryCreated: false,
-                                 discardedProvenance: provenance)
+                                 discardedProvenance: provenance,
+                                 bytesWritten: blob.bytesWritten)
         }
         try appendIndexEntry(digest: blob.digest, bytes: data.count, provenance: provenance)
         return SourceReceipt(digest: blob.digest,
                              exclusionVerified: blob.exclusionVerified,
                              indexEntryCreated: true,
-                             discardedProvenance: nil)
+                             discardedProvenance: nil,
+                             bytesWritten: blob.bytesWritten)
     }
 
     var sourceIndexURL: URL { sourcesDir.appendingPathComponent("index.jsonl") }
@@ -377,13 +382,15 @@ public extension LibraryStore {
         let verified = try assertSourcesExcluded(relativePath: relative)
         // sourceURL 對剛算出的合法 digest 不可能回 nil
         let url = sourceURL(digest: digest)!
+        var wrote = false
         if !FileManager.default.fileExists(atPath: url.path) {
             try FileManager.default.createDirectory(
                 at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             try data.write(to: url, options: .atomic)
+            wrote = true
         }
         return SourceReceipt(digest: digest, exclusionVerified: verified,
-                             indexEntryCreated: false, discardedProvenance: nil)
+                             indexEntryCreated: false, discardedProvenance: nil, bytesWritten: wrote)
     }
 
     /// 讀回存檔。**缺席（nil）與格式錯（throw）是兩個條件**（task 4.5）：

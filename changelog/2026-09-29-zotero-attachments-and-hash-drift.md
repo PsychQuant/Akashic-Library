@@ -79,3 +79,30 @@
 **測試**：`ZoteroAttachmentCopyTests` +4（閘之後改過並 commit 的 work 不被覆寫且重跑補上、連結在而本機缺位元組的補存不改連結且不要求 work 檔乾淨、本機那一份位置上是目錄時具名略過、丟棄的取得記錄附保留的 origin）；`CopyZoteroAttachmentsCLITests` +1（真 binary：第二份 clone 拿掉 `sources/` 後重跑補回、work 檔位元組不變、`validate` 不再報缺）；`ZoteroStorageFileTests` +6（讀回位元組、定位後換成 symlink、KEY 目錄換成指出去的 symlink、換成 FIFO 不卡住、被清空、`storage/` 本身是 symlink）。
 
 **負控**（反向編輯、`cmp` 確認還原）：拿掉重讀比對 → 1 支紅（閘之後改過的那支）；`.absent` 當成已連過 → 2 支紅（服務層與 CLI 的補存）；不記丟棄的取得記錄 → 3 支紅（新的一支與既有兩支 `blobsAlreadyStored`）；`read` 拿掉 `O_NOFOLLOW` → 1 支紅（換成 symlink）；拿掉 kernel 真實位置的前綴比對 → 1 支紅（KEY 目錄換出去）。`O_NONBLOCK` 沒有做負控：拿掉它的結果是測試卡住，不是紅。
+
+## Verify R2 修正（#606）
+
+第二輪六席（requirements、logic、security、regression、devil's advocate、Codex）；全輪 62 則沒有 HIGH。R1 的 HIGH（以計畫時的快照覆寫）由 requirements、logic、security、regression、devil's advocate 五席各自確認已關閉，Codex 沒有對它下判斷。以下「第 N 則」是本輪報告的編號。
+
+**孤兒 blob 補記取得記錄（第 5、16 則）。** 位元組在、`sources/index.jsonl` 沒有它的條目時，以前算進「已連過」，每次重跑都說做完了、`akashic doctor` 一直報孤兒 blob，而工具手上就有補記需要的資料。現在另列 `recordRestored`（乾跑「要補記」、實跑「已補記」），走同一個 `storeSource`：blob 已在所以不重寫，index 沒有條目所以補上這一次的取得記錄（`origin: zotero:…`）。不改連結、不動 work 檔，只過存檔前置。**沒做的一半**：第 16 則另提「以 Zotero 的位元組比對既有 blob 的內容」。「已連過」仍只看 blob 在不在與 index 有沒有條目，不重算既有 blob 的 digest；被截短或換掉的 blob 由這個命令看不出來。型別 doc 寫明這一點，先前那句「位元組層的語意」改掉。
+
+**同一筆 work 兩個內容相同的附件只補存一次（第 6 則）。** 補存那一條路以前只以路徑去重：digest 已連、本機缺位元組時兩個都進 `restoredLocally`，第二次 `storeSource` 冪等早退，被報成「取得記錄沒寫進去」，CLI 說補存了 2 個檔。現在與新連結那一條路同形：第二個列在「已連過」。
+
+**補存失敗另列（第 7 則）。** 補存擲錯（I/O、磁碟滿）以前記在 `writeFailed[citekey]`：同一筆 work 的新連結已經寫進去時，同一個 citekey 同時在 `written` 與 `writeFailed`，訊息說寫入失敗。現在記在 `restoreFailed`（檔、訊息），CLI 另一段「補存失敗（連結沒動、work 檔沒動；重跑會再補）」，照樣非零結束。測試接縫多一個 internal 的 `beforeStore`（每一次 `storeSource` 之前呼叫，擲錯即當成那一次存檔擲錯），對外的入口沒有這個參數。
+
+**報告的措辭（第 8、20、27 則）。**
+- 標題：`applied` 只說走到了寫入那一段。有改寫 work 才說「已寫入」；只補存時說「已補存本機 sources/，沒有改寫任何 work 檔」；全部略過時說「沒有改寫任何 work 檔、也沒有補存任何檔」。第 20 則另提結束碼：全部略過仍是 0——略過逐行具名、與新連結那一條路同一個規則；真的失敗（`writeFailed`、`restoreFailed`）才非零。
+- 結尾：沒有改寫 work 檔時說「沒有東西要 commit（sources/ 不進 git）」，不再叫人 validate 之後 commit。
+- 丟棄的取得記錄：以前一律說「位元組早就在 sources/」，而 index 的條目還在、blob 被清過時，位元組其實是這一次補存的——同一份輸出剛說過「已補存」。現在標題說「index 已有這份內容的取得記錄、這次的 Zotero 來源沒有寫進去」，每一行說位元組是「已在（先前或這一趟稍早存的）」還是「這一次才存進 sources/」。判斷來自 `SourceReceipt` 新的 `bytesWritten`（這次呼叫有沒有寫出 blob，與 `indexEntryCreated` 是兩件事）；`blobsAlreadyStored` 只數前者。
+
+**過期的註解（第 18 則）**：計畫階段那句「讀檔只為算 digest（mmap，不常駐）」改成整份讀進記憶體、算完即釋放。
+
+**沒有大小上限，寫成誠實邊界（第 15 則）**：`ZoteroStorageFile.read` 把整個附件讀進記憶體，乾跑也一樣（要讀完才算得出 digest）；群組 library 的附件是別人放的，一個幾 GB 的檔會吃掉等量的記憶體。`store-source` 與 `SourceStore` 本來就沒有大小上限，這裡不另立一個數字；型別 doc 補上「乾跑也一樣」。
+
+**不修的**：
+- 第 1 則（MEDIUM）：issue 的 Expected「改寫附件記錄指向新位置」仍未照字面實作，是待使用者裁決的代裁 1；行為不動，這一則留在 issue 的 Blocking。
+- 第 17、19 則：`rereadVenue` 沒有被 #606 用到——在 main 頂端它是 #675 的 `VenueNameSegmentEdit` 在用（devil's advocate 第 59 則），不是死碼。第 17 則說 public 的 `rereadEntry`／`rereadVenue` 沒有路徑包含檢查：今天的輸入只來自可回溯閘自己列舉的檔名，不是外部字串；本輪不動。
+
+**測試**：`ZoteroAttachmentCopyTests` +4（孤兒 blob 補記取得記錄、內容相同的已連附件只補存一次、補存失敗不算 work 的寫入失敗、index 留著而 blob 被清過時丟棄照列但標明位元組是這次才存的）；`CopyZoteroAttachmentsCLITests` +1（真 binary：同一個情形的輸出沒有「早就在」）、既有的第二份 clone 那一支多驗標題不說「已寫入」、結尾不叫人 commit。
+
+**負控**（反向編輯、以備份逐位元組還原）：孤兒 blob 回到「已連過」→ 1 支紅；拿掉補存那一條路的去重 → 1 支；補存失敗記回 `writeFailed` → 1 支；`bytesWereAlreadyStored` 一律 true → 2 支（服務層 1 支、兩則斷言；CLI 1 支）；CLI 標題改回「applied 就說已寫入」→ 1 支；結尾改回一律叫人 commit → 1 支；丟棄那一行改回「位元組早就在 sources/」→ 1 支。

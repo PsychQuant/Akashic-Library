@@ -429,3 +429,89 @@ final class ZoteroAttachmentCopyTests: XCTestCase {
         XCTAssertEqual(r.skipped.first?.reason, .changedDuringRun)
     }
 }
+
+// MARK: - R2 verify（#606）
+
+extension ZoteroAttachmentCopyTests {
+    /// blob 在、index 沒有它的條目（孤兒 blob）：以前算「已連過」而什麼都不做，每次重跑都說已連過、`akashic doctor` 一直報孤兒。
+    /// 現在走同一個 `storeSource`：位元組不重寫、補上這一次的取得記錄，另列一格。
+    func testAnUnindexedBlobGetsItsAcquisitionRecord() throws {
+        let bytes = try put("storage/ABCD1234/paper.pdf", "%PDF-1.7 orphan blob")
+        let d = digest(bytes)
+        let e = try addWork("a2025", attachments: ["storage/ABCD1234/paper.pdf"], sources: [d])
+        commit()
+        try FileManager.default.createDirectory(at: blob(d).deletingLastPathComponent(), withIntermediateDirectories: true)
+        try bytes.write(to: blob(d))   // 只有位元組，沒有 index 那一行
+        let fileBefore = try entryFileBytes(e)
+        let dry = try run(apply: false)
+        XCTAssertEqual(dry.alreadyLinked, [], "缺取得記錄就不是做完了")
+        XCTAssertEqual(dry.recordRestored.map(\.digest), [d])
+        XCTAssertEqual(dry.restoredLocally, [], "位元組在，不是補存位元組那一格")
+        XCTAssertEqual(indexLines().count, 0, "乾跑不寫 index")
+        let r = try run(apply: true)
+        XCTAssertEqual(r.recordRestored.map(\.digest), [d])
+        XCTAssertEqual(r.written, [], "不改連結")
+        XCTAssertEqual(try entryFileBytes(e), fileBefore, "work 檔一個位元組都不動")
+        let obj = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(try XCTUnwrap(indexLines().first).utf8)) as? [String: Any])
+        XCTAssertEqual(obj["content"] as? String, d)
+        XCTAssertEqual(obj["origin"] as? String, "zotero:storage/ABCD1234/paper.pdf")
+        XCTAssertEqual(r.provenanceNotRecorded, [], "這一次的取得記錄寫進去了")
+        let again = try run(apply: false)
+        XCTAssertEqual(again.alreadyLinked.map(\.digest), [d], "現在才是真的做完了")
+        XCTAssertEqual(again.recordRestored, [])
+    }
+
+    /// 同一筆 work 兩個附件內容相同、digest 已連、本機缺位元組：只補存一次，第二個列在已連過（與新連結那一條路同形）。
+    /// 以前兩個都進補存那一格，第二次 `storeSource` 冪等早退，被報成「取得記錄沒寫進去」。
+    func testSameContentAttachmentsOnALinkedWorkAreRestoredOnce() throws {
+        let bytes = try put("storage/ABCD1234/a.pdf", "%PDF same bytes, linked")
+        try put("storage/WXYZ5678/b.pdf", "%PDF same bytes, linked")
+        try addWork("a2025", attachments: ["storage/ABCD1234/a.pdf", "storage/WXYZ5678/b.pdf"], sources: [digest(bytes)])
+        commit()
+        let dry = try run(apply: false)
+        XCTAssertEqual(dry.restoredLocally.map(\.path), ["storage/ABCD1234/a.pdf"])
+        XCTAssertEqual(dry.alreadyLinked.map(\.path), ["storage/WXYZ5678/b.pdf"])
+        let r = try run(apply: true)
+        XCTAssertEqual(r.restoredLocally.count, 1)
+        XCTAssertEqual(r.provenanceNotRecorded, [], "同一份內容只存一次，沒有被丟棄的取得記錄")
+        XCTAssertEqual(indexLines().count, 1)
+    }
+
+    /// 同一筆 work：新附件的連結寫進去了、已連附件的補存失敗——以前兩件事都記在 `writeFailed[citekey]`，
+    /// 同一個 citekey 同時在 `written` 與 `writeFailed`，訊息說寫入失敗而連結其實寫了。現在補存失敗另列。
+    func testARestoreFailureIsNotReportedAsAFailedWrite() throws {
+        let linked = try put("storage/LINKEDK1/old.pdf", "%PDF already linked, bytes missing")
+        let fresh = try put("storage/FRESHKY1/new.pdf", "%PDF new attachment")
+        try addWork("a2025", attachments: ["storage/LINKEDK1/old.pdf", "storage/FRESHKY1/new.pdf"], sources: [digest(linked)])
+        commit()
+        let r = try service.copyZoteroAttachments(
+            zoteroDb: dbPath, citekeys: nil, apply: true, now: Date(timeIntervalSince1970: 1_790_000_000),
+            afterPlanning: nil,
+            beforeStore: { item in
+                if item.path == "storage/LINKEDK1/old.pdf" { throw CocoaError(.fileWriteOutOfSpace) }
+            })
+        XCTAssertEqual(r.written, ["a2025"], "新附件的連結寫進去了")
+        XCTAssertEqual(try work("a2025").akashic.sources, [digest(linked), digest(fresh)])
+        XCTAssertEqual(r.writeFailed, [:], "連結沒有寫失敗")
+        XCTAssertEqual(r.restoreFailed.map(\.item.path), ["storage/LINKEDK1/old.pdf"])
+        XCTAssertEqual(r.restoredLocally, [])
+    }
+
+    /// index 還有這份內容的條目、blob 卻不在（blob 被清過）：補存寫出位元組，而 `storeSource` 因 index 已有條目冪等早退、丟棄這一次的取得記錄。
+    /// 以前報告同時說「已補存」與「位元組早就在 sources/」。現在丟棄照樣列出，但標明位元組是這一次才存的。
+    func testRestoredBytesAreNotReportedAsAlreadyStored() throws {
+        let bytes = try put("storage/ABCD1234/paper.pdf", "%PDF-1.7 blob cleaned, index kept")
+        let d = digest(bytes)
+        try addWork("a2025", attachments: ["storage/ABCD1234/paper.pdf"], sources: [d])
+        commit()
+        _ = try store.storeSource(bytes, provenance: LibraryStore.SourceProvenance(
+            mediaType: "application/pdf", retrieved: "2026-09-01T00:00:00Z", origin: "https://publisher.example/p.pdf", acquisition: "manual"))
+        try FileManager.default.removeItem(at: blob(d))
+        let r = try run(apply: true)
+        XCTAssertEqual(r.restoredLocally.map(\.digest), [d])
+        XCTAssertEqual(try Data(contentsOf: blob(d)), bytes)
+        XCTAssertEqual(r.provenanceNotRecorded.map(\.item.digest), [d], "這一次的 zotero: 來源沒寫進 index——丟棄照樣看得到")
+        XCTAssertEqual(r.provenanceNotRecorded.first?.bytesWereAlreadyStored, false, "位元組是這一次才存的")
+        XCTAssertEqual(r.blobsAlreadyStored, 0)
+    }
+}

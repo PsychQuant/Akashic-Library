@@ -35,12 +35,24 @@ public struct ZoteroAttachmentCopyReport {
         case localCopyUnverifiable(String)
     }
 
-    /// `storeSource` 冪等早退、丟棄了這次交來的取得記錄（`discardedProvenance`）的一個檔：位元組早就在 `sources/`、index 的條目以先到的為準，
+    /// `storeSource` 冪等早退、丟棄了這次交來的取得記錄（`discardedProvenance`）的一個檔：index 已有這份內容的條目、以先到的為準，
     /// 這次的 Zotero 來源（`origin: zotero:<path>` 與 note）**沒有**寫進 index（`lossless-intake`：丟棄必須可見）。
+    /// 位元組可能早就在，也可能是這一次才存的（index 的條目還在、blob 被清過）——#606 R2 verify 之前一律說成「早就在」，
+    /// 而同一份報告剛說過「已補存」。
     public struct ProvenanceNotRecorded: Equatable {
         public let item: Item
         /// index 裡保留的那一條的 `origin`（已消毒）；讀不到是 nil。
         public let keptOrigin: String?
+        /// 存之前 blob 就在 `sources/`（`SourceReceipt.bytesWritten` 的反面）。false＝位元組是這一次才存進去的。
+        public let bytesWereAlreadyStored: Bool
+    }
+
+    /// 已連過的 digest 補存（位元組或取得記錄）時 `storeSource` 擲錯（I/O、磁碟滿）。與 `writeFailed` 分開：
+    /// 補存不改寫 work，同一筆 work 的新連結可能已經寫進去了——混在一起會讓同一個 citekey 同時在 `written` 與 `writeFailed`（#606 R2 verify）。
+    public struct RestoreFailure: Equatable {
+        public let item: Item
+        /// 已消毒。
+        public let message: String
     }
 
     public struct Skipped: Equatable {
@@ -58,6 +70,12 @@ public struct ZoteroAttachmentCopyReport {
     /// digest 已連在 work 上、本機 `sources/` 卻**沒有**這份位元組（別台 clone——`sources/` 不進 git——或 `sources/` 被清過）：
     /// 乾跑是要補存的、實跑是已補存的。只存位元組與取得記錄，**不改連結**、不動 work 檔（所以不過可回溯閘）。#606 R1 verify。
     public var restoredLocally: [Item] = []
+    /// digest 已連在 work 上、位元組在本機，但 `sources/index.jsonl` 沒有它的條目（孤兒 blob：`akashic doctor` 報的 `orphanBlobs`）：
+    /// 乾跑是要補記的、實跑是已補記的——走同一個 `storeSource`，位元組不重寫、補上這一次的取得記錄；不改連結、不動 work 檔。
+    /// #606 R2 verify 之前這一格算進 `alreadyLinked`，每次重跑都說已連過，而工具手上就有補記需要的資料。
+    public var recordRestored: [Item] = []
+    /// 實跑：補存（`restoredLocally`／`recordRestored`）時 `storeSource` 擲錯的檔。連結沒動，重跑會再補。
+    public var restoreFailed: [RestoreFailure] = []
     public var skipped: [Skipped] = []
     /// 無法唯一定位的 work（#627／#641）——本趟不碰。
     public var unlocatable: [String] = []
@@ -70,11 +88,13 @@ public struct ZoteroAttachmentCopyReport {
     /// 實跑：單筆寫入失敗（citekey → 已消毒的錯誤描述），其餘照跑。含「計畫之後這筆 work 被改過」（閘之後重讀、與計畫的快照不同——
     /// 不以舊快照覆寫，#606 R1 verify）。
     public var writeFailed: [String: String] = [:]
-    /// 實跑：位元組早就在 `sources/`、這次的取得記錄沒有寫進 index 的檔（前一次跑到一半、這一趟稍早另一筆 work 存過同一份、或同一份內容
-    /// 先前經別的路徑存過）。不重複寫、不重複記；逐檔列出並附 index 保留的那一條的 origin。
+    /// 實跑：index 已有這份內容的條目、這次的取得記錄沒有寫進 index 的檔（前一次跑到一半、這一趟稍早另一筆 work 存過同一份、同一份內容
+    /// 先前經別的路徑存過、或 index 的條目還在而 blob 被清過）。不重複記；逐檔列出並附 index 保留的那一條的 origin。
     public var provenanceNotRecorded: [ProvenanceNotRecorded] = []
-    /// `provenanceNotRecorded` 的個數。
-    public var blobsAlreadyStored: Int { provenanceNotRecorded.count }
+    /// `provenanceNotRecorded` 裡位元組早就在的個數（這一次才存位元組的不算）。
+    public var blobsAlreadyStored: Int { provenanceNotRecorded.filter(\.bytesWereAlreadyStored).count }
+    /// 實跑：有沒有真的改寫 work 檔或補存任何檔。`applied` 只說「走到了寫入那一段」——全部略過時它也是 true（#606 R2 verify）。
+    public var changedAnything: Bool { !written.isEmpty || !restoredLocally.isEmpty || !recordRestored.isEmpty }
     /// 實跑：`sources/` 的版控排除驗證是否真的跑了（store 不在 git 裡時是 false）。沒有存過任何東西時是 nil。
     public var exclusionVerified: Bool?
     public var applied = false
@@ -99,8 +119,9 @@ public struct ZoteroAttachmentCopyReport {
 /// ## 契約
 ///
 /// - **乾跑是預設**；`--apply` 才寫。乾跑與實跑算**同一份**計畫、跑**同一組**閘；乾跑把閘的拒絕當預告放進報告，實跑遇到就擲錯、零寫入。
-/// - **可重跑**：digest 已在該筆 work 的 `akashic.sources` 上**且位元組在本機 `sources/`** 的不重複複製（`alreadyLinked`）；已連過而本機沒有
-///   位元組的（別台 clone、`sources/` 被清過）只補存位元組、不改連結（`restoredLocally`）——「已複製」是位元組層的語意，不是連結層（#606 R1 verify）；
+/// - **可重跑**：digest 已在該筆 work 的 `akashic.sources` 上、**位元組在本機 `sources/` 且 index 有它的取得記錄**的不重複複製（`alreadyLinked`）；
+///   已連過而本機沒有位元組的（別台 clone、`sources/` 被清過）只補存位元組、不改連結（`restoredLocally`）——「已複製」看的是本機存檔，不是連結（#606 R1 verify）；
+///   位元組在而 index 沒有條目的（孤兒 blob）只補記取得記錄（`recordRestored`，#606 R2 verify）——只看存在與條目，**不重算既有 blob 的 digest**；
 ///   blob 早就在 `sources/`（前一次跑到一半）的不重寫、不重複記取得記錄（`storeSource` 的冪等語意），這次沒寫進 index 的 Zotero 來源逐檔列在
 ///   `provenanceNotRecorded`（附 index 保留的 origin）。
 /// - **不以舊快照覆寫**：寫 work 之前，讀可回溯閘回傳的那個檔、與計畫時 load 的快照比相等；不同（閘的時間窗裡被別的寫入者改過並 commit）就不寫、
@@ -114,7 +135,8 @@ public struct ZoteroAttachmentCopyReport {
 /// - 不動 `attachments`、不動 `provenance`、不動書目欄位；`akashic.sources` 只追加。
 ///
 /// **誠實邊界**：`sources/` 不進 git，別台 clone 讀到這條連結時位元組不在（§2.4.1：載入成功、可報缺席）——那台機器上重跑本命令會補回（`restoredLocally`），
-/// 前提是它的 Zotero 資料目錄裡還有那個檔；沒有大小上限（每個檔整份讀進記憶體、存完即釋放——不 mmap，檔案被截短時 mmap 會讓行程收到 SIGBUS）；
+/// 前提是它的 Zotero 資料目錄裡還有那個檔；沒有大小上限（每個檔整份讀進記憶體、存完即釋放——**乾跑也一樣**，要讀完整份才算得出 digest；
+/// 不 mmap，檔案被截短時 mmap 會讓行程收到 SIGBUS；`store-source` 與 `SourceStore` 本來就沒有大小上限，這裡不另立一個）；
 /// 計畫階段與複製階段各讀一次檔案（`ZoteroStorageFile.read`：`O_NOFOLLOW` 開一次、從同一個 descriptor 判斷種類與真實位置再讀完），之間內容被換掉時以
 /// digest 對不上偵測（`changedDuringRun`）；閘之後的重讀與寫入之間仍有一個很短的窗（沒有 store 層的鎖）；Zotero 端的檔案之後再變（重新下載、編輯註記）不會回頭更新
 /// 已複製的副本——那是另一份內容、另一個 digest，下一次跑會再連一份。**逆操作**：連錯的宣告用 `update-entry --remove-source`（#677）收回；blob 與取得記錄留在
@@ -126,9 +148,11 @@ extension AkashicService {
         try copyZoteroAttachments(zoteroDb: zoteroDb, citekeys: citekeys, apply: apply, now: now, afterPlanning: nil)
     }
 
-    /// 測試接縫：`afterPlanning` 在計畫算完、第一次寫入之前呼叫（模擬「計畫之後檔案內容被換掉」）。對外的入口沒有這個參數。
+    /// 測試接縫：`afterPlanning` 在計畫算完、第一次寫入之前呼叫（模擬「計畫之後檔案內容被換掉」）；`beforeStore` 在每一次 `storeSource` 之前呼叫，
+    /// 擲錯即當成那一次存檔擲錯（模擬 I/O 失敗）。對外的入口沒有這兩個參數。
     func copyZoteroAttachments(zoteroDb: String?, citekeys: [String]?, apply: Bool, now: Date,
-                               afterPlanning: (() throws -> Void)?) throws -> ZoteroAttachmentCopyReport {
+                               afterPlanning: (() throws -> Void)?,
+                               beforeStore: ((ZoteroAttachmentCopyReport.Item) throws -> Void)? = nil) throws -> ZoteroAttachmentCopyReport {
         let dbPath = ((zoteroDb ?? "~/Zotero/zotero.sqlite") as NSString).expandingTildeInPath
         guard FileManager.default.fileExists(atPath: dbPath) else {
             throw ServiceError.notFound("zotero.sqlite：\(displaySafeInvisible(dbPath, max: 300))")
@@ -148,7 +172,7 @@ extension AkashicService {
             report.notInStore = wanted.subtracting(load.entries.map(\.citekey)).sorted()
         }
 
-        // 計畫：每筆 work 算出「要新連的檔」。讀檔只為算 digest（mmap，不常駐）。
+        // 計畫：每筆 work 算出「要新連的檔」。讀檔只為算 digest（整份讀進記憶體、算完即釋放；不 mmap，理由見 `ZoteroStorageFile.read`）。
         struct Target { var entry: Entry; var items: [ZoteroAttachmentCopyReport.Item] }
         var targets: [Target] = []
         var linkedOnWork: [ZoteroAttachmentCopyReport.Item] = []
@@ -168,6 +192,7 @@ extension AkashicService {
             var linked = alreadyOnWork
             var items: [ZoteroAttachmentCopyReport.Item] = []
             var seenPaths = Set<String>()
+            var linkedSeen = Set<String>()   // 已連的 digest 在這筆 work 裡只查一次、只補一次（#606 R2 verify：與新連結那一條路同形）
             for att in attachments where seenPaths.insert(att.path).inserted {
                 switch ZoteroStorageFile.locate(dataDir: dataDir, attachmentPath: att.path) {
                 case .refused(let why):
@@ -189,8 +214,10 @@ extension AkashicService {
                         dataDir: dataDir, located: f)
                     if linked.insert(item.digest).inserted {
                         items.append(item)
-                    } else if alreadyOnWork.contains(item.digest) {
+                    } else if alreadyOnWork.contains(item.digest), linkedSeen.insert(item.digest).inserted {
                         linkedOnWork.append(item)   // 連結在——位元組在不在本機，下面一次查完
+                    } else if alreadyOnWork.contains(item.digest) {
+                        report.alreadyLinked.append(item)   // 同一筆內另一個附件內容相同、已在上面那一格：補存（若要）只做一次
                     } else {
                         report.alreadyLinked.append(item)   // 同一筆內另一個附件剛計畫的同一份內容：它那一份會存
                     }
@@ -204,8 +231,10 @@ extension AkashicService {
                 let presence = try store.sourcePresence(digests: Array(Set(linkedOnWork.map(\.digest))))
                 for item in linkedOnWork {
                     switch presence[item.digest] {
-                    case .stored?, .unindexed?:   // 位元組在（孤兒 blob 缺的是取得記錄，doctor 會報；位元組本身在本機）
+                    case .stored?:
                         report.alreadyLinked.append(item)
+                    case .unindexed?:   // 位元組在、index 沒有條目：補記取得記錄（#606 R2 verify）
+                        report.recordRestored.append(item)
                     case .absent?:
                         report.restoredLocally.append(item)
                     case .notRegularFile(let kind)?:
@@ -230,23 +259,23 @@ extension AkashicService {
         var gatePaths: [UUID: String] = [:]
         do {
             gatePaths = try assertZoteroCopyWritable(targets.map { ($0.entry, $0.items) },
-                                                     restoreDigests: report.restoredLocally.map(\.digest))
+                                                     restoreDigests: (report.restoredLocally + report.recordRestored).map(\.digest))
         } catch {
             if apply { throw error }
             report.applyRefusal = displaySafeError(error, max: 4_096)
         }
-        guard apply, !targets.isEmpty || !report.restoredLocally.isEmpty else { return report }
+        guard apply, !targets.isEmpty || !report.restoredLocally.isEmpty || !report.recordRestored.isEmpty else { return report }
         report.applied = true
 
         // 實跑：逐筆——先存這一筆的檔、再寫這一筆的連結。單筆失敗收容（`import-zotero` 的形），其餘照跑；重跑會補上沒做完的。
         var plannedAfter: [ZoteroAttachmentCopyReport.Item] = []
         let stamp = ISO8601DateFormatter().string(from: now)
-        var notRecorded: [ZoteroAttachmentCopyReport.Item] = []
+        var notRecorded: [(item: ZoteroAttachmentCopyReport.Item, bytesWereAlreadyStored: Bool)] = []
         func fail(_ citekey: String, _ why: String) {
             report.writeFailed[citekey] = report.writeFailed[citekey].map { $0 + "；" + why } ?? why
         }
-        /// 讀第二次、digest 要與計畫相同才存（不同就是被換掉了，略過、不存、不連）。回傳存下的 digest；略過回 nil。
-        func copy(_ item: ZoteroAttachmentCopyReport.Item) throws -> String? {
+        /// 讀第二次、digest 要與計畫相同才存（不同就是被換掉了，略過、不存、不連）。回傳存檔的收據；略過回 nil。
+        func storeOne(_ item: ZoteroAttachmentCopyReport.Item) throws -> LibraryStore.SourceReceipt? {
             let data: Data
             switch ZoteroStorageFile.read(dataDir: item.dataDir, located: item.located) {
             case .data(let d): data = d
@@ -261,21 +290,22 @@ extension AkashicService {
                 report.skipped.append(.init(citekey: item.citekey, path: item.path, reason: .changedDuringRun))
                 return nil
             }
+            try beforeStore?(item)
             let receipt = try store.storeSource(data, provenance: LibraryStore.SourceProvenance(
                 mediaType: item.mediaType, retrieved: stamp,
                 origin: "zotero:\(item.path)", acquisition: "zotero-storage-copy",
                 note: Self.zoteroCopyNote(citekey: item.citekey, modified: item.modified)))
-            if receipt.discardedProvenance != nil { notRecorded.append(item) }
+            if receipt.discardedProvenance != nil { notRecorded.append((item, !receipt.bytesWritten)) }
             report.exclusionVerified = (report.exclusionVerified ?? true) && receipt.exclusionVerified
-            return receipt.digest
+            return receipt
         }
         for t in targets {
             var entry = t.entry
             var linkedNow: [String] = []
             do {
                 for item in t.items {
-                    guard let d = try copy(item) else { continue }
-                    linkedNow.append(d)
+                    guard let receipt = try storeOne(item) else { continue }
+                    linkedNow.append(receipt.digest)
                     plannedAfter.append(item)
                 }
                 guard !linkedNow.isEmpty else { continue }
@@ -294,23 +324,27 @@ extension AkashicService {
                 plannedAfter.removeAll { $0.citekey == entry.citekey }
             }
         }
-        // 已連過、本機缺位元組的：只存，不改連結、不寫 work
+        // 已連過、本機缺位元組或缺取得記錄的：只存，不改連結、不寫 work。失敗另列（不是 work 的寫入失敗，#606 R2 verify）
         var restoredAfter: [ZoteroAttachmentCopyReport.Item] = []
-        for item in report.restoredLocally {
+        var recordedAfter: [ZoteroAttachmentCopyReport.Item] = []
+        for (item, isRecordOnly) in report.restoredLocally.map({ ($0, false) }) + report.recordRestored.map({ ($0, true) }) {
             do {
-                if try copy(item) != nil { restoredAfter.append(item) }
+                guard let receipt = try storeOne(item) else { continue }
+                // 補記那一格只收真的寫進 index 的：這一趟稍早另一個檔已記了同一份內容時，這一次的來源被丟棄、列在 provenanceNotRecorded
+                if !isRecordOnly { restoredAfter.append(item) } else if receipt.indexEntryCreated { recordedAfter.append(item) }
             } catch {
-                fail(item.citekey, displaySafeError(error, max: 4_096))
+                report.restoreFailed.append(.init(item: item, message: displaySafeError(error, max: 4_096)))
             }
         }
         report.restoredLocally = restoredAfter
+        report.recordRestored = recordedAfter
         report.planned = plannedAfter
         if !notRecorded.isEmpty {
-            let kept = (try? store.sourcePresence(digests: Array(Set(notRecorded.map(\.digest))))) ?? [:]
-            report.provenanceNotRecorded = notRecorded.map { item in
+            let kept = (try? store.sourcePresence(digests: Array(Set(notRecorded.map(\.item.digest))))) ?? [:]
+            report.provenanceNotRecorded = notRecorded.map { n in
                 var origin: String?
-                if case .stored(let row)? = kept[item.digest], let o = row["origin"] { origin = displaySafeInvisible(o, max: 300) }
-                return .init(item: item, keptOrigin: origin)
+                if case .stored(let row)? = kept[n.item.digest], let o = row["origin"] { origin = displaySafeInvisible(o, max: 300) }
+                return .init(item: n.item, keptOrigin: origin, bytesWereAlreadyStored: n.bytesWereAlreadyStored)
             }
         }
         if !report.written.isEmpty {

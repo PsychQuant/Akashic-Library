@@ -386,17 +386,25 @@ extension LibraryStore {
         // 合集只驗 key 不驗 shape——person 被記成 work 照樣寫入，validate 警告
         // 「無法被消歧」而 MCP 面完全看不見；真正的 work（citekey）反而不在集合裡、
         // 結構上不可用。shape 說是什麼，就到那個形狀的集合裡驗。
-        let byShape: [EntityKind: Set<String>] = [
-            .person: Set(load.people.map(\.key)),
-            .organization: Set(load.organizations.map(\.key)),
-            .work: Set(load.entries.map(\.citekey)),
+        // 窮舉 switch 而不是字典字面值（#699 R1 verify）：`crossRecordIssues` 的查找表同一個形狀，字面值漏了 `.venue` 而編譯器看不出來；
+        // switch 讓下一個新形狀在這裡也編不過，要當場決定它收不收。
+        var byShape: [EntityKind: Set<String>] = [:]
+        for kind in EntityKind.allCases {
+            switch kind {
+            case .person: byShape[kind] = Set(load.people.map(\.key))
+            case .organization: byShape[kind] = Set(load.organizations.map(\.key))
+            case .work: byShape[kind] = Set(load.entries.map(\.citekey))
             // #553：venue 加入。**與 `resolveDivergence` 的 switch 必須同一個 change**
             // ——`.organization` 今天正是那個半吊子狀態（記得起來、解不掉），
             // venue 不重蹈。**org 維持這個狀態是 #555 的顯式裁決**（使用者 2026-09-11：暫不做，既不實作也不拿掉），
             // 理由、代價與觸發條件在 `zero-instance-guards` 第 24 列；`StoreHealth.unmergeableDivergences` 讓第一筆
             // org 歧異記錄出聲（#555 R2 D90）。不要把這一格當成待修的殘留（#555 R1 verify 第 15 列）。
-            .venue: Set(load.venues.map(\.key)),
-        ]
+            case .venue: byShape[kind] = Set(load.venues.map(\.key))
+            // 歧異記錄沒有 key（身分是 UUID），不收——`checkDivergenceArguments` 在讀 store 之前就拒絕它；
+            // 沒有集合的形狀走下面的「合併管線尚未實作」那一則。
+            case .divergence: break
+            }
+        }
         for c in candidates {
             guard let pool = byShape[c.shape] else {
                 // #553：訊息**分兩則**。原本只有一則，說的是「歧異記錄沒有 key」——

@@ -12,3 +12,10 @@
 ## 測試
 
 `DivergenceHardeningTests.testVenueCandidatesAreNotReportedAsDangling`：兩筆 venue 都在的歧異記錄不報，指到不存在的 venue 仍報。修正前紅（三則誤報），修正後綠。
+
+## R1 verify 修正
+
+六席（requirements、logic、security、regression、devil's advocate、Codex）；本輪 62 則裡屬 #699 的是 logic 席的一則 LOW 與三則 INFO。
+
+- **同形的第二張表也改成窮舉 `switch`**（logic 席 LOW）：`recordDivergence` 驗候選存在的 `byShape` 也是以 `EntityKind` 為鍵的字典字面值。它今天含 venue、刻意不含 divergence，沒有漏格；但新增一種形狀時它不會編不過，只會安靜地落到「合併管線尚未實作」那一則。現在同 `crossRecordIssues` 一樣是對 `EntityKind.allCases` 的窮舉 `switch`，divergence 那一格明寫不收。行為不變，所以沒有新測試；既有的 `recordDivergence` 測試照跑。
+- requirements、regression、devil's advocate 三席逐一掃過 `Sources` 內其餘以 `EntityKind` 為鍵的表與 `switch`，沒有別處漏 venue。

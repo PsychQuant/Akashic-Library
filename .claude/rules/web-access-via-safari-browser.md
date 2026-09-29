@@ -124,6 +124,26 @@ Crossref、ORCID、DOI 解析、出版商頁面）一直是 skill 層的事；�
      Crossref、ORCID 等不需金鑰的 API 照舊經 safari-browser；出現第二個需要金鑰的 API 時，要顯式
      新增一類（連同規則第 2 條與守衛的封閉清單），不從本類類推。
 
+## Semantic Scholar 的取得順序（封閉列舉，只看 `akashic s2 status` 的結束碼，只有兩種狀態）
+
+使用者 2026-09-29（+08:00）裁決：「有 key 走 key，沒 key 最後才用 safari-browser」。skill 查 S2 之前先跑
+`akashic s2 status`（MCP 是 `akashic_s2` 的 `endpoint: status`，看 `keychain.present` 與
+`keychain.readable` 是否都為 true）：
+
+1. **結束碼 0（金鑰存在且可讀）→ 一律走〈例外〉第 2 類。** 這時**不得**經 safari-browser 查
+   Semantic Scholar——那是用另一個額度打同一個主機、繞過全機節流的第二條路。
+2. **結束碼 3（沒有金鑰，或讀不到）→ 先請使用者設定金鑰**：指向
+   `plugin/skills/akashic-bootstrap/references/semantic-scholar.md`，訊息裡的 service／account 照轉。
+   使用者表示不設定、或這次設定不了，才**最後**經 safari-browser 查 S2：不帶金鑰，照本規則第 1 條與
+   〈使用紀律〉的全部條款（鎖分頁、中止條款、讀大型回應後核對身分）。
+
+兩個邊界：
+
+- **查詢遇到結束碼 4（限流用盡）或 5（S2 或網路錯誤），不改走 safari-browser 補查。** 有金鑰時
+  改走頁面等於繞過節流；照訊息處理，或稍後再查。
+- **這是 skill 選路的規則，不是介面的行為。** `akashic s2` 本身沒有匿名模式——沒有金鑰就以結束碼 3
+  停下（〈例外〉第 2 類最後一條）；退到 safari-browser 的是 skill，不是 CLI。
+
 ## 不適用（同樣是封閉列舉，只有三類）
 
 1. **開發與發布工具鏈自身的網路操作**——`git`、`gh`、`swift` 的套件解析、`claude plugin`、
@@ -235,3 +255,4 @@ grep -rlE -- '--tab-in-window' plugin/skills plugins/*/skills Sources | grep -vE
 | 2026-09-29 | #634 的六席驗證（51 則）：(1) `--url-exact` 比的是 Safari 回報的網址而我們拿自己組的字串比，轉址與百分比編碼讓它鎖不到，且沒有 miss 處置（第 16 列）；(2) `web-access.md` 的 DOM 讀取步驟直接用 `"${LOCK[@]}"`，遺失時退回 front tab（第 1 列）；(3) `landing_page_url` 這類 API 回應裡的網址被交給使用者已登入的 Safari 開（第 8 列）；(4) 完整網址進 shell 字串（第 9 列）；(5) `akashic-fetch-fulltext` 被當成已遷移，而腳本鎖法沒動（第 3／12／41／47 列）；(6) 量法沒掃 `plugin/rules`（第 20 列）；(7) 兩份操作程序只靠叮嚀、已分岔（第 25／33 列）；(8) 404 與「不是 JSON」對同一個回應各說各話（第 26／32／38 列） | 鎖法改為 `--profile`＋`--url-endswith`（理由、查證、沒實測見〈使用紀律〉）；每個區塊自足；加〈開的網址從哪來〉與「完整網址」形狀列；判斷順序寫明；`fetch-fulltext` 列入形狀 (b)；量法補掃 `plugin/rules`；兩份程序的鏡像顯式成列（〈操作程序的兩份描述〉）。**沒有實跑 safari-browser**（限制：不得操作 Safari）：第 16 列的修法只讀了 `--help` 與 binary 字串表 |
 | 2026-09-29 | #629 第二塊：把 `crossref_match.py`、`calibrate_title_match.py`（直連 Crossref 的 Python 腳本）與 `fetch-fulltext.sh`（視窗編號鎖）移植成 Swift。直連的兩支若照字面移植就是在 `Sources/` 新增 HTTP client；`fetch-fulltext.sh` 若順手改鎖法，就是在沒有裁決、沒有實跑 Safari 的情況下改動一條安全紀律 | `crossref-match` 做成重播式（取得回到 skill，缺的請求以 JSON 列出、exit 3）、`calibrate` 讀本機目錄，`Sources/` 仍沒有 HTTP client；`fetch` 鎖法不變（〈例外〉第二種形狀），改 `--url-endswith` 仍待使用者裁決。新舊差分（17 萬個判定案例、1,860 筆 Crossref 比對、18 條 fetch 路徑對同一個 stub）記在 changelog；**Swift 版 `fetch` 沒有對真的 safari-browser 跑過**（不得操作 Safari），引數向量逐字沿用舊腳本、由測試逐條斷言 |
 | 2026-09-29 | #664：使用者有 Semantic Scholar 的 API 金鑰，想讓 Akashic 用它查詢。照本規則只能經 safari-browser 頁內 fetch，而那得把金鑰放進 `safari-browser js` 的指令參數、出現在 process list（#640 指出）；五條要用 S2 的工作線（#640、#620、#621、#622、#665）各自實作又會有五份金鑰處理與節流。本規則當時的第 2 條（`Sources/` 不新增 HTTP client）與「不適用」第 2 類（「`akashic` CLI……沒有網路」）都擋在這條路上 | 使用者在 Clarity Surface 與 spectra-discuss 定案後，Spectra change `semantic-scholar-interface` 新增 `AkashicS2` target、`akashic s2` 子命令群與 `akashic_s2` MCP 工具；第 2 條改為只有 `Sources/AkashicS2/` 例外、〈例外〉從一類改為兩類、「不適用」第 2 類點名排除 `akashic s2`；`akashic-guards network-confinement`（負對照 `network-confinement-mutations`）把網路與 keychain API 鎖在那個目錄 |
+| 2026-09-29 | #664 實作完成後使用者裁決 S2 的取得順序：「有 key 走 key，沒 key 最後才用 safari-browser」——先前的例外只規定「帶金鑰的查詢走 `akashic s2`」，沒說無金鑰時能不能經 safari-browser 查 S2，也沒擋住有金鑰時仍經頁面查 S2 這條繞過節流的路 | 新增〈Semantic Scholar 的取得順序〉：依 `akashic s2 status` 的結束碼分兩種狀態；有金鑰一律走 `akashic s2`，沒有金鑰先請使用者設定、最後才經 safari-browser；查詢遇到 4、5 不改走頁面 |

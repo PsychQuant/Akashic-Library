@@ -90,6 +90,15 @@ MCP 遇到錯誤時回 `isError: true`，文字與 CLI 的錯誤訊息相同。
 
 另有兩種少見的情形也是結束碼 3：項目的內容不是可用的金鑰（空的、不是 UTF-8，或含換行等控制字元），照〈存金鑰〉重存；其他 keychain 錯誤，訊息帶 OSStatus 碼，本檔不涵蓋。
 
+## 沒有金鑰時，skill 怎麼查
+
+skill 查 Semantic Scholar 之前先看 `status`：
+
+1. **結束碼 0（金鑰存在且可讀）**：一律用 `akashic s2`／`akashic_s2`。不會再經 safari-browser 查 S2——那會用另一個額度打同一個主機，繞過全機節流。
+2. **結束碼 3（沒有金鑰或讀不到）**：skill 先請你照〈存金鑰〉設定。你不設定、或這次設定不了，skill 才**最後**經 safari-browser、不帶金鑰查 S2（共用額度，常回 429；照 [web-access.md](web-access.md) 的程序與中止條款）。
+
+查詢遇到結束碼 4 或 5 時，skill 不會改走 safari-browser 補查。`akashic s2` 本身沒有匿名模式：退到 safari-browser 的是 skill，不是這個接口。
+
 ## 頻率限制
 
 - 全機所有程序（CLI、MCP server、多個 session）合計每秒至多 1 個請求。每個請求先在狀態檔上預約一個送出時段（間隔 1.05 秒），等到時段才送。分頁端點的每一頁各占一個時段，一次取全部 references 會花對應的時間。

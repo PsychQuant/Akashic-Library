@@ -56,6 +56,7 @@
 ### 金鑰：程序內非互動讀取，ACL 所有 app 可讀，header 只送 S2 主機
 
 - 以 Security framework 的 generic password 查詢（service `semantic-scholar`、account `default`）在程序內讀取，**非互動**：ACL 不允許時回傳錯誤，不跳授權框。MCP server 在背景執行，看不到授權框，互動式讀取會讓它卡住。
+- 非互動的寫法是在查詢中帶 `kSecUseAuthenticationContext`，值為 `interactionNotAllowed = true` 的 `LAContext`。依 Apple 文件，`kSecUseAuthenticationUIFail` 自 macOS 11 起棄用，改用這個寫法；需要驗證時回傳 `errSecInteractionNotAllowed`，找不到項目時回傳 `errSecItemNotFound`。文件沒有說明這是否也涵蓋舊式檔案型 keychain 的 ACL 對話框，所以由實機驗證確認。
 - ACL 建議設為所有 app 可讀。`akashic` 是本機 ad-hoc 建置（#633），限定特定 binary 的 ACL 在每次重建後都會失效。S2 金鑰免費、有額度限制、可撤銷重發，這個風險可以接受；設定文件寫明這個取捨。
 - `x-api-key` 只在請求的 host 恰為 `api.semanticscholar.org` 且 scheme 為 `https` 時附上。
 - 金鑰以一個 description 一律回 `<redacted>` 的型別持有，避免被字串插值或 log 意外印出。
@@ -79,11 +80,13 @@
 
 | 覆寫 | 限制 | 理由 |
 |---|---|---|
-| `AKASHIC_S2_BASE_URL` | 只接受 `http://127.0.0.1`、`http://localhost`、`http://[::1]`（可帶 port）；其他值整個請求拒絕 | 否則一個環境變數就能把請求導到別的主機；覆寫生效時 host 不是 S2，依 host 規則不附金鑰 |
+| `AKASHIC_S2_BASE_URL` | 只接受 `http://127.0.0.1`、`http://localhost`、`http://[::1]`（可帶 port）；其他值整個請求拒絕 | 否則一個環境變數就能把請求導到別的主機。覆寫生效時 host 不是 S2，依 host 規則不附金鑰；**也不讀 keychain**：金鑰反正不會送出，測試因此不必碰真的 keychain 項目，成功路徑的 CLI 測試也不需要測試用的金鑰 |
 | `AKASHIC_S2_KEYCHAIN_SERVICE` | 只接受以 `akashic-test-` 開頭的名稱 | 讓測試用一個不存在的 service 走完「沒有金鑰」路徑，但無法指向其他真實項目 |
 | `AKASHIC_S2_STATE_DIR` | 必須是絕對路徑 | 測試用暫存目錄驗證跨程序節流 |
 
 in-process 的 client 測試用 `URLProtocol` stub 攔截請求，並注入替身的金鑰提供者。
+
+`CLITestHarness` 會先清掉所有 `AKASHIC_*` 再注入測試給的環境；因此一個忘了設覆寫的 `s2` 測試會讀到開發機上真的金鑰、連到真的 S2。harness 對 `s2` 呼叫在測試沒指定 `AKASHIC_S2_KEYCHAIN_SERVICE` 時補上 `akashic-test-harness`：最壞的結果是結束碼 3，不會連網，也不會讀到真的項目。
 
 ### 守衛：網路與 keychain API 只准出現在 AkashicS2
 
@@ -142,7 +145,7 @@ in-process 的 client 測試用 `URLProtocol` stub 攔截請求，並注入替�
 - `.githooks/run-guards.sh` 全綠，其中 `network-confinement` 通過、`network-confinement-mutations` 證明守衛會開火。
 - 以 `URLProtocol` stub 驗證：只有 host 為 `api.semanticscholar.org` 的請求帶 `x-api-key`；網址中不含金鑰；429 重試至多 3 次；`Retry-After` 被遵守。
 - 兩個子程序共用同一個 `AKASHIC_S2_STATE_DIR`、各送 3 個請求，所有請求的送出時間兩兩間隔至少 1 秒（容許 50 ms 誤差）。
-- `AKASHIC_S2_KEYCHAIN_SERVICE=akashic-test-<隨機>` 時，`akashic s2 paper DOI:10.1037/a0038889` 以結束碼 3 結束，且不發出任何網路請求。
+- `AKASHIC_S2_KEYCHAIN_SERVICE=akashic-test-<隨機>`（不設 `AKASHIC_S2_BASE_URL`）時，`akashic s2 paper DOI:10.1037/a0038889` 以結束碼 3 結束；「讀不到金鑰時不發出任何請求」由 in-process 測試以 `URLProtocol` stub 驗證。
 - 實機驗證（需真金鑰，只在使用者的機器上跑、不進自動測試）：`akashic s2 status` 回報 present／readable 皆為 true；`akashic s2 paper DOI:10.1037/a0038889 --json` 回傳該論文。
 
 **範圍**：

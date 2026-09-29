@@ -45,11 +45,11 @@ The `x-api-key` header SHALL be attached only when the request's scheme is `http
 
 - **GIVEN** `AKASHIC_S2_BASE_URL` is `http://127.0.0.1:8765`
 - **WHEN** any endpoint is requested
-- **THEN** the request SHALL go to `127.0.0.1:8765` without an `x-api-key` header
+- **THEN** the request SHALL go to `127.0.0.1:8765` without an `x-api-key` header, and the keychain SHALL NOT be read
 
 ### Requirement: A missing key stops the command with setup guidance
 
-When no key item exists, the system SHALL stop before sending any request, SHALL NOT fall back to anonymous access, and SHALL tell the user which keychain service and account to create and where the setup document is. The CLI SHALL exit with code 3; the MCP tool SHALL return the same text with `isError: true`.
+When requests are addressed to the Semantic Scholar host and no key item exists, the system SHALL stop before sending any request, SHALL NOT fall back to anonymous access, and SHALL tell the user which keychain service and account to create and where the setup document is. The CLI SHALL exit with code 3; the MCP tool SHALL return the same text with `isError: true`.
 
 #### Scenario: A user without a key looks up a paper
 
@@ -139,7 +139,7 @@ The interface SHALL accept three environment overrides and SHALL refuse any valu
 - `AKASHIC_S2_KEYCHAIN_SERVICE`: only names that begin with `akashic-test-`
 - `AKASHIC_S2_STATE_DIR`: only absolute paths
 
-A refused value SHALL stop the command before any request, with exit code 64 on the CLI.
+A refused value SHALL stop the command before any request, with exit code 64 on the CLI. While `AKASHIC_S2_BASE_URL` is set, the interface SHALL NOT read the keychain and SHALL NOT attach a key, because no request goes to the Semantic Scholar host.
 
 #### Scenario: A base URL pointing elsewhere is refused
 

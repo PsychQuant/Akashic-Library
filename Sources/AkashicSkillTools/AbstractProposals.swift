@@ -25,7 +25,7 @@ import AkashicCore
 ///    `update-entry --remove-field` 把那 21 筆的摘要移除之後，它們沒有摘要、會被排回階段 B——若階段 B 對它們抓到同一個樣板，
 ///    這裡擋得住。核心層（`create-entry`／`enrich`／`validate`）不過濾，那是 #676 的裁決題。
 ///    **這個字串在程式裡只有一份**（`crossrefNoMetadata`），但 plugin 的 `akashic-venue-works/SKILL.md` 階段 A 另抄了一份——plugin 讀者
-///    讀不到這個 private repo 的 Swift 檔，判準得寫在他們讀得到的地方（#629 R1 verify 第 48 則：先前這裡寫「只有一份」，與 SKILL.md 並存的
+///    在安裝處讀不到本 repo 的 Swift 檔，判準得寫在他們讀得到的地方（#629 R1 verify 第 48 則：先前這裡寫「只有一份」，與 SKILL.md 並存的
 ///    事實不符）。兩份之間由 `AbstractProposalsPythonJSONTests.testTheSkillsCopyOfTheNoMetadataTemplateEqualsTheConstant` 對帳，
 ///    改字串時那個測試會紅。
 /// 2. `doi` **原樣透傳**：URL 前綴與大小寫由 core 的 `DOI` 正規化吸收，這裡**不**複製那條規則。轉換自己只有一條更弱的身分規則

@@ -53,7 +53,7 @@ description: 取得 Akashic 條目的全文 PDF 並存進 store——EndNote「F
 
 以 DOI 查 OpenAlex：`https://api.openalex.org/works/doi:<DOI>` 的 `best_oa_location`（**以 DOI 查單筆**；不要用 OpenAlex 關鍵字搜尋找作品，見 akashic-bootstrap 的 work-sources.md）。**這一步的取得經 safari-browser**：程序、鎖分頁與插值前的形狀檢查見 [web-access.md](../akashic-bootstrap/references/web-access.md)，是頁內 fetch，不是第 3 步的 `fetch`；中止條款以本檔為準。
 
-**第 3 步的 `--landing` 一律是 `https://doi.org/<DOI>`**，不論有沒有開放版本。`best_oa_location.landing_page_url` 與 `pdf_url` 是 OpenAlex 回應裡的字串（出版商與典藏庫登記的 metadata，第三方資料），**不直接在使用者已登入的 Safari 開**（web-access.md〈開哪個網址〉：被入侵或惡意登記的 metadata 會把使用者的個人 profile 導向攻擊者頁面）。有開放版本時，把它的位址（host 與路徑，不是要開的動作）列給使用者，由他決定要不要改用那個網址；**使用者在對話裡回覆確認後**它才算「使用者給定」，才可以當 `--landing`——而且**必須同時帶 `--doi <DOI>`**：`akashic fulltext fetch` 只有 `--landing` 是 doi.org 網址時才從網址取 DOI（`FulltextFetch.doiFromLanding`：`https://doi.org/`、`http://doi.org/`、`https://dx.doi.org/` 三個前綴、區分大小寫），其他網址不帶 `--doi`，`akashic fulltext verify` 沒有 DOI 可比，`doi_state` 是 `absent`，檔案必然存成 `*.unverified.pdf`、結束碼 5（讀碼確定，不是偶然）。
+**第 3 步的 `--landing` 一律是 `https://doi.org/<DOI>`**，不論有沒有開放版本。`best_oa_location.landing_page_url` 與 `pdf_url` 是 OpenAlex 回應裡的字串（出版商與典藏庫登記的 metadata，第三方資料），**不直接在使用者已登入的 Safari 開**（web-access.md〈開哪個網址〉：被入侵或惡意登記的 metadata 會把使用者的個人 profile 導向攻擊者頁面）。有開放版本時，把它的位址（host 與路徑，不是要開的動作）列給使用者，由他決定要不要改用那個網址；**使用者在對話裡回覆確認後**它才算「使用者給定」，才可以當 `--landing`——而且**必須同時帶 `--doi <DOI>`**：`akashic fulltext fetch` 只有 `--landing` 是 doi.org 網址時才從網址取 DOI（`FulltextFetch.doiFromLanding`：`https://doi.org/`、`https://dx.doi.org/` 兩個前綴、區分大小寫；`--landing` 只收 https），其他網址不帶 `--doi`，`akashic fulltext verify` 沒有 DOI 可比，`doi_state` 是 `absent`，檔案必然存成 `*.unverified.pdf`、結束碼 5（讀碼確定，不是偶然）。
 
 **不另走一般 HTTP 下載**（不用 `curl`、WebFetch）：2026-09-23 有三份 OSF preprint 與一份 UvA 典藏是那樣下載成功的（publishers.md 該列），但那是這條規矩之前的觀察，**經第 3 步的 Safari 路徑取這幾站沒有量過**（DOI 經 `doi.org` 轉到那些站的頁面再找 PDF 連結，沒有實跑）——找不到 PDF 連結會結束碼 3，照該碼處理。只有 `pdf_url`、沒有 `landing_page_url` 時停下來問使用者，**不要**把 PDF 網址當 `--landing`：讀碼（沒有實跑）——`fetch` 在等頁面載完時讀 `document.readyState`，而 Safari 的 PDF 檢視器讀不到，60 秒後以「頁面沒載完（stalled）」結束碼 6 整批停。
 
@@ -67,7 +67,7 @@ akashic fulltext fetch --window <N> --expect-profile "<使用者自己的 profil
   --title "$(cat '<暫存目錄>/<citekey>.title.txt')" [--pages "<71--98>"] [--doi "<DOI>"] [--prime "<PDF URL>"] [--bin <safari-browser>]
 ```
 
-（#629 之前這是 `scripts/fetch-fulltext.sh`，驗證與規則是同目錄的 Python 腳本；現在全是 `akashic` 的子命令，沒有 Python、沒有 shell。旗標與結束碼的契約不變，**只有兩點差別**：命令列本身打錯（缺必填旗標、視窗編號不是數字、未知旗標）是結束碼 64 而不是 1——那是 ArgumentParser 的用法錯誤；環境變數 `FETCH_FULLTEXT_NAP`（舊路徑測試用來把等待歸零）不再存在，等待由測試注入。）
+（#629 之前這是 `scripts/fetch-fulltext.sh`，驗證與規則是同目錄的 Python 腳本；現在全是 `akashic` 的子命令，沒有 Python、沒有 shell。結束碼 0–6 的意思沒變；**其餘呼叫端看得到的改變**（必填的 `--expect-profile`、只收公開主機的 https 網址、會被拒絕的輸入、命令列打錯是 64）逐條列在 plugin 的 [CHANGELOG.md](../../CHANGELOG.md) 的 #629 各節——先前這裡寫「只有兩點差別」，驗證之後不止兩點。）
 
 **插進這條命令的第三方值要先處理**（與 #595 同一類；命令裡的值一律用雙引號包住）：
 
@@ -85,7 +85,7 @@ akashic fulltext fetch --window <N> --expect-profile "<使用者自己的 profil
 
 **這條命令的鎖分頁與 web-access.md 不同**：`fetch` 用 `--window <N>` 加它自己開的分頁位置（`--tab-in-window`，#613 的作法，理由見 publishers.md：使用者已開著同一頁時 URL 鎖會對到兩個分頁、safari-browser fail-closed），**不是** web-access.md 的 `--profile`＋`--url-endswith`。這是 grandfathered 的例外（規則檔〈既有檔〉形狀 (b)）。**#629 把腳本移植成 `akashic fulltext fetch` 時沒有改鎖法**（改成 `--profile`＋`--url-endswith` 要使用者裁決、而且要實跑 Safari；規則檔記著便宜的解：對 `--landing` 加一次性 fragment，沒實測）。同一個 skill 因此有兩個鎖法，分工是：第 2 步的頁內 OpenAlex 查詢照 web-access.md、第 3 步只用 `fetch`，兩者不混用；不要在第 3 步之外自己用 `--window` 動 Safari。
 
-**驗證怎麼判「是這篇」**（`akashic fulltext verify`；程式與校準表在 akashic repo 的 `Sources/AkashicSkillTools/FulltextVerify.swift`，該 repo 為 private、plugin 安裝處讀不到；門檻是 2026-09-24 以 29 份真實 PDF 對 Crossref 量過的（自己的標題被收 22/28、別篇 0/808，**那是舊 Python 腳本量的**）；#629 移植後**沒有重跑那組 29 份**——那批 PDF 與當時的 Crossref 標題不在本機，新舊工具只在本機湊得到的較小語料上對跑過、輸出逐字相同。怎麼重量見 [references/calibrate.md](references/calibrate.md)）：首頁要有一行（或連續幾行）**就是**記錄標題，另外要有 DOI 證據，分三級：
+**驗證怎麼判「是這篇」**（`akashic fulltext verify`；程式與校準表在 akashic repo 的 `Sources/AkashicSkillTools/FulltextVerify.swift`，plugin 安裝處讀不到；門檻是 2026-09-24 以 29 份真實 PDF 對 Crossref 量過的（自己的標題被收 22/28、別篇 0/808，**那是舊 Python 腳本量的**）；#629 移植後**沒有重跑那組 29 份**——那批 PDF 與當時的 Crossref 標題不在本機，新舊工具只在本機湊得到的較小語料上對跑過、輸出逐字相同。怎麼重量見 [references/calibrate.md](references/calibrate.md)）：首頁要有一行（或連續幾行）**就是**記錄標題，另外要有 DOI 證據，分三級：
 
 - **檔案自己的中繼資料（XMP）DOI** 等於記錄 DOI → 收（頁數不衝突即可）。不等於 → 不收：檔案自己說它是另一篇。
 - 沒有中繼資料時，**首頁印的第一個 DOI** 等於記錄 DOI → 還要頁數**吻合**才收——勘誤或回應文可能先印原文的 DOI。不等於 → 不收。
@@ -93,7 +93,7 @@ akashic fulltext fetch --window <N> --expect-profile "<使用者自己的 profil
 
 量到的代價：沒有中繼資料 DOI、記錄又沒頁碼的檔（線上優先刊出、PMC 作者稿、預印本、舊掃描檔）會停在結束碼 5 交給人看。
 
-`fetch` 在**文章頁面內**以頁面自己的 cookie 取 PDF，驗證後才用要求的檔名存；驗證不過的存成 `*.unverified.pdf`，不是 PDF 的回應存成 `*.response.txt` 給人看。各出版商的規則與已知陷阱見 [references/publishers.md](references/publishers.md)——**遇到新站或新失敗樣子先讀它**。
+`fetch` 在**文章頁面內**以頁面自己的 cookie 取 PDF，驗證後才用要求的檔名存；驗證不過的存成 `*.unverified.pdf`，不是 PDF 的回應存成 `*.response.txt` 給人看（存不成時 stderr 寫 `the body was NOT saved`：那個檔不存在或是上一次的舊檔，改看分頁）。各出版商的規則與已知陷阱見 [references/publishers.md](references/publishers.md)——**遇到新站或新失敗樣子先讀它**。
 
 結束碼決定下一步：
 
@@ -101,11 +101,11 @@ akashic fulltext fetch --window <N> --expect-profile "<使用者自己的 profil
 |---|---|---|
 | 0 | 取得且驗證通過 | 進第 4 步 |
 | 3 | 頁面上找不到 PDF 連結 | 讀 publishers.md；可能是新站或改版，看頁面再決定，不盲目重試 |
-| 2 | 回應不是 PDF | 看 `*.response.txt`；讀起來像登入頁或起疑，就照中止條款停 |
+| 2 | 回應不是 PDF | 看 `*.response.txt`（存不成時見上一段）；讀起來像登入頁或起疑，就照中止條款停 |
 | 4 | 無權限（網站給了登入殼）| **停止這個站**，列入「需要人」 |
 | 6 | **網站懷疑是自動化** | **整批停止**，見「中止條款」；分頁留著 |
 | 5 | 是 PDF 但驗證不是這篇 | 看 `*.unverified.pdf` 與 verify JSON：`flags` 有 `supplement` 是抓到補充資料；`title_match` 為 null 是首頁沒有任何一行等於記錄標題（別篇，或記錄與 PDF 用字不同，例如繁簡字）；`doi_state` 是 `metadata-mismatch`／`page-mismatch` 是檔案或首頁指向別的 DOI；`page-match` 而 `pages_ok` 不是 true、或 `title_match` 為 `main-title-response`（標題後接回應／更正類字樣），是只有首頁印的 DOI、不夠確定；`absent` 是沒有任何 DOI 可比。看了再決定 |
-| 1 | 自動化失敗（視窗、profile 不符、輸出位置、讀取或解碼失敗；命令列打錯是 64） | 看 stderr；分頁若留著，**先看分頁**——讀起來像起疑就照中止條款停，確定是操作問題才修好再繼續 |
+| 1 | 自動化失敗（視窗、profile 不符、輸出位置、讀取或解碼失敗；命令列打錯是 64）；或頁面給的 PDF 連結不是同站的絕對 https 網址（stderr 寫 `points off-site`） | 看 stderr；分頁若留著，**先看分頁**——讀起來像起疑就照中止條款停，確定是操作問題才修好再繼續。`points off-site` 是頁面本身的性質、不是操作問題：列入「需要人」，不重試 |
 
 每篇之間跑一次節奏工具。
 

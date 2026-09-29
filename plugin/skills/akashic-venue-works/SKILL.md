@@ -53,7 +53,7 @@ libraries:
 
 **還原出的摘要不是摘要的判準（#544）**：還原後的摘要以 Crossref 的無 metadata 樣板開頭——
 `This DOI is not currently attached to any metadata records`（與 `akashic abstracts-to-proposals` 的
-`AbstractProposals.crossrefNoMetadata`（akashic repo 的 Swift 原始碼，該 repo 為 private、plugin 安裝處讀不到）同一個字串；它在 Swift 裡只有一份，這裡抄的這一份是給讀不到 Swift 原始碼的
+`AbstractProposals.crossrefNoMetadata`（akashic repo 的 Swift 原始碼，plugin 安裝處讀不到）同一個字串；它在 Swift 裡只有一份，這裡抄的這一份是給讀不到 Swift 原始碼的
 plugin 讀者——akashic repo 有一個測試對帳兩處，改字串要一起改）——它是錯誤頁文字，OpenAlex 對沒有 Crossref
 metadata 的 DOI 會回這段。**不要把它放進 `create-entry` 的 `fields.abstract`**：該筆照建、只是不帶摘要，
 報告的排除計數帶「略過：樣板摘要 N 筆」（`lossless-intake` 執行細節 3：丟棄必須可見）。2026-09-01 的

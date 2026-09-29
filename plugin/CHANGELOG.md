@@ -42,6 +42,17 @@
 
 
 
+## #629 R2 驗證的補充
+
+- `--landing`、`--prime` 的主機要是公開的網域名稱：`localhost`、IP 位址、帶埠號或 `user@` 的主機、以 `local`／`internal`／`corp` 等結尾的名稱、
+  `.`／`..` 路徑段、引號／反斜線／`$`／`#`／空白一律拒絕（結束碼 1，碰瀏覽器之前）。doi.org 網址裡 SICI 式 DOI 的 `<`、`>` 照收。
+- 頁面自己給的 PDF 連結在頁面裡解析成絕對網址再比 origin；不是同站的 `https://` 絕對網址（含反斜線、`///host` 這類瀏覽器會解成別站的形狀）
+  一律拒絕，stderr 寫 `points off-site`（結束碼 1；是頁面的性質，不是操作錯誤）。
+- 寫輸出檔時的暫存檔名改成 `.<隨機碼>.<目的地檔名>`，git 閘連它一起問：只以 `*.pdf`、`*.response.txt` 忽略的目錄照常可用；只逐字忽略
+  最終檔名的目錄現在會被拒絕。
+- `bot-signals`：訊號句緊接 U+0345 時不再漏（R1 的字元類在不分大小寫下多收了這個組合標記）。`crossref-match`／`calibrate`：Crossref 回應裡
+  孤立的代理對換成 U+FFFD，不再被當成「不是 JSON」而整批停。
+
 ## #629 R1 驗證的補充——使用者可見的改變與 skill 對 `akashic` CLI 的版本需求
 
 **先決條件（三個 skill 與 `references/web-access.md`）**：`akashic-fetch-fulltext`、`akashic-bootstrap`、`akashic-venue-works`、`akashic-promote-literals` 現在要呼叫
@@ -49,7 +60,7 @@
 所以 plugin 的文字可能比你機器上的 CLI 新。舊 binary 的症狀：`akashic fulltext bot-signals` 印 `unexpected arguments: 'fulltext', 'bot-signals'`、
 結束碼 64。**中止條款靠這組子命令**，所以 web-access.md〈開始前〉第 4 點要先確認；片段也改成依結束碼處理——只有 `bot-signals` 的結束碼 1 才是「沒有訊號」，
 0 是命中、其他任何碼（64、127、當掉）都當成「這個檢查沒有跑成」＝有疑慮，停下。`plugin.json` 的 `binary_version`（0.12.1）要在含這些子命令的 release 之後升。**目前 `akashic` CLI 沒有 release asset**（`akashic-mcp-wrapper.sh` 只下載 `akashic-mcp`、
-`scripts/release-signed.sh` 只發布那個 asset）：CLI 只能由 repo 建置（`swift build --product akashic`）。plugin 使用者怎麼取得它是另案（把 CLI 加進 release asset，或讓 wrapper 一併下載）。
+`scripts/release-signed.sh` 只發布那個 asset）：CLI 只能由 repo 建置（`swift build --product akashic`）。plugin 使用者怎麼取得它記在 #633（把 CLI 加進 release asset，或讓 wrapper 一併下載）。
 
 **這一輪額外改變的行為**（`akashic fulltext fetch`，程式現在強制過去只寫在文件裡的不變量）：
 

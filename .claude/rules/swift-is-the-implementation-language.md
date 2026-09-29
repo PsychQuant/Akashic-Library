@@ -82,8 +82,7 @@ parity 測試不是「移植」而是**受測物不存在後退場**）。
 
 `docs/skill-evals/akashic-bootstrap-workspace/skill-snapshot-old/scripts/crossref_match.py` 是評測用的**舊 skill 快照**（基準線），不是
 可執行的程式碼、也不是 skill 現行的內容。它沒有動；它提到的 `scripts/crossref_match.py` 是快照當時的樣子。它屬於上面〈不適用〉第 5 類。
-`.claude/rules/web-access-via-safari-browser.md` 的直連量法（只掃 `plugin/skills`、`plugins/*/skills`、`Sources`）同樣不涵蓋它，
-理由相同：凍結的基準線，不被執行。
+`.claude/rules/web-access-via-safari-browser.md` 的直連量法不掃 `docs/`，同樣不涵蓋它（那條規則〈不適用〉第 4 類是同一批檔）。
 
 ## 為什麼
 

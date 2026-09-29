@@ -43,6 +43,7 @@
 ## 證據：舊實作與新實作逐一對過
 
 - **判定規則**（`verify` 的 assess、標題規則、DOI 正規化與尋找、頁數容差、`pdf-url` 三個出版商、`bot-signals`）：173,677 個生成案例、0 個不一致。語料是 237 個本機真 PDF 加上對抗性的隨機字串；各項操作的案例數：assess 146,100、title_match 15,444、title_score 9,444、norm_doi 94、expected_page_count 15、detect 410、page_one_doi 237、pdf_url 1,686、doi_from_xmp 247。
+  **更正**：「0 個不一致」只對這組生成案例成立，不是對全部輸入。R1 驗證在這組之外找到可重現的分岔（NFKC、`İ`／`ı`、`\b`，與 url-rule 對畸形 IPv6 主機；見 `2026-09-29-b13p-verify-r1.md` 第 17 則），R2 驗證又找到一處（`bot-signals` 緊接 U+0345，第 19 則）。前三類與 U+0345 已修，IPv6 那一類是良性差異。
 - **`fulltext verify` 對真 PDF**：1,728 種組合（呼叫真的 `pdfinfo`、`pdftotext`），stdout 與結束碼全相同。
 - **`crossref-match`**：30 個種子 × 62 筆 works = 1,860 筆，用假的 Crossref 目錄與修補過的舊 `Client` 對跑，輸出檔逐位元組相同（`cmp`）。
 - **`abstracts-to-proposals`**：60 個隨機 ndjson，結束碼、stdout、stderr 全相同。

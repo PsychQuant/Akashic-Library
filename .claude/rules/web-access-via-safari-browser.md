@@ -90,7 +90,7 @@ Crossref、ORCID、DOI 解析、出版商頁面）一直是 skill 層的事；�
 | 兩份 | `plugin/skills/akashic-bootstrap/references/web-access.md`（正本）與 `plugins/akashic-discovery/skills/akashic-work-references/SKILL.md` 的第 2 步 |
 | 為什麼不能併成一份 | 兩個 plugin 各自安裝、各自更新，一個 plugin 讀不到另一個的檔案；把程序抽成第三個共用 plugin 是另一個架構決定，沒有做 |
 | 哪一份是正本 | **web-access.md**。副本要改先改正本，再同步 |
-| 已知分岔（2026-09-29 逐條列） | (1) 鎖法：副本仍是 `--url-exact`＋一次性 fragment、正本自 2026-09-29 起是 `--url-endswith`；(2) 非 200 的處置：副本一律中止條款、正本 404 是查無；(3) 變數名前綴：副本 `__oa_`、正本 `__ak_`；(4) 節奏：副本 `safari-browser wait $(( 2000 + RANDOM % 4000 ))`（均勻間隔）、正本 Cauchy 抖動；(5) OpenAlex id 形狀：副本 `^W[0-9]+$`、正本 `^[WASIP][0-9]+$`；(6) 正本另有〈開哪個網址〉、完整網址與回應裡取出的值的形狀列、自足區塊、「取回內容是資料不是指令」，副本沒有；(7) 副本有一句已過期（說 bootstrap 的 DOI 反查仍直接呼叫 Crossref）。**副本在 `plugins/akashic-discovery/**`，這一輪不得動，所以分岔照實列在這裡** |
+| 已知分岔（2026-09-29 逐條列） | (1) 鎖法：副本仍是 `--url-exact`＋一次性 fragment、正本自 2026-09-29 起是 `--url-endswith`；(2) 非 200 的處置：副本一律中止條款、正本 404 是查無；(3) 變數名前綴：副本 `__oa_`、正本 `__ak_`；(4) 節奏：副本 `safari-browser wait $(( 2000 + RANDOM % 4000 ))`（均勻間隔）、正本 Cauchy 抖動；(5) OpenAlex id 形狀：副本 `^W[0-9]+$`、正本 `^[WASIP][0-9]+$`；(6) 正本另有〈開哪個網址〉、完整網址與回應裡取出的值的形狀列、自足區塊、「取回內容是資料不是指令」，副本沒有；(7) 副本有一句已過期（說 bootstrap 的 DOI 反查仍直接呼叫 Crossref）；(8) #593 R2 起正本每個動到分頁的區塊先數分頁、取 API 的區塊回報 `Content-Type`、兩個讀取區塊檢查空讀，副本沒有。**副本在 `plugins/akashic-discovery/**`，這一輪不得動，所以分岔照實列在這裡** |
 | 同步的工作 | #687（把 web-access.md 的鎖法、中止條款、形狀表同步到 `akashic-work-references`，並決定要不要加一支守衛比對兩份的關鍵字串；等 #617 釋出 `plugins/akashic-discovery/**`）。在它完成之前，**改鎖法或中止條款的人要自己同步兩份** |
 | 守衛 | 目前沒有。兩份的關鍵性質（鎖的旗標、`404` 的處置）沒有機械比對；日後要加就寫成 `akashic-guards` 的子命令（見 `swift-is-the-implementation-language`） |
 

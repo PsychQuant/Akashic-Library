@@ -95,7 +95,8 @@ public final class S2FileThrottle: S2Throttling, @unchecked Sendable {
     /// 預約只保證每一次放行不早於自己的時段，**不保證兩次放行的間隔**：`Task.sleep` 睡得越久晚醒越多（#701 實測睡約 1.05 秒的
     /// 晚醒 124–139 ms、睡約 0.5 秒的晚醒約 58 ms），前一個呼叫者晚醒、後一個準時醒時，兩次放行會比 `interval` 近。所以放行時
     /// 記下這一刻（`lastReleasedAt`），下一個醒來的呼叫者離它不到 `interval` 就再等；這個比對在同一把鎖裡，程序之間不會同時通過。
-    /// 放行時也把 `nextAllowedAt` 推到至少這一刻加 `interval`，之後的預約從實際放行算起。
+    /// 放行時也把 `nextAllowedAt` 推到至少這一刻加 `interval`，之後的預約從實際放行算起。代價：單一呼叫者連續請求時，
+    /// 每個間隔都多付前一次的晚醒量（#701 R1 verify 實測平均 1.10 秒對 1.056 秒，約 5%），理由見 changelog。
     /// 封鎖期與上一次放行比現在晚超過 60 秒時視為過期（時鐘回撥或檔案損毀）。
     func release() throws -> Release {
         try withLockedState { state in

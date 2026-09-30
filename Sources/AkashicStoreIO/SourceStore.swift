@@ -69,30 +69,6 @@ public extension LibraryStore {
         }
     }
 
-    /// #224：blob ↔ index 一致性報告。三類都要 loud——audit sidecar 的腐爛
-    /// 全靠這份報告變得可見。
-    struct SourceIndexAudit {
-        /// 有 blob、無 index 條目（digest 形式，排序）
-        public let orphanBlobs: [String]
-        /// 有 index 條目、無 blob（digest 形式，排序）
-        public let danglingEntries: [String]
-        /// 非 JSON 物件、或 `content` 缺席／形狀不合法的行（1-based 實際檔案行號）
-        public let malformedLines: [Int]
-        /// 存在但列不出來的 shard 目錄（權限、半截同步）——讀不到 ≠ 不存在，
-        /// 其 blob 不參與兩向比對（verify reg F2）
-        public let unreadableShards: [String]
-        /// 分片目錄裡 `temporaryBlobName` 形狀的檔（#703 R1 verify 第 13、18、22、23 則）：存檔在複製途中被殺掉（SIGKILL、斷電、
-        /// 逾時）時 `writeBlob` 的清理不會跑，一份可以到上限那麼大，而先前沒有任何面報它。**只報不刪**——同一時間正在進行的存檔
-        /// 也長這樣。依路徑排序。
-        public let strayTemporaryFiles: [StrayTemporaryFile]
-    }
-
-    /// 一個殘留的暫存檔：`sources/<xx>/<檔名>` 與它的大小（lstat）。
-    struct StrayTemporaryFile: Equatable {
-        public let path: String
-        public let bytes: Int
-    }
-
     /// digest → 存檔路徑。形狀錯回 nil（呼叫端決定 throw 與否）。
     ///
     /// **位址層只看形狀**（`isWellFormedDigest`，#654）：空內容的 digest 不可被引用，但它是一個合法的位址——
@@ -160,6 +136,7 @@ public extension LibraryStore {
                 what: "source digest",
                 why: "digest 形狀必須是 sha256: + 64 個小寫 hex，實得「\(displaySafeInvisible(digest, max: 120))」")
         }
+        try Self.checkTemporaryToken(temporaryToken)
         try assertIndexHasNoMalformedLines(try scanIndex().malformedLines)
         let hex = String(digest.dropFirst("sha256:".count))
         try assertSourcesExcluded(relativePath: "sources/\(hex.prefix(2))/\(hex.dropFirst(2))")
@@ -210,7 +187,7 @@ public extension LibraryStore {
     ///
     /// - 大小先以 `fstat` 判：0 byte 與超過 `limit` 在讀任何一個位元組之前就拒絕（`.refused`，零寫入）。
     /// - `expectedDigest`：呼叫端先算過的 digest（`copy-zotero-attachments` 計畫時算的）；對不上就 `.refused(.changed)`、什麼都不寫。
-    /// - 同 digest 的位置上已有東西就不寫（內容定址，不覆寫）；那一份對不對是 `checkStoredBlob` 另外比的事。
+    /// - 同 digest 的位置上已有大小相同的普通檔就不寫（內容定址，不覆寫）；其他佔用具名擲出、不寫 index（`writeBlob`，#703 R2）。內容對不對是 `checkStoredBlob` 另外比的事。
     /// - `temporaryToken`：`preflightStoreSource` 預演過的暫存檔名 token（#703 R1）；nil＝這一次現產一個。
     func storeSource(contentsOf handle: FileHandle, provenance: SourceProvenance, expectedDigest: String? = nil,
                      limit: Int = LibraryStore.maxSourceBytes, temporaryToken: String? = nil) throws -> SourceIntake {
@@ -220,10 +197,14 @@ public extension LibraryStore {
     }
 
     /// 兩個入口共用的路徑（#703）。順序：大小（不讀）→ index 腐壞（任何寫入之前）→ 第一遍算 digest（不寫）→ blob（排除驗證 → 第二遍複製）→ index。
+    ///
+    /// **誠實邊界**（#703 R2 verify 第 16、47 則）：「index 已記過了嗎」是在寫 blob 之前掃的快照，append 在之後；同一份內容的幾個存檔並行時，
+    /// 每一個都看到「還沒記」、各 append 一列（實測 6 個並行 6 列）。#703 之前同樣如此（沒有 store 層的鎖），不是本張引入的；讀的一方以第一列為準。
     /// `placement` 是放上位址那一步的測試接縫（#703 R1：模擬不支援 `RENAME_EXCL` 的檔案系統）。
     internal func storeSource<C: SourceChunks>(chunks source: inout C, provenance: SourceProvenance,
                                                 expectedDigest: String?, limit: Int, temporaryToken: String? = nil,
                                                 placement: BlobPlacement = .system) throws -> SourceIntake {
+        if let temporaryToken { try Self.checkTemporaryToken(temporaryToken) }
         // 看得到大小的來源先比上下界——一個位元組都不讀、不寫
         if let size = source.currentSize() {
             if size == 0 { return .refused(.empty) }
@@ -338,9 +319,11 @@ public extension LibraryStore {
     ///   sidecar 的腐爛殺死）：lossy 解碼，壞位元組落在哪一行、那一行就 malformed。
     /// `entries`：每個 digest **第一列**的字串欄位（`bytes` 之類的非字串欄位不收）——provenance 以先到的為準
     /// （`storeSource` 的冪等語意），所以讀回來也取第一列（#614：宣告副本時讓人認得出這份內容是什麼）。
-    private func scanIndex() throws -> (digests: Set<String>, malformedLines: [Int], entries: [String: [String: String]]) {
+    /// `bytes`：同一列的 `bytes`（整數才收；#703 R2 verify 第 4 則：宣告副本與 audit 拿它比對位址上那一份的大小）。
+    private func scanIndex() throws -> (digests: Set<String>, malformedLines: [Int], entries: [String: [String: String]],
+                                        bytes: [String: Int]) {
         guard FileManager.default.fileExists(atPath: sourceIndexURL.path) else {
-            return ([], [], [:])
+            return ([], [], [:], [:])
         }
         // 讀不到要**具名**（b11c R1 verify 第 20 列）：裸的 Foundation 錯誤只說「The file … couldn't be opened」，不說是 index、也不說
         // 後果。`fileExists` 對目錄也回 true，所以「位置被目錄佔了」與權限問題都落在這裡。三個消費端（存檔、audit、宣告副本）共用。
@@ -357,18 +340,25 @@ public extension LibraryStore {
         var digests = Set<String>()
         var malformed: [Int] = []
         var entries: [String: [String: String]] = [:]
+        var sizes: [String: Int] = [:]
         for (i, line) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
             if line.trimmingCharacters(in: .whitespaces).isEmpty { continue }
             if let obj = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
                let content = obj["content"] as? String,
                ProvenanceReference.isWellFormedDigest(content) {   // #654：index 的文法只看形狀——指向空 blob 的那一列（#546 之前）不是無法解析的行
                 digests.insert(content)
-                if entries[content] == nil { entries[content] = obj.compactMapValues { $0 as? String } }
+                if entries[content] == nil {
+                    entries[content] = obj.compactMapValues { $0 as? String }
+                    // 只收整數（JSON 的 true／1.5 不是大小）：NSNumber 的 objCType 要是整數型別
+                    if let n = obj["bytes"] as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID(), n.doubleValue == Double(n.intValue) {
+                        sizes[content] = n.intValue
+                    }
+                }
             } else {
                 malformed.append(i + 1)
             }
         }
-        return (digests, malformed, entries)
+        return (digests, malformed, entries, sizes)
     }
 
     /// 一個 digest 在本機 `sources/` 的狀態（#614）：把內容宣告為某篇 work 的副本（`akashic.sources`）之前，
@@ -386,6 +376,9 @@ public extension LibraryStore {
         /// 於是「已存的 blob 被換成同名目錄」會被判成 `.stored`（b11c R1 verify 第 3 列）。`sources/` 由本工具寫成普通檔，位置上出現
         /// 別的東西就是有人動過；內容讀不到，不能宣告為副本。
         case notRegularFile(String)
+        /// blob 在、index 有它的條目，但那一份的大小與條目記的 `bytes` 不同（#703 R2 verify 第 4 則：被截短、被換掉，或中斷的複製留下的半截）
+        /// ——那一份不是條目說的內容，不能宣告為副本。大小相同而內容不同的看不出來（要整份讀才知道）。
+        case sizeMismatch(stored: Int, indexed: Int)
     }
 
     /// 逐個 digest 回報 `SourcePresence`。index 只掃一次（與 `storeSource`／`auditSourceIndex` 共用 `scanIndex`，
@@ -394,7 +387,6 @@ public extension LibraryStore {
     /// 形狀不合法的 digest 也擲錯——呼叫端應先以 `ProvenanceReference.isValidDigest` 驗過。
     func sourcePresence(digests: [String]) throws -> [String: SourcePresence] {
         let scan = try scanIndex()
-        let fm = FileManager.default
         var out: [String: SourcePresence] = [:]
         for d in digests {
             guard let url = sourceURL(digest: d) else {
@@ -402,14 +394,18 @@ public extension LibraryStore {
                     what: "source digest",
                     why: "digest 形狀必須是 sha256: + 64 個小寫 hex，實得「\(displaySafeInvisible(d, max: 120))」")
             }
-            // lstat 語意（`attributesOfItem` 不跟隨最後一段的 symlink）：拿得到屬性就是「那個位置上有東西」，種類要是普通檔
-            if let type = (try? fm.attributesOfItem(atPath: url.path))?[.type] as? FileAttributeType {
-                guard type == .typeRegular else {
-                    out[d] = .notRegularFile(type == .typeDirectory ? "目錄" : type == .typeSymbolicLink ? "symlink" : "特殊檔案")
-                    continue
-                }
+            // 位址上的東西只有一個分類（`sourceOccupant`，#703 R2）：`lstat` 語意，種類要是普通檔
+            switch sourceOccupant(at: url) {
+            case .absent: out[d] = .absent
+            case .unreadable: out[d] = .unreadable
+            case .notRegularFile(let kind): out[d] = .notRegularFile(kind)
+            case .regular(let size):
                 if let entry = scan.entries[d] {
-                    out[d] = .stored(entry)
+                    if let indexed = scan.bytes[d], indexed != size {
+                        out[d] = .sizeMismatch(stored: size, indexed: indexed)
+                    } else {
+                        out[d] = .stored(entry)
+                    }
                 } else if !scan.malformedLines.isEmpty {
                     throw StoreIOError.invalidInput(
                         what: "sources/index.jsonl",
@@ -418,15 +414,6 @@ public extension LibraryStore {
                 } else {
                     out[d] = .unindexed
                 }
-                continue
-            }
-            let shardDir = url.deletingLastPathComponent()
-            var isDir: ObjCBool = false
-            if fm.fileExists(atPath: shardDir.path, isDirectory: &isDir), isDir.boolValue,
-               (try? fm.contentsOfDirectory(atPath: shardDir.path)) == nil {
-                out[d] = .unreadable
-            } else {
-                out[d] = .absent
             }
         }
         return out
@@ -441,9 +428,11 @@ public extension LibraryStore {
     /// 既有語意，追蹤歸 follow-up issue。）
     func auditSourceIndex() throws -> SourceIndexAudit {
         let fm = FileManager.default
-        var diskDigests = Set<String>()
+        var diskDigests = Set<String>()       // 位址上有任何東西的 digest（index 指向它的不算懸空）
+        var regularSizes: [String: Int] = [:] // 其中是普通檔的，與它的大小
         var unreadable: [String] = []
         var stray: [StrayTemporaryFile] = []
+        var problems: [SourceOccupantProblem] = []
         // 只認 2-hex 目錄 / 62-hex 檔名的正規形，外加 `writeBlob` 的暫存檔形狀（#703 R1：中斷的存檔留下的，只報不刪）；
         // 其餘非正規形檔案**不在本 audit 範圍**（layoutResidue 也刻意不掃 sources/——那裡沒有任何機制報它們，這是已知
         // 缺口，見 verify logic MED-2 的更正，不在此假稱有人接住）
@@ -456,27 +445,51 @@ public extension LibraryStore {
                 }
                 for f in files {
                     if f.count == 62 && f.allSatisfy({ "0123456789abcdef".contains($0) }) {
-                        diskDigests.insert("sha256:\(shard)\(f)")
+                        let digest = "sha256:\(shard)\(f)"
+                        // #703 R2 verify 第 5、6、15 則：位址上是什麼（先前只比名字，目錄、懸空 symlink 都被當成在場的 blob）
+                        switch sourceOccupant(at: dir.appendingPathComponent(f)) {
+                        case .regular(let n):
+                            diskDigests.insert(digest)
+                            regularSizes[digest] = n
+                        case .notRegularFile(let kind):
+                            diskDigests.insert(digest)
+                            problems.append(SourceOccupantProblem(digest: digest, path: "sources/\(shard)/\(f)", kind: .notRegularFile(kind)))
+                        case .unreadable:
+                            // 列得出名字、lstat 不了（分片目錄有讀權限、沒有搜尋權限）：與列不出來同一類
+                            if !unreadable.contains("sources/\(shard)/") { unreadable.append("sources/\(shard)/") }
+                        case .absent:
+                            continue   // 列出之後被刪了
+                        }
                     } else if Self.isTemporaryBlobName(f) {
-                        // lstat 的大小（暫存檔由 `O_CREAT | O_EXCL` 建立，是普通檔）；讀不到屬性時記 0，路徑照樣報
-                        let size = ((try? fm.attributesOfItem(atPath: dir.appendingPathComponent(f).path))?[.size] as? NSNumber)?.intValue ?? 0
-                        stray.append(StrayTemporaryFile(path: "sources/\(shard)/\(f)", bytes: size))
+                        // lstat 的大小與修改時間（暫存檔由 `O_CREAT | O_EXCL` 建立，是普通檔）；讀不到屬性時大小記 0、時間 nil，路徑照樣報
+                        let attrs = try? fm.attributesOfItem(atPath: dir.appendingPathComponent(f).path)
+                        stray.append(StrayTemporaryFile(path: "sources/\(shard)/\(f)",
+                                                        bytes: (attrs?[.size] as? NSNumber)?.intValue ?? 0,
+                                                        modified: attrs?[.modificationDate] as? Date))
                     }
                 }
             }
         }
         let scan = try scanIndex()
+        // 普通檔的大小與 index 那一列的 `bytes` 比（#703 R2 verify 第 4 則）；條目沒有 `bytes` 的不比
+        for (digest, size) in regularSizes {
+            if let indexed = scan.bytes[digest], indexed != size {
+                problems.append(SourceOccupantProblem(digest: digest, path: Self.sourceRelativePath(digest: digest),
+                                                      kind: .sizeMismatch(stored: size, indexed: indexed)))
+            }
+        }
         // 讀不到的 shard：它的 blob 看不見，對應 index 條目不得被判懸空
         let comparableIndexDigests = scan.digests.filter { d in
             let shard = String(d.dropFirst("sha256:".count).prefix(2))
             return !unreadable.contains("sources/\(shard)/")
         }
         return SourceIndexAudit(
-            orphanBlobs: diskDigests.subtracting(scan.digests).sorted(),
+            orphanBlobs: Set(regularSizes.keys).subtracting(scan.digests).sorted(),
             danglingEntries: comparableIndexDigests.subtracting(diskDigests).sorted(),
             malformedLines: scan.malformedLines,
             unreadableShards: unreadable.sorted(),
-            strayTemporaryFiles: stray.sorted { $0.path < $1.path })
+            strayTemporaryFiles: stray.sorted { $0.path < $1.path },
+            occupantProblems: problems.sorted { $0.path < $1.path })
     }
 
     /// blob 原語的結果：寫了（或位置上已有東西、沒寫），或內容在兩遍之間變了／長過上限。
@@ -488,12 +501,17 @@ public extension LibraryStore {
     /// blob 原語（#224 起不再公開）：把一份已算過 digest 的內容存進 `sources/`。
     ///
     /// - digest 算在**原始位元組**上（D3）：不正規化、不轉碼——判準必須客觀。
-    /// - 同 digest 冪等：位置上已有東西（任何種類）就不寫——內容定址，**不覆寫**（#703：那一份對不對由 `checkStoredBlob` 比）。
+    /// - 同 digest 冪等：位址上已有**大小相同的普通檔**就不寫——內容定址，**不覆寫**（#703：內容對不對由 `checkStoredBlob` 比）。
+    ///   位址上是別的東西（目錄、symlink——含懸空的、特殊檔案）或大小不同的普通檔，**具名擲出**、不寫 index（#703 R2 verify 第 4、5、6 則：
+    ///   R2 之前對任何佔用都回「沒寫、但成功」，`store-source` 接著寫 index 並印「✓ 已建立 index 條目」，位址上仍是懸空 symlink——
+    ///   #703 之前的 `fileExists` 會用真檔取代懸空 symlink，這是 R1 引入的回歸）。大小相同而內容不同的看不出來（不整份再讀一遍）。
     /// - 寫入前驗證版控排除（見 `assertSourcesExcluded`）；驗證先於**任何**磁碟寫入——拒寫時不留內容。
-    /// - #703：**逐塊**複製進同一個分片目錄裡的暫存檔（`O_EXCL` 建立，檔名是 `temporaryBlobName`），邊寫邊再算一次 digest；兩遍相同才
-    ///   放到位址上（`placeTemporaryBlob`：`RENAME_EXCL`，檔案系統不支援時退到 `link(2)`、再退到確認不在後 `rename(2)`；同時有別人放進來
-    ///   就不覆寫、丟掉暫存）。暫存檔的路徑**也**過排除驗證——只排除 blob 名、不排除暫存名的規則會 fail-open。
-    ///   可捕捉的失敗都刪掉暫存檔；行程被殺掉時刪不到，`auditSourceIndex` 的 `strayTemporaryFiles` 報它（#703 R1）。
+    /// - #703：**逐塊**複製進同一個分片目錄裡的暫存檔（`O_EXCL` 建立，檔名是 `temporaryBlobName`），邊寫邊再算一次 digest；兩遍相同、
+    ///   同步到裝置（R2 verify 第 21 則）之後才放到位址上（`placeTemporaryBlob`：`RENAME_EXCL`，檔案系統不支援時退到 `link(2)`、再退到
+    ///   排他建立目的檔後逐塊複製；同時有別人放進來就不覆寫、丟掉暫存）。暫存檔的路徑**也**過排除驗證——只排除 blob 名、不排除暫存名的
+    ///   規則會 fail-open。
+    ///   可捕捉的失敗都刪掉暫存檔；`SIGINT`／`SIGTERM`／`SIGHUP` 由 `InFlightSourceFiles` 刪（R2 verify 第 27 則）；行程被殺掉（`SIGKILL`、
+    ///   斷電）時刪不到，`auditSourceIndex` 的 `strayTemporaryFiles` 報它（#703 R1）。
     private func writeBlob<C: SourceChunks>(_ source: inout C, digest: String, bytes: Int, limit: Int,
                                             token: String, placement: BlobPlacement) throws -> BlobWrite {
         let hex = String(digest.dropFirst("sha256:".count))
@@ -507,23 +525,33 @@ public extension LibraryStore {
         let verified = try assertSourcesExcluded(relativePath: relative)
         // sourceURL 對剛算出的合法 digest 不可能回 nil
         let url = sourceURL(digest: digest)!
-        let fm = FileManager.default
-        // lstat 語意：位置上有任何東西（普通檔、目錄、symlink）都不寫——不寫穿、不取代
-        if (try? fm.attributesOfItem(atPath: url.path)) != nil {
-            return .done(exclusionVerified: verified, bytesWritten: false)
+        /// 位址上已經有東西：大小相同的普通檔才算「已經在了」，其餘具名擲出（不寫 index）
+        func existing(_ occupant: SourceOccupant) throws -> BlobWrite {
+            if case .regular(let n) = occupant, n == bytes { return .done(exclusionVerified: verified, bytesWritten: false) }
+            throw Self.occupiedAddressError(occupant, digest: digest, bytes: bytes)
         }
+        let occupant = sourceOccupant(at: url)
+        if occupant != .absent { return try existing(occupant) }
         let tmpName = Self.temporaryBlobName(digest: digest, token: token)
         try assertSourcesExcluded(relativePath: "sources/\(hex.prefix(2))/\(tmpName)")
+        let fm = FileManager.default
         try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         let tmp = url.deletingLastPathComponent().appendingPathComponent(tmpName)
-        let fd = open(tmp.path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o644)
+        // 建立與登記在同一把鎖裡（`InFlightSourceFiles.create`，R2 verify 第 27 則）：訊號在建立之後、登記之前送到也清得掉
+        let (fd, flight) = InFlightSourceFiles.create(path: tmp.path) {
+            let fd = open(tmp.path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o644)
+            return fd >= 0 ? fd : -errno
+        }
         guard fd >= 0 else {
             throw StoreIOError.invalidInput(
                 what: "sources/ 暫存檔",
-                why: "無法建立（errno \(errno)）——digest \(digest) 沒有存")   // display-safe-exempt: errno 是 Int32；digest 是本函式的呼叫端算的 SHA-256 十六進位
+                why: "無法建立（errno \(-fd)）——digest \(digest) 沒有存")   // display-safe-exempt: fd 是 Int32（負的 errno）；digest 是本函式的呼叫端算的 SHA-256 十六進位
         }
         var placed = false
-        defer { if !placed { unlink(tmp.path) } }
+        defer {
+            if !placed { unlink(tmp.path) }
+            if let flight { InFlightSourceFiles.unregister(flight) }
+        }
         let out = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
         var hasher = SHA256()
         try source.rewind()
@@ -531,82 +559,34 @@ public extension LibraryStore {
             hasher.update(data: chunk)
             try out.write(contentsOf: chunk)
         }
-        try out.close()
         switch copied {
         case .exceeded(let n):
+            try out.close()
             return .refused(.tooLarge(bytes: max(n, source.currentSize() ?? n)))
         case .complete(let n):
             let second = Self.digestText(hasher.finalize())
             // 兩遍之間內容變了：存下來的會不是 digest 說的那一份——不落地
-            guard n == bytes, second == digest else { return .refused(.changed(actual: second)) }
+            guard n == bytes, second == digest else {
+                try out.close()
+                return .refused(.changed(actual: second))
+            }
         }
-        switch try placeTemporaryBlob(tmp.path, at: url.path, digest: digest, placement: placement) {
+        // 放上位址之前同步到裝置（R2 verify 第 21 則）：之後的崩潰或斷電不會在合法的位址下留一份被撕裂的內容
+        let synced = placement.sync(fd)
+        try out.close()
+        guard synced == 0 else {
+            throw StoreIOError.invalidInput(
+                what: "sources/ 暫存檔",
+                why: "同步到裝置失敗（errno \(synced)）——digest \(digest) 沒有存")   // display-safe-exempt: synced 是 Int32；digest 是本函式的呼叫端算的 SHA-256 十六進位
+        }
+        switch try placeTemporaryBlob(tmp.path, at: url.path, digest: digest, bytes: bytes, placement: placement) {
         case .alreadyThere:
-            return .done(exclusionVerified: verified, bytesWritten: false)   // 同時有別人放進來了：不覆寫（暫存由 defer 刪掉）
+            // 同時有別人放進來了：不覆寫（暫存由 defer 刪掉）；放進來的是什麼，與一開始就在的同一個判法
+            return try existing(sourceOccupant(at: url))
         case .placed:
             placed = true
             return .done(exclusionVerified: verified, bytesWritten: true)
         }
-    }
-
-    /// 本機 `sources/` 裡這個 digest 的那一份，內容是否真的是這個 digest（#703）。
-    enum StoredBlobCheck: Equatable {
-        /// 位置上沒有東西。
-        case absent
-        /// 內容的 digest 就是位址。
-        case matches
-        /// 內容不是這個 digest（被截短、被換掉）。`bytes` 是那一份的實際大小；`digest` 是它內容的 digest——大小與 `expectedBytes`
-        /// 不同時不必讀就知道不符，是 nil。
-        case mismatch(bytes: Int, digest: String?)
-        /// 位置上有東西、但不是普通檔（值是給人看的種類名）。
-        case notRegularFile(String)
-        /// 分片目錄列不出來、或那一份打不開／讀不完——判不出來（讀不到不等於缺席，#265）。
-        case unreadable
-    }
-
-    /// 比對本機存檔與它的位址（#703：`copy-zotero-attachments` 補存時「已連過」不再只看在不在）。**逐塊**算 digest（不設上限——既有的
-    /// 存檔可能早於上限；每塊經 `pump` 讀完即釋放）；`expectedBytes` 給了而大小不同就直接判不符、不讀。不改任何東西。
-    func checkStoredBlob(digest: String, expectedBytes: Int?) throws -> StoredBlobCheck {
-        guard let url = sourceURL(digest: digest) else {
-            throw StoreIOError.invalidInput(
-                what: "source digest",
-                why: "digest 形狀必須是 sha256: + 64 個小寫 hex，實得「\(displaySafeInvisible(digest, max: 120))」")
-        }
-        let fm = FileManager.default
-        guard let attrs = try? fm.attributesOfItem(atPath: url.path) else {
-            let shardDir = url.deletingLastPathComponent()
-            var isDir: ObjCBool = false
-            if fm.fileExists(atPath: shardDir.path, isDirectory: &isDir), isDir.boolValue,
-               (try? fm.contentsOfDirectory(atPath: shardDir.path)) == nil {
-                return .unreadable
-            }
-            return .absent
-        }
-        if let type = attrs[.type] as? FileAttributeType, type != .typeRegular {
-            return .notRegularFile(type == .typeDirectory ? "目錄" : type == .typeSymbolicLink ? "symlink" : "特殊檔案")
-        }
-        let size = (attrs[.size] as? NSNumber)?.intValue ?? 0
-        if let expectedBytes, size != expectedBytes { return .mismatch(bytes: size, digest: nil) }
-        let fd = open(url.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
-        guard fd >= 0 else { return .unreadable }
-        let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
-        defer { try? handle.close() }
-        guard let streamed = try? Self.contentDigest(reading: handle, limit: .max),
-              case .digest(let actual, let n) = streamed else { return .unreadable }
-        return actual == digest ? .matches : .mismatch(bytes: n, digest: actual)
-    }
-
-    /// 讀回存檔。**缺席（nil）與格式錯（throw）是兩個條件**（task 4.5）：
-    /// 存檔不進 remote，clone 後必然缺席——那是預期狀態不是損毀；
-    /// 形狀錯的 digest 才是真正的格式錯誤。
-    func sourceContent(digest: String) throws -> Data? {
-        guard let url = sourceURL(digest: digest) else {
-            throw StoreIOError.invalidInput(
-                what: "source digest",
-                why: "digest 形狀必須是 sha256: + 64 個小寫 hex，實得「\(displaySafeInvisible(digest, max: 120))」")
-        }
-        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
-        return try Data(contentsOf: url)
     }
 
     /// 全庫 references 指名、但本機沒有存檔的 digest（排序去重）。

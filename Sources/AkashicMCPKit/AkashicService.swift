@@ -445,21 +445,40 @@ public final class AkashicService {
         // audit 自身失敗不得吞掉整份報告（d 到最後才序列化——中途 throw 連已算好的
         // crossRecordIssues 都會消失，MCP 面比 CLI 面更慘；verify reg F1 實測）。
         if let srcAudit = health.sourcesAudit {
-            if !srcAudit.orphanBlobs.isEmpty || !srcAudit.danglingEntries.isEmpty
-                || !srcAudit.malformedLines.isEmpty || !srcAudit.unreadableShards.isEmpty
-                || !srcAudit.strayTemporaryFiles.isEmpty {
+            if !srcAudit.isEmpty {
                 var src: [String: Any] = [
                     "orphanBlobs": srcAudit.orphanBlobs,          // digest 形（StoreKey 同級安全字元）
                     "danglingIndexEntries": srcAudit.danglingEntries,
                     "malformedIndexLines": srcAudit.malformedLines,
                     "unreadableShards": srcAudit.unreadableShards.map { displaySafe($0, max: 120) },
                 ]
-                // #703 R1：中斷的存檔留下的暫存檔（只報不刪；同一時間正在進行的存檔也長這樣）。每則路徑＋大小；至多 20 則、總數另給
+                // #703 R1：中斷的存檔留下的暫存檔（只報不刪；同一時間正在進行的存檔也長這樣）。每則路徑＋大小；至多 20 則、總數另給。
+                // R2 verify 第 28 則：LLM 呼叫端最可能照「stray」去刪，撞上另一個終端機裡正在進行的複製——每則附 `ageSeconds`（最後修改到現在；
+                // 讀不到是 null）與 `possiblyInProgress`（一小時內還在動），讀的人分得出「一秒前還在寫」與「三天前被殺掉」
                 if !srcAudit.strayTemporaryFiles.isEmpty {
                     src["strayTemporaryFiles"] = srcAudit.strayTemporaryFiles.prefix(Entry.perRecordWarningCap).map {
-                        ["path": displaySafe($0.path, max: 200), "bytes": $0.bytes] as [String: Any]   // display-safe-exempt: bytes 是 Int
+                        ["path": displaySafe($0.path, max: 200), "bytes": $0.bytes,   // display-safe-exempt: bytes 是 Int
+                         "ageSeconds": $0.ageSeconds().map { $0 as Any } ?? NSNull(),   // display-safe-exempt: Int 或 null
+                         "possiblyInProgress": !$0.isStale()] as [String: Any]   // display-safe-exempt: Bool
                     }
                     src["strayTemporaryFilesTotal"] = srcAudit.strayTemporaryFiles.count   // display-safe-exempt: Int
+                }
+                // #703 R2 verify 第 5、6、15 則：位址上不是普通檔、或普通檔大小與 index 不同（只報不刪）。至多 20 則、總數另給
+                if !srcAudit.occupantProblems.isEmpty {
+                    src["occupantProblems"] = srcAudit.occupantProblems.prefix(Entry.perRecordWarningCap).map { p -> [String: Any] in
+                        var item: [String: Any] = ["path": p.path]   // display-safe-exempt: 只含 hex
+                        switch p.kind {
+                        case .notRegularFile(let kind):
+                            item["kind"] = "notRegularFile"
+                            item["occupant"] = kind   // display-safe-exempt: SourceOccupant 的三個固定字串
+                        case .sizeMismatch(let stored, let indexed):
+                            item["kind"] = "sizeMismatch"
+                            item["storedBytes"] = stored   // display-safe-exempt: Int
+                            item["indexedBytes"] = indexed   // display-safe-exempt: Int
+                        }
+                        return item
+                    }
+                    src["occupantProblemsTotal"] = srcAudit.occupantProblems.count   // display-safe-exempt: Int
                 }
                 d["sources"] = src
             }
@@ -683,6 +702,9 @@ public final class AkashicService {
             "digest": receipt.digest,                       // display-safe-exempt: SHA-256 十六進位，由本 binary 計算
             "exclusionVerified": receipt.exclusionVerified,  // display-safe-exempt: Bool
             "indexEntryCreated": receipt.indexEntryCreated,  // display-safe-exempt: Bool
+            // #703 R2 verify 第 4、6 則：位元組是這一次才存的（true）還是早就在（false，位址上已有大小相同的一份）——與 `indexEntryCreated`
+            // 是兩件事（index 有條目而 blob 被清過時，這一次存了位元組、卻不新增條目）
+            "bytesWritten": receipt.bytesWritten,  // display-safe-exempt: Bool
         ]
         // **冪等早退時交來卻沒被寫入的敘述必須可見**（`lossless-intake`「丟棄必須可見」）。
         // 回的是**呼叫端這次交來**的內容，不是既有條目的——後者無法讓呼叫端分辨

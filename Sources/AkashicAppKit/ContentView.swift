@@ -143,16 +143,19 @@ struct SidebarView: View {
                     if let audit = health.sourcesAudit {
                         let n = audit.orphanBlobs.count + audit.danglingEntries.count
                             + audit.malformedLines.count + audit.unreadableShards.count
+                            + audit.occupantProblems.count   // #703 R2：位址上不是普通檔、或大小與 index 不同
                         if n > 0 {
                             LabeledContent("sources 不一致", value: "\(n)")
                                 .help("blob 與 index 對不上。audit sidecar 的腐爛只會從"
                                       + "這裡看得到——它不會自己修好。")
                         }
-                        // #703 R1：中斷的存檔留下的暫存檔（只報不刪）。與 CLI／MCP 的 doctor 同一份 audit
-                        if !audit.strayTemporaryFiles.isEmpty {
-                            LabeledContent("sources 殘留暫存檔", value: "\(audit.strayTemporaryFiles.count)")
-                                .help("存檔在複製途中被中斷留下的檔（每個可以到 256 MiB）。"
-                                      + "確認沒有存檔在進行之後可以刪掉；akashic doctor 會列出路徑與大小。")
+                        // #703 R1：中斷的存檔留下的暫存檔（只報不刪）。與 CLI／MCP 的 doctor 同一份 audit。R2 verify 第 22 則：只數
+                        // 一小時沒動的——還在動的可能是正在進行的存檔，不讓健康區塊因它亮起（`StoreHealth.hasFindings` 同一個判準）
+                        let staleStray = audit.strayTemporaryFiles.filter { $0.isStale() }.count
+                        if staleStray > 0 {
+                            LabeledContent("sources 殘留暫存檔", value: "\(staleStray)")
+                                .help("存檔在複製途中被中斷留下的檔（每個可以到 256 MiB；只數一小時沒動的）。"
+                                      + "確認沒有存檔在進行之後可以刪掉；akashic doctor 會列出路徑、大小與最後修改的時間。")
                         }
                     }
                     if let err = health.sourcesAuditError {

@@ -338,6 +338,9 @@ extension AkashicService {
                 problems.append("\(d)：所在的 shard 目錄讀不到——讀不到不等於缺席，先修好權限")   // display-safe-exempt: d 已過 isValidDigest
             case .notRegularFile(let kind)?:
                 problems.append("\(d)：sources/ 裡它的位置是\(kind)、不是普通檔——內容讀不到，不能宣告為副本；先移走那個位置，再對同一份檔重跑 store-source")   // display-safe-exempt: d 已過 isValidDigest；kind 是 SourceStore 的三個固定字串
+            case .sizeMismatch(let stored, let indexed)?:
+                // #703 R2 verify 第 4 則：被截短的 blob 先前照連、回 sourcesAdded，而 index 那一列就記著大小
+                problems.append("\(d)：sources/ 裡那一份是 \(stored) bytes，index.jsonl 記的是 \(indexed) bytes——那一份不是這份內容（被截短或換掉），不能宣告為副本；移走它後對原檔重跑 store-source")   // display-safe-exempt: d 已過 isValidDigest；stored、indexed 是 Int
             case .absent?, nil:
                 problems.append("\(d)：本機沒有這份存檔——新內容先用 store-source 存；sources/ 不進 git，換機器後要重新取得")   // display-safe-exempt: d 已過 isValidDigest
             }

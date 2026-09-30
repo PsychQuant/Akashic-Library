@@ -22,14 +22,14 @@
 - `ZoteroStorageFile.locate`（lstat 的大小）與 `ZoteroStorageFile.openVerified`（descriptor 的 `fstat`）。
 - `copy-zotero-attachments`：計畫（含乾跑）與複製兩段都經上面兩個。
 
-各函式的 `limit` 參數是測試接縫，預設值就是這個常數；對外沒有任何入口能改它。給人看的寫法只有 `LibraryStore.sourceCapDescription`（`268435456 bytes（256 MB）`）。
+各函式的 `limit` 參數是測試接縫，預設值就是這個常數；對外沒有任何入口能改它。給人看的寫法只有 `LibraryStore.sourceCapDescription`（~~`268435456 bytes（256 MB）`~~——R2 verify 第 24 則：R1 起它輸出 `268435456 bytes（256 MiB）`，這一句描述的是現行 API、不是歷史，所以在原處更正）。
 
 ### 2. 逐塊
 
 - 讀取與 digest 住在新檔 `Sources/AkashicStoreIO/SourceChunks.swift`（`SourceStore.swift` 加上這一輪會超過 800 行）。唯一的讀取迴圈是 `LibraryStore.pump`：每次至多 `sourceChunkBytes`（1 MiB）。`contentDigest(reading:)` 與 `storeSource(contentsOf:)` 都經它；`contentDigest(of:)`（整份 `Data`）與逐塊的入口共用同一個 `digestText`，digest 的形狀（`sha256:` + 64 個小寫 hex）不變。
 - **存檔改成兩遍**：第一遍只算 digest、不寫任何東西（要知道 digest 才知道位址、才能問那條路徑的版控排除）；排除驗證過了，第二遍逐塊寫進同一個分片目錄裡的暫存檔（`O_EXCL` 建立），邊寫邊再算一次，兩遍相同才以 `renamex_np(RENAME_EXCL)` 放上位址。兩遍之間內容變了（或長過上限）就刪掉暫存、不落地（`.refused(.changed)`／`.tooLarge`）。
 - **暫存檔的路徑也過排除驗證**：只排除 blob 名、不排除暫存名的規則（例如 `sources/??/[0-9a-f]*`）會讓第三方位元組暫時落在一個沒被排除的路徑上；拒寫、什麼都不留。代價是新寫一個 blob 多一次 `git check-ignore`。
-- **位址上已有東西就不寫**（任何種類，lstat 語意）。先前用 `fileExists`（跟隨 symlink）加 `Data.write(.atomic)`：懸空的 symlink 會被當成「沒有」、然後被取代。現在不寫穿、不取代；同一時間別人放進來的也不覆寫（`RENAME_EXCL` 的 `EEXIST`）。
+- ~~**位址上已有東西就不寫**（任何種類，lstat 語意）。先前用 `fileExists`（跟隨 symlink）加 `Data.write(.atomic)`：懸空的 symlink 會被當成「沒有」、然後被取代。現在不寫穿、不取代~~；同一時間別人放進來的也不覆寫（`RENAME_EXCL` 的 `EEXIST`）。（R2 verify 第 5、6 則：「任何種類都不寫、而且回成功」是本張引入的回歸——`store-source` 寫 index、印「已建立 index 條目」，位址上仍是懸空 symlink。R2 起只有大小相同的普通檔算「已經在了」，其餘具名拒絕、不寫 index；見文末〈R2 verify 之後〉。）
 - `store-source` 以 descriptor 開檔（`O_NONBLOCK`），`fstat` 確認是普通檔。目錄與 FIFO 先前走 `Data(contentsOf:)`：目錄是一個看不出原因的「讀不到」，FIFO 會讓呼叫卡住等一個寫入者；現在兩者都具名拒絕，開檔不卡住。
 - `ZoteroStorageFile.read`（整份讀進 `Data`）換成 `openVerified`：同樣的 `O_NOFOLLOW`、`fstat`、`F_GETPATH` 判斷，交回停在開頭的 descriptor 讓呼叫端逐塊讀。
 
@@ -93,7 +93,7 @@
 - **比對在計畫時做**：計畫到實跑之間，`sources/` 裡那一份再被換掉看不到（沒有 store 層的鎖），與 #606 既有的時間窗同一類。
 - **`store-source` 讀兩遍**：兩遍之間檔案變了，拒絕（`在讀取期間內容變了`），不會存下一份與 digest 不符的內容；但也就要人重跑。
 - **不符的 blob 沒有工具面可以移除**：`sources/` 沒有「移除一筆存檔」的面（與 #544 同族），訊息請人手動移走那一份（它不進 git）。
-- **`store-source` 碰到既有 blob 仍不比對**：裁決的第三件只及於 `copy-zotero-attachments`。`store-source` 重存一份位址上已有東西的內容時，照舊回 `bytesWritten: false`、不覆寫，不檢查那一份對不對。
+- **`store-source` 碰到既有 blob 仍不比對內容**：裁決的第三件只及於 `copy-zotero-attachments`。~~`store-source` 重存一份位址上已有東西的內容時，照舊回 `bytesWritten: false`、不覆寫，不檢查那一份對不對。~~ R2 起比**大小**（零成本）與種類：位址上不是普通檔、或大小不同，具名拒絕、不寫 index；大小相同而內容不同的仍看不出來。
 
 ## R1 verify 之後（2026-09-30）
 
@@ -102,3 +102,12 @@ R1 verify 的 #703 部分有兩個 HIGH，都成立、都已修；細節、量�
 - **「記憶體與檔案大小無關」當時為假**（DA 第 2 則、regression 第 8 則）。`FileHandle.read(upToCount:)` 回 autoreleased 的緩衝，CLI 沒有外層 pool 排水，每一塊留到行程結束：本輪重量，改動前的 binary 存 128 MiB 的檔尖峰 RSS 284,557,312 bytes（約 2.1 倍）。`pump` 改成每塊一個 autorelease pool 之後，同一個檔比 1 MiB 的多 1,146,880 bytes。上面三處說法已劃掉並註明。
 - **新連結只擋 `.mismatch`**（Codex 第 1 則等五席）。位址上是目錄、懸空 symlink 或讀不到時照樣連上並記取得記錄。已改成窮舉的 `switch`。
 - 其餘：暫存檔路徑納入整批的存檔前置；不支援 `RENAME_EXCL` 的檔案系統（exFAT、FAT32，本輪在磁碟映像上實測 `ENOTSUP`）退到 `link(2)`、再退到確認後一般改名；中斷的存檔留下的暫存檔由 doctor 報出（`zero-instance-guards` 第 73 列）；同一筆內內容相同的第二個附件跟著第一個的結果；上限的單位寫成 MiB（裁決原話「256 MB」照引）。
+
+## R2 verify 之後（2026-10-01）
+
+R2 verify 的 #703 部分：HIGH 1、MEDIUM 4、LOW 一串。細節、量測與負對照在 `changelog/2026-10-01-b23-r2-fixes-703.md`，這裡只列上面與 R1 changelog 被推翻的句子：
+
+- **放上位址的第三條退路會覆寫**（Codex 第 1 則，HIGH）。R1 是 `lstat` 確認不在、再一般 `rename(2)`，兩步之間出現的檔會被取代。改成以 `O_CREAT | O_EXCL` 建立目的檔、逐塊複製、同步、讀回驗證；失敗只刪這一次建立的那個檔。代價：複製期間未完成的檔在最終檔名下看得到。
+- **「位址上已有東西就不寫」變成「說成功、沒存」**（security 第 5 則、DA 第 6 則、logic 第 4 則）。上面那一條已劃掉。位址上的東西現在只有一個分類（`sourceOccupant`）：寫入、比對、宣告副本、doctor 都讀它；`store-source` 的回條多了 `bytesWritten`。
+- **內容相同的第二個附件在第一個做完之前就算已連過**（Codex 第 2 則、logic 第 17 則）。現在跟著第一個的最終結果。
+- 其餘：暫存檔同步到裝置才放上位址；`SIGINT`／`SIGTERM`／`SIGHUP` 會刪掉進行中的檔；暫存檔 token 要是 UUID；doctor 的殘留暫存檔附年齡，一小時內還在動的不讓健康區塊亮起；讀回的兩個面（`sourceContent`、摘要轉換）以上限為界——R1 changelog 說「對 source 內容的讀取都經 `pump`」不成立，已在原處劃掉。

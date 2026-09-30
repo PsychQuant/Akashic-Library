@@ -182,7 +182,8 @@ final class SourceIntakeStreamingTests: XCTestCase {
         XCTAssertEqual(sourcesResidue(), [])
     }
 
-    /// 位址上已有東西：不覆寫（內容定址；那一份對不對由 `checkStoredBlob` 另外比）。
+    /// 位址上已有**大小不同**的一份（被截短）：不覆寫、具名拒絕、不寫 index（#703 R2 verify 第 4 則——R2 之前回「沒寫、但成功」，
+    /// `store-source` 接著寫 index）。
     func testAnExistingBlobIsNeverOverwritten() throws {
         let data = Data("the real bytes".utf8)
         let url = blobURL(oneShot(data))
@@ -190,9 +191,27 @@ final class SourceIntakeStreamingTests: XCTestCase {
         try Data("truncated".utf8).write(to: url)
         let h = try FileHandle(forReadingFrom: try file(data))
         defer { try? h.close() }
+        XCTAssertThrowsError(try store.storeSource(contentsOf: h, provenance: prov())) { e in
+            let msg = (e as? LocalizedError)?.errorDescription ?? "\(e)"
+            XCTAssertTrue(msg.contains("9 bytes") && msg.contains("\(data.count) bytes") && msg.contains("不覆寫"), msg)
+        }
+        XCTAssertEqual(try Data(contentsOf: url), Data("truncated".utf8), "既有的那一份一個位元組都不動")
+        XCTAssertEqual(indexLineCount(), 0, "拒絕時不寫 index")
+    }
+
+    /// 誠實邊界：位址上是**大小相同**、內容不同的普通檔時，`store-source` 看不出來（不整份再讀一遍）——照舊當成「已經在了」。
+    /// 這一格釘住它，免得有人以為大小檢查也驗了內容（`copy-zotero-attachments` 的 `checkStoredBlob` 才讀內容）。
+    func testASameSizeOccupantIsStillTakenAsAlreadyThere() throws {
+        let data = Data("the real bytes".utf8)
+        let url = blobURL(oneShot(data))
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("THE REAL BYTES".utf8).write(to: url)
+        let h = try FileHandle(forReadingFrom: try file(data))
+        defer { try? h.close() }
         guard case .stored(let r) = try store.storeSource(contentsOf: h, provenance: prov()) else { return XCTFail() }
         XCTAssertFalse(r.bytesWritten)
-        XCTAssertEqual(try Data(contentsOf: url), Data("truncated".utf8), "既有的那一份一個位元組都不動")
+        XCTAssertEqual(try store.checkStoredBlob(digest: r.digest, expectedBytes: data.count),
+                       .mismatch(bytes: data.count, digest: oneShot(Data("THE REAL BYTES".utf8))), "內容比對看得出來")
     }
 
     /// 暫存檔的路徑也要過版控排除閘（fail-closed）：只排除 blob 名、沒排除暫存名的規則，拒寫且什麼都不留。
@@ -232,79 +251,7 @@ final class SourceIntakeStreamingTests: XCTestCase {
 
     // MARK: 4. R1 verify 之後：放上位址的退路、預演的暫存路徑、殘留的暫存檔
 
-    /// 真的 link／rename，只把指定的那幾步換成「這個檔案系統不支援」。
-    private func placement(renameExclusive: Int32? = nil, hardLink: Int32? = nil, plainRename: Int32? = nil,
-                           beforeHardLink: (@Sendable (String) -> Void)? = nil) -> LibraryStore.BlobPlacement {
-        let system = LibraryStore.BlobPlacement.system
-        return LibraryStore.BlobPlacement(
-            renameExclusive: { from, to in renameExclusive ?? system.renameExclusive(from, to) },
-            hardLink: { from, to in beforeHardLink?(to); return hardLink ?? system.hardLink(from, to) },
-            plainRename: { from, to in plainRename ?? system.plainRename(from, to) })
-    }
-    private func store(_ data: Data, placement: LibraryStore.BlobPlacement) throws -> LibraryStore.SourceIntake {
-        var src = ScriptedChunks(passes: [data])
-        return try store.storeSource(chunks: &src, provenance: prov(), expectedDigest: nil,
-                                     limit: LibraryStore.maxSourceBytes, placement: placement)
-    }
-    private func temporaryResidue() -> [String] { sourcesResidue().filter { $0.contains(".incoming-") } }
-
-    /// exFAT／FAT32：`RENAME_EXCL` 回 ENOTSUP（2026-09-30 磁碟映像實測）——退到 `link(2)`，位元組照樣落地、暫存名刪掉。
-    func testRenameExclUnsupportedFallsBackToAHardLink() throws {
-        let data = Data("fallback via link".utf8)
-        guard case .stored(let r) = try store(data, placement: placement(renameExclusive: ENOTSUP)) else { return XCTFail() }
-        XCTAssertTrue(r.bytesWritten)
-        XCTAssertEqual(try Data(contentsOf: blobURL(r.digest)), data)
-        XCTAssertEqual(temporaryResidue(), [], "link 之後暫存名要刪掉")
-        XCTAssertEqual(indexLineCount(), 1)
-    }
-
-    /// link 也不支援（exFAT／FAT32 實測就是這樣）——確認位址上沒有東西之後一般改名。
-    func testLinkAlsoUnsupportedFallsBackToAPlainRenameAfterLstat() throws {
-        let data = Data("fallback via rename".utf8)
-        guard case .stored(let r) = try store(data, placement: placement(renameExclusive: ENOTSUP, hardLink: ENOTSUP)) else {
-            return XCTFail()
-        }
-        XCTAssertTrue(r.bytesWritten)
-        XCTAssertEqual(try Data(contentsOf: blobURL(r.digest)), data)
-        XCTAssertEqual(temporaryResidue(), [])
-    }
-
-    /// 退到一般改名之前才有別人把同一個位址放進來：不覆寫、丟掉暫存（`lstat` 看到它）。
-    func testThePlainRenameFallbackDoesNotReplaceWhatAppearedAtTheAddress() throws {
-        let data = Data("someone got there first".utf8)
-        let url = blobURL(oneShot(data))
-        let early = placement(renameExclusive: ENOTSUP, hardLink: ENOTSUP, beforeHardLink: { dest in
-            FileManager.default.createFile(atPath: dest, contents: Data("already here".utf8))
-        })
-        guard case .stored(let r) = try store(data, placement: early) else { return XCTFail() }
-        XCTAssertFalse(r.bytesWritten)
-        XCTAssertEqual(try Data(contentsOf: url), Data("already here".utf8), "位址上已有的那一份不動")
-        XCTAssertEqual(temporaryResidue(), [])
-    }
-
-    /// 三條路都走不通：具名擲出（說出不支援排他改名與三個 errno），不留 blob、不留暫存、不寫 index。
-    func testWhenEveryPlacementFailsTheErrorNamesTheFileSystemLimitation() throws {
-        let data = Data("nowhere to go".utf8)
-        XCTAssertThrowsError(try store(data, placement: placement(renameExclusive: ENOTSUP, hardLink: ENOTSUP,
-                                                                  plainRename: EACCES))) { e in
-            let msg = (e as? LocalizedError)?.errorDescription ?? "\(e)"
-            XCTAssertTrue(msg.contains("不支援排他改名") && msg.contains("errno \(ENOTSUP)") && msg.contains("errno \(EACCES)"), msg)
-        }
-        XCTAssertFalse(FileManager.default.fileExists(atPath: blobURL(oneShot(data)).path))
-        XCTAssertEqual(temporaryResidue(), [])
-        XCTAssertEqual(indexLineCount(), 0)
-    }
-
-    /// `RENAME_EXCL` 的其他失敗（不是「不支援」）不退：直接具名擲出，不去試 link。
-    func testOtherRenameFailuresDoNotFallBack() throws {
-        let data = Data("permission problem".utf8)
-        let noLink = placement(renameExclusive: EACCES, hardLink: nil, beforeHardLink: { _ in XCTFail("不該退到 link") })
-        XCTAssertThrowsError(try store(data, placement: noLink)) { e in
-            let msg = (e as? LocalizedError)?.errorDescription ?? "\(e)"
-            XCTAssertTrue(msg.contains("RENAME_EXCL") && msg.contains("errno \(EACCES)"), msg)
-        }
-        XCTAssertEqual(temporaryResidue(), [])
-    }
+    // 放上位址的三條路（含 R2 的排他複製）在 `SourcePlacementTests`。
 
     /// 預演問的是實跑會建立的那條暫存路徑：只排除 blob 名、不排除暫存名的規則在預演就被擋（R1 verify 第 3、17、21 則）。
     func testPreflightAsksAboutTheTemporaryPathToo() throws {
@@ -335,11 +282,19 @@ final class SourceIntakeStreamingTests: XCTestCase {
         let name = LibraryStore.temporaryBlobName(digest: d, token: UUID().uuidString)
         try Data(repeating: 9, count: 12_345).write(to: dir.appendingPathComponent(name))
         let audit = try store.auditSourceIndex()
-        XCTAssertEqual(audit.strayTemporaryFiles, [.init(path: "sources/\(shard)/\(name)", bytes: 12_345)])
+        XCTAssertEqual(audit.strayTemporaryFiles.map(\.path), ["sources/\(shard)/\(name)"])
+        XCTAssertEqual(audit.strayTemporaryFiles.map(\.bytes), [12_345])
+        XCTAssertNotNil(audit.strayTemporaryFiles.first?.modified, "附最後修改時間（R2 verify 第 28 則）")
         XCTAssertEqual(audit.orphanBlobs, [])
         XCTAssertTrue(FileManager.default.fileExists(atPath: dir.appendingPathComponent(name).path), "只報不刪")
-        let health = store.health(from: try store.load())
-        XCTAssertTrue(health.hasFindings, "殘留的暫存檔要人看一眼")
+        // 剛寫的：可能是正在進行的存檔——不讓 hasFindings 亮起（R2 verify 第 22 則）
+        XCTAssertFalse(store.health(from: try store.load()).hasFindings, "一小時內還在動的暫存檔不計入 hasFindings")
+        XCTAssertEqual(audit.strayTemporaryFiles.first?.isStale(), false)
+        // 兩小時沒動：中斷留下的，要人看一眼
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: -7_200)],
+                                              ofItemAtPath: dir.appendingPathComponent(name).path)
+        XCTAssertTrue(store.health(from: try store.load()).hasFindings, "殘留的暫存檔要人看一眼")
+        XCTAssertEqual(try store.auditSourceIndex().strayTemporaryFiles.first?.isStale(), true)
     }
 }
 

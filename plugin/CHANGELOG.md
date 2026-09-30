@@ -157,6 +157,13 @@ plugin 的 wrapper 會自動下載新版 `akashic-mcp`，skill 文字可能比 b
 
 **R1 verify 之後**：先前這裡寫「記憶體與檔案大小無關」，那句不成立——每塊的緩衝留到行程結束，存 128 MiB 的檔尖峰 RSS 約 285 MB（比整份讀進來還多）。現在每塊讀完就釋放（實測多約 1 MB）。訊息裡的上限寫成 `256 MiB`（數值沒變）。store 放在不支援排他改名的檔案系統（exFAT、FAT32）時先前存不進去，現在退到 hard link 或確認後一般改名。`akashic_doctor` 的 `sources` 多兩個鍵：`strayTemporaryFiles`（中斷的存檔留下的暫存檔，路徑與大小，至多 20 筆）與 `strayTemporaryFilesTotal`。
 
+**R2 verify 之後**：
+
+- `akashic_store_source` 的位址上已有東西時，只有大小相同的普通檔算「已經在了」；位址被目錄、symlink（含懸空的）或大小不同的檔佔住，**以錯誤拒絕、不寫 index**。先前這種情形回成功、寫一列 index，位元組其實沒存（R1 引入的回歸；R1 之前會以真檔取代懸空 symlink）。回應多一個鍵 `bytesWritten`：這一次才存的是 `true`，位址上早有同一份是 `false`。
+- `akashic_doctor` 的 `sources` 再多兩個鍵：`occupantProblems`（位址上不是普通檔，或普通檔的大小與 `index.jsonl` 記的不同；每則 `path`、`kind`，`notRegularFile` 帶 `occupant`、`sizeMismatch` 帶 `storedBytes`／`indexedBytes`，至多 20 筆）與 `occupantProblemsTotal`。`strayTemporaryFiles` 每則多 `ageSeconds`（最後修改到現在）與 `possiblyInProgress`（一小時內還在動，可能是正在進行的存檔——不要刪）。只報不刪。
+- 存檔進行中收到 `SIGTERM`／`SIGINT`／`SIGHUP` 會先刪掉進行中的暫存檔再結束。
+- `store-source` 碰到不支援排他改名與 hard link 的檔案系統（exFAT、FAT32），第三條路從「確認後一般改名」改成排他建立目的檔再複製，不會覆寫同一時間別人放進來的檔。
+
 ## #704 — `akashic_import_zotero` 的 `residualFields` 說明改成「這次讀到的條目」
 
 計數與鍵名不變。說明先前寫「未映射欄位→次數」，CLI 則寫「已以原名入庫」；計數其實是這次讀到的每一個 Zotero 條目（含沒變動、略過、寫入失敗的），所以寫入失敗的那一筆並沒有入庫。說明與 CLI 訊息改成「這次讀到的條目中未映射的欄位」（使用者 2026-09-30 裁決 (a)）。

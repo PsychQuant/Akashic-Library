@@ -42,7 +42,20 @@ enum CLITestHarness {
         return (r.status, r.output, n)
     }
 
-    /// 子行程的環境（`run` 與 `runMeasuringPeakRSS` 共用——同一保護只有一個入口）。
+    /// 啟動 akashic binary、不等它結束（#703 R2 verify 第 27 則：要在它跑到一半時送訊號）。環境與 `run` 同一份；輸出丟掉
+    /// （不接 pipe——沒有人讀，大量輸出會讓子行程卡在 write）。呼叫端負責 `waitUntilExit`。
+    static func start(_ args: [String], env: [String: String]) throws -> Process {
+        let process = Process()
+        process.executableURL = productsDirectory.appendingPathComponent("akashic")
+        process.arguments = args
+        process.environment = childEnvironment(args, env: env)
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        return process
+    }
+
+    /// 子行程的環境（`run`、`runMeasuringPeakRSS` 與 `start` 共用——同一保護只有一個入口）。
     private static func childEnvironment(_ args: [String], env: [String: String]) -> [String: String] {
         var childEnv = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("AKASHIC_") }
         for (k, v) in env { childEnv[k] = v }

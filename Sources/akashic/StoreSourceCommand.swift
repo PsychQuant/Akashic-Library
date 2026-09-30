@@ -75,8 +75,11 @@ struct StoreSourceCmd: ParsableCommand {
         let digest = obj["digest"] as? String ?? "(未知)"
         let created = obj["indexEntryCreated"] as? Bool ?? false
         let excluded = obj["exclusionVerified"] as? Bool ?? false
+        let wrote = obj["bytesWritten"] as? Bool ?? false
 
         print("digest：\(digest)")   // display-safe-exempt: SHA-256 十六進位，由本 binary 計算
+        // #703 R2 verify 第 4、6 則：位元組是不是這一次才存的——先前只印 index 那一行，位址上早有東西時使用者沒有任何旁證
+        print(wrote ? "✓ 已存入位元組" : "· 位元組早已在 sources/（位址上已有大小相同的一份，未重寫）")
         print(created ? "✓ 已建立 index 條目" : "· index 條目早已存在（冪等，未重複寫入）")
         print(excluded ? "✓ 已確認排除於版控之外" : "⚠ 排除未經確認")
 

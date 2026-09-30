@@ -1,6 +1,7 @@
 import Foundation
 import CryptoKit
 import AkashicCore
+import AkashicStoreIO
 
 /// 階段 B 的摘要存檔（NDJSON）→ `akashic enrich --from` 的 `[Proposal]`（#516；#629 由
 /// `ndjson-abstracts-to-proposals.py` 移植）。
@@ -203,10 +204,41 @@ public enum AbstractProposals {
         return (data, "sha256:" + sha256Hex(data))
     }
 
-    private static func readFile(_ url: URL) throws -> Data {
-        do { return try Data(contentsOf: url) } catch {
+    /// 整份讀進來（轉換要的就是內容），**有界**（#703 R2 verify 第 12、23 則：先前是無上限的 `Data(contentsOf:)`——`sources/` 裡早於上限的
+    /// 舊 blob、或任意路徑，都可以把整份讀進記憶體）：大小以 `fstat` 判，超過 `LibraryStore.maxSourceBytes`（與寫入同一個常數）不讀、具名失敗；
+    /// 讀的時候長過上限也失敗。`limit` 是測試接縫。
+    static func readFile(_ url: URL, limit: Int = LibraryStore.maxSourceBytes) throws -> Data {
+        let fd = open(url.path, O_RDONLY | O_NONBLOCK | O_CLOEXEC)
+        guard fd >= 0 else {
+            throw SkillToolError.failure("✗ 讀不到 \(displaySafeInvisible(url.path, max: 400))：\(String(cString: strerror(errno)))")   // display-safe-exempt: String(cString: strerror(errno)) 是系統的固定英文字串；cString、errno 不是 store 內容
+        }
+        let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+        defer { try? handle.close() }
+        var st = stat()
+        guard fstat(fd, &st) == 0, st.st_mode & S_IFMT == S_IFREG else {
+            throw SkillToolError.failure("✗ 讀不到 \(displaySafeInvisible(url.path, max: 400))：不是普通檔")
+        }
+        guard Int(st.st_size) <= limit else {
+            throw SkillToolError.failure("✗ \(displaySafeInvisible(url.path, max: 400)) 有 \(st.st_size) bytes，超過上限 \(LibraryStore.sourceCapDescription(limit))——不讀")   // display-safe-exempt: st.st_size 是整數；LibraryStore.sourceCapDescription(limit) 只回數字與固定字，limit 是 Int
+        }
+        var data = Data()
+        do {
+            // 每塊在自己的 autorelease pool 裡讀（`LibraryStore.pump` 的同一個理由：autoreleased 的塊不排水會留到行程結束，記憶體變兩倍）
+            while try autoreleasepool(invoking: { () throws -> Bool in
+                guard let chunk = try handle.read(upToCount: LibraryStore.sourceChunkBytes), !chunk.isEmpty else { return false }
+                data.append(chunk)
+                return true
+            }) {
+                if data.count > limit {
+                    throw SkillToolError.failure("✗ \(displaySafeInvisible(url.path, max: 400)) 讀的時候長過上限 \(LibraryStore.sourceCapDescription(limit))——不讀")   // display-safe-exempt: LibraryStore.sourceCapDescription(limit) 只回數字與固定字，limit 是 Int
+                }
+            }
+        } catch let e as SkillToolError {
+            throw e
+        } catch {
             throw SkillToolError.failure("✗ 讀不到 \(displaySafeInvisible(url.path, max: 400))：\(displaySafeErrorText(error))")
         }
+        return data
     }
 
     static func sha256Hex(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }

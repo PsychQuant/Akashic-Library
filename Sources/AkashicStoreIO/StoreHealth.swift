@@ -254,7 +254,10 @@ public struct StoreHealth {
             || (sourcesAudit.map {
                 !$0.orphanBlobs.isEmpty || !$0.danglingEntries.isEmpty
                     || !$0.malformedLines.isEmpty || !$0.unreadableShards.isEmpty
-                    || !$0.strayTemporaryFiles.isEmpty
+                    || !$0.occupantProblems.isEmpty
+                    // 殘留暫存檔只算夠舊的（#703 R2 verify 第 22 則）：一小時內還在動的可能是正在進行的存檔——那是正常的工作狀態
+                    // （`divergenceCount` 不計入的同一條判準）。doctor 仍然全部列出、附年齡；只是不讓 App 的「健康」區塊因它亮起
+                    || $0.strayTemporaryFiles.contains { $0.isStale() }
             } ?? false)
     }
 }

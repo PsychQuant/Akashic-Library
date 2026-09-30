@@ -176,7 +176,10 @@ struct CopyZoteroAttachments: ParsableCommand {
         case .unreadable: return "檔案在、但讀不出來"
         case .changedDuringRun: return "計畫算完之後內容變了（digest 對不上）——不存、不連；重跑會重新計畫"
         // #703 R1：已連過與要新連共用這一格，why 的開頭說是哪一種（先前寫死「已連過」，新連結的也這樣說）
-        case .localCopyUnverifiable(let why): return "判不出本機 sources/ 裡這個 digest 的那一份是不是這份內容（\(displaySafeClipOnly(why, max: 600))）——不存、不新連、不動既有連結；用 akashic doctor 查 sources/"   // display-safe-exempt: why 已由 service 消毒，只截
+        // R2 verify 第 15 則：先前一律叫人「用 akashic doctor 查 sources/」，而 doctor 當時看不到位址上的目錄／symlink；現在 doctor 列出位址上
+        // 不是普通檔、大小與 index 不符的，打不開的要自己查權限——why 帶位址，照著看得到是哪一個
+        case .localCopyUnverifiable(let why): return "判不出本機 sources/ 裡這個 digest 的那一份是不是這份內容（\(displaySafeClipOnly(why, max: 600))）——不存、不新連、不動既有連結；位址上不是普通檔的 akashic doctor 會列出，讀不到的先查權限"   // display-safe-exempt: why 已由 service 消毒，只截
+        case .followsUnfinished(let leadPath): return "同一筆內內容相同的附件（\(displaySafeInvisible(leadPath, max: 300))）這一趟沒有做完——這一個跟著它，不算已連過；重跑會重新計畫"
         }
     }
 

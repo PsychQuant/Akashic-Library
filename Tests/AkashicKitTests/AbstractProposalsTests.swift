@@ -123,6 +123,23 @@ final class AbstractProposalsTests: XCTestCase {
         XCTAssertEqual(text, Self.expectedText)
     }
 
+    /// #703 R2 verify 第 12、23 則：整份讀進來的讀取面**有界**——超過上限的檔以 fstat 判、不讀、具名失敗（先前是無上限的 `Data(contentsOf:)`）。
+    /// 大檔是 sparse 檔（真的常數，不佔磁碟）；注入的小上限驗「讀的時候長過上限」那一支之外的邊界。
+    func testReadingIsBoundedByTheSourcesCap() throws {
+        let huge = tmp.appendingPathComponent("huge.ndjson")
+        XCTAssertTrue(FileManager.default.createFile(atPath: huge.path, contents: nil))
+        let h = try FileHandle(forWritingTo: huge)
+        try h.truncate(atOffset: UInt64(LibraryStore.maxSourceBytes + 1))
+        try h.close()
+        XCTAssertThrowsError(try AbstractProposals.resolveSource(huge.path, blobURL: { _ in nil })) { e in
+            XCTAssertTrue(e.skillMessage.contains("超過上限") && e.skillMessage.contains("256 MiB"), e.skillMessage)
+        }
+        let small = tmp.appendingPathComponent("small.ndjson")
+        try Data(repeating: 0x41, count: 10).write(to: small)
+        XCTAssertEqual(try AbstractProposals.readFile(small, limit: 10).count, 10, "上限本身可以讀")
+        XCTAssertThrowsError(try AbstractProposals.readFile(small, limit: 9))
+    }
+
     /// 4. 大寫 hex 仍是 digest 形：解析成功，`sourceDigest` 以小寫輸出。
     func testUppercaseHexIsStillADigestForm() throws {
         let (_, text) = try convert("sha256:" + Self.hex.uppercased(), store: try store())

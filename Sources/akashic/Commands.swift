@@ -54,9 +54,7 @@ struct Doctor: ParsableCommand {
         // audit 自身失敗**不得**中止 doctor（診斷工具最該說話的時候不是最該掛掉的
         // 時候）——降級為一則警告，其餘報告照出。
         if let srcAudit = health.sourcesAudit {
-            if !srcAudit.orphanBlobs.isEmpty || !srcAudit.danglingEntries.isEmpty
-                || !srcAudit.malformedLines.isEmpty || !srcAudit.unreadableShards.isEmpty
-                || !srcAudit.strayTemporaryFiles.isEmpty {
+            if !srcAudit.isEmpty {
                 print("sources 一致性：")
                 for b in srcAudit.orphanBlobs {
                     print("  ⚠ 孤兒 blob（有存檔、index.jsonl 無條目）：\(b)")
@@ -70,9 +68,25 @@ struct Doctor: ParsableCommand {
                 for s in srcAudit.unreadableShards {
                     print("  ✗ 讀不到的 shard（權限／半截同步；其 blob 未參與比對）：\(displaySafe(s, max: 120))")
                 }
-                // #703 R1：存檔在複製途中被殺掉（SIGKILL、斷電）留下的暫存檔。只報不刪——正在進行的存檔也長這樣
+                // #703 R2 verify 第 5、6、15 則：位址上不是普通檔、或大小與 index 不同。只報不刪
+                for p in srcAudit.occupantProblems.prefix(Entry.perRecordWarningCap) {
+                    switch p.kind {
+                    case .notRegularFile(let kind):
+                        print("  ⚠ 位址上不是普通檔（\(kind)；存檔不會寫進去，store-source 會拒絕——移走它後重存）：\(p.path)")   // display-safe-exempt: kind 是 SourceOccupant 的三個固定字串；path 只含 hex
+                    case .sizeMismatch(let stored, let indexed):
+                        print("  ⚠ 存檔大小與 index 不符（存檔 \(stored) bytes、index 記 \(indexed) bytes——被截短或換掉；移走它後重存）：\(p.path)")   // display-safe-exempt: stored、indexed 是 Int；path 只含 hex
+                    }
+                }
+                if srcAudit.occupantProblems.count > Entry.perRecordWarningCap {
+                    print("  …另有 \(srcAudit.occupantProblems.count - Entry.perRecordWarningCap) 個位址問題未列出")   // display-safe-exempt: Int
+                }
+                // #703 R1：存檔在複製途中被殺掉（SIGKILL、斷電）留下的暫存檔。只報不刪——正在進行的存檔也長這樣；R2 起附最後修改的時間
+                // （R2 verify 第 28 則），一小時內還在動的明說可能正在進行
                 for t in srcAudit.strayTemporaryFiles.prefix(Entry.perRecordWarningCap) {
-                    print("  ⚠ 殘留的暫存檔（\(t.bytes) bytes；中斷的存檔留下的——確認沒有 store-source／copy-zotero-attachments 在跑之後可以刪掉）：\(displaySafe(t.path, max: 200))")   // display-safe-exempt: t.bytes 是 Int
+                    let age = t.ageSeconds().map { "最後修改於 \($0) 秒前" } ?? "修改時間讀不到"
+                    let note = t.isStale() ? "中斷的存檔留下的——確認沒有 store-source／copy-zotero-attachments 在跑之後可以刪掉"
+                        : "一小時內還在動，可能是正在進行的存檔——不要刪"
+                    print("  ⚠ 殘留的暫存檔（\(t.bytes) bytes，\(age)；\(note)）：\(displaySafe(t.path, max: 200))")   // display-safe-exempt: t.bytes 是 Int；age、note 是固定句與 Int
                 }
                 if srcAudit.strayTemporaryFiles.count > Entry.perRecordWarningCap {
                     print("  …另有 \(srcAudit.strayTemporaryFiles.count - Entry.perRecordWarningCap) 個殘留的暫存檔未列出")   // display-safe-exempt: Int

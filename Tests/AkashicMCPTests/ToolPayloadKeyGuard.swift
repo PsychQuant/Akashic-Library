@@ -12,7 +12,9 @@ import XCTest
 /// 做法（`ToolPayloadKeyGuardTests`）：
 /// 1. **說明文字取自真 binary 的 `tools/list`**，不讀原始碼——字串插值與 `+` 串接在原始碼裡不是呼叫端看到的樣子。
 /// 2. **payload 取自真實呼叫**：每個工具在 fixture store 上走各條主要的腿（`ToolPayloadScenarios`），
-///    回應 JSON 的頂層鍵（物件）或元素鍵（陣列）取聯集。
+///    回應 JSON 的頂層鍵（物件）或元素鍵（陣列）取聯集。**巢狀的鍵只看封閉表 `ToolPayloadNestedPaths` 列出的路徑**
+///    （#700），各往下恰好一層；表外的巢狀物件與陣列不看。
+///    每條腿有情境這件事由 `ToolPayloadLegTests` 守（#700）：MCP 工具的每個參數、CLI 裁決表的每條寫入腿。
 /// 3. 每個鍵必須以**識別字邊界**出現在該工具的說明文字裡——子字串比對會讓 `key`、`total` 這類短鍵被別的字滿足。
 /// 4. 刻意不寫進說明的鍵，在 `ToolPayloadKeyExemptions` 逐一具名並寫理由；豁免本身也有守衛（豁免的鍵必須真的出現在
 ///    payload、且真的沒被說明提到，否則紅——不留下過期的豁免）。
@@ -27,6 +29,8 @@ struct ToolManifest {
         let text: String
         /// 所有參數（含巢狀）的 `description`。
         let parameterText: String
+        /// `inputSchema.properties` 的頂層鍵——呼叫端能傳的參數（#700：每一個都要有情境走，或具名寫理由）。
+        var parameters: Set<String> = []
         /// 守衛比對的對象：呼叫端在 `tools/list` 讀得到的、關於這個工具的全部說明。
         var searchable: String { text + "\n" + parameterText }
     }
@@ -83,8 +87,10 @@ struct ToolManifest {
         var out: [String: Tool] = [:]
         for t in tools {
             guard let name = t["name"] as? String else { continue }
+            let properties = (t["inputSchema"] as? [String: Any])?["properties"] as? [String: Any] ?? [:]
             out[name] = Tool(name: name, text: t["description"] as? String ?? "",
-                             parameterText: descriptions(in: t["inputSchema"]).joined(separator: "\n"))
+                             parameterText: descriptions(in: t["inputSchema"]).joined(separator: "\n"),
+                             parameters: Set(properties.keys))
         }
         return out
     }
@@ -158,4 +164,67 @@ enum PayloadShape: Equatable {
         case .text: return []
         }
     }
+}
+
+/// 巢狀路徑表（`ToolPayloadNestedPaths`）的一列指到回應物件的哪一層（#700）。**封閉的三種形狀**——
+/// 回應物件頂層某個鍵的值是什麼，守衛就往下**恰好一層**取什麼鍵；更深的一層不看：
+/// - `object`（寫成 `person`）：值是物件，取它的鍵。
+/// - `array`（寫成 `items[]`）：值是物件陣列，取各元素鍵的聯集。
+/// - `map`（寫成 `people[ref]`）：值是以資料為鍵的字典（鍵是 ref、citekey 之類，不是契約），取各值（物件）的鍵的聯集。
+///
+/// 回應本身是陣列的工具（`akashic_search` 之類）已經由頂層的元素鍵守，這裡不支援從陣列往下。
+enum NestedPayloadPath: Hashable, CustomStringConvertible {
+    case object(String)
+    case array(String)
+    case map(String)
+
+    var topKey: String {
+        switch self {
+        case .object(let k), .array(let k), .map(let k): return k
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .object(let k): return k
+        case .array(let k): return k + "[]"
+        case .map(let k): return k + "[ref]"
+        }
+    }
+
+    /// 一次回應在這條路徑上的鍵。
+    enum Found: Equatable {
+        /// 回應沒有這個頂層鍵（有才出現的鍵，或這條腿不回它）。
+        case absent
+        /// 形狀對，取到的鍵（可以是空集合：空陣列、空字典）。
+        case keys(Set<String>)
+        /// 頂層鍵在，但形狀不是這一列宣稱的——表寫錯了，或 payload 改了形狀。
+        case wrongShape(String)
+    }
+
+    func keys(in raw: String) -> Found {
+        guard let data = raw.data(using: .utf8),
+              let top = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let value = top[topKey] else { return .absent }
+        switch self {
+        case .object:
+            guard let dict = value as? [String: Any] else { return .wrongShape("\(type(of: value))") }
+            return .keys(Set(dict.keys))
+        case .array:
+            if let arr = value as? [Any], arr.isEmpty { return .keys([]) }
+            guard let arr = value as? [[String: Any]] else { return .wrongShape("\(type(of: value))") }
+            return .keys(arr.reduce(into: Set<String>()) { $0.formUnion($1.keys) })
+        case .map:
+            guard let dict = value as? [String: Any] else { return .wrongShape("\(type(of: value))") }
+            var out = Set<String>()
+            for v in dict.values {
+                guard let inner = v as? [String: Any] else { return .wrongShape("值是 \(type(of: v))") }
+                out.formUnion(inner.keys)
+            }
+            return .keys(out)
+        }
+    }
+
+    /// 豁免表與報告用的全名：`items[].reason`。
+    func qualified(_ key: String) -> String { "\(self).\(key)" }
 }

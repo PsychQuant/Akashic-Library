@@ -157,6 +157,36 @@ final class WriteGateRulingsTests: XCTestCase {
                        "裁決表說這些命令過閘，而原始碼沒有呼叫閘")
     }
 
+    /// **表一格一行、以字面值寫成**（#700）：原始碼裡每一行 `"名字": .裁決` 與編譯後的兩張表（多重集合）完全一致。
+    ///
+    /// `ToolPayloadLegTests`（AkashicMCPTests）以原始碼讀這張表——那個 target 不能 import `akashic` 執行檔模組——並要求
+    /// 每條寫入腿都有 payload 情境。這條測試保證它讀到的就是編譯後的表：若有人把某一格改成由函式或另一個字典合成，
+    /// 編譯後的表有它、逐行讀不到它，這裡紅。
+    func testTheTableIsWrittenOneEntryPerLine() throws {
+        var dir = URL(fileURLWithPath: #filePath)
+        for _ in 0..<3 { dir.deleteLastPathComponent() }
+        let text = try String(contentsOf: dir.appendingPathComponent("Sources/akashic/WriteGateRulings.swift"), encoding: .utf8)
+        let re = try NSRegularExpression(pattern: #"^\s*"([^"]+)"\s*:\s*\.(gated|notGated|readOnly|perLeg)\b"#)
+        var written: [String: Int] = [:]
+        for line in text.components(separatedBy: .newlines) {
+            let ns = line as NSString
+            guard let m = re.firstMatch(in: line, range: NSRange(location: 0, length: ns.length)) else { continue }
+            written["\(ns.substring(with: m.range(at: 1))) \(ns.substring(with: m.range(at: 2)))", default: 0] += 1
+        }
+        func kind(_ r: WriteGateRuling) -> String {
+            switch r { case .gated: return "gated"; case .notGated: return "notGated"; case .readOnly: return "readOnly"; case .perLeg: return "perLeg" }
+        }
+        var compiled: [String: Int] = [:]
+        for (name, r) in DestructiveTargetGate.commandRulings { compiled["\(name) \(kind(r))", default: 0] += 1 }
+        for legs in DestructiveTargetGate.legRulings.values {
+            for (flag, r) in legs { compiled["\(flag) \(kind(r))", default: 0] += 1 }
+        }
+        XCTAssertGreaterThan(written.values.reduce(0, +), 60, "逐行只讀出 \(written.count) 格——讀法壞了")
+        XCTAssertEqual(written, compiled,
+                       "WriteGateRulings.swift 逐行讀出來的格子與編譯後的表不一致——每一格要寫成一行 `\"名字\": .裁決`，"
+                       + "ToolPayloadLegTests 靠這個讀法要求每條寫入腿都有 payload 情境（#700）")
+    }
+
     // MARK: - 逐腿的裁決對真 binary 成立
 
     private var root: URL!

@@ -142,7 +142,7 @@ actor AkashicMCPServer {
                 "key": str("use 時：已註冊的檔案 key"),
              ])),
         Tool(name: "akashic_person",
-             description: "人物檢索：person key 直查回 {person, publications, co_authors}（人物資料＋著作＋合著者統計，可選 library 過濾）；模糊姓名回 {candidates}（絕不自動選定——消歧交給 caller）。",
+             description: "人物檢索：person key 直查回 {person, publications, co_authors}（person 帶 key／names／affiliations／verdicts；著作＋合著者統計，可選 library 過濾）；模糊姓名回 {candidates}（絕不自動選定——消歧交給 caller）。",
              inputSchema: obj([
                 "key": str("person key（與 name 互斥；直查聚合）"),
                 "name": str("模糊姓名（與 key 互斥；回候選，上限 50）"),
@@ -222,9 +222,9 @@ actor AkashicMCPServer {
                  + "指向被移除鍵的 fields.<鍵> reference 一併刪除（referencesRemoved）；由被移除值推導的 venue 邊不動、列在 venueEdgesFromRemovedValues（literal）／"
                  + "venueKeyEdgesFromRemovedValues（已歸戶，venue 上的 verdict 也留著）；reintroductionNote 說明 import-wos 回填、enrich、Zotero pull 會把值補回；"
                  + "移除 APA7 必要欄位時附 apa7RequiredNowMissing。add_sources 把已存進 sources/ 的內容宣告為這篇的副本（akashic.sources）：add-only、冪等（sourcesAlreadyPresent），"
-                 + "sourcesAdded 帶 index 的取得記錄（至多 20 筆，sourcesAddedTotal／truncated 揭露；CLI 全列），sourcesTotal 是宣告後的副本總數。"
+                 + "sourcesAdded 帶 index 的取得記錄（origin／retrieved／mediaType／acquisition／note；至多 20 筆，sourcesAddedTotal／truncated 揭露；CLI 全列），sourcesTotal 是宣告後的副本總數。"
                  + "remove_zotero_sources 移除這筆記下的 Zotero 來源（主來源或附加來源；判定：理由必填、只回在 zoteroSourceRemovals；實寫要求 work 檔已 commit、乾淨）："
-                 + "主來源移除後附加來源不升格（primaryRemovedNote），zoteroLinkState 回連結狀態前後。"
+                 + "主來源移除後附加來源不升格（primaryRemovedNote），zoteroLinkState 回連結狀態前後，zoteroSourcesRemaining／zoteroSourcesRemainingTotal 是剩下的與總數。"
                  + "remove_sources 收回一條副本宣告（判定：理由必填、只回在 sourcesRemoved；只移除宣告，sources/ 的內容與取得記錄不動；實寫要求 work 檔已 commit、乾淨）。"
                  + "四條腿兩兩不組合。work 無法唯一定位時拒絕。" + legacyCopyNote,
              inputSchema: obj([
@@ -271,7 +271,7 @@ actor AkashicMCPServer {
                 "remove_reference": .object(["type": .string("array"), "items": .object(["type": .string("object")]),
                     "description": .string("移除 references（單獨呼叫）：物件 {field: names|authorized|issn|note, value, reason（必填，只回在 referencesRemoved、不寫進 store）, 選填縮小鍵 kind／url／…（同 references）}；位元組相等定位。venue 檔要已 commit、乾淨。定位不到或多筆、verdict／paginated 欄位、理由缺、超過 200 筆 → 整批拒絕零寫入")]),
                 "edit_name_segment": .object(["type": .string("array"), "items": .object(["type": .string("object")]),
-                    "description": .string("改或刪名字段（單獨呼叫）：物件 {name, match?, set 或 remove:true, reason（必填，只回在報告）}；match／set 的鍵 start／end／ended／attested／source／note，null 在 match＝要求缺席、在 set＝清除。git 閘（venue 檔要已 commit）與拒絕類別見 CLI help。回報 nameSegments、written（false 時 writeNote）、displayNameChanged；超過 20 項 detailsTruncated／detailsListed")]),
+                    "description": .string("改或刪名字段（單獨呼叫）：物件 {name, match?, set 或 remove:true, reason（必填，只回在報告）}；match／set 的鍵 start／end／ended／attested／source／note，null 在 match＝要求缺席、在 set＝清除。git 閘（venue 檔要已 commit）與拒絕類別見 CLI help。回報 nameSegments（action／before／after）、written（false 時 writeNote）、displayNameChanged；超過 20 項 detailsTruncated／detailsListed")]),
                 "references": .object(["type": .string("array"), "items": .object(["type": .string("object")]),
                     "description": .string("append-only 的 provenance，與 akashic_update_person 的 references 同一個解析與契約。field 只收 issn／names、帶 value，值要在記錄上（同一次呼叫加的也算）；authorized、note、verdict、paginated 拒收。位元組相同的略過；任一筆不合或空陣列，整個呼叫拒絕零寫入。回報 referencesAdded／referencesAlreadyPresent")]),
              ], required: ["key"])),
@@ -386,7 +386,7 @@ actor AkashicMCPServer {
                         + "fields.<鍵> 需 ≥ \(StoreVersion.workFieldReferenceFormat)，低於時值照補、reference 不寫。"
                         + "**dry_run 預設 true**；false 才寫（written 列出寫入的、indexRebuilt 說 index 有沒有重建），I/O 失敗逐筆記 writeFailed、其餘照寫。"
                         + "輸入錯整批拒絕零寫入（錯誤訊息具名是哪一類）；"
-                        + "ambiguous（DOI 命中 ≥2 筆，matches 列全部 citekey；或 work 無法唯一定位；該筆零寫入）／notFound／rejected／skipped 逐筆具名。"
+                        + "ambiguous（DOI 命中 ≥2 筆，matches 列全部 citekey；或 work 無法唯一定位；該筆零寫入）／notFound／rejected／skipped 逐筆具名在 category；additions 補了什麼、alreadyPresent 已有沒補、refused 被拒的值。"
                         + "items 至多 \(enrichItemLimit) 筆（counts／written／writeFailed 永遠完整，itemsTotal／truncated 揭露）；要全部用 CLI `akashic enrich --from … --json`。" + legacyCopyNote,
              inputSchema: obj([
                 "proposals": .object([

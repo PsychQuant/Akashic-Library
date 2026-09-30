@@ -7,6 +7,8 @@ import Foundation
 /// - `advisory`：給人讀的固定說明句，內容隨情境變動、呼叫端不需要依它分支。
 /// - `standard`：該格式的公開標準欄位（CSL-JSON），契約是那份標準，不是本工具。
 ///
+/// 巢狀路徑表（`ToolPayloadNestedPaths`，#700）上的鍵以全名列（`items[].reason`）；說明比對的是最後那一段鍵名。
+///
 /// 豁免不是永久的許可：`testEveryExemptionIsLive` 要求每個豁免的鍵**真的出現在** payload、且**真的沒被說明提到**——
 /// 說明一旦寫了它、或 payload 不再有它，豁免就紅，逼人把這一列刪掉。
 enum ToolPayloadKeyExemptions {
@@ -38,6 +40,8 @@ enum ToolPayloadKeyExemptions {
         "akashic_enrich": [
             "dryRun": echo("回顯 dry_run"),
             "proposals": echo("收到的提案筆數"),
+            // #700：巢狀路徑以全名列（`ToolPayloadNestedPaths`）
+            "items[].reason": advisory("給人讀的一句話，說明這筆為什麼落在它的 category（citekey 不在、DOI 不合、命中多筆……）；呼叫端依 category 分支"),
         ],
         "akashic_enrich_from_zotero": ["dryRun": echo("回顯 dry_run")],
         "akashic_import_wos": ["dryRun": echo("回顯 dry_run")],
@@ -60,6 +64,7 @@ enum ToolPayloadKeyExemptions {
             "dryRunNote": advisory("乾跑時的固定說明句（實跑要 dry_run:false 且檔已 commit）"),
             "reasonNote": advisory("提醒理由只在報告裡、要留在 git 得寫進 commit message"),
             "blobNote": advisory("提醒 remove_sources 只收回宣告、sources/ 的內容不動"),
+            "reimportNote": advisory("給人讀的一句話：被移除的來源下一次 import-zotero 會怎樣；結構化的是各筆 zoteroSourceRemovals 的 reimportEffect"),
         ],
         "akashic_update_venue": [
             "reasonNote": advisory("提醒理由只在報告裡、要留在 git 得寫進 commit message"),

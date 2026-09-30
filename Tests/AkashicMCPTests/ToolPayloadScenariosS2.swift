@@ -8,7 +8,7 @@ import Foundation
 /// 情境閉包是同步的，以 semaphore 等 async 結果——`S2Tool.run` 不依賴 main actor，阻塞呼叫端的執行緒不會卡死它。
 extension ToolPayloadScenarios {
     static let s2: [PayloadScenario] = [
-        PayloadScenario("akashic_s2", "references（分頁端點）") { _ in
+        PayloadScenario("akashic_s2", "references（分頁端點）", params: ["endpoint=references", "id", "limit"]) { _ in
             S2ToolStub.install { request in
                 if request.url!.path.hasSuffix("/references") {
                     let rows: [[String: Any]] = [["citedPaper": ["paperId": "p0", "title": "A"]]]
@@ -18,7 +18,7 @@ extension ToolPayloadScenarios {
             }
             return try runS2(S2ToolArguments(endpoint: "references", id: "DOI:10.1/x", fields: [], limit: 10))
         },
-        PayloadScenario("akashic_s2", "status") { _ in
+        PayloadScenario("akashic_s2", "status", params: ["endpoint=status"]) { _ in
             try runS2(S2ToolArguments(endpoint: "status"))
         },
     ]

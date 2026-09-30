@@ -2,7 +2,7 @@
 
 ## 為什麼
 
-同一篇論文同時放在個人 Zotero library 與共享群組 library（本例為 Reference_JTIRT）是正常用法。Akashic 以
+同一篇論文同時放在個人 Zotero library 與共享群組 library（本例為一個共用的 Zotero 群組）是正常用法。Akashic 以
 `(library_id, zotero_key)` 為匯入身分（#3），於是把它匯成兩筆 entry；要合併時，合併閘又把兩個不同的 zotero key
 當成「來源衝突」擋下（#157）。這類攣生在結構上合併不了，唯一出路是去 Zotero 刪掉其中一份——而群組那份是
 別人也在用的共享文獻，個人那份帶著收藏夾分類，兩邊都不該為了 Akashic 內部的一致性被刪。實例是

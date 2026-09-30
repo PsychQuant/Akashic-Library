@@ -54,3 +54,6 @@ proposals*.json
 # commit 它會讓別台 clone 一拿到就被判定成「已同步」，於是 guardian 靜靜放行
 # 而 wiki 其實落後。同 `.claude/.idd/tree-lock`（本檔第 2 行）的既有立場。
 .wiki-last-sync
+
+# 本機的 VS Code 工作區檔：資料夾路徑指向本機其他 checkout，不進公開 repo（#693，使用者 2026-10-01 裁決）
+*.code-workspace

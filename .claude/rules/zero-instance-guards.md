@@ -133,7 +133,7 @@
 | 67 | **零實例，而欄位的語意改了、卻沒有任何讀者**（#684：index 的 `entries.orphaned` 在 #609 改由 `Entry.zoteroLinkState == .orphaned` 判定，`schemaVersion` 仍是 5。2026-09-29 量測：`Sources/` 讀這一欄的地方 0 處、建表恰 1 處） | ❌ **暫不做（不 bump）** | 第 10 列同形——要不要做取決於一個還不存在的東西，這裡是讀者。index 是衍生物，store 一寫就因 mtime 過期重建，舊 binary 建的 index 到那時自癒；沒有讀者就沒有東西受漂移影響，bump 只會讓每個使用者白重建一次。**觸發條件**：出現第一個讀者時，`schemaVersion` 與 `PRAGMA user_version = 5` 兩處同步升 6（後者是寫死的重複） |
 | 68 | **零實例，而清單會由一次匯入一步跨過**（#684：MCP `akashic_import_zotero` 的 `ambiguousSourceClaims` 至多 20 個來源、每個來源 20 個宣稱者，揭露 `ambiguousSourceClaimsTotal`／`ambiguousSourceClaimsTruncated`；CLI 全列。2026-09-29 唯讀量測：work 2,572、Zotero 來源 535、被 ≥2 筆宣稱 0、最大宣稱者數 1。重跑腳本見表下方） | ✅ **寫** | 與第 18、30 列同形：沒有曲線，實例會由一次匯入一步跨過；上限保護的是 LLM context，不是 store。**觸發條件**：任一次匯入回 `ambiguousSourceClaimsTruncated: true` 就重開 |
 | 69 | **零實例，而它是沿革位置的第一個寫入面**（#675：`update-venue --edit-name-segment`／MCP `edit_name_segment` 改名字段的時間欄位、`source`、`note` 或刪段。上限沿用既有常數——一次 200 項、理由 4,096 位元組、`source`／`note` 65,536 位元組；`attested` 200 點是推估、沒有母體（R1 起每個點也有 65,536 位元組上限）；ISO 8601 前綴與區間有效性只在這個入口驗。2026-09-29 唯讀量測 live store：venue 485、名字段 537，帶時間 0、帶 source 0、帶 note 0。重跑腳本見表下方） | ✅ **寫（整批拒絕、零寫入、不截斷；時間欄位入口驗）** | 與第 45 列同形：上限只擋單次，累積由第 16／31 列出聲。差別在對象：第 22 列替沿革保留位置、第 43 列守合併時不把它拿掉，而在此之前**沒有任何面寫得進去**——這是第一個。ISO 只在入口驗、不升成 `validate()` 的 error：載入端對 venue 日期不驗是既有裁決（#85），升級會讓手改的值從「載入得了」變成「所有寫入被拒」。**誠實邊界**：手改的非 ISO 值仍載入得了，沿革豁免不認它。**觸發條件**：帶時間、source 或 note 的名字段數 > 0——那時第 22、43 列同時到期 |
-| 70 | **零實例，而它是清單清空之後留著的機制**（#690：`trigger-coverage` 的「宣告範圍裡不在受保護集合的檔」檢查，與它的已知缺口清單 `.githooks/acknowledged-ci-gaps.txt`。立案時兩條缺口——`network-confinement` 與 `zero-instance-rows-audit` 宣告讀 `Sources/*/*.swift`，115 個不受保護的檔改動時 CI 不跑它們；使用者 2026-09-30 裁決 A 讓 `census-parity.yml` 的 `paths` 涵蓋 `Sources/**`，兩條隨之消失、清單清空。2026-09-30 量測：宣告範圍的缺口 **0**、清單條目 **0**。重跑指令見表下方） | ✅ **寫檢查、保留清單（清單是資料檔，三條分支各有負控）** | 第 13 列的零是「清理過之後的零」；這一列同形，多一件事：**清空它的是一次計費裁決**。`paths` 若因成本再收窄，同一個缺口立刻回來，那時要的是「列管並追蹤」，而不是只有紅燈或什麼都沒有。留著的代價是一條可能變成豁免的路，所以三道閘：每一條必附 `#<issue>`、缺口消失而條目還在是缺口（過期）、格式不對是缺口。R1 verify（requirements、logic、regression 三席）指出清單是編譯期常數時這三條分支沒有任何負控走得到——harness 改的是 copy 裡的檔、改不到 binary；清單因此搬進資料檔，`trigger-coverage-mutations` 三格各走一條，另兩格各釘宣告範圍檢查的兩個判斷（workflow 有跑這支守衛、`paths-ignore`，DA 席實測兩者改壞時負控全綠）。**觸發條件可檢查**（指令見表下方）：清單有條目時，逐條確認它的 issue 還開著；issue 關了而條目還在，把條目拿掉——缺口若也還在，守衛照常紅 |
+| 70 | **零實例，而它是清單清空之後留著的機制**（#690：`trigger-coverage` 的「宣告範圍裡不在受保護集合的檔」檢查，與它的已知缺口清單 `.githooks/acknowledged-ci-gaps.txt`。立案時兩條缺口——`network-confinement` 與 `zero-instance-rows-audit` 宣告讀 `Sources/*/*.swift`，115 個不受保護的檔改動時 CI 不跑它們；使用者 2026-09-30 裁決 A 讓 `census-parity.yml` 的 `paths` 涵蓋 `Sources/**`，兩條隨之消失、清單清空。2026-09-30 量測：宣告範圍的缺口 **0**、清單條目 **0**。重跑指令見表下方） | ✅ **寫檢查、保留清單（清單是資料檔，三條分支各有負控）** | 第 13 列的零是「清理過之後的零」；這一列同形，多一件事：**清空它的是一次計費裁決**。`paths` 若因成本再收窄，同一個缺口立刻回來，那時要的是「列管並追蹤」，而不是只有紅燈或什麼都沒有。留著的代價是一條可能變成豁免的路，所以三道閘：每一條必附 `#<issue>`、缺口消失而條目還在是缺口（過期）、格式不對是缺口。R1 verify（requirements、logic、regression 三席）指出清單是編譯期常數時這三條分支沒有任何負控走得到——harness 改的是 copy 裡的檔、改不到 binary；清單因此搬進資料檔，`trigger-coverage-mutations` 三格各走一條，另兩格各釘宣告範圍檢查的兩個判斷（workflow 有跑這支守衛、`paths-ignore`，DA 席實測兩者改壞時負控全綠）。R2 verify 指出那三格只走到欄數：`#<issue>` 的格式與「樣式要相等」兩個條件拿掉時負控仍 44/44，`TODO` 當第三欄的一行會把缺口放過；補五格（第三欄不是 `#<issue>`、第一或第二欄空、樣式與宣告不同、CRLF 行尾、同一條列兩次），並把兩格 workflow 注入改成 Actions 收的設定（同一個事件不能同時有 `paths` 與 `paths-ignore`）。`#<issue>` 只驗格式，不驗 issue 存在或仍開著——那一半靠下面的觸發條件。**觸發條件可檢查**（指令見表下方）：清單有條目時，逐條確認它的 issue 還開著；issue 關了而條目還在，把條目拿掉——缺口若也還在，守衛照常紅 |
 
 對本表四類中的任一個做出下一次裁決（新增、不新增、保留、拿掉）= 在這張表加一列。
 
@@ -1383,10 +1383,12 @@ PY
 # 2026-09-29：attested 最多 0 點｜讀不到的檔 0
 ```
 
-**第 70 列的量測（2026-09-30，可重跑）**：宣告範圍每條宣告印一行，`✓` 是沒有缺口、`✗` 是未列管的缺口、`⊘` 是列管的缺口；清單條目數不含註解與空行。三條分支與兩個判斷的負控是 `.build/debug/akashic-guards trigger-coverage-mutations`（2026-09-30：44/44）。
+**第 70 列的量測（2026-09-30，可重跑）**：宣告範圍每條宣告印一行，`✓` 是沒有缺口、`✗` 是未列管的缺口、`⊘` 是列管的缺口；清單條目數不含註解與空行。三條分支、格式閘的每個條件與兩個判斷的負控是 `.build/debug/akashic-guards trigger-coverage-mutations`（2026-09-30 R2：49/49）。**`✗⊘` 的 0 要配正對照一起讀**（R2 verify）：#690 之前的 binary 沒有範圍檢查、守衛中途以 rc=2 中止，`grep -c` 都印 0，與「沒有缺口」分不出來——所以先看 rc 與 `✓` 行數，`✓` 是 0 時下一行的 0 不算數。
 
 ```bash
-.build/debug/akashic-guards trigger-coverage | grep -cE '^[✗⊘] .*宣告 `'   # 2026-09-30：0
+out=$(.build/debug/akashic-guards trigger-coverage); echo "rc=$?"           # 2026-09-30：rc=0
+printf '%s\n' "$out" | grep -cE '^✓ .*宣告 `'     # 正對照，2026-09-30：3（0＝這個 binary 沒有範圍檢查，或中途中止）
+printf '%s\n' "$out" | grep -cE '^[✗⊘] .*宣告 `'  # 2026-09-30：0
 grep -cvE '^#|^$' .githooks/acknowledged-ci-gaps.txt                    # 2026-09-30：0
 ```
 

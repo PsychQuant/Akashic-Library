@@ -356,11 +356,13 @@ func swiftGuards() -> [String] {   // #522：ProtectedInventory 也要用
 ///   · 不在清單裡的同類缺口是 `fails`；
 ///   · 列在清單裡、但缺口已經不在（例如 workflow 的 `paths:` 補上了）→ 也是 `fails`，要人把那一條
 ///     拿掉——留著的豁免會變成沒人記得的放行（`official-validate` 允許清單的同一條紀律）；
-///   · 格式不對的行 → `fails`，不靜默略過。
+///   · 格式不對的行 → `fails`，不靜默略過；同一個守衛、同一個樣式列兩次也算格式不對（#690 R2 verify：
+///     先前第二條永遠命中不到，被報成「已經沒有缺口」——缺口其實還在，訊息叫人拿掉錯的東西）；
+///   · 條目對不到任何宣告（守衛檔不在、或它沒有逐字宣告那個樣式）→ `fails`，訊息說對不到，不說「已經沒有缺口」。
 ///
 /// **現在是空的**：#690 使用者裁決 A（2026-09-30）讓 `census-parity.yml` 的 `paths:` 涵蓋 `Sources/**`，原本兩條
 /// （`network-confinement`、`zero-instance-rows-audit` 都宣告讀 `Sources/*/*.swift`）隨之消失。機制留著：日後出現一個
-/// 有 issue 追蹤、暫時補不了的缺口時才加一條（`zero-instance-guards` 第 48 列）。
+/// 有 issue 追蹤、暫時補不了的缺口時才加一條（`zero-instance-guards` 第 70 列）。
 ///
 /// **為什麼是資料檔，不是編譯期常數**（#690 R1 verify）：常數寫在 binary 裡，負控 harness 改的是 copy 裡的檔、
 /// 改不到它，於是清單清空之後「已知缺口」與「過期」兩條分支沒有任何格子走得到。資料檔在 copy 裡改得到。
@@ -370,14 +372,24 @@ let acknowledgedCIGapsFile = ".githooks/acknowledged-ci-gaps.txt"
 func acknowledgedCIGaps() -> (entries: [(guardFile: String, pattern: String, issue: String)], bad: [String]) {
     var entries: [(guardFile: String, pattern: String, issue: String)] = []
     var bad: [String] = []
-    for (i, raw) in rawFile(acknowledgedCIGapsFile).components(separatedBy: "\n").enumerated() {
+    var firstLine: [String: Int] = [:]   // "<守衛>\t<樣式>" → 它第一次出現在第幾行
+    for (i, line0) in rawFile(acknowledgedCIGapsFile).components(separatedBy: "\n").enumerated() {
+        // **CRLF**（#690 R2 verify）：在 `\n` 切開之後 `\r` 留在行尾。不去掉的話，空行變成一欄的「條目」（誤紅），
+        // 第三欄變成 `#690\r` 照樣收下（輸出的「#690 追蹤」夾著 `\r`）。只去掉行尾那一個，其餘照原樣比對。
+        let raw = line0.hasSuffix("\r") ? String(line0.dropLast()) : line0
         let line = raw.trimmingCharacters(in: .whitespaces)
         if line.isEmpty || line.hasPrefix("#") { continue }
         let f = raw.components(separatedBy: "\t")
-        guard f.count == 3, !f[0].isEmpty, !f[1].isEmpty, !matches(f[2], #"^#[0-9]+$"#).isEmpty else {
+        guard f.count == 3, !f[0].isEmpty, !f[1].isEmpty, !matches(f[2], #"\A#[0-9]+\z"#).isEmpty else {
             bad.append("\(acknowledgedCIGapsFile) 第 \(i + 1) 行格式不對（要三欄、TAB 分隔、第三欄是 #<issue>）：「\(raw)」")
             continue
         }
+        let key = f[0] + "\t" + f[1]
+        if let j = firstLine[key] {
+            bad.append("\(acknowledgedCIGapsFile) 第 \(i + 1) 行與第 \(j) 行重複（同一個守衛、同一個樣式）——刪掉其中一行：「\(raw)」")
+            continue
+        }
+        firstLine[key] = i + 1
         entries.append((f[0], f[1], f[2]))
     }
     return (entries, bad)
@@ -859,10 +871,12 @@ func triggerCoverage(argv: [String]) -> Int32 {
     fails += ackBad
     var ackHit = Set<Int>()
     var scopeLines: [String] = []
+    var declaredPairs = Set<String>()   // "<守衛>\t<樣式>"：清單條目對得到的宣告
     for g in GUARDS {
         for line in rawFile(g).components(separatedBy: "\n") {
             guard let m = matches(line, DECLARE).first else { continue }
             let pat = (line as NSString).substring(with: m.range(at: 1))
+            declaredPairs.insert(g + "\t" + pat)
             let first = pat.components(separatedBy: "/")[0]
             guard !first.contains("*"), !first.contains("?"),
                   PROTECTED.contains(where: { globMatch($0, pat) }) else { continue }
@@ -892,8 +906,15 @@ func triggerCoverage(argv: [String]) -> Int32 {
         }
     }
     for (i, a) in ackGaps.enumerated() where !ackHit.contains(i) {
-        fails.append("已知缺口清單（\(acknowledgedCIGapsFile)）的 \(base(a.guardFile)) 宣告 `\(a.pattern)`（\(a.issue)）"
-            + "已經沒有缺口——把它從清單拿掉，並回 \(a.issue) 記錄")
+        if declaredPairs.contains(a.guardFile + "\t" + a.pattern) {
+            fails.append("已知缺口清單（\(acknowledgedCIGapsFile)）的 \(base(a.guardFile)) 宣告 `\(a.pattern)`（\(a.issue)）"
+                + "已經沒有缺口——把它從清單拿掉，並回 \(a.issue) 記錄")
+        } else {
+            // 條目對不到任何宣告時不能說「已經沒有缺口」（#690 R2 verify）：守衛檔可能已刪、樣式可能少一個字元，
+            // 缺口在不在這裡根本沒有量到。
+            fails.append("已知缺口清單（\(acknowledgedCIGapsFile)）的一條對不到任何宣告：\(a.guardFile) 不是受保護的守衛，"
+                + "或它沒有逐字宣告 `\(a.pattern)`（\(a.issue)）——改成守衛實際宣告的樣式，或把它拿掉")
+        }
     }
     if !scopeLines.isEmpty {
         print("\n宣告範圍裡不在受保護集合的檔（上面的逐對表只走受保護集合，看不到它們）：")

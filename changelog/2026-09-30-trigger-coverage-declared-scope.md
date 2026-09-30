@@ -90,3 +90,12 @@ TZ=Asia/Taipei git log cbc7d400 --since=2026-08-31T00:00:00+08:00 --until=2026-0
 - 「宣告用中間萬用字元」那一格原本注入 `Sources/*/*.swift`，第一輪因為新檢查會多報一條缺口而換成 `Sources/*/Venue.swift`。裁決 A 之後那個理由不在了（regression 席實測改回去只剩預期的警告），改回真守衛用的形式。
 - `026e3c03`（本 issue 裁決落地的 commit）同時帶了 `plugin/CHANGELOG.md` 裡 #608、#694、#696 的一段（`akashic_import_zotero` 的回應形狀改變），與 #690 無關。內容本身對；歷史不改寫，記在這裡，追 #696 時從這一行找得到。
 - 不修：security 席建議把 actions 改用 SHA 釘住、檢查 fork PR 的核准設定。那是既有狀態，不在 #690 的範圍；`permissions: contents: read`、`persist-credentials: false`、沒有 `secrets`、沒有 `pull_request_target` 已確認。
+
+## R2 verify 修正（2026-09-30）
+
+六席。與本 issue 有關的：Codex 一個 MEDIUM（兩格負控的 workflow 注入不是 Actions 收的設定）、regression 一個 MEDIUM（格式閘的 `#<issue>` 與「樣式相等」沒有負控），另有八個 LOW（其中三個是同一件事：doc comment 指錯列）。逐條處置、mutant 與結果見 `changelog/2026-09-30-guard-audit-r2-fixes.md`。
+
+- 〈R1 verify 修正〉那兩格（`ci.yml` 加 `paths:`、`census-parity.yml` 加 `paths-ignore:`）都讓同一個事件同時有 `paths` 與 `paths-ignore`，GitHub Actions 不收。改成：`ci.yml` 的事件篩選整段換成單一的 `paths: Sources/**`；`census-parity.yml` 的 `push` 照舊只有 `paths`，`pull_request` 改成只有 `paths-ignore: Sources/AkashicS2/**`。兩個 mutant（「workflow 有跑守衛」恆真、不看 `paths-ignore`）各自仍只讓對應那一格失敗。
+- 清單解析：第三欄改用 `\A#[0-9]+\z`；CRLF 行尾去掉行尾的 `\r`；同一個守衛、同一個樣式列兩次是格式不對（具名兩個行號）；條目對不到任何宣告時說「對不到」，不說「已經沒有缺口」。
+- 負控加五格（第三欄不是 `#<issue>`、第一或第二欄空、樣式與宣告不同、CRLF、重複），49/49。
+- `TriggerCoverage.swift` 的 doc comment 指向第 48 列，改成第 70 列；第 70 列的量測加正對照（rc 與 `✓` 行數），分得出「沒有缺口」與「這個 binary 沒有範圍檢查」。

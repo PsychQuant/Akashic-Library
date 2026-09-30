@@ -3868,6 +3868,9 @@ public final class AkashicService {
         let variantBlanks: [String]
         let authorizeIn: [String]
         let authorizeBlanks: [String]
+        /// #559：撤回的名字（canonical）與整項空白的原字串
+        let unauthorizeIn: [String]
+        let unauthorizeBlanks: [String]
         let type: VenueType?
         /// nil＝這次沒給 add_issn；空陣列＝給了但全是空白。可帶角色（#587）
         let addISSN: [ISSN]?
@@ -3886,13 +3889,15 @@ public final class AkashicService {
     /// CLI 的 `validate()` 用（#654）：`update-venue` 只看參數的全部檢查——與服務在讀 store 之前跑的是同一個函式。
     public static func checkUpdateVenueArguments(addNames: [String]?, type rawType: String?, addISSN: [String]?,
                                                  addVariant: [String]?, authorize: [String]?,
+                                                 unauthorize: [String]? = nil,
                                                  paginated: Bool?, clearPaginated: Bool,
                                                  judgement: String?, restsOn: [String]?,
                                                  removeISSN: [String]?, references: [Any]? = nil,
                                                  note: String? = nil, removeReference: [Any]? = nil,
                                                  editNameSegment: [Any]? = nil) throws {
         _ = try updateVenueArguments(addNames: addNames, type: rawType, addISSN: addISSN, addVariant: addVariant,
-                                     authorize: authorize, paginated: paginated, clearPaginated: clearPaginated,
+                                     authorize: authorize, unauthorize: unauthorize,
+                                     paginated: paginated, clearPaginated: clearPaginated,
                                      judgement: judgement, restsOn: restsOn, removeISSN: removeISSN,
                                      references: references, note: note, removeReference: removeReference,
                                      editNameSegment: editNameSegment)
@@ -3907,6 +3912,7 @@ public final class AkashicService {
     /// `references` 的形狀（`parseVenueReferences`）、以及 references 指向 remove_issn 的號這個矛盾。附著要合進記錄才判得出來，仍在 `updateVenue`。
     static func updateVenueArguments(addNames: [String]?, type rawType: String?, addISSN: [String]?,
                                      addVariant: [String]?, authorize: [String]?,
+                                     unauthorize: [String]? = nil,
                                      paginated: Bool?, clearPaginated: Bool,
                                      judgement: String?, restsOn: [String]?,
                                      removeISSN: [String]?, references: [Any]? = nil,
@@ -3926,6 +3932,7 @@ public final class AkashicService {
             if addISSN != nil { others.append("add_issn") }
             if addVariant != nil { others.append("add_variant") }
             if authorize != nil { others.append("authorize") }
+            if unauthorize != nil { others.append("unauthorize") }
             if paginated != nil { others.append("paginated") }
             if clearPaginated { others.append("clear_paginated") }
             if judgement != nil { others.append("judgement") }
@@ -3990,6 +3997,7 @@ public final class AkashicService {
         let namesIn = try vetVenueNames(addNames, parameter: "add_names（--add-name）")
         let (variantsIn, variantBlanks) = try vetVenueNamesReportingBlanks(addVariant, parameter: "add_variant（--add-variant）")
         let (authorizeIn, authorizeBlanks) = try vetVenueNamesReportingBlanks(authorize, parameter: "authorize（--authorize）")
+        let (unauthorizeIn, unauthorizeBlanks) = try vetVenueNamesReportingBlanks(unauthorize, parameter: "unauthorize（--unauthorize）")
         var vtype: VenueType?
         if let rawType {
             guard let t = VenueType(rawValue: rawType) else {
@@ -4049,6 +4057,10 @@ public final class AkashicService {
                     + "同時被送進 add_variant 與 authorize——那是兩句矛盾的話，請只說一句")
             }
         }
+        // #559：同一個名字既指定又撤回，同樣是兩句矛盾的話（相等看 canonical，與兩條腿的定位同一條）。
+        // `add_variant` ＋ `unauthorize` 同一個名字**不是**矛盾：那是「它不是對外形、它是異寫」，呼叫端明說了兩件事（`authorize` 那邊的
+        // 「呼叫端可以在同一次呼叫裡明說降成 variant」同一個立場）。
+        try Self.refuseAuthorizeUnauthorizeOverlap(authorizeIn: authorizeIn, unauthorizeIn: unauthorizeIn)
         // 同一次呼叫兩個同 `WritingSystem` 的名字也是兩句矛盾的話（R1 verify 第 1 列，
         // 四席各自重現）：迴圈逐一處理時第 N+1 輪會把第 N 輪剛升上去的當舊指定移出——
         // 陣列順序決勝，而 `validateWritingSystems` 對這個形狀的裁決是「未決的問題，
@@ -4068,6 +4080,7 @@ public final class AkashicService {
         return UpdateVenueArguments(removeISSN: removals, namesIn: namesIn,
                                     variantsIn: variantsIn, variantBlanks: variantBlanks,
                                     authorizeIn: authorizeIn, authorizeBlanks: authorizeBlanks,
+                                    unauthorizeIn: unauthorizeIn, unauthorizeBlanks: unauthorizeBlanks,
                                     type: vtype, addISSN: parsedISSN?.issns, issnDropped: parsedISSN?.dropped ?? [],
                                     paginatedReference: paginatedRef, references: parsedReferences,
                                     removeReferences: removeReferenceSpecs, nameSegmentEdits: nameSegmentEditSpecs)
@@ -4098,6 +4111,7 @@ public final class AkashicService {
                             addISSN: [String]? = nil,
                             addVariant: [String]? = nil,
                             authorize: [String]? = nil,
+                            unauthorize: [String]? = nil,
                             paginated: Bool? = nil, clearPaginated: Bool = false,
                             judgement: String? = nil,
                             restsOn: [String]? = nil,
@@ -4107,7 +4121,8 @@ public final class AkashicService {
                             editNameSegment: [Any]? = nil,
                             removalDetailLimit: Int? = AkashicService.removalDetailCap) throws -> String {
         let args = try Self.updateVenueArguments(addNames: addNames, type: rawType, addISSN: addISSN, addVariant: addVariant,
-                                                 authorize: authorize, paginated: paginated, clearPaginated: clearPaginated,
+                                                 authorize: authorize, unauthorize: unauthorize,
+                                                 paginated: paginated, clearPaginated: clearPaginated,
                                                  judgement: judgement, restsOn: restsOn, removeISSN: removeISSN,
                                                  references: references, note: note, removeReference: removeReference,
                                                  editNameSegment: editNameSegment)
@@ -4291,76 +4306,24 @@ public final class AkashicService {
         //
         // 每個分類的改變都印在報告裡（`authorizedAdded`／`authorizedRemoved`／
         // `liftedFromVariant`／`alreadyAuthorized`）——`lossless-intake` 執行細節 3：
-        // 分類的改變要可見。留 judgement 的義務另裁（#564，三個名字分類面一次裁），
-        // 本面不寫記錄——`two-kinds-of-edits` 那列註明這是有記錄的裁決。
-        var authorizedAdded: [String] = []
-        var authorizedRemoved: [String] = []
-        var liftedFromVariant: [String] = []
-        var alreadyAuthorized: [String] = []
-        var authorizedRewritten: [String] = []   // 同名不同位元組的自我修復（R9 verify logic 第 23 列）
-        // 兩句矛盾的話（同一個名字既 add_variant 又 authorize、同一個書寫系統兩個名字）在讀 store 之前擋（`updateVenueArguments`，#654）
-        for requested in authorizeIn {
-            // 解析成 store 拼法；names 沒有的，以 canonical 形加進 names（兩個分割都是對 names 的標記）
-            let x: String
-            if let existing = resolveSpelling(requested) {
-                x = existing
-            } else {
-                x = requested                                           // vetted 已是 canonical
-                venue.names = Timeline(venue.names.entries + [TemporalValue(value: x)])
-                added.append(x)
-            }
-            let key = NameIdentity.canonical(x)
-            let script = WritingSystem.of(x)
-            let already = venue.authorized.contains { NameIdentity.canonical($0) == key }
-            // 重建 authorized：移出 (a) 同 `WritingSystem` 的**其他**指定——留在 names、不進 variant
-            // （D1：程式不替呼叫端多說「它是異寫」）、(b) 與 x canonical-相等但拼法不同的（修正
-            // 拼法；R3 第 1 列 (d)(e)：報告不得宣稱 store 沒有的字串、守衛說「請選一個」選了就要修好）。
-            // x **插回第一個被動到的位置**（R3 第 2 列：remove＋append 會重排，`displayName` 取
-            // `first`，雙語 venue 的預設顯示名會換書寫系統）。
-            var kept: [String] = []
-            var insertAt: Int? = nil
-            var rewrote = false
-            for y in venue.authorized {
-                let sameName = NameIdentity.canonical(y) == key
-                if sameName || WritingSystem.of(y) == script {
-                    if insertAt == nil { insertAt = kept.count }
-                    // 同名不同**位元組**（手改成 NFD 的舊 authorized——`String ==` 是 canonical
-                    // equivalence，看不出來）也要出聲：authorized 的位元組變了，報告不能說 no-op
-                    // （R4 verify 第 6 列）。這是不變式唯一的自我修復路：新狀態是 canonical、validate 過。
-                    // 它報在自己的桶 `authorizedRewritten`——R9 讓同一個可見字串同時落在 `alreadyAuthorized`
-                    // 與 `authorizedRemoved`、`authorizedAdded` 空，操作者看不出改了什麼（R9 verify logic 第 23 列）。
-                    if !sameName {
-                        // 舊指定被 `field: authorized` 的 reference 指著時具名拒絕、零寫入（R33；R32 verify Codex 第 2 列）：移出之後那些
-                        // reference 成孤兒，`validateReferenceAttachment` 會在寫入時以「不在 authorized 清單內」拒絕——fail-closed 但不說是哪筆、
-                        // 也不說出路。程式不替人改判定（D60 同向）：value 改成新的對外形或刪掉它，都是人的事。live store 2026-09-18：0 筆。
-                        let pinned = venue.references.filter { $0.field == "authorized" && $0.value == y }
-                        if !pinned.isEmpty {
-                            throw ServiceError.invalid(
-                                "authorize「\(displaySafeInvisible(x, max: 120))」會把「\(displaySafeInvisible(y, max: 120))」移出 authorized，"
-                                + "但這筆 venue 有 \(pinned.count) 筆 `field: authorized` 的 reference 指著它——移出後它們成孤兒、寫入會被拒；"
-                                + "程式不替人改判定。請先把那幾筆 reference 的 value 改成新的對外形（手改 YAML）、或用 update-venue --remove-reference 刪掉它們（#673），再重跑")
-                        }
-                        authorizedRemoved.append(y)
-                    }
-                    else if Array(y.utf8) != Array(x.utf8) { rewrote = true }
-                    continue
-                }
-                kept.append(y)
-            }
-            kept.insert(x, at: insertAt ?? kept.count)
-            venue.authorized = kept
-            // X 若原本是 variant（例如被 #553 降過去的），從那個分割移出——全部 canonical-相等的
-            // 條目都移（R3 第 3 列：只移一筆會留下第二筆、守衛以錯的訊息拒）。這是本面的主要
-            // 用途，所以要單獨報出來（R1 verify 第 10 列）。
-            let lifted = venue.variant.filter { NameIdentity.canonical($0) == key }
-            if !lifted.isEmpty {
-                venue.variant.removeAll { NameIdentity.canonical($0) == key }
-                liftedFromVariant.append(contentsOf: lifted)
-            }
-            if rewrote { authorizedRewritten.append(x) }
-            else if already { alreadyAuthorized.append(x) }
-            else { authorizedAdded.append(x) }   // 冪等，但要說
-        }
+        // 分類的改變要可見。判定記錄：#564 已於 2026-10-01 裁決要留（名字分類面全部，含撤回），另案落地（需要 store format bump）；
+        // 在那之前本面不寫記錄。報告的各桶就是那筆記錄要記的內容（`AuthorizedDesignation` 的 doc）。
+        //
+        // 撤回（#559，`unauthorize`）：把現有的對外形移出 authorized、留在 names、不標 variant——`clear_paginated`（#500）與
+        // `demote`（#418）的同一格。替換只能換成另一個名字，回不到「不作任何宣稱」；只有一個名字的 venue，authorized 一旦在就永遠在。
+        //
+        // 替換與撤回的邏輯住在 `AuthorizedDesignation`（#557 起 organization 共用同一份，原樣從這裡搬出）。兩句矛盾的話
+        // （同一個名字既 add_variant 又 authorize、同一個書寫系統兩個名字、同一個名字既 authorize 又 unauthorize）在讀 store 之前擋
+        // （`updateVenueArguments`，#654）。**撤回先跑**（#559）：成員資格以呼叫前的 authorized 為準，「撤回 A、指定 B」不因順序而變。
+        var designation = AuthorizedDesignation(
+            names: venue.names, authorized: venue.authorized, variant: venue.variant, references: venue.references,
+            owner: .init(noun: "venue", referenceRemoval: "用 update-venue --remove-reference 刪掉它們（#673）"))
+        let authorizedWithdrawn = try designation.unauthorize(args.unauthorizeIn)
+        let authorizeReport = try designation.authorize(authorizeIn)
+        venue.names = designation.names
+        venue.authorized = designation.authorized
+        venue.variant = designation.variant
+        added.append(contentsOf: authorizeReport.namesAdded)
         // **通用 references**（#587）：append-only、位元組相同的略過（同 `update_person`）。附在最後——同一次呼叫加的號與名字
         // 已經落到記錄上，reference 可以指向它們。形狀已在讀 store 之前過平面 init（`parseVenueReferences`）；附著（那個號、
         // 那個名字在不在記錄上）要合進記錄才判得出來，在這裡以 `validateReferenceAttachment`（載入的同一個驗證）驗——
@@ -4422,11 +4385,14 @@ public final class AkashicService {
                                       "variantAdded": variantAdded.map { displaySafeInvisible($0, max: 200) },
                                       "variantDropped": variantBlanks.map { displaySafeInvisible($0, max: 200) },
                                       "authorizeDropped": authorizeBlanks.map { displaySafeInvisible($0, max: 200) },
-                                      "authorizedAdded": authorizedAdded.map { displaySafeInvisible($0, max: 200) },
-                                      "authorizedRemoved": authorizedRemoved.map { displaySafeInvisible($0, max: 200) },
-                                      "liftedFromVariant": liftedFromVariant.map { displaySafeInvisible($0, max: 200) },
-                                      "alreadyAuthorized": alreadyAuthorized.map { displaySafeInvisible($0, max: 200) },
-                                      "authorizedRewritten": authorizedRewritten.map { displaySafeInvisible($0, max: 200) },
+                                      "authorizedAdded": authorizeReport.authorizedAdded.map { displaySafeInvisible($0, max: 200) },
+                                      "authorizedRemoved": authorizeReport.authorizedRemoved.map { displaySafeInvisible($0, max: 200) },
+                                      "liftedFromVariant": authorizeReport.liftedFromVariant.map { displaySafeInvisible($0, max: 200) },
+                                      "alreadyAuthorized": authorizeReport.alreadyAuthorized.map { displaySafeInvisible($0, max: 200) },
+                                      "authorizedRewritten": authorizeReport.authorizedRewritten.map { displaySafeInvisible($0, max: 200) },
+                                      // #559：撤回的（store 拼法）與整項空白的
+                                      "authorizedWithdrawn": authorizedWithdrawn.map { displaySafeInvisible($0, max: 200) },
+                                      "unauthorizeDropped": args.unauthorizeBlanks.map { displaySafeInvisible($0, max: 200) },
                                       "authorizedTotal": venue.authorized.count,
                                       "variantTotal": venue.variant.count]
         if let p = venue.paginated { payload["paginated"] = p }

@@ -1230,7 +1230,7 @@ venue 的 `references:` 可附著的 `field` 是**封閉列舉**，唯一的列�
 
 **通用寫入面只收 `issn` 與 `names`**（#587 R1 verify，四席指出；整合者裁定）。`paginated` 與 verdict 兩列不收：那兩條路同時改記錄的值
 （`paginated`、venue 邊）與判定史，通用面寫進去會讓兩者分岔。`authorized` 與 `note` 不收：當時 venue 的 reference **沒有移除面**（#673 起有，見下；要不要收回通用寫入面待使用者裁決），每多收一格
-就多一個「寫得進去、之後只能手改 YAML 才出得來」的死角——`authorized` 的 reference 會讓 `authorize` 換對外形被拒（「移出後它們成孤兒」，
+就多一個「寫得進去、之後只能手改 YAML 才出得來」的死角——`authorized` 的 reference 會讓 `authorize` 換對外形、`unauthorize` 撤回（#559）被拒（「移出後它們成孤兒」，
 訊息叫人刪掉那些 reference，而沒有面刪得掉）；`note` 沒有工具寫入面。要記「這個名字是對外形」的來源，記在 `field: names`
 （value 是那個名字）。`issn` 是 issue 真正點名的一格，`names` 是 `akashic-verify-venue` 的判定證據要落的地方。
 通用面的物件鍵名與 `update-person` 的 references 相同（`media_type`／`statement`／`rests_on`），**不是**上方 YAML 的
@@ -1970,7 +1970,7 @@ organization 零 error——擴閘不拒絕任何既有記錄；閘在 `fieldsLo
 不是 store 的不變式）；只改 `source`／`note` 時不重驗區間。改完的記錄仍要過上面六條與 `validate()` 的其餘 error——**這次造出的**違反在寫之前具名拒絕、歸因到這次呼叫
 （例：時間欄位落在 `variant` 的名字上——異寫法沒有生效期間；把兩段沿革改成重疊），記錄原本就有的違反不在這裡歸咎、寫入閘照舊會擋；
 同一次呼叫的各項是先全部套用、再驗，所以兩段要一起改成不相交可以放在同一次呼叫裡。**移除一個名字的最後一段**時，那個名字若還在 `authorized`／`variant`／`field: names` 的 reference 裡，
-或移除後 venue 沒有任何名字，具名拒絕並指路（`--authorize`、`--remove-reference`；`variant` 目前沒有移除面，只能手改 YAML）——程式不替人動那些判定。
+或移除後 venue 沒有任何名字，具名拒絕並指路（`--unauthorize` 或 `--authorize`、`--remove-reference`；`variant` 目前沒有移除面，只能手改 YAML）——程式不替人動那些判定。
 它是判定（`two-kinds-of-edits`）：理由必填、只進報告（`nameSegments[].reason`，全文）、不寫進 store、不改 store format；改寫前要求該 venue 檔已在 git 裡 commit、乾淨
 （移除面一族的裁決，使用者 2026-09-27）；每一項改完都與現在逐位元組相同時不寫檔也不過 git 閘（報告 `written: false`）；單獨呼叫；一次至多 200 筆。
 MCP 面的報告只有前 20 項帶改寫前後的內容（理由每一項都在），CLI 全列；寫檔之後 index 重建失敗時呼叫仍回成功、報告多 `indexRebuilt: false`／`indexNote`（同上方移除面一族）。

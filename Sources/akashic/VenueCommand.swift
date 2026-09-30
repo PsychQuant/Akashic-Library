@@ -221,7 +221,7 @@ struct AddVenueCmd: ParsableCommand {
 struct UpdateVenueCmd: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "update-venue",
-        abstract: "venue 的部分更新（#306／#394／#471／#554／#587／#673／#675）——append 語意：--add-name／--add-issn／--add-variant／--references 只附加不重複的值（整組替換刻意不提供）；--authorize 是同書寫系統替換（不是 append，見其 help）；--note／--type 替換；--remove-issn／--remove-reference 是移除（判定，理由只進報告，要求 venue 檔已 commit）；--edit-name-segment 改或刪名字段的時間欄位、source、note（判定，同上，#675）。venue 無法唯一定位（\(UnlocatableReason.venue)）時整批拒絕、零寫入（#670）")
+        abstract: "venue 的部分更新（#306／#394／#471／#554／#559／#587／#673／#675）——append 語意：--add-name／--add-issn／--add-variant／--references 只附加不重複的值（整組替換刻意不提供）；--authorize 是同書寫系統替換（不是 append，見其 help）、--unauthorize 撤回（名字留在 names，#559）；--note／--type 替換；--remove-issn／--remove-reference 是移除（判定，理由只進報告，要求 venue 檔已 commit）；--edit-name-segment 改或刪名字段的時間欄位、source、note（判定，同上，#675）。venue 無法唯一定位（\(UnlocatableReason.venue)）時整批拒絕、零寫入（#670）")
 
     @OptionGroup var options: LibraryOptions
 
@@ -262,11 +262,21 @@ struct UpdateVenueCmd: ParsableCommand {
                              + "一次給兩個同書寫系統的名字是矛盾，整批拒絕。不在 names 的一併加進 names。"
                              + "這是合併拿掉某個名字 authorized 身分那個動作在該名字上的逆操作（#553 時那個名字進 variant、#565 起留在未標）——在此之前"
                              + "authorized 沒有判定型寫入面，唯一寫入者是 bootstrap 取第一個名字，而那些"
-                             + "機械值換不掉。不留 judgement（#564 另裁）。報告的桶：authorizedRemoved（被換下來的舊指定）、"
+                             + "機械值換不掉。判定記錄待 #564（2026-10-01 裁決要留，另案落地）。報告的桶：authorizedRemoved（被換下來的舊指定）、"
                              + "liftedFromVariant（原本在 variant、被抬進 authorized）、alreadyAuthorized（no-op 但不沉默）、"
                              + "authorizedRewritten（唯一會宣告 store 位元組被改寫的桶：同名 NFD 舊指定換成 canonical）；"
                              + "整項空白的不寫、回報在 authorizeDropped（#554；R25 verify 第 20 列：這裡曾只列一個桶、MCP 描述列四個）"))
     var authorize: [String] = []
+
+    /// #559：撤回面。替換只能換成另一個名字，回不到「不作任何宣稱」——比照 `--clear-paginated`（#500）與 `resolve-venues --demote`（#418）。
+    @Option(name: .customLong("unauthorize"), parsing: .upToNextOption,
+            help: ArgumentHelp("撤回對外形（可多個，#559）：名字必須是現有的 authorized（相等看 canonical，同 --authorize），"
+                             + "移出 authorized、留在 names、不標 variant——記錄回到「不作任何宣稱」的狀態；再用 --authorize 可指定回來。"
+                             + "不是現有成員、同一個名字又在 --authorize、被 field: authorized 的 reference 指著（先用 --remove-reference 刪掉），"
+                             + "都整批拒絕、零寫入；與 --add-variant 給同一個名字是明說降成異寫，照做。成員資格看呼叫前的狀態（先撤回、再跑 --authorize）。"
+                             + "判定記錄待 #564（2026-10-01 裁決要留，另案落地）。"
+                             + "報告：authorizedWithdrawn（被撤回的 store 拼法）、unauthorizeDropped（整項空白、沒有動作）"))
+    var unauthorize: [String] = []
 
     @Flag(name: .customLong("clear-paginated"),
           help: ArgumentHelp("撤回 paginated 判定，回到誠實的未判定狀態（#500）。"
@@ -331,7 +341,7 @@ struct UpdateVenueCmd: ParsableCommand {
                                    + "source／note 給字串時不得是空白、至多 65,536 位元組。時間請寫成字串（\"1933\"，不是 1933）。"
                                    + "reason 必填、至多 4,096 位元組。定位不到、定位到多段（列出各段的區別讓你加 match 縮小）、兩項指到同一段、逐位元組完全相同的重複段，都整批拒絕、零寫入。"
                                    + "改完的記錄仍要過 store 的不變式（Venue.validate 的 error）——這次造出的違反會在寫之前具名拒絕（例如時間欄位落在 variant 的名字上：異寫法沒有生效期間）。"
-                                   + "移除一個名字的最後一段時，該名字若還在 authorized／variant／field: names 的 reference 裡，具名拒絕並指路（--authorize／--remove-reference；variant 目前沒有移除面，只能手改 YAML）；"
+                                   + "移除一個名字的最後一段時，該名字若還在 authorized／variant／field: names 的 reference 裡，具名拒絕並指路（--unauthorize 或 --authorize／--remove-reference；variant 目前沒有移除面，只能手改 YAML）；"
                                    + "移除後 venue 沒有任何名字也拒絕。用 `akashic venue <key>` 的 names 看現有各段（含 source／note）。"
                                    + "改寫是判定：理由只印在報告（nameSegments[].reason，全文），不寫進 store——要留在 git 就寫進 commit message；"
                                    + "改寫前的內容只剩 git 的副本，所以這個 venue 檔要已在 git 裡 commit（tracked、無未提交修改），否則整批拒絕。"
@@ -361,6 +371,7 @@ struct UpdateVenueCmd: ParsableCommand {
                                                          addISSN: addISSN.isEmpty ? nil : addISSN,
                                                          addVariant: addVariant.isEmpty ? nil : addVariant,
                                                          authorize: authorize.isEmpty ? nil : authorize,
+                                                         unauthorize: unauthorize.isEmpty ? nil : unauthorize,
                                                          paginated: paginated, clearPaginated: clearPaginated,
                                                          judgement: judgement, restsOn: restsOn.isEmpty ? nil : restsOn,
                                                          removeISSN: removeISSN.isEmpty ? nil : removeISSN,
@@ -380,6 +391,7 @@ struct UpdateVenueCmd: ParsableCommand {
                                       addISSN: addISSN.isEmpty ? nil : addISSN,
                                       addVariant: addVariant.isEmpty ? nil : addVariant,
                                       authorize: authorize.isEmpty ? nil : authorize,
+                                      unauthorize: unauthorize.isEmpty ? nil : unauthorize,
                                       paginated: paginated,
                                       clearPaginated: clearPaginated,
                                       judgement: judgement,

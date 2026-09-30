@@ -44,7 +44,7 @@ import AkashicIndex
 /// ## 不做的事（各有出路，不替人改判定）
 ///
 /// - **移除一個名字的最後一段**時，若那個名字還在 `authorized`／`variant`／`field: names` 的 reference 裡，具名拒絕並指路：`authorized` 用
-///   `--authorize` 換掉（不同名字的指定）、`references` 用 `--remove-reference`；`variant` 目前沒有移除面（撤回面另案，#559 記的是 authorized），只能手改 YAML。
+///   `--unauthorize` 撤回（#559）或 `--authorize` 換掉（不同名字的指定）、`references` 用 `--remove-reference`；`variant` 目前沒有移除面，只能手改 YAML。
 ///   程式不替人動那些判定（`--authorize` 遇到被 reference 指著的舊指定同一條紀律）。
 /// - **移除後 venue 沒有任何名字**也拒絕：venue 至少要有一個名字（`add_venue` 同）。
 /// - **時間欄位落在 `variant` 的名字上**由 `Venue.validate()` 擋（異寫法沒有生效期間）——這裡只把那句話歸因到這次編輯。
@@ -426,7 +426,7 @@ extension AkashicService {
         case .authorized(let name):
             throw ServiceError.invalid(
                 "移除「\(displaySafeInvisible(name, max: 120))」的最後一段會讓它在\(venueLabel)的 authorized 裡成孤兒——程式不替人改對外形的判定；"   // display-safe-exempt: venueLabel 已消毒；name 已消毒
-                + "先用 --authorize（MCP authorize）把同書寫系統的對外形換成別的名字（這個名字會留在 names、移出 authorized），再重跑；整批拒絕、零寫入")
+                + "先用 --unauthorize（MCP unauthorize）把它移出 authorized、或用 --authorize（MCP authorize）把同書寫系統的對外形換成別的名字（這個名字會留在 names），再重跑；整批拒絕、零寫入")
         case .variant(let name):
             throw ServiceError.invalid(
                 "移除「\(displaySafeInvisible(name, max: 120))」的最後一段會讓它在\(venueLabel)的 variant 裡成孤兒（分割是對 names 的標記，孤兒 variant 是 error）——程式不替人改異寫法的判定；"   // display-safe-exempt: name 與 venueLabel 已消毒

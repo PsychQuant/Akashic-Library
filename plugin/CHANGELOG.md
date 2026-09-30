@@ -42,6 +42,15 @@
 
 
 
+## #559 — `akashic_update_venue` 多一個 `unauthorize`：撤回對外形
+
+`authorize` 只能把對外形換成另一個名字；`unauthorize`（字串陣列）把現有的對外形移出 `authorized`，名字留在 `names`、不標 variant，記錄回到不作宣稱的狀態。再用 `authorize` 可指定回來。
+
+- 每個名字都要是現有的 authorized（相等看 canonical）；不是、同一個名字又在 `authorize`、或被 `field: authorized` 的 reference 指著，整個呼叫拒絕、零寫入。
+- 回應多兩個鍵：`authorizedWithdrawn`（被撤回的名字）、`unauthorizeDropped`（整項空白、沒有動作）。
+- 同一次呼叫裡撤回先於 `authorize`；與 `add_variant` 給同一個名字是明說降成異寫。
+- 不留判定記錄；#564 已裁決要留，另案落地。
+
 ## #611 — `akashic_import_zotero` 新建的條目與另一筆共用 DOI 時照建，並記一筆歧異提名
 
 使用者 2026-10-01 裁決「照建，並自動記一筆歧異提名」。這一趟新建的 work 與另一筆 work（既有的，或同一趟也新建的）共用 DOI 時，匯入照常新建，並寫一筆 work 形狀、沒有判斷的歧異記錄，候選是那一對。DOI 相等只是提名：勘誤與原文共用 DOI，一筆作品也可以有多個 DOI，所以匯入不合併、不掛附加來源、不填判斷——判定與合併走 `akashic divergences` → `resolve-divergence`（`akashic-merge-twins` 的執行序）。

@@ -27,6 +27,11 @@ extension ToolPayloadScenarios {
         PayloadScenario("akashic_update_venue", "authorize", params: ["key", "authorize"]) {
             try $0.service.updateVenue(key: "psychometrika", addNames: nil, note: nil, type: nil, authorize: ["Psychometrika"])
         },
+        // #559：撤回（先指定一個、再撤回它；空白項進 unauthorizeDropped）
+        PayloadScenario("akashic_update_venue", "unauthorize", params: ["key", "unauthorize"]) {
+            _ = try $0.service.updateVenue(key: "psychometrika", addNames: nil, note: nil, type: nil, authorize: ["Psychometrika"])
+            return try $0.service.updateVenue(key: "psychometrika", addNames: nil, note: nil, type: nil, unauthorize: ["Psychometrika", " "])
+        },
         PayloadScenario("akashic_update_venue", "paginated", params: ["key", "paginated", "judgement", "rests_on"]) {
             try $0.service.updateVenue(key: "psychometrika", addNames: nil, note: nil, type: nil, paginated: true,
                                        judgement: "傳統頁碼刊", restsOn: [try $0.storeDigest()])

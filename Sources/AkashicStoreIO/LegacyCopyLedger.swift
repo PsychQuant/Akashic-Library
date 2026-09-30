@@ -109,6 +109,9 @@ public final class LegacyCopyLedger: @unchecked Sendable {
         return items
     }
 
+    /// 目前範圍到此為止收下的（不沿鏈往外）。`DOITwinNomination`（#611）用它排除這一趟留下 legacy 拷貝的 work，不把它們提名成候選。
+    public static var collected: [LegacyCopyLeft] { active?.recorded ?? [] }
+
     private func find(_ id: UUID) -> LegacyCopyLeft? {
         lock.lock(); defer { lock.unlock() }
         return indexByID[id].map { items[$0] }

@@ -133,7 +133,7 @@ Foresay 管**人機確認的格式與迴圈**，本 repo 的規則管**哪些寫
 > |---|---|---|
 > | `.githooks/pre-push`（全部） | ✅ | ❌ `core.hooksPath` 指向**主 repo** 的 `.githooks`，那份對這些守衛 0 命中——worktree 的修改不是實際生效的那份。**merge 到 main 後自癒** |
 > | ~~`plugin-guards.yml`（ubuntu，1×）~~ | **已刪除** | 2026-08-27（#435）——見下 |
-> | `census-parity.yml`（macOS；現在也涵蓋 `plugin/**` 與原 ubuntu 那份的全部 paths） | ✅ | ❌ **帳號層付款失效**（見下）——run 全部 `failure` 且 **steps=0**（runner 層拒跑） |
+> | `census-parity.yml`（macOS；現在也涵蓋 `plugin/**` 與原 ubuntu 那份的全部 paths；2026-09-30 #690 起也涵蓋 `Sources/**`） | ✅ | ❌ **帳號層付款失效**（見下）——run 全部 `failure` 且 **steps=0**（runner 層拒跑） |
 >
 > **`plugin-guards.yml` 已於 2026-08-27 刪除**（#435）：它跑在 ubuntu（1× 計費），
 > 設計理由是「純 python／bash 的守衛不必點 10× 的 macOS runner」。**守衛遷成 Swift 之後
@@ -148,6 +148,11 @@ Foresay 管**人機確認的格式與迴圈**，本 repo 的規則管**哪些寫
 > **代價**：所有 plugin 改動現在都點 10× 的 macOS runner。2026-08 兩度把免費額度燒光正是
 > 這個形狀，所以這不是零成本的決定——但它是必然的，除非在 ubuntu 裝 Swift toolchain
 > （#435 記著兩個候選，兩者都無法在 CI 恢復前驗證）。
+>
+> **2026-09-30 起改 `Sources/` 的 push 與 PR 更新也點它**（#690，使用者裁決 A）：`network-confinement` 與
+> `zero-instance-rows-audit` 讀整個 `Sources/`，先前只列幾個子路徑，115 個不受保護的 source 檔改動時 CI 不跑它們。
+> 這是現在最常觸發的一條 path。次數沒有上界可寫（觸發以 push 與 PR 更新計，不以 commit 計），參考量與重跑方法在
+> `changelog/2026-09-30-trigger-coverage-declared-scope.md`。
 >
 > **「macOS runner 帳務擱置」這個說法在 2026-08-26 被更正——範圍與原因都寫窄了。**
 > 逐字的原因取自 check-run annotation（`gh api /repos/<r>/check-runs/<jobId>/annotations`）：
@@ -392,7 +397,7 @@ Foresay 管**人機確認的格式與迴圈**，本 repo 的規則管**哪些寫
 > |---|---|---|
 > | push 目標 | 否 | 只有一個 remote |
 > | hook 檔的執行權限 | 否 | git 不要求 `+x`，且實測已是 `-rwxr-xr-x` |
-> | **這次 push 有沒有動到受保護檔案** | **是** | **真的第四維，刻意不加**。`census-parity.yml` 是 path-scoped（實測 `paths:` 列出 census／生成表／`tests/**`／`StoreVersion.swift`），而 pre-push 對**每一次** push 都跑。新增的 12 格全部可判定：不動到時「移出」零執行**但也無事可查**（trigger-coverage 實測零缺口即此背書），「留」則是純浪費 52 秒。加它會讓表變 24 列而不翻轉任何裁決，只把「移出」的優勢再放大 |
+> | **這次 push 有沒有動到受保護檔案** | **是** | **真的第四維，刻意不加**。`census-parity.yml` 是 path-scoped（實測 `paths:` 列出 census／生成表／`tests/**`／`StoreVersion.swift`；2026-09-30 #690 起 `paths:` 含 `Sources/**`，仍是 path-scoped，但改 `Sources/` 的 push 都會觸發），而 pre-push 對**每一次** push 都跑。新增的 12 格全部可判定：不動到時「移出」零執行**但也無事可查**（trigger-coverage 實測零缺口即此背書），「留」則是純浪費 52 秒。加它會讓表變 24 列而不翻轉任何裁決，只把「移出」的優勢再放大 |
 > | **遠端有沒有強制點** | **否，但它是裁決意義的前提** | 它不改變任一格的執行／零執行，卻決定那個「執行」有沒有後果。見下方對「純效益」的更正 |
 >
 > **所以「移出」欄的正確讀法是「一次會動到受保護檔案的 push」**——上一版的表沒寫出這個

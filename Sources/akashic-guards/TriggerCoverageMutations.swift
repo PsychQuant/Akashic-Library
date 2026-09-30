@@ -122,7 +122,18 @@ func triggerCoverageMutations() -> Int32 {
             print("✗ \(c.desc) → **注入沒改到東西**，這個 case 無效"); results.append(false); continue
         }
         let gaps = matches(out, #"(?m)^  · (.+)$"#).map { (out as NSString).substring(with: $0.range(at: 1)) }
-        if c.isWarn {
+        if c.isKnownGap {
+            // 已知缺口：rc=0，指名的每一條都在 `⊘` 行，沒有缺口也沒有警告（#690 R1 verify）
+            let known = matches(out, #"(?m)^  ⊘ (.+)$"#).map { (out as NSString).substring(with: $0.range(at: 1)) }
+            let warns = matches(out, #"(?m)^  \? (.+)$"#).count
+            let named = ([c.expect] + c.alsoExpect).allSatisfy { e in known.contains { $0.contains(e) } }
+            let ok = !c.isWarn && rc == 0 && named && gaps.isEmpty && warns == 0
+            if ok { print("✓ \(c.desc) → rc=0，已知缺口 \(known.count) 條、指名了它們") }
+            else if rc != 0 { print("✗ \(c.desc) → rc=\(rc) ← 列管的缺口不該改變 exit code；缺口：\(pyRepr(Array(gaps.prefix(2))))") }
+            else if !named { print("✗ \(c.desc) → 已知缺口沒有指名它們 ← 清單對它是盲的") }
+            else { print("✗ \(c.desc) → 另有缺口或警告 ← 注入不是外科手術式的") }
+            results.append(ok)
+        } else if c.isWarn {
             // **綁定到被 mutate 的那個守衛**（#407 R24e）：上一版只問「輸出裡有沒有
             // expect」——那與「哪一個守衛觸發的」無關。警告訊息的模板對每個守衛都一樣。
             //

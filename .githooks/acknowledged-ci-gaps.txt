@@ -1,0 +1,14 @@
+# trigger-coverage 的已知缺口清單（#690）。守衛：`akashic-guards trigger-coverage`。
+#
+# 管的是一種缺口：守衛宣告讀的範圍（`// trigger-coverage: reads <樣式>`）裡有不在受保護集合的檔，
+# 而那些檔改動時沒有任何 CI workflow 跑這支守衛。
+#
+# 一行一條，三欄以 TAB 分隔：<守衛的 repo 相對路徑> <它宣告的樣式> #<追蹤的 issue 號>
+# 例：Sources/akashic-guards/NetworkConfinement.swift<TAB>Sources/*/*.swift<TAB>#690
+# 以 # 開頭的行與空行略過。
+#
+# 列在這裡的缺口照樣印出來（⊘），不計入 rc。列了、但缺口已經不在（例如 workflow 的 paths 補上了）→ 守衛失敗，
+# 要人把那一行拿掉，否則豁免會變成沒人記得的放行。格式不對的行 → 守衛失敗，不靜默略過。
+#
+# 2026-09-30 #690 使用者裁決 A（census-parity.yml 的 paths 加 Sources/**）之後沒有條目。
+# ── 條目從下一行開始 ──

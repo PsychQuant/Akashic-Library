@@ -31,6 +31,9 @@ struct TCMCase {
     /// （`<守衛>.swift 不在`），於是停用 pre-push 那一路的訊息，負控仍全綠——全樹只有這兩格驗過它。現在 `expect` 指名 pre-push 那一路，
     /// `alsoExpect` 指名 CI 那一路，兩者都必須出現；第三段判準（不得有無關缺口）對兩者都放行。
     var alsoExpect: [String] = []
+    /// **已知缺口那一格**（#690 R1 verify）：rc 必須是 0、`expect` 與 `alsoExpect` 各自出現在一條 `⊘` 行，而且沒有任何缺口、
+    /// 沒有任何警告——已知缺口不計入 rc，那正是這一格要驗的事。`isWarn` 必須是 false。
+    var isKnownGap: Bool = false
 }
 
 let triggerCoverageMutationCases: [TCMCase] = [
@@ -211,12 +214,13 @@ let triggerCoverageMutationCases: [TCMCase] = [
         edits: [
             (path: "Sources/akashic-guards/PluginStoreFormatParity.swift", old: "import Foundation", new: "import Foundation\n# trigger-coverage: reads plugin/rules/*.md\n# 說明：本檔不處理 rulesets，只重建審查者的失敗情境。"),
         ], expect: "有出現但不在路徑脈絡裡"),
-    // **#690 起換成 `Sources/*/Venue.swift`**：原本注入 `Sources/*/*.swift`，而那個範圍有 115 個不受保護、CI 不跑的檔，
-    // 新的「宣告範圍」檢查會對它報一條缺口——那是真的缺口，但這一格要驗的只是「中間萬用字元時痕跡走回 `Sources`」。
-    // 換成只命中一個受保護檔的樣式，要驗的東西不變（dirname 仍是 `Sources/*`）。
-    TCMCase(isWarn: true, desc: "宣告用中間萬用字元（`Sources/*/Venue.swift`）——痕跡走回 `Sources`",
+    // **注入的是真守衛用的宣告形式 `Sources/*/*.swift`**（`network-confinement`、`zero-instance-rows-audit` 都是這一條）。
+    // #690 的第一輪把它換成 `Sources/*/Venue.swift`，理由是那個範圍有 115 個 CI 不跑的檔、宣告範圍檢查會多報一條；
+    // 裁決 A（`census-parity.yml` 加 `Sources/**`）之後那 115 個檔已被涵蓋，換樣式的理由不在了（R1 verify regression 席），
+    // 改回來。這一格要驗的是「中間萬用字元時痕跡走回 `Sources`」。
+    TCMCase(isWarn: true, desc: "宣告用中間萬用字元（`Sources/*/*.swift`）——痕跡走回 `Sources`",
         edits: [
-            (path: "Sources/akashic-guards/RuleCoverage.swift", old: "// trigger-coverage: reads plugin/rules/*.md", new: "// trigger-coverage: reads Sources/*/Venue.swift"),
+            (path: "Sources/akashic-guards/RuleCoverage.swift", old: "// trigger-coverage: reads plugin/rules/*.md", new: "// trigger-coverage: reads Sources/*/*.swift"),
         ], expect: "一次都沒出現過"),
     TCMCase(isWarn: false, desc: "把某個守衛改成 block scalar 形式呼叫（續行要讀得到）",
         edits: [
@@ -264,7 +268,7 @@ let triggerCoverageMutationCases: [TCMCase] = [
         ], expect: "第一段是萬用字元"),
     // ── #690：宣告範圍裡不在受保護集合的檔 ──────────────────────────────
     // 逐對表只走受保護集合；宣告卻可以指向一整片不受保護的檔。一支守衛新宣告讀 `Sources/*/*.swift`，
-    // 而那片範圍有 CI 不跑它的檔、它又不在 `acknowledgedCIGaps`——必須是缺口。
+    // 而那片範圍有 CI 不跑它的檔、它又不在已知缺口清單（`.githooks/acknowledged-ci-gaps.txt`）——必須是缺口。
     TCMCase(isWarn: false, desc: "宣告範圍裡有 CI 不跑的不受保護檔，而它不在已知缺口清單",
         edits: [
             (path: "Sources/akashic-guards/PluginStoreFormatParity.swift", old: "import Foundation", new: "import Foundation\n// trigger-coverage: reads Sources/*/*.swift"),
@@ -273,10 +277,43 @@ let triggerCoverageMutationCases: [TCMCase] = [
         ], expect: "PluginStoreFormatParity.swift 宣告讀 `Sources/*/*.swift`：其中",
         alsoExpect: ["NetworkConfinement.swift 宣告讀 `Sources/*/*.swift`：其中", "ZeroInstanceRowsAudit.swift 宣告讀 `Sources/*/*.swift`：其中"]),
     // #690 落地後清單是空的：拿掉 `Sources/**`，讀整個 `Sources/` 的兩支守衛必須直接失敗——不得被當成已知缺口放過。
-    // 有人把 #690 那兩條豁免加回 `acknowledgedCIGaps`，這一格會轉紅（輸出變成「已知缺口」而 rc 不再是 1）。
+    // 有人把 #690 那兩條豁免加回已知缺口清單，這一格會轉紅（輸出變成「已知缺口」而 rc 不再是 1）。
     TCMCase(isWarn: false, desc: "拿掉 Sources/** 之後，讀整個 Sources/ 的守衛不在任何 CI 跑",
         edits: [
             (path: ".github/workflows/census-parity.yml", old: "      - \"Sources/**\"\n", new: ""),
         ], expect: "NetworkConfinement.swift 宣告讀 `Sources/*/*.swift`：其中",
         alsoExpect: ["ZeroInstanceRowsAudit.swift 宣告讀 `Sources/*/*.swift`：其中"]),
+    // ── #690 R1 verify：宣告範圍檢查的兩個判斷各有一格 ──────────────────────
+    // 上面兩格都靠拿掉 `Sources/**` 讓 paths 不成立，所以只釘住 paths 比對：把「workflow 有跑這支守衛」改成恆真、或拿掉
+    // paths-ignore 的判斷，兩格照樣紅（DA 席實測存活）。
+    // (1) 另一個 workflow 的 paths 涵蓋 `Sources/**`、但它不跑守衛——仍是缺口。
+    TCMCase(isWarn: false, desc: "另一個 workflow 的 paths 涵蓋 Sources/** 卻不跑守衛，仍是缺口",
+        edits: [
+            (path: ".github/workflows/ci.yml", old: "    paths-ignore:\n", new: "    paths:\n      - \"Sources/**\"\n    paths-ignore:\n"),
+            (path: ".github/workflows/census-parity.yml", old: "      - \"Sources/**\"\n", new: ""),
+        ], expect: "NetworkConfinement.swift 宣告讀 `Sources/*/*.swift`：其中",
+        alsoExpect: ["ZeroInstanceRowsAudit.swift 宣告讀 `Sources/*/*.swift`：其中"]),
+    // (2) 跑守衛的 workflow 以 paths-ignore 排除宣告範圍的一部分——那一部分改動時守衛不跑。
+    TCMCase(isWarn: false, desc: "跑守衛的 workflow 以 paths-ignore 排除宣告範圍的一部分",
+        edits: [
+            (path: ".github/workflows/census-parity.yml", old: "    branches: [main]\n    paths: &parity_paths\n", new: "    branches: [main]\n    paths-ignore:\n      - \"Sources/AkashicS2/**\"\n    paths: &parity_paths\n"),
+        ], expect: "NetworkConfinement.swift 宣告讀 `Sources/*/*.swift`：其中",
+        alsoExpect: ["ZeroInstanceRowsAudit.swift 宣告讀 `Sources/*/*.swift`：其中"]),
+    // ── #690 R1 verify：已知缺口清單是資料檔，三條分支各有一格 ──────────────
+    // 清單是編譯期常數時，harness 改不到它，清空之後「已知缺口」與「過期」兩條分支沒有任何格子走得到（requirements、logic、
+    // regression 三席）。
+    TCMCase(isWarn: false, desc: "已知缺口清單有一條、缺口卻已經不在（過期）",
+        edits: [
+            (path: ".githooks/acknowledged-ci-gaps.txt", old: "# ── 條目從下一行開始 ──\n", new: "# ── 條目從下一行開始 ──\nSources/akashic-guards/NetworkConfinement.swift\tSources/*/*.swift\t#690\n"),
+        ], expect: "已經沒有缺口"),
+    TCMCase(isWarn: false, desc: "拿掉 Sources/**、兩支守衛列在已知缺口清單——列管，不計入 rc",
+        edits: [
+            (path: ".github/workflows/census-parity.yml", old: "      - \"Sources/**\"\n", new: ""),
+            (path: ".githooks/acknowledged-ci-gaps.txt", old: "# ── 條目從下一行開始 ──\n", new: "# ── 條目從下一行開始 ──\nSources/akashic-guards/NetworkConfinement.swift\tSources/*/*.swift\t#690\nSources/akashic-guards/ZeroInstanceRowsAudit.swift\tSources/*/*.swift\t#690\n"),
+        ], expect: "NetworkConfinement.swift 宣告讀 `Sources/*/*.swift`：其中",
+        alsoExpect: ["ZeroInstanceRowsAudit.swift 宣告讀 `Sources/*/*.swift`：其中"], isKnownGap: true),
+    TCMCase(isWarn: false, desc: "已知缺口清單有一行格式不對（少一欄）",
+        edits: [
+            (path: ".githooks/acknowledged-ci-gaps.txt", old: "# ── 條目從下一行開始 ──\n", new: "# ── 條目從下一行開始 ──\nSources/akashic-guards/NetworkConfinement.swift\tSources/*/*.swift\n"),
+        ], expect: "格式不對"),
 ]

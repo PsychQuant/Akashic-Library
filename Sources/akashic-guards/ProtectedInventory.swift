@@ -185,6 +185,8 @@ func protectedInventory() -> (guards: [String], data: [String]) {
     // #522：棘輪檔是 protected-ratchet 的輸入。**它自己也進清單**——那樣「棘輪檔被刪掉」
     // 除了 protected-ratchet 自己的 rc=2 之外，missing 檢查也會具名它。
     DATA += [".githooks/protected-ratchet.txt"]
+    // #690 R1 verify：trigger-coverage 的已知缺口清單是它的輸入。被刪時 trigger-coverage 以 rc=2 中止、missing 也具名它。
+    DATA += [".githooks/acknowledged-ci-gaps.txt"]
     // 顯式條目與推導出的 manifest 會重疊（`plugin/.claude-plugin/plugin.json`）；保序去重
     var seen = Set<String>()
     DATA = DATA.filter { seen.insert($0).inserted }

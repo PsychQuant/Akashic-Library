@@ -348,21 +348,40 @@ func swiftGuards() -> [String] {   // #522：ProtectedInventory 也要用
     return out
 }
 
-/// **宣告範圍裡、不在受保護集合的檔，CI 不跑讀它的守衛——已知且待裁決的那幾條**（#690）。
+/// **宣告範圍裡、不在受保護集合的檔，CI 不跑讀它的守衛——已知且有 issue 追蹤的那幾條**（#690）。
 ///
-/// 封閉列舉，只有這兩條，不得依性質相似類推第三條。每一條都要附 issue 號：它不是豁免，是
-/// 「這個缺口看得見、有人在處理」的標記。守衛的處置：
-///   · 列在這裡的缺口照樣印出來（`⊘`），不計入 rc；
-///   · 不在這裡的同類缺口是 `fails`；
-///   · 列在這裡、但缺口已經不在（例如 workflow 的 `paths:` 補上了）→ 也是 `fails`，要人把這一條
-///     拿掉——留著的豁免會變成沒人記得的放行（`official-validate` 允許清單的同一條紀律）。
+/// 清單住在資料檔 `.githooks/acknowledged-ci-gaps.txt`（一行一條：守衛檔、宣告的樣式、`#<issue>`，以 TAB 分隔）。
+/// 每一條都要附 issue 號：它不是豁免，是「這個缺口看得見、有人在處理」的標記。守衛的處置：
+///   · 列在清單裡的缺口照樣印出來（`⊘`），不計入 rc；
+///   · 不在清單裡的同類缺口是 `fails`；
+///   · 列在清單裡、但缺口已經不在（例如 workflow 的 `paths:` 補上了）→ 也是 `fails`，要人把那一條
+///     拿掉——留著的豁免會變成沒人記得的放行（`official-validate` 允許清單的同一條紀律）；
+///   · 格式不對的行 → `fails`，不靜默略過。
 ///
-/// 兩條同一個形狀：兩支守衛都宣告讀 `Sources/*/*.swift`（`fnmatch` 不帶 `FNM_PATHNAME`，`*` 跨
-/// 目錄，等於整個 `Sources/`），而唯一跑守衛的 workflow（`census-parity.yml`）的 `paths:` 只列了
-/// `Sources/` 的幾個子路徑。擴大觸發面是 macOS runner（10× 計費）的成本決定，由 #690 裁決。
-// #690 裁決（使用者 2026-09-30，A）：`census-parity.yml` 的 paths 加 `Sources/**`，原本兩條已知缺口就此消失、清單清空。
-// 清單留著是機制：日後出現一個有 issue 追蹤、暫時補不了的缺口時才加一條，缺口消失時那一條要拿掉（下面的過期檢查會出聲）。
-let acknowledgedCIGaps: [(guardFile: String, pattern: String, issue: String)] = []
+/// **現在是空的**：#690 使用者裁決 A（2026-09-30）讓 `census-parity.yml` 的 `paths:` 涵蓋 `Sources/**`，原本兩條
+/// （`network-confinement`、`zero-instance-rows-audit` 都宣告讀 `Sources/*/*.swift`）隨之消失。機制留著：日後出現一個
+/// 有 issue 追蹤、暫時補不了的缺口時才加一條（`zero-instance-guards` 第 48 列）。
+///
+/// **為什麼是資料檔，不是編譯期常數**（#690 R1 verify）：常數寫在 binary 裡，負控 harness 改的是 copy 裡的檔、
+/// 改不到它，於是清單清空之後「已知缺口」與「過期」兩條分支沒有任何格子走得到。資料檔在 copy 裡改得到。
+let acknowledgedCIGapsFile = ".githooks/acknowledged-ci-gaps.txt"
+
+/// 讀已知缺口清單。檔案不在時 `rawFile` 以 rc=2 中止（守衛的輸入不在）；格式不對的行回在 `bad`。
+func acknowledgedCIGaps() -> (entries: [(guardFile: String, pattern: String, issue: String)], bad: [String]) {
+    var entries: [(guardFile: String, pattern: String, issue: String)] = []
+    var bad: [String] = []
+    for (i, raw) in rawFile(acknowledgedCIGapsFile).components(separatedBy: "\n").enumerated() {
+        let line = raw.trimmingCharacters(in: .whitespaces)
+        if line.isEmpty || line.hasPrefix("#") { continue }
+        let f = raw.components(separatedBy: "\t")
+        guard f.count == 3, !f[0].isEmpty, !f[1].isEmpty, !matches(f[2], #"^#[0-9]+$"#).isEmpty else {
+            bad.append("\(acknowledgedCIGapsFile) 第 \(i + 1) 行格式不對（要三欄、TAB 分隔、第三欄是 #<issue>）：「\(raw)」")
+            continue
+        }
+        entries.append((f[0], f[1], f[2]))
+    }
+    return (entries, bad)
+}
 
 func triggerCoverage(argv: [String]) -> Int32 {
     let (GUARDS, DATA) = protectedInventory()
@@ -836,6 +855,8 @@ func triggerCoverage(argv: [String]) -> Int32 {
     // **只展開宣告，不展開啟發式讀取**：啟發式認的是 basename，basename 本來就只在受保護集合裡比。
     // 解析不到任何受保護檔、或第一段是萬用字元的宣告，上面已經是缺口，這裡不重複報。
     var known: [String] = []
+    let (ackGaps, ackBad) = acknowledgedCIGaps()
+    fails += ackBad
     var ackHit = Set<Int>()
     var scopeLines: [String] = []
     for g in GUARDS {
@@ -854,7 +875,7 @@ func triggerCoverage(argv: [String]) -> Int32 {
                     return w.runs.contains(base(g))
                 }
             }
-            let ackIndex = acknowledgedCIGaps.firstIndex(where: { $0.guardFile == g && $0.pattern == pat })
+            let ackIndex = ackGaps.firstIndex(where: { $0.guardFile == g && $0.pattern == pat })
             let mark = uncovered.isEmpty ? "✓" : (ackIndex == nil ? "✗" : "⊘")
             scopeLines.append("\(mark) \(pad(label(g), 40)) 宣告 `\(pat)`："
                 + "不在受保護集合 \(outside.count) 個｜CI 未覆蓋 \(uncovered.count) 個")
@@ -864,14 +885,14 @@ func triggerCoverage(argv: [String]) -> Int32 {
                 + "它不在任何 CI workflow 跑（\(whereS)；例：\(uncovered.prefix(3).joined(separator: "、"))）"
             if let i = ackIndex {
                 ackHit.insert(i)
-                known.append(msg + "——已知缺口，\(acknowledgedCIGaps[i].issue) 待裁決")
+                known.append(msg + "——已知缺口，\(ackGaps[i].issue) 追蹤")
             } else {
                 fails.append(msg)
             }
         }
     }
-    for (i, a) in acknowledgedCIGaps.enumerated() where !ackHit.contains(i) {
-        fails.append("已知缺口清單（`acknowledgedCIGaps`）的 \(base(a.guardFile)) 宣告 `\(a.pattern)`（\(a.issue)）"
+    for (i, a) in ackGaps.enumerated() where !ackHit.contains(i) {
+        fails.append("已知缺口清單（\(acknowledgedCIGapsFile)）的 \(base(a.guardFile)) 宣告 `\(a.pattern)`（\(a.issue)）"
             + "已經沒有缺口——把它從清單拿掉，並回 \(a.issue) 記錄")
     }
     if !scopeLines.isEmpty {
@@ -887,7 +908,7 @@ func triggerCoverage(argv: [String]) -> Int32 {
     for g in uncoveredHook { fails.append("\(base(g)) 不在 pre-push 裡") }
 
     if !known.isEmpty {
-        print("\n══ 已知缺口 \(known.count)（有 issue 待裁決，不計入 rc；清單在 `acknowledgedCIGaps`）══")
+        print("\n══ 已知缺口 \(known.count)（有 issue 追蹤，不計入 rc；清單在 \(acknowledgedCIGapsFile)）══")
         for m in known { print("  ⊘ \(m)") }
     }
     if !warnings.isEmpty {

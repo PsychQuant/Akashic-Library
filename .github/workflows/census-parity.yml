@@ -25,6 +25,7 @@ name: Census parity
 # 這個 workflow 補上缺的那一格：**只在 parity 的受測對象或它的 oracle 改動時**
 # 點 macOS runner。範圍刻意窄——那台是 10× 計費，而這個 repo 在 2026-08 兩度把
 # 免費額度燒光。這三條路徑涵蓋 parity **最直接的三個受測對象**。
+# （這一段描述 #407 當時。2026-09-30 #690 裁決 A 之後 paths 含 `Sources/**`，範圍已不窄——見下方 paths 的註解。）
 #
 # **刻意不寫成「完整條件」**：讀端的行為還受其他檔案影響（例如
 # `Sources/akashic/CLI.swift` 裡呼叫 `StoreVersion.check` 的那個 choke point），
@@ -40,7 +41,9 @@ on:
       #  `swift test` 涵蓋——那個 workflow 對 `Sources/`、`Tests/` 的改動都會觸發；本 workflow 只跑守衛。）
       # #690（使用者 2026-09-30 裁決 A）：`network-confinement` 與 `zero-instance-rows-audit` 讀整個 `Sources/`，而先前這裡只列
       #  少數子路徑——實測 190 個不受保護的 source 檔裡有 115 個改了之後 CI 不跑任何守衛（pre-push 會跑）。
-      #  **代價**：改 `Sources/` 的 push 會多跑一個 macOS job（10× 計費；依近 30 天 commit 估每月至多約 23 次）。
+      #  **代價**：改 `Sources/` 的 push 與 PR 更新會多跑一個 macOS job（10× 計費；`pull_request` 用同一份 paths）。
+      #  次數沒有上界可寫——觸發以 push 與 PR 更新計，不以 commit 計。參考量與重跑方法見
+      #  changelog/2026-09-30-trigger-coverage-declared-scope.md（R1 verify 更正先前「每月至多約 23 次」，那個數重算不出來）。
       #  下面幾條 `Sources/` 的具體路徑已被這一條涵蓋，留著是為了它們各自的理由註解。
       - "Sources/**"
       - "Sources/AkashicStoreIO/StoreVersion.swift"

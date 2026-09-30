@@ -14,6 +14,7 @@
 .claude/rules/upstream-first-bibliographic-updates.md
 .claude/rules/web-access-via-safari-browser.md
 .claude/rules/zero-instance-guards.md
+.githooks/acknowledged-ci-gaps.txt
 .githooks/protected-ratchet.txt
 .githooks/run-guards.sh
 .github/workflows/census-parity.yml

@@ -17,13 +17,19 @@ set -eo pipefail
 # 那一份進來時兩者相同，不會再轉。工作樹沒有 `.githooks/pre-push` 時照常往下跑——沒有更好的一份可跑，
 # 但印出來，讓人知道這次檢查用的是別處的 hook。
 #
-# 這一段要在讀 stdin 之前：`exec` 讓被改跑的 hook 接手同一個 stdin（git 餵的 ref 清單）。
+# 這一段要在讀 stdin 之前：`exec` 讓被改跑的 hook 接手同一個 stdin（git 餵的 ref 清單）與參數
+# （remote 名稱、URL）。**必須是 `exec`**：一般呼叫的話，工作樹那份以 0 結束後這一份會接著往下跑——
+# stdin 已被讀走，#434／#530 的早退失效，整套 gate 再跑一次（#697 R1 verify 實測）。
+#
+# `unset CDPATH`：設了 CDPATH 時，bash 的 `cd` 命中它會把目的目錄印到 stdout，`$(...)` 收到兩行，
+# 比對必然不等、改跑靜默失效（#697 R1 verify）。直譯器用 `/bin/bash`，與本檔 shebang 相同。
+unset CDPATH
 hook_self_dir="$(cd "$(dirname "$0")" && pwd -P)"
 hook_tree_dir="$(cd .githooks 2>/dev/null && pwd -P || true)"
 if [ "$hook_self_dir" != "$hook_tree_dir" ]; then
     if [ -n "$hook_tree_dir" ] && [ -f "$hook_tree_dir/pre-push" ]; then
         echo "pre-push: 這份 hook 不是被推送的工作樹自己的——改跑工作樹的 .githooks/pre-push（#697）" >&2
-        exec bash "$hook_tree_dir/pre-push" "$@"
+        exec /bin/bash "$hook_tree_dir/pre-push" "$@"
     fi
     echo "pre-push: ⚠ 工作樹沒有 .githooks/pre-push，照常跑這份取自別處的 hook（#697）" >&2
 fi

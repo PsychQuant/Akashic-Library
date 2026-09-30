@@ -19,7 +19,7 @@ struct UpdatePersonCmd: ParsableCommand {
             + "維度 object（維度級覆寫，段形狀同 YAML：value/"
             + "start/end/ended/source/note）；references 收 object 陣列（append-only，與 update-venue --references 同一個解析，#674："
             + "retrieval 的 status 必填不預設 200、url 只收 http／https 且不含帳密、retrieved 是 ISO 8601、不認得的鍵拒收、"
-            + "一次至多 200 筆／statement 4,096 位元組／rests_on 20 個；verdict 欄位對拒收）"))
+            + "一次至多 200 筆／statement 4,096 位元組／rests_on 20 個；空陣列拒絕（#695）；verdict 欄位對拒收）"))
     var fields: String?
     @Flag(name: .long, help: "只預告會改什麼（含 format gate 預演），不寫入")
     var dryRun: Bool = false

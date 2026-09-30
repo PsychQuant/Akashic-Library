@@ -259,8 +259,8 @@ final class ReferenceWriteContractTests: XCTestCase {
                    "2026-09-29T14:30:00+24:00", "2026-09-29T14:30:00+08:60", "2026-09-29T24:00", "2026-09-29T14:60",
                    "2026-09-29T14:30:61Z", "2026-09-29T14:30:00Zjunk", "2026-09-29 14:30", "2026-09-29t14:30", "2026-00-10",
                    "2026-09-32", "２０２６-09-29", "2026-09-29\n", " 2026-09-29"]
-        for s in ok { XCTAssertTrue(AkashicService.isValidRetrievedInstant(s), "應收：\(s)") }
-        for s in bad { XCTAssertFalse(AkashicService.isValidRetrievedInstant(s), "應拒：\(s.debugDescription)") }
+        for s in ok { XCTAssertTrue(RetrievalWriteShape.isValidRetrievedInstant(s), "應收：\(s)") }
+        for s in bad { XCTAssertFalse(RetrievalWriteShape.isValidRetrievedInstant(s), "應拒：\(s.debugDescription)") }
     }
 
     /// `url` 的文法（單元）：http／https、主機非空、不含 userinfo。
@@ -270,17 +270,25 @@ final class ReferenceWriteContractTests: XCTestCase {
         let bad = ["", "example.org", "//example.org", "ftp://example.org", "file:///x", "https:/example.org", "https://",
                    "https:///x", "https://:80/x", "https://user@example.org", "https://user:pw@example.org/x", "https://@example.org",
                    "http://a:b@[::1]/x", "mailto:a@b.c", "data:text/plain,hi", " https://example.org"]
-        for u in ok { XCTAssertNoThrow(try AkashicService.vetRetrievalURL(u, at: "references[0]"), "應收：\(u)") }
-        for u in bad { XCTAssertThrowsError(try AkashicService.vetRetrievalURL(u, at: "references[0]"), "應拒：\(u.debugDescription)") }
+        // #695 起住在 Core（`RetrievalWriteShape`），enrich 的來源欄位呼叫同一個函式
+        let names = AkashicService.referenceRetrievalNames(at: "references[0]")
+        for u in ok { XCTAssertNil(RetrievalWriteShape.urlIssue(u, names: names, echo: { $0 }), "應收：\(u)") }
+        for u in bad { XCTAssertNotNil(RetrievalWriteShape.urlIssue(u, names: names, echo: { $0 }), "應拒：\(u.debugDescription)") }
     }
 
-    /// **有記錄的差異，不是遺漏**：空陣列在 venue 是獨立參數、給了卻沒東西要附是呼叫端的錯；在 person 是 `fields` 這個物件裡
-    /// 被提及的一格，先前就是 no-op。#674 只對齊三個被點名的契約（status、未知鍵、上限），沒有把這個 no-op 變成錯誤。
-    func testEmptyArrayIsStillANoOpForPersonAndRefusedForVenue() throws {
+    /// #695（使用者 2026-09-30 裁決「兩面都拒絕」）：空陣列兩面都拒絕、同一句話——與逐 id 腿「空陣列與 null 同拒」的既有做法一致。
+    /// person 側在 #674 時仍是 no-op（`fields` 裡被提及的一格），那是有記錄的差異；現在收掉，dry-run 同樣拒絕（參數階段）。
+    func testEmptyArrayIsRefusedOnBothFacesWithTheSameSentence() throws {
         let before = try snapshot()
-        XCTAssertNoThrow(try person([]))
+        var whys: [String] = []
+        XCTAssertThrowsError(try person([])) { whys.append(message($0)) }
+        XCTAssertThrowsError(try person([], dryRun: true)) { whys.append(message($0)) }
+        XCTAssertThrowsError(try AkashicService.checkUpdatePersonFields(["references": []])) { whys.append(message($0)) }
+        XCTAssertThrowsError(try venue([])) { whys.append(message($0)) }
+        XCTAssertEqual(whys.count, 4)
+        XCTAssertEqual(Set(whys).count, 1, "兩面同一句：\(whys)")
+        XCTAssertTrue(whys.allSatisfy { $0.contains("空陣列") }, "\(whys)")
         XCTAssertEqual(try snapshot(), before)
-        XCTAssertThrowsError(try venue([])) { XCTAssertTrue(message($0).contains("空陣列"), message($0)) }
     }
 
     /// person 的 holder 政策：verdict 欄位對仍然只經 resolve 流程寫（不因共用解析而放行）。

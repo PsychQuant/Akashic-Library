@@ -78,6 +78,9 @@ final class ServiceArgvExitCodeTests: XCTestCase {
                               #"[{"field":"issn","value":"0003-066X","kind":"retrieval","url":"https://x.org/a","retrieved":"2026-09-29","content":"\#(digest)"}]"#], "status")
         try assertUsageError(["update-venue", "v-one", "--references",
                               #"[{"field":"issn","value":"0003-066X","kind":"retrieval","url":"file:///x","retrieved":"2026-09-29","status":200,"content":"\#(digest)"}]"#], "http／https")
+        // #695：空陣列兩面都是用法錯誤（person 先前是 no-op）
+        try assertUsageError(person("[]"), "references 是空陣列")
+        try assertUsageError(["update-venue", "v-one", "--references", "[]"], "references 是空陣列")
     }
 
     /// #544：`update-entry` 只看參數的檢查（服務的同一個函式）。

@@ -1201,6 +1201,9 @@ literal、kind 是 judgement；`enrich` 補進去的作者是**在場**的值、
 add-only 補值的前提是來源**給了**值；負結果的寫入端是查證流程，另案。`date` 那一格在 format < 20 的
 store 上：寫入閘拒寫，`enrich` 則在寫入前讀 marker、值照補、reference 不寫、理由進 `provenanceOmitted.date`；
 `fields.<鍵>` 那一格在 format < 17 的 store 上同理（#668），理由逐鍵進 `provenanceOmitted` 的 `fields.<鍵>`。
+`enrich` 的來源欄位寫的是 retrieval reference，與 person／venue 的 `references` 走同一個形狀檢查（#695，`RetrievalWriteShape`）：
+`sourceURL` 只收 http／https、主機非空、不含帳密，`sourceRetrieved` 是 ISO 8601，`sourceStatus` 在 100–599；給了 URL、retrieved 或 media type
+就要給 status（不預設 200）。不合的提案整批拒絕、零寫入。只給 `sourceDigest` 不是在寫 reference（回顯，#517），不觸發 status 必填。
 
 **移除端**：`update-entry --remove-field <鍵>=理由`（MCP `akashic_update_entry` 的 `remove_fields`，#544）刪一個 `fields` 的值時，
 一併刪掉指向它的 `fields.<鍵>` reference——留著它，那筆的語意會從正結果（值出自這份來源）翻成負結果（查過了、這份來源沒給），
@@ -1235,7 +1238,8 @@ venue 的 `references:` 可附著的 `field` 是**封閉列舉**，唯一的列�
 裸日期照收——store 既有的擷取型 reference 全是裸日期，#262 的「帶 UTC offset」契約寫在 `sources/index.jsonl` 的 `retrieved`、尚未在任何寫入面強制）、
 一次至多 200 筆、`statement` 至多 4,096 位元組、`rests_on` 至多 20 個；任一筆不合整個呼叫拒絕、零寫入。載入既有記錄走 `ProvenanceReference` 的平面 init，
 **不受這些寫入面檢查影響**（`url`／`retrieved`／`status` 範圍只在寫入面驗）。兩個面各自的政策不同：person 收 verdict 以外的欄位（附著在寫入時驗），venue 只收 `issn` 與 `names`。
-空陣列的處置是有記錄的差異：venue 的 `--references` 是獨立參數、給了卻沒東西要附是錯；person 的是 `fields` 這個物件裡被提及的一格，仍是 no-op。
+空陣列兩面都拒絕、同一句話（#695，使用者 2026-09-30 裁決；#674 時 person 側仍是 no-op，是有記錄的差異）——沒有要附的 reference 就不要給這個鍵。
+`url`／`retrieved`／`status` 範圍與「缺 status」的檢查住在 Core 的 `RetrievalWriteShape`，`enrich` 的來源欄位呼叫同一個函式（見 §3.5「work 的 `references`」的寫入端）。
 形狀驗證走 `ProvenanceReference` 的平面 init（YAML decode 的同一個入口）；附著在合進記錄後驗，所以同一次呼叫加的號與名字
 可以被指向；`issn` 的 value 以正規形入庫、`names`／`authorized` 的 value 以記錄上的拼法入庫（相等看 canonical——只差 NFC／NFD 或空白的兩筆否則是兩筆位元組不同的記錄，#582 的掃描會報它們）。append-only：位元組相同的一筆略過。`field: issn` 的 reference 要 store format ≥ 13（#394 的寫入閘）。
 **讀取面與移除面**（#673）：`venue`／`akashic_venue` 的 `references` 列出通用 references（不是 verdict、不是 `paginated` 判定的那些；鍵名同上一段的輸入形；至多 25 筆，`referencesTotal`／`referencesTruncated` 揭露；`rests_on` 只列前 5 個，`rests_on_total` 揭露；沒有就不輸出）。

@@ -170,13 +170,15 @@ final class EnrichmentProvenanceTests: XCTestCase {
     }
 
     /// #542 R2 verify（DA）：省略 status 不再補 200。一份離線掃描檔曾因此被記成 HTTP 200——store 斷言了來源沒說過的事。
-    func testMissingStatusWritesNoReferenceAndSaysWhy() throws {
+    /// #695 起更進一步：給了 url／retrieved 卻沒給 status 是**整批拒絕**（與 person／venue 的 references 同一個 `RetrievalWriteShape`），
+    /// 不再是「值照補、reference 略過」——離線來源不寫 reference 的出口是只給 digest。
+    func testMissingStatusIsRefusedNotFabricated() throws {
         let p = AddOnlyEnrichment.Proposal(
             citekey: "a2020x", fields: ["abstract": "一段摘要"], sourceDigest: digest,
             sourceURL: "file:///scan.pdf", sourceRetrieved: "2026-09-09")
-        let item = try XCTUnwrap(try AddOnlyEnrichment.plan(entries: [entry()], proposals: [p]).items.first)
-        XCTAssertTrue(item.outcome.addedReferences.isEmpty, "沒有 status 就不寫 reference，不捏造 200")
-        XCTAssertTrue(try XCTUnwrap(item.outcome.provenanceSkipped).contains("sourceStatus"))
+        XCTAssertThrowsError(try AddOnlyEnrichment.plan(entries: [entry()], proposals: [p]), "沒有 status 不捏造 200，也不靜默略過") { error in
+            XCTAssertTrue("\(error)".contains("沒有 status"), "\(error)")
+        }
     }
 
     /// #542 R2 verify（logic、requirements）：只給 URL 與日期、沒給 digest——先前兩面都一聲不吭。

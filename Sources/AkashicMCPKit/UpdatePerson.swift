@@ -26,7 +26,7 @@ public extension AkashicService {
     ///
     /// 解析與驗證是 `update_venue` 的 references **同一個函式**（`parseReferenceObjects`，#674）：鍵名嚴格、`status` 必填不預設 200、
     /// `url` 只收 http／https 且不含帳密、有界——契約在 `ReferenceWriteParsing.swift`。person 自己的政策只有一條：
-    /// verdict 欄位對（封閉三值）不收手供，只能經 resolve 流程寫。空陣列仍是 no-op（venue 側拒絕，有記錄的差異，見 `parseReferenceObjects`）。
+    /// verdict 欄位對（封閉三值）不收手供，只能經 resolve 流程寫。空陣列拒絕，與 venue 同一句（#695；先前是 no-op，見 `parseReferenceObjects`）。
     private static func appendReferences(_ raw: Any, to person: inout Person) throws -> Int {
         guard let arr = raw as? [Any] else {
             throw ServiceError.invalid("references 必須是 object 陣列（append-only）")

@@ -76,7 +76,7 @@ extension AkashicService {
     /// 解析與驗證是 `update_person` 的 references **同一個函式**（`parseReferenceObjects`，#674）：鍵名嚴格、`status` 必填、
     /// `url` 只收 http／https、有界——契約在 `ReferenceWriteParsing.swift`，這裡不重寫。本檔只留 **venue 自己的政策**：
     ///
-    /// 1. **空陣列拒絕**：`references` 是獨立參數，給了卻沒東西要附是呼叫端的錯；
+    /// 1. **空陣列拒絕**：給了卻沒東西要附是呼叫端的錯——#695 起這一句住在 `parseReferenceObjects`，person 面同一句；
     /// 2. **欄位的歸屬**：verdict 三個欄位只經 `resolve-venues` 寫，`paginated` 判定只經 `paginated`／`clear_paginated` 寫——
     ///    那兩條路同時改記錄本身的值與判定史，通用面寫進去會讓判定與值分岔；**通用面自己只收 `issn` 與 `names`**（見 `admitVenueReferenceField`）；
     /// 3. **`field: issn` 的 `value` 以正規形入庫**（識別碼在寫入面正規化，#394）。
@@ -84,10 +84,7 @@ extension AkashicService {
     /// 附著（那個號、那個名字在不在記錄上）要合進記錄才判得出來，在 `updateVenue` 裡以 `validateReferenceAttachment` 驗。
     static func parseVenueReferences(_ raw: [Any]?) throws -> [ProvenanceReference]? {
         guard let raw else { return nil }
-        guard !raw.isEmpty else {
-            throw ServiceError.invalid("references 是空陣列——沒有要附的 reference 就不要給這個參數")
-        }
-        return try parseReferenceObjects(raw, policy: venueReferencePolicy)
+        return try parseReferenceObjects(raw, policy: venueReferencePolicy)   // 空陣列在裡面拒絕（#695：兩面同一句）
     }
 
     static let venueReferencePolicy = ReferenceHolderPolicy(

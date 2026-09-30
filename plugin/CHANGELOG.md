@@ -42,9 +42,25 @@
 
 
 
+## #695 — `akashic_enrich` 的來源欄位與 `references` 的空陣列（不相容）
+
+plugin 的 wrapper 會自動下載新版 `akashic-mcp`，skill 文字可能比 binary 舊，所以把會讓既有呼叫失敗的改變寫在這裡。plugin 版號沒有動。
+
+**`akashic_enrich` 的 `sourceURL`／`sourceRetrieved`／`sourceStatus` 改走 `akashic_update_person` 的 `references` 同一份形狀檢查**，下列提案先前寫得進去、現在整批拒絕、零寫入：
+
+- `sourceURL` 不是 http／https（`file:`、`ftp:`、沒有 scheme）、主機為空、或含帳密（`user:pass@`）。離線來源只給 `sourceDigest`（回顯、不寫 reference）。
+- `sourceRetrieved` 不是 ISO 8601 日期或日期時間（裸日期 `YYYY-MM-DD` 照收）。
+- `sourceStatus` 不在 100–599。
+- 給了 `sourceURL`、`sourceRetrieved` 或 `sourceMediaType`，卻沒給 `sourceStatus`。先前這是「值照補、reference 不寫」（`provenanceSkipped`），現在是錯誤。
+
+只給 `sourceDigest` 的提案不受影響，仍是回顯。蛇形別名（`source_url` 等）走同一道檢查。
+
+**`akashic_update_person` 的 `references: []`（空陣列）改成拒絕**，與 `akashic_update_venue` 同一句話。先前 person 這一面是 no-op。沒有要附的 reference 就不要給這個鍵。
+
 ## #703 — `akashic_store_source` 單檔上限 256 MB
 
 超過 268,435,456 bytes（256 MB）的檔整個拒絕、不截斷、零寫入；錯誤訊息說出路徑、實際大小與上限。內容改成逐塊讀（記憶體與檔案大小無關），目錄與 FIFO 以錯誤拒絕、不會讓呼叫卡住。回應鍵與形狀不變；plugin 版號沒有動。
+
 
 ## #702 — `akashic_import_zotero` 的三個清單只記寫進去的那一筆
 

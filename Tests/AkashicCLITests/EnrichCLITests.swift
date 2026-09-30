@@ -178,6 +178,24 @@ final class EnrichCLITests: XCTestCase {
         XCTAssertTrue(r.output.contains("nope.json"), r.output)
     }
 
+    /// #695：來源欄位走 #674 的同一份 retrieval 形狀檢查——一筆 `ftp:` 的 url 讓整批（含前面合法的那筆）零寫入、非零結束、具名。
+    /// 帶帳密的 url 不回顯；蛇形別名（`source_url`）同一道檢查。
+    func testMalformedSourceShapeRefusesTheWholeFile() throws {
+        let before = try bytes(alpha)
+        let good = #"{"citekey":"cheng2025alpha","fields":{"abstract":"A"}}"#
+        for bad in [#"{"citekey":"noauthor2020x","fields":{"note":"n"},"sourceDigest":"sha256:\#(String(repeating: "ab", count: 32))","sourceURL":"ftp://example.org/x","sourceRetrieved":"2026-09-30","sourceStatus":200}"#,
+                    #"{"citekey":"noauthor2020x","fields":{"note":"n"},"source_url":"https://alice:hunter2@example.org/x","source_retrieved":"2026-09-30","source_status":200}"#,
+                    #"{"citekey":"noauthor2020x","fields":{"note":"n"},"sourceURL":"https://example.org/x","sourceRetrieved":"2026-09-30"}"#] {
+            let r = try cli(["enrich", "--from", try proposals("[\(good),\(bad)]"), "--apply"])
+            XCTAssertEqual(r.status, 1, r.output)
+            XCTAssertTrue(r.output.contains("第 2 筆") && r.output.contains("整批拒絕"), r.output)
+            XCTAssertTrue(r.output.contains("http／https") || r.output.contains("帳密") || r.output.contains("沒有 status"), r.output)
+            XCTAssertFalse(r.output.contains("hunter2"), "帳密不回顯：\(r.output)")
+            XCTAssertEqual(try bytes(alpha), before, "前面合法的那筆也不寫")
+            XCTAssertNil(try entry("noauthor2020x").fields["note"])
+        }
+    }
+
     // MARK: - --include-absent-authors 直通
 
     func testIncludeAbsentAuthorsIsPassedThrough() throws {

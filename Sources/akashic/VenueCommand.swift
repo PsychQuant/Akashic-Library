@@ -301,7 +301,7 @@ struct UpdateVenueCmd: ParsableCommand {
                                    + "authorized 與 note 拒收（authorized 的 reference 會鎖住 --authorize 換對外形，note 沒有寫入面；要不要收回待裁，#673——已存在的用 --remove-reference 移除）；"
                                    + "verdict 欄位只經 resolve-venues 寫、paginated 判定只經 --paginated／--clear-paginated 寫，也拒收。"
                                    + "鍵名嚴格（不認得的鍵拒收；判斷型的斷言鍵是 statement）；一次至多 200 筆、字串各至多 65,536 位元組。"
-                                   + "任一筆不合，整批拒絕、零寫入（同一次呼叫的其他參數也不寫）。報告：referencesAdded"))
+                                   + "任一筆不合或空陣列，整批拒絕、零寫入（同一次呼叫的其他參數也不寫）。報告：referencesAdded"))
     var references: String?
 
     /// #673：venue 的 reference 寫得進去（#587）之後的移除面。單獨呼叫；理由只進報告；移除前要求 venue 檔已 commit（同 --remove-issn）。

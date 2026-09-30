@@ -269,7 +269,7 @@ actor AkashicMCPServer {
                 "edit_name_segment": .object(["type": .string("array"), "items": .object(["type": .string("object")]),
                     "description": .string("改或刪名字段（單獨呼叫）：物件 {name, match?, set 或 remove:true, reason（必填，只回在報告）}；match／set 的鍵 start／end／ended／attested／source／note，null 在 match＝要求缺席、在 set＝清除。git 閘（venue 檔要已 commit）與拒絕類別見 CLI help。回報 nameSegments、written（false 時 writeNote）、displayNameChanged；超過 20 項 detailsTruncated／detailsListed")]),
                 "references": .object(["type": .string("array"), "items": .object(["type": .string("object")]),
-                    "description": .string("append-only 的 provenance，與 akashic_update_person 的 references 同一個解析與契約。field 只收 issn／names、帶 value，值要在記錄上（同一次呼叫加的也算）；authorized、note、verdict、paginated 拒收。位元組相同的略過；任一筆不合整個呼叫拒絕零寫入。回報 referencesAdded／referencesAlreadyPresent")]),
+                    "description": .string("append-only 的 provenance，與 akashic_update_person 的 references 同一個解析與契約。field 只收 issn／names、帶 value，值要在記錄上（同一次呼叫加的也算）；authorized、note、verdict、paginated 拒收。位元組相同的略過；任一筆不合或空陣列，整個呼叫拒絕零寫入。回報 referencesAdded／referencesAlreadyPresent")]),
              ], required: ["key"])),
         Tool(name: "akashic_resolve_venues",
              description: "venue 解析（literal → venue；完整契約見 CLI `akashic resolve-venues --help` 與 docs/store-format.md §3.5）。不帶寫入腿回 {candidates, ambiguities}：candidates 是與 venue name 完全命中（正規化含 lowercase）且不歧義的 literal；ambiguities 是對到 2+ venue、需要判斷的；兩者帶 undecidedChecks；work 或 venue 無法唯一定位（原因見 akashic validate）時該列帶 unlocatableCitekey:true／unlocatableVenueKey:true。apply（citekey:venueIndex）升格 literal 並寫 resolution-confirmed 到該 venue；reject 寫 resolution-rejected（entry 不動）；apply＋reject 可同一次呼叫（reject 先提交，被它以正規化配對壓掉的 apply id 列在 skippedBecauseRejected）；repoint／demote／undecided／drop_venue 各自單獨呼叫。apply 逐筆略過、其餘照寫的三類：skippedUnlocatable、skippedDuplicateVenueEdge（會造成同一 work 兩條邊指同一 venue；既有的重複邊不擋）、skippedConflictingConfirmedLiteral（目的 venue 已對該 work 持有另一個 confirmed literal，比位元組）。reject／repoint／demote 遇到無法唯一定位的 work 或 venue（repoint 兩端都算）整批拒絕；repoint／demote 另在該 venue 對這筆 work 有 ≥2 個不同 confirmed literal、或配對由多條邊實例化時整批拒絕零寫入。repoint／demote 會刪掉同 holder 上同一配對的相反判定，所以那些 venue 檔要已在 git 裡 commit、無未提交修改（否則整批拒絕）；刪掉的逐字列在 verdictsRetired（截 20 筆，verdictsRetiredTotal／truncated）。各腿回 applied／repointed／demoted（id 清單）與改寫檔數 entriesRewritten／venuesRewritten；apply＋reject 同一次呼叫時各腿收在 legs。需 store format ≥ 11。絕不自動配對。",
@@ -321,7 +321,7 @@ actor AkashicMCPServer {
                 "orcid": str("ORCID（可選）"), "openalex": str("OpenAlex author ID（可選）"),
              ], required: ["key", "names"])),
         Tool(name: "akashic_update_person",
-             description: "person 的部分更新：提及的欄位整個換、未提及不動；回 key 與 updated（實跑）／wouldChange（dry_run），值是欄位名。純量欄位（orcid/openalex/died/note）收字串或 null（null＝清除）；names 收 {authorized:[…], variant:[…]} object（全量替換；平坦陣列拒收，頂層 authorized 鍵不存在）；profile 收維度 object（維度級覆寫，段形狀同 YAML：value/start/end/ended/source/note）——contacts 是**一個**維度，提及它＝整個 contacts map 替換；references 收 object 陣列，**append-only**（每項 {field, value?, kind: retrieval{url,retrieved,status,media_type,content}|judgement{statement,rests_on}}，比位元組去重——只差 NFC／NFD 的兩筆都會進 store），與 akashic_update_venue 的 references 同一個解析：status 必填（不預設 200）、不認得的鍵拒收、url 只收 http／https 且不含帳密、retrieved 是 ISO 8601、一次至多 200 筆（statement 4,096 位元組、rests_on 20 個）；verdict 欄位對拒收（只能經 resolve 流程寫）。",
+             description: "person 的部分更新：提及的欄位整個換、未提及不動；回 key 與 updated（實跑）／wouldChange（dry_run），值是欄位名。純量欄位（orcid/openalex/died/note）收字串或 null（null＝清除）；names 收 {authorized:[…], variant:[…]} object（全量替換；平坦陣列拒收，頂層 authorized 鍵不存在）；profile 收維度 object（維度級覆寫，段形狀同 YAML：value/start/end/ended/source/note）——contacts 是**一個**維度，提及它＝整個 contacts map 替換；references 收 object 陣列，**append-only**（每項 {field, value?, kind: retrieval{url,retrieved,status,media_type,content}|judgement{statement,rests_on}}，比位元組去重——只差 NFC／NFD 的兩筆都會進 store），與 akashic_update_venue 的 references 同一個解析：status 必填（不預設 200）、不認得的鍵拒收、url 只收 http／https 且不含帳密、retrieved 是 ISO 8601、一次至多 200 筆（statement 4,096 位元組、rests_on 20 個）、空陣列拒絕；verdict 欄位對拒收（只能經 resolve 流程寫）。",
              inputSchema: obj([
                 "key": str("person key"),
                 "fields": .object([
@@ -377,7 +377,7 @@ actor AkashicMCPServer {
                         + "每筆提案以 citekey 或 doi（恰一個）指名一筆 work，**只補 fields 裡不存在的鍵**，既有值不動；doi／pmid／isbn 走結構化欄位（部分解析時原字串留在 fields）、"
                         + "issn 一律拒、date 空才補、authors 完全為空且 include_absent_authors 才補 literal；type／title／venues／attachments 不碰。"
                         + "來源四欄（sourceDigest／sourceURL／sourceRetrieved／sourceStatus）齊備時，每個補進去的欄位（fields 的鍵、doi／pmid／isbn、date）同一次寫入一筆 retrieval reference（冪等比位元組）；"
-                        + "給了卻不齊時不寫，缺哪些列在 provenanceSkipped。item 的 provenance 狀態至多一個鍵：provenancePlanned（dry_run）／provenanceWritten／provenanceNotWritten（寫入失敗）；"
+                        + "不齊時（例如只給 sourceDigest）不寫，缺哪些列在 provenanceSkipped；形狀（見 sourceURL／sourceRetrieved／sourceStatus）與 akashic_update_person 的 references 同一份檢查，不合整批拒絕。item 的 provenance 狀態至多一個鍵：provenancePlanned（dry_run）／provenanceWritten／provenanceNotWritten（寫入失敗）；"
                         + "值補了而 reference 刻意不寫的欄位在 provenanceOmitted（欄位 → 理由）：authors 一律不寫；date 需 store format ≥ \(StoreVersion.workDateReferenceFormat)、"
                         + "fields.<鍵> 需 ≥ \(StoreVersion.workFieldReferenceFormat)，低於時值照補、reference 不寫。"
                         + "**dry_run 預設 true**；false 才寫（written 列出寫入的、indexRebuilt 說 index 有沒有重建），I/O 失敗逐筆記 writeFailed、其餘照寫。"
@@ -402,11 +402,11 @@ actor AkashicMCPServer {
                             "date": str("date（entry 的 date 為空時才補）"),
                             "authors": strArray("literal 作者名（authors 完全為空且 include_absent_authors:true 時才補）"),
                             "sourceDigest": str("來源存檔 digest（sha256: 加 64 個小寫十六進位，0 byte 內容的 digest 拒收；不合法整批拒絕）"),
-                            "sourceURL": str("這次取得的 URL（寫 retrieval reference 的必要欄位）"),
-                            "sourceRetrieved": str("取得日期（例如 2026-09-09；原樣記錄，不驗格式；寫 retrieval reference 的必要欄位）"),
+                            "sourceURL": str("這次取得的 URL（http／https、不含帳密）"),
+                            "sourceRetrieved": str("取得日期（ISO 8601，例如 2026-09-09）"),
                             "sourceMediaType": str("取得內容的 media type（選填，例如 application/json）"),
                             "sourceStatus": .object(["type": .string("integer"),
-                                                     "description": .string("取得時的狀態碼（寫 retrieval reference 的必要欄位；離線來源沒有 HTTP 狀態時不要編一個，省略即不寫 reference）")]),
+                                                     "description": .string("HTTP 狀態碼 100–599；給了 sourceURL／sourceRetrieved／sourceMediaType 就必填、不預設 200（離線來源只給 sourceDigest）")]),
                         ]),
                     ]),
                 ]),

@@ -558,6 +558,36 @@ extension StdioE2ETests {
     }
 }
 
+/// #695 的 MCP 面——**經真 binary**：`akashic_enrich` 的來源欄位走 #674 的 retrieval 形狀檢查（整批拒絕、具名），
+/// `akashic_update_person` 與 `akashic_update_venue` 的 `references: []` 都拒絕、同一句話。service 層的測試釘住訊息；
+/// 這裡釘住 server 的參數解析與分派沒有把它們吞掉（person 的 references 在 `fields` 裡、venue 的是獨立參數，兩條不同的解析）。
+extension StdioE2ETests {
+    func testEnrichSourceShapeAndEmptyReferencesAreRefused() throws {
+        try initialize()
+        let entities = root.appendingPathComponent("entities")
+        func snapshot() throws -> [String: Data] {
+            var out: [String: Data] = [:]
+            for n in try FileManager.default.contentsOfDirectory(atPath: entities.path) {
+                out[n] = try Data(contentsOf: entities.appendingPathComponent(n))
+            }
+            return out
+        }
+        let before = try snapshot()
+        let enrich = try call(2, "akashic_enrich", [
+            "proposals": [["citekey": "cheng2025identifiability", "fields": ["note": "n"],
+                           "sourceDigest": "sha256:" + String(repeating: "b", count: 64),
+                           "sourceURL": "ftp://example.org/x", "sourceRetrieved": "2026-09-30", "sourceStatus": 200]],
+            "dry_run": false,
+        ])
+        XCTAssertTrue(enrich.contains("http／https") && enrich.contains("整批拒絕"), enrich)
+        let person = try call(3, "akashic_update_person", ["key": "fann", "fields": ["references": [Any]()]])
+        let venue = try call(4, "akashic_update_venue", ["key": "psychometrika", "references": [Any]()])
+        XCTAssertTrue(person.contains("references 是空陣列"), person)
+        XCTAssertTrue(venue.contains("references 是空陣列"), venue)
+        XCTAssertEqual(try snapshot(), before, "被拒絕的呼叫不得改任何記錄")
+    }
+}
+
 /// #544：`akashic_update_entry` 不帶 `dry_run` 就是乾跑。**必須經真 binary**：dispatch 的 case 標籤打錯字只有實際呼叫抓得到
 /// （#138 F4 的教訓）；參數形狀錯（字串不是陣列）整個呼叫拒絕（#561 的同一條）。
 extension StdioE2ETests {

@@ -25,7 +25,7 @@ struct EnrichCmd: ParsableCommand {
 
     @OptionGroup var options: LibraryOptions
 
-    @Option(name: .long, help: "提案 JSON 檔：[{citekey|doi, fields{…}, date?, authors?, sourceDigest?, sourceURL?, sourceRetrieved?, sourceMediaType?, sourceStatus?}]（每筆 citekey 或 doi 恰一個；digest／URL／retrieved／status 四欄齊備才寫 retrieval reference——補進去的 fields 鍵、doi／pmid／isbn、date 各一筆，fields.<鍵> 需要 store format ≥ \(StoreVersion.workFieldReferenceFormat)、date 需要 ≥ \(StoreVersion.workDateReferenceFormat)，低於時值照補、reference 不寫；authors 不寫，理由印在報告）")
+    @Option(name: .long, help: "提案 JSON 檔：[{citekey|doi, fields{…}, date?, authors?, sourceDigest?, sourceURL?, sourceRetrieved?, sourceMediaType?, sourceStatus?}]（每筆 citekey 或 doi 恰一個；來源欄位與 update-person 的 references 同一份形狀檢查（#695）：sourceURL 只收 http／https 且不含帳密、sourceRetrieved 是 ISO 8601、sourceStatus 在 100–599，給了 URL／retrieved／media type 就要給 status（不預設 200；離線來源只給 digest），不合整批拒絕；digest／URL／retrieved／status 四欄齊備才寫 retrieval reference——補進去的 fields 鍵、doi／pmid／isbn、date 各一筆，fields.<鍵> 需要 store format ≥ \(StoreVersion.workFieldReferenceFormat)、date 需要 ≥ \(StoreVersion.workDateReferenceFormat)，低於時值照補、reference 不寫；authors 不寫，理由印在報告）")
     var from: String
 
     @Flag(name: .long, help: "實際寫入（預設只列出計畫）")

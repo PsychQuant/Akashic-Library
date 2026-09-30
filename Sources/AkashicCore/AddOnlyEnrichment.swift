@@ -37,7 +37,8 @@ import Foundation
 /// ## 失敗語意分兩類（#386 的形）
 ///
 /// - **輸入語法錯 → 整批拒絕零寫入**，錯誤指名第 N 筆：兩鍵同給、兩鍵皆無、`fields` 空且無
-///   `date`／`authors`、`FieldKey.normalized` 回 nil 或正規化後撞鍵。
+///   `date`／`authors`、`FieldKey.normalized` 回 nil 或正規化後撞鍵、來源欄位的形狀不合（#695：與 person／venue 的
+///   references 同一個 `RetrievalWriteShape`——url、retrieved、status 範圍，給了 url／retrieved／media type 卻沒給 status）。
 /// - **狀態不符 → 該筆略過並具名**，其餘照常：`ambiguous`／`notFound`／`rejected`。
 ///
 /// 沉默的只有一種：`skipped`（全部鍵已存在）——它在報告裡有分類，不是靜默。
@@ -121,6 +122,12 @@ public enum AddOnlyEnrichment {
     /// （4,220）對不上，以重量為準。
     public static let maxValueBytes = 65_536
 
+    /// `enrich` 的來源欄位怎麼稱呼一筆擷取型記錄與它的三個鍵（`RetrievalWriteShape.Names`，#695）。蛇形別名（`source_url` 等）解碼後
+    /// 落到同一個欄位，訊息用駝峰名。離線來源沒有 HTTP 狀態、url 也不是 http／https：只給 `sourceDigest`（回顯、不寫 reference，#517）。
+    static let sourceRetrievalNames = RetrievalWriteShape.Names(
+        record: "來源欄位", url: "sourceURL", retrieved: "sourceRetrieved", status: "sourceStatus",
+        offlineRemedy: "離線來源（本機檔案、掃描檔）不給 sourceURL／sourceRetrieved／sourceStatus，只給 sourceDigest（回顯、不寫 reference）")
+
     // MARK: - 輸入
 
     /// 一筆補值提案。`citekey` 與 `doi` **恰給一個**。
@@ -138,12 +145,13 @@ public enum AddOnlyEnrichment {
         /// 仍只回顯，理由具名在報告的 `provenanceSkipped`。
         public var sourceDigest: String?
         /// 那次取得的 URL。**沒有別的地方記它**——`sources/index.jsonl` 記 origin／retrieved／
-        /// media-type，不記 url，所以 reference 必須自己帶。
+        /// media-type，不記 url，所以 reference 必須自己帶。只收 http／https、不含帳密（#695，`RetrievalWriteShape`）。
         public var sourceURL: String?
-        /// 取得日期（`YYYY-MM-DD`）。
+        /// 取得日期或時刻，ISO 8601（`YYYY-MM-DD`，或再接時間與時區；#695 起寫入面驗形狀）。
         public var sourceRetrieved: String?
         public var sourceMediaType: String?
-        /// HTTP 狀態；省略即 200。「死」本身也是內容（D3），所以它要記得下來。
+        /// HTTP 狀態碼（100–599）。「死」本身也是內容（D3），所以它要記得下來。**不預設 200**（#542 R2）；給了 url／retrieved／
+        /// media type 就必填，沒給整批拒絕（#695——先前省略 status 是「不寫 reference」的出口，現在那個出口是只給 digest）。
         public var sourceStatus: Int?
 
         public init(citekey: String? = nil, doi: String? = nil, fields: [String: String] = [:],
@@ -568,6 +576,16 @@ public enum AddOnlyEnrichment {
         }
         for (i, a) in p.authors.enumerated() {
             try checkLength(a, "第 \(i + 1) 個 author")
+        }
+        // #695：來源欄位寫的是 retrieval reference——與 person／venue 的 references（#674）走**同一個**形狀檢查（`RetrievalWriteShape`）。
+        // 空字串視同沒給（`retrievalKind`／`missingSourceFields` 的既有判準）；`sourceDigest` 單獨給是回顯、不是在寫 reference（#517），
+        // 所以只有 url／retrieved／media type 讓 status 必填。回顯原樣：這個理由由消費端在擲出站點逃一次（見 `InputError`）。
+        func given(_ s: String?) -> String? { (s ?? "").isEmpty ? nil : s }
+        if let why = RetrievalWriteShape.firstIssue(
+            url: given(p.sourceURL), retrieved: given(p.sourceRetrieved), status: p.sourceStatus,
+            statusRequired: [p.sourceURL, p.sourceRetrieved, p.sourceMediaType].contains { given($0) != nil },
+            names: sourceRetrievalNames, echo: { String(String.UnicodeScalarView($0.unicodeScalars.prefix(80))) }) {
+            throw InputError.invalidProposal(index: index, reason: why)
         }
         let ck = present(p.citekey), doi = present(p.doi)
         switch (ck, doi) {

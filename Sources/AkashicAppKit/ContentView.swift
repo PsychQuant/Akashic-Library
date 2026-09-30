@@ -144,6 +144,12 @@ struct SidebarView: View {
                                 .help("blob 與 index 對不上。audit sidecar 的腐爛只會從"
                                       + "這裡看得到——它不會自己修好。")
                         }
+                        // #703 R1：中斷的存檔留下的暫存檔（只報不刪）。與 CLI／MCP 的 doctor 同一份 audit
+                        if !audit.strayTemporaryFiles.isEmpty {
+                            LabeledContent("sources 殘留暫存檔", value: "\(audit.strayTemporaryFiles.count)")
+                                .help("存檔在複製途中被中斷留下的檔（每個可以到 256 MiB）。"
+                                      + "確認沒有存檔在進行之後可以刪掉；akashic doctor 會列出路徑與大小。")
+                        }
                     }
                     if let err = health.sourcesAuditError {
                         LabeledContent("sources audit 失敗", value: "!")

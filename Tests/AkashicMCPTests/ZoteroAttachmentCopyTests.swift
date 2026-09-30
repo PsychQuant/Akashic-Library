@@ -529,7 +529,7 @@ extension ZoteroAttachmentCopyTests {
         try w.close()
     }
 
-    /// 超過 256 MB 的附件：乾跑與實跑都具名略過（路徑與大小），不截斷、不存、不連；其餘照跑。
+    /// 超過 256 MiB 的附件：乾跑與實跑都具名略過（路徑與大小），不截斷、不存、不連；其餘照跑。
     func testAnAttachmentOverTheCapIsSkippedWithItsSizeAndTheRestProceed() throws {
         let good = try put("storage/GOODKEY1/ok.pdf", "%PDF good")
         try putSparse("storage/HUGEKEY1/huge.pdf", bytes: LibraryStore.maxSourceBytes + 1)
@@ -636,5 +636,122 @@ extension ZoteroAttachmentCopyTests {
         XCTAssertEqual(r.storedBlobMismatch.first?.alreadyLinkedOnWork, false)
         XCTAssertEqual(try entryFileBytes(e), before, "不把一份已知不符的存檔連上去")
         XCTAssertEqual(try Data(contentsOf: blob(d)), Data("%PDF".utf8))
+    }
+}
+
+// MARK: - #703 R1 verify：新連結遇到判不出來的存檔、同一筆內的重複附件、預演的暫存路徑
+
+extension ZoteroAttachmentCopyTests {
+    /// 新連結遇到的存檔判不出來時的共同斷言：不連、不補記、不存、具名略過（「要新連」開頭），乾跑也一樣。
+    private func assertNewLinkRefused(_ e: Entry, file: StaticString = #filePath, line: UInt = #line,
+                                      reasonContains needle: String) throws {
+        let before = try entryFileBytes(e)
+        let dry = try run(apply: false)
+        XCTAssertEqual(dry.planned, [], "乾跑不預告要複製", file: file, line: line)
+        let r = try run(apply: true)
+        XCTAssertEqual(r.planned, [], file: file, line: line)
+        XCTAssertEqual(r.written, [], file: file, line: line)
+        XCTAssertEqual(try entryFileBytes(e), before, "work 不連上一個判不出來的存檔", file: file, line: line)
+        XCTAssertEqual(indexLines().count, 0, "不替它記取得記錄", file: file, line: line)
+        guard case .localCopyUnverifiable(let why)? = r.skipped.first?.reason else {
+            return XCTFail("要具名略過：\(r.skipped)", file: file, line: line)
+        }
+        XCTAssertTrue(why.hasPrefix("要新連") && why.contains(needle), why, file: file, line: line)
+        XCTAssertEqual(r.skipped.map(\.path), ["storage/ABCD1234/paper.pdf"], file: file, line: line)
+    }
+
+    /// 位址上是目錄：先前 `writeBlob` 當成「已有」、照樣記取得記錄並連上，報「已複製」（R1 verify 第 1、4、6 則，真 binary 重現）。
+    func testANewLinkOntoADirectoryAtTheAddressIsNotMade() throws {
+        let bytes = try put("storage/ABCD1234/paper.pdf", "%PDF-1.7 dir at the address")
+        let d = digest(bytes)
+        let e = try addWork("a2025", attachments: ["storage/ABCD1234/paper.pdf"])
+        commit()
+        try FileManager.default.createDirectory(at: blob(d), withIntermediateDirectories: true)
+        try assertNewLinkRefused(e, reasonContains: "目錄")
+    }
+
+    /// 位址上是懸空的 symlink。
+    func testANewLinkOntoADanglingSymlinkAtTheAddressIsNotMade() throws {
+        let bytes = try put("storage/ABCD1234/paper.pdf", "%PDF-1.7 symlink at the address")
+        let d = digest(bytes)
+        let e = try addWork("a2025", attachments: ["storage/ABCD1234/paper.pdf"])
+        commit()
+        try FileManager.default.createDirectory(at: blob(d).deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(atPath: blob(d).path, withDestinationPath: "/nonexistent/akashic-\(UUID().uuidString)")
+        try assertNewLinkRefused(e, reasonContains: "symlink")
+    }
+
+    /// 位址上是一份內容正確、但讀不到的存檔（chmod 000）：判不出來就不連（讀不到不等於相符）。
+    func testANewLinkOntoAnUnreadableBlobIsNotMade() throws {
+        let bytes = try put("storage/ABCD1234/paper.pdf", "%PDF-1.7 unreadable blob")
+        let d = digest(bytes)
+        let e = try addWork("a2025", attachments: ["storage/ABCD1234/paper.pdf"])
+        commit()
+        try FileManager.default.createDirectory(at: blob(d).deletingLastPathComponent(), withIntermediateDirectories: true)
+        try bytes.write(to: blob(d))
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: blob(d).path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: blob(d).path) }
+        try assertNewLinkRefused(e, reasonContains: "讀不到")
+    }
+
+    /// 已連過的 work 上兩個內容相同的附件、存檔被截短：兩個都列在內容不符，沒有一個算「已連過」（R1 verify 第 11、16 則——
+    /// 先前第二個進「已連過」，同一份輸出同時說已連過與內容不符）。
+    func testSameContentAttachmentsFollowTheFirstWhenTheLinkedBlobMismatches() throws {
+        let bytes = try put("storage/ABCD1234/a.pdf", "%PDF same bytes, truncated blob")
+        try put("storage/WXYZ5678/b.pdf", "%PDF same bytes, truncated blob")
+        let d = digest(bytes)
+        try addWork("a2025", attachments: ["storage/ABCD1234/a.pdf", "storage/WXYZ5678/b.pdf"], sources: [d])
+        commit()
+        _ = try store.storeSource(bytes, provenance: LibraryStore.SourceProvenance(
+            mediaType: "application/pdf", retrieved: "2026-09-01T00:00:00Z", origin: "earlier", acquisition: "manual"))
+        try Data("%PDF".utf8).write(to: blob(d))
+        let dry = try run(apply: false)
+        XCTAssertEqual(dry.alreadyLinked, [], "內容不符的存檔不算做完了——第二個附件也一樣")
+        XCTAssertEqual(dry.storedBlobMismatch.map(\.item.path), ["storage/ABCD1234/a.pdf", "storage/WXYZ5678/b.pdf"])
+        XCTAssertTrue(dry.storedBlobMismatch.allSatisfy { $0.alreadyLinkedOnWork && $0.storedBytes == 4 })
+    }
+
+    /// 同上，存檔的位置上是目錄：兩個都具名略過。
+    func testSameContentAttachmentsFollowTheFirstWhenTheLinkedBlobIsUnverifiable() throws {
+        let bytes = try put("storage/ABCD1234/a.pdf", "%PDF same bytes, dir in the way")
+        try put("storage/WXYZ5678/b.pdf", "%PDF same bytes, dir in the way")
+        let d = digest(bytes)
+        try addWork("a2025", attachments: ["storage/ABCD1234/a.pdf", "storage/WXYZ5678/b.pdf"], sources: [d])
+        commit()
+        try FileManager.default.createDirectory(at: blob(d), withIntermediateDirectories: true)
+        let dry = try run(apply: false)
+        XCTAssertEqual(dry.alreadyLinked, [])
+        XCTAssertEqual(dry.skipped.map(\.path), ["storage/ABCD1234/a.pdf", "storage/WXYZ5678/b.pdf"])
+        XCTAssertTrue(dry.skipped.allSatisfy {
+            if case .localCopyUnverifiable(let why) = $0.reason { return why.hasPrefix("已連過") && why.contains("目錄") }
+            return false
+        }, "\(dry.skipped)")
+    }
+
+    /// 兩筆 work、兩個分片：第一個分片整個被排除，第二個只排除 blob 名、沒排除暫存名。預演要問到第二個的暫存路徑——整批拒絕、零寫入；
+    /// 先前預演只問 blob 路徑，實跑寫完第一筆才在第二筆的暫存路徑被拒（R1 verify 第 3、17、21 則）。
+    func testATemporaryPathThatIsNotExcludedRefusesTheWholeBatchBeforeAnyWrite() throws {
+        let first = try put("storage/FIRSTKY1/a.pdf", "%PDF first work")
+        var n = 0
+        var second = try put("storage/SECNDKY1/b.pdf", "%PDF second work 0")
+        func shard(_ data: Data) -> String { String(digest(data).dropFirst("sha256:".count).prefix(2)) }
+        while shard(second) == shard(first) {
+            n += 1
+            second = try put("storage/SECNDKY1/b.pdf", "%PDF second work \(n)")
+        }
+        let ea = try addWork("a2025", attachments: ["storage/FIRSTKY1/a.pdf"])
+        let eb = try addWork("b2025", attachments: ["storage/SECNDKY1/b.pdf"])
+        try "sources/index.jsonl\nsources/\(shard(first))/\nsources/\(shard(second))/[0-9a-f]*\n"
+            .write(to: root.appendingPathComponent(".gitignore"), atomically: true, encoding: .utf8)
+        commit()
+        let (beforeA, beforeB) = (try entryFileBytes(ea), try entryFileBytes(eb))
+        let dry = try run(apply: false)
+        XCTAssertNotNil(dry.applyRefusal, "乾跑要預告實跑會被拒")
+        XCTAssertThrowsError(try run(apply: true))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: blob(digest(first)).path), "第一筆的 blob 也不寫")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: blob(digest(second)).path))
+        XCTAssertEqual(indexLines().count, 0)
+        XCTAssertEqual(try entryFileBytes(ea), beforeA)
+        XCTAssertEqual(try entryFileBytes(eb), beforeB)
     }
 }

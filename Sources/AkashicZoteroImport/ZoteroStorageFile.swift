@@ -6,7 +6,7 @@ import AkashicStoreIO
 /// 路徑取自 store 的 YAML——`attachments` 的 path 在載入時只驗是字串，手改或舊 binary 可以寫成任何東西。所以這一層是**未信任輸入**的邊界：
 /// 複製它的位元組進 `sources/` 之前，先確認它是資料目錄的 `storage/` 底下的一個非空普通檔；不是就**具名拒絕**，不猜、不跟 symlink。
 ///
-/// #703：大小不超過 `sources/` 的單份上限（`LibraryStore.maxSourceBytes`，256 MB——唯一一份常數）；超過的以大小具名拒絕、不讀。
+/// #703：大小不超過 `sources/` 的單份上限（`LibraryStore.maxSourceBytes`，256 MiB——唯一一份常數）；超過的以大小具名拒絕、不讀。
 /// 內容不再整份讀進記憶體：`openVerified` 交回一個已判斷過的 descriptor，呼叫端逐塊讀（算 digest、複製進 `sources/`）。
 public enum ZoteroStorageFile {
 

@@ -110,7 +110,7 @@ final class StoreSourceEntryPointTests: XCTestCase {
         }
     }
 
-    /// #703：超過 256 MB 的檔整個拒絕、不截斷、零寫入，訊息說出是哪一個檔、多大、上限多少（CLI 與 MCP 同一個函式）。
+    /// #703：超過 256 MiB 的檔整個拒絕、不截斷、零寫入，訊息說出是哪一個檔、多大、上限多少（CLI 與 MCP 同一個函式）。
     /// sparse 檔：大小以 stat 判斷，不讀、不佔磁碟。
     func testAFileOverTheCapIsRefusedByNameWithItsSize() throws {
         let huge = root.appendingPathComponent("huge-scan.pdf")
@@ -125,7 +125,7 @@ final class StoreSourceEntryPointTests: XCTestCase {
             let msg = (error as? LocalizedError)?.errorDescription ?? ""
             XCTAssertTrue(msg.contains("huge-scan.pdf"), "要說出是哪一個檔：\(msg)")
             XCTAssertTrue(msg.contains("\(LibraryStore.maxSourceBytes + 1)"), "要說出檔案大小：\(msg)")
-            XCTAssertTrue(msg.contains("256 MB"), "要說出上限：\(msg)")
+            XCTAssertTrue(msg.contains("256 MiB"), "要說出上限：\(msg)")
         }
         let shards = ((try? FileManager.default.contentsOfDirectory(
             atPath: root.appendingPathComponent("sources").path)) ?? []).filter { $0.count == 2 }

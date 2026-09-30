@@ -253,6 +253,7 @@ public struct StoreHealth {
             || (sourcesAudit.map {
                 !$0.orphanBlobs.isEmpty || !$0.danglingEntries.isEmpty
                     || !$0.malformedLines.isEmpty || !$0.unreadableShards.isEmpty
+                    || !$0.strayTemporaryFiles.isEmpty
             } ?? false)
     }
 }

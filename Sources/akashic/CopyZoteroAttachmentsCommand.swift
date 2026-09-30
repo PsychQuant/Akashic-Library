@@ -175,7 +175,8 @@ struct CopyZoteroAttachments: ParsableCommand {
             return "檔案 \(bytes) bytes，超過 sources/ 的單份上限 \(LibraryStore.sourceCapDescription(LibraryStore.maxSourceBytes))——不截斷、不存、不連（#703）"   // display-safe-exempt: bytes 是 Int；LibraryStore.sourceCapDescription 只回數字與固定字
         case .unreadable: return "檔案在、但讀不出來"
         case .changedDuringRun: return "計畫算完之後內容變了（digest 對不上）——不存、不連；重跑會重新計畫"
-        case .localCopyUnverifiable(let why): return "已連過，但判不出本機 sources/ 有沒有這份位元組（\(displaySafeClipOnly(why, max: 600))）——不重存、不動連結；用 akashic doctor 查 sources/"   // display-safe-exempt: why 已由 service 消毒，只截
+        // #703 R1：已連過與要新連共用這一格，why 的開頭說是哪一種（先前寫死「已連過」，新連結的也這樣說）
+        case .localCopyUnverifiable(let why): return "判不出本機 sources/ 裡這個 digest 的那一份是不是這份內容（\(displaySafeClipOnly(why, max: 600))）——不存、不新連、不動既有連結；用 akashic doctor 查 sources/"   // display-safe-exempt: why 已由 service 消毒，只截
         }
     }
 

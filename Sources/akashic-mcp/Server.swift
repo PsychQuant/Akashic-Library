@@ -308,7 +308,7 @@ actor AkashicMCPServer {
              description: "存一份 source 的位元組進 sources/（內容定址）。收**檔案路徑**、不收 base64。"
                  + "冪等：同 digest 不重複建 index 條目（indexEntryCreated:false），但這次交來卻**沒被寫入**的敘述以 discardedProvenance 回報。"
                  + "retrieved 必填，是「你何時取得這份內容」、不是存入時間。exclusionVerified=false 時拒絕（sources/ 不得進版控 remote）。"
-                 + "單檔上限 256 MB：超過即拒絕、不截斷、零寫入。",
+                 + "單檔上限 256 MiB：超過即拒絕、不截斷、零寫入。",
              inputSchema: obj([
                 "path": str("要存入的檔案路徑（本機）"),
                 "media_type": str("內容的 media type，如 application/pdf"),

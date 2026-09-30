@@ -1,0 +1,33 @@
+import XCTest
+import Foundation
+@testable import AkashicStoreIO
+
+/// #703 R1 verify 第 13、18、22、23 則：存檔在複製途中被殺掉（SIGKILL、斷電、逾時）留下的 `.<62 hex>.incoming-<UUID>` 暫存檔，
+/// 先前沒有任何面報它（`auditSourceIndex` 只認 62 hex 的檔名）。現在 `akashic doctor` 以 ⚠ 列出路徑與大小、不刪。
+/// 真 binary、scratch store（`--library` 與 `AKASHIC_HOME` 都指 scratch）。
+final class SourcesStrayTemporaryCLITests: XCTestCase {
+    private var base: URL!
+    private var root: URL!
+    private var home: URL!
+
+    override func setUpWithError() throws {
+        base = FileManager.default.temporaryDirectory.appendingPathComponent("akashic-stray-\(UUID().uuidString)")
+        root = base.appendingPathComponent("store")
+        home = base.appendingPathComponent("home")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        try LibraryStore(root: root, key: nil, environment: [:]).ensureLayout()
+    }
+    override func tearDownWithError() throws { try? FileManager.default.removeItem(at: base) }
+
+    func testDoctorListsAStrayTemporaryFileWithItsSizeAndLeavesIt() throws {
+        let digest = "sha256:" + String(repeating: "ab", count: 32)
+        let name = LibraryStore.temporaryBlobName(digest: digest, token: UUID().uuidString)
+        let dir = root.appendingPathComponent("sources/ab")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try Data(repeating: 1, count: 4_321).write(to: dir.appendingPathComponent(name))
+        let r = try CLITestHarness.run(["doctor", "--library", root.path], env: ["AKASHIC_HOME": home.path])
+        XCTAssertTrue(r.output.contains("殘留的暫存檔（4321 bytes") && r.output.contains("sources/ab/\(name)"), r.output)
+        XCTAssertFalse(r.output.contains("孤兒 blob"), "暫存檔不是 blob：\(r.output)")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: dir.appendingPathComponent(name).path), "只報不刪")
+    }
+}

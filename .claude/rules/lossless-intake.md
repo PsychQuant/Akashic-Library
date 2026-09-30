@@ -56,7 +56,7 @@
 
 ### 第二個實例：`sources/` 的單份上限（#703，2026-09-30）
 
-`LibraryStore.maxSourceBytes`＝268,435,456 bytes（256 MB），使用者裁決「超過的略過並具名，不截斷」。
+`LibraryStore.maxSourceBytes`＝268,435,456 bytes（256 MiB；裁決原話「上限 256 MB」），使用者裁決「超過的略過並具名，不截斷」。
 五條逐條對照：
 
 | 條件 | `store-source`（CLI／MCP） | `copy-zotero-attachments` |

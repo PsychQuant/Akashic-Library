@@ -22,7 +22,7 @@ struct StoreSourceCmd: ParsableCommand {
 
     @OptionGroup var options: LibraryOptions
 
-    @Argument(help: "要存入的檔案路徑（普通檔；單檔上限 256 MB，超過即整個拒絕、不截斷——#703）")
+    @Argument(help: "要存入的檔案路徑（普通檔；單檔上限 256 MiB，超過即整個拒絕、不截斷——#703）")
     var path: String
 
     @Option(name: .long, help: "內容的 media type，如 application/pdf")

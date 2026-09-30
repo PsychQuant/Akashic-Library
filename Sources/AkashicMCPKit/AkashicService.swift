@@ -445,13 +445,22 @@ public final class AkashicService {
         // crossRecordIssues 都會消失，MCP 面比 CLI 面更慘；verify reg F1 實測）。
         if let srcAudit = health.sourcesAudit {
             if !srcAudit.orphanBlobs.isEmpty || !srcAudit.danglingEntries.isEmpty
-                || !srcAudit.malformedLines.isEmpty || !srcAudit.unreadableShards.isEmpty {
-                d["sources"] = [
+                || !srcAudit.malformedLines.isEmpty || !srcAudit.unreadableShards.isEmpty
+                || !srcAudit.strayTemporaryFiles.isEmpty {
+                var src: [String: Any] = [
                     "orphanBlobs": srcAudit.orphanBlobs,          // digest 形（StoreKey 同級安全字元）
                     "danglingIndexEntries": srcAudit.danglingEntries,
                     "malformedIndexLines": srcAudit.malformedLines,
                     "unreadableShards": srcAudit.unreadableShards.map { displaySafe($0, max: 120) },
-                ] as [String: Any]
+                ]
+                // #703 R1：中斷的存檔留下的暫存檔（只報不刪；同一時間正在進行的存檔也長這樣）。每則路徑＋大小；至多 20 則、總數另給
+                if !srcAudit.strayTemporaryFiles.isEmpty {
+                    src["strayTemporaryFiles"] = srcAudit.strayTemporaryFiles.prefix(Entry.perRecordWarningCap).map {
+                        ["path": displaySafe($0.path, max: 200), "bytes": $0.bytes] as [String: Any]   // display-safe-exempt: bytes 是 Int
+                    }
+                    src["strayTemporaryFilesTotal"] = srcAudit.strayTemporaryFiles.count   // display-safe-exempt: Int
+                }
+                d["sources"] = src
             }
         }
         if let auditError = health.sourcesAuditError {
@@ -629,12 +638,13 @@ public final class AkashicService {
                         acquisition: acquisition, note: note, limit: LibraryStore.maxSourceBytes)
     }
 
-    /// `limit`（#703）是大小上限的測試接縫；對外的入口一律是唯一一份常數 `LibraryStore.maxSourceBytes`（256 MB）。
+    /// `limit`（#703）是大小上限的測試接縫；對外的入口一律是唯一一份常數 `LibraryStore.maxSourceBytes`（256 MiB）。
     ///
     /// ## D4（#703）：逐塊，不整份讀進記憶體；超過上限整個拒絕
     ///
     /// 以 descriptor 開檔（`O_NONBLOCK`：FIFO 不會讓開檔卡住）、`fstat` 確認是普通檔；0 byte 與超過上限在讀任何一個位元組之前拒絕，
-    /// 訊息說出**哪一個檔**、多大、上限多少。內容由 `SourceStore.storeSource(contentsOf:)` 逐塊算 digest、逐塊複製——記憶體與檔案大小無關。
+    /// 訊息說出**哪一個檔**、多大、上限多少。內容由 `SourceStore.storeSource(contentsOf:)` 逐塊算 digest、逐塊複製，每塊讀完即釋放
+    /// （#703 R1：記憶體不隨檔案大小成長——`SourceIntakeMemoryCLITests` 以真 binary 的尖峰 RSS 釘住）。
     /// 單檔的呼叫就是一整批，所以「略過並具名」在這一面是整個呼叫拒絕、零寫入、不截斷。
     func storeSource(path: String, mediaType: String, retrieved: String, origin: String, acquisition: String,
                      note: String? = nil, limit: Int) throws -> String {

@@ -16,7 +16,8 @@ public extension LibraryStore {
 
     var sourcesDir: URL { root.appendingPathComponent("sources") }
 
-    /// `sources/` 單份內容的大小上限（#703，使用者 2026-09-30 裁決「三件都做，上限 256 MB」）：**268,435,456 bytes（256 MB）**。
+    /// `sources/` 單份內容的大小上限（#703，使用者 2026-09-30 裁決「三件都做，上限 256 MB」）：**268,435,456 bytes（256 MiB）**。
+    /// 裁決的「256 MB」照原話引用；數值是 2^28，給人看的寫法一律是 MiB（R1 verify 第 30 則：以 10⁶ 讀，268,000,000 bytes 的檔會被收）。
     ///
     /// 超過的內容**不截斷、不存**、具名拒絕：`store-source`（CLI／MCP）整個呼叫拒絕、零寫入；`copy-zotero-attachments` 逐檔略過並印出
     /// 路徑與大小，其餘照跑。錨點是 2026-09-30 的本機實測：Zotero storage 最大單檔 5,499,190 bytes（全部 2,817 個檔、磁碟用量 66 MB），上限是它的 48.8 倍——
@@ -26,9 +27,9 @@ public extension LibraryStore {
     /// 都讀這個常數；各函式的 `limit` 參數只是測試接縫，預設值就是它。要調整回 #703 重新裁決。
     static let maxSourceBytes = 268_435_456
 
-    /// 上限給人看的寫法（錯誤訊息、報告共用）：整除 1 MiB 時附上 MB 數。
+    /// 上限給人看的寫法（錯誤訊息、報告共用）：整除 1 MiB 時附上 MiB 數。
     static func sourceCapDescription(_ limit: Int) -> String {
-        limit > 0 && limit % (1 << 20) == 0 ? "\(limit) bytes（\(limit >> 20) MB）" : "\(limit) bytes"
+        limit > 0 && limit % (1 << 20) == 0 ? "\(limit) bytes（\(limit >> 20) MiB）" : "\(limit) bytes"
     }
 
     /// 寫入的回條：digest 之外**記錄排除驗證是否真的跑了**（D5：store 非 git repo
@@ -80,6 +81,16 @@ public extension LibraryStore {
         /// 存在但列不出來的 shard 目錄（權限、半截同步）——讀不到 ≠ 不存在，
         /// 其 blob 不參與兩向比對（verify reg F2）
         public let unreadableShards: [String]
+        /// 分片目錄裡 `temporaryBlobName` 形狀的檔（#703 R1 verify 第 13、18、22、23 則）：存檔在複製途中被殺掉（SIGKILL、斷電、
+        /// 逾時）時 `writeBlob` 的清理不會跑，一份可以到上限那麼大，而先前沒有任何面報它。**只報不刪**——同一時間正在進行的存檔
+        /// 也長這樣。依路徑排序。
+        public let strayTemporaryFiles: [StrayTemporaryFile]
+    }
+
+    /// 一個殘留的暫存檔：`sources/<xx>/<檔名>` 與它的大小（lstat）。
+    struct StrayTemporaryFile: Equatable {
+        public let path: String
+        public let bytes: Int
     }
 
     /// digest → 存檔路徑。形狀錯回 nil（呼叫端決定 throw 與否）。
@@ -136,11 +147,14 @@ public extension LibraryStore {
         }
     }
 
-    /// #606：`storeSource` 在**任何磁碟寫入之前**會擋的閘（index 有壞行、這個 digest 的 blob 路徑與 index 路徑沒被版控排除、git 不可用），
-    /// 不寫任何東西。多筆操作（`copy-zotero-attachments`）在第一次寫入之前對每個要存的 digest 預演它：乾跑說「可以」時，實跑不會在第一個
+    /// #606：`storeSource` 在**任何磁碟寫入之前**會擋的閘（index 有壞行、這個 digest 的 blob 路徑、暫存檔路徑與 index 路徑沒被版控排除、
+    /// git 不可用），不寫任何東西。多筆操作（`copy-zotero-attachments`）在第一次寫入之前對每個要存的 digest 預演它：乾跑說「可以」時，實跑不會在第一個
     /// `storeSource` 才被拒；被拒時零寫入、不留孤兒 blob。排除驗證問的是**這個 digest 的實際路徑**（#145：寫死的探測路徑會 fail-open），
     /// 所以每個 digest 各問一次。
-    func preflightStoreSource(digest: String) throws {
+    ///
+    /// `temporaryToken`（#703 R1）：實跑要用的暫存檔名的 token——呼叫端把同一個交給 `storeSource(contentsOf:…temporaryToken:)`，
+    /// 預演問的就是實跑會建立的那條路徑。位址上已經有東西時實跑不建暫存檔，預演仍然問（偏嚴，不偏鬆）。
+    func preflightStoreSource(digest: String, temporaryToken: String = UUID().uuidString) throws {
         guard ProvenanceReference.isWellFormedDigest(digest) else {
             throw StoreIOError.invalidInput(
                 what: "source digest",
@@ -149,6 +163,7 @@ public extension LibraryStore {
         try assertIndexHasNoMalformedLines(try scanIndex().malformedLines)
         let hex = String(digest.dropFirst("sha256:".count))
         try assertSourcesExcluded(relativePath: "sources/\(hex.prefix(2))/\(hex.dropFirst(2))")
+        try assertSourcesExcluded(relativePath: "sources/\(hex.prefix(2))/\(Self.temporaryBlobName(digest: digest, token: temporaryToken))")
         try assertSourcesExcluded(relativePath: "sources/index.jsonl")
     }
 
@@ -191,20 +206,24 @@ public extension LibraryStore {
     }
 
     /// 從檔案存 source（#703）：**逐塊**——第一遍算 digest（不寫任何東西），第二遍複製進 `sources/` 並再算一次、兩遍相同才落地。
-    /// 記憶體用量與檔案大小無關；handle 要是普通檔（可以回到開頭讀第二遍）。
+    /// 每塊經 `pump` 讀完即釋放，記憶體不隨檔案大小成長（R1 起；`SourceIntakeMemoryCLITests` 釘住）；handle 要是普通檔（可以回到開頭讀第二遍）。
     ///
     /// - 大小先以 `fstat` 判：0 byte 與超過 `limit` 在讀任何一個位元組之前就拒絕（`.refused`，零寫入）。
     /// - `expectedDigest`：呼叫端先算過的 digest（`copy-zotero-attachments` 計畫時算的）；對不上就 `.refused(.changed)`、什麼都不寫。
     /// - 同 digest 的位置上已有東西就不寫（內容定址，不覆寫）；那一份對不對是 `checkStoredBlob` 另外比的事。
+    /// - `temporaryToken`：`preflightStoreSource` 預演過的暫存檔名 token（#703 R1）；nil＝這一次現產一個。
     func storeSource(contentsOf handle: FileHandle, provenance: SourceProvenance, expectedDigest: String? = nil,
-                     limit: Int = LibraryStore.maxSourceBytes) throws -> SourceIntake {
+                     limit: Int = LibraryStore.maxSourceBytes, temporaryToken: String? = nil) throws -> SourceIntake {
         var chunks = HandleChunks(handle: handle)
-        return try storeSource(chunks: &chunks, provenance: provenance, expectedDigest: expectedDigest, limit: limit)
+        return try storeSource(chunks: &chunks, provenance: provenance, expectedDigest: expectedDigest, limit: limit,
+                               temporaryToken: temporaryToken)
     }
 
     /// 兩個入口共用的路徑（#703）。順序：大小（不讀）→ index 腐壞（任何寫入之前）→ 第一遍算 digest（不寫）→ blob（排除驗證 → 第二遍複製）→ index。
+    /// `placement` 是放上位址那一步的測試接縫（#703 R1：模擬不支援 `RENAME_EXCL` 的檔案系統）。
     internal func storeSource<C: SourceChunks>(chunks source: inout C, provenance: SourceProvenance,
-                                                expectedDigest: String?, limit: Int) throws -> SourceIntake {
+                                                expectedDigest: String?, limit: Int, temporaryToken: String? = nil,
+                                                placement: BlobPlacement = .system) throws -> SourceIntake {
         // 看得到大小的來源先比上下界——一個位元組都不讀、不寫
         if let size = source.currentSize() {
             if size == 0 { return .refused(.empty) }
@@ -226,7 +245,8 @@ public extension LibraryStore {
         guard bytes > 0 else { return .refused(.empty) }
         if let expectedDigest, expectedDigest != digest { return .refused(.changed(actual: digest)) }
         let blob: (exclusionVerified: Bool, bytesWritten: Bool)
-        switch try writeBlob(&source, digest: digest, bytes: bytes, limit: limit) {
+        switch try writeBlob(&source, digest: digest, bytes: bytes, limit: limit,
+                             token: temporaryToken ?? UUID().uuidString, placement: placement) {
         case .refused(let why): return .refused(why)
         case .done(let verified, let wrote): blob = (verified, wrote)
         }
@@ -423,8 +443,9 @@ public extension LibraryStore {
         let fm = FileManager.default
         var diskDigests = Set<String>()
         var unreadable: [String] = []
-        // 只認 2-hex 目錄 / 62-hex 檔名的正規形；非正規形檔案**不在本 audit 範圍**
-        // （layoutResidue 也刻意不掃 sources/——那裡沒有任何機制報它們，這是已知
+        var stray: [StrayTemporaryFile] = []
+        // 只認 2-hex 目錄 / 62-hex 檔名的正規形，外加 `writeBlob` 的暫存檔形狀（#703 R1：中斷的存檔留下的，只報不刪）；
+        // 其餘非正規形檔案**不在本 audit 範圍**（layoutResidue 也刻意不掃 sources/——那裡沒有任何機制報它們，這是已知
         // 缺口，見 verify logic MED-2 的更正，不在此假稱有人接住）
         if let shards = try? fm.contentsOfDirectory(atPath: sourcesDir.path) {
             for shard in shards where shard.count == 2 && shard.allSatisfy({ "0123456789abcdef".contains($0) }) {
@@ -433,9 +454,14 @@ public extension LibraryStore {
                     unreadable.append("sources/\(shard)/")
                     continue
                 }
-                for f in files
-                where f.count == 62 && f.allSatisfy({ "0123456789abcdef".contains($0) }) {
-                    diskDigests.insert("sha256:\(shard)\(f)")
+                for f in files {
+                    if f.count == 62 && f.allSatisfy({ "0123456789abcdef".contains($0) }) {
+                        diskDigests.insert("sha256:\(shard)\(f)")
+                    } else if Self.isTemporaryBlobName(f) {
+                        // lstat 的大小（暫存檔由 `O_CREAT | O_EXCL` 建立，是普通檔）；讀不到屬性時記 0，路徑照樣報
+                        let size = ((try? fm.attributesOfItem(atPath: dir.appendingPathComponent(f).path))?[.size] as? NSNumber)?.intValue ?? 0
+                        stray.append(StrayTemporaryFile(path: "sources/\(shard)/\(f)", bytes: size))
+                    }
                 }
             }
         }
@@ -449,7 +475,8 @@ public extension LibraryStore {
             orphanBlobs: diskDigests.subtracting(scan.digests).sorted(),
             danglingEntries: comparableIndexDigests.subtracting(diskDigests).sorted(),
             malformedLines: scan.malformedLines,
-            unreadableShards: unreadable.sorted())
+            unreadableShards: unreadable.sorted(),
+            strayTemporaryFiles: stray.sorted { $0.path < $1.path })
     }
 
     /// blob 原語的結果：寫了（或位置上已有東西、沒寫），或內容在兩遍之間變了／長過上限。
@@ -463,10 +490,12 @@ public extension LibraryStore {
     /// - digest 算在**原始位元組**上（D3）：不正規化、不轉碼——判準必須客觀。
     /// - 同 digest 冪等：位置上已有東西（任何種類）就不寫——內容定址，**不覆寫**（#703：那一份對不對由 `checkStoredBlob` 比）。
     /// - 寫入前驗證版控排除（見 `assertSourcesExcluded`）；驗證先於**任何**磁碟寫入——拒寫時不留內容。
-    /// - #703：**逐塊**複製進同一個分片目錄裡的暫存檔（`O_EXCL` 建立），邊寫邊再算一次 digest；兩遍相同才以 `RENAME_EXCL` 放到位址上
-    ///   （同時有別人放進來就不覆寫、丟掉暫存）。暫存檔的路徑**也**過排除驗證——只排除 blob 名、不排除暫存名的規則會 fail-open。
-    ///   任何失敗都刪掉暫存檔。
-    private func writeBlob<C: SourceChunks>(_ source: inout C, digest: String, bytes: Int, limit: Int) throws -> BlobWrite {
+    /// - #703：**逐塊**複製進同一個分片目錄裡的暫存檔（`O_EXCL` 建立，檔名是 `temporaryBlobName`），邊寫邊再算一次 digest；兩遍相同才
+    ///   放到位址上（`placeTemporaryBlob`：`RENAME_EXCL`，檔案系統不支援時退到 `link(2)`、再退到確認不在後 `rename(2)`；同時有別人放進來
+    ///   就不覆寫、丟掉暫存）。暫存檔的路徑**也**過排除驗證——只排除 blob 名、不排除暫存名的規則會 fail-open。
+    ///   可捕捉的失敗都刪掉暫存檔；行程被殺掉時刪不到，`auditSourceIndex` 的 `strayTemporaryFiles` 報它（#703 R1）。
+    private func writeBlob<C: SourceChunks>(_ source: inout C, digest: String, bytes: Int, limit: Int,
+                                            token: String, placement: BlobPlacement) throws -> BlobWrite {
         let hex = String(digest.dropFirst("sha256:".count))
         // 排除驗證問的必須是**即將寫入的那條路徑**（#145 verify F1）：曾用寫死的
         // 探測路徑 `sources/00/probe`——任何碰巧命中它的無關規則（basename
@@ -483,7 +512,7 @@ public extension LibraryStore {
         if (try? fm.attributesOfItem(atPath: url.path)) != nil {
             return .done(exclusionVerified: verified, bytesWritten: false)
         }
-        let tmpName = ".\(hex.dropFirst(2)).incoming-\(UUID().uuidString)"
+        let tmpName = Self.temporaryBlobName(digest: digest, token: token)
         try assertSourcesExcluded(relativePath: "sources/\(hex.prefix(2))/\(tmpName)")
         try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         let tmp = url.deletingLastPathComponent().appendingPathComponent(tmpName)
@@ -511,15 +540,13 @@ public extension LibraryStore {
             // 兩遍之間內容變了：存下來的會不是 digest 說的那一份——不落地
             guard n == bytes, second == digest else { return .refused(.changed(actual: second)) }
         }
-        guard renamex_np(tmp.path, url.path, UInt32(RENAME_EXCL)) == 0 else {
-            let code = errno
-            if code == EEXIST { return .done(exclusionVerified: verified, bytesWritten: false) }   // 同時有別人放進來了：不覆寫
-            throw StoreIOError.invalidInput(
-                what: "sources/ 存檔",
-                why: "暫存檔無法放到位址上（errno \(code)）——digest \(digest) 沒有存")   // display-safe-exempt: code 是 Int32；digest 是本函式的呼叫端算的 SHA-256 十六進位
+        switch try placeTemporaryBlob(tmp.path, at: url.path, digest: digest, placement: placement) {
+        case .alreadyThere:
+            return .done(exclusionVerified: verified, bytesWritten: false)   // 同時有別人放進來了：不覆寫（暫存由 defer 刪掉）
+        case .placed:
+            placed = true
+            return .done(exclusionVerified: verified, bytesWritten: true)
         }
-        placed = true
-        return .done(exclusionVerified: verified, bytesWritten: true)
     }
 
     /// 本機 `sources/` 裡這個 digest 的那一份，內容是否真的是這個 digest（#703）。
@@ -538,7 +565,7 @@ public extension LibraryStore {
     }
 
     /// 比對本機存檔與它的位址（#703：`copy-zotero-attachments` 補存時「已連過」不再只看在不在）。**逐塊**算 digest（不設上限——既有的
-    /// 存檔可能早於上限；記憶體與大小無關）；`expectedBytes` 給了而大小不同就直接判不符、不讀。不改任何東西。
+    /// 存檔可能早於上限；每塊經 `pump` 讀完即釋放）；`expectedBytes` 給了而大小不同就直接判不符、不讀。不改任何東西。
     func checkStoredBlob(digest: String, expectedBytes: Int?) throws -> StoredBlobCheck {
         guard let url = sourceURL(digest: digest) else {
             throw StoreIOError.invalidInput(

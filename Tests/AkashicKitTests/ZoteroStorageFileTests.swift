@@ -180,7 +180,7 @@ final class ZoteroStorageFileTests: XCTestCase {
 
     // MARK: 大小上限（#703）：超過的以 stat 判斷、具名大小，不讀
 
-    /// 真的常數：sparse 檔超過 256 MB——定位就拒絕，值是檔案大小。
+    /// 真的常數：sparse 檔超過 256 MiB——定位就拒絕，值是檔案大小。
     func testAFileOverTheRealCapIsRefusedWithItsSize() throws {
         let url = storage.appendingPathComponent("ABCD1234/huge.pdf")
         XCTAssertTrue(FileManager.default.createFile(atPath: url.path, contents: nil))

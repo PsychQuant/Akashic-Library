@@ -2,7 +2,7 @@ import XCTest
 import Foundation
 @testable import AkashicStoreIO
 
-/// #703：`store-source` 的 CLI 面——超過 256 MB 的檔整個拒絕、不截斷、零寫入，訊息說出路徑、大小與上限。
+/// #703：`store-source` 的 CLI 面——超過 256 MiB 的檔整個拒絕、不截斷、零寫入，訊息說出路徑、大小與上限。
 /// 真 binary、scratch store（`--library` 與 `AKASHIC_HOME` 都指 scratch）；大檔是 sparse 檔（大小以 stat 判斷，不讀、不佔磁碟）。
 final class StoreSourceSizeCapCLITests: XCTestCase {
     private var base: URL!
@@ -32,7 +32,7 @@ final class StoreSourceSizeCapCLITests: XCTestCase {
                          "--origin", "scan", "--acquisition", "scan"])
         XCTAssertEqual(r.status, 1, "輸入檔的內容是 argv 以外——執行期失敗，不是用法錯誤：\(r.output)")
         XCTAssertTrue(r.output.contains("huge-scan.pdf") && r.output.contains("\(LibraryStore.maxSourceBytes + 1)")
-                      && r.output.contains("256 MB"), r.output)
+                      && r.output.contains("256 MiB"), r.output)
         let shards = ((try? FileManager.default.contentsOfDirectory(
             atPath: root.appendingPathComponent("sources").path)) ?? []).filter { $0.count == 2 }
         XCTAssertEqual(shards, [], "零寫入")

@@ -194,7 +194,7 @@ final class CopyZoteroAttachmentsCLITests: XCTestCase {
 
     // MARK: #703
 
-    /// 超過 256 MB 的附件：乾跑就具名印出路徑與大小、說出上限；其餘照跑。sparse 檔，不佔磁碟、不讀。
+    /// 超過 256 MiB 的附件：乾跑就具名印出路徑與大小、說出上限；其餘照跑。sparse 檔，不佔磁碟、不讀。
     func testAnAttachmentOverTheCapIsNamedWithItsSize() throws {
         let url = zdir.appendingPathComponent("storage/HUGEKEY1/huge.pdf")
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -209,7 +209,7 @@ final class CopyZoteroAttachmentsCLITests: XCTestCase {
         let dry = try cli(["copy-zotero-attachments"] + dbArgs)
         XCTAssertEqual(dry.status, 0, dry.output)
         XCTAssertTrue(dry.output.contains("storage/HUGEKEY1/huge.pdf") && dry.output.contains("\(LibraryStore.maxSourceBytes + 1) bytes")
-                      && dry.output.contains("256 MB"), dry.output)
+                      && dry.output.contains("256 MiB"), dry.output)
         let r = try cli(["copy-zotero-attachments", "--apply"] + dbArgs)
         XCTAssertEqual(r.status, 0, r.output)
         XCTAssertEqual(try work().akashic.sources, [digest], "另一個附件照複製；超過上限的不連")

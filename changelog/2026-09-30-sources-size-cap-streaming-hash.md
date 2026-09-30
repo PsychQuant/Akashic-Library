@@ -33,7 +33,7 @@
 - `store-source` 以 descriptor 開檔（`O_NONBLOCK`），`fstat` 確認是普通檔。目錄與 FIFO 先前走 `Data(contentsOf:)`：目錄是一個看不出原因的「讀不到」，FIFO 會讓呼叫卡住等一個寫入者；現在兩者都具名拒絕，開檔不卡住。
 - `ZoteroStorageFile.read`（整份讀進 `Data`）換成 `openVerified`：同樣的 `O_NOFOLLOW`、`fstat`、`F_GETPATH` 判斷，交回停在開頭的 descriptor 讓呼叫端逐塊讀。
 
-`copy-zotero-attachments` 的讀取次數：計畫一遍（算 digest），複製兩遍（`storeSource(contentsOf:expectedDigest:)` 先驗 digest 與計畫相同、再逐塊複製並再算一次）。先前是計畫一遍、複製一遍但整份在記憶體裡。多讀一遍換到的是記憶體與檔案大小無關；三遍都從 `openVerified` 交回的 descriptor 讀。
+`copy-zotero-attachments` 的讀取次數：計畫一遍（算 digest），複製兩遍（`storeSource(contentsOf:expectedDigest:)` 先驗 digest 與計畫相同、再逐塊複製並再算一次）。先前是計畫一遍、複製一遍但整份在記憶體裡。~~多讀一遍換到的是記憶體與檔案大小無關~~（R1 verify 實測當時不成立：每塊的緩衝留到行程結束——見文末〈R1 verify 之後〉）；三遍都從 `openVerified` 交回的 descriptor 讀。
 
 ### 3. 既有 blob 的比對
 
@@ -47,7 +47,7 @@
 
 第三種不在裁決的字面（「補存時」「已連過」）裡：同一個風險、同一個比對，不比的話會把一份已知是壞的存檔連到 work 上、再替它記一條取得記錄。所以一併比。
 
-不符的列在新的報告欄 `storedBlobMismatch`（`ZoteroAttachmentCopyReport.StoredBlobMismatch`：Zotero 那一份的 item、存檔的實際大小、存檔內容的 digest——大小不同時是 nil、是否已連在 work 上）。處置：**不覆寫**那一份、不補記、不新連。CLI 印一段「sources/ 已有這個 digest 的存檔，但內容與 Zotero 原檔不符」，逐檔列 citekey、路徑、已連／要新連、兩邊的大小與 digest，並說「把 sources/ 裡那一份移走後重跑，會以 Zotero 原檔補存」。`--apply` 遇到時非零結束（收容不是吞掉，與 `writeFailed`、`restoreFailed` 同一條）；乾跑只列出。判不出來的（位置上是目錄、讀不到）沿用 `localCopyUnverifiable` 具名略過。
+不符的列在新的報告欄 `storedBlobMismatch`（`ZoteroAttachmentCopyReport.StoredBlobMismatch`：Zotero 那一份的 item、存檔的實際大小、存檔內容的 digest——大小不同時是 nil、是否已連在 work 上）。處置：**不覆寫**那一份、不補記、不新連。CLI 印一段「sources/ 已有這個 digest 的存檔，但內容與 Zotero 原檔不符」，逐檔列 citekey、路徑、已連／要新連、兩邊的大小與 digest，並說「把 sources/ 裡那一份移走後重跑，會以 Zotero 原檔補存」。`--apply` 遇到時非零結束（收容不是吞掉，與 `writeFailed`、`restoreFailed` 同一條）；乾跑只列出。判不出來的（位置上是目錄、讀不到）沿用 `localCopyUnverifiable` 具名略過——~~三種情形都是~~這一句當時只對已連過的兩種成立，新連結只擋內容不符（R1 verify 以真 binary 重現：位址上是目錄時照樣連上並報「已複製」），R1 補上。
 
 `copy-zotero-attachments` 只有 CLI 面（`mcp-cli-parity` 的 CLI-only 表），這一欄因此只在 CLI 出現；MCP 的單檔對應 `akashic_store_source` 同批加了同一個上限，回應鍵不變。
 
@@ -88,9 +88,17 @@
 
 ## 誠實邊界
 
-- **上限只約束寫入**：既有的存檔不因此變成不合法，`checkStoredBlob` 對它們不設上限（逐塊，記憶體仍與大小無關）。
-- **逐塊只由讀取迴圈證明**：`testDigestAndCopyNeverAskForMoreThanOneChunk` 證的是經過 `pump` 的讀取每次只要一塊。所有讀 handle 的路徑都經 `pump`（`contentDigest(reading:)`、`storeSource(contentsOf:)`），但一個日後新加、自己 `readToEnd()` 的呼叫端不會讓任何測試紅。沒有量測記憶體用量的測試（會不穩定）。
+- **上限只約束寫入**：既有的存檔不因此變成不合法，`checkStoredBlob` 對它們不設上限（逐塊；~~記憶體仍與大小無關~~當時不成立，R1 起每塊讀完即釋放）。
+- **逐塊只由讀取迴圈證明**：`testDigestAndCopyNeverAskForMoreThanOneChunk` 證的是經過 `pump` 的讀取每次只要一塊。所有讀 handle 的路徑都經 `pump`（`contentDigest(reading:)`、`storeSource(contentsOf:)`），但一個日後新加、自己 `readToEnd()` 的呼叫端不會讓任何測試紅。~~沒有量測記憶體用量的測試（會不穩定）~~——沒有那支測試，正是「每次只要一塊」被誤讀成「記憶體有界」的原因；R1 加了真 binary 的尖峰 RSS 測試（`SourceIntakeMemoryCLITests`）。
 - **比對在計畫時做**：計畫到實跑之間，`sources/` 裡那一份再被換掉看不到（沒有 store 層的鎖），與 #606 既有的時間窗同一類。
 - **`store-source` 讀兩遍**：兩遍之間檔案變了，拒絕（`在讀取期間內容變了`），不會存下一份與 digest 不符的內容；但也就要人重跑。
 - **不符的 blob 沒有工具面可以移除**：`sources/` 沒有「移除一筆存檔」的面（與 #544 同族），訊息請人手動移走那一份（它不進 git）。
 - **`store-source` 碰到既有 blob 仍不比對**：裁決的第三件只及於 `copy-zotero-attachments`。`store-source` 重存一份位址上已有東西的內容時，照舊回 `bytesWritten: false`、不覆寫，不檢查那一份對不對。
+
+## R1 verify 之後（2026-09-30）
+
+R1 verify 的 #703 部分有兩個 HIGH，都成立、都已修；細節、量測與負對照在 `changelog/2026-09-30-b22-r1-fixes-703.md`，這裡只列上面哪幾句被推翻：
+
+- **「記憶體與檔案大小無關」當時為假**（DA 第 2 則、regression 第 8 則）。`FileHandle.read(upToCount:)` 回 autoreleased 的緩衝，CLI 沒有外層 pool 排水，每一塊留到行程結束：本輪重量，改動前的 binary 存 128 MiB 的檔尖峰 RSS 284,557,312 bytes（約 2.1 倍）。`pump` 改成每塊一個 autorelease pool 之後，同一個檔比 1 MiB 的多 1,146,880 bytes。上面三處說法已劃掉並註明。
+- **新連結只擋 `.mismatch`**（Codex 第 1 則等五席）。位址上是目錄、懸空 symlink 或讀不到時照樣連上並記取得記錄。已改成窮舉的 `switch`。
+- 其餘：暫存檔路徑納入整批的存檔前置；不支援 `RENAME_EXCL` 的檔案系統（exFAT、FAT32，本輪在磁碟映像上實測 `ENOTSUP`）退到 `link(2)`、再退到確認後一般改名；中斷的存檔留下的暫存檔由 doctor 報出（`zero-instance-guards` 第 73 列）；同一筆內內容相同的第二個附件跟著第一個的結果；上限的單位寫成 MiB（裁決原話「256 MB」照引）。

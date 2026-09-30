@@ -76,9 +76,11 @@ plugin 的 wrapper 會自動下載新版 `akashic-mcp`，skill 文字可能比 b
 
 **`akashic_update_person` 的 `references: []`（空陣列）改成拒絕**，與 `akashic_update_venue` 同一句話。先前 person 這一面是 no-op。沒有要附的 reference 就不要給這個鍵。
 
-## #703 — `akashic_store_source` 單檔上限 256 MB
+## #703 — `akashic_store_source` 單檔上限 256 MiB
 
-超過 268,435,456 bytes（256 MB）的檔整個拒絕、不截斷、零寫入；錯誤訊息說出路徑、實際大小與上限。內容改成逐塊讀（記憶體與檔案大小無關），目錄與 FIFO 以錯誤拒絕、不會讓呼叫卡住。回應鍵與形狀不變；plugin 版號沒有動。
+超過 268,435,456 bytes（256 MiB）的檔整個拒絕、不截斷、零寫入；錯誤訊息說出路徑、實際大小與上限。內容改成逐塊讀，目錄與 FIFO 以錯誤拒絕、不會讓呼叫卡住。回應鍵與形狀不變；plugin 版號沒有動。
+
+**R1 verify 之後**：先前這裡寫「記憶體與檔案大小無關」，那句不成立——每塊的緩衝留到行程結束，存 128 MiB 的檔尖峰 RSS 約 285 MB（比整份讀進來還多）。現在每塊讀完就釋放（實測多約 1 MB）。訊息裡的上限寫成 `256 MiB`（數值沒變）。store 放在不支援排他改名的檔案系統（exFAT、FAT32）時先前存不進去，現在退到 hard link 或確認後一般改名。`akashic_doctor` 的 `sources` 多兩個鍵：`strayTemporaryFiles`（中斷的存檔留下的暫存檔，路徑與大小，至多 20 筆）與 `strayTemporaryFilesTotal`。
 
 ## #704 — `akashic_import_zotero` 的 `residualFields` 說明改成「這次讀到的條目」
 

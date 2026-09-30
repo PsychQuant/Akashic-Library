@@ -53,7 +53,8 @@ struct Doctor: ParsableCommand {
         // 時候）——降級為一則警告，其餘報告照出。
         if let srcAudit = health.sourcesAudit {
             if !srcAudit.orphanBlobs.isEmpty || !srcAudit.danglingEntries.isEmpty
-                || !srcAudit.malformedLines.isEmpty || !srcAudit.unreadableShards.isEmpty {
+                || !srcAudit.malformedLines.isEmpty || !srcAudit.unreadableShards.isEmpty
+                || !srcAudit.strayTemporaryFiles.isEmpty {
                 print("sources 一致性：")
                 for b in srcAudit.orphanBlobs {
                     print("  ⚠ 孤兒 blob（有存檔、index.jsonl 無條目）：\(b)")
@@ -66,6 +67,13 @@ struct Doctor: ParsableCommand {
                 }
                 for s in srcAudit.unreadableShards {
                     print("  ✗ 讀不到的 shard（權限／半截同步；其 blob 未參與比對）：\(displaySafe(s, max: 120))")
+                }
+                // #703 R1：存檔在複製途中被殺掉（SIGKILL、斷電）留下的暫存檔。只報不刪——正在進行的存檔也長這樣
+                for t in srcAudit.strayTemporaryFiles.prefix(Entry.perRecordWarningCap) {
+                    print("  ⚠ 殘留的暫存檔（\(t.bytes) bytes；中斷的存檔留下的——確認沒有 store-source／copy-zotero-attachments 在跑之後可以刪掉）：\(displaySafe(t.path, max: 200))")   // display-safe-exempt: t.bytes 是 Int
+                }
+                if srcAudit.strayTemporaryFiles.count > Entry.perRecordWarningCap {
+                    print("  …另有 \(srcAudit.strayTemporaryFiles.count - Entry.perRecordWarningCap) 個殘留的暫存檔未列出")   // display-safe-exempt: Int
                 }
             }
         }

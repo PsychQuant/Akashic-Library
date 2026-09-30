@@ -4,7 +4,7 @@ Store 目前把三件互相獨立的事壓成一個由隸屬時間軸推導出�
 
 約束條件：
 
-- store 格式是**有版本、normative、被三個獨立 binary（CLI / akashic-mcp / App）共讀**的已發布格式，另有外部消費者（storyline 專案的 DuckDB 重建流程）。
+- store 格式是**有版本、normative、被三個獨立 binary（CLI / akashic-mcp / App）共讀**的已發布格式，另有外部消費者（一個私有下游專案的 DuckDB 重建流程）。
 - 既有的 tolerant-preserve 機制會原樣保留未知欄位並在寫回時重新產生。
 - 既有的日期精度慣例是 **ISO 8601 前綴字串**而非日期型別，理由寫在日期區間型別的文件註解裡：來源資料常是月精度，轉成日期型別得補一個不存在的「日」，之後就再也分不出「1 月」與「1 月 1 日」。
 
@@ -110,7 +110,7 @@ Store 目前把三件互相獨立的事壓成一個由隸屬時間軸推導出�
 
 候選是「把 `status` 改名為 `affiliation_status`」對上「不改名」。
 
-改名讓「它描述隸屬」寫在欄位名上，但那是對**衍生層**的 breaking change，跨到 storyline 專案。取第三條路：
+改名讓「它描述隸屬」寫在欄位名上，但那是對**衍生層**的 breaking change，跨到那個私有下游專案。取第三條路：
 
 - 隸屬狀態的推導邏輯與欄位名**逐字不動**。
 - 匯出的 researcher 表**新增 `died` 欄**——衍生層的 additive，既有按欄名取值的 reader 不受影響。

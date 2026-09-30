@@ -78,4 +78,4 @@ git grep -nI -E '無存取權|repo 為 private|repo 是 private|private repo，|
 
 - `Akashic-Library.code-workspace` 取消追蹤、檔案留在本機，`.gitignore` 加 `*.code-workspace`：它的資料夾路徑指向本機其他 checkout，改路徑會讓工作區壞掉，所以不改內容、只不再隨公開 repo 出貨。
 - `changelog/2026-09-23-multi-zotero-sources.md` 的共享群組 library 名稱改成「一個共用的 Zotero 群組」。
-- `openspec/changes/archive/` 的 5 處：使用者解鎖封存保護之後另一個 commit 處理。
+- `openspec/changes/archive/` 的 5 處（3 個檔）：使用者解鎖封存保護後改成角色描述（「一個私有下游 repo／專案」），改完重新上鎖。改後全樹（不含 `repos/`）字面 grep 那個名字 0 處。

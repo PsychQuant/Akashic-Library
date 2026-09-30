@@ -33,7 +33,7 @@ person 記錄的偏離全部是引號風格（`key: "x"` 對上 `key: x`）；or
 - **不改 Yams emitter 的折行寬度。** 折行已是 636 筆 work 記錄的既成形式，改動會把 reflow 範圍從 79 筆擴大到約 715 筆，代價與收益不成比例
 - **不引入 `primary` 標記欄位。** 見下方 D2 的否決理由
 - **不動 `authors` 的順序。** 作者位置即語意（第一作者、通訊作者），任何排序都是資料破壞
-- **不實作外部 pipeline 端的呼叫。** 本 change 只提供入口；storyline 的匯出腳本要不要呼叫 `fmt` 是該 repo 的決定
+- **不實作外部 pipeline 端的呼叫。** 本 change 只提供入口；一個私有下游 repo 的匯出腳本要不要呼叫 `fmt` 是該 repo 的決定
 
 ## Decisions
 

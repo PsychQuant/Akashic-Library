@@ -1,6 +1,6 @@
 ## Why
 
-Store 的序列化順序沒有單一權威。encoder（`PersonYAML.encode` / `OrganizationYAML.encode` / `EntryYAML.encode`）產出一種形狀，外部寫入者（storyline 的 R pipeline、手寫記錄）產出另一種，而沒有任何入口能把後者打回前者。全 store 實測顯示分界完全乾淨：encoder 寫的 636 個 work 檔 0% 偏離，其餘 79 檔 100% 偏離。
+Store 的序列化順序沒有單一權威。encoder（`PersonYAML.encode` / `OrganizationYAML.encode` / `EntryYAML.encode`）產出一種形狀，外部寫入者（一個私有下游 repo 的 R pipeline、手寫記錄）產出另一種，而沒有任何入口能把後者打回前者。全 store 實測顯示分界完全乾淨：encoder 寫的 636 個 work 檔 0% 偏離，其餘 79 檔 100% 偏離。
 
 更嚴重的是，`organization-entity` spec 內有一條 SHALL 已經被真實資料違反——「loaded and re-encoded → byte-identical to the input」與同一個 Requirement 內的「Timeline equality SHALL remain independent of storage order」互斥。實測 `ching-shui-cheng` 記錄 decode 後 re-encode 得到 `BYTE-IDENTICAL: false`。encode canary 抓不到，因為 Timeline 相等性刻意忽略順序（見 `Sources/AkashicCore/Temporal.swift` 的設計註解），那個決定同時讓 canary 對「靜默重排」失明。
 
@@ -31,4 +31,4 @@ Store 的序列化順序沒有單一權威。encoder（`PersonYAML.encode` / `Or
   - Modified: `Sources/AkashicCore/Temporal.swift`、`Sources/AkashicCore/YAML.swift`、`Sources/akashic/CLI.swift`、`openspec/specs/organization-entity/spec.md`
   - Removed: (none)
 - Affected data: `~/.akashic/entities/` 內 79 筆記錄的位元組形式（77 person、2 organization）；636 筆 work 記錄零改動
-- Affected consumers: 任何直接寫入 store 的外部 pipeline——storyline 的匯出腳本、Akashic-Library#64 的 CV 補完流程、Akashic-Library#68 的部分更新入口
+- Affected consumers: 任何直接寫入 store 的外部 pipeline——那個私有下游 repo 的匯出腳本、Akashic-Library#64 的 CV 補完流程、Akashic-Library#68 的部分更新入口

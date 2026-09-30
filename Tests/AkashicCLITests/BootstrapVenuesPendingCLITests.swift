@@ -80,4 +80,22 @@ final class BootstrapVenuesPendingCLITests: XCTestCase {
                        ["jrss-b"],
                        "JRSS-B 只能有一筆——被扣住的那個寫法不得建成第二筆：\(keys.sorted())")
     }
+
+    /// **#563：`--apply` 建出來的 venue `authorized` 是空的**（真 binary、讀回磁碟）。「哪個寫法對外」是判定，
+    /// 門檻建檔不做判定——同 `add-venue` 的 #227。顯示名退到 names 的第一段，所以顯示不變。
+    func testApplyLeavesAuthorizedEmpty() throws {
+        let r = try cli(["bootstrap-venues", "--apply"])
+        XCTAssertEqual(r.status, 0, r.output)
+        let venues = try LibraryStore(root: root, key: nil, environment: [:]).load().venues
+        let made = try XCTUnwrap(venues.first { $0.key == "journal-of-educational-psychology" },
+                                 "新刊沒有被建出來：\(venues.map(\.key))")
+        XCTAssertEqual(made.authorized, [], "bootstrap 不得替人指定對外形（#563）")
+        XCTAssertEqual(made.displayName, "Journal of Educational Psychology")
+        let file = try FileManager.default.contentsOfDirectory(at: root.appendingPathComponent("entities"),
+                                                               includingPropertiesForKeys: nil)
+            .filter { $0.pathExtension == "yaml" }
+            .map { try String(contentsOf: $0, encoding: .utf8) }
+            .first { $0.contains("key: journal-of-educational-psychology") }
+        XCTAssertFalse(try XCTUnwrap(file).contains("authorized:"), "磁碟上不得出現 authorized 鍵：\(file ?? "")")
+    }
 }

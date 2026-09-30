@@ -539,7 +539,8 @@ final class VenueNameInvariantTests: XCTestCase {
         let r = VenueBootstrap.result(entries: [e], existing: [])
         let venues = VenueBootstrap.makeVenues(r.candidates)
         XCTAssertEqual(venues.first?.names.entries.map(\.value), ["Journal of X"])
-        XCTAssertEqual(venues.first?.authorized, ["Journal of X"])
+        XCTAssertEqual(venues.first?.authorized, [], "bootstrap 不寫 authorized（#563）")
+        XCTAssertEqual(venues.first?.displayName, "Journal of X", "顯示名是 canonical 形的名字")
         XCTAssertTrue(venues.allSatisfy { errors($0).isEmpty })
     }
 

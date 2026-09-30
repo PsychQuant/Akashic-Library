@@ -4275,7 +4275,7 @@ public final class AkashicService {
         // #554：authorized 那一半——**但它不是 append**，這一點是端到端測出來的。
         // `AuthorizedNames.validate` 對 authorized 有「每書寫系統至多一個」的內容約束，
         // 而 live store 的 venue 幾乎都已有一個 latin authorized（`VenueBootstrap` 的
-        // `[names[0]]`，機械值；#553 合併後 470/470）——對它們 append 第二個 latin 名必被擋。
+        // `[names[0]]`，機械值；#553 合併後 470/470；#563 起 bootstrap 不再寫、既有的不動）——對它們 append 第二個 latin 名必被擋。
         // 要換掉那個機械值需要**替換**：X 成為該 `WritingSystem` 的對外形，原本的 Y
         // **移出 authorized、留在 names、不標 variant**。
         //

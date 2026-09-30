@@ -1653,7 +1653,7 @@ extension LibraryStore {
     /// #553 落地時全庫**唯一**的 `venue.authorized` 寫入者是 `VenueBootstrap` 的
     /// `authorized: [c.names[0]]`——建檔時取第一個名字的機械慣例；`updateVenue` 當時
     /// 收 `add_names`／`add_variant`／`add_issn`／`paginated`，沒有 authorized；
-    /// `authorize-names` 只管 person。所以拿它擋合併，是把一個 bootstrap 副產品
+    /// `authorize-names` 只管 person（#563 起 bootstrap 也不再寫它，既有的機械值不動）。所以拿它擋合併，是把一個 bootstrap 副產品
     /// 當成承重判定——那正是 `identity-is-judged-not-matched` 與 #471 記過的形狀
     /// （「一個不做判定的操作成了唯一的判定寫入者」），只是這次由我在合併端重演。
     ///

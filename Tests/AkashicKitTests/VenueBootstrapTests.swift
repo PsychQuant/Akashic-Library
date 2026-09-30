@@ -137,8 +137,10 @@ final class VenueBootstrapTests: XCTestCase {
 
     // MARK: - 只建立、不歸戶
 
-    /// `makeVenues` 產出的記錄帶所有寫法，且 `authorized` 取第一個。
-    func testMakeVenuesKeepsAllWritingsAndSetsAuthorized() {
+    /// `makeVenues` 產出的記錄帶所有寫法，**`authorized` 留空**（#563）：「哪個寫法對外」是判定，門檻建檔不做判定
+    /// （同 `add-venue` 的 #227）。先前取字母序第一個寫法——這裡就是 `PSYCHOMETRIKA`（WoS 大寫形），正是 #563 說的機械值。
+    /// 顯示名退到 `names` 的第一段，與先前的機械值是同一個字串，所以顯示不變。
+    func testMakeVenuesKeepsAllWritingsAndLeavesAuthorizedEmpty() {
         let r = VenueBootstrap.result(entries: [
             entry("a", fields: ["journaltitle": "Psychometrika"]),
             entry("b", fields: ["journaltitle": "PSYCHOMETRIKA"]),
@@ -147,7 +149,9 @@ final class VenueBootstrapTests: XCTestCase {
         XCTAssertEqual(venues.count, 1)
         XCTAssertEqual(Set(venues[0].names.entries.map(\.value)),
                        ["Psychometrika", "PSYCHOMETRIKA"])
-        XCTAssertEqual(venues[0].authorized.count, 1)
+        XCTAssertEqual(venues[0].authorized, [], "bootstrap 不得替人指定對外形（#563）")
+        XCTAssertEqual(venues[0].displayName, r.candidates[0].names[0],
+                       "顯示名退到 names 的第一段——與先前寫進 authorized 的機械值同一個字串，顯示不變")
         XCTAssertEqual(venues[0].type, .periodical)
     }
 

@@ -283,8 +283,12 @@ public enum VenueBootstrap {
             // 「Psychometrika」「PSYCHOMETRIKA」（WoS 大寫形）是同一刊的兩個寫法，
             // 各自留著，否則下次遇到那個寫法又重新分割一次（`OrgBootstrap` 的同一教訓）。
             let timeline = Timeline(c.names.map { TemporalValue(value: $0) })
-            return Venue(key: c.key, type: c.type, names: timeline,
-                         authorized: [c.names[0]])
+            // **authorized 留空**（#563，使用者 2026-10-01 裁決）：「這個名字是本刊的對外形」是判定，
+            // 門檻建檔是提名不是判定（`two-kinds-of-edits` 的 bootstrap 列）。先前這裡寫 `[c.names[0]]`——
+            // 字母序第一個寫法，一個不做判定的操作成了 authorized 的唯一寫入者（#471 對 variant 修掉的同一形狀）。
+            // 與 `add-venue` 的 #227「建檔不機械偽造」一致；`displayName` 退到 `names` 的第一段，顯示不變。
+            // 既有的機械值不動（#600 的 authorize campaign 逐本判定），指定用 `update-venue --authorize`。
+            return Venue(key: c.key, type: c.type, names: timeline)
         }
     }
 }

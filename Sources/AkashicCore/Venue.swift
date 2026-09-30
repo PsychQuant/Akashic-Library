@@ -626,8 +626,8 @@ public struct Venue: Equatable {
     /// 因此顯示成「維基百科」「SEP」「…Academia Sinica NEW SERIES」（#422 verify logic 3）。
     ///
     /// 取第一筆的理由不是「第一筆比較好」，是**它是唯一一個有人選過的位置**：
-    /// `add-venue --names A B` 的 A 是使用者先打的那個，而 `VenueBootstrap` 建檔時設
-    /// `authorized: [names[0]]` ——同一個慣例。與 `identity-is-judged-not-matched`
+    /// `add-venue --names A B` 的 A 是使用者先打的那個，而 `VenueBootstrap` 在 #563 之前建檔時設
+    /// `authorized: [names[0]]` ——同一個慣例（#563 起它留空，顯示名由本階取同一個名字，顯示不變）。與 `identity-is-judged-not-matched`
     /// 對齊的方式是：顯示名不是判定，但**不該由序列化順序偷偷代替判定**；沒有
     /// authorized 時退回「使用者先寫的那個」比退回「檔案裡排最後的那個」誠實。
     ///

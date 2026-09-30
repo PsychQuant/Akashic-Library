@@ -1843,6 +1843,11 @@ extension LibraryStore {
     ///
     /// 讀取面（`load` / `validate` / `doctor`）**刻意不擋**：診斷工具在這種狀態下正是最該
     ///說話的時候。擋的是**寫入面**。
+    ///
+    /// **#709（使用者 2026-10-01）起不擋同一筆記錄的 legacy 拷貝**：那一對（同一種、同一個 id，一份在 entities/）的重複降為 warning，
+    /// 不再讓整個 store 的改名與合併停下。那一筆自己由 #631 的前置擋（`entryWritePlan`／`personWritePlan` 看到兩份就拒絕，在任何寫入之前），
+    /// 合併另外擋候選（`resolve` 的 `candidateLegacyCopies`：被併者的 entities 檔刪掉之後 legacy 那份會復活成唯一的一份）。
+    /// 兩筆不同的記錄共用 citekey／key／UUID 照舊是 error、照舊擋在這裡。
     func assertNoCrossRecordErrors(_ load: LibraryLoad, action: String) throws {
         let errs = load.crossRecordIssues().filter { $0.severity == .error }
         guard errs.isEmpty else {
@@ -2875,25 +2880,35 @@ public extension LibraryLoad {
             return Array(dup)
         }
 
-        // #709：同一筆記錄的 legacy 拷貝（load 的 `shadowedLegacyFile`）——index 以 entities/ 那份為準、略過它
+        // #709：同一筆記錄的 legacy 拷貝（load 的 `shadowedLegacyFile`，判準在 `markLegacyCopiesShadowedByEntities`）。
+        // 使用者 2026-10-01 裁決：**只由這一對造成**的重複（整組是同一個 id、其中一份在 entities/）降為 warning——index、匯出與 App 以
+        // entities/ 那份為準，這一對不再讓 doctor 不重建、不再讓 `assertNoCrossRecordErrors` 擋下整個 store 的改名與合併。那一筆自己
+        // 照舊無法唯一定位（#641）、照舊出現在這裡。兩筆**不同**的記錄（id 不同）共用 citekey／key／UUID 照舊是 error。
         let shadowed = shadowedLegacyCopies
         let shadowedWorkIDs = Set(shadowed.filter { $0.kind == .work }.map(\.id))
+        let shadowedPersonIDs = Set(shadowed.filter { $0.kind == .person }.map(\.id))
+        let copyNote = "——同一筆記錄的 legacy 拷貝還在：index、匯出與 App 以 entities/ 那份為準，刪掉 legacy 那份之前這筆無法唯一定位（#641、#709）"
         for u in duplicates(entries.map(\.id)).sorted(by: { $0.uuidString < $1.uuidString }) {
             let keys = entries.filter { $0.id == u }.map { displaySafeInvisible($0.citekey, max: 200) }.sorted()
-            out.append(ValidationIssue(
-                severity: .error,
-                message: "UUID \(u.uuidString) 被 \(keys.count) 筆 entry 共用（\(keys.joined(separator: ", "))）"
-                       + (shadowedWorkIDs.contains(u)
-                          ? "——其中 legacy 拷貝由 index 略過、以 entities/\(u.uuidString).yaml 為準（#709）"   // display-safe-exempt: UUID 由型別保證
-                          : "——index 的 PRIMARY KEY 會靜默丟掉其中一筆")))
+            let head = "UUID \(u.uuidString) 被 \(keys.count) 筆 entry 共用（\(keys.joined(separator: ", "))）"
+            out.append(shadowedWorkIDs.contains(u)
+                ? ValidationIssue(severity: .warning, message: head + copyNote)
+                // 先前寫「index 的 PRIMARY KEY 會靜默丟掉其中一筆」——entries 表是一般的 INSERT，不是靜默丟掉，是整次重建失敗
+                : ValidationIssue(severity: .error, message: head + "——index 的 entries 以 UUID 為主鍵，兩筆都在時重建會失敗"))
         }
         for k in duplicates(entries.map(\.citekey)).sorted() {
-            out.append(ValidationIssue(severity: .error,
-                message: "citekey「\(displaySafeInvisible(k, max: 200))」重複"))
+            let ids = Set(entries.filter { $0.citekey == k }.map(\.id))
+            let message = "citekey「\(displaySafeInvisible(k, max: 200))」重複"
+            out.append(ids.count == 1 && shadowedWorkIDs.isSuperset(of: ids)
+                ? ValidationIssue(severity: .warning, message: message + copyNote)
+                : ValidationIssue(severity: .error, message: message))
         }
         for k in duplicates(people.map(\.key)).sorted() {
-            out.append(ValidationIssue(severity: .error,
-                message: "person key「\(displaySafeInvisible(k, max: 200))」重複"))
+            let ids = Set(people.filter { $0.key == k }.map(\.id))
+            let message = "person key「\(displaySafeInvisible(k, max: 200))」重複"
+            out.append(ids.count == 1 && shadowedPersonIDs.isSuperset(of: ids)
+                ? ValidationIssue(severity: .warning, message: message + copyNote)
+                : ValidationIssue(severity: .error, message: message))
         }
         // #669：venue／organization 的 key 同樣是唯一定位的依據——`.key(…)` 參照、verdict 的 holder、每一個寫入面都以它找
         // 記錄。重複時讀取端各留第一筆（依列舉順序，不是判定），寫入面拒絕；error 與 citekey／person key 同級，
@@ -2917,7 +2932,7 @@ public extension LibraryLoad {
         // entities/ 那一筆，所以以 citekey／key 對，不以「這一筆是不是拷貝」對
         let shadowedWorkKeys = Set(shadowed.filter { $0.kind == .work }.map(\.key))
         let shadowedPersonKeys = Set(shadowed.filter { $0.kind == .person }.map(\.key))
-        let indexNote = "；index 以 entities/ 那份為準、略過 legacy 拷貝——它的內容 index 看不到（#709）"
+        let indexNote = "；index、匯出與 App 以 entities/ 那份為準、略過 legacy 拷貝——它的內容它們看不到（#709）"
         for e in entries {
             guard let why = e.fileSituation.unwritableReason,
                   fileSituationSeen.insert("work\u{0}\(e.citekey)\u{0}\(why)").inserted else { continue }   // display-safe-exempt: 集合鍵，不輸出

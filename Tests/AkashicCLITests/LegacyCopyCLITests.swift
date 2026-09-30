@@ -154,10 +154,43 @@ final class LegacyCopyCLITests: XCTestCase {
         XCTAssertTrue(r.output.contains("work「cheng2025renamed」"), r.output)
         XCTAssertTrue(r.output.contains("entries/\(e.citekey).yaml"), r.output)
         XCTAssertTrue(r.output.contains("改名前的 citekey"), r.output)
-        XCTAssertTrue(r.output.contains("刪掉之前 index 以 entities/ 那份為準、略過 legacy 拷貝"), "附記說的是 #709 之後的事：\(r.output)")
+        XCTAssertTrue(r.output.contains("刪掉之前 index、匯出與 App 以 entities/ 那份為準、略過 legacy 拷貝"), "附記說的是 #709 之後的事：\(r.output)")
         XCTAssertFalse(r.output.contains("撞重複"), "index 不再撞重複（#709）：\(r.output)")
         let rewritten = try EntryYAML.decode(try String(contentsOf: store.entityURL(id: citing.id), encoding: .utf8))
         XCTAssertEqual(rewritten.akashic.relations.cites, ["cheng2025renamed"], "改名做完：引用它的 work 改寫了")
+    }
+
+    /// #709（使用者 2026-10-01）：同一筆記錄兩份並存（entities/ 一份、legacy 拷貝一份，同一個 id）時——
+    /// 匯出（`export-bib`、`export-tables`）只有 entities/ 那一份；doctor 照常重建 index、結束碼 0（這一對是 warning 不是 error）；
+    /// 另一筆記錄的改名照常進行。
+    func testExportDoctorAndAnUnrelatedRenameUseTheEntitiesCopy() throws {
+        let e = Entry(id: UUID(), citekey: "cheng2025identifiability", type: .periodicalArticle,
+                      title: "Entities title", date: "2025")
+        try EntryYAML.encode(e).write(to: store.entityURL(id: e.id), atomically: true, encoding: .utf8)
+        var stale = e; stale.title = "Legacy title"
+        try EntryYAML.encode(stale).write(to: store.entriesDir.appendingPathComponent("\(e.citekey).yaml"),
+                                          atomically: true, encoding: .utf8)
+        try store.writeEntry(Entry(id: UUID(), citekey: "yang2026other", type: .periodicalArticle, title: "Other", date: "2026"))
+
+        let bib = try cli(["export-bib", "--library", root.path])
+        XCTAssertEqual(bib.status, 0, bib.output)
+        XCTAssertEqual(bib.output.components(separatedBy: "cheng2025identifiability,").count - 1, 1, "只匯出一筆：\(bib.output)")
+        XCTAssertTrue(bib.output.contains("Entities title") && !bib.output.contains("Legacy title"), bib.output)
+
+        let tablesDir = base.appendingPathComponent("tables")
+        let tables = try cli(["export-tables", "--library", root.path, "--output", tablesDir.path])
+        XCTAssertEqual(tables.status, 0, tables.output)
+        let publications = try String(contentsOf: tablesDir.appendingPathComponent("publication.csv"), encoding: .utf8)
+        XCTAssertEqual(publications.split(separator: "\n").filter { $0.contains("cheng2025identifiability") }.count, 1, publications)
+        XCTAssertTrue(publications.contains("Entities title") && !publications.contains("Legacy title"), publications)
+
+        let doctor = try cli(["doctor", "--library", root.path])
+        XCTAssertEqual(doctor.status, 0, "這一對不再是 error，doctor 照常重建：\(doctor.output)")
+        XCTAssertTrue(doctor.output.contains("entries: 2"), "index 裡兩筆（legacy 拷貝不算）：\(doctor.output)")
+        XCTAssertTrue(doctor.output.contains("同一筆記錄的 legacy 拷貝還在"), "validate 照舊報兩份並存：\(doctor.output)")
+
+        let rename = try cli(["rename", "--library", root.path, "yang2026other", "yang2026renamed"])
+        XCTAssertEqual(rename.status, 0, "不相干的改名不再被這一對擋下：\(rename.output)")
     }
 
     /// `rename-person` 同形。person 的兩份不擋 index 重建（#670），所以結束碼 0、改名的報告照印，legacy 那份在輸出末尾。

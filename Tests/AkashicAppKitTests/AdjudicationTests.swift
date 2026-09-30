@@ -64,7 +64,10 @@ final class AdjudicationTests: XCTestCase {
         try EntryYAML.encode(stale).write(
             to: root.appendingPathComponent("entries/a2020paper.yaml"), atomically: true, encoding: .utf8)
         try? state.load()
-        XCTAssertEqual(state.entries.filter { $0.citekey == "a2020paper" }.count, 2, "前提：兩份都讀到")
+        // #709（使用者 2026-10-01）：App 以 entities/ 那份為準，清單只列一份；寫入封鎖照舊（留下的那一份自己寫不進去，#641）
+        XCTAssertEqual(state.entries.filter { $0.citekey == "a2020paper" }.map(\.title), ["T"], "只列 entities/ 那一份")
+        XCTAssertEqual(try LibraryStore(root: root).load().entries.filter { $0.citekey == "a2020paper" }.count, 2,
+                       "前提：磁碟上兩份都在")
         let entitiesFile = root.appendingPathComponent("entities/\(original.id.uuidString).yaml")
         let before = try Data(contentsOf: entitiesFile)
         let model = PeopleResolveModel(state: state)
@@ -76,6 +79,25 @@ final class AdjudicationTests: XCTestCase {
         let people = try LibraryStore(root: root).load().people
         XCTAssertFalse(people.contains { p in
             p.references.contains { ($0.value ?? "").contains("work:a2020paper ") } })
+    }
+
+    /// #709：改名留下的一對（legacy 那份是舊 citekey、同一個 id）。App 只列 entities/ 那一份（新 citekey），但它在完整的 load 上
+    /// 無法唯一定位（與舊 citekey 共用 id）——過濾不讓它變得可寫：accept 具名拒絕、零寫入，與 CLI／MCP 同一個結論。
+    func testARenameLeftoverIsListedOnceAndStaysWriteBlocked() throws {
+        let original = try XCTUnwrap(state.entries.first { $0.citekey == "a2020paper" })
+        var old = original; old.citekey = "a2019oldname"; old.title = "Stale"
+        try EntryYAML.encode(old).write(
+            to: root.appendingPathComponent("entries/a2019oldname.yaml"), atomically: true, encoding: .utf8)
+        try state.load()
+        XCTAssertEqual(state.entries.filter { $0.id == original.id }.map(\.citekey), ["a2020paper"], "只列 entities/ 那一份")
+        let entitiesFile = root.appendingPathComponent("entities/\(original.id.uuidString).yaml")
+        let before = try Data(contentsOf: entitiesFile)
+        let model = PeopleResolveModel(state: state)
+        let cand = try XCTUnwrap(model.candidates.first { $0.citekey == "a2020paper" })
+        XCTAssertThrowsError(try model.accept(cand)) { err in
+            XCTAssertEqual(err as? AdjudicationError, .unlocatableCitekey("a2020paper"))
+        }
+        XCTAssertEqual(try Data(contentsOf: entitiesFile), before, "一個位元都不動")
     }
 
     /// #641：accept 寫完 work 才寫 person 的 verdict。person 只住在 legacy、刪了回不來（這個 store 不在 git 裡）——

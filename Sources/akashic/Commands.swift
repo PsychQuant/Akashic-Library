@@ -29,8 +29,8 @@ struct Doctor: ParsableCommand {
         // `UNIQUE constraint failed: entries.citekey`——使用者拿到的是 SQLite 的
         // 內部錯誤，而不是「你有兩筆同 citekey 的記錄、它們在哪」。診斷工具在這種
         // 狀態下正是最該說話的時候，不是最該掛掉的時候。
-        // #709 起同一筆記錄的 legacy 拷貝（同一個 id）不再讓重建失敗（index 取 entities/ 那份），但它的 UUID／citekey
-        // 重複仍是 error，doctor 照舊不重建——那幾則同樣擋改名與合併（#35 的 `assertNoCrossRecordErrors`）。
+        // #709 起同一筆記錄的 legacy 拷貝（同一個 id）不再讓重建失敗（index 取 entities/ 那份），它造成的 UUID／citekey
+        // 重複也降為 warning——doctor 照常重建。兩筆不同的記錄共用 citekey 照舊是 error、照舊不重建。
         let cross = health.crossRecordIssues
         let fatalCross = health.fatalCrossRecordIssues
         if !cross.isEmpty {
@@ -1648,7 +1648,7 @@ struct ExportTables: ParsableCommand {
 
     func run() throws {
         let store = try options.openStore()
-        let load = try store.load()
+        let load = try store.load().withoutShadowedLegacyCopies()   // #709：同一筆記錄的 legacy 拷貝不匯出，以 entities/ 那份為準
         let dir = URL(fileURLWithPath: (output as NSString).expandingTildeInPath)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
 
@@ -1720,7 +1720,7 @@ struct ExportBib: ParsableCommand {
 
     func run() throws {
         let store = try options.openStore()
-        let load = try store.load()
+        let load = try store.load().withoutShadowedLegacyCopies()   // #709：同一筆記錄的 legacy 拷貝不匯出，以 entities/ 那份為準
         var entries = load.entries
         if let filter = citekeys {
             let wanted = Set(filter.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) })

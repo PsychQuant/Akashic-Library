@@ -48,8 +48,10 @@
 
 - 留下拷貝的那次寫入回成功，`writtenWithLegacyCopy` 在成功回應裡（#705 的鍵，形狀不變）。
 - 其他記錄的寫入照常成功。
-- 那一筆本身照舊寫不進去：寫入它的工具以「無法唯一定位」拒絕，直到 legacy 那份刪掉。`akashic_doctor` 的 `crossRecordIssues` 照舊列出兩份並存，警告多一句「index 以 entities/ 那份為準、略過 legacy 拷貝」；有人手改過 legacy 那份時，index 看不到那次修改。
+- 那一筆本身照舊寫不進去：寫入它的工具以「無法唯一定位」拒絕，直到 legacy 那份刪掉。`akashic_doctor` 的 `crossRecordIssues` 照舊列出兩份並存，警告多一句「index、匯出與 App 以 entities/ 那份為準、略過 legacy 拷貝」；有人手改過 legacy 那份時，index 看不到那次修改。
 - 兩筆**不同**的記錄（id 不同）共用一個 citekey 不在此列，index 重建照舊失敗。
+- 同日第二個改動：這一對在 `akashic_doctor` 的 `crossRecordIssues` 裡是 **warning**（UUID 共用、citekey／person key 重複；先前是 error），所以 doctor 照常重建 index（`indexRebuilt: true`），其他記錄的改名與合併不再被它擋下。兩筆不同的記錄共用 citekey／key／UUID 照舊是 error。
+- `akashic_export` 只匯出 `entities/` 那一份。
 - 工具說明沒有改。
 
 ## #557 — 新工具 `akashic_update_organization`：organization 的對外名稱

@@ -4,6 +4,7 @@ import Foundation
 @testable import AkashicStoreIO
 @testable import AkashicIndex
 @testable import AkashicSQLite
+@testable import AkashicMCPKit
 
 /// #709（使用者 2026-09-30 裁決）：index 重建遇到同一筆記錄兩份——一份在 `entities/`、一份是 #631 搬移後沒刪掉的 legacy 拷貝——
 /// 以 `entities/` 那份為準、略過 legacy 拷貝並回報。
@@ -13,7 +14,11 @@ import Foundation
 /// - person：同 key 時 index 的名字取 entities/ 那一份；改名留下的舊 key 不進 index；
 /// - 兩筆**不同**的記錄共用 citekey（id 不同）不在此列——重建照舊撞 UNIQUE；
 /// - format 1 的 store 不套用（那裡 legacy 目錄是正典）；
-/// - 記錄本身的寫入封鎖（#641）與 validate 的報告不變，warning 多說一句 index 取哪一份。
+/// - 記錄本身的寫入封鎖（#641）不變，validate 照舊報兩份並存。
+///
+/// 使用者 2026-10-01 把裁決延伸到 index 之外：這一對造成的 UUID／citekey／key 重複降為 warning（doctor 照常重建，改名與合併不再整個
+/// store 停下）、匯出與 App 也以 entities/ 那份為準——過濾只有一處（`LibraryLoad.withoutShadowedLegacyCopies`），而且過濾不讓任何一筆
+/// 變得可寫。兩筆不同的記錄共用 citekey／UUID 照舊是 error。
 final class IndexPrefersEntitiesCopyTests: XCTestCase {
     private var root: URL!
     private var store: LibraryStore!
@@ -113,6 +118,8 @@ final class IndexPrefersEntitiesCopyTests: XCTestCase {
         XCTAssertThrowsError(try LibraryIndex(store: store).rebuild(), "一份 entities、一份 legacy") { error in
             XCTAssertTrue("\(error)".contains("UNIQUE"), "\(error)")
         }
+        XCTAssertTrue(try store.load().crossRecordIssues().contains { $0.severity == .error && $0.message == "citekey「dup2020x」重複" },
+                      "不同的記錄共用 citekey 照舊是 error")
 
         try FileManager.default.removeItem(at: store.entriesDir)
         try writeEntities(work("dup2020x", title: "C"))
@@ -181,7 +188,8 @@ final class IndexPrefersEntitiesCopyTests: XCTestCase {
 
     // MARK: - validate 的報告
 
-    /// 記錄本身照舊寫不進去、validate 照舊報兩份並存（#641 的 warning 與 UUID／citekey 的 error），warning 多說一句 index 取哪一份。
+    /// 記錄本身照舊寫不進去、validate 照舊報兩份並存；這一對的 UUID／citekey 重複是 **warning**（使用者 2026-10-01），沒有 error——
+    /// doctor 照常重建、`assertNoCrossRecordErrors` 不再擋整個 store。#641 的 warning 多說一句取哪一份。
     func testValidateStillReportsBothCopiesAndSaysWhichOneTheIndexTakes() throws {
         let id = UUID()
         try writeEntities(work("cheng2025identifiability", id: id, title: "Entities title"))
@@ -192,21 +200,149 @@ final class IndexPrefersEntitiesCopyTests: XCTestCase {
         let warning = try XCTUnwrap(issues.first { $0.message.contains("work「cheng2025identifiability」的檔案寫入時會被拒") },
                                     "\(issues.map(\.message))")
         XCTAssertEqual(warning.severity, .warning)
-        XCTAssertTrue(warning.message.contains("index 以 entities/ 那份為準、略過 legacy 拷貝"), warning.message)
-        let uuidError = try XCTUnwrap(issues.first { $0.message.contains("UUID \(id.uuidString)") }, "\(issues.map(\.message))")
-        XCTAssertEqual(uuidError.severity, .error, "error 照舊——它也擋改名與合併（#35）")
-        XCTAssertTrue(uuidError.message.contains("legacy 拷貝由 index 略過"), uuidError.message)
-        XCTAssertFalse(uuidError.message.contains("靜默丟掉"), "這一對不再是靜默的：\(uuidError.message)")
-        XCTAssertTrue(issues.contains { $0.severity == .error && $0.message.contains("citekey「cheng2025identifiability」重複") })
+        XCTAssertTrue(warning.message.contains("index、匯出與 App 以 entities/ 那份為準、略過 legacy 拷貝"), warning.message)
+        let uuidIssue = try XCTUnwrap(issues.first { $0.message.contains("UUID \(id.uuidString)") }, "\(issues.map(\.message))")
+        XCTAssertEqual(uuidIssue.severity, .warning, "這一對是同一筆記錄——不擋 doctor 與改名合併")
+        XCTAssertTrue(uuidIssue.message.contains("同一筆記錄的 legacy 拷貝還在"), uuidIssue.message)
+        XCTAssertFalse(uuidIssue.message.contains("靜默丟掉"), uuidIssue.message)
+        let citekeyIssue = try XCTUnwrap(issues.first { $0.message.contains("citekey「cheng2025identifiability」重複") })
+        XCTAssertEqual(citekeyIssue.severity, .warning)
+        XCTAssertEqual(issues.filter { $0.severity == .error }.map(\.message), [], "這一對沒有 error")
+        XCTAssertEqual(store.health(from: load).fatalCrossRecordIssues.count, 0, "doctor 照常重建")
     }
 
-    /// 真的重複（id 不同）的 UUID 訊息不變——那一句說的不是 #709 那一對。
-    func testADistinctSharedUUIDKeepsItsMessage() throws {
+    /// person 同 key 的一對：key 重複同樣降為 warning；兩筆不同的 person 共用 key 照舊是 error。
+    func testAPersonPairIsAWarningButDistinctPeopleSharingAKeyAreAnError() throws {
+        let id = UUID()
+        try writeEntities(Person(key: "yang-hau-hung", names: PersonNames(authorized: ["Yang, Hau-Hung"]), id: id))
+        try writeLegacy(Person(key: "yang-hau-hung", names: PersonNames(variant: ["Hau-Hung Yang"]), id: id))
+        let pair = try XCTUnwrap(try store.load().crossRecordIssues().first { $0.message.hasPrefix("person key「yang-hau-hung」重複") })
+        XCTAssertEqual(pair.severity, .warning, pair.message)
+
+        try writeEntities(Person(key: "chen-c-h", names: PersonNames(authorized: ["Chen, C.-H."])))
+        try writeLegacy(Person(key: "chen-c-h", names: PersonNames(variant: ["Chun-houh Chen"])))   // 另一個 id
+        let distinct = try XCTUnwrap(try store.load().crossRecordIssues().first { $0.message.hasPrefix("person key「chen-c-h」重複") })
+        XCTAssertEqual(distinct.severity, .error, distinct.message)
+    }
+
+    // MARK: - 改名與合併不再整個 store 停下（使用者 2026-10-01）
+
+    /// 另一筆記錄的改名照常進行；有兩份的那一筆自己改名照舊被 #631 擋下、零寫入。
+    func testRenameOfAnUnrelatedWorkSucceedsWhileALeftoverExists() throws {
+        let id = UUID()
+        try writeEntities(work("cheng2025identifiability", id: id, title: "Entities title"))
+        try writeLegacy(work("cheng2025identifiability", id: id, title: "Legacy title"))
+        let other = work("yang2026other", title: "Other")
+        try writeEntities(other)
+
+        _ = try store.renameEntry(from: "yang2026other", to: "yang2026renamed")
+        let after = try store.load()
+        XCTAssertEqual(after.entries.first { $0.id == other.id }?.citekey, "yang2026renamed", "不相干的改名做完了")
+
+        let before = try Data(contentsOf: store.entityURL(id: id))
+        XCTAssertThrowsError(try store.renameEntry(from: "cheng2025identifiability", to: "cheng2025new")) { error in
+            XCTAssertEqual(error as? StoreIOError, .legacyCopyPresent(file: "entries/cheng2025identifiability.yaml"), "\(error)")
+        }
+        XCTAssertEqual(try Data(contentsOf: store.entityURL(id: id)), before, "有兩份的那一筆一個位元都不動")
+    }
+
+    func testRenamePersonOfAnUnrelatedPersonSucceedsWhileALeftoverExists() throws {
+        let id = UUID()
+        try writeEntities(Person(key: "yang-hau-hung", names: PersonNames(authorized: ["Yang, Hau-Hung"]), id: id))
+        try writeLegacy(Person(key: "yang-hau-hung", names: PersonNames(variant: ["Hau-Hung Yang"]), id: id))
+        let other = Person(key: "chen-c-h", names: PersonNames(authorized: ["Chen, C.-H."]))
+        try writeEntities(other)
+        _ = try store.renamePerson(from: "chen-c-h", to: "chen-chun-houh")
+        XCTAssertEqual(try store.load().people.first { $0.id == other.id }?.key, "chen-chun-houh")
+    }
+
+    /// 合併的候選有 legacy 拷貝就拒絕——被併者只刪 `entities/<id>.yaml`，legacy 那份會復活成唯一的一份。先前由這一對的 error 擋在
+    /// `assertNoCrossRecordErrors`，降為 warning 之後由 `candidateLegacyCopies` 擋（在版控檢查之前，所以這裡不需要 git）。
+    func testMergeRefusesACandidateWithALegacyCopy() throws {
+        let id = UUID()
+        try writeEntities(work("cheng2025identifiability", id: id, title: "Twin A"))
+        try writeLegacy(work("cheng2025identifiability", id: id, title: "Twin A (legacy)"))
+        try writeEntities(work("cheng2025twin", title: "Twin B"))
+        let d = try store.recordDivergence(question: "同一篇？",
+                                           candidates: [("cheng2025identifiability", .work), ("cheng2025twin", .work)],
+                                           judgement: nil, restsOn: [])
+        for survivor in ["cheng2025twin", "cheng2025identifiability"] {
+            XCTAssertThrowsError(try store.resolveDivergence(id: d.id, survivor: survivor)) { error in
+                XCTAssertTrue("\(error)".contains("entries/cheng2025identifiability.yaml"), "倖存者是 \(survivor)：\(error)")
+            }
+        }
+    }
+
+    // MARK: - 讀取視圖（匯出與 App 用同一個）
+
+    /// MCP 的匯出面（`akashic_export`）與 doctor：只匯出 entities/ 那一份；doctor 照常重建 index（先前這一對是 error、doctor 不重建）。
+    func testTheMCPExportAndDoctorUseTheEntitiesCopy() throws {
+        let id = UUID()
+        try writeEntities(work("cheng2025identifiability", id: id, title: "Entities title"))
+        try writeLegacy(work("cheng2025identifiability", id: id, title: "Legacy title"))
+        let service = AkashicService(root: root, key: nil, environment: [:])
+        let bib = try service.export(citekeys: nil, format: "bib")
+        XCTAssertEqual(bib.components(separatedBy: "cheng2025identifiability,").count - 1, 1, "只匯出一筆：\(bib)")
+        XCTAssertTrue(bib.contains("Entities title") && !bib.contains("Legacy title"), bib)
+        let csl = try service.export(citekeys: ["cheng2025identifiability"], format: "csl-json")
+        XCTAssertTrue(csl.contains("Entities title") && !csl.contains("Legacy title"), csl)
+
+        let doctor = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(try service.doctor().utf8)) as? [String: Any])
+        XCTAssertEqual(doctor["indexRebuilt"] as? Bool, true, "\(doctor)")
+        XCTAssertEqual(doctor["entries"] as? Int, 1)
+    }
+
+    /// 過濾不讓任何一筆變得可寫：改名留下的一對在完整的 load 上兩個 citekey 都無法唯一定位（共用 id），拿掉拷貝之後留下的新 citekey
+    /// 仍無法唯一定位（補上一句理由）。一般的寫入留下的那一對，留下的那一份本來就有自己的理由。
+    func testTheViewKeepsTheKeptCopyWriteBlocked() throws {
+        let id = UUID()
+        try writeEntities(work("cheng2025renamed", id: id, title: "Renamed"))
+        try writeLegacy(work("cheng2025identifiability", id: id, title: "Old name"))
+        let view = try store.load().withoutShadowedLegacyCopies()
+        XCTAssertEqual(view.entries.map(\.citekey), ["cheng2025renamed"], "只剩 entities/ 那一份")
+        XCTAssertEqual(view.entries.unlocatableCitekeys, ["cheng2025renamed"], "過濾之後仍寫不進去")
+        XCTAssertTrue(view.entries[0].fileSituation.unwritableReason?.contains("entries/cheng2025identifiability.yaml") == true,
+                      "\(String(describing: view.entries[0].fileSituation.unwritableReason))")
+    }
+
+    /// 另一筆記錄的 legacy 拷貝撞上這一筆的 key（person 改名留下的舊 key 正好是另一個人的 key）：完整的 load 上那個 key 重複（兩筆不同的
+    /// 記錄——照舊是 error）、無法唯一定位；視圖拿掉拷貝之後只剩那個人，仍要寫不進去。
+    func testTheViewKeepsAPersonBlockedByAnotherRecordsLeftover() throws {
+        try writeEntities(Person(key: "chen-c-h", names: PersonNames(authorized: ["Chen, C.-H."])))
+        let id = UUID()
+        try writeEntities(Person(key: "chen-chun-houh", names: PersonNames(authorized: ["Chen, Chun-houh"]), id: id))
+        try writeLegacy(Person(key: "chen-c-h", names: PersonNames(variant: ["C.-H. Chen"]), id: id))   // 改名前的舊 key
+        let load = try store.load()
+        XCTAssertTrue(load.crossRecordIssues().contains { $0.severity == .error && $0.message == "person key「chen-c-h」重複" },
+                      "兩筆不同的記錄共用 key 照舊是 error")
+        let view = load.withoutShadowedLegacyCopies()
+        XCTAssertEqual(view.people.map(\.key).sorted(), ["chen-c-h", "chen-chun-houh"])
+        XCTAssertTrue(view.people.unlocatablePersonKeys.contains("chen-c-h"), "過濾不讓它變得可寫")
+    }
+
+    /// person 改名留下的一對：新 key 在完整的 load 上本來就寫得進去（#641 的 person 側不收共用 id）——視圖不替它加封鎖，與 CLI／MCP 一致。
+    func testTheViewDoesNotBlockWhatTheFullLoadAllows() throws {
+        let id = UUID()
+        try writeEntities(Person(key: "yang-h-h", names: PersonNames(authorized: ["Yang, H.-H."]), id: id))
+        try writeLegacy(Person(key: "yang-hau-hung", names: PersonNames(variant: ["Hau-Hung Yang"]), id: id))
+        let load = try store.load()
+        XCTAssertFalse(load.people.unlocatablePersonKeys.contains("yang-h-h"), "前提")
+        let view = load.withoutShadowedLegacyCopies()
+        XCTAssertEqual(view.people.map(\.key), ["yang-h-h"])
+        XCTAssertEqual(view.people.unlocatablePersonKeys, [])
+    }
+
+    /// 真的重複（id 不同的兩筆共用 UUID）照舊是 error；訊息不再說「靜默丟掉」——entries 表是一般的 INSERT，重建是失敗。
+    func testADistinctSharedUUIDStaysAnErrorWithAnAccurateMessage() throws {
         try StoreVersion.write(root: root, format: 1)   // 兩筆不同 citekey 共用 UUID 只在 legacy 佈局寫得出來（entities 的檔名就是 id）
         let shared = UUID()
         try writeLegacy(work("a2020a", id: shared, title: "A"))
         try writeLegacy(work("b2020b", id: shared, title: "B"))
-        let message = try XCTUnwrap(try store.load().crossRecordIssues().first { $0.message.contains("UUID \(shared.uuidString)") }?.message)
-        XCTAssertFalse(message.contains("#709"), message)
+        let issue = try XCTUnwrap(try store.load().crossRecordIssues().first { $0.message.contains("UUID \(shared.uuidString)") })
+        XCTAssertEqual(issue.severity, .error)
+        XCTAssertFalse(issue.message.contains("#709"), issue.message)
+        XCTAssertFalse(issue.message.contains("靜默丟掉"), issue.message)
+        XCTAssertTrue(issue.message.contains("重建會失敗"), issue.message)
+        XCTAssertThrowsError(try LibraryIndex(store: store).rebuild(), "訊息說的是真的")
     }
 }

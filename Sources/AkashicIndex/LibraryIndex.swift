@@ -116,10 +116,12 @@ public struct LibraryIndex {
         let load = try store.load()
         // #709（使用者 2026-09-30 裁決）：同一筆記錄一份在 entities/、一份是 legacy 拷貝時，以 entities/ 那份為準、略過 legacy 拷貝並回報。
         // 先前兩份一起插入：work 撞 entries 的 UNIQUE／PRIMARY KEY，整次重建失敗——寫入之後重建 index 的呼叫全部以錯誤收場，連不相干記錄的
-        // 寫入也一樣。判準（同一種、同一個 id）只有一份，在 load 的 `markLegacyCopiesShadowedByEntities`；這裡只照標記過濾。
+        // 寫入也一樣。判準（同一種、同一個 id）只有一份，在 load 的 `markLegacyCopiesShadowedByEntities`；過濾也只有一份
+        // （`withoutShadowedLegacyCopies`，匯出與 App 用同一個）。
         // 兩筆**不同**的記錄共用 citekey 不在此列（id 不同）——照舊撞 UNIQUE，這條規則不替真的重複選一筆。
-        let entries = load.entries.filter { $0.fileSituation.shadowedLegacyFile == nil }
-        let people = load.people.filter { $0.fileSituation.shadowedLegacyFile == nil }
+        let canonical = load.withoutShadowedLegacyCopies()
+        let entries = canonical.entries
+        let people = canonical.people
 
         // 全刪重建：舊 index 直接移除，避免 schema 演化殘留
         // #37：index 不一定住在 akashicDir——已註冊 store 走 ~/.akashic/index/<key>.sqlite，

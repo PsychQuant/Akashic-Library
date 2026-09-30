@@ -268,7 +268,9 @@ final class OrphanedAdditionalSourceTests: XCTestCase {
             snapshots[ck] = try Data(contentsOf: entities.appendingPathComponent("\(e.id.uuidString).yaml"))
         }
         try state.load()
-        XCTAssertEqual(state.entries.filter { $0.citekey == "allgone2020" }.count, 2, "前提：兩份都讀到")
+        // #709：App 的清單只列 entities/ 那一份；三個動作重讀磁碟、在完整的 load 上定位，照舊拒絕
+        XCTAssertEqual(state.entries.filter { $0.citekey == "allgone2020" }.count, 1, "App 只列 entities/ 那一份")
+        XCTAssertEqual(try state.store.load().entries.filter { $0.citekey == "allgone2020" }.count, 2, "前提：磁碟上兩份都在")
         let model = OrphanModel(state: state)
         for action in [OrphanModel.Action.moveToTrash, .detachFromZotero] {
             XCTAssertThrowsError(try model.resolve(citekey: "allgone2020", action: action)) { err in

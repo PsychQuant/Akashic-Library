@@ -25,9 +25,8 @@ public struct ShadowedLegacyCopy: Equatable, Sendable {
 }
 
 extension LibraryLoad {
-    /// load 標出的 legacy 拷貝（`fileSituation.shadowedLegacyFile`），依 (kind, key) 排序。index 重建略過的就是這些
-    /// （`LibraryIndex.rebuild` 以同一個標記過濾，並把這份清單放進 `IndexStats.skippedLegacyCopies`）；
-    /// validate 的 #641 警告也從這裡說出「index 以 entities/ 那份為準」。
+    /// load 標出的 legacy 拷貝（`fileSituation.shadowedLegacyFile`），依 (kind, key) 排序。`withoutShadowedLegacyCopies` 拿掉的就是這些
+    /// （`LibraryIndex.rebuild` 把這份清單放進 `IndexStats.skippedLegacyCopies`）；`crossRecordIssues` 也從這裡認出這一對。
     public var shadowedLegacyCopies: [ShadowedLegacyCopy] {
         let works = entries.compactMap { e in
             e.fileSituation.shadowedLegacyFile.map { ShadowedLegacyCopy(kind: .work, key: e.citekey, id: e.id, legacyFile: $0) }
@@ -37,10 +36,51 @@ extension LibraryLoad {
         }
         return (works + persons).sorted { ($0.kind.rawValue, $0.key, $0.legacyFile) < ($1.kind.rawValue, $1.key, $1.legacyFile) }
     }
+
+    /// 以 `entities/` 那份為準的讀取視圖（#709，使用者 2026-10-01 把裁決從 index 延伸到匯出與 App）：拿掉 legacy 拷貝，其餘不動。
+    /// **過濾只有這一處**——index 重建（`LibraryIndex.rebuild`）、三個匯出面（MCP `akashic_export`、CLI `export-bib`、
+    /// `export-tables`）與 App 的 `AppState.load` 都呼叫它，不各自寫一份 `filter`。
+    ///
+    /// **過濾不讓任何一筆變得可寫**：拿掉拷貝之後，留下的那一份在完整的 load 上若無法唯一定位（#627／#641——一般的寫入留下的一對
+    /// 共用 citekey；改名留下的一對共用 id），在這個視圖上也要無法唯一定位，否則以這個視圖定位寫入的消費端（App 的裁決台）會放行
+    /// CLI／MCP 拒絕的寫入。所以那一份若沒有自己的 `unwritableReason`，補上一句說出是哪份拷貝擋著它；判準是「完整 load 上無法唯一定位、
+    /// 過濾後卻可以」，不是另一條規則。
+    ///
+    /// 驗證（validate、doctor 的 `crossRecordIssues`、App 的健康總覽）**不**用這個視圖——它們要照舊看到兩份並存。
+    public func withoutShadowedLegacyCopies() -> LibraryLoad {
+        let shadowed = shadowedLegacyCopies
+        guard !shadowed.isEmpty else { return self }
+        var out = self
+        out.entries = entries.filter { $0.fileSituation.shadowedLegacyFile == nil }
+        out.people = people.filter { $0.fileSituation.shadowedLegacyFile == nil }
+
+        let blockedWorks = entries.unlocatableCitekeys, stillBlockedWorks = out.entries.unlocatableCitekeys
+        for i in out.entries.indices where out.entries[i].fileSituation.unwritableReason == nil {
+            let e = out.entries[i]
+            guard blockedWorks.contains(e.citekey), !stillBlockedWorks.contains(e.citekey) else { continue }
+            let files = shadowed.filter { $0.kind == .work && ($0.id == e.id || $0.key == e.citekey) }.map(\.legacyFile)
+            out.entries[i].fileSituation.unwritableReason = Self.keptCopyReason(files)
+        }
+        let blockedPeople = people.unlocatablePersonKeys, stillBlockedPeople = out.people.unlocatablePersonKeys
+        for i in out.people.indices where out.people[i].fileSituation.unwritableReason == nil {
+            let p = out.people[i]
+            guard blockedPeople.contains(p.key), !stillBlockedPeople.contains(p.key) else { continue }
+            let files = shadowed.filter { $0.kind == .person && ($0.id == p.id || $0.key == p.key) }.map(\.legacyFile)
+            out.people[i].fileSituation.unwritableReason = Self.keptCopyReason(files)
+        }
+        return out
+    }
+
+    /// 已消毒（`unwritableReason` 的契約）。
+    static func keptCopyReason(_ legacyFiles: [String]) -> String {
+        "legacy 拷貝 " + legacyFiles.sorted().map { displaySafeInvisible($0, max: 300) }.joined(separator: "、")
+            + " 還在（與這一筆同一個 id 或同一個 citekey）——刪掉它之前以 citekey／key 定位的寫入面拒絕寫入（#641、#709）"
+    }
 }
 
 extension LibraryStore {
-    /// 「同一筆記錄的 legacy 拷貝」的判準——**只有這一份**（#709）。index 重建、#645 的記錄位元組、validate 的 #641 警告都讀它標的結果。
+    /// 「同一筆記錄的 legacy 拷貝」的判準——**只有這一份**（#709）。讀它標的結果的：`LibraryLoad.withoutShadowedLegacyCopies`
+    /// （index 重建、匯出、App）、#645 的記錄位元組、`crossRecordIssues`（這一對的 UUID／citekey／key 重複降為 warning、#641 警告補一句）。
     ///
     /// 判準：store 是 entities 佈局（format ≥ 2），一筆 work 從 `entries/` 讀進來（person 從 `people/`），而 `entities/` 讀進來的記錄裡有
     /// **同一種、同一個 id** 的一筆。只有這一對；其餘一律不標。

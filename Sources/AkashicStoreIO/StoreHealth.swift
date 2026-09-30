@@ -35,8 +35,8 @@ import AkashicCore
 public struct StoreHealth {
     /// 跨記錄檢查（重複 citekey／person key 等）。
     public let crossRecordIssues: [ValidationIssue]
-    /// 上面那些之中 severity == .error 的——doctor 見到它們就不重建 index（#35）。不同記錄共用 citekey 會讓重建撞 UNIQUE constraint；
-    /// 同一筆記錄的 legacy 拷貝（同一個 id）造成的那幾則不會——重建以 `entities/` 那份為準、略過拷貝（#709）——但照樣算在這裡。
+    /// 上面那些之中 severity == .error 的——doctor 見到它們就不重建 index（#35）。不同記錄共用 citekey 會讓重建撞 UNIQUE constraint。
+    /// 同一筆記錄的 legacy 拷貝（同一個 id）造成的重複不在這裡：它們是 warning（#709，重建以 `entities/` 那份為準、略過拷貝）。
     public let fatalCrossRecordIssues: [ValidationIssue]
     /// 佈局殘留（依 format／key 不該存在的檔案）。
     public let layoutResidue: [String]

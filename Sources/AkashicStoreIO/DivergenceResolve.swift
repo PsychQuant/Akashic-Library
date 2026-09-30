@@ -645,6 +645,13 @@ extension LibraryStore {
         guard let shape = record.shape else {
             throw DivergenceResolveError.recordNotFound(id)
         }
+        // #709：候選有 legacy 拷貝（同一個 id 的 entries/<citekey>.yaml／people/<key>.yaml 還在）就拒絕。#709 之前這一對的重複是
+        // error、上面的 `assertNoCrossRecordErrors` 就擋下；降為 warning 之後要在這裡擋：被併者只刪 `entities/<id>.yaml`
+        // （`doomedRelativePaths`），legacy 那份會留下、下一次 load 復活成唯一的一份；倖存者的寫回則會被 #631 拒絕。
+        let copies = Self.candidateLegacyCopies(shape: shape, candidateKeys: candidateKeys, snapshot: snapshot)
+        if !copies.isEmpty {
+            throw StoreIOError.legacyCopyPresent(file: copies.joined(separator: "、"))
+        }
         // 版控前提在**任何寫入之前**驗（design D4 + tasks 4.2）。
         guard Self.isInsideVersionedWorkTree(root) else {
             throw DivergenceResolveError.outsideVersionControl(root: root.path)
@@ -3563,6 +3570,20 @@ extension LibraryStore {
             }
         }
         return ids.map { "entities/\($0.uuidString).yaml" }
+    }
+
+    /// 候選的 legacy 拷貝（#709）：與某個候選同一種、同一個 id 的 `ShadowedLegacyCopy`，依路徑排序。判準是 load 標的那一個
+    /// （`markLegacyCopiesShadowedByEntities`），這裡只把候選鍵換成 id 去對——改名留下的拷貝鍵是舊的，id 相同。
+    static func candidateLegacyCopies(shape: EntityKind, candidateKeys: [String], snapshot: LibraryLoad) -> [String] {
+        let keys = Set(candidateKeys)
+        let kind: LegacyCopyLeft.Kind
+        let ids: Set<UUID>
+        switch shape {
+        case .work: kind = .work; ids = Set(snapshot.entries.filter { keys.contains($0.citekey) }.map(\.id))
+        case .person: kind = .person; ids = Set(snapshot.people.filter { keys.contains($0.key) }.map(\.id))
+        case .venue, .organization, .divergence: return []   // venue／organization 只住在 entities/，沒有 legacy 拷貝
+        }
+        return snapshot.shadowedLegacyCopies.filter { $0.kind == kind && ids.contains($0.id) }.map(\.legacyFile).sorted()
     }
 
     /// 這次合併會**改指**（因而改寫）的 entry：person 合併看作者位的 `.key`、work 合併看 `cites`／`related`（倖存者與被併者

@@ -218,8 +218,9 @@ final class CrossRecordValidationTests: XCTestCase {
 
     // MARK: - 唯一性（單筆 validate 結構上看不到）
 
-    /// 重複 UUID 的實際後果：index 的 `PRIMARY KEY` 靜默丟掉其中一筆——
-    /// 查詢少一筆但**不報錯**。所以這必須是 error 而非 warning。
+    /// 重複 UUID 的實際後果：index 的 entries 以 UUID 為 `PRIMARY KEY`，兩筆不同的記錄共用它時重建失敗（這裡先前寫「靜默丟掉
+    /// 其中一筆」——entries 是一般的 INSERT，不是靜默，#709 更正）。所以這必須是 error 而非 warning。同一筆記錄的 legacy 拷貝
+    /// （一份在 entities/）不在此列，是 warning（#709，`IndexPrefersEntitiesCopyTests`）。
     ///
     /// **legacy 佈局限定**（#56）：entities 佈局下**檔名就是 UUID**，兩筆共用 UUID 會寫進
     /// 同一個檔、後者覆蓋前者，於是 load 只讀到一筆——「兩筆共用 UUID」在那個佈局裡

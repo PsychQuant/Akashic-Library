@@ -157,8 +157,11 @@ public final class AppState {
 
     public func load() throws {
         let loaded = try store.load()
-        entries = loaded.entries
-        people = loaded.people
+        // #709：清單與裁決台以 entities/ 那份為準（同一筆記錄的 legacy 拷貝不列）；過濾不讓任何一筆變得可寫（見 helper 的 doc）。
+        // 健康總覽照舊用完整的 `loaded`——兩份並存要看得到。
+        let view = loaded.withoutShadowedLegacyCopies()
+        entries = view.entries
+        people = view.people
         libraries = loaded.libraries
         quarantined = loaded.quarantined
         unknownFieldFiles = loaded.unknownFieldFiles

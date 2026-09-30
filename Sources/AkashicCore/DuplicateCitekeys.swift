@@ -102,7 +102,8 @@ extension Collection where Element == Person {
     ///
     /// **作品側的「與另一筆共用 id」刻意不收**，理由逐條、各有可查的出處：
     /// - index 的 people 表以 key 為主鍵（`LibraryIndex`：`people(key TEXT PRIMARY KEY, …)`），共用 id 不會讓 rebuild 丟掉一筆；
-    ///   作品側收它的一半理由是 index 的 entries 以 UUID 為主鍵、會靜默丟掉一筆（`crossRecordIssues` 報 error），這一半在 person 側不存在。
+    ///   作品側收它的一半理由是 index 的 entries 以 UUID 為主鍵、兩筆不同的記錄共用 id 時重建會失敗（`crossRecordIssues` 報 error；同一筆記錄的
+    ///   legacy 拷貝是 warning、index 取 entities/ 那份，#709），這一半在 person 側不存在。
     /// - 另一半理由是「寫入以 id 定檔、改它等於改兄弟的檔」。entities 佈局下兩筆 person 不可能都住在 `entities/`（檔名就是 id），
     ///   所以共用 id 必然有一筆是 legacy 殘留——那一筆寫入時會被 #631 拒（兩份並存），load 已經把它標進第 2 類；
     ///   **兩筆都還是 legacy 時**（目的檔此刻不存在，逐筆的 #631 檢查各自通過），load 另外跨記錄比 id、把兩筆都標進第 2 類

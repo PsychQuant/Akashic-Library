@@ -5,7 +5,7 @@ import AkashicCore
 ///
 /// 它**寫了**：新內容在 `entities/`，legacy 檔（`entries/<citekey>.yaml`／`people/<key>.yaml`）還在，同一筆記錄現在有兩份。
 /// load 把它標成無法唯一定位（#641）；兩份共用同一個 id（一般的寫入連 citekey／key 也相同；改名時 legacy 那份是舊鍵）。
-/// 刪掉 legacy 那份之前，index 重建以 `entities/` 那份為準、略過 legacy 拷貝（#709，`ShadowedLegacyCopy`）——
+/// 刪掉 legacy 那份之前，index 重建、匯出與 App 以 `entities/` 那份為準、略過 legacy 拷貝（#709，`ShadowedLegacyCopy`）——
 /// 所以寫入之後重建 index 的呼叫照常成功，這一筆在成功回應裡。#709 之前 work 的兩份讓重建撞 UNIQUE、呼叫以錯誤收場。
 ///
 /// 使用者 2026-09-30 裁決 (a)：各寫入者統一，這一筆記在**成功那一側**的 `writtenWithLegacyCopy`，不算失敗、不進任何失敗清單。
@@ -40,8 +40,8 @@ public struct LegacyCopyLeft: Equatable, Sendable {
         case .work where legacyFile == "entries/\(key).yaml": shared = "work 的兩份共用同一個 citekey："
         case .work: shared = "work 的兩份共用同一個 id——legacy 那份是改名前的 citekey："
         }
-        // #709：刪掉之前 index 以 entities/ 那份為準、略過 legacy 拷貝（先前 work 的兩份讓重建撞重複）
-        let index = "（\(shared)刪掉之前 index 以 entities/ 那份為準、略過 legacy 拷貝）"   // display-safe-exempt: shared：本檔字面
+        // #709：刪掉之前 index、匯出與 App 以 entities/ 那份為準、略過 legacy 拷貝（先前 work 的兩份讓重建撞重複）
+        let index = "（\(shared)刪掉之前 index、匯出與 App 以 entities/ 那份為準、略過 legacy 拷貝）"   // display-safe-exempt: shared：本檔字面
         return "\(kind.rawValue)「\(displaySafeInvisible(key, max: 200))」：\(base)\(index)"   // display-safe-exempt: base：errorDescription 對 file 以性質逃脫、detail 擲出端已消毒；kind：封閉列舉；index：本檔字面
     }
 

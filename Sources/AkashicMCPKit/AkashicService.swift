@@ -235,7 +235,7 @@ public final class AkashicService {
     }
 
     public func export(citekeys: [String]?, format: String) throws -> String {
-        let load = try store.load()
+        let load = try store.load().withoutShadowedLegacyCopies()   // #709：同一筆記錄的 legacy 拷貝不匯出，以 entities/ 那份為準
         var entries = load.entries
         if let wanted = citekeys {
             let wantedSet = Set(wanted)
@@ -353,7 +353,7 @@ public final class AkashicService {
         // **之前**。重複 citekey / person key 時 rebuild 會撞 UNIQUE constraint——
         // consumer 拿到的是 SQLite 內部錯誤，而不是「你有兩筆同 citekey 的記錄」。
         // 診斷工具在這種狀態下正是最該說話的時候，不是最該掛掉的時候。
-        // #709 起同一筆記錄的 legacy 拷貝不再讓重建失敗，但它造成的 error 照舊讓 doctor 不重建（與 CLI 同）。
+        // #709 起同一筆記錄的 legacy 拷貝不再讓重建失敗、它造成的重複降為 warning，doctor 照常重建（與 CLI 同）。
         // severity 逐條攜帶（#138 verify F3）：✗/⚠ 之別在 CLI 面有、MCP 面就不能丟。
         // #263：健康事實的**單一來源**是 `StoreHealth`——App 的健康總覽讀同一個型別。
         // 先前 App 完全不呼叫本函式、六個數字自己算，那是第三條獨立實作路徑（會分岔），

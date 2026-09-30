@@ -1445,7 +1445,7 @@ extension LibraryStore {
             merged: Set(mergedKeys), survivor: survivor, holderKind: nil, literalUniqueness: true)
         // **不擋、但要說**（同 work 側的 content warnings）：被併者的 authorized
         // 名字會失去對外形的身分（#565 起併入後未標；#553 當時是降成 variant）。#554 起有面改回去（`update-venue --authorize`），
-        // 但那個面不留 judgement（#564 另裁），所以合併端仍分不出判定與機械值——提醒不擋。
+        // 但那個面目前不留 judgement（#564 已於 2026-10-01 裁決要留，另案落地），所以合併端仍分不出判定與機械值——提醒不擋。
         // 算在**前置**是因為 preview 與實跑共用這一份——本檔付過兩次代價的那條
         // 紀律（#139 F1）對提醒與對拒絕同樣適用：只在實跑算，dry-run 就對一個
         // 單向操作沉默，而 dry-run 正是「還能反悔的時點」。
@@ -1457,7 +1457,8 @@ extension LibraryStore {
         var warnings: [String] = []
         for v in doomed {
             for demotion in Self.authorizedDemotedByMerging(v, into: keeper, absorption: absorption) {
-                warnings.append(Self.demotionWarning(demotion, doomed: v.key, survivor: survivor))
+                warnings.append(Self.demotionWarning(demotion, doomed: v.key, survivor: survivor,
+                                                     survivorHasOutwardForm: Self.keeperHasAuthorized(keeper, inScriptOf: demotion.name)))
             }
         }
         for u in absorption.uncarriedVariants {
@@ -1468,11 +1469,19 @@ extension LibraryStore {
 
     private static func quoted(_ s: String) -> String { "「\(displaySafeInvisible(s, max: 120))」" }
 
+    /// 倖存者在那個名字的書寫系統上有沒有 authorized。#563 起 bootstrap 建檔不寫 authorized，倖存者的 authorized 為空是常態——
+    /// 那時「倖存者同書寫系統的對外形不變」是空話（沒有對外形可言），提醒句要改說「沒有」（#563 R1 verify 第 31 列）。
+    static func keeperHasAuthorized(_ keeper: Venue, inScriptOf name: String) -> Bool {
+        let script = WritingSystem.of(name)
+        return keeper.authorized.contains { WritingSystem.of($0) == script }
+    }
+
     /// authorized 降級的提醒句（三種結果加一種三方合併的結果分開說，理由見 `validateVenuePreconditions` 的註解）。
-    static func demotionWarning(_ demotion: Demotion, doomed: String, survivor: String) -> String {
+    /// `survivorHasOutwardForm`：倖存者在這個名字的書寫系統上有 authorized——有才說「對外形不變」，沒有就說「沒有這個書寫系統的對外形」。
+    static func demotionWarning(_ demotion: Demotion, doomed: String, survivor: String, survivorHasOutwardForm: Bool = true) -> String {
         let head = quoted(demotion.name) + "在被併的" + quoted(doomed) + "是 authorized，合併後"
         let target = quoted(survivor)
-        let guardNote = "倖存者同書寫系統的對外形不變"
+        let guardNote = survivorHasOutwardForm ? "倖存者同書寫系統的對外形不變" : "倖存者沒有這個書寫系統的對外形"
         switch demotion.outcome {
         case .becomesUnclassified:
             return head + "併入" + target + "的 names、成為未標（不進 variant；" + guardNote + "）"
@@ -1650,7 +1659,9 @@ extension LibraryStore {
     /// 「哪個名字對外」是判定（`authorize-names` 做的事），聯集會違反「每書寫系統
     /// 至多一個」。那個論證的前提是 **person 的 authorized 承載判定**。
     ///
-    /// venue 在 #553 時不承載（#554 起 store 分不出它承不承載）。實測 2026-09-11（live store，494 筆 venue）：
+    /// venue 在 #553 時不承載（#554 起 store 分不出它承不承載）。實測 2026-09-11（live store，494 筆 venue；**這組數字與下面「唯一寫入者」
+    /// 的前提都只對 #563 之前建的 venue 成立**——#563 起 bootstrap 與 `add-venue` 一樣建檔留空，之後新建的 venue 若有非空 authorized，
+    /// 必然是人用 `update-venue --authorize` 下的判定，不是機械值；store 仍分不出兩者，所以這一格維持提醒不擋，觸發條件不變）：
     ///
     /// ```
     /// 有 authorized 479 筆｜空 15 筆｜多於一個 0 筆
@@ -1667,10 +1678,10 @@ extension LibraryStore {
     /// **#554 起 `updateVenue` 收 `authorize`**——當時寫在下方的第一個觸發條件（「venue
     /// 長出 authorized 的寫入面」）成立，這一格於 2026-09-12 重開過一次（#554 R1 verify
     /// 第 2 列；重開後那條觸發條件被換成 #564，見下）。**裁決：維持提醒不擋。**
-    /// 理由換了：不再是「沒有面」，而是那個面**不留 judgement**（#564 另裁三個名字
-    /// 分類面要不要留、留什麼形狀）——所以「人用 `--authorize` 確認過的 names[0]」與
+    /// 理由換了：不再是「沒有面」，而是那個面**目前不留 judgement**（#564 已於 2026-10-01 裁決三個名字
+    /// 分類面要留，另案落地）——所以「人用 `--authorize` 確認過的 names[0]」與
     /// 「bootstrap 的機械 names[0]」在 store 裡仍然長得一樣，合併端拿不到可以承重的
-    /// 東西。#564 裁「留」且落地後，本函式對「有 judgement 的 authorized」升成拒絕條件、
+    /// 東西。#564 已於 2026-10-01 裁決要留；落地後，本函式對「有 judgement 的 authorized」升成拒絕條件、
     /// 對機械值維持提醒——那時要一起改的是 `fieldsLostByMerging` 與這段 doc。
     ///
     /// ## 但降級是真的，而且單向——所以要說

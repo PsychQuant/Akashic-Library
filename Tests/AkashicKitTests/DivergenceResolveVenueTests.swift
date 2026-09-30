@@ -587,8 +587,8 @@ final class DivergenceResolveVenueTests: XCTestCase {
     /// **本輪的裁決釘子**：被併者的 `authorized` 不是拒絕條件。
     ///
     /// person 側對同一形狀是**拒絕**（#81：「哪個名字對外」是判定）。venue 不是：
-    /// 實測 479/479 筆的 `authorized` 恰好等於 `[names[0]]`，唯一的寫入者是
-    /// `VenueBootstrap` 的建檔慣例。把 bootstrap 副產品當承重判定，會讓這個工具
+    /// 實測 479/479 筆的 `authorized` 恰好等於 `[names[0]]`，唯一的寫入者**當時**是
+    /// `VenueBootstrap` 的建檔慣例（#563 起 bootstrap 不再寫它，既有的機械值不動）。把 bootstrap 副產品當承重判定，會讓這個工具
     /// 對它要解決的 5 組重複**全部無用**——而那 5 組正是它的立案理由。
     func testDemotedAuthorizedIsAWarningNotARefusal() throws {
         let d = try seed()
@@ -596,12 +596,38 @@ final class DivergenceResolveVenueTests: XCTestCase {
         XCTAssertFalse(report.hasFailures, "authorized 不對稱不得擋下合併")
         XCTAssertTrue(report.warnings.contains { $0.contains("AMERICAN STATISTICIAN") && $0.contains("成為未標") },
                       "降級沒有被說出來（seed 的形狀是 becomesUnclassified，要說「成為未標」）：\(report.warnings)")
+        XCTAssertTrue(report.warnings.contains { $0.contains("AMERICAN STATISTICIAN") && $0.contains("倖存者同書寫系統的對外形不變") },
+                      "倖存者在拉丁書寫系統有 authorized，才說「對外形不變」：\(report.warnings)")
+    }
+
+    /// **倖存者沒有那個書寫系統的 authorized 時，「倖存者同書寫系統的對外形不變」是空話**（#563 R1 verify 第 31 列）：#563 起 bootstrap 建檔
+    /// 留空，空的 authorized 是新建 venue 的常態；提醒句要說「沒有這個書寫系統的對外形」。看的是**那個名字的書寫系統**——
+    /// 倖存者只有漢字的 authorized 而被併者的是拉丁名，同樣沒有。
+    func testDemotionWarningSaysSoWhenTheSurvivorHasNoOutwardFormInThatScript() throws {
+        let d = try seed()
+        var keeper = try XCTUnwrap(try store.load().venues.first { $0.key == "the-american-statistician" })
+        keeper.authorized = []
+        try store.writeVenue(keeper)
+        GitFixture.commitAll(root, message: "keeper without authorized")
+        func warning() throws -> String {
+            let preview = try store.previewResolveDivergence(id: d.id, survivor: "the-american-statistician", overrideReason: nil)
+            return try XCTUnwrap(preview.warnings.first { $0.contains("AMERICAN STATISTICIAN") }, "\(preview.warnings)")
+        }
+        let none = try warning()
+        XCTAssertTrue(none.contains("倖存者沒有這個書寫系統的對外形") && !none.contains("對外形不變"), none)
+        // 倖存者只有漢字的 authorized：被併者的拉丁名仍然沒有同書寫系統的對外形
+        keeper.names = Timeline(keeper.names.entries + [TemporalValue(value: "美國統計學家")])
+        keeper.authorized = ["美國統計學家"]
+        try store.writeVenue(keeper)
+        GitFixture.commitAll(root, message: "keeper with a Han authorized only")
+        let han = try warning()
+        XCTAssertTrue(han.contains("倖存者沒有這個書寫系統的對外形") && !han.contains("對外形不變"), han)
     }
 
     /// **dry-run 不得對降級沉默。**
     ///
-    /// 降級是單向的（#554 之前沒有改回 authorized 的面；之後有面但不留 judgement，
-    /// 合併端仍分不出判定與機械值——#564），而 dry-run 正是「還能反悔的
+    /// 降級是單向的（#554 之前沒有改回 authorized 的面；之後有面但目前不留 judgement，
+    /// 合併端仍分不出判定與機械值——#564 已裁決要留、另案落地），而 dry-run 正是「還能反悔的
     /// 時點」。這個檔案為同一形狀付過兩次代價（#139 F1：拒絕條件只在實跑算，
     /// dry-run 對最高頻的 `wouldLoseFields` 完全沉默）——提醒與拒絕同一條紀律。
     func testDryRunAnnouncesTheDemotionToo() throws {

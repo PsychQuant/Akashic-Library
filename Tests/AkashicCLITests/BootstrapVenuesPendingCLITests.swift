@@ -97,5 +97,9 @@ final class BootstrapVenuesPendingCLITests: XCTestCase {
             .map { try String(contentsOf: $0, encoding: .utf8) }
             .first { $0.contains("key: journal-of-educational-psychology") }
         XCTAssertFalse(try XCTUnwrap(file).contains("authorized:"), "磁碟上不得出現 authorized 鍵：\(file ?? "")")
+        // 輸出要告訴操作者：新建的 venue 不指定對外形、指定走哪個命令、doctor 不會報它（R1 verify 第 15 列）
+        XCTAssertTrue(r.output.contains("update-venue") && r.output.contains("--authorize") && r.output.contains("doctor"), r.output)
+        let dry = try cli(["bootstrap-venues"])
+        XCTAssertTrue(dry.output.contains("authorized 留空"), "乾跑也說：\(dry.output)")
     }
 }

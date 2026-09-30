@@ -46,9 +46,10 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         try StoreVersion.write(root: root, format: StoreVersion.supported)
         service = AkashicService(root: root)
         // **`addVenue` 不寫 authorized**（實測：本測試第一版假設它照 `VenueBootstrap`
-        // 的慣例寫 `[names[0]]`，紅在 `[]`）。兩個建檔面對 authorized 的處置不同：
-        // bootstrap 機械取第一個名字、`addVenue` 留空（#227 的「建檔不機械偽造」語意）。
-        // 所以 479/479 筆 `[names[0]]` 全來自 bootstrap——那正是 #554 的立案事實。
+        // 的慣例寫 `[names[0]]`，紅在 `[]`）。#563 之前兩個建檔面的處置不同：
+        // bootstrap 機械取第一個名字、`addVenue` 留空（#227 的「建檔不機械偽造」語意）；
+        // #563 起 bootstrap 也留空，兩個建檔面一致。那 479/479 筆 `[names[0]]` 全來自
+        // #563 之前的 bootstrap——那正是 #554 的立案事實，既有的機械值不動。
         // 這裡刻意給 WoS 全大寫形，讓「補正式對外形」是本測試的自然動作。
         _ = try service.addVenue(key: "some-journal", names: ["PSYCHOMETRIKA"],
                                  type: "periodical", note: nil, issn: nil)

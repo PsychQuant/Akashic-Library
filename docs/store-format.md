@@ -533,8 +533,12 @@ displayName(script) =
 **看得見**，比靜默印出引用形誠實。`organization` 在第 3 步之前多一階「當前有效名稱」
 （`names.current`）——那是對名稱時間軸的**查詢**，不是讀取順序，故保留。
 
-**`authorized` 為選填。** 缺席合法，由 `doctor` 報告而非 `validate` 拒絕：修復所需的
-資訊（正確的對外名字）無法自動取得，設成錯誤等於把不可自動化的工作變成載入的前置條件。
+**`authorized` 為選填。** 缺席合法，不由 `validate` 拒絕：修復所需的資訊（正確的對外名字）
+無法自動取得，設成錯誤等於把不可自動化的工作變成載入的前置條件。`doctor` 的
+`no authorized name: N person / M organization` **只數 person 與 organization，不數 venue**
+——venue 的空 authorized 沒有任何掃描面報告（`add-venue` 建檔本來就空；`bootstrap-venues` 自 #563 起
+建檔也留空，顯示名退到 `names` 的第一段），要找出哪些 venue 還沒指定對外形得自己掃 YAML（#600 的
+authorize campaign 需要那個清單）。
 指定的寫入面：person 用 `authorize-names`，organization 用 `update-organization --authorize`（#557；在此之前
 organization 沒有任何寫入面，`doctor` 那一行修不掉），venue 用 `update-venue --authorize`（#554）；venue 另有
 `--unauthorize` 撤回（#559），與兩者的替換共用同一份邏輯。organization 沒有撤回面（待裁：它的 `names` 只增不減，撤回會讓

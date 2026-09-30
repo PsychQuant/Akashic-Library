@@ -105,7 +105,8 @@ struct BootstrapVenues: ParsableCommand {
         guard apply else {
             print("")
             print("（dry-run）加 --apply 實際寫入。**只建立、不歸戶**"
-                  + "——entry 的 venues literal 原樣留著，歸戶是 resolve-venues 的第二步。")
+                  + "——entry 的 venues literal 原樣留著，歸戶是 resolve-venues 的第二步。"
+                  + "建出來的 venue 不指定對外形（authorized 留空，#563）。")
             return
         }
 
@@ -114,5 +115,7 @@ struct BootstrapVenues: ParsableCommand {
         print("")
         print("已建立 \(venues.count) 筆 venue 記錄。"
               + "下一步：akashic resolve-venues 看候選，確認後 --apply 歸戶。")
+        print("新建的 venue 沒有指定對外形（authorized 留空，#563；顯示名暫取 names 的第一段）："
+              + "指定走 akashic update-venue <key> --authorize \"<名字>\"，doctor 不會替空的 venue authorized 報缺口（它只數 person 與 organization）。")
     }
 }

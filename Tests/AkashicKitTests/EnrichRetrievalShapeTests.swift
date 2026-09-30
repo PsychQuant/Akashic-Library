@@ -81,6 +81,51 @@ final class EnrichRetrievalShapeTests: XCTestCase {
         }
     }
 
+    /// #695 R1 verify 第 6／10 列：`@` 後面緊跟 Extend 字元（組合符號 U+0301、ZWJ U+200D、VS16 U+FE0F）時，Swift 的 `Character`
+    /// 把兩者合成一個 grapheme，`contains("@")` 為 false——兩席以真 binary 把帳密寫進了 store。定界符在 scalar 上找，三種都說帳密。
+    /// 帳密排在危險 scalar 之前，所以 ZWJ（Cf）那一格說的也是帳密——恢復 `Character` 掃描的反向編輯會讓三格都紅。
+    func testAnAtSignFollowedByAnExtendScalarIsStillCredentials() {
+        for (label, url) in [("@ 後接 U+0301", "https://user:secret@\u{0301}example.org/x"),
+                             ("@ 後接 U+200D", "https://user:secret@\u{200D}example.org/x"),
+                             ("@ 後接 U+FE0F", "https://user:secret@\u{FE0F}example.org/x"),
+                             ("token@ 後接 U+0301", "https://token@\u{0301}example.org/x")] {
+            guard let r = refusal([proposal { $0.sourceURL = url }]) else { XCTFail(label); continue }
+            XCTAssertTrue(r.reason.contains("sourceURL") && r.reason.contains("帳密"), "\(label)：\(r.reason)")
+            XCTAssertFalse(r.reason.contains("secret") || r.reason.contains("example.org"), "\(label)：不回顯：\(r.reason)")
+        }
+    }
+
+    /// #695 R1 verify 第 19 列：控制字元、格式字元（方向控制）、NUL、換行、空白——url、retrieved、media type 三欄都拒絕。
+    /// url 整串不收空白（RFC 3986：要編成 %20）；media type 內部的空白照收（`text/html; charset=utf-8`），前後的不收；
+    /// retrieved 的文法逐位元組比到結尾，這幾種本來就過不了——這裡釘住它們繼續過不了。
+    func testUnsafeScalarsAndStrayWhitespaceAreRefused() {
+        let cases: [Case] = [
+            Case("url 主機裡有換行", ["sourceURL", "控制字元"]) { $0.sourceURL = "https://exa\nmple.org/x" },
+            Case("url 路徑裡有換行", ["sourceURL", "控制字元"]) { $0.sourceURL = "https://example.org/x\nsecret" },
+            Case("url 是 NUL 主機", ["sourceURL", "控制字元"]) { $0.sourceURL = "https://\u{0}" },
+            Case("url 主機內嵌空白", ["sourceURL", "空白"]) { $0.sourceURL = "https://exa mple.org" },
+            Case("url 尾端空白", ["sourceURL", "空白"]) { $0.sourceURL = "https://example.org " },
+            Case("url 路徑有 RLO", ["sourceURL", "格式字元"]) { $0.sourceURL = "https://example.org/\u{202E}gnp.exe" },
+            Case("url 路徑有 ZWSP", ["sourceURL", "格式字元"]) { $0.sourceURL = "https://example.org/a\u{200B}b" },
+            Case("url 主機有反斜線", ["sourceURL", "反斜線"]) { $0.sourceURL = "https://example.org\\x/y" },
+            Case("retrieved 尾端空白", ["sourceRetrieved", "ISO 8601"]) { $0.sourceRetrieved = "2026-09-09 " },
+            Case("retrieved 尾端換行", ["sourceRetrieved", "ISO 8601"]) { $0.sourceRetrieved = "2026-09-09\n" },
+            Case("retrieved 帶 NUL", ["sourceRetrieved", "ISO 8601"]) { $0.sourceRetrieved = "2026-09-09\u{0}" },
+            Case("retrieved 偏移沒有冒號", ["sourceRetrieved", "偏移要帶冒號"]) { $0.sourceRetrieved = "2026-09-30T12:00:00+0800" },
+            Case("media type 帶 RLO", ["sourceMediaType", "格式字元"]) { $0.sourceMediaType = "text/html\u{202E}" },
+            Case("media type 前導空白", ["sourceMediaType", "前後空白"]) { $0.sourceMediaType = " text/html" },
+            Case("media type 尾端空白", ["sourceMediaType", "前後空白"]) { $0.sourceMediaType = "text/html " },
+            Case("media type 帶換行", ["sourceMediaType", "控制字元"]) { $0.sourceMediaType = "text/\nhtml" },
+            Case("media type 帶 NUL", ["sourceMediaType", "控制字元"]) { $0.sourceMediaType = "text/html\u{0}" },
+        ]
+        for c in cases {
+            guard let r = refusal([proposal(c.mutate)]) else { XCTFail(c.label); continue }
+            for n in c.needles { XCTAssertTrue(r.reason.contains(n), "\(c.label)：要說出「\(n)」，實得 \(r.reason)") }
+        }
+        // 內部空白的 media type 照收
+        XCTAssertNoThrow(try AddOnlyEnrichment.plan(entries: [entry()], proposals: [proposal { $0.sourceMediaType = "text/html; charset=utf-8" }]))
+    }
+
     /// 帳密不回顯——拒絕訊息進 MCP 的對話紀錄與終端。
     func testCredentialsAreNeverEchoed() {
         let r = refusal([proposal { $0.sourceURL = "https://alice:hunter2@example.org/x?token=abc" }])

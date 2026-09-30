@@ -196,6 +196,22 @@ final class EnrichCLITests: XCTestCase {
         }
     }
 
+    /// #695 R1 verify 第 10 列（DA 席的真 binary 重現）：`@` 後接組合符號、ZWJ、VS16 的 url 先前通過驗證、帳密整段寫進 store。
+    /// 定界符改在 scalar 上找之後三種都整批拒絕、零寫入、不回顯。
+    func testCredentialsHiddenBehindAnExtendScalarAreRefused() throws {
+        let before = try bytes(alpha)
+        for ext in ["\\u0301", "\\u200D", "\\uFE0F"] {
+            let bad = #"{"citekey":"noauthor2020x","fields":{"note":"n"},"sourceURL":"https://alice:hunter2@"# + ext
+                + #"example.org/x","sourceRetrieved":"2026-09-30","sourceStatus":200}"#
+            let r = try cli(["enrich", "--from", try proposals("[\(bad)]"), "--apply"])
+            XCTAssertEqual(r.status, 1, "\(ext)：\(r.output)")
+            XCTAssertTrue(r.output.contains("帳密") && r.output.contains("整批拒絕"), "\(ext)：\(r.output)")
+            XCTAssertFalse(r.output.contains("hunter2"), "帳密不回顯：\(r.output)")
+            XCTAssertNil(try entry("noauthor2020x").fields["note"], "\(ext)：零寫入")
+            XCTAssertEqual(try bytes(alpha), before)
+        }
+    }
+
     // MARK: - --include-absent-authors 直通
 
     func testIncludeAbsentAuthorsIsPassedThrough() throws {

@@ -66,6 +66,13 @@ plugin 的 wrapper 會自動下載新版 `akashic-mcp`，skill 文字可能比 b
 
 只給 `sourceDigest` 的提案不受影響，仍是回顯。蛇形別名（`source_url` 等）走同一道檢查。
 
+同日的第一輪驗證之後，同一個形狀函式再多拒下列輸入，`akashic_enrich` 的來源欄位與 `akashic_update_person`／`akashic_update_venue` 的 `references` 一起：
+
+- url 的 `@` 後面接組合符號、ZWJ 或 VS16（`https://user:pw@\u0301example.org/`）。先前這種帳密會通過檢查、寫進 store；現在說「含帳密」。
+- url 含控制字元、格式字元（方向控制、零寬字元）或任何空白（空白要編成 `%20`），或主機部分含反斜線。
+- media type（`sourceMediaType`／`media_type`）含這類字元，或前後有空白。內部的空白照收（`text/html; charset=utf-8`）。
+- `sourceRetrieved`／`retrieved` 的時區偏移沒有冒號（`+0800`）先前就被拒，錯誤訊息現在會直接說「偏移要帶冒號」。
+
 **`akashic_update_person` 的 `references: []`（空陣列）改成拒絕**，與 `akashic_update_venue` 同一句話。先前 person 這一面是 no-op。沒有要附的 reference 就不要給這個鍵。
 
 ## #703 — `akashic_store_source` 單檔上限 256 MB
@@ -103,7 +110,7 @@ plugin 的 wrapper 會自動下載新版 `akashic-mcp`，skill 文字可能比 b
 - `url` 不是 http／https（`file:`、`ftp:`、沒有 scheme）、主機為空、或含帳密（`user:pass@`）——離線來源改用 judgement 型。
 - `retrieved` 不是 ISO 8601 日期或日期時間（裸日期 `YYYY-MM-DD` 照收）。
 
-`akashic_enrich` 的 `sourceURL`／`sourceRetrieved`／`sourceStatus` 沒有跟著收緊（#695，待裁決）。
+`akashic_enrich` 的 `sourceURL`／`sourceRetrieved`／`sourceStatus` 沒有跟著收緊（#695，待裁決）。（2026-09-30：#695 已裁決並收緊，enrich 走同一個形狀函式，見上方 #695 一節。）
 
 **`akashic_resolve_people` 的隸屬欄位（#663）**：只被觀測到（`attested`）的隸屬先前給 `formerAffiliation` 加 `formerAffiliationAttested`，現在給 `observedAffiliation` 加 `observedAffiliationAt`；`formerAffiliationAttested` 拿掉了，`formerAffiliation` 只給宣稱已結束的段。讀 `formerAffiliation` 判斷「這個人離開了哪裡」的呼叫端，對只被觀測到的人現在讀不到值——那正是這次要修的誤讀（被看到過不等於離開了）。
 

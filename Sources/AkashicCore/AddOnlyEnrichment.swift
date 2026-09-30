@@ -125,8 +125,8 @@ public enum AddOnlyEnrichment {
     /// `enrich` 的來源欄位怎麼稱呼一筆擷取型記錄與它的三個鍵（`RetrievalWriteShape.Names`，#695）。蛇形別名（`source_url` 等）解碼後
     /// 落到同一個欄位，訊息用駝峰名。離線來源沒有 HTTP 狀態、url 也不是 http／https：只給 `sourceDigest`（回顯、不寫 reference，#517）。
     static let sourceRetrievalNames = RetrievalWriteShape.Names(
-        record: "來源欄位", url: "sourceURL", retrieved: "sourceRetrieved", status: "sourceStatus",
-        offlineRemedy: "離線來源（本機檔案、掃描檔）不給 sourceURL／sourceRetrieved／sourceStatus，只給 sourceDigest（回顯、不寫 reference）")
+        record: "來源欄位", url: "sourceURL", retrieved: "sourceRetrieved", status: "sourceStatus", mediaType: "sourceMediaType",
+        offlineRemedy: "離線來源（本機檔案、掃描檔）不給 sourceURL／sourceRetrieved／sourceMediaType／sourceStatus，只給 sourceDigest（回顯、不寫 reference）")
 
     // MARK: - 輸入
 
@@ -582,7 +582,7 @@ public enum AddOnlyEnrichment {
         // 所以只有 url／retrieved／media type 讓 status 必填。回顯原樣：這個理由由消費端在擲出站點逃一次（見 `InputError`）。
         func given(_ s: String?) -> String? { (s ?? "").isEmpty ? nil : s }
         if let why = RetrievalWriteShape.firstIssue(
-            url: given(p.sourceURL), retrieved: given(p.sourceRetrieved), status: p.sourceStatus,
+            url: given(p.sourceURL), retrieved: given(p.sourceRetrieved), status: p.sourceStatus, mediaType: given(p.sourceMediaType),
             statusRequired: [p.sourceURL, p.sourceRetrieved, p.sourceMediaType].contains { given($0) != nil },
             names: sourceRetrievalNames, echo: { String(String.UnicodeScalarView($0.unicodeScalars.prefix(80))) }) {
             throw InputError.invalidProposal(index: index, reason: why)

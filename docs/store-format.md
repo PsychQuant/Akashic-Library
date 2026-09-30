@@ -1205,7 +1205,7 @@ store 上：寫入閘拒寫，`enrich` 則在寫入前讀 marker、值照補、r
 `fields.<鍵>` 那一格在 format < 17 的 store 上同理（#668），理由逐鍵進 `provenanceOmitted` 的 `fields.<鍵>`。
 `enrich` 的來源欄位寫的是 retrieval reference，與 person／venue 的 `references` 走同一個形狀檢查（#695，`RetrievalWriteShape`）：
 `sourceURL` 只收 http／https、主機非空、不含帳密，`sourceRetrieved` 是 ISO 8601，`sourceStatus` 在 100–599；給了 URL、retrieved 或 media type
-就要給 status（不預設 200）。不合的提案整批拒絕、零寫入。只給 `sourceDigest` 不是在寫 reference（回顯，#517），不觸發 status 必填。
+就要給 status（不預設 200）。url 與 media type 的字元規則與 references 相同（見下）。不合的提案整批拒絕、零寫入。只給 `sourceDigest` 不是在寫 reference（回顯，#517），不觸發 status 必填。
 
 **移除端**：`update-entry --remove-field <鍵>=理由`（MCP `akashic_update_entry` 的 `remove_fields`，#544）刪一個 `fields` 的值時，
 一併刪掉指向它的 `fields.<鍵>` reference——留著它，那筆的語意會從正結果（值出自這份來源）翻成負結果（查過了、這份來源沒給），
@@ -1236,7 +1236,8 @@ venue 的 `references:` 可附著的 `field` 是**封閉列舉**，唯一的列�
 `media-type`／`judgement`／`rests-on`；retrieval 的 `status` 必填，不預設 200（#542 R2 對 `enrich` 的同一個裁決）。
 **兩個面是同一份契約、同一個解析函式**（#674；`update-person` 的 `references` 與 `update-venue` 的 `--references`，解析住在 `ReferenceWriteParsing.swift`）：
 鍵名嚴格（不認得的鍵拒收）、型別不猜（`value`／`media_type`／`url` 要是字串、`rests_on` 要是字串陣列、`status` 要是整數）、`status` 在 100–599、
-`url` 只收 http／https 且主機非空、不含帳密（`user:password@`；拒絕訊息不回顯原值）、`retrieved` 是 ISO 8601（`YYYY-MM-DD`，或再接 `THH:MM[:SS[.fff]]` 與 `Z`／`±HH:MM`；
+`url` 只收 http／https 且主機非空、不含帳密（`user:password@`；拒絕訊息不回顯原值；`@`、`/`、`?`、`#` 在 Unicode scalar 上找，`@` 後接組合符號或 ZWJ 藏不住帳密）、主機不含反斜線、
+整串不含控制字元、格式字元（方向控制、零寬字元）與空白（與輸出閘同一份判準 `UnsafeToEmitScalar`；空白要編成 `%20`），`media_type` 不含這些字元、前後沒有空白（#695 R1 verify）、`retrieved` 是 ISO 8601（`YYYY-MM-DD`，或再接 `THH:MM[:SS[.fff]]` 與 `Z`／`±HH:MM`；
 裸日期照收——store 既有的擷取型 reference 全是裸日期，#262 的「帶 UTC offset」契約寫在 `sources/index.jsonl` 的 `retrieved`、尚未在任何寫入面強制）、
 一次至多 200 筆、`statement` 至多 4,096 位元組、`rests_on` 至多 20 個；任一筆不合整個呼叫拒絕、零寫入。載入既有記錄走 `ProvenanceReference` 的平面 init，
 **不受這些寫入面檢查影響**（`url`／`retrieved`／`status` 範圍只在寫入面驗）。兩個面各自的政策不同：person 收 verdict 以外的欄位（附著在寫入時驗），venue 只收 `issn` 與 `names`。

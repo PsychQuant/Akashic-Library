@@ -9,12 +9,23 @@ import Foundation
 /// `ReferenceWriteParsing.swift`（AkashicMCPKit），而 `AddOnlyEnrichment` 住在 Core、看不到它；搬到 Core，兩邊呼叫同一個函式，
 /// 不留第二份（`no-compat-fallback`「同一件事只能有一份描述」）。
 ///
-/// 驗四件事，先後固定：
+/// 驗五件事，先後固定：
 /// 1. `status` 給了就要在 100–599（RFC 9110 §15：三位數、1xx–5xx）；
 /// 2. 呼叫端判定這是擷取型（`statusRequired`）而 `status` 沒給 → 拒絕，**不預設 200**（預設會把離線掃描檔記成 HTTP 200——
 ///    store 就斷言了來源沒說過的事實；#542 R2 對 `enrich` 裁掉過同一個預設）；
-/// 3. `url` 給了就只收 http／https、主機非空、不含帳密（帳密與帶 token 的 userinfo 會落進 git 追蹤的 YAML）；
-/// 4. `retrieved` 給了就要是 ISO 8601（日期，或日期加時間與可選的時區）。
+/// 3. `url` 給了就只收 http／https、主機非空、不含帳密（帳密與帶 token 的 userinfo 會落進 git 追蹤的 YAML）、主機不含反斜線，
+///    整串不含危險 scalar 與空白（#695 R1 verify）；
+/// 4. `retrieved` 給了就要是 ISO 8601（日期，或日期加時間與可選的時區）——文法逐位元組比到結尾，控制字元、空白本來就過不了；
+/// 5. `mediaType` 給了就不含危險 scalar、前後沒有空白（#695 R1 verify；內部的空白照收——`text/html; charset=utf-8`）。
+///
+/// **定界符一律在 scalar 上找**（#695 R1 verify 第 6／10 列，兩席以真 binary 寫進 store）：Swift 的 `Character` 是 grapheme cluster，
+/// `@` 後面緊跟組合符號（U+0301）、ZWJ（U+200D）或 VS16（U+FE0F）時兩者合成一個 `Character`，`contains("@")` 為 false——
+/// `https://user:secret@\u{0301}example.org/` 的帳密整段進了 git 追蹤的 YAML。`/`、`?`、`#`、`@`、`\`、`:`、`[`、`]` 都是 ASCII，
+/// 在 `unicodeScalars` 上找就不會被後面的 Extend 字元吃掉。
+///
+/// **危險 scalar 與輸出閘同一份性質**（`UnsafeToEmitScalar.contains`：Cc／Cf／Zl／Zp、非 U+0020 的 Zs、Default_Ignorable、私用區、
+/// 渲染成空白的碼位）——NUL、換行、方向控制（U+202E）、零寬字元都在裡面。它們進 store 之後會在報告與合併描述裡回顯，輸出端的逃脫是
+/// 縱深防禦，不是寫入的理由。
 ///
 /// 「缺 status」排在 url／retrieved 之前：一筆什麼都沒給對的 retrieval，先被告知的應該是 #674 點名的那一項（#674 R1 verify 第 28 列）。
 ///
@@ -36,11 +47,12 @@ public enum RetrievalWriteShape {
         public let url: String
         public let retrieved: String
         public let status: String
+        public let mediaType: String
         /// 離線來源（沒有 HTTP 狀態、url 不是 http／https）的出路——兩個面不同：references 改用判斷型，enrich 只給 digest。
         public let offlineRemedy: String
 
-        public init(record: String, url: String, retrieved: String, status: String, offlineRemedy: String) {
-            self.record = record; self.url = url; self.retrieved = retrieved; self.status = status
+        public init(record: String, url: String, retrieved: String, status: String, mediaType: String, offlineRemedy: String) {
+            self.record = record; self.url = url; self.retrieved = retrieved; self.status = status; self.mediaType = mediaType
             self.offlineRemedy = offlineRemedy
         }
     }
@@ -50,7 +62,7 @@ public enum RetrievalWriteShape {
     /// `echo`：回顯呼叫端送來的值（`retrieved` 的原字串、url 的 scheme）之前怎麼處理。訊息直接進自帶消毒的錯誤型別（`ServiceError`）時
     /// 在這裡逃脫；由消費端統一逃脫時（`AddOnlyEnrichment.InputError` 在 service／CLI／MCP 的擲出站點逃一次）原樣——否則逃兩次
     /// （`displaySafe` 不冪等）。帳密不回顯：url 只回顯 `://` 之前那一段，且只在它真的是 scheme 形時。
-    public static func firstIssue(url: String?, retrieved: String?, status: Int?, statusRequired: Bool,
+    public static func firstIssue(url: String?, retrieved: String?, status: Int?, mediaType: String?, statusRequired: Bool,
                                   names: Names, echo: (String) -> String) -> String? {
         if let status, !statusRange.contains(status) {
             return "\(names.status)「\(status)」不是 HTTP 狀態碼（\(statusRange.lowerBound)–\(statusRange.upperBound)）"
@@ -62,14 +74,35 @@ public enum RetrievalWriteShape {
         if let url, let why = urlIssue(url, names: names, echo: echo) { return why }
         if let retrieved, !isValidRetrievedInstant(retrieved) {
             return "\(names.retrieved)「\(echo(retrieved))」不是 ISO 8601——日期 YYYY-MM-DD，"
-                + "或再接 THH:MM[:SS[.fff]] 與 Z／±HH:MM（帶時區才是確切的一刻；store 的既有記錄多是裸日期，所以裸日期照收）"
+                + "或再接 THH:MM[:SS[.fff]] 與 Z／±HH:MM（偏移要帶冒號：+08:00，不收 +0800；帶時區才是確切的一刻；"
+                + "store 的既有記錄多是裸日期，所以裸日期照收）"
+        }
+        if let mediaType, let why = mediaTypeIssue(mediaType, names: names) { return why }
+        return nil
+    }
+
+    // MARK: - 危險 scalar
+
+    /// 與輸出閘同一份性質（`UnsafeToEmitScalar.contains`）——不另寫一份清單。
+    static func hasUnsafeScalar<S: Sequence>(_ scalars: S) -> Bool where S.Element == Unicode.Scalar {
+        scalars.contains { UnsafeToEmitScalar.contains($0) }
+    }
+
+    /// `mediaType`：不含危險 scalar、前後沒有空白。**不驗 `type/subtype` 文法**——裁決沒有點名它，而 live store 的 media type
+    /// 由 `store-source` 的收據帶來；這裡只擋會在輸出端回顯成隱形或多行的字元。不回顯原值。
+    static func mediaTypeIssue(_ mediaType: String, names: Names) -> String? {
+        let s = mediaType.unicodeScalars
+        let edgeSpace = (s.first?.properties.isWhitespace ?? false) || (s.last?.properties.isWhitespace ?? false)
+        guard !edgeSpace, !hasUnsafeScalar(s) else {
+            return "\(names.mediaType) 含控制字元、格式字元（方向控制、零寬字元等）或前後空白——media type 是 type/subtype 形"
+                + "（例如 text/html）；拿掉再送（不回顯原值）"
         }
         return nil
     }
 
     // MARK: - url
 
-    /// `url` 只收 http／https 網址，主機非空，不含帳密（userinfo）。**不回顯原值**：帳密若在 url 裡，把它印進錯誤訊息就是把它送進 log
+    /// `url` 只收 http／https 網址，主機非空，不含帳密（userinfo）、主機不含反斜線、整串不含危險 scalar 與空白。**不回顯原值**：帳密若在 url 裡，把它印進錯誤訊息就是把它送進 log
     /// 與 MCP 的對話紀錄；只說是哪一種錯，scheme 只在 `://` 之前那一段符合 `^[A-Za-z][A-Za-z0-9+.-]*$` 時回顯（至多 20 字）。
     /// 誠實邊界：query 裡的 token（`?token=…`）與路徑裡的機密看不出來，這裡不猜。
     static func urlIssue(_ url: String, names: Names, echo: (String) -> String) -> String? {
@@ -88,11 +121,21 @@ public enum RetrievalWriteShape {
             }
             return "\(names.url) 只收 http／https 網址\(shape)——\(names.offlineRemedy)"
         }
-        let authority = afterScheme.prefix(while: { $0 != "/" && $0 != "?" && $0 != "#" })
+        // 定界符在 scalar 上找（見型別 doc）。`\` 刻意**不是**定界符：WHATWG 對 http／https 把它當成 `/`、RFC 3986 不認它——
+        // 不把它當定界符，任何在第一個 `/`、`?`、`#` 之前的 `@` 都算帳密，是兩種解析的聯集（嚴的那一邊）；主機部分出現它則直接拒絕，
+        // 不讓 store 留一個兩種解析器讀出不同主機的網址。
+        let authority = afterScheme.unicodeScalars.prefix(while: { $0 != "/" && $0 != "?" && $0 != "#" })
         guard !authority.contains("@") else {
             return "\(names.url) 含帳密（userinfo，`user:password@` 或 `token@`）——不得把帳密或 token 寫進 store（YAML 進 git 追蹤）；拿掉它再送（不回顯原值）"
         }
-        let host = authority.hasPrefix("[") ? authority.dropFirst().prefix(while: { $0 != "]" }) : authority.prefix(while: { $0 != ":" })
+        guard !authority.contains("\\") else {
+            return "\(names.url) 的主機部分含反斜線——網址解析器對它的解讀不同（瀏覽器當成 /），store 不收；改成 / 再送（不回顯原值）"
+        }
+        // 整串：危險 scalar 與任何空白（RFC 3986 不收空白，要編成 %20）。排在帳密之後：兩者都在時先說帳密。
+        guard !hasUnsafeScalar(url.unicodeScalars), !url.unicodeScalars.contains(where: { $0.properties.isWhitespace }) else {
+            return "\(names.url) 含控制字元、格式字元（方向控制、零寬字元等）或空白——網址不含這些字元（空白要編成 %20）；拿掉再送（不回顯原值）"
+        }
+        let host = authority.first == "[" ? authority.dropFirst().prefix(while: { $0 != "]" }) : authority.prefix(while: { $0 != ":" })
         guard !host.isEmpty else {
             return "\(names.url) 缺主機（https:// 之後要有網域或位址）"
         }

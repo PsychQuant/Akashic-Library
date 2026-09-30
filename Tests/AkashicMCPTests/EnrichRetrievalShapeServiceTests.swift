@@ -62,6 +62,11 @@ final class EnrichRetrievalShapeServiceTests: XCTestCase {
         let cases: [(String, Shape, String)] = [
             ("ftp", Shape(url: "ftp://example.org/x"), "只收 http／https 網址（scheme 是「ftp」）"),
             ("帳密", Shape(url: "https://u:p@example.org/x"), "含帳密（userinfo"),
+            // #695 R1 verify 第 6／10 列：`@` 後接 Extend 字元——三種各一格，enrich 與 person 同一句
+            ("帳密（@ 後接 U+0301）", Shape(url: "https://u:p@\u{0301}example.org/x"), "含帳密（userinfo"),
+            ("帳密（@ 後接 U+200D）", Shape(url: "https://u:p@\u{200D}example.org/x"), "含帳密（userinfo"),
+            ("帳密（@ 後接 U+FE0F）", Shape(url: "https://u:p@\u{FE0F}example.org/x"), "含帳密（userinfo"),
+            ("url 含控制字元", Shape(url: "https://exa\nmple.org/x"), "含控制字元、格式字元（方向控制、零寬字元等）或空白"),
             ("缺主機", Shape(url: "https:///x"), "缺主機"),
             ("retrieved", Shape(retrieved: "2026/09/30"), "「2026/09/30」不是 ISO 8601"),
             ("status 範圍", Shape(status: 600), "「600」不是 HTTP 狀態碼（100–599）"),

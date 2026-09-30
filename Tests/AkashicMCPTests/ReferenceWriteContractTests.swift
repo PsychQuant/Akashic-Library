@@ -111,6 +111,21 @@ final class ReferenceWriteContractTests: XCTestCase {
             Case("url 缺主機", needle: "主機") { $0["url"] = "https:///path" },
             Case("url 帶帳密", needle: "帳密") { $0["url"] = "https://user:s3cret@example.org/x" },
             Case("url 帶只有 user 的 userinfo", needle: "帳密") { $0["url"] = "https://token@example.org/x" },
+            // #695 R1 verify 第 6／10 列：`@` 後接 Extend 字元，Character 語意下合成一個 grapheme、`contains("@")` 為 false
+            Case("url 的 @ 後接 U+0301", needle: "帳密") { $0["url"] = "https://user:secret@\u{0301}example.org/x" },
+            Case("url 的 @ 後接 U+200D", needle: "帳密") { $0["url"] = "https://user:secret@\u{200D}example.org/x" },
+            Case("url 的 @ 後接 U+FE0F", needle: "帳密") { $0["url"] = "https://user:secret@\u{FE0F}example.org/x" },
+            // #695 R1 verify 第 19 列：控制字元、格式字元、空白、反斜線
+            Case("url 主機裡有換行", needle: "控制字元") { $0["url"] = "https://exa\nmple.org/x" },
+            Case("url 是 NUL 主機", needle: "控制字元") { $0["url"] = "https://\u{0}" },
+            Case("url 尾端空白", needle: "空白") { $0["url"] = "https://example.org " },
+            Case("url 路徑有 RLO", needle: "格式字元") { $0["url"] = "https://example.org/\u{202E}gnp.exe" },
+            Case("url 主機有反斜線", needle: "反斜線") { $0["url"] = "https://example.org\\x/y" },
+            Case("media_type 帶 RLO", needle: "media_type") { $0["media_type"] = "text/html\u{202E}" },
+            Case("media_type 尾端空白", needle: "前後空白") { $0["media_type"] = "text/html " },
+            Case("media_type 帶換行", needle: "控制字元") { $0["media_type"] = "text/\nhtml" },
+            Case("retrieved 尾端空白", needle: "retrieved") { $0["retrieved"] = "2026-09-29 " },
+            Case("retrieved 帶 NUL", needle: "retrieved") { $0["retrieved"] = "2026-09-29\u{0}" },
             Case("retrieved 不是日期", needle: "retrieved") { $0["retrieved"] = "d" },
             Case("retrieved 斜線日期", needle: "retrieved") { $0["retrieved"] = "2026/09/29" },
             Case("retrieved 月份 13", needle: "retrieved") { $0["retrieved"] = "2026-13-01" },
@@ -145,11 +160,15 @@ final class ReferenceWriteContractTests: XCTestCase {
     /// 帳密不回顯：拒絕訊息若把整個 URL 印出來，帳密就跟著進了 log 與 MCP 的對話紀錄。
     func testUserinfoIsNeverEchoedInTheRefusal() throws {
         for isPerson in [true, false] {
-            var item = retrievalBase(person: isPerson)
-            item["url"] = "https://alice:hunter2@example.org/x?token=abc"
-            XCTAssertThrowsError(try isPerson ? person([item]) : venue([item])) { error in
-                let why = message(error)
-                XCTAssertFalse(why.contains("hunter2") || why.contains("alice") || why.contains("token=abc"), "\(why)")
+            for url in ["https://alice:hunter2@example.org/x?token=abc", "https://alice:hunter2@\u{0301}example.org/x?token=abc",
+                        "https://alice:hunter2@\u{200D}example.org/x", "https://alice:hunter2@\u{FE0F}example.org/x"] {
+                var item = retrievalBase(person: isPerson)
+                item["url"] = url
+                XCTAssertThrowsError(try isPerson ? person([item]) : venue([item])) { error in
+                    let why = message(error)
+                    XCTAssertTrue(why.contains("帳密"), why)
+                    XCTAssertFalse(why.contains("hunter2") || why.contains("alice") || why.contains("token=abc"), "\(why)")
+                }
             }
         }
     }
@@ -269,7 +288,11 @@ final class ReferenceWriteContractTests: XCTestCase {
                   "https://[2001:db8::1]:80/x", "https://例え.jp/パス", "https://example.org/a@b", "https://example.org?u=a@b"]
         let bad = ["", "example.org", "//example.org", "ftp://example.org", "file:///x", "https:/example.org", "https://",
                    "https:///x", "https://:80/x", "https://user@example.org", "https://user:pw@example.org/x", "https://@example.org",
-                   "http://a:b@[::1]/x", "mailto:a@b.c", "data:text/plain,hi", " https://example.org"]
+                   "http://a:b@[::1]/x", "mailto:a@b.c", "data:text/plain,hi", " https://example.org",
+                   // #695 R1 verify：定界符在 scalar 上找；危險 scalar 與空白整串不收；主機不收反斜線
+                   "https://u:p@\u{0301}example.org", "https://u@\u{200D}example.org", "https://u:p@\u{FE0F}example.org",
+                   "https://example.org ", "https://exa mple.org", "https://example.org/\u{202E}x", "https://\u{0}",
+                   "https://example.org/a\nb", "https://example.org\\@evil.org/", "https://example.org\\x"]
         // #695 起住在 Core（`RetrievalWriteShape`），enrich 的來源欄位呼叫同一個函式
         let names = AkashicService.referenceRetrievalNames(at: "references[0]")
         for u in ok { XCTAssertNil(RetrievalWriteShape.urlIssue(u, names: names, echo: { $0 }), "應收：\(u)") }

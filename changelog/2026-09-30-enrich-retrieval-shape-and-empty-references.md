@@ -69,3 +69,12 @@
 - 錯誤訊息的鍵用駝峰名。提案檔寫蛇形（`source_url`）時，訊息說的是 `sourceURL`。
 - `references` 面缺 status 的訊息，離線來源的出路從「離線來源改用 judgement 型」改成與 url 那句相同的「離線來源（本機檔案、掃描檔）改用 judgement 型（statement＋rests_on 指向存檔）」。一份 `Names` 只帶一個出路。
 - status 的範圍檢查在 references 面移到 `rests_on` 的型別檢查之後。兩個都錯時，先報的從 status 變成 rests_on；單一錯誤的訊息不變。
+
+## R1 verify 之後
+
+第一輪驗證的處置與負控詳見 `2026-09-30-b22-r1-fixes-705-695.md`。摘要：
+
+- **帳密檢查可被 grapheme cluster 繞過（兩席 MEDIUM，DA 以真 binary 寫進 store）**：`@` 後面緊跟組合符號、ZWJ 或 VS16 時，Swift 的 `Character` 把兩者合成一個，`contains("@")` 為 false。三個入口共用的 `urlIssue` 改在 Unicode scalar 上切 authority、找 `@`；主機含反斜線另行拒絕。
+- **字元規則**：url 整串拒絕控制字元、格式字元（方向控制、零寬字元）與空白；media type 拒絕這類字元與前後空白。判準與輸出閘同一份（`UnsafeToEmitScalar.contains`）。retrieved 的文法本來就擋這些，補了測試；`+0800` 的訊息改說「偏移要帶冒號」。
+- **「一份寫入契約」的措辭**：共用的是**形狀**函式。「要不要 status」由兩個面各自判定、刻意不同（enrich 的 `provenanceSkipped` 出口與只給 digest 的回顯）；上方〈誠實邊界〉前兩條說的就是這件事，對照表在那份 changelog。`mcp-cli-parity` 三列的 #695 註記同批更正。
+- `plugin/CHANGELOG.md` 的 #674 一節那句「enrich 沒有跟著收緊（#695，待裁決）」後面加上日期與指向 #695 一節的說明。

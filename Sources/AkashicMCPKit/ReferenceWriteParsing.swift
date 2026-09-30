@@ -117,12 +117,12 @@ extension AkashicService {
             }
             restsOn = strs
         }
-        // 擷取型的形狀（status 範圍、缺 status 不預設 200、url、retrieved）：`RetrievalWriteShape`，與 enrich 的來源欄位同一個函式（#695）。
+        // 擷取型的形狀（status 範圍、缺 status 不預設 200、url、retrieved、media_type）：`RetrievalWriteShape`，與 enrich 的來源欄位同一個函式（#695）。
         // 「缺 status」只看「純擷取型」：同時帶判斷側欄位的（兩種混用）留給平面 init 的「不得混用」，沒有任何擷取側欄位的
         // （例如 kind 寫 retrieval 卻只給 statement）留給下面的 kind 一致性檢查——那兩句話都比「缺 status」更準。
         let statusRequired = statement == nil && restsOn.isEmpty
             && (url != nil || retrieved != nil || mediaType != nil || content != nil)
-        if let why = RetrievalWriteShape.firstIssue(url: url, retrieved: retrieved, status: status, statusRequired: statusRequired,
+        if let why = RetrievalWriteShape.firstIssue(url: url, retrieved: retrieved, status: status, mediaType: mediaType, statusRequired: statusRequired,
                                                     names: referenceRetrievalNames(at: at), echo: { displaySafeInvisible($0, max: 80) }) {
             throw ServiceError.invalid(why)   // display-safe-exempt: why 由 RetrievalWriteShape 組成——回顯的值經 echo（displaySafeInvisible）逃一次，其餘是字面、Int 與 at（字面＋Int）
         }
@@ -153,7 +153,7 @@ extension AkashicService {
     /// references 面怎麼稱呼一筆擷取型記錄與它的三個鍵（`RetrievalWriteShape.Names`）：訊息指名 `references[i].url` 這種路徑；
     /// 離線來源的出路是判斷型（statement＋rests_on 指向存檔）。enrich 的來源欄位有自己的一組（`AddOnlyEnrichment`）。
     static func referenceRetrievalNames(at: String) -> RetrievalWriteShape.Names {
-        RetrievalWriteShape.Names(record: at, url: "\(at).url", retrieved: "\(at).retrieved", status: "\(at).status",
+        RetrievalWriteShape.Names(record: at, url: "\(at).url", retrieved: "\(at).retrieved", status: "\(at).status", mediaType: "\(at).media_type",
                                   offlineRemedy: "離線來源（本機檔案、掃描檔）改用 judgement 型（statement＋rests_on 指向存檔）")
     }
 }

@@ -21,3 +21,13 @@
 
 - 釘住的是 action 本身的 commit；action 在執行時自己下載的東西（例如 cache 的後端）不在這個範圍。
 - 手動更新代表沒有任何機制提醒有新版本；測試只擋「退回標籤」，不擋「SHA 過舊」。
+
+## R1 verify 之後（2026-09-30）
+
+R1 ensemble 沒有 HIGH、MEDIUM；這一輪處理五則 LOW：
+
+- **辨識補齊**（第 22、24 則）：`WorkflowActionPinningTests` 認得加引號的鍵（`"uses":`）與 flow-style（`- {uses: x}`），CRLF 檔改以 NSString 的 UTF-16 單位切行、再剝掉行尾的 `\r`——`String.split(separator: "\n")` 切不開 CRLF（Swift 把 `\r\n` 當成一個 Character），先前整份讀成一行時，檔內任何一處 `# v` 都能讓沒有版本註解的行過關。新測試 `testCRLFFileIsSplitIntoLines`；負控：改回 `String.split` → 兩個斷言紅（行號 `[1, 1]`、沒有註解的那一行判成已釘）。本機 action（`./…`）放行、`docker://` 要釘到 `@sha256:<64 位>`；`.github/actions/**/action.yml` 若存在也掃（目前沒有）。新增 `testRecognitionAndPinningCases` 對每一種形狀各一格，免得辨識寫錯時主測試因為「剛好沒有這種寫法」而綠。
+- **SHA 出處**（第 16、25、33 則）：更新程序改成先選定確切的版本標籤（`vX.Y.Z`），以 `gh api repos/<o>/<a>/commits/<vX.Y.Z> --jq .sha` 取 SHA，再以 `gh api repos/<o>/<a>/compare/<SHA>...<vX.Y.Z> --jq .status` 確認是 `identical`。依這個程序重驗兩個 SHA：checkout v4.4.0、cache v4.3.0 都是 `identical`。
+- 測試檔頭寫明它只擋形狀：SHA 是否屬於上游、版本註解是否對得上，要連網，由更新程序核對。
+
+誠實邊界補一條：repo 的 `sha_pinning_required` 是 false（R1 security 第 39 則讀到），釘 SHA 目前只靠這支測試與 review，沒有伺服器端強制；要不要開是 repo 設定，本次沒有動。

@@ -110,9 +110,10 @@ jobs:
   parity:
     runs-on: macos-15
     steps:
-      # Actions 釘到 commit SHA（#706）：版本標籤可以被移動，SHA 不行。更新時以
-      # `gh api repos/actions/<name>/commits/<tag> --jq .sha` 取新 SHA，尾端註解改成它對應的版本；
-      # 兩個 workflow 一起改（使用者 2026-09-30 裁決：手動更新，不加 Dependabot）。
+      # Actions 釘到 commit SHA（#706）：版本標籤可以被移動，SHA 不行。更新時先選定確切的版本標籤
+      # （vX.Y.Z，不是 v4 這種會移動的），以 `gh api repos/actions/<name>/commits/<vX.Y.Z> --jq .sha` 取 SHA，
+      # 再以 `gh api repos/actions/<name>/compare/<SHA>...<vX.Y.Z> --jq .status` 確認是 identical，
+      # 尾端註解寫那個版本；兩個 workflow 一起改（使用者 2026-09-30 裁決：手動更新，不加 Dependabot）。
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           # 只影響 checkout **之後**是否把 token 留在 git config——submodule 在

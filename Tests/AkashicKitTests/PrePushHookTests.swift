@@ -381,6 +381,89 @@ final class PrePushHookTests: XCTestCase {
             "核對在 test 之後、守衛之前——log 恰三行")
     }
 
+    /// #697：hook 檔所在的目錄不是被推送的工作樹的 `.githooks` 時，改跑工作樹那一份。
+    ///
+    /// 情境是 `core.hooksPath` 設成共用 checkout 的絕對路徑、從另一個 worktree 推送：git 在 worktree 的根目錄
+    /// 執行 hook，hook 檔卻取自共用 checkout。這裡用真 hook 的複本扮共用 checkout 那一份，用一支 stub 扮工作樹
+    /// 自己的 hook，三格：
+    ///
+    /// ① 工作樹有自己的 hook → 改跑它：結束碼是 stub 的、stub 收到同一份 stdin、共用那份沒有往下跑（沒呼叫 swift）
+    /// ② 工作樹沒有 `.githooks` → 照常往下跑、stderr 說用的是別處的 hook
+    /// ③ 工作樹的 `.githooks` 是指回同一個目錄的 symlink → 兩者是同一份，不改跑（比對的是實體路徑）
+    func testHookRunsTheWorktreesOwnHookWhenInvokedFromElsewhere() throws {
+        let root = repositoryRoot
+        let fm = FileManager.default
+        let temporary = fm.temporaryDirectory.appendingPathComponent("akashic-prepush-redirect-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: temporary) }
+        let shared = temporary.appendingPathComponent("shared/.githooks")
+        try fm.createDirectory(at: shared, withIntermediateDirectories: true)
+        try fm.copyItem(at: root.appendingPathComponent(".githooks/pre-push"),
+                        to: shared.appendingPathComponent("pre-push"))
+
+        let log = temporary.appendingPathComponent("swift.log")
+        let mockSwift = temporary.appendingPathComponent("bin/swift")
+        try fm.createDirectory(at: mockSwift.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "#!/bin/sh\n/usr/bin/printf '%s\\n' \"$*\" >> \"$AKASHIC_PRE_PUSH_PROBE_LOG\"\n"
+            .write(to: mockSwift, atomically: true, encoding: .utf8)
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: mockSwift.path)
+
+        func run(cwd: URL, stdin: String) throws -> (status: Int32, err: String) {
+            try? fm.removeItem(at: log)
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/bash")
+            process.arguments = [shared.appendingPathComponent("pre-push").path]
+            process.currentDirectoryURL = cwd
+            var environment = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("GIT_") }
+            environment["PATH"] = "\(mockSwift.deletingLastPathComponent().path):/usr/bin:/bin"
+            environment["AKASHIC_PRE_PUSH_PROBE_LOG"] = log.path
+            environment["AKASHIC_PRE_PUSH_STAGES"] = "build"
+            process.environment = environment
+            let input = Pipe(), stderr = Pipe()
+            process.standardInput = input
+            process.standardOutput = Pipe()
+            process.standardError = stderr
+            try process.run()
+            input.fileHandleForWriting.write(Data(stdin.utf8))
+            try? input.fileHandleForWriting.close()
+            let err = String(decoding: stderr.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            process.waitUntilExit()
+            return (process.terminationStatus, err)
+        }
+        let refs = "refs/heads/main \(String(repeating: "a", count: 40)) refs/heads/main \(String(repeating: "0", count: 40))\n"
+        let swiftWasCalled = { fm.fileExists(atPath: log.path) }
+
+        // ① 工作樹有自己的 hook
+        let tree = temporary.appendingPathComponent("tree")
+        let treeHooks = tree.appendingPathComponent(".githooks")
+        try fm.createDirectory(at: treeHooks, withIntermediateDirectories: true)
+        let received = temporary.appendingPathComponent("stub-received")
+        try "#!/bin/bash\ncat > \"\(received.path)\"\nexit 42\n"
+            .write(to: treeHooks.appendingPathComponent("pre-push"), atomically: true, encoding: .utf8)
+        let redirected = try run(cwd: tree, stdin: refs)
+        XCTAssertEqual(redirected.status, 42, "結束碼要是工作樹那一份的——共用那份若照常跑完會回 0：\(redirected.err)")
+        XCTAssertEqual(try String(contentsOf: received, encoding: .utf8), refs,
+                       "git 餵的 ref 清單要原樣交給工作樹那一份——改跑發生在讀 stdin 之前")
+        XCTAssertFalse(swiftWasCalled(), "改跑之後共用那份不該再往下跑")
+        XCTAssertTrue(redirected.err.contains("改跑工作樹的 .githooks/pre-push"), redirected.err)
+
+        // ② 工作樹沒有 `.githooks`
+        let bare = temporary.appendingPathComponent("bare")
+        try fm.createDirectory(at: bare, withIntermediateDirectories: true)
+        let fallback = try run(cwd: bare, stdin: refs)
+        XCTAssertEqual(fallback.status, 0, fallback.err)
+        XCTAssertTrue(swiftWasCalled(), "沒有更好的一份可跑時照常往下跑")
+        XCTAssertTrue(fallback.err.contains("工作樹沒有 .githooks/pre-push"), fallback.err)
+
+        // ③ 工作樹的 `.githooks` 指回同一個目錄
+        let linked = temporary.appendingPathComponent("linked")
+        try fm.createDirectory(at: linked, withIntermediateDirectories: true)
+        try fm.createSymbolicLink(at: linked.appendingPathComponent(".githooks"), withDestinationURL: shared)
+        let same = try run(cwd: linked, stdin: refs)
+        XCTAssertEqual(same.status, 0, same.err)
+        XCTAssertTrue(swiftWasCalled(), "同一份 hook 不改跑，照常往下跑")
+        XCTAssertFalse(same.err.contains("#697"), "同一份時不該印改跑或警告：\(same.err)")
+    }
+
     private var repositoryRoot: URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

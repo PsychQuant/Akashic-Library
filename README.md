@@ -1316,7 +1316,9 @@ macOS runner 計費 10×，「每 PR 每 push 都跑」曾把 free plan 月額�
 
 1. **pre-push hook**（本機全套）：`git config core.hooksPath .githooks` 一次安裝——
    push 前跑 `-warnings-as-errors` build + 全套測試（hook 內有 pipefail，管線吞
-   exit code 的教訓見 hook 註解）
+   exit code 的教訓見 hook 註解）。**用相對路徑**：git 以各 worktree 的根目錄解析它；
+   絕對路徑會讓從另一個 worktree 推送時跑到共用 checkout 那份可能落後的 hook。hook
+   發現自己不是被推送的工作樹那一份時，會改跑工作樹的 `.githooks/pre-push`（#697）
 2. **verify 紀律**：每個 PR 的本機驗證記錄在 PR body（測試總數、build 狀態）
 
 CI 保留的獨特價值是**乾淨環境**（#109 的教訓：submodule／DerivedData 殘留只有乾淨

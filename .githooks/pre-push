@@ -6,6 +6,28 @@
 # 測試程序的 exit code——crash 的 run 經管線回報 0。
 set -eo pipefail
 
+# **跑被推送那份程式碼自己的 hook**（#697）。
+#
+# `core.hooksPath` 若設成共用 checkout 的**絕對路徑**，從另一個 git worktree 推送時，git 在那個
+# worktree 的根目錄執行 hook（githooks(5)：呼叫 hook 前先 cd 到工作樹根目錄），hook 檔卻取自共用
+# checkout——而共用 checkout 可以落後被推送的程式碼很多個 commit。舊 hook 檢查新程式碼有兩種後果：
+# 呼叫已刪除的東西而假失敗（#664 推送時實測），或不知道新守衛存在而假通過（後者比較糟）。
+#
+# 所以這裡比對「hook 檔所在的目錄」與「工作樹的 `.githooks`」，不同就改跑工作樹那一份。被改跑的
+# 那一份進來時兩者相同，不會再轉。工作樹沒有 `.githooks/pre-push` 時照常往下跑——沒有更好的一份可跑，
+# 但印出來，讓人知道這次檢查用的是別處的 hook。
+#
+# 這一段要在讀 stdin 之前：`exec` 讓被改跑的 hook 接手同一個 stdin（git 餵的 ref 清單）。
+hook_self_dir="$(cd "$(dirname "$0")" && pwd -P)"
+hook_tree_dir="$(cd .githooks 2>/dev/null && pwd -P || true)"
+if [ "$hook_self_dir" != "$hook_tree_dir" ]; then
+    if [ -n "$hook_tree_dir" ] && [ -f "$hook_tree_dir/pre-push" ]; then
+        echo "pre-push: 這份 hook 不是被推送的工作樹自己的——改跑工作樹的 .githooks/pre-push（#697）" >&2
+        exec bash "$hook_tree_dir/pre-push" "$@"
+    fi
+    echo "pre-push: ⚠ 工作樹沒有 .githooks/pre-push，照常跑這份取自別處的 hook（#697）" >&2
+fi
+
 # Git 會把本次 push 的 repository-local 環境傳給 hook。若直接讓測試繼承，測試內
 # 為 fixture 執行的 `git -C <temp>` 仍會被外層 GIT_DIR／GIT_INDEX_FILE 劫持，最壞
 # 情況會把 fixture commit 寫回真正的 repository。先由 Git 自己列出完整 local env，

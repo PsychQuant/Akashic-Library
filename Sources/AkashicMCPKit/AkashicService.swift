@@ -2787,7 +2787,7 @@ public final class AkashicService {
 
     /// MCP 面有 `listLimit` 上限的 citekey 清單（#696）：鍵 → 報告裡的值、這一格是否永遠在（否＝只在非空時出現）。
     /// 這些清單描述的都是**寫進去了**的記錄：結果在 store 裡，這一趟改了哪些檔在 store 的 git diff 裡看得到，所以截掉的成員找得回來
-    /// （`authorsPreserved`／`authorsOverwritten` 在寫入之前就記下——沒寫進去的那一筆也在不截的 `writeFailed` 或 `quarantineConflicts` 裡）。
+    /// （`authorsPreserved`／`authorsOverwritten` 也一樣：#702 起寫入成功之後才記下，沒寫進去的那一筆只在不截的 `writeFailed` 或 `quarantineConflicts` 裡）。
     /// 不在這裡的集合：失敗清單 `writeFailed`／`quarantineConflicts`（**不截**——沒寫進去的記錄在 store 裡沒有痕跡、原因只在這份報告，
     /// 重跑是再寫一次、不是重播；`akashic_enrich` 的 writeFailed 同，R1 verify）；`ambiguousSourceClaims`（#684 自己的上限與鍵）；
     /// `residualFields` 與 `fieldsRemovedByPull`（鍵是欄位名、值是次數，筆數隨欄位種類、不隨一次匯入的筆數成長）。

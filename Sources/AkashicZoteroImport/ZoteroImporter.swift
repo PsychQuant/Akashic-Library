@@ -50,7 +50,7 @@ public struct ImportReport: Equatable {
     /// （與單一舊檔認領同一個條件，#607），別的 library 也持有它時標記留著。這是刻意的保守，不是比實作寬的承諾。
     public var ambiguousSourceClaims: [String: [String]] = [:]
     public var unchanged: Int = 0
-    /// 解析過的作者被保留、未跟 Zotero 同步的 entries（資訊性）。
+    /// 解析過的作者被保留、未跟 Zotero 同步的 entries（資訊性）。只記寫入成功的那一筆（#702）。
     public var authorsPreserved: [String] = []
     /// 未映射而被捨棄的 Zotero 欄位（欄位名 → 出現次數）。不靜默流失。
     /// 以**正規化後的原名**入庫的欄位（無 canonical 對照）。
@@ -58,10 +58,10 @@ public struct ImportReport: Equatable {
         /// 否則報告會說謊（verify H2）。
         public var residualFields: [String: Int] = [:]
         /// pull 覆寫掉的**未歸戶** literal 作者（#208）。已歸戶的 `.key` 走
-        /// `authorsPreserved`，永不被覆寫。
+        /// `authorsPreserved`，永不被覆寫。只記寫入成功的那一筆——寫不進去的只在 `writeFailed`／`quarantineConflicts`（#702）。
         public var authorsOverwritten: [String] = []
         /// pull **移除**的欄位名 → 次數（#208）。成因是 `applyBiblatexFields`
-        /// 整份替換 `fields`：Zotero 這次沒給的欄位會消失，包含使用者手工補的。
+        /// 整份替換 `fields`：Zotero 這次沒給的欄位會消失，包含使用者手工補的。只算寫入成功的那幾筆（#702）。
         public var fieldsRemovedByPull: [String: Int] = [:]
     /// 寫入目的檔是 quarantined 檔而被拒寫的 citekeys（損壞 store，人工處理）。
     public var quarantineConflicts: [String] = []
@@ -321,24 +321,22 @@ public struct ZoteroImporter {
                     let authorsBefore = existing.authors
                     ZoteroMapping.applyBiblatexFields(from: item, to: &existing)
                     if !venueCapable { existing.venues = [] }
-                    let removed = fieldsBefore.subtracting(existing.fields.keys).sorted()
-                    for k in removed { report.fieldsRemovedByPull[k, default: 0] += 1 }
+                    // #702：這三件事（拿掉的欄位、保留的作者、覆寫的作者）先記在區域變數，**寫入成功之後**才進報告——
+                    // 目的檔被隔離或寫入擲錯的那一筆沒有寫，報告不能說它的作者被覆寫、欄位被拿掉了（它只在失敗清單裡）。
+                    let removedFields = fieldsBefore.subtracting(existing.fields.keys).sorted()
                     let identifiersAfter = Set(["doi", "pmid", "isbn"].filter {
                         !(existing.identifierList($0)?.isEmpty ?? true)
                     })
-                    for k in identifiersBefore.subtracting(identifiersAfter).sorted() {
-                        report.fieldsRemovedByPull[k, default: 0] += 1
-                    }
-                    if hadResolvedAuthors {
-                        // 解析成果（person key）是使用者確認過的衍生知識，pull 不摧毀
-                        report.authorsPreserved.append(existing.citekey)
-                    } else {
+                    let removedIdentifiers = identifiersBefore.subtracting(identifiersAfter).sorted()
+                    var authorsOverwritten = false
+                    if !hadResolvedAuthors {
+                        // 解析成果（person key）是使用者確認過的衍生知識，pull 不摧毀（寫入成功後記進 authorsPreserved）。
                         let after = item.authors.map { AkashicCore.Author.literal($0.display) }
                         // 未歸戶的 literal 作者會被 Zotero 版本覆寫。那是 pull-based
                         // sync 的正常語意（Zotero 是上游），但**與 import-wos 相反**
                         // ——後者對任何內容分歧一律拒絕覆寫。使用者跑兩個命令會得到
                         // 相反的資料保護等級，所以至少要說出來。
-                        if after != authorsBefore { report.authorsOverwritten.append(existing.citekey) }
+                        authorsOverwritten = after != authorsBefore
                         existing.authors = after
                     }
                     existing.provenance = Provenance(
@@ -346,6 +344,10 @@ public struct ZoteroImporter {
                         libraryID: item.libraryID, zoteroHash: itemHash,
                         importedAt: now, orphanedAt: nil)
                     if guardedWrite(existing, report: &report) {
+                        for k in removedFields { report.fieldsRemovedByPull[k, default: 0] += 1 }
+                        for k in removedIdentifiers { report.fieldsRemovedByPull[k, default: 0] += 1 }
+                        if hadResolvedAuthors { report.authorsPreserved.append(existing.citekey) }
+                        if authorsOverwritten { report.authorsOverwritten.append(existing.citekey) }
                         if hashOnly { report.updatedHashOnly.append(existing.citekey) } else { report.updated.append(existing.citekey) }
                         if let raw = item.fields["date"], DateNormalizer.normalize(raw) == nil {
                             report.unnormalizedDates.append(existing.citekey)

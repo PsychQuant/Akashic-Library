@@ -670,9 +670,13 @@ extension StdioE2ETests {
 /// （MCP 呼叫端讀不到 CLI help），#664 多一個工具。52,000 高於 48 KiB（49,152）——2026-09-28 的裁決刻意把預算壓在它之下；
 /// 那個 48 KiB 是本 repo 對單一工具回應的上限（`candidateByteBudget`），不是 client 對 `tools/list` 的上限。沒選的兩個方案：
 /// 50,000（只放得下那一輪）、維持 49,000 再精簡約 1 KB（MCP 呼叫端讀不到的契約文字會再變多）。
+/// **2026-10-01（+08:00）使用者裁決：預算調高到 54,000。** 當時整合 #695／#705／#703 的 R1 修正與 #700、#710 之後實測 51,997，
+/// 只剩 3 bytes；而同日裁決的三個新面（#557 的 `akashic_update_organization`、#559 的 `unauthorize`、#611 匯入報告的新鍵）估計共需約 1 KB，
+/// #700 另有 `person.unknownFields`、`items[].partial` 兩個回應鍵放不進描述。沒選的兩個方案：預算不動、削既有描述騰空間（#700 的守衛要求
+/// 回應鍵出現在描述裡，可削的地方有限）；新面先只做 CLI（MCP 面延到預算重裁）。
 /// 描述長到撞上它時，先把契約細節移回 CLI `--help` 或 docs/store-format.md，不是改這個數字；要調高須回 #578 重新裁決。
 extension StdioE2ETests {
-    static let toolsListByteBudget = 52_000
+    static let toolsListByteBudget = 54_000
 
     /// 讀一行原始回應位元組（不解析）。10 秒內讀不到整行就丟錯——空掃描不是通過。
     func readRawLine() throws -> Data {

@@ -5,6 +5,11 @@
 // `plugin/` 為根，放進 `plugins/<name>/` 的測試被刪、沒接線、skill 漏引規則，沒有一道
 // 守衛會出聲。能排除後者的方法只有一個：故意弄壞，看它紅不紅。
 //
+// **它宣告的只有 `plugin-roots`（命名慣例）與 `marketplace-consistency`**（`migrated-guard-control` 讀下一行）。
+// 它另外跑 `trigger-coverage`、`protected-ratchet`、`rule-coverage`，驗的是「plugins/ 底下的根它們看得見」——那是
+// `plugin-roots` 這份根目錄清單的後果，不是那三支守衛的負控；它們各有自己的 harness，刪掉那支時要紅（#689 R1 verify）。
+// negative-control-for: marketplace-consistency
+//
 // **每一格都有對照組**：同一棵 copy、只做前置（`setup`）不做突變時，守衛必須是綠的——
 // 否則紅的原因分不出是突變還是前置本身（`oracle-precondition-control` 的同一個紀律）。
 // 對照組不綠，那一格記為無效，不算被抓到。

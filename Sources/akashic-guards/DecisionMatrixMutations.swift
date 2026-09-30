@@ -9,6 +9,9 @@
 // **遷移期兩版都跑並要求逐字一致**（#433）：守衛的 Python 版仍在樹裡當 oracle，Swift 版
 // 是實際在跑的。刪掉 Python 版時把 `runBoth` 裡那一半拿掉即可。
 //
+// 名字是 `decision-matrix-mutations`，守衛是 `decision-matrix-drift`——命名慣例對不上，宣告寫在這裡（`migrated-guard-control`）：
+// negative-control-for: decision-matrix-drift
+//
 // trigger-coverage: reads CLAUDE.md
 
 import Foundation

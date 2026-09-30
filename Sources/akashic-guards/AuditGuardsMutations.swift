@@ -9,6 +9,12 @@
 // （與其餘 Swift 守衛同一條路：在 copy 的 cwd 裡跑編譯好的 binary）；`hash-table-drift`、`multiscalar-parity`、
 // `review-claim-audit`、`literal-scalar-parity` 隨 census 移植成 Swift 而退場，它們的 case 一併移除。
 //
+// 本 harness 宣告自己是下列守衛的負控（`migrated-guard-control` 讀這幾行；每一支都要在資料檔有 `guardRel:` 指向它的 case，
+// 否則宣告是空的、那支守衛算沒有負控）：
+// negative-control-for: backlink-field-ratchet, measured-claims-audit, measured-numbers-audit, migrated-guard-control
+// negative-control-for: parity-table-drift, plugin-store-format-parity, protected-ratchet, rule-coverage
+// negative-control-for: workflow-run-scripts, zero-instance-rows-audit
+//
 // trigger-coverage: reads plugin/rules/*.md
 
 import Foundation

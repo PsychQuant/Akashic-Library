@@ -22,6 +22,9 @@
 // (b) 在被注入處具名、(c) **未設定時完全沒有行為**——否則就是藏在出貨路徑裡的後門。
 // 第三點有實測：未設定時輸出與 Python 版逐位元相同。
 //
+// 它是 `audit-guards-mutations` 這支 harness 的負控（`migrated-guard-control` 讀這一行）：
+// negative-control-for: audit-guards-mutations
+//
 // **刻意不寫 `trigger-coverage: reads` 宣告**（#433 Step 5）：宣告存在的理由是補啟發式
 // 的漏（守衛用 glob 組路徑、basename 不逐字出現）。這支讀的是同目錄的 harness source，
 // 啟發式看得到——而指向自己所在目錄的宣告會被守衛判成「多半多餘」的警告。

@@ -42,6 +42,40 @@ let agmCases: [AGMCase] = [
     AGMCase(desc: "migrated：命令替換裡跑的守衛沒有負控", guardRel: "akashic-guards migrated-guard-control", edits: [
         AGMEdit(path: ".githooks/run-guards.sh", kind: "replaceFirst", a: ".build/debug/akashic-guards migrated-guard-control", b: "probe=$(.build/debug/akashic-guards fake-subst-guard)\n.build/debug/akashic-guards migrated-guard-control"),
     ], expect: ["缺負控", "fake-subst-guard"]),
+    // #689 R1 verify：守衛有負控，要一支 harness **宣告**它、而且**執行**它。上一版只看「某支 harness 的 source 提到它」，
+    // 於是別的 harness 順帶跑一下也算數：刪掉 trigger-coverage 自己那支負控，它仍被 `plugin-roots-mutations` 抵免；
+    // 刪掉 plugin-roots 那支，它仍被 `rule-prose-guards-mutations`（只為了取根目錄清單而跑它）抵免。
+    AGMCase(desc: "migrated：刪掉 trigger-coverage 專屬的負控，別的 harness 順帶跑它不算", guardRel: "akashic-guards migrated-guard-control", edits: [
+        AGMEdit(path: "Sources/akashic-guards/TriggerCoverageMutations.swift", kind: "delete", a: "", b: ""),
+        AGMEdit(path: "Sources/akashic-guards/TriggerCoverageMutationsData.swift", kind: "delete", a: "", b: ""),
+        AGMEdit(path: "Sources/akashic-guards/main.swift", kind: "replaceFirst", a: "case \"trigger-coverage-mutations\":\n    exit(triggerCoverageMutations())\n", b: ""),
+        AGMEdit(path: ".githooks/run-guards.sh", kind: "replaceFirst", a: ".build/debug/akashic-guards trigger-coverage-mutations\n", b: ""),
+    ], expect: ["缺負控", "`akashic-guards trigger-coverage` 在 run-guards.sh 裡跑"]),
+    AGMCase(desc: "migrated：刪掉 plugin-roots 專屬的負控，取根目錄清單而跑它不算", guardRel: "akashic-guards migrated-guard-control", edits: [
+        AGMEdit(path: "Sources/akashic-guards/PluginRootsMutations.swift", kind: "delete", a: "", b: ""),
+        AGMEdit(path: "Sources/akashic-guards/main.swift", kind: "replaceFirst", a: "case \"plugin-roots-mutations\":", b: "case \"plugin-roots-mutations-gone\":"),
+        AGMEdit(path: ".githooks/run-guards.sh", kind: "replaceFirst", a: ".build/debug/akashic-guards plugin-roots-mutations\n", b: ""),
+    ], expect: ["缺負控", "`akashic-guards plugin-roots` 在 run-guards.sh 裡跑", "`akashic-guards marketplace-consistency` 在 run-guards.sh 裡跑"]),
+    // 資料檔只認受測對象欄位（`guardRel:`／`guardArgv:`）。`TriggerCoverageMutationsData.swift` 的注入內容裡有
+    // `.build/debug/akashic-guards plugin-store-format-parity`（它刪 runner 的那一行、驗 trigger-coverage 會紅）——
+    // 讓 trigger-coverage-mutations 宣告那支守衛，宣告必須是空的。
+    AGMCase(desc: "migrated：資料檔只在注入內容裡提到的守衛不算受測對象", guardRel: "akashic-guards migrated-guard-control", edits: [
+        AGMEdit(path: "Sources/akashic-guards/TriggerCoverageMutations.swift", kind: "replaceFirst", a: "import Foundation", b: "import Foundation\n// negative-control-for: plugin-store-format-parity"),
+    ], expect: ["宣告是空的", "`trigger-coverage-mutations` 宣告它是 `plugin-store-format-parity` 的負控"]),
+    AGMCase(desc: "migrated：宣告一支不在 runner 裡跑的守衛", guardRel: "akashic-guards migrated-guard-control", edits: [
+        AGMEdit(path: "Sources/akashic-guards/NetworkConfinementMutations.swift", kind: "replaceFirst", a: "import Foundation", b: "import Foundation\n// negative-control-for: no-such-guard"),
+    ], expect: ["`no-such-guard` 不在 run-guards.sh 裡跑"]),
+    // harness 的結構判準第 4 條的兩半，各拆一樣（前三條由上面「source 檔被刪」「分派被拿掉」「不在 runner 裡跑」三格釘住）。
+    AGMCase(desc: "migrated：負控的 source 沒有指向 akashic-guards（不執行守衛）", guardRel: "akashic-guards migrated-guard-control", edits: [
+        AGMEdit(path: "Sources/akashic-guards/NetworkConfinementMutations.swift", kind: "replaceFirst", a: "/.build/debug/akashic-guards\"", b: "/.build/debug/other-binary\""),
+    ], expect: ["缺負控", "`akashic-guards network-confinement` 在 run-guards.sh 裡跑", "沒有指向 `.build/debug/akashic-guards`"]),
+    AGMCase(desc: "migrated：負控的 source 沒有建 Process", guardRel: "akashic-guards migrated-guard-control", edits: [
+        AGMEdit(path: "Sources/akashic-guards/NetworkConfinementMutations.swift", kind: "replaceFirst", a: "let p = Process()", b: "let p = makeProcess()"),
+    ], expect: ["缺負控", "`akashic-guards network-confinement` 在 run-guards.sh 裡跑", "沒有建 `Process`"]),
+    // 「實際在跑」的抽取只認行首與 `$(`。`if ! …; then` 照樣會執行，認不出時要出聲，不是安靜地不要求負控。
+    AGMCase(desc: "migrated：runner 用抽取認不出的寫法呼叫守衛", guardRel: "akashic-guards migrated-guard-control", edits: [
+        AGMEdit(path: ".githooks/run-guards.sh", kind: "replaceFirst", a: ".build/debug/akashic-guards migrated-guard-control", b: "if ! .build/debug/akashic-guards fake-if-guard; then exit 1; fi\n.build/debug/akashic-guards migrated-guard-control"),
+    ], expect: ["抽取認不出", "fake-if-guard"]),
     // ── plugin-store-format-parity（#408／#629）：宣告的 store format 必須等於 `StoreVersion.supported` ──
     // 注入不寫死數字（寫死就是第三份副本）：在 `supported` 前面塞一個 `9`（`21` → `921`）、或在宣告的數字前塞一個 `9`，
     // 讓兩邊必然不等，而不必知道當下的版號。

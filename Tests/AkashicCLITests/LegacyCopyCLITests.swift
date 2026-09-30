@@ -109,19 +109,20 @@ final class LegacyCopyCLITests: XCTestCase {
     }
 
     /// 寫了之後別的步驟失敗（store 裡另有兩筆**不同**的記錄共用 citekey——#709 不替真的重複選一筆，index rebuild 照舊撞 UNIQUE）：
-    /// 沒有 JSON 可放，收到的交給 CLI 進入點，在錯誤之前印出來。
+    /// 命令沒印出它的 JSON，收到的交給 CLI 進入點，在錯誤之前印出來——#705 R2 verify 第 19 列起印成一份只有
+    /// `writtenWithLegacyCopy` 三個鍵的 JSON（stdout 仍是一份 JSON）。
     func testTagThatFailsAfterWritingStillReportsIt() throws {
         for title in ["A", "B"] {   // 兩筆不同的記錄（id 不同）共用一個 citekey
             try store.writeEntry(Entry(id: UUID(), citekey: "dup2020x", type: .periodicalArticle, title: title, date: "2020"))
         }
         let e = try legacyWork()
-        let r = try cli(["tag", "--library", root.path, e.citekey, "--add", "x"])
-        XCTAssertNotEqual(r.status, 0, "前提：index rebuild 撞兩筆不同記錄共用的 citekey：\(r.output)")
-        XCTAssertTrue(r.output.contains("UNIQUE"), "非零的原因是 index rebuild：\(r.output)")
-        let line = try XCTUnwrap(r.output.split(separator: "\n").first { $0.hasPrefix("writtenWithLegacyCopy") }, r.output)
-        XCTAssertTrue(line.hasSuffix(": 1"), String(line))
-        XCTAssertTrue(r.output.contains("work「\(e.citekey)」"), r.output)
-        XCTAssertTrue(r.output.contains("entries/\(e.citekey).yaml"), r.output)
+        let r = try runSplit(["tag", "--library", root.path, e.citekey, "--add", "x"])
+        XCTAssertNotEqual(r.status, 0, "前提：index rebuild 撞兩筆不同記錄共用的 citekey：\(r.out)\(r.err)")
+        XCTAssertTrue(r.err.contains("UNIQUE"), "非零的原因是 index rebuild：\(r.err)")
+        let obj = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(r.out.utf8)) as? [String: Any], "stdout 是一份 JSON：\(r.out)")
+        let rows = try XCTUnwrap(obj["writtenWithLegacyCopy"] as? [[String: String]], r.out)
+        XCTAssertEqual(rows.map { $0["key"] }, [e.citekey])
+        XCTAssertEqual(rows.first?["legacyFile"], "entries/\(e.citekey).yaml")
         let onDisk = try String(contentsOf: store.entityURL(id: e.id), encoding: .utf8)
         XCTAssertTrue(onDisk.contains("- x"), "寫了：\(onDisk)")
     }
@@ -209,5 +210,62 @@ final class LegacyCopyCLITests: XCTestCase {
         XCTAssertTrue(r.output.contains("people/\(p.key).yaml"), r.output)
         let rewritten = try EntryYAML.decode(try String(contentsOf: store.entityURL(id: work.id), encoding: .utf8))
         XCTAssertEqual(rewritten.authors, [.key("yang-h-h")], "改名做完：作者邊改寫了")
+    }
+}
+
+/// #705 R2 verify 第 16／19 列：失敗時 stdout 與 stderr 各自說得通。
+/// - stderr 的第一行也說 stdout 上報告過的那幾筆寫了——只擷取 stderr 與結束碼的呼叫端（cron、CI）讀得到「不要重跑」；
+/// - `--json` 的命令寫入後失敗時，stdout 仍是**一份** JSON（只有 `writtenWithLegacyCopy` 三個鍵），不是 JSON 之外的文字。
+extension LegacyCopyCLITests {
+    /// stdout 與 stderr 分開收（`CLITestHarness.run` 把兩者合在一起）。
+    private func runSplit(_ args: [String]) throws -> (status: Int32, out: String, err: String) {
+        let p = Process()
+        p.executableURL = CLITestHarness.productsDirectory.appendingPathComponent("akashic")
+        p.arguments = args
+        var childEnv = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("AKASHIC_") }
+        childEnv["AKASHIC_HOME"] = home.path
+        p.environment = childEnv
+        let outFile = base.appendingPathComponent("stdout-\(UUID().uuidString)")
+        let errFile = base.appendingPathComponent("stderr-\(UUID().uuidString)")
+        FileManager.default.createFile(atPath: outFile.path, contents: nil)
+        FileManager.default.createFile(atPath: errFile.path, contents: nil)
+        let o = try FileHandle(forWritingTo: outFile), e = try FileHandle(forWritingTo: errFile)
+        p.standardOutput = o; p.standardError = e
+        try p.run()
+        p.waitUntilExit()
+        try o.close(); try e.close()
+        return (p.terminationStatus, try String(contentsOf: outFile, encoding: .utf8), try String(contentsOf: errFile, encoding: .utf8))
+    }
+
+    /// 文字命令（enrich 不帶 --json）寫入後失敗：stdout 有人可讀報告，stderr 的第一行說那一筆寫了、不要重跑，接著才是原本的錯誤。
+    func testStderrLeadsWithTheWrittenCountWhenATextCommandFails() throws {
+        let e = try legacyWork()
+        let proposals = base.appendingPathComponent("p.json")
+        try #"[{"citekey":"cheng2025identifiability","fields":{"abstract":"摘要"}}]"#
+            .write(to: proposals, atomically: true, encoding: .utf8)
+        let r = try runSplit(["enrich", "--library", root.path, "--from", proposals.path, "--apply"])
+        XCTAssertNotEqual(r.status, 0, "前提：兩份並存時 index rebuild 撞重複的 citekey：\(r.out)\(r.err)")
+        XCTAssertTrue(r.out.contains("work「\(e.citekey)」"), "報告在 stdout：\(r.out)")
+        let first = String(r.err.split(separator: "\n").first ?? "")
+        XCTAssertTrue(first.hasPrefix("已寫入 1 筆、搬移後的 legacy 拷貝沒刪掉"), "stderr 第一行：\(r.err)")
+        XCTAssertTrue(first.contains("不要重跑"), first)
+        XCTAssertTrue(r.err.contains("Error: "), "原本的錯誤接在後面：\(r.err)")
+    }
+
+    /// `enrich --json` 寫入後失敗：stdout 仍能整份解析成一個 JSON 物件，帶那一筆與總數；stderr 第一行同上。
+    func testAFailingJSONCommandStillPrintsOneJSONDocument() throws {
+        let e = try legacyWork()
+        let proposals = base.appendingPathComponent("p.json")
+        try #"[{"citekey":"cheng2025identifiability","fields":{"abstract":"摘要"}}]"#
+            .write(to: proposals, atomically: true, encoding: .utf8)
+        let r = try runSplit(["enrich", "--library", root.path, "--from", proposals.path, "--apply", "--json"])
+        XCTAssertNotEqual(r.status, 0, "前提：兩份並存時 index rebuild 撞重複的 citekey：\(r.out)\(r.err)")
+        let obj = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(r.out.utf8)) as? [String: Any],
+                                "stdout 必須是一份 JSON：\(r.out)")
+        let rows = try XCTUnwrap(obj["writtenWithLegacyCopy"] as? [[String: String]], r.out)
+        XCTAssertEqual(rows.map { $0["key"] }, [e.citekey])
+        XCTAssertEqual(obj["writtenWithLegacyCopyTotal"] as? Int, 1)
+        XCTAssertEqual(obj["writtenWithLegacyCopyTruncated"] as? Bool, false, "CLI 全列")
+        XCTAssertTrue(r.err.hasPrefix("已寫入 1 筆、搬移後的 legacy 拷貝沒刪掉"), "stderr 第一行：\(r.err)")
     }
 }

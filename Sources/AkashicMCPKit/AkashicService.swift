@@ -2831,7 +2831,9 @@ public final class AkashicService {
             // 這裡的 payload 就不再帶（否則報兩次）。沒有外層範圍的呼叫端照舊帶在 payload 裡。
             var failurePayload = payload
             if !report.writtenWithLegacyCopy.isEmpty, LegacyCopyLedger.handToEnclosingScope(report.writtenWithLegacyCopy) {
-                failurePayload.removeValue(forKey: Self.writtenWithLegacyCopyKey)
+                for key in [Self.writtenWithLegacyCopyKey, Self.writtenWithLegacyCopyTotalKey, Self.writtenWithLegacyCopyTruncatedKey] {
+                    failurePayload.removeValue(forKey: key)
+                }
             }
             throw ServiceError.invalid(
                 "index rebuild 失敗：\(displaySafeError(error, max: 512))（本趟 import 已落地，報告如下——清單有上限，被截的見 truncatedLists）：\n\(try jsonString(failurePayload))")   // display-safe-exempt: jsonString、failurePayload：jsonString 的輸出已由序列化器逐項消毒（escapingUnsafeScalars）；failurePayload 是這個函式自己組的 report 字典
@@ -2844,7 +2846,7 @@ public final class AkashicService {
     /// （`authorsPreserved`／`authorsOverwritten` 也一樣：#702 起寫入成功之後才記下，沒寫進去的那一筆只在不截的 `writeFailed` 或 `quarantineConflicts` 裡）。
     /// 不在這裡的集合：失敗清單 `writeFailed`／`quarantineConflicts`（**不截**——沒寫進去的那一步在 store 裡沒有痕跡、原因只在這份報告，
     /// 重跑是再寫一次、不是重播；`akashic_enrich` 的 writeFailed 同，R1 verify）；`writtenWithLegacyCopy`（#705：寫了、搬移後的 legacy
-    /// 拷貝沒刪掉，每一筆都要人去刪 legacy 那份，也不截）；`ambiguousSourceClaims`（#684 自己的上限與鍵）；
+    /// 拷貝沒刪掉；R2 verify 起有自己的上限與鍵 `writtenWithLegacyCopyTotal`／`…Truncated`，同 `ambiguousSourceClaims`）；`ambiguousSourceClaims`（#684 自己的上限與鍵）；
     /// `residualFields` 與 `fieldsRemovedByPull`（鍵是欄位名、值是次數，筆數隨欄位種類、不隨一次匯入的筆數成長）。
     static func importReportCappedLists(_ r: ImportReport) -> [(key: String, list: [String], always: Bool)] {
         [("created", r.created, true), ("updated", r.updated, true), ("updatedHashOnly", r.updatedHashOnly, true),   // #694
@@ -2951,9 +2953,11 @@ public final class AkashicService {
             let all = report.writeFailed.sorted { $0.key < $1.key }
             d["writeFailed"] = Dictionary(all.map { (displaySafeInvisible($0.key, max: 200), displaySafeClipOnly($0.value, max: 512)) }, uniquingKeysWith: { first, _ in first })   // display-safe-exempt: value 已消毒（ZoteroImporter 的 writeFailed 由 displaySafeError 產出，R29 D81），只截
         }
-        // #705：寫了、只是搬移後的 legacy 拷貝沒刪掉——成功那一側，不截（每一筆都要人去刪 legacy 那份）。只在非空時出現。
+        // #705：寫了、只是搬移後的 legacy 拷貝沒刪掉——成功那一側。只在非空時出現，三個鍵同進同出。#705 R2 verify 第 13 列：
+        // 給了 listLimit（MCP）時同樣有上限（`writtenWithLegacyCopyLimit`，截掉的由 `akashic validate` 逐筆列出）；nil＝全列。
         if !report.writtenWithLegacyCopy.isEmpty {
-            d[writtenWithLegacyCopyKey] = legacyCopyRows(report.writtenWithLegacyCopy)
+            d.merge(legacyCopyFields(rows: legacyCopyRows(report.writtenWithLegacyCopy), total: report.writtenWithLegacyCopy.count,
+                                     limit: listLimit == nil ? nil : writtenWithLegacyCopyLimit)) { _, new in new }
         }
         d["listTotals"] = listTotals   // display-safe-exempt: 鍵是封閉列舉的清單名、值是 Int
         d["truncatedLists"] = truncatedLists.sorted()   // display-safe-exempt: 封閉列舉的清單名

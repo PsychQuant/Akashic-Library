@@ -34,6 +34,11 @@ public enum StoreIOError: Error, LocalizedError, Equatable, SanitizedErrorDescri
     /// `detail` 在擲出端已消毒。**只在收集範圍外擲出**（#705）：回報面開的範圍裡，同一件事記成 `LegacyCopyLeft`、寫入照常回傳，
     /// 回報面把它列在成功那一側的 `writtenWithLegacyCopy`。
     case legacyCopyNotRemoved(id: UUID, file: String, detail: String)
+    /// `legacyCopyPresent` 的特例：兩份並存是**同一個操作稍早的一步**造成的——那一步寫進了 `entities/<id>.yaml`、搬移後的 legacy 拷貝
+    /// 刪不掉，記在 `writtenWithLegacyCopy`（`LegacyCopyLedger.earlierWrite`）。#705 R2 verify 第 5 列：先前只有 `ZoteroImporter` 自己查、
+    /// 說出前一步寫了；其他多步寫入者只得到泛用的「兩份並存，拒絕寫入」，讀的人會以為這一筆整個沒寫。現在所有寫入者同一句。
+    /// `file` 是 legacy 檔的相對路徑（含 key，描述端消毒）。
+    case legacyCopyLeftEarlierInThisOperation(id: UUID, file: String)
 
     /// `verdictsAlreadyAtTarget` 每行的截斷上限＝CLI sink `displaySafeAssembled` 的逐行預設（400）減去 `displaySafe` 的截斷標記長度——
     /// 截過的行連標記一起 ≤ 400，sink 不會再截一次（R22 verify 第 23 列：兩次截讓標記落在 `\u{` 中途）。
@@ -81,6 +86,10 @@ public enum StoreIOError: Error, LocalizedError, Equatable, SanitizedErrorDescri
         case let .legacyCopyNotRemoved(id, file, detail):
             return "已寫入 entities/\(id.uuidString).yaml，但搬移來源 legacy \(displaySafeInvisible(file, max: 300)) 沒刪掉：\(displaySafeClipOnly(detail, max: 600))"   // display-safe-exempt: id.uuidString：detail 已消毒（擲出端），只截
                  + "——同一筆記錄現在有兩份，load 會把它標成無法唯一定位。確認 entities/ 那份是新的之後刪掉 legacy 那份（#631、#702）"
+        case let .legacyCopyLeftEarlierInThisOperation(id, file):
+            return "同一個操作稍早已寫入這一筆（見 writtenWithLegacyCopy）：內容在 entities/\(id.uuidString).yaml，搬移後的 legacy "   // display-safe-exempt: id.uuidString：UUID 由型別保證
+                 + "\(displaySafeInvisible(file, max: 300)) 沒刪掉、兩份並存——#631 拒絕同一筆的下一次寫入，這一步的改動沒有套用。"
+                 + "確認 entities/ 那份是新的、刪掉 legacy 那份之後重跑即可補上（#631、#705）"
         case .invalidKey(let kind, let value):
             // #142：value 是 caller 剛送進來的畸形 key——原始 ESC/bidi 位元組經
             // MCP error 直達 LLM context；kind 是程式字面量
@@ -704,8 +713,16 @@ public final class LibraryStore {
     func entitiesWritePlan(id: UUID, kind: EntityKind, legacy: URL?, legacyLabel: String,
                            expectedKey: String) throws -> URL? {
         try assertEntitiesDestination(id: id, kind: kind)
-        guard let legacy = try legacyMoveCandidate(id: id, kind: kind, legacy: legacy,
-                                                   legacyLabel: legacyLabel, expectedKey: expectedKey) else { return nil }
+        let candidate: URL?
+        do {
+            candidate = try legacyMoveCandidate(id: id, kind: kind, legacy: legacy,
+                                                legacyLabel: legacyLabel, expectedKey: expectedKey)
+        } catch StoreIOError.legacyCopyLeftEarlierInThisOperation(let earlierID, let file) {
+            // #705 R2 verify：這一步沒有套用——標在稍早那一筆上（成功那一側），報告說出之後的寫入沒套用。只在寫入路徑標（load 的標註不標）。
+            LegacyCopyLedger.noteLaterWriteRefused(id: earlierID)
+            throw StoreIOError.legacyCopyLeftEarlierInThisOperation(id: earlierID, file: file)
+        }
+        guard let legacy = candidate else { return nil }
         // (2) 刪了回得來：受 git 追蹤且沒有未 commit 的修改（R2 verify security：合併會收攏 verdict 列，新內容不是舊內容的
         // 超集；「store 受 git 追蹤」這句要驗，不能假設——同 D86 的閘）
         if let bad = Self.filesNotSafelyRecoverable(root: root, relativePaths: [legacyLabel]).first {
@@ -729,6 +746,10 @@ public final class LibraryStore {
         }
         guard let decoded, decoded.id == id else { return nil }
         if FileManager.default.fileExists(atPath: entityURL(id: id).path) {
+            // 同一個操作稍早的一步造成的兩份並存，說出前一步寫了（#705 R2 verify 第 5 列）；load 的標註也走這裡，同一句話
+            if LegacyCopyLedger.earlierWrite(id: id) != nil {
+                throw StoreIOError.legacyCopyLeftEarlierInThisOperation(id: id, file: legacyLabel)
+            }
             throw StoreIOError.legacyCopyPresent(file: legacyLabel)
         }
         // #631 R2：只有一份時搬移，但刪之前確認兩件事——任一不成立就拒寫、檔案不動：

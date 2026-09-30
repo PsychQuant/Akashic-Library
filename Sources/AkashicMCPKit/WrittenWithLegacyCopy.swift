@@ -13,20 +13,40 @@ import AkashicStoreIO
 extension AkashicService {
     /// 回應鍵名——兩面、成功與錯誤兩條路徑同一個字串。
     public static let writtenWithLegacyCopyKey = "writtenWithLegacyCopy"
+    /// 完整筆數與有沒有截（#705 R2 verify 第 13 列）——與 `writtenWithLegacyCopy` 同進同出（`ambiguousSourceClaims` 那三個鍵的形）。
+    public static let writtenWithLegacyCopyTotalKey = "writtenWithLegacyCopyTotal"
+    public static let writtenWithLegacyCopyTruncatedKey = "writtenWithLegacyCopyTruncated"
+    /// MCP 回應至多列這麼多筆（#705 R2 verify 第 13 列）：回應直接進 LLM context，而筆數由 store 狀態決定——`entries/` 整個唯讀時
+    /// 每一筆寫入都留下一份。截掉的找得回來：`akashic validate` 逐筆列出兩份並存的記錄（load 的 #641 標註），CLI 全列。
+    /// （R1 的理由「截掉的就找不回來」不成立：留下的 legacy 檔在磁碟上，load 每次都看得到它。）
+    public static let writtenWithLegacyCopyLimit = 20
 
-    /// 回應裡的一筆：`{kind, key, written, legacyFile, detail}`，依 (kind, key) 排序。字串都消毒過（key 與 legacyFile 是 store 內容；
-    /// detail 在擲出端已消毒，這裡只截）。不截筆數：每一筆都要人去刪 legacy 那份，截掉的就找不回來（同 writeFailed 不截）。
+    /// 回應裡的一筆：`{kind, key, written, legacyFile, detail}`（之後的寫入沒有套用時另帶 `laterWriteNotApplied`），依 (kind, key) 排序。
+    /// 字串都消毒過（key 與 legacyFile 是 store 內容；detail 在擲出端已消毒，這裡只截）。筆數的上限在 `legacyCopyFields`。
     static func legacyCopyRows(_ items: [LegacyCopyLeft]) -> [[String: String]] {
         items.sorted { ($0.kind.rawValue, $0.key) < ($1.kind.rawValue, $1.key) }.map {
-            ["kind": $0.kind.rawValue,   // display-safe-exempt: 封閉列舉的 rawValue
-             "key": displaySafeInvisible($0.key, max: 200),
-             "written": $0.writtenFile,   // display-safe-exempt: writtenFile：固定前綴＋UUID
-             "legacyFile": displaySafeInvisible($0.legacyFile, max: 300),
-             "detail": displaySafeClipOnly($0.detail, max: 600)]   // display-safe-exempt: detail：擲出端已消毒（displaySafeError），只截
+            var row = ["kind": $0.kind.rawValue,   // display-safe-exempt: 封閉列舉的 rawValue
+                       "key": displaySafeInvisible($0.key, max: 200),
+                       "written": $0.writtenFile,   // display-safe-exempt: writtenFile：固定前綴＋UUID
+                       "legacyFile": displaySafeInvisible($0.legacyFile, max: 300),
+                       "detail": displaySafeClipOnly($0.detail, max: 600)]   // display-safe-exempt: detail：擲出端已消毒（displaySafeError），只截
+            if $0.laterWriteRefused { row["laterWriteNotApplied"] = LegacyCopyLeft.laterWriteRefusedNote }   // display-safe-exempt: 本型別的字面常量
+            return row
         }
     }
 
+    /// 三個同進同出的鍵：已排序的列留前 `limit` 筆（nil＝全列）、`total` 是完整筆數、有沒有截。
+    static func legacyCopyFields(rows: [Any], total: Int, limit: Int?) -> [String: Any] {
+        let shown = limit.map { Array(rows.prefix($0)) } ?? rows
+        return [writtenWithLegacyCopyKey: shown,
+                writtenWithLegacyCopyTotalKey: total,   // display-safe-exempt: Int
+                writtenWithLegacyCopyTruncatedKey: shown.count < total]   // display-safe-exempt: Bool
+    }
+
     /// 把收到的放進一次回應。沒有收到任何一筆時原樣回傳（位元組不變）。
+    ///
+    /// `limit`：至多列幾筆（MCP 預設 `writtenWithLegacyCopyLimit`；CLI 的 `LegacyCopyReport` 傳 nil＝全列）。JSON 物件帶三個鍵
+    /// （`writtenWithLegacyCopy`、`…Total`、`…Truncated`）；文字（錯誤回應、非物件）的人可讀報告標題是完整筆數，多出的一行說去哪裡找。
     ///
     /// - **錯誤回應** → 兩面共用的人可讀報告（`LegacyCopyLeft.reportLines`）放在**最前面**，接著空一行、原本的錯誤文字。報告在前，呼叫端先讀到
     ///   「寫了、留下一份 legacy 拷貝」，才讀到錯誤；#705 R1 verify 第 5 列：附在末尾時，收到 isError 的 agent 先讀到失敗、很可能重試，而重試會被
@@ -36,25 +56,29 @@ extension AkashicService {
     /// - 成功、且回應是 JSON 物件 → 加上 `writtenWithLegacyCopy` 鍵（同一組序列化選項，與 `jsonString` 一致）。鍵已經在（`akashic_import_zotero`
     ///   的 payload 自己帶）時**併進**那個陣列、依 (kind, key) 重排——回應仍是一份 JSON（第 15 列：先前落到下一格，把合法 JSON 變成 JSON 加文字）。
     /// - 成功卻不是 JSON 物件（陣列、純文字）→ 沒有地方放鍵：報告附在後面，不動原本的內容。
-    public static func reportingWrittenWithLegacyCopy(_ text: String, _ written: [LegacyCopyLeft], isError: Bool) -> String {
+    public static func reportingWrittenWithLegacyCopy(_ text: String, _ written: [LegacyCopyLeft], isError: Bool,
+                                                      limit: Int? = writtenWithLegacyCopyLimit) -> String {
         guard !written.isEmpty else { return text }
         if isError {
-            return (LegacyCopyLeft.reportLines(written) + ["", text]).joined(separator: "\n")   // display-safe-exempt: reportLines：LegacyCopyLeft.message 已消毒；text 是呼叫端已組好的回應
+            return (LegacyCopyLeft.reportLines(written, limit: limit) + ["", text]).joined(separator: "\n")   // display-safe-exempt: reportLines：LegacyCopyLeft.message 已消毒；text 是呼叫端已組好的回應
         }
         if var obj = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] {
-            let rows: [Any]? = switch obj[writtenWithLegacyCopyKey] {
-            case nil: legacyCopyRows(written)
-            case let existing as [Any]: (existing + legacyCopyRows(written)).sorted { Self.rowSortKey($0) < Self.rowSortKey($1) }
+            // 已帶這個鍵的回應（`akashic_import_zotero` 的 payload 自己帶、可能已截）：併進去，總數是它的總數加上這次的筆數
+            let merged: (rows: [Any], total: Int)? = switch obj[writtenWithLegacyCopyKey] {
+            case nil: (legacyCopyRows(written), written.count)
+            case let existing as [Any]:
+                ((existing + legacyCopyRows(written)).sorted { Self.rowSortKey($0) < Self.rowSortKey($1) },
+                 (obj[writtenWithLegacyCopyTotalKey] as? Int ?? existing.count) + written.count)
             default: nil   // 同名鍵卻不是陣列：不是這個函式寫的形狀，不覆寫它——落到下一格附文字
             }
-            if let rows {
-                obj[writtenWithLegacyCopyKey] = rows
+            if let merged {
+                obj.merge(legacyCopyFields(rows: merged.rows, total: merged.total, limit: limit)) { _, new in new }
                 if let data = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys]) {
                     return UnsafeToEmitScalar.escapingUnsafeScalars(inSerializedJSON: String(decoding: data, as: UTF8.self))
                 }
             }
         }
-        return ([text, ""] + LegacyCopyLeft.reportLines(written)).joined(separator: "\n")   // display-safe-exempt: reportLines：LegacyCopyLeft.message 已消毒；text 是呼叫端已組好的回應
+        return ([text, ""] + LegacyCopyLeft.reportLines(written, limit: limit)).joined(separator: "\n")   // display-safe-exempt: reportLines：LegacyCopyLeft.message 已消毒；text 是呼叫端已組好的回應
     }
 
     /// 併進既有陣列時的排序鍵：與 `legacyCopyRows` 同一個 (kind, key)。

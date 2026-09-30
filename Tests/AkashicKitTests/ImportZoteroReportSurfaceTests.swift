@@ -292,7 +292,7 @@ extension ImportZoteroReportSurfaceTests {
         "fieldsRemovedByPull": "鍵是被整份替換拿掉的欄位名、值是次數——筆數隨 store 的欄位種類、不隨一次匯入的筆數成長（同 residualFields）",
         "writeFailed": "失敗清單：沒寫進去的記錄在 store 裡沒有痕跡、原因只在這份報告，截掉就拿不回來",
         "quarantineConflicts": "失敗清單：同 writeFailed",
-        "writtenWithLegacyCopy": "#705：寫了、搬移後的 legacy 拷貝沒刪掉——每一筆都要人去刪 legacy 那份，截掉就不知道還有哪幾份；只在非空時出現",
+        "writtenWithLegacyCopy": "#705 R2 verify：另有上限與自己的鍵（writtenWithLegacyCopyTotal／writtenWithLegacyCopyTruncated，同 ambiguousSourceClaims）；截掉的由 akashic validate 逐筆列出",
     ]
     /// payload 裡是集合、但不是報告清單的鍵（#696 的揭露本身）。
     static let disclosureKeys: Set<String> = ["listTotals", "truncatedLists"]

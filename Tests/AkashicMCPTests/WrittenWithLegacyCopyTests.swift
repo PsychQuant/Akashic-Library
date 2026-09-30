@@ -243,7 +243,7 @@ final class WrittenWithLegacyCopyTests: XCTestCase {
 
     /// 分派的範圍裡（這裡照同一個順序重演）：importer 自己的範圍收下、放進報告；rebuild 失敗時報告裡的那幾筆**交給外層**，
     /// 嵌進錯誤訊息的 payload 不再帶——外層在格式化錯誤之後把它們放在回應最前面、不截。真 binary 的接線與超過錯誤上限的量由
-    /// `StdioE2ETests.testImportRebuildFailureKeepsEveryLegacyCopyUntruncated` 釘住。
+    /// `StdioE2ETests.testImportRebuildFailureReportsTheLegacyCopiesWithACap` 釘住。
     func testAnImportWhoseRebuildFailsHandsItsLeftoversToTheEnclosingScope() throws {
         let (db, keys) = try legacyZoteroWorks(3)
         let (result, outer) = LegacyCopyLedger.collecting { try service.importZotero(zoteroDb: db.path, libraryID: nil) }

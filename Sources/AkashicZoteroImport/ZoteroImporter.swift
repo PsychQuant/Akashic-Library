@@ -72,8 +72,9 @@ public struct ImportReport: Equatable {
     /// 寫入時 encode/寫檔擲錯的 citekeys → 錯誤描述（R6 M9：encode 自 v1.3 起
     /// 可 throw——canary fail-closed；per-item 隔離，單筆失敗不中斷整趟 import、
     /// 不留半套用狀態，index 照常 rebuild）。**記的是沒有套用的那一步**：內容已寫進 `entities/`、只有搬移後的 legacy 檔沒刪掉的
-    /// 那一步在 `writtenWithLegacyCopy`（#705；#702 曾讓它同時在這裡）。同一筆在同一趟之後的步驟被 #631 拒絕（兩份並存）時，
-    /// 這裡另記一則、訊息說出前一步已寫入（#702 R2 verify）；同一筆有不只一則時以「；」串接，不覆寫。
+    /// 那一步在 `writtenWithLegacyCopy`（#705；#702 曾讓它同時在這裡）。同一筆在同一趟之後的步驟被 #631 拒絕（兩份並存）時**也不在這裡**：
+    /// 那是前一步留下的 legacy 拷貝造成的，標在 `writtenWithLegacyCopy` 那一筆的 `laterWriteRefused`（#705 R2 verify 第 9／20 列——
+    /// 先前這裡另記一則，同一筆一邊說寫了、一邊說失敗，CLI 因此以 1 結束）。同一筆有不只一則時以「；」串接，不覆寫。
     public var writeFailed: [String: String] = [:]
     /// 內容已寫進 `entities/`、#631 搬移後的 legacy 拷貝沒刪掉的 entries（#705，使用者 2026-09-30 裁決 (a)）：**寫了**，照常記在
     /// `updated`、`authorsOverwritten` 等清單；留下兩份的事實記在這裡，不進 `writeFailed`。由 `run` 自己的收集範圍收下。
@@ -218,21 +219,18 @@ public struct ZoteroImporter {
                 }
                 return false
             }
-            // #705（#702 R2 verify）：這一趟稍早一步對同一筆的寫入已落地、搬移後的 legacy 拷貝沒刪掉（在 `writtenWithLegacyCopy`）——
-            // 兩份並存，#631 一定拒絕這一步。不再嘗試，具名說出前一步寫了、這一步的改動沒有套用；先前被拒的訊息只說「兩份都在」，
-            // 讀的人會以為這一筆整個沒寫（主來源、附加來源、orphan 標記可能在同一趟各寫一次同一筆）。
-            if LegacyCopyLedger.collected.contains(where: { $0.id == entry.id }) {
-                recordWriteFailure(entry.citekey, "這一趟稍早已寫入這一筆（見 writtenWithLegacyCopy），搬移後的 legacy 拷貝沒刪掉、兩份並存"
-                    + "——這一步的改動沒有套用。確認 entities/ 那份是新的、刪掉 legacy 那份之後重跑 import 即可補上（#631、#705）",
-                    report: &report)
-                return false
-            }
             do {
                 // #702 R1 verify／#705：#631 的搬移寫完之後刪 legacy 檔失敗時內容**已經寫進去**——`run` 的收集範圍讓這裡照常
                 // 回傳，這一筆照寫入成功記（作者覆寫、欄位拿掉都真的發生了），留下兩份的事實在報告的 `writtenWithLegacyCopy`。
                 try store.writeEntry(entry)
                 current[entry.id] = entry
                 return true
+            } catch StoreIOError.legacyCopyLeftEarlierInThisOperation(_, _) {
+                // #705 R2 verify 第 9／20 列：這一趟稍早一步對同一筆的寫入已落地、搬移後的 legacy 拷貝沒刪掉——兩份並存，#631 拒絕這一步
+                // （主來源、附加來源、orphan 標記可能在同一趟各寫一次同一筆）。這一步沒有套用，但**不是寫入失敗**：原因是前一步留下的拷貝，
+                // 處置相同（刪掉 legacy 那份、重跑）。`LibraryStore` 已把它標在 `writtenWithLegacyCopy` 那一筆上（`laterWriteRefused`），
+                // 報告在同一個地方說出「之後的寫入沒有套用」；不進 writeFailed（使用者 2026-09-30 裁決 (a)：這一筆記在成功那一側）。
+                return false
             } catch {
                 recordWriteFailure(entry.citekey, displaySafeError(error, max: 4_096), report: &report)
                 return false

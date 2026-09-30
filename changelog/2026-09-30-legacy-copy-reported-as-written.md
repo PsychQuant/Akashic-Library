@@ -117,3 +117,49 @@
 - **成功回應已帶這個鍵時併進同一個陣列**（先前會把 JSON 變成 JSON 加文字）。
 - **沒有外層範圍時，失敗不再帶走收到的那幾筆**：`ZoteroImporter.run` 與 `LegacyCopyReport.payload` 改經 `LegacyCopyLedger.get`，沒有外層時擲 `LegacyCopyLeftBeforeFailure`（帶著寫了的那幾筆與原本的錯誤）。
 - 說明句名單（13 個工具）仍是手寫的：程式裡沒有「寫既有 work／person 的 MCP 工具」這個分類可以推導，理由在那份 changelog。
+
+## R2 verify 之後（2026-10-01）
+
+第二輪驗證 HIGH 0、MEDIUM 0；本張 LOW 七則（第 4、5、9、13、16、19、20 則；編號是 R2 報告的則號），另有幾則 INFO 與它們同一件事（27、28、36、39）。
+
+| 則 | 問題 | 處置 |
+|---|---|---|
+| 9、20、5 | 同一趟第二次寫同一筆（多來源的 Zotero work 最常見）：第一步寫了、legacy 刪不掉，第二步被 #631 拒絕——import-zotero 把它記成 `writeFailed`，同一個 citekey 同時在 `writeFailed` 與 `writtenWithLegacyCopy`、CLI 以 1 結束；其他寫入者只得到泛用的「兩份並存，拒絕寫入」 | **一個改動**：拒絕本身查收集範圍。`LibraryStore` 的 #631 前置（兩份並存那一格）問 `LegacyCopyLedger.earlierWrite(id:)`（沿範圍鏈由內往外找），稍早已寫入的就擲 `legacyCopyLeftEarlierInThisOperation`，訊息以「同一個操作稍早已寫入這一筆（見 writtenWithLegacyCopy）」開頭、說這一步的改動沒有套用——所有寫入者同一句（先前只有 `ZoteroImporter.guardedWrite` 自己查 `LegacyCopyLedger.collected`，那個查詢拿掉了）。寫入路徑另把那一筆標上 `laterWriteRefused`；load 的 #641 標註說同一句、不標記（load 不是一次寫入） |
+| 9、20（報告形狀） | 那一筆在成功側與失敗側各出現一次，違反裁決 (a)「成功那一側、不進任何失敗清單」的字面 | **只在成功側出現一次，標出之後的寫入沒有套用**：MCP 的 `writtenWithLegacyCopy` 那一列多 `laterWriteNotApplied`，人可讀報告那一行附同一句；`ZoteroImporter.guardedWrite` 接住這個特例、回 false（這一步沒套用）、**不進 `writeFailed`**，CLI import-zotero 不再因它走 `if !report.writeFailed.isEmpty { throw ExitCode(1) }`（work 的兩份仍讓 index 重建撞重複的 citekey——R1 已記的有記錄的後果——所以這個狀態下 import 的結束碼仍由重建的結果決定，不是這一則的範圍）。判準是原因：那個拒絕是前一步留下的拷貝造成的，處置與那一筆本來的處置相同（刪掉 legacy 那份、重跑）。其他逐筆收容的寫入者（resolve-*、enrich、enrich-from-zotero）的歸類沒有改：它們對同一筆 work 在一次呼叫裡只寫一次（`zip` 一遍、`order` 去重），所以第二次寫同一筆 work 的形狀只出現在 import-zotero；person 那一側（MCP 的 reject 與 apply 的 confirmed verdict 各寫一次 holder）理論上會寫同一筆兩次，本輪沒有造出重現。它們的失敗清單若收到這句話，就是這句話（同一句，不再是泛用的）——這一格是「措辭統一、歸類沒動」 |
+| 16、19 | CLI 寫入後失敗：報告在 stdout、原因在 stderr，只擷取 stderr 與結束碼的呼叫端讀不到「不要重跑」；`enrich --json` 失敗時 stdout 不是 JSON | stderr 的第一行說 stdout 上報告過幾筆已寫入、不要重跑（`LegacyCopyReport.stderrLead`，只含筆數，沒有 store 字串，也不以 `writtenWithLegacyCopy` 開頭），接著才是原本的錯誤。命令的 stdout 是 service JSON（`payload` 進入時設下記號）而它擲錯時，進入點印一份**只有 `writtenWithLegacyCopy`、`…Total`、`…Truncated` 三個鍵**的 JSON，stdout 仍是一份 JSON；文字命令照舊印人可讀報告 |
+| 4、39、28 | 「新命令不必記得接報告」只對印文字的命令成立；印 service JSON 的寫入命令不經 `LegacyCopyReport.payload` 時，進入點把文字接在 JSON 後面，而且只在 legacy 拷貝刪不掉的狀態下才壞 | 新測試 `LegacyCopyPayloadScanTests`：寫入命令＝執行期命令樹的葉命令中 `DestructiveTargetGate.commandRulings` 裁決不是唯讀的（#658 的裁決表本來就逐格列出每個葉命令）；每個命令找 `Sources/akashic/` 裡它的 `struct`，在本體找 `print(`：引數以 `try service.` 開頭、或是一個被 `service.…` 賦值的名字，是直接印 service JSON；以 `try LegacyCopyReport.payload` 開頭、或賦值含它的，是接好了的。直接印而沒接的，除了具名的豁免（寫不到既有 work／person 的五個命令：add-person、add-venue、update-venue、dismiss-divergence、store-source，逐格寫理由）都紅；接好的集合有下限（七個已知命令都要被認出，否則掃描壞了）、豁免表過期也紅。誠實邊界寫在測試檔頭：只看命令自己 struct 裡的 `print(`，經 helper 印的、引數拆成多行的、別名的 service 變數看不到 |
+| 13、36 | `writtenWithLegacyCopy` 不設上限：回應大小與 ledger 掃描由 store 狀態決定（`entries/` 整個唯讀時每一筆寫入都留一份，千筆約 500 KB 進 LLM context）；`ZoteroImporter` 每筆對收集範圍做 O(n) 的 `contains`，整趟 O(n²) | MCP 至多列 20 筆（`writtenWithLegacyCopyLimit`，依 kind、key 排序留前面的），另給 `writtenWithLegacyCopyTotal`（完整筆數）與 `writtenWithLegacyCopyTruncated`，三個鍵同進同出；錯誤回應最前面的人可讀報告同一個上限，標題是完整筆數、多出的一行說還有幾筆與去哪裡找（`akashic validate` 逐筆列出兩份並存的記錄——R1 的理由「截掉的就找不回來」不成立：留下的 legacy 檔在磁碟上，load 每次都看得到）；CLI 全列。已帶這個鍵的回應併進去時，總數是它的總數加上這次的筆數。`akashic_import_zotero` 的 index rebuild 失敗路徑：交給外層範圍時 payload 連三個鍵一起拿掉。O(n²) 改成範圍內 `indexByID`（id → 位置）與沿鏈查詢。`legacyCopyNote` 那一句 13 份描述共用，多了「前 20 筆與總數」，tools/list 52,283 bytes（預算 54,000，剩 1,717；R1 之後 51,997） |
+
+### 測試
+
+- 新增：`LegacyCopyLaterWriteTests`（AkashicKitTests，6 支：work 與 person 各寫兩次、內層範圍看得到外層稍早的寫入、範圍外第二次是泛用拒絕、load 標註同句不標記、報告上限）、`WrittenWithLegacyCopyR2Tests`（AkashicMCPTests，5 支：上限與總數、錯誤文字的上限、import payload 只在給 listLimit 時截、列的 `laterWriteNotApplied`、分派範圍裡第二個寫入者的拒絕）、`LegacyCopyPayloadScanTests`（AkashicCLITests，1 支）、`LegacyCopyCLITests` 加兩支（`runSplit` 分開收 stdout 與 stderr：文字命令失敗時 stderr 第一行、`enrich --json` 失敗時 stdout 是一份 JSON）、`ZoteroImportTests` 加多來源的 `testAMultiSourceWorkWithALeftoverIsListedOnceOnTheSuccessSide`（finding 20 的重現：主來源加附加來源、legacy 目錄唯讀，兩步恰好一步落地、只在成功側、`writeFailed` 為空）。
+- 改寫：`testASecondStepAfterALeftoverSaysTheFirstStepLanded` → `testASecondStepAfterALeftoverIsNotedOnTheSuccessSide`；`StdioE2ETests.testImportRebuildFailureKeepsEveryLegacyCopyUntruncated` → `…ReportsTheLegacyCopiesWithACap`（三十二筆：標題是完整筆數、列前 20 筆、多出的一行揭露，另斷言嵌進錯誤的 payload 不再帶 Total／Truncated 兩個鍵）；`testTagThatFailsAfterWritingStillReportsIt` 改斷言 stdout 是一份 JSON；`ImportZoteroReportSurfaceTests` 的 `uncappedCollections` 說明、`LegacyCopyLedgerTests.testEveryScopeTakesItsResultThroughGet` 的進入點字串跟著改。
+
+### 負控
+
+反向編輯一處 → 重建 → 跑 `LegacyCopy|WrittenWithLegacyCopy|ZoteroImportTests|ImportZoteroReportSurface|testImportRebuildFailureReportsTheLegacyCopiesWithACap` → 反向字串替換還原、`cmp` 對照位元組備份。
+
+| # | 反向編輯 | 紅的測試（失敗斷言數，全部 137 支裡） |
+|---|---|---|
+| NC1 | `LibraryStore` 兩份並存那一格不查 `earlierWrite`（回到泛用拒絕） | 7 支（15）：`LegacyCopyLaterWriteTests` 4（work、person、內層範圍、load 標註）、`ZoteroImportTests` 2、`WrittenWithLegacyCopyR2Tests` 1（分派範圍裡第二個寫入者） |
+| NC2 | `entitiesWritePlan` 不標 `laterWriteRefused` | 6 支（8）：同上去掉 load 標註那一支（load 本來就不標） |
+| NC3 | `ZoteroImporter.guardedWrite` 那個 catch 改成記進 `writeFailed` | `ZoteroImportTests` 2 支（2）：第二步只在成功側、多來源重現 |
+| NC4 | `reportLines` 不套上限 | 3 支（6）：報告上限、錯誤文字的上限、真 binary 三十二筆 |
+| NC5 | `legacyCopyFields` 不套上限（成功的 JSON 全列） | 2 支（5）：回應的上限與總數、import payload 只在給 listLimit 時截 |
+| NC6 | 進入點的尾段對 JSON 命令仍印人可讀文字 | CLI 2 支（4）：`tag` 失敗與 `enrich --json` 失敗，stdout 必須是一份 JSON |
+| NC7 | `stderrLead` 恆回 nil | CLI 2 支（3）：文字命令與 `--json` 命令失敗時 stderr 第一行 |
+| NC8 | `tag` 改回直接印 service JSON（不經 `payload`） | 2 支（4）：`LegacyCopyPayloadScanTests` 與 `tag` 失敗那支 |
+| NC9 | `earlierWrite` 不沿範圍鏈往外找 | `testAnInnerScopeSeesTheOuterScopesEarlierWrite`（2） |
+| NC10 | 列的 `laterWriteNotApplied` 不出現 | `testARowFlagsALaterWriteThatWasNotApplied`（1） |
+| NC11 | 嵌進錯誤的 payload 只拿掉清單、不拿 Total／Truncated | `testImportRebuildFailureReportsTheLegacyCopiesWithACap`（1） |
+| NC12 | 人可讀報告不附「之後的寫入沒有套用」 | 2 支（2）：`testAWorkWrittenTwiceInOneScopeSaysTheEarlierStepWrote`、`testASecondStepAfterALeftoverIsNotedOnTheSuccessSide` |
+| NC13 | `payload` 進入時不設 `stdoutIsJSON` | CLI 2 支（4） |
+
+十三格都紅、都還原為相同位元組（`cmp`）；每一次的 `Executed 137 tests` 行都在，失敗數是斷言數、不是測試數。NC12 的還原腳本撞上自己的計數檢查（變異後的 `""` 在檔裡出現四次）而中止，檔案在那之後改以精確的上下文字串反向編輯還原、`cmp` 對照位元組備份相同，NC13 單獨重跑。
+
+### 誠實邊界（R2）
+
+- 外層稍早記下一筆、之後開的內層範圍成功結束，那一個內層範圍收下的留在它自己的報告裡、不在範圍鏈上；外層之後再寫同一筆得到泛用的 `legacyCopyPresent`。目前沒有寫入者這樣做（import 的範圍結束後同一次呼叫不再寫）。
+- 沒有外層範圍時（單元測試、嵌入），body 擲錯會以 `LegacyCopyLeftBeforeFailure` 取代原本的錯誤型別（R2 第 27 則，INFO）：出貨的 CLI 與 MCP 路徑一定有外層範圍，所以不會發生；`LegacyCopyPayloadScanTests` 守接線。
+- MCP 與 CLI 是有記錄的差異：MCP 截 20 筆、CLI 全列（理由同 `resolve-people` 的 `--rows`：上限保護的是 LLM context）。
+- CLI 的 `stderrLead` 與進入點的 JSON 尾段靠 `LegacyCopyReport` 的 static 狀態（一個 process 跑一個命令）；同一個 process 內連續跑多個命令（測試直接呼叫 `run()`）時狀態不重置。

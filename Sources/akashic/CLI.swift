@@ -22,7 +22,9 @@ struct AkashicCLI: ParsableCommand {
             // #705：每一個命令都在收集範圍裡跑——「寫進 entities/、搬移後的 legacy 拷貝沒刪掉」的那一筆寫入照常回傳（它寫了），
             // 命令結束後印在輸出末尾（成功那一側）；命令擲錯時也印，排在錯誤訊息之前——寫進去的那一筆不跟著錯誤一起消失。
             let (result, written) = LegacyCopyLedger.collecting { try command.run() }
-            LegacyCopyReport.printLines(written)
+            var failed = false
+            if case .failure = result { failed = true }
+            LegacyCopyReport.printTrailer(written, commandFailed: failed)   // #705 R2 verify 第 19 列：JSON 命令失敗時 stdout 仍是一份 JSON
             try result.get()
         } catch {
             // **非 ArgumentParser 的錯誤先逃一次**（R31 D83；R30 verify 第 2 列）：五個包裝站點（#549 起是 `RuntimeFailure.state(displaySafeErrorText(…))`，原本是 `ValidationError`）之外，直接傳到頂層的
@@ -44,7 +46,11 @@ struct AkashicCLI: ParsableCommand {
             // #297 item 1：頂層用不跳脫反斜線的變體——否則帶合法反斜線的常量
             // （`StoreKey.pattern`）與已消毒片段的 `\u{...}` 都會被弄壞。
             // 終端安全不受影響（控制字元／bidi 等仍全部跳脫），理由見該函式 doc。
-            let safe = displaySafeAssembled(full)
+            var safe = displaySafeAssembled(full)
+            // #705 R2 verify 第 16／19 列：失敗時 stderr 的第一行也說 stdout 上報告過的那幾筆寫了——只擷取 stderr 的呼叫端讀得到「不要重跑」
+            if exitCode(for: error) != .success, !safe.isEmpty, let lead = LegacyCopyReport.stderrLead {
+                safe = lead + "\n" + safe
+            }
             if !safe.isEmpty {
                 let code = exitCode(for: error)
                 // help/CleanExit 走 stdout（exit 0 的訊息是輸出不是錯誤），其餘 stderr。

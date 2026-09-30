@@ -21,6 +21,10 @@ public struct LegacyCopyLeft: Equatable, Sendable {
     public let legacyFile: String
     /// 刪不掉的原因。**擲出端已消毒**（`displaySafeError`）。
     public let detail: String
+    /// 同一個操作之後對這一筆的寫入被 #631 拒絕（兩份並存）——那一步的改動沒有套用（#705 R2 verify 第 5／9／20 列）。
+    /// 由 `LibraryStore` 的寫入前置標記（`LegacyCopyLedger.noteLaterWriteRefused`），不由建構者給：記下這一筆的當下還沒有之後。
+    /// 它讓「之後那一步沒套用」與這一筆記在**同一個地方**（成功那一側）：兩者的處置相同——刪掉 legacy 那份、重跑。
+    public var laterWriteRefused = false
 
     public init(kind: Kind, key: String, id: UUID, legacyFile: String, detail: String) {
         self.kind = kind; self.key = key; self.id = id; self.legacyFile = legacyFile; self.detail = detail
@@ -45,13 +49,26 @@ public struct LegacyCopyLeft: Equatable, Sendable {
         return "\(kind.rawValue)「\(displaySafeInvisible(key, max: 200))」：\(base)\(index)"   // display-safe-exempt: base：errorDescription 對 file 以性質逃脫、detail 擲出端已消毒；kind：封閉列舉；index：本檔字面
     }
 
-    /// 兩面共用的人可讀報告：一行標題（鍵名＋筆數）加每筆一行。沒有就回空陣列——不印。
-    public static func reportLines(_ items: [LegacyCopyLeft]) -> [String] {
+    /// 兩面共用的人可讀報告：一行標題（鍵名＋完整筆數）加每筆一行。沒有就回空陣列——不印。
+    ///
+    /// `limit`（#705 R2 verify 第 13 列）：MCP 的錯誤回應至多列這麼多筆（依 (kind, key) 排序留前面的），多出的以一行說出筆數與去哪裡找——
+    /// 回應直接進 LLM context，而筆數由 store 狀態決定（`entries/` 整個唯讀時每一筆寫入都留下一份）。截掉的找得回來：`akashic validate`
+    /// 逐筆列出兩份並存的記錄（load 的 #641 標註），CLI 全列。nil＝全列（CLI）。
+    public static func reportLines(_ items: [LegacyCopyLeft], limit: Int? = nil) -> [String] {
         guard !items.isEmpty else { return [] }
         let sorted = items.sorted { ($0.kind.rawValue, $0.key) < ($1.kind.rawValue, $1.key) }
-        return ["writtenWithLegacyCopy（已寫入 entities/、搬移後的 legacy 拷貝沒刪掉——不是寫入失敗，刪掉 legacy 那份即可）: \(items.count)"]   // display-safe-exempt: count：Int
-            + sorted.map { "  ⚠ \($0.message)" }   // display-safe-exempt: $0.message：已消毒（見上）
+        let shown = limit.map { Array(sorted.prefix($0)) } ?? sorted
+        var lines = ["writtenWithLegacyCopy（已寫入 entities/、搬移後的 legacy 拷貝沒刪掉——不是寫入失敗，刪掉 legacy 那份即可）: \(items.count)"]   // display-safe-exempt: count：Int
+            + shown.map { "  ⚠ \($0.message)" + ($0.laterWriteRefused ? "；" + laterWriteRefusedNote : "") }   // display-safe-exempt: $0.message：已消毒（見上）；laterWriteRefusedNote：本型別的字面常量
+        if shown.count < sorted.count, let limit {
+            lines.append("  …另有 \(sorted.count - shown.count) 筆未列出（這裡至多列 \(limit) 筆；akashic validate 逐筆列出兩份並存的記錄，CLI 全列）")   // display-safe-exempt: Int
+        }
+        return lines
     }
+
+    /// 之後的寫入沒有套用（`laterWriteRefused`）——人可讀報告每筆的附句與 MCP 列的 `laterWriteNotApplied` 同一句。
+    public static let laterWriteRefusedNote =
+        "同一個操作之後對這一筆的寫入沒有套用（兩份並存時 #631 拒絕同一筆的下一次寫入）——刪掉 legacy 那份之後重跑即可補上"
 }
 
 /// 收集 `LegacyCopyLeft` 的範圍（#705）。
@@ -72,11 +89,18 @@ public final class LegacyCopyLedger: @unchecked Sendable {
 
     private let lock = NSLock()
     private var items: [LegacyCopyLeft] = []
+    /// id → 在 `items` 的位置（同一個 id 第一次記下的那一筆）。先前 `ZoteroImporter` 每寫一筆就線性掃一次（#705 R2 verify 第 13 列：整趟 O(n²)）。
+    private var indexByID: [UUID: Int] = [:]
+    /// 外層範圍（開這個範圍時的 `active`）。查「同一個操作稍早寫過沒有」要沿鏈往外找：外層稍早記下一筆、之後開的內層範圍又寫同一筆時，
+    /// 那一筆在外層（內層失敗時收到的也轉交外層，`collecting`）。誠實邊界：內層**成功**結束後收到的留在它自己的報告裡、不在鏈上——
+    /// 外層之後再寫同一筆，得到的是泛用的 `legacyCopyPresent`（目前沒有寫入者這樣做：import 的範圍結束後同一次呼叫不再寫）。
+    private let parent: LegacyCopyLedger?
 
-    private init() {}
+    private init(parent: LegacyCopyLedger?) { self.parent = parent }
 
     private func record(_ item: LegacyCopyLeft) {
         lock.lock(); defer { lock.unlock() }
+        if indexByID[item.id] == nil { indexByID[item.id] = items.count }
         items.append(item)
     }
 
@@ -85,10 +109,41 @@ public final class LegacyCopyLedger: @unchecked Sendable {
         return items
     }
 
-    /// 最內層範圍到目前為止記下的（沒有範圍時是空的）。給同一個操作裡**之後的步驟**用：稍早一步對某筆記錄的寫入已落地、
-    /// legacy 拷貝還在時，#631 會拒絕同一筆的下一次寫入（兩份並存）——呼叫端可以先查這裡、具名說出前一步寫了
-    /// （`ZoteroImporter` 的主來源、附加來源、orphan 標記可能在同一趟各寫一次同一筆，#702 R2 verify）。
-    public static var collected: [LegacyCopyLeft] { active?.recorded ?? [] }
+    private func find(_ id: UUID) -> LegacyCopyLeft? {
+        lock.lock(); defer { lock.unlock() }
+        return indexByID[id].map { items[$0] }
+    }
+
+    private func markLaterWriteRefused(_ id: UUID) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard let i = indexByID[id] else { return false }
+        items[i].laterWriteRefused = true
+        return true
+    }
+
+    /// 同一個操作稍早對這個 id 的寫入已落地、搬移後的 legacy 拷貝沒刪掉的那一筆（沿範圍鏈由內往外找；沒有就是 nil）。
+    ///
+    /// `LibraryStore` 的 #631 前置用它：兩份並存時，那個拒絕說出「稍早已寫入」，所有寫入者同一句（#705 R2 verify 第 5 列——先前只有
+    /// `ZoteroImporter` 自己查、其他多步寫入者只得到泛用的「兩份並存」）。
+    static func earlierWrite(id: UUID) -> LegacyCopyLeft? {
+        var ledger = active
+        while let l = ledger {
+            if let item = l.find(id) { return item }
+            ledger = l.parent
+        }
+        return nil
+    }
+
+    /// 在記著這一筆的範圍裡標記「之後的寫入沒有套用」；找不到回 false。冪等（一個 Bool）——多檔操作的前置與寫入當下各問一次也只標一次。
+    @discardableResult
+    static func noteLaterWriteRefused(id: UUID) -> Bool {
+        var ledger = active
+        while let l = ledger {
+            if l.markLaterWriteRefused(id) { return true }
+            ledger = l.parent
+        }
+        return false
+    }
 
     /// 寫入端用：有範圍就記下並回 true（呼叫端照常回傳），沒有就回 false（呼叫端擲錯）。
     static func recordIfCollecting(_ item: LegacyCopyLeft) -> Bool {
@@ -124,7 +179,7 @@ public final class LegacyCopyLedger: @unchecked Sendable {
     /// 在一個收集範圍裡跑 `body`。回傳它的結果與範圍內記下的每一筆（`written`）。
     public static func collecting<R>(_ body: () throws -> R) -> (result: Result<R, Error>, written: [LegacyCopyLeft]) {
         let outer = active
-        let ledger = LegacyCopyLedger()
+        let ledger = LegacyCopyLedger(parent: outer)
         let result: Result<R, Error> = $active.withValue(ledger) { Result { try body() } }
         let written = ledger.recorded
         if case .failure = result, let outer {

@@ -97,6 +97,12 @@ plugin 版號沒有動。
 - **處置**：確認 `entities/` 那一份是新的之後，刪掉 legacy 那一份。刪掉之前 load 會把這筆記錄標成無法唯一定位，寫入它的工具會拒絕。
 - `akashic_import_zotero`：`writeFailed` 不再有以「已寫入」開頭的訊息（#702 的例外改掉），它記的是沒有套用的那一步。同一趟稍早一步已寫入這一筆、之後的步驟被拒時（兩份並存），`writeFailed` 那一則說出前一步寫了、這一步沒有套用；同一筆有不只一則時以「；」串接，不再後蓋前。
 
+第二輪驗證之後（2026-10-01）：
+
+- **有上限**：`writtenWithLegacyCopy` 至多列 20 筆（依 kind、key 排序留前面的），另給 `writtenWithLegacyCopyTotal`（完整筆數）與 `writtenWithLegacyCopyTruncated`，三個鍵同進同出。錯誤回應最前面的人可讀報告同一個上限：標題是完整筆數，多出的一行說還有幾筆、`akashic validate` 會逐筆列出。CLI 全列。
+- **同一次呼叫對同一筆寫第二次**：第一步寫了、legacy 拷貝刪不掉，第二步被拒絕（兩份並存）時，拒絕訊息一律以「同一個操作稍早已寫入這一筆（見 writtenWithLegacyCopy）」開頭（先前只有 `akashic_import_zotero` 這樣說）；`writtenWithLegacyCopy` 那一列多一個鍵 `laterWriteNotApplied`，說之後的寫入沒有套用。`akashic_import_zotero` 不再把第二步列在 `writeFailed`（上一段最後一條自此不成立）；多來源的 work（主來源加附加來源）在同一趟各寫一次時就是這個形狀。處置不變：刪掉 legacy 那一份、重跑。
+- CLI `akashic`：寫入之後失敗時，stderr 的第一行說 stdout 上報告過幾筆已寫入、不要重跑；`--json` 與其他印 JSON 的命令（`tag`、`update-person`……）寫入之後失敗時，stdout 是一份只有這三個鍵的 JSON，不再是 JSON 以外的文字。
+
 ## #695 — `akashic_enrich` 的來源欄位與 `references` 的空陣列（不相容）
 
 plugin 的 wrapper 會自動下載新版 `akashic-mcp`，skill 文字可能比 binary 舊，所以把會讓既有呼叫失敗的改變寫在這裡。plugin 版號沒有動。

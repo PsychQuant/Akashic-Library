@@ -301,7 +301,7 @@ final class LegacyCopyLedgerTests: XCTestCase {
     func testEveryScopeTakesItsResultThroughGet() throws {
         let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let outermost: [String: String] = [
-            "Sources/akashic/CLI.swift": "LegacyCopyReport.printLines(written)",
+            "Sources/akashic/CLI.swift": "LegacyCopyReport.printTrailer(written",   // #705 R2 verify：失敗的 JSON 命令改印一份 JSON
             "Sources/akashic-mcp/Server.swift": "reportingWrittenWithLegacyCopy(\"Error: 工具分派失敗\", written, isError: true)",
         ]
         var scopes: [String] = [], offenders: [String] = []

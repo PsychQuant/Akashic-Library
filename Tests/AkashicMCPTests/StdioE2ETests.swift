@@ -992,9 +992,10 @@ extension StdioE2ETests {
 
     /// #705 R1 verify 第 1 列：`akashic_import_zotero` 的 rebuild 失敗時，報告整份嵌進錯誤訊息，而錯誤出口有上限（200 行／96 KB）——
     /// `writtenWithLegacyCopy` 每筆在 pretty JSON 裡佔七行，三十二筆（224 行）就被截掉一截，要人去刪的檔案清單不完整。現在 importer 收下的
-    /// 交給分派的範圍，放在回應最前面、不截；嵌進錯誤的 payload 不再帶（不報兩次）。
+    /// 交給分派的範圍，放在回應最前面；嵌進錯誤的 payload 不再帶（不報兩次）。#705 R2 verify 第 13 列起那一段**刻意**有上限
+    /// （`writtenWithLegacyCopyLimit`，20 筆）：標題是完整筆數，多出的一行說筆數與去哪裡找（`akashic validate`）——被截是揭露過的，不是錯誤出口意外截掉。
     /// 讀回應的期限放寬到 120 秒：每一筆的 legacy 搬移都問一次 git，機器忙的時候三十幾筆會逼近預設的 10 秒。
-    func testImportRebuildFailureKeepsEveryLegacyCopyUntruncated() throws {
+    func testImportRebuildFailureReportsTheLegacyCopiesWithACap() throws {
         let n = 32
         let zotero = try PayloadZoteroDB(dir: root, itemCount: n)
         let store = LibraryStore(root: root)
@@ -1019,10 +1020,15 @@ extension StdioE2ETests {
         XCTAssertEqual(result["isError"] as? Bool, true, "前提：index rebuild 撞兩筆不同記錄共用的 citekey：\(text.prefix(400))")
         let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
         XCTAssertTrue(lines.first?.hasPrefix("writtenWithLegacyCopy") == true && lines.first?.hasSuffix(": \(n)") == true,
-                      "報告在最前面、筆數完整：\(lines.first ?? "")")
-        XCTAssertEqual(lines.filter { $0.hasPrefix("  ⚠ work「") }.count, n, "每一筆都在，沒有被截")
-        for k in keys { XCTAssertTrue(text.contains("work「\(k)」"), "\(k) 不在回應裡（含最後一筆）") }
+                      "報告在最前面、標題是完整筆數：\(lines.first ?? "")")
+        let limit = 20   // `AkashicService.writtenWithLegacyCopyLimit`——本檔走真 binary、不 import AkashicMCPKit；常數改了這裡會紅
+        XCTAssertEqual(lines.filter { $0.hasPrefix("  ⚠ work「") }.count, limit, "列前 \(limit) 筆")
+        for k in keys.sorted().prefix(limit) { XCTAssertTrue(text.contains("work「\(k)」"), "\(k) 不在回應裡") }
+        XCTAssertTrue(text.contains("另有 \(n - limit) 筆未列出") && text.contains("akashic validate"), "多出的一行揭露：\(text.prefix(4_000))")
         XCTAssertTrue(text.contains("Error: index rebuild 失敗"), "原本的錯誤接在後面")
         XCTAssertFalse(text.contains("\"legacyFile\""), "嵌進錯誤的 payload 不再帶這個鍵——同一筆不報兩次")
+        // 三個鍵同進同出（#705 R2 verify 第 13 列）：嵌進錯誤的 payload 不再帶筆數與有沒有截——留下一個孤兒的 Total 會讓讀的人以為這份 JSON 的清單在別處
+        XCTAssertFalse(text.contains("\"writtenWithLegacyCopyTotal\"") || text.contains("\"writtenWithLegacyCopyTruncated\""),
+                       "三個鍵一起不在嵌進錯誤的 payload 裡")
     }
 }

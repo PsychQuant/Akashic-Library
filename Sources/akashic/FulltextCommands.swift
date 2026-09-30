@@ -5,15 +5,15 @@ import AkashicSkillTools
 
 /// `akashic-fetch-fulltext` skill 的決定論中間運算與抓取編排（#629 由 `scripts/*.py`、`fetch-fulltext.sh` 移植）。
 ///
-/// 全部**不寫 store、不連網**：PDF 由 skill 經使用者自己的 Safari 取得（`fetch` 替 safari-browser 編排，本身沒有 HTTP client，
-/// `.claude/rules/web-access-via-safari-browser.md`），這裡只做「取得之後怎麼判斷」與「取得的步驟怎麼排」。MCP 沒有對應面：
-/// 輸入是本機檔案或使用者的瀏覽器，不是 store 狀態（`mcp-cli-parity` 的 CLI-only 表一列）。
+/// 全部**不寫 store、不連網**：`fetch` 只在使用者自己的 Safari 裡導航、把 PDF 交給人（本身沒有 HTTP client，也不在頁內取檔，
+/// `.claude/rules/web-access-via-safari-browser.md`、#613 的「跟真人一樣」），`take` 收人存下來的本機檔；其餘是「取得之後怎麼判斷」。
+/// MCP 沒有對應面：輸入是本機檔案或使用者的瀏覽器，不是 store 狀態（`mcp-cli-parity` 的 CLI-only 表一列）。
 struct FulltextCmd: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "fulltext",
-        abstract: "取全文 skill 的中間運算：驗證下載檔、出版商網址規則、起疑訊號、抖動、抓取編排、標題規則校準",
-        subcommands: [FulltextVerifyCmd.self, FulltextURLRuleCmd.self, FulltextBotSignalsCmd.self, FulltextJitterCmd.self,
-                      FulltextFetchCmd.self, FulltextCalibrateCmd.self])
+        abstract: "取全文 skill 的中間運算：驗證下載檔、起疑訊號、抖動、導航到 PDF 並交給人、收人存的檔、標題規則校準",
+        subcommands: [FulltextVerifyCmd.self, FulltextBotSignalsCmd.self, FulltextJitterCmd.self,
+                      FulltextFetchCmd.self, FulltextTakeCmd.self, FulltextCalibrateCmd.self])
 }
 
 /// 下載下來的檔案是不是記錄所描述的那篇正式論文？印一個 JSON 物件；判定為「是這篇」時結束碼 0，否則（含讀不到）1。
@@ -38,33 +38,15 @@ struct FulltextVerifyCmd: ParsableCommand {
     var doi: String?
 
     func run() throws {
-        let (json, ok) = FulltextFetch.verdictJSON(path: pdf, title: title, pages: pages, doi: doi ?? "")
+        let (json, ok) = FulltextTake.verdictJSON(path: pdf, title: title, pages: pages, doi: doi ?? "")
         print(json)   // display-safe-exempt: json：判定物件由 `Assessment.json` 組成，DOI 欄位已過 displaySafeInvisible，其餘是數字、布林與固定標籤；錯誤文字已過 displaySafeErrorText
         if !ok { throw ExitCode(1) }
     }
 }
 
-/// 從落地頁最後停在的網址，推出出版商 PDF 的網址；沒有規則適用時什麼都不印（呼叫端改用頁面自己的連結）。
-struct FulltextURLRuleCmd: ParsableCommand {
-    static let configuration = CommandConfiguration(
-        commandName: "url-rule",
-        abstract: "從落地頁網址推出出版商的 PDF 網址（SAGE、Wiley、PsycNet）；沒有規則適用時不印")
-
-    @Argument(help: "落地頁最後停在的網址")
-    var finalURL: String
-
-    @Argument(help: "頁面自己的 PDF 連結（PsycNet 停在 doiLanding 時 id 從這裡取）")
-    var pageLink: String?
-
-    func run() throws {
-        if let url = PdfUrlRules.pdfURL(finalURL: finalURL, pageLink: pageLink) {
-            print(displaySafeInvisible(url, max: 1_000))
-        }
-    }
-}
-
 /// 網站是不是開始懷疑是自動化？從 stdin 讀頁面或回應文字；命中時印訊號標籤、結束碼 0，沒命中不印、結束碼 1。
-/// 樣式只是**下限**：沒命中不代表乾淨。
+/// 樣式只是**下限**：沒命中不代表乾淨。`--kind` 另印處置（#613）：`verify`＝等人驗證、`pause`＝整批暫停。
+/// **命中的結束碼一律是 0**（不因處置不同而變）：舊的呼叫端以「0＝有訊號、停」寫成，改碼會讓它把等人驗證讀成「沒有訊號」。
 struct FulltextBotSignalsCmd: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "bot-signals",
@@ -73,10 +55,13 @@ struct FulltextBotSignalsCmd: ParsableCommand {
     @Option(name: .long, help: "HTTP 狀態碼；403、429 本身就是起疑")
     var status: Int?
 
+    @Flag(name: .long, help: "標籤後面以 tab 分隔再印處置：verify（等人驗證）或 pause（整批暫停）")
+    var kind = false
+
     func run() throws {
         let text = String(decoding: FileHandle.standardInput.readDataToEndOfFile(), as: UTF8.self)
-        if let hit = BotSignals.detect(text, status: status) {
-            print(hit)
+        if let hit = BotSignals.classify(text, status: status) {
+            print(kind ? "\(hit.label)\t\(hit.response.rawValue)" : hit.label)
         } else {
             throw ExitCode(1)
         }
@@ -110,16 +95,18 @@ struct FulltextJitterCmd: ParsableCommand {
     }
 }
 
-/// 透過使用者自己的 Safari session 取一篇 work 的全文 PDF，驗證後存檔；結束碼是它對 agent 的契約（見 `FulltextFetch`）。
-/// **鎖分頁的方式沒有改**（`--window` 加分頁位置，#613 的作法；規則檔〈例外〉第二種形狀）。
+/// 在使用者自己的 Safari 裡從 DOI 走到頁面自己的 PDF 連結，交給人（#613）。**不取位元組、不寫任何輸出檔**；結束碼是它對 agent 的契約
+/// （見 `FulltextFetch`）。**鎖分頁的方式沒有改**（`--window` 加分頁位置；規則檔〈例外〉第二種形狀）。
 struct FulltextFetchCmd: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "fetch",
-        abstract: "經使用者自己的 Safari 取一篇的全文 PDF、驗證、存檔；結束碼 6＝整批停止（中止條款）",
+        abstract: "在使用者自己的 Safari 裡導航到頁面自己的 PDF 連結、交給人存檔；不取位元組、不寫檔；結束碼 6＝整批暫停",
         discussion: """
-        結束碼：0 取得且（有 --title 時）驗證通過；1 自動化失敗（看 stderr）；2 回應不是 PDF（本文存成 FILE.response.txt）；\
-        3 頁面上找不到 PDF 連結；4 無權限（網站給了登入殼）；5 是 PDF 但驗證不是這篇（存成 FILE.unverified.pdf）；\
-        6 整批停止：網站出現懷疑是自動化的跡象，分頁留著給使用者看。命令列本身打錯是 64。
+        只用瀏覽器導航（不在頁內取檔、不拼出版商網址）。結束碼：7 交給人（PDF 已顯示、或頁面的下載按鈕要人按；人存檔之後用 \
+        `fulltext take`）；8 等人驗證（CAPTCHA 等；使用者驗證完加 --resume-tab／--resume-origin 在同一個分頁接著走）；\
+        9 這個站今天（Asia/Taipei）已經 10 次嘗試，停這個站；6 整批暫停：其他起疑訊號，分頁留著給使用者看；\
+        3 頁面上找不到 PDF 連結；1 自動化失敗（看 stderr）。沒有結束碼 0。命令列本身打錯是 64。\
+        每次準備導航到 PDF 就在 --ledger（預設 $HOME/Library/Application Support/akashic/fulltext-attempts.jsonl，在 store 之外）記一次。
         """)
 
     @Option(name: .long, help: "Safari 視窗編號（從 1 起）")
@@ -128,23 +115,17 @@ struct FulltextFetchCmd: ParsableCommand {
     @Option(name: .long, help: "落地頁網址（一律是 https://doi.org/<DOI>，見 SKILL.md 第 2 步）")
     var landing: String
 
-    @Option(name: .long, help: "輸出的 PDF 路徑；必須在 git 工作樹之外，或被該樹 ignore（全文是第三方內容）")
-    var out: String
-
     @Option(name: .customLong("expect-profile"), help: "這個視窗必須屬於的 Safari profile（使用者自己的；必填）；不符就在開任何分頁之前拒絕")
     var expectProfile: String
 
-    @Option(name: .long, parsing: .unconditional, help: "記錄的標題（驗證用；不給就不驗證）；可以以連字號開頭")
-    var title: String?
+    @Option(name: .long, help: "每日嘗試帳本的路徑（預設 $HOME/Library/Application Support/akashic/fulltext-attempts.jsonl）")
+    var ledger: String?
 
-    @Option(name: .long, parsing: .unconditional, help: "記錄的頁碼範圍（驗證用），如 71--98")
-    var pages: String?
+    @Option(name: .customLong("resume-tab"), help: "等人驗證（結束碼 8）之後在同一個分頁接著走：那個分頁在 --window 裡的位置")
+    var resumeTab: Int?
 
-    @Option(name: .long, parsing: .unconditional, help: "記錄的 DOI（驗證用）；--landing 是 doi.org 網址時自動取")
-    var doi: String?
-
-    @Option(name: .long, help: "先在自己的分頁開這個網址、像讀者點 PDF 連結那樣，再關掉（PMC 用）")
-    var prime: String?
+    @Option(name: .customLong("resume-origin"), help: "與 --resume-tab 一起給：那個分頁此刻必須顯示的 https://<主機>（結束碼 8 印出的值）")
+    var resumeOrigin: String?
 
     @Option(name: .long, help: "safari-browser 的路徑")
     var bin: String = "safari-browser"
@@ -153,6 +134,11 @@ struct FulltextFetchCmd: ParsableCommand {
         guard window >= 1 else { throw ValidationError("--window 必須是 1 以上的整數") }
         // 視窗屬於誰是唯一防止「動到別人的 Safari session」的檢查：文件一直寫「一律帶」，程式現在也強制（R1 verify 第 31 則）
         guard !expectProfile.isEmpty else { throw ValidationError("--expect-profile 不可為空：它是唯一防止動到別人的 Safari session 的檢查") }
+        guard (resumeTab == nil) == (resumeOrigin == nil) else { throw ValidationError("--resume-tab 與 --resume-origin 要一起給") }
+        if let t = resumeTab, t < 1 { throw ValidationError("--resume-tab 必須是 1 以上的整數") }
+        if let origin = resumeOrigin, let problem = FulltextFetch.resumeOriginProblem(origin) {
+            throw ValidationError("--resume-origin 必須恰好是 https://<主機>（\(displaySafeInvisible(problem, max: 200))）")
+        }
     }
 
     func run() throws {
@@ -164,8 +150,44 @@ struct FulltextFetchCmd: ParsableCommand {
             browser: ProcessSafariBrowser(executable: bin),
             out: { line in print(line); fflush(stdout) },
             err: { line in FileHandle.standardError.write(Data((line + "\n").utf8)) })
-        let code = runner.run(.init(window: window, landing: landing, out: out, title: title, pages: pages, doi: doi,
-                                    prime: prime, expectProfile: expectProfile))
+        let code = runner.run(.init(window: window, landing: landing, ledger: ledger ?? FulltextAttemptLedger.defaultPath(),
+                                    expectProfile: expectProfile, resumeTab: resumeTab, resumeOrigin: resumeOrigin))
+        throw ExitCode(code)
+    }
+}
+
+/// 把人存下來的全文檔（本機檔）驗證後存到 `--out`（#613）。不碰瀏覽器、不連網、不寫 store；`--from` 只讀不動。
+struct FulltextTakeCmd: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "take",
+        abstract: "收人存下來的全文檔：驗證（有 --title 時）、git 閘、存到 --out；不碰瀏覽器、不連網、不寫 store",
+        discussion: """
+        結束碼：0 存好了，而且（有 --title 時）驗證是這篇；2 --from 不是 PDF，什麼都沒寫；\
+        5 是 PDF 但驗證不是這篇（存成 FILE.unverified.pdf）；1 其他失敗（--from 不是普通檔或太大、輸出目的地不合、git 閘拒絕）。\
+        命令列本身打錯是 64。--from 只讀，不移動、不刪除。
+        """)
+
+    @Option(name: .long, help: "人存下來的 PDF（本機的普通檔；只讀）")
+    var from: String
+
+    @Option(name: .long, help: "輸出的 PDF 路徑；必須在 git 工作樹之外，或被該樹 ignore（全文是第三方內容）")
+    var out: String
+
+    // `.unconditional`：標題可以以連字號開頭（見 FulltextVerifyCmd）
+    @Option(name: .long, parsing: .unconditional, help: "記錄的標題（驗證用；不給就不驗證）；可以以連字號開頭")
+    var title: String?
+
+    @Option(name: .long, parsing: .unconditional, help: "記錄的頁碼範圍（驗證用），如 71--98")
+    var pages: String?
+
+    @Option(name: .long, parsing: .unconditional, help: "記錄的 DOI（驗證用；沒有就沒有 DOI 可比，永不自動收）")
+    var doi: String?
+
+    func run() throws {
+        let taker = FulltextTake(
+            out: { line in print(line); fflush(stdout) },
+            err: { line in FileHandle.standardError.write(Data((line + "\n").utf8)) })
+        let code = taker.run(.init(from: from, out: out, title: title, pages: pages, doi: doi))
         if code != 0 { throw ExitCode(code) }
     }
 }

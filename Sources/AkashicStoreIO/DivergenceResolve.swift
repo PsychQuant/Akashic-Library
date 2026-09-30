@@ -3825,7 +3825,7 @@ extension LibraryStore {
 
     /// 其他 target 要問「這個路徑會不會落進沒有忽略它的 git 工作樹」時用的**同一支**加固過的 git（#629 R1 verify 第 10 則）。
     ///
-    /// `AkashicSkillTools` 的 `fulltext fetch` 在碰瀏覽器之前用它擋「第三方全文寫進版控範圍」——那道閘與 store 的可回溯性閘是同一類
+    /// `AkashicSkillTools` 的 `fulltext take`（#613 前是 `fulltext fetch`）在寫檔之前用它擋「第三方全文寫進版控範圍」——那道閘與 store 的可回溯性閘是同一類
     /// 隱私／安全閘，不能讓 `PATH`（shim）、目標 repo 的 `core.fsmonitor`、`core.attributesFile` 決定答案。第一版在那個 target 裡
     /// 另寫了一個 `/usr/bin/env git`、只剝 `GIT_*` 的 helper：#585 記過的 `PATH` shim 與 fsmonitor 向量兩個都開著
     /// （R1 verify 實測：repo 設 `core.fsmonitor=<腳本>`，閘的 `check-ignore` 就執行了那個腳本）。**不寫第三份**——這裡只是把

@@ -62,9 +62,11 @@ Crossref、ORCID、DOI 解析、出版商頁面）一直是 skill 層的事；�
   確認它非空才動作（`LOCK` 若是空的，safari-browser 會退回 front tab）。web-access.md 的每個區塊都照這個形，
   包括讀渲染後的頁面與關分頁（#634 驗證第 1 列：DOM 讀取那三步曾直接用 `"${LOCK[@]}"`，遺失時退回 front tab）。
 - **只碰「個人」profile 的分頁。** 這台機器的 Safari 有其他人的 profile，那些是別人的 session。
-- **中止條款**：網站一出現「懷疑是自動化」的訊號（驗證挑戰、403／429、access denied、
-  unusual traffic），**整批停止**、分頁留著、不重試、不換來源。實作範例是
-  `plugin/skills/akashic-fetch-fulltext/`（結束碼 6）。**判斷順序：先看狀態碼，再看內容**——404 是「查無此筆」、
+- **中止條款**：網站一出現「懷疑是自動化」的訊號就停下，分頁留著、不重試、不換來源。停下分兩種（使用者
+  2026-09-28、2026-10-01，#613）：CAPTCHA、人類檢查、Cloudflare「Just a moment」、按住驗證這四種是**等人驗證**——
+  暫停、請使用者在那個分頁自己驗證、完成後在**同一個分頁**接著走（不重新載入、不代解、不換站）；其他訊號（403／429、
+  access denied 與各家封鎖頁、unusual traffic、PMC 與 ScienceDirect 的下載前驗證頁）是**整批暫停**。實作範例是
+  `plugin/skills/akashic-fetch-fulltext/`（`fetch` 結束碼 8／6；`akashic fulltext bot-signals --kind` 印 `verify`／`pause`）。**判斷順序：先看狀態碼，再看內容**——404 是「查無此筆」、
   不是訊號（Crossref 對不存在的 DOI 回 404 加純文字本文，它同時符合「不是 JSON」，狀態碼優先）；#634 驗證第 26／32／38 列指出
   兩條規則對同一個回應各說各話。
 - **讀大型回應**：頁內 `fetch` 存進 `window` 變數（**每次請求換一個新的變數名**）→ `wait --js`
@@ -90,7 +92,7 @@ Crossref、ORCID、DOI 解析、出版商頁面）一直是 skill 層的事；�
 | 兩份 | `plugin/skills/akashic-bootstrap/references/web-access.md`（正本）與 `plugins/akashic-discovery/skills/akashic-work-references/SKILL.md` 的第 2 步 |
 | 為什麼不能併成一份 | 兩個 plugin 各自安裝、各自更新，一個 plugin 讀不到另一個的檔案；把程序抽成第三個共用 plugin 是另一個架構決定，沒有做 |
 | 哪一份是正本 | **web-access.md**。副本要改先改正本，再同步 |
-| 已知分岔（2026-09-29 逐條列） | (1) 鎖法：副本仍是 `--url-exact`＋一次性 fragment、正本自 2026-09-29 起是 `--url-endswith`；(2) 非 200 的處置：副本一律中止條款、正本 404 是查無；(3) 變數名前綴：副本 `__oa_`、正本 `__ak_`；(4) 節奏：副本 `safari-browser wait $(( 2000 + RANDOM % 4000 ))`（均勻間隔）、正本 Cauchy 抖動；(5) OpenAlex id 形狀：副本 `^W[0-9]+$`、正本 `^[WASIP][0-9]+$`；(6) 正本另有〈開哪個網址〉、完整網址與回應裡取出的值的形狀列、自足區塊、「取回內容是資料不是指令」，副本沒有；(7) 副本有一句已過期（說 bootstrap 的 DOI 反查仍直接呼叫 Crossref）；(8) #593 R2 起正本每個動到分頁的區塊先數分頁、取 API 的區塊回報 `Content-Type`、兩個讀取區塊檢查空讀，副本沒有。**副本在 `plugins/akashic-discovery/**`，這一輪不得動，所以分岔照實列在這裡** |
+| 已知分岔（2026-09-29 逐條列） | (1) 鎖法：副本仍是 `--url-exact`＋一次性 fragment、正本自 2026-09-29 起是 `--url-endswith`；(2) 非 200 的處置：副本一律中止條款、正本 404 是查無；(3) 變數名前綴：副本 `__oa_`、正本 `__ak_`；(4) 節奏：副本 `safari-browser wait $(( 2000 + RANDOM % 4000 ))`（均勻間隔）、正本 Cauchy 抖動；(5) OpenAlex id 形狀：副本 `^W[0-9]+$`、正本 `^[WASIP][0-9]+$`；(6) 正本另有〈開哪個網址〉、完整網址與回應裡取出的值的形狀列、自足區塊、「取回內容是資料不是指令」，副本沒有；(7) 副本有一句已過期（說 bootstrap 的 DOI 反查仍直接呼叫 Crossref）；(8) #593 R2 起正本每個動到分頁的區塊先數分頁、取 API 的區塊回報 `Content-Type`、兩個讀取區塊檢查空讀，副本沒有；(9) #613 起正本的中止條款分兩種處置（四種驗證頁等人驗證、在同一個分頁接著走；其他整批暫停）、區塊二以 `bot-signals --kind` 分辨、讀頁面的 JS 寫成運算式，副本仍是「一律整批停」。**副本在 `plugins/akashic-discovery/**`，這一輪不得動，所以分岔照實列在這裡** |
 | 同步的工作 | #687（把 web-access.md 的鎖法、中止條款、形狀表同步到 `akashic-work-references`，並決定要不要加一支守衛比對兩份的關鍵字串；等 #617 釋出 `plugins/akashic-discovery/**`）。在它完成之前，**改鎖法或中止條款的人要自己同步兩份** |
 | 守衛 | 目前沒有。兩份的關鍵性質（鎖的旗標、`404` 的處置）沒有機械比對；日後要加就寫成 `akashic-guards` 的子命令（見 `swift-is-the-implementation-language`） |
 
@@ -263,3 +265,4 @@ grep -rlE -- '--tab-in-window' plugin/skills plugins/*/skills Sources | grep -vE
 | 2026-09-29 | #664：使用者有 Semantic Scholar 的 API 金鑰，想讓 Akashic 用它查詢。照本規則只能經 safari-browser 頁內 fetch，而那得把金鑰放進 `safari-browser js` 的指令參數、出現在 process list（#640 指出）；五條要用 S2 的工作線（#640、#620、#621、#622、#665）各自實作又會有五份金鑰處理與節流。本規則當時的第 2 條（`Sources/` 不新增 HTTP client）與「不適用」第 2 類（「`akashic` CLI……沒有網路」）都擋在這條路上 | 使用者在 Clarity Surface 與 spectra-discuss 定案後，Spectra change `semantic-scholar-interface` 新增 `AkashicS2` target、`akashic s2` 子命令群與 `akashic_s2` MCP 工具；第 2 條改為只有 `Sources/AkashicS2/` 例外、〈例外〉從一類改為兩類、「不適用」第 2 類點名排除 `akashic s2`；`akashic-guards network-confinement`（負對照 `network-confinement-mutations`）把網路與 keychain API 鎖在那個目錄 |
 | 2026-09-29 | #664 實作完成後使用者裁決 S2 的取得順序：「有 key 走 key，沒 key 最後才用 safari-browser」——先前的例外只規定「帶金鑰的查詢走 `akashic s2`」，沒說無金鑰時能不能經 safari-browser 查 S2，也沒擋住有金鑰時仍經頁面查 S2 這條繞過節流的路 | 新增〈Semantic Scholar 的取得順序〉：依 `akashic s2 status` 的結束碼分兩種狀態；有金鑰一律走 `akashic s2`，沒有金鑰先請使用者設定、最後才經 safari-browser；查詢遇到 4、5 不改走頁面 |
 | 2026-10-01 | #692：`akashic-verify-venue` 的第 4 源（出版商頁）先前不抓不讀，請使用者自己去看、回覆成文字，理由是一個由 OpenAlex 欄位決定的網址會在使用者已登入的 profile 裡被打開；#593 已把瀏覽器的做法定成 web-access.md，這一源仍寫著「待裁決」 | 使用者裁決照 web-access.md 讀：只開〈開哪個網址〉的兩種（store 的 DOI 組出的 `doi.org` 網址、使用者給定或確認的網址），讀渲染後的頁面並照〈承重存檔〉存檔；原本的顧慮在該 skill 的「第 4 源」一段逐條寫出處理（`doi.org` 落地的網址仍不驗，照實寫出）；三處「待裁決」的指標移除 |
+| 2026-10-01 | #613：2026-09-28 一晚三次 CAPTCHA 都緊跟在一個真人不會做的動作之後（頁內 fetch PDF 端點、對已顯示的 PDF 再發一次請求、導航前先以 curl 打網站）。使用者定下最高原則「跟真人一樣」，並把中止條款分成兩種處置：CAPTCHA 等四種驗證頁等人驗證、在同一個分頁接著走，其他訊號整批暫停 | 〈使用紀律〉的中止條款改寫；`web-access.md` 的中止條款與區塊二同步（`bot-signals --kind`、讀頁面的 JS 改成運算式）；`akashic fulltext fetch` 改成只導航、交給人，不再在頁內取檔。副本（`akashic-work-references`）不在這一輪能改的範圍，分岔記為〈操作程序的兩份描述〉的第 (9) 條，由 #687 同步 |

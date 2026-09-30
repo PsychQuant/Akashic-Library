@@ -2,97 +2,114 @@ import Foundation
 import AkashicCore
 import AkashicStoreIO
 
-/// 透過使用者自己的 Safari session 取一篇 work 的全文 PDF（#629 由 `fetch-fulltext.sh` 移植）。
+/// 在使用者自己的 Safari 裡，把一篇 work 從 DOI 走到頁面自己的 PDF 連結，然後**交給人**（#613；#629 由 `fetch-fulltext.sh` 移植）。
 ///
-/// PDF 是從**文章頁內部**取的（同源、頁面自己的 cookie），不是導航到 PDF 網址：Safari 的 PDF 檢視器不是頁面 JavaScript
-/// 讀得到的頁面，而 headless 取得在使用者的 session 讀得到的網站上被拒（403／JS 挑戰；2026-09-23 觀察）。
+/// # 最高原則：跟真人一樣（使用者 2026-09-28）
+///
+/// 每一個對網站的動作都要是真人也會做的動作；下面的規則都是它的展開，衝突時以它為準。2026-09-28 一晚三次 CAPTCHA，每一次都緊跟在
+/// 一個真人不會做的動作之後（頁內以 JS fetch PDF 端點、PDF 已顯示又對同一個簽章網址多送一次請求、導航前先以 curl 打了網站）。所以：
+///
+/// - **只用瀏覽器導航**：開 `--landing`、等頁面落定、讀頁面**自己的** PDF 連結、把同一個分頁導過去。**不在頁內以 JS 取檔**（`fetch()`
+///   帶 `Sec-Fetch-Mode: cors`，看得出來），不用任何 HTTP 客戶端，**不自己拼出版商的 PDF 網址**（#613 起刪掉 SAGE `?download=true`、
+///   Wiley `pdfdirect`、PsycNet `/fulltext/<id>.pdf` 三條規則與 `url-rule` 子命令）。
+/// - **不取位元組、不寫任何輸出檔**：PDF 顯示出來之後就交給人（結束碼 7）。人存檔之後交給 `fulltext take`（不碰瀏覽器、不連網）。
+///   **不重抓已載入的檔**——不對顯示中的 PDF 再發請求。
+/// - **按鈕與驗證交給人**：頁面的下載是表單按鈕、連結通到 HTML 閱讀器、出現 CAPTCHA，都停下來交給使用者。
+/// - **每站每天 10 次嘗試**（`FulltextAttemptLedger`）：準備導航到 PDF（或把按鈕交給人）就記一次；到上限就停那個站（結束碼 9）。
+/// - **頁面上執行的 JS 少而且正確**：每一段都寫成**運算式**。`safari-browser js` 先把程式碼包成運算式試一次、解析失敗才退回函式本體
+///   （它的 `JSWrapper`），所以寫成 `return …` 的敘述，第一次注入就是一段解析不了的程式碼。頁面的錯誤處理器看不看得到 `do JavaScript`
+///   的解析錯誤沒有實測；2026-09-28 NVA 的 Matomo 記錄了 agent 的 SyntaxError，是使用者訂這一條的理由。`FulltextJavaScriptTests` 用
+///   JavaScriptCore 照那個包法驗每一段都能當運算式解析。
 ///
 /// # 結束碼是它對 agent 的契約
 ///
-///     0 取得，且（有 --title 時）驗證通過      3 頁面上找不到 PDF 連結
-///     1 自動化失敗（見 stderr）                4 無權限（網站給了登入殼）
-///     2 回應不是 PDF（本文存成 FILE.response.txt 給人看）
-///     5 是 PDF，但驗證不是這篇（存成 FILE.unverified.pdf）
-///     6 **整批停止**（SKILL.md〈中止條款〉）：網站出現懷疑是自動化的跡象——挑戰／封鎖頁、HTTP 403／429、分頁跑到別的
-///       網站、卡住或空的回應、或讀不到頁面而無從檢查。「沒辦法檢查」被當成起疑，不是乾淨。分頁留著給使用者看。
+///     7 交給人：分頁已導到頁面自己的 PDF 連結（或該按的按鈕已找到），這個命令沒有取位元組、沒有寫檔。分頁留著。
+///     8 等人驗證：出現 CAPTCHA／人類檢查／Cloudflare「Just a moment」／按住驗證。暫停這一篇；使用者驗證完，以
+///       `--resume-tab`／`--resume-origin` 在**同一個分頁**接著走（不重新載入）。分頁留著。
+///     9 這個站今天已經 10 次嘗試（Asia/Taipei）：停這個站，隔天再跑。沒有導航到 PDF。
+///     6 **整批暫停**（SKILL.md〈中止條款〉）：其他起疑訊號——封鎖頁、HTTP 403／429、異常流量、PMC 的下載前驗證頁、ScienceDirect
+///       的「Preparing your download」、分頁跑到別的網站、卡住、讀不到頁面而無從檢查。分頁留著給使用者看。
+///     3 頁面上找不到 PDF 連結（我們的分頁關掉）
+///     1 自動化失敗（見 stderr）；或頁面給的 PDF 連結不是同站的絕對 https 網址（`points off-site`）；或帳本讀不懂
 ///
-/// **落錯碼就是把中止條款悄悄變成重試**——2026-09-24 審查在三處找到這個缺陷。測試（`FulltextFetchPathTests`）逐條路徑釘住
-/// 「這條路徑落在哪個碼、留下什麼副作用」：6 時我們的分頁**不**被關、請求的檔名下什麼都沒寫；0 時只關自己開的分頁、使用者的
-/// 分頁不動。
+/// **沒有結束碼 0**：這個命令的正常終點就是交給人。先前的 0（「取得並驗證」）、2（回應不是 PDF）、4（無權限的登入殼）、5（驗證不過）
+/// 都跟著取位元組一起離開這個命令——2 與 5 在 `take`，4 由看分頁的人判斷。舊的呼叫端把 0 當成「檔案存好了」，新的碼不會被它讀錯。
 ///
-/// # 這一版做了什麼、沒做什麼
+/// # 鎖分頁
 ///
-/// - 流程逐步照舊：同樣的引數向量（`open --new-tab --window N`、`js --window N --tab-in-window T`、`wait … --timeout`），
-///   同樣的等待秒數，同樣的判斷順序。領域判斷（起疑訊號、出版商網址規則、驗證）不再是外部腳本，直接呼叫同一個模組的型別。
-/// - **鎖分頁的方式沒有改**：仍是 `--window N` 加它自己開的分頁位置（`--tab-in-window`，#613 的作法，理由見
-///   `references/publishers.md`：使用者已開著同一頁時 URL 鎖會對到兩個分頁、safari-browser fail-closed），**不是**
-///   `web-access-via-safari-browser.md` 的 `--profile`＋`--url-endswith`。這是規則檔〈例外〉第二種形狀的 grandfathered 項目；
-///   改成 `--url-endswith` 要使用者裁決、而且要實跑 Safari（規則檔記著便宜的解：對 `--landing` 加一次性 fragment）。
-/// - 環境變數 `FETCH_FULLTEXT_NAP`（路徑測試用來把等待歸零）不再存在——等待由建構子的 `sleeper` 注入。
+/// 仍是 `--window N` 加它自己開的分頁位置（`--tab-in-window`，#613 的作法：使用者已開著同一頁時 URL 鎖會對到兩個分頁、
+/// safari-browser fail-closed），**不是** `web-access-via-safari-browser.md` 的 `--profile`＋`--url-endswith`；規則檔〈例外〉形狀 (b) 的
+/// grandfathered 項目。`--resume-tab` 沿用同一種鎖，另外要求那個分頁此刻顯示 `--resume-origin`——使用者驗證時把視窗拉到前面，
+/// 視窗編號會變；對不上就停（結束碼 1），不猜是哪一個分頁。
 ///
-/// # 不變量（#629 R1 verify 之後由程式強制，不只寫在文件裡）
-///
-/// - **輸出目的地**（`--out`、`*.unverified.pdf`、`*.response.txt`）在碰瀏覽器之前 `lstat`：只有「不存在」或「普通檔」放行；目錄、symlink、
-///   特殊檔具名拒絕。覆寫普通檔是同目錄暫存＋`rename` 的原子替換（`OutputFile`）——不遞迴刪任何東西、失敗時原檔還在。
-/// - **git 閘 fail-closed**：輸出目錄的祖先有 `.git` 時，git 執行不起來、`rev-parse` 非零、`check-ignore` 不是 0／1，一律拒絕。git 一律走
-///   `LibraryStore.hardenedGit`（#585 的同一支）。
-/// - `--landing`、`--prime` 只收 `https://`；頁面自己給的 PDF 連結（DOM 來的）在頁面裡以 WHATWG 解析成絕對網址（`linkJS`），Swift 只收
-///   `https://` 開頭、沒有反斜線／空白／控制字元、origin 與頁面相同的字串，才發 `credentials:'include'` 的 fetch——發出去的就是驗過的
-///   那一串（R2 verify 第 0 則）。出版商規則（`PdfUrlRules`）產生的網址不受此限。`--expect-profile` 在命令列層必填。
-/// - 暫存目錄 0700；poppler 對第三方 PDF 有逾時（`ToolRunner.popplerTimeout`）。
-///
-/// **仍沒有的**：沒對真的 `safari-browser` 跑過（只對記憶體內的假瀏覽器與舊 Python stub）；`siteGuard` 的七個呼叫點沒有逐一被測試單獨釘住
-/// （相鄰的守衛互相遮蔽，拿掉任一個測試都不變紅——舊 shell 的 `guard;` 同樣沒有；退出點 `botStop` 則逐一有測試，R1 verify 第 55 則）。
+/// **仍沒有的**：沒對真的 `safari-browser` 跑過（只對記憶體內的假瀏覽器）；Safari 的 PDF 檢視器能不能執行頁面 JS、`document.contentType`
+/// 在那裡回什麼、`PerformanceNavigationTiming.responseStatus` 在 Safari 有沒有值，都沒有實測——讀不到時照「無從檢查」處理（交給人或暫停），
+/// 不當成乾淨。
 public final class FulltextFetch {
     public struct Options {
         public var window: Int
         public var landing: String
-        public var out: String
-        public var title: String?
-        public var pages: String?
-        public var doi: String?
-        public var prime: String?
+        /// 每日嘗試帳本的路徑（`FulltextAttemptLedger.defaultPath()`；測試指到暫存目錄）。
+        public var ledger: String
         public var expectProfile: String?
-        public init(window: Int, landing: String, out: String, title: String? = nil, pages: String? = nil,
-                    doi: String? = nil, prime: String? = nil, expectProfile: String? = nil) {
-            self.window = window; self.landing = landing; self.out = out; self.title = title; self.pages = pages
-            self.doi = doi; self.prime = prime; self.expectProfile = expectProfile
+        /// 等人驗證之後在同一個分頁接著走：分頁位置與它此刻必須顯示的 origin。兩個一起給。
+        public var resumeTab: Int?
+        public var resumeOrigin: String?
+        public init(window: Int, landing: String, ledger: String, expectProfile: String? = nil,
+                    resumeTab: Int? = nil, resumeOrigin: String? = nil) {
+            self.window = window; self.landing = landing; self.ledger = ledger; self.expectProfile = expectProfile
+            self.resumeTab = resumeTab; self.resumeOrigin = resumeOrigin
         }
+    }
+
+    /// 新的三個結束碼（#613）。其餘沿用：1、3、6。
+    public enum Code {
+        public static let handedOver: Int32 = 7
+        public static let humanVerification: Int32 = 8
+        public static let dailyCapReached: Int32 = 9
+    }
+
+    /// 交給人的原因（結束碼 7；stdout 的 `handover:` 一行印它的 `rawValue`）。
+    public enum Handover: String {
+        /// 分頁顯示 PDF（`document.contentType` 含 pdf）
+        case pdfShown = "pdf-shown"
+        /// 頁面自己的 PDF 連結通到 HTML 頁（閱讀器、登入頁、無權限的外殼）
+        case htmlPage = "html-page"
+        /// 讀不到分頁（Safari 的 PDF 檢視器不能跑頁面 JS，或頁面拒絕）；標題沒有起疑訊號
+        case unverifiable = "unverifiable"
+        /// 導航之後分頁沒有離開文章頁（連結可能直接觸發下載）
+        case tabUnchanged = "tab-unchanged"
+        /// 頁面的 PDF 下載是表單按鈕（Annual Reviews 型）
+        case button = "button"
     }
 
     /// 以某個結束碼結束（訊息已經印出）。
     struct Stop: Error { let code: Int32 }
 
-    /// 在目錄裡跑一次 git；nil＝執行不起來。預設是 repo 既有的加固 helper（`/usr/bin/git` 絕對路徑、剝 `GIT_*`、
-    /// `core.fsmonitor=false`、`core.attributesFile=/dev/null`，#585）；測試注入「起不來」的版本。
-    public typealias GitRunner = ([String], URL) -> (status: Int32, out: String)?
-
     private let browser: SafariBrowser
     private let sleeper: (Double) -> Void
+    private let now: () -> Date
     private let out: (String) -> Void
     private let err: (String) -> Void
-    private let git: GitRunner
 
     private var window = 0
-    /// 我們自己開的分頁在視窗裡的位置；空字串＝目前沒有。
+    /// 我們的分頁在視窗裡的位置；空字串＝目前沒有。
     private var ownTab = ""
-    private var scratch = URL(fileURLWithPath: "/")
-    /// 這一次執行寫輸出檔時用的暫存檔 token：git 閘問的暫存檔名與真的寫下的是同一個（`OutputFile.tempPath`）。
-    private var outputToken = UUID().uuidString
+    private var landing = ""
 
     public init(browser: SafariBrowser, sleeper: @escaping (Double) -> Void = { Thread.sleep(forTimeInterval: $0) },
-                out: @escaping (String) -> Void, err: @escaping (String) -> Void,
-                git: GitRunner? = nil) {
-        // nil＝預設的加固 git（`hardenedGit` 是 `package` 存取層級，不能當公開 init 的預設引數值）
-        self.browser = browser; self.sleeper = sleeper; self.out = out; self.err = err
-        self.git = git ?? { LibraryStore.hardenedGit($0, in: $1) }
+                now: @escaping () -> Date = Date.init,
+                out: @escaping (String) -> Void, err: @escaping (String) -> Void) {
+        self.browser = browser; self.sleeper = sleeper; self.now = now; self.out = out; self.err = err
     }
 
     /// 跑完整條流程，回結束碼。
     public func run(_ o: Options) -> Int32 {
         do {
             try execute(o)
-            return 0
+            // 每一條終點都以 Stop 帶著結束碼離開；正常返回是程式錯誤，不能被讀成任何一種成功
+            err("✗ internal: the flow ended without an exit code")
+            return 1
         } catch let stop as Stop {
             return stop.code
         } catch {
@@ -103,7 +120,7 @@ public final class FulltextFetch {
 
     // MARK: 輸出與結束
 
-    /// 一般的自動化失敗。它說明我們的分頁在哪裡，因為人在重試之前應該先看一眼：頁面若讀起來像起疑，即使腳本自己分不出來，那也是
+    /// 一般的自動化失敗。它說明我們的分頁在哪裡，因為人在重試之前應該先看一眼：頁面若讀起來像起疑，即使程式自己分不出來，那也是
     /// 結束碼 6 的領域。
     private func fail(_ message: String) -> Stop {
         err("✗ \(displaySafeInvisible(message, max: 600))")
@@ -111,12 +128,50 @@ public final class FulltextFetch {
         return Stop(code: 1)
     }
 
-    /// 中止條款。不重試、不換來源，分頁留著當證據。
+    /// 中止條款（整批暫停）。不重試、不換來源，分頁留著當證據。
     private func botStop(_ signal: String, _ site: String) -> Stop {
         err("✋ SITE SUSPECTS AUTOMATION (\(displaySafeInvisible(signal, max: 600))) on \(site.isEmpty ? "?" : displaySafeInvisible(site, max: 300)) — STOP THE WHOLE RUN.")
         err("  our tab was window \(window), tab \(ownTab.isEmpty ? "?" : ownTab); it is left open for you to look at")
         err("  (if tabs were closed meanwhile, its position may have shifted).")
         return Stop(code: 6)
+    }
+
+    /// 等人驗證（結束碼 8）。不代解、不繞過、不重新載入、不換站；分頁留著。
+    private func verificationStop(_ label: String, _ site: String) -> Stop {
+        let shownSite = site.isEmpty ? "?" : displaySafeInvisible(site, max: 300)
+        err("⏸ WAITING FOR HUMAN VERIFICATION (\(displaySafeInvisible(label, max: 200))) on \(shownSite) — pause this item; do not reload, open another tab, or switch sites.")
+        err("  Ask the user to complete the check in window \(window), tab \(ownTab) of their own Safari. Nothing here solves or bypasses it.")
+        err("  When the user confirms, continue in the same tab with the same command plus --resume-tab \(ownTab) --resume-origin \(shownSite).")
+        err("  If the window came to the front its number may have changed: find the tab showing \(shownSite) with `safari-browser documents --json --profile <P>`.")
+        out("resume: --resume-tab \(ownTab) --resume-origin \(shownSite)")
+        return Stop(code: Code.humanVerification)
+    }
+
+    private func stop(for hit: BotSignals.Hit, _ site: String, context: String = "") -> Stop {
+        let signal = context.isEmpty ? hit.label : "\(hit.label) \(context)"
+        return hit.response == .humanVerification ? verificationStop(signal, site) : botStop(signal, site)
+    }
+
+    /// 交給人（結束碼 7）。這個命令沒有取 PDF 的位元組、沒有寫任何輸出檔；分頁留著。
+    private func handover(_ reason: Handover) -> Stop {
+        let u = tabURL(ownTab)
+        out("handover: \(reason.rawValue) window \(window) tab \(ownTab) \(displaySafeInvisible(u, max: 600))")
+        err("✋ HANDED OVER TO YOU (\(reason.rawValue)) — window \(window), tab \(ownTab).")
+        switch reason {
+        case .pdfShown:
+            err("  The tab shows the PDF. Save it yourself (which Safari control is the standard one is being settled in safari-browser#210).")
+        case .htmlPage:
+            err("  The page's own PDF link opened an HTML page — a reader, a login page, or an access shell. If it has a download button, press it yourself; if it says there is no access, report that.")
+        case .unverifiable:
+            err("  This command could not read the tab (Safari's PDF viewer may not run page scripts). Look at it: save the PDF if it shows one; a challenge or block page is the abort clause.")
+        case .tabUnchanged:
+            err("  The tab did not leave the article page after following the PDF link — the link may have started a download (check Safari's downloads) or needs a click.")
+        case .button:
+            err("  The page's PDF download is a form button. Press it yourself; the site may download the file.")
+        }
+        err("  Then pass the saved file to `akashic fulltext take --from <file> --out <path> --title … --doi …`.")
+        err("  Nothing requested the PDF bytes and no file was written. The tab is left open.")
+        return Stop(code: Code.handedOver)
     }
 
     private func nap(_ seconds: Double) { sleeper(seconds) }
@@ -152,6 +207,9 @@ public final class FulltextFetch {
     private func tabTitle(_ n: String) -> String { tab(n)?.title ?? "" }
     private func currentTab() -> String { docs().first { $0.window == window && $0.isCurrent }.map { String($0.tabInWindow) } ?? "" }
     private func origin(_ url: String) -> String { URLSplit(url).origin }
+    /// 分頁的網址是不是還在這個 origin（主機不分大小寫）。
+    private func sameSite(_ url: String, _ site: String) -> Bool { origin(url).lowercased() == site.lowercased() }
+    private var lock: [String] { ["--window", String(window), "--tab-in-window", ownTab] }
 
     /// 開一個分頁，用**位置**記住是哪一個，之後只關它。用位置而不是 URL：使用者已開著同一頁時，URL 鎖會對到兩個分頁、
     /// safari-browser 會 fail-closed（2026-09-23 觀察）。
@@ -165,7 +223,7 @@ public final class FulltextFetch {
     /// 只在分頁還顯示我們開的那個站時才關。
     private func closeOwnTab(_ expectedOrigin: String) {
         let u = tabURL(ownTab)
-        if !u.isEmpty, origin(u) == expectedOrigin {
+        if !u.isEmpty, sameSite(u, expectedOrigin) {
             let r = browser.run(["close", "--window", String(window), "--tab-in-window", ownTab])
             if r.status == 0 {
                 out("tab closed")
@@ -176,81 +234,62 @@ public final class FulltextFetch {
         }
     }
 
-    /// 我們分頁的標題與前 3000 字。兩次嘗試；失敗被回報，絕不當成「頁面乾淨」。
-    private func pageText() -> String? {
+    /// 我們分頁的（HTTP 狀態碼，標題與前 3000 字）。兩次嘗試；失敗回 nil，絕不當成「頁面乾淨」。狀態碼取自頁面自己的
+    /// `PerformanceNavigationTiming.responseStatus`（已載入的資料，不發請求）；瀏覽器沒有這個值時是 nil。
+    private func pageText() -> (status: Int?, text: String)? {
         for _ in 1...2 {
-            let r = browser.run(["js", "--window", String(window), "--tab-in-window", ownTab,
-                                 "return document.title + '\\n' + (document.body ? document.body.innerText.slice(0, 3000) : '')"])
-            if r.status == 0 { return r.value }
+            let r = browser.run(["js"] + lock + [FulltextFetch.pageTextJS])
+            if r.status == 0 {
+                let value = r.value
+                let firstLine = value.prefix { $0 != "\n" }
+                let rest = value.dropFirst(firstLine.count).drop { $0 == "\n" }
+                return (Int(firstLine), String(rest))
+            }
             nap(2)
         }
         return nil
     }
 
-    /// `site`：站的標籤；`pdfOK`：預期 Safari 的 PDF 檢視器（prime）——它不是可腳本的頁面，標題（不經 JS 讀）就是全部的檢查。
-    private func botCheckPage(_ site: String, pdfOK: Bool = false) throws {
+    /// 我們的分頁有沒有起疑訊號。等人驗證的訊號 → 結束碼 8；其他 → 6；讀不到頁面 → 6（無從檢查不等於乾淨）。
+    private func botCheckPage(_ site: String) throws {
         let title = tabTitle(ownTab)
-        if let text = pageText() {
-            if let hit = BotSignals.detect(title + "\n" + text) { throw botStop(hit, site) }
+        if let page = pageText() {
+            if let hit = BotSignals.classify(title + "\n" + page.text, status: page.status) { throw stop(for: hit, site) }
             return
         }
-        if let hit = BotSignals.detect(title) { throw botStop(hit, site) }
-        // 其他地方「讀不到頁面」等於「無從檢查」，而那不等於「乾淨」
-        if pdfOK { return }
+        if let hit = BotSignals.classify(title) { throw stop(for: hit, site) }
         throw botStop("page-unreadable: could not check it for suspicion", site)
     }
 
-    /// 每個進一步動作之前：我們的分頁必須還顯示文章的站。分頁在流程中途跑到別的站（驗證子網域、登入／SSO 頁）是中止條款，
-    /// 不是自動化的小故障。
+    /// 每個進一步動作之前：我們的分頁必須還顯示文章的站。分頁在流程中途跑到別的站（驗證子網域、登入／SSO 頁）是中止條款；
+    /// 跑到的是驗證頁（CAPTCHA 之類）則是等人驗證，驗證完應該回到 `site`。
     private func siteGuard(_ site: String) throws {
         let u = tabURL(ownTab)
-        if !u.isEmpty, origin(u) == site { return }
-        let hit = BotSignals.detect(tabTitle(ownTab) + "\n" + u)
-        throw botStop("\((hit ?? "site changed")) → \(u.isEmpty ? "<our tab is gone>" : u)", site)
+        if !u.isEmpty, sameSite(u, site) { return }
+        let moved = "→ \(u.isEmpty ? "<our tab is gone>" : u)"
+        if !u.isEmpty, let hit = BotSignals.classify(tabTitle(ownTab) + "\n" + u) { throw stop(for: hit, site, context: moved) }
+        throw botStop("site changed \(moved)", site)
     }
 
     // MARK: 流程
 
     private func execute(_ o: Options) throws {
         window = o.window
-        var doi = o.doi ?? ""
-        if doi.isEmpty { doi = FulltextFetch.doiFromLanding(o.landing) ?? "" }
+        landing = o.landing
 
-        scratch = FileManager.default.temporaryDirectory.appendingPathComponent("fetch-fulltext-\(UUID().uuidString)")
-        // 0700：暫存目錄裡有下載來的第三方全文（舊 `mktemp -d` 是 0700；預設屬性會是 0755，R1 verify 第 50 則）
-        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        defer { try? FileManager.default.removeItem(at: scratch) }
-
-        // --- 網址與檔案落在哪裡：在碰瀏覽器**之前**檢查 ---
-        // 兩個網址都會在使用者已登入的 profile 裡開：只收 https（`file:`、`javascript:`、`http:` 一律拒絕，R1 verify 第 31 則），主機要**長得像**
-        // 公開的網域名稱（R2 verify 第 34 則，`landingShapeProblem`）——這是字面的形狀檢查，不解析 DNS（R3 verify：解析到私有位址的名稱照樣通過）
-        for (flag, value) in [("--landing", o.landing), ("--prime", o.prime ?? "")] where !value.isEmpty {
-            if let why = FulltextFetch.landingShapeProblem(value) {
-                throw fail("\(flag) must be an https:// URL whose host looks like a plain DNS name (\(why)): \(displaySafeInvisible(value, max: 300))")
-            }
+        // --- 網址、帳本、視窗：在開任何分頁之前檢查 ---
+        // `--landing` 在使用者已登入的 profile 裡開：只收 https，主機要**長得像**公開的網域名稱（字面的形狀檢查，不解析 DNS）
+        if let why = FulltextFetch.landingShapeProblem(o.landing) {
+            throw fail("--landing must be an https:// URL whose host looks like a plain DNS name (\(why)): \(o.landing)")
         }
-        let outURL = URL(fileURLWithPath: o.out)
-        let outDirURL = outURL.deletingLastPathComponent()
-        var isDir: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: outDirURL.path, isDirectory: &isDir), isDir.boolValue else {
-            throw fail("--out directory does not exist: \(displaySafeInvisible(outDirURL.path, max: 400))")
+        if (o.resumeTab == nil) != (o.resumeOrigin == nil) {
+            throw fail("--resume-tab and --resume-origin go together")
         }
-        let outDir = FulltextFetch.physicalPath(outDirURL.path)   // `pwd -P`：`resolvingSymlinksInPath` 會把 `/private/var` 縮成 `/var`，與 `pwd -P` 不同
-        let outPath = outDir + "/" + outURL.lastPathComponent
-        let stem = outPath.hasSuffix(".pdf") ? String(outPath.dropLast(4)) : outPath
-        let unverified = stem + ".unverified.pdf"
-        let response = stem + ".response.txt"
-        // 三個目的地都得是「不存在或普通檔」：目錄、symlink、特殊檔具名拒絕。第一版對已存在的目的地「先 removeItem 再 moveItem」，
-        // `--out` 指著非空目錄時遞迴刪掉整個目錄（R1 verify 第 1 則）
-        for f in [outPath, unverified, response] {
-            if case .other(let kind) = try OutputFile.inspect(f) {
-                err("✗ refusing: \(displaySafeInvisible(f, max: 400)) already exists and is a \(displaySafeInvisible(kind, max: 40)), not a regular file — this command only writes regular files and never deletes a directory or follows a symlink.")
-                throw Stop(code: 1)
-            }
+        if let origin = o.resumeOrigin, let why = FulltextFetch.resumeOriginProblem(origin) {
+            throw fail("--resume-origin must be https://<host> exactly (\(why)): \(origin)")
         }
-        outputToken = UUID().uuidString
-        let finals = [outPath, unverified, response]
-        try outputGitGate(outDir: outDir, files: finals, temps: finals.map { OutputFile.tempPath(for: $0, token: outputToken) })
+        let ledger = FulltextAttemptLedger(path: o.ledger)
+        do { _ = try ledger.load() } catch { throw fail("\(displaySafeErrorText(error))") }   // 數不出今天的次數，就不能保證沒超過上限
 
         // 視窗不存在，或它的分頁都沒有 profile 欄位：兩者對這支程式是同一件事——無從確認它屬於誰，不碰
         let profile = Set(docs().filter { $0.window == window }.compactMap(\.profile).filter { !$0.isEmpty }).sorted().joined(separator: ",")
@@ -264,195 +303,157 @@ public final class FulltextFetch {
             throw Stop(code: 1)
         }
 
-        if let prime = o.prime, !prime.isEmpty {
-            try openOwnTab(prime); nap(12)
-            let primeOrigin = origin(prime)
-            let u = tabURL(ownTab)
-            if u.isEmpty || origin(u) != primeOrigin { throw botStop("primed tab left the site → \(u.isEmpty ? "<gone>" : u)", primeOrigin) }
-            try botCheckPage(primeOrigin, pdfOK: true)
-            closeOwnTab(primeOrigin)
+        if let resumeTab = o.resumeTab, let resumeOrigin = o.resumeOrigin {
+            try resume(tab: resumeTab, origin: resumeOrigin, ledger: ledger)
+            return
         }
-
         try openOwnTab(o.landing)
-        let lock = ["--window", String(window), "--tab-in-window", ownTab]
+        let site = try settleLanding()
+        try botCheckPage(site)
+        try followThePagesOwnLink(site: site, ledger: ledger)
+    }
 
-        // 等頁面落定：越過 doi.org，DOM 越過 "loading"。插頁可以在文章頁取代它之前就回報 readyState=complete，所以真正的關卡是下一步
-        // （PDF 連結出現），不是這一步。60 秒沒落定算「卡住的回應」——中止條款，不是重試。
+    /// 等頁面落定：越過 doi.org，DOM 越過 "loading"。插頁可以在文章頁取代它之前就回報 readyState=complete，所以真正的關卡是下一步
+    /// （PDF 連結出現），不是這一步。60 秒沒落定算「卡住的回應」——中止條款，不是重試。
+    private func settleLanding() throws -> String {
         var final = ""
         for _ in 1...30 {
             nap(2)
             let u = tabURL(ownTab)
             if u.isEmpty || u.contains("://doi.org/") || u.contains("://dx.doi.org/") { continue }
-            let rs = browser.run(["js"] + lock + ["return document.readyState"]).value
+            let rs = browser.run(["js"] + lock + [FulltextFetch.readyStateJS]).value
             if rs == "complete" || rs == "interactive" { final = u; break }
         }
-        if final.isEmpty { throw botStop("page did not settle in 60 s (stalled) → \(tabURL(ownTab))", origin(o.landing)) }
-        let site = origin(final)
+        if final.isEmpty { throw botStop("page did not settle in 60 s (stalled) → \(tabURL(ownTab))", origin(landing)) }
         out("page: \(displaySafeInvisible(final, max: 600))")
-        try botCheckPage(site)
+        return origin(final)
+    }
 
-        try writeScratch("haslink.js", FulltextFetch.hasLinkJS)
+    /// 等人驗證之後，在同一個分頁接著走（使用者 2026-10-01：不重新載入文章頁）。
+    private func resume(tab position: Int, origin expected: String, ledger: FulltextAttemptLedger) throws {
+        guard let t = tab(String(position)) else {
+            err("✗ window \(window) has no tab \(position) — the tab may have moved; find the one showing \(displaySafeInvisible(expected, max: 300)) with `safari-browser documents --json --profile <P>`")
+            throw Stop(code: 1)
+        }
+        ownTab = String(position)
+        guard !t.url.isEmpty, sameSite(t.url, expected) else {
+            throw fail("window \(window) tab \(position) shows \(t.url.isEmpty ? "nothing" : t.url), not \(expected) — not resuming there. Find the tab showing \(expected) with `safari-browser documents --json --profile <P>` and pass its window/tab.")
+        }
+        let site = origin(t.url)
+        out("resume: window \(window) tab \(ownTab) \(displaySafeInvisible(t.url, max: 600))")
+        // 驗證可能發生在導航到 PDF 之後：那時分頁已經顯示 PDF，這一篇的嘗試已經記過，直接交給人
+        let shown = browser.run(["js"] + lock + [FulltextFetch.shownJS])
+        if shown.status != 0 { throw try unscriptable(site) }
+        if FulltextFetch.contentTypeIsPDF(shown.value) { throw handover(.pdfShown) }
+        try botCheckPage(site)   // 還在驗證頁 → 8；別的訊號 → 6
+        try followThePagesOwnLink(site: site, ledger: ledger)
+    }
+
+    /// 讀頁面自己的 PDF 連結、記一次嘗試、把同一個分頁導過去、交給人。
+    private func followThePagesOwnLink(site: String, ledger: FulltextAttemptLedger) throws {
         try siteGuard(site)
-        _ = browser.run(["wait"] + lock + ["--js", FulltextFetch.hasLinkJS.trimmingTrailingNewlines(), "--timeout", "45000"])
+        _ = browser.run(["wait"] + lock + ["--js", FulltextFetch.hasLinkJS, "--timeout", "45000"])
         try siteGuard(site)
         try botCheckPage(site)   // 插頁在我們等的時候可以變成挑戰頁
-
-        let linkFile = try writeScratch("link.js", FulltextFetch.linkJS)
         try siteGuard(site)
-        let linkRun = browser.run(["js"] + lock + ["--file", linkFile.path])
+        let linkRun = browser.run(["js"] + lock + [FulltextFetch.linkJS])
         if linkRun.status != 0 { throw fail("could not read the page's links: \(linkRun.stderr.trimmingTrailingNewlines())") }
         let link = linkRun.value
-        var method = link.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? ""
-        let pageLink = link.contains(" ") ? String(link[link.index(after: link.firstIndex(of: " ")!)...]) : link
-        let pdfURL: String
-        if let rule = PdfUrlRules.pdfURL(finalURL: final, pageLink: pageLink), !rule.isEmpty {
-            pdfURL = rule
-            method = "GET"
-        } else if !link.isEmpty, !pageLink.contains("/record/") {
-            pdfURL = pageLink
-            // 頁面自己的連結來自 DOM（`citation_pdf_url`、`a[href]`、表單的 `action`），下面的 fetch 帶 `credentials:'include'`：
-            // 頁面說了算的目標若不是這個站，就會用使用者的 session 打到頁面選的位置（R1 verify 第 31 則）。規則檔（出版商網址規則）
-            // 產生的網址不受此限——它們是本 repo 寫死的。拒絕不是中止條款（不是網站起疑，是頁面給了一個不能照做的連結）：結束碼 1，分頁留著。
-            let target = FulltextFetch.fetchTargetOrigin(pdfURL)
-            if target != site.lowercased() {
-                throw fail("the page's PDF link points off-site (\(displaySafeInvisible(target ?? "not an absolute https URL", max: 200)), page origin \(displaySafeInvisible(site, max: 200))): \(displaySafeInvisible(pdfURL, max: 400)) — refusing a credentialed fetch to a target the page chose")
-            }
-        } else {
-            err("no PDF link on \(displaySafeInvisible(final, max: 600))")
+        guard let space = link.firstIndex(of: " ") else {
+            err("no PDF link on \(displaySafeInvisible(tabURL(ownTab), max: 600))")
             closeOwnTab(site)
             throw Stop(code: 3)
         }
-        out("pdf:  \(displaySafeInvisible(method, max: 20)) \(displaySafeInvisible(pdfURL, max: 600))")
-
-        let fetchFile = try writeScratch("fetch.js", FulltextFetch.fetchJS(url: pdfURL, method: method))
-        try siteGuard(site)
-        let start = browser.run(["js"] + lock + ["--file", fetchFile.path])
-        if start.status != 0 { throw fail("fetch start: \(start.stderr.trimmingTrailingNewlines())") }
-        let waited = browser.run(["wait"] + lock + ["--js", "window.__aff && window.__aff.done", "--timeout", "120000"])
-        if waited.status != 0 {
-            try siteGuard(site)
-            throw botStop("fetch stalled: no answer in 120 s", site)
+        let method = String(link[..<space])
+        let target = String(link[link.index(after: space)...])
+        guard method == "GET" || method == "POST" else { throw fail("unexpected answer from the link script: \(link)") }
+        // 頁面自己的連結來自 DOM（`citation_pdf_url`、`a[href]`、表單的 `action`）：只跟同一個站的絕對 https 網址走。拒絕不是中止條款
+        // （不是網站起疑，是頁面給了一個不能照做的連結）：結束碼 1，分頁留著。
+        let linkOrigin = FulltextFetch.linkTargetOrigin(target)
+        if linkOrigin != site.lowercased() {
+            throw fail("the page's PDF link points off-site (\(linkOrigin ?? "not an absolute https URL"), page origin \(site)): \(target) — not following a link the page chose to another site")
         }
-        try siteGuard(site)
-        let meta = browser.run(["js"] + lock + ["return JSON.stringify({s:window.__aff.status,c:window.__aff.ctype,l:window.__aff.len,e:window.__aff.err||null,o:window.__aff.offsite||null})"]).value
-        out("response: \(meta.isEmpty ? "<unreadable>" : displaySafeInvisible(meta, max: 600))")
-        guard let parsed = FulltextFetch.parseMeta(meta) else { throw botStop("response unreadable: could not check it", site) }
-        // 拋錯的 fetch 通常是請求被轉到站外或被拒——與挑戰同一族。空本文是卡住的回應。
-        if parsed.hadError { throw botStop("fetch error: \(meta)", site) }
-        // #629 R3 verify：同源檢查只綁得住第一跳——`fetch` 預設跟著轉址走（站上的 open redirect、307／308），帶著 credentials 到別的 origin。
-        // 頁內 JS 看到 `r.url` 的 origin 不是頁面的就不讀本文；這裡拒絕，結束碼與「頁面的連結指向站外」相同（不是中止條款，分頁留著）。
-        // 不改成 `redirect: 'manual'`：那會讓同站內的合法轉址（出版商常見）全部失敗。
-        if let off = parsed.offsite {
-            throw fail("the PDF request was redirected off-site (to \(displaySafeInvisible(off, max: 400)), page origin \(displaySafeInvisible(site, max: 200))) — refusing the body of a credentialed fetch that left the page's origin")
-        }
-        if parsed.length == 0 { throw botStop("empty response", site) }
-        try siteGuard(site)
-        let b64 = scratch.appendingPathComponent("b64").path
-        let read = browser.run(["js"] + lock + ["--large", "--output", b64, "window.__aff.b64||''"])
-        if read.status != 0 { throw fail("read: \(read.stderr.trimmingTrailingNewlines())") }
-        let body = try decodeBase64File(b64)
-        _ = browser.run(["js"] + lock + ["delete window.__aff; return 'ok'"])
 
-        if !body.starts(with: Data("%PDF-".utf8)) {
-            // 起疑優先：挑戰頁也是「不是 PDF」，不得被報成呼叫端可能重試的一般失敗
-            if let hit = BotSignals.detect(String(decoding: body, as: UTF8.self), status: parsed.status) {
-                throw botStop("\(hit) (fetch response)", site)
-            }
-            let saved = savedResponse(body, at: response)
+        // --- 每站每天 10 次嘗試：準備取 PDF 的這一刻就算 ---
+        let host = FulltextFetch.siteKey(site)
+        let at = now()
+        let used: Int
+        do { used = try ledger.count(site: host, on: at) } catch { throw fail("\(displaySafeErrorText(error))") }
+        let day = FulltextAttemptLedger.taipeiDay(at)
+        if used >= FulltextAttemptLedger.dailyCap {
+            err("⏹ DAILY CAP: \(displaySafeInvisible(host, max: 300)) already has \(used) attempts on \(day) (Asia/Taipei) — stop this site for today; it has not been asked for the PDF.")
+            out("cap: \(displaySafeInvisible(host, max: 300)) \(used)/\(FulltextAttemptLedger.dailyCap) \(day)")
             closeOwnTab(site)
-            // PsycNet 無權限時對每篇文章回 200 與約 8 KB、寫著「Loading…」的 app 外殼（2026-09-23 觀察）：「無權限」，停這個站。
-            if body.count < 20000, FulltextFetch.containsLoading(body) {
-                err("no access: \(body.count)-byte shell from \(displaySafeInvisible(site, max: 300)) (\(saved))")
-                throw Stop(code: 4)
-            }
-            let head = String(String(decoding: body.prefix(80), as: UTF8.self).unicodeScalars.filter { (0x20...0x7E).contains($0.value) })
-            err("not a PDF (\(body.count) bytes, HTTP \(parsed.status); \(saved)): \(displaySafeInvisible(head, max: 120))")
-            throw Stop(code: 2)
+            throw Stop(code: Code.dailyCapReached)
         }
+        do { try ledger.append(site: host, landing: landing, at: at) } catch { throw fail("\(displaySafeErrorText(error))") }
+        out("attempt: \(displaySafeInvisible(host, max: 300)) \(used + 1)/\(FulltextAttemptLedger.dailyCap) \(day)")
 
-        closeOwnTab(site)
-        let staged = scratch.appendingPathComponent("out.pdf")
-        try body.write(to: staged)
-        if let title = o.title, !title.isEmpty {
-            let (verdict, ok) = FulltextFetch.verdictJSON(path: staged.path, title: title, pages: o.pages, doi: doi)
-            out("verify: \(verdict)")
-            if !ok {
-                try OutputFile.replace(path: unverified, with: body, token: outputToken)
-                err("kept as \(displaySafeInvisible(unverified, max: 400))")
-                throw Stop(code: 5)
-            }
-        }
-        try OutputFile.replace(path: outPath, with: body, token: outputToken)
-        out("OK \(body.count) bytes -> \(displaySafeInvisible(outPath, max: 400))")
+        if method == "POST" { throw handover(.button) }   // 表單按鈕交給人按，不代按、不代送
+
+        out("pdf:  \(displaySafeInvisible(target, max: 600))")
+        let before = tabURL(ownTab)
+        let navigation = browser.run(["open"] + lock + [target])
+        if navigation.status != 0 { throw fail("could not navigate the tab to the PDF link: \(navigation.stderr.trimmingTrailingNewlines())") }
+        try awaitShown(site: site, before: before)
     }
 
-    // MARK: 輸出路徑的 git 閘
-
-    /// 全文是第三方內容，不得落進沒有忽略它的 git 工作樹（`.claude/rules` 的隱私邊界）。**fail-closed**（R1 verify 第 8、10、28 則）：
-    ///
-    /// - 用檔案系統事實先問「輸出目錄的祖先有沒有 `.git`」（`LibraryStore.isInsideVersionedWorkTree`，不呼叫 git）。**沒有**＝不在任何
-    ///   repo 裡，不需要 git 回答，直接放行。
-    /// - **有**——之後每一步 git 答不出來都拒絕、說原因：`git` 執行不起來（`/usr/bin/git` 不在）、`rev-parse` 非零（`.git` 指向不存在
-    ///   的 gitdir、`safe.directory` 的 dubious ownership 回 128、`.git` 壞了）、`rev-parse` 不是 `true`、`check-ignore` 是 0（已忽略）
-    ///   與 1（沒忽略）以外的碼。第一版與舊 shell 一樣把「git 答不出來」讀成「不在工作樹」而放行——那是隱私閘，方向錯了。
-    /// - git 一律走 `LibraryStore.hardenedGit`（#585 的同一支：絕對路徑、剝 `GIT_*`、`core.fsmonitor=false`、`core.attributesFile`），
-    ///   所以 PATH 上的 shim 不能替 `check-ignore` 作答、目標 repo 的 `core.fsmonitor` 不會在閘裡執行。
-    ///
-    /// - 三個最終檔名之外，也問**寫入時的暫存檔名**（`temps`，與真的寫入同一個 token）：原子替換先把全文寫進暫存檔再 `rename`，暫存檔名
-    ///   沒被忽略的話，寫入期間（行程被殺時則永久）全文以一個版控看得到的名字躺在工作樹裡（R2 verify 第 2／33 則）。
-    ///
-    /// **範圍照實寫**：這道閘擋的是「輸出目錄的某個祖先有 `.git`、而那個 repo 沒有忽略這三個檔（或它們的暫存檔名）」。它不管 git 的環境變數
-    /// 之外的事：repo 自己的 `.gitattributes`、`info/attributes`、global config 裡被它點名的 filter driver 仍是 `hardenedGit` 記著的邊界。
-    private func outputGitGate(outDir: String, files: [String], temps: [String]) throws {
-        let dir = URL(fileURLWithPath: outDir)
-        guard LibraryStore.isInsideVersionedWorkTree(dir) else { return }
-        func refuse(_ why: String) -> Stop {
-            err("✗ refusing: \(displaySafeInvisible(outDir, max: 400)) is inside a git working tree and \(why).")
-            err("  Full text is third-party content. Write to a scratch directory outside git, then store it with akashic store-source.")
-            return Stop(code: 1)
+    /// 導航之後：等分頁離開文章頁（20 秒），再看它顯示什麼。
+    private func awaitShown(site: String, before: String) throws {
+        var moved = false
+        for _ in 1...10 {
+            nap(2)
+            let u = tabURL(ownTab)
+            if u.isEmpty || u != before { moved = true; break }
         }
-        guard let inside = git(["rev-parse", "--is-inside-work-tree"], dir) else {
-            throw refuse("git cannot be run, so it cannot be confirmed that the output files are ignored")
+        try siteGuard(site)   // 分頁不見了、或被轉到別的站 → 6（或驗證頁 → 8）
+        if !moved {
+            try botCheckPage(site)
+            throw handover(.tabUnchanged)
         }
-        guard inside.status == 0, inside.out.trimmingCharacters(in: .whitespacesAndNewlines) == "true" else {
-            throw refuse("git could not confirm the working tree (rev-parse exit \(inside.status))")   // display-safe-exempt: inside：status 是 Int32 結束碼
-        }
-        for f in files + temps {
-            guard let r = git(["check-ignore", "-q", "--", f], dir) else {
-                throw refuse("git cannot be run, so it cannot be confirmed that \(displaySafeInvisible(f, max: 400)) is ignored")
+        var failures = 0
+        for _ in 1...30 {
+            try siteGuard(site)
+            let r = browser.run(["js"] + lock + [FulltextFetch.shownJS])
+            if r.status != 0 {
+                failures += 1
+                if failures >= 3 { throw try unscriptable(site) }
+            } else if FulltextFetch.contentTypeIsPDF(r.value) {
+                throw handover(.pdfShown)
+            } else {
+                let readyState = r.value.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false).dropFirst().first.map(String.init) ?? ""
+                if readyState == "complete" || readyState == "interactive" {
+                    try botCheckPage(site)
+                    throw handover(.htmlPage)
+                }
             }
-            switch r.status {
-            case 0: continue
-            case 1:
-                let top = git(["rev-parse", "--show-toplevel"], dir).map { $0.out.trimmingCharacters(in: .whitespacesAndNewlines) } ?? ""
-                let what = temps.contains(f) ? "\(displaySafeInvisible(f, max: 400)) (the temporary name written before the atomic rename)" : displaySafeInvisible(f, max: 400)
-                err("✗ refusing: \(what) would land in the git working tree \(displaySafeInvisible(top, max: 400)), which does not ignore it.")
-                err("  Full text is third-party content. Write to a scratch directory outside git, then store it with akashic store-source.")
-                throw Stop(code: 1)
-            default:
-                throw refuse("git could not answer whether \(displaySafeInvisible(f, max: 400)) is ignored (check-ignore exit \(r.status))")   // display-safe-exempt: r：status 是 Int32 結束碼
-            }
+            nap(2)
         }
+        throw botStop("the tab did not settle after following the PDF link (stalled) → \(tabURL(ownTab))", site)
     }
 
-    /// 存不是 PDF 的回應本文給人看。存不成不改變結束碼（2／4 仍是那個意思），但不能說「saved」。
-    private func savedResponse(_ body: Data, at path: String) -> String {
-        do {
-            try OutputFile.replace(path: path, with: body, token: outputToken)
-            return "saved as \(displaySafeInvisible(path, max: 400))"
-        } catch {
-            err("⚠ could not save the response body: \(displaySafeErrorText(error))")
-            return "the body was NOT saved"
-        }
+    /// 讀不到分頁（頁面 JS 跑不起來）：只剩標題與網址可以看。有起疑訊號照訊號處理，沒有就交給人看——交給人本身就是停下。
+    private func unscriptable(_ site: String) throws -> Stop {
+        if let hit = BotSignals.classify(tabTitle(ownTab) + "\n" + tabURL(ownTab)) { return stop(for: hit, site) }
+        return handover(.unverifiable)
     }
 
-    /// 頁面給的 PDF 連結會打到哪個 origin（小寫）；不是「可以照字面比 origin 的絕對 https 網址」就回 nil＝拒絕。
+    // MARK: 純函式（測試直接呼叫）
+
+    /// 帳本用的站名：origin 的主機，小寫。
+    static func siteKey(_ origin: String) -> String { PyText.string(URLSplit(origin).netloc).lowercased() }
+
+    /// `document.contentType + '\n' + …` 的第一行是不是 PDF。
+    static func contentTypeIsPDF(_ value: String) -> Bool {
+        (value.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? "").lowercased().contains("pdf")
+    }
+
+    /// 頁面給的 PDF 連結的 origin（小寫）；不是「可以照字面比 origin 的絕對 https 網址」就回 nil＝拒絕。
     ///
-    /// **只收 `linkJS` 在頁面裡解析好的絕對網址**（R2 verify 第 0、9、12、20 則）。先前這裡自己解析相對網址（`urlsplit` 的子集），而 `fetch` 在
-    /// 瀏覽器裡走 WHATWG：`\\evil.example/x`、`/\evil.example/x`、`///evil.example/x`、`https:///evil.example/x` 在這裡是「同站的路徑」，
-    /// 在瀏覽器裡是 `https://evil.example/x`。現在：開頭必須是 `https://`；整串不得有反斜線、空白或控制字元（WHATWG 序列化出來的網址
-    /// 不會有）；`://` 之後到第一個 `/?#` 的主機段不得是空的。主機段含 `@`（帶帳密）或埠號時照字面比，與頁面 origin 對不上＝拒絕。
-    static func fetchTargetOrigin(_ url: String) -> String? {
+    /// **只收 `linkJS` 在頁面裡解析好的絕對網址**（#629 R2 verify 第 0、9、12、20 則）：開頭必須是 `https://`；整串不得有反斜線、
+    /// 空白或控制字元（WHATWG 序列化出來的網址不會有）；`://` 之後到第一個 `/?#` 的主機段不得是空的。主機段含 `@`（帶帳密）或埠號時照字面比，
+    /// 與頁面 origin 對不上＝拒絕。
+    static func linkTargetOrigin(_ url: String) -> String? {
         guard url.lowercased().hasPrefix("https://"),
               !url.unicodeScalars.contains(where: { $0 == "\\" || $0.value < 0x21 || (0x7F...0x9F).contains($0.value) || $0.properties.isWhitespace })
         else { return nil }
@@ -461,21 +462,15 @@ public final class FulltextFetch {
         return "https://\(PyText.string(parts.netloc))".lowercased()
     }
 
-    // MARK: 純函式（測試直接呼叫）
-
-    /// `--landing`／`--prime` 的形狀：web-access.md〈插值前先驗形狀〉「完整網址」一列的**主機部分與禁用字元**（R2 verify 第 34 則；先前只查
-    /// `https://` 前綴，`https://127.0.0.1/`、`https://router.local/`、`https://user@host/` 都會在使用者已登入的 profile 裡開）。回 nil＝通過。
+    /// `--landing` 的形狀：web-access.md〈插值前先驗形狀〉「完整網址」一列的**主機部分與禁用字元**（#629 R2 verify 第 34 則）。回 nil＝通過。
     ///
     /// - 只收 `https://`；整串不得有 `'`、`"`、反斜線、反引號、`$`、`#`、空白或控制字元；
     /// - 主機＝`([A-Za-z0-9-]+\.)+[A-Za-z]{2,}`（至少一個點、最後一段是字母——擋掉 `localhost`、IP 位址、帶埠號或 `user@` 的主機），最後一段
     ///   不是 `local`、`localhost`、`internal`、`lan`、`intranet`、`corp`、`arpa`；
     /// - 路徑段（百分比解碼後）不是 `.` 或 `..`。
     ///
-    /// **這是字面的形狀檢查，不保證主機是公開的**（R3 verify）：不解析 DNS，所以解析到 loopback 或私有位址的名稱（`localtest.me`、
-    /// `127.0.0.1.nip.io`）與清單外的私有字尾（`.home`、`.localdomain`、`.test`）照樣通過；最後一段只收 ASCII 字母，合法的 IDN 頂級網域
-    /// （`xn--p1ai`）反而被拒。它擋的是 localhost、IP 位址、埠號、帳密與幾個已知的私有字尾。
-    ///
-    /// **路徑的字元集不套那一列**：`--landing` 通常是 `https://doi.org/<DOI>`，SICI 式 DOI 的 `<`、`>` 在那裡是合法的（DOI 一列管它）。
+    /// **這是字面的形狀檢查，不保證主機是公開的**（R3 verify）：不解析 DNS。**路徑的字元集不套那一列**：`--landing` 通常是
+    /// `https://doi.org/<DOI>`，SICI 式 DOI 的 `<`、`>` 在那裡是合法的（DOI 一列管它）。
     static func landingShapeProblem(_ url: String) -> String? {
         guard url.lowercased().hasPrefix("https://") else { return "not https://" }
         let forbidden = Set("'\"\\`$#".unicodeScalars)
@@ -500,144 +495,48 @@ public final class FulltextFetch {
         return nil
     }
 
-    /// `cd dir && pwd -P`：解開全部 symlink 的實體路徑（`realpath(3)`）。解不開時原樣回傳。
-    static func physicalPath(_ path: String) -> String {
-        var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))
-        return realpath(path, &buffer) != nil ? String(cString: buffer) : path
-    }
-
-    /// `--landing` 是 doi.org 網址時的 DOI：前綴之後的部分，再去掉第一個 `?` 或 `#` 起的部分。只認 `https://doi.org/` 與
-    /// `https://dx.doi.org/` 兩個前綴；scheme 與主機不分大小寫（只折 ASCII），DOI 原樣保留。#629 R3 verify：舊實作（bash 的 `case`）
-    /// 還認 `http://doi.org/`，而 `--landing` 只收 https，那個前綴走不到；它又區分大小寫，形狀檢查收 `https://DOI.org/…` 卻取不到 DOI，
-    /// 沒有 `--doi` 時必然存成 `*.unverified.pdf`、結束碼 5，沒有訊息指向大小寫。
-    static func doiFromLanding(_ landing: String) -> String? {
-        let scalars = Array(landing.unicodeScalars)
-        // scheme 與主機不分大小寫、只折 ASCII 字母（Unicode 的大小寫轉換會把 K 之類的字元折成 ASCII）
-        func asciiLower(_ s: Unicode.Scalar) -> Unicode.Scalar { ("A"..."Z").contains(s) ? Unicode.Scalar(s.value + 32)! : s }
-        for prefix in ["https://doi.org/", "https://dx.doi.org/"] {
-            let p = Array(prefix.unicodeScalars)
-            guard scalars.count > p.count, zip(scalars, p).allSatisfy({ asciiLower($0) == $1 }) else { continue }
-            var doi = String(String.UnicodeScalarView(scalars[p.count...]))
-            if let cut = doi.firstIndex(where: { $0 == "?" || $0 == "#" }) { doi = String(doi[..<cut]) }
-            return doi.isEmpty ? nil : doi
-        }
+    /// `--resume-origin` 的形狀：`https://<主機>`，主機過 `landingShapeProblem` 的同一道檢查，後面沒有路徑、查詢或片段。
+    public static func resumeOriginProblem(_ origin: String) -> String? {
+        if let why = landingShapeProblem(origin) { return why }
+        if origin.contains("?") { return "it has a query" }
+        let parts = URLSplit(origin)
+        guard parts.path.isEmpty else { return "it has a path" }
         return nil
     }
 
-    /// `JSON.stringify({s,c,l,e,o})` 的回傳。解析失敗（空、不是 JSON、不是物件）回 nil＝「讀不到」。
-    /// `offsite`：取回的網址（`r.url`）離開了頁面的 origin 時那個網址（未消毒）；nil＝沒離開（#629 R3 verify）。
-    struct Meta { var status: Int; var length: Int; var hadError: Bool; var offsite: String? = nil }
+    // MARK: 注入頁面的 JS——每一段都是**運算式**（見型別註解；`FulltextJavaScriptTests` 驗能不能當運算式解析）
 
-    static func parseMeta(_ text: String) -> Meta? {
-        guard let obj = (try? JSONSerialization.jsonObject(with: Data(text.utf8), options: [])) as? [String: Any] else { return nil }
-        func number(_ any: Any?) -> Int {
-            if let n = any as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID() { return n.intValue }
-            if let s = any as? String, let v = Int(s) { return v }
-            return 0
-        }
-        func truthy(_ any: Any?) -> Bool {
-            switch any {
-            case nil, is NSNull: return false
-            case let b as Bool: return b
-            case let n as NSNumber: return n.doubleValue != 0
-            case let s as String: return !s.isEmpty
-            case let a as [Any]: return !a.isEmpty
-            case let d as [String: Any]: return !d.isEmpty
-            default: return true
-            }
-        }
-        let offsite = (obj["o"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-        return Meta(status: number(obj["s"]), length: number(obj["l"]), hadError: truthy(obj["e"]), offsite: offsite)
-    }
+    /// 文件是否載完。
+    static let readyStateJS = "document.readyState"
 
-    /// `grep -qi loading`（位元組層、不分大小寫的 ASCII）。
-    static func containsLoading(_ data: Data) -> Bool {
-        let needle = Array("loading".utf8)
-        let bytes = Array(data)
-        guard bytes.count >= needle.count else { return false }
-        for i in 0...(bytes.count - needle.count) {
-            var match = true
-            for k in 0..<needle.count {
-                var b = bytes[i + k]
-                if b >= 0x41, b <= 0x5A { b += 0x20 }
-                if b != needle[k] { match = false; break }
-            }
-            if match { return true }
-        }
-        return false
-    }
+    /// 第一行：HTTP 狀態碼（頁面自己的 navigation timing；沒有就空）；之後：標題與前 3000 字。
+    static let pageTextJS = """
+    (function () { var s = ''; try { var n = performance.getEntriesByType('navigation')[0]; if (n && n.responseStatus) { s = String(n.responseStatus); } } catch (e) {} return s + '\\n' + document.title + '\\n' + (document.body ? document.body.innerText.slice(0, 3000) : ''); })()
+    """
 
-    /// 驗證步驟：回（判定 JSON 一行，是否通過）。讀不到 PDF 或外部工具失敗時判定是 `{"error": …, "is_article": false}`。
-    public static func verdictJSON(path: String, title: String, pages: String?, doi: String) -> (String, Bool) {
-        do {
-            let content = try PDFReader.read(path: path)
-            let meta = try PDFReader.metadataDOI(path: path)
-            let a = FulltextVerify.assess(firstPage: content.firstPages, pageCount: content.pageCount, title: title,
-                                          pages: pages?.isEmpty == false ? pages : nil, doi: doi.isEmpty ? nil : doi, metaDOI: meta)
-            return (a.json.dumps(), a.isArticle)
-        } catch {
-            return (PyJSON.object([("error", .string(displaySafeErrorText(error))), ("is_article", .bool(false))]).dumps(), false)
-        }
-    }
-
-    private func decodeBase64File(_ path: String) throws -> Data {
-        guard let raw = FileManager.default.contents(atPath: path) else { throw fail("read: no output file") }
-        // 舊實作的 `base64 -D` 容忍任意位置的換行；`Data(base64Encoded:)` 預設不容忍（R1 verify 第 37 則）。只拿掉換行與頭尾空白、其餘照嚴格解碼：
-        // 不用 `.ignoreUnknownCharacters`（它會把任何非 base64 字元靜默丟掉，一段錯誤頁文字會「解」成垃圾位元組而不是明確失敗）
-        var bytes = Array(raw).filter { $0 != 0x0A && $0 != 0x0D }
-        while let f = bytes.first, f == 0x20 { bytes.removeFirst() }
-        while let l = bytes.last, l == 0x20 { bytes.removeLast() }
-        guard let decoded = Data(base64Encoded: Data(bytes)) else { throw fail("base64 decode failed") }
-        return decoded
-    }
-
-    @discardableResult
-    private func writeScratch(_ name: String, _ content: String) throws -> URL {
-        let url = scratch.appendingPathComponent(name)
-        try Data(content.utf8).write(to: url)
-        return url
-    }
-
-    /// 頁面上有沒有 PDF 連結（`wait --js` 的條件）。
+    /// 頁面上有沒有 PDF 連結（`wait --js` 的條件）。#613 起不再找 PsycNet 的 `/record/` 連結——那只是給被刪掉的拼網址規則取 id 用的。
     static let hasLinkJS = """
-    !!(document.querySelector('meta[name=citation_pdf_url]')
-      || document.querySelector('a[href*="/doi/pdf/"],a[href*="pdfdirect"],a[href$=".pdf"],a[href*=".pdf?"],a[href^="/record/"]')
-      || document.querySelector('form.ft-download-content__form--pdf'))
-
+    !!(document.querySelector('meta[name=citation_pdf_url]') || document.querySelector('a[href*="/doi/pdf/"],a[href*="pdfdirect"],a[href$=".pdf"],a[href*=".pdf?"]') || document.querySelector('form.ft-download-content__form--pdf'))
     """
 
     /// 讀頁面的 PDF 連結：表單（POST）、`citation_pdf_url` 中繼標籤、或幾種連結樣式（GET）。`f.action` 與 `a.href` 瀏覽器已解析成絕對網址；
-    /// 中繼標籤的 `content` 是原始字串，用 `new URL(…, document.baseURI)` 照 `fetch` 會用的同一個基準解析（頁面的 `<base href>` 指到別站時
-    /// 解析出來就是別站，由 `fetchTargetOrigin` 拒絕）。解析失敗時原樣交回，Swift 側拒絕（它不是 `https://` 開頭的絕對網址）。
+    /// 中繼標籤的 `content` 是原始字串，用 `new URL(…, document.baseURI)` 解析（頁面的 `<base href>` 指到別站時解析出來就是別站，由
+    /// `linkTargetOrigin` 拒絕）。解析失敗時原樣交回，Swift 側拒絕。
     static let linkJS = """
-    const f = document.querySelector('form.ft-download-content__form--pdf');
-    if (f) return 'POST ' + f.action;
-    const m = document.querySelector('meta[name=citation_pdf_url]');
-    if (m && m.content) { try { return 'GET ' + new URL(m.content, document.baseURI).href; } catch (e) { return 'GET ' + m.content; } }
-    for (const s of ['a[href*="/doi/pdf/"]','a[href*="pdfdirect"]','a[href$=".pdf"]','a[href*=".pdf?"]','a[href^="/record/"]']) {
-      const a = document.querySelector(s); if (a) return 'GET ' + a.href;
-    }
-    return '';
-
+    (function () {
+      var f = document.querySelector('form.ft-download-content__form--pdf');
+      if (f) { return 'POST ' + f.action; }
+      var m = document.querySelector('meta[name=citation_pdf_url]');
+      if (m && m.content) { try { return 'GET ' + new URL(m.content, document.baseURI).href; } catch (e) { return 'GET ' + m.content; } }
+      var s = ['a[href*="/doi/pdf/"]', 'a[href*="pdfdirect"]', 'a[href$=".pdf"]', 'a[href*=".pdf?"]'];
+      for (var i = 0; i < s.length; i++) { var a = document.querySelector(s[i]); if (a) { return 'GET ' + a.href; } }
+      return '';
+    })()
     """
 
-    /// 頁內取 PDF 的 JS。`url` 以 JS 字串字面值（ASCII 逃脫）寫入，不做字串拼接式的內插。
-    static func fetchJS(url: String, method: String) -> String {
-        let body = method == "POST" ? "new FormData(document.querySelector('form.ft-download-content__form--pdf'))" : "undefined"
-        return """
+    /// 導航之後分頁顯示什麼：第一行 content type、第二行 readyState。
+    static let shownJS = "document.contentType + '\\n' + document.readyState"
 
-        window.__aff = {done:false};
-        fetch(\(PyJSON.javaScriptLiteral(url)), {method:\(PyJSON.javaScriptLiteral(method)), credentials:'include', body:\(body)})
-         .then(r => { window.__aff.status = r.status; window.__aff.ctype = r.headers.get('content-type');
-           let o = null; try { o = new URL(r.url).origin; } catch (e) {}
-           if (o !== location.origin) { window.__aff.offsite = r.url || '(no url)'; return null; }
-           return r.arrayBuffer(); })
-         .then(b => { if (b === null) { window.__aff.done = true; return; } const u = new Uint8Array(b); let s = '';
-           for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000));
-           window.__aff.b64 = btoa(s); window.__aff.len = u.length; window.__aff.done = true; })
-         .catch(e => { window.__aff.err = String(e); window.__aff.done = true; });
-        return 'started';
-
-        """
-    }
+    /// 注入頁面的全部 JS（測試逐段驗解析）。
+    static let injectedExpressions: [String] = [readyStateJS, pageTextJS, hasLinkJS, linkJS, shownJS]
 }

@@ -65,9 +65,9 @@ parity 測試不是「移植」而是**受測物不存在後退場**）。
 
 | 舊檔 | 新去處 |
 |---|---|
-| `verify_pdf.py`、`pdf_url_rules.py`、`bot_signals.py`、`jitter.py` | `akashic fulltext verify`／`url-rule`／`bot-signals`／`jitter`（`Sources/AkashicSkillTools/`） |
+| `verify_pdf.py`、`pdf_url_rules.py`、`bot_signals.py`、`jitter.py` | `akashic fulltext verify`／`url-rule`（#613 刪除：拼網址規則依使用者 2026-10-01 的裁決拿掉）／`bot-signals`／`jitter`（`Sources/AkashicSkillTools/`） |
 | `calibrate_title_match.py` | `akashic fulltext calibrate`（Crossref 記錄改讀本機目錄，**不連網**） |
-| `fetch-fulltext.sh` ＋ `fetch-fulltext-paths.sh` | `akashic fulltext fetch`（`FulltextFetch`，對 `SafariBrowser` 介面編排；路徑測試對記憶體內的假瀏覽器跑） |
+| `fetch-fulltext.sh` ＋ `fetch-fulltext-paths.sh` | `akashic fulltext fetch`（`FulltextFetch`，對 `SafariBrowser` 介面編排；路徑測試對記憶體內的假瀏覽器跑）；#613 起只導航、交給人，驗證與存檔搬到 `akashic fulltext take`（`FulltextTake`） |
 | `crossref_match.py` | `akashic crossref-match`（重播式：缺的請求由 skill 經 safari-browser 取回，**不連網**） |
 | `ndjson-abstracts-to-proposals.py` ＋ 它的測試 | `akashic abstracts-to-proposals`（`AbstractProposals`） |
 | `test_rules_and_verify.py`（54 個） | `Tests/AkashicKitTests/FulltextRulesTests.swift`（54 個逐案移植） |

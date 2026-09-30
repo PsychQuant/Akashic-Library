@@ -1,12 +1,12 @@
 import Foundation
 import AkashicCore
 
-/// `fulltext fetch` 的輸出檔落地（#629 R1 verify 第 1 則、第 50 則）。
+/// `fulltext take` 的輸出檔落地（#629 R1 verify 第 1 則、第 50 則；#613 前是 `fulltext fetch` 的）。
 ///
 /// 第一版把「已存在的目的地」處理成「先刪、再 `moveItem`」：`--out` 指著一個**非空目錄**時 `removeItem` 遞迴刪掉整個目錄再放 PDF
 /// （舊 shell 的 `mv` 不會遞迴刪目錄），而目的地是普通檔時，搬移失敗之前原檔已經被刪。這裡改成：
 ///
-/// 1. **在碰瀏覽器之前** `lstat` 每個輸出目的地（`--out`、`*.unverified.pdf`、`*.response.txt`）：不存在或**普通檔**才放行；
+/// 1. **在讀 `--from` 之前** `lstat` 每個輸出目的地（`--out`、`*.unverified.pdf`；#613 前還有 `fetch` 的 `*.response.txt`）：不存在或**普通檔**才放行；
 ///    目錄、symlink、FIFO、socket、裝置一律具名拒絕（零寫入）。拒 symlink 的理由同 `AbstractProposals.writeOut`：跟隨它會改到
 ///    另一條路徑上的檔，取代它則默默拆掉使用者刻意建的導向。
 /// 2. 覆寫普通檔時在**目的地同目錄**開暫存檔、寫完 `rename(2)` 原子替換——`rename` 換的是名字、不跟隨 symlink、也不會遞迴刪任何
@@ -48,7 +48,7 @@ enum OutputFile {
     ///
     /// **尾巴是目的地的整個檔名**（R2 verify 第 2／33 則）：先前是 `.<檔名>.<UUID>.tmp`，而只以 `*.pdf`、`*.response.txt` 忽略輸出的
     /// 工作樹不忽略 `.tmp`——第三方全文在寫入期間（行程被殺時則永久）以一個沒被忽略的名字躺在工作樹裡。尾巴保留檔名，以副檔名忽略的規則
-    /// 就同樣蓋得到它；`fulltext fetch` 的 git 閘另外拿**同一個 token** 算出的名字去問 `check-ignore`，只逐字忽略最終檔名的樹會被拒絕。
+    /// 就同樣蓋得到它；`fulltext take` 的 git 閘另外拿**同一個 token** 算出的名字去問 `check-ignore`，只逐字忽略最終檔名的樹會被拒絕。
     static func tempPath(for path: String, token: String) -> String {
         let dir = (path as NSString).deletingLastPathComponent
         let name = (path as NSString).lastPathComponent

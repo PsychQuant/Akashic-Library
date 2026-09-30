@@ -42,6 +42,19 @@
 
 
 
+## #613 — 取全文只用導航、存檔交給人；CAPTCHA 等人驗證；每站每天 10 次嘗試
+
+`akashic-fetch-fulltext` 依使用者 2026-09-28 的最高原則「跟真人一樣」與 2026-10-01 的裁決改寫。**這需要新的 `akashic` CLI**（plugin 不出貨 CLI）：舊的 `akashic fulltext fetch` 在出版商頁內以 JS `fetch()` 取 PDF，正是那晚兩次 ScienceDirect CAPTCHA 之前做的事——**不要拿舊的 CLI 對出版商網站跑**。skill 的第 0 步用 `fulltext take` 的一次真呼叫探測，舊 binary 回 64、探測失敗就停。
+
+- **`akashic fulltext fetch` 只導航、不取位元組、不寫檔**：開 `https://doi.org/<DOI>`、等頁面自己的 PDF 連結、把同一個分頁導過去，然後交給人。拿掉 `--out`、`--title`、`--pages`、`--doi`、`--prime`（帶了就是命令列錯誤 64）；新增 `--resume-tab`／`--resume-origin`（等人驗證之後在同一個分頁接著走）與 `--ledger`。
+- **結束碼改了**：7 交給人（stdout 的 `handover:` 一行寫原因：`pdf-shown`、`html-page`、`unverifiable`、`tab-unchanged`、`button`）；8 等人驗證；9 這個站今天已經 10 次嘗試；6 整批暫停；3 找不到連結；1 自動化失敗。**沒有 0**；舊的 2、4、5 離開 `fetch`（2、5 在 `take`）。
+- **新增 `akashic fulltext take --from <使用者存下來的檔> --out … --title … --doi …`**：不碰瀏覽器、不連網、不寫 store；驗證與 git 閘是原本 `fetch` 的那一份。結束碼 0 存好且驗證是這篇、5 是 PDF 但不是這篇（`*.unverified.pdf`）、2 不是 PDF（什麼都沒寫）、1 其他失敗。`--from` 只讀，要是普通檔、不超過 256 MiB。
+- **不再拼出版商的 PDF 網址**：`akashic fulltext url-rule` 與 SAGE `?download=true`、Wiley `pdfdirect`、PsycNet `/fulltext/<id>.pdf` 三條規則刪除；只跟頁面自己的連結走，通到 HTML 閱讀器時下載按鈕交給使用者按。PsycNet 停在 `doiLanding`、只有 `/record/` 連結的頁面現在是結束碼 3。
+- **中止條款分兩種**：CAPTCHA、人類檢查、Cloudflare「Just a moment」、按住驗證 → 等人驗證（暫停、使用者驗證、在同一個分頁接著走）；其他訊號 → 整批暫停。新增 ScienceDirect「Preparing your download」／`cra_js_challenge` 的訊號（`sciencedirect-download-challenge`，整批暫停）；PerimeterX 拆成 `perimeterx-press-and-hold`（等人驗證）與 `perimeterx-block`（整批暫停）。同一頁兩種都有時整批暫停優先；文字是驗證頁時，即使狀態碼是 403 也是等人驗證。
+- **`akashic fulltext bot-signals --kind`** 在標籤後以 tab 分隔印 `verify` 或 `pause`；命中的結束碼仍一律 0。`web-access.md` 的區塊二改用它，驗證頁以 3 結束（等人）、其他以 2 結束（整批）；讀頁面的那段 JS 改成運算式。
+- **每站每天 10 次嘗試**（Asia/Taipei 日曆日、以文章頁的主機分站）：準備導航到 PDF 連結（或把下載按鈕交給人）就算一次，失敗也算。帳本在 store 之外：`~/Library/Application Support/akashic/fulltext-attempts.jsonl`，每行一筆、時間帶 `+08:00`；讀不懂就在開任何分頁之前拒絕。
+- `references/publishers.md` 改寫成導航版，並收錄 EBSCO APA PsycInfo 管道（PsycNet 無權限時）：導航到閱讀器為止，之後由使用者用閱讀器的下載鈕存檔。
+
 ## #709 — 留下 legacy 拷貝的 work 不再讓 index 重建失敗
 
 同一筆記錄一份在 `entities/`、一份是 #631 搬移後沒刪掉的 legacy 拷貝（`entries/<citekey>.yaml`／`people/<key>.yaml`，同一個 id）時，index 重建以 `entities/` 那份為準、略過 legacy 拷貝。先前 work 的兩份讓重建撞 `UNIQUE constraint failed`，寫入之後會重建 index 的工具全部回錯誤，連其他記錄的寫入也一樣。

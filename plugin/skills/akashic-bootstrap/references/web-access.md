@@ -8,7 +8,7 @@
 
 **Semantic Scholar 不走本檔**（#664）：帶金鑰的 S2 查詢用 `akashic s2`（CLI）或 `akashic_s2`（MCP），不經 safari-browser，也不自己組 S2 的網址——頁內 fetch 得把金鑰放進 `safari-browser js` 的指令參數，會出現在 process list。金鑰怎麼設定見 [semantic-scholar.md](semantic-scholar.md)。**查 S2 之前先跑 `akashic s2 status`**：結束碼 0（有金鑰）→ 用 `akashic s2`／`akashic_s2`，不得經本檔查 S2；結束碼 3（沒有金鑰）→ 先請使用者照 semantic-scholar.md 設定，使用者不設定或設定不了，**最後**才照本檔的程序、不帶金鑰查 S2。查詢遇到結束碼 4（限流用盡）或 5 不改走本檔補查。它的限流處理在 `akashic s2` 自己裡面（全機每秒至多 1 次、429 共用退避，用盡時結束碼 4），**不在下面中止條款的涵蓋範圍內**；回傳是線索，不寫 store。
 
-本 plugin 還有一處鎖分頁的方法不是本檔的：`akashic-fetch-fulltext` 的 `akashic fulltext fetch`（原 `fetch-fulltext.sh`，#629 移植成 Swift）取得走 safari-browser，但鎖分頁用視窗編號加分頁位置（`--window N --tab-in-window T`，#613 的作法），不是本檔的鎖法；移植時**沒有改鎖法**（改成 `--url-endswith` 要使用者裁決且要實跑 Safari，見規則檔〈例外〉）。它**不在下面中止條款與鎖法的涵蓋範圍內**：本檔的鎖只管本檔的區塊，那個命令內部的鎖照它自己的，兩者不混用。`akashic-bootstrap` 的 Crossref 標題比對與 `akashic-fetch-fulltext` 的校準曾各有一支自己以 `urllib.request` 直連 Crossref 的 Python 腳本（`crossref_match.py`、`calibrate_title_match.py`），#629 起是 `akashic crossref-match` 與 `akashic fulltext calibrate`——它們**不連網**，取得由 skill 照本檔做（怎麼做見 work-sources.md〈附帶的腳本〉）。`akashic-verify-venue` 的四源都照本檔取得：三源查詢走〈取一次 API〉，第 4 源（出版商頁）走〈讀渲染後的頁面〉，而且只開〈開哪個網址〉的兩種網址（該 skill 的「第 4 源」一段）。
+本 plugin 還有一處鎖分頁的方法不是本檔的：`akashic-fetch-fulltext` 的 `akashic fulltext fetch`（原 `fetch-fulltext.sh`，#629 移植成 Swift；#613 起只在使用者的 Safari 裡導航到頁面自己的 PDF 連結、交給人存檔，不在頁內取檔）走 safari-browser，但鎖分頁用視窗編號加分頁位置（`--window N --tab-in-window T`，#613 的作法），不是本檔的鎖法；移植時**沒有改鎖法**（改成 `--url-endswith` 要使用者裁決且要實跑 Safari，見規則檔〈例外〉）。它的中止條款處置寫在它的結束碼裡（8＝等人驗證、6＝整批暫停），與下面這一節同一套判準；鎖法**不在本檔的涵蓋範圍內**：本檔的鎖只管本檔的區塊，那個命令內部的鎖照它自己的，兩者不混用。`akashic-bootstrap` 的 Crossref 標題比對與 `akashic-fetch-fulltext` 的校準曾各有一支自己以 `urllib.request` 直連 Crossref 的 Python 腳本（`crossref_match.py`、`calibrate_title_match.py`），#629 起是 `akashic crossref-match` 與 `akashic fulltext calibrate`——它們**不連網**，取得由 skill 照本檔做（怎麼做見 work-sources.md〈附帶的腳本〉）。`akashic-verify-venue` 的四源都照本檔取得：三源查詢走〈取一次 API〉，第 4 源（出版商頁）走〈讀渲染後的頁面〉，而且只開〈開哪個網址〉的兩種網址（該 skill 的「第 4 源」一段）。
 
 ## 開始前
 
@@ -18,17 +18,22 @@
 4. **`akashic` 要含 #629 的子命令**（`fulltext`、`crossref-match`、`abstracts-to-proposals`、`literal-census`）。這些原本是隨 plugin 出貨的 python／shell 腳本，現在是 `akashic` CLI 的子命令；plugin 只自動下載 `akashic-mcp`、**不出貨 `akashic` CLI**，所以 plugin 的文字可能比使用者機器上的 CLI 新。舊 binary 的症狀：`akashic fulltext bot-signals` 印 `Error: … unexpected arguments: 'fulltext', 'bot-signals'`、結束碼 64（子命令不存在）。**中止條款靠它**，所以先確認再開始：
 
    ```bash
-   rc=0; printf 'ok' | akashic fulltext bot-signals >/dev/null 2>&1 || rc=$?
+   rc=0; printf 'ok' | akashic fulltext bot-signals --kind >/dev/null 2>&1 || rc=$?
    [ "$rc" -eq 1 ] && akashic fulltext jitter --dry-run >/dev/null 2>&1 \
      || { echo "akashic CLI 太舊或沒裝（沒有 fulltext 子命令）——先更新 CLI，不要跳過中止條款的檢查與節奏" >&2; exit 1; }
    ```
 
-   探測用**真的呼叫**（乾淨文字的結束碼要恰好是 1、`jitter --dry-run` 要成功），**不是 `--help`**：ArgumentParser 對舊 binary 的 `akashic fulltext bot-signals --help` 也回 0（印根命令的用法），探不出子命令不存在（2026-09-29 實測）。確認不了就停下來告訴使用者；不要改成「沒有這個檢查也照跑」。
+   探測用**真的呼叫**（乾淨文字的結束碼要恰好是 1、`jitter --dry-run` 要成功；帶 `--kind` 是因為下面的區塊靠它分辨等人驗證與整批暫停，#613 之前的 binary 沒有這個旗標、回 64），**不是 `--help`**：ArgumentParser 對舊 binary 的 `akashic fulltext bot-signals --help` 也回 0（印根命令的用法），探不出子命令不存在（2026-09-29 實測）。確認不了就停下來告訴使用者；不要改成「沒有這個檢查也照跑」。
 5. **每一次 Bash 呼叫是新的 shell，變數不跨呼叫保留**：下面每個動到分頁的區塊都是**自足**的——同一次呼叫內自己設 `P`、`T`、`LOCK`，並確認非空才動作（鎖若是空的，safari-browser 會退回 front tab，那可能是別人 profile 的分頁）。**不要**把區塊裡的單一行拆出去單獨跑，也不要在另一次呼叫裡沿用上一次的 `$LOCK`。字面值（`<P>`、`<T>`、`<W>`、`<序號>`）每次都寫進命令。
 
-## 中止條款：網站一懷疑是自動化，整批就停
+## 中止條款：網站一懷疑是自動化就停——驗證頁等人，其他整批暫停
 
-判準與停下時的做法**以 akashic-fetch-fulltext SKILL.md〈中止條款〉為準**（使用者 2026-09-24 定的規矩；那一段是單一來源，本檔不重列它的訊號清單，免得兩份分岔）：整個 run 結束，不重試、不換來源、不改用別的工具繼續，**分頁留著**給使用者看；回報哪一站、哪個訊號、哪一步、完成到哪裡，何時繼續由使用者決定。拿不準就當作是。
+判準與停下時的做法**以 akashic-fetch-fulltext SKILL.md〈中止條款〉為準**（使用者 2026-09-24 定的規矩，2026-09-28、2026-10-01 分成兩種處置；那一段是單一來源，本檔不重列它的訊號清單，免得兩份分岔）：
+
+- **等人驗證**——只有 CAPTCHA、人類檢查、Cloudflare「Just a moment」、按住驗證四種（`akashic fulltext bot-signals --kind` 印 `verify`）：**暫停**，請使用者在那個分頁自己完成驗證；不代解、不繞過、不重新載入、不開新分頁、不換站。使用者說完成了之後，**在同一個分頁接著走**：重跑一次〈讀渲染後的頁面〉的區塊二（它只讀那個分頁、不重新載入）確認沒有訊號，再繼續原本的下一步。區塊二仍命中就再等使用者。
+- **整批暫停**——其他所有訊號（印 `pause`）、以及下面列的狀態碼與回應形狀：整個 run 結束，不重試、不換來源、不改用別的工具繼續，**分頁留著**給使用者看；回報哪一站、哪個訊號、哪一步、完成到哪裡，何時繼續由使用者決定。
+
+拿不準是不是訊號就當作是；拿不準是哪一種就當整批暫停。
 
 取 API 時，那一段的訊號（含 HTTP 403／429）照樣適用，另外多這幾種形狀。**判斷順序：先看狀態碼，再看內容**：
 
@@ -37,7 +42,7 @@
 3. **其他非 200 的狀態碼**（5xx 等）→ 中止條款。
 4. **200 才看內容**：JSON 端點回的不是 JSON（驗證頁、擋截頁）、`fetch` 拋錯、回應 60 秒沒完成、回應是空的 → 中止條款。
 
-頁面文字可以交給 `akashic fulltext bot-signals` 比對（從 stdin 讀；命中時印出訊號、結束碼 0，沒命中不印、結束碼 1；`--status <N>` 帶 HTTP 狀態碼，403／429 本身就是訊號）。它只認得一份清單，沒命中不代表乾淨。**只有結束碼 1 才是「沒有訊號」**：其他任何結束碼（64＝子命令不存在的舊 binary、127＝沒裝、當掉的 132／133）都是「這個檢查沒有跑成」，當作無從檢查＝有疑慮，**停下**——不要讓 `if cmd; then … fi` 把「命令失敗」讀成「沒有訊號」。
+頁面文字可以交給 `akashic fulltext bot-signals` 比對（從 stdin 讀；命中時印出訊號、結束碼 0，沒命中不印、結束碼 1；`--status <N>` 帶 HTTP 狀態碼，403／429 本身就是訊號；`--kind` 在標籤後以 tab 分隔印處置：`verify`＝等人驗證、`pause`＝整批暫停——文字是驗證頁時即使狀態碼是 403 也印 `verify`，挑戰頁本身常以 403 回應）。它只認得一份清單，沒命中不代表乾淨。**只有結束碼 1 才是「沒有訊號」**：其他任何結束碼（64＝子命令不存在的舊 binary、127＝沒裝、當掉的 132／133）都是「這個檢查沒有跑成」，當作無從檢查＝有疑慮，**停下**——不要讓 `if cmd; then … fi` 把「命令失敗」讀成「沒有訊號」。
 
 ## 開哪個網址
 
@@ -116,16 +121,19 @@ LOCK=(--profile "$P" --url-endswith "#akashic-$T")
 n=$(safari-browser documents --json --profile "$P" | python3 -c 'import json,sys;print(sum(1 for d in json.load(sys.stdin) if d.get("url","").endswith(sys.argv[1])))' "#akashic-$T")
 [ "$n" = 1 ] || { echo "tab lock: $n tabs match (need exactly 1) - STOP" >&2; exit 1; }
 safari-browser wait "${LOCK[@]}" --js "['complete','interactive'].includes(document.readyState)" --timeout 60000
-safari-browser js "${LOCK[@]}" "return document.title + '\\n' + (document.body ? document.body.innerText.slice(0, 3000) : '')" > "<W>/first-<T>.txt"
-rc=0; akashic fulltext bot-signals < "<W>/first-<T>.txt" || rc=$?
+safari-browser js "${LOCK[@]}" "document.title + '\\n' + (document.body ? document.body.innerText.slice(0, 3000) : '')" > "<W>/first-<T>.txt"
+rc=0; hit=$(akashic fulltext bot-signals --kind < "<W>/first-<T>.txt") || rc=$?
 case "$rc" in
   1) ;;   # 結束碼 1＝沒有訊號；只有這個碼才往下走
-  0) echo "stop signal - STOP THE WHOLE RUN" >&2; exit 2 ;;   # 結束碼 0＝命中（標籤已印出）
+  0) case "$hit" in   # 結束碼 0＝命中；標籤與處置以 tab 分隔
+       *[[:space:]]verify) echo "verification page ($hit) - PAUSE: ask the user to complete it in this tab, then re-run this block in the same tab" >&2; exit 3 ;;
+       *) echo "stop signal ($hit) - STOP THE WHOLE RUN" >&2; exit 2 ;;
+     esac ;;
   *) echo "bot-signals did not run (exit $rc; akashic older than this plugin?) - cannot check, treat as suspicion - STOP THE WHOLE RUN" >&2; exit 2 ;;
 esac
 ```
 
-`akashic fulltext bot-signals` 命中時已印出訊號標籤。區塊結束後**也自己讀一遍** `<W>/first-<T>.txt`：60 秒沒載完、有訊號、頁面讀不到，都是中止條款——**不發下一個 `fetch`**。
+區塊以 3 結束＝等人驗證、以 2 結束＝整批暫停。區塊結束後**也自己讀一遍** `<W>/first-<T>.txt`：60 秒沒載完、有訊號、頁面讀不到，都是中止條款——**不發下一個 `fetch`**。讀頁面的那一段 JS 寫成運算式（不是 `return …` 的敘述）：`safari-browser js` 先把程式碼當運算式試一次，敘述形的第一次注入是一段解析不了的程式碼（akashic-fetch-fulltext SKILL.md〈最高原則〉規則 5）。
 
 **分頁開在該站第一個請求的網址，所以那個網址會被請求兩次**（開分頁一次、之後的頁內 `fetch` 一次）。要省掉第二次，得直接從分頁的 DOM 讀回 JSON；`document.body.innerText` 對 JSON 頁夠不夠用沒有實測，所以本檔不那樣寫。頁內 `fetch` 不換頁，所以取 API 的整個流程裡分頁網址不變、這把鎖一直有效。換一個站就另開一個帶新 fragment 的分頁。
 

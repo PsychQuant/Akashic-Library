@@ -96,15 +96,9 @@ final class SkillToolsCLITests: XCTestCase {
         XCTAssertEqual(try runSplit(["fulltext", "verify", f.path]).status, 64)
     }
 
-    func testURLRulePrintsTheDerivedURLOrNothing() throws {
-        let hit = try runSplit(["fulltext", "url-rule", "https://onlinelibrary.wiley.com/doi/10.1111/jopy.12964"])
-        XCTAssertEqual(hit.status, 0)
-        XCTAssertEqual(hit.out, "https://onlinelibrary.wiley.com/doi/pdfdirect/10.1111/jopy.12964\n")
-        let psy = try runSplit(["fulltext", "url-rule", "https://psycnet.apa.org/doiLanding?doi=10.1037%2Fmet0000285", "/record/2022-13893-001?doi=1"])
-        XCTAssertEqual(psy.out, "https://psycnet.apa.org/fulltext/2022-13893-001.pdf\n")
-        let none = try runSplit(["fulltext", "url-rule", "https://www.tandfonline.com/doi/full/10.1080/x"])
-        XCTAssertEqual(none.status, 0)
-        XCTAssertEqual(none.out, "")
+    /// #613：出版商拼網址規則刪除，子命令一起拿掉——舊的呼叫端得到命令列錯誤，而不是一個悄悄不同的答案。
+    func testURLRuleIsGone() throws {
+        XCTAssertEqual(try runSplit(["fulltext", "url-rule", "https://onlinelibrary.wiley.com/doi/10.1111/jopy.12964"]).status, 64)
     }
 
     func testBotSignalsReadsStdinAndExitsByWhetherItHit() throws {
@@ -118,6 +112,15 @@ final class SkillToolsCLITests: XCTestCase {
         // 非 UTF-8 的本文（舊 Python 版在這裡當掉、被 shell 的 `&&` 吞成「沒有訊號」）：照掃，不因解碼失敗而漏掉挑戰頁
         let binary = try runSplit(["fulltext", "bot-signals"], stdin: Data([0xFF, 0xFE] + Array("Just a moment...".utf8)))
         XCTAssertEqual(binary.out, "cloudflare-challenge\n")
+        // #613：`--kind` 另印處置；命中的結束碼仍一律是 0（舊的呼叫端以 0＝停寫成）
+        let verify = try runSplit(["fulltext", "bot-signals", "--kind"], stdin: Data("<title>Just a moment...</title>".utf8))
+        XCTAssertEqual(verify.status, 0)
+        XCTAssertEqual(verify.out, "cloudflare-challenge\tverify\n")
+        let pause = try runSplit(["fulltext", "bot-signals", "--kind"], stdin: Data("Preparing your download".utf8))
+        XCTAssertEqual(pause.status, 0)
+        XCTAssertEqual(pause.out, "sciencedirect-download-challenge\tpause\n")
+        XCTAssertEqual(try runSplit(["fulltext", "bot-signals", "--kind", "--status", "403"], stdin: Data()).out, "http-403\tpause\n")
+        XCTAssertEqual(try runSplit(["fulltext", "bot-signals", "--kind"], stdin: Data("plain".utf8)).status, 1)
     }
 
     func testJitterDryRunPrintsAnIntervalInsideTheBoundsAndRejectsBadParameters() throws {
@@ -132,8 +135,10 @@ final class SkillToolsCLITests: XCTestCase {
         XCTAssertTrue(bad.err.contains("need 0 <= min < median < max"), bad.err)
     }
 
+    private var ledger: String { base.appendingPathComponent("ledger.jsonl").path }
+
     func testFetchRefusesAMissingSafariBrowserAndAMissingWindow() throws {
-        let missing = try runSplit(["fulltext", "fetch", "--window", "1", "--expect-profile", "own", "--landing", "https://doi.org/10.1/x", "--out", base.appendingPathComponent("w.pdf").path,
+        let missing = try runSplit(["fulltext", "fetch", "--window", "1", "--expect-profile", "own", "--landing", "https://doi.org/10.1/x", "--ledger", ledger,
                                     "--bin", base.appendingPathComponent("no-such-binary").path])
         XCTAssertEqual(missing.status, 1)
         XCTAssertTrue(missing.err.contains("safari-browser not found"), missing.err)
@@ -142,21 +147,56 @@ final class SkillToolsCLITests: XCTestCase {
         let log = base.appendingPathComponent("calls.log")
         try "#!/bin/sh\necho \"$@\" >> '\(log.path)'\nif [ \"$1\" = documents ]; then echo '[]'; fi\n".write(to: stub, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: stub.path)
-        let r = try runSplit(["fulltext", "fetch", "--window", "5", "--expect-profile", "own", "--landing", "https://doi.org/10.1/x", "--out", base.appendingPathComponent("w.pdf").path, "--bin", stub.path])
+        let r = try runSplit(["fulltext", "fetch", "--window", "5", "--expect-profile", "own", "--landing", "https://doi.org/10.1/x", "--ledger", ledger, "--bin", stub.path])
         XCTAssertEqual(r.status, 1, r.err)
         XCTAssertTrue(r.err.contains("Safari window 5 not found"), r.err)
         let calls = try String(contentsOf: log, encoding: .utf8)
         XCTAssertEqual(calls, "documents --json\n", "只該問過 documents：\(calls)")
-        XCTAssertEqual(try runSplit(["fulltext", "fetch", "--window", "0", "--expect-profile", "own", "--landing", "x", "--out", "y"]).status, 64)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: ledger), "沒走到準備取 PDF，帳本不建")
+        XCTAssertEqual(try runSplit(["fulltext", "fetch", "--window", "0", "--expect-profile", "own", "--landing", "x"]).status, 64)
     }
 
     /// `--expect-profile` 是唯一防止動到別人的 Safari session 的檢查：文件一直寫「一律帶」，命令列現在強制（R1 verify 第 31 則）。
     func testFetchRequiresAnExpectedProfile() throws {
-        let noProfile = try runSplit(["fulltext", "fetch", "--window", "5", "--landing", "https://doi.org/10.1/x", "--out", base.appendingPathComponent("w.pdf").path])
+        let noProfile = try runSplit(["fulltext", "fetch", "--window", "5", "--landing", "https://doi.org/10.1/x"])
         XCTAssertEqual(noProfile.status, 64, noProfile.err)
         XCTAssertTrue(noProfile.err.contains("expect-profile"), noProfile.err)
-        let empty = try runSplit(["fulltext", "fetch", "--window", "5", "--expect-profile", "", "--landing", "https://doi.org/10.1/x", "--out", base.appendingPathComponent("w.pdf").path])
+        let empty = try runSplit(["fulltext", "fetch", "--window", "5", "--expect-profile", "", "--landing", "https://doi.org/10.1/x"])
         XCTAssertEqual(empty.status, 64, empty.err)
+    }
+
+    /// #613：`fetch` 不再收輸出與驗證的旗標（它不取位元組）、不再有 `--prime`；舊的呼叫以命令列錯誤失敗，不會被讀成「存好了」。
+    /// `--resume-tab` 與 `--resume-origin` 一起給，origin 要恰好是 `https://<主機>`。
+    func testFetchRejectsTheRetiredFlagsAndHalfAResume() throws {
+        let common = ["fulltext", "fetch", "--window", "5", "--expect-profile", "own", "--landing", "https://doi.org/10.1/x", "--ledger", ledger]
+        for extra in [["--out", "w.pdf"], ["--title", "T"], ["--pages", "1--2"], ["--doi", "10.1/x"], ["--prime", "https://pub.example/x.pdf"],
+                      ["--resume-tab", "2"], ["--resume-origin", "https://pub.example"], ["--resume-tab", "0", "--resume-origin", "https://pub.example"],
+                      ["--resume-tab", "2", "--resume-origin", "https://pub.example/path"], ["--resume-tab", "2", "--resume-origin", "http://pub.example"]] {
+            let r = try runSplit(common + extra)
+            XCTAssertEqual(r.status, 64, "\(extra)：\(r.err)")
+        }
+    }
+
+    func testTakeSavesAVerifiedCopyAndLeavesTheSourceAlone() throws {
+        try XCTSkipUnless(hasPoppler(), "需要 poppler")
+        let saved = base.appendingPathComponent("Downloads-copy.pdf")
+        let pdf = makePDF(lines: ["A Stub Title For Path Tests", "doi:10.1234/x", "Abstract"])
+        try pdf.write(to: saved)
+        let outDir = base.appendingPathComponent("out")
+        try FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)
+        let ok = try runSplit(["fulltext", "take", "--from", saved.path, "--out", outDir.appendingPathComponent("k.pdf").path,
+                               "--title", "A Stub Title For Path Tests", "--pages", "1--1", "--doi", "10.1234/x"])
+        XCTAssertEqual(ok.status, 0, ok.err)
+        XCTAssertEqual(try Data(contentsOf: outDir.appendingPathComponent("k.pdf")), pdf)
+        XCTAssertEqual(try Data(contentsOf: saved), pdf, "--from 不動")
+        let other = try runSplit(["fulltext", "take", "--from", saved.path, "--out", outDir.appendingPathComponent("m.pdf").path,
+                                  "--title", "A Stub Title For Path Tests", "--pages", "1--1", "--doi", "10.1234/other"])
+        XCTAssertEqual(other.status, 5, other.err)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: outDir.appendingPathComponent("m.unverified.pdf").path))
+        let html = base.appendingPathComponent("page.html")
+        try Data("<html></html>".utf8).write(to: html)
+        XCTAssertEqual(try runSplit(["fulltext", "take", "--from", html.path, "--out", outDir.appendingPathComponent("h.pdf").path]).status, 2)
+        XCTAssertEqual(try runSplit(["fulltext", "take", "--from", saved.path]).status, 64, "缺 --out 是用法錯誤")
     }
 
     /// 標題可以以連字號開頭：ArgumentParser 預設的 `.next` 策略會把它當成另一個旗標而 exit 64；舊 shell 的 `TITLE=$2` 什麼值都收。

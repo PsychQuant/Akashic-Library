@@ -8,58 +8,10 @@ import XCTest
 ///
 /// **這一份的期望值不是新實作說的話**：每個斷言逐字取自舊的 Python 測試（同一個輸入、同一個期望）；舊測試在移植前對舊實作
 /// 全綠（54 個），移植後對新實作也全綠。除了移植的 54 個，另有「新舊逐案差分」的證據（changelog 記載），不在這個檔裡。
-final class PdfUrlRulesTests: XCTestCase {
-    func testSageReaderLinkIsReplacedByDownloadURL() {
-        XCTAssertEqual(
-            PdfUrlRules.pdfURL(finalURL: "https://journals.sagepub.com/doi/10.1177/0265407517718387",
-                               pageLink: "https://journals.sagepub.com/doi/reader/10.1177/0265407517718387"),
-            "https://journals.sagepub.com/doi/pdf/10.1177/0265407517718387?download=true")
-    }
-
-    func testWileyUsesPdfdirect() {
-        XCTAssertEqual(PdfUrlRules.pdfURL(finalURL: "https://onlinelibrary.wiley.com/doi/10.1111/jopy.12964"),
-                       "https://onlinelibrary.wiley.com/doi/pdfdirect/10.1111/jopy.12964")
-    }
-
-    func testWileySiciDOIIsKeptVerbatim() {
-        let doi = "10.1002/(SICI)1099-0984(199909/10)13:5%3C389::AID-PER361%3E3.0.CO;2-A"
-        XCTAssertEqual(PdfUrlRules.pdfURL(finalURL: "https://onlinelibrary.wiley.com/doi/\(doi)"),
-                       "https://onlinelibrary.wiley.com/doi/pdfdirect/\(doi)")
-    }
-
-    func testPsycnetFulltextHtmlMapsToPdf() {
-        XCTAssertEqual(PdfUrlRules.pdfURL(finalURL: "https://psycnet.apa.org/fulltext/2020-54836-001.html"),
-                       "https://psycnet.apa.org/fulltext/2020-54836-001.pdf")
-    }
-
-    func testPsycnetDoilandingTakesIdFromRecordLink() {
-        XCTAssertEqual(
-            PdfUrlRules.pdfURL(finalURL: "https://psycnet.apa.org/doiLanding?doi=10.1037%2Fmet0000285",
-                               pageLink: "/record/2022-13893-001?doi=1"),
-            "https://psycnet.apa.org/fulltext/2022-13893-001.pdf")
-    }
-
-    func testPsycnetDoilandingWithoutRecordLinkGivesNothing() {
-        XCTAssertNil(PdfUrlRules.pdfURL(finalURL: "https://psycnet.apa.org/doiLanding?doi=10.1037%2Fmet0000285"))
-    }
-
-    func testViewSuffixAfterDOIIsPeeledOff() {
-        XCTAssertEqual(PdfUrlRules.doiFromPath("/doi/10.1111/jopy.12964/abstract"), "10.1111/jopy.12964")
-        XCTAssertEqual(PdfUrlRules.doiFromPath("/doi/full/10.1111/jopy.12964/"), "10.1111/jopy.12964")
-        XCTAssertEqual(PdfUrlRules.pdfURL(finalURL: "https://onlinelibrary.wiley.com/doi/10.1111/jopy.12964/references"),
-                       "https://onlinelibrary.wiley.com/doi/pdfdirect/10.1111/jopy.12964")
-    }
-
-    func testSiciDOISlashesSurviveSuffixPeeling() {
-        let doi = "10.1002/(SICI)1099-0984(199909/10)13:5%3C389::AID-PER361%3E3.0.CO;2-A"
-        XCTAssertEqual(PdfUrlRules.doiFromPath("/doi/abs/\(doi)/full"), doi)
-    }
-
-    func testUnknownPublisherDefersToPageLink() {
-        XCTAssertNil(PdfUrlRules.pdfURL(finalURL: "https://www.tandfonline.com/doi/full/10.1080/10705511.2024.2379495"))
-    }
-}
-
+///
+/// **#613 之後剩 45 個**：出版商拼網址規則（`PdfUrlRules`：SAGE `?download=true`、Wiley `pdfdirect`、PsycNet `/fulltext/<id>.pdf`）依使用者
+/// 2026-10-01 的裁決刪除，它的 9 個測試一起刪。`testVendorBlockPagesStop` 的一個期望依同一批裁決改寫（PerimeterX 的「按住驗證」拆成
+/// 自己的標籤），不是移植的差異。
 final class FulltextVerifyTests: XCTestCase {
     static let title = "A Theory of States and Traits—Revised"
     static let doi = "10.1146/annurev-clinpsy-032813-153719"
@@ -370,7 +322,9 @@ final class BotSignalsTests: XCTestCase {
 
     func testVendorBlockPagesStop() {
         XCTAssertEqual(BotSignals.detect("Pardon Our Interruption"), "akamai-block")
-        XCTAssertEqual(BotSignals.detect("Press & Hold to confirm you are a human"), "perimeterx-block")
+        // #613（使用者 2026-10-01）：按住驗證是等人驗證，與 PerimeterX 的封鎖句分成兩個標籤（原本的期望是 "perimeterx-block"）
+        XCTAssertEqual(BotSignals.detect("Press & Hold to confirm you are a human"), "perimeterx-press-and-hold")
+        XCTAssertEqual(BotSignals.detect("Access to this page has been denied."), "perimeterx-block")
         XCTAssertEqual(BotSignals.detect("<script src=https://ct.captcha-delivery.com/c.js>"), "datadome-block")
     }
 
@@ -437,15 +391,15 @@ final class FulltextVerifyBoundaryTests: XCTestCase {
         XCTAssertNil(PDFReader.pageCount(fromPdfinfo: ""))
     }
 
-    /// `urlsplit` 的子集：主機是 `netloc.lower()`，帶埠號不符合規則（舊實作同）；前導控制字元與換行被吃掉。
+    /// `urlsplit` 的子集：origin 是 scheme 小寫、netloc 原樣；前導控制字元與換行被吃掉。#613 刪掉拼網址規則之後，它只剩 origin 的用途
+    /// （分頁還在不在同一個站、每日上限的站名）。
     func testURLSplitFollowsPythonUrlsplit() {
-        XCTAssertNil(PdfUrlRules.pdfURL(finalURL: "https://journals.sagepub.com:443/doi/10.1177/x"))
-        XCTAssertEqual(PdfUrlRules.pdfURL(finalURL: "HTTPS://Onlinelibrary.Wiley.com/doi/10.1/z"), "https://onlinelibrary.wiley.com/doi/pdfdirect/10.1/z")
-        XCTAssertEqual(PdfUrlRules.pdfURL(finalURL: "  https://onlinelibrary.wiley.com/doi/10.1/z"), "https://onlinelibrary.wiley.com/doi/pdfdirect/10.1/z")
-        XCTAssertEqual(PdfUrlRules.pdfURL(finalURL: "https://onlinelibrary.wiley.com\t/doi/10.1/z"), "https://onlinelibrary.wiley.com/doi/pdfdirect/10.1/z")
-        XCTAssertEqual(PdfUrlRules.pdfURL(finalURL: "//onlinelibrary.wiley.com/doi/10.1/z"), "https://onlinelibrary.wiley.com/doi/pdfdirect/10.1/z")   // 省略 scheme 的 `//host` 也有 netloc——規則只看主機
         XCTAssertEqual(URLSplit("https://pub.example/doi/10.1/x?a=b#f").origin, "https://pub.example")
         XCTAssertEqual(URLSplit("HTTPS://Pub.Example/x").origin, "https://Pub.Example", "scheme 小寫、netloc 原樣（`origin()` 用來比對分頁還在不在同一個站）")
+        XCTAssertEqual(URLSplit("  https://pub.example/x").origin, "https://pub.example")
+        XCTAssertEqual(URLSplit("https://pub.example\t/x").origin, "https://pub.example")
+        XCTAssertEqual(URLSplit("https://pub.example:443/x").netloc, Scalars("pub.example:443".unicodeScalars), "埠號留在 netloc：與不帶的是不同的站")
+        XCTAssertEqual(URLSplit("https://journals.sagepub.com/doi/10.1177/x").path, "/doi/10.1177/x")
     }
 
     func testPageCountTitleAndNonPDFAreNamedNotCrashed() throws {
@@ -454,7 +408,7 @@ final class FulltextVerifyBoundaryTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: f) }
         XCTAssertThrowsError(try PDFReader.read(path: f.path)) { XCTAssertEqual(($0 as? SkillToolError)?.errorDescription, "not a PDF (no %PDF- header)") }
         XCTAssertThrowsError(try PDFReader.read(path: f.path + ".missing"))
-        let (json, ok) = FulltextFetch.verdictJSON(path: f.path, title: "T", pages: nil, doi: "")
+        let (json, ok) = FulltextTake.verdictJSON(path: f.path, title: "T", pages: nil, doi: "")
         XCTAssertFalse(ok)
         XCTAssertEqual(json, "{\"error\": \"not a PDF (no %PDF- header)\", \"is_article\": false}")
     }

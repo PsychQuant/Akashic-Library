@@ -57,8 +57,8 @@ public struct LegacyCopyLeft: Equatable, Sendable {
 /// `StoreIOError.legacyCopyNotRemoved`（#702 的行為）。預設是擲：沒有人收集的地方不會安靜吞掉它。
 ///
 /// 開範圍的是回報面，封閉列舉：MCP 的工具分派（`writtenWithLegacyCopy` 進回應，`Server.swift`）、CLI 的進入點
-/// （`AkashicCLI.main`，印在輸出末尾）、直接印 service JSON 的 CLI 命令（鍵進那份 JSON）、`ZoteroImporter.run`（進 `ImportReport`）。
-/// App 沒有開——它的單筆編輯沒有報告可以放，照舊擲出那句「已寫入……」。
+/// （`AkashicCLI.main`，印在輸出末尾）、直接印 service JSON 的 CLI 命令（鍵進那份 JSON）、`ZoteroImporter.run`（進 `ImportReport`）、
+/// App 的各寫入點（`AppState.recordingLegacyCopies`，進側欄的非阻斷提示 `AppState.legacyCopyNotice`，#708——App 沒有單一出口，範圍開在各寫入點）。
 ///
 /// **巢狀時最內層收下**：它自己的報告列出這一筆，外層不重複。內層的 body 擲錯時它沒有報告可以放——收到的**轉交外層**、
 /// 回傳空陣列；沒有外層時才原樣回傳給呼叫端，而呼叫端要經 `LegacyCopyLedger.get(_:written:)` 取結果：失敗時它把收到的附在擲出的錯誤上

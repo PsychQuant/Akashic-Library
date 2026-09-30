@@ -47,7 +47,7 @@
 | `ZoteroAttachmentCopy.storeOne`（逐筆收容） | CLI copy-zotero-attachments | 不進失敗清單；CLI 末尾 |
 | `renameEntry`、`renamePerson`、`DivergenceResolve`（三處）、`ProvenanceMigration`（逐筆收容）、`IdentifierMigration`、`AuthorizedNameMigration`、`BootstrapPeople` | CLI rename、rename-person、resolve-divergence、migrate-provenance、migrate-identifiers、authorize-names、bootstrap-people | CLI 末尾（rename、rename-person 這一格在本節寫下時為假，R1 verify 起才成立——見文末〈R1 verify 之後〉） |
 | `addPerson`、`createEntries`（`writeEntryExclusive`） | MCP add_person／create_entry | 新記錄、沒有 legacy 可搬——碰不到這一格 |
-| App：`AppState.mutate`、`Adjudication` 三處、`AppState.rename` | App | **不變**：沒有開範圍，照舊擲「已寫入……」。App 的單筆編輯沒有報告可以放 |
+| App：`AppState.mutate`、`Adjudication` 三處、`AppState.rename` | App | **不變**：沒有開範圍，照舊擲「已寫入……」。App 的單筆編輯沒有報告可以放（**#708 起不成立**：App 在各寫入點開範圍，動作算成功、要清的 legacy 檔列在側欄的非阻斷提示，見 `2026-10-01-app-legacy-copy-notice.md`） |
 
 ## 測試與負控
 
@@ -80,7 +80,7 @@
 ## 誠實邊界
 
 - **work 的兩份會讓 index 重建失敗。** 兩份共用 citekey，`LibraryIndex.rebuild` 撞 `UNIQUE constraint failed: entries.citekey`。所以會在寫入後重建 index 的工具（多數）在這種狀態下回錯誤，`writtenWithLegacyCopy` 在錯誤訊息末（MCP）或錯誤之前（CLI）；成功回應帶鍵的只有不重建、或 person 那一格（index 的 people 表對重複 key 留第一筆，#670）。這是 store 的真實狀態——刪掉 legacy 那份之前 index 重建不了、load 把這筆記錄標成無法唯一定位——不是這一筆沒寫。讓 index 容忍這種兩份並存是另一個裁決（`doctor` 對重複 citekey 刻意不重建，#35／#138），不在這次範圍。
-- **App 沒有開範圍。** 它的單筆編輯（狀態、標籤、library、關係、裁決台的三個動作、改名）照舊擲「已寫入……」的錯誤、不重讀 index。要改得先決定 App 在哪裡顯示「寫了但留下兩份」，不在這次範圍。
+- **App 沒有開範圍。** 它的單筆編輯（狀態、標籤、library、關係、裁決台的三個動作、改名）照舊擲「已寫入……」的錯誤、不重讀 index。要改得先決定 App 在哪裡顯示「寫了但留下兩份」，不在這次範圍。（**#708 已處理**：使用者 2026-09-30 裁決動作算成功、另以非阻斷提示列出要清的檔，見 `2026-10-01-app-legacy-copy-notice.md`。）
 - **範圍靠 task-local 傳遞。** 寫入若發生在另一個執行緒或 detached task（目前的寫入者都沒有），範圍收不到，照舊擲錯——大聲，不是靜默。
 - **MCP 回應鍵守衛看不到它**：這個鍵只在 legacy 拷貝刪不掉時出現，情境造不出來；說明的涵蓋由 `testWriterToolDescriptionsNameWrittenWithLegacyCopy` 對一份手寫的 13 個工具名單檢查，新的寫入工具要記得加進名單。
 - **tools/list 位元組**：13 句說明與 import_zotero 的「該步未寫入」讓回應從 50,233 變成 51,499 bytes（預算 52,000，#578），剩 501。
@@ -111,7 +111,7 @@
 
 第一輪驗證的處置與負控詳見 `2026-09-30-b22-r1-fixes-705-695.md`。摘要：
 
-- **rename、rename-person 其實沒有涵蓋（兩席 MEDIUM，DA 以真 binary 重現）**：兩者寫完新鍵之後自己 `removeItem` 舊鍵的 legacy 檔，唯讀目錄讓改名以原始錯誤中止、引用沒改寫。上方寫入者表那一列與 `mcp-cli-parity` 的 #705 段對這兩個命令都是假的。現在走 `removeMovedLegacy`，改名做完、legacy 那份進報告；App 的改名照舊擲，但擲的是「已寫入……」。
+- **rename、rename-person 其實沒有涵蓋（兩席 MEDIUM，DA 以真 binary 重現）**：兩者寫完新鍵之後自己 `removeItem` 舊鍵的 legacy 檔，唯讀目錄讓改名以原始錯誤中止、引用沒改寫。上方寫入者表那一列與 `mcp-cli-parity` 的 #705 段對這兩個命令都是假的。現在走 `removeMovedLegacy`，改名做完、legacy 那份進報告；App 的改名照舊擲，但擲的是「已寫入……」（#708 起 App 的改名也在範圍裡，見上方表格那一列的註記）。
 - **import 的 rebuild 失敗時報告被錯誤出口截掉（Codex MEDIUM）**：importer 收下的那幾筆改交給分派的範圍（`LegacyCopyLedger.handToEnclosingScope`），放在回應最前面、不截；嵌進錯誤的 payload 不再帶。真 binary 以三十二筆驗過。
 - **錯誤回應把報告放在最前面**（上方〈誠實邊界〉第一條與 `plugin/CHANGELOG.md` 說的「附在訊息末」自此改成「放在最前面」）。讓 index 容忍兩份並存是另一個 issue。
 - **成功回應已帶這個鍵時併進同一個陣列**（先前會把 JSON 變成 JSON 加文字）。

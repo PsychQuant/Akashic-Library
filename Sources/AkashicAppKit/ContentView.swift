@@ -83,6 +83,10 @@ struct SidebarView: View {
 
     var body: some View {
         List(selection: $section) {
+            // #708：剛才的寫入寫了、但留下 legacy 拷貝要清——放最上面，動作之後不必捲動就看得到。非阻斷，動作本身算成功
+            if let notice = state.legacyCopyNotice {
+                LegacyCopyNoticeSection(notice: notice)
+            }
             Section("總覽") {
                 LabeledContent("Entries", value: "\(state.entries.count)")
                 LabeledContent("People", value: "\(state.people.count)")

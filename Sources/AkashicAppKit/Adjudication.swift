@@ -144,46 +144,50 @@ public final class PeopleResolveModel {
         if state.people.unlocatablePersonKeys.contains(candidate.personKey) {
             throw AdjudicationError.unlocatablePerson(candidate.personKey)
         }
-        let applied = PersonResolver.apply([candidate], to: state.entries)
-        // R7（R6-verify M21）：per-item 收容——先寫完能寫的、reindex 保持一致，
-        // 再把第一個失敗往上拋給 UI（不留「部分改寫 + index stale」）
-        var firstFailure: Error?
-        var entryWritten = false
-        for (before, after) in zip(state.entries, applied) where before != after {
+        // #708：entry 與 person 的寫入、index 重建都在收集範圍裡——寫進 entities/ 而 legacy 拷貝刪不掉的那一筆算寫了（進 AppState 的提示），
+        // 不是 firstFailure；之後才失敗時擲的是帶著它的 LegacyCopyLeftBeforeFailure。
+        try state.recordingLegacyCopies {
+            let applied = PersonResolver.apply([candidate], to: state.entries)
+            // R7（R6-verify M21）：per-item 收容——先寫完能寫的、reindex 保持一致，
+            // 再把第一個失敗往上拋給 UI（不留「部分改寫 + index stale」）
+            var firstFailure: Error?
+            var entryWritten = false
+            for (before, after) in zip(state.entries, applied) where before != after {
+                do {
+                    try state.store.writeEntry(after)
+                    entryWritten = true
+                } catch {
+                    if firstFailure == nil { firstFailure = error }
+                }
+            }
+            // #232 design D6：accept 的同一動作內寫 resolution-confirmed（entry 寫入
+            // 成功才寫——誇報 verdict 比漏寫更糟）。verify REG-3：App 面先前完全沒寫，
+            // 裁決台的每一次 accept 在校準計數裡永遠是 pending。
+            // format < 8 的 store 跳過 verdict（同 AkashicService 的降級——writePerson
+            // 的 v8 gate 會拒寫，這裡先判避免把 accept 本身變成錯誤）。
+            let storeFormat = (try? StoreVersion.read(root: state.store.root)) ?? 1
+            if entryWritten, storeFormat >= 8,
+               var p = state.people.first(where: { $0.key == candidate.personKey }) {
+                ResolutionLedger.appendIfAbsent(ResolutionLedger.record(
+                    .confirmed, holderKind: .work,
+                    holder: candidate.citekey, literal: candidate.literal,
+                    rule: ResolutionLedger.personRule(for: candidate.tier),
+                    statement: "裁決台 accept：使用者確認歸戶"), to: &p.references, allowCoexistence: storeFormat >= 19)
+                do {
+                    try state.store.writePerson(p)
+                } catch {
+                    if firstFailure == nil { firstFailure = error }
+                }
+            }
+            // R8（R7-verify L16）：寫入失敗優先於 reindex 失敗——不可被吞掉
             do {
-                try state.store.writeEntry(after)
-                entryWritten = true
+                try state.reindexAndReload()
             } catch {
                 if firstFailure == nil { firstFailure = error }
             }
+            refresh()
+            if let firstFailure { throw firstFailure }
         }
-        // #232 design D6：accept 的同一動作內寫 resolution-confirmed（entry 寫入
-        // 成功才寫——誇報 verdict 比漏寫更糟）。verify REG-3：App 面先前完全沒寫，
-        // 裁決台的每一次 accept 在校準計數裡永遠是 pending。
-        // format < 8 的 store 跳過 verdict（同 AkashicService 的降級——writePerson
-        // 的 v8 gate 會拒寫，這裡先判避免把 accept 本身變成錯誤）。
-        let storeFormat = (try? StoreVersion.read(root: state.store.root)) ?? 1
-        if entryWritten, storeFormat >= 8,
-           var p = state.people.first(where: { $0.key == candidate.personKey }) {
-            ResolutionLedger.appendIfAbsent(ResolutionLedger.record(
-                .confirmed, holderKind: .work,
-                holder: candidate.citekey, literal: candidate.literal,
-                rule: ResolutionLedger.personRule(for: candidate.tier),
-                statement: "裁決台 accept：使用者確認歸戶"), to: &p.references, allowCoexistence: storeFormat >= 19)
-            do {
-                try state.store.writePerson(p)
-            } catch {
-                if firstFailure == nil { firstFailure = error }
-            }
-        }
-        // R8（R7-verify L16）：寫入失敗優先於 reindex 失敗——不可被吞掉
-        do {
-            try state.reindexAndReload()
-        } catch {
-            if firstFailure == nil { firstFailure = error }
-        }
-        refresh()
-        if let firstFailure { throw firstFailure }
     }
 
     /// skip 只影響本 session 的清單，不寫任何檔案。
@@ -322,27 +326,30 @@ public final class OrphanModel {
         }
         // #605：附加來源若仍活著，作品在另一個 library 還在。
         let liveAdditional = entry.additionalProvenance.firstIndex { $0.orphanedAt == nil }
-        switch action {
-        case .moveToTrash:
-            if liveAdditional != nil { throw AdjudicationError.hasLiveAdditionalSource(citekey) }
-            var trashed: NSURL?
-            try FileManager.default.trashItem(
-                at: state.store.usesEntitiesLayout   // #35
-                    ? state.store.entityURL(id: entry.id)
-                    : state.store.entryURL(citekey: entry.citekey),
-                resultingItemURL: &trashed)
-        case .detachFromZotero:
-            var detached = entry
-            // 真的脫鉤（#605 R1 verify #2，使用者裁決）：拿掉已刪除的主來源，**不**把活著的
-            // 附加來源升為主來源——升格會把欄位改寫權交給另一個 library（典型是共享群組那份）。
-            // 已 orphan 的附加來源一併拿掉（R1 verify #4）；活著的留著，只記錄、不改欄位。
-            // 結果可能是「沒有主來源、只有附加來源」——那是合法狀態：這筆的欄位不再被任何
-            // Zotero 條目改寫。
-            detached.provenance = nil
-            detached.additionalProvenance.removeAll { $0.orphanedAt != nil }
-            try state.store.writeEntry(detached)
+        // #708：脫鉤的寫入與重建在收集範圍裡（垃圾桶不經 writeEntry，範圍對它沒有作用）
+        try state.recordingLegacyCopies {
+            switch action {
+            case .moveToTrash:
+                if liveAdditional != nil { throw AdjudicationError.hasLiveAdditionalSource(citekey) }
+                var trashed: NSURL?
+                try FileManager.default.trashItem(
+                    at: state.store.usesEntitiesLayout   // #35
+                        ? state.store.entityURL(id: entry.id)
+                        : state.store.entryURL(citekey: entry.citekey),
+                    resultingItemURL: &trashed)
+            case .detachFromZotero:
+                var detached = entry
+                // 真的脫鉤（#605 R1 verify #2，使用者裁決）：拿掉已刪除的主來源，**不**把活著的
+                // 附加來源升為主來源——升格會把欄位改寫權交給另一個 library（典型是共享群組那份）。
+                // 已 orphan 的附加來源一併拿掉（R1 verify #4）；活著的留著，只記錄、不改欄位。
+                // 結果可能是「沒有主來源、只有附加來源」——那是合法狀態：這筆的欄位不再被任何
+                // Zotero 條目改寫。
+                detached.provenance = nil
+                detached.additionalProvenance.removeAll { $0.orphanedAt != nil }
+                try state.store.writeEntry(detached)
+            }
+            try state.reindexAndReload()
         }
-        try state.reindexAndReload()
     }
 
     /// 拿掉已在 Zotero 端刪除的附加來源（#609）——作用在主連結仍在的 entry；主來源與活著的附加來源不動，書目欄位不動。
@@ -382,8 +389,10 @@ public final class OrphanModel {
         }
         var updated = entry
         updated.additionalProvenance.removeAll { $0.orphanedAt != nil }
-        try state.store.writeEntry(updated)
-        try state.reindexAndReload()
+        try state.recordingLegacyCopies {   // #708
+            try state.store.writeEntry(updated)
+            try state.reindexAndReload()
+        }
         let sources = removed.map { p in
             "\(p.libraryID.map(String.init) ?? "?"):\(displaySafeInvisible(p.zoteroKey, max: 120))"
         }.joined(separator: "、")

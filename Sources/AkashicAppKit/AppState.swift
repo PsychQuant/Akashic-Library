@@ -50,6 +50,12 @@ public final class AppState {
     /// 「外部變更已同步」提示——App 是 write-through 模型（沒有草稿緩衝），
     /// 外部覆蓋不會遺失使用者輸入，但要讓使用者知道畫面剛被外部更新。
     public private(set) var lastExternalSyncAt: Date?
+    /// App 的寫入寫進 `entities/`、搬移後的 legacy 拷貝沒刪掉時收到的那幾筆（#708）。`nil`＝沒有要清的。
+    ///
+    /// 使用者 2026-09-30 裁決：動作照常算成功，另以非阻斷的提示列出要清的 legacy 檔——與 CLI／MCP／import-zotero 的
+    /// `writtenWithLegacyCopy`（#705）同一個說法。累積到使用者按「知道了」（`dismissLegacyCopyNotice`）為止；每次 `load()` 拿掉
+    /// legacy 檔已經不在的那幾筆；切換檔案時清空（它列的是舊 universe 的路徑）。
+    public private(set) var legacyCopyNotice: LegacyCopyNotice?
 
     public var searchText: String = ""
     public var filterType: String?
@@ -104,8 +110,10 @@ public final class AppState {
         }
         let oldRoot = root
         let oldKey = storeKey
+        let oldNotice = legacyCopyNotice
         root = newRoot
         storeKey = key          // #101：key 與 root 同生共死，回滾時一併還原
+        legacyCopyNotice = nil  // #708：它列的是舊 universe 的 legacy 檔
         searchText = ""
         filterType = nil
         filterTag = nil
@@ -119,6 +127,7 @@ public final class AppState {
             // 新 universe 載入失敗就回到舊 universe，best-effort 重載舊快照
             root = oldRoot
             storeKey = oldKey
+            legacyCopyNotice = oldNotice
             try? load()
             throw error
         }
@@ -169,7 +178,15 @@ public final class AppState {
         } else {
             availableFiles = []
         }
+        // #708：使用者刪掉 legacy 那份之後，提示不再叫他去清一個已經不在的檔
+        legacyCopyNotice = legacyCopyNotice?.stillPresent(under: root)
         reloadCount += 1
+    }
+
+    /// 使用者看過了（#708）。只收起提示，磁碟不動——legacy 檔還在的話，load 照樣把那筆記錄標成無法唯一定位，App 對它的下一次寫入
+    /// 照樣被拒（#627／#641 的既有閘）。
+    public func dismissLegacyCopyNotice() {
+        legacyCopyNotice = nil
     }
 
     /// FileWatcher 的 reload 入口：同 load()，另外蓋上外部同步時戳。
@@ -316,7 +333,9 @@ public final class AppState {
     /// 使用者面字串從未標過那個邊界（會製造 App／CLI 分岔、且 #463 落地當天過期——現在就是那一天），
     /// 所以這次只改這裡與 changelog。
     public func rename(from oldKey: String, to newKey: String) throws -> RenameReport {
-        let report = try store.renameEntry(from: oldKey, to: newKey)
+        // #708：範圍只包 `renameEntry`。之後的重建失敗走下面的 `renamedButReloadFailed`——那個錯誤本身就說「改名已寫入磁碟」、帶著報告，
+        // 不包成 `LegacyCopyLeftBeforeFailure`（包了會讓 view 認不出這個部分成功的回執）；留下的 legacy 拷貝照樣在提示裡。
+        let report = try recordingLegacyCopies { try store.renameEntry(from: oldKey, to: newKey) }
         do {
             try reindexAndReload()
         } catch {
@@ -357,13 +376,32 @@ public final class AppState {
         }
         try checking?(load, entry)
         change(&entry)
-        try store.writeEntry(entry)
-        try reindexAndReload()
+        try recordingLegacyCopies {   // #708
+            try store.writeEntry(entry)
+            try reindexAndReload()
+        }
     }
 
     func reindexAndReload() throws {
         _ = try LibraryIndex(store: store).rebuild()
         try load()
+    }
+
+    /// App 寫入者的收集範圍（#708）。`body` 裡的 `writeEntry`／`writePerson` 寫進 `entities/`、而搬移後的 legacy 拷貝刪不掉時，
+    /// 那一筆記下、寫入照常回傳（它寫了）——結束後併進 `legacyCopyNotice`，動作算成功。沒有這個範圍時（#708 之前的 App）同一件事擲
+    /// `legacyCopyNotRemoved`，畫面上是「操作失敗」。
+    ///
+    /// `body` 在留下拷貝**之後**因別的原因失敗（最常見的是 index 重建）：拷貝照樣進提示，擲出的是 `LegacyCopyLedger.get` 的
+    /// `LegacyCopyLeftBeforeFailure`——描述先說寫了什麼、再說錯誤（與 CLI／MCP 的錯誤回應同一個順序），所以失敗提示不會讓人以為那一筆沒寫。
+    ///
+    /// **App 的每一個寫入者都要在這個範圍裡**（`AppLegacyCopyNoticeTests.testEveryAppStoreWriteIsInsideTheScope` 掃源碼釘住）：
+    /// App 沒有 CLI 進入點或 MCP 分派那樣的單一出口可以一次包住，範圍開在各寫入點。
+    func recordingLegacyCopies<R>(_ body: () throws -> R) throws -> R {
+        let (result, written) = LegacyCopyLedger.collecting(body)
+        if !written.isEmpty {
+            legacyCopyNotice = (legacyCopyNotice ?? LegacyCopyNotice(items: [])).adding(written)
+        }
+        return try LegacyCopyLedger.get(result, written: written)
     }
 }
 

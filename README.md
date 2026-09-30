@@ -828,7 +828,10 @@ python3 -c "import json; [print(json.loads(l).get('retrieved')) for l in open('$
 python3 - <<'EOF'
 import glob, io, os, re, collections
 uncov = collections.Counter()
-for f in glob.glob(os.path.expanduser('~/.akashic/entities') + '/*.yaml'):
+root = os.path.join(os.environ.get('AKASHIC_HOME') or os.path.expanduser('~/.akashic'), 'entities')
+files = glob.glob(root + '/*.yaml')
+if not files: raise SystemExit(f'{root} 底下沒有任何 .yaml——沒量到，不是 0')
+for f in files:
     s = io.open(f, encoding='utf8').read()
     m = re.search(r'^  booktitle: (.+)$', s, re.M)
     if m and not re.search(r'^venues:\n- key: ', s, re.M):

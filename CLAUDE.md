@@ -296,7 +296,7 @@ Foresay 管**人機確認的格式與迴圈**，本 repo 的規則管**哪些寫
 > 這是 `entity-backlink-completeness` 引 3.325 的同一個立場。
 >
 > **現況是第 2 列**（正常 push × CI 不跑 × hooksPath 指向主 repo；2026-08-23 實測
-> `core.hooksPath` 指向 `~/Developer/Akashic-Library/.githooks`、main 最近三次
+> `core.hooksPath` 指向 `~/Developer/Akashic-Library/.githooks`（git 印的是絕對路徑，家目錄在這裡寫成 `~`，#688）、main 最近三次
 > CI 皆 `failure`）。**目標是第 6 列**（正常 push × CI 恢復 × 指向本樹）——merge 之後
 > hooksPath 自癒，macOS 帳務恢復後 CI 跟上，那時兩個選項在執行上等價。各 hooksPath 值
 > 的意義見下方三點。

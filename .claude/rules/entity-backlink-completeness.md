@@ -258,7 +258,10 @@ grep -nE "public var" Sources/AkashicCore/{Models,Organization,Divergence,Tempor
   python3 - <<'EOF'
   import glob, io, os, re, collections
   uncov = collections.Counter()
-  for f in glob.glob(os.path.expanduser('~/.akashic/entities') + '/*.yaml'):
+  root = os.path.join(os.environ.get('AKASHIC_HOME') or os.path.expanduser('~/.akashic'), 'entities')
+  files = glob.glob(root + '/*.yaml')
+  if not files: raise SystemExit(f'{root} 底下沒有任何 .yaml——沒量到，不是 0')
+  for f in files:
       t = io.open(f, encoding='utf8').read()
       m = re.search(r'^  booktitle: (.+)$', t, re.M)
       if m and not re.search(r'^venues:\n- key: ', t, re.M):

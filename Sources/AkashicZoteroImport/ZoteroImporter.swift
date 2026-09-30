@@ -52,8 +52,9 @@ public struct ImportReport: Equatable {
     public var unchanged: Int = 0
     /// 解析過的作者被保留、未跟 Zotero 同步的 entries（資訊性）。只記寫入成功的那一筆（#702）。
     public var authorsPreserved: [String] = []
-    /// 未映射而被捨棄的 Zotero 欄位（欄位名 → 出現次數）。不靜默流失。
-    /// 以**正規化後的原名**入庫的欄位（無 canonical 對照）。
+    /// 這次讀到的 Zotero 條目中，沒有 canonical 對照的欄位（欄位名 → 帶它的條目數）。
+    /// 寫入的條目以**正規化後的原名**把這些欄位收進 `fields`（#206），不靜默流失。
+    /// **#704 裁決（2026-09-30）：計數照舊、說明改成「讀到的」**——CLI 與 MCP 的說明都寫「這次讀到的條目」。
         /// #206 之前這叫 `droppedFields` 且真的丟掉；現在會入庫，名字跟著改，
         /// 否則報告會說謊（verify H2）。
         /// **計數的時機是讀進每個 Zotero 條目時**，不論這一趟有沒有寫（含未變動、被多筆宣稱而略過、寫入失敗的條目）——

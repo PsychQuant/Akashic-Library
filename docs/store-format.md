@@ -286,8 +286,10 @@ akashic:
 若 entry 含任何 `key:` 作者，整個 authors 欄保持不動（import report 列於
 `authors preserved`）。`akashic.tags` 只在**建檔**時從 Zotero seed 一次。
 
-Zotero 欄位只保留 `ZoteroMapping.fieldMap` 允許清單內的項目（title/date 為一級欄位）；
-未映射欄位（如 `extra`）**不入庫但不靜默**——import report 的 `dropped fields` 列名列數。
+`ZoteroMapping.fieldMap` 允許清單內的 Zotero 欄位對映到 canonical 名稱（title/date 為一級欄位）；
+未映射欄位（如 `extra`）以正規化後的原名收進 `fields`（#206，不丟棄）——import report 的
+`residualFields`（CLI 印 `residual fields`）列出這次讀到的條目中帶這些欄位的條目數（#704：計數的是讀到的，
+含沒變動、略過、寫入失敗的條目）。
 quarantined 檔（decode 失敗）**永不被 import 覆寫**：其 basename 佔住 citekey，
 新 entry 一律讓位取衝突後綴。
 

@@ -28,9 +28,10 @@ extension AkashicService {
 
     /// 把收到的放進一次回應。沒有收到任何一筆時原樣回傳（位元組不變）。
     ///
-    /// - **錯誤回應** → 兩面共用的人可讀報告（`LegacyCopyLeft.reportLines`）放在**最前面**，接著空一行、原本的錯誤文字。這一格最常見——
-    ///   work 的兩份共用 citekey，寫入之後的 index rebuild 撞重複。報告在前，呼叫端先讀到「寫了、留下一份 legacy 拷貝」，才讀到 UNIQUE 的錯誤；
-    ///   #705 R1 verify 第 5 列：附在末尾時，收到 isError 的 agent 先讀到 rebuild 失敗、很可能重試，而重試會被 #631 拒絕（兩份並存）。
+    /// - **錯誤回應** → 兩面共用的人可讀報告（`LegacyCopyLeft.reportLines`）放在**最前面**，接著空一行、原本的錯誤文字。報告在前，呼叫端先讀到
+    ///   「寫了、留下一份 legacy 拷貝」，才讀到錯誤；#705 R1 verify 第 5 列：附在末尾時，收到 isError 的 agent 先讀到失敗、很可能重試，而重試會被
+    ///   #631 拒絕（兩份並存）。#709 之前這一格最常見（work 的兩份共用 citekey，寫入之後的 index rebuild 撞 UNIQUE）；#709 起 index 以
+    ///   `entities/` 那份為準、略過 legacy 拷貝，那一步不再失敗，這一格只剩寫了之後別的步驟失敗（例如 store 裡另有兩筆不同的記錄共用 citekey）。
     ///   報告在錯誤文字格式化**之後**才接上，不受錯誤出口的截斷（96 KB／200 行）。
     /// - 成功、且回應是 JSON 物件 → 加上 `writtenWithLegacyCopy` 鍵（同一組序列化選項，與 `jsonString` 一致）。鍵已經在（`akashic_import_zotero`
     ///   的 payload 自己帶）時**併進**那個陣列、依 (kind, key) 重排——回應仍是一份 JSON（第 15 列：先前落到下一格，把合法 JSON 變成 JSON 加文字）。

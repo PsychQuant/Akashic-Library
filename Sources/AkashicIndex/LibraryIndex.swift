@@ -4,14 +4,25 @@ import AkashicStoreIO
 import AkashicSQLite
 
 public struct IndexStats: Equatable {
+    /// 進了 index 的筆數——不含略過的 legacy 拷貝（`skippedLegacyCopies`）。
     public var entries: Int
     public var people: Int
     public var relations: Int
+    /// #709：略過的 legacy 拷貝——同一筆記錄 `entities/` 也有一份，index 以那份為準（`LibraryLoad.shadowedLegacyCopies`）。
+    public var skippedLegacyCopies: [ShadowedLegacyCopy]
 
-    public init(entries: Int, people: Int, relations: Int) {
+    public init(entries: Int, people: Int, relations: Int, skippedLegacyCopies: [ShadowedLegacyCopy] = []) {
         self.entries = entries
         self.people = people
         self.relations = relations
+        self.skippedLegacyCopies = skippedLegacyCopies
+    }
+
+    /// CLI「index rebuilt」那一行的附記（#709）；沒有略過就是空字串。是哪幾筆由 validate 的 #641 警告逐筆說（那裡已補「index 以
+    /// entities/ 那份為準」），這裡只給筆數——同一件事不在兩處逐筆列。
+    public var skippedLegacyCopiesNote: String {
+        guard !skippedLegacyCopies.isEmpty else { return "" }
+        return "（略過 \(skippedLegacyCopies.count) 份 legacy 拷貝：entities/ 有同一筆記錄，index 以那份為準——akashic validate 列出是哪幾筆，#709）"   // display-safe-exempt: count：Int
     }
 }
 
@@ -103,6 +114,12 @@ public struct LibraryIndex {
             throw IndexError.rootNotALibrary(store.root.path)
         }
         let load = try store.load()
+        // #709（使用者 2026-09-30 裁決）：同一筆記錄一份在 entities/、一份是 legacy 拷貝時，以 entities/ 那份為準、略過 legacy 拷貝並回報。
+        // 先前兩份一起插入：work 撞 entries 的 UNIQUE／PRIMARY KEY，整次重建失敗——寫入之後重建 index 的呼叫全部以錯誤收場，連不相干記錄的
+        // 寫入也一樣。判準（同一種、同一個 id）只有一份，在 load 的 `markLegacyCopiesShadowedByEntities`；這裡只照標記過濾。
+        // 兩筆**不同**的記錄共用 citekey 不在此列（id 不同）——照舊撞 UNIQUE，這條規則不替真的重複選一筆。
+        let entries = load.entries.filter { $0.fileSituation.shadowedLegacyFile == nil }
+        let people = load.people.filter { $0.fileSituation.shadowedLegacyFile == nil }
 
         // 全刪重建：舊 index 直接移除，避免 schema 演化殘留
         // #37：index 不一定住在 akashicDir——已註冊 store 走 ~/.akashic/index/<key>.sqlite，
@@ -164,11 +181,11 @@ public struct LibraryIndex {
                               // ——在一個講化身的 change 裡改低階綁定會混進不相干的風險。
                               store.incarnation ?? "",
                               ISO8601DateFormatter().string(from: Date()),
-                              load.entries.count])
+                              entries.count])
 
         var relationCount = 0
         try db.execute("BEGIN")
-        for entry in load.entries {
+        for entry in entries {
             try db.execute(
                 "INSERT INTO entries VALUES (?,?,?,?,?,?,?,?)",
                 bind: [
@@ -230,7 +247,7 @@ public struct LibraryIndex {
                            bind: [venue.key, venue.type.rawValue,
                                   venue.names.entries.map(\.value).joined(separator: "\n")])
         }
-        for person in load.people {
+        for person in people {
             // #227：index 是搜尋用衍生層——收**全部**名字（authorized + variant），
             // 檢索不因指定與否而異。
             try db.execute("INSERT OR IGNORE INTO people VALUES (?,?)",   // #670：同上
@@ -253,8 +270,8 @@ public struct LibraryIndex {
             try? fm.removeItem(at: URL(fileURLWithPath: finalURL.path + suffix))
         }
 
-        return IndexStats(entries: load.entries.count, people: load.people.count,
-                          relations: relationCount)
+        return IndexStats(entries: entries.count, people: people.count,
+                          relations: relationCount, skippedLegacyCopies: load.shadowedLegacyCopies)
     }
 
     static func extractYear(_ date: String) -> Int? {

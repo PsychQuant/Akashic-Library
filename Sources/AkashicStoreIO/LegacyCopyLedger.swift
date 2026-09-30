@@ -4,8 +4,9 @@ import AkashicCore
 /// #705：內容寫進 `entities/<id>.yaml`、但 #631 搬移後的 legacy 拷貝刪不掉的那一筆。
 ///
 /// 它**寫了**：新內容在 `entities/`，legacy 檔（`entries/<citekey>.yaml`／`people/<key>.yaml`）還在，同一筆記錄現在有兩份。
-/// load 把它標成無法唯一定位（#641）；work 的兩份共用同一個 id（一般的寫入連 citekey 也相同；改名時 legacy 那份是舊 citekey），
-/// 刪掉 legacy 那份之前 index 重建會撞重複（person 的不會——index 的 people 表對重複 key 留第一筆，#670）。
+/// load 把它標成無法唯一定位（#641）；兩份共用同一個 id（一般的寫入連 citekey／key 也相同；改名時 legacy 那份是舊鍵）。
+/// 刪掉 legacy 那份之前，index 重建以 `entities/` 那份為準、略過 legacy 拷貝（#709，`ShadowedLegacyCopy`）——
+/// 所以寫入之後重建 index 的呼叫照常成功，這一筆在成功回應裡。#709 之前 work 的兩份讓重建撞 UNIQUE、呼叫以錯誤收場。
 ///
 /// 使用者 2026-09-30 裁決 (a)：各寫入者統一，這一筆記在**成功那一側**的 `writtenWithLegacyCopy`，不算失敗、不進任何失敗清單。
 /// #702 之前 import-zotero 把它同時列在成功清單與 `writeFailed`，其他寫入者則只算它失敗——同一件事兩種說法，而兩種都不完全對。
@@ -32,13 +33,15 @@ public struct LegacyCopyLeft: Equatable, Sendable {
     /// `StoreIOError.legacyCopyNotRemoved` 同一份（同一件事只有一句話），前面具名是哪一筆。
     public var message: String {
         let base = StoreIOError.legacyCopyNotRemoved(id: id, file: legacyFile, detail: detail).errorDescription ?? ""
-        let index: String
+        let shared: String
         switch kind {
-        case .person: index = ""
+        case .person: shared = ""
         // 改名（`renameEntry`）時 legacy 那份是**舊** citekey：兩份共用的是 id，不是 citekey（#705 R1 verify 第 4／11 列）
-        case .work where legacyFile == "entries/\(key).yaml": index = "（work 的兩份共用同一個 citekey：刪掉之前 index 重建會撞重複）"
-        case .work: index = "（work 的兩份共用同一個 id——legacy 那份是改名前的 citekey：刪掉之前 index 重建會撞重複）"
+        case .work where legacyFile == "entries/\(key).yaml": shared = "work 的兩份共用同一個 citekey："
+        case .work: shared = "work 的兩份共用同一個 id——legacy 那份是改名前的 citekey："
         }
+        // #709：刪掉之前 index 以 entities/ 那份為準、略過 legacy 拷貝（先前 work 的兩份讓重建撞重複）
+        let index = "（\(shared)刪掉之前 index 以 entities/ 那份為準、略過 legacy 拷貝）"   // display-safe-exempt: shared：本檔字面
         return "\(kind.rawValue)「\(displaySafeInvisible(key, max: 200))」：\(base)\(index)"   // display-safe-exempt: base：errorDescription 對 file 以性質逃脫、detail 擲出端已消毒；kind：封閉列舉；index：本檔字面
     }
 

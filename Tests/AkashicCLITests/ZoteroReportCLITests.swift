@@ -230,5 +230,9 @@ extension ZoteroReportCLITests {
         XCTAssertTrue(line.hasSuffix(": 1"), String(line))
         XCTAssertTrue(r.output.contains("work「\(e.citekey)」"), r.output)
         XCTAssertFalse(r.output.contains("write failed"), "不是寫入失敗：\(r.output)")
+        // #709：index 以 entities/ 那份為準、略過 legacy 拷貝——重建成功，「index rebuilt」那一行說出略過了幾份
+        XCTAssertEqual(r.status, 0, r.output)
+        let rebuilt = try XCTUnwrap(r.output.split(separator: "\n").first { $0.hasPrefix("index rebuilt:") }, r.output)
+        XCTAssertTrue(rebuilt.contains("略過 1 份 legacy 拷貝"), String(rebuilt))
     }
 }

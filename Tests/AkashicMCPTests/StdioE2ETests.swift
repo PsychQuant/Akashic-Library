@@ -1,6 +1,7 @@
 import XCTest
 @testable import AkashicCore
 @testable import AkashicStoreIO
+import AkashicSQLite
 
 /// End-to-end：spawn akashic-mcp binary，走 JSON-RPC over stdio
 /// （initialize → tools/list → tools/call）。
@@ -873,7 +874,7 @@ extension StdioE2ETests {
         }
     }
 
-    /// 成功的回應：鍵在 JSON 物件裡，不在 writeFailed。person 的兩份不擋 index 重建（#670），所以這一格是成功回應。
+    /// 成功的回應：鍵在 JSON 物件裡，不在 writeFailed。index 重建以 entities/ 那份為準、略過 legacy 拷貝（#709），所以這一格是成功回應。
     func testLegacyCopyLeftIsReportedOnTheSuccessSide() throws {
         let store = LibraryStore(root: root)
         try FileManager.default.createDirectory(at: store.peopleDir, withIntermediateDirectories: true)
@@ -907,9 +908,69 @@ extension StdioE2ETests {
         XCTAssertEqual(described, writers, "缺：\(writers.subtracting(described).sorted())；多：\(described.subtracting(writers).sorted())")
     }
 
-    /// 之後的步驟失敗（work 的兩份共用 citekey，tag 之後的 index rebuild 撞重複）：錯誤回應的文字附上同一份報告。
+    /// 兩筆**不同**的記錄（id 不同）共用一個 citekey——index rebuild 必然撞 UNIQUE。#709 起同一筆記錄的 legacy 拷貝不再讓重建失敗
+    /// （index 以 entities/ 那份為準），要造「寫了之後別的步驟失敗」得用真的重複。
+    private func breakIndexRebuild(_ store: LibraryStore) throws {
+        for title in ["A", "B"] {
+            try store.writeEntry(Entry(id: UUID(), citekey: "dup2020x", type: .periodicalArticle, title: title, date: "2020"))
+        }
+    }
+
+    /// #709：work 留下 legacy 拷貝之後——
+    /// (a) 留下它的那次寫入回成功、`writtenWithLegacyCopy` 是結構化的鍵；index 那個 id 只有一列、取 entities/ 那一份（tag 只在那一份，
+    ///     之後手改 legacy 那一份的標題 index 也看不到——使用者看過的代價）；
+    /// (b) 不相干記錄的寫入照常成功（先前整個 store 會重建 index 的寫入都撞 UNIQUE）；
+    /// (e) 那一筆本身照舊寫不進去（#641：兩份並存，無法唯一定位）。
+    func testALegacyWorkLeftoverNoLongerBreaksTheIndex() throws {
+        let store = LibraryStore(root: root)
+        try FileManager.default.createDirectory(at: store.entriesDir, withIntermediateDirectories: true)
+        let e = Entry(id: UUID(), citekey: "legacy2020work", type: .periodicalArticle, title: "Legacy", date: "2020")
+        let legacyURL = store.entriesDir.appendingPathComponent("\(e.citekey).yaml")
+        try EntryYAML.encode(e).write(to: legacyURL, atomically: true, encoding: .utf8)
+        try lockAfterCommit(store.entriesDir)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: store.entriesDir.path) }
+
+        try initialize()
+        try send(["jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                  "params": ["name": "akashic_tag", "arguments": ["citekey": e.citekey, "add": ["x"]]]])
+        let tagged = try XCTUnwrap(try readResponse()["result"] as? [String: Any])
+        let taggedText = try toolResultText(["result": tagged])
+        XCTAssertNotEqual(tagged["isError"] as? Bool, true, "(a) 寫入呼叫回成功：\(taggedText)")
+        let obj = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(taggedText.utf8)) as? [String: Any], taggedText)
+        let rows = try XCTUnwrap(obj["writtenWithLegacyCopy"] as? [[String: Any]], taggedText)
+        XCTAssertEqual(rows.map { $0["key"] as? String }, [e.citekey])
+        XCTAssertEqual(rows.first?["legacyFile"] as? String, "entries/\(e.citekey).yaml")
+
+        // 手改 legacy 那一份（目錄唯讀、檔案本身可寫：原地寫，不經暫存檔換名）
+        var edited = e
+        edited.title = "Hand edit"
+        try EntryYAML.encode(edited).write(to: legacyURL, atomically: false, encoding: .utf8)
+
+        let other = try call(3, "akashic_tag", ["citekey": "cheng2025identifiability", "add": ["y"]])
+        let otherObj = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(other.utf8)) as? [String: Any],
+                                     "(b) 不相干記錄的寫入照常成功：\(other)")
+        XCTAssertNil(otherObj["writtenWithLegacyCopy"], "這一次沒有留下拷貝：\(other)")
+
+        let db = try SQLiteDB(path: store.indexURL.path, readOnly: true)
+        let indexed = try db.query("SELECT citekey, title FROM entries WHERE uuid = ?", bind: [e.id.uuidString])
+        XCTAssertEqual(indexed.count, 1, "(a) 那個 id 只有一列：\(indexed)")
+        XCTAssertEqual(indexed.first?["title"] as? String, "Legacy", "取 entities/ 那一份，手改 legacy 的標題 index 看不到")
+        XCTAssertEqual(try db.query("SELECT tag FROM tags WHERE entry_uuid = ?", bind: [e.id.uuidString]).map { $0["tag"] as? String },
+                       ["x"], "tag 只在 entities/ 那一份")
+
+        try send(["jsonrpc": "2.0", "id": 4, "method": "tools/call",
+                  "params": ["name": "akashic_tag", "arguments": ["citekey": e.citekey, "add": ["z"]]]])
+        let again = try XCTUnwrap(try readResponse()["result"] as? [String: Any])
+        let againText = try toolResultText(["result": again])
+        XCTAssertEqual(again["isError"] as? Bool, true, "(e) 那一筆本身照舊寫不進去：\(againText)")
+        XCTAssertTrue(againText.contains("無法唯一定位"), againText)
+        XCTAssertFalse(try String(contentsOf: store.entityURL(id: e.id), encoding: .utf8).contains("- z"), "沒寫")
+    }
+
+    /// 寫了之後別的步驟失敗（store 裡另有兩筆**不同**的記錄共用 citekey，tag 之後的 index rebuild 撞 UNIQUE）：錯誤回應的文字附上同一份報告。
     func testLegacyCopyLeftSurvivesALaterFailure() throws {
         let store = LibraryStore(root: root)
+        try breakIndexRebuild(store)
         try FileManager.default.createDirectory(at: store.entriesDir, withIntermediateDirectories: true)
         let e = Entry(id: UUID(), citekey: "legacy2020work", type: .periodicalArticle, title: "Legacy", date: "2020")
         try EntryYAML.encode(e).write(to: store.entriesDir.appendingPathComponent("\(e.citekey).yaml"),
@@ -922,7 +983,7 @@ extension StdioE2ETests {
                   "params": ["name": "akashic_tag", "arguments": ["citekey": e.citekey, "add": ["x"]]]])
         let result = try XCTUnwrap(try readResponse()["result"] as? [String: Any])
         let text = ((result["content"] as? [[String: Any]]) ?? []).compactMap { $0["text"] as? String }.joined(separator: "\n")
-        XCTAssertEqual(result["isError"] as? Bool, true, "前提：index rebuild 撞重複的 citekey：\(text)")
+        XCTAssertEqual(result["isError"] as? Bool, true, "前提：index rebuild 撞兩筆不同記錄共用的 citekey：\(text)")
         XCTAssertTrue(text.hasPrefix("writtenWithLegacyCopy"), "報告在錯誤訊息最前面（#705 R1 verify 第 5 列）：\(text)")
         XCTAssertTrue(text.contains("work「\(e.citekey)」"), text)
         XCTAssertTrue(text.contains("Error: "), "原本的錯誤接在後面：\(text)")
@@ -937,6 +998,7 @@ extension StdioE2ETests {
         let n = 32
         let zotero = try PayloadZoteroDB(dir: root, itemCount: n)
         let store = LibraryStore(root: root)
+        try breakIndexRebuild(store)   // #709 起 legacy 拷貝本身不再讓 rebuild 失敗——另放兩筆不同的記錄共用 citekey
         try FileManager.default.createDirectory(at: store.entriesDir, withIntermediateDirectories: true)
         var keys: [String] = []
         for i in 1...n {
@@ -954,7 +1016,7 @@ extension StdioE2ETests {
         let response = try JSONSerialization.jsonObject(with: Self.readLine(fd: reader.fileDescriptor, pending: &pending, timeout: 120))
         let result = try XCTUnwrap((response as? [String: Any])?["result"] as? [String: Any])
         let text = ((result["content"] as? [[String: Any]]) ?? []).compactMap { $0["text"] as? String }.joined(separator: "\n")
-        XCTAssertEqual(result["isError"] as? Bool, true, "前提：兩份並存時 index rebuild 撞重複的 citekey：\(text.prefix(400))")
+        XCTAssertEqual(result["isError"] as? Bool, true, "前提：index rebuild 撞兩筆不同記錄共用的 citekey：\(text.prefix(400))")
         let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
         XCTAssertTrue(lines.first?.hasPrefix("writtenWithLegacyCopy") == true && lines.first?.hasSuffix(": \(n)") == true,
                       "報告在最前面、筆數完整：\(lines.first ?? "")")

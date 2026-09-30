@@ -169,23 +169,22 @@ final class WrittenWithLegacyCopyTests: XCTestCase {
         XCTAssertTrue(onDisk.contains("改過"), "寫了：\(onDisk)")
     }
 
-    /// resolve-people 的 apply 逐筆收容寫入失敗（`writeFailed`）。這一筆寫了，不進 `writeFailed`；work 的兩份共用 citekey，
-    /// 之後的 index rebuild 撞重複——錯誤訊息照實說 rebuild 失敗、`writeFailed 0 筆`，而寫進去的那一筆在收集到的清單裡。
+    /// resolve-people 的 apply 逐筆收容寫入失敗（`writeFailed`）。這一筆寫了，不進 `writeFailed`、算在 `applied`；#709 起 index 以
+    /// entities/ 那份為準、略過 legacy 拷貝，呼叫回成功（#709 之前 work 的兩份讓 rebuild 撞重複、這一筆只能附在錯誤訊息裡）。
     func testResolvePeopleApplyDoesNotListItAsAWriteFailure() throws {
         let e = try legacyWork()
         let id = "\(e.citekey):0:cheng-che"
         let (result, written) = LegacyCopyLedger.collecting { try service.resolvePeople(apply: [id]) }
         XCTAssertEqual(written.map(\.key), [e.citekey], "寫了，記在成功那一側")
-        guard case .failure(let error) = result else { return XCTFail("前提：兩份並存時 index rebuild 撞重複的 citekey") }
-        let text = AkashicService.reportingWrittenWithLegacyCopy(displaySafeErrorMultiline(error, prefix: "Error: "),
-                                                                written, isError: true)
-        XCTAssertTrue(text.contains("writeFailed 0 筆"), "不算寫入失敗：\(text)")
-        XCTAssertTrue(text.contains("writtenWithLegacyCopy"), text)
+        let obj = try object(AkashicService.reportingWrittenWithLegacyCopy(try result.get(), written, isError: false))
+        XCTAssertNil(obj["writeFailed"], "不算寫入失敗：\(obj)")
+        XCTAssertEqual(obj["applied"] as? [String], [id], "\(obj)")
+        XCTAssertEqual((obj["writtenWithLegacyCopy"] as? [[String: String]])?.map { $0["key"] }, [e.citekey], "\(obj)")
         let onDisk = try String(contentsOf: store.entityURL(id: e.id), encoding: .utf8)
         XCTAssertTrue(onDisk.contains("key: cheng-che"), "作者位已歸戶：\(onDisk)")
     }
 
-    /// enrich 逐筆收容寫入失敗（`writeFailed`）。同上：寫了、不進 `writeFailed`，rebuild 的錯誤訊息把它列在「已落地」。
+    /// enrich 逐筆收容寫入失敗（`writeFailed`）。同上：寫了、不進 `writeFailed`、算在 `written`，呼叫回成功（#709）。
     func testEnrichDoesNotListItAsAWriteFailure() throws {
         let e = try legacyWork()
         let (result, written) = LegacyCopyLedger.collecting {
@@ -193,17 +192,40 @@ final class WrittenWithLegacyCopyTests: XCTestCase {
                                dryRun: false, includeAbsentAuthors: false)
         }
         XCTAssertEqual(written.map(\.key), [e.citekey])
-        guard case .failure(let error) = result else { return XCTFail("前提：兩份並存時 index rebuild 撞重複的 citekey") }
-        let text = displaySafeErrorMultiline(error, prefix: "Error: ")
-        XCTAssertTrue(text.contains("本趟已落地 1 筆"), text)
-        XCTAssertFalse(text.contains("writeFailed"), text)
+        let obj = try object(try result.get())
+        XCTAssertNil(obj["writeFailed"], "\(obj)")
+        XCTAssertEqual(obj["written"] as? [String], [e.citekey], "\(obj)")
+    }
+
+    /// 寫了之後別的步驟失敗時照舊：store 裡另有兩筆**不同**的記錄共用 citekey（#709 不替真的重複選一筆），index rebuild 撞 UNIQUE——
+    /// 錯誤訊息照實說 rebuild 失敗、`writeFailed 0 筆`，寫進去的那一筆在收集到的清單裡、報告放在錯誤最前面。
+    func testALaterRebuildFailureStillCarriesIt() throws {
+        breakIndexRebuild()
+        let e = try legacyWork()
+        let id = "\(e.citekey):0:cheng-che"
+        let (result, written) = LegacyCopyLedger.collecting { try service.resolvePeople(apply: [id]) }
+        XCTAssertEqual(written.map(\.key), [e.citekey], "寫了，記在成功那一側")
+        guard case .failure(let error) = result else { return XCTFail("前提：兩筆不同的記錄共用 citekey，index rebuild 撞 UNIQUE") }
+        let text = AkashicService.reportingWrittenWithLegacyCopy(displaySafeErrorMultiline(error, prefix: "Error: "),
+                                                                written, isError: true)
+        XCTAssertTrue(text.hasPrefix("writtenWithLegacyCopy"), text)
+        XCTAssertTrue(text.contains("writeFailed 0 筆"), "不算寫入失敗：\(text)")
     }
 
     // MARK: - import_zotero 的 rebuild 失敗（#705 R1 verify 第 1 列）
 
+    /// 兩筆**不同**的記錄（id 不同）共用一個 citekey——index rebuild 必然撞 UNIQUE。#709 起同一筆記錄的 legacy 拷貝不再讓重建失敗
+    /// （index 以 entities/ 那份為準），要測「寫了之後 rebuild 失敗」得用真的重複。
+    private func breakIndexRebuild() {
+        for title in ["A", "B"] {
+            XCTAssertNoThrow(try store.writeEntry(Entry(id: UUID(), citekey: "dup2020x", type: .periodicalArticle, title: title, date: "2020")))
+        }
+    }
+
     /// `n` 筆 legacy 佈局的 work，各帶一個 Zotero 來源（`KEYART01`…，版本比 Zotero 舊）——匯入會更新它們、寫進 `entities/`、刪不掉 legacy 檔。
-    /// work 的兩份共用 citekey，之後的 index rebuild 撞重複。
+    /// 另有兩筆不同的記錄共用 citekey（`breakIndexRebuild`），之後的 index rebuild 撞 UNIQUE。
     private func legacyZoteroWorks(_ n: Int) throws -> (db: URL, keys: [String]) {
+        breakIndexRebuild()
         let dir = root.appendingPathComponent("zotero-fixture")   // 在 store 之內：tearDown 一起清掉
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let zotero = try PayloadZoteroDB(dir: dir, itemCount: n)
@@ -225,7 +247,7 @@ final class WrittenWithLegacyCopyTests: XCTestCase {
     func testAnImportWhoseRebuildFailsHandsItsLeftoversToTheEnclosingScope() throws {
         let (db, keys) = try legacyZoteroWorks(3)
         let (result, outer) = LegacyCopyLedger.collecting { try service.importZotero(zoteroDb: db.path, libraryID: nil) }
-        guard case .failure(let error) = result else { return XCTFail("前提：兩份並存時 index rebuild 撞重複的 citekey") }
+        guard case .failure(let error) = result else { return XCTFail("前提：兩筆不同的記錄共用 citekey，index rebuild 撞 UNIQUE") }
         XCTAssertEqual(outer.map(\.key).sorted(), keys, "交給外層（分派）")
         let text = displaySafeErrorMultiline(error, prefix: "Error: ")
         XCTAssertTrue(text.contains("index rebuild 失敗"), text)

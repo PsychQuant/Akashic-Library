@@ -121,14 +121,19 @@ final class ImportZoteroReportSurfaceTests: XCTestCase {
         XCTAssertEqual(claims.values.first, ["longkey1a", "longkey1b"], "留依原始鍵排序的第一個")
     }
 
+    /// 讓 index rebuild 必然失敗：兩筆**不同**的記錄（id 不同）共用一個 citekey，index 的 UNIQUE 必撞。先前這裡用「同一筆 entry 有兩份
+    /// 記錄檔」（#631）——#709 起那一對不再讓重建失敗（index 以 entities/ 那份為準、略過 legacy 拷貝）。兩筆都沒有 Zotero 來源，匯入不碰它們。
+    private func breakIndexRebuild() throws {
+        for title in ["A", "B"] {
+            try store.writeEntry(Entry(id: UUID(), citekey: "rebuildbreaker2020", type: .periodicalArticle, title: title, date: "2020"))
+        }
+    }
+
     /// R10 的承諾：index rebuild 擲錯不得吞掉整份 import report。先前那條分支只帶 created／updated／orphaned／writeFailed 的計數，
     /// `ambiguousSourceClaims` 與 `secondarySource*` 都消失——而「有條目本趟被整個略過」與 writeFailed 同等重要。
     func testIndexRebuildFailureKeepsTheAmbiguousClaims() throws {
         let (a, b) = try seedTwins()
-        // 讓 index rebuild 必然失敗：同一筆 entry 有兩份記錄檔（#631），citekey 在 index 裡 UNIQUE
-        let dup = store.root.appendingPathComponent("entries")
-        try FileManager.default.createDirectory(at: dup, withIntermediateDirectories: true)
-        try EntryYAML.encode(b).write(to: dup.appendingPathComponent("\(b.citekey).yaml"), atomically: true, encoding: .utf8)
+        try breakIndexRebuild()
         XCTAssertThrowsError(try service.importZotero(zoteroDb: fixture.dbURL.path, libraryID: nil)) { error in
             let text = "\(error)"
             XCTAssertTrue(text.contains("index rebuild 失敗"), text)
@@ -206,11 +211,7 @@ final class ImportZoteroReportSurfaceTests: XCTestCase {
     /// index rebuild 失敗的那條路徑帶同一份報告（R10、#610 R1 verify），所以同樣受上限——兩條路徑不得各漏各的。
     func testTheIndexRebuildFailurePathCarriesTheSameCap() throws {
         try seedClaimed(sources: 3)
-        // 讓 index rebuild 必然失敗：同一筆 entry 有兩份記錄檔（#631）
-        let twin = try XCTUnwrap(try store.load().entries.first { $0.citekey == "claimed01o1" })
-        let dup = store.root.appendingPathComponent("entries")
-        try FileManager.default.createDirectory(at: dup, withIntermediateDirectories: true)
-        try EntryYAML.encode(twin).write(to: dup.appendingPathComponent("\(twin.citekey).yaml"), atomically: true, encoding: .utf8)
+        try breakIndexRebuild()
         XCTAssertThrowsError(try service.importZotero(zoteroDb: fixture.dbURL.path, libraryID: nil, claimLimit: 1)) { error in
             // `\(error)` 是 Swift 的除錯描述：引號與換行被跳脫，還原後才看得出報告裡的 JSON
             let text = "\(error)".replacingOccurrences(of: "\\\"", with: "\"").replacingOccurrences(of: "\\n", with: "\n")
@@ -454,15 +455,12 @@ extension ImportZoteroReportSurfaceTests {
 
     /// index rebuild 失敗的那條路徑帶同一份報告，所以同樣受上限（#684 同一條）。
     func testTheIndexRebuildFailurePathCarriesTheListCaps() throws {
-        let (_, b) = try seedTwins()
+        _ = try seedTwins()
         for n in 1...2 {   // 這一趟新建兩筆，上限 1 → created 被截
             try fixture.db.execute("INSERT INTO items VALUES (\(60 + n),1,'KEYNEW0\(n)',3,1)")
             try fixture.addField(item: 60 + n, field: 1, value: "New paper \(n)", valueID: 600 + n)
         }
-        // 讓 index rebuild 必然失敗：同一筆 entry 有兩份記錄檔（#631）
-        let dup = store.root.appendingPathComponent("entries")
-        try FileManager.default.createDirectory(at: dup, withIntermediateDirectories: true)
-        try EntryYAML.encode(b).write(to: dup.appendingPathComponent("\(b.citekey).yaml"), atomically: true, encoding: .utf8)
+        try breakIndexRebuild()
         XCTAssertThrowsError(try service.importZotero(zoteroDb: fixture.dbURL.path, libraryID: nil, listLimit: 1)) { error in
             let text = "\(error)".replacingOccurrences(of: "\\\"", with: "\"").replacingOccurrences(of: "\\n", with: "\n")
             XCTAssertTrue(text.contains("index rebuild 失敗"), text)

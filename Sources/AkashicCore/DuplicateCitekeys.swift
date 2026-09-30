@@ -12,8 +12,9 @@ import Foundation
 /// `unlocatablePersonKeys` 把它算進「無法唯一定位」，於是 #627／#628 已經接好的各面閘在**第一次寫入之前**就拒絕或
 /// 略過它們。寫入當下的 #631 檢查留著當最後一道防線。
 ///
-/// - YAML 不讀也不寫它；手工組出來的記錄恆為 `nil`。只有 `LibraryStore.load()`（讀磁碟的那一條）設定它——
-///   `decodeCaptured` 的唯讀快照不設（它的契約是不重讀磁碟，而判斷要看 git；快照沒有寫入者）。
+/// - YAML 不讀也不寫它；手工組出來的記錄兩個欄位都是預設值。`unwritableReason` 只有 `LibraryStore.load()`（讀磁碟的那一條）設定——
+///   `decodeCaptured` 的唯讀快照不設（它的契約是不重讀磁碟，而判斷要看 git；快照沒有寫入者）。`shadowedLegacyFile`
+///   兩條都設：它只需要每筆記錄是從哪個檔讀進來的，不讀磁碟也不問 git（#709）。
 /// - **不參與相等**：相等問的是記錄內容。兩筆內容相同的記錄是同一筆，不論 load 當時看到它的檔案處境如何——
 ///   否則 `a == b` 型的比較（WoS 的「unchanged」判定、`changedSlots`、org apply 的「有沒有改到」）會把一筆
 ///   只是被觀察到有問題的記錄當成「內容變了」。
@@ -21,8 +22,17 @@ public struct FileSituation: Equatable {
     /// 寫入這筆記錄時 #631 的寫入前置一定會拒絕的原因（**已消毒**——load 以 `displaySafeError` 建構）；`nil`＝沒有。
     public var unwritableReason: String?
 
-    public init(unwritableReason: String? = nil) {
+    /// 這筆是 **legacy 拷貝**時，它被讀進來的那個檔（相對 store root，**原始值**——輸出端消毒）；不是時 `nil`（#709）。
+    ///
+    /// legacy 拷貝＝entities 佈局（format ≥ 2）的 store 裡從 `entries/`／`people/` 讀進來、而 `entities/` 有同一種、同一個 id 的記錄。
+    /// 判準只有一份，在 `LibraryStore.markLegacyCopiesShadowedByEntities`；為什麼是 id、不是 citekey 或 key，寫在那裡。
+    /// index 重建以 `entities/` 那份為準、略過這份並回報（`LibraryLoad.shadowedLegacyCopies`）。
+    /// 它**不**解除 #641 的寫入封鎖——這筆與 `entities/` 那份照舊無法唯一定位，validate 照舊報兩份並存，直到 legacy 檔刪掉。
+    public var shadowedLegacyFile: String?
+
+    public init(unwritableReason: String? = nil, shadowedLegacyFile: String? = nil) {
         self.unwritableReason = unwritableReason
+        self.shadowedLegacyFile = shadowedLegacyFile
     }
 
     /// 恆等——見型別 doc 的「不參與相等」。

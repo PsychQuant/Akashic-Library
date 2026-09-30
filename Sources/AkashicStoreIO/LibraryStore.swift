@@ -1488,6 +1488,8 @@ public final class LibraryStore {
         }
 
         let entitiesEntryCount = result.entries.count, entitiesPeopleCount = result.people.count   // #641：之後讀進來的是 legacy
+        // #709：從 entities 之後讀進來的每一筆 legacy 記錄是哪個檔（與 `result.entries`／`result.people` 的後段逐筆對應）
+        var legacyEntryFiles: [String] = [], legacyPeopleFiles: [String] = []
         let legacyEntryPaths = try source.paths("entries")
         for path in legacyEntryPaths {
             let name = path
@@ -1525,6 +1527,7 @@ public final class LibraryStore {
                     result.unknownFieldFiles.append(name)
                 }
                 result.entries.append(entry2)
+                legacyEntryFiles.append(path)
             } catch {
                 result.quarantined.append(QuarantinedFile(
                     file: name,
@@ -1532,6 +1535,7 @@ public final class LibraryStore {
             }
         }
         let legacyPeoplePaths = try source.paths("people")
+        let recordBytesFromEntities = result.recordBytes   // #709：legacy 拷貝的位元組不蓋掉 entities/ 那一份
         for path in legacyPeoplePaths {
             let name = path
             do {
@@ -1555,6 +1559,7 @@ public final class LibraryStore {
                 }
                 result.recordBytes[person.id] = text.utf8.count   // #645：legacy people/ 的記錄同樣量它實際讀到的
                 result.people.append(person)
+                legacyPeopleFiles.append(path)
             } catch {
                 result.quarantined.append(QuarantinedFile(
                     file: name,
@@ -1587,6 +1592,15 @@ public final class LibraryStore {
                     file: name,
                     reason: displaySafeError(error, max: 4_096)))
             }
+        }
+        // #709：同一筆記錄的 legacy 拷貝（entities/ 有同一種、同一個 id 的那一份）——判準只有一份，在 markLegacyCopiesShadowedByEntities。
+        // 兩條 load 都標（它不讀磁碟、不問 git）；要在排序之前，那時陣列的前段仍是 entities/ 讀進來的
+        Self.markLegacyCopiesShadowedByEntities(&result, format: format,
+                                                entitiesEntryCount: entitiesEntryCount, legacyEntryFiles: legacyEntryFiles,
+                                                entitiesPeopleCount: entitiesPeopleCount, legacyPeopleFiles: legacyPeopleFiles)
+        // #645 的記錄位元組以 entities/ 那一份為準（legacy 那份在 people 迴圈裡先記了，這裡還原）——預算預警量的是之後會長的那個檔
+        for p in result.people where p.fileSituation.shadowedLegacyFile != nil {
+            result.recordBytes[p.id] = recordBytesFromEntities[p.id]
         }
         // #641：entities 佈局下有 legacy 殘留時，把寫入當下一定會被 #631 拒絕的記錄標成無法唯一定位——要在排序之前，
         // 那時陣列的前段仍是 entities/ 讀進來的。format 1 的 legacy 目錄是正典位置、不是殘留，不標。
@@ -2861,12 +2875,17 @@ public extension LibraryLoad {
             return Array(dup)
         }
 
+        // #709：同一筆記錄的 legacy 拷貝（load 的 `shadowedLegacyFile`）——index 以 entities/ 那份為準、略過它
+        let shadowed = shadowedLegacyCopies
+        let shadowedWorkIDs = Set(shadowed.filter { $0.kind == .work }.map(\.id))
         for u in duplicates(entries.map(\.id)).sorted(by: { $0.uuidString < $1.uuidString }) {
             let keys = entries.filter { $0.id == u }.map { displaySafeInvisible($0.citekey, max: 200) }.sorted()
             out.append(ValidationIssue(
                 severity: .error,
                 message: "UUID \(u.uuidString) 被 \(keys.count) 筆 entry 共用（\(keys.joined(separator: ", "))）"
-                       + "——index 的 PRIMARY KEY 會靜默丟掉其中一筆"))
+                       + (shadowedWorkIDs.contains(u)
+                          ? "——其中 legacy 拷貝由 index 略過、以 entities/\(u.uuidString).yaml 為準（#709）"   // display-safe-exempt: UUID 由型別保證
+                          : "——index 的 PRIMARY KEY 會靜默丟掉其中一筆")))
         }
         for k in duplicates(entries.map(\.citekey)).sorted() {
             out.append(ValidationIssue(severity: .error,
@@ -2894,6 +2913,11 @@ public extension LibraryLoad {
         // warning 不是 error：記錄本身讀得到、內容完好，擋的是寫入；升 error 會讓 `assertNoCrossRecordErrors` 擋下不相干的改名與合併。
         // 兩份並存時 load 讀到兩筆、兩筆的原因是同一句——同一則訊息只出一次
         var fileSituationSeen = Set<String>()
+        // #709：這一筆有 legacy 拷貝時補一句 index 取哪一份——兩份並存時 load 讀到的兩筆原因同一句、只出一次（上一行），出的可能是
+        // entities/ 那一筆，所以以 citekey／key 對，不以「這一筆是不是拷貝」對
+        let shadowedWorkKeys = Set(shadowed.filter { $0.kind == .work }.map(\.key))
+        let shadowedPersonKeys = Set(shadowed.filter { $0.kind == .person }.map(\.key))
+        let indexNote = "；index 以 entities/ 那份為準、略過 legacy 拷貝——它的內容 index 看不到（#709）"
         for e in entries {
             guard let why = e.fileSituation.unwritableReason,
                   fileSituationSeen.insert("work\u{0}\(e.citekey)\u{0}\(why)").inserted else { continue }   // display-safe-exempt: 集合鍵，不輸出
@@ -2901,7 +2925,8 @@ public extension LibraryLoad {
                 severity: .warning,
                 message: "work「\(displaySafeInvisible(e.citekey, max: 200))」的檔案寫入時會被拒——"
                        + displaySafeClipOnly(why, max: 1_200)   // display-safe-exempt: why 已消毒（load 以 displaySafeError 建構），只截
-                       + "——以 citekey 定位的寫入面拒絕或略過它；修好檔案之後重跑（#641）"))
+                       + "——以 citekey 定位的寫入面拒絕或略過它；修好檔案之後重跑（#641）"
+                       + (shadowedWorkKeys.contains(e.citekey) ? indexNote : "")))
         }
         for p in people {
             guard let why = p.fileSituation.unwritableReason,
@@ -2910,7 +2935,8 @@ public extension LibraryLoad {
                 severity: .warning,
                 message: "person「\(displaySafeInvisible(p.key, max: 200))」的檔案寫入時會被拒——"
                        + displaySafeClipOnly(why, max: 1_200)   // display-safe-exempt: why 已消毒（load 以 displaySafeError 建構），只截
-                       + "——以 key 定位的寫入面拒絕或略過它；修好檔案之後重跑（#641）"))
+                       + "——以 key 定位的寫入面拒絕或略過它；修好檔案之後重跑（#641）"
+                       + (shadowedPersonKeys.contains(p.key) ? indexNote : "")))
         }
         for k in duplicates(libraries.map(\.key)).sorted() {
             out.append(ValidationIssue(severity: .error,

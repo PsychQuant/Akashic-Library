@@ -29,6 +29,8 @@ struct Doctor: ParsableCommand {
         // `UNIQUE constraint failed: entries.citekey`——使用者拿到的是 SQLite 的
         // 內部錯誤，而不是「你有兩筆同 citekey 的記錄、它們在哪」。診斷工具在這種
         // 狀態下正是最該說話的時候，不是最該掛掉的時候。
+        // #709 起同一筆記錄的 legacy 拷貝（同一個 id）不再讓重建失敗（index 取 entities/ 那份），但它的 UUID／citekey
+        // 重複仍是 error，doctor 照舊不重建——那幾則同樣擋改名與合併（#35 的 `assertNoCrossRecordErrors`）。
         let cross = health.crossRecordIssues
         let fatalCross = health.fatalCrossRecordIssues
         if !cross.isEmpty {
@@ -424,12 +426,12 @@ struct ImportZotero: ParsableCommand {
                 print("  ✗ \(displaySafe(key, max: 200)) — \(displaySafeClipOnly(report.writeFailed[key]!, max: 4_096))")   // display-safe-exempt: 已消毒（ZoteroImporter 由 displaySafeError 產出，R29 D81），只截
             }
         }
-        // #705：寫了、只是搬移後的 legacy 拷貝沒刪掉——成功那一側，印在 rebuild 之前（work 的兩份會讓 rebuild 撞重複的 citekey，
-        // 那時這幾行已經在輸出裡）。`ZoteroImporter.run` 自己收下，所以 CLI 進入點的範圍不會再印一次。
+        // #705：寫了、只是搬移後的 legacy 拷貝沒刪掉——成功那一側，印在 rebuild 之前（rebuild 若因別的原因失敗，這幾行已經在輸出裡；
+        // #709 起 legacy 拷貝本身不再讓 rebuild 失敗）。`ZoteroImporter.run` 自己收下，所以 CLI 進入點的範圍不會再印一次。
         LegacyCopyReport.printLines(report.writtenWithLegacyCopy)
         let stats = try LibraryIndex(store: store).rebuild()
         // #37：index 已搬出 store root，路徑不再顯而易見——doctor 必須說它在哪。
-        print("index rebuilt: \(stats.entries) entries → \(store.indexURL.path)")
+        print("index rebuilt: \(stats.entries) entries\(stats.skippedLegacyCopiesNote) → \(store.indexURL.path)")   // display-safe-exempt: skippedLegacyCopiesNote：AkashicIndex 的字面加 Int
         // R7（R6-verify M22）：收容 ≠ 吞掉 process 層訊號——有單筆失敗仍以
         // 非零退出，自動化（cron pull、CI）才看得到
         if !report.writeFailed.isEmpty {
@@ -476,7 +478,7 @@ struct Migrate: ParsableCommand {
             } else {
                 print("  store format → \(StoreVersion.supported)；舊 binary 從此會拒絕開啟這個 store（#24）")
                 let stats = try LibraryIndex(store: store).rebuild()
-                print("  index rebuilt: \(stats.entries) entries → \(store.indexURL.path)")
+                print("  index rebuilt: \(stats.entries) entries\(stats.skippedLegacyCopiesNote) → \(store.indexURL.path)")   // display-safe-exempt: skippedLegacyCopiesNote：AkashicIndex 的字面加 Int
             }
         } catch {
             throw RuntimeFailure.state(displaySafeErrorText(error))

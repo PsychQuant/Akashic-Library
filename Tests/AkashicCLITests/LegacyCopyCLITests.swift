@@ -10,8 +10,8 @@ import Foundation
 /// - 其餘命令：CLI 進入點（`AkashicCLI.main`）的收集範圍在命令結束後把它印在輸出末尾——命令後來失敗也照印，
 ///   寫進去的那一筆不跟著錯誤一起消失。
 ///
-/// 刪不掉的造法同 #702：legacy 檔受 git 追蹤、乾淨，所在目錄唯讀。work 的兩份共用 citekey，之後的 index rebuild 撞重複——
-/// 會重建 index 的命令因此以非零結束，這是 store 的真實狀態（刪掉 legacy 那份之前 index 重建不了），不是這一筆寫入失敗。
+/// 刪不掉的造法同 #702：legacy 檔受 git 追蹤、乾淨，所在目錄唯讀。#709 起 index 重建以 `entities/` 那份為準、略過 legacy 拷貝，
+/// 所以寫入之後重建 index 的命令照常成功、結束碼 0；#709 之前 work 的兩份讓重建撞 UNIQUE、以非零結束。
 final class LegacyCopyCLITests: XCTestCase {
     private var base: URL!
     private var root: URL!
@@ -94,12 +94,30 @@ final class LegacyCopyCLITests: XCTestCase {
         XCTAssertEqual(rows.first?["kind"], "person")
     }
 
-    /// 直接印 JSON 的命令後來失敗（tag 之後的 index rebuild 撞重複的 citekey）：沒有 JSON 可放，收到的交給 CLI 進入點，
-    /// 在錯誤之前印出來。
-    func testTagThatFailsAfterWritingStillReportsIt() throws {
+    /// #709：直接印 JSON 的命令在留下 legacy 拷貝之後照常成功——index 以 entities/ 那份為準、略過 legacy 拷貝，鍵在那份 JSON 裡、結束碼 0。
+    /// #709 之前 tag 之後的 index rebuild 撞重複的 citekey，這一筆只能印在錯誤之前。
+    func testTagOnALegacyWorkSucceedsWithTheKeyInItsJSON() throws {
         let e = try legacyWork()
         let r = try cli(["tag", "--library", root.path, e.citekey, "--add", "x"])
-        XCTAssertNotEqual(r.status, 0, "前提：兩份並存時 index rebuild 撞重複的 citekey：\(r.output)")
+        XCTAssertEqual(r.status, 0, r.output)
+        let obj = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(r.output.utf8)) as? [String: Any],
+                                "stdout 必須仍是一份 JSON：\(r.output)")
+        let rows = try XCTUnwrap(obj["writtenWithLegacyCopy"] as? [[String: String]], r.output)
+        XCTAssertEqual(rows.map { $0["key"] }, [e.citekey])
+        XCTAssertEqual(rows.first?["legacyFile"], "entries/\(e.citekey).yaml")
+        XCTAssertTrue(try String(contentsOf: store.entityURL(id: e.id), encoding: .utf8).contains("- x"), "寫了")
+    }
+
+    /// 寫了之後別的步驟失敗（store 裡另有兩筆**不同**的記錄共用 citekey——#709 不替真的重複選一筆，index rebuild 照舊撞 UNIQUE）：
+    /// 沒有 JSON 可放，收到的交給 CLI 進入點，在錯誤之前印出來。
+    func testTagThatFailsAfterWritingStillReportsIt() throws {
+        for title in ["A", "B"] {   // 兩筆不同的記錄（id 不同）共用一個 citekey
+            try store.writeEntry(Entry(id: UUID(), citekey: "dup2020x", type: .periodicalArticle, title: title, date: "2020"))
+        }
+        let e = try legacyWork()
+        let r = try cli(["tag", "--library", root.path, e.citekey, "--add", "x"])
+        XCTAssertNotEqual(r.status, 0, "前提：index rebuild 撞兩筆不同記錄共用的 citekey：\(r.output)")
+        XCTAssertTrue(r.output.contains("UNIQUE"), "非零的原因是 index rebuild：\(r.output)")
         let line = try XCTUnwrap(r.output.split(separator: "\n").first { $0.hasPrefix("writtenWithLegacyCopy") }, r.output)
         XCTAssertTrue(line.hasSuffix(": 1"), String(line))
         XCTAssertTrue(r.output.contains("work「\(e.citekey)」"), r.output)
@@ -122,20 +140,22 @@ final class LegacyCopyCLITests: XCTestCase {
 
     /// #705 R1 verify 第 4／11 列（DA 席的真 binary 重現）：`rename` 在刪舊 citekey 的 legacy 檔時以 Foundation 的原始錯誤中止，
     /// 引用它的 work 還沒改寫（同 id 兩份、引用指著舊鍵），也沒有 writtenWithLegacyCopy。現在改名做完、引用改寫、legacy 那份在報告裡。
-    /// work 的兩份共用同一個 id，之後的 index rebuild 撞重複——結束碼因此非零，這是 store 的真實狀態，不是改名沒做完。
+    /// work 的兩份共用同一個 id；#709 起 index 以 entities/ 那份（新 citekey）為準、略過舊 citekey 的 legacy 拷貝，結束碼 0
+    /// （#709 之前撞 `entries.uuid` PRIMARY KEY、以非零結束）。
     func testRenameFinishesAndReportsTheLegacyCopy() throws {
         var citing = Entry(id: UUID(), citekey: "yang2026citing", type: .periodicalArticle, title: "Citing", date: "2026")
         citing.akashic.relations.cites = ["cheng2025identifiability"]
         try store.writeEntry(citing)
         let e = try legacyWork()
         let r = try cli(["rename", "--library", root.path, e.citekey, "cheng2025renamed"])
-        XCTAssertNotEqual(r.status, 0, "前提：兩份共用 id，index rebuild 撞重複：\(r.output)")
-        XCTAssertTrue(r.output.contains("UNIQUE"), "非零的原因是 index rebuild：\(r.output)")
+        XCTAssertEqual(r.status, 0, "index 以 entities/ 那份為準，重建不再撞重複（#709）：\(r.output)")
         let line = try XCTUnwrap(r.output.split(separator: "\n").first { $0.hasPrefix("writtenWithLegacyCopy") }, r.output)
         XCTAssertTrue(line.hasSuffix(": 1"), String(line))
         XCTAssertTrue(r.output.contains("work「cheng2025renamed」"), r.output)
         XCTAssertTrue(r.output.contains("entries/\(e.citekey).yaml"), r.output)
         XCTAssertTrue(r.output.contains("改名前的 citekey"), r.output)
+        XCTAssertTrue(r.output.contains("刪掉之前 index 以 entities/ 那份為準、略過 legacy 拷貝"), "附記說的是 #709 之後的事：\(r.output)")
+        XCTAssertFalse(r.output.contains("撞重複"), "index 不再撞重複（#709）：\(r.output)")
         let rewritten = try EntryYAML.decode(try String(contentsOf: store.entityURL(id: citing.id), encoding: .utf8))
         XCTAssertEqual(rewritten.akashic.relations.cites, ["cheng2025renamed"], "改名做完：引用它的 work 改寫了")
     }

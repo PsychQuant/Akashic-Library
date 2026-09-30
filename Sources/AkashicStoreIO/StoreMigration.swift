@@ -162,7 +162,8 @@ public enum StoreMigration {
         // **刪除失敗不得吞掉（verify CRITICAL/HIGH）**：`try?` 加上無條件 bump 會讓
         // store 進入死角——雙佈局並存使 index 撞 UNIQUE constraint 永遠 rebuild 不了，
         // 而 format 已是 2 使 migrate 拒絕再跑。不 bump 的話讀取端仍照 format 1 運作，
-        // 資料一致，人工刪掉殘留後重跑即可。
+        // 資料一致，人工刪掉殘留後重跑即可。（#709 起 format 2 的 index 對同一個 id 的兩份取 entities/ 那份、
+        // 不再重建失敗；但每一筆仍無法唯一定位、validate 報重複，不 bump 的理由照樣成立。）
         var undeleted: [String] = []
         for p in payloads {
             guard let legacy = p.legacy else { continue }

@@ -372,6 +372,21 @@ struct ImportZotero: ParsableCommand {
                 print("  ⚠ \(displaySafe(source, max: 120))：\(cites.map { displaySafe($0, max: 200) }.joined(separator: ", "))")
             }
         }
+        if !report.doiNominations.isEmpty {
+            // #611：新建的 work 與另一筆共用 DOI——照建，並記一筆沒有判斷的歧異提名。DOI 相等只是提名（勘誤與原文共用 DOI、一筆作品可有多個 DOI），
+            // 判定與合併走 resolve-divergence。寫不進去的（unlocatable／failed）只在這裡，import 的結束狀態不因它們改變——兩筆都已照建，
+            // 跨記錄的 DOI 警告（akashic validate）照樣看得到這一對。
+            print("新建的條目與另一筆 work 共用 DOI（#611）: \(report.doiNominations.count) 對——照建，並記一筆沒有判斷的歧異提名（DOI 相等只是提名，判定與合併走 akashic divergences → resolve-divergence）")
+            for n in report.doiNominations {
+                let pair = "\(displaySafe(n.created, max: 200)) ↔ \(displaySafe(n.other, max: 200))（DOI \(n.dois.map { displaySafe($0, max: 200) }.joined(separator: ", "))）"
+                switch n.status {
+                case .recorded: print("  ⊕ \(pair)：divergence \(n.divergenceID?.uuidString ?? "?")")
+                case .alreadyRecorded: print("  = \(pair)：已有歧異記錄 \(n.divergenceID?.uuidString ?? "?")，未重寫")
+                case .unlocatable: print("  ⚠ \(pair)：未記——其中一筆無法唯一定位（\(UnlocatableReason.work)）")   // display-safe-exempt: UnlocatableReason.work 是常量句
+                case .failed: print("  ✗ \(pair)：未記——\(displaySafeClipOnly(n.error ?? "", max: 4_096))")   // display-safe-exempt: 已消毒（DOITwinNomination 由 displaySafeError 產出），只截
+                }
+            }
+        }
         if !report.authorsPreserved.isEmpty {
             print("authors preserved（已解析、未同步 Zotero 作者欄）: \(report.authorsPreserved.map { displaySafe($0, max: 200) }.joined(separator: ", "))")
         }

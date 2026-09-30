@@ -381,7 +381,28 @@ extension LibraryStore {
                                  prefers: String? = nil) throws -> Divergence {
         try Self.checkDivergenceArguments(candidates: candidates, judgement: judgement,
                                           restsOn: restsOn, prefers: prefers)
-        let load = try load()
+        return try recordDivergence(question: question, candidates: candidates, judgement: judgement,
+                                    restsOn: restsOn, prefers: prefers, against: try load())
+    }
+
+    /// 同一條記錄路徑，store 的現況由呼叫端給（#611）。
+    ///
+    /// 存在的理由是 Zotero 匯入一趟可能記下很多筆 DOI 提名：上面那個入口每一筆都整庫 load 一次（`akashic-merge-twins` 記的效能事實：
+    /// CLI record 約 1.4 秒／組，每次整庫 load），一趟兩百筆就是幾分鐘。匯入者手上本來就有這一趟寫完之後的記錄——
+    /// 它把那份交進來，檢查（參數、候選存在、既有記錄不得被靜默抹掉）與寫入仍是這一份，不另寫一個 divergence 寫入器。
+    ///
+    /// **`snapshot` 必須是磁碟現況**：候選存在與既有記錄的檢查都讀它，給一份過期的會放過一個已經不在的候選，
+    /// 或讓一筆既有判斷在重錄時被抹掉。只給手上真的有「寫完之後的記錄」的呼叫端用；其餘走上面那個入口。
+    @discardableResult
+    public func recordDivergence(question: String,
+                                 candidates: [(key: String, shape: EntityKind)],
+                                 judgement: String?,
+                                 restsOn: [String],
+                                 prefers: String? = nil,
+                                 against snapshot: LibraryLoad) throws -> Divergence {
+        try Self.checkDivergenceArguments(candidates: candidates, judgement: judgement,
+                                          restsOn: restsOn, prefers: prefers)
+        let load = snapshot
         // **per-shape 存在檢查**（#133 verify F2）：曾用 people ∪ organizations 的
         // 合集只驗 key 不驗 shape——person 被記成 work 照樣寫入，validate 警告
         // 「無法被消歧」而 MCP 面完全看不見；真正的 work（citekey）反而不在集合裡、

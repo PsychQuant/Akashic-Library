@@ -275,11 +275,15 @@ extension ImportZoteroReportSurfaceTests {
                               "secondarySourceRestored", "unnormalizedDates",
                               "authorsPreserved", "authorsOverwritten"]
     static let conditionalLists: Set<String> = ["authorsPreserved", "authorsOverwritten"]
+    /// 一列是一個物件的清單（#611 `doiNominations`）：有上限、進 `listTotals`，但只截歧異記錄在 store 裡的那兩種列
+    /// （recorded／alreadyRecorded）；unlocatable／failed 不截（同失敗清單）。只在非空時出現。
+    static let cappedRowLists = ["doiNominations"]
+    static var allCappedNames: [String] { cappedLists + cappedRowLists }
     /// 失敗清單（R1 verify）：**不截**、只在非空時出現、不在 `listTotals`。沒寫進去的記錄在 store 裡沒有痕跡，
     /// 原因只在這份報告；重跑會再寫一次而不是重播，截掉的就拿不回來（`akashic_enrich` 的 writeFailed 同）。
     static let failureLists = ["writeFailed", "quarantineConflicts"]
 
-    /// `ImportReport` 裡刻意**不**截的集合型欄位 → 理由。新增一個集合型欄位而沒有放進 `cappedLists` 或這裡，
+    /// `ImportReport` 裡刻意**不**截的集合型欄位 → 理由。新增一個集合型欄位而沒有放進 `cappedLists`／`cappedRowLists` 或這裡，
     /// `testEveryReportCollectionIsCappedOrNamed` 會紅。
     static let uncappedCollections: [String: String] = [
         "ambiguousSourceClaims": "#684 另有上限與自己的鍵（ambiguousSourceClaimsTotal／ambiguousSourceClaimsTruncated）",
@@ -308,6 +312,7 @@ extension ImportZoteroReportSurfaceTests {
         r.authorsOverwritten = reversed
         r.fieldsRemovedByPull = ["note": n]
         r.writtenWithLegacyCopy = keys.map { LegacyCopyLeft(kind: .work, key: $0, id: UUID(), legacyFile: "entries/\($0).yaml", detail: "d") }
+        r.doiNominations = reversed.map { DOINomination(created: $0, other: "other", dois: ["10.1000/x"], status: .recorded, divergenceID: UUID()) }
         r.unchanged = 7
         return r
     }
@@ -315,6 +320,10 @@ extension ImportZoteroReportSurfaceTests {
     private func shown(_ p: [String: Any], _ key: String) throws -> [String] {
         if key == "writeFailed" { return try XCTUnwrap(p[key] as? [String: String], "\(key)：\(p)").keys.sorted() }
         return try XCTUnwrap(p[key] as? [String], "\(key)：\(p)")
+    }
+
+    private func nominationRows(_ p: [String: Any]) throws -> [[String: Any]] {
+        try XCTUnwrap(p["doiNominations"] as? [[String: Any]], "doiNominations：\(p)")
     }
 
     private func totals(_ p: [String: Any]) throws -> [String: Int] {
@@ -331,8 +340,9 @@ extension ImportZoteroReportSurfaceTests {
         for key in Self.cappedLists {
             XCTAssertEqual(try shown(p, key), ["ck01", "ck02"], "\(key) 依 citekey 排序留前兩筆")
         }
-        XCTAssertEqual(try totals(p), Dictionary(uniqueKeysWithValues: Self.cappedLists.map { ($0, 3) }), "分母是完整筆數")
-        XCTAssertEqual(try truncated(p), Self.cappedLists.sorted())
+        XCTAssertEqual(try totals(p), Dictionary(uniqueKeysWithValues: Self.allCappedNames.map { ($0, 3) }), "分母是完整筆數")
+        XCTAssertEqual(try truncated(p), Self.allCappedNames.sorted())
+        XCTAssertEqual(try nominationRows(p).map { $0["created"] as? String }, ["ck01", "ck02"], "doiNominations 依 (created, other) 排序留前兩列")
         XCTAssertEqual(p["unchanged"] as? Int, 7, "計數不截")
     }
 
@@ -363,7 +373,8 @@ extension ImportZoteroReportSurfaceTests {
         for key in Self.cappedLists {
             XCTAssertEqual(try shown(p, key), ["ck01", "ck02", "ck03"], key)
         }
-        XCTAssertEqual(try totals(p).values.sorted(), Array(repeating: 3, count: Self.cappedLists.count))
+        XCTAssertEqual(try totals(p).values.sorted(), Array(repeating: 3, count: Self.allCappedNames.count))
+        XCTAssertEqual(try nominationRows(p).count, 3)
         XCTAssertEqual(try truncated(p), [])
     }
 
@@ -373,7 +384,8 @@ extension ImportZoteroReportSurfaceTests {
         for key in Self.cappedLists {
             XCTAssertEqual(try shown(p, key).count, 3, key)
         }
-        XCTAssertEqual(try totals(p).count, Self.cappedLists.count)
+        XCTAssertEqual(try totals(p).count, Self.allCappedNames.count)
+        XCTAssertEqual(try nominationRows(p).count, 3)
         XCTAssertEqual(try truncated(p), [])
     }
 
@@ -387,17 +399,17 @@ extension ImportZoteroReportSurfaceTests {
                 XCTAssertEqual(p[key] as? [String], [], key)
             }
         }
-        for key in Self.failureLists + ["fieldsRemovedByPull", "writtenWithLegacyCopy"] {
+        for key in Self.failureLists + Self.cappedRowLists + ["fieldsRemovedByPull", "writtenWithLegacyCopy"] {
             XCTAssertNil(p[key], "\(key) 只在非空時出現")
         }
-        XCTAssertEqual(try totals(p), Dictionary(uniqueKeysWithValues: Self.cappedLists.map { ($0, 0) }))
+        XCTAssertEqual(try totals(p), Dictionary(uniqueKeysWithValues: Self.allCappedNames.map { ($0, 0) }))
         XCTAssertEqual(try truncated(p), [])
     }
 
     /// **不讓下一個清單安靜地長出來**：`ImportReport` 的每個集合型欄位不是有上限（`cappedLists`），就是在 `uncappedCollections`
-    /// 具名寫了理由；payload 裡每個陣列／物件值同樣如此；`listTotals` 的名字恰好是 `cappedLists`。新增一個清單而忘了截，這裡會紅。
+    /// 具名寫了理由；payload 裡每個陣列／物件值同樣如此；`listTotals` 的名字恰好是 `cappedLists` 加 `cappedRowLists`。新增一個清單而忘了截，這裡會紅。
     func testEveryReportCollectionIsCappedOrNamed() throws {
-        let capped = Set(Self.cappedLists)
+        let capped = Set(Self.allCappedNames)
         var collections: [String] = []
         for child in Mirror(reflecting: ImportReport()).children {
             guard let label = child.label else { continue }
@@ -408,8 +420,8 @@ extension ImportZoteroReportSurfaceTests {
             XCTAssertTrue(capped.contains(label) || Self.uncappedCollections[label] != nil,
                           "ImportReport.\(label) 是集合、沒有 MCP 上限也沒有具名理由——加進 cappedLists 或 uncappedCollections")
         }
-        for key in Self.cappedLists {
-            XCTAssertTrue(collections.contains(key), "cappedLists 列了 ImportReport 沒有的欄位 \(key)")
+        for key in Self.allCappedNames {
+            XCTAssertTrue(collections.contains(key), "cappedLists／cappedRowLists 列了 ImportReport 沒有的欄位 \(key)")
         }
         let p = AkashicService.importReportPayload(fullReport(3), listLimit: 2)
         for (key, value) in p where value is [Any] || value is [String: Any] {
@@ -459,5 +471,51 @@ extension ImportZoteroReportSurfaceTests {
             let cut = text.range(of: "\"truncatedLists\" : [").map { text[$0.upperBound...].prefix { $0 != "]" } }
             XCTAssertEqual(cut.map { $0.filter { !$0.isWhitespace } }, "\"created\"", "只有 created 被截：\(text)")
         }
+    }
+}
+
+// MARK: - #611：DOI 提名在 payload 裡
+
+extension ImportZoteroReportSurfaceTests {
+    /// 只截歧異記錄在 store 裡的列（recorded／alreadyRecorded，`akashic_divergences` 列得出來）；unlocatable／failed 沒寫進去、
+    /// 原因只在這份報告，不截。`listTotals` 是全部列數，被截時進 `truncatedLists`。`divergence` 只在有記錄時出現、`error` 只在 failed 時出現。
+    func testDOINominationRowsAreCappedOnlyWhereTheRecordIsInTheStore() throws {
+        var r = ImportReport()
+        let id = UUID()
+        r.doiNominations = [
+            DOINomination(created: "n1", other: "w", dois: ["10.1000/x"], status: .recorded, divergenceID: id),
+            DOINomination(created: "n2", other: "w", dois: ["10.1000/x"], status: .alreadyRecorded, divergenceID: id),
+            DOINomination(created: "n3", other: "w", dois: ["10.1000/x"], status: .recorded, divergenceID: UUID()),
+            DOINomination(created: "n4", other: "w", dois: ["10.1000/x"], status: .unlocatable),
+            DOINomination(created: "n5", other: "w", dois: ["10.1000/x"], status: .failed, error: "legacy 佈局"),
+        ]
+        let p = AkashicService.importReportPayload(r, listLimit: 1)
+        let rows = try nominationRows(p)
+        XCTAssertEqual(rows.map { $0["created"] as? String }, ["n1", "n4", "n5"], "在 store 裡的只留一列，另兩種全列")
+        XCTAssertEqual(rows.map { $0["status"] as? String }, ["recorded", "unlocatable", "failed"])
+        guard rows.count == 3 else { return XCTFail("列數不對，以下逐列的斷言不跑：\(rows)") }   // 不讓越界讓整個測試行程崩潰
+        XCTAssertEqual(rows[0]["divergence"] as? String, id.uuidString)
+        XCTAssertEqual(rows[0]["dois"] as? [String], ["10.1000/x"])
+        XCTAssertNil(rows[1]["divergence"], "沒有記錄就沒有 divergence")
+        XCTAssertNil(rows[1]["error"])
+        XCTAssertEqual(rows[2]["error"] as? String, "legacy 佈局")
+        XCTAssertEqual(try totals(p)["doiNominations"], 5, "分母是全部列數")
+        XCTAssertTrue(try truncated(p).contains("doiNominations"))
+    }
+
+    /// 服務層：匯入新建的一筆與既有的一筆共用 DOI——payload 的那一列指向真的寫進 store 的那筆歧異記錄。
+    func testImportPayloadCarriesTheNominationWrittenToTheStore() throws {
+        var wos = Entry(id: UUID(), citekey: "wos2025identifiability", type: .periodicalArticle, title: "From WoS")
+        wos.doi = [try XCTUnwrap(DOI("10.1017/psy.2025.1"))]   // `seedStandard` 那篇 article 的 DOI
+        try store.writeEntry(wos)
+        let p = try importPayload()
+        let rows = try nominationRows(p)
+        XCTAssertEqual(rows.count, 1, "\(p)")
+        guard rows.count == 1 else { return }
+        let d = try XCTUnwrap(try store.load().divergences.first)
+        XCTAssertEqual(rows[0]["status"] as? String, "recorded")
+        XCTAssertEqual(rows[0]["divergence"] as? String, d.id.uuidString)
+        XCTAssertEqual(rows[0]["other"] as? String, "wos2025identifiability")
+        XCTAssertEqual(try totals(p)["doiNominations"], 1)
     }
 }

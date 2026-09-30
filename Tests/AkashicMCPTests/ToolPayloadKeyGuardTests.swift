@@ -98,9 +98,9 @@ enum ToolPayloadKeyCheck {
 ///   `legacyCopyNote`；接線由 `StdioE2ETests.testLegacyCopyLeftIsReportedOnTheSuccessSide` 走真 binary 釘住）。
 /// - `akashic_files` 的 `use`（切換 session 的 active store，需要 registry）。
 /// - 錯誤回應（`isError`）：那是訊息文字，不是 payload。
-/// - **巢狀的鍵只看封閉表列出的路徑**（#700，使用者 2026-09-30 裁決 (a)）：`ToolPayloadNestedPaths` 的六列——`akashic_enrich` 的
+/// - **巢狀的鍵只看封閉表列出的路徑**（#700，使用者 2026-09-30 裁決 (a)）：`ToolPayloadNestedPaths` 的七列——`akashic_enrich` 的
 ///   `items[]`、`akashic_resolve_people` 的 `people[ref]`、`akashic_update_entry` 的 `sourcesAdded[]`、`akashic_update_venue` 的
-///   `nameSegments[]` 與 `displayNameChanged`、`akashic_person` 的 `person`——各往下恰好一層。表外的巢狀物件與陣列不看（例如
+///   `nameSegments[]` 與 `displayNameChanged`、`akashic_import_zotero` 的 `doiNominations[]`（#611）、`akashic_person` 的 `person`——各往下恰好一層。表外的巢狀物件與陣列不看（例如
 ///   `update_entry` 的 `sourcesRemoved[]`、`fieldRemovals[]`，`update_venue` 的 `issnRemoved[]`、`referencesRemoved[]`，
 ///   `resolve_*` 各寫入腿的逐筆清單），列入的路徑也不看第二層（`items[].provenanceOmitted` 的值、`person.unknownFields` 的內容）。
 ///   巢狀鍵的比對與頂層同一條規則：鍵名出現在該工具說明的任何一處就算數——`displayNameChanged` 的 `before`／`after` 是被

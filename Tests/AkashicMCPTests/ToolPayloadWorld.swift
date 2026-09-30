@@ -132,8 +132,8 @@ final class PayloadWorld {
 struct PayloadZoteroDB {
     let url: URL
 
-    /// `itemCount` 個 journalArticle：key 是 `KEYART01`…、都在 libraryID 1、共用同一位作者。
-    init(dir: URL, itemCount: Int = 1) throws {
+    /// `itemCount` 個 journalArticle：key 是 `KEYART01`…、都在 libraryID 1、共用同一位作者。`doi` 給了就掛在第一個條目上（#611）。
+    init(dir: URL, itemCount: Int = 1, doi: String? = nil) throws {
         url = dir.appendingPathComponent("zotero.sqlite")
         let db = try SQLiteDB(path: url.path, readOnly: false)
         for sql in [
@@ -154,8 +154,12 @@ struct PayloadZoteroDB {
         try db.execute("INSERT INTO itemTypes VALUES (1,'journalArticle')")
         try db.execute("INSERT INTO creatorTypes VALUES (1,'author')")
         try db.execute("INSERT INTO itemTypeCreatorTypes VALUES (1,1,1)")
-        try db.execute("INSERT INTO fields VALUES (1,'title'),(2,'date'),(3,'publicationTitle')")
+        try db.execute("INSERT INTO fields VALUES (1,'title'),(2,'date'),(3,'publicationTitle'),(4,'DOI')")
         try db.execute("INSERT INTO creators VALUES (1,'Che','Cheng',0)")
+        if let doi {
+            try db.execute("INSERT INTO itemDataValues VALUES (99,?)", bind: [doi])
+            try db.execute("INSERT INTO itemData VALUES (10,4,99)")
+        }
         for n in 1...max(itemCount, 1) {
             let item = 9 + n
             try db.execute("INSERT INTO items VALUES (?,1,?,5,1)", bind: [item, String(format: "KEYART%02d", n)])

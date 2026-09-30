@@ -35,6 +35,9 @@ enum ToolPayloadNestedPaths {
                 + "呼叫端核對寫進去的是不是它要的，讀的就是這些鍵"),
         Row(tool: "akashic_update_venue", path: .object("displayNameChanged"),
             why: "沒有 authorized 的 venue 改名字段會連帶換掉對外顯示的名字；換之前、換之後的值只在這一層"),
+        Row(tool: "akashic_import_zotero", path: .array("doiNominations"),
+            why: "每一對 DOI 提名的結果只在這一層：哪兩筆、共用哪些 DOI、記下了沒（status）、記在哪一筆歧異記錄（divergence）、"
+                + "沒記的原因（error）。呼叫端要接著跑 resolve-divergence，讀的就是這些鍵（#611）"),
         Row(tool: "akashic_person", path: .object("person"),
             why: "person key 直查時人物本身的資料（names、affiliations、verdicts）都在這一層；頂層只有 person／publications／"
                 + "co_authors 三個容器鍵，不往下看等於整筆人物資料沒有守衛"),

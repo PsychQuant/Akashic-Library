@@ -42,6 +42,16 @@
 
 
 
+## #611 — `akashic_import_zotero` 新建的條目與另一筆共用 DOI 時照建，並記一筆歧異提名
+
+使用者 2026-10-01 裁決「照建，並自動記一筆歧異提名」。這一趟新建的 work 與另一筆 work（既有的，或同一趟也新建的）共用 DOI 時，匯入照常新建，並寫一筆 work 形狀、沒有判斷的歧異記錄，候選是那一對。DOI 相等只是提名：勘誤與原文共用 DOI，一筆作品也可以有多個 DOI，所以匯入不合併、不掛附加來源、不填判斷——判定與合併走 `akashic divergences` → `resolve-divergence`（`akashic-merge-twins` 的執行序）。
+
+- **新鍵 `doiNominations`**，只在非空時出現。每列 `{created, other, dois, status, divergence, error}`：`status` 是 `recorded`（這一趟寫了）、`alreadyRecorded`（已有涵蓋這一對的記錄，不重寫）、`unlocatable`（其中一筆 citekey 重複或無法唯一定位，不點名）、`failed`（寫不進去，例如 legacy 佈局或 store format < 5；原因在 `error`）。`divergence` 是那筆記錄的 id。
+- **上限**：`recorded`／`alreadyRecorded` 兩種列與其他清單同一個上限（20）；`unlocatable`／`failed` 不截。`listTotals` 多一格 `doiNominations`（全部列數），被截時列在 `truncatedLists`。
+- **只在新建時觸發**：再匯入不新建就不提名，用 `akashic_dismiss_divergence` 放棄的一對不會被重記。寫不進去的提名不改變匯入的成敗。
+
+plugin 版號沒有動。
+
 ## #705 — 寫了、但搬移後的 legacy 拷貝沒刪掉的那一筆記在 `writtenWithLegacyCopy`
 
 寫一筆既有的 work 或 person 時，#631 會把舊佈局的 `entries/<citekey>.yaml`／`people/<key>.yaml` 搬進 `entities/`：先寫新檔、再刪舊檔。舊檔刪不掉時新內容已經寫進去了，同一筆記錄留下兩份。先前各工具的說法不一：`akashic_import_zotero` 同時列在成功清單與 `writeFailed`，其他逐筆收容的工具只列在 `writeFailed`，沒有收容的工具整個呼叫以錯誤結束、同一批後面的記錄沒寫。

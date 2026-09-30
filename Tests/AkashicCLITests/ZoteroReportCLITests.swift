@@ -93,12 +93,55 @@ final class ZoteroReportCLITests: XCTestCase {
                       "import 的提示指向的警告要真的存在：\(v.output)")
     }
 
+    /// #611：新建的條目與既有的 work 共用 DOI——照建，逐對印出提名，記成歧異記錄（`divergences` 列得出來）。
+    private func addDOIToTheZoteroArticle(_ doi: String) throws {
+        let db = try SQLiteDB(path: zoteroDB.path, readOnly: false)
+        try db.execute("INSERT INTO fields VALUES (6,'DOI')")
+        try db.execute("INSERT INTO itemDataValues VALUES (101,?)", bind: [doi])
+        try db.execute("INSERT INTO itemData VALUES (10,6,101)")
+    }
+
+    private func writeWork(_ citekey: String, doi: String) throws {
+        var e = Entry(id: UUID(), citekey: citekey, type: .periodicalArticle, title: citekey)
+        e.doi = [try XCTUnwrap(DOI(doi))]
+        try LibraryStore(root: root).writeEntry(e)
+    }
+
+    func testImportPrintsTheDOINominationAndDivergencesListsTheRecord() throws {
+        let doi = "10.1017/psy.2025.1"
+        try addDOIToTheZoteroArticle(doi)
+        try writeWork("wos2025identifiability", doi: doi)
+        let r = try cli(["import-zotero", "--zotero-db", zoteroDB.path])
+        XCTAssertEqual(r.status, 0, r.output)
+        XCTAssertTrue(r.output.contains("created: 1"), "照建：\(r.output)")
+        XCTAssertTrue(r.output.contains("新建的條目與另一筆 work 共用 DOI（#611）: 1 對"), r.output)
+        let line = try XCTUnwrap(r.output.split(separator: "\n").first { $0.contains("⊕ ") }, r.output)
+        XCTAssertTrue(line.contains("↔ wos2025identifiability") && line.contains(doi) && line.contains("divergence "), String(line))
+        let d = try cli(["divergences"])
+        XCTAssertTrue(d.output.contains(doi) && d.output.contains("wos2025identifiability"), "記錄要真的在：\(d.output)")
+    }
+
+    /// citekey 重複的既有那一筆不點名，印 ⚠。**結束狀態不是這一行造成的**：重複的 citekey 讓 index rebuild 撞 UNIQUE（既有行為），
+    /// 提名那一段印在 rebuild 之前。
+    func testImportPrintsTheUnlocatableNominationWithoutNamingIt() throws {
+        let doi = "10.1017/psy.2025.1"
+        try addDOIToTheZoteroArticle(doi)
+        try writeWork("dup2025identifiability", doi: doi)
+        try writeWork("dup2025identifiability", doi: doi)
+        let r = try cli(["import-zotero", "--zotero-db", zoteroDB.path])
+        let line = try XCTUnwrap(r.output.split(separator: "\n").first { $0.contains("⚠ ") && $0.contains("↔ dup2025identifiability") },
+                                 r.output)
+        XCTAssertTrue(line.contains("未記") && line.contains("無法唯一定位"), String(line))
+        XCTAssertFalse(r.output.contains("⊕ "), r.output)
+    }
+
     /// 沒有歧義時不印那一段。
     func testImportPrintsNothingWhenThereIsNoAmbiguity() throws {
         let r = try cli(["import-zotero", "--zotero-db", zoteroDB.path])
         XCTAssertEqual(r.status, 0, r.output)
         XCTAssertTrue(r.output.contains("created: 1"), r.output)
         XCTAssertFalse(r.output.contains("被多筆 entry 宣稱"), r.output)
+        XCTAssertFalse(r.output.contains("歧異提名"), "沒有共用 DOI 時不印提名那一段：\(r.output)")
     }
 
     /// #694：主來源 hash 不同、Zotero 那一列已同步且 version 沒動——自己一行、不算進 `updated:`；這一行只說觀察到的事實、可能的原因不排序。

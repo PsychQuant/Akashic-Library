@@ -78,6 +78,11 @@ public struct ImportReport: Equatable {
     /// 內容已寫進 `entities/`、#631 搬移後的 legacy 拷貝沒刪掉的 entries（#705，使用者 2026-09-30 裁決 (a)）：**寫了**，照常記在
     /// `updated`、`authorsOverwritten` 等清單；留下兩份的事實記在這裡，不進 `writeFailed`。由 `run` 自己的收集範圍收下。
     public var writtenWithLegacyCopy: [LegacyCopyLeft] = []
+    /// #611（使用者 2026-10-01 裁決「照建，並自動記一筆歧異提名」）：這一趟**新建**的 work 與另一筆 work（既有的，或同一趟也新建的）
+    /// 共用 DOI 時，照建之後當場寫下的歧異提名——一列是一對，依 (created, other) 排序；狀態封閉四值，見 `DOINomination`。
+    /// 記錄沒有判斷（judgement／prefers 不填）：DOI 相等只是提名，判定與合併交給 `resolve-divergence`。
+    /// **只在新建時觸發**：再匯入不新建就不再提名，所以被 `dismiss-divergence` 放棄的一對不會被下一趟重記。
+    public var doiNominations: [DOINomination] = []
     /// date 無法正規化、保留原字串的 citekeys（#2）。
     public var unnormalizedDates: [String] = []
     /// 被略過的 linked / URL 附件數（#3，不靜默）。
@@ -269,6 +274,7 @@ public struct ZoteroImporter {
         let importedComposite = Set(items.map { ZoteroSourceClaims.key(libraryID: $0.libraryID, zoteroKey: $0.key) })
         let importedBare = Set(items.map(\.key))
         var legacyMatched = Set<String>()   // 已被 item 認領的 legacy 裸 key
+        var createdIDs: [UUID] = []   // #611：這一趟新建且寫入成功的 work——所有寫入完成之後拿它們比 DOI
 
         for item in items {
             for residual in ZoteroMapping.residualFields(of: item) {
@@ -459,6 +465,7 @@ public struct ZoteroImporter {
                 entry.akashic.tags = item.tags   // 只在建檔時 seed；後續 pull 不動
                 if guardedWrite(entry, report: &report) {
                     report.created.append(citekey)
+                    createdIDs.append(entry.id)
                     if let raw = item.fields["date"], DateNormalizer.normalize(raw) == nil {
                         report.unnormalizedDates.append(citekey)
                     }
@@ -504,6 +511,12 @@ public struct ZoteroImporter {
                 if secondaryOrphaned { report.secondarySourceOrphaned.append(entry.citekey) }
             }
         }
+
+        // #611：新建的 work 與另一筆共用 DOI → 照建之後記一筆歧異提名（沒有判斷）。放在**所有寫入之後**：比對的是這一趟寫完的樣子
+        // （pull 可能改了既有那筆的 DOI、同一趟可能新建兩筆同 DOI 的），與 item 的處理順序無關。
+        report.doiNominations = DOITwinNomination.nominate(
+            store: store, load: load, current: current, createdIDs: createdIDs,
+            legacyCopyCitekeys: Set(LegacyCopyLedger.collected.filter { $0.kind == .work }.map(\.key)))
 
         report.created.sort()
         report.updated.sort()

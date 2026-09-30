@@ -256,6 +256,14 @@ enum ToolPayloadScenarios {
             try $0.store.writeEntry(imported)
             return try $0.service.importZotero(zoteroDb: z.url.path, libraryID: nil)
         },
+        // #611：新建的條目與既有的一筆共用 DOI——照建，並記一筆歧異提名（doiNominations）
+        PayloadScenario("akashic_import_zotero", "doi nomination", params: ["zotero_db"]) {
+            let z = try PayloadZoteroDB(dir: $0.dir, doi: "10.1017/psy.2025.1")
+            var main = try XCTUnwrap(try $0.store.load().entries.first { $0.citekey == "cheng2025identifiability" })
+            main.doi = [try XCTUnwrap(DOI("10.1017/psy.2025.1"))]
+            try $0.store.writeEntry(main)
+            return try $0.service.importZotero(zoteroDb: z.url.path, libraryID: nil)
+        },
         PayloadScenario("akashic_enrich_from_zotero", "dry_run", params: ["citekeys", "zotero_db", "dry_run"]) {
             let z = try PayloadZoteroDB(dir: $0.dir)
             _ = try $0.service.importZotero(zoteroDb: z.url.path, libraryID: nil)

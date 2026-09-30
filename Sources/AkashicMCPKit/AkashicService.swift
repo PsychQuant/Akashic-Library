@@ -2864,6 +2864,19 @@ public final class AkashicService {
                    uniquingKeysWith: { first, _ in first })
     }
 
+    /// `doiNominations` 的一列（#611）：`divergence` 只在有記錄時出現、`error` 只在 failed 時出現。
+    private static func doiNominationRow(_ n: DOINomination) -> [String: Any] {
+        var row: [String: Any] = [
+            "created": displaySafe(n.created, max: 200),
+            "other": displaySafe(n.other, max: 200),
+            "dois": n.dois.map { displaySafe($0, max: 200) },
+            "status": n.status.rawValue,   // display-safe-exempt: 封閉四值的 rawValue
+        ]
+        if let id = n.divergenceID { row["divergence"] = id.uuidString }   // display-safe-exempt: UUID
+        if let e = n.error { row["error"] = displaySafeClipOnly(e, max: 512) }   // display-safe-exempt: e 已消毒（DOITwinNomination 由 displaySafeError 產出），只截
+        return row
+    }
+
     /// `import-zotero` 的報告 payload——rebuild 成功與失敗兩條路徑共用（#610 R1 verify）。
     ///
     /// #696：每個有上限的 citekey 清單（`importReportCappedLists`）依 citekey 排序後留前 `listLimit` 筆。揭露是**一對鍵**：
@@ -2914,6 +2927,20 @@ public final class AkashicService {
             d["ambiguousSourceClaims"] = Dictionary(rows, uniquingKeysWith: { first, _ in first })
             d["ambiguousSourceClaimsTotal"] = all.count   // display-safe-exempt: Int
             d["ambiguousSourceClaimsTruncated"] = shown.count < all.count || ownersCut   // display-safe-exempt: Bool
+        }
+        // #611：新建的 work 與另一筆共用 DOI 時寫下的歧異提名，一列一對，只在非空時出現。`listLimit` 只截 recorded／alreadyRecorded 兩種
+        // ——那兩種的歧異記錄在 store 裡（`akashic_divergences` 列得出來）；unlocatable／failed 沒寫進去，原因只在這份報告，不截（同失敗清單）。
+        // `listTotals` 永遠有這一格（空的是 0），被截時進 `truncatedLists`。
+        let nominations = report.doiNominations.sorted { ($0.created, $0.other) < ($1.created, $1.other) }
+        let inStore = nominations.filter { $0.status == .recorded || $0.status == .alreadyRecorded }
+        let keptInStore = listLimit.map { Array(inStore.prefix($0)) } ?? inStore
+        listTotals["doiNominations"] = nominations.count
+        if keptInStore.count < inStore.count { truncatedLists.append("doiNominations") }
+        if !nominations.isEmpty {
+            let kept = Set(keptInStore.map { [$0.created, $0.other] })
+            d["doiNominations"] = nominations
+                .filter { ($0.status != .recorded && $0.status != .alreadyRecorded) || kept.contains([$0.created, $0.other]) }
+                .map(doiNominationRow)
         }
         // 失敗清單不截（R1 verify）：沒寫進去的記錄在 store 裡沒有痕跡，截掉就拿不回來。只在非空時出現。
         if !report.quarantineConflicts.isEmpty {

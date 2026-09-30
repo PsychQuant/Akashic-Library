@@ -20,28 +20,21 @@ func ruleProseGuardsMutations() -> Int32 {
     let RULE_REL = "rules/assertions-must-be-measured.md"
     let SNAP = (try? String(contentsOfFile: "\(PLUGIN)/\(RULE_REL)", encoding: .utf8)) ?? ""
 
-    func exec(_ argv: [String], cwd: String) -> (Int32, String) {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: argv[0])
-        p.arguments = Array(argv.dropFirst())
-        p.currentDirectoryURL = URL(fileURLWithPath: cwd)
-        let o = Pipe(), e = Pipe(); p.standardOutput = o; p.standardError = e
-        guard (try? p.run()) != nil else { return (127, "spawn 失敗：\(argv[0])") }
-        let od = o.fileHandleForReading.readDataToEndOfFile()
-        _ = e.fileHandleForReading.readDataToEndOfFile()
-        p.waitUntilExit()
-        return (p.terminationStatus, String(data: od, encoding: .utf8) ?? "")
+    // 經 `runGuardProcess` 執行（#707）：它留下執行紀錄。回傳 stdout，與先前相同。
+    func exec(_ argv: [String], cwd: String, _ label: String, _ expect: GuardExpectation) -> (Int32, String) {
+        let r = runGuardProcess(argv, cwd: cwd, label: label, expect: expect)
+        return (r.status, r.stdout)
     }
     // **Python 版已刪除**（#433 Step 5）：遷移期這裡跑兩版並要求逐字一致，Python 是 oracle。
     // 那條路徑在 `.py` 刪掉之後是死的——`no-compat-fallback` 的「退場即刪」。
-    func run(_ root: String) -> (Int32, String) {
+    func run(_ root: String, _ label: String, _ expect: GuardExpectation) -> (Int32, String) {
         var swArgv = [BIN, "rule-prose-guards", "--root", root]
         if FileManager.default.fileExists(atPath: VENUE) { swArgv += ["--venue", VENUE] }
-        return exec(swArgv, cwd: PLUGIN)
+        return exec(swArgv, cwd: PLUGIN, label, expect)
     }
 
     /// 複製整個 plugin 樹到 tempdir、換掉規則檔、跑守衛。出貨檔完全不碰。
-    func withCopy(_ mutatedRule: String) -> (Int32, String) {
+    func withCopy(_ mutatedRule: String, _ label: String) -> (Int32, String) {
         let tmp = NSTemporaryDirectory() + "prose-mut-" + UUID().uuidString
         let root = tmp + "/plugin"
         try? FileManager.default.createDirectory(atPath: tmp, withIntermediateDirectories: true)
@@ -51,7 +44,7 @@ func ruleProseGuardsMutations() -> Int32 {
         try? FileManager.default.copyItem(atPath: "\(repoRoot)/Sources",
                                           toPath: tmp + "/Sources")
         try? mutatedRule.write(toFile: root + "/" + RULE_REL, atomically: true, encoding: .utf8)
-        let r = run(root)
+        let r = run(root, label, .red)
         try? FileManager.default.removeItem(atPath: tmp)
         return r
     }
@@ -67,18 +60,18 @@ func ruleProseGuardsMutations() -> Int32 {
         return false
     }
     func append(_ extra: String, _ n: Int, _ desc: String) -> Bool {
-        report(withCopy(SNAP + "\n" + extra + "\n").1, n, desc)
+        report(withCopy(SNAP + "\n" + extra + "\n", desc).1, n, desc)
     }
     func swap(_ old: String, _ new: String, _ n: Int, _ desc: String) -> Bool {
         let c = SNAP.components(separatedBy: old).count - 1
         if c != 1 { print("✗ 錨點不唯一（\(c) 次）：\(desc)"); exit(1) }
         guard let r = SNAP.range(of: old) else { return false }
-        return report(withCopy(SNAP.replacingCharacters(in: r, with: new)).1, n, desc)
+        return report(withCopy(SNAP.replacingCharacters(in: r, with: new), desc).1, n, desc)
     }
 
     // baseline 必須先全綠——否則「注入後變紅」不代表任何事（R6 finding 11：前一版從不
     // 檢查 baseline、也不看 return code，原守衛整片壞掉時它仍會 exit 0）。
-    let (rc0, out0) = run(PLUGIN)
+    let (rc0, out0) = run(PLUGIN, "baseline", .green)
     if rc0 != 0 {
         print(out0)
         print("✗ baseline 不是全綠（rc=\(rc0)）——先修守衛，negative control 在紅的 baseline 上沒有意義")
@@ -123,7 +116,7 @@ func ruleProseGuardsMutations() -> Int32 {
     // 取一個非 plugin 的根（`plugin-roots` 的第二個起），複製到 tempdir、加一個含未揭露 repo 路徑的檔。
     // 先確認副本本身是綠的——否則「注入後變紅」不代表任何事（同 baseline 的理由）。
     // 根取自 `plugin-roots`（與 run-guards.sh 同一份清單，R2 verify：先前寫死了 discovery 的路徑）
-    let (_, rootsOut) = exec([BIN, "plugin-roots"], cwd: repoRoot)
+    let (_, rootsOut) = exec([BIN, "plugin-roots"], cwd: repoRoot, "取 plugin 根的清單", .none)
     let otherRoots = rootsOut.split(separator: "\n").map(String.init).filter { $0 != "plugin" && !$0.isEmpty }
     let otherRoot = otherRoots.first.map { "\(repoRoot)/\($0)" } ?? ""
     if !otherRoot.isEmpty, FileManager.default.fileExists(atPath: otherRoot) {
@@ -132,7 +125,7 @@ func ruleProseGuardsMutations() -> Int32 {
         try? FileManager.default.createDirectory(atPath: tmpR, withIntermediateDirectories: true)
         try? FileManager.default.copyItem(atPath: otherRoot, toPath: copyR)
         let argvR = [BIN, "rule-prose-guards", "--root", copyR, "--prose-only"]
-        let (rcBase, outBase) = exec(argvR, cwd: repoRoot)
+        let (rcBase, outBase) = exec(argvR, cwd: repoRoot, "--prose-only 的 baseline（plugin/ 以外的根）", .green)
         if rcBase != 0 {
             print(outBase)
             print("✗ --prose-only 在 akashic-discovery 的副本上 baseline 不是綠的（rc=\(rcBase)）")
@@ -140,7 +133,7 @@ func ruleProseGuardsMutations() -> Int32 {
         } else {
             try? "判準寫在 `.claude/rules/identity-is-judged-not-matched.md`。\n"
                 .write(toFile: copyR + "/NC-644.md", atomically: true, encoding: .utf8)
-            results.append(report(exec(argvR, cwd: repoRoot).1, 2,
+            results.append(report(exec(argvR, cwd: repoRoot, "--prose-only：plugin/ 以外的根加一句未揭露的 repo 路徑", .red).1, 2,
                                   "在 plugin/ 以外的根加一句未揭露取用限制的 repo 專屬路徑（#644）"))
         }
         try? FileManager.default.removeItem(atPath: tmpR)
@@ -150,7 +143,7 @@ func ruleProseGuardsMutations() -> Int32 {
     }
     // 空根：`--prose-only` 對不存在的根必須紅，不能因為「沒有任何行違規」而 PASS（R2 verify）
     let (rcEmpty, outEmpty) = exec([BIN, "rule-prose-guards", "--root", NSTemporaryDirectory() + "no-such-root-" + UUID().uuidString,
-                                    "--prose-only"], cwd: repoRoot)
+                                    "--prose-only"], cwd: repoRoot, "--prose-only：不存在的根", .red)
     let emptyOK = rcEmpty != 0 && outEmpty.contains("空掃描不是通過")
     print("\(emptyOK ? "✓" : "✗") --prose-only 對不存在的根 → rc=\(rcEmpty)\(emptyOK ? "，具名拒絕" : "（必須非零且說明）")")
     results.append(emptyOK)
@@ -174,7 +167,7 @@ func ruleProseGuardsMutations() -> Int32 {
         + "`awk 'BEGIN{print 6}' /dev/null; touch \(marker); : Sources/AkashicCore/Venue.swift`",
         at: 1)
     try? lines.joined(separator: "\n").write(toFile: root + "/" + RULE_REL, atomically: true, encoding: .utf8)
-    let (rcP, outP) = run(root)
+    let (rcP, outP) = run(root, "注入 PoC", .red)
     let executed = FileManager.default.fileExists(atPath: marker)
     let red = !matches(outP, #"(?m)^\[5\] FAIL"#).isEmpty
     let pocOK = !executed && red

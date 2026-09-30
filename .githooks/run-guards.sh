@@ -32,6 +32,15 @@ if [ ! -x .build/debug/akashic-guards ]; then
   exit 1
 fi
 
+# #707：負控的**執行期紀錄**。每個 `akashic-guards` 行程看到這個環境變數就寫一筆 start／end，harness 經
+# `runGuardProcess` 執行守衛時另寫一筆 invoke（格式見 `Sources/akashic-guards/GuardRunLog.swift`）。本檔最後一行的
+# `migrated-guard-control` 讀它：這次跑了哪些守衛、哪支負控真的讓它們如預期變紅過。紀錄放在暫存目錄、結束時刪掉，
+# 不進 repo 樹。
+guard_run_dir=$(mktemp -d "${TMPDIR:-/tmp}/akashic-guard-run.XXXXXX")
+trap 'rm -rf "$guard_run_dir"' EXIT
+export AKASHIC_GUARD_RUN_LOG="$guard_run_dir/run.jsonl"
+: > "$AKASHIC_GUARD_RUN_LOG"
+
 # #625：rule-coverage 逐個 plugin 根跑。根目錄清單只有 `akashic-guards plugin-roots`
 # 那一份，這裡不另存。清單為空要紅——否則迴圈跑零次、照樣綠燈。
 plugin_roots=$(.build/debug/akashic-guards plugin-roots)
@@ -106,11 +115,7 @@ done
 # 那張表錯過一次（R26q），而那個錯撐過了好幾輪人＋AI 審查——散文沒人檢查。
 # **Swift 版**（#433 A 批 2/2）。實測:乾淨樹 ＋ 五個 mutation,輸出**逐字相同**。
 .build/debug/akashic-guards decision-matrix-drift
-# 每支**實際在跑**的 Swift 守衛，都有 negative control 在驗它嗎（#433）？
-# 這個形狀已經踩過三次——兩次修了、第三次（`decision-matrix-drift`，A 批第一支、
-# 負控是獨立 harness 而不在 `MIGRATED` 表裡）在我修完前兩個之後**仍然漏掉**。
-# 一條記在散文裡的紀律擋不住它：它要求人每次遷移都想起來，而我沒有。
-.build/debug/akashic-guards migrated-guard-control
+# （`migrated-guard-control` 原本在這裡；#707 起它讀的是本次執行的紀錄，要等所有 harness 跑完——搬到本檔最後一行。）
 # **Swift 版**（#433，第一支遷移的 harness）。乾淨樹逐位元相同（17 行、rc=0）。
 # 它自己就是 `decision-matrix-drift` 的負控，並在 `runBoth` 裡對每個 case 同時跑守衛的
 # 兩版、要求輸出逐字相同——刪掉 Python 守衛時把那一半拿掉即可。
@@ -170,3 +175,14 @@ done
 #  `SafariBrowser` 介面讓中止條款的每個出口都能在測試裡逐條斷言）、`CrossrefMatchTests`、`TitleCalibrationTests`、
 #  `SkillToolsCLITests`——由 pre-push 的 `swift test` 跑，不再需要這裡。**最要緊的一條反例照樣被釘住**：付費牆的 Loading 殼
 #  不得被當成起疑（`BotSignalsTests.testPaywallLoadingShellIsNotSuspicion`、`FulltextFetchPathTests.testPaywallShellIsNoAccess`）。）
+
+# #707：`migrated-guard-control` 的負控——掏空的寫法（scratch 建置）、runner 的寫法（迷你 runner）、改壞的紀錄，
+# 每一格都真的執行，再讓它讀那次執行的紀錄。要排在 `migrated-guard-control` 之前：它讓讀者紅的那幾次也進本次紀錄。
+.build/debug/akashic-guards migrated-guard-control-mutations
+
+# 每支**實際在跑**的 Swift 守衛，都有 negative control 在驗它嗎（#433）？
+# 這個形狀已經踩過三次——兩次修了、第三次（`decision-matrix-drift`，A 批第一支、
+# 負控是獨立 harness 而不在 `MIGRATED` 表裡）在我修完前兩個之後**仍然漏掉**。
+# 一條記在散文裡的紀律擋不住它：它要求人每次遷移都想起來，而我沒有。
+# **#707 起它讀本次執行的紀錄，所以必須是最後一行**：排在它之後的守衛與 harness 不在它讀到的紀錄裡。
+.build/debug/akashic-guards migrated-guard-control --log "$AKASHIC_GUARD_RUN_LOG"

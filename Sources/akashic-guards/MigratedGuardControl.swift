@@ -17,265 +17,310 @@
 // 第 3 個是這支守衛存在的直接理由：**我修了同一個形狀兩次，然後又漏了第三次**。
 // 一條記在散文裡的紀律擋不住這個——它要求人每次遷移都想起來，而我沒有。
 //
-// **判準**（#689 起；R1 verify 起改成「宣告＋受測對象」）：`run-guards.sh` 裡每個 `akashic-guards <sub>`，必須有一支
-// **負控 harness 宣告自己驗它、而且它的 source 文字裡有執行它的寫法**（受測對象）。**這是文字層的判定**：
-// 它認的是 source 裡的寫法，不是 harness 執行時真的跑了什麼（#689 R2 verify；四個掏空的形狀見本段下方〈誠實邊界〉）。
+// ## 判準（#707 起：讀執行紀錄，不讀原始碼）
 //
-// 「是不是負控 harness」看它的實體，四件事都要成立：
-//   1. source 檔 `Sources/akashic-guards/<PascalCase>.swift` 存在（`swift-is-the-implementation-language`
-//      的命名對應，`swiftGuards()` 用的同一條）；
-//   2. `main.swift` 有 `case "<sub>":` 分派它——沒有的話跑它只會得到「未知的守衛」；
-//   3. 它自己也在 `run-guards.sh` 裡跑——一個沒人跑的負控，就是 #433 那個形狀；
-//   4. source 裡建一個 `Process`（`= Process()`）且指向 `.build/debug/akashic-guards`（它**執行**別的守衛，那是負控的定義）。
+// #689 的判準讀原始碼文字：harness 的宣告（命名慣例、`// negative-control-for:`）、argv 陣列字面、資料檔的
+// `guardRel:`／`guardArgv:`、`main.swift` 的 `case "…":`、`run-guards.sh` 裡的呼叫寫法。#689 的 R2、R3 verify
+// 在真實 harness 上做出十種文字對得上、執行已經不在的寫法（只剩變數宣告、別的 harness 的死碼與宣告、分派改成
+// `exit(0)`、守衛本體塞 `Process()` 冒充負控、宣告換行或巢狀、`return 0` 後接 `#if false`、呼叫放進 `"""` 字串、
+// runner 裡 `if false`／heredoc 包住那一行、目錄放進變數、`swift run`／`.build/release`）。每補一種寫法，文字比對
+// 就多一個可以繞的邊。現在證據是 `run-guards.sh` 這一次執行留下的紀錄（格式與寫入點見 `GuardRunLog.swift`）：
 //
-// **宣告**（harness 自己說它是誰的負控）有兩種來源：
-//   · 命名慣例：`<g>-mutations` 宣告 `<g>`（`<g>` 要是實際在跑的守衛；`audit-guards-mutations` 的 `audit-guards` 不是，沒有慣例宣告）；
-//   · source 裡一整行、從行首開始的 `// negative-control-for: <g>, <g>`（可以有多行）。宣告的名字不在 `run-guards.sh` 裡跑
-//     ——拼錯或守衛已退場——是缺口，不靜默忽略。
+//   · **誰要負控**：紀錄裡每一筆 `start` 的子命令——`run-guards.sh` 這次真的啟動了它，不論用什麼路徑、什麼寫法
+//     呼叫。另外保留一個文字檢查（見下）。
+//   · **誰有負控**：某支 harness 在這次執行裡（1）宣告了它——`<g>-mutations` 的命名慣例，或執行時呼叫
+//     `declareNegativeControl`；（2）以 rc=0 跑完（有 `end`、rc=0）；（3）經 `runGuardProcess` 執行了它，
+//     而且至少一次**如預期變紅**（`expect=red`、觀察到的 rc≠0）——列舉命令 `plugin-roots` 本來就不會紅，
+//     它的是**輸出如預期**（`expect=output`、stdout 逐字相符）；（4）執行的是**這一支 binary**。
+//     預期成不成立（`met`）由 `runGuardProcess` 自己比對，harness 只說它預期什麼。
+//   · harness 自己沒有負控、但它**確實**替別的守衛作證（出現在對應表的右邊）→「它自己就是負控」，印 ℹ、不計入缺口。
 //
-// **受測對象**（source 裡以什麼寫法執行誰）只認執行它的寫法，不認提到它的寫法：
-//   · harness 自己 source 裡的 argv 陣列字面——第一個元素是守衛名（`p.arguments = ["<g>"]`、`guardArgv: ["<g>", …]`），
-//     或第一個是 `BIN`、第二個是守衛名（`exec([BIN, "<g>", …])`）。陣列字面若是賦給一個變數（`let x = ["<g>"]`），
-//     那個變數要在同一檔出現在執行的位置（`guardArgv: x`、`arguments = x`、`exec(x`）才算（#689 R2 verify：
-//     `plugin-roots-mutations` 把七處 `guardArgv: consistency` 全換掉，只剩宣告 `let consistency = [...]`，上一版照樣算數）；
-//   · 它的 `<PascalCase>Data.swift` 裡 case 的受測對象欄位：`guardRel: "akashic-guards <g>"`、`guardArgv: ["<g>", …]`。
-//     資料檔的其餘欄位（`a:`／`b:`／`old:`／`new:`／`expect:`）是注入內容，不算——那裡的守衛名是被塞進 copy 的字串，不是被執行的程式。
+// **也算缺口的紀錄形狀**：
+//   · 宣告了、跑完了，卻沒有一次讓那支守衛如預期變紅——宣告是空的；
+//   · harness 以 rc=0 跑完，但它有執行沒照它自己的預期（預期紅、實際綠）——它沒有比對結果；
+//   · harness 沒有以 rc=0 跑完（rc≠0 或沒有 `end`）卻出現在紀錄裡——`run-guards.sh` 是 `set -e`，它的失敗被遮掉了；
+//   · 執行的 `akashic-guards` 不是本支這一支 binary；宣告自己、宣告一支這次沒跑的守衛；
+//   · 紀錄讀不到、是空的、有一行不是這個格式、或沒有本支自己這一次的 `start`（`AKASHIC_GUARD_RUN_LOG` 沒指向
+//     `--log` 那份檔，或 `main.swift` 沒寫 start）——**空掃描不是通過**。
 //
-// 守衛算有負控＝某支 harness 宣告了它、而且以它為受測對象。只宣告而 source 裡沒有執行它的寫法（宣告是空的）是缺口；
-// 只跑不宣告不算數。
+// **留下的文字檢查（只在「誰要負控」那一邊）**：剝註解後的 runner 裡每一處 `akashic-guards <子命令>`
+// （可以隔一個引號：`"$B/akashic-guards" x`），紀錄裡都要有它的 `start`。它補的是執行期看不到的那一種：
+// runner 列了一支守衛、它卻沒有執行，或執行的 binary 不寫紀錄（舊的建置、拿掉了環境變數）——那支守衛不會出現在
+// 「誰要負控」裡，只有文字知道它本來該在。**「誰有負控」那一邊不讀任何原始碼。**
 //
-// **為什麼要宣告，不只看受測對象**（R1 verify 四席）：上一版把「某支 harness 的 source 提到守衛名」算成有負控。
-// `plugin-roots-mutations` 為了驗 plugin 根而跑 `trigger-coverage`，於是刪掉 `trigger-coverage` 自己那支 39 格的
-// `TriggerCoverageMutations.swift`（連資料、分派、runner 那一行）仍印「無缺口」；`rule-prose-guards-mutations`
-// 為了取根目錄清單而跑 `plugin-roots`，刪掉 `PluginRootsMutations.swift` 也一樣。#689 的 Expected 是「刪掉某支守衛的
-// mutations 檔時，本守衛要失敗」——順帶跑一下不是負控，要 harness 自己宣告。
-// **為什麼資料檔只認受測對象欄位**（R1 verify logic 席）：上一版只對帶「本檔由腳本生成」標記的資料檔這樣做，
-// `TriggerCoverageMutationsData.swift` 的標記是「本檔曾由腳本生成」，對不上，於是它注入 runner 的那一行
-// `.build/debug/akashic-guards plugin-store-format-parity` 被讀成「`trigger-coverage-mutations` 驗了它」。
+// **拿掉的文字判準**（#689 的全部）：harness 的四個實體條件（source 檔、`main.swift` 分派、runner 那一行、
+// `= Process()` 加 binary 路徑）、`// negative-control-for:` 註解、argv 陣列字面與變數追蹤、資料檔欄位、
+// 「抽取認不出的呼叫」偵測。它們的歷史與負控見 `changelog/2026-09-30-migrated-guard-control-artefacts.md`。
 //
-// **#689 修掉的東西**：更早一版把 `Sources/akashic-guards/` 底下**每個檔**都當 harness 掃，並把「`"<sub>"` 字面出現」
-// 算成涵蓋。`main.swift` 的分派表寫的正是 `case "<sub>":`，所以每支已註冊的守衛都「有負控」——實測在副本裡刪掉
-// `NetworkConfinementMutations.swift`，這支仍印「無缺口」。
+// **誠實邊界**：
+//   · 紀錄是一般檔案。一支 harness 直接打開 `AKASHIC_GUARD_RUN_LOG` 寫一行假的 `invoke`，本支分不出來——
+//     它擋的是遺忘與掏空（負控的實體還在、執行已經不在），不是蓄意偽造。
+//   · 宣告與預期是 harness 自己說的。它讓守衛變紅的原因可以與注入無關（例如傳一個壞掉的參數）——本支證明
+//     「它執行了、它紅了、harness 預期它紅」，紅的原因對不對由 harness 自己的具名比對管（對不上時 harness 回非零，
+//     `run-guards.sh` 在這支之前就停了）。
+//   · runner 裡**既不以 `akashic-guards <名>` 的文字出現、又不寫紀錄**的呼叫兩邊都看不到（例如
+//     `env -u AKASHIC_GUARD_RUN_LOG "$G" x`，其中 `G` 是 binary 的路徑）。
+//   · harness 不經 `runGuardProcess` 自己 spawn 的守衛：那些執行不算數（方向是缺負控，看得見）；它若把紀錄的
+//     環境變數傳下去，那支守衛會寫 `start`、被當成 runner 跑的而被要求負控（同一個方向）。
 //
-// **一併移除的**（#689）：Python harness 的兩條 glob（`plugin/tests/*mutations*.py` 等）與 `MIGRATED`
-// 表。#433 Step 5 之後樹裡沒有 Python harness，而新判準要求負控在 `run-guards.sh` 裡以
-// `akashic-guards <sub>` 跑，Python 檔結構上不可能滿足——留著只是一條永遠空的分支。
-//
-// **「實際在跑」的抽取認不出的寫法要出聲**（R1 verify logic／security 席；R2 verify 改成獨立定位）：抽取只認行首（可縮排）與
-// 命令替換 `$(`，binary 路徑與子命令之間可以是任意個空白或 TAB。`if ! … ; then`、`a && …`、`timeout 60 …`、引號包住的 binary、
-// 變數（`G=.build/debug/akashic-guards; "$G" x`）、迴圈變數、續行這類寫法照樣會執行，卻不在名單裡、也就不被要求負控。
-// 所以剝註解後的 `run-guards.sh` 裡**每一處 `.build/debug/akashic-guards`**（只找路徑，不管後面接什麼）都必須落在一個被抽取
-// 認得的呼叫裡，否則是缺口（逐行具名）。例外只有兩個具名的形狀：`[ ! -x .build/debug/akashic-guards ]` 存在檢查，與整行只有
-// 一個 `echo "…"`、引號裡沒有 `$` 與反引號的訊息。R1 的版本拿同一條（只認單一空格的）regex 去找「漏掉的」，於是雙空格、TAB、
-// 變數這些寫法兩邊都看不到——兩個檢查共用一個失敗條件。方向是誤報，看得見；不逐一擴充語法。
-//
-// **誠實邊界**：它驗的是「有一支會跑的負控宣告了它、而且 source 裡有執行它的寫法」，不是「那支負控執行時真的跑了它」，
-// 更不是「那個負控真的有效」。一個執行守衛卻不比對結果的 harness 照樣通過——本守衛擋的是**整個忘記**，不是**做錯**。
-// 後者由 harness 自己的 negative control 管。
-// 受測對象的判定是文字層的。R2 verify（DA 席）在真實 harness 上做出四個不需要惡意的掏空形狀，現況逐一寫出：
-//   1. case 表重構後只剩變數宣告（`let consistency = ["marketplace-consistency"]` 留著、七處 `guardArgv: consistency`
-//      全換掉）——**R2 起擋下**：宣告出來的變數要在執行的位置被用到才算；
-//   2. 在別的 harness 加 `// negative-control-for: <g>` 與一行死碼——`let _dead = ["<g>"]` 的形狀 **R2 起擋下**（同上），
-//      但寫成直接執行的字面（`_ = exec([BIN, "<g>"])`）放在一個沒人呼叫的函式裡**仍然通過**：函式有沒有被呼叫，文字層看不到；
-//   3. `main.swift` 把 `case "<g>-mutations": exit(…)` 改成 `exit(0)`——**仍然通過**：`isDispatched` 只找 `case "…":` 字面，
-//      不看分派到哪裡；
-//   4. 一支一般守衛在自己的 source 加 `let p = Process()` 與一個含 `.build/debug/akashic-guards` 的字串，就被當成
-//      「自己就是負控」豁免——**R2 起擋下**：豁免只給以某支它宣告的守衛為受測對象的 harness（同一條宣告＋受測對象的規則）。
-// 2 的後半與 3 要的是執行期的證據（harness 印出它實際跑了哪些守衛、由本守衛比對），那是另一個設計，另開 issue。
-// source 裡一個第一個元素恰好是守衛名、卻不是 argv 的陣列字面，也仍會被當成受測對象；宣告這道閘在它前面，
-// 所以那只會讓一個**已宣告**的守衛被當成有跑。
-//
-// **刻意不寫 `trigger-coverage: reads` 宣告**（#433 Step 5）：宣告存在的理由是補啟發式
-// 的漏（守衛用 glob 組路徑、basename 不逐字出現）。這支讀的是同目錄的 harness source，
-// 啟發式看得到——而指向自己所在目錄的宣告會被守衛判成「多半多餘」的警告。
+// **刻意不寫 `trigger-coverage: reads` 宣告**（#433 Step 5）：本支讀的是 `run-guards.sh`（受保護、路徑以字面
+// 出現，啟發式看得到）與暫存目錄裡的紀錄。
 
 import Foundation
 
-func migratedGuardControl() -> Int32 {
-    let runner = ".githooks/run-guards.sh"
-    let dir = "Sources/akashic-guards/"
-    let dispatcher = dir + "main.swift"
-    guard fileExists(runner) else {
-        print("✗ 找不到 \(runner)——守衛清單的唯一來源不見了")
-        return 1
+/// 紀錄的一行（形狀已驗過）。
+private struct RunLogLine {
+    let line: Int
+    let event: String
+    let run: String
+    let who: String
+    let fields: [String: Any]
+}
+
+private let runLogEvents: Set<String> = ["start", "declare", "invoke", "end"]
+private let runLogExpectations: Set<String> = ["red", "green", "output", "none"]
+
+private func isGuardName(_ s: String) -> Bool { !matches(s, #"^[a-z][a-z0-9-]*$"#).isEmpty }
+
+/// 一行紀錄的形狀（格式見 `GuardRunLog.swift`）。不合時回說明。
+private func parseRunLogLine(_ raw: String, line n: Int) -> Result<RunLogLine, RunLogShapeError> {
+    func bad(_ why: String) -> Result<RunLogLine, RunLogShapeError> {
+        .failure(RunLogShapeError(text: "執行紀錄第 \(n) 行\(why)：\(pyRepr([String(raw.prefix(120))]))"))
     }
-    guard fileExists(dispatcher) else {
-        print("✗ 找不到 \(dispatcher)——子命令的分派表不見了，無法判定哪支負控會被執行")
-        return 1
+    guard let obj = (try? JSONSerialization.jsonObject(with: Data(raw.utf8))) as? [String: Any] else {
+        return bad("不是 JSON 物件")
     }
-    // 只認**實際的呼叫**，不認註解裡提到的（`codeOnly` 剝掉整行註解，而 run-guards.sh
-    // 的註解密度很高——不剝的話一句「`akashic-guards X` 的映射」就會被算成執行了它）。
-    let rg = codeOnly(runner)
-    // **允許縮排**（#629）：`rule-coverage` 在 `run-guards.sh` 裡是 `for root in $plugin_roots` 迴圈內逐根呼叫，
-    // 行首有縮排；只認行首的版本會讓它「實際在跑、卻不在被檢查的名單裡」——這支守衛要防的正是那個形狀。
-    // **也認命令替換**（#689）：`plugin_roots=$(… plugin-roots)` 同樣是實際執行，只認行首時它不在名單裡。
-    // 同一支守衛可以在多處被呼叫（`rule-prose-guards` 先跑一次完整版、再逐根跑 `--prose-only`），要去重再數。
-    // binary 路徑與子命令之間是**任意個空白或 TAB**（#689 R2 verify：先前只認一個空格，雙空格與 TAB 的呼叫會執行、卻不在名單裡）。
-    let binPath = #"\.build/debug/akashic-guards"#
-    let call = binPath + #"[ \t]+([a-z][a-z0-9-]*)"#
-    let recognizedCalls = matches(rg, #"(?m)(?:^[ \t]*|\$\()"# + call)
-    var seenSubs = Set<String>()
-    let executed = recognizedCalls.map { (rg as NSString).substring(with: $0.range(at: 1)) }
-        .filter { seenSubs.insert($0).inserted }
-    guard !executed.isEmpty else {
-        print("✗ \(runner) 裡一個 `akashic-guards <子命令>` 都抽不到——抽取式與寫法脫節了")
-        return 1
+    guard let v = obj["v"] as? Int, v == GuardRunLog.formatVersion else { return bad("的格式版本不是 \(GuardRunLog.formatVersion)") }
+    guard let event = obj["event"] as? String, runLogEvents.contains(event) else { return bad("的 event 不在 start／declare／invoke／end 裡") }
+    guard let run = obj["run"] as? String, !run.isEmpty else { return bad("沒有 run") }
+    guard let who = obj["self"] as? String, isGuardName(who) else { return bad("的 self 不是子命令名") }
+    switch event {
+    case "declare":
+        guard let list = obj["for"] as? [String], !list.isEmpty, list.allSatisfy(isGuardName) else {
+            return bad("的 declare 沒有守衛名的清單（for）")
+        }
+    case "invoke":
+        guard let target = obj["target"] as? String, isGuardName(target),
+              let exe = obj["exe"] as? String, !exe.isEmpty,
+              let expect = obj["expect"] as? String, runLogExpectations.contains(expect),
+              obj["met"] as? Bool != nil, obj["rc"] as? Int != nil,
+              obj["case"] as? String != nil, obj["argv"] as? [String] != nil else {
+            return bad("的 invoke 缺欄位（target／exe／expect／met／rc／case／argv）或值的型別不對")
+        }
+    case "end":
+        guard obj["rc"] as? Int != nil else { return bad("的 end 沒有 rc") }
+    default:
+        break
     }
-    // **認不出的寫法要出聲**（R1 verify；R2 verify 起獨立定位）：找的是 binary 路徑本身的每一處出現，不是「長得像呼叫」的那些
-    // ——後者與抽取共用同一條 regex，抽取認不出的寫法它也認不出（雙空格、TAB、變數、引號都是這樣漏掉的）。每一處出現都必須
-    // 落在一個被抽取認得的呼叫裡，或是下面兩個具名的例外之一。
-    let exemptShapes = [
-        #"\[[ \t]+(?:![ \t]+)?-x[ \t]+"# + binPath + #"[ \t]+\]"#,   // 存在檢查 `[ ! -x .build/debug/akashic-guards ]`
-        #"(?m)^[ \t]*echo[ \t]+"[^"$`\n]*"[ \t]*$"#,                    // 整行只有一個 echo，引號裡沒有 `$` 與反引號（不執行任何東西）
-    ]
-    let accounted = recognizedCalls.map { $0.range } + exemptShapes.flatMap { matches(rg, $0).map { $0.range } }
-    var unrecognized: [String] = []
-    for o in matches(rg, binPath) where !accounted.contains(where: { NSLocationInRange(o.range.location, $0) }) {
-        let line = (rg as NSString).substring(with: (rg as NSString).lineRange(for: o.range))
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        if !unrecognized.contains(line) { unrecognized.append(line) }
+    return .success(RunLogLine(line: n, event: event, run: run, who: who, fields: obj))
+}
+
+private struct RunLogShapeError: Error { let text: String }
+
+func migratedGuardControl(argv: [String]) -> Int32 {
+    var logPath: String? = nil
+    var runner = ".githooks/run-guards.sh"
+    var i = 0
+    while i < argv.count {
+        if argv[i] == "--log", i + 1 < argv.count { logPath = argv[i + 1]; i += 2; continue }
+        // `--runner` 的唯一用途是負控（迷你 runner 在暫存目錄）——出貨的呼叫只帶 `--log`
+        if argv[i] == "--runner", i + 1 < argv.count { runner = argv[i + 1]; i += 2; continue }
+        print("✗ 看不懂的參數 \(pyRepr([argv[i]]))——用法：migrated-guard-control --log <執行紀錄> [--runner <runner 腳本>]")
+        return 64
+    }
+    guard let logPath else {
+        print("✗ 需要 --log <執行紀錄>。本支讀的是 run-guards.sh 這一次執行留下的紀錄（#707），單獨跑它沒有東西可讀"
+            + "——跑 `bash .githooks/run-guards.sh`")
+        return 64
     }
 
-    let dispatch = codeOnly(dispatcher)
-    func sourceOf(_ sub: String) -> String { dir + pascal(sub) + ".swift" }
-    func isDispatched(_ sub: String) -> Bool { dispatch.contains("case \"\(sub)\":") }
-    // **harness ＝ 它執行別的守衛**：source 裡建一個 `Process`（`= Process()`）、而且指向守衛的
-    // binary（`.build/debug/akashic-guards`）。用結構而不是檔名：`migrated-guard-control` 的名字帶
-    // `control` 卻不是 harness（它讀 `run-guards.sh` 抽字串，不執行任何守衛）。兩個條件缺一不可——
-    // `measured-claims-audit` 有 `Process` 但跑的不是守衛（它的 `akashic-guards` 只出現在目錄路徑裡），
-    // 本檔有那段 binary 路徑（抽取式裡）但不建 `Process`。這是啟發式——用別的方式 spawn 的
-    // harness 會被判成非 harness，方向是**誤報**（它會被要求負控，那是看得見的）。
-    /// 回 nil＝它是 harness；否則是第一件不成立的實體（依判準的順序）。
-    func whyNotHarness(_ sub: String) -> String? {
-        if !fileExists(sourceOf(sub)) { return "它的 source 檔不存在（\(sourceOf(sub))）" }
-        if !isDispatched(sub) { return "main.swift 沒有分派它（沒有 `case \"\(sub)\":`，跑它會得到「未知的守衛」）" }
-        if !executed.contains(sub) { return "它不在 run-guards.sh 裡跑" }
-        let code = codeOnly(sourceOf(sub))
-        if matches(code, #"=\s*Process\(\)"#).isEmpty { return "它的 source 沒有建 `Process`（不執行任何程式）" }
-        if !code.contains(".build/debug/akashic-guards") { return "它的 source 沒有指向 `.build/debug/akashic-guards`（不執行守衛）" }
-        return nil
+    let runnerFull = runner.hasPrefix("/") ? runner : "\(repoRoot)/\(runner)"
+    guard let runnerRaw = try? String(contentsOfFile: runnerFull, encoding: .utf8) else {
+        print("✗ 讀不到 \(runner)——守衛清單的唯一來源不見了")
+        return 1
     }
-    let harnesses = executed.filter { whyNotHarness($0) == nil }
+    let runnerCode = codeOnlyText(runnerRaw, path: runner)
 
+    // ── 讀紀錄：讀不到、空的、形狀不對，都不判定 ────────────────────────────
+    guard let data = FileManager.default.contents(atPath: logPath) else {
+        print("✗ 讀不到執行紀錄 \(logPath)——沒有紀錄就不知道這次跑了什麼、哪支負控真的讓它們紅過")
+        return 1
+    }
+    guard let text = String(data: data, encoding: .utf8) else {
+        print("✗ 執行紀錄 \(logPath) 不是 UTF-8"); return 1
+    }
+    var rawLines = text.components(separatedBy: "\n")
+    if rawLines.last == "" { rawLines.removeLast() }
+    guard !rawLines.isEmpty else {
+        print("✗ 執行紀錄是空的（\(logPath)）——空掃描不是通過：一支守衛都沒有留下紀錄，"
+            + "表示紀錄的寫入沒有接上（`main.swift` 的 `recordGuardStart`、runner 的 `AKASHIC_GUARD_RUN_LOG`）")
+        return 1
+    }
+    var lines: [RunLogLine] = []
+    var shape: [String] = []
+    for (idx, raw) in rawLines.enumerated() {
+        switch parseRunLogLine(raw, line: idx + 1) {
+        case .success(let l): lines.append(l)
+        case .failure(let e): shape.append(e.text)
+        }
+    }
+    // 同一個 run 的每一行都要是同一支、恰一筆 start、至多一筆 end
+    var byRun: [String: [RunLogLine]] = [:]
+    var runOrder: [String] = []
+    for l in lines {
+        if byRun[l.run] == nil { runOrder.append(l.run) }
+        byRun[l.run, default: []].append(l)
+    }
+    for r in runOrder {
+        let ls = byRun[r]!
+        let starts = ls.filter { $0.event == "start" }.count
+        let ends = ls.filter { $0.event == "end" }.count
+        let whos = Set(ls.map { $0.who })
+        if starts != 1 {
+            shape.append("run \(r) 有 \(starts) 筆 start（第 \(ls.map { String($0.line) }.joined(separator: "、")) 行）——每個行程恰一筆")
+        }
+        if ends > 1 { shape.append("run \(r) 有 \(ends) 筆 end") }
+        if whos.count != 1 { shape.append("run \(r) 的 self 不只一個：\(whos.sorted().joined(separator: "、"))") }
+    }
+    if !shape.isEmpty {
+        for s in shape.prefix(20) { print("  ✗ \(s)") }
+        if shape.count > 20 { print("  ✗ ……另有 \(shape.count - 20) 處") }
+        print("\n══ **執行紀錄的形狀不對（\(shape.count) 處）——紀錄不可信，不判定** ══")
+        return 1
+    }
+    // 本支自己這一次的 start 必須在：證明 --log 就是本支正在寫的那一份，而且 start 的寫入接上了
+    guard byRun[GuardRunLog.runID]?.contains(where: { $0.event == "start" && $0.who == "migrated-guard-control" }) == true else {
+        print("✗ 紀錄裡沒有本支這一次執行的 start（run \(GuardRunLog.runID)）——`AKASHIC_GUARD_RUN_LOG` 沒有指向 "
+            + "--log 那份檔，或 `main.swift` 沒有寫 start。這份紀錄不是這一次執行留下的，不判定")
+        return 1
+    }
+    // 本支自己的 start 是讀之前寫進去的，所以「空」指的是除了它之外一筆都沒有
+    guard runOrder.contains(where: { $0 != GuardRunLog.runID }) else {
+        print("✗ 執行紀錄是空的（\(logPath)）：除了本支這一次的 start，一筆都沒有——空掃描不是通過。"
+            + "沒有任何守衛留下紀錄，表示紀錄的寫入沒有接上（runner 沒有 export `AKASHIC_GUARD_RUN_LOG`？）")
+        return 1
+    }
+
+    // ── 誰要負控：這次啟動過的每一支 ─────────────────────────────────────
+    let ran = Set(lines.filter { $0.event == "start" }.map { $0.who })
     var problems: [String] = []
-    /// harness `h` 宣告它是哪幾支守衛的負控：命名慣例，加上 source 裡從行首開始的 `// negative-control-for:` 行。
-    /// **宣告從未剝註解的原文讀**——它自己就是註解，`codeOnly` 會把它剝掉。
-    func claims(of h: String) -> Set<String> {
-        var out = Set<String>()
+    func problem(_ p: String) { if !problems.contains(p) { problems.append(p) } }
+    // 文字只用在這一邊：runner 列了、卻沒有 start 的（沒跑，或跑的 binary 不寫紀錄）
+    for g in Set(captures(runnerCode, #"akashic-guards['"]?[ \t]+([a-z][a-z0-9-]*)"#)).sorted() where !ran.contains(g) {
+        problem("\(runner) 呼叫 `akashic-guards \(g)`，但這次執行的紀錄裡沒有它的 start——它沒有執行"
+            + "（在沒跑到的分支或 heredoc 裡？），或執行的 binary 不寫紀錄（舊的建置、拿掉了 `AKASHIC_GUARD_RUN_LOG`）")
+    }
+
+    // ── 誰有負控：宣告、跑完、執行了這一支 binary、至少一次如預期 ─────────────
+    let ownExe = GuardRunLog.ownExecutable
+    var coverers: [String: [String: (red: Int, output: Int)]] = [:]
+    var attempts: [String: [String]] = [:]
+    var harnessRuns = 0
+    for r in runOrder where r != GuardRunLog.runID {
+        let ls = byRun[r]!
+        let h = ls[0].who
+        let invokes = ls.filter { $0.event == "invoke" }
+        var declared = Set<String>()
         if h.hasSuffix("-mutations") {
             let g = String(h.dropLast("-mutations".count))
-            if executed.contains(g) { out.insert(g) }
+            if ran.contains(g) { declared.insert(g) }
         }
-        for m in matches(rawFile(sourceOf(h)), #"(?m)^// negative-control-for:(.*)$"#) {
-            let list = (rawFile(sourceOf(h)) as NSString).substring(with: m.range(at: 1))
-            for raw in list.split(separator: ",") {
-                let g = raw.trimmingCharacters(in: .whitespaces)
-                if matches(g, #"^[a-z][a-z0-9-]*$"#).isEmpty {
-                    problems.append("`\(h)` 的 `negative-control-for:` 有一項不是守衛名：「\(g)」"); continue
-                }
-                if g == h { problems.append("`\(h)` 宣告它是自己的負控——負控的負控要另一支 harness"); continue }
-                if !executed.contains(g) {
-                    problems.append("`\(h)` 宣告它是 `\(g)` 的負控，但 `\(g)` 不在 run-guards.sh 裡跑"
-                        + "——拼錯，或那支守衛已退場（宣告跟著拿掉）")
+        for d in ls where d.event == "declare" {
+            for g in d.fields["for"] as! [String] {
+                if g == h { problem("`\(h)` 宣告它是自己的負控——負控的負控要另一支 harness"); continue }
+                if !ran.contains(g) {
+                    problem("`\(h)` 宣告它是 `\(g)` 的負控，但 `\(g)` 這次沒有跑——拼錯，或那支守衛已退場（宣告跟著拿掉）")
                     continue
                 }
-                out.insert(g)
+                declared.insert(g)
             }
         }
-        return out
-    }
-    /// harness `h` 以哪幾支守衛為受測對象：自己 source 裡的 argv 陣列字面，與資料檔的受測對象欄位（判準見檔頭）。
-    func targets(of h: String) -> Set<String> {
-        var out = Set<String>()
-        let src = codeOnly(sourceOf(h))
-        let ns = src as NSString
-        // 陣列字面若是 `let x = [...]`／`var x = [...]`，group 1 是 `x`：它要在同一檔出現在執行的位置才算（#689 R2 verify）。
-        let literal = #"(?:\b(?:let|var)[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*(?::[^=\n]*)?=[ \t]*)?"#
-            + #"\[\s*(?:BIN\s*,\s*)?"([a-z][a-z0-9-]*)""#
-        for m in matches(src, literal) {
-            if m.range(at: 1).location != NSNotFound {
-                let v = NSRegularExpression.escapedPattern(for: ns.substring(with: m.range(at: 1)))
-                if matches(src, #"(?:guardArgv:|\barguments[ \t]*=|\bexec\()[ \t]*"# + v + #"\b"#).isEmpty { continue }
-            }
-            out.insert(ns.substring(with: m.range(at: 2)))
+        if invokes.isEmpty && declared.isEmpty { continue }
+        if !invokes.isEmpty { harnessRuns += 1 }
+        let endRC = ls.first(where: { $0.event == "end" })?.fields["rc"] as? Int
+        let completed = endRC == 0
+        if !completed {
+            let why = endRC.map { "以 rc=\($0) 結束" } ?? "沒有結束紀錄（沒經過 `finishGuard` 就結束，或中途被殺）"
+            problem("`\(h)` \(why)——它的 \(invokes.count) 次執行都不算數"
+                + "（run-guards.sh 是 `set -e`：沒跑完的 harness 出現在紀錄裡，表示它的失敗被遮掉了）")
         }
-        let data = dir + pascal(h) + "Data.swift"
-        for f in [sourceOf(h)] + (fileExists(data) ? [data] : []) {
-            let code = codeOnly(f)
-            for p in [#"guardRel:\s*"akashic-guards ([a-z][a-z0-9-]*)""#, #"guardArgv:\s*\[\s*"([a-z][a-z0-9-]*)""#] {
-                for m in matches(code, p) { out.insert((code as NSString).substring(with: m.range(at: 1))) }
+        var unmet: [String] = []
+        var detected = Set<String>()
+        for inv in invokes {
+            let target = inv.fields["target"] as! String
+            let exe = inv.fields["exe"] as! String
+            let expect = inv.fields["expect"] as! String
+            let met = inv.fields["met"] as! Bool
+            let rc = inv.fields["rc"] as! Int
+            let label = inv.fields["case"] as! String
+            let foreign = exe != ownExe
+            if foreign {
+                problem("`\(h)` 執行的 `akashic-guards \(target)` 不是這一支 binary（\(exe)；本支是 \(ownExe)）——那些執行不算數")
             }
+            if completed && !met { unmet.append("「\(label)」預期 \(expect)、rc=\(rc)") }
+            guard met, expect == "red" || expect == "output", !foreign, target != h else { continue }
+            let how = expect == "red" ? "變紅" : "輸出如預期"
+            if !completed {
+                attempts[target, default: []].append("`\(h)` 讓它\(how)過，但那支 harness 沒有以 rc=0 跑完")
+                continue
+            }
+            if !declared.contains(target) {
+                attempts[target, default: []].append("`\(h)` 讓它\(how)過，但 `\(h)` 沒有宣告它——順帶跑不算（#689 R1）")
+                continue
+            }
+            var c = coverers[target, default: [:]][h] ?? (0, 0)
+            if expect == "red" { c.red += 1 } else { c.output += 1 }
+            coverers[target, default: [:]][h] = c
+            detected.insert(target)
         }
-        return out.intersection(executed)
-    }
-    var coverers: [String: [String]] = [:]
-    for h in harnesses {
-        let t = targets(of: h)
-        for g in claims(of: h).sorted() {
-            if t.contains(g) {
-                coverers[g, default: []].append(h)
-            } else {
-                problems.append("`\(h)` 宣告它是 `\(g)` 的負控，卻沒有以 `\(g)` 為受測對象"
-                    + "（source 裡沒有執行它的 argv、資料檔也沒有 `guardRel:`／`guardArgv:` 指向它）——宣告是空的，不算數")
+        if !unmet.isEmpty {
+            problem("`\(h)` 以 rc=0 跑完，但它有 \(unmet.count) 次執行沒有照它自己的預期——它沒有比對結果："
+                + unmet.prefix(3).joined(separator: "；") + (unmet.count > 3 ? "……" : ""))
+        }
+        if completed {
+            for g in declared.sorted() where !detected.contains(g) {
+                problem("`\(h)` 宣告它是 `\(g)` 的負控，但這次執行裡它沒有一次讓 `\(g)` 如預期變紅（或輸出如預期）——宣告是空的")
             }
         }
     }
 
-    // **harness 自己就是負控——要求「負控的負控」會無限遞歸。** 但**不靜默豁免**：
-    // `oracle-precondition-control` 的存在正是「harness 也可能需要 meta 檢查」的實例（它執行
-    // `audit-guards-mutations` 並驗那支 harness 自己的降級機制）。所以沒被任何東西驗的 harness
-    // **印出來**，交人裁決要不要 meta-harness，只是不計入缺口。
-    // **豁免只給真的在當負控的 harness**（#689 R2 verify，security／DA 席）：上一版只看 `whyNotHarness`（四個文字條件），
-    // 一支一般守衛在 source 塞 `let p = Process()` 與一個含 binary 路徑的字串就被豁免。現在它要以某支它宣告的守衛為受測對象——
-    // 同一條「宣告＋受測對象」的規則，也就是它自己出現在上面的對應表裡。
-    let creditedHarnesses = Set(coverers.values.flatMap { $0 })
-    let uncovered = executed.filter { coverers[$0] == nil }.sorted()
-    let selfControl = uncovered.filter { creditedHarnesses.contains($0) }
-    let missing = uncovered.filter { !creditedHarnesses.contains($0) }
-    print("══ 實際在跑的 Swift 守衛：\(executed.count) 支｜會跑的 negative-control harness：\(harnesses.count) 支 ══")
-    // **把對應攤開來**：每支守衛由哪些 harness 宣告並執行。讓漏掉的那條在人眼前缺席，而不是只印一個總數。
-    for s in executed.sorted() where coverers[s] != nil {
-        print("  · `\(s)` ← \(coverers[s]!.sorted().joined(separator: "、"))")
+    // **harness 自己就是負控——要求「負控的負控」會無限遞歸。** 但**不靜默豁免**：`oracle-precondition-control`
+    // 的存在正是「harness 也可能需要 meta 檢查」的實例。豁免只給這次**確實**替別的守衛作證的 harness（出現在
+    // 對應表右邊的）——一支從沒讓任何守衛紅過的程式，不論它的原始碼長什麼樣，都不是負控（#689 的第 4 種形狀）。
+    let credited = Set(coverers.values.flatMap { $0.keys })
+    let uncovered = ran.filter { coverers[$0] == nil }
+    let selfControl = uncovered.filter { credited.contains($0) }.sorted()
+    let missing = uncovered.filter { !credited.contains($0) }.sorted()
+
+    print("══ 執行紀錄 \(rawLines.count) 行｜這次跑了 \(ran.count) 支守衛｜留下執行紀錄的 harness \(harnessRuns) 次 ══")
+    for g in ran.sorted() {
+        guard let cs = coverers[g] else { continue }
+        let who = cs.keys.sorted().map { h -> String in
+            let c = cs[h]!
+            return "\(h)（" + [c.red > 0 ? "紅 \(c.red) 次" : nil, c.output > 0 ? "輸出比對 \(c.output) 次" : nil]
+                .compactMap { $0 }.joined(separator: "、") + "）"
+        }
+        print("  · `\(g)` ← \(who.joined(separator: "、"))")
     }
     for s in selfControl {
-        print("  ℹ `akashic-guards \(s)` 沒有負控，但它**自己就是**負控（宣告並執行別的守衛）"
-            + "——不計入缺口。要不要替它寫 meta-harness 是人的裁決"
-            + "（`oracle-precondition-control` 就是那樣的一個實例）")
+        print("  ℹ `akashic-guards \(s)` 沒有負控，但它**自己就是**負控（這次確實讓別的守衛如預期變紅過）"
+            + "——不計入缺口。要不要替它寫 meta-harness 是人的裁決（`oracle-precondition-control` 就是那樣的一個實例）")
     }
     for s in missing {
-        print("  ✗ `akashic-guards \(s)` 在 run-guards.sh 裡跑，"
-            + "但沒有任何會跑的 negative-control harness 宣告並執行它——")
-        // 慣例的負控只拆掉一部分時，說出不見的是哪一件實體（全部拆掉時它就是不存在，上一行已經說了）
-        let conventional = s + "-mutations"
-        if fileExists(sourceOf(conventional)) || isDispatched(conventional) || executed.contains(conventional),
-           let why = whyNotHarness(conventional) {
-            print("     它的慣例負控 `\(conventional)` 不算數：\(why)。")
-        }
-        // 它若本身長得像負控卻不算數，說出是哪一件實體不在（#689 的負控格各拆一樣）。一般守衛不是 harness 是正常的，
-        // 只有缺 source 或分派時才說（那兩件對任何子命令都是必要的）。
-        if let why = whyNotHarness(s),
-           !fileExists(sourceOf(s)) || !isDispatched(s) || s.hasSuffix("-mutations") || s.hasSuffix("-control") {
-            print("     它自己也不能算是別人的負控：\(why)。")
-        } else if whyNotHarness(s) == nil {
-            print("     它長得像負控（建 `Process` 並指向 `.build/debug/akashic-guards`），但沒有以任何它宣告的守衛為受測對象，"
-                + "所以也不算「自己就是負控」。")
-        }
-        print("     修法：寫一支 `<名字>-mutations`（source、main.swift 分派、run-guards.sh 三處都要有），"
-            + "或在會跑的 harness 加執行它的 case，並在那支 harness 的 source 加一行 `// negative-control-for: \(s)`。")
-    }
-    for u in unrecognized {
-        problems.append("run-guards.sh 這一行有 `.build/debug/akashic-guards`，但抽取認不出它是哪一支守衛的呼叫"
-            + "（只認行首與 `$(`、路徑後接空白與子命令名）：「\(u)」——改成獨立一行，或擴充抽取並補負控")
+        print("  ✗ `akashic-guards \(s)` 這次執行跑了，但沒有任何 harness 在執行時宣告它、以 rc=0 跑完、"
+            + "並讓它如預期變紅過——")
+        for a in (attempts[s] ?? []).prefix(5) { print("     · \(a)") }
+        print("     修法：寫一支 `\(s)-mutations`（經 `runGuardProcess` 執行它、至少一格預期 `.red`），"
+            + "或在會跑的 harness 加執行它的格子，並在那支 harness 開頭呼叫 `declareNegativeControl(for: [\"\(s)\"])`；"
+            + "harness 要在 run-guards.sh 裡、排在本支之前")
     }
     for p in problems { print("  ✗ \(p)") }
     if missing.isEmpty && problems.isEmpty {
-        // **數字要與上面的 ℹ 對得起來**：說「11 支全部都有」而其中一支剛被印成「沒有負控」
-        // ——那是同一份輸出裡的兩句矛盾的話，而本 repo 有一整支守衛在抓這個形狀。
-        let need = executed.count - selfControl.count
-        print("  \(need) 支需要負控的全部都有會跑的負控"
+        // **數字要與上面的 ℹ 對得起來**：說「N 支全部都有」而其中一支剛被印成「沒有負控」是同一份輸出裡的兩句矛盾的話
+        print("  \(ran.count - selfControl.count) 支需要負控的全部都有，而且這次真的讓它們紅過"
             + (selfControl.isEmpty ? "" : "（另 \(selfControl.count) 支自己就是負控）"))
     }
     let bad = missing.count + problems.count
-    print("\n══ \(bad == 0 ? "無缺口" : "**\(missing.count) 支缺負控、\(problems.count) 條宣告或抽取的問題**") ══")
+    print("\n══ \(bad == 0 ? "無缺口" : "**\(missing.count) 支缺負控、\(problems.count) 條紀錄的問題**") ══")
     return bad == 0 ? 0 : 1
 }

@@ -20,25 +20,18 @@ func triggerCoverageMutations() -> Int32 {
     let GUARD_REL = "akashic-guards trigger-coverage"
     let BIN = "\(repoRoot)/.build/debug/akashic-guards"
 
-    func exec(_ argv: [String], cwd: String) -> (Int32, String) {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: argv[0])
-        p.arguments = Array(argv.dropFirst())
-        p.currentDirectoryURL = URL(fileURLWithPath: cwd)
-        let o = Pipe(), e = Pipe(); p.standardOutput = o; p.standardError = e
-        guard (try? p.run()) != nil else { return (127, "spawn 失敗") }
-        let od = o.fileHandleForReading.readDataToEndOfFile()
-        _ = e.fileHandleForReading.readDataToEndOfFile()
-        p.waitUntilExit()
-        return (p.terminationStatus, String(data: od, encoding: .utf8) ?? "")
+    // 經 `runGuardProcess` 執行（#707）：它留下執行紀錄。回傳 stdout（守衛的缺口行在那裡），與先前相同。
+    func exec(_ argv: [String], cwd: String, _ label: String, _ expect: GuardExpectation) -> (Int32, String) {
+        let r = runGuardProcess(argv, cwd: cwd, label: label, expect: expect)
+        return (r.status, r.stdout)
     }
     // **Python 版已刪除**（#433 Step 5）：遷移期這裡跑兩版並要求逐字一致，Python 是 oracle。
     // 那條路徑在 `.py` 刪掉之後是死的——`no-compat-fallback` 的「退場即刪」。
     //
     // `sourceInjection` 那個參數也一起退場：它服務的兩個 case 注入守衛自己的 `.py`，
     // 而那個檔案已不存在——那兩個 case 同輪移除。
-    func run(_ root: String) -> (Int32, String) {
-        return exec([BIN, "trigger-coverage"], cwd: root)
+    func run(_ root: String, _ label: String, _ expect: GuardExpectation) -> (Int32, String) {
+        return exec([BIN, "trigger-coverage"], cwd: root, label, expect)
     }
 
     /// 複製相關子樹、套用 edits、跑守衛。
@@ -48,7 +41,8 @@ func triggerCoverageMutations() -> Int32 {
     /// **但那個目錄非複製不可**——
     /// `measured-numbers-audit` 宣告它讀 `.claude/rules/*.md` 而那些檔在 PROTECTED 裡，
     /// 沒複製的話 temp 樹裡那條宣告解析不到，**每一個 case 都多報一條與注入無關的缺口**。
-    func withCopy(_ edits: [(path: String, old: String, new: String)]) -> (Int32, String)? {
+    func withCopy(_ edits: [(path: String, old: String, new: String)], _ label: String,
+                  _ expect: GuardExpectation) -> (Int32, String)? {
         let tmp = NSTemporaryDirectory() + "trig-mut-" + UUID().uuidString
         try? FileManager.default.createDirectory(atPath: tmp, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(atPath: tmp) }
@@ -96,7 +90,7 @@ func triggerCoverageMutations() -> Int32 {
             guard let r = t.range(of: e.old) else { return nil }   // 注入沒改到 → case 無效
             try? t.replacingCharacters(in: r, with: e.new).write(toFile: p, atomically: true, encoding: .utf8)
         }
-        return run(tmp)
+        return run(tmp, label, expect)
     }
 
     // **baseline 必須跑在 copy 上，不是原始 repo**（#518）。每個 case 都跑在 copy 上，
@@ -105,7 +99,7 @@ func triggerCoverageMutations() -> Int32 {
     // 之後，原始 repo 的 baseline 照樣綠，而 31 個 case 全部因為「copy 裡少了那個受保護檔」
     // 變紅、每一個都報「沒指名 ← 訊息對它是盲的」——**31 個誤導的紅**，沒有一個說得出真因。
     // 跑 copy 之後同一個情形只會產生一條，而且是守衛自己的話：「受保護清單裡有不存在的路徑」。
-    guard let (baseRC, baseOut) = withCopy([]) else {
+    guard let (baseRC, baseOut) = withCopy([], "baseline（copy 上）", .green) else {
         print("✗ baseline 的 copy 建不起來——負控無法執行"); return 1
     }
     if baseRC != 0 {
@@ -118,7 +112,8 @@ func triggerCoverageMutations() -> Int32 {
 
     var results: [Bool] = []
     for c in triggerCoverageMutationCases {
-        guard let (rc, out) = withCopy(c.edits) else {
+        // 已知缺口與警告格要維持綠（rc=0），其餘要紅——與下面三段判準的 rc 條件一致
+        guard let (rc, out) = withCopy(c.edits, c.desc, (c.isKnownGap || c.isWarn) ? .green : .red) else {
             print("✗ \(c.desc) → **注入沒改到東西**，這個 case 無效"); results.append(false); continue
         }
         let gaps = matches(out, #"(?m)^  · (.+)$"#).map { (out as NSString).substring(with: $0.range(at: 1)) }

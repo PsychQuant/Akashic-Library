@@ -5,10 +5,13 @@
 // `plugin/` 為根，放進 `plugins/<name>/` 的測試被刪、沒接線、skill 漏引規則，沒有一道
 // 守衛會出聲。能排除後者的方法只有一個：故意弄壞，看它紅不紅。
 //
-// **它宣告的只有 `plugin-roots`（命名慣例）與 `marketplace-consistency`**（`migrated-guard-control` 讀下一行）。
+// **它宣告的只有 `plugin-roots`（命名慣例）與 `marketplace-consistency`**（函式開頭的 `declareNegativeControl`，#707）。
 // 它另外跑 `trigger-coverage`、`protected-ratchet`、`rule-coverage`，驗的是「plugins/ 底下的根它們看得見」——那是
 // `plugin-roots` 這份根目錄清單的後果，不是那三支守衛的負控；它們各有自己的 harness，刪掉那支時要紅（#689 R1 verify）。
-// negative-control-for: marketplace-consistency
+// `migrated-guard-control` 只採用宣告過的守衛的執行紀錄，所以這三支在這裡變紅不替它們作證。
+//
+// **`plugin-roots` 的負控是輸出比對，不是變紅**（#707）：它是列舉命令，本來就只回 0。它的格子是「在一棵放了沒有
+// manifest 的雜目錄的副本上，輸出剛好是該有的那份」——預期寫成 `.exactOutput`，由 `runGuardProcess` 比對。
 //
 // **每一格都有對照組**：同一棵 copy、只做前置（`setup`）不做突變時，守衛必須是綠的——
 // 否則紅的原因分不出是突變還是前置本身（`oracle-precondition-control` 的同一個紀律）。
@@ -35,6 +38,7 @@ private struct PluginRootMutation {
 }
 
 func pluginRootsMutations() -> Int32 {
+    declareNegativeControl(for: ["marketplace-consistency"])
     let fm = FileManager.default
     let BIN = "\(repoRoot)/.build/debug/akashic-guards"
     let disc = "plugins/akashic-discovery"
@@ -45,23 +49,15 @@ func pluginRootsMutations() -> Int32 {
     let market = ".claude-plugin/marketplace.json"
     let discManifest = disc + "/.claude-plugin/plugin" + ".json"
 
-    func exec(_ argv: [String], cwd: String) -> (Int32, String) {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: argv[0])
-        p.arguments = Array(argv.dropFirst())
-        p.currentDirectoryURL = URL(fileURLWithPath: cwd)
-        let o = Pipe(), e = Pipe(); p.standardOutput = o; p.standardError = e
-        guard (try? p.run()) != nil else { return (127, "spawn 失敗：\(argv[0])") }
-        let od = o.fileHandleForReading.readDataToEndOfFile()
-        let ed = e.fileHandleForReading.readDataToEndOfFile()
-        p.waitUntilExit()
-        return (p.terminationStatus,
-                (String(data: od, encoding: .utf8) ?? "") + (String(data: ed, encoding: .utf8) ?? ""))
+    // 執行一律經 `runGuardProcess`（#707）：它留下執行紀錄。
+    func exec(_ argv: [String], cwd: String, _ label: String, _ expect: GuardExpectation) -> (Int32, String) {
+        let r = runGuardProcess(argv, cwd: cwd, label: label, expect: expect)
+        return (r.status, r.combined)
     }
 
-    func runGuard(_ argv: [String], in root: String) -> (Int32, String) {
-        argv[0] == "bash" ? exec(["/bin/bash"] + argv.dropFirst(), cwd: root)
-                          : exec([BIN] + argv, cwd: root)
+    func runGuard(_ argv: [String], in root: String, _ label: String, _ expect: GuardExpectation) -> (Int32, String) {
+        argv[0] == "bash" ? exec(["/bin/bash"] + argv.dropFirst(), cwd: root, label, expect)
+                          : exec([BIN] + argv, cwd: root, label, expect)
     }
 
     // 檔案操作（全部相對於 copy 的根）
@@ -88,7 +84,7 @@ func pluginRootsMutations() -> Int32 {
         return (try? (t + "\nbash \(probe)\n").write(toFile: path, atomically: true, encoding: .utf8)) != nil
     }
     func acceptRatchet(_ root: String) -> Bool {
-        exec([BIN, "protected-ratchet", "--accept"], cwd: root).0 == 0
+        exec([BIN, "protected-ratchet", "--accept"], cwd: root, "前置：接受棘輪", .green).0 == 0
     }
 
     /// 複製守衛會讀到的子樹。symlink 以 symlink 複製（`copyItem` 不跟隨），所以 discovery
@@ -184,11 +180,11 @@ func pluginRootsMutations() -> Int32 {
     var caught = 0
     // **plugin-roots 的契約本身**（spec 範例）：沒有 manifest 的子目錄不是根。這是 shell 端
     // 與受保護清單共用的輸出，壞掉時紅在別處——所以在這裡釘住，而不是只在實作時跑一次。
+    let rootsWant = "plugin\n\(disc)\n"
     let rootsOK = withCopy { root -> (Int32, String)? in
         _ = write(root, "plugins/scratch" + "/notes" + ".txt", "scratch\n")
-        return exec([BIN, "plugin-roots"], cwd: root)
+        return exec([BIN, "plugin-roots"], cwd: root, "沒有 manifest 的雜目錄不是根", .exactOutput(rootsWant))
     }
-    let rootsWant = "plugin\n\(disc)\n"
     if let (rc, out) = rootsOK, rc == 0, out == rootsWant {
         print("✓ plugin-roots 只列有 manifest 的根（雜目錄 plugins/scratch 不算）")
     } else {
@@ -209,7 +205,7 @@ func pluginRootsMutations() -> Int32 {
         let label = "\(c.desc)〔\(c.guardArgv.joined(separator: " "))〕"
         // 對照組：只做前置
         guard let (ctlRC, ctlOut) = withCopy({ root in
-            c.setup(root) ? runGuard(c.guardArgv, in: root) : nil
+            c.setup(root) ? runGuard(c.guardArgv, in: root, "對照組：" + label, .green) : nil
         }) else {
             print("✗ \(label) → 前置做不出來，這一格無效"); continue
         }
@@ -226,7 +222,7 @@ func pluginRootsMutations() -> Int32 {
         guard let (rc, out) = withCopy({ root in
             guard c.setup(root) else { return nil }
             applied = c.mutate(root)
-            return applied ? runGuard(c.guardArgv, in: root) : (0, "")
+            return applied ? runGuard(c.guardArgv, in: root, label, .red) : (0, "")
         }) else {
             print("✗ \(label) → 前置做不出來，這一格無效"); continue
         }

@@ -20,95 +20,9 @@ struct AGMCase { let desc: String; let guardRel: String; let edits: [AGMEdit]; l
 
 
 let agmCases: [AGMCase] = [
-    // **注入目標從 `MIGRATED` 表換成 runner**（#433 Step 5）：那張表在遷移完成後是空的，
-    // 「拿掉一列」不再改變任何事。而 `migrated-guard-control` 真正的輸入是 `run-guards.sh`
-    // ——注入一支沒有負控的守衛，它必須報出來。
-    AGMCase(desc: "migrated：runner 多一支沒有負控的守衛", guardRel: "akashic-guards migrated-guard-control", edits: [
-        AGMEdit(path: ".githooks/run-guards.sh", kind: "replaceFirst", a: ".build/debug/akashic-guards migrated-guard-control", b: ".build/debug/akashic-guards fake-guard\n.build/debug/akashic-guards migrated-guard-control"),
-    ], expect: ["缺負控", "fake-guard"]),
-    // #689：負控在不在，要看負控的**實體**——source 檔、`main.swift` 的分派、`run-guards.sh` 的那一行。
-    // 先前判準是「守衛名的字串出現在 `Sources/akashic-guards/` 的任何地方」，而 `main.swift` 的 `case "<名>":`
-    // 讓它永遠成立：刪掉 `NetworkConfinementMutations.swift` 仍報「無缺口」。三格各拆掉一樣。
-    AGMCase(desc: "migrated：負控的 source 檔被刪（runner 仍跑它）", guardRel: "akashic-guards migrated-guard-control", edits: [
-        AGMEdit(path: "Sources/akashic-guards/NetworkConfinementMutations.swift", kind: "delete", a: "", b: ""),
-    ], expect: ["缺負控", "`akashic-guards network-confinement` 在 run-guards.sh 裡跑", "source 檔不存在"]),
-    AGMCase(desc: "migrated：負控在 main.swift 的分派被拿掉", guardRel: "akashic-guards migrated-guard-control", edits: [
-        AGMEdit(path: "Sources/akashic-guards/main.swift", kind: "replaceFirst", a: "case \"network-confinement-mutations\":", b: "case \"network-confinement-mutations-gone\":"),
-    ], expect: ["缺負控", "`akashic-guards network-confinement` 在 run-guards.sh 裡跑", "main.swift 沒有分派它"]),
-    AGMCase(desc: "migrated：負控不在 run-guards.sh 裡跑", guardRel: "akashic-guards migrated-guard-control", edits: [
-        AGMEdit(path: ".githooks/run-guards.sh", kind: "replaceFirst", a: ".build/debug/akashic-guards network-confinement-mutations\n", b: ""),
-    ], expect: ["缺負控", "`akashic-guards network-confinement` 在 run-guards.sh 裡跑"]),
-    // 命令替換裡的呼叫也是實際執行（`plugin_roots=$(… plugin-roots)` 的形狀）；只認行首時它不在名單裡。
-    AGMCase(desc: "migrated：命令替換裡跑的守衛沒有負控", guardRel: "akashic-guards migrated-guard-control", edits: [
-        AGMEdit(path: ".githooks/run-guards.sh", kind: "replaceFirst", a: ".build/debug/akashic-guards migrated-guard-control", b: "probe=$(.build/debug/akashic-guards fake-subst-guard)\n.build/debug/akashic-guards migrated-guard-control"),
-    ], expect: ["缺負控", "fake-subst-guard"]),
-    // #689 R1 verify：守衛有負控，要一支 harness **宣告**它、而且**執行**它。上一版只看「某支 harness 的 source 提到它」，
-    // 於是別的 harness 順帶跑一下也算數：刪掉 trigger-coverage 自己那支負控，它仍被 `plugin-roots-mutations` 抵免；
-    // 刪掉 plugin-roots 那支，它仍被 `rule-prose-guards-mutations`（只為了取根目錄清單而跑它）抵免。
-    AGMCase(desc: "migrated：刪掉 trigger-coverage 專屬的負控，別的 harness 順帶跑它不算", guardRel: "akashic-guards migrated-guard-control", edits: [
-        AGMEdit(path: "Sources/akashic-guards/TriggerCoverageMutations.swift", kind: "delete", a: "", b: ""),
-        AGMEdit(path: "Sources/akashic-guards/TriggerCoverageMutationsData.swift", kind: "delete", a: "", b: ""),
-        AGMEdit(path: "Sources/akashic-guards/main.swift", kind: "replaceFirst", a: "case \"trigger-coverage-mutations\":\n    exit(triggerCoverageMutations())\n", b: ""),
-        AGMEdit(path: ".githooks/run-guards.sh", kind: "replaceFirst", a: ".build/debug/akashic-guards trigger-coverage-mutations\n", b: ""),
-    ], expect: ["缺負控", "`akashic-guards trigger-coverage` 在 run-guards.sh 裡跑"]),
-    AGMCase(desc: "migrated：刪掉 plugin-roots 專屬的負控，取根目錄清單而跑它不算", guardRel: "akashic-guards migrated-guard-control", edits: [
-        AGMEdit(path: "Sources/akashic-guards/PluginRootsMutations.swift", kind: "delete", a: "", b: ""),
-        AGMEdit(path: "Sources/akashic-guards/main.swift", kind: "replaceFirst", a: "case \"plugin-roots-mutations\":", b: "case \"plugin-roots-mutations-gone\":"),
-        AGMEdit(path: ".githooks/run-guards.sh", kind: "replaceFirst", a: ".build/debug/akashic-guards plugin-roots-mutations\n", b: ""),
-    ], expect: ["缺負控", "`akashic-guards plugin-roots` 在 run-guards.sh 裡跑", "`akashic-guards marketplace-consistency` 在 run-guards.sh 裡跑"]),
-    // 資料檔只認受測對象欄位（`guardRel:`／`guardArgv:`）。`TriggerCoverageMutationsData.swift` 的注入內容裡有
-    // `.build/debug/akashic-guards plugin-store-format-parity`（它刪 runner 的那一行、驗 trigger-coverage 會紅）——
-    // 讓 trigger-coverage-mutations 宣告那支守衛，宣告必須是空的。
-    AGMCase(desc: "migrated：資料檔只在注入內容裡提到的守衛不算受測對象", guardRel: "akashic-guards migrated-guard-control", edits: [
-        AGMEdit(path: "Sources/akashic-guards/TriggerCoverageMutations.swift", kind: "replaceFirst", a: "import Foundation", b: "import Foundation\n// negative-control-for: plugin-store-format-parity"),
-    ], expect: ["宣告是空的", "`trigger-coverage-mutations` 宣告它是 `plugin-store-format-parity` 的負控"]),
-    AGMCase(desc: "migrated：宣告一支不在 runner 裡跑的守衛", guardRel: "akashic-guards migrated-guard-control", edits: [
-        AGMEdit(path: "Sources/akashic-guards/NetworkConfinementMutations.swift", kind: "replaceFirst", a: "import Foundation", b: "import Foundation\n// negative-control-for: no-such-guard"),
-    ], expect: ["`no-such-guard` 不在 run-guards.sh 裡跑"]),
-    // harness 的結構判準第 4 條的兩半，各拆一樣（前三條由上面「source 檔被刪」「分派被拿掉」「不在 runner 裡跑」三格釘住）。
-    AGMCase(desc: "migrated：負控的 source 沒有指向 akashic-guards（不執行守衛）", guardRel: "akashic-guards migrated-guard-control", edits: [
-        AGMEdit(path: "Sources/akashic-guards/NetworkConfinementMutations.swift", kind: "replaceFirst", a: "/.build/debug/akashic-guards\"", b: "/.build/debug/other-binary\""),
-    ], expect: ["缺負控", "`akashic-guards network-confinement` 在 run-guards.sh 裡跑", "沒有指向 `.build/debug/akashic-guards`"]),
-    AGMCase(desc: "migrated：負控的 source 沒有建 Process", guardRel: "akashic-guards migrated-guard-control", edits: [
-        AGMEdit(path: "Sources/akashic-guards/NetworkConfinementMutations.swift", kind: "replaceFirst", a: "let p = Process()", b: "let p = makeProcess()"),
-    ], expect: ["缺負控", "`akashic-guards network-confinement` 在 run-guards.sh 裡跑", "沒有建 `Process`"]),
-    // 「實際在跑」的抽取只認行首與 `$(`。`if ! …; then` 照樣會執行，認不出時要出聲，不是安靜地不要求負控。
-    AGMCase(desc: "migrated：runner 用抽取認不出的寫法呼叫守衛", guardRel: "akashic-guards migrated-guard-control", edits: [
-        AGMEdit(path: ".githooks/run-guards.sh", kind: "replaceFirst", a: ".build/debug/akashic-guards migrated-guard-control", b: "if ! .build/debug/akashic-guards fake-if-guard; then exit 1; fi\n.build/debug/akashic-guards migrated-guard-control"),
-    ], expect: ["抽取認不出", "fake-if-guard"]),
-    // #689 R2 verify：抽取與「認不出」的偵測先前共用同一條只認一個空格的 regex，於是雙空格、TAB、變數、引號的呼叫
-    // 兩邊都看不到（logic、security、DA、Codex 四席）。現在分隔是任意個空白或 TAB，而偵測獨立找 binary 路徑的每一處出現。
-    // 雙空格與 TAB 要被**抽取**認得（進名單、被要求負控），不只是被報成認不出——所以預期的是缺負控那一句，不是「抽取認不出」。
-    AGMCase(desc: "migrated：runner 以雙空格呼叫一支沒有負控的守衛", guardRel: "akashic-guards migrated-guard-control", edits: [
-        AGMEdit(path: ".githooks/run-guards.sh", kind: "replaceFirst", a: ".build/debug/akashic-guards migrated-guard-control", b: ".build/debug/akashic-guards  fake-ds-guard\n.build/debug/akashic-guards migrated-guard-control"),
-    ], expect: ["`akashic-guards fake-ds-guard` 在 run-guards.sh 裡跑"]),
-    AGMCase(desc: "migrated：runner 以 TAB 呼叫一支沒有負控的守衛", guardRel: "akashic-guards migrated-guard-control", edits: [
-        AGMEdit(path: ".githooks/run-guards.sh", kind: "replaceFirst", a: ".build/debug/akashic-guards migrated-guard-control", b: ".build/debug/akashic-guards\tfake-tab-guard\n.build/debug/akashic-guards migrated-guard-control"),
-    ], expect: ["`akashic-guards fake-tab-guard` 在 run-guards.sh 裡跑"]),
-    // 變數與引號：抽取不認（不擴充語法），但 binary 路徑的那一處出現必須被報出來。
-    AGMCase(desc: "migrated：runner 經變數呼叫守衛", guardRel: "akashic-guards migrated-guard-control", edits: [
-        AGMEdit(path: ".githooks/run-guards.sh", kind: "replaceFirst", a: ".build/debug/akashic-guards migrated-guard-control", b: "G=.build/debug/akashic-guards; \"$G\" fake-var-guard\n.build/debug/akashic-guards migrated-guard-control"),
-    ], expect: ["抽取認不出", "fake-var-guard"]),
-    AGMCase(desc: "migrated：runner 以引號包住的 binary 呼叫守衛", guardRel: "akashic-guards migrated-guard-control", edits: [
-        AGMEdit(path: ".githooks/run-guards.sh", kind: "replaceFirst", a: ".build/debug/akashic-guards migrated-guard-control", b: "\".build/debug/akashic-guards\" fake-quoted-guard\n.build/debug/akashic-guards migrated-guard-control"),
-    ], expect: ["抽取認不出", "fake-quoted-guard"]),
-    // 兩個具名例外之一是「整行只有一個 echo」。echo 後面接一個真的呼叫，那一行不是例外。
-    AGMCase(desc: "migrated：echo 之後同一行呼叫守衛，不算 echo 的例外", guardRel: "akashic-guards migrated-guard-control", edits: [
-        AGMEdit(path: ".githooks/run-guards.sh", kind: "replaceFirst", a: ".build/debug/akashic-guards migrated-guard-control", b: "echo \"probe\"; .build/debug/akashic-guards fake-echo-guard\n.build/debug/akashic-guards migrated-guard-control"),
-    ], expect: ["抽取認不出", "fake-echo-guard"]),
-    // #689 R2 verify（DA 席）：case 表重構後只剩變數宣告。`let consistency = ["marketplace-consistency"]` 留著、七處
-    // `guardArgv: consistency` 全換成別的守衛——沒有任何 case 再跑它，上一版仍算數。
-    AGMCase(desc: "migrated：負控只剩變數宣告、沒有任何 case 用它", guardRel: "akashic-guards migrated-guard-control", edits: [
-        AGMEdit(path: "Sources/akashic-guards/PluginRootsMutations.swift", kind: "replaceAll", a: "guardArgv: consistency,", b: "guardArgv: [\"protected-ratchet\"],"),
-    ], expect: ["宣告是空的", "`plugin-roots-mutations` 宣告它是 `marketplace-consistency` 的負控"]),
-    // #689 R2 verify（security、DA 席）：「自己就是負控」的豁免先前只看四個文字條件。刪掉一支守衛的負控，再在守衛本體
-    // 塞一段沒人呼叫的 `Process()` 與 binary 路徑，它就被豁免。現在豁免要它宣告並以某支守衛為受測對象。
-    AGMCase(desc: "migrated：守衛本體塞死碼冒充自己就是負控", guardRel: "akashic-guards migrated-guard-control", edits: [
-        AGMEdit(path: "Sources/akashic-guards/NetworkConfinementMutations.swift", kind: "delete", a: "", b: ""),
-        AGMEdit(path: "Sources/akashic-guards/main.swift", kind: "replaceFirst", a: "case \"network-confinement-mutations\":", b: "case \"network-confinement-mutations-gone\":"),
-        AGMEdit(path: ".githooks/run-guards.sh", kind: "replaceFirst", a: ".build/debug/akashic-guards network-confinement-mutations\n", b: ""),
-        AGMEdit(path: "Sources/akashic-guards/NetworkConfinement.swift", kind: "replaceFirst", a: "import Foundation", b: "import Foundation\nfunc unusedNeverCalled() { let p = Process(); _ = p; _ = \".build/debug/akashic-guards\" }"),
-    ], expect: ["`akashic-guards network-confinement` 在 run-guards.sh 裡跑", "不算「自己就是負控」"]),
+    // （#707：`migrated-guard-control` 的格子搬到 `migrated-guard-control-mutations`。那支守衛改讀執行紀錄，不再讀
+    //  `run-guards.sh` 的呼叫寫法、`main.swift` 的分派或 harness 的原始碼——這裡原本那 19 格注入的正是那些文字，
+    //  對新判準是空轉。#689 的四種形狀與 #707 comment 的六種在新 harness 裡各成一格，而且是真的建置、真的執行。）
     // ── plugin-store-format-parity（#408／#629）：宣告的 store format 必須等於 `StoreVersion.supported` ──
     // 注入不寫死數字（寫死就是第三份副本）：在 `supported` 前面塞一個 `9`（`21` → `921`）、或在宣告的數字前塞一個 `9`，
     // 讓兩邊必然不等，而不必知道當下的版號。

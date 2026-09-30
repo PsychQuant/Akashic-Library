@@ -59,6 +59,8 @@ DA 席在真實 harness 上做出四個掏空的形狀，全部 rc=0。這一輪
 
 仍然通過的兩個形狀（2026-09-30 在副本裡以這一輪的 binary 實測）：在另一支 harness 加 `// negative-control-for: trigger-coverage` 與一個沒人呼叫的 `func neverCalled() { _ = exec([BIN, "trigger-coverage"]) }`，刪掉 trigger-coverage 自己的負控之後 rc=0「無缺口」；`main.swift` 把 `case "trigger-coverage-mutations":` 的分派改成 `exit(0)`，rc=0。同一份副本裡改成 `let _dead = ["trigger-coverage"]`，rc=1，兩條（缺負控、宣告是空的）。
 
+> **2026-10-01（#707）**：這兩個形狀與同類的其餘八種由 #707 處理——`migrated-guard-control` 改讀執行期紀錄，每一種在 `migrated-guard-control-mutations` 裡各是一格負控。見 `changelog/2026-10-01-guard-control-runtime-evidence.md`。
+
 ### zero-instance-guards 第 71 列（finding 5，LOW）
 
 兩個出口（「宣告是空的」「抽取認不出」）今天都是零實例，依規則加第 71 列：理由欄寫它與第 21 列的差別（偵測不得與它要補的抽取共用失敗條件），「各列共通的東西」加一條 bullet，表下方加可重跑的量測。量測的第一行確認 binary 有這兩條檢查，要寫成 `LC_ALL=C grep -a -q`：macOS 的 `/usr/bin/grep` 在 UTF-8 locale 下對 binary 檔比不到中文字串，同一個 binary 以 `grep -a -c '抽取認不出'` 量，`LC_ALL=C` 印 3、不設印 0。第 13、15 列的量測用的是同一種 `grep -a -q` 寫法，可能有同一個問題，這一輪沒有去改。

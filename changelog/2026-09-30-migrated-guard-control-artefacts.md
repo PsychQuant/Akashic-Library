@@ -103,3 +103,5 @@
 4. 一般守衛在自己的 source 塞 `let p = Process()` 與一個含 binary 路徑的字串，被當成「自己就是負控」豁免——R2 起擋下。
 
 2 的後半與 3 要執行期的證據（每支 harness 印出它實際跑了哪些守衛、由本守衛比對），那是另一個設計，另開 issue 追蹤，不在本輪。
+
+> **2026-10-01（#707）**：那個 issue 是 #707，已改成讀執行期紀錄。本節列的四個形狀，加上 #689 R3 verify 另找到的六個（宣告換行或巢狀、`return 0` 後接 `#if false`、呼叫放進 `"""` 字串、runner 以 `if false`／heredoc 包住那一行、目錄放進變數、`swift run`／`.build/release`），在 `migrated-guard-control-mutations` 裡各是一格真的建置、真的執行的負控，全部紅（目錄或路徑換了的兩種現在無關緊要：執行照樣被記下）。本節描述的文字判準整個退場。見 `changelog/2026-10-01-guard-control-runtime-evidence.md`。

@@ -9,14 +9,15 @@
 // **遷移期兩版都跑並要求逐字一致**（#433）：守衛的 Python 版仍在樹裡當 oracle，Swift 版
 // 是實際在跑的。刪掉 Python 版時把 `runBoth` 裡那一半拿掉即可。
 //
-// 名字是 `decision-matrix-mutations`，守衛是 `decision-matrix-drift`——命名慣例對不上，宣告寫在這裡（`migrated-guard-control`）：
-// negative-control-for: decision-matrix-drift
+// 名字是 `decision-matrix-mutations`，守衛是 `decision-matrix-drift`——命名慣例對不上，所以在執行時明寫宣告
+// （`declareNegativeControl`，#707；`migrated-guard-control` 讀執行紀錄裡的那一筆）。
 //
 // trigger-coverage: reads CLAUDE.md
 
 import Foundation
 
 func decisionMatrixMutations() -> Int32 {
+    declareNegativeControl(for: ["decision-matrix-drift"])
     let MD = "\(repoRoot)/CLAUDE.md"
     let BIN = "\(repoRoot)/.build/debug/akashic-guards"
 
@@ -79,22 +80,11 @@ func decisionMatrixMutations() -> Int32 {
     let ROBUST_COUNT = 0
 
     /// 跑守衛。**兩版都跑並要求逐字一致**——回傳實際在跑的那一版。
-    func runBoth(_ path: String) -> (Int32, String) {
-        func exec(_ argv: [String]) -> (Int32, String) {
-            let p = Process()
-            p.executableURL = URL(fileURLWithPath: argv[0])
-            p.arguments = Array(argv.dropFirst())
-            p.currentDirectoryURL = URL(fileURLWithPath: repoRoot)
-            let o = Pipe(), e = Pipe(); p.standardOutput = o; p.standardError = e
-            guard (try? p.run()) != nil else { return (127, "spawn 失敗：\(argv[0])") }
-            let od = o.fileHandleForReading.readDataToEndOfFile()
-            let ed = e.fileHandleForReading.readDataToEndOfFile()
-            p.waitUntilExit()
-            return (p.terminationStatus,
-                    (String(data: od, encoding: .utf8) ?? "") + (String(data: ed, encoding: .utf8) ?? ""))
-        }
+    func runBoth(_ path: String, _ label: String, _ expect: GuardExpectation) -> (Int32, String) {
         // **Python 版已刪除**（#433 Step 5）：遷移期這裡跑兩版並要求逐字一致。
-        return exec([BIN, "decision-matrix-drift", path])
+        // 經 `runGuardProcess` 執行（#707）：它留下執行紀錄。
+        let r = runGuardProcess([BIN, "decision-matrix-drift", path], cwd: repoRoot, label: label, expect: expect)
+        return (r.status, r.combined)
     }
 
     func stat(_ p: String) -> (Int, Int) {
@@ -105,7 +95,7 @@ func decisionMatrixMutations() -> Int32 {
     let before = stat(MD)
     let src = (try? String(contentsOfFile: MD, encoding: .utf8)) ?? ""
 
-    let (rc0, out0) = runBoth(MD)
+    let (rc0, out0) = runBoth(MD, "baseline", .green)
     print(rc0 == 0 ? "baseline：rc=\(rc0) ✓" : "✗ baseline 就紅了：\n\(out0)")
     if rc0 != 0 { return 1 }
     print("（\(CASES.count) 個 mutation 待跑）\n")
@@ -122,7 +112,7 @@ func decisionMatrixMutations() -> Int32 {
         try? FileManager.default.createDirectory(atPath: d, withIntermediateDirectories: true)
         let p = d + "/CLAUDE.md"
         try? mutated.write(toFile: p, atomically: true, encoding: .utf8)
-        let (rc, out) = runBoth(p)
+        let (rc, out) = runBoth(p, c.name, .red)
         try? FileManager.default.removeItem(atPath: d)
         let miss = c.must.filter { !out.contains($0) }
         let stray = c.mustnot.filter { out.contains($0) }

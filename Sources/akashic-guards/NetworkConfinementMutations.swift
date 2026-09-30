@@ -90,27 +90,22 @@ func networkConfinementMutations() -> Int32 {
 
     // stdout 與 stderr 接同一根 pipe：守衛把違規印在 stderr、摘要印在 stdout，分開依序讀的話
     // 其中一邊塞滿緩衝時兩個 process 會互等（`main.swift` 的 `Verdict` 記過 #394 R9 那次死鎖）。
-    func runGuard(in root: String) -> (Int32, String) {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: BIN)
-        p.arguments = ["network-confinement"]
-        p.currentDirectoryURL = URL(fileURLWithPath: root)
-        let pipe = Pipe(); p.standardOutput = pipe; p.standardError = pipe
-        guard (try? p.run()) != nil else { return (127, "spawn 失敗：\(BIN)") }
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        p.waitUntilExit()
-        return (p.terminationStatus, String(data: data, encoding: .utf8) ?? "")
+    // 經 `runGuardProcess` 執行（#707）：它留下執行紀錄。
+    func runGuard(in root: String, _ label: String, _ expect: GuardExpectation) -> (Int32, String) {
+        let r = runGuardProcess([BIN, "network-confinement"], cwd: root, mergeOutput: true,
+                                label: label, expect: expect)
+        return (r.status, r.combined)
     }
 
     /// 把 `Sources/` 複製進暫存目錄、交給 `edit` 改、在那裡跑守衛。
     /// 複製不起來或 `edit` 套不上時回 nil——該格無效，不算被抓到。
-    func withCopy(_ edit: (String) -> Bool) -> (Int32, String)? {
+    func withCopy(_ label: String, _ expect: GuardExpectation, _ edit: (String) -> Bool) -> (Int32, String)? {
         let tmp = NSTemporaryDirectory() + "network-confinement-mut-" + UUID().uuidString
         defer { try? fm.removeItem(atPath: tmp) }
         guard (try? fm.createDirectory(atPath: tmp, withIntermediateDirectories: true)) != nil,
               (try? fm.copyItem(atPath: "\(repoRoot)/Sources", toPath: tmp + "/Sources")) != nil,
               edit(tmp) else { return nil }
-        return runGuard(in: tmp)
+        return runGuard(in: tmp, label, expect)
     }
 
     /// 在副本裡注入一行，回傳那一行的行號；套不上時回 nil（既有目標被刪或改名、
@@ -154,7 +149,7 @@ func networkConfinementMutations() -> Int32 {
 
     // ── 1. 原樣副本 ──────────────────────────────────────────────────────
     total += 1
-    if let (rc, out) = withCopy({ _ in true }) {
+    if let (rc, out) = withCopy("原樣副本", .green, { _ in true }) {
         if rc == 0 {
             print("✓ 原樣副本 → rc=0（兩個豁免檔把九個字樣寫成字面，仍然綠）"); passed += 1
         } else {
@@ -169,7 +164,7 @@ func networkConfinementMutations() -> Int32 {
         total += 1
         let label = "`\(c.pattern)` 注入 \(c.target)"
         var lineNo: Int? = nil
-        guard let (rc, out) = withCopy({ root in
+        guard let (rc, out) = withCopy(label, .red, { root in
             lineNo = inject(root, c)
             return lineNo != nil
         }), let n = lineNo else {
@@ -196,7 +191,7 @@ func networkConfinementMutations() -> Int32 {
     total += 1
     let probe = home + "NetworkConfinementProbe" + ".swift"
     let probeText = injections.map { $0.line }.joined(separator: "\n") + "\n"
-    if let (rc, out) = withCopy({ root in
+    if let (rc, out) = withCopy("九個字樣放在豁免目錄", .green, { root in
         (try? probeText.write(toFile: root + "/" + probe, atomically: true, encoding: .utf8)) != nil
     }) {
         // 紅的時候分兩種說：違規落在放置的檔 ＝ 豁免失效；全在別處 ＝ 紅的原因與放置無關

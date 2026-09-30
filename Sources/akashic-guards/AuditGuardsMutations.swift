@@ -9,11 +9,11 @@
 // （與其餘 Swift 守衛同一條路：在 copy 的 cwd 裡跑編譯好的 binary）；`hash-table-drift`、`multiscalar-parity`、
 // `review-claim-audit`、`literal-scalar-parity` 隨 census 移植成 Swift 而退場，它們的 case 一併移除。
 //
-// 本 harness 宣告自己是下列守衛的負控（`migrated-guard-control` 讀這幾行；每一支都要在資料檔有 `guardRel:` 指向它的 case，
-// 否則宣告是空的、那支守衛算沒有負控）：
-// negative-control-for: backlink-field-ratchet, measured-claims-audit, measured-numbers-audit, migrated-guard-control
-// negative-control-for: parity-table-drift, plugin-store-format-parity, protected-ratchet, rule-coverage
-// negative-control-for: workflow-run-scripts, zero-instance-rows-audit
+// 本 harness 宣告自己是哪幾支守衛的負控，在執行時呼叫 `declareNegativeControl`（#707；見 `agmDeclaredGuards`）。
+// 每一支都要有資料檔裡 `guardRel:` 指向它、而且真的讓它變紅的 case——`migrated-guard-control` 讀的是**執行紀錄**，
+// 宣告了卻沒有一格讓它變紅過，宣告是空的、那支守衛算沒有負控。
+// （#689 的宣告寫在這裡的 `// negative-control-for:` 註解行；`migrated-guard-control` 的格子自 #707 起搬到
+//  `migrated-guard-control-mutations`，那支 harness 以命名慣例宣告它。）
 //
 // trigger-coverage: reads plugin/rules/*.md
 
@@ -68,25 +68,25 @@ private func applyEdit(_ e: AGMEdit, _ text: String) -> String? {
     }
 }
 
+/// 本 harness 在執行時宣告的負控對象（#707）。每一支都要有資料檔裡 `guardRel:` 指向它的 case。
+let agmDeclaredGuards = [
+    "backlink-field-ratchet", "measured-claims-audit", "measured-numbers-audit", "parity-table-drift",
+    "plugin-store-format-parity", "protected-ratchet", "rule-coverage", "workflow-run-scripts",
+    "zero-instance-rows-audit",
+]
+
 func auditGuardsMutations() -> Int32 {
+    declareNegativeControl(for: agmDeclaredGuards)
     let BIN = "\(repoRoot)/.build/debug/akashic-guards"
     let fm = FileManager.default
     var sourceInjected: [String] = []
     var poisonCounter = 0          // 見 `AKASHIC_POISON_GUARD`
     var abort: String? = nil          // 取代 Python 的 SystemExit（case 無效時具名並跳過）
 
-    func exec(_ argv: [String], cwd: String) -> (Int32, String) {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: argv[0])
-        p.arguments = Array(argv.dropFirst())
-        p.currentDirectoryURL = URL(fileURLWithPath: cwd)
-        let o = Pipe(), e = Pipe(); p.standardOutput = o; p.standardError = e
-        guard (try? p.run()) != nil else { return (127, "spawn 失敗：\(argv[0])") }
-        let od = o.fileHandleForReading.readDataToEndOfFile()
-        let ed = e.fileHandleForReading.readDataToEndOfFile()
-        p.waitUntilExit()
-        return (p.terminationStatus,
-                (String(data: od, encoding: .utf8) ?? "") + (String(data: ed, encoding: .utf8) ?? ""))
+    // 執行守衛一律經 `runGuardProcess`（#707）：它留下執行紀錄——哪一格、預期什麼、守衛實際回了什麼。
+    func exec(_ argv: [String], cwd: String, _ label: String, _ expect: GuardExpectation) -> (Int32, String) {
+        let r = runGuardProcess(argv, cwd: cwd, label: label, expect: expect)
+        return (r.status, r.combined)
     }
 
     /// 複製相關子樹、套用 edits、跑 copy 裡的那支守衛。
@@ -94,7 +94,8 @@ func auditGuardsMutations() -> Int32 {
     /// **`.claude` 只複製 `rules/`**：整個 `.claude` 是 2.0 GB／25,519 個檔（`worktrees/`
     /// 佔 2.0 GB），而守衛讀的只有規則檔（144 KB）。全樹複製
     /// 16.5 秒一次 × 每個 case，讓這支 harness 曾漲到 13 分鐘以上。
-    func withCopy(_ guardRel: String, _ edits: [AGMEdit]) -> (Int32, String) {
+    func withCopy(_ guardRel: String, _ edits: [AGMEdit], _ label: String,
+                  _ expect: GuardExpectation) -> (Int32, String) {
         let tmp = NSTemporaryDirectory() + "audit-mut-" + UUID().uuidString
         try? fm.createDirectory(atPath: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(atPath: tmp) }
@@ -160,7 +161,7 @@ func auditGuardsMutations() -> Int32 {
         if guardRel.hasPrefix("akashic-guards ") {
             let sub = guardRel.split(separator: " ")[1]
             guard fm.isExecutableFile(atPath: BIN) else { return (2, "（\(BIN) 不存在——本 case 未執行）") }
-            return exec([BIN, String(sub)], cwd: tmp)
+            return exec([BIN, String(sub)], cwd: tmp, label, expect)
         }
         let interp: String
         switch (guardRel as NSString).pathExtension {
@@ -170,7 +171,7 @@ func auditGuardsMutations() -> Int32 {
         }
         let argv = interp == "/usr/bin/env" ? ["/usr/bin/env", "swift", tmp + "/" + guardRel]
                                             : [interp, tmp + "/" + guardRel]
-        let r = exec(argv, cwd: tmp)
+        let r = exec(argv, cwd: tmp, label, expect)
         var sub = agmMigrated.first(where: { $0.py == guardRel })?.sub
         // **注入守衛自己的原始碼時不做兩版比對**：Swift 的等價程式碼在 compiled binary 裡，
         // 改 `.py` 結構上無效——比對必然分岔而分岔與正確性無關。判準是結構的（edits 動到
@@ -179,7 +180,7 @@ func auditGuardsMutations() -> Int32 {
             sourceInjected.append(guardRel); sub = nil
         }
         if let s = sub, fm.isExecutableFile(atPath: BIN) {
-            let rs = exec([BIN, s], cwd: tmp)
+            let rs = exec([BIN, s], cwd: tmp, label, expect)
             if rs != r {
                 print("✗ 遷移期兩版分岔：\(guardRel) vs `akashic-guards \(s)`")
                 print("  ── python rc=\(r.0)\n\(r.1)")
@@ -198,7 +199,8 @@ func auditGuardsMutations() -> Int32 {
     /// **它跑的是真的出貨路徑**，與使用者跑 `akashic-guards audit-guards-mutations` 完全一樣。
     ///
     /// **它必須在未設定時完全沒有行為**——否則就是一個藏在出貨路徑裡的後門。
-    func poisonedIfRequested(_ guardRel: String, _ edits: [AGMEdit]) -> (Int32, String) {
+    func poisonedIfRequested(_ guardRel: String, _ edits: [AGMEdit], _ label: String,
+                             _ expect: GuardExpectation) -> (Int32, String) {
         let env = ProcessInfo.processInfo.environment
         // **檢查二的注入**：把 `measured-numbers-audit` 的 baseline 弄髒（規則檔多一個裸
         // 數字），harness 必須在跑任何 case **之前**攔下並具名。
@@ -207,7 +209,7 @@ func auditGuardsMutations() -> Int32 {
             var e = edits
             e.append(AGMEdit(path: ".claude/rules/lossless-intake.md", kind: "replaceFirst",
                              a: "## 規則", b: "## 破壞 baseline\n\n實測 42 筆。\n\n## 規則"))
-            return withCopy(guardRel, e)
+            return withCopy(guardRel, e, label, expect)
         }
         if let poison = env["AKASHIC_POISON_GUARD"],
            poison == guardRel, edits.isEmpty {
@@ -218,10 +220,10 @@ func auditGuardsMutations() -> Int32 {
             // 輸出**的降級」，輸出從哪來不影響那個性質，所以改在這裡附加一個每次都不同的
             // 值。遞增計數器而非 pid：pid 是 harness 自己的，同一個 process 內每次相同。
             poisonCounter += 1
-            let r = withCopy(guardRel, [])
+            let r = withCopy(guardRel, [], label, expect)
             return (r.0, r.1 + "\n\(poisonCounter)")
         }
-        return withCopy(guardRel, edits)
+        return withCopy(guardRel, edits, label, expect)
     }
     let run = poisonedIfRequested
 
@@ -270,7 +272,7 @@ func auditGuardsMutations() -> Int32 {
     var dirty: [(String, String)] = []
     for rel in tested {
         abort = nil
-        let (rc, out) = run(rel, [])
+        let (rc, out) = run(rel, [], "baseline", .green)
         if rc != 0 { dirty.append((rel, out)) }
     }
     if !dirty.isEmpty {
@@ -294,7 +296,7 @@ func auditGuardsMutations() -> Int32 {
     for c in cases {
         if skipped.contains(c.desc) { continue }
         abort = nil
-        let (rc, out) = run(c.guardRel, c.edits)
+        let (rc, out) = run(c.guardRel, c.edits, c.desc, .red)
         if let a = abort { print(a); continue }
         let miss = c.expect.filter { !out.contains($0) }
         if pairedFlat.contains(c.desc) { paired[c.desc] = out }
@@ -345,9 +347,9 @@ func auditGuardsMutations() -> Int32 {
     for c in agmRobust {
         if pristine[c.guardRel] == nil && !nondeterministic.contains(c.guardRel) {
             abort = nil
-            let first = run(c.guardRel, []).1
+            let first = run(c.guardRel, [], "未注入（ROBUST 的 oracle）", .green).1
             abort = nil
-            let second = run(c.guardRel, []).1
+            let second = run(c.guardRel, [], "未注入（ROBUST 的 oracle，第二次）", .green).1
             if first != second {
                 let fl = Set(first.components(separatedBy: "\n"))
                 let diff = second.components(separatedBy: "\n").filter { !fl.contains($0) }
@@ -358,7 +360,7 @@ func auditGuardsMutations() -> Int32 {
             pristine[c.guardRel] = first
         }
         abort = nil
-        let (rc, out) = run(c.guardRel, c.edits)
+        let (rc, out) = run(c.guardRel, c.edits, c.desc, .green)
         if let a = abort { print(a); continue }
         guard let pri = pristine[c.guardRel] else { continue }   // 前提不成立時不假裝通過
         let miss = c.expect.filter { !out.contains($0) }

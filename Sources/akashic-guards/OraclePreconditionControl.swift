@@ -22,8 +22,8 @@
 // (b) 在被注入處具名、(c) **未設定時完全沒有行為**——否則就是藏在出貨路徑裡的後門。
 // 第三點有實測：未設定時輸出與 Python 版逐位元相同。
 //
-// 它是 `audit-guards-mutations` 這支 harness 的負控（`migrated-guard-control` 讀這一行）：
-// negative-control-for: audit-guards-mutations
+// 它是 `audit-guards-mutations` 這支 harness 的負控：函式開頭在執行時宣告（`declareNegativeControl`，#707），
+// `migrated-guard-control` 讀執行紀錄裡的那一筆與下面兩個檢查讓 harness 變紅的那兩次執行。
 //
 // **刻意不寫 `trigger-coverage: reads` 宣告**（#433 Step 5）：宣告存在的理由是補啟發式
 // 的漏（守衛用 glob 組路徑、basename 不逐字出現）。這支讀的是同目錄的 harness source，
@@ -32,24 +32,18 @@
 import Foundation
 
 func oraclePreconditionControl() -> Int32 {
+    declareNegativeControl(for: ["audit-guards-mutations"])
     let BIN = "\(repoRoot)/.build/debug/akashic-guards"
 
     /// 跑 harness 自己（真的出貨路徑），帶指定的注入環境變數。
-    func runHarness(_ extraEnv: [String: String]) -> (Int32, String) {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: BIN)
-        p.arguments = ["audit-guards-mutations"]
-        p.currentDirectoryURL = URL(fileURLWithPath: repoRoot)
-        var env = ProcessInfo.processInfo.environment
+    /// 經 `runGuardProcess` 執行（#707）：它留下執行紀錄。被執行的 harness 拿不到紀錄的環境變數，所以它自己
+    /// 在毒化下跑的那些守衛不會進紀錄——只有「本支讓它變紅」這一次會。
+    func runHarness(_ extraEnv: [String: String], _ label: String, _ expect: GuardExpectation) -> (Int32, String) {
+        var env = extraEnv
         env["AKASHIC_SKIP_CASES"] = "1"          // 只跑 ROBUST——CASES 與本控制組無關
-        for (k, v) in extraEnv { env[k] = v }
-        p.environment = env
-        let o = Pipe(), e = Pipe(); p.standardOutput = o; p.standardError = e
-        guard (try? p.run()) != nil else { return (127, "spawn 失敗") }
-        let od = o.fileHandleForReading.readDataToEndOfFile()
-        _ = e.fileHandleForReading.readDataToEndOfFile()
-        p.waitUntilExit()
-        return (p.terminationStatus, String(data: od, encoding: .utf8) ?? "")
+        let r = runGuardProcess([BIN, "audit-guards-mutations"], cwd: repoRoot, env: env,
+                                label: label, expect: expect)
+        return (r.status, r.stdout)
     }
     func passCount(_ out: String) -> (Int, Int)? {
         guard let m = matches(out, #"negative control (\d+)/(\d+)"#).first else { return nil }
@@ -78,14 +72,16 @@ func oraclePreconditionControl() -> Int32 {
     }
 
     // 先量未毒化的通過數。
-    let clean = runHarness([:])
+    // 預期寫 `.none` 而不是 `.green`：這一次只讀通過數。`AKASHIC_SKIP_CASES` 下 harness 的後設檢查收不到那一對
+    // 刻意相同的 case，rc 本來就是 1——#707 的執行紀錄第一次跑就把「預期綠、實際 rc=1」報了出來。
+    let clean = runHarness([:], "未毒化（只讀通過數）", .none)
     guard let (cleanOK, _) = passCount(clean.1) else {
         print("✗ 讀不到未毒化時的通過數——harness 的輸出格式變了")
         return 1
     }
 
     // ── 檢查一 ────────────────────────────────────────────────────────────
-    let (rc1, out1) = runHarness(["AKASHIC_POISON_GUARD": target])
+    let (rc1, out1) = runHarness(["AKASHIC_POISON_GUARD": target], "檢查一：毒化 \(target) 的 oracle 前提", .red)
     var fails: [String] = []
     if !out1.contains("oracle 前提不成立") || !out1.contains(target) {
         fails.append("沒有具名報出是哪一支守衛的前提不成立")
@@ -107,7 +103,7 @@ func oraclePreconditionControl() -> Int32 {
     // ── 檢查二 ────────────────────────────────────────────────────────────
     print("")
     print("══ 檢查二：逐守衛的 baseline 驗證 ══")
-    let (rc2, out2) = runHarness(["AKASHIC_POISON_BASELINE": "1"])
+    let (rc2, out2) = runHarness(["AKASHIC_POISON_BASELINE": "1"], "檢查二：弄髒 baseline", .red)
     var bFails: [String] = []
     // **子命令形式**（#433 Step 5）：harness 的 `guardRel` 已從 `.py` 路徑換成
     // `akashic-guards <sub>`，訊息裡印的也是那個。比對舊路徑會讓這一格靜默失敗。

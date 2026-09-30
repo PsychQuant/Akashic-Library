@@ -99,8 +99,14 @@ func dirOf(_ p: String) -> String { (p as NSString).deletingLastPathComponent }
 /// 出現在一支為了防那件事而寫的腳本裡（#407 R20）。量測顯示當下零實例，但成本是
 /// 一個分支，而「零實例、成本一行、前件精確」在 `zero-instance-guards` 第 1 列是「寫」。
 func codeOnly(_ rel: String) -> String {
+    codeOnlyText(rawFile(rel), path: rel)
+}
+
+/// `codeOnly` 的本體，給已經讀進來的文字用（`path` 只用來看副檔名）。`migrated-guard-control` 的 `--runner`
+/// 可以指向 repo 外的檔（它的負控的迷你 runner 在暫存目錄），`rawFile` 只收 repo 相對路徑（#707）。
+func codeOnlyText(_ text: String, path rel: String) -> String {
     var out: [String] = []
-    for var line in rawFile(rel).components(separatedBy: "\n") {
+    for var line in text.components(separatedBy: "\n") {
         let s = line.drop(while: { $0 == " " || $0 == "\t" })
         if s.hasPrefix("#") || s.hasPrefix("//") { continue }
         if rel.hasSuffix(".sh") || rel.hasSuffix(".py") {

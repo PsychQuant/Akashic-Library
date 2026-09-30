@@ -95,66 +95,75 @@ guard args.count >= 2 else {
     exit(64)
 }
 
+// **執行期證據**（#707）：`AKASHIC_GUARD_RUN_LOG` 設定時，這個行程在分派之前寫一筆 `start`，經 `finishGuard` 結束時寫 `end`。
+// `migrated-guard-control` 讀這份紀錄判定「這次跑了哪些守衛、哪支負控真的讓它們變紅過」——不讀任何原始碼。
+// 下面每個分派都走 `finishGuard(...)` 而不是 `exit(...)`：直接 `exit` 的行程沒有 `end`，它執行過的東西不算數。
+recordGuardStart()
+
 switch args[1] {
 case "zero-instance-rows-audit":
-    exit(zeroInstanceRowsAudit())
+    finishGuard(zeroInstanceRowsAudit())
 case "__shlex-probe":   // 內部：tokenizer 對照用，不在 run-guards 裡
     while let line = readLine(strippingNewline: true) {
         if line.isEmpty { continue }
         if let t = try? shellLex(line) { print(t.joined(separator: "\u{1F}")) }
         else { print("<ValueError>") }
     }
-    exit(0)
+    finishGuard(0)
 case "protected-ratchet":
-    exit(protectedRatchet(argv: Array(CommandLine.arguments.dropFirst(2))))
+    finishGuard(protectedRatchet(argv: Array(CommandLine.arguments.dropFirst(2))))
 case "workflow-run-scripts":
-    exit(workflowRunScriptsGuard())
+    finishGuard(workflowRunScriptsGuard())
 case "trigger-coverage":
-    exit(triggerCoverage(argv: Array(CommandLine.arguments.dropFirst(2))))
+    finishGuard(triggerCoverage(argv: Array(CommandLine.arguments.dropFirst(2))))
 case "rule-prose-guards":
-    exit(ruleProseGuards(argv: Array(CommandLine.arguments.dropFirst(2))))
+    finishGuard(ruleProseGuards(argv: Array(CommandLine.arguments.dropFirst(2))))
 case "measured-claims-audit":
-    exit(measuredClaimsAudit())
-case "migrated-guard-control":
-    exit(migratedGuardControl())
+    finishGuard(measuredClaimsAudit())
+case "migrated-guard-control":   // #707：讀 `--log` 指的執行紀錄（run-guards.sh 最後一行才跑它）
+    finishGuard(migratedGuardControl(argv: Array(CommandLine.arguments.dropFirst(2))))
+case "migrated-guard-control-mutations":   // #707：它的負控——迷你 runner、掏空的 scratch 建置、改壞的紀錄
+    finishGuard(migratedGuardControlMutations())
+case "spawn-probe":   // #707：內部——`runGuardProcess` 對沒跑起來的子行程怎麼記（不在 run-guards 裡，由上一支帶自己的紀錄檔執行）
+    finishGuard(spawnProbe())
 case "decision-matrix-mutations":
-    exit(decisionMatrixMutations())
+    finishGuard(decisionMatrixMutations())
 case "rule-prose-guards-mutations":
-    exit(ruleProseGuardsMutations())
+    finishGuard(ruleProseGuardsMutations())
 case "trigger-coverage-mutations":
-    exit(triggerCoverageMutations())
+    finishGuard(triggerCoverageMutations())
 case "plugin-roots":   // #625：plugin 根目錄的唯一來源，給 shell 端用
-    exit(pluginRootsCommand())
+    finishGuard(pluginRootsCommand())
 case "official-validate":   // #625：claude plugin validate ＋ 只有一項的封閉允許清單
-    exit(officialValidate())
+    finishGuard(officialValidate())
 case "official-validate-mutations":   // #689：假的 claude 印出錯的報告，official-validate 會紅嗎
-    exit(officialValidateMutations())
+    finishGuard(officialValidateMutations())
 case "marketplace-consistency":   // #625：plugin 根與 marketplace manifest 雙向一致
-    exit(marketplaceConsistency())
+    finishGuard(marketplaceConsistency())
 case "plugin-roots-mutations":   // #625：plugin/ 以外的 plugin 根，守衛看得見嗎
-    exit(pluginRootsMutations())
+    finishGuard(pluginRootsMutations())
 case "plugin-store-format-parity":   // #408／#629：宣告的 store format 必須等於 StoreVersion.supported
-    exit(pluginStoreFormatParity())
+    finishGuard(pluginStoreFormatParity())
 case "rule-coverage":   // #407／#629：plugin 根的每條規則被每個 skill 掛到（`rule-coverage [plugin-root]`）
-    exit(ruleCoverage(argv: Array(CommandLine.arguments.dropFirst(2))))
+    finishGuard(ruleCoverage(argv: Array(CommandLine.arguments.dropFirst(2))))
 case "network-confinement":   // #664：網路與 keychain API 只准出現在 Sources/AkashicS2/
-    exit(networkConfinement())
+    finishGuard(networkConfinement())
 case "network-confinement-mutations":   // #664：九個字樣各注入一次，守衛會紅嗎
-    exit(networkConfinementMutations())
+    finishGuard(networkConfinementMutations())
 case "audit-guards-mutations":
-    exit(auditGuardsMutations())
+    finishGuard(auditGuardsMutations())
 case "oracle-precondition-control":
-    exit(oraclePreconditionControl())
+    finishGuard(oraclePreconditionControl())
 case "measured-numbers-audit":
-    exit(measuredNumbersAudit())
+    finishGuard(measuredNumbersAudit())
 case "backlink-field-ratchet":
-    exit(backlinkFieldRatchet())
+    finishGuard(backlinkFieldRatchet())
 case "parity-table-drift":
-    exit(parityTableDrift())
+    finishGuard(parityTableDrift())
 case "decision-matrix-drift":
     // 第二個參數可覆寫要讀的 markdown——**唯一的用途是負控**（在 pristine copy 上
     // mutate，不得就地改出貨檔）。由 `decision-matrix-mutations.py` 實際行使。
-    exit(decisionMatrixDrift(args.count > 2 ? args[2] : nil))
+    finishGuard(decisionMatrixDrift(args.count > 2 ? args[2] : nil))
 default:
     // **不預設通過**：未知名字回非零。一個打錯的守衛名若靜默回 0，
     // `run-guards.sh` 會照樣往下跑而那一格等於不存在。

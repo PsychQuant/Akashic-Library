@@ -163,18 +163,10 @@ func officialValidateMutations() -> Int32 {
            searchPath.split(separator: ":").contains(where: { fm.isExecutableFile(atPath: "\($0)/claude") }) {
             return nil
         }
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: BIN)
-        p.arguments = ["official-validate"]
-        p.currentDirectoryURL = URL(fileURLWithPath: root)
-        var env = ProcessInfo.processInfo.environment
-        env["PATH"] = searchPath
-        p.environment = env
-        let pipe = Pipe(); p.standardOutput = pipe; p.standardError = pipe
-        guard (try? p.run()) != nil else { return (127, "spawn 失敗：\(BIN)") }
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        p.waitUntilExit()
-        return (p.terminationStatus, String(data: data, encoding: .utf8) ?? "")
+        // 經 `runGuardProcess` 執行（#707）：它留下執行紀錄，並自己比對 rc 與這一格的預期。
+        let r = runGuardProcess([BIN, "official-validate"], cwd: root, env: ["PATH": searchPath],
+                                mergeOutput: true, label: c.desc, expect: c.wantRC == 0 ? .green : .red)
+        return (r.status, r.combined)
     }
 
     // 工作樹的快照：跑完所有格子之後逐位元比對

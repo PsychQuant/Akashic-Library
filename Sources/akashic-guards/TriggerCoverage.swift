@@ -360,10 +360,9 @@ func swiftGuards() -> [String] {   // #522：ProtectedInventory 也要用
 /// 兩條同一個形狀：兩支守衛都宣告讀 `Sources/*/*.swift`（`fnmatch` 不帶 `FNM_PATHNAME`，`*` 跨
 /// 目錄，等於整個 `Sources/`），而唯一跑守衛的 workflow（`census-parity.yml`）的 `paths:` 只列了
 /// `Sources/` 的幾個子路徑。擴大觸發面是 macOS runner（10× 計費）的成本決定，由 #690 裁決。
-let acknowledgedCIGaps: [(guardFile: String, pattern: String, issue: String)] = [
-    ("Sources/akashic-guards/NetworkConfinement.swift", "Sources/*/*.swift", "#690"),
-    ("Sources/akashic-guards/ZeroInstanceRowsAudit.swift", "Sources/*/*.swift", "#690"),
-]
+// #690 裁決（使用者 2026-09-30，A）：`census-parity.yml` 的 paths 加 `Sources/**`，原本兩條已知缺口就此消失、清單清空。
+// 清單留著是機制：日後出現一個有 issue 追蹤、暫時補不了的缺口時才加一條，缺口消失時那一條要拿掉（下面的過期檢查會出聲）。
+let acknowledgedCIGaps: [(guardFile: String, pattern: String, issue: String)] = []
 
 func triggerCoverage(argv: [String]) -> Int32 {
     let (GUARDS, DATA) = protectedInventory()

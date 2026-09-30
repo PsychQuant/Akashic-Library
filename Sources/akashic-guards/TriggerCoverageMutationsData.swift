@@ -268,10 +268,15 @@ let triggerCoverageMutationCases: [TCMCase] = [
     TCMCase(isWarn: false, desc: "宣告範圍裡有 CI 不跑的不受保護檔，而它不在已知缺口清單",
         edits: [
             (path: "Sources/akashic-guards/PluginStoreFormatParity.swift", old: "import Foundation", new: "import Foundation\n// trigger-coverage: reads Sources/*/*.swift"),
-        ], expect: "PluginStoreFormatParity.swift 宣告讀 `Sources/*/*.swift`：其中"),
-    // 已知缺口補上了（workflow 的 `paths:` 涵蓋整個 `Sources/`），清單那兩條卻還在——留著的豁免要出聲。
-    TCMCase(isWarn: false, desc: "已知缺口已經不在、清單那一條卻沒拿掉",
+            // #690 之後 `Sources/**` 涵蓋整個 Sources/，要造出缺口得同時拿掉它；另外兩支讀整個 Sources/ 的守衛因此也報，一併列為預期。
+            (path: ".github/workflows/census-parity.yml", old: "      - \"Sources/**\"\n", new: ""),
+        ], expect: "PluginStoreFormatParity.swift 宣告讀 `Sources/*/*.swift`：其中",
+        alsoExpect: ["NetworkConfinement.swift 宣告讀 `Sources/*/*.swift`：其中", "ZeroInstanceRowsAudit.swift 宣告讀 `Sources/*/*.swift`：其中"]),
+    // #690 落地後清單是空的：拿掉 `Sources/**`，讀整個 `Sources/` 的兩支守衛必須直接失敗——不得被當成已知缺口放過。
+    // 有人把 #690 那兩條豁免加回 `acknowledgedCIGaps`，這一格會轉紅（輸出變成「已知缺口」而 rc 不再是 1）。
+    TCMCase(isWarn: false, desc: "拿掉 Sources/** 之後，讀整個 Sources/ 的守衛不在任何 CI 跑",
         edits: [
-            (path: ".github/workflows/census-parity.yml", old: "      - \"Sources/akashic-guards/**\"\n", new: "      - \"Sources/**\"\n      - \"Sources/akashic-guards/**\"\n"),
-        ], expect: "已經沒有缺口"),
+            (path: ".github/workflows/census-parity.yml", old: "      - \"Sources/**\"\n", new: ""),
+        ], expect: "NetworkConfinement.swift 宣告讀 `Sources/*/*.swift`：其中",
+        alsoExpect: ["ZeroInstanceRowsAudit.swift 宣告讀 `Sources/*/*.swift`：其中"]),
 ]

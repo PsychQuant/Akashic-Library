@@ -42,6 +42,16 @@
 
 
 
+## #608、#694、#696 — `akashic_import_zotero` 的回應形狀改變
+
+plugin 的 wrapper 會自動下載新版 `akashic-mcp`，skill 文字可能比 binary 舊，所以把呼叫端讀得到的改變寫在這裡。plugin 版號沒有動。
+
+- **清單上限（#696）**：`created`、`updated` 等 citekey 清單在 MCP 面各至多 20 筆。完整筆數在 `listTotals`（清單名 → 總數），被截的清單名在 `truncatedLists`。CLI 照舊全列。
+- **失敗清單不截**：`writeFailed` 與 `quarantineConflicts` 永遠完整，也不進 `listTotals`。這與 `akashic_enrich` 的先例一致。
+- **新桶 `updatedHashOnly`（#694）**：主來源的 hash 不同，而 Zotero 那一筆已同步、`version` 大於 0 且沒前進時，列在這裡，不列在 `updated`。寫入行為與 `updated` 完全相同：整份改寫書目欄位，也會覆寫 literal 作者。
+- **判準改變（#608）**：附加來源的 `secondarySourceHashOnly` 改用同一個判準。先前只看 `version`；從未同步、或有未同步本地編輯的條目，現在一律列在「有變動」。
+- **補上兩個鍵**：MCP 回應新增 `authorsOverwritten`（有上限）與 `fieldsRemovedByPull`（不截）。先前只有 CLI 印，MCP 呼叫端看不到 pull 覆寫了什麼。
+
 ## #674、#663 — MCP 呼叫端看得到的契約改變（不相容）
 
 plugin 的 wrapper 會自動下載新版 `akashic-mcp`，skill 文字可能比 binary 舊，所以把會讓既有呼叫失敗或讀不到值的改變寫在這裡。plugin 版號沒有動。

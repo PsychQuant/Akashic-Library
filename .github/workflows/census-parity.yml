@@ -38,6 +38,11 @@ on:
       # （#629：原本這裡有 census 的三條路徑——`literal-census.sh`、`hash-merging-ranges.txt`、`scripts/tests/**`。
       #  census 是 Swift 之後沒有守衛讀它了：它的原始碼（`Sources/AkashicStoreIO/`、`Sources/akashic/`）與測試（`Tests/`）由 `ci.yml` 的
       #  `swift test` 涵蓋——那個 workflow 對 `Sources/`、`Tests/` 的改動都會觸發；本 workflow 只跑守衛。）
+      # #690（使用者 2026-09-30 裁決 A）：`network-confinement` 與 `zero-instance-rows-audit` 讀整個 `Sources/`，而先前這裡只列
+      #  少數子路徑——實測 190 個不受保護的 source 檔裡有 115 個改了之後 CI 不跑任何守衛（pre-push 會跑）。
+      #  **代價**：改 `Sources/` 的 push 會多跑一個 macOS job（10× 計費；依近 30 天 commit 估每月至多約 23 次）。
+      #  下面幾條 `Sources/` 的具體路徑已被這一條涵蓋，留著是為了它們各自的理由註解。
+      - "Sources/**"
       - "Sources/AkashicStoreIO/StoreVersion.swift"
       # `plugin-store-format-parity`（守衛；#629 前是 .py）的第三份宣告來源。它是**出貨物**
       # （release-signed.sh 會 zip 進 .mcpb），改它而守衛不跑＝出貨一個過期數字。

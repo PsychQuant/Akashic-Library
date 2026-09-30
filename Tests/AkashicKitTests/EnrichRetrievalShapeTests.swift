@@ -51,7 +51,7 @@ final class EnrichRetrievalShapeTests: XCTestCase {
             Case("url 是 file（離線來源）", ["sourceURL", "http／https", "只給 sourceDigest"]) { $0.sourceURL = "file:///tmp/scan.pdf" },
             Case("url 沒有 scheme", ["sourceURL", "http／https"]) { $0.sourceURL = "example.org/x" },
             Case("url 是 javascript:", ["sourceURL", "http／https"]) { $0.sourceURL = "javascript:alert(1)" },
-            Case("url 前面有空白", ["sourceURL", "http／https"]) { $0.sourceURL = " https://example.org/x" },
+            Case("url 前面有空白", ["sourceURL", "空白", "百分比編碼"]) { $0.sourceURL = " https://example.org/x" },   // #695 R2 verify 第 7 列：錯的是空白，不是 scheme
             Case("url 只有空白", ["sourceURL", "http／https"]) { $0.sourceURL = "  " },
             Case("url 缺主機", ["sourceURL", "主機"]) { $0.sourceURL = "https:///path" },
             Case("url 帶帳密", ["sourceURL", "帳密"]) { $0.sourceURL = "https://user:s3cret@example.org/x" },

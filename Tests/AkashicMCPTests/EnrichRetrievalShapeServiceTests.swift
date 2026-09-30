@@ -68,7 +68,7 @@ final class EnrichRetrievalShapeServiceTests: XCTestCase {
             ("帳密（@ 後接 U+FE0F）", Shape(url: "https://u:p@\u{FE0F}example.org/x"), "含帳密（userinfo"),
             ("url 含控制字元", Shape(url: "https://exa\nmple.org/x"), "含控制字元、格式字元（方向控制、零寬字元等）或空白"),
             ("缺主機", Shape(url: "https:///x"), "缺主機"),
-            ("retrieved", Shape(retrieved: "2026/09/30"), "「2026/09/30」不是 ISO 8601"),
+            ("retrieved", Shape(retrieved: "2026/09/30"), "不是 ISO 8601——日期 YYYY-MM-DD"),   // #695 R2 verify：理由在前，原值在後（「收到的值：」）
             ("status 範圍", Shape(status: 600), "「600」不是 HTTP 狀態碼（100–599）"),
             ("缺 status", Shape(status: nil), "是擷取型卻沒有 status——HTTP 狀態碼必填、不預設 200"),
         ]

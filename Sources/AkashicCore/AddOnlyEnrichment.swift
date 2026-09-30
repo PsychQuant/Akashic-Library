@@ -171,8 +171,9 @@ public enum AddOnlyEnrichment {
         public var retrievalKind: ProvenanceReference.Kind? {
             guard let d = sourceDigest, let u = sourceURL, let r = sourceRetrieved, let s = sourceStatus,
                   !d.isEmpty, !u.isEmpty, !r.isEmpty else { return nil }
+            // 空的 media type 視同沒給（#695 R2 verify 第 8 列：先前原樣寫進 reference，store 裡是 `media-type: ''`）
             return .retrieval(url: u, retrieved: r, status: s,
-                              mediaType: sourceMediaType, content: d)
+                              mediaType: (sourceMediaType ?? "").isEmpty ? nil : sourceMediaType, content: d)
         }
 
         /// 給了任何一個來源欄位、卻湊不成 reference 時缺的那些（空陣列＝要嘛齊了、要嘛一個都沒給）。
@@ -558,9 +559,17 @@ public enum AddOnlyEnrichment {
         try checkLength(p.sourceURL, "sourceURL")
         try checkLength(p.sourceRetrieved, "sourceRetrieved")
         try checkLength(p.sourceMediaType, "sourceMediaType")
+        // 空字串視同沒給——`retrievalKind`／`missingSourceFields` 的既有判準（#695）。
+        func given(_ s: String?) -> String? { (s ?? "").isEmpty ? nil : s }
         // digest 的形狀與 store 同一條（`ProvenanceReference.isValidDigest`）。先前不驗：dry-run 說「會寫」，
         // apply 時才以 writeFailed 失敗，而且那一筆連合法的欄位也一起沒寫（R2 verify security）。
-        if let d = present(p.sourceDigest), !ProvenanceReference.isValidDigest(d) {
+        // **驗的是寫進去的那個值**（#695 R2 verify 第 12 列）：先前以 trim 過的值驗、`retrievalKind` 卻把原值寫進 reference——
+        // `" sha256:…\n"` 乾跑說會寫、apply 被寫入閘拒絕。現在不 trim，前後有空白就在這裡拒絕、說出是空白。
+        if let d = given(p.sourceDigest), !ProvenanceReference.isValidDigest(d) {
+            if ProvenanceReference.isValidDigest(d.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                throw InputError.invalidProposal(
+                    index: index, reason: "sourceDigest 前後有空白或換行——reference 記的是送來的原值，拿掉再送")
+            }
             // #654：空內容的 digest 形狀合法卻不指認任何存檔（閘是 `isValidDigest` 本身）——分開說，對它說「形狀不對」是假話
             if d == ProvenanceReference.emptyContentDigest {
                 throw InputError.invalidProposal(index: index, reason: "sourceDigest " + ProvenanceReference.emptyContentDigestReason)
@@ -578,13 +587,13 @@ public enum AddOnlyEnrichment {
             try checkLength(a, "第 \(i + 1) 個 author")
         }
         // #695：來源欄位寫的是 retrieval reference——與 person／venue 的 references（#674）走**同一個**形狀檢查（`RetrievalWriteShape`）。
-        // 空字串視同沒給（`retrievalKind`／`missingSourceFields` 的既有判準）；`sourceDigest` 單獨給是回顯、不是在寫 reference（#517），
-        // 所以只有 url／retrieved／media type 讓 status 必填。回顯原樣：這個理由由消費端在擲出站點逃一次（見 `InputError`）。
-        func given(_ s: String?) -> String? { (s ?? "").isEmpty ? nil : s }
+        // 空字串視同沒給（`given`，見上）；`sourceDigest` 單獨給是回顯、不是在寫 reference（#517），
+        // 所以只有 url／retrieved／media type 讓 status 必填。回顯原樣：這個理由由消費端在擲出站點逃一次（見 `InputError`）；
+        // 長度由 `RetrievalWriteShape.boundedForEcho` 在交來之前截好（#695 R2 verify 第 10 列）。
         if let why = RetrievalWriteShape.firstIssue(
             url: given(p.sourceURL), retrieved: given(p.sourceRetrieved), status: p.sourceStatus, mediaType: given(p.sourceMediaType),
             statusRequired: [p.sourceURL, p.sourceRetrieved, p.sourceMediaType].contains { given($0) != nil },
-            names: sourceRetrievalNames, echo: { String(String.UnicodeScalarView($0.unicodeScalars.prefix(80))) }) {
+            names: sourceRetrievalNames, echo: { $0 }) {
             throw InputError.invalidProposal(index: index, reason: why)
         }
         let ck = present(p.citekey), doi = present(p.doi)
@@ -751,9 +760,16 @@ public enum AddOnlyEnrichment {
         } else if !p.raw.missingSourceFields.isEmpty {
             // 給了來源欄位卻寫不成 reference——說出來，不靜默（`lossless-intake` 執行細節 3）。
             // #542 R2 verify：先前只在「有 digest」時說；只給 URL 與日期的提案兩面都一聲不吭。
-            provenanceSkipped = "來源欄位不齊，缺 \(p.raw.missingSourceFields.joined(separator: "、"))"
-                + "——retrieval reference 要 digest、url、取得日期與 status 四欄（store 格式的必要欄位；"
-                + "一次取得的 url 與日期沒有別的地方記），所以這筆不寫 reference。給了的欄位仍在報告裡"
+            if p.raw.missingSourceFields == ["sourceURL", "sourceRetrieved", "sourceStatus"] {
+                // 只給 digest：離線來源的做法（#517、#695），不是缺東西——#695 R2 verify 第 3 列：先前說「來源欄位不齊」，
+                // 讀的人會去補 url／取得日期，而少了 status 的那個形狀現在整批拒絕
+                provenanceSkipped = "只給了 sourceDigest：回顯、不寫 reference（離線來源的做法）。要記一次網路取得，"
+                    + "四欄一起給——sourceDigest、sourceURL、sourceRetrieved、sourceStatus（給了 URL 或取得日期就要給 status，否則整批拒絕）"
+            } else {
+                provenanceSkipped = "來源欄位不齊，缺 \(p.raw.missingSourceFields.joined(separator: "、"))"
+                    + "——retrieval reference 要 digest、url、取得日期與 status 四欄（store 格式的必要欄位；"
+                    + "一次取得的 url 與日期沒有別的地方記），所以這筆不寫 reference。給了的欄位仍在報告裡"
+            }
         }
 
         let outcome = Outcome(addedFields: added, addedDate: addedDate, addedAuthors: addedAuthors,

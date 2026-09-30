@@ -78,3 +78,48 @@
 - **字元規則**：url 整串拒絕控制字元、格式字元（方向控制、零寬字元）與空白；media type 拒絕這類字元與前後空白。判準與輸出閘同一份（`UnsafeToEmitScalar.contains`）。retrieved 的文法本來就擋這些，補了測試；`+0800` 的訊息改說「偏移要帶冒號」。
 - **「一份寫入契約」的措辭**：共用的是**形狀**函式。「要不要 status」由兩個面各自判定、刻意不同（enrich 的 `provenanceSkipped` 出口與只給 digest 的回顯）；上方〈誠實邊界〉前兩條說的就是這件事，對照表在那份 changelog。`mcp-cli-parity` 三列的 #695 註記同批更正。
 - `plugin/CHANGELOG.md` 的 #674 一節那句「enrich 沒有跟著收緊（#695，待裁決）」後面加上日期與指向 #695 一節的說明。
+
+## R2 verify 之後（2026-10-01）
+
+第二輪驗證 HIGH 0、MEDIUM 0，本張 LOW 12 則。逐則對帳（編號是 R2 報告的則號）：
+
+| 則 | 問題 | 處置 |
+|---|---|---|
+| 15 | 帳密掃描只認 ASCII 定界符：`https://user:secret＠example.org/`（全形 `＠`）、`user：pw＠`、非數字的 port（`https://example.org:hunter2/`）都寫得進去 | 主機部分（第一個 ASCII `/`、`?`、`#` 之前）**任何相容分解（NFKD）含 `@ : / ? # \` 的非 ASCII scalar 都拒絕**（`＠`、`：`、`／`、`﹫`、`℀`）；port 只收 ASCII 數字（空 port 照收，RFC 3986 `port = *DIGIT`）。沒選「主機部分不收任何非 ASCII」：那會拒掉合法的 IDN 主機（`例え.jp`、全形句點 `．`），而 live store 的 33 筆沒有一筆用得到非 ASCII 主機 |
+| 10、18 | 回顯 `retrieved` 的原值排在理由之前、以輸入 scalar 數截，逃脫後膨脹，錯誤出口（CLI 每行 400、MCP 512）把理由與「整批拒絕，零寫入」截掉——enrich 與 references 兩面都會 | 理由在前、原值在後（「收到的值：「…」」）；原值在交給 `echo` 之前以**逃脫後**的長度截（`RetrievalWriteShape.boundedForEcho`，預算 48，被逃脫的 scalar 算 10），截了接「…」。兩面同一個函式，enrich 的 `echo` 改成原樣（消費端逃一次） |
+| 8 | 空的 media type 通過，references 面存成 `media-type: ''`；enrich 面的空字串視同沒給，卻原樣寫進 reference | `mediaTypeIssue` 拒絕空的或只有空白的值；enrich 的 `retrievalKind` 把空字串當成沒給 |
+| 7、11 | scheme 前綴與 `dropFirst(8)` 以 `Character` 判斷，`https://` 後接組合符號時訊息說「只收 http／https」；前導空白也得到同一句 | 前綴改在 scalar 上比（`hasASCIIPrefixIgnoringCase`，只把 ASCII 大寫轉小寫）；前面多了空白或隱形字元而剝掉之後是 http(s) 的，說的是那些字元 |
+| 12 | `sourceDigest` 以 trim 過的值驗、以原值寫——乾跑說會寫、實跑被寫入閘拒絕 | 以送來的原值驗；前後有空白時另說「前後有空白或換行」 |
+| 1、6、14 | 控制／格式字元的拒絕涵蓋整條網址（路徑、query），補救卻寫「拿掉再送」——拿掉波斯文詞中的 ZWNJ 就是另一個頁面 | 補救改成百分比編碼（空白 `%20`、ZWNJ `%E2%80%8C`）或主機用 punycode，並說明直接拿掉會變成另一個網址。**拒絕範圍不變**：範圍使用者沒有裁過，整條網址 fail-closed 留著；上方〈R1 verify 之後〉的「url 整串拒絕」指的就是含路徑與 query，前一版〈誠實邊界〉只提 IDN 主機，這裡擴寫 |
+| 3、17 | 只給 digest 的 `provenanceSkipped` 讀起來像缺東西；帳密訊息說「不得寫進 store」，而同一份提案的 `fields.url` 照收 | 只給 digest 時說「只給了 sourceDigest：回顯、不寫 reference（離線來源的做法）」，並寫明要記網路取得就四欄一起給（給了 URL 或取得日期就要 status）；帳密訊息縮成「不得寫進 retrieval reference 的 url」，`urlIssue` 的 doc 補上 `fields.url` 與 `create-entry` 不經這個函式。第 3 則的後半（MCP schema 三個 source 鍵的說明補字元規則）沒做：預算 54,000 之下有空間，但沒有裁決要求，同一批另有三條工作線在加說明 |
+| 2 | enrich 只給 `sourceMediaType`（沒有 URL 與取得日期）也觸發 status 必填、整批拒絕，使用者沒裁過 | **行為不改，仍待裁決**。`{digest}` 回顯、`{digest, status}` 略過並具名、`{digest, mediaType}` 整批拒絕——三者不對稱的事實照舊 |
+
+### 測試
+
+- 新增 `RetrievalWriteShapeR2Tests`（AkashicMCPTests，7 支）：每一格 enrich（dry-run）與 person `references` 各驗一次——相容形定界符與非數字 port 九格都拒絕且不回顯、合法的 IDN／全形句點／空 port／IPv6 加 port 照收；scheme 前綴四格；波斯文網址的補救提到 `%E2%80%8C` 與 punycode、百分比編碼形照收；兩百個 TAG 字元與一百二十個 ZWSP 的 `retrieved` 仍說「不是 ISO 8601」（enrich 另說「整批拒絕」）、整句在 400 字元內、原值截了有「…」，而 24 字的可見錯形全文回顯；空與只有空白的 media type；前後有空白的 digest；兩處措辭。
+- 改寫兩則既有斷言：`EnrichRetrievalShapeTests` 的「url 前面有空白」改要「空白」與「百分比編碼」（先前要「http／https」，那正是第 7 則）；`EnrichRetrievalShapeServiceTests` 的 retrieved 那一句改成理由的開頭（原值不再排在前面）。
+
+### 負控
+
+反向編輯一行 → 重建 → 跑 `RetrievalWriteShapeR2Tests|EnrichRetrievalShape|WorkFieldProvenanceTests|ReferenceWriteContractTests` → 反向字串替換還原、`cmp` 對照位元組備份。十一格都紅、都還原為相同位元組：
+
+| # | 反向編輯 | 紅的測試（MCP bundle 的失敗斷言數） |
+|---|---|---|
+| NC1 | 相容形定界符的 guard 恆放行 | `testCompatibilityDelimitersAndNonNumericPortsAreRefusedOnBothFaces`（18） |
+| NC2 | port 的 guard 恆放行 | 同上（16） |
+| NC3 | `https://` 前綴改回 `url.lowercased().hasPrefix` | `testTheSchemePrefixIsComparedOnScalars`（8） |
+| NC4 | 前導空白／隱形字元那一格恆不成立 | 同上，另加 Kit 的 `EnrichRetrievalShapeTests.testMalformedSourceFieldsRefuseTheWholeBatch`（10） |
+| NC5 | 回顯不經 `boundedForEcho` | `testTheReasonSurvivesAnEchoMadeOfInvisibleScalars`（10） |
+| NC6 | 空 media type 的 guard 恆放行 | `testAnEmptyMediaTypeIsNeverStored`（3） |
+| NC7 | `retrievalKind` 把原值（含空字串）寫進 reference | 同上（1） |
+| NC8 | digest 改回以 trim 過的值驗 | `testASourceDigestWithSurroundingWhitespaceIsRefusedAtPlanTime`（2） |
+| NC9 | 補救文字改回「拿掉再送」 | `testTheRemedyForInvisibleCharactersIsEncodingNotRemoval`（4） |
+| NC10 | 只給 digest 的特例恆不成立 | `testWordingOfTheDigestOnlyEchoAndTheCredentialsRefusal`（2） |
+| NC11 | 帳密訊息改回「不得……寫進 store」 | 同上（2） |
+
+### 誠實邊界（R2）
+
+- 相容形的檢查只看主機部分。路徑與 query 裡的全形 `＠` 照收（路徑本來就可以有 `@`，`https://example.org/a@b` 是合法網址）。
+- 主機部分的百分比編碼不解碼：`%40` 落在 port 位置時由 port 檢查擋下（`https://user:pw%40example.org/`），沒有冒號的 `https://token%40example.org/` 通過——那是一個主機名，不是 userinfo 形。
+- 同形字主機（西里爾 `а` 的 `exаmple.org`）不擋，不在 #695 的裁決內。
+- 兩面對空字串的既有差異沒有改：enrich 四個來源欄位的空字串都視同沒給；references 面的空字串是給了（url／retrieved 照舊拒絕，media_type 自本輪拒絕）。

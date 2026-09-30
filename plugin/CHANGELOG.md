@@ -117,6 +117,17 @@ plugin 的 wrapper 會自動下載新版 `akashic-mcp`，skill 文字可能比 b
 - media type（`sourceMediaType`／`media_type`）含這類字元，或前後有空白。內部的空白照收（`text/html; charset=utf-8`）。
 - `sourceRetrieved`／`retrieved` 的時區偏移沒有冒號（`+0800`）先前就被拒，錯誤訊息現在會直接說「偏移要帶冒號」。
 
+第二輪驗證之後（2026-10-01），同一個形狀函式再多拒下列輸入（兩個工具一起）：
+
+- url 的主機部分含全形或相容形的定界符（`＠`、`：`、`／`、`﹫`、`℀` 這類，相容分解後含 `@ : / ? # \`）。`https://user:secret＠example.org/` 先前會通過帳密檢查、寫進 store。IDN 主機（`https://例え.jp/`）不受影響。
+- url 的 port 不是 ASCII 數字（`https://example.org:hunter2/`、全形數字）。空的 port（`https://example.org:/`）照收。
+- media type（`sourceMediaType`／`media_type`）是空字串或只有空白。`akashic_enrich` 的空字串仍視同沒給，只是不再以 `media-type: ''` 寫進 reference。
+- `akashic_enrich` 的 `sourceDigest` 前後有空白或換行。先前乾跑說會寫、實跑被拒。
+
+錯誤訊息有三處改變：`sourceRetrieved`／`retrieved` 不合時，理由排在前面、收到的值排在後面（「收到的值：「…」」），值過長或含隱形字元時截短，理由不再被截掉；`https://` 前面多了空白或隱形字元時，訊息說的是那些字元，不再說「只收 http／https」；url 含控制或格式字元時（整條網址都檢查，含路徑與 query），補救改成百分比編碼（ZWNJ 是 `%E2%80%8C`）或 punycode，不再說「拿掉再送」——拿掉會變成另一個網址。帳密的拒絕訊息改說它管的是 retrieval reference 的 url；`akashic_enrich` 提案裡 `fields.url` 的值照舊原樣收下。只給 `sourceDigest` 時 `provenanceSkipped` 的說法改成「只給了 sourceDigest：回顯、不寫 reference（離線來源的做法）」。
+
+仍待裁決：`akashic_enrich` 只給 `sourceMediaType`（沒給 URL 與取得日期）也被當成要 `sourceStatus`，整批拒絕。這一條沒有改。
+
 **`akashic_update_person` 的 `references: []`（空陣列）改成拒絕**，與 `akashic_update_venue` 同一句話。先前 person 這一面是 no-op。沒有要附的 reference 就不要給這個鍵。
 
 ## #703 — `akashic_store_source` 單檔上限 256 MiB

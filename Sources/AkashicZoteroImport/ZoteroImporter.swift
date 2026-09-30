@@ -117,11 +117,12 @@ public struct ZoteroImporter {
 
     public func run(zoteroDB: URL, libraryID: Int? = nil, now: Date = Date()) throws -> ImportReport {
         // #705：自己的收集範圍——「寫進 entities/、legacy 拷貝沒刪掉」的那一筆寫入照常回傳（`guardedWrite` 回 true，照常記在
-        // updated、authorsOverwritten 等清單），並記進報告的 `writtenWithLegacyCopy`，不進 writeFailed。擲錯時收到的轉交外層範圍。
+        // updated、authorsOverwritten 等清單），並記進報告的 `writtenWithLegacyCopy`，不進 writeFailed。擲錯時收到的轉交外層範圍；
+        // 沒有外層時附在擲出的錯誤上（`LegacyCopyLedger.get`，#705 R1 verify 第 17／22／30 列——先前 `try result.get()` 把它們丟掉）。
         let (result, written) = LegacyCopyLedger.collecting {
             try runCollected(zoteroDB: zoteroDB, libraryID: libraryID, now: now)
         }
-        var report = try result.get()
+        var report = try LegacyCopyLedger.get(result, written: written)
         report.writtenWithLegacyCopy = written
         return report
     }

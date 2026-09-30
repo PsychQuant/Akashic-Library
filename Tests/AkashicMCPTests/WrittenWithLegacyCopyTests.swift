@@ -98,12 +98,30 @@ final class WrittenWithLegacyCopyTests: XCTestCase {
         }
     }
 
-    /// 錯誤回應是文字：同一份人可讀的報告附在後面。寫進去的那一筆不能因為之後的步驟失敗就從回應裡消失。
-    func testAnErrorResponseGetsTheSameReportAppended() {
+    /// 錯誤回應是文字：同一份人可讀的報告放在**最前面**，接著原本的錯誤（#705 R1 verify 第 5 列）。寫進去的那一筆不能因為之後的步驟失敗
+    /// 就從回應裡消失；而且呼叫端要先讀到「寫了」，才讀到 rebuild 失敗——附在末尾時 agent 很可能照 isError 重試，而重試會被 #631 拒絕。
+    func testAnErrorResponseLeadsWithTheSameReport() {
         let left = item()
+        let lines = LegacyCopyLeft.reportLines([left])
         let out = AkashicService.reportingWrittenWithLegacyCopy("Error: index rebuild 失敗", [left], isError: true)
-        XCTAssertTrue(out.hasPrefix("Error: index rebuild 失敗"), out)
-        for line in LegacyCopyLeft.reportLines([left]) { XCTAssertTrue(out.contains(line), "\(line)\n—\n\(out)") }
+        XCTAssertTrue(out.hasPrefix(lines.joined(separator: "\n")), out)
+        XCTAssertTrue(out.hasSuffix("\n\nError: index rebuild 失敗"), "原本的錯誤原樣接在後面：\(out)")
+    }
+
+    /// 成功的回應已經帶著這個鍵（`akashic_import_zotero` 的 payload 自己帶）：併進那個陣列、回應仍是一份 JSON（#705 R1 verify 第 15 列：
+    /// 先前落到「附文字」那一格，合法的 JSON 變成 JSON 加文字）。
+    func testAnExistingKeyIsMergedAndTheResponseStaysJSON() throws {
+        let existing = item("b2020x"), added = item("a2020x")
+        let base = AkashicService.reportingWrittenWithLegacyCopy("{\n  \"created\" : [ ]\n}", [existing], isError: false)
+        let out = AkashicService.reportingWrittenWithLegacyCopy(base, [added], isError: false)
+        let obj = try object(out)
+        let rows = try XCTUnwrap(obj["writtenWithLegacyCopy"] as? [[String: String]], out)
+        XCTAssertEqual(rows.map { $0["key"] }, ["a2020x", "b2020x"], "兩筆都在、依 (kind, key) 排序")
+        XCTAssertNotNil(obj["created"], "原本的鍵不動")
+        // 同名鍵卻不是陣列：不是這個函式寫的形狀——不覆寫它，照舊附文字
+        let odd = AkashicService.reportingWrittenWithLegacyCopy("{\"writtenWithLegacyCopy\": 1}", [added], isError: false)
+        XCTAssertTrue(odd.hasPrefix("{\"writtenWithLegacyCopy\": 1}"), odd)
+        XCTAssertTrue(odd.contains(added.message), odd)
     }
 
     /// 不是 JSON 物件的成功回應（陣列、純文字）沒有地方放鍵——同一份報告附在後面，不改動原本的內容。
@@ -179,5 +197,48 @@ final class WrittenWithLegacyCopyTests: XCTestCase {
         let text = displaySafeErrorMultiline(error, prefix: "Error: ")
         XCTAssertTrue(text.contains("本趟已落地 1 筆"), text)
         XCTAssertFalse(text.contains("writeFailed"), text)
+    }
+
+    // MARK: - import_zotero 的 rebuild 失敗（#705 R1 verify 第 1 列）
+
+    /// `n` 筆 legacy 佈局的 work，各帶一個 Zotero 來源（`KEYART01`…，版本比 Zotero 舊）——匯入會更新它們、寫進 `entities/`、刪不掉 legacy 檔。
+    /// work 的兩份共用 citekey，之後的 index rebuild 撞重複。
+    private func legacyZoteroWorks(_ n: Int) throws -> (db: URL, keys: [String]) {
+        let dir = root.appendingPathComponent("zotero-fixture")   // 在 store 之內：tearDown 一起清掉
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let zotero = try PayloadZoteroDB(dir: dir, itemCount: n)
+        var keys: [String] = []
+        for i in 1...n {
+            var e = Entry(id: UUID(), citekey: String(format: "legacy2025n%02d", i), type: .periodicalArticle, title: "Old \(i)", date: "2025")
+            e.provenance = Provenance(zoteroKey: String(format: "KEYART%02d", i), zoteroVersion: 1, libraryID: 1)
+            try EntryYAML.encode(e).write(to: store.entriesDir.appendingPathComponent("\(e.citekey).yaml"), atomically: true, encoding: .utf8)
+            keys.append(e.citekey)
+        }
+        StoreGitCommit.commitAll(root)
+        try lock(store.entriesDir)
+        return (zotero.url, keys)
+    }
+
+    /// 分派的範圍裡（這裡照同一個順序重演）：importer 自己的範圍收下、放進報告；rebuild 失敗時報告裡的那幾筆**交給外層**，
+    /// 嵌進錯誤訊息的 payload 不再帶——外層在格式化錯誤之後把它們放在回應最前面、不截。真 binary 的接線與超過錯誤上限的量由
+    /// `StdioE2ETests.testImportRebuildFailureKeepsEveryLegacyCopyUntruncated` 釘住。
+    func testAnImportWhoseRebuildFailsHandsItsLeftoversToTheEnclosingScope() throws {
+        let (db, keys) = try legacyZoteroWorks(3)
+        let (result, outer) = LegacyCopyLedger.collecting { try service.importZotero(zoteroDb: db.path, libraryID: nil) }
+        guard case .failure(let error) = result else { return XCTFail("前提：兩份並存時 index rebuild 撞重複的 citekey") }
+        XCTAssertEqual(outer.map(\.key).sorted(), keys, "交給外層（分派）")
+        let text = displaySafeErrorMultiline(error, prefix: "Error: ")
+        XCTAssertTrue(text.contains("index rebuild 失敗"), text)
+        XCTAssertFalse(text.contains("\"writtenWithLegacyCopy\""), "嵌進錯誤的 payload 不再帶——否則同一筆報兩次：\(text)")
+    }
+
+    /// 沒有外層範圍的直接呼叫端：沒有人可交，報告照舊帶在嵌進錯誤的 payload 裡。
+    func testWithoutAnEnclosingScopeTheImportErrorStillCarriesThem() throws {
+        let (db, keys) = try legacyZoteroWorks(2)
+        XCTAssertThrowsError(try service.importZotero(zoteroDb: db.path, libraryID: nil)) { error in
+            let text = displaySafeErrorMultiline(error, prefix: "Error: ")
+            XCTAssertTrue(text.contains("\"writtenWithLegacyCopy\""), text)
+            for k in keys { XCTAssertTrue(text.contains(k), "\(k)：\(text)") }
+        }
     }
 }

@@ -210,4 +210,121 @@ final class LegacyCopyLedgerTests: XCTestCase {
         XCTAssertEqual(inner, [], "已轉交外層")
         XCTAssertEqual(outer.map(\.key), [e.citekey], "寫進去的那一筆不能跟著錯誤一起消失")
     }
+
+    // MARK: - 改名（#705 R1 verify 第 4／11 列）
+
+    /// `renameEntry` 先寫新 citekey 那一份、再刪舊 citekey 的 legacy 檔。先前那一步直接 `removeItem`：`entries/` 唯讀時以 Foundation 的
+    /// 原始錯誤中止，引用它的 work、verdict、歧異記錄都還沒改寫（同 id 兩份、引用指著舊鍵）。現在走 `removeMovedLegacy`——範圍內記下、
+    /// 繼續改寫其餘引用，改名做完。
+    func testRenameInAScopeFinishesAndRewritesEveryReference() throws {
+        var citing = Entry(id: UUID(), citekey: "yang2026citing", type: .periodicalArticle, title: "Citing", date: "2026")
+        citing.akashic.relations.cites = ["cheng2025identifiability"]
+        try store.writeEntry(citing)
+        let e = try legacyWork()   // commit 全部、entries/ 唯讀
+        let (result, written) = LegacyCopyLedger.collecting { try store.renameEntry(from: e.citekey, to: "cheng2025renamed") }
+        let report = try result.get()
+        XCTAssertEqual(report.relationsRewritten, [citing.citekey], "改名做完：引用它的 work 改寫了")
+        XCTAssertEqual(written.map(\.kind), [.work])
+        XCTAssertEqual(written.map(\.key), ["cheng2025renamed"], "具名的是這筆記錄現在的 citekey")
+        XCTAssertEqual(written.map(\.legacyFile), ["entries/\(e.citekey).yaml"], "留下的是舊 citekey 那一份")
+        XCTAssertTrue(try XCTUnwrap(written.first).message.contains("改名前的 citekey"), "兩份共用的是 id，不是 citekey")
+        let renamed = try EntryYAML.decode(try String(contentsOf: store.entityURL(id: e.id), encoding: .utf8))
+        XCTAssertEqual(renamed.citekey, "cheng2025renamed")
+        let rewritten = try EntryYAML.decode(try String(contentsOf: store.entityURL(id: citing.id), encoding: .utf8))
+        XCTAssertEqual(rewritten.akashic.relations.cites, ["cheng2025renamed"])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: store.entriesDir.appendingPathComponent("\(e.citekey).yaml").path),
+                      "前提：legacy 那份還在")
+    }
+
+    /// 範圍外（App）照舊擲，但擲的是「已寫入……」的 `legacyCopyNotRemoved`，不是 Foundation 的原始錯誤——後者讓呼叫端以為這一筆沒寫。
+    func testRenameOutsideAScopeSaysItWroteInsteadOfARawError() throws {
+        let e = try legacyWork()
+        XCTAssertThrowsError(try store.renameEntry(from: e.citekey, to: "cheng2025renamed")) { error in
+            guard case StoreIOError.legacyCopyNotRemoved = error else { return XCTFail("應是 legacyCopyNotRemoved：\(error)") }
+        }
+    }
+
+    /// `renamePerson` 同形：寫 person 之後刪舊 key 的 legacy 檔。範圍內記下、繼續改寫作品的作者邊。
+    func testRenamePersonInAScopeFinishesAndRewritesTheAuthorEdges() throws {
+        let work = Entry(id: UUID(), citekey: "cheng2026work", type: .periodicalArticle, title: "W",
+                         authors: [.key("cheng-che")], date: "2026")
+        try store.writeEntry(work)
+        let p = try legacyPerson()   // commit 全部、people/ 唯讀
+        let (result, written) = LegacyCopyLedger.collecting { try store.renamePerson(from: p.key, to: "cheng-che-renamed") }
+        let report = try result.get()
+        XCTAssertEqual(report.authorEdgesRewritten, [work.citekey], "改名做完：作者邊改寫了")
+        XCTAssertEqual(written.map(\.kind), [.person])
+        XCTAssertEqual(written.map(\.key), ["cheng-che-renamed"])
+        XCTAssertEqual(written.map(\.legacyFile), ["people/\(p.key).yaml"])
+        let rewritten = try EntryYAML.decode(try String(contentsOf: store.entityURL(id: work.id), encoding: .utf8))
+        XCTAssertEqual(rewritten.authors, [.key("cheng-che-renamed")])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: store.personURL(key: p.key).path), "前提：legacy 那份還在")
+    }
+
+    // MARK: - 沒有外層範圍時的失敗（#705 R1 verify 第 17／22／30／36 列）
+
+    /// 沒有外層可轉交、body 在留下 legacy 拷貝之後擲錯：`get` 擲出的錯誤帶著寫了的那幾筆，描述先說寫了什麼。
+    /// 先前 `ZoteroImporter.run` 與 `LegacyCopyReport.payload` 的 `try result.get()` 把它們丟掉。
+    func testWithoutAnOuterScopeAFailureCarriesWhatWasWritten() throws {
+        var e = try legacyWork()
+        e.akashic.tags = ["x"]
+        let (result, written) = LegacyCopyLedger.collecting { () throws -> Void in
+            try store.writeEntry(e)
+            throw Boom()
+        }
+        XCTAssertEqual(written.map(\.key), [e.citekey], "沒有外層：原樣回傳給呼叫端")
+        XCTAssertThrowsError(try LegacyCopyLedger.get(result, written: written)) { error in
+            guard let carried = error as? LegacyCopyLeftBeforeFailure else { return XCTFail("應帶著寫了的那幾筆：\(error)") }
+            XCTAssertEqual(carried.written.map(\.key), [e.citekey])
+            XCTAssertTrue(carried.underlying is Boom, "原本的錯誤留著")
+            let d = carried.errorDescription ?? ""
+            XCTAssertTrue(d.hasPrefix("writtenWithLegacyCopy"), "先說寫了什麼：\(d)")
+            XCTAssertTrue(d.contains("work「\(e.citekey)」"), d)
+        }
+        // 已轉交外層（written 空）或沒有收到任何東西：原樣擲原本的錯誤、成功就回結果
+        XCTAssertThrowsError(try LegacyCopyLedger.get(Result<Int, Error>.failure(Boom()), written: [])) { XCTAssertTrue($0 is Boom) }
+        XCTAssertEqual(try LegacyCopyLedger.get(Result<Int, Error>.success(7), written: []), 7)
+    }
+
+    /// 內層成功、之後的步驟才失敗的呼叫端把報告裡的那幾筆交給外層（第 1 列：`akashic_import_zotero` 的 rebuild 失敗）。沒有範圍時回 false。
+    func testHandingToTheEnclosingScope() {
+        let item = LegacyCopyLeft(kind: .work, key: "k2020", id: UUID(), legacyFile: "entries/k2020.yaml", detail: "d")
+        XCTAssertFalse(LegacyCopyLedger.handToEnclosingScope([item]), "沒有範圍：沒有人可交")
+        var handed = false
+        let (_, outer) = LegacyCopyLedger.collecting { handed = LegacyCopyLedger.handToEnclosingScope([item]) }
+        XCTAssertTrue(handed)
+        XCTAssertEqual(outer, [item])
+    }
+
+    /// 開收集範圍的每個地方都經 `LegacyCopyLedger.get` 取結果；例外只有兩個最外層（CLI 進入點、MCP 分派），它們自己處理 `written`
+    /// ——沒有外層可以轉交。一個新的範圍若照舊寫 `try result.get()`，失敗時收到的就消失（第 17／22／30／36 列）。
+    func testEveryScopeTakesItsResultThroughGet() throws {
+        let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let outermost: [String: String] = [
+            "Sources/akashic/CLI.swift": "LegacyCopyReport.printLines(written)",
+            "Sources/akashic-mcp/Server.swift": "reportingWrittenWithLegacyCopy(\"Error: 工具分派失敗\", written, isError: true)",
+        ]
+        var scopes: [String] = [], offenders: [String] = []
+        let enumerator = FileManager.default.enumerator(at: repo.appendingPathComponent("Sources"), includingPropertiesForKeys: nil)
+        while let url = enumerator?.nextObject() as? URL {
+            guard url.pathExtension == "swift" else { continue }
+            let rel = String(url.path.dropFirst(repo.path.count + 1))
+            if rel == "Sources/AkashicStoreIO/LegacyCopyLedger.swift" { continue }
+            let code = try String(contentsOf: url, encoding: .utf8).split(separator: "\n", omittingEmptySubsequences: false)
+                .map { line -> String in
+                    guard let r = line.range(of: "//") else { return String(line) }
+                    return String(line[..<r.lowerBound])
+                }.joined(separator: "\n")
+            guard code.contains("LegacyCopyLedger.collecting") else { continue }
+            scopes.append(rel)
+            if let needle = outermost[rel] {
+                if !code.contains(needle) { offenders.append("\(rel)：最外層要自己處理 written（找不到 \(needle)）") }
+            } else if !code.contains("LegacyCopyLedger.get(") {
+                offenders.append("\(rel)：開了收集範圍卻沒有經 LegacyCopyLedger.get 取結果")
+            }
+        }
+        XCTAssertEqual(Set(outermost.keys).subtracting(scopes), [], "例外清單過期：\(scopes.sorted())")
+        XCTAssertGreaterThanOrEqual(scopes.count, 4, "空掃描不是通過：\(scopes.sorted())")
+        XCTAssertEqual(offenders, [], offenders.joined(separator: "\n"))
+    }
 }

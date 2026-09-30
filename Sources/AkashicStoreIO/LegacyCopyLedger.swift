@@ -4,8 +4,8 @@ import AkashicCore
 /// #705：內容寫進 `entities/<id>.yaml`、但 #631 搬移後的 legacy 拷貝刪不掉的那一筆。
 ///
 /// 它**寫了**：新內容在 `entities/`，legacy 檔（`entries/<citekey>.yaml`／`people/<key>.yaml`）還在，同一筆記錄現在有兩份。
-/// load 把它標成無法唯一定位（#641）；work 的兩份共用同一個 citekey，刪掉 legacy 那份之前 index 重建會撞重複（person 的不會——
-/// index 的 people 表對重複 key 留第一筆，#670）。
+/// load 把它標成無法唯一定位（#641）；work 的兩份共用同一個 id（一般的寫入連 citekey 也相同；改名時 legacy 那份是舊 citekey），
+/// 刪掉 legacy 那份之前 index 重建會撞重複（person 的不會——index 的 people 表對重複 key 留第一筆，#670）。
 ///
 /// 使用者 2026-09-30 裁決 (a)：各寫入者統一，這一筆記在**成功那一側**的 `writtenWithLegacyCopy`，不算失敗、不進任何失敗清單。
 /// #702 之前 import-zotero 把它同時列在成功清單與 `writeFailed`，其他寫入者則只算它失敗——同一件事兩種說法，而兩種都不完全對。
@@ -32,7 +32,13 @@ public struct LegacyCopyLeft: Equatable, Sendable {
     /// `StoreIOError.legacyCopyNotRemoved` 同一份（同一件事只有一句話），前面具名是哪一筆。
     public var message: String {
         let base = StoreIOError.legacyCopyNotRemoved(id: id, file: legacyFile, detail: detail).errorDescription ?? ""
-        let index = kind == .work ? "（work 的兩份共用同一個 citekey：刪掉之前 index 重建會撞重複）" : ""
+        let index: String
+        switch kind {
+        case .person: index = ""
+        // 改名（`renameEntry`）時 legacy 那份是**舊** citekey：兩份共用的是 id，不是 citekey（#705 R1 verify 第 4／11 列）
+        case .work where legacyFile == "entries/\(key).yaml": index = "（work 的兩份共用同一個 citekey：刪掉之前 index 重建會撞重複）"
+        case .work: index = "（work 的兩份共用同一個 id——legacy 那份是改名前的 citekey：刪掉之前 index 重建會撞重複）"
+        }
         return "\(kind.rawValue)「\(displaySafeInvisible(key, max: 200))」：\(base)\(index)"   // display-safe-exempt: base：errorDescription 對 file 以性質逃脫、detail 擲出端已消毒；kind：封閉列舉；index：本檔字面
     }
 
@@ -55,7 +61,9 @@ public struct LegacyCopyLeft: Equatable, Sendable {
 /// App 沒有開——它的單筆編輯沒有報告可以放，照舊擲出那句「已寫入……」。
 ///
 /// **巢狀時最內層收下**：它自己的報告列出這一筆，外層不重複。內層的 body 擲錯時它沒有報告可以放——收到的**轉交外層**、
-/// 回傳空陣列；沒有外層時才原樣回傳給呼叫端。每一筆恰好在一個地方被報告。
+/// 回傳空陣列；沒有外層時才原樣回傳給呼叫端，而呼叫端要經 `LegacyCopyLedger.get(_:written:)` 取結果：失敗時它把收到的附在擲出的錯誤上
+/// （`LegacyCopyLeftBeforeFailure`），不讓它們跟著 `try result.get()` 一起消失（#705 R1 verify 第 17／22／30／36 列）。
+/// 內層成功、之後的步驟才失敗的呼叫端，用 `handToEnclosingScope` 把報告裡的那幾筆交給外層（第 1 列）。每一筆恰好在一個地方被報告。
 public final class LegacyCopyLedger: @unchecked Sendable {
     @TaskLocal static var active: LegacyCopyLedger?
 
@@ -86,6 +94,30 @@ public final class LegacyCopyLedger: @unchecked Sendable {
         return true
     }
 
+    /// 把已經收下、放進某份報告的那幾筆交給**目前的**範圍（外層）；沒有範圍時回 false、什麼都不做（#705 R1 verify 第 1 列）。
+    ///
+    /// 給「內層範圍成功、之後的步驟才失敗」的呼叫端：`ZoteroImporter.run` 的範圍收下、放進 `ImportReport`，之後 index rebuild 失敗時
+    /// 報告只能嵌進錯誤訊息，而錯誤出口有 96 KB／200 行的上限——交給外層（MCP 分派），它在格式化錯誤**之後**把人可讀報告放在回應最前面、不截。
+    /// 回 true 時呼叫端要把那幾筆從自己的報告拿掉，否則同一筆報兩次。
+    @discardableResult
+    public static func handToEnclosingScope(_ items: [LegacyCopyLeft]) -> Bool {
+        guard let ledger = active else { return false }
+        for item in items { ledger.record(item) }
+        return true
+    }
+
+    /// `collecting` 的結果交回呼叫端的出口（#705 R1 verify 第 17／22／30／36 列）。成功回結果；失敗時，收到的若已轉交外層（`written` 是空的）
+    /// 原樣擲出原本的錯誤，**沒有外層可轉交而收到了東西**就擲 `LegacyCopyLeftBeforeFailure`——寫進去的那幾筆跟著錯誤出去。
+    /// 先前 `ZoteroImporter.run` 與 CLI 的 `LegacyCopyReport.payload` 直接 `try result.get()`，沒有外層範圍的呼叫端（測試、日後的嵌入）會把它們丟掉。
+    public static func get<R>(_ result: Result<R, Error>, written: [LegacyCopyLeft]) throws -> R {
+        switch result {
+        case .success(let value): return value
+        case .failure(let error):
+            guard !written.isEmpty else { throw error }
+            throw LegacyCopyLeftBeforeFailure(underlying: error, written: written)
+        }
+    }
+
     /// 在一個收集範圍裡跑 `body`。回傳它的結果與範圍內記下的每一筆（`written`）。
     public static func collecting<R>(_ body: () throws -> R) -> (result: Result<R, Error>, written: [LegacyCopyLeft]) {
         let outer = active
@@ -97,5 +129,23 @@ public final class LegacyCopyLedger: @unchecked Sendable {
             return (result, [])
         }
         return (result, written)
+    }
+}
+
+/// 沒有外層收集範圍、而 body 在留下 legacy 拷貝之後擲錯：錯誤帶著已經寫進去的那幾筆（#705 R1 verify 第 17／22／30／36 列）。
+///
+/// 描述**先說寫了什麼**、再說錯誤——與 MCP 錯誤回應同一個順序（第 5 列）。`underlying` 是原本的錯誤；要判斷錯誤種類的呼叫端從這裡拿。
+/// 只由 `LegacyCopyLedger.get` 擲出，而那只在沒有外層範圍時發生：CLI 進入點與 MCP 分派一定有外層（它們自己是最外層、自己處理 `written`），
+/// 所以這兩面的錯誤型別與結束碼不受影響。
+public struct LegacyCopyLeftBeforeFailure: LocalizedError, SanitizedErrorDescription {
+    public let underlying: Error
+    public let written: [LegacyCopyLeft]
+
+    public init(underlying: Error, written: [LegacyCopyLeft]) {
+        self.underlying = underlying; self.written = written
+    }
+
+    public var errorDescription: String? {
+        (LegacyCopyLeft.reportLines(written) + ["", displaySafeErrorText(underlying)]).joined(separator: "\n")   // display-safe-exempt: reportLines 由已消毒的 message 組成；underlying 經 displaySafeErrorText 逃一次
     }
 }

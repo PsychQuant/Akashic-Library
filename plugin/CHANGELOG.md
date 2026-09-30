@@ -49,7 +49,8 @@
 現在一律記在成功那一側。十三個會寫既有 work／person 的工具（`akashic_libraries`、`akashic_set_status`、`akashic_tag`、`akashic_link`、`akashic_resolve_people`、`akashic_update_entry`、`akashic_resolve_venues`、`akashic_resolve_organizations`、`akashic_update_person`、`akashic_import_zotero`、`akashic_enrich_from_zotero`、`akashic_enrich`、`akashic_import_wos`）：
 
 - **成功回應**多一個鍵 `writtenWithLegacyCopy`，只在非空時出現、不截。每筆是 `{kind, key, written, legacyFile, detail}`：`kind` 是 `work` 或 `person`，`written` 是寫進去的 `entities/<id>.yaml`，`legacyFile` 是沒刪掉的那一份，`detail` 是刪不掉的原因。這一筆不在 `writeFailed` 或其他失敗清單裡，照常算在寫入的計數與清單。
-- **錯誤回應**：同一份報告以文字附在錯誤訊息末，開頭是 `writtenWithLegacyCopy`。work 的兩份共用同一個 citekey，寫入之後的 index rebuild 會撞重複，所以會重建 index 的工具在這種狀態下多半回錯誤，報告就在錯誤訊息裡。person 的兩份不擋重建，回成功。
+- **錯誤回應**：同一份報告以文字放在錯誤訊息**最前面**，第一行以 `writtenWithLegacyCopy` 開頭，空一行之後才是原本的錯誤（同日第一輪驗證之前是附在末尾）。work 的兩份共用同一個 citekey，寫入之後的 index rebuild 會撞重複，所以會重建 index 的工具在這種狀態下多半回錯誤，報告就在錯誤訊息裡。先讀到報告再決定要不要重試：兩份並存時重試會被拒絕，要先刪掉 legacy 那一份。person 的兩份不擋重建，回成功。
+- **成功回應已帶這個鍵時**（`akashic_import_zotero`）：同一次呼叫另外留下的那幾筆併進同一個陣列，回應仍是一份 JSON。`akashic_import_zotero` 的 index rebuild 失敗時，這幾筆不再嵌在錯誤訊息的報告裡（那一段有長度上限、會被截掉），改放在錯誤訊息最前面、不截。
 - **處置**：確認 `entities/` 那一份是新的之後，刪掉 legacy 那一份。刪掉之前 load 會把這筆記錄標成無法唯一定位，寫入它的工具會拒絕。
 - `akashic_import_zotero`：`writeFailed` 不再有以「已寫入」開頭的訊息（#702 的例外改掉），它記的是沒有套用的那一步。同一趟稍早一步已寫入這一筆、之後的步驟被拒時（兩份並存），`writeFailed` 那一則說出前一步寫了、這一步沒有套用；同一筆有不只一則時以「；」串接，不再後蓋前。
 

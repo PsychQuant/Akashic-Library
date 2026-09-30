@@ -45,7 +45,7 @@
 | `UpdatePerson.updatePerson` | MCP update_person、CLI update-person（進 JSON） | person 的兩份不擋 index 重建，回成功、帶鍵 |
 | `EntryUpdate` 四條腿 | MCP update_entry、CLI update-entry（進 JSON） | 同上（work：rebuild 撞重複時錯誤附報告） |
 | `ZoteroAttachmentCopy.storeOne`（逐筆收容） | CLI copy-zotero-attachments | 不進失敗清單；CLI 末尾 |
-| `renameEntry`、`renamePerson`、`DivergenceResolve`（三處）、`ProvenanceMigration`（逐筆收容）、`IdentifierMigration`、`AuthorizedNameMigration`、`BootstrapPeople` | CLI rename、rename-person、resolve-divergence、migrate-provenance、migrate-identifiers、authorize-names、bootstrap-people | CLI 末尾 |
+| `renameEntry`、`renamePerson`、`DivergenceResolve`（三處）、`ProvenanceMigration`（逐筆收容）、`IdentifierMigration`、`AuthorizedNameMigration`、`BootstrapPeople` | CLI rename、rename-person、resolve-divergence、migrate-provenance、migrate-identifiers、authorize-names、bootstrap-people | CLI 末尾（rename、rename-person 這一格在本節寫下時為假，R1 verify 起才成立——見文末〈R1 verify 之後〉） |
 | `addPerson`、`createEntries`（`writeEntryExclusive`） | MCP add_person／create_entry | 新記錄、沒有 legacy 可搬——碰不到這一格 |
 | App：`AppState.mutate`、`Adjudication` 三處、`AppState.rename` | App | **不變**：沒有開範圍，照舊擲「已寫入……」。App 的單筆編輯沒有報告可以放 |
 
@@ -106,3 +106,14 @@
 三格都紅，都以位元組備份還原、`cmp` 相同。
 
 守衛面跟著改的測試表（全套測試第一次跑紅的七則，都是新程式碼碰到既有守衛）：`GitSpawnHygieneTests` 的封閉清單加兩個 CLI 測試檔；`ImportZoteroReportSurfaceTests` 的 `uncappedCollections` 具名 `writtenWithLegacyCopy` 不截的理由、`fullReport` 填它；`SanitizationBoundaryTests` 的 Error → 文字入口表跟著 `recordWriteFailure` 改寫；`Server.swift` 的型別完整分支不做 Error → 文字轉換；擲出端 `legacyCopyNotRemoved` 的 detail 在擲出站點逃脫；`reportLines` 的豁免具名 `$0.message`。
+
+## R1 verify 之後
+
+第一輪驗證的處置與負控詳見 `2026-09-30-b22-r1-fixes-705-695.md`。摘要：
+
+- **rename、rename-person 其實沒有涵蓋（兩席 MEDIUM，DA 以真 binary 重現）**：兩者寫完新鍵之後自己 `removeItem` 舊鍵的 legacy 檔，唯讀目錄讓改名以原始錯誤中止、引用沒改寫。上方寫入者表那一列與 `mcp-cli-parity` 的 #705 段對這兩個命令都是假的。現在走 `removeMovedLegacy`，改名做完、legacy 那份進報告；App 的改名照舊擲，但擲的是「已寫入……」。
+- **import 的 rebuild 失敗時報告被錯誤出口截掉（Codex MEDIUM）**：importer 收下的那幾筆改交給分派的範圍（`LegacyCopyLedger.handToEnclosingScope`），放在回應最前面、不截；嵌進錯誤的 payload 不再帶。真 binary 以三十二筆驗過。
+- **錯誤回應把報告放在最前面**（上方〈誠實邊界〉第一條與 `plugin/CHANGELOG.md` 說的「附在訊息末」自此改成「放在最前面」）。讓 index 容忍兩份並存是另一個 issue。
+- **成功回應已帶這個鍵時併進同一個陣列**（先前會把 JSON 變成 JSON 加文字）。
+- **沒有外層範圍時，失敗不再帶走收到的那幾筆**：`ZoteroImporter.run` 與 `LegacyCopyReport.payload` 改經 `LegacyCopyLedger.get`，沒有外層時擲 `LegacyCopyLeftBeforeFailure`（帶著寫了的那幾筆與原本的錯誤）。
+- 說明句名單（13 個工具）仍是手寫的：程式裡沒有「寫既有 work／person 的 MCP 工具」這個分類可以推導，理由在那份 changelog。

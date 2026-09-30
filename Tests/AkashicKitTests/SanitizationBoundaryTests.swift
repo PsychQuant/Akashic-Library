@@ -553,6 +553,7 @@ final class SanitizationBoundaryTests: XCTestCase {
             "AuthorshipCompletenessValidationError": "唯一的 store payload（detail）在 init 經 boundedDisplaySafe 逃一次；其餘是 Int 索引",
             "TractatusValidationFailure": "errorDescription 的兩個來源各自逐項 displaySafeInvisible（incompleteness 直接、diagnostics 經 formatted→singleLine）",
             "PropositionModelValidationError": "描述由 safeDescription／boundedKey 組成——每個 store 字串性質式逃一次、退讓截（R30 對 AkashicProposition 兩個型別的獨立稽核）",
+            "LegacyCopyLeftBeforeFailure": "描述由 LegacyCopyLeft.reportLines（每筆 message 的 key 逐項 displaySafeInvisible、detail 擲出端已消毒）與 displaySafeErrorText(underlying)（逃一次）組成（#705 R1 verify）",
         ]
         let actualStructs = Set(decls.filter { $0.conforms && !$0.isEnum }.map(\.qualified))
         XCTAssertEqual(actualStructs, Set(structConformers.keys), "struct 的 SanitizedErrorDescription conformer 是封閉清單——新的要在這裡寫理由：\(actualStructs.sorted())")

@@ -45,8 +45,8 @@ actor AkashicMCPServer {
     static let importListLimit = 20
 
     /// #705：會寫既有 work／person 的工具（13 個）都加這一句——分派層把「寫進 entities/、搬移後的 legacy 拷貝沒刪掉」的那一筆
-    /// 放進回應的 `writtenWithLegacyCopy`（成功的 JSON 物件加鍵；錯誤回應附在訊息末）。一個常數，13 份描述不會各寫各的。
-    static let legacyCopyNote = "已寫入而 legacy 拷貝未刪的列在 writtenWithLegacyCopy（錯誤時附在訊息末）。"
+    /// 放進回應的 `writtenWithLegacyCopy`（成功的 JSON 物件加鍵；錯誤回應放在訊息最前面，#705 R1 verify 第 5 列）。一個常數，13 份描述不會各寫各的。
+    static let legacyCopyNote = "已寫入而 legacy 拷貝未刪的列在 writtenWithLegacyCopy（錯誤時列在訊息前）。"
 
     // MARK: - Schema 小工具
 
@@ -491,9 +491,11 @@ actor AkashicMCPServer {
     /// 放在分派這一層而不是逐工具：新的寫入工具不必記得接它。`akashic_s2` 不寫 store，不經這裡。
     private func handleToolCall(_ params: CallTool.Parameters) -> CallTool.Result {
         let (result, written) = LegacyCopyLedger.collecting { dispatchToolCall(params) }
-        // dispatchToolCall 不擲錯（它自己的 catch 是本檔唯一的 Error → 文字出口）；`.failure` 這一格只為了型別完整
+        // dispatchToolCall 不擲錯（它自己的 catch 是本檔唯一的 Error → 文字出口）；`.failure` 這一格只為了型別完整——收到的照樣帶上
+        // （#705 R1 verify 第 36 列：分派是最外層，這裡丟掉就沒有別處報）
         guard case .success(let outcome) = result else {
-            return CallTool.Result(content: [.text(text: "Error: 工具分派失敗", annotations: nil, _meta: nil)], isError: true)
+            return CallTool.Result(content: [.text(text: AkashicService.reportingWrittenWithLegacyCopy("Error: 工具分派失敗", written, isError: true),
+                                                   annotations: nil, _meta: nil)], isError: true)
         }
         guard !written.isEmpty else { return outcome }
         let text = outcome.content.compactMap { content -> String? in

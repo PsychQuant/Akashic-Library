@@ -919,8 +919,44 @@ extension StdioE2ETests {
         let result = try XCTUnwrap(try readResponse()["result"] as? [String: Any])
         let text = ((result["content"] as? [[String: Any]]) ?? []).compactMap { $0["text"] as? String }.joined(separator: "\n")
         XCTAssertEqual(result["isError"] as? Bool, true, "前提：index rebuild 撞重複的 citekey：\(text)")
-        XCTAssertTrue(text.contains("writtenWithLegacyCopy"), text)
+        XCTAssertTrue(text.hasPrefix("writtenWithLegacyCopy"), "報告在錯誤訊息最前面（#705 R1 verify 第 5 列）：\(text)")
         XCTAssertTrue(text.contains("work「\(e.citekey)」"), text)
+        XCTAssertTrue(text.contains("Error: "), "原本的錯誤接在後面：\(text)")
         XCTAssertTrue(try String(contentsOf: store.entityURL(id: e.id), encoding: .utf8).contains("- x"), "寫了")
+    }
+
+    /// #705 R1 verify 第 1 列：`akashic_import_zotero` 的 rebuild 失敗時，報告整份嵌進錯誤訊息，而錯誤出口有上限（200 行／96 KB）——
+    /// `writtenWithLegacyCopy` 每筆在 pretty JSON 裡佔七行，三十二筆（224 行）就被截掉一截，要人去刪的檔案清單不完整。現在 importer 收下的
+    /// 交給分派的範圍，放在回應最前面、不截；嵌進錯誤的 payload 不再帶（不報兩次）。
+    /// 讀回應的期限放寬到 120 秒：每一筆的 legacy 搬移都問一次 git，機器忙的時候三十幾筆會逼近預設的 10 秒。
+    func testImportRebuildFailureKeepsEveryLegacyCopyUntruncated() throws {
+        let n = 32
+        let zotero = try PayloadZoteroDB(dir: root, itemCount: n)
+        let store = LibraryStore(root: root)
+        try FileManager.default.createDirectory(at: store.entriesDir, withIntermediateDirectories: true)
+        var keys: [String] = []
+        for i in 1...n {
+            var e = Entry(id: UUID(), citekey: String(format: "legacy2025n%02d", i), type: .periodicalArticle, title: "Old \(i)", date: "2025")
+            e.provenance = Provenance(zoteroKey: String(format: "KEYART%02d", i), zoteroVersion: 1, libraryID: 1)
+            try EntryYAML.encode(e).write(to: store.entriesDir.appendingPathComponent("\(e.citekey).yaml"), atomically: true, encoding: .utf8)
+            keys.append(e.citekey)
+        }
+        try lockAfterCommit(store.entriesDir)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: store.entriesDir.path) }
+
+        try initialize()
+        try send(["jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                  "params": ["name": "akashic_import_zotero", "arguments": ["zotero_db": zotero.url.path]]])
+        let response = try JSONSerialization.jsonObject(with: Self.readLine(fd: reader.fileDescriptor, pending: &pending, timeout: 120))
+        let result = try XCTUnwrap((response as? [String: Any])?["result"] as? [String: Any])
+        let text = ((result["content"] as? [[String: Any]]) ?? []).compactMap { $0["text"] as? String }.joined(separator: "\n")
+        XCTAssertEqual(result["isError"] as? Bool, true, "前提：兩份並存時 index rebuild 撞重複的 citekey：\(text.prefix(400))")
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        XCTAssertTrue(lines.first?.hasPrefix("writtenWithLegacyCopy") == true && lines.first?.hasSuffix(": \(n)") == true,
+                      "報告在最前面、筆數完整：\(lines.first ?? "")")
+        XCTAssertEqual(lines.filter { $0.hasPrefix("  ⚠ work「") }.count, n, "每一筆都在，沒有被截")
+        for k in keys { XCTAssertTrue(text.contains("work「\(k)」"), "\(k) 不在回應裡（含最後一筆）") }
+        XCTAssertTrue(text.contains("Error: index rebuild 失敗"), "原本的錯誤接在後面")
+        XCTAssertFalse(text.contains("\"legacyFile\""), "嵌進錯誤的 payload 不再帶這個鍵——同一筆不報兩次")
     }
 }

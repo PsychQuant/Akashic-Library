@@ -2155,8 +2155,10 @@ extension LibraryStore {
         // 也就沒有「新舊並存」這個中斷態要處理（見本函式開頭的表格）。
         if usesEntitiesLayout {
             try writeEntry(entry)
-            // #631：只有舊 citekey 的 legacy 一份 → 改名同時完成搬移（writeEntry 只查新 citekey 的 legacy 檔）
-            if let oldLegacy { try FileManager.default.removeItem(at: oldLegacy) }
+            // #631：只有舊 citekey 的 legacy 一份 → 改名同時完成搬移（writeEntry 只查新 citekey 的 legacy 檔）。
+            // #705 R1 verify 第 4／11 列：刪除走 `removeMovedLegacy`——收集範圍裡刪不掉就記下、繼續改寫其餘引用；已經不在算成功；
+            // 範圍外擲「已寫入……」。先前直接 `removeItem`，唯讀目錄讓改名在改寫引用之前以 Foundation 的原始錯誤中止（同 id 兩份、引用沒改）。
+            if let oldLegacy { try removeMovedLegacy(oldLegacy, kind: .work, key: entry.citekey, id: entry.id) }
         } else {
             try writeEntryExclusive(entry)
         }
@@ -2391,7 +2393,8 @@ extension LibraryStore {
 
         // 5. 寫入。entities 佈局的檔名是 UUID，改 key 不搬檔（同 renameEntry 的 #35）。
         try writePerson(person)
-        if let oldLegacy { try FileManager.default.removeItem(at: oldLegacy) }
+        // #705 R1 verify 第 4／11 列：同 `renameEntry`——刪除走 `removeMovedLegacy`，範圍內刪不掉就記下、繼續改寫其餘引用
+        if let oldLegacy { try removeMovedLegacy(oldLegacy, kind: .person, key: person.key, id: person.id) }
         var entryKeys: [String] = []
         for e in entriesToRewrite { try writeEntry(e); entryKeys.append(e.citekey) }
         var verdictHolders: [HolderRecord] = []

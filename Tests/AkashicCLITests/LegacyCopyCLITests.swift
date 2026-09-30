@@ -119,4 +119,42 @@ final class LegacyCopyCLITests: XCTestCase {
         XCTAssertTrue(r.output.contains("work「\(e.citekey)」"), r.output)
         XCTAssertFalse(r.output.contains("writeFailed"), "不是寫入失敗：\(r.output)")
     }
+
+    /// #705 R1 verify 第 4／11 列（DA 席的真 binary 重現）：`rename` 在刪舊 citekey 的 legacy 檔時以 Foundation 的原始錯誤中止，
+    /// 引用它的 work 還沒改寫（同 id 兩份、引用指著舊鍵），也沒有 writtenWithLegacyCopy。現在改名做完、引用改寫、legacy 那份在報告裡。
+    /// work 的兩份共用同一個 id，之後的 index rebuild 撞重複——結束碼因此非零，這是 store 的真實狀態，不是改名沒做完。
+    func testRenameFinishesAndReportsTheLegacyCopy() throws {
+        var citing = Entry(id: UUID(), citekey: "yang2026citing", type: .periodicalArticle, title: "Citing", date: "2026")
+        citing.akashic.relations.cites = ["cheng2025identifiability"]
+        try store.writeEntry(citing)
+        let e = try legacyWork()
+        let r = try cli(["rename", "--library", root.path, e.citekey, "cheng2025renamed"])
+        XCTAssertNotEqual(r.status, 0, "前提：兩份共用 id，index rebuild 撞重複：\(r.output)")
+        XCTAssertTrue(r.output.contains("UNIQUE"), "非零的原因是 index rebuild：\(r.output)")
+        let line = try XCTUnwrap(r.output.split(separator: "\n").first { $0.hasPrefix("writtenWithLegacyCopy") }, r.output)
+        XCTAssertTrue(line.hasSuffix(": 1"), String(line))
+        XCTAssertTrue(r.output.contains("work「cheng2025renamed」"), r.output)
+        XCTAssertTrue(r.output.contains("entries/\(e.citekey).yaml"), r.output)
+        XCTAssertTrue(r.output.contains("改名前的 citekey"), r.output)
+        let rewritten = try EntryYAML.decode(try String(contentsOf: store.entityURL(id: citing.id), encoding: .utf8))
+        XCTAssertEqual(rewritten.akashic.relations.cites, ["cheng2025renamed"], "改名做完：引用它的 work 改寫了")
+    }
+
+    /// `rename-person` 同形。person 的兩份不擋 index 重建（#670），所以結束碼 0、改名的報告照印，legacy 那份在輸出末尾。
+    func testRenamePersonFinishesAndReportsTheLegacyCopy() throws {
+        let work = Entry(id: UUID(), citekey: "yang2026work", type: .periodicalArticle, title: "W",
+                         authors: [.key("yang-hau-hung")], date: "2026")
+        try store.writeEntry(work)
+        let p = Person(key: "yang-hau-hung", names: PersonNames(variant: ["Hau-Hung Yang"]))
+        try PersonYAML.encode(p).write(to: store.personURL(key: p.key), atomically: true, encoding: .utf8)
+        try commitAndLock(store.peopleDir)
+
+        let r = try cli(["rename-person", "--library", root.path, p.key, "yang-h-h"])
+        XCTAssertEqual(r.status, 0, r.output)
+        XCTAssertTrue(r.output.contains("作品的作者邊已遷移"), r.output)
+        XCTAssertTrue(r.output.contains("writtenWithLegacyCopy") && r.output.contains("person「yang-h-h」"), r.output)
+        XCTAssertTrue(r.output.contains("people/\(p.key).yaml"), r.output)
+        let rewritten = try EntryYAML.decode(try String(contentsOf: store.entityURL(id: work.id), encoding: .utf8))
+        XCTAssertEqual(rewritten.authors, [.key("yang-h-h")], "改名做完：作者邊改寫了")
+    }
 }

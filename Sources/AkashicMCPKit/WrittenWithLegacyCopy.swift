@@ -28,19 +28,37 @@ extension AkashicService {
 
     /// 把收到的放進一次回應。沒有收到任何一筆時原樣回傳（位元組不變）。
     ///
-    /// - 成功、且回應是 JSON 物件 → 加上 `writtenWithLegacyCopy` 鍵（同一組序列化選項，與 `jsonString` 一致）。
-    /// - 錯誤回應，或成功卻不是 JSON 物件（陣列、純文字）→ 沒有地方放鍵：把兩面共用的人可讀報告（`LegacyCopyLeft.reportLines`）
-    ///   附在後面。錯誤那一格最常見——work 的兩份共用 citekey，寫入之後的 index rebuild 撞重複；寫進去的那一筆不能跟著錯誤消失。
+    /// - **錯誤回應** → 兩面共用的人可讀報告（`LegacyCopyLeft.reportLines`）放在**最前面**，接著空一行、原本的錯誤文字。這一格最常見——
+    ///   work 的兩份共用 citekey，寫入之後的 index rebuild 撞重複。報告在前，呼叫端先讀到「寫了、留下一份 legacy 拷貝」，才讀到 UNIQUE 的錯誤；
+    ///   #705 R1 verify 第 5 列：附在末尾時，收到 isError 的 agent 先讀到 rebuild 失敗、很可能重試，而重試會被 #631 拒絕（兩份並存）。
+    ///   報告在錯誤文字格式化**之後**才接上，不受錯誤出口的截斷（96 KB／200 行）。
+    /// - 成功、且回應是 JSON 物件 → 加上 `writtenWithLegacyCopy` 鍵（同一組序列化選項，與 `jsonString` 一致）。鍵已經在（`akashic_import_zotero`
+    ///   的 payload 自己帶）時**併進**那個陣列、依 (kind, key) 重排——回應仍是一份 JSON（第 15 列：先前落到下一格，把合法 JSON 變成 JSON 加文字）。
+    /// - 成功卻不是 JSON 物件（陣列、純文字）→ 沒有地方放鍵：報告附在後面，不動原本的內容。
     public static func reportingWrittenWithLegacyCopy(_ text: String, _ written: [LegacyCopyLeft], isError: Bool) -> String {
         guard !written.isEmpty else { return text }
-        if !isError,
-           var obj = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
-           obj[writtenWithLegacyCopyKey] == nil {
-            obj[writtenWithLegacyCopyKey] = legacyCopyRows(written)
-            if let data = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys]) {
-                return UnsafeToEmitScalar.escapingUnsafeScalars(inSerializedJSON: String(decoding: data, as: UTF8.self))
+        if isError {
+            return (LegacyCopyLeft.reportLines(written) + ["", text]).joined(separator: "\n")   // display-safe-exempt: reportLines：LegacyCopyLeft.message 已消毒；text 是呼叫端已組好的回應
+        }
+        if var obj = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] {
+            let rows: [Any]? = switch obj[writtenWithLegacyCopyKey] {
+            case nil: legacyCopyRows(written)
+            case let existing as [Any]: (existing + legacyCopyRows(written)).sorted { Self.rowSortKey($0) < Self.rowSortKey($1) }
+            default: nil   // 同名鍵卻不是陣列：不是這個函式寫的形狀，不覆寫它——落到下一格附文字
+            }
+            if let rows {
+                obj[writtenWithLegacyCopyKey] = rows
+                if let data = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys]) {
+                    return UnsafeToEmitScalar.escapingUnsafeScalars(inSerializedJSON: String(decoding: data, as: UTF8.self))
+                }
             }
         }
         return ([text, ""] + LegacyCopyLeft.reportLines(written)).joined(separator: "\n")   // display-safe-exempt: reportLines：LegacyCopyLeft.message 已消毒；text 是呼叫端已組好的回應
+    }
+
+    /// 併進既有陣列時的排序鍵：與 `legacyCopyRows` 同一個 (kind, key)。
+    private static func rowSortKey(_ row: Any) -> String {
+        let d = row as? [String: Any]
+        return "\(d?["kind"] as? String ?? "")\u{0}\(d?["key"] as? String ?? "")"   // display-safe-exempt: 只用來排序，不輸出
     }
 }

@@ -2815,8 +2815,15 @@ public final class AkashicService {
         do {
             try LibraryIndex(store: store).rebuild()
         } catch {
+            // #705 R1 verify 第 1 列：`writtenWithLegacyCopy` 不截——而嵌進錯誤訊息的 payload 會被錯誤出口的上限（96 KB／200 行）截掉。
+            // importer 自己的範圍已經收下它們，外層（MCP 分派）什麼都沒收到；交給外層，它在格式化錯誤之後把人可讀報告放在回應最前面、不截，
+            // 這裡的 payload 就不再帶（否則報兩次）。沒有外層範圍的呼叫端照舊帶在 payload 裡。
+            var failurePayload = payload
+            if !report.writtenWithLegacyCopy.isEmpty, LegacyCopyLedger.handToEnclosingScope(report.writtenWithLegacyCopy) {
+                failurePayload.removeValue(forKey: Self.writtenWithLegacyCopyKey)
+            }
             throw ServiceError.invalid(
-                "index rebuild 失敗：\(displaySafeError(error, max: 512))（本趟 import 已落地，報告如下——清單有上限，被截的見 truncatedLists）：\n\(try jsonString(payload))")   // display-safe-exempt: jsonString、payload：jsonString 的輸出已由序列化器逐項消毒（escapingUnsafeScalars）；payload 是這個函式自己組的 report 字典
+                "index rebuild 失敗：\(displaySafeError(error, max: 512))（本趟 import 已落地，報告如下——清單有上限，被截的見 truncatedLists）：\n\(try jsonString(failurePayload))")   // display-safe-exempt: jsonString、failurePayload：jsonString 的輸出已由序列化器逐項消毒（escapingUnsafeScalars）；failurePayload 是這個函式自己組的 report 字典
         }
         return try jsonString(payload)
     }

@@ -12,3 +12,13 @@
 - `docs/store-format.md` §2.5 那一段改成現況：未映射欄位以正規化後的原名收進 `fields`，報告欄位是 `residualFields`。
 
 計數、鍵名、回應形狀都不變，所以沒有新測試；既有的 `ZoteroImportTests`、`ImportZoteroReportSurfaceTests` 與 tools/list 預算測試照跑。
+
+## R1 verify 之後（2026-09-30）
+
+R1 ensemble 沒有 HIGH、MEDIUM；四則 LOW，這一輪修三則：
+
+- `ZoteroMapping.residualFields(of:)` 的 doc comment 還寫「以原名收了什麼」，那是這次刻意改掉的說法——改成「這個條目帶了哪些沒有對照的欄位」，並寫明它不回答「收進去了沒有」。
+- 只命中附加來源的條目不動書目欄位，它的未映射欄位被計數卻永遠不會進任何 entry；報告的 doc comment 與 `docs/store-format.md` §2.5 補一句。
+- CLI 的 `residual fields` 那一行把 Zotero 欄位名原樣印到終端，同函式的 `fields removed by pull` 那一行與 MCP 面都有消毒；改成同樣經 `displaySafe(…, max: 100)`。
+
+沒有加測試釘措辭（R1 INFO 第 29 則提過）：這一輪改的都是說明文字與一處顯示消毒，計數不變。

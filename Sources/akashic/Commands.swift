@@ -382,7 +382,7 @@ struct ImportZotero: ParsableCommand {
         }
         if !report.residualFields.isEmpty {
             let summary = report.residualFields.keys.sorted()
-                .map { "\($0)×\(report.residualFields[$0]!)" }.joined(separator: ", ")
+                .map { "\(displaySafe($0, max: 100))×\(report.residualFields[$0]!)" }.joined(separator: ", ")
             // #206：這些欄位**有入庫**（以正規化後的原名）。舊訊息寫「未入庫」，
             // 在殘餘收集落地後就成了假話。#704：計數的是讀到的條目（含沒變動、略過、寫入失敗的），
             // 所以訊息說「讀到」；入庫只對寫入的那幾筆成立。

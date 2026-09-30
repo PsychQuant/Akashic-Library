@@ -131,7 +131,8 @@ public enum ZoteroMapping {
     /// `ZoteroImportTests` 全綠，只有 `LosslessIntakeTests` 會紅。
     ///
     /// 保留這個查詢是有用的（「哪些欄位沒有 canonical 對照」是編目訊號，值得看見），
-    /// 只是它的**語意從「丟了什麼」變成「以原名收了什麼」**。
+    /// 只是它的**語意從「丟了什麼」變成「這個條目帶了哪些沒有對照的欄位」**——它回答的是條目本身，
+    /// 不回答「收進去了沒有」：寫入失敗、被略過、只更新附加來源的條目也會被問到（#704 裁決 (a)，2026-09-30）。
     public static func residualFields(of item: ZoteroItem) -> [String] {
         item.fields.keys.filter { $0 != "title" && $0 != "date" && fieldMap[$0] == nil }.sorted()
     }

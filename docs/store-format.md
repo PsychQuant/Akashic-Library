@@ -289,7 +289,7 @@ akashic:
 `ZoteroMapping.fieldMap` 允許清單內的 Zotero 欄位對映到 canonical 名稱（title/date 為一級欄位）；
 未映射欄位（如 `extra`）以正規化後的原名收進 `fields`（#206，不丟棄）——import report 的
 `residualFields`（CLI 印 `residual fields`）列出這次讀到的條目中帶這些欄位的條目數（#704：計數的是讀到的，
-含沒變動、略過、寫入失敗的條目）。
+含沒變動、略過、寫入失敗的條目；只命中附加來源的條目不動書目欄位，它的未映射欄位只被計數、不入庫）。
 quarantined 檔（decode 失敗）**永不被 import 覆寫**：其 basename 佔住 citekey，
 新 entry 一律讓位取衝突後綴。
 

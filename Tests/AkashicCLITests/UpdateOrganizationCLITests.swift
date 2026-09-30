@@ -4,7 +4,7 @@ import Foundation
 @testable import AkashicStoreIO
 
 /// #557 的 CLI 面：`update-organization` 走真 binary——命令名、旗標、`validate()` 的參數檢查（早於開 store、用法錯誤 64）與
-/// `run()` 的轉送都只有實際呼叫抓得到。也驗 issue 的動機：`doctor` 那一行修得掉了。
+/// `run()` 的轉送都只有實際呼叫抓得到。也驗 issue 的動機：`doctor` 那一行修得掉了。沒有 `--unauthorize`（R1 verify 之後拿掉）。
 final class UpdateOrganizationCLITests: XCTestCase {
     private var tmp: URL!
     private var root: URL!
@@ -27,7 +27,7 @@ final class UpdateOrganizationCLITests: XCTestCase {
         try XCTUnwrap(try LibraryStore(root: root).load().organizations.first { $0.key == "iss" })
     }
 
-    func testAuthorizeAndUnauthorizeThroughTheCLI() throws {
+    func testAuthorizeThroughTheCLI() throws {
         let before = try run(["doctor"])
         XCTAssertTrue(before.output.contains("/ 1 organization"), "fixture：doctor 報 1 筆 organization 缺 authorized：\(before.output)")
 
@@ -39,11 +39,10 @@ final class UpdateOrganizationCLITests: XCTestCase {
         let after = try run(["doctor"])
         XCTAssertTrue(after.output.contains("/ 0 organization"), "doctor 那一行修得掉了：\(after.output)")
 
-        let withdrawn = try run(["update-organization", "iss", "--unauthorize", "中央研究院統計科學研究所"])
-        XCTAssertEqual(withdrawn.status, 0, withdrawn.output)
-        XCTAssertTrue(withdrawn.output.contains("authorizedWithdrawn"), withdrawn.output)
-        XCTAssertEqual(try org().authorized, ["Institute of Statistical Science"])
-        XCTAssertEqual(try org().names.entries.count, 2, "名字留在 names")
+        // 沒有撤回面：旗標不存在，不是「存在但拒絕」
+        let withdraw = try run(["update-organization", "iss", "--unauthorize", "中央研究院統計科學研究所"])
+        XCTAssertNotEqual(withdraw.status, 0, withdraw.output)
+        XCTAssertEqual(Set(try org().authorized), ["Institute of Statistical Science", "中央研究院統計科學研究所"], "零寫入")
     }
 
     /// 只看 argv 的錯誤是用法錯誤（64），早於開 store——對不存在的 store 路徑也是同一個錯誤。
@@ -55,5 +54,9 @@ final class UpdateOrganizationCLITests: XCTestCase {
         let clash = try run(["update-organization", "iss", "--authorize", "A", "B"], library: nowhere)
         XCTAssertEqual(clash.status, 64, clash.output)
         XCTAssertTrue(clash.output.contains("請選一個"), clash.output)
+        // 只有空白項與沒給是同一件事（R1 verify 第 13／16／26／28 列：MCP 面同一句話曾走完寫檔）
+        let blank = try run(["update-organization", "iss", "--authorize", " "], library: nowhere)
+        XCTAssertEqual(blank.status, 64, blank.output)
+        XCTAssertTrue(blank.output.contains("沒有要改的"), blank.output)
     }
 }

@@ -300,11 +300,10 @@ actor AkashicMCPServer {
              ], required: ["key", "names"])),
         // #557：organization 的 authorized 寫入面；CLI 對應 update-organization，兩面同一個 AkashicService.updateOrganization
         Tool(name: "akashic_update_organization",
-             description: "organization 的 authorized（CLI update-organization）。authorize／unauthorize 的語意與拒絕同 akashic_update_venue 的同名參數；key 重複整批拒絕。回報 namesAdded、authorizedAdded、authorizedRemoved、alreadyAuthorized、authorizedRewritten、authorizeDropped、authorizedWithdrawn、unauthorizeDropped、authorizedTotal",
+             description: "organization 的 authorized（CLI update-organization）。authorize 的語意與拒絕同 akashic_update_venue 的同名參數；key 重複整批拒絕；沒給、空陣列、只有空白項也拒絕（沒有要改的）；都已是對外名稱＝不寫檔。沒有 unauthorize（待裁）。回報 namesAdded、authorizedAdded、authorizedRemoved、alreadyAuthorized、authorizedRewritten、authorizeDropped、authorizedTotal；有事才出現：authorizedNotCurrent（指定的名字在 names 各段都已結束）、indexRebuilt:false／indexRebuildError／indexNote（已寫檔、index 沒重建）",
              inputSchema: obj([
                 "key": str("既有 organization key"),
                 "authorize": strArray("對外名稱（同書寫系統替換）"),
-                "unauthorize": strArray("撤回（名字留在 names）"),
              ], required: ["key"])),
         Tool(name: "akashic_resolve_organizations",
              description: "org 解析（literal → organization；完整契約見 CLI `akashic resolve-organizations --help`）。不帶寫入腿回 {candidates, ambiguities}：candidates 是 person affiliations／org parents 的 literal 與某 org name 完全命中且不歧義者。候選列與歧義條目都帶 id 與 undecidedChecks（候選列是整數；歧義條目是 orgKey → 次數、只列非零）；頂層 undecidedTotal（候選配對中查過未決、尚未判定的數目）與 ambiguityUndecidedTotal（歧義條目逐個 org 數）。work、person 或 organization 無法唯一定位（原因見 akashic validate）時該列帶 unlocatableCitekey:true／unlocatablePersonKey:true／unlocatableOrganizationKey:true：這種 id 的 apply／reject 整批拒絕、judge／undecided 該筆略過。apply（候選 id，holderKey::literal）歸戶並寫 confirmed verdict；reject 寫 rejected verdict；需 store format ≥ 8。各寫入腿回自己的清單（applied／rejected／judged／undecided）與改寫檔數 peopleRewritten／organizationsRewritten／entriesRewritten。undecided、judge 各自單獨呼叫。" + legacyCopyNote,
@@ -823,8 +822,7 @@ actor AkashicMCPServer {
             case "akashic_update_organization":
                 output = try service.updateOrganization(
                     key: arg("key") ?? "",
-                    authorize: params.arguments?["authorize"] != nil ? argList("authorize") : nil,
-                    unauthorize: params.arguments?["unauthorize"] != nil ? argList("unauthorize") : nil)
+                    authorize: argList("authorize"))
             case "akashic_resolve_organizations":
                 let oApplyProvided = params.arguments?["apply"] != nil
                 let oRejectProvided = params.arguments?["reject"] != nil

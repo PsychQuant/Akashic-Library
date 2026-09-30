@@ -65,7 +65,7 @@ public struct Organization: Equatable {
     ///
     /// 與 `names` 的時間軸正交——改名記在時間軸上，「哪個名稱對外」記在這裡。空集合
     /// 合法，意思是還沒指定，此時 `displayName` 退回當前有效名稱。寫入面是
-    /// `update-organization --authorize`／`--unauthorize`（#557；在此之前零寫入面）。
+    /// `update-organization --authorize`（#557；在此之前零寫入面；沒有撤回面，待裁）。
     public var authorized: [String]
     /// 這個機構的 ROR（Research Organization Registry）識別碼（#394）。
     ///

@@ -7,8 +7,10 @@ import XCTest
 ///
 /// 在此之前 `Organization.authorized` 零寫入面：`addOrganization` 不收、`OrgBootstrap` 不寫、`authorize-names` 只管 person——
 /// `doctor` 的 `no authorized name: … organization` 恆為真且無法消除。使用者 2026-10-01 裁決：新增 `update-organization` 面，語意比照
-/// `update-venue --authorize`（同書寫系統原子替換，被換下的移出 authorized、留在 names）。替換與撤回的邏輯是 `AuthorizedDesignation`
+/// `update-venue --authorize`（同書寫系統原子替換，被換下的移出 authorized、留在 names）。替換的邏輯是 `AuthorizedDesignation`
 /// 那一份——本檔驗 organization 這一側的定位、寫入、報告與 store 邊界，替換細節的完整矩陣在 `VenueAuthorizedWriteTests`。
+/// **沒有撤回面**（R1 verify 之後拿掉：裁決只說先提供 `--authorize`，而 organization 的 names 只增不減，撤回會讓剛加進 names 的名字成為
+/// fallback 顯示名；見 `OrganizationUpdate.swift` 的檔頭）。
 final class OrganizationAuthorizeTests: XCTestCase {
     private var root: URL!
     private var service: AkashicService!
@@ -79,16 +81,6 @@ final class OrganizationAuthorizeTests: XCTestCase {
         XCTAssertFalse(try org().names.entries.contains { $0.value == "ISS" }, "零寫入")
     }
 
-    /// 同一個名字既 authorize 又 unauthorize 是兩句矛盾的話（與 venue 共用 `refuseAuthorizeUnauthorizeOverlap`）——讀 store 之前就擋。
-    func testSameNameToAuthorizeAndUnauthorizeIsRefused() throws {
-        XCTAssertThrowsError(try AkashicService.checkUpdateOrganizationArguments(
-            key: "iss", authorize: ["Institute of Statistical Science"], unauthorize: [" Institute of Statistical Science"])) { e in
-            XCTAssertTrue("\(e)".contains("同時被送進 authorize 與 unauthorize"), "\(e)")
-        }
-        XCTAssertThrowsError(try service.updateOrganization(key: "iss", authorize: ["ISS"], unauthorize: ["ISS"]))
-        XCTAssertFalse(try org().names.entries.contains { $0.value == "ISS" }, "零寫入")
-    }
-
     /// #669／#670：兩筆 organization 持同一個 key 時寫進哪一筆是猜——整批拒絕、零寫入。
     func testDuplicateKeyIsRefused() throws {
         let store = LibraryStore(root: root)
@@ -107,24 +99,90 @@ final class OrganizationAuthorizeTests: XCTestCase {
     }
 
     /// 沒有要改的就不寫（只看參數，早於開 store）；key 格式不合同樣早於開 store。
+    /// 「沒有要改的」看**過了 vetting 的結果**：沒給、空陣列、全是空白項是同一件事（R1 verify 第 13／16／26／28 列：MCP 的 `[]` 與 `[" "]`
+    /// 曾走完寫檔與重建 index，而 CLI 把空陣列轉成 nil 早就擋了）。
     func testNothingToDoAndBadKeyAreRefusedBeforeTheStore() throws {
-        XCTAssertThrowsError(try AkashicService.checkUpdateOrganizationArguments(key: "iss", authorize: nil, unauthorize: nil)) { e in
-            XCTAssertTrue("\(e)".contains("沒有要改的"), "\(e)")
+        for empty in [[], [" "], ["\t", ""]] as [[String]] {
+            XCTAssertThrowsError(try AkashicService.checkUpdateOrganizationArguments(key: "iss", authorize: empty), "\(empty)") { e in
+                XCTAssertTrue("\(e)".contains("沒有要改的"), "\(e)")
+            }
         }
-        XCTAssertThrowsError(try AkashicService.checkUpdateOrganizationArguments(key: "Not A Key", authorize: ["X"], unauthorize: nil))
+        XCTAssertThrowsError(try AkashicService.checkUpdateOrganizationArguments(key: "Not A Key", authorize: ["X"]))
     }
 
-    /// 撤回（#559 的同一份邏輯）：移出 authorized、留在 names；非成員整批拒絕。
-    func testUnauthorizeWithdraws() throws {
-        _ = try service.updateOrganization(key: "iss", authorize: ["Institute of Statistical Science"])
-        XCTAssertThrowsError(try service.updateOrganization(key: "iss", authorize: nil, unauthorize: ["ISS"])) { e in
-            XCTAssertTrue("\(e)".contains("不是這筆 organization 目前的 authorized"), "\(e)")
+    /// 服務層（MCP 與 CLI 共用的入口）對空陣列與全空白項同樣整批拒絕，而且**沒有動那個檔**——人手編過的排版不被重新序列化。
+    func testEmptyOrBlankAuthorizeDoesNotTouchTheFile() throws {
+        let url = LibraryStore(root: root).entityURL(id: try org().id)
+        try (String(contentsOf: url, encoding: .utf8) + "\n# hand-edited marker\n").write(to: url, atomically: true, encoding: .utf8)
+        let before = try Data(contentsOf: url)
+        for empty in [[], [" "]] as [[String]] {
+            XCTAssertThrowsError(try service.updateOrganization(key: "iss", authorize: empty)) { e in
+                XCTAssertTrue("\(e)".contains("沒有要改的"), "\(e)")
+            }
         }
-        let out = try payload(try service.updateOrganization(key: "iss", authorize: nil, unauthorize: ["Institute of Statistical Science"]))
-        let o = try org()
-        XCTAssertEqual(o.authorized, [])
-        XCTAssertEqual(o.names.entries.count, 3, "名字留在 names")
-        XCTAssertEqual(out["authorizedWithdrawn"] as? [String], ["Institute of Statistical Science"])
+        XCTAssertEqual(try Data(contentsOf: url), before, "零寫入：檔案位元組不變")
+    }
+
+    /// 給的名字都已是對外名稱：成功、報告 alreadyAuthorized，但**不寫檔、不重建 index**（R1 verify 第 28 列）。
+    /// 對照：真的有改動時同一個標記會被重新序列化掉——證明上面的「沒動」不是標記本來就寫不進去。
+    func testAlreadyAuthorizedOnlyDoesNotRewriteTheFile() throws {
+        _ = try service.updateOrganization(key: "iss", authorize: ["Institute of Statistical Science"])
+        let url = LibraryStore(root: root).entityURL(id: try org().id)
+        let marked = try String(contentsOf: url, encoding: .utf8) + "\n# hand-edited marker\n"
+        try marked.write(to: url, atomically: true, encoding: .utf8)
+        let out = try payload(try service.updateOrganization(key: "iss", authorize: ["Institute of Statistical Science", " "]))
+        XCTAssertEqual(out["alreadyAuthorized"] as? [String], ["Institute of Statistical Science"])
+        XCTAssertEqual(out["authorizeDropped"] as? [String], [" "])
+        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), marked, "沒有變動就不寫")
+        // 對照：真的換了一個名字，檔案被重新序列化（標記消失）
+        _ = try service.updateOrganization(key: "iss", authorize: ["ISS"])
+        XCTAssertFalse(try String(contentsOf: url, encoding: .utf8).contains("hand-edited marker"), "有變動時才寫")
+    }
+
+    /// 指定一個在 names 裡各段都已結束的名字（退役名）：不拒絕，但報 `authorizedNotCurrent`（R1 verify 第 6／17 列）——
+    /// `Organization.authorized` 的「從當前有效的名稱中指定」是慣例、`validate` 不擋，而本面是第一個寫得進它的面，`displayName` 會變成退役名。
+    func testRetiredNameIsAcceptedButReported() throws {
+        let store = LibraryStore(root: root)
+        try store.writeOrganization(Organization(key: "old", names: Timeline([
+            TemporalValue(value: "Institute of Statistics", range: DateRange(start: "1960", end: "1993")),
+            TemporalValue(value: "Institute of Statistical Science", range: DateRange(start: "1993"))]), id: UUID()))
+        let retired = try payload(try service.updateOrganization(key: "old", authorize: ["Institute of Statistics"]))
+        XCTAssertEqual(retired["authorizedNotCurrent"] as? [String], ["Institute of Statistics"])
+        XCTAssertEqual(retired["authorizedAdded"] as? [String], ["Institute of Statistics"], "不拒絕：照寫")
+        let written = try XCTUnwrap(try store.load().organizations.first { $0.key == "old" })
+        XCTAssertEqual(written.authorized, ["Institute of Statistics"])
+        XCTAssertEqual(written.displayName, "Institute of Statistics", "displayName 確實變成退役名——所以要說")
+        // 已在的退役名再說一次也報（狀態不是一次性事件）；當前有效的名字、新加進 names 的名字（沒有時間欄位＝開放段）不報
+        let again = try payload(try service.updateOrganization(key: "old", authorize: ["Institute of Statistics"]))
+        XCTAssertEqual(again["authorizedNotCurrent"] as? [String], ["Institute of Statistics"])
+        XCTAssertNil(try payload(try service.updateOrganization(key: "old", authorize: ["Institute of Statistical Science"]))["authorizedNotCurrent"])
+        XCTAssertNil(try payload(try service.updateOrganization(key: "old", authorize: ["中央研究院統計科學研究所"]))["authorizedNotCurrent"])
+    }
+
+    /// 寫檔成功之後 index 重建失敗：呼叫回成功、報告多 `indexRebuilt: false`（R1 verify 第 1 列）——檔案已經落盤，擲錯會讓報告消失、
+    /// 而重試只會得到 alreadyAuthorized。做法同移除面一族（`RemovalReportSupport.swift`）。
+    /// 強迫重建失敗：service 帶 registry key、`AKASHIC_HOME` 指向一個**普通檔**（同 `RemovalIndexRebuildFailureTests`）。
+    func testIndexRebuildFailureAfterTheWriteIsReportedNotThrown() throws {
+        let blocker = FileManager.default.temporaryDirectory.appendingPathComponent("akashic-oau-home-\(UUID().uuidString)")
+        try Data("not a directory".utf8).write(to: blocker)
+        defer { try? FileManager.default.removeItem(at: blocker) }
+        let failing = AkashicService(root: root, key: "rebuildfail", environment: ["AKASHIC_HOME": blocker.path])
+        XCTAssertThrowsError(try FileManager.default.createDirectory(
+            at: failing.store.indexURL.deletingLastPathComponent(), withIntermediateDirectories: true), "前提：這個 service 的 index 重建真的會失敗")
+
+        let out = try payload(try failing.updateOrganization(key: "iss", authorize: ["Institute of Statistical Science"]))
+        XCTAssertEqual(out["authorizedAdded"] as? [String], ["Institute of Statistical Science"], "報告沒有消失")
+        XCTAssertEqual(out["indexRebuilt"] as? Bool, false, "\(out)")
+        XCTAssertNotNil(out["indexRebuildError"] as? String)
+        let note = out["indexNote"] as? String ?? ""
+        XCTAssertTrue(note.contains("報告") && note.contains("akashic doctor") && note.contains("alreadyAuthorized"), note)
+        XCTAssertEqual(try org().authorized, ["Institute of Statistical Science"], "寫入已經落盤")
+        // 重試：沒有變動＝不寫、不重建，所以不多出 index 鍵——報告說的「只會得到 alreadyAuthorized」是真的
+        let retry = try payload(try failing.updateOrganization(key: "iss", authorize: ["Institute of Statistical Science"]))
+        XCTAssertEqual(retry["alreadyAuthorized"] as? [String], ["Institute of Statistical Science"])
+        XCTAssertNil(retry["indexRebuilt"])
+        // 成功路徑的 payload 不多出 index 鍵
+        XCTAssertNil(try payload(try service.updateOrganization(key: "iss", authorize: ["ISS"]))["indexRebuilt"])
     }
 
     /// 被換下的舊指定被 `field: authorized` 的 reference 指著：拒絕、零寫入；organization 沒有 reference 的移除面，出路是手改 YAML。

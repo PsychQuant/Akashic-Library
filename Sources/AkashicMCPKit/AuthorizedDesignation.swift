@@ -1,7 +1,8 @@
 import Foundation
 import AkashicCore
 
-/// 「哪個名字對外」的寫入核心——venue 的 `authorize`（#554）與 `unauthorize`（#559）、organization 的 `authorize`／`unauthorize`（#557）共用這一份。
+/// 「哪個名字對外」的寫入核心——venue 的 `authorize`（#554）與 `unauthorize`（#559）、organization 的 `authorize`（#557）共用這一份。
+/// organization 沒有 `unauthorize`（#557 R1 verify 之後拿掉，理由見 `OrganizationUpdate.swift` 的檔頭）：`unauthorize` 只有 venue 的入口呼叫。
 ///
 /// venue 與 organization 的 `authorized` 是同一個問題（`AuthorizedNames` 的 doc：兩種實體不該有兩套答案），兩者都是從 `names` 時間軸裡
 /// 指定的頂層扁平清單，所以替換與撤回的語意只能有一份（`no-compat-fallback` §同一件事只能有一份描述）。person 不走這裡：它的 names
@@ -156,7 +157,7 @@ struct AuthorizedDesignation {
 
 extension AkashicService {
     /// 同一個名字既 `authorize` 又 `unauthorize` 是兩句矛盾的話（#559）——整批拒絕、零寫入。相等看 `NameIdentity.canonical`，與兩條腿的
-    /// 定位同一條。venue 與 organization 的入口共用（`updateVenueArguments`／`updateOrganizationArguments`）。
+    /// 定位同一條。只有 venue 的入口用它（`updateVenueArguments`；organization 沒有 `unauthorize`）。
     static func refuseAuthorizeUnauthorizeOverlap(authorizeIn: [String], unauthorizeIn: [String]) throws {
         let withdrawKeys = Set(unauthorizeIn.map(NameIdentity.canonical))
         let both = authorizeIn.filter { withdrawKeys.contains(NameIdentity.canonical($0)) }

@@ -69,15 +69,16 @@
 
 ## #557 — 新工具 `akashic_update_organization`：organization 的對外名稱
 
-organization 的 `authorized` 在此之前沒有任何寫入面，`akashic_doctor` 的 `noAuthorizedName.organizations` 修不掉。新工具收 `key`（必填）與兩個字串陣列，語意與拒絕同 `akashic_update_venue` 的同名參數：
+organization 的 `authorized` 在此之前沒有任何寫入面，`akashic_doctor` 的 `noAuthorizedName.organizations` 修不掉。新工具收 `key`（必填）與一個字串陣列 `authorize`，語意與拒絕同 `akashic_update_venue` 的 `authorize`：
 
 - `authorize`：同書寫系統替換，被換下的名字留在 names；不在 names 的一併加入。
-- `unauthorize`：撤回現有的對外名稱，名字留在 names。
-- 兩個都沒給、key 有不只一筆記錄、找不到、同一次兩個同書寫系統的名字、同一個名字兩個都給、撤回的不是現有成員、被換下或撤回的名字被 `field: authorized` 的 reference 指著，整個呼叫拒絕、零寫入。
-- 回應鍵：`namesAdded`、`authorizedAdded`、`authorizedRemoved`、`alreadyAuthorized`、`authorizedRewritten`、`authorizeDropped`、`authorizedWithdrawn`、`unauthorizeDropped`、`authorizedTotal`。
+- 沒給、空陣列、只有空白項（三者同一件事）、key 有不只一筆記錄、找不到、同一次兩個同書寫系統的名字、被換下的名字被 `field: authorized` 的 reference 指著，整個呼叫拒絕、零寫入。
+- 給的名字都已是對外名稱：成功、回報 `alreadyAuthorized`，不寫檔、不重建 index。
+- 回應鍵：`namesAdded`、`authorizedAdded`、`authorizedRemoved`、`alreadyAuthorized`、`authorizedRewritten`、`authorizeDropped`、`authorizedTotal`；有事才出現：`authorizedNotCurrent`（指定的名字在 names 的各段都已結束，`displayName` 會變成那個退役名；不拒絕）、`indexRebuilt: false`／`indexRebuildError`／`indexNote`（寫檔成功、index 重建失敗；呼叫仍回成功）。
+- **沒有 `unauthorize`**：首輪實作曾加了撤回，超出使用者裁決（「先提供 `authorize`」），且 organization 的 names 只增不減，撤回會讓剛加進 names 的名字成為 fallback 顯示名；拿掉，待使用者裁決。
 - 不留判定記錄；#564 已裁決要留，另案落地。
 
-CLI 對應 `akashic update-organization <key> --authorize … --unauthorize …`。
+CLI 對應 `akashic update-organization <key> --authorize …`。
 
 ## #559 — `akashic_update_venue` 多一個 `unauthorize`：撤回對外形
 

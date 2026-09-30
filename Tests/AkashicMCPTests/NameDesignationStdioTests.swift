@@ -94,17 +94,20 @@ final class NameDesignationStdioTests: XCTestCase {
         XCTAssertEqual(Set(v.names.entries.map(\.value)), ["PSYCHOMETRIKA", "Psychometrika"])
     }
 
-    /// #557：`akashic_update_organization` 是註冊過、分派得到的工具——`authorize` 與 `unauthorize` 都到得了服務層；不帶任何一個整批拒絕。
+    /// #557：`akashic_update_organization` 是註冊過、分派得到的工具——`authorize` 到得了服務層；沒給、空陣列、只有空白項整批拒絕
+    /// （R1 verify：MCP 的 `[]` 曾走完寫檔與重建 index，CLI 早就擋了）；沒有 `unauthorize` 參數（拿掉了）。
     func testUpdateOrganizationReachesTheService() throws {
-        let nothing = try call(4, "akashic_update_organization", ["key": "iss"])
-        XCTAssertTrue(nothing.contains("沒有要改的"), nothing)
+        let url = LibraryStore(root: root).entityURL(id: try XCTUnwrap(try load().organizations.first).id)
+        let before = try Data(contentsOf: url)
+        for (id, args) in [(4, ["key": "iss"] as [String: Any]), (5, ["key": "iss", "authorize": [] as [String]]),
+                           (6, ["key": "iss", "authorize": [" "]])] {
+            let refused = try call(id, "akashic_update_organization", args)
+            XCTAssertTrue(refused.contains("沒有要改的"), "\(args)：\(refused)")
+        }
+        XCTAssertEqual(try Data(contentsOf: url), before, "三種「沒有要改的」都零寫入")
 
-        let out = try call(5, "akashic_update_organization", ["key": "iss", "authorize": ["Institute of Statistical Science"]])
+        let out = try call(7, "akashic_update_organization", ["key": "iss", "authorize": ["Institute of Statistical Science"]])
         XCTAssertTrue(out.contains("authorizedAdded"), out)
         XCTAssertEqual(try load().organizations.first?.authorized, ["Institute of Statistical Science"])
-
-        let back = try call(6, "akashic_update_organization", ["key": "iss", "unauthorize": ["Institute of Statistical Science"]])
-        XCTAssertTrue(back.contains("authorizedWithdrawn"), back)
-        XCTAssertEqual(try load().organizations.first?.authorized, [])
     }
 }

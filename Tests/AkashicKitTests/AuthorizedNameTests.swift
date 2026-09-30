@@ -605,12 +605,12 @@ final class AuthorizedNameTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), before,
                        "沒給寫入指示就不能動 store")
 
-        _ = try AuthorizedNameMigration.run(store: store, apply: true)
+        _ = try AuthorizedNameMigration.run(store: store, apply: true, judgement: "單一候選，查無異議")
         XCTAssertEqual(try store.load().people.first?.names.authorized, ["Guan, Yongtao"])
-
-        // 寫入後 store 帶著新語意 → marker 必須跟上，否則舊 binary 會載入它並繼續把
-        // `names[0]` 當顯示名（按舊語意解讀新格式）。
-        XCTAssertEqual(try StoreVersion.read(root: root), StoreVersion.supported)
+        // #564：每個寫入的名字一筆「指定：理由」
+        XCTAssertEqual(try store.load().people.first?.references,
+                       [NameClassificationRecord.make(field: "authorized", name: "Guan, Yongtao", action: .designate,
+                                                      reason: "單一候選，查無異議", restsOn: [])])
         try? FileManager.default.removeItem(at: root)
     }
 
@@ -635,11 +635,12 @@ final class AuthorizedNameTests: XCTestCase {
                   atomically: true, encoding: .utf8)
         let store = LibraryStore(root: root)
 
-        XCTAssertThrowsError(try AuthorizedNameMigration.run(store: store, apply: true)) { e in
+        XCTAssertThrowsError(try AuthorizedNameMigration.run(store: store, apply: true, judgement: "r")) { e in
             let m = (e as? LocalizedError)?.errorDescription ?? "\(e)"
             XCTAssertTrue(m.contains("migrate-person-identity"), "訊息要指路遷移：\(m)")
             XCTAssertTrue(m.contains("doctor"), "先指路 doctor（quarantine 未必是 person）：\(m)")
-            XCTAssertTrue(m.contains("marker"), "apply 模式要說 marker 後果：\(m)")
+            // #564 起本工具不再寫 marker——apply 模式的後果改成「那些人不會被指定」
+            XCTAssertTrue(m.contains("不會被指定"), "apply 模式要說它的後果：\(m)")
         }
         XCTAssertEqual(try StoreVersion.read(root: root), 9,
                        "marker 不得被 bump——那會鎖死唯一還讀得懂資料的舊 binary")

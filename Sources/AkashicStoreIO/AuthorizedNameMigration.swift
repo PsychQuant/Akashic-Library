@@ -92,18 +92,26 @@ public enum AuthorizedNameMigration {
     /// 對整個 store 跑一次提名。`apply: false`（預設）只回報，不寫。
     ///
     /// **不覆寫既有的 `authorized`**：那是人做過的判斷，機械提名沒有資格推翻它。
+    ///
+    /// **判定記錄**（#564）：`apply: true` 必附 `judgement`（整批一句——本面沒有逐人或逐名的形式），每個寫入的 person、每個被採用或
+    /// 提名的名字各一筆 `field: authorized` 的「指定：理由」（`NameClassificationRecord`），不帶證據（一個批次共用同一組 digest 等於宣稱每個人的
+    /// 名字都依據同一份文件）。需要 store format ≥ 22——寫入閘擋，而且在任何一筆寫入之前（preflight）。乾跑不需要理由。
     @discardableResult
-    public static func run(store: LibraryStore, apply: Bool = false) throws -> Report {
+    public static func run(store: LibraryStore, apply: Bool = false, judgement: String? = nil) throws -> Report {
+        let reason = judgement?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if apply {
+            try checkApplyJudgement(judgement)
+        }
         let load = try store.load()
         // #227 verify S1：quarantined 檔在 → 本工具**看不見**那些人（load 已把它們
-        // 排除），迭代 0 人、apply 末尾還會把 marker bump 到 supported——在未遷移的
-        // store 上那會鎖死唯一還讀得懂資料的舊 binary，而且**回報成功**。fail-fast，
-        // 兩種模式都擋；訊息依模式說各自真實的後果（R2 C7——dry-run 不升 marker，
-        // 它的問題是報告對看不見的記錄不完整），並先指路 doctor（quarantine 未必是
-        // 舊形狀 person——可能是損壞的 work/org，先看原因再決定跑哪支）。
+        // 排除），迭代 0 人而**回報成功**（當時 apply 末尾還會把 marker bump 到 supported，
+        // #564 起不再寫 marker）。fail-fast，兩種模式都擋；訊息依模式說各自真實的後果
+        // （R2 C7），並先指路 doctor（quarantine 未必是舊形狀 person——可能是損壞的
+        // work/org，先看原因再決定跑哪支）。
         guard load.quarantined.isEmpty else {
+            // #564 起本工具不再寫 marker——apply 的後果不再是「升 marker」，而是那些人不會被指定、報告照樣不完整
             let consequence = apply
-                ? "跑完會誤把 marker 升到 \(StoreVersion.supported)、鎖死仍讀得懂資料的舊 binary"
+                ? "跑完它們不會被指定、報告也漏掉它們（看起來全部處理完了）"
                 : "報告會漏掉它們（誤導性的不完整）"
             throw StoreIOError.invalidInput(
                 what: "authorize-names",
@@ -139,6 +147,12 @@ public enum AuthorizedNameMigration {
             // variant 會在序列化裡出現兩次，違反「每個名字恰好出現一次」。
             updated.names.authorized = plan.authorized
             updated.names.variant = updated.names.variant.filter { !plan.authorized.contains($0) }
+            if apply {
+                NameClassificationRecord.append(plan.authorized.map {
+                    NameClassificationRecord.make(field: NameClassificationRecord.authorizedField, name: $0,
+                                                  action: .designate, reason: reason, restsOn: [])
+                }, to: &updated.references)
+            }
             toWrite.append(updated)
         }
         // #641：apply 逐筆寫 person、最後才 bump marker。其中一筆寫入時被 #631 拒絕（legacy 殘留加上 quarantine、兩份並存、
@@ -161,15 +175,27 @@ public enum AuthorizedNameMigration {
             for updated in toWrite { _ = try store.writePerson(updated) }
         }
         report.undecidedKeys.sort()
-        // 寫入後 store 就**帶著新語意**了：`authorized` 指定了對外名字，而 `names` 的順序
-        // 不再帶語意。marker 必須跟上——否則舊 binary 會載入這個 store 並繼續把 `names[0]`
-        // 當顯示名（按舊語意解讀新格式），正是 refuse-if-newer 要擋的情境。
-        //
-        // `ensureLayout` 刻意不覆寫既有 marker（那可能是更新的版本寫的），所以升級只能
-        // 由這裡這種**明確的遷移動作**做。
-        if apply {
-            try StoreVersion.write(root: store.root, format: StoreVersion.supported)
-        }
+        // **不再寫 marker**（#564）。這裡原本在結尾無條件把 marker 寫成 `StoreVersion.supported`——#81 的理由是寫入之後 store 帶著
+        // format 5 的語意（`authorized` 指定對外名字、`names` 的順序不再帶語意）。那一步如今對正確性已無作用：person 的寫入閘保證
+        // 任何寫入都發生在 format ≥ 10 的 store（巢狀 names，涵蓋 5 的語意），名字分類記錄又要求 ≥ 22；留著它，在沒有人要寫的 store
+        // 上（2026-10-01 live store 4,575/4,575 已有 authorized）`--apply` 會把 marker 從 18 安靜地升到 22——跳過 19–21 的升級前置、
+        // 鎖掉還沒升級的 binary，而升 marker 是使用者的動作（部署順序：三個 binary 先升，再手動改 marker）。
         return report
+    }
+
+    /// `--apply` 的理由檢查（#564）——CLI 的 `validate()` 呼叫同一個函式，用法錯誤早於開 store（#654）。
+    public static func checkApplyJudgement(_ judgement: String?) throws {
+        let reason = judgement?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !reason.isEmpty else {
+            throw StoreIOError.invalidInput(
+                what: "authorize-names --apply",
+                why: "必附 --judgement（#564）：每個寫入的名字各留一筆「指定：理由」的判定記錄（field: authorized）；"
+                    + "本面沒有逐人或逐名的形式，這一句套用到整批。乾跑不需要理由")
+        }
+        guard reason.utf8.count <= LibraryStore.maxStatementBytes else {
+            throw StoreIOError.invalidInput(
+                what: "authorize-names --judgement",
+                why: "超過 \(LibraryStore.maxStatementBytes) 位元組（實得 \(reason.utf8.count)）——精簡它；不截斷")   // display-safe-exempt: LibraryStore.maxStatementBytes 與 reason.utf8.count 都是 Int
+        }
     }
 }

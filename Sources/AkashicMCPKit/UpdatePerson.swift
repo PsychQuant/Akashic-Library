@@ -33,6 +33,13 @@ public extension AkashicService {
         }
         var added = 0
         for ref in try parseReferenceObjects(arr, policy: personReferencePolicy) {
+            // #564：名字分類的判定記錄只經名字分類面寫（person 的是 `authorize-names`）——通用面寫進去，一筆「指定」就能把一個機械值
+            // 說成人判定過的，而那正是合併端要分辨的東西。帶 rests-on 的一般判斷（statement 不符名字分類文法）照收。
+            guard !NameClassificationRecord.isRecord(ref) else {
+                throw ServiceError.invalid(
+                    "references 裡有一筆名字分類的判定記錄（field: \(displaySafeInvisible(ref.field, max: 60))、statement「指定／確認／撤回：…」）"
+                    + "——它只經 authorize-names 寫（#564），通用面不收；整批拒絕、零寫入")
+            }
             // append-only 的去重比**位元組**（R26 D73；R25 verify 第 7／25／29 列：三個 `==` 全是 canonical，只差 NFC／NFD 的一筆曾被靜默吞掉）
             guard !person.references.contains(where: { $0.byteExactKey == ref.byteExactKey }) else { continue }
             person.references.append(ref)

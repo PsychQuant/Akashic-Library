@@ -3912,6 +3912,8 @@ public final class AkashicService {
         let removeReferences: [RemoveReferenceSpec]
         /// 空＝這次沒給 edit_name_segment（#675）；給了就是單獨呼叫，其餘腿都沒給
         let nameSegmentEdits: [NameSegmentEditSpec]
+        /// 名字分類腿（add_variant／authorize／unauthorize）的理由與證據（#564）；nil＝這次沒有非空白的名字要分類
+        let nameJudgement: AuthorizedDesignation.Judgement?
     }
 
     /// CLI 的 `validate()` 用（#654）：`update-venue` 只看參數的全部檢查——與服務在讀 store 之前跑的是同一個函式。
@@ -4026,6 +4028,14 @@ public final class AkashicService {
         let (variantsIn, variantBlanks) = try vetVenueNamesReportingBlanks(addVariant, parameter: "add_variant（--add-variant）")
         let (authorizeIn, authorizeBlanks) = try vetVenueNamesReportingBlanks(authorize, parameter: "authorize（--authorize）")
         let (unauthorizeIn, unauthorizeBlanks) = try vetVenueNamesReportingBlanks(unauthorize, parameter: "unauthorize（--unauthorize）")
+        // #564：名字分類是判定、paginated 也是——兩個判定各要自己的理由，共用一句 judgement 會讓其中一筆記錄的理由說的是另一件事。
+        // 排在名字的 vetting 之後（壞名字的既有訊息不變），paginated 的輸入檢查之前。
+        let classifying = !variantsIn.isEmpty || !authorizeIn.isEmpty || !unauthorizeIn.isEmpty
+        if classifying, paginated != nil || clearPaginated {
+            throw ServiceError.invalid(
+                "paginated／clear_paginated 與名字分類（add_variant／authorize／unauthorize）不同一次呼叫——兩個判定各要自己的理由"
+                + "（#564）；分兩次送，整批拒絕、零寫入")
+        }
         var vtype: VenueType?
         if let rawType {
             guard let t = VenueType(rawValue: rawType) else {
@@ -4068,9 +4078,9 @@ public final class AkashicService {
                 field: "paginated", value: paginated ? "true" : "false",
                 url: nil, retrieved: nil, status: nil, mediaType: nil, content: nil,
                 judgement: trimmedJudgement, restsOn: restsOn ?? [])
-        } else if judgement != nil || restsOn != nil {
+        } else if !classifying, judgement != nil || restsOn != nil {
             throw ServiceError.invalid(
-                "judgement／rests_on 只伴隨 paginated 或 clear_paginated 使用"
+                "judgement／rests_on 只伴隨 paginated 或 clear_paginated，或名字分類（add_variant／authorize／unauthorize）使用"
                 + "——沒有判定就沒有判定的理由")
         }
         // 同一次呼叫把同一個名字既送 add_variant 又送 authorize，是兩句矛盾的話——
@@ -4092,13 +4102,16 @@ public final class AkashicService {
         // 同一次呼叫兩個同 `WritingSystem` 的名字也是兩句矛盾的話（R1 verify 第 1 列；檢查住在
         // `refuseSameScriptClash`，#557 起 organization 的入口共用）。
         try Self.refuseSameScriptClash(authorizeIn)
+        // #564：理由必填、證據可空——排在兩句矛盾的檢查之後，那些拒絕的既有訊息不變
+        let nameJudgement = try Self.nameClassificationJudgement(classifying: classifying, judgement: judgement, restsOn: restsOn)
         return UpdateVenueArguments(removeISSN: removals, namesIn: namesIn,
                                     variantsIn: variantsIn, variantBlanks: variantBlanks,
                                     authorizeIn: authorizeIn, authorizeBlanks: authorizeBlanks,
                                     unauthorizeIn: unauthorizeIn, unauthorizeBlanks: unauthorizeBlanks,
                                     type: vtype, addISSN: parsedISSN?.issns, issnDropped: parsedISSN?.dropped ?? [],
                                     paginatedReference: paginatedRef, references: parsedReferences,
-                                    removeReferences: removeReferenceSpecs, nameSegmentEdits: nameSegmentEditSpecs)
+                                    removeReferences: removeReferenceSpecs, nameSegmentEdits: nameSegmentEditSpecs,
+                                    nameJudgement: nameJudgement)
     }
 
     /// venue 異名補寫（#306）——**append 語意**：`addNames` 只把不重複的名字附加進
@@ -4289,6 +4302,7 @@ public final class AkashicService {
         // 自 #473 起是 error，寫不進去。與其讓呼叫端先 add_names 再 add_variant（兩步
         // 之間有一個不一致的狀態），不如在這裡一次做完。
         var variantAdded: [String] = []
+        var variantAlready: [String] = []   // #564：已在 variant 的，寫一筆「確認」
         for v in variantsIn {
             let x: String
             if let existing = resolveSpelling(v) {
@@ -4298,7 +4312,7 @@ public final class AkashicService {
                 venue.names = Timeline(venue.names.entries + [TemporalValue(value: x)])
                 added.append(x)
             }
-            guard !venue.variant.contains(where: { NameIdentity.same($0, x) }) else { continue }
+            guard !venue.variant.contains(where: { NameIdentity.same($0, x) }) else { variantAlready.append(x); continue }
             venue.variant.append(x)
             variantAdded.append(x)
         }
@@ -4321,8 +4335,8 @@ public final class AkashicService {
         //
         // 每個分類的改變都印在報告裡（`authorizedAdded`／`authorizedRemoved`／
         // `liftedFromVariant`／`alreadyAuthorized`）——`lossless-intake` 執行細節 3：
-        // 分類的改變要可見。判定記錄：#564 已於 2026-10-01 裁決要留（名字分類面全部，含撤回），另案落地（需要 store format bump）；
-        // 在那之前本面不寫記錄。報告的各桶就是那筆記錄要記的內容（`AuthorizedDesignation` 的 doc）。
+        // 分類的改變要可見。判定記錄（#564，2026-10-01 落地）：名字分類面全部（含撤回）都在 references 留一筆記錄，需要 store format ≥ 22；
+        // 報告的各桶就是那筆記錄要記的內容（`AuthorizedDesignation` 的 doc）。
         //
         // 撤回（#559，`unauthorize`）：把現有的對外形移出 authorized、留在 names、不標 variant——`clear_paginated`（#500）與
         // `demote`（#418）的同一格。替換只能換成另一個名字，回不到「不作任何宣稱」；只有一個名字的 venue，authorized 一旦在就永遠在。
@@ -4339,6 +4353,18 @@ public final class AkashicService {
         venue.authorized = designation.authorized
         venue.variant = designation.variant
         added.append(contentsOf: authorizeReport.namesAdded)
+        // #564：名字分類的判定記錄——標異寫在前（variant 那一圈先跑），再撤回與指定（`AuthorizedDesignation.judgementRecords`）。
+        // 位元組完全相同的不重寫；寫入閘對 format < 22 具名拒絕（`LibraryStore.assertNameClassificationRecordsWritable`）。
+        var judgementsRecorded = 0
+        if let judgement = args.nameJudgement {
+            let variantField = NameClassificationRecord.variantField
+            let records = variantAdded.map {
+                NameClassificationRecord.make(field: variantField, name: $0, action: .designate, reason: judgement.reason, restsOn: judgement.restsOn)
+            } + variantAlready.map {
+                NameClassificationRecord.make(field: variantField, name: $0, action: .confirm, reason: judgement.reason, restsOn: judgement.restsOn)
+            } + AuthorizedDesignation.judgementRecords(withdrawn: authorizedWithdrawn.map(\.name), authorize: authorizeReport, judgement: judgement)
+            judgementsRecorded = NameClassificationRecord.append(records, to: &venue.references)
+        }
         // **通用 references**（#587）：append-only、位元組相同的略過（同 `update_person`）。附在最後——同一次呼叫加的號與名字
         // 已經落到記錄上，reference 可以指向它們。形狀已在讀 store 之前過平面 init（`parseVenueReferences`）；附著（那個號、
         // 那個名字在不在記錄上）要合進記錄才判得出來，在這裡以 `validateReferenceAttachment`（載入的同一個驗證）驗——
@@ -4411,7 +4437,8 @@ public final class AkashicService {
                                       },
                                       "unauthorizeDropped": args.unauthorizeBlanks.map { displaySafeInvisible($0, max: 200) },
                                       "authorizedTotal": venue.authorized.count,
-                                      "variantTotal": venue.variant.count]
+                                      "variantTotal": venue.variant.count,
+                                      "judgementsRecorded": judgementsRecorded]   // display-safe-exempt: Int
         if let p = venue.paginated { payload["paginated"] = p }
         // 撤回改變了預設顯示名（多書寫系統的 venue 撤回 authorized 的第一個、或撤回最後一個而退到 names 的 fallback）：說出來。只在有撤回腿時算——
         // 其他腿的顯示名變化是呼叫端自己要的（`authorize` 就是在指定顯示名），這裡要防的是「撤回」被讀成「只是移出一個名單」。

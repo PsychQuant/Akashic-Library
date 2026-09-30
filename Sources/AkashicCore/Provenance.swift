@@ -41,7 +41,12 @@ public struct ProvenanceReference: Equatable {
     /// 就是證據。**第二個具名集合，不把 `authors` 塞進上面那個**——上面那個被三處當 verdict 文法
     /// （`<kind>:<key> :: <literal>`）解析：`ResolutionLedger.verdicts`、死 verdict 掃描、demote 的
     /// 逐字取回。塞進去會讓它們對拆分記錄解析失敗或誤判；拆分記錄的 statement 走 `SplitRecordValue`。
+    ///
+    /// #564 再加兩格：`authorized`／`variant`——名字分類的判定記錄（`NameClassificationRecord`）同樣是一階裁決，裁決說證據 digest
+    /// 可空。這個集合是**以 field 放行**，所以這兩個 field 上空 rests-on 的判斷型還要符合名字分類文法，由附著驗證補那一道
+    /// （`validatePartitionReference`）；同 `authors` 的 statement 由 `SplitRecordValue`／`AuthorRemovalRecordValue` 驗。
     public static let firstOrderRulingFields: Set<String> = resolutionVerdictFields.union(["authors"])
+        .union(NameClassificationRecord.fields)
 
     /// work 的**非識別碼欄位**（`Entry.fields` 的鍵）在 reference 上的命名空間前綴（#517）。
     ///
@@ -217,7 +222,8 @@ public struct ProvenanceReference: Equatable {
     /// `UpdatePerson` 的 references append-only 去重、`AddOnlyEnrichment.applied` 的來源 reference 冪等、
     /// 未決記錄的記錄鍵（`VerdictRecordKey.swift`，change `resolution-verdict-states`——同一配對的多次查證只有整筆位元組相同才算重複）、
     /// 未決腿辨認「這一筆是同一次呼叫剛寫下的」（`UndecidedVerdicts.swift`，R1 verify；org 族在 `OrgUndecidedVerdicts.swift`，#643）；org 逐篇判定辨認「被去重吃掉的理由其實已經在」（`OrgJudgedVerdicts.swift`，#647 R1 verify——完全相同的一筆不回報成沒寫入）；
-    /// venue reference 移除面分辨「位元組完全相同的重複」與「要加鍵縮小的多筆」（`VenueReferenceRemoval.swift`，#673）。
+    /// venue reference 移除面分辨「位元組完全相同的重複」與「要加鍵縮小的多筆」（`VenueReferenceRemoval.swift`，#673）；
+    /// 名字分類判定記錄的 append-only 去重（`NameClassificationRecord.swift`，#564：第二次同一句確認不長出第二筆）。
     /// **稽核程序**（`ByteExactKeySiteInventoryTests` 釘住）：全樹引用 `byteExactKey` 的檔案是一張封閉清單——那才是「位址在哪」的機械答案；
     /// `grep 'references.contains('` 不是：它的其餘命中是四處欄位**存在性**謂詞（`LibraryStore` 的 `$0.field == …`，問的不是同一筆）與
     /// `ResolutionLedger.appendIfAbsent`——後者**是**一個 sameness 面而**刻意**用 `verdictEqualityKey`（正規化，#470 的裁決）；
@@ -511,6 +517,51 @@ public enum ProvenanceYAML {
     }
 }
 
+/// 名字分類分割（`authorized`／`variant`）上的一筆 reference（#564）——person／organization／venue 三個附著驗證共用這一份。
+///
+/// - **名字分類的判定記錄**（判斷型、statement 符合 `NameClassificationRecord` 文法）錨定在 **names**：value 要是這筆記錄的名字之一，
+///   不必在分割內——撤回記錄與被換下的名字的記錄描述的正是已經離開分割的名字。
+/// - **其他 reference** 維持舊語意（只在 `authorized` 上）：value 要在 authorized 內；判斷型要有 rests-on（空 rests-on 只給名字分類記錄，
+///   `firstOrderRulingFields` 以 field 放行它，這裡補文法那一道）。`variant` 上沒有舊語意——它只收名字分類記錄。
+///
+/// `allNames` 的相等用 `String ==`（canonical equivalence），與 `field: names` 同一把。
+func validatePartitionReference(_ r: ProvenanceReference, owner: String,
+                                allNames: [String], authorized: [String]) throws {
+    let safeField = displaySafeInvisible(r.field, max: 120)
+    let context = "\(owner).references(field: \(safeField))"   // display-safe-exempt: owner 是呼叫端字面量（person／organization／venue）；safeField 已消毒
+    guard let v = r.value else {
+        throw StoreYAMLError.invalidField(context, "\(safeField) 是清單，reference 必須帶 value 指名支持的是哪個名字（D2）")   // display-safe-exempt: safeField 已消毒
+    }
+    if case .judgement(let statement, let restsOn) = r.kind {
+        if NameClassificationRecord.parse(statement) != nil {
+            guard allNames.contains(v) else {
+                throw StoreYAMLError.invalidField(
+                    context,
+                    "value「\(displaySafeInvisible(v, max: 120))」不是這筆記錄的名字——名字分類的判定記錄錨定在 names"
+                    + "（名字離開分割之後仍合法），但它指的名字要在 names 裡")
+            }
+            return
+        }
+        guard !restsOn.isEmpty else {
+            throw StoreYAMLError.invalidField(
+                context,
+                "判斷型沒有 rests-on，而 statement 不是名字分類的判定記錄（指定／確認／撤回：理由）——"
+                + "空 rests-on 只給名字分類記錄，其他判斷要附依據的 digest")
+        }
+    }
+    guard r.field == NameClassificationRecord.authorizedField else {
+        throw StoreYAMLError.invalidField(
+            context,
+            "variant 只收名字分類的判定記錄（判斷型，statement 走 指定／確認／撤回：理由；#564）")
+    }
+    guard authorized.contains(v) else {
+        throw StoreYAMLError.invalidField(
+            context,
+            "value「\(displaySafeInvisible(v, max: 120))」不在 authorized 清單內——值被改寫後 provenance 成了孤兒，"
+            + "把 value 更新成現值或移除這筆 reference")
+    }
+}
+
 /// 附著的存在性驗證（#66 task 3.3，D2）：reference 指名的欄位/值必須存在。
 ///
 /// 值改寫時 provenance 會變成孤兒——這道驗證在載入時擋下（D2 記明的代價與對策）。
@@ -521,10 +572,13 @@ extension Person {
     public func validateReferenceAttachment() throws {
         for r in references {
             switch r.field {
-            case "names", "authorized":
-                // #227 巢狀化後：field "names" 指名任一名字（聯集）、"authorized"
-                // 指名對外名字（分割）。authorized ⊆ all 由結構保證。
-                let pool = r.field == "names" ? names.all : names.authorized
+            case NameClassificationRecord.authorizedField:
+                // #564：名字分類記錄錨定 names.all；其他 reference 維持「在 authorized 內」（`validatePartitionReference`）。
+                // person 不收 `variant`（它的 variant 分割是「其他名字」，沒有判定面）——落到 default。
+                try validatePartitionReference(r, owner: "person", allNames: names.all, authorized: names.authorized)
+            case "names":
+                // #227 巢狀化後：field "names" 指名任一名字（聯集）。
+                let pool = names.all
                 guard let v = r.value else {
                     throw StoreYAMLError.invalidField(
                         "person.references(field: \(displaySafeInvisible(r.field, max: 120)))",
@@ -631,17 +685,10 @@ extension Organization {
                         "organization.references(field: names)",
                         "value「\(displaySafeInvisible(v, max: 120))」不在 names 內——值被改寫後 provenance 成了孤兒")
                 }
-            case "authorized":
-                guard let v = r.value else {
-                    throw StoreYAMLError.invalidField(
-                        "organization.references(field: authorized)",
-                        "authorized 是清單，reference 必須帶 value（D2）")
-                }
-                guard authorized.contains(v) else {
-                    throw StoreYAMLError.invalidField(
-                        "organization.references(field: authorized)",
-                        "value「\(displaySafeInvisible(v, max: 120))」不在 authorized 清單內")
-                }
+            case NameClassificationRecord.authorizedField:
+                // #564：同 person——名字分類記錄錨定 names；organization 沒有 variant，`variant` 落到 default。
+                try validatePartitionReference(r, owner: "organization",
+                                               allNames: names.entries.map(\.value), authorized: authorized)
             case "founded", "dissolved", "note", "ror":
                 guard r.value == nil else {
                     throw StoreYAMLError.invalidField(
@@ -717,17 +764,10 @@ extension Venue {
                         "venue.references(field: names)",
                         "value「\(displaySafeInvisible(v, max: 120))」不在 names 內——值被改寫後 provenance 成了孤兒")
                 }
-            case "authorized":
-                guard let v = r.value else {
-                    throw StoreYAMLError.invalidField(
-                        "venue.references(field: authorized)",
-                        "authorized 是清單，reference 必須帶 value（D2）")
-                }
-                guard authorized.contains(v) else {
-                    throw StoreYAMLError.invalidField(
-                        "venue.references(field: authorized)",
-                        "value「\(displaySafeInvisible(v, max: 120))」不在 authorized 清單內")
-                }
+            case NameClassificationRecord.authorizedField, NameClassificationRecord.variantField:
+                // #564：名字分類記錄錨定 names；`authorized` 上的其他 reference 維持「在 authorized 內」；`variant` 只收名字分類記錄。
+                try validatePartitionReference(r, owner: "venue",
+                                               allNames: names.entries.map(\.value), authorized: authorized)
             case "issn":
                 // #394：ISSN 是清單——print 與 electronic 是兩個真的號，所以一筆
                 // 記錄級的 reference 不說支持哪一個，另一個就**看起來有來源而其實沒有**。
@@ -820,7 +860,7 @@ extension Venue {
                 throw StoreYAMLError.invalidField(
                     "venue.references(field: \(displaySafeInvisible(r.field, max: 120)))",
                     "venue 沒有可附著 reference 的欄位「\(displaySafeInvisible(r.field, max: 120))」"
-                    + "（合法：names、authorized、issn、note、paginated、"
+                    + "（合法：names、authorized、variant、issn、note、paginated、"
                     + "resolution-confirmed、resolution-rejected、resolution-undecided）")
             }
         }

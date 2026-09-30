@@ -353,7 +353,7 @@ final class LoadTimeUnlocatableTests: XCTestCase {
         commit()
         try writeLegacy(Person(key: "z-person", names: ["Zed, Zoe"]))   // 沒 commit
         let before = try recordFiles()
-        XCTAssertThrowsError(try AuthorizedNameMigration.run(store: store, apply: true)) { err in
+        XCTAssertThrowsError(try AuthorizedNameMigration.run(store: store, apply: true, judgement: "r")) { err in
             let text = (err as? LocalizedError)?.errorDescription ?? "\(err)"
             XCTAssertTrue(text.contains("#641") && text.contains("z-person"), text)
         }
@@ -375,7 +375,7 @@ final class LoadTimeUnlocatableTests: XCTestCase {
         commit()
         let before = try recordFiles()
         let markerBefore = try StoreVersion.read(root: root)
-        XCTAssertThrowsError(try AuthorizedNameMigration.run(store: store, apply: true))
+        XCTAssertThrowsError(try AuthorizedNameMigration.run(store: store, apply: true, judgement: "r"))
         XCTAssertEqual(try recordFiles(), before, "a-person 不得先寫")
         XCTAssertEqual(try StoreVersion.read(root: root), markerBefore)
     }

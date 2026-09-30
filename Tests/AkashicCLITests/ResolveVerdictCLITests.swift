@@ -325,7 +325,7 @@ final class ResolveVerdictCLITests: XCTestCase {
         let venues = try CLITestHarness.run(["resolve-venues", "--demote", "x2020a:0"], env: env)
         XCTAssertNotEqual(venues.status, 0, venues.output)
         XCTAssertTrue(venues.output.contains("resolve-venues --demote 拒絕執行：未指名目標 store"), venues.output)
-        let names = try CLITestHarness.run(["authorize-names", "--apply"], env: env)
+        let names = try CLITestHarness.run(["authorize-names", "--apply", "--judgement", "逐筆看過提名"], env: env)   // #564：--apply 必附理由
         XCTAssertNotEqual(names.status, 0, names.output)
         XCTAssertTrue(names.output.contains("authorize-names --apply 拒絕執行：未指名目標 store"), names.output)
         XCTAssertTrue(venues.output.contains("這個寫入沒有 dry-run"), "逐 id 腿沒有 dry-run，不得叫人去跑：\(venues.output)")

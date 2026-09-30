@@ -144,6 +144,11 @@ extension AkashicService {
                 "\(at) 的 field「paginated」是判定——撤回用 --clear-paginated（MCP clear_paginated）：撤回本身是一筆帶理由與證據的判定、翻轉要留史，"   // display-safe-exempt: at 是字面＋Int
                 + "而移除面會讓判定與記錄的 paginated 值分岔")
         }
+        if field == NameClassificationRecord.variantField {
+            throw ServiceError.invalid(
+                "\(at) 的 field「variant」只有名字分類的判定記錄——判定史不在移除面（#564）：要改分類用 --authorize／--unauthorize／--add-variant"   // display-safe-exempt: at 是字面＋Int
+                + "（MCP authorize／unauthorize／add_variant，都要理由）")
+        }
         guard removableVenueReferenceFields.contains(field) else {
             throw ServiceError.invalid(
                 "\(at) 的 field「\(displaySafeInvisible(field, max: 60))」不是 venue 的 reference 欄位——移除面收 "   // display-safe-exempt: at 是字面＋Int
@@ -234,8 +239,15 @@ extension AkashicService {
         let listed = 5
         for (n, s) in specs.enumerated() {
             let at = "remove_reference[\(n)]"   // display-safe-exempt: n 是 Int
-            let hits = venue.references.indices.filter { matches(venue.references[$0], s) }
+            // #564：名字分類的判定記錄不是本面的對象（判定史不刪）——定位只看其他 reference；只命中名字分類記錄時具名拒絕並指路
+            let matched = venue.references.indices.filter { matches(venue.references[$0], s) }
+            let hits = matched.filter { !NameClassificationRecord.isRecord(venue.references[$0]) }
             let what = "field「\(displaySafeInvisible(s.field, max: 60))」" + (s.value.map { " value「\(displaySafeInvisible($0, max: 200))」" } ?? "（沒有 value）")
+            if hits.isEmpty, !matched.isEmpty {
+                throw ServiceError.invalid(
+                    "\(at)：\(what) 命中的是 \(matched.count) 筆名字分類的判定記錄（「指定／確認／撤回：…」）——判定史不在移除面（#564）；"   // display-safe-exempt: at 是字面＋Int；what 已消毒；matched.count 是 Int
+                    + "要改分類用 --authorize／--unauthorize（MCP authorize／unauthorize，都要理由）；整批拒絕、零寫入")
+            }
             guard !hits.isEmpty else {
                 let same = venue.references.filter { $0.field == s.field }
                 let seen = same.isEmpty

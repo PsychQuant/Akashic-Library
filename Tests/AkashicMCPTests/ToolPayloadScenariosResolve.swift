@@ -21,16 +21,21 @@ extension ToolPayloadScenarios {
             try $0.service.updateVenue(key: "psychometrika", addNames: nil, note: nil, type: nil,
                                        addISSN: ["0033-3123 (print)", "1860-0980 (electronic)"])
         },
-        PayloadScenario("akashic_update_venue", "add_variant", params: ["key", "add_variant"]) {
-            try $0.service.updateVenue(key: "psychometrika", addNames: nil, note: nil, type: nil, addVariant: ["PSYCHOMETRIKA", " "])
+        // #564：三條名字分類腿必附 judgement（證據 rests_on 可省略；authorize 那個情境帶一個，讓 rests_on 也有情境宣告）
+        PayloadScenario("akashic_update_venue", "add_variant", params: ["key", "add_variant", "judgement"]) {
+            try $0.service.updateVenue(key: "psychometrika", addNames: nil, note: nil, type: nil, addVariant: ["PSYCHOMETRIKA", " "],
+                                       judgement: "WoS 大寫形")
         },
-        PayloadScenario("akashic_update_venue", "authorize", params: ["key", "authorize"]) {
-            try $0.service.updateVenue(key: "psychometrika", addNames: nil, note: nil, type: nil, authorize: ["Psychometrika"])
+        PayloadScenario("akashic_update_venue", "authorize", params: ["key", "authorize", "judgement", "rests_on"]) {
+            try $0.service.updateVenue(key: "psychometrika", addNames: nil, note: nil, type: nil, authorize: ["Psychometrika"],
+                                       judgement: "期刊官網刊頭", restsOn: [try $0.storeDigest()])
         },
         // #559：撤回（先指定一個、再撤回它；空白項進 unauthorizeDropped）
-        PayloadScenario("akashic_update_venue", "unauthorize", params: ["key", "unauthorize"]) {
-            _ = try $0.service.updateVenue(key: "psychometrika", addNames: nil, note: nil, type: nil, authorize: ["Psychometrika"])
-            return try $0.service.updateVenue(key: "psychometrika", addNames: nil, note: nil, type: nil, unauthorize: ["Psychometrika", " "])
+        PayloadScenario("akashic_update_venue", "unauthorize", params: ["key", "unauthorize", "judgement"]) {
+            _ = try $0.service.updateVenue(key: "psychometrika", addNames: nil, note: nil, type: nil, authorize: ["Psychometrika"],
+                                           judgement: "期刊官網刊頭")
+            return try $0.service.updateVenue(key: "psychometrika", addNames: nil, note: nil, type: nil, unauthorize: ["Psychometrika", " "],
+                                              judgement: "官網已改名")
         },
         PayloadScenario("akashic_update_venue", "paginated", params: ["key", "paginated", "judgement", "rests_on"]) {
             try $0.service.updateVenue(key: "psychometrika", addNames: nil, note: nil, type: nil, paginated: true,

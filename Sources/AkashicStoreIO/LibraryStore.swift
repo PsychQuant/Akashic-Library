@@ -993,6 +993,18 @@ public final class LibraryStore {
         }
     }
 
+    /// 名字分類的判定記錄（#564）是 format 22 的 vocabulary：format-21 binary 讀到會整檔 quarantine（`StoreVersion` 的 22 那一段）。
+    /// 三種 holder（person／organization／venue）共用這一道閘，不各寫一份。
+    public static func assertNameClassificationRecordsWritable(_ refs: [ProvenanceReference], format: Int, what: String) throws {
+        let need = StoreVersion.nameClassificationRecordFormat
+        guard format < need, refs.contains(where: NameClassificationRecord.isRecord) else { return }
+        throw StoreIOError.invalidInput(
+            what: what,
+            why: "含名字分類的判定記錄（field: authorized／variant 的「指定／確認／撤回：理由」，#564），需要 store format ≥ \(need)；"
+                + "本 store 是 \(format)——確認會碰這個 store 的 CLI/MCP/App 都已升級後，把 store.yaml 的 format: 改成 \(need)"
+                + "（format-\(need - 1) binary 讀到這種記錄會整檔 quarantine）")   // display-safe-exempt: need 與 need - 1 是 Int（編譯期常量運算）
+    }
+
     public static func assertVenueWritable(_ v: Venue, format: Int) throws {
         guard StoreKey.isValid(v.key) else {
             throw StoreIOError.invalidKey("venue key", v.key)
@@ -1068,6 +1080,10 @@ public final class LibraryStore {
                      "binary）：帶 `field: paginated` reference 的 venue 檔會**整檔 " +
                      "quarantine**，且輸出看起來就像判定從未發生")
         }
+        // v22（名字分類的判定記錄，#564）——放在最後：格式世代依序閘，舊世代的訊息先出（例如 format < 14 的 variant 寫入說 14，
+        // 不是說 22——名字分類記錄需要的 22 包含 14，但使用者得先看到卡住他的那一個）
+        try Self.assertNameClassificationRecordsWritable(
+            v.references, format: format, what: "venue「\(displaySafeInvisible(v.key, max: 120))」")
         try Self.assertNoErrors(v.validate(), what: "venue", key: v.key)
     }
 
@@ -1145,6 +1161,11 @@ public final class LibraryStore {
             }
             try Self.assertVerdictShapesWritable(
                 org.references, format: format, what: "organization「\(displaySafeInvisible(org.key, max: 120))」")
+        }
+        // v22（名字分類的判定記錄，#564）——lazy：沒有這種記錄就不讀 marker
+        if org.references.contains(where: NameClassificationRecord.isRecord) {
+            try Self.assertNameClassificationRecordsWritable(
+                org.references, format: try format(), what: "organization「\(displaySafeInvisible(org.key, max: 120))」")
         }
         // 同 writePerson 的閘（#229）——「哪個名字對外」是同一個問題，不該有兩套答案
         try Self.assertNoErrors(org.validate(), what: "organization", key: org.key)
@@ -1245,6 +1266,11 @@ public final class LibraryStore {
                          "migrate-person-identity 遷移既有記錄，再把 store.yaml 的 " +
                          "format: 改成 10（v10 改變 names 的形狀）")
             }
+        }
+        // v22（名字分類的判定記錄，#564）——lazy，同上
+        if person.references.contains(where: NameClassificationRecord.isRecord) {
+            try Self.assertNameClassificationRecordsWritable(
+                person.references, format: try format(), what: "person「\(displaySafeInvisible(person.key, max: 120))」")
         }
         try Self.assertNoErrors(person.validate(), what: "person", key: person.key)
     }

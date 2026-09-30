@@ -237,14 +237,16 @@ enum ToolPayloadScenarios {
                                            ror: "https://ror.org/05dxps055")
         },
         // #557：authorize（含一個不在 names 的、一個空白項）；第二個情境指定一個已退役的名字（authorizedNotCurrent）。沒有 unauthorize（拿掉了）
-        PayloadScenario("akashic_update_organization", "authorize", params: ["key", "authorize"]) {
-            try $0.service.updateOrganization(key: "global-research-institute", authorize: ["GRI", " "])
+        // #564：authorize 的 judgement 必填、rests_on 可省略（這個情境帶一個）
+        PayloadScenario("akashic_update_organization", "authorize", params: ["key", "authorize", "judgement", "rests_on"]) {
+            try $0.service.updateOrganization(key: "global-research-institute", authorize: ["GRI", " "],
+                                              judgement: "所方正式名稱", restsOn: [try $0.storeDigest()])
         },
-        PayloadScenario("akashic_update_organization", "authorize-retired", params: ["key", "authorize"]) {
+        PayloadScenario("akashic_update_organization", "authorize-retired", params: ["key", "authorize", "judgement"]) {
             try $0.service.store.writeOrganization(Organization(key: "former-institute", names: Timeline([
                 TemporalValue(value: "Institute of Statistics", range: DateRange(start: "1960", end: "1993")),
                 TemporalValue(value: "Institute of Statistical Science", range: DateRange(start: "1993"))]), id: UUID()))
-            return try $0.service.updateOrganization(key: "former-institute", authorize: ["Institute of Statistics"])
+            return try $0.service.updateOrganization(key: "former-institute", authorize: ["Institute of Statistics"], judgement: "沿革名稱")
         },
     ]
 

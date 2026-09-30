@@ -2670,15 +2670,26 @@ struct AuthorizeNames: ParsableCommand {
 
     @OptionGroup var options: LibraryOptions
 
-    @Flag(name: .long, help: "實際寫入（預設只報告）")
+    @Flag(name: .long, help: "實際寫入（預設只報告）；必附 --judgement（#564）")
     var apply: Bool = false
+
+    @Option(name: .long,
+            help: ArgumentHelp("理由（#564）：--apply 必填，至多 4,096 位元組；整批一句，每個寫入的名字各留一筆 field: authorized 的「指定：理由」判定記錄"
+                + "（不帶證據：一個批次共用同一組 digest 等於宣稱每個人的名字都依據同一份文件）。需要 store format ≥ 22；本命令不寫 store marker"))
+    var judgement: String?
+
+    /// 只看 argv 的檢查早於開 store（#654）：`--apply` 沒有理由是用法錯誤。
+    func validate() throws {
+        guard apply else { return }
+        try argvCheck { try AuthorizedNameMigration.checkApplyJudgement(judgement) }
+    }
 
     func run() throws {
         // #298：全庫掃蕩寫入——目標 store 未指名時要求顯式確認（#580 R1 verify：先前沒有閘，且稽核因
         // 宣告寫成 `: Bool` 而看不到它）
         if apply { try options.assertDestructiveTargetNamed("authorize-names") }
         let store = try options.openStore()
-        let r = try AuthorizedNameMigration.run(store: store, apply: apply)
+        let r = try AuthorizedNameMigration.run(store: store, apply: apply, judgement: judgement)
         print("person 總數: \(r.total)")
         print("  已指定（不動）: \(r.alreadyDesignated)")
         print("  採用（該書寫系統唯一候選）: \(r.adopted)")
@@ -2696,7 +2707,8 @@ struct AuthorizeNames: ParsableCommand {
                 .map { displaySafe($0, max: 120) }.joined(separator: ", ")
                 + (r.undecidedKeys.count > 20 ? " …（共 \(r.undecidedKeys.count) 筆）" : ""))
         }
-        print(apply ? "✓ 已寫入" : "未寫入。確認上面的計畫後加 --apply 執行。")
+        print(apply ? "✓ 已寫入（每個寫入的名字各一筆「指定：理由」的判定記錄）"
+                    : "未寫入。確認上面的計畫後加 --apply --judgement '<理由>' 執行。")
     }
 }
 

@@ -11,14 +11,15 @@ import AkashicCore
 /// **純值運算**：只改傳進來的 `names`／`authorized`／`variant`，不讀 store、不寫檔。載入、定位、寫入閘（`Venue.validate()`／
 /// `Organization.validate()` 的子集、每書寫系統至多一個、分割互斥）與 index 重建是呼叫端的事，這裡不重造那些檢查。
 ///
-/// **判定記錄**：兩個動作都是判定（`two-kinds-of-edits` 的 AI 欄）。目前不留 judgement；#564 已於 2026-10-01 裁決要留，另案落地
-/// （需要 store format bump）。報告的各桶就是那筆記錄要記的內容（誰成為對外形、誰被換下、誰被撤回），落地時呼叫端依報告寫
-/// reference，替換與撤回的邏輯不必改。
+/// **判定記錄**（#564，2026-10-01 落地）：兩個動作都是判定（`two-kinds-of-edits` 的 AI 欄）。替換與撤回的邏輯不讀理由；呼叫端把報告
+/// 交給 `judgementRecords` 換成名字分類記錄（`NameClassificationRecord`）再 append 到 references——報告的各桶就是記錄要記的內容
+/// （誰成為對外形、誰被確認、誰被換下、誰被抬出 variant、誰被撤回）。記錄的文法與錨定見 `NameClassificationRecord` 的 doc。
 struct AuthorizedDesignation {
     var names: TimelineOf<String>
     var authorized: [String]
     var variant: [String]
-    /// 檢查 `field: authorized` 的 reference 用（移出 authorized 之後它們成孤兒）；本結構不改它。
+    /// 檢查 `field: authorized` 的 reference 用（移出 authorized 之後它們成孤兒）；本結構不改它。名字分類記錄（#564）不算——
+    /// 它們錨定 names，名字離開 authorized 之後仍合法。
     let references: [ProvenanceReference]
     let owner: Owner
 
@@ -38,6 +39,8 @@ struct AuthorizedDesignation {
         var authorizedAdded: [String] = []
         /// 同書寫系統被換下來的舊指定——留在 names、不標 variant
         var authorizedRemoved: [String] = []
+        /// 被換下的舊指定與換下它的名字（`authorizedRemoved` 的每一項各一對，順序相同）——撤回記錄的理由要說出是誰換下的（#564）
+        var displaced: [(removed: String, by: String)] = []
         /// 原本在 variant、被抬進 authorized 的（organization 恆空）
         var liftedFromVariant: [String] = []
         /// 本來就是對外形（冪等，但要說）
@@ -102,6 +105,7 @@ struct AuthorizedDesignation {
                         // 也不說出路。程式不替人改判定（D60 同向）：value 改成新的對外形或刪掉它，都是人的事。
                         try refuseIfPinned(y, replacedBy: x)
                         report.authorizedRemoved.append(y)
+                        report.displaced.append((y, x))
                     }
                     else if Array(y.utf8) != Array(x.utf8) { rewrote = true }
                     continue
@@ -158,7 +162,7 @@ struct AuthorizedDesignation {
     /// `y` 將被移出 authorized（`replacedBy` 非 nil＝被 `authorize` 換下；nil＝被 `unauthorize` 撤回）而 `field: authorized` 的 reference 指著它：
     /// 具名拒絕、零寫入並指路。出路依動作不同——換下來的可以把 reference 的 value 改成新的對外形，撤回的沒有新的對外形可指。
     private func refuseIfPinned(_ y: String, replacedBy x: String?) throws {
-        let pinned = references.filter { $0.field == "authorized" && $0.value == y }
+        let pinned = references.filter { $0.field == "authorized" && $0.value == y && !NameClassificationRecord.isRecord($0) }
         guard !pinned.isEmpty else { return }
         let removal = owner.referenceRemoval ?? "手改 YAML 刪掉它們（\(owner.noun) 的 reference 沒有移除面）"   // display-safe-exempt: owner.noun 與 referenceRemoval 是呼叫端的編譯期常量
         let subject = x.map { "authorize「\(displaySafeInvisible($0, max: 120))」會把「\(displaySafeInvisible(y, max: 120))」移出 authorized" }
@@ -167,6 +171,33 @@ struct AuthorizedDesignation {
         throw ServiceError.invalid(
             "\(subject)，但這筆 \(owner.noun) 有 \(pinned.count) 筆 `field: authorized` 的 reference 指著它——移出後它們成孤兒、寫入會被拒；"   // display-safe-exempt: subject 的名字逐項 displaySafeInvisible；owner.noun 是編譯期常量；count 是 Int
             + "程式不替人改判定。\(remedy)，再重跑")   // display-safe-exempt: remedy 由字面常量與呼叫端的編譯期常量組成
+    }
+
+    /// 一次呼叫的判定理由與證據（#564）：理由套用到該次寫下的每一筆記錄，證據也同。入口已驗過非空、上限與 digest 形狀。
+    struct Judgement {
+        let reason: String
+        let restsOn: [String]
+    }
+
+    /// 撤回與指定的報告 → 名字分類記錄（#564）。順序與動作的順序相同：撤回先（`unauthorize` 先跑），再逐個指定——被換下的舊指定、
+    /// 被抬出 variant 的名字各一筆撤回（理由由程式在前面說出原因），然後是被指定或被確認的名字本身。
+    /// 只差位元組而被換成 canonical 的舊指定（`authorizedRewritten`）是對同一個名字再說一次，寫「確認」。
+    static func judgementRecords(withdrawn: [String], authorize report: AuthorizeReport,
+                                 judgement: Judgement) -> [ProvenanceReference] {
+        func record(_ field: String, _ name: String, _ action: NameClassificationRecord.Action, _ reason: String) -> ProvenanceReference {
+            NameClassificationRecord.make(field: field, name: name, action: action, reason: reason, restsOn: judgement.restsOn)
+        }
+        let authorized = NameClassificationRecord.authorizedField
+        var out = withdrawn.map { record(authorized, $0, .withdraw, judgement.reason) }
+        for (removed, by) in report.displaced {
+            out.append(record(authorized, removed, .withdraw, "同書寫系統改指定「\(by)」——\(judgement.reason)"))
+        }
+        for lifted in report.liftedFromVariant {
+            out.append(record(NameClassificationRecord.variantField, lifted, .withdraw, "改指定為 authorized——\(judgement.reason)"))
+        }
+        out += report.authorizedAdded.map { record(authorized, $0, .designate, judgement.reason) }
+        out += (report.alreadyAuthorized + report.authorizedRewritten).map { record(authorized, $0, .confirm, judgement.reason) }
+        return out
     }
 }
 
@@ -199,5 +230,38 @@ extension AkashicService {
         throw ServiceError.invalid(
             "同一個書寫系統送了兩個以上的名字——" + described
             + "——每書寫系統至多一個對外形，那是未決的問題，不是指定；請選一個")
+    }
+}
+
+extension AkashicService {
+    /// 名字分類腿的理由與證據（#564）——venue（`updateVenueArguments`）與 organization（`updateOrganizationArguments`）的入口共用，讀 store 之前跑。
+    ///
+    /// `classifying`＝這次至少有一個非空白的名字要分類（全部空白的腿沒有分類，不需要理由；空白項照舊回報在 *Dropped）。
+    /// 理由去空白後非空、至多 `maxStatementBytes`；證據可空、至多 `maxRestsOnPerCall` 個，形狀走 `ProvenanceReference` 的平面 init
+    /// （單一驗證入口，空內容的 digest 以 #654 的原句拒絕）。回 nil＝這次沒有分類——`judgement`／`rests_on` 單獨出現要不要拒，由各入口決定。
+    static func nameClassificationJudgement(classifying: Bool, judgement: String?,
+                                            restsOn: [String]?) throws -> AuthorizedDesignation.Judgement? {
+        guard classifying else { return nil }
+        let reason = judgement?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !reason.isEmpty else {
+            throw ServiceError.invalid(
+                "名字分類是判定——judgement（--judgement）必填：每次指定、確認、撤回、標異寫都在 references 留一筆判定記錄"
+                + "（field: authorized／variant，#564）；證據 rests_on 可省略。整批拒絕、零寫入")
+        }
+        guard reason.utf8.count <= Self.maxStatementBytes else {
+            throw ServiceError.invalid("judgement 超過 \(Self.maxStatementBytes) 位元組（實得 \(reason.utf8.count)）——精簡它；整批拒絕、零寫入，不截斷")   // display-safe-exempt: Self.maxStatementBytes 與 reason.utf8.count 都是 Int
+        }
+        let digests = restsOn ?? []
+        guard digests.count <= Self.maxRestsOnPerCall else {
+            throw ServiceError.invalid("rests_on 一次最多 \(Self.maxRestsOnPerCall) 個 digest（這次 \(digests.count) 個）——整批拒絕、零寫入")   // display-safe-exempt: Self.maxRestsOnPerCall 與 digests.count 都是 Int
+        }
+        do {
+            _ = try ProvenanceReference(field: NameClassificationRecord.authorizedField, value: "x", url: nil, retrieved: nil,
+                                        status: nil, mediaType: nil, content: nil,
+                                        judgement: NameClassificationRecord.statement(.designate, reason: reason), restsOn: digests)
+        } catch {
+            throw ServiceError.invalid("rests_on 不合法：\(displaySafeError(error, max: 400))——整批拒絕、零寫入")
+        }
+        return AuthorizedDesignation.Judgement(reason: reason, restsOn: digests)
     }
 }

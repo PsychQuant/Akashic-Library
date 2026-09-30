@@ -95,13 +95,15 @@ public enum VenueNameRepair {
                                               reason: "正規化（空白、NFC）之後仍不合法：" + still))
                     continue
                 }
+                // #564：名字分類的判定記錄錨定 names（不論它說的是哪個分割），改寫那個拼法同樣會讓它對不上
                 let pinned = venue.references.filter { r in
-                    r.field == label && r.value.map { Array($0.utf8) == Array(s.utf8) } == true
+                    (r.field == label || NameClassificationRecord.isRecord(r))
+                        && r.value.map { Array($0.utf8) == Array(s.utf8) } == true
                 }
                 if !pinned.isEmpty {
                     judgments.append(Judgment(
                         subject: .value(list: label, index: i, value: s),
-                        reason: "有 \(pinned.count) 筆 `field: \(label)` 的 reference 指著這個拼法——改寫會讓它的 value 對不上；"   // display-safe-exempt: pinned.count 是 Int；label 是本函式的字面常量
+                        reason: "有 \(pinned.count) 筆 reference（`field: \(label)` 或名字分類的判定記錄）指著這個拼法——改寫會讓它的 value 對不上；"   // display-safe-exempt: pinned.count 是 Int；label 是本函式的字面常量
                             + "reference 要不要跟著改是判斷（程式不替人改判定），先改或刪那幾筆 reference 的 value 再跑"))
                     continue
                 }

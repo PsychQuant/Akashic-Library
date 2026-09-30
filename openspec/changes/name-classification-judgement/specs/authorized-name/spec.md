@@ -2,7 +2,7 @@
 
 ### Requirement: Every name-classification judgement SHALL leave a judgement record
 
-Each write surface that classifies a name — designating it as an authorized name, withdrawing that designation, or marking it as a variant — SHALL append one judgement reference to the record's references for every classification it asserts, including a restatement of a classification the record already holds. The reference SHALL carry the field of the partition it speaks about (`authorized` or `variant`), the name as its value, and a statement that begins with exactly one of three actions — designate (`指定：`), confirm (`確認：`), withdraw (`撤回：`) — followed by a non-empty reason. The three actions SHALL be a closed set parsed by a single parser; no fourth action SHALL be inferred.
+Each write surface that classifies a name — designating it as an authorized name, withdrawing that designation (on venues), or marking it as a variant — SHALL append one judgement reference to the record's references for every classification it asserts, including a restatement of a classification the record already holds. The reference SHALL carry the field of the partition it speaks about (`authorized` or `variant`), the name as its value, and a statement that begins with exactly one of three actions — designate (`指定：`), confirm (`確認：`), withdraw (`撤回：`) — followed by a non-empty reason. The three actions SHALL be a closed set parsed by a single parser; no fourth action SHALL be inferred.
 
 A reason SHALL be required on every such surface; a call that would classify at least one non-blank name without a reason SHALL be refused as a whole with zero writes. The reason SHALL be at most 4,096 bytes. Evidence digests SHALL be optional, at most 20, and each SHALL be a valid, non-empty-content digest.
 
@@ -35,7 +35,7 @@ A reference byte-identical to one the record already holds SHALL NOT be appended
 | authorize X, X already authorized | authorized X `確認：R` |
 | authorize X displaces same-script Y | authorized Y `撤回：同書寫系統改指定「X」——R` and authorized X `指定：R` |
 | authorize X, X was a variant | variant X `撤回：改指定為 authorized——R` and authorized X `指定：R` |
-| unauthorize X | authorized X `撤回：R` |
+| unauthorize X (venue) | authorized X `撤回：R` |
 | add_variant X, X not a variant | variant X `指定：R` |
 | add_variant X, X already a variant | variant X `確認：R` |
 

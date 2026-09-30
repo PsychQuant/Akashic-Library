@@ -132,6 +132,8 @@ grep -nE "public var" Sources/AkashicCore/{Models,Organization,Divergence,Tempor
   > `organizations` 的 `references`、不掃 divergence 的 judgement——報告對消歧證據
   > 鏈全盲。2026-08-15 起第 12 條邊在掃描範圍；同輪修掉「讀不到折成缺席」（#265）。
 
+- **名字分類的判定記錄不是新邊**（#564，2026-10-01 核對）。它們是 `Person`／`Organization`／`Venue` 的 `references` 裡 `field: authorized`／`variant` 的判斷型 reference：`value` 是**這筆記錄自己的名字**（錨定 names——不指向另一個實體、也不指向 store 之外的權威記錄），所以不滿足收錄判準「其值指涉另一個實體或一份存檔內容」；它們的 `rests-on`（證據 digest，可空）是第 11 條邊的既有內容指標，同一套 `sha256:` 定址法、同一個欄位。稽核程序第 ③ 步對這個 field 家族答「否」，所以不加列；本條記在這裡，是讓下一個人跑稽核時不必重新推導一次。
+
 #### 對稱邊的約定（判準沉默的地方）
 
 第 3 條 `related` 是 **work ↔ work 的對稱關係**：刪掉任一端那條邊都消失，所以

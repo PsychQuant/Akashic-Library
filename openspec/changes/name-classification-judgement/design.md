@@ -1,8 +1,8 @@
 ## Context
 
-名字分類在三種實體上各有寫入面：person 的 `authorize-names`（#81，CLI-only 的批次提名）、venue 的 `update-venue --add-variant`（#471）／`--authorize`（#554）／`--unauthorize`（#559）與 MCP `akashic_update_venue` 的同名參數、organization 的 `update-organization --authorize`／`--unauthorize`（#557）與 MCP `akashic_update_organization`。venue 與 organization 的替換與撤回邏輯住在同一份 `AuthorizedDesignation`。這些面都不留判定記錄；同一個 `updateVenue` 裡的 `paginated`（#406）卻要 judgement＋rests-on、寫一筆 `ProvenanceReference`。
+名字分類在三種實體上各有寫入面：person 的 `authorize-names`（#81，CLI-only 的批次提名）、venue 的 `update-venue --add-variant`（#471）／`--authorize`（#554）／`--unauthorize`（#559）與 MCP `akashic_update_venue` 的同名參數、organization 的 `update-organization --authorize`（#557）與 MCP `akashic_update_organization`（#557 的首輪實作還有 `--unauthorize`，R1 verify 之後拿掉，待使用者裁決，所以 organization 只剩 `authorize` 這一條腿）。venue 與 organization 的替換與撤回邏輯住在同一份 `AuthorizedDesignation`。這些面都不留判定記錄；同一個 `updateVenue` 裡的 `paginated`（#406）卻要 judgement＋rests-on、寫一筆 `ProvenanceReference`。
 
-使用者 2026-10-01 裁決（#564）：五個面一律留 judgement 記錄，每次指定、撤回、標異寫都寫一筆，理由必填、證據 digest 可空；對既有值說「確認」也留一筆；合併端因此分得出人確認過的與機械值，前者升成拒絕條件；代價是升 store format。#600 同日裁決既有機械值不跑全量 campaign、按需判定。
+使用者 2026-10-01 裁決（#564）：五個面（person `authorize-names`、venue `--add-variant`／`--authorize`／`--unauthorize`、organization `--authorize`）一律留 judgement 記錄，每次指定、撤回（venue）、標異寫都寫一筆，理由必填、證據 digest 可空；organization 沒有撤回腿（`--unauthorize` 於 #557 R1 verify 之後拿掉，待使用者裁決；使用者對 #557 只說「先提供 --authorize」），所以五個面裡 organization 只有 `--authorize`；對既有值說「確認」也留一筆；合併端因此分得出人確認過的與機械值，前者升成拒絕條件；代價是升 store format。#600 同日裁決既有機械值不跑全量 campaign、按需判定。
 
 2026-10-01 唯讀量測 live store：person 4,575 筆（有 authorized 4,575）、venue 485 筆（有 authorized 470、有 variant 41）、organization 13 筆；`field: authorized` 或 `field: variant` 的 reference **0 筆**；store marker 是 18。
 
@@ -23,6 +23,7 @@
 - 不改 person 合併：它本來就拒絕 authorized 的降級，也拒絕被併者帶有倖存者沒有的任何非 verdict reference。
 - 不在 `StoreHealth` 新增「最後一筆記錄與現在分類不一致」的掃描。
 - 不動 organization 合併（尚未實作，#555）。
+- 不替 organization 加回 `unauthorize` 腿：它於 #557 R1 verify 之後拿掉、待使用者裁決（organization 的 `names` 只增不減，撤回會讓剛加進 names 的名字成為 fallback 顯示名）；日後裁決加回時，要一併裁決它要不要理由與記錄。
 
 ## Decisions
 
@@ -52,7 +53,7 @@ venue 與 organization 的一次呼叫可以同時指定、撤回好幾個名字
 | `authorize X`，X 已在 authorized（含只差位元組而被換成 canonical 的） | authorized `確認：理由` |
 | 同書寫系統的舊指定 Y 被 X 換下 | authorized（value Y）`撤回：同書寫系統改指定「X」——理由` |
 | X 原本在 variant、被抬進 authorized | variant（value X）`撤回：改指定為 authorized——理由` |
-| `unauthorize X` | authorized `撤回：理由` |
+| `unauthorize X`（venue） | authorized `撤回：理由` |
 | `add_variant X`，X 原本不在 variant | variant `指定：理由` |
 | `add_variant X`，X 已在 variant | variant `確認：理由` |
 | `authorize-names --apply` 採用或提名 X | authorized `指定：理由` |
@@ -63,7 +64,7 @@ venue 與 organization 的一次呼叫可以同時指定、撤回好幾個名字
 
 venue 面沿用既有的 `judgement`（CLI `--judgement`）與 `rests_on`（`--rests-on`）；只要這次呼叫帶了至少一個非空白的 `add_variant`／`authorize`／`unauthorize` 名字，`judgement` 就必填（去空白後非空、至多 4,096 位元組），`rests_on` 可省略、至多 20 個 digest。`paginated`／`clear_paginated` 與名字分類腿不得同一次呼叫：兩個判定各要自己的理由，共用一句會讓其中一筆的理由說的是另一件事。檢查排在名字 vetting 與兩句矛盾的檢查之後，讀 store 之前（#654 的形狀）；既有的名字不合法、兩句矛盾的拒絕訊息不變。
 
-organization 新增 `judgement`／`rests_on`（CLI `--judgement`／`--rests-on`），規則同上。
+organization 新增 `judgement`／`rests_on`（CLI `--judgement`／`--rests-on`），規則同上：`authorize` 的名字必附 `judgement`；沒有要指定的名字（沒給、空陣列、全是空白項）時照舊以「沒有要改的」拒絕，`judgement`／`rests_on` 單獨出現也一樣。
 
 沒選：另開 `name_judgement` 參數。多一個參數多一份 `tools/list` 位元組（預算 54,000，基線 53,024），也讓 `judgement` 在同一個工具裡有兩種理由來源。
 
@@ -110,7 +111,7 @@ person 合併本來就拒絕被併者有、倖存者沒有的 authorized（#81�
 **行為**：
 
 - `akashic update-venue <key> --authorize X --judgement R`：寫入 X 的分類變更，另在 venue 的 references 追加名字分類記錄（上表），回報 `judgementsRecorded`。少了 `--judgement`（且有非空白的 `--authorize`／`--unauthorize`／`--add-variant`）→ 用法錯誤、零寫入。帶 `--paginated` 或 `--clear-paginated` 同時帶名字分類腿 → 用法錯誤。MCP `akashic_update_venue` 同契約（`judgement`、`rests_on`）。
-- `akashic update-organization <key> --authorize X --judgement R [--rests-on D…]`：同上；MCP `akashic_update_organization` 新增 `judgement`、`rests_on`。
+- `akashic update-organization <key> --authorize X --judgement R [--rests-on D…]`：同上；MCP `akashic_update_organization` 新增 `judgement`、`rests_on`。對已是對外名稱的名字說「確認」也留一筆記錄，所以那種呼叫會寫檔；同一句理由已記過（位元組完全相同）才不寫檔。
 - `akashic authorize-names --apply --judgement R`：每個寫入的 person 每個被採用或提名的名字各一筆 `指定：R`；`--apply` 沒有 `--judgement` → 用法錯誤、早於開 store；乾跑不需要理由；不再寫 store marker。
 - store marker < 22 時上述寫入具名拒絕，訊息含「store format ≥ 22」與升級前置。
 - `resolve-divergence`（venue）：被併者帶記錄的 authorized 會被降級 → `wouldDemoteJudgedAuthorized` 拒絕，preview 同；其餘名字分類記錄依分類一致與否搬移或以 `wouldLoseFields` 拒絕。

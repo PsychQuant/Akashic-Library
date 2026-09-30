@@ -89,7 +89,7 @@ final class UpdateVenueEditNameSegmentCLITests: XCTestCase {
             (["update-venue", "v-one", "--edit-name-segment", #"[{"name":"X","set":{"start":1933},"reason":"r"}]"#], "必須是字串或 null"),
             (["update-venue", "v-one", "--edit-name-segment", #"[{"name":"X","set":{"ended_unknown":true},"reason":"r"}]"#], "不認得的鍵"),
             (["update-venue", "v-one", "--edit-name-segment", #"[{"name":"X","set":{"note":"n"},"reason":"r"}]"#, "--add-name", "Y"], "單獨呼叫"),
-            (["update-venue", "v-one", "--edit-name-segment", #"[{"name":"X","set":{"note":"n"},"reason":"r"}]"#, "--authorize", "Y"], "單獨呼叫"),
+            (["update-venue", "v-one", "--edit-name-segment", #"[{"name":"X","set":{"note":"n"},"reason":"r"}]"#, "--authorize", "Y", "--judgement", "r"], "單獨呼叫"),
             (["update-venue", "v-one", "--edit-name-segment", #"[{"name":"X","set":{"note":"n"},"reason":"r"}]"#,
               "--remove-reference", #"[{"field":"issn","value":"0003-066X","reason":"r"}]"#], "單獨呼叫"),
         ]

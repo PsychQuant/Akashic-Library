@@ -34,7 +34,7 @@ final class OrganizationAuthorizeTests: XCTestCase {
     /// 本面存在的理由：authorized 寫得進去、讀得回來，`displayName` 跟著換。
     func testAuthorizeWritesTheDesignation() throws {
         XCTAssertEqual(try org().authorized, [], "fixture：addOrganization 不寫 authorized")
-        let out = try payload(try service.updateOrganization(key: "iss", authorize: ["Institute of Statistical Science"]))
+        let out = try payload(try service.updateOrganization(key: "iss", authorize: ["Institute of Statistical Science"], judgement: "fixture"))
         let o = try org()
         XCTAssertEqual(o.authorized, ["Institute of Statistical Science"])
         XCTAssertEqual(o.displayName(in: .latn), "Institute of Statistical Science")
@@ -45,9 +45,9 @@ final class OrganizationAuthorizeTests: XCTestCase {
 
     /// 同書寫系統替換：舊指定移出 authorized、留在 names（organization 沒有 variant，本來就不會被標）；不同書寫系統之間是 append。
     func testSameScriptReplacesAndCrossScriptAppends() throws {
-        _ = try service.updateOrganization(key: "iss", authorize: ["INSTITUTE OF STATISTICAL SCIENCE", "中央研究院統計科學研究所"])
+        _ = try service.updateOrganization(key: "iss", authorize: ["INSTITUTE OF STATISTICAL SCIENCE", "中央研究院統計科學研究所"], judgement: "fixture")
         XCTAssertEqual(Set(try org().authorized), ["INSTITUTE OF STATISTICAL SCIENCE", "中央研究院統計科學研究所"], "跨書寫系統 append")
-        let out = try payload(try service.updateOrganization(key: "iss", authorize: ["Institute of Statistical Science"]))
+        let out = try payload(try service.updateOrganization(key: "iss", authorize: ["Institute of Statistical Science"], judgement: "fixture"))
         let o = try org()
         XCTAssertEqual(Set(o.authorized), ["Institute of Statistical Science", "中央研究院統計科學研究所"])
         XCTAssertTrue(o.names.entries.contains { $0.value == "INSTITUTE OF STATISTICAL SCIENCE" }, "被換下的留在 names")
@@ -56,7 +56,7 @@ final class OrganizationAuthorizeTests: XCTestCase {
 
     /// 不在 names 的一併加進 names（canonical 形）——authorized 是 names 的子集（store 邊界的不變式）。
     func testNameNotInNamesIsAppendedCanonical() throws {
-        let out = try payload(try service.updateOrganization(key: "iss", authorize: ["  ISS  "]))
+        let out = try payload(try service.updateOrganization(key: "iss", authorize: ["  ISS  "], judgement: "fixture"))
         let o = try org()
         XCTAssertTrue(o.names.entries.contains { $0.value == "ISS" }, "\(o.names.entries.map(\.value))")
         XCTAssertEqual(o.authorized, ["ISS"])
@@ -65,8 +65,8 @@ final class OrganizationAuthorizeTests: XCTestCase {
 
     /// 冪等但不沉默：已是對外名稱的再指定一次報 alreadyAuthorized、不重複 append。
     func testConfirmingIsReportedNotSilent() throws {
-        _ = try service.updateOrganization(key: "iss", authorize: ["Institute of Statistical Science"])
-        let out = try payload(try service.updateOrganization(key: "iss", authorize: ["Institute of Statistical Science "]))
+        _ = try service.updateOrganization(key: "iss", authorize: ["Institute of Statistical Science"], judgement: "fixture")
+        let out = try payload(try service.updateOrganization(key: "iss", authorize: ["Institute of Statistical Science "], judgement: "fixture"))
         XCTAssertEqual(out["alreadyAuthorized"] as? [String], ["Institute of Statistical Science"], "報 store 拼法")
         XCTAssertEqual(try org().authorized, ["Institute of Statistical Science"])
         XCTAssertEqual(try org().names.entries.count, 3)
@@ -74,7 +74,7 @@ final class OrganizationAuthorizeTests: XCTestCase {
 
     /// 同一次兩個同書寫系統的名字是矛盾：整批拒絕、零寫入（訊息與 venue 同一句）。
     func testTwoSameScriptNamesAreRefused() throws {
-        XCTAssertThrowsError(try service.updateOrganization(key: "iss", authorize: ["Institute of Statistical Science", "ISS"])) { e in
+        XCTAssertThrowsError(try service.updateOrganization(key: "iss", authorize: ["Institute of Statistical Science", "ISS"], judgement: "fixture")) { e in
             XCTAssertTrue("\(e)".contains("請選一個"), "\(e)")
         }
         XCTAssertEqual(try org().authorized, [])
@@ -86,14 +86,14 @@ final class OrganizationAuthorizeTests: XCTestCase {
         let store = LibraryStore(root: root)
         try store.writeOrganization(Organization(key: "dup", names: Timeline([TemporalValue(value: "Dup A")]), id: UUID()))
         try store.writeOrganization(Organization(key: "dup", names: Timeline([TemporalValue(value: "Dup A")]), id: UUID()))
-        XCTAssertThrowsError(try service.updateOrganization(key: "dup", authorize: ["Dup A"])) { e in
+        XCTAssertThrowsError(try service.updateOrganization(key: "dup", authorize: ["Dup A"], judgement: "fixture")) { e in
             XCTAssertTrue("\(e)".contains("無法唯一定位"), "\(e)")
         }
         XCTAssertTrue(try store.load().organizations.filter { $0.key == "dup" }.allSatisfy { $0.authorized.isEmpty }, "零寫入")
     }
 
     func testUnknownKeyIsNotFound() throws {
-        XCTAssertThrowsError(try service.updateOrganization(key: "no-such-org", authorize: ["X"])) { e in
+        XCTAssertThrowsError(try service.updateOrganization(key: "no-such-org", authorize: ["X"], judgement: "fixture")) { e in
             guard case ServiceError.notFound = e else { return XCTFail("要是 notFound：\(e)") }
         }
     }
@@ -123,19 +123,23 @@ final class OrganizationAuthorizeTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: url), before, "零寫入：檔案位元組不變")
     }
 
-    /// 給的名字都已是對外名稱：成功、報告 alreadyAuthorized，但**不寫檔、不重建 index**（R1 verify 第 28 列）。
+    /// 給的名字都已是對外名稱、而且同一句理由的記錄已經在：成功、報告 alreadyAuthorized，但**不寫檔、不重建 index**（R1 verify 第 28 列）。
+    /// #564 起對已是對外名稱的名字說「確認」也留一筆記錄，所以第一次說確認是會寫的（`judgementsRecorded` 1）；位元組完全相同的第二次才是 no-op。
     /// 對照：真的有改動時同一個標記會被重新序列化掉——證明上面的「沒動」不是標記本來就寫不進去。
     func testAlreadyAuthorizedOnlyDoesNotRewriteTheFile() throws {
-        _ = try service.updateOrganization(key: "iss", authorize: ["Institute of Statistical Science"])
+        _ = try service.updateOrganization(key: "iss", authorize: ["Institute of Statistical Science"], judgement: "fixture")
+        let first = try payload(try service.updateOrganization(key: "iss", authorize: ["Institute of Statistical Science"], judgement: "fixture"))
+        XCTAssertEqual(first["judgementsRecorded"] as? Int, 1, "第一次確認寫一筆「確認」記錄——不是 no-op")
         let url = LibraryStore(root: root).entityURL(id: try org().id)
         let marked = try String(contentsOf: url, encoding: .utf8) + "\n# hand-edited marker\n"
         try marked.write(to: url, atomically: true, encoding: .utf8)
-        let out = try payload(try service.updateOrganization(key: "iss", authorize: ["Institute of Statistical Science", " "]))
+        let out = try payload(try service.updateOrganization(key: "iss", authorize: ["Institute of Statistical Science", " "], judgement: "fixture"))
         XCTAssertEqual(out["alreadyAuthorized"] as? [String], ["Institute of Statistical Science"])
         XCTAssertEqual(out["authorizeDropped"] as? [String], [" "])
-        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), marked, "沒有變動就不寫")
+        XCTAssertEqual(out["judgementsRecorded"] as? Int, 0, "同一句確認已經記過")
+        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), marked, "沒有變動、沒有新記錄就不寫")
         // 對照：真的換了一個名字，檔案被重新序列化（標記消失）
-        _ = try service.updateOrganization(key: "iss", authorize: ["ISS"])
+        _ = try service.updateOrganization(key: "iss", authorize: ["ISS"], judgement: "fixture")
         XCTAssertFalse(try String(contentsOf: url, encoding: .utf8).contains("hand-edited marker"), "有變動時才寫")
     }
 
@@ -146,17 +150,17 @@ final class OrganizationAuthorizeTests: XCTestCase {
         try store.writeOrganization(Organization(key: "old", names: Timeline([
             TemporalValue(value: "Institute of Statistics", range: DateRange(start: "1960", end: "1993")),
             TemporalValue(value: "Institute of Statistical Science", range: DateRange(start: "1993"))]), id: UUID()))
-        let retired = try payload(try service.updateOrganization(key: "old", authorize: ["Institute of Statistics"]))
+        let retired = try payload(try service.updateOrganization(key: "old", authorize: ["Institute of Statistics"], judgement: "fixture"))
         XCTAssertEqual(retired["authorizedNotCurrent"] as? [String], ["Institute of Statistics"])
         XCTAssertEqual(retired["authorizedAdded"] as? [String], ["Institute of Statistics"], "不拒絕：照寫")
         let written = try XCTUnwrap(try store.load().organizations.first { $0.key == "old" })
         XCTAssertEqual(written.authorized, ["Institute of Statistics"])
         XCTAssertEqual(written.displayName, "Institute of Statistics", "displayName 確實變成退役名——所以要說")
         // 已在的退役名再說一次也報（狀態不是一次性事件）；當前有效的名字、新加進 names 的名字（沒有時間欄位＝開放段）不報
-        let again = try payload(try service.updateOrganization(key: "old", authorize: ["Institute of Statistics"]))
+        let again = try payload(try service.updateOrganization(key: "old", authorize: ["Institute of Statistics"], judgement: "fixture"))
         XCTAssertEqual(again["authorizedNotCurrent"] as? [String], ["Institute of Statistics"])
-        XCTAssertNil(try payload(try service.updateOrganization(key: "old", authorize: ["Institute of Statistical Science"]))["authorizedNotCurrent"])
-        XCTAssertNil(try payload(try service.updateOrganization(key: "old", authorize: ["中央研究院統計科學研究所"]))["authorizedNotCurrent"])
+        XCTAssertNil(try payload(try service.updateOrganization(key: "old", authorize: ["Institute of Statistical Science"], judgement: "fixture"))["authorizedNotCurrent"])
+        XCTAssertNil(try payload(try service.updateOrganization(key: "old", authorize: ["中央研究院統計科學研究所"], judgement: "fixture"))["authorizedNotCurrent"])
     }
 
     /// 寫檔成功之後 index 重建失敗：呼叫回成功、報告多 `indexRebuilt: false`（R1 verify 第 1 列）——檔案已經落盤，擲錯會讓報告消失、
@@ -170,19 +174,24 @@ final class OrganizationAuthorizeTests: XCTestCase {
         XCTAssertThrowsError(try FileManager.default.createDirectory(
             at: failing.store.indexURL.deletingLastPathComponent(), withIntermediateDirectories: true), "前提：這個 service 的 index 重建真的會失敗")
 
-        let out = try payload(try failing.updateOrganization(key: "iss", authorize: ["Institute of Statistical Science"]))
+        let out = try payload(try failing.updateOrganization(key: "iss", authorize: ["Institute of Statistical Science"], judgement: "fixture"))
         XCTAssertEqual(out["authorizedAdded"] as? [String], ["Institute of Statistical Science"], "報告沒有消失")
         XCTAssertEqual(out["indexRebuilt"] as? Bool, false, "\(out)")
         XCTAssertNotNil(out["indexRebuildError"] as? String)
         let note = out["indexNote"] as? String ?? ""
         XCTAssertTrue(note.contains("報告") && note.contains("akashic doctor") && note.contains("alreadyAuthorized"), note)
         XCTAssertEqual(try org().authorized, ["Institute of Statistical Science"], "寫入已經落盤")
-        // 重試：沒有變動＝不寫、不重建，所以不多出 index 鍵——報告說的「只會得到 alreadyAuthorized」是真的
-        let retry = try payload(try failing.updateOrganization(key: "iss", authorize: ["Institute of Statistical Science"]))
+        // 重試：名字已是對外名稱，只會得到 alreadyAuthorized——報告說的是真的。#564 起第一次重試會多寫一筆「確認」記錄（index 仍重建失敗）；
+        // 位元組完全相同的再一次重試才是沒有變動、沒有新記錄：不寫、不重建，所以不多出 index 鍵
+        let retry = try payload(try failing.updateOrganization(key: "iss", authorize: ["Institute of Statistical Science"], judgement: "fixture"))
         XCTAssertEqual(retry["alreadyAuthorized"] as? [String], ["Institute of Statistical Science"])
-        XCTAssertNil(retry["indexRebuilt"])
+        XCTAssertEqual(retry["judgementsRecorded"] as? Int, 1)
+        let again = try payload(try failing.updateOrganization(key: "iss", authorize: ["Institute of Statistical Science"], judgement: "fixture"))
+        XCTAssertEqual(again["alreadyAuthorized"] as? [String], ["Institute of Statistical Science"])
+        XCTAssertEqual(again["judgementsRecorded"] as? Int, 0)
+        XCTAssertNil(again["indexRebuilt"])
         // 成功路徑的 payload 不多出 index 鍵
-        XCTAssertNil(try payload(try service.updateOrganization(key: "iss", authorize: ["ISS"]))["indexRebuilt"])
+        XCTAssertNil(try payload(try service.updateOrganization(key: "iss", authorize: ["ISS"], judgement: "fixture"))["indexRebuilt"])
     }
 
     /// 被換下的舊指定被 `field: authorized` 的 reference 指著：拒絕、零寫入；organization 沒有 reference 的移除面，出路是手改 YAML。
@@ -193,7 +202,7 @@ final class OrganizationAuthorizeTests: XCTestCase {
                                             kind: .retrieval(url: "https://example.org/about", retrieved: "2026-10-01", status: 200,
                                                              mediaType: "text/html", content: "sha256:" + String(repeating: "ab", count: 32)))]
         try LibraryStore(root: root).writeOrganization(o)
-        XCTAssertThrowsError(try service.updateOrganization(key: "iss", authorize: ["Institute of Statistical Science"])) { e in
+        XCTAssertThrowsError(try service.updateOrganization(key: "iss", authorize: ["Institute of Statistical Science"], judgement: "fixture")) { e in
             let m = "\(e)"
             XCTAssertTrue(m.contains("field: authorized") && m.contains("手改 YAML") && !m.contains("--remove-reference"), m)
         }
@@ -207,7 +216,7 @@ final class OrganizationAuthorizeTests: XCTestCase {
             return (d["noAuthorizedName"] as? [String: Any])?["organizations"] as? Int
         }
         XCTAssertEqual(try gaps(), 1)
-        _ = try service.updateOrganization(key: "iss", authorize: ["Institute of Statistical Science"])
+        _ = try service.updateOrganization(key: "iss", authorize: ["Institute of Statistical Science"], judgement: "fixture")
         XCTAssertEqual(try gaps(), 0)
     }
 }

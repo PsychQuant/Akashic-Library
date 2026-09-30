@@ -67,6 +67,16 @@
 - `akashic_export` 只匯出 `entities/` 那一份。
 - 工具說明沒有改。
 
+## #564 — 名字分類的判定面必附理由、留判定記錄（不相容）；store format 22
+`akashic_update_venue` 的 `add_variant`／`authorize`／`unauthorize` 與 `akashic_update_organization` 的 `authorize`（CLI：`authorize-names --apply`、`update-venue`、`update-organization --authorize`）自此是判定型寫入，每次指定、確認（對已在分割內的名字再說一次，先前是無聲的 no-op）、撤回、標異寫都在記錄的 `references` 寫一筆 `field: authorized`／`variant` 的判斷型 reference（statement `指定：理由`／`確認：理由`／`撤回：理由`）。
+- **不相容：理由必填。** `akashic_update_venue` 沿用 `judgement`（至多 4,096 位元組），`rests_on`（證據 digest）可省略、至多 20 個；`akashic_update_organization` 新增 `judgement`、`rests_on`（只對 `authorize`）。有非空白的名字要分類而沒有 `judgement`，整個呼叫拒絕、零寫入（讀 store 之前）。organization 沒有 `unauthorize`（#557 R1 verify 之後拿掉，待使用者裁決），所以 organization 只有 `authorize` 這一條腿；沒有要指定的名字（沒給、空陣列、全是空白項）時整個呼叫以「沒有要改的」拒絕，`judgement`／`rests_on` 單獨出現也一樣。CLI：`update-venue`／`update-organization` 的 `--judgement`／`--rests-on`，`authorize-names --apply` 整批一句 `--judgement`（不帶證據）。`authorize-names` 乾跑不需要理由。
+- `akashic_update_organization`：給的名字都已是對外名稱時寫一筆「確認」（`alreadyAuthorized` 照報、`judgementsRecorded` 為 1）；同一句理由已記過（位元組完全相同）才不寫檔、不重建 index——#557 的「不寫檔」自此要加這個條件。
+- 分類改變連帶的撤回也各寫一筆：同書寫系統被換下的舊指定、被抬出 variant 的名字。位元組完全相同的記錄不重寫。回應新增 `judgementsRecorded`（這次實際寫下的筆數）。
+- `akashic_update_venue` 的名字分類腿不得與 `paginated`／`clear_paginated` 同一次呼叫（兩個判定各要自己的理由）。
+- **store format 22**：format-21 binary 讀到這種記錄會整檔 quarantine；寫入名字分類記錄要求 format ≥ 22，否則具名拒絕。升級順序：CLI、`akashic-mcp`、App 三個 binary 都升級之後，由使用者手動把 store 的 `format:` 改成 22。`authorize-names --apply` 自此不再替人寫 store marker。
+- `resolve-divergence`（venue）：被併者的 authorized 若會被降級而它帶名字分類的判定記錄，合併拒絕（preview 與實跑都拒，指路 `--unauthorize`／`--authorize`）；沒有記錄的機械值仍是提醒。
+- 名字分類記錄只由這些面寫與保留：`akashic_update_person` 的 `references` 不收、`akashic_update_venue` 的 `remove_reference` 不刪（`variant` 明文拒收）。
+
 ## #557 — 新工具 `akashic_update_organization`：organization 的對外名稱
 
 organization 的 `authorized` 在此之前沒有任何寫入面，`akashic_doctor` 的 `noAuthorizedName.organizations` 修不掉。新工具收 `key`（必填）與一個字串陣列 `authorize`，語意與拒絕同 `akashic_update_venue` 的 `authorize`：

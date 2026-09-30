@@ -252,7 +252,9 @@ struct UpdateVenueCmd: ParsableCommand {
     @Option(name: .customLong("add-variant"), parsing: .upToNextOption,
             help: ArgumentHelp("要標成異寫法的名字（append 語意；相等看 canonical、新名字以 canonical 形入庫——空白類收斂為單一空格、NFC——其他控制／格式／不可見字元、拉丁或 CJK 之間的接合字元、無字母無數字即整批拒絕——同 --add-name，#554 D8）。不在 names 裡的一併加進 names"
                              + "——兩個分割都是對 names 的標記，標一個 names 沒有的字串會造出"
-                             + "孤兒，而孤兒 variant 自 #473 起是 error（#471）。整項空白的不寫、回報在 variantDropped"))
+                             + "孤兒，而孤兒 variant 自 #473 起是 error（#471）。整項空白的不寫、回報在 variantDropped。"
+                             + "必附 --judgement（#564）：每個名字寫一筆 field: variant 的判定記錄（新標「指定：理由」、已是異寫「確認：理由」），"
+                             + "需要 store format ≥ 22"))
     var addVariant: [String] = []
 
     @Option(name: .customLong("authorize"), parsing: .upToNextOption,
@@ -262,7 +264,9 @@ struct UpdateVenueCmd: ParsableCommand {
                              + "一次給兩個同書寫系統的名字是矛盾，整批拒絕。不在 names 的一併加進 names。"
                              + "這是合併拿掉某個名字 authorized 身分那個動作在該名字上的逆操作（#553 時那個名字進 variant、#565 起留在未標）——在此之前"
                              + "authorized 沒有判定型寫入面，唯一寫入者是 bootstrap 取第一個名字，而那些"
-                             + "機械值換不掉。判定記錄待 #564（2026-10-01 裁決要留，另案落地）。報告的桶：authorizedRemoved（被換下來的舊指定）、"
+                             + "機械值換不掉。必附 --judgement（#564）：寫 field: authorized 的判定記錄——新指定「指定：理由」、已是對外形「確認：理由」、"
+                             + "被換下的舊指定與被抬出 variant 的名字各一筆「撤回」（理由前面說出原因），需要 store format ≥ 22、"
+                             + "位元組完全相同的不重寫（報告 judgementsRecorded）。報告的桶：authorizedRemoved（被換下來的舊指定）、"
                              + "liftedFromVariant（原本在 variant、被抬進 authorized）、alreadyAuthorized（no-op 但不沉默）、"
                              + "authorizedRewritten（唯一會宣告 store 位元組被改寫的桶：同名 NFD 舊指定換成 canonical）；"
                              + "整項空白的不寫、回報在 authorizeDropped（#554；R25 verify 第 20 列：這裡曾只列一個桶、MCP 描述列四個）"))
@@ -274,10 +278,10 @@ struct UpdateVenueCmd: ParsableCommand {
                              + "移出 authorized、留在 names、不標 variant——記錄回到「不作任何宣稱」的狀態。**不是 --authorize 的精確逆操作**：再用 --authorize 可把名字指定回來，"
                              + "但它接在 authorized 尾端（只有同書寫系統替換才保留位置），而 authorized 的第一個是預設顯示名——多書寫系統的 venue 撤回再指定，預設顯示名可能換書寫系統；"
                              + "所以報告逐名帶撤回前的位置（index），預設顯示名因此改變時多 displayNameChanged。不設 git 閘。"
-                             + "不是現有成員、同一個名字又在 --authorize、被 field: authorized 的 reference 指著（先用 --remove-reference 刪掉），"
+                             + "不是現有成員、同一個名字又在 --authorize、被 field: authorized 的一般 reference 指著（先用 --remove-reference 刪掉；名字分類的判定記錄不擋），"
                              + "都整批拒絕、零寫入；與 --add-variant 給同一個名字是明說降成異寫，照做。成員資格看呼叫前的狀態（先撤回、再跑 --authorize）。"
-                             + "判定記錄待 #564（2026-10-01 裁決要留，另案落地）。"
-                             + "報告：authorizedWithdrawn（每列 name＝被撤回的 store 拼法、index＝呼叫前在 authorized 的位置）、unauthorizeDropped（整項空白、沒有動作）、displayNameChanged（{before, after}，有事才出現）"))
+                             + "必附 --judgement（#564）：每個名字寫一筆「撤回：理由」的判定記錄，先前的記錄留著（判定史）；需要 store format ≥ 22。"
+                             + "報告：authorizedWithdrawn（每列 name＝被撤回的 store 拼法、index＝呼叫前在 authorized 的位置）、unauthorizeDropped（整項空白、沒有動作）、displayNameChanged（{before, after}，有事才出現）、judgementsRecorded"))
     var unauthorize: [String] = []
 
     @Flag(name: .customLong("clear-paginated"),
@@ -295,11 +299,11 @@ struct UpdateVenueCmd: ParsableCommand {
             help: "「本刊是否使用頁碼」的判定：true＝傳統頁碼刊、false＝article-number 制。必附 --judgement 與 --rests-on（#406）")
     var paginated: Bool?
 
-    @Option(name: .long, help: "paginated 判定的理由（設 --paginated 時必填）")
+    @Option(name: .long, help: "判定的理由：--paginated／--clear-paginated 必填；--authorize／--unauthorize／--add-variant 也必填（名字分類的判定記錄，#564）。兩類判定不同一次呼叫（各要自己的理由）；名字分類的理由至多 4,096 位元組，套用到這次寫下的每一筆記錄")
     var judgement: String?
 
     @Option(name: .customLong("rests-on"), parsing: .upToNextOption,
-            help: "判定所依據的證據 digest（sha256:64hex，0 byte 內容的 digest 拒收，至少一個——先用 store-source 存證據拿 digest）")
+            help: "判定所依據的證據 digest（sha256:64hex，0 byte 內容的 digest 拒收——先用 store-source 存證據拿 digest）：--paginated／--clear-paginated 至少一個；名字分類可省略、至多 20 個（#564）")
     var restsOn: [String] = []
 
     /// #587：venue 的通用 provenance 寫入面——與 `update-person` 的 `references` 同鍵名、同 append-only 語意。

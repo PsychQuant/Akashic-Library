@@ -31,7 +31,7 @@ final class UpdateOrganizationCLITests: XCTestCase {
         let before = try run(["doctor"])
         XCTAssertTrue(before.output.contains("/ 1 organization"), "fixture：doctor 報 1 筆 organization 缺 authorized：\(before.output)")
 
-        let done = try run(["update-organization", "iss", "--authorize", "Institute of Statistical Science", "中央研究院統計科學研究所"])
+        let done = try run(["update-organization", "iss", "--authorize", "Institute of Statistical Science", "中央研究院統計科學研究所", "--judgement", "所方正式名稱"])
         XCTAssertEqual(done.status, 0, done.output)
         XCTAssertTrue(done.output.contains("authorizedAdded"), done.output)
         XCTAssertEqual(Set(try org().authorized), ["Institute of Statistical Science", "中央研究院統計科學研究所"])

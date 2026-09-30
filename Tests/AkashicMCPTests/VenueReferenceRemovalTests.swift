@@ -281,7 +281,7 @@ final class VenueReferenceRemovalTests: XCTestCase {
             ("add_issn", { try svc.updateVenue(key: "ampsy", addNames: nil, note: nil, type: nil, addISSN: ["1234-5679"], removeReference: one) }),
             ("remove_issn", { try svc.updateVenue(key: "ampsy", addNames: nil, note: nil, type: nil, removeISSN: ["1935-990X=r"], removeReference: one) }),
             ("references", { try svc.updateVenue(key: "ampsy", addNames: nil, note: nil, type: nil, references: [self.retrieval()], removeReference: one) }),
-            ("authorize", { try svc.updateVenue(key: "ampsy", addNames: nil, note: nil, type: nil, authorize: ["American Psychologist"], removeReference: one) }),
+            ("authorize", { try svc.updateVenue(key: "ampsy", addNames: nil, note: nil, type: nil, authorize: ["American Psychologist"], judgement: "fixture", removeReference: one) }),
             ("paginated", { try svc.updateVenue(key: "ampsy", addNames: nil, note: nil, type: nil, paginated: true, judgement: "j", restsOn: [self.digest], removeReference: one) }),
         ]
         for (leg, run) in combos {

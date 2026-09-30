@@ -29,23 +29,32 @@ import AkashicStoreIO
 /// 而 organization 沒有任何面改或刪名字——那種名字（`add_organization` 照收）指定不了，出路是手改 YAML。沒有改它：先 canonical 查找再 vet
 /// 會讓含不可見字元的名字進得了 authorized，而 organization 沒有 D8 的 store 不變式擋它（R1 verify 第 14／27 列，記錄在案、待裁）。
 ///
-/// ## 判定記錄
+/// ## 判定記錄（#564）
 ///
-/// 指定是判定（`two-kinds-of-edits` 的 AI 欄）。#564 已於 2026-10-01 裁決名字分類面全部要留判定記錄，另案落地（需要 store
-/// format bump）；在那之前本面不寫記錄，報告的各桶就是那筆記錄要記的內容。
+/// 指定是判定（`two-kinds-of-edits` 的 AI 欄）。使用者 2026-10-01 裁決名字分類面要留判定記錄（五個面，organization 的是 `--authorize`）：
+/// 理由（`judgement`）必填、證據（`rests_on`）可空，每次指定、確認各寫一筆 `field: authorized` 的記錄
+/// （`AuthorizedDesignation.judgementRecords`），被 `authorize` 換下的舊指定也寫一筆撤回；需要 store format ≥ 22（寫入閘）。
+/// organization 沒有 variant，不會有 `field: variant` 的記錄。
+///
+/// **organization 沒有撤回腿**：`--unauthorize` 已於 #557 R1 verify 之後拿掉（見上），待使用者裁決；所以名字分類的五個面裡 organization 只有
+/// `--authorize`（撤回的裁決是 #559 對 venue 下的）。
 extension AkashicService {
     /// `update_organization` 只看參數的檢查與解析結果（#654 的形狀：CLI 的 `validate()` 呼叫同一個函式，早於開 store）。
     struct UpdateOrganizationArguments {
         let authorizeIn: [String]
         let authorizeBlanks: [String]
+        /// #564：理由與證據；`authorize` 一定有非空白的名字（沒有就在 `updateOrganizationArguments` 拒絕），所以恆非 nil
+        let judgement: AuthorizedDesignation.Judgement?
     }
 
     /// CLI 的 `validate()` 用：`update-organization` 只看參數的全部檢查。
-    public static func checkUpdateOrganizationArguments(key: String, authorize: [String]) throws {
-        _ = try updateOrganizationArguments(key: key, authorize: authorize)
+    public static func checkUpdateOrganizationArguments(key: String, authorize: [String],
+                                                        judgement: String? = nil, restsOn: [String]? = nil) throws {
+        _ = try updateOrganizationArguments(key: key, authorize: authorize, judgement: judgement, restsOn: restsOn)
     }
 
-    static func updateOrganizationArguments(key: String, authorize: [String]) throws -> UpdateOrganizationArguments {
+    static func updateOrganizationArguments(key: String, authorize: [String], judgement: String? = nil,
+                                            restsOn: [String]? = nil) throws -> UpdateOrganizationArguments {
         guard StoreKey.isValid(key) else {
             throw ServiceError.invalid("organization key「\(displaySafeInvisible(key, max: 200))」不符合 \(StoreKey.pattern)")   // display-safe-exempt: StoreKey.pattern 是編譯期常量；key 已消毒
         }
@@ -56,17 +65,21 @@ extension AkashicService {
             throw ServiceError.invalid("沒有要改的——authorize（--authorize）要給至少一個名字（沒給、空陣列、全是空白項都算沒給）")
         }
         try refuseSameScriptClash(authorizeIn)
-        return UpdateOrganizationArguments(authorizeIn: authorizeIn, authorizeBlanks: authorizeBlanks)
+        // #564：理由必填、證據可空（venue 同一個函式）。上面已擋掉沒有要指定的名字，所以走到這裡一定在分類
+        let nameJudgement = try nameClassificationJudgement(classifying: true, judgement: judgement, restsOn: restsOn)
+        return UpdateOrganizationArguments(authorizeIn: authorizeIn, authorizeBlanks: authorizeBlanks, judgement: nameJudgement)
     }
 
     /// organization 的部分更新（#557）：`authorize` 同書寫系統替換——語意與 `updateVenue` 同一份（`AuthorizedDesignation`）。
     /// key 有不只一筆記錄時整批拒絕、零寫入（#669／#670：寫進哪一筆是猜）。
     ///
-    /// **都已是對外名稱＝不寫檔、不重建 index**（R1 verify 第 28 列）：一次沒有變動的寫入仍會重新序列化整筆記錄（人手編過的排版被正規化）、
-    /// 重建 index；報告的 `alreadyAuthorized` 照給（冪等但不沉默）。**寫檔成功之後 index 重建失敗不讓呼叫失敗**（第 1 列）：檔案已經落盤、
+    /// **都已是對外名稱而又沒有新記錄可寫＝不寫檔、不重建 index**（R1 verify 第 28 列）：一次沒有變動的寫入仍會重新序列化整筆記錄（人手編過的排版被正規化）、
+    /// 重建 index；報告的 `alreadyAuthorized` 照給（冪等但不沉默）。**#564 起對已是對外名稱的名字說「確認」也留一筆記錄**，所以那是「有新記錄」、照寫；
+    /// 同一句理由再確認一次（位元組完全相同）才是沒有新記錄。**寫檔成功之後 index 重建失敗不讓呼叫失敗**（第 1 列）：檔案已經落盤、
     /// 報告是改了什麼的唯一一份，重試只會得到 `alreadyAuthorized`——用移除面一族的做法（`RemovalReportSupport.swift`），報告多 `indexRebuilt: false`。
-    public func updateOrganization(key: String, authorize: [String]) throws -> String {
-        let args = try Self.updateOrganizationArguments(key: key, authorize: authorize)
+    public func updateOrganization(key: String, authorize: [String], judgement: String? = nil,
+                                   restsOn: [String]? = nil) throws -> String {
+        let args = try Self.updateOrganizationArguments(key: key, authorize: authorize, judgement: judgement, restsOn: restsOn)
         let load = try store.load()
         guard !load.organizations.unlocatableOrganizationKeys.contains(key) else {
             throw ServiceError.invalid("organization「\(displaySafeInvisible(key, max: 200))」無法唯一定位（\(UnlocatableReason.organization)）——整批拒絕、零寫入；先改掉其中一筆的 key")   // display-safe-exempt: UnlocatableReason.organization 是編譯期常量
@@ -89,6 +102,12 @@ extension AkashicService {
             || !report.authorizedRemoved.isEmpty || !report.authorizedRewritten.isEmpty
         org.names = designation.names
         org.authorized = designation.authorized
+        var judgementsRecorded = 0
+        if let judgement = args.judgement {
+            judgementsRecorded = NameClassificationRecord.append(
+                AuthorizedDesignation.judgementRecords(withdrawn: [], authorize: report, judgement: judgement),
+                to: &org.references)
+        }
         var payload: [String: Any] = ["key": key,
                                       "namesAdded": report.namesAdded.map { displaySafeInvisible($0, max: 200) },
                                       "authorizedAdded": report.authorizedAdded.map { displaySafeInvisible($0, max: 200) },
@@ -96,9 +115,10 @@ extension AkashicService {
                                       "alreadyAuthorized": report.alreadyAuthorized.map { displaySafeInvisible($0, max: 200) },
                                       "authorizedRewritten": report.authorizedRewritten.map { displaySafeInvisible($0, max: 200) },
                                       "authorizeDropped": args.authorizeBlanks.map { displaySafeInvisible($0, max: 200) },
-                                      "authorizedTotal": org.authorized.count]   // display-safe-exempt: Int
+                                      "authorizedTotal": org.authorized.count,   // display-safe-exempt: Int
+                                      "judgementsRecorded": judgementsRecorded]   // display-safe-exempt: Int
         if !notCurrent.isEmpty { payload["authorizedNotCurrent"] = notCurrent.map { displaySafeInvisible($0, max: 200) } }
-        guard changed else { return try jsonString(payload) }
+        guard changed || judgementsRecorded > 0 else { return try jsonString(payload) }
         try store.writeOrganization(org)
         if let failure = rebuildIndexCapturingFailure() {
             Self.noteIndexRebuildFailure(failure, in: &payload,

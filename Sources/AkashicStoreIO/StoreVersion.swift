@@ -173,7 +173,17 @@ public enum StoreVersion {
     ///   （同 5、18 的「保留不等於遵守」）：舊 binary 的 `library add` 不查規則，對規則型與文件型 library 照樣寫進不符的
     ///   成員，不會大聲失敗。write gate（`assertLibraryWritable`）對 format < 21 拒寫**規則型與文件型**；主題型不帶規則、
     ///   舊 binary 的行為與新語意相同，不閘。**無資料遷移**（既有 registry 檔沒有這個鍵，零 diff）。
-    public static let supported = 21
+    /// - **22** ＝ 名字分類的判定記錄（`references` 裡 `field: authorized`／`variant` 的判斷型，statement 走 `指定／確認／撤回：理由`，
+    ///   證據可空；#564，Spectra change `name-classification-judgement`）。**non-additive，三個成因各自足夠**：format-21 binary 對
+    ///   (1) person／organization 上空 rests-on 的記錄在平面 init 拒收（`authorized` 不在它的 `firstOrderRulingFields`）、(2) 撤回記錄的
+    ///   value 不在 authorized（它的附著驗證要求在內）、(3) venue 的 `field: variant` 走附著驗證的封閉 default——三者都讓整筆記錄
+    ///   **quarantine**、rc=0。write gate（`assertNameClassificationRecordsWritable`，門檻 `nameClassificationRecordFormat`）對 format < 22
+    ///   拒寫帶這種記錄的 person／organization／venue。**無資料遷移**（這種記錄在 format 21 寫不出來，既有記錄零 diff）。
+    ///   **升級前置**：CLI/MCP/App 全升 v22 世代 → 使用者手動 `format: 22`（`authorize-names --apply` 自 #564 起不再替人寫 marker）。
+    public static let supported = 22
+
+    /// 名字分類的判定記錄（#564）需要的最低 store format。三個寫入閘與測試共用這一個數。
+    public static let nameClassificationRecordFormat = 22
 
     /// work 的 `date` 來源 reference（#655）需要的最低 store format。**寫入閘與 `enrich` 的事前判斷共用這一個數**
     /// ——兩邊各寫一個 20，會在下一次有人調整其中一邊時安靜地分岔（`enrich` 說「會寫」、寫入閘卻擋下）。

@@ -130,8 +130,9 @@ final class SplitRecordReferenceTests: XCTestCase {
         XCTAssertEqual(ProvenanceReference.resolutionVerdictFields,
                        ["resolution-confirmed", "resolution-rejected", "resolution-undecided"])
         XCTAssertFalse(ProvenanceReference.resolutionVerdictFields.contains("authors"))
+        // #564 起多兩格：名字分類的判定記錄（authorized／variant）同樣是一階裁決，證據可空
         XCTAssertEqual(ProvenanceReference.firstOrderRulingFields,
-                       ["resolution-confirmed", "resolution-rejected", "resolution-undecided", "authors"])
+                       ["resolution-confirmed", "resolution-rejected", "resolution-undecided", "authors", "authorized", "variant"])
     }
 
     /// spec「Resolution verdict parsing ignores split records」：ledger（demote 走它）、死 verdict 掃描各零 verdict。

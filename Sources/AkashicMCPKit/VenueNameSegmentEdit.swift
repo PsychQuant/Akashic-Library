@@ -435,6 +435,10 @@ extension AkashicService {
             throw ServiceError.invalid(
                 "移除「\(displaySafeInvisible(name, max: 120))」的最後一段會讓\(venueLabel)有 \(count) 筆 `field: names` 的 reference 成孤兒（值被改寫後 provenance 成了孤兒、寫入會被拒）——"   // display-safe-exempt: name 與 venueLabel 已消毒；count 是 Int
                 + "先用 --remove-reference（MCP remove_reference）移除它們，再重跑；整批拒絕、零寫入")
+        case .judgementHistory(let name, let count):
+            throw ServiceError.invalid(
+                "移除「\(displaySafeInvisible(name, max: 120))」的最後一段會讓\(venueLabel)有 \(count) 筆名字分類的判定記錄成孤兒（它們錨定 names，#564）——"   // display-safe-exempt: name 與 venueLabel 已消毒；count 是 Int
+                + "判定史不刪，沒有工具面；要刪這個名字只能手改 YAML（連那幾筆記錄一起）；整批拒絕、零寫入")
         }
     }
 

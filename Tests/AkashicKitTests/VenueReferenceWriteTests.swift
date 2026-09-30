@@ -297,11 +297,11 @@ final class VenueReferenceWriteTests: XCTestCase {
     /// 擋下（「移出後它們成孤兒」），而 #587 當時 venue 的 reference 沒有移除面——只能手改 YAML（#673 起有 `--remove-reference`，通用面仍不收它——待裁）。通用面不收它，換名就不會被鎖。
     func testAuthorizedReferenceIsRefusedSoAuthorizeCanStillChangeTheDisplayForm() throws {
         _ = try service.addVenue(key: "ampsy", names: ["Alpha Journal", "Beta Journal"], type: "periodical", note: nil)
-        _ = try json(try service.updateVenue(key: "ampsy", addNames: nil, note: nil, type: nil, authorize: ["Alpha Journal"]))
+        _ = try json(try service.updateVenue(key: "ampsy", addNames: nil, note: nil, type: nil, authorize: ["Alpha Journal"], judgement: "fixture"))
         XCTAssertThrowsError(try update(references: [retrieval(field: "authorized", value: "Alpha Journal")])) { error in
             XCTAssertTrue("\(error)".contains("authorize"), "\(error)")
         }
-        let out = try json(try service.updateVenue(key: "ampsy", addNames: nil, note: nil, type: nil, authorize: ["Beta Journal"]))
+        let out = try json(try service.updateVenue(key: "ampsy", addNames: nil, note: nil, type: nil, authorize: ["Beta Journal"], judgement: "fixture"))
         XCTAssertEqual(out["authorizedAdded"] as? [String], ["Beta Journal"], "換對外形沒被鎖：\(out)")
         XCTAssertEqual(try venue().authorized, ["Beta Journal"])
     }

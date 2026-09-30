@@ -33,7 +33,7 @@ final class VenueVariantWriteTests: XCTestCase {
     /// 沒有的字串會造出孤兒，而孤兒 variant 自 #473 起是 error（寫不進去）。
     func testAddVariantAlsoAppendsToNames() throws {
         _ = try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil,
-                                    addVariant: ["PLoS One"])
+                                    addVariant: ["PLoS One"], judgement: "fixture")
         let v = try venue()
         XCTAssertEqual(v.names.entries.map(\.value), ["PLOS ONE", "PLoS One"])
         XCTAssertEqual(v.variant, ["PLoS One"])
@@ -43,7 +43,7 @@ final class VenueVariantWriteTests: XCTestCase {
     func testAddVariantIsIdempotent() throws {
         for _ in 0..<2 {
             _ = try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil,
-                                        addVariant: ["PLoS One"])
+                                        addVariant: ["PLoS One"], judgement: "fixture")
         }
         let v = try venue()
         XCTAssertEqual(v.variant, ["PLoS One"])
@@ -58,7 +58,7 @@ final class VenueVariantWriteTests: XCTestCase {
         try LibraryStore(root: root).writeVenue(v)
         XCTAssertThrowsError(try service.updateVenue(key: "some-journal", addNames: nil,
                                                      note: nil, type: nil,
-                                                     addVariant: ["PLOS ONE"]))
+                                                     addVariant: ["PLOS ONE"], judgement: "fixture"))
         XCTAssertEqual(try venue().variant, [], "拒絕必須是零寫入")
     }
 
@@ -68,7 +68,7 @@ final class VenueVariantWriteTests: XCTestCase {
         try StoreVersion.write(root: root, format: 13)
         let before = try venue()
         XCTAssertThrowsError(try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil,
-                                                     addVariant: ["PLoS One"])) { err in
+                                                     addVariant: ["PLoS One"], judgement: "fixture")) { err in
             XCTAssertTrue(String(describing: err).contains("14"), "\(err)")
         }
         XCTAssertEqual(try venue(), before, "拒絕必須是零寫入")

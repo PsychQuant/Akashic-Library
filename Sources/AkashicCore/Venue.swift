@@ -763,6 +763,8 @@ extension Venue {
         case variant(name: String)
         /// 被刪光的名字有 `field: names` 的 reference 指著它（provenance 成孤兒、寫入會被拒）。
         case pinnedByReferences(name: String, count: Int)
+        /// 被刪光的名字有名字分類的判定記錄指著它（#564：記錄錨定 names，名字消失它們就成孤兒；判定史不刪）。
+        case judgementHistory(name: String, count: Int)
     }
 
     /// 刪掉 `names.entries` 裡位置在 `removing` 的那幾段之後，第一個會出事的原因；`nil`＝可以刪。
@@ -782,6 +784,10 @@ extension Venue {
             if variant.contains(where: { NameIdentity.canonical($0) == k }) { return .variant(name: e.value) }
             let pinned = references.filter { $0.field == "names" && $0.value.map { NameIdentity.canonical($0) == k } == true }.count
             if pinned > 0 { return .pinnedByReferences(name: e.value, count: pinned) }
+            let judged = references.filter {
+                NameClassificationRecord.isRecord($0) && $0.value.map { NameIdentity.canonical($0) == k } == true
+            }.count
+            if judged > 0 { return .judgementHistory(name: e.value, count: judged) }
         }
         return nil
     }

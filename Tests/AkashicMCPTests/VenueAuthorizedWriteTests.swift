@@ -79,7 +79,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
     /// 沒有的字串會造出孤兒，而孤兒 authorized 自始是 error（寫不進去）。
     func testAddAuthorizedAlsoAppendsToNames() throws {
         _ = try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil,
-                                    authorize: ["Psychometrika"])
+                                    authorize: ["Psychometrika"], judgement: "fixture")
         let v = try venue()
         XCTAssertEqual(v.names.entries.map(\.value), ["PSYCHOMETRIKA", "Psychometrika"])
         XCTAssertTrue(v.authorized.contains("Psychometrika"), "authorized 沒有加上：\(v.authorized)")
@@ -90,7 +90,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
     func testAddAuthorizedIsIdempotent() throws {
         for _ in 0..<2 {
             _ = try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil,
-                                        authorize: ["Psychometrika"])
+                                        authorize: ["Psychometrika"], judgement: "fixture")
         }
         let v = try venue()
         XCTAssertEqual(v.authorized.filter { $0 == "Psychometrika" }.count, 1)
@@ -107,7 +107,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         XCTAssertThrowsError(try service.updateVenue(key: "some-journal", addNames: nil,
                                                      note: nil, type: nil,
                                                      addVariant: ["Psychometrika"],
-                                                     authorize: ["Psychometrika"]))
+                                                     authorize: ["Psychometrika"], judgement: "fixture"))
         let v = try venue()
         XCTAssertFalse(v.variant.contains("Psychometrika"), "拒絕後 variant 不得有它：\(v.variant)")
         XCTAssertFalse(v.authorized.contains("Psychometrika"), "拒絕後 authorized 不得有它：\(v.authorized)")
@@ -123,7 +123,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         try LibraryStore(root: root).writeVenue(v)
 
         let out = try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil,
-                                          authorize: ["Psychometrika"])
+                                          authorize: ["Psychometrika"], judgement: "fixture")
         let after = try venue()
         XCTAssertEqual(after.authorized, ["Psychometrika"], "latin 只能有一個，且是新的那個")
         XCTAssertEqual(after.variant, [], "舊指定不進 variant——那是程式替人多說的一句話")
@@ -145,7 +145,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         try LibraryStore(root: root).writeVenue(v)
 
         let out = try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil,
-                                          authorize: ["Psychometrika"])
+                                          authorize: ["Psychometrika"], judgement: "fixture")
         let after = try venue()
         XCTAssertEqual(after.authorized, ["Psychometrika"])
         XCTAssertEqual(after.variant, [], "新的從 variant 升上去；舊的移出 authorized 後未標，不對調進 variant")
@@ -163,7 +163,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
                                             kind: .retrieval(url: "https://example.org/masthead", retrieved: "2026-09-18", status: 200,
                                                              mediaType: "text/html", content: "sha256:" + String(repeating: "ab", count: 32)))]
         try LibraryStore(root: root).writeVenue(v)
-        XCTAssertThrowsError(try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil, authorize: ["Psychometrika"])) { e in
+        XCTAssertThrowsError(try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil, authorize: ["Psychometrika"], judgement: "fixture")) { e in
             let m = "\(e)"
             XCTAssertTrue(m.contains("field: authorized") && m.contains("PSYCHOMETRIKA") && m.contains("reference") && m.contains("再重跑"), m)
         }
@@ -177,7 +177,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
     /// 而這份 payload 正是操作者確認「剛寫進去的是哪個名字」的地方。
     func testReportKeysEscapeInvisibleScalars() throws {
         let name = "Alpha \u{E000} One"
-        let out = try service.updateVenue(key: "some-journal", addNames: [name], note: nil, type: nil, authorize: [name])
+        let out = try service.updateVenue(key: "some-journal", addNames: [name], note: nil, type: nil, authorize: [name], judgement: "fixture")
         XCTAssertTrue(out.contains("\\u{E000}"), out)
         XCTAssertFalse(out.contains("\u{E000}"), "私用區 scalar 原樣進 payload：\(out)")
         let created = try service.addVenue(key: "pua-journal", names: [name], type: "periodical")
@@ -191,7 +191,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         try LibraryStore(root: root).writeVenue(v)
 
         _ = try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil,
-                                    authorize: ["心理計量學"])
+                                    authorize: ["心理計量學"], judgement: "fixture")
         let after = try venue()
         XCTAssertEqual(Set(after.authorized), ["PSYCHOMETRIKA", "心理計量學"])
         XCTAssertEqual(after.variant, [], "跨書寫系統沒有東西被降級")
@@ -217,7 +217,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
 
         XCTAssertThrowsError(try service.updateVenue(key: "some-journal", addNames: nil, note: nil,
                                                      type: nil,
-                                                     authorize: ["Psychometrika", "Psychometrica"])) {
+                                                     authorize: ["Psychometrika", "Psychometrica"], judgement: "fixture")) {
             let msg = ($0 as? LocalizedError)?.errorDescription ?? "\($0)"
             XCTAssertTrue(msg.contains("請選一個"), "訊息要沿用 validateWritingSystems 的裁決：\(msg)")
         }
@@ -237,7 +237,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         try LibraryStore(root: root).writeVenue(v)
 
         _ = try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil,
-                                    authorize: ["Psychometrika"])
+                                    authorize: ["Psychometrika"], judgement: "fixture")
         let after = try venue()
         XCTAssertEqual(after.authorized, ["Psychometrika"])
         let old = try XCTUnwrap(after.names.entries.first { $0.value == "PSYCHOMETRIKA" })
@@ -254,7 +254,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         try LibraryStore(root: root).writeVenue(v)
 
         let out = try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil,
-                                          authorize: ["PSYCHOMETRIKA"])
+                                          authorize: ["PSYCHOMETRIKA"], judgement: "fixture")
         XCTAssertTrue(out.contains("\"alreadyAuthorized\"") && out.contains("PSYCHOMETRIKA"), out)
         XCTAssertEqual(try venue().authorized, ["PSYCHOMETRIKA"])
     }
@@ -276,7 +276,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         try LibraryStore(root: root).writeVenue(v)
 
         let out = try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil,
-                                          addVariant: ["PSYCHOMETRIKA"], authorize: ["Psychometrika"])
+                                          addVariant: ["PSYCHOMETRIKA"], authorize: ["Psychometrika"], judgement: "fixture")
         let after = try venue()
         XCTAssertEqual(after.authorized, ["Psychometrika"])
         XCTAssertEqual(after.variant, ["PSYCHOMETRIKA"], "這次是呼叫端明說的")
@@ -295,7 +295,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         try LibraryStore(root: root).writeVenue(v)
 
         let out = try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil,
-                                          authorize: ["Psychometrika "])
+                                          authorize: ["Psychometrika "], judgement: "fixture")
         let after = try venue()
         XCTAssertEqual(after.authorized, ["Psychometrika"], "一個打錯的空白不得換掉呼叫端自己的對外形")
         XCTAssertEqual(after.names.entries.count, 2, "不得新增近重複的 names 條目")
@@ -313,7 +313,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         try LibraryStore(root: root).writeVenue(v)
 
         let out = try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil,
-                                          authorize: ["Psychometrika  "])
+                                          authorize: ["Psychometrika  "], judgement: "fixture")
         let after = try venue()
         XCTAssertEqual(after.authorized, ["Psychometrika"])
         XCTAssertEqual(after.variant, [])
@@ -325,7 +325,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
     func testNearDuplicateAcrossAddVariantAndAuthorizeIsStillAContradiction() throws {
         XCTAssertThrowsError(try service.updateVenue(key: "some-journal", addNames: nil, note: nil,
                                                      type: nil, addVariant: ["Psychometrika "],
-                                                     authorize: ["Psychometrika"]))
+                                                     authorize: ["Psychometrika"], judgement: "fixture"))
         XCTAssertEqual(try venue().names.entries.count, 1, "零寫入")
     }
 
@@ -338,14 +338,14 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         XCTAssertEqual(try venue().authorized, [], "換行類是空白，跳過、零寫入")
         for bad in ["—", "…", "× ÷"] {
             XCTAssertThrowsError(try service.updateVenue(key: "some-journal", addNames: nil, note: nil,
-                                                         type: nil, authorize: [bad]), bad) {
+                                                         type: nil, authorize: [bad], judgement: "fixture"), bad) {
                 let msg = ($0 as? LocalizedError)?.errorDescription ?? "\($0)"
                 XCTAssertTrue(msg.contains("不是名字"), msg)
             }
         }
         XCTAssertEqual(try venue().names.entries.count, 1, "零寫入")
         XCTAssertNoThrow(try service.updateVenue(key: "some-journal", addNames: nil, note: nil,
-                                                 type: nil, authorize: ["Психометрика"]),
+                                                 type: nil, authorize: ["Психометрика"], judgement: "fixture"),
                          "西里爾含字母，是名字")
     }
 
@@ -354,7 +354,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
     func testAllClashingBucketsAreReportedInStableOrder() throws {
         XCTAssertThrowsError(try service.updateVenue(
             key: "some-journal", addNames: nil, note: nil, type: nil,
-            authorize: ["Psychometrika", "Psychometrica", "心理計量學", "心理測量學"])) {
+            authorize: ["Psychometrika", "Psychometrica", "心理計量學", "心理測量學"], judgement: "fixture")) {
             let msg = ($0 as? LocalizedError)?.errorDescription ?? "\($0)"
             let han = try? XCTUnwrap(msg.range(of: "han"), "han 桶沒報：\(msg)")
             let latn = try? XCTUnwrap(msg.range(of: "latn"), "latn 桶沒報：\(msg)")
@@ -366,7 +366,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
     /// `alreadyAuthorized`——同一個名字被說了「這次升」與「本來就是」兩句話）。
     func testDuplicateStringInOneCallIsReportedOnce() throws {
         let out = try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil,
-                                          authorize: ["Psychometrika", "Psychometrika"])
+                                          authorize: ["Psychometrika", "Psychometrika"], judgement: "fixture")
         let obj = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(out.utf8)) as? [String: Any])
         XCTAssertEqual(obj["authorizedAdded"] as? [String], ["Psychometrika"])
         XCTAssertEqual(obj["alreadyAuthorized"] as? [String], [], "第二個重複不是 alreadyAuthorized：\(out)")
@@ -390,7 +390,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         XCTAssertEqual(try venue().authorized.count, 2, "fixture：兩個 latin authorized 要讀得進來")
 
         let out = try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil,
-                                          authorize: ["Psychometrika"])
+                                          authorize: ["Psychometrika"], judgement: "fixture")
         let after = try venue()
         XCTAssertEqual(after.authorized, ["Psychometrika"], "選一個之後另一個要被移出")
         XCTAssertTrue(out.contains("\"authorizedRemoved\"") && out.contains("PSYCHOMETRIKA"), out)
@@ -408,7 +408,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
     /// 而 R3 把新條目存原樣、之後以「用 store 拼法」黏住——乾淨拼法永遠進不了 authorized。
     func testNewNameIsStoredCanonical() throws {
         _ = try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil,
-                                    authorize: ["  New  Journal "])
+                                    authorize: ["  New  Journal "], judgement: "fixture")
         let v = try venue()
         XCTAssertEqual(v.authorized, ["New Journal"])
         XCTAssertTrue(v.names.entries.contains { $0.value == "New Journal" }, "\(v.names.entries.map(\.value))")
@@ -430,7 +430,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         XCTAssertEqual(try venue().authorized, ["Psychometrika "], "fixture：髒拼法是 authorized")
 
         XCTAssertThrowsError(try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil,
-                                                     authorize: ["Psychometrika"])) {
+                                                     authorize: ["Psychometrika"], judgement: "fixture")) {
             let msg = ($0 as? LocalizedError)?.errorDescription ?? "\($0)"
             XCTAssertTrue(msg.contains("近重複") || msg.contains("canonical"), "要說出是不變式違反：\(msg)")
         }
@@ -453,9 +453,9 @@ final class VenueAuthorizedWriteTests: XCTestCase {
     /// `addVariant` 的近重複不加第二筆（R3 第 3 列的前提：variant 內兩筆近重複今天就寫得出來）。
     func testAddVariantNearDuplicateIsNotAddedTwice() throws {
         _ = try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil,
-                                    addVariant: ["Psychometrika"])
+                                    addVariant: ["Psychometrika"], judgement: "fixture")
         let out = try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil,
-                                          addVariant: ["Psychometrika "])
+                                          addVariant: ["Psychometrika "], judgement: "fixture")
         let v = try venue()
         XCTAssertEqual(v.variant, ["Psychometrika"])
         XCTAssertEqual(v.names.entries.count, 2)
@@ -466,7 +466,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
     /// displayName。三個迴圈同一條相等之後：names 只有一筆乾淨的、它是 authorized。
     func testAddNameDirtyThenAuthorizeCleanInOneCallKeepsTheCleanSpelling() throws {
         _ = try service.updateVenue(key: "some-journal", addNames: ["Psychometrika "], note: nil, type: nil,
-                                    authorize: ["Psychometrika"])
+                                    authorize: ["Psychometrika"], judgement: "fixture")
         let v = try venue()
         XCTAssertEqual(v.authorized, ["Psychometrika"])
         XCTAssertEqual(v.names.entries.filter { NameIdentity.same($0.value, "Psychometrika") }.count, 1)
@@ -478,7 +478,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
     func testMultiplicationSignIsNotAName() throws {
         for bad in ["×", "÷", "× ÷"] {
             XCTAssertThrowsError(try service.updateVenue(key: "some-journal", addNames: nil, note: nil,
-                                                         type: nil, authorize: [bad]), bad)
+                                                         type: nil, authorize: [bad], judgement: "fixture"), bad)
         }
         XCTAssertThrowsError(try service.updateVenue(key: "some-journal", addNames: ["×"], note: nil, type: nil),
                              "三個迴圈同一組謂詞")
@@ -491,10 +491,10 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         let rlo = "Psychometrika\u{202E}"; let zwsp = "Psycho\u{200B}metrika"; let shy = "Psycho\u{00AD}metrika"
         for bad in [rlo, zwsp, shy] {
             XCTAssertThrowsError(try service.updateVenue(key: "some-journal", addNames: nil, note: nil,
-                                                         type: nil, authorize: [bad]))
+                                                         type: nil, authorize: [bad], judgement: "fixture"))
             XCTAssertThrowsError(try service.updateVenue(key: "some-journal", addNames: [bad], note: nil, type: nil))
             XCTAssertThrowsError(try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil,
-                                                         addVariant: [bad]))
+                                                         addVariant: [bad], judgement: "fixture"))
         }
         XCTAssertEqual(try venue().names.entries.count, 1, "零寫入")
         XCTAssertNoThrow(try service.updateVenue(key: "some-journal", addNames: ["نشریه\u{200C}روان\u{200D}سنجی"],
@@ -509,7 +509,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         v.authorized = ["PSYCHOMETRIKA", "心理計量學"]
         try LibraryStore(root: root).writeVenue(v)
         _ = try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil,
-                                    authorize: ["Psychometrika"])
+                                    authorize: ["Psychometrika"], judgement: "fixture")
         XCTAssertEqual(try venue().authorized, ["Psychometrika", "心理計量學"])
     }
 
@@ -524,7 +524,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
                                 .replacingOccurrences(of: "- value: Psychometrika\n", with: "- value: Psychometrika\n- value: 'Psychometrika '\n") }
         XCTAssertEqual(try venue().variant.count, 2, "fixture")
         XCTAssertThrowsError(try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil,
-                                                     authorize: ["Psychometrika"])) {
+                                                     authorize: ["Psychometrika"], judgement: "fixture")) {
             let msg = ($0 as? LocalizedError)?.errorDescription ?? "\($0)"
             XCTAssertTrue(msg.contains("近重複") || msg.contains("canonical"), "訊息要指向不變式，不是分割交集：\(msg)")
             XCTAssertFalse(msg.contains("同時出現在 authorized 與 variant"), msg)
@@ -543,7 +543,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
                                 .replacingOccurrences(of: "- value: Psychometrika\n", with: "- value: Psychometrika\n- value: 'Psychometrika '\n") }
         XCTAssertEqual(try venue().authorized.count, 2, "fixture")
         XCTAssertThrowsError(try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil,
-                                                     authorize: ["Psychometrika"])) {
+                                                     authorize: ["Psychometrika"], judgement: "fixture")) {
             let msg = ($0 as? LocalizedError)?.errorDescription ?? "\($0)"
             XCTAssertTrue(msg.contains("Psychometrika "), "要說出是哪一筆違反：\(msg)")
         }
@@ -577,13 +577,13 @@ final class VenueAuthorizedWriteTests: XCTestCase {
     func testNFDInputIsStoredAndReportedAsNFC() throws {
         let nfc = "Psychom\u{E9}trika"; let nfd = "Psychome\u{301}trika"
         _ = try service.updateVenue(key: "some-journal", addNames: [nfc], note: nil, type: nil)
-        let out = try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil, authorize: [nfd])
+        let out = try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil, authorize: [nfd], judgement: "fixture")
         let v = try venue()
         XCTAssertEqual(Array(v.authorized[0].utf8), Array(nfc.utf8), "authorized 要是 NFC 位元組")
         XCTAssertTrue(v.names.entries.contains { Array($0.value.utf8) == Array(nfc.utf8) })
         XCTAssertEqual(v.names.entries.count, 2, "不得新增 NFD 條目")
         XCTAssertTrue(out.contains("\"authorizedAdded\""), out)
-        let again = try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil, authorize: [nfd])
+        let again = try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil, authorize: [nfd], judgement: "fixture")
         XCTAssertTrue(again.contains("\"alreadyAuthorized\""), again)
         XCTAssertEqual(Array(try venue().authorized[0].utf8), Array(nfc.utf8), "no-op 不得改位元組")
     }
@@ -592,7 +592,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
     func testArabicLetterMarkAndTagCharactersAreRejected() throws {
         for bad in ["Psycho\u{061C}metrika", "Tag\u{E0041}\u{E007F}Name", "Mvs\u{180E}Name"] {
             XCTAssertThrowsError(try service.updateVenue(key: "some-journal", addNames: [bad], note: nil, type: nil), bad)
-            XCTAssertThrowsError(try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil, authorize: [bad]), bad)
+            XCTAssertThrowsError(try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil, authorize: [bad], judgement: "fixture"), bad)
         }
         XCTAssertEqual(try venue().names.entries.count, 1, "零寫入")
     }
@@ -600,7 +600,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
     /// 純數字刊名（*1843*）三個迴圈都收（R4 verify 第 7 列）。
     func testDigitOnlyNameIsAccepted() throws {
         _ = try service.updateVenue(key: "some-journal", addNames: ["1843"], note: nil, type: nil)
-        _ = try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil, authorize: ["1843"])
+        _ = try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil, authorize: ["1843"], judgement: "fixture")
         XCTAssertEqual(try venue().authorized, ["1843"], "1843 是 .other、與 PSYCHOMETRIKA 不同書寫系統？——不：它無字母，歸 .other；PSYCHOMETRIKA 是 latn，各一")
     }
 
@@ -617,7 +617,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
         try LibraryStore(root: root).writeVenue(v)
         try rewriteFile(v) { $0.replacingOccurrences(of: "authorized:\n- \(nfc)\n", with: "authorized:\n- \(nfd)\n") }
         XCTAssertEqual(Array(try venue().authorized[0].utf8), Array(nfd.utf8), "fixture：authorized 是 NFD 位元組")
-        let out = try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil, authorize: [nfc])
+        let out = try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil, authorize: [nfc], judgement: "fixture")
         let obj = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(out.utf8)) as? [String: Any])
         XCTAssertEqual(obj["authorizedRewritten"] as? [String], [nfc], "位元組被換掉要報在自己的桶")
         XCTAssertEqual(obj["authorizedRemoved"] as? [String], [])
@@ -1047,7 +1047,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
     /// 與 `--rows`／`verdictsRetired` 設上限的同一個論證）：列 10 項、其餘只說數量。
     func testEntryRefusalListsAreCapped() throws {
         let many = (1...12).map { "Journal Number \($0)" }
-        XCTAssertThrowsError(try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil, authorize: many)) { err in
+        XCTAssertThrowsError(try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil, authorize: many, judgement: "fixture")) { err in
             let s = String(describing: err)
             XCTAssertTrue(s.contains("共 12 項") && !s.contains("Journal Number 11"), s)
         }
@@ -1348,11 +1348,11 @@ final class VenueAuthorizedWriteTests: XCTestCase {
     /// 操作者看不出改了什麼，正是 R4 第 6 列那道守衛要防的 no-op 宣稱。改報 `authorizedRewritten`。
     func testByteRepairOfAuthorizedIsReportedAsRewrittenNotAlready() throws {
         _ = try service.updateVenue(key: "some-journal", addNames: ["Sankhyā"], note: nil, type: nil)
-        _ = try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil, authorize: ["Sankhyā"])
+        _ = try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil, authorize: ["Sankhyā"], judgement: "fixture")
         let v = try venue()
         try rewriteFile(v) { $0.replacingOccurrences(of: "authorized:\n- Sankhyā\n", with: "authorized:\n- Sankhya\u{0304}\n") }
         XCTAssertEqual(Array(try venue().authorized[0].utf8).count, 9, "fixture：authorized 現在是 NFD 位元組")
-        let out = try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil, authorize: ["Sankhyā"])
+        let out = try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil, authorize: ["Sankhyā"], judgement: "fixture")
         let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(out.utf8)) as? [String: Any])
         XCTAssertEqual(json["authorizedRewritten"] as? [String], ["Sankhyā"], out)
         XCTAssertEqual(json["alreadyAuthorized"] as? [String], [])

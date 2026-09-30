@@ -60,7 +60,7 @@
 會在邊界上自己長出沒人同意的答案，而那句話與下表**是兩份不會一起改的規格**。要判斷新情形，
 讀下表的理由欄，然後**加一列**。
 
-## 裁決史（封閉列舉——現有 77 列，一列不多一列不少）
+## 裁決史（封閉列舉——現有 78 列，一列不多一列不少）
 
 | # | 情形 | 裁決 | 理由 |
 |---|---|---|---|
@@ -141,6 +141,7 @@
 | 75 | **零實例，而數不出來等於沒有上限**（#613：`akashic fulltext fetch` 每次準備導航到 PDF 連結（或把頁面的下載按鈕交給人）就在 store 之外的帳本記一筆，同一站每個 Asia/Taipei 日曆日最多 10 次（使用者 2026-10-01）。帳本讀不懂——不是普通檔、有一行不是 `{"at": 帶偏移的 ISO 8601, "site": 主機}`、`at` 沒有明確的時區——時在開任何分頁之前拒絕、說出第幾行。2026-10-01 本機量測：`$HOME/Library/Application Support/akashic/` 不存在，帳本 **0** 行） | ✅ **寫（fail-closed：整個拒絕，不略過壞行）** | 第 52 列的形狀（少算的普查與「查完歸零」分不開）落在一個上限上：略過一行讀不懂的就是少算一次嘗試，而少算正是上限要擋的方向——漏停的代價是出版商封鎖使用者機構的 session，誤停的代價是使用者修一行帳本。沒有時區的時間不知道是哪一天，同樣拒收（全域 CLAUDE.md〈時區〉：寫進檔案的時間一律帶 offset），寫入端一律寫 `+08:00`。帳本不放 `~/.akashic`（那是 `main` store 的 root，`.gitignore` 不排除新目錄）。釘住 `FulltextFetchPathTests.testAnUnreadableLedgerStopsBeforeAnyBrowserCall`（四種壞行與 symlink）、`FulltextAttemptLedgerTests.testATimeWithoutAnOffsetIsRejected`、`testAppendRefusesASymlink`。**觸發條件可檢查**：`ls -la "$HOME/Library/Application Support/akashic/"`；`fetch` 以結束碼 1 報帳本讀不懂時，照訊息指的那一行修或刪，不要刪整個帳本來繞過上限 |
 | 76 | **零實例，而收進來的檔是別人給的路徑**（#613：`akashic fulltext take --from` 收使用者存下來的本機檔。`--from` 必須是普通檔——`lstat` 拒 symlink、目錄、FIFO，`O_NOFOLLOW` 開、`fstat` 再確認——大小不超過 `LibraryStore.maxSourceBytes`；只讀一次，同一份位元組先驗證、再存檔。2026-10-01：`take` 還沒有對任何使用者存的檔跑過，實例 **0**） | ✅ **寫（整個拒絕、什麼都不寫）** | 第 62 列守的是輸出目的地，這一列守輸入：跟隨一個 symlink 會把別的路徑上的內容收成這一篇，而驗證與存檔若各讀一次，兩次之間被換掉的檔會以驗證過的名字存下別的位元組——所以只讀一次，驗的就是存的。上限不另立數字：超過 `store-source` 上限的檔收進來也存不進 store（第 72 列的常數，同一份）。釘住 `FulltextFetchHardeningTests.testTheSourceMustBeARegularFile`、`testASourceOverTheStoreLimitIsRefused`、`testTakeCopiesTheSourceWithoutTouchingIt` |
 | 77 | **零實例，而製造它的是本張自己的回歸——位址被佔住時工具說成功**（#703 R2 verify 第 4、5、6、15 則：`sources/` 的位址上是目錄、symlink（含懸空的）、特殊檔案，或普通檔的大小與 `index.jsonl` 那一列的 `bytes` 不同。R1 把 `writeBlob` 的「已經在了」從 `fileExists`（跟隨 symlink）改成 lstat 語意之後，對任何佔用都回「沒寫、但成功」：`store-source` 寫一列 index、印「✓ 已建立 index 條目」，位址上仍是懸空 symlink——#703 之前的 binary 會以真檔取代它；被截短的 blob 被 `update-entry --add-source` 照連；`auditSourceIndex` 只比檔名，doctor 什麼都不說，而 `copy-zotero-attachments` 還叫人「用 akashic doctor 查」。2026-10-01 唯讀量測 live store：普通檔 blob 103、位址上不是普通檔 0、index 列 103、大小與 index 不符 0。重跑腳本見表下方。**編號可能在整合時因其他分支的新列而改**） | ✅ **寫（warning 級：doctor 三個面的 sources 一致性列出位址問題，只報不刪；寫入端——`store-source`、`--add-source`——具名拒絕、不寫 index）** | 第 26 列的理由是「閘與守衛是同一條不變式的兩半」；這一列同形而**閘與守衛是同一批裡一起長出來的**：位址上的東西只有一個分類（`sourceOccupant`），寫入端以它拒絕、audit 以它報告——兩處各自判，正是 R2 之前四個讀者（`writeBlob`、`checkStoredBlob`、`sourcePresence`、audit）對同一個狀態給出三種答案的原因。守衛照的是閘擋不到的來源：手改、舊 binary、以及第三條放置路（`O_EXCL` 複製）在 `SIGKILL` 或斷電時留在位址上的半截檔——那一份在 index 有它的 `bytes` 時報大小不符，沒有條目時報成孤兒 blob（誠實邊界：看不出它是半截）。與第 73 列成對：那一列報的是**我們自己**的失敗留下的暫存檔，這一列報的是**別人**（或我們被殺掉之後）留在位址上的東西；兩者都只報不刪，理由相同——那可能是一個人正在處理的東西。**只比大小不比內容**：大小相同而內容不同的普通檔 doctor 與 `store-source` 都看不出來（要整份讀；`copy-zotero-attachments` 的 `checkStoredBlob` 會讀）。**severity 是 warning、計入 `hasFindings`**（與孤兒 blob 同級：記錄沒有壞，位址上的內容不是它說的那一份）。**觸發條件可檢查**（腳本見表下方）：兩個數應恆為 0；非零時照訊息把那個位置移走，再對原檔重跑 `store-source`（或 `copy-zotero-attachments`） |
+| 78 | **零實例，而製造它的寫入面是本輪自己開的，且拒絕的依據是另一條裁決刻意留下的提醒**（#564：名字分類的判定記錄。venue 合併對「被併者的 authorized 會被降級、而它帶名字分類的判定記錄」改為拒絕；寫入名字分類記錄要求 store format ≥ 22。2026-10-01 唯讀量測 live store：venue 485 筆（470 筆有 authorized、41 筆有 variant）、person 4,575 筆（全有 authorized）、organization 13 筆，`field: authorized` 或 `field: variant` 的 reference **0** 筆，statement 以 `指定：`／`確認：`／`撤回：` 開頭的 reference **0** 筆；store marker 是 18，所以今天 format 22 的寫入閘必拒、合併拒絕必然不觸發。重跑腳本見表下方） | ✅ **寫（拒絕：`DivergenceResolveError.wouldDemoteJudgedAuthorized`，住在 `validateVenuePreconditions`，preview 與實跑共用；寫入閘：`LibraryStore.assertNameClassificationRecordsWritable`）** | 第 23 列的理由是「可達性是本 change 自己造出來的」；這一列同形而多一層：**讓這個狀態可達的寫入面（五個名字分類面）與拒絕必須同批落地**，而拒絕的位置早就被預告過——`authorizedDemotedByMerging` 的 doc 明寫「#564 裁「留」且落地後，對有 judgement 的 authorized 升成拒絕條件、對機械值維持提醒」（2026-09-12 重開那一格時寫下的觸發條件）。不寫的代價與第 1 列同形：第一筆記錄出現後，合併會安靜地把人判定過的對外形降成未標，而那正是 #564 立案要解決的——記錄留了、合併端卻不讀，等於只做一半。**判準是「有任何記錄」而不是「最後一筆是指定或確認」**：最後一筆是撤回卻仍在 authorized 只可能是手改，保守地拒絕；合併時被併者的記錄接在倖存者之後，交錯的「最後一筆」不代表時間上的最後。**機械值仍是提醒**（沒有記錄的降級照舊合併並出 warning）——這一半由 `NameClassificationMergeTests.testMechanicalDemotionStillMergesWithAWarning` 釘住，免得日後有人把拒絕放寬成「一律拒」而讓合併對 470 筆機械值全部無用（這正是當初不把 authorized 降級直接升成拒絕的理由，`two-kinds-of-edits` 的 `resolve-divergence` 列）。**寫入閘是另一半**：format-21 binary 對這種記錄整檔 quarantine（三個成因各自足夠，`StoreVersion` 的 22 那一段），所以在 marker 升到 22 之前寫入面一律具名拒絕——零寫入而不是寫出舊 binary 讀不懂的檔。**誠實邊界**：拒絕只看被併者上的 `field: authorized` 記錄（`variant` 記錄不擋降級，因為合併不會把名字從 variant 降走；分類不一致的記錄走 `wouldLoseFields`）；person 合併維持原狀（本來就拒絕被併者有、倖存者沒有的 authorized）；organization 合併尚未實作（第 24 列）。**觸發條件可檢查**（腳本見表下方）：名字分類記錄數 > 0 即代表合併拒絕與寫入閘從零實例變成有實例——那時重跑 `NameClassificationMergeTests`，並確認第 13 列的死 verdict 掃描與第 35 列的重複 reference 掃描對這種記錄沒有誤報 |
 
 對本表四類中的任一個做出下一次裁決（新增、不新增、保留、拿掉）= 在這張表加一列。
 
@@ -1481,6 +1482,31 @@ EOF
 # 2026-10-01：普通檔 blob 103｜位址上不是普通檔 0｜index 列 103｜大小與 index 不符 0｜讀不到的分片 0
 ```
 
+**第 78 列的量測（2026-10-01，可重跑，唯讀）**：名字分類記錄數應為 0（非零＝拒絕與寫入閘已有實例）；store marker 是寫入閘的輸入（讀 `store.yaml` 的 `format:` 行）。讀不到的檔計數，同第 24 列：
+
+```bash
+python3 - <<'PY'
+import glob, io, os, yaml, collections
+root = os.path.expanduser('~/.akashic')
+kinds = collections.Counter(); recs = stmts = bad = 0
+for f in glob.glob(root + '/entities/*.yaml'):
+    try: d = yaml.safe_load(io.open(f, encoding='utf8'))
+    except Exception: bad += 1; continue
+    if not isinstance(d, dict): bad += 1; continue
+    kind = next((k for k in ('work', 'person', 'organization', 'venue', 'divergence') if k in d), None)
+    if kind is None: bad += 1; continue
+    kinds[kind] += 1
+    for r in d.get('references') or []:
+        if not isinstance(r, dict): continue
+        if r.get('field') in ('authorized', 'variant'): recs += 1
+        j = r.get('judgement')
+        if isinstance(j, str) and j.startswith(('指定：', '確認：', '撤回：')): stmts += 1
+fmt = [l for l in io.open(os.path.join(root, 'store.yaml'), encoding='utf8') if l.startswith('format:')]
+print(dict(kinds), '｜field authorized／variant 的 reference', recs, '｜三個動作前綴的 statement', stmts, '｜', fmt[0].strip(), '｜讀不到的檔', bad)
+PY
+# 2026-10-01：{'person': 4575, 'work': 2575, 'venue': 485, 'divergence': 1, 'organization': 13}｜0｜0｜format: 18｜0
+```
+
 ## 各列共通的東西（觀察，不是判準）
 
 第 1–9 列與第 13、14 列的裁決都是「寫」（第 14 列是 2026-09-09 從「不寫」翻過來的）、第 10–12 列（皆出自 #365）是「不寫」，但**理由各不相同**，這正是不寫總括判準的原因：
@@ -1568,6 +1594,7 @@ EOF
 - 第 75 列的理由是**少算正是上限要擋的方向**——第 52 列同形（略過讀不懂的等於少算），落在一個保護使用者機構 session 的上限上，所以讀不懂就拒絕、不略過
 - 第 76 列的理由是**驗的與存的必須是同一份位元組**——第 62 列守輸出，這一列守輸入：別人給的路徑可能是 symlink，也可能在兩次讀之間被換掉
 - 第 77 列的理由是**閘與守衛同批長出、共用一個分類**——第 26 列的閘與守衛各自成形；這一列兩者讀同一個 `sourceOccupant`，因為 R2 之前四個讀者各自判，對同一個佔用給出三種答案。與第 73 列成對：那一列報自己的失敗留下的，這一列報別人留在位址上的
+- 第 78 列的理由是**讓狀態可達的面與拒絕同批落地，而拒絕的位置早被預告**——第 23 列的矛盾狀態由新面造出、第 26 列的閘與守衛是同一條不變式的兩半；這一列兩者兼有：名字分類面讓「人判定過的對外形」寫得進 store，合併拒絕讓它不被安靜降級，寫入閘讓舊 binary 不被餵讀不懂的記錄。與第 8 列成鏡像：那一列的零由別處的程式造成、可能被改掉而沒人知道；這一列的零由 store marker 還在 18 造成，marker 一升就變成有實例，所以拒絕的測試與「機械值仍是提醒」的釘零要在 marker 升級之前就存在
 - 第 31 列的理由是**同一條曲線換了持有者**——第 16 列的燈只照 venue；新面（未決腿）讓 person 與 organization 也開始累積，第 30 列寫下的誠實邊界要有工具面兌現，否則就是一句沒有後續的散文
 - 第 39 列的理由是**單步的跳躍預警看不到**——第 16／31 列的燈在讀取面、照的是漸進的增長；一次寫入從門檻之下直接越過讀取上限時，燈來不及響，擋它的只能是寫入端。而那道閘要擋的不只是位元組：多檔寫入面在它觸發之前已有檔落盤，所以閘與零寫入的 preflight 同批
 - 第 24 列的理由是**半吊子已經誠實**——前二十三列裡只有第 22 列同樣是「不動既有的東西」（比的是裁決的**動作**：那一列的對象是 spec 文字、失敗是被當死重刪掉；本列的對象是程式的半吊子管線、失敗是使用者撞牆或被當成待修殘留而被人動手）。留著的代價不是零（記了就刪不掉——#586 在 2026-09-28 補了移除面，代價從「刪不掉」降為「要人判定放棄」），而是今天未兌現、且一出現就會出聲；動它的兩個方向（實作／拿掉）代價都更高。與第 10 列（缺用途）最像的是理由的**形**：實作那一半同樣是「形狀取決於還不存在的用途」；但第 10 列的對象根本不存在，這一列的對象已經在、且已經誠實

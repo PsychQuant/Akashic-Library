@@ -542,7 +542,7 @@ authorize campaign 需要那個清單）。
 指定的寫入面：person 用 `authorize-names`，organization 用 `update-organization --authorize`（#557；在此之前
 organization 沒有任何寫入面，`doctor` 那一行修不掉），venue 用 `update-venue --authorize`（#554）；venue 另有
 `--unauthorize` 撤回（#559），與兩者的替換共用同一份邏輯。organization 沒有撤回面（待裁：它的 `names` 只增不減，撤回會讓
-`authorize` 時加進 names 的名字成為 fallback 顯示名）。
+`authorize` 時加進 names 的名字成為 fallback 顯示名）。**指定的三個面自 format 22 起都必附理由並留判定記錄**（#564，見 §3.5「名字分類的判定記錄」；venue 的撤回與標異寫同樣留記錄）。
 
 ### 時間軸段的 `attested`：某時點成立、起訖皆不明（normative，#70）
 
@@ -1231,7 +1231,8 @@ venue 的 `references:` 可附著的 `field` 是**封閉列舉**，唯一的列�
 |---|---|---|---|
 | `names` | 必帶：那個名字要在該清單內 | 兩種都收 | 寫入：`update-venue --references`／MCP `references`（#587）；移除：`--remove-reference`／MCP `remove_reference`（#673） |
 | `issn` | 必帶：那個號（比對看正規形；寫入面以正規形入庫） | 兩種都收 | 同上；`--remove-issn` 對被移除的號連帶刪除（#588） |
-| `authorized` | 必帶：那個名字要在該清單內 | 兩種都收 | 寫入：**只有手改 YAML**——通用寫入面不收（#587 R1，見下）；移除：`--remove-reference`（#673） |
+| `authorized` | 必帶：**名字分類記錄**（statement 走 `指定／確認／撤回：理由`）錨定 names，名字要是記錄的名字之一；**其他** reference 要在該清單內 | 兩種都收（名字分類記錄只收 judgement，證據可空） | 名字分類記錄只經 `--authorize`／`--unauthorize`（#564）；其他：**只有手改 YAML**——通用寫入面不收（#587 R1，見下）；移除：`--remove-reference` 只收名字分類記錄以外的（#673／#564） |
+| `variant` | 必帶：名字要是記錄的名字之一 | 只收名字分類記錄（judgement，證據可空） | 只經 `--add-variant`（#564）；`--remove-reference` 明文拒收 |
 | `note` | 不收（D2：純量）；記錄要有 `note` | 兩種都收 | 寫入：**只有手改 YAML**——通用寫入面不收（#587 R1，見下）；移除：`--remove-reference`（#673） |
 | `paginated` | `true`／`false`／`nil`（撤回） | 只收 judgement | 只經 `--paginated`／`--clear-paginated`（#406／#500） |
 | `resolution-*`（三個 verdict 欄位） | `<kind>:<key> :: <literal>` | 只收 judgement | 只經 `resolve-venues`（#232／#304／#619） |
@@ -1277,6 +1278,33 @@ kind 不看。搬了什麼在報告的 `referencesCarried`（dry-run 也預告�
 （出路：先在倖存者以 `--add-issn "號 (角色)"` 補上；兩邊矛盾時 `--remove-issn` 再 `--add-issn`，移除會連帶刪掉倖存者上指向那個號的
 reference；遷移留下的認不出的角色只能手改 YAML）。倖存者有角色而被併者沒有，不算失去。在此之前角色不在合併的比較裡：被併者的角色靜默消失，
 兩邊矛盾時倖存者靜默贏。
+
+### 名字分類的判定記錄（format 22，#564）
+
+名字的分類——指定為對外形（`authorized`）、撤回指定、標成異寫（`variant`）——是判定（`two-kinds-of-edits` 的 AI 欄），自 format 22 起每一次都在記錄的 `references` 留一筆判斷型 reference。
+五個面：person 的 `authorize-names`、venue 的 `update-venue --add-variant`／`--authorize`／`--unauthorize`（MCP `akashic_update_venue` 同名參數）、organization 的 `update-organization --authorize`（MCP `akashic_update_organization` 的 `authorize`）。organization 沒有撤回腿（`--unauthorize` 已於 #557 R1 verify 之後拿掉，待使用者裁決；使用者對 #557 只說「先提供 --authorize」），所以這五個面裡 organization 只有 `--authorize`。
+
+**形狀**（normative）：`field` 是 `authorized` 或 `variant`（它說的是哪個分割）、`value` 是名字、`judgement`（statement）以**封閉三個動作**之一開頭並接全形冒號：
+
+| 動作 | statement 起首 | 何時寫 |
+|---|---|---|
+| 指定 | `指定：` | 名字成為那個分割的成員 |
+| 確認 | `確認：` | 對**已經是成員**的名字再說一次（先前是無聲的 no-op）；只差位元組而被換成 canonical 的舊指定也寫「確認」 |
+| 撤回 | `撤回：` | 名字離開那個分割：venue 的 `--unauthorize`；同書寫系統被換下的舊指定（理由前綴「同書寫系統改指定「X」——」）；被抬進 authorized 的 variant（`field: variant`，理由前綴「改指定為 authorized——」） |
+
+動作**不得類推第四個**；解析只有 `NameClassificationRecord.parse` 一份（前綴不符，或理由去空白後為空，回 nil）。`rests-on`（證據 digest）**可空**——名字分類記錄經 `ProvenanceReference.firstOrderRulingFields` 放行空 rests-on（與作者位記錄同形）；`authorized`／`variant` 上空 rests-on 的判斷型必須符合本文法，否則拒收。
+**理由必填**（一次呼叫一句，套用到該次寫下的每一筆記錄，至多 4,096 位元組；`authorize-names --apply` 整批一句、不帶證據）；證據至多 20 個 digest（0 byte 內容的 digest 拒收）。缺理由整批拒絕、零寫入。
+
+**錨定在 names，不在分割**（normative）：名字分類記錄的附著條件是「`value` 是這筆記錄的名字之一」（person：`names.all`；venue／organization：`names` 時間軸的任一段；相等用 `String ==`，同 `field: names`），**不要求名字仍在那個分割內**——撤回記錄描述的正是已經離開分割的名字，判定史不因撤回而成孤兒。
+**分類的現況仍是分割清單本身**（`authorized`／`variant`）；記錄是 provenance，兩者不一致時以清單為準。`field: authorized` 上**其他** reference（擷取型、或 statement 不符本文法的判斷型）維持舊語意（value 要在 authorized 內、判斷型要有 rests-on）；`field: variant` 只收名字分類記錄，且只在 venue 上收（person 的 variant 分割是「其他名字」、沒有判定面；organization 沒有 variant）。
+
+**只由名字分類面寫與保留**：`update-person` 的 `references` 不收名字分類記錄；venue 的 `--remove-reference` 不刪它們（只命中名字分類記錄時具名拒絕）；`--edit-name-segment` 移除一個名字的最後一段時，若有名字分類記錄指著它，具名拒絕（判定史不刪）；`repair-venue-names` 把指著某拼法的記錄算 pinned、交給人判斷。`authorize`／`unauthorize` 換下或撤回名字時，只有名字分類記錄**以外**的 `field: authorized` reference 擋。
+**位元組完全相同的記錄不重寫**（append-only，`byteExactKey`）：第二次以同一句理由確認同一個名字不會長出第二筆，回報 `judgementsRecorded`（這次實際寫下的筆數）。
+
+**合併**（venue，`resolve-divergence`）：被併者的 authorized 名字若會被合併降級（併入後未標），而被併者對那個名字持有**任何** `field: authorized` 名字分類記錄，合併**拒絕**（preview 與實跑共用前置，`wouldDemoteJudgedAuthorized`），訊息逐名列出名字與最後一筆記錄，並指路（在被併者上 `--unauthorize`、或在倖存者上 `--authorize`，都要理由）；沒有記錄的機械值維持提醒。
+其餘名字分類記錄在名字於合併後的倖存者上分類（在不在 authorized、在不在 variant）與被併者上相同時，逐位元組搬到倖存者（列在 `referencesCarried`）；不同時以 `wouldLoseFields` 拒絕並說出名字與兩邊分類。person 合併維持現狀（本來就拒絕被併者有、倖存者沒有的 authorized 與任何非 verdict reference）；organization 合併尚未實作（#555）。
+
+**誠實邊界**：(1) 一句剛好以「指定：」「確認：」「撤回：」開頭的一般判斷（帶 rests-on、掛在 `field: authorized`）會被當成名字分類記錄——live store 這種 reference 為 0 筆，通用寫入面本來就不收 `field: authorized`；(2) 合併時被併者的記錄接在倖存者記錄之後，對同一個名字交錯時「最後一筆」不代表時間上的最後，所以拒絕判準用「有任何記錄」；(3) 既有機械值（live store 2026-10-01：venue 470 筆有 authorized、person 4,575 筆）不回填，按需判定（#600）；(4) 不提供撤回 variant 的獨立面（variant 只有被 `--authorize` 抬出時連帶撤回）。
 
 ### 存檔佈局：`sources/`（內容定址，不進 remote）
 
@@ -1635,6 +1663,7 @@ index 一起被清掉。
 | 19 | verdict 的第三個值 `resolution-undecided`（查過、判不出來，可帶 rests-on；#619）＋ **判定層級參與記錄鍵**（`nominated` 與 `judged` 兩筆並存，#636；change `resolution-verdict-states`） | **non-additive，兩個理由各自足夠**：references 的 field 白名單是 strict，format-18 binary 讀到 `resolution-undecided` **整檔 quarantine**；舊 binary 的合併與 rename 以舊鍵收攏，會把並存的兩筆收成一筆、安靜丟掉一筆理由。write gate（`assertVerdictShapesWritable`）對 format < 19 拒寫這兩種形狀。**無資料遷移**。**升級前置**：CLI/MCP/App 全升 v19 世代 → 手動 `format: 19`；marker bump 前不 push store repo（同 15～18 的理由） |
 | 20 | work 的 `references` 多一格 **`date`**（頂層 `Entry.date` 的來源，#655；語意比照 `fields.<鍵>`，見 §3.5「work 的 `references`」） | **non-additive，理由同 16**：format-19 binary 的 `Entry.validateReferenceAttachment` 沒有 `date` case → 封閉 default 擲錯 → **整檔 quarantine**、rc=0——補過日期來源的 work 在舊 binary 上整筆消失，輸出與「這筆從未存在」不可分辨。write gate（`assertEntryWritable`）對 format < 20 拒寫帶這一格的 entry（門檻常數 `StoreVersion.workDateReferenceFormat`）；`enrich` 在**寫入之前**讀 marker，低於 20 時 date 照補、reference 不寫、理由進 item 的 `provenanceOmitted`——不讓整筆寫入失敗。**為什麼 #517 的 `fields.<鍵>` 那一格沒有自己的 bump**：它落地一小時後 format 17 就 bump 了（`b1027be0` 是那次 bump 的祖先），是順序的巧合、不是契約；而那一格原本沒有自己的 format 閘——`assertIdentifierReferencesWritable` 只認三個識別碼欄位，format < 17 的 store 寫得進 `fields.<鍵>` 的 reference（#668 補上，見 17 那一列）。本格不再依賴巧合。**無資料遷移**（這一格在 format 19 寫不出來，既有記錄零 diff）。**升級前置**：CLI/MCP/App 全升 v20 世代 → 手動 `format: 20`；marker bump 前不 push store repo（同 15～19 的理由） |
 | 21 | library registry 的**成員性質**（頂層 `membership:`，`topic`／`rule`／`document`，#642；見 §2.9） | **頂層鍵本屬 additive，仍 bump——理由是語意不是語法**（同 5、18 的「保留不等於遵守」）：format-20 binary 走 tolerant-preserve **原樣保留而不解讀**，它的 `library add` 不查規則，對規則型與文件型 library 照樣寫進不符的成員、不會出聲。write gate（`LibraryStore.assertLibraryWritable`，門檻 `StoreVersion.libraryMembershipFormat`）對 format < 21 拒寫規則型與文件型；**主題型不閘**（不帶規則，舊 binary 的行為與新語意相同）。**無資料遷移**（既有 registry 檔沒有這個鍵，零 diff）。**升級前置**：CLI/MCP/App 全升 v21 世代 → 手動 `format: 21`；marker bump 前不 push store repo（同 15～20 的理由） |
+| 22 | **名字分類的判定記錄**（`references` 裡 `field: authorized`／`variant` 的判斷型，statement 走 `指定：`／`確認：`／`撤回：` ＋理由，證據可空，#564；見 §3.5「名字分類的判定記錄」） | **non-additive，三個成因各自足夠**：format-21 binary 對 (1) person／organization 上空 rests-on 的記錄在平面 init 拒收（`authorized` 不在它的 `firstOrderRulingFields`）、(2) 撤回記錄的 value 不在 authorized（它的附著驗證要求在內）、(3) venue 的 `field: variant` 走附著驗證的封閉 default——三者都讓整筆記錄 **quarantine**、rc=0。write gate（`LibraryStore.assertNameClassificationRecordsWritable`，門檻 `StoreVersion.nameClassificationRecordFormat`）對 format < 22 拒寫帶這種記錄的 person／organization／venue。**無資料遷移**（這種記錄在 format 21 寫不出來，既有記錄零 diff；既有機械值不回填，#600 按需判定）。**升級前置**：CLI/MCP/App 全升 v22 世代 → 使用者手動 `format: 22`（`authorize-names --apply` 自 #564 起不再替人寫 marker）；marker bump 前不 push store repo（同 15～21 的理由） |
 
 3 與 4 曾經發生而未回寫本表（#81 補齊）；6 曾漏補（#74 一併回寫）。**「資料鍵變保留字」同屬版本歸屬**：`divergence` 成為形狀標籤使同名頂層鍵在 ≥5 成為保留字——這與形狀標籤機制（format 3）的既有語意一致，不另立規則（#74 後果二）。`akashic migrate` 是使用者知情動作：它把 store 升到 supported 版本，升版後舊 binary 整庫拒開是 refuse-if-newer 的**預期**行為，不是 migrate 的缺陷（#74 後果三，文件化現況）。
 
@@ -1987,7 +2016,7 @@ organization 零 error——擴閘不拒絕任何既有記錄；閘在 `fieldsLo
 不是 store 的不變式）；只改 `source`／`note` 時不重驗區間。改完的記錄仍要過上面六條與 `validate()` 的其餘 error——**這次造出的**違反在寫之前具名拒絕、歸因到這次呼叫
 （例：時間欄位落在 `variant` 的名字上——異寫法沒有生效期間；把兩段沿革改成重疊），記錄原本就有的違反不在這裡歸咎、寫入閘照舊會擋；
 同一次呼叫的各項是先全部套用、再驗，所以兩段要一起改成不相交可以放在同一次呼叫裡。**移除一個名字的最後一段**時，那個名字若還在 `authorized`／`variant`／`field: names` 的 reference 裡，
-或移除後 venue 沒有任何名字，具名拒絕並指路（`--unauthorize` 或 `--authorize`、`--remove-reference`；`variant` 目前沒有移除面，只能手改 YAML）——程式不替人動那些判定。
+或移除後 venue 沒有任何名字，具名拒絕並指路（`--unauthorize` 或 `--authorize`、`--remove-reference`；`variant` 目前沒有移除面，只能手改 YAML）——程式不替人動那些判定。**名字分類的判定記錄（format 22，#564）也擋**：有這種記錄指著那個名字時具名拒絕——它們錨定 names，名字消失就成孤兒，而判定史不刪、沒有工具面，要刪只能手改 YAML（連那幾筆記錄一起）。
 它是判定（`two-kinds-of-edits`）：理由必填、只進報告（`nameSegments[].reason`，全文）、不寫進 store、不改 store format；改寫前要求該 venue 檔已在 git 裡 commit、乾淨
 （移除面一族的裁決，使用者 2026-09-27）；每一項改完都與現在逐位元組相同時不寫檔也不過 git 閘（報告 `written: false`）；單獨呼叫；一次至多 200 筆。
 MCP 面的報告只有前 20 項帶改寫前後的內容（理由每一項都在），CLI 全列；寫檔之後 index 重建失敗時呼叫仍回成功、報告多 `indexRebuilt: false`／`indexNote`（同上方移除面一族）。

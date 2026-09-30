@@ -73,7 +73,7 @@ final class ServiceArgvBeforeStoreTests: XCTestCase {
         }
         assertInvalid("兩句矛盾的話") {
             try self.service.updateVenue(key: "v-one", addNames: nil, note: nil, type: nil,
-                                         addVariant: ["Alpha"], authorize: ["Alpha"])
+                                         addVariant: ["Alpha"], authorize: ["Alpha"], judgement: "fixture")
         }
         assertInvalid("不是合法的 ORCID") { try self.service.addPerson(key: "p-one", names: ["X"], orcid: "0000", openalex: nil) }
         // C2c R1 verify（Codex）：CLI 在 validate() 呼叫 checkUpdatePersonFields，MCP 面走 updatePerson——後者先讀 store、

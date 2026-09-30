@@ -26,10 +26,10 @@ final class UpdateVenueUnauthorizeCLITests: XCTestCase {
 
     func testUnauthorizeThroughTheCLI() throws {
         XCTAssertEqual(try run(["add-venue", "ampsy", "--names", "AMERICAN PSYCHOLOGIST", "American Psychologist", "--type", "periodical"]).status, 0)
-        XCTAssertEqual(try run(["update-venue", "ampsy", "--authorize", "American Psychologist"]).status, 0)
+        XCTAssertEqual(try run(["update-venue", "ampsy", "--authorize", "American Psychologist", "--judgement", "fixture"]).status, 0)
         XCTAssertEqual(try venue("ampsy").authorized, ["American Psychologist"], "fixture")
 
-        let done = try run(["update-venue", "ampsy", "--unauthorize", "American Psychologist"])
+        let done = try run(["update-venue", "ampsy", "--unauthorize", "American Psychologist", "--judgement", "fixture"])
         XCTAssertEqual(done.status, 0, done.output)
         XCTAssertTrue(done.output.contains("authorizedWithdrawn") && done.output.contains("American Psychologist") && done.output.contains("\"index\""), done.output)
         let v = try venue("ampsy")
@@ -38,7 +38,7 @@ final class UpdateVenueUnauthorizeCLITests: XCTestCase {
         XCTAssertEqual(v.variant, [])
 
         // 不是成員：執行期拒絕（要讀 store 才判得出來），非零、零寫入
-        let notMember = try run(["update-venue", "ampsy", "--unauthorize", "AMERICAN PSYCHOLOGIST"])
+        let notMember = try run(["update-venue", "ampsy", "--unauthorize", "AMERICAN PSYCHOLOGIST", "--judgement", "fixture"])
         XCTAssertNotEqual(notMember.status, 0, notMember.output)
         XCTAssertTrue(notMember.output.contains("不是這筆 venue 目前的 authorized"), notMember.output)
     }

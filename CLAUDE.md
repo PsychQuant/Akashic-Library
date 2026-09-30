@@ -135,6 +135,9 @@ Foresay 管**人機確認的格式與迴圈**，本 repo 的規則管**哪些寫
 > | ~~`plugin-guards.yml`（ubuntu，1×）~~ | **已刪除** | 2026-08-27（#435）——見下 |
 > | `census-parity.yml`（macOS；現在也涵蓋 `plugin/**` 與原 ubuntu 那份的全部 paths；2026-09-30 #690 起也涵蓋 `Sources/**`） | ✅ | ❌ **帳號層付款失效**（見下）——run 全部 `failure` 且 **steps=0**（runner 層拒跑） |
 >
+> **第一格的「實際執行」是 2026-08-21 的狀態。** 2026-09-30 起本機 `core.hooksPath` 是相對路徑 `.githooks`，
+> 每個工作樹推送時跑的是自己那一份 hook（#697，見下方 hooksPath 三值之後的 2026-09-30 補記）。
+>
 > **`plugin-guards.yml` 已於 2026-08-27 刪除**（#435）：它跑在 ubuntu（1× 計費），
 > 設計理由是「純 python／bash 的守衛不必點 10× 的 macOS runner」。**守衛遷成 Swift 之後
 > （#433）那個理由不再成立**——`run-guards.sh` 需要 `swift build`，而 ubuntu runner 沒有
@@ -178,8 +181,8 @@ Foresay 管**人機確認的格式與迴圈**，本 repo 的規則管**哪些寫
 > (受保護檔 × 讀它的守衛) 都存在一個 workflow 同時在該檔改動時觸發、且執行該守衛。
 > 這比本表原先的狀態強：先前有數格只靠 pre-push 兜住。
 >
-> **右欄沒有跟著變。** 上表三格的「實際執行」仍如上：hooksPath 指向主 repo（merge 後
-> 自癒）、ubuntu 從未執行（branch 未 push）、macOS 帳務擱置。**「每一對都有 workflow
+> **右欄沒有跟著變。** 上表三格的「實際執行」仍如上（2026-08-23 的狀態）：hooksPath 指向主 repo（merge 後
+> 自癒；2026-09-30 起本機改成相對路徑，見 #697 補記）、ubuntu 從未執行（branch 未 push）、macOS 帳務擱置。**「每一對都有 workflow
 > 會跑它」與「那些 workflow 跑得起來」是兩件事**——而這正是本段一開始就在說的那件事，
 > 只是換了一層：先前的落差在「有沒有接上」，現在的落差只剩「跑不跑得起來」。
 >
@@ -295,11 +298,15 @@ Foresay 管**人機確認的格式與迴圈**，本 repo 的規則管**哪些寫
 > 檢查——**改成讓那個矛盾寫不出來**：格裡出現 `（` 即 `<未解析>`，守衛出聲。
 > 這是 `entity-backlink-completeness` 引 3.325 的同一個立場。
 >
-> **現況是第 2 列**（正常 push × CI 不跑 × hooksPath 指向主 repo；2026-08-23 實測
+> **2026-08-23 的現況是第 2 列**（正常 push × CI 不跑 × hooksPath 指向主 repo；2026-08-23 實測
 > `core.hooksPath` 指向 `~/Developer/Akashic-Library/.githooks`（git 印的是絕對路徑，家目錄在這裡寫成 `~`，#688）、main 最近三次
 > CI 皆 `failure`）。**目標是第 6 列**（正常 push × CI 恢復 × 指向本樹）——merge 之後
 > hooksPath 自癒，macOS 帳務恢復後 CI 跟上，那時兩個選項在執行上等價。各 hooksPath 值
 > 的意義見下方三點。
+>
+> **2026-09-30 起現況是第 3 列**（正常 push × CI 不跑 × 指向本樹）：本機 `core.hooksPath` 改成相對路徑
+> `.githooks`（#697，見下方 hooksPath 三值之後的補記）。這一格留在 pre-push 的守衛**執行**、移出只留 CI 則零執行
+> ——第 2 列「留與不留沒有差別」的推論在這一格不成立。
 >
 > **「目標是第 6 列」這句話是被審查逼出來的**（#407 R31）：R30 說「六個註記全部可從
 > 散文還原」——**對那六個為真，但它證不到「格層級的資訊一律不會失去」**。跨模型審查
@@ -381,7 +388,7 @@ Foresay 管**人機確認的格式與迴圈**，本 repo 的規則管**哪些寫
 > - **未設定** — `core.hooksPath` 是 `.git/config` 的 **local** 設定，**不隨 clone 傳遞**。
 >   任何新 clone 的人 pre-push **完全不跑**，而且**不需要主動繞過**。這是現行狀態下
 >   **最常見的零執行路徑**。
-> - **指向主 repo** — 本 worktree 此刻的狀態：`~/Developer/Akashic-Library/.githooks`，
+> - **指向主 repo** — 本 worktree 2026-08 時的狀態：`~/Developer/Akashic-Library/.githooks`，
 >   那份對本輪守衛**命中 0**（實測 `grep -c 'measured-claims-audit\|trigger-coverage'` → 0，
 >   本 worktree 的那份是 3）。
 > - **指向本樹** — merge 到 main 後自癒。

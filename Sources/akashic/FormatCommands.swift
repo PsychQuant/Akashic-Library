@@ -6,7 +6,7 @@ import AkashicStoreIO
 /// `akashic fmt` — 把記錄重寫為 canonical form（#69）。
 ///
 /// canonical form 一直存在（三個 `encode` 函式就是它的定義），缺的只是**讓 encoder
-/// 以外的人也能用**的入口。外部寫入者（storyline 的 R pipeline、手寫記錄、#64 的 CV
+/// 以外的人也能用**的入口。外部寫入者（一個私有下游 repo 的 R pipeline、手寫記錄、#64 的 CV
 /// 補完流程、#68 的部分更新入口）不必各自重製排序與引號規則。
 ///
 /// **`validate` 不擋排版，`fmt --check` 才擋**（design D5）。`Validate` 的失敗條件是

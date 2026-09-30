@@ -6,7 +6,7 @@ import AkashicIndex
 
 /// #68：person 的部分更新入口。
 ///
-/// 外部 pipeline 手刻 YAML 合併是 storyline 五輪 verify 的實證病灶——合併該由
+/// 外部 pipeline 手刻 YAML 合併是一個私有下游 repo 五輪 verify 的實證病灶——合併該由
 /// 既有的 decoder → 改 → encoder 走完，tolerant-preserve 與 canary 白拿。
 ///
 /// 契約：**提及的欄位整個換、未提及一律不動**。timeline 的「只加一段」刻意不做

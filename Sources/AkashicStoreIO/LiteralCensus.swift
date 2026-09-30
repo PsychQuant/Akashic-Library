@@ -483,11 +483,11 @@ public enum LiteralCensus {
             // 而根本沒有東西要修，且那句話指名了一個動作（R6 finding 39）。
             out.append("venue          未部署（無 store.yaml ＝ format 1，而 venue 邊自 format 11 起"
                      + "才存在於模型中；本輪零 venue 邊——非「查完」。"
-                     + "部署鏈見 repo 的 docs/store-format.md format 11 列（private，無存取權者取不到））")
+                     + "部署鏈見 Akashic-Library repo 的 docs/store-format.md format 11 列（不隨 plugin 出貨，plugin 安裝處讀不到））")
         } else if case .read(let n) = r.marker {
             out.append("venue          未部署（marker 說 format \(n)，< 11——該版本沒有 venue 邊；"
                      + "本輪零 venue 邊——非「查完」。"
-                     + "部署鏈見 repo 的 docs/store-format.md format 11 列（private，無存取權者取不到））")
+                     + "部署鏈見 Akashic-Library repo 的 docs/store-format.md format 11 列（不隨 plugin 出貨，plugin 安裝處讀不到））")
         } else {
             out.append("venue          **未知**（\(label())；且未解析到任何 venue 邊——"
                      + "無法區分「未部署」與「已部署但為 0」。先修 store.yaml 再重跑）")

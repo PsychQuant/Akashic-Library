@@ -51,7 +51,7 @@ propose ──→ park ──────────────→ apply ─�
 ## 設計原則的上游：Foresay
 
 使用者 2026-09-09（+08:00）定調（#547）：**本專案的設計原則參照
-[Foresay](https://github.com/kiki830621/foresay)**（Human-AI Confirmation Protocol，private）。
+Foresay**（Human-AI Confirmation Protocol；使用者的一個私有 repo，外部讀者讀不到）。
 
 它管的那件事，一句話是它自己的核心第 4 條：**Clarify before execute — never guess.**
 
@@ -212,8 +212,8 @@ Foresay 管**人機確認的格式與迴圈**，本 repo 的規則管**哪些寫
 >
 > **第六欄多一支守衛卻快了 50 秒，原因具名**（2026-08-27，#433／#431）：兩支負控
 > harness 的 `with_copy()` 都在複製整個 `.claude`——**2.0 GB／25,519 個檔**，其中
-> `.claude/worktrees/` 佔 2.0 GB（IDD 的隔離工作樹），而守衛要的只有 144 KB 的規則檔
-> （private repo，外部讀者取不到）。單次 `copytree` **16.51 秒 → 0.07 秒**。
+> `.claude/worktrees/` 佔 2.0 GB（IDD 的隔離工作樹），而守衛要的只有 144 KB 的規則檔。
+> 單次 `copytree` **16.51 秒 → 0.07 秒**。
 > `oracle-precondition-control.py`（它 import 前者並多次呼叫 `with_copy`）**5 分 44 秒
 > → 8.2 秒**。同輪另修 Swift 版守衛的 `globFiles()`（天真地 enumerate 整個 repo root，
 > 同樣為那 2 GB 付錢）。
@@ -299,7 +299,7 @@ Foresay 管**人機確認的格式與迴圈**，本 repo 的規則管**哪些寫
 > 這是 `entity-backlink-completeness` 引 3.325 的同一個立場。
 >
 > **2026-08-23 的現況是第 2 列**（正常 push × CI 不跑 × hooksPath 指向主 repo；2026-08-23 實測
-> `core.hooksPath` 指向 `~/Developer/Akashic-Library/.githooks`（git 印的是絕對路徑，家目錄在這裡寫成 `~`，#688）、main 最近三次
+> `core.hooksPath` 以絕對路徑指向本機主 repo（共用 checkout）的 `.githooks`（git 印的是那個絕對路徑，這裡寫成角色，#688／#693）、main 最近三次
 > CI 皆 `failure`）。**目標是第 6 列**（正常 push × CI 恢復 × 指向本樹）——merge 之後
 > hooksPath 自癒，macOS 帳務恢復後 CI 跟上，那時兩個選項在執行上等價。各 hooksPath 值
 > 的意義見下方三點。
@@ -388,7 +388,7 @@ Foresay 管**人機確認的格式與迴圈**，本 repo 的規則管**哪些寫
 > - **未設定** — `core.hooksPath` 是 `.git/config` 的 **local** 設定，**不隨 clone 傳遞**。
 >   任何新 clone 的人 pre-push **完全不跑**，而且**不需要主動繞過**。這是現行狀態下
 >   **最常見的零執行路徑**。
-> - **指向主 repo** — 本 worktree 2026-08 時的狀態：`~/Developer/Akashic-Library/.githooks`，
+> - **指向主 repo** — 本 worktree 2026-08 時的狀態：以絕對路徑指向本機主 repo 的 `.githooks`，
 >   那份對本輪守衛**命中 0**（實測 `grep -c 'measured-claims-audit\|trigger-coverage'` → 0，
 >   本 worktree 的那份是 3）。
 > - **指向本樹** — merge 到 main 後自癒。

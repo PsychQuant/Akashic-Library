@@ -1,7 +1,7 @@
 # 已識別的歧義，要在不可逆的寫入**之前**消解——政策預設不是判定的替代品
 
 使用者 2026-09-09（+08:00）定調（#547）：「**以消歧異為準**」，並指名這條規則的來源是
-[Foresay](https://github.com/kiki830621/foresay)（Human-AI Confirmation Protocol）。
+Foresay（Human-AI Confirmation Protocol；使用者的一個私有 repo，外部讀者讀不到）。
 
 適用於**寫入面**，且滿足下列**其一**（封閉二類，不得依性質相似類推第三類）：
 
@@ -120,7 +120,7 @@ wang-ch: Chien-Hsun Wang ／ Chung-Ho Wang ／ Chih-Hsiung Wang ／ C.-H. Wang
 
 ## 來源
 
-[Foresay](https://github.com/kiki830621/foresay)（private）的三處，逐一對應本檔：
+Foresay（使用者的私有 repo）的三處，逐一對應本檔：
 
 | Foresay | 本檔用它做什麼 |
 |---|---|

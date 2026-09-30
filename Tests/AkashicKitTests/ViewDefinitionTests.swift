@@ -7,7 +7,7 @@ import Foundation
 ///
 /// #54 拍板「view 不是 entity」，`docs/explainers/entity-vs-view.md` 定了分層。
 /// **但 `config.yaml` 那一半從來沒有實作**——判準因此被推到 store 之外，由每個
-/// 下游消費者各自重新發明（storyline#5 的 `4AK_build_duckdb.R` 就是實例）。
+/// 下游消費者各自重新發明（一個私有下游 repo 的 R 建庫腳本就是實例）。
 final class ViewDefinitionTests: XCTestCase {
     private var root: URL!
     private var store: LibraryStore!

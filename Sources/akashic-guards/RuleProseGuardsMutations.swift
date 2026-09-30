@@ -87,17 +87,17 @@ func ruleProseGuardsMutations() -> Int32 {
     print("baseline：5/5 ✓")
     print("")
 
-    // **前四格都刻意帶「private／取不到」的揭露詞**——不是為了好看，是為了讓它們只當
+    // **前四格都刻意帶「讀不到」的揭露詞**——不是為了好看，是為了讓它們只當
     // 第 1 項的正例。不帶的話它們同時觸發第 2 項，於是「第 1 項紅」分不出是誰抓到的。
-    results.append(append("見 [那條規則](.claude/rules/identity-is-judged-not-matched.md)（private repo，外部讀者取不到）。",
-                          1, "加一個可跟隨的 repo 連結（private repo 的 404 ＝ 假訊號）"))
-    results.append(append("見 [那個型別](Sources/AkashicCore/Venue.swift)（private repo，外部讀者取不到）。",
+    results.append(append("見 [那條規則](.claude/rules/identity-is-judged-not-matched.md)（plugin 安裝處讀不到）。",
+                          1, "加一個可跟隨的 repo 連結（在 plugin 安裝處點不開 ＝ 假訊號）"))
+    results.append(append("見 [那個型別](Sources/AkashicCore/Venue.swift)（plugin 安裝處讀不到）。",
                           1, "加一個指向 Sources/ 的可跟隨連結（前一版的謂詞漏掉這種）"))
     // REPO_ONLY 有**四**個 alternation 分支，而這份負控先前只注入前兩個。它的 docstring
     // 自己記載「手寫兩種形狀、另外兩種一路綠燈」發生過一次——而覆蓋率當時只修了一半。
-    results.append(append("見 [那份說明](docs/store-format.md)（private repo，外部讀者取不到）。",
+    results.append(append("見 [那份說明](docs/store-format.md)（plugin 安裝處讀不到）。",
                           1, "加一個指向 docs/*.md 的可跟隨連結（REPO_ONLY 第 3 分支）"))
-    results.append(append("見 [那一行](https://github.com/PsychQuant/Akashic-Library/blob/main/README.md)（private repo，取不到）。",
+    results.append(append("見 [那一行](https://github.com/PsychQuant/Akashic-Library/blob/main/README.md)（plugin 安裝處讀不到）。",
                           1, "加一個 blob/ 深連結（REPO_ONLY 第 4 分支）"))
     results.append(append("判準寫在 `.claude/rules/identity-is-judged-not-matched.md`。",
                           2, "加一句未揭露取用限制的 repo 專屬路徑"))
@@ -170,7 +170,7 @@ func ruleProseGuardsMutations() -> Int32 {
     try? FileManager.default.copyItem(atPath: PLUGIN, toPath: root)
     let marker = tmp + "/SIDE_EFFECT"
     var lines = SNAP.components(separatedBy: "\n")
-    lines.insert("量測（repo 為 private，無存取權者跑不了）："
+    lines.insert("量測（要 Akashic-Library 的原始碼，plugin 安裝處跑不了）："
         + "`awk 'BEGIN{print 6}' /dev/null; touch \(marker); : Sources/AkashicCore/Venue.swift`",
         at: 1)
     try? lines.joined(separator: "\n").write(toFile: root + "/" + RULE_REL, atomically: true, encoding: .utf8)

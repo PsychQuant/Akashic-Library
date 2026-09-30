@@ -92,7 +92,7 @@ func auditGuardsMutations() -> Int32 {
     /// 複製相關子樹、套用 edits、跑 copy 裡的那支守衛。
     ///
     /// **`.claude` 只複製 `rules/`**：整個 `.claude` 是 2.0 GB／25,519 個檔（`worktrees/`
-    /// 佔 2.0 GB），而守衛讀的只有規則檔（144 KB；private repo，外部讀者取不到）。全樹複製
+    /// 佔 2.0 GB），而守衛讀的只有規則檔（144 KB）。全樹複製
     /// 16.5 秒一次 × 每個 case，讓這支 harness 曾漲到 13 分鐘以上。
     func withCopy(_ guardRel: String, _ edits: [AGMEdit]) -> (Int32, String) {
         let tmp = NSTemporaryDirectory() + "audit-mut-" + UUID().uuidString

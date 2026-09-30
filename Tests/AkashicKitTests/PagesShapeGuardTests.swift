@@ -2,7 +2,7 @@ import XCTest
 import Foundation
 @testable import AkashicCore
 
-/// `pages` 欄位形狀守衛（`kiki830621/storyline#7`）。
+/// `pages` 欄位形狀守衛（起因是一個私有下游 repo 的一張 issue，2026-08-21）。
 ///
 /// 三筆實測缺陷驅動了這道守衛，而**三筆裡只有一筆會在下游炸開**：
 ///

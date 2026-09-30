@@ -191,7 +191,7 @@ akashic export-tables --view iss -o out/   # view-scoped 關聯表匯出（#274�
 在使用層被磨掉（與 `library create` 刻意不同：後者是 registry metadata、屬 store）。
 
 **缺這一半的代價**（#65 記錄的實例）：判準被推到 store 之外，由每個下游各自重新
-發明。storyline#5 的 `4AK_build_duckdb.R` 裡那段 filter 就是這裡該有的東西——只是
+發明。一個私有下游 repo 的 R 建庫腳本裡那段 filter 就是這裡該有的東西——只是
 它住在另一個 repo、另一種語言、另一個人維護的檔案裡。後果是判準不可稽核、會分岔、
 無法演化，而成員清單被迫用一份 `.txt` 代替（**外延被當成判準用**，方向反轉）。
 
@@ -1346,7 +1346,7 @@ checkout 抓得到）——每次 merge 後在 main 上驗一次。
 ## Submodules
 
 ```bash
-git submodule update --init          # mcps/ 為 private repo，外部 clone 可能無權限（optional）
+git submodule update --init          # mcps/ 是 optional（兩個都是公開 repo，2026-10-01 以 gh repo view 查）
 ```
 
 `repos/biblatex-apa-swift` 是 AkashicExport 的必要依賴（SPM path dependency）。

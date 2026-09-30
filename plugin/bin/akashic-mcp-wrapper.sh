@@ -67,7 +67,7 @@ if $NEED_DOWNLOAD; then
         if [[ -x "$BINARY" ]]; then
             echo "$BINARY_NAME: WARNING — download failed, keeping existing binary" >&2
         else
-            echo "$BINARY_NAME: ERROR — download failed（private repo 需 gh auth login）" >&2
+            echo "$BINARY_NAME: ERROR — download failed（下載走 gh，需先 gh auth login）" >&2
             exit 1
         fi
     fi

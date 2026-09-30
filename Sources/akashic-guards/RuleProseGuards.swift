@@ -109,8 +109,9 @@ func ruleProseGuards(argv: [String]) -> Int32 {
     }
 
     // ── 1. repo 專屬路徑不得以「可跟隨的連結」出現 ─────────────────────────
-    //    點下去會 404，而 private repo 的 404 與「已刪除／從不存在」不可區分：
-    //    等於把缺訊號換成假訊號。主要讀者是未認證的 agent。
+    //    讀者在 plugin 安裝處，相對路徑解析到安裝目錄、點下去指不到東西，而那與「已刪除／從不存在」
+    //    不可區分：等於把缺訊號換成假訊號。（這條理由原本寫「private repo 的 404」；本 repo 公開之後，
+    //    相對路徑那一半仍成立，blob 深連結點得開但指的是 main 的現況、不是出貨的那一版。）
     var followable: [String] = []
     for fp in allFiles {
         for (i, line) in proseLines(fp) {
@@ -187,7 +188,7 @@ func ruleProseGuards(argv: [String]) -> Int32 {
         print("")
         print("=== \(results.filter { $0 }.count)/\(results.count) PASS，但第 \(n) 項未涵蓋 ===")
         if n == 5 && msg.count > 1 {
-            print("   plugin 單獨安裝時取不到 Akashic repo 的原始碼（該 repo 為 private）。")
+            print("   plugin 單獨安裝時沒有 Akashic repo 的原始碼（不隨 plugin 出貨）。")
             print("   這不是通過：用 --venue <path> 指向 Venue.swift，或在 repo 內跑。")
         }
         return results.allSatisfy { $0 } ? 2 : 1

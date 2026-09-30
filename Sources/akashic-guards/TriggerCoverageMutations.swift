@@ -44,8 +44,8 @@ func triggerCoverageMutations() -> Int32 {
     /// 複製相關子樹、套用 edits、跑守衛。
     ///
     /// **`.claude` 只複製 `rules/`**（#433）：整個 `.claude` 是 2.0 GB／25,519 個檔，其中
-    /// `.claude/worktrees/` 佔 2.0 GB（IDD 的隔離工作樹）；守衛要的只有規則檔（144 KB；
-    /// private repo，外部讀者取不到）。**但那個目錄非複製不可**——
+    /// `.claude/worktrees/` 佔 2.0 GB（IDD 的隔離工作樹）；守衛要的只有規則檔（144 KB）。
+    /// **但那個目錄非複製不可**——
     /// `measured-numbers-audit` 宣告它讀 `.claude/rules/*.md` 而那些檔在 PROTECTED 裡，
     /// 沒複製的話 temp 樹裡那條宣告解析不到，**每一個 case 都多報一條與注入無關的缺口**。
     func withCopy(_ edits: [(path: String, old: String, new: String)]) -> (Int32, String)? {

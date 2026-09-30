@@ -1,6 +1,6 @@
 # 各出版商的取得規則與已知陷阱
 
-每一條都是**某一天觀察到的站點行為**，不是永久事實——出版商會改版。表中日期是最後一次實測；超過幾個月沒再遇到的規則，用之前先看一眼頁面。規則的程式版是 `akashic fulltext url-rule`（原始碼在 akashic repo 的 `PdfUrlRules.swift`，該 repo 為 private、plugin 安裝處讀不到），改這裡時同步改那裡（並補 repo 內測試的案例）。
+每一條都是**某一天觀察到的站點行為**，不是永久事實——出版商會改版。表中日期是最後一次實測；超過幾個月沒再遇到的規則，用之前先看一眼頁面。規則的程式版是 `akashic fulltext url-rule`（原始碼在 akashic repo 的 `PdfUrlRules.swift`，plugin 安裝處讀不到），改這裡時同步改那裡（並補 repo 內測試的案例）。
 
 所有觀察都在使用者的機構網路下、以使用者自己的 Safari profile 進行。**權限因機構而異**：這裡寫「取得成功」只代表那個機構那一天有權限。
 
@@ -24,4 +24,4 @@
 
 - **同一網址兩個分頁**：使用者已開著同一頁時，以網址鎖定會比對到兩個分頁，safari-browser 依設計 fail-closed。`fetch` 全程以「視窗＋分頁位置」鎖定，每一步前核對該分頁仍顯示同一站。
 - **zsh 保留變數**：`UID` 在 zsh 是唯讀的使用者 ID，賦值會變成「切換使用者」而被拒。這是舊 shell 腳本踩過的；#629 起 `fetch` 是 Swift，不再有這個問題（條目保留當作紀錄：新寫的 shell 片段仍要避開這個名字）。
-- **`%PDF` 不等於這篇**：補充資料、作者稿都通過檔頭檢查；`akashic fulltext verify` 比對頁數與首頁標題（門檻與校準資料寫在 akashic repo 內 `FulltextVerify.swift` 的型別註解，該 repo 為 private、plugin 安裝處讀不到）。
+- **`%PDF` 不等於這篇**：補充資料、作者稿都通過檔頭檢查；`akashic fulltext verify` 比對頁數與首頁標題（門檻與校準資料寫在 akashic repo 內 `FulltextVerify.swift` 的型別註解，plugin 安裝處讀不到）。

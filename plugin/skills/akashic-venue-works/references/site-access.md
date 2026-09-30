@@ -45,7 +45,7 @@
   （Project Euclid／IMS 一族實測如此，2026-08-30）。所以**只取正訊號**：
   artnum 高 ⇒ false、page 高 ⇒ true、沉默 ⇒ nil（不是 false）。
 - 書目欄位（頁碼等）與 OpenAlex 同源可追溯——**不構成獨立第二來源**
-  （`storyline#7` 教訓）。
+  （一個私有下游 repo 2026-08-21 頁碼事件的教訓）。
 
 ## psycnet.apa.org（APA PsycNet——目前碰過最難的一站）
 

@@ -69,7 +69,7 @@ ambiguities 帶 tier：`initials`／`reorder` 碰撞＝縮寫／重排共鍵，*
 批次順序（使用者 2026-08-16 拍板：**混合——高頻先掃、統計所批接續、長尾殿後**）：
 
 1. **R1 高頻批**：candidates 按 literal 頻次降冪（CLI 全列表自行彙總），freq ≥ 5 的 distinct 先處理
-2. **R2 統計所批**：iss view works 的 literal 作者（storyline 查證動線接續）
+2. **R2 統計所批**：iss view works 的 literal 作者（接續一個私有下游 repo 的查證動線）
 3. **R3+ 長尾**：freq=1 的 one-off——批次建檔問題，走 `bootstrap-people`。它把寬鬆共鍵的名字扣住不建檔並分兩段印出來：**與既有 person 共鍵**（照指引走 resolve 流程，全部否決後名字自動回到建檔候選）、**與本批其他候選共鍵**（#547；處置見下方）
 4. **venue 輪**（format 11 部署後）：add-venue 標準刊 → resolve-venues；縮寫刊名走 akashic-verify-venue
 
@@ -192,6 +192,6 @@ ambiguities 帶 tier：`initials`／`reorder` 碰撞＝縮寫／重排共鍵，*
 ## 相關
 
 - [`akashic-verify-person`](../akashic-verify-person/SKILL.md)——單一配對的外部證據鏈；本 skill 的逐筆查證管線引用它
-- `.claude/rules/disambiguate-before-irreversible-writes.md`（private repo，外部讀者取不到）——**上面「建檔前先分組異寫」那一段的正典**。它管的是「已識別的歧義要在不可逆寫入之前消解」，而 `bootstrap-people` 的「寧可分割絕不合併」屬於它明寫的那個限定：安全預設是「**無法消歧時**往哪邊倒」，不是「**可以消歧卻不做**」的許可。判準可機械檢查：那個歧義在操作之前是不是已經識別得出來（分組清單算得出來 → 已識別）。上游是 [Foresay](https://github.com/kiki830621/foresay) 的 `response_types`（`not_clear` 的終端是「先消歧，然後重跑乾跑」）
+- `.claude/rules/disambiguate-before-irreversible-writes.md`（在 Akashic-Library repo 裡，plugin 安裝處讀不到）——**上面「建檔前先分組異寫」那一段的正典**。它管的是「已識別的歧義要在不可逆寫入之前消解」，而 `bootstrap-people` 的「寧可分割絕不合併」屬於它明寫的那個限定：安全預設是「**無法消歧時**往哪邊倒」，不是「**可以消歧卻不做**」的許可。判準可機械檢查：那個歧義在操作之前是不是已經識別得出來（分組清單算得出來 → 已識別）。上游是 Foresay（使用者的一個私有 repo，讀不到）的 `response_types`（`not_clear` 的終端是「先消歧，然後重跑乾跑」）
 - [`assertions-must-be-measured`](../../rules/assertions-must-be-measured.md)——**本 skill 寫的 verdict 與每輪落進 issue 的計數都受它管**。計數是人要照著決定批次與宣告 campaign 完成的數字；verdict 是身分判定，另有規定（見該檔第 5 節）
 - [`source-of-truth-over-consent`](../../rules/source-of-truth-over-consent.md)——升格是身分判定，依據是證據；批次核准不等於每一筆都對，判不出來的留 literal

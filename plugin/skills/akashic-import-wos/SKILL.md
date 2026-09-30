@@ -25,7 +25,7 @@ xlsx/CSV 用手邊可用的讀法（python＋openpyxl、`excel-to-json` skill、
 `Publication Year`／`Publication Date`／`Source Title`／`Volume`／`Issue`／
 `Start Page`／`End Page`／`DOI`／`Group Authors`；其餘欄位走殘餘收集原樣入
 `fields`（#206）。（本清單是**快照**；含對映目標與合成語意的正典在 repo 的
-`docs/import-wos-mapping.md`（Akashic repo；**private，無 repo 存取權者取不到**——欄名對映的權威在該檔，本 skill 只在此註明出處）
+`docs/import-wos-mapping.md`（Akashic repo；**不隨 plugin 出貨，plugin 安裝處讀不到**——欄名對映的權威在該檔，本 skill 只在此註明出處）
 ——兩者不一致時以正典為準。）
 
 ### 2. DOI 補查（缺 DOI 的列）

@@ -2,7 +2,7 @@
 
 ## #596：`publication_author` 的團體作者不再與未歸戶同形
 
-`export-tables` 過去把 `.organization` 作者寫成 `researcher_id` NULL＋`name_full`，與未歸戶的 `.literal` 完全同形。#378 花力氣把團體作者接到 `.organization`，到了關聯匯出這一層又被折回 literal 的樣子。下游（storyline 的 JSON 交付物）因此把三個已歸戶的團體作者報成「沒對到人」。另外，`--view` 的機構閉包只收隸屬與 parents，不收作者位指到的機構，所以 `name_full` 落成 key，外鍵也接不上。
+`export-tables` 過去把 `.organization` 作者寫成 `researcher_id` NULL＋`name_full`，與未歸戶的 `.literal` 完全同形。#378 花力氣把團體作者接到 `.organization`，到了關聯匯出這一層又被折回 literal 的樣子。下游（一個私有下游 repo 的 JSON 交付物）因此把三個已歸戶的團體作者報成「沒對到人」。另外，`--view` 的機構閉包只收隸屬與 parents，不收作者位指到的機構，所以 `name_full` 落成 key，外鍵也接不上。
 
 - `publication_author` 在最後加兩欄：
   - `author_kind`：`person`／`organization`／`literal`；

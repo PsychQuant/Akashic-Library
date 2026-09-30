@@ -1,11 +1,11 @@
 # 三筆頁碼缺陷，其中兩筆完全不會出聲——以及一次「issue 的假設本身是錯的」
 
 2026-08-21 上午。起點是使用者問「`iss_publication` 的更新現在可以完全正確嗎」，
-追進 `kiki830621/storyline#7`（下游 R 讀 store YAML 時大整數溢位落成 `NA`）。
+追進一個私有下游 repo 的一張 issue（下游 R 讀 store YAML 時大整數溢位落成 `NA`；以下稱「下游那張 issue」）。
 
 ## issue 的兩個修法都會保留一個錯值
 
-#7 的 Expected 假設那個 16 位數字 `1948550610386628` 是「某種外部 ID」，並提了兩條路：
+下游那張 issue 的 Expected 假設那個 16 位數字 `1948550610386628` 是「某種外部 ID」，並提了兩條路：
 store 端加引號讓 YAML 當字串讀，或 R 端用 `yaml::read_yaml` 的 handler 指定型別。
 
 **兩條都會讓警告消失，而頁碼仍然是錯的。**
@@ -80,7 +80,7 @@ article-number 期刊（PLoS ONE 的 `e12345`、Nature Communications 的 `1234`
 
 **就那 100 篇而言下游更新可以完全正確；就整個 iss view 而言還不行。**
 
-另注意：那三筆缺陷**都不在 iss view 裡**（它們是心測／教學庫的文獻）。#7 的溢位來自
+另注意：那三筆缺陷**都不在 iss view 裡**（它們是心測／教學庫的文獻）。下游那張 issue 的溢位來自
 直接讀整個 store 的 YAML，不是讀 iss 匯出——而 `publication.csv` 根本沒有 `pages` 欄。
-所以 storyline#9（上游改吃 `export-tables --view iss`）會讓 #7 的**症狀**整個消失，
-而錯的資料仍然錯，只是看不見了。**症狀消失不等於問題解決**，這一點值得在做 #9 時記得。
+所以同一個 repo 的另一張 issue（上游改吃 `export-tables --view iss`）會讓那個溢位的**症狀**整個消失，
+而錯的資料仍然錯，只是看不見了。**症狀消失不等於問題解決**，這一點值得在做那一張時記得。

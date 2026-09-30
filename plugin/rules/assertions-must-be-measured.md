@@ -135,9 +135,9 @@
 
 判定「這個 literal 作者就是這個人」「這個刊名就是這個 venue」時，本清單**不重述**該領域的判準——重述會走樣（前一版對兩份規則的就地重述被跨模型審查逐句比出多處失真，型態見下方失真表；**確切數目此處不寫**——那個計數只存在於本 issue 的 verify comment，而讀到本檔的人多數取不到它，寫一個他無法重跑的數字正好違反第 2 題）。
 
-實際規定住在 Akashic repo 的 `.claude/rules/identity-is-judged-not-matched.md`。**該 repo 是 private，沒有存取權的讀者（含未認證的 agent）取不到全文。**
+實際規定住在 Akashic repo 的 `.claude/rules/identity-is-judged-not-matched.md`。**它不隨 plugin 出貨，plugin 安裝處讀不到全文。**
 
-取不到時的出路是**明說取不到**，不是憑印象補上：把「依據該規則的哪一條」寫成待確認，或請有存取權的人補。**不要憑記憶重述一份你讀不到的規範。**
+取不到時的出路是**明說取不到**，不是憑印象補上：把「依據該規則的哪一條」寫成待確認，或請讀得到的人補。**不要憑記憶重述一份你讀不到的規範。**
 
 ## 這份文件犯過的錯（#407 各輪；每一條都由跨模型審查抓出、由我複驗）
 
@@ -153,7 +153,7 @@
 |---|---|
 | 拿一句假話當「不可能錯」的例子 | 寫「`VenueType` 封閉三值」，實測六值（`periodical`／`conference`／`publisher`／`database`／`socialMedia`／`website`）|
 | 只讀了手上資料的一部分就下結論 | 見第 3 題 |
-| 就地重述讀不到的規範 | 對兩份 private 規則的重述失真。**型態寫成動作，不寫成內容**——漏項、把原文明標為開放的寫成封閉、整節遺漏、把描述寫成規範、加上原文沒有的結構。（上一版逐一點名了漏掉「哪些」，而那等於用另一種形式重建那份規則的實質內容——與同一份檔案第 5 節「刻意不重述」自相矛盾，R6 finding 16） |
+| 就地重述讀不到的規範 | 對兩份讀不到的規則的重述失真。**型態寫成動作，不寫成內容**——漏項、把原文明標為開放的寫成封閉、整節遺漏、把描述寫成規範、加上原文沒有的結構。（上一版逐一點名了漏掉「哪些」，而那等於用另一種形式重建那份規則的實質內容——與同一份檔案第 5 節「刻意不重述」自相矛盾，R6 finding 16） |
 | **修掉重述之後，又在另一個檔案寫了一份新的重述** | `work-sources.md` 把識別碼例外就地重寫，丟掉原文的範圍限定詞（「不需要**本規則要求的**名字以外的證據」→ 無條件充分）與唯一帶數字的但書（一筆作品可有多個 DOI，實測 37 組）。**位置最傷**：它夾在同檔「寫入前必做四欄反向驗證」的規定旁邊，讀起來像允許跳過 |
 | 為儀器補「對照讀端」，而那句話本身沒被量測 | 實測六種輸入形狀分歧，三種讓讀端整體拒開的 store 被報成健康 |
 | **驗收套件對它宣稱要檢查的東西是盲的** | 十三項驗收全綠，而把前一輪的**原始**缺陷做成 mutation 一跑，13/13 完整存活。三個謂詞各自壞掉：一個對整個檔案做子串比對（`'malformed' in sv`，實測命中 11 次，連 enum 宣告都算）、一個檢查「那句宣稱有沒有被印出來」而非它是否為真（**把假話刪掉反而變紅**）、一個被 `or True` 中和且從未進入斷言 |
@@ -285,12 +285,12 @@ done
 | 陳述 | 怎麼取得 | 何時 |
 |---|---|---|
 | ⚠ **會長的數字不要寫進本表**。本表 2026-08-22 重量八列，**兩列已過期**（marker fixture 26→46、mutation 11→14），過期的正是那兩個每輪加格就變的數字。這張表是本規則的旗艦論證，所以它自己過期這件事留在這裡：**數字會過期不是缺陷，把會長的數字寫得像恆定事實才是。** #629 起那兩列的受測物（parity 腳本與它的負控 harness）不存在了，改成下面**不寫格數**的一列，而不是換一個新的數字——沒有會長的數字，就沒有東西會過期 | 重跑下面每一列的指令 | 2026-09-29 |
-| `VenueType` 是六值（上一版寫的是「三值」）| `awk '/^public enum VenueType/{f=1} f&&/^}/{exit} f&&/^    case /{n++} END{print n+0}' Sources/AkashicCore/Venue.swift` → `6`。**本檔上一版出貨的是 `grep -c '^    case ' Sources/AkashicCore/Venue.swift`，跑出來是 `8`**——它數的是整個檔案的 case 行，括號裡寫著「取 `enum VenueType` 區塊」而指令並沒有取。旗艦主張的自我量測指令，第一列就不成立。（**repo 為 private，無存取權者跑不了這條**；另可用 `akashic add-venue --help` 讀由 `allCases` 生成的值域字串） | 2026-08-21 |
+| `VenueType` 是六值（上一版寫的是「三值」）| `awk '/^public enum VenueType/{f=1} f&&/^}/{exit} f&&/^    case /{n++} END{print n+0}' Sources/AkashicCore/Venue.swift` → `6`。**本檔上一版出貨的是 `grep -c '^    case ' Sources/AkashicCore/Venue.swift`，跑出來是 `8`**——它數的是整個檔案的 case 行，括號裡寫著「取 `enum VenueType` 區塊」而指令並沒有取。旗艦主張的自我量測指令，第一列就不成立。（**它讀 Akashic-Library 的原始碼，plugin 安裝處跑不了這條**；另可用 `akashic add-venue --help` 讀由 `allCases` 生成的值域字串） | 2026-08-21 |
 | 兩筆記錄回傳 `article-number` 23／78 | 本檔第二個實例的 `curl`，同時印 `page`／`article-number`／`volume`／`issue` | 2026-08-21 |
 | `plugin.json` 寫 format 10、本機 store 寫 12 | `grep '"description"' plugin/.claude-plugin/plugin.json` 與 `grep '^format:' <store>/store.yaml`。**單機單樣本**——未查該描述寫下時是否正確、也未查兩者是否相容 | 2026-08-21 |
 | 本檔提到的 repo 中，**存放兩個立案實例的那兩個**皆為 private（marketplace repo 不在此列——它是公開的，見下一列） | `gh repo view <repo> --json isPrivate` → 兩者皆 `true`（repo 名不寫在這裡，理由見立案一末的裁決） | 2026-08-21 |
 | 普查曾把「讀不到」印成 `format 0` | 那個 shell 腳本已於 #629 移除，歷史陳述無法再讀原碼。現況可重跑：對缺 `store.yaml`、與有檔而沒有 `format:` 行（例如只有 `current: main`）兩種 fixture 跑 `akashic literal-census --library <fixture>`，前者印 `format 1（無 store.yaml；讀端語意：缺檔即 format 1）`、後者印 `format **未知**——marker 不合 grammar`，兩者都不是 `format 0` | 2026-09-29 |
-| 普查的 marker 判定就是讀端自己做的，marker 的裁決在一張具名形狀矩陣上與預期一致（**不是「一致」的全稱句**——那需要窮舉輸入空間，而這裡量的是有限個具名形狀；**格數不寫進本表**，理由見上面第一列） | 對 `swift test --filter StoreMarkerMatrixTests` 的結果（repo 為 private，無存取權者跑不了；該測試檔在 `Tests/` 下，每格帶預期裁決） | 2026-09-29 |
+| 普查的 marker 判定就是讀端自己做的，marker 的裁決在一張具名形狀矩陣上與預期一致（**不是「一致」的全稱句**——那需要窮舉輸入空間，而這裡量的是有限個具名形狀；**格數不寫進本表**，理由見上面第一列） | 對 `swift test --filter StoreMarkerMatrixTests` 的結果（要 Akashic-Library 的原始碼，plugin 安裝處跑不了；該測試檔在 `Tests/` 下，每格帶預期裁決） | 2026-09-29 |
 | 本 plugin 經由**公開**的 marketplace 發布 | 兩步都在公開處：`gh repo view PsychQuant/Akashic-Library --json isPrivate` → `false`，且本 repo 的 `.claude-plugin/marketplace.json` 列出 `akashic-mcp`（2 個 plugin 之一）。**#625 起 marketplace 搬進本 repo**：2026-08-21 這一列的量法指向 psychquant-claude-plugins，#625 之後那個量法會量到「沒有列出」——斷言沒變、量法過期，所以重量而不是改字。更早一版引的是本 repo 的 README，而本 repo 當時是 private，讀者查不到 | 2026-09-24 |
 
 ### 一次對本規則自己的效力稽核（#407 R28b，2026-08-23）
@@ -312,4 +312,4 @@ done
 **誠實邊界**：n=4，且四個都出自同一個作者的同一個 session。它不支持「本檔涵蓋完備」。
 
 **關於審查過程的陳述**（「前兩版都被跨模型審查打掉」「就地重述被比出多處失真」），證據是本 issue 的
-verify comment（**該 repo 為 private，無存取權者讀不到**）。此處不重述其內容——理由見第 5 節。
+verify comment（**在 Akashic-Library 的 issue 裡，plugin 安裝處讀不到**）。此處不重述其內容——理由見第 5 節。

@@ -1,8 +1,8 @@
 # 身分是**判定**出來的，不是**比對**出來的——`literal → key` 是 AI 判斷函數，不是字串謂詞
 
 使用者 2026-08-20（+08:00）定調：「因為人名是靈活的，**最後的判斷需要用 AI agent 來判斷而
-不是程式來判斷**」。同一立場在 2026-08-13 的 lab meeting 簡報（`storyline` repo 的
-`presentations/2026-08-13_akashic_meeting/slides.html`）已成文，該簡報是本規則的正典來源。
+不是程式來判斷**」。同一立場在 2026-08-13 的 lab meeting 簡報（放在一個私有 repo 裡，外部讀者讀不到）
+已成文，該簡報是本規則的正典來源。
 
 適用於**任何把 literal 接到 key 的判定**——`resolve-people`／`resolve-venues`／
 `resolve-organizations` 的 apply、`bootstrap-*` 的「這個 literal 是否已對應既有實體」、

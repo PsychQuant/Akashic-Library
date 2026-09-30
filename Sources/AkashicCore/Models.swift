@@ -1158,7 +1158,7 @@ extension Entry {
         return issues
     }
 
-    /// `pages` 欄位的形狀檢查（`kiki830621/storyline#7`）。
+    /// `pages` 欄位的形狀檢查（起因是一個私有下游 repo 的一張 issue，2026-08-21）。
     ///
     /// **不是零實例守衛**——三個形狀各有實測，所以不進 `zero-instance-guards` 的裁決表：
     ///

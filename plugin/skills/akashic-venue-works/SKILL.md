@@ -172,6 +172,6 @@ O(n) index rebuild → 全批 **O(n²)**（2026-09-01 實測每筆 2 → 6 秒�
 - 83/17 的摘要覆蓋、零歧義歸戶、攣生規模都是 Psychological Methods 的數字——**換一份刊
   要重量**，不當通則
 - 本次量測中 OpenAlex 的書目欄位（頁碼等）與 Crossref 一致可追溯——**這些欄位**不構成
-  獨立第二來源（`storyline#7` 教訓）；其他欄位的獨立性未量測，不宣稱
+  獨立第二來源（一個私有下游 repo 2026-08-21 頁碼事件的教訓）；其他欄位的獨立性未量測，不宣稱
 - 匯入的 authors 是 literal——歸戶是 `resolve-people`／`akashic-person-verify` 的後續，
   本 skill 不做身分判定（`identity-is-judged-not-matched`）

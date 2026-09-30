@@ -1,7 +1,7 @@
 import Foundation
 import AkashicCore
 
-/// 「哪個名字對外」的寫入核心——venue 的 `authorize`（#554）與 `unauthorize`（#559）、organization 的 `authorize`（#557）共用這一份。
+/// 「哪個名字對外」的寫入核心——venue 的 `authorize`（#554）與 `unauthorize`（#559）、organization 的 `authorize`／`unauthorize`（#557）共用這一份。
 ///
 /// venue 與 organization 的 `authorized` 是同一個問題（`AuthorizedNames` 的 doc：兩種實體不該有兩套答案），兩者都是從 `names` 時間軸裡
 /// 指定的頂層扁平清單，所以替換與撤回的語意只能有一份（`no-compat-fallback` §同一件事只能有一份描述）。person 不走這裡：它的 names
@@ -164,5 +164,24 @@ extension AkashicService {
         throw ServiceError.invalid(
             "「\(Self.listCapped(both) { displaySafeInvisible($0, max: 120) })」"
             + "同時被送進 authorize 與 unauthorize——那是兩句矛盾的話，請只說一句")
+    }
+}
+
+extension AkashicService {
+    /// 同一次呼叫兩個同 `WritingSystem` 的名字是兩句矛盾的話（#554 R1 verify 第 1 列，四席各自重現）：迴圈逐一處理時第 N+1 輪會把
+    /// 第 N 輪剛升上去的當舊指定移出——陣列順序決勝，而 `validateWritingSystems` 對這個形狀的裁決是「未決的問題，不是指定；請選一個」。
+    /// 桶依 rawValue 排序、全部衝突桶一次印、印呼叫端的原字串（R2 第 7 列、R3 第 14 列）。venue 與 organization 的入口共用（#557 從
+    /// `updateVenueArguments` 原樣搬出，訊息逐字不變）。
+    static func refuseSameScriptClash(_ authorizeIn: [String]) throws {
+        let clashes = Dictionary(grouping: authorizeIn, by: WritingSystem.of)
+            .filter { $0.value.count > 1 }
+            .sorted { $0.key.rawValue < $1.key.rawValue }
+        guard !clashes.isEmpty else { return }
+        let described = clashes.map { bucket in
+            "\(bucket.key.rawValue)：「\(Self.listCapped(bucket.value) { displaySafeInvisible($0, max: 120) })」"   // display-safe-exempt: WritingSystem.rawValue 是 enum 常數（han／latn／other），不是 store 字串；名字性質式（R32；R31 verify 第 2／8 列：私用區 Co 與合法 joiner 過得了名字驗證、列舉式不逃）
+        }.joined(separator: "；")
+        throw ServiceError.invalid(
+            "同一個書寫系統送了兩個以上的名字——" + described
+            + "——每書寫系統至多一個對外形，那是未決的問題，不是指定；請選一個")
     }
 }

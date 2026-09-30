@@ -99,6 +99,7 @@ struct AkashicCLI: ParsableCommand {
             // #304：venue 四能力（讀取 ×2 + 建檔 + 消歧）＋ migrate-venues；
             // MCP 對應面在同一 change 落表（mcp-cli-parity）
             VenueCmd.self, VenuesCmd.self, AddVenueCmd.self, UpdateVenueCmd.self, ResolveVenuesCmd.self,
+            UpdateOrganizationCmd.self,   // #557：organization 的 authorized 寫入面（MCP 對應 akashic_update_organization）
             MigrateVenues.self,
             RepairVenueNames.self,   // #575：venue 名字 canonical 形的機械修復（乾跑預設，CLI-only 維運例外）
             LiteralCensusCmd.self,   // #629：四域 literal 普查（原 literal-census.sh；唯讀，skill 的量測步驟）

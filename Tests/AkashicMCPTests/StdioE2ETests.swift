@@ -86,7 +86,7 @@ final class StdioE2ETests: XCTestCase {
         try send(["jsonrpc": "2.0", "id": 2, "method": "tools/list"])
         let listResponse = try readResponse()
         let tools = ((listResponse["result"] as? [String: Any])?["tools"] as? [[String: Any]]) ?? []
-        XCTAssertEqual(tools.count, 34)   // #664: + akashic_s2；#544: + akashic_update_entry；#586: + akashic_dismiss_divergence；#13/#14/#18/#77 歷次擴充；#76: + akashic_divergences；#68: + akashic_update_person；#290: + akashic_import_wos；#304: + venue×4 + org×2；#340: + akashic_enrich_from_zotero；#458: + akashic_enrich
+        XCTAssertEqual(tools.count, 35)   // #557: + akashic_update_organization；#664: + akashic_s2；#544: + akashic_update_entry；#586: + akashic_dismiss_divergence；#13/#14/#18/#77 歷次擴充；#76: + akashic_divergences；#68: + akashic_update_person；#290: + akashic_import_wos；#304: + venue×4 + org×2；#340: + akashic_enrich_from_zotero；#458: + akashic_enrich
         XCTAssertTrue(tools.contains { ($0["name"] as? String) == "akashic_enrich" })
         XCTAssertTrue(tools.contains { ($0["name"] as? String) == "akashic_record_divergence" })
         XCTAssertTrue(tools.contains { ($0["name"] as? String) == "akashic_import_wos" })
@@ -207,7 +207,7 @@ extension StdioE2ETests {
         try send(["jsonrpc": "2.0", "id": 8, "method": "tools/list", "params": [:]])
         let listResp = try readResponse()
         let tools = ((listResp["result"] as? [String: Any])?["tools"] as? [[String: Any]]) ?? []
-        XCTAssertEqual(tools.count, 34, "深度炸彈之後 server 必須照常服務：\(listResp)")
+        XCTAssertEqual(tools.count, 35, "深度炸彈之後 server 必須照常服務：\(listResp)")
         XCTAssertTrue(process.isRunning, "進程必須存活")
     }
 

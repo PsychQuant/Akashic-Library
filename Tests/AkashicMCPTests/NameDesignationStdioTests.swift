@@ -2,7 +2,7 @@ import XCTest
 @testable import AkashicCore
 @testable import AkashicStoreIO
 
-/// 名字分類面的 MCP 參數**經真 binary** 到得了服務層：`akashic_update_venue` 的 `unauthorize`（#559）。
+/// 名字分類面的 MCP 參數**經真 binary** 到得了服務層：`akashic_update_venue` 的 `unauthorize`（#559）、`akashic_update_organization`（#557）。
 /// 參數解析住在 server 的分派閉包裡（`argList`），服務層測不到它——分派漏接一個參數時，呼叫照樣回成功、什麼都沒做。
 ///
 /// spawn 模式同 `DepthGuardIdTests`；獨立一檔，免得與 `StdioE2ETests` 的 private helper 綁在一起。
@@ -28,6 +28,8 @@ final class NameDesignationStdioTests: XCTestCase {
         _ = try store.writeVenue(Venue(key: "some-journal", type: .periodical,
                                        names: Timeline([TemporalValue(value: "PSYCHOMETRIKA"), TemporalValue(value: "Psychometrika")]),
                                        authorized: ["Psychometrika"]))
+        try store.writeOrganization(Organization(key: "iss", names: Timeline([TemporalValue(value: "Institute of Statistical Science")]),
+                                                 id: UUID()))
         process = Process()
         process.executableURL = productsDirectory.appendingPathComponent("akashic-mcp")
         process.environment = ProcessInfo.processInfo.environment
@@ -90,5 +92,19 @@ final class NameDesignationStdioTests: XCTestCase {
         let v = try XCTUnwrap(try load().venues.first)
         XCTAssertEqual(v.authorized, [])
         XCTAssertEqual(Set(v.names.entries.map(\.value)), ["PSYCHOMETRIKA", "Psychometrika"])
+    }
+
+    /// #557：`akashic_update_organization` 是註冊過、分派得到的工具——`authorize` 與 `unauthorize` 都到得了服務層；不帶任何一個整批拒絕。
+    func testUpdateOrganizationReachesTheService() throws {
+        let nothing = try call(4, "akashic_update_organization", ["key": "iss"])
+        XCTAssertTrue(nothing.contains("沒有要改的"), nothing)
+
+        let out = try call(5, "akashic_update_organization", ["key": "iss", "authorize": ["Institute of Statistical Science"]])
+        XCTAssertTrue(out.contains("authorizedAdded"), out)
+        XCTAssertEqual(try load().organizations.first?.authorized, ["Institute of Statistical Science"])
+
+        let back = try call(6, "akashic_update_organization", ["key": "iss", "unauthorize": ["Institute of Statistical Science"]])
+        XCTAssertTrue(back.contains("authorizedWithdrawn"), back)
+        XCTAssertEqual(try load().organizations.first?.authorized, [])
     }
 }

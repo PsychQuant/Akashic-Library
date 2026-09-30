@@ -210,6 +210,15 @@ enum ToolPayloadScenarios {
             try $0.service.addOrganization(key: "new-org", names: ["New Org"], parentKey: "global-research-institute", note: "n",
                                            ror: "https://ror.org/05dxps055")
         },
+        // #557：authorize（含一個不在 names 的、一個空白項）與 unauthorize（先指定再撤回，含一個空白項）
+        PayloadScenario("akashic_update_organization", "authorize", params: ["key", "authorize"]) {
+            try $0.service.updateOrganization(key: "global-research-institute", authorize: ["GRI", " "])
+        },
+        PayloadScenario("akashic_update_organization", "unauthorize", params: ["key", "unauthorize"]) {
+            _ = try $0.service.updateOrganization(key: "global-research-institute", authorize: ["Global Research Institute"])
+            return try $0.service.updateOrganization(key: "global-research-institute", authorize: nil,
+                                                     unauthorize: ["Global Research Institute", " "])
+        },
     ]
 
     // MARK: - 歧異記錄

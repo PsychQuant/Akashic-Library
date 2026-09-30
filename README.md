@@ -47,7 +47,8 @@ AkashicKit（Package.swift）      核心 Swift package：八模組 + akashic CL
                                  rename / record-divergence（--prefers）/
                                  resolve-divergence（--override-reason）/
                                  authorize-names / fmt / library / file / migrate /
-                                 migrate-person-identity（#227/#241，dry-run 預設）
+                                 migrate-person-identity（#227/#241，dry-run 預設）/
+                                 update-organization（#557，organization 的對外名稱）
 
                                  **破壞性寫入的目標 store 須指名（#298）**：過閘的寫入
                                  若既未給 `--library` 也未給 `--yes`，**拒絕執行**，並在
@@ -506,7 +507,7 @@ store 永遠是全集——library 只是視角，成員關係存在 entry 的 `
 ⚠ 並發限制：對**同一 entry** 並發執行 membership 寫入（CLI 與 MCP 同時 `library add/remove`）
 不保證安全——read-modify-write 無跨程序鎖，後寫者可能靜默蓋掉先寫者（跨程序鎖為 #7
 store 硬化範疇）。`create` 為 exclusive-create（並發同 key 恰一方成功）。單一操作者依序使用不受影響。
-工具面：**34 tools**（2026-09-29 實測 `grep -oE 'Tool\(name: "akashic_[a-z0-9_]+"' Sources/akashic-mcp/Server.swift | sort -u | wc -l`——字元集要含數字，`akashic_s2` 有個 2；讀寫分類與逐格裁決見 `.claude/rules/mcp-cli-parity.md` 的封閉列舉——這裡不另列清單，列過的兩次都與 `Server.swift` 分岔）。
+工具面：**35 tools**（2026-10-01 實測，#557 加 `akashic_update_organization`；2026-09-29 是 34。量法 `grep -oE 'Tool\(name: "akashic_[a-z0-9_]+"' Sources/akashic-mcp/Server.swift | sort -u | wc -l`——字元集要含數字，`akashic_s2` 有個 2；讀寫分類與逐格裁決見 `.claude/rules/mcp-cli-parity.md` 的封閉列舉——這裡不另列清單，列過的兩次都與 `Server.swift` 分岔）。
 biblatex 面向唯讀——過渡期歸 Zotero pull 管。並發（MCP 與 CLI 並用）：per-file atomic
 write、last-wins、index 冪等重建（單人場景設計）。
 

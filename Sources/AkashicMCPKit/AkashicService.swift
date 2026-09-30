@@ -3744,7 +3744,8 @@ public final class AkashicService {
         return items.count > cap ? shown + "…（共 \(items.count) 項）" : shown   // display-safe-exempt: Int；shown 由 render 逐項消毒
     }
 
-    private static func vetVenueNamesReportingBlanks(_ raw: [String]?, parameter: String) throws -> (vetted: [String], blanks: [String]) {
+    /// #557 起 organization 的 `authorize`／`unauthorize` 也走它（入口的輸入檢查；organization 沒有 venue 那道 D8 的 store 不變式）。
+    static func vetVenueNamesReportingBlanks(_ raw: [String]?, parameter: String) throws -> (vetted: [String], blanks: [String]) {
         var seen = Set<String>()
         var out: [String] = []
         var bad: [String] = []
@@ -4061,22 +4062,9 @@ public final class AkashicService {
         // `add_variant` ＋ `unauthorize` 同一個名字**不是**矛盾：那是「它不是對外形、它是異寫」，呼叫端明說了兩件事（`authorize` 那邊的
         // 「呼叫端可以在同一次呼叫裡明說降成 variant」同一個立場）。
         try Self.refuseAuthorizeUnauthorizeOverlap(authorizeIn: authorizeIn, unauthorizeIn: unauthorizeIn)
-        // 同一次呼叫兩個同 `WritingSystem` 的名字也是兩句矛盾的話（R1 verify 第 1 列，
-        // 四席各自重現）：迴圈逐一處理時第 N+1 輪會把第 N 輪剛升上去的當舊指定移出——
-        // 陣列順序決勝，而 `validateWritingSystems` 對這個形狀的裁決是「未決的問題，
-        // 不是指定；請選一個」。桶依 rawValue 排序、全部衝突桶一次印、印呼叫端的原字串
-        // （R2 第 7 列、R3 第 14 列）。
-        let clashes = Dictionary(grouping: authorizeIn, by: WritingSystem.of)
-            .filter { $0.value.count > 1 }
-            .sorted { $0.key.rawValue < $1.key.rawValue }
-        if !clashes.isEmpty {
-            let described = clashes.map { bucket in
-                "\(bucket.key.rawValue)：「\(Self.listCapped(bucket.value) { displaySafeInvisible($0, max: 120) })」"   // display-safe-exempt: WritingSystem.rawValue 是 enum 常數（han／latn／other），不是 store 字串；名字性質式（R32；R31 verify 第 2／8 列：私用區 Co 與合法 joiner 過得了名字驗證、列舉式不逃）
-            }.joined(separator: "；")
-            throw ServiceError.invalid(
-                "同一個書寫系統送了兩個以上的名字——" + described
-                + "——每書寫系統至多一個對外形，那是未決的問題，不是指定；請選一個")
-        }
+        // 同一次呼叫兩個同 `WritingSystem` 的名字也是兩句矛盾的話（R1 verify 第 1 列；檢查住在
+        // `refuseSameScriptClash`，#557 起 organization 的入口共用）。
+        try Self.refuseSameScriptClash(authorizeIn)
         return UpdateVenueArguments(removeISSN: removals, namesIn: namesIn,
                                     variantsIn: variantsIn, variantBlanks: variantBlanks,
                                     authorizeIn: authorizeIn, authorizeBlanks: authorizeBlanks,

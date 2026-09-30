@@ -535,6 +535,9 @@ displayName(script) =
 
 **`authorized` 為選填。** 缺席合法，由 `doctor` 報告而非 `validate` 拒絕：修復所需的
 資訊（正確的對外名字）無法自動取得，設成錯誤等於把不可自動化的工作變成載入的前置條件。
+指定的寫入面：person 用 `authorize-names`，organization 用 `update-organization --authorize`（#557；在此之前
+organization 沒有任何寫入面，`doctor` 那一行修不掉），venue 用 `update-venue --authorize`（#554）；後兩者另有
+`--unauthorize` 撤回（#559），兩者共用同一份替換與撤回的邏輯。
 
 ### 時間軸段的 `attested`：某時點成立、起訖皆不明（normative，#70）
 

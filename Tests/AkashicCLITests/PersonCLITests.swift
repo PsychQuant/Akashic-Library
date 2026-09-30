@@ -243,6 +243,7 @@ final class PersonCLITests: XCTestCase {
             "CopyZoteroAttachmentsCommand.swift",   // #606
             "StoreSourceCommand.swift",
             "UpdateEntryCommand.swift",   // #544 update-entry
+            "UpdateOrganizationCommand.swift",   // #557 update-organization
             "UpdatePersonCommand.swift",
             "VenueCommand.swift",
         ]

@@ -42,6 +42,18 @@
 
 
 
+## #557 — 新工具 `akashic_update_organization`：organization 的對外名稱
+
+organization 的 `authorized` 在此之前沒有任何寫入面，`akashic_doctor` 的 `noAuthorizedName.organizations` 修不掉。新工具收 `key`（必填）與兩個字串陣列，語意與拒絕同 `akashic_update_venue` 的同名參數：
+
+- `authorize`：同書寫系統替換，被換下的名字留在 names；不在 names 的一併加入。
+- `unauthorize`：撤回現有的對外名稱，名字留在 names。
+- 兩個都沒給、key 有不只一筆記錄、找不到、同一次兩個同書寫系統的名字、同一個名字兩個都給、撤回的不是現有成員、被換下或撤回的名字被 `field: authorized` 的 reference 指著，整個呼叫拒絕、零寫入。
+- 回應鍵：`namesAdded`、`authorizedAdded`、`authorizedRemoved`、`alreadyAuthorized`、`authorizedRewritten`、`authorizeDropped`、`authorizedWithdrawn`、`unauthorizeDropped`、`authorizedTotal`。
+- 不留判定記錄；#564 已裁決要留，另案落地。
+
+CLI 對應 `akashic update-organization <key> --authorize … --unauthorize …`。
+
 ## #559 — `akashic_update_venue` 多一個 `unauthorize`：撤回對外形
 
 `authorize` 只能把對外形換成另一個名字；`unauthorize`（字串陣列）把現有的對外形移出 `authorized`，名字留在 `names`、不標 variant，記錄回到不作宣稱的狀態。再用 `authorize` 可指定回來。

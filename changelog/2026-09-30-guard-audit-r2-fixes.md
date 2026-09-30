@@ -38,6 +38,47 @@ R1 的三格只走到欄數（少一欄）、過期、列管三件事。拿掉�
 - `TriggerCoverage.swift` 的 doc comment 說機制的保留記在 `zero-instance-guards` 第 48 列，那是 ISSN 角色那一列（#587）。改成第 70 列。
 - 第 70 列的量測先前只有 `grep -cE '^[✗⊘] .*宣告 `'`，#690 之前的 binary、守衛以 rc=2 中止，都印 0。改成先存輸出、印 rc，再數 `✓` 行當正對照（2026-09-30：3），`✓` 是 0 時 `✗⊘` 的 0 不算數。第 70 列的理由欄補一句 R2 的處置，並寫明 `#<issue>` 只驗格式、不驗 issue 存在或仍開著。
 
+## #689：migrated-guard-control
+
+### 抽取與「認不出」的偵測分開（finding 2，Codex MEDIUM；10、18、23，LOW）
+
+R1 的「認不出的寫法要出聲」拿抽取那條 regex（binary 路徑後面恰好一個空格）去找漏網的呼叫。雙空格、TAB、續行、引號包住的 binary、變數、迴圈變數，兩邊都看不到：它們會執行，卻既不在名單裡、也不被報出來。
+
+- 抽取的分隔改成 `[ \t]+`：雙空格與 TAB 的呼叫進名單，被要求負控。
+- 偵測改成獨立找 `.build/debug/akashic-guards` 的每一處出現（只找路徑，不管後面接什麼），每一處都要落在一個被抽取認得的呼叫裡。例外只有兩個具名的形狀：`[ ! -x .build/debug/akashic-guards ]` 存在檢查，與整行只有一個 `echo "…"`、引號裡沒有 `$` 與反引號。`run-guards.sh` 今天恰好有這兩處，拿掉例外（N6）守衛對乾淨的 runner 報兩條問題。
+- 訊息改成「這一行有 `.build/debug/akashic-guards`，但抽取認不出它是哪一支守衛的呼叫」。
+- 負控格涵蓋雙空格、TAB、變數、引號、echo 之後的呼叫五種（見下表）。續行（`akashic-guards \` 換行接子命令）、迴圈裡的 `do .build/debug/akashic-guards "$g"`、獨立一行的 `.build/debug/akashic-guards "$g"` 三種只在副本裡手動驗過：rc=1，三行各一條「認不出」。沒有做成格子。
+
+### 受測對象與自我負控的豁免（finding 4，DA MEDIUM；17，LOW）
+
+DA 席在真實 harness 上做出四個掏空的形狀，全部 rc=0。這一輪不改設計（執行期的證據要另一個設計，另開 issue），只做兩個便宜的收緊，並把宣稱改成它實際做到的事：
+
+- 賦給變數的 argv 陣列字面（`let x = ["<g>"]`、`var x = [BIN, "<g>", …]`）要 `x` 在同一檔出現在執行的位置（`guardArgv: x`、`arguments = x`、`exec(x`）才算受測對象。擋下形狀 1（七處 `guardArgv: consistency` 全換掉、宣告留著）與形狀 2 的 `let _dead = ["<g>"]`。
+- 「自己就是負控」的豁免只給出現在對應表裡的 harness（以某支它宣告的守衛為受測對象），不再只看四個文字條件。擋下形狀 4 與 finding 17（守衛本體塞一段沒人呼叫的 `Process()` 與 binary 路徑）。沒被豁免、又長得像 harness 的守衛，訊息多一行說它為什麼不算。
+- 宣稱：`MigratedGuardControl.swift` 檔頭與 #689 的 changelog 原本寫「真的以它為受測對象」「宣告並執行它」，讀起來像驗了執行。改成「source 文字裡有執行它的寫法」，檔頭與 changelog 的誠實邊界逐一列出四個形狀的現況。
+
+仍然通過的兩個形狀（2026-09-30 在副本裡以這一輪的 binary 實測）：在另一支 harness 加 `// negative-control-for: trigger-coverage` 與一個沒人呼叫的 `func neverCalled() { _ = exec([BIN, "trigger-coverage"]) }`，刪掉 trigger-coverage 自己的負控之後 rc=0「無缺口」；`main.swift` 把 `case "trigger-coverage-mutations":` 的分派改成 `exit(0)`，rc=0。同一份副本裡改成 `let _dead = ["trigger-coverage"]`，rc=1，兩條（缺負控、宣告是空的）。
+
+### zero-instance-guards 第 71 列（finding 5，LOW）
+
+兩個出口（「宣告是空的」「抽取認不出」）今天都是零實例，依規則加第 71 列：理由欄寫它與第 21 列的差別（偵測不得與它要補的抽取共用失敗條件），「各列共通的東西」加一條 bullet，表下方加可重跑的量測。量測的第一行確認 binary 有這兩條檢查，要寫成 `LC_ALL=C grep -a -q`：macOS 的 `/usr/bin/grep` 在 UTF-8 locale 下對 binary 檔比不到中文字串，同一個 binary 以 `grep -a -c '抽取認不出'` 量，`LC_ALL=C` 印 3、不設印 0。第 13、15 列的量測用的是同一種 `grep -a -q` 寫法，可能有同一個問題，這一輪沒有去改。
+
+另一條 branch 也可能在同一個表加列；兩邊都加的話，merge 時其中一列要改號。
+
+### 新增的負控格
+
+`audit-guards-mutations` 從 68/68 到 75/75：
+
+| 格 | 注入 `run-guards.sh` 或 source | 預期 |
+|---|---|---|
+| 雙空格 | `.build/debug/akashic-guards  fake-ds-guard` | 被抽取認得，報它缺負控 |
+| TAB | `.build/debug/akashic-guards<TAB>fake-tab-guard` | 同上 |
+| 變數 | `G=.build/debug/akashic-guards; "$G" fake-var-guard` | 「抽取認不出」，指名那一行 |
+| 引號 | `".build/debug/akashic-guards" fake-quoted-guard` | 同上 |
+| echo 之後的呼叫 | `echo "probe"; .build/debug/akashic-guards fake-echo-guard` | 同上（不算 echo 的例外） |
+| 只剩變數宣告 | `PluginRootsMutations.swift` 的七處 `guardArgv: consistency,` 全換成別的守衛 | 「宣告是空的」 |
+| 守衛本體的死碼 | 刪掉 `network-confinement` 的負控（檔、分派、runner 那一行），在守衛本體加一段沒人呼叫的 `Process()` 與 binary 路徑 | 報 `network-confinement` 缺負控、說它不算自我負控 |
+
 ## 負對照（mutant）
 
 在暫存目錄複製 `Sources/akashic-guards/`、改一處、以 `swiftc -Onone` 編成另一支 binary，放進一份只含 harness 所需子樹的 repo 副本，在那裡跑 harness。工作樹不動：每個 mutant 的原始碼與工作樹以 `diff -rq` 比對，恰好只有被改的那一個檔不同。
@@ -53,9 +94,15 @@ R1 的三格只走到欄數（少一欄）、過期、列管三件事。拿掉�
 | M7 | 對不到宣告的條目也說「已經沒有缺口」 | 48/49，只有「樣式與宣告不同」失敗 |
 | M8 | 範圍檢查裡「workflow 有跑這支守衛」恆真 | 48/49，只有重建的 `ci.yml` 那格失敗（rc=0） |
 | M9 | 範圍檢查不看 `paths-ignore` | 48/49，只有重建的 `pull_request` 那格失敗（rc=0） |
+| N1 | 抽取的分隔改回一個空格 | 73/75，雙空格與 TAB 兩格失敗（改成被報「認不出」，而不是被要求負控） |
+| N2 | 偵測改回只看長得像呼叫的那些 | 72/75，變數與引號兩格失敗（rc=0），另有一條後設檢查：兩格的輸出逐字相同 |
+| N3 | echo 的例外放寬成「行首是 echo」 | 74/75，只有「echo 之後的呼叫」失敗（rc=0） |
+| N4 | 賦給變數的字面不看有沒有被用到 | 74/75，只有「只剩變數宣告」失敗（rc=0） |
+| N5 | 自我負控的豁免改回只看四個文字條件 | 74/75，只有「守衛本體的死碼」失敗（rc=0） |
+| N6 | 拿掉兩個具名例外 | 對乾淨的 `run-guards.sh` 直接跑 `migrated-guard-control`：rc=1，兩條「認不出」（`-x` 檢查與 echo 那兩行） |
 
 每個 mutant 都在它自己的副本裡；「還原」是工作樹本來就沒被改過，以 `diff -rq` 確認。
 
 **修正前的守衛跑新格**（同一個方法：把 `TriggerCoverage.swift` 與 `MigratedGuardControl.swift` 換回 `2e9d5c67` 的版本、資料檔用這一輪的）：
 `trigger-coverage-mutations` 46/49，紅的是「樣式與宣告不同」（訊息說「已經沒有缺口」）、「CRLF」「重複」；「第三欄不是 `#<issue>`」與「欄位空」兩格在修正前就綠——它們釘的是本來就在的條件（M1–M3 證明它們有用），不是新行為。
-（#689 那一半的新格見下一個 commit。）
+`audit-guards-mutations` 68/75，紅的是雙空格、TAB、變數、引號、只剩變數宣告、守衛本體的死碼六格，另一條是後設檢查（多格輸出逐字相同）；「echo 之後的呼叫」在修正前就綠——舊的偵測本來就抓得到它，這一格釘的是新加的 echo 例外沒有放寬（N3）。

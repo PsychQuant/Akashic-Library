@@ -76,6 +76,39 @@ let agmCases: [AGMCase] = [
     AGMCase(desc: "migrated：runner 用抽取認不出的寫法呼叫守衛", guardRel: "akashic-guards migrated-guard-control", edits: [
         AGMEdit(path: ".githooks/run-guards.sh", kind: "replaceFirst", a: ".build/debug/akashic-guards migrated-guard-control", b: "if ! .build/debug/akashic-guards fake-if-guard; then exit 1; fi\n.build/debug/akashic-guards migrated-guard-control"),
     ], expect: ["抽取認不出", "fake-if-guard"]),
+    // #689 R2 verify：抽取與「認不出」的偵測先前共用同一條只認一個空格的 regex，於是雙空格、TAB、變數、引號的呼叫
+    // 兩邊都看不到（logic、security、DA、Codex 四席）。現在分隔是任意個空白或 TAB，而偵測獨立找 binary 路徑的每一處出現。
+    // 雙空格與 TAB 要被**抽取**認得（進名單、被要求負控），不只是被報成認不出——所以預期的是缺負控那一句，不是「抽取認不出」。
+    AGMCase(desc: "migrated：runner 以雙空格呼叫一支沒有負控的守衛", guardRel: "akashic-guards migrated-guard-control", edits: [
+        AGMEdit(path: ".githooks/run-guards.sh", kind: "replaceFirst", a: ".build/debug/akashic-guards migrated-guard-control", b: ".build/debug/akashic-guards  fake-ds-guard\n.build/debug/akashic-guards migrated-guard-control"),
+    ], expect: ["`akashic-guards fake-ds-guard` 在 run-guards.sh 裡跑"]),
+    AGMCase(desc: "migrated：runner 以 TAB 呼叫一支沒有負控的守衛", guardRel: "akashic-guards migrated-guard-control", edits: [
+        AGMEdit(path: ".githooks/run-guards.sh", kind: "replaceFirst", a: ".build/debug/akashic-guards migrated-guard-control", b: ".build/debug/akashic-guards\tfake-tab-guard\n.build/debug/akashic-guards migrated-guard-control"),
+    ], expect: ["`akashic-guards fake-tab-guard` 在 run-guards.sh 裡跑"]),
+    // 變數與引號：抽取不認（不擴充語法），但 binary 路徑的那一處出現必須被報出來。
+    AGMCase(desc: "migrated：runner 經變數呼叫守衛", guardRel: "akashic-guards migrated-guard-control", edits: [
+        AGMEdit(path: ".githooks/run-guards.sh", kind: "replaceFirst", a: ".build/debug/akashic-guards migrated-guard-control", b: "G=.build/debug/akashic-guards; \"$G\" fake-var-guard\n.build/debug/akashic-guards migrated-guard-control"),
+    ], expect: ["抽取認不出", "fake-var-guard"]),
+    AGMCase(desc: "migrated：runner 以引號包住的 binary 呼叫守衛", guardRel: "akashic-guards migrated-guard-control", edits: [
+        AGMEdit(path: ".githooks/run-guards.sh", kind: "replaceFirst", a: ".build/debug/akashic-guards migrated-guard-control", b: "\".build/debug/akashic-guards\" fake-quoted-guard\n.build/debug/akashic-guards migrated-guard-control"),
+    ], expect: ["抽取認不出", "fake-quoted-guard"]),
+    // 兩個具名例外之一是「整行只有一個 echo」。echo 後面接一個真的呼叫，那一行不是例外。
+    AGMCase(desc: "migrated：echo 之後同一行呼叫守衛，不算 echo 的例外", guardRel: "akashic-guards migrated-guard-control", edits: [
+        AGMEdit(path: ".githooks/run-guards.sh", kind: "replaceFirst", a: ".build/debug/akashic-guards migrated-guard-control", b: "echo \"probe\"; .build/debug/akashic-guards fake-echo-guard\n.build/debug/akashic-guards migrated-guard-control"),
+    ], expect: ["抽取認不出", "fake-echo-guard"]),
+    // #689 R2 verify（DA 席）：case 表重構後只剩變數宣告。`let consistency = ["marketplace-consistency"]` 留著、七處
+    // `guardArgv: consistency` 全換成別的守衛——沒有任何 case 再跑它，上一版仍算數。
+    AGMCase(desc: "migrated：負控只剩變數宣告、沒有任何 case 用它", guardRel: "akashic-guards migrated-guard-control", edits: [
+        AGMEdit(path: "Sources/akashic-guards/PluginRootsMutations.swift", kind: "replaceAll", a: "guardArgv: consistency,", b: "guardArgv: [\"protected-ratchet\"],"),
+    ], expect: ["宣告是空的", "`plugin-roots-mutations` 宣告它是 `marketplace-consistency` 的負控"]),
+    // #689 R2 verify（security、DA 席）：「自己就是負控」的豁免先前只看四個文字條件。刪掉一支守衛的負控，再在守衛本體
+    // 塞一段沒人呼叫的 `Process()` 與 binary 路徑，它就被豁免。現在豁免要它宣告並以某支守衛為受測對象。
+    AGMCase(desc: "migrated：守衛本體塞死碼冒充自己就是負控", guardRel: "akashic-guards migrated-guard-control", edits: [
+        AGMEdit(path: "Sources/akashic-guards/NetworkConfinementMutations.swift", kind: "delete", a: "", b: ""),
+        AGMEdit(path: "Sources/akashic-guards/main.swift", kind: "replaceFirst", a: "case \"network-confinement-mutations\":", b: "case \"network-confinement-mutations-gone\":"),
+        AGMEdit(path: ".githooks/run-guards.sh", kind: "replaceFirst", a: ".build/debug/akashic-guards network-confinement-mutations\n", b: ""),
+        AGMEdit(path: "Sources/akashic-guards/NetworkConfinement.swift", kind: "replaceFirst", a: "import Foundation", b: "import Foundation\nfunc unusedNeverCalled() { let p = Process(); _ = p; _ = \".build/debug/akashic-guards\" }"),
+    ], expect: ["`akashic-guards network-confinement` 在 run-guards.sh 裡跑", "不算「自己就是負控」"]),
     // ── plugin-store-format-parity（#408／#629）：宣告的 store format 必須等於 `StoreVersion.supported` ──
     // 注入不寫死數字（寫死就是第三份副本）：在 `supported` 前面塞一個 `9`（`21` → `921`）、或在宣告的數字前塞一個 `9`，
     // 讓兩邊必然不等，而不必知道當下的版號。

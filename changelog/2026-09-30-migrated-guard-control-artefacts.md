@@ -54,7 +54,7 @@
 - 刪掉 `TriggerCoverageMutations.swift`、`TriggerCoverageMutationsData.swift`、`main.swift` 的分派與 `run-guards.sh` 那一行，仍印「無缺口」。`plugin-roots-mutations` 為了驗 plugin 根而跑 `trigger-coverage`，被算成它的負控。`plugin-roots` 同樣被 `rule-prose-guards-mutations`（只為了取根目錄清單而跑它）抵免。#689 的 Expected 是「刪掉某支守衛的 mutations 檔時，本守衛要失敗」，這對有第二個順帶提及者的守衛不成立。
 - `TriggerCoverageMutationsData.swift` 的檔頭是「本檔曾由腳本生成」，對不上「本檔由腳本生成」的標記，整檔走一般分支，於是它注入 runner 的 `.build/debug/akashic-guards plugin-store-format-parity` 被讀成 `trigger-coverage-mutations` 驗了那支守衛。把 `AuditGuardsMutationsData.swift` 裡那支守衛的六格改名後仍印「無缺口」。
 
-現在守衛有負控，要某支 harness **宣告**它、而且**以它為受測對象**：
+現在守衛有負控，要某支 harness **宣告**它、而且它的 source 文字裡有**執行它的寫法**（受測對象）。這是文字層的判定，認的是寫法、不是 harness 執行時真的跑了什麼（R2 verify 更正：這一句先前寫「以它為受測對象」，讀起來像驗了執行；見文末〈R2 verify 修正〉的誠實邊界）：
 
 - **宣告**：命名慣例 `<g>-mutations` 宣告 `<g>`；另外在 harness 的 source 寫一行從行首開始的 `// negative-control-for: <g>, <g>`。`audit-guards-mutations`（十支）、`decision-matrix-mutations`（`decision-matrix-drift`）、`oracle-precondition-control`（`audit-guards-mutations`）、`plugin-roots-mutations`（`marketplace-consistency`）各加了這一行。宣告的名字不在 `run-guards.sh` 裡跑是缺口。
 - **受測對象**：harness 自己 source 裡的 argv 陣列字面（第一個元素是守衛名，或 `[BIN, "<g>", …]`），以及資料檔的 `guardRel:`、`guardArgv:` 欄位。資料檔的注入內容（`a:`／`b:`／`old:`／`new:`／`expect:`）不算。「本檔由腳本生成」的標記不再用。
@@ -83,4 +83,23 @@
 ### 不修的
 
 - `main.swift` 若寫成 `case "a", "b":`，`isDispatched` 會判成沒有分派。方向是誤報（要求負控，看得見），`swiftGuards()` 用的也是同一條，不在這次改。
-- 誠實邊界不變：它驗的是「有一支會跑的 harness 宣告並執行它」，不是「那支 harness 有效」。受測對象的判定是文字層的，source 裡一個第一個元素恰好是守衛名、卻不是 argv 的陣列字面也會被當成受測對象；宣告這道閘在它前面。
+- 誠實邊界不變：它驗的是「有一支會跑的 harness 宣告並執行它」，不是「那支 harness 有效」。受測對象的判定是文字層的，source 裡一個第一個元素恰好是守衛名、卻不是 argv 的陣列字面也會被當成受測對象；宣告這道閘在它前面。（R2 verify 更正：「宣告並執行它」說過頭，應是「宣告它、source 裡有執行它的寫法」，見下節。）
+
+## R2 verify 修正（2026-09-30）
+
+六席。與本 issue 有關的：Codex 一個 MEDIUM（雙空格、TAB 的呼叫兩個檢查都看不到）、DA 一個 MEDIUM（「宣告＋受測對象」只是文字層）、另有五個 LOW。逐條處置、mutant 與結果見 `changelog/2026-09-30-guard-audit-r2-fixes.md`；這裡只記判準改了什麼與誠實邊界。
+
+- **抽取的分隔是任意個空白或 TAB**；「認不出」的偵測改成獨立找 `.build/debug/akashic-guards` 的每一處出現（只找路徑），每一處都要落在被抽取認得的呼叫裡，例外只有 `[ ! -x … ]` 存在檢查與整行只有一個 `echo "…"`（引號裡沒有 `$` 與反引號）。R1 的偵測與抽取共用同一條只認一個空格的 regex，兩個檢查共用一個失敗條件。
+- **賦給變數的 argv 陣列字面**（`let consistency = ["marketplace-consistency"]`）要那個變數在同一檔出現在執行的位置（`guardArgv: x`、`arguments = x`、`exec(x`）才算受測對象。
+- **「自己就是負控」的豁免**只給出現在對應表裡、以某支它宣告的守衛為受測對象的 harness，不再只看四個文字條件。
+
+### 誠實邊界（R2 起）
+
+本守衛認的是 **source 文字裡的執行寫法**，不是 harness 執行時實際跑了哪些守衛。DA 席在真實 harness 上做出四個掏空的形狀，現況：
+
+1. case 表重構後只剩變數宣告（七處 `guardArgv: consistency` 全換掉、`let consistency = [...]` 留著）——R2 起擋下。
+2. 在別的 harness 加 `// negative-control-for: <g>` 與一行死碼：`let _dead = ["<g>"]` 的形狀 R2 起擋下；寫成直接執行的字面（`_ = exec([BIN, "<g>"])`）放在沒人呼叫的函式裡**仍然通過**。
+3. `main.swift` 把 `case "<g>-mutations":` 的分派改成 `exit(0)`——**仍然通過**（`isDispatched` 只找 `case "…":` 字面）。
+4. 一般守衛在自己的 source 塞 `let p = Process()` 與一個含 binary 路徑的字串，被當成「自己就是負控」豁免——R2 起擋下。
+
+2 的後半與 3 要執行期的證據（每支 harness 印出它實際跑了哪些守衛、由本守衛比對），那是另一個設計，另開 issue 追蹤，不在本輪。

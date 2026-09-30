@@ -18,7 +18,8 @@
 // 一條記在散文裡的紀律擋不住這個——它要求人每次遷移都想起來，而我沒有。
 //
 // **判準**（#689 起；R1 verify 起改成「宣告＋受測對象」）：`run-guards.sh` 裡每個 `akashic-guards <sub>`，必須有一支
-// **負控 harness 宣告自己驗它、而且真的以它為受測對象**。
+// **負控 harness 宣告自己驗它、而且它的 source 文字裡有執行它的寫法**（受測對象）。**這是文字層的判定**：
+// 它認的是 source 裡的寫法，不是 harness 執行時真的跑了什麼（#689 R2 verify；四個掏空的形狀見本段下方〈誠實邊界〉）。
 //
 // 「是不是負控 harness」看它的實體，四件事都要成立：
 //   1. source 檔 `Sources/akashic-guards/<PascalCase>.swift` 存在（`swift-is-the-implementation-language`
@@ -32,13 +33,16 @@
 //   · source 裡一整行、從行首開始的 `// negative-control-for: <g>, <g>`（可以有多行）。宣告的名字不在 `run-guards.sh` 裡跑
 //     ——拼錯或守衛已退場——是缺口，不靜默忽略。
 //
-// **受測對象**（harness 實際跑的是誰）只認執行它的寫法，不認提到它的寫法：
+// **受測對象**（source 裡以什麼寫法執行誰）只認執行它的寫法，不認提到它的寫法：
 //   · harness 自己 source 裡的 argv 陣列字面——第一個元素是守衛名（`p.arguments = ["<g>"]`、`guardArgv: ["<g>", …]`），
-//     或第一個是 `BIN`、第二個是守衛名（`exec([BIN, "<g>", …])`）；
+//     或第一個是 `BIN`、第二個是守衛名（`exec([BIN, "<g>", …])`）。陣列字面若是賦給一個變數（`let x = ["<g>"]`），
+//     那個變數要在同一檔出現在執行的位置（`guardArgv: x`、`arguments = x`、`exec(x`）才算（#689 R2 verify：
+//     `plugin-roots-mutations` 把七處 `guardArgv: consistency` 全換掉，只剩宣告 `let consistency = [...]`，上一版照樣算數）；
 //   · 它的 `<PascalCase>Data.swift` 裡 case 的受測對象欄位：`guardRel: "akashic-guards <g>"`、`guardArgv: ["<g>", …]`。
 //     資料檔的其餘欄位（`a:`／`b:`／`old:`／`new:`／`expect:`）是注入內容，不算——那裡的守衛名是被塞進 copy 的字串，不是被執行的程式。
 //
-// 守衛算有負控＝某支 harness 宣告了它、而且以它為受測對象。只宣告不跑（宣告是空的）是缺口；只跑不宣告不算數。
+// 守衛算有負控＝某支 harness 宣告了它、而且以它為受測對象。只宣告而 source 裡沒有執行它的寫法（宣告是空的）是缺口；
+// 只跑不宣告不算數。
 //
 // **為什麼要宣告，不只看受測對象**（R1 verify 四席）：上一版把「某支 harness 的 source 提到守衛名」算成有負控。
 // `plugin-roots-mutations` 為了驗 plugin 根而跑 `trigger-coverage`，於是刪掉 `trigger-coverage` 自己那支 39 格的
@@ -57,15 +61,29 @@
 // 表。#433 Step 5 之後樹裡沒有 Python harness，而新判準要求負控在 `run-guards.sh` 裡以
 // `akashic-guards <sub>` 跑，Python 檔結構上不可能滿足——留著只是一條永遠空的分支。
 //
-// **「實際在跑」的抽取認不出的寫法要出聲**（R1 verify logic／security 席）：抽取只認行首（可縮排）與命令替換 `$(`。
-// `if ! … ; then`、`a && …`、`timeout 60 …` 這類寫法照樣會執行，卻不在名單裡、也就不被要求負控。所以剝註解後的
-// `run-guards.sh` 裡每一處 `.build/debug/akashic-guards <sub>` 都必須被抽取認得，認不得的那一處是缺口（逐處具名）。
-// 方向是誤報（例如一個 `echo` 裡的字串），看得見；不逐一擴充語法。
+// **「實際在跑」的抽取認不出的寫法要出聲**（R1 verify logic／security 席；R2 verify 改成獨立定位）：抽取只認行首（可縮排）與
+// 命令替換 `$(`，binary 路徑與子命令之間可以是任意個空白或 TAB。`if ! … ; then`、`a && …`、`timeout 60 …`、引號包住的 binary、
+// 變數（`G=.build/debug/akashic-guards; "$G" x`）、迴圈變數、續行這類寫法照樣會執行，卻不在名單裡、也就不被要求負控。
+// 所以剝註解後的 `run-guards.sh` 裡**每一處 `.build/debug/akashic-guards`**（只找路徑，不管後面接什麼）都必須落在一個被抽取
+// 認得的呼叫裡，否則是缺口（逐行具名）。例外只有兩個具名的形狀：`[ ! -x .build/debug/akashic-guards ]` 存在檢查，與整行只有
+// 一個 `echo "…"`、引號裡沒有 `$` 與反引號的訊息。R1 的版本拿同一條（只認單一空格的）regex 去找「漏掉的」，於是雙空格、TAB、
+// 變數這些寫法兩邊都看不到——兩個檢查共用一個失敗條件。方向是誤報，看得見；不逐一擴充語法。
 //
-// **誠實邊界**：它驗的是「有一支會跑的負控宣告了它、而且執行它」，不是「那個負控真的有效」。一個執行守衛卻不比對結果的
-// harness 照樣通過——本守衛擋的是**整個忘記**，不是**做錯**。後者由 harness 自己的 negative control 管。
-// 受測對象的判定是文字層的：source 裡一個第一個元素恰好是守衛名、卻不是 argv 的陣列字面，也會被當成受測對象；
-// 宣告這道閘在它前面，所以那只會讓一個**已宣告**的守衛被當成有跑。
+// **誠實邊界**：它驗的是「有一支會跑的負控宣告了它、而且 source 裡有執行它的寫法」，不是「那支負控執行時真的跑了它」，
+// 更不是「那個負控真的有效」。一個執行守衛卻不比對結果的 harness 照樣通過——本守衛擋的是**整個忘記**，不是**做錯**。
+// 後者由 harness 自己的 negative control 管。
+// 受測對象的判定是文字層的。R2 verify（DA 席）在真實 harness 上做出四個不需要惡意的掏空形狀，現況逐一寫出：
+//   1. case 表重構後只剩變數宣告（`let consistency = ["marketplace-consistency"]` 留著、七處 `guardArgv: consistency`
+//      全換掉）——**R2 起擋下**：宣告出來的變數要在執行的位置被用到才算；
+//   2. 在別的 harness 加 `// negative-control-for: <g>` 與一行死碼——`let _dead = ["<g>"]` 的形狀 **R2 起擋下**（同上），
+//      但寫成直接執行的字面（`_ = exec([BIN, "<g>"])`）放在一個沒人呼叫的函式裡**仍然通過**：函式有沒有被呼叫，文字層看不到；
+//   3. `main.swift` 把 `case "<g>-mutations": exit(…)` 改成 `exit(0)`——**仍然通過**：`isDispatched` 只找 `case "…":` 字面，
+//      不看分派到哪裡；
+//   4. 一支一般守衛在自己的 source 加 `let p = Process()` 與一個含 `.build/debug/akashic-guards` 的字串，就被當成
+//      「自己就是負控」豁免——**R2 起擋下**：豁免只給以某支它宣告的守衛為受測對象的 harness（同一條宣告＋受測對象的規則）。
+// 2 的後半與 3 要的是執行期的證據（harness 印出它實際跑了哪些守衛、由本守衛比對），那是另一個設計，另開 issue。
+// source 裡一個第一個元素恰好是守衛名、卻不是 argv 的陣列字面，也仍會被當成受測對象；宣告這道閘在它前面，
+// 所以那只會讓一個**已宣告**的守衛被當成有跑。
 //
 // **刻意不寫 `trigger-coverage: reads` 宣告**（#433 Step 5）：宣告存在的理由是補啟發式
 // 的漏（守衛用 glob 組路徑、basename 不逐字出現）。這支讀的是同目錄的 harness source，
@@ -92,7 +110,9 @@ func migratedGuardControl() -> Int32 {
     // 行首有縮排；只認行首的版本會讓它「實際在跑、卻不在被檢查的名單裡」——這支守衛要防的正是那個形狀。
     // **也認命令替換**（#689）：`plugin_roots=$(… plugin-roots)` 同樣是實際執行，只認行首時它不在名單裡。
     // 同一支守衛可以在多處被呼叫（`rule-prose-guards` 先跑一次完整版、再逐根跑 `--prose-only`），要去重再數。
-    let call = #"\.build/debug/akashic-guards ([a-z][a-z0-9-]*)"#
+    // binary 路徑與子命令之間是**任意個空白或 TAB**（#689 R2 verify：先前只認一個空格，雙空格與 TAB 的呼叫會執行、卻不在名單裡）。
+    let binPath = #"\.build/debug/akashic-guards"#
+    let call = binPath + #"[ \t]+([a-z][a-z0-9-]*)"#
     let recognizedCalls = matches(rg, #"(?m)(?:^[ \t]*|\$\()"# + call)
     var seenSubs = Set<String>()
     let executed = recognizedCalls.map { (rg as NSString).substring(with: $0.range(at: 1)) }
@@ -101,12 +121,19 @@ func migratedGuardControl() -> Int32 {
         print("✗ \(runner) 裡一個 `akashic-guards <子命令>` 都抽不到——抽取式與寫法脫節了")
         return 1
     }
-    // **認不出的寫法要出聲**（R1 verify）：每一處呼叫都必須被上面的抽取認得。以子命令名的位置對帳——
-    // 同一個位置在兩個 regex 裡是同一處呼叫。
-    let recognizedAt = Set(recognizedCalls.map { $0.range(at: 1).location })
-    let unrecognized = matches(rg, call).filter { !recognizedAt.contains($0.range(at: 1).location) }.map { m -> String in
-        let line = (rg as NSString).lineRange(for: m.range)
-        return (rg as NSString).substring(with: line).trimmingCharacters(in: .whitespacesAndNewlines)
+    // **認不出的寫法要出聲**（R1 verify；R2 verify 起獨立定位）：找的是 binary 路徑本身的每一處出現，不是「長得像呼叫」的那些
+    // ——後者與抽取共用同一條 regex，抽取認不出的寫法它也認不出（雙空格、TAB、變數、引號都是這樣漏掉的）。每一處出現都必須
+    // 落在一個被抽取認得的呼叫裡，或是下面兩個具名的例外之一。
+    let exemptShapes = [
+        #"\[[ \t]+(?:![ \t]+)?-x[ \t]+"# + binPath + #"[ \t]+\]"#,   // 存在檢查 `[ ! -x .build/debug/akashic-guards ]`
+        #"(?m)^[ \t]*echo[ \t]+"[^"$`\n]*"[ \t]*$"#,                    // 整行只有一個 echo，引號裡沒有 `$` 與反引號（不執行任何東西）
+    ]
+    let accounted = recognizedCalls.map { $0.range } + exemptShapes.flatMap { matches(rg, $0).map { $0.range } }
+    var unrecognized: [String] = []
+    for o in matches(rg, binPath) where !accounted.contains(where: { NSLocationInRange(o.range.location, $0) }) {
+        let line = (rg as NSString).substring(with: (rg as NSString).lineRange(for: o.range))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !unrecognized.contains(line) { unrecognized.append(line) }
     }
 
     let dispatch = codeOnly(dispatcher)
@@ -161,8 +188,16 @@ func migratedGuardControl() -> Int32 {
     func targets(of h: String) -> Set<String> {
         var out = Set<String>()
         let src = codeOnly(sourceOf(h))
-        for m in matches(src, #"\[\s*(?:BIN\s*,\s*)?"([a-z][a-z0-9-]*)""#) {
-            out.insert((src as NSString).substring(with: m.range(at: 1)))
+        let ns = src as NSString
+        // 陣列字面若是 `let x = [...]`／`var x = [...]`，group 1 是 `x`：它要在同一檔出現在執行的位置才算（#689 R2 verify）。
+        let literal = #"(?:\b(?:let|var)[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*(?::[^=\n]*)?=[ \t]*)?"#
+            + #"\[\s*(?:BIN\s*,\s*)?"([a-z][a-z0-9-]*)""#
+        for m in matches(src, literal) {
+            if m.range(at: 1).location != NSNotFound {
+                let v = NSRegularExpression.escapedPattern(for: ns.substring(with: m.range(at: 1)))
+                if matches(src, #"(?:guardArgv:|\barguments[ \t]*=|\bexec\()[ \t]*"# + v + #"\b"#).isEmpty { continue }
+            }
+            out.insert(ns.substring(with: m.range(at: 2)))
         }
         let data = dir + pascal(h) + "Data.swift"
         for f in [sourceOf(h)] + (fileExists(data) ? [data] : []) {
@@ -190,16 +225,20 @@ func migratedGuardControl() -> Int32 {
     // `oracle-precondition-control` 的存在正是「harness 也可能需要 meta 檢查」的實例（它執行
     // `audit-guards-mutations` 並驗那支 harness 自己的降級機制）。所以沒被任何東西驗的 harness
     // **印出來**，交人裁決要不要 meta-harness，只是不計入缺口。
+    // **豁免只給真的在當負控的 harness**（#689 R2 verify，security／DA 席）：上一版只看 `whyNotHarness`（四個文字條件），
+    // 一支一般守衛在 source 塞 `let p = Process()` 與一個含 binary 路徑的字串就被豁免。現在它要以某支它宣告的守衛為受測對象——
+    // 同一條「宣告＋受測對象」的規則，也就是它自己出現在上面的對應表裡。
+    let creditedHarnesses = Set(coverers.values.flatMap { $0 })
     let uncovered = executed.filter { coverers[$0] == nil }.sorted()
-    let selfControl = uncovered.filter { harnesses.contains($0) }
-    let missing = uncovered.filter { !harnesses.contains($0) }
+    let selfControl = uncovered.filter { creditedHarnesses.contains($0) }
+    let missing = uncovered.filter { !creditedHarnesses.contains($0) }
     print("══ 實際在跑的 Swift 守衛：\(executed.count) 支｜會跑的 negative-control harness：\(harnesses.count) 支 ══")
     // **把對應攤開來**：每支守衛由哪些 harness 宣告並執行。讓漏掉的那條在人眼前缺席，而不是只印一個總數。
     for s in executed.sorted() where coverers[s] != nil {
         print("  · `\(s)` ← \(coverers[s]!.sorted().joined(separator: "、"))")
     }
     for s in selfControl {
-        print("  ℹ `akashic-guards \(s)` 沒有負控，但它**自己就是**負控（source 裡執行別的守衛）"
+        print("  ℹ `akashic-guards \(s)` 沒有負控，但它**自己就是**負控（宣告並執行別的守衛）"
             + "——不計入缺口。要不要替它寫 meta-harness 是人的裁決"
             + "（`oracle-precondition-control` 就是那樣的一個實例）")
     }
@@ -217,13 +256,16 @@ func migratedGuardControl() -> Int32 {
         if let why = whyNotHarness(s),
            !fileExists(sourceOf(s)) || !isDispatched(s) || s.hasSuffix("-mutations") || s.hasSuffix("-control") {
             print("     它自己也不能算是別人的負控：\(why)。")
+        } else if whyNotHarness(s) == nil {
+            print("     它長得像負控（建 `Process` 並指向 `.build/debug/akashic-guards`），但沒有以任何它宣告的守衛為受測對象，"
+                + "所以也不算「自己就是負控」。")
         }
         print("     修法：寫一支 `<名字>-mutations`（source、main.swift 分派、run-guards.sh 三處都要有），"
             + "或在會跑的 harness 加執行它的 case，並在那支 harness 的 source 加一行 `// negative-control-for: \(s)`。")
     }
     for u in unrecognized {
-        problems.append("run-guards.sh 這一行呼叫了守衛，但抽取認不出它的寫法（只認行首與 `$(`）："
-            + "「\(u)」——改成獨立一行，或擴充抽取並補負控")
+        problems.append("run-guards.sh 這一行有 `.build/debug/akashic-guards`，但抽取認不出它是哪一支守衛的呼叫"
+            + "（只認行首與 `$(`、路徑後接空白與子命令名）：「\(u)」——改成獨立一行，或擴充抽取並補負控")
     }
     for p in problems { print("  ✗ \(p)") }
     if missing.isEmpty && problems.isEmpty {

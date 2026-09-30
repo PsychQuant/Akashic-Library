@@ -332,6 +332,29 @@ let triggerCoverageMutationCases: [TCMCase] = [
             (path: ".githooks/acknowledged-ci-gaps.txt", old: "# ── 條目從下一行開始 ──\n", new: "# ── 條目從下一行開始 ──\nSources/akashic-guards/NetworkConfinement.swift\tSources/*/*.swift\tTODO\nSources/akashic-guards/ZeroInstanceRowsAudit.swift\tSources/*/*.swift\tTODO\n"),
         ], expect: "格式不對",
         alsoExpect: ["NetworkConfinement.swift 宣告讀 `Sources/*/*.swift`：其中", "ZeroInstanceRowsAudit.swift 宣告讀 `Sources/*/*.swift`：其中"]),
+    // ── #710：issue 號本身的形狀 ─────────────────────────────────────────
+    // `\A#[0-9]+\z` 收 `#0`、`#0000` 與任意長的數字，「每一條附 issue 號」可以用占位字串滿足。現在 issue 號不得以 0 開頭、至多 7 位
+    // （2026-09-30 本 repo 最大的 issue 號是 710）。三格的形狀同上一格：兩條真的缺口、兩行寫同一個占位號——被收下就兩條都被放過（rc=0）。
+    // **一種占位一格，不合成一格**：`\A#(?:0|[1-9][0-9]{0,6})\z` 只收 `#0`、`\A#(?:0{2,}|[1-9][0-9]{0,6})\z` 只收 `#0000`，兩種改壞法
+    // 都寫得出來。合成一格（一行 `#0`、一行 `#0000`）時只有一行被收，rc 仍非 0、兩條訊息都在（`⊘` 行也含那段文字），那一格照綠。
+    TCMCase(isWarn: false, desc: "已知缺口清單的第三欄是 #0，缺口不得被放過",
+        edits: [
+            (path: ".github/workflows/census-parity.yml", old: "      - \"Sources/**\"\n", new: ""),
+            (path: ".githooks/acknowledged-ci-gaps.txt", old: "# ── 條目從下一行開始 ──\n", new: "# ── 條目從下一行開始 ──\nSources/akashic-guards/NetworkConfinement.swift\tSources/*/*.swift\t#0\nSources/akashic-guards/ZeroInstanceRowsAudit.swift\tSources/*/*.swift\t#0\n"),
+        ], expect: "格式不對",
+        alsoExpect: ["NetworkConfinement.swift 宣告讀 `Sources/*/*.swift`：其中", "ZeroInstanceRowsAudit.swift 宣告讀 `Sources/*/*.swift`：其中"]),
+    TCMCase(isWarn: false, desc: "已知缺口清單的第三欄是 #0000，缺口不得被放過",
+        edits: [
+            (path: ".github/workflows/census-parity.yml", old: "      - \"Sources/**\"\n", new: ""),
+            (path: ".githooks/acknowledged-ci-gaps.txt", old: "# ── 條目從下一行開始 ──\n", new: "# ── 條目從下一行開始 ──\nSources/akashic-guards/NetworkConfinement.swift\tSources/*/*.swift\t#0000\nSources/akashic-guards/ZeroInstanceRowsAudit.swift\tSources/*/*.swift\t#0000\n"),
+        ], expect: "格式不對",
+        alsoExpect: ["NetworkConfinement.swift 宣告讀 `Sources/*/*.swift`：其中", "ZeroInstanceRowsAudit.swift 宣告讀 `Sources/*/*.swift`：其中"]),
+    TCMCase(isWarn: false, desc: "已知缺口清單的第三欄是 8 位數的 issue 號，缺口不得被放過",
+        edits: [
+            (path: ".github/workflows/census-parity.yml", old: "      - \"Sources/**\"\n", new: ""),
+            (path: ".githooks/acknowledged-ci-gaps.txt", old: "# ── 條目從下一行開始 ──\n", new: "# ── 條目從下一行開始 ──\nSources/akashic-guards/NetworkConfinement.swift\tSources/*/*.swift\t#12345678\nSources/akashic-guards/ZeroInstanceRowsAudit.swift\tSources/*/*.swift\t#12345678\n"),
+        ], expect: "格式不對",
+        alsoExpect: ["NetworkConfinement.swift 宣告讀 `Sources/*/*.swift`：其中", "ZeroInstanceRowsAudit.swift 宣告讀 `Sources/*/*.swift`：其中"]),
     // 第一欄或第二欄是空的：兩行各缺一欄。任一個非空檢查拿掉，那一行被收下、報成「對不到任何宣告」——不在預期裡，第三段判準擋下。
     TCMCase(isWarn: false, desc: "已知缺口清單的第一欄或第二欄是空的",
         edits: [

@@ -360,6 +360,11 @@ func swiftGuards() -> [String] {   // #522：ProtectedInventory 也要用
 ///     先前第二條永遠命中不到，被報成「已經沒有缺口」——缺口其實還在，訊息叫人拿掉錯的東西）；
 ///   · 條目對不到任何宣告（守衛檔不在、或它沒有逐字宣告那個樣式）→ `fails`，訊息說對不到，不說「已經沒有缺口」。
 ///
+/// **issue 號的形狀**（#710）：`\A#[1-9][0-9]{0,6}\z`——不以 0 開頭、至多 7 位。先前的 `\A#[0-9]+\z` 收 `#0`、`#0000`
+/// 與任意長的數字，「每一條附 issue 號」可以用占位字串滿足。7 位是寬鬆的上限、不是量出來的界線（2026-09-30 本 repo
+/// 最大的 issue 號是 710，3 位）。**只驗形狀**：`#1`、`#999` 照收，issue 存不存在、還開不開著不查（守衛離線跑）——
+/// 那一半靠 `zero-instance-guards` 第 70 列的觸發條件。
+///
 /// **現在是空的**：#690 使用者裁決 A（2026-09-30）讓 `census-parity.yml` 的 `paths:` 涵蓋 `Sources/**`，原本兩條
 /// （`network-confinement`、`zero-instance-rows-audit` 都宣告讀 `Sources/*/*.swift`）隨之消失。機制留著：日後出現一個
 /// 有 issue 追蹤、暫時補不了的缺口時才加一條（`zero-instance-guards` 第 70 列）。
@@ -380,8 +385,8 @@ func acknowledgedCIGaps() -> (entries: [(guardFile: String, pattern: String, iss
         let line = raw.trimmingCharacters(in: .whitespaces)
         if line.isEmpty || line.hasPrefix("#") { continue }
         let f = raw.components(separatedBy: "\t")
-        guard f.count == 3, !f[0].isEmpty, !f[1].isEmpty, !matches(f[2], #"\A#[0-9]+\z"#).isEmpty else {
-            bad.append("\(acknowledgedCIGapsFile) 第 \(i + 1) 行格式不對（要三欄、TAB 分隔、第三欄是 #<issue>）：「\(raw)」")
+        guard f.count == 3, !f[0].isEmpty, !f[1].isEmpty, !matches(f[2], #"\A#[1-9][0-9]{0,6}\z"#).isEmpty else {
+            bad.append("\(acknowledgedCIGapsFile) 第 \(i + 1) 行格式不對（要三欄、TAB 分隔、第三欄是 #<issue>：不以 0 開頭、至多 7 位）：「\(raw)」")
             continue
         }
         let key = f[0] + "\t" + f[1]

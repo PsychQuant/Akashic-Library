@@ -5,6 +5,7 @@
 #
 # 一行一條，三欄以 TAB 分隔：<守衛的 repo 相對路徑> <它宣告的樣式> #<追蹤的 issue 號>
 # 例：Sources/akashic-guards/NetworkConfinement.swift<TAB>Sources/*/*.swift<TAB>#690
+# issue 號不以 0 開頭、至多 7 位（#710）：`#0`、`#0000` 這類占位是格式不對。只驗形狀，不查 issue 存不存在。
 # 以 # 開頭的行與空行略過。
 #
 # 列在這裡的缺口照樣印出來（⊘），不計入 rc。列了、但缺口已經不在（例如 workflow 的 paths 補上了）→ 守衛失敗，

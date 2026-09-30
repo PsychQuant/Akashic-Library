@@ -395,7 +395,8 @@ struct ImportZotero: ParsableCommand {
         }
         // R6（M9）：per-item 寫入失敗不中斷 import——照實列出，人工處理
         if !report.writeFailed.isEmpty {
-            print("write failed（單筆寫入失敗，已略過續跑）: \(report.writeFailed.count)")
+            // #702 R1 verify：「legacy 檔沒刪掉」那一種寫了（訊息開頭是「已寫入」），不是略過
+            print("write failed（單筆寫入擲錯，續跑；訊息開頭是「已寫入」的那幾筆寫了、只是留下兩份）: \(report.writeFailed.count)")
             for key in report.writeFailed.keys.sorted() {
                 print("  ✗ \(displaySafe(key, max: 200)) — \(displaySafeClipOnly(report.writeFailed[key]!, max: 4_096))")   // display-safe-exempt: 已消毒（ZoteroImporter 由 displaySafeError 產出，R29 D81），只截
             }

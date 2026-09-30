@@ -28,6 +28,11 @@ public enum StoreIOError: Error, LocalizedError, Equatable, SanitizedErrorDescri
     /// #631 R2：legacy 檔只有一份、照理該搬移，但它**不能安全地刪**——key 不合法或與預期不符（load 會隔離它，
     /// 它不是這次寫入內容的來源），或不受 git 追蹤／有未 commit 的修改（刪了就回不來）。`why` 在擲出端已消毒。
     case legacyCopyUnmovable(file: String, why: String)
+    /// #631 的搬移**寫入之後**刪 legacy 檔失敗：內容已經在 `entities/<id>.yaml`，legacy 檔還在——同一筆記錄現在有兩份。
+    /// 與上面兩格不同，這一格**寫了**：呼叫端要分得出「寫了、但留下兩份」與「沒寫」（#702 R1 verify：import-zotero 把它當成
+    /// 沒寫，於是作者覆寫、欄位拿掉都沒記，而磁碟上已經改了）。`file` 是 legacy 檔的相對路徑（含 key，描述端消毒）；
+    /// `detail` 在擲出端已消毒。
+    case legacyCopyNotRemoved(id: UUID, file: String, detail: String)
 
     /// `verdictsAlreadyAtTarget` 每行的截斷上限＝CLI sink `displaySafeAssembled` 的逐行預設（400）減去 `displaySafe` 的截斷標記長度——
     /// 截過的行連標記一起 ≤ 400，sink 不會再截一次（R22 verify 第 23 列：兩次截讓標記落在 `\u{` 中途）。
@@ -72,6 +77,9 @@ public enum StoreIOError: Error, LocalizedError, Equatable, SanitizedErrorDescri
         case let .legacyCopyUnmovable(file, why):
             return "legacy \(displaySafeInvisible(file, max: 300)) 只有一份、寫入時照理要搬進 entities/，但它不能安全地刪："
                  + displaySafeClipOnly(why, max: 600) + "——拒絕寫入，檔案不動（#631）"   // display-safe-exempt: why 已消毒（擲出端），只截
+        case let .legacyCopyNotRemoved(id, file, detail):
+            return "已寫入 entities/\(id.uuidString).yaml，但搬移來源 legacy \(displaySafeInvisible(file, max: 300)) 沒刪掉：\(displaySafeClipOnly(detail, max: 600))"   // display-safe-exempt: id.uuidString：detail 已消毒（擲出端），只截
+                 + "——同一筆記錄現在有兩份，load 會把它標成無法唯一定位。確認 entities/ 那份是新的之後刪掉 legacy 那份（#631、#702）"
         case .invalidKey(let kind, let value):
             // #142：value 是 caller 剛送進來的畸形 key——原始 ESC/bidi 位元組經
             // MCP error 直達 LLM context；kind 是程式字面量
@@ -833,8 +841,18 @@ public final class LibraryStore {
     public func writeEntry(_ entry: Entry) throws -> URL {
         let w = try plannedWrite(entry)
         try atomicWrite(w.yaml, to: w.dest)
-        if let moveFrom = w.moveFrom { try FileManager.default.removeItem(at: moveFrom) }   // #631：搬移完成
+        if let moveFrom = w.moveFrom { try removeMovedLegacy(moveFrom, id: entry.id) }   // #631：搬移完成
         return w.dest
+    }
+
+    /// #631 的搬移在寫入**之後**刪 legacy 檔。刪不掉時內容已經寫進去了——擲 `legacyCopyNotRemoved`，不擲 Foundation 的
+    /// 原始錯誤：後者讓呼叫端以為這一筆沒寫（#702 R1 verify）。
+    func removeMovedLegacy(_ moveFrom: URL, id: UUID) throws {
+        do { try FileManager.default.removeItem(at: moveFrom) } catch {
+            throw StoreIOError.legacyCopyNotRemoved(
+                id: id, file: moveFrom.deletingLastPathComponent().lastPathComponent + "/" + moveFrom.lastPathComponent,
+                detail: displaySafeError(error, max: 400))
+        }
     }
 
     /// #648：`writeEntry` 在寫入當下跑的每一道（store root、內容閘、#631 目的檔、encode 含讀取上限），不寫任何東西。
@@ -1203,7 +1221,7 @@ public final class LibraryStore {
     public func writePerson(_ person: Person) throws -> URL {
         let w = try plannedWrite(person)
         try atomicWrite(w.yaml, to: w.dest)
-        if let moveFrom = w.moveFrom { try FileManager.default.removeItem(at: moveFrom) }   // #631：搬移完成
+        if let moveFrom = w.moveFrom { try removeMovedLegacy(moveFrom, id: person.id) }   // #631：搬移完成
         return w.dest
     }
 

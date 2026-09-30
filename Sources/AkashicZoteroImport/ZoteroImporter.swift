@@ -56,6 +56,8 @@ public struct ImportReport: Equatable {
     /// 以**正規化後的原名**入庫的欄位（無 canonical 對照）。
         /// #206 之前這叫 `droppedFields` 且真的丟掉；現在會入庫，名字跟著改，
         /// 否則報告會說謊（verify H2）。
+        /// **計數的時機是讀進每個 Zotero 條目時**，不論這一趟有沒有寫（含未變動、被多筆宣稱而略過、寫入失敗的條目）——
+        /// 它說的是「讀到的條目帶哪些未對映欄位」，對寫入失敗的那一筆「入庫」兩個字不成立（#702 R1 verify）。
         public var residualFields: [String: Int] = [:]
         /// pull 覆寫掉的**未歸戶** literal 作者（#208）。已歸戶的 `.key` 走
         /// `authorsPreserved`，永不被覆寫。只記寫入成功的那一筆——寫不進去的只在 `writeFailed`／`quarantineConflicts`（#702）。
@@ -68,6 +70,9 @@ public struct ImportReport: Equatable {
     /// 寫入時 encode/寫檔擲錯的 citekeys → 錯誤描述（R6 M9：encode 自 v1.3 起
     /// 可 throw——canary fail-closed；per-item 隔離，單筆失敗不中斷整趟 import、
     /// 不留半套用狀態，index 照常 rebuild）。
+    /// **一個例外寫了**（#702 R1 verify）：內容已寫進 `entities/`、只有 #631 搬移後的 legacy 檔沒刪掉
+    /// （`StoreIOError.legacyCopyNotRemoved`）。那一筆同時照寫入成功記在 `updated`、`authorsOverwritten` 等清單，
+    /// 這裡的訊息說明它留下兩份。
     public var writeFailed: [String: String] = [:]
     /// date 無法正規化、保留原字串的 citekeys（#2）。
     public var unnormalizedDates: [String] = []
@@ -188,6 +193,15 @@ public struct ZoteroImporter {
                 try store.writeEntry(entry)
                 current[entry.id] = entry
                 return true
+            } catch let e as StoreIOError {
+                report.writeFailed[entry.citekey] = displaySafeError(e, max: 4_096)
+                // #702 R1 verify：#631 的搬移寫完之後刪 legacy 檔失敗——內容**已經寫進去**，只是留下兩份。這一筆照寫入成功記
+                // （作者覆寫、欄位拿掉都真的發生了），留下兩份的事實在 writeFailed 的訊息裡。
+                if case .legacyCopyNotRemoved = e {
+                    current[entry.id] = entry
+                    return true
+                }
+                return false
             } catch {
                 report.writeFailed[entry.citekey] = displaySafeError(error, max: 4_096)
                 return false

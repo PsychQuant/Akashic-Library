@@ -44,7 +44,7 @@
 
 ## #702 — `akashic_import_zotero` 的三個清單只記寫進去的那一筆
 
-`authorsPreserved`、`authorsOverwritten`、`fieldsRemovedByPull` 改成寫入成功之後才記。先前目的檔被隔離或寫入失敗的那一筆，也會出現在這三個清單裡，但它沒有寫。現在它只在 `quarantineConflicts` 或 `writeFailed` 裡。鍵名與形狀不變。
+`authorsPreserved`、`authorsOverwritten`、`fieldsRemovedByPull` 改成寫入成功之後才記。先前目的檔被隔離或寫入失敗的那一筆，也會出現在這三個清單裡，但它沒有寫。現在它只在 `quarantineConflicts` 或 `writeFailed` 裡。鍵名與形狀不變。一個例外：內容已寫進 `entities/`、只有搬移後的 legacy 檔沒刪掉時，那一筆寫了，照常在各清單，`writeFailed` 的訊息以「已寫入」開頭、說明留下兩份。
 
 ## #608、#694、#696 — `akashic_import_zotero` 的回應形狀改變
 

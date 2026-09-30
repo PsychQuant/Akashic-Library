@@ -31,7 +31,8 @@ public enum StoreIOError: Error, LocalizedError, Equatable, SanitizedErrorDescri
     /// #631 的搬移**寫入之後**刪 legacy 檔失敗：內容已經在 `entities/<id>.yaml`，legacy 檔還在——同一筆記錄現在有兩份。
     /// 與上面兩格不同，這一格**寫了**：呼叫端要分得出「寫了、但留下兩份」與「沒寫」（#702 R1 verify：import-zotero 把它當成
     /// 沒寫，於是作者覆寫、欄位拿掉都沒記，而磁碟上已經改了）。`file` 是 legacy 檔的相對路徑（含 key，描述端消毒）；
-    /// `detail` 在擲出端已消毒。
+    /// `detail` 在擲出端已消毒。**只在收集範圍外擲出**（#705）：回報面開的範圍裡，同一件事記成 `LegacyCopyLeft`、寫入照常回傳，
+    /// 回報面把它列在成功那一側的 `writtenWithLegacyCopy`。
     case legacyCopyNotRemoved(id: UUID, file: String, detail: String)
 
     /// `verdictsAlreadyAtTarget` 每行的截斷上限＝CLI sink `displaySafeAssembled` 的逐行預設（400）減去 `displaySafe` 的截斷標記長度——
@@ -841,18 +842,35 @@ public final class LibraryStore {
     public func writeEntry(_ entry: Entry) throws -> URL {
         let w = try plannedWrite(entry)
         try atomicWrite(w.yaml, to: w.dest)
-        if let moveFrom = w.moveFrom { try removeMovedLegacy(moveFrom, id: entry.id) }   // #631：搬移完成
+        if let moveFrom = w.moveFrom { try removeMovedLegacy(moveFrom, kind: .work, key: entry.citekey, id: entry.id) }   // #631：搬移完成
         return w.dest
     }
 
-    /// #631 的搬移在寫入**之後**刪 legacy 檔。刪不掉時內容已經寫進去了——擲 `legacyCopyNotRemoved`，不擲 Foundation 的
-    /// 原始錯誤：後者讓呼叫端以為這一筆沒寫（#702 R1 verify）。
-    func removeMovedLegacy(_ moveFrom: URL, id: UUID) throws {
-        do { try FileManager.default.removeItem(at: moveFrom) } catch {
-            throw StoreIOError.legacyCopyNotRemoved(
-                id: id, file: moveFrom.deletingLastPathComponent().lastPathComponent + "/" + moveFrom.lastPathComponent,
-                detail: displaySafeError(error, max: 400))
+    /// #631 的搬移在寫入**之後**刪 legacy 檔。刪不掉時內容已經寫進去了：
+    /// - 在收集範圍裡（`LegacyCopyLedger.collecting`，回報面開的）→ 記下這一筆、照常回傳——它寫了，記在成功那一側（#705）；
+    /// - 範圍外 → 擲 `legacyCopyNotRemoved`，不擲 Foundation 的原始錯誤：後者讓呼叫端以為這一筆沒寫（#702 R1 verify）。
+    ///
+    /// 刪除時它**已經不在**（別的程序先刪了）不算失敗：搬移要的終態就是它不在，而「同一筆記錄現在有兩份」對這一格是假話
+    /// （#702 R2 verify）。只認「沒有這個檔」這一種錯誤碼——權限不足時檔案還在，照上面處理。
+    func removeMovedLegacy(_ moveFrom: URL, kind: LegacyCopyLeft.Kind, key: String, id: UUID) throws {
+        do { try FileManager.default.removeItem(at: moveFrom) } catch where Self.isNoSuchFile(error) {
+            return
+        } catch {
+            let legacyFile = moveFrom.deletingLastPathComponent().lastPathComponent + "/" + moveFrom.lastPathComponent
+            if LegacyCopyLedger.recordIfCollecting(LegacyCopyLeft(
+                kind: kind, key: key, id: id, legacyFile: legacyFile, detail: displaySafeError(error, max: 400))) { return }
+            throw StoreIOError.legacyCopyNotRemoved(id: id, file: legacyFile, detail: displaySafeError(error, max: 400))
         }
+    }
+
+    /// `removeItem` 的「沒有這個檔」：Foundation 回 `NSFileNoSuchFileError`（底下是 POSIX `ENOENT`），也可能直接是 POSIX 的。
+    static func isNoSuchFile(_ error: Error) -> Bool {
+        let ns = error as NSError
+        if ns.domain == NSCocoaErrorDomain, ns.code == NSFileNoSuchFileError { return true }
+        if ns.domain == NSPOSIXErrorDomain, ns.code == Int(ENOENT) { return true }
+        if let underlying = ns.userInfo[NSUnderlyingErrorKey] as? NSError,
+           underlying.domain == NSPOSIXErrorDomain, underlying.code == Int(ENOENT) { return true }
+        return false
     }
 
     /// #648：`writeEntry` 在寫入當下跑的每一道（store root、內容閘、#631 目的檔、encode 含讀取上限），不寫任何東西。
@@ -1221,7 +1239,7 @@ public final class LibraryStore {
     public func writePerson(_ person: Person) throws -> URL {
         let w = try plannedWrite(person)
         try atomicWrite(w.yaml, to: w.dest)
-        if let moveFrom = w.moveFrom { try removeMovedLegacy(moveFrom, id: person.id) }   // #631：搬移完成
+        if let moveFrom = w.moveFrom { try removeMovedLegacy(moveFrom, kind: .person, key: person.key, id: person.id) }   // #631：搬移完成
         return w.dest
     }
 

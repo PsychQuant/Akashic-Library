@@ -56,7 +56,9 @@ enum ToolPayloadKeyCheck {
 ///
 /// **這一組測試沒有涵蓋的腿**（守衛的誠實邊界）：
 /// - 只在特定 store 狀態出現的鍵：`akashic_doctor` 的 `layoutResidue`、`sourcesAuditError`；`akashic_import_zotero` 的
-///   `authorsPreserved`、`quarantineConflicts`、`writeFailed`；各寫入工具在 I/O 失敗時的 `writeFailed`、`skipped` 等。
+///   `authorsPreserved`、`quarantineConflicts`、`writeFailed`；各寫入工具在 I/O 失敗時的 `writeFailed`、`skipped` 等；
+///   #705 起 13 個寫入工具在搬移後的 legacy 拷貝刪不掉時的 `writtenWithLegacyCopy`（分派層加上，說明是同一個常數
+///   `legacyCopyNote`；接線由 `StdioE2ETests.testLegacyCopyLeftIsReportedOnTheSuccessSide` 走真 binary 釘住）。
 /// - `akashic_files` 的 `use`（切換 session 的 active store，需要 registry）。
 /// - 錯誤回應（`isError`）：那是訊息文字，不是 payload。
 /// - **物件裡的巢狀鍵**（#672 R1 verify 第 4／13／22 列）：`PayloadShape.of` 只取物件的頂層鍵（整個回應是陣列時取元素鍵），物件底下的陣列或物件

@@ -58,8 +58,12 @@ struct EnrichCmd: ParsableCommand {
                                      environment: ProcessInfo.processInfo.environment)
         let payload: String
         do {
-            payload = try service.enrich(proposals: proposals, dryRun: !apply,
-                                         includeAbsentAuthors: includeAbsentAuthors, itemLimit: nil)
+            let enrich = {
+                try service.enrich(proposals: proposals, dryRun: !apply,
+                                   includeAbsentAuthors: includeAbsentAuthors, itemLimit: nil)
+            }
+            // #705：`--json` 時 writtenWithLegacyCopy 進這份 JSON；人可讀輸出由 CLI 進入點印在末尾
+            payload = json ? try LegacyCopyReport.payload(enrich) : try enrich()
         } catch let e as ServiceError {
             throw RuntimeFailure.state(displaySafeErrorText(e))   // display-safe-exempt: 逃一次不截——CLI 頂層 sink（displaySafeAssembled）截一次（R30 D82；R29 這裡先截 400、頂層再截 400）
         }

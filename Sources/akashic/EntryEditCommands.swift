@@ -42,7 +42,7 @@ struct LinkCmd: ParsableCommand {
         // 已註冊 store 的 root 長出第二份 index
         let service = AkashicService(root: store.root, key: store.key,
                                      environment: ProcessInfo.processInfo.environment)
-        print(try service.link(citekey: citekey, kind: kind, add: add, remove: remove))
+        print(try LegacyCopyReport.payload { try service.link(citekey: citekey, kind: kind, add: add, remove: remove) })   // #705
     }
 }
 
@@ -69,7 +69,7 @@ struct TagCmd: ParsableCommand {
         let store = try options.openStore()
         let service = AkashicService(root: store.root, key: store.key,
                                      environment: ProcessInfo.processInfo.environment)
-        print(try service.tag(citekey: citekey, add: add, remove: remove))
+        print(try LegacyCopyReport.payload { try service.tag(citekey: citekey, add: add, remove: remove) })   // #705
     }
 }
 
@@ -97,6 +97,6 @@ struct SetStatusCmd: ParsableCommand {
         let store = try options.openStore()
         let service = AkashicService(root: store.root, key: store.key,
                                      environment: ProcessInfo.processInfo.environment)
-        print(try service.setStatus(citekey: citekey, status: status, clear: clear))
+        print(try LegacyCopyReport.payload { try service.setStatus(citekey: citekey, status: status, clear: clear) })   // #705
     }
 }

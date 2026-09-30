@@ -703,7 +703,7 @@ final class SanitizationBoundaryTests: XCTestCase {
             ("Sources/akashic/Commands.swift", "throw RuntimeFailure.state(displaySafeErrorText(error))", 1),
             ("Sources/akashic/CLI.swift", "throw RuntimeFailure.state(displaySafeErrorText(error))", 1),
             ("Sources/akashic/EnrichCommand.swift", "throw RuntimeFailure.state(displaySafeErrorText(e))", 1),
-            ("Sources/AkashicZoteroImport/ZoteroImporter.swift", "report.writeFailed[entry.citekey] = displaySafeError(error, max: 4_096)", 1),
+            ("Sources/AkashicZoteroImport/ZoteroImporter.swift", "recordWriteFailure(entry.citekey, displaySafeError(error, max: 4_096), report: &report)", 1),   // #702 R2 verify：同一筆多步失敗時附加不覆寫
             ("Sources/akashic/EnrichFromZoteroCommand.swift", "failed[a.citekey] = displaySafeError(error, max: 4_096)", 1),
             ("Sources/AkashicStoreIO/PersonIdentityMigration.swift", "let reason = displaySafeError(error, max: 4_096)", 4),
             ("Sources/AkashicStoreIO/ProvenanceMigration.swift", "reason: displaySafeError(error, max: 4_096)", 2),

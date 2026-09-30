@@ -854,3 +854,73 @@ extension StdioE2ETests {
         XCTAssertTrue(notFound.contains("沒有") && notFound.contains("Sankhya Old"), "定位不到要具名並列出現有的名字：\(notFound)")
     }
 }
+
+/// #705：寫進 `entities/`、搬移後的 legacy 拷貝沒刪掉的那一筆——工具分派的收集範圍把它附進回應。**必須經真 binary**：
+/// 範圍與附上都在 `Server.swift` 的分派裡，服務層的測試（`WrittenWithLegacyCopyTests`）只能照同一個順序重演，證不到接線。
+extension StdioE2ETests {
+    /// legacy 檔受 git 追蹤、乾淨（寫入時會搬移它），所在目錄唯讀——刪除必然失敗。以 root 執行時造不出來，skip。
+    private func lockAfterCommit(_ dir: URL) throws {
+        StoreGitCommit.commitAll(root)
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: dir.path)
+        let probe = dir.appendingPathComponent("probe-\(UUID().uuidString)")
+        if FileManager.default.createFile(atPath: probe.path, contents: Data()) {
+            try? FileManager.default.removeItem(at: probe)
+            throw XCTSkip("這個環境的權限擋不住刪檔（以 root 執行？），造不出「寫完之後刪 legacy 失敗」")
+        }
+    }
+
+    /// 成功的回應：鍵在 JSON 物件裡，不在 writeFailed。person 的兩份不擋 index 重建（#670），所以這一格是成功回應。
+    func testLegacyCopyLeftIsReportedOnTheSuccessSide() throws {
+        let store = LibraryStore(root: root)
+        try FileManager.default.createDirectory(at: store.peopleDir, withIntermediateDirectories: true)
+        let p = Person(key: "yang-hau-hung", names: PersonNames(variant: ["Hau-Hung Yang"]))
+        try PersonYAML.encode(p).write(to: store.personURL(key: p.key), atomically: true, encoding: .utf8)
+        try lockAfterCommit(store.peopleDir)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: store.peopleDir.path) }
+
+        try initialize()
+        let text = try call(2, "akashic_update_person", ["key": p.key, "fields": ["note": "改過"]])
+        let obj = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any], text)
+        let rows = try XCTUnwrap(obj["writtenWithLegacyCopy"] as? [[String: Any]], text)
+        XCTAssertEqual(rows.first?["key"] as? String, p.key)
+        XCTAssertEqual(rows.first?["legacyFile"] as? String, "people/\(p.key).yaml")
+        XCTAssertNil(obj["writeFailed"], text)
+        XCTAssertTrue(try String(contentsOf: store.entityURL(id: p.id), encoding: .utf8).contains("改過"), "寫了")
+    }
+
+    /// 會寫既有 work／person 的工具，說明都提到這個鍵——呼叫端讀不到 CLI --help，說明沒寫就等於它不存在（#672 的立場）。
+    /// 回應鍵守衛（`ToolPayloadKeyGuardTests`）看不到它：這個鍵只在 legacy 拷貝刪不掉時出現，情境造不出來。
+    func testWriterToolDescriptionsNameWrittenWithLegacyCopy() throws {
+        try initialize()
+        try send(["jsonrpc": "2.0", "id": 2, "method": "tools/list"])
+        let tools = ((try readResponse()["result"] as? [String: Any])?["tools"] as? [[String: Any]]) ?? []
+        let described = Set(tools.filter { ($0["description"] as? String)?.contains("writtenWithLegacyCopy") == true }
+            .compactMap { $0["name"] as? String })
+        let writers: Set<String> = ["akashic_libraries", "akashic_set_status", "akashic_tag", "akashic_link",
+                                    "akashic_resolve_people", "akashic_update_entry", "akashic_resolve_venues",
+                                    "akashic_resolve_organizations", "akashic_update_person", "akashic_import_zotero",
+                                    "akashic_enrich_from_zotero", "akashic_enrich", "akashic_import_wos"]
+        XCTAssertEqual(described, writers, "缺：\(writers.subtracting(described).sorted())；多：\(described.subtracting(writers).sorted())")
+    }
+
+    /// 之後的步驟失敗（work 的兩份共用 citekey，tag 之後的 index rebuild 撞重複）：錯誤回應的文字附上同一份報告。
+    func testLegacyCopyLeftSurvivesALaterFailure() throws {
+        let store = LibraryStore(root: root)
+        try FileManager.default.createDirectory(at: store.entriesDir, withIntermediateDirectories: true)
+        let e = Entry(id: UUID(), citekey: "legacy2020work", type: .periodicalArticle, title: "Legacy", date: "2020")
+        try EntryYAML.encode(e).write(to: store.entriesDir.appendingPathComponent("\(e.citekey).yaml"),
+                                      atomically: true, encoding: .utf8)
+        try lockAfterCommit(store.entriesDir)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: store.entriesDir.path) }
+
+        try initialize()
+        try send(["jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                  "params": ["name": "akashic_tag", "arguments": ["citekey": e.citekey, "add": ["x"]]]])
+        let result = try XCTUnwrap(try readResponse()["result"] as? [String: Any])
+        let text = ((result["content"] as? [[String: Any]]) ?? []).compactMap { $0["text"] as? String }.joined(separator: "\n")
+        XCTAssertEqual(result["isError"] as? Bool, true, "前提：index rebuild 撞重複的 citekey：\(text)")
+        XCTAssertTrue(text.contains("writtenWithLegacyCopy"), text)
+        XCTAssertTrue(text.contains("work「\(e.citekey)」"), text)
+        XCTAssertTrue(try String(contentsOf: store.entityURL(id: e.id), encoding: .utf8).contains("- x"), "寫了")
+    }
+}

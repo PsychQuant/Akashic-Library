@@ -147,3 +147,45 @@ final class ZoteroReportCLITests: XCTestCase {
         XCTAssertTrue(r.output.contains("orphaned additional sources: 0\n"), r.output)
     }
 }
+
+/// #705：寫進 `entities/`、搬移後的 legacy 拷貝沒刪掉的那一筆——`import-zotero` 印在 `writtenWithLegacyCopy`，不在 `write failed`。
+/// #702 讓它兩邊都出現：同一筆記錄一半說寫了、一半說失敗。
+extension ZoteroReportCLITests {
+    /// #239：hook 環境帶 `GIT_DIR`，`-C` 擋不住它——不剝的話 fixture 的 commit 會寫進使用者的 repo。
+    private var scrubbedGitEnvironment: [String: String] {
+        ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("GIT_") }
+    }
+
+    private func git(_ args: [String]) {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        p.arguments = ["-C", root.path, "-c", "user.email=t@t", "-c", "user.name=t"] + args
+        p.environment = scrubbedGitEnvironment
+        p.standardOutput = Pipe(); p.standardError = Pipe()
+        try? p.run(); p.waitUntilExit()
+    }
+
+    func testImportPrintsTheLegacyCopyLeftOnTheSuccessSide() throws {
+        let store = LibraryStore(root: root)
+        try FileManager.default.createDirectory(at: store.entriesDir, withIntermediateDirectories: true)
+        var e = Entry(id: UUID(), citekey: "legacy2025identifiability", type: .periodicalArticle, title: "舊標題")
+        e.provenance = Provenance(zoteroKey: "KEYART01", zoteroVersion: 1, libraryID: 1)
+        try EntryYAML.encode(e).write(to: store.entriesDir.appendingPathComponent("\(e.citekey).yaml"),
+                                      atomically: true, encoding: .utf8)
+        git(["init", "-q"]); git(["add", "-A"]); git(["commit", "-q", "-m", "fixture"])
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: store.entriesDir.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: store.entriesDir.path) }
+        let probe = store.entriesDir.appendingPathComponent("probe-\(UUID().uuidString)")
+        if FileManager.default.createFile(atPath: probe.path, contents: Data()) {
+            try? FileManager.default.removeItem(at: probe)
+            throw XCTSkip("這個環境的權限擋不住刪檔（以 root 執行？），造不出「寫完之後刪 legacy 失敗」")
+        }
+
+        let r = try cli(["import-zotero", "--zotero-db", zoteroDB.path])
+        XCTAssertTrue(r.output.contains("updated: 1"), "寫了，算在 updated：\(r.output)")
+        let line = try XCTUnwrap(r.output.split(separator: "\n").first { $0.hasPrefix("writtenWithLegacyCopy") }, r.output)
+        XCTAssertTrue(line.hasSuffix(": 1"), String(line))
+        XCTAssertTrue(r.output.contains("work「\(e.citekey)」"), r.output)
+        XCTAssertFalse(r.output.contains("write failed"), "不是寫入失敗：\(r.output)")
+    }
+}

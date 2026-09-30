@@ -69,11 +69,13 @@ public struct ImportReport: Equatable {
     public var quarantineConflicts: [String] = []
     /// 寫入時 encode/寫檔擲錯的 citekeys → 錯誤描述（R6 M9：encode 自 v1.3 起
     /// 可 throw——canary fail-closed；per-item 隔離，單筆失敗不中斷整趟 import、
-    /// 不留半套用狀態，index 照常 rebuild）。
-    /// **一個例外寫了**（#702 R1 verify）：內容已寫進 `entities/`、只有 #631 搬移後的 legacy 檔沒刪掉
-    /// （`StoreIOError.legacyCopyNotRemoved`）。那一筆同時照寫入成功記在 `updated`、`authorsOverwritten` 等清單，
-    /// 這裡的訊息說明它留下兩份。
+    /// 不留半套用狀態，index 照常 rebuild）。**記的是沒有套用的那一步**：內容已寫進 `entities/`、只有搬移後的 legacy 檔沒刪掉的
+    /// 那一步在 `writtenWithLegacyCopy`（#705；#702 曾讓它同時在這裡）。同一筆在同一趟之後的步驟被 #631 拒絕（兩份並存）時，
+    /// 這裡另記一則、訊息說出前一步已寫入（#702 R2 verify）；同一筆有不只一則時以「；」串接，不覆寫。
     public var writeFailed: [String: String] = [:]
+    /// 內容已寫進 `entities/`、#631 搬移後的 legacy 拷貝沒刪掉的 entries（#705，使用者 2026-09-30 裁決 (a)）：**寫了**，照常記在
+    /// `updated`、`authorsOverwritten` 等清單；留下兩份的事實記在這裡，不進 `writeFailed`。由 `run` 自己的收集範圍收下。
+    public var writtenWithLegacyCopy: [LegacyCopyLeft] = []
     /// date 無法正規化、保留原字串的 citekeys（#2）。
     public var unnormalizedDates: [String] = []
     /// 被略過的 linked / URL 附件數（#3，不靜默）。
@@ -112,6 +114,17 @@ public struct ZoteroImporter {
     }
 
     public func run(zoteroDB: URL, libraryID: Int? = nil, now: Date = Date()) throws -> ImportReport {
+        // #705：自己的收集範圍——「寫進 entities/、legacy 拷貝沒刪掉」的那一筆寫入照常回傳（`guardedWrite` 回 true，照常記在
+        // updated、authorsOverwritten 等清單），並記進報告的 `writtenWithLegacyCopy`，不進 writeFailed。擲錯時收到的轉交外層範圍。
+        let (result, written) = LegacyCopyLedger.collecting {
+            try runCollected(zoteroDB: zoteroDB, libraryID: libraryID, now: now)
+        }
+        var report = try result.get()
+        report.writtenWithLegacyCopy = written
+        return report
+    }
+
+    private func runCollected(zoteroDB: URL, libraryID: Int?, now: Date) throws -> ImportReport {
         let readResult = try ZoteroReader.readItems(dbPath: zoteroDB.path, libraryID: libraryID)
         let items = readResult.items
         let load = try store.load()
@@ -182,6 +195,14 @@ public struct ZoteroImporter {
         // R6（M9）：寫入擲錯（encode canary fail-closed、I/O 失敗）→ 記入
         // writeFailed、續跑下一筆——不讓單一病態檔把整趟 import 打斷成
         // 「部分套用 + index 未重建」的撕裂狀態。
+        /// 同一筆在同一趟可能有不只一步失敗：**附加、不覆寫**（#702 R2 verify：先前後一步的訊息蓋掉前一步的）。
+        func recordWriteFailure(_ citekey: String, _ message: String, report: inout ImportReport) {
+            if let earlier = report.writeFailed[citekey], earlier != message {
+                report.writeFailed[citekey] = earlier + "；" + message   // display-safe-exempt: earlier、message：兩者都已消毒（displaySafeError 或本檔字面）
+            } else {
+                report.writeFailed[citekey] = message
+            }
+        }
         func guardedWrite(_ entry: Entry, report: inout ImportReport) -> Bool {
             if quarantinedBasenames.contains(entry.citekey.lowercased()) {
                 if !report.quarantineConflicts.contains(entry.citekey) {
@@ -189,21 +210,23 @@ public struct ZoteroImporter {
                 }
                 return false
             }
+            // #705（#702 R2 verify）：這一趟稍早一步對同一筆的寫入已落地、搬移後的 legacy 拷貝沒刪掉（在 `writtenWithLegacyCopy`）——
+            // 兩份並存，#631 一定拒絕這一步。不再嘗試，具名說出前一步寫了、這一步的改動沒有套用；先前被拒的訊息只說「兩份都在」，
+            // 讀的人會以為這一筆整個沒寫（主來源、附加來源、orphan 標記可能在同一趟各寫一次同一筆）。
+            if LegacyCopyLedger.collected.contains(where: { $0.id == entry.id }) {
+                recordWriteFailure(entry.citekey, "這一趟稍早已寫入這一筆（見 writtenWithLegacyCopy），搬移後的 legacy 拷貝沒刪掉、兩份並存"
+                    + "——這一步的改動沒有套用。確認 entities/ 那份是新的、刪掉 legacy 那份之後重跑 import 即可補上（#631、#705）",
+                    report: &report)
+                return false
+            }
             do {
+                // #702 R1 verify／#705：#631 的搬移寫完之後刪 legacy 檔失敗時內容**已經寫進去**——`run` 的收集範圍讓這裡照常
+                // 回傳，這一筆照寫入成功記（作者覆寫、欄位拿掉都真的發生了），留下兩份的事實在報告的 `writtenWithLegacyCopy`。
                 try store.writeEntry(entry)
                 current[entry.id] = entry
                 return true
-            } catch let e as StoreIOError {
-                report.writeFailed[entry.citekey] = displaySafeError(e, max: 4_096)
-                // #702 R1 verify：#631 的搬移寫完之後刪 legacy 檔失敗——內容**已經寫進去**，只是留下兩份。這一筆照寫入成功記
-                // （作者覆寫、欄位拿掉都真的發生了），留下兩份的事實在 writeFailed 的訊息裡。
-                if case .legacyCopyNotRemoved = e {
-                    current[entry.id] = entry
-                    return true
-                }
-                return false
             } catch {
-                report.writeFailed[entry.citekey] = displaySafeError(error, max: 4_096)
+                recordWriteFailure(entry.citekey, displaySafeError(error, max: 4_096), report: &report)
                 return false
             }
         }

@@ -450,7 +450,7 @@ struct ResolveVenuesCmd: ParsableCommand {
             let store = try options.openStore()
             let service = AkashicService(root: store.root, key: store.key,
                                          environment: ProcessInfo.processInfo.environment)
-            print(try service.resolveVenues(apply: nil, drop: dropVenue))
+            print(try LegacyCopyReport.payload { try service.resolveVenues(apply: nil, drop: dropVenue) })   // #705
             return
         }
         if !undecided.isEmpty {
@@ -486,11 +486,13 @@ struct ResolveVenuesCmd: ParsableCommand {
         let store = try options.openStore()
         let service = AkashicService(root: store.root, key: store.key,
                                      environment: ProcessInfo.processInfo.environment)
-        print(try service.resolveVenues(apply: apply.isEmpty ? nil : apply,
-                                        reject: reject.isEmpty ? nil : reject,
-                                        repoint: repoint.isEmpty ? nil : repoint,
-                                        demote: demote.isEmpty ? nil : demote,
-                                        retiredLimit: nil))   // #573：CLI 全列被刪掉的判定
+        print(try LegacyCopyReport.payload {   // #705：writtenWithLegacyCopy 進這份 JSON
+            try service.resolveVenues(apply: apply.isEmpty ? nil : apply,
+                                      reject: reject.isEmpty ? nil : reject,
+                                      repoint: repoint.isEmpty ? nil : repoint,
+                                      demote: demote.isEmpty ? nil : demote,
+                                      retiredLimit: nil)   // #573：CLI 全列被刪掉的判定
+        })
     }
 }
 

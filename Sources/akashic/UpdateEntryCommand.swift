@@ -88,8 +88,10 @@ struct UpdateEntryCmd: ParsableCommand {
         let service = AkashicService(root: store.root, key: store.key,
                                      environment: ProcessInfo.processInfo.environment)
         // 寫入面封閉例外形：只回 service payload（mcp-cli-parity 的既有裁決）
-        print(try service.updateEntry(citekey: citekey, removeFields: removeField, addSources: addSource,
-                                      removeZoteroSources: removeZoteroSource, removeSources: removeSource, dryRun: !apply,
-                                      sourcesLimit: nil))   // CLI 全列（輸出進人的終端機）；MCP 面截 20 筆，理由見 `sourcesAddedCap`
+        print(try LegacyCopyReport.payload {   // #705：writtenWithLegacyCopy 進這份 JSON
+            try service.updateEntry(citekey: citekey, removeFields: removeField, addSources: addSource,
+                                    removeZoteroSources: removeZoteroSource, removeSources: removeSource, dryRun: !apply,
+                                    sourcesLimit: nil)   // CLI 全列（輸出進人的終端機）；MCP 面截 20 筆，理由見 `sourcesAddedCap`
+        })
     }
 }

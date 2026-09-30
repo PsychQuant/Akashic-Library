@@ -42,6 +42,17 @@
 
 
 
+## #705 — 寫了、但搬移後的 legacy 拷貝沒刪掉的那一筆記在 `writtenWithLegacyCopy`
+
+寫一筆既有的 work 或 person 時，#631 會把舊佈局的 `entries/<citekey>.yaml`／`people/<key>.yaml` 搬進 `entities/`：先寫新檔、再刪舊檔。舊檔刪不掉時新內容已經寫進去了，同一筆記錄留下兩份。先前各工具的說法不一：`akashic_import_zotero` 同時列在成功清單與 `writeFailed`，其他逐筆收容的工具只列在 `writeFailed`，沒有收容的工具整個呼叫以錯誤結束、同一批後面的記錄沒寫。
+
+現在一律記在成功那一側。十三個會寫既有 work／person 的工具（`akashic_libraries`、`akashic_set_status`、`akashic_tag`、`akashic_link`、`akashic_resolve_people`、`akashic_update_entry`、`akashic_resolve_venues`、`akashic_resolve_organizations`、`akashic_update_person`、`akashic_import_zotero`、`akashic_enrich_from_zotero`、`akashic_enrich`、`akashic_import_wos`）：
+
+- **成功回應**多一個鍵 `writtenWithLegacyCopy`，只在非空時出現、不截。每筆是 `{kind, key, written, legacyFile, detail}`：`kind` 是 `work` 或 `person`，`written` 是寫進去的 `entities/<id>.yaml`，`legacyFile` 是沒刪掉的那一份，`detail` 是刪不掉的原因。這一筆不在 `writeFailed` 或其他失敗清單裡，照常算在寫入的計數與清單。
+- **錯誤回應**：同一份報告以文字附在錯誤訊息末，開頭是 `writtenWithLegacyCopy`。work 的兩份共用同一個 citekey，寫入之後的 index rebuild 會撞重複，所以會重建 index 的工具在這種狀態下多半回錯誤，報告就在錯誤訊息裡。person 的兩份不擋重建，回成功。
+- **處置**：確認 `entities/` 那一份是新的之後，刪掉 legacy 那一份。刪掉之前 load 會把這筆記錄標成無法唯一定位，寫入它的工具會拒絕。
+- `akashic_import_zotero`：`writeFailed` 不再有以「已寫入」開頭的訊息（#702 的例外改掉），它記的是沒有套用的那一步。同一趟稍早一步已寫入這一筆、之後的步驟被拒時（兩份並存），`writeFailed` 那一則說出前一步寫了、這一步沒有套用；同一筆有不只一則時以「；」串接，不再後蓋前。
+
 ## #695 — `akashic_enrich` 的來源欄位與 `references` 的空陣列（不相容）
 
 plugin 的 wrapper 會自動下載新版 `akashic-mcp`，skill 文字可能比 binary 舊，所以把會讓既有呼叫失敗的改變寫在這裡。plugin 版號沒有動。
@@ -64,7 +75,7 @@ plugin 的 wrapper 會自動下載新版 `akashic-mcp`，skill 文字可能比 b
 
 ## #702 — `akashic_import_zotero` 的三個清單只記寫進去的那一筆
 
-`authorsPreserved`、`authorsOverwritten`、`fieldsRemovedByPull` 改成寫入成功之後才記。先前目的檔被隔離或寫入失敗的那一筆，也會出現在這三個清單裡，但它沒有寫。現在它只在 `quarantineConflicts` 或 `writeFailed` 裡。鍵名與形狀不變。一個例外：內容已寫進 `entities/`、只有搬移後的 legacy 檔沒刪掉時，那一筆寫了，照常在各清單，`writeFailed` 的訊息以「已寫入」開頭、說明留下兩份。
+`authorsPreserved`、`authorsOverwritten`、`fieldsRemovedByPull` 改成寫入成功之後才記。先前目的檔被隔離或寫入失敗的那一筆，也會出現在這三個清單裡，但它沒有寫。現在它只在 `quarantineConflicts` 或 `writeFailed` 裡。鍵名與形狀不變。一個例外：內容已寫進 `entities/`、只有搬移後的 legacy 檔沒刪掉時，那一筆寫了，照常在各清單，`writeFailed` 的訊息以「已寫入」開頭、說明留下兩份。（#705 起這一筆改記在 `writtenWithLegacyCopy`，不在 `writeFailed`，見上。）
 
 ## #608、#694、#696 — `akashic_import_zotero` 的回應形狀改變
 

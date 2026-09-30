@@ -98,8 +98,9 @@ extension ZoteroImportTests {
     }
 
     /// #702 R1 verify（DA 席）：`guardedWrite` 回 false 不等於沒寫。#631 的搬移先寫 `entities/<id>.yaml`、**之後**才刪
-    /// legacy 檔；刪不掉時內容已經寫進去了。那一筆的作者覆寫、欄位拿掉都真的發生了，要照寫入成功記下，留下兩份的事實
-    /// 在 `writeFailed` 的訊息裡。這裡讓 `entries/` 唯讀，搬移的刪除必然失敗。
+    /// legacy 檔；刪不掉時內容已經寫進去了。那一筆的作者覆寫、欄位拿掉都真的發生了，要照寫入成功記下。
+    /// #705（使用者 2026-09-30 裁決 (a)）：留下兩份的事實記在成功那一側的 `writtenWithLegacyCopy`，**不進** `writeFailed`——
+    /// #702 讓它同時在兩邊，同一筆記錄一半說寫了、一半說失敗。這裡讓 `entries/` 唯讀，搬移的刪除必然失敗。
     func testWriteThatLandsBeforeLegacyRemovalFailsIsReportedAsWritten() throws {
         _ = try runImport702()
         GitFixture.initRepo(store.root)
@@ -128,8 +129,44 @@ extension ZoteroImportTests {
         XCTAssertEqual(report.authorsOverwritten, [article.citekey], "寫了，作者覆寫真的發生了：\(report)")
         XCTAssertEqual(report.fieldsRemovedByPull, ["annotation": 1], "寫了，欄位真的被拿掉了：\(report)")
         XCTAssertEqual(report.updated, [article.citekey], "\(report)")
-        let message = try XCTUnwrap(report.writeFailed[article.citekey], "留下兩份要說出來：\(report)")
-        XCTAssertTrue(message.hasPrefix("已寫入"), message)
-        XCTAssertTrue(message.contains("entries/\(article.citekey).yaml"), message)
+        XCTAssertNil(report.writeFailed[article.citekey], "寫了，不是失敗——不進 writeFailed（#705）：\(report)")
+        XCTAssertEqual(report.writtenWithLegacyCopy.map(\.key), [article.citekey], "留下兩份要說出來，在成功那一側：\(report)")
+        XCTAssertEqual(report.writtenWithLegacyCopy.map(\.kind), [.work])
+        XCTAssertEqual(report.writtenWithLegacyCopy.map(\.legacyFile), ["entries/\(article.citekey).yaml"])
+    }
+
+    /// #702 R2 verify／#705：同一趟對同一筆寫兩次。orphan 標記的清除先寫——legacy 刪不掉、內容寫了；接著的更新遇到兩份並存，#631 一定拒絕。
+    /// 前一步在 `writtenWithLegacyCopy` 與 `orphanCleared`；後一步沒有套用，`writeFailed` 的訊息說出前一步寫了。先前後一步的「兩份都在，
+    /// 拒絕寫入」蓋掉前一步的訊息，讀的人會以為這一筆整個沒寫。
+    func testASecondStepAfterALeftoverSaysTheFirstStepLanded() throws {
+        _ = try runImport702()
+        GitFixture.initRepo(store.root)
+        var article = try stored702("cheng2025identifiability")
+        article.authors = [.literal("Someone Else")]
+        article.provenance?.orphanedAt = Date(timeIntervalSince1970: 1_752_000_000)
+        let legacy = store.entriesDir.appendingPathComponent("\(article.citekey).yaml")
+        try EntryYAML.encode(article).write(to: legacy, atomically: true, encoding: .utf8)
+        try FileManager.default.removeItem(at: store.entityURL(id: article.id))
+        GitFixture.commitAll(store.root)
+        try fixture.db.execute("UPDATE items SET version = 9 WHERE itemID = 10")
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: store.entriesDir.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: store.entriesDir.path) }
+        let probe = store.entriesDir.appendingPathComponent("probe-\(UUID().uuidString)")
+        if FileManager.default.createFile(atPath: probe.path, contents: Data()) {
+            try? FileManager.default.removeItem(at: probe)
+            throw XCTSkip("這個環境的權限擋不住刪檔（以 root 執行？），造不出「寫完之後刪 legacy 失敗」")
+        }
+
+        let report = try runImport702()
+
+        XCTAssertEqual(report.writtenWithLegacyCopy.map(\.key), [article.citekey], "第一步寫了：\(report)")
+        XCTAssertEqual(report.orphanCleared, [article.citekey], "\(report)")
+        XCTAssertEqual(report.updated, [], "第二步沒有套用：\(report)")
+        XCTAssertEqual(report.authorsOverwritten, [], "\(report)")
+        let message = try XCTUnwrap(report.writeFailed[article.citekey], "\(report)")
+        XCTAssertTrue(message.hasPrefix("這一趟稍早已寫入這一筆（見 writtenWithLegacyCopy）"), message)
+        let written = try EntryYAML.decode(try String(contentsOf: store.entityURL(id: article.id), encoding: .utf8))
+        XCTAssertNil(written.provenance?.orphanedAt, "orphan 標記的清除落地了")
+        XCTAssertEqual(written.authors, [.literal("Someone Else")], "更新沒有套用：作者沒被覆寫")
     }
 }

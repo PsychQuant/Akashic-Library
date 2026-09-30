@@ -59,6 +59,6 @@ struct UpdatePersonCmd: ParsableCommand {
         let service = AkashicService(root: store.root, key: store.key,
                                      environment: ProcessInfo.processInfo.environment)
         // 輸出是 service 的 JSON（已 displaySafe）——CLI 原樣轉印
-        print(try service.updatePerson(key: key, fields: dict, dryRun: dryRun))
+        print(try LegacyCopyReport.payload { try service.updatePerson(key: key, fields: dict, dryRun: dryRun) })   // #705：writtenWithLegacyCopy 進這份 JSON
     }
 }

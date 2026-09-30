@@ -19,7 +19,11 @@ struct AkashicCLI: ParsableCommand {
         do {
             var command = try parseAsRoot()
             parsed = command
-            try command.run()
+            // #705：每一個命令都在收集範圍裡跑——「寫進 entities/、搬移後的 legacy 拷貝沒刪掉」的那一筆寫入照常回傳（它寫了），
+            // 命令結束後印在輸出末尾（成功那一側）；命令擲錯時也印，排在錯誤訊息之前——寫進去的那一筆不跟著錯誤一起消失。
+            let (result, written) = LegacyCopyLedger.collecting { try command.run() }
+            LegacyCopyReport.printLines(written)
+            try result.get()
         } catch {
             // **非 ArgumentParser 的錯誤先逃一次**（R31 D83；R30 verify 第 2 列）：五個包裝站點（#549 起是 `RuntimeFailure.state(displaySafeErrorText(…))`，原本是 `ValidationError`）之外，直接傳到頂層的
             // Yams／Foundation／StoreIO 錯誤在 R30 只經下面列舉式的 `displaySafeAssembled`——ZWSP／TAG 原樣落 stderr，而同一個錯誤在

@@ -2824,8 +2824,9 @@ public final class AkashicService {
     /// MCP 面有 `listLimit` 上限的 citekey 清單（#696）：鍵 → 報告裡的值、這一格是否永遠在（否＝只在非空時出現）。
     /// 這些清單描述的都是**寫進去了**的記錄：結果在 store 裡，這一趟改了哪些檔在 store 的 git diff 裡看得到，所以截掉的成員找得回來
     /// （`authorsPreserved`／`authorsOverwritten` 也一樣：#702 起寫入成功之後才記下，沒寫進去的那一筆只在不截的 `writeFailed` 或 `quarantineConflicts` 裡）。
-    /// 不在這裡的集合：失敗清單 `writeFailed`／`quarantineConflicts`（**不截**——沒寫進去的記錄在 store 裡沒有痕跡、原因只在這份報告，
-    /// 重跑是再寫一次、不是重播；`akashic_enrich` 的 writeFailed 同，R1 verify）；`ambiguousSourceClaims`（#684 自己的上限與鍵）；
+    /// 不在這裡的集合：失敗清單 `writeFailed`／`quarantineConflicts`（**不截**——沒寫進去的那一步在 store 裡沒有痕跡、原因只在這份報告，
+    /// 重跑是再寫一次、不是重播；`akashic_enrich` 的 writeFailed 同，R1 verify）；`writtenWithLegacyCopy`（#705：寫了、搬移後的 legacy
+    /// 拷貝沒刪掉，每一筆都要人去刪 legacy 那份，也不截）；`ambiguousSourceClaims`（#684 自己的上限與鍵）；
     /// `residualFields` 與 `fieldsRemovedByPull`（鍵是欄位名、值是次數，筆數隨欄位種類、不隨一次匯入的筆數成長）。
     static func importReportCappedLists(_ r: ImportReport) -> [(key: String, list: [String], always: Bool)] {
         [("created", r.created, true), ("updated", r.updated, true), ("updatedHashOnly", r.updatedHashOnly, true),   // #694
@@ -2904,6 +2905,10 @@ public final class AkashicService {
         if !report.writeFailed.isEmpty {
             let all = report.writeFailed.sorted { $0.key < $1.key }
             d["writeFailed"] = Dictionary(all.map { (displaySafeInvisible($0.key, max: 200), displaySafeClipOnly($0.value, max: 512)) }, uniquingKeysWith: { first, _ in first })   // display-safe-exempt: value 已消毒（ZoteroImporter 的 writeFailed 由 displaySafeError 產出，R29 D81），只截
+        }
+        // #705：寫了、只是搬移後的 legacy 拷貝沒刪掉——成功那一側，不截（每一筆都要人去刪 legacy 那份）。只在非空時出現。
+        if !report.writtenWithLegacyCopy.isEmpty {
+            d[writtenWithLegacyCopyKey] = legacyCopyRows(report.writtenWithLegacyCopy)
         }
         d["listTotals"] = listTotals   // display-safe-exempt: 鍵是封閉列舉的清單名、值是 Int
         d["truncatedLists"] = truncatedLists.sorted()   // display-safe-exempt: 封閉列舉的清單名

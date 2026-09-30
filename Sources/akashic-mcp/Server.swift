@@ -264,7 +264,7 @@ actor AkashicMCPServer {
                 "add_issn": strArray("要附加的 ISSN（相等看正規形，0003-066x＝0003-066X）。可緊跟角色：\"NNNN-NNNN (print)\"（print／electronic／linking）；已在而無角色的號補上，已記的角色不同即拒。號或角色不合法 → 整個呼叫拒絕零寫入。回報 issnAdded／issnAlreadyPresent／issnMediumRecorded／issnDropped"),
                 "add_variant": strArray("要標成異寫法的名字（append；名字檢查同 add_names）。不在 names 裡的一併加進 names。整項空白的不寫，回報在 variantDropped"),
                 "authorize": strArray("指定為對外形的名字。**不是 append**：每個書寫系統（han／latn／other）至多一個，同書寫系統原本的指定移出 authorized、留在 names、不標 variant（authorizedRemoved）；同一次呼叫兩個同書寫系統的名字整批拒絕。不在 names 的一併加進 names。其他回報：liftedFromVariant、alreadyAuthorized、authorizedRewritten、authorizeDropped"),
-                "unauthorize": strArray("撤回對外形：須是現有 authorized，移出後留在 names、不標 variant。非成員、同時在 authorize、被 reference 指著 → 整批拒絕。回報 authorizedWithdrawn、unauthorizeDropped"),
+                "unauthorize": strArray("撤回對外形：須是現有 authorized，移出後留在 names、不標 variant；authorize 可指定回來但接在 authorized 尾端（位置與預設顯示名可能不同）。非成員、同時在 authorize、被 reference 指著 → 整批拒絕。回報 authorizedWithdrawn（每列 name、呼叫前的 index）、unauthorizeDropped；預設顯示名因此改變時多 displayNameChanged"),
                 "clear_paginated": ["type": "boolean", "description": "撤回 paginated 判定、回到未判定狀態：同樣要 judgement，並在 references 留一筆 value=nil 的記錄。與 paginated 不得同時給"],
                 "paginated": .object(["type": .string("boolean"),
                     "description": .string("「本刊是否使用頁碼」的判定：true＝傳統頁碼刊、false＝article-number 制。必附 judgement 與 rests_on；省略＝不動既有值（nil 是未判定狀態，floor 檢查對它照報）")]),
@@ -300,7 +300,7 @@ actor AkashicMCPServer {
              ], required: ["key", "names"])),
         // #557：organization 的 authorized 寫入面；CLI 對應 update-organization，兩面同一個 AkashicService.updateOrganization
         Tool(name: "akashic_update_organization",
-             description: "organization 的 authorized（CLI update-organization）。authorize 的語意與拒絕同 akashic_update_venue 的同名參數；key 重複整批拒絕；沒給、空陣列、只有空白項也拒絕（沒有要改的）；都已是對外名稱＝不寫檔。沒有 unauthorize（待裁）。回報 namesAdded、authorizedAdded、authorizedRemoved、alreadyAuthorized、authorizedRewritten、authorizeDropped、authorizedTotal；有事才出現：authorizedNotCurrent（指定的名字在 names 各段都已結束）、indexRebuilt:false／indexRebuildError／indexNote（已寫檔、index 沒重建）",
+             description: "organization 的 authorized（CLI update-organization）。authorize 的語意與拒絕同 akashic_update_venue 的同名參數；key 重複整批拒絕；沒給、空陣列、只有空白項也拒絕；都已是對外名稱＝不寫檔。回報 namesAdded、authorizedAdded、authorizedRemoved、alreadyAuthorized、authorizedRewritten、authorizeDropped、authorizedTotal；有事才出現：authorizedNotCurrent（指定的名字在 names 各段都已結束）、indexRebuilt:false／indexRebuildError／indexNote（已寫檔、index 沒重建）",
              inputSchema: obj([
                 "key": str("既有 organization key"),
                 "authorize": strArray("對外名稱（同書寫系統替換）"),

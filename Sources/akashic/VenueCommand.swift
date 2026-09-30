@@ -271,11 +271,13 @@ struct UpdateVenueCmd: ParsableCommand {
     /// #559：撤回面。替換只能換成另一個名字，回不到「不作任何宣稱」——比照 `--clear-paginated`（#500）與 `resolve-venues --demote`（#418）。
     @Option(name: .customLong("unauthorize"), parsing: .upToNextOption,
             help: ArgumentHelp("撤回對外形（可多個，#559）：名字必須是現有的 authorized（相等看 canonical，同 --authorize），"
-                             + "移出 authorized、留在 names、不標 variant——記錄回到「不作任何宣稱」的狀態；再用 --authorize 可指定回來。"
+                             + "移出 authorized、留在 names、不標 variant——記錄回到「不作任何宣稱」的狀態。**不是 --authorize 的精確逆操作**：再用 --authorize 可把名字指定回來，"
+                             + "但它接在 authorized 尾端（只有同書寫系統替換才保留位置），而 authorized 的第一個是預設顯示名——多書寫系統的 venue 撤回再指定，預設顯示名可能換書寫系統；"
+                             + "所以報告逐名帶撤回前的位置（index），預設顯示名因此改變時多 displayNameChanged。不設 git 閘。"
                              + "不是現有成員、同一個名字又在 --authorize、被 field: authorized 的 reference 指著（先用 --remove-reference 刪掉），"
                              + "都整批拒絕、零寫入；與 --add-variant 給同一個名字是明說降成異寫，照做。成員資格看呼叫前的狀態（先撤回、再跑 --authorize）。"
                              + "判定記錄待 #564（2026-10-01 裁決要留，另案落地）。"
-                             + "報告：authorizedWithdrawn（被撤回的 store 拼法）、unauthorizeDropped（整項空白、沒有動作）"))
+                             + "報告：authorizedWithdrawn（每列 name＝被撤回的 store 拼法、index＝呼叫前在 authorized 的位置）、unauthorizeDropped（整項空白、沒有動作）、displayNameChanged（{before, after}，有事才出現）"))
     var unauthorize: [String] = []
 
     @Flag(name: .customLong("clear-paginated"),

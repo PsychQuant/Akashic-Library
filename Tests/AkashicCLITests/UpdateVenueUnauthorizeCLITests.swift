@@ -31,7 +31,7 @@ final class UpdateVenueUnauthorizeCLITests: XCTestCase {
 
         let done = try run(["update-venue", "ampsy", "--unauthorize", "American Psychologist"])
         XCTAssertEqual(done.status, 0, done.output)
-        XCTAssertTrue(done.output.contains("authorizedWithdrawn") && done.output.contains("American Psychologist"), done.output)
+        XCTAssertTrue(done.output.contains("authorizedWithdrawn") && done.output.contains("American Psychologist") && done.output.contains("\"index\""), done.output)
         let v = try venue("ampsy")
         XCTAssertEqual(v.authorized, [])
         XCTAssertEqual(Set(v.names.entries.map(\.value)), ["AMERICAN PSYCHOLOGIST", "American Psychologist"], "名字留在 names")

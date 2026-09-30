@@ -82,10 +82,11 @@ CLI 對應 `akashic update-organization <key> --authorize …`。
 
 ## #559 — `akashic_update_venue` 多一個 `unauthorize`：撤回對外形
 
-`authorize` 只能把對外形換成另一個名字；`unauthorize`（字串陣列）把現有的對外形移出 `authorized`，名字留在 `names`、不標 variant，記錄回到不作宣稱的狀態。再用 `authorize` 可指定回來。
+`authorize` 只能把對外形換成另一個名字；`unauthorize`（字串陣列）把現有的對外形移出 `authorized`，名字留在 `names`、不標 variant，記錄回到不作宣稱的狀態。再用 `authorize` 可把名字指定回來，但**不是精確逆操作**：指定回來的名字接在 `authorized` 尾端，而 `authorized` 的第一個是預設顯示名——多書寫系統的 venue 撤回再指定，預設顯示名可能換書寫系統。
 
 - 每個名字都要是現有的 authorized（相等看 canonical）；不是、同一個名字又在 `authorize`、或被 `field: authorized` 的 reference 指著，整個呼叫拒絕、零寫入。
-- 回應多兩個鍵：`authorizedWithdrawn`（被撤回的名字）、`unauthorizeDropped`（整項空白、沒有動作）。
+- 回應多兩個鍵：`authorizedWithdrawn`（每列 `{name, index}`：被撤回的 store 拼法，與它在呼叫前 `authorized` 裡的位置，0 起算）、`unauthorizeDropped`（整項空白、沒有動作）。**`authorizedWithdrawn` 的列是物件，不是字串**（同日首輪實作是字串陣列，R1 verify 之後改成物件）。
+- 撤回改變了預設顯示名（撤回 `authorized` 的第一個而還有別的名字，或撤回最後一個而退到 names 的 fallback）時，回應多 `displayNameChanged: {before, after}`；只在有 `unauthorize` 的呼叫裡算。
 - 同一次呼叫裡撤回先於 `authorize`；與 `add_variant` 給同一個名字是明說降成異寫。
 - 不留判定記錄；#564 已裁決要留，另案落地。
 

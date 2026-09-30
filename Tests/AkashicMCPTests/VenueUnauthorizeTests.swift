@@ -28,6 +28,11 @@ final class VenueUnauthorizeTests: XCTestCase {
     private func payload(_ s: String) throws -> [String: Any] {
         try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(s.utf8)) as? [String: Any])
     }
+    /// `authorizedWithdrawn` 的每一列是 `{name, index}`（index＝呼叫前在 authorized 裡的位置，R1 verify）。
+    private func withdrawn(_ out: [String: Any], file: StaticString = #filePath, line: UInt = #line) throws -> [[String: Any]] {
+        try XCTUnwrap(out["authorizedWithdrawn"] as? [[String: Any]], "\(out)", file: file, line: line)
+    }
+    private func names(_ rows: [[String: Any]]) -> [String] { rows.compactMap { $0["name"] as? String } }
 
     /// 撤回：移出 authorized、**留在 names、不標 variant**——回到「不作任何宣稱」；報告印 store 拼法。
     func testUnauthorizeMovesTheNameOutAndLeavesItUnclassified() throws {
@@ -37,9 +42,12 @@ final class VenueUnauthorizeTests: XCTestCase {
         XCTAssertEqual(v.authorized, [], "撤回之後 authorized 是空的")
         XCTAssertEqual(Set(v.names.entries.map(\.value)), ["PSYCHOMETRIKA", "Psychometrika"], "名字留在 names")
         XCTAssertEqual(v.variant, [], "不標 variant——程式不替呼叫端多說「它是異寫」")
-        XCTAssertEqual(out["authorizedWithdrawn"] as? [String], ["Psychometrika"])
+        XCTAssertEqual(names(try withdrawn(out)), ["Psychometrika"])
+        XCTAssertEqual(try withdrawn(out).first?["index"] as? Int, 0)
         XCTAssertEqual(out["authorizedTotal"] as? Int, 0)
         XCTAssertEqual(v.displayName, "PSYCHOMETRIKA", "沒有 authorized 時顯示名退到 names 的第一段")
+        // 撤回最後一個退到 names 的 fallback，預設顯示名真的換了（Psychometrika → PSYCHOMETRIKA）——要說出來
+        XCTAssertEqual((out["displayNameChanged"] as? [String: String]), ["before": "Psychometrika", "after": "PSYCHOMETRIKA"])
     }
 
     /// 相等看 canonical（同 `authorize`）：尾隨空白、NFD 的輸入撤回 store 裡的那一筆，報告印 store 拼法、不印輸入。
@@ -47,7 +55,7 @@ final class VenueUnauthorizeTests: XCTestCase {
         let nfd = "Psychometrika".decomposedStringWithCanonicalMapping + " "
         let out = try payload(try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil, unauthorize: [nfd]))
         XCTAssertEqual(try venue().authorized, [])
-        XCTAssertEqual(out["authorizedWithdrawn"] as? [String], ["Psychometrika"])
+        XCTAssertEqual(names(try withdrawn(out)), ["Psychometrika"])
     }
 
     /// 不是現有成員 → 整批拒絕、零寫入（同一次呼叫的其他參數也不寫）。在 names 裡但沒有被指定、完全不在 names 裡，兩種都拒。
@@ -88,7 +96,8 @@ final class VenueUnauthorizeTests: XCTestCase {
     func testBlankItemsAreDroppedAndReported() throws {
         let out = try payload(try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil, unauthorize: ["  "]))
         XCTAssertEqual(out["unauthorizeDropped"] as? [String], ["  "])
-        XCTAssertEqual(out["authorizedWithdrawn"] as? [String], [])
+        XCTAssertEqual(try withdrawn(out).count, 0)
+        XCTAssertNil(out["displayNameChanged"], "什麼都沒撤回，顯示名不變")
         XCTAssertEqual(try venue().authorized, ["Psychometrika"], "空白項不撤回任何東西")
     }
 
@@ -114,7 +123,7 @@ final class VenueUnauthorizeTests: XCTestCase {
         let out = try payload(try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil,
                                                       authorize: ["PSYCHOMETRIKA"], unauthorize: ["Psychometrika"]))
         XCTAssertEqual(try venue().authorized, ["PSYCHOMETRIKA"])
-        XCTAssertEqual(out["authorizedWithdrawn"] as? [String], ["Psychometrika"])
+        XCTAssertEqual(names(try withdrawn(out)), ["Psychometrika"])
         XCTAssertEqual(out["authorizedAdded"] as? [String], ["PSYCHOMETRIKA"])
         XCTAssertEqual(out["authorizedRemoved"] as? [String], [])
     }
@@ -127,7 +136,7 @@ final class VenueUnauthorizeTests: XCTestCase {
         XCTAssertEqual(v.authorized, [])
         XCTAssertEqual(v.variant, ["Psychometrika"])
         XCTAssertEqual(out["variantAdded"] as? [String], ["Psychometrika"])
-        XCTAssertEqual(out["authorizedWithdrawn"] as? [String], ["Psychometrika"])
+        XCTAssertEqual(names(try withdrawn(out)), ["Psychometrika"])
     }
 
     /// 只撤回指名的那一個：雙語記錄撤回拉丁名，漢字名留著。
@@ -138,13 +147,44 @@ final class VenueUnauthorizeTests: XCTestCase {
         XCTAssertEqual(try venue().authorized, ["心理計量學報"])
     }
 
-    /// 撤回可逆：`authorize` 把它指定回來。
-    func testAuthorizeRestoresAWithdrawnName() throws {
+    /// 撤回之後 `authorize` 把名字指定回來——名字與分類都回得來（名字一直在 names）。**不是精確逆操作**：位置回不來，見下一個測試。
+    func testAuthorizeBringsAWithdrawnNameBack() throws {
         _ = try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil, unauthorize: ["Psychometrika"])
         let out = try payload(try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil, authorize: ["Psychometrika"]))
         XCTAssertEqual(try venue().authorized, ["Psychometrika"])
         XCTAssertEqual(out["authorizedAdded"] as? [String], ["Psychometrika"])
         XCTAssertEqual(out["namesAdded"] as? [String], [], "名字一直在 names，不必再加")
+    }
+
+    /// R1 verify（#559 第 5／9／11／18／23 列）：**撤回再指定不是精確逆操作**——`authorize` 對不在 authorized 裡的名字接在尾端，
+    /// `displayName` 取 `authorized.first`，多書寫系統 venue 的預設顯示名換了書寫系統。這個測試釘住那個事實（不是要它發生，是不讓文字再說成「逆操作」）；
+    /// 撤回的報告因此帶原 index 與 `displayNameChanged`。
+    func testUnauthorizeThenAuthorizeDoesNotRestoreThePosition() throws {
+        _ = try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil, authorize: ["心理計量學報"])
+        XCTAssertEqual(try venue().authorized, ["Psychometrika", "心理計量學報"], "fixture：Psychometrika 在第 0 個、是預設顯示名")
+        XCTAssertEqual(try venue().displayName, "Psychometrika")
+        let out = try payload(try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil, unauthorize: ["Psychometrika"]))
+        XCTAssertEqual(try withdrawn(out).first?["index"] as? Int, 0, "報告帶撤回前的位置")
+        XCTAssertEqual(out["displayNameChanged"] as? [String: String], ["before": "Psychometrika", "after": "心理計量學報"],
+                       "撤回 authorized 的第一個（≥2 個時）：預設顯示名換成下一個")
+        _ = try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil, authorize: ["Psychometrika"])
+        XCTAssertEqual(try venue().authorized, ["心理計量學報", "Psychometrika"], "指定回來接在尾端，不回原位")
+        XCTAssertEqual(try venue().displayName, "心理計量學報", "預設顯示名沒有回來")
+    }
+
+    /// 一次撤回多個：位置都以**呼叫前**的清單算；撤回的不是第一個、顯示名不變時不報 `displayNameChanged`。
+    func testIndexesAreReportedAgainstTheListBeforeTheCall() throws {
+        _ = try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil, authorize: ["心理計量學報", "Мир"])
+        XCTAssertEqual(try venue().authorized, ["Psychometrika", "心理計量學報", "Мир"], "fixture：三個書寫系統各一個")
+        let second = try payload(try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil, unauthorize: ["心理計量學報"]))
+        XCTAssertEqual(try withdrawn(second).first?["index"] as? Int, 1)
+        XCTAssertNil(second["displayNameChanged"], "撤回的不是第一個，預設顯示名不變")
+        _ = try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil, authorize: ["心理計量學報"])
+        XCTAssertEqual(try venue().authorized, ["Psychometrika", "Мир", "心理計量學報"], "fixture：清單重排成 [Psychometrika, Мир, 心理計量學報]")
+        let both = try payload(try service.updateVenue(key: "some-journal", addNames: nil, note: nil, type: nil, unauthorize: ["心理計量學報", "Psychometrika"]))
+        let rows = try withdrawn(both)
+        XCTAssertEqual(rows.compactMap { $0["index"] as? Int }.sorted(), [0, 2], "位置以呼叫前的清單算，不因先撤回哪一個而位移")
+        XCTAssertEqual(try venue().authorized, ["Мир"])
     }
 
     /// 單獨呼叫的兩條腿（remove_reference、edit_name_segment）不與 unauthorize 組合。

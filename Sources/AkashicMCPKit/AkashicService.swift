@@ -4135,6 +4135,7 @@ public final class AkashicService {
         guard var venue = load.venues.first(where: { $0.key == key }) else {
             throw ServiceError.notFound("venue「\(displaySafeInvisible(key, max: 200))」")
         }
+        let displayNameBefore = venue.displayName   // #559：撤回若改變預設顯示名要說（`displayNameChanged`）
         // #588：ISSN 的移除面。形狀 `<issn>=理由`——移除是判定的逆轉（寫錯的號，常是姊妹刊的號），理由必填；
         // 使用者 2026-09-27 裁決：理由只進報告、不寫進 store；git 保存的是移除前的檔（號與它的 provenance），所以那個檔要已 commit。
         // 理由本身要留在 git，得由操作者寫進後續的 commit message——工具不代寫（#588 R1 verify：先前的註解說「理由進 git 歷史」是過度宣稱）。
@@ -4177,8 +4178,7 @@ public final class AkashicService {
         // 一筆 canonical-相等，「先精確」這個概念在 Swift 裡不存在（`String ==` 是 canonical
         // equivalence，R4 曾讓 NFD 輸入經精確命中把 NFD 位元組寫進 authorized——DA 席）。
         func resolveSpelling(_ requested: String) -> String? {
-            let key = NameIdentity.canonical(requested)
-            return venue.names.entries.first { NameIdentity.canonical($0.value) == key }?.value
+            AuthorizedDesignation.storedSpelling(requested, in: venue.names.entries)   // 與 `authorize`／`unauthorize` 同一份查找（#559 R1 verify 第 30 列）
         }
         // 參數名兩面各自正確（R6 verify 第 45 列：CLI 使用者看到 MCP 鍵名 `add_names`，不是自己打的 `--add-name`）
         let namesIn = args.namesIn
@@ -4383,12 +4383,19 @@ public final class AkashicService {
                                       "liftedFromVariant": authorizeReport.liftedFromVariant.map { displaySafeInvisible($0, max: 200) },
                                       "alreadyAuthorized": authorizeReport.alreadyAuthorized.map { displaySafeInvisible($0, max: 200) },
                                       "authorizedRewritten": authorizeReport.authorizedRewritten.map { displaySafeInvisible($0, max: 200) },
-                                      // #559：撤回的（store 拼法）與整項空白的
-                                      "authorizedWithdrawn": authorizedWithdrawn.map { displaySafeInvisible($0, max: 200) },
+                                      // #559：撤回的（store 拼法，與它在呼叫前 authorized 裡的位置）與整項空白的
+                                      "authorizedWithdrawn": authorizedWithdrawn.map { w -> [String: Any] in
+                                          ["name": displaySafeInvisible(w.name, max: 200), "index": w.index]   // display-safe-exempt: Int
+                                      },
                                       "unauthorizeDropped": args.unauthorizeBlanks.map { displaySafeInvisible($0, max: 200) },
                                       "authorizedTotal": venue.authorized.count,
                                       "variantTotal": venue.variant.count]
         if let p = venue.paginated { payload["paginated"] = p }
+        // 撤回改變了預設顯示名（多書寫系統的 venue 撤回 authorized 的第一個、或撤回最後一個而退到 names 的 fallback）：說出來。只在有撤回腿時算——
+        // 其他腿的顯示名變化是呼叫端自己要的（`authorize` 就是在指定顯示名），這裡要防的是「撤回」被讀成「只是移出一個名單」。
+        if !args.unauthorizeIn.isEmpty, venue.displayName != displayNameBefore {
+            payload["displayNameChanged"] = ["before": displaySafe(displayNameBefore, max: 200), "after": displaySafe(venue.displayName, max: 200)]   // 同 edit_name_segment 面的形狀
+        }
         return try jsonString(payload)
     }
 

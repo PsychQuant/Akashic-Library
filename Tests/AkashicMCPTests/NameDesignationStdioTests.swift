@@ -5,7 +5,8 @@ import XCTest
 /// 名字分類面的 MCP 參數**經真 binary** 到得了服務層：`akashic_update_venue` 的 `unauthorize`（#559）、`akashic_update_organization`（#557）。
 /// 參數解析住在 server 的分派閉包裡（`argList`），服務層測不到它——分派漏接一個參數時，呼叫照樣回成功、什麼都沒做。
 ///
-/// spawn 模式同 `DepthGuardIdTests`；獨立一檔，免得與 `StdioE2ETests` 的 private helper 綁在一起。
+/// spawn 模式同 `DepthGuardIdTests`；讀回應走 `StdioE2ETests.readLine`（non-blocking、有期限、EOF 與逾時都丟錯）——先前這裡照 `DepthGuardIdTests` 用
+/// `availableData` 迴圈，server 靜默時讀取阻塞、期限檢查輪不到，server 崩潰（EOF）則空轉到期限後 `XCTSkip`，把崩潰記成跳過（R1 verify #559／#557 第 10／20 列）。
 final class NameDesignationStdioTests: XCTestCase {
     var root: URL!
     var process: Process!
@@ -42,6 +43,7 @@ final class NameDesignationStdioTests: XCTestCase {
         process.standardError = Pipe()
         try process.run()
         reader = stdoutPipe.fileHandleForReading
+        StdioE2ETests.setNonBlocking(reader.fileDescriptor)
         try send(["jsonrpc": "2.0", "id": 1, "method": "initialize",
                   "params": ["protocolVersion": "2024-11-05", "capabilities": [:] as [String: Any],
                              "clientInfo": ["name": "t", "version": "1"]]])
@@ -58,17 +60,11 @@ final class NameDesignationStdioTests: XCTestCase {
         stdinPipe.fileHandleForWriting.write(try JSONSerialization.data(withJSONObject: obj) + Data("\n".utf8))
     }
 
+    /// 讀一行回應。讀不到（逾時、server 結束）是**失敗**——這組測試存在的理由是「分派漏接參數時呼叫照樣回成功」，server 死了就沒有東西被驗到，
+    /// 記成跳過會讓新面的 e2e 覆蓋靜默消失。
     private func readResponse() throws -> [String: Any] {
-        let deadline = Date().addingTimeInterval(20)
-        while Date() < deadline {
-            if let nl = pending.firstIndex(of: 0x0A) {
-                let line = pending[pending.startIndex..<nl]
-                pending = Data(pending[pending.index(after: nl)...])
-                return try XCTUnwrap(try JSONSerialization.jsonObject(with: line) as? [String: Any])
-            }
-            pending.append(reader.availableData)
-        }
-        throw XCTSkip("20 秒內未收到回應（server 可能已死）")
+        let line = try StdioE2ETests.readLine(fd: reader.fileDescriptor, pending: &pending, timeout: 20)
+        return try XCTUnwrap(try JSONSerialization.jsonObject(with: line) as? [String: Any])
     }
 
     func call(_ id: Int, _ name: String, _ args: [String: Any]) throws -> String {
@@ -88,7 +84,7 @@ final class NameDesignationStdioTests: XCTestCase {
         XCTAssertEqual(try load().venues.first?.authorized, ["Psychometrika"], "畸形值零寫入")
 
         let out = try call(3, "akashic_update_venue", ["key": "some-journal", "unauthorize": ["Psychometrika"]])
-        XCTAssertTrue(out.contains("authorizedWithdrawn"), out)
+        XCTAssertTrue(out.contains("authorizedWithdrawn") && out.contains("\"index\""), out)
         let v = try XCTUnwrap(try load().venues.first)
         XCTAssertEqual(v.authorized, [])
         XCTAssertEqual(Set(v.names.entries.map(\.value)), ["PSYCHOMETRIKA", "Psychometrika"])

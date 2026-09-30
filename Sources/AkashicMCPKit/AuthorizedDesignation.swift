@@ -46,11 +46,21 @@ struct AuthorizedDesignation {
         var authorizedRewritten: [String] = []
     }
 
-    /// 解析成 store 拼法：canonical 相等的 names 條目（在不變式下至多一筆）；沒有就 nil。
-    func storedSpelling(_ requested: String) -> String? {
-        let key = NameIdentity.canonical(requested)
-        return names.entries.first { NameIdentity.canonical($0.value) == key }?.value
+    /// 撤回的一筆：store 拼法，以及它在**呼叫前**的 `authorized` 裡的位置（0 起算；一次撤回多個時位置都以呼叫前的清單算）。
+    /// 位置是撤回唯一會丟掉的資訊：名字與分類都留在 names，`authorize` 指定回來時卻接在 authorized 尾端（R1 verify #559 第 5／9／11／18／23 列）。
+    struct Withdrawn: Equatable {
+        let name: String
+        let index: Int
     }
+
+    /// 解析成 store 拼法：canonical 相等的 names 條目（在不變式下至多一筆）；沒有就 nil。
+    /// **相等與查找只有這一份**（R1 verify 第 30 列）：`updateVenue` 的 `add_names`／`add_variant` 也走它，不另寫一份 closure。
+    static func storedSpelling(_ requested: String, in entries: [TemporalValue<String>]) -> String? {
+        let key = NameIdentity.canonical(requested)
+        return entries.first { NameIdentity.canonical($0.value) == key }?.value
+    }
+
+    func storedSpelling(_ requested: String) -> String? { Self.storedSpelling(requested, in: names.entries) }
 
     /// 同書寫系統原子替換（#554 的語意，原樣從 `updateVenue` 搬出）。`requested` 已經過入口的 vetting（canonical、逐項驗、去重），
     /// 兩句矛盾的話（同一次兩個同書寫系統的名字、同一個名字又是 add_variant／unauthorize）已在入口擋。
@@ -119,11 +129,16 @@ struct AuthorizedDesignation {
     ///
     /// 每個名字都必須是現有的 authorized 成員（相等看 `NameIdentity.canonical`，同 `authorize`），否則整批拒絕、零寫入——撤回一個
     /// 不是對外形的名字不是 no-op，是呼叫端弄錯了對象（與 `authorize` 的冪等不同：那一句仍然成立，這一句不成立）。
-    /// 被 `field: authorized` 的 reference 指著的也拒（同 `authorize` 換下舊指定那一格）。回傳被撤回的 store 拼法。
+    /// 被 `field: authorized` 的 reference 指著的也拒（同 `authorize` 換下舊指定那一格）。回傳被撤回的 store 拼法與它原本的位置。
+    ///
+    /// **撤回不是 `authorize` 的精確逆操作**：名字與分類（未標）都留在 names，但 `authorize` 對「不在 authorized 裡」的名字一律接在尾端
+    /// （只有同書寫系統替換才插回第一個被動到的位置），而 `displayName` 在沒指定書寫系統時取 `authorized.first`——撤回再指定回來，
+    /// 多書寫系統記錄的預設顯示名可能換書寫系統。所以回傳位置，讓報告能說出「原本在第幾個」。
     ///
     /// 呼叫端在 `authorize` **之前**跑它：成員資格以呼叫前的 authorized 為準，「撤回 A、指定 B」在同一次呼叫裡不因順序而變。
-    mutating func unauthorize(_ requested: [String]) throws -> [String] {
-        var withdrawn: [String] = []
+    mutating func unauthorize(_ requested: [String]) throws -> [Withdrawn] {
+        let before = authorized
+        var withdrawn: [Withdrawn] = []
         for r in requested {
             let key = NameIdentity.canonical(r)
             let hits = authorized.filter { NameIdentity.canonical($0) == key }
@@ -135,7 +150,7 @@ struct AuthorizedDesignation {
             }
             for y in hits { try refuseIfPinned(y, replacedBy: nil) }
             authorized.removeAll { NameIdentity.canonical($0) == key }
-            withdrawn.append(contentsOf: hits)
+            for (i, y) in before.enumerated() where NameIdentity.canonical(y) == key { withdrawn.append(Withdrawn(name: y, index: i)) }
         }
         return withdrawn
     }

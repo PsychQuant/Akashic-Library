@@ -59,7 +59,8 @@ final class TractatusInterfaceTests: XCTestCase {
             contentsOf: root.appendingPathComponent(".github/workflows/ci.yml"),
             encoding: .utf8
         )
-        let checkout = try XCTUnwrap(workflow.range(of: "      - uses: actions/checkout@v4\n"))
+        // #706 起 action 釘到 commit SHA，版本標籤只在行尾註解裡——只比對到 `@` 為止
+        let checkout = try XCTUnwrap(workflow.range(of: "      - uses: actions/checkout@"))
         let nextStep = try XCTUnwrap(
             workflow.range(of: "\n      - name:", range: checkout.upperBound..<workflow.endIndex)
         )

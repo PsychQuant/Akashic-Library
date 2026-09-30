@@ -110,14 +110,17 @@ jobs:
   parity:
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      # Actions 釘到 commit SHA（#706）：版本標籤可以被移動，SHA 不行。更新時以
+      # `gh api repos/actions/<name>/commits/<tag> --jq .sha` 取新 SHA，尾端註解改成它對應的版本；
+      # 兩個 workflow 一起改（使用者 2026-09-30 裁決：手動更新，不加 Dependabot）。
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           # 只影響 checkout **之後**是否把 token 留在 git config——submodule 在
           # checkout 當下仍取得到憑證，所以兩者不衝突。
           persist-credentials: false
           submodules: recursive
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: .build
           key: ${{ runner.os }}-spm-${{ hashFiles('Package.resolved', 'Package.swift') }}

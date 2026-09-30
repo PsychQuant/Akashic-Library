@@ -192,6 +192,7 @@ final class S2CommandTests: XCTestCase {
 
     /// #664 任務 5.2：兩個程序共用同一個狀態目錄、各送 3 個請求——6 個送達時間兩兩間隔
     /// 至少 1 秒（容許 50 ms）。author-search 不另查 total，每頁 1 筆＋`--limit 3` 恰為 3 個請求。
+    /// #701：這個間隔由節流在鎖內比對上一次的實際放行來保證。先前只由預約保證，前一個程序晚醒時量到過 0.92 秒。
     func testTwoProcessesShareTheOneRequestPerSecondBudget() throws {
         let server = try LoopbackS2Server { _, target in
             let comps = URLComponents(string: "http://x" + target)!

@@ -17,6 +17,9 @@ public final class S2FileThrottle: S2Throttling, @unchecked Sendable {
     public static let interval: TimeInterval = 1.05
     public static let staleAfter: TimeInterval = 60
     public static let fileName = "s2-throttle"
+    /// 比這短的等待不睡（#701）：排程器兌現不了，而準時醒來的呼叫者會因浮點誤差差上幾個 ulp。
+    /// 放行間隔因此保證的是 `interval − releaseSlack`＝1.049 秒。
+    static let releaseSlack: TimeInterval = 0.001
 
     let stateDirectory: URL
     let now: @Sendable () -> Date
@@ -42,10 +45,12 @@ public final class S2FileThrottle: S2Throttling, @unchecked Sendable {
         return Date(timeIntervalSince1970: state.nextAllowedAt)
     }
 
-    /// 狀態檔內容。`blockedUntil` 由 429 退避寫入（任務 3.2）。
+    /// 狀態檔內容。`blockedUntil` 由 429 退避寫入（任務 3.2）；`lastReleasedAt` 是上一次放行的實際時刻（#701）。
+    /// 沒有 `lastReleasedAt` 的舊檔照讀；舊 binary 寫回時會丟掉它，那一次的放行間隔回到只由預約保證。
     struct State: Codable, Equatable {
         var nextAllowedAt: Double = 0
         var blockedUntil: Double?
+        var lastReleasedAt: Double?
     }
 
     /// 在排他鎖內預約一個送出時段並回傳它；**解鎖後**呼叫者才等待，
@@ -61,14 +66,50 @@ public final class S2FileThrottle: S2Throttling, @unchecked Sendable {
         }
     }
 
-    /// 預約時段、睡到時段；醒來後在鎖內再看一次 429 的封鎖期——預約之後才被
-    /// 別的程序的 429 擋住時，重新預約（spec「A 429 delays the other session too」）。
+    /// 預約時段、睡到時段；醒來後在鎖內決定能不能送出（`release()`）：預約之後才被別的程序的 429 擋住時重新預約
+    /// （spec「A 429 delays the other session too」），離上一次放行不到 `interval` 時睡到滿了再問一次（#701）。
     public func acquire() async throws {
+        var slot = try reserveSlot()
         while true {
-            let slot = try reserveSlot()
             let wait = slot.timeIntervalSince(now())
             if wait > 0 { try await sleep(wait) }
-            if try !isBlocked() { return }
+            switch try release() {
+            case .go: return
+            case .rebook: slot = try reserveSlot()
+            case .wait(let more): slot = now().addingTimeInterval(more)
+            }
+        }
+    }
+
+    /// 醒來的呼叫者在鎖內得到的答案。
+    enum Release: Equatable {
+        case go
+        /// 仍在 429 的封鎖期：重新預約。
+        case rebook
+        /// 離上一次放行不到 `interval`：再等這麼久。
+        case wait(TimeInterval)
+    }
+
+    /// 在鎖內決定醒來的呼叫者能不能送出。
+    ///
+    /// 預約只保證每一次放行不早於自己的時段，**不保證兩次放行的間隔**：`Task.sleep` 睡得越久晚醒越多（#701 實測睡約 1.05 秒的
+    /// 晚醒 124–139 ms、睡約 0.5 秒的晚醒約 58 ms），前一個呼叫者晚醒、後一個準時醒時，兩次放行會比 `interval` 近。所以放行時
+    /// 記下這一刻（`lastReleasedAt`），下一個醒來的呼叫者離它不到 `interval` 就再等；這個比對在同一把鎖裡，程序之間不會同時通過。
+    /// 放行時也把 `nextAllowedAt` 推到至少這一刻加 `interval`，之後的預約從實際放行算起。
+    /// 封鎖期與上一次放行比現在晚超過 60 秒時視為過期（時鐘回撥或檔案損毀）。
+    func release() throws -> Release {
+        try withLockedState { state in
+            let t = now().timeIntervalSince1970
+            if let blocked = state.blockedUntil {
+                if blocked - t > Self.staleAfter { state.blockedUntil = nil } else if blocked > t { return .rebook }
+            }
+            if let last = state.lastReleasedAt, last - t <= Self.staleAfter {
+                let more = last + Self.interval - t
+                if more > Self.releaseSlack { return .wait(more) }
+            }
+            state.lastReleasedAt = t
+            state.nextAllowedAt = Swift.max(state.nextAllowedAt, t + Self.interval)
+            return .go
         }
     }
 
@@ -78,16 +119,6 @@ public final class S2FileThrottle: S2Throttling, @unchecked Sendable {
             let u = until.timeIntervalSince1970
             state.blockedUntil = Swift.max(state.blockedUntil ?? 0, u)
             state.nextAllowedAt = Swift.max(state.nextAllowedAt, u)
-        }
-    }
-
-    /// 仍在封鎖期內？封鎖期比現在晚超過 60 秒視為過期（時鐘回撥或檔案損毀）。
-    func isBlocked() throws -> Bool {
-        try withLockedState { state in
-            guard let blocked = state.blockedUntil else { return false }
-            let t = now().timeIntervalSince1970
-            if blocked - t > Self.staleAfter { state.blockedUntil = nil; return false }
-            return blocked > t
         }
     }
 

@@ -270,6 +270,8 @@ akashic:
 - **第二個寫入者**（#606）：`akashic copy-zotero-attachments [--apply]`（只有 CLI）批次地把 `zotero:` 附件的位元組存進 `sources/`（`storeSource`，取得記錄同落）再連到 `akashic.sources`——
   同一個形狀、add-only、冪等（「已連過」看本機存檔：連結在而本機 `sources/` 沒有的只補存、不改連結；位元組在而 index 沒有條目的只補記取得記錄，#606 R2；寫 work 前重讀記錄檔，計畫之後被改過的不以舊快照覆寫，#606 R1）；與 `--add-source` 的差別只在位元組**從哪裡來**（Zotero 資料目錄的 `storage/`，而不是先用 `store-source` 存好）。乾跑預設；實跑要求被改寫的 work 檔已在 git 裡 commit、乾淨，
   且每個要存的 digest 過 `storeSource` 的全部前置（`sources/` 被版控排除、index 沒有壞行）——任何一道過不了就整批零寫入。
+  #703：超過 256 MB 的附件逐檔具名略過（印大小）；位元組已在 `sources/` 的同一個 digest（已連過、要補記、或新連結遇到既有存檔）
+  逐塊比對內容，不符列為「內容與 Zotero 原檔不符」——不覆寫、不補記、不新連。
 - **讀取端**：`get-entry`／`akashic_get_entry` 的 `akashic.sources` 列出連好的 digest（取得記錄在 `sources/index.jsonl`）。
 
 ### 2.5 Namespace 契約（CRITICAL）
@@ -1294,6 +1296,15 @@ digest 不重複 append，回條回報 existing **並附上被丟棄的 provenan
 驗證（blob 的探測路徑不能代替它）。`doctor` 檢出四類並**只報告不動手**：孤兒
 blob（有存檔無條目）、懸空條目（有條目無存檔）、無法解析的行、讀不到的 shard
 （讀不到 ≠ 缺席，不得捏造懸空）；audit 自身失敗降級為警告、不中止報告。
+
+**單份上限 256 MB、逐塊寫入**（#703，使用者 2026-09-30 裁決）：一份內容 **MUST NOT** 超過
+268,435,456 bytes（`LibraryStore.maxSourceBytes`，所有寫入面讀同一個常數）；超過的**不截斷、
+不存**、具名（`store-source` 整個呼叫拒絕；`copy-zotero-attachments` 逐檔略過並印出大小）。
+digest 與複製都逐塊（記憶體與檔案大小無關）：先算 digest、不寫任何東西，排除驗證過了才逐塊
+複製進同一個分片目錄裡的暫存檔（暫存檔的路徑同樣過排除驗證）並再算一次，兩遍相同才以
+`RENAME_EXCL` 放上位址——同一個位址上已有東西就**不覆寫**。位址上那一份是不是那份內容，
+由 `checkStoredBlob` 另外比（`copy-zotero-attachments` 補存時用它，不符具名列出、不覆寫）。
+上限只約束寫入；既有的存檔不因此變成不合法。
 
 #### `index.jsonl` 的版控處置（#262 裁決一，2026-08-19）
 

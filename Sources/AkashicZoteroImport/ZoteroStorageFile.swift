@@ -1,9 +1,13 @@
 import Foundation
+import AkashicStoreIO
 
 /// 把 work 的附件記錄（`attachments: [{zotero: storage/<KEY>/<檔名>}]`）解成 Zotero 資料目錄裡的一個普通檔（#606）。
 ///
 /// 路徑取自 store 的 YAML——`attachments` 的 path 在載入時只驗是字串，手改或舊 binary 可以寫成任何東西。所以這一層是**未信任輸入**的邊界：
 /// 複製它的位元組進 `sources/` 之前，先確認它是資料目錄的 `storage/` 底下的一個非空普通檔；不是就**具名拒絕**，不猜、不跟 symlink。
+///
+/// #703：大小不超過 `sources/` 的單份上限（`LibraryStore.maxSourceBytes`，256 MB——唯一一份常數）；超過的以大小具名拒絕、不讀。
+/// 內容不再整份讀進記憶體：`openVerified` 交回一個已判斷過的 descriptor，呼叫端逐塊讀（算 digest、複製進 `sources/`）。
 public enum ZoteroStorageFile {
 
     /// 定位成功：檔案的位置、大小與修改時間。
@@ -25,6 +29,8 @@ public enum ZoteroStorageFile {
         case notRegularFile(String)
         /// 0 byte——空內容的 digest 不指認任何一份存檔（#546）。
         case empty
+        /// 超過 `sources/` 的單份上限（#703）；值是檔案大小（bytes）。不截斷、不讀。
+        case tooLarge(Int)
     }
 
     /// 定位的結果。刻意不用 `Result`／`Error`：拒絕是這一層的**正常輸出**（每一筆各自略過），不是擲出的錯誤。
@@ -33,8 +39,8 @@ public enum ZoteroStorageFile {
         case refused(Refusal)
     }
 
-    /// `attachmentPath` 相對 `dataDir`（`zotero.sqlite` 所在的目錄）。
-    public static func locate(dataDir: URL, attachmentPath: String) -> Location {
+    /// `attachmentPath` 相對 `dataDir`（`zotero.sqlite` 所在的目錄）。`limit` 是測試接縫，預設就是 `LibraryStore.maxSourceBytes`。
+    public static func locate(dataDir: URL, attachmentPath: String, limit: Int = LibraryStore.maxSourceBytes) -> Location {
         let parts = attachmentPath.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
         guard parts.count == 3, parts[0] == "storage",
               parts.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." && !$0.contains("\u{0}") }) else {
@@ -56,24 +62,28 @@ public enum ZoteroStorageFile {
         guard realFile.hasPrefix(realStorage + "/") else { return .refused(.outsideStorage) }
         let size = (attrs[.size] as? NSNumber)?.intValue ?? 0
         guard size > 0 else { return .refused(.empty) }
+        guard size <= limit else { return .refused(.tooLarge(size)) }
         return .found(Located(url: url, bytes: size, modified: attrs[.modificationDate] as? Date))
     }
 
-    /// 讀一個已定位的檔的結果。拒絕沿用 `Refusal`（每一筆各自略過）；`unreadable` 是開得了卻讀不出來、或 kernel 答不出位置。
-    public enum Contents: Equatable {
-        case data(Data)
+    /// 開一個已定位的檔的結果（#703）。拒絕沿用 `Refusal`（每一筆各自略過）；`unreadable` 是開不了、或 kernel 答不出位置。
+    /// 不是 `Equatable`：`file` 帶著一個開著的 descriptor。
+    public enum Opened {
+        /// 從同一個 descriptor 判斷過的非空普通檔，大小不超過上限；位置在開頭。`bytes` 是開啟當下 `fstat` 的大小。
+        /// 呼叫端**逐塊**讀它（`LibraryStore.contentDigest(reading:)`、`storeSource(contentsOf:)`），用完關掉。
+        case file(FileHandle, bytes: Int)
         case refused(Refusal)
         case unreadable
     }
 
-    /// 讀 `locate` 找到的檔（#606 R1 verify）：**只開一次、從同一個 descriptor 判斷並讀完**，不再以路徑重讀。
+    /// 開 `locate` 找到的檔（#606 R1 verify；#703 起交回 descriptor 而不是整份內容）：**只開一次、從同一個 descriptor 判斷**，不再以路徑重讀。
     ///
     /// `locate` 的檢查（lstat、真實路徑前綴）與之後的讀取之間有時間窗：若在那之間檔案被換成 symlink、或 KEY 目錄被換成指出去的 symlink，
-    /// 以路徑再讀一次就會跟過去。這裡以 `O_NOFOLLOW` 開啟（最後一段是 symlink 就失敗）、`fstat` 確認開到的是非空普通檔、再以
-    /// `F_GETPATH` 問 kernel 這個 descriptor 的真實位置、要求它在 `storage/` 之內（`storage/` 自己也經 descriptor 問，兩邊同一種寫法，
+    /// 以路徑再讀一次就會跟過去。這裡以 `O_NOFOLLOW` 開啟（最後一段是 symlink 就失敗）、`fstat` 確認開到的是非空普通檔、大小不超過上限，
+    /// 再以 `F_GETPATH` 問 kernel 這個 descriptor 的真實位置、要求它在 `storage/` 之內（`storage/` 自己也經 descriptor 問，兩邊同一種寫法，
     /// 大小寫與 `/private` 前綴不會對不上）。`O_NONBLOCK`：換進來的若是 FIFO，開啟不會卡住（隨後以種類拒絕）。
-    /// 內容整份讀進記憶體（不 mmap——檔案在讀的時候被截短，mmap 會讓行程收到 SIGBUS）；每個檔算完 digest、存完即釋放。
-    public static func read(dataDir: URL, located: Located) -> Contents {
+    /// 不 mmap——檔案在讀的時候被截短，mmap 會讓行程收到 SIGBUS。讀的時候長大超過上限，由逐塊讀的那一方停下（它數得到讀了多少）。
+    public static func openVerified(dataDir: URL, located: Located, limit: Int = LibraryStore.maxSourceBytes) -> Opened {
         let dirFD = open(dataDir.appendingPathComponent("storage").path, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
         guard dirFD >= 0 else { return .unreadable }
         defer { close(dirFD) }
@@ -97,9 +107,8 @@ public enum ZoteroStorageFile {
         guard let realFile = kernelPath(fd) else { return .unreadable }
         guard realFile.hasPrefix(realStorage + "/") else { return .refused(.outsideStorage) }
         guard st.st_size > 0 else { return .refused(.empty) }
-        guard let data = try? handle.readToEnd() else { return .unreadable }
-        guard !data.isEmpty else { return .refused(.empty) }
-        return .data(data)
+        guard st.st_size <= limit else { return .refused(.tooLarge(Int(st.st_size))) }
+        return .file(handle, bytes: Int(st.st_size))
     }
 
     /// descriptor 的真實位置（kernel 的 `F_GETPATH`）。答不出來回 nil。

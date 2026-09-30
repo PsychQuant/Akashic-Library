@@ -110,6 +110,56 @@ final class StoreSourceEntryPointTests: XCTestCase {
         }
     }
 
+    /// #703：超過 256 MB 的檔整個拒絕、不截斷、零寫入，訊息說出是哪一個檔、多大、上限多少（CLI 與 MCP 同一個函式）。
+    /// sparse 檔：大小以 stat 判斷，不讀、不佔磁碟。
+    func testAFileOverTheCapIsRefusedByNameWithItsSize() throws {
+        let huge = root.appendingPathComponent("huge-scan.pdf")
+        XCTAssertTrue(FileManager.default.createFile(atPath: huge.path, contents: nil))
+        let w = try FileHandle(forWritingTo: huge)
+        try w.truncate(atOffset: UInt64(LibraryStore.maxSourceBytes + 1))
+        try w.close()
+        XCTAssertThrowsError(try service.storeSource(
+            path: huge.path, mediaType: "application/pdf", retrieved: "2026-09-30",
+            origin: "o", acquisition: "scan")) { error in
+            guard case ServiceError.invalid = error else { return XCTFail("錯誤類型應為 invalid，實得 \(error)") }
+            let msg = (error as? LocalizedError)?.errorDescription ?? ""
+            XCTAssertTrue(msg.contains("huge-scan.pdf"), "要說出是哪一個檔：\(msg)")
+            XCTAssertTrue(msg.contains("\(LibraryStore.maxSourceBytes + 1)"), "要說出檔案大小：\(msg)")
+            XCTAssertTrue(msg.contains("256 MB"), "要說出上限：\(msg)")
+        }
+        let shards = ((try? FileManager.default.contentsOfDirectory(
+            atPath: root.appendingPathComponent("sources").path)) ?? []).filter { $0.count == 2 }
+        XCTAssertEqual(shards, [], "不存")
+    }
+
+    /// 入口的上限可注入（測試接縫）：恰好等於上限的收、多一個 byte 的拒絕——拒絕時訊息說出兩個數字。
+    func testTheEntryPointCapIsInclusive() throws {
+        let path = payloadFile.path
+        let size = try XCTUnwrap(FileManager.default.attributesOfItem(atPath: path)[.size] as? Int)
+        XCTAssertNoThrow(try service.storeSource(path: path, mediaType: "text/plain", retrieved: "2026-09-30",
+                                                 origin: "o", acquisition: "a", limit: size))
+        XCTAssertThrowsError(try service.storeSource(path: path, mediaType: "text/plain", retrieved: "2026-09-30",
+                                                     origin: "o", acquisition: "a", limit: size - 1)) { error in
+            let msg = (error as? LocalizedError)?.errorDescription ?? ""
+            XCTAssertTrue(msg.contains("\(size) bytes") && msg.contains("\(size - 1) bytes"), msg)
+        }
+    }
+
+    /// 目錄與 FIFO 不是一份內容：拒絕、訊息含路徑；FIFO 不能讓開檔卡住（以前 `Data(contentsOf:)` 會等一個寫入者）。
+    func testDirectoriesAndFifosAreRefusedWithoutBlocking() throws {
+        let dir = root.appendingPathComponent("a-directory")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let fifo = root.appendingPathComponent("a-fifo")
+        XCTAssertEqual(mkfifo(fifo.path, 0o644), 0)
+        for url in [dir, fifo] {
+            XCTAssertThrowsError(try service.storeSource(path: url.path, mediaType: "text/plain", retrieved: "2026-09-30",
+                                                         origin: "o", acquisition: "a")) { error in
+                let msg = (error as? LocalizedError)?.errorDescription ?? ""
+                XCTAssertTrue(msg.contains(url.lastPathComponent), msg)
+            }
+        }
+    }
+
     /// 相同位元組經**兩次呼叫**得到相同 digest——兩面同源的前提。
     ///
     /// 這條不驗「MCP 與 CLI 產出相同」（那需要跑兩個 binary），而是驗它們共用的

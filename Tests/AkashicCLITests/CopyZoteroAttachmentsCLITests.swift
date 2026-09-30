@@ -191,4 +191,42 @@ final class CopyZoteroAttachmentsCLITests: XCTestCase {
         XCTAssertTrue(r.output.contains("storage/GONEKEY1/gone.pdf") && r.output.contains("沒有這個檔"), r.output)
         XCTAssertEqual(try work().akashic.sources, [digest], "另一個附件照複製")
     }
+
+    // MARK: #703
+
+    /// 超過 256 MB 的附件：乾跑就具名印出路徑與大小、說出上限；其餘照跑。sparse 檔，不佔磁碟、不讀。
+    func testAnAttachmentOverTheCapIsNamedWithItsSize() throws {
+        let url = zdir.appendingPathComponent("storage/HUGEKEY1/huge.pdf")
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        XCTAssertTrue(FileManager.default.createFile(atPath: url.path, contents: nil))
+        let w = try FileHandle(forWritingTo: url)
+        try w.truncate(atOffset: UInt64(LibraryStore.maxSourceBytes + 1))
+        try w.close()
+        var e = try work()
+        e.attachments.append(AttachmentRef(kind: .zotero, path: "storage/HUGEKEY1/huge.pdf"))
+        try LibraryStore(root: root, key: nil, environment: [:]).writeEntry(e)
+        git(["add", "-A"]); git(["commit", "-q", "-m", "huge attachment"])
+        let dry = try cli(["copy-zotero-attachments"] + dbArgs)
+        XCTAssertEqual(dry.status, 0, dry.output)
+        XCTAssertTrue(dry.output.contains("storage/HUGEKEY1/huge.pdf") && dry.output.contains("\(LibraryStore.maxSourceBytes + 1) bytes")
+                      && dry.output.contains("256 MB"), dry.output)
+        let r = try cli(["copy-zotero-attachments", "--apply"] + dbArgs)
+        XCTAssertEqual(r.status, 0, r.output)
+        XCTAssertEqual(try work().akashic.sources, [digest], "另一個附件照複製；超過上限的不連")
+    }
+
+    /// 已連過的 blob 被截短：乾跑具名印出、`--apply` 不覆寫並以非零結束（收容不是吞掉）。
+    func testATruncatedLinkedBlobIsNamedAndApplyExitsNonZero() throws {
+        XCTAssertEqual(try cli(["copy-zotero-attachments", "--apply"] + dbArgs).status, 0)
+        git(["add", "-A"]); git(["commit", "-q", "-m", "copied"])
+        try Data("%PDF".utf8).write(to: blob())
+        let dry = try cli(["copy-zotero-attachments"] + dbArgs)
+        XCTAssertEqual(dry.status, 0, dry.output)
+        XCTAssertTrue(dry.output.contains("內容與 Zotero 原檔不符") && dry.output.contains("storage/ABCD1234/paper.pdf"), dry.output)
+        XCTAssertFalse(dry.output.contains("已連過：1"), "內容不符就不算已連過：\(dry.output)")
+        let r = try cli(["copy-zotero-attachments", "--apply"] + dbArgs)
+        XCTAssertEqual(r.status, 1, r.output)
+        XCTAssertTrue(r.output.contains("內容與 Zotero 原檔不符"), r.output)
+        XCTAssertEqual(try Data(contentsOf: blob()), Data("%PDF".utf8), "不覆寫")
+    }
 }

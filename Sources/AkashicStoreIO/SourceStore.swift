@@ -16,9 +16,24 @@ public extension LibraryStore {
 
     var sourcesDir: URL { root.appendingPathComponent("sources") }
 
+    /// `sources/` 單份內容的大小上限（#703，使用者 2026-09-30 裁決「三件都做，上限 256 MB」）：**268,435,456 bytes（256 MB）**。
+    ///
+    /// 超過的內容**不截斷、不存**、具名拒絕：`store-source`（CLI／MCP）整個呼叫拒絕、零寫入；`copy-zotero-attachments` 逐檔略過並印出
+    /// 路徑與大小，其餘照跑。錨點是 2026-09-30 的本機實測：Zotero storage 最大單檔 5,499,190 bytes（全部 2,817 個檔、磁碟用量 66 MB），上限是它的 48.8 倍——
+    /// 量法見 `zero-instance-guards` 第 72 列。
+    ///
+    /// **只有這一份**（`no-compat-fallback` §同一件事只能有一份描述）：`storeSource`、`ZoteroStorageFile` 的定位與開檔、`store-source` 的入口
+    /// 都讀這個常數；各函式的 `limit` 參數只是測試接縫，預設值就是它。要調整回 #703 重新裁決。
+    static let maxSourceBytes = 268_435_456
+
+    /// 上限給人看的寫法（錯誤訊息、報告共用）：整除 1 MiB 時附上 MB 數。
+    static func sourceCapDescription(_ limit: Int) -> String {
+        limit > 0 && limit % (1 << 20) == 0 ? "\(limit) bytes（\(limit >> 20) MB）" : "\(limit) bytes"
+    }
+
     /// 寫入的回條：digest 之外**記錄排除驗證是否真的跑了**（D5：store 非 git repo
     /// 時跳過驗證，但跳過的事實不沉默——呼叫端可轉發給使用者）。
-    struct SourceReceipt {
+    struct SourceReceipt: Equatable {
         public let digest: String
         public let exclusionVerified: Bool
         /// #224：這次呼叫有沒有**新增** index 條目。false = 同 digest 條目已存在
@@ -36,7 +51,7 @@ public extension LibraryStore {
     /// #224：存 source 時**必須**一起提供的 provenance——blob 本身只是位元組，
     /// 沒有這些欄位它什麼都不證明。欄位形狀以既有 `sources/index.jsonl` 的
     /// 7 條手工條目為事實來源。
-    struct SourceProvenance {
+    struct SourceProvenance: Equatable {
         public let mediaType: String
         public let retrieved: String
         public let origin: String
@@ -83,9 +98,31 @@ public extension LibraryStore {
     func sourceBlobURL(digest: String) -> URL? { sourceURL(digest: digest) }
 
     /// 內容的 digest（`sha256:` + 小寫十六進位，算在原始位元組上）。`storeSource` 落地的位址就是它；只有這一份公式（#606：多筆操作要在寫入之前
-    /// 算出 digest 做預演與去重，再自己算一遍就是兩份會分岔的位址規格）。
+    /// 算出 digest 做預演與去重，再自己算一遍就是兩份會分岔的位址規格）。#703 起檔案走逐塊的 `contentDigest(reading:)`，兩個入口共用 `digestText`。
     static func contentDigest(of data: Data) -> String {
-        "sha256:" + SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        digestText(SHA256.hash(data: data))
+    }
+
+    /// 兩個入口（整份與逐塊）共用的 digest 文字形——`sha256:` + 64 個小寫十六進位。
+    internal static func digestText(_ digest: SHA256.Digest) -> String {
+        "sha256:" + digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// 串流存檔的結果（#703）。內容層面的拒絕是**正常輸出**，不是擲出的錯：批次呼叫端（`copy-zotero-attachments`）逐檔略過並具名、
+    /// 其餘照跑；單檔呼叫端（`store-source`）把它轉成說出路徑的錯誤。store 層面的問題（index 腐壞、版控排除沒生效、I/O）照舊擲出。
+    enum SourceIntake: Equatable {
+        case stored(SourceReceipt)
+        case refused(SourceContentRefusal)
+    }
+
+    /// 內容層面的拒絕（#703）。封閉列舉，每一種都是零寫入：不留 blob、不留暫存檔、不寫 index。
+    enum SourceContentRefusal: Equatable {
+        /// 0 byte（#546）：空內容的 digest 對所有空輸入都相同，不指認任何一份存檔。
+        case empty
+        /// 超過上限（`maxSourceBytes`）。值是實際大小（stat 的大小；讀的時候長大時是讀到的量與當下大小取大者）。
+        case tooLarge(bytes: Int)
+        /// 內容與預期不同：呼叫端給的 `expectedDigest` 對不上，或算 digest 那一遍與複製那一遍之間內容變了。值是實際讀到的 digest。
+        case changed(actual: String)
     }
 
     /// #224 verify（Codex #4）：sidecar 已腐壞時不可宣稱冪等——malformed 行讓重複檢查不可靠（同 digest 可能藏在解析不出的行裡）。
@@ -124,39 +161,91 @@ public extension LibraryStore {
     ///
     /// 沒有「只存 blob、不記 provenance」的入口（no-compat-fallback：那條 default
     /// 路徑正是 index 腐爛的來源——本 issue 之前的 7 個 blob 全靠手工補記）。
+    ///
+    /// 這是已經在記憶體裡的內容的入口；檔案走 `storeSource(contentsOf:)`（#703：逐塊，不整份讀進記憶體）。兩個入口同一條路徑
+    /// （`storeSource(chunks:)`），內容層面的拒絕在這裡轉成具名的錯誤：0 byte（#546）與超過上限（#703）都是整個拒絕、零寫入。
     @discardableResult
-    func storeSource(_ data: Data, provenance: SourceProvenance) throws -> SourceReceipt {
-        // #546：下界。空字串的 digest 是常數，任何空輸入都得到它——它不指認任何一份內容，
-        // 而兩次不同的失敗抓取會折成同一筆、被去重讀成「早已存過」。與 #519 的上界同型：
-        // 整個拒絕、零寫入、具名。所以這一道放在任何磁碟寫入之前。
-        guard !data.isEmpty else {
+    func storeSource(_ data: Data, provenance: SourceProvenance, limit: Int = LibraryStore.maxSourceBytes) throws -> SourceReceipt {
+        var chunks = DataChunks(data: data)
+        switch try storeSource(chunks: &chunks, provenance: provenance, expectedDigest: nil, limit: limit) {
+        case .stored(let receipt):
+            return receipt
+        case .refused(.empty):
+            // #546：下界。空字串的 digest 是常數，任何空輸入都得到它——它不指認任何一份內容，
+            // 而兩次不同的失敗抓取會折成同一筆、被去重讀成「早已存過」。與 #519 的上界同型：
+            // 整個拒絕、零寫入、具名。
             throw StoreIOError.invalidInput(
                 what: "source 內容",
                 why: "0 byte——空內容的 digest 對所有空輸入都相同，不指認任何一份存檔。"
                     + "這通常是一次失敗的抓取留下的空檔；重新取得內容再存")
+        case .refused(.tooLarge(let bytes)):
+            throw StoreIOError.invalidInput(
+                what: "source 內容",
+                why: "\(bytes) bytes，超過 sources/ 的單份上限 \(Self.sourceCapDescription(limit))——不截斷、不存（#703）")   // display-safe-exempt: bytes、limit 是 Int；Self.sourceCapDescription 只回數字與固定字
+        case .refused(.changed(let actual)):
+            // 記憶體裡的內容兩遍讀到的不會不同；留著這一格是因為列舉是封閉的，不是因為它走得到
+            throw StoreIOError.invalidInput(
+                what: "source 內容",
+                why: "兩遍讀到的內容不同（\(actual)）——沒有存")   // display-safe-exempt: actual 是本函式算的 SHA-256 十六進位
+        }
+    }
+
+    /// 從檔案存 source（#703）：**逐塊**——第一遍算 digest（不寫任何東西），第二遍複製進 `sources/` 並再算一次、兩遍相同才落地。
+    /// 記憶體用量與檔案大小無關；handle 要是普通檔（可以回到開頭讀第二遍）。
+    ///
+    /// - 大小先以 `fstat` 判：0 byte 與超過 `limit` 在讀任何一個位元組之前就拒絕（`.refused`，零寫入）。
+    /// - `expectedDigest`：呼叫端先算過的 digest（`copy-zotero-attachments` 計畫時算的）；對不上就 `.refused(.changed)`、什麼都不寫。
+    /// - 同 digest 的位置上已有東西就不寫（內容定址，不覆寫）；那一份對不對是 `checkStoredBlob` 另外比的事。
+    func storeSource(contentsOf handle: FileHandle, provenance: SourceProvenance, expectedDigest: String? = nil,
+                     limit: Int = LibraryStore.maxSourceBytes) throws -> SourceIntake {
+        var chunks = HandleChunks(handle: handle)
+        return try storeSource(chunks: &chunks, provenance: provenance, expectedDigest: expectedDigest, limit: limit)
+    }
+
+    /// 兩個入口共用的路徑（#703）。順序：大小（不讀）→ index 腐壞（任何寫入之前）→ 第一遍算 digest（不寫）→ blob（排除驗證 → 第二遍複製）→ index。
+    internal func storeSource<C: SourceChunks>(chunks source: inout C, provenance: SourceProvenance,
+                                                expectedDigest: String?, limit: Int) throws -> SourceIntake {
+        // 看得到大小的來源先比上下界——一個位元組都不讀、不寫
+        if let size = source.currentSize() {
+            if size == 0 { return .refused(.empty) }
+            if size > limit { return .refused(.tooLarge(bytes: size)) }
         }
         // #224 verify（Codex #4）：sidecar 已腐壞時不可宣稱冪等——malformed 行讓
         // 重複檢查不可靠（同 digest 可能藏在解析不出的行裡）。fail-closed：先修再寫。
         // 這個檢查在**任何**磁碟寫入之前——拒寫時不留孤兒 blob。
         let scan = try scanIndex()
         try assertIndexHasNoMalformedLines(scan.malformedLines)
-        let blob = try writeBlob(data)
-        if scan.digests.contains(blob.digest) {
+        // 第一遍：只算 digest，不寫任何東西（寫入路徑要等 digest 知道了、排除驗證過了才決定）
+        try source.rewind()
+        let digest: String
+        let bytes: Int
+        switch try Self.streamDigest(&source, limit: limit) {
+        case .overLimit(let n): return .refused(.tooLarge(bytes: n))
+        case .digest(let d, let n): (digest, bytes) = (d, n)
+        }
+        guard bytes > 0 else { return .refused(.empty) }
+        if let expectedDigest, expectedDigest != digest { return .refused(.changed(actual: digest)) }
+        let blob: (exclusionVerified: Bool, bytesWritten: Bool)
+        switch try writeBlob(&source, digest: digest, bytes: bytes, limit: limit) {
+        case .refused(let why): return .refused(why)
+        case .done(let verified, let wrote): blob = (verified, wrote)
+        }
+        if scan.digests.contains(digest) {
             // 冪等早退。丟棄了呼叫端的 provenance——這必須**可見**（verify D2 /
             // lossless-intake「丟棄必須可見」）：receipt 帶 discardedProvenance，
             // 呼叫端能分辨「早已記過」與「你這份敘述沒被寫入」。
-            return SourceReceipt(digest: blob.digest,
-                                 exclusionVerified: blob.exclusionVerified,
-                                 indexEntryCreated: false,
-                                 discardedProvenance: provenance,
-                                 bytesWritten: blob.bytesWritten)
+            return .stored(SourceReceipt(digest: digest,
+                                         exclusionVerified: blob.exclusionVerified,
+                                         indexEntryCreated: false,
+                                         discardedProvenance: provenance,
+                                         bytesWritten: blob.bytesWritten))
         }
-        try appendIndexEntry(digest: blob.digest, bytes: data.count, provenance: provenance)
-        return SourceReceipt(digest: blob.digest,
-                             exclusionVerified: blob.exclusionVerified,
-                             indexEntryCreated: true,
-                             discardedProvenance: nil,
-                             bytesWritten: blob.bytesWritten)
+        try appendIndexEntry(digest: digest, bytes: bytes, provenance: provenance)
+        return .stored(SourceReceipt(digest: digest,
+                                     exclusionVerified: blob.exclusionVerified,
+                                     indexEntryCreated: true,
+                                     discardedProvenance: nil,
+                                     bytesWritten: blob.bytesWritten))
     }
 
     var sourceIndexURL: URL { sourcesDir.appendingPathComponent("index.jsonl") }
@@ -363,14 +452,21 @@ public extension LibraryStore {
             unreadableShards: unreadable.sorted())
     }
 
-    /// blob 原語（#224 起不再公開）：存入一份擷取內容，回 digest（`sha256:` 前綴）。
+    /// blob 原語的結果：寫了（或位置上已有東西、沒寫），或內容在兩遍之間變了／長過上限。
+    private enum BlobWrite {
+        case done(exclusionVerified: Bool, bytesWritten: Bool)
+        case refused(SourceContentRefusal)
+    }
+
+    /// blob 原語（#224 起不再公開）：把一份已算過 digest 的內容存進 `sources/`。
     ///
     /// - digest 算在**原始位元組**上（D3）：不正規化、不轉碼——判準必須客觀。
-    /// - 同位元組冪等：已存在就不重寫（內容定址，兩份是不可能的）。
-    /// - 寫入前驗證版控排除（見 `assertSourcesExcluded`）；驗證先於**任何**磁碟
-    ///   寫入——拒寫時不留內容。
-    private func writeBlob(_ data: Data) throws -> SourceReceipt {
-        let digest = Self.contentDigest(of: data)
+    /// - 同 digest 冪等：位置上已有東西（任何種類）就不寫——內容定址，**不覆寫**（#703：那一份對不對由 `checkStoredBlob` 比）。
+    /// - 寫入前驗證版控排除（見 `assertSourcesExcluded`）；驗證先於**任何**磁碟寫入——拒寫時不留內容。
+    /// - #703：**逐塊**複製進同一個分片目錄裡的暫存檔（`O_EXCL` 建立），邊寫邊再算一次 digest；兩遍相同才以 `RENAME_EXCL` 放到位址上
+    ///   （同時有別人放進來就不覆寫、丟掉暫存）。暫存檔的路徑**也**過排除驗證——只排除 blob 名、不排除暫存名的規則會 fail-open。
+    ///   任何失敗都刪掉暫存檔。
+    private func writeBlob<C: SourceChunks>(_ source: inout C, digest: String, bytes: Int, limit: Int) throws -> BlobWrite {
         let hex = String(digest.dropFirst("sha256:".count))
         // 排除驗證問的必須是**即將寫入的那條路徑**（#145 verify F1）：曾用寫死的
         // 探測路徑 `sources/00/probe`——任何碰巧命中它的無關規則（basename
@@ -382,15 +478,95 @@ public extension LibraryStore {
         let verified = try assertSourcesExcluded(relativePath: relative)
         // sourceURL 對剛算出的合法 digest 不可能回 nil
         let url = sourceURL(digest: digest)!
-        var wrote = false
-        if !FileManager.default.fileExists(atPath: url.path) {
-            try FileManager.default.createDirectory(
-                at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try data.write(to: url, options: .atomic)
-            wrote = true
+        let fm = FileManager.default
+        // lstat 語意：位置上有任何東西（普通檔、目錄、symlink）都不寫——不寫穿、不取代
+        if (try? fm.attributesOfItem(atPath: url.path)) != nil {
+            return .done(exclusionVerified: verified, bytesWritten: false)
         }
-        return SourceReceipt(digest: digest, exclusionVerified: verified,
-                             indexEntryCreated: false, discardedProvenance: nil, bytesWritten: wrote)
+        let tmpName = ".\(hex.dropFirst(2)).incoming-\(UUID().uuidString)"
+        try assertSourcesExcluded(relativePath: "sources/\(hex.prefix(2))/\(tmpName)")
+        try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let tmp = url.deletingLastPathComponent().appendingPathComponent(tmpName)
+        let fd = open(tmp.path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o644)
+        guard fd >= 0 else {
+            throw StoreIOError.invalidInput(
+                what: "sources/ 暫存檔",
+                why: "無法建立（errno \(errno)）——digest \(digest) 沒有存")   // display-safe-exempt: errno 是 Int32；digest 是本函式的呼叫端算的 SHA-256 十六進位
+        }
+        var placed = false
+        defer { if !placed { unlink(tmp.path) } }
+        let out = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+        var hasher = SHA256()
+        try source.rewind()
+        let copied = try Self.pump(&source, limit: limit) { chunk in
+            hasher.update(data: chunk)
+            try out.write(contentsOf: chunk)
+        }
+        try out.close()
+        switch copied {
+        case .exceeded(let n):
+            return .refused(.tooLarge(bytes: max(n, source.currentSize() ?? n)))
+        case .complete(let n):
+            let second = Self.digestText(hasher.finalize())
+            // 兩遍之間內容變了：存下來的會不是 digest 說的那一份——不落地
+            guard n == bytes, second == digest else { return .refused(.changed(actual: second)) }
+        }
+        guard renamex_np(tmp.path, url.path, UInt32(RENAME_EXCL)) == 0 else {
+            let code = errno
+            if code == EEXIST { return .done(exclusionVerified: verified, bytesWritten: false) }   // 同時有別人放進來了：不覆寫
+            throw StoreIOError.invalidInput(
+                what: "sources/ 存檔",
+                why: "暫存檔無法放到位址上（errno \(code)）——digest \(digest) 沒有存")   // display-safe-exempt: code 是 Int32；digest 是本函式的呼叫端算的 SHA-256 十六進位
+        }
+        placed = true
+        return .done(exclusionVerified: verified, bytesWritten: true)
+    }
+
+    /// 本機 `sources/` 裡這個 digest 的那一份，內容是否真的是這個 digest（#703）。
+    enum StoredBlobCheck: Equatable {
+        /// 位置上沒有東西。
+        case absent
+        /// 內容的 digest 就是位址。
+        case matches
+        /// 內容不是這個 digest（被截短、被換掉）。`bytes` 是那一份的實際大小；`digest` 是它內容的 digest——大小與 `expectedBytes`
+        /// 不同時不必讀就知道不符，是 nil。
+        case mismatch(bytes: Int, digest: String?)
+        /// 位置上有東西、但不是普通檔（值是給人看的種類名）。
+        case notRegularFile(String)
+        /// 分片目錄列不出來、或那一份打不開／讀不完——判不出來（讀不到不等於缺席，#265）。
+        case unreadable
+    }
+
+    /// 比對本機存檔與它的位址（#703：`copy-zotero-attachments` 補存時「已連過」不再只看在不在）。**逐塊**算 digest（不設上限——既有的
+    /// 存檔可能早於上限；記憶體與大小無關）；`expectedBytes` 給了而大小不同就直接判不符、不讀。不改任何東西。
+    func checkStoredBlob(digest: String, expectedBytes: Int?) throws -> StoredBlobCheck {
+        guard let url = sourceURL(digest: digest) else {
+            throw StoreIOError.invalidInput(
+                what: "source digest",
+                why: "digest 形狀必須是 sha256: + 64 個小寫 hex，實得「\(displaySafeInvisible(digest, max: 120))」")
+        }
+        let fm = FileManager.default
+        guard let attrs = try? fm.attributesOfItem(atPath: url.path) else {
+            let shardDir = url.deletingLastPathComponent()
+            var isDir: ObjCBool = false
+            if fm.fileExists(atPath: shardDir.path, isDirectory: &isDir), isDir.boolValue,
+               (try? fm.contentsOfDirectory(atPath: shardDir.path)) == nil {
+                return .unreadable
+            }
+            return .absent
+        }
+        if let type = attrs[.type] as? FileAttributeType, type != .typeRegular {
+            return .notRegularFile(type == .typeDirectory ? "目錄" : type == .typeSymbolicLink ? "symlink" : "特殊檔案")
+        }
+        let size = (attrs[.size] as? NSNumber)?.intValue ?? 0
+        if let expectedBytes, size != expectedBytes { return .mismatch(bytes: size, digest: nil) }
+        let fd = open(url.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
+        guard fd >= 0 else { return .unreadable }
+        let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+        defer { try? handle.close() }
+        guard let streamed = try? Self.contentDigest(reading: handle, limit: .max),
+              case .digest(let actual, let n) = streamed else { return .unreadable }
+        return actual == digest ? .matches : .mismatch(bytes: n, digest: actual)
     }
 
     /// 讀回存檔。**缺席（nil）與格式錯（throw）是兩個條件**（task 4.5）：

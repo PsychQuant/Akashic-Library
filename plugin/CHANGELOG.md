@@ -42,6 +42,10 @@
 
 
 
+## #703 — `akashic_store_source` 單檔上限 256 MB
+
+超過 268,435,456 bytes（256 MB）的檔整個拒絕、不截斷、零寫入；錯誤訊息說出路徑、實際大小與上限。內容改成逐塊讀（記憶體與檔案大小無關），目錄與 FIFO 以錯誤拒絕、不會讓呼叫卡住。回應鍵與形狀不變；plugin 版號沒有動。
+
 ## #702 — `akashic_import_zotero` 的三個清單只記寫進去的那一筆
 
 `authorsPreserved`、`authorsOverwritten`、`fieldsRemovedByPull` 改成寫入成功之後才記。先前目的檔被隔離或寫入失敗的那一筆，也會出現在這三個清單裡，但它沒有寫。現在它只在 `quarantineConflicts` 或 `writeFailed` 裡。鍵名與形狀不變。一個例外：內容已寫進 `entities/`、只有搬移後的 legacy 檔沒刪掉時，那一筆寫了，照常在各清單，`writeFailed` 的訊息以「已寫入」開頭、說明留下兩份。

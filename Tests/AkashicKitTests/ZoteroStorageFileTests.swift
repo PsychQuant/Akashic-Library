@@ -1,5 +1,6 @@
 import XCTest
 @testable import AkashicZoteroImport
+import AkashicStoreIO
 
 /// #606：`ZoteroStorageFile`——把附件記錄的 `storage/<KEY>/<檔名>` 解成 Zotero 資料目錄裡的一個普通檔，或具名拒絕。
 ///
@@ -95,18 +96,33 @@ final class ZoteroStorageFileTests: XCTestCase {
 
     // MARK: 讀（#606 R1 verify）：定位之後、讀取之前被換掉的東西不跟
 
-    private func located(_ path: String) throws -> ZoteroStorageFile.Located {
-        guard case .found(let f) = ZoteroStorageFile.locate(dataDir: dir, attachmentPath: path) else {
+    private func located(_ path: String, limit: Int = 1_000) throws -> ZoteroStorageFile.Located {
+        guard case .found(let f) = ZoteroStorageFile.locate(dataDir: dir, attachmentPath: path, limit: limit) else {
             XCTFail("前提：\(path) 要定位得到")
             throw CocoaError(.fileNoSuchFile)
         }
         return f
     }
 
+    /// 開檔的結果，讀成可比較的形狀（#703 起 `openVerified` 回 descriptor，呼叫端逐塊讀；這裡為了斷言把它讀完）。
+    private enum Outcome: Equatable { case data(Data), refused(ZoteroStorageFile.Refusal), unreadable }
+    private func open(_ f: ZoteroStorageFile.Located, in dataDir: URL? = nil, limit: Int = 1_000) throws -> Outcome {
+        switch ZoteroStorageFile.openVerified(dataDir: dataDir ?? dir, located: f, limit: limit) {
+        case .file(let h, let bytes):
+            defer { try? h.close() }
+            XCTAssertEqual(try h.offset(), 0, "開好的 descriptor 停在開頭")
+            let data = try h.readToEnd() ?? Data()
+            XCTAssertEqual(data.count, bytes, "回報的大小就是開啟當下的大小")
+            return .data(data)
+        case .refused(let r): return .refused(r)
+        case .unreadable: return .unreadable
+        }
+    }
+
     func testReadReturnsTheBytesOfALocatedFile() throws {
         try put("storage/ABCD1234/paper.pdf", "%PDF-1.7 hello")
         let f = try located("storage/ABCD1234/paper.pdf")
-        XCTAssertEqual(ZoteroStorageFile.read(dataDir: dir, located: f), .data(Data("%PDF-1.7 hello".utf8)))
+        XCTAssertEqual(try open(f), .data(Data("%PDF-1.7 hello".utf8)))
     }
 
     /// 定位之後檔案被換成 symlink（指到資料目錄外）：以路徑重讀會跟過去；從 descriptor 讀的版本以 `O_NOFOLLOW` 拒絕。
@@ -116,7 +132,7 @@ final class ZoteroStorageFileTests: XCTestCase {
         let f = try located("storage/ABCD1234/paper.pdf")
         try FileManager.default.removeItem(at: f.url)
         try FileManager.default.createSymbolicLink(at: f.url, withDestinationURL: dir.appendingPathComponent("secret.txt"))
-        XCTAssertEqual(ZoteroStorageFile.read(dataDir: dir, located: f), .refused(.notRegularFile("symlink")))
+        XCTAssertEqual(try open(f), .refused(.notRegularFile("symlink")))
     }
 
     /// 定位之後 KEY 目錄被換成指出去的 symlink（裡面有同名的檔）：最後一段是普通檔、`O_NOFOLLOW` 擋不到，
@@ -128,7 +144,7 @@ final class ZoteroStorageFileTests: XCTestCase {
         try FileManager.default.removeItem(at: storage.appendingPathComponent("ABCD1234"))
         try FileManager.default.createSymbolicLink(at: storage.appendingPathComponent("ABCD1234"),
                                                    withDestinationURL: dir.appendingPathComponent("elsewhere"))
-        XCTAssertEqual(ZoteroStorageFile.read(dataDir: dir, located: f), .refused(.outsideStorage))
+        XCTAssertEqual(try open(f), .refused(.outsideStorage))
     }
 
     /// 換進來的是 FIFO：開啟不能卡住（`O_NONBLOCK`），以種類拒絕。
@@ -137,7 +153,7 @@ final class ZoteroStorageFileTests: XCTestCase {
         let f = try located("storage/ABCD1234/paper.pdf")
         try FileManager.default.removeItem(at: f.url)
         XCTAssertEqual(mkfifo(f.url.path, 0o644), 0)
-        XCTAssertEqual(ZoteroStorageFile.read(dataDir: dir, located: f), .refused(.notRegularFile("特殊檔案")))
+        XCTAssertEqual(try open(f), .refused(.notRegularFile("特殊檔案")))
     }
 
     /// 定位之後被清空：不存 0 byte 的內容。
@@ -145,7 +161,7 @@ final class ZoteroStorageFileTests: XCTestCase {
         try put("storage/ABCD1234/paper.pdf", "%PDF-1.7 hello")
         let f = try located("storage/ABCD1234/paper.pdf")
         try Data().write(to: f.url)
-        XCTAssertEqual(ZoteroStorageFile.read(dataDir: dir, located: f), .refused(.empty))
+        XCTAssertEqual(try open(f), .refused(.empty))
     }
 
     /// `storage/` 本身是 symlink 時，兩邊都經 kernel 問真實位置，仍讀得到。
@@ -159,7 +175,38 @@ final class ZoteroStorageFileTests: XCTestCase {
         guard case .found(let f) = ZoteroStorageFile.locate(dataDir: data2, attachmentPath: "storage/KEYAAAA1/x.pdf") else {
             return XCTFail("前提：定位得到")
         }
-        XCTAssertEqual(ZoteroStorageFile.read(dataDir: data2, located: f), .data(Data("%PDF via linked storage".utf8)))
+        XCTAssertEqual(try open(f, in: data2), .data(Data("%PDF via linked storage".utf8)))
+    }
+
+    // MARK: 大小上限（#703）：超過的以 stat 判斷、具名大小，不讀
+
+    /// 真的常數：sparse 檔超過 256 MB——定位就拒絕，值是檔案大小。
+    func testAFileOverTheRealCapIsRefusedWithItsSize() throws {
+        let url = storage.appendingPathComponent("ABCD1234/huge.pdf")
+        XCTAssertTrue(FileManager.default.createFile(atPath: url.path, contents: nil))
+        let w = try FileHandle(forWritingTo: url)
+        try w.truncate(atOffset: UInt64(LibraryStore.maxSourceBytes + 1))
+        try w.close()
+        XCTAssertEqual(refusal("storage/ABCD1234/huge.pdf"), .tooLarge(LibraryStore.maxSourceBytes + 1))
+    }
+
+    /// 上限含等號：恰好等於上限的定位得到、打得開；多一個 byte 的拒絕。
+    func testTheLimitIsInclusiveForLocateAndOpen() throws {
+        try put("storage/ABCD1234/paper.pdf", "%PDF-1.7 hello")   // 14 bytes
+        let f = try located("storage/ABCD1234/paper.pdf", limit: 14)
+        XCTAssertEqual(try open(f, limit: 14), .data(Data("%PDF-1.7 hello".utf8)))
+        guard case .refused(let r) = ZoteroStorageFile.locate(dataDir: dir, attachmentPath: "storage/ABCD1234/paper.pdf", limit: 13) else {
+            return XCTFail("超過上限要拒絕")
+        }
+        XCTAssertEqual(r, .tooLarge(14))
+    }
+
+    /// 定位之後檔案長大、超過上限：開檔以 fstat 再判一次，拒絕並說出新的大小。
+    func testAFileThatGrewPastTheLimitAfterLocateIsRefusedOnOpen() throws {
+        try put("storage/ABCD1234/paper.pdf", "%PDF-1.7 hello")
+        let f = try located("storage/ABCD1234/paper.pdf", limit: 14)
+        try Data(repeating: 0x25, count: 20).write(to: f.url)
+        XCTAssertEqual(try open(f, limit: 14), .refused(.tooLarge(20)))
     }
 
     func testMediaTypeFollowsTheExtensionAndFallsBackToOctetStream() {

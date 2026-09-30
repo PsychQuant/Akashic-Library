@@ -625,24 +625,48 @@ public final class AkashicService {
     public func storeSource(path: String, mediaType: String, retrieved: String,
                             origin: String, acquisition: String,
                             note: String? = nil) throws -> String {
+        try storeSource(path: path, mediaType: mediaType, retrieved: retrieved, origin: origin,
+                        acquisition: acquisition, note: note, limit: LibraryStore.maxSourceBytes)
+    }
+
+    /// `limit`（#703）是大小上限的測試接縫；對外的入口一律是唯一一份常數 `LibraryStore.maxSourceBytes`（256 MB）。
+    ///
+    /// ## D4（#703）：逐塊，不整份讀進記憶體；超過上限整個拒絕
+    ///
+    /// 以 descriptor 開檔（`O_NONBLOCK`：FIFO 不會讓開檔卡住）、`fstat` 確認是普通檔；0 byte 與超過上限在讀任何一個位元組之前拒絕，
+    /// 訊息說出**哪一個檔**、多大、上限多少。內容由 `SourceStore.storeSource(contentsOf:)` 逐塊算 digest、逐塊複製——記憶體與檔案大小無關。
+    /// 單檔的呼叫就是一整批，所以「略過並具名」在這一面是整個呼叫拒絕、零寫入、不截斷。
+    func storeSource(path: String, mediaType: String, retrieved: String, origin: String, acquisition: String,
+                     note: String? = nil, limit: Int) throws -> String {
         try Self.checkStoreSourceArguments(mediaType: mediaType, retrieved: retrieved,
                                            origin: origin, acquisition: acquisition)
-        let url = URL(fileURLWithPath: path)
-        guard let data = try? Data(contentsOf: url) else {
+        let fd = Darwin.open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC)
+        guard fd >= 0 else {
             throw ServiceError.invalid("讀不到 \(displaySafeInvisible(path, max: 800))")
         }
-        // #546：真正的閘在 `SourceStore.storeSource`（所有呼叫端都經過它）；這裡只是讓訊息說出**哪一個**檔——
-        // 批次存檔時「0 byte」而不點名是查不下去的（#546 R1 verify）。
-        guard !data.isEmpty else {
-            throw ServiceError.invalid("「\(displaySafeInvisible(path, max: 800))」是 0 byte——空內容的 digest 對所有空輸入都相同，不指認任何一份存檔。"
-                + "這通常是一次失敗的抓取留下的空檔；重新取得內容再存")
+        let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+        defer { try? handle.close() }
+        var st = stat()
+        guard fstat(fd, &st) == 0, st.st_mode & S_IFMT == S_IFREG else {
+            throw ServiceError.invalid("讀不到 \(displaySafeInvisible(path, max: 800))——不是普通檔（目錄、FIFO 之類不是一份內容）")
         }
+        // #546：真正的閘在 `SourceStore.storeSource`（所有呼叫端都經過它）；這裡只是讓訊息說出**哪一個**檔——
+        // 批次存檔時「0 byte」而不點名是查不下去的（#546 R1 verify）。#703 的上限同一個理由。
+        if st.st_size == 0 { throw Self.emptySourceFile(path) }
+        if st.st_size > limit { throw Self.oversizedSourceFile(path, bytes: Int(st.st_size), limit: limit) }
         // SourceStore 擲出的錯（index 腐壞、排除未驗證）**原樣往上傳**，不吞——那些是
         // 承重的 fail-closed 判斷，包裝過會弄丟指路訊息。
-        let receipt = try store.storeSource(
-            data, provenance: LibraryStore.SourceProvenance(
+        let receipt: LibraryStore.SourceReceipt
+        switch try store.storeSource(
+            contentsOf: handle, provenance: LibraryStore.SourceProvenance(
                 mediaType: mediaType, retrieved: retrieved, origin: origin,
-                acquisition: acquisition, note: note))
+                acquisition: acquisition, note: note), limit: limit) {
+        case .stored(let r): receipt = r
+        case .refused(.empty): throw Self.emptySourceFile(path)
+        case .refused(.tooLarge(let bytes)): throw Self.oversizedSourceFile(path, bytes: bytes, limit: limit)
+        case .refused(.changed):
+            throw ServiceError.invalid("「\(displaySafeInvisible(path, max: 800))」在讀取期間內容變了（算 digest 與複製兩遍讀到的不同）——沒有存；檔案不再變動之後重跑")
+        }
 
         var d: [String: Any] = [
             "digest": receipt.digest,                       // display-safe-exempt: SHA-256 十六進位，由本 binary 計算
@@ -663,6 +687,18 @@ public final class AkashicService {
             d["discardedProvenance"] = dp
         }
         return try jsonString(d)
+    }
+
+    /// 0 byte 的檔（#546）：說出是哪一個檔。
+    private static func emptySourceFile(_ path: String) -> ServiceError {
+        ServiceError.invalid("「\(displaySafeInvisible(path, max: 800))」是 0 byte——空內容的 digest 對所有空輸入都相同，不指認任何一份存檔。"
+            + "這通常是一次失敗的抓取留下的空檔；重新取得內容再存")
+    }
+
+    /// 超過 `sources/` 單份上限的檔（#703）：說出是哪一個檔、多大、上限多少。不截斷、不存。
+    private static func oversizedSourceFile(_ path: String, bytes: Int, limit: Int) -> ServiceError {
+        ServiceError.invalid("「\(displaySafeInvisible(path, max: 800))」有 \(bytes) bytes，超過 sources/ 的單份上限 "   // display-safe-exempt: bytes 是 Int
+            + "\(LibraryStore.sourceCapDescription(limit))——不截斷、不存（#703）")   // display-safe-exempt: LibraryStore.sourceCapDescription 只回數字與固定字，limit 是 Int
     }
 
     public func files(action: String, key: String?) throws -> String {

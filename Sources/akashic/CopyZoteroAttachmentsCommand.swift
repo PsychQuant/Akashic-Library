@@ -50,8 +50,11 @@ struct CopyZoteroAttachments: ParsableCommand {
                                      environment: ProcessInfo.processInfo.environment)
         let report = try service.copyZoteroAttachments(zoteroDb: zoteroDb, citekeys: citekeyList, apply: apply)
         Self.render(report, applyRequested: apply)
-        // 有單筆寫入失敗或補存失敗仍以非零退出（收容不是吞掉——自動化才看得到，`import-zotero` 的同一條）
-        if !report.writeFailed.isEmpty || !report.restoreFailed.isEmpty { throw ExitCode(1) }
+        // 有單筆寫入失敗或補存失敗仍以非零退出（收容不是吞掉——自動化才看得到，`import-zotero` 的同一條）。
+        // #703：`--apply` 遇到內容與 Zotero 原檔不符的既有存檔（沒有覆寫、要人處理）也一樣；乾跑只列出
+        if !report.writeFailed.isEmpty || !report.restoreFailed.isEmpty || (apply && !report.storedBlobMismatch.isEmpty) {
+            throw ExitCode(1)
+        }
     }
 
     static func render(_ r: ZoteroAttachmentCopyReport, applyRequested: Bool) {
@@ -74,6 +77,19 @@ struct CopyZoteroAttachments: ParsableCommand {
             print("")
             print("已連過、位元組在本機，但 sources/index.jsonl 沒有它的取得記錄——\(r.applied ? "已補記" : "要補記")（位元組不重寫、不改連結、不動 work 檔）：\(r.recordRestored.count) 個檔")   // display-safe-exempt: Int
             for item in r.recordRestored { print(itemLine(item)) }
+        }
+        if !r.storedBlobMismatch.isEmpty {
+            // #703：「已連過」不再只看在不在——位址上那一份的內容不是 Zotero 原檔（被截短、被換掉）。不覆寫、不補記、不新連
+            print("")
+            print("sources/ 已有這個 digest 的存檔，但內容與 Zotero 原檔不符——不覆寫、不補記取得記錄、不新連：\(r.storedBlobMismatch.count) 個檔")   // display-safe-exempt: Int
+            for m in r.storedBlobMismatch.prefix(Entry.perRecordWarningCap * 5) {
+                let stored = m.storedDigest.map { "\(m.storedBytes) bytes、內容 \($0)" } ?? "\(m.storedBytes) bytes"   // display-safe-exempt: m.storedBytes 是 Int、$0 是本 binary 算的 SHA-256 十六進位
+                print("  \(displaySafeInvisible(m.item.citekey, max: 200))  \(displaySafeInvisible(m.item.path, max: 300))  \(m.alreadyLinkedOnWork ? "已連" : "要新連")  Zotero 原檔 \(m.item.bytes) bytes  \(m.item.digest)；sources/ 那一份 \(stored)")   // display-safe-exempt: m.alreadyLinkedOnWork 是 Bool、m.item.bytes 是 Int、m.item.digest 是本 binary 算的 SHA-256 十六進位、stored 是上一行組的固定句
+            }
+            if r.storedBlobMismatch.count > Entry.perRecordWarningCap * 5 {
+                print("  …另有 \(r.storedBlobMismatch.count - Entry.perRecordWarningCap * 5) 個未列出")   // display-safe-exempt: Int
+            }
+            print("  把 sources/ 裡那一份移走（它不進 git；先確認沒有別的東西要用它）後重跑，會以 Zotero 原檔補存")
         }
         if !r.skipped.isEmpty {
             print("")
@@ -155,6 +171,8 @@ struct CopyZoteroAttachments: ParsableCommand {
         case .file(.outsideStorage): return "真實位置在 storage/ 之外（KEY 目錄是指出去的 symlink）"
         case .file(.notRegularFile(let kind)): return "位置上是\(displaySafeInvisible(kind, max: 40))、不是普通檔"
         case .file(.empty): return "0 byte（空內容的 digest 不指認任何一份存檔）"
+        case .file(.tooLarge(let bytes)):
+            return "檔案 \(bytes) bytes，超過 sources/ 的單份上限 \(LibraryStore.sourceCapDescription(LibraryStore.maxSourceBytes))——不截斷、不存、不連（#703）"   // display-safe-exempt: bytes 是 Int；LibraryStore.sourceCapDescription 只回數字與固定字
         case .unreadable: return "檔案在、但讀不出來"
         case .changedDuringRun: return "計畫算完之後內容變了（digest 對不上）——不存、不連；重跑會重新計畫"
         case .localCopyUnverifiable(let why): return "已連過，但判不出本機 sources/ 有沒有這份位元組（\(displaySafeClipOnly(why, max: 600))）——不重存、不動連結；用 akashic doctor 查 sources/"   // display-safe-exempt: why 已由 service 消毒，只截

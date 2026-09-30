@@ -17,14 +17,14 @@ public struct ZoteroAttachmentCopyReport {
         /// 檔案在 Zotero 資料目錄裡的修改時間（進 `sources/index.jsonl` 的 note；不是取得時間）。
         let modified: Date?
         let url: URL
-        /// 第二次讀（實跑）用：資料目錄與 `locate` 的結果——`ZoteroStorageFile.read` 從 descriptor 重新判斷，不以路徑直讀。
+        /// 第二次讀（實跑）用：資料目錄與 `locate` 的結果——`ZoteroStorageFile.openVerified` 從 descriptor 重新判斷，不以路徑直讀。
         let dataDir: URL
         let located: ZoteroStorageFile.Located
     }
 
     /// 略過一個附件的原因。封閉列舉。
     public enum SkipReason: Equatable {
-        /// 定位不到（`ZoteroStorageFile.Refusal`：路徑形狀不對、檔案不在、跑出 `storage/`、不是普通檔、0 byte）。
+        /// 定位不到（`ZoteroStorageFile.Refusal`：路徑形狀不對、檔案不在、跑出 `storage/`、不是普通檔、0 byte、超過 256 MB 的上限——#703）。
         case file(ZoteroStorageFile.Refusal)
         /// 檔案在，但讀不出來。
         case unreadable
@@ -55,6 +55,19 @@ public struct ZoteroAttachmentCopyReport {
         public let message: String
     }
 
+    /// `sources/` 已有這個 digest 的存檔，內容卻不是 Zotero 原檔（#703）：被截短、被換掉。**不覆寫**那一份、不補記取得記錄、不新連——
+    /// 內容定址的位址上放的不是那份內容，要人處理（移走那份存檔後重跑，會以 Zotero 原檔補存）。比對逐塊算 digest；大小不同時不必讀。
+    public struct StoredBlobMismatch: Equatable {
+        /// Zotero 原檔（digest、大小取自它）。
+        public let item: Item
+        /// `sources/` 那一份的實際大小。
+        public let storedBytes: Int
+        /// `sources/` 那一份內容的 digest；大小與原檔不同時沒有讀它，是 nil。
+        public let storedDigest: String?
+        /// digest 已連在這筆 work 上（true），或這一趟本來要新連（false）。
+        public let alreadyLinkedOnWork: Bool
+    }
+
     public struct Skipped: Equatable {
         public let citekey: String
         public let path: String
@@ -76,6 +89,8 @@ public struct ZoteroAttachmentCopyReport {
     public var recordRestored: [Item] = []
     /// 實跑：補存（`restoredLocally`／`recordRestored`）時 `storeSource` 擲錯的檔。連結沒動，重跑會再補。
     public var restoreFailed: [RestoreFailure] = []
+    /// `sources/` 已有這個 digest、內容卻與 Zotero 原檔不符的檔（#703）。乾跑與實跑都在計畫時比對；不覆寫、不補記、不新連。
+    public var storedBlobMismatch: [StoredBlobMismatch] = []
     public var skipped: [Skipped] = []
     /// 無法唯一定位的 work（#627／#641）——本趟不碰。
     public var unlocatable: [String] = []
@@ -121,7 +136,8 @@ public struct ZoteroAttachmentCopyReport {
 /// - **乾跑是預設**；`--apply` 才寫。乾跑與實跑算**同一份**計畫、跑**同一組**閘；乾跑把閘的拒絕當預告放進報告，實跑遇到就擲錯、零寫入。
 /// - **可重跑**：digest 已在該筆 work 的 `akashic.sources` 上、**位元組在本機 `sources/` 且 index 有它的取得記錄**的不重複複製（`alreadyLinked`）；
 ///   已連過而本機沒有位元組的（別台 clone、`sources/` 被清過）只補存位元組、不改連結（`restoredLocally`）——「已複製」看的是本機存檔，不是連結（#606 R1 verify）；
-///   位元組在而 index 沒有條目的（孤兒 blob）只補記取得記錄（`recordRestored`，#606 R2 verify）——只看存在與條目，**不重算既有 blob 的 digest**；
+///   位元組在而 index 沒有條目的（孤兒 blob）只補記取得記錄（`recordRestored`，#606 R2 verify）；位元組在的（已連過、要補記、或新連結遇到
+///   同一份已存過）**逐塊重算既有 blob 的 digest** 與 Zotero 原檔比對（#703），不符就列在 `storedBlobMismatch`、不覆寫、不補記、不新連；
 ///   blob 早就在 `sources/`（前一次跑到一半）的不重寫、不重複記取得記錄（`storeSource` 的冪等語意），這次沒寫進 index 的 Zotero 來源逐檔列在
 ///   `provenanceNotRecorded`（附 index 保留的 origin）。
 /// - **不以舊快照覆寫**：寫 work 之前，讀可回溯閘回傳的那個檔、與計畫時 load 的快照比相等；不同（閘的時間窗裡被別的寫入者改過並 commit）就不寫、
@@ -129,16 +145,19 @@ public struct ZoteroAttachmentCopyReport {
 /// - **整批拒絕、零寫入的閘**（任何一個檔落地之前）：每一筆要改寫的 work 過 `writeEntry` 的全部前置（`preflightWrite`）；每個要存的 digest 過
 ///   `storeSource` 的前置（`preflightStoreSource`：`sources/` 沒被版控排除、git 不可用、index 有壞行）；被改寫的 work 檔要已在 git 裡 commit、乾淨
 ///   （`assertRecordsRecoverable`——舊版只剩 git 那一份；只覆蓋**真的要被改寫**的記錄）。
-/// - **逐筆略過（具名，其餘照跑）**：附件路徑不是 `storage/<KEY>/<檔名>`、檔案不在、不是普通檔、0 byte、讀不出來、計畫之後內容變了；
+/// - **逐筆略過（具名，其餘照跑）**：附件路徑不是 `storage/<KEY>/<檔名>`、檔案不在、不是普通檔、0 byte、超過 256 MB（#703，印出大小）、
+///   讀不出來、計畫之後內容變了；
 ///   無法唯一定位的 work（`unlocatableCitekeys`）。
 /// - **只複製附件記錄的那一個檔**：HTML snapshot 同目錄的資源檔不複製。
 /// - 不動 `attachments`、不動 `provenance`、不動書目欄位；`akashic.sources` 只追加。
 ///
 /// **誠實邊界**：`sources/` 不進 git，別台 clone 讀到這條連結時位元組不在（§2.4.1：載入成功、可報缺席）——那台機器上重跑本命令會補回（`restoredLocally`），
-/// 前提是它的 Zotero 資料目錄裡還有那個檔；沒有大小上限（每個檔整份讀進記憶體、存完即釋放——**乾跑也一樣**，要讀完整份才算得出 digest；
-/// 不 mmap，檔案被截短時 mmap 會讓行程收到 SIGBUS；`store-source` 與 `SourceStore` 本來就沒有大小上限，這裡不另立一個）；
-/// 計畫階段與複製階段各讀一次檔案（`ZoteroStorageFile.read`：`O_NOFOLLOW` 開一次、從同一個 descriptor 判斷種類與真實位置再讀完），之間內容被換掉時以
-/// digest 對不上偵測（`changedDuringRun`）；閘之後的重讀與寫入之間仍有一個很短的窗（沒有 store 層的鎖）；Zotero 端的檔案之後再變（重新下載、編輯註記）不會回頭更新
+/// 前提是它的 Zotero 資料目錄裡還有那個檔；單檔上限 256 MB（`LibraryStore.maxSourceBytes`，#703——與 `store-source` 同一個常數），
+/// 超過的以 stat 判斷、不讀、具名略過；內容**逐塊**讀（算 digest、複製、比對既有 blob 都是，記憶體與檔案大小無關；不 mmap，檔案被截短時
+/// mmap 會讓行程收到 SIGBUS）；計畫階段讀一遍、複製階段讀兩遍（`storeSource(contentsOf:)`：先驗 digest 與計畫相同、再逐塊複製並再算一次），
+/// 三遍都從 `ZoteroStorageFile.openVerified` 交回的同一種 descriptor 讀（`O_NOFOLLOW` 開一次、判斷種類與真實位置），之間內容被換掉時以
+/// digest 對不上偵測（`changedDuringRun`）；既有 blob 的比對在計畫時做，計畫到實跑之間那一份再被換掉看不到，閘之後的重讀與寫入之間也仍有一個很短的窗
+/// （兩者都因為沒有 store 層的鎖）；Zotero 端的檔案之後再變（重新下載、編輯註記）不會回頭更新
 /// 已複製的副本——那是另一份內容、另一個 digest，下一次跑會再連一份。**逆操作**：連錯的宣告用 `update-entry --remove-source`（#677）收回；blob 與取得記錄留在
 /// `sources/`（可能被別筆引用）。
 extension AkashicService {
@@ -150,9 +169,11 @@ extension AkashicService {
 
     /// 測試接縫：`afterPlanning` 在計畫算完、第一次寫入之前呼叫（模擬「計畫之後檔案內容被換掉」）；`beforeStore` 在每一次 `storeSource` 之前呼叫，
     /// 擲錯即當成那一次存檔擲錯（模擬 I/O 失敗）。對外的入口沒有這兩個參數。
+    /// `sourceLimit`（#703）是大小上限的測試接縫，預設就是唯一一份常數 `LibraryStore.maxSourceBytes`。
     func copyZoteroAttachments(zoteroDb: String?, citekeys: [String]?, apply: Bool, now: Date,
                                afterPlanning: (() throws -> Void)?,
-                               beforeStore: ((ZoteroAttachmentCopyReport.Item) throws -> Void)? = nil) throws -> ZoteroAttachmentCopyReport {
+                               beforeStore: ((ZoteroAttachmentCopyReport.Item) throws -> Void)? = nil,
+                               sourceLimit: Int = LibraryStore.maxSourceBytes) throws -> ZoteroAttachmentCopyReport {
         let dbPath = ((zoteroDb ?? "~/Zotero/zotero.sqlite") as NSString).expandingTildeInPath
         guard FileManager.default.fileExists(atPath: dbPath) else {
             throw ServiceError.notFound("zotero.sqlite：\(displaySafeInvisible(dbPath, max: 300))")
@@ -172,7 +193,7 @@ extension AkashicService {
             report.notInStore = wanted.subtracting(load.entries.map(\.citekey)).sorted()
         }
 
-        // 計畫：每筆 work 算出「要新連的檔」。讀檔只為算 digest（整份讀進記憶體、算完即釋放；不 mmap，理由見 `ZoteroStorageFile.read`）。
+        // 計畫：每筆 work 算出「要新連的檔」。讀檔只為算 digest（逐塊讀，#703；不 mmap，理由見 `ZoteroStorageFile.openVerified`）。
         struct Target { var entry: Entry; var items: [ZoteroAttachmentCopyReport.Item] }
         var targets: [Target] = []
         var linkedOnWork: [ZoteroAttachmentCopyReport.Item] = []
@@ -194,25 +215,31 @@ extension AkashicService {
             var seenPaths = Set<String>()
             var linkedSeen = Set<String>()   // 已連的 digest 在這筆 work 裡只查一次、只補一次（#606 R2 verify：與新連結那一條路同形）
             for att in attachments where seenPaths.insert(att.path).inserted {
-                switch ZoteroStorageFile.locate(dataDir: dataDir, attachmentPath: att.path) {
+                switch ZoteroStorageFile.locate(dataDir: dataDir, attachmentPath: att.path, limit: sourceLimit) {
                 case .refused(let why):
                     report.skipped.append(.init(citekey: entry.citekey, path: att.path, reason: .file(why)))
                 case .found(let f):
-                    let data: Data
-                    switch ZoteroStorageFile.read(dataDir: dataDir, located: f) {
-                    case .data(let d): data = d
-                    case .refused(let why):
-                        report.skipped.append(.init(citekey: entry.citekey, path: att.path, reason: .file(why)))
-                        continue
-                    case .unreadable:
-                        report.skipped.append(.init(citekey: entry.citekey, path: att.path, reason: .unreadable))
+                    let digest: String
+                    let bytes: Int
+                    switch Self.zoteroDigest(dataDir: dataDir, located: f, limit: sourceLimit) {
+                    case .digest(let d, let n): (digest, bytes) = (d, n)
+                    case .skip(let why):
+                        report.skipped.append(.init(citekey: entry.citekey, path: att.path, reason: why))
                         continue
                     }
                     let item = ZoteroAttachmentCopyReport.Item(
-                        citekey: entry.citekey, path: att.path, digest: LibraryStore.contentDigest(of: data), bytes: data.count,
+                        citekey: entry.citekey, path: att.path, digest: digest, bytes: bytes,
                         mediaType: ZoteroStorageFile.mediaType(forFilename: f.url.lastPathComponent), modified: f.modified, url: f.url,
                         dataDir: dataDir, located: f)
                     if linked.insert(item.digest).inserted {
+                        // #703：同一個 digest 在 sources/ 已有一份（別筆 work、store-source 存過）而內容不是這一份——不新連、不覆寫。
+                        // 從 `linked` 拿掉：同一筆裡內容相同的另一個附件照樣自己比、自己列，不被當成「這一份會存」
+                        if case .mismatch(let stored, let storedDigest) = storedBlobCheck(item) {
+                            report.storedBlobMismatch.append(.init(item: item, storedBytes: stored, storedDigest: storedDigest,
+                                                                   alreadyLinkedOnWork: false))
+                            linked.remove(item.digest)
+                            continue
+                        }
                         items.append(item)
                     } else if alreadyOnWork.contains(item.digest), linkedSeen.insert(item.digest).inserted {
                         linkedOnWork.append(item)   // 連結在——位元組在不在本機，下面一次查完
@@ -231,10 +258,25 @@ extension AkashicService {
                 let presence = try store.sourcePresence(digests: Array(Set(linkedOnWork.map(\.digest))))
                 for item in linkedOnWork {
                     switch presence[item.digest] {
-                    case .stored?:
-                        report.alreadyLinked.append(item)
-                    case .unindexed?:   // 位元組在、index 沒有條目：補記取得記錄（#606 R2 verify）
-                        report.recordRestored.append(item)
+                    case .stored?, .unindexed?:
+                        // #703：「已連過」不再只看在不在——逐塊比對那一份與 Zotero 原檔。不符不覆寫、不補記；判不出來具名略過
+                        switch storedBlobCheck(item) {
+                        case .matches:
+                            if case .stored? = presence[item.digest] {
+                                report.alreadyLinked.append(item)
+                            } else {
+                                report.recordRestored.append(item)   // 位元組在、index 沒有條目：補記取得記錄（#606 R2 verify）
+                            }
+                        case .mismatch(let stored, let storedDigest):
+                            report.storedBlobMismatch.append(.init(item: item, storedBytes: stored, storedDigest: storedDigest,
+                                                                   alreadyLinkedOnWork: true))
+                        case .notRegularFile(let kind):
+                            report.skipped.append(.init(citekey: item.citekey, path: item.path, reason: .localCopyUnverifiable(
+                                "本機 sources/ 裡這份存檔的位置上是\(displaySafeInvisible(kind, max: 40))、不是普通檔")))
+                        case .absent, .unreadable:
+                            report.skipped.append(.init(citekey: item.citekey, path: item.path, reason: .localCopyUnverifiable(
+                                "本機 sources/ 裡這份存檔讀不到（分片目錄列不出來、打不開或讀不完）")))
+                        }
                     case .absent?:
                         report.restoredLocally.append(item)
                     case .notRegularFile(let kind)?:
@@ -274,27 +316,33 @@ extension AkashicService {
         func fail(_ citekey: String, _ why: String) {
             report.writeFailed[citekey] = report.writeFailed[citekey].map { $0 + "；" + why } ?? why
         }
-        /// 讀第二次、digest 要與計畫相同才存（不同就是被換掉了，略過、不存、不連）。回傳存檔的收據；略過回 nil。
+        /// 再開一次、逐塊存（#703）：`storeSource(contentsOf:)` 先驗 digest 要與計畫相同（不同就是被換掉了，略過、不存、不連），
+        /// 再逐塊複製並再算一次。回傳存檔的收據；略過回 nil。
         func storeOne(_ item: ZoteroAttachmentCopyReport.Item) throws -> LibraryStore.SourceReceipt? {
-            let data: Data
-            switch ZoteroStorageFile.read(dataDir: item.dataDir, located: item.located) {
-            case .data(let d): data = d
-            case .refused(let why):
-                report.skipped.append(.init(citekey: item.citekey, path: item.path, reason: .file(why)))
-                return nil
-            case .unreadable:
-                report.skipped.append(.init(citekey: item.citekey, path: item.path, reason: .unreadable))
+            func skip(_ reason: ZoteroAttachmentCopyReport.SkipReason) -> LibraryStore.SourceReceipt? {
+                report.skipped.append(.init(citekey: item.citekey, path: item.path, reason: reason))
                 return nil
             }
-            guard LibraryStore.contentDigest(of: data) == item.digest else {
-                report.skipped.append(.init(citekey: item.citekey, path: item.path, reason: .changedDuringRun))
-                return nil
+            let handle: FileHandle
+            switch ZoteroStorageFile.openVerified(dataDir: item.dataDir, located: item.located, limit: sourceLimit) {
+            case .file(let h, _): handle = h
+            case .refused(let why): return skip(.file(why))
+            case .unreadable: return skip(.unreadable)
             }
+            defer { try? handle.close() }
             try beforeStore?(item)
-            let receipt = try store.storeSource(data, provenance: LibraryStore.SourceProvenance(
+            let outcome = try store.storeSource(contentsOf: handle, provenance: LibraryStore.SourceProvenance(
                 mediaType: item.mediaType, retrieved: stamp,
                 origin: "zotero:\(item.path)", acquisition: "zotero-storage-copy",
-                note: Self.zoteroCopyNote(citekey: item.citekey, modified: item.modified)))
+                note: Self.zoteroCopyNote(citekey: item.citekey, modified: item.modified)),
+                expectedDigest: item.digest, limit: sourceLimit)
+            let receipt: LibraryStore.SourceReceipt
+            switch outcome {
+            case .stored(let r): receipt = r
+            case .refused(.changed): return skip(.changedDuringRun)
+            case .refused(.tooLarge(let bytes)): return skip(.file(.tooLarge(bytes)))
+            case .refused(.empty): return skip(.file(.empty))
+            }
             if receipt.discardedProvenance != nil { notRecorded.append((item, !receipt.bytesWritten)) }
             report.exclusionVerified = (report.exclusionVerified ?? true) && receipt.exclusionVerified
             return receipt
@@ -353,6 +401,34 @@ extension AkashicService {
             }
         }
         return report
+    }
+
+    /// 計畫時算一個 Zotero 附件的 digest 的結果（#703）。
+    enum ZoteroDigest {
+        case digest(String, bytes: Int)
+        case skip(ZoteroAttachmentCopyReport.SkipReason)
+    }
+
+    /// 從 `openVerified` 交回的 descriptor **逐塊**算 digest（#703：不整份讀進記憶體——乾跑也一樣）。讀的時候長大超過上限、被清空、
+    /// 讀失敗，各自是具名的略過原因。
+    static func zoteroDigest(dataDir: URL, located: ZoteroStorageFile.Located, limit: Int) -> ZoteroDigest {
+        switch ZoteroStorageFile.openVerified(dataDir: dataDir, located: located, limit: limit) {
+        case .refused(let why): return .skip(.file(why))
+        case .unreadable: return .skip(.unreadable)
+        case .file(let handle, _):
+            defer { try? handle.close() }
+            switch try? LibraryStore.contentDigest(reading: handle, limit: limit) {
+            case .digest(_, let n)? where n == 0: return .skip(.file(.empty))
+            case .digest(let d, let n)?: return .digest(d, bytes: n)
+            case .overLimit(let n)?: return .skip(.file(.tooLarge(n)))
+            case nil: return .skip(.unreadable)
+            }
+        }
+    }
+
+    /// 本機 `sources/` 裡同一個 digest 的那一份與 Zotero 原檔的比對（#703）。判不出來（digest 形狀不合——計畫算的不會）當成讀不到。
+    func storedBlobCheck(_ item: ZoteroAttachmentCopyReport.Item) -> LibraryStore.StoredBlobCheck {
+        (try? store.checkStoredBlob(digest: item.digest, expectedBytes: item.bytes)) ?? .unreadable
     }
 
     /// `sources/index.jsonl` 的 note：哪個命令、哪一筆 work、Zotero 端檔案的修改時間（不是取得時間——`retrieved` 是複製當下）。

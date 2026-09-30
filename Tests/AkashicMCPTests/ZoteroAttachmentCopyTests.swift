@@ -515,3 +515,126 @@ extension ZoteroAttachmentCopyTests {
         XCTAssertEqual(r.blobsAlreadyStored, 0)
     }
 }
+
+// MARK: - #703：大小上限、逐塊、既有 blob 的比對
+
+extension ZoteroAttachmentCopyTests {
+    /// 在 Zotero 資料目錄造一個 sparse 檔（大小超過真的上限，不佔磁碟、不讀）。
+    private func putSparse(_ rel: String, bytes: Int) throws {
+        let url = zdir.appendingPathComponent(rel)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        XCTAssertTrue(FileManager.default.createFile(atPath: url.path, contents: nil))
+        let w = try FileHandle(forWritingTo: url)
+        try w.truncate(atOffset: UInt64(bytes))
+        try w.close()
+    }
+
+    /// 超過 256 MB 的附件：乾跑與實跑都具名略過（路徑與大小），不截斷、不存、不連；其餘照跑。
+    func testAnAttachmentOverTheCapIsSkippedWithItsSizeAndTheRestProceed() throws {
+        let good = try put("storage/GOODKEY1/ok.pdf", "%PDF good")
+        try putSparse("storage/HUGEKEY1/huge.pdf", bytes: LibraryStore.maxSourceBytes + 1)
+        try addWork("ok2025", attachments: ["storage/GOODKEY1/ok.pdf"])
+        try addWork("huge2025", attachments: ["storage/HUGEKEY1/huge.pdf"])
+        commit()
+        let dry = try run(apply: false)
+        XCTAssertEqual(dry.planned.map(\.citekey), ["ok2025"])
+        XCTAssertEqual(dry.skipped, [.init(citekey: "huge2025", path: "storage/HUGEKEY1/huge.pdf",
+                                           reason: .file(.tooLarge(LibraryStore.maxSourceBytes + 1)))])
+        let r = try run(apply: true)
+        XCTAssertEqual(r.written, ["ok2025"])
+        XCTAssertEqual(try work("ok2025").akashic.sources, [digest(good)])
+        XCTAssertEqual(try work("huge2025").akashic.sources, [], "超過上限的不連")
+        XCTAssertEqual(r.skipped.map(\.reason), [.file(.tooLarge(LibraryStore.maxSourceBytes + 1))])
+        XCTAssertEqual(indexLines().count, 1, "只有那一個小檔進 sources/")
+    }
+
+    /// 計畫之後、複製之前檔案長大超過上限：複製那一步再判一次，具名略過、不存、不連。
+    func testAnAttachmentThatGrewPastTheLimitAfterPlanningIsSkipped() throws {
+        try put("storage/GROWKEY1/g.pdf", "%PDF small")   // 10 bytes
+        try addWork("g2025", attachments: ["storage/GROWKEY1/g.pdf"])
+        commit()
+        let r = try service.copyZoteroAttachments(zoteroDb: dbPath, citekeys: nil, apply: true,
+                                                  now: Date(timeIntervalSince1970: 1_790_000_000),
+                                                  afterPlanning: { try self.put("storage/GROWKEY1/g.pdf", String(repeating: "x", count: 30)) },
+                                                  sourceLimit: 20)
+        XCTAssertEqual(r.written, [])
+        XCTAssertEqual(r.skipped.map(\.reason), [.file(.tooLarge(30))])
+        XCTAssertEqual(try work("g2025").akashic.sources, [])
+        XCTAssertEqual(indexLines().count, 0)
+    }
+
+    /// 已連過、blob 在、index 有條目，但那一份被截短了：以前算「已連過」而什麼都不做。現在比對內容、具名回報、**不覆寫**。
+    func testALinkedBlobThatWasTruncatedIsReportedAndNotOverwritten() throws {
+        let bytes = try put("storage/ABCD1234/paper.pdf", "%PDF-1.7 the full paper")
+        let d = digest(bytes)
+        try addWork("a2025", attachments: ["storage/ABCD1234/paper.pdf"], sources: [d])
+        commit()
+        _ = try store.storeSource(bytes, provenance: LibraryStore.SourceProvenance(
+            mediaType: "application/pdf", retrieved: "2026-09-01T00:00:00Z", origin: "earlier", acquisition: "manual"))
+        let truncated = Data("%PDF-1.7".utf8)
+        try truncated.write(to: blob(d))
+        let dry = try run(apply: false)
+        XCTAssertEqual(dry.alreadyLinked, [], "內容不符就不是做完了")
+        XCTAssertEqual(dry.storedBlobMismatch.map(\.item.path), ["storage/ABCD1234/paper.pdf"])
+        XCTAssertEqual(dry.storedBlobMismatch.first?.storedBytes, truncated.count)
+        XCTAssertNil(dry.storedBlobMismatch.first?.storedDigest, "大小不同就不必讀")
+        XCTAssertEqual(dry.storedBlobMismatch.first?.alreadyLinkedOnWork, true)
+        let r = try run(apply: true)
+        XCTAssertEqual(r.storedBlobMismatch.map(\.item.digest), [d])
+        XCTAssertEqual(try Data(contentsOf: blob(d)), truncated, "不覆寫既有的那一份")
+        XCTAssertEqual(indexLines().count, 1, "不補記")
+        XCTAssertEqual(r.written, [])
+    }
+
+    /// 同樣大小、內容被換掉：逐塊算 digest 才看得出來；回報那一份的實際 digest。
+    func testALinkedBlobSwappedForSameSizeBytesIsCaughtByItsDigest() throws {
+        let bytes = try put("storage/ABCD1234/paper.pdf", "%PDF-1.7 original")
+        let d = digest(bytes)
+        try addWork("a2025", attachments: ["storage/ABCD1234/paper.pdf"], sources: [d])
+        commit()
+        _ = try store.storeSource(bytes, provenance: LibraryStore.SourceProvenance(
+            mediaType: "application/pdf", retrieved: "2026-09-01T00:00:00Z", origin: "earlier", acquisition: "manual"))
+        let swapped = Data("%PDF-1.7 ORIGINAL".utf8)
+        XCTAssertEqual(swapped.count, bytes.count)
+        try swapped.write(to: blob(d))
+        let r = try run(apply: false)
+        XCTAssertEqual(r.storedBlobMismatch.first?.storedDigest, digest(swapped))
+        XCTAssertEqual(r.storedBlobMismatch.first?.storedBytes, swapped.count)
+        XCTAssertEqual(r.alreadyLinked, [])
+    }
+
+    /// 孤兒 blob（index 沒有條目）而且內容不符：不補記取得記錄——那份位元組不是 Zotero 的原檔。
+    func testAnUnindexedBlobWhoseBytesDifferIsNotRecorded() throws {
+        let bytes = try put("storage/ABCD1234/paper.pdf", "%PDF-1.7 orphan, but wrong")
+        let d = digest(bytes)
+        try addWork("a2025", attachments: ["storage/ABCD1234/paper.pdf"], sources: [d])
+        commit()
+        try FileManager.default.createDirectory(at: blob(d).deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("something else".utf8).write(to: blob(d))
+        let dry = try run(apply: false)
+        XCTAssertEqual(dry.recordRestored, [])
+        XCTAssertEqual(dry.storedBlobMismatch.map(\.item.digest), [d])
+        let r = try run(apply: true)
+        XCTAssertEqual(r.recordRestored, [])
+        XCTAssertEqual(indexLines().count, 0, "不替一份不符的位元組記取得記錄")
+        XCTAssertEqual(try Data(contentsOf: blob(d)), Data("something else".utf8))
+    }
+
+    /// 新連結遇到同一個 digest 已有一份、內容卻不符（別的 work 或 store-source 存過、之後被截短）：不連、不覆寫、具名。
+    func testANewLinkOntoAMismatchedExistingBlobIsNotMade() throws {
+        let bytes = try put("storage/ABCD1234/paper.pdf", "%PDF-1.7 new link")
+        let d = digest(bytes)
+        let e = try addWork("a2025", attachments: ["storage/ABCD1234/paper.pdf"])
+        commit()
+        try FileManager.default.createDirectory(at: blob(d).deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("%PDF".utf8).write(to: blob(d))
+        let before = try entryFileBytes(e)
+        let r = try run(apply: true)
+        XCTAssertEqual(r.planned, [])
+        XCTAssertEqual(r.written, [])
+        XCTAssertEqual(r.storedBlobMismatch.map(\.item.path), ["storage/ABCD1234/paper.pdf"])
+        XCTAssertEqual(r.storedBlobMismatch.first?.alreadyLinkedOnWork, false)
+        XCTAssertEqual(try entryFileBytes(e), before, "不把一份已知不符的存檔連上去")
+        XCTAssertEqual(try Data(contentsOf: blob(d)), Data("%PDF".utf8))
+    }
+}

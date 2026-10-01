@@ -123,6 +123,19 @@ plugin 版號沒有動。
 - **判定門檻沒有放寬**：在對出版商頁實跑過之前，第 4 源只當佐證，不計入「至少兩源」。
 - 沒有對 Safari 實跑過；落地主機區塊以假的 `safari-browser` 測過 bash 與 Python 兩段。
 
+## #566 — `akashic-verify-venue` 加「對外形」步驟：查證確立正式刊名時指定或確認 `authorized`（按需判定）
+
+使用者 2026-10-01 對 #600 的裁決「按需判定」取代 #566 原本的全量 campaign：既有的機械 `authorized` 不跑一輪，只在查證或攣生合併碰到那一本時判定。#564（store format 22）讓判定記錄寫得進 store，這個 skill 才接上最後一端。**這需要 format 22 的 store 與對應的 `akashic`／`akashic-mcp`**（`update_venue` 的 `authorize` 必附 `judgement`；format < 22 具名拒絕）；2026-10-01 的 live store 是 format 18，升 marker 是使用者的動作。
+
+- **報告多第 5 項**：本次要指定或確認的對外形（venue key、名字、現況、動作、理由、證據 digest）。閘是使用者確認第 5 項；一句裸的「apply」只確認配對，第 4 項（ISSN）一樣各問各的。
+- **兩種結論都寫進 store**：名字已經是 `authorized` 就**確認**（寫一筆「確認：理由」，這是最常見的結論）；不是就**指定**（同書寫系統原本的指定被換下、留在 names 不標 variant，並寫「撤回」）。呼叫是 `akashic_update_venue` 的 `authorize`＋`judgement`（可附 `rests_on`），單獨一次呼叫。
+- **列進第 5 項的門檻同「什麼時候可以停」**：正式刊名有至少兩源支持；第 2 項說不可判定的（沿革未定、多刊命中、分裂的刊）不列。已有判定記錄的名字不重判，除非這次查證與它衝突。
+- **按需、不掃全庫**：485 筆 venue 中 470 筆有機械 `authorized`（2026-10-01 live store），沒被碰到的維持原樣。進度量測是「`authorized` 至少有一筆名字分類判定記錄的 venue 數」（目前 0），不再是 `authorized != [names[0]]`——確認既有的 `names[0]` 不改變 `authorized`，那樣量永遠是 0。
+- **攣生合併**：機械值的 `authorized` 合併只提醒、不擋；被併者的 `authorized` 帶判定記錄而合併會降級它時 `resolve-divergence` 拒絕，出路（在被併者撤回、或在倖存者指定）寫在 skill 裡。`akashic-merge-twins`（只併 work）加一條邊界指向它。
+- 沒有對真 store 實跑這一步（live store 的 format 不夠）；命令與回應用 format 22 的暫存 store 實跑過確認、指定、攣生合併被拒三種情形。
+
+plugin 版號沒有動（同 #692：skill 文字改動）。
+
 ## #693 — `akashic-mcp` wrapper 的下載失敗訊息
 
 `plugin/bin/akashic-mcp-wrapper.sh` 在沒有現成 binary、兩條下載路徑都失敗時印的 ERROR：首版（#693 把「repo 為 private」的敘述拿掉時）寫成「下載走 gh，需先 gh auth login」，但 repo 已公開、`gh` 不可用時 `curl` 退路拿得到，那句把人指錯方向。現在說出兩次嘗試（`gh release download <tag>`，沒有安裝 `gh` 時寫「略過」；再 `curl` 公開的 release 網址，網址印出來）與可能的原因（沒有網路、該版本的 asset 還沒上傳、網路擋住 github.com），並明說不需要 `gh auth login`。下載與安裝的行為沒有改。

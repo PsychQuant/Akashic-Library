@@ -121,3 +121,9 @@ record ~1.4 秒／組、resolve ~4 秒／組（每次 CLI O(n) 全庫 load——
 - 所有數字是 Psychological Methods 單刊單批的實測——**換刊要重量**，比例不外推
 - 合併不可逆（全庫改寫＋刪檔）——乾跑報告與逐組證據是硬步驟，**不得批次自動
   apply 未經人過目的判定**
+- **本 skill 只併 work，不處理 venue 的對外形**：work 合併不動 venue 的 `authorized`。
+  venue 攣生（歧異記錄的 shape 是 venue）的查證與記錄走
+  [`akashic-verify-venue`](../akashic-verify-venue/SKILL.md)，合併是 `resolve-divergence`；
+  合併碰到的 venue 若 `authorized` 還是機械值（沒有判定記錄），要不要順手判定、被併者的
+  `authorized` 帶判定記錄而合併被拒時的出路（在被併者撤回、或在倖存者指定），都在該 skill 的
+  Step 3「查證確立了本刊的正式刊名時」那一條（#566：只判這次碰到的那一本，不跑全庫 campaign）

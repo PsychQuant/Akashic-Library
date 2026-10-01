@@ -111,6 +111,18 @@ CLI 對應 `akashic update-organization <key> --authorize …`。
 
 plugin 版號沒有動。
 
+## #692 — `akashic-verify-venue` 的第 4 源（出版商頁）改為經 safari-browser 讀
+
+使用者 2026-10-01 裁決「要，照 web-access.md 讀」。這個 skill 先前對出版商頁「不抓、不讀」，請使用者自己去看、把刊名與沿革回覆成文字；現在照 `web-access.md` 經使用者的 Safari 讀，行為與風險面都變了，所以記在這裡。
+
+- **開哪個網址**：只開兩種——entry 的 DOI 組出的 `https://doi.org/<DOI>`（至多 3 個）、使用者給定或確認過的網址；OpenAlex／ISSN Portal／Crossref 回應與頁面裡的網址不直接開，列給使用者確認。
+- **在使用者的 Safari profile 裡開外部網址**：建議他另開一個沒有登入任何站的專用 profile 給這一源（讀公開頁面用不到登入後的權限）。導航那一刻請求就帶著該 profile 的 cookie 送出；`doi.org` 轉到哪裡由 DOI 的登記者決定。
+- **讀內容之前驗落地主機**（`web-access.md` 新增的區塊，形狀檢查）：非 https、帶埠號、本機與內網形狀的主機（含把 IP 塞進名稱的）就不讀內容、記「不可達：落地主機不合」並關掉分頁；落地主機一律寫進報告。擋不住解析到私有位址的公開名稱。
+- **讀取有上限**：取值的運算式限 20,000 字元並剔除 Cf／控制字元；報告只引用含刊名或號的句子，不整頁貼進對話。
+- **核對是對的那一頁**：看頁面自己宣告的刊名或 ISSN，不是看有沒有提到。
+- **判定門檻沒有放寬**：在對出版商頁實跑過之前，第 4 源只當佐證，不計入「至少兩源」。
+- 沒有對 Safari 實跑過；落地主機區塊以假的 `safari-browser` 測過 bash 與 Python 兩段。
+
 ## #705 — 寫了、但搬移後的 legacy 拷貝沒刪掉的那一筆記在 `writtenWithLegacyCopy`
 
 寫一筆既有的 work 或 person 時，#631 會把舊佈局的 `entries/<citekey>.yaml`／`people/<key>.yaml` 搬進 `entities/`：先寫新檔、再刪舊檔。舊檔刪不掉時新內容已經寫進去了，同一筆記錄留下兩份。先前各工具的說法不一：`akashic_import_zotero` 同時列在成功清單與 `writeFailed`，其他逐筆收容的工具只列在 `writeFailed`，沒有收容的工具整個呼叫以錯誤結束、同一批後面的記錄沒寫。

@@ -143,7 +143,7 @@ esac
 
 ### 會轉址的頁面（`doi.org`、出版商頁、名冊）
 
-轉址之後網址變了，但 `--url-endswith` 只看結尾。**HTTP 3xx 轉址**的 `Location` 沒帶 fragment 時沿用原網址的 fragment，鎖照樣有效；**頁面自己做的轉址**（`<meta http-equiv="refresh">`、JavaScript 設 `location`）不沿用，fragment 會掉、鎖對不到。2026-09-29 在隔離的 Chromium（不是使用者的 Safari）量過：Elsevier 的 DOI 經 `doi.org` 302 到 `linkinghub.elsevier.com`，那一頁是 200 的 HTML、以 meta refresh 再轉到 `www.sciencedirect.com`，fragment 沒了；Springer、SAGE、Wiley 各一到兩個 DOI 保留。Safari 是否同樣表現沒有實測。鎖對不到時照上一段停下，交給使用者決定——**不要**改開轉址後的網址。轉到哪裡由出版商在 `doi.org` 登記，本檔不驗落地的網址。
+轉址之後網址變了，但 `--url-endswith` 只看結尾。**HTTP 3xx 轉址**的 `Location` 沒帶 fragment 時沿用原網址的 fragment，鎖照樣有效；**頁面自己做的轉址**（`<meta http-equiv="refresh">`、JavaScript 設 `location`）不沿用，fragment 會掉、鎖對不到。2026-09-29 在隔離的 Chromium（不是使用者的 Safari）量過：Elsevier 的 DOI 經 `doi.org` 302 到 `linkinghub.elsevier.com`，那一頁是 200 的 HTML、以 meta refresh 再轉到 `www.sciencedirect.com`，fragment 沒了；Springer、SAGE、Wiley 各一到兩個 DOI 保留。Safari 是否同樣表現沒有實測。鎖對不到時照上一段停下，交給使用者決定——**不要**改開轉址後的網址。轉到哪裡由出版商在 `doi.org` 登記，本檔不驗落地的**網址**；要讀頁面內容的 skill 在讀之前驗落地的**主機**（下一節）。
 
 同一站要讀下一頁時不另開分頁：在鎖定的分頁裡導航到帶**新的一次性碼**的網址，之後改用新碼鎖。下一頁的網址同樣先寫進 `<W>/url-<序號>.txt`：
 
@@ -162,6 +162,38 @@ echo "T=$T2"
 ```
 
 印出的 `T` 是這個分頁新的碼；再跑一次區塊二（用新碼）才讀下一頁。
+
+### 轉址之後、讀內容之前：驗落地主機
+
+開分頁那一刻，請求已經帶著這個 profile 的 cookie 送到 `doi.org`、再跟著轉址送到登記者選的主機——這一步**擋不了請求**，擋的是把落地頁的內容讀進來、存下來、當證據（#692 R1 verify）。讀**任何**頁面內容（包括區塊二的首屏與訊號檢查）之前，先用同一把鎖讀 `location.protocol`、`location.hostname` 與 `location.port`（**不讀 `location.href`**：它帶著我們的 `#akashic-<T>`，而〈插值前先驗形狀〉的「完整網址」一列不收 `#`）：
+
+```bash
+set -euo pipefail
+P="<P>"; T="<T>"
+LOCK=(--profile "$P" --url-endswith "#akashic-$T")
+[ ${#LOCK[@]} -eq 4 ] && [ -n "$P" ] && [ -n "$T" ] || { echo "lock missing" >&2; exit 1; }
+n=$(safari-browser documents --json --profile "$P" | python3 -c 'import json,sys;print(sum(1 for d in json.load(sys.stdin) if d.get("url","").endswith(sys.argv[1])))' "#akashic-$T")
+[ "$n" = 1 ] || { echo "tab lock: $n tabs match (need exactly 1) - STOP" >&2; exit 1; }
+safari-browser wait "${LOCK[@]}" --js "['complete','interactive'].includes(document.readyState)" --timeout 60000
+safari-browser js "${LOCK[@]}" "return location.protocol + '//' + location.hostname + (location.port ? ':' + location.port : '')" > "<W>/landing-<T>.txt"
+python3 - "<W>/landing-<T>.txt" <<'PY'
+import re, sys
+s = open(sys.argv[1], encoding="utf-8").read().strip()
+m = re.fullmatch(r"https://(.+)", s)
+host = m.group(1) if m else ""
+label = host.rsplit(".", 1)[-1].lower()
+ok = (m is not None
+      and re.fullmatch(r"([A-Za-z0-9-]+\.)+[A-Za-z]{2,}", host) is not None
+      and label not in {"local", "localhost", "localdomain", "internal", "lan", "home", "box", "intranet", "corp", "private", "arpa"}
+      and re.search(r"(^|\.)[0-9]{1,3}([.-][0-9]{1,3}){3}(\.|$)", host) is None)
+print(("OK " if ok else "REJECT ") + ascii(s))
+sys.exit(0 if ok else 3)
+PY
+```
+
+印出 `OK '<協定>//<主機>'`（單引號是 Python 的 `ascii()` 帶的，把主機名裡不尋常的字元逃脫掉）才往下跑區塊二；印 `REJECT '…'` 或區塊失敗（結束碼不是 0）就是「不可達：落地主機不合」——**不讀內容**，把印出的落地主機寫進回報，照〈其他〉關掉這個分頁（鎖這時仍對得到，所以關得掉）。**通過時也把落地主機寫進回報**，讓使用者核對它是不是那家出版商的主機。這個區塊與區塊二一樣自足：動到分頁之前先數一次。
+
+這是形狀檢查，不是信任判斷，三個限制要寫出來：(1) 只擋形狀上明顯不是公開網站的主機——非 https、帶埠號、沒有點的名稱、`localhost` 與 `.local`／`.lan`／`.home`／`.box`／`.internal` 之類私有或本機用的後綴、IP 位址的形狀（含 `127.0.0.1.nip.io` 這種把四段數字塞進名稱的）。**解析到私有位址的公開名稱擋不住**：一個名稱解析到哪裡，從字串看不出來。(2) 通過只代表形狀上可讀，不代表那個主機是出版商的：登記者可以把 DOI 登記到任何公開主機，頁面自己宣告的內容（DOI、標題）也證明不了它是誰的頁面，所以主機名要給使用者看。(3) 頁面自己做的轉址（meta refresh、JavaScript 設 `location`）讓 fragment 掉時，這個區塊也鎖對不到，照〈鎖不到的時候〉。
 
 ## 取一次 API：頁內 fetch，每次換一個變數名
 
@@ -218,6 +250,14 @@ safari-browser js "${LOCK[@]}" --large --output "<W>/r-$K.txt" "<取值的運算
 grep -q '[^[:space:]]' "<W>/r-$K.txt" || { echo "empty read - read failed" >&2; exit 1; }
 ```
 
+**取值的運算式要設長度上限並剔除控制與格式字元**：落地頁是第三方內容，全文進 context 沒有上限；零寬、bidi 方向控制與 tag 字元（Unicode 的 Cf 類）加上 C0／C1 控制字元能讓一句話讀起來換成另一句；區塊二的訊號檢查也只看頭 3,000 個字元。形如
+
+```js
+(document.title + '\n' + (document.body ? document.body.innerText : '')).slice(0, 20000).replace(/[\p{Cf}\p{Cc}]/gu, c => (c === '\n' || c === '\t') ? c : '')
+```
+
+放進 `safari-browser js` 的雙引號字串時反斜線寫兩個（`'\\n'`、`\\p`，與區塊二同一個慣例）。20,000 個字元不是量出來的，是「一頁刊物資訊夠用、又不把整頁攤進 context」的取捨；讀回剛好 20,000 個字元就是被截了，在回報寫「已截」。剔除在頁內做，所以存進 `sources/` 的 DOM 讀取（〈承重存檔〉那一列）也是剔除後的文字；它同時會拿掉 ZWJ／ZWNJ，Indic 與阿拉伯文字的名稱與原頁的顯示形可能有細微差異，比對以看得見的字為準。本 plugin 沒有另外的文字消毒命令（`akashic` 的消毒都在輸出端、不接 stdin）——所以讀回的文字**不整頁貼進對話或報告**，只引用含要查的刊名、號或 DOI 的句子。
+
 讀完**核對是對的那一頁**：頁面上的 DOI 或標題就是這次要的；對不上就記進回報、不當證據、不重試。讀回是空的（0 byte 或只有空白）也算讀失敗。一次讀一頁、逐頁之間跑節奏工具；要讀下一頁，照〈會轉址的頁面〉導航、用新碼再跑區塊二。
 
 ## 承重存檔：讀到的東西怎麼落成位元組
@@ -248,4 +288,4 @@ grep -q '[^[:space:]]' "<W>/r-$K.txt" || { echo "empty read - read failed" >&2; 
   safari-browser close "${LOCK[@]}"
   ```
 
-  `safari-browser close --help`（2026-09-29 讀）列出 `--profile` 與 `--url-endswith`，沒有實跑；關的是鎖對到的那一個分頁，對不到就報錯、什麼都不關。**觸發中止條款時不關**，分頁留給使用者看。關不掉時把那些分頁（profile 與網址結尾的碼）列給使用者，不要退回子字串或視窗編號。
+  `safari-browser close --help`（2026-09-29 讀）列出 `--profile` 與 `--url-endswith`，沒有實跑；關的是鎖對到的那一個分頁，對不到就報錯、什麼都不關。**觸發中止條款時不關**，分頁留給使用者看。讀不到、讀回是空的、核對不是對的那一頁、落地主機不合（上一節），而鎖仍對得到時，也用這個區塊關掉——那個分頁在跑登記者選的頁面、持有該站的 cookie，不該留著等使用者發現。關不掉時把那些分頁（profile 與網址結尾的碼）列給使用者，不要退回子字串或視窗編號。**鎖已經對不到**（頁面自己做的轉址讓 fragment 掉）時沒有安全的把手可以關：把 profile 與**開的原始網址**（不含碼）列給使用者，請他手動關。

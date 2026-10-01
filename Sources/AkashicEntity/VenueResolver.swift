@@ -50,15 +50,50 @@ public struct VenueAmbiguousMatch: Equatable {
     public var rowID: String { "\(entryID.uuidString):\(venueIndex)" }
 }
 
+/// 被**正規化配對**的否決壓掉的候選（#712）——它在 `candidates` 裡看不到，但不是因為有人否決了**它的**拼法：
+/// 否決抑制自 #554 R12 起以 `NameNormalization.matchingKey` 為鍵，所以對同 work 同 venue 的**另一個拼法**的
+/// `--reject`／`--demote` 會一併壓住它。那是提名面 recall 的收窄，本型別讓它出現在列表上（「沉底而非隱藏」，
+/// 同 resolve-people 的 `rejected` 段），**不改變抑制本身**。
+///
+/// **進這個清單的判準只有一條**：它被某筆 rejected verdict 以 `matchingKey` 壓住，而**沒有任何**壓住它的 rejected
+/// verdict 的 literal 與它自己的 literal 相等（Swift `String ==`，即 canonical equivalence）。換句話說：若抑制仍比
+/// 逐字配對（R12 之前的行為），這個候選本來會列在 `candidates`——R12 隱藏的正是這一批。逐字相等的是普通的已否決
+/// （列表從來不列它，維持原樣）；只差 NFC／NFD 的兩個拼法是同一個字串，R12 之前就壓得住，也不在這裡。
+///
+/// 只收 `keys.count == 1` 的候選：抑制只作用於不歧義的提名，歧義（對到 2+ venue）一向不被抑制、照列在 `ambiguities`。
+/// **刻意不帶 `id`**：它不是可 apply 的候選（`candidates` 裡沒有這個 id，apply 會 notFound），給 id 會讓消費端以為可以送回去。
+public struct VenueSuppressedCandidate: Equatable {
+    public var citekey: String
+    public var venueIndex: Int
+    /// 被壓住的候選自己的 literal（work 上的那條邊）。
+    public var literal: String
+    public var venueKey: String
+    /// 壓住它的 rejected verdict 的 literal：同 work、同 venue、`matchingKey` 相同而與 `literal` 不同的那些拼法，
+    /// 去重（canonical）後依字串排序，至少一個。使用者否決的是**這些**拼法。
+    public var rejectedLiterals: [String]
+
+    public init(citekey: String, venueIndex: Int, literal: String, venueKey: String, rejectedLiterals: [String]) {
+        self.citekey = citekey
+        self.venueIndex = venueIndex
+        self.literal = literal
+        self.venueKey = venueKey
+        self.rejectedLiterals = rejectedLiterals
+    }
+}
+
 /// 一次 venue 解析的完整結果（candidates 可 apply、ambiguities 不可——
-/// 「不小心 apply 一個歧義」在型別層寫不出來，同 `ResolutionReport`）。
+/// 「不小心 apply 一個歧義」在型別層寫不出來，同 `ResolutionReport`；`suppressed` 同樣不可 apply，見 `VenueSuppressedCandidate`）。
 public struct VenueResolutionReport: Equatable {
     public var candidates: [VenueResolutionCandidate]
     public var ambiguities: [VenueAmbiguousMatch]
+    /// 被正規化配對的否決壓掉的候選（#712），依 (citekey, venueIndex) 排序。
+    public var suppressed: [VenueSuppressedCandidate]
 
-    public init(candidates: [VenueResolutionCandidate], ambiguities: [VenueAmbiguousMatch]) {
+    public init(candidates: [VenueResolutionCandidate], ambiguities: [VenueAmbiguousMatch],
+                suppressed: [VenueSuppressedCandidate]) {
         self.candidates = candidates
         self.ambiguities = ambiguities
+        self.suppressed = suppressed
     }
 }
 
@@ -91,19 +126,31 @@ public enum VenueResolver {
         // 同一套拼接，刻意不改形狀。
         // 三段各自一個欄位、不拼接（R25；R24 verify security 第 27 列：`matchingKey` 不剝 Cc，U+0000 分隔可被 literal 內容撞上——
         // 與 `verdictEqualityKey` 對 malformed 鍵補過的同一道防禦；struct 鍵沒有分隔符可撞）
-        var rejectedNorm = Set<RejectedPairKey>()
+        // #712：值是壓住這個鍵的每一個 rejected literal（原字串）——抑制本身只看「鍵在不在」，與先前的 `Set<RejectedPairKey>` 等價；
+        // 值只用來回報「是誰壓住的」，並分辨逐字相等的普通已否決與被正規化壓掉的候選。
+        var rejectedNorm: [RejectedPairKey: [String]] = [:]
         for pairing in rejected where pairing.holderKind == .work {
-            rejectedNorm.insert(RejectedPairKey(holder: pairing.holder, literal: normalize(pairing.literal), judged: pairing.judgedKey))
+            rejectedNorm[RejectedPairKey(holder: pairing.holder, literal: normalize(pairing.literal), judged: pairing.judgedKey), default: []]
+                .append(pairing.literal)
         }
         var candidates: [VenueResolutionCandidate] = []
         var ambiguities: [VenueAmbiguousMatch] = []
+        var suppressed: [VenueSuppressedCandidate] = []
         for entry in entries {
             for (i, ref) in entry.venues.enumerated() {
                 guard case .literal(let literal) = ref else { continue }
                 // 無任何 venue 叫這個名字＝合法長期狀態，不回報（噪音紀律同 person）。
                 guard let keys = aliasMap[normalize(literal)] else { continue }
                 if keys.count == 1, let key = keys.first {
-                    guard !rejectedNorm.contains(RejectedPairKey(holder: entry.citekey, literal: normalize(literal), judged: key)) else { continue }
+                    if let rejectedLiterals = rejectedNorm[RejectedPairKey(holder: entry.citekey, literal: normalize(literal), judged: key)] {
+                        // 逐字相等的壓住者＝普通的已否決（列表一向不列，維持原樣）；否則是被正規化配對壓掉的——報出來（#712），抑制不變
+                        if !rejectedLiterals.contains(literal) {
+                            suppressed.append(VenueSuppressedCandidate(
+                                citekey: entry.citekey, venueIndex: i, literal: literal, venueKey: key,
+                                rejectedLiterals: rejectedLiterals.sorted()))
+                        }
+                        continue
+                    }
                     candidates.append(VenueResolutionCandidate(
                         citekey: entry.citekey, venueIndex: i, literal: literal,
                         venueKey: key, reason: "venue name 完全命中"))
@@ -119,7 +166,8 @@ public enum VenueResolver {
             ambiguities: ambiguities.sorted {
                 ($0.citekey, $0.venueIndex, $0.entryID.uuidString)
                     < ($1.citekey, $1.venueIndex, $1.entryID.uuidString)
-            })
+            },
+            suppressed: suppressed.sorted { ($0.citekey, $0.venueIndex, $0.literal) < ($1.citekey, $1.venueIndex, $1.literal) })
     }
 
     /// 把已確認的候選套用到 entries（回傳新副本，不動原陣列；同 PersonResolver.apply）。

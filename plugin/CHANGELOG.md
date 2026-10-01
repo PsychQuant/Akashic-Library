@@ -42,6 +42,15 @@
 
 
 
+## #712 — `akashic_resolve_venues` 的列表多報 `suppressed`：被另一個拼法的否決壓掉的候選
+
+#554 R12 起，venue 的否決抑制以正規化鍵（NFKC、lowercase、空白收斂）為準：對一個拼法的 `reject`／`demote`，會一併壓住**同一 work、同一 venue 的其他拼法**。在此之前列表對那些候選完全沉默；現在列出來（抑制本身不變）。
+
+- 不帶寫入腿的回應多三個鍵，**永遠回**（沒有候選被壓時是空陣列與 `0`）：`suppressed`（每列 `citekey`、`venueIndex`、`literal`、`venueKey`、`rejectedLiterals`＝壓住它的拼法，至多 5 個，超過時多 `rejectedLiteralsTotal`）、`suppressedTotal`（全數）、`truncated`（`suppressed` 被截）。
+- **`suppressed` 的列不是可 apply 的候選**，所以刻意沒有 `id`；逐字相等的否決是普通的已否決，列表一向不列，這次也不列；歧義（對到 2+ venue）一向不被抑制，不在這一段。
+- MCP 面截 20 筆並受 48 KiB 位元組預算約束（吃不下的整列不印），`suppressedTotal` 永遠是全數；CLI 全列。
+- `akashic_resolve_venues` 的說明只多了新鍵那一段（`tools/list` 一行 53,939 → 54,515 bytes，預算 60,000）；既有的文字不動。
+
 ## #613 — 取全文只用導航、存檔交給人；CAPTCHA 等人驗證；每站每天 10 次嘗試
 
 `akashic-fetch-fulltext` 依使用者 2026-09-28 的最高原則「跟真人一樣」與 2026-10-01 的裁決改寫。**這需要新的 `akashic` CLI**（plugin 不出貨 CLI）：舊的 `akashic fulltext fetch` 在出版商頁內以 JS `fetch()` 取 PDF，正是那晚兩次 ScienceDirect CAPTCHA 之前做的事——**不要拿舊的 CLI 對出版商網站跑**。skill 的第 0 步用 `fulltext take` 的一次真呼叫探測，舊 binary 回 64、探測失敗就停。

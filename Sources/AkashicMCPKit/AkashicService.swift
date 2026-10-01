@@ -5213,14 +5213,20 @@ public final class AkashicService {
     /// apply+reject 同呼叫＝兩段式（reject 先完整提交，apply 以新快照重解析）。
     /// `retiredLimit`：`verdictsRetired` 列幾筆（#573）。MCP 面傳 `retiredItemsCap`（輸出進 LLM context）；CLI 面傳 nil＝全列——
     /// 操作者要能列舉每一筆被刪掉的判定，截斷的理由對終端機不成立（同 `validate` 對 MCP 截斷、CLI 全列的既有分工）。
+    /// `suppressedLimit`：列表模式的 `suppressed`（被正規化配對的否決壓掉的候選，#712）列幾列——同一個分工：MCP 面傳
+    /// `suppressedItemsCap` 並另受 `candidateByteBudget` 約束，CLI 面傳 nil＝全列（沒有位元組預算）。
     public func resolveVenues(apply: [String]?, reject: [String]? = nil,
                               repoint: [String]? = nil, demote: [String]? = nil,
                               undecided: [String]? = nil, restsOn: [String]? = nil,
                               drop: [String]? = nil,
-                              retiredLimit: Int? = AkashicService.retiredItemsCap) throws -> String {
+                              retiredLimit: Int? = AkashicService.retiredItemsCap,
+                              suppressedLimit: Int? = AkashicService.suppressedItemsCap) throws -> String {
         // 負數上限要在任何寫入之前拒絕：`prefix` 對負數是 precondition failure，而 retiredPayload 在寫完之後才組（#573 R1）
         if (retiredLimit ?? 0) < 0 {
             throw ServiceError.invalid("retiredLimit 不得為負（nil 是全列、0 以上是上限）")
+        }
+        if (suppressedLimit ?? 0) < 0 {
+            throw ServiceError.invalid("suppressedLimit 不得為負（nil 是全列、0 以上是上限）")
         }
         // change `resolution-verdict-states`（#619）：未決腿單獨呼叫；rests_on 只伴隨它
         let present = { (x: [String]?) in !(x ?? []).isEmpty }
@@ -5367,7 +5373,7 @@ public final class AkashicService {
         guard let selected = apply, !selected.isEmpty else {
             // change `resolution-verdict-states`（#619）：查過未決的配對揭露次數。venue 兩面都沒有篩選式批次 apply，只有揭露
             let venueUndecided = ResolutionLedger.undecidedChecks(holders: load.venues.map { ($0.key, $0.references) })
-            return try jsonString([
+            return try jsonString(([
                 "candidates": report.candidates.map { c -> [String: Any] in
                     var row: [String: Any] = ["id": c.rowID,
                      "citekey": displaySafe(c.citekey, max: 200),
@@ -5395,7 +5401,7 @@ public final class AkashicService {
                     return row
                 },
                 "note": "apply 帶候選 id 升格；reject 帶候選 id 否決（verdict 落 venue 記錄）",
-            ] as [String: Any])
+            ] as [String: Any]).merging(Self.suppressedPayload(report.suppressed, limit: suppressedLimit)) { a, _ in a })   // #712
         }
         guard storeFormat >= 11 else {
             throw ServiceError.invalid(
@@ -5773,6 +5779,44 @@ public final class AkashicService {
         return ["verdictsRetired": shown,                            // display-safe-exempt: describeRetired 已逐項過 displaySafe
                 "verdictsRetiredTotal": retired.count,               // display-safe-exempt: Int
                 "truncated": shown.count < retired.count]            // display-safe-exempt: Bool
+    }
+
+    /// 列表模式 `suppressed` 的列數上限（#712）。與 `retiredItemsCap` 同值、同理由（輸出進 LLM context、體積由 store 內容決定）；
+    /// 另受 `candidateByteBudget` 約束：吃不下的整列不印，`suppressedTotal` 與 `truncated` 揭露。只有 MCP 面套用，CLI 傳 nil 全列。
+    public static let suppressedItemsCap = 20
+    /// 一列 `suppressed` 最多回幾個壓住它的 rejected literal。每個都是 store 字串，而 `displaySafe` 逃脫後每個 scalar 最多 9 bytes，
+    /// 所以位元組預算前先限個數；超過時該列帶 `rejectedLiteralsTotal`。實務上同一 work 同一 venue 被否決的不同拼法不超過這條 work
+    /// 的 literal 邊數（每次 reject／demote 對應一條邊）。
+    static let suppressedLiteralsPerRow = 5
+
+    /// 列表模式的 `suppressed` 段（#712）：被**正規化配對**的否決壓掉的候選，沉底而非隱藏（同 resolve-people 的 `rejected` 段）。
+    /// **永遠回這三個鍵**，沒有候選被壓時 `suppressed` 是空陣列、`suppressedTotal` 是 0——「沒有」與「沒給你看」要分得開。
+    /// `truncated` 只說 `suppressed` 這一段被截（venue 列表的 candidates／ambiguities 沒有列數上限）；與 `retiredPayload` 的
+    /// `truncated` 同名，但兩者不會出現在同一次回應裡（列表腿沒有 `verdictsRetired`）。
+    /// `limit == nil`（CLI）全列、沒有位元組預算；MCP 面依 `limit` 與 `candidateByteBudget` 截，吃不下的整列不印（同 resolve-people 的候選列）。
+    static func suppressedPayload(_ suppressed: [VenueSuppressedCandidate], limit: Int?) -> [String: Any] {
+        var rows: [[String: Any]] = []
+        var bytes = 0
+        for s in suppressed {
+            if let limit, rows.count >= limit { break }
+            var row: [String: Any] = [
+                "citekey": displaySafe(s.citekey, max: 200),
+                "venueIndex": s.venueIndex,
+                "literal": displaySafe(s.literal, max: 200),
+                "venueKey": displaySafe(s.venueKey, max: 200),
+                "rejectedLiterals": s.rejectedLiterals.prefix(suppressedLiteralsPerRow).map { displaySafe($0, max: 200) },
+            ]
+            if s.rejectedLiterals.count > suppressedLiteralsPerRow { row["rejectedLiteralsTotal"] = s.rejectedLiterals.count }
+            if limit != nil {
+                let cost = jsonBytes(row)
+                guard bytes + cost <= candidateByteBudget else { continue }
+                bytes += cost
+            }
+            rows.append(row)
+        }
+        return ["suppressed": rows,
+                "suppressedTotal": suppressed.count,               // display-safe-exempt: Int
+                "truncated": rows.count < suppressed.count]        // display-safe-exempt: Bool
     }
 
     /// **`repoint` 不得讓被動到的邊與本 work 另一條邊指同一 venue**（D27；R10 verify logic 第 2 列）——對**寫入後**的邊集合驗、

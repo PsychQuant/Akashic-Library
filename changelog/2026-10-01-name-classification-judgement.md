@@ -2,7 +2,7 @@
 
 使用者 2026-10-01 裁決（#564）：名字分類的判定面——person 的 `authorize-names`、venue 的 `--add-variant`／`--authorize`／`--unauthorize`、organization 的 `--authorize`（CLI 與 MCP 兩面，共五個面）——都是判定型寫入（`two-kinds-of-edits` 的 AI 欄），一律留 judgement 記錄：每次指定、撤回、標異寫都在 `references` 寫一筆 `field: authorized`／`variant` 的判斷型 reference，**理由必填、證據 digest 可空**；對既有值說「確認」也留一筆（先前是無聲的 no-op）；代價是升 store format 21 → 22。#600 同日裁決：既有機械值不跑全量 campaign、按需判定，所以**不回填**。
 
-**organization 的 `--unauthorize`／MCP `unauthorize` 不在這五個面裡**：#557 的裁決只說「先提供 --authorize」，撤回腿未經裁決（#557 的 verify 發現，另案處理）。本 change 不動它——不要求理由、不寫記錄、不收 `judgement`；理由單獨跟著它是用錯（拒絕）；與 `--authorize` 同一次呼叫時，理由只套用到 `--authorize` 的記錄。測試釘住這一點（`testOrganizationUnauthorizeNeedsNoReasonAndLeavesNoRecord` 等）。
+**organization 沒有 `--unauthorize`／MCP `unauthorize`**：#557 的裁決只說「先提供 --authorize」，撤回腿未經裁決，#557 的 R1 verify 之後把它拿掉（待使用者裁決），所以五個面裡 organization 只有 `--authorize`。本 change 原本是在有那條腿的 base 上寫的（當時的處置是不要求理由、不寫記錄、不收 `judgement`，並有測試與兩個負對照釘住），整合進 #557 R1 之後那條腿與它的測試、負對照（M22、M23）一併不存在；日後裁決加回撤回腿時，要一併裁決它要不要理由與記錄。**整合時另有一個語意交會**：#557 R1 的「都已是對外名稱＝不寫檔」自此要加條件——對已是對外名稱的名字說「確認」會寫一筆記錄，所以那種呼叫會寫檔；同一句理由已記過（位元組完全相同）才不寫檔（`testAlreadyAuthorizedOnlyDoesNotRewriteTheFile`）。
 
 ## 為什麼
 
@@ -51,19 +51,19 @@ format-21 binary 對這種記錄整檔 quarantine（三個成因各自足夠：�
 
 ## 實測（live store，唯讀，2026-10-01）
 
-person 4,575（全有 authorized）、work 2,575、venue 485（470 筆有 authorized、41 筆有 variant）、organization 13、divergence 1；`field: authorized` 或 `field: variant` 的 reference **0** 筆，statement 以三個動作前綴開頭的 reference **0** 筆；store marker **18**。所以今天這些記錄一筆都不存在、合併拒絕必然不觸發、format 22 的寫入閘必拒（零實例守衛，見 `zero-instance-guards` 第 74 列）。
+person 4,575（全有 authorized）、work 2,575、venue 485（470 筆有 authorized、41 筆有 variant）、organization 13、divergence 1；`field: authorized` 或 `field: variant` 的 reference **0** 筆，statement 以三個動作前綴開頭的 reference **0** 筆；store marker **18**。所以今天這些記錄一筆都不存在、合併拒絕必然不觸發、format 22 的寫入閘必拒（零實例守衛，見 `zero-instance-guards` 第 78 列（分支上原是第 74 列，整合時因 #708、#613、#703 的第 74–77 列改編））。
 
 ## 測試
 
-全套 `swift test --build-system native`：`Executed 4546 tests, with 1 test skipped and 0 failures (0 unexpected)`（唯一的 skip 是 `MigrateProvenanceCLITests.testWriteFailureIsListedAndExitsNonZero`，這台機器的檔案系統不支援 `chflags`，與本 change 無關）；`swift build --build-system native -Xswiftc -warnings-as-errors` 通過；`bash .githooks/run-guards.sh` rc=0（含 `plugin-store-format-parity`：兩份宣告與 `StoreVersion.supported` 一致，format 22）。
+全套 `swift test --build-system native`（整合進 #557 R1／#559 R1／#703／#700 的分支上重跑）：`Executed 4671 tests, with 1 test skipped and 0 failures (0 unexpected)`（在 7132d033 上原本是 4546）（唯一的 skip 是 `MigrateProvenanceCLITests.testWriteFailureIsListedAndExitsNonZero`，這台機器的檔案系統不支援 `chflags`，與本 change 無關）；`swift build --build-system native -Xswiftc -warnings-as-errors` 通過；`bash .githooks/run-guards.sh` rc=0（含 `plugin-store-format-parity`：兩份宣告與 `StoreVersion.supported` 一致，format 22）。
 
 | 測試 | 驗什麼 |
 |---|---|
 | `NameClassificationRecordTests`（20 個，Kit） | 單一解析器（三動作、前綴不符或理由空白回 nil）；附著錨定 names（撤回後仍載入、value 不是記錄的名字拒收、空 rests-on 的非文法判斷型拒收、`field: variant` 只在 venue、既有擷取型與帶 rests-on 的一般判斷維持舊語意）；三種 holder 的 format 22 寫入閘（format 21 拒、format 22 寫得進去也讀得回）；位元組去重的 append |
-| `NameClassificationJudgementTests`（27 個，服務層） | venue 三條腿缺理由整批拒絕零寫入、各寫恰好一筆且形狀正確、對既有值寫確認、被換下與被抬出 variant 的名字各寫一筆撤回、撤回後史留存、第二次同一句確認不重寫、證據套用到每一筆、與 `paginated` 不同一次呼叫、理由與證據的上限；organization `authorize` 同一組、`unauthorize` 不要理由不寫記錄、理由單獨跟著它拒絕、兩條腿同一次呼叫時理由只套用到 `authorize`；只由名字分類面寫與保留四處（`update-person` 拒收、移除面不刪、名字最後一段被擋、`repair-venue-names` 算 pinned、換下／撤回不被記錄擋） |
+| `NameClassificationJudgementTests`（26 個，服務層） | venue 三條腿缺理由整批拒絕零寫入、各寫恰好一筆且形狀正確、對既有值寫確認、被換下與被抬出 variant 的名字各寫一筆撤回、撤回後史留存、第二次同一句確認不重寫、證據套用到每一筆、與 `paginated` 不同一次呼叫、理由與證據的上限；organization `authorize` 同一組、沒有要指定的名字時理由單獨出現被拒絕（organization 沒有撤回腿）；venue 撤回的報告列（#559 的 `name`／`index`）與撤回記錄的 value 說的是同一批 store 拼法（整合時補）；只由名字分類面寫與保留四處（`update-person` 拒收、移除面不刪、名字最後一段被擋、`repair-venue-names` 算 pinned、換下／撤回不被記錄擋） |
 | `NameClassificationMergeTests`（8 個） | 帶記錄的降級在 preview 與實跑都拒絕；「有任何記錄」（最後一筆是撤回也拒）；機械值仍合併並提醒；分類一致的記錄逐位元組搬、variant 記錄隨名字搬；分類不一致以 `wouldLoseFields` 拒絕；person 合併維持原狀 |
 | `AuthorizeNamesJudgementTests`（7 個） | `--apply` 缺理由拒絕且早於讀 store、理由上限不截斷、乾跑不需要理由、每個寫入的名字各一筆、已有 authorized 的人不寫、format 21 零寫入、`--apply` 永遠不寫 marker |
-| `NameClassificationCLITests`（5 個，真 binary） | `update-venue`／`update-organization`／`authorize-names` 的 `--judgement`／`--rests-on`：缺理由用法錯誤 64 早於開 store（對不存在的 store 路徑也是）、寫出的記錄逐筆核對、organization 撤回腿不要理由不寫記錄、format 21 具名拒絕且 marker 不動 |
+| `NameClassificationCLITests`（5 個，真 binary） | `update-venue`／`update-organization`／`authorize-names` 的 `--judgement`／`--rests-on`：缺理由用法錯誤 64 早於開 store（對不存在的 store 路徑也是）、寫出的記錄逐筆核對、organization 沒有 `--unauthorize` 旗標（不是存在但拒絕）、format 21 具名拒絕且 marker 不動 |
 | `NameDesignationStdioTests` 多兩個（真 binary、stdio） | venue 與 organization 的 `judgement`／`rests_on` 到得了服務層；畸形的 `rests_on`（少一層括號）整個呼叫拒絕 |
 | `ToolPayloadScenarios`／`ToolPayloadScenariosResolve` 改寫 | 每個回應鍵出現在工具說明裡（#672、含新的 `judgementsRecorded`）；每個參數有情境宣告（#700、含 organization 新的 `judgement`／`rests_on`） |
 | 既有測試改寫 | 約 70 處呼叫三條腿的既有測試補上 `judgement`（機械加的 fixture 理由）；釘住 21 的三個測試改成 22（`StoreVersion.supported` 相關）；`VenueVariantWriteTests.testAddVariantIsRefusedBelowFormat14` 逼出一個順序裁決：format < 14 的 variant 寫入要先說 14、不是 22——名字分類記錄的閘放在 `assertVenueWritable` 所有格式世代閘的最後 |
@@ -74,7 +74,7 @@ person 4,575（全有 authorized）、work 2,575、venue 485（470 筆有 author
 
 ## 負對照
 
-每個 mutant 改一處、重編、跑名字分類的 71 個測試（`NameClassification*`、`AuthorizeNamesJudgementTests`、`NameDesignationStdioTests`；M18 另加 `Format13GateTests`、`KnownLayerEvolutionTests`），以**反向編輯在同一個偏移量還原**並以 `cmp` 對事先存下的副本確認逐位元組相同。數字是 XCTest 的 failures（斷言數，不是測試數）；每一行都先確認有 `Executed N tests` 行。
+**以下數字是整合前（在 7132d033 上）量的，整合進 #557 R1／#559 R1 之後沒有重跑整張表**；M22、M23 對應的腿已不存在。每個 mutant 改一處、重編、跑名字分類的 71 個測試（`NameClassification*`、`AuthorizeNamesJudgementTests`、`NameDesignationStdioTests`；M18 另加 `Format13GateTests`、`KnownLayerEvolutionTests`），以**反向編輯在同一個偏移量還原**並以 `cmp` 對事先存下的副本確認逐位元組相同。數字是 XCTest 的 failures（斷言數，不是測試數）；每一行都先確認有 `Executed N tests` 行。
 
 | mutant | 結果 |
 |---|---|
@@ -99,8 +99,8 @@ person 4,575（全有 authorized）、work 2,575、venue 485（470 筆有 author
 | M19 `authorize-names` 不寫記錄 | 8 |
 | M20 `authorize-names` 不要求理由 | 6 |
 | M21 `authorize-names` 又替使用者寫 marker | 1（`testApplyNeverWritesTheMarker`） |
-| M22 organization 的 `unauthorize` 也寫撤回記錄 | 2 |
-| M23 organization 的 `unauthorize` 也要求理由 | 10 |
+| ~~M22 organization 的 `unauthorize` 也寫撤回記錄~~ | 2（整合進 #557 R1 之後 organization 沒有這條腿，這個 mutant 不存在） |
+| ~~M23 organization 的 `unauthorize` 也要求理由~~ | 10（同上） |
 | M24 venue 的 `unauthorize` 不要求理由 | 12 |
 | M25 對已是異寫的名字再標一次不寫「確認」 | 1 |
 | M26 CLI `update-organization` 沒把 `--judgement` 轉給服務 | 5 |
@@ -114,6 +114,8 @@ M15、M16 是負對照抓到的**弱測試**：第一版的斷言在 mutant 之�
 ## `tools/list` 位元組
 
 以真 binary（`akashic-mcp` stdio，`tools/list` 回應整行）量：base（7132d033）**53,024** → **53,453**（+429）。預算 54,000（`StdioE2ETests.testToolsListResponseStaysWithinByteBudget`）。增加的只有 venue 的 `judgement`／`rests_on` 兩個參數說明、organization 工具說明與新增的 `judgement`／`rests_on` 參數；第一版 +505（53,529），為了不逼近 ~53,500 的線，把說明各縮了幾個字。
+
+**整合時的重量**（b25 整合分支，真 binary、同一個量法）：在 #564 之前，整合分支（含 #557 R1／#559 R1／#703／#700）已經是 **54,496**——比預算多 496（先前量到的 53,692 是這幾件的 R1 修正與 #703／#700 都進來之前的數）；加上本 change 之後 **54,915**。所以整合時把 `tools/list` 精簡到 **53,866**（−1,049，離預算餘 134）：預算數字不動（#578 的使用者裁決），做法照 #578 的規則——把拒絕類別與上限的枚舉移回 CLI `--help`（`akashic_resolve_people`／`akashic_resolve_venues`／`akashic_resolve_organizations` 的 `undecided`、`akashic_resolve_venues` 的 `drop_venue`／`repoint`、`akashic_update_venue` 的 `unauthorize`／`remove_reference`），並刪掉 `akashic_update_venue` 說明裡與呼叫無關的一句、縮短 `akashic_update_organization` 的說明。每個回應鍵仍出現在說明裡（#672 的守衛照綠）。
 
 ## 誠實邊界
 
@@ -130,5 +132,5 @@ M15、M16 是負對照抓到的**弱測試**：第一版的斷言在 mutant 之�
 2. **記錄錨定 names、不錨分割**——換來判定史不因撤回成孤兒，代價是 `authorized`／`variant` 上的 statement 前綴文法成了保留語法。
 3. **合併拒絕的判準是「有任何記錄」**（不是最後一筆）。
 4. **`authorize-names --apply` 不再寫 marker**（行為改變）。
-5. **organization 的 `unauthorize` 維持原樣**（未經裁決），與 `authorize` 同一次呼叫時理由只套用到 `authorize`。
+5. **organization 沒有 `unauthorize`**（#557 R1 verify 之後拿掉，待使用者裁決）；日後加回要一併裁決它要不要理由與記錄。另：#557 R1 的「都已是對外名稱＝不寫檔」自此要加條件（對已是對外名稱的名字說「確認」會寫一筆記錄）。
 6. venue 名字分類腿與 `paginated` 不得同一次呼叫。

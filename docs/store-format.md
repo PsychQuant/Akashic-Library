@@ -546,8 +546,8 @@ displayName(script) =
 無法自動取得，設成錯誤等於把不可自動化的工作變成載入的前置條件。`doctor` 的
 `no authorized name: N person / M organization` **只數 person 與 organization，不數 venue**
 ——venue 的空 authorized 沒有任何掃描面報告（`add-venue` 建檔本來就空；`bootstrap-venues` 自 #563 起
-建檔也留空，顯示名退到 `names` 的第一段），要找出哪些 venue 還沒指定對外形得自己掃 YAML（#600 的
-authorize campaign 需要那個清單）。
+建檔也留空，顯示名退到 `names` 的第一段），要找出哪些 venue 還沒指定對外形得自己掃 YAML。#600 裁決不跑全量 campaign、按需判定：查證或攣生合併碰到
+那本刊時才指定或確認（`akashic-verify-venue` 的對外形步驟，#566），所以這份清單不是待辦目標。
 指定的寫入面：person 用 `authorize-names`，organization 用 `update-organization --authorize`（#557；在此之前
 organization 沒有任何寫入面，`doctor` 那一行修不掉），venue 用 `update-venue --authorize`（#554）；venue 另有
 `--unauthorize` 撤回（#559），與兩者的替換共用同一份邏輯。organization 沒有撤回面（待裁：它的 `names` 只增不減，撤回會讓

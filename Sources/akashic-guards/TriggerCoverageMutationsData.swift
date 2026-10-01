@@ -310,12 +310,12 @@ let triggerCoverageMutationCases: [TCMCase] = [
     // regression 三席）。
     TCMCase(isWarn: false, desc: "已知缺口清單有一條、缺口卻已經不在（過期）",
         edits: [
-            (path: ".githooks/acknowledged-ci-gaps.txt", old: "# ── 條目從下一行開始 ──\n", new: "# ── 條目從下一行開始 ──\nSources/akashic-guards/NetworkConfinement.swift\tSources/*/*.swift\t#690\n"),
+            (path: ".githooks/acknowledged-ci-gaps.txt", old: "# ── 條目從下一行開始 ──\n", new: "# ── 條目從下一行開始 ──\nSources/akashic-guards/NetworkConfinement.swift\tSources/*/*.swift\t#690\t⟦GAP⟧\n"),
         ], expect: "已經沒有缺口"),
     TCMCase(isWarn: false, desc: "拿掉 Sources/**、兩支守衛列在已知缺口清單——列管，不計入 rc",
         edits: [
             (path: ".github/workflows/census-parity.yml", old: "      - \"Sources/**\"\n", new: ""),
-            (path: ".githooks/acknowledged-ci-gaps.txt", old: "# ── 條目從下一行開始 ──\n", new: "# ── 條目從下一行開始 ──\nSources/akashic-guards/NetworkConfinement.swift\tSources/*/*.swift\t#690\nSources/akashic-guards/ZeroInstanceRowsAudit.swift\tSources/*/*.swift\t#690\n"),
+            (path: ".githooks/acknowledged-ci-gaps.txt", old: "# ── 條目從下一行開始 ──\n", new: "# ── 條目從下一行開始 ──\nSources/akashic-guards/NetworkConfinement.swift\tSources/*/*.swift\t#690\t⟦GAP⟧\nSources/akashic-guards/ZeroInstanceRowsAudit.swift\tSources/*/*.swift\t#690\t⟦GAP⟧\n"),
         ], expect: "NetworkConfinement.swift 宣告讀 `Sources/*/*.swift`：其中",
         alsoExpect: ["ZeroInstanceRowsAudit.swift 宣告讀 `Sources/*/*.swift`：其中"], isKnownGap: true),
     TCMCase(isWarn: false, desc: "已知缺口清單有一行格式不對（少一欄）",
@@ -329,7 +329,7 @@ let triggerCoverageMutationCases: [TCMCase] = [
     TCMCase(isWarn: false, desc: "已知缺口清單的第三欄不是 #<issue>（TODO），缺口不得被放過",
         edits: [
             (path: ".github/workflows/census-parity.yml", old: "      - \"Sources/**\"\n", new: ""),
-            (path: ".githooks/acknowledged-ci-gaps.txt", old: "# ── 條目從下一行開始 ──\n", new: "# ── 條目從下一行開始 ──\nSources/akashic-guards/NetworkConfinement.swift\tSources/*/*.swift\tTODO\nSources/akashic-guards/ZeroInstanceRowsAudit.swift\tSources/*/*.swift\tTODO\n"),
+            (path: ".githooks/acknowledged-ci-gaps.txt", old: "# ── 條目從下一行開始 ──\n", new: "# ── 條目從下一行開始 ──\nSources/akashic-guards/NetworkConfinement.swift\tSources/*/*.swift\tTODO\t⟦GAP⟧\nSources/akashic-guards/ZeroInstanceRowsAudit.swift\tSources/*/*.swift\tTODO\t⟦GAP⟧\n"),
         ], expect: "格式不對",
         alsoExpect: ["NetworkConfinement.swift 宣告讀 `Sources/*/*.swift`：其中", "ZeroInstanceRowsAudit.swift 宣告讀 `Sources/*/*.swift`：其中"]),
     // ── #710：issue 號本身的形狀 ─────────────────────────────────────────
@@ -340,44 +340,92 @@ let triggerCoverageMutationCases: [TCMCase] = [
     TCMCase(isWarn: false, desc: "已知缺口清單的第三欄是 #0，缺口不得被放過",
         edits: [
             (path: ".github/workflows/census-parity.yml", old: "      - \"Sources/**\"\n", new: ""),
-            (path: ".githooks/acknowledged-ci-gaps.txt", old: "# ── 條目從下一行開始 ──\n", new: "# ── 條目從下一行開始 ──\nSources/akashic-guards/NetworkConfinement.swift\tSources/*/*.swift\t#0\nSources/akashic-guards/ZeroInstanceRowsAudit.swift\tSources/*/*.swift\t#0\n"),
+            (path: ".githooks/acknowledged-ci-gaps.txt", old: "# ── 條目從下一行開始 ──\n", new: "# ── 條目從下一行開始 ──\nSources/akashic-guards/NetworkConfinement.swift\tSources/*/*.swift\t#0\t⟦GAP⟧\nSources/akashic-guards/ZeroInstanceRowsAudit.swift\tSources/*/*.swift\t#0\t⟦GAP⟧\n"),
         ], expect: "格式不對",
         alsoExpect: ["NetworkConfinement.swift 宣告讀 `Sources/*/*.swift`：其中", "ZeroInstanceRowsAudit.swift 宣告讀 `Sources/*/*.swift`：其中"]),
     TCMCase(isWarn: false, desc: "已知缺口清單的第三欄是 #0000，缺口不得被放過",
         edits: [
             (path: ".github/workflows/census-parity.yml", old: "      - \"Sources/**\"\n", new: ""),
-            (path: ".githooks/acknowledged-ci-gaps.txt", old: "# ── 條目從下一行開始 ──\n", new: "# ── 條目從下一行開始 ──\nSources/akashic-guards/NetworkConfinement.swift\tSources/*/*.swift\t#0000\nSources/akashic-guards/ZeroInstanceRowsAudit.swift\tSources/*/*.swift\t#0000\n"),
+            (path: ".githooks/acknowledged-ci-gaps.txt", old: "# ── 條目從下一行開始 ──\n", new: "# ── 條目從下一行開始 ──\nSources/akashic-guards/NetworkConfinement.swift\tSources/*/*.swift\t#0000\t⟦GAP⟧\nSources/akashic-guards/ZeroInstanceRowsAudit.swift\tSources/*/*.swift\t#0000\t⟦GAP⟧\n"),
         ], expect: "格式不對",
         alsoExpect: ["NetworkConfinement.swift 宣告讀 `Sources/*/*.swift`：其中", "ZeroInstanceRowsAudit.swift 宣告讀 `Sources/*/*.swift`：其中"]),
     TCMCase(isWarn: false, desc: "已知缺口清單的第三欄是 8 位數的 issue 號，缺口不得被放過",
         edits: [
             (path: ".github/workflows/census-parity.yml", old: "      - \"Sources/**\"\n", new: ""),
-            (path: ".githooks/acknowledged-ci-gaps.txt", old: "# ── 條目從下一行開始 ──\n", new: "# ── 條目從下一行開始 ──\nSources/akashic-guards/NetworkConfinement.swift\tSources/*/*.swift\t#12345678\nSources/akashic-guards/ZeroInstanceRowsAudit.swift\tSources/*/*.swift\t#12345678\n"),
+            (path: ".githooks/acknowledged-ci-gaps.txt", old: "# ── 條目從下一行開始 ──\n", new: "# ── 條目從下一行開始 ──\nSources/akashic-guards/NetworkConfinement.swift\tSources/*/*.swift\t#12345678\t⟦GAP⟧\nSources/akashic-guards/ZeroInstanceRowsAudit.swift\tSources/*/*.swift\t#12345678\t⟦GAP⟧\n"),
         ], expect: "格式不對",
         alsoExpect: ["NetworkConfinement.swift 宣告讀 `Sources/*/*.swift`：其中", "ZeroInstanceRowsAudit.swift 宣告讀 `Sources/*/*.swift`：其中"]),
     // 第一欄或第二欄是空的：兩行各缺一欄。任一個非空檢查拿掉，那一行被收下、報成「對不到任何宣告」——不在預期裡，第三段判準擋下。
     TCMCase(isWarn: false, desc: "已知缺口清單的第一欄或第二欄是空的",
         edits: [
-            (path: ".githooks/acknowledged-ci-gaps.txt", old: "# ── 條目從下一行開始 ──\n", new: "# ── 條目從下一行開始 ──\n\tSources/*/*.swift\t#690\nSources/akashic-guards/NetworkConfinement.swift\t\t#690\n"),
+            (path: ".githooks/acknowledged-ci-gaps.txt", old: "# ── 條目從下一行開始 ──\n", new: "# ── 條目從下一行開始 ──\n\tSources/*/*.swift\t#690\t⟦GAP⟧\nSources/akashic-guards/NetworkConfinement.swift\t\t#690\t⟦GAP⟧\n"),
         ], expect: "格式不對"),
     // 樣式與守衛的宣告不逐字相同：條目不得抵掉那支守衛的缺口，而且要說它對不到宣告（不是「已經沒有缺口」）。
     TCMCase(isWarn: false, desc: "已知缺口清單的樣式與守衛的宣告不同，缺口不得被放過",
         edits: [
             (path: ".github/workflows/census-parity.yml", old: "      - \"Sources/**\"\n", new: ""),
-            (path: ".githooks/acknowledged-ci-gaps.txt", old: "# ── 條目從下一行開始 ──\n", new: "# ── 條目從下一行開始 ──\nSources/akashic-guards/NetworkConfinement.swift\tSources/**/*.swift\t#690\nSources/akashic-guards/ZeroInstanceRowsAudit.swift\tSources/*/*.swift\t#690\n"),
+            (path: ".githooks/acknowledged-ci-gaps.txt", old: "# ── 條目從下一行開始 ──\n", new: "# ── 條目從下一行開始 ──\nSources/akashic-guards/NetworkConfinement.swift\tSources/**/*.swift\t#690\t⟦GAP⟧\nSources/akashic-guards/ZeroInstanceRowsAudit.swift\tSources/*/*.swift\t#690\t⟦GAP⟧\n"),
         ], expect: "NetworkConfinement.swift 宣告讀 `Sources/*/*.swift`：其中",
         alsoExpect: ["對不到任何宣告"]),
     // CRLF 行尾（含一個 CRLF 空行）：照樣是兩條已知缺口，`#690` 後面不夾 `\r`。
     TCMCase(isWarn: false, desc: "已知缺口清單是 CRLF 行尾——照樣列管，不計入 rc",
         edits: [
             (path: ".github/workflows/census-parity.yml", old: "      - \"Sources/**\"\n", new: ""),
-            (path: ".githooks/acknowledged-ci-gaps.txt", old: "# ── 條目從下一行開始 ──\n", new: "# ── 條目從下一行開始 ──\r\n\r\nSources/akashic-guards/NetworkConfinement.swift\tSources/*/*.swift\t#690\r\nSources/akashic-guards/ZeroInstanceRowsAudit.swift\tSources/*/*.swift\t#690\r\n"),
+            (path: ".githooks/acknowledged-ci-gaps.txt", old: "# ── 條目從下一行開始 ──\n", new: "# ── 條目從下一行開始 ──\r\n\r\nSources/akashic-guards/NetworkConfinement.swift\tSources/*/*.swift\t#690\t⟦GAP⟧\r\nSources/akashic-guards/ZeroInstanceRowsAudit.swift\tSources/*/*.swift\t#690\t⟦GAP⟧\r\n"),
         ], expect: "NetworkConfinement.swift 宣告讀 `Sources/*/*.swift`：其中",
         alsoExpect: ["ZeroInstanceRowsAudit.swift 宣告讀 `Sources/*/*.swift`：其中", "已知缺口，#690 追蹤"], isKnownGap: true),
     // 同一條列兩次：第二條是格式問題、要具名，不得報成「已經沒有缺口」（缺口其實還在）。
     TCMCase(isWarn: false, desc: "已知缺口清單同一條列兩次",
         edits: [
             (path: ".github/workflows/census-parity.yml", old: "      - \"Sources/**\"\n", new: ""),
-            (path: ".githooks/acknowledged-ci-gaps.txt", old: "# ── 條目從下一行開始 ──\n", new: "# ── 條目從下一行開始 ──\nSources/akashic-guards/NetworkConfinement.swift\tSources/*/*.swift\t#690\nSources/akashic-guards/ZeroInstanceRowsAudit.swift\tSources/*/*.swift\t#690\nSources/akashic-guards/NetworkConfinement.swift\tSources/*/*.swift\t#690\n"),
+            (path: ".githooks/acknowledged-ci-gaps.txt", old: "# ── 條目從下一行開始 ──\n", new: "# ── 條目從下一行開始 ──\nSources/akashic-guards/NetworkConfinement.swift\tSources/*/*.swift\t#690\t⟦GAP⟧\nSources/akashic-guards/ZeroInstanceRowsAudit.swift\tSources/*/*.swift\t#690\t⟦GAP⟧\nSources/akashic-guards/NetworkConfinement.swift\tSources/*/*.swift\t#690\t⟦GAP⟧\n"),
         ], expect: "重複"),
+    // ── #711：缺口大小（清單第四欄）──────────────────────────────────────
+    // 第四欄記的是被接受那一刻「CI 未覆蓋」的檔數。現在的檔數超過它 → 缺口變大，守衛要紅；縮小與相等維持綠。
+    // `⟦GAP⟧`、`⟦GAP-1⟧`、`⟦GAP+5⟧` 由 harness 在跑之前量出當下的檔數代入（寫死的數字會隨 `Sources/` 成長而過期）。
+    // 相等的那一格是上面「列管，不計入 rc」——`uncovered.count > size` 改成 `>=` 時，那一格轉紅。
+    TCMCase(isWarn: false, desc: "已知缺口變大（記錄的比現在少一個）——必須紅，不得當成已知缺口放過",
+        edits: [
+            (path: ".github/workflows/census-parity.yml", old: "      - \"Sources/**\"\n", new: ""),
+            (path: ".githooks/acknowledged-ci-gaps.txt", old: "# ── 條目從下一行開始 ──\n", new: "# ── 條目從下一行開始 ──\nSources/akashic-guards/NetworkConfinement.swift\tSources/*/*.swift\t#690\t⟦GAP-1⟧\nSources/akashic-guards/ZeroInstanceRowsAudit.swift\tSources/*/*.swift\t#690\t⟦GAP-1⟧\n"),
+        ], expect: "已知缺口變大",
+        alsoExpect: ["NetworkConfinement.swift 宣告讀 `Sources/*/*.swift`：其中", "ZeroInstanceRowsAudit.swift 宣告讀 `Sources/*/*.swift`：其中"]),
+    // 兩條各比各的：一條記的比現在多（縮小，⊘）、一條記的比現在少一個（變大，紅）。把兩條的大小混用（例如全用第一條的）會讓這一格轉綠。
+    TCMCase(isWarn: false, desc: "兩條已知缺口各比各的大小——只有變大的那一條紅",
+        edits: [
+            (path: ".github/workflows/census-parity.yml", old: "      - \"Sources/**\"\n", new: ""),
+            (path: ".githooks/acknowledged-ci-gaps.txt", old: "# ── 條目從下一行開始 ──\n", new: "# ── 條目從下一行開始 ──\nSources/akashic-guards/NetworkConfinement.swift\tSources/*/*.swift\t#690\t⟦GAP+10⟧\nSources/akashic-guards/ZeroInstanceRowsAudit.swift\tSources/*/*.swift\t#690\t⟦GAP-1⟧\n"),
+        ], expect: "ZeroInstanceRowsAudit.swift 宣告讀 `Sources/*/*.swift`：其中",
+        alsoExpect: ["已知缺口變大"]),
+    TCMCase(isWarn: false, desc: "已知缺口縮小（記錄的比現在多）——維持綠，只建議改小記錄值",
+        edits: [
+            (path: ".github/workflows/census-parity.yml", old: "      - \"Sources/**\"\n", new: ""),
+            (path: ".githooks/acknowledged-ci-gaps.txt", old: "# ── 條目從下一行開始 ──\n", new: "# ── 條目從下一行開始 ──\nSources/akashic-guards/NetworkConfinement.swift\tSources/*/*.swift\t#690\t⟦GAP+5⟧\nSources/akashic-guards/ZeroInstanceRowsAudit.swift\tSources/*/*.swift\t#690\t⟦GAP+5⟧\n"),
+        ], expect: "NetworkConfinement.swift 宣告讀 `Sources/*/*.swift`：其中",
+        alsoExpect: ["ZeroInstanceRowsAudit.swift 宣告讀 `Sources/*/*.swift`：其中", "縮小了，建議把第四欄改成"], isKnownGap: true),
+    // 第四欄的格式閘：三欄的舊格式、0、非數字、8 位數，各一格。每一格都是兩條真的缺口＋兩行同一種壞格式——被收下就兩條都被放過（rc=0 或變成別的訊息）。
+    TCMCase(isWarn: false, desc: "已知缺口清單只有三欄（沒有缺口大小的舊格式），缺口不得被放過",
+        edits: [
+            (path: ".github/workflows/census-parity.yml", old: "      - \"Sources/**\"\n", new: ""),
+            (path: ".githooks/acknowledged-ci-gaps.txt", old: "# ── 條目從下一行開始 ──\n", new: "# ── 條目從下一行開始 ──\nSources/akashic-guards/NetworkConfinement.swift\tSources/*/*.swift\t#690\nSources/akashic-guards/ZeroInstanceRowsAudit.swift\tSources/*/*.swift\t#690\n"),
+        ], expect: "格式不對",
+        alsoExpect: ["NetworkConfinement.swift 宣告讀 `Sources/*/*.swift`：其中", "ZeroInstanceRowsAudit.swift 宣告讀 `Sources/*/*.swift`：其中"]),
+    TCMCase(isWarn: false, desc: "已知缺口清單的缺口大小是 0，缺口不得被放過",
+        edits: [
+            (path: ".github/workflows/census-parity.yml", old: "      - \"Sources/**\"\n", new: ""),
+            (path: ".githooks/acknowledged-ci-gaps.txt", old: "# ── 條目從下一行開始 ──\n", new: "# ── 條目從下一行開始 ──\nSources/akashic-guards/NetworkConfinement.swift\tSources/*/*.swift\t#690\t0\nSources/akashic-guards/ZeroInstanceRowsAudit.swift\tSources/*/*.swift\t#690\t0\n"),
+        ], expect: "格式不對",
+        alsoExpect: ["NetworkConfinement.swift 宣告讀 `Sources/*/*.swift`：其中", "ZeroInstanceRowsAudit.swift 宣告讀 `Sources/*/*.swift`：其中"]),
+    TCMCase(isWarn: false, desc: "已知缺口清單的缺口大小不是數字，缺口不得被放過",
+        edits: [
+            (path: ".github/workflows/census-parity.yml", old: "      - \"Sources/**\"\n", new: ""),
+            (path: ".githooks/acknowledged-ci-gaps.txt", old: "# ── 條目從下一行開始 ──\n", new: "# ── 條目從下一行開始 ──\nSources/akashic-guards/NetworkConfinement.swift\tSources/*/*.swift\t#690\tmany\nSources/akashic-guards/ZeroInstanceRowsAudit.swift\tSources/*/*.swift\t#690\t1.5\n"),
+        ], expect: "格式不對",
+        alsoExpect: ["NetworkConfinement.swift 宣告讀 `Sources/*/*.swift`：其中", "ZeroInstanceRowsAudit.swift 宣告讀 `Sources/*/*.swift`：其中"]),
+    TCMCase(isWarn: false, desc: "已知缺口清單的缺口大小是 8 位數，缺口不得被放過",
+        edits: [
+            (path: ".github/workflows/census-parity.yml", old: "      - \"Sources/**\"\n", new: ""),
+            (path: ".githooks/acknowledged-ci-gaps.txt", old: "# ── 條目從下一行開始 ──\n", new: "# ── 條目從下一行開始 ──\nSources/akashic-guards/NetworkConfinement.swift\tSources/*/*.swift\t#690\t12345678\nSources/akashic-guards/ZeroInstanceRowsAudit.swift\tSources/*/*.swift\t#690\t12345678\n"),
+        ], expect: "格式不對",
+        alsoExpect: ["NetworkConfinement.swift 宣告讀 `Sources/*/*.swift`：其中", "ZeroInstanceRowsAudit.swift 宣告讀 `Sources/*/*.swift`：其中"]),
 ]

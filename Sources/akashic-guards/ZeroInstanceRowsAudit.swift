@@ -5,6 +5,12 @@
 //   表裡每一列都引一個 issue 編號。裁決是 ✅「寫」的列，那個編號必須出現在
 //   `Sources/` 底下——也就是那個守衛真的被實作了。
 //
+// **另一條義務（#711）**：量測區塊裡每一條「對 binary 的輸出數 `grep -c`」的指令，必須帶自證——
+// 前面接 `LC_ALL=C grep -a -q '<這條檢查獨有的訊息片段>' "$(command -v …)" &&`，或同一個區塊有一行標明
+// `正對照`（期望值不是 0 的那條）。沒有的話，舊 binary 沒有那條檢查時印的是 `0`，與「檢查過且乾淨」
+// 在輸出上分不開（第 13 列的自證就是為了防這件事）。#710 R1 verify 一次抓到二十多條沒有閘的，
+// 說明卻都寫「同第 13 列的自證」——文字與指令分岔，而且是安靜的。
+//
 // **誠實邊界（三條，與 Python 版同）**：
 //
 //   · 只驗編號在場，**不驗守衛做的事對不對**（那要人判斷，正是該規則保留給人的部分）。
@@ -180,10 +186,81 @@ func zeroInstanceRowsAudit() -> Int32 {
         fails.append("找不到「## 各列共通的東西」——這一段是理由欄的第二層，不得消失")
     }
 
-    var out = "══ zero-instance 裁決表：\(rows.count) 列 ══\n"
+    // **量測指令的自證閘**（#711）。空掃描不是通過：一條都沒掃到，代表抽取式與檔的寫法脫節了。
+    let proof = selfProofIssues(in: rule)
+    if proof.checked == 0 {
+        fails.append("量測區塊裡一條「對 binary 輸出數 `grep -c`」的指令都沒掃到——"
+                     + "抽取式與檔的寫法脫節了，自證閘的檢查等於沒跑")
+    }
+    fails += proof.issues
+
+    var out = "══ zero-instance 裁決表：\(rows.count) 列；量測指令 \(proof.checked) 條數 binary 輸出 ══\n"
     for f in fails { out += "  ✗ \(f)\n" }
     out += "\n══ " + (fails.isEmpty ? "每一列裁決「寫」的都找得到實作"
                                     : "**\(fails.count) 列有問題**") + " ══\n"
     FileHandle.standardOutput.write(Data(out.utf8))
     return fails.isEmpty ? 0 : 1
+}
+
+
+// MARK: - 量測指令的自證閘（#711）
+
+/// 數 binary 輸出的指令：`<akashic …> | grep -c …`。**必須是管線**——`grep -c '…' ~/.akashic/entities/*.yaml`
+/// 數的是檔案不是 binary 的輸出，沒有「舊 binary」這回事，不在此列。
+private let selfProofCountRe = #"\|\s*grep\s+-[A-Za-z]*c[A-Za-z]*(?:\s|$)"#
+/// 管線的來源：`akashic <子命令>`、`akashic-guards <子命令>`、`.build/debug/akashic…`，或存了它們輸出的 `"$out"`。
+private let selfProofSourceRe = #"(?:\bakashic(?:-guards)?\s+[a-z]|\.build/debug/akashic|"\$out")"#
+/// 自證閘：`LC_ALL=C grep -a -q`。`LC_ALL=C` 不能省——macOS 的 `/usr/bin/grep` 在 UTF-8 locale 下對 binary 比不到中文
+/// （#710 R1：同一個 binary 印 0 與 3）。
+private let selfProofGateRe = #"LC_ALL=C\s+grep\s+-a\s+-q\b"#
+private let selfProofLooseGateRe = #"\bgrep\s+-a\s+-q\b"#
+/// 正對照：期望值不是 0 的那條。舊 binary 印 0 與它的期望值分得開，所以同一個區塊裡跟在它後面的 0 有了對照。
+private let selfProofControlMark = "正對照"
+
+/// 回 (問題, 掃到幾條數 binary 輸出的指令)。
+///
+/// **單位**：fence 外是一行裡的每一段 inline code；fence 內是一行。**閘要在同一個單位裡、而且在 `grep -c` 之前**（`&&` 串起來）。
+/// fence 內另有兩條繼承：同一個區塊較早的一行有閘，或有 `正對照`——區塊裡一行一條指令，閘與正對照寫在自己的那一行。
+///
+/// **誠實邊界**：只驗「有閘」，不驗閘的片段是不是那條檢查獨有的（那要人判斷：片段選得太通用時，舊 binary 照樣通過閘）；
+/// 只認 `grep -c` 這種計數出口——`| wc -l`、`grep -q` 這類不在此列，目前量測區塊沒有用到。
+func selfProofIssues(in rule: String) -> (issues: [String], checked: Int) {
+    var issues: [String] = []
+    var checked = 0
+    var inFence = false
+    var blockProven = false   // 本 fence 區塊裡，較早的一行已有閘或正對照
+    func judge(_ unit: String, line: Int, inherited: Bool) {
+        guard let cm = matches(unit, selfProofCountRe).first else { return }
+        let prefix = (unit as NSString).substring(to: cm.range.location)
+        guard !matches(prefix, selfProofSourceRe).isEmpty else { return }
+        checked += 1
+        if !matches(prefix, selfProofGateRe).isEmpty || inherited { return }
+        let head = String(unit.prefix(70))
+        if !matches(prefix, selfProofLooseGateRe).isEmpty {
+            issues.append("第 \(line) 行的量測指令有 `grep -a -q` 閘卻沒有 `LC_ALL=C`——macOS 的 `/usr/bin/grep` 在 UTF-8 locale 下"
+                          + "對 binary 比不到中文，閘會誤判成「沒有這條檢查」：`\(head)…`")
+        } else {
+            issues.append("第 \(line) 行的量測指令數 binary 的輸出，卻沒有自證閘：`\(head)…`——舊 binary 沒有這條檢查時它印 `0`，"
+                          + "與「檢查過且乾淨」分不開。前面接 `LC_ALL=C grep -a -q '<這條檢查獨有的訊息片段>' \"$(command -v akashic)\" &&`，"
+                          + "或同一個區塊寫一行 `正對照`（期望值不是 0 的那條）")
+        }
+    }
+    for (i, l) in rule.components(separatedBy: "\n").enumerated() {
+        let line = i + 1
+        if l.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
+            inFence.toggle(); blockProven = false; continue
+        }
+        if inFence {
+            // 閘與正對照先登記再評這一行：它們寫在自己那一行的指令裡，而且只對**之後**的行有繼承效果
+            // （這一行自己的閘由 `judge` 在 prefix 裡看）。
+            let inheritedBefore = blockProven
+            judge(l, line: line, inherited: inheritedBefore || l.contains(selfProofControlMark))
+            if !matches(l, selfProofGateRe).isEmpty || l.contains(selfProofControlMark) { blockProven = true }
+        } else {
+            for m in matches(l, #"`([^`\n]+)`"#) {
+                judge((l as NSString).substring(with: m.range(at: 1)), line: line, inherited: false)
+            }
+        }
+    }
+    return (issues, checked)
 }

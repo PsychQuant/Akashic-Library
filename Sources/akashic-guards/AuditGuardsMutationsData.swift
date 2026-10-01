@@ -188,6 +188,34 @@ let agmCases: [AGMCase] = [
     AGMCase(desc: "zi-rows：某一列完全不引用 issue 編號", guardRel: "akashic-guards zero-instance-rows-audit", edits: [
         AGMEdit(path: ".claude/rules/zero-instance-guards.md", kind: "replaceFirst", a: "（#254：", b: "（無編號："),
     ], expect: ["沒有引用任何 issue 編號"]),
+    // ── #711：`zero-instance-rows-audit` 的第五條失敗路徑——量測指令的自證閘 ─────────────────────────
+    // 每一條 `<akashic …> | grep -c …` 要有 `LC_ALL=C grep -a -q … &&` 的閘，或與 `正對照` 同在一個區塊。錨都在**量測段的文字**上
+    // （第 13 列的第一條、第 28 列的閘、第 70／71 列的區塊），不碰列號，也不寫死閘的片段以外的任何數字。
+    // **這一組與別組的輸出互不相同**（各自指名不同的行號與指令），所以不需要進 `PAIRED_IDENTICAL`。
+    AGMCase(desc: "zi-rows：量測指令的自證閘被拿掉（舊 binary 會印 0）", guardRel: "akashic-guards zero-instance-rows-audit", edits: [
+        AGMEdit(path: ".claude/rules/zero-instance-guards.md", kind: "replaceFirst",
+                a: "LC_ALL=C grep -a -q '死 verdict' \"$(command -v akashic)\" && akashic validate 2>&1 | grep -c '死 verdict'",
+                b: "akashic validate 2>&1 | grep -c '死 verdict'"),
+    ], expect: ["沒有自證閘", "grep -c '死 verdict'"]),
+    // 閘還在、`LC_ALL=C` 沒了：macOS 的 `/usr/bin/grep` 在 UTF-8 locale 下對 binary 比不到中文，閘會把新 binary 判成舊的。
+    AGMCase(desc: "zi-rows：量測指令的閘沒有 LC_ALL=C", guardRel: "akashic-guards zero-instance-rows-audit", edits: [
+        AGMEdit(path: ".claude/rules/zero-instance-guards.md", kind: "replaceFirst",
+                a: "LC_ALL=C grep -a -q '重複的判定記錄' \"$(command -v akashic)\"",
+                b: "grep -a -q '重複的判定記錄' \"$(command -v akashic)\""),
+    ], expect: ["沒有 `LC_ALL=C`", "重複的判定記錄"]),
+    // 區塊：第 71 列的第一個區塊靠前面那行閘與 `正對照` 兩者；兩者都拿掉，後面三條都沒有自證。
+    AGMCase(desc: "zi-rows：量測指令的區塊裡閘與正對照都被拿掉", guardRel: "akashic-guards zero-instance-rows-audit", edits: [
+        AGMEdit(path: ".claude/rules/zero-instance-guards.md", kind: "replaceFirst",
+                a: "LC_ALL=C grep -a -q '抽取認不出' .build/debug/akashic-guards && LC_ALL=C grep -a -q '宣告是空的' .build/debug/akashic-guards && echo \"有這兩條檢查\"",
+                b: "echo \"有這兩條檢查\""),
+        AGMEdit(path: ".claude/rules/zero-instance-guards.md", kind: "replaceFirst",
+                a: "# 正對照，2026-09-30：18", b: "# 2026-09-30：18"),
+    ], expect: ["沒有自證閘", "grep -c '抽取認不出'"]),
+    // 第 70 列的區塊沒有閘，靠第一行的 `正對照` 讓後面那條 0 有對照；拿掉它，兩條都沒有。
+    AGMCase(desc: "zi-rows：量測指令的正對照被拿掉（區塊裡沒有閘）", guardRel: "akashic-guards zero-instance-rows-audit", edits: [
+        AGMEdit(path: ".claude/rules/zero-instance-guards.md", kind: "replaceFirst",
+                a: "# 正對照，2026-09-30：3（0＝這個 binary 沒有範圍檢查，或中途中止）", b: "# 2026-09-30：3（0＝這個 binary 沒有範圍檢查，或中途中止）"),
+    ], expect: ["沒有自證閘", "grep -cE '^✓ .*宣告"]),
     AGMCase(desc: "ratchet：同名誘餌 ＋ 真欄位改型別（裸名鍵會被騙過）", guardRel: "akashic-guards backlink-field-ratchet", edits: [
         AGMEdit(path: "Sources/AkashicCore/Models.swift", kind: "replaceFirst", a: "public var authors:", b: "public var affiliations: TimelineOf<OrgRef> = .init()\n    public var authors:"),
         AGMEdit(path: "Sources/AkashicCore/Temporal.swift", kind: "replaceFirst", a: "public var affiliations: TimelineOf<OrgRef>", b: "public var affiliations: [String]"),
@@ -213,6 +241,18 @@ let agmCases: [AGMCase] = [
 ]
 
 let agmRobust: [AGMCase] = [
+    // #711：區塊裡自證的兩種來源各自單獨成立——只剩閘（沒有 `正對照`）、或只剩 `正對照`（沒有閘），後面的計數都照樣有自證。
+    // 繼承的寫法若只認其中一種，另一格會紅。注入不改任何指令的個數，所以輸出與未注入逐字相同。
+    AGMCase(desc: "zi-rows：區塊裡只剩閘、沒有正對照（閘要能讓後面的計數繼承）", guardRel: "akashic-guards zero-instance-rows-audit", edits: [
+        AGMEdit(path: ".claude/rules/zero-instance-guards.md", kind: "replaceFirst",
+                a: "# 正對照，2026-09-30：18", b: "# 2026-09-30：18"),
+    ], expect: ["每一列裁決「寫」的都找得到實作"]),
+    AGMCase(desc: "zi-rows：區塊裡只剩正對照、沒有閘（正對照要能讓後面的計數繼承）", guardRel: "akashic-guards zero-instance-rows-audit", edits: [
+        AGMEdit(path: ".claude/rules/zero-instance-guards.md", kind: "replaceFirst",
+                a: "LC_ALL=C grep -a -q '抽取認不出' .build/debug/akashic-guards && LC_ALL=C grep -a -q '宣告是空的' .build/debug/akashic-guards && echo \"有這兩條檢查\"",
+                b: "echo \"有這兩條檢查\""),
+    ], expect: ["每一列裁決「寫」的都找得到實作"]),
+
     // #526 的第一個坑：`ci.yml` 自己就有一段註解逐字寫著「原本是 python3 …」——掃全檔會把
     // 那個**刻意記下的已刪檔名**當成引用，於是修好的東西因為被寫進註解而重新變紅。
     AGMCase(desc: "workflow-run：run 區塊的 shell 註解提到已刪腳本（不得當成引用）", guardRel: "akashic-guards workflow-run-scripts", edits: [

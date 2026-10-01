@@ -356,13 +356,17 @@ func swiftGuards() -> [String] {   // #522：ProtectedInventory 也要用
 
 /// **宣告範圍裡、不在受保護集合的檔，CI 不跑讀它的守衛——已知且有 issue 追蹤的那幾條**（#690）。
 ///
-/// 清單住在資料檔 `.githooks/acknowledged-ci-gaps.txt`（一行一條：守衛檔、宣告的樣式、`#<issue>`，以 TAB 分隔）。
+/// 清單住在資料檔 `.githooks/acknowledged-ci-gaps.txt`（一行一條：守衛檔、宣告的樣式、`#<issue>`、缺口大小，以 TAB 分隔）。
 /// 每一條都要附 issue 號：它不是豁免，是「這個缺口看得見、有人在處理」的標記。守衛的處置：
 ///   · 列在清單裡的缺口照樣印出來（`⊘`），不計入 rc；
+///   · **缺口變大 → `fails`**（#711）：第四欄記的是它被接受那一刻「CI 未覆蓋」的檔數；現在的檔數超過它，代表那一片範圍
+///     長了新檔、而新檔沒有人看過——先前的接受是對**那個大小**的缺口說的，不是對任意大小。訊息要求重新確認：確認後把第四欄
+///     改成現在的數、並回 issue 記一筆（為什麼多出來的檔也可以不跑這支守衛）。**縮小照樣是綠的**，只在 `⊘` 行建議把第四欄改小
+///     （縮小是好事、不擋；不改的壞處是之後再長回來時，到記錄值以內都不會出聲）；
 ///   · 不在清單裡的同類缺口是 `fails`；
 ///   · 列在清單裡、但缺口已經不在（例如 workflow 的 `paths:` 補上了）→ 也是 `fails`，要人把那一條
 ///     拿掉——留著的豁免會變成沒人記得的放行（`official-validate` 允許清單的同一條紀律）；
-///   · 格式不對的行 → `fails`，不靜默略過；同一個守衛、同一個樣式列兩次也算格式不對（#690 R2 verify：
+///   · 格式不對的行 → `fails`，不靜默略過（只有三欄的舊格式也算格式不對——`no-compat-fallback`：不留兩種讀法）；同一個守衛、同一個樣式列兩次也算格式不對（#690 R2 verify：
 ///     先前第二條永遠命中不到，被報成「已經沒有缺口」——缺口其實還在，訊息叫人拿掉錯的東西）；
 ///   · 條目對不到任何宣告（守衛檔不在、或它沒有逐字宣告那個樣式）→ `fails`，訊息說對不到，不說「已經沒有缺口」。
 ///
@@ -380,8 +384,9 @@ func swiftGuards() -> [String] {   // #522：ProtectedInventory 也要用
 let acknowledgedCIGapsFile = ".githooks/acknowledged-ci-gaps.txt"
 
 /// 讀已知缺口清單。檔案不在時 `rawFile` 以 rc=2 中止（守衛的輸入不在）；格式不對的行回在 `bad`。
-func acknowledgedCIGaps() -> (entries: [(guardFile: String, pattern: String, issue: String)], bad: [String]) {
-    var entries: [(guardFile: String, pattern: String, issue: String)] = []
+/// `size` 是被接受那一刻「CI 未覆蓋」的檔數（#711），不是宣告範圍裡的總檔數。
+func acknowledgedCIGaps() -> (entries: [(guardFile: String, pattern: String, issue: String, size: Int)], bad: [String]) {
+    var entries: [(guardFile: String, pattern: String, issue: String, size: Int)] = []
     var bad: [String] = []
     var firstLine: [String: Int] = [:]   // "<守衛>\t<樣式>" → 它第一次出現在第幾行
     for (i, line0) in rawFile(acknowledgedCIGapsFile).components(separatedBy: "\n").enumerated() {
@@ -391,8 +396,12 @@ func acknowledgedCIGaps() -> (entries: [(guardFile: String, pattern: String, iss
         let line = raw.trimmingCharacters(in: .whitespaces)
         if line.isEmpty || line.hasPrefix("#") { continue }
         let f = raw.components(separatedBy: "\t")
-        guard f.count == 3, !f[0].isEmpty, !f[1].isEmpty, !matches(f[2], #"\A#[1-9][0-9]{0,6}\z"#).isEmpty else {
-            bad.append("\(acknowledgedCIGapsFile) 第 \(i + 1) 行格式不對（要三欄、TAB 分隔、第三欄是 #<issue>：不以 0 開頭、至多 7 位）：「\(raw)」")
+        // 第四欄（#711）：正整數、不以 0 開頭、至多 7 位——0 不是缺口（缺口大小為 0 就是沒有缺口，該拿掉那一條），
+        // 非數字或小數在 `Int(…)` 之前就被這個樣式擋下。
+        guard f.count == 4, !f[0].isEmpty, !f[1].isEmpty, !matches(f[2], #"\A#[1-9][0-9]{0,6}\z"#).isEmpty,
+              !matches(f[3], #"\A[1-9][0-9]{0,6}\z"#).isEmpty, let size = Int(f[3]) else {
+            bad.append("\(acknowledgedCIGapsFile) 第 \(i + 1) 行格式不對（要四欄、TAB 分隔、第三欄是 #<issue>：不以 0 開頭、至多 7 位；"
+                       + "第四欄是被接受那一刻「CI 未覆蓋」的檔數：正整數、不以 0 開頭、至多 7 位）：「\(raw)」")
             continue
         }
         let key = f[0] + "\t" + f[1]
@@ -401,7 +410,7 @@ func acknowledgedCIGaps() -> (entries: [(guardFile: String, pattern: String, iss
             continue
         }
         firstLine[key] = i + 1
-        entries.append((f[0], f[1], f[2]))
+        entries.append((f[0], f[1], f[2], size))
     }
     return (entries, bad)
 }
@@ -901,16 +910,29 @@ func triggerCoverage(argv: [String]) -> Int32 {
                 }
             }
             let ackIndex = ackGaps.firstIndex(where: { $0.guardFile == g && $0.pattern == pat })
-            let mark = uncovered.isEmpty ? "✓" : (ackIndex == nil ? "✗" : "⊘")
+            // **列管的缺口變大就不再是 `⊘`**（#711）：它的接受是對記錄的那個大小說的。
+            let grew = ackIndex.map { !uncovered.isEmpty && uncovered.count > ackGaps[$0].size } ?? false
+            let mark = uncovered.isEmpty ? "✓" : (ackIndex == nil || grew ? "✗" : "⊘")
             scopeLines.append("\(mark) \(pad(label(g), 40)) 宣告 `\(pat)`："
-                + "不在受保護集合 \(outside.count) 個｜CI 未覆蓋 \(uncovered.count) 個")
+                + "不在受保護集合 \(outside.count) 個｜CI 未覆蓋 \(uncovered.count) 個"
+                + (ackIndex.map { "｜清單記 \(ackGaps[$0].size) 個" } ?? ""))
             if uncovered.isEmpty { continue }
             let whereS = HOOK.contains(base(g)) ? "pre-push 有" : "pre-push 也沒有"
             let msg = "\(base(g)) 宣告讀 `\(pat)`：其中 \(uncovered.count) 個不在受保護集合的檔改動時，"
                 + "它不在任何 CI workflow 跑（\(whereS)；例：\(uncovered.prefix(3).joined(separator: "、"))）"
             if let i = ackIndex {
                 ackHit.insert(i)
-                known.append(msg + "——已知缺口，\(ackGaps[i].issue) 追蹤")
+                let a = ackGaps[i]
+                if grew {
+                    fails.append(msg + "——**已知缺口變大**：清單（\(acknowledgedCIGapsFile)）記的是 \(a.size) 個，現在是 \(uncovered.count) 個"
+                        + "（\(a.issue) 追蹤）。\(a.issue) 接受的是那個大小的缺口；多出來的 \(uncovered.count - a.size) 個檔沒有人看過。"
+                        + "重新確認它們也可以不跑這支守衛之後，把那一行的第四欄改成 \(uncovered.count)，並回 \(a.issue) 記一筆；"
+                        + "或把 CI 的 `paths:` 補上讓缺口消失，並拿掉那一條")
+                } else if uncovered.count < a.size {
+                    known.append(msg + "——已知缺口，\(a.issue) 追蹤（清單記 \(a.size) 個、現在 \(uncovered.count) 個：縮小了，建議把第四欄改成 \(uncovered.count)）")
+                } else {
+                    known.append(msg + "——已知缺口，\(a.issue) 追蹤（\(a.size) 個）")
+                }
             } else {
                 fails.append(msg)
             }

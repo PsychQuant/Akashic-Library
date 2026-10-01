@@ -110,10 +110,40 @@ func triggerCoverageMutations() -> Int32 {
     }
     print("baseline（copy 上）：無缺口 ✓\n")
 
+    // **缺口大小的量測**（#711）：已知缺口清單第四欄記的是「CI 未覆蓋」的檔數，而那個數隨 `Sources/` 成長——case 裡寫死數字
+    // 會在下一次有人加一個 Swift 檔時全部失效。所以先在 copy 上量一次：清單空、拿掉 `census-parity.yml` 的 `Sources/**`，
+    // 讀 `NetworkConfinement`／`ZeroInstanceRowsAudit` 兩支各自印的「CI 未覆蓋 N 個」，兩者必須相同（同一個宣告樣式、同一批檔）。
+    // case 裡的 `⟦GAP⟧`、`⟦GAP-1⟧`、`⟦GAP+5⟧` 代入這個數。量不到、或兩支不同，整支 harness 停下並具名——不拿一個猜的數字去跑。
+    guard let (_, measureOut) = withCopy(
+        [(path: ".github/workflows/census-parity.yml", old: "      - \"Sources/**\"\n", new: "")],
+        "量缺口大小（清單空、拿掉 Sources/**）", .red) else {
+        print("✗ 量缺口大小的 copy 建不起來——負控無法執行"); return 1
+    }
+    let gapSizes = matches(measureOut, #"(?m)^[✗⊘] .*宣告 `Sources/\*/\*\.swift`：不在受保護集合 [0-9]+ 個｜CI 未覆蓋 ([0-9]+) 個"#)
+        .compactMap { Int((measureOut as NSString).substring(with: $0.range(at: 1))) }
+    guard gapSizes.count == 2, Set(gapSizes).count == 1, let gap = gapSizes.first, gap >= 2 else {
+        print("✗ 量不出缺口大小（讀到 \(gapSizes)；要恰好兩支守衛、數字相同、至少 2）——`⟦GAP⟧` 無從代入。輸出：\n\(measureOut)")
+        return 1
+    }
+    func expand(_ s: String) -> String {
+        var out = s as NSString
+        for m in matches(s, #"⟦GAP(?:([+-])([0-9]+))?⟧"#).reversed() {
+            var v = gap
+            if m.range(at: 1).location != NSNotFound {
+                let d = Int(out.substring(with: m.range(at: 2))) ?? 0
+                v += out.substring(with: m.range(at: 1)) == "+" ? d : -d
+            }
+            out = out.replacingCharacters(in: m.range, with: String(v)) as NSString
+        }
+        return out as String
+    }
+    print("缺口大小（拿掉 Sources/** 時兩支守衛各自的「CI 未覆蓋」）：\(gap)\n")
+
     var results: [Bool] = []
     for c in triggerCoverageMutationCases {
         // 已知缺口與警告格要維持綠（rc=0），其餘要紅——與下面三段判準的 rc 條件一致
-        guard let (rc, out) = withCopy(c.edits, c.desc, (c.isKnownGap || c.isWarn) ? .green : .red) else {
+        let edits = c.edits.map { (path: $0.path, old: $0.old, new: expand($0.new)) }
+        guard let (rc, out) = withCopy(edits, c.desc, (c.isKnownGap || c.isWarn) ? .green : .red) else {
             print("✗ \(c.desc) → **注入沒改到東西**，這個 case 無效"); results.append(false); continue
         }
         let gaps = matches(out, #"(?m)^  · (.+)$"#).map { (out as NSString).substring(with: $0.range(at: 1)) }

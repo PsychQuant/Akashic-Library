@@ -123,6 +123,14 @@ plugin 版號沒有動。
 - **判定門檻沒有放寬**：在對出版商頁實跑過之前，第 4 源只當佐證，不計入「至少兩源」。
 - 沒有對 Safari 實跑過；落地主機區塊以假的 `safari-browser` 測過 bash 與 Python 兩段。
 
+## #693 — `akashic-mcp` wrapper 的下載失敗訊息
+
+`plugin/bin/akashic-mcp-wrapper.sh` 在沒有現成 binary、兩條下載路徑都失敗時印的 ERROR：首版（#693 把「repo 為 private」的敘述拿掉時）寫成「下載走 gh，需先 gh auth login」，但 repo 已公開、`gh` 不可用時 `curl` 退路拿得到，那句把人指錯方向。現在說出兩次嘗試（`gh release download <tag>`，沒有安裝 `gh` 時寫「略過」；再 `curl` 公開的 release 網址，網址印出來）與可能的原因（沒有網路、該版本的 asset 還沒上傳、網路擋住 github.com），並明說不需要 `gh auth login`。下載與安裝的行為沒有改。
+
+同一輪 #693 把 plugin 散文檔（`akashic-bootstrap`、`akashic-disambiguate`、`akashic-import-wos`、`akashic-promote-literals`、`akashic-fetch-fulltext`、`akashic-venue-works` 的 skill 與 references、`plugin/rules/assertions-must-be-measured.md`）裡「本 repo 為 private、無存取權者取不到」的敘述改成實際原因——那些規則檔與原始碼不隨 plugin 出貨、plugin 安裝處讀不到；也把私有下游 repo 的名字與 issue 號改成角色描述。只改敘述，不改任何步驟或判準。
+
+wrapper 下載後不驗完整性（沒有核對 release 流程已產出的 `.sha256`、沒有 `codesign --verify`）是既有的缺口，記為後續，這一次沒有做。
+
 ## #705 — 寫了、但搬移後的 legacy 拷貝沒刪掉的那一筆記在 `writtenWithLegacyCopy`
 
 寫一筆既有的 work 或 person 時，#631 會把舊佈局的 `entries/<citekey>.yaml`／`people/<key>.yaml` 搬進 `entities/`：先寫新檔、再刪舊檔。舊檔刪不掉時新內容已經寫進去了，同一筆記錄留下兩份。先前各工具的說法不一：`akashic_import_zotero` 同時列在成功清單與 `writeFailed`，其他逐筆收容的工具只列在 `writeFailed`，沒有收容的工具整個呼叫以錯誤結束、同一批後面的記錄沒寫。

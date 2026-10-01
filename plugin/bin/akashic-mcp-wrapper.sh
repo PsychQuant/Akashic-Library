@@ -38,9 +38,12 @@ if $NEED_DOWNLOAD; then
     echo "$BINARY_NAME: downloading v${DESIRED_VERSION:-latest} from $REPO..." >&2
     mkdir -p "$INSTALL_DIR"
     TAG="akashic-mcp-v${DESIRED_VERSION}"
+    URL="https://github.com/$REPO/releases/download/$TAG/$ASSET_NAME"
     TMP_DIR="$(mktemp -d)"
     OK=false
+    TRIED_GH=false
     if command -v gh >/dev/null 2>&1; then
+        TRIED_GH=true
         # 指定了版本就只下載那個 tag，**不退回 latest**（#630）：2026-09-24 release 的 asset 還在
         # 上傳時，退回 latest 拿到舊版，卻把指定版本寫進版本檔——從此不再重試，binary 永遠是舊的。
         # 失敗時走下方的既有路徑：沿用現有 binary、版本檔不動，下次啟動重試。
@@ -53,7 +56,6 @@ if $NEED_DOWNLOAD; then
         fi
     fi
     if ! $OK; then
-        URL="https://github.com/$REPO/releases/download/$TAG/$ASSET_NAME"
         curl -sL --max-time 120 -o "$TMP_DIR/$ASSET_NAME" "$URL" 2>/dev/null \
           && file "$TMP_DIR/$ASSET_NAME" 2>/dev/null | grep -q "Mach-O" && OK=true
     fi
@@ -67,7 +69,11 @@ if $NEED_DOWNLOAD; then
         if [[ -x "$BINARY" ]]; then
             echo "$BINARY_NAME: WARNING — download failed, keeping existing binary" >&2
         else
-            echo "$BINARY_NAME: ERROR — download failed（下載走 gh，需先 gh auth login）" >&2
+            # 兩條都試過才會走到這裡：先 gh release download（有裝 gh 才試），再 curl 公開的 release 網址（repo 是公開的，
+            # 兩條都不需要登入）。所以原因不是 gh 沒登入——是沒有網路、該版本的 asset 還沒上傳（#630 的情形），或下載的檔不是 Mach-O。
+            if $TRIED_GH; then GH_TRIED="gh release download ${DESIRED_VERSION:+$TAG }--repo $REPO（失敗）"; else GH_TRIED="gh（沒有安裝，略過）"; fi
+            echo "$BINARY_NAME: ERROR — download failed。已試：$GH_TRIED；再 curl $URL（失敗，或下載的檔不是 Mach-O）。" >&2
+            echo "$BINARY_NAME: 可能原因：沒有網路；$TAG 的 release asset 還沒上傳（release 剛建好時）；網路擋住 github.com。repo 是公開的，不需要 gh auth login。" >&2
             exit 1
         fi
     fi

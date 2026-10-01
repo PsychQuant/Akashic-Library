@@ -67,6 +67,45 @@ final class WrapperDownloadTests: XCTestCase {
                 version.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
+    /// 沒有現成的 binary、兩條下載路徑都失敗：訊息要說出兩次嘗試（gh release download、再 curl 公開網址）、網址、真正可能的原因
+    /// （沒有網路、asset 還沒上傳），而且**不**把原因說成 gh 沒登入——repo 是公開的，兩條都不需要登入（#693 R1 verify 第 15／16／26／27 列：
+    /// 先前寫「下載走 gh，需先 gh auth login」，指錯方向）。
+    private func runWrapperWithoutABinary(withGh: Bool) throws -> (status: Int32, err: String) {
+        try FileManager.default.removeItem(at: root.appendingPathComponent("home/bin/akashic-mcp"))
+        try FileManager.default.removeItem(at: root.appendingPathComponent("home/bin/.akashic-mcp.version"))
+        let stubs = root.appendingPathComponent(withGh ? "stubs" : "stubs-nogh")
+        if !withGh {
+            try FileManager.default.createDirectory(at: stubs, withIntermediateDirectories: true)
+            try FileManager.default.copyItem(at: root.appendingPathComponent("stubs/curl"), to: stubs.appendingPathComponent("curl"))
+        }
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/bash")
+        p.arguments = [root.appendingPathComponent("plugin/bin/akashic-mcp-wrapper.sh").path]
+        p.environment = ["HOME": root.appendingPathComponent("home").path, "PATH": stubs.path + ":/usr/bin:/bin", "STUB_TAG_OK": "0"]
+        let e = Pipe(); p.standardOutput = Pipe(); p.standardError = e
+        p.standardInput = FileHandle.nullDevice
+        try p.run(); p.waitUntilExit()
+        return (p.terminationStatus, String(data: e.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "")
+    }
+
+    func testTheFailureMessageNamesBothAttemptsTheUrlAndTheRealCauses() throws {
+        let r = try runWrapperWithoutABinary(withGh: true)
+        let url = "https://github.com/PsychQuant/Akashic-Library/releases/download/akashic-mcp-v0.12.1/akashic-mcp"
+        XCTAssertEqual(r.status, 1, r.err)
+        XCTAssertTrue(r.err.contains("gh release download akashic-mcp-v0.12.1"), "第一次嘗試：\(r.err)")
+        XCTAssertTrue(r.err.contains("curl \(url)"), "第二次嘗試與網址：\(r.err)")
+        XCTAssertTrue(r.err.contains("沒有網路") && r.err.contains("asset 還沒上傳"), "真正可能的原因：\(r.err)")
+        XCTAssertTrue(r.err.contains("不需要 gh auth login"), "repo 是公開的：\(r.err)")
+        XCTAssertFalse(r.err.contains("需先 gh auth login"), "不得再把原因說成 gh 沒登入：\(r.err)")
+    }
+
+    func testTheFailureMessageSaysWhenGhIsNotInstalled() throws {
+        let r = try runWrapperWithoutABinary(withGh: false)
+        XCTAssertEqual(r.status, 1, r.err)
+        XCTAssertTrue(r.err.contains("gh（沒有安裝，略過）"), r.err)
+        XCTAssertTrue(r.err.contains("curl https://github.com/PsychQuant/Akashic-Library/releases/download/akashic-mcp-v0.12.1/akashic-mcp"), r.err)
+    }
+
     /// 13:51 的情形：指定版本的 tag 下載失敗時，不得退回 latest、不得改版本檔，沿用現有 binary
     func testTaggedDownloadFailureKeepsExistingBinaryAndVersionFile() throws {
         let r = try runWrapper(tagOK: false)

@@ -103,14 +103,25 @@ enum ToolPayloadKeyCheck {
 ///   `nameSegments[]` 與 `displayNameChanged`、`akashic_import_zotero` 的 `doiNominations[]`（#611）、`akashic_person` 的 `person`——各往下恰好一層。表外的巢狀物件與陣列不看（例如
 ///   `update_entry` 的 `sourcesRemoved[]`、`fieldRemovals[]`，`update_venue` 的 `issnRemoved[]`、`referencesRemoved[]`，
 ///   `resolve_*` 各寫入腿的逐筆清單），列入的路徑也不看第二層（`items[].provenanceOmitted` 的值、`person.unknownFields` 的內容）。
-///   巢狀鍵的比對與頂層同一條規則：鍵名出現在該工具說明的任何一處就算數——`displayNameChanged` 的 `before`／`after` 是被
-///   `nameSegments（action／before／after）` 那一處滿足的。
-///   **預算只剩 4 bytes**（`tools/list` 51,996／52,000，2026-09-30）。列入的路徑上有兩個鍵沒有情境產生、也沒有寫進說明：
-///   `items[].partial`（識別碼部分解析）與 `person.unknownFields`（#700 本文點名的那一個）——要守它們得同時加情境與說明，預算不夠，
-///   數字記在 `changelog/2026-09-30-payload-guard-nested-paths.md`。
+///   巢狀鍵的比對與頂層同一條規則（`mentionsIdentifier`，#700 R1 verify 第 8、18 則起：識別字邊界，**且不夾在連續的散文之間**）——鍵名以鍵名的
+///   形式出現在該工具說明的任何一處就算數，不要求寫成 `items[].<鍵>`。`displayNameChanged` 的 `before`／`after` 另以
+///   `displayNameChanged（before／after）` 寫出（第 8 則：先前只由 `nameSegments（action／before／after）` 那一處代為滿足）。
+///   **收緊之後仍有的盲區**：語法區分不了「回應鍵」與「同名的輸入鍵」——`sourcesAdded[].digest`、`items[].citekey`／`sourceDigest`、
+///   `nameSegments[].name`／`reason`、`person.key` 這幾個詞同時是這個工具的輸入（`{name, match?, … reason（必填…）}`、`目標 citekey（…）`），
+///   輸入那一側的提及仍然在鍵名的位置上，拿掉回應那一側的說明守衛仍可能綠。這是裁決 (a) 的固有限制（通用字被別處的同一個字滿足，#672 已記），
+///   不是這條規則能補的；`changelog/2026-10-01-payload-guard-r1-fixes.md` 有逐鍵的量測。
+///   **表外的巢狀鍵不在守衛裡是設計，不是疏漏**（裁決 (a)，#700 R1 verify 第 29 則）：2026-10-01 以本檔的規則量，表外還有 54 條一層路徑、
+///   208 個鍵，其中 94 個沒被說明以鍵名的形式提到（含 4 個以資料為鍵的字典項：`issnMediumRecorded` 的 ISSN、`ambiguousSourceClaims` 的來源鍵；
+///   契約鍵約 90 個）——寫入腿的回應（`resolve_people` 的 `split[]`／`dropped[]`／`unsplit[]`、`update_entry` 的 `zoteroSourceRemovals[]`／
+///   `fieldRemovals[]`、`update_venue` 的 `referencesRemoved[]`、`resolve_venues` 的 `venueEdgesRemoved[]`）、`doctor` 的 `recordIssues{}`
+///   與 `sources{}`，也包括 `akashic_person` 的另外兩個容器 `publications[]`（六個鍵）與 `co_authors[]`。表內 `person` 那一列的理由
+///   （「不往下看等於整筆人物資料沒有守衛」）對它們同樣成立，但每多一列就是一次 `tools/list` 的位元組預算，使用者裁決是預算只花在列入的路徑上。
+///   這個量是在本檔之外（一支用完即丟的傾印）算的，沒有守衛維持它。
 /// - **有才出現、情境沒走到的鍵**：`unknownFields`（`akashic_get_entry`／`akashic_people`／`akashic_venue`）、`provenance_additional`（`akashic_get_entry`）
 ///   已寫進說明，但沒有情境產生它們——說明日後拿掉它們，守衛看不到。
-///   `items[].provenanceNotWritten` 同（要寫入失敗才出現）。
+///   （#700 R1 verify 第 3、26 則關掉的四個：`items[].provenanceNotWritten`、`items[].partial`、`person.unknownFields`、`person.orcid`——
+///   各有情境產生，`testTheKeysTheIssueNamedAreProducedByScenarios` 釘住它們真的被產生；先前寫的「預算只剩 4 bytes」在 03a8e729 把上限調到
+///   54,000 之後不再成立，那四個鍵的說明共約 70 bytes。）
 final class ToolPayloadKeyGuardTests: XCTestCase {
     private static let manifest: Result<[String: ToolManifest.Tool], Error> = Result { try ToolManifest.load() }
 
@@ -269,6 +280,104 @@ final class ToolPayloadKeyGuardTests: XCTestCase {
         XCTAssertTrue(mentionsIdentifier("names", "names"))
         XCTAssertTrue(mentionsIdentifier("（container-title）", "container-title"))
         XCTAssertFalse(mentionsIdentifier("", "names"))
+    }
+
+    /// **夾在連續散文之間的提及不算**（#700 R1 verify 第 8、18 則）：`index` 在 `indexRebuilt 說 index 有沒有重建` 裡說的是 index 的重建，
+    /// 不是 `items[].index` 這個鍵；`citekey` 在 `以 citekey 或 doi 指名` 裡是輸入。兩邊都是字的才不算——任何一邊是標點、括號、反引號或文字的頭尾就算。
+    func testAMentionInsideRunningProseDoesNotCount() {
+        // 不算：兩邊（跳過空白之後）都是字
+        XCTAssertFalse(mentionsIdentifier("indexRebuilt 說 index 有沒有重建", "index"))
+        XCTAssertFalse(mentionsIdentifier("每筆提案以 citekey 或 doi 指名", "citekey"))
+        XCTAssertFalse(mentionsIdentifier("該筆略過並在 skipped 具名", "skipped"))
+        XCTAssertFalse(mentionsIdentifier("被截時 truncated 為 true", "truncated"))
+        XCTAssertFalse(mentionsIdentifier("回新記錄的 id 與 hasJudgement", "id"))
+        // 算：至少一邊是標點、括號、反引號、`＝`、`:`、`.`，或文字（行）的頭尾
+        XCTAssertTrue(mentionsIdentifier("該筆略過並在 skipped（具名）", "skipped"))
+        XCTAssertTrue(mentionsIdentifier("被截時 truncated＝true", "truncated"))
+        XCTAssertTrue(mentionsIdentifier("回新記錄的 id／hasJudgement", "id"))
+        XCTAssertTrue(mentionsIdentifier("逐筆具名在 category；index（提案序）、additions 補了什麼", "index"))
+        XCTAssertTrue(mentionsIdentifier("回 digest；冪等", "digest"))
+        XCTAssertTrue(mentionsIdentifier("indexEntryCreated:false", "indexEntryCreated"))
+        XCTAssertTrue(mentionsIdentifier("（部分解析時原字串留在 fields，該筆帶 partial）", "partial"))
+        XCTAssertTrue(mentionsIdentifier("`key` 直查", "key"))
+        XCTAssertTrue(mentionsIdentifier("names.authorized", "names"))
+        XCTAssertTrue(mentionsIdentifier("說明\ncitekey\n另一個說明", "citekey"), "換行是邊界：參數說明只有一個詞時就是那個詞")
+        XCTAssertFalse(mentionsIdentifier("多個空白   index   之後", "index"), "跳過的是空白，不是字")
+        // 同一個詞出現兩次：只要有一次在鍵名的位置就算
+        XCTAssertTrue(mentionsIdentifier("以 citekey 或 doi 指名；回 citekey／type", "citekey"))
+    }
+
+    /// 只有鍵名形式的那一處被換成散文時守衛要紅，而**舊規則（只看識別字邊界）不會**——這就是收緊的意義。
+    /// 從真的說明裡取 `akashic_enrich` 的 `index（提案序）`，換成 `以 index 是提案序`。
+    func testGuardGoesRedWhenTheOnlyMentionBecomesRunningProse() throws {
+        let manifest = try loadManifest()
+        let observed = PayloadObservations.shared
+        let tool = "akashic_enrich", key = "index", path = NestedPayloadPath.array("items")
+        let real = try XCTUnwrap(manifest[tool])
+        XCTAssertTrue(observed.nestedKeysByTool[tool]?[path]?.contains(key) == true, "前提：items[] 有 \(key)")
+        let anchor = "index（提案序）"
+        XCTAssertTrue(real.text.contains(anchor), "前提：說明用鍵名的形式寫了 \(key)")
+        let clean = ToolPayloadKeyCheck.undescribedNested(observed: observed.nestedKeysByTool, manifest: manifest,
+                                                          exemptions: ToolPayloadKeyExemptions.keys)
+        XCTAssertNil(clean[tool]?.first { $0 == "items[].index" }, "前提：未改動時不報")
+
+        var broken = manifest
+        broken[tool] = ToolManifest.Tool(name: tool, text: real.text.replacingOccurrences(of: anchor, with: "以 index 是提案序"),
+                                         parameterText: real.parameterText)
+        // 舊規則：識別字邊界就算——散文裡的 `index` 與 `indexRebuilt 說 index 有沒有重建` 那一處都滿足它
+        func looselyMentions(_ text: String, _ key: String) -> Bool {
+            var search = text.startIndex..<text.endIndex
+            while let r = text.range(of: key, options: .literal, range: search) {
+                func isIdent(_ c: Character) -> Bool { c == "_" || (c.isASCII && (c.isLetter || c.isNumber)) }
+                let before = r.lowerBound == text.startIndex ? nil : text[text.index(before: r.lowerBound)]
+                let after = r.upperBound == text.endIndex ? nil : text[r.upperBound]
+                if !(before.map(isIdent) ?? false) && !(after.map(isIdent) ?? false) { return true }
+                search = r.upperBound..<text.endIndex
+            }
+            return false
+        }
+        XCTAssertTrue(looselyMentions(try XCTUnwrap(broken[tool]).searchable, key), "舊規則看不出差別")
+        let gaps = ToolPayloadKeyCheck.undescribedNested(observed: observed.nestedKeysByTool, manifest: broken,
+                                                         exemptions: ToolPayloadKeyExemptions.keys)
+        XCTAssertEqual(gaps[tool], ["items[].index"], "新規則必須報出它：\(gaps[tool] ?? [])")
+    }
+
+    /// #700 點名、R1 verify 發現先前**沒有情境產生**的四個鍵（說明拿掉它們，守衛照綠）：每一個都要真的被產生。這是一張**點名的清單**，不是
+    /// 「情境產生的鍵都算」——少一個情境（或情境退成不產生它）就紅。預算理由（「只剩 4 bytes」）在 03a8e729 之後已不成立。
+    static let namedKeys: [(tool: String, path: NestedPayloadPath, key: String, how: String)] = [
+        ("akashic_enrich", .array("items"), "provenanceNotWritten", "實跑、來源齊備、那一筆的目的檔寫不進去（immutable）"),
+        ("akashic_enrich", .array("items"), "partial", "多值 isbn 欄位：一個解得出、一個解不出"),
+        ("akashic_person", .object("person"), "unknownFields", "帶較新 schema 欄位的 person"),
+        ("akashic_person", .object("person"), "orcid", "有 ORCID 的 person"),
+    ]
+
+    func testTheKeysTheIssueNamedAreProducedByScenarios() throws {
+        let observed = PayloadObservations.shared
+        for n in Self.namedKeys {
+            XCTAssertTrue(observed.nestedKeysByTool[n.tool]?[n.path]?.contains(n.key) == true,
+                          "\(n.tool) \(n.path).\(n.key) 沒有任何情境產生（\(n.how)）——守衛守不到它")
+        }
+        XCTAssertTrue(observed.keysByTool["akashic_enrich"]?.contains("writeFailed") == true, "寫入失敗的情境也要帶出頂層的 writeFailed")
+    }
+
+    /// 四個點名的鍵：說明拿掉任何一個，巢狀的判定都要報出它（負控）。
+    func testGuardGoesRedWhenANamedKeyIsDroppedFromTheDescription() throws {
+        let manifest = try loadManifest()
+        let observed = PayloadObservations.shared
+        let clean = ToolPayloadKeyCheck.undescribedNested(observed: observed.nestedKeysByTool, manifest: manifest,
+                                                          exemptions: ToolPayloadKeyExemptions.keys)
+        XCTAssertNil(clean["akashic_enrich"], "前提：未改動時不報：\(clean["akashic_enrich"] ?? [])")
+        XCTAssertNil(clean["akashic_person"], "前提：未改動時不報：\(clean["akashic_person"] ?? [])")
+        for n in Self.namedKeys {
+            let real = try XCTUnwrap(manifest[n.tool])
+            XCTAssertTrue(mentionsIdentifier(real.searchable, n.key), "前提：說明提到 \(n.key)")
+            var broken = manifest
+            broken[n.tool] = ToolManifest.Tool(name: n.tool, text: real.text.replacingOccurrences(of: n.key, with: "XXXXX"),
+                                               parameterText: real.parameterText.replacingOccurrences(of: n.key, with: "XXXXX"))
+            let gaps = ToolPayloadKeyCheck.undescribedNested(observed: observed.nestedKeysByTool, manifest: broken,
+                                                             exemptions: ToolPayloadKeyExemptions.keys)
+            XCTAssertEqual(gaps[n.tool], [n.path.qualified(n.key)], "說明拿掉 \(n.key) 之後必須報出它")
+        }
     }
 
     /// 豁免表本身不得有空鍵、空理由（結構上逐鍵具名）。

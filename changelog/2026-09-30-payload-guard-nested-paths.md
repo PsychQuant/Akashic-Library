@@ -31,19 +31,21 @@
 ## 第一次跑抓到的
 
 - **`akashic_update_entry` 的 `remove_zotero_sources`（#680）沒有情境。** 補上乾跑情境之後，它回應的 `zoteroSourcesRemaining`／`zoteroSourcesRemainingTotal` 不在說明裡——寫進說明；`reimportNote` 是給人讀的一句話（結構化的是各筆的 `reimportEffect`），以 advisory 豁免。
-- **巢狀鍵沒有說明的**：`items[]` 的 `category`／`additions`／`alreadyPresent`／`refused`，`person` 的 `names`／`affiliations`／`verdicts`，`sourcesAdded[]` 的 `origin`／`retrieved`／`mediaType`／`acquisition`／`note`，`nameSegments[]` 的 `action`／`before`／`after`——寫進說明（只寫鍵名加一句意思）。`items[].reason` 是說明這筆為什麼落在它的 category 的一句話，呼叫端依 `category` 分支，以 advisory 豁免。`displayNameChanged` 的 `before`／`after` 由 `nameSegments（action／before／after）` 那一處滿足，沒有另寫（見〈預算〉）。
+- **巢狀鍵沒有說明的**：`items[]` 的 `category`／`additions`／`alreadyPresent`／`refused`，`person` 的 `names`／`affiliations`／`verdicts`，`sourcesAdded[]` 的 `origin`／`retrieved`／`mediaType`／`acquisition`／`note`，`nameSegments[]` 的 `action`／`before`／`after`——寫進說明（只寫鍵名加一句意思）。`items[].reason` 是說明這筆為什麼落在它的 category 的一句話，呼叫端依 `category` 分支，以 advisory 豁免。~~`displayNameChanged` 的 `before`／`after` 由 `nameSegments（action／before／after）` 那一處滿足，沒有另寫（見〈預算〉）。~~（R1 verify 第 8 則：預算理由已不成立，另寫成 `displayNameChanged（before／after）`；見 `2026-10-01-payload-guard-r1-fixes.md`。）
 - 幾個情境順手改成真的傳它宣告的參數：`akashic_link` 帶 `remove`、`akashic_create_entry` 帶 `isbn`、`akashic_store_source` 帶 `note`、`akashic_libraries` 的 create 帶 `description`、`akashic_add_person` 帶 `openalex`、`akashic_update_venue` 的 add_names 帶 `type`。
 
 ## 預算
 
-`tools/list` 從 **51,710** 到 **51,996 bytes**（+286；上限 `StdioE2ETests.toolsListByteBudget` 52,000，**剩 4 bytes**）。為了放進去，`displayNameChanged` 後面原本要寫的「（before／after）」（20 bytes）拿掉了。預算沒有調高（那是使用者的裁決）。
+~~`tools/list` 從 **51,710** 到 **51,996 bytes**（+286；上限 `StdioE2ETests.toolsListByteBudget` 52,000，**剩 4 bytes**）。為了放進去，`displayNameChanged` 後面原本要寫的「（before／after）」（20 bytes）拿掉了。預算沒有調高（那是使用者的裁決）。~~
 
-列入的路徑上還有兩個鍵**沒有情境產生、也沒有寫進說明**，守不到：
+~~列入的路徑上還有兩個鍵**沒有情境產生、也沒有寫進說明**，守不到：~~
 
-- `person.unknownFields`（#700 本文點名的那一個）：最短的寫法「／unknownFields」要 16 bytes，超過剩下的 4。
-- `items[].partial`（識別碼部分解析，只發生在 isbn 這類多值欄位）：最短的寫法「、partial 部分解析的值」要 29 bytes。
+- ~~`person.unknownFields`（#700 本文點名的那一個）：最短的寫法「／unknownFields」要 16 bytes，超過剩下的 4。~~
+- ~~`items[].partial`（識別碼部分解析，只發生在 isbn 這類多值欄位）：最短的寫法「、partial 部分解析的值」要 29 bytes。~~
 
-要守它們，得先從別處省出位元組，或回 #578 重新裁決預算。
+~~要守它們，得先從別處省出位元組，或回 #578 重新裁決預算。~~
+
+（R1 verify 第 3、7、19 則：上面整段是 2026-09-30 的狀態。03a8e729 把上限調到 54,000 之後「剩 4 bytes」不成立，`person.unknownFields`、`items[].partial` 與另外兩個鍵（`person.orcid`、`items[].provenanceNotWritten`）都補了情境與說明；見 `2026-10-01-payload-guard-r1-fixes.md`。保留上面的原文是因為只留結論，下一個人會以為「預算不夠」這個理由從來沒有存在過。）
 
 ## 負控
 
@@ -63,3 +65,12 @@
 - **巢狀鍵的比對是整份說明的任何一處。** 通用字（`key`、`names`、`index`、`note`）會被別處的同一個字滿足——#672 已記的固有限制，對巢狀一樣。
 - **`file add` 在 MCP 面沒有對應的 action**，而 `mcp-cli-parity` 的 `akashic_files` 列把整個 `file` 家族記成 ✅。這一格寫在 `ToolPayloadLegs.commands` 的理由裡，沒有改 parity 表。
 - 兩個新守衛不是零實例守衛（`zero-instance-guards` 不加列）：第一次跑就各有實例（`remove_zotero_sources` 沒有情境、18 個巢狀鍵沒有說明，其中 1 個改以 advisory 豁免）。
+
+## R1 verify 之後（2026-10-01）
+
+R1 verify 的 #700 部分：MEDIUM 1、LOW 若干。細節、量測與負對照在 `changelog/2026-10-01-payload-guard-r1-fixes.md`；這裡只列上面被推翻的句子：
+
+- **「預算只剩 4 bytes」與兩個守不到的鍵**（第 3、7、19 則）：已劃掉。`person.unknownFields`、`person.orcid`、`items[].partial`、`items[].provenanceNotWritten` 都有情境產生、說明也寫了；`testTheKeysTheIssueNamedAreProducedByScenarios` 釘住它們真的被產生。
+- **「巢狀鍵的比對是整份說明的任何一處」**（第 8、18 則）：收緊成「識別字邊界，且不夾在連續的散文之間」，頂層與巢狀同一條規則。
+- **`file add` 只記在測試註解**（第 9 則）：`mcp-cli-parity` 的 CLI-only 表補了 `file add`／`file remove` 一列。
+- **表外的巢狀鍵**（第 29 則）：誠實邊界補上量測（54 條路徑、208 個鍵、94 個沒被說明以鍵名的形式提到）。

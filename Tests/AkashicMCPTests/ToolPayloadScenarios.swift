@@ -69,6 +69,14 @@ enum ToolPayloadScenarios {
         PayloadScenario("akashic_files", "list", params: ["action=list"]) { try $0.service.files(action: "list", key: nil) },
         PayloadScenario("akashic_person", "key", params: ["key"]) { try $0.service.person(key: "cheng-che", name: nil, library: nil) },
         PayloadScenario("akashic_person", "name", params: ["name"]) { try $0.service.person(key: nil, name: "Desc", library: nil) },
+        // #700 R1 verify 第 3、26 則：`person.orcid`（有 ORCID 才出現）與 `person.unknownFields`（帶較新 schema 欄位才出現）先前沒有情境產生，
+        // 說明拿掉它們守衛照綠。`cheng-che` 兩個都沒有，所以另建一個帶 ORCID 與未知欄位的人。
+        PayloadScenario("akashic_person", "key with orcid and unknown fields", params: ["key"]) {
+            try $0.store.writePerson(Person(key: "orcid-unknown", names: ["Orcid Unknown"],
+                                            orcid: try XCTUnwrap(ORCID("0000-0002-1825-0097")),
+                                            unknownFields: [UnknownField(key: "future-field", raw: "future-field: 1\n")]))
+            return try $0.service.person(key: "orcid-unknown", name: nil, library: nil)
+        },
         PayloadScenario("akashic_venue", "key", params: ["key"]) { try $0.service.venue(key: "psychometrika") },
         PayloadScenario("akashic_venues", "all") { try $0.service.venues() },
         PayloadScenario("akashic_divergences", "all") { try $0.service.listDivergences() },
@@ -136,7 +144,6 @@ enum ToolPayloadScenarios {
         },
         // #700：items[] 的各個鍵要有情境產生才守得到——來源齊備（provenancePlanned）、值補了而 reference 刻意不寫
         // （provenanceOmitted：authors 一律）、來源只給 digest（provenanceSkipped）、ISSN 一律拒（refused）。
-        // 識別碼部分解析（partial，只發生在 isbn 這類多值欄位）刻意沒有走：說明沒有寫它，而預算只剩 4 bytes（見 ToolPayloadKeyGuardTests 檔頭）
         PayloadScenario("akashic_enrich", "dry_run provenance states", params: ["proposals", "dry_run", "include_absent_authors"]) {
             let digest = try $0.storeDigest()
             try $0.store.writeEntry(Entry(id: UUID(), citekey: "noauth2020", type: .periodicalArticle, title: "No byline yet"))
@@ -147,6 +154,25 @@ enum ToolPayloadScenarios {
                                   sourceURL: "https://example.org/y", sourceRetrieved: "2026-09-30", sourceStatus: 200),
                             .init(citekey: "olsson1979maximum", fields: ["issn": "0033-3123"], sourceDigest: digest)],
                 dryRun: true, includeAbsentAuthors: true, itemLimit: 20)
+        },
+        // #700 R1 verify 第 3 則：`items[].provenanceNotWritten`（實跑、來源齊備、那一筆寫入失敗）與 `items[].partial`（識別碼部分解析）
+        // 先前沒有情境產生，說明拿掉它們守衛照綠。寫入失敗用既有的做法（`EnrichServiceTests`）：把目的檔設成 immutable——rename 過去會被拒，
+        // 那一筆進 writeFailed、reference 沒寫進去；情境結束前還原旗標，世界的暫存目錄才刪得掉。
+        PayloadScenario("akashic_enrich", "apply with a write failure", params: ["proposals", "dry_run"]) {
+            let digest = try $0.storeDigest()
+            let target = try XCTUnwrap(try $0.store.load().entries.first { $0.citekey == "desc2021" })
+            let url = $0.store.entityURL(id: target.id)
+            try FileManager.default.setAttributes([.immutable: true], ofItemAtPath: url.path)
+            defer { try? FileManager.default.setAttributes([.immutable: false], ofItemAtPath: url.path) }
+            return try $0.service.enrich(
+                proposals: [.init(citekey: "desc2021", fields: ["abstract": "寫不進去的摘要"], sourceDigest: digest,
+                                  sourceURL: "https://example.org/z", sourceRetrieved: "2026-10-01", sourceStatus: 200)],
+                dryRun: false, includeAbsentAuthors: false, itemLimit: 20)
+        },
+        // 多值的 isbn 欄位：一個解得出、一個解不出 → 值進結構化欄位、原字串一併留在 fields，該筆帶 partial
+        PayloadScenario("akashic_enrich", "dry_run partial identifier", params: ["proposals", "dry_run"]) {
+            try $0.service.enrich(proposals: [.init(citekey: "desc2021", fields: ["isbn": "9780306406157 not-an-isbn"])],
+                                  dryRun: true, includeAbsentAuthors: false, itemLimit: 20)
         },
     ]
 

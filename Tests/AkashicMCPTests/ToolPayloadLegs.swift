@@ -27,8 +27,8 @@ enum ToolPayloadLegs {
         "library add": .tool("akashic_libraries", parameter: "action=add"),
         "library remove": .tool("akashic_libraries", parameter: "action=remove"),
         "library set-kind": .tool("akashic_libraries", parameter: "action=set-kind"),
-        "file add": .cliOnly("MCP 的 akashic_files 只收 list／use（use 只切換 session、不寫 config）；註冊新 store 在 MCP 面沒有對應的 action。"
-                             + "mcp-cli-parity 的 akashic_files 列把整個 file 家族記成 ✅、沒有逐 action 裁決，這一格記下這個落差"),
+        "file add": .cliOnly("mcp-cli-parity CLI-only 表的 `file add`／`file remove` 列（#700 R1 verify 第 9 則補）：註冊與除名 store 是改 registry——部署層的名冊，"
+                             + "與 `--config` 同一個理由；MCP 的 akashic_files 只收 list／use（use 只在名冊內切換 session、不改名冊）"),
         "migrate": .cliOnly("mcp-cli-parity CLI-only 表：格式遷移＝維運例外"),
         "migrate-provenance": .cliOnly("mcp-cli-parity CLI-only 表：格式遷移＝維運例外"),
         "migrate-person-identity": .cliOnly("mcp-cli-parity CLI-only 表：格式遷移＝維運例外，不可逆、要求工作樹乾淨的人工 pre-flight"),

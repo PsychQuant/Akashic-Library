@@ -15,7 +15,7 @@ import XCTest
 ///    回應 JSON 的頂層鍵（物件）或元素鍵（陣列）取聯集。**巢狀的鍵只看封閉表 `ToolPayloadNestedPaths` 列出的路徑**
 ///    （#700），各往下恰好一層；表外的巢狀物件與陣列不看。
 ///    每條腿有情境這件事由 `ToolPayloadLegTests` 守（#700）：MCP 工具的每個參數、CLI 裁決表的每條寫入腿。
-/// 3. 每個鍵必須以**識別字邊界**出現在該工具的說明文字裡——子字串比對會讓 `key`、`total` 這類短鍵被別的字滿足。
+/// 3. 每個鍵必須以**鍵名的形式**出現在該工具的說明文字裡（`mentionsIdentifier`：識別字邊界，且不夾在連續的散文之間，#700 R1 verify）——子字串比對會讓 `key`、`total` 這類短鍵被別的字滿足。
 /// 4. 刻意不寫進說明的鍵，在 `ToolPayloadKeyExemptions` 逐一具名並寫理由；豁免本身也有守衛（豁免的鍵必須真的出現在
 ///    payload、且真的沒被說明提到，否則紅——不留下過期的豁免）。
 ///
@@ -120,16 +120,48 @@ struct ToolManifest {
     }
 }
 
-/// 鍵是否以**識別字**出現在文字裡：前後都不能是 ASCII 字母、數字、底線。
-/// 子字串比對會讓 `key` 被 `keys`、`total` 被 `itemsTotal`、`id` 被 `provided` 滿足——而那正是這個守衛要擋的失敗。
+/// 鍵是否以**鍵名的形式**出現在文字裡（#672 起識別字邊界；#700 R1 verify 第 8、18 則收緊成兩條，頂層與巢狀鍵用同一條）：
+///
+/// 1. **識別字邊界**：前後都不能是 ASCII 字母、數字、底線。子字串比對會讓 `key` 被 `keys`、`total` 被 `itemsTotal`、`id` 被 `provided`
+///    滿足——那正是這個守衛要擋的失敗。
+/// 2. **不夾在連續的散文之間**：跳過空白之後，左右**至少有一邊**是標點、括號、反引號或文字（行）的頭尾。`（origin／retrieved／…）`、
+///    `回報 issnAdded、issnDropped`、`truncated＝true`、`` `key` `` 算鍵名的形式；`indexRebuilt 說 index 有沒有重建`、`以 citekey 或 doi 指名`
+///    的 `index`／`citekey` 兩邊都是字——那是散文裡提到同一個詞，不是在說回應有這個鍵。先前（只有第 1 條）一個鍵被無關的散文提到就算有說明，
+///    拿掉真正要說的那一句守衛照綠。
+///
+/// **這條規則區分不了「回應鍵」與「同名的輸入鍵」**：`{name, match?, … reason（必填…）}` 是輸入的形狀，`name`、`reason` 仍然在鍵名的位置上。
+/// 那是語法做不到的區分（同一個詞兩個方向），寫在 `ToolPayloadKeyGuardTests` 的誠實邊界裡，不假裝它被這一條規則擋住。
 func mentionsIdentifier(_ text: String, _ key: String) -> Bool {
     guard !key.isEmpty else { return false }
     func isIdent(_ c: Character) -> Bool { c == "_" || (c.isASCII && (c.isLetter || c.isNumber)) }
+    /// 標點、括號、反引號，或文字（行）的頭尾：不是空白、不是任何書寫系統的字母或數字。
+    func isBoundary(_ c: Character?) -> Bool {
+        guard let c else { return true }
+        if c == "\n" { return true }
+        return !(c.isWhitespace || c.isLetter || c.isNumber || c == "_")
+    }
     var search = text.startIndex..<text.endIndex
     while let r = text.range(of: key, options: .literal, range: search) {
         let before = r.lowerBound == text.startIndex ? nil : text[text.index(before: r.lowerBound)]
         let after = r.upperBound == text.endIndex ? nil : text[r.upperBound]
-        if !(before.map(isIdent) ?? false) && !(after.map(isIdent) ?? false) { return true }
+        if !(before.map(isIdent) ?? false) && !(after.map(isIdent) ?? false) {
+            var left: Character?
+            var l = r.lowerBound
+            while l > text.startIndex {
+                l = text.index(before: l)
+                if text[l] == " " { continue }
+                left = text[l]
+                break
+            }
+            var right: Character?
+            var m = r.upperBound
+            while m < text.endIndex {
+                if text[m] == " " { m = text.index(after: m); continue }
+                right = text[m]
+                break
+            }
+            if isBoundary(left) || isBoundary(right) { return true }
+        }
         search = r.upperBound..<text.endIndex
     }
     return false

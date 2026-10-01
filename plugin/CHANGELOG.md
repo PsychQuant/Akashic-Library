@@ -164,6 +164,10 @@ plugin 的 wrapper 會自動下載新版 `akashic-mcp`，skill 文字可能比 b
 - 存檔進行中收到 `SIGTERM`／`SIGINT`／`SIGHUP` 會先刪掉進行中的暫存檔再結束。
 - `store-source` 碰到不支援排他改名與 hard link 的檔案系統（exFAT、FAT32），第三條路從「確認後一般改名」改成排他建立目的檔再複製，不會覆寫同一時間別人放進來的檔。
 
+## #700 — `tools/list` 的說明補了幾個回應鍵
+
+只改說明文字，回應本身沒有變。`akashic_person` 的說明補 `orcid`、`unknownFields`（有才出現）；`akashic_enrich` 補 `partial`（識別碼部分解析時該筆帶它）、`index`、`citekey`；`akashic_update_venue` 的 `displayNameChanged` 補 `（before／after）`；`akashic_store_source` 補 `digest`；`akashic_doctor`、`akashic_record_divergence` 與三個 `akashic_resolve_*` 把幾個鍵名改寫成標點或括號相鄰的形式（`truncated＝true`、`skipped（具名）`）。`tools/list` 約多 134 bytes（51,997 → 52,381 是 #703 的部分，→ 52,515 是這一張）。
+
 ## #704 — `akashic_import_zotero` 的 `residualFields` 說明改成「這次讀到的條目」
 
 計數與鍵名不變。說明先前寫「未映射欄位→次數」，CLI 則寫「已以原名入庫」；計數其實是這次讀到的每一個 Zotero 條目（含沒變動、略過、寫入失敗的），所以寫入失敗的那一筆並沒有入庫。說明與 CLI 訊息改成「這次讀到的條目中未映射的欄位」（使用者 2026-09-30 裁決 (a)）。

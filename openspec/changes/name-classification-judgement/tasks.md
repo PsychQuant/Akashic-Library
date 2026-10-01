@@ -19,6 +19,6 @@
 
 ## 4. 負控、規則、文件與收尾
 
-- [ ] 4.1 負控：每個行為一個 mutant（不寫記錄、不要求理由、附著不錨定 names、寫入閘放行、合併不拒、合併一律搬、remove-reference 放行），各自讓對應測試變紅，反向編輯還原並以 `cmp` 確認位元組相同。驗證：changelog 的負控表
-- [ ] 4.2 規則與文件：`two-kinds-of-edits` 五個面的列改寫（記錄自此保留，舊的「待 #564」改成日期註記）、`mcp-cli-parity` 的 `akashic_update_venue`／`akashic_update_organization`／`authorize-names` 列、`zero-instance-guards` 加一列（合併拒絕與寫入閘，live store 0 筆記錄）並補「各列共通的東西」；docs/store-format.md 記錄文法、format 22 與部署順序；新增 `changelog/2026-10-01-name-classification-judgement.md` 與 plugin/CHANGELOG.md 條目。驗證：`bash .githooks/run-guards.sh` rc=0
-- [ ] 4.3 全套 `swift test --build-system native` 零失敗、`swift build --build-system native -Xswiftc -warnings-as-errors` 通過。驗證：log 的 `Executed N tests … 0 failures`
+- [x] 4.1 負控：每個行為一個 mutant（不寫記錄、不要求理由、附著不錨定 names、寫入閘放行、合併不拒、合併一律搬、remove-reference 放行），各自讓對應測試變紅，反向編輯還原並以 `cmp` 確認位元組相同。驗證：changelog 的負控表
+- [x] 4.2 規則與文件：`two-kinds-of-edits` 五個面的列改寫（記錄自此保留，舊的「待 #564」改成日期註記）、`mcp-cli-parity` 的 `akashic_update_venue`／`akashic_update_organization`／`authorize-names` 列、`zero-instance-guards` 加一列（合併拒絕與寫入閘，live store 0 筆記錄）並補「各列共通的東西」；docs/store-format.md 記錄文法、format 22 與部署順序；新增 `changelog/2026-10-01-name-classification-judgement.md` 與 plugin/CHANGELOG.md 條目。驗證：`bash .githooks/run-guards.sh` rc=0
+- [x] 4.3 全套 `swift test --build-system native` 零失敗、`swift build --build-system native -Xswiftc -warnings-as-errors` 通過。驗證：log 的 `Executed N tests … 0 failures`

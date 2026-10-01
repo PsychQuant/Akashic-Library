@@ -343,7 +343,8 @@ final class NameClassificationJudgementTests: XCTestCase {
         XCTAssertThrowsError(try service.committed(root).updateVenue(
             key: "some-journal", addNames: nil, note: nil, type: nil,
             editNameSegment: [["name": "Psychometrika", "remove": true, "reason": "拼錯"]])) { e in
-            XCTAssertTrue("\(e)".contains("判定記錄"), "\(e)")
+            // 這一句是編輯面自己的拒絕（指路「判定史不刪」）；store 邊界的附著驗證也會擋（孤兒記錄），但它的訊息不說這句
+            XCTAssertTrue("\(e)".contains("判定史不刪"), "\(e)")
         }
         XCTAssertEqual(Set(try venue().names.entries.map(\.value)), ["PSYCHOMETRIKA", "Psychometrika"])
     }
@@ -356,6 +357,6 @@ final class NameClassificationJudgementTests: XCTestCase {
                                                       reason: "r", restsOn: [])]
         let plan = try XCTUnwrap(VenueNameRepair.plan(v))
         XCTAssertNil(plan.repaired, "有判斷項就不寫")
-        XCTAssertTrue(plan.judgments.contains { "\($0.reason)".contains("reference") }, "\(plan.judgments)")
+        XCTAssertTrue(plan.judgments.contains { "\($0.reason)".contains("指著這個拼法") }, "要說是被記錄指著而交給人判斷：\(plan.judgments)")
     }
 }

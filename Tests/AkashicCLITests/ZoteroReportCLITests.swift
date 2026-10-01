@@ -135,6 +135,25 @@ final class ZoteroReportCLITests: XCTestCase {
         XCTAssertFalse(r.output.contains("⊕ "), r.output)
     }
 
+    /// #611 R1 verify 第 9 列：沒記下來的提名（這裡是共用 DOI 的 work 超過門檻）重新匯入不會再提名——CLI 印出摘要行、指路手記，並以非零結束。
+    /// 匯入本身照建（`created: 1`）。記下來的提名（上一支）仍是 0。
+    func testImportExitsNonZeroAndSaysSoWhenANominationWasNotRecorded() throws {
+        let doi = "10.1017/psy.2025.1"
+        try addDOIToTheZoteroArticle(doi)
+        for n in 1...10 { try writeWork(String(format: "wos2025n%02d", n), doi: doi) }   // 加上這一趟新建的 ＝ 11 > 門檻 10
+        let r = try cli(["import-zotero", "--zotero-db", zoteroDB.path])
+        XCTAssertEqual(r.status, 1, r.output)
+        XCTAssertTrue(r.output.contains("created: 1"), "照建：\(r.output)")
+        XCTAssertTrue(r.output.contains("新建的條目與另一筆 work 共用 DOI（#611）: 0 對、1 個 DOI 的群組過大"), r.output)
+        let line = try XCTUnwrap(r.output.split(separator: "\n").first { $0.contains("被 11 筆 work 共用") }, r.output)
+        XCTAssertTrue(line.contains(doi) && line.contains("一對都沒記") && line.contains("超過 10 筆的門檻"), String(line))
+        XCTAssertTrue(r.output.contains("有 1 列提名沒有記下來") && r.output.contains("重新匯入不會再提名")
+                      && r.output.contains("record-divergence") && r.output.contains("以非零結束"), r.output)
+        XCTAssertFalse(r.output.contains("⊕ "), "一對都沒記：\(r.output)")
+        let d = try cli(["divergences"])
+        XCTAssertFalse(d.output.contains(doi), "store 裡沒有提名：\(d.output)")
+    }
+
     /// 沒有歧義時不印那一段。
     func testImportPrintsNothingWhenThereIsNoAmbiguity() throws {
         let r = try cli(["import-zotero", "--zotero-db", zoteroDB.path])

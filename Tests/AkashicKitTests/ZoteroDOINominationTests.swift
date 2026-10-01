@@ -14,6 +14,8 @@ final class ZoteroDOINominationTests: XCTestCase {
     var fixture: ZoteroFixture!
     /// `ZoteroFixture.seedStandard` 裡那篇 article（KEYART01，library 1）的 DOI。
     let doi = "10.1017/psy.2025.1"
+    /// 門檻寫成字面值、不引用常數：測試若引用 `DOINomination.maxGroupSize`，把常數改大時固定的群組大小跟著變大，變異就存活（負控 M3 實測）。
+    let threshold = 10
 
     override func setUpWithError() throws {
         dir = FileManager.default.temporaryDirectory
@@ -116,19 +118,110 @@ final class ZoteroDOINominationTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: store.entityURL(id: d.id)), bytes, "既有的記錄不重寫")
     }
 
-    /// 更大的一組已經涵蓋這一對時同樣算已記錄；更小的一組不存在（一對已是最小的候選組）。同一組優先於更大的一組；別的形狀不算。
+    /// 更大的一組已經涵蓋這一對時同樣算已記錄；更小的一組不存在（一對已是最小的候選組）。同一組優先於更大的一組；別的形狀不算——
+    /// **包括同一個 id 的那一筆**：歧異記錄的 id 只雜湊候選 key、不含形狀，person 的 `{a, b}` 與 work 的 `{a, b}` 同 id
+    /// （#611 R1 verify 第 1／21 列：先前「同一組」那個分支只比 id，把別種形狀的記錄當成已涵蓋這一對 work）。
     func testCoveringRecordPrefersTheExactPairThenASuperset() {
         func record(_ keys: [String], _ shape: EntityKind = .work) -> Divergence {
             Divergence(id: DeterministicUUID.forDivergence(candidateKeys: keys), question: "q",
                        candidates: keys.map { DivergenceCandidate(key: $0, shape: shape) })
         }
+        func covering(_ pair: [String], _ records: [Divergence]) -> UUID? { WorkDivergenceIndex(records).covering(pair)?.id }
         let superset = record(["a", "b", "c"])
         let exact = record(["a", "b"])
         let person = record(["a", "b", "d"], .person)
-        XCTAssertEqual(DOITwinNomination.coveringRecord(["a", "b"], in: [superset])?.id, superset.id)
-        XCTAssertEqual(DOITwinNomination.coveringRecord(["a", "b"], in: [superset, exact])?.id, exact.id)
-        XCTAssertNil(DOITwinNomination.coveringRecord(["a", "b"], in: [person]), "別的形狀不涵蓋 work 的一對")
-        XCTAssertNil(DOITwinNomination.coveringRecord(["a", "b"], in: [record(["a", "c"])]))
+        let samePairPerson = record(["a", "b"], .person)
+        XCTAssertEqual(covering(["a", "b"], [superset]), superset.id)
+        XCTAssertEqual(covering(["a", "b"], [superset, exact]), exact.id)
+        XCTAssertNil(covering(["a", "b"], [person]), "別的形狀不涵蓋 work 的一對")
+        XCTAssertNil(covering(["a", "b"], [samePairPerson]), "同一個 id、別的形狀：不是已涵蓋（第 1／21 列）")
+        XCTAssertNil(covering(["a", "b"], [samePairPerson, person]))
+        XCTAssertEqual(covering(["a", "b"], [samePairPerson, superset]), superset.id, "id 被別種形狀占用，但更大的一組 work 記錄仍涵蓋這一對")
+        XCTAssertNil(covering(["a", "b"], [record(["a", "c"])]))
+        XCTAssertEqual(covering(["b", "a"], [exact]), exact.id, "這一對的順序不影響")
+        // 多筆更大的一組：依 id 排序取第一筆，不隨載入順序變
+        let other = record(["a", "b", "e"])
+        let first = [superset, other].min { $0.id.uuidString < $1.id.uuidString }!
+        XCTAssertEqual(covering(["a", "b"], [superset, other]), first.id)
+        XCTAssertEqual(covering(["a", "b"], [other, superset]), first.id)
+    }
+
+    /// 索引隨寫隨加：同一趟稍後的一對要看得到前面寫的。
+    func testIndexSeesRecordsAddedLater() {
+        var index = WorkDivergenceIndex([])
+        XCTAssertNil(index.covering(["a", "b"]))
+        let d = Divergence(id: DeterministicUUID.forDivergence(candidateKeys: ["a", "b", "c"]), question: "q",
+                           candidates: ["a", "b", "c"].map { DivergenceCandidate(key: $0, shape: .work) })
+        index.add(d)
+        XCTAssertEqual(index.covering(["a", "b"])?.id, d.id)
+        XCTAssertEqual(index.covering(["b", "c"])?.id, d.id)
+        XCTAssertNil(index.covering(["a", "z"]))
+    }
+
+    /// 同一個 id 已被別種形狀的歧異記錄占用（person 的 `{a, b}` 與 work 的 `{a, b}` 同 id）：這一對**不算已涵蓋**，記錄路徑拒絕覆寫——
+    /// 報 `failed`、原因說出形狀，原記錄一個位元組都不動（#611 R1 verify 第 1／21 列）。
+    func testAnIdOccupiedByAnotherShapeIsFailedNotCoveredAndNotOverwritten() throws {
+        _ = try runImport()
+        let article = try entry(zoteroKey: "KEYART01")
+        try addItem(31, key: "KEYGRP01", title: "Group copy", doi: doi)
+        _ = try runImport(at: 1_753_100_000)
+        let group = try entry(zoteroKey: "KEYGRP01")
+        let work = try onlyDivergence()
+        // 把那筆 work 記錄換成同一個 id、別種形狀（person）的記錄；刪掉新建的那一筆，讓下一趟以同一個 citekey 重建
+        let occupant = Divergence(id: work.id, question: "人的提問",
+                                  candidates: [article.citekey, group.citekey].map { DivergenceCandidate(key: $0, shape: .person) })
+        _ = try store.writeDivergence(occupant)
+        let bytes = try Data(contentsOf: store.entityURL(id: work.id))
+        try FileManager.default.removeItem(at: store.entityURL(id: group.id))
+
+        let report = try runImport(at: 1_753_200_000)
+
+        XCTAssertEqual(report.created, [group.citekey], "前提：同一個 citekey 重建")
+        let row = try XCTUnwrap(report.doiNominations.first)
+        XCTAssertEqual(report.doiNominations.count, 1)
+        XCTAssertEqual(row.status, .failed, "別種形狀占用的 id 不是已涵蓋：\(row)")
+        XCTAssertNil(row.divergenceID)
+        XCTAssertTrue((row.error ?? "").contains("person") && (row.error ?? "").contains("work"), "原因要說出兩邊的形狀：\(row.error ?? "")")
+        XCTAssertEqual(try Data(contentsOf: store.entityURL(id: work.id)), bytes, "原記錄不得被覆寫")
+        XCTAssertEqual(try store.load().divergences.first?.shape, .person)
+    }
+
+    /// 記錄路徑自己的守衛（不只 nominate）：同一個 id、別種候選形狀的重錄被拒絕，原記錄不動——`record-divergence` 與 MCP 同走這一條。
+    func testRecordDivergenceRefusesToOverwriteAnotherShapesRecordWithTheSameId() throws {
+        try store.writeEntry(Entry(id: UUID(), citekey: "alpha2025", type: .periodicalArticle, title: "A"))
+        try store.writeEntry(Entry(id: UUID(), citekey: "beta2025", type: .periodicalArticle, title: "B"))
+        _ = try store.writePerson(Person(key: "alpha2025", names: PersonNames(authorized: ["Alpha"], variant: [])))
+        _ = try store.writePerson(Person(key: "beta2025", names: PersonNames(authorized: ["Beta"], variant: [])))
+        let person = try store.recordDivergence(question: "同一人嗎", candidates: [("alpha2025", .person), ("beta2025", .person)],
+                                                judgement: nil, restsOn: [])
+        let bytes = try Data(contentsOf: store.entityURL(id: person.id))
+
+        XCTAssertThrowsError(try store.recordDivergence(question: "同一篇嗎", candidates: [("alpha2025", .work), ("beta2025", .work)],
+                                                        judgement: nil, restsOn: [])) { error in
+            guard case .destinationHoldsAnotherRecord = error as? StoreIOError else { return XCTFail("\(error)") }
+        }
+        XCTAssertEqual(try Data(contentsOf: store.entityURL(id: person.id)), bytes)
+    }
+
+    /// 寫入當下重新讀磁碟（#611 R1 verify 第 25／31 列）：呼叫端手上的 pool 只管「候選存在」；同一組候選的既有記錄若在 pool 建好之後
+    /// 被別的程序補上了判斷，無判斷的重錄不得把它抹掉——即使呼叫端給的是建在判斷出現之前的 pool。
+    func testRecordAgainstAPoolStillProtectsAJudgementWrittenAfterThePoolWasBuilt() throws {
+        for key in ["alpha2025", "beta2025"] {
+            try store.writeEntry(Entry(id: UUID(), citekey: key, type: .periodicalArticle, title: key))
+        }
+        let pool = DivergenceCandidatePool(try store.load())   // 這一刻還沒有任何歧異記錄
+        // 「別的程序」在 pool 建好之後寫下一筆帶判斷的記錄
+        let digest = "sha256:" + String(repeating: "a1", count: 32)
+        _ = try store.recordDivergence(question: "人寫的", candidates: [("alpha2025", .work), ("beta2025", .work)],
+                                       judgement: "同一篇", restsOn: [digest])
+        let id = DeterministicUUID.forDivergence(candidateKeys: ["alpha2025", "beta2025"])
+        let bytes = try Data(contentsOf: store.entityURL(id: id))
+
+        XCTAssertThrowsError(try store.recordDivergence(question: "提名", candidates: [("alpha2025", .work), ("beta2025", .work)],
+                                                        judgement: nil, restsOn: [], against: pool)) { error in
+            XCTAssertTrue("\(error)".contains("已有判斷"), "\(error)")
+        }
+        XCTAssertEqual(try Data(contentsOf: store.entityURL(id: id)), bytes, "判斷不得被抹掉")
     }
 
     // MARK: - (c) 同一趟新建兩筆
@@ -260,6 +353,107 @@ final class ZoteroDOINominationTests: XCTestCase {
         XCTAssertEqual(row.status, .failed)
         XCTAssertNil(row.divergenceID)
         XCTAssertFalse((row.error ?? "").isEmpty, "失敗要說原因")
+        XCTAssertEqual(try store.load().divergences, [])
+    }
+
+    // MARK: - 群組過大（#611 R1 verify 第 5／10／30／35 列）
+
+    /// 門檻是 10 筆（最多 45 對）：live store 的 16 個共用組全部恰好 2 筆，離門檻很遠；這一支把值釘住，改門檻要改這裡並說明理由。
+    func testThresholdIsTen() {
+        XCTAssertEqual(DOINomination.maxGroupSize, threshold)
+    }
+
+    /// `count` 筆既有的 work 帶同一個 DOI（WoS 那一類，不經 Zotero）。
+    private func writeWorks(_ count: Int, doi: String, prefix: String = "wos2025n") throws {
+        for n in 1...count {
+            var e = Entry(id: UUID(), citekey: "\(prefix)\(String(format: "%02d", n))", type: .periodicalArticle, title: "WoS \(n)")
+            e.doi = [try XCTUnwrap(DOI(doi))]
+            try store.writeEntry(e)
+        }
+    }
+
+    /// 共用一個 DOI 的 work 超過門檻（這一趟新建的加上其餘的）：**一對都不記**，改報一列 `groupTooLarge`——一個 DOI 一列、
+    /// 帶共用它的 work 數；匯入照建。一對一筆會寫 C(k,2) 筆記錄（DA 實測 k=80 → 3,160 筆、10 秒）。
+    func testAGroupOverTheThresholdRecordsNoPairAndIsReportedOnce() throws {
+        try writeWorks(threshold, doi: doi)   // 加上這一趟新建的 article ＝ 門檻 + 1
+
+        let report = try runImport()
+
+        let article = try entry(zoteroKey: "KEYART01")
+        XCTAssertTrue(report.created.contains(article.citekey), "照建")
+        XCTAssertEqual(try store.load().divergences, [], "一對都沒記")
+        let row = try XCTUnwrap(report.doiNominations.first)
+        XCTAssertEqual(report.doiNominations.count, 1, "一個 DOI 一列：\(report.doiNominations)")
+        XCTAssertEqual(row.status, .groupTooLarge)
+        XCTAssertEqual(row.groupSize, threshold + 1)
+        XCTAssertEqual(row.dois, [doi])
+        XCTAssertEqual(row.other, "", "群組過大的列沒有「另一筆」")
+        XCTAssertEqual(row.created, article.citekey, "這一趟新建的 citekey 最小的一筆")
+        XCTAssertNil(row.divergenceID)
+        XCTAssertEqual(report.unrecordedDOINominations, [row], "沒記下來的列：重新匯入不會再提名")
+    }
+
+    /// 恰好在門檻上（這一趟新建的加上其餘的 ＝ 門檻）仍逐對提名：新建的一筆與其餘每一筆各一對。
+    func testAGroupExactlyAtTheThresholdIsStillPairedOneByOne() throws {
+        try writeWorks(threshold - 1, doi: doi)
+
+        let report = try runImport()
+
+        XCTAssertEqual(report.doiNominations.count, threshold - 1)
+        XCTAssertEqual(Set(report.doiNominations.map(\.status)), [.recorded])
+        XCTAssertEqual(try store.load().divergences.count, threshold - 1)
+        XCTAssertEqual(report.unrecordedDOINominations, [])
+    }
+
+    /// 同一趟新建很多筆共用同一個 DOI：同樣是一列，`created` 是其中 citekey 最小的一筆。
+    func testManyNewWorksSharingOneDOIAreOneGroupRow() throws {
+        for n in 1...threshold + 1 {
+            try addItem(100 + n, key: "KEYGRP\(String(format: "%02d", n))", title: "Copy \(n)", doi: doi)
+        }
+
+        let report = try runImport()
+
+        XCTAssertEqual(try store.load().divergences, [])
+        let row = try XCTUnwrap(report.doiNominations.first)
+        XCTAssertEqual(report.doiNominations.count, 1)
+        XCTAssertEqual(row.status, .groupTooLarge)
+        XCTAssertEqual(row.groupSize, threshold + 2, "前 11 筆加上 seedStandard 那一篇")
+        let citekeys = try store.load().entries.filter { $0.canonicalDOIs.map(\.normalized).contains(doi) }.map(\.citekey)
+        XCTAssertEqual(row.created, citekeys.min())
+    }
+
+    /// 沒有這一趟新建的 work 的組不觸發：既有的過大群組不會在每次匯入時被重報。
+    func testAnOversizedGroupWithoutANewWorkIsNotReported() throws {
+        try writeWorks(threshold + 1, doi: "10.5555/big.1")   // 另一個 DOI、沒有新建的
+
+        let report = try runImport()
+
+        XCTAssertEqual(report.doiNominations, [])
+    }
+
+    /// 只報過大的那個 DOI：同一趟另一個 DOI 的一對照常記。
+    func testOnlyTheOversizedDOIIsSkipped() throws {
+        try writeWorks(threshold, doi: doi)
+        let other = "10.7777/small.1"
+        var small = Entry(id: UUID(), citekey: "small2025one", type: .periodicalArticle, title: "Small")
+        small.doi = [try XCTUnwrap(DOI(other))]
+        try store.writeEntry(small)
+        try addItem(32, key: "KEYGRP02", title: "Small group copy", doi: other)
+
+        let report = try runImport()
+
+        XCTAssertEqual(Set(report.doiNominations.map(\.status)), [.groupTooLarge, .recorded])
+        XCTAssertEqual(report.doiNominations.first { $0.status == .recorded }?.dois, [other])
+        XCTAssertEqual(try store.load().divergences.count, 1)
+    }
+
+    /// 合成一個 50 筆共用同一個 DOI 的群組：**沒有記任何一對，也不把涵蓋判斷的成本乘上對數**（量測見 changelog）。
+    func testAFiftyWorkGroupWritesNothingAndIsFast() throws {
+        try writeWorks(50, doi: doi)
+        let start = Date()
+        let report = try runImport()
+        XCTAssertLessThan(Date().timeIntervalSince(start), 30, "群組過大時不逐對處理")
+        XCTAssertEqual(report.doiNominations.map(\.status), [.groupTooLarge])
         XCTAssertEqual(try store.load().divergences, [])
     }
 }

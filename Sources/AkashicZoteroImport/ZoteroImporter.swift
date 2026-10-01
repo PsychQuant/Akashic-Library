@@ -80,7 +80,8 @@ public struct ImportReport: Equatable {
     /// `updated`、`authorsOverwritten` 等清單；留下兩份的事實記在這裡，不進 `writeFailed`。由 `run` 自己的收集範圍收下。
     public var writtenWithLegacyCopy: [LegacyCopyLeft] = []
     /// #611（使用者 2026-10-01 裁決「照建，並自動記一筆歧異提名」）：這一趟**新建**的 work 與另一筆 work（既有的，或同一趟也新建的）
-    /// 共用 DOI 時，照建之後當場寫下的歧異提名——一列是一對，依 (created, other) 排序；狀態封閉四值，見 `DOINomination`。
+    /// 共用 DOI 時，照建之後當場寫下的歧異提名——一列是一對（`groupTooLarge` 是一個 DOI 一列），依 (created, other) 排序；狀態封閉五值，見 `DOINomination`；
+    /// 沒記下來的（`unrecordedDOINominations`）重新匯入不會再提名，CLI 以非零結束。
     /// 記錄沒有判斷（judgement／prefers 不填）：DOI 相等只是提名，判定與合併交給 `resolve-divergence`。
     /// **只在新建時觸發**：再匯入不新建就不再提名，所以被 `dismiss-divergence` 放棄的一對不會被下一趟重記。
     public var doiNominations: [DOINomination] = []

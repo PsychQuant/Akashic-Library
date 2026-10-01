@@ -409,7 +409,16 @@ work merge 的資料遺失閘也把 witness 當 canonical Akashic metadata：被
   只記錄版本／雜湊／orphan。App 的「與 Zotero 脫鉤」拿掉已刪除的主來源與已 orphan 的附加來源，
   活著的附加來源原樣保留、不升格。
 - **DOI 相同不自動掛成附加來源**：DOI 相等只是提名謂詞，不是同一性證據（更正啟事與原文共用
-  DOI）。這類條目照舊新建，交給攣生合併管線判定。
+  DOI）。這類條目照舊新建，交給攣生合併管線判定；**新建之後匯入自己記一筆提名**（#611）：這一趟
+  新建的 work 與另一筆 work（既有的，或同一趟也新建的）共用 DOI 時，寫一筆 work 形狀、沒有判斷的
+  歧異記錄（§5.8），候選是那一對，一對一筆，不填 judgement／prefers。**只在新建時觸發**：
+  再匯入不新建就不提名。報告鍵 `doiNominations`（一列一對；`status` 封閉五值：`recorded` 這一趟寫了、
+  `alreadyRecorded` 已有涵蓋這一對的 work 歧異記錄〔同一組或更大的一組〕而不重寫、`unlocatable` 其中
+  一筆無法唯一定位而不點名、`failed` 寫不進去〔legacy 佈局、store format < 5、歧異記錄的 id 已被另一種
+  形狀占用等〕、`groupTooLarge` 一個 DOI 被超過 10 筆 work 共用而**一個 DOI 一列、一對都不記**〔帶
+  `groupSize`〕）。歧異記錄的 id 只由候選 key 決定、不含形狀，所以同 id 的另一種形狀記錄不算涵蓋、也
+  不會被覆寫。**後三種沒有記下來，而重新匯入不會再提名**：CLI 以非零結束並印摘要行，MCP payload 帶
+  `doiNominationsUnrecorded`（沒記的列數）；要記就用 `record-divergence` 手記。
 - **format**：additive 的頂層鍵，仍 bump 到 18——format-17 binary 會保留但不比對附加來源，
   再匯入時安靜地重新造出攣生。
 

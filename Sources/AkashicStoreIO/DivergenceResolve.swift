@@ -391,53 +391,44 @@ extension LibraryStore {
                                  prefers: String? = nil) throws -> Divergence {
         try Self.checkDivergenceArguments(candidates: candidates, judgement: judgement,
                                           restsOn: restsOn, prefers: prefers)
-        return try recordDivergence(question: question, candidates: candidates, judgement: judgement,
-                                    restsOn: restsOn, prefers: prefers, against: try load())
+        return try recordCheckedDivergence(question: question, candidates: candidates, judgement: judgement,
+                                           restsOn: restsOn, prefers: prefers,
+                                           pool: DivergenceCandidatePool(try load()))
     }
 
-    /// 同一條記錄路徑，store 的現況由呼叫端給（#611）。
+    /// 同一條記錄路徑，候選存在的集合由呼叫端給（#611）。
     ///
     /// 存在的理由是 Zotero 匯入一趟可能記下很多筆 DOI 提名：上面那個入口每一筆都整庫 load 一次（`akashic-merge-twins` 記的效能事實：
-    /// CLI record 約 1.4 秒／組，每次整庫 load），一趟兩百筆就是幾分鐘。匯入者手上本來就有這一趟寫完之後的記錄——
-    /// 它把那份交進來，檢查（參數、候選存在、既有記錄不得被靜默抹掉）與寫入仍是這一份，不另寫一個 divergence 寫入器。
+    /// CLI record 約 1.4 秒／組，每次整庫 load），一趟兩百筆就是幾分鐘。匯入者手上本來就有這一趟寫完之後的 work——
+    /// 它把那份集合（`DivergenceCandidatePool`，建一次、每一筆共用）交進來，檢查與寫入仍是這一條，不另寫一個 divergence 寫入器。
     ///
-    /// **`snapshot` 必須是磁碟現況**：候選存在與既有記錄的檢查都讀它，給一份過期的會放過一個已經不在的候選，
-    /// 或讓一筆既有判斷在重錄時被抹掉。只給手上真的有「寫完之後的記錄」的呼叫端用；其餘走上面那個入口。
+    /// **只有「候選存在」讀呼叫端給的集合**；「同一組候選的既有記錄」一律**重新讀磁碟上那一個檔**（`divergenceOnDisk`）——
+    /// 既有判斷與 prefers 不得被無判斷的重錄抹掉、同一個 id 不得被另一組候選（含另一種形狀）覆寫，這兩件事的依據是寫入當下的磁碟，
+    /// 不是任何一份快照（#611 R1 verify 第 25／31 列：匯入可能跑數分鐘，期間別的程序補上的判斷不能被一份過期的快照放過）。
+    /// 一次單檔讀取，成本與候選數無關。
     @discardableResult
     public func recordDivergence(question: String,
                                  candidates: [(key: String, shape: EntityKind)],
                                  judgement: String?,
                                  restsOn: [String],
                                  prefers: String? = nil,
-                                 against snapshot: LibraryLoad) throws -> Divergence {
+                                 against pool: DivergenceCandidatePool) throws -> Divergence {
         try Self.checkDivergenceArguments(candidates: candidates, judgement: judgement,
                                           restsOn: restsOn, prefers: prefers)
-        let load = snapshot
-        // **per-shape 存在檢查**（#133 verify F2）：曾用 people ∪ organizations 的
-        // 合集只驗 key 不驗 shape——person 被記成 work 照樣寫入，validate 警告
-        // 「無法被消歧」而 MCP 面完全看不見；真正的 work（citekey）反而不在集合裡、
-        // 結構上不可用。shape 說是什麼，就到那個形狀的集合裡驗。
-        // 窮舉 switch 而不是字典字面值（#699 R1 verify）：`crossRecordIssues` 的查找表同一個形狀，字面值漏了 `.venue` 而編譯器看不出來；
-        // switch 讓下一個新形狀在這裡也編不過，要當場決定它收不收。
-        var byShape: [EntityKind: Set<String>] = [:]
-        for kind in EntityKind.allCases {
-            switch kind {
-            case .person: byShape[kind] = Set(load.people.map(\.key))
-            case .organization: byShape[kind] = Set(load.organizations.map(\.key))
-            case .work: byShape[kind] = Set(load.entries.map(\.citekey))
-            // #553：venue 加入。**與 `resolveDivergence` 的 switch 必須同一個 change**
-            // ——`.organization` 今天正是那個半吊子狀態（記得起來、解不掉），
-            // venue 不重蹈。**org 維持這個狀態是 #555 的顯式裁決**（使用者 2026-09-11：暫不做，既不實作也不拿掉），
-            // 理由、代價與觸發條件在 `zero-instance-guards` 第 24 列；`StoreHealth.unmergeableDivergences` 讓第一筆
-            // org 歧異記錄出聲（#555 R2 D90）。不要把這一格當成待修的殘留（#555 R1 verify 第 15 列）。
-            case .venue: byShape[kind] = Set(load.venues.map(\.key))
-            // 歧異記錄沒有 key（身分是 UUID），不收——`checkDivergenceArguments` 在讀 store 之前就拒絕它；
-            // 沒有集合的形狀走下面的「合併管線尚未實作」那一則。
-            case .divergence: break
-            }
-        }
+        return try recordCheckedDivergence(question: question, candidates: candidates, judgement: judgement,
+                                           restsOn: restsOn, prefers: prefers, pool: pool)
+    }
+
+    /// 兩個入口共用的本體：**參數已經過 `checkDivergenceArguments`**（不重跑——先前舊入口與新入口各跑一次，#611 R1 verify 第 31 列）。
+    /// 舊入口把參數檢查排在 `load()` 之前（#654：只看 argv 的拒絕不該先讀 store），所以檢查留在兩個入口、本體只做需要 store 的部分。
+    private func recordCheckedDivergence(question: String,
+                                         candidates: [(key: String, shape: EntityKind)],
+                                         judgement: String?,
+                                         restsOn: [String],
+                                         prefers: String?,
+                                         pool: DivergenceCandidatePool) throws -> Divergence {
         for c in candidates {
-            guard let pool = byShape[c.shape] else {
+            guard let keys = pool.keys[c.shape] else {
                 // #553：訊息**分兩則**。原本只有一則，說的是「歧異記錄沒有 key」——
                 // 那是拒絕 `.divergence` 的理由，而它對其餘被拒的形狀是**假的**
                 // （venue 有 key、是可被指涉的對象，當時拒絕它的真實理由是管線沒實作）。
@@ -447,18 +438,34 @@ extension LibraryStore {
                     what: "divergence candidate",
                     why: "shape「\(c.shape.rawValue)」的合併管線尚未實作——它有 key、可被指涉，只是 resolveDivergence 還接不住")
             }
-            guard pool.contains(c.key) else {
+            guard keys.contains(c.key) else {
                 throw StoreIOError.invalidInput(
                     what: "divergence candidate",
                     why: "store 內沒有 \(c.shape.rawValue)「\(displaySafeInvisible(c.key, max: 120))」——對不存在的鍵記歧異沒有意義（key 存在但形狀不符也算不存在：shape 說是什麼就驗什麼）")
             }
         }
         let id = DeterministicUUID.forDivergence(candidateKeys: candidates.map(\.key))
+        let existing = divergenceOnDisk(id: id)
+        // **同一個 id 只能是同一組候選**（#611 R1 verify 第 1／21 列）：id 只雜湊候選的 key、不含形狀（`migrateOtherDivergences` 的
+        // `sameContent` 註解：根治要把 shape 納入 `forDivergence`，那是 format 級變更），所以 person 的 `{a, b}` 與 work 的 `{a, b}` 是同一個檔。
+        // 先前兩者互相覆寫、不出聲；現在拒絕，不覆寫原記錄。兩邊的候選比 (shape, key)，排序後相等才算同一組。
+        if let existing {
+            func norm(_ pairs: [(shape: EntityKind, key: String)]) -> [[String]] {
+                pairs.map { [$0.shape.rawValue, $0.key] }.sorted { ($0[0], $0[1]) < ($1[0], $1[1]) }
+            }
+            if norm(existing.candidates.map { ($0.shape, $0.key) }) != norm(candidates.map { ($0.shape, $0.key) }) {
+                let existingShapes = Set(existing.candidates.map(\.shape.rawValue)).sorted().joined(separator: "、")
+                let requestedShapes = Set(candidates.map(\.shape.rawValue)).sorted().joined(separator: "、")
+                throw StoreIOError.destinationHoldsAnotherRecord(
+                    id: id,
+                    detail: "是一筆候選不同的歧異記錄（形狀：\(existingShapes)；歧異記錄的 id 只由候選 key 決定、不含形狀，所以這次要記的（形狀：\(requestedShapes)）與它是同一個檔）")   // display-safe-exempt: existingShapes、requestedShapes：封閉 enum 的 rawValue
+            }
+        }
         // **補寫允許、毀損拒絕**（#133 verify F1）：同組候選＝同一筆記錄（決定性
         // UUID），re-record 是原子全替換——曾經「無判斷的新呼叫」會把既有判斷
         // **靜默抹掉**（question 也無聲換掉）。撤銷判斷是刻意動作，不是省略參數
         // 的副作用；更新判斷（有→有）與補上判斷（無→有）照常。
-        if let existing = load.divergences.first(where: { $0.id == id }),
+        if let existing,
            existing.judgement != nil, judgement == nil {
             throw StoreIOError.invalidInput(
                 what: "divergence（同組候選既有記錄）",
@@ -476,7 +483,7 @@ extension LibraryStore {
         //
         // 在 #133 的前提下（判斷由 LLM 經 MCP 寫入），「更新 judgement 時忘了帶
         // prefers」是很順的一條路徑，不是邊角。
-        if let existing = load.divergences.first(where: { $0.id == id }),
+        if let existing,
            let existingPrefers = existing.judgement?.prefers,
            judgement != nil, prefers == nil {
             throw StoreIOError.invalidInput(

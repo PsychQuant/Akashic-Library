@@ -302,6 +302,16 @@ enum ToolPayloadScenarios {
             try $0.store.writeEntry(main)
             return try $0.service.importZotero(zoteroDb: z.url.path, libraryID: nil)
         },
+        // #611 R1 verify：共用同一個 DOI 的 work 超過門檻——一對都不記、報一列 groupTooLarge（groupSize），並帶 doiNominationsUnrecorded
+        PayloadScenario("akashic_import_zotero", "doi nomination group too large", params: ["zotero_db"]) {
+            let z = try PayloadZoteroDB(dir: $0.dir, doi: "10.1017/psy.2025.1")
+            for n in 1...10 {   // DOINomination.maxGroupSize（這個 target 不依賴 AkashicZoteroImport）：加上這一趟新建的那一筆 ＝ 11 > 10
+                var e = Entry(id: UUID(), citekey: String(format: "wos2025n%02d", n), type: .periodicalArticle, title: "WoS \(n)")
+                e.doi = [try XCTUnwrap(DOI("10.1017/psy.2025.1"))]
+                try $0.store.writeEntry(e)
+            }
+            return try $0.service.importZotero(zoteroDb: z.url.path, libraryID: nil)
+        },
         PayloadScenario("akashic_enrich_from_zotero", "dry_run", params: ["citekeys", "zotero_db", "dry_run"]) {
             let z = try PayloadZoteroDB(dir: $0.dir)
             _ = try $0.service.importZotero(zoteroDb: z.url.path, libraryID: nil)

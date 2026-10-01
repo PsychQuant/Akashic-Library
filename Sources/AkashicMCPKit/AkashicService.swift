@@ -2889,16 +2889,18 @@ public final class AkashicService {
                    uniquingKeysWith: { first, _ in first })
     }
 
-    /// `doiNominations` 的一列（#611）：`divergence` 只在有記錄時出現、`error` 只在 failed 時出現。
+    /// `doiNominations` 的一列（#611）：`divergence` 只在有記錄時出現、`error` 只在 failed 時出現、`groupSize` 只在 groupTooLarge 時出現；
+    /// groupTooLarge 沒有「另一筆」，所以那一列不帶 `other`。
     private static func doiNominationRow(_ n: DOINomination) -> [String: Any] {
         var row: [String: Any] = [
             "created": displaySafe(n.created, max: 200),
-            "other": displaySafe(n.other, max: 200),
             "dois": n.dois.map { displaySafe($0, max: 200) },
-            "status": n.status.rawValue,   // display-safe-exempt: 封閉四值的 rawValue
+            "status": n.status.rawValue,   // display-safe-exempt: 封閉五值的 rawValue
         ]
+        if n.status != .groupTooLarge { row["other"] = displaySafe(n.other, max: 200) }
         if let id = n.divergenceID { row["divergence"] = id.uuidString }   // display-safe-exempt: UUID
         if let e = n.error { row["error"] = displaySafeClipOnly(e, max: 512) }   // display-safe-exempt: e 已消毒（DOITwinNomination 由 displaySafeError 產出），只截
+        if let g = n.groupSize { row["groupSize"] = g }   // display-safe-exempt: Int
         return row
     }
 
@@ -2953,20 +2955,26 @@ public final class AkashicService {
             d["ambiguousSourceClaimsTotal"] = all.count   // display-safe-exempt: Int
             d["ambiguousSourceClaimsTruncated"] = shown.count < all.count || ownersCut   // display-safe-exempt: Bool
         }
-        // #611：新建的 work 與另一筆共用 DOI 時寫下的歧異提名，一列一對，只在非空時出現。`listLimit` 只截 recorded／alreadyRecorded 兩種
-        // ——那兩種的歧異記錄在 store 裡（`akashic_divergences` 列得出來）；unlocatable／failed 沒寫進去，原因只在這份報告，不截（同失敗清單）。
-        // `listTotals` 永遠有這一格（空的是 0），被截時進 `truncatedLists`。
+        // #611：新建的 work 與另一筆共用 DOI 時寫下的歧異提名，一列一對（groupTooLarge 是一個 DOI 一列），只在非空時出現。
+        // **兩種列各自受 `listLimit`**（R1 verify 第 5 列：先前沒寫進 store 的三種列不截，legacy 佈局上一個大群組會回出數十萬列）：
+        // 歧異記錄在 store 裡的（recorded／alreadyRecorded，`akashic_divergences` 列得出來）留前 N 列，沒記下來的（unlocatable／failed／groupTooLarge）
+        // 也留前 N 列。`listTotals["doiNominations"]` 是全部列數，被截時進 `truncatedLists`；`doiNominationsUnrecorded` 是**沒記下來**的列數
+        // （永遠完整、只在非零時出現）——那幾對重新匯入不會再提名（R1 verify 第 9 列），呼叫端不必掃整個清單就看得到。
         let nominations = report.doiNominations.sorted { ($0.created, $0.other) < ($1.created, $1.other) }
-        let inStore = nominations.filter { $0.status == .recorded || $0.status == .alreadyRecorded }
-        let keptInStore = listLimit.map { Array(inStore.prefix($0)) } ?? inStore
+        let nominationsInStore = nominations.filter(\.status.isInStore)
+        let nominationsNotRecorded = nominations.filter { !$0.status.isInStore }
+        let keptInStore = listLimit.map { Array(nominationsInStore.prefix($0)) } ?? nominationsInStore
+        let keptNotRecorded = listLimit.map { Array(nominationsNotRecorded.prefix($0)) } ?? nominationsNotRecorded
         listTotals["doiNominations"] = nominations.count
-        if keptInStore.count < inStore.count { truncatedLists.append("doiNominations") }
+        if keptInStore.count < nominationsInStore.count || keptNotRecorded.count < nominationsNotRecorded.count {
+            truncatedLists.append("doiNominations")
+        }
         if !nominations.isEmpty {
-            let kept = Set(keptInStore.map { [$0.created, $0.other] })
-            d["doiNominations"] = nominations
-                .filter { ($0.status != .recorded && $0.status != .alreadyRecorded) || kept.contains([$0.created, $0.other]) }
+            d["doiNominations"] = (keptInStore + keptNotRecorded)
+                .sorted { ($0.created, $0.other) < ($1.created, $1.other) }
                 .map(doiNominationRow)
         }
+        if !nominationsNotRecorded.isEmpty { d["doiNominationsUnrecorded"] = nominationsNotRecorded.count }   // display-safe-exempt: Int
         // 失敗清單不截（R1 verify）：沒寫進去的記錄在 store 裡沒有痕跡，截掉就拿不回來。只在非空時出現。
         if !report.quarantineConflicts.isEmpty {
             d["quarantineConflicts"] = report.quarantineConflicts.sorted().map { displaySafe($0, max: 200) }

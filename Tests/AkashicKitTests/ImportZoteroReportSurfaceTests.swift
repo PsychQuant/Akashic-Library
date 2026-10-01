@@ -276,8 +276,8 @@ extension ImportZoteroReportSurfaceTests {
                               "secondarySourceRestored", "unnormalizedDates",
                               "authorsPreserved", "authorsOverwritten"]
     static let conditionalLists: Set<String> = ["authorsPreserved", "authorsOverwritten"]
-    /// 一列是一個物件的清單（#611 `doiNominations`）：有上限、進 `listTotals`，但只截歧異記錄在 store 裡的那兩種列
-    /// （recorded／alreadyRecorded）；unlocatable／failed 不截（同失敗清單）。只在非空時出現。
+    /// 一列是一個物件的清單（#611 `doiNominations`）：有上限、進 `listTotals`；歧異記錄在 store 裡的列（recorded／alreadyRecorded）
+    /// 與沒記下來的列（unlocatable／failed／groupTooLarge）各自受同一個上限（R1 verify 第 5 列）。只在非空時出現。
     static let cappedRowLists = ["doiNominations"]
     static var allCappedNames: [String] { cappedLists + cappedRowLists }
     /// 失敗清單（R1 verify）：**不截**、只在非空時出現、不在 `listTotals`。沒寫進去的記錄在 store 裡沒有痕跡，
@@ -475,9 +475,11 @@ extension ImportZoteroReportSurfaceTests {
 // MARK: - #611：DOI 提名在 payload 裡
 
 extension ImportZoteroReportSurfaceTests {
-    /// 只截歧異記錄在 store 裡的列（recorded／alreadyRecorded，`akashic_divergences` 列得出來）；unlocatable／failed 沒寫進去、
-    /// 原因只在這份報告，不截。`listTotals` 是全部列數，被截時進 `truncatedLists`。`divergence` 只在有記錄時出現、`error` 只在 failed 時出現。
-    func testDOINominationRowsAreCappedOnlyWhereTheRecordIsInTheStore() throws {
+    /// 兩種列各自受上限（R1 verify 第 5 列：先前沒記下來的三種不截，legacy 佈局上一個大群組會回出數十萬列）：歧異記錄在 store 裡的
+    /// （recorded／alreadyRecorded，`akashic_divergences` 列得出來）留前 N 列、沒記下來的（unlocatable／failed／groupTooLarge）也留前 N 列。
+    /// `listTotals` 是全部列數，被截時進 `truncatedLists`；`doiNominationsUnrecorded` 是沒記下來的列數，永遠完整。
+    /// `divergence` 只在有記錄時出現、`error` 只在 failed 時出現、`groupSize` 只在 groupTooLarge 時出現，groupTooLarge 不帶 `other`。
+    func testDOINominationRowsAreCappedPerKindAndTheUnrecordedCountIsComplete() throws {
         var r = ImportReport()
         let id = UUID()
         r.doiNominations = [
@@ -486,19 +488,50 @@ extension ImportZoteroReportSurfaceTests {
             DOINomination(created: "n3", other: "w", dois: ["10.1000/x"], status: .recorded, divergenceID: UUID()),
             DOINomination(created: "n4", other: "w", dois: ["10.1000/x"], status: .unlocatable),
             DOINomination(created: "n5", other: "w", dois: ["10.1000/x"], status: .failed, error: "legacy 佈局"),
+            DOINomination(created: "n6", other: "", dois: ["10.1000/big"], status: .groupTooLarge, groupSize: 80),
         ]
         let p = AkashicService.importReportPayload(r, listLimit: 1)
         let rows = try nominationRows(p)
-        XCTAssertEqual(rows.map { $0["created"] as? String }, ["n1", "n4", "n5"], "在 store 裡的只留一列，另兩種全列")
-        XCTAssertEqual(rows.map { $0["status"] as? String }, ["recorded", "unlocatable", "failed"])
-        guard rows.count == 3 else { return XCTFail("列數不對，以下逐列的斷言不跑：\(rows)") }   // 不讓越界讓整個測試行程崩潰
+        XCTAssertEqual(rows.map { $0["created"] as? String }, ["n1", "n4"], "在 store 裡的留一列、沒記下來的也留一列")
+        XCTAssertEqual(rows.map { $0["status"] as? String }, ["recorded", "unlocatable"])
+        guard rows.count == 2 else { return XCTFail("列數不對，以下逐列的斷言不跑：\(rows)") }   // 不讓越界讓整個測試行程崩潰
         XCTAssertEqual(rows[0]["divergence"] as? String, id.uuidString)
         XCTAssertEqual(rows[0]["dois"] as? [String], ["10.1000/x"])
         XCTAssertNil(rows[1]["divergence"], "沒有記錄就沒有 divergence")
         XCTAssertNil(rows[1]["error"])
-        XCTAssertEqual(rows[2]["error"] as? String, "legacy 佈局")
-        XCTAssertEqual(try totals(p)["doiNominations"], 5, "分母是全部列數")
+        XCTAssertEqual(try totals(p)["doiNominations"], 6, "分母是全部列數")
         XCTAssertTrue(try truncated(p).contains("doiNominations"))
+        XCTAssertEqual(p["doiNominationsUnrecorded"] as? Int, 3, "沒記下來的列數永遠完整：unlocatable、failed、groupTooLarge")
+
+        let all = AkashicService.importReportPayload(r, listLimit: 10)
+        let allRows = try nominationRows(all)
+        XCTAssertEqual(allRows.map { $0["created"] as? String }, ["n1", "n2", "n3", "n4", "n5", "n6"])
+        XCTAssertEqual(allRows[4]["error"] as? String, "legacy 佈局")
+        XCTAssertEqual(allRows[5]["groupSize"] as? Int, 80)
+        XCTAssertEqual(allRows[5]["dois"] as? [String], ["10.1000/big"])
+        XCTAssertNil(allRows[5]["other"], "群組過大的列沒有另一筆")
+        XCTAssertFalse(try truncated(all).contains("doiNominations"))
+    }
+
+    /// 沒記下來的列單獨超過上限（記錄在 store 裡的很少）：同樣被截、要說出來；`doiNominationsUnrecorded` 仍是完整的數。
+    func testUnrecordedRowsAloneAreCappedAndDisclosed() throws {
+        var r = ImportReport()
+        r.doiNominations = (1...5).map { DOINomination(created: String(format: "n%02d", $0), other: "w", dois: ["10.1000/x"], status: .failed, error: "e") }
+        let p = AkashicService.importReportPayload(r, listLimit: 2)
+        XCTAssertEqual(try nominationRows(p).count, 2)
+        XCTAssertEqual(try totals(p)["doiNominations"], 5)
+        XCTAssertTrue(try truncated(p).contains("doiNominations"))
+        XCTAssertEqual(p["doiNominationsUnrecorded"] as? Int, 5)
+        let uncapped = AkashicService.importReportPayload(r)
+        XCTAssertEqual(try nominationRows(uncapped).count, 5, "沒給上限＝全列")
+    }
+
+    /// 記下來的提名不帶 `doiNominationsUnrecorded`：只在有沒記下來的列時出現。
+    func testUnrecordedCountIsAbsentWhenEveryNominationWasRecorded() throws {
+        var r = ImportReport()
+        r.doiNominations = [DOINomination(created: "n1", other: "w", dois: ["10.1000/x"], status: .recorded, divergenceID: UUID())]
+        XCTAssertNil(AkashicService.importReportPayload(r, listLimit: 20)["doiNominationsUnrecorded"])
+        XCTAssertNil(AkashicService.importReportPayload(ImportReport(), listLimit: 20)["doiNominationsUnrecorded"])
     }
 
     /// 服務層：匯入新建的一筆與既有的一筆共用 DOI——payload 的那一列指向真的寫進 store 的那筆歧異記錄。
@@ -515,5 +548,23 @@ extension ImportZoteroReportSurfaceTests {
         XCTAssertEqual(rows[0]["divergence"] as? String, d.id.uuidString)
         XCTAssertEqual(rows[0]["other"] as? String, "wos2025identifiability")
         XCTAssertEqual(try totals(p)["doiNominations"], 1)
+        XCTAssertNil(p["doiNominationsUnrecorded"], "都記下來了")
+    }
+
+    /// 服務層：共用同一個 DOI 的 work 超過門檻——payload 的那一列是 groupTooLarge、帶共用的 work 數，`doiNominationsUnrecorded` 說有 1 列沒記
+    /// （重新匯入不會再提名）；匯入照建、store 裡沒有任何歧異記錄。
+    func testImportPayloadSaysWhenNominationsWereNotRecorded() throws {
+        for n in 1...10 {   // 門檻 10（字面值：引用常數的測試在常數被改大時跟著變大）
+            var e = Entry(id: UUID(), citekey: String(format: "wos2025n%02d", n), type: .periodicalArticle, title: "WoS \(n)")
+            e.doi = [try XCTUnwrap(DOI("10.1017/psy.2025.1"))]   // `seedStandard` 那篇 article 的 DOI
+            try store.writeEntry(e)
+        }
+        let p = try importPayload()
+        let rows = try nominationRows(p)
+        XCTAssertEqual(rows.map { $0["status"] as? String }, ["groupTooLarge"], "\(p)")
+        XCTAssertEqual(rows.first?["groupSize"] as? Int, 11)
+        XCTAssertEqual(p["doiNominationsUnrecorded"] as? Int, 1)
+        XCTAssertEqual(try totals(p)["doiNominations"], 1)
+        XCTAssertEqual(try store.load().divergences, [])
     }
 }

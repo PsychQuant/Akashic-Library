@@ -104,9 +104,10 @@ CLI 對應 `akashic update-organization <key> --authorize …`。
 
 使用者 2026-10-01 裁決「照建，並自動記一筆歧異提名」。這一趟新建的 work 與另一筆 work（既有的，或同一趟也新建的）共用 DOI 時，匯入照常新建，並寫一筆 work 形狀、沒有判斷的歧異記錄，候選是那一對。DOI 相等只是提名：勘誤與原文共用 DOI，一筆作品也可以有多個 DOI，所以匯入不合併、不掛附加來源、不填判斷——判定與合併走 `akashic divergences` → `resolve-divergence`（`akashic-merge-twins` 的執行序）。
 
-- **新鍵 `doiNominations`**，只在非空時出現。每列 `{created, other, dois, status, divergence, error}`：`status` 是 `recorded`（這一趟寫了）、`alreadyRecorded`（已有涵蓋這一對的記錄，不重寫）、`unlocatable`（其中一筆 citekey 重複或無法唯一定位，不點名）、`failed`（寫不進去，例如 legacy 佈局或 store format < 5；原因在 `error`）。`divergence` 是那筆記錄的 id。
-- **上限**：`recorded`／`alreadyRecorded` 兩種列與其他清單同一個上限（20）；`unlocatable`／`failed` 不截。`listTotals` 多一格 `doiNominations`（全部列數），被截時列在 `truncatedLists`。
-- **只在新建時觸發**：再匯入不新建就不提名，用 `akashic_dismiss_divergence` 放棄的一對不會被重記。寫不進去的提名不改變匯入的成敗。
+- **新鍵 `doiNominations`**，只在非空時出現。每列 `{created, other, dois, status, divergence, error, groupSize}`：`status` 是 `recorded`（這一趟寫了）、`alreadyRecorded`（已有涵蓋這一對的記錄，不重寫）、`unlocatable`（其中一筆 citekey 重複或無法唯一定位，不點名）、`failed`（寫不進去，例如 legacy 佈局、store format < 5、歧異記錄的 id 已被另一種形狀占用；原因在 `error`）、`groupTooLarge`（一個 DOI 被超過 10 筆 work 共用：一對都不記，一個 DOI 一列，帶 `groupSize`、不帶 `other`）。`divergence` 是那筆記錄的 id。
+- **上限**：在 store 裡的（`recorded`／`alreadyRecorded`）與沒記下來的（其餘三種）兩種列各自受與其他清單同一個上限（20）。`listTotals` 多一格 `doiNominations`（全部列數），被截時列在 `truncatedLists`。
+- **只在新建時觸發**：再匯入不新建就不提名，用 `akashic_dismiss_divergence` 放棄的一對不會被重記。**沒記下來的提名（後三種）重新匯入不會再提名**：MCP payload 多一個 `doiNominationsUnrecorded`（沒記的列數，非零才出現），CLI 以非零結束；要記就先處理各列說的原因，再用 `akashic_record_divergence` 手記。
+- **`akashic_record_divergence` 的兩個改動**（同一個記錄路徑）：同一個 id 的既有記錄若候選形狀不同——歧異記錄的 id 只由候選 key 決定、不含形狀——拒絕覆寫，先前互相覆寫、不出聲；既有判斷與傾向的保護改為寫入當下重新讀磁碟上那一個檔。
 
 plugin 版號沒有動。
 

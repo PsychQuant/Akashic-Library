@@ -41,7 +41,11 @@ DOI 不等也不證明是兩篇（#394 終局：**一筆 work 多 DOI**）。
 並當場寫一筆 work 形狀、**沒有判斷**的歧異記錄（候選是那一對）。`akashic divergences`
 列得出來；判定照本 skill 的執行序走，第 3 步對同一組候選重錄補上判斷（同組候選＝同一筆
 記錄）。它只涵蓋「匯入新建 × 共用 DOI」——同年同題的攣生、兩筆既有記錄之間的共用 DOI
-仍要上面的聯集提名。
+仍要上面的聯集提名。**匯入報告說「沒有記下來」的幾對**（`unlocatable`／`failed`／`groupTooLarge`；
+CLI 以非零結束、MCP 的 `doiNominationsUnrecorded`）重新匯入不會再提名——提名只在新建時觸發。
+要記就先處理各列說的原因，再手記：`akashic record-divergence --candidate <citekey>:work
+--candidate <citekey>:work --question …`。`groupTooLarge`（一個 DOI 被超過 10 筆 work 共用，
+多半是書或資料集的概念 DOI）一對都沒記，要判定哪幾對才是攣生由你挑，不要逐對補。
 
 ## 判定——逐組證據，兩類終局
 

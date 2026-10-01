@@ -390,17 +390,30 @@ struct ImportZotero: ParsableCommand {
         }
         if !report.doiNominations.isEmpty {
             // #611：新建的 work 與另一筆共用 DOI——照建，並記一筆沒有判斷的歧異提名。DOI 相等只是提名（勘誤與原文共用 DOI、一筆作品可有多個 DOI），
-            // 判定與合併走 resolve-divergence。寫不進去的（unlocatable／failed）只在這裡，import 的結束狀態不因它們改變——兩筆都已照建，
-            // 跨記錄的 DOI 警告（akashic validate）照樣看得到這一對。
-            print("新建的條目與另一筆 work 共用 DOI（#611）: \(report.doiNominations.count) 對——照建，並記一筆沒有判斷的歧異提名（DOI 相等只是提名，判定與合併走 akashic divergences → resolve-divergence）")
+            // 判定與合併走 resolve-divergence。**沒記下來的**（unlocatable／failed／groupTooLarge）提名只在新建時觸發、重新匯入不會再提名
+            // （#611 R1 verify 第 9 列），所以下面的摘要行說出來，且本命令在那種情形以非零結束——兩筆都已照建，但那幾對要人補記。
+            let pairRows = report.doiNominations.filter { $0.status != .groupTooLarge }
+            let groupRows = report.doiNominations.filter { $0.status == .groupTooLarge }
+            print("新建的條目與另一筆 work 共用 DOI（#611）: \(pairRows.count) 對\(groupRows.isEmpty ? "" : "、\(groupRows.count) 個 DOI 的群組過大")——照建，並記一筆沒有判斷的歧異提名（DOI 相等只是提名，判定與合併走 akashic divergences → resolve-divergence）")
             for n in report.doiNominations {
-                let pair = "\(displaySafe(n.created, max: 200)) ↔ \(displaySafe(n.other, max: 200))（DOI \(n.dois.map { displaySafe($0, max: 200) }.joined(separator: ", "))）"
+                let dois = n.dois.map { displaySafe($0, max: 200) }.joined(separator: ", ")
+                if n.status == .groupTooLarge {
+                    // 群組過大的列沒有「另一筆」：一個 DOI、共用它的 work 數、這一趟新建的其中一筆
+                    print("  ⚠ DOI \(dois) 被 \(n.groupSize ?? 0) 筆 work 共用（超過 \(DOINomination.maxGroupSize) 筆的門檻）：一對都沒記——這一趟新建的其中一筆：\(displaySafe(n.created, max: 200))；逐對提名沒有資訊量，這個 DOI 多半是書或資料集的概念 DOI；要記哪一對自己用 record-divergence")
+                    continue
+                }
+                let pair = "\(displaySafe(n.created, max: 200)) ↔ \(displaySafe(n.other, max: 200))（DOI \(dois)）"
                 switch n.status {
                 case .recorded: print("  ⊕ \(pair)：divergence \(n.divergenceID?.uuidString ?? "?")")
                 case .alreadyRecorded: print("  = \(pair)：已有歧異記錄 \(n.divergenceID?.uuidString ?? "?")，未重寫")
                 case .unlocatable: print("  ⚠ \(pair)：未記——其中一筆無法唯一定位（\(UnlocatableReason.work)）")   // display-safe-exempt: UnlocatableReason.work 是常量句
                 case .failed: print("  ✗ \(pair)：未記——\(displaySafeClipOnly(n.error ?? "", max: 4_096))")   // display-safe-exempt: 已消毒（DOITwinNomination 由 displaySafeError 產出），只截
+                case .groupTooLarge: break   // 上面已處理
                 }
+            }
+            let unrecorded = report.unrecordedDOINominations.count
+            if unrecorded > 0 {
+                print("⚠ 有 \(unrecorded) 列提名沒有記下來（unlocatable／failed／groupTooLarge）：提名只在新建時觸發，重新匯入不會再提名——要記就手記（akashic record-divergence --candidate <citekey>:work --candidate <citekey>:work --question …），先處理各列說的原因；本命令因此以非零結束")   // display-safe-exempt: Int
             }
         }
         if !report.authorsPreserved.isEmpty {
@@ -447,8 +460,9 @@ struct ImportZotero: ParsableCommand {
         // #37：index 已搬出 store root，路徑不再顯而易見——doctor 必須說它在哪。
         print("index rebuilt: \(stats.entries) entries\(stats.skippedLegacyCopiesNote) → \(store.indexURL.path)")   // display-safe-exempt: skippedLegacyCopiesNote：AkashicIndex 的字面加 Int
         // R7（R6-verify M22）：收容 ≠ 吞掉 process 層訊號——有單筆失敗仍以
-        // 非零退出，自動化（cron pull、CI）才看得到
-        if !report.writeFailed.isEmpty {
+        // 非零退出，自動化（cron pull、CI）才看得到。#611 R1 verify 第 9 列：沒記下來的 DOI 提名同理
+        // （重新匯入不會再提名，不出聲就只剩 validate 的 DOI 警告）
+        if !report.writeFailed.isEmpty || !report.unrecordedDOINominations.isEmpty {
             throw ExitCode(1)
         }
     }

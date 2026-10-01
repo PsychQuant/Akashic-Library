@@ -239,12 +239,15 @@ extension LegacyCopyCLITests {
 
     /// 文字命令（enrich 不帶 --json）寫入後失敗：stdout 有人可讀報告，stderr 的第一行說那一筆寫了、不要重跑，接著才是原本的錯誤。
     func testStderrLeadsWithTheWrittenCountWhenATextCommandFails() throws {
+        for title in ["A", "B"] {   // 兩筆不同的記錄（id 不同）共用一個 citekey——#709 起寫入後的 index rebuild 只在這種真的重複上失敗
+            try store.writeEntry(Entry(id: UUID(), citekey: "dup2020x", type: .periodicalArticle, title: title, date: "2020"))
+        }
         let e = try legacyWork()
         let proposals = base.appendingPathComponent("p.json")
         try #"[{"citekey":"cheng2025identifiability","fields":{"abstract":"摘要"}}]"#
             .write(to: proposals, atomically: true, encoding: .utf8)
         let r = try runSplit(["enrich", "--library", root.path, "--from", proposals.path, "--apply"])
-        XCTAssertNotEqual(r.status, 0, "前提：兩份並存時 index rebuild 撞重複的 citekey：\(r.out)\(r.err)")
+        XCTAssertNotEqual(r.status, 0, "前提：index rebuild 撞兩筆不同記錄共用的 citekey：\(r.out)\(r.err)")
         XCTAssertTrue(r.out.contains("work「\(e.citekey)」"), "報告在 stdout：\(r.out)")
         let first = String(r.err.split(separator: "\n").first ?? "")
         XCTAssertTrue(first.hasPrefix("已寫入 1 筆、搬移後的 legacy 拷貝沒刪掉"), "stderr 第一行：\(r.err)")
@@ -254,12 +257,15 @@ extension LegacyCopyCLITests {
 
     /// `enrich --json` 寫入後失敗：stdout 仍能整份解析成一個 JSON 物件，帶那一筆與總數；stderr 第一行同上。
     func testAFailingJSONCommandStillPrintsOneJSONDocument() throws {
+        for title in ["A", "B"] {   // 兩筆不同的記錄（id 不同）共用一個 citekey——#709 起寫入後的 index rebuild 只在這種真的重複上失敗
+            try store.writeEntry(Entry(id: UUID(), citekey: "dup2020x", type: .periodicalArticle, title: title, date: "2020"))
+        }
         let e = try legacyWork()
         let proposals = base.appendingPathComponent("p.json")
         try #"[{"citekey":"cheng2025identifiability","fields":{"abstract":"摘要"}}]"#
             .write(to: proposals, atomically: true, encoding: .utf8)
         let r = try runSplit(["enrich", "--library", root.path, "--from", proposals.path, "--apply", "--json"])
-        XCTAssertNotEqual(r.status, 0, "前提：兩份並存時 index rebuild 撞重複的 citekey：\(r.out)\(r.err)")
+        XCTAssertNotEqual(r.status, 0, "前提：index rebuild 撞兩筆不同記錄共用的 citekey：\(r.out)\(r.err)")
         let obj = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(r.out.utf8)) as? [String: Any],
                                 "stdout 必須是一份 JSON：\(r.out)")
         let rows = try XCTUnwrap(obj["writtenWithLegacyCopy"] as? [[String: String]], r.out)

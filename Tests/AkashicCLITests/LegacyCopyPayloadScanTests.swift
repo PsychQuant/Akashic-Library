@@ -26,6 +26,7 @@ final class LegacyCopyPayloadScanTests: XCTestCase {
         "add-person": "只新增一筆 person；key 已在庫就拒絕——legacy 殘留一定已經是一筆載入得到的記錄，所以碰不到搬移",
         "add-venue": "只寫 venue 記錄；#631 的 legacy 搬移只對 work／person",
         "update-venue": "只寫 venue 記錄（名字、ISSN、references）；同上",
+        "update-organization": "只寫 organization 記錄（authorized、names）；同上（#557，整合時補）",
         "dismiss-divergence": "只刪一筆歧異記錄，不寫 work／person",
         "store-source": "只把內容存進 sources/ 並記 index，不寫任何記錄",
     ]

@@ -49,6 +49,10 @@ public struct LegacyCopyLeft: Equatable, Sendable {
         return "\(kind.rawValue)「\(displaySafeInvisible(key, max: 200))」：\(base)\(index)"   // display-safe-exempt: base：errorDescription 對 file 以性質逃脫、detail 擲出端已消毒；kind：封閉列舉；index：本檔字面
     }
 
+    /// 這件事是什麼的一句說明——**只此一份**：CLI／MCP 的報告標題（`reportLines`，前面帶鍵名）與 App 側欄的提示（`LegacyCopyNotice.headline`，
+    /// 一般說明文字、不帶鍵名，#708 R1 verify 第 12／32 列）都用它，所以兩面說的是同一件事、不會各改各的。
+    public static let explanation = "已寫入 entities/、搬移後的 legacy 拷貝沒刪掉——不是寫入失敗，刪掉 legacy 那份即可"
+
     /// 兩面共用的人可讀報告：一行標題（鍵名＋完整筆數）加每筆一行。沒有就回空陣列——不印。
     ///
     /// `limit`（#705 R2 verify 第 13 列）：MCP 的錯誤回應至多列這麼多筆（依 (kind, key) 排序留前面的），多出的以一行說出筆數與去哪裡找——
@@ -58,7 +62,7 @@ public struct LegacyCopyLeft: Equatable, Sendable {
         guard !items.isEmpty else { return [] }
         let sorted = items.sorted { ($0.kind.rawValue, $0.key) < ($1.kind.rawValue, $1.key) }
         let shown = limit.map { Array(sorted.prefix($0)) } ?? sorted
-        var lines = ["writtenWithLegacyCopy（已寫入 entities/、搬移後的 legacy 拷貝沒刪掉——不是寫入失敗，刪掉 legacy 那份即可）: \(items.count)"]   // display-safe-exempt: count：Int
+        var lines = ["writtenWithLegacyCopy（\(explanation)）: \(items.count)"]   // display-safe-exempt: explanation：常量字面；count：Int
             + shown.map { "  ⚠ \($0.message)" + ($0.laterWriteRefused ? "；" + laterWriteRefusedNote : "") }   // display-safe-exempt: $0.message：已消毒（見上）；laterWriteRefusedNote：本型別的字面常量
         if shown.count < sorted.count, let limit {
             lines.append("  …另有 \(sorted.count - shown.count) 筆未列出（這裡至多列 \(limit) 筆；akashic validate 逐筆列出兩份並存的記錄，CLI 全列）")   // display-safe-exempt: Int

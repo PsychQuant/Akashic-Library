@@ -113,7 +113,10 @@ public final class AppState {
         let oldNotice = legacyCopyNotice
         root = newRoot
         storeKey = key          // #101：key 與 root 同生共死，回滾時一併還原
-        legacyCopyNotice = nil  // #708：它列的是舊 universe 的 legacy 檔
+        // #708：提示列的是舊 universe 的 legacy 檔，換到**另一個** store 就清空。切到目前已經是的那個 store 時不清：legacy 檔還在磁碟上，
+        // load 仍會把那筆記錄標成無法唯一定位、App 的下一次寫入仍被拒，提示是使用者知道要清哪個檔的唯一線索（R1 verify 第 19 列；
+        // 側欄的「檔案」區塊對目前的 store 也是可按的）。同一個 store＝標準化、解開 symlink 之後的路徑相同。
+        if Self.canonicalPath(newRoot) != Self.canonicalPath(oldRoot) { legacyCopyNotice = nil }
         searchText = ""
         filterType = nil
         filterTag = nil
@@ -131,6 +134,11 @@ public final class AppState {
             try? load()
             throw error
         }
+    }
+
+    /// 兩個 root 是不是同一個目錄：標準化（`.`／`..`）並解開 symlink 之後比路徑。
+    private static func canonicalPath(_ url: URL) -> String {
+        url.standardizedFileURL.resolvingSymlinksInPath().path
     }
 
     /// **App 端建 store 的唯一入口**（#101 verify R2）。
@@ -182,7 +190,7 @@ public final class AppState {
             availableFiles = []
         }
         // #708：使用者刪掉 legacy 那份之後，提示不再叫他去清一個已經不在的檔
-        legacyCopyNotice = legacyCopyNotice?.stillPresent(under: root)
+        legacyCopyNotice = legacyCopyNotice?.stillPresent()
         reloadCount += 1
     }
 
@@ -402,7 +410,7 @@ public final class AppState {
     func recordingLegacyCopies<R>(_ body: () throws -> R) throws -> R {
         let (result, written) = LegacyCopyLedger.collecting(body)
         if !written.isEmpty {
-            legacyCopyNotice = (legacyCopyNotice ?? LegacyCopyNotice(items: [])).adding(written)
+            legacyCopyNotice = (legacyCopyNotice ?? LegacyCopyNotice(items: [], root: root)).adding(written)
         }
         return try LegacyCopyLedger.get(result, written: written)
     }

@@ -14,7 +14,7 @@ struct LegacyCopyNoticeSection: View {
 
     var body: some View {
         Section {
-            // 說明就是 CLI 末尾與 MCP 錯誤回應印的那一行（`LegacyCopyLeft.reportLines` 的第一行）——不另寫一句
+            // 這件事是什麼的一句說明與 CLI／MCP 同一份（`LegacyCopyLeft.explanation`），但標題是一般說明文字、不帶 JSON 鍵名（#708 R1 verify）
             Text(notice.headline)   // display-safe-exempt: notice.headline 是常量字面加筆數（Int）
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -31,7 +31,7 @@ struct LegacyCopyNoticeSection: View {
     }
 }
 
-/// 一列：哪一筆記錄、要刪的 legacy 檔。完整說明（與 CLI／MCP 同一句）放在 `.help`。
+/// 一列：哪一筆記錄、要刪的 legacy 檔的**完整路徑**（可選取複製）。完整說明（與 CLI／MCP 同一句）放在 `.help`。
 struct LegacyCopyNoticeRow: View {
     let row: LegacyCopyNotice.Row
 
@@ -39,7 +39,7 @@ struct LegacyCopyNoticeRow: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(row.displayRecord)
                 .font(.caption.weight(.medium))
-            Text(row.displayLegacyFile)
+            Text(row.displayLegacyPath)
                 .font(.caption.monospaced())
                 .textSelection(.enabled)
         }

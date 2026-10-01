@@ -8,13 +8,16 @@ import AkashicStoreIO
 /// 列出要清的 legacy 檔——與 CLI、MCP、import-zotero 把它記在成功那一側的 `writtenWithLegacyCopy`（#705）同一個說法。
 /// 先前 App 沒有收集範圍，同一件事擲 `legacyCopyNotRemoved`、畫面上是「操作失敗」。
 ///
-/// 內容就是 `LegacyCopyLeft` 本身，文字取自同一個來源：說明是 `LegacyCopyLeft.reportLines` 的第一行（CLI 末尾與 MCP 錯誤回應印的那一行），
-/// 每一列的完整說明是 `LegacyCopyLeft.message`——App 不另寫第三份描述。
+/// 內容就是 `LegacyCopyLeft` 本身，文字取自同一個來源：這件事是什麼的一句說明是 `LegacyCopyLeft.explanation`（CLI 末尾與 MCP 錯誤回應的標題
+/// 也用它），每一列的完整說明是 `LegacyCopyLeft.message`——App 不另寫第三份描述。**標題是一般說明文字，不是 CLI／MCP 的 JSON 鍵名**
+/// （R1 verify 第 12／32 列：先前直接取報告的第一行，GUI 使用者在側欄看到 `writtenWithLegacyCopy（…）: N`）。
 ///
 /// 住在 View 之外（同 `RecordIssuesSummary`）：`AkashicApp/` 的 UI 不在 SwiftPM 測試範圍，能測的部分要最大化；View 只收這個值型別。
 public struct LegacyCopyNotice: Equatable {
-    /// 收到的每一筆，依收到的順序；同一筆（kind、id、legacy 檔）只留一次。
+    /// 收到的每一筆，依收到的順序；同一筆（kind、id、legacy 檔）只留一次、留**最新**的那一筆（key 與說明可能隨再一次留下而更新）。
     public let items: [LegacyCopyLeft]
+    /// 這份提示屬於哪個 store：每一列顯示 legacy 檔的**完整路徑**要它，`stillPresent` 檢查兩個檔還在不在也要它。
+    public let root: URL
 
     /// 提示的一列：哪一筆記錄、要清的是哪個 legacy 檔。顯示字串都已消毒（`display*`）。
     public struct Row: Identifiable, Equatable {
@@ -24,29 +27,42 @@ public struct LegacyCopyNotice: Equatable {
         public let displayRecord: String
         /// 要清的 legacy 檔，相對 store root（`entries/<citekey>.yaml`／`people/<key>.yaml`）。
         public let displayLegacyFile: String
+        /// 要清的 legacy 檔的**完整路徑**（store root ＋ 相對路徑）：側欄顯示它，使用者不必自己知道 store 在哪裡才刪得掉（R1 verify 第 12／32 列）。
+        public let displayLegacyPath: String
         /// 寫進去的那一份（`entities/<id>.yaml`）。
         public let writtenFile: String
         /// 完整說明，與 CLI／MCP 的每一筆同一句（`LegacyCopyLeft.message`，已消毒）。
         public let displayDetail: String
     }
 
-    init(items: [LegacyCopyLeft]) {
+    init(items: [LegacyCopyLeft], root: URL) {
         self.items = items
+        self.root = root
     }
 
-    /// 併入新收到的幾筆，回傳新的提示（不改自己）。
+    /// 併入新收到的幾筆，回傳新的提示（不改自己）。同一個 legacy 檔再次留下時，換成最新的那一筆（原位置不動）。
     func adding(_ new: [LegacyCopyLeft]) -> LegacyCopyNotice {
         var merged = items
-        for item in new where !merged.contains(where: { Self.sameLeftover($0, item) }) {
-            merged.append(item)
+        for item in new {
+            if let i = merged.firstIndex(where: { Self.sameLeftover($0, item) }) {
+                merged[i] = item
+            } else {
+                merged.append(item)
+            }
         }
-        return LegacyCopyNotice(items: merged)
+        return LegacyCopyNotice(items: merged, root: root)
     }
 
-    /// 只留 legacy 檔還在 `root` 底下的那幾筆；一筆都不剩就回 nil。使用者刪掉 legacy 那份之後，提示不再叫他去清一個已經不在的檔。
-    func stillPresent(under root: URL) -> LegacyCopyNotice? {
-        let left = items.filter { FileManager.default.fileExists(atPath: root.appendingPathComponent($0.legacyFile).path) }
-        return left.isEmpty ? nil : LegacyCopyNotice(items: left)
+    /// 只留**兩個檔都還在**的那幾筆：legacy 那份還在、而且寫進去的那份（`entities/<id>.yaml`）也還在；一筆都不剩就回 nil。
+    /// 使用者刪掉 legacy 那份之後，提示不再叫他去清一個已經不在的檔；**寫進去的那份不見了**（git 還原、手動清理、別的工具）時，legacy 檔成了
+    /// 唯一的一份，這一列的指示「刪掉 legacy 那份」會刪掉唯一的拷貝——所以那一列要拿掉（#708 R1 verify 第 11 列）。
+    func stillPresent() -> LegacyCopyNotice? {
+        let fm = FileManager.default
+        let left = items.filter {
+            fm.fileExists(atPath: root.appendingPathComponent($0.legacyFile).path)
+                && fm.fileExists(atPath: root.appendingPathComponent($0.writtenFile).path)
+        }
+        return left.isEmpty ? nil : LegacyCopyNotice(items: left, root: root)
     }
 
     public var rows: [Row] {
@@ -54,13 +70,18 @@ public struct LegacyCopyNotice: Equatable {
             Row(id: "\(item.kind.rawValue):\(item.id.uuidString):\(item.legacyFile)",   // display-safe-exempt: item.legacyFile：只當列的識別、不顯示
                 displayRecord: "\(item.kind.rawValue)「\(displaySafeInvisible(item.key, max: 200))」",
                 displayLegacyFile: displaySafeInvisible(item.legacyFile, max: 300),
+                displayLegacyPath: displaySafeInvisible(root.appendingPathComponent(item.legacyFile).path, max: 600),
                 writtenFile: item.writtenFile,
                 displayDetail: item.message)   // display-safe-exempt: item.message：LegacyCopyLeft.message 已消毒（key 逐項 displaySafeInvisible、detail 擲出端已消毒）
         }
     }
 
-    /// 說明：CLI 與 MCP 的人可讀報告的第一行（鍵名＋筆數）。
-    public var headline: String { LegacyCopyLeft.reportLines(items).first ?? "" }
+    /// 標題：一般說明文字（不是 CLI／MCP 的鍵名）。這件事是什麼的一句說明與 CLI／MCP 的報告標題是同一份（`LegacyCopyLeft.explanation`），
+    /// 另加一句：留下拷貝本身不算失敗，**同一個動作若另外跳出錯誤，那是別的原因**（`LegacyCopyLeftBeforeFailure`：寫了、拷貝留下、之後的步驟
+    /// 才失敗——先前標題說「不是寫入失敗」，與同一個動作的失敗提示互相矛盾，R1 verify 第 12 列）。
+    public var headline: String {
+        "\(LegacyCopyLeft.explanation)（\(items.count) 筆）。同一個動作若另外跳出錯誤，那是別的原因，與這份拷貝無關。"   // display-safe-exempt: explanation：常量字面；count：Int
+    }
 
     private static func sameLeftover(_ a: LegacyCopyLeft, _ b: LegacyCopyLeft) -> Bool {
         a.kind == b.kind && a.id == b.id && a.legacyFile == b.legacyFile

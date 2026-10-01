@@ -129,7 +129,7 @@ final class AppLegacyCopyNoticeTests: XCTestCase {
         XCTAssertEqual(notice.rows.map(\.displayLegacyFile), ["people/cheng-che.yaml"])
         XCTAssertEqual(notice.rows.map(\.writtenFile), ["entities/\(p.id.uuidString).yaml"])
         XCTAssertEqual(notice.rows.map(\.displayDetail), [left.message], "每一列的說明與 CLI／MCP 同一句")
-        XCTAssertEqual(notice.headline, LegacyCopyLeft.reportLines([left]).first, "說明與 CLI／MCP 報告的第一行同一句")
+        XCTAssertTrue(notice.headline.contains(LegacyCopyLeft.explanation), "這件事是什麼的說明與 CLI／MCP 報告同一份（標題本身是一般說明文字，R1 verify）")
 
         XCTAssertTrue(try onDisk(p.id).contains("resolution-confirmed"), "verdict 寫進 entities/")
         XCTAssertTrue(FileManager.default.fileExists(atPath: store.personURL(key: p.key).path), "legacy 那份還在——所以才要列")
@@ -275,68 +275,197 @@ final class AppLegacyCopyNoticeTests: XCTestCase {
         XCTAssertNil(state.legacyCopyNotice)
     }
 
+    /// 寫進去的那份（`entities/<id>.yaml`）不見了——git 還原、手動清理、別的工具：legacy 檔成了唯一一份，這一列的指示「刪掉 legacy 那份」
+    /// 會刪掉唯一的拷貝，所以兩個檔都在才保留（#708 R1 verify 第 11 列）。
+    func testARowIsDroppedWhenTheWrittenCopyIsGoneSoTheInstructionNeverDeletesTheOnlyCopy() throws {
+        var e = try writeLegacyWork(work())
+        commitAll()
+        try lock(store.entriesDir)
+        let state = try makeState()
+        e.akashic.tags = ["x"]
+        _ = try state.recordingLegacyCopies { try state.store.writeEntry(e) }
+        XCTAssertNotNil(state.legacyCopyNotice)
+        try state.load()
+        XCTAssertNotNil(state.legacyCopyNotice, "兩個檔都在：load 不拿掉")
+
+        try FileManager.default.removeItem(at: store.entityURL(id: e.id))   // 寫進去的那份不見了
+        XCTAssertTrue(FileManager.default.fileExists(atPath: store.entriesDir.appendingPathComponent("\(e.citekey).yaml").path), "前提：legacy 那份還在")
+        try state.load()
+        XCTAssertNil(state.legacyCopyNotice, "legacy 檔是唯一的一份了，不得再叫使用者刪它")
+    }
+
+    /// 切到目前已經是的那個 store：legacy 檔還在磁碟上，提示是使用者知道要清哪個檔的唯一線索，不清（#708 R1 verify 第 19 列）。
+    /// 切到另一個 store 才清（`testSwitchingFilesClearsTheNotice`）。
+    func testSwitchingToTheStoreThatIsAlreadyActiveKeepsTheNotice() throws {
+        var e = try writeLegacyWork(work())
+        commitAll()
+        try lock(store.entriesDir)
+        let home = root.appendingPathComponent("home")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        // 同一個目錄，以不同寫法登記（尾端斜線、`.` 路段）：標準化之後仍是同一個 store
+        try AkashicConfig(files: ["self": root.path + "/./"]).write(to: home.appendingPathComponent("config.yaml"))
+        let state = try makeState()
+        e.akashic.tags = ["x"]
+        _ = try state.recordingLegacyCopies { try state.store.writeEntry(e) }
+        let before = try XCTUnwrap(state.legacyCopyNotice)
+
+        try state.switchFile(key: "self")
+
+        XCTAssertEqual(state.legacyCopyNotice, before, "同一個 store：提示原樣保留")
+    }
+
+    /// 標題是一般說明文字，不是 CLI／MCP 的鍵名；這件事是什麼的一句說明與 CLI／MCP 同一份；說出「同一個動作若另外跳出錯誤，那是別的原因」，
+    /// 不與同一個動作的失敗提示互相矛盾（#708 R1 verify 第 12／32 列）。
+    func testTheHeadlineIsPlainWordingNotTheJsonKeyName() {
+        let left = LegacyCopyLeft(kind: .person, key: "cheng-che", id: UUID(), legacyFile: "people/cheng-che.yaml", detail: "d")
+        let notice = LegacyCopyNotice(items: [left], root: URL(fileURLWithPath: "/tmp/store"))
+        XCTAssertFalse(notice.headline.contains("writtenWithLegacyCopy"), "GUI 使用者不該看到 API 的鍵名：\(notice.headline)")
+        XCTAssertTrue(notice.headline.contains(LegacyCopyLeft.explanation), "這件事是什麼的說明與 CLI／MCP 同一份")
+        XCTAssertTrue(notice.headline.contains("1 筆"), notice.headline)
+        XCTAssertTrue(notice.headline.contains("同一個動作若另外跳出錯誤"), notice.headline)
+        XCTAssertTrue(LegacyCopyLeft.reportLines([left]).first?.contains(LegacyCopyLeft.explanation) == true, "CLI／MCP 的標題仍帶同一句")
+    }
+
+    /// 每一列顯示 legacy 檔的完整路徑（store root ＋ 相對路徑），使用者不必自己知道 store 在哪裡才刪得掉（#708 R1 verify 第 12／32 列）。
+    func testEachRowShowsTheFullPathOfTheLegacyFile() {
+        let left = LegacyCopyLeft(kind: .person, key: "cheng-che", id: UUID(), legacyFile: "people/cheng-che.yaml", detail: "d")
+        let notice = LegacyCopyNotice(items: [left], root: URL(fileURLWithPath: "/Volumes/Data/my store"))
+        XCTAssertEqual(notice.rows.map(\.displayLegacyPath), ["/Volumes/Data/my store/people/cheng-che.yaml"])
+        XCTAssertEqual(notice.rows.map(\.displayLegacyFile), ["people/cheng-che.yaml"], "相對路徑仍在")
+    }
+
+    /// 同一個 legacy 檔再次留下：留最新的那一筆（key 與說明），原位置不動。
+    func testAddingTheSameLeftoverAgainKeepsTheNewestAndItsPosition() {
+        let id = UUID()
+        let other = LegacyCopyLeft(kind: .person, key: "other", id: UUID(), legacyFile: "people/other.yaml", detail: "o")
+        let first = LegacyCopyLeft(kind: .work, key: "old2025key", id: id, legacyFile: "entries/old2025key.yaml", detail: "第一次")
+        let again = LegacyCopyLeft(kind: .work, key: "new2025key", id: id, legacyFile: "entries/old2025key.yaml", detail: "第二次")
+        let notice = LegacyCopyNotice(items: [first, other], root: URL(fileURLWithPath: "/tmp/s")).adding([again])
+        XCTAssertEqual(notice.items, [again, other], "同一筆（kind、id、legacy 檔）只留一次、留最新的，位置不變")
+    }
+
     // MARK: - 源碼守衛：App 的每一個寫入者都在範圍裡
 
     /// App 沒有 CLI 進入點或 MCP 分派那樣的單一出口，範圍開在各寫入點——新的寫入點忘了開，同一件事就回到「操作失敗」。
-    /// 掃 `AkashicAppKit` 與 `AkashicApp/Sources`：每一個 `writeEntry(`／`writePerson(`／`renameEntry(`／`renamePerson(` 呼叫都要在某個
-    /// `recordingLegacyCopies {` 的大括號裡（字面上的包含——寫入搬進另一個函式時要在那個函式裡開範圍）。
+    /// 掃 `AkashicAppKit` 與 `AkashicApp/Sources` **遞迴**底下的每個 `.swift`：每一處 `.writeEntry`／`.writePerson`／`.renameEntry`／
+    /// `.renamePerson`（含取函式值、跨行）都要在某個 `recordingLegacyCopies {` 的大括號裡。掃描器的細節與誠實邊界見
+    /// `LegacyCopyScopeScanner`（#708 R1 verify 第 13／20 列補上遞迴、字串與註解、函式值）。
     func testEveryAppStoreWriteIsInsideTheScope() throws {
         let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let writes = [".writeEntry(", ".writePerson(", ".renameEntry(", ".renamePerson("]
         var offenders: [String] = []
         var found = 0
+        var files = 0
         for dir in ["Sources/AkashicAppKit", "AkashicApp/Sources"] {
-            let names = try FileManager.default.contentsOfDirectory(atPath: repo.appendingPathComponent(dir).path)
-            for name in names.sorted() where name.hasSuffix(".swift") {
-                let rel = "\(dir)/\(name)"
-                let code = try String(contentsOf: repo.appendingPathComponent(rel), encoding: .utf8)
-                    .split(separator: "\n", omittingEmptySubsequences: false)
-                    .map { line -> String in
-                        guard let r = line.range(of: "//") else { return String(line) }
-                        return String(line[..<r.lowerBound])
-                    }.joined(separator: "\n")
-                let scopes = Self.braceRanges(in: code, after: "recordingLegacyCopies {")
-                for needle in writes {
-                    var from = code.startIndex
-                    while let hit = code.range(of: needle, range: from..<code.endIndex) {
-                        found += 1
-                        if !scopes.contains(where: { $0.contains(hit.lowerBound) }) {
-                            let line = code[..<hit.lowerBound].filter { $0 == "\n" }.count + 1
-                            offenders.append("\(rel):\(line) \(needle)")
-                        }
-                        from = hit.upperBound
-                    }
-                }
+            let base = repo.appendingPathComponent(dir)
+            for rel in LegacyCopyScopeScanner.swiftFiles(under: base) {
+                files += 1
+                let source = try String(contentsOf: base.appendingPathComponent(rel), encoding: .utf8)
+                let scan = LegacyCopyScopeScanner.scan(source, name: "\(dir)/\(rel)")
+                found += scan.found
+                offenders += scan.offenders
             }
         }
+        XCTAssertGreaterThanOrEqual(files, 10, "空掃描不是通過：掃到的檔太少（\(files)）")
         XCTAssertGreaterThanOrEqual(found, 6, "空掃描不是通過：mutate、rename、accept 兩處、脫鉤、拿掉已刪除的來源")
         XCTAssertEqual(offenders, [], "App 的寫入點不在 recordingLegacyCopies 的範圍裡（#708）：\n" + offenders.joined(separator: "\n"))
     }
 
-    /// `marker` 之後那個 `{` 到它配對的 `}`（含）。字串字面裡的大括號在 App 源碼裡都成對（`\u{…}`、閉包），不另處理。
-    static func braceRanges(in code: String, after marker: String) -> [Range<String.Index>] {
-        var out: [Range<String.Index>] = []
-        var from = code.startIndex
-        while let hit = code.range(of: marker, range: from..<code.endIndex) {
-            let open = code.index(before: hit.upperBound)   // marker 以 `{` 結尾
-            var depth = 0
-            var i = open
-            while i < code.endIndex {
-                if code[i] == "{" { depth += 1 }
-                if code[i] == "}" { depth -= 1; if depth == 0 { break } }
-                i = code.index(after: i)
-            }
-            if i < code.endIndex { out.append(open..<code.index(after: i)) }
-            from = hit.upperBound
-        }
-        return out
+    // MARK: - 掃描器本身（#708 R1 verify 第 13／20 列）
+
+    private func scan(_ code: String) -> LegacyCopyScopeScanner.Scan { LegacyCopyScopeScanner.scan(code, name: "T") }
+
+    /// 範圍內的寫入算範圍內，範圍外的算違規；括號配對正確，巢狀不打亂它。
+    func testTheScannerFindsTheMatchingBraceAndSeparatesInsideFromOutside() {
+        let r = scan("""
+            func a() { try recordingLegacyCopies { x { y } ; _ = try store.writeEntry(e) } }
+            func b() { _ = try store.writePerson(p) }
+            """)
+        XCTAssertEqual(r.found, 2)
+        XCTAssertEqual(r.offenders, ["T:2 .writePerson"])
     }
 
-    /// 守衛的掃描器本身：配對到正確的右括號，巢狀與字串裡的 `\u{…}` 不打亂它。
-    func testTheBraceScannerFindsTheMatchingBrace() {
-        let code = "a { b { \"\\u{200B}\" } } c recordingLegacyCopies { x { y } z } w .writeEntry("
-        let ranges = Self.braceRanges(in: code, after: "recordingLegacyCopies {")
-        XCTAssertEqual(ranges.map { String(code[$0]) }, ["{ x { y } z }"])
-        XCTAssertFalse(ranges[0].contains(code.range(of: ".writeEntry(")!.lowerBound))
+    /// 字串字面值裡的 `//`（URL）曾把同一行後面的 `}` 一起砍掉，讓範圍多延伸一段、把範圍外的寫入判成範圍內（漏報）。
+    func testAUrlInAStringDoesNotCutTheRestOfTheLine() {
+        let r = scan("""
+            func a() { try recordingLegacyCopies { let u = "https://example.test/a"; _ = try store.writeEntry(e) } ; store.writePerson(p) }
+            """)
+        XCTAssertEqual(r.found, 2)
+        XCTAssertEqual(r.offenders, ["T:1 .writePerson"], "範圍在 `}` 就結束了，後面的寫入在範圍外")
+    }
+
+    /// 字串裡的裸 `{`／`}` 曾讓深度失衡：範圍裡的字串含 `}` 會讓範圍提早結束（範圍裡的寫入被判成範圍外），範圍外的字串含 `{` 會讓之後的範圍延伸。
+    func testBracesInsideStringsDoNotUnbalanceTheScope() {
+        let r = scan("""
+            func a() { try recordingLegacyCopies { let s = "}"; _ = try store.writeEntry(e) } }
+            func b() { let t = "{"; _ = try store.writePerson(p) }
+            func c() { try recordingLegacyCopies { _ = try store.renameEntry(a, b) } }
+            """)
+        XCTAssertEqual(r.found, 3)
+        XCTAssertEqual(r.offenders, ["T:2 .writePerson"], "字串裡的大括號不算：第一行的範圍到最後一個 `}` 才結束")
+    }
+
+    /// 區塊註解不是程式碼：裡面的寫入不算、裡面的 `recordingLegacyCopies {` 不開範圍；巢狀的區塊註解整段略過。
+    func testBlockCommentsAreNotCode() {
+        let r = scan("""
+            /* store.writeEntry(e) /* nested */ store.writePerson(p) */
+            /* recordingLegacyCopies { */ func c() { _ = try store.renameEntry(a, b) }
+            """)
+        XCTAssertEqual(r.found, 1, "只剩註解外的 renameEntry")
+        XCTAssertEqual(r.offenders, ["T:2 .renameEntry"], "註解裡的 recordingLegacyCopies { 不開範圍")
+    }
+
+    /// 行註解不是程式碼：整行註解與行尾註解裡的寫入不算。
+    func testLineCommentsAreNotCode() {
+        let r = scan("// store.writeEntry(e)\nfunc a() {} // store.writePerson(p)\n/// 文件註解 store.renameEntry(a, b)\n")
+        XCTAssertEqual(r.found, 0)
+    }
+
+    /// 取函式值、跨行寫法：只認 `.writeEntry(` 時看不到。
+    func testAFunctionValueAndALineBreakBeforeTheDotAreSeen() {
+        let r = scan("""
+            func a() { let w = store.writeEntry; try w(e) }
+            func b() {
+                try store
+                    .writePerson(p)
+            }
+            func c() { try recordingLegacyCopies { let w = store.writeEntry; try w(e) } }
+            """)
+        XCTAssertEqual(r.found, 3)
+        XCTAssertEqual(r.offenders, ["T:1 .writeEntry", "T:4 .writePerson"])
+    }
+
+    /// 名字只是前綴的方法不是寫入點（`writeEntryX`）；沒有點的定義（`func writeEntry`）也不是。
+    func testOnlyTheExactMethodNamesCount() {
+        let r = scan("func writeEntry() {}\nstore.writeEntryX(e)\nstore.rewriteEntry(e)\n")
+        XCTAssertEqual(r.found, 0)
+    }
+
+    /// 多行字串、raw 字串、字串內插（內插裡可以有字串與括號）：內容全部空白掉，不影響範圍判定；字串之後的程式碼照常掃。
+    func testMultiLineRawAndInterpolatedStringsAreBlanked() {
+        let r = scan(##"""
+            func a() { try recordingLegacyCopies {
+                let m = """
+                  store.writePerson(p) { "
+                  """
+                let r = #"raw "quoted" { store.writePerson(p)"#
+                let i = "x \(foo("a)b", 1) { store.writePerson(p) \(nested)) y"
+                _ = try store.writeEntry(e)
+            } }
+            func b() { _ = try store.renamePerson(a, b) }
+            """##)
+        XCTAssertEqual(r.found, 2, "字串裡的 writePerson 都不算")
+        XCTAssertEqual(r.offenders, ["T:9 .renamePerson"])
+    }
+
+    /// 遞迴列出：子目錄裡的檔也在。初版 `contentsOfDirectory` 只讀第一層，日後 App 源碼開子目錄就整批不在掃描內。
+    func testSwiftFilesAreListedRecursively() throws {
+        let dir = root.appendingPathComponent("scan-fixture")
+        let sub = dir.appendingPathComponent("Views/Deep")
+        try FileManager.default.createDirectory(at: sub, withIntermediateDirectories: true)
+        try "// a".write(to: dir.appendingPathComponent("A.swift"), atomically: true, encoding: .utf8)
+        try "// b".write(to: sub.appendingPathComponent("B.swift"), atomically: true, encoding: .utf8)
+        try "x".write(to: sub.appendingPathComponent("notes.txt"), atomically: true, encoding: .utf8)
+        XCTAssertEqual(LegacyCopyScopeScanner.swiftFiles(under: dir), ["A.swift", "Views/Deep/B.swift"])
+        XCTAssertEqual(LegacyCopyScopeScanner.swiftFiles(under: dir.appendingPathComponent("missing")), [], "目錄不存在回空陣列，由呼叫端的下限擋下")
     }
 }

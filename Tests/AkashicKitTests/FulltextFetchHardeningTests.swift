@@ -253,7 +253,7 @@ final class FulltextFetchHardeningTests: XCTestCase {
     }
 
     func testTheScratchDirectoryIsPrivate() throws {
-        _ = take { $0.title = "Some Title" }
+        _ = take(configure: { $0.title = "Some Title" })
         XCTAssertEqual(scratchMode, 0o700, "暫存目錄裡有第三方全文：0700（舊 mktemp -d 同）")
     }
 
@@ -277,7 +277,7 @@ final class FulltextFetchHardeningTests: XCTestCase {
     func testVerifiedByTitleAndDOI() throws {
         try XCTSkipUnless((try? ToolRunner.run(["pdftotext", "-v"])) != nil, "需要 poppler")
         try makePDF(lines: ["A Stub Title For Path Tests", "doi:10.1234/x", "Abstract"]).write(to: source)
-        XCTAssertEqual(take { $0.title = "A Stub Title For Path Tests"; $0.pages = "1--1"; $0.doi = "10.1234/x" }, 0, errText)
+        XCTAssertEqual(take(configure: { $0.title = "A Stub Title For Path Tests"; $0.pages = "1--1"; $0.doi = "10.1234/x" }), 0, errText)
         XCTAssertTrue(FileManager.default.fileExists(atPath: outDir.appendingPathComponent("w.pdf").path), "以要求的檔名存")
         XCTAssertTrue(stdout.joined().contains("\"doi_state\": \"page-match\""), stdout.joined())
     }
@@ -285,7 +285,7 @@ final class FulltextFetchHardeningTests: XCTestCase {
     func testAnotherWorksDOIIsKeptAsUnverified() throws {
         try XCTSkipUnless((try? ToolRunner.run(["pdftotext", "-v"])) != nil, "需要 poppler")
         try makePDF(lines: ["A Stub Title For Path Tests", "doi:10.1234/someone-else", "Abstract"]).write(to: source)
-        XCTAssertEqual(take { $0.title = "A Stub Title For Path Tests"; $0.pages = "1--1"; $0.doi = "10.1234/x" }, 5, errText)
+        XCTAssertEqual(take(configure: { $0.title = "A Stub Title For Path Tests"; $0.pages = "1--1"; $0.doi = "10.1234/x" }), 5, errText)
         XCTAssertTrue(FileManager.default.fileExists(atPath: outDir.appendingPathComponent("w.unverified.pdf").path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: outDir.appendingPathComponent("w.pdf").path))
     }

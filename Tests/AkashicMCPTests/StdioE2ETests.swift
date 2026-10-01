@@ -675,9 +675,13 @@ extension StdioE2ETests {
 /// 只剩 3 bytes；而同日裁決的三個新面（#557 的 `akashic_update_organization`、#559 的 `unauthorize`、#611 匯入報告的新鍵）估計共需約 1 KB，
 /// #700 另有 `person.unknownFields`、`items[].partial` 兩個回應鍵放不進描述。沒選的兩個方案：預算不動、削既有描述騰空間（#700 的守衛要求
 /// 回應鍵出現在描述裡，可削的地方有限）；新面先只做 CLI（MCP 面延到預算重裁）。
-/// 描述長到撞上它時，先把契約細節移回 CLI `--help` 或 docs/store-format.md，不是改這個數字；要調高須回 #578 重新裁決。
+/// **2026-10-01 晚（+08:00）使用者裁決：預算調高到 60,000。** 當天整合 #564、#611 R1 修正之後實測 54,235，修剪
+/// `akashic_import_zotero` 的說明後 53,939、只剩 61 bytes，同一天第三次撞上。修剪的代價是把契約細節移到 CLI `--help`，
+/// 而只講 MCP 的 client 執行不了 CLI——修剪等於把契約藏到它讀不到的地方。結構性的解法另開 #713（按需讀完整說明的 MCP 工具）。
+/// 沒選的兩個方案：64,000（context 成本更高）、維持 54,000 繼續修剪。
+/// 描述長到撞上它時，先把契約細節移到 #713 落地後的按需說明（在那之前是 CLI `--help` 或 docs/store-format.md），不是改這個數字；要調高須回 #578 重新裁決。
 extension StdioE2ETests {
-    static let toolsListByteBudget = 54_000
+    static let toolsListByteBudget = 60_000
 
     /// 讀一行原始回應位元組（不解析）。10 秒內讀不到整行就丟錯——空掃描不是通過。
     func readRawLine() throws -> Data {

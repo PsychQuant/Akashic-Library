@@ -763,7 +763,8 @@ extension Venue {
         case variant(name: String)
         /// 被刪光的名字有 `field: names` 的 reference 指著它（provenance 成孤兒、寫入會被拒）。
         case pinnedByReferences(name: String, count: Int)
-        /// 被刪光的名字有名字分類的判定記錄指著它（#564：記錄錨定 names，名字消失它們就成孤兒；判定史不刪）。
+        /// 被刪光的名字有名字分類的判定記錄指著它，而**最後一筆不是「撤回」**（#564：記錄錨定 names，名字消失它們就成孤兒；人說過的判定還成立）。
+        /// 最後一筆是撤回的不擋——名字連同它的記錄一起刪（使用者 2026-10-02 裁決 #564 第 2 點；`removingRecords` 列出那幾筆）。
         case judgementHistory(name: String, count: Int)
     }
 
@@ -784,11 +785,25 @@ extension Venue {
             if variant.contains(where: { NameIdentity.canonical($0) == k }) { return .variant(name: e.value) }
             let pinned = references.filter { $0.field == "names" && $0.value.map { NameIdentity.canonical($0) == k } == true }.count
             if pinned > 0 { return .pinnedByReferences(name: e.value, count: pinned) }
-            let judged = references.filter {
-                NameClassificationRecord.isRecord($0) && $0.value.map { NameIdentity.canonical($0) == k } == true
-            }.count
-            if judged > 0 { return .judgementHistory(name: e.value, count: judged) }
+            let judged = NameClassificationRecord.allRecords(in: references, name: e.value).count
+            if judged > 0, NameClassificationRecord.latestAction(in: references, name: e.value) != .withdraw {
+                return .judgementHistory(name: e.value, count: judged)
+            }
         }
         return nil
+    }
+
+    /// 刪掉 `names.entries` 裡位置在 `removing` 的那幾段之後，**整個消失**的名字的名字分類記錄——`nameSegmentRemovalBlocker` 放行的前提下，
+    /// 它們的最後一筆都是「撤回」，隨名字一起刪（#564 第 2 點）。相等看 canonical，與 blocker 同一把。
+    public func classificationRecordsRemoved(removing: Set<Int>) -> [ProvenanceReference] {
+        let remaining = Set(names.entries.enumerated().filter { !removing.contains($0.offset) }.map { NameIdentity.canonical($0.element.value) })
+        var seen = Set<String>()
+        var out: [ProvenanceReference] = []
+        for e in names.entries {
+            let k = NameIdentity.canonical(e.value)
+            guard !remaining.contains(k), seen.insert(k).inserted else { continue }
+            out += NameClassificationRecord.allRecords(in: references, name: e.value)
+        }
+        return out
     }
 }

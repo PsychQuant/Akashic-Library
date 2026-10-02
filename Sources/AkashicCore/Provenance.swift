@@ -524,9 +524,10 @@ public enum ProvenanceYAML {
 /// - **其他 reference** 維持舊語意（只在 `authorized` 上）：value 要在 authorized 內；判斷型要有 rests-on（空 rests-on 只給名字分類記錄，
 ///   `firstOrderRulingFields` 以 field 放行它，這裡補文法那一道）。`variant` 上沒有舊語意——它只收名字分類記錄。
 ///
-/// `allNames` 的相等用 `String ==`（canonical equivalence），與 `field: names` 同一把。
+/// `allNames` 的相等用 `String ==`（canonical equivalence），與 `field: names` 同一把——Swift 的 `String` 雜湊與 `==` 一致，
+/// 所以呼叫端在迴圈外建一次 `Set`（#564 R1 verify DA：先前每筆 reference 重建一次陣列再線性 contains，載入成本 O(記錄數×名字數)）。
 func validatePartitionReference(_ r: ProvenanceReference, owner: String,
-                                allNames: [String], authorized: [String]) throws {
+                                allNames: Set<String>, authorized: [String]) throws {
     let safeField = displaySafeInvisible(r.field, max: 120)
     let context = "\(owner).references(field: \(safeField))"   // display-safe-exempt: owner 是呼叫端字面量（person／organization／venue）；safeField 已消毒
     guard let v = r.value else {
@@ -570,12 +571,13 @@ func validatePartitionReference(_ r: ProvenanceReference, owner: String,
 /// 消費端與 doctor（後續 issue）處理。
 extension Person {
     public func validateReferenceAttachment() throws {
+        let allNames = Set(names.all)   // 建一次（#564 R1 verify）
         for r in references {
             switch r.field {
             case NameClassificationRecord.authorizedField:
                 // #564：名字分類記錄錨定 names.all；其他 reference 維持「在 authorized 內」（`validatePartitionReference`）。
-                // person 不收 `variant`（它的 variant 分割是「其他名字」，沒有判定面）——落到 default。
-                try validatePartitionReference(r, owner: "person", allNames: names.all, authorized: names.authorized)
+                // person 不收 `variant`（它的 variant 分割是「其他名字」，不是判定的分割；`fields.names` 的判定只記 authorized 的進出）——落到 default。
+                try validatePartitionReference(r, owner: "person", allNames: allNames, authorized: names.authorized)
             case "names":
                 // #227 巢狀化後：field "names" 指名任一名字（聯集）。
                 let pool = names.all
@@ -672,6 +674,7 @@ func identifierListContains<T: Identifier>(_ ids: [T], value: String,
 
 extension Organization {
     public func validateReferenceAttachment() throws {
+        let allNames = Set(names.entries.map(\.value))   // 建一次（#564 R1 verify）
         for r in references {
             switch r.field {
             case "names":
@@ -687,8 +690,7 @@ extension Organization {
                 }
             case NameClassificationRecord.authorizedField:
                 // #564：同 person——名字分類記錄錨定 names；organization 沒有 variant，`variant` 落到 default。
-                try validatePartitionReference(r, owner: "organization",
-                                               allNames: names.entries.map(\.value), authorized: authorized)
+                try validatePartitionReference(r, owner: "organization", allNames: allNames, authorized: authorized)
             case "founded", "dissolved", "note", "ror":
                 guard r.value == nil else {
                     throw StoreYAMLError.invalidField(
@@ -751,6 +753,7 @@ extension Organization {
 /// 的第一條測試釘的就是它。
 extension Venue {
     public func validateReferenceAttachment() throws {
+        let allNames = Set(names.entries.map(\.value))   // 建一次（#564 R1 verify）
         for r in references {
             switch r.field {
             case "names":
@@ -766,8 +769,7 @@ extension Venue {
                 }
             case NameClassificationRecord.authorizedField, NameClassificationRecord.variantField:
                 // #564：名字分類記錄錨定 names；`authorized` 上的其他 reference 維持「在 authorized 內」；`variant` 只收名字分類記錄。
-                try validatePartitionReference(r, owner: "venue",
-                                               allNames: names.entries.map(\.value), authorized: authorized)
+                try validatePartitionReference(r, owner: "venue", allNames: allNames, authorized: authorized)
             case "issn":
                 // #394：ISSN 是清單——print 與 electronic 是兩個真的號，所以一筆
                 // 記錄級的 reference 不說支持哪一個，另一個就**看起來有來源而其實沒有**。

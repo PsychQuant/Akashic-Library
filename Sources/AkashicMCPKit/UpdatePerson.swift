@@ -33,12 +33,12 @@ public extension AkashicService {
         }
         var added = 0
         for ref in try parseReferenceObjects(arr, policy: personReferencePolicy) {
-            // #564：名字分類的判定記錄只經名字分類面寫（person 的是 `authorize-names`）——通用面寫進去，一筆「指定」就能把一個機械值
-            // 說成人判定過的，而那正是合併端要分辨的東西。帶 rests-on 的一般判斷（statement 不符名字分類文法）照收。
+            // #564：名字分類的判定記錄只經名字分類面寫（person 的是 `authorize-names` 與 `fields.names` 帶 `judgement`）——通用面寫進去，一筆「指定」
+            // 就能把一個機械值說成人判定過的，而那正是合併端要分辨的東西。帶 rests-on 的一般判斷（statement 不符名字分類文法）照收。
             guard !NameClassificationRecord.isRecord(ref) else {
                 throw ServiceError.invalid(
                     "references 裡有一筆名字分類的判定記錄（field: \(displaySafeInvisible(ref.field, max: 60))、statement「指定／確認／撤回：…」）"
-                    + "——它只經 authorize-names 寫（#564），通用面不收；整批拒絕、零寫入")
+                    + "——它只經名字分類面寫（authorize-names，或 fields.names 附 judgement，#564），通用面不收；整批拒絕、零寫入")
             }
             // append-only 的去重比**位元組**（R26 D73；R25 verify 第 7／25／29 列：三個 `==` 全是 canonical，只差 NFC／NFD 的一筆曾被靜默吞掉）
             guard !person.references.contains(where: { $0.byteExactKey == ref.byteExactKey }) else { continue }
@@ -63,6 +63,118 @@ public extension AkashicService {
     static func checkUpdatePersonFields(_ fields: [String: Any]) throws {
         var scratch = Person(key: "argv-check")
         _ = try applyUpdateFields(fields, to: &scratch)
+    }
+
+    /// `update_person` 只看參數的結果（#564 修正輪：使用者 2026-10-02 裁決第 1、2 點）。
+    internal struct UpdatePersonArguments {
+        /// `fields.names` 帶來的理由與證據；nil＝沒給（名字分類有改時在讀 store 之後拒絕）
+        let judgement: AuthorizedDesignation.Judgement?
+        /// `remove_names`（`--remove-name`）：給了就是單獨呼叫
+        let removals: [NameRemovalSpec]
+    }
+
+    /// CLI 的 `validate()` 用：`--judgement`／`--rests-on`／`--remove-name` 與 `--fields` 的組合、理由的形狀、名字數上限——只看參數，早於開 store。
+    /// `fields` 是 argv 的 `--fields`（stdin 來的 JSON 在服務裡檢查，#549 邊界 1）；nil＝沒給 `--fields`。
+    static func checkUpdatePersonArguments(fields: [String: Any]?, judgement: String?, restsOn: [String]?,
+                                                  removeNames: [String]?) throws {
+        _ = try updatePersonArguments(fields: fields ?? [:], fieldsGiven: fields != nil, judgement: judgement,
+                                      restsOn: restsOn, removeNames: removeNames)
+    }
+
+    /// - `remove_names` 單獨呼叫：不與 `fields`、`judgement`、`rests_on` 組合（刪名字的理由只進報告、`fields.names` 的理由寫進記錄）。
+    /// - `judgement`／`rests_on` 只伴隨 `fields.names`（沒有名字分類就沒有判定的理由）；給了就照 venue 的同一個入口驗（`nameClassificationJudgement`：
+    ///   非空白、至多 4,096 位元組、`reasonIssue`、rests_on 至多 20 個且形狀合法）。理由**是否必填**要看 store 裡現在的 authorized（讀 store 之後）。
+    /// - `fields.names` 的兩個分割合計至多 `maxNamesPerClassificationCall` 個名字（#564 第 4 點）。
+    internal static func updatePersonArguments(fields: [String: Any], fieldsGiven: Bool, judgement: String?, restsOn: [String]?,
+                                      removeNames: [String]?) throws -> UpdatePersonArguments {
+        if removeNames != nil {
+            var others: [String] = []
+            if fieldsGiven { others.append("fields") }
+            if judgement != nil { others.append("judgement") }
+            if restsOn != nil { others.append("rests_on") }
+            guard others.isEmpty else {
+                throw ServiceError.invalid(
+                    "remove_names（--remove-name）單獨呼叫——不與 \(others.joined(separator: "、")) 組合（刪名字的理由只進報告、fields.names 的理由寫進記錄）；整批拒絕、零寫入")   // display-safe-exempt: others 是本函式的字面參數名
+            }
+            return UpdatePersonArguments(judgement: nil,
+                                         removals: try parseNameRemovalSpecs(removeNames, parameter: "remove_names（--remove-name）"))
+        }
+        if let names = fields["names"] as? [String: Any] {
+            let count = ((names["authorized"] as? [Any])?.count ?? 0) + ((names["variant"] as? [Any])?.count ?? 0)
+            try refuseTooManyClassifiedNames(count, legs: "fields.names 的 authorized／variant")
+        }
+        guard judgement != nil || restsOn != nil else { return UpdatePersonArguments(judgement: nil, removals: []) }
+        guard fields["names"] != nil else {
+            throw ServiceError.invalid(
+                "judgement／rests_on 只伴隨 fields.names（名字分類的判定記錄，#564）——這次沒有 names，沒有判定就沒有判定的理由；整批拒絕、零寫入")
+        }
+        return UpdatePersonArguments(judgement: try nameClassificationJudgement(classifying: true, judgement: judgement, restsOn: restsOn),
+                                     removals: [])
+    }
+
+    /// `fields.names` 替換之後的名字分類記錄（#564 修正輪，使用者 2026-10-02 裁決第 1 點）：**動到 authorized 就要理由**，並比照 venue 寫記錄——
+    ///
+    /// | 情形 | 記錄（`field: authorized`） |
+    /// |---|---|
+    /// | 原本不在 authorized、替換後在 | `指定：理由` |
+    /// | 原本就在、替換後仍在（只在這次附了理由時寫） | `確認：理由` |
+    /// | 原本在、替換後不在（移到 variant） | `撤回：理由` |
+    ///
+    /// person 的 `variant` 分割是「其他名字」（所有不是對外形的名字），不是 venue 那種「標成異寫」的判定——所以只動 variant 的替換
+    /// 不需要理由、不寫記錄（裁決的「只動未標名字的不必附理由」），也沒有 `field: variant` 的記錄（store 不收，`Person.validateReferenceAttachment`）。
+    /// 相等用 `String ==`（canonical equivalence），與 person 合併的 authorized 子集判準同一把。
+    ///
+    /// 拒絕（零寫入）：
+    /// - 替換拿掉了一個**有記錄**的名字——記錄錨定 names，名字不見了它們就成孤兒；出口是 `--remove-name`（最後一筆要是撤回，#564 第 2 點）。
+    /// - 原本在 authorized、替換後**整個不在 names**——撤回要留一筆記錄，而記錄錨定 names：先把它移到 variant（寫撤回），再用 `--remove-name` 刪。
+    /// - authorized 有改而沒給理由。
+    /// - 給了理由卻沒有任何 authorized 名字可記（替換前後都沒有對外形）。
+    /// 回傳寫下的記錄數；沒有給理由也沒有改 authorized 回 nil（不出現在報告）。
+    internal static func recordPersonNameClassification(before: PersonNames, person: inout Person,
+                                               judgement: AuthorizedDesignation.Judgement?, key: String) throws -> Int? {
+        let after = person.names
+        let afterAll = Set(after.all)
+        let holder = "person「\(displaySafeInvisible(key, max: 200))」"
+        func list(_ xs: [String]) -> String { listCapped(xs) { "「\(displaySafeInvisible($0, max: 120))」" } }
+        let droppedWithRecords = before.all.filter {
+            !afterAll.contains($0) && !NameClassificationRecord.allRecords(in: person.references, name: $0).isEmpty
+        }
+        guard droppedWithRecords.isEmpty else {
+            throw ServiceError.invalid(
+                "fields.names 的替換拿掉了\(holder)的 \(list(droppedWithRecords))，而它們有名字分類的判定記錄（錨定 names，#564）——"   // display-safe-exempt: holder 已消毒；list 逐項消毒
+                + "刪名字用 --remove-name（MCP remove_names）'<名字>=<理由>'：只收最後一筆記錄是「撤回」的名字，記錄隨名字一起刪、理由只進報告、檔案要先 commit；"
+                + "還在 authorized 的先在 fields.names 把它移到 variant（附 --judgement，寫一筆撤回）。這次整批拒絕、零寫入")
+        }
+        let entering = after.authorized.filter { !before.authorized.contains($0) }
+        let leaving = before.authorized.filter { !after.authorized.contains($0) }
+        let leavingGone = leaving.filter { !afterAll.contains($0) }
+        guard leavingGone.isEmpty else {
+            throw ServiceError.invalid(
+                "fields.names 讓\(list(leavingGone))離開 authorized、又不留在 names 裡——撤回對外形要留一筆記錄（#564），而記錄錨定 names："   // display-safe-exempt: list 逐項消毒
+                + "先把它移到 variant（附 --judgement，寫一筆撤回），再用 --remove-name 刪；整批拒絕、零寫入")
+        }
+        guard let judgement else {
+            guard entering.isEmpty, leaving.isEmpty else {
+                throw ServiceError.invalid(
+                    "fields.names 改了\(holder)的 authorized（"   // display-safe-exempt: holder 已消毒
+                    + (entering.isEmpty ? "" : "成為對外形：\(list(entering))") + (entering.isEmpty || leaving.isEmpty ? "" : "；")   // display-safe-exempt: list 逐項消毒
+                    + (leaving.isEmpty ? "" : "移出：\(list(leaving))")   // display-safe-exempt: list 逐項消毒
+                    + "）——名字分類是判定，judgement（--judgement）必填：指定、撤回各在 references 留一筆判定記錄（field: authorized，#564）；"
+                    + "證據 rests_on 可省略。只動 variant 的替換不必附理由。整批拒絕、零寫入")
+            }
+            return nil
+        }
+        let stayed = after.authorized.filter { before.authorized.contains($0) }
+        func record(_ name: String, _ action: NameClassificationRecord.Action) -> ProvenanceReference {
+            NameClassificationRecord.make(field: NameClassificationRecord.authorizedField, name: name, action: action,
+                                          reason: judgement.reason, restsOn: judgement.restsOn)
+        }
+        let records = leaving.map { record($0, .withdraw) } + entering.map { record($0, .designate) } + stayed.map { record($0, .confirm) }
+        guard !records.isEmpty else {
+            throw ServiceError.invalid(
+                "給了 judgement，但\(holder)替換前後都沒有對外形（authorized 是空的）——沒有要分類的名字就沒有判定的理由；整批拒絕、零寫入")   // display-safe-exempt: holder 已消毒
+        }
+        return NameClassificationRecord.append(records, to: &person.references)
     }
 
     /// `fields` 的逐欄套用（#654 從 `updatePerson` 抽出，逐字不變）：回傳 `changes`（欄位 → 原值）。
@@ -138,15 +250,29 @@ public extension AkashicService {
         return changes
     }
 
-    func updatePerson(key: String, fields: [String: Any], dryRun: Bool) throws -> String {
+    /// - Parameters:
+    ///   - judgement／restsOn：`fields.names` 動到 authorized 時的理由與證據（#564 修正輪）；理由**是否必填**要看 store 裡現在的 authorized。
+    ///   - removeNames：`<名字>=<理由>`——刪最後一筆記錄是撤回的名字（#564 第 2 點，`removePersonNames`）；給了就是單獨呼叫。
+    func updatePerson(key: String, fields: [String: Any], dryRun: Bool, fieldsGiven: Bool = true,
+                      judgement: String? = nil, restsOn: [String]? = nil, removeNames: [String]? = nil) throws -> String {
         // #654：只看參數的檢查在讀 store 之前跑，與 CLI 的 validate() 同一個函式（C2c R1 verify：MCP 面先前會先報
         // 「找不到 person」，蓋掉參數錯誤）
+        let args = try Self.updatePersonArguments(fields: fields, fieldsGiven: fieldsGiven, judgement: judgement,
+                                                  restsOn: restsOn, removeNames: removeNames)
+        if !args.removals.isEmpty { return try removePersonNames(key: key, specs: args.removals, dryRun: dryRun) }
         try Self.checkUpdatePersonFields(fields)
         let load = try store.load()   // 寫前重讀（同 AppState.mutate 的防 lost-update 語意）
         guard var person = load.people.first(where: { $0.key == key }) else {
             throw ServiceError.notFound("person「\(displaySafeInvisible(key, max: 200))」")
         }
+        let namesBefore = person.names
         let changes = try Self.applyUpdateFields(fields, to: &person)
+        // #564 修正輪：names 動到 authorized 就要理由、寫判定記錄（裁決第 1 點）
+        var judgementsRecorded: Int?
+        if fields["names"] != nil {
+            judgementsRecorded = try Self.recordPersonNameClassification(before: namesBefore, person: &person,
+                                                                         judgement: args.judgement, key: key)
+        }
 
         // #148 verify F4：names 全量替換可讓 authorized 懸空（authorized ⊆ names 的
         // 不變式只活在 Person.validate()，writePerson 不跑它）。部分更新是獨特的
@@ -163,6 +289,16 @@ public extension AkashicService {
                 // 這個字面 Set 推導）。不是 store 內容。
                 "wouldChange": changes.keys.sorted(),   // display-safe-exempt: changes.keys：key 受 updatable 白名單約束成字面量
             ]
+            // #564：會寫幾筆名字分類記錄；寫得進去要 store format ≥ 22——不預演的話 dry-run 說「會改」而實跑被擋
+            if let n = judgementsRecorded {
+                out["judgementsToRecord"] = n   // display-safe-exempt: Int
+                let format = try StoreVersion.read(root: root)
+                if n > 0, format < StoreVersion.nameClassificationRecordFormat {
+                    out["blockedByNameClassificationGate"] =
+                        "real run 會被拒：名字分類的判定記錄需要 store format ≥ \(StoreVersion.nameClassificationRecordFormat)（本 store 是 \(format)）"   // display-safe-exempt: Int
+                        + "——確認所有 binary 已升級後把 store.yaml 的 format: 改成 \(StoreVersion.nameClassificationRecordFormat)"   // display-safe-exempt: Int
+                }
+            }
             if !validationErrors.isEmpty {
                 out["blockedByValidation"] = validationErrors.prefix(5)
                     .map { displaySafeClipOnly($0.message, max: 300) }   // display-safe-exempt: 已消毒（validate() 的訊息在生產端 displaySafeInvisible，R28 D80），只截——R27 verify 第 17 列
@@ -188,8 +324,10 @@ public extension AkashicService {
         }
         try store.writePerson(person)   // v6 gate／canary／tolerant-preserve 全在這條路上
         try LibraryIndex(store: store).rebuild()
-        return try jsonString(["key": displaySafe(key, max: 200),
-                               "updated": changes.keys.sorted()])   // display-safe-exempt: changes.keys：同上，key 受白名單約束
+        var result: [String: Any] = ["key": displaySafe(key, max: 200),
+                                     "updated": changes.keys.sorted()]   // display-safe-exempt: changes.keys：同上，key 受白名單約束
+        if let n = judgementsRecorded { result["judgementsRecorded"] = n }   // display-safe-exempt: Int
+        return try jsonString(result)
     }
 
     // MARK: - JSON 邊界

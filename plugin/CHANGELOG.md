@@ -42,6 +42,20 @@
 
 
 
+## #564 修正輪 — person 的名字分類要理由、已撤回的名字可以連同記錄刪、一次至多 200 個名字（不相容）
+
+R1 verify 的三個錯誤與使用者 2026-10-02 的四點裁決。
+
+- **不相容：`akashic_update_person` 的 `fields.names` 讓名字進或出 authorized 時 `judgement` 必填**（新參數 `judgement`、`rests_on`），寫 `field: authorized` 的指定／確認／撤回記錄（需 store format ≥ 22），回應多 `judgementsRecorded`（dry_run 是 `judgementsToRecord`）。只動 variant 的替換不必。替換拿掉一個有記錄的名字、或讓對外形整個離開 names，整個呼叫拒絕並指出口。`fields` 自此不是必填（只用 `remove_names` 時省略）。
+- **刪已撤回的名字**：`akashic_update_person` 與 `akashic_update_organization` 新增 `remove_names`（`<名字>=理由`，單獨呼叫）；`akashic_update_venue` 的 `edit_name_segment` 刪掉一個名字的最後一段時，名字分類記錄最後一筆是撤回的一起刪（回應 `judgementRecordsRemoved`）。理由只回在報告（`namesRemoved`，各列 `name`、`reason`、`recordsRemoved`，organization 另有 `segmentsRemoved`），刪前要求那個檔已在 git 裡 commit。最後一筆不是撤回（或沒有記錄）、仍在 authorized／variant 的都拒絕，出口是先撤回、再刪。
+- **記錄的去重只比同一個名字同一個分割的最後一筆**：撤回之後以同一句理由再指定會寫第三筆（先前被當成重複丟掉、`judgementsRecorded` 為 0，記錄以撤回結尾而名字是 authorized）；organization 換下再換回同。
+- **一次至多 200 個名字**（venue 的 `add_variant`／`authorize`／`unauthorize` 合計、organization 的 `authorize`、person 的 `fields.names`、`remove_names`），單一名字至多 65,536 位元組；超過整個呼叫拒絕、零寫入。
+- **理由**要有字母或數字，開頭不得是組合符號、格式或不可見字元（先前以 U+0301 一類開頭、帶 `rests_on` 的理由會寫成一筆一般 reference，之後可被 `remove_reference` 刪掉）。
+- `akashic_update_organization` 對已拿掉的 `unauthorize` 鍵具名拒絕（先前被安靜丟掉、回報成功）；`authorizedNotCurrent` 只在機構另有現行名稱時出現。
+- `akashic_update_venue`：回應多 `variantConfirmed`（已是異寫、寫了「確認」的名字）；寫檔之後 index 重建失敗時回成功並帶 `indexRebuilt: false`（撤回的原位置只在報告裡）。
+- person 合併（CLI `resolve-divergence`）：被併者的名字分類記錄在兩邊分類相同時搬到倖存者；venue 合併的分類檢查先於位元組去重。
+- 工具說明把 #564 整合時為舊預算刪掉的拒絕類別寫回（`resolve-people`／`resolve-venues`／`resolve-organizations` 的 `undecided`、`drop_venue`、`repoint`、`unauthorize`、`remove_reference`）。
+
 ## #611、#692、#693、#708 — R2 修正（2026-10-02）
 
 四席驗證之後的第二輪（53 則）。使用者可見的改動：
@@ -124,10 +138,10 @@ organization 的 `authorized` 在此之前沒有任何寫入面，`akashic_docto
 
 - `authorize`：同書寫系統替換，被換下的名字留在 names；不在 names 的一併加入。
 - 沒給、空陣列、只有空白項（三者同一件事）、key 有不只一筆記錄、找不到、同一次兩個同書寫系統的名字、被換下的名字被 `field: authorized` 的 reference 指著，整個呼叫拒絕、零寫入。
-- 給的名字都已是對外名稱：成功、回報 `alreadyAuthorized`，不寫檔、不重建 index。
+- 給的名字都已是對外名稱：成功、回報 `alreadyAuthorized`；#564 起會寫一筆「確認」記錄，同一句理由已是那個名字的最後一筆記錄時才不寫檔、不重建 index。
 - 回應鍵：`namesAdded`、`authorizedAdded`、`authorizedRemoved`、`alreadyAuthorized`、`authorizedRewritten`、`authorizeDropped`、`authorizedTotal`；有事才出現：`authorizedNotCurrent`（指定的名字在 names 的各段都已結束，`displayName` 會變成那個退役名；不拒絕）、`indexRebuilt: false`／`indexRebuildError`／`indexNote`（寫檔成功、index 重建失敗；呼叫仍回成功）。
 - **沒有 `unauthorize`**：首輪實作曾加了撤回，超出使用者裁決（「先提供 `authorize`」），且 organization 的 names 只增不減，撤回會讓剛加進 names 的名字成為 fallback 顯示名；拿掉，待使用者裁決。
-- 不留判定記錄；#564 已裁決要留，另案落地。
+- ~~不留判定記錄；#564 已裁決要留，另案落地。~~ #564 起 `authorize` 必附 `judgement`、寫判定記錄（見上面 #564 那一節）。
 
 CLI 對應 `akashic update-organization <key> --authorize …`。
 
@@ -139,7 +153,7 @@ CLI 對應 `akashic update-organization <key> --authorize …`。
 - 回應多兩個鍵：`authorizedWithdrawn`（每列 `{name, index}`：被撤回的 store 拼法，與它在呼叫前 `authorized` 裡的位置，0 起算）、`unauthorizeDropped`（整項空白、沒有動作）。**`authorizedWithdrawn` 的列是物件，不是字串**（同日首輪實作是字串陣列，R1 verify 之後改成物件）。
 - 撤回改變了預設顯示名（撤回 `authorized` 的第一個而還有別的名字，或撤回最後一個而退到 names 的 fallback）時，回應多 `displayNameChanged: {before, after}`；只在有 `unauthorize` 的呼叫裡算。
 - 同一次呼叫裡撤回先於 `authorize`；與 `add_variant` 給同一個名字是明說降成異寫。
-- 不留判定記錄；#564 已裁決要留，另案落地。
+- ~~不留判定記錄；#564 已裁決要留，另案落地。~~ #564 起必附 `judgement`、每個名字寫一筆「撤回」記錄（見上面 #564 那一節）。
 
 ## #611 — `akashic_import_zotero` 新建的條目與另一筆共用 DOI 時照建，並記一筆歧異提名
 

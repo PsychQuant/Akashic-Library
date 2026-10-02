@@ -308,10 +308,12 @@ final class NameClassificationJudgementTests: XCTestCase {
         XCTAssertNoThrow(try updateVenue(unauthorize: ["Psychometrika"], judgement: "r2"))
     }
 
-    /// `update-person` 的 references 不收名字分類記錄（只經 authorize-names）；帶 rests-on 的一般判斷照收。
+    /// `update-person` 的 references 不收名字分類記錄（只經名字分類面：authorize-names，或 fields.names 附 judgement）；帶 rests-on 的一般判斷照收。
     func testUpdatePersonRefusesNameRecords() throws {
         _ = try service.addPerson(key: "cheng-che", names: ["Che Cheng"], orcid: nil, openalex: nil)
-        _ = try service.updatePerson(key: "cheng-che", fields: ["names": ["authorized": ["Che Cheng"], "variant": [String]()]], dryRun: false)
+        // #564 修正輪（裁決第 1 點）：names 動到 authorized 要理由——這一步本身寫一筆「指定」（R1 verify F2 第 0 列：先前這個 fixture 不附理由、不留記錄）
+        _ = try service.updatePerson(key: "cheng-che", fields: ["names": ["authorized": ["Che Cheng"], "variant": [String]()]], dryRun: false,
+                                     judgement: "本人署名")
         let nameRecord: [String: Any] = ["field": "authorized", "value": "Che Cheng", "kind": "judgement",
                                          "statement": "指定：本人署名", "rests_on": [digest]]
         XCTAssertThrowsError(try service.updatePerson(key: "cheng-che", fields: ["references": [nameRecord]], dryRun: false)) { e in
@@ -336,17 +338,16 @@ final class NameClassificationJudgementTests: XCTestCase {
         XCTAssertEqual(records(try venue().references).count, 2, "零寫入")
     }
 
-    /// 移除一個名字的最後一段：它若被名字分類記錄指著，具名拒絕（判定史不刪）。
-    func testSegmentRemovalIsBlockedByNameRecords() throws {
+    /// 移除一個名字的最後一段：最後一筆記錄是撤回的，連同記錄一起刪（#564 修正輪，裁決第 2 點）；不是撤回的具名拒絕（`NameClassificationCorrectionTests`）。
+    func testSegmentRemovalOfAWithdrawnNameRemovesItsRecords() throws {
         try updateVenue(authorize: ["Psychometrika"], judgement: "r0")
         try updateVenue(unauthorize: ["Psychometrika"], judgement: "r1")
-        XCTAssertThrowsError(try service.committed(root).updateVenue(
+        let out = try payload(try service.committed(root).updateVenue(
             key: "some-journal", addNames: nil, note: nil, type: nil,
-            editNameSegment: [["name": "Psychometrika", "remove": true, "reason": "拼錯"]])) { e in
-            // 這一句是編輯面自己的拒絕（指路「判定史不刪」）；store 邊界的附著驗證也會擋（孤兒記錄），但它的訊息不說這句
-            XCTAssertTrue("\(e)".contains("判定史不刪"), "\(e)")
-        }
-        XCTAssertEqual(Set(try venue().names.entries.map(\.value)), ["PSYCHOMETRIKA", "Psychometrika"])
+            editNameSegment: [["name": "Psychometrika", "remove": true, "reason": "拼錯"]]))
+        XCTAssertEqual(out["judgementRecordsRemoved"] as? Int, 2, "\(out)")
+        XCTAssertEqual(Set(try venue().names.entries.map(\.value)), ["PSYCHOMETRIKA"])
+        XCTAssertTrue(records(try venue().references).isEmpty)
     }
 
     /// `repair-venue-names` 改寫一個名字的拼法時，指著那個拼法的名字分類記錄算 pinned，交給人判斷。

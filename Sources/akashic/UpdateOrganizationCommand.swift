@@ -11,7 +11,7 @@ import AkashicMCPKit
 struct UpdateOrganizationCmd: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "update-organization",
-        abstract: "organization 的部分更新（#557）：--authorize 指定對外名稱（同書寫系統替換）——語意與 update-venue --authorize 同一份，必附 --judgement（名字分類的判定記錄，#564）；沒有 --unauthorize（organization 的 names 只增不減，待裁）。organization 無法唯一定位（\(UnlocatableReason.organization)）時整批拒絕、零寫入")
+        abstract: "organization 的部分更新（#557）：--authorize 指定對外名稱（同書寫系統替換）——語意與 update-venue --authorize 同一份，必附 --judgement（名字分類的判定記錄，#564）；沒有 --unauthorize（organization 的 names 只增不減，待裁）；--remove-name 只刪已撤回的名字（#564 第 2 點）。organization 無法唯一定位（\(UnlocatableReason.organization)）時整批拒絕、零寫入")
 
     @OptionGroup var options: LibraryOptions
 
@@ -28,7 +28,7 @@ struct UpdateOrganizationCmd: ParsableCommand {
                              + "沒給、或只有空白項，整批拒絕（沒有要改的，用法錯誤 64）。必附 --judgement（#564）：寫 field: authorized 的判定記錄，同 update-venue --authorize；"
                              + "給的名字都已是對外名稱時寫一筆「確認」（報告 alreadyAuthorized），同一句理由已記過（位元組完全相同）才不寫檔。"
                              + "其他報告：authorizedRewritten（同名 NFD 舊指定換成 canonical）、"
-                             + "authorizeDropped（整項空白）、authorizedNotCurrent（指定的名字在 names 的各段都已結束，displayName 會變成退役名）、authorizedTotal；"
+                             + "authorizeDropped（整項空白）、authorizedNotCurrent（指定的名字在 names 裡沒有開放段——已結束或只有觀測點——而這個機構另有現行名稱：displayName 會變成不是現行的名字）、authorizedTotal；"
                              + "寫檔成功而 index 重建失敗時，報告多 indexRebuilt: false 與 indexNote（要跑 akashic doctor 重建）"))
     var authorize: [String] = []
 
@@ -41,11 +41,21 @@ struct UpdateOrganizationCmd: ParsableCommand {
             help: "理由依據的證據 digest（sha256:64hex，0 byte 內容的 digest 拒收；先用 store-source 存檔）；可省略、至多 20 個，套用到這次的每一筆記錄")
     var restsOn: [String] = []
 
+    @Option(name: .customLong("remove-name"),
+            help: ArgumentHelp(
+                "刪掉一個名字：<名字>=<理由>（可重複；以第一個 = 切）",
+                discussion: "organization 沒有一般的名字移除面（待裁，#557）；這條只收最後一筆名字分類記錄是「撤回」的名字（#564 第 2 點，打錯字的名字的出路——"
+                    + "用 --authorize 把同書寫系統的對外名稱換成別的名字，被換下的會留一筆撤回）：名字的每一段連同它的名字分類記錄一起刪。"
+                    + "理由必填、只回在報告（namesRemoved）、不寫進 store；organization 檔要已在 git 裡 commit、無未提交修改。單獨呼叫，不與 --authorize／--judgement／--rests-on 組合；"
+                    + "一次至多 200 個。沒有記錄、最後一筆不是撤回、還是對外名稱、被 field: names 的 reference 指著、刪完沒有名字，都整批拒絕、零寫入"))
+    var removeName: [String] = []
+
     /// 只看 argv 的檢查早於開 store（#654）：與服務在讀 store 之前跑的是同一個函式
     func validate() throws {
         try argvCheck {
             try AkashicService.checkUpdateOrganizationArguments(key: key, authorize: authorize,
-                                                                judgement: judgement, restsOn: restsOn.isEmpty ? nil : restsOn)
+                                                                judgement: judgement, restsOn: restsOn.isEmpty ? nil : restsOn,
+                                                                removeNames: removeName.isEmpty ? nil : removeName)
         }
     }
 
@@ -55,6 +65,7 @@ struct UpdateOrganizationCmd: ParsableCommand {
                                      environment: ProcessInfo.processInfo.environment)
         // 寫入面封閉例外形：只回 service payload（mcp-cli-parity 的既有裁決）
         print(try service.updateOrganization(key: key, authorize: authorize,
-                                             judgement: judgement, restsOn: restsOn.isEmpty ? nil : restsOn))
+                                             judgement: judgement, restsOn: restsOn.isEmpty ? nil : restsOn,
+                                             removeNames: removeName.isEmpty ? nil : removeName))
     }
 }

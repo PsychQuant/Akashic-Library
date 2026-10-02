@@ -229,6 +229,24 @@ enum ToolPayloadScenarios {
         PayloadScenario("akashic_update_person", "apply", params: ["key", "fields", "dry_run"]) {
             try $0.service.updatePerson(key: "cheng-che", fields: ["note": "guard"], dryRun: false)
         },
+        // #564 修正輪（裁決第 1 點）：names 動到 authorized 要 judgement，寫判定記錄（judgementsRecorded；乾跑是 judgementsToRecord）
+        PayloadScenario("akashic_update_person", "names with judgement", params: ["key", "fields", "judgement", "rests_on"]) {
+            try $0.service.updatePerson(key: "desc-solo", fields: ["names": ["authorized": ["Desc Solo"], "variant": [String]()]], dryRun: false,
+                                        judgement: "本人署名", restsOn: [try $0.storeDigest()])
+        },
+        PayloadScenario("akashic_update_person", "names dry_run", params: ["key", "fields", "judgement", "dry_run"]) {
+            try $0.service.updatePerson(key: "desc-solo", fields: ["names": ["authorized": ["Desc Solo"], "variant": [String]()]], dryRun: true,
+                                        judgement: "本人署名")
+        },
+        // #564 修正輪（裁決第 2 點）：最後一筆記錄是撤回的名字連同記錄一起刪（remove_names 單獨呼叫，不帶 fields）
+        PayloadScenario("akashic_update_person", "remove_names", params: ["key", "remove_names"]) {
+            _ = try $0.service.updatePerson(key: "desc-solo", fields: ["names": ["authorized": ["Desc Solo"], "variant": [String]()]], dryRun: false,
+                                            judgement: "批次採用")
+            _ = try $0.service.updatePerson(key: "desc-solo", fields: ["names": ["authorized": ["D. Solo"], "variant": ["Desc Solo"]]], dryRun: false,
+                                            judgement: "拼錯了")
+            $0.commit()
+            return try $0.service.updatePerson(key: "desc-solo", fields: [:], dryRun: false, fieldsGiven: false, removeNames: ["Desc Solo=拼錯了"])
+        },
     ]
 
     static let organizations: [PayloadScenario] = [
@@ -247,6 +265,13 @@ enum ToolPayloadScenarios {
                 TemporalValue(value: "Institute of Statistics", range: DateRange(start: "1960", end: "1993")),
                 TemporalValue(value: "Institute of Statistical Science", range: DateRange(start: "1993"))]), id: UUID()))
             return try $0.service.updateOrganization(key: "former-institute", authorize: ["Institute of Statistics"], judgement: "沿革名稱")
+        },
+        // #564 修正輪（裁決第 2 點）：被換下的打錯字的名字（最後一筆是撤回）連同記錄一起刪
+        PayloadScenario("akashic_update_organization", "remove_names", params: ["key", "remove_names"]) {
+            _ = try $0.service.updateOrganization(key: "global-research-institute", authorize: ["Global Research Institut"], judgement: "oops")
+            _ = try $0.service.updateOrganization(key: "global-research-institute", authorize: ["Global Research Institute"], judgement: "正式名稱")
+            $0.commit()
+            return try $0.service.updateOrganization(key: "global-research-institute", authorize: [], removeNames: ["Global Research Institut=拼錯了"])
         },
     ]
 

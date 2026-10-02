@@ -877,6 +877,7 @@ extension LibraryStore {
                 keeperReferences: mp.keeper.references)
             report.verdictValuesRewritten = vp.rewritten
             report.verdictsCollapsed = vp.collapsed + mp.verdictsCollapsed
+            report.referencesCarried = mp.referencesCarried.sorted()   // #564 修正輪：搬什麼 dry-run 也要說（同 venue）
         case .work:
             let pre = try validateWorkPreconditions(
                 survivor: survivor, mergedKeys: mergedKeys, snapshot: snapshot)
@@ -1612,7 +1613,7 @@ extension LibraryStore {
             // `issn`／`names` 的 reference 走到這裡是因為它指的號或名字不在合併後的倖存者上——搬過去會成孤兒。
             // canonical 相等、位元組不同的那一筆（`canonicalTwinNote`）**照樣拒絕**：那是 D65／D69 零位元組損失的取捨。
             // live store 2026-09-17：485 筆 venue 裡 33 筆帶 paginated reference（36 筆）、venue divergence 0 筆——今天零回歸；
-            // #566 的 campaign 下次跑會撞到約 7% 的 venue。
+            // 按需判定（#600 裁決，#566）碰到的 venue 約 7% 會撞到它。
             let generic = plan.lost.filter { !NameClassificationRecord.isRecord($0) }   // 名字分類記錄上方已另說
             let handOnly = generic.filter { !Self.carriableVenueReferenceFields.contains($0.field) }
             let orphaned = generic.filter { Self.carriableVenueReferenceFields.contains($0.field) }
@@ -1670,7 +1671,7 @@ extension LibraryStore {
     static let carriableVenueReferenceFields: Set<String> = ["issn", "names"]
 
     /// 被併者的非 verdict reference 怎麼處理（#587 R1）：
-    /// - 倖存者已有位元組相同的一筆：不動（不算搬、也不算失去）
+    /// - 倖存者已有位元組相同的一筆：不動（不算搬、也不算失去）——名字分類記錄例外，見下
     /// - `field: issn`／`names`，且它指的號或名字在合併後的倖存者上存在：**搬**（逐位元組原樣）
     /// - 其餘：失去（前置具名拒絕）
     ///
@@ -1680,6 +1681,7 @@ extension LibraryStore {
     /// **名字分類的判定記錄**（#564）：它的名字在合併後的倖存者上的分類（在不在 authorized、在不在 variant）與在被併者上相同時才搬——
     /// 分類不同時搬過去會說一句倖存者的分類不承認的話，算失去（前置具名拒絕）。倖存者的 authorized 就是合併前的（合併不增加 authorized），
     /// variant 是 `mergedVariant`（倖存者的加上被標 variant 搬進來的，`mergedVariantKeys`）。名字也要在合併後的 names 裡（它錨定 names）。
+    /// **分類一致的檢查先於位元組去重**（#564 R1 verify）：倖存者持有位元組相同的一筆不代表它還承認那個分類——不一致就算失去。
     static func venueReferenceCarry(_ v: Venue, into keeper: Venue, mergedNames: [String], mergedVariant: Set<String>)
         -> (carry: [ProvenanceReference], lost: [ProvenanceReference]) {
         let keeperBytes = Set(keeper.references.map(\.byteExactKey))
@@ -1691,14 +1693,18 @@ extension LibraryStore {
         var lost: [ProvenanceReference] = []
         for r in v.references {
             if ProvenanceReference.resolutionVerdictFields.contains(r.field) { continue }
-            if keeperBytes.contains(r.byteExactKey) { continue }
+            // 名字分類記錄**先**看分類一致，才看倖存者有沒有位元組相同的一筆（#564 R1 verify Codex：先前的位元組早退排在前面，
+            // 兩邊各持一筆「variant 指定：R」、倖存者之後撤回了那個名字時，被併者的 variant 分類被合併安靜地拿掉——記錄沒搬是因為
+            // 倖存者「已經有」，而倖存者那一筆說的是一個它現在不承認的分類）
             if NameClassificationRecord.isRecord(r), let name = r.value {
                 let k = NameIdentity.canonical(name)
                 let agrees = doomedAuthorized.contains(k) == keeperAuthorized.contains(k)
                     && doomedVariant.contains(k) == mergedVariant.contains(k)
-                if agrees, mergedNames.contains(where: { $0 == name }) { carry.append(r) } else { lost.append(r) }
+                guard agrees, mergedNames.contains(where: { $0 == name }) else { lost.append(r); continue }
+                if !keeperBytes.contains(r.byteExactKey) { carry.append(r) }
                 continue
             }
+            if keeperBytes.contains(r.byteExactKey) { continue }
             let attachable: Bool
             switch r.field {
             case "issn":
@@ -1828,7 +1834,8 @@ extension LibraryStore {
 
     /// #564：`authorizedDemotedByMerging` 回報的降級裡，被併者對那個名字持有任何 `field: authorized` 名字分類記錄的——判準是「有任何記錄」，
     /// 不是「最後一筆是指定或確認」：人對那個名字的對外形身分說過話，合併就不替人改（最後一筆是撤回卻仍在 authorized 只可能是手改，
-    /// 那時保守地拒絕）。回傳擲出端已消毒的「「X」（最後一筆：…）」。preview 與實跑共用（`validateVenuePreconditions`）。
+    /// 那時保守地拒絕）。「只可能是手改」靠的是 `NameClassificationRecord.append` 只對**同一個名字同一個分割的最後一筆**去重（#564 R1
+    /// verify：先前對整份歷史去重，「指定 R → 撤回 → 再以 R 指定」的第三筆被丟，工具面就造得出這個形）。回傳擲出端已消毒的「「X」（最後一筆：…）」。preview 與實跑共用（`validateVenuePreconditions`）。
     static func judgedAuthorizedDemotions(_ v: Venue, into keeper: Venue, absorption: VenueNameAbsorption) -> [String] {
         authorizedDemotedByMerging(v, into: keeper, absorption: absorption).compactMap { demotion in
             let records = NameClassificationRecord.records(in: v.references, field: NameClassificationRecord.authorizedField,
@@ -2132,8 +2139,9 @@ extension LibraryStore {
     }
 
     /// 隨合併搬到倖存者的一筆 reference 的人可讀描述（報告用）。**是 store 字串**，只截不消毒——消毒在 sink（CLI 逐列 `displaySafe`）。
-    static func describeCarriedReference(_ doomedKey: String, _ r: ProvenanceReference) -> String {
-        var line = "venue「\(clipScalars(doomedKey, 120))」：\(clipScalars(r.field, 60))"   // display-safe-exempt: report 是資料面；CLI 印出時逐列 displaySafe
+    /// `kind` 是被併記錄的形狀（venue；#564 修正輪起也有 person）。
+    static func describeCarriedReference(_ doomedKey: String, _ r: ProvenanceReference, kind: String = "venue") -> String {
+        var line = "\(kind)「\(clipScalars(doomedKey, 120))」：\(clipScalars(r.field, 60))"   // display-safe-exempt: report 是資料面；CLI 印出時逐列 displaySafe；kind 是呼叫端的字面量
         if let v = r.value { line += " \(clipScalars(v, 120))" }   // display-safe-exempt: 同上
         switch r.kind {
         case .retrieval(let url, _, _, _, _): line += "（retrieval \(clipScalars(url, 200))）"   // display-safe-exempt: 同上
@@ -2212,8 +2220,9 @@ extension LibraryStore {
     /// #271：被併者的 verdict references 自動遷移——判定史不隨檔案消失。
     /// 冪等的鍵是 `verdictEqualityKey`（正規化 literal），與 `appendIfAbsent`／`supersede`／#486 同一把（R12，D31）。
     static func mergedPersonKeeper(_ keeper: Person, absorbing doomed: [Person], edges: VerdictEdgeSet = .empty)
-        -> (keeper: Person, verdictsMigrated: [String], verdictsCollapsed: [String]) {
+        -> (keeper: Person, verdictsMigrated: [String], verdictsCollapsed: [String], referencesCarried: [String]) {
         var keeper = keeper
+        let original = keeper
         let keeperKeys = Set(keeper.names.all.map(NameIdentity.canonical))
         let incoming = doomed.flatMap { $0.names.all }
             .filter { !keeperKeys.contains(NameIdentity.canonical($0)) }
@@ -2221,7 +2230,34 @@ extension LibraryStore {
         let m = Self.mergeVerdicts(into: keeper.references, keeperKey: keeper.key, kind: "person",
                                    doomed: doomed.map { ($0.key, $0.references) }, edges: edges)   // R18，D51（同 venue）
         keeper.references = m.refs
-        return (keeper, m.migrated, m.collapsed)
+        // #564 修正輪（裁決第 3 點）：分類一致的名字分類記錄逐位元組搬過去（前置 `fieldsLostByMerging` 放行的，這裡就搬；同一份 `personReferenceCarry`）
+        var seen = Set(keeper.references.map(\.byteExactKey))
+        var carried: [String] = []
+        for d in doomed {
+            for r in Self.personReferenceCarry(d, into: original).carry where seen.insert(r.byteExactKey).inserted {
+                keeper.references.append(r)
+                carried.append(Self.describeCarriedReference(d.key, r, kind: "person"))
+            }
+        }
+        return (keeper, m.migrated, m.collapsed, carried)
+    }
+
+    /// 被併 person 的名字分類判定記錄怎麼處理（#564 修正輪，使用者 2026-10-02 裁決第 3 點；比照 venue 的 `venueReferenceCarry`）：
+    /// 名字在被併者上的分類（在不在 authorized）與在倖存者上相同才搬——合併不增加 authorized，被併者的名字都進倖存者的 names
+    /// （不在倖存者 names 的進 variant），所以「相同」就是兩邊對它是不是對外形的答案一樣。**分類一致的檢查先於位元組去重**（同 venue）：
+    /// 倖存者持有位元組相同的一筆，不代表它還承認那個分類。只看名字分類記錄——其餘 reference 仍由 `fieldsLostByMerging` 的子集判準管。
+    /// `fieldsLostByMerging`（拒絕）與 `mergedPersonKeeper`（實際搬）共用這一份。相等用 `String ==`，與 authorized 子集判準同一把。
+    static func personReferenceCarry(_ p: Person, into keeper: Person) -> (carry: [ProvenanceReference], lost: [ProvenanceReference]) {
+        let keeperBytes = Set(keeper.references.map(\.byteExactKey))
+        var carry: [ProvenanceReference] = []
+        var lost: [ProvenanceReference] = []
+        for r in p.references where NameClassificationRecord.isRecord(r) {
+            guard let name = r.value else { continue }
+            let agrees = p.names.authorized.contains(name) == keeper.names.authorized.contains(name)
+            guard agrees else { lost.append(r); continue }
+            if !keeperBytes.contains(r.byteExactKey) { carry.append(r) }
+        }
+        return (carry, lost)
     }
 
     /// 遷移時被 `verdictEqualityKey` 去重丟掉的那一筆的人可讀描述（venue／person 共用）。**是 store 字串**（value 是原始匯入的刊名／
@@ -2252,7 +2288,7 @@ extension LibraryStore {
         let (keeper0, doomed) = try validatePersonPreconditions(
             survivor: survivor, mergedKeys: mergedKeys, snapshot: snapshot)
         // 別名併入與 #271 的 verdict 遷移抽成 `mergedPersonKeeper`——preview 與實跑共用（R14，D35）
-        var (keeper, verdictsMigrated, collapsedByDedupe) = Self.mergedPersonKeeper(keeper0, absorbing: doomed,
+        var (keeper, verdictsMigrated, collapsedByDedupe, carriedReferences) = Self.mergedPersonKeeper(keeper0, absorbing: doomed,
                                                                                       edges: VerdictEdgeSet(snapshot: snapshot))   // R18 D51
 
         let merged = Set(mergedKeys)
@@ -2305,6 +2341,7 @@ extension LibraryStore {
             // #271 的清單記的是搬移**當下**的值；keeper 上的 `person:<被併鍵>` 已在 commit 前改寫（見上），
             // 揭露值要跟著改，否則 CLI 印出一個 store 裡不存在的 value（verify requirements #5）。
             report.verdictsCollapsed.append(contentsOf: collapsedByDedupe)
+            report.referencesCarried = carriedReferences.sorted()   // #564 修正輪；與 preview 同序才比得出「一致」
             report.verdictReferencesMigrated = verdictsMigrated.map { v in
                 guard let p = ProvenanceReference.VerdictPairingValue.parse(v),
                       p.holderKind == .person, merged.contains(p.holder) else { return v }
@@ -3130,13 +3167,30 @@ extension LibraryStore {
         // 「倖存者身上已經有這筆」比**位元組**（`byteExactKey`，R25 D69；R24 verify 第 9／26／29 列）：canonical `==` 把被併記錄的
         // NFD 拼法判成「已有」，那組位元組隨檔案消失而報告說沒有遺失——D65 在 rename 折疊上修掉的同一個缺陷。
         let keeperBytes = Set(keeper.references.map(\.byteExactKey))
+        // #564 修正輪（使用者 2026-10-02 裁決第 3 點）：名字分類的判定記錄在分類一致時隨合併逐位元組搬到倖存者（`personReferenceCarry`，
+        // 比照 venue 的 `venueReferenceCarry`），不算失去；分類不一致的另說一行、指出口。其餘非 verdict reference 維持子集判準。
+        let plan = Self.personReferenceCarry(p, into: keeper)
         let lostRefs = p.references.filter {
             !keeperBytes.contains($0.byteExactKey)
                 && !ProvenanceReference.resolutionVerdictFields.contains($0.field)
+                && !NameClassificationRecord.isRecord($0)
         }
         if !lostRefs.isEmpty {
             losses.append("references（\(lostRefs.count) 筆，欄位："
                 + lostRefs.map { $0.field + Self.canonicalTwinNote($0, in: keeper.references) }.joined(separator: "、") + "）")
+        }
+        if !plan.lost.isEmpty {
+            var seenNames = Set<String>()
+            let described = plan.lost.compactMap { r -> String? in
+                guard let name = r.value, seenNames.insert(name).inserted else { return nil }
+                let mine = keeper.names.authorized.contains(name) ? "authorized" : "不是對外形"
+                let theirs = p.names.authorized.contains(name) ? "authorized" : "不是對外形"
+                return "「\(name)」被併者\(theirs)→倖存者\(mine)"
+            }
+            losses.append("名字分類的判定記錄（\(plan.lost.count) 筆：" + described.prefix(5).joined(separator: "、")
+                          + (described.count > 5 ? "…共 \(described.count) 個名字" : "")
+                          + "）指的名字在兩邊分類不同，搬過去會說一句倖存者的分類不承認的話——合併不替人改判定；"
+                          + "先用 update-person --fields 的 names（附 --judgement）讓兩邊一致，或在被併者用 --remove-name 刪掉已撤回的名字，再合併")
         }
 
         // 未知欄位是**三分**不是二分：key 不在 → 真的會失去；key 在且 raw 相等 → 不會

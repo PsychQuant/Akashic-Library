@@ -1,5 +1,7 @@
 # 2026-10-01 名字分類的判定面一律留判定記錄；store format 22（#564）
 
+> **後記（2026-10-02）**：R1 verify 之後的修正輪改了這份的四件事——去重只比同一個名字同一個分割的最後一筆（不再比整份歷史）、person 的 `fields.names` 是第六個面、最後一筆是撤回的名字可以連同記錄刪、person 合併搬分類一致的記錄。見 `changelog/2026-10-02-name-classification-correction.md`；下文保留首版的寫法。
+
 使用者 2026-10-01 裁決（#564）：名字分類的判定面——person 的 `authorize-names`、venue 的 `--add-variant`／`--authorize`／`--unauthorize`、organization 的 `--authorize`（CLI 與 MCP 兩面，共五個面）——都是判定型寫入（`two-kinds-of-edits` 的 AI 欄），一律留 judgement 記錄：每次指定、撤回、標異寫都在 `references` 寫一筆 `field: authorized`／`variant` 的判斷型 reference，**理由必填、證據 digest 可空**；對既有值說「確認」也留一筆（先前是無聲的 no-op）；代價是升 store format 21 → 22。#600 同日裁決：既有機械值不跑全量 campaign、按需判定，所以**不回填**。
 
 **organization 沒有 `--unauthorize`／MCP `unauthorize`**：#557 的裁決只說「先提供 --authorize」，撤回腿未經裁決，#557 的 R1 verify 之後把它拿掉（待使用者裁決），所以五個面裡 organization 只有 `--authorize`。本 change 原本是在有那條腿的 base 上寫的（當時的處置是不要求理由、不寫記錄、不收 `judgement`，並有測試與兩個負對照釘住），整合進 #557 R1 之後那條腿與它的測試、負對照（M22、M23）一併不存在；日後裁決加回撤回腿時，要一併裁決它要不要理由與記錄。**整合時另有一個語意交會**：#557 R1 的「都已是對外名稱＝不寫檔」自此要加條件——對已是對外名稱的名字說「確認」會寫一筆記錄，所以那種呼叫會寫檔；同一句理由已記過（位元組完全相同）才不寫檔（`testAlreadyAuthorizedOnlyDoesNotRewriteTheFile`）。
@@ -112,6 +114,8 @@ M15、M16 是負對照抓到的**弱測試**：第一版的斷言在 mutant 之�
 
 
 ## `tools/list` 位元組
+
+> **後記（2026-10-02，#564 修正輪）**：預算之後調到 60,000（#578／#713）。這一節記的 54,000 是當時的預算；整合時為它刪掉的拒絕類別已在修正輪寫回 MCP 描述（`changelog/2026-10-02-name-classification-correction.md`，修正輪實測 57,213）。
 
 以真 binary（`akashic-mcp` stdio，`tools/list` 回應整行）量：base（7132d033）**53,024** → **53,453**（+429）。預算 54,000（`StdioE2ETests.testToolsListResponseStaysWithinByteBudget`）。增加的只有 venue 的 `judgement`／`rests_on` 兩個參數說明、organization 工具說明與新增的 `judgement`／`rests_on` 參數；第一版 +505（53,529），為了不逼近 ~53,500 的線，把說明各縮了幾個字。
 

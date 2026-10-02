@@ -22,17 +22,17 @@
 
 ## 判定記錄
 
-撤回是判定（`two-kinds-of-edits` 的 AI 欄）。#564 已於 2026-10-01 裁決名字分類面全部要留判定記錄（含撤回），另案落地（需要 store format bump）；在那之前本面不寫記錄。替換與撤回的邏輯寫成純值運算（見下），報告的各桶就是那筆記錄要記的內容，落地時由呼叫端依報告寫 reference，不必改替換與撤回本身。
+撤回是判定（`two-kinds-of-edits` 的 AI 欄）。#564 已於 2026-10-01 裁決名字分類面全部要留判定記錄（含撤回），另案落地（需要 store format bump）；在那之前本面不寫記錄（→ #564 已同日落地：`--unauthorize` 必附 `--judgement`，每個名字寫一筆「撤回」）。替換與撤回的邏輯寫成純值運算（見下），報告的各桶就是那筆記錄要記的內容，落地時由呼叫端依報告寫 reference，不必改替換與撤回本身。
 
 ## 實作
 
-替換（#554）與撤回搬進 `Sources/AkashicMCPKit/AuthorizedDesignation.swift` 一份：`authorize(_:)` 原樣從 `updateVenue` 搬出（訊息逐字不變，既有的 `VenueAuthorizedWriteTests` 89 個測試照綠），`unauthorize(_:)` 是新的。#557 的 organization 用同一份。同一個名字既 `authorize` 又 `unauthorize` 的檢查是 `AkashicService.refuseAuthorizeUnauthorizeOverlap`，venue 與 organization 的入口共用。
+替換（#554）與撤回搬進 `Sources/AkashicMCPKit/AuthorizedDesignation.swift` 一份：`authorize(_:)` 原樣從 `updateVenue` 搬出（訊息逐字不變，既有的 `VenueAuthorizedWriteTests` 89 個測試照綠），`unauthorize(_:)` 是新的。#557 的 organization 用同一份的替換（organization 的 `unauthorize` 於 #557 R1 verify 之後拿掉）。同一個名字既 `authorize` 又 `unauthorize` 的檢查是 `AkashicService.refuseAuthorizeUnauthorizeOverlap`，只有 venue 的入口用它。
 
 連帶改的文字：`edit_name_segment` 移除最後一段、名字還在 authorized 時的拒絕訊息多指一條路（`--unauthorize`）；`docs/store-format.md` 兩處；`WriteGateRulings` 的 `update-venue` 那一格的理由補上這條腿（裁決不變：不閘）。
 
 ## 沒有做的
 
-#559 的補記（#554 R16 verify regression 第 23 列）建議在 `resolve-venues` 不帶參數的列表裡報「因正規化配對被抑制的候選數」。那是 `VenueResolver` 的否決抑制（`--reject`／`--demote` 以 `matchingKey` 壓住同 work 同 venue 的其他拼法），與 authorized 的撤回是兩件事：要新增列表的回應鍵、MCP 說明（位元組預算）與 CLI 輸出，不是順手的改動。本次不做。**處置待辦：另開 issue 追蹤**（R1 verify 第 12／19 列：#559 一旦 close，留在那則補記裡的待辦就沒有可掃描的位置，`blocked-issues-must-be-scannable` 同型）；issue 號由開立的人補進這一行。
+#559 的補記（#554 R16 verify regression 第 23 列）建議在 `resolve-venues` 不帶參數的列表裡報「因正規化配對被抑制的候選數」。那是 `VenueResolver` 的否決抑制（`--reject`／`--demote` 以 `matchingKey` 壓住同 work 同 venue 的其他拼法），與 authorized 的撤回是兩件事：要新增列表的回應鍵、MCP 說明（位元組預算）與 CLI 輸出，不是順手的改動。本次不做。**處置待辦：另開 issue 追蹤**（R1 verify 第 12／19 列：#559 一旦 close，留在那則補記裡的待辦就沒有可掃描的位置，`blocked-issues-must-be-scannable` 同型）；→ #712（2026-10-01 開立，已落地：列表的 `suppressed`／`suppressedTotal`／`truncated`）。
 
 ## 測試
 

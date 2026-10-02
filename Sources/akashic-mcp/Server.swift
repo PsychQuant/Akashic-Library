@@ -197,7 +197,7 @@ actor AkashicMCPServer {
                 "split_author": strArray("把一個作者位拆成多個（一個 literal 裝了兩個人）：citekey:authorIndex:分隔符=理由。收分隔符（不收拆好的名字）；切出空段即拒絕；只作用於未歸戶的位置；拆出來的仍是 .literal"),
                 "un_split": strArray("split_author 的逆操作：citekey:原literal（以值定位）。還原後刪掉那筆拆分記錄。整批拒絕零寫入：任一段已升格（屬 demote）、各段不連續同序、同 value 多筆記錄、那些 work 檔不在 git 或有未提交修改"),
                 "drop_author": strArray("移除不是作者的作者位（例如 PsycInfo 的 `No authorship indicated`）：citekey:literal=理由（必填）。以值定位；只作用於未歸戶的 .literal；同一筆 work 出現多次即拒絕。移除記錄（field: authors）與作者位改寫同一次寫入，需 store format ≥ 17；沒有具名逆操作"),
-                "undecided": strArray("記下查過未決：citekey:authorIndex:personKey=查了什麼、為何判不出來（需 store format ≥ 19）。寫一筆 resolution-undecided 到該 person，作者位不動。已判定的配對、已歸戶的作者位、無法唯一定位的 work 或 person 該筆略過並在 skipped（具名）；相同記錄已在＝alreadyRecorded。整批拒絕零寫入（類別與上限見 CLI help，不截斷）"),
+                "undecided": strArray("記下查過未決：citekey:authorIndex:personKey=查了什麼、為何判不出來（需 store format ≥ 19）。寫一筆 resolution-undecided 到該 person，作者位不動。已判定的配對、已歸戶的作者位、無法唯一定位的 work 或 person 該筆略過並在 skipped（具名）；相同記錄已在＝alreadyRecorded。整批拒絕零寫入：格式錯、重複 id、說明空白、person 不存在、digest 不合、rests_on 單獨出現、一次超過 200 個 id／20 個 digest／單句說明 4,096 位元組（不截斷）"),
                 "rests_on": strArray("未決記錄的證據 digest（sha256:64hex，0 byte 內容的 digest 拒收，先用 akashic_store_source 存檔），套用到這次呼叫的每一筆 undecided；只伴隨 undecided"),
                 "attribute_org": strArray("把作者位歸給團體作者（.literal → .organization）：citekey:authorIndex:orgKey=判定理由（必填）。org 需已存在（絕不自動建）；已歸戶的位置拒絕；整批驗證通過才寫。理由存不進去時照常歸戶、該列帶 verdictNotRecorded（含原因）"),
                 "judge": strArray("逐篇判定（#386）：citekey:authorIndex:personKey=判定理由（以第一個 = 切；必填、≤ 4,096 位元組，超過整批拒絕、不截斷，#648），理由逐字寫進 verdict，回 judged；**歧義列也適用**。輸入錯（含同一作者位判給兩個人）整批拒絕零寫入；store 狀態不符（位置已歸戶、無法唯一定位、找不到原 literal 等）該筆略過並在 skipped 具名。已歸給同一個人：同一句理由＝no-op（alreadyJudged），不同則略過；由 apply 歸戶的寫一筆並存判定（coexistsWith:\"nominated\"，需 format ≥ 19）；理由存不進去時照常歸戶（verdictNotRecorded）。任一筆寫出後超過 8 MiB 讀取上限即整批零寫入。需 store format ≥ 8"),
@@ -255,26 +255,26 @@ actor AkashicMCPServer {
                 "issn": strArray("ISSN（可多個：print 與 electronic 是兩個真的號；相等看正規形）；角色寫法同 akashic_update_venue 的 add_issn。任一不合法即整個呼叫拒絕、零寫入。回報 issnMediumRecorded、issnDropped"),
              ], required: ["key", "names", "type"])),
         Tool(name: "akashic_update_venue",
-             description: "venue 的部分更新（CLI 對應 `akashic update-venue --help`；名字的不變式見 docs/store-format.md §5.7）。add_names／add_issn／add_variant 是 append：只附加不重複的值，不提供整組替換；authorize 是同書寫系統替換；paginated／clear_paginated 是判定；remove_issn／remove_reference 是移除（判定；remove_reference 單獨呼叫）；edit_name_segment 改或刪名字段（判定）；note／type 替換（選填）。各 *Total（namesTotal／issnTotal／variantTotal／authorizedTotal／referencesTotal）是寫後總數；authorizedAdded／variantAdded 是新指定／新標的名字。需 store format ≥ 11。",
+             description: "venue 的部分更新（CLI 對應 `akashic update-venue --help`；名字的不變式見 docs/store-format.md §5.7）。add_names／add_issn／add_variant 是 append：只附加不重複的值，不提供整組替換；authorize 是同書寫系統替換；paginated／clear_paginated 是判定；remove_issn／remove_reference 是移除（判定；remove_reference 單獨呼叫）；edit_name_segment 改或刪名字段（判定）；note／type 替換（選填）。resolve_venues 對沿革各段都配對。各 *Total（namesTotal／issnTotal／variantTotal／authorizedTotal／referencesTotal）是寫後總數；authorizedAdded／variantAdded 是新指定／新標的名字。需 store format ≥ 11。",
              inputSchema: obj([
                 "key": str("既有 venue key"),
                 "add_names": strArray("要附加的名稱變體（相等看 canonical，以 canonical 形入庫）。回報：namesAdded（新加入）、namesAlreadyPresent（本來就在，不論位元組）、namesFolded（折成 canonical 才存，或同批位元組相同的重複）、namesDropped（空白或近重複，沒進）。含不合法字元（規則見 §5.7）或沒有任何字母或數字的名字 → 整批拒絕零寫入（其他參數也不寫）"),
                 "note": str("備註（替換；選填）"),
                 "type": str("\(VenueType.domainDescription)（替換；選填）"),
                 "add_issn": strArray("要附加的 ISSN（相等看正規形，0003-066x＝0003-066X）。可緊跟角色：\"NNNN-NNNN (print)\"（print／electronic／linking）；已在而無角色的號補上，已記的角色不同即拒。號或角色不合法 → 整個呼叫拒絕零寫入。回報 issnAdded／issnAlreadyPresent／issnMediumRecorded／issnDropped"),
-                "add_variant": strArray("要標成異寫法的名字（append；名字檢查同 add_names）。不在 names 裡的一併加進 names。整項空白的不寫，回報在 variantDropped"),
+                "add_variant": strArray("要標成異寫法的名字（append；名字檢查同 add_names）。不在 names 裡的一併加進 names。整項空白的不寫，回報在 variantDropped；已是異寫的（寫確認）列在 variantConfirmed"),
                 "authorize": strArray("指定為對外形的名字。**不是 append**：每個書寫系統（han／latn／other）至多一個，同書寫系統原本的指定移出 authorized、留在 names、不標 variant（authorizedRemoved）；同一次呼叫兩個同書寫系統的名字整批拒絕。不在 names 的一併加進 names。其他回報：liftedFromVariant、alreadyAuthorized、authorizedRewritten、authorizeDropped"),
-                "unauthorize": strArray("撤回對外形：須是現有 authorized，移出後留在 names、不標 variant；authorize 可指定回來但接在 authorized 尾端（位置與預設顯示名可能不同）。拒絕類別見 CLI help。回報 authorizedWithdrawn（每列 name、呼叫前的 index）、unauthorizeDropped；預設顯示名因此改變時多 displayNameChanged"),
+                "unauthorize": strArray("撤回對外形：須是現有 authorized，移出後留在 names、不標 variant；authorize 可指定回來但接在 authorized 尾端（位置與預設顯示名可能不同）。非成員、同時在 authorize、被 reference 指著 → 整批拒絕。回報 authorizedWithdrawn（每列 name、呼叫前的 index）、unauthorizeDropped；預設顯示名因此改變時多 displayNameChanged"),
                 "clear_paginated": ["type": "boolean", "description": "撤回 paginated 判定、回到未判定狀態：同樣要 judgement，並在 references 留一筆 value=nil 的記錄。與 paginated 不得同時給"],
                 "paginated": .object(["type": .string("boolean"),
                     "description": .string("「本刊是否使用頁碼」的判定：true＝傳統頁碼刊、false＝article-number 制。必附 judgement 與 rests_on；省略＝不動既有值（nil 是未判定狀態，floor 檢查對它照報）")]),
-                "judgement": str("判定理由：paginated／clear_paginated、add_variant／authorize／unauthorize 必填（後者寫判定記錄、回報 judgementsRecorded、需 format ≥ 22），兩類不同呼叫"),
+                "judgement": str("判定理由：paginated／clear_paginated、add_variant／authorize／unauthorize 必填（後者寫判定記錄、回報 judgementsRecorded、需 format ≥ 22、一次至多 200 個名字；理由要有字母或數字、開頭不得是組合字元），兩類不同呼叫"),
                 "rests_on": strArray("判定所依據的證據 digest（sha256:64hex，0 byte 內容拒收；paginated 至少一個、名字分類可省略——先用 akashic_store_source 存證據拿 digest）"),
                 "remove_issn": strArray("移除 ISSN：<issn>=理由（必填，只回在 issnRemoved、不寫進 store）；指向該號的 field: issn provenance 一併刪除（issnRemoved[].referencesRemoved）。venue 檔要已在 git 裡 commit、無未提交修改。號不合法、這本刊沒有、重複、或同時在 add_issn → 整批拒絕零寫入"),
                 "remove_reference": .object(["type": .string("array"), "items": .object(["type": .string("object")]),
-                    "description": .string("移除 references（單獨呼叫）：物件 {field: names|authorized|issn|note, value, reason（必填，只回在 referencesRemoved、不寫進 store）, 選填縮小鍵 kind／url／…（同 references）}；位元組相等定位。venue 檔要已 commit、乾淨。整批拒絕零寫入（類別見 CLI help）")]),
+                    "description": .string("移除 references（單獨呼叫）：物件 {field: names|authorized|issn|note, value, reason（必填，只回在 referencesRemoved、不寫進 store）, 選填縮小鍵 kind／url／…（同 references）}；位元組相等定位。venue 檔要已 commit、乾淨。定位不到或多筆、verdict／paginated 欄位、field: variant、只命中名字分類記錄、理由缺、超過 200 筆 → 整批拒絕零寫入")]),
                 "edit_name_segment": .object(["type": .string("array"), "items": .object(["type": .string("object")]),
-                    "description": .string("改或刪名字段（單獨呼叫）：物件 {name, match?, set 或 remove:true, reason（必填，只回在報告）}；match／set 的鍵 start／end／ended／attested／source／note，null 在 match＝要求缺席、在 set＝清除。git 閘（venue 檔要已 commit）與拒絕類別見 CLI help。回報 nameSegments（action／before／after）、written（false 時 writeNote）、displayNameChanged（before／after）；超過 20 項 detailsTruncated／detailsListed")]),
+                    "description": .string("改或刪名字段（單獨呼叫）：物件 {name, match?, set 或 remove:true, reason（必填，只回在報告）}；match／set 的鍵 start／end／ended／attested／source／note，null 在 match＝要求缺席、在 set＝清除。git 閘（venue 檔要已 commit）與拒絕類別見 CLI help。刪名字的最後一段時，它的名字分類記錄最後一筆要是撤回（記錄一起刪，judgementRecordsRemoved）。回報 nameSegments（action／before／after）、written（false 時 writeNote）、displayNameChanged（before／after）；超過 20 項 detailsTruncated／detailsListed")]),
                 "references": .object(["type": .string("array"), "items": .object(["type": .string("object")]),
                     "description": .string("append-only 的 provenance，與 akashic_update_person 的 references 同一個解析與契約。field 只收 issn／names、帶 value，值要在記錄上（同一次呼叫加的也算）；authorized、note、verdict、paginated 拒收。位元組相同的略過；任一筆不合或空陣列，整個呼叫拒絕零寫入。回報 referencesAdded／referencesAlreadyPresent")]),
              ], required: ["key"])),
@@ -283,11 +283,11 @@ actor AkashicMCPServer {
              inputSchema: obj([
                 "apply": strArray("要套用的候選 id（citekey:venueIndex）；省略＝只列候選"),
                 "reject": strArray("要否決的候選 id（同形）"),
-                "repoint": strArray("改指已歸戶的邊（citekey:venueIndex:newKey）：新 venue 寫 confirmed、舊的寫 rejected，並退役兩側的相反判定。整批拒絕零寫入（類別見 CLI help；含改指後本 work 兩條邊指同一 venue）。改指到自己是 no-op"),
+                "repoint": strArray("改指已歸戶的邊（citekey:venueIndex:newKey）：新 venue 寫 confirmed、舊的寫 rejected，並退役兩側的相反判定。整批拒絕零寫入：改指後本 work 兩條邊指同一 venue、目的 venue 會對該 work 持有第二個 confirmed literal（比位元組）、同一條邊指定兩次、同一批同一 work 的兩個 move 帶同一個 literal 且觸及同一 venue（既有的重複邊與 venue 集合不相交的 move 不擋）。改指到自己是 no-op"),
                 "demote": strArray("把誤升的邊退回 literal（citekey:venueIndex）：原字串從該 venue 的 confirmed verdict 逐字取回（取不到就拒絕），退役那筆 confirmed、留 rejected"),
-                "undecided": strArray("記下查過未決：citekey:venueIndex:venueKey=查了什麼、為何判不出來（需 store format ≥ 19）。寫一筆 resolution-undecided 到該 venue，邊不動。已判定的配對、已歸戶的邊、無法唯一定位的 work、key 重複的 venue 該筆略過並在 skipped（具名）；相同記錄已在＝alreadyRecorded。整批拒絕零寫入（類別與上限見 CLI help）"),
+                "undecided": strArray("記下查過未決：citekey:venueIndex:venueKey=查了什麼、為何判不出來（需 store format ≥ 19）。寫一筆 resolution-undecided 到該 venue，邊不動。已判定的配對、已歸戶的邊、無法唯一定位的 work、key 重複的 venue 該筆略過並在 skipped（具名）；相同記錄已在＝alreadyRecorded。整批拒絕零寫入：格式錯、重複 id、說明空白、venue 不存在、digest 不合、rests_on 單獨出現、一次超過 200 個 id／20 個 digest／單句說明 4,096 位元組"),
                 "rests_on": strArray("未決記錄的證據 digest（sha256:64hex，0 byte 內容的 digest 拒收，先用 akashic_store_source 存檔），套用到這次呼叫的每一筆 undecided；只伴隨 undecided"),
-                "drop_venue": strArray("移除 venue 邊：citekey:venueIndex=理由（index 是原始位置）。key 邊只在刪完後本 work 仍有另一條 key 邊指同一 venue 時可刪（否則先 demote）；literal 邊一律可刪。理由必填、只進報告（venueEdgesRemoved）、不寫進 store；那些 work 檔要已在 git 裡 commit、乾淨。整批拒絕零寫入（類別見 CLI help）。刪光一筆 work 的 venue 邊時列在 emptied"),
+                "drop_venue": strArray("移除 venue 邊：citekey:venueIndex=理由（index 是原始位置）。key 邊只在刪完後本 work 仍有另一條 key 邊指同一 venue 時可刪（否則先 demote）；literal 邊一律可刪。理由必填、只進報告（venueEdgesRemoved）、不寫進 store；那些 work 檔要已在 git 裡 commit、乾淨。整批拒絕零寫入：格式錯、理由空白或超過 4,096 位元組、同一條邊兩次、越界、citekey 無法唯一定位、一次超過 200 條。刪光一筆 work 的 venue 邊時列在 emptied"),
              ])),
         Tool(name: "akashic_add_organization",
              description: "建機構實體（organization:）。parent 以既有 org key 指涉（選填；literal parent 屬 bootstrap 面）。",
@@ -300,19 +300,20 @@ actor AkashicMCPServer {
              ], required: ["key", "names"])),
         // #557：organization 的 authorized 寫入面；CLI 對應 update-organization，兩面同一個 AkashicService.updateOrganization
         Tool(name: "akashic_update_organization",
-             description: "organization 的 authorized（CLI update-organization）。authorize 同 akashic_update_venue 的同名參數，必附 judgement（寫判定記錄）；key 重複、沒給／空陣列／只有空白項整批拒絕；都已是對外名稱而同一句理由已記過＝不寫檔。回報 namesAdded、authorizedAdded、authorizedRemoved、alreadyAuthorized、authorizedRewritten、authorizeDropped、authorizedTotal、judgementsRecorded；有事才出現：authorizedNotCurrent（指定的名字在 names 各段都已結束）、indexRebuilt:false／indexRebuildError／indexNote（已寫檔、index 沒重建）",
+             description: "organization 的 authorized（CLI update-organization）。authorize 同 akashic_update_venue 的同名參數，必附 judgement（寫判定記錄）；key 重複、沒給／空陣列／只有空白項、一次超過 200 個名字整批拒絕；都已是對外名稱而同一句理由已是最後一筆記錄＝不寫檔。沒有 unauthorize（給了即拒絕，待裁）。回報 namesAdded、authorizedAdded、authorizedRemoved、alreadyAuthorized、authorizedRewritten、authorizeDropped、authorizedTotal、judgementsRecorded；有事才出現：authorizedNotCurrent（指定的名字沒有開放段、而機構另有現行名稱）、indexRebuilt:false／indexRebuildError／indexNote（已寫檔、index 沒重建）",
              inputSchema: obj([
                 "key": str("既有 organization key"),
                 "authorize": strArray("對外名稱（同書寫系統替換）"),
                 "judgement": str("authorize 的理由（必填）"),
                 "rests_on": strArray("證據 digest（可省略）"),
+                "remove_names": strArray("刪已撤回的名字（單獨呼叫）：<名字>=理由（只回在 namesRemoved）。最後一筆名字分類記錄要是撤回，名字的每一段連同記錄一起刪；回報 namesTotal；檔要已 commit。沒有記錄、不是撤回、仍是對外名稱 → 整批拒絕"),
              ], required: ["key"])),
         Tool(name: "akashic_resolve_organizations",
              description: "org 解析（literal → organization；完整契約見 CLI `akashic resolve-organizations --help`）。不帶寫入腿回 {candidates, ambiguities}：candidates 是 person affiliations／org parents 的 literal 與某 org name 完全命中且不歧義者。候選列與歧義條目都帶 id 與 undecidedChecks（候選列是整數；歧義條目是 orgKey → 次數、只列非零）；頂層 undecidedTotal（候選配對中查過未決、尚未判定的數目）與 ambiguityUndecidedTotal（歧義條目逐個 org 數）。work、person 或 organization 無法唯一定位（原因見 akashic validate）時該列帶 unlocatableCitekey:true／unlocatablePersonKey:true／unlocatableOrganizationKey:true：這種 id 的 apply／reject 整批拒絕、judge／undecided 該筆略過。apply（候選 id，holderKey::literal）歸戶並寫 confirmed verdict；reject 寫 rejected verdict；需 store format ≥ 8。各寫入腿回自己的清單（applied／rejected／judged／undecided）與改寫檔數 peopleRewritten／organizationsRewritten／entriesRewritten。undecided、judge 各自單獨呼叫。" + legacyCopyNote,
              inputSchema: obj([
                 "apply": strArray("要套用的候選 id（holderKey::literal）；省略＝只列候選"),
                 "reject": strArray("要否決的候選 id（同形）。那個 org 已確認過同一配對（含拼法變體）時該筆略過、列在 skippedConfirmed"),
-                "undecided": strArray("記下查過未決：<列表的 id>@<orgKey>=查了什麼、為何判不出來（需 store format ≥ 19）。id 逐字取自這次列表的候選列或歧義條目（work 作者位是 citekey[i]::literal）；在每個 @<orgKey>= 處試切，恰一處的前綴與列表 id 位元組相同才收；orgKey 須是那一列提名的 org。寫一筆 resolution-undecided 到該 org（work 層級、不帶作者位），holder 不動。已判定的配對、無法唯一定位的 work 或 person 該筆略過並在 skipped（具名）；相同記錄已在＝alreadyRecorded。整批拒絕零寫入（類別與上限見 CLI help）"),
+                "undecided": strArray("記下查過未決：<列表的 id>@<orgKey>=查了什麼、為何判不出來（需 store format ≥ 19）。id 逐字取自這次列表的候選列或歧義條目（work 作者位是 citekey[i]::literal）；在每個 @<orgKey>= 處試切，恰一處的前綴與列表 id 位元組相同才收；orgKey 須是那一列提名的 org。寫一筆 resolution-undecided 到該 org（work 層級、不帶作者位），holder 不動。已判定的配對、無法唯一定位的 work 或 person 該筆略過並在 skipped（具名）；相同記錄已在＝alreadyRecorded。整批拒絕零寫入：id 解析不出唯一位置或點到 person 與 organization 同 key 的兩列、id 重複、說明空白、org 不存在或不屬於那一列、digest 不合、rests_on 單獨出現、超過上限（200 個 id、20 個 digest、單句 4,096 位元組、單筆 id 長度，見 CLI help）"),
                 "rests_on": strArray("未決記錄的證據：sha256:<64 hex> digest（0 byte 內容的 digest 拒收），套用到這次呼叫的每一筆 undecided；只伴隨 undecided（空陣列與省略同義）"),
                 "judge": strArray("逐篇判定：<列表的 id>@<orgKey>=理由（id 解析同 undecided，歧義條目也收）；歸戶到 orgKey 並寫 org-judged 層級的 confirmed verdict（理由必填、≤ 4,096 位元組）。輸入錯整批拒絕；citekey 重複、上級機構判給自己或會成環、判給歧義條目裡已否決過這個配對的 org、列表過期，該筆略過並具名。理由存不進去時 judged 列帶 verdictNotRecorded（含原因）。寫入集合先驗，任一筆不過零寫入"),
              ])),
@@ -338,16 +339,19 @@ actor AkashicMCPServer {
                 "orcid": str("ORCID（可選）"), "openalex": str("OpenAlex author ID（可選）"),
              ], required: ["key", "names"])),
         Tool(name: "akashic_update_person",
-             description: "person 的部分更新：提及的欄位整個換、未提及不動；回 key 與 updated（實跑）／wouldChange（dry_run），值是欄位名。純量欄位（orcid/openalex/died/note）收字串或 null（null＝清除）；names 收 {authorized:[…], variant:[…]} object（全量替換；平坦陣列拒收，頂層 authorized 鍵不存在）；profile 收維度 object（維度級覆寫，段形狀同 YAML：value/start/end/ended/source/note）——contacts 是**一個**維度，提及它＝整個 contacts map 替換；references 收 object 陣列，**append-only**（每項 {field, value?, kind: retrieval{url,retrieved,status,media_type,content}|judgement{statement,rests_on}}，比位元組去重——只差 NFC／NFD 的兩筆都會進 store），與 akashic_update_venue 的 references 同一個解析：status 必填（不預設 200）、不認得的鍵拒收、url 只收 http／https 且不含帳密、retrieved 是 ISO 8601、一次至多 200 筆（statement 4,096 位元組、rests_on 20 個）、空陣列拒絕；verdict 欄位對拒收（只能經 resolve 流程寫）。" + legacyCopyNote,
+             description: "person 的部分更新：提及的欄位整個換、未提及不動；回 key 與 updated（實跑）／wouldChange（dry_run），值是欄位名。純量欄位（orcid/openalex/died/note）收字串或 null（null＝清除）；names 收 {authorized:[…], variant:[…]} object（全量替換；平坦陣列拒收，頂層 authorized 鍵不存在）；profile 收維度 object（維度級覆寫，段形狀同 YAML：value/start/end/ended/source/note）——contacts 是**一個**維度，提及它＝整個 contacts map 替換；references 收 object 陣列，**append-only**（每項 {field, value?, kind: retrieval{url,retrieved,status,media_type,content}|judgement{statement,rests_on}}，比位元組去重——只差 NFC／NFD 的兩筆都會進 store），與 akashic_update_venue 的 references 同一個解析：status 必填（不預設 200）、不認得的鍵拒收、url 只收 http／https 且不含帳密、retrieved 是 ISO 8601、一次至多 200 筆（statement 4,096 位元組、rests_on 20 個）、空陣列拒絕；verdict 欄位對拒收（只能經 resolve 流程寫），名字分類記錄也拒收。names 讓名字進出 authorized 時 judgement 必填，寫指定／確認／撤回記錄（format ≥ 22；回報 judgementsRecorded，dry_run 是 judgementsToRecord）；拿掉有記錄的名字、或對外形整個離開 names 整批拒絕（先移到 variant，再 remove_names）。" + legacyCopyNote,
              inputSchema: obj([
                 "key": str("person key"),
                 "fields": .object([
                     "type": .string("object"),
-                    "description": .string("要更新的欄位（結構化 JSON，見工具描述）"),
+                    "description": .string("要更新的欄位（結構化 JSON，見工具描述）；只用 remove_names 時省略"),
                 ]),
                 "dry_run": .object(["type": .string("boolean"),
                                     "description": .string("true＝只回報會改什麼並預演 format gate、零寫入（預設 false）")]),
-             ], required: ["key", "fields"])),
+                "judgement": str("fields.names 的理由（動到 authorized 時必填；仍是對外形的寫確認）"),
+                "rests_on": strArray("judgement 的證據 digest（可省略）"),
+                "remove_names": strArray("刪已撤回的名字（單獨呼叫）：<名字>=理由（只回在 namesRemoved）。最後一筆名字分類記錄要是撤回的 variant 名字，連同記錄一起刪；回報 namesTotal；檔要已 commit（dry_run 不查）"),
+             ], required: ["key"])),
         Tool(name: "akashic_divergences",
              description: "列出全部歧異記錄：回 {count, divergences:[{id, question, candidates, hasJudgement}]}。list-only——消歧屬人工（CLI resolve-divergence）。",
              inputSchema: obj([:])),
@@ -823,11 +827,21 @@ actor AkashicMCPServer {
                     parentKey: arg("parent_key"), note: arg("note"),
                     ror: arg("ror"))
             case "akashic_update_organization":
+                // #557 R2 verify（b26 F1 第 3／6／9／21 列）：`unauthorize` 曾在這個工具上（7de07935，同日推上 main）、R1 之後拿掉。server
+                // 對多餘的鍵一律忽略，於是照舊說明送 `authorize`＋`unauthorize` 的呼叫端拿到成功、撤回卻被安靜丟掉；CLI 面是未知旗標、exit 64。
+                // 對這一個鍵具名拒絕，兩面一致。
+                if params.arguments?["unauthorize"] != nil {
+                    throw ServiceError.invalid(
+                        "akashic_update_organization 沒有 unauthorize——organization 沒有撤回腿（#557：organization 的 names 只增不減，"
+                        + "撤回之後剛加進 names 的名字會成為 fallback 顯示名；要不要有、怎麼做待使用者裁決）。要換對外名稱用 authorize"
+                        + "（同書寫系統替換，被換下的名字留在 names、寫一筆撤回記錄）；整批拒絕、零寫入")
+                }
                 output = try service.updateOrganization(
                     key: arg("key") ?? "",
                     authorize: argList("authorize"),
                     judgement: arg("judgement"),
-                    restsOn: params.arguments?["rests_on"] != nil ? argList("rests_on") : nil)
+                    restsOn: params.arguments?["rests_on"] != nil ? argList("rests_on") : nil,
+                    removeNames: try argStrictList("remove_names"))
             case "akashic_resolve_organizations":
                 let oApplyProvided = params.arguments?["apply"] != nil
                 let oRejectProvided = params.arguments?["reject"] != nil
@@ -846,21 +860,31 @@ actor AkashicMCPServer {
                 output = try service.addPerson(key: arg("key") ?? "", names: argList("names"),
                                                orcid: arg("orcid"), openalex: arg("openalex"))
             case "akashic_update_person":
-                guard let fieldsValue = params.arguments?["fields"],
-                      case .object = fieldsValue else {
-                    return CallTool.Result(
-                        content: [.text(text: "fields 必須是 object", annotations: nil, _meta: nil)],
-                        isError: true)
-                }
                 let dryRun = try argFlag("dry_run", default: false)
-                guard let fieldsAny = valueToAny(fieldsValue) as? [String: Any] else {
-                    return CallTool.Result(
-                        content: [.text(text: "fields 的巢狀深度超過 64——不是任何可更新欄位的形狀",
-                                        annotations: nil, _meta: nil)],
-                        isError: true)
+                // #564 第 2 點：remove_names 是單獨呼叫，那時不給 fields；給了 fields 就照舊要它是 object
+                let removeNames = try argStrictList("remove_names")
+                var fieldsAny: [String: Any] = [:]
+                let fieldsGiven = params.arguments?["fields"] != nil
+                if fieldsGiven || removeNames == nil {
+                    guard let fieldsValue = params.arguments?["fields"],
+                          case .object = fieldsValue else {
+                        return CallTool.Result(
+                            content: [.text(text: "fields 必須是 object（刪名字的 remove_names 單獨呼叫時才可省略）", annotations: nil, _meta: nil)],
+                            isError: true)
+                    }
+                    guard let any = valueToAny(fieldsValue) as? [String: Any] else {
+                        return CallTool.Result(
+                            content: [.text(text: "fields 的巢狀深度超過 64——不是任何可更新欄位的形狀",
+                                            annotations: nil, _meta: nil)],
+                            isError: true)
+                    }
+                    fieldsAny = any
                 }
                 output = try service.updatePerson(
-                    key: arg("key") ?? "", fields: fieldsAny, dryRun: dryRun)
+                    key: arg("key") ?? "", fields: fieldsAny, dryRun: dryRun, fieldsGiven: fieldsGiven,
+                    judgement: arg("judgement"),
+                    restsOn: params.arguments?["rests_on"] != nil ? argList("rests_on") : nil,
+                    removeNames: removeNames)
             case "akashic_divergences":
                 output = try service.listDivergences()
             case "akashic_record_divergence":

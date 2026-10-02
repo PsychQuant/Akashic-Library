@@ -247,7 +247,7 @@ final class VenueAuthorizedWriteTests: XCTestCase {
     }
 
     /// 確認既有的對外形是 no-op，但報告要說出「它已經是」——與「空白被跳過」的報告形狀
-    /// 分得開（R1 verify 第 10 列）。留 judgement 的義務另裁（#564），本面不寫記錄。
+    /// 分得開（R1 verify 第 10 列）。#564 起對既有值說「確認」也寫一筆記錄（`NameClassificationJudgementTests`）。
     func testConfirmingTheExistingAuthorizedIsReportedNotSilent() throws {
         var v = try venue()
         v.authorized = ["PSYCHOMETRIKA"]

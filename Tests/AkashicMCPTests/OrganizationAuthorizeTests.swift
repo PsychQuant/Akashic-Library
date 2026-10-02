@@ -163,6 +163,42 @@ final class OrganizationAuthorizeTests: XCTestCase {
         XCTAssertNil(try payload(try service.updateOrganization(key: "old", authorize: ["中央研究院統計科學研究所"], judgement: "fixture"))["authorizedNotCurrent"])
     }
 
+    /// 所有名字都沒有開放段的機構（已解散）：沒有現行名稱可退，指定它最後的名字是讓顯示名不再是裸 key 的做法——不報 `authorizedNotCurrent`
+    /// （#557 R2 verify 第 10／22／35 列）。只有觀測點（attested）的段不是「已結束」（#661）；機構另有開放段時它仍算不是現行，照報。
+    func testNotCurrentIsOnlyReportedWhenTheOrganizationHasACurrentName() throws {
+        let store = LibraryStore(root: root)
+        try store.writeOrganization(Organization(key: "defunct", names: Timeline([
+            TemporalValue(value: "Defunct Institute", range: DateRange(start: "1960", end: "1993"))]), id: UUID()))
+        let dissolved = try payload(try service.updateOrganization(key: "defunct", authorize: ["Defunct Institute"], judgement: "fixture"))
+        XCTAssertNil(dissolved["authorizedNotCurrent"], "沒有現行名稱的機構不報：\(dissolved)")
+        try store.writeOrganization(Organization(key: "obs", names: Timeline([
+            TemporalValue(value: "Obs Institute", range: DateRange(attested: ["2003", "2011"])),
+            TemporalValue(value: "Current Institute")]), id: UUID()))
+        let observed = try payload(try service.updateOrganization(key: "obs", authorize: ["Obs Institute"], judgement: "fixture"))
+        XCTAssertEqual(observed["authorizedNotCurrent"] as? [String], ["Obs Institute"], "\(observed)")
+    }
+
+    /// 同名而位元組不同（NFD）的舊指定：報 `authorizedRewritten` 並真的改寫位元組；第二次（已是 canonical）才走不寫檔的路（#557 R2 verify 第 7 列）。
+    func testNFDOldDesignationIsRewrittenAndReported() throws {
+        let store = LibraryStore(root: root)
+        let nfd = "Institut für Statistik".decomposedStringWithCanonicalMapping
+        // names 是 canonical 形、authorized 是手改成 NFD 的舊指定（`String ==` 看不出差別，子集檢查照過）
+        try store.writeOrganization(Organization(key: "nfd", names: Timeline([TemporalValue(value: "Institut für Statistik")]),
+                                                 authorized: [nfd], id: UUID()))
+        let out = try payload(try service.updateOrganization(key: "nfd", authorize: ["Institut für Statistik"], judgement: "fixture"))
+        XCTAssertEqual(out["authorizedRewritten"] as? [String], ["Institut für Statistik"], "\(out)")
+        let written = try XCTUnwrap(try store.load().organizations.first { $0.key == "nfd" })
+        XCTAssertEqual(written.authorized.map { Array($0.utf8) }, [Array("Institut für Statistik".precomposedStringWithCanonicalMapping.utf8)],
+                       "位元組真的換成 canonical")
+        let url = store.entityURL(id: written.id)
+        let marked = try String(contentsOf: url, encoding: .utf8) + "\n# marker\n"
+        try marked.write(to: url, atomically: true, encoding: .utf8)
+        let again = try payload(try service.updateOrganization(key: "nfd", authorize: ["Institut für Statistik"], judgement: "fixture"))
+        XCTAssertEqual(again["alreadyAuthorized"] as? [String], ["Institut für Statistik"])
+        XCTAssertEqual(again["judgementsRecorded"] as? Int, 0)
+        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), marked, "沒有變動、沒有新記錄就不寫")
+    }
+
     /// 寫檔成功之後 index 重建失敗：呼叫回成功、報告多 `indexRebuilt: false`（R1 verify 第 1 列）——檔案已經落盤，擲錯會讓報告消失、
     /// 而重試只會得到 alreadyAuthorized。做法同移除面一族（`RemovalReportSupport.swift`）。
     /// 強迫重建失敗：service 帶 registry key、`AKASHIC_HOME` 指向一個**普通檔**（同 `RemovalIndexRebuildFailureTests`）。
@@ -180,6 +216,9 @@ final class OrganizationAuthorizeTests: XCTestCase {
         XCTAssertNotNil(out["indexRebuildError"] as? String)
         let note = out["indexNote"] as? String ?? ""
         XCTAssertTrue(note.contains("報告") && note.contains("akashic doctor") && note.contains("alreadyAuthorized"), note)
+        // #557 R2 verify 第 30／38 列：#564 之後以同一句理由重試會多寫一筆「確認」——note 不能再說「只會得到 alreadyAuthorized」
+        XCTAssertTrue(note.contains("確認"), note)
+        XCTAssertFalse(note.contains("只會得到"), note)
         XCTAssertEqual(try org().authorized, ["Institute of Statistical Science"], "寫入已經落盤")
         // 重試：名字已是對外名稱，只會得到 alreadyAuthorized——報告說的是真的。#564 起第一次重試會多寫一筆「確認」記錄（index 仍重建失敗）；
         // 位元組完全相同的再一次重試才是沒有變動、沒有新記錄：不寫、不重建，所以不多出 index 鍵

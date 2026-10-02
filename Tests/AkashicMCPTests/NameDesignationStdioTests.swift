@@ -159,4 +159,54 @@ final class NameDesignationStdioTests: XCTestCase {
         XCTAssertEqual(statements(try XCTUnwrap(try load().organizations.first).references),
                        ["authorized|Institute of Statistical Science|指定：所方正式英文名稱|\(digest)"])
     }
+
+    /// #557 R2 verify（b26 F1 第 3／6／9／21 列）：已拿掉的 `unauthorize` 不再被安靜丟掉——帶它的呼叫具名拒絕、零寫入（同時給的 `authorize`
+    /// 也不執行）。先前 server 忽略多餘的鍵：authorize 照做、撤回沒做、回報成功；CLI 面是未知旗標、exit 64。
+    func testUpdateOrganizationRefusesTheRemovedUnauthorizeKey() throws {
+        let url = LibraryStore(root: root).entityURL(id: try XCTUnwrap(try load().organizations.first).id)
+        let before = try Data(contentsOf: url)
+        let out = try call(30, "akashic_update_organization", ["key": "iss", "authorize": ["Institute of Statistical Science"],
+                                                                "unauthorize": ["Institute of Statistical Science"], "judgement": "r"])
+        XCTAssertTrue(out.contains("沒有 unauthorize"), out)
+        let alone = try call(31, "akashic_update_organization", ["key": "iss", "unauthorize": ["Institute of Statistical Science"], "judgement": "r"])
+        XCTAssertTrue(alone.contains("沒有 unauthorize"), "只送 unauthorize 也要說 organization 沒有撤回腿（不是「沒有要改的」）：\(alone)")
+        XCTAssertEqual(try Data(contentsOf: url), before, "零寫入")
+    }
+
+    /// #564 修正輪（裁決第 1／2 點）：`akashic_update_person` 的 `judgement` 與 `remove_names` 是註冊過、分派得到的參數；`remove_names` 單獨呼叫時
+    /// 可以不給 `fields`。
+    func testUpdatePersonJudgementAndRemoveNamesReachTheService() throws {
+        _ = try LibraryStore(root: root).writePerson(Person(key: "smith-j", names: PersonNames(authorized: [], variant: ["Smith, Jhon", "Smith, J."])))
+        let missing = try call(40, "akashic_update_person", ["key": "smith-j",
+                                                              "fields": ["names": ["authorized": ["Smith, Jhon"], "variant": ["Smith, J."]]]])
+        XCTAssertTrue(missing.contains("judgement"), missing)
+        let out = try call(41, "akashic_update_person", ["key": "smith-j", "judgement": "本人網頁署名",
+                                                          "fields": ["names": ["authorized": ["Smith, Jhon"], "variant": ["Smith, J."]]]])
+        XCTAssertTrue(out.contains("judgementsRecorded"), out)
+        XCTAssertEqual(statements(try XCTUnwrap(try load().people.first { $0.key == "smith-j" }).references), ["authorized|Smith, Jhon|指定：本人網頁署名"])
+        // remove_names 不帶 fields 也到得了服務層（這裡被拒的理由是它還在 authorized，不是「fields 必須是 object」）
+        let removal = try call(42, "akashic_update_person", ["key": "smith-j", "remove_names": ["Smith, Jhon=拼錯"]])
+        XCTAssertTrue(removal.contains("先撤回"), removal)
+    }
+
+    /// #564 R1 verify（b26 F2 第 10／12／16／21／31 列）：#564 整合時為了舊的 54,000 預算把幾段拒絕類別換成「見 CLI help」，而只講 MCP 的
+    /// client 讀不到 CLI help（有幾項 CLI help 也沒有）。預算調到 60,000 之後寫回——釘住它們在真 binary 的 tools/list 裡。
+    func testRestoredRefusalCategoriesAreInToolsList() throws {
+        try send(["jsonrpc": "2.0", "id": 50, "method": "tools/list"])
+        let resp = try readResponse()
+        let tools = try XCTUnwrap((resp["result"] as? [String: Any])?["tools"] as? [[String: Any]])
+        func param(_ tool: String, _ name: String) throws -> String {
+            let t = try XCTUnwrap(tools.first { $0["name"] as? String == tool }, tool)
+            let props = try XCTUnwrap((t["inputSchema"] as? [String: Any])?["properties"] as? [String: Any], tool)
+            return try XCTUnwrap((props[name] as? [String: Any])?["description"] as? String, "\(tool).\(name)")
+        }
+        let drop = try param("akashic_resolve_venues", "drop_venue")
+        XCTAssertTrue(drop.contains("4,096") && drop.contains("200 條"), drop)
+        XCTAssertTrue(try param("akashic_resolve_venues", "repoint").contains("第二個 confirmed literal"))
+        for tool in ["akashic_resolve_people", "akashic_resolve_venues", "akashic_resolve_organizations"] {
+            XCTAssertTrue(try param(tool, "undecided").contains("重複"), "\(tool).undecided")
+        }
+        XCTAssertTrue(try param("akashic_update_venue", "unauthorize").contains("非成員"))
+        XCTAssertTrue(try param("akashic_update_venue", "remove_reference").contains("verdict"))
+    }
 }

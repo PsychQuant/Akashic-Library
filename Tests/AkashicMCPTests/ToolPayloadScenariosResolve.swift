@@ -78,6 +78,16 @@ extension ToolPayloadScenarios {
             try $0.service.updateVenue(key: "psychometrika", addNames: nil, note: nil, type: nil, editNameSegment: [
                 ["name": "Psychometrika", "set": ["source": NSNull()], "reason": "本來就沒有 source"]])
         },
+        // #564 修正輪（裁決第 2 點）：刪掉最後一筆記錄是撤回的名字的最後一段，記錄一起刪（judgementRecordsRemoved）
+        PayloadScenario("akashic_update_venue", "edit_name_segment remove withdrawn", params: ["key", "edit_name_segment"]) {
+            _ = try $0.service.updateVenue(key: "psychometrika-other", addNames: nil, note: nil, type: nil,
+                                           authorize: ["Psychometrika Othr"], judgement: "oops")
+            _ = try $0.service.updateVenue(key: "psychometrika-other", addNames: nil, note: nil, type: nil,
+                                           authorize: ["Psychometrika Other"], judgement: "正式刊名")
+            $0.commit()
+            return try $0.service.updateVenue(key: "psychometrika-other", addNames: nil, note: nil, type: nil,
+                                              editNameSegment: [["name": "Psychometrika Othr", "remove": true, "reason": "拼錯了"]])
+        },
         PayloadScenario("akashic_update_venue", "edit_name_segment over 20", params: ["key", "edit_name_segment"]) {
             let extra = (1...20).map { String(format: "Psychometrika Variant %02d", $0) }
             _ = try $0.service.updateVenue(key: "psychometrika", addNames: extra, note: nil, type: nil)

@@ -45,7 +45,8 @@ import AkashicIndex
 ///
 /// - **移除一個名字的最後一段**時，若那個名字還在 `authorized`／`variant`／`field: names` 的 reference 裡，具名拒絕並指路：`authorized` 用
 ///   `--unauthorize` 撤回（#559）或 `--authorize` 換掉（不同名字的指定）、`references` 用 `--remove-reference`；`variant` 目前沒有移除面，只能手改 YAML。
-///   程式不替人動那些判定（`--authorize` 遇到被 reference 指著的舊指定同一條紀律）。
+///   程式不替人動那些判定（`--authorize` 遇到被 reference 指著的舊指定同一條紀律）。名字有名字分類的判定記錄（#564）時：最後一筆是「撤回」的，
+///   名字連同它的記錄一起刪（使用者 2026-10-02 裁決 #564 第 2 點；報告 `judgementRecordsRemoved`）；最後一筆不是撤回的具名拒絕，出口是先撤回再刪。
 /// - **移除後 venue 沒有任何名字**也拒絕：venue 至少要有一個名字（`add_venue` 同）。
 /// - **時間欄位落在 `variant` 的名字上**由 `Venue.validate()` 擋（異寫法沒有生效期間）——這裡只把那句話歸因到這次編輯。
 ///
@@ -402,7 +403,12 @@ extension AkashicService {
         }
         var edited = venue
         edited.names = Timeline(entries.enumerated().filter { !removed.contains($0.offset) }.map(\.element))
-        if !removed.isEmpty { try assertRemovalLeavesNoOrphan(original: venue, removed: removed, venueLabel: venueLabel) }
+        if !removed.isEmpty {
+            try assertRemovalLeavesNoOrphan(original: venue, removed: removed, venueLabel: venueLabel)
+            // #564 第 2 點：最後一筆記錄是「撤回」的名字整個消失時，它的名字分類記錄一起刪（blocker 只放行這一種）——歷史在 git（git 閘在寫之前）
+            let gone = venue.classificationRecordsRemoved(removing: removed)
+            edited.references.removeAll { r in gone.contains { $0.byteExactKey == r.byteExactKey } }
+        }
         // 這次編輯造出的 store 不變式違反（`Venue.validate()` 的 error）：與寫入閘同一份判準，這裡只把它歸因到這次呼叫。原本就有的違反不歸咎——
         // 寫入閘照舊會擋。訊息取自 validate（逐項已消毒）。
         let existing = Set(venue.validate().filter { $0.severity == .error }.map(\.message))
@@ -436,9 +442,11 @@ extension AkashicService {
                 "移除「\(displaySafeInvisible(name, max: 120))」的最後一段會讓\(venueLabel)有 \(count) 筆 `field: names` 的 reference 成孤兒（值被改寫後 provenance 成了孤兒、寫入會被拒）——"   // display-safe-exempt: name 與 venueLabel 已消毒；count 是 Int
                 + "先用 --remove-reference（MCP remove_reference）移除它們，再重跑；整批拒絕、零寫入")
         case .judgementHistory(let name, let count):
+            // #564 第 2 點：最後一筆是「撤回」的名字連同記錄一起刪；走到這裡的是最後一筆不是撤回的——人說過的判定還成立。出口：先撤回，再刪
             throw ServiceError.invalid(
-                "移除「\(displaySafeInvisible(name, max: 120))」的最後一段會讓\(venueLabel)有 \(count) 筆名字分類的判定記錄成孤兒（它們錨定 names，#564）——"   // display-safe-exempt: name 與 venueLabel 已消毒；count 是 Int
-                + "判定史不刪，沒有工具面；要刪這個名字只能手改 YAML（連那幾筆記錄一起）；整批拒絕、零寫入")
+                "移除「\(displaySafeInvisible(name, max: 120))」的最後一段會讓\(venueLabel)有 \(count) 筆名字分類的判定記錄成孤兒（它們錨定 names，#564），"   // display-safe-exempt: name 與 venueLabel 已消毒；count 是 Int
+                + "而它的最後一筆不是「撤回」——人說過的判定還成立，刪名字只收已撤回的名字：先撤回（用 --authorize 把它指定為對外形、再用 --unauthorize 撤回，"
+                + "兩次都附 --judgement；最後一筆就是撤回），再刪——那時它的記錄會隨名字一起刪；整批拒絕、零寫入")
         }
     }
 
@@ -488,6 +496,8 @@ extension AkashicService {
             item["reason"] = displaySafe(o.reason, max: Self.maxStatementBytes)   // display-safe-exempt: reason 是呼叫端原文、在這裡消毒一次
             return item
         }
+        // #564 第 2 點：隨名字一起刪的名字分類記錄（最後一筆是撤回的）——計數在報告，內容在 git 的上一版
+        let recordsRemoved = venue.references.count - plan.venue.references.count
         var payload: [String: Any] = [
             "key": displaySafe(key, max: 200),
             "nameSegments": items,
@@ -496,6 +506,7 @@ extension AkashicService {
             "reasonNote": "理由只在這份報告裡——要留在 git，寫進接下來的 commit message（#675，使用者 2026-09-27 對移除面一族的裁決）",
         ]
         if !written { payload["writeNote"] = "沒有任何一段有變動（每一項改完與現在逐位元組相同）——沒有寫檔、沒有過 git 閘" }
+        if written, recordsRemoved > 0 { payload["judgementRecordsRemoved"] = recordsRemoved }   // display-safe-exempt: Int
         // 沒有 authorized 的 venue，顯示名在時間軸帶時間宣稱時改走現行的那一段——只編時間欄位也會換掉它（R1 verify 第 35 列）；變了要說出來
         if written, venue.displayName != plan.venue.displayName {
             payload["displayNameChanged"] = ["before": displaySafe(venue.displayName, max: 200), "after": displaySafe(plan.venue.displayName, max: 200)]

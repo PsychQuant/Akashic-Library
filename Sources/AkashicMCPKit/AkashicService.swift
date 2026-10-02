@@ -3784,13 +3784,20 @@ public final class AkashicService {
         return items.count > cap ? shown + "…（共 \(items.count) 項）" : shown   // display-safe-exempt: Int；shown 由 render 逐項消毒
     }
 
-    /// #557 起 organization 的 `authorize`／`unauthorize` 也走它（入口的輸入檢查；organization 沒有 venue 那道 D8 的 store 不變式）。
+    /// #557 起 organization 的 `authorize` 也走它（organization 沒有 `unauthorize`，#557 R1 verify 之後拿掉；入口的輸入檢查；organization 沒有 venue 那道 D8 的 store 不變式）。
     static func vetVenueNamesReportingBlanks(_ raw: [String]?, parameter: String) throws -> (vetted: [String], blanks: [String]) {
         var seen = Set<String>()
         var out: [String] = []
         var bad: [String] = []
         var blanks: [String] = []
-        for r in raw ?? [] {
+        for (i, r) in (raw ?? []).enumerated() {
+            // 單一名字的位元組上限（#557 R2 verify 第 19／27 列）：先前沒有上限，一個 9,000,000 字元的「名字」要先 canonical 才被 8 MiB 的寫入閘擋
+            // （真 binary 62 秒），而 organization 沒有名字的移除面。數字不另立：取 edit_name_segment 對名字的同一個上限（`AddOnlyEnrichment.maxValueBytes`），
+            // 在 canonical 之前擋——整批拒絕、不截斷
+            guard r.utf8.count <= AddOnlyEnrichment.maxValueBytes else {
+                throw ServiceError.invalid(
+                    "\(parameter) 的第 \(i + 1) 項超過 \(AddOnlyEnrichment.maxValueBytes) 位元組（實得 \(r.utf8.count)）——那不是一個名字；整批拒絕、零寫入，不截斷")   // display-safe-exempt: parameter 是呼叫端參數名的編譯期常量；Int
+            }
             let c = NameIdentity.canonical(r)
             if c.isEmpty { blanks.append(r); continue }
             if let why = NameIdentity.wellFormednessIssue(c) {
@@ -4036,6 +4043,9 @@ public final class AkashicService {
                 removals.append((one, reason))
             }
         }
+        // #564 第 4 點：名字分類腿一次至多 200 個名字（三條腿合計），在逐項 vetting 之前擋
+        try Self.refuseTooManyClassifiedNames((addVariant?.count ?? 0) + (authorize?.count ?? 0) + (unauthorize?.count ?? 0),
+                                              legs: "add_variant／authorize／unauthorize")
         // 參數名兩面各自正確（R6 verify 第 45 列：CLI 使用者看到 MCP 鍵名 `add_names`，不是自己打的 `--add-name`）
         let namesIn = try vetVenueNames(addNames, parameter: "add_names（--add-name）")
         let (variantsIn, variantBlanks) = try vetVenueNamesReportingBlanks(addVariant, parameter: "add_variant（--add-variant）")
@@ -4411,7 +4421,9 @@ public final class AkashicService {
         // 分割互斥與孤兒檢查由 `writeVenue` → `assertVenueWritable` → `Venue.validate()`
         // 擋——這裡不重造一份（同 ISSN 那段的立場）。
         try store.writeVenue(venue)
-        try LibraryIndex(store: store).rebuild()
+        // 寫檔之後 index 重建失敗不讓呼叫失敗（#559 R2 verify 第 12／18／20／30 列）：撤回的報告（呼叫前的 index、displayNameChanged）是那兩件事
+        // 唯一的一份——記錄只留名字與理由——而檔案已經落盤，同一個撤回重試會以「不是目前的 authorized」被拒。organization 面（#557 R1）早就這樣做
+        let rebuildFailure = rebuildIndexCapturingFailure()
         let nameReport = Self.namesReport(requested: addNames ?? [], before: namesBefore, after: venue.names.entries.map(\.value))
         // 名字鍵性質式（R33；R32 verify 第 9 列：同一函式的錯誤路徑 R32 已改性質式、成功 payload 仍列舉式——私用區 Co 與合法 joiner 過得了
         // 名字驗證、列舉式不逃，操作者拿這份 payload 確認剛寫進去的是哪個名字）。#569 起 `displaySafe` 本身也是性質式，差別只剩 ZWJ／ZWNJ。
@@ -4437,6 +4449,8 @@ public final class AkashicService {
                                       },
                                       "issnTotal": venue.issn.count,
                                       "variantAdded": variantAdded.map { displaySafeInvisible($0, max: 200) },
+                                      // #564 R1 verify（b26 F2 第 18 列）：已是異寫、這次寫一筆「確認」的——先前只算進 judgementsRecorded，看不出是哪幾個
+                                      "variantConfirmed": variantAlready.map { displaySafeInvisible($0, max: 200) },
                                       "variantDropped": variantBlanks.map { displaySafeInvisible($0, max: 200) },
                                       "authorizeDropped": authorizeBlanks.map { displaySafeInvisible($0, max: 200) },
                                       "authorizedAdded": authorizeReport.authorizedAdded.map { displaySafeInvisible($0, max: 200) },
@@ -4456,7 +4470,12 @@ public final class AkashicService {
         // 撤回改變了預設顯示名（多書寫系統的 venue 撤回 authorized 的第一個、或撤回最後一個而退到 names 的 fallback）：說出來。只在有撤回腿時算——
         // 其他腿的顯示名變化是呼叫端自己要的（`authorize` 就是在指定顯示名），這裡要防的是「撤回」被讀成「只是移出一個名單」。
         if !args.unauthorizeIn.isEmpty, venue.displayName != displayNameBefore {
-            payload["displayNameChanged"] = ["before": displaySafe(displayNameBefore, max: 200), "after": displaySafe(venue.displayName, max: 200)]   // 同 edit_name_segment 面的形狀
+            // 名字的逃脫與同一份 payload 的其餘名字鍵一致（#559 R2 verify 第 31 列：先前用 displaySafe、保留 ZWJ／ZWNJ，`authorizedWithdrawn[].name` 卻逃脫）
+            payload["displayNameChanged"] = ["before": displaySafeInvisible(displayNameBefore, max: 200), "after": displaySafeInvisible(venue.displayName, max: 200)]
+        }
+        if let rebuildFailure {
+            Self.noteIndexRebuildFailure(rebuildFailure, in: &payload,
+                                         written: "這次 update-venue 已經寫入磁碟——報告是改了什麼的唯一一份（撤回的原位置與顯示名的變化只在這裡），重試可能被拒或多寫一筆記錄，先把報告存下來。")
         }
         return try jsonString(payload)
     }

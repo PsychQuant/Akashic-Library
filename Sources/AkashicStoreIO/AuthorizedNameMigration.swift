@@ -197,5 +197,9 @@ public enum AuthorizedNameMigration {
                 what: "authorize-names --judgement",
                 why: "超過 \(LibraryStore.maxStatementBytes) 位元組（實得 \(reason.utf8.count)）——精簡它；不截斷")   // display-safe-exempt: LibraryStore.maxStatementBytes 與 reason.utf8.count 都是 Int
         }
+        // 與 venue／organization／person 的名字分類腿同一份理由檢查（#564 R1 verify security 第 6／19 列）
+        if let why = NameClassificationRecord.reasonIssue(reason) {
+            throw StoreIOError.invalidInput(what: "authorize-names --judgement", why: why)
+        }
     }
 }

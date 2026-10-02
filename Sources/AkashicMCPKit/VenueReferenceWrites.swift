@@ -120,7 +120,8 @@ extension AkashicService {
         case "authorized":
             throw ServiceError.invalid(
                 "\(at) 的 field「authorized」不收——這一格的 reference 會讓 authorize 換不了對外形（舊指定被 reference 指著時 authorize 具名拒絕），"   // display-safe-exempt: at 是字面＋Int
-                + "所以這一格目前不收進通用寫入面（要不要收回是待裁的事，#673）；已存在的 authorized reference 用 update-venue --remove-reference 移除。"
+                + "所以這一格目前不收進通用寫入面（要不要收回是待裁的事，#673）；已存在的一般 authorized reference（不是名字分類的判定記錄）用 update-venue --remove-reference 移除——"
+                + "名字分類的判定記錄不在移除面（判定史；連記錄一起刪名字用 --edit-name-segment 的 remove，名字的最後一筆記錄要是撤回）。"
                 + "要記「這個名字是對外形」的判定，用 --authorize ＋ --judgement（#564：自動寫一筆名字分類的判定記錄）；要記它的來源，記在 field: names（value 是那個名字）")
         case "note":
             throw ServiceError.invalid(

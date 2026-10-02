@@ -1244,7 +1244,7 @@ venue 的 `references:` 可附著的 `field` 是**封閉列舉**，唯一的列�
 |---|---|---|---|
 | `names` | 必帶：那個名字要在該清單內 | 兩種都收 | 寫入：`update-venue --references`／MCP `references`（#587）；移除：`--remove-reference`／MCP `remove_reference`（#673） |
 | `issn` | 必帶：那個號（比對看正規形；寫入面以正規形入庫） | 兩種都收 | 同上；`--remove-issn` 對被移除的號連帶刪除（#588） |
-| `authorized` | 必帶：**名字分類記錄**（statement 走 `指定／確認／撤回：理由`）錨定 names，名字要是記錄的名字之一；**其他** reference 要在該清單內 | 兩種都收（名字分類記錄只收 judgement，證據可空） | 名字分類記錄只經 `--authorize`／`--unauthorize`（#564）；其他：**只有手改 YAML**——通用寫入面不收（#587 R1，見下）；移除：`--remove-reference` 只收名字分類記錄以外的（#673／#564） |
+| `authorized` | 必帶：**名字分類記錄**（statement 走 `指定／確認／撤回：理由`）錨定 names，名字要是記錄的名字之一；**其他** reference 要在該清單內 | 兩種都收（名字分類記錄只收 judgement，證據可空） | 名字分類記錄只經 `--authorize`／`--unauthorize`（#564）；其他：**只有手改 YAML**——通用寫入面不收（#587 R1，見下）；移除：`--remove-reference` 只收名字分類記錄以外的（#673／#564）；名字分類記錄只隨名字一起刪（`--edit-name-segment` 的 remove，最後一筆要是撤回，#564 第 2 點） |
 | `variant` | 必帶：名字要是記錄的名字之一 | 只收名字分類記錄（judgement，證據可空） | 只經 `--add-variant`（#564）；`--remove-reference` 明文拒收 |
 | `note` | 不收（D2：純量）；記錄要有 `note` | 兩種都收 | 寫入：**只有手改 YAML**——通用寫入面不收（#587 R1，見下）；移除：`--remove-reference`（#673） |
 | `paginated` | `true`／`false`／`nil`（撤回） | 只收 judgement | 只經 `--paginated`／`--clear-paginated`（#406／#500） |
@@ -1298,6 +1298,7 @@ reference；遷移留下的認不出的角色只能手改 YAML）。倖存者有
 
 名字的分類——指定為對外形（`authorized`）、撤回指定、標成異寫（`variant`）——是判定（`two-kinds-of-edits` 的 AI 欄），自 format 22 起每一次都在記錄的 `references` 留一筆判斷型 reference。
 五個面：person 的 `authorize-names`、venue 的 `update-venue --add-variant`／`--authorize`／`--unauthorize`（MCP `akashic_update_venue` 同名參數）、organization 的 `update-organization --authorize`（MCP `akashic_update_organization` 的 `authorize`）。organization 沒有撤回腿（`--unauthorize` 已於 #557 R1 verify 之後拿掉，待使用者裁決；使用者對 #557 只說「先提供 --authorize」），所以這五個面裡 organization 只有 `--authorize`。
+**第六個面**（#564 修正輪，使用者 2026-10-02 裁決第 1 點）：person 的 `update-person` 的 `fields.names`（MCP `akashic_update_person` 的 `fields.names`＋`judgement`）。全量替換讓名字**進**或**出** authorized 時理由必填，寫 `field: authorized` 的記錄：進的「指定」、仍在的「確認」（附了理由時）、出的「撤回」；只動 variant 的替換不必附理由、不寫記錄（person 的 variant 是「其他名字」，不是判定的分割）。替換拿掉一個有記錄的名字、或讓對外形整個離開 names，具名拒絕（記錄錨定 names；出口：先移到 variant 寫撤回，再用下面的刪除面）。
 
 **形狀**（normative）：`field` 是 `authorized` 或 `variant`（它說的是哪個分割）、`value` 是名字、`judgement`（statement）以**封閉三個動作**之一開頭並接全形冒號：
 
@@ -1309,17 +1310,21 @@ reference；遷移留下的認不出的角色只能手改 YAML）。倖存者有
 
 動作**不得類推第四個**；解析只有 `NameClassificationRecord.parse` 一份（前綴不符，或理由去空白後為空，回 nil）。`rests-on`（證據 digest）**可空**——名字分類記錄經 `ProvenanceReference.firstOrderRulingFields` 放行空 rests-on（與作者位記錄同形）；`authorized`／`variant` 上空 rests-on 的判斷型必須符合本文法，否則拒收。
 **理由必填**（一次呼叫一句，套用到該次寫下的每一筆記錄，至多 4,096 位元組；`authorize-names --apply` 整批一句、不帶證據）；證據至多 20 個 digest（0 byte 內容的 digest 拒收）。缺理由整批拒絕、零寫入。
+理由要有至少一個字母或數字、開頭不得是組合符號、格式或不可見字元（`NameClassificationRecord.reasonIssue`，#564 R1 verify：以 U+0301、ZWJ 一類開頭的理由會與全形冒號併成同一個字，只看 Character 的讀者讀不出動作；只有 U+2060 一類不可見字元的理由滿足了「必填」的字面）。`parse` 比前綴時看 Unicode scalar，不看 Character。
+**一次至多 200 個名字**（#564 第 4 點；取其他寫入腿的一次上限 `maxSpecsPerCall`，不另立數字）：venue 的三條腿合計、organization 的 `authorize`、person 的 `fields.names` 兩個分割合計、`remove_names`；超過整批拒絕、零寫入、不截斷。`authorize-names` 不設這個上限——它每個 person 至多三筆。單一名字至多 65,536 位元組（`AddOnlyEnrichment.maxValueBytes`，同 `edit_name_segment` 對名字的上限）。
 
 **錨定在 names，不在分割**（normative）：名字分類記錄的附著條件是「`value` 是這筆記錄的名字之一」（person：`names.all`；venue／organization：`names` 時間軸的任一段；相等用 `String ==`，同 `field: names`），**不要求名字仍在那個分割內**——撤回記錄描述的正是已經離開分割的名字，判定史不因撤回而成孤兒。
 **分類的現況仍是分割清單本身**（`authorized`／`variant`）；記錄是 provenance，兩者不一致時以清單為準。`field: authorized` 上**其他** reference（擷取型、或 statement 不符本文法的判斷型）維持舊語意（value 要在 authorized 內、判斷型要有 rests-on）；`field: variant` 只收名字分類記錄，且只在 venue 上收（person 的 variant 分割是「其他名字」、沒有判定面；organization 沒有 variant）。
 
-**只由名字分類面寫與保留**：`update-person` 的 `references` 不收名字分類記錄；venue 的 `--remove-reference` 不刪它們（只命中名字分類記錄時具名拒絕）；`--edit-name-segment` 移除一個名字的最後一段時，若有名字分類記錄指著它，具名拒絕（判定史不刪）；`repair-venue-names` 把指著某拼法的記錄算 pinned、交給人判斷。`authorize`／`unauthorize` 換下或撤回名字時，只有名字分類記錄**以外**的 `field: authorized` reference 擋。
-**位元組完全相同的記錄不重寫**（append-only，`byteExactKey`）：第二次以同一句理由確認同一個名字不會長出第二筆，回報 `judgementsRecorded`（這次實際寫下的筆數）。
+**只由名字分類面寫與保留**：`update-person` 的 `references` 不收名字分類記錄；venue 的 `--remove-reference` 不刪它們（只命中名字分類記錄時具名拒絕）；`repair-venue-names` 把指著某拼法的記錄算 pinned、交給人判斷。`authorize`／`unauthorize` 換下或撤回名字時，只有名字分類記錄**以外**的 `field: authorized` reference 擋。
+**刪名字連同記錄**（#564 修正輪，使用者 2026-10-02 裁決第 2 點，normative）：一個名字的**最後一筆名字分類記錄（不分分割）是「撤回」**時，名字可以連同它的全部名字分類記錄一起刪——venue 走 `--edit-name-segment` 的 `remove`（刪掉那個名字的最後一段時記錄一起刪，報告 `judgementRecordsRemoved`）、organization 與 person 走 `--remove-name '<名字>=<理由>'`（MCP `remove_names`；organization 刪名字的每一段，person 從 variant 刪）。比照移除面一族：理由必填、只進報告、不寫進 store；刪之前要求那個檔已在 git 裡 commit、乾淨，歷史留在 git。最後一筆不是撤回（或沒有記錄）的具名拒絕，出口是**先撤回、再刪**；還在 authorized／variant、被 `field: names` 的 reference 指著的也拒。organization 沒有一般的名字移除面（待裁，#557），這一條只收撤回過的名字。
+**與那個名字最後一筆記錄位元組完全相同的不重寫**（append-only，`byteExactKey`；#564 R1 verify 前比的是整份歷史）：同一句理由連送兩次同一個名字不會長出第二筆，回報 `judgementsRecorded`（這次實際寫下的筆數）；與上一筆相反的動作是一次新的轉移——「指定 R → 撤回 → 再以 R 指定」寫三筆，最後一筆是指定。
 
 **合併**（venue，`resolve-divergence`）：被併者的 authorized 名字若會被合併降級（併入後未標），而被併者對那個名字持有**任何** `field: authorized` 名字分類記錄，合併**拒絕**（preview 與實跑共用前置，`wouldDemoteJudgedAuthorized`），訊息逐名列出名字與最後一筆記錄，並指路（在被併者上 `--unauthorize`、或在倖存者上 `--authorize`，都要理由）；沒有記錄的機械值維持提醒。
-其餘名字分類記錄在名字於合併後的倖存者上分類（在不在 authorized、在不在 variant）與被併者上相同時，逐位元組搬到倖存者（列在 `referencesCarried`）；不同時以 `wouldLoseFields` 拒絕並說出名字與兩邊分類。person 合併維持現狀（本來就拒絕被併者有、倖存者沒有的 authorized 與任何非 verdict reference）；organization 合併尚未實作（#555）。
+其餘名字分類記錄在名字於合併後的倖存者上分類（在不在 authorized、在不在 variant）與被併者上相同時，逐位元組搬到倖存者（列在 `referencesCarried`）；不同時以 `wouldLoseFields` 拒絕並說出名字與兩邊分類。**分類一致的檢查先於位元組去重**（#564 R1 verify：倖存者持有位元組相同的一筆，不代表它還承認那個分類）。
+**person 合併**（#564 修正輪，使用者 2026-10-02 裁決第 3 點）：被併者的名字分類記錄在那個名字兩邊的分類相同（都是或都不是對外形）時逐位元組搬到倖存者（`referencesCarried`，preview 同），不同時以 `wouldLoseFields` 拒絕、指出口（`update-person --fields` 的 names 附 `--judgement` 讓兩邊一致，或在被併者 `--remove-name` 刪掉已撤回的名字）；被併者有、倖存者沒有的 authorized 照舊拒絕（#81），其餘非 verdict reference 照舊是子集判準。organization 合併尚未實作（#555）。
 
-**誠實邊界**：(1) 一句剛好以「指定：」「確認：」「撤回：」開頭的一般判斷（帶 rests-on、掛在 `field: authorized`）會被當成名字分類記錄——live store 這種 reference 為 0 筆，通用寫入面本來就不收 `field: authorized`；(2) 合併時被併者的記錄接在倖存者記錄之後，對同一個名字交錯時「最後一筆」不代表時間上的最後，所以拒絕判準用「有任何記錄」；(3) 既有機械值（live store 2026-10-01：venue 470 筆有 authorized、person 4,575 筆）不回填，按需判定（#600）；(4) 不提供撤回 variant 的獨立面（variant 只有被 `--authorize` 抬出時連帶撤回）。
+**誠實邊界**：(1) 一句剛好以「指定：」「確認：」「撤回：」開頭的一般判斷（帶 rests-on、掛在 `field: authorized`）會被當成名字分類記錄——live store 這種 reference 為 0 筆，通用寫入面本來就不收 `field: authorized`；(2) 合併時被併者的記錄接在倖存者記錄之後，對同一個名字交錯時「最後一筆」不代表時間上的最後，所以拒絕判準用「有任何記錄」；(3) 既有機械值（live store 2026-10-01：venue 470 筆有 authorized、person 4,575 筆）不回填，按需判定（#600）；(4) 不提供撤回 variant 的獨立面（variant 只有被 `--authorize` 抬出時連帶撤回）；(5) 判斷只看文法（`isRecord`）而不看來歷：person 的通用 references 在 #564 之前收 `field: authorized` 的一般判斷，一筆剛好符合文法的舊判斷在 format < 22 時會讓整個 person 被寫入閘擋下（live store 2026-10-02 這種 reference 為 0 筆，#564 R1 verify F2 第 28 列）。
 
 ### 存檔佈局：`sources/`（內容定址，不進 remote）
 
@@ -2031,7 +2036,7 @@ organization 零 error——擴閘不拒絕任何既有記錄；閘在 `fieldsLo
 不是 store 的不變式）；只改 `source`／`note` 時不重驗區間。改完的記錄仍要過上面六條與 `validate()` 的其餘 error——**這次造出的**違反在寫之前具名拒絕、歸因到這次呼叫
 （例：時間欄位落在 `variant` 的名字上——異寫法沒有生效期間；把兩段沿革改成重疊），記錄原本就有的違反不在這裡歸咎、寫入閘照舊會擋；
 同一次呼叫的各項是先全部套用、再驗，所以兩段要一起改成不相交可以放在同一次呼叫裡。**移除一個名字的最後一段**時，那個名字若還在 `authorized`／`variant`／`field: names` 的 reference 裡，
-或移除後 venue 沒有任何名字，具名拒絕並指路（`--unauthorize` 或 `--authorize`、`--remove-reference`；`variant` 目前沒有移除面，只能手改 YAML）——程式不替人動那些判定。**名字分類的判定記錄（format 22，#564）也擋**：有這種記錄指著那個名字時具名拒絕——它們錨定 names，名字消失就成孤兒，而判定史不刪、沒有工具面，要刪只能手改 YAML（連那幾筆記錄一起）。
+或移除後 venue 沒有任何名字，具名拒絕並指路（`--unauthorize` 或 `--authorize`、`--remove-reference`；`variant` 目前沒有移除面，只能手改 YAML）——程式不替人動那些判定。**名字分類的判定記錄（format 22，#564）**：最後一筆是「撤回」的，記錄隨名字一起刪（#564 第 2 點，報告 `judgementRecordsRemoved`）；不是撤回的具名拒絕——人說過的判定還成立，出口是先撤回、再刪。
 它是判定（`two-kinds-of-edits`）：理由必填、只進報告（`nameSegments[].reason`，全文）、不寫進 store、不改 store format；改寫前要求該 venue 檔已在 git 裡 commit、乾淨
 （移除面一族的裁決，使用者 2026-09-27）；每一項改完都與現在逐位元組相同時不寫檔也不過 git 閘（報告 `written: false`）；單獨呼叫；一次至多 200 筆。
 MCP 面的報告只有前 20 項帶改寫前後的內容（理由每一項都在），CLI 全列；寫檔之後 index 重建失敗時呼叫仍回成功、報告多 `indexRebuilt: false`／`indexNote`（同上方移除面一族）。

@@ -1904,7 +1904,7 @@ struct ResolvePeople: ParsableCommand {
 
     /// 查過、判不出來（change `resolution-verdict-states`，#619）。
     @Option(name: .long, parsing: .upToNextOption,
-            help: "記下查過未決（可重複）：citekey:authorIndex:personKey=查了什麼、為何判不出來。說明必填。寫一筆 resolution-undecided 到該 person，作者位不動；之後這個配對在列表標「查過未決 N 次」、篩選式 --apply 不帶走它（要歸戶就用 --judge）。可附 --rests-on。已判定的配對（有 confirmed 或 rejected）、無法唯一定位的 work 或 person（\(UnlocatableReason.work)；\(UnlocatableReason.person)）、已歸戶的作者位該筆略過並具名；全部略過時非零結束。需要 store format ≥ 19；一次超過 200 個 id、20 個 digest 或單句說明超過 4,096 位元組同樣整批拒絕（有界，不截斷）。單獨呼叫，不與 --judge／--refute／--apply／--reject 組合")
+            help: "記下查過未決（可重複）：citekey:authorIndex:personKey=查了什麼、為何判不出來。說明必填。寫一筆 resolution-undecided 到該 person，作者位不動；之後這個配對在列表標「查過未決 N 次」、篩選式 --apply 不帶走它（要歸戶就用 --judge）。可附 --rests-on。已判定的配對（有 confirmed 或 rejected）、無法唯一定位的 work 或 person（\(UnlocatableReason.work)；\(UnlocatableReason.person)）、已歸戶的作者位該筆略過並具名；全部略過時非零結束。需要 store format ≥ 19；格式錯、重複 id、說明空白、person 不存在、digest 不合、--rests-on 單獨出現，或一次超過 200 個 id、20 個 digest、單句說明超過 4,096 位元組，都整批拒絕（有界，不截斷）。單獨呼叫，不與 --judge／--refute／--apply／--reject 組合")
     var undecided: [String] = []
 
     /// 未決記錄查了什麼（sha256 digest，先以 store-source 存檔）。
@@ -2728,8 +2728,15 @@ struct AuthorizeNames: ParsableCommand {
                 .map { displaySafe($0, max: 120) }.joined(separator: ", ")
                 + (r.undecidedKeys.count > 20 ? " …（共 \(r.undecidedKeys.count) 筆）" : ""))
         }
-        print(apply ? "✓ 已寫入（每個寫入的名字各一筆「指定：理由」的判定記錄）"
-                    : "未寫入。確認上面的計畫後加 --apply --judgement '<理由>' 執行。")
+        // 什麼都沒寫時不說「已寫入」（#564 R1 verify F2 第 17 列：沒有人能採用或提名時照樣印這一行，宣稱寫了記錄）。
+        // 寫入的名字數＝採用＋提名（逐書寫系統計）：只有它們進 authorized、各寫一筆「指定」
+        let namesWritten = r.adopted + r.nominated
+        if apply {
+            print(namesWritten > 0 ? "✓ 已寫入 \(namesWritten) 個名字（每個名字各一筆「指定：理由」的判定記錄）"
+                                   : "沒有可以指定的名字——沒有寫入任何檔、沒有寫任何記錄")
+        } else {
+            print("未寫入。確認上面的計畫後加 --apply --judgement '<理由>' 執行。")
+        }
     }
 }
 

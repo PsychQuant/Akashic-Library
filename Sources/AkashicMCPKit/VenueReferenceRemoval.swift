@@ -147,7 +147,7 @@ extension AkashicService {
         if field == NameClassificationRecord.variantField {
             throw ServiceError.invalid(
                 "\(at) 的 field「variant」只有名字分類的判定記錄——判定史不在移除面（#564）：要改分類用 --authorize／--unauthorize／--add-variant"   // display-safe-exempt: at 是字面＋Int
-                + "（MCP authorize／unauthorize／add_variant，都要理由）")
+                + "（MCP authorize／unauthorize／add_variant，都要理由）；要連記錄一起刪掉一個打錯的名字，先撤回它，再用 --edit-name-segment 的 remove（MCP edit_name_segment；#564 第 2 點）")
         }
         guard removableVenueReferenceFields.contains(field) else {
             throw ServiceError.invalid(
@@ -246,7 +246,8 @@ extension AkashicService {
             if hits.isEmpty, !matched.isEmpty {
                 throw ServiceError.invalid(
                     "\(at)：\(what) 命中的是 \(matched.count) 筆名字分類的判定記錄（「指定／確認／撤回：…」）——判定史不在移除面（#564）；"   // display-safe-exempt: at 是字面＋Int；what 已消毒；matched.count 是 Int
-                    + "要改分類用 --authorize／--unauthorize（MCP authorize／unauthorize，都要理由）；整批拒絕、零寫入")
+                    + "要改分類用 --authorize／--unauthorize（MCP authorize／unauthorize，都要理由）；要連記錄一起刪掉一個打錯的名字，先撤回它，"
+                    + "再用 --edit-name-segment 的 remove（MCP edit_name_segment；最後一筆記錄要是撤回，#564 第 2 點）；整批拒絕、零寫入")
             }
             guard !hits.isEmpty else {
                 let same = venue.references.filter { $0.field == s.field }

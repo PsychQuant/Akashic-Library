@@ -60,6 +60,12 @@ struct ResolveDivergence: ParsableCommand {
                 // 逐列以性質逃脫、上限 1,000（各段已在來源逐段截；R13 verify security 第 24 列、requirements 第 19 列）
                 for c in preview.verdictsCollapsed { print("      · \(displaySafeInvisible(c, max: 1_000))") }
             }
+            // #564 R1 verify（b26 F2 第 27 列）：preview 算了「搬什麼」（`referencesCarried`），dry-run 的渲染路徑沒接——人在不可逆合併前唯一的預覽
+            // 看不到哪些來源記錄與判定史會被搬去倖存者
+            if !preview.referencesCarried.isEmpty {
+                print("  reference 將隨合併遷移到倖存者：\(preview.referencesCarried.count) 筆"
+                    + "（\(preview.referencesCarried.map { displaySafe($0, max: 300) }.joined(separator: "；"))）")
+            }
             if !preview.quarantinedNotScanned.isEmpty {   // #497：未掃描不得看起來像掃過且沒有
                 print("  ⚠ \(preview.quarantinedNotScanned.count) 個 quarantine 檔未掃描——"
                     + "其中若有 verdict 指向被併鍵，不會被遷移")

@@ -9,7 +9,7 @@
 - [x] 2.1 先寫 `NameClassificationJudgementTests`（紅）：venue `authorize`／`unauthorize`／`add_variant` 缺理由整批拒絕零寫入、各寫恰好一筆且形狀正確、對既有值寫確認、同書寫系統被換下的名字與被抬出 variant 的名字各寫一筆撤回（理由由程式組句）、撤回之後記錄留存、第二次同一句確認不重寫（`judgementsRecorded` 為 0）、`paginated` 與名字分類同一次呼叫拒絕、rests_on 超過 20 或不合法拒絕；organization 的 `authorize` 腿同一組（被換下的舊指定寫撤回；沒有要指定的名字時以「沒有要改的」拒絕，理由單獨出現也一樣）；organization 沒有 `unauthorize` 腿（#557 R1 verify 之後拿掉，待使用者裁決）。驗證：`swift test --filter NameClassificationJudgementTests` 先紅後綠（spec「Every name-classification judgement SHALL leave a judgement record」「Venue name-classification legs SHALL require a reason and SHALL NOT share a call with the paginated judgement」「The organization authorize leg SHALL require a reason」；design「一次呼叫的理由套用到該次每一筆記錄；連帶的撤回由程式組句」「venue 沿用 judgement／rests_on，與 paginated 不同一次呼叫」「位元組完全相同的記錄不重寫」）
 - [x] 2.2 實作：`AuthorizedDesignation` 的報告帶出被誰換下，另產生記錄；`updateVenueArguments`／`updateOrganizationArguments` 在讀 store 之前檢查理由與組合；`updateVenue`／`updateOrganization` 追加記錄並回報 `judgementsRecorded`。既有呼叫這三條腿的測試補上 judgement。驗證：2.1 全綠、既有 `VenueAuthorizedWriteTests`／`VenueUnauthorizeTests`／`VenueVariantWriteTests`／`OrganizationAuthorizeTests` 綠
 - [x] 2.3 [P] `authorize-names --apply` 必附 `--judgement`（早於開 store 的用法錯誤），每個寫入的名字各一筆 `指定：理由`；不再寫 store marker。先寫測試（缺理由拒絕、記錄形狀、format 18 且無人可寫時 marker 不動），再改 `AuthorizedNameMigration.run` 與 `AuthorizeNames`。驗證：`swift test --filter AuthorizedNameTests` 與新 CLI 測試綠（design「authorize-names 的理由是整批一句」「authorize-names 不再替使用者升 marker」）
-- [x] 2.4 兩面接線：CLI `update-organization --judgement／--rests-on`、`update-venue` 三條腿與 `--judgement`／`--rests-on` 的 help 改寫；MCP `akashic_update_organization` 加 `judgement`／`rests_on`，兩個工具說明提到 `judgementsRecorded`。驗證：stdio 真 binary 各一個 venue 面與 organization 面寫入記錄、`ToolPayloadKeyGuardTests` 與 `ToolPayloadLegTests` 綠、`tools/list` 以真 binary 量測不超過 53,500 bytes
+- [x] 2.4 兩面接線：CLI `update-organization --judgement／--rests-on`、`update-venue` 三條腿與 `--judgement`／`--rests-on` 的 help 改寫；MCP `akashic_update_organization` 加 `judgement`／`rests_on`，兩個工具說明提到 `judgementsRecorded`。驗證：stdio 真 binary 各一個 venue 面與 organization 面寫入記錄、`ToolPayloadKeyGuardTests` 與 `ToolPayloadLegTests` 綠、`tools/list` 以真 binary 量測不超過 53,500 bytes（當時；預算之後調到 60,000，#578／#713，修正輪實測 57,213）
 
 ## 3. 合併與保留
 
@@ -22,3 +22,16 @@
 - [x] 4.1 負控：每個行為一個 mutant（不寫記錄、不要求理由、附著不錨定 names、寫入閘放行、合併不拒、合併一律搬、remove-reference 放行），各自讓對應測試變紅，反向編輯還原並以 `cmp` 確認位元組相同。驗證：changelog 的負控表
 - [x] 4.2 規則與文件：`two-kinds-of-edits` 五個面的列改寫（記錄自此保留，舊的「待 #564」改成日期註記）、`mcp-cli-parity` 的 `akashic_update_venue`／`akashic_update_organization`／`authorize-names` 列、`zero-instance-guards` 加一列（合併拒絕與寫入閘，live store 0 筆記錄）並補「各列共通的東西」；docs/store-format.md 記錄文法、format 22 與部署順序；新增 `changelog/2026-10-01-name-classification-judgement.md` 與 plugin/CHANGELOG.md 條目。驗證：`bash .githooks/run-guards.sh` rc=0
 - [x] 4.3 全套 `swift test --build-system native` 零失敗、`swift build --build-system native -Xswiftc -warnings-as-errors` 通過。驗證：log 的 `Executed N tests … 0 failures`
+
+## 5. 修正輪（R1 verify b26 F1／F2；使用者 2026-10-02 裁決）
+
+- [x] 5.1 去重只比同一個名字同一個分割的最後一筆（`NameClassificationRecord.append`）；撤回之後以同一句理由再指定會寫、organization 換下再換回會寫。驗證：`NameClassificationCorrectionTests` 先紅後綠
+- [x] 5.2 `venueReferenceCarry` 的分類一致檢查移到位元組去重之前。驗證：`NameClassificationMergeTests.testByteIdenticalRecordWithDisagreeingClassificationStillRefuses`
+- [x] 5.3 理由的形狀（`reasonIssue`：開頭不得是組合符號、格式或不可見字元，要有字母或數字），`parse` 比 scalar 前綴；venue／organization／person／`authorize-names` 共用。驗證：`NameClassificationCorrectionTests`
+- [x] 5.4 person 的 `fields.names` 動到 authorized 要理由並寫記錄（裁決第 1 點）；CLI `update-person --judgement／--rests-on`、MCP `judgement`／`rests_on`
+- [x] 5.5 刪已撤回的名字連同記錄（裁決第 2 點）：venue `--edit-name-segment` remove、organization／person `--remove-name`（MCP `remove_names`），git 閘、理由只進報告
+- [x] 5.6 person 合併搬分類一致的記錄（裁決第 3 點，`personReferenceCarry`；preview 與實跑同一份 `referencesCarried`，CLI dry-run 印出來）
+- [x] 5.7 一次至多 200 個名字（裁決第 4 點）；單一名字至多 65,536 位元組；被換下的名字在撤回句裡截 200 個 scalar
+- [x] 5.8 MCP `akashic_update_organization` 對已拿掉的 `unauthorize` 具名拒絕；MCP 描述把 #564 整合時刪掉的拒絕類別寫回（預算 60,000）；`bootstrap-venues` 的後續指令補 `--judgement`
+- [x] 5.9 負控、規則（`two-kinds-of-edits`、`mcp-cli-parity`、`zero-instance-guards`）、docs/store-format.md §3.5、changelog 與 plugin/CHANGELOG.md
+

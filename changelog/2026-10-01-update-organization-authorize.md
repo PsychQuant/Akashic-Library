@@ -14,10 +14,10 @@
 - **沒有 `--unauthorize`**（R1 verify 之後拿掉，見文末）。
 - 讀 store 之前整批拒絕（CLI 是用法錯誤 64）：沒給、空陣列、只有空白項（三者同一件事——「沒有要改的」：一次沒有變動的寫入仍會重新序列化整筆記錄、重建 index）、key 格式不合、同一次兩個同書寫系統的名字、名字含控制／格式／不可見字元或沒有任何字母或數字。
 - 讀 store 之後整批拒絕、零寫入：key 有不只一筆記錄（#669／#670 的 `unlocatableOrganizationKeys`——寫進哪一筆是猜）、找不到、被換下的名字被 `field: authorized` 的 reference 指著（organization 的 reference 沒有移除面，訊息指路手改 YAML）。
-- 給的名字都已是對外名稱：成功、報 `alreadyAuthorized`，**不寫檔、不重建 index**。
+- 給的名字都已是對外名稱：成功、報 `alreadyAuthorized`，**不寫檔、不重建 index**（#564 整合之後要加條件：對已是對外名稱的名字說「確認」會寫一筆記錄，同一句理由已是那個名字的最後一筆記錄時才不寫檔）。
 - 子集與「每書寫系統至多一個」由 store 邊界擋（`writeOrganization` → `Organization.validate()` → `AuthorizedNames.validate`），寫入面不重造。organization 沒有 venue 那道名字內容的不變式（#554 D8）；新加進 names 的名字過入口的 vetting，那是入口的輸入檢查。
 - 回報：`key`、`namesAdded`、`authorizedAdded`、`authorizedRemoved`、`alreadyAuthorized`、`authorizedRewritten`、`authorizeDropped`、`authorizedTotal`；有事才出現：`authorizedNotCurrent`、`indexRebuilt: false`／`indexRebuildError`／`indexNote`（見文末）。organization 沒有 variant，不報 `liftedFromVariant`。
-- 判定記錄待 #564（2026-10-01 裁決名字分類面全部要留，另案落地、需要 store format bump）；在那之前不寫記錄。
+- 判定記錄待 #564（2026-10-01 裁決名字分類面全部要留，另案落地、需要 store format bump）；在那之前不寫記錄。→ #564 已同日落地（`changelog/2026-10-01-name-classification-judgement.md`）：`--authorize` 必附 `--judgement`、寫判定記錄。
 
 ## 實作
 

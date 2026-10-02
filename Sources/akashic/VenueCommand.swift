@@ -253,8 +253,8 @@ struct UpdateVenueCmd: ParsableCommand {
             help: ArgumentHelp("要標成異寫法的名字（append 語意；相等看 canonical、新名字以 canonical 形入庫——空白類收斂為單一空格、NFC——其他控制／格式／不可見字元、拉丁或 CJK 之間的接合字元、無字母無數字即整批拒絕——同 --add-name，#554 D8）。不在 names 裡的一併加進 names"
                              + "——兩個分割都是對 names 的標記，標一個 names 沒有的字串會造出"
                              + "孤兒，而孤兒 variant 自 #473 起是 error（#471）。整項空白的不寫、回報在 variantDropped。"
-                             + "必附 --judgement（#564）：每個名字寫一筆 field: variant 的判定記錄（新標「指定：理由」、已是異寫「確認：理由」），"
-                             + "需要 store format ≥ 22"))
+                             + "必附 --judgement（#564）：每個名字寫一筆 field: variant 的判定記錄（新標「指定：理由」、已是異寫「確認：理由」，後者列在 variantConfirmed），"
+                             + "需要 store format ≥ 22；與那個名字最後一筆記錄位元組相同的不重寫"))
     var addVariant: [String] = []
 
     @Option(name: .customLong("authorize"), parsing: .upToNextOption,
@@ -266,7 +266,7 @@ struct UpdateVenueCmd: ParsableCommand {
                              + "authorized 沒有判定型寫入面，唯一寫入者是 bootstrap 取第一個名字，而那些"
                              + "機械值換不掉。必附 --judgement（#564）：寫 field: authorized 的判定記錄——新指定「指定：理由」、已是對外形「確認：理由」、"
                              + "被換下的舊指定與被抬出 variant 的名字各一筆「撤回」（理由前面說出原因），需要 store format ≥ 22、"
-                             + "位元組完全相同的不重寫（報告 judgementsRecorded）。報告的桶：authorizedRemoved（被換下來的舊指定）、"
+                             + "與那個名字最後一筆記錄位元組完全相同的不重寫（報告 judgementsRecorded；撤回之後以同一句理由再指定會寫）。報告的桶：authorizedRemoved（被換下來的舊指定）、"
                              + "liftedFromVariant（原本在 variant、被抬進 authorized）、alreadyAuthorized（no-op 但不沉默）、"
                              + "authorizedRewritten（唯一會宣告 store 位元組被改寫的桶：同名 NFD 舊指定換成 canonical）；"
                              + "整項空白的不寫、回報在 authorizeDropped（#554；R25 verify 第 20 列：這裡曾只列一個桶、MCP 描述列四個）"))
@@ -299,7 +299,7 @@ struct UpdateVenueCmd: ParsableCommand {
             help: "「本刊是否使用頁碼」的判定：true＝傳統頁碼刊、false＝article-number 制。必附 --judgement 與 --rests-on（#406）")
     var paginated: Bool?
 
-    @Option(name: .long, help: "判定的理由：--paginated／--clear-paginated 必填；--authorize／--unauthorize／--add-variant 也必填（名字分類的判定記錄，#564）。兩類判定不同一次呼叫（各要自己的理由）；名字分類的理由至多 4,096 位元組，套用到這次寫下的每一筆記錄")
+    @Option(name: .long, help: "判定的理由：--paginated／--clear-paginated 必填；--authorize／--unauthorize／--add-variant 也必填（名字分類的判定記錄，#564）。兩類判定不同一次呼叫（各要自己的理由）；名字分類的理由至多 4,096 位元組、要有字母或數字、開頭不得是組合符號或不可見字元，套用到這次寫下的每一筆記錄；--add-variant／--authorize／--unauthorize 合計一次至多 200 個名字")
     var judgement: String?
 
     @Option(name: .customLong("rests-on"), parsing: .upToNextOption,
@@ -332,6 +332,8 @@ struct UpdateVenueCmd: ParsableCommand {
                                    + "被移除的 reference 只剩 git 的移除前副本，所以這個 venue 檔要已在 git 裡 commit（tracked、無未提交修改），否則整批拒絕。"
                                    + "只移除 reference：它指的號或名字仍在（移除號用 --remove-issn）。"
                                    + "resolution verdict 三欄不在本面（resolve-venues --demote／--reject）、paginated 的判定不在本面（--clear-paginated），都具名拒絕並指路。"
+                                   + "名字分類的判定記錄（field: authorized／variant 的「指定／確認／撤回：理由」，#564）不在本面：field: variant 一律拒收，field: authorized 只命中這種記錄時具名拒絕"
+                                   + "（改分類用 --authorize／--unauthorize／--add-variant；連記錄一起刪名字用 --edit-name-segment 的 remove，名字的最後一筆記錄要是撤回）。"
                                    + "一次至多 200 筆。報告：referencesRemoved（逐筆帶被移除 reference 的內容與理由）、referencesTotal（剩下幾筆）；"
                                    + "寫檔之後 index 重建失敗時呼叫仍回成功、報告多 indexRebuilt: false 與 indexNote（要跑 akashic doctor 重建）。沒有乾跑，CLI 也不過目標 store 確認閘：防線是 git 閘與整批拒絕零寫入"))
     var removeReference: String?
@@ -348,6 +350,7 @@ struct UpdateVenueCmd: ParsableCommand {
                                    + "reason 必填、至多 4,096 位元組。定位不到、定位到多段（列出各段的區別讓你加 match 縮小）、兩項指到同一段、逐位元組完全相同的重複段，都整批拒絕、零寫入。"
                                    + "改完的記錄仍要過 store 的不變式（Venue.validate 的 error）——這次造出的違反會在寫之前具名拒絕（例如時間欄位落在 variant 的名字上：異寫法沒有生效期間）。"
                                    + "移除一個名字的最後一段時，該名字若還在 authorized／variant／field: names 的 reference 裡，具名拒絕並指路（--unauthorize 或 --authorize／--remove-reference；variant 目前沒有移除面，只能手改 YAML）；"
+                                   + "該名字若有名字分類的判定記錄（#564）：最後一筆是「撤回」的，記錄隨名字一起刪（報告 judgementRecordsRemoved）；不是撤回的具名拒絕（先撤回，再刪）；"
                                    + "移除後 venue 沒有任何名字也拒絕。用 `akashic venue <key>` 的 names 看現有各段（含 source／note）。"
                                    + "改寫是判定：理由只印在報告（nameSegments[].reason，全文），不寫進 store——要留在 git 就寫進 commit message；"
                                    + "改寫前的內容只剩 git 的副本，所以這個 venue 檔要已在 git 裡 commit（tracked、無未提交修改），否則整批拒絕。"
@@ -434,7 +437,7 @@ struct ResolveVenuesCmd: ParsableCommand {
     var demote: [String] = []
 
     @Option(name: .long, parsing: .upToNextOption,
-            help: "記下查過未決（可重複）：citekey:venueIndex:venueKey=查了什麼、為何判不出來。寫一筆 resolution-undecided 到該 venue，邊不動；之後列表標 undecidedChecks。可附 --rests-on。已判定的配對、已歸戶的邊、無法唯一定位的 work 或 venue（work：\(UnlocatableReason.work)；venue：\(UnlocatableReason.venue)）該筆略過並具名。需要 store format ≥ 19；一次超過 200 個 id、20 個 digest 或單句說明超過 4,096 位元組同樣整批拒絕（有界，不截斷）。單獨呼叫（change resolution-verdict-states，#619）")
+            help: "記下查過未決（可重複）：citekey:venueIndex:venueKey=查了什麼、為何判不出來。寫一筆 resolution-undecided 到該 venue，邊不動；之後列表標 undecidedChecks。可附 --rests-on。已判定的配對、已歸戶的邊、無法唯一定位的 work 或 venue（work：\(UnlocatableReason.work)；venue：\(UnlocatableReason.venue)）該筆略過並具名。需要 store format ≥ 19；格式錯、重複 id、說明空白、venue 不存在、digest 不合、--rests-on 單獨出現，或一次超過 200 個 id、20 個 digest、單句說明超過 4,096 位元組，都整批拒絕（有界，不截斷）。單獨呼叫（change resolution-verdict-states，#619）")
     var undecided: [String] = []
 
     @Option(name: .long, parsing: .upToNextOption,
@@ -442,7 +445,7 @@ struct ResolveVenuesCmd: ParsableCommand {
     var restsOn: [String] = []
 
     @Option(name: .customLong("drop-venue"), parsing: .upToNextOption,
-            help: "移除 venue 邊（可重複）：citekey:venueIndex=理由（#572）。index 是原始位置。key 邊只在刪完後本 work 仍有另一條 key 邊指同一 venue 時可刪（否則先 --demote 再刪 literal 邊）；literal 邊一律可刪。理由必填、只印在報告裡——不寫進 store，要留在 git 就寫進 commit message；移除前要求那些 work 檔已 commit、乾淨。格式錯、理由空白、同一條邊兩次、越界、citekey 無法唯一定位，整批拒絕零寫入。刪光一筆 work 的 venue 邊時會具名（migrate-venues 與 Zotero pull 會重新推導）。單獨呼叫")
+            help: "移除 venue 邊（可重複）：citekey:venueIndex=理由（#572）。index 是原始位置。key 邊只在刪完後本 work 仍有另一條 key 邊指同一 venue 時可刪（否則先 --demote 再刪 literal 邊）；literal 邊一律可刪。理由必填、只印在報告裡——不寫進 store，要留在 git 就寫進 commit message；移除前要求那些 work 檔已 commit、乾淨。格式錯、理由空白或超過 4,096 位元組、同一條邊兩次、越界、citekey 無法唯一定位、一次超過 200 條，整批拒絕零寫入。刪光一筆 work 的 venue 邊時會具名（migrate-venues 與 Zotero pull 會重新推導）。單獨呼叫")
     var dropVenue: [String] = []
 
     /// #654：各寫入腿只看參數的檢查（id 的形狀、理由、同一批重複、一次的上限、rests-on 的 digest）在服務裡、讀 store 之前跑；

@@ -8,7 +8,9 @@ A reason SHALL be required on every such surface; a call that would classify at 
 
 A change that the call causes without naming it SHALL also be recorded as a withdrawal: an authorized name displaced by a same-writing-system designation, and a name lifted out of the variant partition by a designation. The statement of such a record SHALL state the cause before the caller's reason.
 
-A reference byte-identical to one the record already holds SHALL NOT be appended again.
+A reference byte-identical to the latest name-classification record the record already holds for the same name and partition SHALL NOT be appended again. A record that repeats an earlier statement after an opposite action SHALL be appended, so that the latest record of a name always states the action that produced its current classification.
+
+A reason SHALL contain at least one letter or digit and SHALL NOT begin with a combining mark, a format character, or a default-ignorable character. A single call SHALL classify at most 200 names; a call over the limit SHALL be refused as a whole with zero writes and without truncation.
 
 #### Scenario: Designating a name writes one record
 
@@ -20,6 +22,11 @@ A reference byte-identical to one the record already holds SHALL NOT be appended
 - **WHEN** a venue whose authorized list is `["Psychometrika"]` and which holds no judgement record is updated with `authorize: ["Psychometrika"]` and `judgement: "查證後確認"`
 - **THEN** the venue SHALL hold a new reference with field `authorized`, value `Psychometrika`, and statement `確認：查證後確認`
 - **AND** the authorized list SHALL be unchanged
+
+#### Scenario: Designating again after a withdrawal with the same reason
+
+- **WHEN** a venue designates `Some Journal` with reason `官網確認`, withdraws it with reason `查錯了`, and designates it again with reason `官網確認`
+- **THEN** the venue SHALL hold three records for `Some Journal`, the last one `指定：官網確認`
 
 #### Scenario: A classification without a reason is refused
 
@@ -79,3 +86,24 @@ The store format marker SHALL be raised to 22, because a reader built for format
 
 - **WHEN** the migration path runs with an instruction to write and a reason on a store whose marker is 18 and whose people all designate an authorized name
 - **THEN** the store format marker SHALL remain 18
+
+### Requirement: The person names replacement SHALL record the authorized classification it changes
+
+A partial update of a person that replaces its names SHALL require a reason when the replacement moves any name into or out of the authorized partition, and SHALL record each change on the `authorized` field: designate for a name entering, withdraw for a name leaving, and confirm for a name that stays authorized when a reason is given. A replacement that changes only the other names SHALL need no reason and SHALL record nothing. A replacement that drops a name carrying a name-classification record, or that removes an authorized name from the names altogether, SHALL be refused as a whole with zero writes, and the refusal SHALL name the way out: move the name to the other names with a reason, then delete it.
+
+#### Scenario: Moving a name into the authorized partition without a reason
+
+- **WHEN** a person whose names are all other names is updated so that one of them becomes authorized, with no reason
+- **THEN** the call SHALL be refused
+- **AND** the store SHALL be unchanged
+
+### Requirement: A name whose latest classification record is a withdrawal MAY be deleted together with its records
+
+A venue, organization, or person name whose latest name-classification record, across both partitions, is a withdrawal SHALL be deletable together with all of its name-classification records. The deletion SHALL require a reason, which SHALL appear only in the report and SHALL NOT be written to the store, and SHALL require the record file to be committed and clean in git. A name whose latest record is not a withdrawal, or that has no record, or that still belongs to a partition, SHALL NOT be deleted this way, and the refusal SHALL name the way out: withdraw first, then delete.
+
+#### Scenario: Deleting a mistyped name after it was displaced
+
+- **WHEN** a venue designates the mistyped `Psychometrka`, designates `Some Journal` in the same writing system (which withdraws `Psychometrka`), and then removes the last segment of `Psychometrka` with a reason
+- **THEN** `Psychometrka` SHALL no longer be a name of the venue
+- **AND** its two name-classification records SHALL be gone
+

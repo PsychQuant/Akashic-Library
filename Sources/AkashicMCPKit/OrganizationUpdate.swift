@@ -43,31 +43,49 @@ extension AkashicService {
     struct UpdateOrganizationArguments {
         let authorizeIn: [String]
         let authorizeBlanks: [String]
-        /// #564：理由與證據；`authorize` 一定有非空白的名字（沒有就在 `updateOrganizationArguments` 拒絕），所以恆非 nil
+        /// #564：理由與證據；`authorize` 一定有非空白的名字（沒有就在 `updateOrganizationArguments` 拒絕），所以恆非 nil——刪名字那條腿除外（nil）
         let judgement: AuthorizedDesignation.Judgement?
+        /// #564 第 2 點：要刪的名字（最後一筆記錄是撤回的）；給了就是單獨呼叫，`authorize` 是空的
+        let removals: [NameRemovalSpec]
     }
 
     /// CLI 的 `validate()` 用：`update-organization` 只看參數的全部檢查。
     public static func checkUpdateOrganizationArguments(key: String, authorize: [String],
-                                                        judgement: String? = nil, restsOn: [String]? = nil) throws {
-        _ = try updateOrganizationArguments(key: key, authorize: authorize, judgement: judgement, restsOn: restsOn)
+                                                        judgement: String? = nil, restsOn: [String]? = nil,
+                                                        removeNames: [String]? = nil) throws {
+        _ = try updateOrganizationArguments(key: key, authorize: authorize, judgement: judgement, restsOn: restsOn,
+                                            removeNames: removeNames)
     }
 
     static func updateOrganizationArguments(key: String, authorize: [String], judgement: String? = nil,
-                                            restsOn: [String]? = nil) throws -> UpdateOrganizationArguments {
+                                            restsOn: [String]? = nil, removeNames: [String]? = nil) throws -> UpdateOrganizationArguments {
         guard StoreKey.isValid(key) else {
             throw ServiceError.invalid("organization key「\(displaySafeInvisible(key, max: 200))」不符合 \(StoreKey.pattern)")   // display-safe-exempt: StoreKey.pattern 是編譯期常量；key 已消毒
         }
+        // #564 第 2 點：刪名字那條腿單獨呼叫——刪是判定、理由只進報告，與指定（理由進 store）混在一次呼叫裡兩種理由的去處會交錯
+        if removeNames != nil {
+            var others: [String] = []
+            if !authorize.isEmpty { others.append("authorize") }
+            if judgement != nil { others.append("judgement") }
+            if restsOn != nil { others.append("rests_on") }
+            guard others.isEmpty else {
+                throw ServiceError.invalid(
+                    "remove_names（--remove-name）單獨呼叫——不與 \(others.joined(separator: "、")) 組合（刪名字的理由只進報告、指定的理由寫進記錄）；整批拒絕、零寫入")   // display-safe-exempt: others 是本函式的字面參數名
+            }
+            return UpdateOrganizationArguments(authorizeIn: [], authorizeBlanks: [], judgement: nil,
+                                               removals: try parseNameRemovalSpecs(removeNames, parameter: "remove_names（--remove-name）"))
+        }
+        try refuseTooManyClassifiedNames(authorize.count, legs: "authorize")   // #564 第 4 點，在逐項 vetting 之前
         let (authorizeIn, authorizeBlanks) = try vetVenueNamesReportingBlanks(authorize, parameter: "authorize（--authorize）")
         // 沒有要改的就不寫：沒給、給了空陣列、或全是空白項是同一件事（R1 verify 第 13／16／26／28 列：MCP 的 `[]` 與 `[" "]` 曾走完寫檔與重建
         // index，而 CLI 把空陣列轉成 nil 早就擋了——兩面不一致，也與這句註解的意圖相反）。看**過了 vetting 的結果**，不看原始的 optional。
         guard !authorizeIn.isEmpty else {
-            throw ServiceError.invalid("沒有要改的——authorize（--authorize）要給至少一個名字（沒給、空陣列、全是空白項都算沒給）")
+            throw ServiceError.invalid("沒有要改的——authorize（--authorize）要給至少一個名字（沒給、空陣列、全是空白項都算沒給）；刪已撤回的名字用 remove_names（--remove-name）")
         }
         try refuseSameScriptClash(authorizeIn)
         // #564：理由必填、證據可空（venue 同一個函式）。上面已擋掉沒有要指定的名字，所以走到這裡一定在分類
         let nameJudgement = try nameClassificationJudgement(classifying: true, judgement: judgement, restsOn: restsOn)
-        return UpdateOrganizationArguments(authorizeIn: authorizeIn, authorizeBlanks: authorizeBlanks, judgement: nameJudgement)
+        return UpdateOrganizationArguments(authorizeIn: authorizeIn, authorizeBlanks: authorizeBlanks, judgement: nameJudgement, removals: [])
     }
 
     /// organization 的部分更新（#557）：`authorize` 同書寫系統替換——語意與 `updateVenue` 同一份（`AuthorizedDesignation`）。
@@ -75,11 +93,14 @@ extension AkashicService {
     ///
     /// **都已是對外名稱而又沒有新記錄可寫＝不寫檔、不重建 index**（R1 verify 第 28 列）：一次沒有變動的寫入仍會重新序列化整筆記錄（人手編過的排版被正規化）、
     /// 重建 index；報告的 `alreadyAuthorized` 照給（冪等但不沉默）。**#564 起對已是對外名稱的名字說「確認」也留一筆記錄**，所以那是「有新記錄」、照寫；
-    /// 同一句理由再確認一次（位元組完全相同）才是沒有新記錄。**寫檔成功之後 index 重建失敗不讓呼叫失敗**（第 1 列）：檔案已經落盤、
-    /// 報告是改了什麼的唯一一份，重試只會得到 `alreadyAuthorized`——用移除面一族的做法（`RemovalReportSupport.swift`），報告多 `indexRebuilt: false`。
+    /// 同一句理由再確認一次（與那個名字的最後一筆記錄位元組完全相同）才是沒有新記錄。**寫檔成功之後 index 重建失敗不讓呼叫失敗**（第 1 列）：檔案已經落盤、
+    /// 報告是改了什麼的唯一一份；以同一句理由重試會得到 `alreadyAuthorized` 並多一筆「確認」（#557 R2 verify 第 30／38 列：先前說「重試只會得到
+    /// alreadyAuthorized」，#564 之後為假）——用移除面一族的做法（`RemovalReportSupport.swift`），報告多 `indexRebuilt: false`。
     public func updateOrganization(key: String, authorize: [String], judgement: String? = nil,
-                                   restsOn: [String]? = nil) throws -> String {
-        let args = try Self.updateOrganizationArguments(key: key, authorize: authorize, judgement: judgement, restsOn: restsOn)
+                                   restsOn: [String]? = nil, removeNames: [String]? = nil) throws -> String {
+        let args = try Self.updateOrganizationArguments(key: key, authorize: authorize, judgement: judgement, restsOn: restsOn,
+                                                        removeNames: removeNames)
+        if !args.removals.isEmpty { return try removeOrganizationNames(key: key, specs: args.removals) }   // #564 第 2 點
         let load = try store.load()
         guard !load.organizations.unlocatableOrganizationKeys.contains(key) else {
             throw ServiceError.invalid("organization「\(displaySafeInvisible(key, max: 200))」無法唯一定位（\(UnlocatableReason.organization)）——整批拒絕、零寫入；先改掉其中一筆的 key")   // display-safe-exempt: UnlocatableReason.organization 是編譯期常量
@@ -91,10 +112,13 @@ extension AkashicService {
             names: org.names, authorized: org.authorized, variant: [], references: org.references,
             owner: .init(noun: "organization", referenceRemoval: nil))
         let report = try designation.authorize(args.authorizeIn)
-        // 指定的名字在 names 裡的每一段都已結束：`authorized` 的 doc 說「從當前有效的名稱中指定」是慣例、`validate` 不擋，而本面是第一個寫得進它的面
-        // （R1 verify 第 6／17 列）。不拒絕（沒有裁決要擋），但說出來：`displayName` 會變成那個已退役的名字。新加進 names 的名字沒有時間欄位、是開放段，不會在這裡。
+        // 指定的名字在 names 裡沒有任何一段是開放段（已結束、或只有觀測點）：`authorized` 的 doc 說「從當前有效的名稱中指定」是慣例、`validate` 不擋，
+        // 而本面是第一個寫得進它的面（R1 verify 第 6／17 列）。不拒絕（沒有裁決要擋），但說出來：`displayName` 會變成一個不是現行名稱的名字。
+        // **只在這個機構另有現行名稱時說**（#557 R2 verify 第 10／22／35 列）：所有名字都沒有開放段的機構（已解散）沒有現行名稱可退，
+        // 指定它最後的名字正是讓顯示名不再是裸 key 的做法——那時這句話是誤報。只有觀測點（attested）的段**不是**「已結束」（#661），
+        // 只是「不是開放段」，所以訊息不說「已結束」。新加進 names 的名字沒有時間欄位、是開放段，不會在這裡。
         let designated = report.authorizedAdded + report.alreadyAuthorized + report.authorizedRewritten
-        let notCurrent = designated.filter { name in
+        let notCurrent = designation.names.current == nil ? [] : designated.filter { name in
             let segments = designation.names.entries.filter { NameIdentity.canonical($0.value) == NameIdentity.canonical(name) }
             return !segments.isEmpty && segments.allSatisfy { !$0.range.isOpen }
         }
@@ -122,7 +146,8 @@ extension AkashicService {
         try store.writeOrganization(org)
         if let failure = rebuildIndexCapturingFailure() {
             Self.noteIndexRebuildFailure(failure, in: &payload,
-                                         written: "這次 authorize 已經寫入磁碟——報告裡的 authorizedAdded／authorizedRemoved 是改了什麼，重試只會得到 alreadyAuthorized，先把報告存下來。")
+                                         written: "這次 authorize 已經寫入磁碟——報告裡的 authorizedAdded／authorizedRemoved 是改了什麼；以同一句理由重試會得到 alreadyAuthorized，"
+                                             + "並對每個名字多寫一筆「確認」（那句理由已是該名字的最後一筆記錄時才不寫，#564），先把報告存下來。")
         }
         return try jsonString(payload)
     }

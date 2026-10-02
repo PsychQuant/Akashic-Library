@@ -20,7 +20,7 @@
 - 不回填：既有 470 筆 venue 與 4,575 筆 person 的機械 authorized 不補記錄（#600 按需判定）。
 - 不新增 person 的 variant 面，也不讓 person 或 organization 收 `field: variant` 的記錄（person 的 variant 分割是「其他名字」，沒有判定面寫它；organization 沒有 variant 分割）。
 - 不新增撤回 variant 的面（venue 的 variant 仍沒有移除面，只有被 `--authorize` 抬出時連帶撤回）。
-- 不改 person 合併：它本來就拒絕 authorized 的降級，也拒絕被併者帶有倖存者沒有的任何非 verdict reference。
+- ~~不改 person 合併：它本來就拒絕 authorized 的降級，也拒絕被併者帶有倖存者沒有的任何非 verdict reference。~~ → 修正輪改了（見〈修正輪〉第 3 點：分類一致的名字分類記錄隨合併搬）。
 - 不在 `StoreHealth` 新增「最後一筆記錄與現在分類不一致」的掃描。
 - 不動 organization 合併（尚未實作，#555）。
 - 不替 organization 加回 `unauthorize` 腿：它於 #557 R1 verify 之後拿掉、待使用者裁決（organization 的 `names` 只增不減，撤回會讓剛加進 names 的名字成為 fallback 顯示名）；日後裁決加回時，要一併裁決它要不要理由與記錄。
@@ -66,15 +66,17 @@ venue 面沿用既有的 `judgement`（CLI `--judgement`）與 `rests_on`（`--r
 
 organization 新增 `judgement`／`rests_on`（CLI `--judgement`／`--rests-on`），規則同上：`authorize` 的名字必附 `judgement`；沒有要指定的名字（沒給、空陣列、全是空白項）時照舊以「沒有要改的」拒絕，`judgement`／`rests_on` 單獨出現也一樣。
 
-沒選：另開 `name_judgement` 參數。多一個參數多一份 `tools/list` 位元組（預算 54,000，基線 53,024），也讓 `judgement` 在同一個工具裡有兩種理由來源。
+沒選：另開 `name_judgement` 參數。多一個參數多一份 `tools/list` 位元組（當時預算 54,000，基線 53,024；之後調到 60,000，#578／#713），也讓 `judgement` 在同一個工具裡有兩種理由來源。
 
 ### authorize-names 的理由是整批一句
 
 `authorize-names` 沒有逐人或逐名的形式，所以 `--apply` 必附 `--judgement`，那一句套用到這次寫下的每一筆記錄；乾跑不需要理由。不收 `--rests-on`：一個批次共用同一組 digest，等於宣稱每個人的名字都依據同一份文件，那幾乎一定是假的。`authorize-names` 只對 authorized 為空的人寫入，所以它不會寫「確認」。
 
-### 位元組完全相同的記錄不重寫
+### 與那個名字最後一筆記錄位元組完全相同的不重寫
 
-append-only：與既有 reference 位元組完全相同（`byteExactKey`）的一筆不再寫，同 `update-person` 的 references。回報 `judgementsRecorded`（這次實際寫下的筆數）。第二次以同一句理由確認同一個名字不會長出第二筆。
+append-only：與**同一個名字、同一個分割的最後一筆記錄**位元組完全相同（`byteExactKey`）的一筆不再寫。回報 `judgementsRecorded`（這次實際寫下的筆數）。第二次以同一句理由確認同一個名字不會長出第二筆。
+
+~~與既有 reference 位元組完全相同的一筆不再寫~~（首版：對整份歷史去重）——R1 verify（b26 F1 第 1／2／5／13 列、F2 第 3 列）實測「指定 R → 撤回 S → 再以 R 指定」的第三筆被當成重複丟掉：名字回到 authorized，記錄卻以撤回結尾，回報 `judgementsRecorded: 0`；organization 的「換下再換回」同形。記錄是有順序的狀態歷史，與上一筆相反的動作是一次新的轉移。
 
 ### store format 22 與寫入閘
 
@@ -86,7 +88,7 @@ append-only：與既有 reference 位元組完全相同（`byteExactKey`）的�
 
 ### venue 合併：帶記錄的 authorized 降級改為拒絕
 
-`authorizedDemotedByMerging` 回報的每一個降級，若被併者對那個名字持有任何 `field: authorized` 的名字分類記錄，合併拒絕（preview 與實跑共用前置），新錯誤 `wouldDemoteJudgedAuthorized` 逐名列出名字與那筆最後的 statement，並指路：在被併者上 `update-venue --unauthorize`（留理由）、或在倖存者上 `update-venue --authorize` 那個名字（留理由），再合併。沒有記錄的機械值維持提醒。判準是「有任何記錄」而不是「最後一筆是指定或確認」：人對那個名字的對外形身分說過話，合併就不替人改；最後一筆是撤回卻仍在 authorized 只可能是手改，那時保守地拒絕。
+`authorizedDemotedByMerging` 回報的每一個降級，若被併者對那個名字持有任何 `field: authorized` 的名字分類記錄，合併拒絕（preview 與實跑共用前置），新錯誤 `wouldDemoteJudgedAuthorized` 逐名列出名字與那筆最後的 statement，並指路：在被併者上 `update-venue --unauthorize`（留理由）、或在倖存者上 `update-venue --authorize` 那個名字（留理由），再合併。沒有記錄的機械值維持提醒。判準是「有任何記錄」而不是「最後一筆是指定或確認」：人對那個名字的對外形身分說過話，合併就不替人改；最後一筆是撤回卻仍在 authorized 只可能是手改，那時保守地拒絕（「只可能是手改」靠的是上一節的去重只比最後一筆——首版比整份歷史時，工具面造得出這個形）。
 
 ### venue 合併：名字分類記錄在分類一致時隨合併搬移
 
@@ -94,17 +96,30 @@ append-only：與既有 reference 位元組完全相同（`byteExactKey`）的�
 
 沒選：一律搬。被併者說「X 是異寫」而倖存者把 X 放在未標，搬過去的記錄會說一句倖存者的分類不承認的話。
 
-### person 合併維持現狀
+### ~~person 合併維持現狀~~ → person 合併：分類一致的記錄隨合併搬（修正輪）
 
-person 合併本來就拒絕被併者有、倖存者沒有的 authorized（#81），也拒絕被併者帶有倖存者沒有的任何非 verdict reference（子集判準）。名字分類記錄因此在被併者與倖存者位元組不同時擋住合併——保守、有記錄的邊界；同一批 `authorize-names` 對同名寫下的記錄位元組相同，不擋。
+~~person 合併本來就拒絕被併者有、倖存者沒有的 authorized（#81），也拒絕被併者帶有倖存者沒有的任何非 verdict reference（子集判準）。名字分類記錄因此在被併者與倖存者位元組不同時擋住合併——保守、有記錄的邊界；同一批 `authorize-names` 對同名寫下的記錄位元組相同，不擋。~~
+
+R1 verify（b26 F2 第 8 列）：兩筆攣生在不同批次各跑一次 `authorize-names`（理由不同）後合併被拒，而沒有任何工具能把記錄帶過去（`update-person` 拒收名字分類記錄、person 沒有 reference 的移除面）。使用者 2026-10-02 裁決（#564 第 3 點）：比照 venue 的 `venueReferenceCarry`，名字在兩邊的分類相同（都是或都不是對外形）時逐位元組搬（`personReferenceCarry`，preview 與實跑同一份、列在 `referencesCarried`），不同時拒絕並指出口。被併者有、倖存者沒有的 authorized 照舊拒絕；其餘非 verdict reference 照舊是子集判準。
 
 ### 名字分類記錄只由名字分類面寫入與保留
 
-- `update-person` 的 `references`：判斷型、field 是 `authorized` 且 statement 符合名字分類文法的一筆拒收（只經 `authorize-names`）。
+- `update-person` 的 `references`：判斷型、field 是 `authorized` 且 statement 符合名字分類文法的一筆拒收（只經名字分類面：`authorize-names`，修正輪起也有 `fields.names` 附 `judgement`）。
 - venue 的 `--remove-reference`：`field: variant` 在解析時拒收；`field: authorized` 定位只看名字分類記錄以外的 reference，只命中名字分類記錄時具名拒絕。判定史不在移除面，要改分類用 `--authorize`／`--unauthorize`。
 - `authorize`／`unauthorize` 換下或撤回名字時，只有名字分類記錄以外的 `field: authorized` reference 擋（名字分類記錄錨定 names，不會成孤兒）。
 - `repair-venue-names` 改寫一個名字的拼法時，指著那個拼法的名字分類記錄算「pinned」（它們錨定 names，改寫會讓它們對不上），交給人判斷。
-- `--edit-name-segment` 移除一個名字的最後一段時，若有名字分類記錄指著它，具名拒絕（判定史不刪，沒有工具面，只能手改 YAML）。
+- ~~`--edit-name-segment` 移除一個名字的最後一段時，若有名字分類記錄指著它，具名拒絕（判定史不刪，沒有工具面，只能手改 YAML）。~~ → 修正輪：最後一筆記錄是撤回的，記錄隨名字一起刪；不是撤回的具名拒絕（先撤回、再刪）——見〈修正輪〉第 2 點。
+
+## 修正輪（R1 verify b26 F1／F2；使用者 2026-10-02 的四點裁決）
+
+R1 verify 的三個程式錯誤與四件要裁決的事，使用者 2026-10-02 四件都選建議方案（#564 的 Decision 留言）：
+
+1. **person 的 `fields.names` 是第六個名字分類面**：替換讓名字進或出 authorized 時 `--judgement`（MCP `judgement`）必填，比照 venue 寫指定／確認／撤回記錄；只動 variant 的不必。替換拿掉有記錄的名字、或讓對外形整個離開 names，具名拒絕並指出口。
+2. **最後一筆記錄是撤回的名字可以連同記錄一起刪**（打錯字的出路）：venue 擴充 `--edit-name-segment` 的 remove；organization 與 person 各多一條 `--remove-name '<名字>=<理由>'`（MCP `remove_names`）。比照移除面一族：理由必填、只進報告，檔案要先 commit，歷史留在 git。最後一筆不是撤回的拒絕，出口是先撤回、再刪。
+3. **person 合併**：分類一致時被併者的名字分類記錄逐位元組搬到倖存者（上一節）。
+4. **一次至多 200 個名字**：venue 的三條腿合計、organization 的 `authorize`、person 的 `fields.names`、`remove_names`；取其他寫入腿的一次上限（`maxSpecsPerCall`），不另立數字。`authorize-names` 不設：它每個 person 至多三筆，上限防的是單筆記錄被同一句理由灌爆。
+
+三個程式錯誤：去重比整份歷史（上面〈與那個名字最後一筆記錄位元組完全相同的不重寫〉）；`venueReferenceCarry` 的位元組早退排在分類檢查之前（倖存者持有位元組相同的一筆就放行，而它可能已不承認那個分類）；理由以 Grapheme_Extend 字元開頭時記錄變成一般 reference（`parse` 改比 scalar 前綴，入口以 `reasonIssue` 拒收開頭是組合符號、格式或不可見字元、或沒有字母數字的理由）。
 
 ## Implementation Contract
 
@@ -132,7 +147,7 @@ references:
 
 **失敗模式**：缺理由、理由超過 4,096 位元組、rests_on 超過 20 個或不是合法 digest、paginated 與名字分類同一次呼叫、format < 22、合併降級帶記錄的 authorized、手寫的名字分類記錄文法不合（空 rests-on 的判斷型 statement 不符、`field: variant` 不是名字分類記錄、value 不是這筆記錄的名字）——全部具名拒絕；寫入面整批零寫入，載入面整檔 quarantine（手寫的壞記錄）。
 
-**驗收**：`NameClassificationRecordTests`（解析、附著、寫入閘）、`NameClassificationJudgementTests`（五個面的記錄形狀、缺理由拒絕、確認、撤回留史、位元組相同不重寫、ownership 四處）、`NameClassificationMergeTests`（拒絕 vs 提醒、分類一致搬移、不一致拒絕）、CLI 與 stdio 各至少一個 venue 面與一個 organization 面、`ToolPayloadKeyGuardTests` 與 `ToolPayloadLegTests` 的新情境、`tools/list` 以真 binary 量測不超過 53,500。全套 `swift test` 與 `run-guards.sh` 綠。
+**驗收**：`NameClassificationRecordTests`（解析、附著、寫入閘）、`NameClassificationJudgementTests`（五個面的記錄形狀、缺理由拒絕、確認、撤回留史、位元組相同不重寫、ownership 四處）、`NameClassificationMergeTests`（拒絕 vs 提醒、分類一致搬移、不一致拒絕）、CLI 與 stdio 各至少一個 venue 面與一個 organization 面、`ToolPayloadKeyGuardTests` 與 `ToolPayloadLegTests` 的新情境、`tools/list` 以真 binary 量測不超過 53,500（當時的預算 54,000；修正輪時預算已調到 60,000，#578／#713，修正輪實測 57,213）。全套 `swift test` 與 `run-guards.sh` 綠。
 
 **範圍**：五個面、三個寫入閘、venue 合併、ownership 四處、authorize-names 的 marker、規則與文件。不含：回填、person variant 面、variant 撤回面、StoreHealth 掃描、organization 合併、App（App 沒有名字分類面）。
 
@@ -142,7 +157,7 @@ references:
 - [判斷型 `field: authorized` reference 以 statement 前綴分成兩種語意；一句剛好以「指定：」開頭的一般判斷會被當成名字分類記錄] → live store 這種 reference 0 筆；通用寫入面本來就不收 `field: authorized`；記在 docs/store-format.md 的誠實邊界。
 - [合併時被併者的記錄接在倖存者記錄之後，兩邊對同一個名字的記錄交錯時，「最後一筆」不代表時間上的最後] → 只在分類一致時搬，交錯的記錄說的是同一個結論；判準用「有任何記錄」而不是「最後一筆」。
 - [person 合併在兩邊記錄位元組不同時被擋] → 保守；出路是逐字把記錄加進倖存者的 YAML（既有訊息已說）。
-- [`tools/list` 預算只剩約 976 bytes] → 描述只加必要的字（`judgement` 必填、`judgementsRecorded`），以真 binary 量測。
+- [`tools/list` 預算只剩約 976 bytes] → 描述只加必要的字（`judgement` 必填、`judgementsRecorded`），以真 binary 量測。修正輪：預算已調到 60,000（#578／#713），為舊預算刪掉的拒絕類別寫回 MCP 描述（R1 verify F2 第 10 列：只講 MCP 的 client 讀不到 CLI help）。
 
 ## Migration Plan
 

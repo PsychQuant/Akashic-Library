@@ -45,7 +45,13 @@ enum ToolPayloadKeyExemptions {
         ],
         "akashic_enrich_from_zotero": ["dryRun": echo("回顯 dry_run")],
         "akashic_import_wos": ["dryRun": echo("回顯 dry_run")],
-        "akashic_update_person": ["dryRun": echo("回顯 dry_run")],
+        "akashic_update_person": [
+            "dryRun": echo("回顯 dry_run"),
+            "reasonNote": advisory("remove_names 的報告：提醒理由只在報告裡、要留在 git 得寫進 commit message"),
+        ],
+        "akashic_update_organization": [
+            "reasonNote": advisory("remove_names 的報告：提醒理由只在報告裡、要留在 git 得寫進 commit message"),
+        ],
         "akashic_record_divergence": [
             "candidates": echo("回顯剛記下的候選 key"),
             "prefers": echo("回顯剛記下的傾向（沒給時是 null）"),

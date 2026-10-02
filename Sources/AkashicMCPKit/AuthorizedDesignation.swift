@@ -190,7 +190,10 @@ struct AuthorizedDesignation {
         let authorized = NameClassificationRecord.authorizedField
         var out = withdrawn.map { record(authorized, $0, .withdraw, judgement.reason) }
         for (removed, by) in report.displaced {
-            out.append(record(authorized, removed, .withdraw, "同書寫系統改指定「\(by)」——\(judgement.reason)"))
+            // 新名字截 200 個 scalar（#557 R2 verify 第 27 列：全文內嵌時一個 5,000 字的名字就讓這句超過理由的 4,096 位元組上限，
+            // 而這句不經入口的理由檢查；記錄的 value 欄已經是被換下的名字，新名字在 authorized 裡，這裡只需要認得出是誰）
+            let shownBy = by.unicodeScalars.count > 200 ? String(String.UnicodeScalarView(by.unicodeScalars.prefix(200))) + "…" : by
+            out.append(record(authorized, removed, .withdraw, "同書寫系統改指定「\(shownBy)」——\(judgement.reason)"))
         }
         for lifted in report.liftedFromVariant {
             out.append(record(NameClassificationRecord.variantField, lifted, .withdraw, "改指定為 authorized——\(judgement.reason)"))
@@ -234,6 +237,19 @@ extension AkashicService {
 }
 
 extension AkashicService {
+    /// 名字分類的寫入面一次至多幾個名字（使用者 2026-10-02 裁決 #564 第 4 點）：一次 `--add-variant` 帶上千個名字會把同一句理由
+    /// 複製成上千筆記錄（R1 verify 實測 1,500 筆撐到 6 MB），而記錄只追加。**不另立數字**：取其他寫入腿的一次上限（`maxSpecsPerCall`，
+    /// 未決腿的 id 數）。超過即整批拒絕、零寫入、不截斷。數的是呼叫端給的項數（空白項也算）——在 vetting 之前擋，一萬個名字不必先逐項正規化。
+    static var maxNamesPerClassificationCall: Int { maxSpecsPerCall }
+
+    /// 上面那個上限的檢查——venue（add_variant／authorize／unauthorize 合計）、organization（authorize）、person（names 的兩個分割合計）共用。
+    static func refuseTooManyClassifiedNames(_ count: Int, legs: String) throws {
+        guard count > maxNamesPerClassificationCall else { return }
+        throw ServiceError.invalid(
+            "名字分類一次至多 \(maxNamesPerClassificationCall) 個名字（\(legs) 合計，這次 \(count) 個）——分次送；"   // display-safe-exempt: Int；legs 是呼叫端的字面參數名
+            + "每個名字各寫一筆判定記錄、記錄只追加（#564）；整批拒絕、零寫入，不截斷")
+    }
+
     /// 名字分類腿的理由與證據（#564）——venue（`updateVenueArguments`）與 organization（`updateOrganizationArguments`）的入口共用，讀 store 之前跑。
     ///
     /// `classifying`＝這次至少有一個非空白的名字要分類（全部空白的腿沒有分類，不需要理由；空白項照舊回報在 *Dropped）。
@@ -250,6 +266,11 @@ extension AkashicService {
         }
         guard reason.utf8.count <= Self.maxStatementBytes else {
             throw ServiceError.invalid("judgement 超過 \(Self.maxStatementBytes) 位元組（實得 \(reason.utf8.count)）——精簡它；整批拒絕、零寫入，不截斷")   // display-safe-exempt: Self.maxStatementBytes 與 reason.utf8.count 都是 Int
+        }
+        // 理由的形狀（#564 R1 verify security 第 6／19 列）：開頭的組合符號會讓記錄讀不出來、只有不可見字元的理由什麼都沒說——
+        // 判準只有一份（`NameClassificationRecord.reasonIssue`，authorize-names 與 person 的 names 腿共用）
+        if let why = NameClassificationRecord.reasonIssue(reason) {
+            throw ServiceError.invalid("judgement \(why)——整批拒絕、零寫入")   // display-safe-exempt: why 是 reasonIssue 的固定訊息（碼位是十六進位）
         }
         let digests = restsOn ?? []
         guard digests.count <= Self.maxRestsOnPerCall else {

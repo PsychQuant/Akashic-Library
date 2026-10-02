@@ -500,8 +500,11 @@ public final class AkashicService {
         if !health.unknownFieldFiles.isEmpty {
             d["unknownFieldFiles"] = health.unknownFieldFiles.map { displaySafeInvisible($0, max: 200) }
         }
+        // 由記錄**內容**算出來的讀數取 entities/ 那份（#709 R2 verify）——與 CLI doctor 同一個視圖、同一組函式；
+        // 先前這裡的普查讀數吃完整的 load，`people: 25` 與 `noAuthorizedName.people: 50` 出現在同一份 payload。
+        let census = load.withoutShadowedLegacyCopies()
         guard fatalCross.isEmpty else {
-            d["entries"] = load.entries.count
+            d["entries"] = census.entries.count
             d["indexRebuilt"] = false
             d["note"] = "index 未重建——先修好 crossRecordIssues 內 severity=error 的重複"
             return try jsonString(d)
@@ -522,19 +525,19 @@ public final class AkashicService {
         // consumer 看到不同的事實」（#138 verify F3，見下方註解）。第一版只加了
         // CLI 側，席位實測 MCP 的 doctor 回傳裡完全沒有 digest 相關項，而同一份
         // store 的 CLI doctor 報 22。
-        d["digestSources"] = ProvenanceMigration.residualDigestSources(load: load)
+        d["digestSources"] = ProvenanceMigration.residualDigestSources(load: census)
             .map { "\(displaySafe($0.record, max: 200)).\(displaySafe($0.field, max: 120))" }
             .sorted()
         // #81 / #82 / #67（#138 verify F3）：CLI doctor 的普查面 MCP 也要有——
         // 「同一個 store 不得從兩個 consumer 看到不同的事實」是本 change 的主旨。
-        let nameGaps = load.recordsWithoutAuthorizedName()
+        let nameGaps = census.recordsWithoutAuthorizedName()
         d["noAuthorizedName"] = [
             "people": nameGaps.people.count,
             "organizations": nameGaps.organizations.count,
             "firstPeople": nameGaps.people.prefix(10).map { displaySafe($0, max: 120) },
         ] as [String: Any]
-        d["authorizedOnlyByCitationForm"] = load.recordsAuthorizedOnlyByCitationForm().count
-        let deceasedOpen = load.recordsDeceasedWithOpenAffiliation()
+        d["authorizedOnlyByCitationForm"] = census.recordsAuthorizedOnlyByCitationForm().count
+        let deceasedOpen = census.recordsDeceasedWithOpenAffiliation()
         if !deceasedOpen.isEmpty {
             // 與 CLI 同：待人處理的工作清單，列全部不截斷
             d["deceasedWithOpenAffiliation"] = deceasedOpen.map { displaySafe($0, max: 120) }
@@ -1141,8 +1144,10 @@ public final class AkashicService {
         guard let lib = load.libraries.first(where: { $0.key == key }) else {
             throw ServiceError.notFound("library「\(displaySafeInvisible(key, max: 200))」")
         }
-        let members = load.entries.filter { $0.akashic.libraries.contains(key) }.count
-        let check = LibraryMembershipCheck(library: lib, entries: load.entries, venues: load.venues)
+        // 成員數與不符清單取 entities/ 那份（#709 R2 verify：一對 legacy 拷貝先前算成兩個成員、同一個 citekey 列兩次）
+        let entries = load.withoutShadowedLegacyCopies().entries
+        let members = entries.filter { $0.akashic.libraries.contains(key) }.count
+        let check = LibraryMembershipCheck(library: lib, entries: entries, venues: load.venues)
         return (lib, members, check.nonconformingMembers(), check.basisProblem)
     }
 
@@ -1183,8 +1188,9 @@ public final class AkashicService {
         }
         lib.membership = membership
         try store.updateLibrary(lib)
-        let check = LibraryMembershipCheck(library: lib, entries: load.entries, venues: load.venues)
-        let members = load.entries.filter { $0.akashic.libraries.contains(key) }.count
+        let entries = load.withoutShadowedLegacyCopies().entries   // 同 libraryViolations（#709 R2 verify）
+        let check = LibraryMembershipCheck(library: lib, entries: entries, venues: load.venues)
+        let members = entries.filter { $0.akashic.libraries.contains(key) }.count
         return LibraryKindChange(library: lib, previous: previous, members: members,
                                  violations: check.nonconformingMembers(), basisProblem: check.basisProblem)
     }
@@ -1200,8 +1206,9 @@ public final class AkashicService {
         switch action {
         case "list":
             let load = try store.load()
+            let entries = load.withoutShadowedLegacyCopies().entries   // 同 CLI library list（#709 R2 verify）
             var counts: [String: Int] = [:]
-            for entry in load.entries {
+            for entry in entries {
                 for k in Set(entry.akashic.libraries) { counts[k, default: 0] += 1 }
             }
             return try jsonString(load.libraries.map { lib -> [String: Any] in
@@ -1215,7 +1222,7 @@ public final class AkashicService {
                 // #642：性質與規則——問使用者要掛哪個 library 的地方要看得到它（不再只靠讀描述）
                 d.merge(Self.membershipPayload(lib.membership)) { a, _ in a }
                 if lib.membership != nil {
-                    d["nonconforming"] = LibraryMembershipCheck(library: lib, entries: load.entries, venues: load.venues).nonconformingMembers().count   // display-safe-exempt: Int
+                    d["nonconforming"] = LibraryMembershipCheck(library: lib, entries: entries, venues: load.venues).nonconformingMembers().count   // display-safe-exempt: Int
                 }
                 return d
             })
@@ -2599,8 +2606,10 @@ public final class AkashicService {
         }
         var report = BatchCreateReport()
         // #637：DOI 命中既有記錄（或同一批稍早的一筆）時具名回報。比對走 `canonicalDOIs` 的正規形。
+        // 比對表取 entities/ 那份（#709 R2 verify：一對 legacy 拷貝先前讓命中印成「已在：k、k」）；citekey 的佔用（上面的 `existing`）
+        // 仍看完整的 load——legacy 檔的 citekey 在磁碟上佔著那個檔名
         var citekeysByDOI: [String: [String]] = [:]
-        for e in load.entries { for d in e.canonicalDOIs { citekeysByDOI[d.normalized, default: []].append(e.citekey) } }
+        for e in load.withoutShadowedLegacyCopies().entries { for d in e.canonicalDOIs { citekeysByDOI[d.normalized, default: []].append(e.citekey) } }
         func recordHits(_ i: Int, _ e: Entry) {
             for d in e.canonicalDOIs {
                 if let hits = citekeysByDOI[d.normalized], !hits.isEmpty {

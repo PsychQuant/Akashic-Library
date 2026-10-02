@@ -127,7 +127,17 @@ plugin 版號沒有動（skill 與 wrapper 文字的改動）。
 - `akashic_doctor` 的 `crossRecordIssues.first`（前 20 則）改成 error 在前、同 severity 內保持原順序。先前每一對 leftover 先造出兩則 warning，`indexRebuilt: false` 的 note 指向的 error 可能排在第 25 位而被截掉。`count` 仍是完整則數。
 - `akashic_people` 的列表只列 `entities/` 那一份：同一筆 person 的 legacy 拷貝不再把同一個 key 列兩次。`akashic_doctor` 的 `unresolvedAuthorLiterals` 與 `orphaned` 讀數與 `entries` 同一個視圖（拷貝不算第二份）。
 - `validate`／`akashic_doctor` 不再把同一筆記錄的 legacy 拷貝報成「DOI 被 2 筆 work 共用」或「標題與年份相同但 DOI 不同」；兩筆**不同**的記錄照舊報。
-- 仍然讀完整 load、沒有只取 `entities/` 那份的讀取面（有記錄的殘留）：`akashic_person`、`akashic_get_entry`、`akashic_libraries` 的單筆與清單查詢（排序讓 `entities/` 那份在前）、`akashic_resolve_people`／`akashic_resolve_venues`／`akashic_resolve_organizations` 的候選產生。
+- ~~仍然讀完整 load、沒有只取 `entities/` 那份的讀取面（有記錄的殘留）：`akashic_person`、`akashic_get_entry`、`akashic_libraries` 的單筆與清單查詢（排序讓 `entities/` 那份在前）、`akashic_resolve_people`／`akashic_resolve_venues`／`akashic_resolve_organizations` 的候選產生。~~（2026-10-03 更正，見下）
+- 工具說明沒有改。
+
+2026-10-03，第二次驗證之後：
+
+- `akashic_doctor` 其餘由記錄內容算出來的讀數也取 `entities/` 那份：`noAuthorizedName`（含 `firstPeople`）、`authorizedOnlyByCitationForm`、`deceasedWithOpenAffiliation`、`digestSources`，以及 index 沒重建時的 `entries`。先前同一份回應可以是 `people: 25` 而 `noAuthorizedName.people: 50`。
+- `akashic_libraries` 的 `list`（`members`、`nonconforming`）、`check`（成員數與不符清單）、`set-kind` 的回報：一對 legacy 拷貝算一個成員。
+- `akashic_create_entry` 的 `doiHits`：一對 legacy 拷貝不再列成「已在：k、k」。
+- CLI：`doctor` 的 `unresolved author literals` 與上面幾項同一個視圖（先前 CLI 自己從完整的 load 數，與 MCP 不同）；`bootstrap-organizations` 的 person 隸屬 literal、`authorize-names` 的計畫也取 `entities/` 那份。
+- 仍然讀完整 load 的（有記錄的殘留）：`akashic_person`、`akashic_get_entry` 的單筆查詢（排序讓 `entities/` 那份在前）；`akashic_resolve_people`／`akashic_resolve_venues`／`akashic_resolve_organizations` 的候選產生；`akashic_record_divergence` 的候選存在檢查（改名留下的舊 citekey 收得下）；CLI `references nominate` 的比對表；CLI `validate` 結尾的筆數。
+- 寫入候選面（三個 bootstrap、`authorize-names`）改取 `entities/` 那份超出使用者 2026-10-01 的裁決範圍，待確認。
 - 工具說明沒有改。
 
 ## #564 — 名字分類的判定面必附理由、留判定記錄（不相容）；store format 22

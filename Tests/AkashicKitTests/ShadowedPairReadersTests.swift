@@ -102,6 +102,78 @@ final class ShadowedPairReadersTests: XCTestCase {
         XCTAssertEqual(store.health(from: try store.load()).unresolvedAuthorLiterals, 2)
     }
 
+    /// #709 R2 verify（MEDIUM 2、3、5、7）：MCP `akashic_doctor` 的普查讀數也取 entities/ 那份——先前 `people: 1` 與
+    /// `noAuthorizedName.people: 2` 出現在同一份 payload。
+    func testMCPDoctorCensusCountsAPersonPairOnce() throws {
+        let id = UUID()
+        var p = Person(key: "doe-a", names: PersonNames(variant: ["Doe, Alpha"]), died: "2001", id: id)
+        p.profile.affiliations = TimelineOf<OrgRef>([
+            TemporalValue(value: .literal("Institute of Testing"), source: "sha256:" + String(repeating: "a", count: 64))])
+        let q = Person(key: "roe-b", names: PersonNames(authorized: ["Roe, B."]))
+        try PersonYAML.encode(p).write(to: store.entityURL(id: id), atomically: true, encoding: .utf8)
+        try PersonYAML.encode(q).write(to: store.entityURL(id: q.id), atomically: true, encoding: .utf8)
+        try FileManager.default.createDirectory(at: store.peopleDir, withIntermediateDirectories: true)
+        for x in [p, q] {
+            try PersonYAML.encode(x).write(to: store.personURL(key: x.key), atomically: true, encoding: .utf8)
+        }
+        XCTAssertEqual(try store.load().people.count, 4, "前提：兩份並存")
+
+        let service = AkashicService(root: root, key: nil, environment: [:])
+        let doctor = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(try service.doctor().utf8)) as? [String: Any])
+        XCTAssertEqual(doctor["people"] as? Int, 2)
+        let gaps = try XCTUnwrap(doctor["noAuthorizedName"] as? [String: Any], "\(doctor)")
+        XCTAssertEqual(gaps["people"] as? Int, 1, "與 people 同一個視圖：\(doctor)")
+        XCTAssertEqual(gaps["firstPeople"] as? [String], ["doe-a"])
+        XCTAssertEqual(doctor["authorizedOnlyByCitationForm"] as? Int, 1)
+        XCTAssertEqual(doctor["deceasedWithOpenAffiliation"] as? [String], ["doe-a"])
+        XCTAssertEqual((doctor["digestSources"] as? [String])?.count, 1, "\(doctor)")
+    }
+
+    /// #709 R2 verify（LOW 22）：`create-entry` 的 DOI 命中把一對列成「已在：k、k」；citekey 的佔用照舊看完整的 load。
+    func testCreateEntryDOIHitNamesAPairOnce() throws {
+        var e = Entry(id: UUID(), citekey: "a2020doi", type: .periodicalArticle, title: "T", date: "2020")
+        e.doi = [DOI("10.1234/abc.def")!]
+        try writeEntities(e)
+        try writeLegacy(e)
+        let service = AkashicService(root: root, key: nil, environment: [:])
+        let report = try service.createEntries([.init(type: "periodical-article", title: "Other", authors: ["Doe, B."],
+                                                      date: "2021", doi: ["10.1234/abc.def"])], dryRun: true)
+        XCTAssertEqual(report.doiHits.map(\.existing), [["a2020doi"]], "\(report.doiHits)")
+    }
+
+    /// #709 R2 verify（LOW 19）：`akashic_libraries` 的 list 與 check 把一對算成兩個成員。
+    func testLibraryMemberCountsTakeThePairOnce() throws {
+        try store.writeLibrary(Library(key: "lib1", name: "L1", membership: .topic))
+        var a = Entry(id: UUID(), citekey: "doe2020a", type: .periodicalArticle, title: "A", date: "2020")
+        a.akashic.libraries = ["lib1"]
+        var b = Entry(id: UUID(), citekey: "roe2021b", type: .periodicalArticle, title: "B", date: "2021")
+        b.akashic.libraries = ["lib1"]
+        try writeEntities(a)
+        try writeEntities(b)
+        try writeLegacy(a)
+        let service = AkashicService(root: root, key: nil, environment: [:])
+        let list = try XCTUnwrap(try JSONSerialization.jsonObject(
+            with: Data(try service.libraries(action: "list", key: nil, name: nil, description: nil, citekey: nil).utf8)) as? [[String: Any]])
+        XCTAssertEqual(list.first?["members"] as? Int, 2, "\(list)")
+        XCTAssertEqual(try service.libraryViolations(key: "lib1").members, 2)
+    }
+
+    /// #709 R2 verify（LOW 22）：`authorize-names` 的計畫把一對算成兩個人；`--apply` 對這一對照舊整批拒絕（過濾不讓任何一筆變得可寫）。
+    func testAuthorizeNamesPlansAPairOnceAndStillRefusesToWriteIt() throws {
+        let id = UUID()
+        let p = Person(key: "doe-a", names: PersonNames(variant: ["Doe, Alpha"]), id: id)
+        try PersonYAML.encode(p).write(to: store.entityURL(id: id), atomically: true, encoding: .utf8)
+        try FileManager.default.createDirectory(at: store.peopleDir, withIntermediateDirectories: true)
+        try PersonYAML.encode(p).write(to: store.personURL(key: p.key), atomically: true, encoding: .utf8)
+
+        let dry = try AuthorizedNameMigration.run(store: store, apply: false)
+        XCTAssertEqual(dry.total, 1, "person 總數只算一次")
+        XCTAssertEqual(dry.adopted, 1, "\(dry)")
+        XCTAssertThrowsError(try AuthorizedNameMigration.run(store: store, apply: true, judgement: "測試")) {
+            XCTAssertTrue("\($0)".contains("無法唯一定位"), "\($0)")
+        }
+    }
+
     // MARK: - 3. people 列表
 
     func testThePeopleListShowsAPersonPairOnceAndTakesTheEntitiesCopy() throws {

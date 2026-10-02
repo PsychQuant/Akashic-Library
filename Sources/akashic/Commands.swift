@@ -97,9 +97,13 @@ struct Doctor: ParsableCommand {
         if let auditError = health.sourcesAuditError {
             print("  ✗ sources audit 無法完成：\(auditError)")   // display-safe-exempt: StoreHealth 已 displaySafe
         }
+        // 由記錄**內容**算出來的讀數一律取 entities/ 那份（#709 R2 verify：先前只有 `StoreHealth` 的三項換了視圖，這裡的普查讀數仍吃完整的 load，
+        // 一對 legacy 拷貝算兩次——同一份輸出 `entries: 1` 而 `unresolved author literals: 2`、`no authorized name` 把同一個 key 列兩次）。
+        // 驗證類（上面的 crossRecordIssues、validate 的 per-record）照舊看兩份。MCP `akashic_doctor` 用同一個視圖、同一組函式。
+        let census = load.withoutShadowedLegacyCopies()
         if !fatalCross.isEmpty {
             print("library: \(displaySafe(root.path, max: 800))")
-            print("entries: \(load.entries.count)（未重建 index——先修好上面的重複）")
+            print("entries: \(census.entries.count)（未重建 index——先修好上面的重複）")
             throw ExitCode(1)
         }
 
@@ -132,15 +136,13 @@ struct Doctor: ParsableCommand {
         // #609：主連結仍在、附加來源已在 Zotero 端刪除——與上一行不相交；處置在 App 裁決台（拿掉已刪除的附加來源）
         let partial = health.orphanedAdditionalSourceCitekeys
         print("orphaned additional sources: \(partial.count)\(partial.isEmpty ? "" : "（" + partial.map { displaySafe($0, max: 200) }.joined(separator: ", ") + "——App 裁決台 Orphans 可拿掉已刪除的來源）")")
-        let unresolved = load.entries.flatMap { entry in
-            entry.authors.compactMap { if case .literal(let s) = $0 { return s } else { return nil } }
-        }
-        print("unresolved author literals: \(unresolved.count)")
+        // 讀 `health`，不自己推導（#709 R2 verify：這一行曾自己從完整的 load 數，與 MCP／App 讀的 `health.unresolvedAuthorLiterals` 分岔）
+        print("unresolved author literals: \(health.unresolvedAuthorLiterals)")
         // #146：`TemporalValue.source` 只放**裸 URL**，digest 屬 `references:`。
         // **報告不是錯誤**——遷移由 `akashic migrate-provenance` 執行，而這條檢查
         // 要持續存在：遷移是一次性動作，「source 只放 URL」卻是要一直成立的不變式，
         // 新寫入隨時可能再破壞它（那正是這 22 筆當初的來由）。
-        let digestSources = ProvenanceMigration.residualDigestSources(load: load)
+        let digestSources = ProvenanceMigration.residualDigestSources(load: census)
         if !digestSources.isEmpty {
             print("digest 形式的 source: \(digestSources.count)（應改記於 references:，#146）")
             for s in digestSources.prefix(10) {
@@ -151,19 +153,19 @@ struct Doctor: ParsableCommand {
         }
         // #81：沒有指定對外名字的記錄。**報告不是錯誤**——修復需要的資訊無法自動取得，
         // 設成 validate 錯誤等於把不可自動化的工作變成載入的前置條件。
-        let nameGaps = load.recordsWithoutAuthorizedName()
+        let nameGaps = census.recordsWithoutAuthorizedName()
         print("no authorized name: \(nameGaps.people.count) person / \(nameGaps.organizations.count) organization"
               + (nameGaps.people.isEmpty ? "" :
                  "（前 10：" + nameGaps.people.prefix(10)
                     .map { displaySafe($0, max: 120) }.joined(separator: ", ") + "）"))
         // #81/#82：指定了、但指定的就是引用形——缺的不是指定，是名字本身。migration 把
         // 唯一候選直接採用之後，這才是真正的缺口訊號（未指定者會掉到接近 0）。
-        let citationOnly = load.recordsAuthorizedOnlyByCitationForm()
+        let citationOnly = census.recordsAuthorizedOnlyByCitationForm()
         print("authorized only by citation form: \(citationOnly.count) person"
               + (citationOnly.isEmpty ? "" : "（無真正的名字，只有索引系統的變換）"))
         // #67：已記錄逝世卻仍有開放的隸屬段。**只在命中時輸出**——0 是正常狀態，
         // 每次都印一行「0」只是噪音（上面兩項是普查數字，性質不同）。
-        let deceasedOpen = load.recordsDeceasedWithOpenAffiliation()
+        let deceasedOpen = census.recordsDeceasedWithOpenAffiliation()
         if !deceasedOpen.isEmpty {
             print("deceased with open affiliation: \(deceasedOpen.count) person"
                   + "（隸屬的結束日與死亡只有一個是對的，需要人判斷；工具不代為關閉）")
@@ -174,7 +176,7 @@ struct Doctor: ParsableCommand {
         // #100：「從來沒有日期」的維度——range 相同時的 fallback 排序對它們
         // 沒有現實根據，系統要說出來（要嘛補日期，要嘛承認它不是時間軸）。
         // 命中才輸出；空維度不報（沒有段就沒有「該不該有日期」的問題）。
-        let neverDated = load.timelineDateCensus().filter { $0.dated == 0 && $0.undated > 0 }
+        let neverDated = census.timelineDateCensus().filter { $0.dated == 0 && $0.undated > 0 }
         if !neverDated.isEmpty {
             print("timeline dimensions with zero dates: \(neverDated.count)"
                   + "（range 相同時的排序對這些維度沒有時間根據——補日期，或接受它是"
@@ -183,7 +185,7 @@ struct Doctor: ParsableCommand {
         }
         // #85：日期樣欄位不合 ISO 8601 前綴值域——裁決 (c)：不驗證但報告。
         // **只在命中時輸出**（同 deceasedOpen：待人處理的工作清單，列全部不截斷）。
-        let dateAnomalies = load.dateFieldAnomalies()
+        let dateAnomalies = census.dateFieldAnomalies()
         if !dateAnomalies.isEmpty {
             print("date-like values outside ISO 8601 prefix: \(dateAnomalies.count)"
                   + "（值域是文件契約、載入不擋；民國年等真實情況請補正或留註記）")
@@ -903,9 +905,13 @@ struct BootstrapOrganizations: ParsableCommand {
         let store = try options.openStore()
         let load = try store.load()
         // #378：作者位的團體 literal 也是機構名的來源
-        let result = OrgBootstrap.result(people: load.people,
+        // 同 bootstrap-people（#709 R3 verify）：legacy 拷貝的內容不流進寫入候選——**兩個 literal 來源都是**（R2 verify：先前只換了 entries，
+        // person 的隸屬 literal 仍從完整的 load 來，拷貝獨有的機構名成為候選、一次出現算兩次而越過 --min-occurrences）。
+        // organizations 用完整的 load：它沒有 legacy 拷貝，而且它同時是「已存在」的判準。
+        let canonical = load.withoutShadowedLegacyCopies()
+        let result = OrgBootstrap.result(people: canonical.people,
                                          organizations: load.organizations,
-                                         entries: load.withoutShadowedLegacyCopies().entries)   // 同 bootstrap-people（#709 R3 verify）：legacy 拷貝的內容不流進寫入候選
+                                         entries: canonical.entries)
         var cands = result.candidates.filter { $0.occurrences >= minOccurrences }
         let total = cands.count
         if let limit { cands = Array(cands.prefix(limit)) }

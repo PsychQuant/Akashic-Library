@@ -120,9 +120,12 @@ public enum AuthorizedNameMigration {
                    + "若是未遷移的舊形狀 person，跑 akashic migrate-person-identity 後再回來")
         }
         var report = Report()
-        report.total = load.people.count
+        // 計畫取 entities/ 那份（#709 R2 verify：一對 legacy 拷貝先前讓乾跑印「person 總數: 2、採用 2」）。拒絕仍看完整的 load
+        // （下面的 `unlocatablePersonKeys`）：過濾不讓任何一筆變得可寫（`withoutShadowedLegacyCopies` 的 doc）
+        let people = load.withoutShadowedLegacyCopies().people
+        report.total = people.count
         var toWrite: [Person] = []   // 先算完整個寫入集合，才決定寫不寫（#641）
-        for person in load.people {
+        for person in people {
             guard person.names.authorized.isEmpty else {
                 report.alreadyDesignated += 1
                 continue
@@ -159,7 +162,8 @@ public enum AuthorizedNameMigration {
         // 不能安全搬移），前面的指定已經落盤而 marker 沒 bump——舊 binary 會照舊語意讀新格式，正是 marker 要擋的情境。
         // 寫入集合裡有無法唯一定位的，就在第一次寫入之前整批拒絕（乾跑照常出報告：它看得到那些人，報告是完整的）。
         if apply {
-            let unlocatable = load.people.unlocatablePersonKeys
+            // 完整的 load 與視圖兩邊都問：視圖把「完整 load 上擋著、拿掉拷貝後不擋」的那一份補上理由（`withoutShadowedLegacyCopies`）
+            let unlocatable = load.people.unlocatablePersonKeys.union(people.unlocatablePersonKeys)
             let blocked = toWrite.map(\.key).filter { unlocatable.contains($0) }
             guard blocked.isEmpty else {
                 let shown = blocked.prefix(20).map { displaySafeInvisible($0, max: 120) }.joined(separator: "、")

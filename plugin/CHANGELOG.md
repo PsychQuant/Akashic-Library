@@ -240,6 +240,11 @@ wrapper 下載後不驗完整性（沒有核對 release 流程已產出的 `.sha
 - **新鍵 `writtenWithLegacyCopyNotApplied`**：成功清單截到 20 筆時，「之後的寫入沒有套用」只標在被截掉的那一列上，唯一的回報就跟著不見。現在另給這個鍵＝完整的沒套用筆數（在截斷之外），只在大於 0 時出現（沒有這個鍵＝零筆）；併進已帶這個鍵的回應時兩邊相加。錯誤回應的人可讀報告在「另有 N 筆未列出」那一行補說其中幾筆沒套用。十三份工具說明共用的那一句多點名這個鍵。處置不變：刪掉 legacy 那份、重跑。
 - CLI `akashic`：命令以沒有訊息的非零結束碼收場（例如 `import-zotero` 的 `writeFailed`）時，stderr 先前是空的；現在第一行照給（說已寫入幾筆、不要重跑、原因見 stdout 的報告）。
 
+第四輪驗證之後（2026-10-03）：
+
+- CLI `akashic`：stderr 的第一行不再一律說「不要重跑」。那幾筆裡有之後的寫入沒套用的（`laterWriteNotApplied`）時，說「其中 N 筆……刪掉 legacy 那份之後要重跑」；都沒有時只說它們不必為了自己重跑；以沒有訊息的非零結束碼收場時，另說非零的原因在 stdout 的報告裡、那一部分可能需要重跑。先前那一句恰好在需要重跑的兩種情形叫人不要重跑。
+- 十三份工具說明共用的那一句改短：兩個附屬的鍵以「鍵名加 Total／加 NotApplied」指名（`writtenWithLegacyCopyTotal`、`writtenWithLegacyCopyNotApplied`），內容不變。回應鍵沒有改。
+
 ## #695 — `akashic_enrich` 的來源欄位與 `references` 的空陣列（不相容）
 
 plugin 的 wrapper 會自動下載新版 `akashic-mcp`，skill 文字可能比 binary 舊，所以把會讓既有呼叫失敗的改變寫在這裡。plugin 版號沒有動。

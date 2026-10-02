@@ -47,7 +47,7 @@ struct AkashicCLI: ParsableCommand {
             // （`StoreKey.pattern`）與已消毒片段的 `\u{...}` 都會被弄壞。
             // 終端安全不受影響（控制字元／bidi 等仍全部跳脫），理由見該函式 doc。
             var safe = displaySafeAssembled(full)
-            // #705 R2 verify 第 16／19 列：失敗時 stderr 的第一行也說 stdout 上報告過的那幾筆寫了——只擷取 stderr 的呼叫端讀得到「不要重跑」
+            // #705 R2 verify 第 16／19 列：失敗時 stderr 的第一行也說 stdout 上報告過的那幾筆寫了——只擷取 stderr 的呼叫端讀得到那幾筆寫了、要不要重跑（#705 R2 verify 第 13／25 則：依情形措辭，見 `stderrText`）
             // 錯誤訊息是空的（`ExitCode(1)`）也要說（#705 R3 verify）——`stderrText` 處理兩種
             if exitCode(for: error) != .success { safe = LegacyCopyReport.stderrText(errorText: safe) }
             if !safe.isEmpty {

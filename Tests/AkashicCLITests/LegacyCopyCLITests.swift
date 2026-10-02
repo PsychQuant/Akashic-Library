@@ -214,7 +214,7 @@ final class LegacyCopyCLITests: XCTestCase {
 }
 
 /// #705 R2 verify 第 16／19 列：失敗時 stdout 與 stderr 各自說得通。
-/// - stderr 的第一行也說 stdout 上報告過的那幾筆寫了——只擷取 stderr 與結束碼的呼叫端（cron、CI）讀得到「不要重跑」；
+/// - stderr 的第一行也說 stdout 上報告過的那幾筆寫了——只擷取 stderr 與結束碼的呼叫端（cron、CI）讀得到那幾筆寫了、要不要重跑；
 /// - `--json` 的命令寫入後失敗時，stdout 仍是**一份** JSON（只有 `writtenWithLegacyCopy` 三個鍵），不是 JSON 之外的文字。
 extension LegacyCopyCLITests {
     /// stdout 與 stderr 分開收（`CLITestHarness.run` 把兩者合在一起）。
@@ -237,7 +237,7 @@ extension LegacyCopyCLITests {
         return (p.terminationStatus, try String(contentsOf: outFile, encoding: .utf8), try String(contentsOf: errFile, encoding: .utf8))
     }
 
-    /// 文字命令（enrich 不帶 --json）寫入後失敗：stdout 有人可讀報告，stderr 的第一行說那一筆寫了、不要重跑，接著才是原本的錯誤。
+    /// 文字命令（enrich 不帶 --json）寫入後失敗：stdout 有人可讀報告，stderr 的第一行說那一筆寫了、不必為了它重跑，接著才是原本的錯誤。
     func testStderrLeadsWithTheWrittenCountWhenATextCommandFails() throws {
         for title in ["A", "B"] {   // 兩筆不同的記錄（id 不同）共用一個 citekey——#709 起寫入後的 index rebuild 只在這種真的重複上失敗
             try store.writeEntry(Entry(id: UUID(), citekey: "dup2020x", type: .periodicalArticle, title: title, date: "2020"))
@@ -251,7 +251,8 @@ extension LegacyCopyCLITests {
         XCTAssertTrue(r.out.contains("work「\(e.citekey)」"), "報告在 stdout：\(r.out)")
         let first = String(r.err.split(separator: "\n").first ?? "")
         XCTAssertTrue(first.hasPrefix("已寫入 1 筆、搬移後的 legacy 拷貝沒刪掉"), "stderr 第一行：\(r.err)")
-        XCTAssertTrue(first.contains("不要重跑"), first)
+        XCTAssertTrue(first.contains("不必為了自己重跑"), "這一筆沒有後續被拒：\(first)")
+        XCTAssertFalse(first.contains("不要重跑"), "#705 R2 verify：失敗本身可能要重跑，不說「不要重跑」：\(first)")
         XCTAssertTrue(r.err.contains("Error: "), "原本的錯誤接在後面：\(r.err)")
     }
 

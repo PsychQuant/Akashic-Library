@@ -23,20 +23,27 @@ enum LegacyCopyReport {
     private(set) static var stdoutIsJSON = false
     /// 這一趟在 stdout 上已經報告的筆數（JSON 的鍵、人可讀報告，含 `import-zotero` 自己印的那一段）。
     private(set) static var reportedOnStdout = 0
+    /// 其中標了 `laterWriteRefused` 的筆數——同一個操作之後對那一筆的寫入沒有套用，刪掉 legacy 那份之後**要重跑**（#705 R2 verify 第 13／25 則）。
+    private(set) static var notAppliedOnStdout = 0
+
+    private static func count(_ items: [LegacyCopyLeft]) {
+        reportedOnStdout += items.count
+        notAppliedOnStdout += items.filter(\.laterWriteRefused).count
+    }
 
     static func payload(_ body: () throws -> String) throws -> String {
         stdoutIsJSON = true
         let (result, written) = LegacyCopyLedger.collecting(body)
         let out = AkashicService.reportingWrittenWithLegacyCopy(try LegacyCopyLedger.get(result, written: written), written,
                                                                 isError: false, limit: nil)   // CLI 全列（MCP 才截）
-        reportedOnStdout += written.count
+        count(written)
         return out
     }
 
     /// 兩面共用的人可讀報告（`LegacyCopyLeft.reportLines`）；沒有就不印。CLI 全列。
     static func printLines(_ items: [LegacyCopyLeft]) {
         for line in LegacyCopyLeft.reportLines(items) { print(line) }   // display-safe-exempt: line：reportLines 由已消毒的 message 組成
-        reportedOnStdout += items.count
+        count(items)
     }
 
     /// 進入點的尾段：命令失敗而它的 stdout 是 service JSON 時，印一份只有 `writtenWithLegacyCopy` 三個鍵的 JSON（stdout 仍是一份 JSON——
@@ -45,7 +52,7 @@ enum LegacyCopyReport {
         guard !items.isEmpty else { return }
         guard commandFailed, stdoutIsJSON else { return printLines(items) }
         print(AkashicService.reportingWrittenWithLegacyCopy("{}", items, isError: false, limit: nil))   // display-safe-exempt: 序列化器逐項消毒（reportingWrittenWithLegacyCopy 走 escapingUnsafeScalars）
-        reportedOnStdout += items.count
+        count(items)
     }
 
     /// 命令失敗時 stderr 的內容（`errorText` 是已消毒的錯誤訊息，可以是空的）。stdout 上已經報告過寫了的筆數時，第一行說這件事（只含筆數，
@@ -53,13 +60,26 @@ enum LegacyCopyReport {
     ///
     /// **錯誤訊息是空的也要說**（#705 R3 verify）：`throw ExitCode(1)`（import-zotero 的 `writeFailed`／未記下的 DOI 提名、`enrich-from-zotero` 等）
     /// 沒有訊息，先前 `!safe.isEmpty` 的守衛讓這一格 stderr 整個是空的——只擷取 stderr 與結束碼的呼叫端（cron、CI）讀不到「不要重跑」。
+    ///
+    /// **依情形措辭，不一律說「不要重跑」**（#705 R2 verify 第 13／25 則）：先前第一行無條件寫「那幾筆不是寫入失敗，不要重跑；刪掉 legacy 那份即可」，
+    /// 而它恰好在兩種需要重跑的情形出現——(1) 那幾筆裡有 `laterWriteRefused` 的（之後的寫入沒套用，刪掉拷貝之後要重跑才補得上）；(2) 沒有訊息的
+    /// 非零結束（例如 import-zotero 的 `writeFailed`：有記錄沒寫成功）。只擷取 stderr 與結束碼的呼叫端讀到「不要重跑」就不會重跑。
+    /// 現在：「不必重跑」只說給**已經寫了、沒有後續被拒**的那幾筆；有沒套用的就說要重跑幾筆；失敗本身（有訊息或沒有）另說「要另外處理」。
     static func stderrText(errorText: String) -> String {
-        guard reportedOnStdout > 0 else { return errorText }
+        stderrText(errorText: errorText, reported: reportedOnStdout, notApplied: notAppliedOnStdout)
+    }
+
+    /// 純函式版本——兩個計數由呼叫端給（測試不依賴 process 內累積的 static）。
+    static func stderrText(errorText: String, reported: Int, notApplied: Int) -> String {
+        guard reported > 0 else { return errorText }
         // 不以 `writtenWithLegacyCopy` 開頭：那是 stdout 報告的標題，合併兩個串流讀的呼叫端找它時不該先找到這一行
-        let lead = "已寫入 \(reportedOnStdout) 筆、搬移後的 legacy 拷貝沒刪掉（writtenWithLegacyCopy，清單在 stdout）"   // display-safe-exempt: Int
-            + "——那幾筆不是寫入失敗，不要重跑（兩份並存時 #631 會拒絕）；刪掉 legacy 那份即可。"
+        var lead = "已寫入 \(reported) 筆、搬移後的 legacy 拷貝沒刪掉（writtenWithLegacyCopy，清單在 stdout）"   // display-safe-exempt: Int
+            + "——那幾筆的寫入不是失敗，要刪掉 legacy 那份（兩份並存時 #631 拒絕同一筆的下一次寫入）；"
+        lead += notApplied > 0
+            ? "其中 \(notApplied) 筆之後的寫入沒套用，刪掉 legacy 那份之後要重跑才補得上。"   // display-safe-exempt: Int
+            : "它們不必為了自己重跑。"
         return errorText.isEmpty
-            ? lead + "這次以非零結束碼結束、沒有錯誤訊息——原因見 stdout 上的報告。"
-            : lead + "以下是這次失敗的原因：\n" + errorText
+            ? lead + "這次以非零結束碼結束、沒有錯誤訊息——非零的原因在 stdout 的報告裡（例如沒寫成功的記錄），那一部分要依報告處理，可能需要重跑。"
+            : lead + "以下是這次失敗的原因（它要另外處理）：\n" + errorText
     }
 }

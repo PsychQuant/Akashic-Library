@@ -47,8 +47,9 @@ actor AkashicMCPServer {
     /// #705：會寫既有 work／person 的工具（13 個）都加這一句——分派層把「寫進 entities/、搬移後的 legacy 拷貝沒刪掉」的那一筆
     /// 放進回應的 `writtenWithLegacyCopy`（成功的 JSON 物件加鍵；錯誤回應放在訊息最前面，#705 R1 verify 第 5 列）。一個常數，13 份描述不會各寫各的。
     /// #705 R2 verify 第 13 列：至多列 `writtenWithLegacyCopyLimit` 筆，另給 `writtenWithLegacyCopyTotal`／`…Truncated`——說明只寫「前 N 筆與總數」，
-    /// 13 份描述共用這一句，每多一個字就是十三份（tools/list 的位元組預算，#578）。
-    static let legacyCopyNote = "已寫入而 legacy 拷貝未刪的列在 writtenWithLegacyCopy（前 \(AkashicService.writtenWithLegacyCopyLimit) 筆與總數；之後的寫入沒套用的完整筆數在 writtenWithLegacyCopyNotApplied；錯誤時列在訊息前）。"
+    /// 13 份描述共用這一句，每多一個字就是十三份（tools/list 的位元組預算，#578）。#705 R2 verify 第二輪（INFO 34）：兩個附屬的鍵以「鍵名加 Total／
+    /// 加 NotApplied」指名，不再各寫一次完整鍵名——同樣的四件事（列在哪、前幾筆、總數與沒套用的筆數、錯誤時在哪），一句少 16 bytes、十三份少 208 bytes。
+    static let legacyCopyNote = "legacy 拷貝未刪的已寫入列在 writtenWithLegacyCopy（前 \(AkashicService.writtenWithLegacyCopyLimit) 筆；鍵名加 Total＝總數、加 NotApplied＝之後寫入沒套用的筆數；錯誤時在訊息前）。"
 
     // MARK: - Schema 小工具
 

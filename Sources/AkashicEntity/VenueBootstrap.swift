@@ -287,7 +287,7 @@ public enum VenueBootstrap {
             // 門檻建檔是提名不是判定（`two-kinds-of-edits` 的 bootstrap 列）。先前這裡寫 `[c.names[0]]`——
             // 字母序第一個寫法，一個不做判定的操作成了 authorized 的唯一寫入者（#471 對 variant 修掉的同一形狀）。
             // 與 `add-venue` 的 #227「建檔不機械偽造」一致；`displayName` 退到 `names` 的第一段，顯示不變。
-            // 既有的機械值不動（#600 的 authorize campaign 逐本判定），指定用 `update-venue --authorize`。
+            // 既有的機械值不動（#600 裁決：不跑全量 campaign、按需判定），指定用 `update-venue --authorize --judgement`。
             // **顯示名靠 #475 的 fallback**：`openspec/specs/authorized-name` 的 "SHALL NOT fall back to name order" 早在 #475 就與
             // `Venue.displayName`（沒有 authorized 時取 names 第一段）分岔；#563 讓這個 fallback 成為每個新建 venue 的預設路徑，
             // 分岔的母體變大了。輸出沒變（`VenueBootstrapTests` 斷言 displayName 等於 names 第一段），spec 文字待 Spectra 另案對齊。

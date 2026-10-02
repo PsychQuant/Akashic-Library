@@ -11,7 +11,9 @@ import AkashicStoreIO
 struct BootstrapVenues: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "bootstrap-venues",
-        abstract: "從 literal 刊名建 venue 記錄（type 由來源欄位判定，寧可分割絕不合併）")
+        abstract: "從 literal 刊名建 venue 記錄（type 由來源欄位判定，寧可分割絕不合併）",
+        discussion: "建出來的 venue 不指定對外形（authorized 留空，#563；顯示名暫取 names 的第一段）。指定是判定："
+            + "akashic update-venue <key> --authorize \"<名字>\" --judgement \"<理由>\"（理由必填、寫一筆判定記錄，需要 store format ≥ 22，#564）。")
 
     @OptionGroup var options: LibraryOptions
 
@@ -67,7 +69,7 @@ struct BootstrapVenues: ParsableCommand {
                 print("  …另 \(pending.count - AmbiguityDisplayLimit.rows) 筆未顯示")
             }
             print("  處置：同鍵只代表**值得看**，不代表同一本刊。查證後——是同一本 → "
-                  + "akashic update-venue <既有 key> --add-variant \"<這個寫法>\"（key 是位置參數），"
+                  + "akashic update-venue <既有 key> --add-variant \"<這個寫法>\" --judgement \"<理由>\"（key 是位置參數；理由必填，#564），"
                   + "下一輪它就是精確命中、由 resolve-venues 歸戶；是不同刊 → "
                   + "akashic add-venue 另建。判不出來就不建——literal 留在誠實狀態是合法終點。")
         }
@@ -105,9 +107,10 @@ struct BootstrapVenues: ParsableCommand {
 
         guard apply else {
             print("")
+            // 沒有候選時不說「建出來的 venue」（#563 R2 verify 第 17／23／28 列：那句說的是不存在的記錄）
             print("（dry-run）加 --apply 實際寫入。**只建立、不歸戶**"
                   + "——entry 的 venues literal 原樣留著，歸戶是 resolve-venues 的第二步。"
-                  + "建出來的 venue 不指定對外形（authorized 留空，#563）。")
+                  + (cands.isEmpty ? "" : "建出來的 venue 不指定對外形（authorized 留空，#563）。"))
             return
         }
 
@@ -115,8 +118,11 @@ struct BootstrapVenues: ParsableCommand {
         for v in venues { _ = try store.writeVenue(v) }
         print("")
         print("已建立 \(venues.count) 筆 venue 記錄。"
-              + "下一步：akashic resolve-venues 看候選，確認後 --apply 歸戶。")
+              + (venues.isEmpty ? "" : "下一步：akashic resolve-venues 看候選，確認後 --apply 歸戶。"))
+        guard !venues.isEmpty else { return }
+        // 指令照抄要跑得通：#564 起 --authorize 必附 --judgement（R2 verify 第 0／4 列：這一行寫在 #564 整合之前，照抄得 exit 64）
         print("新建的 venue 沒有指定對外形（authorized 留空，#563；顯示名暫取 names 的第一段）："
-              + "指定走 akashic update-venue <key> --authorize \"<名字>\"，doctor 不會替空的 venue authorized 報缺口（它只數 person 與 organization）。")
+              + "指定走 akashic update-venue <key> --authorize \"<名字>\" --judgement \"<理由>\"（理由必填、寫一筆判定記錄，#564），"
+              + "doctor 不會替空的 venue authorized 報缺口（它只數 person 與 organization）。")
     }
 }

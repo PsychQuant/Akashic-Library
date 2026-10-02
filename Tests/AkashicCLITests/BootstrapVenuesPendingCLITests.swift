@@ -84,6 +84,9 @@ final class BootstrapVenuesPendingCLITests: XCTestCase {
     /// **#563：`--apply` 建出來的 venue `authorized` 是空的**（真 binary、讀回磁碟）。「哪個寫法對外」是判定，
     /// 門檻建檔不做判定——同 `add-venue` 的 #227。顯示名退到 names 的第一段，所以顯示不變。
     func testApplyLeavesAuthorizedEmpty() throws {
+        // 乾跑先跑（有候選時才說「建出來的 venue」）——放在 --apply 之後，候選已經沒了（#563 R2 verify 第 17／23 列）
+        let dry = try cli(["bootstrap-venues"])
+        XCTAssertTrue(dry.output.contains("authorized 留空"), "乾跑也說：\(dry.output)")
         let r = try cli(["bootstrap-venues", "--apply"])
         XCTAssertEqual(r.status, 0, r.output)
         let venues = try LibraryStore(root: root, key: nil, environment: [:]).load().venues
@@ -97,9 +100,19 @@ final class BootstrapVenuesPendingCLITests: XCTestCase {
             .map { try String(contentsOf: $0, encoding: .utf8) }
             .first { $0.contains("key: journal-of-educational-psychology") }
         XCTAssertFalse(try XCTUnwrap(file).contains("authorized:"), "磁碟上不得出現 authorized 鍵：\(file ?? "")")
-        // 輸出要告訴操作者：新建的 venue 不指定對外形、指定走哪個命令、doctor 不會報它（R1 verify 第 15 列）
+        // 輸出要告訴操作者：新建的 venue 不指定對外形、指定走哪個命令、doctor 不會報它（R1 verify 第 15 列）——
+        // 命令要照抄跑得通：#564 起 --authorize 必附 --judgement（R2 verify 第 0／4 列）
         XCTAssertTrue(r.output.contains("update-venue") && r.output.contains("--authorize") && r.output.contains("doctor"), r.output)
-        let dry = try cli(["bootstrap-venues"])
-        XCTAssertTrue(dry.output.contains("authorized 留空"), "乾跑也說：\(dry.output)")
+        let hint = try XCTUnwrap(r.output.split(separator: "\n").first { $0.contains("--authorize") }, r.output)
+        XCTAssertTrue(hint.contains("--judgement"), "指定的命令要帶 --judgement：\(hint)")
+        // 待消歧那一段的 --add-variant 也一樣
+        let pendingHint = try XCTUnwrap(r.output.split(separator: "\n").first { $0.contains("--add-variant") }, r.output)
+        XCTAssertTrue(pendingHint.contains("--judgement"), "--add-variant 的命令要帶 --judgement：\(pendingHint)")
+        // 沒有新建任何 venue 時不說「新建的 venue」（R2 verify 第 17／23 列）
+        let again = try cli(["bootstrap-venues", "--apply"])
+        XCTAssertEqual(again.status, 0, again.output)
+        XCTAssertTrue(again.output.contains("已建立 0 筆"), again.output)
+        XCTAssertFalse(again.output.contains("新建的 venue"), "沒有建任何 venue：\(again.output)")
+        XCTAssertFalse(try cli(["bootstrap-venues"]).output.contains("authorized 留空"), "沒有候選時乾跑不說")
     }
 }

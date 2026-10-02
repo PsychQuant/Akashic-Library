@@ -41,7 +41,7 @@ extension AkashicService {
         }
         guard raw.count <= maxNamesPerClassificationCall else {
             throw ServiceError.invalid(
-                "\(parameter) 一次最多 \(maxNamesPerClassificationCall) 個名字（這次 \(raw.count) 個）——分次送；整批拒絕、零寫入")   // display-safe-exempt: parameter 是字面參數名；Int
+                "\(parameter) 一次最多 \(maxNamesPerClassificationCall) 個名字（這次 \(raw.count) 個）——分次送；整批拒絕、零寫入")   // display-safe-exempt: parameter 是字面參數名；maxNamesPerClassificationCall 與 raw.count 是 Int
         }
         var seen = Set<String>()
         var out: [NameRemovalSpec] = []
@@ -61,7 +61,7 @@ extension AkashicService {
             }
             guard reason.utf8.count <= maxStatementBytes else {
                 throw ServiceError.invalid(
-                    "\(parameter)「\(displaySafeInvisible(name, max: 120))」的理由超過 \(maxStatementBytes) 位元組（實得 \(reason.utf8.count)）——精簡它；不截斷")   // display-safe-exempt: parameter 是字面參數名；Int
+                    "\(parameter)「\(displaySafeInvisible(name, max: 120))」的理由超過 \(maxStatementBytes) 位元組（實得 \(reason.utf8.count)）——精簡它；不截斷")   // display-safe-exempt: parameter 是字面參數名；maxStatementBytes 與 reason.utf8.count 是 Int
             }
             guard seen.insert(NameIdentity.canonical(name)).inserted else {
                 throw ServiceError.invalid("\(parameter)「\(displaySafeInvisible(name, max: 120))」在一次呼叫裡重複（相等看 canonical）；整批拒絕、零寫入")   // display-safe-exempt: parameter 是字面參數名
@@ -121,7 +121,7 @@ extension AkashicService {
             let pinned = org.references.filter { $0.field == "names" && $0.value.map { NameIdentity.canonical($0) == k } == true }.count
             guard pinned == 0 else {
                 throw ServiceError.invalid(
-                    "\(holder)的「\(displaySafeInvisible(stored, max: 120))」有 \(pinned) 筆 `field: names` 的 reference 指著它——刪了它們會成孤兒，"   // display-safe-exempt: holder 已消毒；Int
+                    "\(holder)的「\(displaySafeInvisible(stored, max: 120))」有 \(pinned) 筆 `field: names` 的 reference 指著它——刪了它們會成孤兒，"   // display-safe-exempt: holder 已消毒；pinned 是 Int
                     + "而 organization 的 reference 沒有移除面：手改 YAML 刪掉那幾筆再重跑；整批拒絕、零寫入")
             }
             let records = NameClassificationRecord.allRecords(in: org.references, name: stored)
@@ -139,7 +139,7 @@ extension AkashicService {
         try store.writeOrganization(org)
         var payload: [String: Any] = ["key": displaySafe(key, max: 200), "namesRemoved": removed,
                                       "namesTotal": org.names.entries.count,   // display-safe-exempt: Int
-                                      "reasonNote": Self.nameRemovalReasonNote]
+                                      "reasonNote": Self.nameRemovalReasonNote]   // display-safe-exempt: Self.nameRemovalReasonNote 是編譯期字面常量
         if let failure = rebuildIndexCapturingFailure() { Self.noteIndexRebuildFailure(failure, in: &payload) }
         return try jsonString(payload)
     }
@@ -178,7 +178,7 @@ extension AkashicService {
             let pinned = person.references.filter { $0.field == "names" && $0.value.map { NameIdentity.canonical($0) == k } == true }.count
             guard pinned == 0 else {
                 throw ServiceError.invalid(
-                    "\(holder)的「\(displaySafeInvisible(stored, max: 120))」有 \(pinned) 筆 `field: names` 的 reference 指著它——刪了它們會成孤兒，"   // display-safe-exempt: holder 已消毒；Int
+                    "\(holder)的「\(displaySafeInvisible(stored, max: 120))」有 \(pinned) 筆 `field: names` 的 reference 指著它——刪了它們會成孤兒，"   // display-safe-exempt: holder 已消毒；pinned 是 Int
                     + "而 person 的 reference 沒有移除面：手改 YAML 刪掉那幾筆再重跑；整批拒絕、零寫入")
             }
             let records = NameClassificationRecord.allRecords(in: person.references, name: stored)
@@ -189,7 +189,7 @@ extension AkashicService {
         }
         var payload: [String: Any] = ["key": displaySafe(key, max: 200), "namesRemoved": removed,
                                       "namesTotal": person.names.all.count,   // display-safe-exempt: Int
-                                      "reasonNote": Self.nameRemovalReasonNote]
+                                      "reasonNote": Self.nameRemovalReasonNote]   // display-safe-exempt: Self.nameRemovalReasonNote 是編譯期字面常量
         if dryRun {
             payload["dryRun"] = true   // display-safe-exempt: Bool
             return try jsonString(payload)

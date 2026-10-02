@@ -3796,7 +3796,7 @@ public final class AkashicService {
             // 在 canonical 之前擋——整批拒絕、不截斷
             guard r.utf8.count <= AddOnlyEnrichment.maxValueBytes else {
                 throw ServiceError.invalid(
-                    "\(parameter) 的第 \(i + 1) 項超過 \(AddOnlyEnrichment.maxValueBytes) 位元組（實得 \(r.utf8.count)）——那不是一個名字；整批拒絕、零寫入，不截斷")   // display-safe-exempt: parameter 是呼叫端參數名的編譯期常量；Int
+                    "\(parameter) 的第 \(i + 1) 項超過 \(AddOnlyEnrichment.maxValueBytes) 位元組（實得 \(r.utf8.count)）——那不是一個名字；整批拒絕、零寫入，不截斷")   // display-safe-exempt: parameter 是呼叫端參數名的編譯期常量；i、r.utf8.count 與 AddOnlyEnrichment.maxValueBytes 都是 Int
             }
             let c = NameIdentity.canonical(r)
             if c.isEmpty { blanks.append(r); continue }

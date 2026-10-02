@@ -199,7 +199,7 @@ public enum AuthorizedNameMigration {
         }
         // 與 venue／organization／person 的名字分類腿同一份理由檢查（#564 R1 verify security 第 6／19 列）
         if let why = NameClassificationRecord.reasonIssue(reason) {
-            throw StoreIOError.invalidInput(what: "authorize-names --judgement", why: why)
+            throw StoreIOError.invalidInput(what: "authorize-names --judgement", why: why)   // display-safe-exempt: why 是 reasonIssue 的固定訊息（碼位是十六進位）
         }
     }
 }

@@ -141,7 +141,7 @@ public extension AkashicService {
         }
         guard droppedWithRecords.isEmpty else {
             throw ServiceError.invalid(
-                "fields.names 的替換拿掉了\(holder)的 \(list(droppedWithRecords))，而它們有名字分類的判定記錄（錨定 names，#564）——"   // display-safe-exempt: holder 已消毒；list 逐項消毒
+                "fields.names 的替換拿掉了\(holder)的 \(list(droppedWithRecords))，而它們有名字分類的判定記錄（錨定 names，#564）——"   // display-safe-exempt: holder 已消毒；list 逐項以 displaySafeInvisible 消毒 droppedWithRecords
                 + "刪名字用 --remove-name（MCP remove_names）'<名字>=<理由>'：只收最後一筆記錄是「撤回」的名字，記錄隨名字一起刪、理由只進報告、檔案要先 commit；"
                 + "還在 authorized 的先在 fields.names 把它移到 variant（附 --judgement，寫一筆撤回）。這次整批拒絕、零寫入")
         }
@@ -150,15 +150,15 @@ public extension AkashicService {
         let leavingGone = leaving.filter { !afterAll.contains($0) }
         guard leavingGone.isEmpty else {
             throw ServiceError.invalid(
-                "fields.names 讓\(list(leavingGone))離開 authorized、又不留在 names 裡——撤回對外形要留一筆記錄（#564），而記錄錨定 names："   // display-safe-exempt: list 逐項消毒
+                "fields.names 讓\(list(leavingGone))離開 authorized、又不留在 names 裡——撤回對外形要留一筆記錄（#564），而記錄錨定 names："   // display-safe-exempt: list 逐項以 displaySafeInvisible 消毒 leavingGone
                 + "先把它移到 variant（附 --judgement，寫一筆撤回），再用 --remove-name 刪；整批拒絕、零寫入")
         }
         guard let judgement else {
             guard entering.isEmpty, leaving.isEmpty else {
                 throw ServiceError.invalid(
                     "fields.names 改了\(holder)的 authorized（"   // display-safe-exempt: holder 已消毒
-                    + (entering.isEmpty ? "" : "成為對外形：\(list(entering))") + (entering.isEmpty || leaving.isEmpty ? "" : "；")   // display-safe-exempt: list 逐項消毒
-                    + (leaving.isEmpty ? "" : "移出：\(list(leaving))")   // display-safe-exempt: list 逐項消毒
+                    + (entering.isEmpty ? "" : "成為對外形：\(list(entering))") + (entering.isEmpty || leaving.isEmpty ? "" : "；")   // display-safe-exempt: list 逐項以 displaySafeInvisible 消毒 entering；entering.isEmpty 與 leaving.isEmpty 是 Bool
+                    + (leaving.isEmpty ? "" : "移出：\(list(leaving))")   // display-safe-exempt: list 逐項以 displaySafeInvisible 消毒 leaving
                     + "）——名字分類是判定，judgement（--judgement）必填：指定、撤回各在 references 留一筆判定記錄（field: authorized，#564）；"
                     + "證據 rests_on 可省略。只動 variant 的替換不必附理由。整批拒絕、零寫入")
             }

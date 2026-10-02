@@ -246,7 +246,7 @@ extension AkashicService {
     static func refuseTooManyClassifiedNames(_ count: Int, legs: String) throws {
         guard count > maxNamesPerClassificationCall else { return }
         throw ServiceError.invalid(
-            "名字分類一次至多 \(maxNamesPerClassificationCall) 個名字（\(legs) 合計，這次 \(count) 個）——分次送；"   // display-safe-exempt: Int；legs 是呼叫端的字面參數名
+            "名字分類一次至多 \(maxNamesPerClassificationCall) 個名字（\(legs) 合計，這次 \(count) 個）——分次送；"   // display-safe-exempt: maxNamesPerClassificationCall 與 count 是 Int；legs 是呼叫端的字面參數名
             + "每個名字各寫一筆判定記錄、記錄只追加（#564）；整批拒絕、零寫入，不截斷")
     }
 

@@ -27,7 +27,9 @@ final class ByteExactKeySiteInventoryTests: XCTestCase {
             "Sources/AkashicMCPKit/OrgUndecidedVerdicts.swift",  // org 族的同一件事（change org-undecided-leg，#643）
             "Sources/AkashicMCPKit/OrgJudgedVerdicts.swift",     // org 逐篇判定：理由被去重吃掉時，完全相同的一筆不算沒寫（#647 R1 verify）
             "Sources/AkashicMCPKit/VenueReferenceRemoval.swift", // venue reference 移除面：定位到多筆時分辨「位元組完全相同的重複」與「要加鍵縮小的多筆」（#673）
-            "Sources/AkashicCore/NameClassificationRecord.swift", // 名字分類判定記錄的 append-only 去重（#564）：第二次同一句確認不長出第二筆
+            "Sources/AkashicCore/NameClassificationRecord.swift", // 名字分類判定記錄的 append-only 去重（#564）：與同一個名字同一個分割的最後一筆相同才不寫（修正輪）
+            "Sources/AkashicMCPKit/NameRemovalWithRecords.swift", // 刪已撤回的名字時一併刪它的記錄（#564 第 2 點）：以位元組定位要刪的那幾筆
+            "Sources/AkashicMCPKit/VenueNameSegmentEdit.swift",   // 同上，venue 的 edit_name_segment remove
         ]
         let sources = Self.repoRoot.appendingPathComponent("Sources")
         var found: Set<String> = []

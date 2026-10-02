@@ -279,6 +279,13 @@ plugin 的 wrapper 會自動下載新版 `akashic-mcp`，skill 文字可能比 b
 - `akashic_enrich` 的輸入說明（`sourceURL`／`sourceRetrieved`／`sourceMediaType`）補上字元規則的摘要。
 - 仍待裁決（沒有改）：控制字元與空白的拒絕涵蓋整條網址（路徑與 query 也是）——範圍使用者沒有裁過；`sourceMediaType` 單獨給仍整批拒絕。
 
+第四輪驗證之後（2026-10-03）：
+
+- url 的方括號裡要是解析得開的 IPv6 位址（`[1234]`、`[cafe:babe]`、`[....]`、`[:::::]` 先前會通過），zone id 要是 `%25` 加 1–15 個位元組（unreserved 字元或 `%HH`）：`[::1%hunter2]`、`[::1%]`、`[::1%25]`、`[fe80::1%en0]` 現在整批拒絕。`[fe80::1%25en0]` 照收。兩個面（`akashic_enrich` 的 `sourceURL`、`akashic_update_person`／`akashic_update_venue` 的 `references`）同一個函式。
+- `sourceDigest` 前後的空白只在 reference 真的會寫——`sourceDigest`、`sourceURL`、`sourceRetrieved`、`sourceStatus` 四欄都給了——時才拒絕；先前給了 url、取得日期或 media type 之一就拒絕，而缺取得日期時 reference 根本不寫。
+- reference 不寫時，回應的 `sourceDigest` 回顯 trim 之後的值（先前回顯原值，換行成了 `\u{000A}`）；只有空白的 digest 視同沒給，不再回顯、也不再說「只給了 sourceDigest」。
+- 長度超過上限的拒絕訊息不再把「整批拒絕、零寫入」說兩次。
+
 **`akashic_update_person` 的 `references: []`（空陣列）改成拒絕**，與 `akashic_update_venue` 同一句話。先前 person 這一面是 no-op。沒有要附的 reference 就不要給這個鍵。
 
 ## #703 — `akashic_store_source` 單檔上限 256 MiB

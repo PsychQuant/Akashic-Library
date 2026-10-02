@@ -388,7 +388,8 @@ public enum AddOnlyEnrichment {
         /// `ambiguous` 時全部命中的 citekey（排序）；其餘為空。
         public let matches: [String]
         /// 逐筆回顯 `Proposal.sourceDigest`。digest **單獨**不進 store；四個來源欄位齊備時它成為 retrieval reference
-        /// 的 `content`（`retrievalKind`，#517），那時進 store 的是 reference，不是這個回顯欄位。
+        /// 的 `content`（`retrievalKind`，#517），那時進 store 的是 reference，不是這個回顯欄位。reference 不寫時回顯的是驗過的那個值
+        /// （trim 之後；只有空白的是 nil，#695 R4），寫的時候是原值（原值本來就要過形狀檢查才寫得進去）。
         public let sourceDigest: String?
     }
 
@@ -544,8 +545,9 @@ public enum AddOnlyEnrichment {
             guard n > maxValueBytes else { return }
             throw InputError.invalidProposal(
                 index: index,
+                // 「整批拒絕，零寫入」由 `InputError` 的外框說（#695 R2 verify：這裡先前也說一次，同一則訊息出現兩次）
                 reason: "\(label)長 \(n) bytes，超過上限 \(maxValueBytes)"
-                      + "（整批拒絕、零寫入——截斷會讓一個不是來源給的值進 store 而且不出聲）")
+                      + "（不截斷——截斷會讓一個不是來源給的值進 store 而且不出聲）")
         }
         try checkLength(p.citekey, "citekey")
         try checkLength(p.doi, "doi")
@@ -568,8 +570,11 @@ public enum AddOnlyEnrichment {
         //
         // **只在 reference 真的會寫的時候才嚴格**（#695 R3 verify，三席各自重現）：只給 digest 是回顯、不寫 reference（#517），那時前後的空白不會
         // 進 store，先前整批拒絕還說「reference 記的是送來的原值」是假的，而 `shasum` 的輸出帶換行、`present()` 原本就會 trim。回顯模式維持 trim 之後
-        // 驗（只有空白的值視同沒給）；有 url／取得日期／media type 時（`retrievalKind` 會把 digest 原值寫進 reference）才驗原值。
-        let writesReference = [p.sourceURL, p.sourceRetrieved, p.sourceMediaType].contains { given($0) != nil }
+        // 驗（只有空白的值視同沒給）。
+        //
+        // 「真的會寫」＝`retrievalKind` 不是 nil（digest、url、取得日期、status 四欄齊備；#695 R4）。R3 用的是「給了 url、取得日期或 media type 之一」，
+        // 比這寬：digest＋url＋status 而沒有取得日期時 reference 不寫（報告說「來源欄位不齊」），帶換行的 digest 卻整批拒絕、說「reference 記的是送來的原值」。
+        let writesReference = p.retrievalKind != nil
         if let d = writesReference ? given(p.sourceDigest) : present(p.sourceDigest), !ProvenanceReference.isValidDigest(d) {
             if writesReference, ProvenanceReference.isValidDigest(d.trimmingCharacters(in: .whitespacesAndNewlines)) {
                 throw InputError.invalidProposal(
@@ -629,7 +634,12 @@ public enum AddOnlyEnrichment {
             throw InputError.invalidProposal(
                 index: index, reason: "沒有任何可補的東西（fields 空、無 date、無 authors）")
         }
-        return Validated(raw: p, citekey: ck, doi: doi, fields: fields)
+        // 回顯模式：報告回顯的是**驗過的那個值**（trim 之後；只有空白的視同沒給）——先前回顯原值，`"sha256:…\n"` 回顯成 `…\u{000A}`，
+        // 拿去 `add_sources` 被拒，只有空白的值報告卻說「只給了 sourceDigest」（#695 R2 verify）。不寫 reference，所以改這個值不改 store 的任何東西；
+        // 會寫的模式驗的與寫的都是原值，不動。
+        var raw = p
+        if !writesReference { raw.sourceDigest = present(p.sourceDigest) }
+        return Validated(raw: raw, citekey: ck, doi: doi, fields: fields)
     }
 
     /// 欄位政策本體——**逐字**自 `ZoteroEnrichment.plan` 搬入（#340／#394 verify R7–R9）。

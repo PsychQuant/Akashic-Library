@@ -1226,8 +1226,9 @@ store 上：寫入閘拒寫，`enrich` 則在寫入前讀 marker、值照補、r
 `sourceURL` 只收 http／https、主機非空、不含帳密，`sourceRetrieved` 是 ISO 8601，`sourceStatus` 在 100–599；給了 URL、retrieved 或 media type
 就要給 status（不預設 200）。url 與 media type 的字元規則與 references 相同（見下，含 #695 R2 補的幾類：主機部分的全形／相容形定界符、非 ASCII 數字或非數字的 port、
 方括號 IPv6 的結尾與內容、空的或只有空白的 media type）。不合的提案整批拒絕、零寫入。只給 `sourceDigest` 不是在寫 reference（回顯，#517），不觸發 status 必填，
-也不拒絕前後的空白（trim 之後驗，`shasum` 的輸出帶換行；只有空白視同沒給）；**reference 真的會寫**（給了 url、retrieved 或 media type）時 digest 驗原值，前後有空白即拒絕——
-reference 記的是送來的原值（#695 R3）。
+也不拒絕前後的空白（trim 之後驗，`shasum` 的輸出帶換行；只有空白視同沒給），報告回顯的是 trim 之後那個驗過的值；**reference 真的會寫**（digest、url、retrieved、
+status 四欄都給了——與 `retrievalKind` 同一個判準）時 digest 驗原值，前後有空白即拒絕——reference 記的是送來的原值（#695 R3；R4 把判準從「給了 url、retrieved 或
+media type 之一」收成四欄齊備：缺任何一欄時 reference 不寫，先前帶換行的 digest 卻整批拒絕、理由說的是 reference）。
 
 **移除端**：`update-entry --remove-field <鍵>=理由`（MCP `akashic_update_entry` 的 `remove_fields`，#544）刪一個 `fields` 的值時，
 一併刪掉指向它的 `fields.<鍵>` reference——留著它，那筆的語意會從正結果（值出自這份來源）翻成負結果（查過了、這份來源沒給），
@@ -1261,7 +1262,7 @@ venue 的 `references:` 可附著的 `field` 是**封閉列舉**，唯一的列�
 鍵名嚴格（不認得的鍵拒收）、型別不猜（`value`／`media_type`／`url` 要是字串、`rests_on` 要是字串陣列、`status` 要是整數）、`status` 在 100–599、
 `url` 只收 http／https 且主機非空、不含帳密（`user:password@`；拒絕訊息不回顯原值；`@`、`/`、`?`、`#` 在 Unicode scalar 上找，`@` 後接組合符號或 ZWJ 藏不住帳密）、主機不含反斜線、
 主機部分不含全形或相容形的定界符（`＠`、`：`、`／`、`﹫`、`℀` 這類，相容分解含 `@ : / ? # \`；IDN 主機與全形句點不受影響）、port 只收 ASCII 數字（空 port 照收）、
-方括號 IPv6 要有結尾 `]`、括號內只收十六進位／冒號／點並可接 `%25` 加 zone id（#695 R2／R3）、
+方括號 IPv6 要有結尾 `]`、括號內要是解析得開的 IPv6 位址（`inet_pton`，至多 45 個字元）並可接 `%25` 加 1–15 個位元組的 zone id（unreserved 字元或 `%HH`；#695 R2／R3／R4——R3 只看字元集，`[1234]`、`[::1%hunter2]` 都過）、
 整串不含控制字元、格式字元（方向控制、零寬字元）與空白（與輸出閘同一份判準 `UnsafeToEmitScalar`；空白要編成 `%20`），`media_type` 不是空的（或只有空白）、不含這些字元、前後沒有空白（#695 R1／R2 verify）、`retrieved` 是 ISO 8601（`YYYY-MM-DD`，或再接 `THH:MM[:SS[.fff]]` 與 `Z`／`±HH:MM`；
 裸日期照收——store 既有的擷取型 reference 全是裸日期，#262 的「帶 UTC offset」契約寫在 `sources/index.jsonl` 的 `retrieved`、尚未在任何寫入面強制）、
 一次至多 200 筆、`statement` 至多 4,096 位元組、`rests_on` 至多 20 個；任一筆不合整個呼叫拒絕、零寫入。載入既有記錄走 `ProvenanceReference` 的平面 init，

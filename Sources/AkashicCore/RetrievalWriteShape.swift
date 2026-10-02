@@ -14,7 +14,8 @@ import Foundation
 /// 2. 呼叫端判定這是擷取型（`statusRequired`）而 `status` 沒給 → 拒絕，**不預設 200**（預設會把離線掃描檔記成 HTTP 200——
 ///    store 就斷言了來源沒說過的事實；#542 R2 對 `enrich` 裁掉過同一個預設）；
 /// 3. `url` 給了就只收 http／https、主機非空、不含帳密（帳密與帶 token 的 userinfo 會落進 git 追蹤的 YAML）、主機不含反斜線，
-///    整串不含危險 scalar 與空白（#695 R1 verify）；主機部分不含相容形的定界符、port 只含 ASCII 數字（#695 R2 verify）；
+///    整串不含危險 scalar 與空白（#695 R1 verify）；主機部分不含相容形的定界符、port 只含 ASCII 數字（#695 R2 verify）；方括號裡是
+///    解析得開的 IPv6 位址、可接 `%25` 加 zone id（`isBracketedIPv6`，#695 R3／R4）；
 /// 4. `retrieved` 給了就要是 ISO 8601（日期，或日期加時間與可選的時區）——文法逐位元組比到結尾，控制字元、空白本來就過不了；
 /// 5. `mediaType` 給了就不是空的、不含危險 scalar、前後沒有空白（#695 R1／R2 verify；內部的空白照收——`text/html; charset=utf-8`）。
 ///
@@ -200,18 +201,9 @@ public enum RetrievalWriteShape {
             }
             host = body.prefix(while: { $0 != "]" })
             rest = body.dropFirst(host.count + 1)   // `]` 之後
-            // 括號內只收 IPv6 字面值（十六進位、冒號、點；RFC 3986 `IPv6address`）加可選的 zone id（`%25` 之後，RFC 6874：unreserved）
-            let literal = host.prefix(while: { $0 != "%" })
-            let zone = host.dropFirst(literal.count)
-            func hexOrIPv6Punct(_ u: Unicode.Scalar) -> Bool {
-                ("0"..."9").contains(u) || ("a"..."f").contains(u) || ("A"..."F").contains(u) || u == ":" || u == "."
-            }
-            func zoneChar(_ u: Unicode.Scalar) -> Bool {
-                ("0"..."9").contains(u) || ("a"..."z").contains(u) || ("A"..."Z").contains(u) || "-._~%".unicodeScalars.contains(u)
-            }
-            guard literal.allSatisfy(hexOrIPv6Punct), zone.allSatisfy(zoneChar) else {
-                return "\(names.url) 的 IPv6 位址不合法——方括號內只收十六進位、冒號與點（可接 %25 加 zone id）"
-                    + "（`host:密碼` 少了 @ 時密碼可能落在這裡），store 不收（不回顯原值）"
+            guard isBracketedIPv6(host) else {
+                return "\(names.url) 的方括號內不是 IPv6 位址——只收解析得開的 IPv6 位址，可接 %25 加 1 到 \(maxZoneIDBytes) 個位元組的 zone id"   // display-safe-exempt: Int 常量
+                    + "（RFC 6874：unreserved 字元或 %HH）（`host:密碼` 少了 @ 時密碼可能落在這裡），store 不收（不回顯原值）"
             }
         } else {
             host = authority.prefix(while: { $0 != ":" })
@@ -224,6 +216,52 @@ public enum RetrievalWriteShape {
             return "\(names.url) 的 port 不是數字——冒號之後只收 ASCII 數字（`host:密碼` 少了 @ 時密碼會落在這裡），store 不收（不回顯原值）"
         }
         return nil
+    }
+
+    /// IPv6 字面值的最長寫法（`INET6_ADDRSTRLEN` 46 含結尾的 NUL）：`ffff:ffff:ffff:ffff:ffff:ffff:255.255.255.255`。
+    static let maxIPv6LiteralLength = 45
+    /// zone id 解碼後的上限：介面名稱的長度（`IF_NAMESIZE` 16 含結尾的 NUL，macOS 與 Linux 相同）。RFC 6874 本身不設上限；
+    /// 不設的話，一個 40 位十六進位的 token 可以整段放進 zone 裡（#695 R2 verify devils-advocate）。
+    static let maxZoneIDBytes = 15
+
+    /// `[` 與 `]` 之間的內容是不是一個 IPv6 位址，可接 RFC 6874 的 zone id（#695 R2 verify：先前只看字元集，`[1234]`、`[cafe:babe]`、`[....]`、
+    /// `[:::::]` 都過；zone 不要求 `%25`，`[::1%hunter2]`、`[::1%]`、`[%hunter2]` 也過——十六進位或英數的密碼可以藏在括號裡）。
+    ///
+    /// - 位址：`inet_pton(AF_INET6)` 解得開（RFC 4291 的文法，含 `::` 縮寫與結尾的 IPv4 點分形），長度至多 `maxIPv6LiteralLength`、只含 ASCII。
+    ///   群數、`::` 的次數、每群的位數都由它判。
+    /// - zone：沒有，或 `%25` 之後 1 到 `maxZoneIDBytes` 個位元組；每個位元組是 unreserved 字元（`A–Z a–z 0–9 - . _ ~`）或 `%HH`（兩位十六進位）。
+    ///   裸的 `%`、`%2`、`%25` 之後是空的、`%` 之後不是 `25`，都不是 zone。
+    static func isBracketedIPv6(_ host: ArraySlice<Unicode.Scalar>) -> Bool {
+        let literal = host.prefix(while: { $0 != "%" })
+        let zone = host.dropFirst(literal.count)
+        guard !literal.isEmpty, literal.count <= maxIPv6LiteralLength, literal.allSatisfy(\.isASCII) else { return false }
+        var address = in6_addr()
+        let parsed = String(String.UnicodeScalarView(literal)).withCString { inet_pton(AF_INET6, $0, &address) }
+        guard parsed == 1 else { return false }
+        return zone.isEmpty || isZoneID(zone)
+    }
+
+    /// `%25` 加 1 到 `maxZoneIDBytes` 個位元組（unreserved 或 `%HH`）。
+    static func isZoneID(_ zone: ArraySlice<Unicode.Scalar>) -> Bool {
+        func hex(_ u: Unicode.Scalar) -> Bool { ("0"..."9").contains(u) || ("a"..."f").contains(u) || ("A"..."F").contains(u) }
+        func unreserved(_ u: Unicode.Scalar) -> Bool {
+            ("0"..."9").contains(u) || ("a"..."z").contains(u) || ("A"..."Z").contains(u) || "-._~".unicodeScalars.contains(u)
+        }
+        let z = Array(zone)
+        guard z.count > 3, z[0] == "%", z[1] == "2", z[2] == "5" else { return false }
+        var i = 3, bytes = 0
+        while i < z.count {
+            if z[i] == "%" {
+                guard i + 2 < z.count, hex(z[i + 1]), hex(z[i + 2]) else { return false }
+                i += 3
+            } else {
+                guard unreserved(z[i]) else { return false }
+                i += 1
+            }
+            bytes += 1
+            guard bytes <= maxZoneIDBytes else { return false }
+        }
+        return bytes > 0
     }
 
     /// 危險 scalar 或空白：網址要以**編碼形**送（#695 R2 verify 第 1／6／14 列）。整條網址都拒絕（含路徑與 query）——fail-closed、

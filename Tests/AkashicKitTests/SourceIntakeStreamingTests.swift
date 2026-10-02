@@ -296,6 +296,28 @@ final class SourceIntakeStreamingTests: XCTestCase {
         XCTAssertTrue(store.health(from: try store.load()).hasFindings, "殘留的暫存檔要人看一眼")
         XCTAssertEqual(try store.auditSourceIndex().strayTemporaryFiles.first?.isStale(), true)
     }
+
+    /// b26 F6 LOW 11：修改時間在未來（時鐘被往回撥、備份還原、跨時區的 FAT 卷）。先前夾成 0 秒前、算成「一小時內還在動」，永遠不算殘留。
+    /// 現在超過容忍就是 nil（不可信）、算舊；小幅的未來時間（時鐘誤差）仍算「剛剛」。負控：把負的年齡夾回 0，這一支紅。
+    func testAModificationTimeInTheFutureIsNotTrustedAndCountsAsStale() {
+        let now = Date()
+        func file(_ offset: TimeInterval) -> LibraryStore.StrayTemporaryFile {
+            LibraryStore.StrayTemporaryFile(path: "sources/ab/x", bytes: 1, modified: now.addingTimeInterval(offset))
+        }
+        XCTAssertEqual(file(-10).ageSeconds(now: now), 10)
+        XCTAssertEqual(file(60).ageSeconds(now: now), 0, "容忍範圍內的未來時間：時鐘小誤差，算剛剛")
+        XCTAssertFalse(file(60).isStale(now: now))
+        XCTAssertNil(file(LibraryStore.StrayTemporaryFile.farFuture).ageSeconds(now: now), "未來太遠：不信")
+        XCTAssertTrue(file(LibraryStore.StrayTemporaryFile.farFuture).modifiedInTheFuture(now: now))
+        XCTAssertTrue(file(LibraryStore.StrayTemporaryFile.farFuture).isStale(now: now), "不可信的時間算舊，要人看一眼")
+        XCTAssertFalse(LibraryStore.StrayTemporaryFile(path: "p", bytes: 1, modified: nil).modifiedInTheFuture(now: now), "讀不到不是在未來")
+        XCTAssertNil(LibraryStore.StrayTemporaryFile(path: "p", bytes: 1, modified: nil).ageSeconds(now: now))
+    }
+}
+
+private extension LibraryStore.StrayTemporaryFile {
+    /// 遠超過容忍的未來（十年）。
+    static let farFuture: TimeInterval = 10 * 365 * 86_400
 }
 
 /// 逐遍腳本化的內容來源：第 N 次 rewind 之後讀 `passes[N-1]`（超出就沿用最後一個），並記下每次要多少。

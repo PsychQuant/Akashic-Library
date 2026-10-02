@@ -60,6 +60,22 @@ final class EntrySourceRemovalTests: XCTestCase {
         XCTAssertEqual(try sources(), [d])
     }
 
+    /// b26 F6 LOW 7：blob 被截短（與 index 記的大小不符）之後，`--remove-source` 的報告仍帶 index 的取得記錄——
+    /// 這正是 R2 叫人處理的那一種 blob，人要靠 origin／mediaType 認得被收回的是哪一份。負控：`.sizeMismatch` 不帶條目、
+    /// 或 `removeSources` 只認 `.stored`，這一支紅。
+    func testRemovalOfASizeMismatchedBlobStillCarriesTheAcquisitionRecord() throws {
+        let d = try linked("truncated-later")
+        try Data("x".utf8).write(to: blobURL(d))   // 與 index 記的大小不同
+        guard case .sizeMismatch? = try LibraryStore(root: root).sourcePresence(digests: [d])[d] else {
+            return XCTFail("前提：blob 與 index 的大小不符")
+        }
+        let out = try json(try service.updateEntry(citekey: "x2025", removeFields: nil, addSources: nil,
+                                                   removeSources: ["\(d)=blob 被截短了"], dryRun: true))
+        let item = try XCTUnwrap((out["sourcesRemoved"] as? [[String: Any]])?.first)
+        XCTAssertEqual(item["origin"] as? String, "https://example.org/truncated-later.pdf")
+        XCTAssertEqual(item["mediaType"] as? String, "application/pdf")
+    }
+
     func testApplyRemovesOnlyTheDeclarationAndLeavesTheBlobAndIndex() throws {
         let a = try linked("a"), b = try linked("b")
         let indexBefore = try Data(contentsOf: root.appendingPathComponent("sources/index.jsonl"))

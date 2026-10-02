@@ -106,5 +106,9 @@ final class SourceAddressCLITests: XCTestCase {
 
         let doctor = try cli(["doctor"])
         XCTAssertTrue(doctor.output.contains("存檔大小與 index 不符（存檔 100 bytes、index 記 4096 bytes"), doctor.output)
+        // b26 F6 LOW 10／15：補救辦法要兩邊都說——錯的也可能是 index 那一列（重存不會改既有的列）
+        for text in [link.output, doctor.output] {
+            XCTAssertTrue(text.contains("index 那一列的 bytes 記錯") && text.contains("重存不會改既有的列") && text.contains("手改"), text)
+        }
     }
 }

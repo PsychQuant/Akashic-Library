@@ -338,9 +338,10 @@ extension AkashicService {
                 problems.append("\(d)：所在的 shard 目錄讀不到——讀不到不等於缺席，先修好權限")   // display-safe-exempt: d 已過 isValidDigest
             case .notRegularFile(let kind)?:
                 problems.append("\(d)：sources/ 裡它的位置是\(kind)、不是普通檔——內容讀不到，不能宣告為副本；先移走那個位置，再對同一份檔重跑 store-source")   // display-safe-exempt: d 已過 isValidDigest；kind 是 SourceStore 的三個固定字串
-            case .sizeMismatch(let stored, let indexed)?:
+            case .sizeMismatch(let stored, let indexed, _)?:
                 // #703 R2 verify 第 4 則：被截短的 blob 先前照連、回 sourcesAdded，而 index 那一列就記著大小
-                problems.append("\(d)：sources/ 裡那一份是 \(stored) bytes，index.jsonl 記的是 \(indexed) bytes——那一份不是這份內容（被截短或換掉），不能宣告為副本；移走它後對原檔重跑 store-source")   // display-safe-exempt: d 已過 isValidDigest；stored、indexed 是 Int
+                problems.append("\(d)：sources/ 裡那一份是 \(stored) bytes，index.jsonl 記的是 \(indexed) bytes——兩邊對不上，不能宣告為副本。存檔被截短、接長或換掉：移走它後對原檔重跑 store-source；"
+                    + "存檔是對的而 index 那一列的 bytes 記錯（手改或舊的手寫列）：重存不會改既有的列（index.jsonl 只增不改），要手改那一行的 bytes")   // display-safe-exempt: d 已過 isValidDigest；stored、indexed 是 Int
             case .absent?, nil:
                 problems.append("\(d)：本機沒有這份存檔——新內容先用 store-source 存；sources/ 不進 git，換機器後要重新取得")   // display-safe-exempt: d 已過 isValidDigest
             }
@@ -617,7 +618,7 @@ extension AkashicService {
                                            // 理由不進 store，報告是它唯一的一份——不截在入口上限之下（#588 R1 verify 的同一條）
                                            "reason": displaySafe(s.reason, max: Self.maxStatementBytes)]   // display-safe-exempt: reason 是呼叫端原文、在這裡消毒一次
                 // 取得記錄（第三方字串）只帶前 sourcesLimit 筆（`sourcesAddedCap` 的 doc：理由不截，取得記錄才是要限的）
-                if sourcesLimit.map({ i < $0 }) ?? true, case .stored(let e)? = presence?[s.digest] {
+                if sourcesLimit.map({ i < $0 }) ?? true, let e = presence?[s.digest]?.indexEntry {
                     for (from, to, cap) in [("media-type", "mediaType", 200), ("retrieved", "retrieved", 200),
                                             ("origin", "origin", 800), ("acquisition", "acquisition", 200),
                                             ("note", "note", 800)] {

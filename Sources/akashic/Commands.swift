@@ -74,7 +74,7 @@ struct Doctor: ParsableCommand {
                     case .notRegularFile(let kind):
                         print("  ⚠ 位址上不是普通檔（\(kind)；存檔不會寫進去，store-source 會拒絕——移走它後重存）：\(p.path)")   // display-safe-exempt: kind 是 SourceOccupant 的三個固定字串；path 只含 hex
                     case .sizeMismatch(let stored, let indexed):
-                        print("  ⚠ 存檔大小與 index 不符（存檔 \(stored) bytes、index 記 \(indexed) bytes——被截短或換掉；移走它後重存）：\(p.path)")   // display-safe-exempt: stored、indexed 是 Int；path 只含 hex
+                        print("  ⚠ 存檔大小與 index 不符（存檔 \(stored) bytes、index 記 \(indexed) bytes）。存檔被截短、接長或換掉：移走它後重存；存檔是對的而 index 那一列的 bytes 記錯：重存不會改既有的列，要手改 index.jsonl 那一行的 bytes：\(p.path)")   // display-safe-exempt: stored、indexed 是 Int；path 只含 hex
                     }
                 }
                 if srcAudit.occupantProblems.count > Entry.perRecordWarningCap {
@@ -83,7 +83,8 @@ struct Doctor: ParsableCommand {
                 // #703 R1：存檔在複製途中被殺掉（SIGKILL、斷電）留下的暫存檔。只報不刪——正在進行的存檔也長這樣；R2 起附最後修改的時間
                 // （R2 verify 第 28 則），一小時內還在動的明說可能正在進行
                 for t in srcAudit.strayTemporaryFiles.prefix(Entry.perRecordWarningCap) {
-                    let age = t.ageSeconds().map { "最後修改於 \($0) 秒前" } ?? "修改時間讀不到"
+                    let age = t.ageSeconds().map { "最後修改於 \($0) 秒前" }
+                        ?? (t.modifiedInTheFuture() ? "修改時間在未來（時鐘被往回撥、備份還原或跨時區？），不能用它判斷還在不在動" : "修改時間讀不到")
                     let note = t.isStale() ? "中斷的存檔留下的——確認沒有 store-source／copy-zotero-attachments 在跑之後可以刪掉"
                         : "一小時內還在動，可能是正在進行的存檔——不要刪"
                     print("  ⚠ 殘留的暫存檔（\(t.bytes) bytes，\(age)；\(note)）：\(displaySafe(t.path, max: 200))")   // display-safe-exempt: t.bytes 是 Int；age、note 是固定句與 Int

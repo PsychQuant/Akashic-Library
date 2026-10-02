@@ -30,4 +30,20 @@ final class SourcesStrayTemporaryCLITests: XCTestCase {
         XCTAssertFalse(r.output.contains("孤兒 blob"), "暫存檔不是 blob：\(r.output)")
         XCTAssertTrue(FileManager.default.fileExists(atPath: dir.appendingPathComponent(name).path), "只報不刪")
     }
+
+    /// b26 F6 LOW 11（真 binary）：修改時間在未來的殘留暫存檔——先前印「最後修改於 0 秒前；一小時內還在動…不要刪」，永遠不算殘留。
+    /// 現在說時間在未來、不能用它判斷，並歸在「中斷的存檔」那一類。
+    func testDoctorDoesNotTrustAFutureModificationTime() throws {
+        let digest = "sha256:" + String(repeating: "cd", count: 32)
+        let name = LibraryStore.temporaryBlobName(digest: digest, token: UUID().uuidString)
+        let dir = root.appendingPathComponent("sources/cd")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let file = dir.appendingPathComponent(name)
+        try Data(repeating: 2, count: 99).write(to: file)
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: 3 * 365 * 86_400)], ofItemAtPath: file.path)
+        let r = try CLITestHarness.run(["doctor", "--library", root.path], env: ["AKASHIC_HOME": home.path])
+        XCTAssertTrue(r.output.contains("修改時間在未來"), r.output)
+        XCTAssertFalse(r.output.contains("最後修改於 0 秒前"), r.output)
+        XCTAssertFalse(r.output.contains("一小時內還在動"), "不可信的時間不能被讀成『還在動』：\(r.output)")
+    }
 }

@@ -267,14 +267,21 @@ plugin 的 wrapper 會自動下載新版 `akashic-mcp`，skill 文字可能比 b
 
 超過 268,435,456 bytes（256 MiB）的檔整個拒絕、不截斷、零寫入；錯誤訊息說出路徑、實際大小與上限。內容改成逐塊讀，目錄與 FIFO 以錯誤拒絕、不會讓呼叫卡住。回應鍵與形狀不變；plugin 版號沒有動。
 
-**R1 verify 之後**：先前這裡寫「記憶體與檔案大小無關」，那句不成立——每塊的緩衝留到行程結束，存 128 MiB 的檔尖峰 RSS 約 285 MB（比整份讀進來還多）。現在每塊讀完就釋放（實測多約 1 MB）。訊息裡的上限寫成 `256 MiB`（數值沒變）。store 放在不支援排他改名的檔案系統（exFAT、FAT32）時先前存不進去，現在退到 hard link 或確認後一般改名。`akashic_doctor` 的 `sources` 多兩個鍵：`strayTemporaryFiles`（中斷的存檔留下的暫存檔，路徑與大小，至多 20 筆）與 `strayTemporaryFilesTotal`。
+**R1 verify 之後**：先前這裡寫「記憶體與檔案大小無關」，那句不成立——每塊的緩衝留到行程結束，存 128 MiB 的檔尖峰 RSS 約 285 MB（比整份讀進來還多）。現在每塊讀完就釋放（實測多約 1 MB）。訊息裡的上限寫成 `256 MiB`（數值沒變）。~~store 放在不支援排他改名的檔案系統（exFAT、FAT32）時先前存不進去，現在退到 hard link 或確認後一般改名。~~（b26 F6：不再退到一般改名；兩者都不支援的磁碟區現在整個拒絕，見下方「b26 F6 之後」。）`akashic_doctor` 的 `sources` 多兩個鍵：`strayTemporaryFiles`（中斷的存檔留下的暫存檔，路徑與大小，至多 20 筆）與 `strayTemporaryFilesTotal`。
 
 **R2 verify 之後**：
 
 - `akashic_store_source` 的位址上已有東西時，只有大小相同的普通檔算「已經在了」；位址被目錄、symlink（含懸空的）或大小不同的檔佔住，**以錯誤拒絕、不寫 index**。先前這種情形回成功、寫一列 index，位元組其實沒存（R1 引入的回歸；R1 之前會以真檔取代懸空 symlink）。回應多一個鍵 `bytesWritten`：這一次才存的是 `true`，位址上早有同一份是 `false`。
 - `akashic_doctor` 的 `sources` 再多兩個鍵：`occupantProblems`（位址上不是普通檔，或普通檔的大小與 `index.jsonl` 記的不同；每則 `path`、`kind`，`notRegularFile` 帶 `occupant`、`sizeMismatch` 帶 `storedBytes`／`indexedBytes`，至多 20 筆）與 `occupantProblemsTotal`。`strayTemporaryFiles` 每則多 `ageSeconds`（最後修改到現在）與 `possiblyInProgress`（一小時內還在動，可能是正在進行的存檔——不要刪）。只報不刪。
 - 存檔進行中收到 `SIGTERM`／`SIGINT`／`SIGHUP` 會先刪掉進行中的暫存檔再結束。
-- `store-source` 碰到不支援排他改名與 hard link 的檔案系統（exFAT、FAT32），第三條路從「確認後一般改名」改成排他建立目的檔再複製，不會覆寫同一時間別人放進來的檔。
+- ~~`store-source` 碰到不支援排他改名與 hard link 的檔案系統（exFAT、FAT32），第三條路從「確認後一般改名」改成排他建立目的檔再複製，不會覆寫同一時間別人放進來的檔。~~（b26 F6：第三條路拿掉，見下。）
+
+**b26 F6 之後**（使用者 2026-10-02 裁決）：
+
+- **`sources/` 所在的磁碟區做不到不覆寫的原子放置（`RENAME_EXCL` 與 `link(2)` 都不支援，exFAT、FAT32）時，`akashic_store_source`（與 `store-source`、`copy-zotero-attachments`）每一次存檔都具名拒絕、零寫入**，訊息說要把 store 放在 APFS 或 HFS+。拒絕在建立任何檔案之前由磁碟區的能力旗標擋下；位址上已有同一份內容也一樣拒絕。先前的第三條路（排他建立目的檔再逐塊複製）拿掉——exFAT 上新建檔案的 inode 在第一次寫入後會變，失敗清理與訊號清理都失效，半截檔會留在內容位址上、之後被記進 index。live store 在 APFS 上，不受影響。
+- 存檔同步到裝置時，`F_FULLFSYNC` 回真的 I/O 錯誤（`EIO` 等）就拒絕，不再被後面成功的 `fsync` 蓋掉；只有它回「不支援」才退到 `fsync`。
+- `akashic_doctor` 的 `sources.strayTemporaryFiles[].ageSeconds`：修改時間在未來超過 300 秒（時鐘被往回撥、跨時區的 FAT 卷）時是 `null`（與「讀不到」同值）、`possiblyInProgress` 是 `false`——先前被夾成 `0`、永遠算「一小時內還在動」。
+- 大小與 index 不符的訊息（doctor、`update-entry --add-source`）兩邊都說：存檔被截短、接長或換掉，或是 index 那一列的 `bytes` 記錯（重存不會改既有的列，要手改 `index.jsonl`）。`update-entry --remove-source` 對大小不符的 blob 仍帶 index 的取得記錄。
 
 ## #700 — `tools/list` 的說明補了幾個回應鍵
 

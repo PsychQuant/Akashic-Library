@@ -2,8 +2,11 @@ import Foundation
 import Darwin
 import AkashicCore
 
-/// 一個 digest 的位址上是什麼（#703 R2 verify 第 4、5、6、15 則）。**只有這一個分類**：`writeBlob`（位址上已經有東西時）、
-/// `checkStoredBlob`、`sourcePresence`、`auditSourceIndex` 都讀它——R2 之前四處各自判，`writeBlob` 對任何佔用都說「已經在了」、
+/// 一個 digest 的位址上是什麼（#703 R2 verify 第 4、5、6、15 則）。**這四個讀者共用這一個分類**：`writeBlob`（位址上已經有東西時）、
+/// `checkStoredBlob`、`sourcePresence`、`auditSourceIndex` 都讀它。**另有兩個讀者仍各自判斷、與它不完全一致**（b26 F6 INFO 33，記錄、未改）：
+/// `missingSourceDigests`（`validate` 的「本機缺承重存檔」）用 `fileExists`——位址上是目錄算「在場」、懸空 symlink 算「缺席」；
+/// `abstracts-to-proposals --source sha256:…` 以自己的 `fstat` 讀（目錄與懸空 symlink 都回「存檔不存在」，指向合法 blob 的 symlink 會被跟隨讀穿）。
+/// R2 之前四處各自判，`writeBlob` 對任何佔用都說「已經在了」、
 /// 回條照樣成功並寫 index，而同一個狀態 `copy-zotero-attachments` 說判不出來、`doctor` 什麼都不說。
 public extension LibraryStore {
 
@@ -59,7 +62,7 @@ public extension LibraryStore {
         case .notRegularFile(let kind):
             why = "\(path) 的位置上是\(kind)、不是普通檔" + tail
         case .regular(let stored):
-            why = "\(path) 已有一份 \(stored) bytes 的檔，而這份內容是 \(bytes) bytes——那一份不是這個 digest 的內容（被截短或換掉），不覆寫" + tail
+            why = "\(path) 已有一份 \(stored) bytes 的檔，而這份內容是 \(bytes) bytes——那一份大小不是這個 digest 的內容的大小（被截短、接長或換掉），不覆寫" + tail
         case .unreadable:
             why = "判不出 \(path) 的位置上有沒有東西（分片目錄列不出來，或 lstat 失敗）——沒有存；先查 sources/ 的權限"
         case .absent:
@@ -158,17 +161,33 @@ public extension LibraryStore {
         public let bytes: Int
         public let modified: Date?
 
-        /// 最後修改到 `now` 過了幾秒（時間讀不到是 nil）。
-        public func ageSeconds(now: Date = Date()) -> Int? { modified.map { max(0, Int(now.timeIntervalSince($0))) } }
+        /// 最後修改到 `now` 過了幾秒。**時間讀不到是 nil；時間在未來、超過容忍（`LibraryStore.strayTemporaryClockSkewSeconds`）也是 nil**
+        /// （b26 F6：時鐘被往回撥、備份還原、跨時區的 FAT 卷——FAT 沒有時區——都會讓檔案的修改時間在未來，先前夾成 0 秒前、算成
+        /// 「一小時內還在動」，永遠不算殘留、`hasFindings` 與 App 的計數都不亮）。容忍範圍內的未來時間算 0。
+        public func ageSeconds(now: Date = Date()) -> Int? {
+            guard let modified else { return nil }
+            let age = Int(now.timeIntervalSince(modified))
+            if age >= 0 { return age }
+            return age >= -LibraryStore.strayTemporaryClockSkewSeconds ? 0 : nil
+        }
+
+        /// 修改時間在未來、超過容忍（`ageSeconds` 是 nil 的兩種原因之一）：給人看的訊息要分得出它與「時間讀不到」。
+        public func modifiedInTheFuture(now: Date = Date()) -> Bool {
+            guard let modified else { return false }
+            return Int(now.timeIntervalSince(modified)) < -LibraryStore.strayTemporaryClockSkewSeconds
+        }
 
         /// 夠舊、不像是正在進行的存檔（#703 R2 verify 第 22 則）：最後修改超過 `LibraryStore.strayTemporaryQuietSeconds`。
-        /// 時間讀不到的算舊（寧可多要人看一眼）。只影響 `hasFindings` 與 App 的計數；CLI／MCP 的 doctor 全部列出、附年齡。
+        /// 時間讀不到、或在未來超過容忍的算舊（寧可多要人看一眼）。只影響 `hasFindings` 與 App 的計數；CLI／MCP 的 doctor 全部列出、附年齡。
         public func isStale(now: Date = Date()) -> Bool { (ageSeconds(now: now) ?? .max) >= LibraryStore.strayTemporaryQuietSeconds }
     }
 
     /// 殘留暫存檔多久沒動才算進 `hasFindings`（#703 R2 verify 第 22 則）：3,600 秒。暫存檔每寫一塊就更新修改時間，一份上限大小的檔在慢磁碟上
     /// 也是幾分鐘的事；一小時沒動的幾乎一定是中斷留下的。**這不是刪除的判準**——doctor 仍然只報不刪（第 73 列：以年齡斷定一定是殘留是猜）。
     static let strayTemporaryQuietSeconds = 3_600
+
+    /// 修改時間在未來多少秒以內仍當成「剛剛」（時鐘小幅誤差、FAT 的兩秒解析度）：300 秒。超過就不信那個時間（`StrayTemporaryFile.ageSeconds` 回 nil、算舊）。
+    static let strayTemporaryClockSkewSeconds = 300
 
     // MARK: 讀回
 

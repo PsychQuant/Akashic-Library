@@ -131,6 +131,13 @@ public extension LibraryStore {
     /// `temporaryToken`（#703 R1）：實跑要用的暫存檔名的 token——呼叫端把同一個交給 `storeSource(contentsOf:…temporaryToken:)`，
     /// 預演問的就是實跑會建立的那條路徑。位址上已經有東西時實跑不建暫存檔，預演仍然問（偏嚴，不偏鬆）。
     func preflightStoreSource(digest: String, temporaryToken: String = UUID().uuidString) throws {
+        try preflightStoreSource(digest: digest, temporaryToken: temporaryToken, placement: .system)
+    }
+
+    /// `preflightStoreSource` 的接縫版：多問一件事——`sources/` 所在的磁碟區做不做得到不覆寫的原子放置（b26 F6：做不到就整批拒絕、零寫入，
+    /// 與 `storeSource` 的第一步同一道閘）。
+    internal func preflightStoreSource(digest: String, temporaryToken: String, placement: BlobPlacement) throws {
+        try assertSourcesVolumeCanPlace(placement)
         guard ProvenanceReference.isWellFormedDigest(digest) else {
             throw StoreIOError.invalidInput(
                 what: "source digest",
@@ -200,11 +207,13 @@ public extension LibraryStore {
     ///
     /// **誠實邊界**（#703 R2 verify 第 16、47 則）：「index 已記過了嗎」是在寫 blob 之前掃的快照，append 在之後；同一份內容的幾個存檔並行時，
     /// 每一個都看到「還沒記」、各 append 一列（實測 6 個並行 6 列）。#703 之前同樣如此（沒有 store 層的鎖），不是本張引入的；讀的一方以第一列為準。
-    /// `placement` 是放上位址那一步的測試接縫（#703 R1：模擬不支援 `RENAME_EXCL` 的檔案系統）。
+    /// `placement` 是放上位址那一步的測試接縫（#703 R1：模擬不支援 `RENAME_EXCL` 的檔案系統；b26 F6：模擬磁碟區回報做不到不覆寫的原子放置）。
     internal func storeSource<C: SourceChunks>(chunks source: inout C, provenance: SourceProvenance,
                                                 expectedDigest: String?, limit: Int, temporaryToken: String? = nil,
                                                 placement: BlobPlacement = .system) throws -> SourceIntake {
         if let temporaryToken { try Self.checkTemporaryToken(temporaryToken) }
+        // 磁碟區做不到不覆寫的原子放置（exFAT、FAT32）：每一次存檔都具名拒絕，一個位元組都不讀、不寫（b26 F6，使用者 2026-10-02 裁決）
+        try assertSourcesVolumeCanPlace(placement)
         // 看得到大小的來源先比上下界——一個位元組都不讀、不寫
         if let size = source.currentSize() {
             if size == 0 { return .refused(.empty) }
@@ -378,7 +387,17 @@ public extension LibraryStore {
         case notRegularFile(String)
         /// blob 在、index 有它的條目，但那一份的大小與條目記的 `bytes` 不同（#703 R2 verify 第 4 則：被截短、被換掉，或中斷的複製留下的半截）
         /// ——那一份不是條目說的內容，不能宣告為副本。大小相同而內容不同的看不出來（要整份讀才知道）。
-        case sizeMismatch(stored: Int, indexed: Int)
+        /// 值多帶 index 那一列的字串欄位（取得記錄）：`update-entry --remove-source` 要靠它讓人認得出被收回的是哪一份內容（b26 F6 LOW 7）。
+        case sizeMismatch(stored: Int, indexed: Int, entry: [String: String])
+
+        /// index 那一列的字串欄位（media-type／retrieved／origin／acquisition／note）：有條目的兩種狀態（`.stored`、`.sizeMismatch`）才有。
+        public var indexEntry: [String: String]? {
+            switch self {
+            case .stored(let e): return e
+            case .sizeMismatch(_, _, let e): return e
+            default: return nil
+            }
+        }
     }
 
     /// 逐個 digest 回報 `SourcePresence`。index 只掃一次（與 `storeSource`／`auditSourceIndex` 共用 `scanIndex`，
@@ -402,7 +421,7 @@ public extension LibraryStore {
             case .regular(let size):
                 if let entry = scan.entries[d] {
                     if let indexed = scan.bytes[d], indexed != size {
-                        out[d] = .sizeMismatch(stored: size, indexed: indexed)
+                        out[d] = .sizeMismatch(stored: size, indexed: indexed, entry: entry)
                     } else {
                         out[d] = .stored(entry)
                     }
@@ -507,9 +526,10 @@ public extension LibraryStore {
     ///   #703 之前的 `fileExists` 會用真檔取代懸空 symlink，這是 R1 引入的回歸）。大小相同而內容不同的看不出來（不整份再讀一遍）。
     /// - 寫入前驗證版控排除（見 `assertSourcesExcluded`）；驗證先於**任何**磁碟寫入——拒寫時不留內容。
     /// - #703：**逐塊**複製進同一個分片目錄裡的暫存檔（`O_EXCL` 建立，檔名是 `temporaryBlobName`），邊寫邊再算一次 digest；兩遍相同、
-    ///   同步到裝置（R2 verify 第 21 則）之後才放到位址上（`placeTemporaryBlob`：`RENAME_EXCL`，檔案系統不支援時退到 `link(2)`、再退到
-    ///   排他建立目的檔後逐塊複製；同時有別人放進來就不覆寫、丟掉暫存）。暫存檔的路徑**也**過排除驗證——只排除 blob 名、不排除暫存名的
-    ///   規則會 fail-open。
+    ///   同步到裝置（R2 verify 第 21 則）之後才放到位址上（`placeTemporaryBlob`：`RENAME_EXCL`，檔案系統不支援時退到 `link(2)`；兩個都不行就
+    ///   具名拒絕——b26 F6：拿掉了第三條「排他建立目的檔後逐塊複製」；同時有別人放進來就不覆寫、丟掉暫存）。位址上的名字只經那兩個原子動作
+    ///   出現，所以**名字出現的那一刻就是寫完、同步過的完整內容**——下面 `existing` 的「大小相同就算已經在了」不會讀到進行中的半截檔。
+    ///   暫存檔的路徑**也**過排除驗證——只排除 blob 名、不排除暫存名的規則會 fail-open。
     ///   可捕捉的失敗都刪掉暫存檔；`SIGINT`／`SIGTERM`／`SIGHUP` 由 `InFlightSourceFiles` 刪（R2 verify 第 27 則）；行程被殺掉（`SIGKILL`、
     ///   斷電）時刪不到，`auditSourceIndex` 的 `strayTemporaryFiles` 報它（#703 R1）。
     private func writeBlob<C: SourceChunks>(_ source: inout C, digest: String, bytes: Int, limit: Int,
@@ -525,7 +545,9 @@ public extension LibraryStore {
         let verified = try assertSourcesExcluded(relativePath: relative)
         // sourceURL 對剛算出的合法 digest 不可能回 nil
         let url = sourceURL(digest: digest)!
-        /// 位址上已經有東西：大小相同的普通檔才算「已經在了」，其餘具名擲出（不寫 index）
+        /// 位址上已經有東西：大小相同的普通檔才算「已經在了」，其餘具名擲出（不寫 index）。**這裡不會讀到進行中的存檔**（b26 F6）：
+        /// 位址上的名字只經 `renamex_np(RENAME_EXCL)` 或 `link(2)` 出現（原子），那一刻內容已經寫完、同步過；失敗與訊號的清理刪的只有暫存名，
+        /// 從不刪位址上的檔——所以「別人看到大小相同就回成功」之後，那個檔不會被收回。（R2 的第三條路在最終檔名下逐塊複製，這個窗曾經存在。）
         func existing(_ occupant: SourceOccupant) throws -> BlobWrite {
             if case .regular(let n) = occupant, n == bytes { return .done(exclusionVerified: verified, bytesWritten: false) }
             throw Self.occupiedAddressError(occupant, digest: digest, bytes: bytes)
@@ -579,7 +601,7 @@ public extension LibraryStore {
                 what: "sources/ 暫存檔",
                 why: "同步到裝置失敗（errno \(synced)）——digest \(digest) 沒有存")   // display-safe-exempt: synced 是 Int32；digest 是本函式的呼叫端算的 SHA-256 十六進位
         }
-        switch try placeTemporaryBlob(tmp.path, at: url.path, digest: digest, bytes: bytes, placement: placement) {
+        switch try placeTemporaryBlob(tmp.path, at: url.path, digest: digest, placement: placement) {
         case .alreadyThere:
             // 同時有別人放進來了：不覆寫（暫存由 defer 刪掉）；放進來的是什麼，與一開始就在的同一個判法
             return try existing(sourceOccupant(at: url))

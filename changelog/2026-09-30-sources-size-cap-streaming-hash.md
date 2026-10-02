@@ -101,7 +101,7 @@ R1 verify 的 #703 部分有兩個 HIGH，都成立、都已修；細節、量�
 
 - **「記憶體與檔案大小無關」當時為假**（DA 第 2 則、regression 第 8 則）。`FileHandle.read(upToCount:)` 回 autoreleased 的緩衝，CLI 沒有外層 pool 排水，每一塊留到行程結束：本輪重量，改動前的 binary 存 128 MiB 的檔尖峰 RSS 284,557,312 bytes（約 2.1 倍）。`pump` 改成每塊一個 autorelease pool 之後，同一個檔比 1 MiB 的多 1,146,880 bytes。上面三處說法已劃掉並註明。
 - **新連結只擋 `.mismatch`**（Codex 第 1 則等五席）。位址上是目錄、懸空 symlink 或讀不到時照樣連上並記取得記錄。已改成窮舉的 `switch`。
-- 其餘：暫存檔路徑納入整批的存檔前置；不支援 `RENAME_EXCL` 的檔案系統（exFAT、FAT32，本輪在磁碟映像上實測 `ENOTSUP`）退到 `link(2)`、再退到確認後一般改名；中斷的存檔留下的暫存檔由 doctor 報出（`zero-instance-guards` 第 73 列）；同一筆內內容相同的第二個附件跟著第一個的結果；上限的單位寫成 MiB（裁決原話「256 MB」照引）。
+- 其餘：暫存檔路徑納入整批的存檔前置；不支援 `RENAME_EXCL` 的檔案系統（exFAT、FAT32，本輪在磁碟映像上實測 `ENOTSUP`）退到 `link(2)`、~~再退到確認後一般改名~~（R2 改成排他建立目的檔再複製；b26 F6 拿掉，兩者都不支援的磁碟區整個拒絕，見 `2026-10-02-b26-f6-fixes-703-700.md`）；中斷的存檔留下的暫存檔由 doctor 報出（`zero-instance-guards` 第 73 列）；同一筆內內容相同的第二個附件跟著第一個的結果；上限的單位寫成 MiB（裁決原話「256 MB」照引）。
 
 ## R2 verify 之後（2026-10-01）
 

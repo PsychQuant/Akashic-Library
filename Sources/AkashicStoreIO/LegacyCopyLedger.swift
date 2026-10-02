@@ -105,10 +105,26 @@ public final class LegacyCopyLedger: @unchecked Sendable {
 
     private init(parent: LegacyCopyLedger?) { self.parent = parent }
 
-    private func record(_ item: LegacyCopyLeft) {
+    /// 範圍已經結束（`collecting` 的 body 回傳之後）：之後才到的寫入**不得**再被這份帳本收下。
+    /// `Task { }` 會繼承 task-local，範圍裡開的 `Task { }` 可以活得比範圍久——它之後的寫入若仍被這份帳本收下，記進一份早已取走報告的帳本，
+    /// 沒有擲錯也沒有任何提示，兩份拷貝留著而使用者什麼都沒看到（#708 R2 verify 第 39 列：零實例表第 74 列與掃描器文件說「大聲而不是安靜」，
+    /// 對 `Task { }` 為假）。關起來之後 `recordIfCollecting` 回 false，寫入端照無範圍時擲 `legacyCopyNotRemoved`——與 GCD、`Task.detached`
+    /// （不繼承 task-local）同一個結果。
+    private var closed = false
+
+    /// 記下一筆；範圍已結束時回 false、不記。
+    @discardableResult
+    private func record(_ item: LegacyCopyLeft) -> Bool {
         lock.lock(); defer { lock.unlock() }
+        guard !closed else { return false }
         if indexByID[item.id] == nil { indexByID[item.id] = items.count }
         items.append(item)
+        return true
+    }
+
+    private func close() {
+        lock.lock(); defer { lock.unlock() }
+        closed = true
     }
 
     private var recorded: [LegacyCopyLeft] {
@@ -158,8 +174,7 @@ public final class LegacyCopyLedger: @unchecked Sendable {
     /// 寫入端用：有範圍就記下並回 true（呼叫端照常回傳），沒有就回 false（呼叫端擲錯）。
     static func recordIfCollecting(_ item: LegacyCopyLeft) -> Bool {
         guard let ledger = active else { return false }
-        ledger.record(item)
-        return true
+        return ledger.record(item)
     }
 
     /// 把已經收下、放進某份報告的那幾筆交給**目前的**範圍（外層）；沒有範圍時回 false、什麼都不做（#705 R1 verify 第 1 列）。
@@ -191,6 +206,7 @@ public final class LegacyCopyLedger: @unchecked Sendable {
         let outer = active
         let ledger = LegacyCopyLedger(parent: outer)
         let result: Result<R, Error> = $active.withValue(ledger) { Result { try body() } }
+        ledger.close()   // 範圍結束：繼承 task-local、活得比範圍久的 `Task { }` 之後的寫入不得再被收下（見 `closed`）
         let written = ledger.recorded
         if case .failure = result, let outer {
             for item in written { outer.record(item) }

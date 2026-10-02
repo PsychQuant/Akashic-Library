@@ -126,6 +126,26 @@ final class LegacyCopyLedgerTests: XCTestCase {
         XCTAssertThrowsError(try store.writeEntry(e), "範圍外的寫入不得被一個已經結束的範圍收走")
     }
 
+    /// #708 R2 verify 第 39 列：`Task { }` 繼承 task-local，範圍裡開的 `Task { }` 可以活得比範圍久。它之後的寫入不得再被已結束的範圍收下——
+    /// 否則記進一份早已取走報告的帳本，沒有擲錯也沒有提示（第 74 列與掃描器文件宣稱的「大聲而不是安靜」對 `Task { }` 為假）。
+    /// 這裡抓住範圍的帳本、等範圍結束，再用繼承 task-local 的方式模擬那個晚到的寫入：收不下（回 false），寫入端因此照無範圍時擲錯。
+    func testALateWriteThroughAnInheritedScopeIsRefusedNotSilentlyRecorded() throws {
+        var captured: LegacyCopyLedger?
+        let (result, written) = LegacyCopyLedger.collecting { captured = LegacyCopyLedger.active }
+        XCTAssertNoThrow(try result.get())
+        XCTAssertEqual(written, [])
+        let ledger = try XCTUnwrap(captured)
+        let late = LegacyCopyLeft(kind: .person, key: "late", id: UUID(), legacyFile: "people/late.yaml", detail: "d")
+
+        let accepted = LegacyCopyLedger.$active.withValue(ledger) { LegacyCopyLedger.recordIfCollecting(late) }
+
+        XCTAssertFalse(accepted, "範圍已結束：晚到的寫入不得被收下——收下就是沒有擲錯、也沒有任何提示")
+        // 範圍還開著的時候收得下（沒有把「一律拒收」寫成通過）
+        var inside: Bool?
+        _ = LegacyCopyLedger.collecting { inside = LegacyCopyLedger.recordIfCollecting(late) }
+        XCTAssertEqual(inside, true)
+    }
+
     // MARK: - 範圍內：記下、照常回傳
 
     func testInsideAScopeTheWorkIsRecordedAsWritten() throws {

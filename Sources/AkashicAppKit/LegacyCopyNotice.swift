@@ -72,15 +72,25 @@ public struct LegacyCopyNotice: Equatable {
                 displayLegacyFile: displaySafeInvisible(item.legacyFile, max: 300),
                 displayLegacyPath: displaySafeInvisible(root.appendingPathComponent(item.legacyFile).path, max: 600),
                 writtenFile: item.writtenFile,
-                displayDetail: item.message)   // display-safe-exempt: item.message：LegacyCopyLeft.message 已消毒（key 逐項 displaySafeInvisible、detail 擲出端已消毒）
+                // 之後的寫入沒有套用的那一筆，附上與 CLI／MCP 同一句（`reportLines` 的附句、MCP 列的 `laterWriteNotApplied`）——
+                // 先前 App 的提示讀不到這個旗標（#708 R2 verify 第 34 列）
+                displayDetail: item.message + (item.laterWriteRefused ? "；" + LegacyCopyLeft.laterWriteRefusedNote : ""))   // display-safe-exempt: item.message：LegacyCopyLeft.message 已消毒（key 逐項 displaySafeInvisible、detail 擲出端已消毒）；laterWriteRefusedNote：常量字面
         }
     }
 
     /// 標題：一般說明文字（不是 CLI／MCP 的鍵名）。這件事是什麼的一句說明與 CLI／MCP 的報告標題是同一份（`LegacyCopyLeft.explanation`），
-    /// 另加一句：留下拷貝本身不算失敗，**同一個動作若另外跳出錯誤，那是別的原因**（`LegacyCopyLeftBeforeFailure`：寫了、拷貝留下、之後的步驟
-    /// 才失敗——先前標題說「不是寫入失敗」，與同一個動作的失敗提示互相矛盾，R1 verify 第 12 列）。
+    /// 另加一句**只陳述可確定的事**：留下拷貝本身不算失敗；同一個動作若另有錯誤，請依那個錯誤的訊息處理，而後續的寫入**可能**因為
+    /// 兩份並存而被拒絕（`LegacyCopyLeftBeforeFailure`：寫了、拷貝留下、之後的步驟才失敗）。
+    ///
+    /// **不得說「那是別的原因、與這份拷貝無關」**（#708 R2 verify 第 1 列）：`LegacyCopyLeft.laterWriteRefused` 標的正是相反的情形——同一個操作
+    /// 之後對同一筆的寫入被 #631 拒絕，**原因就是這份拷貝**（兩份並存時 #631 拒絕同一筆的下一次寫入），那一步沒有套用。先前的標題把這個後續錯誤
+    /// 一概歸給別的原因，使用者會同時看到拒寫的錯誤與否認其原因的提示，被引去找別的原因、而不是去清留下的拷貝。
+    /// 有任何一筆標了 `laterWriteRefused` 時，標題另說這一件事（與 CLI／MCP 同一句 `laterWriteRefusedNote`）。
     public var headline: String {
-        "\(LegacyCopyLeft.explanation)（\(items.count) 筆）。同一個動作若另外跳出錯誤，那是別的原因，與這份拷貝無關。"   // display-safe-exempt: explanation：常量字面；count：Int
+        let base = "\(LegacyCopyLeft.explanation)（\(items.count) 筆）。同一個動作若另有錯誤，請依那個錯誤的訊息處理；後續的寫入可能因為這份 legacy 拷貝還在（兩份並存）而被拒絕，刪掉 legacy 那份之後重跑即可。"   // display-safe-exempt: explanation：常量字面；count：Int
+        let refused = items.filter(\.laterWriteRefused).count
+        guard refused > 0 else { return base }
+        return base + "其中 \(refused) 筆：\(LegacyCopyLeft.laterWriteRefusedNote)。"   // display-safe-exempt: refused：Int；laterWriteRefusedNote：常量字面
     }
 
     private static func sameLeftover(_ a: LegacyCopyLeft, _ b: LegacyCopyLeft) -> Bool {

@@ -339,8 +339,29 @@ final class AppLegacyCopyNoticeTests: XCTestCase {
         XCTAssertFalse(notice.headline.contains("writtenWithLegacyCopy"), "GUI 使用者不該看到 API 的鍵名：\(notice.headline)")
         XCTAssertTrue(notice.headline.contains(LegacyCopyLeft.explanation), "這件事是什麼的說明與 CLI／MCP 同一份")
         XCTAssertTrue(notice.headline.contains("1 筆"), notice.headline)
-        XCTAssertTrue(notice.headline.contains("同一個動作若另外跳出錯誤"), notice.headline)
+        XCTAssertTrue(notice.headline.contains("同一個動作若另有錯誤，請依那個錯誤的訊息處理"), notice.headline)
+        XCTAssertFalse(notice.headline.contains("與這份拷貝無關") || notice.headline.contains("別的原因"),
+                       "後續的寫入被拒絕的原因正是這份拷貝（laterWriteRefused）——標題不得否認它：\(notice.headline)")
         XCTAssertTrue(LegacyCopyLeft.reportLines([left]).first?.contains(LegacyCopyLeft.explanation) == true, "CLI／MCP 的標題仍帶同一句")
+    }
+
+    /// #708 R2 verify 第 1／34 列：`laterWriteRefused`（同一個操作之後對同一筆的寫入被 #631 拒絕、**原因就是這份拷貝**）時，標題與那一列都要說這件事，
+    /// 而且與 CLI／MCP 同一句（`laterWriteRefusedNote`）；沒有標的列、以及全部沒標時的標題不得出現它。
+    func testALaterWriteRefusedLeftoverIsSaidInTheHeadlineAndTheRowNotDeniedAsUnrelated() {
+        var refused = LegacyCopyLeft(kind: .person, key: "cheng-che", id: UUID(), legacyFile: "people/cheng-che.yaml", detail: "d")
+        refused.laterWriteRefused = true
+        let plain = LegacyCopyLeft(kind: .person, key: "someone", id: UUID(), legacyFile: "people/someone.yaml", detail: "d")
+        let notice = LegacyCopyNotice(items: [refused, plain], root: URL(fileURLWithPath: "/tmp/store"))
+
+        XCTAssertTrue(notice.headline.contains("其中 1 筆：\(LegacyCopyLeft.laterWriteRefusedNote)"), "標題說出後續寫入沒套用：\(notice.headline)")
+        XCTAssertFalse(notice.headline.contains("與這份拷貝無關") || notice.headline.contains("別的原因"), notice.headline)
+        let details = notice.rows.map(\.displayDetail)
+        XCTAssertEqual(details[0], refused.message + "；" + LegacyCopyLeft.laterWriteRefusedNote, "標了的那一列帶附句，與 reportLines 同一句")
+        XCTAssertEqual(details[1], plain.message, "沒標的列不帶")
+        XCTAssertTrue(LegacyCopyLeft.reportLines([refused]).joined().contains(LegacyCopyLeft.laterWriteRefusedNote), "CLI／MCP 的附句是同一份")
+
+        let none = LegacyCopyNotice(items: [plain], root: URL(fileURLWithPath: "/tmp/store"))
+        XCTAssertFalse(none.headline.contains(LegacyCopyLeft.laterWriteRefusedNote), "全部沒標時標題不提：\(none.headline)")
     }
 
     /// 每一列顯示 legacy 檔的完整路徑（store root ＋ 相對路徑），使用者不必自己知道 store 在哪裡才刪得掉（#708 R1 verify 第 12／32 列）。

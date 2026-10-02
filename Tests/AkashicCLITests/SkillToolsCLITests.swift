@@ -195,8 +195,105 @@ final class SkillToolsCLITests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: outDir.appendingPathComponent("m.unverified.pdf").path))
         let html = base.appendingPathComponent("page.html")
         try Data("<html></html>".utf8).write(to: html)
-        XCTAssertEqual(try runSplit(["fulltext", "take", "--from", html.path, "--out", outDir.appendingPathComponent("h.pdf").path]).status, 2)
+        XCTAssertEqual(try runSplit(["fulltext", "take", "--from", html.path, "--out", outDir.appendingPathComponent("h.pdf").path, "--title", "T"]).status, 2)
         XCTAssertEqual(try runSplit(["fulltext", "take", "--from", saved.path]).status, 64, "缺 --out 是用法錯誤")
+    }
+
+    /// 使用者 2026-10-02：`--title` 必填、不得是空的。`--title "$(cat 缺的檔)"` 的形狀（SKILL 第 4 步）給的是空字串——不是「免驗證」。
+    func testTakeRequiresANonEmptyTitle() throws {
+        let saved = base.appendingPathComponent("saved.pdf")
+        try Data("%PDF-1.4\n".utf8).write(to: saved)
+        let out = base.appendingPathComponent("o.pdf").path
+        let missing = try runSplit(["fulltext", "take", "--from", saved.path, "--out", out])
+        XCTAssertEqual(missing.status, 64, missing.err)
+        let empty = try runSplit(["fulltext", "take", "--from", saved.path, "--out", out, "--title", ""])
+        XCTAssertEqual(empty.status, 64, empty.err)
+        XCTAssertTrue(empty.err.contains("--title"), empty.err)
+        let blank = try runSplit(["fulltext", "take", "--from", saved.path, "--out", out, "--title", "  ", "--doi", "10.1/x"])
+        XCTAssertEqual(blank.status, 64, blank.err)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: out), "什麼都沒寫")
+    }
+
+    func testFetchResumeStageIsValidated() throws {
+        let common = ["fulltext", "fetch", "--window", "5", "--expect-profile", "own", "--landing", "https://doi.org/10.1/x", "--ledger", ledger]
+        XCTAssertEqual(try runSplit(common + ["--resume-tab", "2", "--resume-origin", "https://pub.example", "--resume-stage", "later"]).status, 64)
+        XCTAssertEqual(try runSplit(common + ["--resume-stage", "followed"]).status, 64, "沒有 --resume-tab 就不能有 --resume-stage")
+    }
+
+    // MARK: 每站上限的跨行程競爭（#613 修正輪）
+
+    /// 一個只夠走到記錄嘗試那一步、導航之後顯示 PDF 的假 safari-browser（一個 shell 腳本）。
+    private func writeRaceStub() throws -> URL {
+        let state = base.appendingPathComponent("stub-state")
+        try FileManager.default.createDirectory(at: state, withIntermediateDirectories: true)
+        let stub = base.appendingPathComponent("race-safari")
+        let script = """
+        #!/bin/sh
+        S='\(state.path)'
+        case "$1" in
+          documents)
+            if [ -f "$S/navigated" ]; then u='https://pub.example/doi/pdf/10.1/x'; else u='https://pub.example/doi/10.1/x'; fi
+            printf '[{"window":5,"index":1,"tab_in_window":1,"url":"https://user.example/","title":"mine","profile":"own","is_current":false},{"window":5,"index":2,"tab_in_window":2,"url":"%s","title":"Article","profile":"own","is_current":true}]\\n' "$u" ;;
+          open) case " $* " in *" --new-tab "*) : ;; *) : > "$S/navigated" ;; esac ;;
+          js)
+            for a; do last=$a; done
+            case "$last" in
+              *innerText.slice*) printf '\\nArticle\\nBody text\\n' ;;
+              *document.contentType*) printf 'application/pdf\\ncomplete\\n' ;;
+              *citation_pdf_url*) echo 'GET https://pub.example/doi/pdf/10.1/x' ;;
+              *document.readyState*) echo complete ;;
+            esac ;;
+          wait) : ;;
+          close) : ;;
+        esac
+        exit 0
+        """
+        try script.write(to: stub, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: stub.path)
+        return stub
+    }
+
+    /// 兩個行程搶最後一格：測試自己扮演「正在 `reserve` 的另一個行程」——握著帳本的 `flock`、帳本裡有 9 筆。真的 `akashic fulltext fetch` 起來、
+    /// 走到記錄嘗試那一步時必須**卡在鎖上**（沒有鎖的實作這時已經讀到 9、記成第 10 次、導航了）；測試記下第 10 筆、放鎖之後，`fetch` 重讀到 10，
+    /// 以結束碼 9 停下，帳本剛好 10 筆。
+    func testTwoProcessesRacingForTheLastSlotGrantExactlyOne() throws {
+        let stub = try writeRaceStub()
+        // 用「今天」：fetch 用真的時鐘，所以帳本裡的 9 筆也要是今天（Asia/Taipei）
+        let f = ISO8601DateFormatter(); f.timeZone = TimeZone(identifier: "Asia/Taipei")!; f.formatOptions = [.withInternetDateTime]
+        let nowStamp = f.string(from: Date())
+        let line = "{\"at\":\"\(nowStamp)\",\"landing\":\"https://doi.org/10.1/y\",\"site\":\"pub.example\"}\n"
+        try Data(String(repeating: line, count: 9).utf8).write(to: URL(fileURLWithPath: ledger))
+
+        let fd = open(ledger, O_RDWR | O_APPEND)
+        XCTAssertGreaterThanOrEqual(fd, 0)
+        defer { close(fd) }
+        XCTAssertEqual(flock(fd, LOCK_EX), 0)
+
+        let p = Process()
+        p.executableURL = CLITestHarness.productsDirectory.appendingPathComponent("akashic")
+        p.arguments = ["fulltext", "fetch", "--window", "5", "--expect-profile", "own", "--landing", "https://doi.org/10.1/x", "--ledger", ledger, "--bin", stub.path]
+        var childEnv = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("AKASHIC_") }
+        for (k, v) in env { childEnv[k] = v }
+        p.environment = childEnv
+        let out = Pipe(), err = Pipe()
+        p.standardOutput = out; p.standardError = err
+        try p.run()
+        // fetch 的節拍有真的睡眠（頁面落定 2 秒）：等到它必然已走到記錄嘗試那一步
+        Thread.sleep(forTimeInterval: 6)
+        XCTAssertTrue(p.isRunning, "fetch 應該卡在帳本的鎖上，而不是已經記完、導航完離開")
+        XCTAssertEqual((try String(contentsOfFile: ledger, encoding: .utf8)).split(separator: "\n").count, 9, "鎖著的時候帳本不動")
+
+        // 扮演贏了最後一格的另一個行程：記第 10 筆、放鎖
+        let tenth = Data(line.utf8)
+        XCTAssertEqual(tenth.withUnsafeBytes { write(fd, $0.baseAddress, $0.count) }, tenth.count)
+        XCTAssertEqual(flock(fd, LOCK_UN), 0)
+
+        let o = out.fileHandleForReading.readDataToEndOfFile(), e = err.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        XCTAssertEqual(p.terminationStatus, 9, String(decoding: e, as: UTF8.self) + String(decoding: o, as: UTF8.self))
+        XCTAssertTrue(String(decoding: e, as: UTF8.self).contains("DAILY CAP"))
+        XCTAssertEqual((try String(contentsOfFile: ledger, encoding: .utf8)).split(separator: "\n").count, 10, "剛好 10 筆，不是 11")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: base.appendingPathComponent("stub-state/navigated").path), "沒有導航到 PDF")
     }
 
     /// 標題可以以連字號開頭：ArgumentParser 預設的 `.next` 策略會把它當成另一個旗標而 exit 64；舊 shell 的 `TITLE=$2` 什麼值都收。

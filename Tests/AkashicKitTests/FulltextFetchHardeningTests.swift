@@ -135,12 +135,18 @@ final class FulltextFetchHardeningTests: XCTestCase {
 
     @discardableResult
     private func take(from: String? = nil, out: String? = nil, git: FulltextTake.GitRunner? = nil, sizeLimit: Int = LibraryStore.maxSourceBytes,
+                      realVerifier: Bool = false, afterInspect: ((String) -> Void)? = nil,
                       configure: (inout FulltextTake.Options) -> Void = { _ in }) -> Int32 {
         stdout = []; stderr = []
         scratchMode = nil
-        var options = FulltextTake.Options(from: from ?? source.path, out: out ?? outDir.appendingPathComponent("w.pdf").path)
+        // `--title` 必填（#613 修正輪）：預設給一個標題；驗證步驟預設用替身（輸出目的地與 git 閘的測試不需要 poppler 與真的 PDF）
+        var options = FulltextTake.Options(from: from ?? source.path, out: out ?? outDir.appendingPathComponent("w.pdf").path, title: "A Stub Title For Take Tests")
         configure(&options)
-        let taker = FulltextTake(out: { self.stdout.append($0) }, err: { self.stderr.append($0) }, git: git, sizeLimit: sizeLimit)
+        let taker = realVerifier
+            ? FulltextTake(out: { self.stdout.append($0) }, err: { self.stderr.append($0) }, git: git, sizeLimit: sizeLimit)
+            : FulltextTake(out: { self.stdout.append($0) }, err: { self.stderr.append($0) }, git: git, sizeLimit: sizeLimit,
+                           verifier: { _, _, _, _ in ("{\"stub\": true}", true, false) })
+        taker.afterInspect = afterInspect
         taker.onScratch = { [weak self] url in
             self?.scratchMode = ((try? FileManager.default.attributesOfItem(atPath: url.path))?[.posixPermissions] as? NSNumber)?.intValue
         }
@@ -175,6 +181,99 @@ final class FulltextFetchHardeningTests: XCTestCase {
         XCTAssertEqual(take(from: root.appendingPathComponent("missing.pdf").path), 1, errText)
         XCTAssertTrue(errText.contains("does not exist"), errText)
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: outDir.path), [])
+    }
+
+    /// FIFO 在 `lstat` 就被拒絕：不開、不阻塞、什麼都沒寫（row 76 的「lstat 拒 FIFO」一句）。
+    func testAFIFOSourceIsRefusedWithoutHanging() throws {
+        let fifo = root.appendingPathComponent("pipe.pdf")
+        XCTAssertEqual(mkfifo(fifo.path, 0o600), 0)
+        XCTAssertEqual(take(from: fifo.path), 1, errText)
+        XCTAssertTrue(errText.contains("FIFO"), errText)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: outDir.path), [])
+    }
+
+    /// `lstat` 通過之後、`open` 之前，普通檔被換成 FIFO：沒有 `O_NONBLOCK` 的 `open` 會一直等到有寫入端，`fstat` 永遠到不了。
+    /// 在背景執行緒跑、限時 10 秒——被卡住時失敗，不是整個測試掛住。
+    func testAFileSwappedForAFIFOAfterTheLstatCheckDoesNotHang() throws {
+        let swapped = expectation(description: "take returned")
+        var code: Int32 = -1
+        DispatchQueue.global().async {
+            code = self.take(afterInspect: { path in
+                try? FileManager.default.removeItem(atPath: path)
+                mkfifo(path, 0o600)
+            })
+            swapped.fulfill()
+        }
+        wait(for: [swapped], timeout: 10)
+        XCTAssertEqual(code, 1, errText)
+        XCTAssertTrue(errText.contains("not a regular file"), errText)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: outDir.path), [])
+    }
+
+    /// `lstat` 之後被換成 symlink：`O_NOFOLLOW` 擋下，不跟隨。
+    func testAFileSwappedForASymlinkAfterTheLstatCheckIsNotFollowed() throws {
+        let other = root.appendingPathComponent("other.pdf")
+        try Self.pdfBody.write(to: other)
+        let code = take(afterInspect: { path in
+            try? FileManager.default.removeItem(atPath: path)
+            try? FileManager.default.createSymbolicLink(atPath: path, withDestinationPath: other.path)
+        })
+        XCTAssertEqual(code, 1, errText)
+        XCTAssertTrue(errText.contains("cannot read --from"), errText)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: outDir.path), [])
+    }
+
+    /// `lstat` 之後被換成目錄：`open` 讀得開目錄，靠 `fstat` 的再確認擋下（訊息是 `not a regular file`，不是讀取失敗）。
+    func testAFileSwappedForADirectoryAfterTheLstatCheckIsRefusedByTheFstatRecheck() throws {
+        let code = take(afterInspect: { path in
+            try? FileManager.default.removeItem(atPath: path)
+            try? FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: false)
+        })
+        XCTAssertEqual(code, 1, errText)
+        XCTAssertTrue(errText.contains("--from is not a regular file"), errText)
+    }
+
+    /// 使用者 2026-10-02：`--title` 必填。沒給或給空字串先前整個跳過驗證、結束碼 0 照樣說存好了，而 SKILL 把 0 讀成「驗證過」。
+    func testATitleIsRequiredAndAnEmptyOneIsRefusedBeforeAnythingIsRead() throws {
+        for title in [nil, "", "   "] as [String?] {
+            let code = take(configure: { $0.title = title })
+            XCTAssertEqual(code, 64, "\(String(describing: title))：\(errText)")
+            XCTAssertTrue(errText.contains("--title is required"), errText)
+            XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: outDir.path), [], "什麼都沒寫")
+        }
+        // --doi／--pages 不再能讓沒有標題的呼叫變成「免驗證」
+        XCTAssertEqual(take(configure: { $0.title = nil; $0.doi = "10.1234/x"; $0.pages = "1--1" }), 64)
+    }
+
+    /// 驗證本身跑不起來（截斷的下載、缺 poppler）與「讀完了、不是這篇」是兩件事：前者結束碼 1、什麼都不寫；後者才是 5。
+    func testAVerificationThatCouldNotRunIsNotReportedAsAnotherPaper() throws {
+        let taker = FulltextTake(out: { self.stdout.append($0) }, err: { self.stderr.append($0) }, git: nil,
+                                 verifier: { _, _, _, _ in ("{\"error\": \"pdfinfo failed (exit 1)\", \"is_article\": false}", false, true) })
+        stdout = []; stderr = []
+        let code = taker.run(.init(from: source.path, out: outDir.appendingPathComponent("w.pdf").path, title: "T"))
+        XCTAssertEqual(code, 1, errText)
+        XCTAssertTrue(errText.contains("verification could not run"), errText)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: outDir.path), [], "不存 *.unverified.pdf：那是「別篇」的處置")
+    }
+
+    func testARealTruncatedPDFIsAVerificationErrorNotExit5() throws {
+        try XCTSkipUnless((try? ToolRunner.run(["pdftotext", "-v"])) != nil, "需要 poppler")
+        XCTAssertEqual(take(realVerifier: true), 1, errText)
+        XCTAssertTrue(errText.contains("verification could not run"), errText)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: outDir.path), [])
+    }
+
+    /// 不是 PDF 的檔案：不印內容（`--from` 是 agent 可被引導指定的路徑，印前 80 個字元等於讀任意檔頭的出口）。
+    func testANonPDFSourceDoesNotEchoItsContent() throws {
+        try write("AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", to: source)
+        XCTAssertEqual(take(), 2, errText)
+        XCTAssertFalse(errText.contains("wJalr"), errText)
+        XCTAssertFalse(errText.contains("AWS_SECRET"), errText)
+        XCTAssertTrue(errText.contains("first bytes 41 57 53"), errText)
+        try write("<!DOCTYPE html><html><body>Access Denied</body></html>", to: source)
+        XCTAssertEqual(take(), 2, errText)
+        XCTAssertTrue(errText.contains("looks like an HTML page"), errText)
+        XCTAssertFalse(errText.contains("Access Denied"), errText)
     }
 
     /// 存不進 store 的檔收進來也沒有用：上限與 `store-source` 同一個常數（測試接縫調小）。
@@ -277,7 +376,7 @@ final class FulltextFetchHardeningTests: XCTestCase {
     func testVerifiedByTitleAndDOI() throws {
         try XCTSkipUnless((try? ToolRunner.run(["pdftotext", "-v"])) != nil, "需要 poppler")
         try makePDF(lines: ["A Stub Title For Path Tests", "doi:10.1234/x", "Abstract"]).write(to: source)
-        XCTAssertEqual(take(configure: { $0.title = "A Stub Title For Path Tests"; $0.pages = "1--1"; $0.doi = "10.1234/x" }), 0, errText)
+        XCTAssertEqual(take(realVerifier: true, configure: { $0.title = "A Stub Title For Path Tests"; $0.pages = "1--1"; $0.doi = "10.1234/x" }), 0, errText)
         XCTAssertTrue(FileManager.default.fileExists(atPath: outDir.appendingPathComponent("w.pdf").path), "以要求的檔名存")
         XCTAssertTrue(stdout.joined().contains("\"doi_state\": \"page-match\""), stdout.joined())
     }
@@ -285,7 +384,7 @@ final class FulltextFetchHardeningTests: XCTestCase {
     func testAnotherWorksDOIIsKeptAsUnverified() throws {
         try XCTSkipUnless((try? ToolRunner.run(["pdftotext", "-v"])) != nil, "需要 poppler")
         try makePDF(lines: ["A Stub Title For Path Tests", "doi:10.1234/someone-else", "Abstract"]).write(to: source)
-        XCTAssertEqual(take(configure: { $0.title = "A Stub Title For Path Tests"; $0.pages = "1--1"; $0.doi = "10.1234/x" }), 5, errText)
+        XCTAssertEqual(take(realVerifier: true, configure: { $0.title = "A Stub Title For Path Tests"; $0.pages = "1--1"; $0.doi = "10.1234/x" }), 5, errText)
         XCTAssertTrue(FileManager.default.fileExists(atPath: outDir.appendingPathComponent("w.unverified.pdf").path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: outDir.appendingPathComponent("w.pdf").path))
     }

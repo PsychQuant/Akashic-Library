@@ -21,13 +21,28 @@ import AkashicCore
 ///
 /// **讀不懂就拒絕（fail-closed）**：檔案存在但讀不了、不是普通檔（symlink、目錄）、有一行不是這個形狀、`at` 沒有明確的時區
 /// ——一律丟具名錯誤，`fetch` 在碰瀏覽器之前停下。數不出今天的次數，就不能保證沒超過上限。
+///
+/// # 查數與記錄是一步（#613 修正輪，使用者 2026-10-02）
+///
+/// `reserve` 在**跨行程的獨占鎖**（`flock(LOCK_EX)`，鎖在帳本檔本身）之下重讀帳本、數今天的次數、沒到上限就記一筆；之後才導航。
+/// 兩個行程同時搶最後一格時只有一個拿到：先前的「`count` 之後 `append`」中間沒有鎖，兩個行程都讀到 9、各自記成第 10 次。
+/// 記錄之前檢查檔尾：最後一個位元組不是換行（手改過帳本、編輯器沒補檔尾換行）就先補一個，免得新的一筆黏在舊的一筆後面、
+/// 讓下一次 `load` 整個拒絕。
 public struct FulltextAttemptLedger {
     public static let dailyCap = 10
     public static let timeZone = TimeZone(identifier: "Asia/Taipei")!
 
     public let path: String
+    /// 測試接縫：`reserve` 讀完帳本、決定要不要記之前被叫一次（把「查數與記錄之間」的視窗拉寬，讓沒有鎖的實作必然出錯）。
+    var afterRead: (() -> Void)?
 
     public init(path: String) { self.path = path }
+
+    /// `reserve` 的結果。`used` 是**包含這一次**（granted）或目前已有（capReached）的次數。
+    public enum Reservation: Equatable {
+        case granted(used: Int)
+        case capReached(used: Int)
+    }
 
     /// 預設路徑。`HOME` 有設就用它（沙箱與測試把它指到暫存目錄），否則用系統的家目錄。
     public static func defaultPath(environment: [String: String] = ProcessInfo.processInfo.environment) -> String {
@@ -50,19 +65,11 @@ public struct FulltextAttemptLedger {
         guard (st.st_mode & S_IFMT) == S_IFREG else {
             throw SkillToolError.failure("the attempt ledger \(displaySafeInvisible(path, max: 400)) is a \(displaySafeInvisible(OutputFile.kindName(st.st_mode), max: 40)), not a regular file — refusing to follow or replace it")
         }
-        guard let data = FileManager.default.contents(atPath: path) else {
-            throw SkillToolError.failure("cannot read the attempt ledger \(displaySafeInvisible(path, max: 400))")
-        }
-        var entries: [Entry] = []
-        for (i, line) in String(decoding: data, as: UTF8.self).split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
-            let text = line.trimmingCharacters(in: .whitespaces)
-            if text.isEmpty { continue }
-            guard let entry = Self.parse(text) else {
-                throw SkillToolError.failure("the attempt ledger \(displaySafeInvisible(path, max: 400)) line \(i + 1) is not {\"at\": <ISO 8601 with an explicit offset>, \"site\": <host>} — fix or remove that line; today's count cannot be trusted until then")
-            }
-            entries.append(entry)
-        }
-        return entries
+        // `O_NONBLOCK`：lstat 與 open 之間被換成 FIFO 時，阻塞的 open 會一直等下去；非阻塞開，再用 fstat 確認
+        let fd = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
+        guard fd >= 0 else { throw SkillToolError.failure("cannot read the attempt ledger \(displaySafeInvisible(path, max: 400)): \(displaySafeInvisible(String(cString: strerror(errno)), max: 200))") }
+        defer { close(fd) }
+        return try entries(in: try readAll(fd))
     }
 
     /// 同一個主機、與 `now` 同一個 Asia/Taipei 日曆日的嘗試次數。
@@ -71,30 +78,91 @@ public struct FulltextAttemptLedger {
         return try load().filter { $0.site == site && Self.taipeiDay($0.at) == day }.count
     }
 
-    /// 記一次嘗試（`O_APPEND`，一次 `write`；目錄 0700、檔 0600）。帳本位置是 symlink 或不是普通檔時拒絕。
+    /// 查數與記錄是一步：在跨行程的獨占鎖之下重讀帳本、數今天這個站的次數，沒到 `cap` 就記一筆（`O_APPEND`，一次 `write`；
+    /// 目錄 0700、檔 0600）。到上限時什麼都不寫。帳本位置是 symlink 或不是普通檔時拒絕；帳本讀不懂時拒絕。
+    public func reserve(site: String, landing: String, at now: Date, cap: Int = FulltextAttemptLedger.dailyCap) throws -> Reservation {
+        try withLockedFile { fd, existing in
+            let day = Self.taipeiDay(now)
+            let used = try entries(in: existing).filter { $0.site == site && Self.taipeiDay($0.at) == day }.count
+            afterRead?()
+            if used >= cap { return .capReached(used: used) }
+            try writeRecord(fd, existing: existing, site: site, landing: landing, at: now)
+            return .granted(used: used + 1)
+        }
+    }
+
+    /// 無條件記一次嘗試（同樣在鎖之下、同樣補檔尾換行）。帳本位置是 symlink 或不是普通檔時拒絕。
     public func append(site: String, landing: String, at now: Date) throws {
+        try withLockedFile { fd, existing in
+            try writeRecord(fd, existing: existing, site: site, landing: landing, at: now)
+        }
+    }
+
+    // MARK: 鎖與讀寫
+
+    /// 開帳本（建目錄 0700、檔 0600、不跟隨 symlink）、取獨占鎖、讀出現有內容、交給 `body`；`body` 結束後關檔（放鎖）。
+    private func withLockedFile<T>(_ body: (_ fd: Int32, _ existing: Data) throws -> T) throws -> T {
         let dir = (path as NSString).deletingLastPathComponent
         do {
             try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         } catch {
             throw SkillToolError.failure("cannot create the attempt ledger's folder \(displaySafeInvisible(dir, max: 400)): \(displaySafeErrorText(error))")
         }
-        let object: [String: String] = ["at": Self.timestamp(now), "site": site, "landing": landing]
-        let json = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .withoutEscapingSlashes])
-        let line = json + Data("\n".utf8)
-        let fd = open(path, O_WRONLY | O_APPEND | O_CREAT | O_NOFOLLOW, 0o600)
+        let fd = open(path, O_RDWR | O_APPEND | O_CREAT | O_NOFOLLOW | O_NONBLOCK, 0o600)
         guard fd >= 0 else {
             throw SkillToolError.failure("cannot write the attempt ledger \(displaySafeInvisible(path, max: 400)): \(displaySafeInvisible(String(cString: strerror(errno)), max: 200))")
         }
-        defer { close(fd) }
+        defer { close(fd) }   // 關檔放鎖
         var st = stat()
         guard fstat(fd, &st) == 0, (st.st_mode & S_IFMT) == S_IFREG else {
             throw SkillToolError.failure("the attempt ledger \(displaySafeInvisible(path, max: 400)) is not a regular file — refusing to write it")
         }
+        guard flock(fd, LOCK_EX) == 0 else {
+            throw SkillToolError.failure("cannot lock the attempt ledger \(displaySafeInvisible(path, max: 400)): \(displaySafeInvisible(String(cString: strerror(errno)), max: 200))")
+        }
+        return try body(fd, try readAll(fd))
+    }
+
+    private func readAll(_ fd: Int32) throws -> Data {
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 64 * 1024)
+        while true {
+            let n = pread(fd, &buffer, buffer.count, off_t(data.count))
+            if n < 0 {
+                if errno == EINTR { continue }
+                throw SkillToolError.failure("cannot read the attempt ledger \(displaySafeInvisible(path, max: 400)): \(displaySafeInvisible(String(cString: strerror(errno)), max: 200))")
+            }
+            if n == 0 { break }
+            data.append(buffer, count: n)
+        }
+        return data
+    }
+
+    private func writeRecord(_ fd: Int32, existing: Data, site: String, landing: String, at now: Date) throws {
+        let object: [String: String] = ["at": Self.timestamp(now), "site": site, "landing": landing]
+        let json = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .withoutEscapingSlashes])
+        // 檔尾不是換行（手改過、編輯器沒補）：先補一個，免得新的一筆黏在舊的一筆後面
+        let needsNewline = existing.last.map { $0 != 0x0A } ?? false
+        let line = (needsNewline ? Data("\n".utf8) : Data()) + json + Data("\n".utf8)
         let written = line.withUnsafeBytes { write(fd, $0.baseAddress, $0.count) }
         guard written == line.count else {
             throw SkillToolError.failure("cannot write the attempt ledger \(displaySafeInvisible(path, max: 400)): \(displaySafeInvisible(String(cString: strerror(errno)), max: 200))")
         }
+    }
+
+    /// 帳本內容 → 每一筆。以**位元組**切行（`\r\n` 在 Swift 的 `Character` 是一個字元，切 `"\n"` 對 CRLF 的檔完全不切）；每行去掉頭尾的
+    /// 空白與換行；空行略過；有一行讀不懂就整個拒絕。
+    func entries(in data: Data) throws -> [Entry] {
+        var result: [Entry] = []
+        for (i, raw) in data.split(separator: 0x0A, omittingEmptySubsequences: false).enumerated() {
+            let text = String(decoding: raw, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+            if text.isEmpty { continue }
+            guard let entry = Self.parse(text) else {
+                throw SkillToolError.failure("the attempt ledger \(displaySafeInvisible(path, max: 400)) line \(i + 1) is not {\"at\": <ISO 8601 with an explicit offset>, \"site\": <host>} — fix that line (do not delete the ledger or its other lines: a missing line lowers today's count); today's count cannot be trusted until then")
+            }
+            result.append(entry)
+        }
+        return result
     }
 
     // MARK: 時間
@@ -123,7 +191,7 @@ public struct FulltextAttemptLedger {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime]
         guard let date = f.date(from: at) else { return nil }
-        return Entry(at: date, site: site)
+        return Entry(at: date, site: site.lowercased())   // 寫入端一律小寫；手改的大小寫不同的一行也要算進同一個站
     }
 
     static func hasExplicitOffset(_ at: String) -> Bool {

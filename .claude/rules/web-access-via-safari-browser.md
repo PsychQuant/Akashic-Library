@@ -65,8 +65,8 @@ Crossref、ORCID、DOI 解析、出版商頁面）一直是 skill 層的事；�
 - **中止條款**：網站一出現「懷疑是自動化」的訊號就停下，分頁留著、不重試、不換來源。停下分兩種（使用者
   2026-09-28、2026-10-01，#613）：CAPTCHA、人類檢查、Cloudflare「Just a moment」、按住驗證這四種是**等人驗證**——
   暫停、請使用者在那個分頁自己驗證、完成後在**同一個分頁**接著走（不重新載入、不代解、不換站）；其他訊號（403／429、
-  access denied 與各家封鎖頁、unusual traffic、PMC 與 ScienceDirect 的下載前驗證頁）是**整批暫停**。實作範例是
-  `plugin/skills/akashic-fetch-fulltext/`（`fetch` 結束碼 8／6；`akashic fulltext bot-signals --kind` 印 `verify`／`pause`）。**判斷順序：先看狀態碼，再看內容**——404 是「查無此筆」、
+  access denied 與各家封鎖頁、unusual traffic、PMC 與 ScienceDirect 的下載前驗證頁）是**整批暫停**；2026-10-02 再補兩條：等人驗證只在**文章站本身或已知的驗證服務**（封閉清單：Cloudflare 的挑戰主機、hCaptcha、reCAPTCHA）上成立，其他主機上的驗證字樣一律整批暫停，HTTP 429 一律整批暫停；分頁導航之後到了別的主機而沒有任何驗證／封鎖／登入的標記時，PDF 照常交給人、其他頁面把這一筆交給人、批次繼續。實作範例是
+  `plugin/skills/akashic-fetch-fulltext/`（`fetch` 結束碼 8／6；`akashic fulltext bot-signals --kind` 印 `verify`／`pause`）。**判斷順序：先看狀態碼，再看內容**（這句管取 API 的回應；讀渲染後頁面時，403 而文字是四種驗證頁才照等人驗證，429 一律整批暫停，見上）——404 是「查無此筆」、
   不是訊號（Crossref 對不存在的 DOI 回 404 加純文字本文，它同時符合「不是 JSON」，狀態碼優先）；#634 驗證第 26／32／38 列指出
   兩條規則對同一個回應各說各話。
 - **讀大型回應**：頁內 `fetch` 存進 `window` 變數（**每次請求換一個新的變數名**）→ `wait --js`

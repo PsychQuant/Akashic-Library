@@ -10,9 +10,13 @@ import AkashicStoreIO
 ///
 /// # 結束碼
 ///
-///     0 存好了，而且（有 --title 時）驗證是這篇         2 --from 不是 PDF（沒有 %PDF- 檔頭）；什麼都沒寫
+///     0 存好了，而且驗證是這篇                          2 --from 不是 PDF（沒有 %PDF- 檔頭）；什麼都沒寫
 ///     1 其他失敗（--from 不是普通檔、太大、讀不了；      5 是 PDF，但驗證不是這篇（存成 FILE.unverified.pdf）
-///       輸出目的地不合；git 閘拒絕）                    64 命令列打錯
+///       輸出目的地不合；git 閘拒絕；驗證本身跑不起來——   64 命令列打錯（含沒給 --title 或 --title 是空的）
+///       截斷的下載、缺 poppler，什麼都沒寫）
+///
+/// **`--title` 必填、不得是空的**（#613 修正輪，2026-10-02）：先前沒給（或給了空字串）就整個跳過驗證、結束碼 0 照樣說存好了，
+/// 而 SKILL 把 0 讀成「驗證過」。標題檔是空的（記錄沒有標題）時 `--title "$(cat …)"` 也是空字串——那是 64，不是「免驗證」。
 ///
 /// 驗證與 git 閘是 #629 為 `fetch` 寫的那一份，搬到這裡：
 ///
@@ -28,7 +32,7 @@ public final class FulltextTake {
     public struct Options {
         public var from: String
         public var out: String
-        public var title: String?
+        public var title: String?   // 必填、非空（`execute` 在讀任何東西之前檢查）；留成 Optional 只是讓呼叫端能原樣傳「沒給」進來被拒絕
         public var pages: String?
         public var doi: String?
         public init(from: String, out: String, title: String? = nil, pages: String? = nil, doi: String? = nil) {
@@ -38,6 +42,9 @@ public final class FulltextTake {
 
     /// 在目錄裡跑一次 git；nil＝執行不起來。預設是 repo 既有的加固 helper（#585）；測試注入「起不來」的版本。
     public typealias GitRunner = ([String], URL) -> (status: Int32, out: String)?
+    /// 驗證步驟（路徑、標題、頁碼、DOI → 判定 JSON、是否通過、有沒有跑成）。預設是真的 `verifyOutcome`；測試注入替身，
+    /// 好讓輸出目的地與 git 閘的測試不必真的有 poppler 與真的 PDF。
+    typealias Verifier = (_ path: String, _ title: String, _ pages: String?, _ doi: String) -> (json: String, isArticle: Bool, errored: Bool)
 
     struct Stop: Error { let code: Int32 }
 
@@ -45,13 +52,24 @@ public final class FulltextTake {
     private let err: (String) -> Void
     private let git: GitRunner
     private let sizeLimit: Int
+    private let verifier: Verifier
     /// 暫存目錄建好之後被叫一次（測試接縫：量它的權限）。
     var onScratch: ((URL) -> Void)?
+    /// `--from` 的 `lstat` 之後、`open` 之前被叫一次（測試接縫：把普通檔換成 FIFO、symlink、目錄，驗 `O_NONBLOCK`／`O_NOFOLLOW`／`fstat` 真的在擋）。
+    var afterInspect: ((String) -> Void)?
 
     public init(out: @escaping (String) -> Void, err: @escaping (String) -> Void, git: GitRunner? = nil,
                 sizeLimit: Int = LibraryStore.maxSourceBytes) {
         self.out = out; self.err = err; self.sizeLimit = sizeLimit
         self.git = git ?? { LibraryStore.hardenedGit($0, in: $1) }
+        self.verifier = { FulltextTake.verifyOutcome(path: $0, title: $1, pages: $2, doi: $3) }
+    }
+
+    init(out: @escaping (String) -> Void, err: @escaping (String) -> Void, git: GitRunner? = nil,
+         sizeLimit: Int = LibraryStore.maxSourceBytes, verifier: @escaping Verifier) {
+        self.out = out; self.err = err; self.sizeLimit = sizeLimit
+        self.git = git ?? { LibraryStore.hardenedGit($0, in: $1) }
+        self.verifier = verifier
     }
 
     public func run(_ o: Options) -> Int32 {
@@ -72,6 +90,11 @@ public final class FulltextTake {
     }
 
     private func execute(_ o: Options) throws {
+        // --- 標題必填：沒有標題就沒有驗證，不能讓「沒驗證」長得像「驗證過」 ---
+        guard let title = o.title, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            err("✗ --title is required and must not be empty: without a record title nothing can be verified, and an unverified file must not look verified.")
+            throw Stop(code: 64)
+        }
         // --- 輸出落在哪裡：在讀 --from 之前先檢查 ---
         let outURL = URL(fileURLWithPath: o.out)
         let outDirURL = outURL.deletingLastPathComponent()
@@ -96,32 +119,43 @@ public final class FulltextTake {
         // --- 讀 --from：普通檔、不超過上限，只讀一次 ---
         let body = try readSource(o.from)
         guard body.starts(with: Data("%PDF-".utf8)) else {
-            let head = String(String(decoding: body.prefix(80), as: UTF8.self).unicodeScalars.filter { (0x20...0x7E).contains($0.value) })
-            err("not a PDF (\(body.count) bytes, no %PDF- header): \(displaySafeInvisible(head, max: 120)) — nothing was written")
+            // 不印檔案內容：`--from` 是 agent 可被引導指定的路徑，印前 80 個字元等於讀任意檔頭的出口。只說位元組數、前 8 個位元組的十六進位，
+            // 以及它是不是 HTML 的長相（使用者存到的常是網頁）
+            let head = body.prefix(8).map { String(format: "%02x", $0) }.joined(separator: " ")
+            let lead = String(decoding: body.prefix(64), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let html = lead.hasPrefix("<!doctype html") || lead.hasPrefix("<html") || lead.hasPrefix("<?xml") || lead.hasPrefix("<head") || lead.hasPrefix("<body")
+            err("not a PDF (\(body.count) bytes, no %PDF- header; first bytes \(head)\(html ? "; it looks like an HTML page" : "")) — nothing was written")
             throw Stop(code: 2)
         }
 
-        // --- 驗證（有 --title 時）：驗的是暫存目錄裡同一份位元組 ---
-        if let title = o.title, !title.isEmpty {
-            let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("fulltext-take-\(UUID().uuidString)")
-            try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-            defer { try? FileManager.default.removeItem(at: scratch) }
-            onScratch?(scratch)
-            let staged = scratch.appendingPathComponent("take.pdf")
-            try body.write(to: staged)
-            let (verdict, ok) = Self.verdictJSON(path: staged.path, title: title, pages: o.pages, doi: o.doi ?? "")
-            out("verify: \(verdict)")
-            if !ok {
-                try OutputFile.replace(path: unverified, with: body, token: token)
-                err("kept as \(displaySafeInvisible(unverified, max: 400))")
-                throw Stop(code: 5)
-            }
+        // --- 驗證：驗的是暫存目錄裡同一份位元組 ---
+        let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("fulltext-take-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        onScratch?(scratch)
+        let staged = scratch.appendingPathComponent("take.pdf")
+        try body.write(to: staged)
+        let (verdict, ok, errored) = verifier(staged.path, title, o.pages, o.doi ?? "")
+        out("verify: \(verdict)")
+        if errored {
+            // 驗證本身跑不起來（截斷的下載、缺 poppler）：不是「別篇」。什麼都不寫，結束碼 1——結束碼 5 專指「讀完了、判定不是這篇」
+            err("✗ verification could not run (see the error above): a truncated download or a missing pdfinfo/pdftotext — nothing was written")
+            throw Stop(code: 1)
+        }
+        if !ok {
+            try OutputFile.replace(path: unverified, with: body, token: token)
+            err("kept as \(displaySafeInvisible(unverified, max: 400))")
+            throw Stop(code: 5)
         }
         try OutputFile.replace(path: outPath, with: body, token: token)
         out("OK \(body.count) bytes -> \(displaySafeInvisible(outPath, max: 400))")
     }
 
-    /// `--from`：`lstat` 是普通檔（不跟隨 symlink）、`O_NOFOLLOW` 開、`fstat` 再確認一次、大小不超過上限，讀一次。
+    /// `--from`：`lstat` 是普通檔（不跟隨 symlink）、`O_NOFOLLOW`＋`O_NONBLOCK` 開、`fstat` 再確認一次、大小不超過上限，讀一次。
+    ///
+    /// `O_NONBLOCK`：`lstat` 與 `open` 之間普通檔被換成 FIFO 時，阻塞的 `open` 會一直等到有寫入端才返回、`fstat` 永遠到不了；非阻塞開
+    /// 立刻返回，`fstat` 看出不是普通檔就拒絕。`fstat` 通過之後清掉旗標（普通檔不受影響）。讀取至多讀 `上限 + 1` 位元組：檔案在讀取當下
+    /// 還在增長（剛存檔的下載尚未寫完）時，記憶體用量也不超過上限。
     private func readSource(_ path: String) throws -> Data {
         switch try OutputFile.inspect(path) {
         case .absent:
@@ -131,16 +165,18 @@ public final class FulltextTake {
         case .regular:
             break
         }
-        let fd = open(path, O_RDONLY | O_NOFOLLOW)
+        afterInspect?(path)
+        let fd = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
         guard fd >= 0 else { throw fail("cannot read --from \(path): \(String(cString: strerror(errno)))") }
         let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
         var st = stat()
         guard fstat(fd, &st) == 0, (st.st_mode & S_IFMT) == S_IFREG else { throw fail("--from is not a regular file: \(path)") }
+        _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) & ~O_NONBLOCK)
         guard Int(st.st_size) <= sizeLimit else {
             throw fail("--from is \(st.st_size) bytes, over the store-source limit of \(LibraryStore.sourceCapDescription(sizeLimit)): \(path)")
         }
         let data: Data
-        do { data = try handle.readToEnd() ?? Data() } catch {
+        do { data = try handle.read(upToCount: sizeLimit + 1) ?? Data() } catch {
             throw fail("cannot read --from \(path): \(displaySafeErrorText(error))")
         }
         guard data.count <= sizeLimit else {
@@ -203,14 +239,20 @@ public final class FulltextTake {
 
     /// 驗證步驟：回（判定 JSON 一行，是否通過）。讀不到 PDF 或外部工具失敗時判定是 `{"error": …, "is_article": false}`。
     public static func verdictJSON(path: String, title: String, pages: String?, doi: String) -> (String, Bool) {
+        let r = verifyOutcome(path: path, title: title, pages: pages, doi: doi)
+        return (r.json, r.isArticle)
+    }
+
+    /// 同上，另外說驗證**有沒有跑成**：`errored`＝讀不到 PDF 或外部工具失敗（判定是 `error` 形狀，沒有 `flags`／`title_match` 可看）。
+    static func verifyOutcome(path: String, title: String, pages: String?, doi: String) -> (json: String, isArticle: Bool, errored: Bool) {
         do {
             let content = try PDFReader.read(path: path)
             let meta = try PDFReader.metadataDOI(path: path)
             let a = FulltextVerify.assess(firstPage: content.firstPages, pageCount: content.pageCount, title: title,
                                           pages: pages?.isEmpty == false ? pages : nil, doi: doi.isEmpty ? nil : doi, metaDOI: meta)
-            return (a.json.dumps(), a.isArticle)
+            return (a.json.dumps(), a.isArticle, false)
         } catch {
-            return (PyJSON.object([("error", .string(displaySafeErrorText(error))), ("is_article", .bool(false))]).dumps(), false)
+            return (PyJSON.object([("error", .string(displaySafeErrorText(error))), ("is_article", .bool(false))]).dumps(), false, true)
         }
     }
 }

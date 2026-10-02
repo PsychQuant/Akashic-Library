@@ -14,7 +14,8 @@ import Foundation
 ///   ScienceDirect 的「Preparing your download」中介頁。整批停下，交給使用者。
 ///
 /// **同一頁同時命中兩種時，整批暫停優先**（`classify`）：PerimeterX 的封鎖頁同時寫著「Access to this page has been denied」與
-/// 「Press & Hold」、DataDome 的挑戰頁網址含 `captcha`——拿不準就往停的那一邊倒。
+/// 「Press & Hold」、DataDome 的挑戰頁網址含 `captcha`——拿不準就往停的那一邊倒。**HTTP 429 一律整批暫停**，不論頁面文字（只有 403
+/// 的驗證頁文字可以優先於狀態碼）；等人驗證還要看**主機**：只有文章站本身或已知的驗證服務上才成立（使用者 2026-10-02）。
 ///
 /// 下面的樣式是**下限**，不是定義。SKILL.md 要求 agent 在讀起來像起疑時照停，即使這裡一條都沒命中。
 ///
@@ -56,8 +57,7 @@ public enum BotSignals {
         ("pmc-pow-challenge", #"preparing to download|proof[- ]of[- ]work|checking your browser"#),   // PMC, 2026-09-23
     ]
 
-    /// 403 與 429 本身就是起疑：付費牆回 200 加登入頁（PsycNet，2026-09-23），不是 403。OUP 的 403 是 Cloudflare 頁。
-    static let suspiciousStatus: Set<Int> = [403, 429]
+    // 403 與 429 本身就是起疑（`classify`）：付費牆回 200 加登入頁（PsycNet，2026-09-23），不是 403。OUP 的 403 是 Cloudflare 頁。
 
     /// 生產的編譯選項（測試用同一份，R2 verify 第 19 則）。
     static let regexOptions: NSRegularExpression.Options = [.caseInsensitive]
@@ -93,30 +93,79 @@ public enum BotSignals {
 
     /// 命中的訊號與處置；沒有則 nil。
     ///
-    /// 優先順序（#613）：
+    /// 優先順序（#613；2026-10-02 修正輪）：
     /// 1. 文字裡有**整批暫停**的標籤 → 整批暫停（同類之內照清單順序）。一頁同時帶著兩種文字訊號時往停的那一邊倒。
-    /// 2. 文字裡有**等人驗證**的標籤 → 等人驗證，**即使 `status` 是 403／429**：挑戰頁本身常以 403 回應（Cloudflare 的文件這樣寫，
+    ///    例外：`pmc-pow-challenge` 的通用字樣（`checking your browser`、`proof of work`）與 Cloudflare 自己的標記
+    ///    （`just a moment...` 等，`cloudflare-challenge`）同頁、而頁面沒有 PMC 專屬的 `preparing to download` 時，那是 Cloudflare 的
+    ///    經典挑戰頁（它也寫「Checking your browser before accessing…」），不是 PMC 的驗證頁，往下走成等人驗證。
+    /// 2. **HTTP 429 → 整批暫停**（`http-429`），不看文字是什麼：請求過多是站方在限流，不是一個等人去點的驗證頁。先前文字優先於
+    ///    403 與 429 兩者，429 的頁面只要帶一個 CAPTCHA 字樣就被降成等人驗證（使用者 2026-10-02 裁決改回整批暫停）。
+    /// 3. 文字裡有**等人驗證**的標籤 → 等人驗證，**即使 `status` 是 403**：挑戰頁本身常以 403 回應（Cloudflare 的文件這樣寫，
     ///    本 repo 沒有實測）。狀態碼若優先，使用者列為等人驗證的 Cloudflare「Just a moment」與 2026-09-28 ScienceDirect 的 CAPTCHA 頁
-    ///    在看得到狀態碼的時候就永遠走不到等人驗證。
-    /// 3. 文字沒有訊號、`status` 是 403／429 → `http-<status>`，整批暫停。
+    ///    在看得到狀態碼的時候就永遠走不到等人驗證。**這個例外只給 403，不給 429。**
+    /// 4. 文字沒有訊號、`status` 是 403 → `http-403`，整批暫停。
+    ///
+    /// 這裡只決定標籤的**處置種類**；等人驗證能不能成立還要看**主機**（`FulltextFetch`：只有文章站本身或已知的驗證服務，
+    /// `isKnownVerificationService`），其他主機上的驗證字樣一律整批暫停（使用者 2026-10-02）。
     public static func classify(_ text: String, status: Int? = nil) -> Hit? {
         let text = foldDotlessAndDottedI(text)
         let range = NSRange(text.startIndex..., in: text)
-        var firstVerification: String?
-        for (label, regex) in compiled where regex.firstMatch(in: text, options: [], range: range) != nil {
-            if humanVerificationLabels.contains(label) {
-                if firstVerification == nil { firstVerification = label }
-            } else {
-                return Hit(label: label, response: .pauseBatch)
-            }
+        let matched = compiled.filter { $0.regex.firstMatch(in: text, options: [], range: range) != nil }.map(\.label)
+        let cloudflare = matched.contains("cloudflare-challenge")
+        for label in matched where !humanVerificationLabels.contains(label) {
+            if label == "pmc-pow-challenge", cloudflare, text.range(of: "preparing to download", options: .caseInsensitive) == nil { continue }
+            return Hit(label: label, response: .pauseBatch)
         }
-        if let label = firstVerification { return Hit(label: label, response: .humanVerification) }
-        if let status, suspiciousStatus.contains(status) { return Hit(label: "http-\(status)", response: .pauseBatch) }
+        if status == 429 { return Hit(label: "http-429", response: .pauseBatch) }
+        if let label = matched.first(where: { humanVerificationLabels.contains($0) }) { return Hit(label: label, response: .humanVerification) }
+        if status == 403 { return Hit(label: "http-403", response: .pauseBatch) }
         return nil
     }
 
     /// 命中的訊號標籤；沒有則 nil（`classify` 的標籤，同一套優先順序）。文字沒有訊號而 `status` 是 403／429 時回 `http-<status>`。
     public static func detect(_ text: String, status: Int? = nil) -> String? {
         classify(text, status: status)?.label
+    }
+
+    // MARK: 登入／驗證頁的長相（分頁離開文章站之後，沒有任何訊號標籤時的第二道檢查）
+
+    /// 網址主機與路徑的字詞（不看查詢字串：簽章網址的查詢是一長串隨機字元）出現下列任何一個，或標題帶下列片語，就是「登入頁」／
+    /// 「驗證頁」的長相。**封閉清單**，不是偵測訊號的下限：它只決定「分頁到了別的主機、沒有任何標籤命中」時是整批暫停還是交給人
+    /// （使用者 2026-10-02：登入頁、驗證頁、封鎖頁維持整批暫停；其餘沒有標記的頁面交給人）。拿不準時往停的那一邊倒，但清單不得
+    /// 依「看起來也像」擴張——一個被誤判成登入頁的 CDN 主機只是多停一次，漏掉一個登入頁則會把使用者導去輸入帳密。
+    static let loginTokens: Set<String> = ["login", "logon", "signin", "sso", "auth", "authenticate", "shibboleth", "saml", "openathens", "wayf", "idp", "cas"]
+    static let verificationTokens: Set<String> = ["verify", "verification", "challenge", "captcha", "validate", "turnstile"]
+    static let loginTitlePhrases = ["sign in", "sign-in", "log in", "log-in", "login", "single sign-on", "authentication required"]
+    static let verificationTitlePhrases = ["verify", "verification", "are you a human", "are you a robot"]
+
+    /// `"login"`、`"verification"`，或 nil（沒有登入／驗證頁的長相）。
+    public static func gateLook(url: String, title: String) -> String? {
+        let parts = URLSplit(url)
+        let hostAndPath = (PyText.string(parts.netloc) + " " + parts.path).lowercased()
+        var tokens = Set(hostAndPath.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init))
+        for compound in ["sign-in", "sign_in", "log-in", "log_in"] where hostAndPath.contains(compound) { tokens.insert("signin") }
+        let lowerTitle = title.lowercased()
+        if !tokens.isDisjoint(with: loginTokens) || loginTitlePhrases.contains(where: { lowerTitle.contains($0) }) { return "login" }
+        if !tokens.isDisjoint(with: verificationTokens) || verificationTitlePhrases.contains(where: { lowerTitle.contains($0) }) { return "verification" }
+        return nil
+    }
+
+    // MARK: 已知的驗證服務（等人驗證能成立的第二種主機）
+
+    /// 等人驗證只在兩種主機上成立（使用者 2026-10-02）：文章站本身，或下面這份**封閉**的驗證服務清單（Cloudflare 挑戰、hCaptcha、
+    /// reCAPTCHA）。其他主機上出現驗證字樣或網址標記，一律整批暫停——任何 DOI 註冊者都能讓落地頁落在自己的主機，而假的 CAPTCHA 頁
+    /// （要使用者貼上指令到終端機那一類）正是利用「請完成這個驗證」的信任。不得依「看起來也是驗證服務」類推第四個。
+    static let knownVerificationHosts: [String] = ["challenges.cloudflare.com", "hcaptcha.com", "recaptcha.net"]
+
+    /// reCAPTCHA 也從 google.com 提供：只收 `/recaptcha/` 路徑，不收 google.com 的其他頁。
+    static let knownVerificationPathPrefixes: [(host: String, prefix: String)] = [("www.google.com", "/recaptcha/"), ("google.com", "/recaptcha/")]
+
+    /// 這個網址在不在已知的驗證服務上（主機等於清單裡的某個、或是它的子網域；https 才算）。
+    public static func isKnownVerificationService(url: String) -> Bool {
+        let parts = URLSplit(url)
+        guard PyText.string(parts.scheme) == "https" else { return false }
+        let host = PyText.string(parts.netloc).lowercased()
+        if knownVerificationHosts.contains(where: { host == $0 || host.hasSuffix("." + $0) }) { return true }
+        return knownVerificationPathPrefixes.contains { host == $0.host && parts.path.hasPrefix($0.prefix) }
     }
 }

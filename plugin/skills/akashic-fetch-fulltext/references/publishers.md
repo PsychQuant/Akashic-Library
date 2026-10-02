@@ -11,6 +11,7 @@
 - **拼網址的規則全部拿掉**（`akashic fulltext url-rule` 與它的三條規則：SAGE `?download=true`、Wiley `pdfdirect`、PsycNet `/fulltext/<id>.pdf`）。`fetch` 只跟頁面自己的連結走；那個連結通到 HTML 閱讀器時，下載按鈕交給使用者按。
 - 下表「觀察」欄裡 2026-09-23／09-28 的「成功」，多數是**頁內 fetch** 量到的——那條路已經不用了，經導航取這些站**大多沒有量過**。遇到了，把新的觀察（日期、做了什麼、看到什麼）補進該列。
 - 「做法」欄寫的是 `fetch` 會怎麼處理（結束碼）與交給人之後使用者要做什麼，不是可以另外照做的取檔步驟。
+- **PDF 放在另一個主機**（儲存或 CDN 主機：ScienceDirect 的 `pdf.sciencedirectassets.com`、OUP 的 `watermark.silverchair.com` 之類）是正常結果，不是「網站懷疑自動化」：新主機顯示 PDF → 結束碼 7 `pdf-shown`；那裡是沒有任何標記的 HTML 頁 → 結束碼 7 `left-site`；是登入／驗證／封鎖頁 → 結束碼 6（使用者 2026-10-02）。每站上限仍以**文章頁的主機**計。
 
 ## 規則表
 
@@ -26,7 +27,7 @@
 | Oxford Academic（academic.oup.com）| 頁內 fetch PDF 回 403「Just a moment…」（Cloudflare）| Cloudflare「Just a moment」→ 結束碼 8 **等人驗證**（使用者 2026-09-28 裁決；挑戰頁以 403 回應也一樣）；頁面同時有封鎖句時整批暫停（結束碼 6）。2026-09-23 當時是改找 PMC 作者稿繼續——那是在被懷疑之後換路，2026-09-24 起不再這樣做 | 2026-09-23，1 篇 |
 | PubMed Central（pmc.ncbi.nlm.nih.gov）| 頁內 fetch PDF 回約 1.8 KB 的防爬蟲驗證頁（「preparing to download」、proof of work） | 那個驗證頁是**整批暫停**（使用者 2026-10-01：下載前驗證頁不當成等人驗證）。#613 拿掉了 `--prime`：它只是為了讓之後的頁內 fetch 過得去，導航本來就像讀者點連結 | 2026-09-23，1 篇成功（`--prime`＋頁內 fetch）|
 | Springer（link.springer.com）| 頁面自己的 PDF 連結是 `/content/pdf/<doi>.pdf`；curl 取同一個網址回 HTML | `fetch` 照頁面的連結導航；導航後顯示 PDF → 結束碼 7 `pdf-shown` | 2026-09-28，1 篇成功（頁內 fetch；導航未量；bronze OA）|
-| ScienceDirect（sciencedirect.com）| 「View PDF」連結有兩種形狀（`/science/article/pii/<PII>/pdf?md5=…&pid=…` 與 `/pdfft?md5=…&pid=…`），頁面上還有推薦文章的 `pdfft` 連結；由 DOI 猜 PII 不可靠。點 View PDF 先到「**Preparing your download**」中介頁（`cra_js_challenge`），再跳到 `pdf.sciencedirectassets.com` 的 S3 簽章網址（`X-Amz-Expires=300`）；對已顯示的 PDF 再發一次請求會觸發 CAPTCHA | 中介頁 → 結束碼 6 **整批暫停**（使用者 2026-10-01）；CAPTCHA 頁（「Are you a robot?」）→ 結束碼 8。導航之後分頁跑到 `pdf.sciencedirectassets.com`（別的主機）同樣是結束碼 6。**這一站目前沒有自動走得完的路**；PDF 的網路快取也不留（safari-browser#210 比對 4/4 不在快取裡）| 2026-09-28，3 篇成功（導航到簽章網址後頁內 fetch）；同晚 2 次 CAPTCHA，見 #613 |
+| ScienceDirect（sciencedirect.com）| 「View PDF」連結有兩種形狀（`/science/article/pii/<PII>/pdf?md5=…&pid=…` 與 `/pdfft?md5=…&pid=…`），頁面上還有推薦文章的 `pdfft` 連結；由 DOI 猜 PII 不可靠。點 View PDF 先到「**Preparing your download**」中介頁（`cra_js_challenge`），再跳到 `pdf.sciencedirectassets.com` 的 S3 簽章網址（`X-Amz-Expires=300`）；對已顯示的 PDF 再發一次請求會觸發 CAPTCHA | 中介頁 → 結束碼 6 **整批暫停**（使用者 2026-10-01）；文章站上的 CAPTCHA 頁（「Are you a robot?」）→ 結束碼 8（導航之後的驗證另印 `--resume-stage followed`；驗證完分頁到 `pdf.sciencedirectassets.com` 也接得住）。導航之後分頁跑到 `pdf.sciencedirectassets.com`（別的主機）：顯示 PDF → 結束碼 7 `pdf-shown`（使用者 2026-10-02；先前是 6）；**那個主機上出現 CAPTCHA 字樣**（2026-09-28 的第二次 CAPTCHA 就是那樣）→ 結束碼 6，因為它既不是文章站、也不在已知驗證服務清單裡（使用者 2026-10-02）。**這一站目前沒有自動走得完的路**；PDF 的網路快取也不留（safari-browser#210 比對 4/4 不在快取裡）| 2026-09-28，3 篇成功（導航到簽章網址後頁內 fetch）；同晚 2 次 CAPTCHA，見 #613 |
 | Optica（opg.optica.org）| 導航之前先以 curl 打了 DOI 頁與 `viewmedia.cfm`（第二次回「Please wait...」），隨後 Safari 導航即被導到 `/captcha/` | CAPTCHA → 結束碼 8。**不要在 Safari 之外先碰這個站**（最高原則規則 1） | 2026-09-28，1 篇 |
 | OSF／PsyArXiv、機構典藏（UvA）| — | 2026-09-23 以一般 HTTP 下載成功；**這條路自 #634 起不是本 skill 的取得方式**（一律經 Safari），經 `fetch` 取這幾站沒有量過——遇到照結束碼處理，新量到的寫在這一列 | 2026-09-23，4 篇成功（一般 HTTP 下載）|
 

@@ -70,7 +70,7 @@ parity 測試不是「移植」而是**受測物不存在後退場**）。
 | `fetch-fulltext.sh` ＋ `fetch-fulltext-paths.sh` | `akashic fulltext fetch`（`FulltextFetch`，對 `SafariBrowser` 介面編排；路徑測試對記憶體內的假瀏覽器跑）；#613 起只導航、交給人，驗證與存檔搬到 `akashic fulltext take`（`FulltextTake`） |
 | `crossref_match.py` | `akashic crossref-match`（重播式：缺的請求由 skill 經 safari-browser 取回，**不連網**） |
 | `ndjson-abstracts-to-proposals.py` ＋ 它的測試 | `akashic abstracts-to-proposals`（`AbstractProposals`） |
-| `test_rules_and_verify.py`（54 個） | `Tests/AkashicKitTests/FulltextRulesTests.swift`（54 個逐案移植） |
+| `test_rules_and_verify.py`（54 個；#613 刪掉拼網址規則的 9 個之後 45 個） | `Tests/AkashicKitTests/FulltextRulesTests.swift`（45 個逐案移植；另有 7 個邊界案例，不在那 45 個裡。2026-10-02 重量：檔內 `func test` 共 52） |
 
 **`fetch-fulltext.sh` 與 `fetch-fulltext-paths.sh` 沒有改列為例外 1，而是移進 Swift**（issue 的判準是「純串接者可改列為例外、含判斷者移進 Swift」）。
 判斷的依據：領域判斷（起疑訊號、出版商網址規則、驗證）搬走之後，剩下的腳本**仍然有判斷**——每個結束碼落在哪條路徑（中止條款的 11 個出口

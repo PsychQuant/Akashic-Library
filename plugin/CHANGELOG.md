@@ -64,6 +64,17 @@ plugin 版號沒有動（skill 與 wrapper 文字的改動）。
 - MCP 面截 20 筆並受 48 KiB 位元組預算約束（吃不下的整列不印），`suppressedTotal` 永遠是全數；CLI 全列。
 - `akashic_resolve_venues` 的說明只多了新鍵那一段（`tools/list` 一行 53,939 → 54,515 bytes，預算 60,000）；既有的文字不動。
 
+## #613 修正輪（2026-10-02）— 跨主機不再整批停、等人驗證只在文章站與已知驗證服務、`take` 的 `--title` 必填
+
+承 2026-10-01 的改寫。**仍需要新的 `akashic` CLI**；SKILL 第 0 步的探測現在帶 `--title probe`，並接受 git 閘的拒絕訊息（暫存目錄在 git 工作樹裡時先前會誤報「CLI 比 #613 舊」）。
+
+- **導航之後分頁到了別的主機、而那一頁沒有任何驗證／封鎖／登入的標記**（使用者 2026-10-02）：新主機顯示 PDF → 結束碼 7 `pdf-shown`（先前是 6）；其他頁面 → 結束碼 7，新原因 `left-site`；DOI 解不開（分頁停在 doi.org 自己的頁面）→ 結束碼 7，新原因 `doi-not-resolved`；批次繼續。登入／SSO／驗證頁（網址的主機或路徑、標題的長相）與封鎖頁維持 6。
+- **等人驗證（8）只在文章站本身或已知的驗證服務上成立**（封閉清單：Cloudflare 的挑戰主機、hCaptcha、reCAPTCHA）；其他主機上的驗證字樣一律 6。stderr 另印「驗證頁所在的主機」，SKILL 要求 agent 轉述，並把「驗證頁要求貼上或執行指令」列為整批暫停。**HTTP 429 一律 6**，不論頁面文字（先前帶 CAPTCHA 字樣的 429 被降成等人驗證）。Cloudflare 的經典挑戰頁（「Just a moment…」加「Checking your browser…」）不再被 PMC 的通用字樣吃成整批暫停。
+- **新旗標 `--resume-stage article|followed`**：導航到 PDF 連結之後的驗證，結束碼 8 多印 `--resume-stage followed`；驗證完 `fetch` 回到「分頁顯示什麼」的判斷，不再讀連結、不再導航、不再記一次嘗試；分頁可以在別的主機（PDF 放在另一個主機）。沒帶旗標的舊呼叫行為不變（`article`）。stdout 的資訊行從 `resume:` 改成 `resuming:`，`resume:` 一行專給可執行的參數。
+- **每站上限查數與記錄是一步**：`reserve` 在跨行程的 `flock` 之下重讀、數、記，兩個行程搶最後一格只有一個拿到；記錄前檢查檔尾換行；站名讀回小寫；CRLF 的帳本讀得進來。SKILL 補：到上限之後文章頁仍已載入過、不要再對同站其他篇跑 `fetch`；不要用 `--ledger`／改 `HOME` 繞過。
+- **`take` 的 `--title` 必填、不得是空的**（沒給或空字串是 64；先前跳過驗證卻結束碼 0）；驗證本身跑不起來（截斷的下載、缺 poppler）是 1 而不是 5；不是 PDF 的檔案不印內容；`--from` 以 `O_NONBLOCK` 開並限讀。SKILL 第 4 步補 `--from` 路徑的形狀檢查（原先原樣插進雙引號的 shell 參數）。
+- `handover:` 一行去掉網址的查詢與片段（簽章網址的短效憑證不進 stdout 與 `origin`）；SKILL 第 5 步的 `retrieved` 改取使用者存下的檔的修改時間。
+
 ## #613 — 取全文只用導航、存檔交給人；CAPTCHA 等人驗證；每站每天 10 次嘗試
 
 `akashic-fetch-fulltext` 依使用者 2026-09-28 的最高原則「跟真人一樣」與 2026-10-01 的裁決改寫。**這需要新的 `akashic` CLI**（plugin 不出貨 CLI）：舊的 `akashic fulltext fetch` 在出版商頁內以 JS `fetch()` 取 PDF，正是那晚兩次 ScienceDirect CAPTCHA 之前做的事——**不要拿舊的 CLI 對出版商網站跑**。skill 的第 0 步用 `fulltext take` 的一次真呼叫探測，舊 binary 回 64、探測失敗就停。

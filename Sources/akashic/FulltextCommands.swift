@@ -102,11 +102,14 @@ struct FulltextFetchCmd: ParsableCommand {
         commandName: "fetch",
         abstract: "在使用者自己的 Safari 裡導航到頁面自己的 PDF 連結、交給人存檔；不取位元組、不寫檔；結束碼 6＝整批暫停",
         discussion: """
-        只用瀏覽器導航（不在頁內取檔、不拼出版商網址）。結束碼：7 交給人（PDF 已顯示、或頁面的下載按鈕要人按；人存檔之後用 \
-        `fulltext take`）；8 等人驗證（CAPTCHA 等；使用者驗證完加 --resume-tab／--resume-origin 在同一個分頁接著走）；\
-        9 這個站今天（Asia/Taipei）已經 10 次嘗試，停這個站；6 整批暫停：其他起疑訊號，分頁留著給使用者看；\
-        3 頁面上找不到 PDF 連結；1 自動化失敗（看 stderr）。沒有結束碼 0。命令列本身打錯是 64。\
-        每次準備導航到 PDF 就在 --ledger（預設 $HOME/Library/Application Support/akashic/fulltext-attempts.jsonl，在 store 之外）記一次。
+        只用瀏覽器導航（不在頁內取檔、不拼出版商網址）。結束碼：7 交給人，批次繼續（PDF 已顯示——含在別的主機上顯示、頁面的下載按鈕要人按、\
+        分頁到了別的主機而沒有任何驗證／封鎖／登入的標記、DOI 解不開；原因在 stdout 的 `handover:` 一行；人存檔之後用 `fulltext take`）；\
+        8 等人驗證（CAPTCHA 等，只在文章站本身或已知的驗證服務上成立；使用者驗證完加 stdout `resume:` 一行印出的 \
+        --resume-tab／--resume-origin（導航之後的驗證另有 --resume-stage followed）在同一個分頁接著走）；\
+        9 這個站今天（Asia/Taipei）已經 10 次嘗試，停這個站；6 整批暫停：其他起疑訊號（含其他主機上的驗證字樣、HTTP 403／429、登入頁），\
+        分頁留著給使用者看；3 頁面上找不到 PDF 連結；1 自動化失敗（看 stderr）。沒有結束碼 0。命令列本身打錯是 64。\
+        每次準備導航到 PDF 就在帳本（預設 $HOME/Library/Application Support/akashic/fulltext-attempts.jsonl，在 store 之外）記一次；\
+        查數與記錄是一步（跨行程的鎖）。--ledger 只給測試：換帳本等於重算上限，不要為了繞過每站 10 次而用它。
         """)
 
     @Option(name: .long, help: "Safari 視窗編號（從 1 起）")
@@ -118,14 +121,17 @@ struct FulltextFetchCmd: ParsableCommand {
     @Option(name: .customLong("expect-profile"), help: "這個視窗必須屬於的 Safari profile（使用者自己的；必填）；不符就在開任何分頁之前拒絕")
     var expectProfile: String
 
-    @Option(name: .long, help: "每日嘗試帳本的路徑（預設 $HOME/Library/Application Support/akashic/fulltext-attempts.jsonl）")
+    @Option(name: .long, help: "每日嘗試帳本的路徑（只給測試；預設 $HOME/Library/Application Support/akashic/fulltext-attempts.jsonl）")
     var ledger: String?
 
     @Option(name: .customLong("resume-tab"), help: "等人驗證（結束碼 8）之後在同一個分頁接著走：那個分頁在 --window 裡的位置")
     var resumeTab: Int?
 
-    @Option(name: .customLong("resume-origin"), help: "與 --resume-tab 一起給：那個分頁此刻必須顯示的 https://<主機>（結束碼 8 印出的值）")
+    @Option(name: .customLong("resume-origin"), help: "與 --resume-tab 一起給：文章站的 https://<主機>（結束碼 8 印出的值）；article 階段分頁此刻必須顯示它")
     var resumeOrigin: String?
+
+    @Option(name: .customLong("resume-stage"), help: "與 --resume-tab 一起給：驗證發生在哪一步，article（導航到 PDF 連結之前，預設）或 followed（之後；結束碼 8 有印就照抄）")
+    var resumeStage: String = "article"
 
     @Option(name: .long, help: "safari-browser 的路徑")
     var bin: String = "safari-browser"
@@ -136,6 +142,8 @@ struct FulltextFetchCmd: ParsableCommand {
         guard !expectProfile.isEmpty else { throw ValidationError("--expect-profile 不可為空：它是唯一防止動到別人的 Safari session 的檢查") }
         guard (resumeTab == nil) == (resumeOrigin == nil) else { throw ValidationError("--resume-tab 與 --resume-origin 要一起給") }
         if let t = resumeTab, t < 1 { throw ValidationError("--resume-tab 必須是 1 以上的整數") }
+        guard FulltextFetch.ResumeStage(rawValue: resumeStage) != nil else { throw ValidationError("--resume-stage 只能是 article 或 followed") }
+        if resumeTab == nil, resumeStage != "article" { throw ValidationError("--resume-stage 要和 --resume-tab 一起給") }
         if let origin = resumeOrigin, let problem = FulltextFetch.resumeOriginProblem(origin) {
             throw ValidationError("--resume-origin 必須恰好是 https://<主機>（\(displaySafeInvisible(problem, max: 200))）")
         }
@@ -146,12 +154,16 @@ struct FulltextFetchCmd: ParsableCommand {
             FileHandle.standardError.write(Data("✗ safari-browser not found: \(displaySafeInvisible(bin, max: 300))\n".utf8))
             throw ExitCode(1)
         }
+        if let ledger, ledger != FulltextAttemptLedger.defaultPath() {
+            FileHandle.standardError.write(Data("⚠ using a ledger other than the default (\(displaySafeInvisible(ledger, max: 300))): --ledger is for tests — a different ledger recounts the per-site daily cap from zero\n".utf8))
+        }
         let runner = FulltextFetch(
             browser: ProcessSafariBrowser(executable: bin),
             out: { line in print(line); fflush(stdout) },
             err: { line in FileHandle.standardError.write(Data((line + "\n").utf8)) })
         let code = runner.run(.init(window: window, landing: landing, ledger: ledger ?? FulltextAttemptLedger.defaultPath(),
-                                    expectProfile: expectProfile, resumeTab: resumeTab, resumeOrigin: resumeOrigin))
+                                    expectProfile: expectProfile, resumeTab: resumeTab, resumeOrigin: resumeOrigin,
+                                    resumeStage: FulltextFetch.ResumeStage(rawValue: resumeStage) ?? .article))
         throw ExitCode(code)
     }
 }
@@ -160,11 +172,12 @@ struct FulltextFetchCmd: ParsableCommand {
 struct FulltextTakeCmd: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "take",
-        abstract: "收人存下來的全文檔：驗證（有 --title 時）、git 閘、存到 --out；不碰瀏覽器、不連網、不寫 store",
+        abstract: "收人存下來的全文檔：驗證、git 閘、存到 --out；不碰瀏覽器、不連網、不寫 store",
         discussion: """
-        結束碼：0 存好了，而且（有 --title 時）驗證是這篇；2 --from 不是 PDF，什麼都沒寫；\
-        5 是 PDF 但驗證不是這篇（存成 FILE.unverified.pdf）；1 其他失敗（--from 不是普通檔或太大、輸出目的地不合、git 閘拒絕）。\
-        命令列本身打錯是 64。--from 只讀，不移動、不刪除。
+        結束碼：0 存好了，而且驗證是這篇；2 --from 不是 PDF，什麼都沒寫；\
+        5 是 PDF 但驗證不是這篇（存成 FILE.unverified.pdf）；1 其他失敗（--from 不是普通檔或太大、輸出目的地不合、git 閘拒絕、\
+        驗證本身跑不起來——截斷的下載或缺 poppler，什麼都沒寫）。命令列本身打錯是 64，含沒給 --title 或 --title 是空的\
+        （沒有標題就沒有驗證，不能讓「沒驗證」長得像「驗證過」）。--from 只讀，不移動、不刪除。
         """)
 
     @Option(name: .long, help: "人存下來的 PDF（本機的普通檔；只讀）")
@@ -174,14 +187,20 @@ struct FulltextTakeCmd: ParsableCommand {
     var out: String
 
     // `.unconditional`：標題可以以連字號開頭（見 FulltextVerifyCmd）
-    @Option(name: .long, parsing: .unconditional, help: "記錄的標題（驗證用；不給就不驗證）；可以以連字號開頭")
-    var title: String?
+    @Option(name: .long, parsing: .unconditional, help: "記錄的標題（驗證用，必填、不得是空的）；可以以連字號開頭")
+    var title: String
 
     @Option(name: .long, parsing: .unconditional, help: "記錄的頁碼範圍（驗證用），如 71--98")
     var pages: String?
 
     @Option(name: .long, parsing: .unconditional, help: "記錄的 DOI（驗證用；沒有就沒有 DOI 可比，永不自動收）")
     var doi: String?
+
+    func validate() throws {
+        guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw ValidationError("--title 不得是空的：沒有記錄標題就沒有驗證（標題檔是空的？記錄沒有標題的作品不走 take）")
+        }
+    }
 
     func run() throws {
         let taker = FulltextTake(

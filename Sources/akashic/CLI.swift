@@ -48,9 +48,8 @@ struct AkashicCLI: ParsableCommand {
             // 終端安全不受影響（控制字元／bidi 等仍全部跳脫），理由見該函式 doc。
             var safe = displaySafeAssembled(full)
             // #705 R2 verify 第 16／19 列：失敗時 stderr 的第一行也說 stdout 上報告過的那幾筆寫了——只擷取 stderr 的呼叫端讀得到「不要重跑」
-            if exitCode(for: error) != .success, !safe.isEmpty, let lead = LegacyCopyReport.stderrLead {
-                safe = lead + "\n" + safe
-            }
+            // 錯誤訊息是空的（`ExitCode(1)`）也要說（#705 R3 verify）——`stderrText` 處理兩種
+            if exitCode(for: error) != .success { safe = LegacyCopyReport.stderrText(errorText: safe) }
             if !safe.isEmpty {
                 let code = exitCode(for: error)
                 // help/CleanExit 走 stdout（exit 0 的訊息是輸出不是錯誤），其餘 stderr。

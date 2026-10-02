@@ -16,6 +16,10 @@ extension AkashicService {
     /// 完整筆數與有沒有截（#705 R2 verify 第 13 列）——與 `writtenWithLegacyCopy` 同進同出（`ambiguousSourceClaims` 那三個鍵的形）。
     public static let writtenWithLegacyCopyTotalKey = "writtenWithLegacyCopyTotal"
     public static let writtenWithLegacyCopyTruncatedKey = "writtenWithLegacyCopyTruncated"
+    /// 完整筆數裡**之後的寫入沒有套用**的有幾筆（#705 R3 verify，codex：成功清單截到 20 筆時，唯一的「有更新沒完成」回報可能正好在被截掉的那幾列）。
+    /// 在截斷之外、只在 > 0 時出現（沒有這個鍵＝零筆，不改既有回應的位元組）；併進已帶這個鍵的回應時是兩邊相加。
+    /// 這個數不是「還有幾份拷貝要清」（那是 `…Total`），是「這一趟有幾次更新沒落地、刪掉 legacy 那份之後要重跑」。
+    public static let writtenWithLegacyCopyNotAppliedKey = "writtenWithLegacyCopyNotApplied"
     /// MCP 回應至多列這麼多筆（#705 R2 verify 第 13 列）：回應直接進 LLM context，而筆數由 store 狀態決定——`entries/` 整個唯讀時
     /// 每一筆寫入都留下一份。截掉的找得回來：`akashic validate` 逐筆列出兩份並存的記錄（load 的 #641 標註），CLI 全列。
     /// （R1 的理由「截掉的就找不回來」不成立：留下的 legacy 檔在磁碟上，load 每次都看得到它。）
@@ -36,11 +40,14 @@ extension AkashicService {
     }
 
     /// 三個同進同出的鍵：已排序的列留前 `limit` 筆（nil＝全列）、`total` 是完整筆數、有沒有截。
-    static func legacyCopyFields(rows: [Any], total: Int, limit: Int?) -> [String: Any] {
+    /// `notApplied`（#705 R3 verify）：完整筆數裡之後的寫入沒有套用的有幾筆——由呼叫端數**截斷之前**的完整清單；> 0 才另給第四個鍵。
+    static func legacyCopyFields(rows: [Any], total: Int, notApplied: Int = 0, limit: Int?) -> [String: Any] {
         let shown = limit.map { Array(rows.prefix($0)) } ?? rows
-        return [writtenWithLegacyCopyKey: shown,
-                writtenWithLegacyCopyTotalKey: total,   // display-safe-exempt: Int
-                writtenWithLegacyCopyTruncatedKey: shown.count < total]   // display-safe-exempt: Bool
+        var fields: [String: Any] = [writtenWithLegacyCopyKey: shown,
+                                     writtenWithLegacyCopyTotalKey: total,   // display-safe-exempt: Int
+                                     writtenWithLegacyCopyTruncatedKey: shown.count < total]   // display-safe-exempt: Bool
+        if notApplied > 0 { fields[writtenWithLegacyCopyNotAppliedKey] = notApplied }   // display-safe-exempt: Int
+        return fields
     }
 
     /// 把收到的放進一次回應。沒有收到任何一筆時原樣回傳（位元組不變）。
@@ -64,21 +71,29 @@ extension AkashicService {
         }
         if var obj = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] {
             // 已帶這個鍵的回應（`akashic_import_zotero` 的 payload 自己帶、可能已截）：併進去，總數是它的總數加上這次的筆數
-            let merged: (rows: [Any], total: Int)? = switch obj[writtenWithLegacyCopyKey] {
-            case nil: (legacyCopyRows(written), written.count)
+            let newlyNotApplied = written.filter(\.laterWriteRefused).count
+            let merged: (rows: [Any], total: Int, notApplied: Int)? = switch obj[writtenWithLegacyCopyKey] {
+            case nil: (legacyCopyRows(written), written.count, newlyNotApplied)
             case let existing as [Any]:
                 ((existing + legacyCopyRows(written)).sorted { Self.rowSortKey($0) < Self.rowSortKey($1) },
-                 (obj[writtenWithLegacyCopyTotalKey] as? Int ?? existing.count) + written.count)
+                 (obj[writtenWithLegacyCopyTotalKey] as? Int ?? existing.count) + written.count,
+                 // 已截的那份自己帶完整的數（它的列可能被截掉）；沒帶就數它還看得到的列
+                 (obj[writtenWithLegacyCopyNotAppliedKey] as? Int ?? existing.filter { Self.rowIsNotApplied($0) }.count) + newlyNotApplied)
             default: nil   // 同名鍵卻不是陣列：不是這個函式寫的形狀，不覆寫它——落到下一格附文字
             }
             if let merged {
-                obj.merge(legacyCopyFields(rows: merged.rows, total: merged.total, limit: limit)) { _, new in new }
+                obj.merge(legacyCopyFields(rows: merged.rows, total: merged.total, notApplied: merged.notApplied, limit: limit)) { _, new in new }
                 if let data = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys]) {
                     return UnsafeToEmitScalar.escapingUnsafeScalars(inSerializedJSON: String(decoding: data, as: UTF8.self))
                 }
             }
         }
         return ([text, ""] + LegacyCopyLeft.reportLines(written, limit: limit)).joined(separator: "\n")   // display-safe-exempt: reportLines：LegacyCopyLeft.message 已消毒；text 是呼叫端已組好的回應
+    }
+
+    /// 一列是否標了「之後的寫入沒有套用」（`legacyCopyRows` 加的 `laterWriteNotApplied`）。
+    private static func rowIsNotApplied(_ row: Any) -> Bool {
+        (row as? [String: Any])?["laterWriteNotApplied"] != nil
     }
 
     /// 併進既有陣列時的排序鍵：與 `legacyCopyRows` 同一個 (kind, key)。

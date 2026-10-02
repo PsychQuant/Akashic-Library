@@ -97,6 +97,57 @@ final class WrittenWithLegacyCopyR2Tests: XCTestCase {
         XCTAssertNil((plain["writtenWithLegacyCopy"] as? [[String: String]])?.first?["laterWriteNotApplied"], "沒有之後就不出現")
     }
 
+    /// #705 R3 verify（codex，MEDIUM）：成功清單截到 20 筆時，「之後的寫入沒有套用」只標在被截掉的那一列上——唯一的回報跟著消失。
+    /// 完整的筆數在截斷之外（`writtenWithLegacyCopyNotApplied`，> 0 才出現）。
+    func testTheNotAppliedCountSurvivesTruncationOfTheRows() throws {
+        var all = items(25)
+        all[24].laterWriteRefused = true   // 排序第 25 位：不在前 20 列裡
+        let obj = try object(AkashicService.reportingWrittenWithLegacyCopy("{}", all, isError: false))
+        let rows = try XCTUnwrap(obj["writtenWithLegacyCopy"] as? [[String: String]])
+        XCTAssertEqual(rows.count, 20)
+        XCTAssertFalse(rows.contains { $0["laterWriteNotApplied"] != nil }, "前提：可見的 20 列都沒有這個標記")
+        XCTAssertEqual(obj["writtenWithLegacyCopyTruncated"] as? Bool, true)
+        XCTAssertEqual(obj["writtenWithLegacyCopyNotApplied"] as? Int, 1, "完整筆數不被截")
+
+        // 沒有任何一筆之後被拒時鍵不出現——既有回應的位元組不變
+        let none = try object(AkashicService.reportingWrittenWithLegacyCopy("{}", items(25), isError: false))
+        XCTAssertNil(none["writtenWithLegacyCopyNotApplied"])
+
+        // CLI 全列：列自己帶標記，數也一致
+        let full = try object(AkashicService.reportingWrittenWithLegacyCopy("{}", all, isError: false, limit: nil))
+        XCTAssertEqual(full["writtenWithLegacyCopyNotApplied"] as? Int, 1)
+        XCTAssertEqual((full["writtenWithLegacyCopy"] as? [[String: String]])?.filter { $0["laterWriteNotApplied"] != nil }.count, 1)
+
+        // 併進已截的回應：已截的那份自己帶完整的數，這次再有一筆就是兩筆
+        var more = items(2)
+        more[0].laterWriteRefused = true
+        let base = AkashicService.reportingWrittenWithLegacyCopy("{}", all, isError: false)
+        let merged = try object(AkashicService.reportingWrittenWithLegacyCopy(base, more, isError: false))
+        XCTAssertEqual(merged["writtenWithLegacyCopyNotApplied"] as? Int, 2)
+    }
+
+    /// 錯誤回應（人可讀報告）同一件事：被截掉的列裡有沒套用的，「另有 N 筆未列出」那一行要說。
+    func testTheErrorTextSaysWhenAHiddenRowHasANotAppliedWrite() {
+        var all = items(25)
+        all[24].laterWriteRefused = true
+        let out = AkashicService.reportingWrittenWithLegacyCopy("Error: index rebuild 失敗", all, isError: true)
+        let tail = out.split(separator: "\n").first { $0.contains("另有 5 筆未列出") }.map(String.init) ?? ""
+        XCTAssertTrue(tail.contains("其中 1 筆") && tail.contains(LegacyCopyLeft.laterWriteRefusedNote), out)
+        // 可見的 20 列都沒標記、也沒有隱藏的標記時，這一行維持原樣
+        let plain = AkashicService.reportingWrittenWithLegacyCopy("Error: x", items(25), isError: true)
+        XCTAssertFalse(plain.contains("其中"), plain)
+    }
+
+    /// import 的 payload：給了 listLimit（MCP）截列、完整的沒套用筆數照給。
+    func testTheImportPayloadCarriesTheFullNotAppliedCount() throws {
+        var report = ImportReport()
+        report.writtenWithLegacyCopy = items(25)
+        report.writtenWithLegacyCopy[24].laterWriteRefused = true
+        let capped = AkashicService.importReportPayload(report, listLimit: 20)
+        XCTAssertEqual((capped["writtenWithLegacyCopy"] as? [Any])?.count, 20)
+        XCTAssertEqual(capped["writtenWithLegacyCopyNotApplied"] as? Int, 1)
+    }
+
     /// 第 5 列：不只 `ZoteroImporter`——同一個範圍（分派）裡的第二個寫入者撞上稍早留下的拷貝，拒絕說出前一步寫了，
     /// 而且那一筆標上 `laterWriteRefused`。這裡是 update_person 對同一個 person 寫兩次（person 的兩份不擋 index 重建，#670）。
     func testASecondWriterInTheSameScopeSaysTheEarlierStepWrote() throws {

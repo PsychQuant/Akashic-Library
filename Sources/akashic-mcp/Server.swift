@@ -48,7 +48,7 @@ actor AkashicMCPServer {
     /// 放進回應的 `writtenWithLegacyCopy`（成功的 JSON 物件加鍵；錯誤回應放在訊息最前面，#705 R1 verify 第 5 列）。一個常數，13 份描述不會各寫各的。
     /// #705 R2 verify 第 13 列：至多列 `writtenWithLegacyCopyLimit` 筆，另給 `writtenWithLegacyCopyTotal`／`…Truncated`——說明只寫「前 N 筆與總數」，
     /// 13 份描述共用這一句，每多一個字就是十三份（tools/list 的位元組預算，#578）。
-    static let legacyCopyNote = "已寫入而 legacy 拷貝未刪的列在 writtenWithLegacyCopy（前 \(AkashicService.writtenWithLegacyCopyLimit) 筆與總數；錯誤時列在訊息前）。"
+    static let legacyCopyNote = "已寫入而 legacy 拷貝未刪的列在 writtenWithLegacyCopy（前 \(AkashicService.writtenWithLegacyCopyLimit) 筆與總數；之後的寫入沒套用的完整筆數在 writtenWithLegacyCopyNotApplied；錯誤時列在訊息前）。"
 
     // MARK: - Schema 小工具
 

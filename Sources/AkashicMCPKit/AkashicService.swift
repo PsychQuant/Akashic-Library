@@ -2854,7 +2854,8 @@ public final class AkashicService {
             // 這裡的 payload 就不再帶（否則報兩次）。沒有外層範圍的呼叫端照舊帶在 payload 裡。
             var failurePayload = payload
             if !report.writtenWithLegacyCopy.isEmpty, LegacyCopyLedger.handToEnclosingScope(report.writtenWithLegacyCopy) {
-                for key in [Self.writtenWithLegacyCopyKey, Self.writtenWithLegacyCopyTotalKey, Self.writtenWithLegacyCopyTruncatedKey] {
+                for key in [Self.writtenWithLegacyCopyKey, Self.writtenWithLegacyCopyTotalKey, Self.writtenWithLegacyCopyTruncatedKey,
+                            Self.writtenWithLegacyCopyNotAppliedKey] {
                     failurePayload.removeValue(forKey: key)
                 }
             }
@@ -2988,6 +2989,7 @@ public final class AkashicService {
         // 給了 listLimit（MCP）時同樣有上限（`writtenWithLegacyCopyLimit`，截掉的由 `akashic validate` 逐筆列出）；nil＝全列。
         if !report.writtenWithLegacyCopy.isEmpty {
             d.merge(legacyCopyFields(rows: legacyCopyRows(report.writtenWithLegacyCopy), total: report.writtenWithLegacyCopy.count,
+                                     notApplied: report.writtenWithLegacyCopy.filter(\.laterWriteRefused).count,   // 截斷之前數（#705 R3 verify）
                                      limit: listLimit == nil ? nil : writtenWithLegacyCopyLimit)) { _, new in new }
         }
         d["listTotals"] = listTotals   // display-safe-exempt: 鍵是封閉列舉的清單名、值是 Int

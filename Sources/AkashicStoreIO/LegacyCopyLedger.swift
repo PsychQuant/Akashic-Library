@@ -65,7 +65,10 @@ public struct LegacyCopyLeft: Equatable, Sendable {
         var lines = ["writtenWithLegacyCopy（\(explanation)）: \(items.count)"]   // display-safe-exempt: explanation：常量字面；count：Int
             + shown.map { "  ⚠ \($0.message)" + ($0.laterWriteRefused ? "；" + laterWriteRefusedNote : "") }   // display-safe-exempt: $0.message：已消毒（見上）；laterWriteRefusedNote：本型別的字面常量
         if shown.count < sorted.count, let limit {
-            lines.append("  …另有 \(sorted.count - shown.count) 筆未列出（這裡至多列 \(limit) 筆；akashic validate 逐筆列出兩份並存的記錄，CLI 全列）")   // display-safe-exempt: Int
+            // 被截掉的列裡若有「之後的寫入沒有套用」的，只在這一行說得出（#705 R3 verify：標記在被截的列上時，唯一的回報跟著不見）
+            let hiddenNotApplied = sorted.dropFirst(shown.count).filter(\.laterWriteRefused).count
+            let hidden = hiddenNotApplied > 0 ? "；其中 \(hiddenNotApplied) 筆" + laterWriteRefusedNote : ""   // display-safe-exempt: Int；laterWriteRefusedNote：本型別的字面常量
+            lines.append("  …另有 \(sorted.count - shown.count) 筆未列出（這裡至多列 \(limit) 筆；akashic validate 逐筆列出兩份並存的記錄，CLI 全列）\(hidden)")   // display-safe-exempt: Int
         }
         return lines
     }

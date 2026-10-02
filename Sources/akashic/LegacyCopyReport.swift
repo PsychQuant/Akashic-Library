@@ -48,11 +48,18 @@ enum LegacyCopyReport {
         reportedOnStdout += items.count
     }
 
-    /// 命令失敗、而 stdout 上已經報告過寫了的筆數時，stderr 的第一行（只含筆數，沒有 store 字串）；沒有就是 nil。
-    static var stderrLead: String? {
-        guard reportedOnStdout > 0 else { return nil }
+    /// 命令失敗時 stderr 的內容（`errorText` 是已消毒的錯誤訊息，可以是空的）。stdout 上已經報告過寫了的筆數時，第一行說這件事（只含筆數，
+    /// 沒有 store 字串）；沒有報告過就原樣回傳。
+    ///
+    /// **錯誤訊息是空的也要說**（#705 R3 verify）：`throw ExitCode(1)`（import-zotero 的 `writeFailed`／未記下的 DOI 提名、`enrich-from-zotero` 等）
+    /// 沒有訊息，先前 `!safe.isEmpty` 的守衛讓這一格 stderr 整個是空的——只擷取 stderr 與結束碼的呼叫端（cron、CI）讀不到「不要重跑」。
+    static func stderrText(errorText: String) -> String {
+        guard reportedOnStdout > 0 else { return errorText }
         // 不以 `writtenWithLegacyCopy` 開頭：那是 stdout 報告的標題，合併兩個串流讀的呼叫端找它時不該先找到這一行
-        return "已寫入 \(reportedOnStdout) 筆、搬移後的 legacy 拷貝沒刪掉（writtenWithLegacyCopy，清單在 stdout）"   // display-safe-exempt: Int
-            + "——那幾筆不是寫入失敗，不要重跑（兩份並存時 #631 會拒絕）；刪掉 legacy 那份即可。以下是這次失敗的原因："
+        let lead = "已寫入 \(reportedOnStdout) 筆、搬移後的 legacy 拷貝沒刪掉（writtenWithLegacyCopy，清單在 stdout）"   // display-safe-exempt: Int
+            + "——那幾筆不是寫入失敗，不要重跑（兩份並存時 #631 會拒絕）；刪掉 legacy 那份即可。"
+        return errorText.isEmpty
+            ? lead + "這次以非零結束碼結束、沒有錯誤訊息——原因見 stdout 上的報告。"
+            : lead + "以下是這次失敗的原因：\n" + errorText
     }
 }

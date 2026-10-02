@@ -320,7 +320,8 @@ public final class AkashicService {
     }
 
     public func people(query: String?) throws -> String {
-        var people = try store.load().people
+        // #709 R3 verify：同一筆 person 的 legacy 拷貝不列（`akashic people` 先前把同一個 key 列兩次、其中一份是舊名字）；與 index、匯出、App 同一個視圖
+        var people = try store.load().withoutShadowedLegacyCopies().people
         if let q = query?.lowercased(), !q.isEmpty {
             people = people.filter { person in
                 person.key.lowercased().contains(q)

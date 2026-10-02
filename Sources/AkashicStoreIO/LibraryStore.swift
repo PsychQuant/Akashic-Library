@@ -3254,7 +3254,11 @@ public extension LibraryLoad {
         // 的警告全滅，其中 15 組改由下面那條印成「標題與年份相同但 **DOI 不同**」
         // ——而那 15 組的 DOI 逐字相同。**一條檢查變瞎不只是少報，它讓另一條開始說謊。**
         var byDOI: [String: [String]] = [:]
-        for e in entries {
+        // #709 R3 verify（requirements／regression 兩席）：同一筆記錄的 legacy 拷貝是同一筆，不是「另一筆同 DOI／同標題」——
+        // 把它算進來，一對就多報一則說「DOI 被 2 筆 work 共用（k, k）」或「標題與年份相同但 DOI 不同（k, k）」，後者還把原因指向
+        // 一個不存在的編目判斷（拷貝連 DOI 都沒有時也報）；有 12 對就是 12 則誤導的警告，並把整合性警告擠出 MCP 的前 20 則。
+        // 與上方 Zotero 宣稱者檢查同一個作法（它對同 id 去重）。真的重複（id 不同）照舊報。
+        for e in entries where e.fileSituation.shadowedLegacyFile == nil {
             // 同一筆 work 的多個 DOI 正規化後可能相同（例：URL 形式 ＋ 裸形式），
             // 去重，否則「被 N 筆 work 共用」會把同一個 citekey 數兩次。
             for d in Set(e.canonicalDOIs.map(\.normalized)) where !d.isEmpty {
@@ -3311,7 +3315,7 @@ public extension LibraryLoad {
             return "\(t)|\(d[r])"
         }
         var byTitleYear: [String: [String]] = [:]
-        for e in entries {
+        for e in entries where e.fileSituation.shadowedLegacyFile == nil {   // 同上（#709 R3 verify）
             guard let k = titleKey(e) else { continue }
             byTitleYear[k, default: []].append(e.citekey)
         }

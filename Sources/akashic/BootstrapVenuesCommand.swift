@@ -31,7 +31,8 @@ struct BootstrapVenues: ParsableCommand {
         let store = try options.openStore()
         let load = try store.load()
 
-        let result = VenueBootstrap.result(entries: load.entries, existing: load.venues)
+        // 同 bootstrap-people（#709 R3 verify）：legacy 拷貝的內容不流進寫入候選
+        let result = VenueBootstrap.result(entries: load.withoutShadowedLegacyCopies().entries, existing: load.venues)
         var cands = result.candidates.filter { $0.occurrences >= minOccurrences }
         let total = cands.count
         if let limit { cands = Array(cands.prefix(limit)) }

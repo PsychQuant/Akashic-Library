@@ -76,6 +76,14 @@
 - `akashic_export` 只匯出 `entities/` 那一份。
 - 工具說明沒有改。
 
+2026-10-02，驗證之後：
+
+- `akashic_doctor` 的 `crossRecordIssues.first`（前 20 則）改成 error 在前、同 severity 內保持原順序。先前每一對 leftover 先造出兩則 warning，`indexRebuilt: false` 的 note 指向的 error 可能排在第 25 位而被截掉。`count` 仍是完整則數。
+- `akashic_people` 的列表只列 `entities/` 那一份：同一筆 person 的 legacy 拷貝不再把同一個 key 列兩次。`akashic_doctor` 的 `unresolvedAuthorLiterals` 與 `orphaned` 讀數與 `entries` 同一個視圖（拷貝不算第二份）。
+- `validate`／`akashic_doctor` 不再把同一筆記錄的 legacy 拷貝報成「DOI 被 2 筆 work 共用」或「標題與年份相同但 DOI 不同」；兩筆**不同**的記錄照舊報。
+- 仍然讀完整 load、沒有只取 `entities/` 那份的讀取面（有記錄的殘留）：`akashic_person`、`akashic_get_entry`、`akashic_libraries` 的單筆與清單查詢（排序讓 `entities/` 那份在前）、`akashic_resolve_people`／`akashic_resolve_venues`／`akashic_resolve_organizations` 的候選產生。
+- 工具說明沒有改。
+
 ## #564 — 名字分類的判定面必附理由、留判定記錄（不相容）；store format 22
 `akashic_update_venue` 的 `add_variant`／`authorize`／`unauthorize` 與 `akashic_update_organization` 的 `authorize`（CLI：`authorize-names --apply`、`update-venue`、`update-organization --authorize`）自此是判定型寫入，每次指定、確認（對已在分割內的名字再說一次，先前是無聲的 no-op）、撤回、標異寫都在記錄的 `references` 寫一筆 `field: authorized`／`variant` 的判斷型 reference（statement `指定：理由`／`確認：理由`／`撤回：理由`）。
 - **不相容：理由必填。** `akashic_update_venue` 沿用 `judgement`（至多 4,096 位元組），`rests_on`（證據 digest）可省略、至多 20 個；`akashic_update_organization` 新增 `judgement`、`rests_on`（只對 `authorize`）。有非空白的名字要分類而沒有 `judgement`，整個呼叫拒絕、零寫入（讀 store 之前）。organization 沒有 `unauthorize`（#557 R1 verify 之後拿掉，待使用者裁決），所以 organization 只有 `authorize` 這一條腿；沒有要指定的名字（沒給、空陣列、全是空白項）時整個呼叫以「沒有要改的」拒絕，`judgement`／`rests_on` 單獨出現也一樣。CLI：`update-venue`／`update-organization` 的 `--judgement`／`--rests-on`，`authorize-names --apply` 整批一句 `--judgement`（不帶證據）。`authorize-names` 乾跑不需要理由。

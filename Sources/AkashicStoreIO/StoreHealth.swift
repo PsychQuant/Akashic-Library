@@ -270,6 +270,14 @@ extension StoreHealth {
     static func errorsFirst(_ xs: [OwnedIssue]) -> [OwnedIssue] {
         xs.filter { $0.issue.severity == .error } + xs.filter { $0.issue.severity != .error }
     }
+
+    /// 跨記錄那一族的同一個分割（#709 R2 verify regression）：`crossRecordIssues()` 按產生順序（UUID 重複 → citekey 重複 → person key 重複 → …）
+    /// 吐，而同一筆記錄的 legacy 拷貝（#709）每一對先造出兩則 warning。MCP `akashic_doctor` 只送前 20 則，而 `indexRebuilt:false` 的
+    /// 「先修好 severity=error 的重複」指向的那則 error 可能排在第 25 位——被截掉的正是呼叫端要行動的那一則（`perRecordIssues` 的
+    /// `errorsFirst` 為同一件事而設）。**單一來源在這裡**：CLI、MCP、App 三個面讀同一份順序，不各自分割。
+    static func errorsFirst(_ xs: [ValidationIssue]) -> [ValidationIssue] {
+        xs.filter { $0.severity == .error } + xs.filter { $0.severity != .error }
+    }
 }
 
 public extension LibraryStore {
@@ -278,7 +286,7 @@ public extension LibraryStore {
     /// 收 `LibraryLoad` 而非自己 `load()`：呼叫端通常已經載過（`doctor()` 與
     /// `AppState.load()` 都是），再載一次會付兩倍 I/O 且兩份快照可能不一致。
     func health(from load: LibraryLoad) -> StoreHealth {
-        let cross = load.crossRecordIssues()
+        let cross = StoreHealth.errorsFirst(load.crossRecordIssues())   // error 先（#709 R2 verify：MCP 面只送前 20 則）
         // `layoutResidue()` 與 `auditSourceIndex()` 各自可能擲錯，而**任一失敗都不得
         // 讓整份報告消失**——那正是 #224 verify reg F1 實測到的形狀（中途 throw 連
         // 已算好的 crossRecordIssues 都不見了）。
@@ -294,6 +302,10 @@ public extension LibraryStore {
         // （`validate --owner`／`akashic_doctor` 的 `owner`）走**同一份**族序與掃描清單；兩份清單會分岔
         // （`no-compat-fallback` §「同一件事只能有一份描述」）。
         let perRecord = perRecordIssues(from: load, listing: .capped, only: nil)
+        // 由記錄**內容**算出來的讀數（未歸戶作者、orphan）以 entities/ 那份為準，與 index、匯出與 App 的清單同一個視圖（#709 R3 verify）：
+        // 一對（同一筆記錄的 legacy 拷貝）先前被算兩次——doctor 印 `entries: 1` 而 `unresolved author literals: 2`，而後者是
+        // `literal-first-then-key` campaign 的進度量測。**驗證類**（crossRecordIssues、perRecordIssues、quarantine）不用這個視圖，照舊看到兩份。
+        let canonical = load.withoutShadowedLegacyCopies()
         return StoreHealth(
             crossRecordIssues: cross,
             fatalCrossRecordIssues: cross.filter { $0.severity == .error },
@@ -303,15 +315,15 @@ public extension LibraryStore {
             divergenceCount: load.divergences.count,
             quarantined: load.quarantined,
             unknownFieldFiles: load.unknownFieldFiles,
-            unresolvedAuthorLiterals: load.entries.reduce(0) { n, entry in
+            unresolvedAuthorLiterals: canonical.entries.reduce(0) { n, entry in
                 n + entry.authors.filter {
                     if case .literal = $0 { return true } else { return false }
                 }.count
             },
-            orphanedCitekeys: load.entries
+            orphanedCitekeys: canonical.entries
                 .filter { $0.zoteroLinkState == .orphaned }
                 .map(\.citekey),
-            orphanedAdditionalSourceCitekeys: load.entries
+            orphanedAdditionalSourceCitekeys: canonical.entries
                 .filter { $0.zoteroLinkState == .additionalSourceOrphaned }
                 .map(\.citekey),
             // 族序與 error 先排（`errorsFirst`）都在 `perRecordIssues(from:listing:only:)` 裡（理由見那裡）。

@@ -10,9 +10,9 @@ import Foundation
 ///
 /// 刪不掉的造法同 `LegacyCopyLedgerTests`：legacy 檔受 git 追蹤、乾淨（寫入時會搬移它），然後讓它所在的目錄唯讀。
 ///
-/// **work 的拷貝讓 index 重建撞重複**（兩份共用 citekey 或 id，#705 的誠實邊界），那是 index 的事（另案）。所以「動作成功」的端到端情境
-/// 用 person 的拷貝（people 表對重複 key 留第一筆，重建照常）；work 的各寫入點用「index 目錄唯讀」造出一個與重複無關、確定會發生的
-/// 重建失敗——不論 index 日後怎麼處理兩份並存，這些測試都成立。
+/// ~~**work 的拷貝讓 index 重建撞重複**（兩份共用 citekey 或 id，#705 的誠實邊界），那是 index 的事（另案）。~~ → **#709 起不成立**：index 重建
+/// 以 `entities/` 那份為準、略過 legacy 拷貝，work 與 person 一樣動作成功（`testAWorkEditThatLeavesTheLegacyCopySucceedsWithANotice`，#709 R3 verify）。
+/// 「留下拷貝之後才失敗」的各格仍用「index 目錄唯讀」造出一個與重複無關、確定會發生的重建失敗——不論 index 怎麼處理兩份並存，那些測試都成立。
 final class AppLegacyCopyNoticeTests: XCTestCase {
     private var root: URL!
     private var store: LibraryStore!
@@ -137,7 +137,7 @@ final class AppLegacyCopyNoticeTests: XCTestCase {
         XCTAssertEqual(promoted.authors, [.key(p.key)], "作者位歸戶了")
     }
 
-    /// 範圍本身（work 那一半）：寫入回傳、提示列出——動作的成敗只看 `body` 之後的步驟。work 的端到端成功要等 index 容忍兩份並存（另案）。
+    /// 範圍本身（work 那一半）：寫入回傳、提示列出——動作的成敗只看 `body` 之後的步驟。端到端見下一個測試。
     func testTheScopeTurnsAWorkLeftoverIntoANoticeInsteadOfAnError() throws {
         var e = try writeLegacyWork(work())
         commitAll()
@@ -152,6 +152,23 @@ final class AppLegacyCopyNoticeTests: XCTestCase {
         XCTAssertEqual(left.key, e.citekey)
         XCTAssertEqual(left.legacyFile, "entries/\(e.citekey).yaml")
         XCTAssertTrue(try onDisk(e.id).contains("- x"))
+    }
+
+    /// #709 R3 verify（requirements 席）：work 的端到端成功。`AppState.mutate` 寫了、legacy 拷貝刪不掉，之後的 index 重建以 `entities/` 那份為準、
+    /// 略過 legacy 拷貝——動作成功，提示列出要清的檔，清單只看到 entities/ 那一份（App 的讀取視圖）。#709 之前這一格擲錯（兩份共用 citekey 撞 UNIQUE）。
+    func testAWorkEditThatLeavesTheLegacyCopySucceedsWithANotice() throws {
+        let e = try writeLegacyWork(work())
+        commitAll()
+        try lock(store.entriesDir)
+        let state = try makeState()
+
+        XCTAssertNoThrow(try state.addTag(citekey: e.citekey, tag: "x"), "寫了、index 重建成功——不是失敗")
+
+        XCTAssertEqual(state.legacyCopyNotice?.items.map(\.key), [e.citekey], "要清的 legacy 檔列在提示裡")
+        XCTAssertEqual(state.legacyCopyNotice?.items.map(\.legacyFile), ["entries/\(e.citekey).yaml"])
+        XCTAssertTrue(try onDisk(e.id).contains("- x"), "它寫了")
+        XCTAssertEqual(state.entries.filter { $0.citekey == e.citekey }.count, 1, "App 清單只列 entities/ 那一份")
+        XCTAssertEqual(state.entries.first { $0.citekey == e.citekey }?.akashic.tags, ["x"])
     }
 
     // MARK: - 留下拷貝之後才真的失敗：兩樣都給

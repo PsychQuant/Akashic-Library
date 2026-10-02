@@ -2210,14 +2210,16 @@ work 的被併 entry 帶未知欄位時消歧照跑（席位實測 `exit=0`，`v
 **消歧**：`akashic resolve-divergence <id> --survivor <key>`。它是**一個操作**：合併別名
 → 全庫參照重寫 → 刪除被併記錄與歧異記錄。
 
-動磁碟前的六道前提，**任何一道不過就完全不動**：
+動磁碟前的八道前提（preview 與實跑共用同一份，兩邊擲一樣的錯），**任何一道不過就完全不動**：
 
 | 前提 | 為什麼 |
 |---|---|
 | store 位於版控工作樹內 | 歷史託給版控，版控之外刪掉就是真的沒了 |
 | **本次要刪或改寫的每個檔案都是 tracked 且無未提交修改**（#73；#558 R2 起含改寫）| 「在工作樹內」與「刪掉還找得回來」是兩件事。上一列只驗前者，於是三種情況照樣通過而歷史真的消失：<br>① `entities/` 被 `.gitignore` 擋——被 ignore 的檔案在 `git status --porcelain` 裡連 `??` 都不會出現；<br>② **歧異記錄建立後尚未 commit 就被消歧**（最常見）——`question` / `judgement` / `rests-on` 三者一起永久消失，`#71` 要解決的「判斷留不下來」原封不動地回來；<br>③ 被併實體有未提交的修改——git 裡是舊版本，當下這版不可回復；<br>④ **HEAD 解析不到**（#558 R4，D87）——`git init` 之後零 commit（「repo 尚無任何 commit」），或 orphan 分支／HEAD 指向不存在的 ref（「HEAD 沒有指向任何 commit……切回有 commit 的分支」；repo 有 commit、但沒有可比對的版本——這一格是有記錄的過度拒絕）；<br>⑤ **index 標了 `assume-unchanged`／`skip-worktree`**（#558 R4，D88）——`git diff HEAD` 對那個檔閉嘴而 `ls-files` 照列，R1–R3 三代都判成 tracked+clean、真 binary 刪檔；`ls-files -v` 的 tag 小寫或 `S` 即拒。<br>**只驗本次要刪或改寫的那些檔案**，不驗整棵樹：被併實體與歧異記錄（刪）、倖存者實體、被改指的 entry、被遷移／塌縮／改名的其他歧異記錄（改寫或刪；#558 D86——#554 R17／R18 的收攏讓倖存者的寫回會丟列，改寫前的內容 untracked／dirty 時同樣 git 取不回）、**持有指向被併鍵 verdict 的 person／organization／venue 記錄**（改寫 value、可能刪列；#469／#461——這一類 R3 漏列，R3 verify 第 3／27 列：後果是一次 person 合併會因一筆與它無關的 organization 記錄髒而被拒，因為 org 可持有 `person:<被併鍵>` 的 verdict）；store 其他地方髒不影響這次消歧的可回溯性。**git 不可用時一律當成不安全**（fail-closed）——不可逆刪除的預設應該是拒絕。**不存在的檔案跳過**：它不可能被不可回復地刪除，而那正是下一列要診斷的情況，搶先報「未被 git 追蹤」會指錯方向 |
 | `entities/` 佈局（format ≥ 4） | legacy 下寫得進去、刪不掉 |
-| 無跨記錄不一致 | 雙佈局並存時會刪錯檔 |
+| 無跨記錄的 **error**（`assertNoCrossRecordErrors`） | 兩筆**不同**的記錄共用 citekey／person key／venue key／organization key／UUID 時，以 key 定位會改寫或刪掉錯的那一筆。**同一筆記錄的 legacy 拷貝**（同一種、同一個 id，一份在 `entities/`、一份是搬移後沒刪掉的 `entries/`／`people/`）自 #709 起只是 warning、**不在這一列**——它由下面兩列擋 |
+| **候選沒有 legacy 拷貝**（#709，`candidateLegacyCopies`；擲 `legacyCopyPresent`） | 被併者只刪 `entities/<id>.yaml`，legacy 那份會留下、下一次 load 復活成唯一的一份；倖存者的寫回則被 #631 拒絕。判準是 load 標的那一個（`markLegacyCopiesShadowedByEntities`），改名留下的拷貝鍵是舊的、id 相同 |
+| **會被改指的 entry 過 #631 的寫入前置**（#709 R3，`assertRewriteTargetsWritable`；與實跑的 `commitResolution` 同一個 `entryWritePlan`） | 引用候選的第三筆記錄（work 合併看 `cites`／`related`，person 合併看作者位，venue 合併看 `venues`）自己有 leftover 時，改寫它會被 #631 拒絕。這一格先前只有 `commitResolution` 的預檢在擋，dry-run 印「參照將改寫」而實跑被拒——preview 與實跑必須擲一樣的錯（#139 F1） |
 | **`entities/` 與 `entries/` 無 quarantined 檔** | 讀不到的檔可能正指著要被刪掉的實體，而讀不到就改寫不到——刪除後會留下藏在工具看不見處的永久懸空參照。**只擋這兩個目錄**：`people/` 與 `libraries/` 的記錄結構上不可能持有那種參照（person 不引用 person，library 只有 metadata），把它們一起擋，理由對它們就是假的，而且擋在最需要消歧的 store 狀態上 |
 | **每個候選的記錄真的在 `entities/<uuid>.yaml`** | 讀取端同時讀 `entities/` 與 legacy 目錄，所以住在 `people/<key>.yaml` 的記錄照樣載入得了；而刪除只組 `entities/<uuid>.yaml`。少了這道，刪除階段的「檔案不存在就跳過」會把**刪不掉**當成**已刪掉**——參照全改、被併檔原封不動、歧異記錄被刪、零警告、退出碼 0。有了它，「檔案不在」就只可能是「已經刪過」，冪等才成立 |
 

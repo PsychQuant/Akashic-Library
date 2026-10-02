@@ -797,6 +797,13 @@ extension LibraryStore {
         guard unsafe.isEmpty else {
             throw DivergenceResolveError.deletionNotRecoverable(files: unsafe)
         }
+        // #709 R2 verify（requirements／logic 兩席真 binary 重現）：**會被改指的 entry 也要過 #631 的寫入前置**，在 preview 與實跑共用的這一段。
+        // 同 id 的 entities／legacy 一對降為 warning 之後（上面的 `assertNoCrossRecordErrors` 不再擋它），「第三筆記錄引用候選、自己又有
+        // leftover」這一格只剩 `commitResolution` 的 `entryWritePlan` 預檢在擋——preview 不經過它，dry-run 印「參照將改寫」而實跑被拒，
+        // 正是本函式 doc 說的那個（#139 F1）。這裡跑與實跑同一個函式（`entryWritePlan`）、同一份名單（`entriesTouchedByMerge`）；
+        // `commitResolution` 裡那一道留著當最後一道防線（它的名單是實跑迴圈算出的 `entriesToWrite`，兩份名單一致只由測試釘住）。
+        // 位置在版控閘之後：leftover 的訊息指名檔案，而「store 不在版控內」是更根本的前提。
+        try assertRewriteTargetsWritable(shape: shape, merged: Set(mergedKeys), survivor: survivor, snapshot: snapshot)
         // **把已經算好的那份交出去**（#173）。`migrateOtherDivergences` 先前在這條
         // 路徑上被呼叫**三次**：這裡（unknown-field gate）、`judgementWarnings` 的
         // 呼叫點、`commitResolution`。
@@ -3663,6 +3670,18 @@ extension LibraryStore {
             }
         }
         return ids.map { "entities/\($0.uuidString).yaml" }
+    }
+
+    /// 這次合併會改指的 entry 在第一次寫入之前過 #631 的寫入前置（`entryWritePlan`：目的檔、legacy 拷貝、搬移的版控前提）。
+    /// preview 與實跑共用（`validateResolvePreconditions` 呼叫）——兩邊擲一樣的錯，零寫入。
+    ///
+    /// 只掃 entry：以 person 為 holder 的 verdict 遷移由 `assertHoldersWritable` 在各 `validate*Preconditions` 內已跑
+    /// `personWritePlan`；倖存者與被併者自己由 `candidateLegacyCopies` 擋。
+    func assertRewriteTargetsWritable(shape: EntityKind, merged: Set<String>, survivor: String,
+                                      snapshot: LibraryLoad) throws {
+        for e in Self.entriesTouchedByMerge(shape: shape, merged: merged, survivor: survivor, snapshot: snapshot) {
+            _ = try entryWritePlan(e)
+        }
     }
 
     /// 候選的 legacy 拷貝（#709）：與某個候選同一種、同一個 id 的 `ShadowedLegacyCopy`，依路徑排序。判準是 load 標的那一個

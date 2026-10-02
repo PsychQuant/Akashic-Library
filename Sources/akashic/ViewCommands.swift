@@ -66,7 +66,8 @@ struct ViewShow: ParsableCommand {
             throw RuntimeFailure.state("config.yaml 沒有 view「\(displaySafeInvisible(key, max: 200))」"
                                   + "（`akashic view list` 看有哪些）")
         }
-        let ext = def.extension_(in: try store.load())
+        // #709 R3 verify：`--keys-only` 餵下游腳本——改名留下的 legacy 拷貝帶的是舊 citekey，不該跟新的並列（與 index、匯出、App 同一個視圖）
+        let ext = def.extension_(in: try store.load().withoutShadowedLegacyCopies())
         if keysOnly {
             // **外延是衍生物**，所以它的用途是餵下游、不是被保存。給一個機器可讀的
             // 形式，正是為了讓下游**不必**再發明一次判準（#65 的病灶）。

@@ -681,7 +681,10 @@ struct BootstrapPeople: ParsableCommand {
         let load = try store.load()
         // R1-fix B4：否決史決定 pending literal 何時回到可建檔
         let report = PersonBootstrap.resolve(
-            entries: load.entries, existing: load.people,
+            // 作者 literal 的來源只取 entities/ 那份（#709 R3 verify）：legacy 拷貝的內容 index 與匯出都看不到，不該流進寫入候選
+            // （拷貝裡多出的 literal 會被建成 person；一般狀態下每個 literal 的計數也多算一份）。`existing` 仍用完整的 load：
+            // 改名留下的舊 person key 要算「已存在」，否則 `--apply` 會把它再建一次
+            entries: load.withoutShadowedLegacyCopies().entries, existing: load.people,
             rejected: ResolutionLedger.rejectedPairings(people: load.people),
             confirmed: ResolutionLedger.confirmedPairings(people: load.people),
             // #547 verify V16：門檻要進得去，否則低於門檻的寫法對高於門檻的候選
@@ -897,7 +900,7 @@ struct BootstrapOrganizations: ParsableCommand {
         // #378：作者位的團體 literal 也是機構名的來源
         let result = OrgBootstrap.result(people: load.people,
                                          organizations: load.organizations,
-                                         entries: load.entries)
+                                         entries: load.withoutShadowedLegacyCopies().entries)   // 同 bootstrap-people（#709 R3 verify）：legacy 拷貝的內容不流進寫入候選
         var cands = result.candidates.filter { $0.occurrences >= minOccurrences }
         let total = cands.count
         if let limit { cands = Array(cands.prefix(limit)) }

@@ -565,8 +565,13 @@ public enum AddOnlyEnrichment {
         // apply 時才以 writeFailed 失敗，而且那一筆連合法的欄位也一起沒寫（R2 verify security）。
         // **驗的是寫進去的那個值**（#695 R2 verify 第 12 列）：先前以 trim 過的值驗、`retrievalKind` 卻把原值寫進 reference——
         // `" sha256:…\n"` 乾跑說會寫、apply 被寫入閘拒絕。現在不 trim，前後有空白就在這裡拒絕、說出是空白。
-        if let d = given(p.sourceDigest), !ProvenanceReference.isValidDigest(d) {
-            if ProvenanceReference.isValidDigest(d.trimmingCharacters(in: .whitespacesAndNewlines)) {
+        //
+        // **只在 reference 真的會寫的時候才嚴格**（#695 R3 verify，三席各自重現）：只給 digest 是回顯、不寫 reference（#517），那時前後的空白不會
+        // 進 store，先前整批拒絕還說「reference 記的是送來的原值」是假的，而 `shasum` 的輸出帶換行、`present()` 原本就會 trim。回顯模式維持 trim 之後
+        // 驗（只有空白的值視同沒給）；有 url／取得日期／media type 時（`retrievalKind` 會把 digest 原值寫進 reference）才驗原值。
+        let writesReference = [p.sourceURL, p.sourceRetrieved, p.sourceMediaType].contains { given($0) != nil }
+        if let d = writesReference ? given(p.sourceDigest) : present(p.sourceDigest), !ProvenanceReference.isValidDigest(d) {
+            if writesReference, ProvenanceReference.isValidDigest(d.trimmingCharacters(in: .whitespacesAndNewlines)) {
                 throw InputError.invalidProposal(
                     index: index, reason: "sourceDigest 前後有空白或換行——reference 記的是送來的原值，拿掉再送")
             }
@@ -576,7 +581,7 @@ public enum AddOnlyEnrichment {
             }
             throw InputError.invalidProposal(
                 index: index,
-                reason: "sourceDigest 不是 `sha256:` 加 64 個小寫十六進位（實得長 \(d.utf8.count) bytes）——整批拒絕、零寫入")
+                reason: "sourceDigest 不是 `sha256:` 加 64 個小寫十六進位（實得長 \(d.utf8.count) bytes）")
         }
         for (i, key) in p.fields.keys.sorted().enumerated() {
             // 鍵先於值，且**訊息裡放位置不放內容**——一個 64 KiB 的鍵印出來會淹掉錯誤本身。

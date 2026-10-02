@@ -215,6 +215,14 @@ plugin 的 wrapper 會自動下載新版 `akashic-mcp`，skill 文字可能比 b
 
 仍待裁決：`akashic_enrich` 只給 `sourceMediaType`（沒給 URL 與取得日期）也被當成要 `sourceStatus`，整批拒絕。這一條沒有改。
 
+第三輪驗證之後（2026-10-02）：
+
+- **`sourceDigest` 前後的空白只在 reference 真的會寫時才拒絕**：只給 digest（回顯、不寫 reference）時，前後的空白或換行照舊收下（trim 之後驗；只有空白視同沒給）——先前第二輪起整批拒絕，而且理由「reference 記的是送來的原值」在那一格不成立；`shasum` 的輸出帶換行。給了 `sourceURL`／`sourceRetrieved`／`sourceMediaType` 時仍驗原值。
+- url 的方括號 IPv6 位址要有結尾 `]`、括號內只收十六進位／冒號／點（可接 `%25` 加 zone id）。`https://[user:hunter2/x`、`https://[hunter2]/x` 先前會通過（繞過 port 的檢查），現在整批拒絕；真的 IPv6 位址（含加 port）照收。
+- 訊息：「sourceDigest 不是 `sha256:` …」不再重複說「整批拒絕、零寫入」；相容定界符的拒絕訊息不再含字面的反斜線（在 MCP／CLI 出口會被逃脫成 `\u{005C}`）。
+- `akashic_enrich` 的輸入說明（`sourceURL`／`sourceRetrieved`／`sourceMediaType`）補上字元規則的摘要。
+- 仍待裁決（沒有改）：控制字元與空白的拒絕涵蓋整條網址（路徑與 query 也是）——範圍使用者沒有裁過；`sourceMediaType` 單獨給仍整批拒絕。
+
 **`akashic_update_person` 的 `references: []`（空陣列）改成拒絕**，與 `akashic_update_venue` 同一句話。先前 person 這一面是 no-op。沒有要附的 reference 就不要給這個鍵。
 
 ## #703 — `akashic_store_source` 單檔上限 256 MiB

@@ -178,7 +178,7 @@ public enum RetrievalWriteShape {
                 + "（store 的 YAML 進 git 追蹤）；拿掉它再送（不回顯原值）"
         }
         guard !authority.contains(where: isCompatibilityDelimiter) else {
-            return "\(names.url) 的主機部分含全形或相容形的定界符（＠：／？＃＼ 這類，相容分解後是 @ : / ? # \\）——可能藏著帳密"
+            return "\(names.url) 的主機部分含全形或相容形的定界符（＠：／？＃＼ 這類，相容分解後是 @ : / ? # 或反斜線）——可能藏著帳密"
                 + "（user：pw＠host），不同的網址解析器也會讀出不同的主機，store 不收；主機用 ASCII 或 punycode（xn--）寫（不回顯原值）"
         }
         guard !authority.contains("\\") else {
@@ -193,8 +193,26 @@ public enum RetrievalWriteShape {
         let rest: ArraySlice<Unicode.Scalar>
         if authority.first == "[" {
             let body = authority.dropFirst()
+            // #695 R3 verify（security）：沒有結尾 `]` 時 host 曾是整段 authority、rest 是空的，port 檢查整個不走——`https://[user:hunter2/x`
+            // 過了；括號內也沒限定內容（`https://[hunter2]/x`）。`host:密碼` 少了 `@` 的形狀換成方括號就繞過 port 檢查
+            guard body.contains("]") else {
+                return "\(names.url) 的 IPv6 位址缺結尾的 ]（`[` 之後要有 `]`）——store 不收（不回顯原值）"
+            }
             host = body.prefix(while: { $0 != "]" })
-            rest = body.dropFirst(host.count + 1)   // `]` 之後；沒有 `]` 時是空的
+            rest = body.dropFirst(host.count + 1)   // `]` 之後
+            // 括號內只收 IPv6 字面值（十六進位、冒號、點；RFC 3986 `IPv6address`）加可選的 zone id（`%25` 之後，RFC 6874：unreserved）
+            let literal = host.prefix(while: { $0 != "%" })
+            let zone = host.dropFirst(literal.count)
+            func hexOrIPv6Punct(_ u: Unicode.Scalar) -> Bool {
+                ("0"..."9").contains(u) || ("a"..."f").contains(u) || ("A"..."F").contains(u) || u == ":" || u == "."
+            }
+            func zoneChar(_ u: Unicode.Scalar) -> Bool {
+                ("0"..."9").contains(u) || ("a"..."z").contains(u) || ("A"..."Z").contains(u) || "-._~%".unicodeScalars.contains(u)
+            }
+            guard literal.allSatisfy(hexOrIPv6Punct), zone.allSatisfy(zoneChar) else {
+                return "\(names.url) 的 IPv6 位址不合法——方括號內只收十六進位、冒號與點（可接 %25 加 zone id）"
+                    + "（`host:密碼` 少了 @ 時密碼可能落在這裡），store 不收（不回顯原值）"
+            }
         } else {
             host = authority.prefix(while: { $0 != ":" })
             rest = authority.dropFirst(host.count)

@@ -22,7 +22,8 @@ public struct DOINomination: Equatable {
         /// 其中一筆無法唯一定位（`unlocatableCitekeys`：citekey 重複、與另一筆共用 id、檔案寫入時會被拒，
         /// 或這一趟寫入之後留下兩份）——不點名它：歧異記錄以 citekey 指涉候選，指不到唯一一筆的 key 會讓合併猜。
         case unlocatable
-        /// 寫入被拒或擲錯（legacy 佈局、store format < 5、候選 key 不合 `StoreKey`、歧異記錄的 id 已被另一種形狀占用等）；原因在 `error`。
+        /// 寫入被拒或擲錯（legacy 佈局、store format < 5、候選 key 不合 `StoreKey`、歧異記錄的 id 已被另一組候選占著——候選 key 被
+        /// rename 改寫過而 id 仍是舊的，或同 key 的另一種形狀——等）；原因在 `error`。
         case failed
         /// 一個 DOI 被超過 `DOITwinNomination.maxGroupSize` 筆 work 共用（這一趟新建的加上其餘的）：**這個 DOI 一對都沒記**，
         /// 改報一列（`dois` 是那一個 DOI、`groupSize` 是共用它的 work 數、`created` 是其中這一趟新建的 citekey 最小的一筆、`other` 為空）。
@@ -48,8 +49,15 @@ public struct DOINomination: Equatable {
     public var status: Status
     /// `recorded`／`alreadyRecorded`：那筆歧異記錄的 id；其餘為 nil。
     public var divergenceID: UUID?
-    /// `failed` 的原因（**已消毒**——`displaySafeError` 產出；輸出端只截）。
+    /// `failed` 的原因（**已消毒**——`errorText` 產出；輸出端只截）。
     public var error: String?
+
+    /// `failed` 列的原因：逃一次（`displaySafeErrorText`）、多行接成一行、截 4,096。一列只放一行——多行的拒絕
+    /// （`divergenceIdHeldByOtherCandidates`，出路在第二行）若照 `displaySafeError` 折行，換行會被逃成字面的 `\u{000A}`
+    /// 印進 CLI 的 ✗ 列與 MCP 的 `error` 欄（#611 R3 verify 第 1 列）。MCP 列另截 512，所以出路要在前面幾行。
+    public static func errorText(_ error: Error) -> String {
+        displaySafeClipOnly(displaySafeErrorText(error).replacingOccurrences(of: "\n", with: " "), max: 4_096)   // display-safe-exempt: displaySafeErrorText 已逃一次（自帶消毒的原樣），只換行分隔與截
+    }
     /// `groupTooLarge`：共用那個 DOI 的 work 數；其餘為 nil。
     public var groupSize: Int?
 
@@ -157,7 +165,7 @@ enum DOITwinNomination {
                             row.divergenceID = now.id
                         } else {
                             row.status = .failed
-                            row.error = displaySafeError(error, max: 4_096)
+                            row.error = DOINomination.errorText(error)
                         }
                     }
                 }

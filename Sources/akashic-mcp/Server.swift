@@ -357,7 +357,7 @@ actor AkashicMCPServer {
              description: "列出全部歧異記錄：回 {count, divergences:[{id, question, candidates, hasJudgement}]}。list-only——消歧屬人工（CLI resolve-divergence）。",
              inputSchema: obj([:])),
         Tool(name: "akashic_record_divergence",
-             description: "記下未決的同一性問題——遇到「這兩筆可能是同一個」時當場記錄而非當場判斷，回新記錄的 id／hasJudgement。消歧（合併＋刪檔）只有 CLI resolve-divergence。同一組候選已有帶判斷的記錄時，無判斷的重錄拒絕；id 只由候選 key 決定，同 id 但候選不同（改名過、或別種形狀）的記錄不覆寫、整個拒絕，要先處置它（resolve-divergence 或 dismiss-divergence）。",
+             description: "記下未決的同一性問題——遇到「這兩筆可能是同一個」時當場記錄而非當場判斷，回新記錄的 id／hasJudgement。消歧（合併＋刪檔）只有 CLI resolve-divergence。同一組候選已有帶判斷的記錄時，無判斷的重錄拒絕；id 只由候選 key 決定，同 id 但候選不同（改名過、或別種形狀）的記錄不覆寫、整個拒絕，要先處置它（akashic_dismiss_divergence 或合併）。",
              inputSchema: obj([
                 "question": str("未決的是什麼，一句話"),
                 "candidates": strArray("候選，形如 key:shape（shape 為 person／organization／work／venue）；需要兩個以上"),

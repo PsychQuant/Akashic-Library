@@ -414,8 +414,8 @@ work merge 的資料遺失閘也把 witness 當 canonical Akashic metadata：被
   歧異記錄（§5.8），候選是那一對，一對一筆，不填 judgement／prefers。**只在新建時觸發**：
   再匯入不新建就不提名。報告鍵 `doiNominations`（一列一對；`status` 封閉五值：`recorded` 這一趟寫了、
   `alreadyRecorded` 已有涵蓋這一對的 work 歧異記錄〔同一組或更大的一組〕而不重寫、`unlocatable` 其中
-  一筆無法唯一定位而不點名、`failed` 寫不進去〔legacy 佈局、store format < 5、歧異記錄的 id 已被另一種
-  形狀占用等〕、`groupTooLarge` 一個 DOI 被超過 10 筆 work 共用而**一個 DOI 一列、一對都不記**〔帶
+  一筆無法唯一定位而不點名、`failed` 寫不進去〔legacy 佈局、store format < 5、歧異記錄的 id 已被另一組
+  候選占著——候選 key 被 `rename` 改寫過而 id 仍是舊的，或同 key 的另一種形狀——等〕、`groupTooLarge` 一個 DOI 被超過 10 筆 work 共用而**一個 DOI 一列、一對都不記**〔帶
   `groupSize`〕）。歧異記錄的 id 只由候選 key 決定、不含形狀，所以同 id 的另一種形狀記錄不算涵蓋、也
   不會被覆寫（§5.8 第 7 條）。寫入被拒時再讀一次磁碟：那一對已被別的程序記下（可能帶判斷）就報
   `alreadyRecorded`，不報 `failed`。**後三種沒有記下來，而重新匯入不會再提名**：CLI 以非零結束並印摘要行，MCP payload 帶
@@ -2153,7 +2153,9 @@ rests-on:
    `resolve-divergence` 的合併才重算並改名舊檔）。寫入時磁碟上同 id 的記錄若候選 `(shape, key)`
    的集合與這次不同，**MUST** 拒絕、**MUST NOT** 覆寫原記錄（先前互相覆寫、不出聲，#611）；
    拒絕訊息 **MUST** 點名現有那一筆的候選，並說明原因是 key 不同還是只有形狀不同。出路是先處置現有
-   那一筆（`resolve-divergence`、`dismiss-divergence`）——這一組候選在那之前記不進去。根治要把形狀
+   那一筆（`resolve-divergence`、`dismiss-divergence`）——這一組候選在那之前記不進去。訊息 **MUST**
+   在使用者實際讀到的出口看得到出路：CLI 與 MCP 的錯誤出口逐行截 400、匯入列接成一行後 MCP 再截 512，
+   所以訊息逐行、每行 ≤ 400、出路在第二行（#611 R3 verify：單行版的出路正好被截掉）。根治要把形狀
    或「記錄世代」納入 id，那是 format 級變更，未做。
 
 **判斷與消歧的關係**（#75 對一）：消歧 **MUST NOT** 對已寫下的判斷惰性——`prefers`

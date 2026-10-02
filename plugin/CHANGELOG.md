@@ -44,6 +44,7 @@
 
 ## #611、#692、#693、#708 — R3 修正（2026-10-02）
 
+- **同一個 id 被另一組候選占著的拒絕看得到出路**（#611，`akashic_record_divergence`、`record-divergence`、匯入的提名）：訊息逐行、出路在第二行（`akashic divergences` 看它、CLI `resolve-divergence` 合併、`dismiss-divergence`／MCP `akashic_dismiss_divergence` 放棄它）；R2 的單行訊息在兩面的錯誤出口都被截在出路之前。`import_zotero` 的 `failed` 列原因接成一行，截 512 之後出路仍完整。MCP 描述的出路改成 `akashic_dismiss_divergence` 或合併。
 - **`akashic-mcp` wrapper 讀不到版本時拒絕下載**（#693）：plugin.json 沒有 `binary_version`／`version`、`~/bin` 又沒有現成的 binary 時，不再下載 latest 的 asset 來執行（R2 讓 curl 退路走 latest，成了一條沒有完整性檢查的下載後執行的路；完整性檢查是 #714）。現在印出原因、請使用者重新安裝 plugin，並以 1 結束；有現成 binary 時照舊執行它。
 
 plugin 版號沒有動（wrapper 與 skill 文字的改動）。

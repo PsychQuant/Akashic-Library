@@ -1053,3 +1053,25 @@ extension StdioE2ETests {
                        "三個鍵一起不在嵌進錯誤的 payload 裡")
     }
 }
+
+/// #611 R3 verify 第 1／5／8 列：`akashic_record_divergence` 撞上「同一個 id 已被另一組候選占著」時，MCP 錯誤出口逐行截 400——
+/// R2 的單行訊息被截在出路之前（實測 406 字、`dismiss-divergence`／`resolve-divergence` 都不在）。**必須經真 binary**：截斷住在分派層。
+extension StdioE2ETests {
+    func testRecordDivergenceRefusalShowsThePathOutThroughTheMCPSink() throws {
+        let a = "vanderwaals2025identifiabilityofpolychoriccorrelationmodelsundermisspecification"
+        let b = "kowalczykiewicz2025estimatingthresholdsinordinalfactoranalysiswithmissingdata"
+        let store = LibraryStore(root: root)
+        for key in [a, a + "-renamed", b] {
+            try store.writeEntry(Entry(id: UUID(), citekey: key, type: .periodicalArticle, title: key))
+        }
+        let id = DeterministicUUID.forDivergence(candidateKeys: [a, b])
+        _ = try store.writeDivergence(Divergence(id: id, question: "已改名的一組",
+                                                 candidates: [a + "-renamed", b].map { DivergenceCandidate(key: $0, shape: .work) }))
+        try initialize()
+        let text = try call(2, "akashic_record_divergence", ["question": "又一次", "candidates": ["\(a):work", "\(b):work"]])
+        XCTAssertTrue(text.contains("akashic dismiss-divergence \(id.uuidString) --reason"), "出路要在 MCP 回應裡：\(text)")
+        XCTAssertTrue(text.contains("akashic_dismiss_divergence"), "MCP 呼叫端可用的那個工具：\(text)")
+        XCTAssertTrue(text.contains("resolve-divergence"), text)
+        XCTAssertFalse(text.contains("（已截斷）"), "每一行都在 400 之內：\(text)")
+    }
+}

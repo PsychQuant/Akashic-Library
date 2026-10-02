@@ -114,7 +114,8 @@ final class ZoteroReportCLITests: XCTestCase {
         let r = try cli(["import-zotero", "--zotero-db", zoteroDB.path])
         XCTAssertEqual(r.status, 0, r.output)
         XCTAssertTrue(r.output.contains("created: 1"), "照建：\(r.output)")
-        XCTAssertTrue(r.output.contains("新建的條目與另一筆 work 共用 DOI（#611）: 1 對"), r.output)
+        XCTAssertTrue(r.output.contains("新建的條目與另一筆 work 共用 DOI（#611）: 1 對——新建的那一筆已照建、另一筆不動；記下的是沒有判斷的歧異提名"), r.output)
+        XCTAssertFalse(r.output.contains("兩筆都已照建"), "另一筆是既有的，不是這一趟建的（#611 R3 verify 第 21／28 列）：\(r.output)")
         let line = try XCTUnwrap(r.output.split(separator: "\n").first { $0.contains("⊕ ") }, r.output)
         XCTAssertTrue(line.contains("↔ wos2025identifiability") && line.contains(doi) && line.contains("divergence "), String(line))
         let d = try cli(["divergences"])
@@ -136,6 +137,7 @@ final class ZoteroReportCLITests: XCTestCase {
         // R2 verify 第 24 列：標題只數真的記下的對；沒記下的另外說，不再宣稱「照建，並記一筆」
         XCTAssertTrue(r.output.contains("新建的條目與另一筆 work 共用 DOI（#611）: 0 對（另有 1 對沒記下）"), r.output)
         XCTAssertFalse(r.output.contains("並記一筆沒有判斷的歧異提名"), "沒記下的對不得被標題說成已記：\(r.output)")
+        XCTAssertFalse(r.output.contains("記下的是沒有判斷的歧異提名"), "一對都沒記時不說「記下的是…」（#611 R3 verify 第 28 列）：\(r.output)")
     }
 
     /// #611 R1 verify 第 9 列：沒記下來的提名（這裡是共用 DOI 的 work 超過門檻）重新匯入不會再提名——CLI 印出摘要行、指路手記，並以非零結束。

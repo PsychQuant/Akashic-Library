@@ -394,14 +394,17 @@ struct ImportZotero: ParsableCommand {
         if !report.doiNominations.isEmpty {
             // #611：新建的 work 與另一筆共用 DOI——照建，並記一筆沒有判斷的歧異提名。DOI 相等只是提名（勘誤與原文共用 DOI、一筆作品可有多個 DOI），
             // 判定與合併走 resolve-divergence。**沒記下來的**（unlocatable／failed／groupTooLarge）提名只在新建時觸發、重新匯入不會再提名
-            // （#611 R1 verify 第 9 列），所以下面的摘要行說出來，且本命令在那種情形以非零結束——兩筆都已照建，但那幾對要人補記。
+            // （#611 R1 verify 第 9 列），所以下面的摘要行說出來，且本命令在那種情形以非零結束——新建的那一筆已照建，但那幾對要人補記。
             let pairRows = report.doiNominations.filter { $0.status != .groupTooLarge }
             let groupRows = report.doiNominations.filter { $0.status == .groupTooLarge }
             // 標題的 N 只數**真的在 store 裡的**對（recorded／alreadyRecorded）；沒記下來的（unlocatable／failed）另外說（#611 R2 verify 第 24 列：
             // 先前標題把它們也數進「照建，並記一筆…」，全部失敗時整句不成立）
             let recordedPairs = pairRows.filter { $0.status.isInStore }.count
             let unrecordedPairs = pairRows.count - recordedPairs
-            print("新建的條目與另一筆 work 共用 DOI（#611）: \(recordedPairs) 對\(unrecordedPairs > 0 ? "（另有 \(unrecordedPairs) 對沒記下）" : "")\(groupRows.isEmpty ? "" : "、\(groupRows.count) 個 DOI 的群組過大")——兩筆都已照建；記下的是沒有判斷的歧異提名（DOI 相等只是提名，判定與合併走 akashic divergences → resolve-divergence）")
+            // 尾句只說確定的事（#611 R3 verify 第 21／28 列）：一對是「這一趟新建的那一筆 × 另一筆（多半是既有的）」，所以不說「兩筆都已照建」；
+            // 一對都沒記時不說「記下的是…」
+            let recordedNote = recordedPairs > 0 ? "；記下的是沒有判斷的歧異提名（DOI 相等只是提名，判定與合併走 akashic divergences → resolve-divergence）" : ""
+            print("新建的條目與另一筆 work 共用 DOI（#611）: \(recordedPairs) 對\(unrecordedPairs > 0 ? "（另有 \(unrecordedPairs) 對沒記下）" : "")\(groupRows.isEmpty ? "" : "、\(groupRows.count) 個 DOI 的群組過大")——新建的那一筆已照建、另一筆不動\(recordedNote)")   // display-safe-exempt: Int；recordedNote 是本函式的字面
             for n in report.doiNominations {
                 let dois = n.dois.map { displaySafe($0, max: 200) }.joined(separator: ", ")
                 if n.status == .groupTooLarge {
@@ -414,7 +417,7 @@ struct ImportZotero: ParsableCommand {
                 case .recorded: print("  ⊕ \(pair)：divergence \(n.divergenceID?.uuidString ?? "?")")
                 case .alreadyRecorded: print("  = \(pair)：已有歧異記錄 \(n.divergenceID?.uuidString ?? "?")，未重寫")
                 case .unlocatable: print("  ⚠ \(pair)：未記——其中一筆無法唯一定位（\(UnlocatableReason.work)）")   // display-safe-exempt: UnlocatableReason.work 是常量句
-                case .failed: print("  ✗ \(pair)：未記——\(displaySafeClipOnly(n.error ?? "", max: 4_096))")   // display-safe-exempt: 已消毒（DOITwinNomination 由 displaySafeError 產出），只截
+                case .failed: print("  ✗ \(pair)：未記——\(displaySafeClipOnly(n.error ?? "", max: 4_096))")   // display-safe-exempt: 已消毒（`DOINomination.errorText` 產出），只截
                 case .groupTooLarge: break   // 上面已處理
                 }
             }

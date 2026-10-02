@@ -80,13 +80,18 @@ public enum StoreIOError: Error, LocalizedError, Equatable, SanitizedErrorDescri
                  + "或刪掉那一行；quarantined 檔的命中：修好或移走那個檔。merge 對同一形狀同樣拒絕（D31／D34）。\n"
                  + lines.map { displaySafeClipOnly($0, max: Self.refusalLineMax) }.joined(separator: "\n")   // display-safe-exempt: 已消毒，只截
         case let .divergenceIdHeldByOtherCandidates(id, existing, requested, keysDiffer):
+            // **逐行、出路在第二行**（#611 R3 verify 第 1／2／5／8 列）：CLI 頂層與 MCP 的錯誤出口逐行截 400（`displaySafeErrorMultiline`），
+            // R2 的單行版約 550 字、出路從第 390 字起，使用者看到的版本正好截在出路之前；匯入列（`DOINomination.error`）把行接成一行、
+            // MCP 列再截 512——出路在第二行，兩種截法都留得住它。每行 ≤ 400：候選兩行各截 300，其餘是字面與 UUID。
             // existing、requested 已消毒（擲出端），只截；id.uuidString 由型別保證
-            return "歧異記錄的 id 只由候選的 key 決定（不含形狀；`rename`／`rename-person` 改寫候選的 key 時 id 不跟著換）。這次要記的候選（\(displaySafeClipOnly(requested, max: 300))）算出的 id 是 \(id.uuidString)，"   // display-safe-exempt: requested 已消毒（擲出端），只截；id.uuidString：UUID 由型別保證
-                 + "而 entities/\(id.uuidString).yaml 現有那一筆的候選是（\(displaySafeClipOnly(existing, max: 300))）——"   // display-safe-exempt: existing 已消毒（擲出端），只截；id.uuidString：UUID 由型別保證
+            return "歧異記錄 \(id.uuidString) 已被另一組候選占著，這一組記不進去（同一個 id 不能同時是兩筆記錄，寫入會把它整個蓋掉）——拒絕。\n"   // display-safe-exempt: id.uuidString：UUID 由型別保證
+                 + "出路：先處置現有那一筆、再記這一組——akashic divergences 看它；akashic resolve-divergence 合併（只有 CLI）；"
+                 + "它已不需要時 akashic dismiss-divergence \(id.uuidString) --reason …（MCP 是 akashic_dismiss_divergence；要求記錄檔已 commit）。\n"   // display-safe-exempt: id.uuidString：UUID 由型別保證
+                 + "現有那一筆的候選：\(displaySafeClipOnly(existing, max: 300))\n"   // display-safe-exempt: existing 已消毒（擲出端），只截
+                 + "這次要記的候選：\(displaySafeClipOnly(requested, max: 300))\n"   // display-safe-exempt: requested 已消毒（擲出端），只截
+                 + "原因：歧異記錄的 id 只由候選的 key 決定（不含形狀；rename／rename-person 改寫候選的 key 時 id 不跟著換）——"
                  + (keysDiffer ? "候選的 key 不同：那一筆的候選曾被 rename 改寫過（rename 不重算 id），id 還是舊的" : "兩邊的 key 相同、只有形狀不同")
-                 + "。寫入會把它整個蓋掉，拒絕；這一組目前記不進去（同一個 id 不能同時是兩筆記錄）。"
-                 + "那一筆是健康的記錄、不是被 quarantine 的檔：先處置它——akashic divergences 看它，akashic resolve-divergence 合併，"
-                 + "或它已不需要時 akashic dismiss-divergence \(id.uuidString) --reason …（要求記錄檔已 commit）——再記這一組"   // display-safe-exempt: id.uuidString：UUID 由型別保證
+                 + "。那一筆是健康的記錄、不是被 quarantine 的檔"
         case let .destinationHoldsAnotherRecord(id, detail):
             return "目的檔 entities/\(id.uuidString).yaml 已經存在，但它\(displaySafeClipOnly(detail, max: 600))——寫入會把它整個蓋掉，拒絕。"   // display-safe-exempt: id.uuidString：detail 已消毒（擲出端），只截
                  + "先看那個檔：修好、移走，或確認它不該存在後刪掉（store 受 git 追蹤，刪檔可還原）。akashic validate 會列出被 quarantine 的檔（#631）"

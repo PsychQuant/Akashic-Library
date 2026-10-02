@@ -42,6 +42,19 @@
 
 
 
+## #611、#692、#693、#708 — R2 修正（2026-10-02）
+
+四席驗證之後的第二輪（53 則）。使用者可見的改動：
+
+- **`akashic_import_zotero` 的說明還原**（#611）：R1 為了擠進 54,000 預算修剪掉的承重語意補回（`groupSize` 是共用的 work 數、`groupTooLarge` 列不帶 `other`、一對都不記、DOI 相等只是提名、recorded／alreadyRecorded 與沒記下來的各是哪幾種、`updatedHashOnly` 的「Zotero 已同步」與「不宣稱原因」）；MCP 呼叫端讀不到 CLI `--help`，這些只能在說明裡。`tools/list` 一行 55,069 bytes，預算 60,000。
+- **同一個 id 被另一組候選占著的拒絕有專用訊息**（#611，`akashic_record_divergence`、`record-divergence` 與匯入的提名共用）：點名現有那一筆的候選、說原因是 key 不同（`rename` 就地改寫候選而不重算 id）還是只有形狀不同、出路是 `resolve-divergence` 或 `dismiss-divergence`；先前把原因一律說成形狀、出路叫人找被 quarantine 的檔。兩面的說明各加一句。
+- **匯入的提名寫入被拒時再讀一次磁碟**（#611）：那一對已被別的程序記下（可能帶判斷）就報 `alreadyRecorded`，不再報 `failed`、不再讓 CLI 以 1 結束。CLI 摘要行只數真的記下的對，沒記下的另標「（另有 M 對沒記下）」。
+- **`akashic-verify-venue` 第 4 源的讀取程序**（#692，`web-access.md`、SKILL）：落地主機檢查每載入一個新頁（含同分頁導航到下一個 DOI）都要跑；區塊二與讀取在**同一次求值**裡讀回主機與文字、與驗過的主機比對，主機變了就不寫出文字、結束碼 4；讀取的剔除集合與 repo 輸出端的 `UnsafeToEmitScalar` 同一份（變體選擇子、tag 字元、CGJ、filler、U+2800、Zl／Zp／Zs、Co 都剔除；逐碼位對照過）；`truncated` 由剔除之前的長度算，不再用「讀回剛好 20,000」；區塊二的首屏也經同一個運算式。沒有對 Safari 實跑，區塊以假的 `safari-browser` 測過。共用的 `web-access.md` 的落地主機一節寫窄成「會被第三方轉到自選主機的頁面」，並列出還沒接上的 skill。
+- **`akashic-mcp` wrapper 的下載失敗訊息**（#693）：UTF-8 locale 下 bash 3.2 把緊接全形標點的 `$VAR` 讀成變數名的一部分，`set -u` 讓訊息印不出來（改 `${VAR}`，測試改在 UTF-8 locale 跑）；plugin.json 讀不到版本時不再印出不存在的 `akashic-mcp-v` tag 與網址（curl 退路走 latest）。wrapper 下載後不驗完整性的缺口有了追蹤 issue **#714**。
+- **App 的 legacy 拷貝提示**（#708）：標題不再說後續錯誤「與這份拷貝無關」（`laterWriteRefused` 的情形原因正是這份拷貝）；有後續寫入被拒的筆數標題另說，那一列帶與 CLI／MCP 同一句附註。範圍結束後晚到的寫入（`Task { }` 繼承 task-local）改成擲 `legacyCopyNotRemoved`，不再安靜收進已取走報告的帳本。
+
+plugin 版號沒有動（skill 與 wrapper 文字的改動）。
+
 ## #712 — `akashic_resolve_venues` 的列表多報 `suppressed`：被另一個拼法的否決壓掉的候選
 
 #554 R12 起，venue 的否決抑制以正規化鍵（NFKC、lowercase、空白收斂）為準：對一個拼法的 `reject`／`demote`，會一併壓住**同一 work、同一 venue 的其他拼法**。在此之前列表對那些候選完全沉默；現在列出來（抑制本身不變）。
@@ -159,7 +172,7 @@ plugin 版號沒有動（同 #692：skill 文字改動）。
 
 同一輪 #693 把 plugin 散文檔（`akashic-bootstrap`、`akashic-disambiguate`、`akashic-import-wos`、`akashic-promote-literals`、`akashic-fetch-fulltext`、`akashic-venue-works` 的 skill 與 references、`plugin/rules/assertions-must-be-measured.md`）裡「本 repo 為 private、無存取權者取不到」的敘述改成實際原因——那些規則檔與原始碼不隨 plugin 出貨、plugin 安裝處讀不到；也把私有下游 repo 的名字與 issue 號改成角色描述。只改敘述，不改任何步驟或判準。
 
-wrapper 下載後不驗完整性（沒有核對 release 流程已產出的 `.sha256`、沒有 `codesign --verify`）是既有的缺口，記為後續，這一次沒有做。
+wrapper 下載後不驗完整性（沒有核對 release 流程已產出的 `.sha256`、沒有 `codesign --verify`）是既有的缺口，記為後續，這一次沒有做（追蹤：#714）。
 
 ## #705 — 寫了、但搬移後的 legacy 拷貝沒刪掉的那一筆記在 `writtenWithLegacyCopy`
 

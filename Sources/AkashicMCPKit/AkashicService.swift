@@ -2962,7 +2962,9 @@ public final class AkashicService {
         // 歧異記錄在 store 裡的（recorded／alreadyRecorded，`akashic_divergences` 列得出來）留前 N 列，沒記下來的（unlocatable／failed／groupTooLarge）
         // 也留前 N 列。`listTotals["doiNominations"]` 是全部列數，被截時進 `truncatedLists`；`doiNominationsUnrecorded` 是**沒記下來**的列數
         // （永遠完整、只在非零時出現）——那幾對重新匯入不會再提名（R1 verify 第 9 列），呼叫端不必掃整個清單就看得到。
-        let nominations = report.doiNominations.sorted { ($0.created, $0.other) < ($1.created, $1.other) }
+        // 排序鍵含 DOI：groupTooLarge 的 `other` 恆為空，兩個不同 DOI 的過大群組若 `created` 相同就平手、順序取決於排序的穩定性（#611 R2 verify 第 46 列）
+        let sortKey: (DOINomination) -> [String] = { [$0.created, $0.other] + $0.dois }
+        let nominations = report.doiNominations.sorted { sortKey($0).lexicographicallyPrecedes(sortKey($1)) }
         let nominationsInStore = nominations.filter(\.status.isInStore)
         let nominationsNotRecorded = nominations.filter { !$0.status.isInStore }
         let keptInStore = listLimit.map { Array(nominationsInStore.prefix($0)) } ?? nominationsInStore
@@ -2973,7 +2975,7 @@ public final class AkashicService {
         }
         if !nominations.isEmpty {
             d["doiNominations"] = (keptInStore + keptNotRecorded)
-                .sorted { ($0.created, $0.other) < ($1.created, $1.other) }
+                .sorted { sortKey($0).lexicographicallyPrecedes(sortKey($1)) }
                 .map(doiNominationRow)
         }
         if !nominationsNotRecorded.isEmpty { d["doiNominationsUnrecorded"] = nominationsNotRecorded.count }   // display-safe-exempt: Int

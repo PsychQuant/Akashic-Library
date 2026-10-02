@@ -347,6 +347,18 @@ extension ImportZoteroReportSurfaceTests {
         XCTAssertEqual(p["unchanged"] as? Int, 7, "計數不截")
     }
 
+    /// R2 verify 第 46 列：`groupTooLarge` 的 `other` 恆為空，兩個不同 DOI 的過大群組若 `created` 相同，排序鍵 `(created, other)` 平手、
+    /// 順序取決於排序的穩定性。DOI 納入排序鍵之後，不論列在報告裡的先後，輸出順序都由 DOI 決定。
+    func testGroupTooLargeRowsWithTheSameCreatedAreOrderedByDOI() throws {
+        for order in [["10.1000/b", "10.1000/a"], ["10.1000/a", "10.1000/b"]] {
+            var r = ImportReport()
+            r.doiNominations = order.map { DOINomination(created: "ck01", other: "", dois: [$0], status: .groupTooLarge, groupSize: 11) }
+            let p = AkashicService.importReportPayload(r, listLimit: 20)
+            let dois = try nominationRows(p).map { ($0["dois"] as? [String])?.first }
+            XCTAssertEqual(dois, ["10.1000/a", "10.1000/b"], "輸入順序 \(order)")
+        }
+    }
+
     /// R1 verify：失敗清單不截——上限之外的第 N 筆失敗與它的原因，呼叫端事後從哪裡都拿不回來。
     /// 也不在 `listTotals`／`truncatedLists`（那一對鍵只描述有上限的清單）。
     func testFailureListsAreNeverCapped() throws {

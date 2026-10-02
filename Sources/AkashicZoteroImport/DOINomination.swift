@@ -147,8 +147,18 @@ enum DOITwinNomination {
                         covered.add(d)
                         row.divergenceID = d.id
                     } catch {
-                        row.status = .failed
-                        row.error = displaySafeError(error, max: 4_096)
+                        // 寫入被拒時再讀一次磁碟：這一趟進行期間別的程序可能已經記下了這一對（甚至帶著判斷）。那一筆**已經在 store 裡**，
+                        // 記錄路徑對「無判斷的重錄」的拒絕（不得抹掉判斷）對匯入沒有意義——匯入不是要重錄它，是要確認它在。
+                        // 報成 failed 會讓 CLI 以 1 結束、摘要叫人手記一筆已經存在的記錄（#611 R2 verify 第 36 列）。
+                        if let now = store.divergenceOnDisk(id: DeterministicUUID.forDivergence(candidateKeys: pair)),
+                           WorkDivergenceIndex.covers(now, pair) {
+                            covered.add(now)
+                            row.status = .alreadyRecorded
+                            row.divergenceID = now.id
+                        } else {
+                            row.status = .failed
+                            row.error = displaySafeError(error, max: 4_096)
+                        }
                     }
                 }
                 pairRows.append(row)
@@ -165,7 +175,7 @@ enum DOITwinNomination {
 ///
 /// **只有 work 形狀的記錄算涵蓋**——包括同一個 id 的那一筆：歧異記錄的 id 只雜湊候選 key、不含形狀，所以 person 的 `{a, b}` 與
 /// work 的 `{a, b}` 同 id。先前「同一組」那個分支只比 id、不看形狀，把別種形狀的記錄當成已涵蓋這一對 work，提名就靜默消失了。
-/// 那個 id 被別種形狀占用時，這一對不算已涵蓋；接著寫的時候記錄路徑會拒絕（不覆寫原記錄，`destinationHoldsAnotherRecord`），
+/// 那個 id 被別種形狀占用時，這一對不算已涵蓋；接著寫的時候記錄路徑會拒絕（不覆寫原記錄，`divergenceIdHeldByOtherCandidates`），
 /// 報成 `failed`。
 struct WorkDivergenceIndex {
     private var byID: [UUID: Divergence] = [:]
@@ -177,19 +187,22 @@ struct WorkDivergenceIndex {
 
     mutating func add(_ d: Divergence) {
         if byID[d.id] == nil { byID[d.id] = d }
-        guard d.shape == .work else { return }
+        guard d.candidates.allSatisfy({ $0.shape == .work }) else { return }
         for k in Set(d.candidates.map(\.key)) { workByKey[k, default: []].append(d) }
     }
 
     /// 候選同時含這一對的 **work 形狀**歧異記錄：先找同一組（決定性 id 相同，且是 work 形狀），再找更大的一組（依 id 排序取第一筆，
     /// 結果不隨載入順序變）。更小的一組不存在——一對已是最小的候選組。
     func covering(_ pair: [String]) -> Divergence? {
-        let wanted = Set(pair)
-        func covers(_ d: Divergence) -> Bool {
-            d.shape == .work && Set(d.candidates.map(\.key)).isSuperset(of: wanted)
-        }
-        if let d = byID[DeterministicUUID.forDivergence(candidateKeys: pair)], covers(d) { return d }
+        if let d = byID[DeterministicUUID.forDivergence(candidateKeys: pair)], Self.covers(d, pair) { return d }
         guard let first = pair.first else { return nil }
-        return (workByKey[first] ?? []).filter(covers).min { $0.id.uuidString < $1.id.uuidString }
+        return (workByKey[first] ?? []).filter { Self.covers($0, pair) }.min { $0.id.uuidString < $1.id.uuidString }
+    }
+
+    /// 這筆記錄是不是涵蓋這一對的 **work 形狀**記錄：**每一個**候選都是 work，且候選 key 含這一對。
+    /// （先前只看 `d.shape`＝第一個候選的形狀；歧異記錄允許混合形狀，第一個是 work、後面混著 person 的記錄在 key 恰好相同時會被當成涵蓋——
+    /// #611 R2 verify 第 46 列。）
+    static func covers(_ d: Divergence, _ pair: [String]) -> Bool {
+        d.candidates.allSatisfy { $0.shape == .work } && Set(d.candidates.map(\.key)).isSuperset(of: Set(pair))
     }
 }

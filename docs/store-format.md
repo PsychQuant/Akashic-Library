@@ -417,7 +417,8 @@ work merge 的資料遺失閘也把 witness 當 canonical Akashic metadata：被
   一筆無法唯一定位而不點名、`failed` 寫不進去〔legacy 佈局、store format < 5、歧異記錄的 id 已被另一種
   形狀占用等〕、`groupTooLarge` 一個 DOI 被超過 10 筆 work 共用而**一個 DOI 一列、一對都不記**〔帶
   `groupSize`〕）。歧異記錄的 id 只由候選 key 決定、不含形狀，所以同 id 的另一種形狀記錄不算涵蓋、也
-  不會被覆寫。**後三種沒有記下來，而重新匯入不會再提名**：CLI 以非零結束並印摘要行，MCP payload 帶
+  不會被覆寫（§5.8 第 7 條）。寫入被拒時再讀一次磁碟：那一對已被別的程序記下（可能帶判斷）就報
+  `alreadyRecorded`，不報 `failed`。**後三種沒有記下來，而重新匯入不會再提名**：CLI 以非零結束並印摘要行，MCP payload 帶
   `doiNominationsUnrecorded`（沒記的列數）；要記就用 `record-divergence` 手記。
 - **format**：additive 的頂層鍵，仍 bump 到 18——format-17 binary 會保留但不比對附加來源，
   再匯入時安靜地重新造出攣生。
@@ -2126,6 +2127,14 @@ rests-on:
 6. 候選鍵 **MUST** 在寫入時通過 `StoreKey` 驗證，與其他每一條寫入路徑一致。理由不是
    path traversal（候選鍵不進任何路徑），而是 `validate` 對畸形候選鍵報 error——沒有
    這道守衛，工具就能寫出一筆自己的 validate 永遠不會通過、又沒有編輯入口可修的記錄。
+7. 歧異記錄的 id **MUST** 只由候選 key 的集合決定（`DeterministicUUID.forDivergence`：排序後的
+   key 以換行相接、UUIDv5；**不含形狀**）。所以兩組 (shape, key) 不同的候選可以算出同一個 id——
+   同 key 的別種形狀，或 key 被 `rename`／`rename-person` 就地改寫過的記錄（那兩個操作不重算 id；
+   `resolve-divergence` 的合併才重算並改名舊檔）。寫入時磁碟上同 id 的記錄若候選 `(shape, key)`
+   的集合與這次不同，**MUST** 拒絕、**MUST NOT** 覆寫原記錄（先前互相覆寫、不出聲，#611）；
+   拒絕訊息 **MUST** 點名現有那一筆的候選，並說明原因是 key 不同還是只有形狀不同。出路是先處置現有
+   那一筆（`resolve-divergence`、`dismiss-divergence`）——這一組候選在那之前記不進去。根治要把形狀
+   或「記錄世代」納入 id，那是 format 級變更，未做。
 
 **判斷與消歧的關係**（#75 對一）：消歧 **MUST NOT** 對已寫下的判斷惰性——`prefers`
 與 `--survivor` 不一致時 **MUST** 拒絕。但**也 MUST NOT 代選**：不照 `prefers` 自動

@@ -198,9 +198,113 @@ final class ZoteroDOINominationTests: XCTestCase {
 
         XCTAssertThrowsError(try store.recordDivergence(question: "同一篇嗎", candidates: [("alpha2025", .work), ("beta2025", .work)],
                                                         judgement: nil, restsOn: [])) { error in
-            guard case .destinationHoldsAnotherRecord = error as? StoreIOError else { return XCTFail("\(error)") }
+            guard case .divergenceIdHeldByOtherCandidates(_, _, _, let keysDiffer) = error as? StoreIOError else { return XCTFail("\(error)") }
+            XCTAssertFalse(keysDiffer, "兩邊 key 相同、只有形狀不同")
         }
         XCTAssertEqual(try Data(contentsOf: store.entityURL(id: person.id)), bytes)
+    }
+
+    /// R2 verify 第 12／31／37 列：id 被占用的原因是**候選的 key 不同**（citekey 改名之後歧異記錄的候選被改寫、id 還是舊的）時，
+    /// 訊息要點名現有那一筆的候選 key、說原因是 key 不同（先前一律說「形狀」，兩邊都是 work 時是假話），
+    /// 而且出路指向 `dismiss-divergence`／`resolve-divergence`（先前叫人「看那個檔、修好、移走」——那是給被 quarantine 的記錄的；
+    /// 而 `record-divergence` 本身撞同一個拒絕，指它手記是循環）。原記錄不得被覆寫。
+    func testRefusalForRenamedCandidatesNamesTheKeysAndThePathOutNotTheShape() throws {
+        for key in ["alpha2025", "alpha2025x", "beta2025"] {
+            try store.writeEntry(Entry(id: UUID(), citekey: key, type: .periodicalArticle, title: key))
+        }
+        // rename 之後的形狀（`renameEntry` 就地改寫候選、不重算 id）：id 是 H({alpha2025, beta2025})，候選卻已被改寫成 {alpha2025x, beta2025}
+        let id = DeterministicUUID.forDivergence(candidateKeys: ["alpha2025", "beta2025"])
+        _ = try store.writeDivergence(Divergence(id: id, question: "已改名的一組",
+                                                 candidates: [("alpha2025x", EntityKind.work), ("beta2025", .work)]
+                                                    .map { DivergenceCandidate(key: $0.0, shape: $0.1) }))
+        let bytes = try Data(contentsOf: store.entityURL(id: id))
+
+        XCTAssertThrowsError(try store.recordDivergence(question: "又一次", candidates: [("alpha2025", .work), ("beta2025", .work)],
+                                                        judgement: nil, restsOn: [])) { error in
+            guard case let .divergenceIdHeldByOtherCandidates(gotID, existing, requested, keysDiffer) = error as? StoreIOError else {
+                return XCTFail("\(error)")
+            }
+            XCTAssertEqual(gotID, id)
+            XCTAssertTrue(keysDiffer, "key 不同、形狀相同")
+            XCTAssertTrue(existing.contains("alpha2025x") && existing.contains("beta2025"), "現有那一筆的候選：\(existing)")
+            XCTAssertTrue(requested.contains("「alpha2025」"), "這次要記的候選：\(requested)")
+            let text = error.localizedDescription
+            XCTAssertTrue(text.contains("key 不同") && !text.contains("只有形狀不同"), "原因是 key，不是形狀：\(text)")
+            XCTAssertTrue(text.contains("akashic dismiss-divergence \(id.uuidString)") && text.contains("resolve-divergence"), "出路：\(text)")
+            XCTAssertFalse(text.contains("akashic validate 會列出被 quarantine"), "那是給被 quarantine 的記錄的出路：\(text)")
+        }
+        XCTAssertEqual(try Data(contentsOf: store.entityURL(id: id)), bytes, "原記錄不得被覆寫")
+    }
+
+    /// R2 verify 第 36 列：匯入進行期間別的程序記下了這一對、而且帶著判斷。匯入不是要重錄它，是要確認它在：
+    /// 記錄路徑拒絕「無判斷的重錄」（不得抹掉判斷）是對的，但那不是匯入的失敗——報 failed 會讓 CLI 以 1 結束、摘要叫人手記一筆已經存在的記錄。
+    /// 這裡用建在判斷出現之前的 load 快照直接呼叫 `nominate`（`run` 沒有可注入的縫），磁碟上的記錄逐位元不動。
+    func testAJudgedRecordWrittenDuringTheImportIsAlreadyRecordedNotFailed() throws {
+        var a = Entry(id: UUID(), citekey: "alpha2025", type: .periodicalArticle, title: "A")
+        a.doi = [try XCTUnwrap(DOI(doi))]
+        var b = Entry(id: UUID(), citekey: "beta2025", type: .periodicalArticle, title: "B")
+        b.doi = [try XCTUnwrap(DOI(doi))]
+        try store.writeEntry(a); try store.writeEntry(b)
+        let staleLoad = try store.load()   // 這一刻還沒有任何歧異記錄
+        let digest = "sha256:" + String(repeating: "a1", count: 32)
+        let written = try store.recordDivergence(question: "人寫的", candidates: [("alpha2025", .work), ("beta2025", .work)],
+                                                 judgement: "同一篇", restsOn: [digest])
+        let bytes = try Data(contentsOf: store.entityURL(id: written.id))
+
+        let rows = DOITwinNomination.nominate(store: store, load: staleLoad,
+                                              current: Dictionary(uniqueKeysWithValues: staleLoad.entries.map { ($0.id, $0) }),
+                                              createdIDs: [b.id], legacyCopyCitekeys: [])
+
+        XCTAssertEqual(rows.map(\.status), [.alreadyRecorded], "\(rows)")
+        XCTAssertEqual(rows.first?.divergenceID, written.id)
+        XCTAssertEqual(rows.first?.error, nil)
+        XCTAssertTrue(DOITwinNomination.nominate(store: store, load: staleLoad, current: [:], createdIDs: [], legacyCopyCitekeys: []).isEmpty)
+        XCTAssertEqual(try Data(contentsOf: store.entityURL(id: written.id)), bytes, "判斷不得被抹掉")
+    }
+
+    /// R2 verify 第 46 列：涵蓋判斷看**每一個**候選的形狀，不只第一個。第一個是 work、後面混著 person 的記錄，key 恰好相同時不算涵蓋 work 這一對。
+    func testCoverageRequiresEveryCandidateToBeAWork() {
+        // id 取這一對的決定性 id：`covering` 的「同一組」那一支就是從 id 找到它、再問 `covers`——id 隨機的話它根本不在那一支裡，測試量不到被改的謂詞
+        let mixed = Divergence(id: DeterministicUUID.forDivergence(candidateKeys: ["alpha2025", "beta2025"]), question: "混合",
+                               candidates: [DivergenceCandidate(key: "alpha2025", shape: .work), DivergenceCandidate(key: "beta2025", shape: .person)])
+        let allWork = Divergence(id: UUID(), question: "全是 work",
+                                 candidates: ["alpha2025", "beta2025", "gamma2025"].map { DivergenceCandidate(key: $0, shape: .work) })
+        XCTAssertNil(WorkDivergenceIndex([mixed]).covering(["alpha2025", "beta2025"]))
+        XCTAssertEqual(WorkDivergenceIndex([mixed, allWork]).covering(["alpha2025", "beta2025"])?.id, allWork.id, "更大的一組 work 記錄涵蓋這一對")
+    }
+
+    // MARK: - 這一趟寫入後留下 legacy 拷貝的 work（#705）不得被點名
+
+    /// R2 verify 第 13／30 列：`ZoteroImporter.run` 把 `LegacyCopyLedger.collected` 交給 `nominate`，讓這一趟更新後留下 legacy 拷貝的 work 報成 `unlocatable`、
+    /// 不被點名進歧異記錄（兩份並存，key 指不到唯一一筆）。這條接線在整合時掉過一次（bb574141），當時沒有任何測試變紅。
+    /// 造法同 `ZoteroImportReportAfterWriteTests`：把文章搬回 legacy 佈局、讓 `entries/` 唯讀，pull 更新它之後 legacy 檔刪不掉；
+    /// 再加一筆群組 library 的新條目共用它的 DOI。
+    func testAWorkThatLeftALegacyCopyThisRunIsReportedUnlocatableNotNamed() throws {
+        _ = try runImport()
+        GitFixture.initRepo(store.root)
+        let article = try entry(zoteroKey: "KEYART01")
+        try FileManager.default.createDirectory(at: store.entriesDir, withIntermediateDirectories: true)
+        let legacy = store.entriesDir.appendingPathComponent("\(article.citekey).yaml")
+        try EntryYAML.encode(article).write(to: legacy, atomically: true, encoding: .utf8)
+        try FileManager.default.removeItem(at: store.entityURL(id: article.id))
+        GitFixture.commitAll(store.root)
+        try fixture.db.execute("UPDATE items SET version = 9 WHERE itemID = 10")
+        try addItem(31, key: "KEYGRP01", title: "Group copy", doi: doi)
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: store.entriesDir.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: store.entriesDir.path) }
+        let probe = store.entriesDir.appendingPathComponent("probe-\(UUID().uuidString)")
+        if FileManager.default.createFile(atPath: probe.path, contents: Data()) {
+            try? FileManager.default.removeItem(at: probe)
+            throw XCTSkip("這個環境的權限擋不住刪檔（以 root 執行？），造不出「寫完之後刪 legacy 失敗」")
+        }
+
+        let report = try runImport(at: 1_753_100_000)
+
+        XCTAssertEqual(report.writtenWithLegacyCopy.map(\.key), [article.citekey], "前提：這一趟留下了 legacy 拷貝：\(report)")
+        let group = try entry(zoteroKey: "KEYGRP01")
+        XCTAssertEqual(report.doiNominations.map { "\($0.created)↔\($0.other):\($0.status.rawValue)" },
+                       ["\(group.citekey)↔\(article.citekey):unlocatable"], "留下拷貝的那一筆不點名：\(report.doiNominations)")
+        XCTAssertEqual(try store.load().divergences, [], "沒有任何歧異記錄")
     }
 
     /// 寫入當下重新讀磁碟（#611 R1 verify 第 25／31 列）：呼叫端手上的 pool 只管「候選存在」；同一組候選的既有記錄若在 pool 建好之後

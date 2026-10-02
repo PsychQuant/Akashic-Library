@@ -42,7 +42,9 @@ extension LibraryStore {
     ///
     /// 沒有檔、讀不出來、或解出來不是同一個 id 的歧異記錄，都回 nil：前兩者交給 `writeDivergence` 的 `assertEntitiesDestination`
     /// 具名拒絕（被 quarantine 的記錄、另一種記錄），這裡不重複那一條。只讀一個檔。
-    func divergenceOnDisk(id: UUID) -> Divergence? {
+    ///
+    /// **public**（#611 R2 verify 第 36 列）：Zotero 匯入的提名在寫入被拒時要再讀一次，看那一對是不是已經被別的程序記下來了。
+    public func divergenceOnDisk(id: UUID) -> Divergence? {
         let dest = entityURL(id: id)
         guard FileManager.default.fileExists(atPath: dest.path),
               let text = try? String(contentsOf: dest, encoding: .utf8),

@@ -465,6 +465,23 @@ extension StdioE2ETests {
         XCTAssertTrue(desc.contains("writeFailed"), "既有的 writeFailed 說明不得被擠掉：\(desc)")
     }
 
+    /// #611 R2 verify 第 11 列：f96e922a 為了擠進當時的 54,000 預算而修剪了 `akashic_import_zotero` 的說明，預算隨後調到 60,000，修剪卻留著；
+    /// 被拿掉的是承重的語意——不是回應鍵（#672 的守衛只查鍵名在不在，修剪前後都綠）：`groupSize` 是什麼、`groupTooLarge` 列沒有 `other`、
+    /// 「一對都不記」、DOI 相等只是提名、哪些狀態算記下／沒記下，以及 `updatedHashOnly` 的前提（Zotero 已同步）與「不宣稱原因」。
+    /// MCP 呼叫端讀不到 CLI `--help`（`import-zotero` 的 abstract 只有一行），所以這些只能在說明裡。
+    func testImportZoteroDescriptionStatesTheDOINominationAndHashOnlyContracts() throws {
+        try initialize()
+        try send(["jsonrpc": "2.0", "id": 2, "method": "tools/list"])
+        let r = try readResponse()
+        let tools = ((r["result"] as? [String: Any])?["tools"] as? [[String: Any]]) ?? []
+        let tool = try XCTUnwrap(tools.first { $0["name"] as? String == "akashic_import_zotero" })
+        let desc = tool["description"] as? String ?? ""
+        for phrase in ["groupSize＝共用的 work 數", "不帶 other", "一對都不記", "DOI 相等只是提名",
+                       "recorded／alreadyRecorded", "沒記下來的", "Zotero 已同步", "不宣稱原因"] {
+            XCTAssertTrue(desc.contains(phrase), "說明少了承重的語意「\(phrase)」（MCP 呼叫端讀不到 CLI --help）：\(desc)")
+        }
+    }
+
     /// #684：`ambiguousSourceClaims` 在 MCP 面有上限——**dispatch 層真的把上限傳給服務**。service 層的測試
     /// （`ImportZoteroReportSurfaceTests`）釘住截斷本身；這裡釘住 `Server.swift` 沒有漏掉 `claimLimit:` 那個引數
     /// （漏掉的話所有 service 層測試照綠，而 MCP 面無上限）。

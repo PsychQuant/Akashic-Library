@@ -20,7 +20,7 @@ DOI 相等只當提名、不當同一性證據：勘誤與原文共用 DOI，一
   - MCP `akashic_import_zotero`：鍵 `doiNominations`，每列 `{created, other, dois, status, divergence, error}`，只在非空時出現。~~`recorded`／`alreadyRecorded` 兩種列受 `listLimit`（20）——那兩種的歧異記錄在 store 裡、`akashic_divergences` 列得出來；`unlocatable`／`failed` 不截（沒寫進去、原因只在這份報告，同失敗清單）。~~ → 兩種列各自受 `listLimit`（R1 verify，見文末）。`listTotals` 永遠有這一格（全部列數），被截時進 `truncatedLists`。工具描述加一句。
   - CLI `import-zotero`：一段標題加逐行 `⊕`（記了）／`=`（已有記錄）／`⚠`（無法唯一定位）／`✗`（寫不進去），全列。
 - 規則與文件：`two-kinds-of-edits` 的 `import-wos`／`import-zotero` 列（程式寫的提名，種類不變）與 `record-divergence` 列；`mcp-cli-parity` 的 `akashic_import_zotero` 列；`akashic-merge-twins` 的提名一節；`plugin/CHANGELOG.md`。
-- `zero-instance-guards` 不加列：這一輪沒有新增 validator 的檢查或 warning。
+- ~~`zero-instance-guards` 不加列：這一輪沒有新增 validator 的檢查或 warning。~~ → R1 的 `groupTooLarge` 上限與同 id 不同候選的拒絕是零實例的守衛，R2 verify（2026-10-02）補了第 80、81 列（見 `2026-10-02-r2-fixes-611-692-693-708.md`）。
 
 ## 量測
 

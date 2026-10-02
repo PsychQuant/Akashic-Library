@@ -394,7 +394,11 @@ struct ImportZotero: ParsableCommand {
             // （#611 R1 verify 第 9 列），所以下面的摘要行說出來，且本命令在那種情形以非零結束——兩筆都已照建，但那幾對要人補記。
             let pairRows = report.doiNominations.filter { $0.status != .groupTooLarge }
             let groupRows = report.doiNominations.filter { $0.status == .groupTooLarge }
-            print("新建的條目與另一筆 work 共用 DOI（#611）: \(pairRows.count) 對\(groupRows.isEmpty ? "" : "、\(groupRows.count) 個 DOI 的群組過大")——照建，並記一筆沒有判斷的歧異提名（DOI 相等只是提名，判定與合併走 akashic divergences → resolve-divergence）")
+            // 標題的 N 只數**真的在 store 裡的**對（recorded／alreadyRecorded）；沒記下來的（unlocatable／failed）另外說（#611 R2 verify 第 24 列：
+            // 先前標題把它們也數進「照建，並記一筆…」，全部失敗時整句不成立）
+            let recordedPairs = pairRows.filter { $0.status.isInStore }.count
+            let unrecordedPairs = pairRows.count - recordedPairs
+            print("新建的條目與另一筆 work 共用 DOI（#611）: \(recordedPairs) 對\(unrecordedPairs > 0 ? "（另有 \(unrecordedPairs) 對沒記下）" : "")\(groupRows.isEmpty ? "" : "、\(groupRows.count) 個 DOI 的群組過大")——兩筆都已照建；記下的是沒有判斷的歧異提名（DOI 相等只是提名，判定與合併走 akashic divergences → resolve-divergence）")
             for n in report.doiNominations {
                 let dois = n.dois.map { displaySafe($0, max: 200) }.joined(separator: ", ")
                 if n.status == .groupTooLarge {
@@ -2736,7 +2740,7 @@ struct AuthorizeNames: ParsableCommand {
 struct RecordDivergence: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "record-divergence",
-        abstract: "記下未決的同一性問題（#77）；記下判斷**不等於**消歧，消歧用 resolve-divergence")
+        abstract: "記下未決的同一性問題（#77）；記下判斷**不等於**消歧，消歧用 resolve-divergence。同一組候選已有帶判斷的記錄時，無判斷的重錄拒絕；id 只由候選 key 決定，同 id 但候選不同（改名過、或別種形狀）的記錄不覆寫、整個拒絕，先處置它（resolve-divergence 或 dismiss-divergence）")
 
     @OptionGroup var options: LibraryOptions
 

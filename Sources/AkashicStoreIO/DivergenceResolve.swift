@@ -406,6 +406,11 @@ extension LibraryStore {
     /// 既有判斷與 prefers 不得被無判斷的重錄抹掉、同一個 id 不得被另一組候選（含另一種形狀）覆寫，這兩件事的依據是寫入當下的磁碟，
     /// 不是任何一份快照（#611 R1 verify 第 25／31 列：匯入可能跑數分鐘，期間別的程序補上的判斷不能被一份過期的快照放過）。
     /// 一次單檔讀取，成本與候選數無關。
+    ///
+    /// **誠實邊界：讀與 `atomicWrite` 之間仍有一個微秒級的窗口**（#611 R2 verify 第 28 列）。重讀把窗口從「整趟匯入（數分鐘）」縮到「一次讀取到一次改名」，
+    /// 但兩者之間沒有 compare-and-swap：別的程序恰好在這個窗口寫下帶判斷的同組記錄，會被這一次的無判斷提名無聲取代。
+    /// 要關掉它得讓寫入端對新記錄用獨佔建立（`mustCreate`）、對既有記錄用改名前的內容比對——那是對 `writeDivergence` 的結構性改動，這一輪沒有做；
+    /// 實務上要有兩個程序在同一個 id、同一個微秒內寫（匯入的提名只在新建時觸發、而判斷由人或 LLM 逐筆寫）。
     @discardableResult
     public func recordDivergence(question: String,
                                  candidates: [(key: String, shape: EntityKind)],
@@ -447,18 +452,24 @@ extension LibraryStore {
         let id = DeterministicUUID.forDivergence(candidateKeys: candidates.map(\.key))
         let existing = divergenceOnDisk(id: id)
         // **同一個 id 只能是同一組候選**（#611 R1 verify 第 1／21 列）：id 只雜湊候選的 key、不含形狀（`migrateOtherDivergences` 的
-        // `sameContent` 註解：根治要把 shape 納入 `forDivergence`，那是 format 級變更），所以 person 的 `{a, b}` 與 work 的 `{a, b}` 是同一個檔。
+        // `sameContent` 註解：根治要把 shape 納入 `forDivergence`，那是 format 級變更），所以 person 的 `{a, b}` 與 work 的 `{a, b}` 是同一個檔；
+        // `renameEntry`／`renamePerson` 就地改寫候選的 key 而不重算 id（`resolveDivergence` 的合併才重算並改名舊檔），所以改名之後舊 id 對應的是另一組 key
+        // （R2 verify 第 12／31／37 列）。
         // 先前兩者互相覆寫、不出聲；現在拒絕，不覆寫原記錄。兩邊的候選比 (shape, key)，排序後相等才算同一組。
         if let existing {
             func norm(_ pairs: [(shape: EntityKind, key: String)]) -> [[String]] {
                 pairs.map { [$0.shape.rawValue, $0.key] }.sorted { ($0[0], $0[1]) < ($1[0], $1[1]) }
             }
             if norm(existing.candidates.map { ($0.shape, $0.key) }) != norm(candidates.map { ($0.shape, $0.key) }) {
-                let existingShapes = Set(existing.candidates.map(\.shape.rawValue)).sorted().joined(separator: "、")
-                let requestedShapes = Set(candidates.map(\.shape.rawValue)).sorted().joined(separator: "、")
-                throw StoreIOError.destinationHoldsAnotherRecord(
-                    id: id,
-                    detail: "是一筆候選不同的歧異記錄（形狀：\(existingShapes)；歧異記錄的 id 只由候選 key 決定、不含形狀，所以這次要記的（形狀：\(requestedShapes)）與它是同一個檔）")   // display-safe-exempt: existingShapes、requestedShapes：封閉 enum 的 rawValue
+                func describe(_ pairs: [(shape: EntityKind, key: String)]) -> String {
+                    pairs.map { "\($0.shape.rawValue)「\(displaySafeInvisible($0.key, max: 120))」" }.joined(separator: "、")   // display-safe-exempt: shape 是封閉 enum 的 rawValue；key 已消毒
+                }
+                let keysDiffer = Set(existing.candidates.map(\.key)) != Set(candidates.map(\.key))
+                let existingText = describe(existing.candidates.map { ($0.shape, $0.key) })
+                let requestedText = describe(candidates.map { ($0.shape, $0.key) })
+                throw StoreIOError.divergenceIdHeldByOtherCandidates(
+                    id: id, existing: existingText, requested: requestedText,
+                    keysDiffer: keysDiffer)   // display-safe-exempt: existingText、requestedText：describe 逐 key displaySafeInvisible（擲出端消毒一次）；keysDiffer：Bool
             }
         }
         // **補寫允許、毀損拒絕**（#133 verify F1）：同組候選＝同一筆記錄（決定性

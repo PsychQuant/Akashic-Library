@@ -133,6 +133,9 @@ final class ZoteroReportCLITests: XCTestCase {
                                  r.output)
         XCTAssertTrue(line.contains("未記") && line.contains("無法唯一定位"), String(line))
         XCTAssertFalse(r.output.contains("⊕ "), r.output)
+        // R2 verify 第 24 列：標題只數真的記下的對；沒記下的另外說，不再宣稱「照建，並記一筆」
+        XCTAssertTrue(r.output.contains("新建的條目與另一筆 work 共用 DOI（#611）: 0 對（另有 1 對沒記下）"), r.output)
+        XCTAssertFalse(r.output.contains("並記一筆沒有判斷的歧異提名"), "沒記下的對不得被標題說成已記：\(r.output)")
     }
 
     /// #611 R1 verify 第 9 列：沒記下來的提名（這裡是共用 DOI 的 work 超過門檻）重新匯入不會再提名——CLI 印出摘要行、指路手記，並以非零結束。

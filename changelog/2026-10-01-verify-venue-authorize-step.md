@@ -59,4 +59,4 @@ store format: 18
 
 - **沒有對真的出版商頁或 Crossref／ISSN Portal 實跑這一步**：skill 的證據鏈部分不在本次範圍，第 4 源仍只當佐證（#692）。
 - **沿革多段的刊，對外形取哪一段**：skill 建議現行那一段、並要求寫進理由；store 沒有規定，這是這次補的建議、不是裁決，使用者可翻。
-- `docs/store-format.md` 的「`authorized` 為選填」一段仍寫「#600 的 authorize campaign 需要那個清單」：#600 裁決後沒有 campaign，這句已過期；本次不改該文件（範圍外），留給下一次碰到那一段的變更。
+- ~~`docs/store-format.md` 的「`authorized` 為選填」一段仍寫「#600 的 authorize campaign 需要那個清單」：#600 裁決後沒有 campaign，這句已過期；本次不改該文件（範圍外），留給下一次碰到那一段的變更。~~ → 同一批的 a3c59bbc 已改寫那一段（#566 R1 verify F2 第 13／30 列：這一條與同一個變更矛盾）。

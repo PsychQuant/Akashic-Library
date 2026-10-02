@@ -132,7 +132,7 @@ case ",${AKASHIC_PRE_PUSH_STAGES:-build,test,guards}," in
     DEBUG_REAL="$(cd .build/debug 2>/dev/null && pwd -P || true)"
     BIN_REAL="$(cd "$BIN_PATH" 2>/dev/null && pwd -P || true)"
     if [ -z "$DEBUG_REAL" ] || [ -z "$BIN_REAL" ] || [ "$DEBUG_REAL" != "$BIN_REAL" ]; then
-      echo "✗ pre-push: .build/debug 沒有指向這次建置的產物目錄（$BIN_PATH）——守衛會跑到別次建置的 binary，中止" >&2
+      echo "✗ pre-push: .build/debug 沒有指向這次建置的產物目錄（${BIN_PATH}）——守衛會跑到別次建置的 binary，中止" >&2
       exit 1
     fi
     echo "pre-push: plugin 守衛（覆蓋／散文／parity，各含 negative control）"

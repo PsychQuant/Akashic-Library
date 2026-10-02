@@ -102,7 +102,7 @@ git grep -nI -E '無存取權|repo 為 private|repo 是 private|private repo，|
 | 18、29 | 量法第 3 行命中 `.gitmodules`；「刻意沒改的」表與〈補記〉互相矛盾；`docs/specs/` 裡有一處裸的個人帳號名 | 量法第 3 行排除 `.gitmodules` 並說明；表中兩列劃掉、指向〈補記〉；裸的帳號名記進表（當時的決定，不改） |
 | 7、28、37 | 取消追蹤的工作區檔在其他 checkout 下次更新時被刪，不是「留在本機」 | 上面〈補記〉的最後一則：寫明，並附復原指令 |
 | 33 | `plugin/CHANGELOG.md` 沒記 wrapper 與 verify-venue 的行為改動 | 補上兩個條目（#693 的 wrapper、#692 的 skill） |
-| 26（後半） | wrapper 下載後不驗完整性就執行：`gh` 路徑完全沒有檢查、`curl` 路徑只看 `file` 輸出有 Mach-O，沒有用 release 流程已產出的 `.sha256` 與 Developer ID 簽章 | **不在這一輪做**（那是新增驗證、不是訊息更正），記為後續：雜湊核對（`.sha256`）與 `codesign --verify` 要另案；這是每次 session 啟動都會跑的自動下載執行路徑 |
+| 26（後半） | wrapper 下載後不驗完整性就執行：`gh` 路徑完全沒有檢查、`curl` 路徑只看 `file` 輸出有 Mach-O，沒有用 release 流程已產出的 `.sha256` 與 Developer ID 簽章 | **不在這一輪做**（那是新增驗證、不是訊息更正），記為後續：雜湊核對（`.sha256`）與 `codesign --verify` 要另案（追蹤：#714，2026-10-02 補開）；這是每次 session 啟動都會跑的自動下載執行路徑 |
 | 36 | 公開 issue 的標題與內文（36 則，含 #274 的標題）、wiki 的 git 歷史仍帶私有 repo 名；「全樹 0 處」只對 git 工作樹成立 | **不改**：使用者的裁決只涵蓋工作樹與 main 的歷史；issue 標題可編輯、與 main 歷史性質不同，要不要改由使用者決定，這一輪沒有動任何 GitHub issue。〈誠實邊界〉第一條補一句，讀者不會把「全樹 0 處」讀成整個公開面都乾淨 |
 
 ### wrapper 訊息的負控

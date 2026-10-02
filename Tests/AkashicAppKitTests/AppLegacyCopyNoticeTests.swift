@@ -331,8 +331,9 @@ final class AppLegacyCopyNoticeTests: XCTestCase {
         XCTAssertEqual(state.legacyCopyNotice, before, "同一個 store：提示原樣保留")
     }
 
-    /// 標題是一般說明文字，不是 CLI／MCP 的鍵名；這件事是什麼的一句說明與 CLI／MCP 同一份；說出「同一個動作若另外跳出錯誤，那是別的原因」，
-    /// 不與同一個動作的失敗提示互相矛盾（#708 R1 verify 第 12／32 列）。
+    /// 標題是一般說明文字，不是 CLI／MCP 的鍵名；這件事是什麼的一句說明與 CLI／MCP 同一份（#708 R1 verify 第 12／32 列）。
+    /// 同一個動作另有錯誤時，標題只說「請依那個錯誤的訊息處理」，**不**說那是別的原因、與這份拷貝無關——後續寫入被 #631 拒絕的原因
+    /// 正是這份拷貝（`laterWriteRefused`，#708 R2 verify 第 1／34 列；R3 verify 第 25 列指出這段註解仍寫著 R2 拿掉的那句）。
     func testTheHeadlineIsPlainWordingNotTheJsonKeyName() {
         let left = LegacyCopyLeft(kind: .person, key: "cheng-che", id: UUID(), legacyFile: "people/cheng-che.yaml", detail: "d")
         let notice = LegacyCopyNotice(items: [left], root: URL(fileURLWithPath: "/tmp/store"))

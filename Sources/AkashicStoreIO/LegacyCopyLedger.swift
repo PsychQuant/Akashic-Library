@@ -88,7 +88,7 @@ public struct LegacyCopyLeft: Equatable, Sendable {
 /// App 的各寫入點（`AppState.recordingLegacyCopies`，進側欄的非阻斷提示 `AppState.legacyCopyNotice`，#708——App 沒有單一出口，範圍開在各寫入點）。
 ///
 /// **巢狀時最內層收下**：它自己的報告列出這一筆，外層不重複。內層的 body 擲錯時它沒有報告可以放——收到的**轉交外層**、
-/// 回傳空陣列；沒有外層時才原樣回傳給呼叫端，而呼叫端要經 `LegacyCopyLedger.get(_:written:)` 取結果：失敗時它把收到的附在擲出的錯誤上
+/// 回傳空陣列；沒有外層、或外層已經結束（收不下）時才原樣回傳給呼叫端，而呼叫端要經 `LegacyCopyLedger.get(_:written:)` 取結果：失敗時它把收到的附在擲出的錯誤上
 /// （`LegacyCopyLeftBeforeFailure`），不讓它們跟著 `try result.get()` 一起消失（#705 R1 verify 第 17／22／30／36 列）。
 /// 內層成功、之後的步驟才失敗的呼叫端，用 `handToEnclosingScope` 把報告裡的那幾筆交給外層（第 1 列）。每一筆恰好在一個地方被報告。
 public final class LegacyCopyLedger: @unchecked Sendable {
@@ -119,6 +119,18 @@ public final class LegacyCopyLedger: @unchecked Sendable {
         guard !closed else { return false }
         if indexByID[item.id] == nil { indexByID[item.id] = items.count }
         items.append(item)
+        return true
+    }
+
+    /// 一次記下全部；範圍已結束時一筆都不記、回 false。**全有或全無**（同一次加鎖、只看一次 `closed`）：呼叫端依回傳值決定那幾筆
+    /// 留在自己的報告還是交出去，部分收下會讓收下的那幾筆被報兩次、或沒收下的那幾筆哪裡都不報（#708 R3 verify 第 15／20／24 列）。
+    private func recordAll(_ batch: [LegacyCopyLeft]) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard !closed else { return false }
+        for item in batch {
+            if indexByID[item.id] == nil { indexByID[item.id] = items.count }
+            items.append(item)
+        }
         return true
     }
 
@@ -177,16 +189,17 @@ public final class LegacyCopyLedger: @unchecked Sendable {
         return ledger.record(item)
     }
 
-    /// 把已經收下、放進某份報告的那幾筆交給**目前的**範圍（外層）；沒有範圍時回 false、什麼都不做（#705 R1 verify 第 1 列）。
+    /// 把已經收下、放進某份報告的那幾筆交給**目前的**範圍（外層）；沒有範圍、或那個範圍**已經結束**時回 false、什麼都不做（#705 R1 verify 第 1 列）。
     ///
     /// 給「內層範圍成功、之後的步驟才失敗」的呼叫端：`ZoteroImporter.run` 的範圍收下、放進 `ImportReport`，之後 index rebuild 失敗時
     /// 報告只能嵌進錯誤訊息，而錯誤出口有 96 KB／200 行的上限——交給外層（MCP 分派），它在格式化錯誤**之後**把人可讀報告放在回應最前面、不截。
-    /// 回 true 時呼叫端要把那幾筆從自己的報告拿掉，否則同一筆報兩次。
+    /// 回 true 時呼叫端要把那幾筆從自己的報告拿掉，否則同一筆報兩次；回 false 時留在自己的報告裡。
+    /// **已經結束的範圍收不下**（#708 R3 verify 第 15／20／24 列）：先前這裡忽略 `record` 的回傳、一律回 true——繼承了 task-local、活得比範圍久的
+    /// `Task { }` 把那幾筆交給一份已經關起來的帳本，什麼都沒記下，呼叫端卻依 true 把它們從自己的報告拿掉，哪裡都不報。
     @discardableResult
     public static func handToEnclosingScope(_ items: [LegacyCopyLeft]) -> Bool {
         guard let ledger = active else { return false }
-        for item in items { ledger.record(item) }
-        return true
+        return ledger.recordAll(items)
     }
 
     /// `collecting` 的結果交回呼叫端的出口（#705 R1 verify 第 17／22／30／36 列）。成功回結果；失敗時，收到的若已轉交外層（`written` 是空的）
@@ -208,8 +221,9 @@ public final class LegacyCopyLedger: @unchecked Sendable {
         let result: Result<R, Error> = $active.withValue(ledger) { Result { try body() } }
         ledger.close()   // 範圍結束：繼承 task-local、活得比範圍久的 `Task { }` 之後的寫入不得再被收下（見 `closed`）
         let written = ledger.recorded
-        if case .failure = result, let outer {
-            for item in written { outer.record(item) }
+        // 失敗時轉交外層——外層已經結束時收不下（#708 R3 verify 第 15／20／24 列：先前忽略回傳、回空陣列，那幾筆哪裡都不報），
+        // 那就照沒有外層時一樣回傳給呼叫端，`get` 把它們附在擲出的錯誤上。
+        if case .failure = result, let outer, outer.recordAll(written) {
             return (result, [])
         }
         return (result, written)

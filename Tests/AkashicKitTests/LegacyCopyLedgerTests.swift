@@ -146,6 +146,37 @@ final class LegacyCopyLedgerTests: XCTestCase {
         XCTAssertEqual(inside, true)
     }
 
+    /// #708 R3 verify 第 15／20／24 列：兩條轉交的路也要尊重「範圍已結束」。先前 `handToEnclosingScope` 忽略 `record` 的回傳、一律回 true——
+    /// 呼叫端依 true 把那幾筆從自己的報告拿掉，而已關起來的帳本什麼都沒記，那幾筆哪裡都不報；`collecting` 的失敗轉交同樣回空陣列。
+    /// 這裡抓住一個已結束範圍的帳本、以繼承 task-local 的方式當成外層（同上一支模擬晚到的 `Task { }`）。
+    func testHandingToAClosedEnclosingScopeIsRefusedAndTheItemsStayWithTheCaller() throws {
+        var captured: LegacyCopyLedger?
+        _ = LegacyCopyLedger.collecting { captured = LegacyCopyLedger.active }
+        let closed = try XCTUnwrap(captured)
+        let item = LegacyCopyLeft(kind: .work, key: "late2025", id: UUID(), legacyFile: "entries/late2025.yaml", detail: "d")
+
+        let handed = LegacyCopyLedger.$active.withValue(closed) { LegacyCopyLedger.handToEnclosingScope([item]) }
+        XCTAssertFalse(handed, "外層已結束：收不下就要說收不下，呼叫端才會把那幾筆留在自己的報告裡")
+
+        // 內層失敗、外層已結束：收到的不得被丟進關起來的帳本，要回給呼叫端，`get` 把它們附在錯誤上
+        let (result, written) = LegacyCopyLedger.$active.withValue(closed) {
+            LegacyCopyLedger.collecting { () throws -> Void in
+                XCTAssertTrue(LegacyCopyLedger.recordIfCollecting(item), "內層範圍還開著：收得下")
+                throw Boom()
+            }
+        }
+        XCTAssertEqual(written, [item], "外層收不下：留在回傳值裡")
+        XCTAssertThrowsError(try LegacyCopyLedger.get(result, written: written)) { error in
+            XCTAssertEqual((error as? LegacyCopyLeftBeforeFailure)?.written, [item], "寫進去的那一筆跟著錯誤出去：\(error)")
+        }
+
+        // 外層還開著：照舊轉交、回 true（沒有把「一律拒收」寫成通過）
+        var inside: Bool?
+        let (_, outer) = LegacyCopyLedger.collecting { inside = LegacyCopyLedger.handToEnclosingScope([item]) }
+        XCTAssertEqual(inside, true)
+        XCTAssertEqual(outer, [item])
+    }
+
     // MARK: - 範圍內：記下、照常回傳
 
     func testInsideAScopeTheWorkIsRecordedAsWritten() throws {

@@ -11,6 +11,8 @@
 //      binary 不寫紀錄時，runner 文字裡那一行必須被報出來。
 //   3. **改壞的紀錄**：從健康那一格的紀錄出發，逐格改一處（刪 `end`、刪 `declare`、改 rc、改 `met`、換 binary、
 //      加一行不是 JSON 的……），讀者必須紅並說出是哪一處。紀錄讀不到、是空的、不是這一次的，也各一格。
+//      **一般守衛的 `end` 也各一格**（#707 R3：rc=1 被 `|| true` 遮掉、留下 start 卻沒有 end）——先前只有 harness 的 `end` 有格子，
+//      而讀者只查 harness，所以那兩種掏空沒有人看得見；另有一個真的迷你 runner（`g1`）：一般守衛讀不到指定的檔、回 rc=1、被 `|| true` 遮掉。
 //   4. **記錄端**（一格）：寫紀錄的共用函式 `runGuardProcess` 不能把沒跑起來的子行程記成「如預期變紅」
 //      （`spawn-probe` 帶自己的紀錄檔執行它，讀回那一筆 `invoke` 的 `met`）。
 //
@@ -20,8 +22,15 @@
 // **每份迷你紀錄開頭有一支假 harness 替 `migrated-guard-control` 本身作證**：讀者自己永遠在它讀的紀錄裡（它自己的
 // `start`），而這些格子要測的是別的守衛。那四行是固定的測試資料（`fixture-harness`），不是任何行程寫的。
 //
-// **成本**：七支 scratch binary 平行建置（`xcrun swiftc -Onone`，每支單執行緒約 7 秒），十四個迷你 runner 平行跑
+// **成本**：七支 scratch binary 平行建置（`xcrun swiftc -Onone`，每支單執行緒約 7 秒），十五個迷你 runner 平行跑
 // （最慢的是 O1——被掏空的 `plugin-roots-mutations` 照樣跑完它所有格子）。量測見 `changelog/2026-10-01-guard-control-runtime-evidence.md`。
+//
+// **耦合與成本**（#707 R3 verify，regression 席）：scratch binary 用 `xcrun swiftc -Onone` 把 `Sources/akashic-guards/*.swift` 整批編譯，不經 SwiftPM——
+//   (1) 日後任何守衛 import Foundation 以外的模組、或依賴 package 層級的建置設定，本 harness（連同 `set -e` 的 `run-guards.sh`）會以與那支守衛無關的
+//       編譯錯誤失敗；遇到「編譯錯誤跟我剛加的守衛無關」先看這裡；
+//   (2) 寫死 Xcode 的 toolchain（`/usr/bin/xcrun`），repo 其他建置走 PATH 上的 `swift`——兩者不同時，scratch binary 與被測的 binary 可能由不同版本編出；
+//   (3) 成本只在一台多核開發機量過（上面）：七支平行的 `swiftc` 在 3–4 核的 CI runner 上會慢數倍，而 `census-parity.yml` 每次 plugin／Sources
+//       改動都跑它。現在不是錯（pre-push 綠），是記下來的維護成本。
 //
 // **只寫暫存目錄**：scratch 原始碼、binary、迷你 runner 與紀錄全在 `NSTemporaryDirectory()` 底下；工作樹的
 // `run-guards.sh` 與 `Sources/akashic-guards/` 最後逐位元比對一次。
@@ -280,6 +289,12 @@ func migratedGuardControlMutations() -> Int32 {
         .init(id: "c8b", desc: "#707 comment 8：跑的是不寫紀錄的舊 binary——runner 文字裡那一行被報出來", scratch: nil,
               lines: ["S=@WORK@/stale", #""$S/akashic-guards" decision-matrix-drift"#],
               wantRC: 1, expect: [notStarted("decision-matrix-drift")], mustNot: []),
+        // #707 R3 verify（codex）：一般守衛回非零、被 runner 的 `|| true` 遮掉。守衛讀不到指定的檔、回 rc=1；它的 harness 照常提供負控證據
+        // （第一行是健康的那一次），所以只看 harness 的讀者會回報「無缺口」。
+        .init(id: "g1", desc: "#707 R3：一般守衛回非零、被 runner 的 || true 遮掉（它的 harness 仍提供負控證據）", scratch: nil,
+              lines: dmm + [#""@B@" decision-matrix-drift /nonexistent/CLAUDE.md || true"#],
+              wantRC: 1, expect: ["`decision-matrix-drift` 以 rc=1 結束", "被它啟動的守衛沒有以 rc=0 結束"],
+              mustNot: ["無缺口"]),
     ]
 
     var runs: [(MiniCell, Process, String, String)] = []    // cell, bash, 紀錄, runner
@@ -359,6 +374,7 @@ func migratedGuardControlMutations() -> Int32 {
 
     // ── 改壞的紀錄（從健康那一格出發）────────────────────────────────────────
     func isDMM(_ o: [String: Any]) -> Bool { o["self"] as? String == "decision-matrix-mutations" }
+    func isDrift(_ o: [String: Any]) -> Bool { o["self"] as? String == "decision-matrix-drift" }
     let dmmDrift = ranButUncovered("decision-matrix-drift")
     let logCells: [LogCell] = [
         .init(desc: "紀錄：harness 沒有結束紀錄（沒經過 finishGuard）",
@@ -368,6 +384,14 @@ func migratedGuardControlMutations() -> Int32 {
               mutate: { ls in ls.map { o in
                   var o = o; if isDMM(o) && o["event"] as? String == "end" { o["rc"] = 1 }; return o } },
               raw: nil, expect: ["以 rc=1 結束", dmmDrift]),
+        // #707 R3 verify（codex）：一般守衛——沒有 invoke、沒有宣告——的 end 也要查
+        .init(desc: "紀錄：一般守衛以 rc=1 結束（runner 以 || true 遮掉）",
+              mutate: { ls in ls.map { o in
+                  var o = o; if isDrift(o) && o["event"] as? String == "end" { o["rc"] = 1 }; return o } },
+              raw: nil, expect: ["`decision-matrix-drift` 以 rc=1 結束", "被它啟動的守衛沒有以 rc=0 結束"]),
+        .init(desc: "紀錄：一般守衛留下 start 卻沒有 end（沒經過 finishGuard，或中途被殺）",
+              mutate: { ls in ls.filter { !(isDrift($0) && $0["event"] as? String == "end") } }, raw: nil,
+              expect: ["`decision-matrix-drift` 沒有結束紀錄", "被它啟動的守衛沒有以 rc=0 結束"]),
         .init(desc: "紀錄：harness 沒有宣告那支守衛（順帶跑不算）",
               mutate: { ls in ls.filter { !(isDMM($0) && $0["event"] as? String == "declare") } }, raw: nil,
               expect: ["沒有宣告它——順帶跑不算", dmmDrift]),

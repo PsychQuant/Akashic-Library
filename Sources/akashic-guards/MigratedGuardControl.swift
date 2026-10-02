@@ -39,6 +39,8 @@
 //   · 宣告了、跑完了，卻沒有一次讓那支守衛如預期變紅——宣告是空的；
 //   · harness 以 rc=0 跑完，但它有執行沒照它自己的預期（預期紅、實際綠）——它沒有比對結果；
 //   · harness 沒有以 rc=0 跑完（rc≠0 或沒有 `end`）卻出現在紀錄裡——`run-guards.sh` 是 `set -e`，它的失敗被遮掉了；
+//   · **一般守衛也一樣**（#707 R3 verify）：除了本支自己，**每一個**被 runner 啟動的行程（紀錄裡有它的 `start`）都要有 `end`、rc=0——
+//     不論它是不是 harness。先前只查 harness，一般守衛被改成 `|| true`（回非零）或留下 start 就被殺，只要它的 harness 仍提供負控證據就「無缺口」；
 //   · 執行的 `akashic-guards` 不是本支這一支 binary；宣告自己、宣告一支這次沒跑的守衛；
 //   · 紀錄讀不到、是空的、有一行不是這個格式、或沒有本支自己這一次的 `start`（`AKASHIC_GUARD_RUN_LOG` 沒指向
 //     `--log` 那份檔，或 `main.swift` 沒寫 start）——**空掃描不是通過**。
@@ -235,10 +237,21 @@ func migratedGuardControl(argv: [String]) -> Int32 {
                 declared.insert(g)
             }
         }
-        if invokes.isEmpty && declared.isEmpty { continue }
-        if !invokes.isEmpty { harnessRuns += 1 }
+        // **每一個**被 runner 啟動的行程都要以 rc=0 結束，不只 harness（#707 R3 verify，codex）：先前這一段在下一行 `continue` 之後才查
+        // end，一般守衛（沒有 invoke、沒有宣告）從來沒被查過——runner 把它改成 `akashic-guards network-confinement || true`，它回非零、
+        // 或留下 start 就被殺，只要它的 harness 仍提供負控證據，本支照樣回報「無缺口」；runner 的文字檢查也攔不住，因為它確實有 start。
+        // 本支自己（`GuardRunLog.runID`）不在這個迴圈裡：它還在跑、沒有 end。
         let endRC = ls.first(where: { $0.event == "end" })?.fields["rc"] as? Int
         let completed = endRC == 0
+        let isHarness = !(invokes.isEmpty && declared.isEmpty)
+        if !completed && !isHarness {
+            let why = endRC.map { "以 rc=\($0) 結束" } ?? "沒有結束紀錄（沒經過 `finishGuard` 就結束，或中途被殺）"
+            problem("`\(h)` \(why)——run-guards.sh 是 `set -e`：被它啟動的守衛沒有以 rc=0 結束，表示它的失敗被遮掉了"
+                + "（例如那一行被改成 `|| true`），或它沒經過 `finishGuard` 就結束了")
+            continue
+        }
+        if !isHarness { continue }
+        if !invokes.isEmpty { harnessRuns += 1 }
         if !completed {
             let why = endRC.map { "以 rc=\($0) 結束" } ?? "沒有結束紀錄（沒經過 `finishGuard` 就結束，或中途被殺）"
             problem("`\(h)` \(why)——它的 \(invokes.count) 次執行都不算數"

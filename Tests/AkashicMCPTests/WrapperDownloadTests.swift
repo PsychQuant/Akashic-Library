@@ -28,6 +28,7 @@ final class WrapperDownloadTests: XCTestCase {
         // 假 gh：`release download <TAG> …` 依 STUB_TAG_OK 成敗；不帶 tag（latest）預設成功並給 LATEST，STUB_LATEST_OK=0 時失敗
         try writeExecutable("stubs/gh", """
             #!/bin/bash
+            [ -n "${CALL_LOG:-}" ] && echo "gh $*" >> "$CALL_LOG"
             [ "$1 $2" = "release download" ] || exit 1
             shift 2
             tagged=true; case "$1" in --*) tagged=false ;; *) shift ;; esac
@@ -40,7 +41,7 @@ final class WrapperDownloadTests: XCTestCase {
               printf '#!/bin/bash\\necho LATEST\\n' > "$dir/akashic-mcp"
             fi
             """)
-        try writeExecutable("stubs/curl", "#!/bin/bash\nexit 1\n")
+        try writeExecutable("stubs/curl", "#!/bin/bash\n[ -n \"${CALL_LOG:-}\" ] && echo \"curl $*\" >> \"$CALL_LOG\"\nexit 1\n")
     }
 
     override func tearDownWithError() throws { try? FileManager.default.removeItem(at: root) }
@@ -76,7 +77,7 @@ final class WrapperDownloadTests: XCTestCase {
     /// locale 下會把緊接在 `$VAR` 後面的全形標點讀成變數名的一部分、`set -u` 之下整支腳本以 unbound variable 中止——新訊息在使用者實際的 locale 下
     /// 一行也印不出來，兩支測試卻全綠。`locale` 預設 `en_US.UTF-8`；要換 locale 的測試自己傳。
     private func runWrapperWithoutABinary(withGh: Bool, locale: String = "en_US.UTF-8",
-                                          pluginJSON: String? = nil) throws -> (status: Int32, err: String) {
+                                          pluginJSON: String? = nil, latestOK: Bool = false) throws -> (status: Int32, err: String) {
         // 同一個測試可以連跑幾次（不同 locale、有無 gh），所以移除與建立都要可重複
         try? FileManager.default.removeItem(at: root.appendingPathComponent("home/bin/akashic-mcp"))
         try? FileManager.default.removeItem(at: root.appendingPathComponent("home/bin/.akashic-mcp.version"))
@@ -92,7 +93,8 @@ final class WrapperDownloadTests: XCTestCase {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/bash")
         p.arguments = [root.appendingPathComponent("plugin/bin/akashic-mcp-wrapper.sh").path]
-        p.environment = ["HOME": root.appendingPathComponent("home").path, "PATH": stubs.path + ":/usr/bin:/bin", "STUB_TAG_OK": "0", "STUB_LATEST_OK": "0",
+        p.environment = ["HOME": root.appendingPathComponent("home").path, "PATH": stubs.path + ":/usr/bin:/bin", "STUB_TAG_OK": "0",
+                         "STUB_LATEST_OK": latestOK ? "1" : "0", "CALL_LOG": root.appendingPathComponent("calls.log").path,
                          "LANG": locale, "LC_ALL": locale]
         let e = Pipe(); p.standardOutput = Pipe(); p.standardError = e
         p.standardInput = FileHandle.nullDevice
@@ -132,16 +134,35 @@ final class WrapperDownloadTests: XCTestCase {
         }
     }
 
-    /// plugin.json 讀不到版本時：不組出不存在的 `akashic-mcp-v` tag 與網址（#693 LOW）。gh 那條下載 latest，curl 那條走 latest 的固定網址。
-    func testTheFailureMessageDoesNotInventATagWhenNoVersionIsConfigured() throws {
-        for withGh in [true, false] {
-            let r = try runWrapperWithoutABinary(withGh: withGh, pluginJSON: #"{"name": "akashic-mcp"}"#)
-            XCTAssertEqual(r.status, 1, r.err)
-            XCTAssertFalse(r.err.contains("akashic-mcp-v"), "沒有版本就不得印出 tag：\(r.err)")
-            XCTAssertTrue(r.err.contains("curl https://github.com/PsychQuant/Akashic-Library/releases/latest/download/akashic-mcp"),
-                          "沒有版本時 curl 走 latest：\(r.err)")
-            XCTAssertTrue(r.err.contains("最新 release 的 asset 還沒上傳"), r.err)
+    /// plugin.json 讀不到版本、~/bin 又沒有現成的 binary：**拒絕，什麼都不下載、不執行**（#693 R3 verify 第 12／19／23 列）。
+    /// R2 把這一格改成「curl 走 `releases/latest/download/…`」——先前那條網址是不存在的 tag、必定 404，等於關著；改了之後它成了一條活的
+    /// 下載後執行的路，而下載的檔只看 `file` 說是不是 Mach-O（完整性檢查是 #714）。gh 那條也一樣下載未釘版本的 latest。
+    /// 這裡讓 gh 的 latest 下載**會成功**（`latestOK`）：修正之前 wrapper 會把它裝進 ~/bin 並執行（結束碼 0、印 `vlatest`）。
+    func testWithoutAConfiguredVersionNothingIsDownloadedOrRun() throws {
+        for json in [#"{"name": "akashic-mcp"}"#, #"{"name": "akashic-mcp", "binary_version": ""}"#, ""] {
+            for withGh in [true, false] {
+                try? FileManager.default.removeItem(at: root.appendingPathComponent("calls.log"))
+                let r = try runWrapperWithoutABinary(withGh: withGh, pluginJSON: json, latestOK: true)
+                let what = "plugin.json=\(json.isEmpty ? "（空檔）" : json) withGh=\(withGh)"
+                XCTAssertEqual(r.status, 1, "\(what)：\(r.err)")
+                XCTAssertTrue(r.err.contains("讀不到 binary_version 或 version") && r.err.contains("不下載未釘版本的 latest"), "\(what)：\(r.err)")
+                XCTAssertFalse(r.err.contains("vlatest") || r.err.contains("akashic-mcp-v") || r.err.contains("downloading"),
+                               "沒有版本就不印出不存在的版本標籤或 tag：\(r.err)")
+                XCTAssertFalse(r.err.contains("unbound variable"), "\(what)：\(r.err)")
+                let calls = (try? String(contentsOf: root.appendingPathComponent("calls.log"), encoding: .utf8)) ?? ""
+                XCTAssertEqual(calls, "", "\(what)：gh／curl 一次都不得呼叫")
+                XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("home/bin/akashic-mcp").path),
+                               "\(what)：沒有東西被裝進 ~/bin")
+            }
         }
+    }
+
+    /// 讀不到版本、但已有 binary：照舊執行它、不下載、版本檔不動（這一格修正前後相同，釘住「拒絕」只在沒有 binary 時）。
+    func testWithoutAConfiguredVersionAnExistingBinaryStillRuns() throws {
+        try #"{"name": "akashic-mcp"}"#.write(to: root.appendingPathComponent("plugin/.claude-plugin/plugin.json"), atomically: true, encoding: .utf8)
+        let r = try runWrapper(tagOK: true)
+        XCTAssertEqual(r.out, "OLD")
+        XCTAssertEqual(r.version, "0.12.0")
     }
 
     /// 13:51 的情形：指定版本的 tag 下載失敗時，不得退回 latest、不得改版本檔，沿用現有 binary

@@ -42,6 +42,12 @@
 
 
 
+## #611、#692、#693、#708 — R3 修正（2026-10-02）
+
+- **`akashic-mcp` wrapper 讀不到版本時拒絕下載**（#693）：plugin.json 沒有 `binary_version`／`version`、`~/bin` 又沒有現成的 binary 時，不再下載 latest 的 asset 來執行（R2 讓 curl 退路走 latest，成了一條沒有完整性檢查的下載後執行的路；完整性檢查是 #714）。現在印出原因、請使用者重新安裝 plugin，並以 1 結束；有現成 binary 時照舊執行它。
+
+plugin 版號沒有動（wrapper 與 skill 文字的改動）。
+
 ## #564 修正輪 — person 的名字分類要理由、已撤回的名字可以連同記錄刪、一次至多 200 個名字（不相容）
 
 R1 verify 的三個錯誤與使用者 2026-10-02 的四點裁決。

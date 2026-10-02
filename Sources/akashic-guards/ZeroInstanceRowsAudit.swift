@@ -5,11 +5,12 @@
 //   表裡每一列都引一個 issue 編號。裁決是 ✅「寫」的列，那個編號必須出現在
 //   `Sources/` 底下——也就是那個守衛真的被實作了。
 //
-// **另一條義務（#711）**：量測區塊裡每一條「對 binary 的輸出數 `grep -c`」的指令，必須帶自證——
-// 前面接 `LC_ALL=C grep -a -q '<這條檢查獨有的訊息片段>' "$(command -v …)" &&`，或同一個區塊有一行標明
-// `正對照`（期望值不是 0 的那條）。沒有的話，舊 binary 沒有那條檢查時印的是 `0`，與「檢查過且乾淨」
-// 在輸出上分不開（第 13 列的自證就是為了防這件事）。#710 R1 verify 一次抓到二十多條沒有閘的，
-// 說明卻都寫「同第 13 列的自證」——文字與指令分岔，而且是安靜的。
+// **另一條義務（#711）**：量測區塊裡每一條「對 binary 的輸出計數」的指令，必須帶自證——
+// 前面以 `&&` 接 `LC_ALL=C grep -a -q '<這條檢查獨有的訊息片段>' "$(command -v <同一支 binary>)"`，或同一個區塊
+// 較早一條量測的行尾寫 `# 正對照`（期望值不是 0 的那條）。沒有的話，舊 binary 沒有那條檢查時印的是 `0`，與「檢查過且
+// 乾淨」在輸出上分不開（第 13 列的自證就是為了防這件事）。#710 R1 verify 一次抓到二十多條沒有閘的，
+// 說明卻都寫「同第 13 列的自證」——文字與指令分岔，而且是安靜的。R1（#711 R1 verify）起閘要以 `&&` 接上、查同一支
+// binary，片段要在 release 版找得到、不能是負控自己種進 binary 的——細節見 `selfProofIssues` 與 `selfProofNeedleIssues`。
 //
 // **誠實邊界（三條，與 Python 版同）**：
 //
@@ -189,10 +190,12 @@ func zeroInstanceRowsAudit() -> Int32 {
     // **量測指令的自證閘**（#711）。空掃描不是通過：一條都沒掃到，代表抽取式與檔的寫法脫節了。
     let proof = selfProofIssues(in: rule)
     if proof.checked == 0 {
-        fails.append("量測區塊裡一條「對 binary 輸出數 `grep -c`」的指令都沒掃到——"
+        fails.append("量測區塊裡對 binary 輸出計數的指令一條都沒掃到——"
                      + "抽取式與檔的寫法脫節了，自證閘的檢查等於沒跑")
     }
     fails += proof.issues
+    // #711 R1：閘的片段要在 release 版找得到、而且不是負控自己種進 `akashic-guards` 的
+    fails += selfProofNeedleIssues(gates: proof.gates)
 
     var out = "══ zero-instance 裁決表：\(rows.count) 列；量測指令 \(proof.checked) 條數 binary 輸出 ══\n"
     for f in fails { out += "  ✗ \(f)\n" }
@@ -203,64 +206,357 @@ func zeroInstanceRowsAudit() -> Int32 {
 }
 
 
-// MARK: - 量測指令的自證閘（#711）
+// MARK: - 量測指令的自證閘（#711；R1 起閘要以 `&&` 接到被量的指令、查同一支 binary）
 
-/// 數 binary 輸出的指令：`<akashic …> | grep -c …`。**必須是管線**——`grep -c '…' ~/.akashic/entities/*.yaml`
-/// 數的是檔案不是 binary 的輸出，沒有「舊 binary」這回事，不在此列。
-private let selfProofCountRe = #"\|\s*grep\s+-[A-Za-z]*c[A-Za-z]*(?:\s|$)"#
-/// 管線的來源：`akashic <子命令>`、`akashic-guards <子命令>`、`.build/debug/akashic…`，或存了它們輸出的 `"$out"`。
-private let selfProofSourceRe = #"(?:\bakashic(?:-guards)?\s+[a-z]|\.build/debug/akashic|"\$out")"#
-/// 自證閘：`LC_ALL=C grep -a -q`。`LC_ALL=C` 不能省——macOS 的 `/usr/bin/grep` 在 UTF-8 locale 下對 binary 比不到中文
-/// （#710 R1：同一個 binary 印 0 與 3）。
-private let selfProofGateRe = #"LC_ALL=C\s+grep\s+-a\s+-q\b"#
-private let selfProofLooseGateRe = #"\bgrep\s+-a\s+-q\b"#
+/// 被量的指令的來源：`akashic <子命令>`、`akashic-guards <子命令>`（含路徑，如 `.build/debug/akashic-guards`）、
+/// `"$(command -v akashic)" <子命令>`、`swift run akashic <子命令>`，或存了它們輸出的 `"$out"`。只看管線的**第一個**命令。
+/// 第 1 組＝binary 名（`"$out"` 時為空：它的 binary 在別一行，閘綁不上，只能靠正對照）。
+/// R1 起子命令前可以有 `-`／`--` 開頭的選項（`akashic --library X validate`，#711 R1 verify 第 13 列）。
+private let selfProofSourceRe =
+    #"^\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(?:swift\s+run\s+(?:-\S+\s+)*)?(?:"?\$\(command -v (akashic(?:-guards)?)\)"?|(?:[\w.~-]*/)*(akashic(?:-guards)?))\s+-{0,2}[a-z]|"\$out""#
+/// 自證閘：一整個命令恰為 `LC_ALL=C grep -a -q '<片段>' <binary>`。`LC_ALL=C` 不能省——macOS 的 `/usr/bin/grep` 在 UTF-8
+/// locale 下對 binary 比不到中文（#710 R1：同一個 binary 印 0 與 3）。
+private let selfProofLooseGateRe = #"^\s*(?:LC_ALL=C\s+)?grep\s+-a\s+-q\b"#
 /// 正對照：期望值不是 0 的那條。舊 binary 印 0 與它的期望值分得開，所以同一個區塊裡跟在它後面的 0 有了對照。
-private let selfProofControlMark = "正對照"
+/// **R1 起只認行尾 shell 註解的開頭**（`# 正對照…`），而且那一行本身要是一條被量的指令——
+/// `# 這裡沒有正對照` 這種否定句不算（#711 R1 verify 第 21、24、27 列：先前是任意子字串）。
+private let selfProofControlRe = #"^#\s*正對照"#
 
-/// 回 (問題, 掃到幾條數 binary 輸出的指令)。
+/// 一個量測單位切成頂層的命令串：`pipelines[i]` 是一條管線（以 `|` 分開的命令），`joins[i]` 是接在
+/// `pipelines[i]` 與 `pipelines[i+1]` 之間的運算子（`&&`／`||`／`;`／`&`）。引號內與 `$( … )`／`( … )` 內的運算子不算；
+/// `2>&1`、`&>` 這類重導向裡的 `&` 不算。
+struct SelfProofShellList { var pipelines: [[String]]; var joins: [String] }
+
+func selfProofShellList(_ s: String) -> SelfProofShellList {
+    let c = Array(s.unicodeScalars)
+    var pipelines: [[String]] = [[]]
+    var joins: [String] = []
+    var cur = ""
+    var inSingle = false, inDouble = false
+    var depth = 0
+    var i = 0
+    func endCommand() { pipelines[pipelines.count - 1].append(cur.trimmingCharacters(in: .whitespaces)); cur = "" }
+    while i < c.count {
+        let ch = c[i]
+        if inSingle {
+            cur.unicodeScalars.append(ch); if ch == "'" { inSingle = false }; i += 1; continue
+        }
+        if ch == "\\", i + 1 < c.count { cur.unicodeScalars.append(ch); cur.unicodeScalars.append(c[i + 1]); i += 2; continue }
+        if ch == "\"" { inDouble.toggle(); cur.unicodeScalars.append(ch); i += 1; continue }
+        if !inDouble, ch == "'" { inSingle = true; cur.unicodeScalars.append(ch); i += 1; continue }
+        if ch == "(" { depth += 1; cur.unicodeScalars.append(ch); i += 1; continue }
+        if ch == ")" { depth = max(0, depth - 1); cur.unicodeScalars.append(ch); i += 1; continue }
+        if inDouble || depth > 0 { cur.unicodeScalars.append(ch); i += 1; continue }
+        let next: Unicode.Scalar? = i + 1 < c.count ? c[i + 1] : nil
+        let prev: Unicode.Scalar? = cur.unicodeScalars.last
+        if ch == "|" {
+            if next == "|" { endCommand(); joins.append("||"); pipelines.append([]); i += 2; continue }
+            endCommand(); i += 1; continue
+        }
+        if ch == ";" { endCommand(); joins.append(";"); pipelines.append([]); i += 1; continue }
+        if ch == "&" {
+            if next == "&" { endCommand(); joins.append("&&"); pipelines.append([]); i += 2; continue }
+            if prev == ">" || next == ">" { cur.unicodeScalars.append(ch); i += 1; continue }   // 2>&1、&> 是重導向
+            endCommand(); joins.append("&"); pipelines.append([]); i += 1; continue
+        }
+        cur.unicodeScalars.append(ch); i += 1
+    }
+    endCommand()
+    return SelfProofShellList(pipelines: pipelines, joins: joins)
+}
+
+/// 去掉行尾的 shell 註解（引號外、位在字首的 `#` 起到行尾），回 (指令, 註解)。註解不含開頭的 `#`。
+func selfProofSplitComment(_ s: String) -> (code: String, comment: String?) {
+    let c = Array(s.unicodeScalars)
+    var inSingle = false, inDouble = false
+    var i = 0
+    while i < c.count {
+        let ch = c[i]
+        if inSingle { if ch == "'" { inSingle = false }; i += 1; continue }
+        if ch == "\\" { i += 2; continue }
+        if ch == "\"" { inDouble.toggle(); i += 1; continue }
+        if !inDouble, ch == "'" { inSingle = true; i += 1; continue }
+        if !inDouble, ch == "#", i == 0 || c[i - 1] == " " || c[i - 1] == "\t" {
+            var code = String.UnicodeScalarView(), comment = String.UnicodeScalarView()
+            code.append(contentsOf: c[..<i]); comment.append(contentsOf: c[i...])
+            return (String(code), String(comment))
+        }
+        i += 1
+    }
+    return (s, nil)
+}
+
+/// 一個命令的 token（`shellLex`；未閉合引號退回空白切分——那時這個命令也不會被認成閘）。
+private func selfProofTokens(_ cmd: String) -> [String] {
+    (try? shellLex(cmd)) ?? cmd.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
+}
+
+/// 計數出口：`grep` 帶 `-c`（選項串任何位置，如 `-cE`、`-vc`、分開寫的 `-E -c`）或 `--count`；`wc -l`。
+/// R1 起認這些寫法（#711 R1 verify 第 18、24、27 列：先前只認 `| grep -c…` 一種排列）。
+private func selfProofIsCount(_ cmd: String) -> Bool {
+    let t = selfProofTokens(cmd)
+    guard let head = t.first.map({ ($0 as NSString).lastPathComponent }) else { return false }
+    if head == "wc" { return t.dropFirst().contains { $0.hasPrefix("-") && !$0.hasPrefix("--") && $0.contains("l") } || t.contains("--lines") }
+    guard ["grep", "egrep", "fgrep"].contains(head) else { return false }
+    var i = 1
+    while i < t.count {
+        let a = t[i]
+        if a == "--" { break }
+        if a == "--count" { return true }
+        if a == "-e" || a == "-f" || a == "--regexp" || a == "--file" { i += 2; continue }   // 下一個 token 是樣式，不是選項
+        if a.hasPrefix("-"), !a.hasPrefix("--"), a.count > 1 {
+            for ch in a.dropFirst() {
+                if ch == "c" { return true }
+                if ch == "e" || ch == "f" { break }   // `-ve 'x'` 這類：後面是樣式
+            }
+        }
+        i += 1
+    }
+    return false
+}
+
+/// 一個命令若恰是自證閘，回 (片段, binary 名, 有沒有 `LC_ALL=C`)。binary 名取 `"$(command -v X)"` 的 X，或路徑的最後一段。
+func selfProofGate(_ cmd: String) -> (needle: String, binary: String, strict: Bool)? {
+    var t = selfProofTokens(cmd)
+    var strict = false
+    if t.first == "LC_ALL=C" { strict = true; t.removeFirst() }
+    guard t.count == 5, t[0] == "grep", t[1] == "-a", t[2] == "-q" else { return nil }
+    let target = t[4]
+    let binary: String
+    if target.hasPrefix("$(command -v "), target.hasSuffix(")") {
+        binary = String(target.dropFirst("$(command -v ".count).dropLast())
+    } else {
+        binary = (target as NSString).lastPathComponent
+    }
+    return (t[3], binary, strict)
+}
+
+/// 被量的指令的來源 binary：`nil`＝不是 binary 的輸出（不在此列）；`.some("")`＝`"$out"`（binary 在別一行）。
+private func selfProofSource(_ firstCommand: String) -> String? {
+    guard let m = matches(firstCommand, selfProofSourceRe).first else { return nil }
+    let ns = firstCommand as NSString
+    for g in 1...2 where m.range(at: g).location != NSNotFound { return ns.substring(with: m.range(at: g)) }
+    return ""
+}
+
+/// 回 (問題, 掃到幾條數 binary 輸出的指令, 掃到的閘)。
 ///
-/// **單位**：fence 外是一行裡的每一段 inline code；fence 內是一行。**閘要在同一個單位裡、而且在 `grep -c` 之前**（`&&` 串起來）。
-/// fence 內另有兩條繼承：同一個區塊較早的一行有閘，或有 `正對照`——區塊裡一行一條指令，閘與正對照寫在自己的那一行。
+/// **單位**：fence 外是一行裡的每一段 inline code；fence 內是一行（先去掉行尾的 `#` 註解）。語言標記是 `text` 的 fence
+/// 是**紀錄、不是可執行的量測**，不掃（第 71 列已退場的那個區塊就是這樣標的）。
 ///
-/// **誠實邊界**：只驗「有閘」，不驗閘的片段是不是那條檢查獨有的（那要人判斷：片段選得太通用時，舊 binary 照樣通過閘）；
-/// 只認 `grep -c` 這種計數出口——`| wc -l`、`grep -q` 這類不在此列，目前量測區塊沒有用到。
-func selfProofIssues(in rule: String) -> (issues: [String], checked: Int) {
+/// **閘的判準（R1 起，#711 R1 verify 第 2、13、27 列）**：一條被量的管線前面那一個命令必須恰是自證閘，**以 `&&` 接過來**，
+/// 而且閘查的 binary 與管線的來源是同一支。`;`／`||`／`&` 接的閘不算——閘失敗時被量的指令照跑、印 `0`，正是自證要防的事；
+/// 較早一行的閘也不算（它擋不住下一行）。**不支援其他 fail-stop 寫法**（`set -e`、`if … then`、`|| exit`）：量測區塊沒有用到，
+/// 加進來只會讓判準變寬——要用它們，先改這支。
+///
+/// **正對照**是另一種自證，只在 fence 內：一條被量的指令行尾寫 `# 正對照…`（它的期望值不是 0），同一個區塊裡它之後的計數都有了
+/// 對照——讀的人看正對照是不是 0，就知道後面的 0 算不算數。它不靠控制流，所以不要求 `&&`。
+///
+/// **誠實邊界**：
+/// · 只驗閘「在、接得上、查同一支 binary」，不驗片段是不是那條檢查**獨有**的（那要人判斷：片段選得太通用時，舊 binary 照樣通過）；
+///   片段在不在 binary 裡由 `selfProofNeedleIssues` 另外查。
+/// · 來源只認上面那幾種寫法；`"$res"`、不加引號的 `$out`、`cat f | grep -c` 這類以變數或檔案當來源的不算被量的指令——
+///   不掃到就不會紅，這是漏報的方向。
+/// · 正對照只驗「寫了」，不驗那一行的期望值真的不是 0。
+func selfProofIssues(in rule: String) -> (issues: [String], checked: Int, gates: [(needle: String, binary: String, line: Int)]) {
     var issues: [String] = []
     var checked = 0
-    var inFence = false
-    var blockProven = false   // 本 fence 區塊裡，較早的一行已有閘或正對照
-    func judge(_ unit: String, line: Int, inherited: Bool) {
-        guard let cm = matches(unit, selfProofCountRe).first else { return }
-        let prefix = (unit as NSString).substring(to: cm.range.location)
-        guard !matches(prefix, selfProofSourceRe).isEmpty else { return }
-        checked += 1
-        if !matches(prefix, selfProofGateRe).isEmpty || inherited { return }
-        let head = String(unit.prefix(70))
-        if !matches(prefix, selfProofLooseGateRe).isEmpty {
-            issues.append("第 \(line) 行的量測指令有 `grep -a -q` 閘卻沒有 `LC_ALL=C`——macOS 的 `/usr/bin/grep` 在 UTF-8 locale 下"
-                          + "對 binary 比不到中文，閘會誤判成「沒有這條檢查」：`\(head)…`")
-        } else {
+    var gates: [(needle: String, binary: String, line: Int)] = []
+    var inFence = false, fenceIsRecord = false
+    var blockProven = false   // 本 fence 區塊裡，較早的一行是正對照
+    /// 一個單位：記下閘、判每一條被量的管線。回這個單位裡有沒有被量的管線。
+    func judge(_ unit: String, line: Int, inherited: Bool) -> Bool {
+        let list = selfProofShellList(unit)
+        var counted = false
+        for (i, pipe) in list.pipelines.enumerated() {
+            if pipe.count == 1, let g = selfProofGate(pipe[0]), g.strict { gates.append((g.needle, g.binary, line)) }
+            guard pipe.count >= 2, let source = selfProofSource(pipe[0]),
+                  pipe.dropFirst().contains(where: selfProofIsCount) else { continue }
+            checked += 1
+            counted = true
+            if inherited { continue }
+            let head = String(unit.prefix(70))
+            let before: (cmd: String, join: String)? = i > 0 && list.pipelines[i - 1].count == 1
+                ? (list.pipelines[i - 1][0], list.joins[i - 1]) : nil
+            if let b = before, let g = selfProofGate(b.cmd) {
+                if !g.strict {
+                    issues.append("第 \(line) 行的量測指令有 `grep -a -q` 閘卻沒有 `LC_ALL=C`——macOS 的 `/usr/bin/grep` 在 UTF-8 locale 下"
+                                  + "對 binary 比不到中文，閘會誤判成「沒有這條檢查」：`\(head)…`")
+                } else if b.join != "&&" {
+                    issues.append("第 \(line) 行的量測指令與自證閘之間是 `\(b.join)` 不是 `&&`——閘失敗時被量的指令照跑、印 `0`，"
+                                  + "與「檢查過且乾淨」分不開：`\(head)…`")
+                } else if source.isEmpty || g.binary != source {
+                    let what = source.isEmpty ? "`\"$out\"`（它的 binary 在別一行，閘綁不上）" : "`\(source)`"
+                    issues.append("第 \(line) 行的自證閘查的是 `\(g.binary)`，被量的卻是 \(what)——閘證明不了被量的那支 binary "
+                                  + "有這條檢查：`\(head)…`")
+                }
+                continue
+            }
+            if let b = before, !matches(b.cmd, selfProofLooseGateRe).isEmpty {
+                issues.append("第 \(line) 行的量測指令有 `grep -a -q` 閘卻沒有 `LC_ALL=C`——macOS 的 `/usr/bin/grep` 在 UTF-8 locale 下"
+                              + "對 binary 比不到中文，閘會誤判成「沒有這條檢查」：`\(head)…`")
+                continue
+            }
             issues.append("第 \(line) 行的量測指令數 binary 的輸出，卻沒有自證閘：`\(head)…`——舊 binary 沒有這條檢查時它印 `0`，"
-                          + "與「檢查過且乾淨」分不開。前面接 `LC_ALL=C grep -a -q '<這條檢查獨有的訊息片段>' \"$(command -v akashic)\" &&`，"
-                          + "或同一個區塊寫一行 `正對照`（期望值不是 0 的那條）")
+                          + "與「檢查過且乾淨」分不開。前面以 `&&` 接 `LC_ALL=C grep -a -q '<這條檢查獨有的訊息片段>' \"$(command -v akashic)\"`"
+                          + "（查同一支 binary），或在同一個區塊較早的一條量測行尾寫 `# 正對照`（期望值不是 0 的那條）")
         }
+        return counted
     }
     for (i, l) in rule.components(separatedBy: "\n").enumerated() {
         let line = i + 1
-        if l.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
-            inFence.toggle(); blockProven = false; continue
+        let trimmed = l.trimmingCharacters(in: .whitespaces)
+        if trimmed.hasPrefix("```") {
+            if inFence { inFence = false; fenceIsRecord = false }
+            else { inFence = true; fenceIsRecord = trimmed.dropFirst(3).trimmingCharacters(in: .whitespaces) == "text" }
+            blockProven = false
+            continue
         }
         if inFence {
-            // 閘與正對照先登記再評這一行：它們寫在自己那一行的指令裡，而且只對**之後**的行有繼承效果
-            // （這一行自己的閘由 `judge` 在 prefix 裡看）。
-            let inheritedBefore = blockProven
-            judge(l, line: line, inherited: inheritedBefore || l.contains(selfProofControlMark))
-            if !matches(l, selfProofGateRe).isEmpty || l.contains(selfProofControlMark) { blockProven = true }
+            if fenceIsRecord { continue }
+            let (code, comment) = selfProofSplitComment(l)
+            let isControl = comment.map { !matches($0, selfProofControlRe).isEmpty } ?? false
+            let counted = judge(code, line: line, inherited: blockProven || isControl)
+            if counted && isControl { blockProven = true }
         } else {
             for m in matches(l, #"`([^`\n]+)`"#) {
-                judge((l as NSString).substring(with: m.range(at: 1)), line: line, inherited: false)
+                let (code, comment) = selfProofSplitComment((l as NSString).substring(with: m.range(at: 1)))
+                let isControl = comment.map { !matches($0, selfProofControlRe).isEmpty } ?? false
+                _ = judge(code, line: line, inherited: isControl)
             }
         }
     }
-    return (issues, checked)
+    return (issues, checked, gates)
+}
+
+// MARK: - 閘的片段要在 binary 裡、而且不能是負控自己種進去的（#711 R1）
+
+/// **最短的字面段**：Swift 對 15 位元組以內的字串字面段在最佳化建置裡當成 small string 的 immediate 嵌進指令，
+/// 位元組不連續地出現在 binary 裡——`LC_ALL=C grep -a -q` 在 release 版找不到它（#711 R1 verify 第 3、5、10 列實測：
+/// 第 34 列的 `隸屬 key「`、第 36 列的 `個 venue 上` 各 13 位元組，debug 版找得到、release 版找不到）。
+/// 判準是「片段是某個 ≥16 位元組的字面段的子字串」，不是片段本身的長度：`死 verdict`（11 位元組）在較長的字面段裡，release 版找得到。
+let selfProofMinLiteralSegmentBytes = 16
+
+/// 負控的 harness 檔：`*Mutations.swift`、`*MutationsData.swift`（`swift-is-the-implementation-language`：守衛的負對照寫成
+/// `*-mutations` 子命令）。它們與守衛編進同一支 `akashic-guards`，所以它們的字面段裡出現的片段會讓對 `akashic-guards` 的閘成立，
+/// 即使真正的檢查已經不在（#711 R1 verify 第 6、11 列：第 71 列的閘被 `audit-guards-mutations` 的錨字串滿足）。
+func selfProofIsHarness(_ rel: String) -> Bool {
+    rel.hasSuffix("Mutations.swift") || rel.hasSuffix("MutationsData.swift")
+}
+
+/// Swift 原始碼裡每個字串字面段（UTF-8 位元組；插值 `\( … )` 是段的邊界；常見的逃脫已解碼；註解不算）。
+/// 支援一般、多行（`"""`）與 raw（`#"…"#`）字串。正規式字面（`/…/`）不處理——這個 repo 的 Sources 沒有用到。
+func swiftStringLiteralSegments(_ src: String) -> [[UInt8]] {
+    let b = Array(src.utf8)
+    let n = b.count
+    var out: [[UInt8]] = []
+    var i = 0
+    func at(_ k: Int, _ s: [UInt8]) -> Bool {
+        guard k + s.count <= n else { return false }
+        for j in 0..<s.count where b[k + j] != s[j] { return false }
+        return true
+    }
+    let q: UInt8 = 0x22, bs: UInt8 = 0x5C, hash: UInt8 = 0x23, slash: UInt8 = 0x2F, star: UInt8 = 0x2A, nl: UInt8 = 0x0A
+    while i < n {
+        if b[i] == slash, i + 1 < n, b[i + 1] == slash { while i < n, b[i] != nl { i += 1 }; continue }
+        if b[i] == slash, i + 1 < n, b[i + 1] == star {
+            i += 2
+            while i + 1 < n, !(b[i] == star && b[i + 1] == slash) { i += 1 }
+            i += 2; continue
+        }
+        var k = i, hashes = 0
+        while k < n, b[k] == hash { hashes += 1; k += 1 }
+        guard k < n, b[k] == q else { i = hashes > 0 ? k : i + 1; continue }
+        let multi = at(k, [q, q, q])
+        i = k + (multi ? 3 : 1)
+        let close = (multi ? [q, q, q] : [q]) + Array(repeating: hash, count: hashes)
+        let esc = [bs] + Array(repeating: hash, count: hashes)
+        var seg: [UInt8] = []
+        while i < n {
+            if at(i, close) { i += close.count; break }
+            if !multi, b[i] == nl { break }
+            if at(i, esc) {
+                var e = i + esc.count
+                guard e < n else { i = n; break }
+                switch b[e] {
+                case 0x28:   // `(`：插值，段的邊界
+                    out.append(seg); seg = []
+                    var depth = 1
+                    e += 1
+                    while e < n, depth > 0 { if b[e] == 0x28 { depth += 1 } else if b[e] == 0x29 { depth -= 1 }; e += 1 }
+                    i = e; continue
+                case 0x75 where e + 1 < n && b[e + 1] == 0x7B:   // `\u{…}`
+                    var j = e + 2, hex = ""
+                    while j < n, b[j] != 0x7D { hex.unicodeScalars.append(Unicode.Scalar(b[j])); j += 1 }
+                    if let v = UInt32(hex, radix: 16), let s = Unicode.Scalar(v) { seg += Array(String(s).utf8) }
+                    i = j + 1; continue
+                case 0x6E: seg.append(0x0A)   // n
+                case 0x74: seg.append(0x09)   // t
+                case 0x72: seg.append(0x0D)   // r
+                case 0x30: seg.append(0x00)   // 0
+                default:   seg.append(b[e])   // \" \' \\
+                }
+                i = e + 1; continue
+            }
+            seg.append(b[i]); i += 1
+        }
+        out.append(seg)
+    }
+    return out
+}
+
+/// `haystack` 的 UTF-8 位元組裡有沒有 `needle`（`memmem`，不經 String 的比較語意）。
+private func bytesContain(_ haystack: String, _ needle: [UInt8]) -> Bool {
+    var h = haystack
+    return h.withUTF8 { hb in
+        needle.withUnsafeBytes { nb in
+            guard let hp = hb.baseAddress, let np = nb.baseAddress, !needle.isEmpty else { return false }
+            return memmem(hp, hb.count, np, nb.count) != nil
+        }
+    }
+}
+
+/// 閘的片段兩個條件（#711 R1）：
+/// 1. **在那支 binary 的原始碼裡、而且在一個 ≥ `selfProofMinLiteralSegmentBytes` 位元組的字面段裡**——否則 release 版找不到它，
+///    閘把有這條檢查的 binary 讀成舊的（自證的反向誤判）。`akashic` 的原始碼＝`Sources/` 除了 `akashic-guards` 與 `akashic-mcp`
+///    （沒有逐 target 解析依賴：一個只在 App 模組裡的字面段會讓這條誤過，release 版的實際 grep 才是終判）；`akashic-guards` 的原始碼＝
+///    它自己的目錄、不含 harness 檔。
+/// 2. 對 `akashic-guards` 的閘：**片段不得出現在 harness 檔的任何字面段裡**（見 `selfProofIsHarness`）。harness 要比對那段訊息時，
+///    改用同一則訊息裡的另一段文字。
+/// 只查 binary 是 `akashic`／`akashic-guards` 的閘（範本裡的 `<…>` 與 `…` 不在此列）。
+func selfProofNeedleIssues(gates: [(needle: String, binary: String, line: Int)]) -> [String] {
+    let relevant = gates.filter { $0.binary == "akashic" || $0.binary == "akashic-guards" }
+    guard !relevant.isEmpty else { return [] }
+    let needleBytes = Set(relevant.map(\.needle)).map { Array($0.utf8) }
+    let sep = "\u{0}"
+    var long: [String: String] = ["akashic": "", "akashic-guards": ""]
+    var harness = ""
+    for rel in swiftSources() {
+        let module = rel.split(separator: "/").dropFirst().first.map(String.init) ?? ""
+        let isGuards = module == "akashic-guards"
+        guard !(module == "akashic-mcp"), let text = readFile(rel) else { continue }
+        let isHarness = isGuards && selfProofIsHarness(rel)
+        // 非 harness 檔先以原文篩：原文裡連片段都沒有，就不會有含它的字面段（片段跨逃脫寫法時這裡會漏，那是誤報的方向——第 1 條會紅）。
+        // 用 `memmem`：5 MB 的 Sources × 三十個片段，Swift 的 `String.contains` 在 debug 版要好幾秒，而 audit-guards-mutations 跑這支十幾次
+        guard isHarness || needleBytes.contains(where: { bytesContain(text, $0) }) else { continue }
+        for seg in swiftStringLiteralSegments(text) {
+            let s = String(decoding: seg, as: UTF8.self)
+            if isHarness { harness += s + sep }
+            else if seg.count >= selfProofMinLiteralSegmentBytes { long[isGuards ? "akashic-guards" : "akashic", default: ""] += s + sep }
+        }
+    }
+    var out: [String] = []
+    var seen = Set<String>()
+    for g in relevant where seen.insert(g.binary + sep + g.needle).inserted {
+        if long[g.binary]?.range(of: g.needle, options: .literal) == nil {
+            out.append("第 \(g.line) 行的自證閘片段「\(g.needle)」不在 `\(g.binary)` 原始碼任何 ≥\(selfProofMinLiteralSegmentBytes) 位元組的字串字面段裡"
+                       + "——最佳化建置會把 15 位元組以內的字面段當 immediate 嵌進指令，release 版的 binary 裡找不到它，"
+                       + "閘會把有這條檢查的 binary 讀成舊的。改用同一則訊息裡較長字面段的一段")
+        }
+        if g.binary == "akashic-guards", harness.range(of: g.needle, options: .literal) != nil {
+            out.append("第 \(g.line) 行的自證閘片段「\(g.needle)」出現在負控 harness（`*Mutations.swift`／`*MutationsData.swift`）的字串裡"
+                       + "——它們編進同一支 `akashic-guards`，真的檢查不在時閘照樣成立。harness 改用那則訊息的另一段文字")
+        }
+    }
+    return out
 }

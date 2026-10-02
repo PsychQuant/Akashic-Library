@@ -194,7 +194,7 @@ EOF
 
 **第 16 列的量測（2026-09-04；2026-09-26 改量檔案位元組，可重跑）**：warning 數 `LC_ALL=C grep -a -q 'venue 的記錄檔逼近讀取上限' "$(command -v akashic)" && akashic validate 2>&1 | grep -c 'venue 的記錄檔逼近讀取上限'`（應為 0；2026-09-26 前綴改名，舊前綴是「venue 的 verdict 數逼近 decode 預算」——量的已不是筆數）；最大檔 `ls -l ~/.akashic/entities/*.yaml | sort -k5 -n | tail -1`（2026-09-26：268,627 bytes，即 `psychological-methods`，1,352 筆 verdict）；門檻 `AliasEventBudget.recordFileWarningBytes`（4,194,304＝8 MiB÷2）。舊門檻 11,111 筆（200,000÷2÷9）量的是對 store 檔不生效的節點軸，已退場。
 
-**第 19 列的量測（2026-09-09，可重跑）**：未被 bullet 引用的列數應為 0——`LC_ALL=C grep -a -q '沒有任何 bullet 講它' "$(command -v akashic-guards)" && akashic-guards zero-instance-rows-audit 2>&1 | grep -c '沒有任何 bullet 講它'`（用含這條檢查的 binary；同第 13 列的自證，舊 binary 印不出東西）。**同一支守衛自 #711 起另查本檔的量測指令**：每一條 `<akashic …> | grep -c …` 必須帶 `LC_ALL=C grep -a -q '<那條檢查獨有的訊息片段>' … &&` 的自證閘，或與一條 `正對照`（期望值不是 0 的那條）同在一個區塊；沒有的話舊 binary 印 `0`、與「檢查過且乾淨」分不開。**這是必要條件不是充分條件**：它只看閘在不在、不看片段選得夠不夠獨有。負控是 `audit-guards-mutations` 裡 `zi-rows：量測指令…` 開頭的幾格。手算對照：
+**第 19 列的量測（2026-09-09，可重跑）**：未被 bullet 引用的列數應為 0——`LC_ALL=C grep -a -q '沒有任何 bullet 講它' .build/debug/akashic-guards && .build/debug/akashic-guards zero-instance-rows-audit 2>&1 | grep -c '沒有任何 bullet 講它'`（用含這條檢查的 binary；同第 13 列的自證，舊 binary 印不出東西。`akashic-guards` 不裝進 PATH，只在 `swift build` 之後的 `.build/debug/`——#711 R1 之前這裡寫 `"$(command -v akashic-guards)"`，在沒有它的 PATH 上閘必然失敗、什麼都不印，與舊 binary 分不開；第 20、21、70、71 列早就寫這個路徑）。**同一支守衛自 #711 起另查本檔的量測指令**：每一條對 binary 輸出計數的指令（`<akashic …> | grep -c …`，`grep` 的 `-c` 在選項串任何位置、`--count`、`wc -l` 都算）必須帶自證：被量的管線前面以 `&&` 接 `LC_ALL=C grep -a -q '<那條檢查獨有的訊息片段>' <同一支 binary>`，或同一個區塊較早一條量測的行尾寫 `# 正對照`（期望值不是 0 的那條）；沒有的話舊 binary 印 `0`、與「檢查過且乾淨」分不開。**#711 R1 起四件事收緊**（R1 verify 第 2、3、5、6、10、11、13、21、24、27 列）：(1) 閘要以 `&&` 接上——`;`、`||` 接的閘失敗時被量的指令照跑，較早一行的閘擋不住下一行，都不算；不支援 `set -e`、`if` 這類其他 fail-stop 寫法；(2) 閘查的 binary 要與被量的同一支（`"$(command -v X)"` 取 X、路徑取最後一段）；(3) 片段要是那支 binary 原始碼裡某個 ≥16 位元組的字串字面段的一部分——最佳化建置把 15 位元組以內的字面段當 immediate 嵌進指令，release 版找不到它；(4) 對 `akashic-guards` 的閘，片段不得出現在負控 harness（`*Mutations.swift`／`*MutationsData.swift`）的字串裡——它們編進同一支 binary，真的檢查不在時閘照樣成立。`正對照` 只認行尾註解的開頭（`# 正對照…`），否定句不算。語言標記是 `text` 的 fence 是紀錄、不掃（第 71 列已退場的區塊）。**這是必要條件不是充分條件**：它不看片段選得夠不夠獨有、不驗正對照那一行的期望值真的不是 0，以變數或檔案當來源的計數（`"$res"`、`cat f | grep -c`）不算被量的指令——掃不到就不會紅。負控是 `audit-guards-mutations` 裡 `zi-rows：量測指令…`、`zi-rows：閘…` 開頭的幾格。手算對照：
 
 ```bash
 python3 - <<'EOF'
@@ -717,7 +717,7 @@ EOF
 
 **第 33 列的量測（2026-09-26，可重跑）**：`LC_ALL=C grep -a -q '團體作者 key「' "$(command -v akashic)" && akashic validate 2>&1 | grep -c '團體作者 key「'` 與 `LC_ALL=C grep -a -q '沒有對應的 venue 檔' "$(command -v akashic)" && akashic validate 2>&1 | grep -c 'venue key「.*」沒有對應的 venue 檔'`（#669 起 `venue key「…」重複` 也用這個前綴，所以錨在後半句；用含這條檢查的 binary——同第 13 列的自證，舊 binary 印不出東西；2026-09-26：2 與 0）。
 
-**第 34 列的量測（2026-09-27，可重跑）**：`LC_ALL=C grep -a -q '隸屬 key「' "$(command -v akashic)" && akashic validate 2>&1 | grep -c '隸屬 key「'` 與 `LC_ALL=C grep -a -q '上級機構 key「' "$(command -v akashic)" && akashic validate 2>&1 | grep -c '上級機構 key「'`（用含這條檢查的 binary——同第 13 列的自證，舊 binary 印不出東西）。Python 對照（不依賴 binary；讀不到的檔計數，同第 24 列）：
+**第 34 列的量測（2026-09-27，可重跑）**：`LC_ALL=C grep -a -q '位 person 引用' "$(command -v akashic)" && akashic validate 2>&1 | grep -c '隸屬 key「'` 與 `LC_ALL=C grep -a -q '上級機構 key「' "$(command -v akashic)" && akashic validate 2>&1 | grep -c '上級機構 key「'`（用含這條檢查的 binary——同第 13 列的自證，舊 binary 印不出東西；閘的片段取那則訊息裡 ≥16 位元組字面段的一段、不取被數的樣式——短的字面段在 release 版找不到，#711 R1，見第 19 列的量測段）。Python 對照（不依賴 binary；讀不到的檔計數，同第 24 列）：
 
 ```bash
 python3 - <<'EOF'
@@ -772,7 +772,7 @@ EOF
 # 2026-09-27：非判定 reference 90｜重複組 0（其中只差位元組 0）｜讀不到的檔 0
 ```
 
-**第 36 列的量測（2026-09-27，可重跑）**：`LC_ALL=C grep -a -q '個 venue 上' "$(command -v akashic)" && akashic validate 2>&1 | grep -c '掛在 .* 個 venue 上'`（用含這條檢查的 binary——同第 13 列的自證，舊 binary 印不出東西）。Python 對照（不依賴 binary；正規形＝去掉連字號、大寫；讀不到的檔計數，同第 24 列）：
+**第 36 列的量測（2026-09-27，可重跑）**：`LC_ALL=C grep -a -q '一個 ISSN 只屬於一本刊' "$(command -v akashic)" && akashic validate 2>&1 | grep -c '掛在 .* 個 venue 上'`（用含這條檢查的 binary——同第 13 列的自證，舊 binary 印不出東西；閘的片段取那則訊息裡 ≥16 位元組字面段的一段、不取被數的樣式——短的字面段在 release 版找不到，#711 R1，見第 19 列的量測段）。Python 對照（不依賴 binary；正規形＝去掉連字號、大寫；讀不到的檔計數，同第 24 列）：
 
 ```bash
 python3 - <<'EOF'
@@ -1409,7 +1409,11 @@ grep -cvE '^#|^$' .githooks/acknowledged-ci-gaps.txt                    # 2026-0
 再看正對照：對應表每支有負控的守衛一行（`·` 開頭），是 0 表示守衛中途中止。負控是 `.build/debug/akashic-guards audit-guards-mutations` 裡 `migrated：` 開頭的格子
 （2026-09-30 R2：整支 75/75）。
 
-```bash
+**2026-10-02 起這個區塊標成 `text`（#711 R1 verify 第 6、11 列）**：兩個出口已退場（下面的補記），它是紀錄、不是可執行的量測，
+`zero-instance-rows-audit` 不掃它。第一行的閘對新 binary **該**失敗——#711 第一版的 `audit-guards-mutations` 把整行當錨字串編進
+`akashic-guards`，曾讓它對沒有這兩條檢查的 binary 印「有這兩條檢查」；那幾格已改錨，守衛自 #711 R1 起擋「片段出現在 harness 的字串裡」。
+
+```text
 LC_ALL=C grep -a -q '抽取認不出' .build/debug/akashic-guards && LC_ALL=C grep -a -q '宣告是空的' .build/debug/akashic-guards && echo "有這兩條檢查"
 out=$(.build/debug/akashic-guards migrated-guard-control); echo "rc=$?"   # 2026-09-30：rc=0
 printf '%s\n' "$out" | grep -cE '^  · `'    # 正對照，2026-09-30：18

@@ -121,7 +121,9 @@ M4 第一次寫成 `ackGaps[0]` 直接取代 `ackGaps[$0]`，閉包少用一個�
 
 ## 驗證
 
-VERIFY_PLACEHOLDER
+（**2026-10-02 補記**：這一段在 commit 時沒有填，只留了佔位字串——R1 verify 第 15、20、23 列。當時的完整 `swift test` 與 `run-guards.sh` 數字沒有記下，無從補回，不寫猜的數。）
+
+R1 verify 在這個 commit 的樹上重現的數字：`audit-guards-mutations` 62/62、`trigger-coverage-mutations` 59/59（量到的缺口大小 129），`zero-instance-rows-audit` rc=0（78 列、39 條數 binary 輸出的量測），`trigger-coverage` rc=0。R1 修正輪的數字（含完整 `swift test` 與 `run-guards.sh`）在 `2026-10-02-measurement-self-proof-gate-binding.md`。
 
 ## 誠實邊界
 

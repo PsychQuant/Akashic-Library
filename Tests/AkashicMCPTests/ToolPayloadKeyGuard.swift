@@ -128,6 +128,19 @@ struct ToolManifest {
 ///    `回報 issnAdded、issnDropped`、`truncated＝true`、`` `key` `` 算鍵名的形式；`indexRebuilt 說 index 有沒有重建`、`以 citekey 或 doi 指名`
 ///    的 `index`／`citekey` 兩邊都是字——那是散文裡提到同一個詞，不是在說回應有這個鍵。先前（只有第 1 條）一個鍵被無關的散文提到就算有說明，
 ///    拿掉真正要說的那一句守衛照綠。
+/// 3. **不是別的名字的一段**（b26 F6）：緊接在 `<識別字>.` 或 `<識別字>-` 之後、或緊接 `-<識別字>` 之前的不算——`akashic.libraries`（store 的欄位路徑）
+///    不是在說回應有 `libraries`，`media-type`／`container-title`／`resolution-rejected` 不是在說 `type`／`title`／`rejected`。這是語法分得出來的：
+///    那個詞是另一個名字的一部分。**鍵在點號路徑的第一段仍算**（`names.authorized` 說 `names`）；`items[].index` 的 `.` 前面是 `]`，不是識別字。
+///
+/// **這條規則（含第 3 條）仍區分不了散文裡的「回應鍵」與同一個詞的其他用法**（b26 F6 量過、刻意不收緊）：
+/// - **標點與換行**：`回 digest；冪等`（回應有 `digest`）與 `每筆提案以 citekey，指名一筆 work`（輸入）句型相同，`列在 emptied`（回應鍵，在參數說明的行尾）與
+///   `要加的 tags`（輸入）也相同。把子句標點（`，`／`；`／`。`）或換行改成「不算邊界」，tree 上 30 幾個真的有說明的鍵會一起紅
+///   （`digest`、`judged`、`count`、`emptied`、`sourcesTotal`、`reintroductionNote`…，2026-10-02 實測）。語法做不到的區分不要假裝做得到。
+///
+/// 補救不在規則裡：說明要把回應鍵寫成**列表或括號的形式**（`回 a、b`、`（a／b）`），那是讀的人也認得出「這是在列回應鍵」的寫法。
+/// b26 F6 收緊第 3 條之後現形的兩個鍵：`akashic_libraries.libraries`（只靠 `akashic.libraries`）改寫說明；`akashic_set_status.status`（只靠 `akashic.status`，
+/// 回顯呼叫端剛給的值）改成具名豁免——不為它加字，`tools/list` 的位元組預算（#578）在那一輪對淨增 ≤ 0。`akashic_tag.tags`、`akashic_resolve_venues.rejected`
+/// （三席點名）沒有改：它們靠行尾與子句標點的散文提及過關，那兩個洞語法分不開。
 ///
 /// **這條規則區分不了「回應鍵」與「同名的輸入鍵」**：`{name, match?, … reason（必填…）}` 是輸入的形狀，`name`、`reason` 仍然在鍵名的位置上。
 /// 那是語法做不到的區分（同一個詞兩個方向），寫在 `ToolPayloadKeyGuardTests` 的誠實邊界裡，不假裝它被這一條規則擋住。
@@ -144,7 +157,20 @@ func mentionsIdentifier(_ text: String, _ key: String) -> Bool {
     while let r = text.range(of: key, options: .literal, range: search) {
         let before = r.lowerBound == text.startIndex ? nil : text[text.index(before: r.lowerBound)]
         let after = r.upperBound == text.endIndex ? nil : text[r.upperBound]
-        if !(before.map(isIdent) ?? false) && !(after.map(isIdent) ?? false) {
+        // 第 3 條：別的名字的一段（`<識別字>.key`、`<識別字>-key`、`key-<識別字>`）
+        let beforeBefore: Character? = {
+            guard r.lowerBound > text.startIndex else { return nil }
+            let i = text.index(before: r.lowerBound)
+            return i > text.startIndex ? text[text.index(before: i)] : nil
+        }()
+        let afterAfter: Character? = {
+            guard r.upperBound < text.endIndex else { return nil }
+            let i = text.index(after: r.upperBound)
+            return i < text.endIndex ? text[i] : nil
+        }()
+        let partOfAnotherName = ((before == "." || before == "-") && (beforeBefore.map(isIdent) ?? false))
+            || (after == "-" && (afterAfter.map(isIdent) ?? false))
+        if !(before.map(isIdent) ?? false) && !(after.map(isIdent) ?? false) && !partOfAnotherName {
             var left: Character?
             var l = r.lowerBound
             while l > text.startIndex {

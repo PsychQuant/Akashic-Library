@@ -88,6 +88,79 @@ final class SourceAddressServiceTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(try XCTUnwrap(old["ageSeconds"] as? Int), 7_000)
     }
 
+    /// b26 F6 LOW 17：`akashic_doctor` 的 `sources{}` 在 `ToolPayloadNestedPaths` 之外（使用者裁決 (a)：表外不守），所以守衛看不到這一層的鍵——
+    /// 說明拿掉 `occupantProblems`、`storedBytes` 之類，`ToolPayloadKeyGuardTests` 全綠。這一支釘住它：造出 `sources` 的**每一種**問題，
+    /// 取 payload 的全部鍵（`sources` 本身、兩個陣列的元素），逐一要求它們出現在說明的 `sources（…）` 那一段裡。
+    /// 負控：從說明拿掉 `storedBytes／indexedBytes`（或整段 `sources（…）`），這一支紅。
+    func testTheDoctorDescriptionNamesEveryKeyOfTheSourcesPayload() throws {
+        let store = LibraryStore(root: root)
+        // sizeMismatch：存一份、之後截短（index 記著原本的大小）
+        let truncated = try XCTUnwrap(try storeSource(Data(repeating: 7, count: 4_096))["digest"] as? String)
+        try Data(repeating: 7, count: 100).write(to: address(truncated))
+        // notRegularFile：位址被目錄佔住
+        let held = Data("held".utf8)
+        try FileManager.default.createDirectory(at: address(digest(held)), withIntermediateDirectories: true)
+        // 孤兒 blob：位址上有普通檔、index 沒有條目
+        let orphan = Data("orphan blob".utf8)
+        try FileManager.default.createDirectory(at: address(digest(orphan)).deletingLastPathComponent(), withIntermediateDirectories: true)
+        try orphan.write(to: address(digest(orphan)))
+        // 暫存檔
+        let d = "sha256:" + String(repeating: "cd", count: 32)
+        let name = LibraryStore.temporaryBlobName(digest: d, token: UUID().uuidString)
+        let tmpShard = root.appendingPathComponent("sources/cd")
+        try FileManager.default.createDirectory(at: tmpShard, withIntermediateDirectories: true)
+        try Data(repeating: 1, count: 12).write(to: tmpShard.appendingPathComponent(name))
+        // 懸空條目與壞行：直接 append index（`storeSource` 在有壞行時拒寫，所以放在最後）
+        let missing = digest(Data("indexed but gone".utf8))
+        let handle = try FileHandle(forWritingTo: store.sourceIndexURL)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data("{\"content\": \"\(missing)\", \"bytes\": 16}\nnot json at all\n".utf8))
+        try handle.close()
+        // 讀不到的分片目錄
+        let locked = root.appendingPathComponent("sources/ee")
+        try FileManager.default.createDirectory(at: locked, withIntermediateDirectories: true)
+        XCTAssertEqual(chmod(locked.path, 0o000), 0)
+        defer { _ = chmod(locked.path, 0o755) }
+
+        let sources = try XCTUnwrap(try json(try service.doctor())["sources"] as? [String: Any])
+        func elementKeys(_ k: String) -> Set<String> {
+            ((sources[k] as? [[String: Any]]) ?? []).reduce(into: Set<String>()) { $0.formUnion($1.keys) }
+        }
+        XCTAssertEqual(Set(sources.keys), ["orphanBlobs", "danglingIndexEntries", "malformedIndexLines", "unreadableShards",
+                                           "strayTemporaryFiles", "strayTemporaryFilesTotal", "occupantProblems", "occupantProblemsTotal"],
+                       "新增或改名了 sources 的鍵——說明要跟上，這一支的清單也要")
+        XCTAssertEqual(elementKeys("occupantProblems"), ["path", "kind", "occupant", "storedBytes", "indexedBytes"])
+        XCTAssertEqual(elementKeys("strayTemporaryFiles"), ["path", "bytes", "ageSeconds", "possiblyInProgress"])
+        let kinds = Set(((sources["occupantProblems"] as? [[String: Any]]) ?? []).compactMap { $0["kind"] as? String })
+        XCTAssertEqual(kinds, ["notRegularFile", "sizeMismatch"])
+
+        let text = try XCTUnwrap(try ToolManifest.load()["akashic_doctor"]).text
+        let span = try XCTUnwrap(Self.parenthesizedSpan(in: text, after: "sources（"), "說明裡要有 sources（…）那一段")
+        let everyKey = Set(sources.keys).union(elementKeys("occupantProblems")).union(elementKeys("strayTemporaryFiles")).union(kinds)
+        // 沒有逐一寫出的鍵（`tools/list` 的位元組預算：b26 F6 的這一輪對它淨增 ≤ 0，所以只寫 R2 新增的兩個陣列與它們的元素鍵）：
+        // 兩個 `*Total` 以速記 `*Total` 涵蓋，四個舊鍵（R2 之前就沒有說明）不在說明裡。逐一列出，不留「差不多」。
+        let shorthand: Set<String> = ["occupantProblemsTotal", "strayTemporaryFilesTotal"]
+        let undescribedByBudget: Set<String> = ["orphanBlobs", "danglingIndexEntries", "malformedIndexLines", "unreadableShards"]
+        XCTAssertTrue(span.contains("*Total"), "兩個 Total 以 *Total 速記涵蓋：\(span)")
+        for key in everyKey.subtracting(shorthand).subtracting(undescribedByBudget).sorted() {
+            XCTAssertTrue(mentionsIdentifier(span, key), "akashic_doctor 的 sources（…）說明沒有寫 \(key)：\(span)")
+        }
+    }
+
+    /// `text` 裡 `marker` 之後、與它的開括號配對的那一段（含巢狀的全形與半形括號）。
+    private static func parenthesizedSpan(in text: String, after marker: String) -> String? {
+        guard let r = text.range(of: marker) else { return nil }
+        var depth = 1
+        var i = r.upperBound
+        while i < text.endIndex {
+            let c = text[i]
+            if c == "（" || c == "(" { depth += 1 }
+            if c == "）" || c == ")" { depth -= 1; if depth == 0 { return String(text[r.upperBound..<i]) } }
+            i = text.index(after: i)
+        }
+        return nil
+    }
+
     /// 第 4 則：截短的 blob 不能宣告為副本（先前照連、回 sourcesAdded）。
     func testAddSourceRefusesATruncatedBlob() throws {
         let store = LibraryStore(root: root)

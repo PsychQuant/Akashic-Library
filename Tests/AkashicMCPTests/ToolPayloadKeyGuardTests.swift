@@ -307,6 +307,39 @@ final class ToolPayloadKeyGuardTests: XCTestCase {
         XCTAssertTrue(mentionsIdentifier("以 citekey 或 doi 指名；回 citekey／type", "citekey"))
     }
 
+    /// **別的名字的一段不算**（b26 F6 LOW 16）：`akashic.libraries`（store 的欄位路徑）不是在說回應有 `libraries`，`media-type`／`container-title`／
+    /// `resolution-rejected` 不是在說 `type`／`title`／`rejected`。先前這三種都因為「點號／連字號是標點」而過關。
+    /// 負控：拿掉 `mentionsIdentifier` 的 `partOfAnotherName`，這一支紅。
+    func testAMentionInsideAnotherDottedOrHyphenatedNameDoesNotCount() {
+        XCTAssertFalse(mentionsIdentifier("改 entry 的 akashic.libraries，指名的 work", "libraries"))
+        XCTAssertFalse(mentionsIdentifier("設定／清除 entry 的 akashic.status（衍生層）", "status"))
+        XCTAssertFalse(mentionsIdentifier("（container-title）", "title"))
+        XCTAssertFalse(mentionsIdentifier("media-type", "type"))
+        XCTAssertFalse(mentionsIdentifier("寫 resolution-rejected（entry 不動）", "rejected"))
+        XCTAssertFalse(mentionsIdentifier("type-x", "type"), "連字號在鍵名後面接識別字也是別的名字")
+        XCTAssertFalse(mentionsIdentifier("a.b.libraries", "libraries"))
+        // 仍算：鍵在點號路徑的第一段、`]` 之後的點號、鍵名本身含連字號、一般的列表
+        XCTAssertTrue(mentionsIdentifier("names.authorized", "names"))
+        XCTAssertTrue(mentionsIdentifier("items[].index", "index"))
+        XCTAssertTrue(mentionsIdentifier("（container-title）", "container-title"))
+        XCTAssertTrue(mentionsIdentifier("回 libraries＝改後的清單", "libraries"))
+        XCTAssertTrue(mentionsIdentifier("akashic.libraries、libraries（改後）", "libraries"), "同一個詞出現兩次：有一次在鍵名的位置就算")
+    }
+
+    /// 先前只靠「別的名字的一段」過關的鍵（b26 F6 LOW 16：三席量到 `akashic_libraries.libraries` 只靠 `akashic.libraries`；實測多出
+    /// `akashic_set_status.status`，只靠 `akashic.status`）。`libraries` 現在在**工具描述本身**寫成鍵名的形式；`status` 是回顯呼叫端剛給的值，
+    /// 改成具名豁免（`ToolPayloadKeyExemptions`；`testEveryExemptionIsLive` 守它仍是真的沒被說明提到）——**不是**為它加字：
+    /// `tools/list` 的位元組預算（#578）在這一輪對淨增 ≤ 0。`tags`、`rejected`（finding 16 也點名）沒有改說明：它們在收緊後仍靠行尾與子句標點的散文提及過關，
+    /// 那兩個洞語法分不開（見 `mentionsIdentifier` 的 doc），不假裝補了。負控：把 `libraries` 那一句拿掉，這一支紅。
+    func testTheKeysThatOnlyPassedThroughOtherNamesAreDescribedInTheDescriptionItself() throws {
+        let manifest = try loadManifest()
+        for (tool, key) in [("akashic_libraries", "libraries")] {
+            let real = try XCTUnwrap(manifest[tool])
+            XCTAssertTrue(PayloadObservations.shared.keysByTool[tool]?.contains(key) == true, "前提：\(tool) 的 payload 有 \(key)")
+            XCTAssertTrue(mentionsIdentifier(real.text, key), "\(tool) 的描述（不含參數說明）要以鍵名的形式寫出 \(key)")
+        }
+    }
+
     /// 只有鍵名形式的那一處被換成散文時守衛要紅，而**舊規則（只看識別字邊界）不會**——這就是收緊的意義。
     /// 從真的說明裡取 `akashic_enrich` 的 `index（提案序）`，換成 `以 index 是提案序`。
     func testGuardGoesRedWhenTheOnlyMentionBecomesRunningProse() throws {

@@ -52,6 +52,7 @@ enum ToolPayloadKeyExemptions {
         "akashic_update_organization": [
             "reasonNote": advisory("remove_names 的報告：提醒理由只在報告裡、要留在 git 得寫進 commit message"),
         ],
+        "akashic_set_status": ["status": echo("回顯剛設定的 status（清除時 null）——呼叫端剛給的值。b26 F6：先前只靠 `akashic.status` 這個 store 欄位路徑過關，守衛改成不認別的名字的一段之後現形；說明不為它加字（#578 預算），改具名豁免")],
         "akashic_record_divergence": [
             "candidates": echo("回顯剛記下的候選 key"),
             "prefers": echo("回顯剛記下的傾向（沒給時是 null）"),

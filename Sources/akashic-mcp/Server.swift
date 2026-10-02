@@ -133,7 +133,7 @@ actor AkashicMCPServer {
              description: "人物實體列表／查詢：回 [{key, names（含 aliases）, orcid, openalex, 有才出現的 unknownFields}]。",
              inputSchema: obj(["query": str("關鍵字（比對 key 與所有 alias；省略＝全部）")])),
         Tool(name: "akashic_doctor",
-             description: "library 健康報告：entries／people／relations 統計、indexRebuilt、unresolvedAuthorLiterals、divergences（歧異記錄數）、digestSources、noAuthorizedName、authorizedOnlyByCitationForm、orphaned／orphanedAdditionalSources（後者：主連結仍在、附加來源已在 Zotero 端刪除）；有事才出現：quarantined、unknownFieldFiles（含較新 schema 未知欄位的檔案）、layoutResidue、deceasedWithOpenAffiliation、sources（存檔審計；occupantProblems：位址上不是普通檔或大小與 index 不符；strayTemporaryFiles：中斷存檔的暫存檔，附 ageSeconds、possiblyInProgress——一小時內還在動的不要刪；兩者各列 20 則、總數在 *Total）、crossRecordIssues（有 error 時 index 不重建、note 說明）、recordIssues（各族與 StoreHealth 的家族存取子一一對應，含 deadVerdicts、contradictoryVerdicts、duplicateVerdictRecords、duplicateReferences；duplicateVerdictRecords 不計的那一格見 docs/store-format.md §3.5）。recordIssues.first 截 20 則、受 48 KiB 位元組預算（被截時 firstCappedByBudget 為 true）。count／errors 與各族計數都是**訊息則數**（一則可能是一筆記錄、一個配對或一組重複）；cappedRecords（以記錄計）> 0 時都是下限：組合式的六族（清單見 CLI `akashic validate --help`）每筆記錄至多 20 則、其餘一句概括（CLI validate 每筆一樣至多 20 則，只是不把總則數截成 20），其餘家族無此上限。owner 給定時同 CLI `akashic validate --owner`：只回那一筆記錄的 per-record 問題、不套每筆 20 則的列出上限：回 listing（full）／total／errors／issues（每則截 1,000 字元、同一個 48 KiB 預算，被截時 truncated＝true、total 仍完整）／scope；唯讀，不重建 index、不含跨記錄檢查與 quarantine；找不到或同 kind 同 key 兩筆以上時拒絕。",
+             description: "library 健康報告：entries／people／relations 統計、indexRebuilt、unresolvedAuthorLiterals、divergences（歧異記錄數）、digestSources、noAuthorizedName、authorizedOnlyByCitationForm、orphaned／orphanedAdditionalSources（後者：主連結仍在、附加來源已在 Zotero 端刪除）；有事才出現：quarantined、unknownFieldFiles（含較新 schema 未知欄位的檔案）、layoutResidue、deceasedWithOpenAffiliation、sources（存檔審計；occupantProblems[]＝位址上不是普通檔或大小與 index 不符 {path, kind＝notRegularFile／sizeMismatch, occupant, storedBytes, indexedBytes}；strayTemporaryFiles[]＝中斷存檔的暫存檔 {path, bytes, ageSeconds（可 null）, possiblyInProgress}，一小時內還在動的不要刪；各列 20 則、總數在 *Total）、crossRecordIssues（有 error 時 index 不重建、note 說明）、recordIssues（各族與 StoreHealth 的家族存取子一一對應，含 deadVerdicts、contradictoryVerdicts、duplicateVerdictRecords、duplicateReferences；duplicateVerdictRecords 不計的那一格見 docs/store-format.md §3.5）。recordIssues.first 截 20 則、受 48 KiB 位元組預算（被截時 firstCappedByBudget 為 true）。count／errors 與各族計數都是**訊息則數**（一則可能是一筆記錄、一個配對或一組重複）；cappedRecords（以記錄計）> 0 時都是下限：組合式的六族（清單見 CLI `akashic validate --help`）每筆記錄至多 20 則、其餘一句概括（CLI validate 每筆一樣至多 20 則，只是不把總則數截成 20），其餘家族無此上限。owner 給定時同 CLI `akashic validate --owner`：只回那一筆記錄的 per-record 問題、不套每筆 20 則的列出上限：回 listing（full）／total／errors／issues（每則截 1,000 字元、同一個 48 KiB 預算，被截時 truncated＝true、total 仍完整）／scope；唯讀，不重建 index、不含跨記錄檢查與 quarantine；找不到或同 kind 同 key 兩筆以上時拒絕。",
              inputSchema: obj([
                 "owner": str("選填：<kind>:<key>，只看這一筆記錄；kind 是 work／person／organization／venue／divergence，必填、不猜（divergence 的 key 是 UUID）；省略＝全庫健康報告"),
              ])),
@@ -152,7 +152,7 @@ actor AkashicMCPServer {
                 "library": str("store **內**的 membership 分類 key 過濾（選填，僅 key 直查時生效）。**不是** store root"),
              ])),
         Tool(name: "akashic_libraries",
-             description: "具名 library（成員集合視角）：list 回 [{key, name, description, kind 與規則, members（成員數）, nonconforming}]；create 建 registry（kind 必填；回 created、membership）；set-kind 標性質與規則（整值替換，回 previous、previousBasis、nonconforming；換掉既有規則要求 registry 檔已 commit）；check 回 members、nonconforming（不符規則的成員）、total、truncated 與 basisProblem；add／remove 改 entry 的 akashic.libraries，指名的 work 無法唯一定位時整批拒絕、零寫入。kind：topic 照寫；rule 以 venue 界定；document 以文件的 cites 界定。add 不符規則的不寫（回 written:false、skipped 原因、basis），未標性質的 library 拒絕 add。細節見 akashic library --help。" + legacyCopyNote,
+             description: "具名 library（成員集合視角）：list 回 [{key, name, description, kind 與規則, members（成員數）, nonconforming}]；create 建 registry（kind 必填；回 created、membership）；set-kind 標性質與規則（整值替換，回 previous、previousBasis、nonconforming；換掉既有規則要求 registry 檔已 commit）；check 回 members、nonconforming（不符規則的成員）、total、truncated 與 basisProblem；add／remove 改 entry 的 libraries（akashic.libraries），指名的 work 無法唯一定位時整批拒絕、零寫入。kind：topic 照寫；rule 以 venue 界定；document 以文件的 cites 界定。add 不符規則的不寫（回 written:false、skipped 原因、basis），未標性質的 library 拒絕 add。細節見 akashic library --help。" + legacyCopyNote,
              inputSchema: obj([
                 "action": str("list | create | add | remove | set-kind | check"),
                 "key": str("library key（list 以外必填）"),
@@ -321,7 +321,7 @@ actor AkashicMCPServer {
              description: "存一份 source 的位元組進 sources/（內容定址）。收**檔案路徑**、不收 base64。"
                  + "回 digest；冪等：同 digest 不重複建 index 條目（indexEntryCreated:false），但這次交來卻**沒被寫入**的敘述以 discardedProvenance 回報；"
                  + "bytesWritten:false＝位址上早有大小相同的一份。位址被目錄、symlink 或大小不同的檔佔住時具名拒絕、不寫 index。"
-                 + "retrieved 必填，是「你何時取得這份內容」、不是存入時間。exclusionVerified=false 時拒絕（sources/ 不得進版控 remote）。"
+                 + "exclusionVerified=false 時拒絕。"
                  + "單檔上限 256 MiB：超過即拒絕、不截斷、零寫入。",
              inputSchema: obj([
                 "path": str("要存入的檔案路徑（本機）"),

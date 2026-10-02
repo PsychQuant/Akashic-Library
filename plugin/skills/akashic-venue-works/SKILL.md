@@ -120,7 +120,8 @@ APA 九〇年代的 DOI 正式形帶**雙斜線**（`10.1037//…`），OpenAlex
    **可預期的失敗整批擋、零寫入**（type 值域、識別碼形狀、欄位鍵、format 閘——訊息指名第幾筆），
    磁碟層失敗逐筆列出且 exit 非零；批次內同作者同年的 citekey 由 service 消解
 3. `migrate-venues` **乾跑逐筆過目** → `--apply`：從 `journaltitle` 回填 venues literal
-4. `resolve-venues` **先列候選過目**（歧義與未命中要報出來）→ `--apply`。exact 命中寫
+4. `resolve-venues` **先列候選過目**（歧義、未命中與 `suppressed`——被同 work 同 venue 另一個拼法的否決壓掉的，#712——都要報出來；
+   `suppressed` 不是可 apply 的候選、撤回壓住它的否決沒有工具面，報給人）→ `--apply`。exact 命中寫
    confirmed verdict 是該面的既有契約（#304 的 venue-name-exact）；本刊零歧義是
    **這一刊的結果，不外推**——下一刊有歧義就逐筆人裁
 5. 目錄 library（#642：**規則型**——成員由「這本刊的 periodical-article」這條規則決定，不由誰點頭決定）：

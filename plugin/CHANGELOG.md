@@ -56,6 +56,14 @@ R1 verify 的三個錯誤與使用者 2026-10-02 的四點裁決。
 - person 合併（CLI `resolve-divergence`）：被併者的名字分類記錄在兩邊分類相同時搬到倖存者；venue 合併的分類檢查先於位元組去重。
 - 工具說明把 #564 整合時為舊預算刪掉的拒絕類別寫回（`resolve-people`／`resolve-venues`／`resolve-organizations` 的 `undecided`、`drop_venue`、`repoint`、`unauthorize`、`remove_reference`）。
 
+## #712 — R1 修正：`suppressed` 的成本改成線性；`akashic-verify-venue`／`akashic-venue-works` 的文字（2026-10-02）
+
+- **`akashic_resolve_venues` 列表的成本**：第一版每列存全部壓住它的拼法、到輸出才截 5 個，N 列共用 K 個拼法時是 N×K 的時間與記憶體（真 binary 量到 N=K=4000 時 16.9 秒、306 MB）。現在每個否決鍵建表一次、每列至多帶 5 個與總數，同一份 store 0.9 秒、43 MB；apply／reject 腿不組這一段。回應的鍵與內容不變，`tools/list` 一行不變。
+- **`akashic-verify-venue`**：Step 0 不再說列表有「已否決沉底」（venue 列表沒有已否決段，逐字被否決的邊哪裡都不列），改成列出 `suppressed`，並把「literal 沒有出現在 candidates」拆成四種可能；被壓住的那一列要報給人——撤回壓住它的否決目前沒有工具面（#559 上線的只有 `update-venue --unauthorize`）。**`akashic-venue-works`** 第 4 步同樣要報 `suppressed`。
+- resolve-people 與 resolve-organizations 的列表對同一情形（另一個拼法的否決以正規化配對壓住的候選）仍然沉默，追蹤在 #721。
+
+plugin 版號沒有動（skill 文字的改動）。
+
 ## #611、#692、#693、#708 — R2 修正（2026-10-02）
 
 四席驗證之後的第二輪（53 則）。使用者可見的改動：

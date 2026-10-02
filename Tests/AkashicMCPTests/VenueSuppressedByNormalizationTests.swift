@@ -124,11 +124,11 @@ final class VenueSuppressedByNormalizationTests: XCTestCase {
     }
 
     func testByteBudgetDropsRowsThatDoNotFitAndSaysSo() throws {
-        // 每列帶 6 個各約 190 個 U+2028 的 rejectedLiterals；displaySafe 逃脫之後每個 scalar 遠超一個位元組
-        let literals = (0..<6).map { "L\($0)" + String(repeating: "\u{2028}", count: 190) }
+        // 每列帶 5 個（resolver 已截，#712 R1）各約 190 個 U+2028 的 rejectedLiterals、總數 6；displaySafe 逃脫之後每個 scalar 遠超一個位元組
+        let literals = (0..<VenueResolver.suppressedLiteralsPerRow).map { "L\($0)" + String(repeating: "\u{2028}", count: 190) }
         let suppressed = (0..<30).map { i in
             VenueSuppressedCandidate(citekey: String(format: "w%04d", i), venueIndex: 1, literal: "PSYCHOMETRIKA",
-                                     venueKey: "psychometrika", rejectedLiterals: literals)
+                                     venueKey: "psychometrika", rejectedLiterals: literals, rejectedLiteralsTotal: 6)
         }
         let payload = AkashicService.suppressedPayload(suppressed, limit: 1_000)   // 列數上限不是限制，位元組預算才是
         let shown = try XCTUnwrap(payload["suppressed"] as? [[String: Any]])
@@ -138,7 +138,7 @@ final class VenueSuppressedByNormalizationTests: XCTestCase {
         XCTAssertEqual(payload["suppressedTotal"] as? Int, suppressed.count)
         XCTAssertEqual(payload["truncated"] as? Bool, true)
         let capped = try XCTUnwrap(shown.first)
-        XCTAssertEqual((capped["rejectedLiterals"] as? [String])?.count, AkashicService.suppressedLiteralsPerRow, "每列壓住它的拼法有個數上限")
+        XCTAssertEqual((capped["rejectedLiterals"] as? [String])?.count, VenueResolver.suppressedLiteralsPerRow, "每列壓住它的拼法有個數上限")
         XCTAssertEqual(capped["rejectedLiteralsTotal"] as? Int, 6, "超過時說出真實個數")
         // CLI（limit nil）不套位元組預算：全列
         let all = try XCTUnwrap(AkashicService.suppressedPayload(suppressed, limit: nil)["suppressed"] as? [[String: Any]])

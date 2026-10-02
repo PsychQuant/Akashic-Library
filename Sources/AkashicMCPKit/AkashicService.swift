@@ -5299,7 +5299,8 @@ public final class AkashicService {
             // 只比 id 字面會讓同一 work 的兄弟拼法各給一腿時 reject 已提交、apply 走到一句指錯路的 notFound。
             let before = try store.load()
             let listing = VenueResolver.resolve(entries: before.entries, venues: before.venues,
-                                                rejected: ResolutionLedger.rejectedPairings(venues: before.venues))
+                                                rejected: ResolutionLedger.rejectedPairings(venues: before.venues),
+                                                reportingSuppressed: false)   // 只用 candidates（#712 R1）
             let byRow = Dictionary(listing.candidates.map { ($0.rowID, $0) }, uniquingKeysWith: { a, _ in a })
             // struct 鍵、無分隔符（R26；R25 verify security 第 28 列：R25 只把 resolver 的否決鍵改成 struct，這一條同型的 U+0000 拼接沒改）
             func pairingKey(_ c: VenueResolutionCandidate) -> RejectedPairKey {
@@ -5330,8 +5331,10 @@ public final class AkashicService {
         }
         let load = try store.load()
         let rejectedPairings = ResolutionLedger.rejectedPairings(venues: load.venues)
+        // #712 R1：`suppressed` 只有列表腿讀；apply／reject 腿不組它（R1 verify 第 0 列）
         let report = VenueResolver.resolve(entries: load.entries, venues: load.venues,
-                                           rejected: rejectedPairings)
+                                           rejected: rejectedPairings,
+                                           reportingSuppressed: (apply ?? []).isEmpty && (reject ?? []).isEmpty)
         let byID = Dictionary(report.candidates.map { ($0.rowID, $0) },
                               uniquingKeysWith: { first, _ in first })
         let byKey = Dictionary(load.venues.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
@@ -5808,12 +5811,12 @@ public final class AkashicService {
     /// 列表模式 `suppressed` 的列數上限（#712）。與 `retiredItemsCap` 同值、同理由（輸出進 LLM context、體積由 store 內容決定）；
     /// 另受 `candidateByteBudget` 約束：吃不下的整列不印，`suppressedTotal` 與 `truncated` 揭露。只有 MCP 面套用，CLI 傳 nil 全列。
     public static let suppressedItemsCap = 20
-    /// 一列 `suppressed` 最多回幾個壓住它的 rejected literal。每個都是 store 字串，而 `displaySafe` 逃脫後每個 scalar 最多 9 bytes，
-    /// 所以位元組預算前先限個數；超過時該列帶 `rejectedLiteralsTotal`。實務上同一 work 同一 venue 被否決的不同拼法不超過這條 work
-    /// 的 literal 邊數（每次 reject／demote 對應一條邊）。
-    static let suppressedLiteralsPerRow = 5
+    /// 一列 `suppressed` 最多回幾個壓住它的 rejected literal：`VenueResolver.suppressedLiteralsPerRow`（#712 R1 起由 resolver 截，
+    /// 不在這裡截——截在輸出端擋不住建表時的 N×K）。每個都是 store 字串，而 `displaySafe` 逃脫後每個 scalar 最多 9 bytes，
+    /// 所以位元組預算前先限個數；超過時該列帶 `rejectedLiteralsTotal`。
 
-    /// 列表模式的 `suppressed` 段（#712）：被**正規化配對**的否決壓掉的候選，沉底而非隱藏（同 resolve-people 的 `rejected` 段）。
+    /// 列表模式的 `suppressed` 段（#712）：被**正規化配對**的否決壓掉的候選，沉底而非隱藏。resolve-people 的 `rejected` 段只列逐字等於
+    /// 被否決拼法的作者位、不涵蓋這一類，people／organization 的列表對它仍然沉默（#721）。
     /// **永遠回這三個鍵**，沒有候選被壓時 `suppressed` 是空陣列、`suppressedTotal` 是 0——「沒有」與「沒給你看」要分得開。
     /// `truncated` 只說 `suppressed` 這一段被截（venue 列表的 candidates／ambiguities 沒有列數上限）；與 `retiredPayload` 的
     /// `truncated` 同名，但兩者不會出現在同一次回應裡（列表腿沒有 `verdictsRetired`）。
@@ -5828,9 +5831,9 @@ public final class AkashicService {
                 "venueIndex": s.venueIndex,
                 "literal": displaySafe(s.literal, max: 200),
                 "venueKey": displaySafe(s.venueKey, max: 200),
-                "rejectedLiterals": s.rejectedLiterals.prefix(suppressedLiteralsPerRow).map { displaySafe($0, max: 200) },
+                "rejectedLiterals": s.rejectedLiterals.map { displaySafe($0, max: 200) },   // resolver 已截到 suppressedLiteralsPerRow
             ]
-            if s.rejectedLiterals.count > suppressedLiteralsPerRow { row["rejectedLiteralsTotal"] = s.rejectedLiterals.count }
+            if s.rejectedLiteralsTotal > s.rejectedLiterals.count { row["rejectedLiteralsTotal"] = s.rejectedLiteralsTotal }
             if limit != nil {
                 let cost = jsonBytes(row)
                 guard bytes + cost <= candidateByteBudget else { continue }

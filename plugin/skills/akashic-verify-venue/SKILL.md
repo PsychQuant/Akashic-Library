@@ -18,12 +18,12 @@ description: 發表載體查證——判定「這個 literal 刊名／會議名�
 ### 0. 先看 store 現況
 
 ```
-akashic_resolve_venues（不帶參數）   # 候選（apply 的合法目標）、歧義（要人判斷）、已否決沉底
+akashic_resolve_venues（不帶參數）   # 候選（apply 的合法目標）、歧義（要人判斷）、suppressed（被另一個拼法的否決壓掉的，#712）
 akashic_venues                      # 全部 venue：key / type / 顯示名 / 文章數
 akashic_venue（key:）               # 單一 venue：記錄＋刊名沿革＋文章編年 list（現算）
 ```
 
-要查證的配對來自 candidates 列的 `id`（`citekey:venueIndex`）。**先確認配對還在**——已否決的不會重列。literal 沒有出現在 candidates？表示店裡沒有任何 venue 的名字（含沿革各段）命中它——那是「先建 venue／補異名」的工作，見邊界。
+要查證的配對來自 candidates 列的 `id`（`citekey:venueIndex`）。**先確認配對還在**——已否決的不會重列，而且 venue 列表**沒有**已否決段：逐字被否決的那條邊哪裡都不列。literal 沒有出現在 candidates，有四種可能，先分清楚再動手：(1) 在 `ambiguities`（對到 2+ venue）；(2) 在 `suppressed`（同 work 同 venue 的另一個拼法被 reject／demote 過，以正規化配對被壓掉——`rejectedLiterals` 是壓住它的拼法，`suppressedTotal` 是全數；MCP 面截 20 筆，`truncated` 為真時要說出來）；(3) 這條邊逐字被否決過或已歸戶；(4) 店裡沒有任何 venue 的名字（含沿革各段）命中它——那是「先建 venue／補異名」的工作，見邊界。
 
 ### 1. 證據鏈（依序查；每次查詢在報告第 3 項記一列，本輪沒查的源也記一列，寫法見該項）
 
@@ -145,7 +145,7 @@ EOF
 ## 邊界
 
 - **歧義列（同 literal 對到 2+ venue）不可 apply**——查證區分後（通常靠 ISSN／DOI），先把區辨資訊補全再重跑 resolve。要**補進 store 讓 resolver 重新命中**的區辨資訊是名稱與沿革段（resolver 只配對 `names` 的各段，寫 ISSN 不改變任何命中）；分出來的那一本的號走 Step 3 第 4 項、各問各的（D94）
-- **literal 不在 candidates 時沒有 apply 把手**：店裡沒這個 venue → `akashic_add_venue`（key／names／type 必填；`issn:` 選填、陣列——查到的號建檔時就帶進去，走 Step 3 同一道閘；type 是封閉列舉，值域以 `akashic_add_venue` 的 tool description 為準（由程式從 `allCases` 生成——**不要照任何文件裡寫死的清單**，#324 就是那樣壞掉的），推定錯誤寧可先問——booktitle 不必然 conference）。venue 存在但缺這個異名 → `akashic_update_venue`／CLI `update-venue --add-name`（append 語意，#306）——沿革補全直接擴大 resolve-venues 命中面。literal 也可能在 `suppressed` 裡（#712）：同 work 同 venue 的另一個拼法被 reject／demote 過，這條邊以正規化配對被壓掉、不是缺資料——`rejectedLiterals` 是壓住它的拼法，那一格是使用者否決過的判定，不要重新提名
+- **literal 不在 candidates 時沒有 apply 把手**：店裡沒這個 venue → `akashic_add_venue`（key／names／type 必填；`issn:` 選填、陣列——查到的號建檔時就帶進去，走 Step 3 同一道閘；type 是封閉列舉，值域以 `akashic_add_venue` 的 tool description 為準（由程式從 `allCases` 生成——**不要照任何文件裡寫死的清單**，#324 就是那樣壞掉的），推定錯誤寧可先問——booktitle 不必然 conference）。venue 存在但缺這個異名 → `akashic_update_venue`／CLI `update-venue --add-name`（append 語意，#306）——沿革補全直接擴大 resolve-venues 命中面。literal 也可能在 `suppressed` 裡（#712）：同 work 同 venue 的另一個拼法被 reject／demote 過，這條邊以正規化配對被壓掉、不是缺資料——`rejectedLiterals` 是壓住它的拼法。使用者否決的是**那個**拼法，不是這一條；但撤回那筆否決目前沒有工具面（verdict 沒有移除面），所以把這一列連同壓住它的拼法報給使用者，由人決定，不要自己 apply、reject 或改寫 verdict
 - **查不出來是合法結果**：證據不足時不 apply、不 reject，literal 留著（`literal-first-then-key` 的誠實狀態），**對查過的每個 venue 記一筆未決**：`akashic_resolve_venues` 的 `undecided`（CLI `resolve-venues --undecided`）收 `citekey:venueIndex:venueKey=查了什麼、為何判不出來`，可附 `rests_on` digest（store format ≥ 19，change `resolution-verdict-states`，#619）。之後重跑 resolve 時該列帶 `undecidedChecks`，下一輪看得到這一格查過，查了什麼逐筆印在 `akashic venue <key>`。這個刊名可能是 A 也可能是 B 不是 divergence：divergence 問的是「兩筆記錄是不是同一個實體」，記了等於主張 A 與 B 可能是攣生，而它的出口 `resolve-divergence` 是合併。只有查到兩筆以上 venue 可能是同一本刊時，才在報告第 2 項建議記 divergence（candidates＝這幾個 venue 的 key）；使用者確認後才呼叫 `akashic_record_divergence`（divergence 記了沒有面刪得掉，#586）。`rests_on` 自 #507 起只收 `sha256:` digest（`DivergenceResolve.swift` 的 `assertDivergenceWritable`）且與 judgement 成對（同檔 `recordDivergence`）——沒有 digest 就不帶 judgement，已蒐集的 URL＋日期寫在報告；tool description 仍說收 URL，那是描述過期（#592）
 - **承重頁面存檔**：已判定配對的 digest 自 #587 起寫得進被判 venue 的一般 `references`（`akashic_update_venue` 的 `references`，`field: names` 帶那個名字、或 `field: issn` 帶那個號，judgement 型附 rests_on）；**查過未決的配對可以**——digest 跟著未決記錄的 `rests_on` 走（#619）。存的是什麼見上面「來源也寫進 venue」那一條。判定（confirmed／rejected）刻意不攜 rests-on（#280 裁決，同 person 域）；**未決記錄可以帶**——查過未決的配對，證據唯一的落點是那筆未決記錄（#619）
 

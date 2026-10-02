@@ -52,8 +52,12 @@ public struct VenueAmbiguousMatch: Equatable {
 
 /// 被**正規化配對**的否決壓掉的候選（#712）——它在 `candidates` 裡看不到，但不是因為有人否決了**它的**拼法：
 /// 否決抑制自 #554 R12 起以 `NameNormalization.matchingKey` 為鍵，所以對同 work 同 venue 的**另一個拼法**的
-/// `--reject`／`--demote` 會一併壓住它。那是提名面 recall 的收窄，本型別讓它出現在列表上（「沉底而非隱藏」，
-/// 同 resolve-people 的 `rejected` 段），**不改變抑制本身**。
+/// `--reject`／`--demote` 會一併壓住它。那是提名面 recall 的收窄，本型別讓它出現在列表上（「沉底而非隱藏」），
+/// **不改變抑制本身**。
+///
+/// **與 resolve-people 的 `rejected` 段不同**（#712 R1 verify 第 4／39 列）：那一段只列**逐字等於**被否決拼法的作者位，
+/// 被同一筆否決以正規化鍵壓掉的兄弟拼法不在其中——people 與 organization 的列表對它們仍然沉默，追蹤在 #721。
+/// 這裡報的正是那一類，所以不是「同 people 的 rejected 段」，是它沒涵蓋的那一半。
 ///
 /// **進這個清單的判準只有一條**：它被某筆 rejected verdict 以 `matchingKey` 壓住，而**沒有任何**壓住它的 rejected
 /// verdict 的 literal 與它自己的 literal 相等（Swift `String ==`，即 canonical equivalence）。換句話說：若抑制仍比
@@ -69,15 +73,22 @@ public struct VenueSuppressedCandidate: Equatable {
     public var literal: String
     public var venueKey: String
     /// 壓住它的 rejected verdict 的 literal：同 work、同 venue、`matchingKey` 相同而與 `literal` 不同的那些拼法，
-    /// 去重（canonical）後依字串排序，至少一個。使用者否決的是**這些**拼法。
+    /// 去重（canonical）後依字串排序的**前 `VenueResolver.suppressedLiteralsPerRow` 個**，至少一個。使用者否決的是這些拼法。
+    ///
+    /// **在 resolver 裡就截**（#712 R1 verify 第 0／1 列）：第一版存全部 K 個、到 `suppressedPayload` 才截 5——N 列共用同一組
+    /// K 個拼法時，記憶體是 N×K、每列還各排序一次，對未信任的 store 內容是二次方（實測 N=K=4000 時 16.9 秒、306 MB）。
     public var rejectedLiterals: [String]
+    /// 壓住它的 rejected literal 總數（去重後）。`rejectedLiterals.count < rejectedLiteralsTotal` 即被截。
+    public var rejectedLiteralsTotal: Int
 
-    public init(citekey: String, venueIndex: Int, literal: String, venueKey: String, rejectedLiterals: [String]) {
+    public init(citekey: String, venueIndex: Int, literal: String, venueKey: String,
+                rejectedLiterals: [String], rejectedLiteralsTotal: Int) {
         self.citekey = citekey
         self.venueIndex = venueIndex
         self.literal = literal
         self.venueKey = venueKey
         self.rejectedLiterals = rejectedLiterals
+        self.rejectedLiteralsTotal = rejectedLiteralsTotal
     }
 }
 
@@ -101,14 +112,32 @@ public struct VenueResolutionReport: Equatable {
 /// `apply` 是使用者顯式確認後的第二步（`literal-first-then-key` 的升格路徑）。
 public enum VenueResolver {
 
+    /// 一列 `suppressed` 最多帶幾個壓住它的 rejected literal（#712）。每個都是 store 字串，所以在 resolver 裡就截、
+    /// 另記總數（`rejectedLiteralsTotal`）——截在輸出端擋不住建表時的 N×K（R1 verify 第 0／1 列）。
+    public static let suppressedLiteralsPerRow = 5
+
+    /// 同一個否決鍵的全部被否決拼法，建表時算一次、各列共用（#712 R1）。
+    /// `spellings` 給「候選自己是不是其中之一」的 O(1) 判斷（`Set<String>` 的相等是 canonical equivalence，與 `String ==` 同一把）；
+    /// `shown` 是依字串排序的前 `suppressedLiteralsPerRow` 個，只在第一次有列需要它時才排（列表腿以外不排）。
+    private struct RejectedSpellings {
+        var spellings: Set<String> = []
+        var shown: [String]? = nil
+    }
+
     /// 單一 traversal（不為歧義另寫遍歷——#140 的分岔血案同適用）。
     /// `rejected` 刻意必填（同 PersonResolver：`= []` 會讓新呼叫面靜默略過否決史）。
     ///
     /// 正規化走 `NameNormalization.matchingKey`（NFKC＋lowercase＋空白收斂）——
     /// WoS 全大寫形（`PSYCHOMETRIKA`）與正式刊名因此同鍵，這正是 371 個 distinct
     /// journaltitle 的主要異形來源。
+    ///
+    /// `reportingSuppressed`：要不要組 `suppressed`（#712）。只有列表腿讀它；apply／reject 腿傳 `false`，連每個否決鍵的
+    /// 排序都不做（R1 verify 第 0 列）。預設 `true`——新的列表面忘了傳時多做一點工，而不是安靜地少一段。
+    /// **成本是線性的**：每個否決鍵的拼法集合建一次（O(R)，R＝rejected verdict 數），每條邊一次 O(1) 查找，每列至多帶
+    /// `suppressedLiteralsPerRow` 個拼法；排序每個鍵至多一次（O(K log K)，各鍵加總 O(R log R)）。
     public static func resolve(entries: [Entry], venues: [Venue],
-                               rejected: Set<ResolutionPairing>) -> VenueResolutionReport {
+                               rejected: Set<ResolutionPairing>,
+                               reportingSuppressed: Bool = true) -> VenueResolutionReport {
         var aliasMap: [String: Set<String>] = [:]
         for venue in venues {
             // 全部名字（時間軸各段——沿革中的舊刊名照樣配對；舊文章掛舊刊名是常態）。
@@ -126,12 +155,12 @@ public enum VenueResolver {
         // 同一套拼接，刻意不改形狀。
         // 三段各自一個欄位、不拼接（R25；R24 verify security 第 27 列：`matchingKey` 不剝 Cc，U+0000 分隔可被 literal 內容撞上——
         // 與 `verdictEqualityKey` 對 malformed 鍵補過的同一道防禦；struct 鍵沒有分隔符可撞）
-        // #712：值是壓住這個鍵的每一個 rejected literal（原字串）——抑制本身只看「鍵在不在」，與先前的 `Set<RejectedPairKey>` 等價；
+        // #712：值是壓住這個鍵的被否決拼法（原字串）——抑制本身只看「鍵在不在」，與先前的 `Set<RejectedPairKey>` 等價；
         // 值只用來回報「是誰壓住的」，並分辨逐字相等的普通已否決與被正規化壓掉的候選。
-        var rejectedNorm: [RejectedPairKey: [String]] = [:]
+        var rejectedNorm: [RejectedPairKey: RejectedSpellings] = [:]
         for pairing in rejected where pairing.holderKind == .work {
-            rejectedNorm[RejectedPairKey(holder: pairing.holder, literal: normalize(pairing.literal), judged: pairing.judgedKey), default: []]
-                .append(pairing.literal)
+            rejectedNorm[RejectedPairKey(holder: pairing.holder, literal: normalize(pairing.literal), judged: pairing.judgedKey), default: .init()]
+                .spellings.insert(pairing.literal)
         }
         var candidates: [VenueResolutionCandidate] = []
         var ambiguities: [VenueAmbiguousMatch] = []
@@ -140,14 +169,23 @@ public enum VenueResolver {
             for (i, ref) in entry.venues.enumerated() {
                 guard case .literal(let literal) = ref else { continue }
                 // 無任何 venue 叫這個名字＝合法長期狀態，不回報（噪音紀律同 person）。
-                guard let keys = aliasMap[normalize(literal)] else { continue }
+                let normalized = normalize(literal)
+                guard let keys = aliasMap[normalized] else { continue }
                 if keys.count == 1, let key = keys.first {
-                    if let rejectedLiterals = rejectedNorm[RejectedPairKey(holder: entry.citekey, literal: normalize(literal), judged: key)] {
+                    let rejectedKey = RejectedPairKey(holder: entry.citekey, literal: normalized, judged: key)
+                    if let rejectedHere = rejectedNorm[rejectedKey] {
                         // 逐字相等的壓住者＝普通的已否決（列表一向不列，維持原樣）；否則是被正規化配對壓掉的——報出來（#712），抑制不變
-                        if !rejectedLiterals.contains(literal) {
+                        if reportingSuppressed, !rejectedHere.spellings.contains(literal) {
+                            let shown: [String]
+                            if let cached = rejectedHere.shown {
+                                shown = cached
+                            } else {
+                                shown = Array(rejectedHere.spellings.sorted().prefix(suppressedLiteralsPerRow))
+                                rejectedNorm[rejectedKey]?.shown = shown
+                            }
                             suppressed.append(VenueSuppressedCandidate(
                                 citekey: entry.citekey, venueIndex: i, literal: literal, venueKey: key,
-                                rejectedLiterals: rejectedLiterals.sorted()))
+                                rejectedLiterals: shown, rejectedLiteralsTotal: rejectedHere.spellings.count))
                         }
                         continue
                     }

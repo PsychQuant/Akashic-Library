@@ -1,6 +1,6 @@
 # 2026-10-01 `resolve-venues` 的列表報出被正規化配對壓掉的候選（#712）
 
-#559 R1 verify（requirements 第 12 則、logic 第 19 則）轉述 #554 R16 verify regression 第 23 列的建議：#554 R12 起，`resolve-venues` 的否決抑制以 `NameNormalization.matchingKey` 為鍵，所以對一個拼法的 `--reject`／`--demote` 會一併壓住**同一 work、同一 venue 的其他拼法**。那是提名面 recall 的收窄，而列表輸出不說——被壓住的候選是靜默消失的（`identity-is-judged-not-matched` §「提名是 recall」：靜默是 `lossless-intake` 明列為最糟的失敗形式）。這次補上，立場同 resolve-people 已否決段的「沉底而非隱藏」。
+#559 R1 verify（requirements 第 12 則、logic 第 19 則）轉述 #554 R16 verify regression 第 23 列的建議：#554 R12 起，`resolve-venues` 的否決抑制以 `NameNormalization.matchingKey` 為鍵，所以對一個拼法的 `--reject`／`--demote` 會一併壓住**同一 work、同一 venue 的其他拼法**。那是提名面 recall 的收窄，而列表輸出不說——被壓住的候選是靜默消失的（`identity-is-judged-not-matched` §「提名是 recall」：靜默是 `lossless-intake` 明列為最糟的失敗形式）。這次補上，立場是「沉底而非隱藏」。（**2026-10-02 更正**：原句寫「立場同 resolve-people 已否決段」——那個先例不涵蓋這一類：people 的 `rejected` 段只列逐字等於被否決拼法的作者位，被正規化壓掉的兄弟拼法不在其中，見 #721 與 `2026-10-02-resolve-venues-suppressed-linear.md`。）
 
 ## 契約
 
@@ -18,7 +18,7 @@
 
 - **CLI**：全列（服務層參數 `suppressedLimit: nil`），沒有位元組預算——輸出進人的終端機，操作者要能列舉每一筆。venue 的 CLI 列表本來就是服務 JSON 的原樣輸出（沒有 resolve-people 那種人可讀排版），所以 issue 說的「計數行」就是 `suppressedTotal`，不另造一套文字格式。
 - **MCP**：截 20 筆（`AkashicService.suppressedItemsCap`），並另受 `candidateByteBudget`（48 KiB）約束：吃不下的整列不印（同 resolve-people 的候選列，`id` 不能截斷的同一個理由換成「整列不印比印半列誠實」），`suppressedTotal` 與 `truncated` 揭露。位元組以 `jsonBytes` 實際量。
-- 每列 `rejectedLiterals` 的個數另設上限（`suppressedLiteralsPerRow` = 5），因為每個都是 store 字串、`displaySafe` 逃脫後每個 scalar 最多 9 bytes；實務上同一 work 同一 venue 被否決的不同拼法不超過這條 work 的 literal 邊數。
+- 每列 `rejectedLiterals` 的個數另設上限（`suppressedLiteralsPerRow` = 5），因為每個都是 store 字串、`displaySafe` 逃脫後每個 scalar 最多 9 bytes；實務上同一 work 同一 venue 被否決的不同拼法不超過這條 work 的 literal 邊數。（**2026-10-02 更正**：「實務上」對未信任的 store 內容不成立，而這一版截在輸出端、建表時每列存全部——N×K 的成本，R1 改到 resolver 裡截，見 `2026-10-02-resolve-venues-suppressed-linear.md`。）
 
 ## 判準：進 `suppressed` 的只有一類
 
@@ -33,7 +33,7 @@
 
 ### 為什麼是 `==` 而不是位元組相等（與 issue 的字面不同，請使用者確認）
 
-issue 寫「by matchingKey 但不是 byte-exact literal」。我選 Swift 字串相等（canonical equivalence），理由有三：
+我把 issue 讀成「by matchingKey 但不是 byte-exact literal」（**2026-10-02 更正**：原句寫成 issue 的原話，issue 內文沒有這句——它的 Expected 只說「報出因正規化配對被抑制的候選數，並能看到是哪幾筆」，R1 verify 第 29 列）。我選 Swift 字串相等（canonical equivalence），理由有三：
 
 1. **否決表是 `Set<ResolutionPairing>`**，合成的 `Hashable` 以 `String ==` 比 literal——只差 NFC／NFD 的兩筆 verdict 在進這個集合時就被收成一筆，位元組層的差別在 `resolve` 看到的輸入裡**已經不存在**。要做位元組判準得改簽章、拿 verdict 清單而不是集合。
 2. **那一格不是 R12 收窄出來的**：R12 之前的比對（`rejected.contains(ResolutionPairing(…literal: literal…))`）也是 `==`，只差 NFC／NFD 的候選當時就壓得住。報它等於把「這次沒變的行為」報成「R12 隱藏的東西」。
@@ -46,7 +46,7 @@ issue 寫「by matchingKey 但不是 byte-exact literal」。我選 Swift 字串
 - **不改抑制語意**：`candidates`／`ambiguities` 與改動前逐位元相同（`testReportingDoesNotChangeWhatIsSuppressed`、M3 負對照）。
 - **不新增撤回面**：「撤回對某個拼法的 reject」仍然沒有工具面（verdict 沒有移除面）；這一段只是讓你看得到是誰壓住了誰。
 - **`zero-instance-guards` 不加列**：這是列表欄位不是守衛——沒有東西被擋下，也沒有資料被判定。
-- **resolve-people／resolve-organizations 不動**：issue 只問 venue。兩者的否決抑制同樣以 `matchingKey` 為鍵（person 側 R1-fix I1、organization 側 #647 R3），但它們的列表在同一情境（對一個拼法 reject、另一個拼法被壓）是否也沉默，這次**沒有檢查**；若沉默，是各自的 issue。
+- **resolve-people／resolve-organizations 不動**：issue 只問 venue。兩者的否決抑制同樣以 `matchingKey` 為鍵（person 側 R1-fix I1、organization 側 #647 R3），但它們的列表在同一情境（對一個拼法 reject、另一個拼法被壓）是否也沉默，這次**沒有檢查**；若沉默，是各自的 issue。（**2026-10-02 補記**：R1 verify 四席以真 binary 查過，兩者都沉默，還會說「任何提名層皆無命中」——追蹤在 #721。）
 
 ## 實作
 

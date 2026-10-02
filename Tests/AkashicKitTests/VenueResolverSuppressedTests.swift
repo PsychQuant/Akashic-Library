@@ -28,9 +28,9 @@ final class VenueResolverSuppressedTests: XCTestCase {
         XCTAssertEqual(report.candidates, [], "三個拼法都被壓住——抑制不變")
         XCTAssertEqual(report.suppressed, [
             VenueSuppressedCandidate(citekey: "x2025", venueIndex: 1, literal: "PSYCHOMETRIKA",
-                                     venueKey: "psychometrika", rejectedLiterals: ["Psychometrika"]),
+                                     venueKey: "psychometrika", rejectedLiterals: ["Psychometrika"], rejectedLiteralsTotal: 1),
             VenueSuppressedCandidate(citekey: "x2025", venueIndex: 2, literal: "psychometrika",
-                                     venueKey: "psychometrika", rejectedLiterals: ["Psychometrika"]),
+                                     venueKey: "psychometrika", rejectedLiterals: ["Psychometrika"], rejectedLiteralsTotal: 1),
         ], "逐字相等的 index 0 是普通的已否決、不在這裡；另兩個是被正規化配對壓掉的")
     }
 
@@ -97,5 +97,54 @@ final class VenueResolverSuppressedTests: XCTestCase {
                        "b2020 的 index 1 逐字等於被否決的拼法，普通的已否決")
         // 沒有被否決的拼法時 suppressed 是空的
         XCTAssertEqual(VenueResolver.resolve(entries: entries, venues: [venue], rejected: []).suppressed, [])
+    }
+
+    // MARK: - #712 R1 verify 第 0／1 列：成本要線性
+
+    /// `psychometrika` 的大小寫變體：13 個字母，2^13 個彼此不同、`matchingKey` 全同的拼法。
+    private func variant(_ i: Int) -> String {
+        String("psychometrika".enumerated().map { j, c in (i >> j) & 1 == 1 ? Character(c.uppercased()) : c })
+    }
+
+    /// N 條邊共用同一組 K 個被否決拼法時，每列至多帶 `suppressedLiteralsPerRow` 個、另記總數。第一版每列存全部 K 個
+    /// （記憶體 N×K）並各排序一次（N×K log K）——真 binary 在 N=K=4000 量到 16.9 秒、306 MB。截到 5 是在 **resolver** 裡，
+    /// 不是在 payload：這裡直接讀 report，所以第一版在這裡會看到 K 個。
+    func testEachRowCarriesAtMostTheCapEvenWhenManySpellingsWereRejected() {
+        let k = 200, n = 50
+        let rejected = Set((0..<k).map { rejection("x2025", variant($0)) })
+        XCTAssertEqual(rejected.count, k, "前提：K 個拼法彼此不同")
+        let report = VenueResolver.resolve(entries: [entry("x2025", (k..<(k + n)).map(variant))], venues: [venue],
+                                           rejected: rejected)
+        XCTAssertEqual(report.candidates, [], "抑制不變")
+        XCTAssertEqual(report.suppressed.count, n)
+        let expected = Array((0..<k).map(variant).sorted().prefix(VenueResolver.suppressedLiteralsPerRow))
+        for row in report.suppressed {
+            XCTAssertEqual(row.rejectedLiterals.count, VenueResolver.suppressedLiteralsPerRow, "每列的陣列長度有上界，與 K 無關")
+            XCTAssertEqual(row.rejectedLiterals, expected, "依字串排序的前幾個")
+            XCTAssertEqual(row.rejectedLiteralsTotal, k, "總數照實說")
+        }
+    }
+
+    /// 被否決的拼法少於上限時不補、總數等於陣列長度（payload 據此不帶 `rejectedLiteralsTotal`）。
+    func testFewRejectedSpellingsAreAllShownAndTheTotalMatches() {
+        let report = VenueResolver.resolve(entries: [entry("x2025", [variant(5)])], venues: [venue],
+                                           rejected: [rejection("x2025", variant(1)), rejection("x2025", variant(2))])
+        XCTAssertEqual(report.suppressed.map(\.rejectedLiterals), [[variant(1), variant(2)].sorted()])
+        XCTAssertEqual(report.suppressed.map(\.rejectedLiteralsTotal), [2])
+    }
+
+    /// apply／reject 腿不讀 `suppressed`，所以不組它（R1 verify 第 0 列）；candidates 與 ambiguities 不受影響。
+    func testNotReportingSuppressedLeavesCandidatesAndAmbiguitiesUnchanged() {
+        let twin = Venue(key: "psychometrika-2", type: .periodical,
+                         names: Timeline([TemporalValue(value: "Psychometrika 2")]), authorized: [])
+        let entries = [entry("x2025", ["Psychometrika", "PSYCHOMETRIKA"]), entry("y2026", ["Psychometrika", "Psychometrika 2"])]
+        let rejected: Set = [rejection("x2025", "Psychometrika")]
+        let listing = VenueResolver.resolve(entries: entries, venues: [venue, twin], rejected: rejected)
+        let writeLeg = VenueResolver.resolve(entries: entries, venues: [venue, twin], rejected: rejected,
+                                             reportingSuppressed: false)
+        XCTAssertEqual(listing.suppressed.count, 1, "前提：列表腿有一列")
+        XCTAssertEqual(writeLeg.suppressed, [])
+        XCTAssertEqual(writeLeg.candidates, listing.candidates)
+        XCTAssertEqual(writeLeg.ambiguities, listing.ambiguities)
     }
 }

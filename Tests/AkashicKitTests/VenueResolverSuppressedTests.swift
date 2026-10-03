@@ -134,17 +134,94 @@ final class VenueResolverSuppressedTests: XCTestCase {
     }
 
     /// apply／reject 腿不讀 `suppressed`，所以不組它（R1 verify 第 0 列）；candidates 與 ambiguities 不受影響。
+    /// R2（#712 R2 verify 第 15 列）：上一版的分身叫 `Psychometrika 2`，`matchingKey` 與 `Psychometrika` 不同，兩個 report 的
+    /// `ambiguities` 都是空的——那個斷言比的是 `[]` 與 `[]`。現在分身與 `psychometrika` 同名（真的歧義），被壓住的那條邊在
+    /// 第三個 venue 上（歧義一向不被抑制，所以被壓住的列不能與歧義共用同一個名字）。
     func testNotReportingSuppressedLeavesCandidatesAndAmbiguitiesUnchanged() {
         let twin = Venue(key: "psychometrika-2", type: .periodical,
-                         names: Timeline([TemporalValue(value: "Psychometrika 2")]), authorized: [])
-        let entries = [entry("x2025", ["Psychometrika", "PSYCHOMETRIKA"]), entry("y2026", ["Psychometrika", "Psychometrika 2"])]
-        let rejected: Set = [rejection("x2025", "Psychometrika")]
-        let listing = VenueResolver.resolve(entries: entries, venues: [venue, twin], rejected: rejected)
-        let writeLeg = VenueResolver.resolve(entries: entries, venues: [venue, twin], rejected: rejected,
+                         names: Timeline([TemporalValue(value: "Psychometrika")]), authorized: [])
+        let methods = Venue(key: "psychological-methods", type: .periodical,
+                            names: Timeline([TemporalValue(value: "Psychological Methods")]), authorized: [])
+        let entries = [entry("x2025", ["Psychological Methods", "PSYCHOLOGICAL METHODS"]),
+                       entry("y2026", ["Psychometrika"]),
+                       entry("z2027", ["psychological methods"])]
+        let rejected: Set = [rejection("x2025", "Psychological Methods", venue: "psychological-methods")]
+        let venues = [venue, twin, methods]
+        let listing = VenueResolver.resolve(entries: entries, venues: venues, rejected: rejected)
+        let writeLeg = VenueResolver.resolve(entries: entries, venues: venues, rejected: rejected,
                                              reportingSuppressed: false)
-        XCTAssertEqual(listing.suppressed.count, 1, "前提：列表腿有一列")
+        XCTAssertEqual(listing.suppressed.map { "\($0.citekey):\($0.venueIndex)" }, ["x2025:1"], "前提：列表腿有一列")
+        XCTAssertEqual(listing.ambiguities.map(\.citekey), ["y2026"], "前提：真的有一個歧義")
+        XCTAssertEqual(listing.candidates.map(\.rowID), ["z2027:0"], "前提：真的有一個候選")
         XCTAssertEqual(writeLeg.suppressed, [])
         XCTAssertEqual(writeLeg.candidates, listing.candidates)
         XCTAssertEqual(writeLeg.ambiguities, listing.ambiguities)
+    }
+
+    // MARK: - #712 R2 verify 第 3 列：`shown` 是每個否決鍵一份的快取
+
+    /// 三個 (work, venue) 否決鍵各有不同的被否決拼法、各至少一條被壓住的邊：兩個鍵同 venue 不同 work（a2020、b2021），
+    /// 兩個鍵同 work 不同 venue（c2022）。每一列帶的必須是壓住**它自己那個鍵**的拼法與總數。
+    /// R1 的快取在第一次有列需要時才排序、之後各列共用——它若被寫成整個函式共用一份（或只以 work、只以 venue 為鍵），
+    /// 第二列起帶的就是別的鍵的拼法，而 R1 的十個測試全綠（每個情境只有一個否決鍵有被壓住的列）。
+    func testEachRejectedKeyReportsItsOwnSpellingsAndTotal() {
+        let methods = Venue(key: "psychological-methods", type: .periodical,
+                            names: Timeline([TemporalValue(value: "Psychological Methods")]), authorized: [])
+        let bSpellings = ["PSYCHOMETRIKA", "PsychometrikA"]
+        let cMethodsSpellings = ["Psychological Methods", "PSYCHOLOGICAL METHODS", "Psychological methods"]
+        var rejected: Set<ResolutionPairing> = [rejection("a2020", "Psychometrika"), rejection("c2022", "PSYCHOMETRIKA")]
+        for s in bSpellings { rejected.insert(rejection("b2021", s)) }
+        for s in cMethodsSpellings { rejected.insert(rejection("c2022", s, venue: "psychological-methods")) }
+        let report = VenueResolver.resolve(
+            entries: [entry("a2020", ["PSYCHOMETRIKA"]), entry("b2021", ["psychometrika"]),
+                      entry("c2022", ["Psychometrika", "psychological methods"])],
+            venues: [venue, methods], rejected: rejected)
+        XCTAssertEqual(report.candidates, [], "四條邊都被壓住——抑制不變")
+        XCTAssertEqual(report.suppressed, [
+            VenueSuppressedCandidate(citekey: "a2020", venueIndex: 0, literal: "PSYCHOMETRIKA", venueKey: "psychometrika",
+                                     rejectedLiterals: ["Psychometrika"], rejectedLiteralsTotal: 1),
+            VenueSuppressedCandidate(citekey: "b2021", venueIndex: 0, literal: "psychometrika", venueKey: "psychometrika",
+                                     rejectedLiterals: bSpellings.sorted(), rejectedLiteralsTotal: 2),
+            VenueSuppressedCandidate(citekey: "c2022", venueIndex: 0, literal: "Psychometrika", venueKey: "psychometrika",
+                                     rejectedLiterals: ["PSYCHOMETRIKA"], rejectedLiteralsTotal: 1),
+            VenueSuppressedCandidate(citekey: "c2022", venueIndex: 1, literal: "psychological methods",
+                                     venueKey: "psychological-methods",
+                                     rejectedLiterals: cMethodsSpellings.sorted(), rejectedLiteralsTotal: 3),
+        ], "每一列帶的是它自己那個 (work, venue) 鍵的拼法")
+    }
+
+    // MARK: - #712 R2 verify 第 10 列：apply／reject 腿不組 `suppressed`
+
+    /// 效能修正的一半住在呼叫端的一個引數上：apply／reject 腿傳 `reportingSuppressed: false`。翻回 `true` 不會讓任何輸出改變
+    /// （那兩條腿不讀 `suppressed`），只有 CPU 與記憶體退步，所以行為測試抓不到。源碼掃描釘住 `Sources/` 裡每個
+    /// `VenueResolver.resolve(` 都**顯式**傳這個引數，而且值恰是這兩個：apply＋reject 組合腿的前置列表傳 `false`；
+    /// 主路徑傳「apply 與 reject 都空」（只有列表腿是真）。新增呼叫點時這裡會紅——那時決定它是不是列表腿，再改這張清單。
+    func testWriteLegsPassReportingSuppressedFalse() throws {
+        let repo = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let sources = repo.appendingPathComponent("Sources")
+        var values: [String] = []
+        let files = FileManager.default.enumerator(at: sources, includingPropertiesForKeys: nil)
+        while let url = files?.nextObject() as? URL {
+            guard url.pathExtension == "swift", url.lastPathComponent != "VenueResolver.swift" else { continue }
+            let text = try String(contentsOf: url, encoding: .utf8)
+            var rest = Substring(text)
+            while let r = rest.range(of: "VenueResolver.resolve(") {
+                var depth = 1, i = r.upperBound
+                while i < rest.endIndex, depth > 0 {
+                    if rest[i] == "(" { depth += 1 } else if rest[i] == ")" { depth -= 1 }
+                    i = rest.index(after: i)
+                }
+                let args = rest[r.upperBound..<rest.index(before: i)]
+                if let label = args.range(of: "reportingSuppressed:") {
+                    values.append(args[label.upperBound...].split(whereSeparator: \.isWhitespace).joined(separator: " "))
+                } else {
+                    values.append("（沒有顯式傳 reportingSuppressed：\(url.lastPathComponent)）")
+                }
+                rest = rest[i...]
+            }
+        }
+        XCTAssertEqual(values.sorted(), ["(apply ?? []).isEmpty && (reject ?? []).isEmpty", "false"].sorted(),
+                       "apply＋reject 組合腿傳 false、主路徑只在列表腿為真")
     }
 }

@@ -229,4 +229,152 @@ final class NameClassificationMergeTests: XCTestCase {
         }
         XCTAssertEqual(Set(try store.load().people.map(\.key)), ["twin-a", "twin-b"], "零寫入")
     }
+
+    // MARK: - #564 R2 verify（b29 V1 第 0／2／3／6／12／26 列）：搬記錄按位置接、尾端與分類一致、錨定、預覽說出動作
+
+    private func classificationRecords(_ refs: [ProvenanceReference], name: String) -> [String] {
+        refs.filter { NameClassificationRecord.isRecord($0) && $0.value == name }.compactMap { r in
+            guard case .judgement(let statement, _) = r.kind else { return nil }
+            return r.field + " " + statement
+        }
+    }
+
+    /// 被併者「指定 R → 撤回 S → 指定 R」併進已有「指定 R」的倖存者：第三筆不能因為與倖存者的第一筆位元組相同而被丟——
+    /// 先前（整份歷史位元組去重）只搬「撤回 S」，倖存者的名字仍是對外形、最後一筆卻是撤回。預覽與實跑同一份，且預覽說出動作。
+    func testPersonCarryKeepsTheFinalDesignationThatRepeatsAnEarlierOne() throws {
+        let r = record("authorized", "Zhang, Wei", .designate, "R")
+        let keeper = person("zw-keep", authorized: ["Zhang, Wei"], refs: [r])
+        let doomed = person("zw-doom", authorized: ["Zhang, Wei"],
+                            refs: [r, record("authorized", "Zhang, Wei", .withdraw, "S"), record("authorized", "Zhang, Wei", .designate, "R")])
+        let d = try seedPeople(keeper: keeper, doomed: [doomed])
+        let preview = try store.previewResolveDivergence(id: d.id, survivor: "zw-keep", overrideReason: nil)
+        XCTAssertEqual(preview.referencesCarried.count, 2, "\(preview.referencesCarried)")
+        XCTAssertTrue(preview.referencesCarried[0].contains("撤回：S") && preview.referencesCarried[1].contains("指定：R"),
+                      "預覽要說出動作與順序：\(preview.referencesCarried)")
+        let report = try store.resolveDivergence(id: d.id, survivor: "zw-keep")
+        XCTAssertFalse(report.hasFailures, report.failures.joined(separator: "\n"))
+        XCTAssertEqual(report.referencesCarried, preview.referencesCarried)
+        let kept = try XCTUnwrap(store.load().people.first { $0.key == "zw-keep" })
+        XCTAssertEqual(classificationRecords(kept.references, name: "Zhang, Wei"),
+                       ["authorized 指定：R", "authorized 撤回：S", "authorized 指定：R"])
+        XCTAssertEqual(NameClassificationRecord.latestAction(in: kept.references, name: "Zhang, Wei"), .designate)
+        XCTAssertTrue(LibraryStore.personTailConflicts(kept).isEmpty)
+    }
+
+    /// Codex 的情境：兩邊都是「指定 R → 撤回（理由不同）→ 指定 R」——合併後最後一筆仍是指定。
+    func testPersonCarryOfTwoRedesignationHistoriesEndsInDesignation() throws {
+        let r = record("authorized", "Zhang, Wei", .designate, "R")
+        let keeper = person("zw-keep", authorized: ["Zhang, Wei"], refs: [r, record("authorized", "Zhang, Wei", .withdraw, "S"), r])
+        let doomed = person("zw-doom", authorized: ["Zhang, Wei"], refs: [r, record("authorized", "Zhang, Wei", .withdraw, "T"), r])
+        let d = try seedPeople(keeper: keeper, doomed: [doomed])
+        _ = try store.previewResolveDivergence(id: d.id, survivor: "zw-keep", overrideReason: nil)
+        let report = try store.resolveDivergence(id: d.id, survivor: "zw-keep")
+        XCTAssertFalse(report.hasFailures, report.failures.joined(separator: "\n"))
+        let kept = try XCTUnwrap(store.load().people.first { $0.key == "zw-keep" })
+        XCTAssertEqual(classificationRecords(kept.references, name: "Zhang, Wei"),
+                       ["authorized 指定：R", "authorized 撤回：S", "authorized 指定：R", "authorized 撤回：T", "authorized 指定：R"])
+        XCTAssertEqual(NameClassificationRecord.latestAction(in: kept.references, name: "Zhang, Wei"), .designate)
+    }
+
+    /// 兩邊都已撤回（現在是 variant）、被併者的撤回與倖存者較早的撤回位元組相同：先前被去重丟掉、只搬「指定 Q」，最後一筆變成指定，
+    /// 之後 `--remove-name` 以「最後一筆不是撤回」拒絕而出口做不到（名字根本不在 authorized）。現在最後一筆是撤回。
+    func testPersonCarryKeepsTheFinalWithdrawalThatRepeatsAnEarlierOne() throws {
+        let keeper = person("ac-keep", authorized: ["Chen, A."], variant: ["Chen, Alice"], refs: [
+            record("authorized", "Chen, Alice", .designate, "R"), record("authorized", "Chen, Alice", .withdraw, "S")])
+        let doomed = person("ac-doom", authorized: [], variant: ["Chen, Alice"], refs: [
+            record("authorized", "Chen, Alice", .designate, "Q"), record("authorized", "Chen, Alice", .withdraw, "S")])
+        let d = try seedPeople(keeper: keeper, doomed: [doomed])
+        let preview = try store.previewResolveDivergence(id: d.id, survivor: "ac-keep", overrideReason: nil)
+        XCTAssertEqual(preview.referencesCarried.count, 2, "\(preview.referencesCarried)")
+        _ = try store.resolveDivergence(id: d.id, survivor: "ac-keep")
+        let kept = try XCTUnwrap(store.load().people.first { $0.key == "ac-keep" })
+        XCTAssertEqual(classificationRecords(kept.references, name: "Chen, Alice"),
+                       ["authorized 指定：R", "authorized 撤回：S", "authorized 指定：Q", "authorized 撤回：S"])
+        XCTAssertEqual(NameClassificationRecord.latestAction(in: kept.references, name: "Chen, Alice"), .withdraw)
+    }
+
+    /// venue 同形：倖存者「指定 R」← 被併者「指定 R → 撤回 S → 指定 R」——倖存者以指定結尾。
+    func testVenueCarryKeepsTheFinalDesignationThatRepeatsAnEarlierOne() throws {
+        let r = record("authorized", "Journal A", .designate, "R")
+        let keeper = venue("k", names: ["Journal A"], authorized: ["Journal A"], refs: [r])
+        let doomed = venue("d", names: ["Journal A"], authorized: ["Journal A"],
+                           refs: [r, record("authorized", "Journal A", .withdraw, "S"), record("authorized", "Journal A", .designate, "R")])
+        let d = try seed(keeper: keeper, doomed: [doomed])
+        let preview = try store.previewResolveDivergence(id: d.id, survivor: "k", overrideReason: nil)
+        let report = try store.resolveDivergence(id: d.id, survivor: "k")
+        XCTAssertFalse(report.hasFailures, report.failures.joined(separator: "\n"))
+        XCTAssertEqual(report.referencesCarried, preview.referencesCarried)
+        let k = try XCTUnwrap(store.load().venues.first { $0.key == "k" })
+        XCTAssertEqual(classificationRecords(k.references, name: "Journal A"),
+                       ["authorized 指定：R", "authorized 撤回：S", "authorized 指定：R"])
+        XCTAssertTrue(LibraryStore.venueTailConflicts(k).isEmpty)
+    }
+
+    /// 被併者自己的記錄就與分類不一致（手改，或修正輪之前的 binary：「指定 R → 撤回 S → 指定 R」的第三筆被當時的去重丟掉）——合併接過去
+    /// 會讓倖存者以撤回結尾而名字仍是對外形。preview 與實跑都拒絕、零寫入，訊息說出名字、分割、最後一筆與出口。
+    func testCarryThatWouldLeaveAContradictoryTailIsRefused() throws {
+        let r = record("authorized", "Zhang, Wei", .designate, "R")
+        let keeper = person("zw-keep", authorized: ["Zhang, Wei"], refs: [r])
+        let doomed = person("zw-doom", authorized: ["Zhang, Wei"], refs: [r, record("authorized", "Zhang, Wei", .withdraw, "S")])
+        let d = try seedPeople(keeper: keeper, doomed: [doomed])
+        let attempts: [() throws -> Void] = [{ _ = try self.store.previewResolveDivergence(id: d.id, survivor: "zw-keep", overrideReason: nil) },
+                                             { _ = try self.store.resolveDivergence(id: d.id, survivor: "zw-keep") }]
+        for attempt in attempts {
+            XCTAssertThrowsError(try attempt()) { e in
+                guard case DivergenceResolveError.wouldContradictClassificationTail = e else { return XCTFail("\(e)") }
+                let m = message(e)
+                XCTAssertTrue(m.contains("Zhang, Wei") && m.contains("撤回") && m.contains("仍在 authorized") && m.contains("--judgement"), m)
+            }
+        }
+        XCTAssertEqual(Set(try store.load().people.map(\.key)), ["zw-keep", "zw-doom"], "零寫入")
+
+        let vk = venue("vk", names: ["Journal A"], authorized: ["Journal A"])
+        let vd = venue("vd", names: ["Journal A"], authorized: ["Journal A"],
+                       refs: [record("authorized", "Journal A", .designate, "R"), record("authorized", "Journal A", .withdraw, "S")])
+        let vdiv = try seed(keeper: vk, doomed: [vd])
+        XCTAssertThrowsError(try store.previewResolveDivergence(id: vdiv.id, survivor: "vk", overrideReason: nil)) { e in
+            guard case DivergenceResolveError.wouldContradictClassificationTail = e else { return XCTFail("\(e)") }
+        }
+        XCTAssertThrowsError(try store.resolveDivergence(id: vdiv.id, survivor: "vk"))
+        XCTAssertEqual(Set(try store.load().venues.map(\.key)), ["vk", "vd"], "零寫入")
+    }
+
+    /// 倖存者自己原本就以撤回結尾而名字仍是對外形（合併前的既有狀態）：不歸咎這次合併（delta），照舊合併。
+    func testExistingContradictoryTailOnTheSurvivorDoesNotBlock() throws {
+        let keeper = person("zw-keep", authorized: ["Zhang, Wei"], refs: [
+            record("authorized", "Zhang, Wei", .designate, "R"), record("authorized", "Zhang, Wei", .withdraw, "S")])
+        let doomed = person("zw-doom", authorized: ["Zhang, Wei"])
+        let d = try seedPeople(keeper: keeper, doomed: [doomed])
+        let report = try store.resolveDivergence(id: d.id, survivor: "zw-keep")
+        XCTAssertFalse(report.hasFailures, report.failures.joined(separator: "\n"))
+    }
+
+    /// 被併者的名字與倖存者的只差空白（canonical 相等、拼法不同）：合併不併入這個拼法，它的記錄搬過去是孤兒。先前 dry-run 說「搬 2 筆」、
+    /// 實跑在寫入閘以「value 不是這筆記錄的名字」拒絕——乾跑與實跑不一致。現在兩者都以 wouldLoseFields 拒絕並指出口、零寫入。
+    func testPersonRecordOnAWhitespaceTwinSpellingRefusesInPreviewAndApply() throws {
+        let keeper = person("fb-keep", authorized: ["Foo Bar"], refs: [record("authorized", "Foo Bar", .designate, "R")])
+        let doomed = person("fb-doom", authorized: [], variant: ["Foo  Bar"], refs: [
+            record("authorized", "Foo  Bar", .designate, "R"), record("authorized", "Foo  Bar", .withdraw, "S")])
+        let d = try seedPeople(keeper: keeper, doomed: [doomed])
+        let attempts: [() throws -> Void] = [{ _ = try self.store.previewResolveDivergence(id: d.id, survivor: "fb-keep", overrideReason: nil) },
+                                             { _ = try self.store.resolveDivergence(id: d.id, survivor: "fb-keep") }]
+        for attempt in attempts {
+            XCTAssertThrowsError(try attempt()) { e in
+                guard case DivergenceResolveError.wouldLoseFields = e else { return XCTFail("\(e)") }
+                let m = message(e)
+                XCTAssertTrue(m.contains("只差空白") && m.contains("--remove-name") && m.contains("孤兒"), m)
+                XCTAssertFalse(m.contains("分類不同"), "分類並沒有不同：\(m)")
+            }
+        }
+        XCTAssertEqual(Set(try store.load().people.map(\.key)), ["fb-keep", "fb-doom"], "零寫入")
+    }
+
+    /// 兩邊的對外形只差空白：分類的相等看 canonical——記錄的拒絕理由不是「被併者 authorized→倖存者不是對外形」。
+    func testPersonClassificationComparesAuthorizedCanonically() {
+        let doomed = person("lm-doom", authorized: ["Li  Ming"], refs: [record("authorized", "Li  Ming", .designate, "R")])
+        let keeper = person("lm-keep", authorized: ["Li Ming"])
+        let losses = LibraryStore.fieldsLostByMerging(doomed, into: keeper)
+        XCTAssertFalse(losses.contains { $0.contains("不是對外形") }, "\(losses)")
+        XCTAssertTrue(losses.contains { $0.contains("只差空白") }, "\(losses)")
+    }
 }

@@ -191,59 +191,85 @@ let agmCases: [AGMCase] = [
         AGMEdit(path: ".claude/rules/zero-instance-guards.md", kind: "replaceFirst", a: "（#254：", b: "（無編號："),
     ], expect: ["沒有引用任何 issue 編號"]),
     // ── #711：`zero-instance-rows-audit` 的第五條失敗路徑——量測指令的自證閘 ─────────────────────────
-    // 每一條對 binary 輸出計數的指令，被量的管線前面要以 `&&` 接 `LC_ALL=C grep -a -q '<片段>' <同一支 binary>`，或同一個 fence 區塊
-    // 較早一條量測的行尾寫 `# 正對照`。錨都在**量測段的文字**上（第 13、28、36 列的閘、第 70／71 列的區塊），不碰列號。
+    // R2 起一條對 binary 輸出計數的量測只有一種合法寫法：`LC_ALL=C grep -a -q '<片段>' <BIN> && <BIN> <參數> 2>&1 | grep -c '<樣式>'`，
+    // `<BIN>` 兩處逐字相同（`selfProofTemplate`）。錨都在**量測段的文字**上（第 13、18、28、36 列的量測、表尾的段落標題），不碰列號。
     // **這一組與別組的輸出互不相同**（各自指名不同的行號與指令），所以不需要進 `PAIRED_IDENTICAL`。
     //
     // **錨字串不得含對 `akashic-guards` 的閘的片段**（#711 R1 verify 第 6、11 列）：這個檔編進 `akashic-guards`，片段寫在這裡，
-    // 閘就對沒有那條檢查的 binary 成立。第 71 列已退場的區塊曾是這裡的錨，R1 起改錨、那個區塊標成 `text`；
-    // 要種片段的那一格（harness 種片段）在執行期把它拼起來。
+    // 閘就對沒有那條檢查的 binary 成立——第 19 列（`zero-instance-rows-audit` 那則訊息）與第 70 列（`trigger-coverage` 範圍段的標題）
+    // 的片段都不得出現在這裡。對 `akashic` 的閘的片段不受這條限制（`akashic` 的原始碼不含 `akashic-guards` 的目錄）。
+    //
+    // R2 拿掉 R1 的三格：「量測指令的正對照被拿掉」「正對照寫成否定句」（正對照不再讓別行繼承，它只是註解）、「閘在較早一行」
+    // （改成下面的「閘在上一行、以 `\` 接續」，錨到第 18 列）。
     AGMCase(desc: "zi-rows：量測指令的自證閘被拿掉（舊 binary 會印 0）", guardRel: "akashic-guards zero-instance-rows-audit", edits: [
         AGMEdit(path: ".claude/rules/zero-instance-guards.md", kind: "replaceFirst",
-                a: "LC_ALL=C grep -a -q '死 verdict' \"$(command -v akashic)\" && akashic validate 2>&1 | grep -c '死 verdict'",
-                b: "akashic validate 2>&1 | grep -c '死 verdict'"),
-    ], expect: ["沒有自證閘", "grep -c '死 verdict'"]),
+                a: "LC_ALL=C grep -a -q '不在載入集合，且沒有任何檔宣稱它' \"$(command -v akashic)\" && \"$(command -v akashic)\" validate 2>&1 | grep -c '死 verdict'",
+                b: "\"$(command -v akashic)\" validate 2>&1 | grep -c '死 verdict'"),
+    ], expect: ["不是唯一合法的寫法", "`\"$(command -v akashic)\" validate 2>&1 | grep -c '死 verdict'`"]),
     // 閘還在、`LC_ALL=C` 沒了：macOS 的 `/usr/bin/grep` 在 UTF-8 locale 下對 binary 比不到中文，閘會把新 binary 判成舊的。
     AGMCase(desc: "zi-rows：量測指令的閘沒有 LC_ALL=C", guardRel: "akashic-guards zero-instance-rows-audit", edits: [
         AGMEdit(path: ".claude/rules/zero-instance-guards.md", kind: "replaceFirst",
                 a: "LC_ALL=C grep -a -q '重複的判定記錄' \"$(command -v akashic)\"",
                 b: "grep -a -q '重複的判定記錄' \"$(command -v akashic)\""),
-    ], expect: ["沒有 `LC_ALL=C`", "重複的判定記錄"]),
-    // #711 R1（verify 第 2、13 列）：閘以 `;` 接上——閘失敗時被量的指令照跑、印 0。第一版只看閘的文字在不在，這一格是綠的。
+    ], expect: ["不是唯一合法的寫法", "`grep -a -q '重複的判定記錄'"]),
+    // #711 R1（verify 第 2、13 列）：閘以 `;` 接上——閘失敗時被量的指令照跑、印 0。
     AGMCase(desc: "zi-rows：閘與量測指令之間是 ; 不是 &&", guardRel: "akashic-guards zero-instance-rows-audit", edits: [
         AGMEdit(path: ".claude/rules/zero-instance-guards.md", kind: "replaceFirst",
-                a: "\"$(command -v akashic)\" && akashic validate 2>&1 | grep -c '死 verdict'",
-                b: "\"$(command -v akashic)\"; akashic validate 2>&1 | grep -c '死 verdict'"),
-    ], expect: ["與自證閘之間是 `;` 不是 `&&`"]),
-    // #711 R1（verify 第 13、27 列）：閘查的 binary 與被量的不是同一支——閘證明不了被量的那支有這條檢查。
-    // 改的是**來源**（`akashic` → `akashic-guards`），閘的片段與目標不動，所以片段的兩條檢查（在不在 binary 裡、有沒有被 harness 種）
-    // 照樣通過，紅的只有綁定這一條。
+                a: "\"$(command -v akashic)\" && \"$(command -v akashic)\" validate 2>&1 | grep -c '死 verdict'",
+                b: "\"$(command -v akashic)\"; \"$(command -v akashic)\" validate 2>&1 | grep -c '死 verdict'"),
+    ], expect: ["不是唯一合法的寫法", "\"$(command -v akashic)\"; \"$(command -v akashic)\" validate"]),
+    // #711 R1（verify 第 13、27 列）：閘查的 binary 與被量的不是同一支——閘證明不了被量的那支有這條檢查。改的是**被量的**那一處，
+    // 閘的片段與目標不動，所以片段的條件照樣通過；錯誤訊息指出兩處各是什麼。
     AGMCase(desc: "zi-rows：閘查的 binary 與被量的不是同一支", guardRel: "akashic-guards zero-instance-rows-audit", edits: [
         AGMEdit(path: ".claude/rules/zero-instance-guards.md", kind: "replaceFirst",
-                a: "\"$(command -v akashic)\" && akashic validate 2>&1 | grep -c '死 verdict'",
-                b: "\"$(command -v akashic)\" && akashic-guards validate 2>&1 | grep -c '死 verdict'"),
-    ], expect: ["自證閘查的是 `akashic`，被量的卻是 `akashic-guards`"]),
-    // 第 70 列的區塊沒有閘，靠第一行的 `正對照` 讓後面那條 0 有對照；拿掉它，兩條都沒有。
-    AGMCase(desc: "zi-rows：量測指令的正對照被拿掉（區塊裡沒有閘）", guardRel: "akashic-guards zero-instance-rows-audit", edits: [
+                a: "\"$(command -v akashic)\" && \"$(command -v akashic)\" validate 2>&1 | grep -c '死 verdict'",
+                b: "\"$(command -v akashic)\" && \"$(command -v akashic-guards)\" validate 2>&1 | grep -c '死 verdict'"),
+    ], expect: ["閘查的是 `\"$(command -v akashic)\"`，被量的是 `\"$(command -v akashic-guards)\"`"]),
+    // #711 R2（verify 第 0、7、11、16 列）：同檔名、不同路徑——R1 只比最後一段，`.build/debug/akashic` 的閘替 `/tmp/old/akashic` 背書，
+    // 而舊的那支沒有這條檢查時印 0。
+    AGMCase(desc: "zi-rows：閘與被量的同檔名、不同路徑", guardRel: "akashic-guards zero-instance-rows-audit", edits: [
         AGMEdit(path: ".claude/rules/zero-instance-guards.md", kind: "replaceFirst",
-                a: "# 正對照，2026-09-30：3（0＝這個 binary 沒有範圍檢查，或中途中止）", b: "# 2026-09-30：3（0＝這個 binary 沒有範圍檢查，或中途中止）"),
-    ], expect: ["沒有自證閘", "grep -cE '^✓ .*宣告"]),
-    // #711 R1（verify 第 2 列）：**較早一行的閘不讓後面的計數繼承**——它不在被量的指令的控制流上，閘失敗時下一行照跑。第一版是
-    // 「同區塊較早有閘即可」，這一格當時是 ROBUST（須綠）。同上一格拿掉正對照，另在區塊第一行之前插一行閘（對 `akashic`、
-    // 片段在 binary 裡，片段的兩條檢查都過）；與上一格的差別只在這一行，所以輸出的行號錯開一行、不逐字相同。
-    AGMCase(desc: "zi-rows：閘在較早一行（不在被量的指令的控制流上）", guardRel: "akashic-guards zero-instance-rows-audit", edits: [
+                a: "\"$(command -v akashic)\" && \"$(command -v akashic)\" validate 2>&1 | grep -c '死 verdict'",
+                b: ".build/debug/akashic && /tmp/old/akashic validate 2>&1 | grep -c '死 verdict'"),
+    ], expect: ["閘查的是 `.build/debug/akashic`，被量的是 `/tmp/old/akashic`"]),
+    // #711 R2（verify 第 1、23 列）：前導的 `||`——shell 解析成 `(true || G) && M`，閘被短路、被量的照跑。R1 只看緊鄰的那個 `&&`。
+    AGMCase(desc: "zi-rows：閘前面有 || 讓閘被短路", guardRel: "akashic-guards zero-instance-rows-audit", edits: [
         AGMEdit(path: ".claude/rules/zero-instance-guards.md", kind: "replaceFirst",
-                a: "# 正對照，2026-09-30：3（0＝這個 binary 沒有範圍檢查，或中途中止）", b: "# 2026-09-30：3（0＝這個 binary 沒有範圍檢查，或中途中止）"),
+                a: "LC_ALL=C grep -a -q '不在載入集合，且沒有任何檔宣稱它' \"$(command -v akashic)\" && \"$(command -v akashic)\" validate 2>&1 | grep -c '死 verdict'",
+                b: "true || LC_ALL=C grep -a -q '不在載入集合，且沒有任何檔宣稱它' \"$(command -v akashic)\" && \"$(command -v akashic)\" validate 2>&1 | grep -c '死 verdict'"),
+    ], expect: ["不是唯一合法的寫法", "`true || LC_ALL=C grep -a -q"]),
+    // #711 R2（verify 第 12、23 列）：尾端的 `|| echo 0`——閘失敗時 `&&` 串失敗、`echo 0` 照跑，舊 binary 又印 0。
+    AGMCase(desc: "zi-rows：被量的指令後面接 || echo 0", guardRel: "akashic-guards zero-instance-rows-audit", edits: [
         AGMEdit(path: ".claude/rules/zero-instance-guards.md", kind: "replaceFirst",
-                a: "out=$(.build/debug/akashic-guards trigger-coverage); echo \"rc=$?\"",
-                b: "LC_ALL=C grep -a -q '死 verdict' \"$(command -v akashic)\" && echo \"有這條檢查\"\nout=$(.build/debug/akashic-guards trigger-coverage); echo \"rc=$?\""),
-    ], expect: ["沒有自證閘", "grep -cE '^✓ .*宣告"]),
-    // #711 R1（verify 第 21、24、27 列）：正對照只認行尾註解的**開頭**——「這裡沒有正對照」這種否定句第一版照樣算。
-    AGMCase(desc: "zi-rows：正對照寫成否定句", guardRel: "akashic-guards zero-instance-rows-audit", edits: [
+                a: "\"$(command -v akashic)\" validate 2>&1 | grep -c '死 verdict'`",
+                b: "\"$(command -v akashic)\" validate 2>&1 | grep -c '死 verdict' || echo 0`"),
+    ], expect: ["不是唯一合法的寫法", "grep -c '死 verdict' || echo 0`"]),
+    // #711 R2（verify 第 13、20、22 列）：包在 `if … then … fi` 裡——R1 的來源樣式錨在第一個 token，`then` 開頭的命令整個不被看見。
+    AGMCase(desc: "zi-rows：量測包在 if … then … fi 裡", guardRel: "akashic-guards zero-instance-rows-audit", edits: [
         AGMEdit(path: ".claude/rules/zero-instance-guards.md", kind: "replaceFirst",
-                a: "# 正對照（每支有負控的守衛一行），2026-10-01：18", b: "# 這裡沒有正對照（每支有負控的守衛一行），2026-10-01：18"),
-    ], expect: ["沒有自證閘", "grep -c '沒有它的 start'"]),
-    // #711 R1（verify 第 14 列）：**空掃描不是通過**——一條被量的指令都沒掃到，代表抽取式與檔的寫法脫節了。第一版這條分支沒有負控。
+                a: "LC_ALL=C grep -a -q '不在載入集合，且沒有任何檔宣稱它' \"$(command -v akashic)\" && \"$(command -v akashic)\" validate 2>&1 | grep -c '死 verdict'",
+                b: "if LC_ALL=C grep -a -q '不在載入集合，且沒有任何檔宣稱它' \"$(command -v akashic)\"; then \"$(command -v akashic)\" validate 2>&1 | grep -c '死 verdict'; fi"),
+    ], expect: ["不是唯一合法的寫法", "`if LC_ALL=C grep -a -q"]),
+    // #711 R2（verify 第 13、20、22 列）：計數存進變數 `n=$( … )`——R1 把 `$( … )` 裡的運算子整段吞進一個命令，什麼都沒判。
+    AGMCase(desc: "zi-rows：量測包在 n=$( … ) 裡", guardRel: "akashic-guards zero-instance-rows-audit", edits: [
+        AGMEdit(path: ".claude/rules/zero-instance-guards.md", kind: "replaceFirst",
+                a: "LC_ALL=C grep -a -q '不在載入集合，且沒有任何檔宣稱它' \"$(command -v akashic)\" && \"$(command -v akashic)\" validate 2>&1 | grep -c '死 verdict'",
+                b: "n=$(LC_ALL=C grep -a -q '不在載入集合，且沒有任何檔宣稱它' \"$(command -v akashic)\" && \"$(command -v akashic)\" validate 2>&1 | grep -c '死 verdict')"),
+    ], expect: ["不是唯一合法的寫法", "`n=$(LC_ALL=C grep -a -q"]),
+    // R1 的「閘在較早一行」改錨到第 18 列：閘在上一行、以 `\` 接續到被量的那一行。單位是一行，第二行沒有閘（R2 verify 第 22 列：R1 把它
+    // 判成「沒有自證閘」，訊息不對但方向對；R2 照樣紅，訊息說它不合模板）。
+    AGMCase(desc: "zi-rows：閘在上一行、以 \\ 接續", guardRel: "akashic-guards zero-instance-rows-audit", edits: [
+        AGMEdit(path: ".claude/rules/zero-instance-guards.md", kind: "replaceFirst",
+                a: "LC_ALL=C grep -a -q '截斷會讓一個不是來源給的值進 store' \"$(command -v akashic)\" && \"$(command -v akashic)\" enrich",
+                b: "LC_ALL=C grep -a -q '截斷會讓一個不是來源給的值進 store' \"$(command -v akashic)\" && \\\n  \"$(command -v akashic)\" enrich"),
+    ], expect: ["不是唯一合法的寫法", "`\"$(command -v akashic)\" enrich --library"]),
+    // #711 R2（verify 第 14 列）：行尾的 `# 正對照` 不讓同一個區塊後面的計數繼承——R1 讓一行正對照替後面任何 binary 的計數背書。
+    AGMCase(desc: "zi-rows：行尾的 # 正對照 不讓同區塊後面的計數繼承", guardRel: "akashic-guards zero-instance-rows-audit", edits: [
+        AGMEdit(path: ".claude/rules/zero-instance-guards.md", kind: "replaceFirst",
+                a: "--json 2>&1 | grep -c '超過上限'   # 應為 1\n",
+                b: "--json 2>&1 | grep -c '超過上限'   # 正對照：應為 1\n\"$(command -v akashic)\" validate 2>&1 | grep -c 'zzz-never-existed-check'\n"),
+    ], expect: ["不是唯一合法的寫法", "grep -c 'zzz-never-existed-check'"]),
+    // #711 R1（verify 第 14 列）：**空掃描不是通過**——一條被量的指令都沒掃到，代表抽取式與檔的寫法脫節了。
     AGMCase(desc: "zi-rows：量測指令一條都沒掃到", guardRel: "akashic-guards zero-instance-rows-audit", edits: [
         AGMEdit(path: ".claude/rules/zero-instance-guards.md", kind: "replaceAll", a: "| grep -c", b: "| grep -q"),
     ], expect: ["的指令一條都沒掃到"]),
@@ -252,7 +278,22 @@ let agmCases: [AGMCase] = [
     AGMCase(desc: "zi-rows：閘的片段只在短字面段裡（release 版找不到）", guardRel: "akashic-guards zero-instance-rows-audit", edits: [
         AGMEdit(path: ".claude/rules/zero-instance-guards.md", kind: "replaceFirst",
                 a: "'一個 ISSN 只屬於一本刊'", b: "'個 venue 上'"),
-    ], expect: ["不在 `akashic` 原始碼任何 ≥16 位元組的字串字面段裡"]),
+    ], expect: ["只在 `akashic` 原始碼裡短於 16 位元組的字串字面段裡"]),
+    // #711 R2（verify 第 21 列）：片段在原始碼裡完全找不到——訊息改了字、或檢查已移除。R1 對它印「字面段太短」那一句，把人導錯方向。
+    AGMCase(desc: "zi-rows：閘的片段在原始碼裡找不到（訊息改字）", guardRel: "akashic-guards zero-instance-rows-audit", edits: [
+        AGMEdit(path: ".claude/rules/zero-instance-guards.md", kind: "replaceFirst",
+                a: "'一個 ISSN 只屬於一本刊'", b: "'這則訊息早就改字了'"),
+    ], expect: ["在 `akashic` 的原始碼裡找不到（任何字串字面段都沒有）"]),
+    // #711 R2（verify 第 17 列）：片段太短——`verdict` 在 `akashic` 裡到處都是，閘恆真。
+    AGMCase(desc: "zi-rows：閘的片段太短", guardRel: "akashic-guards zero-instance-rows-audit", edits: [
+        AGMEdit(path: ".claude/rules/zero-instance-guards.md", kind: "replaceFirst",
+                a: "'不在載入集合，且沒有任何檔宣稱它'", b: "'verdict'"),
+    ], expect: ["只有 7 位元組（下限 8）"]),
+    // #711 R2（verify 第 17 列）：片段含基本正規式的特殊字元——`grep -a -q` 把 `.` 當任意字元，守衛卻把片段當字面比對。
+    AGMCase(desc: "zi-rows：閘的片段含正規式字元", guardRel: "akashic-guards zero-instance-rows-audit", edits: [
+        AGMEdit(path: ".claude/rules/zero-instance-guards.md", kind: "replaceFirst",
+                a: "'不在載入集合，且沒有任何檔宣稱它'", b: "'store.yaml'"),
+    ], expect: ["含基本正規式的特殊字元（`.`）"]),
     // #711 R1（verify 第 6、11 列）：負控 harness 的字串裡出現對 `akashic-guards` 的閘的片段。注入的字串在**執行期**拼起來——
     // 寫成一個字面就是本檔自己把它種進 binary（上面那段說的事）。
     AGMCase(desc: "zi-rows：閘的片段被負控 harness 種進 akashic-guards", guardRel: "akashic-guards zero-instance-rows-audit", edits: [
@@ -260,6 +301,24 @@ let agmCases: [AGMCase] = [
                 a: "import Foundation",
                 b: "import Foundation\nlet plantedGateNeedle = \"" + ["沒有任何 bullet", " 講它"].joined() + "\""),
     ], expect: ["出現在負控 harness"]),
+    // #711 R2（verify 第 2、4、5、6 列）：fence 沒有收尾——R1 見到 ``` 就切換內外，第 80／81 列的區塊漏了收尾，之後整份檔內外顛倒、
+    // 新加的量測區塊不被掃，守衛照樣綠。拿掉第 18 列區塊的收尾：下一個 ```bash 落在它裡面。
+    AGMCase(desc: "zi-rows：fence 沒有收尾（下一個 fence 的開頭落在它裡面）", guardRel: "akashic-guards zero-instance-rows-audit", edits: [
+        AGMEdit(path: ".claude/rules/zero-instance-guards.md", kind: "replaceFirst",
+                a: "--json 2>&1 | grep -c '超過上限'   # 應為 1\n```\n",
+                b: "--json 2>&1 | grep -c '超過上限'   # 應為 1\n"),
+    ], expect: ["是新 fence 的開頭，卻落在第", "的 fence 沒有收尾"]),
+    // 同上，另一種形：最後一節前面多一行 ```bash，到檔尾都沒有收尾。
+    AGMCase(desc: "zi-rows：fence 到檔尾都沒有收尾", guardRel: "akashic-guards zero-instance-rows-audit", edits: [
+        AGMEdit(path: ".claude/rules/zero-instance-guards.md", kind: "replaceFirst",
+                a: "\n## 跟其他規則的關係", b: "\n```bash\n## 跟其他規則的關係"),
+    ], expect: ["的 fence 到檔尾都沒有收尾"]),
+    // #711 R2（verify 第 9、18 列）：`text` fence 前一行沒有退場標記——R1 對任何 `text` fence 一律不掃，換個語言標記就能讓量測安靜通過。
+    AGMCase(desc: "zi-rows：text fence 沒有退場標記", guardRel: "akashic-guards zero-instance-rows-audit", edits: [
+        AGMEdit(path: ".claude/rules/zero-instance-guards.md", kind: "replaceFirst",
+                a: "\n## 各列共通的東西",
+                b: "\n```text\n\"$(command -v akashic)\" validate 2>&1 | grep -c '死 verdict'\n```\n\n## 各列共通的東西"),
+    ], expect: ["的 `text` fence 裡對 binary 的輸出計數"]),
     AGMCase(desc: "ratchet：同名誘餌 ＋ 真欄位改型別（裸名鍵會被騙過）", guardRel: "akashic-guards backlink-field-ratchet", edits: [
         AGMEdit(path: "Sources/AkashicCore/Models.swift", kind: "replaceFirst", a: "public var authors:", b: "public var affiliations: TimelineOf<OrgRef> = .init()\n    public var authors:"),
         AGMEdit(path: "Sources/AkashicCore/Temporal.swift", kind: "replaceFirst", a: "public var affiliations: TimelineOf<OrgRef>", b: "public var affiliations: [String]"),
@@ -285,17 +344,19 @@ let agmCases: [AGMCase] = [
 ]
 
 let agmRobust: [AGMCase] = [
-    // #711 R1：自證閘的兩種寫法差異不得改變判定——閘查路徑形式的 binary（與被量的同一支）、運算子兩側不留空白。
-    // 注入不改任何指令的個數與行號，所以輸出與未注入逐字相同。
+    // #711：自證閘的寫法差異不得改變判定——閘與被量的都寫成路徑形式的同一支 binary（兩處逐字相同）。
+    // 注入不改任何指令的個數與行號，所以輸出與未注入逐字相同。（R1 另有一格「`&&` 不留空白」：R2 起模板逐字比對、
+    // 運算子兩側要有空白，那一格不再是同一個判定，拿掉。）
     AGMCase(desc: "zi-rows：閘與被量的都寫成路徑形式的同一支 binary", guardRel: "akashic-guards zero-instance-rows-audit", edits: [
         AGMEdit(path: ".claude/rules/zero-instance-guards.md", kind: "replaceFirst",
-                a: "\"$(command -v akashic)\" && akashic validate 2>&1 | grep -c '死 verdict'",
+                a: "\"$(command -v akashic)\" && \"$(command -v akashic)\" validate 2>&1 | grep -c '死 verdict'",
                 b: ".build/debug/akashic && .build/debug/akashic validate 2>&1 | grep -c '死 verdict'"),
     ], expect: ["每一列裁決「寫」的都找得到實作"]),
-    AGMCase(desc: "zi-rows：閘與被量的指令之間的 && 不留空白", guardRel: "akashic-guards zero-instance-rows-audit", edits: [
+    // #711 R2：前一行是退場標記的 `text` fence 不掃——裡面一條沒有閘的量測不改變任何事（第 71 列已退場的區塊靠的就是這個）。
+    AGMCase(desc: "zi-rows：前一行是退場標記的 text fence 不掃", guardRel: "akashic-guards zero-instance-rows-audit", edits: [
         AGMEdit(path: ".claude/rules/zero-instance-guards.md", kind: "replaceFirst",
-                a: "\"$(command -v akashic)\" && akashic validate 2>&1 | grep -c '死 verdict'",
-                b: "\"$(command -v akashic)\"&&akashic validate 2>&1|grep -c '死 verdict'"),
+                a: "\n## 各列共通的東西",
+                b: "\n<!-- zero-instance-rows-audit: 已退場的量測紀錄，不掃 -->\n```text\n\"$(command -v akashic)\" validate 2>&1 | grep -c '死 verdict'\n```\n\n## 各列共通的東西"),
     ], expect: ["每一列裁決「寫」的都找得到實作"]),
 
     // #526 的第一個坑：`ci.yml` 自己就有一段註解逐字寫著「原本是 python3 …」——掃全檔會把

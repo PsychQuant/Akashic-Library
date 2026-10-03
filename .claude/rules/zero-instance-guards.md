@@ -119,7 +119,7 @@
 | 53 | **零實例，而同一個不明確的依據設定時被拒、使用時被放行**（#642 b11d verify R1：規則型 library 的 venue key 之後變成重複、或排除清單的 citekey 打錯或已不在庫——`create`／`set-kind` 本來就拒絕重複的 venue key，`library add` 卻只比 key 字串；排除清單則從不查存在，打錯一個字排除就無聲失效。2026-09-29 唯讀量測 live store：library 4、規則型 0、排除清單指向不在庫 0、規則的 venue key 重複 0。重跑腳本見表下方） | ✅ **寫（寫入閘與 warning 同批：`LibraryMembershipCheck` 的 `ruleVenueAmbiguous`，三面都不寫、`library check` 揭露；`create`／`set-kind` 對不在庫的排除 citekey 具名拒絕；validate 報兩種 warning）** | 第 47 列的理由是「零來自規則還不存在」，燈照的是寫入閘擋不到的來源；這一列補兩個它沒照到的：依據本身出了問題（venue key 重複）與排除清單懸空。前者是第 26 列「閘與守衛是同一條不變式的兩半」的形——同一個依據在設定時被閘擋下、在使用時卻被放行，等於那條不變式只有一半；後者讓同一份程式對「排除清單是不是參照」給出相反的答案（改名與合併的守衛把它當參照，建立時卻不查）。**severity 是 warning**：成員關係錯了不毀資料，與第 47 列同級。**誠實邊界**：規則依據不明確時，連被排除的成員也回「依據不明確」而不是「排除」（Claude 代裁，依據問題優先）。**觸發條件可檢查**（腳本見表下方）：兩個數應恆為 0；非零時用 `library check <key>` 看是哪一條規則、哪個 citekey |
 | 54 | **零實例，而先前的守衛是一條走不通的出路**（#642 b11d verify R1：改名碰到被 library 規則指涉的 citekey——文件型的 `document`、規則型的 `excluded`。#642 首版一律拒絕並指路「先 set-kind 改規則」，而文件型的 `set-kind` 要求新 citekey 已在庫、`rename` 要求它不在庫，出路是死路。2026-09-29 唯讀量測 live store：規則型與文件型 library 都是 0，被規則指涉的 citekey 0） | ✅ **寫（`renameEntry` 同批遷移規則裡的 citekey，registry 檔進同一批預檢與寫入，逐條列在 `RenameReport.libraryRulesRewritten`；三個前置拒絕、零寫入：新 citekey 已被規則指涉、被隔離的 registry 檔提到舊或新 citekey、要遷移的 registry 檔不可回溯）** | 改名不改身分，而 library 規則是關係邊第 16 條——改名本來就該遷移指向舊 key 的邊（第 13 條邊的 verdict value 是先例）。三個前置拒絕各擋一種遷移會造成的安靜錯誤：新 citekey 已被規則指涉時，改名會讓一條懸空的規則「復活」成指向另一筆；被隔離的 registry 檔看不到，遷移會漏掉它；registry 檔不可回溯時，被改寫的規則沒有舊值可取回。work 與 venue 合併維持拒絕，訊息改成可照做的 `set-kind` 命令、不經過 topic。**觸發條件可檢查**：規則型或文件型 library 出現之後，改名一筆被指涉的 citekey 時報告會多一段「library 成員規則已遷移」；守衛測試是 `LibraryMembershipStoreTests` 的改名六支 |
 | 55 | **零實例，而整值替換會丟掉人的裁決，舊值只剩 git 那一份**（#642 b11d verify R1：`set-kind` 替換一個既有的成員性質時，排除清單這類逐筆寫下的裁決整份被換掉，先前不回顯舊值、也不要求舊值取得回來。2026-09-29 唯讀量測 live store：4 個 library 全未標性質，從未標標成任何一種不經這道閘，所以零實例） | ✅ **寫（替換既有性質時要求 `libraries/<key>.yaml` 已 commit 且乾淨；兩面回顯先前的性質；可回溯閘抽成共用核心 `LibraryStore.recoverabilityRefusal`，與 #573 那一族同一支）** | 第 44 列的理由是「既有判準的答案變了」；這一列同形而對象不同：#573 那一族的閘原本只看 `entities/` 的記錄檔，registry 檔在 `libraries/`，於是移除面一族的判準（舊值要能從 git 取回，使用者 2026-09-27 裁決）在這裡沒有套上。修法是把閘抽成共用核心、多收一種檔，不是複製一份邏輯。**Claude 代裁**：閘也涵蓋把 topic 換成別的性質（topic 沒有參數可失去，比必要的嚴）。**沒做的**：把規則放寬（降成 topic、清掉排除清單、換 venue）時要不要另外要求明確確認——待使用者決定；目前的防線只有回顯與 git。**觸發條件可檢查**：有 library 標了性質之後，替換它而 registry 檔未 commit 時 `set-kind` 拒絕；測試是 `LibraryMembershipServiceTests.testReplacingAnExistingMembershipRequiresACommittedRegistryFile`（回顯由 `testSetKindEchoesThePreviousMembership` 釘住） |
-| 56 | **零實例，而 decode 接受它、唯一守著它的合併閘只擋一條進入路徑**（#679：附加 Zotero 來源沒記 `library_id`——匯入端與 `ZoteroSourceClaims.claims(of:)` 都對不回它，沒有別的 entry 宣稱那個條目時再匯入會另建一筆 twin；先前註解宣稱「由合併閘保證不會出現」，而合併閘只擋合併新收，管不到手改與舊檔。2026-09-29 唯讀量測 live store：work 2,569、主來源 532（沒記 `library_id` 0）、附加來源 3（沒記 `library_id` 0）、被 ≥2 筆宣稱的來源 0、讀不到的檔 0。重跑腳本見表下方） | ✅ **寫（warning、在 `Entry.validate()`，每筆 entry 一則、至多列 5 個來源鍵；訊息說出後果與兩條出路：補真正的 `library_id`，或以 `update-entry --remove-zotero-source` 移除）** | 第 4 列的理由是「錯誤的偽裝性」；這一列同形——那筆記錄看起來連著 Zotero，而下一次匯入會安靜地另建一筆，結果是一對看起來各自健康的攣生。與第 33 列也同形：同一族的檢查（#610 的多筆宣稱）只照到有 `library_id` 的那一半。**severity 是 warning**：記錄合法可載入；decode 拒收會讓既有的檔整個被隔離（`writeEntry` 不對 `Entry.validate()` 的 error 設閘，所以升 error 也擋不住寫入，那不是理由）。警告說的後果由 `AdditionalSourceWithoutLibraryReimportTests` 釘住，警告與行為不會分岔。**誠實邊界**（b13f R1 verify）：這則 warning 走一般的 per-record 通道，MCP `akashic_doctor` 的 `recordIssues` 是 errors 優先且截 20 則，沒有像 `duplicateVenueEdges` 那樣的 `StoreHealth` 家族計數，所以「觸發條件可檢查」實際只有 CLI `validate` 的 grep 可用；live 零實例、且是線性家族（一筆 entry 一則），接受。訊息說的 twin 是有條件的（單筆 `validate` 看不到別的 entry）。**觸發條件可檢查**（腳本見表下方）：`LC_ALL=C grep -a -q '附加 Zotero 來源沒記 library_id' "$(command -v akashic)" && akashic validate 2>&1 | grep -c '附加 Zotero 來源沒記 library_id'` 應恆為 0；非零時照訊息給的定位鍵處置 |
+| 56 | **零實例，而 decode 接受它、唯一守著它的合併閘只擋一條進入路徑**（#679：附加 Zotero 來源沒記 `library_id`——匯入端與 `ZoteroSourceClaims.claims(of:)` 都對不回它，沒有別的 entry 宣稱那個條目時再匯入會另建一筆 twin；先前註解宣稱「由合併閘保證不會出現」，而合併閘只擋合併新收，管不到手改與舊檔。2026-09-29 唯讀量測 live store：work 2,569、主來源 532（沒記 `library_id` 0）、附加來源 3（沒記 `library_id` 0）、被 ≥2 筆宣稱的來源 0、讀不到的檔 0。重跑腳本見表下方） | ✅ **寫（warning、在 `Entry.validate()`，每筆 entry 一則、至多列 5 個來源鍵；訊息說出後果與兩條出路：補真正的 `library_id`，或以 `update-entry --remove-zotero-source` 移除）** | 第 4 列的理由是「錯誤的偽裝性」；這一列同形——那筆記錄看起來連著 Zotero，而下一次匯入會安靜地另建一筆，結果是一對看起來各自健康的攣生。與第 33 列也同形：同一族的檢查（#610 的多筆宣稱）只照到有 `library_id` 的那一半。**severity 是 warning**：記錄合法可載入；decode 拒收會讓既有的檔整個被隔離（`writeEntry` 不對 `Entry.validate()` 的 error 設閘，所以升 error 也擋不住寫入，那不是理由）。警告說的後果由 `AdditionalSourceWithoutLibraryReimportTests` 釘住，警告與行為不會分岔。**誠實邊界**（b13f R1 verify）：這則 warning 走一般的 per-record 通道，MCP `akashic_doctor` 的 `recordIssues` 是 errors 優先且截 20 則，沒有像 `duplicateVenueEdges` 那樣的 `StoreHealth` 家族計數，所以「觸發條件可檢查」實際只有 CLI `validate` 的 grep 可用；live 零實例、且是線性家族（一筆 entry 一則），接受。訊息說的 twin 是有條件的（單筆 `validate` 看不到別的 entry）。**觸發條件可檢查**（腳本見表下方）：`LC_ALL=C grep -a -q '附加 Zotero 來源沒記 library_id' "$(command -v akashic)" && "$(command -v akashic)" validate 2>&1 | grep -c '附加 Zotero 來源沒記 library_id'` 應恆為 0；非零時照訊息給的定位鍵處置 |
 | 57 | **零實例，而錯的回應看起來是對的**（#629 第二塊：`akashic crossref-match` 以重播協定讀 skill 經 safari-browser 取回的 Crossref 回應，回應的 DOI 與請求的 DOI 不同時拒絕；DOI 插進網址前先驗形狀（`^10\.[0-9]{4,9}/` 後接不含空白、引號、反斜線、`$`、反引號、`#`、`?`、`%` 的字元，且沒有 `.`／`..` 路徑段）。指令從未對真回應跑過。2026-09-29 唯讀量測 live store：work 的 DOI 2,449 個，形狀檢查不過 0、讀不到的檔 0。重跑腳本見表下方） | ✅ **寫（身分不符具名拒絕、形狀不過的 DOI 不組成請求）** | 第 4 列的理由是「錯誤的偽裝性」；這一列同形：把另一個 DOI 的回應讀成這一個，比對照樣成功、結束碼 0，而結果是一筆看起來查證過的錯資料。這個形狀在頁內 fetch 已經發生過一次（PsychQuant/safari-browser#190：一批讀到上一批的結果、結束碼全為 0），所以讀回後核對身分是 `web-access-via-safari-browser` 的既有紀律，這裡把它落實成程式。形狀檢查與 `web-access.md` 的形狀表同一條。**#629 R1 補記**：查詢回應 200 而形狀不對（`message` 不是物件、`items` 不是陣列、任一缺席）同樣具名中止，不當成「沒有候選」——「查無此筆」與「回應壞了」在輸出裡不可區分正是這一列的形狀（`CrossrefMatchResponseShapeTests`）。**觸發條件可檢查**：形狀不過的 DOI 數應恆為 0；身分檢查由 `CrossrefMatchTests.testReverseVerifyRejectsAResponseAboutAnotherDOI` 與 `testAnUnsafeCandidateDOIIsNeverTurnedIntoARequest` 釘住 |
 | 58 | **零實例，而半套的數字讀起來像完整的**（#629 第二塊：`akashic fulltext calibrate` 讀本機的 Crossref 回應目錄計分；缺任何一筆記錄時列出缺的網址並以結束碼 3 結束、不出數字，`--partial` 才照已有的量。校準從未在本機跑過——2026-09-24 那批語料本機找不到，重取要連網） | ✅ **寫（缺記錄預設不出數字）** | 第 3 列的理由是「未涵蓋不得冒充通過」；這一列同形：`22/28`、`0/808` 這類數字若只涵蓋有記錄的那一部分，讀的人會當成全部。拒絕輸出是預設，放行要顯式帶 `--partial`，而那時輸出本身就說明它是部分的。**誠實邊界**：移植時舊校準數字（自己 22/28、別篇 0/808）沒有重跑，替代證據是新舊判定規則的差分——它證明新舊判得一樣，不證明那組數字在新語料上仍成立。**「十七萬餘案 0 不一致」這個說法過寬（R1 verify 第 17 則）**：驗證席找到五處可重現的分岔（補充資料標題跨行、Foundation 的 NFKC、`İ`／`ı`、ICU 的 `\b`、`JSONSerialization` 的重複鍵與字串內 U+FEFF），R1 全部修掉；語料是本機 PDF 與隨機字串，不涵蓋全部 Unicode。**#629 R1 補記**：一個檔案都沒量到回結束碼 4（先前 0，全零的 `0/0` 讀起來像「沒有別篇被收」）、資料夾不存在具名失敗、形狀不合格的 DOI 不組網址，缺記錄的清單帶完整網址；新舊工具在本機能湊到的語料（10 份有標籤、41 份引擎一致）上輸出逐字相同，見 `changelog/2026-09-29-b13p-verify-r1.md`。**觸發條件可檢查**：`SkillToolsCLITests.testCalibrateListsMissingCrossrefRecordsAndMeasuresTheRest` 釘住結束碼 3 與缺記錄清單 |
 | 59 | **零實例，而「移哪一筆」對兩筆完全相同的記錄沒有判定內容可依**（#673：`update-venue --remove-reference` 以 field＋value＋位元組鍵定位；兩筆 reference 的 `byteExactKey` 完全相同時具名拒絕、不挑一筆移。2026-09-29 唯讀量測 live store：venue 485、帶通用 reference 的 venue 0、位元組相同的重複組 0。重跑腳本見表下方） | ❌ **不寫（不給完全相同的重複一條移除路徑）** | 與第 10 列同形：形狀取決於一個還沒出現的用途——要嘛加 ordinal 指定第幾筆，要嘛一條「重複全收成一筆」的腿，兩者的語意不同，而今天沒有實例可以告訴我們哪一種才是使用者要的。先具名拒絕是可逆的；選錯一個形狀則是固定了一個介面。這種重複本來就由 `StoreHealth.duplicateReferences`（第 35 列）報出。**屬前言四類的第 1 類（守衛）**（b13f R1 verify 第 28 列）：本列裁的對象是那道具名拒絕——「無法判定移哪一筆」時 `--remove-reference` 拒絕、不挑——要不要**放行成一條移除路徑**；不寫的是放行，不是那道守衛；不是新的一類（前言明寫沒有「零實例的移除腿」這一類）。**觸發條件可檢查**（腳本見表下方）：位元組相同的重複組 > 0，或 `akashic validate` 對 venue 報「重複的 reference：」——那時重開，由使用者選形狀 |
@@ -188,13 +188,39 @@ print('cross:', cross); print('disjoint:', disjoint)
 EOF
 ```
 
-**第 13 列的量測（2026-09-03，可重跑，且自證）**：死 verdict 數 `LC_ALL=C grep -a -q '死 verdict' "$(command -v akashic)" && akashic validate 2>&1 | grep -c '死 verdict'`（應印 0；**沒印任何東西＝你的 `akashic` 是沒有這條檢查的舊 binary**——verify 實測 PATH 上的 `~/bin/akashic` 就是這樣：對一份真有 5 條死 verdict 的副本它回 0、`.build/debug/akashic` 回 5。「沒被檢查」與「檢查過且乾淨」在輸出上不可區分，第 3 列的理由。**`LC_ALL=C` 不能省**（#710）：macOS 的 `/usr/bin/grep` 在 UTF-8 locale 下對 binary 比不到中文，2026-09-30 實測同一個 `.build/debug/akashic` 不加回 rc=1、加了回 rc=0——照抄的人會把新 binary 讀成舊的；`&&` 後面的 `grep -c` 讀 `validate` 的文字輸出，不受影響）；verdict 總數 `grep -h 'field: resolution-' ~/.akashic/entities/*.yaml | wc -l`（2,700，含 confirmed 與 rejected）。第一版寫 2,698 並附 owner-kind 拆分——那是用單行正則掃出來的，漏掉兩筆被 YAML 折行的長 value；grep 的數才是可重跑的，拆分不承載裁決、不列。
+**第 13 列的量測（2026-09-03，可重跑，且自證）**：死 verdict 數 `LC_ALL=C grep -a -q '不在載入集合，且沒有任何檔宣稱它' "$(command -v akashic)" && "$(command -v akashic)" validate 2>&1 | grep -c '死 verdict'`（應印 0；**沒印任何東西＝你的 `akashic` 是沒有這條檢查的舊 binary**——verify 實測 PATH 上的 `~/bin/akashic` 就是這樣：對一份真有 5 條死 verdict 的副本它回 0、`.build/debug/akashic` 回 5。「沒被檢查」與「檢查過且乾淨」在輸出上不可區分，第 3 列的理由。**`LC_ALL=C` 不能省**（#710）：macOS 的 `/usr/bin/grep` 在 UTF-8 locale 下對 binary 比不到中文，2026-09-30 實測同一個 `.build/debug/akashic` 不加回 rc=1、加了回 rc=0——照抄的人會把新 binary 讀成舊的；`&&` 後面的 `grep -c` 讀 `validate` 的文字輸出，不受影響。**閘的片段取 `validate` 那則訊息自己的長字面段**（#711 R2 verify 第 19 列）：
+`死 verdict` 是 11 位元組的獨立字面段（`StoreHealth.deadVerdictPrefix`），release 版的 binary 裡位元組不連續；R1 的閘靠 `rename` 拒絕訊息裡
+的兩個長字面段成立——拿掉 `validate` 的掃描、留著 `rename` 的拒絕時，閘照樣綠）；verdict 總數 `grep -h 'field: resolution-' ~/.akashic/entities/*.yaml | wc -l`（2,700，含 confirmed 與 rejected）。第一版寫 2,698 並附 owner-kind 拆分——那是用單行正則掃出來的，漏掉兩筆被 YAML 折行的長 value；grep 的數才是可重跑的，拆分不承載裁決、不列。
 
-**第 15 列的量測（2026-09-04，可重跑）**：本機缺承重存檔數 `LC_ALL=C grep -a -q '本機缺承重存檔' "$(command -v akashic)" && akashic validate 2>&1 | grep -c '本機缺承重存檔：'`（用含這條檢查的 binary——同第 13 列的自證：舊 binary 印不出東西，「沒被檢查」與「檢查過且乾淨」在輸出上不可區分；2026-09-04 實測 1，且那一筆是 URL 不是 digest）；distinct digest 引用數 `grep -ohE 'sha256:[0-9a-f]{64}' ~/.akashic/entities/*.yaml | sort -u | wc -l`（41）；「其他機器上會是多少」的下限＝把 `sources/` 排除後複製一份再跑同一支 binary（41，全部 venue 加那筆 divergence）。**#507 落地後**（2026-09-04）那筆 URL 已補存 landing page 並改成 digest，本機重跑為 0。
+**第 15 列的量測（2026-09-04，可重跑）**：本機缺承重存檔數 `LC_ALL=C grep -a -q '本機缺承重存檔' "$(command -v akashic)" && "$(command -v akashic)" validate 2>&1 | grep -c '本機缺承重存檔：'`（用含這條檢查的 binary——同第 13 列的自證：舊 binary 印不出東西，「沒被檢查」與「檢查過且乾淨」在輸出上不可區分；2026-09-04 實測 1，且那一筆是 URL 不是 digest）；distinct digest 引用數 `grep -ohE 'sha256:[0-9a-f]{64}' ~/.akashic/entities/*.yaml | sort -u | wc -l`（41）；「其他機器上會是多少」的下限＝把 `sources/` 排除後複製一份再跑同一支 binary（41，全部 venue 加那筆 divergence）。**#507 落地後**（2026-09-04）那筆 URL 已補存 landing page 並改成 digest，本機重跑為 0。
 
-**第 16 列的量測（2026-09-04；2026-09-26 改量檔案位元組，可重跑）**：warning 數 `LC_ALL=C grep -a -q 'venue 的記錄檔逼近讀取上限' "$(command -v akashic)" && akashic validate 2>&1 | grep -c 'venue 的記錄檔逼近讀取上限'`（應為 0；2026-09-26 前綴改名，舊前綴是「venue 的 verdict 數逼近 decode 預算」——量的已不是筆數）；最大檔 `ls -l ~/.akashic/entities/*.yaml | sort -k5 -n | tail -1`（2026-09-26：268,627 bytes，即 `psychological-methods`，1,352 筆 verdict）；門檻 `AliasEventBudget.recordFileWarningBytes`（4,194,304＝8 MiB÷2）。舊門檻 11,111 筆（200,000÷2÷9）量的是對 store 檔不生效的節點軸，已退場。
+**第 16 列的量測（2026-09-04；2026-09-26 改量檔案位元組，可重跑）**：warning 數 `LC_ALL=C grep -a -q 'venue 的記錄檔逼近讀取上限' "$(command -v akashic)" && "$(command -v akashic)" validate 2>&1 | grep -c 'venue 的記錄檔逼近讀取上限'`（應為 0；2026-09-26 前綴改名，舊前綴是「venue 的 verdict 數逼近 decode 預算」——量的已不是筆數）；最大檔 `ls -l ~/.akashic/entities/*.yaml | sort -k5 -n | tail -1`（2026-09-26：268,627 bytes，即 `psychological-methods`，1,352 筆 verdict）；門檻 `AliasEventBudget.recordFileWarningBytes`（4,194,304＝8 MiB÷2）。舊門檻 11,111 筆（200,000÷2÷9）量的是對 store 檔不生效的節點軸，已退場。
 
-**第 19 列的量測（2026-09-09，可重跑）**：未被 bullet 引用的列數應為 0——`LC_ALL=C grep -a -q '沒有任何 bullet 講它' .build/debug/akashic-guards && .build/debug/akashic-guards zero-instance-rows-audit 2>&1 | grep -c '沒有任何 bullet 講它'`（用含這條檢查的 binary；同第 13 列的自證，舊 binary 印不出東西。`akashic-guards` 不裝進 PATH，只在 `swift build` 之後的 `.build/debug/`——#711 R1 之前這裡寫 `"$(command -v akashic-guards)"`，在沒有它的 PATH 上閘必然失敗、什麼都不印，與舊 binary 分不開；第 20、21、70、71 列早就寫這個路徑）。**同一支守衛自 #711 起另查本檔的量測指令**：每一條對 binary 輸出計數的指令（`<akashic …> | grep -c …`，`grep` 的 `-c` 在選項串任何位置、`--count`、`wc -l` 都算）必須帶自證：被量的管線前面以 `&&` 接 `LC_ALL=C grep -a -q '<那條檢查獨有的訊息片段>' <同一支 binary>`，或同一個區塊較早一條量測的行尾寫 `# 正對照`（期望值不是 0 的那條）；沒有的話舊 binary 印 `0`、與「檢查過且乾淨」分不開。**#711 R1 起四件事收緊**（R1 verify 第 2、3、5、6、10、11、13、21、24、27 列）：(1) 閘要以 `&&` 接上——`;`、`||` 接的閘失敗時被量的指令照跑，較早一行的閘擋不住下一行，都不算；不支援 `set -e`、`if` 這類其他 fail-stop 寫法；(2) 閘查的 binary 要與被量的同一支（`"$(command -v X)"` 取 X、路徑取最後一段）；(3) 片段要是那支 binary 原始碼裡某個 ≥16 位元組的字串字面段的一部分——最佳化建置把 15 位元組以內的字面段當 immediate 嵌進指令，release 版找不到它；(4) 對 `akashic-guards` 的閘，片段不得出現在負控 harness（`*Mutations.swift`／`*MutationsData.swift`）的字串裡——它們編進同一支 binary，真的檢查不在時閘照樣成立。`正對照` 只認行尾註解的開頭（`# 正對照…`），否定句不算。語言標記是 `text` 的 fence 是紀錄、不掃（第 71 列已退場的區塊）。**這是必要條件不是充分條件**：它不看片段選得夠不夠獨有、不驗正對照那一行的期望值真的不是 0，以變數或檔案當來源的計數（`"$res"`、`cat f | grep -c`）不算被量的指令——掃不到就不會紅。負控是 `audit-guards-mutations` 裡 `zi-rows：量測指令…`、`zi-rows：閘…` 開頭的幾格。手算對照：
+**第 19 列的量測（2026-09-09，可重跑）**：未被 bullet 引用的列數應為 0——`LC_ALL=C grep -a -q '沒有任何 bullet 講它' .build/debug/akashic-guards && .build/debug/akashic-guards zero-instance-rows-audit 2>&1 | grep -c '沒有任何 bullet 講它'`（用含這條檢查的 binary；同第 13 列的自證，舊 binary 印不出東西。`akashic-guards` 不裝進 PATH，只在 `swift build` 之後的 `.build/debug/`——#711 R1 之前這裡寫 `"$(command -v akashic-guards)"`，在沒有它的 PATH 上閘必然失敗、什麼都不印，與舊 binary 分不開。第 70、71 列一直寫這個路徑；第 20、21、51 列 #711 R2 起也改成它——R1 在這裡寫「第 20、21 列早就寫這個路徑」，那是錯的：
+它們與第 51 列寫的都是 PATH 上沒有的裸 `akashic-guards`，R2 verify 第 24 列）。**同一支守衛自 #711 起另查本檔的量測指令，R2 起只收一種寫法**：
+一個單位（fence 內一行、fence 外一段 inline code，先去掉行尾的 `#` 註解）同時提到 `akashic`／`akashic-guards`（裸名、路徑、`$(command -v …)`）
+與計數（`grep`／`rg` 的 `-c`、`--count`，`wc -l`），就必須逐字是
+
+`LC_ALL=C grep -a -q '<片段>' <BIN> && <BIN> <參數> 2>&1 | grep -c '<樣式>'`
+
+——`<BIN>` 兩處逐字相同，是路徑或 `"$(command -v akashic)"`（裸名不收：`grep` 會讀工作目錄裡同名的檔）；`<參數>` 以子命令或選項開頭，
+不含 `|`、`&`、`;`、反引號、反斜線、括號、`<`、`>`；整個單位只有這一條指令，行尾至多一段 `#` 註解。不合模板就是錯誤、具名那一行——
+沒有閘的寫法在沒有那條檢查的舊 binary 上印 `0`，與「檢查過且乾淨」分不開。**為什麼收縮成一個模板**：R1 的判準是一個 shell 剖析器
+（閘以 `&&` 接上、查同一支 binary），R1 verify 每一席都在它對 shell 的理解裡找到新的旁路——只比檔名（`"$(command -v akashic)"` 的閘替
+`/tmp/old/akashic` 背書）、前導或尾端的 `||`、`if`／`for`／`{ }`、`n=$( … )`、`time`／`env` 前綴，認不出來的寫法一律靜默跳過（R2 verify
+第 0、1、7、11–14、16、20、22、23 列）。剖析任意 shell 是一場軍備競賽，封閉的模板沒有旁路可找。**片段**另有四條：不含 `.[]*^$\`
+（`grep -a -q` 把它當正規式，`.` 對任何檔都成立）、不短於 8 位元組、在那支 binary 的原始碼裡、而且在某個 ≥16 位元組的字串字面段裡——
+最佳化建置把 15 位元組以內的字面段當 immediate 嵌進指令，release 版找不到它；「原始碼裡找不到」（訊息改字或檢查已移除）與「只在短字面段裡」
+分開報（R2 verify 第 17、21 列）。對 `akashic-guards` 的閘，片段不得出現在負控 harness（`*Mutations.swift`／`*MutationsData.swift`）的
+字串裡——它們編進同一支 binary，真的檢查不在時閘照樣成立。**fence**：```` ``` ```` 與 `~~~` 都認；fence 沒有收尾（檔尾還在 fence 裡，
+或 fence 裡出現一行新 fence 的開頭）是錯誤——R1 見到 ```` ``` ```` 就切換內外、檔尾不檢查，第 80／81 列的區塊漏了收尾，之後整份檔內外顛倒、
+新加的量測區塊不被掃，守衛照樣綠（R2 verify 第 2、4、5、6 列）。**`text` fence 只有前一行是退場標記
+`<!-- zero-instance-rows-audit: 已退場的量測紀錄，不掃 -->` 時才不掃**（第 71 列）；沒有標記的照掃，裡面有量測就是錯誤——R1 對任何
+`text` fence 一律不掃，改個語言標記就能讓沒有閘的量測安靜通過（R2 verify 第 9 列）。行尾的 `# 正對照` 不再讓同一個區塊後面的計數繼承
+（R2 verify 第 14 列：一行 `akashic-guards` 的正對照替後面一條 `akashic` 的計數背書）——它只是註解，每一條量測各自要有閘。
+**這是必要條件不是充分條件**：它不看片段選得夠不夠獨有；以變數或檔案當來源、不提到 binary 名的計數（`out=$(akashic …)` 一行、
+`printf '%s' "$out" | grep -c` 另一行，例如第 71 列的補記區塊）不算量測——掃不到就不會紅；`awk` 自己加總的寫法認不出來。
+負控是 `audit-guards-mutations` 裡 `zi-rows：量測指令…`、`zi-rows：閘…`、`zi-rows：fence…` 開頭的幾格。手算對照：
 
 ```bash
 python3 - <<'EOF'
@@ -248,21 +274,21 @@ EOF
 # 2026-09-08：abstract n=1517 p50=1137 p99=2185 max=4220 ／ 全部 n=6125 max=4220 → 15.5 倍
 ```
 
-守衛本身是否在跑（自證，**走正對照、不走 `grep -a -q` 閘**：這條量測的期望值是 **1** 不是 0，舊 binary 沒有這條檢查時印的是 **0**、與期望值分得開；所以它跟第 13 列的「舊 binary 什麼都不印」是兩種自證，不是同一種，不要把閘照搬上來）：
+守衛本身是否在跑（自證：前面的閘同第 13 列；這條的期望值是 **1** 不是 0，所以它另有第二層——舊 binary 印不出東西，閘被拿掉的話舊 binary 印 **0**，與期望值也分得開。#711 R2 之前這裡只靠第二層、不加閘，行尾寫 `# 正對照`；R2 起每一條量測各自要有閘，正對照不再是另一種寫法。`STORE` 設成某個 store 的路徑——沒有 `--apply` 是乾跑，這一筆又整批拒絕、零寫入）：
 
 ```bash
 python3 -c "import json;print(json.dumps([{'citekey':'x','fields':{'abstract':'a'*65537}}]))" > /tmp/over.json
-akashic enrich --library <某個 store> --from /tmp/over.json --json 2>&1 | grep -c '超過上限'   # 正對照：應為 1（舊 binary 印 0）
+LC_ALL=C grep -a -q '截斷會讓一個不是來源給的值進 store' "$(command -v akashic)" && "$(command -v akashic)" enrich --library "$STORE" --from /tmp/over.json --json 2>&1 | grep -c '超過上限'   # 應為 1
 ```
 
-**第 17 列的量測（2026-09-07，可重跑）**：兩種 warning 數 `LC_ALL=C grep -a -q '拆分後的孤兒 verdict' "$(command -v akashic)" && akashic validate 2>&1 | grep -c '拆分後的孤兒 verdict'` 與 `LC_ALL=C grep -a -q '拆分記錄的各段都已不在作者位' "$(command -v akashic)" && akashic validate 2>&1 | grep -c '拆分記錄的各段都已不在作者位'`（應皆為 0；用含這條檢查的 binary——同第 13 列的自證，舊 binary 印不出東西）；拆分記錄數 `grep -c '^  *- field: authors$' ~/.akashic/entities/*.yaml | awk -F: '{s+=$2} END {print s}'`（0——#443 已拆的 4 筆沒有記錄，不回填）；那 4 筆的下落 `grep -l '雷庚玲' ~/.akashic/entities/*.yaml | wc -l`（4 個檔含該姓名，其中的拆分無記錄可機械辨認）。
+**第 17 列的量測（2026-09-07，可重跑）**：兩種 warning 數 `LC_ALL=C grep -a -q '拆分後的孤兒 verdict' "$(command -v akashic)" && "$(command -v akashic)" validate 2>&1 | grep -c '拆分後的孤兒 verdict'` 與 `LC_ALL=C grep -a -q '拆分記錄的各段都已不在作者位' "$(command -v akashic)" && "$(command -v akashic)" validate 2>&1 | grep -c '拆分記錄的各段都已不在作者位'`（應皆為 0；用含這條檢查的 binary——同第 13 列的自證，舊 binary 印不出東西）；拆分記錄數 `grep -c '^  *- field: authors$' ~/.akashic/entities/*.yaml | awk -F: '{s+=$2} END {print s}'`（0——#443 已拆的 4 筆沒有記錄，不回填）；那 4 筆的下落 `grep -l '雷庚玲' ~/.akashic/entities/*.yaml | wc -l`（4 個檔含該姓名，其中的拆分無記錄可機械辨認）。
 
-**第 20 列的量測（2026-09-09，可重跑）**：`akashic-guards workflow-run-scripts`（rc=0 時印
+**第 20 列的量測（2026-09-09，可重跑）**：`.build/debug/akashic-guards workflow-run-scripts`（rc=0 時印
 「workflow `run:` 引用的 N 個腳本全部存在」——2026-09-09 為 **5**；非零時逐條印出是哪個
 workflow 的第幾行跑了哪個不在的檔）。workflow 檔數 `ls .github/workflows/*.yml | wc -l`（2）。
 **自證同第 13 列**：舊 binary 沒有這個子命令會印 usage 而不是 0，兩者分得開。
 
-**第 21 列的量測（2026-09-09，可重跑）**：差異數 `akashic-guards protected-ratchet`
+**第 21 列的量測（2026-09-09，可重跑）**：差異數 `.build/debug/akashic-guards protected-ratchet`
 （相符時印「受保護清單與棘輪相符：N 條」、rc=0；不符時逐條印「少了／多了」、rc=1；
 棘輪檔不存在 rc=2——三種分得開）。清單條數 `wc -l < .githooks/protected-ratchet.txt`
 （2026-09-09：58；2026-09-14 重跑：59；2026-09-27：70；2026-09-29（#629 移植後）：61）。**顯式 vs glob 的拆分**——顯式＝路徑字面出現在 `ProtectedInventory.swift` 裡的那些（受保護清單的單一來源，#522 起從 `TriggerCoverage.swift` 搬過去；#571 之前腳本仍在舊檔找，所以量到 2）：
@@ -303,12 +329,12 @@ print(f"venue {n} 筆｜names 帶時間欄位 {dated} 筆")   # 2026-09-09：406
 EOF
 ```
 
-**第 23 列的量測（2026-09-09，可重跑）**：矛盾數 `LC_ALL=C grep -a -q '移除記錄與作者位互相矛盾' "$(command -v akashic)" && akashic validate 2>&1 | grep -c '移除記錄與作者位互相矛盾'`
+**第 23 列的量測（2026-09-09，可重跑）**：矛盾數 `LC_ALL=C grep -a -q '移除記錄與作者位互相矛盾' "$(command -v akashic)" && "$(command -v akashic)" validate 2>&1 | grep -c '移除記錄與作者位互相矛盾'`
 （應為 0；用含這條檢查的 binary——同第 13 列的自證，舊 binary 印不出東西）；移除記錄總數
 `grep -c '^  judgement: 移除：' ~/.akashic/entities/*.yaml | awk -F: '{s+=$2} END {print s+0}'`
 （2026-09-09：**0**——`--drop-author` 尚未對 live store 執行，等 store format bump 到 17）。
 
-**第 24 列的量測（2026-09-11 首量；2026-09-18 R2 改寫並重跑，可重跑）**：觸發條件見理由欄（R2 寫「情形欄」，指錯欄——R2 verify 第 12 列）——腳本印的五個數裡**重複群**與**含 org 候選的 divergence** 兩個要為零才維持「暫不做」；organization 總數與帶 `parents` 筆數是脈絡，不是觸發（R1 寫「三個數字都要為零、任一非零即重開」，對自己的基線 13／3 就是假的——R1 verify 第 5／9 列）；第五個數**讀不到或不是記錄的檔**是母體的誠實邊界——一個壞檔曾讓整支腳本 traceback、四個數一個都不印（R1 第 28 列的處置「同第 16 列」只兌現了解析那一半，R2 verify 第 9 列），而照抄第 18 列腳本的 `except: continue`（R3 寫「第 12 列」，那支根本沒有 try——R3 verify 第 10 列；第 18 列那支至今仍是靜默跳過，已知缺口：它量的是長度分布，少算一筆不改變 15.5 倍的結論）會把「零輸出」換成「安靜少算」；現在跳過並計數。**這個數與 `akashic validate` 的 quarantine 是有向的包含、不是相等**（R3 寫「對得起來」，R3 verify 第 1／3／12 列三席同指）：它只涵蓋 YAML 解不開與頂層不是 mapping，quarantine 另含解析得了但 schema 不合法的記錄（非 UUID 檔名、形狀標籤帶值……），那些檔**會被腳本算進前四個數**——所以 quarantine ≥ 這個數是常態；非零時去對 quarantine 清單，別追一個不存在的差。腳本的母體是磁碟上的 `.yaml`，binary 的母體是載入成功的記錄，兩邊的 org divergence 數在有 quarantine 檔時可以不同（方向是腳本多報）。目錄讀不到（新 clone、HOME 打錯）印一句具名的話後退出，不 traceback（R3 verify 第 16／19 列）。「含 org 候選的 divergence」那個數（R3 寫「第二個數」，照位置讀是重複群——R3 verify 第 13 列）自 R2 起由 binary 出聲：`LC_ALL=C grep -a -q '沒有合併管線' "$(command -v akashic)" && akashic validate 2>&1 | grep -c '^⚠ divergence .*歧異記錄的 shape 沒有合併管線：'`（應印 0；**沒印任何東西＝PATH 上的 `akashic` 是沒有這條檢查的舊 binary**——R3 的指令沒有這道閘，2026-09-18 實測 `~/bin/akashic` 就是舊的、照抄印 0 冒充乾淨，R3 verify 第 5 列；第 13 列的構造逐字搬過來。**行首錨 `^⚠ divergence `** 讓 store 內容偽造不了它：一個名字含這句話的 venue 會讓無錨的 grep 多算（R3 verify 第 18 列，實測 2 個假 venue 名字得 2），錨在 binary 自己印的前綴上就不會；**帶全形冒號**——它數的是逐則 warning，家族計數行用 ASCII 冒號；不帶冒號會把計數行也數進去、一筆記錄得 2，R2 verify 第 10 列 Codex）；理由欄那句 bootstrap 的重跑：`akashic bootstrap-organizations`（2026-09-18：無可自動建立的候選，另有 1 個產不出 key 的機構名待人工指定）。R1 的腳本對檔首註解與 `.YAML` 靜默漏算、`shape: organization` 是含空白的無錨點子字串、值不 `str()` 就當掉（R1 verify 第 16／26／28／29 列）——R2 改以 yaml 解析後看頂層鍵與 `candidates[].shape`；`key()` 是 `LooseTitleKey.key` 的鏡射，改一邊要同批改另一邊；固定案例的出處逐條寫（R2 寫「取自那個檔頭」，四條裡兩條不是——R2 verify 第 17 列）：JRSS 的三種標點寫法與 BJMSP 的 `&`／and 取自 `LooseTitleKey` 檔頭；`The Guilford Press`＝`Guilford Press` 取自 live store 的 venue `the-guilford-press`（names 同時有兩種寫法）；`Science`≠`Sciences` 是**負控**、取自 `identity-is-judged-not-matched`（所方正式名稱與 ScienceDirect 的誤植）。
+**第 24 列的量測（2026-09-11 首量；2026-09-18 R2 改寫並重跑，可重跑）**：觸發條件見理由欄（R2 寫「情形欄」，指錯欄——R2 verify 第 12 列）——腳本印的五個數裡**重複群**與**含 org 候選的 divergence** 兩個要為零才維持「暫不做」；organization 總數與帶 `parents` 筆數是脈絡，不是觸發（R1 寫「三個數字都要為零、任一非零即重開」，對自己的基線 13／3 就是假的——R1 verify 第 5／9 列）；第五個數**讀不到或不是記錄的檔**是母體的誠實邊界——一個壞檔曾讓整支腳本 traceback、四個數一個都不印（R1 第 28 列的處置「同第 16 列」只兌現了解析那一半，R2 verify 第 9 列），而照抄第 18 列腳本的 `except: continue`（R3 寫「第 12 列」，那支根本沒有 try——R3 verify 第 10 列；第 18 列那支至今仍是靜默跳過，已知缺口：它量的是長度分布，少算一筆不改變 15.5 倍的結論）會把「零輸出」換成「安靜少算」；現在跳過並計數。**這個數與 `akashic validate` 的 quarantine 是有向的包含、不是相等**（R3 寫「對得起來」，R3 verify 第 1／3／12 列三席同指）：它只涵蓋 YAML 解不開與頂層不是 mapping，quarantine 另含解析得了但 schema 不合法的記錄（非 UUID 檔名、形狀標籤帶值……），那些檔**會被腳本算進前四個數**——所以 quarantine ≥ 這個數是常態；非零時去對 quarantine 清單，別追一個不存在的差。腳本的母體是磁碟上的 `.yaml`，binary 的母體是載入成功的記錄，兩邊的 org divergence 數在有 quarantine 檔時可以不同（方向是腳本多報）。目錄讀不到（新 clone、HOME 打錯）印一句具名的話後退出，不 traceback（R3 verify 第 16／19 列）。「含 org 候選的 divergence」那個數（R3 寫「第二個數」，照位置讀是重複群——R3 verify 第 13 列）自 R2 起由 binary 出聲：`LC_ALL=C grep -a -q '沒有合併管線' "$(command -v akashic)" && "$(command -v akashic)" validate 2>&1 | grep -c '^⚠ divergence .*歧異記錄的 shape 沒有合併管線：'`（應印 0；**沒印任何東西＝PATH 上的 `akashic` 是沒有這條檢查的舊 binary**——R3 的指令沒有這道閘，2026-09-18 實測 `~/bin/akashic` 就是舊的、照抄印 0 冒充乾淨，R3 verify 第 5 列；第 13 列的構造逐字搬過來。**行首錨 `^⚠ divergence `** 讓 store 內容偽造不了它：一個名字含這句話的 venue 會讓無錨的 grep 多算（R3 verify 第 18 列，實測 2 個假 venue 名字得 2），錨在 binary 自己印的前綴上就不會；**帶全形冒號**——它數的是逐則 warning，家族計數行用 ASCII 冒號；不帶冒號會把計數行也數進去、一筆記錄得 2，R2 verify 第 10 列 Codex）；理由欄那句 bootstrap 的重跑：`akashic bootstrap-organizations`（2026-09-18：無可自動建立的候選，另有 1 個產不出 key 的機構名待人工指定）。R1 的腳本對檔首註解與 `.YAML` 靜默漏算、`shape: organization` 是含空白的無錨點子字串、值不 `str()` 就當掉（R1 verify 第 16／26／28／29 列）——R2 改以 yaml 解析後看頂層鍵與 `candidates[].shape`；`key()` 是 `LooseTitleKey.key` 的鏡射，改一邊要同批改另一邊；固定案例的出處逐條寫（R2 寫「取自那個檔頭」，四條裡兩條不是——R2 verify 第 17 列）：JRSS 的三種標點寫法與 BJMSP 的 `&`／and 取自 `LooseTitleKey` 檔頭；`The Guilford Press`＝`Guilford Press` 取自 live store 的 venue `the-guilford-press`（names 同時有兩種寫法）；`Science`≠`Sciences` 是**負控**、取自 `identity-is-judged-not-matched`（所方正式名稱與 ScienceDirect 的誤植）。
 
 ```bash
 python3 - <<'EOF'
@@ -358,7 +384,7 @@ EOF
 ```
 
 **第 25 列的量測（2026-09-12，可重跑）**：venue 側名字內容的 error 應恆為 0——
-`LC_ALL=C grep -a -q '求值總量' "$(command -v akashic)" && akashic validate 2>&1 | grep 'venue' | grep -v '則數已達上限' | grep -c 'canonical 形\|近重複\|同名段過多\|求值總量\|不是名字\|沒有名字\|格式或控制字元\|控制或方向控制\|不可見字元\|接合字元'`
+`LC_ALL=C grep -a -q '求值總量' "$(command -v akashic)" && "$(command -v akashic)" validate 2>&1 | grep -c '^[^ ]* venue [^ ]*: venue .*\(canonical 形\|近重複\|同名段過多\|求值總量\|不是名字\|沒有名字\|格式或控制字元\|控制或方向控制\|不可見字元\|接合字元\)'`
 （十個子串對應 `NameIdentity.wellFormednessIssue` 的七句訊息加 `Venue.validate()` 的近重複句、組內求值上限句「同名段過多」與整筆記錄的求值總量句——R5 的 grep 漏了空名的「沒有名字」，Python 對照卻算它，兩套量測分歧；R6 補齊並加不可見／接合字元兩類；R18 加兩類求值上限句、並排除概括句（R17 verify 第 11 列：R17 的概括句含「venue」與「近重複」，會被數成一則名字內容 error，而求值上限那一類完全數不到）。**這個數量的是訊息行數**：近重複一組最多 3 對、概括句不算、每筆記錄至多 20 組——與下方 Python 對照的「對數」在配額到頂時必然分岔，兩邊都是 0 時才是同一件事）
 （用含這條檢查的 binary——同第 13 列的自證；注意 person 側另有 #296 的近重複 **warning**，
 `grep 'venue'` 才不會把那些算進來）。Python 對照（不依賴 binary）：
@@ -518,7 +544,7 @@ print(f"venue {n}｜違反不變式的字串 {bad}｜近重複對 {dup}")   # 20
 EOF
 ```
 
-**第 26 列的量測（2026-09-14，可重跑）**：warning 數 `LC_ALL=C grep -a -q '條邊指向同一 venue' "$(command -v akashic)" && akashic validate 2>&1 | grep -c '條邊指向同一 venue'`（應為 0；用含這條
+**第 26 列的量測（2026-09-14，可重跑）**：warning 數 `LC_ALL=C grep -a -q '條邊指向同一 venue' "$(command -v akashic)" && "$(command -v akashic)" validate 2>&1 | grep -c '條邊指向同一 venue'`（應為 0；用含這條
 檢查的 binary——同第 13 列的自證，舊 binary 印不出東西；R15 起每筆 work 最多列 20 個 venue、其餘一句概括——概括句自 R16 起前綴
 `則數已達上限`、不含這個子串也不進家族，所以這個數與 `StoreHealth.duplicateVenueEdges` 都是「受影響數，至多每筆 20」，R15 verify 第 18／29 列）。Python 對照（不依賴 binary；`work:` 檔的 `venues` 裡 `key:` 出現兩次以上）：
 
@@ -540,9 +566,9 @@ print(f"work {n} 筆｜>1 條 venue 邊 {multi} 筆｜同 venue 兩條 key 邊 {
 EOF
 ```
 
-**第 27 列的量測（2026-09-15，可重跑；R15 分兩類、R16 對齊位元組）**：warning 數 `LC_ALL=C grep -a -q '個正規化後不同的 confirmed literal' "$(command -v akashic)" && akashic validate 2>&1 | grep -c '個正規化後不同的 confirmed literal'`
-與 `LC_ALL=C grep -a -q '筆只差位元組的 confirmed literal' "$(command -v akashic)" && akashic validate 2>&1 | grep -c '筆只差位元組的 confirmed literal'`（應皆為 0；用含這條檢查的 binary——同第 13 列的自證，舊 binary 印不出東西；
-家族總數 `LC_ALL=C grep -a -q '同一 work 多個 confirmed literal' "$(command -v akashic)" && akashic validate 2>&1 | grep -c '同一 work 多個 confirmed literal'`——R16 起**不含**概括句（它的前綴是 `則數已達上限`），所以家族總數＝
+**第 27 列的量測（2026-09-15，可重跑；R15 分兩類、R16 對齊位元組）**：warning 數 `LC_ALL=C grep -a -q '個正規化後不同的 confirmed literal' "$(command -v akashic)" && "$(command -v akashic)" validate 2>&1 | grep -c '個正規化後不同的 confirmed literal'`
+與 `LC_ALL=C grep -a -q '筆只差位元組的 confirmed literal' "$(command -v akashic)" && "$(command -v akashic)" validate 2>&1 | grep -c '筆只差位元組的 confirmed literal'`（應皆為 0；用含這條檢查的 binary——同第 13 列的自證，舊 binary 印不出東西；
+家族總數 `LC_ALL=C grep -a -q '同一 work 多個 confirmed literal' "$(command -v akashic)" && "$(command -v akashic)" validate 2>&1 | grep -c '同一 work 多個 confirmed literal'`——R16 起**不含**概括句（它的前綴是 `則數已達上限`），所以家族總數＝
 受影響的 work 數、至多每筆 venue 20；**兩類不是互斥分割**（R15 verify 第 23 列）：一筆 work 三個 literal、其中兩個只差位元組時只出第一類、訊息尾
 附「另有 1 筆只差位元組的重複記錄」，第二類的 grep 不算它；`grep -c '只差位元組'` 數的是**含位元組重複的訊息行數**、不是組數——一則第一類
 訊息最多點名 5 組（第 6 組起以「…共 N 組」揭露）、一則第二類訊息涵蓋一筆 work 的全部拼法；真要數「work 對」用下方鏡射的 `bytes_only`，
@@ -622,7 +648,7 @@ print(f"venue {n} 筆｜對同一 work 持 ≥2 個正規化後不同 confirmed 
 EOF
 ```
 
-**第 28 列的量測（2026-09-16，可重跑）**：`LC_ALL=C grep -a -q '重複的判定記錄' "$(command -v akashic)" && akashic validate 2>&1 | grep -c '重複的判定記錄：'`（應為 0；用含這條檢查的 binary——同第 13 列的自證，
+**第 28 列的量測（2026-09-16，可重跑）**：`LC_ALL=C grep -a -q '重複的判定記錄' "$(command -v akashic)" && "$(command -v akashic)" validate 2>&1 | grep -c '重複的判定記錄：'`（應為 0；用含這條檢查的 binary——同第 13 列的自證，
 舊 binary 印不出東西；**帶冒號**——概括句的正文也含這六個字但接「；」，R24 verify 第 7 列，與第 27 列量測段修過的同一個錯；一則訊息＝一筆記錄的一個配對，
 同一記錄兩個配對各有重複時是兩則，被截時是下限）。**D65 的量測（2026-09-17，R24）**：live store 8,671 筆 `value:` 行，以 NFC 正規化後計數的重複 **0** ＝
 以原字串計數的重複 **0**——兩數相等即今天沒有只差 NFC／NFD 的配對，換鍵不改變任何既有記錄的意義（重跑：對每檔 `value:` 行各用 `unicodedata.normalize('NFC', v)`
@@ -672,7 +698,7 @@ EOF
 # 2026-09-25：reference 8747｜最長理由 687 位元組｜rests-on 最多 3｜未決 0
 ```
 
-**第 31 列的量測（2026-09-26 改量檔案位元組，可重跑）**：warning 數 `LC_ALL=C grep -a -q 'person／organization 的記錄檔逼近讀取上限' "$(command -v akashic)" && akashic validate 2>&1 | grep -c 'person／organization 的記錄檔逼近讀取上限'`（應印 0；沒印任何東西＝舊 binary，同第 13 列的自證）。Python 對照量的就是工具比的那個數——記錄檔的位元組（讀不到的檔計數，同第 24 列）：
+**第 31 列的量測（2026-09-26 改量檔案位元組，可重跑）**：warning 數 `LC_ALL=C grep -a -q 'person／organization 的記錄檔逼近讀取上限' "$(command -v akashic)" && "$(command -v akashic)" validate 2>&1 | grep -c 'person／organization 的記錄檔逼近讀取上限'`（應印 0；沒印任何東西＝舊 binary，同第 13 列的自證）。Python 對照量的就是工具比的那個數——記錄檔的位元組（讀不到的檔計數，同第 24 列）：
 
 ```bash
 python3 - <<'EOF'
@@ -715,9 +741,9 @@ EOF
 # 2026-09-26（R1 重量）：141｜0｜0（另數了 2,445 個 DOI）
 ```
 
-**第 33 列的量測（2026-09-26，可重跑）**：`LC_ALL=C grep -a -q '團體作者 key「' "$(command -v akashic)" && akashic validate 2>&1 | grep -c '團體作者 key「'` 與 `LC_ALL=C grep -a -q '沒有對應的 venue 檔' "$(command -v akashic)" && akashic validate 2>&1 | grep -c 'venue key「.*」沒有對應的 venue 檔'`（#669 起 `venue key「…」重複` 也用這個前綴，所以錨在後半句；用含這條檢查的 binary——同第 13 列的自證，舊 binary 印不出東西；2026-09-26：2 與 0）。
+**第 33 列的量測（2026-09-26，可重跑）**：`LC_ALL=C grep -a -q '團體作者 key「' "$(command -v akashic)" && "$(command -v akashic)" validate 2>&1 | grep -c '團體作者 key「'` 與 `LC_ALL=C grep -a -q '沒有對應的 venue 檔' "$(command -v akashic)" && "$(command -v akashic)" validate 2>&1 | grep -c 'venue key「.*」沒有對應的 venue 檔'`（#669 起 `venue key「…」重複` 也用這個前綴，所以錨在後半句；用含這條檢查的 binary——同第 13 列的自證，舊 binary 印不出東西；2026-09-26：2 與 0）。
 
-**第 34 列的量測（2026-09-27，可重跑）**：`LC_ALL=C grep -a -q '位 person 引用' "$(command -v akashic)" && akashic validate 2>&1 | grep -c '隸屬 key「'` 與 `LC_ALL=C grep -a -q '上級機構 key「' "$(command -v akashic)" && akashic validate 2>&1 | grep -c '上級機構 key「'`（用含這條檢查的 binary——同第 13 列的自證，舊 binary 印不出東西；閘的片段取那則訊息裡 ≥16 位元組字面段的一段、不取被數的樣式——短的字面段在 release 版找不到，#711 R1，見第 19 列的量測段）。Python 對照（不依賴 binary；讀不到的檔計數，同第 24 列）：
+**第 34 列的量測（2026-09-27，可重跑）**：`LC_ALL=C grep -a -q '位 person 引用' "$(command -v akashic)" && "$(command -v akashic)" validate 2>&1 | grep -c '隸屬 key「'` 與 `LC_ALL=C grep -a -q '上級機構 key「' "$(command -v akashic)" && "$(command -v akashic)" validate 2>&1 | grep -c '上級機構 key「'`（用含這條檢查的 binary——同第 13 列的自證，舊 binary 印不出東西；閘的片段取那則訊息裡 ≥16 位元組字面段的一段、不取被數的樣式——短的字面段在 release 版找不到，#711 R1，見第 19 列的量測段）。Python 對照（不依賴 binary；讀不到的檔計數，同第 24 列）：
 
 ```bash
 python3 - <<'EOF'
@@ -743,7 +769,7 @@ EOF
 # 2026-09-27：organization 13｜懸空的隸屬 key 0 []｜懸空的上級機構 key 0 []｜讀不到的檔 0
 ```
 
-**第 35 列的量測（2026-09-27，可重跑）**：`LC_ALL=C grep -a -q '重複的 reference' "$(command -v akashic)" && akashic validate 2>&1 | grep -c '重複的 reference：'`（用含這條檢查的 binary——同第 13 列的自證；**帶全形冒號**，否則會把計數行也數進去）。Python 對照（不依賴 binary；逐欄 NFC 等於 Swift `String` 的 canonical equivalence）：
+**第 35 列的量測（2026-09-27，可重跑）**：`LC_ALL=C grep -a -q '重複的 reference' "$(command -v akashic)" && "$(command -v akashic)" validate 2>&1 | grep -c '重複的 reference：'`（用含這條檢查的 binary——同第 13 列的自證；**帶全形冒號**，否則會把計數行也數進去）。Python 對照（不依賴 binary；逐欄 NFC 等於 Swift `String` 的 canonical equivalence）：
 
 ```bash
 python3 - <<'EOF'
@@ -772,7 +798,7 @@ EOF
 # 2026-09-27：非判定 reference 90｜重複組 0（其中只差位元組 0）｜讀不到的檔 0
 ```
 
-**第 36 列的量測（2026-09-27，可重跑）**：`LC_ALL=C grep -a -q '一個 ISSN 只屬於一本刊' "$(command -v akashic)" && akashic validate 2>&1 | grep -c '掛在 .* 個 venue 上'`（用含這條檢查的 binary——同第 13 列的自證，舊 binary 印不出東西；閘的片段取那則訊息裡 ≥16 位元組字面段的一段、不取被數的樣式——短的字面段在 release 版找不到，#711 R1，見第 19 列的量測段）。Python 對照（不依賴 binary；正規形＝去掉連字號、大寫；讀不到的檔計數，同第 24 列）：
+**第 36 列的量測（2026-09-27，可重跑）**：`LC_ALL=C grep -a -q '一個 ISSN 只屬於一本刊' "$(command -v akashic)" && "$(command -v akashic)" validate 2>&1 | grep -c '掛在 .* 個 venue 上'`（用含這條檢查的 binary——同第 13 列的自證，舊 binary 印不出東西；閘的片段取那則訊息裡 ≥16 位元組字面段的一段、不取被數的樣式——短的字面段在 release 版找不到，#711 R1，見第 19 列的量測段）。Python 對照（不依賴 binary；正規形＝去掉連字號、大寫；讀不到的檔計數，同第 24 列）：
 
 ```bash
 python3 - <<'EOF'
@@ -860,7 +886,7 @@ EOF
 #   person 10869、work 5602、divergence 1004、organization 717；超過讀取上限 0｜最長理由 687 位元組｜讀不到 0
 ```
 
-**第 40 列的量測（2026-09-28，可重跑）**：`LC_ALL=C grep -a -q '的檔案寫入時會被拒——' "$(command -v akashic)" && akashic validate 2>&1 | grep -c '^⚠ \[跨記錄\] \(work\|person\)「.*」的檔案寫入時會被拒——'`（用含這條檢查的 binary——同第 13 列的自證，舊 binary 印不出東西；行首錨在 binary 自己印的前綴上，同第 24 列）。Python 對照（不依賴 binary；legacy 殘留是本列的前提——沒有它，load 不判斷任何記錄）：
+**第 40 列的量測（2026-09-28，可重跑）**：`LC_ALL=C grep -a -q '的檔案寫入時會被拒——' "$(command -v akashic)" && "$(command -v akashic)" validate 2>&1 | grep -c '^⚠ \[跨記錄\] \(work\|person\)「.*」的檔案寫入時會被拒——'`（用含這條檢查的 binary——同第 13 列的自證，舊 binary 印不出東西；行首錨在 binary 自己印的前綴上，同第 24 列）。Python 對照（不依賴 binary；legacy 殘留是本列的前提——沒有它，load 不判斷任何記錄）：
 
 ```bash
 python3 - <<'EOF'
@@ -912,7 +938,7 @@ EOF
 # 2026-09-28：記錄 7637｜sha256: 值 95｜指向空內容 digest 0 []｜index 列 95（指向空 blob 1）｜空 blob 在場 True｜讀不到的檔 0
 ```
 
-**第 42 列的量測（2026-09-28，可重跑）**：`LC_ALL=C grep -a -q '分不出是哪一筆' "$(command -v akashic)" && akashic validate 2>&1 | grep -c 'key「.*」重複——以 key 定位'`（用含這條檢查的 binary——同第 13 列的自證，舊 binary 印不出東西；錨在本列訊息自己的後半句上，不會數到第 33 列的懸空 venue key）。Python 對照見第 38 列的腳本——它逐 kind 數同 kind 重複 key（2026-09-28：全 0）。源碼那一半：`PATH=/usr/bin:$PATH swift test --filter DuplicateVenueOrgKeyTests/testNoStoreKeyLookupTableTrapsOnDuplicates`（2026-09-28：0 處違規）。
+**第 42 列的量測（2026-09-28，可重跑）**：`LC_ALL=C grep -a -q '分不出是哪一筆' "$(command -v akashic)" && "$(command -v akashic)" validate 2>&1 | grep -c 'key「.*」重複——以 key 定位'`（用含這條檢查的 binary——同第 13 列的自證，舊 binary 印不出東西；錨在本列訊息自己的後半句上，不會數到第 33 列的懸空 venue key）。Python 對照見第 38 列的腳本——它逐 kind 數同 kind 重複 key（2026-09-28：全 0）。源碼那一半：`PATH=/usr/bin:$PATH swift test --filter DuplicateVenueOrgKeyTests/testNoStoreKeyLookupTableTrapsOnDuplicates`（2026-09-28：0 處違規）。
 
 **第 43 列的量測（2026-09-29，可重跑）**：唯讀，數帶時間、source 或 note 的名字段，以及含 venue 候選的 divergence（讀不到的檔計數，同第 24 列）：
 
@@ -967,7 +993,7 @@ EOF
 # 2026-09-29：ISSN 值 59｜認不出的角色 0｜references：resolution-confirmed 2200、paginated 36｜最長 judgement 287｜rests-on 最多 3｜讀不到的檔 0
 ```
 
-**第 46 列的量測（2026-09-29，可重跑，唯讀）**：`LC_ALL=C grep -a -q '筆 entry 宣稱（' "$(command -v akashic)" && akashic validate --library <store> 2>&1 | grep -c 'Zotero 來源.*被 [0-9]* 筆 entry 宣稱'`（同時涵蓋 `Zotero 來源「1:K」` 與 `Zotero 來源（裸 key「K」）` 兩種標籤；用含這條檢查的 binary——同第 13 列的自證，舊 binary 印不出東西）。Python 對照（不依賴 binary；鏡射 `ZoteroSourceClaims`：主來源與附加來源都算、沒記 `library_id` 的**主來源**進 `?:` 桶、沒記 `library_id` 的**附加來源**不算、以 entry id 去重）：
+**第 46 列的量測（2026-09-29，可重跑，唯讀）**：`LC_ALL=C grep -a -q '筆 entry 宣稱（' "$(command -v akashic)" && "$(command -v akashic)" validate --library "$STORE" 2>&1 | grep -c 'Zotero 來源.*被 [0-9]* 筆 entry 宣稱'`（同時涵蓋 `Zotero 來源「1:K」` 與 `Zotero 來源（裸 key「K」）` 兩種標籤；`STORE` 是要量的 store 的路徑，#711 R2 之前寫 `<store>`——不是 shell 能跑的寫法；用含這條檢查的 binary——同第 13 列的自證，舊 binary 印不出東西）。Python 對照（不依賴 binary；鏡射 `ZoteroSourceClaims`：主來源與附加來源都算、沒記 `library_id` 的**主來源**進 `?:` 桶、沒記 `library_id` 的**附加來源**不算、以 entry id 去重）：
 
 ```bash
 python3 - <<'EOF'
@@ -995,7 +1021,7 @@ EOF
 # 2026-09-29（R1 verify 重量）：work 2568｜來源鍵 535（其中沒記 library_id 的主來源 0）｜宣稱者 ≥2 的來源 0 []｜沒記 library_id 的附加來源（不算）0｜讀不到的檔 0
 ```
 
-**第 47 列的量測（2026-09-29，可重跑，唯讀）**：`LC_ALL=C grep -a -q '筆成員不符規則（' "$(command -v akashic)" && akashic validate 2>&1 | grep -c '筆成員不符規則（'`（R1 verify：訊息把指路句移到前段，冒號後接的是點名，所以錨在全形括號） 與 `LC_ALL=C grep -a -q '沒有標成員性質（' "$(command -v akashic)" && akashic validate 2>&1 | grep -c '沒有標成員性質（'`（用含這條檢查的 binary——同第 13 列的自證，舊 binary 印不出東西；2026-09-29 預期 0 與 4）。Python 對照（不依賴 binary；只做規則型與文件型的比對，懸空規則由 binary 報）：
+**第 47 列的量測（2026-09-29，可重跑，唯讀）**：`LC_ALL=C grep -a -q '筆成員不符規則（' "$(command -v akashic)" && "$(command -v akashic)" validate 2>&1 | grep -c '筆成員不符規則（'`（R1 verify：訊息把指路句移到前段，冒號後接的是點名，所以錨在全形括號） 與 `LC_ALL=C grep -a -q '沒有標成員性質（' "$(command -v akashic)" && "$(command -v akashic)" validate 2>&1 | grep -c '沒有標成員性質（'`（用含這條檢查的 binary——同第 13 列的自證，舊 binary 印不出東西；2026-09-29 預期 0 與 4）。Python 對照（不依賴 binary；只做規則型與文件型的比對，懸空規則由 binary 報）：
 
 ```bash
 python3 - <<'PY'
@@ -1121,7 +1147,7 @@ PY
 # 2026-09-29：sources/ blob 99｜非普通檔 0 []｜index.jsonl -rw-r--r--
 ```
 
-**第 51 列的量測（2026-09-29，可重跑）**：`for r in $(akashic-guards plugin-roots); do printf '%s ' "$r"; ls "$r"/rules/*.md 2>/dev/null | wc -l; done`（2026-09-29：`plugin 2`、`plugins/akashic-discovery 2`）。
+**第 51 列的量測（2026-09-29，可重跑）**：plugin 根 `.build/debug/akashic-guards plugin-roots`（2026-09-29：`plugin`、`plugins/akashic-discovery`），每個根的規則數 `ls plugin/rules/*.md | wc -l`、`ls plugins/akashic-discovery/rules/*.md | wc -l`（2026-09-29：各 2）。#711 R2 之前是一行 for 迴圈（在 `$( … )` 裡跑 `akashic-guards plugin-roots`、迴圈裡 `ls … | wc -l`）：同一行執行 binary 又計數、不合量測的模板——數的是 `ls` 不是 binary 的輸出，但守衛分不出來，所以拆成兩條；裸名 `akashic-guards` 也不在 PATH 上（R2 verify 第 24 列）。
 
 **第 52 列的量測（2026-09-29，可重跑，唯讀）**：
 
@@ -1170,7 +1196,7 @@ PY
 # 2026-09-29：library 4｜規則型 0｜排除清單指向不在庫 0｜規則的 venue key 重複 0｜文件型 0（文件不在庫或重複 0）｜讀不到的檔 0
 ```
 
-**第 56 列的量測（2026-09-29，可重跑，唯讀）**：`LC_ALL=C grep -a -q '附加 Zotero 來源沒記 library_id' "$(command -v akashic)" && akashic validate 2>&1 | grep -c '附加 Zotero 來源沒記 library_id'`（**前綴的 `LC_ALL=C grep -a -q … &&` 是自證閘**，同第 13 列：`grep -c` 沒命中時印 `0`，舊 binary、usage error、乾淨 store 三者輸出都是 `0`，分不開；沒印任何東西＝PATH 上的 `akashic` 是沒有這條檢查的舊 binary。b13f R1 verify 第 31 列補上；第 33–36 列的同型缺口是既有的，本輪不動）。Python 對照（讀不到的檔計數，同第 24 列）：
+**第 56 列的量測（2026-09-29，可重跑，唯讀）**：`LC_ALL=C grep -a -q '附加 Zotero 來源沒記 library_id' "$(command -v akashic)" && "$(command -v akashic)" validate 2>&1 | grep -c '附加 Zotero 來源沒記 library_id'`（**前綴的 `LC_ALL=C grep -a -q … &&` 是自證閘**，同第 13 列：`grep -c` 沒命中時印 `0`，舊 binary、usage error、乾淨 store 三者輸出都是 `0`，分不開；沒印任何東西＝PATH 上的 `akashic` 是沒有這條檢查的舊 binary。b13f R1 verify 第 31 列補上；第 33–36 列的同型缺口是既有的，本輪不動）。Python 對照（讀不到的檔計數，同第 24 列）：
 
 ```bash
 python3 - <<'PY'
@@ -1396,12 +1422,12 @@ PY
 # 2026-09-29：attested 最多 0 點｜讀不到的檔 0
 ```
 
-**第 70 列的量測（2026-09-30，可重跑）**：宣告範圍每條宣告印一行，`✓` 是沒有缺口、`✗` 是未列管的缺口、`⊘` 是列管的缺口；清單條目數不含註解與空行。三條分支、格式閘的每個條件與兩個判斷的負控是 `.build/debug/akashic-guards trigger-coverage-mutations`（2026-09-30 R2：49/49；#710 補 issue 號形狀三格後 52/52；#711 補缺口大小七格後 59/59）。**`✗⊘` 的 0 要配正對照一起讀**（R2 verify）：#690 之前的 binary 沒有範圍檢查、守衛中途以 rc=2 中止，`grep -c` 都印 0，與「沒有缺口」分不出來——所以先看 rc 與 `✓` 行數，`✓` 是 0 時下一行的 0 不算數。
+**第 70 列的量測（2026-09-30，可重跑）**：宣告範圍每條宣告印一行，`✓` 是沒有缺口、`✗` 是未列管的缺口、`⊘` 是列管的缺口；清單條目數不含註解與空行。三條分支、格式閘的每個條件與兩個判斷的負控是 `.build/debug/akashic-guards trigger-coverage-mutations`（2026-09-30 R2：49/49；#710 補 issue 號形狀三格後 52/52；#711 補缺口大小七格後 59/59）。**`✗⊘` 的 0 要配 `✓` 那條一起讀**（R2 verify）：#690 之前的 binary 沒有範圍檢查，`grep -c` 都印 0，與「沒有缺口」分不出來——#711 R2 起兩條計數各自有閘（片段是範圍那一段的標題，#690 之前的 binary 沒有它，閘失敗、什麼都不印）；守衛中途以 rc=2 中止時兩條都印 0，所以仍先看 rc 與 `✓` 行數，`✓` 是 0 時下一行的 0 不算數。R2 之前這裡是 `out=$(…)` 一次、`printf '%s\n' "$out" | grep -c` 兩次，靠第一條的 `# 正對照` 讓第二條繼承；正對照不再讓別行繼承之後，改成每條各自跑一次守衛。
 
 ```bash
-out=$(.build/debug/akashic-guards trigger-coverage); echo "rc=$?"           # 2026-09-30：rc=0
-printf '%s\n' "$out" | grep -cE '^✓ .*宣告 `'     # 正對照，2026-09-30：3（0＝這個 binary 沒有範圍檢查，或中途中止）
-printf '%s\n' "$out" | grep -cE '^[✗⊘] .*宣告 `'  # 2026-09-30：0
+.build/debug/akashic-guards trigger-coverage > /dev/null 2>&1; echo "rc=$?"   # 2026-09-30：rc=0
+LC_ALL=C grep -a -q '上面的逐對表只走受保護集合' .build/debug/akashic-guards && .build/debug/akashic-guards trigger-coverage 2>&1 | grep -c '^✓ .*宣告 `'     # 2026-09-30：3（0＝中途中止）
+LC_ALL=C grep -a -q '上面的逐對表只走受保護集合' .build/debug/akashic-guards && .build/debug/akashic-guards trigger-coverage 2>&1 | grep -c '^[✗⊘] .*宣告 `'  # 2026-09-30：0
 grep -cvE '^#|^$' .githooks/acknowledged-ci-gaps.txt                    # 2026-09-30：0
 ```
 
@@ -1412,7 +1438,10 @@ grep -cvE '^#|^$' .githooks/acknowledged-ci-gaps.txt                    # 2026-0
 **2026-10-02 起這個區塊標成 `text`（#711 R1 verify 第 6、11 列）**：兩個出口已退場（下面的補記），它是紀錄、不是可執行的量測，
 `zero-instance-rows-audit` 不掃它。第一行的閘對新 binary **該**失敗——#711 第一版的 `audit-guards-mutations` 把整行當錨字串編進
 `akashic-guards`，曾讓它對沒有這兩條檢查的 binary 印「有這兩條檢查」；那幾格已改錨，守衛自 #711 R1 起擋「片段出現在 harness 的字串裡」。
+**#711 R2 起不掃它的理由是前一行的退場標記，不是 `text` 這個語言標記**（R2 verify 第 9 列：換個語言標記就能讓沒有閘的量測安靜通過）——
+沒有標記的 `text` fence 照掃。
 
+<!-- zero-instance-rows-audit: 已退場的量測紀錄，不掃 -->
 ```text
 LC_ALL=C grep -a -q '抽取認不出' .build/debug/akashic-guards && LC_ALL=C grep -a -q '宣告是空的' .build/debug/akashic-guards && echo "有這兩條檢查"
 out=$(.build/debug/akashic-guards migrated-guard-control); echo "rc=$?"   # 2026-09-30：rc=0
@@ -1455,11 +1484,11 @@ PY
 #             sources/：檔 104｜合計 19820273 bytes｜最大 3912063 bytes｜超過上限 0
 ```
 
-**第 73 列的量測（2026-09-30，可重跑，唯讀）**：`find "${AKASHIC_HOME:-$HOME/.akashic}/sources" -mindepth 2 -maxdepth 2 -name '.*.incoming-*' | wc -l`（2026-09-30：0）。自證：用含這條檢查的 binary，`LC_ALL=C grep -a -q '殘留的暫存檔' "$(command -v akashic)" && akashic doctor 2>&1 | grep -c '殘留的暫存檔'` 對上面那個數（至多 20 行，其餘一句概括）；舊 binary 印不出任何一行——「沒被檢查」與「檢查過且乾淨」在輸出上分不開，第 13 列的同一條。
+**第 73 列的量測（2026-09-30，可重跑，唯讀）**：`find "${AKASHIC_HOME:-$HOME/.akashic}/sources" -mindepth 2 -maxdepth 2 -name '.*.incoming-*' | wc -l`（2026-09-30：0）。自證：用含這條檢查的 binary，`LC_ALL=C grep -a -q '殘留的暫存檔' "$(command -v akashic)" && "$(command -v akashic)" doctor 2>&1 | grep -c '殘留的暫存檔'` 對上面那個數（至多 20 行，其餘一句概括）；舊 binary 印不出任何一行——「沒被檢查」與「檢查過且乾淨」在輸出上分不開，第 13 列的同一條。
 
 **第 74 列的量測（2026-10-01，可重跑，唯讀）**：`PATH=/usr/bin:$PATH swift test --build-system native --filter AppLegacyCopyNoticeTests/testEveryAppStoreWriteIsInsideTheScope`（通過＝在範圍外 0；它另有地板：寫入點少於 6 個即紅，空掃描不是通過）；寫入點數 `grep -rhoE '\.(writeEntry|writePerson|renameEntry|renamePerson)\b' Sources/AkashicAppKit AkashicApp/Sources | wc -l`（2026-10-01：6；R1 verify 起遞迴、認取函式值，這一行是未去除註解與字串的粗量，守衛本身去除註解與字串）。
 
-**第 77 列的量測（2026-10-01，可重跑，唯讀）**：lstat 每個 62 hex 的檔名，普通檔的大小與 index 那一列（每個 digest 的第一列）的整數 `bytes` 比；不讀內容。自證：用含這條檢查的 binary，`LC_ALL=C grep -a -q '位址上不是普通檔' "$(command -v akashic)" && LC_ALL=C grep -a -q '存檔大小與 index 不符' "$(command -v akashic)" && akashic doctor 2>&1 | grep -c '位址上不是普通檔\|存檔大小與 index 不符'` 對上面兩個數的和（至多 20 行，其餘一句概括）；舊 binary 印不出任何一行。
+**第 77 列的量測（2026-10-01，可重跑，唯讀）**：lstat 每個 62 hex 的檔名，普通檔的大小與 index 那一列（每個 digest 的第一列）的整數 `bytes` 比；不讀內容。自證：用含這條檢查的 binary，`LC_ALL=C grep -a -q '位址上不是普通檔' "$(command -v akashic)" && "$(command -v akashic)" doctor 2>&1 | grep -c '位址上不是普通檔'` 與 `LC_ALL=C grep -a -q '存檔大小與 index 不符' "$(command -v akashic)" && "$(command -v akashic)" doctor 2>&1 | grep -c '存檔大小與 index 不符'` 各對上面一個數（兩種合計至多列 20 行，其餘一句概括）；舊 binary 印不出任何一行。#711 R2 之前是兩道閘串在一條計數前面——不合量測的模板（每一條只有一道閘），所以拆成兩條。
 
 ```bash
 python3 - <<'EOF'
@@ -1546,6 +1575,7 @@ print('divergence', len(divs), '｜id 與目前候選 key 算出的 id 不同', 
 PY
 # 2026-10-02：work 2599｜DOI 值 2459｜共用組大小分布 {2: 16}｜最大 2｜讀不到 0
 #             divergence 1｜id 與目前候選 key 算出的 id 不同 0
+```
 
 **第 82 列的量測（2026-10-02，可重跑，唯讀）**：每筆記錄的名字數上限遠在 200 之下、最長的名字遠在 65,536 位元組之下；名字分類記錄數同第 78 列。讀不到的檔計數，同第 24 列：
 

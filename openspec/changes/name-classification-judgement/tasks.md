@@ -35,3 +35,11 @@
 - [x] 5.8 MCP `akashic_update_organization` 對已拿掉的 `unauthorize` 具名拒絕；MCP 描述把 #564 整合時刪掉的拒絕類別寫回（預算 60,000）；`bootstrap-venues` 的後續指令補 `--judgement`
 - [x] 5.9 負控、規則（`two-kinds-of-edits`、`mcp-cli-parity`、`zero-instance-guards`）、docs/store-format.md §3.5、changelog 與 plugin/CHANGELOG.md
 
+
+## 6. 修正輪二（R2 verify b29 V1，2026-10-03）
+
+- [x] 6.1 合併搬記錄按位置接（`appendCollecting`，person 與 venue），合併後尾端與分類矛盾的保險（`wouldContradictClassificationTail`，preview 與實跑同一份）。驗證：`NameClassificationMergeTests` 的 R2 一節先紅後綠
+- [x] 6.2 person 合併的錨定（記錄的名字要在合併後的 names 裡）與 canonical 的分類比較。驗證：`testPersonRecordOnAWhitespaceTwinSpellingRefusesInPreviewAndApply`
+- [x] 6.3 person `fields.names`：沒有記錄的對外形離開 names 放行、format < 22 的拒絕說出寫入閘、上限只數 authorized。驗證：`NameClassificationR2Tests`
+- [x] 6.4 刪名字：依處境的出口、venue variant 的工具面出口、person 不刪到沒有名字、organization 逐段回報、線性刪除。驗證：`NameClassificationR2Tests`
+- [x] 6.5 理由開頭以性質判；合併預覽印 statement、不排序；文字更正。負控、規則、文件、changelog

@@ -60,7 +60,7 @@
 會在邊界上自己長出沒人同意的答案，而那句話與下表**是兩份不會一起改的規格**。要判斷新情形，
 讀下表的理由欄，然後**加一列**。
 
-## 裁決史（封閉列舉——現有 84 列，一列不多一列不少）
+## 裁決史（封閉列舉——現有 86 列，一列不多一列不少）
 
 | # | 情形 | 裁決 | 理由 |
 |---|---|---|---|
@@ -148,6 +148,8 @@
 | 82 | **零實例，而上限、理由形狀與 person 的理由要求守的是同一批名字分類面的入口——它們的失敗都會變成一筆刪不掉的記錄**（#564 修正輪，使用者 2026-10-02 裁決第 1、4 點與 R1 verify 的理由形狀：名字分類的寫入面一次至多 200 個名字（venue 三條腿合計、organization `authorize`、person `fields.names` 的兩個分割合計、`remove_names`）、單一名字至多 65,536 位元組；理由開頭不得是組合符號、格式或不可見字元、要有字母或數字；person 的 `fields.names` 讓名字進出 authorized 時理由必填。2026-10-02 唯讀量測 live store：每筆記錄的名字數最多 person 5、venue 4、organization 3，最長的名字 129 位元組，名字分類記錄 **0** 筆（store marker 18，寫入閘在 22 之前全拒）。R1 verify 用真 binary 造過三種形：一次 1,500 個名字的 `--add-variant` 寫出 6,167,788 位元組的 venue 檔、一個 9,000,000 字元的「名字」62 秒後才被 8 MiB 寫入閘擋、以 U+0301 開頭的理由寫成一筆可被移除的一般 reference。重跑腳本見表下方） | ✅ **寫（入口整批拒絕、零寫入、不截斷；三個數字都不另立：200＝`maxSpecsPerCall`、65,536＝`AddOnlyEnrichment.maxValueBytes`、理由的 L／N 類與名字不變式同一個謂詞）** | 第 30／45 列的上限只擋單次呼叫、累積由預算 warning 出聲；這一列同形而多一層：**被守的記錄只追加、移除面不刪**——名字分類記錄是判定史，唯一刪得掉的路是修正輪的「最後一筆是撤回的名字連同記錄一起刪」（第 2 點），而那條路要先撤回；一次寫進一千五百筆記錄的錯誤要逐名撤回再刪。所以入口要先擋，不是事後清。理由形狀的那一半不是上限、是文法：以 Grapheme_Extend 字元開頭的理由會與動作前綴的全形冒號併成同一個字，只看 Character 的讀者把它讀成一般 reference（`parse` 已改比 scalar 前綴，入口另外拒收，兩道一起）；只有不可見字元的理由則是「必填」被字面滿足、什麼都沒說。person 的理由要求是裁決第 1 點：`fields.names` 先前能不附理由地改 authorized，與「名字分類一律留記錄」相反。**誠實邊界**：`authorize-names` 不設 200 的上限——它每個 person 至多三筆（每書寫系統一個對外形），上限防的是單筆記錄被灌爆，批次面不會；person 的 `fields.names` 兩個分割合計 200 遠大於實測的 5，量的是同一件事（單次呼叫）。**觸發條件可檢查**（腳本見表下方）：某筆記錄的名字分類記錄數逼近讀取上限的預算 warning（第 16／31 列）時，回來看是不是有呼叫端繞過了入口 |
 | 83 | **零實例，而零是 live store 在 APFS 上的零——同一份程式在別種磁碟區上，每一次存檔都是實例**（#703 b26 F6，使用者 2026-10-02 裁決：`sources/` 所在的磁碟區做不到不覆寫的原子放置——`renamex_np(RENAME_EXCL)` 與 `link(2)` 都不支援，exFAT、FAT32 即此類。2026-10-02 在真的 exFAT 磁碟映像（macOS 27，FSKit 掛載）上量：`VOL_CAP_FMT_HARDLINKS` 與 `VOL_CAP_INT_RENAME_EXCL` 都是有效旗標、值為 0，兩個呼叫都回 `ENOTSUP`（errno 45）；新建檔案的 inode 在第一次寫入之後改變（建立時 18446744073709551612、寫入一個位元組後 9；APFS 前後相同）。2026-10-02 唯讀量測 live store：`sources/` 所在的磁碟區是 APFS，所以今天這道閘不會觸發。重跑指令見表下方） | ✅ **寫（拒絕：每一次存檔在建立任何檔案之前具名拒絕、零寫入；`LibraryStore.assertSourcesVolumeCanPlace`，`storeSource` 與 `preflightStoreSource` 共用；旗標讀不到時 `writeBlob` 在任何分支之前以 `assertDirectoryCanPlace` 實際放一次——b29 V5）**；**不寫替代放置路** | 第 15 列的零是「資料在別台機器上缺席」；這一列的零是**這台機器的磁碟區種類**——同一份程式換一種檔案系統行為就變。裁決有兩半。**寫拒絕**：R1 把存檔改成 `RENAME_EXCL` 之後 exFAT 上每一個新 blob 都失敗，先前存得進去——那是回歸，由使用者裁決「不支援」而不是設法支援。**不寫替代路**：R2 在這個形狀上補過一條「`O_EXCL` 建立目的檔後逐塊複製」的路，四席各自在真的 exFAT 映像上量到它失效——靠建立當下的 inode 認「自己的檔」，而 exFAT 的 inode 在第一次寫入後改變，所以失敗清理與訊號清理全部失效（半截檔留在內容位址上、讀回驗證抓到的壞檔之後被記進 index），同時它讓未完成的檔在最終檔名下看得到。替代路為一種檔案系統造出一組「只在那裡才會走到」的程式，而那組程式的不變式恰好是那種檔案系統打破的。拒絕在**建立任何檔案之前**由磁碟區的能力旗標擋下（`getattrlist`），所以訊號清理的 inode 問題也一併不存在——登記的暫存檔只可能在支援的磁碟區上，且改以名字認。~~磁碟區沒有回報能力旗標時，走到放置才發現（兩個呼叫都回「不支援」），暫存檔由 `defer` 以名字刪掉、同一句拒絕。~~（b29 V5 MEDIUM 0：位址上已有同一份內容時存檔不走放置，旗標讀不到又做不到的磁碟區上那一支回成功、缺條目時還補 index——「每一次」不成立。見 `changelog/2026-10-02-b29-h5-fixes-703-700.md`。）磁碟區沒有回報能力旗標時，寫入之前、任何分支之前在分片目錄裡**實際放一次**空的探測檔（同一條放置路；探測名是暫存檔的形狀、用完即刪），做不到就同一句拒絕、零寫入，含不補 index；拒絕在複製內容之前。**誠實邊界**：兩個旗標都有效而都為 0 才拒；旗標無效或查不到由那一次實際放置決定；預演（`preflightStoreSource`，乾跑也走它）不寫任何東西、所以不探測——旗標讀不到時批次的乾跑說可以、實跑逐筆被拒（每筆在複製之前）；旗標回報不支援而其實可用時會誤拒；SMB／NFS 沒有測。**觸發條件可檢查**：使用者要把 store 放在不支援的磁碟區上時重開——那時要裁的是「磁碟區上的替代放置法」，不是回頭補第三條路 |
 | 84 | **零實例，而它們收回的是一則裁決被實作放寬過頭的部分**（#613 R2 verify，使用者 2026-10-02 裁決 1、2 與主 session 對 MEDIUM 的裁定：`akashic fulltext fetch` 把裁決 1 的「別的主機上沒有標記 → 交給人、批次繼續」實作得比裁決寬——還在載入的頁面第一眼就被說成「沒有標記」、網址只是提到 doi.org 的登入頁被說成「DOI 解不開」、離線時 Safari 的錯誤頁也是「DOI 解不開」、`--resume-stage followed` 對位置漂移到的任何分頁跑讀頁 JS。這一輪的閘：(a) 別的主機上不是 PDF 的頁面要落定（readyState complete／interactive，最多 30 次、看的那一下換了頁就不算），沒落定是卡住；(b) 落定之後標題、網址、頁面文字與 HTTP 狀態一起判訊號（429 一律整批暫停，已知驗證服務上也是）；(c)「還在 doi.org」看主機，`doi-not-resolved` 要 doi.org 自己的查無證據（標題或頁面寫著 `DOI Not Found`、或 404），doi.org 上的訊號與登入頁長相一律整批暫停；(d) DOI 落地頁的網址是登入／驗證頁的長相 → 整批暫停（只看網址，落地頁的標題是文章標題）；(e) `followed` 接續只接文章站、已知驗證服務、或顯示 PDF 的分頁；(f) 已知驗證服務的主機要是乾淨的 DNS 名稱。同一輪另一個方向：別的主機上顯示 PDF 先交給人，標題片語與路徑字詞改成整字、整段——那是把誤停收回，不是新的閘。2026-10-02：`fetch` 從沒對真的 Safari 跑過（任務約束），每日嘗試帳本 `$HOME/Library/Application Support/akashic/` 不存在，實例 **0**；每一種形狀都是審查者以假瀏覽器或 stub 造出來的） | ✅ **寫（往整批暫停或拒絕收；交給人只留給裁決點名的三種：PDF、載完而沒有命中清單的頁面、doi.org 自己的查無頁）** | 第 75 列守的是一個上限、第 76 列守的是收進來的路徑；這一列守的是**一則放寬中止條款的裁決的邊界**：裁決 1 把「別的主機」從整批暫停改成交給人，而實作在三個地方把「交給人」給了裁決沒有點名的頁面（沒載完的、登入頁、Safari 的錯誤頁）。交給人時批次繼續，所以每多一個不該交給人的頁面，就是下一篇照常對同一個站發請求——中止條款當初要防的事。判準因此是裁決的字面：裁決點名的三種交給人，其餘往停的那一邊倒。釘住 `FulltextOffSiteTests`（每一道閘至少一支；`testAStillLoadingPageOnAnotherHostIsAStallNotAHandover`、`testAnHTTP429OnAKnownVerificationServiceAfterNavigationPausesTheBatch`、`testALoginPageCarryingTheDOIInItsQueryPausesTheBatch`、`testSafarisOfflinePageOnDoiOrgIsNotADOIProblem`、`testResumingAfterNavigationRefusesSomeoneElsesTab`、`testAnAnswerReadWhileTheTabWasChangingPagesIsNotUsed`）與 `BotSignalsResponseTests.testKnownVerificationServicesRejectNonCanonicalHosts`；每一道都有負控（changelog `2026-10-02-fetch-fulltext-r2-fixes.md`）。**誠實邊界**：doi.org 查無頁的標題寫著 `DOI Not Found` 是記憶、沒有對 doi.org 量過（頁面文字與 404 是另兩個證據）；`PerformanceNavigationTiming.responseStatus` 在 Safari 有沒有值沒量過，沒有時已知驗證服務上的 429 只能靠頁面文字；等落定最多多花 60 秒。**觸發條件可檢查**：`ls -la "$HOME/Library/Application Support/akashic/"`——帳本出現之後，交給人的 `left-site`／`doi-not-resolved` 若經使用者看過其實是登入頁或錯誤頁，那一格就是這一列漏掉的形狀，回來加閘 |
+| 85 | **零實例，而它守的是一道分類規則與它造出的記錄之間的一致——合併接上去的記錄若與名字的分類矛盾，之後按位置讀記錄的兩道閘會得出相反的結論**（#564 R2 verify：b29 V1 第 0／2／6 列。合併搬名字分類記錄自此按被併者的順序接、每一筆只與那個名字那個分割此刻的最後一筆比位元組（`appendCollecting`）；分類一致的被併者照它接過去，最後一筆必然與分類一致。保險：合併後倖存者上若有名字的最後一筆與分類矛盾——撤回而仍在分割裡，或指定／確認而不在——而那是這次合併帶進來的，preview 與實跑都拒絕。2026-10-03 唯讀量測 live store：名字分類記錄 **0** 筆（store marker 18，寫入閘在 22 之前全拒），最後一筆與分類矛盾的（分割, 名字）**0** 組。R2 verify 用真 binary 造過：被併者「指定 R → 撤回 S → 指定 R」併進已有「指定 R」的倖存者——先前以整份歷史去重只搬撤回，倖存者的名字仍是對外形、最後一筆卻是撤回。重跑腳本見表下方） | ✅ **寫（拒絕：`DivergenceResolveError.wouldContradictClassificationTail`，住在 `validatePersonPreconditions`／`validateVenuePreconditions`，與實跑同一個 `mergedPersonKeeper`／`mergedVenueKeeper` 算；delta——倖存者原本就有的不擋）** | 第 78 列守的是「合併不替人改判定」（降級帶記錄的對外形）；這一列守的是**合併接上去的記錄本身說的話**：刪名字閘（`latestAction`：最後一筆是撤回才可刪）與寫入面的去重（只比最後一筆）都按位置讀，尾端一旦與分類矛盾，前者會放行刪一個仍是對外形的名字、或叫人去「撤回」一個不在分割裡的名字（R2 verify 第 6 列真 binary：出口是做不到的步驟）。主修在搬法（按位置接）；保險擋的只剩來源本身就不一致的被併者——手改，或修正輪之前的 binary（那時寫入面的去重比整份歷史，「指定 R → 撤回 → 再以 R 指定」的第三筆會被丟），零實例而且不靠人記得。**誠實邊界**：保險只看名字分類記錄的最後一筆，不看交錯的順序是不是時間上的順序（store-format §3.5 誠實邊界 (2)）；它是 delta，倖存者合併前就矛盾的那一格不擋——由 `testExistingContradictoryTailOnTheSurvivorDoesNotBlock` 釘住。**觸發條件可檢查**（腳本見表下方）：矛盾的（分割, 名字）應恆為 0；非零時那筆是手改或舊 binary 寫的，出口是在那筆記錄上重下一次與分類一致的判定 |
+| 86 | **零實例，而三種實體裡只有它刪得到沒有名字——兩個鄰居早就擋了**（#564 R2 verify：b29 V1 第 18 列。`update-person --remove-name`／MCP `remove_names` 刪完 person 沒有任何名字時整批拒絕、零寫入，乾跑同樣拒絕；organization 的 `remove_names` 與 venue 的 `edit_name_segment`（`.noNamesLeft`）在修正輪就擋了。2026-10-03 唯讀量測 live store：person 4,575 筆，沒有任何名字的 **0** 筆。R2 verify 用真 binary 造過：只有一個 variant 名字、最後一筆是撤回的 person 一次刪成 `namesTotal: 0`，載入與 validate 都過，`doctor` 才報「no authorized name」。重跑腳本見表下方） | ✅ **寫（入口拒絕；不改 `Person.validate()`）** | 第 25 列把名字的不變式裝在 store 邊界，因為入口有五個；這一列的形只有一個入口造得出（`remove_names` 是唯一會讓 person 少一個名字的工具面——`fields.names` 的替換給什麼就是什麼，空的替換是呼叫端自己寫的），所以擋在入口、與兩個鄰居同一句話。**不改 validate** 的理由：沒有名字的 person 讀得進來、不毀資料（`doctor` 已經報「no authorized name」），升成 error 會讓手改出來的那一筆擋住它自己所有的寫入；這一格要的只是工具面不再造出它。**觸發條件可檢查**（腳本見表下方）：沒有名字的 person 數應恆為 0；非零時那筆是手改或 R2 verify 之前的 binary 寫的，`update-person --fields` 的 names 補一個名字即可 |
 
 對本表四類中的任一個做出下一次裁決（新增、不新增、保留、拿掉）= 在這張表加一列。
 
@@ -1625,6 +1627,57 @@ ls -la "$HOME/Library/Application Support/akashic/" && wc -l "$HOME/Library/Appl
 # 2026-10-02：No such file or directory（從沒對真的 Safari 跑過）
 ```
 
+**第 85 列的量測（2026-10-03，可重跑，唯讀）**：名字分類記錄的最後一筆與名字現在的分類矛盾的（分割, 名字）。成員資格看 canonical（NFC＋空白收斂，鏡射 `NameIdentity.canonical` 的近似：live store 的名字都已是 canonical 形，第 25 列）。讀不到的檔計數，同第 24 列：
+
+```bash
+python3 - <<'PY'
+import glob, io, os, re, unicodedata, yaml
+def canon(s): return re.sub(r'\s+', ' ', unicodedata.normalize('NFC', str(s))).strip()
+recs = conflicts = bad = 0
+for f in glob.glob(os.path.expanduser('~/.akashic/entities') + '/*.yaml'):
+    try: d = yaml.safe_load(io.open(f, encoding='utf8'))
+    except Exception: bad += 1; continue
+    if not isinstance(d, dict): bad += 1; continue
+    kind = next((k for k in ('person', 'venue', 'organization') if k in d), None)
+    if kind is None: continue
+    if kind == 'person':
+        member = {'authorized': {canon(x) for x in (d.get('names') or {}).get('authorized') or []}}
+    else:
+        member = {'authorized': {canon(x) for x in d.get('authorized') or []}, 'variant': {canon(x) for x in d.get('variant') or []}}
+    last = {}
+    for r in d.get('references') or []:
+        if not isinstance(r, dict) or r.get('field') not in ('authorized', 'variant'): continue
+        st = str(r.get('judgement') or '')
+        if not st.startswith(('指定：', '確認：', '撤回：')): continue
+        recs += 1
+        last[(r['field'], canon(r.get('value')))] = st[:2]
+    for (field, name), action in last.items():
+        if (action == '撤回') == (name in member.get(field, set())): conflicts += 1
+print('名字分類記錄', recs, '｜最後一筆與分類矛盾的（分割, 名字）', conflicts, '｜讀不到的檔', bad)
+PY
+# 2026-10-03：0｜0｜0
+```
+
+拒絕本身由 `NameClassificationMergeTests` 的 R2 一節釘住（`testCarryThatWouldLeaveAContradictoryTailIsRefused`；搬法由 `testPersonCarryKeepsTheFinalDesignationThatRepeatsAnEarlierOne` 等四個）。
+
+**第 86 列的量測（2026-10-03，可重跑，唯讀）**：沒有任何名字的 person 數。讀不到的檔計數，同第 24 列：
+
+```bash
+python3 - <<'PY'
+import glob, io, os, yaml
+people = empty = bad = 0
+for f in glob.glob(os.path.expanduser('~/.akashic/entities') + '/*.yaml'):
+    try: d = yaml.safe_load(io.open(f, encoding='utf8'))
+    except Exception: bad += 1; continue
+    if not isinstance(d, dict) or 'person' not in d: continue
+    people += 1
+    ns = d.get('names') or {}
+    if not ((ns.get('authorized') or []) + (ns.get('variant') or [])): empty += 1
+print('person', people, '｜沒有名字的', empty, '｜讀不到的檔', bad)
+PY
+# 2026-10-03：4575｜0｜0
+```
+
 ## 各列共通的東西（觀察，不是判準）
 
 第 1–9 列與第 13、14 列的裁決都是「寫」（第 14 列是 2026-09-09 從「不寫」翻過來的）、第 10–12 列（皆出自 #365）是「不寫」，但**理由各不相同**，這正是不寫總括判準的原因：
@@ -1719,6 +1772,8 @@ ls -la "$HOME/Library/Application Support/akashic/" && wc -l "$HOME/Library/Appl
 - 第 82 列的理由是**被守的記錄只追加、移除面不刪**——第 30／45 列的上限只擋單次、累積由預算出聲；這一列的記錄是判定史，唯一的刪除路要先撤回，所以入口先擋；理由形狀的那一半是文法不是上限（開頭的組合字元讓記錄讀不出來）
 - 第 83 列的理由是**零是磁碟區種類的零，且不補替代路**——第 15 列的零是本機的（資料換一台機器就缺席），這一列是同一份程式換一種檔案系統就變；與第 13 列對照：那一列清理過之後的零靠人記得，這一列靠一道在建立任何檔案之前問磁碟區的閘。替代路被實測否掉過一次（inode 漂移讓清理全部失效），所以裁決是拒絕而不是再補一條
 - 第 84 列的理由是**收回一則放寬裁決被實作放寬過頭的部分**——第 75、76 列守的是一個上限與一條路徑；這一列守的是裁決的邊界：裁決 1 把別的主機從整批暫停改成交給人，實作把交給人給了裁決沒有點名的頁面（沒載完的、登入頁、Safari 的錯誤頁），而交給人時批次繼續。判準是裁決的字面，不是「看起來沒事」
+- 第 85 列的理由是**被守的是一道規則與它造出的記錄之間的一致**——第 78 列守合併不替人改判定，這一列守合併接上去的記錄本身說的話；尾端矛盾時，按位置讀記錄的刪名字閘與去重會得出與分類相反的結論。主修在搬法，保險只剩來源本身就不一致的那一格
+- 第 86 列的理由是**三種實體裡只有它刪得到沒有名字**——第 25 列因為入口有五個而把不變式放在 store 邊界；這一列的形只有一個入口造得出，所以擋在入口、與兩個鄰居同一句話，不升成 validate 的 error（讀得進來、不毀資料）
 - 第 31 列的理由是**同一條曲線換了持有者**——第 16 列的燈只照 venue；新面（未決腿）讓 person 與 organization 也開始累積，第 30 列寫下的誠實邊界要有工具面兌現，否則就是一句沒有後續的散文
 - 第 39 列的理由是**單步的跳躍預警看不到**——第 16／31 列的燈在讀取面、照的是漸進的增長；一次寫入從門檻之下直接越過讀取上限時，燈來不及響，擋它的只能是寫入端。而那道閘要擋的不只是位元組：多檔寫入面在它觸發之前已有檔落盤，所以閘與零寫入的 preflight 同批
 - 第 24 列的理由是**半吊子已經誠實**——前二十三列裡只有第 22 列同樣是「不動既有的東西」（比的是裁決的**動作**：那一列的對象是 spec 文字、失敗是被當死重刪掉；本列的對象是程式的半吊子管線、失敗是使用者撞牆或被當成待修殘留而被人動手）。留著的代價不是零（記了就刪不掉——#586 在 2026-09-28 補了移除面，代價從「刪不掉」降為「要人判定放棄」），而是今天未兌現、且一出現就會出聲；動它的兩個方向（實作／拿掉）代價都更高。與第 10 列（缺用途）最像的是理由的**形**：實作那一半同樣是「形狀取決於還不存在的用途」；但第 10 列的對象根本不存在，這一列的對象已經在、且已經誠實

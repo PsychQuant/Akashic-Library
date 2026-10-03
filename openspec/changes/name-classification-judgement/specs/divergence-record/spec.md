@@ -24,7 +24,22 @@ A name-classification record held by a merged venue SHALL be carried to the surv
 
 ### Requirement: A person merge SHALL carry a name-classification record whose classification agrees
 
-Resolving a person divergence SHALL carry each name-classification record held by a merged person to the survivor, byte for byte, when the name is authorized on both or on neither, and SHALL report it among the carried references in preview and in apply alike. When the classifications differ, the merge SHALL be refused, naming the name, both classifications, and the way out.
+Resolving a person divergence SHALL carry each name-classification record held by a merged person to the survivor, byte for byte, when the name is authorized on both or on neither, and SHALL report it among the carried references in preview and in apply alike. When the classifications differ, the merge SHALL be refused, naming the name, both classifications, and the way out. A record whose name is not, byte for byte, a name of the survivor after the merge SHALL make the merge refuse in preview and in apply alike.
+
+### Requirement: A merge SHALL keep each name's latest classification record consistent with its classification
+
+A venue or person merge SHALL append the carried name-classification records after the survivor's in the merged record's own order, comparing each only with the latest record of the same name and partition at that moment, not with the survivor's whole history. When the merge would leave a name whose latest record is a withdrawal while the name is in that partition, or whose latest record is a designation or confirmation while the name is not, and the survivor did not already hold that state, the merge SHALL be refused in preview and in apply alike.
+
+#### Scenario: A redesignation repeats an earlier record
+
+- **WHEN** a merged person holds `指定：R`, `撤回：S`, `指定：R` on an authorized name and the survivor holds `指定：R` on the same authorized name
+- **THEN** after the merge the survivor's latest record on that name SHALL be `指定：R`
+
+#### Scenario: A merged record already contradicts its classification
+
+- **WHEN** a merged person's authorized name has `撤回：S` as its latest record
+- **THEN** the merge SHALL be refused
+- **AND** the store SHALL be unchanged
 
 #### Scenario: Twins designated by two batches
 

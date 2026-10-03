@@ -139,7 +139,8 @@ final class NameClassificationCorrectionTests: XCTestCase {
         XCTAssertThrowsError(try service.updateOrganization(key: "org2", authorize: many, judgement: "批次")) { e in
             XCTAssertTrue(msg(e).contains("200"), msg(e))
         }
-        XCTAssertThrowsError(try personNames(authorized: [], variant: many, judgement: nil)) { e in
+        // person 只數 authorized（#564 R2 verify：b29 V1 第 9 列——variant 不寫記錄）
+        XCTAssertThrowsError(try personNames(authorized: many, variant: [], judgement: "批次")) { e in
             XCTAssertTrue(msg(e).contains("200"), msg(e))
         }
     }

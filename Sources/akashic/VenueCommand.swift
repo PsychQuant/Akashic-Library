@@ -349,7 +349,7 @@ struct UpdateVenueCmd: ParsableCommand {
                                    + "source／note 給字串時不得是空白、至多 65,536 位元組。時間請寫成字串（\"1933\"，不是 1933）。"
                                    + "reason 必填、至多 4,096 位元組。定位不到、定位到多段（列出各段的區別讓你加 match 縮小）、兩項指到同一段、逐位元組完全相同的重複段，都整批拒絕、零寫入。"
                                    + "改完的記錄仍要過 store 的不變式（Venue.validate 的 error）——這次造出的違反會在寫之前具名拒絕（例如時間欄位落在 variant 的名字上：異寫法沒有生效期間）。"
-                                   + "移除一個名字的最後一段時，該名字若還在 authorized／variant／field: names 的 reference 裡，具名拒絕並指路（--unauthorize 或 --authorize／--remove-reference；variant 目前沒有移除面，只能手改 YAML）；"
+                                   + "移除一個名字的最後一段時，該名字若還在 authorized／variant／field: names 的 reference 裡，具名拒絕並指路（--unauthorize 或 --authorize／--remove-reference；variant 沒有單獨的撤回腿：先 --authorize 它再 --unauthorize，兩次附 --judgement，最後一筆就是撤回——第一步會換下同書寫系統原本的對外形，要再 --authorize 補回）；"
                                    + "該名字若有名字分類的判定記錄（#564）：最後一筆是「撤回」的，記錄隨名字一起刪（報告 judgementRecordsRemoved）；不是撤回的具名拒絕（先撤回，再刪）；"
                                    + "移除後 venue 沒有任何名字也拒絕。用 `akashic venue <key>` 的 names 看現有各段（含 source／note）。"
                                    + "改寫是判定：理由只印在報告（nameSegments[].reason，全文），不寫進 store——要留在 git 就寫進 commit message；"

@@ -407,7 +407,7 @@ extension AkashicService {
             try assertRemovalLeavesNoOrphan(original: venue, removed: removed, venueLabel: venueLabel)
             // #564 第 2 點：最後一筆記錄是「撤回」的名字整個消失時，它的名字分類記錄一起刪（blocker 只放行這一種）——歷史在 git（git 閘在寫之前）
             let gone = venue.classificationRecordsRemoved(removing: removed)
-            edited.references.removeAll { r in gone.contains { $0.byteExactKey == r.byteExactKey } }
+            Self.removingRecords(gone, from: &edited.references)   // O(R)，與 person／organization 的刪名字同一份（#564 R2 verify：b29 V1 第 16 列）
         }
         // 這次編輯造出的 store 不變式違反（`Venue.validate()` 的 error）：與寫入閘同一份判準，這裡只把它歸因到這次呼叫。原本就有的違反不歸咎——
         // 寫入閘照舊會擋。訊息取自 validate（逐項已消毒）。
@@ -434,9 +434,13 @@ extension AkashicService {
                 "移除「\(displaySafeInvisible(name, max: 120))」的最後一段會讓它在\(venueLabel)的 authorized 裡成孤兒——程式不替人改對外形的判定；"   // display-safe-exempt: venueLabel 已消毒；name 已消毒
                 + "先用 --unauthorize（MCP unauthorize）把它移出 authorized、或用 --authorize（MCP authorize）把同書寫系統的對外形換成別的名字（這個名字會留在 names），再重跑；整批拒絕、零寫入")
         case .variant(let name):
+            // #564 R2 verify（b29 V1 第 1／14／19／23 列）：先前說「variant 目前沒有移除面，只能手改 YAML」——工具面其實有一條路（實測刪掉名字與 4 筆記錄），
+            // 訊息把人引去手改 YAML，正是 `replace-endnote-and-zotero` 第 4 條要防的繞過。這條路有代價，一起說
             throw ServiceError.invalid(
                 "移除「\(displaySafeInvisible(name, max: 120))」的最後一段會讓它在\(venueLabel)的 variant 裡成孤兒（分割是對 names 的標記，孤兒 variant 是 error）——程式不替人改異寫法的判定；"   // display-safe-exempt: name 與 venueLabel 已消毒
-                + "variant 目前沒有移除面，只能手改 YAML 把它從 variant 拿掉，再重跑；整批拒絕、零寫入")
+                + "variant 沒有單獨的撤回腿，出口是先讓它的最後一筆變成撤回再刪：--authorize 它（抬出 variant，寫 variant 的撤回與 authorized 的指定）→ "
+                + "--unauthorize 它（寫 authorized 的撤回），兩次都附 --judgement → commit → 再 remove。代價：同書寫系統原本的對外形會在第一步被換下、留在未標"
+                + "（寫一筆撤回），要再 --authorize 它補回，它的歷史因此多一對撤回／指定；--authorize 每次每個書寫系統只收一個名字，標錯很多個要逐一走；整批拒絕、零寫入")
         case .pinnedByReferences(let name, let count):
             throw ServiceError.invalid(
                 "移除「\(displaySafeInvisible(name, max: 120))」的最後一段會讓\(venueLabel)有 \(count) 筆 `field: names` 的 reference 成孤兒（值被改寫後 provenance 成了孤兒、寫入會被拒）——"   // display-safe-exempt: name 與 venueLabel 已消毒；count 是 Int
@@ -446,7 +450,7 @@ extension AkashicService {
             throw ServiceError.invalid(
                 "移除「\(displaySafeInvisible(name, max: 120))」的最後一段會讓\(venueLabel)有 \(count) 筆名字分類的判定記錄成孤兒（它們錨定 names，#564），"   // display-safe-exempt: name 與 venueLabel 已消毒；count 是 Int
                 + "而它的最後一筆不是「撤回」——人說過的判定還成立，刪名字只收已撤回的名字：先撤回（用 --authorize 把它指定為對外形、再用 --unauthorize 撤回，"
-                + "兩次都附 --judgement；最後一筆就是撤回），再刪——那時它的記錄會隨名字一起刪；整批拒絕、零寫入")
+                + "兩次都附 --judgement；最後一筆就是撤回；第一步會換下同書寫系統原本的對外形，要再 --authorize 它補回），再刪——那時它的記錄會隨名字一起刪；整批拒絕、零寫入")
         }
     }
 

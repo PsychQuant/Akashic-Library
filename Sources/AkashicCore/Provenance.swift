@@ -223,7 +223,8 @@ public struct ProvenanceReference: Equatable {
     /// 未決記錄的記錄鍵（`VerdictRecordKey.swift`，change `resolution-verdict-states`——同一配對的多次查證只有整筆位元組相同才算重複）、
     /// 未決腿辨認「這一筆是同一次呼叫剛寫下的」（`UndecidedVerdicts.swift`，R1 verify；org 族在 `OrgUndecidedVerdicts.swift`，#643）；org 逐篇判定辨認「被去重吃掉的理由其實已經在」（`OrgJudgedVerdicts.swift`，#647 R1 verify——完全相同的一筆不回報成沒寫入）；
     /// venue reference 移除面分辨「位元組完全相同的重複」與「要加鍵縮小的多筆」（`VenueReferenceRemoval.swift`，#673）；
-    /// 名字分類判定記錄的 append-only 去重（`NameClassificationRecord.swift`，#564：第二次同一句確認不長出第二筆）。
+    /// 名字分類判定記錄的 append-only 去重（`NameClassificationRecord.swift`，#564：第二次同一句確認不長出第二筆）；
+    /// 刪已撤回的名字時以位元組定位它的記錄（`NameRemovalWithRecords.swift` 的 `removingRecords`，#564 第 2 點——venue 的 `edit_name_segment` 也呼叫它）。
     /// **稽核程序**（`ByteExactKeySiteInventoryTests` 釘住）：全樹引用 `byteExactKey` 的檔案是一張封閉清單——那才是「位址在哪」的機械答案；
     /// `grep 'references.contains('` 不是：它的其餘命中是四處欄位**存在性**謂詞（`LibraryStore` 的 `$0.field == …`，問的不是同一筆）與
     /// `ResolutionLedger.appendIfAbsent`——後者**是**一個 sameness 面而**刻意**用 `verdictEqualityKey`（正規化，#470 的裁決）；

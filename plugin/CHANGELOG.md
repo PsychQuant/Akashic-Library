@@ -62,6 +62,17 @@ plugin 版號沒有動（wrapper 與 skill 文字的改動）。
 - 停止訊息、`page:` 一行的網址也去查詢字串、帳密與 `;jsessionid`；SKILL 第 4 步的 `--from` 改用與標題同一個作法（Write 寫進檔、`$(cat …)` 帶入），不必請使用者改檔名。
 - `web-access.md`：429 與其他主機上的驗證字樣各自一條，不再接在「請使用者完成驗證」後面。
 
+## #564 修正輪二 — 改正對外形拼寫回到一步、刪名字的拒絕說出走得通的出口（2026-10-04）
+
+R2 verify（b29 V1）的處置，細節在 `changelog/2026-10-04-b30-h1-fixes-564.md`。
+
+- `akashic_update_person`：`fields.names` 讓**沒有記錄**的對外形整個離開 names 改為放行（附 `judgement`；先前一律拒絕），回應多 `authorizedRemovedWithoutRecord`（dry_run 同）——整份替換改正對外形拼寫回到一次呼叫。有記錄的名字被拿掉仍拒絕。沒附理由的拒絕在 store format < 22 時說出寫入閘與升級路徑。一次上限只數 authorized（variant 不寫記錄）。
+- `remove_names`（person、organization）：拒絕依名字的處境給出口——沒有記錄的，person 指向 `fields.names` 整份替換、organization 說出「先讓它有一筆撤回」的兩步與代價；不在 authorized、最後一筆卻是指定的說「先指定回去再撤回」。person 刪完沒有任何名字整批拒絕（與 organization、venue 同）。organization 的回應每列多 `segments`（刪掉的每一段的時間欄位、source、note）。
+- `akashic_update_venue` 的 `edit_name_segment`：還在 variant 的名字被拒時，訊息說出工具面的出口（`authorize` 抬出 variant → `unauthorize` → commit → remove）與代價，不再說「只能手改 YAML」。
+- 理由開頭會與全形冒號併成同一個字的字元（Emoji modifier、THAI SARA AM 一類）也拒收。
+- person／venue 合併（CLI `resolve-divergence`）：名字分類記錄按被併者的順序接、只與那個名字此刻的最後一筆比，合併後最後一筆與分類矛盾的拒絕；person 記錄的名字要在合併後的 names 裡；`--dry-run` 印出每筆搬的記錄的 statement。
+- `akashic-verify-venue`：同一句理由重送不是 no-op 的實話；「標錯異寫沒有單獨的撤回腿」一段。
+
 ## #564 修正輪 — person 的名字分類要理由、已撤回的名字可以連同記錄刪、一次至多 200 個名字（不相容）
 
 R1 verify 的三個錯誤與使用者 2026-10-02 的四點裁決。
@@ -177,8 +188,8 @@ organization 的 `authorized` 在此之前沒有任何寫入面，`akashic_docto
 - `authorize`：同書寫系統替換，被換下的名字留在 names；不在 names 的一併加入。
 - 沒給、空陣列、只有空白項（三者同一件事）、key 有不只一筆記錄、找不到、同一次兩個同書寫系統的名字、被換下的名字被 `field: authorized` 的 reference 指著，整個呼叫拒絕、零寫入。
 - 給的名字都已是對外名稱：成功、回報 `alreadyAuthorized`；#564 起會寫一筆「確認」記錄，同一句理由已是那個名字的最後一筆記錄時才不寫檔、不重建 index。
-- 回應鍵：`namesAdded`、`authorizedAdded`、`authorizedRemoved`、`alreadyAuthorized`、`authorizedRewritten`、`authorizeDropped`、`authorizedTotal`；有事才出現：`authorizedNotCurrent`（指定的名字在 names 的各段都已結束，`displayName` 會變成那個退役名；不拒絕）、`indexRebuilt: false`／`indexRebuildError`／`indexNote`（寫檔成功、index 重建失敗；呼叫仍回成功）。
-- **沒有 `unauthorize`**：首輪實作曾加了撤回，超出使用者裁決（「先提供 `authorize`」），且 organization 的 names 只增不減，撤回會讓剛加進 names 的名字成為 fallback 顯示名；拿掉，待使用者裁決。
+- 回應鍵：`namesAdded`、`authorizedAdded`、`authorizedRemoved`、`alreadyAuthorized`、`authorizedRewritten`、`authorizeDropped`、`authorizedTotal`；有事才出現：`authorizedNotCurrent`（指定的名字在 names 裡沒有開放段——已結束或只有觀測點——而這個機構另有現行名稱，`displayName` 會變成不是現行的名字；不拒絕。#564 修正輪起的語意，先前寫「各段都已結束」）、`indexRebuilt: false`／`indexRebuildError`／`indexNote`（寫檔成功、index 重建失敗；呼叫仍回成功）。
+- **沒有 `unauthorize`**：首輪實作曾加了撤回，超出使用者裁決（「先提供 `authorize`」），且 organization 沒有一般的名字移除面（#564 修正輪起 `remove_names` 只刪已撤回的名字），撤回會讓剛加進 names 的名字成為 fallback 顯示名；拿掉，待使用者裁決。
 - ~~不留判定記錄；#564 已裁決要留，另案落地。~~ #564 起 `authorize` 必附 `judgement`、寫判定記錄（見上面 #564 那一節）。
 
 CLI 對應 `akashic update-organization <key> --authorize …`。

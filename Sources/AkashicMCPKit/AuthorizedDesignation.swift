@@ -240,9 +240,12 @@ extension AkashicService {
     /// 名字分類的寫入面一次至多幾個名字（使用者 2026-10-02 裁決 #564 第 4 點）：一次 `--add-variant` 帶上千個名字會把同一句理由
     /// 複製成上千筆記錄（R1 verify 實測 1,500 筆撐到 6 MB），而記錄只追加。**不另立數字**：取其他寫入腿的一次上限（`maxSpecsPerCall`，
     /// 未決腿的 id 數）。超過即整批拒絕、零寫入、不截斷。數的是呼叫端給的項數（空白項也算）——在 vetting 之前擋，一萬個名字不必先逐項正規化。
+    /// **與 `maxSpecsPerCall` 綁在一起是刻意的**（「不另立數字」）：調那個常數會一起改這個上限——`NameClassificationCorrectionTests`
+    /// 的 `testClassificationCallsAreCappedAtTwoHundredNames` 以字面 200／201 釘住它，改了就會紅、要人回來看這一格（#564 R2 verify：b29 V1 第 21 列）。
     static var maxNamesPerClassificationCall: Int { maxSpecsPerCall }
 
-    /// 上面那個上限的檢查——venue（add_variant／authorize／unauthorize 合計）、organization（authorize）、person（names 的兩個分割合計）共用。
+    /// 上面那個上限的檢查——venue（add_variant／authorize／unauthorize 合計）、organization（authorize）、person（names 的 authorized；讀 store 之後
+    /// 另以這次要寫的記錄數再擋一次——variant 不寫記錄、不計，#564 R2 verify：b29 V1 第 9 列）共用。訊息說的「每個名字各寫一筆判定記錄」對這些腿都成立。
     static func refuseTooManyClassifiedNames(_ count: Int, legs: String) throws {
         guard count > maxNamesPerClassificationCall else { return }
         throw ServiceError.invalid(

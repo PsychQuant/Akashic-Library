@@ -295,7 +295,9 @@ final class VenueNameSegmentEditTests: XCTestCase {
         }
         XCTAssertThrowsError(try edit([item("BETA", remove: true)], key: "ab", on: svc)) { err in
             let s = msg(err)
-            XCTAssertTrue(s.contains("variant") && s.contains("手改 YAML"), "variant 沒有移除面，要老實說：\(s)")
+            // #564 R2 verify（b29 V1 第 1 列）：先前斷言「只能手改 YAML」——工具面其實有出口（authorize 抬出 variant、再 unauthorize、再刪），訊息要說它與代價
+            XCTAssertTrue(s.contains("variant") && s.contains("--authorize") && s.contains("--unauthorize") && s.contains("換下"), "要指路並說代價：\(s)")
+            XCTAssertFalse(s.contains("只能手改 YAML"), "不把人引去手改 YAML：\(s)")
         }
         XCTAssertThrowsError(try edit([item("Beta", remove: true)], key: "ab", on: svc)) { err in
             let s = msg(err)

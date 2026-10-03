@@ -89,7 +89,7 @@ The store format marker SHALL be raised to 22, because a reader built for format
 
 ### Requirement: The person names replacement SHALL record the authorized classification it changes
 
-A partial update of a person that replaces its names SHALL require a reason when the replacement moves any name into or out of the authorized partition, and SHALL record each change on the `authorized` field: designate for a name entering, withdraw for a name leaving, and confirm for a name that stays authorized when a reason is given. A replacement that changes only the other names SHALL need no reason and SHALL record nothing. A replacement that drops a name carrying a name-classification record, or that removes an authorized name from the names altogether, SHALL be refused as a whole with zero writes, and the refusal SHALL name the way out: move the name to the other names with a reason, then delete it.
+A partial update of a person that replaces its names SHALL require a reason when the replacement moves any name into or out of the authorized partition, and SHALL record each change on the `authorized` field: designate for a name entering, withdraw for a name leaving, and confirm for a name that stays authorized when a reason is given. A replacement that changes only the other names SHALL need no reason and SHALL record nothing. A replacement that drops a name carrying a name-classification record SHALL be refused as a whole with zero writes, and the refusal SHALL name the way out: move the name to the other names with a reason, then delete it. A replacement that removes from the names altogether an authorized name carrying no name-classification record SHALL be accepted when a reason is given; no record SHALL be written for that name, and the report SHALL name it. On a store whose format is below 22, the refusal of a reasonless authorized change SHALL also name the format gate and the upgrade path.
 
 #### Scenario: Moving a name into the authorized partition without a reason
 
@@ -97,9 +97,22 @@ A partial update of a person that replaces its names SHALL require a reason when
 - **THEN** the call SHALL be refused
 - **AND** the store SHALL be unchanged
 
+#### Scenario: Correcting the spelling of an authorized name that has no record
+
+- **WHEN** a person's authorized name `Quinn Q` has no name-classification record and the names are replaced with `Quin Q` authorized and `Quinn Q` absent, with a reason
+- **THEN** the call SHALL succeed
+- **AND** `Quin Q` SHALL hold one designation record
+- **AND** the report SHALL name `Quinn Q` as removed without a record
+
 ### Requirement: A name whose latest classification record is a withdrawal MAY be deleted together with its records
 
-A venue, organization, or person name whose latest name-classification record, across both partitions, is a withdrawal SHALL be deletable together with all of its name-classification records. The deletion SHALL require a reason, which SHALL appear only in the report and SHALL NOT be written to the store, and SHALL require the record file to be committed and clean in git. A name whose latest record is not a withdrawal, or that has no record, or that still belongs to a partition, SHALL NOT be deleted this way, and the refusal SHALL name the way out: withdraw first, then delete.
+A venue, organization, or person name whose latest name-classification record, across both partitions, is a withdrawal SHALL be deletable together with all of its name-classification records. The deletion SHALL require a reason, which SHALL appear only in the report and SHALL NOT be written to the store, and SHALL require the record file to be committed and clean in git. A name whose latest record is not a withdrawal, or that has no record, or that still belongs to a partition, SHALL NOT be deleted this way, and the refusal SHALL name the way out for the name's situation: withdraw first, then delete, for a name still in a partition; designate it again and then withdraw it, for a name in no partition whose latest record is a designation or confirmation; and, for a name with no record, the face that removes it on that entity or the steps that give it a withdrawal. A deletion SHALL NOT leave the record without any name.
+
+#### Scenario: Deleting the only name of a person
+
+- **WHEN** a person's only name is in the other names with the latest record a withdrawal, and that name is deleted with a reason
+- **THEN** the call SHALL be refused
+- **AND** the store SHALL be unchanged
 
 #### Scenario: Deleting a mistyped name after it was displaced
 

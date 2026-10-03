@@ -238,6 +238,11 @@ enum ToolPayloadScenarios {
             try $0.service.updatePerson(key: "desc-solo", fields: ["names": ["authorized": ["Desc Solo"], "variant": [String]()]], dryRun: true,
                                         judgement: "本人署名")
         },
+        // #564 R2 verify（b29 V1 第 4 列）：沒有記錄的對外形整個離開 names——放行，回 authorizedRemovedWithoutRecord
+        PayloadScenario("akashic_update_person", "names drop unrecorded authorized", params: ["key", "fields", "judgement"]) {
+            try $0.service.updatePerson(key: "cheng-che", fields: ["names": ["authorized": ["Cheng, Che", "鄭澈"], "variant": [String]()]],
+                                        dryRun: false, judgement: "改正拼寫")
+        },
         // #564 修正輪（裁決第 2 點）：最後一筆記錄是撤回的名字連同記錄一起刪（remove_names 單獨呼叫，不帶 fields）
         PayloadScenario("akashic_update_person", "remove_names", params: ["key", "remove_names"]) {
             _ = try $0.service.updatePerson(key: "desc-solo", fields: ["names": ["authorized": ["Desc Solo"], "variant": [String]()]], dryRun: false,

@@ -23,7 +23,7 @@
 - ~~不改 person 合併：它本來就拒絕 authorized 的降級，也拒絕被併者帶有倖存者沒有的任何非 verdict reference。~~ → 修正輪改了（見〈修正輪〉第 3 點：分類一致的名字分類記錄隨合併搬）。
 - 不在 `StoreHealth` 新增「最後一筆記錄與現在分類不一致」的掃描。
 - 不動 organization 合併（尚未實作，#555）。
-- 不替 organization 加回 `unauthorize` 腿：它於 #557 R1 verify 之後拿掉、待使用者裁決（organization 的 `names` 只增不減，撤回會讓剛加進 names 的名字成為 fallback 顯示名）；日後裁決加回時，要一併裁決它要不要理由與記錄。
+- 不替 organization 加回 `unauthorize` 腿：它於 #557 R1 verify 之後拿掉、待使用者裁決（organization 沒有一般的名字移除面——`--remove-name` 只刪已撤回的名字——撤回會讓剛加進 names 的名字成為 fallback 顯示名）；日後裁決加回時，要一併裁決它要不要理由與記錄。
 
 ## Decisions
 
@@ -114,12 +114,25 @@ R1 verify（b26 F2 第 8 列）：兩筆攣生在不同批次各跑一次 `autho
 
 R1 verify 的三個程式錯誤與四件要裁決的事，使用者 2026-10-02 四件都選建議方案（#564 的 Decision 留言）：
 
-1. **person 的 `fields.names` 是第六個名字分類面**：替換讓名字進或出 authorized 時 `--judgement`（MCP `judgement`）必填，比照 venue 寫指定／確認／撤回記錄；只動 variant 的不必。替換拿掉有記錄的名字、或讓對外形整個離開 names，具名拒絕並指出口。
+1. **person 的 `fields.names` 是第六個名字分類面**：替換讓名字進或出 authorized 時 `--judgement`（MCP `judgement`）必填，比照 venue 寫指定／確認／撤回記錄；只動 variant 的不必（**這一句是實作的讀法**，裁決原文是「只要動到 authorized／variant 就要 --judgement」——person 的 variant 沒有 `field: variant` 的記錄可寫，待使用者確認；R2 verify b29 V1 第 24 列）。替換拿掉有記錄的名字具名拒絕並指出口（R2 起：讓沒有記錄的對外形整個離開 names 放行，見〈修正輪二〉）。
 2. **最後一筆記錄是撤回的名字可以連同記錄一起刪**（打錯字的出路）：venue 擴充 `--edit-name-segment` 的 remove；organization 與 person 各多一條 `--remove-name '<名字>=<理由>'`（MCP `remove_names`）。比照移除面一族：理由必填、只進報告，檔案要先 commit，歷史留在 git。最後一筆不是撤回的拒絕，出口是先撤回、再刪。
 3. **person 合併**：分類一致時被併者的名字分類記錄逐位元組搬到倖存者（上一節）。
 4. **一次至多 200 個名字**：venue 的三條腿合計、organization 的 `authorize`、person 的 `fields.names`、`remove_names`；取其他寫入腿的一次上限（`maxSpecsPerCall`），不另立數字。`authorize-names` 不設：它每個 person 至多三筆，上限防的是單筆記錄被同一句理由灌爆。
 
 三個程式錯誤：去重比整份歷史（上面〈與那個名字最後一筆記錄位元組完全相同的不重寫〉）；`venueReferenceCarry` 的位元組早退排在分類檢查之前（倖存者持有位元組相同的一筆就放行，而它可能已不承認那個分類）；理由以 Grapheme_Extend 字元開頭時記錄變成一般 reference（`parse` 改比 scalar 前綴，入口以 `reasonIssue` 拒收開頭是組合符號、格式或不可見字元、或沒有字母數字的理由）。
+
+## 修正輪二（R2 verify b29 V1；2026-10-03）
+
+R2 verify 找到七個 MEDIUM（五個集中在合併搬記錄）與二十個 LOW。處置：
+
+1. **合併搬記錄按位置接**：被併者的名字分類記錄按它自己的順序逐筆接到倖存者後面，每一筆只與那個名字那個分割此刻的最後一筆比位元組（`NameClassificationRecord.appendCollecting`，與寫入面同一個規則）。先前以整份歷史的位元組集合去重，「指定 R → 撤回 S → 指定 R」併進已有「指定 R」的倖存者時只搬撤回，倖存者的名字仍是對外形、最後一筆卻是撤回——修正輪自己說「只可能是手改」的狀態由工具造出（真 binary 重現，person 與 venue）。合併後一個名字的最後一筆就是最後一個帶到它的被併者的最後一筆；分類一致的被併者照它接過去，最後一筆必然與分類一致。
+2. **一道保險**：合併後倖存者上若有名字的最後一筆與它的分類矛盾、而那是這次合併帶進來的，preview 與實跑都拒絕（`wouldContradictClassificationTail`）。只有來源本身就不一致時會發生（手改，或修正輪之前的 binary）。
+3. **person 合併的錨定與 canonical**：記錄的名字要在合併後倖存者的 names 裡（`String ==`），否則 preview 與實跑都以 `wouldLoseFields` 拒絕、指出口（先在被併者刪掉這個拼法）；分類的相等看 canonical。先前 dry-run 說搬、實跑在寫入閘失敗。
+4. **person 的 `fields.names`**：沒有記錄的對外形整個離開 names 放行（附理由；報告 `authorizedRemovedWithoutRecord`）——整份替換改正拼寫的既有用法；format < 22 的拒絕說出寫入閘；一次上限只數 authorized。
+5. **刪名字**：拒絕依處境給出口（沒有記錄、不在分割裡而最後一筆是指定）；venue 的 variant 名字說出工具面的出口與代價；person 刪完至少留一個名字；organization 回報逐段的時間欄位、source、note；刪記錄改成線性。
+6. **其他**：理由開頭的檢查以性質判（Character 層的前綴）；合併預覽印出搬的記錄的 statement、依接上去的順序（不排序）；文字（organization「只增不減」、update-person 的寫入閘理由、同一句理由重送的說法）。
+
+**未改、交給使用者**：裁決 1 的 variant 讀法（上面第 1 點）；person `fields.names` 附理由時對仍在 authorized 的每個名字都寫確認（R2 verify 第 10 列）；organization 刪名字面的範圍（第 25 列，#557 待裁）；`Venue.displayName` 與 spec 的分岔要開 issue（第 11 列）。
 
 ## Implementation Contract
 

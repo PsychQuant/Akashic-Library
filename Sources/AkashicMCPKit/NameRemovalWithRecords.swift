@@ -72,9 +72,15 @@ extension AkashicService {
     }
 
     /// 一個名字能不能連同記錄一起刪（`nil`＝可以）。`classifiedAs`：它現在在哪個分割（`authorized`／`variant`），nil＝未標。
-    /// `withdrawHow`：這個實體上「先撤回」的做法（拒絕訊息的出口）。判準只有這一份——三種實體共用。
+    /// 判準只有這一份——三種實體共用；**出口**依實體與名字的處境不同（#564 R2 verify：b29 V1 第 6／7／23 列——spec 要求拒絕說出出口，
+    /// 先前「沒有記錄」那一格不給出口、「不在分割裡而最後一筆是指定」那一格給的是做不到的步驟）：
+    /// - `withdrawHow`：名字還在分割裡時「先撤回」的做法。
+    /// - `noRecordHow`：名字沒有任何名字分類記錄時的出路（這條只收已撤回的名字；沒有記錄的另有出路，或沒有）。
+    /// - `redesignateHow`：名字不在 authorized 裡、最後一筆卻是指定或確認（記錄與分類不一致——手改，或修正輪之前的工具）時，把最後一筆變成撤回的做法。
+    ///   呼叫端只有 person 與 organization，兩者的名字分類記錄都只有 `field: authorized`（person 的 variant 是「其他名字」、organization 沒有 variant），
+    ///   所以「不在分割裡」就是不在 authorized 裡——訊息照實說 authorized（person 的名字在 variant 裡時說「不在任何分割裡」會讓人以為它不在 names）。
     static func nameRemovalRefusal(name: String, holder: String, references: [ProvenanceReference],
-                                   classifiedAs: String?, withdrawHow: String) -> String? {
+                                   classifiedAs: String?, withdrawHow: String, noRecordHow: String, redesignateHow: String) -> String? {
         let shown = "「\(displaySafeInvisible(name, max: 120))」"
         if let partition = classifiedAs {
             return "\(holder)的\(shown)還在 \(partition) 裡——刪名字只收已撤回的名字：先撤回（\(withdrawHow)），再刪"   // display-safe-exempt: holder 由呼叫端消毒；partition 是字面常量；withdrawHow 是呼叫端的字面片語
@@ -82,20 +88,29 @@ extension AkashicService {
         let records = NameClassificationRecord.allRecords(in: references, name: name)
         guard let last = NameClassificationRecord.latestAction(in: references, name: name) else {
             return records.isEmpty
-                ? "\(holder)的\(shown)沒有名字分類的判定記錄——這條只刪最後一筆記錄是「撤回」的名字（#564 第 2 點）"   // display-safe-exempt: holder 由呼叫端消毒
+                ? "\(holder)的\(shown)沒有名字分類的判定記錄——這條只刪最後一筆記錄是「撤回」的名字（#564 第 2 點）；\(noRecordHow)"   // display-safe-exempt: holder 由呼叫端消毒；noRecordHow 是呼叫端的字面片語
                 : "\(holder)的\(shown)的名字分類記錄讀不出動作——這條只刪最後一筆記錄是「撤回」的名字"   // display-safe-exempt: holder 由呼叫端消毒
         }
         guard last == .withdraw else {
-            return "\(holder)的\(shown)最後一筆名字分類記錄是「\(last.rawValue)」不是「撤回」——人說過的判定還成立，刪名字只收已撤回的名字："   // display-safe-exempt: holder 由呼叫端消毒；rawValue 是 enum 常數
-                + "先撤回（\(withdrawHow)），再刪"   // display-safe-exempt: withdrawHow 是呼叫端的字面片語
+            return "\(holder)的\(shown)不在 authorized 裡，最後一筆名字分類記錄卻是「\(last.rawValue)」不是「撤回」（記錄與分類不一致：手改，或 #564 修正輪之前的工具）——"   // display-safe-exempt: holder 由呼叫端消毒；rawValue 是 enum 常數
+                + "刪名字只收最後一筆是撤回的名字：先把它指定回去再撤回（\(redesignateHow)），再刪"   // display-safe-exempt: redesignateHow 是呼叫端的字面片語
         }
         return nil
+    }
+
+    /// 刪掉某個名字的全部名字分類記錄（`byteExactKey` 集合一次建好，O(R)——#564 R2 verify：b29 V1 第 16 列，先前是 O(R×K) 且每對重算 key，
+    /// 一個名字來回指定撤回幾千次就讓 `--remove-name` 跑上分鐘；「只比最後一筆」的去重讓記錄數沒有自然上界）。venue 的 `edit_name_segment` 同一份。
+    static func removingRecords(_ records: [ProvenanceReference], from refs: inout [ProvenanceReference]) {
+        guard !records.isEmpty else { return }
+        let doomed = Set(records.map(\.byteExactKey))
+        refs.removeAll { doomed.contains($0.byteExactKey) }
     }
 
     // MARK: - organization
 
     /// `update-organization --remove-name`（MCP `remove_names`）。organization 沒有一般的名字移除面（待裁，#557）——這條**只**刪最後一筆記錄是撤回的名字：
-    /// 名字的每一段與它的名字分類記錄一起刪。被 `field: names` 的 reference 指著的拒絕（organization 的 reference 沒有移除面）。刪完至少要留一個名字。
+    /// 名字的每一段與它的名字分類記錄一起刪，報告逐段回時間欄位、source、note（`segments`）。被 `field: names` 的 reference 指著的拒絕
+    /// （organization 的 reference 沒有移除面）。刪完至少要留一個名字。
     func removeOrganizationNames(key: String, specs: [NameRemovalSpec]) throws -> String {
         let load = try store.load()
         guard !load.organizations.unlocatableOrganizationKeys.contains(key) else {
@@ -115,7 +130,9 @@ extension AkashicService {
             let inAuthorized = org.authorized.contains { NameIdentity.canonical($0) == k }
             if let why = Self.nameRemovalRefusal(name: stored, holder: holder, references: org.references,
                                                  classifiedAs: inAuthorized ? "authorized" : nil,
-                                                 withdrawHow: "用 --authorize 把同書寫系統的對外名稱換成別的名字，被換下的會留一筆撤回") {
+                                                 withdrawHow: "用 --authorize 把同書寫系統的對外名稱換成別的名字，被換下的會留一筆撤回",
+                                                 noRecordHow: Self.organizationNoRecordHow,
+                                                 redesignateHow: "--authorize 它、再 --authorize 同書寫系統的另一個名字把它換下，兩次都附 --judgement；換下的那一步寫撤回") {
                 throw ServiceError.invalid(why + "；整批拒絕、零寫入")   // display-safe-exempt: why 由 nameRemovalRefusal 組裝，名字逐項消毒
             }
             let pinned = org.references.filter { $0.field == "names" && $0.value.map { NameIdentity.canonical($0) == k } == true }.count
@@ -126,9 +143,12 @@ extension AkashicService {
             }
             let records = NameClassificationRecord.allRecords(in: org.references, name: stored)
             org.names = Timeline(org.names.entries.filter { NameIdentity.canonical($0.value) != k })
-            org.references.removeAll { r in records.contains { $0.byteExactKey == r.byteExactKey } }
+            Self.removingRecords(records, from: &org.references)
+            // 刪掉的每一段的時間欄位、source、note 也回報（#564 R2 verify：b29 V1 第 20 列）：「最後一筆是撤回」分不出打錯字的名字與合法的歷史名稱，
+            // 一個沿革名的整段（含時間與出處）一次刪掉，只回兩個計數的話它們只剩 git 裡有——與 venue 的 edit_name_segment（before／after）一致
             removed.append(["name": displaySafe(stored, max: 200), "reason": displaySafe(spec.reason, max: Self.maxStatementBytes),   // 理由只在報告裡——不截在入口上限之下
-                            "segmentsRemoved": segments.count, "recordsRemoved": records.count])   // display-safe-exempt: Int
+                            "segmentsRemoved": segments.count, "recordsRemoved": records.count,   // display-safe-exempt: Int
+                            "segments": segments.map { Self.nameSegmentFieldsDict($0) }])   // display-safe-exempt: segments、Self、$0：Self.nameSegmentFieldsDict 逐欄 displaySafe 每一段（venue 的 edit_name_segment 同一個函式）
         }
         guard !org.names.entries.isEmpty else {
             throw ServiceError.invalid("這次刪完之後\(holder)沒有任何名字——organization 至少要有一個名字（add_organization 同）；整批拒絕、零寫入")   // display-safe-exempt: holder 已消毒
@@ -144,13 +164,19 @@ extension AkashicService {
         return try jsonString(payload)
     }
 
+    /// organization 上沒有記錄的名字的出路（拒絕訊息用）：organization 沒有一般的名字移除面，這條只收已撤回的名字——要用它刪，得先讓名字有一筆撤回。
+    /// 代價寫出來（#564 R2 verify：b29 V1 第 7／23 列）。
+    static let organizationNoRecordHow =
+        "organization 沒有一般的名字移除面（#557，待裁）——要用這條刪，先讓它有一筆撤回：--authorize 指定它、再 --authorize 同書寫系統原本的對外名稱"
+        + "（或另一個名字）把它換下，兩次都附 --judgement、都留記錄；被換下又換回的那個名字的歷史會多一對撤回／指定。同書寫系統沒有別的名字時走不通，只能手改 YAML"
+
     static let nameRemovalReasonNote = "理由只在這份報告裡——要留在 git，寫進接下來的 commit message（#564 第 2 點，比照使用者 2026-09-27 對移除面一族的裁決）；刪之前的名字與記錄在 git 的上一版"
 
     // MARK: - person
 
     /// `update-person --remove-name`（MCP `remove_names`）：從 variant 刪掉最後一筆記錄是撤回的名字，連同它的名字分類記錄。還在 authorized 的拒絕
     /// （出口：`fields.names` 把它移到 variant、附 `--judgement`，寫撤回）；被 `field: names` 的 reference 指著的拒絕（person 的 reference 沒有移除面）。
-    /// 有 `--dry-run`：預告會刪什麼、不過 git 閘、不寫。
+    /// 刪完至少要留一個名字。有 `--dry-run`：預告會刪什麼、不過 git 閘、不寫。
     func removePersonNames(key: String, specs: [NameRemovalSpec], dryRun: Bool) throws -> String {
         let load = try store.load()
         guard !load.people.unlocatablePersonKeys.contains(key) else {
@@ -172,7 +198,9 @@ extension AkashicService {
             }
             if let why = Self.nameRemovalRefusal(name: stored, holder: holder, references: person.references,
                                                  classifiedAs: person.names.authorized.contains(stored) ? "authorized" : nil,
-                                                 withdrawHow: "update-person --fields 的 names 把它從 authorized 移到 variant、附 --judgement，會寫一筆撤回") {
+                                                 withdrawHow: "update-person --fields 的 names 把它從 authorized 移到 variant、附 --judgement，會寫一筆撤回",
+                                                 noRecordHow: "它沒有記錄，不必走這條：用 update-person --fields 的 names 整份替換把它拿掉（只動 variant 不必附理由；在 authorized 的要附 --judgement）",
+                                                 redesignateHow: "update-person --fields 的 names 先把它放進 authorized、再移回 variant，兩次都附 --judgement") {
                 throw ServiceError.invalid(why + "；整批拒絕、零寫入")   // display-safe-exempt: why 由 nameRemovalRefusal 組裝，名字逐項消毒
             }
             let pinned = person.references.filter { $0.field == "names" && $0.value.map { NameIdentity.canonical($0) == k } == true }.count
@@ -183,9 +211,14 @@ extension AkashicService {
             }
             let records = NameClassificationRecord.allRecords(in: person.references, name: stored)
             person.names.variant.removeAll { $0 == stored }
-            person.references.removeAll { r in records.contains { $0.byteExactKey == r.byteExactKey } }
+            Self.removingRecords(records, from: &person.references)
             removed.append(["name": displaySafe(stored, max: 200), "reason": displaySafe(spec.reason, max: Self.maxStatementBytes),
                             "recordsRemoved": records.count])   // display-safe-exempt: Int
+        }
+        // 刪完至少要留一個名字（#564 R2 verify：b29 V1 第 18 列）——organization（`removeOrganizationNames`）與 venue（`.noNamesLeft`）都拒，
+        // 先前 person 是唯一能被刪成沒有名字的一個：載入與 validate 都過，export 與作者比對卻沒有可顯示的名字。乾跑同樣拒
+        guard !person.names.all.isEmpty else {
+            throw ServiceError.invalid("這次刪完之後\(holder)沒有任何名字——person 至少要有一個名字（organization、venue 同）；整批拒絕、零寫入")   // display-safe-exempt: holder 已消毒
         }
         var payload: [String: Any] = ["key": displaySafe(key, max: 200), "namesRemoved": removed,
                                       "namesTotal": person.names.all.count,   // display-safe-exempt: Int

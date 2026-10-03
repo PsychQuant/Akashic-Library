@@ -29,7 +29,8 @@ struct UpdatePersonCmd: ParsableCommand {
         discussion: "names 的替換讓名字進或出 authorized 時必填（只動 variant 的不必）；至多 4,096 位元組，開頭不得是組合符號或不可見字元、要有字母或數字。"
             + "每個成為對外形的名字寫一筆 field: authorized「指定：理由」、仍是對外形的寫「確認：理由」、移出的寫「撤回：理由」；"
             + "與那個名字最後一筆記錄位元組完全相同的不重寫，報告 judgementsRecorded（dry-run 是 judgementsToRecord）；需要 store format ≥ 22。"
-            + "替換拿掉一個有記錄的名字、或讓對外形整個離開 names，都整批拒絕（出口見 --remove-name）"))
+            + "替換拿掉一個有記錄的名字整批拒絕（出口見 --remove-name）；沒有記錄的對外形整個離開 names 放行（附理由——改正對外形的拼寫，報告 authorizedRemovedWithoutRecord）。"
+            + "附了理由時，替換後仍在 authorized 的每個名字都寫一筆確認——只動 variant 時不要附。authorized 一次至多 200 個（variant 不計）"))
     var judgement: String?
 
     @Option(name: .customLong("rests-on"), parsing: .upToNextOption,
@@ -42,7 +43,8 @@ struct UpdatePersonCmd: ParsableCommand {
                 discussion: "只收最後一筆名字分類記錄是「撤回」的名字（#564 第 2 點，打錯字的名字的出路）：從 variant 刪掉它，連同它的名字分類記錄。"
                     + "還在 authorized 的先用 --fields 的 names 把它移到 variant（附 --judgement，寫一筆撤回）。理由必填、只回在報告（namesRemoved）、不寫進 store；"
                     + "person 檔要已在 git 裡 commit、無未提交修改（--dry-run 不檢查）。單獨呼叫，不與 --fields／--judgement／--rests-on 組合；一次至多 200 個。"
-                    + "沒有記錄、最後一筆不是撤回、被 field: names 的 reference 指著（person 的 reference 沒有移除面）都整批拒絕、零寫入"))
+                    + "沒有記錄（出口：--fields 的 names 整份替換直接拿掉）、最後一筆不是撤回、被 field: names 的 reference 指著（person 的 reference 沒有移除面）、"
+                    + "刪完 person 沒有任何名字，都整批拒絕、零寫入"))
     var removeName: [String] = []
 
     /// `--fields` 的值就是 argv——它不是 JSON object 是用法錯誤（64），在 `validate()` 擋、早於開 store（#549 R1）。

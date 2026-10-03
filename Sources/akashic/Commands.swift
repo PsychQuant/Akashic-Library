@@ -85,8 +85,11 @@ struct Doctor: ParsableCommand {
                 for t in srcAudit.strayTemporaryFiles.prefix(Entry.perRecordWarningCap) {
                     let age = t.ageSeconds().map { "最後修改於 \($0) 秒前" }
                         ?? (t.modifiedInTheFuture() ? "修改時間在未來（時鐘被往回撥、備份還原或跨時區？），不能用它判斷還在不在動" : "修改時間讀不到")
-                    let note = t.isStale() ? "中斷的存檔留下的——確認沒有 store-source／copy-zotero-attachments 在跑之後可以刪掉"
-                        : "一小時內還在動，可能是正在進行的存檔——不要刪"
+                    // 時間不可信時（ageSeconds 是 nil）不斷言它是中斷留下的（b29 V5 LOW 10：先前前半說判不出、後半說是中斷的存檔留下的）
+                    let note = t.ageSeconds() == nil
+                        ? "判不出是中斷的存檔留下的、還是正在進行的存檔——確認沒有 store-source／copy-zotero-attachments 在跑之後才可以刪"
+                        : t.possiblyInProgress() ? "一小時內還在動，可能是正在進行的存檔——不要刪"
+                        : "中斷的存檔留下的——確認沒有 store-source／copy-zotero-attachments 在跑之後可以刪掉"
                     print("  ⚠ 殘留的暫存檔（\(t.bytes) bytes，\(age)；\(note)）：\(displaySafe(t.path, max: 200))")   // display-safe-exempt: t.bytes 是 Int；age、note 是固定句與 Int
                 }
                 if srcAudit.strayTemporaryFiles.count > Entry.perRecordWarningCap {

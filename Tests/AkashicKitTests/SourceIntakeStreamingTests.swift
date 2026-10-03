@@ -312,6 +312,11 @@ final class SourceIntakeStreamingTests: XCTestCase {
         XCTAssertTrue(file(LibraryStore.StrayTemporaryFile.farFuture).isStale(now: now), "不可信的時間算舊，要人看一眼")
         XCTAssertFalse(LibraryStore.StrayTemporaryFile(path: "p", bytes: 1, modified: nil).modifiedInTheFuture(now: now), "讀不到不是在未來")
         XCTAssertNil(LibraryStore.StrayTemporaryFile(path: "p", bytes: 1, modified: nil).ageSeconds(now: now))
+        // b29 V5 LOW 10、15：「可不可以刪」的方向與「要不要人看一眼」相反——時間不可信時兩者都是 true
+        XCTAssertTrue(file(-10).possiblyInProgress(now: now))
+        XCTAssertFalse(file(-7_200).possiblyInProgress(now: now), "兩小時沒動：不像正在進行")
+        XCTAssertTrue(file(LibraryStore.StrayTemporaryFile.farFuture).possiblyInProgress(now: now), "時間不可信：判不出，不要刪")
+        XCTAssertTrue(LibraryStore.StrayTemporaryFile(path: "p", bytes: 1, modified: nil).possiblyInProgress(now: now), "時間讀不到：同上")
     }
 }
 

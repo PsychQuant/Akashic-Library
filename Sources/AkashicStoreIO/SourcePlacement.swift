@@ -46,8 +46,8 @@ extension LibraryStore {
         /// `LibraryStore.syncFile`。測試接縫：驗「放上位址之前真的同步了」與「同步失敗就不放」。
         var sync: @Sendable (_ fd: Int32) -> Int32 = { LibraryStore.syncFile($0) }
         /// 這個路徑所在的磁碟區能不能做不覆寫的原子放置（`RENAME_EXCL` 或 hard link 至少一個）：`true`／`false`，判不出來是 `nil`
-        /// （`nil` 不擋，由實際呼叫的結果決定）。預設讀磁碟區的能力旗標（`getattrlist`）。**在建立任何檔案之前**問——
-        /// 做不到的磁碟區上一個位元組都不寫（b26 F6：#703 的使用者裁決）。
+        /// （`nil` 時由實際的放置呼叫決定：寫入之前在分片目錄裡實際放一次，`assertDirectoryCanPlace`）。預設讀磁碟區的能力旗標（`getattrlist`）。
+        /// **在建立任何檔案之前**問——做不到的磁碟區上一個位元組都不寫（b26 F6：#703 的使用者裁決）。
         var volumeSupportsExclusivePlacement: @Sendable (_ path: String) -> Bool? = {
             LibraryStore.volumeSupportsExclusivePlacement(at: $0)
         }
@@ -66,8 +66,8 @@ extension LibraryStore {
         code == ENOTSUP || code == EOPNOTSUPP || code == extra
     }
 
-    /// 系統給的錯誤說明（固定英文字串，不含使用者資料）。
-    private static func errnoText(_ code: Int32) -> String { "errno \(code)，\(String(cString: strerror(code)))" }
+    /// 系統給的錯誤說明（固定英文字串，不含使用者資料）。放置與同步的錯誤訊息共用。
+    internal static func errnoText(_ code: Int32) -> String { "errno \(code)，\(String(cString: strerror(code)))" }
 
     /// 磁碟區做不到不覆寫的原子放置時的拒絕（b26 F6，使用者 2026-10-02 裁決）：**每一次存檔**都具名拒絕、零寫入，說要把 store 放在
     /// APFS 或 HFS+。曾有第三條路（以 `O_EXCL` 建立目的檔後逐塊複製），拿掉的理由：exFAT／FAT32 上新建檔案的 inode 在第一次寫入後會變，
@@ -98,18 +98,84 @@ extension LibraryStore {
     }
 
     /// 存檔之前（`storeSource` 的第一步、`preflightStoreSource`）問磁碟區：做不到不覆寫的原子放置就具名拒絕，一個位元組都不寫。
-    /// `sources/` 還不存在時問最近的既有上層（同一個磁碟區）。
+    /// `sources/` 還不存在時問最近的既有上層（同一個磁碟區）。旗標讀不到（`nil`）時這裡不擋——還不知道 digest、沒有分片目錄可以實際放一次，
+    /// 而預演（乾跑也走它）不寫任何東西；寫入時由 `writeBlob` 的 `assertDirectoryCanPlace` 實際放一次決定。
     internal func assertSourcesVolumeCanPlace(_ placement: BlobPlacement) throws {
-        var probe = sourcesDir
-        while !FileManager.default.fileExists(atPath: probe.path), probe.path != "/" { probe = probe.deletingLastPathComponent() }
-        if placement.volumeSupportsExclusivePlacement(probe.path) == false {
+        if placement.volumeSupportsExclusivePlacement(Self.nearestExistingAncestor(of: sourcesDir).path) == false {
             throw Self.unsupportedVolumeError("磁碟區回報不支援 RENAME_EXCL 與 hard link")
         }
     }
 
+    /// `url` 本身或最近的既有上層（同一個磁碟區上，能力旗標讀得到的那一個）。
+    private static func nearestExistingAncestor(of url: URL) -> URL {
+        var probe = url
+        while !FileManager.default.fileExists(atPath: probe.path), probe.path != "/" { probe = probe.deletingLastPathComponent() }
+        return probe
+    }
+
+    /// 寫入之前、**任何分支之前**（含「位址上已經有同一份」那一支）問這個分片目錄做不做得到不覆寫的原子放置（#703 b29 V5 MEDIUM 0）：
+    /// 能力旗標說做得到就放行、說做不到就具名拒絕；**讀不到（`nil`）就實際放一次**——在同一個目錄裡以 `O_EXCL` 建一個空的暫存檔，經同一條放置路
+    /// （`placeTemporaryBlob`：`RENAME_EXCL`，不支援時 `link(2)`）放到另一個暫存名上，之後兩個名字都刪掉。兩個呼叫都回「不支援」就是同一句具名拒絕，
+    /// 呼叫端什麼都不寫——不放 blob、不寫 index。這一步建出來的目錄在拒絕時也收回（只刪這一步自己建的、而且是空的）。
+    ///
+    /// **為什麼要實際放一次**：先前 `nil` 只靠真的放置呼叫判定，而位址上已有大小相同的普通檔時 `writeBlob` 根本不走放置——旗標讀不到又真的做不到的磁碟區上，
+    /// 那條路不經任何放置呼叫就回成功，缺 index 條目時還補一列，「每一次存檔都拒絕」在那裡不成立。探測順帶讓新內容在**複製之前**就被拒絕
+    /// （批次不會每一筆都先複製一整份、`F_FULLFSYNC` 之後才發現）。
+    ///
+    /// 兩個暫存名都是 `temporaryBlobName` 的形狀（帶這一次的 UUID、過排除驗證、登記給訊號清理）——被 `SIGKILL` 留下時 doctor 報它們是殘留的暫存檔。
+    /// 分片目錄被換成指向別的磁碟區的 symlink 時，旗標讀的是目的磁碟區（`getattrlist` 跟隨 symlink），所以這裡也擋得下。
+    internal func assertDirectoryCanPlace(_ dir: URL, digest: String, placement: BlobPlacement) throws {
+        switch placement.volumeSupportsExclusivePlacement(Self.nearestExistingAncestor(of: dir).path) {
+        case true?: return
+        case false?: throw Self.unsupportedVolumeError("磁碟區回報不支援 RENAME_EXCL 與 hard link")
+        case nil: try probePlacement(in: dir, digest: digest, placement: placement)
+        }
+    }
+
+    /// `assertDirectoryCanPlace` 的實際放一次（只在能力旗標讀不到時）。
+    private func probePlacement(in dir: URL, digest: String, placement: BlobPlacement) throws {
+        let fm = FileManager.default
+        let shard = "sources/\(digest.dropFirst("sha256:".count).prefix(2))"
+        let from = Self.temporaryBlobName(digest: digest, token: UUID().uuidString)
+        let to = Self.temporaryBlobName(digest: digest, token: UUID().uuidString)
+        try assertSourcesExcluded(relativePath: "\(shard)/\(from)")
+        try assertSourcesExcluded(relativePath: "\(shard)/\(to)")
+        // 這一步要建的目錄（由深到淺）：拒絕時收回，留下的只會是空的分片目錄
+        var created: [URL] = []
+        var missing = dir
+        while !fm.fileExists(atPath: missing.path), missing.path != "/" {
+            created.append(missing)
+            missing = missing.deletingLastPathComponent()
+        }
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        var refused = true
+        defer { if refused { for d in created { rmdir(d.path) } } }   // rmdir 只刪空目錄：別的存檔在裡面放了東西就不動
+        let fromPath = dir.appendingPathComponent(from).path
+        let toPath = dir.appendingPathComponent(to).path
+        let (fd, flight) = InFlightSourceFiles.create(path: fromPath) {
+            let fd = open(fromPath, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o644)
+            return fd >= 0 ? fd : -errno
+        }
+        guard fd >= 0 else {
+            throw StoreIOError.invalidInput(
+                what: "sources/ 暫存檔",
+                why: "放置探測的暫存檔無法建立（\(Self.errnoText(-fd))）——digest \(digest) 沒有存")   // display-safe-exempt: Self.errnoText 只回 errno 數字與系統的固定英文說明（fd 是 Int32）；digest 是呼叫端算的 SHA-256 十六進位
+        }
+        close(fd)
+        let landed = InFlightSourceFiles.register(path: toPath)
+        defer {
+            unlink(fromPath)   // 放置成功之後它已不在（rename）或已被刪（link 路）；兩個名字都帶這一次的 UUID，不是別人的檔
+            unlink(toPath)
+            InFlightSourceFiles.unregister(landed)
+            if let flight { InFlightSourceFiles.unregister(flight) }
+        }
+        _ = try placeTemporaryBlob(fromPath, at: toPath, digest: digest, placement: placement)
+        refused = false
+    }
+
     /// 把一個已寫完的檔的內容推到儲存裝置（#703 R2 verify 第 21 則；b26 F6）：先 `F_FULLFSYNC`（連裝置的寫入快取一起清——`fsync(2)` 在 macOS
-    /// 不保證這一點，斷電時被撕裂的 blob 會以合法的位址留下）。**只有 `F_FULLFSYNC` 回「不支援」（`ENOTSUP`／`EOPNOTSUPP`／`EINVAL`）才退到
-    /// `fsync(2)`**——真的 I/O 錯誤（`EIO`、`ENOSPC`）不能被後面的 `fsync` 成功蓋掉：`fsync` 成功不證明裝置快取清了。`fsync` 也回
+    /// 不保證這一點，斷電時被撕裂的 blob 會以合法的位址留下）。**只有 `F_FULLFSYNC` 回「不支援」（`syncUnsupported`）才退到
+    /// `fsync(2)`**——真的 I/O 錯誤（`EIO`、`ENOSPC`、`EDQUOT`、`EROFS`…）不能被後面的 `fsync` 成功蓋掉：`fsync` 成功不證明裝置快取清了。`fsync` 也回
     /// 「不支援」時當成盡力而為、回 0（那個檔案系統沒有可用的同步手段，不是 I/O 錯誤）。回 0 或 errno。
     /// **`EINTR`：重試**（每個呼叫至多 8 次；訊號被我們忽略或由 dispatch 接手，實際上不會發生，仍以有界迴圈寫明）；用完仍 `EINTR` 當成錯誤回傳。
     /// 2026-10-01 本機實測（APFS、200 KB 的檔）：`F_FULLFSYNC` 平均 4.3 ms、`fsync` 0.1 ms——`copy-zotero-attachments` 一趟 2,817 個附件約多 12 秒。
@@ -123,12 +189,19 @@ extension LibraryStore {
             while code == EINTR, retries < 8 { code = call(); retries += 1 }
             return code
         }
-        func unsupported(_ code: Int32) -> Bool { code == ENOTSUP || code == EOPNOTSUPP || code == EINVAL }
         let full = retryingInterrupts { fullFsync(fd) }
         if full == 0 { return 0 }
-        guard unsupported(full) else { return full }
+        guard syncUnsupported(full) else { return full }
         let plain = retryingInterrupts { plainFsync(fd) }
-        return plain == 0 || unsupported(plain) ? 0 : plain
+        return plain == 0 || syncUnsupported(plain) ? 0 : plain
+    }
+
+    /// 同步呼叫回「這個檔案或檔案系統不實作這個呼叫」的 errno（封閉列舉，b29 V5：先前只有前三個）：`ENOTSUP`／`EOPNOTSUPP`／`EINVAL`，
+    /// 加上 `ENOTTY`（實測 cd9660 映像的 `F_FULLFSYNC`）、`ENODEV`（實測 devfs 的 `F_FULLFSYNC`）、`ENOSYS`（沒有實作的呼叫）。
+    /// 這三個是後加的：能通過磁碟區閘（有 hard link 或 `RENAME_EXCL`）而沒有 `F_FULLFSYNC` 的磁碟區（FUSE、網路掛載，未實測）上，
+    /// 先前每一次存檔都在複製完之後以「同步到裝置失敗」拒絕。其餘 errno（`EIO`、`ENOSPC`、`EDQUOT`、`EROFS`…）是真的錯誤，不退。
+    internal static func syncUnsupported(_ code: Int32) -> Bool {
+        [ENOTSUP, EOPNOTSUPP, EINVAL, ENOTTY, ENODEV, ENOSYS].contains(code)
     }
 
     /// 暫存檔放上位址（#703 R1；b26 F6 起只剩兩條）。兩條依序，每一條都**不覆寫**位址上已有的東西，而且**位址上出現的名字一律是寫完、
@@ -140,7 +213,8 @@ extension LibraryStore {
     /// 兩條都不支援（exFAT、FAT32）→ 具名拒絕（`unsupportedVolumeError`）。曾有第三條（以 `O_EXCL` 建立目的檔後逐塊複製、讀回驗證），
     /// 使用者 2026-10-02 裁決拿掉：它讓未完成的檔在最終檔名下看得到（同時進來的存檔把大小相同的半截檔當成「已經在了」），而且在 exFAT 上
     /// 靠建立當下的 inode 認自己的檔、清理全部失效。正常情形下這個拒絕在建立暫存檔之前就由磁碟區的能力旗標擋下（`assertSourcesVolumeCanPlace`）；
-    /// 走到這裡才發現不支援（磁碟區沒有回報能力旗標）時，暫存檔由呼叫端的 `defer` 以名字刪掉。
+    /// 磁碟區沒有回報能力旗標時，`assertDirectoryCanPlace` 先以一個空的探測檔走一次這個函式（b29 V5），拒絕發生在複製內容之前；
+    /// 探測之後才變成不支援（同一個目錄換了磁碟區）時，暫存檔由呼叫端的 `defer` 以名字刪掉。
     ///
     /// **不覆寫的保證**：兩條都不會取代位址上已有的東西；`renamex_np` 與 `link` 失敗時位址上的東西不動。**我們從不刪位址上的檔**——
     /// 刪的只有暫存名。
@@ -243,7 +317,8 @@ internal enum InFlightSourceFiles {
         return (fd, nextID)
     }
 
-    /// 登記一個已經存在的檔（測試用；存檔的路徑一律經 `create`）。
+    /// 登記一個名字：存檔的暫存檔一律經 `create`；這裡用於放置探測的**目的名**（在放置之前登記，名字那時還不存在——刪之前 `lstat` 是普通檔才刪）
+    /// 與測試。
     static func register(path: String) -> Int {
         lock.lock(); defer { lock.unlock() }
         if entries.isEmpty { takeSignals() }

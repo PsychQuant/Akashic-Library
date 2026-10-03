@@ -32,7 +32,7 @@ final class SourcesStrayTemporaryCLITests: XCTestCase {
     }
 
     /// b26 F6 LOW 11（真 binary）：修改時間在未來的殘留暫存檔——先前印「最後修改於 0 秒前；一小時內還在動…不要刪」，永遠不算殘留。
-    /// 現在說時間在未來、不能用它判斷，並歸在「中斷的存檔」那一類。
+    /// 現在說時間在未來、不能用它判斷；b29 V5 起也不歸在「中斷的存檔」那一類——判不出就說判不出。
     func testDoctorDoesNotTrustAFutureModificationTime() throws {
         let digest = "sha256:" + String(repeating: "cd", count: 32)
         let name = LibraryStore.temporaryBlobName(digest: digest, token: UUID().uuidString)
@@ -45,5 +45,8 @@ final class SourcesStrayTemporaryCLITests: XCTestCase {
         XCTAssertTrue(r.output.contains("修改時間在未來"), r.output)
         XCTAssertFalse(r.output.contains("最後修改於 0 秒前"), r.output)
         XCTAssertFalse(r.output.contains("一小時內還在動"), "不可信的時間不能被讀成『還在動』：\(r.output)")
+        // b29 V5 LOW 10：也不能斷言它是中斷的存檔留下的——先前前半說判不出、後半說「中斷的存檔留下的——…可以刪掉」
+        XCTAssertFalse(r.output.contains("中斷的存檔留下的——"), r.output)
+        XCTAssertTrue(r.output.contains("判不出是中斷的存檔留下的、還是正在進行的存檔"), r.output)
     }
 }

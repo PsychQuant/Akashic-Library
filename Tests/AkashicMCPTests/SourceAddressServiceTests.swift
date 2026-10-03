@@ -43,6 +43,17 @@ final class SourceAddressServiceTests: XCTestCase {
         XCTAssertEqual(try storeSource(data)["bytesWritten"] as? Bool, false, "位址上早有大小相同的一份")
     }
 
+    /// b29 V5 LOW 3、8：說明先前寫「exclusionVerified=false 時拒絕」，實際照存（store 不在 git 工作樹內時排除沒驗，回 false、位元組照存）。
+    /// 呼叫端只讀得到這一句：它會以為成功的回應必然是 exclusionVerified:true。這一支把說明與行為釘在一起（這個 store 不是 git 工作樹）。
+    func testTheStoreSourceDescriptionSaysWhatExclusionVerifiedFalseMeans() throws {
+        let out = try storeSource(Data("%PDF-1.7 not in git".utf8))
+        XCTAssertEqual(out["exclusionVerified"] as? Bool, false, "前提：store 不在 git 工作樹內")
+        XCTAssertEqual(out["bytesWritten"] as? Bool, true, "false 時照存")
+        let text = try XCTUnwrap(try ToolManifest.load()["akashic_store_source"]).text
+        XCTAssertFalse(text.contains("false 時拒絕"), "說明不得說 false 時拒絕：\(text)")
+        XCTAssertTrue(text.contains("exclusionVerified:false＝不在 git 內") && text.contains("照存"), text)
+    }
+
     func testStoreSourceRefusesAnOccupiedAddress() throws {
         let data = Data("%PDF-1.7 occupied".utf8)
         try FileManager.default.createDirectory(at: address(digest(data)), withIntermediateDirectories: true)
@@ -86,6 +97,15 @@ final class SourceAddressServiceTests: XCTestCase {
         let old = try XCTUnwrap((later["strayTemporaryFiles"] as? [[String: Any]])?.first)
         XCTAssertEqual(old["possiblyInProgress"] as? Bool, false)
         XCTAssertGreaterThanOrEqual(try XCTUnwrap(old["ageSeconds"] as? Int), 7_000)
+
+        // b29 V5 LOW 10、15：修改時間在未來（時鐘被往回撥、備份還原）——ageSeconds 是 null，possiblyInProgress 是 true（判不出，不要刪）。
+        // 先前是 false：疑問被讀成「可以刪」。負控：改回 `!isStale()`，這一段紅。
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: 3 * 365 * 86_400)],
+                                              ofItemAtPath: shard.appendingPathComponent(name).path)
+        let future = try XCTUnwrap((try XCTUnwrap(try json(try service.doctor())["sources"] as? [String: Any])["strayTemporaryFiles"]
+                                    as? [[String: Any]])?.first)
+        XCTAssertTrue(future["ageSeconds"] is NSNull, "\(future)")
+        XCTAssertEqual(future["possiblyInProgress"] as? Bool, true)
     }
 
     /// b26 F6 LOW 17：`akashic_doctor` 的 `sources{}` 在 `ToolPayloadNestedPaths` 之外（使用者裁決 (a)：表外不守），所以守衛看不到這一層的鍵——

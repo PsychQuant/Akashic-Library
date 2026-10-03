@@ -545,6 +545,9 @@ public extension LibraryStore {
         let verified = try assertSourcesExcluded(relativePath: relative)
         // sourceURL 對剛算出的合法 digest 不可能回 nil
         let url = sourceURL(digest: digest)!
+        // 任何分支之前（含下面「位址上已經有同一份」那一支）：這個分片目錄做不做得到不覆寫的原子放置。旗標讀不到時實際放一次（b29 V5 MEDIUM 0：
+        // 先前「已經在了」那一支不經任何放置呼叫就回成功、缺條目時還補 index，「每一次存檔都拒絕」在旗標讀不到的磁碟區上不成立）
+        try assertDirectoryCanPlace(url.deletingLastPathComponent(), digest: digest, placement: placement)
         /// 位址上已經有東西：大小相同的普通檔才算「已經在了」，其餘具名擲出（不寫 index）。**這裡不會讀到進行中的存檔**（b26 F6）：
         /// 位址上的名字只經 `renamex_np(RENAME_EXCL)` 或 `link(2)` 出現（原子），那一刻內容已經寫完、同步過；失敗與訊號的清理刪的只有暫存名，
         /// 從不刪位址上的檔——所以「別人看到大小相同就回成功」之後，那個檔不會被收回。（R2 的第三條路在最終檔名下逐塊複製，這個窗曾經存在。）
@@ -599,7 +602,7 @@ public extension LibraryStore {
         guard synced == 0 else {
             throw StoreIOError.invalidInput(
                 what: "sources/ 暫存檔",
-                why: "同步到裝置失敗（errno \(synced)）——digest \(digest) 沒有存")   // display-safe-exempt: synced 是 Int32；digest 是本函式的呼叫端算的 SHA-256 十六進位
+                why: "同步到裝置失敗（\(Self.errnoText(synced))）——digest \(digest) 沒有存")   // display-safe-exempt: Self.errnoText 只回 errno 數字與系統的固定英文說明（synced 是 Int32）；digest 是本函式的呼叫端算的 SHA-256 十六進位
         }
         switch try placeTemporaryBlob(tmp.path, at: url.path, digest: digest, placement: placement) {
         case .alreadyThere:

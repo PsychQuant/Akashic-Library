@@ -317,9 +317,18 @@ plugin 的 wrapper 會自動下載新版 `akashic-mcp`，skill 文字可能比 b
 **b26 F6 之後**（使用者 2026-10-02 裁決）：
 
 - **`sources/` 所在的磁碟區做不到不覆寫的原子放置（`RENAME_EXCL` 與 `link(2)` 都不支援，exFAT、FAT32）時，`akashic_store_source`（與 `store-source`、`copy-zotero-attachments`）每一次存檔都具名拒絕、零寫入**，訊息說要把 store 放在 APFS 或 HFS+。拒絕在建立任何檔案之前由磁碟區的能力旗標擋下；位址上已有同一份內容也一樣拒絕。先前的第三條路（排他建立目的檔再逐塊複製）拿掉——exFAT 上新建檔案的 inode 在第一次寫入後會變，失敗清理與訊號清理都失效，半截檔會留在內容位址上、之後被記進 index。live store 在 APFS 上，不受影響。
-- 存檔同步到裝置時，`F_FULLFSYNC` 回真的 I/O 錯誤（`EIO` 等）就拒絕，不再被後面成功的 `fsync` 蓋掉；只有它回「不支援」才退到 `fsync`。
-- `akashic_doctor` 的 `sources.strayTemporaryFiles[].ageSeconds`：修改時間在未來超過 300 秒（時鐘被往回撥、跨時區的 FAT 卷）時是 `null`（與「讀不到」同值）、`possiblyInProgress` 是 `false`——先前被夾成 `0`、永遠算「一小時內還在動」。
+- 存檔同步到裝置時，`F_FULLFSYNC` 回真的 I/O 錯誤（`EIO` 等）就拒絕，不再被後面成功的 `fsync` 蓋掉；只有它回「不支援」才退到 `fsync`（b29 V5 起「不支援」是六個 errno，見下）。
+- `akashic_doctor` 的 `sources.strayTemporaryFiles[].ageSeconds`：修改時間在未來超過 300 秒（時鐘被往回撥、跨時區的 FAT 卷）時是 `null`（與「讀不到」同值）、~~`possiblyInProgress` 是 `false`~~（b29 V5 起是 `true`，見下）——先前被夾成 `0`、永遠算「一小時內還在動」。
 - 大小與 index 不符的訊息（doctor、`update-entry --add-source`）兩邊都說：存檔被截短、接長或換掉，或是 index 那一列的 `bytes` 記錯（重存不會改既有的列，要手改 `index.jsonl`）。`update-entry --remove-source` 對大小不符的 blob 仍帶 index 的取得記錄。
+
+**相對於上一個發行版的行為改變**（b29 V5 補記）：#703 之前的 binary（`mcpb/manifest.json` 的 0.12.1）在 exFAT／FAT32 上的 store **存得進去**（Foundation 的原子寫入）；現在每一次 `akashic_store_source`／`store-source`／`copy-zotero-attachments` 都被拒，**包括位址上已有同一份內容、只需要補一列 index 的那一筆**。既有的 blob 照樣讀得到，`akashic_doctor` 與 `validate` 照常。要繼續存檔，把 store 搬到 APFS 或 HFS+ 的磁碟區上。上面「live store 在 APFS 上，不受影響」只說 live store。
+
+**b29 V5 之後**：
+
+- 磁碟區**沒有回報**能力旗標時（網路掛載、FUSE 之類，未實測），寫入之前在分片目錄裡實際放一次空的探測檔：做不到就同一句拒絕、零寫入、不補 index——先前位址上已有同一份內容的那一筆不經任何放置呼叫就回成功，缺條目時還補一列。拒絕也因此在複製內容之前。`copy-zotero-attachments` 的乾跑不探測（乾跑不寫），旗標讀不到時實跑逐筆拒絕。
+- 同步的「不支援」多三個 errno（`ENOTTY`、`ENODEV`、`ENOSYS`）：沒有 `F_FULLFSYNC` 的磁碟區上不再每次都以「同步到裝置失敗」拒絕，改退到 `fsync`；真的 I/O 錯誤（`EIO`、`ENOSPC`、`EDQUOT`、`EROFS`）照樣拒絕。訊息說出 errno 與它的說明。
+- `akashic_doctor` 的 `sources.strayTemporaryFiles[].possiblyInProgress`：時間不可信（`ageSeconds` 是 `null`）時是 `true`——判不出就不要刪；CLI 對同一個檔不再說「中斷的存檔留下的——…可以刪掉」。
+- `akashic_store_source` 的說明先前寫「exclusionVerified=false 時拒絕」，與行為相反：`false` 是 store 不在 git 工作樹內、排除沒驗，**照存**；sources/ 未被 git 忽略才拒絕。說明已更正，行為沒變。
 
 ## #700 — `tools/list` 的說明補了幾個回應鍵
 

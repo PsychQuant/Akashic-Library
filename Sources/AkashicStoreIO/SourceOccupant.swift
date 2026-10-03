@@ -180,6 +180,14 @@ public extension LibraryStore {
         /// 夠舊、不像是正在進行的存檔（#703 R2 verify 第 22 則）：最後修改超過 `LibraryStore.strayTemporaryQuietSeconds`。
         /// 時間讀不到、或在未來超過容忍的算舊（寧可多要人看一眼）。只影響 `hasFindings` 與 App 的計數；CLI／MCP 的 doctor 全部列出、附年齡。
         public func isStale(now: Date = Date()) -> Bool { (ageSeconds(now: now) ?? .max) >= LibraryStore.strayTemporaryQuietSeconds }
+
+        /// 可能是正在進行的存檔（不要刪）：一小時內還在動，**或時間不可信**（`ageSeconds` 是 nil：讀不到、或在未來超過容忍）。
+        /// 與 `isStale` 不是互補（b29 V5 LOW 10、15）：時間不可信時兩者都是 true——`isStale` 管「要不要人看一眼」（疑問往亮的方向），
+        /// 這個管「可不可以刪」（疑問往不刪的方向）。先前 MCP 的 `possiblyInProgress` 是 `!isStale()`，未來的時間被讀成「可以刪」。
+        public func possiblyInProgress(now: Date = Date()) -> Bool {
+            guard let age = ageSeconds(now: now) else { return true }
+            return age < LibraryStore.strayTemporaryQuietSeconds
+        }
     }
 
     /// 殘留暫存檔多久沒動才算進 `hasFindings`（#703 R2 verify 第 22 則）：3,600 秒。暫存檔每寫一塊就更新修改時間，一份上限大小的檔在慢磁碟上

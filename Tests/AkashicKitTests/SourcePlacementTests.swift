@@ -9,11 +9,12 @@ import Darwin
 ///
 /// 1. 兩條放置路都**不覆寫**：`RENAME_EXCL` → `link(2)`。兩個都不行（exFAT、FAT32）→ **每一次存檔都具名拒絕、零寫入**
 ///    （使用者 2026-10-02 裁決；先前的第三條路——以 `O_EXCL` 建立目的檔後逐塊複製——在 exFAT 上靠建立當下的 inode 認自己的檔，清理全部失效）。
-///    拒絕在建立任何檔案**之前**由磁碟區的能力旗標擋下；磁碟區沒有回報時，走到放置那一步才發現，暫存檔由 `defer` 刪掉。
+///    拒絕在建立任何檔案**之前**由磁碟區的能力旗標擋下；磁碟區沒有回報時，寫入之前、任何分支之前（含「位址上已經有同一份」）在分片目錄裡
+///    實際放一次空的探測檔（b29 V5），做不到就同一句拒絕、零寫入。
 /// 2. 位址上已有東西時只有**大小相同的普通檔**算「已經在了」；目錄、symlink（含懸空的）、大小不同的普通檔具名拒絕、不寫 index
 ///    （R2 verify 第 4、5、6 則：R2 之前回「沒寫、但成功」並寫 index）。位址上的名字只經原子動作出現，所以讀到的永遠是完整內容。
 /// 3. 存檔進行中登記的暫存檔，訊號來時刪掉（R2 verify 第 27 則）——以名字認、不比 inode；暫存檔 token 要是 UUID（第 20 則）。
-/// 4. `syncFile`：`F_FULLFSYNC` 的真錯誤不被後面的 `fsync` 成功蓋掉（b26 F6）。
+/// 4. `syncFile`：`F_FULLFSYNC` 的真錯誤不被後面的 `fsync` 成功蓋掉（b26 F6）；「不支援」是封閉的六個 errno（b29 V5）。
 final class SourcePlacementTests: XCTestCase {
     var root: URL!
     var store: LibraryStore!
@@ -120,21 +121,73 @@ final class SourcePlacementTests: XCTestCase {
         XCTAssertEqual(sourcesResidue(), [])
     }
 
-    /// 磁碟區沒有回報能力（`nil`）、兩個放置呼叫都回「不支援」：走到放置才發現。暫存檔由 `defer` 以名字刪掉、位址上沒有東西、不寫 index，
-    /// 訊息與上一支同一句。放置呼叫真的被呼叫過（證明這一支走的是「實際呼叫的結果」那條路，不是上面的閘）。
+    /// 磁碟區沒有回報能力（`nil`）、兩個放置呼叫都回「不支援」：寫入之前在分片目錄裡**實際放一次**（b29 V5 MEDIUM 0）就發現。
+    /// 拒絕發生在複製內容之前（同步一次都沒被呼叫）、探測的兩個暫存名都刪掉、這一步建的分片目錄也收回、不寫 index——**零寫入**，訊息與上一支同一句。
+    /// 放置呼叫真的被呼叫過（證明這一支走的是「實際呼叫的結果」那條路，不是上面的閘）。
+    /// 負控：拿掉 `writeBlob` 的 `assertDirectoryCanPlace`，這一支紅（內容先被複製、同步過，分片目錄留著）。
     func testWhenTheVolumeReportsNothingTheRefusalComesFromTheCallsAndLeavesNothing() throws {
         let data = Data("discovered at placement time".utf8)
         let calls = PlacementCallCounter()
+        let syncs = PlacementCallCounter()
         let attempting = placement(renameExclusive: ENOTSUP, hardLink: ENOTSUP,
-                                   beforeRename: { _, _ in _ = calls.next() }, volume: { _ in nil })
+                                   beforeRename: { _, _ in _ = calls.next() },
+                                   sync: { fd, system in _ = syncs.next(); return system(fd) }, volume: { _ in nil })
         XCTAssertThrowsError(try store(data, placement: attempting)) { e in
             let msg = message(e)
             XCTAssertTrue(msg.contains("APFS") && msg.contains("errno \(ENOTSUP)") && msg.contains("沒有存任何東西"), msg)
         }
-        XCTAssertEqual(calls.next(), 1, "RENAME_EXCL 被呼叫過一次")
+        XCTAssertEqual(calls.next(), 1, "RENAME_EXCL 被呼叫過一次（探測）")
+        XCTAssertEqual(syncs.next(), 0, "拒絕在複製之前：內容沒有被寫進暫存檔、沒有同步")
         XCTAssertFalse(FileManager.default.fileExists(atPath: blobURL(oneShot(data)).path))
-        XCTAssertEqual(temporaryResidue(), [])
+        XCTAssertEqual(sourcesResidue(), [], "零寫入：探測的暫存名與這一步建的分片目錄都收回")
         XCTAssertEqual(indexLineCount(), 0)
+    }
+
+    /// **b29 V5 MEDIUM 0（Codex 的交叉情境）**：位址上已經有同一份內容（先前在支援的磁碟區上存的），而磁碟區**沒有回報能力旗標**、實際上又做不到。
+    /// 先前「已經在了」那一支不經任何放置呼叫就回成功（`bytesWritten:false`），index 缺條目時還補一列——「每一次存檔都拒絕」在這裡不成立。
+    /// 現在任何分支之前都實際放一次：同一句具名拒絕、不補 index、位址上的那一份不動。
+    /// 負控：拿掉 `writeBlob` 的 `assertDirectoryCanPlace`，這一支紅（回成功、index 多一列）。
+    func testExistingContentIsAlsoRefusedWhenTheVolumeReportsNothingAndCannotPlace() throws {
+        let data = Data("already here, but the volume reports nothing".utf8)
+        guard case .stored(let first) = try store(data, placement: .system) else { return XCTFail() }
+        // 有條目時：拒絕、index 不變
+        XCTAssertThrowsError(try store(data, placement: fatLike(volumeReports: nil))) { e in
+            XCTAssertTrue(message(e).contains("APFS") && message(e).contains("沒有存任何東西"), message(e))
+        }
+        XCTAssertEqual(indexLineCount(), 1)
+        // 缺條目時（先前的繞過會補一列）：同樣拒絕、不補
+        try FileManager.default.removeItem(at: root.appendingPathComponent("sources/index.jsonl"))
+        let calls = PlacementCallCounter()
+        let unknown = placement(renameExclusive: ENOTSUP, hardLink: ENOTSUP,
+                                beforeRename: { _, _ in _ = calls.next() }, volume: { _ in nil })
+        XCTAssertThrowsError(try store(data, placement: unknown)) { e in
+            XCTAssertTrue(message(e).contains("HFS+") && message(e).contains("errno \(ENOTSUP)"), message(e))
+        }
+        XCTAssertEqual(calls.next(), 1, "實際放了一次（探測），沒有被「已經在了」略過")
+        XCTAssertEqual(indexLineCount(), 0, "拒絕不補 index")
+        XCTAssertEqual(try Data(contentsOf: blobURL(first.digest)), data, "位址上的那一份不動")
+        XCTAssertEqual(temporaryResidue(), [])
+    }
+
+    /// 旗標讀不到、而磁碟區其實做得到（真的系統呼叫）：探測成功、兩個探測名都刪掉，存檔照常——新內容放上位址、已在的內容回「早已在」。
+    /// 探測用的兩個名字都是暫存檔的形狀（被 `SIGKILL` 留下時 doctor 報它們）。
+    func testTheProbeLeavesNothingBehindWhenThePlacementWorks() throws {
+        let data = Data("flags unknown, placement fine".utf8)
+        let names = ProbeNames()
+        let unknownButFine = placement(beforeRename: { from, to in names.record(from, to) }, volume: { _ in nil })
+        guard case .stored(let r) = try store(data, placement: unknownButFine) else { return XCTFail() }
+        XCTAssertTrue(r.bytesWritten)
+        XCTAssertEqual(try Data(contentsOf: blobURL(r.digest)), data)
+        XCTAssertEqual(names.all.count, 2, "探測一次、放上位址一次")
+        let probe = try XCTUnwrap(names.all.first)
+        XCTAssertTrue(LibraryStore.isTemporaryBlobName((probe.from as NSString).lastPathComponent)
+                      && LibraryStore.isTemporaryBlobName((probe.to as NSString).lastPathComponent), "\(probe)")
+        XCTAssertEqual(temporaryResidue(), [], "探測名與暫存名都刪掉")
+        XCTAssertEqual(indexLineCount(), 1)
+        guard case .stored(let again) = try store(data, placement: unknownButFine) else { return XCTFail() }
+        XCTAssertFalse(again.bytesWritten, "已在的內容：探測通過之後回「早已在」")
+        XCTAssertEqual(temporaryResidue(), [])
+        XCTAssertEqual(indexLineCount(), 1)
     }
 
     /// 磁碟區能力的讀取是真的：測試用的暫存目錄所在的磁碟區（APFS）回 `true`；不存在的路徑讀不到、回 `nil`（不擋）。
@@ -235,6 +288,7 @@ final class SourcePlacementTests: XCTestCase {
         let failing = placement(sync: { _, _ in EIO })
         XCTAssertThrowsError(try store(data, placement: failing)) { e in
             XCTAssertTrue(message(e).contains("同步到裝置失敗") && message(e).contains("errno \(EIO)"), message(e))
+            XCTAssertTrue(message(e).contains(String(cString: strerror(EIO))), "訊息說出那個 errno 是什麼（b29 V5）：\(message(e))")
         }
         XCTAssertFalse(FileManager.default.fileExists(atPath: blobURL(oneShot(data)).path))
         XCTAssertEqual(temporaryResidue(), [])
@@ -251,8 +305,17 @@ final class SourcePlacementTests: XCTestCase {
     }
 
     /// 只有 `F_FULLFSYNC` 回「不支援」才退到 `fsync`；`fsync` 的真錯誤照樣回；`fsync` 也「不支援」是盡力而為（回 0）。
+    /// b29 V5：「不支援」多三個——`ENOTTY`（verify 實測 cd9660 映像的 `F_FULLFSYNC`）、`ENODEV`（實測 devfs）、`ENOSYS`。先前只認前三個，
+    /// 通過磁碟區閘而沒有 `F_FULLFSYNC` 的磁碟區上每一次存檔都在複製完之後被拒。真的錯誤（`EIO`、`ENOSPC`、`EDQUOT`、`EROFS`）仍不退。
+    /// 負控：從 `syncUnsupported` 拿掉 `ENOTTY`，這一支紅。
     func testFsyncIsOnlyTheFallbackForAnUnsupportedFullFsync() {
-        for unsupported in [ENOTSUP, EOPNOTSUPP, EINVAL] {
+        for real in [EIO, ENOSPC, EDQUOT, EROFS] {
+            let plainCalls = PlacementCallCounter()
+            XCTAssertEqual(LibraryStore.syncFile(0, fullFsync: { _ in real }, plainFsync: { _ in _ = plainCalls.next(); return 0 }), real,
+                           "真的錯誤（\(real)）不退到 fsync")
+            XCTAssertEqual(plainCalls.next(), 0)
+        }
+        for unsupported in [ENOTSUP, EOPNOTSUPP, EINVAL, ENOTTY, ENODEV, ENOSYS] {
             let plainCalls = PlacementCallCounter()
             XCTAssertEqual(LibraryStore.syncFile(0, fullFsync: { _ in unsupported }, plainFsync: { _ in _ = plainCalls.next(); return 0 }), 0)
             XCTAssertEqual(plainCalls.next(), 1, "不支援（\(unsupported)）才退到 fsync")
@@ -529,6 +592,15 @@ final class SyncObservations: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         all.append(Observation(addressExisted: addressExisted, tempExisted: tempExisted))
     }
+}
+
+/// 放置呼叫看到的來源與目的名（探測與真的放置都經過它）。
+final class ProbeNames: @unchecked Sendable {
+    struct Pair { let from: String; let to: String }
+    private let lock = NSLock()
+    private var pairs: [Pair] = []
+    var all: [Pair] { lock.lock(); defer { lock.unlock() }; return pairs }
+    func record(_ from: String, _ to: String) { lock.lock(); defer { lock.unlock() }; pairs.append(Pair(from: from, to: to)) }
 }
 
 /// 測試接縫裡用的計數器（`@Sendable` 閉包不能捕捉可變的區域變數）。

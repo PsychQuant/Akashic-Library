@@ -455,12 +455,13 @@ public final class AkashicService {
                 ]
                 // #703 R1：中斷的存檔留下的暫存檔（只報不刪；同一時間正在進行的存檔也長這樣）。每則路徑＋大小；至多 20 則、總數另給。
                 // R2 verify 第 28 則：LLM 呼叫端最可能照「stray」去刪，撞上另一個終端機裡正在進行的複製——每則附 `ageSeconds`（最後修改到現在；
-                // 讀不到是 null）與 `possiblyInProgress`（一小時內還在動），讀的人分得出「一秒前還在寫」與「三天前被殺掉」
+                // 讀不到或在未來超過容忍是 null）與 `possiblyInProgress`（一小時內還在動，或時間不可信——b29 V5：疑問往「不要刪」的方向），
+                // 讀的人分得出「一秒前還在寫」與「三天前被殺掉」
                 if !srcAudit.strayTemporaryFiles.isEmpty {
                     src["strayTemporaryFiles"] = srcAudit.strayTemporaryFiles.prefix(Entry.perRecordWarningCap).map {
                         ["path": displaySafe($0.path, max: 200), "bytes": $0.bytes,   // display-safe-exempt: bytes 是 Int
                          "ageSeconds": $0.ageSeconds().map { $0 as Any } ?? NSNull(),   // display-safe-exempt: Int 或 null
-                         "possiblyInProgress": !$0.isStale()] as [String: Any]   // display-safe-exempt: Bool
+                         "possiblyInProgress": $0.possiblyInProgress()] as [String: Any]   // display-safe-exempt: Bool
                     }
                     src["strayTemporaryFilesTotal"] = srcAudit.strayTemporaryFiles.count   // display-safe-exempt: Int
                 }

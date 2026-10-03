@@ -288,7 +288,7 @@ def main(argv):
         finally:
             remove(argv[2])   # 讀回的檔含第三方文字；通過檢查的文字另寫在輸出檔，這份不留
     print("用法：check-read.py origin <碼> | landing <origin 檔> <落地主機檔> [<網址檔>] | read <JSON> <輸出> <上限> <落地主機檔或 -> <前> <後>", file=sys.stderr)
-    return 2
+    return 1   # 不用 2／3／4：區塊二以那三個碼表示整批暫停、等人驗證、主機不合
 
 
 if __name__ == "__main__":

@@ -30,7 +30,7 @@
 
 判準與停下時的做法**以 akashic-fetch-fulltext SKILL.md〈中止條款〉為準**（使用者 2026-09-24 定的規矩，2026-09-28、2026-10-01 分成兩種處置；那一段是單一來源，本檔不重列它的訊號清單，免得兩份分岔）：
 
-- **等人驗證**——只有 CAPTCHA、人類檢查、Cloudflare「Just a moment」、按住驗證四種（`akashic fulltext bot-signals --kind` 印 `verify`），**而且只在文章站本身或已知的驗證服務上**（Cloudflare 的挑戰主機、hCaptcha、reCAPTCHA；使用者 2026-10-02）。**其他主機上的驗證字樣或網址標記一律整批暫停；HTTP 429 一律整批暫停**，不論頁面文字：**暫停**，請使用者在那個分頁自己完成驗證；不代解、不繞過、不重新載入、不開新分頁、不換站。使用者說完成了之後，**在同一個分頁接著走**：重跑一次〈讀渲染後的頁面〉的區塊二（它只讀那個分頁、不重新載入）確認沒有訊號，再繼續原本的下一步。區塊二仍命中就再等使用者。
+- **等人驗證**——只有 CAPTCHA、人類檢查、Cloudflare「Just a moment」、按住驗證四種（`akashic fulltext bot-signals --kind` 印 `verify`），**而且只在文章站本身或已知的驗證服務上**（Cloudflare 的挑戰主機、hCaptcha、reCAPTCHA；使用者 2026-10-02）。**其他主機上的驗證字樣或網址標記一律整批暫停；HTTP 429 一律整批暫停**，不論頁面文字：**暫停**，請使用者在那個分頁自己完成驗證；不代解、不繞過、不重新載入、不開新分頁、不換站。使用者說完成了之後，**在同一個分頁接著走**：重跑一次〈讀渲染後的頁面〉的區塊二（它只讀那個分頁、不重新載入）確認沒有訊號，再繼續原本的下一步。接上落地主機檢查的 skill 先重跑落地主機區塊再跑區塊二：驗證完成後頁面可能落在另一個主機，沿用舊的 `landing-<T>.txt` 會讓區塊二以 4 結束。區塊二仍命中就再等使用者。
 - **整批暫停**——其他所有訊號（印 `pause`）、以及下面列的狀態碼與回應形狀：整個 run 結束，不重試、不換來源、不改用別的工具繼續，**分頁留著**給使用者看；回報哪一站、哪個訊號、哪一步、完成到哪裡，何時繼續由使用者決定。
 
 拿不準是不是訊號就當作是；拿不準是哪一種就當整批暫停。
@@ -96,63 +96,210 @@ LOCK=(--profile "$P" --url-endswith "#akashic-$T")
 
 **不要**用 `--url <子字串>` 鎖（取第一個符合的分頁，而且跨所有 profile），也**不要**用 `--window N --tab-in-window T` 鎖（視窗編號依前後順序排，使用者一切換視窗，同一個編號就指到別的視窗），**更不要**讓鎖是空的（退回 front tab）。
 
-### 讀頁面文字用的兩個檔（區塊二與〈讀渲染後的頁面〉共用）
+### 讀頁面文字用的兩個檔（區塊二、〈讀渲染後的頁面〉與落地主機區塊共用）
 
-讀頁面文字的運算式與讀回後的檢查各寫成一個檔，放在 `<W>` 裡。用 Write 工具寫、**不經 shell 字串**（運算式裡有反斜線與引號；命令裡以 `"$(cat …)"` 引用，輸出不會被 shell 再展開）。同一個 run 寫一次就夠。
+讀頁面文字的運算式與檢查腳本各寫成一個檔，放在 `<W>` 裡。用 Write 工具寫、**不經 shell 字串**（裡面有反斜線與引號；命令裡以 `"$(cat …)"` 引用，輸出不會被 shell 再展開）。同一個 run 寫一次就夠。
+
+**信任的界線在哪裡**（#692 R3 verify）：`safari-browser js` 在**頁面自己的** JS 環境裡求值。頁面的腳本可以在運算式跑之前改寫 `JSON.stringify`、`String.prototype.slice`／`replace`，連 safari-browser 取回結果的通道都在頁面那一側——所以運算式回傳的**每一個欄位都由頁面決定**，在頁面裡做的剔除、截斷、`location` 讀取都可以被偽造（R3 verify 以 Node 在合成的頁面上實測：先蓋掉 `JSON.stringify` 的頁面讓 R2 版的區塊印出 `READ-OK` 與它宣告的主機，三個不可見字元一個都沒剔除）。所以：
+
+- **主機不從頁面取**：讀取之前與之後，各從 Safari 那一側讀一次被鎖分頁的網址（`safari-browser documents --json` 的 `url`，即 AppleScript 的 `URL of tab`）。頁面的 JS 改不了這個網址的主機——`history.pushState` 只能在同一個 origin 裡改路徑，換主機就是真的換頁，Safari 回報的網址跟著變。
+- **剔除與長度上限在 `check-read.py` 做**（頁面碰不到的那一側）：運算式只把原文截到上限再交回來（那只是傳輸量的上限）；不管頁面交回什麼，`check-read.py` 都再截一次、剔除一次，讀回的 JSON 太大就整個不收。
+- **保證的只有這一句**：寫出的文字出自一個在讀取**之前與之後**、Safari 回報的網址都在驗過的落地主機上的分頁（沒有比對落地主機時：都在同一個主機上），而且經過剔除、不超過上限。**頁面控制它自己的內容**：不誠實的頁面照樣可以在文字裡說謊（宣告不屬於它的刊名、DOI、沿革），這一點任何讀法都擋不住——擋它的是各 skill 的核對與使用者對主機的核對。兩次快照之間的事也擋不住：頁面在讀取當中換到別的主機再換回來，或開一個帶同一個碼、只在讀取那一刻存在的分頁。
 
 `<W>/read-3000.js`（區塊二用；〈讀渲染後的頁面〉用的 `<W>/read-20000.js` 內容相同，只把最後一行的 `(3000)` 換成 `(20000)`）：
 
 ```js
 ((LIMIT) => {
   const t = document.title + '\n' + (document.body ? document.body.innerText : '');
-  const s = t.slice(0, LIMIT)
-    .replace(/[\p{Zl}\p{Zp}]/gu, '\n')
-    .replace(/\p{Zs}/gu, ' ')
-    .replace(/[\p{Default_Ignorable_Code_Point}\p{Cc}\p{Cf}\p{Co}\p{Cs}\u2800\u{13441}\u{13442}\u{16FE4}\u{1D159}]/gu, c => (c === '\n' || c === '\t') ? c : '');
-  return JSON.stringify({protocol: location.protocol, hostname: location.hostname, port: location.port, truncated: t.length > LIMIT, rawLength: t.length, text: s});
+  return JSON.stringify({truncated: t.length > LIMIT, rawLength: t.length, text: t.slice(0, LIMIT)});
 })(3000)
 ```
 
-`<W>/check-read.py`（讀回的 JSON 檢查，兩個區塊共用）：
+`<W>/check-read.py`（三種用法：`origin` 從 `documents --json` 取出被鎖分頁的主機、`landing` 驗落地主機、`read` 檢查讀回的 JSON 並寫出剔除後的文字）：
 
 ```python
-import json, os, sys
+import json, os, re, sys, unicodedata
+from urllib.parse import urlsplit
 
-# 用法：python3 check-read.py <讀回的 JSON> <文字輸出檔> <驗過的落地主機檔，或 ->
-raw_path, out_path, landing_path = sys.argv[1], sys.argv[2], sys.argv[3]
-try:
-    with open(raw_path, encoding="utf-8") as f:
-        d = json.load(f)
-    host = d["protocol"] + "//" + d["hostname"] + (":" + d["port"] if d["port"] else "")
-    text, truncated, raw_len = d["text"], d["truncated"], d["rawLength"]
-    if not (isinstance(text, str) and isinstance(truncated, bool) and isinstance(raw_len, int)):
-        raise ValueError("field type")
-except Exception as e:
-    print("READ-FAIL 讀回的不是預期的 JSON：" + ascii(str(e)[:200]))
-    sys.exit(1)
-finally:
+# 用法（三種）：
+#   … documents --json … | python3 check-read.py origin '#akashic-<T>'
+#       印被鎖的那一個分頁的 <協定>//<主機>[:<埠>]（取自 Safari 回報的網址；恰好一個分頁符合，否則結束碼 1）
+#   python3 check-read.py landing <origin 檔> <落地主機檔> [<開的網址檔>]
+#       形狀合格（給了網址檔時還要與它的主機相同）才寫落地主機檔、結束碼 0；不合就刪掉落地主機檔、結束碼 4
+#   python3 check-read.py read <讀回的 JSON> <文字輸出檔> <上限> <落地主機檔，或 -> <讀之前的 origin 檔> <讀之後的 origin 檔>
+
+DI = ((0x00AD, 0x00AD), (0x034F, 0x034F), (0x061C, 0x061C), (0x115F, 0x1160), (0x17B4, 0x17B5), (0x180B, 0x180F),
+      (0x200B, 0x200F), (0x202A, 0x202E), (0x2060, 0x206F), (0x3164, 0x3164), (0xFE00, 0xFE0F), (0xFEFF, 0xFEFF),
+      (0xFFA0, 0xFFA0), (0xFFF0, 0xFFF8), (0x1BCA0, 0x1BCA3), (0x1D173, 0x1D17A), (0xE0000, 0xE0FFF))
+BLANK = {0x2800, 0x13441, 0x13442, 0x16FE4, 0x1D159}
+DROP = frozenset(v for a, b in DI for v in range(a, b + 1)) | BLANK
+PRIVATE = {"local", "localhost", "localdomain", "internal", "lan", "home", "box", "intranet", "corp", "private", "arpa"}
+
+
+def origin_of(url):
     try:
-        os.remove(raw_path)   # 讀回的檔含第三方文字；通過檢查的文字另寫在輸出檔，這份不留
+        u = urlsplit(url)
+        port = u.port
+    except ValueError:
+        return "invalid://"
+    return u.scheme + "://" + (u.hostname or "") + (":" + str(port) if port is not None else "")
+
+
+def host_ok(origin):
+    m = re.fullmatch(r"https://([A-Za-z0-9.-]{1,253})", origin)
+    if m is None:
+        return False
+    host = m.group(1)
+    return (re.fullmatch(r"([A-Za-z0-9-]+\.)+[A-Za-z]{2,}", host) is not None
+            and host.rsplit(".", 1)[-1].lower() not in PRIVATE
+            and re.search(r"(^|\.)[0-9]{1,3}([.-][0-9]{1,3}){3}(\.|$)", host) is None)
+
+
+def shown(origin):
+    ok = re.fullmatch(r"[a-z][a-z0-9+.-]{0,20}://[A-Za-z0-9.-]{0,253}(:[0-9]{1,5})?", origin)
+    return ascii(origin) if ok else "'<不像主機，未印>'"
+
+
+def utf16_len(s):
+    return len(s.encode("utf-16-le", "surrogatepass")) // 2
+
+
+def cap(s, limit):
+    b = s.encode("utf-16-le", "surrogatepass")
+    return b[:2 * limit].decode("utf-16-le", "surrogatepass") if len(b) > 2 * limit else s
+
+
+def clean(s):
+    out = []
+    for ch in s.replace("\r\n", "\n"):
+        o, cat = ord(ch), unicodedata.category(ch)
+        if ch == "\n" or ch == "\t":
+            out.append(ch)
+        elif ch in "\r\x0b\x0c\x85" or cat in ("Zl", "Zp"):
+            out.append("\n")
+        elif cat == "Zs":
+            out.append(" ")
+        elif cat in ("Cc", "Cf", "Co", "Cs") or o in DROP:
+            pass
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
+def read_text(path):
+    with open(path, encoding="utf-8") as f:
+        return f.read().strip()
+
+
+def remove(path):
+    try:
+        os.remove(path)
     except OSError:
         pass
-if landing_path != "-":
+
+
+def origin_mode(suffix):
     try:
-        with open(landing_path, encoding="utf-8") as f:
-            want = f.read().strip()
-    except OSError:
-        print("READ-FAIL 找不到驗過的落地主機檔 " + ascii(landing_path) + "：這個分頁要先跑落地主機區塊")
-        sys.exit(1)
-    if not want or host != want:
-        print("READ-REJECT 落地主機變了：驗過的 " + ascii(want) + "，這次讀到的 " + ascii(host) + "（文字不寫出）")
-        sys.exit(4)
-with open(out_path, "w", encoding="utf-8", errors="replace") as f:
-    f.write(text)
-print("READ-OK host=" + ascii(host) + " truncated=" + ("yes" if truncated else "no") + " raw_length=" + str(raw_len) + " kept=" + str(len(text)))
+        docs = json.load(sys.stdin)
+        urls = [d["url"] for d in docs if isinstance(d, dict) and isinstance(d.get("url"), str) and d["url"].endswith(suffix)]
+    except Exception:
+        print("ORIGIN-FAIL documents 的輸出不是預期的 JSON - STOP", file=sys.stderr)
+        return 1
+    if len(urls) != 1:
+        print("tab lock: %d tabs match (need exactly 1) - STOP" % len(urls), file=sys.stderr)
+        return 1
+    print(origin_of(urls[0]))
+    return 0
+
+
+def landing_mode(origin_path, landing_path, url_path):
+    remove(landing_path)   # 先刪：REJECT 或失敗之後不留一個「驗過的」檔
+    try:
+        got = read_text(origin_path)
+        want = origin_of(read_text(url_path)) if url_path else got
+    except OSError as e:
+        print("LANDING-FAIL 讀不到：" + ascii(str(e)[:200]))
+        return 1
+    if not host_ok(got) or got != want:
+        print("REJECT " + shown(got) + ("" if got == want else "（開的網址的主機是 " + shown(want) + "）"))
+        return 4
+    with open(landing_path + ".tmp", "w", encoding="utf-8") as f:
+        f.write(got + "\n")
+    os.replace(landing_path + ".tmp", landing_path)
+    print("OK " + shown(got))
+    return 0
+
+
+def read_mode(raw_path, out_path, limit_s, landing_path, before_path, after_path):
+    remove(out_path)   # 先刪：REJECT 或 FAIL 之後不留上一次的文字
+    try:
+        limit = int(limit_s)
+        before, after = read_text(before_path), read_text(after_path)
+    except (OSError, ValueError) as e:
+        print("READ-FAIL " + ascii(str(e)[:200]))
+        return 1
+    if before != after:
+        print("READ-REJECT 讀取前後分頁的主機不同：前 " + shown(before) + "、後 " + shown(after) + "（文字不寫出）")
+        return 4
+    if landing_path != "-":
+        try:
+            want = read_text(landing_path)
+        except OSError:
+            print("READ-FAIL 找不到驗過的落地主機檔 " + ascii(landing_path) + "：這個分頁要先跑落地主機區塊")
+            return 1
+        if not host_ok(want) or before != want:
+            print("READ-REJECT 落地主機不合：驗過的 " + shown(want) + "，Safari 這次回報的 " + shown(before) + "（文字不寫出）")
+            return 4
+    try:
+        size = os.path.getsize(raw_path)
+    except OSError as e:
+        print("READ-FAIL 讀不到讀回的檔：" + ascii(str(e)[:200]))
+        return 1
+    if size > 6 * limit + 4096:
+        print("READ-FAIL 讀回的 JSON 有 " + str(size) + " bytes，超過 6 × 上限 + 4096：不是誠實頁面的輸出，整個不收")
+        return 1
+    try:
+        with open(raw_path, encoding="utf-8") as f:
+            d = json.load(f)
+        text, truncated, raw_len = d["text"], d["truncated"], d["rawLength"]
+        if not (isinstance(text, str) and type(truncated) is bool and type(raw_len) is int and raw_len >= 0):
+            raise ValueError("field type")
+    except Exception as e:
+        print("READ-FAIL 讀回的不是預期的 JSON：" + ascii(str(e)[:200]))
+        return 1
+    cut = utf16_len(text) > limit
+    text = clean(cap(text, limit))
+    with open(out_path, "w", encoding="utf-8", errors="replace") as f:
+        f.write(text)
+    print("READ-OK host=" + shown(before) + " truncated=" + ("yes" if truncated or cut else "no")
+          + " raw_length=" + str(raw_len) + " kept=" + str(utf16_len(text)))
+    return 0
+
+
+def main(argv):
+    mode = argv[1] if len(argv) > 1 else ""
+    if mode == "origin" and len(argv) == 3:
+        return origin_mode(argv[2])
+    if mode == "landing" and len(argv) in (4, 5):
+        return landing_mode(argv[2], argv[3], argv[4] if len(argv) == 5 else None)
+    if mode == "read" and len(argv) == 8:
+        try:
+            return read_mode(*argv[2:8])
+        finally:
+            remove(argv[2])   # 讀回的檔含第三方文字；通過檢查的文字另寫在輸出檔，這份不留
+    print("用法：check-read.py origin <碼> | landing <origin 檔> <落地主機檔> [<網址檔>] | read <JSON> <輸出> <上限> <落地主機檔或 -> <前> <後>", file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
 ```
 
-- **一次讀完，主機與文字同一次求值**：運算式回傳 JSON `{protocol, hostname, port, truncated, rawLength, text}`。主機與文字出自同一次求值，頁面不可能在兩者之間換頁，所以文字一定出自它宣告的那個主機；`check-read.py` 把那個主機與〈轉址之後、讀內容之前：驗落地主機〉驗過的比對，不同就**不寫出文字**、以 4 結束（`READ-REJECT`）。取 API 的分頁沒有落地主機檔，第三個參數寫 `-`，只印主機、不比對。
-- **`truncated` 由剔除之前的長度算**（`原文長度 > 上限`），不從讀回的長度反推：先截再剔除時，被截的頁面可能讀回少於上限（前段有軟連字號或零寬字元），剛好上限的頁面也不該被標成已截。單位是 JS 的 `length`（UTF-16 code unit），不是字元數。`check-read.py` 的輸出行 `truncated=yes` 就是「已截」，報告照寫；`raw_length` 是原文長度。
-- **剔除的集合與 repo 的輸出端是同一份**（`UnsafeToEmitScalar`，原始碼在 repo 的 `Sources/AkashicCore/Models.swift`，plugin 安裝處讀不到）：`Default_Ignorable_Code_Point`（含變體選擇子 VS1–256、tag 字元、CGJ、Hangul 與半形 filler、蒙古文選擇子）、Cc（保留 LF 與 TAB）、Cf、私用區 Co、孤立的 surrogate，以及渲染成空白的五個碼位（U+2800、U+13441、U+13442、U+16FE4、U+1D159）一律刪掉；Zl／Zp 換成換行、非 U+0020 的 Zs 換成空白（刪掉會把相鄰的字黏在一起）。2026-10-02 在 Node 26 上與 Swift 版 `contains` 逐碼位比對（跳過 surrogate，1,112,064 個碼位）：兩邊都會動的各 141,760 個，Swift 多出來的只有刻意保留的 TAB 與 LF。**沒有擋**：視覺上相似的字（同形異義字）、Unicode 正規化（不做 NFKC）、句子本身的措辭；JS 引擎與 Swift 各自的 Unicode 版本不同時新碼位可能不一致，沒有對 Safari 的 JavaScriptCore 實跑。
+- **`origin`**：從 stdin 讀 `documents --json`，網址結尾是 `#akashic-<T>` 的分頁要**恰好一個**（否則結束碼 1，與區塊開頭的數分頁同一條規矩），印出它的 `<協定>//<主機>[:<埠>]`——只印這一段，網址的路徑與查詢字串不寫進任何檔。
+- **`landing`**：先刪掉落地主機檔，形狀合格才寫回去（先寫暫存檔再改名），所以 `REJECT` 之後沒有一個「驗過的」檔留著。給了第三個參數（開的網址檔）時，落地主機還要與那條網址的主機相同。
+- **`read`**：先刪掉輸出檔（`READ-REJECT` 或 `READ-FAIL` 之後不留上一次的文字）。讀取前後 Safari 回報的主機不同 → `READ-REJECT`（結束碼 4）；第四個參數是落地主機檔時再比對它（檔裡的主機也重新驗一次形狀），不同 → 4；那個檔不存在是 `READ-FAIL`（結束碼 1：那個分頁還沒跑過落地主機區塊）。讀回的 JSON 超過 `6 × 上限 + 4096` bytes、欄位型別不對都是 `READ-FAIL`。通過之後才截、剔除、寫出，印 `READ-OK host=… truncated=… raw_length=… kept=…`：`host` 是 Safari 回報的主機（不像主機的字串不印）；`truncated=yes` 是頁面說原文超過上限、或 `check-read.py` 自己截了；`raw_length` 是**頁面回報的**原文長度（頁面不誠實時不可信）；`kept` 是寫出的長度。長度的單位都是 UTF-16 code unit（與 JS 的 `length` 同一個單位）。
+- **`truncated` 由剔除之前的長度算**（`原文長度 > 上限`），不從讀回的長度反推：先截再剔除時，被截的頁面可能讀回少於上限（前段有軟連字號或零寬字元），剛好上限的頁面也不該被標成已截。
+- **剔除的集合與 repo 的輸出端是同一份**（`UnsafeToEmitScalar`，原始碼在 repo 的 `Sources/AkashicCore/Models.swift`，plugin 安裝處讀不到）：`Default_Ignorable_Code_Point`（含變體選擇子 VS1–256、tag 字元、CGJ、Hangul 與半形 filler、蒙古文選擇子；以碼位區段寫死，不依 Python 的 Unicode 版本）、Cc（保留 LF 與 TAB；CR、VT、FF、NEL 換成換行）、Cf、私用區 Co、孤立的 surrogate，以及渲染成空白的五個碼位一律刪掉；Zl／Zp 換成換行、非 U+0020 的 Zs 換成空白（刪掉會把相鄰的字黏在一起）。repo 的 `WebAccessReadContractTests` 從本檔抽出這支腳本、以 Python 跑過每一個碼位，與 Swift 的 `UnsafeToEmitScalar.contains` 逐一比對（差別只有刻意保留的 TAB 與 LF）——`UnsafeToEmitScalar` 改了而這裡沒跟著改，那支測試會紅。**沒有擋**：視覺上相似的字（同形異義字）、Unicode 正規化（不做 NFKC）、句子本身的措辭、以 CSS 藏起來的文字（見〈承重存檔〉那一列）；Python 的 `unicodedata` 比 Swift 舊時，之後才指派的格式字元會被留下（macOS 的 `/usr/bin/python3` 是 3.9、Unicode 13）。
 - **副作用**：ZWJ、ZWNJ 與變體選擇子被刪掉，emoji 序列、CJK 異體字選擇子（IVS）、Indic 與阿拉伯文字的連字形與原頁的顯示形會有細微差異，比對以看得見的字為準。
 
 ### 開分頁
@@ -170,20 +317,24 @@ echo "T=$T"
 
 把印出的 `T` 記下，以下寫成 `<T>`（8 個十六進位字元）。
 
-**接下來走哪一條取決於開的是什麼頁**：會被第三方轉到自選主機的頁面（`doi.org`、出版商頁、名冊）**先跑〈轉址之後、讀內容之前：驗落地主機〉、通過才跑區塊二**；取 API 的分頁（開在端點本身）直接跑區塊二。
+**接下來走哪一條取決於呼叫的 skill**：**接上落地主機檢查的 skill**（目前只有 `akashic-verify-venue` 的第 4 源）開的是會被第三方轉到自選主機的頁面（`doi.org`、出版商頁、名冊）時，**先跑〈轉址之後、讀內容之前：驗落地主機〉、通過才跑區塊二**；其他情形（取 API 的分頁、還沒接上的 skill）直接跑區塊二。
 
-區塊二，**第一個請求之後、發下一個請求之前**，確認鎖得到、只有一個、頁面沒有訊號——它也是〈讀渲染後的頁面〉的前半。**會轉址的頁面要先跑過落地主機區塊**（`LAND` 寫它存的 `<W>/landing-<T>.txt`，這個區塊讀首屏時會再比對一次主機）；取 API 的分頁 `LAND` 寫 `-`：
+區塊二，**第一個請求之後、發下一個請求之前**，確認鎖得到、只有一個、頁面沒有訊號——它也是〈讀渲染後的頁面〉的前半。**`LAND` 預設是 `-`：不比對落地主機**（仍要求讀取前後 Safari 回報的是同一個主機，並印出它）。接上落地主機檢查的 skill 把它改寫成 `LAND="<W>/landing-<T>.txt"`（落地主機區塊存的檔；這個區塊讀首屏時會再比對一次）：
 
 ```bash
 set -euo pipefail
-P="<P>"; T="<T>"; LAND="<W>/landing-<T>.txt"   # 會轉址的頁面；取 API 的分頁寫 LAND="-"
+P="<P>"; T="<T>"
+LAND="-"   # 預設：不比對落地主機。接上落地主機檢查的 skill 改寫成 LAND="<W>/landing-<T>.txt"
 LOCK=(--profile "$P" --url-endswith "#akashic-$T")
 [ ${#LOCK[@]} -eq 4 ] && [ -n "$P" ] && [ -n "$T" ] && [ -n "$LAND" ] || { echo "lock missing" >&2; exit 1; }
 n=$(safari-browser documents --json --profile "$P" | python3 -c 'import json,sys;print(sum(1 for d in json.load(sys.stdin) if d.get("url","").endswith(sys.argv[1])))' "#akashic-$T")
 [ "$n" = 1 ] || { echo "tab lock: $n tabs match (need exactly 1) - STOP" >&2; exit 1; }
+rm -f "<W>/first-<T>.txt"
 safari-browser wait "${LOCK[@]}" --js "['complete','interactive'].includes(document.readyState)" --timeout 60000
+safari-browser documents --json --profile "$P" | python3 "<W>/check-read.py" origin "#akashic-$T" > "<W>/o-before-<T>.txt"
 safari-browser js "${LOCK[@]}" --large --output "<W>/raw-first-<T>.json" "$(cat "<W>/read-3000.js")"
-python3 "<W>/check-read.py" "<W>/raw-first-<T>.json" "<W>/first-<T>.txt" "$LAND"
+safari-browser documents --json --profile "$P" | python3 "<W>/check-read.py" origin "#akashic-$T" > "<W>/o-after-<T>.txt"
+python3 "<W>/check-read.py" read "<W>/raw-first-<T>.json" "<W>/first-<T>.txt" 3000 "$LAND" "<W>/o-before-<T>.txt" "<W>/o-after-<T>.txt"
 rc=0; hit=$(akashic fulltext bot-signals --kind < "<W>/first-<T>.txt") || rc=$?
 case "$rc" in
   1) ;;   # 結束碼 1＝沒有訊號；只有這個碼才往下走
@@ -195,7 +346,7 @@ case "$rc" in
 esac
 ```
 
-區塊以 3 結束＝等人驗證、以 2 結束＝整批暫停、以 4 結束＝落地主機變了（`READ-REJECT`：這次讀到的主機與驗過的不同，首屏文字**不寫出**；照〈轉址之後、讀內容之前：驗落地主機〉的 REJECT 處理，關掉這個分頁）；`READ-FAIL`（結束碼 1）是讀回的東西不能用，照〈鎖不到的時候〉。**首屏文字經過剔除**（〈讀頁面文字用的兩個檔〉），所以「區塊結束後也自己讀一遍」讀的是 `<W>/first-<T>.txt` 剔除後的文字：60 秒沒載完、有訊號、頁面讀不到，都是中止條款——**不發下一個 `fetch`**。讀頁面的那一段 JS 寫成運算式（不是 `return …` 的敘述）：`safari-browser js` 先把程式碼當運算式試一次，敘述形的第一次注入是一段解析不了的程式碼（akashic-fetch-fulltext SKILL.md〈最高原則〉規則 5）。
+區塊以 3 結束＝等人驗證、以 2 結束＝整批暫停、以 4 結束＝主機不合（`READ-REJECT`：讀取前後 Safari 回報的主機不同，或與驗過的落地主機不同；首屏文字**不寫出**；照〈轉址之後、讀內容之前：驗落地主機〉的 REJECT 處理，關掉這個分頁）；`READ-FAIL`（結束碼 1）是讀回的東西不能用，照〈鎖不到的時候〉。**首屏文字經過剔除**（在 `check-read.py` 做，〈讀頁面文字用的兩個檔〉），所以「區塊結束後也自己讀一遍」讀的是 `<W>/first-<T>.txt` 剔除後的文字——**只在 `READ-OK` 之後才有這個檔**（結束碼 0、2、3；區塊開頭先刪掉它，`check-read.py` 只在 `READ-OK` 時寫）。60 秒沒載完、有訊號、頁面讀不到，都是中止條款——**不發下一個 `fetch`**。讀頁面的那一段 JS 寫成運算式（不是 `return …` 的敘述）：`safari-browser js` 先把程式碼當運算式試一次，敘述形的第一次注入是一段解析不了的程式碼（akashic-fetch-fulltext SKILL.md〈最高原則〉規則 5）。
 
 **分頁開在該站第一個請求的網址，所以那個網址會被請求兩次**（開分頁一次、之後的頁內 `fetch` 一次）。要省掉第二次，得直接從分頁的 DOM 讀回 JSON；`document.body.innerText` 對 JSON 頁夠不夠用沒有實測，所以本檔不那樣寫。頁內 `fetch` 不換頁，所以取 API 的整個流程裡分頁網址不變、這把鎖一直有效。換一個站就另開一個帶新 fragment 的分頁。
 
@@ -205,7 +356,7 @@ esac
 
 ### 會轉址的頁面（`doi.org`、出版商頁、名冊）
 
-轉址之後網址變了，但 `--url-endswith` 只看結尾。**HTTP 3xx 轉址**的 `Location` 沒帶 fragment 時沿用原網址的 fragment，鎖照樣有效；**頁面自己做的轉址**（`<meta http-equiv="refresh">`、JavaScript 設 `location`）不沿用，fragment 會掉、鎖對不到。2026-09-29 在隔離的 Chromium（不是使用者的 Safari）量過：Elsevier 的 DOI 經 `doi.org` 302 到 `linkinghub.elsevier.com`，那一頁是 200 的 HTML、以 meta refresh 再轉到 `www.sciencedirect.com`，fragment 沒了；Springer、SAGE、Wiley 各一到兩個 DOI 保留。Safari 是否同樣表現沒有實測。鎖對不到時照上一段停下，交給使用者決定——**不要**改開轉址後的網址。轉到哪裡由出版商在 `doi.org` 登記，本檔不驗落地的**網址**；**開的網址會被第三方轉到自選主機的頁面**（`doi.org`、出版商頁、名冊）要在讀內容之前驗落地的**主機**（下一節；取 API 的分頁開在端點本身，不需要）。**每載入一個新頁就驗一次**：開分頁之後、導航到下一頁之後（下面的流程，新碼）各一次——前一個 DOI 驗過不代表下一個 DOI 落在同一個主機。目前只有 `akashic-verify-venue` 的第 4 源照做；其他讀這類頁面的 skill（`akashic-verify-person` 的 DOI 落地頁、`akashic-bootstrap` 的出版商頁 DOM 讀取、`akashic-venue-works` 的頁面）還沒接上，接上之前它們沒有這道檢查。
+轉址之後網址變了，但 `--url-endswith` 只看結尾。**HTTP 3xx 轉址**的 `Location` 沒帶 fragment 時沿用原網址的 fragment，鎖照樣有效；**頁面自己做的轉址**（`<meta http-equiv="refresh">`、JavaScript 設 `location`）不沿用，fragment 會掉、鎖對不到。2026-09-29 在隔離的 Chromium（不是使用者的 Safari）量過：Elsevier 的 DOI 經 `doi.org` 302 到 `linkinghub.elsevier.com`，那一頁是 200 的 HTML、以 meta refresh 再轉到 `www.sciencedirect.com`，fragment 沒了；Springer、SAGE、Wiley 各一到兩個 DOI 保留。Safari 是否同樣表現沒有實測。鎖對不到時照上一段停下，交給使用者決定——**不要**改開轉址後的網址。轉到哪裡由出版商在 `doi.org` 登記，本檔不驗落地的**網址**；落地的**主機**由下一節的落地主機區塊驗——那是**選用的**（opt-in）：接上它的 skill 對會被第三方轉到自選主機的頁面（`doi.org`、出版商頁、名冊）在讀內容之前先跑它，並在區塊二與讀取區塊寫 `LAND="<W>/landing-<T>.txt"`；取 API 的分頁開在端點本身，不需要。**每載入一個新頁就驗一次**：開分頁之後、導航到下一頁之後（下面的流程，新碼）各一次——前一個 DOI 驗過不代表下一個 DOI 落在同一個主機。目前只有 `akashic-verify-venue` 的第 4 源接上。其他讀這類頁面的 skill 照預設（`LAND="-"`）：讀取照樣剔除、設上限、要求讀取前後同一個主機並印出它，但**不驗落地主機的形狀、不比對**。2026-10-03 讀過、還沒接上的有 `akashic-verify-person` 的 DOI 落地頁、`akashic-bootstrap` 的出版商頁 DOM 讀取、`akashic-venue-works` 的頁面，以及 `akashic-fetch-fulltext`（`akashic fulltext fetch` 經 `doi.org` 到出版商頁，讀頁面標題與前 3,000 字只給中止條款的訊號比對，不進報告或存檔）；這份清單不保證完整，新加的讀頁面 skill 不接也是照預設。
 
 同一站要讀下一頁時不另開分頁：在鎖定的分頁裡導航到帶**新的一次性碼**的網址，之後改用新碼鎖。下一頁的網址同樣先寫進 `<W>/url-<序號>.txt`：
 
@@ -223,39 +374,28 @@ safari-browser js "${LOCK[@]}" "(location.href = $U, 'navigating')"
 echo "T=$T2"
 ```
 
-印出的 `T` 是這個分頁新的碼。**用新碼先跑〈轉址之後、讀內容之前：驗落地主機〉，通過後才跑區塊二（用新碼）、才讀下一頁**——下一頁的落地主機可能與上一頁不同，上一頁驗過的結果不沿用。
+印出的 `T` 是這個分頁新的碼，之後的區塊都用新碼。**接上落地主機檢查的 skill 用新碼先跑〈轉址之後、讀內容之前：驗落地主機〉，通過後才跑區塊二、才讀下一頁**——下一頁的落地主機可能與上一頁不同，上一頁驗過的結果不沿用。
 
 ### 轉址之後、讀內容之前：驗落地主機
 
-**會被第三方轉到自選主機的頁面才需要這一節**（`doi.org`、出版商頁、名冊；取 API 的分頁開在端點本身，不需要，區塊二的 `LAND` 寫 `-`）。開分頁那一刻，請求已經帶著這個 profile 的 cookie 送到 `doi.org`、再跟著轉址送到登記者選的主機——這一步**擋不了請求**，擋的是把落地頁的內容讀進來、存下來、當證據（#692 R1 verify）。讀這類頁面的**任何**內容（包括區塊二的首屏與訊號檢查）之前，先用同一把鎖讀 `location.protocol`、`location.hostname` 與 `location.port`（**不讀 `location.href`**：它帶著我們的 `#akashic-<T>`，而〈插值前先驗形狀〉的「完整網址」一列不收 `#`）。**每一次載入新頁（開分頁、導航到下一頁）都要跑一次**，用那個頁自己的碼：
+**接上這道檢查的 skill、開會被第三方轉到自選主機的頁面時才跑這一節**（`doi.org`、出版商頁、名冊；取 API 的分頁開在端點本身，不需要，區塊二的 `LAND` 照預設 `-`）。開分頁那一刻，請求已經帶著這個 profile 的 cookie 送到 `doi.org`、再跟著轉址送到登記者選的主機——這一步**擋不了請求**，擋的是把落地頁的內容讀進來、存下來、當證據（#692 R1 verify）。讀這類頁面的**任何**內容（包括區塊二的首屏與訊號檢查）之前，先用同一把鎖確認分頁、等它載完，再**從 Safari 那一側**讀被鎖分頁的網址、只取 `<協定>//<主機>[:<埠>]`（`check-read.py origin`）。**不從頁面的 `location` 讀**：那是在頁面自己的 JS 環境裡求值，頁面的腳本能偽造回傳的值（#692 R3 verify，見〈讀頁面文字用的兩個檔〉）。**每一次載入新頁（開分頁、導航到下一頁）都要跑一次**，用那個頁自己的碼：
 
 ```bash
 set -euo pipefail
 P="<P>"; T="<T>"
+EXPECT=""   # 開的是使用者給定或確認的網址時寫 "<W>/url-<序號>.txt"：落地主機還要與那條網址的主機相同
 LOCK=(--profile "$P" --url-endswith "#akashic-$T")
 [ ${#LOCK[@]} -eq 4 ] && [ -n "$P" ] && [ -n "$T" ] || { echo "lock missing" >&2; exit 1; }
 n=$(safari-browser documents --json --profile "$P" | python3 -c 'import json,sys;print(sum(1 for d in json.load(sys.stdin) if d.get("url","").endswith(sys.argv[1])))' "#akashic-$T")
 [ "$n" = 1 ] || { echo "tab lock: $n tabs match (need exactly 1) - STOP" >&2; exit 1; }
 safari-browser wait "${LOCK[@]}" --js "['complete','interactive'].includes(document.readyState)" --timeout 60000
-safari-browser js "${LOCK[@]}" "location.protocol + '//' + location.hostname + (location.port ? ':' + location.port : '')" > "<W>/landing-<T>.txt"
-python3 - "<W>/landing-<T>.txt" <<'PY'
-import re, sys
-s = open(sys.argv[1], encoding="utf-8").read().strip()
-m = re.fullmatch(r"https://(.+)", s)
-host = m.group(1) if m else ""
-label = host.rsplit(".", 1)[-1].lower()
-ok = (m is not None
-      and re.fullmatch(r"([A-Za-z0-9-]+\.)+[A-Za-z]{2,}", host) is not None
-      and label not in {"local", "localhost", "localdomain", "internal", "lan", "home", "box", "intranet", "corp", "private", "arpa"}
-      and re.search(r"(^|\.)[0-9]{1,3}([.-][0-9]{1,3}){3}(\.|$)", host) is None)
-print(("OK " if ok else "REJECT ") + ascii(s))
-sys.exit(0 if ok else 4)
-PY
+safari-browser documents --json --profile "$P" | python3 "<W>/check-read.py" origin "#akashic-$T" > "<W>/o-landing-<T>.txt"
+python3 "<W>/check-read.py" landing "<W>/o-landing-<T>.txt" "<W>/landing-<T>.txt" ${EXPECT:+"$EXPECT"}
 ```
 
-印出 `OK '<協定>//<主機>'`（單引號是 Python 的 `ascii()` 帶的，把主機名裡不尋常的字元逃脫掉）才往下跑區塊二；印 `REJECT '…'`（**結束碼 4**）就是「不可達：落地主機不合」——**不讀內容**，把印出的落地主機寫進回報，照〈其他〉關掉這個分頁（鎖這時仍對得到，所以關得掉）。**結束碼 4 只代表主機不合**（區塊二以 3 結束是等人驗證、以 2 結束是整批暫停，不要混）；這個區塊其他的非零結束（鎖的個數不是 1、`wait` 60 秒逾時、safari-browser 本身出錯）**不是**主機不合，沒有落地主機可寫進回報：鎖不到照〈鎖不到的時候〉，60 秒沒載完是中止條款。**通過時也把落地主機寫進回報**，讓使用者核對它是不是那家出版商的主機。這個區塊與區塊二一樣自足：動到分頁之前先數一次。
+印出 `OK '<協定>//<主機>'`（單引號是 Python 的 `ascii()` 帶的，把主機名裡不尋常的字元逃脫掉）才往下跑區塊二（`LAND="<W>/landing-<T>.txt"`）；印 `REJECT '…'`（**結束碼 4**）就是「不可達：落地主機不合」——**不讀內容**，把印出的落地主機寫進回報，照〈其他〉關掉這個分頁（鎖這時仍對得到，所以關得掉）。`REJECT` 時 `landing-<T>.txt` 已經刪掉（`check-read.py` 先刪、只在 `OK` 時寫回），所以就算照樣往下跑，區塊二與讀取也會以 `READ-FAIL` 停下、不寫出文字。給了 `EXPECT`（開的是使用者給定或確認的網址）而落地主機與那條網址的主機不同，也是 `REJECT`，兩個主機都印出來：使用者確認的是那一條網址，被轉到別的主機就不是他確認的東西。**結束碼 4 只代表主機不合**（區塊二以 3 結束是等人驗證、以 2 結束是整批暫停，不要混）；這個區塊其他的非零結束（鎖的個數不是 1、`wait` 60 秒逾時、safari-browser 本身出錯）**不是**主機不合，沒有落地主機可寫進回報：鎖不到照〈鎖不到的時候〉，60 秒沒載完是中止條款。**通過時也把落地主機寫進回報**，讓使用者核對它是不是那家出版商的主機。這個區塊與區塊二一樣自足：動到分頁之前先數一次。
 
-這是形狀檢查，不是信任判斷，四個限制要寫出來：(1) 只擋形狀上明顯不是公開網站的主機——非 https、帶埠號、沒有點的名稱、`localhost` 與 `.local`／`.lan`／`.home`／`.box`／`.internal` 之類私有或本機用的後綴、IP 位址的形狀（含 `127.0.0.1.nip.io` 這種把四段數字塞進名稱的）。**解析到私有位址的公開名稱擋不住**：一個名稱解析到哪裡，從字串看不出來。(2) 通過只代表形狀上可讀，不代表那個主機是出版商的：登記者可以把 DOI 登記到任何公開主機，頁面自己宣告的內容（DOI、標題）也證明不了它是誰的頁面，所以主機名要給使用者看。(3) 頁面自己做的轉址（meta refresh、JavaScript 設 `location`）讓 fragment 掉時，這個區塊也鎖對不到，照〈鎖不到的時候〉。(4) **這一步是某一刻的快照**：頁面自己的 JS 能讀 `location.hash`，所以一次性碼對落地頁不是秘密，一個敵意頁面可以在檢查之後把自己導到別的主機並複製 fragment，鎖照樣對得到。擋它的是讀取本身：區塊二的首屏與〈讀渲染後的頁面〉都在**同一次求值**裡讀回主機與文字，再與這一步存的 `landing-<T>.txt` 比對，主機變了就以 4 結束、不寫出文字。這一步與讀取之間仍有時間差，但讀回的文字不可能出自驗過的那個主機以外的地方。
+這是形狀檢查，不是信任判斷，五個限制要寫出來：(1) 只擋形狀上明顯不是公開網站的主機——非 https、帶埠號、沒有點的名稱、`localhost` 與 `.local`／`.lan`／`.home`／`.box`／`.internal` 之類私有或本機用的後綴、IP 位址的形狀（含 `127.0.0.1.nip.io` 這種把四段數字塞進名稱的）。**解析到私有位址的公開名稱擋不住**：一個名稱解析到哪裡，從字串看不出來。(2) 通過只代表形狀上可讀，不代表那個主機是出版商的：登記者可以把 DOI 登記到任何公開主機，頁面自己宣告的內容（DOI、標題）也證明不了它是誰的頁面，所以主機名要給使用者看。(3) 頁面自己做的轉址（meta refresh、JavaScript 設 `location`）讓 fragment 掉時，這個區塊也鎖對不到，照〈鎖不到的時候〉。(4) **這一步是某一刻的快照**：頁面自己的 JS 能讀 `location.hash`，所以一次性碼對落地頁不是秘密，一個敵意頁面可以在檢查之後把自己導到別的主機並複製 fragment，鎖照樣對得到。擋它的是讀取本身：區塊二的首屏與〈讀渲染後的頁面〉在讀取**之前與之後**各從 Safari 那一側讀一次主機，兩次都要等於這一步存的 `landing-<T>.txt`，不同就以 4 結束、不寫出文字。寫出的文字仍是頁面給的，保證的範圍只到〈讀頁面文字用的兩個檔〉的「保證的只有這一句」。(5) Safari 回報的網址對國際化網域名稱是 punycode 還是 Unicode 沒有實測；若是 Unicode，這個形狀檢查會拒絕它（偏向拒絕）。
 
 ## 取一次 API：頁內 fetch，每次換一個變數名
 
@@ -298,25 +438,28 @@ grep -q '[^[:space:]]' "<W>/r-$K.json" || { echo "STOP THE WHOLE RUN: empty resp
 
 ## 讀渲染後的頁面
 
-出版商頁、機構名冊、PsycNet 這類要讀 DOM 的頁面：先照〈一站一個分頁〉開分頁，會轉址的頁面接著跑〈轉址之後、讀內容之前：驗落地主機〉，再跑區塊二（鎖、只有一個、等載完、查訊號、首屏文字），最後讀取。**讀取也是自足的區塊**，用的是〈讀頁面文字用的兩個檔〉的 `<W>/read-20000.js` 與 `<W>/check-read.py`：
+出版商頁、機構名冊、PsycNet 這類要讀 DOM 的頁面：先照〈一站一個分頁〉開分頁（接上落地主機檢查的 skill 接著跑〈轉址之後、讀內容之前：驗落地主機〉），再跑區塊二（鎖、只有一個、等載完、查訊號、首屏文字），最後讀取。**讀取也是自足的區塊**，用的是〈讀頁面文字用的兩個檔〉的 `<W>/read-20000.js` 與 `<W>/check-read.py`；`LAND` 與區塊二同一個寫法（預設 `-`）：
 
 ```bash
 set -euo pipefail
 P="<P>"; T="<T>"; K=<序號，字面值，逐次遞增>
-LAND="<W>/landing-<T>.txt"   # 會轉址的頁面；取 API 的分頁寫 LAND="-"
+LAND="-"   # 預設：不比對落地主機。接上落地主機檢查的 skill 改寫成 LAND="<W>/landing-<T>.txt"
 LOCK=(--profile "$P" --url-endswith "#akashic-$T")
 [ ${#LOCK[@]} -eq 4 ] && [ -n "$P" ] && [ -n "$T" ] && [ -n "$LAND" ] || { echo "lock missing" >&2; exit 1; }
 case "$K" in ''|*[!0-9]*) echo "K must be a number" >&2; exit 1 ;; esac
 n=$(safari-browser documents --json --profile "$P" | python3 -c 'import json,sys;print(sum(1 for d in json.load(sys.stdin) if d.get("url","").endswith(sys.argv[1])))' "#akashic-$T")
 [ "$n" = 1 ] || { echo "tab lock: $n tabs match (need exactly 1) - STOP" >&2; exit 1; }
+rm -f "<W>/r-$K.txt"
+safari-browser documents --json --profile "$P" | python3 "<W>/check-read.py" origin "#akashic-$T" > "<W>/o-before-$K.txt"
 safari-browser js "${LOCK[@]}" --large --output "<W>/raw-$K.json" "$(cat "<W>/read-20000.js")"
-python3 "<W>/check-read.py" "<W>/raw-$K.json" "<W>/r-$K.txt" "$LAND"
+safari-browser documents --json --profile "$P" | python3 "<W>/check-read.py" origin "#akashic-$T" > "<W>/o-after-$K.txt"
+python3 "<W>/check-read.py" read "<W>/raw-$K.json" "<W>/r-$K.txt" 20000 "$LAND" "<W>/o-before-$K.txt" "<W>/o-after-$K.txt"
 grep -q '[^[:space:]]' "<W>/r-$K.txt" || { echo "empty read - read failed" >&2; exit 1; }
 ```
 
-輸出的 `READ-OK` 行有三件事要記進報告：`host`（落地主機）、`truncated`（`yes` 就在回報寫「已截」，並附 `raw_length`）、`kept`（讀回的長度）。**以 4 結束（`READ-REJECT`）＝主機在驗過之後變了**，文字不寫出、不當證據，照落地主機區塊的 REJECT 處理（記「不可達：落地主機不合」、關掉這個分頁）；`READ-FAIL`（結束碼 1）是讀回的東西不能用，照〈鎖不到的時候〉。
+輸出的 `READ-OK` 行有三件事要記進報告：`host`（Safari 回報的主機；比對過落地主機時就是驗過的落地主機）、`truncated`（`yes` 就在回報寫「已截」，並附 `raw_length`——那是頁面回報的原文長度）、`kept`（寫出的長度）。**以 4 結束（`READ-REJECT`）＝讀取前後主機不同、或與驗過的落地主機不同**，文字不寫出、不當證據，照落地主機區塊的 REJECT 處理（記「不可達：落地主機不合」、關掉這個分頁）；`READ-FAIL`（結束碼 1）是讀回的東西不能用，照〈鎖不到的時候〉。
 
-**取值的運算式要設長度上限並剔除控制與格式字元**：落地頁是第三方內容，全文進 context 沒有上限；零寬、bidi 方向控制與 tag 字元能讓一句話讀起來換成另一句，變體選擇子能一個字元夾帶一個位元組。運算式、剔除的集合、與 repo 輸出端的比對、副作用都在〈讀頁面文字用的兩個檔〉。20,000 個 UTF-16 單位不是量出來的，是「一頁刊物資訊夠用、又不把整頁攤進 context」的取捨；區塊二的首屏用同一個運算式、上限 3,000。**存進 `sources/` 的 DOM 讀取（〈承重存檔〉那一列）也是剔除後的文字**。本 plugin 沒有另外的文字消毒命令（`akashic` 的消毒都在輸出端、不接 stdin）——所以讀回的文字**不整頁貼進對話或報告**，只引用含要查的刊名、號或 DOI 的句子。
+**讀取要設長度上限並剔除控制與格式字元**：落地頁是第三方內容，全文進 context 沒有上限；零寬、bidi 方向控制與 tag 字元能讓一句話讀起來換成另一句，變體選擇子能一個字元夾帶一個位元組。上限與剔除在 `check-read.py` 做（頁面碰不到的那一側；運算式的截斷只是傳輸量的上限，頁面可以偽造），集合、與 repo 輸出端的比對、副作用都在〈讀頁面文字用的兩個檔〉。20,000 個 UTF-16 單位不是量出來的，是「一頁刊物資訊夠用、又不把整頁攤進 context」的取捨；區塊二的首屏同一套、上限 3,000。**存進 `sources/` 的 DOM 讀取（〈承重存檔〉那一列）也是剔除後的文字**。本 plugin 沒有另外的文字消毒命令（`akashic` 的消毒都在輸出端、不接 stdin）——所以讀回的文字**不整頁貼進對話或報告**，只引用含要查的刊名、號或 DOI 的句子。
 
 讀完**核對是對的那一頁**：頁面上的 DOI 或標題就是這次要的；對不上就記進回報、不當證據、不重試。讀回是空的（0 byte 或只有空白）也算讀失敗。一次讀一頁、逐頁之間跑節奏工具；要讀下一頁，照〈會轉址的頁面〉導航、**用新碼先驗落地主機再跑區塊二**。
 
@@ -327,7 +470,7 @@ grep -q '[^[:space:]]' "<W>/r-$K.txt" || { echo "empty read - read failed" >&2; 
 | 讀法 | 手上的是什麼 | 存檔時怎麼寫 |
 |---|---|---|
 | 頁內 `fetch` 的 `r.text()`（〈取一次 API〉） | 瀏覽器**解碼後**的回應文字，不是伺服器送出的位元組（編碼已轉換、壓縮已解開） | `origin` 寫「經 safari-browser 頁內 fetch 取得的回應文字（已解碼）＋網址」；`media-type` 照區塊印出的 `c`（回應的 `Content-Type`） |
-| DOM 讀取（innerText 之類，〈讀渲染後的頁面〉） | 瀏覽器**渲染後**的檢視，不是 HTTP 回應；腳本、樣式、隱藏元素都不在 | `origin` 寫「經 safari-browser 讀取的渲染後頁面文字（剔除後）＋讀取的運算式（`read-<上限>.js`）＋網址＋落地主機」，**被截時寫明已截與原文長度**；`media-type: "text/plain"`，不是 `text/html` |
+| DOM 讀取（innerText 之類，〈讀渲染後的頁面〉） | 瀏覽器**渲染後**的檢視，不是 HTTP 回應；腳本、樣式與 `display:none`／`visibility:hidden` 的元素不在，但以 `opacity:0`、移出畫面、`font-size:0`、與背景同色、裁切藏起來的文字**仍在**（`innerText` 只排除前兩種）。文字是頁面給的：頁面不誠實時可以說謊，存檔證明的是「那個主機上的頁面這樣寫」，不是「這件事為真」 | `origin` 寫「經 safari-browser 讀取的渲染後頁面文字（剔除後）＋讀取的運算式（`read-<上限>.js`）＋網址＋落地主機（Safari 回報的，讀取前後各一次）」，**被截時寫明已截與頁面回報的原文長度**；`media-type: "text/plain"`，不是 `text/html` |
 | WebFetch 或任何模型轉述 | 模型的摘要，不是頁面 | **不存**。存進去等於宣稱那個網址回了這些位元組，而它沒有 |
 
 讀回是空的就不存（`store-source` 對 0 byte 本來就拒）。頁內 `fetch` 若讀 `r.arrayBuffer()`，拿到的是回應本文的位元組（`Content-Encoding` 的壓縮已解開、沒有字元集轉換）——`akashic fulltext fetch` 存 PDF 就是這樣；本檔的區塊讀 `r.text()`，所以是上表第一列。由 binary 自己取網址的做法記在 #591。

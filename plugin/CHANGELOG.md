@@ -45,6 +45,7 @@
 ## #611、#692、#693、#708 — R3 修正（2026-10-02）
 
 - **同一個 id 被另一組候選占著的拒絕看得到出路**（#611，`akashic_record_divergence`、`record-divergence`、匯入的提名）：訊息逐行、出路在第二行（`akashic divergences` 看它、CLI `resolve-divergence` 合併、`dismiss-divergence`／MCP `akashic_dismiss_divergence` 放棄它）；R2 的單行訊息在兩面的錯誤出口都被截在出路之前。`import_zotero` 的 `failed` 列原因接成一行，截 512 之後出路仍完整。MCP 描述的出路改成 `akashic_dismiss_divergence` 或合併。
+- **讀頁面的主機與剔除改在頁面碰不到的那一側**（#692，`web-access.md`、`akashic-verify-venue`）：`safari-browser js` 在頁面自己的 JS 環境裡求值，頁面的腳本可以偽造回傳的主機、讓剔除失效（R2 宣稱的「文字一定出自宣告的主機」「字元層的隱形通道擋得住」都不成立）。現在主機取自 Safari 回報的分頁網址、讀取前後各一次；剔除不可見字元與長度上限由 `check-read.py` 再做一次；落地主機檢查改成選用（`LAND` 預設 `-`，只有 verify-venue 的第 4 源接上），REJECT 之後不留「驗過的」檔、也不留上一次的文字；使用者確認的網址被轉到別的主機也算不合。保證只到「文字出自讀取前後 Safari 回報的網址都在驗過的主機上的分頁」——頁面控制自己的內容，仍可以在文字裡說謊。`check-read.py` 的用法改了（`origin`／`landing`／`read` 三種），照 web-access.md 重寫一次。
 - **`akashic-mcp` wrapper 讀不到版本時拒絕下載**（#693）：plugin.json 沒有 `binary_version`／`version`、`~/bin` 又沒有現成的 binary 時，不再下載 latest 的 asset 來執行（R2 讓 curl 退路走 latest，成了一條沒有完整性檢查的下載後執行的路；完整性檢查是 #714）。現在印出原因、請使用者重新安裝 plugin，並以 1 結束；有現成 binary 時照舊執行它。
 
 plugin 版號沒有動（wrapper 與 skill 文字的改動）。
@@ -78,7 +79,7 @@ plugin 版號沒有動（skill 文字的改動）。
 - **`akashic_import_zotero` 的說明還原**（#611）：R1 為了擠進 54,000 預算修剪掉的承重語意補回（`groupSize` 是共用的 work 數、`groupTooLarge` 列不帶 `other`、一對都不記、DOI 相等只是提名、recorded／alreadyRecorded 與沒記下來的各是哪幾種、`updatedHashOnly` 的「Zotero 已同步」與「不宣稱原因」）；MCP 呼叫端讀不到 CLI `--help`，這些只能在說明裡。`tools/list` 一行 55,069 bytes，預算 60,000。
 - **同一個 id 被另一組候選占著的拒絕有專用訊息**（#611，`akashic_record_divergence`、`record-divergence` 與匯入的提名共用）：點名現有那一筆的候選、說原因是 key 不同（`rename` 就地改寫候選而不重算 id）還是只有形狀不同、出路是 `resolve-divergence` 或 `dismiss-divergence`；先前把原因一律說成形狀、出路叫人找被 quarantine 的檔。兩面的說明各加一句。
 - **匯入的提名寫入被拒時再讀一次磁碟**（#611）：那一對已被別的程序記下（可能帶判斷）就報 `alreadyRecorded`，不再報 `failed`、不再讓 CLI 以 1 結束。CLI 摘要行只數真的記下的對，沒記下的另標「（另有 M 對沒記下）」。
-- **`akashic-verify-venue` 第 4 源的讀取程序**（#692，`web-access.md`、SKILL）：落地主機檢查每載入一個新頁（含同分頁導航到下一個 DOI）都要跑；區塊二與讀取在**同一次求值**裡讀回主機與文字、與驗過的主機比對，主機變了就不寫出文字、結束碼 4；讀取的剔除集合與 repo 輸出端的 `UnsafeToEmitScalar` 同一份（變體選擇子、tag 字元、CGJ、filler、U+2800、Zl／Zp／Zs、Co 都剔除；逐碼位對照過）；`truncated` 由剔除之前的長度算，不再用「讀回剛好 20,000」；區塊二的首屏也經同一個運算式。沒有對 Safari 實跑，區塊以假的 `safari-browser` 測過。共用的 `web-access.md` 的落地主機一節寫窄成「會被第三方轉到自選主機的頁面」，並列出還沒接上的 skill。
+- **`akashic-verify-venue` 第 4 源的讀取程序**（#692，`web-access.md`、SKILL）：落地主機檢查每載入一個新頁（含同分頁導航到下一個 DOI）都要跑；區塊二與讀取~~在**同一次求值**裡讀回主機與文字、~~與驗過的主機比對，主機變了就不寫出文字、結束碼 4（R3 更正：在頁面裡求值的主機與剔除都可以被頁面偽造，見上面的 R3 修正）；讀取的剔除集合與 repo 輸出端的 `UnsafeToEmitScalar` 同一份（變體選擇子、tag 字元、CGJ、filler、U+2800、Zl／Zp／Zs、Co 都剔除；逐碼位對照過）；`truncated` 由剔除之前的長度算，不再用「讀回剛好 20,000」；區塊二的首屏也經同一個運算式。沒有對 Safari 實跑，區塊以假的 `safari-browser` 測過。共用的 `web-access.md` 的落地主機一節寫窄成「會被第三方轉到自選主機的頁面」，並列出還沒接上的 skill。
 - **`akashic-mcp` wrapper 的下載失敗訊息**（#693）：UTF-8 locale 下 bash 3.2 把緊接全形標點的 `$VAR` 讀成變數名的一部分，`set -u` 讓訊息印不出來（改 `${VAR}`，測試改在 UTF-8 locale 跑）；plugin.json 讀不到版本時不再印出不存在的 `akashic-mcp-v` tag 與網址（curl 退路走 latest）。wrapper 下載後不驗完整性的缺口有了追蹤 issue **#714**。
 - **App 的 legacy 拷貝提示**（#708）：標題不再說後續錯誤「與這份拷貝無關」（`laterWriteRefused` 的情形原因正是這份拷貝）；有後續寫入被拒的筆數標題另說，那一列帶與 CLI／MCP 同一句附註。範圍結束後晚到的寫入（`Task { }` 繼承 task-local）改成擲 `legacyCopyNotRemoved`，不再安靜收進已取走報告的帳本。
 

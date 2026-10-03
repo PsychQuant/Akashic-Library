@@ -47,11 +47,17 @@ final class FulltextFetchPathTests: XCTestCase {
         var calls: [String] = []
         /// 送進頁面的每一段 JS（`js` 與 `wait --js`）。
         var injected: [String] = []
+        /// 測試接縫：先問它，回非 nil 就用它的答案（讓頁面隨呼叫次數改變：還在載入、之後換成登入頁）。
+        var hook: ((_ args: [String], _ fake: FakeBrowser) -> SafariRun?)?
         init(_ s: Scenario) { scenario = s }
 
         private func opt(_ args: [String], _ name: String) -> String? { args.firstIndex(of: name).flatMap { $0 + 1 < args.count ? args[$0 + 1] : nil } }
 
         func run(_ args: [String]) -> SafariRun {
+            if let hook, let answer = hook(args, self) {
+                if args[0] == "js" { injected.append(args.last!) }
+                return answer
+            }
             switch args[0] {
             case "documents":
                 let items = tabs.enumerated().map { i, t in
@@ -256,9 +262,10 @@ final class FulltextFetchPathTests: XCTestCase {
         XCTAssertTrue(errText.contains("may have started a download"), errText)
     }
 
-    /// 登入頁維持整批暫停（使用者 2026-10-02：登入頁、驗證頁、封鎖頁維持現行的處置）。
+    /// 登入頁維持整批暫停（使用者 2026-10-02：登入頁、驗證頁、封鎖頁維持現行的處置）。登入頁是 HTML（#613 R2 起 PDF 的判斷排在最前面，
+    /// 這個案例先前沿用預設的 `application/pdf`，靠登入頁長相的檢查排在 PDF 之前才通過）。
     func testRedirectedOffSiteAfterNavigationStops() {
-        var s = Scenario(); s.afterNavURL = "https://sso.other.example/login"; s.afterNavTitle = "Sign in"
+        var s = Scenario(); s.afterNavURL = "https://sso.other.example/login"; s.afterNavTitle = "Sign in"; s.afterNavContentType = "text/html"
         assertStop(run(s))
     }
 

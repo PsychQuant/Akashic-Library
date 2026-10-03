@@ -103,10 +103,10 @@ struct FulltextFetchCmd: ParsableCommand {
         abstract: "在使用者自己的 Safari 裡導航到頁面自己的 PDF 連結、交給人存檔；不取位元組、不寫檔；結束碼 6＝整批暫停",
         discussion: """
         只用瀏覽器導航（不在頁內取檔、不拼出版商網址）。結束碼：7 交給人，批次繼續（PDF 已顯示——含在別的主機上顯示、頁面的下載按鈕要人按、\
-        分頁到了別的主機而沒有任何驗證／封鎖／登入的標記、DOI 解不開；原因在 stdout 的 `handover:` 一行；人存檔之後用 `fulltext take`）；\
+        分頁到了別的主機、頁面載完而沒有命中驗證／封鎖／登入的封閉清單（不代表不是登入頁）、DOI 解不開（doi.org 自己的查無頁）；原因在 stdout 的 `handover:` 一行；人存檔之後用 `fulltext take`）；\
         8 等人驗證（CAPTCHA 等，只在文章站本身或已知的驗證服務上成立；使用者驗證完加 stdout `resume:` 一行印出的 \
         --resume-tab／--resume-origin（導航之後的驗證另有 --resume-stage followed）在同一個分頁接著走）；\
-        9 這個站今天（Asia/Taipei）已經 10 次嘗試，停這個站；6 整批暫停：其他起疑訊號（含其他主機上的驗證字樣、HTTP 403／429、登入頁），\
+        9 這個站今天（Asia/Taipei）已經 10 次嘗試，停這個站；6 整批暫停：其他起疑訊號（含其他主機上的驗證字樣、HTTP 403／429、登入頁、停在 doi.org 卻沒有查無證據、別的主機上的頁面 60 秒沒載完），\
         分頁留著給使用者看；3 頁面上找不到 PDF 連結；1 自動化失敗（看 stderr）。沒有結束碼 0。命令列本身打錯是 64。\
         每次準備導航到 PDF 就在帳本（預設 $HOME/Library/Application Support/akashic/fulltext-attempts.jsonl，在 store 之外）記一次；\
         查數與記錄是一步（跨行程的鎖）。--ledger 只給測試：換帳本等於重算上限，不要為了繞過每站 10 次而用它。
@@ -130,7 +130,7 @@ struct FulltextFetchCmd: ParsableCommand {
     @Option(name: .customLong("resume-origin"), help: "與 --resume-tab 一起給：文章站的 https://<主機>（結束碼 8 印出的值）；article 階段分頁此刻必須顯示它")
     var resumeOrigin: String?
 
-    @Option(name: .customLong("resume-stage"), help: "與 --resume-tab 一起給：驗證發生在哪一步，article（導航到 PDF 連結之前，預設）或 followed（之後；結束碼 8 有印就照抄）")
+    @Option(name: .customLong("resume-stage"), help: "與 --resume-tab 一起給：驗證發生在哪一步，article（導航到 PDF 連結之前，預設）或 followed（之後；結束碼 8 有印就照抄；那個分頁要顯示文章站、已知驗證服務或 PDF，否則拒絕）")
     var resumeStage: String = "article"
 
     @Option(name: .long, help: "safari-browser 的路徑")

@@ -129,43 +129,104 @@ public enum BotSignals {
 
     // MARK: 登入／驗證頁的長相（分頁離開文章站之後，沒有任何訊號標籤時的第二道檢查）
 
-    /// 網址主機與路徑的字詞（不看查詢字串：簽章網址的查詢是一長串隨機字元）出現下列任何一個，或標題帶下列片語，就是「登入頁」／
+    /// 網址的主機與路徑（不看查詢字串與片段：簽章網址的查詢是一長串隨機字元）出現下列任何一個字詞，或標題帶下列片語，就是「登入頁」／
     /// 「驗證頁」的長相。**封閉清單**，不是偵測訊號的下限：它只決定「分頁到了別的主機、沒有任何標籤命中」時是整批暫停還是交給人
     /// （使用者 2026-10-02：登入頁、驗證頁、封鎖頁維持整批暫停；其餘沒有標記的頁面交給人）。拿不準時往停的那一邊倒，但清單不得
     /// 依「看起來也像」擴張——一個被誤判成登入頁的 CDN 主機只是多停一次，漏掉一個登入頁則會把使用者導去輸入帳密。
+    ///
+    /// **怎麼比**（#613 R2 verify 第 1、2、6、8 則：先前三個面都是子字串，`Research design in …` 因為 `design in` 含 `sign in` 被判成登入頁、
+    /// `/10.1111/cas.12345.pdf` 因為 DOI 片段 `cas` 被判成登入頁）：
+    /// - **主機**：以非字母數字切開的每個字詞（`sso.uni.example`、`idp-prod.uni.example`），另加去掉連字號的整個標籤（`sign-in.example`）。
+    /// - **路徑**：**整段**比（`/login`、`/cas/login`）。一段可以帶一個網頁副檔名（`pageExtensions`：`/login.php`），可以有 `;` 之後的路徑參數
+    ///   （`/login;jsessionid=…`），連字號與底線可省（`/sign-in`、`/log_in`）。不從一段裡切出片段——DOI 與檔名的一部分不是登入頁。
+    /// - **標題**：片語是**整個字詞**的連續序列（`Please log in to continue` 是，`Analog input` 不是；`Sign-In` 與 `sign in` 同一個片語）。
     static let loginTokens: Set<String> = ["login", "logon", "signin", "sso", "auth", "authenticate", "shibboleth", "saml", "openathens", "wayf", "idp", "cas"]
     static let verificationTokens: Set<String> = ["verify", "verification", "challenge", "captcha", "validate", "turnstile"]
     static let loginTitlePhrases = ["sign in", "sign-in", "log in", "log-in", "login", "single sign-on", "authentication required"]
     static let verificationTitlePhrases = ["verify", "verification", "are you a human", "are you a robot"]
+    /// 路徑的一段可以帶的網頁副檔名（**封閉清單**）。`cas.12345`、`cas.12345.pdf` 的「副檔名」不在這裡，所以那一段不是 `cas`。
+    static let pageExtensions: Set<String> = ["php", "asp", "aspx", "jsp", "do", "action", "cgi", "htm", "html", "pl"]
 
-    /// `"login"`、`"verification"`，或 nil（沒有登入／驗證頁的長相）。
+    /// `"login"`、`"verification"`，或 nil（沒有登入／驗證頁的長相）。網址與標題任一邊有登入頁的長相就是 `login`，否則看驗證頁。
     public static func gateLook(url: String, title: String) -> String? {
-        let parts = URLSplit(url)
-        let hostAndPath = (PyText.string(parts.netloc) + " " + parts.path).lowercased()
-        var tokens = Set(hostAndPath.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init))
-        for compound in ["sign-in", "sign_in", "log-in", "log_in"] where hostAndPath.contains(compound) { tokens.insert("signin") }
-        let lowerTitle = title.lowercased()
-        if !tokens.isDisjoint(with: loginTokens) || loginTitlePhrases.contains(where: { lowerTitle.contains($0) }) { return "login" }
-        if !tokens.isDisjoint(with: verificationTokens) || verificationTitlePhrases.contains(where: { lowerTitle.contains($0) }) { return "verification" }
+        let looks = [urlGateLook(url), titleGateLook(title)]
+        if looks.contains("login") { return "login" }
+        if looks.contains("verification") { return "verification" }
         return nil
+    }
+
+    /// 只看網址（主機與路徑）的那一半。DOI 落地頁用它：落地頁的標題是文章標題，標題片語在那裡只會誤判。
+    public static func urlGateLook(_ url: String) -> String? {
+        let parts = URLSplit(url)
+        let host = PyText.string(parts.netloc).lowercased()
+        var words = Set(host.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init))
+        for label in host.split(separator: ".") { words.insert(label.replacingOccurrences(of: "-", with: "")) }
+        for segment in parts.path.split(separator: "/") { words.formUnion(pathSegmentWords(String(segment))) }
+        if !words.isDisjoint(with: loginTokens) { return "login" }
+        if !words.isDisjoint(with: verificationTokens) { return "verification" }
+        return nil
+    }
+
+    /// 路徑的一段 → 拿來比的字（整段；去掉 `;` 之後的路徑參數與一個網頁副檔名；另一個去掉連字號與底線的寫法）。
+    static func pathSegmentWords(_ raw: String) -> Set<String> {
+        var segment = (raw.removingPercentEncoding ?? raw).lowercased()
+        if let semicolon = segment.firstIndex(of: ";") { segment = String(segment[..<semicolon]) }
+        if let dot = segment.lastIndex(of: "."), pageExtensions.contains(String(segment[segment.index(after: dot)...])) {
+            segment = String(segment[..<dot])
+        }
+        return [segment, segment.replacingOccurrences(of: "-", with: "").replacingOccurrences(of: "_", with: "")]
+    }
+
+    /// 只看標題的那一半：片語是整個字詞的連續序列。
+    public static func titleGateLook(_ title: String) -> String? {
+        let words = titleWords(title)
+        let has: (String) -> Bool = { phrase in
+            let p = titleWords(phrase)
+            guard !p.isEmpty, p.count <= words.count else { return false }
+            return (0...(words.count - p.count)).contains { Array(words[$0..<($0 + p.count)]) == p }
+        }
+        if loginTitlePhrases.contains(where: has) { return "login" }
+        if verificationTitlePhrases.contains(where: has) { return "verification" }
+        return nil
+    }
+
+    /// 標題切成字詞：字母與數字以外的一律是分隔（`Sign-In` → `sign`、`in`）。
+    static func titleWords(_ text: String) -> [String] {
+        text.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
     }
 
     // MARK: 已知的驗證服務（等人驗證能成立的第二種主機）
 
     /// 等人驗證只在兩種主機上成立（使用者 2026-10-02）：文章站本身，或下面這份**封閉**的驗證服務清單（Cloudflare 挑戰、hCaptcha、
-    /// reCAPTCHA）。其他主機上出現驗證字樣或網址標記，一律整批暫停——任何 DOI 註冊者都能讓落地頁落在自己的主機，而假的 CAPTCHA 頁
-    /// （要使用者貼上指令到終端機那一類）正是利用「請完成這個驗證」的信任。不得依「看起來也是驗證服務」類推第四個。
+    /// reCAPTCHA）。其他主機上出現驗證字樣或網址標記，一律整批暫停。不得依「看起來也是驗證服務」類推第四個。
+    ///
+    /// **這條規則擋得住什麼、擋不住什麼**（#613 R2 verify 第 5、28、29 則）：它擋的是**之後的轉址**——文章站把分頁送到另一個主機，
+    /// 那個主機要人驗證。它**擋不住文章站本身**：文章站就是 doi.org 解析到的主機，而那是 DOI 註冊者決定的，所以註冊者自己架的假 CAPTCHA 頁
+    /// （要使用者貼上指令到終端機那一類）落在文章站上仍是等人驗證（結束碼 8）——使用者的裁決是文章站算，行為照裁決。那一格唯一的防線是
+    /// **使用者自己看頁面**：程式與 agent 都看不到頁面，所以結束碼 8 的訊息要 agent 請使用者看、頁面要求貼上或執行任何東西就整批停、
+    /// 只在使用者說完成之後接著走。
     static let knownVerificationHosts: [String] = ["challenges.cloudflare.com", "hcaptcha.com", "recaptcha.net"]
 
     /// reCAPTCHA 也從 google.com 提供：只收 `/recaptcha/` 路徑，不收 google.com 的其他頁。
     static let knownVerificationPathPrefixes: [(host: String, prefix: String)] = [("www.google.com", "/recaptcha/"), ("google.com", "/recaptcha/")]
 
-    /// 這個網址在不在已知的驗證服務上（主機等於清單裡的某個、或是它的子網域；https 才算）。
+    /// 這個網址在不在已知的驗證服務上（主機等於清單裡的某個、或是它的子網域；https 才算）。主機要是一個乾淨的 DNS 名稱——每個標籤只有
+    /// ASCII 字母、數字與連字號：主機段夾著反斜線、分號、百分比編碼、空白、帳密（`@`）或埠號（`:`）時不算（R2 verify 第 31 則：先前對原樣的
+    /// 主機段比字尾，`evil.example\.hcaptcha.com` 也算已知）。
     public static func isKnownVerificationService(url: String) -> Bool {
         let parts = URLSplit(url)
         guard PyText.string(parts.scheme) == "https" else { return false }
         let host = PyText.string(parts.netloc).lowercased()
+        guard isPlainDNSName(host) else { return false }
         if knownVerificationHosts.contains(where: { host == $0 || host.hasSuffix("." + $0) }) { return true }
         return knownVerificationPathPrefixes.contains { host == $0.host && parts.path.hasPrefix($0.prefix) }
+    }
+
+    /// 每個標籤非空、只有 ASCII 字母、數字與連字號。
+    static func isPlainDNSName(_ host: String) -> Bool {
+        let labels = host.split(separator: ".", omittingEmptySubsequences: false)
+        return labels.count >= 2 && labels.allSatisfy { label in
+            !label.isEmpty && label.unicodeScalars.allSatisfy { $0.isASCII && ($0.properties.isAlphabetic || ("0"..."9").contains($0) || $0 == "-") }
+        }
     }
 }

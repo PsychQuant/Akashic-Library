@@ -99,6 +99,48 @@ final class BotSignalsResponseTests: XCTestCase {
         XCTAssertNil(BotSignals.gateLook(url: "https://hub.other.example/retrieve/x", title: "Retrieving"))
     }
 
+    /// 標題片語是**整個字詞**的連續序列，不是子字串（#613 R2 verify 第 1、2、6、8 則）：`design in` 含 `sign in`、`analog input` 含
+    /// `log in`、`Verifying` 含 `verify`——這些都是文章標題，不是登入頁。標題取自審查者的實測。
+    func testTitlePhrasesAreWholeWords() {
+        let neutral = "https://hub.other.example/retrieve/x"
+        for title in ["Research design in experimental psychology", "Analog input devices", "Experimental design in clinical psychology",
+                      "Sampling design in survey research", "Dialog in therapy", "Analog input scaling", "Quasi-experimental design in clinical psychology",
+                      "A catalog in the wild", "Verifying the factor structure", "Design in Education", "Research Design in Psychology",
+                      "Reassign in place", "Unverifiable claims", "Blogin notes"] {
+            XCTAssertNil(BotSignals.gateLook(url: neutral, title: title), title)
+        }
+        for (title, look) in [("Sign in", "login"), ("Sign-In | Example", "login"), ("Please log in to continue", "login"), ("Log-in", "login"),
+                              ("Login – Example University", "login"), ("Single Sign-On", "login"), ("Authentication required", "login"),
+                              ("Verify your identity", "verification"), ("Are you a robot?", "verification"), ("Verification", "verification")] {
+            XCTAssertEqual(BotSignals.gateLook(url: neutral, title: title), look, title)
+        }
+    }
+
+    /// 網址路徑比的是**整段**（可帶一個網頁副檔名、可有連字號或底線），不從一段裡切出片段：DOI 與檔名裡的 `cas`、`challenge`、`auth`
+    /// 不是登入頁（R2 verify 第 2、6 則）。主機仍逐字比（`sso.`、`idp-prod.`）。
+    func testPathWordsAreWholeSegments() {
+        for url in ["https://pub.example/doi/pdf/10.1016/j.cas.2019.01.001", "https://cdn.example/10.1111/cas.12345.pdf",
+                    "https://cdn.example/files/the-challenge-of-replication.pdf", "https://pub.example/doi/full/10.1111/cas.12345",
+                    "https://pub.example/authors/guide", "https://pub.example/loginhelp-faq", "https://pub.example/captchas-in-hci.html.bak"] {
+            XCTAssertNil(BotSignals.gateLook(url: url, title: "Article"), url)
+        }
+        for (url, look) in [("https://pub.example/login", "login"), ("https://pub.example/Login.aspx?x=1", "login"), ("https://pub.example/sign-in", "login"),
+                            ("https://pub.example/u/log_in/", "login"), ("https://pub.example/cas/login", "login"), ("https://pub.example/login;jsessionid=AB", "login"),
+                            ("https://idp-prod.uni.example/x", "login"), ("https://pub.example/auth/realms/x", "login"),
+                            ("https://pub.example/%6Cogin", "login"), ("https://pub.example/captcha/", "verification"), ("https://pub.example/verify.html", "verification")] {
+            XCTAssertEqual(BotSignals.gateLook(url: url, title: "Article"), look, url)
+        }
+    }
+
+    /// 已知驗證服務的主機要是一個乾淨的 DNS 名稱（R2 verify 第 31 則）：主機段夾著反斜線、分號、百分比編碼、空白或帳密時不算。
+    func testKnownVerificationServicesRejectNonCanonicalHosts() {
+        for url in ["https://evil.example\\.hcaptcha.com/", "https://evil.example;.recaptcha.net/", "https://evil.example%2f.hcaptcha.com/",
+                    "https://evil.example .hcaptcha.com/", "https://user@hcaptcha.com/", "https://hcaptcha.com:443/x", "https://hcaptcha.com./x"] {
+            XCTAssertFalse(BotSignals.isKnownVerificationService(url: url), url)
+        }
+        XCTAssertTrue(BotSignals.isKnownVerificationService(url: "https://HCAPTCHA.com/x"), "大小寫不影響")
+    }
+
     func testTheVerificationSetIsExactlyTheFourDecided() {
         XCTAssertEqual(BotSignals.humanVerificationLabels, ["captcha", "human-check", "cloudflare-challenge", "perimeterx-press-and-hold"])
         let labels = Set(BotSignals.signals.map(\.label))
@@ -230,6 +272,21 @@ final class FulltextAttemptLedgerTests: XCTestCase {
         try Data(String(repeating: line, count: 10).utf8).write(to: URL(fileURLWithPath: ledger.path))
         XCTAssertEqual(try ledger.count(site: "pub.example", on: now), 10)
         XCTAssertEqual(try ledger.reserve(site: "pub.example", landing: "x", at: now), .capReached(used: 10))
+    }
+
+    /// 傳入的站名也正規化（小寫、去頭尾空白）：先前只在讀回時小寫，`reserve(site: "UP.example")` 比對的是原樣的字串，連呼 12 次每次都
+    /// 拿到第 1 格——上限從未生效（#613 R2 verify 第 26 則）。讀回時同樣去頭尾空白（第 30 則）。
+    func testTheSiteGivenToTheLedgerIsNormalisedLikeTheSiteReadBack() throws {
+        for i in 1...FulltextAttemptLedger.dailyCap {
+            XCTAssertEqual(try ledger.reserve(site: i.isMultiple(of: 2) ? "UP.example" : " up.example ", landing: "x", at: now), .granted(used: i))
+        }
+        XCTAssertEqual(try ledger.reserve(site: "Up.Example", landing: "x", at: now), .capReached(used: FulltextAttemptLedger.dailyCap))
+        XCTAssertEqual(try ledger.count(site: "UP.EXAMPLE", on: now), FulltextAttemptLedger.dailyCap)
+        try ledger.append(site: "UP.example", landing: "x", at: now)
+        XCTAssertEqual(try ledger.count(site: "up.example", on: now), FulltextAttemptLedger.dailyCap + 1)
+        XCTAssertFalse(try String(contentsOfFile: ledger.path, encoding: .utf8).contains("UP.example"), "寫入端一律寫正規化的站名")
+        XCTAssertEqual(FulltextAttemptLedger.parse(#"{"at":"2026-10-01T09:00:00+08:00","site":" Pub.Example "}"#)?.site, "pub.example")
+        XCTAssertNil(FulltextAttemptLedger.parse(#"{"at":"2026-10-01T09:00:00+08:00","site":"   "}"#), "只有空白的站名讀不懂")
     }
 
     /// Swift 的 `"\r\n"` 是一個 `Character`：切 `"\n"` 的實作對 CRLF 的檔完全不切行，整檔被當成「第 1 行讀不懂」。

@@ -65,15 +65,20 @@ public struct FulltextAttemptLedger {
         guard (st.st_mode & S_IFMT) == S_IFREG else {
             throw SkillToolError.failure("the attempt ledger \(displaySafeInvisible(path, max: 400)) is a \(displaySafeInvisible(OutputFile.kindName(st.st_mode), max: 40)), not a regular file — refusing to follow or replace it")
         }
-        // `O_NONBLOCK`：lstat 與 open 之間被換成 FIFO 時，阻塞的 open 會一直等下去；非阻塞開，再用 fstat 確認
+        // `O_NONBLOCK`：lstat 與 open 之間被換成 FIFO 時，阻塞的 open 會一直等下去；非阻塞開，再用 fstat 確認開到的是普通檔
         let fd = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
         guard fd >= 0 else { throw SkillToolError.failure("cannot read the attempt ledger \(displaySafeInvisible(path, max: 400)): \(displaySafeInvisible(String(cString: strerror(errno)), max: 200))") }
         defer { close(fd) }
+        var opened = stat()
+        guard fstat(fd, &opened) == 0, (opened.st_mode & S_IFMT) == S_IFREG else {
+            throw SkillToolError.failure("the attempt ledger \(displaySafeInvisible(path, max: 400)) is not a regular file — refusing to read it")
+        }
         return try entries(in: try readAll(fd))
     }
 
     /// 同一個主機、與 `now` 同一個 Asia/Taipei 日曆日的嘗試次數。
     public func count(site: String, on now: Date) throws -> Int {
+        let site = Self.siteName(site)
         let day = Self.taipeiDay(now)
         return try load().filter { $0.site == site && Self.taipeiDay($0.at) == day }.count
     }
@@ -81,7 +86,8 @@ public struct FulltextAttemptLedger {
     /// 查數與記錄是一步：在跨行程的獨占鎖之下重讀帳本、數今天這個站的次數，沒到 `cap` 就記一筆（`O_APPEND`，一次 `write`；
     /// 目錄 0700、檔 0600）。到上限時什麼都不寫。帳本位置是 symlink 或不是普通檔時拒絕；帳本讀不懂時拒絕。
     public func reserve(site: String, landing: String, at now: Date, cap: Int = FulltextAttemptLedger.dailyCap) throws -> Reservation {
-        try withLockedFile { fd, existing in
+        let site = Self.siteName(site)
+        return try withLockedFile { fd, existing in
             let day = Self.taipeiDay(now)
             let used = try entries(in: existing).filter { $0.site == site && Self.taipeiDay($0.at) == day }.count
             afterRead?()
@@ -93,6 +99,7 @@ public struct FulltextAttemptLedger {
 
     /// 無條件記一次嘗試（同樣在鎖之下、同樣補檔尾換行）。帳本位置是 symlink 或不是普通檔時拒絕。
     public func append(site: String, landing: String, at now: Date) throws {
+        let site = Self.siteName(site)
         try withLockedFile { fd, existing in
             try writeRecord(fd, existing: existing, site: site, landing: landing, at: now)
         }
@@ -186,13 +193,17 @@ public struct FulltextAttemptLedger {
     /// 一行帳本。`at` 必須帶明確的偏移（`Z` 或 `±hh:mm`）——沒有偏移的時間不知道是哪一天。
     static func parse(_ line: String) -> Entry? {
         guard let obj = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any],
-              let at = obj["at"] as? String, let site = obj["site"] as? String, !site.isEmpty,
+              let at = obj["at"] as? String, let raw = obj["site"] as? String, case let site = siteName(raw), !site.isEmpty,
               hasExplicitOffset(at) else { return nil }
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime]
         guard let date = f.date(from: at) else { return nil }
-        return Entry(at: date, site: site.lowercased())   // 寫入端一律小寫；手改的大小寫不同的一行也要算進同一個站
+        return Entry(at: date, site: site)
     }
+
+    /// 站名的比較形：去頭尾空白、小寫。寫入、查數、讀回都過它——先前只在讀回時小寫，`reserve(site: "UP.example")` 比對的是原樣的字串，
+    /// 上限從未生效（#613 R2 verify 第 26 則）；讀回時也不去空白，手改的 `" pub.example "` 算成另一個站（第 30 則）。少算正是上限要擋的方向。
+    static func siteName(_ site: String) -> String { site.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
 
     static func hasExplicitOffset(_ at: String) -> Bool {
         at.range(of: #"(Z|[+-][0-9]{2}:[0-9]{2})$"#, options: .regularExpression) != nil

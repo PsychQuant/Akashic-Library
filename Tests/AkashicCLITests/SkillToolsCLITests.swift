@@ -220,6 +220,66 @@ final class SkillToolsCLITests: XCTestCase {
         XCTAssertEqual(try runSplit(common + ["--resume-stage", "followed"]).status, 64, "沒有 --resume-tab 就不能有 --resume-stage")
     }
 
+    // MARK: SKILL 第 0 步的 CLI 探測（#613 R2 verify 第 4、13、24 則）
+
+    private func repoRoot() throws -> URL {
+        var dir = URL(fileURLWithPath: #filePath)
+        for _ in 0..<10 {
+            dir.deleteLastPathComponent()
+            if FileManager.default.fileExists(atPath: dir.appendingPathComponent("Package.swift").path) { return dir }
+        }
+        throw XCTSkip("找不到 repo root")
+    }
+
+    /// 把 SKILL.md 第 0 步的 bash 區塊原樣拿出來，在一個只放了指定 `akashic` 的 PATH 上跑；回（結束碼，stdout＋stderr）。
+    private func runStepZeroProbe(akashic: URL) throws -> (status: Int32, output: String) {
+        let skill = try String(contentsOf: repoRoot().appendingPathComponent("plugin/skills/akashic-fetch-fulltext/SKILL.md"), encoding: .utf8)
+        guard let step = skill.range(of: "0. **確認 `akashic` CLI"),
+              let fence = skill.range(of: "```bash\n", range: step.upperBound..<skill.endIndex),
+              let close = skill.range(of: "```", range: fence.upperBound..<skill.endIndex) else {
+            XCTFail("SKILL 第 0 步找不到 bash 區塊"); return (-1, "")
+        }
+        let work = base.appendingPathComponent("probe-\(UUID().uuidString)")
+        let bin = work.appendingPathComponent("bin")
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: bin.appendingPathComponent("akashic"), withDestinationURL: akashic)
+        let block = skill[fence.upperBound..<close.lowerBound].split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: "\n")
+        let script = block.replacingOccurrences(of: "<暫存目錄>", with: work.path) + "\necho PROBE-PASSED\n"
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/bash")
+        p.arguments = ["-c", script]
+        var childEnv = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("AKASHIC_") }
+        for (k, v) in env { childEnv[k] = v }
+        childEnv["PATH"] = bin.path + ":/usr/bin:/bin"
+        p.environment = childEnv
+        let pipe = Pipe()
+        p.standardOutput = pipe; p.standardError = pipe
+        try p.run()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        return (p.terminationStatus, String(decoding: data, as: UTF8.self))
+    }
+
+    /// 第 0 步要分得出比這一輪舊的 CLI：上一輪的 `take` 對 `--title ""` 跳過驗證、結束碼 0，而 SKILL 把 0 讀成「驗證過」。先前的探測只問
+    /// 「`take` 在不在」——舊的 `take` 一樣回 1 加 `--from does not exist`，所以照樣通過。這裡跑 SKILL 裡的那段原文：真的 binary 要過；
+    /// 一個對任何 `take` 都回 1 加 `--from does not exist` 的舊 CLI（不擋空標題）要被擋下。
+    func testTheSkillsStepZeroProbeTellsThisCLIFromAnOlderOne() throws {
+        let real = try runStepZeroProbe(akashic: CLITestHarness.productsDirectory.appendingPathComponent("akashic"))
+        XCTAssertEqual(real.status, 0, real.output)
+        XCTAssertTrue(real.output.contains("PROBE-PASSED"), real.output)
+
+        let oldCLI = base.appendingPathComponent("old-akashic")
+        try Data("#!/bin/sh\necho \"✗ --from does not exist: $4\" >&2\nexit 1\n".utf8).write(to: oldCLI)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: oldCLI.path)
+        let old = try runStepZeroProbe(akashic: oldCLI)
+        XCTAssertNotEqual(old.status, 0, old.output)
+        XCTAssertFalse(old.output.contains("PROBE-PASSED"), old.output)
+        XCTAssertTrue(old.output.contains("先更新 CLI"), old.output)
+
+        let missing = try runStepZeroProbe(akashic: base.appendingPathComponent("no-such-akashic"))
+        XCTAssertNotEqual(missing.status, 0, "沒裝 CLI 也擋：\(missing.output)")
+    }
+
     // MARK: 每站上限的跨行程競爭（#613 修正輪）
 
     /// 一個只夠走到記錄嘗試那一步、導航之後顯示 PDF 的假 safari-browser（一個 shell 腳本）。

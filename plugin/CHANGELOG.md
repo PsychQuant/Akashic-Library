@@ -336,6 +336,8 @@ plugin 的 wrapper 會自動下載新版 `akashic-mcp`，skill 文字可能比 b
 
 **b26 F6 之後**：`akashic_libraries` 的說明把 `libraries` 寫成鍵名的形式（先前只靠 store 的欄位路徑 `akashic.libraries` 過關）；`akashic_doctor` 的 `sources` 說明寫齊 `occupantProblems[]`、`strayTemporaryFiles[]` 與它們的元素鍵（`path`、`kind`、`occupant`、`storedBytes`、`indexedBytes`、`bytes`、`ageSeconds`、`possiblyInProgress`）；`akashic_store_source` 的說明刪掉與 `retrieved` 參數說明重複的一句。回應本身沒有變；`tools/list` 整體 54,515 → 54,513 bytes（−2）。
 
+**b29 V5 之後**：`akashic_tag`、`akashic_libraries` 的說明寫出回應的鍵（`回 citekey、tags（改後清單）`、`回 citekey、libraries（改後清單）`——先前 `tags` 只出現在參數說明「要加的 tags」、`libraries` 只出現在「改 entry 的 libraries」這句講輸入的散文）；`akashic_resolve_venues` 的「各腿回」補 `rejected`；`akashic_doctor` 的 `sources` 說明補四個舊鍵 `orphanBlobs`／`danglingIndexEntries`／`malformedIndexLines`／`unreadableShards`，`ageSeconds` 寫明 `null`＝判不出。回應本身沒有變；`tools/list` 58,938 → 59,184 bytes（+246，預算 60,000）。
+
 ## #704 — `akashic_import_zotero` 的 `residualFields` 說明改成「這次讀到的條目」
 
 計數與鍵名不變。說明先前寫「未映射欄位→次數」，CLI 則寫「已以原名入庫」；計數其實是這次讀到的每一個 Zotero 條目（含沒變動、略過、寫入失敗的），所以寫入失敗的那一筆並沒有入庫。說明與 CLI 訊息改成「這次讀到的條目中未映射的欄位」（使用者 2026-09-30 裁決 (a)）。

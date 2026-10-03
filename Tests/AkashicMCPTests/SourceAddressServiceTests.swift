@@ -157,12 +157,11 @@ final class SourceAddressServiceTests: XCTestCase {
         let text = try XCTUnwrap(try ToolManifest.load()["akashic_doctor"]).text
         let span = try XCTUnwrap(Self.parenthesizedSpan(in: text, after: "sources（"), "說明裡要有 sources（…）那一段")
         let everyKey = Set(sources.keys).union(elementKeys("occupantProblems")).union(elementKeys("strayTemporaryFiles")).union(kinds)
-        // 沒有逐一寫出的鍵（`tools/list` 的位元組預算：b26 F6 的這一輪對它淨增 ≤ 0，所以只寫 R2 新增的兩個陣列與它們的元素鍵）：
-        // 兩個 `*Total` 以速記 `*Total` 涵蓋，四個舊鍵（R2 之前就沒有說明）不在說明裡。逐一列出，不留「差不多」。
+        // 沒有逐一寫出的鍵：兩個 `*Total` 以速記 `*Total` 涵蓋。四個舊鍵（`orphanBlobs` 等，R2 之前就沒有說明）b26 F6 以位元組預算為由
+        // 不寫；預算整合後是 60,000，那個理由不再成立，b29 V5 起寫進說明、在這裡沒有豁免。逐一列出，不留「差不多」。
         let shorthand: Set<String> = ["occupantProblemsTotal", "strayTemporaryFilesTotal"]
-        let undescribedByBudget: Set<String> = ["orphanBlobs", "danglingIndexEntries", "malformedIndexLines", "unreadableShards"]
         XCTAssertTrue(span.contains("*Total"), "兩個 Total 以 *Total 速記涵蓋：\(span)")
-        for key in everyKey.subtracting(shorthand).subtracting(undescribedByBudget).sorted() {
+        for key in everyKey.subtracting(shorthand).sorted() {
             XCTAssertTrue(mentionsIdentifier(span, key), "akashic_doctor 的 sources（…）說明沒有寫 \(key)：\(span)")
         }
     }

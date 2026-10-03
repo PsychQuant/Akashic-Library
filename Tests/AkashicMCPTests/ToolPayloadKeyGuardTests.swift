@@ -326,18 +326,36 @@ final class ToolPayloadKeyGuardTests: XCTestCase {
         XCTAssertTrue(mentionsIdentifier("akashic.libraries、libraries（改後）", "libraries"), "同一個詞出現兩次：有一次在鍵名的位置就算")
     }
 
-    /// 先前只靠「別的名字的一段」過關的鍵（b26 F6 LOW 16：三席量到 `akashic_libraries.libraries` 只靠 `akashic.libraries`；實測多出
-    /// `akashic_set_status.status`，只靠 `akashic.status`）。`libraries` 現在在**工具描述本身**寫成鍵名的形式；`status` 是回顯呼叫端剛給的值，
-    /// 改成具名豁免（`ToolPayloadKeyExemptions`；`testEveryExemptionIsLive` 守它仍是真的沒被說明提到）——**不是**為它加字：
-    /// `tools/list` 的位元組預算（#578）在這一輪對淨增 ≤ 0。`tags`、`rejected`（finding 16 也點名）沒有改說明：它們在收緊後仍靠行尾與子句標點的散文提及過關，
-    /// 那兩個洞語法分不開（見 `mentionsIdentifier` 的 doc），不假裝補了。負控：把 `libraries` 那一句拿掉，這一支紅。
+    /// 先前只靠別的字過關的鍵（b26 F6 LOW 16：三席量到 `akashic_libraries.libraries` 只靠 `akashic.libraries`、`akashic_tag.tags` 只靠參數說明的
+    /// 「要加的 tags」、`akashic_resolve_venues.rejected` 只靠「留 rejected」這類講 verdict 的散文；實測多出 `akashic_set_status.status`，只靠
+    /// `akashic.status`）。`status` 是回顯呼叫端剛給的值，具名豁免（`ToolPayloadKeyExemptions`；`testEveryExemptionIsLive` 守它仍是真的沒被說明提到）。
+    ///
+    /// **b29 V5 LOW 4、7、11**：b26 F6 的 `libraries（akashic.libraries）` 讓守衛滿足，卻是靠「改 entry 的 libraries」這句講**輸入**的散文——說的是
+    /// 這一次改了什麼，不是回應有這個鍵；`tags`、`rejected` 當時以位元組預算為由沒有加字（整合後預算是 60,000，那個理由不再成立）。現在三個鍵都要出現在
+    /// **工具描述本身的「回 …」子句裡**（`回` 到下一個 `。` 或 `；`）——那是讀的人也認得出「這是在列回應鍵」的寫法（`mentionsIdentifier` 的 doc 的補救）。
+    /// 這仍是寫法的檢查，不是語意：它擋得住「只在輸入的散文裡提到」，擋不住「回 …」子句裡寫錯鍵的意思。
+    /// 負控：把 `akashic_tag` 的「回 citekey、tags（改後清單）」拿掉，這一支紅。
     func testTheKeysThatOnlyPassedThroughOtherNamesAreDescribedInTheDescriptionItself() throws {
         let manifest = try loadManifest()
-        for (tool, key) in [("akashic_libraries", "libraries")] {
+        for (tool, key) in [("akashic_libraries", "libraries"), ("akashic_tag", "tags"), ("akashic_resolve_venues", "rejected")] {
             let real = try XCTUnwrap(manifest[tool])
             XCTAssertTrue(PayloadObservations.shared.keysByTool[tool]?.contains(key) == true, "前提：\(tool) 的 payload 有 \(key)")
             XCTAssertTrue(mentionsIdentifier(real.text, key), "\(tool) 的描述（不含參數說明）要以鍵名的形式寫出 \(key)")
+            XCTAssertTrue(Self.returnClauses(of: real.text).contains { mentionsIdentifier($0, key) },
+                          "\(tool) 的描述要在「回 …」子句裡列出回應鍵 \(key)：\(Self.returnClauses(of: real.text))")
         }
+    }
+
+    /// 描述裡的「回 …」子句：每個 `回` 到下一個 `。` 或 `；`（不含）。
+    static func returnClauses(of text: String) -> [String] {
+        var out: [String] = []
+        var i = text.startIndex
+        while let r = text.range(of: "回", range: i..<text.endIndex) {
+            let end = text[r.upperBound...].firstIndex { $0 == "。" || $0 == "；" } ?? text.endIndex
+            out.append(String(text[r.upperBound..<end]))
+            i = r.upperBound
+        }
+        return out
     }
 
     /// 只有鍵名形式的那一處被換成散文時守衛要紅，而**舊規則（只看識別字邊界）不會**——這就是收緊的意義。

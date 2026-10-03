@@ -457,6 +457,23 @@ extension CLIIntegrationTests {
                           "重複 key 拒絕")
     }
 
+    /// b29 V5 LOW 13：`file add` 對已有 `.gitignore` 的目錄**附加** sources 標記區塊（#66 的排除；以標記為判準，既有的行不動）——
+    /// 說明要說出這一點。先前的說明是「佈局只在不存在時建立」，比行為窄：讀的人會以為 `file add` 不碰既有檔案。
+    func testFileAddAppendsTheSourcesBlockToAnExistingGitignoreAndSaysSo() throws {
+        let config = try tmpDir("cfg-gi").appendingPathComponent("config.yaml").path
+        let home = try tmpDir("home-gi")
+        let root = try tmpDir("root-gi")
+        let ignore = root.appendingPathComponent(".gitignore")
+        try "# mine\nnode_modules/\n".write(to: ignore, atomically: true, encoding: .utf8)
+        let r = try runCLI(["file", "add", "gi", root.path, "--config", config], env: ["AKASHIC_HOME": home.path])
+        XCTAssertEqual(r.status, 0, r.stderr)
+        let after = try String(contentsOf: ignore, encoding: .utf8)
+        XCTAssertTrue(after.hasPrefix("# mine\nnode_modules/\n") && after.contains("# BEGIN akashic sources"), after)
+        let help = try runCLI(["file", "add", "--help"], env: ["AKASHIC_HOME": home.path])
+        XCTAssertTrue(help.stdout.contains(".gitignore"), "說明要說會附加到既有的 .gitignore：\(help.stdout)")
+        XCTAssertFalse(help.stdout.contains("佈局只在不存在時建立"), help.stdout)
+    }
+
     func testFileUseUnknownKeyFails() throws {
         let config = try tmpDir("cfg3").appendingPathComponent("config.yaml").path
         let r = try runCLI(["file", "use", "ghost", "--config", config])

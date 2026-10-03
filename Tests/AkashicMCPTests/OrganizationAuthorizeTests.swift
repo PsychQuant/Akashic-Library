@@ -9,7 +9,7 @@ import XCTest
 /// `doctor` 的 `no authorized name: … organization` 恆為真且無法消除。使用者 2026-10-01 裁決：新增 `update-organization` 面，語意比照
 /// `update-venue --authorize`（同書寫系統原子替換，被換下的移出 authorized、留在 names）。替換的邏輯是 `AuthorizedDesignation`
 /// 那一份——本檔驗 organization 這一側的定位、寫入、報告與 store 邊界，替換細節的完整矩陣在 `VenueAuthorizedWriteTests`。
-/// **沒有撤回面**（R1 verify 之後拿掉：裁決只說先提供 `--authorize`，而 organization 的 names 只增不減，撤回會讓剛加進 names 的名字成為
+/// **沒有撤回面**（R1 verify 之後拿掉：裁決只說先提供 `--authorize`，而 organization 沒有一般的名字移除面（#564 修正輪起 `--remove-name` 只刪已撤回的名字），撤回會讓剛加進 names 的名字成為
 /// fallback 顯示名；見 `OrganizationUpdate.swift` 的檔頭）。
 final class OrganizationAuthorizeTests: XCTestCase {
     private var root: URL!

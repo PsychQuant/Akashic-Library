@@ -18,7 +18,7 @@ import AkashicStoreIO
 /// 一併加進 names。替換的邏輯是 `AuthorizedDesignation` 那一份（#554 從 `updateVenue` 搬出），這裡只做定位、寫入與報告。
 ///
 /// **沒有 `--unauthorize`**（#557 R1 verify 之後拿掉）：裁決只說「先提供 `--authorize`」，首輪實作順手加了撤回，是實作者的判斷不是使用者的
-/// 裁決；而且它在 organization 上不是 venue 那個「回到誠實的未判定狀態」——organization 的 `names` 只增不減（沒有名字的移除面），
+/// 裁決；而且它在 organization 上不是 venue 那個「回到誠實的未判定狀態」——organization 沒有一般的名字移除面（#564 修正輪起 `--remove-name` 只刪已撤回的名字），
 /// `authorize` 為了讓 authorized 成為 names 的子集會把新名字加進 names，撤回之後名字留著、authorized 回到空，`displayName` 的 fallback
 /// 是 `names.current`（沒有時間欄位時取序列化順序最後一筆）——剛加進去的名字因此成為顯示名與匯出的 `name_current`（R1 verify DA 真 binary 重現）。
 /// 待使用者裁決（連同 organization 要不要有名字的移除面）。

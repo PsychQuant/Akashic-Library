@@ -148,7 +148,7 @@ struct LibrarySetKind: ParsableCommand {
             }
             print("  現在：" + LibraryMembershipCheck.basis(of: change.library.membership))   // display-safe-exempt: basis 已逐項消毒
             if let problem = change.basisProblem { print("  ⚠ 依據不明確：" + problem.message) }   // display-safe-exempt: message 已逐項消毒
-            printViolations(change.violations, members: change.members, key: key)
+            printViolations(change.violations, members: change.members, key: key, basisAmbiguous: change.basisProblem != nil)
         } catch let e as ServiceError {
             throw RuntimeFailure.state(displaySafeErrorText(e))
         }
@@ -178,7 +178,7 @@ struct LibraryCheck: ParsableCommand {
             // 完整規則（含每一個排除的 citekey）：`set-kind` 是整值替換，要改規則得先看得到現在的全部——list 只印摘要
             for line in LibraryMembershipCheck.details(of: check.library.membership) { print("  " + line) }   // display-safe-exempt: details 已逐項消毒
             if let problem = check.basisProblem { print("  ⚠ 依據不明確：" + problem.message) }   // display-safe-exempt: message 已逐項消毒
-            printViolations(check.violations, members: check.members, key: key)
+            printViolations(check.violations, members: check.members, key: key, basisAmbiguous: check.basisProblem != nil)
         } catch let e as ServiceError {
             throw RuntimeFailure.state(displaySafeErrorText(e))
         }
@@ -186,13 +186,21 @@ struct LibraryCheck: ParsableCommand {
 }
 
 /// set-kind 與 check 共用的渲染：CLI 不截（輸出進人的終端機，#388 的分工）。
+///
+/// 依據不明確時（`basisAmbiguous`）不建議 `library remove`（#709 第四次 verify LOW 23，INFO 26、28）：那時每個成員都被標不符，原因在依據
+/// （文件不在庫、有不只一筆——含文件自己有 legacy 拷貝），不在成員；建議逐筆移除會把人導去移除合法的成員。改指向先修依據，與 validate 同一個方向。
 private func printViolations(_ violations: [(citekey: String, violation: LibraryMembershipViolation)],
-                             members: Int, key: String) {
+                             members: Int, key: String, basisAmbiguous: Bool) {
     guard !violations.isEmpty else {
         print("  \(members) 筆成員全部符合")   // display-safe-exempt: Int
         return
     }
-    print("  \(members) 筆成員裡 \(violations.count) 筆不符（不自動移除；確認後用 akashic library remove \(displaySafe(key, max: 200)) <citekey>...）：")   // display-safe-exempt: Int
+    if basisAmbiguous {
+        print("  \(members) 筆成員裡 \(violations.count) 筆判不出來——原因在上一行的依據、不在這些成員：先修好依據（akashic validate 列出），"   // display-safe-exempt: Int
+              + "不要因此逐筆 library remove：")
+    } else {
+        print("  \(members) 筆成員裡 \(violations.count) 筆不符（不自動移除；確認後用 akashic library remove \(displaySafe(key, max: 200)) <citekey>...）：")   // display-safe-exempt: Int
+    }
     for v in violations {
         print("  ✕ \(displaySafe(v.citekey, max: 200))：\(v.violation.message)")   // display-safe-exempt: v.violation.message：message 已逐項消毒
     }

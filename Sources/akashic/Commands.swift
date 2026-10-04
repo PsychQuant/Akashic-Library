@@ -667,7 +667,7 @@ struct BootstrapPeople: ParsableCommand {
 
     @OptionGroup var options: LibraryOptions
 
-    @Flag(name: .long, help: "實際寫入（預設只列出）")
+    @Flag(name: .long, help: "實際寫入（預設只列出；計畫讀到 legacy 拷貝時整批拒絕、零寫入，#709）")
     var apply = false
 
     @Option(name: .long, help: "只處理出現次數 ≥ N 的（投報率優先）")
@@ -698,11 +698,14 @@ struct BootstrapPeople: ParsableCommand {
         if apply { try options.assertDestructiveTargetNamed("bootstrap-people") }
         let store = try options.openStore()
         let load = try store.load()
+        // 計畫讀到 legacy 拷貝時 --apply 整批拒絕、零寫入（使用者 2026-10-05 裁決，#709）；乾跑照常列出、開頭的附註說明
+        if apply { try load.refuseApplyWithLegacyCopiesInPlan(.people) }
         // R1-fix B4：否決史決定 pending literal 何時回到可建檔
         let report = PersonBootstrap.resolve(
-            // 作者 literal 的來源看完整的 load（#709 第三次 verify）：這是寫入候選面，以 entities/ 為準的視圖待使用者確認之前不用它——
-            // R3 改用視圖時，手改過的 legacy 拷貝裡多出來的 literal 安靜地不成為候選。代價是拷貝裡的 literal 也算一次出現（一對相同的算兩次），
-            // 輸出開頭的附註說出計畫含幾份拷貝（`legacyCopiesInPlanNote`）。`existing` 也是完整的 load：改名留下的舊 person key 要算「已存在」
+            // 作者 literal 的來源看完整的 load（使用者 2026-10-05 裁決：寫入候選面一律看完整資料）——R3 改用視圖時，手改過的 legacy 拷貝裡
+            // 多出來的 literal 安靜地不成為候選。代價是拷貝裡的 literal 也算一次出現（一對相同的算兩次），所以計畫讀到 work 拷貝時乾跑開頭說出來
+            // （`legacyCopiesInPlanNote`）、--apply 拒絕（上面）。`existing` 也是完整的 load：改名留下的舊 person key 要算「已存在」——
+            // person 拷貝只會讓候選少一個，不在計畫的拷貝數裡（`BootstrapPlanSource.people`）
             entries: load.entries, existing: load.people,
             rejected: ResolutionLedger.rejectedPairings(people: load.people),
             confirmed: ResolutionLedger.confirmedPairings(people: load.people),
@@ -710,7 +713,8 @@ struct BootstrapPeople: ParsableCommand {
             // 有絕對否決權（實測門檻 10 時 `Daniel McNeish` 18 次被 `Daniel Muise`
             // 2 次單獨扣住）。
             minOccurrences: minOccurrences)
-        let planNote = load.legacyCopiesInPlanNote
+        let planCopies = load.legacyCopiesInPlan(.people)
+        let planNote = load.legacyCopiesInPlanNote(.people)
         if json {   // 與 --apply 互斥已在 validate() 擋下
             // **這個出口刻意不套 `displaySafe`，消毒層是序列化器 ＋ 底下那一行後處理。**
             //
@@ -746,8 +750,8 @@ struct BootstrapPeople: ParsableCommand {
                     .map { ["names": $0.names, "occurrences": $0.occurrences,   // display-safe-exempt: $0.names：同上——序列化器 ＋ 序列化後的 escapingUnsafeScalars
                             "sharedKeys": $0.sharedKeys] },
             ]
-            // 計畫含 legacy 拷貝時才出現（#709 第三次 verify）：拷貝的 literal 也算在 occurrences 裡
-            if planNote != nil { payload["legacyCopiesInPlan"] = load.shadowedLegacyCopies.count }   // display-safe-exempt: Int
+            // 計畫讀到 legacy 拷貝時才出現（#709）：拷貝的 literal 也算在 occurrences 裡。只數 work 拷貝——person 拷貝不進 literal 來源（第四次 verify）
+            if !planCopies.isEmpty { payload["legacyCopiesInPlan"] = planCopies.count }   // display-safe-exempt: Int
             let data = try JSONSerialization.data(
                 withJSONObject: payload,
                 options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
@@ -758,7 +762,7 @@ struct BootstrapPeople: ParsableCommand {
         var cands = report.candidates.filter { $0.occurrences >= minOccurrences }
         let total = cands.count
         if let limit { cands = Array(cands.prefix(limit)) }
-        if let planNote { print(planNote) }   // display-safe-exempt: 常數字面加 Int
+        if let planNote { print(planNote) }   // display-safe-exempt: 已消毒（常數字面、Int、逐項 displaySafeInvisible 的檔名）
 
         /// 產不出 ASCII key 的那些**必須被印出來**（#238）。
         ///
@@ -910,7 +914,7 @@ struct BootstrapOrganizations: ParsableCommand {
         abstract: "從 literal 機構名（affiliations／parents）建立 organization 記錄")
 
     @OptionGroup var options: LibraryOptions
-    @Flag(name: .long, help: "實際寫入（預設只列出）") var apply = false
+    @Flag(name: .long, help: "實際寫入（預設只列出；計畫讀到 legacy 拷貝時整批拒絕、零寫入，#709）") var apply = false
     @Option(name: .long, help: "只處理出現次數 ≥ N 的（投報率優先）") var minOccurrences: Int = 1
     @Option(name: .long, help: "最多處理前 N 個") var limit: Int?
 
@@ -920,16 +924,17 @@ struct BootstrapOrganizations: ParsableCommand {
         if apply { try options.assertDestructiveTargetNamed("bootstrap-organizations") }
         let store = try options.openStore()
         let load = try store.load()
+        // 計畫讀到 legacy 拷貝（work 或 person）時 --apply 整批拒絕、零寫入（使用者 2026-10-05 裁決，#709）；乾跑照常列出、開頭的附註說明
+        if apply { try load.refuseApplyWithLegacyCopiesInPlan(.organizations) }
         // #378：作者位的團體 literal 也是機構名的來源
-        // 兩個 literal 來源都看完整的 load（#709 第三次 verify，同 bootstrap-people）：寫入候選面，以 entities/ 為準的視圖待使用者確認之前不用它。
-        // 拷貝裡的機構名也是候選、一對相同的算兩次出現——輸出開頭的附註說出計畫含幾份拷貝（`legacyCopiesInPlanNote`）。
+        // 兩個 literal 來源都看完整的 load（使用者 2026-10-05 裁決，同 bootstrap-people）：拷貝裡的機構名也是候選、一對相同的算兩次出現。
         let result = OrgBootstrap.result(people: load.people,
                                          organizations: load.organizations,
                                          entries: load.entries)
         var cands = result.candidates.filter { $0.occurrences >= minOccurrences }
         let total = cands.count
         if let limit { cands = Array(cands.prefix(limit)) }
-        if let note = load.legacyCopiesInPlanNote { print(note) }   // display-safe-exempt: 常數字面加 Int
+        if let note = load.legacyCopiesInPlanNote(.organizations) { print(note) }   // display-safe-exempt: 已消毒（常數字面、Int、逐項 displaySafeInvisible 的檔名）
 
         // #154 verify 154-1：產不出合法 key 的機構名**不靜默丟**——含 CJK 的名字
         // （台灣機構的雙語寫法最常見）無 ASCII token 時無法 slug，要明列，否則
@@ -2761,7 +2766,7 @@ struct AuthorizeNames: ParsableCommand {
                                    : "沒有可以指定的名字——沒有寫入任何檔、沒有寫任何記錄")
         } else if !r.blockedKeys.isEmpty {
             // 乾跑說實跑會做的事（#709 第三次 verify）：這幾筆在 --apply 會讓整批拒絕，不說「確認後執行」
-            print("未寫入。要寫的 person 裡有 \(r.blockedKeys.count) 筆無法唯一定位，--apply 會整批拒絕、零寫入："
+            print("未寫入。要寫的 person 裡有 \(r.blockedKeys.count) 筆無法唯一定位或還有 legacy 拷貝，--apply 會整批拒絕、零寫入："
                   + r.blockedKeys.prefix(20).map { displaySafeInvisible($0, max: 120) }.joined(separator: "、")
                   + (r.blockedKeys.count > 20 ? "…" : "")
                   + "——akashic validate 說出每一筆的原因（多半是 legacy 拷貝還在），處理完再跑。")

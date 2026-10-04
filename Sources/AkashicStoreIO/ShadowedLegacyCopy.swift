@@ -24,6 +24,33 @@ public struct ShadowedLegacyCopy: Equatable, Sendable {
     public var entitiesFile: String { "entities/\(id.uuidString).yaml" }
 }
 
+/// 三個 bootstrap 的計畫各讀哪幾種記錄的 literal（#709 第四次 verify）。封閉三列，不得依性質相似類推——新的寫入候選面要自己加一列、
+/// 寫出它的 literal 來源。附註、`bootstrap-people --json` 的 `legacyCopiesInPlan` 與 `--apply` 的拒絕都只數這幾種的拷貝。
+public enum BootstrapPlanSource: Sendable {
+    /// 作者 literal 只來自 entries。person 記錄（含 person 的拷貝）只進 `existing`（「已存在」的 key 與名字）與否決／確認史：
+    /// 它們不增加任何 literal 的出現次數，只會讓候選少一個（保守側），所以 person 拷貝不在計畫裡。
+    case people
+    /// 刊名 literal 只來自 entries（`VenueBootstrap.result(entries:existing:)`）。
+    case venues
+    /// 機構名來自 person 的隸屬 literal 與 entries 的團體作者 literal（`OrgBootstrap.result`）——兩種都讀。organization 沒有 legacy 拷貝。
+    case organizations
+
+    public var kinds: Set<LegacyCopyLeft.Kind> {
+        switch self {
+        case .people, .venues: return [.work]
+        case .organizations: return [.work, .person]
+        }
+    }
+
+    public var command: String {
+        switch self {
+        case .people: return "bootstrap-people"
+        case .venues: return "bootstrap-venues"
+        case .organizations: return "bootstrap-organizations"
+        }
+    }
+}
+
 extension LibraryLoad {
     /// load 標出的 legacy 拷貝（`fileSituation.shadowedLegacyFile`），依 (kind, key) 排序。`withoutShadowedLegacyCopies` 拿掉的就是這些
     /// （`LibraryIndex.rebuild` 把這份清單放進 `IndexStats.skippedLegacyCopies`）；`crossRecordIssues` 也從這裡認出這一對。
@@ -50,7 +77,9 @@ extension LibraryLoad {
     ///
     /// **批次的結果會變**（#709 第三次 verify）：上面那句只對逐筆成立。一個以批次為單位拒絕的寫入者，若用這個視圖規劃寫入集合，legacy 拷貝
     /// 從集合裡消失——`authorize-names` 先前就是靠 legacy 那份被算進寫入集合而整批拒絕，R2 改用視圖之後改名留下拷貝的 person 從拒絕變成寫入。
-    /// 所以**寫入候選面與依據判定**（三個 bootstrap、`authorize-names`、library 規則的依據）看完整的 load，不用這個視圖。
+    /// 所以**寫入候選面與依據判定**（三個 bootstrap、`authorize-names`、library 規則的依據）看完整的 load，不用這個視圖——使用者 2026-10-05
+    /// 裁決（#709）：不把「以 entities/ 為準」延伸到寫入候選面，寫入一律看完整資料，視圖只用在讀數；計畫讀到拷貝時三個 bootstrap 的
+    /// `--apply` 整批拒絕（`refuseApplyWithLegacyCopiesInPlan`）。
     ///
     /// 驗證（validate、doctor 的 `crossRecordIssues`、App 的健康總覽）**不**用這個視圖——它們要照舊看到兩份並存。
     public func withoutShadowedLegacyCopies() -> LibraryLoad {
@@ -77,14 +106,51 @@ extension LibraryLoad {
         return out
     }
 
-    /// 寫入候選面（三個 bootstrap）的計畫附註（#709 第三次 verify）：這些面看完整的 load，同一筆記錄的 legacy 拷貝也在計畫裡——拷貝裡的
-    /// literal 也是候選，與 entities/ 那份相同的多算一次出現（可能越過 `--min-occurrences`）。說出有幾份、指向 validate；沒有拷貝時 nil。
-    /// 只含常數字面與筆數。
-    public var legacyCopiesInPlanNote: String? {
-        let n = shadowedLegacyCopies.count
-        guard n > 0 else { return nil }
-        return "⚠ 計畫含 \(n) 份 legacy 拷貝（同一筆記錄在 entities/ 也有一份；akashic validate 逐筆列出）：本命令是寫入候選面、看完整的 load——"   // display-safe-exempt: n：Int
-            + "拷貝裡的 literal 也是候選，與 entities/ 那份相同的會多算一次出現。先刪掉拷貝再跑，計數才準（#709）"
+    /// 一個 bootstrap 計畫實際讀到的 legacy 拷貝：只有流進該命令 literal 來源的那幾種（`BootstrapPlanSource.kinds`），依 (kind, key) 排序。
+    ///
+    /// #709 第四次 verify（MEDIUM 1、3，LOW 11）：先前附註與 `legacyCopiesInPlan` 數 `shadowedLegacyCopies.count`（work 與 person 都算），
+    /// 只有一份改名留下的 person 拷貝時 `bootstrap-venues` 也說「計畫含 1 份、拷貝裡的 literal 也是候選」，而它的計畫根本不讀 person。
+    public func legacyCopiesInPlan(_ source: BootstrapPlanSource) -> [ShadowedLegacyCopy] {
+        shadowedLegacyCopies.filter { source.kinds.contains($0.kind) }
+    }
+
+    /// 寫入候選面（三個 bootstrap）乾跑的計畫附註：說出計畫讀到幾份拷貝、逐份點名（至多 20 份）、說 `--apply` 會整批拒絕；
+    /// 計畫沒讀到任何拷貝時 nil。已消毒（檔名逐項 `displaySafeInvisible`，其餘是常數字面與筆數）。
+    ///
+    /// 這些面看完整的 load（使用者 2026-10-05 裁決 1：寫入候選面一律看完整資料）——拷貝裡的 literal 也是候選，與 entities/ 那份相同的
+    /// 多算一次出現、可能越過 `--min-occurrences`。乾跑照常列出候選（裁決 2）；`--apply` 由 `refuseApplyWithLegacyCopiesInPlan` 擋。
+    public func legacyCopiesInPlanNote(_ source: BootstrapPlanSource) -> String? {
+        let copies = legacyCopiesInPlan(source)
+        guard !copies.isEmpty else { return nil }
+        return "⚠ 計畫含 \(copies.count) 份 legacy 拷貝（同一筆記錄在 entities/ 也有一份）：本命令看完整的資料，拷貝裡的 literal 也是候選，"   // display-safe-exempt: copies.count：Int
+            + "與 entities/ 那份相同的會多算一次出現（可能越過 --min-occurrences）——下面的候選照常列出，--apply 會整批拒絕、零寫入；"
+            + Self.legacyCopiesRemedy + "：\n" + Self.legacyCopyLines(copies)
+    }
+
+    /// 三個 bootstrap 的 `--apply`：計畫讀到 legacy 拷貝時整批拒絕、零寫入（使用者 2026-10-05 裁決 2——與 `authorize-names` 對同類狀態的處置
+    /// 一致）。先前只在輸出開頭印一行附註、之後照寫：附註的補救（先刪拷貝再跑）到達時寫入已經發生，只被一篇 work 用到的名字因拷貝越過門檻而建檔
+    /// （#709 第四次 verify MEDIUM 5，LOW 6、13、15）。判準與附註同一個：`legacyCopiesInPlan`——計畫沒讀到的拷貝不擋。
+    public func refuseApplyWithLegacyCopiesInPlan(_ source: BootstrapPlanSource) throws {
+        let copies = legacyCopiesInPlan(source)
+        guard !copies.isEmpty else { return }
+        let remedy = Self.legacyCopiesRemedy, lines = Self.legacyCopyLines(copies)
+        throw StoreIOError.invalidInput(
+            what: "\(source.command) --apply",   // display-safe-exempt: source.command 是常數字面
+            why: "計畫含 \(copies.count) 份 legacy 拷貝（同一筆記錄在 entities/ 也有一份）——拷貝裡的 literal 也是候選、"   // display-safe-exempt: copies.count 是 Int
+               + "與 entities/ 那份相同的多算一次出現，計數不準；整批拒絕、零寫入（#709，使用者 2026-10-05 裁決）。"
+               + remedy + "：\n" + lines)   // display-safe-exempt: remedy 是常數字面；lines 已逐項 displaySafeInvisible
+    }
+
+    /// 刪拷貝的前提——兩份可能已經分岔（#705 第三次 verify 對 `LegacyCopyLeft.explanation` 的同一個前提）。
+    static let legacyCopiesRemedy = "確認 entities/ 那份是新的之後刪掉 legacy 拷貝（akashic validate 逐筆列出），再跑"
+
+    /// 逐份一行：legacy 檔與它的 entities/ 那份。至多 20 行，其餘一行概括。已消毒。
+    static func legacyCopyLines(_ copies: [ShadowedLegacyCopy]) -> String {
+        var lines = copies.prefix(20).map {
+            "  \(displaySafeInvisible($0.legacyFile, max: 300))（\($0.kind.rawValue)，entities/ 那份是 \($0.entitiesFile)）"   // display-safe-exempt: kind.rawValue 是常數；entitiesFile 由 UUID 組成
+        }
+        if copies.count > 20 { lines.append("  …另 \(copies.count - 20) 份") }   // display-safe-exempt: Int
+        return lines.joined(separator: "\n")
     }
 
     /// 已消毒（`unwritableReason` 的契約）。

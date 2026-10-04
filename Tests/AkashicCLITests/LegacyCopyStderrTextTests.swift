@@ -65,4 +65,13 @@ final class LegacyCopyStderrTextTests: XCTestCase {
         XCTAssertTrue(lines[0].contains(LegacyCopyLeft.explanation), lines[0])
         XCTAssertTrue(lines[1].contains(LegacyCopyLeft.laterWriteRefusedNote), "要重跑的那一句在逐筆的列上：\(lines[1])")
     }
+
+    /// #705 第四次 verify（LOW 20）：stderr 的第一行是 cron／CI 唯一讀到的一行，先前仍無條件說「要刪掉 legacy 那份」——標題上一輪加的前提沒有跟上。
+    func testTheStderrLeadCarriesTheSameCaveatAsTheHeadline() {
+        for (reported, notApplied) in [(1, 0), (2, 1)] {
+            let text = LegacyCopyReport.stderrText(errorText: "", reported: reported, notApplied: notApplied)
+            XCTAssertTrue(text.contains("確認 entities/ 那份是新的之後刪掉 legacy 那份"), text)
+            XCTAssertFalse(text.contains("即可"), text)
+        }
+    }
 }

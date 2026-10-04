@@ -6,7 +6,7 @@
 |---|---|---|
 | 建立新 work | `akashic_create_entry` MCP | **create-only**——目的檔已存在直接拒寫 |
 | 建立新 person | `akashic_add_person` MCP | **create-only**——key 已存在直接拒 |
-| 從裸字串作者批次建 person | `akashic bootstrap-people --apply` CLI | 有 `--min-occurrences` 與 `--limit` |
+| 從裸字串作者批次建 person | `akashic bootstrap-people --apply` CLI | 有 `--min-occurrences` 與 `--limit`；計畫讀到 legacy 拷貝（同一篇 work 在 `entries/` 還有一份）時整批拒絕、零寫入——乾跑點名那幾份，處理完再跑（#709） |
 | 把裸字串作者歸戶到 person | `akashic resolve-people --apply` CLI | 篩選式批次：寬鬆層（非 exact）要 `--tier` 具名；有 `--citekey` / `--person` 可收窄；淘汰而得的唯一候選自動排除（#624）。**查過但判不出來的配對不要放進批次**——工具看不到它（#619），確認過的逐筆 `--judge` 或 MCP 三段 id 送 |
 | 匯入 WoS tab-delimited 匯出 | `akashic import-wos` CLI | 有 `--dry-run`；citekey 撞號且內容不同時**不覆寫** |
 | 加標籤 / 關係 / 狀態 | `akashic_tag` / `akashic_link` / `akashic_set_status` MCP | — |

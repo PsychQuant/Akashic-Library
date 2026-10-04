@@ -1229,8 +1229,9 @@ store 上：寫入閘拒寫，`enrich` 則在寫入前讀 marker、值照補、r
 也不拒絕前後的空白（trim 之後驗，`shasum` 的輸出帶換行；只有空白視同沒給），報告回顯的是 trim 之後那個驗過的值；**四個來源欄位齊備**（digest、url、retrieved、
 status——與 `retrievalKind` 同一個判準）時 digest 驗原值，前後有空白即拒絕（#695 R3；R4 把判準從「給了 url、retrieved 或
 media type 之一」收成四欄齊備：缺任何一欄時 reference 不寫，先前帶換行的 digest 卻整批拒絕、理由說的是 reference）。**四欄齊備不等於 reference 會寫**（#695 第三次 verify）：
-這個檢查逐提案、不看 store，所以目標欄位已在、記錄找不到或不只一筆、store format 收不下那一格（`provenanceOmitted`）時 reference 不會寫，帶空白的 digest 仍整批拒絕——
-冪等重跑一份已套用的提案檔會多一次拒絕，拿掉空白即可。
+這個檢查逐提案、不看 store，所以目標欄位已在、記錄找不到或不只一筆、store format 收不下那一格（`provenanceOmitted`）時 reference 不會寫，帶空白的 digest 仍整批拒絕，
+而去掉空白的同一份提案在目標欄位已在時是「已有、沒補任何值」——拿掉空白即可。~~冪等重跑一份已套用的提案檔會多一次拒絕~~（#695 第四次 verify：
+帶空白、四欄齊備的提案第一次就被拒，在本版不可能先被套用；只有接受空白的舊 binary 套用過的檔重跑時才會遇到）。
 
 **移除端**：`update-entry --remove-field <鍵>=理由`（MCP `akashic_update_entry` 的 `remove_fields`，#544）刪一個 `fields` 的值時，
 一併刪掉指向它的 `fields.<鍵>` reference——留著它，那筆的語意會從正結果（值出自這份來源）翻成負結果（查過了、這份來源沒給），

@@ -261,12 +261,36 @@ final class ShadowedPairReadersTests: XCTestCase {
 
         let dry = try AuthorizedNameMigration.run(store: store, apply: false)
         XCTAssertEqual(dry.total, 2, "\(dry)")
-        XCTAssertEqual(dry.blockedKeys, ["old-kim"], "乾跑說出 --apply 會擋的那一筆：\(dry)")
+        // 第四次 verify（LOW 22）起 entities/ 那份也列：它的 id 還有 legacy 拷貝
+        XCTAssertEqual(dry.blockedKeys, ["kim-c", "old-kim"], "乾跑說出 --apply 會擋的那幾筆：\(dry)")
         let before = try personFileBytes()
         XCTAssertThrowsError(try AuthorizedNameMigration.run(store: store, apply: true, judgement: "測試")) {
             XCTAssertTrue("\($0)".contains("無法唯一定位") && "\($0)".contains("old-kim"), "\($0)")
         }
         XCTAssertEqual(try personFileBytes(), before, "零寫入：entities/ 那份也不寫")
+    }
+
+    /// #709 第四次 verify（LOW 22）：改名一對、**legacy 那份已有 authorized**——只有 entities/ 那份在寫入集合裡、它單獨看寫得進去；先前 `--apply`
+    /// 只寫 entities/ 那份、legacy 那份原封不動，兩份各帶不同的 authorized 狀態（真 binary 重現）。寫入集合的 id 還有 legacy 拷貝 → 整批拒絕。
+    func testAuthorizeNamesRefusesWhenTheWriteSetsIDStillHasALegacyCopy() throws {
+        let id = UUID()
+        let renamed = Person(key: "smith-j", names: PersonNames(variant: ["Smith, John"]), id: id)
+        let leftover = Person(key: "smith-old", names: PersonNames(authorized: ["Smith, John"]), id: id)
+        try PersonYAML.encode(renamed).write(to: store.entityURL(id: id), atomically: true, encoding: .utf8)
+        try FileManager.default.createDirectory(at: store.peopleDir, withIntermediateDirectories: true)
+        try PersonYAML.encode(leftover).write(to: store.personURL(key: leftover.key), atomically: true, encoding: .utf8)
+        let load = try store.load()
+        XCTAssertEqual(load.shadowedLegacyCopies.map(\.key), ["smith-old"], "前提：load 認得出改名留下的拷貝")
+        XCTAssertFalse(load.people.unlocatablePersonKeys.contains("smith-j"), "前提：entities/ 那份單獨看寫得進去")
+
+        let dry = try AuthorizedNameMigration.run(store: store, apply: false)
+        XCTAssertEqual(dry.alreadyDesignated, 1, "legacy 那份已指定、不在寫入集合：\(dry)")
+        XCTAssertEqual(dry.blockedKeys, ["smith-j"], "乾跑說出 --apply 會擋的那一筆：\(dry)")
+        let before = try personFileBytes()
+        XCTAssertThrowsError(try AuthorizedNameMigration.run(store: store, apply: true, judgement: "測試")) {
+            XCTAssertTrue("\($0)".contains("legacy 拷貝") && "\($0)".contains("smith-j"), "\($0)")
+        }
+        XCTAssertEqual(try personFileBytes(), before, "零寫入")
     }
 
     /// 對照組：沒有拷貝時照常寫入，`blockedKeys` 是空的。
@@ -312,27 +336,85 @@ final class ShadowedPairReadersTests: XCTestCase {
 
     /// #709 第三次 verify（LOW 19）：`enrich` 以 DOI 定位時，改名留下的拷貝（citekey 不同、id 相同）讓同一個 DOI 命中兩筆。定位看完整的 load
     /// （寫入面，照舊零寫入），理由說出那是同一筆記錄的拷貝——先前指向 #459 的攣生管線，而 resolve-divergence 對有拷貝的候選拒絕。
+    ///
+    /// #709 第四次 verify（MEDIUM 0、2、4，LOW 9、12、16）：哪一筆是拷貝**只問 load 的標記**（`shadowedLegacyFile`），所以本格走真的 load——
+    /// 先前的版本用兩筆 id 相同的裸 `Entry`，只靠 id 相等也綠，擋不住「兩份都是 legacy」那一格。
     func testEnrichNamesARenameLeftoverInsteadOfPointingAtTheTwinPipeline() throws {
         let id = UUID()
         var renamed = Entry(id: id, citekey: "b2020beta", type: .periodicalArticle, title: "T", date: "2020")
         renamed.doi = [DOI("10.1234/abc.def")!]
         var leftover = renamed
         leftover.citekey = "b2020alpha"
-        let plan = try AddOnlyEnrichment.plan(entries: [renamed, leftover],
-                                              proposals: [.init(doi: "10.1234/abc.def", fields: ["abstract": "A"])])
-        let item = try XCTUnwrap(plan.items.first)
-        XCTAssertEqual(item.category, .ambiguous)
-        XCTAssertEqual(item.matches, ["b2020alpha", "b2020beta"])
-        let reason = try XCTUnwrap(item.reason)
-        XCTAssertTrue(reason.contains("同一筆記錄") && reason.contains("b2020alpha、b2020beta"), reason)
-        XCTAssertFalse(reason.contains("#459"), reason)
+        try writeEntities(renamed)
+        try writeLegacy(leftover)
+        let reason = try enrichReason(doi: "10.1234/abc.def", matches: ["b2020alpha", "b2020beta"])
+        XCTAssertTrue(reason.contains("b2020alpha（legacy 檔 entries/b2020alpha.yaml；entities/ 那份是 b2020beta）"), reason)
+        XCTAssertTrue(reason.contains("legacy 拷貝") && reason.contains("確認 entities/ 那份是新的之後"), reason)
+        XCTAssertFalse(reason.contains("#459"), "拿掉拷貝之後只剩一筆，攣生管線不適用：\(reason)")
 
-        // 對照組：兩筆不同的記錄（id 不同）共用 DOI，照舊指向 #459
+        // 對照組：兩筆不同的記錄（id 不同、都在 entities/）共用 DOI，照舊指向 #459、不提拷貝
+        try FileManager.default.removeItem(at: store.entriesDir.appendingPathComponent("b2020alpha.yaml"))
         var other = leftover
         other.id = UUID()
-        let control = try AddOnlyEnrichment.plan(entries: [renamed, other],
-                                                 proposals: [.init(doi: "10.1234/abc.def", fields: ["abstract": "A"])])
-        XCTAssertTrue(control.items.first?.reason?.contains("#459") ?? false, "\(control.items)")
+        try writeEntities(other)
+        let control = try enrichReason(doi: "10.1234/abc.def", matches: ["b2020alpha", "b2020beta"])
+        XCTAssertTrue(control.contains("#459") && !control.contains("拷貝") && !control.contains("UUID"), control)
+    }
+
+    /// #709 第四次 verify（MEDIUM 0、2、4）：兩個 legacy 檔共用 UUID、entities/ 沒有那個 id——validate 判成兩筆不同記錄的 error，不是拷貝。
+    /// 理由不得說它們是同一筆記錄的拷貝、「不是兩篇作品」，不得叫人刪 legacy 那份；要說 UUID 重複是 error、指向 validate。
+    func testEnrichDoesNotCallTwoLegacyFilesSharingAnIDACopy() throws {
+        let id = UUID()
+        var a = Entry(id: id, citekey: "alpha2020", type: .periodicalArticle, title: "Cats", date: "2020")
+        a.doi = [DOI("10.1234/abc.def")!]
+        var b = a
+        b.citekey = "beta2020"
+        b.title = "Dogs"
+        try writeLegacy(a)
+        try writeLegacy(b)
+        XCTAssertEqual(try store.load().shadowedLegacyCopies, [], "前提：load 不把它們標成拷貝")
+        XCTAssertTrue(try store.load().crossRecordIssues().contains { $0.severity == .error && $0.message.contains("被 2 筆 entry 共用") },
+                      "前提：validate 判成 error")
+
+        let reason = try enrichReason(doi: "10.1234/abc.def", matches: ["alpha2020", "beta2020"])
+        XCTAssertFalse(reason.contains("是同一筆記錄的 legacy 拷貝") || reason.contains("不是兩篇") || reason.contains("刪掉"), reason)
+        XCTAssertTrue(reason.contains("alpha2020、beta2020 共用同一個 id，卻不是 load 認得的 legacy 拷貝")
+                      && reason.contains("UUID 重複是 error") && reason.contains("akashic validate"), reason)
+
+        // MCP／CLI 共用的 service payload 也是這一句（CLI 印同一份 payload）
+        let service = AkashicService(root: root, key: nil, environment: [:])
+        let out = try service.enrich(proposals: [.init(doi: "10.1234/abc.def", fields: ["abstract": "A"])],
+                                     dryRun: true, includeAbsentAuthors: false)
+        XCTAssertTrue(out.contains("UUID 重複是 error") && !out.contains("刪掉"), out)
+    }
+
+    /// #709 第四次 verify（MEDIUM 4、LOW 9）：一對拷貝加另一筆 id 不同的記錄共用 DOI——刪掉拷貝之後仍歧義，#459 的指路不能丟。
+    func testEnrichKeepsTheTwinPointerWhenACopyAndAnotherRecordShareTheDOI() throws {
+        let id = UUID()
+        var renamed = Entry(id: id, citekey: "b2021d", type: .periodicalArticle, title: "T", date: "2021")
+        renamed.doi = [DOI("10.1234/abc.def")!]
+        var leftover = renamed
+        leftover.citekey = "oldcite2021"
+        var twin = renamed
+        twin.id = UUID()
+        twin.citekey = "c2021d2"
+        try writeEntities(renamed)
+        try writeLegacy(leftover)
+        try writeEntities(twin)
+        let reason = try enrichReason(doi: "10.1234/abc.def", matches: ["b2021d", "c2021d2", "oldcite2021"])
+        XCTAssertTrue(reason.contains("oldcite2021（legacy 檔 entries/oldcite2021.yaml；entities/ 那份是 b2021d）"), reason)
+        XCTAssertTrue(reason.contains("拿掉拷貝之後仍有 2 筆記錄帶這個 DOI") && reason.contains("#459"), reason)
+        XCTAssertFalse(reason.contains("再跑"), "刪掉拷貝之後重跑仍歧義，不說「再跑」：\(reason)")
+    }
+
+    /// 以 DOI 定位一筆 enrich 提案、斷言歧義與命中，回傳理由（走真的 load：標記由 load 設定）。
+    private func enrichReason(doi: String, matches: [String], file: StaticString = #filePath, line: UInt = #line) throws -> String {
+        let plan = try AddOnlyEnrichment.plan(entries: try store.load().entries,
+                                              proposals: [.init(doi: doi, fields: ["abstract": "A"])])
+        let item = try XCTUnwrap(plan.items.first, file: file, line: line)
+        XCTAssertEqual(item.category, .ambiguous, file: file, line: line)
+        XCTAssertEqual(item.matches, matches, file: file, line: line)
+        return try XCTUnwrap(item.reason, file: file, line: line)
     }
 
     // MARK: - 3. people 列表

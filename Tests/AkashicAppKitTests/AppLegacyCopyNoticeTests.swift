@@ -344,6 +344,9 @@ final class AppLegacyCopyNoticeTests: XCTestCase {
         XCTAssertFalse(notice.headline.contains("與這份拷貝無關") || notice.headline.contains("別的原因"),
                        "後續的寫入被拒絕的原因正是這份拷貝（laterWriteRefused）——標題不得否認它：\(notice.headline)")
         XCTAssertTrue(LegacyCopyLeft.reportLines([left]).first?.contains(LegacyCopyLeft.explanation) == true, "CLI／MCP 的標題仍帶同一句")
+        // #705 第四次 verify（INFO 29）：explanation 之後不再說一次無前提的「刪掉 legacy 那份」，也不說「即可」
+        XCTAssertFalse(notice.headline.contains("即可"), notice.headline)
+        XCTAssertEqual(notice.headline.components(separatedBy: "刪掉 legacy 那份").count - 1, 1, "刪除只說一次、帶前提：\(notice.headline)")
     }
 
     /// #708 R2 verify 第 1／34 列：`laterWriteRefused`（同一個操作之後對同一筆的寫入被 #631 拒絕、**原因就是這份拷貝**）時，標題與那一列都要說這件事，

@@ -148,7 +148,9 @@ final class FulltextR3Tests: XCTestCase {
             XCTAssertTrue(errText.contains("nothing on it was checked"), errText)
             XCTAssertFalse((outText + errText).contains("SECRETSIG"), title)
         }
-        for url in ["https://cdn.example.org/auth/12345.pdf", "https://cdn.example.org/validate/x.pdf", "https://sso-files.example.org/x.pdf"] {
+        // 主機的登入字詞不在最左邊的標籤時不算（使用者 2026-10-05 第 4 則）。最左邊的標籤是登入字詞的主機（先前這裡是 `sso-files.example.org`）
+        // b34 起讀不到也整批暫停——見 `FulltextB34Tests.testAnUnreadableTabOnALoginHostPausesTheBatch`
+        for url in ["https://cdn.example.org/auth/12345.pdf", "https://cdn.example.org/validate/x.pdf", "https://files.sso-cdn.example.org/x.pdf"] {
             var s = Scenario(); s.afterNavURL = url; s.afterNavTitle = "main.pdf"; s.afterNavJSFails = true
             assertHandover(run(s), .unverifiable, url)
         }
@@ -325,7 +327,7 @@ final class FulltextR3Tests: XCTestCase {
     /// 已經不一樣——程式對三個主機都收子網域、另收裸 `google.com/recaptcha/`）。這裡從 SKILL 的那一段讀出清單，與程式的集合逐一比。
     func testTheSkillsClosedListsAreTheCodesLists() throws {
         let skill = try skillText()
-        let gate = between(skill, "封閉清單（`BotSignals.gateLook`）：網址的主機或路徑有 ", "主機以非字母數字")
+        let gate = between(skill, "封閉清單（`BotSignals.gateLook`）：網址的主機或路徑有 ", "。**主機的登入字詞只認最左邊的標籤**")
         let parts = gate.components(separatedBy: "（登入）")
         XCTAssertEqual(parts.count, 3, String(gate))
         guard parts.count == 3 else { return }

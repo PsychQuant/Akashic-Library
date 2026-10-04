@@ -332,6 +332,18 @@ final class SkillToolsCLITests: XCTestCase {
         XCTAssertTrue(underNewProbe.output.contains("先更新 CLI"), underNewProbe.output)
     }
 
+    /// 第 0 步擋得住契約 4 的 CLI（#613 R3）：b34 起文章站上讀不到的分頁、登入主機上的讀不到的分頁、主機標籤與路徑段的判斷都變了，
+    /// 照這份 SKILL 跑的 agent 不能拿 R3 的 CLI 跑（b33 X3 第 25、27 則：版本號是手動的常數，行為變了要往上調）。
+    func testTheStepZeroProbeTellsAnR3CLIFromThisOne() throws {
+        let cli = base.appendingPathComponent("r3-akashic")
+        try "#!/bin/sh\nif [ \"$1\" = fulltext ] && [ \"$2\" = contract ]; then echo 'fulltext-contract 4'; exit 0; fi\nexit 64\n"
+            .write(to: cli, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: cli.path)
+        let probe = try runStepZeroProbe(akashic: cli)
+        XCTAssertNotEqual(probe.status, 0, probe.output)
+        XCTAssertFalse(probe.output.contains("PROBE-PASSED"), probe.output)
+    }
+
     /// SKILL 第 0 步要求的版本就是這個 binary 印的版本：版本號往上調時 SKILL 要一起調（要求高於 binary，真的 CLI 也過不了第 0 步；
     /// 要求低於 binary，舊的 CLI 會被放過）。
     func testTheContractVersionTheSkillRequiresIsTheOneThisCLIPrints() throws {

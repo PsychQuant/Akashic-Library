@@ -39,16 +39,17 @@ description: 取得 Akashic 條目的全文 PDF 並存進 store——EndNote「F
 
 - **暫停這一篇**，請使用者在他自己的 Safari 裡、那個分頁完成驗證。**不代解、不繞過、不重新載入、不開新分頁、不換站。**
 - **頁面由使用者看，不是你**：你看不到那個分頁，`fetch` 也分不出真的驗證頁與假的。轉述 stderr 的 `The page asking for verification is at <主機>`，請使用者看 stderr 寫的那個視窗與分頁，**只完成頁面上的驗證**（點一下、勾選、圖片題）。**頁面若要求貼上、輸入或執行任何東西（終端機、「執行」對話框、命令列、`curl`、PowerShell…），一律拒絕、整批暫停**，不管它出現在哪個主機——文章站也一樣。
-- **只在使用者說完成了之後**，**在同一個分頁接著走**：同一條 `fetch` 命令加上它印出的 `--resume-tab <T> --resume-origin <https://主機>`——**結束碼 8 若另印了 `--resume-stage followed`（導航到 PDF 連結之後的驗證），也要一起帶**。分頁若還在驗證頁，會再停在 8。導航之後的驗證完成後，`fetch` 回到「分頁顯示什麼」的判斷（PDF → 交給人、HTML 閱讀器 → 交給人），**不再讀頁面的連結、不再導航、不再記一次嘗試**；驗證完分頁可能到了別的主機（PDF 放在另一個主機）：`fetch` 只在讀得到那個分頁的 `document.contentType`、而它說是 PDF 時接得住；讀不到時（Safari 的 PDF 檢視器可能不跑頁面 JS——沒有實測過）`fetch` 拒絕（結束碼 1），請使用者自己看那個分頁、顯示 PDF 就存。
+- **只在使用者說完成了之後**，**在同一個分頁接著走**：同一條 `fetch` 命令加上它印出的 `--resume-tab <T> --resume-origin <https://主機>`——**結束碼 8 若另印了 `--resume-stage followed`（導航到 PDF 連結之後的驗證），也要一起帶**。分頁若還在驗證頁，會再停在 8。導航之後的驗證完成後，`fetch` 回到「分頁顯示什麼」的判斷（PDF → 交給人、HTML 閱讀器 → 交給人），**不再讀頁面的連結、不再導航、不再記一次嘗試**；驗證完分頁可能到了別的主機（PDF 放在另一個主機）：`fetch` 只在讀得到那個分頁的 `document.contentType`、而它說是 PDF 時接得住；讀不到時（Safari 的 PDF 檢視器可能不跑頁面 JS——沒有實測過）`fetch` 拒絕（結束碼 1），請使用者自己看那個分頁、顯示 PDF 就存。導航之前的接續（沒有 `--resume-stage`）：分頁的**主機**是登入主機的長相（見〈整批暫停〉的主機規則）就整批暫停、不往那個分頁送任何 JS；分頁顯示 PDF 先交給人（`pdf-shown`，即使路徑有登入字詞，例如 `/auth/12345.pdf`——舊的呼叫端在導航之後的驗證沒帶 `--resume-stage`）；判的是分頁**此刻**的網址；分頁還停在驗證頁的網址、而頁面沒有驗證字樣時（使用者說完成了、頁面還在轉址），`fetch` 等它轉走（只讀分頁網址、不送 JS，約 60 秒），轉走了照常往下走，沒轉走整批暫停。
 - 使用者把那個視窗拉到前面時，視窗編號會變：用 `safari-browser documents --json --profile "<P>"` 找出顯示那個主機的分頁，換成它的 `--window`／`--resume-tab`。對不上時 `fetch` 拒絕（結束碼 1），**不猜是哪一個分頁**。導航之後的接續（`--resume-stage followed`）只接三種分頁：文章站（`--resume-origin`）、已知的驗證服務、或此刻回報顯示 PDF 的分頁（只讀 `document.contentType` 判斷，不讀那個分頁的文字）；其他分頁拒絕（結束碼 1）。**PDF 這一種不看主機**：位置漂移到使用者自己開著的另一份 PDF 也會被接、交給人存——`take` 的標題與 DOI 驗證會擋下不是這篇的檔，但存之前先看清楚是哪一個分頁。接續時「文章站」就是你給的 `--resume-origin`，`fetch` 信任它——照結束碼 8 印的值抄，不要自己改。**`--resume-tab` 只用位置認分頁**：使用者在驗證當中開關過分頁，位置就會移動，而他很可能同一個出版商也開著自己的分頁；導航之前的接續（沒有 `--resume-stage`）會對那個位置的分頁導航、找不到連結時還會關它——所以接續之前先確認那個位置顯示的就是驗證用的分頁，拿不準就問使用者。
 
 **整批暫停**（`fetch` 結束碼 6）——其他所有訊號：
 
 - 頁面或回應出現起疑字樣（`akashic fulltext bot-signals`）：Akamai／PerimeterX／DataDome 的封鎖頁、「存取遭拒」、「異常流量」、「請求過多」、PMC 的下載前驗證頁（「preparing to download」）、**ScienceDirect 點 View PDF 之後的「Preparing your download」中介頁**（`cra_js_challenge`；使用者 2026-10-01 裁決為起疑訊號，不當成一般讀者流程等它自己過）；以及 HTTP 403／429 本身。**HTTP 429 一律整批暫停**，不論頁面文字（請求過多是站方在限流，不是等人去點的驗證頁）；403 而頁面文字是上面四種驗證頁時（挑戰頁本身常以 403 回應）才照等人驗證
 - 驗證字樣或網址標記出現在**文章站與已知驗證服務以外的主機**（見上）
-- 分頁在流程中途**跑到別的網域，而且那一頁是登入／SSO／驗證頁的長相**——封閉清單（`BotSignals.gateLook`）：網址的主機或路徑有 `login`、`logon`、`signin`、`sso`、`auth`、`authenticate`、`shibboleth`、`saml`、`openathens`、`wayf`、`idp`、`cas`（登入）或 `verify`、`verification`、`challenge`、`captcha`、`validate`、`turnstile`（驗證）；或標題有 `sign in`、`log in`、`login`、`single sign-on`、`authentication required`（登入）或 `verify`、`verification`、`are you a human`、`are you a robot`（驗證）。主機以非字母數字切成字詞逐個比，另比去掉連字號的每個標籤（`sign-in.example` 是 `signin`）；路徑比**整段**——先百分比解碼（`/%6Cogin` 是 `/login`）、去掉 `;` 之後的路徑參數（`/login;jsessionid=…`），一段可以帶一個網頁副檔名（`.php`、`.asp`、`.aspx`、`.jsp`、`.do`、`.action`、`.cgi`、`.htm`、`.html`、`.pl`），連字號與底線可省（`/login.php`、`/sign-in`），不從一段裡切出片段（DOI 與檔名裡的 `cas`、`challenge` 不算；`/sso-login`、`/login-required` 這種複合段也因此不算——要不要算由使用者裁決）；標題比**整個字詞**（`Research design in …` 的 `design in` 不是 `sign in`）。**分頁顯示 PDF 時先交給人**，不看這份清單（PDF 分頁的標題常常就是文章標題；「顯示 PDF」的依據是分頁讀得到的 `document.contentType`）。**DOI 落地頁**也看網址的這份清單、不看標題：**登入頁的長相先判**，命中就整批暫停，即使頁面文字寫著 CAPTCHA（登入頁不降成等人驗證）；驗證頁的長相排在起疑訊號之後（文章站自己的 CAPTCHA 頁常在 `/captcha/` 之類的路徑上，那是等人驗證）。落地頁的這道閘不只擋 EZproxy、SAML把 DOI 帶在查詢字串裡的那一種：主機的任一字詞或路徑的任一整段命中就停——主機名剛好有 `auth`、`cas` 這類標籤的期刊平台（例如 `journals.auth.gr`）每一篇都會停在這裡，那是這份封閉清單往停那一邊錯的代價
-- 頁面**卡住**：約 60 秒（以時鐘計，最多多一次輪詢）沒載完、導航到 PDF 連結之後沒落定、分頁到了別的主機而那一頁沒落定
-- **文章站上**的頁面讀不到、無從檢查——「沒辦法檢查」不等於「乾淨」。（導航到 PDF 連結之後讀不到的分頁、別的主機上讀不到的分頁可能是 Safari 的 PDF 檢視器，是交給人的 `unverifiable`，見下）
+- 分頁在流程中途**跑到別的網域，而且那一頁是登入／SSO／驗證頁的長相**——封閉清單（`BotSignals.gateLook`）：網址的主機或路徑有 `login`、`logon`、`signin`、`sso`、`auth`、`authenticate`、`shibboleth`、`saml`、`openathens`、`wayf`、`idp`、`cas`（登入）或 `verify`、`verification`、`challenge`、`captcha`、`validate`、`turnstile`（驗證）；或標題有 `sign in`、`log in`、`login`、`single sign-on`、`authentication required`（登入）或 `verify`、`verification`、`are you a human`、`are you a robot`（驗證）。**主機的登入字詞只認最左邊的標籤**（以非字母數字切成的字，或去掉連字號的整個標籤：`sso.uni.example`、`idp-prod.uni.example`，`sign-in.example` 是 `signin`），另外 IdP 服務的名稱在任何一個標籤都算——封閉清單（`BotSignals.identityProviderNames`）：`shibboleth`、`saml`、`openathens`、`wayf`；其他位置的登入字詞不算（使用者 2026-10-05 第 4 則：`journals.auth.gr` 的 `auth` 是大學名稱、`www.cas.cn` 的 `cas` 是機構縮寫——先前這種期刊平台每一篇都停在落地頁）。主機的驗證字詞在任何一個字都算（以非字母數字切開，另比去掉連字號的每個標籤；沒有被裁決收窄）。主機不含帳密與埠號。路徑比**整段**——先百分比解碼（`/%6Cogin` 是 `/login`）、去掉 `;` 之後的路徑參數（`/login;jsessionid=…`），一段可以帶一個網頁副檔名（`.php`、`.asp`、`.aspx`、`.jsp`、`.do`、`.action`、`.cgi`、`.htm`、`.html`、`.pl`、`.cfm`、`.cfml`、`.xhtml`、`.jsf`、`.jspx`、`.faces`、`.shtml`、`.phtml`；後八個是使用者 2026-10-05 第 2 則加的），連字號與底線可省（`/login.php`、`/sign-in`），不從一段裡切出片段（DOI 與檔名裡的 `cas`、`challenge` 不算）。**登入字詞另拆複合段**（使用者 2026-10-05 第 3 則）：這一段是網頁名稱時（沒有副檔名，或副檔名是上面的網頁副檔名），以連字號與底線切成的字、或相鄰兩個字接起來是登入字詞就算（`/sso-login`、`/login-required`、`/sign-in-required`）；檔名（`how-to-login-guide.pdf`）與帶點的 DOI 片段不拆，驗證字詞不拆（`/the-challenge-of-replication` 是文章）。**代價**：文章網址的 slug 帶登入字詞（`/two-factor-auth-usability`）也會停。標題比**整個字詞**（`Research design in …` 的 `design in` 不是 `sign in`）。**分頁顯示 PDF 時先交給人**，不看這份清單（PDF 分頁的標題常常就是文章標題；「顯示 PDF」的依據是分頁讀得到的 `document.contentType`）。**DOI 落地頁**也看網址的這份清單、不看標題：**登入頁的長相先判**，命中就整批暫停，即使頁面文字寫著 CAPTCHA（登入頁不降成等人驗證）；驗證頁的長相排在起疑訊號之後（文章站自己的 CAPTCHA 頁常在 `/captcha/` 之類的路徑上，那是等人驗證）
+- 頁面**卡住**：約 60 秒（以時鐘計，最多多一次輪詢）沒載完、導航到 PDF 連結之後沒落定、分頁到了別的主機而那一頁沒落定；讀的當中頁面一直在變（標題每讀一次就變的倒數頁）也停在這一格，訊息會說頁面在讀的當中一直變
+- **導航之前的文章頁**讀不到頁面文字、無從檢查——「沒辦法檢查」不等於「乾淨」。（導航到 PDF 連結之後讀不到的分頁，不論在文章站上或別的主機上，可能是 Safari 的 PDF 檢視器，是交給人的 `unverifiable`，見下）
+- 讀不到的分頁停在**登入主機**上（只看主機，見上面的主機規則；PDF 不從 IdP 主機出來）
 
 整批暫停時：**不重試、不換來源、不換站繼續**（被懷疑之後改走別條路，就是在繞偵測）；**不關那個分頁**，留給使用者看；回報哪個站、哪個訊號、在哪一步、這批完成到哪篇。之後要不要繼續、何時繼續，由使用者決定。
 
@@ -58,7 +59,11 @@ description: 取得 Akashic 條目的全文 PDF 並存進 store——EndNote「F
 
 **不算懷疑的**：付費牆的登入殼（PsycNet 無權限時的「Loading…」頁）是「沒有權限」。`fetch` 把它交給人看（結束碼 7，`html-page`），由使用者確認，列入「需要人」。
 
-**分頁到了別的主機、而那一頁沒有命中任何驗證／封鎖／登入的標記**（使用者 2026-10-02）也不是整批暫停：PDF 放在 CDN 或檔案主機、跨主機的中繼頁、DOI 解不開。交給人的情形**只有這四種**（封閉列舉，不得類推第五種）：(1) 新主機回報顯示 PDF → 照常交給人存檔（結束碼 7，`pdf-shown`）；(2) 其他頁面要**等它載完**（還在載入的頁面說不出有沒有標記；標題、網址、頁面文字與 HTTP 狀態要是同一頁的，讀的當中換了頁就重新等），載完而沒有命中清單 → **這一筆**交給人（結束碼 7，`left-site`），**批次繼續**；(3) **讀不到的分頁**：同一個網址連三次讀不到、那個網址上從沒讀到過一般網頁的回答——它可能是 Safari 的 PDF 檢視器（不跑頁面 JS，沒有實測過），所以不因標題或網址的字樣整批暫停（PDF 的標題常是 `Verification of …`、`A Survey of CAPTCHA Design` 這種文章標題）→ 交給人（結束碼 7，`unverifiable`，**什麼都沒檢查過**）；例外是網址在已知的驗證服務上、或標題與網址帶著驗證服務自己的標記（封閉的六個標籤：Akamai 與 PerimeterX、DataDome 的封鎖頁用語、PerimeterX 的按住驗證、Cloudflare 的挑戰頁標記、ScienceDirect 的下載中介頁），那些照訊號處理。**代價**：一個 JS 一直讀不到、從沒回答過的 HTML 頁面，與 PDF 檢視器分不出來，也會走到這一格；讀到過一次「還在載入」的網址就不算（那是一般網頁，等不到是卡住）；(4) DOI 解不開，見下。沒有命中封閉清單**不代表不是登入頁**：使用者看過那個分頁之前，不要開始下一篇（規則 4）。DOI 解不開是 `doi-not-resolved`：分頁停在 doi.org（看主機，不是網址裡有沒有 `doi.org` 字樣），而且看得到 doi.org 自己的「查無」頁（標題或頁面寫著 `DOI Not Found`，或 HTTP 404）；停在 doi.org 卻沒有那個證據（離線時 Safari 自己的錯誤頁）、或 doi.org 上出現驗證或登入頁的樣子，都是整批暫停。這些交給人的訊息不寫「網站懷疑自動化」，因為不是。
+**分頁到了別的主機、而那一頁沒有命中任何驗證／封鎖／登入的標記**（使用者 2026-10-02）也不是整批暫停：PDF 放在 CDN 或檔案主機、跨主機的中繼頁、DOI 解不開。分頁到了別的主機（含停在 doi.org）時，交給人的原因**只有這四種**（封閉列舉，不得類推第五種；交給人的全部原因見下方〈交給人之後〉的表——另外三種 `html-page`、`tab-unchanged`、`button` 只在文章站上出現）：(1) 新主機回報顯示 PDF → 照常交給人存檔（結束碼 7，`pdf-shown`）；(2) 其他頁面要**等它載完**（還在載入的頁面說不出有沒有標記；標題、網址、頁面文字與 HTTP 狀態要是同一頁的，讀的當中換了頁就重新等），載完而沒有命中清單 → **這一筆**交給人（結束碼 7，`left-site`），**批次繼續**；(3) **讀不到的分頁** → 交給人（結束碼 7，`unverifiable`，**什麼都沒檢查過**），條件見下一段；(4) DOI 解不開（`doi-not-resolved`），見下。沒有命中封閉清單**不代表不是登入頁**：使用者看過那個分頁之前，不要開始下一篇（規則 4）。
+
+**讀不到的分頁**（文章站上與別的主機上同一套）：同一個網址**連三次**讀不到、那個網址上**從沒讀到過一般網頁的回答**才算——它可能是 Safari 的 PDF 檢視器（不跑頁面 JS，沒有實測過），所以不因標題或網址的一般字樣、也不因路徑的登入長相整批暫停（PDF 的標題常是 `Verification of …`、`A Survey of CAPTCHA Design` 這種文章標題，檔案路徑常有 `auth`、`validate`）。例外只有三種，依序：網址在已知的驗證服務上 → 照訊號處理，沒有訊號也整批暫停；**主機是登入主機的長相**（上面的主機規則）→ 整批暫停；標題與網址帶著驗證服務自己的標記——封閉的六個標籤（`BotSignals.serviceMarkerLabels`）：`akamai-block`、`perimeterx-block`、`datadome-block`、`perimeterx-press-and-hold`、`cloudflare-challenge`、`sciencedirect-download-challenge`（Akamai、PerimeterX、DataDome 的封鎖頁用語，PerimeterX 的按住驗證，Cloudflare 的挑戰頁標記，ScienceDirect 的下載中介頁）→ 照訊號處理（文章站上的按住驗證與 Cloudflare 挑戰是等人驗證，其他主機整批暫停）。**代價**：一個 JS 一直讀不到、從沒回答過的 HTML 頁面，與 PDF 檢視器分不出來，也會走到這一格；讀到過一次「還在載入」的網址就不算（那是一般網頁，等不到是卡住）。
+
+DOI 解不開是 `doi-not-resolved`：分頁停在 doi.org（看主機，不是網址裡有沒有 `doi.org` 字樣），而且看得到 doi.org 自己的「查無」頁（標題或頁面寫著 `DOI Not Found`，或 HTTP 404）；停在 doi.org 卻沒有那個證據（離線時 Safari 自己的錯誤頁、doi.org 上的登入頁）、或 doi.org 上出現驗證或登入頁的樣子，都是整批暫停（使用者 2026-10-05 第 1 則：只有看得到 doi.org 的查無頁才是「DOI 解不開、這一筆交給人」，其餘整批暫停；這是對 2026-10-01 裁決的收窄，以它為準）。這些交給人的訊息不寫「網站懷疑自動化」，因為不是。
 
 ## 每站每天 10 次嘗試（使用者 2026-10-01）
 
@@ -73,11 +78,11 @@ description: 取得 Akashic 條目的全文 PDF 並存進 store——EndNote「F
 
    ```bash
    v=$(akashic fulltext contract 2>/dev/null) || v=""
-   case "$v" in "fulltext-contract "[0-9]*) [ "${v#fulltext-contract }" -ge 4 ] ;; *) false ;; esac 2>/dev/null \
+   case "$v" in "fulltext-contract "[0-9]*) [ "${v#fulltext-contract }" -ge 5 ] ;; *) false ;; esac 2>/dev/null \
      || { echo "akashic CLI 比這份 SKILL 舊（或沒裝）：它的 fulltext fetch 不照這份 SKILL 的契約走（更舊的還在頁內取檔）——先更新 CLI，不要對出版商網站跑" >&2; exit 1; }
    ```
 
-   版本 4 是 #613 R3（2026-10-04）：別的主機上讀不到的分頁交給人、落地頁的登入長相先於頁面文字判、分類用同一份快照。更早的 CLI 沒有 `contract` 這個子命令（ArgumentParser 對它回 64），所以一律被擋——先前用 `take` 的兩條探測（`take` 在不在、空的 `--title` 是不是 64）分不出 R1、R2 的 CLI，它們兩條都過（b31 W4 第 1 則）。印出來的不是 `fulltext-contract <數字>`、或數字小於 4，都當成「CLI 比這份 SKILL 舊，先更新」。
+   版本 5 是 #613 b34（2026-10-05）：文章站上讀不到的分頁與別的主機同一套（不因標題或路徑的字樣停）、讀不到的分頁停在登入主機上整批暫停、文章站上的判斷也用同一份快照、導航之前的接續 PDF 先於路徑的登入長相，以及使用者 2026-10-05 的主機標籤、網頁副檔名與複合路徑段。版本 4 是 R3（2026-10-04）：別的主機上讀不到的分頁交給人、落地頁的登入長相先於頁面文字判。更早的 CLI 沒有 `contract` 這個子命令（ArgumentParser 對它回 64），所以一律被擋——先前用 `take` 的兩條探測（`take` 在不在、空的 `--title` 是不是 64）分不出 R1、R2 的 CLI，它們兩條都過（b31 W4 第 1 則）。印出來的不是 `fulltext-contract <數字>`、或數字小於 5，都當成「CLI 比這份 SKILL 舊，先更新」。
 
    **確認不了就停，不要用舊的 `fetch`、也不要自己改寫一段取檔的流程。**
 1. **確認節奏工具**：`safari-browser wait --help` 有 `--jitter` 就用 `safari-browser wait --jitter cauchy`；沒有就用 `akashic fulltext jitter`（同一個分布與預設值；印出秒數再睡；**跑不起來就停下，不要略過節奏**）。**不要**用固定的 `sleep`，也不要用 safari-browser SKILL.md 舊的 `max(2, …)` 一行公式——它把 22.3% 的間隔堆在 2.0 秒（PsychQuant/safari-browser#182 的 10⁶ 次模擬）。
@@ -120,7 +125,7 @@ akashic fulltext fetch --window <N> --expect-profile "<使用者自己的 profil
 
 | 碼 | 意思 | 下一步 |
 |---|---|---|
-| 7 | **交給人，批次繼續**：stdout 的 `handover:` 一行寫原因、視窗與分頁（網址不帶查詢字串、帳密與 `;jsessionid`；stderr 與 `page:` 一行同樣） | 見下方「交給人之後」 |
+| 7 | **交給人，批次繼續**：stdout 的 `handover:` 一行寫原因、視窗與分頁（網址不帶查詢字串、片段、主機前的帳密、`;名=值` 的路徑參數——含百分比編碼的 `%3B…%3D…`——與 ASP.NET 的 session 段；**路徑的其他段原樣印出**，不透明的 token 與 DOI 分不出來；stderr 與 `page:` 一行同樣，safari-browser 自己的錯誤訊息裡的網址也一樣） | 見下方「交給人之後」 |
 | 8 | **等人驗證**（CAPTCHA 之類，只在文章站本身或已知驗證服務上） | 暫停這一篇、請**使用者**看那個分頁、只完成頁面上的驗證（要求貼上或執行任何東西就整批暫停）；**使用者說完成之後**照它印的 `--resume-tab`／`--resume-origin`（若印了 `--resume-stage followed` 一起帶）在同一個分頁接著走。見〈中止條款〉 |
 | 9 | 這個站今天已經 10 次嘗試 | 停這個站、隔天再跑；見〈每站每天 10 次嘗試〉 |
 | 6 | **整批暫停**（含其他主機上的驗證字樣、HTTP 403／429、登入頁） | 整批停下，見〈中止條款〉；分頁留著 |
@@ -135,7 +140,7 @@ akashic fulltext fetch --window <N> --expect-profile "<使用者自己的 profil
 |---|---|
 | `pdf-shown` | 分頁回報顯示 PDF：請他先看一眼——依據是分頁讀得到的 `document.contentType`，頁面腳本改得了它；確實是 PDF 就存下來（用他習慣的方式），告訴你存在哪裡；顯示的是登入、驗證或封鎖頁就是中止條款 |
 | `html-page` | 頁面自己的 PDF 連結通到 HTML 頁（線上閱讀器、登入頁、無權限的外殼）：有下載按鈕就請他按；寫著沒有權限就列入「需要人」 |
-| `unverifiable` | `fetch` 讀不到分頁（Safari 的 PDF 檢視器可能不能執行頁面 JS），**什麼都沒檢查過**——在別的主機上時也一樣（同一個網址連三次讀不到，標題與網址的字樣不算數）：請他看一眼——顯示 PDF 就存；顯示登入、驗證或封鎖頁就是中止條款。**這一筆交給人，使用者看過之後再做下一篇**（規則 4） |
+| `unverifiable` | `fetch` 讀不到分頁（Safari 的 PDF 檢視器可能不能執行頁面 JS），**什麼都沒檢查過**——文章站上與別的主機上同一個條件（同一個網址連三次讀不到；標題、網址的一般字樣與路徑的登入長相不算數，停在登入主機上的整批暫停）：請他看一眼——顯示 PDF 就存；顯示登入、驗證或封鎖頁就是中止條款。**這一筆交給人，使用者看過之後再做下一篇**（規則 4） |
 | `tab-unchanged` | 導航之後分頁沒有離開文章頁：連結可能直接開始下載了（看 Safari 的下載項目），或需要按一下 |
 | `button` | 頁面的 PDF 下載是表單按鈕（Annual Reviews 型）：請他按 |
 | `left-site` | 分頁到了**別的主機**，那一頁載完了、沒有命中驗證、封鎖或登入的封閉清單（跨主機的中繼頁、檔案主機）——**這不代表它不是登入頁**：請他看一眼——顯示 PDF 就存；是登入、驗證或封鎖頁就是中止條款；都不是就列入「需要人」。**這一筆交給人，批次繼續**：使用者看過之後再做下一篇（規則 4） |
@@ -192,7 +197,7 @@ akashic_store_source(path=<pdf>, media_type="application/pdf",
                      note="<版本：version of record / author manuscript / preprint；verify 摘要；由使用者存檔>")
 ```
 
-`retrieved` 是**取得**時間（使用者存檔的時候），不是存入時間，也不要憑印象寫：取使用者存下的那個檔的修改時間，例如 `TZ=Asia/Taipei stat -f '%Sm' -t '%Y-%m-%dT%H:%M:%S+08:00' -- "$(cat '<暫存目錄>/<citekey>.from.txt')"`（路徑從第 4 步寫的那個檔帶入，不直接寫進命令；`fetch` 沒有印時間，帳本的 `at` 是準備導航的時間、不是存檔的時間）。`origin` 用 `fetch` 交給人時印的分頁網址（`handover:` 那一行；**那一行刻意去掉了查詢字串、片段、主機前的帳密與路徑上的 `;jsessionid`**——簽章網址的短效憑證與 session 沒有理由留在 store 與對話裡，所以 `origin` 是不帶憑證的網址，不是可以再開一次的連結）；使用者按的是頁面上的下載按鈕、網址不同時，照實在 `note` 寫。回傳的 digest 記進回報表。作者稿與預印本**照實在 note 寫版本**，不要讓它看起來像正式版。
+`retrieved` 是**取得**時間（使用者存檔的時候），不是存入時間，也不要憑印象寫：取使用者存下的那個檔的修改時間，例如 `TZ=Asia/Taipei stat -f '%Sm' -t '%Y-%m-%dT%H:%M:%S+08:00' -- "$(cat '<暫存目錄>/<citekey>.from.txt')"`（路徑從第 4 步寫的那個檔帶入，不直接寫進命令；`fetch` 沒有印時間，帳本的 `at` 是準備導航的時間、不是存檔的時間）。`origin` 用 `fetch` 交給人時印的分頁網址（`handover:` 那一行；**那一行刻意去掉了查詢字串、片段、主機前的帳密、路徑上 `;名=值` 的參數與 ASP.NET 的 session 段**——簽章網址的短效憑證與 session 沒有理由留在 store 與對話裡，所以 `origin` 是不帶憑證的網址，不是可以再開一次的連結；**路徑的其他段原樣留著**，路徑裡的 token 分不出來）；使用者按的是頁面上的下載按鈕、網址不同時，照實在 `note` 寫。回傳的 digest 記進回報表。作者稿與預印本**照實在 note 寫版本**，不要讓它看起來像正式版。
 
 ### 6. 連結回記錄
 

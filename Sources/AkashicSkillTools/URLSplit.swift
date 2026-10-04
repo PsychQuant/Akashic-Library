@@ -34,10 +34,24 @@ struct URLSplit {
     var origin: String { "\(PyText.string(scheme))://\(PyText.string(netloc))" }
 
     /// netloc 去掉主機前的帳密（`user:pw@`，與 Python 的 `rpartition('@')` 同樣切最後一個 `@`）：主機加埠號。
+    ///
+    /// 兩處不照 Python（#613 b34，b33 X3 第 9、19 則）：
+    /// - **反斜線結束 authority**：WHATWG 對 http(s) 把 `\` 當 `/`，`https://evil.example\@pub.example/x` 的主機是 `evil.example`。Python 的
+    ///   netloc 不在 `\` 斷開，先前去帳密時切到最後一個 `@`，把它說成 `pub.example`——站的比對 fail open。
+    /// - **以 Unicode scalar 找 `@`**：`@` 後面接組合符號時，以 `Character` 找會找不到，帳密就留著（`plainURL` 早就以 scalar 找）。
     var hostPort: String {
-        let n = PyText.string(netloc)
-        guard let at = n.lastIndex(of: "@") else { return n }
-        return String(n[n.index(after: at)...])
+        var n = netloc
+        if let backslash = n.firstIndex(of: "\\") { n = Scalars(n[..<backslash]) }
+        if let at = n.lastIndex(of: "@") { n = Scalars(n[(at + 1)...]) }
+        return PyText.string(n)
+    }
+
+    /// 主機名稱（小寫，不帶帳密與埠號）。登入／驗證頁的長相看主機時用它——帳密與埠號裡的字不是主機的字。
+    var host: String {
+        let h = hostPort.lowercased()
+        if h.hasPrefix("[") { return h.split(separator: "]", maxSplits: 1).first.map { String($0) + "]" } ?? h }   // IPv6 字面
+        guard let colon = h.lastIndex(of: ":"), h[h.index(after: colon)...].allSatisfy(\.isNumber) else { return h }
+        return String(h[..<colon])
     }
 
     /// `scheme://主機[:埠號]`，不帶帳密（#613 R3，b31 W4 第 6、15、16 則）：`fulltext fetch` 比「分頁還在同一個站嗎」、印進訊息、

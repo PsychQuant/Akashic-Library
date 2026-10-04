@@ -25,8 +25,8 @@ import AkashicStoreIO
 ///
 ///     7 交給人：分頁已導到頁面自己的 PDF 連結（或該按的按鈕已找到），這個命令沒有取位元組、沒有寫檔。分頁留著。**批次繼續**：
 ///       這一筆交給人，不是整批停。原因（`handover:` 一行）：`pdf-shown`（含另一個主機上顯示的 PDF——依據是頁面讀得到的
-///       `document.contentType`，頁面腳本改得了它）、`html-page`、`unverifiable`（讀不到分頁，什麼都沒檢查；含別的主機上同一個網址
-///       連三次讀不到、而那裡從沒讀到過一般網頁的分頁）、`tab-unchanged`、`button`、`left-site`（導航之後分頁到了別的主機、頁面載完而
+///       `document.contentType`，頁面腳本改得了它）、`html-page`、`unverifiable`（讀不到分頁，什麼都沒檢查；文章站上與別的主機上同一個
+///       條件：同一個網址連三次讀不到、而那裡從沒讀到過一般網頁的分頁）、`tab-unchanged`、`button`、`left-site`（導航之後分頁到了別的主機、頁面載完而
 ///       沒有命中驗證／封鎖／登入的封閉清單——那不代表它不是登入頁）與 `doi-not-resolved`（停在 doi.org，而且看得到 doi.org 自己的
 ///       查無證據）。
 ///     8 等人驗證：出現 CAPTCHA／人類檢查／Cloudflare「Just a moment」／按住驗證，**而且在文章站本身或已知的驗證服務上**
@@ -35,8 +35,8 @@ import AkashicStoreIO
 ///     9 這個站今天已經 10 次嘗試（Asia/Taipei）：停這個站，隔天再跑。沒有導航到 PDF。
 ///     6 **整批暫停**（SKILL.md〈中止條款〉）：其他起疑訊號——封鎖頁、HTTP 403／429、異常流量、PMC 的下載前驗證頁、ScienceDirect
 ///       的「Preparing your download」、其他主機上的驗證字樣、分頁跑到別的網站而那一頁是登入／驗證頁的長相、DOI 落地頁的網址是登入頁
-///       的長相、卡住（落地頁、導航之後、別的主機上的頁面約 60 秒沒落定）、停在 doi.org 卻看不到它自己的查無證據、文章站上讀不到頁面
-///       而無從檢查。分頁留著給使用者看。
+///       的長相、讀不到的分頁停在登入主機的長相上（只看主機）、卡住（落地頁、導航之後、別的主機上的頁面約 60 秒沒落定）、停在 doi.org
+///       卻看不到它自己的查無證據（使用者 2026-10-05 第 1 則）、導航之前的文章頁讀不到頁面文字而無從檢查。分頁留著給使用者看。
 ///     3 頁面上找不到 PDF 連結（我們的分頁關掉）
 ///     1 自動化失敗（見 stderr）；或頁面給的 PDF 連結不是同站的絕對 https 網址（`points off-site`）；或帳本讀不懂
 ///
@@ -62,9 +62,10 @@ import AkashicStoreIO
 /// b31 W4 第 1 則：先前以 `take` 的行為探測，分不出 R1、R2 的 CLI）。結束碼、交給人的原因、或哪些頁面整批暫停改變時就往上調，SKILL 第 0 步
 /// 一起調（`SkillToolsCLITests` 比對兩邊相等）。
 public final class FulltextFetch {
-    /// 1＝#613 只導航、交給人；2＝R1 修正輪（2026-10-02）；3＝R2 修正輪（e5182cf1）；4＝R3（2026-10-04）。前三版的 CLI 沒有 `contract`
-    /// 子命令——數字只是給歷史一個名字，第 0 步擋它們靠的是「沒有這個子命令」。
-    public static let contractVersion = 4
+    /// 1＝#613 只導航、交給人；2＝R1 修正輪（2026-10-02）；3＝R2 修正輪（e5182cf1）；4＝R3（2026-10-04）；5＝b34（2026-10-05：文章站上
+    /// 讀不到的分頁與別的主機同一套、讀不到的分頁在登入主機上整批暫停、文章站上同一份快照、使用者 2026-10-05 的主機標籤與路徑段裁決）。
+    /// 前三版的 CLI 沒有 `contract` 子命令——數字只是給歷史一個名字，第 0 步擋它們靠的是「沒有這個子命令」。
+    public static let contractVersion = 5
 
     public struct Options {
         public var window: Int
@@ -104,14 +105,15 @@ public final class FulltextFetch {
         public static let dailyCapReached: Int32 = 9
     }
 
-    /// 交給人的原因（結束碼 7；stdout 的 `handover:` 一行印它的 `rawValue`）。
-    public enum Handover: String {
+    /// 交給人的原因（結束碼 7；stdout 的 `handover:` 一行印它的 `rawValue`）。SKILL〈交給人之後〉的表逐一列它們（`FulltextB34Tests.testTheSkillsHandoverTableIsTheHandoverEnum` 對帳）。
+    public enum Handover: String, CaseIterable {
         /// 分頁回報它顯示 PDF（`document.contentType` 含 pdf）。那是頁面讀得到的值，頁面腳本改得了它（b31 W4 第 18、33 則）——訊息照實說
         case pdfShown = "pdf-shown"
         /// 頁面自己的 PDF 連結通到 HTML 頁（閱讀器、登入頁、無權限的外殼）
         case htmlPage = "html-page"
-        /// 讀不到分頁（Safari 的 PDF 檢視器可能不跑頁面 JS，或頁面拒絕），什麼都沒檢查。文章站上：標題與網址沒有起疑訊號；別的主機上：
-        /// 同一個網址連三次讀不到、那裡從沒讀到過一般網頁，而且網址不在已知的驗證服務上、標題與網址沒有驗證服務自己的標記
+        /// 讀不到分頁（Safari 的 PDF 檢視器可能不跑頁面 JS，或頁面拒絕），什麼都沒檢查。文章站上與別的主機上同一個條件（`judgeUnreadable`，
+        /// #613 b34）：同一個網址連三次讀不到、那裡從沒讀到過一般網頁，而且網址不在已知的驗證服務上、主機不是登入主機的長相、標題與網址
+        /// 沒有驗證服務自己的標記
         case unverifiable = "unverifiable"
         /// 導航之後分頁沒有離開文章頁（連結可能直接觸發下載）
         case tabUnchanged = "tab-unchanged"
@@ -280,7 +282,6 @@ public final class FulltextFetch {
 
     private func tab(_ n: String) -> Tab? { docs().first { $0.window == window && String($0.tabInWindow) == n } }
     private func tabURL(_ n: String) -> String { tab(n)?.url ?? "" }
-    private func tabTitle(_ n: String) -> String { tab(n)?.title ?? "" }
     private func currentTab() -> String { docs().first { $0.window == window && $0.isCurrent }.map { String($0.tabInWindow) } ?? "" }
     /// `scheme://主機[:埠號]`，不帶帳密（`URLSplit.siteOrigin`）：站的比對、訊息與帳本的站名都從這裡來。
     private func origin(_ url: String) -> String { URLSplit(url).siteOrigin }
@@ -292,7 +293,7 @@ public final class FulltextFetch {
     /// safari-browser 會 fail-closed（2026-09-23 觀察）。
     private func openOwnTab(_ url: String) throws {
         let r = browser.run(["open", "--new-tab", "--window", String(window), url])
-        if r.status != 0 { throw fail("open: \(r.stderr.trimmingTrailingNewlines())") }
+        if r.status != 0 { throw fail("open: \(FulltextFetch.redactingURLs(r.stderr.trimmingTrailingNewlines()))") }
         ownTab = currentTab()
         if ownTab.isEmpty { throw fail("cannot identify the tab just opened") }
     }
@@ -327,15 +328,49 @@ public final class FulltextFetch {
         return nil
     }
 
-    /// 我們的分頁有沒有起疑訊號。等人驗證的訊號 → 結束碼 8；其他 → 6；讀不到頁面 → 6（無從檢查不等於乾淨）。
-    private func botCheckPage(_ site: String) throws {
-        let title = tabTitle(ownTab)
-        if let page = pageText() {
-            if let hit = BotSignals.classify(title + "\n" + page.text, status: page.status) { throw stop(for: hit, site) }
-            return
+    // MARK: 讀分頁：同一份快照（#613 R3 只用在別的主機上；b34 起文章站上也是，b33 X3 第 2、8 則）
+
+    /// 一次讀頁面：（網址，標題）→ 頁面文字與狀態碼 → 再讀一次（網址，標題）。兩次不同＝讀的當中分頁換了頁，這一份不用（回 nil，
+    /// `pageChanges` 加一）。`accept` 判第一次讀到的網址是不是這一步要判的那一頁。`page` 是 nil＝讀不到頁面文字。
+    private struct PageSnapshot {
+        let url: String
+        let title: String
+        let page: (status: Int?, text: String)?
+    }
+    private func readPage(accept: (String) -> Bool) -> PageSnapshot? {
+        guard let first = tabSnapshot(), !first.url.isEmpty, accept(first.url) else { pageChanges += 1; return nil }
+        let page = pageText()
+        guard let second = tabSnapshot(), second.url == first.url, second.title == first.title else { pageChanges += 1; return nil }
+        return PageSnapshot(url: first.url, title: first.title, page: page)
+    }
+
+    /// 讀的當中換了頁的次數（`readPage` 回 nil）。等到卡住時訊息照實說「頁面在讀的當中一直變」，不是只說沒落定（b33 X3 第 11、18 則：標題
+    /// 每讀一次就變的倒數頁其實落定了，訊息卻叫人去找載入的問題）。每一段等待開始時歸零。
+    private var pageChanges = 0
+    private var pageChangesNote: String { pageChanges > 0 ? " — the page changed while it was being read (\(pageChanges) times); it may have settled" : "" }
+
+    /// 文章站上一份快照的起疑判斷：命中 → 停法（等人驗證或整批暫停）；讀不到頁面文字 → 標題命中照訊號、否則整批暫停（無從檢查不等於
+    /// 乾淨）；乾淨 → nil。
+    private func onSiteSuspicion(_ snap: PageSnapshot, _ site: String) -> Stop? {
+        guard let page = snap.page else {
+            if let hit = BotSignals.classify(snap.title) { return stop(for: hit, site, at: snap.url) }
+            return botStop("page-unreadable: could not check it for suspicion", site)
         }
-        if let hit = BotSignals.classify(title) { throw stop(for: hit, site) }
-        throw botStop("page-unreadable: could not check it for suspicion", site)
+        if let hit = BotSignals.classify(snap.title + "\n" + page.text, status: page.status) { return stop(for: hit, site, at: snap.url) }
+        return nil
+    }
+
+    /// 我們的分頁（在文章站上）有沒有起疑訊號。等人驗證的訊號 → 結束碼 8；其他 → 6；讀不到頁面 → 6。回判斷的那一頁的網址。
+    /// 同一份快照：讀的當中換了頁就先過 `siteGuard`（換到別的主機照 `leftSite` 判）再讀一次；連三次都在換頁＝無從檢查，整批暫停。
+    @discardableResult
+    private func botCheckPage(_ site: String) throws -> String {
+        for _ in 1...3 {
+            try siteGuard(site)
+            guard let snap = readPage(accept: { self.sameSite($0, site) }) else { nap(2); continue }
+            if let stop = onSiteSuspicion(snap, site) { throw stop }
+            return snap.url
+        }
+        throw botStop("the page kept changing while it was being read: could not check it for suspicion → \(FulltextFetch.plainURL(tabURL(ownTab)))", site)
     }
 
     /// 每個進一步動作之前：我們的分頁必須還顯示文章的站。分頁離開了文章站（使用者 2026-10-02），照 `leftSite` 判；分頁在等它落定的
@@ -353,44 +388,59 @@ public final class FulltextFetch {
     /// 2. 不是 PDF 的頁面**要等它落定**（readyState 是 complete／interactive；最多約 60 秒，以時鐘計、也不超過 30 次輪詢）：還在載入的頁面說不出
     ///    「沒有標記」。一直沒落定 → 卡住，整批暫停。等的時候分頁又換了網址就重新看（換到登入頁就判登入頁；回到文章站就照常往下走）。
     /// 3. 落定之後，**標題、網址、頁面文字與 HTTP 狀態一起**判起疑訊號（`classify`）：429 一律整批暫停，所以已知驗證服務上的 429 頁不會進
-    ///    等人驗證；等人驗證只在已知的驗證服務上成立，其他主機一律整批暫停。這幾樣要是**同一頁的**（`offSiteSettled`）：讀完之後分頁的網址或
+    ///    等人驗證；等人驗證只在已知的驗證服務上成立，其他主機一律整批暫停。這幾樣要是**同一頁的**（`readPage`）：讀完之後分頁的網址或
     ///    標題變了，那一份不用，回去等。
-    /// 4. 登入／驗證頁的長相（`BotSignals.gateLook`：網址的主機與整段路徑、標題的整字片語）→ 整批暫停。
+    /// 4. 登入／驗證頁的長相（`BotSignals.gateLook`：網址的主機與路徑、標題的整字片語）→ 整批暫停。
     /// 5. 其他（CDN 的檔案主機、跨主機的中繼頁）→ 這一筆交給人（`left-site`），批次繼續。沒命中封閉清單不代表不是登入頁，訊息照說。
     ///
     /// **讀不到**（頁面 JS 跑不起來；Safari 的 PDF 檢視器可能就是這樣）：同一個網址**連三次**讀不到、而且那個網址上**從沒讀到過一般網頁**的回答
-    /// 才算（`offSiteUnreadable`）。讀到過「還在載入」的網址是一般網頁，不是 PDF 檢視器——讀不到就繼續等，等不到是卡住（b31 W4 第 5 則：先前
-    /// 讀不到是累積計數、換頁也不重算，沒載完的頁面夾著三次零星的失敗就被交給人、批次繼續）。
+    /// 才算（`UnreadableTally`），照 `judgeUnreadable` 判——文章站上同一套。讀到過「還在載入」的網址是一般網頁，不是 PDF 檢視器——讀不到就
+    /// 繼續等，等不到是卡住。
     /// 回 nil＝分頁在等的時候回到了文章站。
     private func leftSite(from site: String) throws -> Stop? {
         let start = now()
-        var unreadable = 0           // 同一個網址上連續讀不到的次數
-        var countedURL = ""          // 那個網址
-        var sawAPage: Set<String> = []   // 讀到過「不是 PDF」的回答的網址：那裡是一般網頁
+        var tally = UnreadableTally()
+        let outer = pageChanges   // 從文章站上的等待裡來：回到文章站時還給它
+        pageChanges = 0
         for poll in 1...30 {
             if poll > 1, now().timeIntervalSince(start) >= FulltextFetch.settleSeconds { break }
             let before = tabURL(ownTab)
             let shown = browser.run(["js"] + lock + [FulltextFetch.shownJS])
             let url = tabURL(ownTab)
             if url.isEmpty { return botStop("site changed → <our tab is gone>", site) }
-            if sameSite(url, site) { return nil }
-            if url != countedURL { unreadable = 0; countedURL = url }
+            if sameSite(url, site) { pageChanges = outer; return nil }
             if url == before {   // 看的這一下分頁沒有換頁：這個回答屬於這個網址
                 if shown.status == 0, FulltextFetch.contentTypeIsPDF(shown.value) { return handover(.pdfShown, at: url) }
                 if shown.status != 0 || FulltextFetch.isUnreadableShown(shown.value) {
-                    unreadable += 1
-                    if unreadable >= 3, !sawAPage.contains(url), let stop = offSiteUnreadable(url, site) { return stop }
+                    if tally.unreadable(at: url), let stop = judgeUnreadable(url, site) { return stop }
                 } else {
-                    unreadable = 0
-                    sawAPage.insert(url)
+                    tally.answered(at: url)
                     if FulltextFetch.isSettled(shown.value), let stop = offSiteSettled(url, site) { return stop }
                 }
             } else {
-                unreadable = 0   // 換頁中：讀不到的這一下不算到任何一個網址
+                tally.moved()   // 換頁中：讀不到的這一下不算到任何一個網址
             }
             nap(2)
         }
-        return botStop("the tab left the article site and the page did not settle (stalled) → \(FulltextFetch.plainURL(tabURL(ownTab)))", site)
+        return botStop("the tab left the article site and the page did not settle (stalled)\(pageChangesNote) → \(FulltextFetch.plainURL(tabURL(ownTab)))", site)
+    }
+
+    /// 讀不到的分頁要「同一個網址**連三次**、那個網址上從沒讀到過一般網頁的回答」才算（b31 W4 第 5 則；b34 起文章站上同一個規則，b33 X3
+    /// 第 4 則：先前文章站上是累積計數，失敗、還在載入、失敗、失敗就交給人、批次繼續，別的主機上同一串回答是卡住）。
+    private struct UnreadableTally {
+        private var count = 0
+        private var url = ""
+        private var sawAPage: Set<String> = []
+        /// 看的這一下分頁在換頁：不算到任何一個網址。
+        mutating func moved() { count = 0 }
+        /// 讀不到一次；回 true＝夠了（同一個網址連三次，那裡從沒讀到過一般網頁）。
+        mutating func unreadable(at u: String) -> Bool {
+            if u != url { count = 0; url = u }
+            count += 1
+            return count >= 3 && !sawAPage.contains(u)
+        }
+        /// 讀到了不是 PDF 的回答（還在載入、或落定）：那個網址是一般網頁。
+        mutating func answered(at u: String) { count = 0; url = u; sawAPage.insert(u) }
     }
 
     /// 分頁此刻的（網址，標題）——同一次 `documents` 讀到的一對。
@@ -398,41 +448,44 @@ public final class FulltextFetch {
 
     /// 別的主機上的頁面落定了：標題、網址、頁面文字與狀態碼一起判訊號，再看登入／驗證頁的長相，都沒有就交給人。
     ///
-    /// **同一份快照**（#613 R3，b31 W4 第 0 則）：網址與標題從同一次 `documents` 讀、頁面文字與狀態碼從同一次 JS 讀，讀完之後再讀一次網址與
-    /// 標題——兩次不同就表示讀的當中分頁換了頁（中繼頁轉到登入頁），這一份不用，回 nil 讓 `leftSite` 回去等。先前標題、頁面文字、交給人時
-    /// 印的網址各讀各的，舊中繼頁的網址與標題配上新登入頁的文字，三樣都沒命中就交給人。
+    /// **同一份快照**（#613 R3，b31 W4 第 0 則；`readPage`）：讀完之後網址或標題變了＝讀的當中分頁換了頁（中繼頁轉到登入頁），這一份不用，回 nil
+    /// 讓 `leftSite` 回去等。先前標題、頁面文字、交給人時印的網址各讀各的，舊中繼頁的網址與標題配上新登入頁的文字，三樣都沒命中就交給人。
     private func offSiteSettled(_ url: String, _ site: String) -> Stop? {
-        guard let first = tabSnapshot(), first.url == url else { return nil }
-        let page = pageText()
-        guard let second = tabSnapshot(), second.url == url, second.title == first.title else { return nil }
-        let title = first.title
+        guard let snap = readPage(accept: { $0 == url }) else { return nil }
         let moved = "→ \(FulltextFetch.plainURL(url))"
-        guard let page else {
+        guard let page = snap.page else {
             // 讀不到頁面文字：狀態碼也不知道，只剩標題與網址
-            if let hit = BotSignals.classify(title + "\n" + url) { return stop(for: hit, site, context: moved, at: url) }
+            if let hit = BotSignals.classify(snap.title + "\n" + url) { return stop(for: hit, site, context: moved, at: url) }
             return botStop("page-unreadable \(moved): could not check it for suspicion", site)
         }
-        if let hit = BotSignals.classify(title + "\n" + url + "\n" + page.text, status: page.status) { return stop(for: hit, site, context: moved, at: url) }
-        if let gate = BotSignals.gateLook(url: url, title: title) { return botStop("site changed \(moved) (\(gate) page)", site) }
+        if let hit = BotSignals.classify(snap.title + "\n" + url + "\n" + page.text, status: page.status) { return stop(for: hit, site, context: moved, at: url) }
+        if let gate = BotSignals.gateLook(url: url, title: snap.title) { return botStop("site changed \(moved) (\(gate) page)", site) }
         return handover(.leftSite, at: url)
     }
 
-    /// 別的主機上的分頁讀不到（頁面 JS 跑不起來）：只剩標題與網址，而這樣的分頁可能就是 Safari 的 PDF 檢視器——PDF 分頁的標題常是文章標題、
-    /// 檔案主機的路徑常有 `auth`、`validate` 之類的段。所以這裡**不看**一般的訊號字詞與登入／驗證頁的長相（使用者 2026-10-02：PDF 交給人；
-    /// b31 W4 第 3、4 則：先前 `Verification of …`、`A Survey of CAPTCHA Design` 這種文章標題在這裡整批暫停），只看兩件封閉的事：
-    /// - 網址在已知的驗證服務上（`isKnownVerificationService`）：照訊號處理（等人驗證或整批暫停）；沒有訊號也整批暫停——那是驗證服務的頁面，
-    ///   而它讀不到。
-    /// - 標題與網址帶著驗證服務自己的標記（`BotSignals.serviceMarker`，封閉的六個標籤）：照訊號處理（這裡不是文章站，等人驗證不成立，
-    ///   一律整批暫停）。
-    /// 其他 → 交給人（`unverifiable`），訊息說讀不到、什麼都沒檢查。回 nil＝讀標題的這一下分頁換了頁，回去等。
-    private func offSiteUnreadable(_ url: String, _ site: String) -> Stop? {
-        guard let snap = tabSnapshot(), snap.url == url else { return nil }
-        let moved = "→ \(FulltextFetch.plainURL(url))"
+    /// 讀不到的分頁（頁面 JS 跑不起來）：只剩標題與網址，而這樣的分頁可能就是 Safari 的 PDF 檢視器——PDF 分頁的標題常是文章標題、檔案的路徑
+    /// 常有 `auth`、`validate` 之類的段。**文章站上與別的主機上同一套**（#613 b34，b33 X3 第 1、3、5、7 則：R3 只在別的主機上這樣判，文章站上
+    /// 仍以標題與網址的一般字樣判——同站 PDF 的文章標題 `A Survey of CAPTCHA Design` 得 8、`Analysis of unusual traffic patterns` 得 6）。
+    /// 一般的訊號字詞、路徑與標題的登入／驗證長相都**不看**（使用者 2026-10-02：PDF 交給人），只看三件封閉的事，依序：
+    /// 1. 網址在已知的驗證服務上（`isKnownVerificationService`）：照訊號處理（等人驗證或整批暫停）；沒有訊號也整批暫停——那是驗證服務的頁面，
+    ///    而它讀不到。
+    /// 2. **主機**是登入主機的長相（`BotSignals.hostLoginLook`：最左邊的標籤、或 IdP 服務的名稱）→ 整批暫停（使用者 2026-10-02：登入頁維持
+    ///    整批暫停；PDF 不從 IdP 主機出來）。只看主機，路徑與標題不看（`/auth/12345.pdf`、`Login behaviour in …`）。
+    /// 3. 標題與網址帶著驗證服務自己的標記（`BotSignals.serviceMarker`，封閉的六個標籤）：照訊號處理（文章站上的人類檢查是等人驗證；
+    ///    其他主機一律整批暫停）。
+    /// 其他 → 交給人（`unverifiable`），訊息說讀不到、什麼都沒檢查。判斷用同一次 `documents` 的（網址，標題）；那一下網址不是 `url` 就回 nil，
+    /// 回去等。
+    private func judgeUnreadable(_ url: String, _ site: String) -> Stop? {
+        guard let snap = tabSnapshot(), snap.url == url else { pageChanges += 1; return nil }
+        let context = sameSite(url, site) ? "" : "→ \(FulltextFetch.plainURL(url))"
         if BotSignals.isKnownVerificationService(url: url) {
-            if let hit = BotSignals.classify(snap.title + "\n" + url) { return stop(for: hit, site, context: moved, at: url) }
-            return botStop("page-unreadable on a known verification service \(moved): could not check it", site)
+            if let hit = BotSignals.classify(snap.title + "\n" + url) { return stop(for: hit, site, context: context, at: url) }
+            return botStop("page-unreadable on a known verification service \(context): could not check it", site)
         }
-        if let hit = BotSignals.serviceMarker(snap.title + "\n" + url) { return stop(for: hit, site, context: moved, at: url) }
+        if BotSignals.hostLoginLook(url) {
+            return botStop("page-unreadable on a host with the look of a login page → \(FulltextFetch.plainURL(url)) (login page)", site)
+        }
+        if let hit = BotSignals.serviceMarker(snap.title + "\n" + url) { return stop(for: hit, site, context: context, at: url) }
         return handover(.unverifiable, at: url)
     }
 
@@ -470,7 +523,6 @@ public final class FulltextFetch {
 
         if let resumeTab = o.resumeTab, let resumeOrigin = o.resumeOrigin {
             try resume(tab: resumeTab, origin: resumeOrigin, stage: o.resumeStage, ledger: ledger)
-            return
         }
         try openOwnTab(o.landing)
         let landed = try settleLanding()
@@ -487,14 +539,15 @@ public final class FulltextFetch {
     /// 2. 起疑訊號（`botCheckPage`）：文章站上的 CAPTCHA 是等人驗證。
     /// 3. **驗證頁的長相後判**：文章站自己的 CAPTCHA 頁常在 `/captcha/` 之類的路徑上（Optica 2026-09-28），它的訊號先得 8；沒有訊號而網址是
     ///    驗證頁的長相才整批暫停。
+    ///
+    /// 第 3 步看的是第 2 步**判的那一頁**的網址（`botCheckPage` 的快照，#613 b34）：讀的當中分頁在文章站上換了頁，判的是新的那一頁。
     private func checkTheArticlePage(url: String, site: String) throws {
-        let look = BotSignals.urlGateLook(url)
-        if look == "login" {
+        if BotSignals.urlGateLook(url) == "login" {
             throw botStop("the article page has the look of a login page → \(FulltextFetch.plainURL(url)) (login page)", site)
         }
-        try botCheckPage(site)
-        if let gate = look {
-            throw botStop("the article page has the look of a \(gate) page → \(FulltextFetch.plainURL(url)) (\(gate) page)", site)
+        let judged = try botCheckPage(site)
+        if let gate = BotSignals.urlGateLook(judged) {
+            throw botStop("the article page has the look of a \(gate) page → \(FulltextFetch.plainURL(judged)) (\(gate) page)", site)
         }
     }
 
@@ -528,24 +581,30 @@ public final class FulltextFetch {
     /// 或 HTTP 404）——Safari 離線時在同一個網址上顯示自己的錯誤頁，那不是 DOI 的問題，是整批暫停（R2 verify 第 9 則）。
     ///
     /// 這裡的起疑訊號一律整批暫停，**包括等人驗證的那四種**：doi.org 不是文章站，驗證完它會轉到出版商，`--resume-origin https://doi.org`
-    /// 接不回去（R2 verify 第 17 則）。登入／驗證頁的長相同樣整批暫停。還在載入是卡住（整批暫停）。
+    /// 接不回去（R2 verify 第 17 則）。登入／驗證頁的長相同樣整批暫停。還在載入是卡住（整批暫停）。停在 doi.org 卻看不到它自己的查無證據
+    /// 整批暫停是使用者 2026-10-05 第 1 則的裁決（對 2026-10-01 裁決的收窄，以它為準）。
+    ///
+    /// 標題、頁面文字與交給人時印的網址是**同一份快照**（`readPage`，#613 b34）：讀的當中分頁離開了 doi.org 就不判——那一頁是誰的已經說不準，
+    /// 整批暫停。
     private func stillOnTheDOIResolver(_ u: String) throws -> Never {
         let site = origin(u)
         let here = "→ \(FulltextFetch.plainURL(u))"
         let rs = browser.run(["js"] + lock + [FulltextFetch.readyStateJS]).value
         guard rs == "complete" || rs == "interactive" else { throw botStop("page did not settle in 60 s (stalled) \(here)", site) }
-        let title = tabTitle(ownTab)
-        guard let page = pageText() else {
+        guard let snap = readPage(accept: { FulltextFetch.isDOIResolver($0) }) else {
+            throw botStop("the tab was still on doi.org after 60 s and changed page while it was being read \(here): could not check it", site)
+        }
+        guard let page = snap.page else {
             throw botStop("page-unreadable on doi.org \(here): could not check it for suspicion or for doi.org's own not-found page", site)
         }
-        if let hit = BotSignals.classify(title + "\n" + u + "\n" + page.text, status: page.status) {
+        if let hit = BotSignals.classify(snap.title + "\n" + snap.url + "\n" + page.text, status: page.status) {
             throw botStop("\(hit.label) on doi.org \(here) — doi.org is not the article site, so this cannot be resumed", site)
         }
-        if let gate = BotSignals.gateLook(url: u, title: title) { throw botStop("doi.org showed a page with the look of a \(gate) page \(here) (\(gate) page)", site) }
-        guard FulltextFetch.isDOINotFound(title: title, text: page.text, status: page.status) else {
+        if let gate = BotSignals.gateLook(url: snap.url, title: snap.title) { throw botStop("doi.org showed a page with the look of a \(gate) page \(here) (\(gate) page)", site) }
+        guard FulltextFetch.isDOINotFound(title: snap.title, text: page.text, status: page.status) else {
             throw botStop("the tab stayed on doi.org for 60 s without doi.org's own not-found page (offline, or the resolver did not answer) \(here)", site)
         }
-        throw handover(.doiNotResolved)
+        throw handover(.doiNotResolved, at: snap.url)
     }
 
     /// 等人驗證之後，在同一個分頁接著走（使用者 2026-10-01：不重新載入文章頁；2026-10-02：接著走**同一步**）。
@@ -556,7 +615,12 @@ public final class FulltextFetch {
     ///   這一步不要求分頁顯示文章站；它只讀分頁、不導航、不關分頁。但分頁要是這三種之一：文章站（`--resume-origin`）、已知的驗證服務、
     ///   或此刻顯示 PDF——其他分頁（使用者驗證時開關分頁，位置漂移到他自己的信箱或銀行）拒絕（結束碼 1）。判斷 PDF 只讀
     ///   `document.contentType`，不讀那個分頁的文字（#613 R2 verify 第 12、16、19、21 則：先前只要網址非空就對它跑讀頁文字的 JS）。
-    private func resume(tab position: Int, origin expected: String, stage resumeStage: ResumeStage, ledger: FulltextAttemptLedger) throws {
+    /// - `article` 的順序（#613 b34，b33 X3 第 0、21 則）：主機是登入主機的長相 → 整批暫停，不送任何 JS；然後與導航之後同一套讀法
+    ///   （`watchOnSite`）——分頁顯示 PDF → 交給人（舊的呼叫端沒帶 `--resume-stage`，驗證發生在導航之後；**PDF 先於路徑的登入長相**，
+    ///   `/auth/12345.pdf` 不整批暫停）；讀不到 → `judgeUnreadable`；落定的網頁 → 判的是**分頁此刻的網址**（先前用接續開始時讀的舊網址）：
+    ///   路徑的登入長相 → 整批暫停、起疑訊號 → 8 或 6、驗證頁的網址而沒有訊號 → 使用者說驗證完了而頁面還在轉址，**等它轉走**（只讀分頁網址、
+    ///   不送 JS，與等落定同一個約 60 秒），轉走了照常往下走、沒轉走整批暫停。
+    private func resume(tab position: Int, origin expected: String, stage resumeStage: ResumeStage, ledger: FulltextAttemptLedger) throws -> Never {
         guard let t = tab(String(position)) else {
             err("✗ window \(window) has no tab \(position) — the tab may have moved; find the one showing \(displaySafeInvisible(expected, max: 300)) with `safari-browser documents --json --profile <P>`")
             throw Stop(code: 1)
@@ -585,28 +649,36 @@ public final class FulltextFetch {
             }
             let site = origin(t.url)
             out("resuming: window \(window) tab \(ownTab) \(displaySafeInvisible(FulltextFetch.plainURL(t.url), max: 600))")
-            // 分頁停在登入頁的長相上：與落地頁同一道閘、同一個順序（b31 W4 第 13 則：先前接續只看訊號，登入主機上的分頁找不到連結時還會被關掉）
-            if BotSignals.urlGateLook(t.url) == "login" {
-                throw botStop("the tab shows a page with the look of a login page → \(FulltextFetch.plainURL(t.url)) (login page)", site)
+            // 主機是登入主機的長相：不往那個分頁送任何 JS（PDF 不從 IdP 主機出來）
+            if BotSignals.hostLoginLook(t.url) {
+                throw botStop("the tab shows a page on a host with the look of a login page → \(FulltextFetch.plainURL(t.url)) (login page)", site)
             }
-            // 舊的呼叫端沒帶 `--resume-stage`：驗證若發生在導航之後、分頁已經顯示 PDF，直接交給人（嘗試已經記過）
-            let shown = browser.run(["js"] + lock + [FulltextFetch.shownJS])
-            if shown.status != 0 { throw try unscriptable(site) }
-            if FulltextFetch.contentTypeIsPDF(shown.value) { throw handover(.pdfShown) }
-            try checkTheArticlePage(url: t.url, site: site)   // 還在驗證頁 → 8；別的訊號、驗證頁的長相 → 6
-            try followThePagesOwnLink(site: site, ledger: ledger)
+            try watchOnSite(site, stalled: "the tab did not settle after the check (stalled)") { url in
+                if BotSignals.urlGateLook(url) == "login" {
+                    return .stop(self.botStop("the tab shows a page with the look of a login page → \(FulltextFetch.plainURL(url)) (login page)", site))
+                }
+                let judged = try self.botCheckPage(site)   // 還在驗證頁 → 8；別的訊號 → 6
+                switch BotSignals.urlGateLook(judged) {
+                case "login":
+                    return .stop(self.botStop("the tab shows a page with the look of a login page → \(FulltextFetch.plainURL(judged)) (login page)", site))
+                case "verification":
+                    return .waitForTheURLToChange(judged)
+                default:
+                    try self.followThePagesOwnLink(site: site, ledger: ledger)
+                }
+            }
         }
     }
 
     /// 讀頁面自己的 PDF 連結、記一次嘗試、把同一個分頁導過去、交給人。
-    private func followThePagesOwnLink(site: String, ledger: FulltextAttemptLedger) throws {
+    private func followThePagesOwnLink(site: String, ledger: FulltextAttemptLedger) throws -> Never {
         try siteGuard(site)
         _ = browser.run(["wait"] + lock + ["--js", FulltextFetch.hasLinkJS, "--timeout", "45000"])
         try siteGuard(site)
         try botCheckPage(site)   // 插頁在我們等的時候可以變成挑戰頁
         try siteGuard(site)
         let linkRun = browser.run(["js"] + lock + [FulltextFetch.linkJS])
-        if linkRun.status != 0 { throw fail("could not read the page's links: \(linkRun.stderr.trimmingTrailingNewlines())") }
+        if linkRun.status != 0 { throw fail("could not read the page's links: \(FulltextFetch.redactingURLs(linkRun.stderr.trimmingTrailingNewlines()))") }
         let link = linkRun.value
         guard let space = link.firstIndex(of: " ") else {
             err("no PDF link on \(displaySafeInvisible(FulltextFetch.plainURL(tabURL(ownTab)), max: 600))")
@@ -617,7 +689,8 @@ public final class FulltextFetch {
         let target = String(link[link.index(after: space)...])
         guard method == "GET" || method == "POST" else { throw fail("unexpected answer from the link script: \(FulltextFetch.plainURL(link))") }
         // 頁面自己的連結來自 DOM（`citation_pdf_url`、`a[href]`、表單的 `action`）：只跟同一個站的絕對 https 網址走。拒絕不是中止條款
-        // （不是網站起疑，是頁面給了一個不能照做的連結）：結束碼 1，分頁留著。
+        // （不是網站起疑，是頁面給了一個不能照做的連結）：結束碼 1，分頁留著。站的比對看主機與埠號、不看帳密（與 `sameSite` 同一把，#613 b34，
+        // b33 X3 第 6、23 則：先前連結的 origin 帶帳密而站的不帶，帶帳密的落地頁上同站的相對連結永遠被拒，訊息還把帳密印出來）。
         let linkOrigin = FulltextFetch.linkTargetOrigin(target)
         if linkOrigin != site.lowercased() {
             throw fail("the page's PDF link points off-site (\(linkOrigin ?? "not an absolute https URL"), page origin \(site)): \(FulltextFetch.plainURL(target)) — not following a link the page chose to another site")
@@ -630,7 +703,8 @@ public final class FulltextFetch {
         let at = now()
         let day = FulltextAttemptLedger.taipeiDay(at)
         let reservation: FulltextAttemptLedger.Reservation
-        do { reservation = try ledger.reserve(site: host, landing: landing, at: at) } catch { throw fail("\(displaySafeErrorText(error))") }
+        // 帳本的 landing 也不帶查詢與路徑參數（b33 X3 第 14 則；它不參與計數，只是記錄）
+        do { reservation = try ledger.reserve(site: host, landing: FulltextFetch.plainURL(landing), at: at) } catch { throw fail("\(displaySafeErrorText(error))") }
         switch reservation {
         case .capReached(let used):
             err("⏹ DAILY CAP: \(displaySafeInvisible(host, max: 300)) already has \(used) attempts on \(day) (Asia/Taipei) — stop this site for today; it has not been asked for the PDF (the article page itself was already loaded).")
@@ -647,12 +721,13 @@ public final class FulltextFetch {
         let before = tabURL(ownTab)
         stage = .followed   // 從這裡起，等人驗證之後接著走的是「分頁顯示什麼」，不是再讀一次連結
         let navigation = browser.run(["open"] + lock + [target])
-        if navigation.status != 0 { throw fail("could not navigate the tab to the PDF link: \(navigation.stderr.trimmingTrailingNewlines())") }
+        if navigation.status != 0 { throw fail("could not navigate the tab to the PDF link: \(FulltextFetch.redactingURLs(navigation.stderr.trimmingTrailingNewlines()))") }
         try awaitShown(site: site, before: before)
     }
 
-    /// 導航之後：等分頁離開文章頁（20 秒），再看它顯示什麼。
-    private func awaitShown(site: String, before: String) throws {
+    /// 導航之後：等分頁離開文章頁（20 秒），再看它顯示什麼。分頁沒離開：檢查起疑訊號（同一份快照）——判的那一頁還是導航之前的那一頁才是
+    /// `tab-unchanged`；檢查的當中換了頁就照「分頁顯示什麼」判（b33 X3 第 8 則的同一個形狀：先前交給人時才讀網址，印的是換過去的那一頁）。
+    private func awaitShown(site: String, before: String) throws -> Never {
         var moved = false
         for _ in 1...10 {
             nap(2)
@@ -661,40 +736,74 @@ public final class FulltextFetch {
         }
         try siteGuard(site)   // 分頁不見了 → 6；到了別的主機 → 照 `leftSite`（PDF／沒有標記的頁面交給人，訊號與登入頁停）
         if !moved {
-            try botCheckPage(site)
-            throw handover(.tabUnchanged)
+            let judged = try botCheckPage(site)
+            if judged == before { throw handover(.tabUnchanged, at: judged) }
         }
         try decideShown(site: site)
     }
 
-    /// 分頁顯示什麼：PDF → 交給人；HTML 頁落定 → 查訊號、交給人；讀不到 → 交給人看。導航之後的判斷與等人驗證之後接著走
-    /// （`resume --resume-stage followed`）是同一段——驗證完不重新讀連結、不再導航。
-    private func decideShown(site: String) throws {
-        var failures = 0
+    /// 分頁顯示什麼：PDF → 交給人；HTML 頁落定 → 查訊號（同一份快照）、交給人；讀不到 → `judgeUnreadable`。導航之後的判斷與等人驗證之後
+    /// 接著走（`resume --resume-stage followed`）是同一段——驗證完不重新讀連結、不再導航。
+    private func decideShown(site: String) throws -> Never {
+        try watchOnSite(site, stalled: "the tab did not settle after following the PDF link (stalled)") { url in
+            guard let snap = self.readPage(accept: { $0 == url }) else { return .retry }
+            if let stop = self.onSiteSuspicion(snap, site) { return .stop(stop) }
+            return .stop(self.handover(.htmlPage, at: snap.url))
+        }
+    }
+
+    /// `watchOnSite` 對一個落定的網頁下的判斷。
+    private enum OnSiteVerdict {
+        case stop(Stop)
+        /// 讀的當中換了頁：回去等
+        case retry
+        /// 分頁停在這個網址等它轉走：之後只讀分頁網址、不送 JS，網址變了才再看
+        case waitForTheURLToChange(String)
+    }
+
+    /// 等分頁在文章站上給出一個屬於**同一個網址**的回答（#613 b34，b33 X3 第 2、4、8 則：R3 只在別的主機上這樣讀，文章站上一次讀分頁顯示什麼、
+    /// 讀不到累積計數、判完再讀網址印出來）。導航之後（`decideShown`）與導航之前的接續（`resume` 的 `article`）同一套：
+    /// - 每一次輪詢先過 `siteGuard`（分頁到了別的主機照 `leftSite` 判、不見了 → 6）；讀之前與之後的網址相同，這個回答才屬於那個網址。
+    /// - PDF → 交給人（`pdf-shown`，印那個網址）。
+    /// - 讀不到 → 同一個網址連三次、那裡從沒讀到過一般網頁才算（`UnreadableTally`），照 `judgeUnreadable` 判（與別的主機同一套）。
+    /// - 落定的網頁 → `consider`。
+    /// 約 60 秒（時鐘）沒有結果 → 卡住，整批暫停；停在等它轉走的網址上 → 整批暫停，訊息說是驗證頁的網址。
+    private func watchOnSite(_ site: String, stalled: String, consider: (String) throws -> OnSiteVerdict) throws -> Never {
         let start = now()
+        var tally = UnreadableTally()
+        var holding: String?   // 等它轉走的網址
+        pageChanges = 0
         for poll in 1...30 {
             if poll > 1, now().timeIntervalSince(start) >= FulltextFetch.settleSeconds { break }
             try siteGuard(site)
-            let r = browser.run(["js"] + lock + [FulltextFetch.shownJS])
-            if r.status == 0, FulltextFetch.contentTypeIsPDF(r.value) {
-                throw handover(.pdfShown)
-            } else if r.status != 0 || FulltextFetch.isUnreadableShown(r.value) {
+            if let h = holding {
+                if tabURL(ownTab) == h { nap(2); continue }
+                holding = nil
+            }
+            let before = tabURL(ownTab)
+            let shown = browser.run(["js"] + lock + [FulltextFetch.shownJS])
+            let url = tabURL(ownTab)
+            if url.isEmpty || url != before || !sameSite(url, site) { tally.moved(); nap(2); continue }   // 換頁中：下一輪 `siteGuard` 再看
+            if shown.status == 0, FulltextFetch.contentTypeIsPDF(shown.value) { throw handover(.pdfShown, at: url) }
+            if shown.status != 0 || FulltextFetch.isUnreadableShown(shown.value) {
                 // 空的或 `undefined` 的回答（對非 HTML 文件跑 `do JavaScript` 的可能結果）與失敗同樣算「讀不到」，不是「還在載入」
-                failures += 1
-                if failures >= 3 { throw try unscriptable(site) }
-            } else if FulltextFetch.isSettled(r.value) {
-                try botCheckPage(site)
-                throw handover(.htmlPage)
+                if tally.unreadable(at: url), let stop = judgeUnreadable(url, site) { throw stop }
+            } else {
+                tally.answered(at: url)
+                if FulltextFetch.isSettled(shown.value) {
+                    switch try consider(url) {
+                    case .stop(let stop): throw stop
+                    case .retry: break
+                    case .waitForTheURLToChange(let u): holding = u
+                    }
+                }
             }
             nap(2)
         }
-        throw botStop("the tab did not settle after following the PDF link (stalled) → \(FulltextFetch.plainURL(tabURL(ownTab)))", site)
-    }
-
-    /// 讀不到分頁（頁面 JS 跑不起來）：只剩標題與網址可以看。有起疑訊號照訊號處理，沒有就交給人看——交給人本身就是停下。
-    private func unscriptable(_ site: String) throws -> Stop {
-        if let hit = BotSignals.classify(tabTitle(ownTab) + "\n" + tabURL(ownTab)) { return stop(for: hit, site) }
-        return handover(.unverifiable)
+        if let h = holding {
+            throw botStop("the tab stayed on a page with the look of a verification page after the check → \(FulltextFetch.plainURL(h)) (verification page)", site)
+        }
+        throw botStop("\(stalled)\(pageChangesNote) → \(FulltextFetch.plainURL(tabURL(ownTab)))", site)
     }
 
     // MARK: 純函式（測試直接呼叫）
@@ -702,12 +811,14 @@ public final class FulltextFetch {
     /// 帳本用的站名：origin 的主機（加埠號），小寫，不帶帳密（b31 W4 第 16 則：先前是整個 netloc，帳密以小寫寫進帳本）。
     static func siteKey(_ origin: String) -> String { URLSplit(origin).hostPort.lowercased() }
 
-    /// 網址去掉會帶憑證的部分，才印進 stdout、stderr 與 `origin`：查詢與片段（簽章網址的短效憑證、SSO 的票）、主機前的帳密（`user:pw@`）、
-    /// 路徑上 `名=值` 形狀的路徑參數（`;jsessionid=…`、`;sid=…`、`;PHPSESSID=…`）與 ASP.NET 無 cookie session 的整段（`/(S(…))/`）
-    /// （#613 R2 verify 第 11、15、18、22、33 則；R3＝b31 W4 第 17 則：先前路徑參數只剝 `;jsessionid`）。以 Unicode scalar 找 `?`／`#`：
-    /// `?` 後面接組合字元時，以 `Character` 找會找不到。
+    /// 網址去掉會帶憑證的部分，才印進 stdout、stderr 與 `origin`：查詢與片段（簽章網址的短效憑證、SSO 的票）、主機前的帳密（`user:pw@`，
+    /// 含沒有 scheme 的 `//u:p@h/…`）、路徑上 `名=值` 形狀的路徑參數（`;jsessionid=…`、`;sid=…`、`;PHPSESSID=…`，以及百分比編碼的
+    /// `%3Bjsessionid%3D…`）與 ASP.NET 無 cookie session 的整段（`/(S(…))/`、`/(A(…)F(…))/`、`/(S(…))(F(…))/`）
+    /// （#613 R2 verify 第 11、15、18、22、33 則；R3＝b31 W4 第 17 則；b34＝b33 X3 第 12、13、24 則：百分比編碼、多個 ASP.NET 群組、沒有 scheme
+    /// 的帳密）。以 Unicode scalar 找 `?`／`#`：`?` 後面接組合字元時，以 `Character` 找會找不到。
     ///
-    /// **不剝**沒有 `=` 的 `;…`：SICI 式 DOI（`…3.0.CO;2-0`）的 `;2-0` 是文件身分的一部分。
+    /// **不剝**沒有 `=` 的 `;…`：SICI 式 DOI（`…3.0.CO;2-0`）的 `;2-0` 是文件身分的一部分。**也不剝一般的路徑段**：路徑裡的不透明字串
+    /// （`/dl/<token>/file.pdf`、分享連結的 id）與 DOI、檔案 id 分不出來，原樣印出——那是這份形狀清單管不到的一半。
     ///
     /// **代價**：查詢字串本身就是文件身分的網址（`viewcontent.cgi?article=…`、`doiLanding?doi=…`）在 `origin` 裡也少了那一段——只剝
     /// 已知的憑證參數要一份會漏的清單，這裡選擇全剝（R2 verify 第 22 則，留給使用者裁決）；路徑參數同理，`;type=pdf` 也剝。
@@ -716,9 +827,17 @@ public final class FulltextFetch {
         if let cut = s.unicodeScalars.firstIndex(where: { $0 == "?" || $0 == "#" }) {
             s = String(String.UnicodeScalarView(s.unicodeScalars[..<cut]))
         }
-        guard let schemeEnd = s.range(of: "://") else { return withoutPathParameters(s) }
-        let head = String(s[..<schemeEnd.upperBound])
-        let rest = Substring(s[schemeEnd.upperBound...]).unicodeScalars
+        let head: String
+        let rest: Substring.UnicodeScalarView
+        if let schemeEnd = s.range(of: "://") {
+            head = String(s[..<schemeEnd.upperBound])
+            rest = Substring(s[schemeEnd.upperBound...]).unicodeScalars
+        } else if s.hasPrefix("//") {
+            head = "//"
+            rest = Substring(s.dropFirst(2)).unicodeScalars
+        } else {
+            return withoutPathParameters(s)
+        }
         let authorityEnd = rest.firstIndex(of: "/") ?? rest.endIndex
         var authority = String(String.UnicodeScalarView(rest[..<authorityEnd]))
         if let at = authority.unicodeScalars.lastIndex(of: "@") {
@@ -728,10 +847,11 @@ public final class FulltextFetch {
         return head + authority + withoutPathParameters(path)
     }
 
-    /// 路徑的每一段去掉 `;名=值`，丟掉 ASP.NET 的 `(X(…))` 整段；一段因此變空（而它原本不是空的）就整段丟掉。
+    /// 路徑的每一段去掉 `;名=值`（`;`、`=` 也可以是百分比編碼的 `%3B`、`%3D`），丟掉 ASP.NET 的 `(X(…))` 整段（一段裡可以有幾個群組、
+    /// 也可以連著幾組）；一段因此變空（而它原本不是空的）就整段丟掉。
     private static func withoutPathParameters(_ path: String) -> String {
-        let param = try! NSRegularExpression(pattern: #";[^;=/]+=[^;/]*"#)   // 編譯期常數
-        let aspNetSession = try! NSRegularExpression(pattern: #"^\([A-Za-z]\([^()/]*\)\)$"#)
+        let param = try! NSRegularExpression(pattern: #"(?:;|%3[Bb])(?:(?!%3[BbDd])[^;=/])+(?:=|%3[Dd])(?:(?!%3[Bb])[^;/])*"#)   // 編譯期常數
+        let aspNetSession = try! NSRegularExpression(pattern: #"^(?:\((?:[A-Za-z]\([^()/]*\))+\))+$"#)
         var kept: [String] = []
         for segment in path.split(separator: "/", omittingEmptySubsequences: false).map(String.init) {
             let range = NSRange(segment.startIndex..., in: segment)
@@ -741,6 +861,21 @@ public final class FulltextFetch {
             kept.append(stripped)
         }
         return kept.joined(separator: "/")
+    }
+
+    /// safari-browser 自己的 stderr 原樣轉印之前，裡面的每一個網址先過 `plainURL`（b33 X3 第 12、24 則：`open:`、導航失敗、讀連結失敗三處
+    /// 先前原樣轉印，safari-browser 回顯的簽章網址會帶著查詢字串出去）。
+    static func redactingURLs(_ text: String) -> String {
+        let re = try! NSRegularExpression(pattern: #"(?i)(?<![A-Za-z0-9+.-])[a-z][a-z0-9+.-]*://[^\s"'<>]+"#)   // 編譯期常數
+        let ns = text as NSString
+        var out = ""
+        var last = 0
+        for m in re.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
+            out += ns.substring(with: NSRange(location: last, length: m.range.location - last))
+            out += plainURL(ns.substring(with: m.range))
+            last = m.range.location + m.range.length
+        }
+        return out + ns.substring(from: last)
     }
 
     /// `shownJS` 的回答（第二行是 readyState）是不是已經落定：complete 或 interactive。
@@ -777,18 +912,19 @@ public final class FulltextFetch {
         (value.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? "").lowercased().contains("pdf")
     }
 
-    /// 頁面給的 PDF 連結的 origin（小寫）；不是「可以照字面比 origin 的絕對 https 網址」就回 nil＝拒絕。
+    /// 頁面給的 PDF 連結的 origin（`https://主機[:埠號]`，小寫，**不帶帳密**）；不是「可以照字面比 origin 的絕對 https 網址」就回 nil＝拒絕。
     ///
     /// **只收 `linkJS` 在頁面裡解析好的絕對網址**（#629 R2 verify 第 0、9、12、20 則）：開頭必須是 `https://`；整串不得有反斜線、
-    /// 空白或控制字元（WHATWG 序列化出來的網址不會有）；`://` 之後到第一個 `/?#` 的主機段不得是空的。主機段含 `@`（帶帳密）或埠號時照字面比，
-    /// 與頁面 origin 對不上＝拒絕。
+    /// 空白或控制字元（WHATWG 序列化出來的網址不會有）；`://` 之後到第一個 `/?#` 的主機段不得是空的。埠號照字面比（與不帶的是不同的站）。
+    /// **帳密不比也不印**（#613 b34，b33 X3 第 6、9、23 則）：站的 origin（`siteOrigin`）不帶帳密，連結的也不帶——帶帳密的落地頁上，相對連結
+    /// 經 WHATWG 解析沿用 base 的帳密，先前兩邊永遠不等，同站的 PDF 連結被拒、訊息把帳密印出來。
     static func linkTargetOrigin(_ url: String) -> String? {
         guard url.lowercased().hasPrefix("https://"),
               !url.unicodeScalars.contains(where: { $0 == "\\" || $0.value < 0x21 || (0x7F...0x9F).contains($0.value) || $0.properties.isWhitespace })
         else { return nil }
-        let parts = URLSplit(url)
-        guard !parts.netloc.isEmpty else { return nil }
-        return "https://\(PyText.string(parts.netloc))".lowercased()
+        let hostPort = URLSplit(url).hostPort
+        guard !hostPort.isEmpty else { return nil }
+        return "https://\(hostPort)".lowercased()
     }
 
     /// `--landing` 的形狀：web-access.md〈插值前先驗形狀〉「完整網址」一列的**主機部分與禁用字元**（#629 R2 verify 第 34 則）。回 nil＝通過。

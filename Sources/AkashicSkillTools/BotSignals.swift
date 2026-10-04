@@ -157,17 +157,27 @@ public enum BotSignals {
     /// 依「看起來也像」擴張——一個被誤判成登入頁的 CDN 主機只是多停一次，漏掉一個登入頁則會把使用者導去輸入帳密。
     ///
     /// **怎麼比**（#613 R2 verify 第 1、2、6、8 則：先前三個面都是子字串，`Research design in …` 因為 `design in` 含 `sign in` 被判成登入頁、
-    /// `/10.1111/cas.12345.pdf` 因為 DOI 片段 `cas` 被判成登入頁）：
-    /// - **主機**：以非字母數字切開的每個字詞（`sso.uni.example`、`idp-prod.uni.example`），另加去掉連字號的整個標籤（`sign-in.example`）。
-    /// - **路徑**：**整段**比（`/login`、`/cas/login`）。一段可以帶一個網頁副檔名（`pageExtensions`：`/login.php`），可以有 `;` 之後的路徑參數
-    ///   （`/login;jsessionid=…`），連字號與底線可省（`/sign-in`、`/log_in`）。不從一段裡切出片段——DOI 與檔名的一部分不是登入頁。
+    /// `/10.1111/cas.12345.pdf` 因為 DOI 片段 `cas` 被判成登入頁；b34 照使用者 2026-10-05 第 2、3、4 則再調）：
+    /// - **主機的登入字詞**（`hostLoginLook`）：只認**最左邊的標籤**（以非字母數字切成的字，或去掉連字號的整個標籤：`sso.uni.example`、
+    ///   `idp-prod.uni.example`、`sign-in.example`），另外 IdP 服務的名稱（`identityProviderNames`）在**任何一個標籤**都算。其他位置的
+    ///   登入字詞不算：`journals.auth.gr` 的 `auth` 是大學名稱、`www.cas.cn` 的 `cas` 是機構縮寫（第 4 則：先前主機的任一字詞命中就整批暫停）。
+    /// - **主機的驗證字詞**：主機的任何一個字（以非字母數字切開），或去掉連字號的任何一個標籤。驗證字詞很少是機構名，沒有被裁決收窄。
+    /// - **路徑**：**整段**比（`/login`、`/cas/login`）。一段可以帶一個網頁副檔名（`pageExtensions`：`/login.php`、`/login.cfm`），可以有 `;`
+    ///   之後的路徑參數（`/login;jsessionid=…`），連字號與底線可省（`/sign-in`、`/log_in`）。**登入字詞另拆複合段**（第 3 則）：這一段是
+    ///   網頁名稱時（沒有副檔名，或副檔名是網頁副檔名），以連字號與底線切成的字、或相鄰兩個字接起來，是登入字詞就算（`/sso-login`、
+    ///   `/login-required`、`/sign-in-required`）。檔名（`.pdf`）與帶點的 DOI 片段不拆，驗證字詞不拆（`the-challenge-of-replication` 是文章）。
     /// - **標題**：片語是**整個字詞**的連續序列（`Please log in to continue` 是，`Analog input` 不是；`Sign-In` 與 `sign in` 同一個片語）。
     static let loginTokens: Set<String> = ["login", "logon", "signin", "sso", "auth", "authenticate", "shibboleth", "saml", "openathens", "wayf", "idp", "cas"]
     static let verificationTokens: Set<String> = ["verify", "verification", "challenge", "captcha", "validate", "turnstile"]
     static let loginTitlePhrases = ["sign in", "sign-in", "log in", "log-in", "login", "single sign-on", "authentication required"]
     static let verificationTitlePhrases = ["verify", "verification", "are you a human", "are you a robot"]
+    /// IdP 服務自己的名稱——**封閉列舉，只有這四個**（#613 b34，使用者 2026-10-05 第 4 則）：在主機的**任何一個標籤**都算登入主機
+    /// （`my.openathens.net`、`idp.shibboleth.uni.edu`、`wayf.surfnet.nl`）。其餘登入字詞只在最左邊的標籤算。不得依「看起來也是 IdP」類推第五個。
+    static let identityProviderNames: Set<String> = ["shibboleth", "saml", "openathens", "wayf"]
     /// 路徑的一段可以帶的網頁副檔名（**封閉清單**）。`cas.12345`、`cas.12345.pdf` 的「副檔名」不在這裡，所以那一段不是 `cas`。
-    static let pageExtensions: Set<String> = ["php", "asp", "aspx", "jsp", "do", "action", "cgi", "htm", "html", "pl"]
+    /// b34 加 `cfm`、`cfml`、`xhtml`、`jsf`、`jspx`、`faces`、`shtml`、`phtml`（使用者 2026-10-05 第 2 則：ColdFusion、JSF、SSI 的動態頁）。
+    static let pageExtensions: Set<String> = ["php", "asp", "aspx", "jsp", "do", "action", "cgi", "htm", "html", "pl",
+                                              "cfm", "cfml", "xhtml", "jsf", "jspx", "faces", "shtml", "phtml"]
 
     /// `"login"`、`"verification"`，或 nil（沒有登入／驗證頁的長相）。網址與標題任一邊有登入頁的長相就是 `login`，否則看驗證頁。
     public static func gateLook(url: String, title: String) -> String? {
@@ -180,23 +190,53 @@ public enum BotSignals {
     /// 只看網址（主機與路徑）的那一半。DOI 落地頁用它：落地頁的標題是文章標題，標題片語在那裡只會誤判。
     public static func urlGateLook(_ url: String) -> String? {
         let parts = URLSplit(url)
-        let host = PyText.string(parts.netloc).lowercased()
-        var words = Set(host.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init))
-        for label in host.split(separator: ".") { words.insert(label.replacingOccurrences(of: "-", with: "")) }
-        for segment in parts.path.split(separator: "/") { words.formUnion(pathSegmentWords(String(segment))) }
-        if !words.isDisjoint(with: loginTokens) { return "login" }
-        if !words.isDisjoint(with: verificationTokens) { return "verification" }
+        if hostLoginLook(url) { return "login" }
+        var pathWords = Set<String>()
+        var pathLoginWords = Set<String>()
+        for raw in parts.path.split(separator: "/") {
+            let segment = pathSegment(String(raw))
+            pathWords.formUnion(segment.whole)
+            pathLoginWords.formUnion(segment.whole.union(segment.compound))
+        }
+        if !pathLoginWords.isDisjoint(with: loginTokens) { return "login" }
+        let host = parts.host
+        var hostWords = Set(host.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init))
+        for label in host.split(separator: ".") { hostWords.insert(label.replacingOccurrences(of: "-", with: "")) }
+        if !hostWords.union(pathWords).isDisjoint(with: verificationTokens) { return "verification" }
         return nil
     }
 
-    /// 路徑的一段 → 拿來比的字（整段；去掉 `;` 之後的路徑參數與一個網頁副檔名；另一個去掉連字號與底線的寫法）。
-    static func pathSegmentWords(_ raw: String) -> Set<String> {
+    /// 主機是登入主機的長相：最左邊的標籤（以非字母數字切成的字、或去掉連字號的整個標籤）是登入字詞，或任何一個標籤有 IdP 服務的名稱
+    /// （`identityProviderNames`）。只看主機——帳密與埠號不算。讀不到的分頁也用它（PDF 不從 IdP 主機出來；路徑與標題在那裡不看）。
+    public static func hostLoginLook(_ url: String) -> Bool {
+        let labels = URLSplit(url).host.split(separator: ".")
+        guard let first = labels.first else { return false }
+        var leftmost = Set(first.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init))
+        leftmost.insert(first.replacingOccurrences(of: "-", with: ""))
+        if !leftmost.isDisjoint(with: loginTokens) { return true }
+        let anywhere = labels.flatMap { $0.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init) }
+        return !Set(anywhere).isDisjoint(with: identityProviderNames)
+    }
+
+    /// 路徑的一段 → 拿來比的字。`whole`：整段（去掉 `;` 之後的路徑參數與一個網頁副檔名）與它去掉連字號、底線的寫法。`compound`：這一段是
+    /// 網頁名稱時（沒有副檔名，或副檔名在 `pageExtensions`），以連字號與底線切成的字與相鄰兩個字接起來的寫法——只給登入字詞用。
+    static func pathSegment(_ raw: String) -> (whole: Set<String>, compound: Set<String>) {
         var segment = (raw.removingPercentEncoding ?? raw).lowercased()
         if let semicolon = segment.firstIndex(of: ";") { segment = String(segment[..<semicolon]) }
-        if let dot = segment.lastIndex(of: "."), pageExtensions.contains(String(segment[segment.index(after: dot)...])) {
-            segment = String(segment[..<dot])
+        var isPageName = true
+        if let dot = segment.lastIndex(of: ".") {
+            if pageExtensions.contains(String(segment[segment.index(after: dot)...])) {
+                segment = String(segment[..<dot])
+            } else {
+                isPageName = false
+            }
         }
-        return [segment, segment.replacingOccurrences(of: "-", with: "").replacingOccurrences(of: "_", with: "")]
+        let whole: Set<String> = [segment, segment.replacingOccurrences(of: "-", with: "").replacingOccurrences(of: "_", with: "")]
+        guard isPageName, !segment.contains(".") else { return (whole, []) }
+        let words = segment.split(whereSeparator: { $0 == "-" || $0 == "_" }).map(String.init)
+        var compound = Set(words)
+        for i in words.indices.dropLast() { compound.insert(words[i] + words[i + 1]) }
+        return (whole, compound)
     }
 
     /// 只看標題的那一半：片語是整個字詞的連續序列。

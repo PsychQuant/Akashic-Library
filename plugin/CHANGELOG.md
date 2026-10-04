@@ -283,7 +283,12 @@ wrapper 下載後不驗完整性（沒有核對 release 流程已產出的 `.sha
 第四輪驗證之後（2026-10-03）：
 
 - CLI `akashic`：stderr 的第一行不再一律說「不要重跑」。那幾筆裡有之後的寫入沒套用的（`laterWriteNotApplied`）時，說「其中 N 筆……刪掉 legacy 那份之後要重跑」；都沒有時只說它們不必為了自己重跑；以沒有訊息的非零結束碼收場時，另說非零的原因在 stdout 的報告裡、那一部分可能需要重跑。先前那一句恰好在需要重跑的兩種情形叫人不要重跑。
-- 十三份工具說明共用的那一句改短：兩個附屬的鍵以「鍵名加 Total／加 NotApplied」指名（`writtenWithLegacyCopyTotal`、`writtenWithLegacyCopyNotApplied`），內容不變。回應鍵沒有改。
+- 十三份工具說明共用的那一句改短：兩個附屬的鍵以「鍵名加 Total／加 NotApplied」指名（`writtenWithLegacyCopyTotal`、`writtenWithLegacyCopyNotApplied`）。~~內容不變~~（2026-10-04 更正：四件事都在，但完整鍵名不再出現在任何說明裡、`writtenWithLegacyCopyTruncated` 也沒寫進去；組出來的鍵名由測試釘住）。回應鍵沒有改。
+
+第五輪驗證之後（2026-10-04，只改文字與測試）：
+
+- `writtenWithLegacyCopy` 的人可讀標題（CLI 報告、MCP 錯誤回應、App 側欄同一句）不再說「刪掉 legacy 那份即可」，改成「確認 entities/ 那份是新的之後刪掉 legacy 那份」——同一份報告裡標了 `laterWriteNotApplied` 的列刪掉之後還要重跑，那一句在逐筆的列上。
+- 共用那一句的組字（「鍵名加 Total／加 NotApplied」）由測試釘住：組出來的名字要是回應裡真的鍵，帶這一句的說明恰十三份。說明沒有改。
 
 ## #695 — `akashic_enrich` 的來源欄位與 `references` 的空陣列（不相容）
 
@@ -333,16 +338,16 @@ plugin 的 wrapper 會自動下載新版 `akashic-mcp`，skill 文字可能比 b
 
 **`akashic_update_person` 的 `references: []`（空陣列）改成拒絕**，與 `akashic_update_venue` 同一句話。先前 person 這一面是 no-op。沒有要附的 reference 就不要給這個鍵。
 
-## #703 — `akashic_store_source` 單檔上限 256 MiB
-
-超過 268,435,456 bytes（256 MiB）的檔整個拒絕、不截斷、零寫入；錯誤訊息說出路徑、實際大小與上限。內容改成逐塊讀，目錄與 FIFO 以錯誤拒絕、不會讓呼叫卡住。回應鍵與形狀不變；plugin 版號沒有動。
-
-**R1 verify 之後**：先前這裡寫「記憶體與檔案大小無關」，那句不成立——每塊的緩衝留到行程結束，存 128 MiB 的檔尖峰 RSS 約 285 MB（比整份讀進來還多）。現在每塊讀完就釋放（實測多約 1 MB）。訊息裡的上限寫成 `256 MiB`（數值沒變）。~~store 放在不支援排他改名的檔案系統（exFAT、FAT32）時先前存不進去，現在退到 hard link 或確認後一般改名。~~（b26 F6：不再退到一般改名；兩者都不支援的磁碟區現在整個拒絕，見下方「b26 F6 之後」。）`akashic_doctor` 的 `sources` 多兩個鍵：`strayTemporaryFiles`（中斷的存檔留下的暫存檔，路徑與大小，至多 20 筆）與 `strayTemporaryFilesTotal`。
 第五輪驗證之後（2026-10-04，只改文字與測試，行為不變）：
 
 - `sourceDigest` 帶空白的拒絕訊息改成「四個來源欄位齊備時 reference 記原值」：判準是四欄齊備，不是 reference 一定會寫——目標欄位已在、記錄找不到、store format 收不下時什麼都不寫，帶空白的 digest 照樣整批拒絕（冪等重跑一份已套用的提案檔會多一次拒絕）。
 - 方括號 IPv6 的誠實邊界（寫進 store 格式文件）：這是語法檢查，位址形狀的內容擋不住（合法位址本身裝得下 32 位十六進位、zone 裡 15 個位元組以內的英數字或 `%HH` 照收、zone 不限連結本地位址）；Darwin 的 `inet_pton` 收每群多於四位的前導零與 IPv4 八位元組的前導零（glibc 不收，拒絕集合依平台而異）；port 不驗位數與 0–65535 的範圍，百分比編碼的帳密看不出來。
 
+## #703 — `akashic_store_source` 單檔上限 256 MiB
+
+超過 268,435,456 bytes（256 MiB）的檔整個拒絕、不截斷、零寫入；錯誤訊息說出路徑、實際大小與上限。內容改成逐塊讀，目錄與 FIFO 以錯誤拒絕、不會讓呼叫卡住。回應鍵與形狀不變；plugin 版號沒有動。
+
+**R1 verify 之後**：先前這裡寫「記憶體與檔案大小無關」，那句不成立——每塊的緩衝留到行程結束，存 128 MiB 的檔尖峰 RSS 約 285 MB（比整份讀進來還多）。現在每塊讀完就釋放（實測多約 1 MB）。訊息裡的上限寫成 `256 MiB`（數值沒變）。~~store 放在不支援排他改名的檔案系統（exFAT、FAT32）時先前存不進去，現在退到 hard link 或確認後一般改名。~~（b26 F6：不再退到一般改名；兩者都不支援的磁碟區現在整個拒絕，見下方「b26 F6 之後」。）`akashic_doctor` 的 `sources` 多兩個鍵：`strayTemporaryFiles`（中斷的存檔留下的暫存檔，路徑與大小，至多 20 筆）與 `strayTemporaryFilesTotal`。
 
 **R2 verify 之後**：
 

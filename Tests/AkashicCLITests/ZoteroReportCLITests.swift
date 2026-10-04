@@ -260,3 +260,66 @@ extension ZoteroReportCLITests {
         XCTAssertTrue(rebuilt.contains("略過 1 份 legacy 拷貝"), String(rebuilt))
     }
 }
+
+/// #705 第三次 verify（LOW 6）：`laterWriteRefused` 走到真的非零結束時，stderr 的第一行說要重跑幾筆。先前只有純函式的措辭測試與
+/// 「沒有之後被拒」那一支的真 binary 測試——`printLines`／`printTrailer` 把計數交給 stderr 的那一段沒有真 binary 走過。
+///
+/// 造法：一筆 legacy work（`entries/` 唯讀、已 commit）帶 orphan 標記且 Zotero 端升了版——同一趟先清 orphan 標記（寫進 entities/、legacy 刪不掉），
+/// 接著的書目更新被 #631 拒絕（`laterWriteRefused`）；另一筆新建的 item 與 10 筆既有 work 共用 DOI、提名沒記下，import 以 1 結束（沒有錯誤訊息）。
+extension ZoteroReportCLITests {
+    private func runSplit(_ args: [String]) throws -> (status: Int32, out: String, err: String) {
+        let p = Process()
+        p.executableURL = CLITestHarness.productsDirectory.appendingPathComponent("akashic")
+        p.arguments = args + ["--library", root.path]
+        var childEnv = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("AKASHIC_") }
+        childEnv["AKASHIC_HOME"] = fakeHome.path
+        p.environment = childEnv
+        let outFile = fakeHome.appendingPathComponent("stdout-\(UUID().uuidString)")
+        let errFile = fakeHome.appendingPathComponent("stderr-\(UUID().uuidString)")
+        FileManager.default.createFile(atPath: outFile.path, contents: nil)
+        FileManager.default.createFile(atPath: errFile.path, contents: nil)
+        let o = try FileHandle(forWritingTo: outFile), e = try FileHandle(forWritingTo: errFile)
+        p.standardOutput = o; p.standardError = e
+        try p.run()
+        p.waitUntilExit()
+        try o.close(); try e.close()
+        return (p.terminationStatus, try String(contentsOf: outFile, encoding: .utf8), try String(contentsOf: errFile, encoding: .utf8))
+    }
+
+    func testANotAppliedLaterWriteReachesTheFirstStderrLineOnANonZeroExit() throws {
+        let store = LibraryStore(root: root)
+        try FileManager.default.createDirectory(at: store.entriesDir, withIntermediateDirectories: true)
+        var e = Entry(id: UUID(), citekey: "legacy2025identifiability", type: .periodicalArticle, title: "舊標題")
+        e.provenance = Provenance(zoteroKey: "KEYART01", zoteroVersion: 1, libraryID: 1, orphanedAt: gone)
+        try EntryYAML.encode(e).write(to: store.entriesDir.appendingPathComponent("\(e.citekey).yaml"),
+                                      atomically: true, encoding: .utf8)
+        // 第二個 item：與 10 筆既有 work 共用 DOI——新建後的提名超過門檻、沒記下，import 以 1 結束
+        let doi = "10.1017/psy.2025.9"
+        let db = try SQLiteDB(path: zoteroDB.path, readOnly: false)
+        try db.execute("INSERT INTO items VALUES (11,1,'KEYNEW02',5,1)")
+        try db.execute("INSERT INTO itemDataValues VALUES (110,'A second article')")
+        try db.execute("INSERT INTO itemData VALUES (11,1,110)")
+        try db.execute("INSERT INTO fields VALUES (6,'DOI')")
+        try db.execute("INSERT INTO itemDataValues VALUES (111,?)", bind: [doi])
+        try db.execute("INSERT INTO itemData VALUES (11,6,111)")
+        for n in 1...10 { try writeWork(String(format: "wos2025m%02d", n), doi: doi) }
+        git(["init", "-q"]); git(["add", "-A"]); git(["commit", "-q", "-m", "fixture"])
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: store.entriesDir.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: store.entriesDir.path) }
+        let probe = store.entriesDir.appendingPathComponent("probe-\(UUID().uuidString)")
+        if FileManager.default.createFile(atPath: probe.path, contents: Data()) {
+            try? FileManager.default.removeItem(at: probe)
+            throw XCTSkip("這個環境的權限擋不住刪檔（以 root 執行？），造不出「寫完之後刪 legacy 失敗」")
+        }
+
+        let r = try runSplit(["import-zotero", "--zotero-db", zoteroDB.path])
+        XCTAssertEqual(r.status, 1, "前提：提名沒記下、以 1 結束：\(r.out)\n\(r.err)")
+        XCTAssertTrue(r.out.contains("work「\(e.citekey)」") && r.out.contains(LegacyCopyLeft.laterWriteRefusedNote),
+                      "stdout 的列帶「之後的寫入沒有套用」：\(r.out)")
+        let first = String(r.err.split(separator: "\n").first ?? "")
+        XCTAssertTrue(first.hasPrefix("已寫入 1 筆、搬移後的 legacy 拷貝沒刪掉"), "stderr 第一行：\(r.err)")
+        XCTAssertTrue(first.contains("其中 1 筆之後的寫入沒套用，刪掉 legacy 那份之後要重跑才補得上"), first)
+        XCTAssertTrue(first.contains("沒有錯誤訊息"), "沒有訊息的非零結束另說：\(first)")
+        XCTAssertFalse(first.contains("不必為了自己重跑"), first)
+    }
+}

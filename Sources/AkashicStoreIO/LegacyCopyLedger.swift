@@ -51,7 +51,9 @@ public struct LegacyCopyLeft: Equatable, Sendable {
 
     /// 這件事是什麼的一句說明——**只此一份**：CLI／MCP 的報告標題（`reportLines`，前面帶鍵名）與 App 側欄的提示（`LegacyCopyNotice.headline`，
     /// 一般說明文字、不帶鍵名，#708 R1 verify 第 12／32 列）都用它，所以兩面說的是同一件事、不會各改各的。
-    public static let explanation = "已寫入 entities/、搬移後的 legacy 拷貝沒刪掉——不是寫入失敗，刪掉 legacy 那份即可"
+    ///
+    /// 不說「刪掉即可」（#705 第三次 verify）：同一份報告裡標了「之後的寫入沒有套用」的那幾筆刪掉之後還要重跑——那一句在逐筆的列上（`laterWriteRefusedNote`）。
+    public static let explanation = "已寫入 entities/、搬移後的 legacy 拷貝沒刪掉——不是寫入失敗；確認 entities/ 那份是新的之後刪掉 legacy 那份"
 
     /// 兩面共用的人可讀報告：一行標題（鍵名＋完整筆數）加每筆一行。沒有就回空陣列——不印。
     ///

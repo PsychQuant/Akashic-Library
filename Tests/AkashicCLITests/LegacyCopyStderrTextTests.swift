@@ -55,4 +55,14 @@ final class LegacyCopyStderrTextTests: XCTestCase {
         let text = LegacyCopyReport.stderrText(errorText: "")
         XCTAssertTrue(text.contains("筆之後的寫入沒套用"), text)
     }
+
+    /// #705 第三次 verify（LOW 13、INFO 31）：stdout 報告的標題（與 App 側欄同一句）先前無條件說「刪掉 legacy 那份即可」，同一份報告裡標了
+    /// 「之後的寫入沒有套用」的列卻說刪掉之後要重跑；而逐筆訊息都帶「確認 entities/ 那份是新的之後」，標題沒有。
+    func testTheHeadlineNeitherSaysThatIsAllNorDropsTheCaveat() {
+        XCTAssertFalse(LegacyCopyLeft.explanation.contains("即可"), LegacyCopyLeft.explanation)
+        XCTAssertTrue(LegacyCopyLeft.explanation.contains("確認 entities/ 那份是新的之後"), LegacyCopyLeft.explanation)
+        let lines = LegacyCopyLeft.reportLines([item(notApplied: true)])
+        XCTAssertTrue(lines[0].contains(LegacyCopyLeft.explanation), lines[0])
+        XCTAssertTrue(lines[1].contains(LegacyCopyLeft.laterWriteRefusedNote), "要重跑的那一句在逐筆的列上：\(lines[1])")
+    }
 }

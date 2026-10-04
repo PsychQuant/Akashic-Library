@@ -1075,3 +1075,20 @@ extension StdioE2ETests {
         XCTAssertFalse(text.contains("（已截斷）"), "每一行都在 400 之內：\(text)")
     }
 }
+
+/// #705 第三次 verify（LOW 17、INFO 24）：十三份說明共用的一句（`Server.legacyCopyNote`）以「鍵名加 Total／加 NotApplied」指名兩個附屬的鍵，
+/// 完整鍵名不在任何說明裡。這裡從真 binary 的 tools/list 釘住：帶這一句的說明恰十三份、每份都有那兩個組字；組出來的鍵名對得上常數由
+/// `LegacyCopyNoteKeyTests` 釘住。先前只有位元組預算的測試，改掉這一句或改名一個鍵都不會紅。
+extension StdioE2ETests {
+    func testTheSharedLegacyCopyNoteNamesBothCompanionKeys() throws {
+        try initialize()
+        try send(["jsonrpc": "2.0", "id": 2, "method": "tools/list"])
+        let obj = try XCTUnwrap(try JSONSerialization.jsonObject(with: try readRawLine()) as? [String: Any])
+        let tools = try XCTUnwrap((obj["result"] as? [String: Any])?["tools"] as? [[String: Any]], "\(obj.keys.sorted())")
+        let carrying = tools.compactMap { $0["description"] as? String }.filter { $0.contains("列在 writtenWithLegacyCopy（") }
+        XCTAssertEqual(carrying.count, 13, "帶共用那一句的說明數")
+        for d in carrying {
+            XCTAssertTrue(d.contains("鍵名加 Total＝總數") && d.contains("加 NotApplied＝"), d)
+        }
+    }
+}

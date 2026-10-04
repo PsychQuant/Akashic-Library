@@ -148,8 +148,16 @@ public struct LibraryMembershipCheck {
     /// 現有成員（`akashic.libraries` 含這個 key 的 work）裡不符規則的，依 citekey 排序。未標性質回空——
     /// 沒有依據就列不出「不符」，那一格由 `Library.validate()` 的未標 warning 說話。
     public func nonconformingMembers() -> [(citekey: String, violation: LibraryMembershipViolation)] {
+        nonconformingMembers(among: entries)
+    }
+
+    /// 同上，成員取自 `members`（#709 第三次 verify）：`library list`／`check`／`set-kind` 的成員是**讀數**，取以 entities/ 為準的視圖
+    /// （一對 legacy 拷貝算一個成員）；**依據**（`basisProblem`：文件型的文件在庫裡有幾筆）照舊由建構時的 `entries` 判定——那是完整的 load，
+    /// 與 add、validate、App 的加入動作同一份判定。先前三個讀取面拿視圖建構，文件自己有 legacy 拷貝時依據從「有不只一筆」變成「可用」，
+    /// `library check` 說「全部符合」而 add 拒絕。
+    public func nonconformingMembers(among members: [Entry]) -> [(citekey: String, violation: LibraryMembershipViolation)] {
         guard library.membership != nil else { return [] }
-        return entries
+        return members
             .filter { $0.akashic.libraries.contains(library.key) }
             .compactMap { e in violation(of: e).map { (citekey: e.citekey, violation: $0) } }
             .sorted { $0.citekey < $1.citekey }

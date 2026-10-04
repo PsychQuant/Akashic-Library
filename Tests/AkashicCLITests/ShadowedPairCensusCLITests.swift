@@ -9,9 +9,9 @@ import Foundation
 /// - CLI `akashic doctor` 的 `unresolved author literals` 自己從完整的 load 數（MCP 讀 `health`），`no authorized name`、`authorized only by
 ///   citation form`、`deceased with open affiliation`、`digest 形式的 source`、zero-dates 與日期值域的普查也吃完整的 load——同一份輸出
 ///   `entries: 1` 而 `unresolved author literals: 2`、`no authorized name` 把同一個 key 列兩次；
-/// - `bootstrap-organizations` 只把 entries 換成視圖，person 的隸屬 literal 仍從完整的 load 來：拷貝獨有的機構名成為候選、
-///   一次出現算兩次而越過 `--min-occurrences`；
-/// - `library list` 把一對算成兩個成員。
+/// - ~~`bootstrap-organizations` 只把 entries 換成視圖~~（#709 第三次 verify：寫入候選面收回到完整的 load，待使用者確認視圖的延伸；
+///   輸出開頭說出計畫含幾份拷貝）；
+/// - `library list` 把一對算成兩個成員（成員數是讀數，仍取視圖；依據看完整的 load）。
 ///
 /// 本檔走真 binary。doctor 那一支拿同一個 store 先跑一次（沒有拷貝）再加拷貝跑一次：`library:` 之後的普查段要逐行相同。
 final class ShadowedPairCensusCLITests: XCTestCase {
@@ -102,8 +102,9 @@ final class ShadowedPairCensusCLITests: XCTestCase {
 
     // MARK: - bootstrap-organizations
 
-    /// 兩份的隸屬 literal 不同：只取 entities/ 那份的。
-    func testBootstrapOrganizationsTakesPersonLiteralsFromTheEntitiesCopyOnly() throws {
+    /// #709 第三次 verify（MEDIUM 0）：寫入候選面看完整的 load（R2 曾讓兩個 literal 來源都取視圖，那一半待使用者確認、本輪收回）。
+    /// 兩份的隸屬 literal 不同：legacy 拷貝獨有的機構名也是候選，輸出開頭說出計畫含幾份拷貝。
+    func testBootstrapOrganizationsReadsTheFullLoadAndSaysTheCopyIsInThePlan() throws {
         var person = Person(key: "smith-j", names: PersonNames(authorized: ["Smith, John"]))
         person.profile.affiliations = TimelineOf<OrgRef>([TemporalValue(value: .literal("Institute of Real Things"))])
         var leftover = person
@@ -114,12 +115,12 @@ final class ShadowedPairCensusCLITests: XCTestCase {
 
         let r = try cli(["bootstrap-organizations", "--min-occurrences", "1"])
         XCTAssertEqual(r.status, 0, r.output)
-        XCTAssertTrue(r.output.contains("×1  Institute of Real Things"), "entities/ 那份的機構名是候選、只算一次：\(r.output)")
-        XCTAssertFalse(r.output.contains("Ghost"), "legacy 拷貝獨有的機構名不該成為建檔候選：\(r.output)")
+        XCTAssertTrue(r.output.contains("Ghost Institute Only In Legacy"), "寫入候選面看完整的 load，拷貝獨有的機構名不被安靜略過：\(r.output)")
+        XCTAssertTrue(r.output.contains("計畫含 1 份 legacy 拷貝"), "說出計畫含拷貝：\(r.output)")
     }
 
-    /// 兩份的隸屬 literal 相同：一次出現不因拷貝越過門檻。
-    func testBootstrapOrganizationsDoesNotCountACopyTowardsTheThreshold() throws {
+    /// 兩份的隸屬 literal 相同：一次出現在完整的 load 上算兩次（越過 `--min-occurrences 2`），附註說出原因。
+    func testBootstrapOrganizationsCountsTheCopyAndSaysSo() throws {
         var person = Person(key: "smith-j", names: PersonNames(authorized: ["Smith, John"]))
         person.profile.affiliations = TimelineOf<OrgRef>([TemporalValue(value: .literal("Institute of Real Things"))])
         try writeEntities(person)
@@ -127,8 +128,19 @@ final class ShadowedPairCensusCLITests: XCTestCase {
 
         let r = try cli(["bootstrap-organizations", "--min-occurrences", "2"])
         XCTAssertEqual(r.status, 0, r.output)
-        XCTAssertFalse(r.output.contains("Institute of Real Things"), "一次出現不該越過 --min-occurrences 2：\(r.output)")
-        XCTAssertTrue(r.output.contains("無候選"), r.output)
+        XCTAssertTrue(r.output.contains("×2  Institute of Real Things"), "\(r.output)")
+        XCTAssertTrue(r.output.contains("計畫含 1 份 legacy 拷貝") && r.output.contains("多算一次出現"), r.output)
+    }
+
+    /// 對照組：沒有拷貝時不印附註。
+    func testBootstrapOrganizationsPrintsNoNoteWithoutACopy() throws {
+        var person = Person(key: "smith-j", names: PersonNames(authorized: ["Smith, John"]))
+        person.profile.affiliations = TimelineOf<OrgRef>([TemporalValue(value: .literal("Institute of Real Things"))])
+        try writeEntities(person)
+        let r = try cli(["bootstrap-organizations", "--min-occurrences", "1"])
+        XCTAssertEqual(r.status, 0, r.output)
+        XCTAssertTrue(r.output.contains("×1  Institute of Real Things"), r.output)
+        XCTAssertFalse(r.output.contains("legacy 拷貝"), r.output)
     }
 
     // MARK: - library list
@@ -146,5 +158,65 @@ final class ShadowedPairCensusCLITests: XCTestCase {
         let r = try cli(["library", "list"])
         XCTAssertEqual(r.status, 0, r.output)
         XCTAssertTrue(r.output.contains("L1（2 entries）"), "一對是一個成員：\(r.output)")
+    }
+
+    /// #709 第三次 verify（MEDIUM 1、4）：文件型 library 的文件有 legacy 拷貝——`library check` 先前印「1 筆成員全部符合」而 add 拒絕、
+    /// validate 報依據不明確。依據看完整的 load；成員數仍是一個。
+    func testLibraryCheckAndListSayTheBasisIsAmbiguousWhenTheDocumentHasALegacyCopy() throws {
+        try store.writeLibrary(Library(key: "docs", name: "Docs", membership: .document(citekey: "anon2020doc")))
+        var doc = Entry(id: UUID(), citekey: "anon2020doc", type: .periodicalArticle, title: "Doc", date: "2020")
+        doc.akashic.relations.cites = ["anon2021mem"]
+        var member = Entry(id: UUID(), citekey: "anon2021mem", type: .periodicalArticle, title: "Mem", date: "2021")
+        member.akashic.libraries = ["docs"]
+        try writeEntities(doc)
+        try writeEntities(member)
+        try writeLegacy(doc)
+
+        let check = try cli(["library", "check", "docs"])
+        XCTAssertEqual(check.status, 0, check.output)
+        XCTAssertTrue(check.output.contains("⚠ 依據不明確"), check.output)
+        XCTAssertTrue(check.output.contains("✕ anon2021mem"), check.output)
+        XCTAssertFalse(check.output.contains("全部符合"), check.output)
+        let list = try cli(["library", "list"])
+        XCTAssertEqual(list.status, 0, list.output)
+        XCTAssertTrue(list.output.contains("Docs（1 entries）"), list.output)
+        XCTAssertTrue(list.output.contains("1 筆成員不符規則"), list.output)
+    }
+
+    // MARK: - resolve-people
+
+    /// #709 第三次 verify（LOW 7a）：沒有候選時印的「literal 作者 N 個」與 doctor 的 `unresolved author literals` 同一個數——一對不算兩次。
+    func testResolvePeopleLiteralCountTakesAPairOnce() throws {
+        let work = Entry(id: UUID(), citekey: "zed2020a", type: .periodicalArticle, title: "T",
+                         authors: [.literal("Zed, Q.")], date: "2020")
+        try writeEntities(work)
+        try writeLegacy(work)
+        let r = try cli(["resolve-people"])
+        XCTAssertEqual(r.status, 0, r.output)
+        XCTAssertTrue(r.output.contains("literal 作者 1 個"), r.output)
+        let doctor = try cli(["doctor"])
+        XCTAssertTrue(doctor.output.contains("unresolved author literals: 1"), doctor.output)
+    }
+
+    // MARK: - authorize-names
+
+    /// #709 第三次 verify（MEDIUM 2、3，LOW 10）：改名留下的 legacy 拷貝——乾跑說 `--apply` 會整批拒絕、點名舊 key，不說「確認後執行」；
+    /// `--apply` 照舊整批拒絕、零寫入（R2 讓計畫取視圖之後，真 binary 回「已寫入 1 個名字」）。
+    func testAuthorizeNamesDryRunAndApplyAgreeOnARenameLeftover() throws {
+        let id = UUID()
+        try writeEntities(Person(key: "kim-c", names: PersonNames(variant: ["Kim, Chris"]), id: id))
+        try writeLegacy(Person(key: "old-kim", names: PersonNames(variant: ["Kim, Chris"]), id: id))
+        let entitiesBefore = try Data(contentsOf: store.entityURL(id: id))
+
+        let dry = try cli(["authorize-names"])
+        XCTAssertEqual(dry.status, 0, dry.output)
+        XCTAssertTrue(dry.output.contains("person 總數: 2"), dry.output)
+        XCTAssertTrue(dry.output.contains("--apply 會整批拒絕") && dry.output.contains("old-kim"), dry.output)
+        XCTAssertFalse(dry.output.contains("確認上面的計畫後加 --apply"), dry.output)
+
+        let apply = try cli(["authorize-names", "--apply", "--judgement", "測試"])
+        XCTAssertNotEqual(apply.status, 0, apply.output)
+        XCTAssertTrue(apply.output.contains("無法唯一定位"), apply.output)
+        XCTAssertEqual(try Data(contentsOf: store.entityURL(id: id)), entitiesBefore, "零寫入")
     }
 }

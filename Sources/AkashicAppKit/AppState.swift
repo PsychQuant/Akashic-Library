@@ -165,7 +165,7 @@ public final class AppState {
 
     public func load() throws {
         let loaded = try store.load()
-        // #709：清單與裁決台以 entities/ 那份為準（同一筆記錄的 legacy 拷貝不列）；過濾不讓任何一筆變得可寫（見 helper 的 doc）。
+        // #709：清單與裁決台以 entities/ 那份為準（同一筆記錄的 legacy 拷貝不列）；逐筆的可寫性不因過濾改變（見 helper 的 doc；裁決台逐筆定位寫入，所以這句在這裡成立）。
         // 健康總覽照舊用完整的 `loaded`——兩份並存要看得到。
         let view = loaded.withoutShadowedLegacyCopies()
         entries = view.entries

@@ -442,8 +442,8 @@ public enum AddOnlyEnrichment {
                                              matches: [], sourceDigest: digest))
                     continue
                 }
-                let matches = working.values.filter { $0.canonicalDOIs.contains(target) }
-                    .map(\.citekey).sorted()
+                let hits = working.values.filter { $0.canonicalDOIs.contains(target) }
+                let matches = hits.map(\.citekey).sorted()
                 if matches.isEmpty {
                     result.items.append(Item(proposalIndex: i, citekey: nil, category: .notFound,
                                              outcome: Outcome(), additions: [], alreadyPresent: [],
@@ -454,7 +454,7 @@ public enum AddOnlyEnrichment {
                 if matches.count >= 2 {
                     result.items.append(Item(proposalIndex: i, citekey: nil, category: .ambiguous,
                                              outcome: Outcome(), additions: [], alreadyPresent: [],
-                                             reason: "DOI「\(target.normalized)」命中 \(matches.count) 筆——不判定哪一筆才對（#459），零寫入",
+                                             reason: ambiguousDOIReason(target, hits: hits),
                                              matches: matches, sourceDigest: digest))
                     continue
                 }
@@ -488,6 +488,19 @@ public enum AddOnlyEnrichment {
                                      matches: [], sourceDigest: digest))
         }
         return result
+    }
+
+    /// DOI 命中兩筆以上的理由（零寫入）。命中裡有共用同一個 id 的——同一筆記錄改名之後留下的 legacy 拷貝（#709：citekey 不同、id 相同）——
+    /// 時說出來：那不是兩篇作品，出路是刪掉 legacy 那份，不是 #459 的攣生管線（resolve-divergence 對有拷貝的候選拒絕）。
+    /// 定位仍看完整的 load（寫入面）；只有理由分開說（#709 第三次 verify）。
+    static func ambiguousDOIReason(_ target: DOI, hits: [Entry]) -> String {
+        let byID = Dictionary(grouping: hits, by: \.id).values.filter { $0.count > 1 }
+            .map { $0.map(\.citekey).sorted() }.sorted { $0[0] < $1[0] }
+        let head = "DOI「\(target.normalized)」命中 \(hits.count) 筆"
+        guard !byID.isEmpty else { return head + "——不判定哪一筆才對（#459），零寫入" }
+        let pairs = byID.map { $0.joined(separator: "、") }.joined(separator: "；")
+        return head + "——其中 \(pairs) 是同一筆記錄（同一個 id）的 entities/ 與 legacy 拷貝，不是兩篇作品：刪掉 legacy 那份"
+            + "（akashic validate 列出）之後再跑，零寫入"
     }
 
     /// 把一筆計畫套進 entry，回傳**新的** entry（不 mutate 傳入者）。

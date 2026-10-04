@@ -114,6 +114,12 @@ public enum LiteralCensus {
     /// loader 的 `load()` 本來就並存讀取（LibraryStore doc「與 legacy 並存讀取」；中斷遷移的 store 在 loader
     /// 眼中就是兩筆），普查與 loader 同語意才不會在混合佈局報假零（R4 實測：legacy＋1 個 entities 檔 →
     /// 切換版報 0，doctor 報 2）。檔名判準沿用 Python 版的 `glob("*.yaml")`：**大小寫敏感、不含隱藏檔**。
+    ///
+    /// **與 doctor 的數在有 legacy 拷貝時不同**（#709 第三次 verify，有記錄的殘留）：同一筆記錄一份在 `entities/`、一份還在 `entries/`／`people/` 時，
+    /// `load()` 仍兩份都讀，但 doctor 的 `unresolved author literals` 自 #709 起取以 entities/ 為準的視圖、只算一次；本普查兩份都算，多出的就是
+    /// 拷貝裡的 literal（`akashic validate` 逐筆列出那幾對）。不改的理由：辨認一對要「同一種、同一個 id」的判準，那個判準只有一份
+    /// （`LibraryStore.markLegacyCopiesShadowedByEntities`，要 decode 出 id）；普查刻意不經 loader，在掃描器裡寫第二份正是
+    /// `no-compat-fallback` §「同一件事只能有一份描述」禁止的。
     public static func run(root: String) throws -> Report {
         let fm = FileManager.default
         func isDirectory(_ p: String) -> Bool {

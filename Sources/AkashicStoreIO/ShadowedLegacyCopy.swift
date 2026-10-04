@@ -39,12 +39,18 @@ extension LibraryLoad {
 
     /// 以 `entities/` 那份為準的讀取視圖（#709，使用者 2026-10-01 把裁決從 index 延伸到匯出與 App）：拿掉 legacy 拷貝，其餘不動。
     /// **過濾只有這一處**——index 重建（`LibraryIndex.rebuild`）、三個匯出面（MCP `akashic_export`、CLI `export-bib`、
-    /// `export-tables`）與 App 的 `AppState.load` 都呼叫它，不各自寫一份 `filter`。
+    /// `export-tables`）與 App 的 `AppState.load` 都呼叫它，不各自寫一份 `filter`。其餘呼叫端只拿它算**讀數**（doctor 的普查、
+    /// library 的成員數、DOI 命中、`akashic people`、`view show`……，清單在 `mcp-cli-parity` 的 #709 段）。
     ///
-    /// **過濾不讓任何一筆變得可寫**：拿掉拷貝之後，留下的那一份在完整的 load 上若無法唯一定位（#627／#641——一般的寫入留下的一對
+    /// **逐筆的可寫性不因過濾而改變**：拿掉拷貝之後，留下的那一份在完整的 load 上若無法唯一定位（#627／#641——一般的寫入留下的一對
     /// 共用 citekey；改名留下的一對共用 id），在這個視圖上也要無法唯一定位，否則以這個視圖定位寫入的消費端（App 的裁決台）會放行
     /// CLI／MCP 拒絕的寫入。所以那一份若沒有自己的 `unwritableReason`，補上一句說出是哪份拷貝擋著它；判準是「完整 load 上無法唯一定位、
-    /// 過濾後卻可以」，不是另一條規則。
+    /// 過濾後卻可以」，不是另一條規則。改名留下的 **person** 一對裡，entities/ 那份在完整的 load 上本來就寫得進去（`unlocatablePersonKeys`
+    /// 刻意不收「共用 id」），視圖上也一樣。
+    ///
+    /// **批次的結果會變**（#709 第三次 verify）：上面那句只對逐筆成立。一個以批次為單位拒絕的寫入者，若用這個視圖規劃寫入集合，legacy 拷貝
+    /// 從集合裡消失——`authorize-names` 先前就是靠 legacy 那份被算進寫入集合而整批拒絕，R2 改用視圖之後改名留下拷貝的 person 從拒絕變成寫入。
+    /// 所以**寫入候選面與依據判定**（三個 bootstrap、`authorize-names`、library 規則的依據）看完整的 load，不用這個視圖。
     ///
     /// 驗證（validate、doctor 的 `crossRecordIssues`、App 的健康總覽）**不**用這個視圖——它們要照舊看到兩份並存。
     public func withoutShadowedLegacyCopies() -> LibraryLoad {
@@ -69,6 +75,16 @@ extension LibraryLoad {
             out.people[i].fileSituation.unwritableReason = Self.keptCopyReason(files)
         }
         return out
+    }
+
+    /// 寫入候選面（三個 bootstrap）的計畫附註（#709 第三次 verify）：這些面看完整的 load，同一筆記錄的 legacy 拷貝也在計畫裡——拷貝裡的
+    /// literal 也是候選，與 entities/ 那份相同的多算一次出現（可能越過 `--min-occurrences`）。說出有幾份、指向 validate；沒有拷貝時 nil。
+    /// 只含常數字面與筆數。
+    public var legacyCopiesInPlanNote: String? {
+        let n = shadowedLegacyCopies.count
+        guard n > 0 else { return nil }
+        return "⚠ 計畫含 \(n) 份 legacy 拷貝（同一筆記錄在 entities/ 也有一份；akashic validate 逐筆列出）：本命令是寫入候選面、看完整的 load——"   // display-safe-exempt: n：Int
+            + "拷貝裡的 literal 也是候選，與 entities/ 那份相同的會多算一次出現。先刪掉拷貝再跑，計數才準（#709）"
     }
 
     /// 已消毒（`unwritableReason` 的契約）。

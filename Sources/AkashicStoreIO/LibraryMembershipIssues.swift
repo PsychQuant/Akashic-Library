@@ -58,6 +58,21 @@ extension LibraryLoad {
         return out
     }
 
+    /// `library list`／`library check`／`set-kind`（CLI 與 MCP）讀的一個 library 的成員數、不符清單與依據問題（#709 第三次 verify）——
+    /// 三個面同一個函式，不各自組。
+    ///
+    /// - 成員數與不符清單是**讀數**：成員取以 entities/ 為準的視圖（`withoutShadowedLegacyCopies`），一對 legacy 拷貝算一個成員、同一個 citekey
+    ///   不列兩次。`view` 由呼叫端傳入（`library list` 對每個 library 共用一份視圖）。
+    /// - 依據（`basisProblem`：文件型的文件在庫裡有幾筆、規則的 venue key 有幾筆）是**判定**：看完整的 load，與 `library add`、
+    ///   `validate`（`libraryMembershipIssues`）、App 的加入動作同一份。文件自己有 legacy 拷貝時依據不明確——add 拒絕，這裡也照說。
+    public func membershipReading(of library: Library, view: [Entry])
+        -> (members: Int, violations: [(citekey: String, violation: LibraryMembershipViolation)],
+            basisProblem: LibraryMembershipViolation?) {
+        let check = LibraryMembershipCheck(library: library, entries: entries, venues: venues)
+        return (view.filter { $0.akashic.libraries.contains(library.key) }.count,
+                check.nonconformingMembers(among: view), check.basisProblem)
+    }
+
     /// 成員規則指涉某個 citekey（文件型的文件、規則型的排除清單）的 library key——改名與 work 合併問它。
     public func librariesNaming(citekey: String) -> [String] {
         libraries.filter { $0.membership?.referencedCitekeys.contains(citekey) ?? false }.map(\.key).sorted()

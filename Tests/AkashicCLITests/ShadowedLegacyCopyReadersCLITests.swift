@@ -8,7 +8,8 @@ import Foundation
 /// `bootstrap-people` 對 legacy 拷貝裡多出來的作者 literal 建 person、每個 literal 的計數多算一份。
 ///
 /// 本檔走真 binary：
-/// - `bootstrap-people`（與 `-organizations`、`-venues` 同一個作法）的 literal 來源只取 entities/ 那份；
+/// - ~~`bootstrap-people`（與 `-organizations`、`-venues` 同一個作法）的 literal 來源只取 entities/ 那份~~（#709 第三次 verify：寫入候選面
+///   收回到完整的 load，待使用者確認視圖的延伸；輸出說出計畫含幾份拷貝）；
 /// - `view show --keys-only`（餵下游腳本）不列改名留下的舊 citekey。
 final class ShadowedLegacyCopyReadersCLITests: XCTestCase {
     private var root: URL!
@@ -44,38 +45,44 @@ final class ShadowedLegacyCopyReadersCLITests: XCTestCase {
         try EntryYAML.encode(e).write(to: store.entriesDir.appendingPathComponent("\(e.citekey).yaml"), atomically: true, encoding: .utf8)
     }
 
-    func testBootstrapPeopleReadsLiteralsFromTheEntitiesCopyOnly() throws {
+    /// #709 第三次 verify：寫入候選面看完整的 load（R3 曾改用視圖，那一半待使用者確認、本輪收回）——legacy 拷貝裡多出來的 literal 也是候選、
+    /// 一對相同的 literal 算兩次出現；輸出（`--json` 是 `legacyCopiesInPlan`）說出計畫含幾份拷貝。
+    func testBootstrapPeopleReadsTheFullLoadAndSaysTheCopyIsInThePlan() throws {
         let id = UUID()
         let canonical = Entry(id: id, citekey: "doe2020a", type: .periodicalArticle, title: "T",
                               authors: [.literal("Doe, A.")], date: "2020")
         var leftover = canonical
-        leftover.authors = [.literal("Doe, A."), .literal("Ghost, Zed.")]   // 只存在於被略過的拷貝裡
+        leftover.authors = [.literal("Doe, A."), .literal("Ghost, Zed.")]   // 只存在於 legacy 拷貝裡
         try writeEntities(canonical)
         try writeLegacy(leftover)
 
         let r = try cli(["bootstrap-people", "--json", "--min-occurrences", "1"])
         XCTAssertEqual(r.status, 0, r.output)
-        XCTAssertFalse(r.output.contains("Ghost"), "legacy 拷貝裡多出來的 literal 不該成為建檔候選：\(r.output)")
         let obj = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(r.output.utf8)) as? [String: Any], r.output)
+        XCTAssertEqual(obj["legacyCopiesInPlan"] as? Int, 1, r.output)
         let candidates = try XCTUnwrap(obj["candidates"] as? [[String: Any]])
+        XCTAssertTrue(candidates.contains { ($0["names"] as? [String])?.contains("Ghost, Zed.") == true }, "拷貝裡的 literal 不被安靜略過：\(candidates)")
         let doe = try XCTUnwrap(candidates.first { ($0["names"] as? [String])?.contains("Doe, A.") == true }, "\(candidates)")
-        XCTAssertEqual(doe["occurrences"] as? Int, 1, "同一筆記錄的兩份不算兩次")
+        XCTAssertEqual(doe["occurrences"] as? Int, 2, "完整的 load：兩份各算一次")
+
+        let text = try cli(["bootstrap-people", "--min-occurrences", "1"])
+        XCTAssertTrue(text.output.contains("計畫含 1 份 legacy 拷貝"), text.output)
     }
 
-    /// 兩份並存只是 legacy 拷貝時，作者位不經 `--apply` 以外的任何路徑被改——乾跑與 `--apply` 看到同一份候選。
-    func testBootstrapVenuesReadsTheEntitiesCopyOnly() throws {
+    func testBootstrapVenuesReadsTheFullLoadAndSaysTheCopyIsInThePlan() throws {
         let id = UUID()
         var canonical = Entry(id: id, citekey: "doe2020a", type: .periodicalArticle, title: "T", date: "2020")
         canonical.fields["journaltitle"] = "Journal of Real Things"
         var leftover = canonical
-        leftover.fields["journaltitle"] = "Ghost Quarterly"   // 手改過的 legacy 拷貝：index 與匯出看不到它
+        leftover.fields["journaltitle"] = "Ghost Quarterly"   // 手改過的 legacy 拷貝：index 與匯出看不到它，寫入候選面看得到
         try writeEntities(canonical)
         try writeLegacy(leftover)
 
         let r = try cli(["bootstrap-venues", "--min-occurrences", "1"])
         XCTAssertEqual(r.status, 0, r.output)
-        XCTAssertTrue(r.output.contains("Journal of Real Things"), "前提：entities/ 那份的刊名是候選：\(r.output)")
-        XCTAssertFalse(r.output.contains("Ghost Quarterly"), "legacy 拷貝裡多出來的刊名不該成為建檔候選：\(r.output)")
+        XCTAssertTrue(r.output.contains("Journal of Real Things"), r.output)
+        XCTAssertTrue(r.output.contains("Ghost Quarterly"), "拷貝裡的刊名不被安靜略過：\(r.output)")
+        XCTAssertTrue(r.output.contains("計畫含 1 份 legacy 拷貝"), r.output)
     }
 
     /// 改名留下的拷貝帶舊 citekey：`view show --keys-only` 餵下游腳本，不該把新舊兩個 citekey 並列。

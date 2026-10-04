@@ -694,16 +694,17 @@ struct BootstrapPeople: ParsableCommand {
         let load = try store.load()
         // R1-fix B4：否決史決定 pending literal 何時回到可建檔
         let report = PersonBootstrap.resolve(
-            // 作者 literal 的來源只取 entities/ 那份（#709 R3 verify）：legacy 拷貝的內容 index 與匯出都看不到，不該流進寫入候選
-            // （拷貝裡多出的 literal 會被建成 person；一般狀態下每個 literal 的計數也多算一份）。`existing` 仍用完整的 load：
-            // 改名留下的舊 person key 要算「已存在」，否則 `--apply` 會把它再建一次
-            entries: load.withoutShadowedLegacyCopies().entries, existing: load.people,
+            // 作者 literal 的來源看完整的 load（#709 第三次 verify）：這是寫入候選面，以 entities/ 為準的視圖待使用者確認之前不用它——
+            // R3 改用視圖時，手改過的 legacy 拷貝裡多出來的 literal 安靜地不成為候選。代價是拷貝裡的 literal 也算一次出現（一對相同的算兩次），
+            // 輸出開頭的附註說出計畫含幾份拷貝（`legacyCopiesInPlanNote`）。`existing` 也是完整的 load：改名留下的舊 person key 要算「已存在」
+            entries: load.entries, existing: load.people,
             rejected: ResolutionLedger.rejectedPairings(people: load.people),
             confirmed: ResolutionLedger.confirmedPairings(people: load.people),
             // #547 verify V16：門檻要進得去，否則低於門檻的寫法對高於門檻的候選
             // 有絕對否決權（實測門檻 10 時 `Daniel McNeish` 18 次被 `Daniel Muise`
             // 2 次單獨扣住）。
             minOccurrences: minOccurrences)
+        let planNote = load.legacyCopiesInPlanNote
         if json {   // 與 --apply 互斥已在 validate() 擋下
             // **這個出口刻意不套 `displaySafe`，消毒層是序列化器 ＋ 底下那一行後處理。**
             //
@@ -723,7 +724,7 @@ struct BootstrapPeople: ParsableCommand {
             // §2 的形狀）。而背書它的守衛用 `byte < 0x20` 判準，在 UTF-8 裡只可能看到
             // ASCII C0——上述四類一個都進不了 filter，**它宣稱的紅燈條件不可達**。
             // 守衛的判準已一併換成 scalar 集合，與這裡同源。
-            let payload: [String: Any] = [
+            var payload: [String: Any] = [
                 "candidates": report.candidates
                     .filter { $0.occurrences >= minOccurrences }
                     .map { ["key": $0.key, "names": $0.names, "occurrences": $0.occurrences] },   // display-safe-exempt: $0.key、$0.names：JSON 面的消毒層是序列化器 ＋ 序列化後的 escapingUnsafeScalars（與 displaySafe 同源）；消毒會破壞餵回 add-person 的逐字 literal
@@ -739,6 +740,8 @@ struct BootstrapPeople: ParsableCommand {
                     .map { ["names": $0.names, "occurrences": $0.occurrences,   // display-safe-exempt: $0.names：同上——序列化器 ＋ 序列化後的 escapingUnsafeScalars
                             "sharedKeys": $0.sharedKeys] },
             ]
+            // 計畫含 legacy 拷貝時才出現（#709 第三次 verify）：拷貝的 literal 也算在 occurrences 裡
+            if planNote != nil { payload["legacyCopiesInPlan"] = load.shadowedLegacyCopies.count }   // display-safe-exempt: Int
             let data = try JSONSerialization.data(
                 withJSONObject: payload,
                 options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
@@ -749,6 +752,7 @@ struct BootstrapPeople: ParsableCommand {
         var cands = report.candidates.filter { $0.occurrences >= minOccurrences }
         let total = cands.count
         if let limit { cands = Array(cands.prefix(limit)) }
+        if let planNote { print(planNote) }   // display-safe-exempt: 常數字面加 Int
 
         /// 產不出 ASCII key 的那些**必須被印出來**（#238）。
         ///
@@ -911,16 +915,15 @@ struct BootstrapOrganizations: ParsableCommand {
         let store = try options.openStore()
         let load = try store.load()
         // #378：作者位的團體 literal 也是機構名的來源
-        // 同 bootstrap-people（#709 R3 verify）：legacy 拷貝的內容不流進寫入候選——**兩個 literal 來源都是**（R2 verify：先前只換了 entries，
-        // person 的隸屬 literal 仍從完整的 load 來，拷貝獨有的機構名成為候選、一次出現算兩次而越過 --min-occurrences）。
-        // organizations 用完整的 load：它沒有 legacy 拷貝，而且它同時是「已存在」的判準。
-        let canonical = load.withoutShadowedLegacyCopies()
-        let result = OrgBootstrap.result(people: canonical.people,
+        // 兩個 literal 來源都看完整的 load（#709 第三次 verify，同 bootstrap-people）：寫入候選面，以 entities/ 為準的視圖待使用者確認之前不用它。
+        // 拷貝裡的機構名也是候選、一對相同的算兩次出現——輸出開頭的附註說出計畫含幾份拷貝（`legacyCopiesInPlanNote`）。
+        let result = OrgBootstrap.result(people: load.people,
                                          organizations: load.organizations,
-                                         entries: canonical.entries)
+                                         entries: load.entries)
         var cands = result.candidates.filter { $0.occurrences >= minOccurrences }
         let total = cands.count
         if let limit { cands = Array(cands.prefix(limit)) }
+        if let note = load.legacyCopiesInPlanNote { print(note) }   // display-safe-exempt: 常數字面加 Int
 
         // #154 verify 154-1：產不出合法 key 的機構名**不靜默丟**——含 CJK 的名字
         // （台灣機構的雙語寫法最常見）無 ASCII token 時無法 slug，要明列，否則
@@ -2453,7 +2456,10 @@ struct ResolvePeople: ParsableCommand {
         }
 
         guard !all.isEmpty else {
-            let literalCount = load.entries.flatMap(\.authors).filter { if case .literal = $0 { return true } else { return false } }.count
+            // 讀數取以 entities/ 為準的視圖（#709 第三次 verify）：與 doctor 的 `unresolved author literals` 同一個數——一對 legacy 拷貝不算兩次。
+            // 候選的產生照舊看完整的 load（寫入面）
+            let literalCount = load.withoutShadowedLegacyCopies().entries.flatMap(\.authors)
+                .filter { if case .literal = $0 { return true } else { return false } }.count
             // 有歧義時不說「任何提名層皆無命中」——歧義就是命中了多個人（R1 verify DA）
             print(report.ambiguities.isEmpty
                   ? "無候選（literal 作者 \(literalCount) 個，任何提名層皆無命中）"   // display-safe-exempt: Int
@@ -2747,6 +2753,12 @@ struct AuthorizeNames: ParsableCommand {
         if apply {
             print(namesWritten > 0 ? "✓ 已寫入 \(namesWritten) 個名字（每個名字各一筆「指定：理由」的判定記錄）"
                                    : "沒有可以指定的名字——沒有寫入任何檔、沒有寫任何記錄")
+        } else if !r.blockedKeys.isEmpty {
+            // 乾跑說實跑會做的事（#709 第三次 verify）：這幾筆在 --apply 會讓整批拒絕，不說「確認後執行」
+            print("未寫入。要寫的 person 裡有 \(r.blockedKeys.count) 筆無法唯一定位，--apply 會整批拒絕、零寫入："
+                  + r.blockedKeys.prefix(20).map { displaySafeInvisible($0, max: 120) }.joined(separator: "、")
+                  + (r.blockedKeys.count > 20 ? "…" : "")
+                  + "——akashic validate 說出每一筆的原因（多半是 legacy 拷貝還在），處理完再跑。")
         } else {
             print("未寫入。確認上面的計畫後加 --apply --judgement '<理由>' 執行。")
         }

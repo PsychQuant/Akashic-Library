@@ -87,6 +87,9 @@ public enum AuthorizedNameMigration {
         public var peopleWithoutNames = 0
         /// 仍然歧義的記錄 key（依字典序），給報告用。
         public var undecidedKeys: [String] = []
+        /// 要寫的 person 裡無法唯一定位的 key（`unlocatablePersonKeys`，依字典序、不重複）。非空時 `--apply` 整批拒絕、零寫入；
+        /// 乾跑照樣算出來、由呼叫端說出——乾跑報的計畫要是實跑會做的那一個（#709 第三次 verify：先前乾跑說「確認後加 --apply」，實跑必拒）。
+        public var blockedKeys: [String] = []
     }
 
     /// 對整個 store 跑一次提名。`apply: false`（預設）只回報，不寫。
@@ -120,9 +123,11 @@ public enum AuthorizedNameMigration {
                    + "若是未遷移的舊形狀 person，跑 akashic migrate-person-identity 後再回來")
         }
         var report = Report()
-        // 計畫取 entities/ 那份（#709 R2 verify：一對 legacy 拷貝先前讓乾跑印「person 總數: 2、採用 2」）。拒絕仍看完整的 load
-        // （下面的 `unlocatablePersonKeys`）：過濾不讓任何一筆變得可寫（`withoutShadowedLegacyCopies` 的 doc）
-        let people = load.withoutShadowedLegacyCopies().people
+        // 計畫與拒絕都看**完整的 load**（#709 第三次 verify）：這是寫入面，不用以 entities/ 為準的視圖（`withoutShadowedLegacyCopies`）。
+        // R2 曾讓計畫取視圖，於是改名留下 legacy 拷貝的 person（entities/ 那份是新 key、legacy 那份是舊 key）從「整批拒絕」變成「寫入」：
+        // 擋住這次寫入的一直是 legacy 那份被算進寫入集合、而它無法唯一定位；視圖把它拿掉，拒絕就跟著消失。一對 legacy 拷貝因此在
+        // 「person 總數」裡算兩次——那是寫入集合的真實樣子，乾跑另外說出哪幾筆會讓 `--apply` 整批拒絕（`blockedKeys`）。
+        let people = load.people
         report.total = people.count
         var toWrite: [Person] = []   // 先算完整個寫入集合，才決定寫不寫（#641）
         for person in people {
@@ -160,11 +165,12 @@ public enum AuthorizedNameMigration {
         }
         // #641：apply 逐筆寫 person、最後才 bump marker。其中一筆寫入時被 #631 拒絕（legacy 殘留加上 quarantine、兩份並存、
         // 不能安全搬移），前面的指定已經落盤而 marker 沒 bump——舊 binary 會照舊語意讀新格式，正是 marker 要擋的情境。
-        // 寫入集合裡有無法唯一定位的，就在第一次寫入之前整批拒絕（乾跑照常出報告：它看得到那些人，報告是完整的）。
+        // 寫入集合裡有無法唯一定位的，就在第一次寫入之前整批拒絕。乾跑也算這一組、放進報告（`blockedKeys`）：乾跑與實跑對同一個 store
+        // 說同一件事（#709 第三次 verify：先前只有實跑算，乾跑印「確認後加 --apply」而實跑必拒）。
+        let unlocatable = load.people.unlocatablePersonKeys
+        let blocked = Array(Set(toWrite.map(\.key).filter { unlocatable.contains($0) })).sorted()
+        report.blockedKeys = blocked
         if apply {
-            // 完整的 load 與視圖兩邊都問：視圖把「完整 load 上擋著、拿掉拷貝後不擋」的那一份補上理由（`withoutShadowedLegacyCopies`）
-            let unlocatable = load.people.unlocatablePersonKeys.union(people.unlocatablePersonKeys)
-            let blocked = toWrite.map(\.key).filter { unlocatable.contains($0) }
             guard blocked.isEmpty else {
                 let shown = blocked.prefix(20).map { displaySafeInvisible($0, max: 120) }.joined(separator: "、")
                 throw StoreIOError.invalidInput(

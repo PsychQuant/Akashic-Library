@@ -17,8 +17,8 @@ import Foundation
 /// - 記錄本身的寫入封鎖（#641）不變，validate 照舊報兩份並存。
 ///
 /// 使用者 2026-10-01 把裁決延伸到 index 之外：這一對造成的 UUID／citekey／key 重複降為 warning（doctor 照常重建，改名與合併不再整個
-/// store 停下）、匯出與 App 也以 entities/ 那份為準——過濾只有一處（`LibraryLoad.withoutShadowedLegacyCopies`），而且過濾不讓任何一筆
-/// 變得可寫。兩筆不同的記錄共用 citekey／UUID 照舊是 error。
+/// store 停下）、匯出與 App 也以 entities/ 那份為準——過濾只有一處（`LibraryLoad.withoutShadowedLegacyCopies`），而且逐筆的可寫性
+/// 不因過濾改變（批次寫入者不用這個視圖規劃，#709 第三次 verify）。兩筆不同的記錄共用 citekey／UUID 照舊是 error。
 final class IndexPrefersEntitiesCopyTests: XCTestCase {
     private var root: URL!
     private var store: LibraryStore!
@@ -292,7 +292,7 @@ final class IndexPrefersEntitiesCopyTests: XCTestCase {
         XCTAssertEqual(doctor["entries"] as? Int, 1)
     }
 
-    /// 過濾不讓任何一筆變得可寫：改名留下的一對在完整的 load 上兩個 citekey 都無法唯一定位（共用 id），拿掉拷貝之後留下的新 citekey
+    /// 逐筆的可寫性不因過濾改變：改名留下的一對在完整的 load 上兩個 citekey 都無法唯一定位（共用 id），拿掉拷貝之後留下的新 citekey
     /// 仍無法唯一定位（補上一句理由）。一般的寫入留下的那一對，留下的那一份本來就有自己的理由。
     func testTheViewKeepsTheKeptCopyWriteBlocked() throws {
         let id = UUID()

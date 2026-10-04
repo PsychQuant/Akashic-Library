@@ -939,7 +939,9 @@ public final class AkashicService {
             let needle = name.lowercased()
             var keyPubCount: [String: Int] = [:]
             var literalCounts: [String: Int] = [:]
-            for entry in load.entries {
+            // 篇數是讀數，取以 entities/ 為準的視圖（#709 第三次 verify：一對 legacy 拷貝先前讓 `publications: 2`，key 查找同一個人列 1 篇）。
+            // 候選的 person 列照舊來自完整的 load——名字查找是查找面，改名留下的舊 key 也要查得到
+            for entry in load.withoutShadowedLegacyCopies().entries {
                 // per-entry 去重：publications 是「篇數」不是「掛名次數」
                 //（同篇重複 author identity 只計一次，與 DISTINCT 語意對齊）
                 var seenKeys = Set<String>()
@@ -1145,11 +1147,9 @@ public final class AkashicService {
         guard let lib = load.libraries.first(where: { $0.key == key }) else {
             throw ServiceError.notFound("library「\(displaySafeInvisible(key, max: 200))」")
         }
-        // 成員數與不符清單取 entities/ 那份（#709 R2 verify：一對 legacy 拷貝先前算成兩個成員、同一個 citekey 列兩次）
-        let entries = load.withoutShadowedLegacyCopies().entries
-        let members = entries.filter { $0.akashic.libraries.contains(key) }.count
-        let check = LibraryMembershipCheck(library: lib, entries: entries, venues: load.venues)
-        return (lib, members, check.nonconformingMembers(), check.basisProblem)
+        // 成員數與不符清單取 entities/ 那份、依據看完整的 load（`membershipReading`，#709 R2／第三次 verify）
+        let r = load.membershipReading(of: lib, view: load.withoutShadowedLegacyCopies().entries)
+        return (lib, r.members, r.violations, r.basisProblem)
     }
 
     /// `set-kind` 的結果：改寫後的 library、**被換掉的先前性質**（整值替換，舊值不回顯就無從核對——#642 R1 verify）、
@@ -1189,11 +1189,9 @@ public final class AkashicService {
         }
         lib.membership = membership
         try store.updateLibrary(lib)
-        let entries = load.withoutShadowedLegacyCopies().entries   // 同 libraryViolations（#709 R2 verify）
-        let check = LibraryMembershipCheck(library: lib, entries: entries, venues: load.venues)
-        let members = entries.filter { $0.akashic.libraries.contains(key) }.count
-        return LibraryKindChange(library: lib, previous: previous, members: members,
-                                 violations: check.nonconformingMembers(), basisProblem: check.basisProblem)
+        let r = load.membershipReading(of: lib, view: load.withoutShadowedLegacyCopies().entries)   // 同 libraryViolations
+        return LibraryKindChange(library: lib, previous: previous, members: r.members,
+                                 violations: r.violations, basisProblem: r.basisProblem)
     }
 
     /// #13 多 library：registry 管理 + 成員操作（衍生層寫入邊界內）。#642 起多兩個 action：`set-kind`（標性質與規則）、
@@ -1207,9 +1205,9 @@ public final class AkashicService {
         switch action {
         case "list":
             let load = try store.load()
-            let entries = load.withoutShadowedLegacyCopies().entries   // 同 CLI library list（#709 R2 verify）
+            let view = load.withoutShadowedLegacyCopies().entries   // 同 CLI library list（#709 R2 verify）：成員數是讀數
             var counts: [String: Int] = [:]
-            for entry in entries {
+            for entry in view {
                 for k in Set(entry.akashic.libraries) { counts[k, default: 0] += 1 }
             }
             return try jsonString(load.libraries.map { lib -> [String: Any] in
@@ -1223,7 +1221,7 @@ public final class AkashicService {
                 // #642：性質與規則——問使用者要掛哪個 library 的地方要看得到它（不再只靠讀描述）
                 d.merge(Self.membershipPayload(lib.membership)) { a, _ in a }
                 if lib.membership != nil {
-                    d["nonconforming"] = LibraryMembershipCheck(library: lib, entries: entries, venues: load.venues).nonconformingMembers().count   // display-safe-exempt: Int
+                    d["nonconforming"] = load.membershipReading(of: lib, view: view).violations.count   // display-safe-exempt: Int；依據看完整的 load（#709 第三次 verify）
                 }
                 return d
             })

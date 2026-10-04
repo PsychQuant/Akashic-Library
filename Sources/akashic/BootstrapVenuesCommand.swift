@@ -33,11 +33,12 @@ struct BootstrapVenues: ParsableCommand {
         let store = try options.openStore()
         let load = try store.load()
 
-        // 同 bootstrap-people（#709 R3 verify）：legacy 拷貝的內容不流進寫入候選
-        let result = VenueBootstrap.result(entries: load.withoutShadowedLegacyCopies().entries, existing: load.venues)
+        // 同 bootstrap-people（#709 第三次 verify）：寫入候選面看完整的 load；拷貝裡的刊名也是候選，輸出開頭的附註說出計畫含幾份拷貝
+        let result = VenueBootstrap.result(entries: load.entries, existing: load.venues)
         var cands = result.candidates.filter { $0.occurrences >= minOccurrences }
         let total = cands.count
         if let limit { cands = Array(cands.prefix(limit)) }
+        if let note = load.legacyCopiesInPlanNote { print(note) }   // display-safe-exempt: 常數字面加 Int
 
         print("literal 刊名 → venue 候選：\(total) 個"
               + (minOccurrences > 1 ? "（已濾出現次數 ≥ \(minOccurrences)）" : ""))

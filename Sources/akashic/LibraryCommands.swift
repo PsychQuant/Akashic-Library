@@ -38,10 +38,10 @@ struct LibraryList: ParsableCommand {
             print("（無 library——用 akashic library create <key> --name <名> --kind <topic|rule|document> 建立）")
             return
         }
-        // 成員數與不符數取 entities/ 那份（#709 R2 verify）：一對 legacy 拷貝先前算成兩個成員
-        let entries = load.withoutShadowedLegacyCopies().entries
+        // 成員數與不符數取 entities/ 那份（#709 R2 verify）：一對 legacy 拷貝先前算成兩個成員。依據看完整的 load（`membershipReading`）
+        let view = load.withoutShadowedLegacyCopies().entries
         var counts: [String: Int] = [:]
-        for entry in entries {
+        for entry in view {
             for key in Set(entry.akashic.libraries) { counts[key, default: 0] += 1 }
         }
         for library in load.libraries {
@@ -52,7 +52,7 @@ struct LibraryList: ParsableCommand {
             // #642：性質與依據——要問「掛哪個 library」的地方要看得到它，不再只靠讀描述
             var basis = "  " + LibraryMembershipCheck.basis(of: library.membership)   // display-safe-exempt: basis 在 LibraryMembershipCheck 裡已逐項消毒
             if library.membership != nil {
-                let bad = LibraryMembershipCheck(library: library, entries: entries, venues: load.venues).nonconformingMembers().count
+                let bad = load.membershipReading(of: library, view: view).violations.count
                 if bad > 0 { basis += "——\(bad) 筆成員不符規則（akashic library check \(displaySafe(library.key, max: 200))）" }   // display-safe-exempt: Int
             }
             print(basis)

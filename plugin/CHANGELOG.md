@@ -168,8 +168,17 @@ plugin 版號沒有動（skill 與 wrapper 文字的改動）。
 - `akashic_create_entry` 的 `doiHits`：一對 legacy 拷貝不再列成「已在：k、k」。
 - CLI：`doctor` 的 `unresolved author literals` 與上面幾項同一個視圖（先前 CLI 自己從完整的 load 數，與 MCP 不同）；`bootstrap-organizations` 的 person 隸屬 literal、`authorize-names` 的計畫也取 `entities/` 那份。
 - 仍然讀完整 load 的（有記錄的殘留）：`akashic_person`、`akashic_get_entry` 的單筆查詢（排序讓 `entities/` 那份在前）；`akashic_resolve_people`／`akashic_resolve_venues`／`akashic_resolve_organizations` 的候選產生；`akashic_record_divergence` 的候選存在檢查（改名留下的舊 citekey 收得下）；CLI `references nominate` 的比對表；CLI `validate` 結尾的筆數。
-- 寫入候選面（三個 bootstrap、`authorize-names`）改取 `entities/` 那份超出使用者 2026-10-01 的裁決範圍，待確認。
+- ~~寫入候選面（三個 bootstrap、`authorize-names`）改取 `entities/` 那份超出使用者 2026-10-01 的裁決範圍，待確認。~~（2026-10-04 收回，見下）
 - 工具說明沒有改。
+
+2026-10-04，第三次驗證之後（寫入候選面與依據判定收回到完整的 load；以 entities/ 為準的視圖只留給讀數）：
+
+- `akashic_libraries` 的 `check`／`list`／`set-kind`：依據（`basisProblem`：文件型的文件在庫裡有幾筆、規則的 venue 有幾筆）看完整的 load，與 `add` 和 `akashic_doctor` 同一份判定。文件自己有 legacy 拷貝時，`check` 先前回 `basisProblem: null`、「全部符合」，`add` 卻以「文件的 citekey 有不只一筆」拒絕；現在 `check` 回 `basisProblem` 與每個成員的不符原因，`list` 的 `nonconforming` 跟著算進去。成員數與不符清單仍只算 `entities/` 那一份。
+- `akashic_person` 的名字查找：每個候選的 `publications`（含 literal 候選）只算 `entities/` 那一份——先前一對拷貝讓篇數加倍。候選的 person 列照舊來自完整的 load（同一筆 person 的一對列兩次，篇數相同）。
+- `akashic_enrich` 以 DOI 定位、命中改名留下的拷貝（citekey 不同、id 相同）時，理由說出那是同一筆記錄的 entities/ 與 legacy 拷貝、刪掉 legacy 那份之後再跑；先前指向 #459 的攣生管線。行為不變（`ambiguous`、零寫入）。
+- CLI：`authorize-names` 的計畫與 `--apply` 的拒絕都看完整的 load（第二次驗證之後改取視圖，讓改名留下拷貝的 person 從整批拒絕變成寫入）；乾跑列出 `--apply` 會擋的那幾筆、不再說「確認後執行」。三個 bootstrap 的 literal 來源回到完整的 load，有拷貝時開頭印一行說計畫含幾份拷貝（`bootstrap-people --json` 是 `legacyCopiesInPlan`）。`resolve-people` 無候選時的「literal 作者 N 個」與 doctor 同一個數。
+- 仍然讀完整 load 的（有記錄的殘留，取代上一份）：`akashic_person`／`akashic_get_entry` 的單筆查詢——同 key 的一對靠排序讓 `entities/` 那份在前，**改名留下的拷貝**以舊 key 查到的是 legacy 那份的內容；名字查找的 person 列；三個 `resolve-*` 的候選產生；`akashic_record_divergence` 的候選存在檢查；`akashic_enrich` 的 DOI 定位（寫入面）；CLI `references nominate`、`validate` 結尾的筆數、`literal-census`（直接掃 YAML，有拷貝時比 doctor 多算拷貝裡的 literal）。
+- 工具說明沒有改（`tools/list` 一行不變）。
 
 ## #564 — 名字分類的判定面必附理由、留判定記錄（不相容）；store format 22
 `akashic_update_venue` 的 `add_variant`／`authorize`／`unauthorize` 與 `akashic_update_organization` 的 `authorize`（CLI：`authorize-names --apply`、`update-venue`、`update-organization --authorize`）自此是判定型寫入，每次指定、確認（對已在分割內的名字再說一次，先前是無聲的 no-op）、撤回、標異寫都在記錄的 `references` 寫一筆 `field: authorized`／`variant` 的判斷型 reference（statement `指定：理由`／`確認：理由`／`撤回：理由`）。

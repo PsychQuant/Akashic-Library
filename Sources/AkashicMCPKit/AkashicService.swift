@@ -2909,7 +2909,7 @@ public final class AkashicService {
         ]
         if n.status != .groupTooLarge { row["other"] = displaySafe(n.other, max: 200) }
         if let id = n.divergenceID { row["divergence"] = id.uuidString }   // display-safe-exempt: UUID
-        if let e = n.error { row["error"] = displaySafeClipOnly(e, max: 512) }   // display-safe-exempt: e 已消毒（DOITwinNomination 由 displaySafeError 產出），只截
+        if let e = n.error { row["error"] = displaySafeClipOnly(e, max: 512) }   // display-safe-exempt: e 已消毒（`DOINomination.errorText` 產出：displaySafeErrorText 逃一次、換行接成一行、截 4,096），只截
         if let g = n.groupSize { row["groupSize"] = g }   // display-safe-exempt: Int
         return row
     }

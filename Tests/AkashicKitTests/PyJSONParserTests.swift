@@ -103,6 +103,17 @@ final class PyJSONParserTests: XCTestCase {
         XCTAssertThrowsError(try PyJSONParser.parse(Data(#""\ud800""#.utf8)), "預設仍拒絕")
     }
 
+    /// `web-read check` 的讀法（`loneSurrogates: .drop`，#692 R4）：讀頁面的運算式以 `slice` 截在 emoji 中間時產出孤立的代理對；
+    /// 刪掉它，不換成一個不是頁面寫的 U+FFFD。其餘情形與 `.replacementCharacter` 同一條路。
+    func testLoneSurrogatesAreDroppedWhenAsked() throws {
+        func parse(_ s: String) throws -> String? { try PyJSONParser.parse(Data(s.utf8), loneSurrogates: .drop) as? String }
+        XCTAssertEqual(try parse(#""ab\ud83d""#), "ab")
+        XCTAssertEqual(try parse(#""a\udc00b""#), "ab")
+        XCTAssertEqual(try parse(#""\ud800A""#), "A", "高代理後接的不是低代理：那個跳脫照常解")
+        XCTAssertEqual(try parse(#""\ud800😀""#), "😀")
+        XCTAssertThrowsError(try parse(#""\ud800\uZZZZ""#), "壞的 \\u 跳脫仍拒絕")
+    }
+
     /// `json.load(open(path, encoding="utf-8"))` 對非 UTF-8 拋 `UnicodeDecodeError`：這裡也拒絕，不換成 U+FFFD。
     func testInvalidUTF8IsRejected() {
         XCTAssertThrowsError(try PyJSONParser.parse(Data([0x22, 0xFF, 0x22])))

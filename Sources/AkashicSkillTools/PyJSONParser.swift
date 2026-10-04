@@ -19,7 +19,8 @@ import Foundation
 /// - 巢狀深度上限 `maxDepth`（512，與 Foundation 相同）：更深的拒絕。Python 的 C 掃描器對更深的巢狀仍接受；Crossref 回應與 NDJSON 的列不會有；
 /// - 孤立的代理對（`"\ud800"`）：Python 接受並產生孤立代理字元（之後 `print` 才會炸），這裡預設拒絕——Swift `String` 表示不了它。讀 Crossref
 ///   回應（`DirectoryResponseSource`、`calibrate`）時換成 U+FFFD：合法的 200 回應被判成「不是 JSON」會觸發中止條款、整批停（R2 verify 第 27 則）；
-///   摘要進 store 的路徑（`abstracts-to-proposals`）維持拒絕，不把一個不是來源給的字元寫進 store；
+///   摘要進 store 的路徑（`abstracts-to-proposals`）維持拒絕，不把一個不是來源給的字元寫進 store；讀頁面的回傳（`web-read check`，#692 R4）
+///   刪掉它——那是 `slice` 截在代理對中間的產物，Python 版之後也會把它當 Cs 剔除；
 /// - 超出 `Int` 的整數：Python 是任意精度，這裡退成 `Double`。書目資料裡的整數（年、卷、頁數）不會到那個量級。
 enum PyJSONParser {
     struct ParseError: Error, CustomStringConvertible {
@@ -31,13 +32,15 @@ enum PyJSONParser {
     /// 與 Foundation 的 `JSONSerialization` 同一個上限（512）：不比第一版更嚴。
     static let maxDepth = 512
 
-    /// 孤立代理對的處置（見型別 doc 的差異清單）。
-    enum LoneSurrogates { case reject, replacementCharacter }
+    /// 孤立代理對的處置（見型別 doc 的差異清單）。`drop` 給 `web-read check`（#692 R4）：讀頁面的運算式以 `slice` 截到上限，
+    /// 截在一個 emoji 中間時 `JSON.stringify` 產出孤立的 `\ud83d`——誠實的頁面也會；Python 版保留它、再由剔除步驟當 Cs 刪掉，
+    /// 這裡在解析時就刪（換成 U+FFFD 會讓一個不是頁面寫的字元進輸出）。
+    enum LoneSurrogates { case reject, replacementCharacter, drop }
 
     static func parse(_ data: Data, loneSurrogates: LoneSurrogates = .reject) throws -> Any {
         // `json.load(open(path, encoding="utf-8"))` 對非 UTF-8 的位元組拋 `UnicodeDecodeError`：這裡也拒絕，不悄悄換成 U+FFFD
         guard String(data: data, encoding: .utf8) != nil else { throw ParseError(message: "Invalid UTF-8", offset: 0) }
-        var parser = Parser(bytes: Array(data), replaceLoneSurrogates: loneSurrogates == .replacementCharacter)
+        var parser = Parser(bytes: Array(data), loneSurrogates: loneSurrogates)
         parser.skipWhitespace()
         let value = try parser.parseValue(depth: 0)
         parser.skipWhitespace()
@@ -47,10 +50,10 @@ enum PyJSONParser {
 
     private struct Parser {
         let bytes: [UInt8]
-        let replaceLoneSurrogates: Bool
+        let loneSurrogates: LoneSurrogates
         var index = 0
 
-        init(bytes: [UInt8], replaceLoneSurrogates: Bool) { self.bytes = bytes; self.replaceLoneSurrogates = replaceLoneSurrogates }
+        init(bytes: [UInt8], loneSurrogates: LoneSurrogates) { self.bytes = bytes; self.loneSurrogates = loneSurrogates }
 
         func fail(_ message: String) -> ParseError { ParseError(message: message, offset: index) }
 
@@ -142,19 +145,22 @@ enum PyJSONParser {
                             let low = try hex4()   // 壞的 \u 跳脫一律拒絕（Python 同）
                             if (0xDC00...0xDFFF).contains(low) {
                                 unit = 0x10000 + ((unit - 0xD800) << 10) + (low - 0xDC00)
-                            } else if replaceLoneSurrogates {
+                            } else if loneSurrogates != .reject {
                                 index = resume   // 那個跳脫不是低代理：退回去，讓下一輪照常解它
+                                if loneSurrogates == .drop { continue }
                                 unit = 0xFFFD
                             } else {
                                 throw fail("Unpaired surrogate")
                             }
-                        } else if replaceLoneSurrogates {
+                        } else if loneSurrogates != .reject {
+                            if loneSurrogates == .drop { continue }
                             unit = 0xFFFD
                         } else {
                             throw fail("Unpaired surrogate")
                         }
                     } else if (0xDC00...0xDFFF).contains(unit) {
-                        guard replaceLoneSurrogates else { throw fail("Unpaired surrogate") }
+                        guard loneSurrogates != .reject else { throw fail("Unpaired surrogate") }
+                        if loneSurrogates == .drop { continue }
                         unit = 0xFFFD
                     }
                     guard let scalar = Unicode.Scalar(unit) else { throw fail("Invalid \\u escape") }

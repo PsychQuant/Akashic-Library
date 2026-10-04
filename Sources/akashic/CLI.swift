@@ -112,6 +112,7 @@ struct AkashicCLI: ParsableCommand {
         MigrateIdentifiers.self,
             ReferencesCmd.self,   // #617：skill 的中間運算（extract），不寫 store、不打網路
             FulltextCmd.self,   // #629：取全文 skill 的驗證／訊號／抖動／導航與收檔（#613）／校準（原 scripts/*.py 與 fetch-fulltext.sh）
+            WebReadCmd.self,   // #692 R4：web-access.md 讀頁面的檢查（原文件裡的 check-read.py；不寫 store、不連網）
             CrossrefMatchCmd.self,   // #629：標題＋期刊＋年份比對 Crossref（原 crossref_match.py；重播式，不連網）
             AbstractsToProposalsCmd.self,   // #629：階段 B 摘要 NDJSON → enrich 提案（原 ndjson-abstracts-to-proposals.py）
             S2Cmd.self,           // #664：Semantic Scholar 查詢——CLI 中唯一會連網的子命令群（AkashicS2）

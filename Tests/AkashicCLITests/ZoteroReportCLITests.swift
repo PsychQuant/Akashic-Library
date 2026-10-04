@@ -114,12 +114,30 @@ final class ZoteroReportCLITests: XCTestCase {
         let r = try cli(["import-zotero", "--zotero-db", zoteroDB.path])
         XCTAssertEqual(r.status, 0, r.output)
         XCTAssertTrue(r.output.contains("created: 1"), "照建：\(r.output)")
-        XCTAssertTrue(r.output.contains("新建的條目與另一筆 work 共用 DOI（#611）: 1 對——新建的那一筆已照建、另一筆不動；記下的是沒有判斷的歧異提名"), r.output)
+        XCTAssertTrue(r.output.contains("新建的條目與另一筆 work 共用 DOI（#611）: 1 對——新建的條目照常建立，沒有合併、也沒有掛附加來源；記下的是沒有判斷的歧異提名"), r.output)
         XCTAssertFalse(r.output.contains("兩筆都已照建"), "另一筆是既有的，不是這一趟建的（#611 R3 verify 第 21／28 列）：\(r.output)")
         let line = try XCTUnwrap(r.output.split(separator: "\n").first { $0.contains("⊕ ") }, r.output)
         XCTAssertTrue(line.contains("↔ wos2025identifiability") && line.contains(doi) && line.contains("divergence "), String(line))
         let d = try cli(["divergences"])
         XCTAssertTrue(d.output.contains(doi) && d.output.contains("wos2025identifiability"), "記錄要真的在：\(d.output)")
+    }
+
+    /// 同一趟兩筆都新建、共用一個 DOI（R4 verify 第 6／8／18 列）：一對的「另一筆」也是這一趟建的——尾句不說它的狀態（R3 的「另一筆不動」
+    /// 對這一種為假），只說確定的事。
+    func testSameRunTwinsAreNominatedWithoutClaimingTheOtherIsUntouched() throws {
+        let doi = "10.1017/psy.2025.2"
+        try addDOIToTheZoteroArticle(doi)
+        let db = try SQLiteDB(path: zoteroDB.path, readOnly: false)
+        try db.execute("INSERT INTO items VALUES (11,1,'KEYART02',5,1)")
+        try db.execute("INSERT INTO itemDataValues VALUES (102,'A second record of the same article')")
+        try db.execute("INSERT INTO itemData VALUES (11,1,102)")
+        try db.execute("INSERT INTO itemData VALUES (11,6,101)")
+        let r = try cli(["import-zotero", "--zotero-db", zoteroDB.path])
+        XCTAssertEqual(r.status, 0, r.output)
+        XCTAssertTrue(r.output.contains("created: 2"), r.output)
+        XCTAssertTrue(r.output.contains("新建的條目與另一筆 work 共用 DOI（#611）: 1 對——新建的條目照常建立，沒有合併、也沒有掛附加來源"), r.output)
+        XCTAssertFalse(r.output.contains("另一筆不動"), r.output)
+        XCTAssertEqual(r.output.split(separator: "\n").filter { $0.contains("⊕ ") }.count, 1, "同一趟的兩筆只記一次：\(r.output)")
     }
 
     /// citekey 重複的既有那一筆不點名，印 ⚠。**結束狀態不是這一行造成的**：重複的 citekey 讓 index rebuild 撞 UNIQUE（既有行為），

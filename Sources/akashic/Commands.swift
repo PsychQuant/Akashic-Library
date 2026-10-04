@@ -409,10 +409,11 @@ struct ImportZotero: ParsableCommand {
             // 先前標題把它們也數進「照建，並記一筆…」，全部失敗時整句不成立）
             let recordedPairs = pairRows.filter { $0.status.isInStore }.count
             let unrecordedPairs = pairRows.count - recordedPairs
-            // 尾句只說確定的事（#611 R3 verify 第 21／28 列）：一對是「這一趟新建的那一筆 × 另一筆（多半是既有的）」，所以不說「兩筆都已照建」；
-            // 一對都沒記時不說「記下的是…」
+            // 尾句只說確定的事（#611 R3 verify 第 21／28 列）：一對是「這一趟新建的那一筆 × 另一筆」，所以不說「兩筆都已照建」；
+            // 一對都沒記時不說「記下的是…」。也不說另一筆的狀態（R4 verify 第 6／8／18 列：R3 的「另一筆不動」對同一趟兩筆都新建的對、
+            // 以及這一趟被 pull 改寫 DOI 的既有 work 為假）——確定的只有匯入者不合併、不掛附加來源（`DOINomination` 型別 doc）
             let recordedNote = recordedPairs > 0 ? "；記下的是沒有判斷的歧異提名（DOI 相等只是提名，判定與合併走 akashic divergences → resolve-divergence）" : ""
-            print("新建的條目與另一筆 work 共用 DOI（#611）: \(recordedPairs) 對\(unrecordedPairs > 0 ? "（另有 \(unrecordedPairs) 對沒記下）" : "")\(groupRows.isEmpty ? "" : "、\(groupRows.count) 個 DOI 的群組過大")——新建的那一筆已照建、另一筆不動\(recordedNote)")   // display-safe-exempt: Int；recordedNote 是本函式的字面
+            print("新建的條目與另一筆 work 共用 DOI（#611）: \(recordedPairs) 對\(unrecordedPairs > 0 ? "（另有 \(unrecordedPairs) 對沒記下）" : "")\(groupRows.isEmpty ? "" : "、\(groupRows.count) 個 DOI 的群組過大")——新建的條目照常建立，沒有合併、也沒有掛附加來源\(recordedNote)")   // display-safe-exempt: Int；recordedNote 是本函式的字面
             for n in report.doiNominations {
                 let dois = n.dois.map { displaySafe($0, max: 200) }.joined(separator: ", ")
                 if n.status == .groupTooLarge {

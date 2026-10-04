@@ -11,7 +11,7 @@
 - **拼網址的規則全部拿掉**（`akashic fulltext url-rule` 與它的三條規則：SAGE `?download=true`、Wiley `pdfdirect`、PsycNet `/fulltext/<id>.pdf`）。`fetch` 只跟頁面自己的連結走；那個連結通到 HTML 閱讀器時，下載按鈕交給使用者按。
 - 下表「觀察」欄裡 2026-09-23／09-28 的「成功」，多數是**頁內 fetch** 量到的——那條路已經不用了，經導航取這些站**大多沒有量過**。遇到了，把新的觀察（日期、做了什麼、看到什麼）補進該列。
 - 「做法」欄寫的是 `fetch` 會怎麼處理（結束碼）與交給人之後使用者要做什麼，不是可以另外照做的取檔步驟。
-- **PDF 放在另一個主機**（儲存或 CDN 主機：ScienceDirect 的 `pdf.sciencedirectassets.com`、OUP 的 `watermark.silverchair.com` 之類）是正常結果，不是「網站懷疑自動化」：新主機顯示 PDF → 結束碼 7 `pdf-shown`（先判 PDF，不看分頁標題——PDF 分頁的標題常是文章標題）；那裡是 HTML 頁 → 等它載完，沒有命中封閉清單 → 結束碼 7 `left-site`；是登入／驗證／封鎖頁 → 結束碼 6（使用者 2026-10-02）。每站上限仍以**文章頁的主機**計。
+- **PDF 放在另一個主機**（儲存或 CDN 主機：ScienceDirect 的 `pdf.sciencedirectassets.com`、OUP 的 `watermark.silverchair.com` 之類）是正常結果，不是「網站懷疑自動化」：新主機顯示 PDF → 結束碼 7 `pdf-shown`（先判 PDF，不看分頁標題——PDF 分頁的標題常是文章標題）；那裡是 HTML 頁 → 等它載完，沒有命中封閉清單 → 結束碼 7 `left-site`；分頁讀不到（Safari 的 PDF 檢視器可能不跑頁面 JS）→ 結束碼 7 `unverifiable`，不看標題與網址的字樣（#613 R3）；是登入／驗證／封鎖頁 → 結束碼 6（使用者 2026-10-02）。每站上限仍以**文章頁的主機**計。
 
 ## 規則表
 

@@ -30,6 +30,17 @@ struct URLSplit {
         path = PyText.string(s)
     }
 
-    /// `scheme://netloc`（呼叫端用它判斷「分頁還在同一個站嗎」）。
+    /// `scheme://netloc`（Python `urlsplit` 的對照；netloc 含主機前的帳密）。
     var origin: String { "\(PyText.string(scheme))://\(PyText.string(netloc))" }
+
+    /// netloc 去掉主機前的帳密（`user:pw@`，與 Python 的 `rpartition('@')` 同樣切最後一個 `@`）：主機加埠號。
+    var hostPort: String {
+        let n = PyText.string(netloc)
+        guard let at = n.lastIndex(of: "@") else { return n }
+        return String(n[n.index(after: at)...])
+    }
+
+    /// `scheme://主機[:埠號]`，不帶帳密（#613 R3，b31 W4 第 6、15、16 則）：`fulltext fetch` 比「分頁還在同一個站嗎」、印進訊息、
+    /// 當每日帳本的站名，都用這一個——先前用 `origin`，轉址網址帶的帳密照樣出現在 stderr、stdout 的 `attempt:` 一行與帳本裡。
+    var siteOrigin: String { "\(PyText.string(scheme))://\(hostPort)" }
 }

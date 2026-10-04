@@ -231,19 +231,25 @@ final class SkillToolsCLITests: XCTestCase {
         throw XCTSkip("找不到 repo root")
     }
 
-    /// 把 SKILL.md 第 0 步的 bash 區塊原樣拿出來，在一個只放了指定 `akashic` 的 PATH 上跑；回（結束碼，stdout＋stderr）。
-    private func runStepZeroProbe(akashic: URL) throws -> (status: Int32, output: String) {
+    /// SKILL.md 第 0 步的 bash 區塊原文。
+    private func stepZeroBlock() throws -> String {
         let skill = try String(contentsOf: repoRoot().appendingPathComponent("plugin/skills/akashic-fetch-fulltext/SKILL.md"), encoding: .utf8)
         guard let step = skill.range(of: "0. **確認 `akashic` CLI"),
               let fence = skill.range(of: "```bash\n", range: step.upperBound..<skill.endIndex),
               let close = skill.range(of: "```", range: fence.upperBound..<skill.endIndex) else {
-            XCTFail("SKILL 第 0 步找不到 bash 區塊"); return (-1, "")
+            XCTFail("SKILL 第 0 步找不到 bash 區塊"); return ""
         }
+        return String(skill[fence.upperBound..<close.lowerBound])
+    }
+
+    /// 把一段第 0 步的 bash（預設是 SKILL.md 現在的原文）在一個只放了指定 `akashic` 的 PATH 上跑；回（結束碼，stdout＋stderr）。
+    private func runStepZeroProbe(akashic: URL, block given: String? = nil) throws -> (status: Int32, output: String) {
+        let raw = try given ?? stepZeroBlock()
         let work = base.appendingPathComponent("probe-\(UUID().uuidString)")
         let bin = work.appendingPathComponent("bin")
         try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
         try FileManager.default.createSymbolicLink(at: bin.appendingPathComponent("akashic"), withDestinationURL: akashic)
-        let block = skill[fence.upperBound..<close.lowerBound].split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: "\n")
+        let block = raw.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: "\n")
         let script = block.replacingOccurrences(of: "<暫存目錄>", with: work.path) + "\necho PROBE-PASSED\n"
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/bash")
@@ -278,6 +284,66 @@ final class SkillToolsCLITests: XCTestCase {
 
         let missing = try runStepZeroProbe(akashic: base.appendingPathComponent("no-such-akashic"))
         XCTAssertNotEqual(missing.status, 0, "沒裝 CLI 也擋：\(missing.output)")
+    }
+
+    /// R2（e5182cf1）第 0 步的原文：只問 `take` 在不在、空的 `--title` 是不是 64。R1 起的 CLI 兩條都過，所以它分不出還沒套用 R2、R3 的 CLI
+    /// （b31 W4 第 1 則）。留在這裡當對照：同一個舊 CLI 對它通過、對現在的第 0 步不通過。
+    private static let r2StepZero = """
+    W="<暫存目錄>"
+    rc=0; akashic fulltext take --from "$W/does-not-exist.pdf" --out "$W/probe.pdf" --title probe 2>"$W/probe.err" || rc=$?
+    [ "$rc" -eq 1 ] && grep -q -e '--from does not exist' -e 'refusing:' "$W/probe.err" \\
+      || { echo "akashic CLI 比 #613 舊（或沒裝）" >&2; exit 1; }
+    rc=0; akashic fulltext take --from "$W/does-not-exist.pdf" --out "$W/probe.pdf" --title "" 2>"$W/probe2.err" || rc=$?
+    [ "$rc" -eq 64 ] \\
+      || { echo "akashic CLI 比 #613 修正輪舊" >&2; exit 1; }
+    """
+
+    /// 一個行為與 R1／R2 的 CLI 相同的假 `akashic`：`take` 對空的 `--title` 回 64、對不存在的 `--from` 回 1；不認得 `contract`（ArgumentParser
+    /// 對未知的子命令回 64）。
+    private func writeR2LikeCLI() throws -> URL {
+        let cli = base.appendingPathComponent("r2-akashic")
+        let script = """
+        #!/bin/sh
+        if [ "$1" = fulltext ] && [ "$2" = take ]; then
+          prev=""; title="unset"
+          for a; do if [ "$prev" = "--title" ]; then title=$a; fi; prev=$a; done
+          if [ -z "$title" ]; then echo "Error: --title 不得是空的" >&2; exit 64; fi
+          echo "✗ --from does not exist: x" >&2; exit 1
+        fi
+        echo "Error: Unexpected argument '$2'" >&2
+        exit 64
+        """
+        try script.write(to: cli, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: cli.path)
+        return cli
+    }
+
+    /// 第 0 步要分得出 R3 以前的 CLI（b31 W4 第 1 則）：R2 的探測對 R1／R2 的 CLI 照樣通過，而 SKILL 依賴的是這一輪的契約（別的主機上讀不到的
+    /// 分頁交給人、落地頁登入長相先判、分類用同一份快照）。現在的第 0 步問 `fulltext contract` 印的版本——唯讀、不碰瀏覽器、不連網。
+    func testTheStepZeroProbeTellsAnR2CLIFromThisOne() throws {
+        let r2 = try writeR2LikeCLI()
+        let underOldProbe = try runStepZeroProbe(akashic: r2, block: Self.r2StepZero)
+        XCTAssertEqual(underOldProbe.status, 0, "對照：舊的探測分不出它——\(underOldProbe.output)")
+        XCTAssertTrue(underOldProbe.output.contains("PROBE-PASSED"), underOldProbe.output)
+
+        let underNewProbe = try runStepZeroProbe(akashic: r2)
+        XCTAssertNotEqual(underNewProbe.status, 0, underNewProbe.output)
+        XCTAssertFalse(underNewProbe.output.contains("PROBE-PASSED"), underNewProbe.output)
+        XCTAssertTrue(underNewProbe.output.contains("先更新 CLI"), underNewProbe.output)
+    }
+
+    /// SKILL 第 0 步要求的版本就是這個 binary 印的版本：版本號往上調時 SKILL 要一起調（要求高於 binary，真的 CLI 也過不了第 0 步；
+    /// 要求低於 binary，舊的 CLI 會被放過）。
+    func testTheContractVersionTheSkillRequiresIsTheOneThisCLIPrints() throws {
+        let block = try stepZeroBlock()
+        let required = block.range(of: #"-ge [0-9]+"#, options: .regularExpression).map { Int(block[$0].dropFirst(4))! }
+        let r = try runSplit(["fulltext", "contract"])
+        XCTAssertEqual(r.status, 0, r.err)
+        XCTAssertTrue(r.out.hasPrefix("fulltext-contract "), r.out)
+        let printed = Int(r.out.dropFirst("fulltext-contract ".count).trimmingCharacters(in: .whitespacesAndNewlines))
+        XCTAssertNotNil(required, block)
+        XCTAssertEqual(required, printed, "SKILL 要 \(String(describing: required))、binary 印 \(r.out)")
+        XCTAssertEqual(r.err, "", "不碰瀏覽器、不連網：沒有任何訊息")
     }
 
     // MARK: 每站上限的跨行程競爭（#613 修正輪）

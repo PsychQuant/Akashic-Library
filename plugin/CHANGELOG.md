@@ -42,6 +42,20 @@
 
 
 
+## #613 R3 修正輪（2026-10-04）— 讀不到的分頁可能是 PDF、落地頁的登入長相先判、分類用同一份快照、第 0 步問契約版本
+
+**仍需要新的 `akashic` CLI**：SKILL 第 0 步改問 `akashic fulltext contract`（印 `fulltext-contract 4`，唯讀、不碰瀏覽器、不連網）；先前 `take` 的兩條探測分不出 R1、R2 的 CLI，它們現在一律被擋。
+
+- **別的主機上讀不到的分頁交給人（7 `unverifiable`）**，不再因標題或網址的字樣整批暫停：Safari 的 PDF 檢視器可能不跑頁面 JS，而 PDF 分頁的標題常是 `Verification of …`、`A Survey of CAPTCHA Design` 這種文章標題。例外是網址在已知驗證服務上，或標題與網址帶著驗證服務自己的標記（封閉的六個標籤）。訊息說讀不到、什麼都沒檢查過。
+- **讀不到要在同一個網址上連三次、而那裡從沒讀到過一般網頁**：先前是累積計數，沒載完的頁面夾著三次零星的失敗就被交給人、批次繼續；現在讀到過「還在載入」的網址等不到是整批暫停（卡住）。
+- **DOI 落地頁的登入長相先於頁面文字判**：登入頁的文字寫著 CAPTCHA 時，先前得 8（可接著走），現在是整批暫停；文章站自己的 `/captcha/` 頁仍是等人驗證。導航之前的接續（`--resume-stage article`）同一道閘，登入頁不送任何 JS。
+- **別的主機上的判斷用同一份快照**：讀頁面文字的當中分頁換了頁，那一份不用、回去等，不再拿舊網址與舊標題配新文字。
+- 等頁面落定的上限以時鐘約 60 秒計（先前是 30 次輪詢，真的 Safari 上會到一百多秒）。
+- 訊息、`attempt:` 一行與每日帳本的站名不帶主機前的帳密；印出的網址另去掉 `;名=值` 的路徑參數（`;sid=…`、`;PHPSESSID=…`）與 ASP.NET 的 `(S(…))` 段，SICI 式 DOI 的 `;2-0` 不動。`pdf-shown` 的訊息說依據是頁面讀得到的 `document.contentType`，請使用者存之前先看一眼。
+- SKILL〈中止條款〉的封閉清單（登入／驗證字詞、標題片語、網頁副檔名、已知驗證服務）改成與程式逐字相同，並有測試把兩邊綁在一起；`--resume-stage followed` 的 PDF 例外不看主機、讀不到 `document.contentType` 時拒絕，SKILL 照實寫。
+
+plugin 版號沒有動（skill 文字的改動；行為在 CLI）。
+
 ## #611、#692、#693、#708 — R3 修正（2026-10-02）
 
 - **同一個 id 被另一組候選占著的拒絕看得到出路**（#611，`akashic_record_divergence`、`record-divergence`、匯入的提名）：訊息逐行、出路在第二行（`akashic divergences` 看它、CLI `resolve-divergence` 合併、`dismiss-divergence`／MCP `akashic_dismiss_divergence` 放棄它）；R2 的單行訊息在兩面的錯誤出口都被截在出路之前。`import_zotero` 的 `failed` 列原因接成一行，截 512 之後出路仍完整。MCP 描述的出路改成 `akashic_dismiss_divergence` 或合併。

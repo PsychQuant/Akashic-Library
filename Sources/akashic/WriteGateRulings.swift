@@ -131,6 +131,7 @@ extension DestructiveTargetGate {
         "fulltext fetch": .readOnly("在使用者的 Safari 裡導航到頁面自己的 PDF 連結、交給人；不取位元組、不寫輸出檔，只在 store 之外的每日嘗試帳本（--ledger）記一筆，不經 openStore（#629、#613）"),
         "fulltext take": .readOnly("收人存下來的本機 PDF：驗證、git 閘、只寫 --out 指定的檔（在 git 工作樹之外），不經 openStore、不寫 store；存進 store 是之後的 store-source（#613）"),
         "fulltext calibrate": .readOnly("開發用：在本機 PDF 資料夾與 Crossref 回應目錄上量驗證規則，只讀（#629）"),
+        "fulltext contract": .readOnly("印一個契約版本常數，不讀不寫任何檔、不碰瀏覽器（#613）"),
         "crossref-match": .readOnly("比對本機的作品清單與 Crossref 回應檔，只寫 --out 指定的結果檔，不經 openStore、不寫 store（#629）"),
         "abstracts-to-proposals": .readOnly("adapter：把摘要 NDJSON 轉成 enrich 的提案 JSON，只讀 sources/ 的存檔、只寫 --out 指定的檔，不寫 store（#629）"),
         "s2 author-papers": .readOnly("查 Semantic Scholar，不開 store（#664）"),

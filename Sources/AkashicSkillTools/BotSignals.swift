@@ -127,6 +127,28 @@ public enum BotSignals {
         classify(text, status: status)?.label
     }
 
+    // MARK: 驗證服務自己的標記（讀不到的分頁只看這些）
+
+    /// 驗證或封鎖**服務**自己的標記——**封閉列舉，只有這六個標籤**（#613 R3，b31 W4 第 3、4 則）。不得依「看起來也是服務的字樣」類推第七個。
+    ///
+    /// 用在讀不到頁面的分頁上（Safari 的 PDF 檢視器可能不跑頁面 JS）：那裡只剩標題與網址，而 PDF 分頁的標題常常就是文章標題。一般字詞
+    /// （`captcha`、`verify you are human`、`unusual traffic`、`access denied`、`rate limit`）在文章標題裡是常見的研究主題，所以不在這份清單；
+    /// 這六個標籤的樣式寫的是廠商或服務自己的頁面用語與網址（`Just a moment...`、`captcha-delivery.com`、`cra_js_challenge`…）。
+    /// `pmc-pow-challenge` 刻意不收：它的樣式含 `proof of work`、`checking your browser` 這類一般字詞，而 PMC 的驗證頁在文章站本身，
+    /// 是讀得到的 HTML 頁。
+    static let serviceMarkerLabels: Set<String> = ["akamai-block", "perimeterx-press-and-hold", "perimeterx-block", "datadome-block",
+                                                   "cloudflare-challenge", "sciencedirect-download-challenge"]
+
+    /// 文字裡驗證服務自己的標記（`serviceMarkerLabels`）；沒有則 nil。整批暫停的標籤優先，與 `classify` 同一個方向。
+    public static func serviceMarker(_ text: String) -> Hit? {
+        let text = foldDotlessAndDottedI(text)
+        let range = NSRange(text.startIndex..., in: text)
+        let matched = compiled.filter { serviceMarkerLabels.contains($0.label) && $0.regex.firstMatch(in: text, options: [], range: range) != nil }.map(\.label)
+        if let label = matched.first(where: { !humanVerificationLabels.contains($0) }) { return Hit(label: label, response: .pauseBatch) }
+        if let label = matched.first { return Hit(label: label, response: .humanVerification) }
+        return nil
+    }
+
     // MARK: 登入／驗證頁的長相（分頁離開文章站之後，沒有任何訊號標籤時的第二道檢查）
 
     /// 網址的主機與路徑（不看查詢字串與片段：簽章網址的查詢是一長串隨機字元）出現下列任何一個字詞，或標題帶下列片語，就是「登入頁」／

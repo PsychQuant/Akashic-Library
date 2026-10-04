@@ -194,34 +194,45 @@ final class VenueResolverSuppressedTests: XCTestCase {
 
     /// 效能修正的一半住在呼叫端的一個引數上：apply／reject 腿傳 `reportingSuppressed: false`。翻回 `true` 不會讓任何輸出改變
     /// （那兩條腿不讀 `suppressed`），只有 CPU 與記憶體退步，所以行為測試抓不到。源碼掃描釘住 `Sources/` 裡每個
-    /// `VenueResolver.resolve(` 都**顯式**傳這個引數，而且值恰是這兩個：apply＋reject 組合腿的前置列表傳 `false`；
-    /// 主路徑傳「apply 與 reject 都空」（只有列表腿是真）。新增呼叫點時這裡會紅——那時決定它是不是列表腿，再改這張清單。
+    /// `VenueResolver.resolve(` 都**顯式**傳這個引數，而且**哪個呼叫點傳哪個值**：apply＋reject 組合腿的前置列表（`let listing =`）傳 `false`；
+    /// 主路徑（`let report =`）傳「apply 與 reject 都空」（只有列表腿是真）。新增呼叫點時這裡會紅——那時決定它是不是列表腿，再改這張表。
+    ///
+    /// R3（#712 R3 verify：b31 W6 第 1 列）：R2 只收引數的文字、最後比排序過的值集合，兩個呼叫點的引數對調仍綠——值的多重集合不變。
+    /// 對調的後果是主路徑不再為列表組 `suppressed`；那一半的行為由 `VenueSuppressedByNormalizationTests` 的
+    /// `testListingWithEmptyApplyAndRejectArraysStillReportsSuppressed` 釘住。呼叫點的身分是（檔名, `let` 綁定的名字）：改名或抽成區域變數
+    /// 也會紅（fail-closed），那時改這張表。
     func testWriteLegsPassReportingSuppressedFalse() throws {
         let repo = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let sources = repo.appendingPathComponent("Sources")
-        var values: [String] = []
+        var sites: [String] = []
         let files = FileManager.default.enumerator(at: sources, includingPropertiesForKeys: nil)
         while let url = files?.nextObject() as? URL {
             guard url.pathExtension == "swift", url.lastPathComponent != "VenueResolver.swift" else { continue }
             let text = try String(contentsOf: url, encoding: .utf8)
             var rest = Substring(text)
             while let r = rest.range(of: "VenueResolver.resolve(") {
+                // 呼叫點的身分：同一行在呼叫之前的 `let <名字> =`；不是這個形狀的記成「未命名」，與任何期望都對不上
+                let lineStart = rest[..<r.lowerBound].lastIndex(of: "\n").map { rest.index(after: $0) } ?? rest.startIndex
+                let prefix = rest[lineStart..<r.lowerBound].trimmingCharacters(in: .whitespaces)
+                let binding = prefix.hasPrefix("let ") && prefix.hasSuffix("=")
+                    ? prefix.dropFirst(4).dropLast().trimmingCharacters(in: .whitespaces) : "（未命名：\(prefix)）"
                 var depth = 1, i = r.upperBound
                 while i < rest.endIndex, depth > 0 {
                     if rest[i] == "(" { depth += 1 } else if rest[i] == ")" { depth -= 1 }
                     i = rest.index(after: i)
                 }
                 let args = rest[r.upperBound..<rest.index(before: i)]
-                if let label = args.range(of: "reportingSuppressed:") {
-                    values.append(args[label.upperBound...].split(whereSeparator: \.isWhitespace).joined(separator: " "))
-                } else {
-                    values.append("（沒有顯式傳 reportingSuppressed：\(url.lastPathComponent)）")
-                }
+                let value = args.range(of: "reportingSuppressed:").map {
+                    args[$0.upperBound...].split(whereSeparator: \.isWhitespace).joined(separator: " ")
+                } ?? "（沒有顯式傳 reportingSuppressed）"
+                sites.append("\(url.lastPathComponent)：\(binding) → \(value)")
                 rest = rest[i...]
             }
         }
-        XCTAssertEqual(values.sorted(), ["(apply ?? []).isEmpty && (reject ?? []).isEmpty", "false"].sorted(),
-                       "apply＋reject 組合腿傳 false、主路徑只在列表腿為真")
+        XCTAssertEqual(sites.sorted(), [
+            "AkashicService.swift：listing → false",
+            "AkashicService.swift：report → (apply ?? []).isEmpty && (reject ?? []).isEmpty",
+        ], "apply＋reject 組合腿的前置列表傳 false、主路徑只在列表腿為真——比的是（呼叫點, 值）的配對，不是值的集合")
     }
 }

@@ -66,6 +66,21 @@ final class VenueSuppressedByNormalizationTests: XCTestCase {
         XCTAssertEqual(after["truncated"] as? Bool, false)
     }
 
+    /// #712 R3（b31 W6 第 1 列）：主路徑的 `reportingSuppressed:` 只在「apply 與 reject 都空」時為真——`nil` 與空陣列都算空。
+    /// 這個引數若與 apply＋reject 組合腿的 `false` 對調（或改寫成只認 `nil`），列表腿就不再組 `suppressed`，而唯一看得到的地方是列表的
+    /// 輸出：組合腿兩個都非空，對調前後都是 false。源碼掃描（`VenueResolverSuppressedTests.testWriteLegsPassReportingSuppressedFalse`）
+    /// 釘住哪個呼叫點傳哪個值，這裡釘住它的行為。
+    func testListingWithEmptyApplyAndRejectArraysStillReportsSuppressed() throws {
+        try work("x2025", ["Psychometrika", "PSYCHOMETRIKA"])
+        _ = try service.resolveVenues(apply: nil, reject: ["x2025:0"])
+        for (apply, reject) in [(nil, nil), ([String](), nil), (nil, [String]()), ([String](), [String]())] as [([String]?, [String]?)] {
+            let listing = try json(try service.resolveVenues(apply: apply, reject: reject))
+            XCTAssertEqual(try rows(listing).map { $0["venueIndex"] as? Int }, [1],
+                           "apply=\(String(describing: apply)) reject=\(String(describing: reject))：列表腿要組 suppressed")
+            XCTAssertEqual(listing["suppressedTotal"] as? Int, 1)
+        }
+    }
+
     func testByteExactRejectionIsNotReported() throws {
         try work("x2025", ["Psychometrika"])
         _ = try service.resolveVenues(apply: nil, reject: ["x2025:0"])

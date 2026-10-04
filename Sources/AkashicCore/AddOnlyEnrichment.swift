@@ -585,13 +585,15 @@ public enum AddOnlyEnrichment {
         // 進 store，先前整批拒絕還說「reference 記的是送來的原值」是假的，而 `shasum` 的輸出帶換行、`present()` 原本就會 trim。回顯模式維持 trim 之後
         // 驗（只有空白的值視同沒給）。
         //
-        // 「真的會寫」＝`retrievalKind` 不是 nil（digest、url、取得日期、status 四欄齊備；#695 R4）。R3 用的是「給了 url、取得日期或 media type 之一」，
-        // 比這寬：digest＋url＋status 而沒有取得日期時 reference 不寫（報告說「來源欄位不齊」），帶換行的 digest 卻整批拒絕、說「reference 記的是送來的原值」。
+        // 判準是 `retrievalKind` 不是 nil（digest、url、取得日期、status 四欄齊備；#695 R4）。R3 用的是「給了 url、取得日期或 media type 之一」，
+        // 比這寬：digest＋url＋status 而沒有取得日期時 reference 不寫（報告說「來源欄位不齊」），帶換行的 digest 卻整批拒絕。
+        // **四欄齊備不等於 reference 會寫**（#695 第三次 verify）：這裡逐提案、不看 store，目標欄位已在、記錄找不到或不只一筆、store format 收不下
+        // （`provenanceOmitted`）時 reference 不會寫，帶空白的 digest 仍整批拒絕——冪等重跑一份已套用的提案檔會多一次拒絕。行為不變（訊息只說四欄齊備時會怎樣）。
         let writesReference = p.retrievalKind != nil
         if let d = writesReference ? given(p.sourceDigest) : present(p.sourceDigest), !ProvenanceReference.isValidDigest(d) {
             if writesReference, ProvenanceReference.isValidDigest(d.trimmingCharacters(in: .whitespacesAndNewlines)) {
                 throw InputError.invalidProposal(
-                    index: index, reason: "sourceDigest 前後有空白或換行——reference 記的是送來的原值，拿掉再送")
+                    index: index, reason: "sourceDigest 前後有空白或換行——四個來源欄位齊備時 reference 記原值，拿掉再送")
             }
             // #654：空內容的 digest 形狀合法卻不指認任何存檔（閘是 `isValidDigest` 本身）——分開說，對它說「形狀不對」是假話
             if d == ProvenanceReference.emptyContentDigest {

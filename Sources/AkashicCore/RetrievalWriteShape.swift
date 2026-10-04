@@ -228,9 +228,16 @@ public enum RetrievalWriteShape {
     /// `[:::::]` 都過；zone 不要求 `%25`，`[::1%hunter2]`、`[::1%]`、`[%hunter2]` 也過——十六進位或英數的密碼可以藏在括號裡）。
     ///
     /// - 位址：`inet_pton(AF_INET6)` 解得開（RFC 4291 的文法，含 `::` 縮寫與結尾的 IPv4 點分形），長度至多 `maxIPv6LiteralLength`、只含 ASCII。
-    ///   群數、`::` 的次數、每群的位數都由它判。
+    ///   群數與 `::` 的次數由它判。~~每群的位數都由它判~~（#695 第三次 verify：Darwin 的 `inet_pton` 接受每群多於四位的前導零——`00000dead::1`——
+    ///   與 IPv4 八位元組的前導零，glibc 不收；拒絕集合因此依平台而異，上限只剩 `maxIPv6LiteralLength` 與每群 16 位元的值）。
     /// - zone：沒有，或 `%25` 之後 1 到 `maxZoneIDBytes` 個位元組；每個位元組是 unreserved 字元（`A–Z a–z 0–9 - . _ ~`）或 `%HH`（兩位十六進位）。
     ///   裸的 `%`、`%2`、`%25` 之後是空的、`%` 之後不是 `25`，都不是 zone。
+    ///
+    /// **誠實邊界**（#695 第三次 verify）：這是語法檢查，擋的是**不像位址**的內容（`host:密碼` 少了 @ 時那種），**位址形狀的內容擋不住**——一個合法的
+    /// IPv6 位址本身就是 32 位十六進位，zone 裡 15 個位元組以內的英數字或 `%HH`（`[::1%25hunter2]`）照收，zone 也不限連結本地位址。沒有收窄；
+    /// `RetrievalWriteShapeBoundaryTests` 釘住這幾格現在照收，收窄時那支測試會紅、提醒回來改這段與 docs/store-format.md。
+    ///
+    /// **前置**：呼叫端已拒絕控制字元——`withCString` 在 NUL 截斷，`::1\0…` 會被當成 `::1`。`urlIssue` 在整串的 `hasUnsafeScalar` 之後才呼叫它。
     static func isBracketedIPv6(_ host: ArraySlice<Unicode.Scalar>) -> Bool {
         let literal = host.prefix(while: { $0 != "%" })
         let zone = host.dropFirst(literal.count)

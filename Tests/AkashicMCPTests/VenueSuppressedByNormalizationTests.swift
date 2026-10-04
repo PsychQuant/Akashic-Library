@@ -90,6 +90,22 @@ final class VenueSuppressedByNormalizationTests: XCTestCase {
         XCTAssertEqual(after["suppressedTotal"] as? Int, 0)
     }
 
+    /// #712（使用者 2026-10-05 裁決）：只差 NFC／NFD 的那條邊列在 `suppressed`——「同一個拼法」比位元組，與 `confirmedLiteral`、
+    /// `byteExactKey` 同一把。先前比 Swift `String ==`，這條邊在 `candidates` 與 `suppressed` 兩邊都不出現。
+    func testAnEdgeThatDiffersOnlyInNormalizationFormIsReported() throws {
+        let nfc = "Caf\u{E9} Journal", nfd = "Cafe\u{301} Journal"
+        _ = try service.addVenue(key: "cafe-journal", names: [nfc], type: "periodical", note: nil)
+        try work("x2025", [nfc, nfd])
+        _ = try service.resolveVenues(apply: nil, reject: ["x2025:0"])
+        let after = try json(try service.resolveVenues(apply: nil))
+        XCTAssertEqual((after["candidates"] as? [[String: Any]])?.count, 0, "抑制不變")
+        let row = try XCTUnwrap(try rows(after).first, "\(after)")
+        XCTAssertEqual(after["suppressedTotal"] as? Int, 1)
+        XCTAssertEqual(row["venueIndex"] as? Int, 1)
+        XCTAssertEqual((row["literal"] as? String).map { Array($0.utf8) }, Array(nfd.utf8))
+        XCTAssertEqual((row["rejectedLiterals"] as? [String])?.map { Array($0.utf8) }, [Array(nfc.utf8)])
+    }
+
     func testRejectionOnAnotherWorkDoesNotSuppressOrReport() throws {
         try work("x2025", ["Psychometrika"])
         try work("y2026", ["PSYCHOMETRIKA"])

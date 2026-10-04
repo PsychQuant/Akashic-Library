@@ -5,7 +5,8 @@ import XCTest
 /// #712：`VenueResolver.resolve` 的 `suppressed`——被**正規化配對**的否決壓掉的候選。
 ///
 /// 抑制本身（#554 R12：以 `matchingKey` 為鍵）不是本檔要測的，那一半由既有的測試守；這裡釘的是：
-/// 1. 報出來的集合恰好是「抑制若比逐字（R12 之前）本來會列在 `candidates`」的那一批——不多不少；
+/// 1. 報出來的集合恰好是「被正規化配對壓住、而沒有任何壓住它的否決與它**位元組**相等」的那一批——不多不少（2026-10-05 裁決起比位元組，
+///    只差 NFC／NFD 的也在其中）；
 /// 2. 報出來**不改變**抑制：`candidates`／`ambiguities` 與不看 `suppressed` 時完全一樣。
 final class VenueResolverSuppressedTests: XCTestCase {
     private let venue = Venue(key: "psychometrika", type: .periodical,
@@ -53,17 +54,65 @@ final class VenueResolverSuppressedTests: XCTestCase {
         XCTAssertEqual(report.suppressed, [], "列表一向不列普通的已否決，維持原樣")
     }
 
-    func testCanonicallyEqualSpellingIsNotANarrowing() {
-        // NFC 與 NFD 是同一個 Swift 字串（canonical equivalence）——R12 之前就壓得住，不是 R12 收窄出來的
-        let nfc = "Caf\u{E9} Journal", nfd = "Cafe\u{301} Journal"
-        XCTAssertEqual(nfc, nfd, "前提：Swift 視為相等")
+    private let nfc = "Caf\u{E9} Journal", nfd = "Cafe\u{301} Journal"
+    private let cafe = Venue(key: "cafe-journal", type: .periodical,
+                             names: Timeline([TemporalValue(value: "Caf\u{E9} Journal")]), authorized: [])
+
+    /// #712（使用者 2026-10-05 裁決）：「同一個拼法」比**位元組**。只差 NFC／NFD 的候選不是被逐字否決的那一條，
+    /// 列在 `suppressed`——先前比 Swift `String ==`（canonical equivalence），它從 `candidates` 與 `suppressed` 兩邊都消失。
+    func testOnlyNFCVersusNFDIsAnotherSpellingAndIsReported() {
+        XCTAssertEqual(nfc, nfd, "前提：Swift 視為相等——用 `String ==` 判就會把它當成逐字被否決")
         XCTAssertNotEqual(Array(nfc.utf8), Array(nfd.utf8), "前提：位元組不同")
-        let cafe = Venue(key: "cafe-journal", type: .periodical,
-                         names: Timeline([TemporalValue(value: "Café Journal")]), authorized: [])
-        let report = VenueResolver.resolve(entries: [entry("x2025", [nfd])], venues: [cafe],
-                                           rejected: [rejection("x2025", nfc, venue: "cafe-journal")])
+        for (candidate, rejected) in [(nfd, nfc), (nfc, nfd)] {
+            let report = VenueResolver.resolve(entries: [entry("x2025", [candidate])], venues: [cafe],
+                                               rejected: [rejection("x2025", rejected, venue: "cafe-journal")])
+            XCTAssertEqual(report.candidates, [], "抑制不變：正規化後同鍵")
+            XCTAssertEqual(report.suppressed.count, 1, "候選 \(Array(candidate.utf8)) 與否決 \(Array(rejected.utf8)) 位元組不同——要報")
+            XCTAssertEqual(report.suppressed.first.map { Array($0.literal.utf8) }, Array(candidate.utf8), "報的是邊上原本的位元組")
+            XCTAssertEqual(report.suppressed.first?.rejectedLiterals.map { Array($0.utf8) }, [Array(rejected.utf8)],
+                           "壓住它的拼法也保持原本的位元組")
+            XCTAssertEqual(report.suppressed.first?.rejectedLiteralsTotal, 1)
+        }
+    }
+
+    /// 被否決的兩個拼法只差 NFC／NFD 時是兩個拼法（依位元組去重）：都列、總數 2，順序固定（字串相等時比位元組）。
+    /// 候選與其中一筆位元組相等時是普通的已否決，不報。
+    func testNFCAndNFDRejectionsAreTwoSpellings() {
+        let report = VenueResolver.resolve(
+            entries: [entry("x2025", ["CAF\u{C9} JOURNAL", nfd])], venues: [cafe],
+            rejected: [rejection("x2025", nfc, venue: "cafe-journal"), rejection("x2025", nfd, venue: "cafe-journal")])
         XCTAssertEqual(report.candidates, [])
-        XCTAssertEqual(report.suppressed, [])
+        XCTAssertEqual(report.suppressed.map(\.venueIndex), [0], "index 1 與一筆否決位元組相等＝普通的已否決")
+        XCTAssertEqual(report.suppressed.first?.rejectedLiteralsTotal, 2, "NFC 與 NFD 是兩個拼法")
+        XCTAssertEqual(report.suppressed.first?.rejectedLiterals.map { Array($0.utf8) }, [Array(nfd.utf8), Array(nfc.utf8)],
+                       "字串相等時依位元組排序（`e` 0x65 在 0xC3 之前）")
+    }
+
+    /// 第二個去重點（#712）：`ResolutionLedger.rejectedPairings(venues:)` 回陣列——放進 `Set<ResolutionPairing>` 的話，只差 NFC／NFD 的兩筆
+    /// 否決收成一筆、留哪一筆看插入順序，候選與被丟掉那一筆位元組相等時會被誤報成「被另一個拼法壓住」。
+    func testLedgerKeepsRejectionsThatDifferOnlyInNormalizationForm() {
+        var v = cafe
+        for literal in [nfc, nfd] {
+            v.references.append(ProvenanceReference(
+                field: "resolution-rejected",
+                value: ProvenanceReference.VerdictPairingValue(holderKind: .work, holder: "x2025", literal: literal).encoded,
+                kind: .judgement(statement: "人工否決", restsOn: [])))
+        }
+        let pairings = ResolutionLedger.rejectedPairings(venues: [v])
+        XCTAssertEqual(pairings.map { Array($0.literal.utf8) }, [Array(nfc.utf8), Array(nfd.utf8)], "兩筆都在、各自的位元組")
+        for literal in [nfc, nfd] {
+            let report = VenueResolver.resolve(entries: [entry("x2025", [literal])], venues: [v], rejected: pairings)
+            XCTAssertEqual(report.suppressed, [], "候選與某一筆否決位元組相等＝普通的已否決（\(Array(literal.utf8))）")
+        }
+    }
+
+    /// apply 也比位元組：候選的 literal 與邊上的位元組不同時不改那條邊。
+    func testApplyRequiresTheEdgeToBeByteEqual() {
+        let e = entry("x2025", [nfd])
+        let c = VenueResolutionCandidate(citekey: "x2025", venueIndex: 0, literal: nfc, venueKey: "cafe-journal", reason: "t")
+        XCTAssertEqual(VenueResolver.apply([c], to: [e]).first?.venues, [.literal(nfd)], "只差 NFC／NFD 不是同一條邊")
+        let same = VenueResolutionCandidate(citekey: "x2025", venueIndex: 0, literal: nfd, venueKey: "cafe-journal", reason: "t")
+        XCTAssertEqual(VenueResolver.apply([same], to: [e]).first?.venues, [.key("cafe-journal")])
     }
 
     func testRejectionIsPerWorkPerVenue() {

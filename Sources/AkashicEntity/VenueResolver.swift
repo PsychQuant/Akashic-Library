@@ -60,9 +60,10 @@ public struct VenueAmbiguousMatch: Equatable {
 /// 這裡報的正是那一類，所以不是「同 people 的 rejected 段」，是它沒涵蓋的那一半。
 ///
 /// **進這個清單的判準只有一條**：它被某筆 rejected verdict 以 `matchingKey` 壓住，而**沒有任何**壓住它的 rejected
-/// verdict 的 literal 與它自己的 literal 相等（Swift `String ==`，即 canonical equivalence）。換句話說：若抑制仍比
-/// 逐字配對（R12 之前的行為），這個候選本來會列在 `candidates`——R12 隱藏的正是這一批。逐字相等的是普通的已否決
-/// （列表從來不列它，維持原樣）；只差 NFC／NFD 的兩個拼法是同一個字串，R12 之前就壓得住，也不在這裡。
+/// verdict 的 literal 與它自己的 literal **位元組相等**。位元組相等的是普通的已否決（列表從來不列它，維持原樣）；
+/// 只差 NFC／NFD 的兩個拼法位元組不同，**列在這裡**（使用者 2026-10-05 裁決，#712：「同一個拼法」與 store 既有的
+/// 位元組判準——`confirmedLiteral`、`byteExactKey`——一致。先前比 Swift `String ==`（canonical equivalence），那條邊
+/// 從 `candidates` 與這裡兩邊都消失）。
 ///
 /// 只收 `keys.count == 1` 的候選：抑制只作用於不歧義的提名，歧義（對到 2+ venue）一向不被抑制、照列在 `ambiguities`。
 /// **刻意不帶 `id`**：它不是可 apply 的候選（`candidates` 裡沒有這個 id，apply 會 notFound），給 id 會讓消費端以為可以送回去。
@@ -72,13 +73,14 @@ public struct VenueSuppressedCandidate: Equatable {
     /// 被壓住的候選自己的 literal（work 上的那條邊）。
     public var literal: String
     public var venueKey: String
-    /// 壓住它的 rejected verdict 的 literal：同 work、同 venue、`matchingKey` 相同而與 `literal` 不同的那些拼法，
-    /// 去重（canonical）後依字串排序的**前 `VenueResolver.suppressedLiteralsPerRow` 個**，至少一個。使用者否決的是這些拼法。
+    /// 壓住它的 rejected verdict 的 literal：同 work、同 venue、`matchingKey` 相同而與 `literal` 位元組不同的那些拼法，
+    /// 依位元組去重後依字串排序（字串相等時依位元組）的**前 `VenueResolver.suppressedLiteralsPerRow` 個**，至少一個。
+    /// 使用者否決的是這些拼法。只差 NFC／NFD 的兩筆是兩個拼法、各列一次（#712，2026-10-05 裁決）。
     ///
     /// **在 resolver 裡就截**（#712 R1 verify 第 0／1 列）：第一版存全部 K 個、到 `suppressedPayload` 才截 5——N 列共用同一組
     /// K 個拼法時，記憶體是 N×K、每列還各排序一次，對未信任的 store 內容是二次方（實測 N=K=4000 時 16.9 秒、306 MB）。
     public var rejectedLiterals: [String]
-    /// 壓住它的 rejected literal 總數（去重後）。`rejectedLiterals.count < rejectedLiteralsTotal` 即被截。
+    /// 壓住它的 rejected literal 總數（依位元組去重後）。`rejectedLiterals.count < rejectedLiteralsTotal` 即被截。
     public var rejectedLiteralsTotal: Int
 
     public init(citekey: String, venueIndex: Int, literal: String, venueKey: String,
@@ -117,11 +119,18 @@ public enum VenueResolver {
     public static let suppressedLiteralsPerRow = 5
 
     /// 同一個否決鍵的全部被否決拼法，建表時算一次、各列共用（#712 R1）。
-    /// `spellings` 給「候選自己是不是其中之一」的 O(1) 判斷（`Set<String>` 的相等是 canonical equivalence，與 `String ==` 同一把）；
-    /// `shown` 是依字串排序的前 `suppressedLiteralsPerRow` 個，只在第一次有列需要它時才排（列表腿以外不排）。
+    /// `spellings` 以 UTF-8 位元組為鍵（值是原字串），給「候選自己是不是其中之一」的 O(1) 判斷——**相等比位元組**
+    /// （#712，使用者 2026-10-05 裁決）。`Set<String>` 的相等是 canonical equivalence：只差 NFC／NFD 的候選會被當成
+    /// 「逐字被否決」而從 `candidates` 與 `suppressed` 兩邊都消失。
+    /// `shown` 是排序後的前 `suppressedLiteralsPerRow` 個，只在第一次有列需要它時才排（列表腿以外不排）。
     private struct RejectedSpellings {
-        var spellings: Set<String> = []
+        var spellings: [[UInt8]: String] = [:]
         var shown: [String]? = nil
+    }
+
+    /// 被否決拼法的排序：先比字串，字串相等（canonical equivalence）時比位元組——只差 NFC／NFD 的兩筆順序固定。
+    static func spellingOrder(_ a: (key: [UInt8], value: String), _ b: (key: [UInt8], value: String)) -> Bool {
+        a.value != b.value ? a.value < b.value : a.key.lexicographicallyPrecedes(b.key)
     }
 
     /// 單一 traversal（不為歧義另寫遍歷——#140 的分岔血案同適用）。
@@ -135,9 +144,13 @@ public enum VenueResolver {
     /// 排序都不做（R1 verify 第 0 列）。預設 `true`——新的列表面忘了傳時多做一點工，而不是安靜地少一段。
     /// **成本是線性的**：每個否決鍵的拼法集合建一次（O(R)，R＝rejected verdict 數），每條邊一次 O(1) 查找，每列至多帶
     /// `suppressedLiteralsPerRow` 個拼法；排序每個鍵至多一次（O(K log K)，各鍵加總 O(R log R)）。
-    public static func resolve(entries: [Entry], venues: [Venue],
-                               rejected: Set<ResolutionPairing>,
-                               reportingSuppressed: Bool = true) -> VenueResolutionReport {
+    ///
+    /// `rejected` 收任何序列、**不要先放進 `Set`**（#712，2026-10-05 裁決）：`ResolutionPairing` 的相等是 canonical equivalence，
+    /// `Set` 會把只差 NFC／NFD 的兩筆否決收成一筆，這裡就看不到另一筆的位元組。`ResolutionLedger.rejectedPairings(venues:)` 回陣列。
+    public static func resolve<Rejected: Sequence>(entries: [Entry], venues: [Venue],
+                                                   rejected: Rejected,
+                                                   reportingSuppressed: Bool = true) -> VenueResolutionReport
+        where Rejected.Element == ResolutionPairing {
         var aliasMap: [String: Set<String>] = [:]
         for venue in venues {
             // 全部名字（時間軸各段——沿革中的舊刊名照樣配對；舊文章掛舊刊名是常態）。
@@ -160,7 +173,7 @@ public enum VenueResolver {
         var rejectedNorm: [RejectedPairKey: RejectedSpellings] = [:]
         for pairing in rejected where pairing.holderKind == .work {
             rejectedNorm[RejectedPairKey(holder: pairing.holder, literal: normalize(pairing.literal), judged: pairing.judgedKey), default: .init()]
-                .spellings.insert(pairing.literal)
+                .spellings[Array(pairing.literal.utf8)] = pairing.literal
         }
         var candidates: [VenueResolutionCandidate] = []
         var ambiguities: [VenueAmbiguousMatch] = []
@@ -174,13 +187,14 @@ public enum VenueResolver {
                 if keys.count == 1, let key = keys.first {
                     let rejectedKey = RejectedPairKey(holder: entry.citekey, literal: normalized, judged: key)
                     if let rejectedHere = rejectedNorm[rejectedKey] {
-                        // 逐字相等的壓住者＝普通的已否決（列表一向不列，維持原樣）；否則是被正規化配對壓掉的——報出來（#712），抑制不變
-                        if reportingSuppressed, !rejectedHere.spellings.contains(literal) {
+                        // 位元組相等的壓住者＝普通的已否決（列表一向不列，維持原樣）；否則是被正規化配對壓掉的——報出來（#712），抑制不變。
+                        // 比位元組不比 `String ==`（2026-10-05 裁決）：只差 NFC／NFD 的候選先前兩邊都不出現
+                        if reportingSuppressed, rejectedHere.spellings[Array(literal.utf8)] == nil {
                             let shown: [String]
                             if let cached = rejectedHere.shown {
                                 shown = cached
                             } else {
-                                shown = Array(rejectedHere.spellings.sorted().prefix(suppressedLiteralsPerRow))
+                                shown = rejectedHere.spellings.sorted(by: spellingOrder).prefix(suppressedLiteralsPerRow).map(\.value)
                                 rejectedNorm[rejectedKey]?.shown = shown
                             }
                             suppressed.append(VenueSuppressedCandidate(
@@ -217,10 +231,12 @@ public enum VenueResolver {
         for (i, e) in entries.enumerated() where !unlocatable.contains(e.citekey) { indexByCitekey[e.citekey] = i }
         var out = entries
         for candidate in candidates {
+            // 邊上的 literal 要與候選**位元組**相等才改（#712，2026-10-05 裁決：resolve-venues 的「同一個拼法」比位元組）——
+            // `==` 是 canonical equivalence，只差 NFC／NFD 的另一條邊會被當成這一條
             guard let i = indexByCitekey[candidate.citekey],
                   out[i].venues.indices.contains(candidate.venueIndex),
                   case .literal(let current) = out[i].venues[candidate.venueIndex],
-                  current == candidate.literal else { continue }
+                  Array(current.utf8) == Array(candidate.literal.utf8) else { continue }
             out[i].venues[candidate.venueIndex] = .key(candidate.venueKey)
         }
         return out

@@ -11,7 +11,8 @@
 // `LC_ALL=C grep -a -q '<片段>' <BIN> && <BIN> <參數> 2>&1 | grep -c '<樣式>'`，`<BIN>` 兩處逐字相同；同一個單位裡提到 binary 又有計數
 // 而不合這個模板，就是錯誤。R1 是一個 shell 剖析器，每一輪 verify 都在它對 shell 的理解裡找到新的旁路。R3（#711 R3 verify）：模板封閉，
 // 「哪些文字是一個單位」原本不是——拆在兩行、寫在 fence 與 inline code 以外、計數寫法沒被認出的量測不成單位；R3 補寬辨識，另加一個不靠
-// 辨識的條數地板（棘輪標記）。細節見 `selfProofIssues`、`selfProofRatchetIssues` 與 `selfProofNeedleIssues`。
+// 辨識的條數地板（棘輪標記）。R4（#711 R4 verify）：R3 仍在列舉寫法，R4 反過來——認不出時偏向「是量測」與「同一個單位」，模板加上
+// 前置條件（`: "${V:?…}" && test -f …`），退場標記拿掉。細節見 `selfProofIssues`、`selfProofRatchetIssues` 與 `selfProofNeedleIssues`。
 //
 // **誠實邊界（三條，與 Python 版同）**：
 //
@@ -195,16 +196,16 @@ func zeroInstanceRowsAudit() -> Int32 {
                      + "抽取式與檔的寫法脫節了，自證閘的檢查等於沒跑")
     }
     fails += proof.issues
-    // #711 R1–R3：閘的片段五條——不含正規式字元、不以 `-` 開頭、不太短、release 版找得到、不是負控自己種進 `akashic-guards` 的
+    // 閘的片段的條件見 `selfProofNeedleIssues`（條數不寫在這裡——寫死的計數會與那份清單分岔，#711 R4 verify 第 18、34 列）
     fails += selfProofNeedleIssues(gates: proof.gates)
-    // #711 R3：條數的地板與退場區塊的個數不靠辨識（`selfProofRatchetIssues`）
-    let ratchet = selfProofRatchetIssues(rule: rule, gates: proof.gates.count, retiredBlocks: proof.retiredBlocks)
+    // #711 R3：條數的地板不靠辨識；R4 起依閘去重（`selfProofRatchetIssues`）
+    let ratchet = selfProofRatchetIssues(rule: rule, gates: proof.gates)
     fails += ratchet.issues
 
-    // 標題列印出條數、棘輪下限與退場區塊（R3 verify 第 7、20 列：條數掉了、多藏了一個區塊，審閱的人在輸出裡要看得到）
+    // 標題列印出條數與棘輪下限（R3 verify 第 7 列：條數掉了，審閱的人在輸出裡要看得到）
     var out = "══ zero-instance 裁決表：\(rows.count) 列；量測指令 \(proof.checked) 條數 binary 輸出"
-        + "（合模板 \(proof.gates.count) 條，棘輪下限 \(ratchet.floor.map(String.init) ?? "—")）；"
-        + "已退場區塊 \(proof.retiredBlocks) 個、共 \(proof.retiredLines) 行不掃 ══\n"
+        + "（合模板 \(proof.gates.count) 條、依閘去重 \(selfProofDistinctGates(proof.gates)) 條，"
+        + "棘輪下限 \(ratchet.floor.map(String.init) ?? "—")） ══\n"
     for f in fails { out += "  ✗ \(f)\n" }
     out += "\n══ " + (fails.isEmpty ? "每一列裁決「寫」的都找得到實作"
                                     : "**\(fails.count) 列有問題**") + " ══\n"
@@ -213,72 +214,150 @@ func zeroInstanceRowsAudit() -> Int32 {
 }
 
 
-// MARK: - 量測指令的自證閘（#711；R2 起只收一種寫法，R3 起「哪些文字是一個單位」也封閉）
+// MARK: - 量測指令的自證閘（#711；R2 起只收一種寫法；R4 起辨識偏向「是量測」、單位偏向合併）
 
-/// **一條對 binary 輸出計數的量測只有一種合法寫法**（#711 R2）：
+/// **一條對 binary 輸出計數的量測只有一種合法寫法**（#711 R2；R4 加前置條件）：
 ///
-///     LC_ALL=C grep -a -q '<片段>' <BIN> && <BIN> <參數> 2>&1 | grep -c '<樣式>'
+///     [: "${V:?訊息}" && [test -f "$V/store.yaml" && ]]LC_ALL=C grep -a -q '<片段>' <BIN> && <BIN> <參數> 2>&1 | grep -c '<樣式>'
 ///
 /// - `<BIN>` 兩處**逐字相同**，而且是路徑（`.build/debug/akashic`、`~/bin/akashic`）或 `"$(command -v akashic)"`
 ///   （`akashic-guards` 同）。裸名不收：`grep -a -q '…' akashic` 讀的是工作目錄裡叫 `akashic` 的檔，不是那支 binary。
 /// - `<參數>` 以子命令或選項開頭，不含 `|`、`&`、`;`、`#`、單引號、反引號、反斜線、括號、`<`、`>`，雙引號成對——所以沒有第二條
-///   管線、`$( … )`、子 shell、here-doc、別的重導向（`2>&1` 是模板自己的），也沒有讓 `2>&1 | grep -c` 落進註解或引號裡的寫法
-///   （R3：`#` 與單引號是 #711 R3 verify 之後加的，見 `selfProofIssues`）。
+///   管線、`$( … )`、子 shell、here-doc、別的重導向（`2>&1` 是模板自己的），也沒有讓 `2>&1 | grep -c` 落進註解或引號裡的寫法。
+/// - **前置條件**（R4，#711 R4 verify 第 1、3、5 列）：`<參數>` 與 `test -f` 的路徑用到的每個變數都要列在最前面的
+///   `: "${V:?…}"`（可以多個，空白隔開）；`<參數>` 有 `--library "$V"` 時另要 `test -f "$V/store.yaml"`。理由：`${V:?…}` 寫在管線裡
+///   只結束那一段的子 shell，錯誤訊息走 stderr、右邊的 `grep -c` 照樣印 `0`——與「檢查過且乾淨」分不開；寫在 `&&` 串的最前面，整條不跑。
+///   V 打錯成一個不是 store 的目錄時 `validate` 報錯、`grep -c` 一樣印 `0`，`doctor` 還會在那裡建出一個 store——`test -f` 擋這一半。
 /// - 整個單位就是這一條指令、**寫在一行**——fence 裡的一行，或不跨行的一段 inline code；行尾至多一段 `#` 註解。
 /// - `<片段>` 與 `<樣式>` 以單引號包、不含單引號；片段另有條件（`selfProofNeedleIssues`）。
 ///
 /// **為什麼收縮而不是擴充剖析器**：R1 的判準是一個 shell 剖析器（閘以 `&&` 接上、查同一支 binary），R1 verify 的每一席都在它對 shell
-/// 的理解裡找到新的旁路——只比檔名、前導或尾端的 `||`、`if`／`for`／`{ }`、`$( … )`、`time`／`env` 前綴（#711 R2 verify 第 0、1、7、
-/// 11–14、16、20、22、23 列）。剖析任意 shell 是一場軍備競賽；模板只有一種寫法，合不合只看逐字。
-///
-/// **R2 說「封閉的模板沒有旁路可找」，那句話只對了一半**（#711 R3 verify：b31 W6 第 0、2–7 列）：模板是封閉的，「哪些文字算一個單位、
-/// 哪些單位算量測」卻不是。binary 與計數落在不同實體行（`\`、行尾 `|`／`&&` 接續、跨行的 inline code）、落在 fence 與 inline code 以外
-/// （縮排區塊、`<pre>`、引用區塊裡的 fence）、或計數的寫法沒被認出（選項加了引號或放在含 `|` 的樣式之後、`uniq -c`、`${X:-akashic}`）時，
-/// 那一條根本不成量測、不被計入，守衛照樣綠。R3 的判讀見 `selfProofIssues`。
-let selfProofTemplate = "LC_ALL=C grep -a -q '<片段>' <BIN> && <BIN> <參數> 2>&1 | grep -c '<樣式>'"
+/// 的理解裡找到新的旁路（#711 R2 verify 第 0、1、7、11–14、16、20、22、23 列）。剖析任意 shell 是一場軍備競賽；模板只有一種寫法，
+/// 合不合只看逐字。模板以外的那一半——「哪些文字是一個單位、哪些單位是量測」——見 `selfProofIssues`。
+let selfProofTemplate = "[: \"${V:?…}\" && [test -f \"$V/store.yaml\" && ]]LC_ALL=C grep -a -q '<片段>' <BIN> && <BIN> <參數> 2>&1 | grep -c '<樣式>'"
 
 /// `<BIN>`：`"$(command -v akashic)"`、`"$(command -v akashic-guards)"`，或結尾是這兩個名字的路徑（至少一個 `/`）。
 private let selfProofBinPattern = #"(?:"\$\(command -v (?:akashic|akashic-guards)\)"|(?:[\w.~-]*/)+(?:akashic|akashic-guards))"#
-/// `<參數>` 的字元：R3 起不含 `#`（`… validate # x 2>&1 | grep -c 'y'` 的計數整段在註解裡）與單引號（引號能跨過 `2>&1 | grep -c`）。
+/// `<參數>` 的字元：不含 `#`（`… validate # x 2>&1 | grep -c 'y'` 的計數整段在註解裡）與單引號（引號能跨過 `2>&1 | grep -c`）。
 private let selfProofArgsPattern = #"[a-z-][^|&;`'#\\()<>\n]*?"#
-/// 模板本身，行尾至多一段 `#` 註解。第 1 組＝片段、第 2 組＝BIN（第二處以 `\2` 要求逐字相同）、第 3 組＝參數、第 4 組＝樣式。
+/// 前置條件裡的一個 `"${V:?訊息}"`。
+private let selfProofGuardWord = #""\$\{[A-Za-z_][A-Za-z0-9_]*:\?[^"}\n]*\}""#
+/// 前置條件：`: "${V:?…}"[ "${W:?…}"…] && ` 加上可有可無的 `test -f "<路徑>" && `。
+private let selfProofPreconditionPattern = #"(?:: (?<guards>"# + selfProofGuardWord + #"(?: "# + selfProofGuardWord
+    + #")*) && (?:test -f "(?<test>[^"\n]*)" && )?)?"#
+/// 模板本身，行尾至多一段 `#` 註解。BIN 的第二處以 `\k<bin>` 要求逐字相同。
 private let selfProofTemplateRe = try! NSRegularExpression(pattern:
-    #"^LC_ALL=C grep -a -q '([^']+)' ("# + selfProofBinPattern + #") && \2 ("# + selfProofArgsPattern
-    + #") 2>&1 \| grep -c '([^']+)'(?:[ \t]+#.*)?$"#)
+    "^" + selfProofPreconditionPattern + #"LC_ALL=C grep -a -q '(?<needle>[^']+)' (?<bin>"# + selfProofBinPattern
+    + #") && \k<bin> (?<args>"# + selfProofArgsPattern + #") 2>&1 \| grep -c '[^']+'(?:[ \t]+#.*)?$"#)
 /// 同上而兩處 BIN 各自獨立——只用來在錯誤訊息裡說出「兩處不是同一個」，判準是上面那一條。
 private let selfProofLooseTemplateRe = try! NSRegularExpression(pattern:
-    #"^LC_ALL=C grep -a -q '[^']+' ("# + selfProofBinPattern + #") && ("# + selfProofBinPattern
-    + #") "# + selfProofArgsPattern + #" 2>&1 \| grep -c '[^']+'(?:[ \t]+#.*)?$"#)
+    "^" + selfProofPreconditionPattern + #"LC_ALL=C grep -a -q '[^']+' (?<gate>"# + selfProofBinPattern + #") && (?<measured>"#
+    + selfProofBinPattern + #") "# + selfProofArgsPattern + #" 2>&1 \| grep -c '[^']+'(?:[ \t]+#.*)?$"#)
+/// 單位開頭的前置條件（只有 `: "${V:?…}" && ` 那一段）——它裡面的 `${V:?…}` 不在管線裡。
+private let selfProofLeadingGuardsRe = try! NSRegularExpression(pattern:
+    #"^: "# + selfProofGuardWord + #"(?: "# + selfProofGuardWord + #")* && "#)
+/// `${V:?…}`、`${V?…}`：沒設就讓 shell 停下的展開——只有不在管線裡時才停得下來。
+private let selfProofRequiredExpansionRe = try! NSRegularExpression(pattern: #"\$\{[A-Za-z_][A-Za-z0-9_]*:?\?"#)
+/// 一根管線：不是 `||` 的一部分的 `|`（`|&` 算）。
+private let selfProofPipeRe = try! NSRegularExpression(pattern: #"(?<!\|)\|(?!\|)"#)
 
-/// 單位裡**提到**這兩支 binary 的任何寫法：裸名、路徑、`$(command -v …)`——`swift run akashic`、`n=$(akashic …)`、`time akashic`、
-/// `{ akashic …; }` 都算；R3 起 `${AKASHIC_BIN:-akashic}`、`${X:=akashic}` 也算（R2 的 lookbehind 排除了 `-`，預設值展開整個看不見——
-/// R3 verify 第 7 列）。`~/.akashic`、`akashic-mcp`、`akashic.sources`、`Sources/akashic/…`、`akashic_doctor`、`che-akashic` 不是
-/// 執行它的寫法，不算。
+/// 單位裡**提到**這兩支 binary 的任何寫法（R4：不分大小寫——macOS 的檔案系統不分，`~/bin/Akashic` 跑得起來，#711 R4 verify 第 20 列）：
+/// 裸名、路徑、`$(command -v …)`、參數展開的預設值——`swift run akashic`、`n=$(akashic …)`、`time akashic`、`{ akashic …; }`、
+/// `${AKASHIC_BIN:-akashic}`、`${X-akashic}`、`${X:=akashic}`、`"$AKASHIC"` 都算。判準是 shell 的字邊界：名字前面不是字、`.`、`~`、`/`，
+/// 也不是「字－連字號」（`che-akashic` 是另一個名字）——**參數展開的運算子是字邊界**，所以 `${X-akashic}` 的 `-` 前面雖然是字，
+/// 照樣算（R4 verify 第 4 列：R3 的 lookbehind 把它與 `che-akashic` 一起排除）。後面不是字、`.`、`/`、`-`：
+/// `~/.akashic`、`akashic-mcp`、`akashic.sources`、`Sources/akashic/…`、`akashic_doctor`、`Akashic-Library` 不是執行它的寫法。
 private let selfProofBinaryMentionRe = try! NSRegularExpression(pattern:
-    #"(?<![\w.~/])(?<![\w.~/-]-)(?:[\w.~-]*/)*(?:akashic-guards|akashic)(?![\w./-])"#)
-/// 計數的選項：`-c`（併在選項串裡也算，例如 `-Ec`）、`--count` 與它的縮寫（GNU 與 BSD 的長選項都收唯一的前綴），前後可以有引號
-/// （`grep '-c' …`——R3 verify 第 0 列）。
-private let selfProofCountOption = #"(?<![\w-])['"]?(?:-[A-Za-z]*c[A-Za-z]*|--cou(?:nt?)?)(?:=[^\s'"]*)?['"]?(?![\w-])"#
-/// 單位裡**有計數**：`grep`／`egrep`／`fgrep`／`rg`／`ag`／`ack`／`uniq` 之後任何位置出現計數選項（R2 要求選項與命令之間不跨 `|`、`;`、
-/// `&`，樣式裡一個 `\|` 就讓 `grep 'x\|y' -c` 整個看不見——R3 verify 第 6 列）；任何 `wc`；`jq` 之後出現 `length`。
-/// 寬是故意的：誤認的方向是多判一個單位（紅、具名那一行），漏認的方向是放行。
-private let selfProofCountMentionRe = try! NSRegularExpression(pattern:
-    #"(?<![\w.-])(?:[ef]?grep|rg|ag|ack|uniq)(?![\w.-])[\s\S]*?"# + selfProofCountOption
-    + #"|(?<![\w.-])wc(?![\w.-])|(?<![\w.-])jq(?![\w.-])[\s\S]*?\blength\b"#)
+    #"(?i)(?<![\w.~/])(?:(?<![\w.~/-]-)|(?<=\$\{[A-Za-z_][A-Za-z0-9_]{0,63}-))(?:[\w.~-]*/)*(?:akashic-guards|akashic)(?![\w./-])"#)
+/// 計數的選項：`-c`（併在選項串裡也算，例如 `-Ec`）、以 `--cou` 開頭的長選項（`--count`、它的縮寫、`--count-matches`、`--count=…`），
+/// 前後可以有引號（`grep '-c' …`）。
+private let selfProofCountOption = #"(?<![\w-])['"]?(?:-[A-Za-z]*c[A-Za-z]*|--cou[\w-]*)(?:=[^\s'"]*)?['"]?(?![\w-])"#
+private let selfProofCountOptionRe = try! NSRegularExpression(pattern: selfProofCountOption)
+/// 會因計數選項而計數的命令：名字以 `grep` 結尾的任何命令（`grep`、`egrep`、`zgrep`、`ggrep`、`pcregrep`、`ugrep`…——R4 verify 第 4、7、12 列：
+/// R3 只認 `[ef]?grep`）與 `rg`／`ag`／`ack`／`uniq`。
+private let selfProofCountToolRe = try! NSRegularExpression(pattern: #"(?<![\w.-])(?:\w*grep|rg|ag|ack|uniq)(?![\w.-])"#)
+private let selfProofWcRe = try! NSRegularExpression(pattern: #"(?<![\w.-])wc(?![\w.-])"#)
+private let selfProofJqRe = try! NSRegularExpression(pattern: #"(?<![\w.-])jq(?![\w.-])"#)
+private let selfProofLengthRe = try! NSRegularExpression(pattern: #"\blength\b"#)
+/// grep 家族：管線裡這個命令沒有計數選項時是過濾、有就是計數。
+private let selfProofGrepFamilyRe = try! NSRegularExpression(pattern: #"^(?:\w*grep|rg|ag|ack)$"#)
+/// **已知不計數的顯示命令**（封閉列舉，R4）：binary 的輸出經管線送進它，不算計數。清單外的命令一律當成計數——認不出來的方向是判成量測
+/// （紅、具名那一行，作者改成模板或把命令加進這裡並寫理由），不是放行。
+/// · `head`：只截前幾行，不產生數字（第 19 列的 `… zero-instance-rows-audit 2>&1 | head -1`）。
+/// · 沒有計數選項的 grep 家族（`selfProofGrepFamilyRe`）：只挑行（第 49 列的 `… doctor … | grep -E '^orphaned…'`）。
+/// `tail`、`sort`、`sed`、`awk`、`nl`、`python3`、`while read` 都不在清單裡：`grep -n … | tail -n 1`、`nl | tail -1`、`awk 'END{print NR}'`、
+/// `sed -n '$='` 都數得出行數（R4 verify 第 12、20 列）。
+let selfProofDisplayFilters: Set<String> = ["head"]
 
 private func selfProofFirstMatch(_ re: NSRegularExpression, _ s: String) -> NSTextCheckingResult? {
     re.firstMatch(in: s, range: NSRange(location: 0, length: (s as NSString).length))
 }
-
-/// 一個單位是不是一條量測：提到 binary，而且有計數（兩者都看含註解的原文——R3 起不切註解）。
-func selfProofIsMeasurement(_ s: String) -> Bool {
-    selfProofFirstMatch(selfProofBinaryMentionRe, s) != nil && selfProofFirstMatch(selfProofCountMentionRe, s) != nil
+private func selfProofLastMatch(_ re: NSRegularExpression, _ s: String) -> NSTextCheckingResult? {
+    re.matches(in: s, range: NSRange(location: 0, length: (s as NSString).length)).last
 }
 
-/// **退場標記**：寫在 ```` ```text ```` fence 的**前一行**，那個 fence 是已退場的紀錄、不掃（第 71 列）。只對 `text` fence 有作用。
-/// 沒有它的 `text` fence 照掃，裡面有量測就是錯誤——`text` 這個語言標記本身不再是出口（#711 R2 verify 第 9、18 列：R1 對任何
-/// `text` fence 一律不掃，換個語言標記就能讓一條沒有閘的量測安靜通過）。退場區塊的個數由棘輪標記釘住（`selfProofRatchetIssues`）。
-let selfProofRetiredMarker = "<!-- zero-instance-rows-audit: 已退場的量測紀錄，不掃 -->"
+/// 單位裡**有計數**：計數命令之後任何位置出現計數選項；任何 `wc`；`jq` 之後出現 `length`。
+/// **線性**（R4 verify 第 16 列：R3 的 `[\s\S]*?` 讓每個工具名各往行尾惰性掃一次，一行數萬個 `grep` 要幾十秒）：只比「第一個計數命令」與
+/// 「最後一個計數選項」的位置。寬是故意的：一個單位裡 `grep` 之後出現在**別的命令**的 `-c`（`grep x f; python3 -c …`）也算——誤認的方向。
+func selfProofHasCount(_ s: String) -> Bool {
+    if selfProofFirstMatch(selfProofWcRe, s) != nil { return true }
+    if let t = selfProofFirstMatch(selfProofCountToolRe, s), let o = selfProofLastMatch(selfProofCountOptionRe, s),
+       o.range.location > t.range.location { return true }
+    if let j = selfProofFirstMatch(selfProofJqRe, s), let l = selfProofLastMatch(selfProofLengthRe, s),
+       l.range.location > j.range.location { return true }
+    return false
+}
+
+/// 管線的一段（`|` 之後到下一個 `|` 之前）的命令會不會把輸入變成數字：前面的 `NAME=值` 環境設定跳過、前導的 `\` 與路徑去掉之後，
+/// 是 grep 家族就看這一段有沒有計數選項，是 `selfProofDisplayFilters` 就不算，其餘一律算（包括這一段沒有命令）。
+func selfProofStageCounts(_ stage: String) -> Bool {
+    var words = stage.split(whereSeparator: { $0 == " " || $0 == "\t" || $0 == "\n" }).map(String.init)
+    while let w = words.first, w.range(of: #"^[A-Za-z_][A-Za-z0-9_]*="#, options: .regularExpression) != nil { words.removeFirst() }
+    guard var cmd = words.first else { return true }
+    cmd = String(cmd.drop { "\\\"'`({".contains($0) })
+    if let slash = cmd.lastIndex(of: "/") { cmd = String(cmd[cmd.index(after: slash)...]) }
+    if selfProofFirstMatch(selfProofGrepFamilyRe, cmd) != nil { return selfProofFirstMatch(selfProofCountOptionRe, stage) != nil }
+    return !selfProofDisplayFilters.contains(cmd)
+}
+
+/// binary 的輸出經管線送進一個會計數的命令：從第一次提到 binary 之後，每一根管線（`selfProofPipeRe`）的那一段各問一次
+/// `selfProofStageCounts`。管線不剖析引號——樣式裡的 `|`（`grep -E 'a|b'`）會被當成一根管線，切出的那一段多半不是已知的顯示命令、
+/// 被判成計數：誤認的方向。
+func selfProofPipesIntoCounter(_ s: String) -> Bool {
+    guard let b = selfProofFirstMatch(selfProofBinaryMentionRe, s) else { return false }
+    let ns = s as NSString
+    let after = b.range.location + b.range.length
+    let bars = selfProofPipeRe.matches(in: s, range: NSRange(location: after, length: ns.length - after)).map(\.range.location)
+    for bar in bars {
+        var start = bar + 1
+        if start < ns.length, ns.character(at: start) == 0x26 { start += 1 }   // `|&`
+        // 這一段到下一個 `|`（含 `||` 的第一個）為止
+        let rest = NSRange(location: start, length: ns.length - start)
+        let next = ns.range(of: "|", options: [], range: rest).location
+        let end = next == NSNotFound ? ns.length : max(next, start)
+        if selfProofStageCounts(ns.substring(with: NSRange(location: start, length: end - start))) { return true }
+    }
+    return false
+}
+
+/// 一個單位是不是一條量測：**提到 binary**，而且**有計數**——計數選項或計數命令（`selfProofHasCount`），或 binary 的輸出經管線送進一個
+/// 不在已知顯示命令清單裡的命令（`selfProofPipesIntoCounter`；`pipes` 為 false 時不看——表格列裡的 `|` 是欄的分隔，不是管線）。
+/// 兩者都看含註解的原文（R3 起不切註解）。
+func selfProofIsMeasurement(_ s: String, pipes: Bool = true) -> Bool {
+    guard selfProofFirstMatch(selfProofBinaryMentionRe, s) != nil else { return false }
+    return selfProofHasCount(s) || (pipes && selfProofPipesIntoCounter(s))
+}
+
+/// `${V:?…}` 寫在管線裡（R4 verify 第 1、3、5 列）：回第一個那樣的展開，沒有回 nil。開頭的前置條件（`: "${V:?…}" && `）裡的不算；
+/// 單位裡沒有管線時也不算（簡單指令裡的 `${V:?…}` 讓 shell 停下——第 49、77 列的 `python3 - "${STORE:?…}" <<'PY'` 就是）。
+/// 有管線而它在別處——左邊、右邊、`$( … )` 裡——一律算：管線的每一段都在自己的子 shell 裡，那一段結束、其餘照跑。
+func selfProofRequiredExpansionInPipeline(_ s: String) -> String? {
+    let ns = s as NSString
+    guard selfProofFirstMatch(selfProofPipeRe, s) != nil else { return nil }
+    let start = selfProofFirstMatch(selfProofLeadingGuardsRe, s)?.range.length ?? 0
+    return selfProofRequiredExpansionRe.firstMatch(in: s, range: NSRange(location: start, length: ns.length - start))
+        .map { ns.substring(with: $0.range) }
+}
 
 /// 一行（已 trim）若是 fence 的分隔線，回 (字元, 長度, info)。反引號 fence 的 info 不得含反引號（CommonMark：那是 inline code）。
 private func selfProofFenceDelimiter(_ trimmed: String) -> (char: Character, count: Int, info: String)? {
@@ -305,24 +384,41 @@ func selfProofStripBlockquote(_ line: String) -> (content: String, depth: Int) {
 }
 
 /// 一個實體行是否接到下一行（shell 的接續）：去掉行尾空白後以奇數個 `\` 結尾；或以 `|`、`||`、`&&`、`|&` 結尾——行尾若有 `#` 註解，
-/// 註解前那一段以它們結尾也算（`cmd |   # 計數` 在 shell 裡照樣接到下一行）。哪個 `#` 是註解的開頭不判斷：每一個前面是空白的 `#` 都試，
-/// 任一個成立就接——接錯的方向是多判讀一個單位（誤報），不是放行。R2 以實體行為單位，`\` 與行尾 `|` 把 binary 與計數拆到兩行，
-/// 兩行都不成量測（R3 verify 第 3、4、5 列）。
+/// 註解前那一段以它們結尾也算（`cmd |   # 計數` 在 shell 裡照樣接到下一行）。哪個 `#` 是註解的開頭不判斷：每一個前面是空白（或在行首）的
+/// `#` 都試，任一個成立就接——接錯的方向是多判讀一個單位（誤報），不是放行。
+/// **線性**（R4 verify 第 16 列：R3 對每個 `#` 各切一次前綴、各跑一次正規式）：一趟掃過，記住每個 `#` 之前最後一個非空白字元。
 func selfProofContinues(_ s: String) -> Bool {
-    let r = s.replacingOccurrences(of: #"[ \t]+$"#, with: "", options: .regularExpression)
-    if r.reversed().prefix(while: { $0 == "\\" }).count % 2 == 1 { return true }
-    var candidates = [r]
-    for m in matches(r, #"(?:^|(?<=[ \t]))#"#) {
-        candidates.append(String((r as NSString).substring(to: m.range.location))
-            .replacingOccurrences(of: #"[ \t]+$"#, with: "", options: .regularExpression))
+    let chars = Array(s)
+    var end = chars.count
+    while end > 0, chars[end - 1] == " " || chars[end - 1] == "\t" { end -= 1 }
+    var backslashes = 0
+    while backslashes < end, chars[end - 1 - backslashes] == "\\" { backslashes += 1 }
+    if backslashes % 2 == 1 { return true }
+    func endsWithOperator(_ i: Int) -> Bool {
+        guard i >= 0 else { return false }
+        if chars[i] == "|" { return true }   // `|`、`||`
+        return chars[i] == "&" && i > 0 && (chars[i - 1] == "&" || chars[i - 1] == "|")   // `&&`、`|&`
     }
-    return candidates.contains { $0.hasSuffix("|") || $0.hasSuffix("&&") || $0.hasSuffix("|&") }   // `||` 的結尾也是 `|`
+    if endsWithOperator(end - 1) { return true }
+    var lastNonSpace = -1
+    for k in 0..<end {
+        let c = chars[k]
+        if c == "#", k == 0 || chars[k - 1] == " " || chars[k - 1] == "\t", endsWithOperator(lastNonSpace) { return true }
+        if c != " " && c != "\t" { lastNonSpace = k }
+    }
+    return false
 }
 
 /// 下一行以 `|`、`&&`、`||` 開頭——shell 不收，但讀的人會把它當成上一行的接續，照接。
 func selfProofIsContinuation(_ s: String) -> Bool {
     let t = s.drop { $0 == " " || $0 == "\t" }
     return t.hasPrefix("|") || t.hasPrefix("&&")
+}
+
+/// 空白行或只有 `#` 註解的行：管線還沒接完時跳過它們（R4 verify 第 0 列：shell 允許 `|` 之後空幾行再接下一個命令）。
+private func selfProofIsBlankOrComment(_ s: String) -> Bool {
+    let t = s.trimmingCharacters(in: .whitespaces)
+    return t.isEmpty || t.hasPrefix("#")
 }
 
 /// 去掉接續用的行尾反斜線（只有奇數個時才是接續）。
@@ -332,14 +428,23 @@ private func selfProofDropContinuationBackslash(_ s: String) -> String {
     return String(r.dropLast())
 }
 
-/// 把實體行接成邏輯行：(起始行號, 接起來的文字, 跨了幾個實體行)。
+/// 把實體行接成邏輯行：(起始行號, 接起來的文字, 跨了幾個實體行)。**認不出邊界時偏向合併**（R4）：一行以接續運算子結尾、或下一個
+/// 有內容的行以 `|`／`&&` 開頭時，中間的空白行與純註解行跳過、接上那一行（R3 遇到空白行就停：`akashic validate |`、空白行、`grep -c x`
+/// 被切成兩個單位，兩個都不成量測——R4 verify 第 0 列）。跳過的行算進實體行數，所以那個單位一定是「跨行」。
 func selfProofLogicalLines(_ lines: [(line: Int, text: String)]) -> [(line: Int, text: String, physical: Int)] {
     var out: [(line: Int, text: String, physical: Int)] = []
     var i = 0
     while i < lines.count {
+        var joined = [i]
         var j = i
-        while j + 1 < lines.count, selfProofContinues(lines[j].text) || selfProofIsContinuation(lines[j + 1].text) { j += 1 }
-        let text = (i...j).map { k in k < j ? selfProofDropContinuationBackslash(lines[k].text) : lines[k].text }
+        while true {
+            var m = j + 1
+            while m < lines.count, selfProofIsBlankOrComment(lines[m].text) { m += 1 }
+            guard m < lines.count, selfProofContinues(lines[j].text) || selfProofIsContinuation(lines[m].text) else { break }
+            joined.append(m)
+            j = m
+        }
+        let text = joined.map { k in k < j ? selfProofDropContinuationBackslash(lines[k].text) : lines[k].text }
             .joined(separator: " ")
         out.append((lines[i].line, text, j - i + 1))
         i = j + 1
@@ -351,9 +456,21 @@ func selfProofLogicalLines(_ lines: [(line: Int, text: String)]) -> [(line: Int,
 /// span 會讓後面的配對整個錯位，跨行的 span 兩半都不成單位）。一串 n 個反引號開頭，到下一串**恰好** n 個反引號收尾；找不到收尾的那一串是
 /// 字面上的反引號，從它後面繼續找。前面是反斜線的反引號是字面（只吃一個字元）。內容的換行換成空白；兩端各有一個空白、而且不全是空白時
 /// 各去掉一個。回 (開頭位置, 收尾之後的位置, 內容, 是否跨行)，位置是 `chars` 的索引。
+/// **線性**（#711 R4，b33 X6 第 16 列的同一類）：收尾的那一串只會是一串**完整的**反引號（前後都不是反引號），先把它們依長度建索引，
+/// 每個長度一個只往前走的指標——逐串往後找的寫法對長短不一、找不到收尾的反引號串是 O(n^1.5)。
 func selfProofInlineSpans(_ chars: [Character]) -> [(start: Int, end: Int, content: String, multiline: Bool)] {
     var out: [(start: Int, end: Int, content: String, multiline: Bool)] = []
     let n = chars.count
+    var runsByLength: [Int: [Int]] = [:]   // 長度 → 每一串完整反引號的開頭（遞增）
+    var r = 0
+    while r < n {
+        guard chars[r] == "`" else { r += 1; continue }
+        var e = r
+        while e < n, chars[e] == "`" { e += 1 }
+        runsByLength[e - r, default: []].append(r)
+        r = e
+    }
+    var cursor: [Int: Int] = [:]           // 長度 → runsByLength 裡下一個還沒越過的位置
     var i = 0
     while i < n {
         if chars[i] == "\\", i + 1 < n, chars[i + 1] == "`" { i += 2; continue }
@@ -361,14 +478,13 @@ func selfProofInlineSpans(_ chars: [Character]) -> [(start: Int, end: Int, conte
         var j = i
         while j < n, chars[j] == "`" { j += 1 }
         let run = j - i
-        var k = j
+        // 開頭這一串之後的第一串同長的完整反引號（開頭這一串已延伸到底，所以 j 之後的每一串都是完整的）
         var close: (Int, Int)? = nil
-        while k < n {
-            guard chars[k] == "`" else { k += 1; continue }
-            var m = k
-            while m < n, chars[m] == "`" { m += 1 }
-            if m - k == run { close = (k, m); break }
-            k = m
+        if let starts = runsByLength[run] {
+            var c = cursor[run] ?? 0
+            while c < starts.count, starts[c] < j { c += 1 }
+            cursor[run] = c
+            if c < starts.count { close = (starts[c], starts[c] + run) }
         }
         guard let c = close else { i = j; continue }
         let (cs, ce) = c
@@ -385,76 +501,103 @@ func selfProofInlineSpans(_ chars: [Character]) -> [(start: Int, end: Int, conte
 
 /// fence 與 inline code 以外的文字：去掉 HTML 標記（`<pre>`、`<code>` 等）、解碼常見的實體。標記只認 `<` 後面接英文字母或 `/`，
 /// 所以 `2>&1`、`<BIN>` 以外的散文不受影響；`<BIN>` 這種佔位符被當成標記去掉，那不改變任何判定（它不是 binary 也不是計數）。
+/// 標記的內文不跨過下一個 `<`：`[^>\n]*` 讓每個 `<a` 各往行尾掃一次，一行三萬個 `<a` 要十秒（#711 R4，b33 X6 第 16 列的同一類）。
 private func selfProofProseText(_ s: String) -> String {
-    var t = s.replacingOccurrences(of: #"</?[A-Za-z][^>\n]*>"#, with: " ", options: .regularExpression)
+    var t = s.replacingOccurrences(of: #"</?[A-Za-z][^<>\n]*>"#, with: " ", options: .regularExpression)
     for (e, v) in [("&lt;", "<"), ("&gt;", ">"), ("&quot;", "\""), ("&#39;", "'"), ("&#124;", "|"), ("&amp;", "&")] {
         t = t.replacingOccurrences(of: e, with: v)
     }
     return t
 }
 
+/// GFM 表格的分隔列（`|---|:--:|`）：只有 `|`、`-`、`:`、空白，至少一個 `|` 與一個 `-`。
+private func selfProofIsTableDelimiter(_ t: String) -> Bool {
+    t.contains("|") && t.contains("-") && t.allSatisfy { "|-: \t".contains($0) }
+}
+
 /// 量測住在哪裡——合不合法不只看文字，也看位置。
 private enum SelfProofPlace {
     case fence              // fence 裡（含引用區塊裡的 fence）
-    case textFence(Int)     // 前一行不是退場標記的 `text` fence（值＝開頭的行號）
+    case textFence(Int)     // `text` fence（值＝開頭的行號）
     case inline             // fence 外的一段 inline code
     case prose              // fence 與 inline code 以外：縮排區塊、`<pre>`、散文
 }
 
-/// 自證閘的掃描結果。`gates`：合模板的量測各一個閘；`retiredBlocks`／`retiredLines`：已退場區塊的個數與它們不被掃的行數。
+/// 自證閘的掃描結果。`gates`：合模板的量測各一個閘。
 struct SelfProofScan {
     var issues: [String] = []
     var checked = 0
     var gates: [(needle: String, binary: String, line: Int)] = []
-    var retiredBlocks = 0
-    var retiredLines = 0
 }
 
-/// 回 (問題, 掃到幾條數 binary 輸出的指令, 掃到的閘, 退場區塊)。
+/// 回 (問題, 掃到幾條數 binary 輸出的指令, 掃到的閘)。
 ///
-/// **辨識寬、判定窄**（R3）：一個單位裡**提到** binary 又**有任何形式的計數**（`selfProofIsMeasurement`），就是一條量測；量測只有一種
-/// 合法形——fence 裡的一行、或不跨行的一段 inline code，逐字是 `selfProofTemplate`——其餘一律是錯誤、具名那一行。
+/// **辨識寬、判定窄**：一個單位裡**提到** binary 又**有計數**（`selfProofIsMeasurement`），就是一條量測；量測只有一種合法形——fence 裡的
+/// 一行、或不跨行的一段 inline code，逐字是 `selfProofTemplate`——其餘一律是錯誤、具名那一行。
 ///
-/// **單位**（R3 verify 第 0、2–6、11、15、19 列；R2 的單位是 fence 內一個實體行、fence 外同一實體行裡的一段 inline code）：
+/// **總原則（R4）——認不出來時偏向「是量測」、偏向「同一個單位」**。R1–R3 每一輪都列舉幾種寫法、下一輪 verify 在列舉之外找到新的
+/// （R4 verify 第 0、2、4、7、12、20 列：跨空白行的管線、`|` 開頭而不是表格列的續行、`${X-akashic}`、`zgrep`／`ggrep`／`pcregrep`、
+/// `rg --count-matches`、`awk`／`nl | tail` 的計數）。所以判讀不再列舉「什麼算」，而是反過來：
+/// · **計數**：binary 的輸出經管線送進任何命令都算計數，除了一張封閉的「已知不計數」清單（`selfProofDisplayFilters` 與不帶計數選項的
+///   grep 家族）；另外不經管線的計數選項、`wc`、`jq … length` 照舊算（`<( … )`、here-string）。
+/// · **binary**：不分大小寫；參數展開的運算子是字邊界。
+/// · **單位**：接續運算子之後的空白行與純註解行跳過、照接；`|` 開頭的行只有在 GFM 表格裡（前一行是表格列、或下一行是分隔列）才是
+///   表格列，否則是段落的續行；兩段 inline code 之間只隔空白與一個接續運算子（`|`、`||`、`&&`、`|&`）時接成一個；段落最後一段 inline code
+///   以接續運算子結尾、下一個段落以 inline code 開頭（中間只有空白行）時接成一個；散文（縮排區塊、`<pre>`）同一把——上一個段落最後一個
+///   邏輯行與下一個段落第一個邏輯行以接續運算子相連時接成一個；引用層數變淺不切段（CommonMark 的 lazy continuation），加深才切。
+/// 每一種都是誤認的方向：多判一個單位、紅、具名那一行，作者改成模板或改寫；漏認的方向是放行。
+///
+/// **單位**（R3 起）：
 /// · 每一行先剝掉引用區塊的 `>` 前綴（`selfProofStripBlockquote`），之後才判 fence。
 /// · fence 裡：實體行先接成邏輯行（`selfProofLogicalLines`）。跨行的量測一律紅，即使接起來逐字是模板——「一行」是模板的一部分。
-/// · fence 外：以段落為單位（空行、標題、表格列、清單項目開頭、HTML 註解行、引用層數改變都是邊界；表格一列一段），段落裡用 CommonMark 的
-///   配對找 inline code（`selfProofInlineSpans`），跨行的 span 是一段；兩段之間只隔空白、而且以接續運算子相連的，接成一個（跨行，紅）。
+/// · fence 外：以段落為單位（空行、標題、表格列、清單項目開頭、HTML 註解行、引用層數加深都是邊界——變淺是 lazy continuation、不是；表格一列一段），段落裡用 CommonMark 的
+///   配對找 inline code（`selfProofInlineSpans`）。
 /// · fence 與 inline code 以外的文字（縮排區塊、`<pre>`、散文——`selfProofProseText` 去掉 HTML 標記與實體之後）照樣接成邏輯行判讀；
-///   那裡的量測一律紅：要寫在 fence 或 inline code 裡。
-/// · **不切註解**（R3 verify 第 15 列）：R2 先以一個小型 shell 詞法器切掉行尾的 `#` 註解再判，它不認 `$'…'`，把 `$'\' # ' … | grep -c`
-///   的後半當成註解、shell 卻照跑。辨識看含註解的原文（註解裡提到 binary 與計數也算一條量測——誤報的方向），模板自己收行尾註解。
+///   那裡的量測一律紅：要寫在 fence 或 inline code 裡。表格列的散文不看管線（`|` 是欄的分隔）。
+/// · **不切註解**（R3 verify 第 15 列）：辨識看含註解的原文（註解裡提到 binary 與計數也算一條量測——誤報的方向），模板自己收行尾註解。
 ///
 /// **fence**：```` ``` ```` 與 `~~~` 都認；收尾是同一個字元、長度不短於開頭、沒有 info 的一行。fence 裡出現一行長得像**新** fence 開頭的
-/// （同字元、夠長、帶 info，例如 ```` ```bash ````），那是前一個 fence 沒有收尾——報錯並指名開頭那一行；檔尾還在 fence 裡也報錯
-/// （#711 R2 verify 第 2、4、5、6 列）。
+/// （同字元、夠長、帶 info，例如 ```` ```bash ````），那是前一個 fence 沒有收尾——報錯並指名開頭那一行；檔尾還在 fence 裡也報錯。
 ///
-/// **`text` fence**：前一行是 `selfProofRetiredMarker` 的不掃（個數與行數記在 `retiredBlocks`／`retiredLines`）；其餘照掃，裡面的量測
-/// 一律是錯誤（紀錄要標退場，還在用的改成 `bash` fence）。
+/// **`text` fence 照掃**，裡面的量測一律是錯誤（紀錄改寫成不提 binary 的形式，還在用的改成 `bash` fence）。**R4 拿掉了退場標記**：R2 起
+/// 前一行是退場標記的 `text` fence 不掃（第 71 列的紀錄），R3 釘住它的**個數**——它仍是一個全域的「不掃」開關，區塊裡加一行、或把一行換成
+/// 沒有閘的量測，守衛照樣綠（R4 verify 第 6、11、13、21 列）。那個區塊在 R4 的辨識下沒有任何一行是量測，開關不再需要。
+///
+/// **管線裡的 `${V:?…}`**（R4 verify 第 1、3、5 列）：fence 與 inline code 的每一個單位都查（不只量測）——`selfProofRequiredExpansionInPipeline`。
 ///
 /// **正對照不讓別行繼承**（#711 R2 verify 第 14 列）——每一條量測各自符合模板。
 ///
-/// **誠實邊界（認不出來、所以不紅的寫法——封閉列舉，R3 起只有這三類）**：
-/// · **不提到 binary 名的計數**：binary 的輸出先存進變數或檔案、另一個單位再計數（`out=$(akashic …)` 一行、`printf '%s' "$out" | grep -c`
-///   另一行；`… > f` 一行、`grep -c x f` 另一行；變數裝 binary 的路徑再以 `"$AK"` 執行）。第 71 列的補記區塊就是這一種（它的自證是說明
-///   文字）。同一個單位裡兩者都有就算，而那樣寫不會是模板，所以是錯誤。
-/// · **不經 `grep`／`rg`／`ag`／`ack`／`uniq`／`wc`／`jq … length` 的計數**：`awk` 自己加總、`python3 -c` 數、`sed -n '$='` 之類。
+/// **誠實邊界（認不出來、所以不紅的寫法——開放的，不是封閉列舉；條數的地板兜底，見 `selfProofRatchetIssues`）**：
+/// · **binary 的輸出先存進變數或檔案、在另一個單位計數**（`out=$(akashic …)` 一行、`printf '%s' "$out" | grep -c` 另一行；`… > f` 一行、
+///   `grep -c x f` 另一行）：binary 名與計數不在同一個單位。同一個單位裡兩者都有就算，而那樣寫不會是模板，所以是錯誤。
+/// · **以別名、複本或變數執行 binary**（`ak validate`、`/tmp/x validate`、變數名不含 akashic 的 `"$B" validate`）：名字認不出來。
 /// · **散文裡 binary 名與計數不在同一個邏輯行**：辨識以邏輯行（與 inline code 段）為單位，不以整個 fence 或段落為單位——後者會把
 ///   「一行跑 binary、下一行數別的檔」（第 51 列）這種合法的寫法也判成量測。
-/// 另：一個單位裡 `-c` 出現在別的命令（`python3 -c`）或樣式字串裡也會被當成計數——那是誤報的方向，具名那一行。
+/// · **兩段 inline code 之間隔著文字**（不只空白與一個接續運算子）：不接。
 func selfProofIssues(in rule: String) -> SelfProofScan {
     var scan = SelfProofScan()
 
-    func judge(_ raw: String, line: Int, physical: Int, place: SelfProofPlace) {
+    func judge(_ raw: String, line: Int, physical: Int, place: SelfProofPlace, pipes: Bool = true) {
         let code = raw.trimmingCharacters(in: .whitespaces)
-        guard selfProofIsMeasurement(code) else { return }
-        scan.checked += 1
         let head = String(code.prefix(200))
         switch place {
+        case .fence, .textFence, .inline:
+            if let e = selfProofRequiredExpansionInPipeline(code) {
+                if selfProofIsMeasurement(code, pipes: pipes) { scan.checked += 1 }
+                scan.issues.append("第 \(line) 行的 `\(e)…}` 寫在管線裡：`\(head)`——沒設時只結束那一段的子 shell，錯誤訊息走 stderr、"
+                                   + "管線的其餘照跑，計數印 `0`，與「檢查過且乾淨」分不開。移到整條指令最前面：`: \"\(e)…}\" && …`，"
+                                   + "其餘地方寫 `\"$V\"`")
+                return
+            }
+        case .prose:
+            break
+        }
+        guard selfProofIsMeasurement(code, pipes: pipes) else { return }
+        scan.checked += 1
+        switch place {
         case .textFence(let open):
-            scan.issues.append("第 \(line) 行在第 \(open) 行開的 `text` fence 裡對 binary 的輸出計數，而那個 fence 的前一行不是退場標記"
-                               + "「\(selfProofRetiredMarker)」：`\(head)`——已退場的紀錄在 fence 前一行加上標記；還在用的量測改成 `bash` fence、"
-                               + "寫成 `\(selfProofTemplate)`")
+            scan.issues.append("第 \(line) 行在第 \(open) 行開的 `text` fence 裡對 binary 的輸出計數：`\(head)`——`text` fence 照掃；"
+                               + "紀錄改寫成不提 binary 的形式，還在用的量測改成 `bash` fence、寫成 `\(selfProofTemplate)`")
             return
         case .prose:
             scan.issues.append("第 \(line) 行在 fence 與 inline code 以外（縮排區塊、`<pre>`、散文）對 binary 的輸出計數：`\(head)`"
@@ -464,20 +607,25 @@ func selfProofIssues(in rule: String) -> SelfProofScan {
             break
         }
         if physical > 1 {
-            scan.issues.append("第 \(line) 行起跨 \(physical) 行的單位對 binary 的輸出計數（以 `\\`、行尾 `|`／`&&`、下一行開頭的 `|` 接續，"
-                               + "或 inline code 跨行）——跨行不是唯一合法的寫法 `\(selfProofTemplate)`，接起來逐字是它也一樣：`\(head)`。"
-                               + "寫成一行；binary 與計數拆在兩行時，舊 binary 印 `0` 而守衛先前一行都看不到")
+            scan.issues.append("第 \(line) 行起跨 \(physical) 行的單位對 binary 的輸出計數（以 `\\`、行尾 `|`／`&&`、下一行開頭的 `|` 接續——"
+                               + "中間可以隔著空白行或註解行——或 inline code 跨行、跨段落、兩段之間只隔一個接續運算子）——跨行不是唯一合法的寫法 `\(selfProofTemplate)`，"
+                               + "接起來逐字是它也一樣：`\(head)`。寫成一行；binary 與計數拆在兩行時，舊 binary 印 `0` 而守衛先前一行都看不到")
             return
         }
         let ns = code as NSString
         if let m = selfProofFirstMatch(selfProofTemplateRe, code),
-           ns.substring(with: m.range(at: 3)).filter({ $0 == "\"" }).count % 2 == 0 {
-            scan.gates.append((ns.substring(with: m.range(at: 1)), selfProofBinaryName(ns.substring(with: m.range(at: 2))), line))
+           ns.substring(with: m.range(withName: "args")).filter({ $0 == "\"" }).count % 2 == 0 {
+            if let why = selfProofPreconditionIssue(m, in: ns) {
+                scan.issues.append("第 \(line) 行的量測\(why)：`\(head)`")
+                return
+            }
+            scan.gates.append((ns.substring(with: m.range(withName: "needle")),
+                               selfProofBinaryName(ns.substring(with: m.range(withName: "bin"))), line))
             return
         }
         var hint = ""
         if let m = selfProofFirstMatch(selfProofLooseTemplateRe, code) {
-            let gate = ns.substring(with: m.range(at: 1)), measured = ns.substring(with: m.range(at: 2))
+            let gate = ns.substring(with: m.range(withName: "gate")), measured = ns.substring(with: m.range(withName: "measured"))
             hint = gate == measured ? "——<參數> 裡的雙引號要成對"
                 : "——閘查的是 `\(gate)`，被量的是 `\(measured)`：兩處要逐字相同（只比檔名時，閘證明的可能是另一個檔）"
         }
@@ -488,57 +636,111 @@ func selfProofIssues(in rule: String) -> SelfProofScan {
     }
 
     // ── fence 外的段落：inline code 與其餘文字 ──
+    let raws = rule.components(separatedBy: "\n")
+    let stripped = raws.map { selfProofStripBlockquote($0) }
     var block: [(line: Int, text: String)] = []
-    func flushBlock() {
+    /// 上一個段落最後一段 inline code（後面只剩空白）——下一個段落以 inline code 開頭、中間只有空白行、兩者以接續運算子相連時接成一個
+    /// （R4：偏向合併）。沒接上就在下一個段落處理時判讀。
+    var pending: (line: Int, content: String, lastLine: Int)? = nil
+    func judgePending() {
+        if let p = pending { judge(p.content, line: p.line, physical: 1, place: .inline) }
+        pending = nil
+    }
+    /// 散文（含縮排區塊、`<pre>`）的同一件事：上一個段落最後一個邏輯行，與下一個段落的第一個邏輯行之間只有空白行、兩者以接續運算子相連時
+    /// 接成一個（縮排區塊裡 `akashic validate |`、空白行、`grep -c x`——shell 照接，fence 裡的同一種寫法 R4 起接上了）。
+    var pendingProse: (line: Int, text: String, lastLine: Int)? = nil
+    func judgePendingProse() {
+        if let p = pendingProse { judge(p.text, line: p.line, physical: 1, place: .prose) }
+        pendingProse = nil
+    }
+    /// `from` 之後到 `to` 之前（行號，1 起算）都是空白行（引用區塊的 `>` 已剝掉）。
+    func onlyBlankBetween(_ from: Int, _ to: Int) -> Bool {
+        to > from && (from + 1..<to).allSatisfy { stripped[$0 - 1].content.trimmingCharacters(in: .whitespaces).isEmpty }
+    }
+    func flushBlock(table: Bool = false) {
         defer { block = [] }
-        guard !block.isEmpty else { return }
+        guard !block.isEmpty else { return }   // 連續的空白行：上一個段落留下的那一段繼續等
         let chars = Array(block.map(\.text).joined(separator: "\n"))
         var lineAt: [Int] = []          // chars 的每個索引在第幾行
         lineAt.reserveCapacity(chars.count)
         var k = 0
         for c in chars { lineAt.append(block[k].line); if c == "\n" { k += 1 } }
         let spans = selfProofInlineSpans(chars)
-        var merged: [(start: Int, end: Int, content: String, multiline: Bool)] = []
+        var merged: [(line: Int, start: Int, end: Int, content: String, physical: Int)] = []
         for s in spans {
-            if let last = merged.last, chars[last.end..<s.start].allSatisfy(\.isWhitespace),
-               selfProofContinues(last.content) || selfProofIsContinuation(s.content) {
-                merged[merged.count - 1] = (last.start, s.end, last.content + " " + s.content, true)
+            if let last = merged.last {
+                let between = String(chars[last.end..<s.start]).trimmingCharacters(in: .whitespacesAndNewlines)
+                let operatorBetween = !table && ["|", "||", "&&", "|&"].contains(between)
+                if (between.isEmpty && (selfProofContinues(last.content) || selfProofIsContinuation(s.content))) || operatorBetween {
+                    let glue = operatorBetween ? " " + between + " " : " "
+                    merged[merged.count - 1] = (last.line, last.start, s.end, last.content + glue + s.content, 2)
+                    continue
+                }
+            }
+            merged.append((lineAt[s.start], s.start, s.end, s.content, s.multiline ? 2 : 1))
+        }
+        // 上一個段落留下的那一段接到這個段落的第一段
+        if let p = pending {
+            if !table, onlyBlankBetween(p.lastLine, block[0].line), let first = merged.first, chars[0..<first.start].allSatisfy(\.isWhitespace),
+               selfProofContinues(p.content) || selfProofIsContinuation(first.content) {
+                merged[0] = (p.line, first.start, first.end, p.content + " " + first.content, 2)
+                pending = nil
             } else {
-                merged.append(s)
+                judgePending()
             }
         }
-        for s in merged { judge(s.content, line: lineAt[s.start], physical: s.multiline ? 2 : 1, place: .inline) }
+        for (i, s) in merged.enumerated() {
+            if i == merged.count - 1, !table, s.physical == 1, chars[s.end...].allSatisfy(\.isWhitespace) {
+                pending = (s.line, s.content, block[block.count - 1].line)
+                continue
+            }
+            judge(s.content, line: s.line, physical: s.physical, place: .inline)
+        }
         var prose = chars
         for s in spans { for q in s.start..<s.end where prose[q] != "\n" { prose[q] = " " } }
         let proseLines = String(prose).components(separatedBy: "\n").enumerated()
             .map { (line: block[$0.offset].line, text: selfProofProseText($0.element)) }
-        for l in selfProofLogicalLines(proseLines) { judge(l.text, line: l.line, physical: l.physical, place: .prose) }
+        var logical = selfProofLogicalLines(proseLines)
+        if let p = pendingProse {
+            if !table, onlyBlankBetween(p.lastLine, block[0].line), let first = logical.first,
+               selfProofContinues(p.text) || selfProofIsContinuation(first.text) {
+                logical[0] = (p.line, p.text + " " + first.text, 2)
+                pendingProse = nil
+            } else {
+                judgePendingProse()
+            }
+        }
+        for (i, l) in logical.enumerated() {
+            if i == logical.count - 1, !table {
+                pendingProse = (l.line, l.text, block[block.count - 1].line)
+                continue
+            }
+            judge(l.text, line: l.line, physical: l.physical, place: .prose, pipes: !table)
+        }
     }
 
-    var fence: (char: Character, count: Int, info: String, line: Int, retired: Bool)? = nil
+    var fence: (char: Character, count: Int, info: String, line: Int)? = nil
     var fenceLines: [(line: Int, text: String)] = []
-    func flushFence(_ f: (char: Character, count: Int, info: String, line: Int, retired: Bool)) {
+    func flushFence(_ f: (char: Character, count: Int, info: String, line: Int)) {
         defer { fenceLines = [] }
-        if f.retired { scan.retiredBlocks += 1; scan.retiredLines += fenceLines.count; return }
         let place: SelfProofPlace = f.info.split(separator: " ").first == "text" ? .textFence(f.line) : .fence
         for l in selfProofLogicalLines(fenceLines) { judge(l.text, line: l.line, physical: l.physical, place: place) }
     }
-    var previous = ""
     var previousDepth = 0
+    var inTable = false
     let listItem = try! NSRegularExpression(pattern: #"^\s*(?:[-*+]|\d+[.)])\s+"#)
     let heading = try! NSRegularExpression(pattern: #"^#{1,6}(?:\s|$)"#)
-    for (i, raw) in rule.components(separatedBy: "\n").enumerated() {
+    for (i, (l, depth)) in stripped.enumerated() {
         let line = i + 1
-        let (l, depth) = selfProofStripBlockquote(raw)
         let trimmed = l.trimmingCharacters(in: .whitespaces)
-        defer { previous = trimmed; previousDepth = depth }
+        defer { previousDepth = depth }
         if let f = fence {
             if let d = selfProofFenceDelimiter(trimmed), d.char == f.char, d.count >= f.count {
                 if d.info.isEmpty { flushFence(f); fence = nil; continue }
                 scan.issues.append("第 \(line) 行「\(String(trimmed.prefix(20)))」是新 fence 的開頭，卻落在第 \(f.line) 行開的 fence 裡"
                                    + "——第 \(f.line) 行的 fence 沒有收尾，之後整份檔的 fence 內外會顛倒、量測區塊不被掃。在它前面補上收尾的一行")
                 flushFence(f)
-                fence = (d.char, d.count, d.info, line, false)   // 依作者的意圖從這一行重新開始，後面的錯誤才指得準
+                fence = (d.char, d.count, d.info, line)   // 依作者的意圖從這一行重新開始，後面的錯誤才指得準
                 continue
             }
             fenceLines.append((line, l))
@@ -546,27 +748,64 @@ func selfProofIssues(in rule: String) -> SelfProofScan {
         }
         if let d = selfProofFenceDelimiter(trimmed) {
             flushBlock()
-            let isText = d.info.split(separator: " ").first == "text"
-            fence = (d.char, d.count, d.info, line, isText && previous == selfProofRetiredMarker)
+            judgePending()
+            judgePendingProse()
+            inTable = false
+            fence = (d.char, d.count, d.info, line)
             continue
         }
+        // GFM 表格列（R4 verify 第 2 列：R3 把每一個以 `|` 開頭的行都當成表格列、切段，多行 inline code 裡以 `|` 開頭的續行把 span 切成兩半）：
+        // 含 `|` 而且前一行是同一層的表格列，或下一行是分隔列（表頭）。其餘以 `|` 開頭的行是段落的續行。
+        let nextIsDelimiter = i + 1 < stripped.count && stripped[i + 1].depth == depth
+            && selfProofIsTableDelimiter(stripped[i + 1].content.trimmingCharacters(in: .whitespaces))
+        let tableRow = trimmed.contains("|") && ((inTable && depth == previousDepth) || nextIsDelimiter)
+        inTable = tableRow
         let ns = l as NSString
         let whole = NSRange(location: 0, length: ns.length)
-        let standalone = trimmed.hasPrefix("|") || trimmed.hasPrefix("<!--")
+        let standalone = tableRow || trimmed.hasPrefix("<!--")
             || heading.firstMatch(in: trimmed, range: NSRange(location: 0, length: (trimmed as NSString).length)) != nil
-        if trimmed.isEmpty || standalone || depth != previousDepth || listItem.firstMatch(in: l, range: whole) != nil {
+        // 引用層數**加深**是邊界（引用區塊可以打斷段落）；**變淺**不是——CommonMark 的 lazy continuation：引用區塊裡一段沒收尾的
+        // inline code，下一行沒有 `>` 時仍是同一個段落、同一段 inline code（R4 的偏向合併；R3 兩個方向都切）
+        if trimmed.isEmpty || standalone || depth > previousDepth || listItem.firstMatch(in: l, range: whole) != nil {
             flushBlock()
         }
         guard !trimmed.isEmpty else { continue }
         block.append((line, l))
-        if standalone { flushBlock() }
+        if standalone { flushBlock(table: tableRow) }
     }
     flushBlock()
+    judgePending()
+    judgePendingProse()
     if let f = fence {
         flushFence(f)
         scan.issues.append("第 \(f.line) 行開的 fence 到檔尾都沒有收尾——之後整份檔被當成 fence 內，量測的判讀會錯。補上收尾的一行")
     }
     return scan
+}
+
+/// 合模板的量測，前置條件夠不夠（R4）：`<參數>` 與 `test -f` 用到的變數都在 `: "${V:?…}"` 裡；`--library "$V"` 有 `test -f "$V/store.yaml"`。
+/// 回一句說明哪裡不夠的話，夠就回 nil。
+private func selfProofPreconditionIssue(_ m: NSTextCheckingResult, in ns: NSString) -> String? {
+    func group(_ name: String) -> String? {
+        let r = m.range(withName: name)
+        return r.location == NSNotFound ? nil : ns.substring(with: r)
+    }
+    let args = group("args") ?? ""
+    let test = group("test")
+    let guarded = Set(captures(group("guards") ?? "", #"\$\{([A-Za-z_][A-Za-z0-9_]*):\?"#))
+    let used = Set(captures(args + " " + (test ?? ""), #"\$\{?([A-Za-z_][A-Za-z0-9_]*)"#))
+    let unguarded = used.subtracting(guarded).sorted()
+    if !unguarded.isEmpty {
+        let list = unguarded.map { "`$\($0)`" }.joined(separator: "、")
+        return "用到 \(list)，前面卻沒有 `: \"${\(unguarded[0]):?…}\" && `——沒設時 `--library \"\"` 等同沒傳、落到預設解析到的 store"
+            + "（在這台機器上那是活的一份），`--from \"\"` 之類讀不到東西、計數印 `0`"
+    }
+    for v in captures(args, #"--library[ =]"?\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?"?"#) {
+        guard test != "$\(v)/store.yaml", test != "${\(v)}/store.yaml" else { continue }
+        return "以 `--library \"$\(v)\"` 指名 store，前面卻沒有 `test -f \"$\(v)/store.yaml\" && `——\(v) 打錯成一個不是 store 的目錄時，"
+            + "`validate` 報錯而 `grep -c` 照印 `0`，`doctor` 還會在那裡建出一個 store"
+    }
+    return nil
 }
 
 /// `<BIN>` 的 binary 名：`"$(command -v X)"` 取 X，路徑取最後一段。只用來決定片段該在哪支 binary 的原始碼裡找——判準是兩處逐字相同。
@@ -576,35 +815,35 @@ private func selfProofBinaryName(_ bin: String) -> String {
     return (bin as NSString).lastPathComponent
 }
 
-// MARK: - 棘輪：合模板的量測條數與退場區塊的個數（#711 R3）
+// MARK: - 棘輪：合模板的量測條數（#711 R3；R4 依閘去重、拿掉退場區塊）
 
-/// **棘輪標記**：規則檔裡恰好一行，記合模板的量測至少幾條、已退場區塊恰好幾個。
+/// **棘輪標記**：規則檔裡恰好一行，記合模板的量測**依 (binary, 閘的片段) 去重後**至少幾條。
 ///
-/// R3 verify 第 7 列：把 34 條量測裡的 33 條改寫成守衛認不出的寫法（`${AKASHIC_BIN:-akashic}`），閘全部消失而守衛 rc=0——唯一的地板是
-/// 「一條都沒掃到」。辨識在 R3 補寬了，但認不出來的寫法仍有（`selfProofIssues` 的誠實邊界），所以條數要有一個不靠辨識的地板：少於下限即紅。
-/// 新增量測之後把下限調高是人的事；下限過期只會讓它擋不住**少量**的流失，擋得住整批。
-/// 退場區塊（第 20 列）是一個全域的「不掃」開關：個數釘成恰好，多一個就紅，要人改標記——加一行 HTML 註解不再能安靜地藏一條量測。
-let selfProofRatchetPattern = #"<!-- zero-instance-rows-audit 棘輪：合模板的量測至少 (\d+) 條、已退場區塊 (\d+) 個 -->"#
+/// R3 verify 第 7 列：把量測改寫成守衛認不出的寫法，閘全部消失而守衛 rc=0——唯一的地板是「一條都沒掃到」。辨識在 R4 改成偏向「是量測」，
+/// 但認不出來的寫法仍有（`selfProofIssues` 的誠實邊界），所以條數要有一個不靠辨識的地板：少於下限即紅。新增量測之後把下限調高是人的事；
+/// 下限過期只會讓它擋不住**少量**的流失，擋得住整批。**它不是新增量測的守衛**：新增一條沒有閘的量測不改變合模板的條數，抓到它的只能是辨識。
+/// **去重**（R4 verify 第 21 列）：逐字相同的量測貼兩次、或同一道閘配不同的樣式，各算一條的話，拿掉三道閘再貼三份複本，地板照樣滿足。
+/// 地板數的是**閘**——同一道閘（同一支 binary、同一個片段）只算一次。
+/// **住在被稽核的同一個檔裡**（R4 verify 第 13 列）：一次編輯可以同時改下限與內容——這類檔內棘輪的固有限制（`protected-ratchet.txt`
+/// 把清單放在另一個檔）；它防的是安靜的流失，不是有意的改寫，改下限的那一行在 diff 裡看得到。
+let selfProofRatchetPattern = #"<!-- zero-instance-rows-audit 棘輪：合模板的量測（依 binary 與閘的片段去重）至少 (\d+) 條 -->"#
 
-func selfProofRatchetIssues(rule: String, gates: Int, retiredBlocks: Int) -> (issues: [String], floor: Int?) {
+/// 去重後的閘數。
+func selfProofDistinctGates(_ gates: [(needle: String, binary: String, line: Int)]) -> Int {
+    Set(gates.map { $0.binary + "\u{0}" + $0.needle }).count
+}
+
+func selfProofRatchetIssues(rule: String, gates: [(needle: String, binary: String, line: Int)]) -> (issues: [String], floor: Int?) {
     let found = captures(rule, selfProofRatchetPattern, multiline: true)
     let marks = matches(rule, selfProofRatchetPattern)
     guard marks.count == 1, let floorText = found.first, let floor = Int(floorText) else {
-        return (["棘輪標記要恰好一個（找到 \(marks.count) 個）：`<!-- zero-instance-rows-audit 棘輪：合模板的量測至少 N 條、已退場區塊 M 個 -->`"
-                 + "——它是量測條數不靠辨識的地板，也釘住退場區塊的個數"], nil)
+        return (["棘輪標記要恰好一個（找到 \(marks.count) 個）：`<!-- zero-instance-rows-audit 棘輪：合模板的量測（依 binary 與閘的片段去重）至少 N 條 -->`"
+                 + "——它是量測條數不靠辨識的地板"], nil)
     }
-    let ns = rule as NSString
-    let recordedRetired = Int(ns.substring(with: marks[0].range(at: 2))) ?? -1
-    var out: [String] = []
-    if gates < floor {
-        out.append("合模板的量測只有 \(gates) 條，棘輪標記的下限是 \(floor) 條——量測被拿掉、或改成守衛不判讀的寫法（以變數或檔案當來源、"
-                   + "`awk` 自己加總）。真的是有意的，把棘輪標記的下限改成 \(gates)")
-    }
-    if retiredBlocks != recordedRetired {
-        out.append("已退場區塊有 \(retiredBlocks) 個，棘輪標記記的是 \(recordedRetired) 個——退場標記讓整個 `text` fence 不被掃，"
-                   + "多一個就是多一處量測可以不帶閘；有意的話改棘輪標記的個數")
-    }
-    return (out, floor)
+    let distinct = selfProofDistinctGates(gates)
+    guard distinct < floor else { return ([], floor) }
+    return (["合模板的量測依閘去重後只有 \(distinct) 條，棘輪標記的下限是 \(floor) 條——量測被拿掉、改成守衛不判讀的寫法（以變數或檔案當來源、"
+             + "別名執行），或只是同一道閘的複本。真的是有意的，把棘輪標記的下限改成 \(distinct)"], floor)
 }
 
 // MARK: - 閘的片段要在 binary 裡、而且不能是負控自己種進去的（#711 R1）
@@ -703,7 +942,7 @@ let selfProofMinNeedleBytes = 8
 /// 片段不得含這些字元（#711 R2 verify 第 17 列）——選「拒收」而不是改寫成 `grep -F`：模板只有一種寫法，加一個 `-F` 的變體就是第二種。
 let selfProofNeedleMetacharacters: Set<Character> = [".", "[", "]", "*", "^", "$", "\\"]
 
-/// 閘的片段四個條件（#711 R1、R2、R3）：
+/// 閘的片段的條件（#711 R1、R2、R3；條數不寫——寫死的計數與清單分岔過，R4 verify 第 18、34 列）：
 /// 1. **不含基本正規式的特殊字元**（`selfProofNeedleMetacharacters`）、**不以 `-` 開頭**（R3：`grep` 會把它當選項）、
 ///    **不短於 `selfProofMinNeedleBytes`**（R2）。
 /// 2. **在那支 binary 的原始碼裡**——任何字串字面段都沒有的片段，是訊息改了字、或那條檢查已移除（R2 verify 第 21 列：R1 對這種情形

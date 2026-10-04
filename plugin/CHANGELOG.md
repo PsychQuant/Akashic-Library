@@ -1,5 +1,19 @@
 # Changelog
 
+## #692、#700 — b33 verify 修正（2026-10-05）：`web-read` 不刪目錄、開分頁前的網址檢查進 CLI；`.gitignore` 同時跑不再寫兩份
+
+**需要新的 `akashic` CLI**：web-access.md〈開始前〉第 4 點多一條探測（`web-read url` 要放行一條公開網站形狀的網址），上一輪的 CLI 過不了。這個要求本身待使用者裁決（#692 Blocking）。
+
+- **`akashic web-read landing`／`check` 不刪目錄**（#692）：`--out`／`--raw` 指的路徑只刪一般檔或 symlink（刪連結本身），目錄與其他型態在刪任何東西之前以 1 拒絕。先前對目錄整棵遞迴刪除——`landing --out .` 會刪掉目前目錄。讀回的 JSON 刪不掉時 `READ-OK` 改成 `READ-FAIL`、寫出的文字收回。
+- **開分頁之前的網址檢查改成 `akashic web-read url --file <網址檔>`**（`web-access.md`〈插值前先驗形狀〉的「完整網址」一列、`akashic-verify-venue`）：先前是一條正則由模型照著看，主機那一半比落地主機的檢查寬（`.home`、`.box`、`.private`、`127.0.0.1.nip.io` 都過得了），而開分頁就是帶著 cookie 送出請求。現在主機與落地主機同一個檢查；兩邊另擋特殊用途的頂層名稱（`.test`、`.example`、`.invalid`、`.onion`、`.alt`）。
+- **`web-read check`**：頁面回報的原文長度比交回的文字還短、剔除之後沒有看得見的字（整段不可見字元、或還沒渲染的空白首屏——區塊二先前把它當成「沒有訊號」往下走）都是 `READ-FAIL`；原文長度超過上限時 `truncated=yes`（不論頁面怎麼說）；剔除另加 noncharacter（與 repo 給 LLM 的出口同一個加項）。
+- **web-access.md**：〈鎖不到的時候〉不再用 Python 把分頁的整條網址印進對話，改數分頁（`web-read origin`）；區塊二與讀取區塊在動到分頁之前先確認讀取的運算式檔在；結束碼 2（主機換到已知的驗證服務）寫明是比中止條款保守的一邊、只在主機**換到**驗證服務時觸發，待使用者裁決；`LAND="-"` 對 http、帶埠號、私有名稱維持拒絕（使用者 2026-10-05 裁決）。Unicode 表的版本改說實話：是執行 `akashic` 那台 macOS 的 Swift runtime，不是建置時的。
+- **`akashic-verify-venue`**：「已截」寫成頁面回報、未經核實的長度；區塊二以 3 結束是等人驗證（在同一個分頁完成後重跑），不是停在那裡；修正一個指向已改名小節的引用。
+- **`akashic_import_zotero`、`akashic_import_wos`（含 `dry_run`）、CLI `file add`／`import-zotero`／`doctor`**（#700）：兩個以上的程序同時第一次對同一個 store 建佈局時，不再寫出兩份 sources 區塊、不再對已經加好的區塊假拒絕或報假警告（開檔後取鎖、鎖內重讀內容再決定；第一次看也等持鎖的寫入者寫完）。不改寫 `.gitignore` 的情形多四種：有其他硬連結、大到 git 不讀（≥ 100 MiB）、有標記而標記之後沒有 `sources/` 那一行（寫到一半中斷，先前被當成已在）、symlink 打不開（懸空、迴圈——訊息不再說「指向的內容沒有區塊」）。寫到一半失敗時只截掉這一次寫的，截不回來具名說出來。MCP 說明沒有改（位元組預算）；錯誤訊息自己說原因並附要加的那段，CLI `doctor --help`、`import-zotero --help`、`file add --help` 寫出這些行為。
+- `tools/list`：58,953 → 58,953 bytes（±0；MCP 說明沒有改）。
+
+plugin 版號沒有動（skill 文字的改動；行為在 CLI）。
+
 
 
 
@@ -79,7 +93,7 @@ plugin 版號沒有動（skill 文字的改動；CLI 的改動隨 `akashic` 發�
 ## #611、#692、#693、#708 — R3 修正（2026-10-02）
 
 - **同一個 id 被另一組候選占著的拒絕看得到出路**（#611，`akashic_record_divergence`、`record-divergence`、匯入的提名）：訊息逐行、出路在第二行（`akashic divergences` 看它、CLI `resolve-divergence` 合併、`dismiss-divergence`／MCP `akashic_dismiss_divergence` 放棄它）；R2 的單行訊息在兩面的錯誤出口都被截在出路之前。`import_zotero` 的 `failed` 列原因接成一行，截 512 之後出路仍完整。MCP 描述的出路改成 `akashic_dismiss_divergence` 或合併。
-- **讀頁面的主機與剔除改在頁面碰不到的那一側**（#692，`web-access.md`、`akashic-verify-venue`）：`safari-browser js` 在頁面自己的 JS 環境裡求值，頁面的腳本可以偽造回傳的主機、讓剔除失效（R2 宣稱的「文字一定出自宣告的主機」「字元層的隱形通道擋得住」都不成立）。現在主機取自 Safari 回報的分頁網址、讀取前後各一次；剔除不可見字元與長度上限由 `check-read.py` 再做一次；落地主機檢查改成選用（`LAND` 預設 `-`，只有 verify-venue 的第 4 源接上），REJECT 之後不留「驗過的」檔、也不留上一次的文字；使用者確認的網址被轉到別的主機也算不合。保證只到「文字出自讀取前後 Safari 回報的網址都在驗過的主機上的分頁」——頁面控制自己的內容，仍可以在文字裡說謊。`check-read.py` 的用法改了（`origin`／`landing`／`read` 三種），照 web-access.md 重寫一次。
+- **讀頁面的主機與剔除改在頁面碰不到的那一側**（#692，`web-access.md`、`akashic-verify-venue`）：`safari-browser js` 在頁面自己的 JS 環境裡求值，頁面的腳本可以偽造回傳的主機、讓剔除失效（R2 宣稱的「文字一定出自宣告的主機」「字元層的隱形通道擋得住」都不成立）。現在主機取自 Safari 回報的分頁網址、讀取前後各一次；~~剔除不可見字元與長度上限由 `check-read.py` 再做一次~~（R4 起是 `akashic web-read check`，見上方 R4 一節）；落地主機檢查改成選用（`LAND` 預設 `-`，只有 verify-venue 的第 4 源接上），REJECT 之後不留「驗過的」檔、也不留上一次的文字；使用者確認的網址被轉到別的主機也算不合。保證只到「文字出自讀取前後 Safari 回報的網址都在驗過的主機上的分頁」——頁面控制自己的內容，仍可以在文字裡說謊。~~`check-read.py` 的用法改了（`origin`／`landing`／`read` 三種），照 web-access.md 重寫一次。~~（`check-read.py` 已刪除：R4 移成 `akashic web-read`，b33 起多一個 `url`，見上方兩節。）
 - **`akashic-mcp` wrapper 讀不到版本時拒絕下載**（#693）：plugin.json 沒有 `binary_version`／`version`、`~/bin` 又沒有現成的 binary 時，不再下載 latest 的 asset 來執行（R2 讓 curl 退路走 latest，成了一條沒有完整性檢查的下載後執行的路；完整性檢查是 #714）。現在印出原因、請使用者重新安裝 plugin，並以 1 結束；有現成 binary 時照舊執行它。
 
 plugin 版號沒有動（wrapper 與 skill 文字的改動）。

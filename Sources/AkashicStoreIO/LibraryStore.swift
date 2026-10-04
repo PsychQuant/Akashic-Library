@@ -110,8 +110,10 @@ public enum StoreIOError: Error, LocalizedError, Equatable, SanitizedErrorDescri
                  + "——同一筆記錄現在有兩份，load 會把它標成無法唯一定位。確認 entities/ 那份是新的之後刪掉 legacy 那份（#631、#702）"
         case let .sourcesIgnoreNotWritten(problem, layoutWritten):
             // problem 的 reason／remedy 只含固定句、errno 數字與系統的固定英文說明（`SourcesIgnoreProblem`）；區塊是常數
+            // layoutWritten：這一次有沒有建任何東西（既有的佈局本來就在時，false 只表示這一次什麼都沒建——b33 verify X5 第 6 列）
             return "store 根目錄的 .gitignore 沒有 sources 排除區塊，這次不能替你加：\(problem.reason)。"   // display-safe-exempt: problem.reason 是固定句與 errno 說明（SourcesIgnoreProblem）
-                 + (layoutWritten ? ".gitignore 沒有改寫；佈局已建好，只差這一段。" : ".gitignore 沒有改寫，其他東西也還沒建。")
+                 + (problem.leavesGitignoreUntouched ? ".gitignore 沒有改寫" : ".gitignore 尾端可能留著這一次寫了一半的區塊")
+                 + (layoutWritten ? "；佈局已建好，只差這一段。" : "，這一次也沒有建立任何東西。")
                  + "\(problem.remedy)：\n" + LibraryStore.sourcesIgnoreBlock   // display-safe-exempt: problem.remedy 是固定句；LibraryStore.sourcesIgnoreBlock 是常數
         case let .legacyCopyLeftEarlierInThisOperation(id, file):
             return "同一個操作稍早已寫入這一筆（見 writtenWithLegacyCopy）：內容在 entities/\(id.uuidString).yaml，搬移後的 legacy "   // display-safe-exempt: id.uuidString：UUID 由型別保證
@@ -293,8 +295,9 @@ public final class LibraryStore {
     /// 不需要目錄被先建（原本的順序能運作只是因為 `createDirectory` 對既存目錄是 no-op）。
     ///
     /// **`.gitignore` 先看、最後才寫**（#700 b31 W5）：讀不懂的 `.gitignore`（讀不到、非 UTF-8、symlink…）不改寫。`policy` 是
-    /// `.refuse`（寫入類命令，預設）時在建立任何東西之前具名擲出；`.report`（`doctor`）時照常建佈局、`.gitignore` 不動，原因由回傳值給呼叫端報。
-    /// 回 `nil`＝區塊已在（本來就在或剛加上）。見 `SourcesIgnoreBlock.swift`。
+    /// `.refuse`（寫入類命令，預設）時，看得出的原因在建立任何東西之前具名擲出；開檔、取鎖、寫入時才發現的原因（寫入失敗、看與寫之間一直在變、
+    /// 鎖內重看才看到的形狀）在佈局建好之後擲出（`layoutWritten: true`）。`.report`（`doctor`）時照常建佈局、`.gitignore` 不動，原因由回傳值給
+    /// 呼叫端報。回 `nil`＝區塊已在（本來就在、剛加上、或同時跑的另一個程序剛加上）。見 `SourcesIgnoreBlock.swift`。
     @discardableResult
     public func ensureLayout(sourcesIgnore policy: SourcesIgnorePolicy = .refuse) throws -> SourcesIgnoreProblem? {
         let fm = FileManager.default

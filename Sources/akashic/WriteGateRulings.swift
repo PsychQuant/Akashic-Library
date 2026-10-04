@@ -80,7 +80,7 @@ extension DestructiveTargetGate {
         "resolve-organizations": .perLeg,
 
         // ── 會寫 store、刻意不閘 ──
-        "doctor": .notGated("只在佈局不存在時建立佈局（ensureLayout），並重建衍生的 index；不改寫任何既有記錄。.gitignore 只在沒有 sources 標記區塊時於尾端附加一段，讀不懂的（讀不到、非 UTF-8、symlink）不動、改報 warning（#700）"),
+        "doctor": .notGated("只在佈局不存在時建立佈局（ensureLayout），並重建衍生的 index；不改寫任何既有記錄。.gitignore 只在沒有 sources 標記區塊時於尾端附加一段（取鎖、鎖內重看），讀不懂的（讀不到、非 UTF-8、symlink、硬連結、太大、有標記沒有規則…）不動、改報 warning（#700）"),
         "import-wos": .notGated("只新增記錄、只補既有記錄上不存在的鍵；與來源不一致時拒絕覆寫、交人（conflicts）；有 --dry-run"),
         "create-entry": .notGated("只新增記錄（citekey 碰撞在批次內消解），不改寫既有記錄；有 --dry-run"),   // display-safe-exempt: notGated：編譯期字面常數（裁決理由），不含 store 衍生內容——「citekey」是欄位名不是某筆記錄的 citekey
         "add-person": .notGated("只新增一筆 person 記錄，不改寫既有記錄"),
@@ -95,7 +95,7 @@ extension DestructiveTargetGate {
         "library add": .notGated("集合語意、冪等：與 library remove 互為逆操作；#642 起對規則型／文件型逐筆比對規則，不符的不寫"),
         "library set-kind": .notGated("只改一筆 library 記錄的成員性質與規則、不動任何 entry；整值替換會回顯先前的值，替換既有性質時要求 registry 檔 tracked 且 clean（#573 一族的可回溯閘），所以舊值在 git、再跑一次就改回（#642）"),
         "library remove": .notGated("集合語意、冪等：與 library add 互為逆操作"),
-        "file add": .notGated("store 路徑由參數顯式給、不經 registry 的 current 解析；寫 registry，並在佈局不存在時建立佈局。.gitignore 只附加不改寫，讀不懂的（讀不到、非 UTF-8、symlink）在寫任何東西之前拒絕（#700）"),
+        "file add": .notGated("store 路徑由參數顯式給、不經 registry 的 current 解析；寫 registry，並在佈局不存在時建立佈局。.gitignore 只附加不改寫（取鎖、鎖內重看），沒有區塊而讀不懂的（讀不到、非 UTF-8、symlink、硬連結、太大、有標記沒有規則…）在寫任何東西之前拒絕；開檔、寫入時才失敗的在佈局建好之後拒絕（#700）"),
         "update-person": .notGated("逐筆指名一個 person key、有 --dry-run；提及的欄位整個替換、未提及的不動，references 只追加（被替換的舊值只在 git 歷史）。"
             + "names 動到 authorized 要 --judgement，寫判定記錄（只追加，#564 修正輪）；--remove-name 只刪最後一筆記錄是撤回的名字、連同記錄，刪前要求 person 檔已 commit（git 閘，同 update-venue 的移除腿）。這條腿以 person key ＋ 名字定位，clone 或備份裡照樣對得上——那正是 #580 過閘的判準；它現在不閘、防線只有 git 閘（只查乾淨，乾淨的 clone 也過）與整批拒絕，與 update-venue 的移除腿同一格待使用者裁決。" + outsideNamedFamily),
         "fmt": .notGated("把全庫記錄重寫成 canonical form——字面上的 encode(decode(x)) 往返，只改排版不改內容，冪等；--check 只回報不寫。不是 #653 點名的格式遷移：遷移改格式版本與內容形狀，fmt 兩者都不改"),
@@ -132,9 +132,10 @@ extension DestructiveTargetGate {
         "fulltext take": .readOnly("收人存下來的本機 PDF：驗證、git 閘、只寫 --out 指定的檔（在 git 工作樹之外），不經 openStore、不寫 store；存進 store 是之後的 store-source（#613）"),
         "fulltext calibrate": .readOnly("開發用：在本機 PDF 資料夾與 Crossref 回應目錄上量驗證規則，只讀（#629）"),
         "fulltext contract": .readOnly("印一個契約版本常數，不讀不寫任何檔、不碰瀏覽器（#613）"),
+        "web-read url": .readOnly("開分頁之前檢查網址檔的形狀，只讀 --file、只印到 stdout，不寫任何檔、不經 openStore（#692 b33 verify）"),
         "web-read origin": .readOnly("從 stdin 的 safari-browser documents 輸出取出鎖到的分頁的主機，只印到 stdout，不寫任何檔（#692 R4）"),
-        "web-read landing": .readOnly("驗落地主機，只寫 --out 指定的暫存檔（skill 的暫存目錄），不經 openStore（#692 R4）"),
-        "web-read check": .readOnly("檢查讀回的 JSON、寫出剔除後的文字到 --out、刪掉 --raw，都在 skill 的暫存目錄，不經 openStore（#692 R4）"),
+        "web-read landing": .readOnly("驗落地主機：刪 --out 指定的檔、通過才寫回它；不經 openStore。路徑由呼叫端給（skill 給的是暫存目錄裡的檔），程式不限制位置，只刪一般檔或 symlink、目錄具名拒絕（#692 R4、b33 verify）"),
+        "web-read check": .readOnly("檢查讀回的 JSON：刪 --out 與 --raw 指定的檔、READ-OK 才把剔除後的文字寫到 --out；不經 openStore。路徑由呼叫端給，程式不限制位置，只刪一般檔或 symlink、目錄具名拒絕（#692 R4、b33 verify）"),
         "crossref-match": .readOnly("比對本機的作品清單與 Crossref 回應檔，只寫 --out 指定的結果檔，不經 openStore、不寫 store（#629）"),
         "abstracts-to-proposals": .readOnly("adapter：把摘要 NDJSON 轉成 enrich 的提案 JSON，只讀 sources/ 的存檔、只寫 --out 指定的檔，不寫 store（#629）"),
         "s2 author-papers": .readOnly("查 Semantic Scholar，不開 store（#664）"),

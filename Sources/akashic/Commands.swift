@@ -11,7 +11,12 @@ import AkashicMCPKit
 
 struct Doctor: ParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "doctor", abstract: "建立/檢查 library 佈局、重建 index、一致性報告")
+        commandName: "doctor", abstract: "建立/檢查 library 佈局、重建 index、一致性報告",
+        discussion: """
+        佈局不存在時建立（store.yaml、incarnation、各目錄、sources/）。store 根目錄的 .gitignore 沒有 sources 排除區塊時在尾端附加一段\
+        （原有的位元組不動；沒有 .gitignore 時新建）。.gitignore 讀不到、不是 UTF-8 文字、是 symlink、有其他硬連結、不是一般檔、\
+        大到 git 不讀、有標記沒有規則或沒有寫入權限時不改它，印一則 ⚠ warning 與要自己加的那段，結束碼不因此改變（#700）。
+        """)
 
     @OptionGroup var options: LibraryOptions
 
@@ -19,7 +24,8 @@ struct Doctor: ParsableCommand {
         let (store, ignoreProblem) = try options.openOrCreateStore(sourcesIgnore: .report)
         // #700 b31 W5：讀不懂的 .gitignore（讀不到、非 UTF-8、symlink…）doctor 不改寫，改報一則 warning——先印，後面的早退吞不掉它
         if let p = ignoreProblem {
-            print("⚠ .gitignore 沒有 sources 排除區塊，doctor 沒有改寫它：\(p.reason)。\(p.remedy)：")   // display-safe-exempt: p.reason、p.remedy 是固定句與 errno 說明（SourcesIgnoreProblem）
+            print("⚠ .gitignore 沒有 sources 排除區塊，doctor " + (p.leavesGitignoreUntouched ? "沒有改寫它" : "寫到一半、沒能收回")
+                  + "：\(p.reason)。\(p.remedy)：")   // display-safe-exempt: p.reason、p.remedy 是固定句與 errno 說明（SourcesIgnoreProblem）
             for line in LibraryStore.sourcesIgnoreBlock.split(separator: "\n") { print("    \(line)") }   // display-safe-exempt: line 取自常數 LibraryStore.sourcesIgnoreBlock
         }
         let root = store.root
@@ -344,7 +350,12 @@ struct Validate: ParsableCommand {
 
 struct ImportZotero: ParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "import-zotero", abstract: "Zotero → Akashic 單向 pull（zotero.sqlite 唯讀）；沒有乾跑，未指名目標 store（--library 或 --yes）即拒絕（#658）")
+        commandName: "import-zotero", abstract: "Zotero → Akashic 單向 pull（zotero.sqlite 唯讀）；沒有乾跑，未指名目標 store（--library 或 --yes）即拒絕（#658）",
+        discussion: """
+        佈局不存在時建立（同 file add），並在 store 根目錄的 .gitignore 沒有 sources 排除區塊時於尾端附加一段（原有的位元組不動）。\
+        .gitignore 沒有區塊而讀不到、不是 UTF-8 文字、是 symlink 或硬連結、不是一般檔、大到 git 不讀、有標記沒有規則、沒有寫入權限時\
+        不改它、拒絕匯入——在讀 zotero.sqlite 之前、這一次什麼都不建，訊息附上要自己加的那段（#700）。
+        """)
 
     @OptionGroup var options: LibraryOptions
 

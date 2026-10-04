@@ -35,9 +35,9 @@ final class WebReadTests: XCTestCase {
 
     /// 國際化網域名稱：Safari 回報 Unicode 或 punycode，比起來都相同（R3 的限制 5：先前 Unicode 形一律被拒）。
     func testUnicodeAndPunycodeHostsCompareEqual() {
-        let unicode = WebRead.origin(of: "https://bücher.example/x")
-        XCTAssertEqual(unicode, "https://xn--bcher-kva.example")
-        XCTAssertEqual(unicode, WebRead.origin(of: "https://XN--BCHER-KVA.example/x"))
+        let unicode = WebRead.origin(of: "https://bücher.example.org/x")
+        XCTAssertEqual(unicode, "https://xn--bcher-kva.example.org")
+        XCTAssertEqual(unicode, WebRead.origin(of: "https://XN--BCHER-KVA.example.org/x"))
         XCTAssertTrue(WebRead.hostIsAcceptable(unicode))
         XCTAssertTrue(WebRead.hostIsAcceptable(WebRead.origin(of: "https://例え。テスト/")), "IDN 頂層名稱（xn--）也收")
     }
@@ -45,14 +45,26 @@ final class WebReadTests: XCTestCase {
     // MARK: - 形狀檢查
 
     func testHostShape() {
-        for ok in ["https://journal.example.org", "https://www.sciencedirect.com", "https://xn--bcher-kva.example", "https://a.co"] {
+        for ok in ["https://journal.example.org", "https://www.sciencedirect.com", "https://xn--bcher-kva.example.org", "https://a.co"] {
             XCTAssertTrue(WebRead.hostIsAcceptable(ok), ok)
         }
         for bad in ["http://journal.example.org", "https://journal.example.org:443", "https://localhost", "https://printer.local",
                     "https://intranet.corp", "https://10.0.0.1", "https://127.0.0.1.nip.io", "https://example.com.", "https://",
-                    "invalid://", "https://a_b.example.com", "https://example.1"] {
+                    "invalid://", "https://a_b.example.com", "https://example.1",
+                    // b33 verify X2 第 16 列：特殊用途的頂層名稱（RFC 6761、7686、9476）
+                    "https://foo.test", "https://foo.example", "https://foo.invalid", "https://foo.onion", "https://foo.alt",
+                    "https://nas.box", "https://router.home", "https://x.private", "https://foo.localdomain"] {
             XCTAssertFalse(WebRead.hostIsAcceptable(bad), bad)
         }
+    }
+
+    /// 主機裡還有 `:`（埠號已拆掉之後）：ASCII 與非 ASCII 兩個分支同一個答案（b33 verify X2 第 9 列：非 ASCII 分支曾交給 `URL(string:)`、
+    /// 把內嵌的 `:80` 當埠號讀掉）。
+    func testAnEmbeddedColonIsRefusedOnBothBranches() {
+        XCTAssertEqual(WebRead.origin(of: "https://example.com:80:/"), "invalid://")
+        XCTAssertEqual(WebRead.origin(of: "https://日本.jp:80:/"), "invalid://")
+        XCTAssertEqual(WebRead.origin(of: "https://日本:80:/"), "invalid://")
+        XCTAssertEqual(WebRead.origin(of: "https://日本.jp:443/"), "https://xn--wgv71a.jp:443", "一般的埠號照舊")
     }
 
     func testShownPrintsOnlyHostShapedStrings() {
@@ -82,13 +94,17 @@ final class WebReadTests: XCTestCase {
             if u == "\n" || u == "\t" { expected = String(u) }
             else if u == "\r" || v == 0x0B || v == 0x0C || v == 0x85 || cat == .lineSeparator || cat == .paragraphSeparator { expected = "\n" }
             else if cat == .spaceSeparator { expected = " " }
-            else if UnsafeToEmitScalar.contains(u) { expected = "" }
+            else if UnsafeToEmitScalar.contains(u) || u.properties.isNoncharacterCodePoint { expected = "" }
             else { expected = String(u) }
             let got = WebRead.clean("a" + String(u) + "b", limit: 10).text
             if got != "a" + expected + "b" { mismatches.append(String(format: "U+%04X", v)) }
             if mismatches.count >= 20 { break }
         }
         XCTAssertEqual(mismatches, [], "前 20 個不一致")
+        // b33 verify X2 第 15 列：noncharacter（`escapesInLLMDocument` 的加項）也刪
+        for v: UInt32 in [0xFFFF, 0xFFFE, 0xFDD0, 0xFDEF, 0x1FFFE, 0x10FFFF] {
+            XCTAssertEqual(WebRead.clean("x" + String(Unicode.Scalar(v)!) + "y", limit: 10).text, "xy", String(format: "U+%04X", v))
+        }
         for v: UInt32 in [0x0890, 0x0891, 0x13439, 0x1343F] {
             XCTAssertEqual(WebRead.clean("x" + String(Unicode.Scalar(v)!), limit: 10).text, "x", String(format: "U+%04X", v))
         }
@@ -152,7 +168,8 @@ final class WebReadTests: XCTestCase {
         }
         let ok = try check(raw: #"{"truncated": false, "rawLength": 1000000000, "text": "t"}"#)
         XCTAssertEqual(ok.code, 0)
-        XCTAssertEqual(ok.stdout, ["READ-OK host='https://journal.example.org' truncated=no raw_length=1000000000 kept=1"])
+        XCTAssertEqual(ok.stdout, ["READ-OK host='https://journal.example.org' truncated=yes raw_length=1000000000 kept=1"],
+                       "頁面回報的原文長度超過上限＝被截（b33 verify X2 第 11 列）")
     }
 
     /// 誠實的頁面截在 emoji 中間時 `JSON.stringify` 產出孤立的 `\ud83d`：不是 READ-FAIL，孤立代理字元刪掉。
@@ -181,6 +198,77 @@ final class WebReadTests: XCTestCase {
         try put("url.txt", "https://www.example.org/\n")
         XCTAssertEqual(WebRead.landingMode(originFile: path("o.txt"), landingFile: path("land.txt"), expectFile: path("url.txt")).code, 0)
         XCTAssertEqual(try String(contentsOfFile: path("land.txt"), encoding: .utf8), "https://www.example.org\n")
+    }
+
+    /// 頁面說沒截、原文長度卻超過上限：`truncated=yes`（b33 verify X2 第 11 列——先前印 `truncated=no raw_length=999999`，
+    /// SKILL 要模型以 `truncated` 為準）。
+    func testARawLengthOverTheLimitIsTruncatedWhateverThePageSays() throws {
+        let o = try check(raw: #"{"truncated": false, "rawLength": 999999, "text": "hello"}"#)
+        XCTAssertEqual(o.code, 0, "\(o.stdout)")
+        XCTAssertTrue(o.stdout[0].contains("truncated=yes"), "\(o.stdout)")
+        let exact = try check(raw: #"{"truncated": false, "rawLength": 100, "text": "hello"}"#)
+        XCTAssertTrue(exact.stdout[0].contains("truncated=no"), "剛好上限不算被截：\(exact.stdout)")
+    }
+
+    /// 原文長度比交回的文字還短：不可能出自誠實的頁面，READ-FAIL（b33 verify X2 第 6 列：先前印 `raw_length=2 kept=5`）。
+    func testARawLengthShorterThanTheTextIsRefused() throws {
+        let o = try check(raw: #"{"truncated": true, "rawLength": 2, "text": "hello"}"#)
+        XCTAssertEqual(o.code, 1, "\(o.stdout)")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: path("out.txt")))
+    }
+
+    /// 剔除之後沒有看得見的字（整段零寬或控制字元、或頁面還沒渲染的空白首屏）：READ-FAIL，不當成「沒有訊號」（b33 verify X2 第 17 列）。
+    func testNothingVisibleAfterTheStripIsAReadFailure() throws {
+        for raw in [#"{"truncated": false, "rawLength": 6, "text": "\u200b\u200b\u0001\ufe0f\u2060\u00ad"}"#,
+                    #"{"truncated": false, "rawLength": 1, "text": "\n"}"#,
+                    #"{"truncated": false, "rawLength": 0, "text": ""}"#] {
+            let o = try check(raw: raw)
+            XCTAssertEqual(o.code, 1, "\(raw)：\(o.stdout)")
+            XCTAssertTrue(o.stdout[0].contains("沒有看得見的字"), "\(o.stdout)")
+            XCTAssertFalse(FileManager.default.fileExists(atPath: path("out.txt")))
+            XCTAssertFalse(FileManager.default.fileExists(atPath: path("raw.json")))
+        }
+    }
+
+    /// 讀回的 JSON 刪不掉（它所在的目錄不可寫）：不再 `try?` 吞掉——READ-OK 改成 READ-FAIL、寫出的文字收回、stderr 說原文還在
+    /// （b33 verify X2 第 0／1 列「清理失敗要回報」）。
+    func testARawFileThatCannotBeRemovedTurnsReadOkIntoAFailure() throws {
+        try XCTSkipIf(geteuid() == 0, "root 刪得掉唯讀目錄裡的檔")
+        let locked = dir.appendingPathComponent("locked")
+        try FileManager.default.createDirectory(at: locked, withIntermediateDirectories: true)
+        let raw = locked.appendingPathComponent("raw.json").path
+        try #"{"truncated": false, "rawLength": 1, "text": "t"}"#.write(toFile: raw, atomically: true, encoding: .utf8)
+        try put("b.txt", "https://journal.example.org\n"); try put("a.txt", "https://journal.example.org\n")
+        chmod(locked.path, 0o555)
+        defer { chmod(locked.path, 0o755) }
+        let o = WebRead.checkMode(.init(rawFile: raw, outFile: path("out.txt"), limit: 100, landingFile: nil,
+                                        beforeFile: path("b.txt"), afterFile: path("a.txt")))
+        XCTAssertEqual(o.code, 1, "\(o)")
+        XCTAssertTrue(o.stdout[0].hasPrefix("READ-FAIL 讀回的 JSON 刪不掉"), "\(o.stdout)")
+        XCTAssertTrue(o.stderr.contains { $0.hasPrefix("RAW-NOT-REMOVED") }, "\(o.stderr)")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: path("out.txt")), "READ-FAIL 之後不留文字")
+    }
+
+    /// `url`：開分頁之前的檢查，主機與落地主機同一個形狀檢查（b33 verify X2 第 16／39 列：先前是文件裡的正則，`.home`、`.box`、
+    /// `127.0.0.1.nip.io` 這類都過得了）。
+    func testUrlModeSharesTheHostCheckWithLanding() throws {
+        func run(_ u: String) throws -> WebRead.Outcome {
+            try put("url.txt", u + "\n")
+            return WebRead.urlMode(urlFile: path("url.txt"))
+        }
+        let ok = try run("https://Journal.Example.org/about/history?x=1&y=(2)")
+        XCTAssertEqual(ok, .init(code: 0, stdout: ["URL-OK 'https://journal.example.org'"]))
+        for host in ["https://192.168.1.1.nip.io/admin", "https://10-0-0-1.sslip.io/", "https://127.0.0.1.nip.io/x", "https://router.home/",
+                     "https://nas.box/", "https://x.private/", "https://foo.localdomain/", "https://foo.test/", "https://foo.onion/"] {
+            XCTAssertEqual(try run(host).code, 4, host)
+        }
+        for shape in ["http://journal.example.org/", "https://journal.example.org:8443/", "https://journal.example.org/#x",
+                      "https://journal.example.org/a'b", "https://journal.example.org/a b", "https://journal.example.org/$(id)",
+                      "https://journal.example.org/a/%2e%2e/b", "https://journal.example.org/a/../b", "https://bücher.example.org/",
+                      "https://user@journal.example.org/", "https://10.0.0.1/", "https://localhost/", "https://journal.example.org/x\nhttps://evil.example.net/"] {
+            XCTAssertEqual(try run(shape).code, 1, shape)
+        }
+        XCTAssertEqual(WebRead.urlMode(urlFile: path("missing.txt")).code, 1)
     }
 
     func testOriginModeNeedsExactlyOneTab() {

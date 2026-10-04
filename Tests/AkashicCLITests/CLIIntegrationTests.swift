@@ -475,7 +475,8 @@ extension CLIIntegrationTests {
         // b31 W5 LOW 9：它也建化身 id 檔——說明不得比行為窄；#700 MEDIUM 0：既有的位元組不動、讀不懂的拒絕
         XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent("incarnation").path))
         XCTAssertTrue(help.stdout.contains("incarnation"), help.stdout)
-        XCTAssertTrue(help.stdout.contains("不是 UTF-8"), help.stdout)
+        // 只取沒有空白的片段：ArgumentParser 在空白處換行（b33 verify X5 第 12 列：「不是 UTF-8」在 COLUMNS=85 時被拆開）
+        XCTAssertTrue(help.stdout.contains("UTF-8"), help.stdout)
     }
 
     func testFileUseUnknownKeyFails() throws {

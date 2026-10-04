@@ -746,8 +746,9 @@ public extension LibraryStore {
             throw StoreIOError.invalidInput(
                 what: "sources 版控排除",
                 why: "sources/ 未被版控忽略——存檔是第三方逐字內容，不得進 remote。"
-                    + "在 store 的 .gitignore 加上「sources/」（ensureLayout 會寫入"
-                    + "標記區塊），或確認沒有其他規則反向 un-ignore 它，再重試")
+                    + "在 store 的 .gitignore 加上「sources/」（akashic doctor 會在沒有標記區塊時附加一段；"
+                    + ".gitignore 讀不懂、是 symlink 或硬連結、唯讀時它不改，改印要自己加的那段），"
+                    + "或確認沒有其他規則反向 un-ignore 它，再重試")
         }
         return true
     }

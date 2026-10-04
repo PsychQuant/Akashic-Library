@@ -31,6 +31,11 @@ enum SidebarSection: String, CaseIterable, Identifiable {
 /// `ContentView(onSwitchFile:)`。其餘 view 維持 internal——公開面越小,
 /// 日後改動越不會被迫維持相容。
 public struct ContentView: View {
+    /// 健康區塊「sources 殘留暫存檔」的說明（b31 W5 LOW 3、8、15：與 CLI 的 doctor 同一種說法——時間不可信的檔判不出是中斷留下的、
+    /// 還是正在進行的存檔，不能斷言它一小時沒動）。抽成常數讓測試讀得到。
+    static let strayTemporaryFilesHelp = "存檔留下的暫存檔（每個可以到 256 MiB）：數一小時沒動的，加上修改時間不可信（在未來或讀不到）、"
+        + "判不出還在不在動的。不斷言它們是中斷留下的——確認沒有 store-source／copy-zotero-attachments 在跑之後才可以刪；"
+        + "akashic doctor 會列出路徑、大小與最後修改的時間。"
     @Environment(AppState.self) private var state
     @State private var section: SidebarSection = .library
     @State private var selectedCitekey: String?
@@ -149,13 +154,13 @@ struct SidebarView: View {
                                 .help("blob 與 index 對不上。audit sidecar 的腐爛只會從"
                                       + "這裡看得到——它不會自己修好。")
                         }
-                        // #703 R1：中斷的存檔留下的暫存檔（只報不刪）。與 CLI／MCP 的 doctor 同一份 audit。R2 verify 第 22 則：只數
-                        // 一小時沒動的——還在動的可能是正在進行的存檔，不讓健康區塊因它亮起（`StoreHealth.hasFindings` 同一個判準）
+                        // #703 R1：存檔留下的暫存檔（只報不刪）。與 CLI／MCP 的 doctor 同一份 audit。R2 verify 第 22 則：數一小時沒動的——
+                        // 還在動的可能是正在進行的存檔，不讓健康區塊因它亮起（`StoreHealth.hasFindings` 同一個判準 `isStale`）。`isStale` 也數
+                        // 修改時間不可信的（在未來、讀不到；b26 F6 起）——說明要說出這一格，也不斷言它們是中斷留下的（b31 W5 LOW 3、8、15）
                         let staleStray = audit.strayTemporaryFiles.filter { $0.isStale() }.count
                         if staleStray > 0 {
                             LabeledContent("sources 殘留暫存檔", value: "\(staleStray)")
-                                .help("存檔在複製途中被中斷留下的檔（每個可以到 256 MiB；只數一小時沒動的）。"
-                                      + "確認沒有存檔在進行之後可以刪掉；akashic doctor 會列出路徑、大小與最後修改的時間。")
+                                .help(ContentView.strayTemporaryFilesHelp)
                         }
                     }
                     if let err = health.sourcesAuditError {

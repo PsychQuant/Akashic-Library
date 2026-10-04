@@ -164,6 +164,18 @@ final class SourceAddressServiceTests: XCTestCase {
         for key in everyKey.subtracting(shorthand).sorted() {
             XCTAssertTrue(mentionsIdentifier(span, key), "akashic_doctor 的 sources（…）說明沒有寫 \(key)：\(span)")
         }
+        // b31 W5 LOW 14：四個舊鍵是不截的完整陣列、沒有 *Total——上限那一句只說後兩列（occupantProblems、strayTemporaryFiles 排在四個舊鍵之後）。
+        // 先前寫「各列 20 則」，四個舊鍵補在同一個括號的開頭之後，讀起來涵蓋六列。
+        for legacy in ["orphanBlobs", "danglingIndexEntries", "malformedIndexLines", "unreadableShards"] {
+            XCTAssertNil(sources[legacy + "Total"], "\(legacy) 不截，沒有 Total")
+        }
+        XCTAssertTrue(span.contains("後兩列各 20 則"), span)
+        XCTAssertFalse(span.contains("；各列 20 則"), span)
+        let order = ["unreadableShards", "occupantProblems[]", "strayTemporaryFiles[]", "後兩列各 20 則"].compactMap { span.range(of: $0)?.lowerBound }
+        XCTAssertEqual(order.count, 4, span)
+        XCTAssertEqual(order, order.sorted(), "「後兩列」要指 occupantProblems 與 strayTemporaryFiles：\(span)")
+        // b31 W5 LOW 3、15：判不出時不斷言是中斷留下的——說明不寫「中斷存檔的暫存檔」
+        XCTAssertFalse(span.contains("中斷存檔"), span)
     }
 
     /// `text` 裡 `marker` 之後、與它的開括號配對的那一段（含巢狀的全形與半形括號）。

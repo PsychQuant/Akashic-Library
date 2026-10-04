@@ -127,6 +127,7 @@ final class SourcePlacementTests: XCTestCase {
     /// 負控：拿掉 `writeBlob` 的 `assertDirectoryCanPlace`，這一支紅（內容先被複製、同步過，分片目錄留著）。
     func testWhenTheVolumeReportsNothingTheRefusalComesFromTheCallsAndLeavesNothing() throws {
         let data = Data("discovered at placement time".utf8)
+        let registered = InFlightSourceFiles.count   // b31 W5 LOW 16：探測登記的兩個名字要撤銷
         let calls = PlacementCallCounter()
         let syncs = PlacementCallCounter()
         let attempting = placement(renameExclusive: ENOTSUP, hardLink: ENOTSUP,
@@ -141,6 +142,7 @@ final class SourcePlacementTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: blobURL(oneShot(data)).path))
         XCTAssertEqual(sourcesResidue(), [], "零寫入：探測的暫存名與這一步建的分片目錄都收回")
         XCTAssertEqual(indexLineCount(), 0)
+        XCTAssertEqual(InFlightSourceFiles.count, registered, "探測的登記要撤銷（漏撤會讓訊號一直被接管）")
     }
 
     /// **b29 V5 MEDIUM 0（Codex 的交叉情境）**：位址上已經有同一份內容（先前在支援的磁碟區上存的），而磁碟區**沒有回報能力旗標**、實際上又做不到。
@@ -173,6 +175,7 @@ final class SourcePlacementTests: XCTestCase {
     /// 探測用的兩個名字都是暫存檔的形狀（被 `SIGKILL` 留下時 doctor 報它們）。
     func testTheProbeLeavesNothingBehindWhenThePlacementWorks() throws {
         let data = Data("flags unknown, placement fine".utf8)
+        let registered = InFlightSourceFiles.count   // b31 W5 LOW 16：探測與 writeBlob 的登記都要撤銷
         let names = ProbeNames()
         let unknownButFine = placement(beforeRename: { from, to in names.record(from, to) }, volume: { _ in nil })
         guard case .stored(let r) = try store(data, placement: unknownButFine) else { return XCTFail() }
@@ -188,6 +191,25 @@ final class SourcePlacementTests: XCTestCase {
         XCTAssertFalse(again.bytesWritten, "已在的內容：探測通過之後回「早已在」")
         XCTAssertEqual(temporaryResidue(), [])
         XCTAssertEqual(indexLineCount(), 1)
+        XCTAssertEqual(InFlightSourceFiles.count, registered, "探測與 writeBlob 的登記都要撤銷（漏撤會讓訊號一直被接管、exec 的子行程繼承 SIG_IGN）")
+    }
+
+    /// b31 W5 LOW 16：分片目錄層的「做不到」（`assertDirectoryCanPlace` 的 `false?`）。`sources/` 所在的磁碟區做得到、分片目錄做不到——
+    /// 分片目錄被換成指向別的磁碟區的 symlink 時就是這個形狀。頂層的 `assertSourcesVolumeCanPlace` 放行，分片那一層要具名拒絕、零寫入。
+    /// 負控：把 `case false?: throw …` 改成 `return`，這一支紅（存進去了）。
+    func testAShardThatReportsItCannotPlaceIsRefusedEvenWhenSourcesCan() throws {
+        let data = Data("shard on another volume".utf8)
+        let digest = oneShot(data)
+        let shard = blobURL(digest).deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: shard, withIntermediateDirectories: true)
+        let shardPath = shard.path
+        let splitVolumes = placement(volume: { path in path == shardPath ? false : true })
+        XCTAssertThrowsError(try store(data, placement: splitVolumes)) { e in
+            XCTAssertTrue(message(e).contains("APFS") && message(e).contains("沒有存任何東西"), message(e))
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: blobURL(digest).path))
+        XCTAssertEqual(temporaryResidue(), [])
+        XCTAssertEqual(indexLineCount(), 0)
     }
 
     /// 磁碟區能力的讀取是真的：測試用的暫存目錄所在的磁碟區（APFS）回 `true`；不存在的路徑讀不到、回 `nil`（不擋）。

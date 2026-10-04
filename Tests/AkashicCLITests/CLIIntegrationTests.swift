@@ -472,6 +472,10 @@ extension CLIIntegrationTests {
         let help = try runCLI(["file", "add", "--help"], env: ["AKASHIC_HOME": home.path])
         XCTAssertTrue(help.stdout.contains(".gitignore"), "說明要說會附加到既有的 .gitignore：\(help.stdout)")
         XCTAssertFalse(help.stdout.contains("佈局只在不存在時建立"), help.stdout)
+        // b31 W5 LOW 9：它也建化身 id 檔——說明不得比行為窄；#700 MEDIUM 0：既有的位元組不動、讀不懂的拒絕
+        XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent("incarnation").path))
+        XCTAssertTrue(help.stdout.contains("incarnation"), help.stdout)
+        XCTAssertTrue(help.stdout.contains("不是 UTF-8"), help.stdout)
     }
 
     func testFileUseUnknownKeyFails() throws {

@@ -159,7 +159,7 @@ extension LibraryStore {
         guard fd >= 0 else {
             throw StoreIOError.invalidInput(
                 what: "sources/ 暫存檔",
-                why: "放置探測的暫存檔無法建立（\(Self.errnoText(-fd))）——digest \(digest) 沒有存")   // display-safe-exempt: Self.errnoText 只回 errno 數字與系統的固定英文說明（fd 是 Int32）；digest 是呼叫端算的 SHA-256 十六進位
+                why: "放置探測的暫存檔無法建立（\(Self.errnoText(-fd))）——磁碟區沒回報能力旗標，要在分片目錄裡實際放一次才知道能不能存；這次沒有寫入 digest \(digest)（位址上若已有同一份，它沒有被動）")   // display-safe-exempt: Self.errnoText 只回 errno 數字與系統的固定英文說明（fd 是 Int32）；digest 是呼叫端算的 SHA-256 十六進位
         }
         close(fd)
         let landed = InFlightSourceFiles.register(path: toPath)

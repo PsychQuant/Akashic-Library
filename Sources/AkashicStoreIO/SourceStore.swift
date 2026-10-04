@@ -128,14 +128,18 @@ public extension LibraryStore {
     /// `storeSource` 才被拒；被拒時零寫入、不留孤兒 blob。排除驗證問的是**這個 digest 的實際路徑**（#145：寫死的探測路徑會 fail-open），
     /// 所以每個 digest 各問一次。
     ///
+    /// **例外一格（#703 b29 V5；b31 W5 LOW 4、6 補寫在這裡）**：磁碟區**沒有回報**能力旗標時，預演不探測（探測要建檔，乾跑不寫）——
+    /// 乾跑說「可以」，實跑由 `writeBlob` 的 `assertDirectoryCanPlace` 在每一筆複製之前實際放一次，做不到就逐筆具名拒絕（每筆進 `writeFailed`，
+    /// 不是單一的整批拒絕）；被拒的那一筆零寫入（探測檔刪掉、這一步建的分片目錄收回），已存的前幾筆不受影響。旗標說做不到時與 `storeSource` 同一道閘、整批拒絕。
+    ///
     /// `temporaryToken`（#703 R1）：實跑要用的暫存檔名的 token——呼叫端把同一個交給 `storeSource(contentsOf:…temporaryToken:)`，
     /// 預演問的就是實跑會建立的那條路徑。位址上已經有東西時實跑不建暫存檔，預演仍然問（偏嚴，不偏鬆）。
     func preflightStoreSource(digest: String, temporaryToken: String = UUID().uuidString) throws {
         try preflightStoreSource(digest: digest, temporaryToken: temporaryToken, placement: .system)
     }
 
-    /// `preflightStoreSource` 的接縫版：多問一件事——`sources/` 所在的磁碟區做不做得到不覆寫的原子放置（b26 F6：做不到就整批拒絕、零寫入，
-    /// 與 `storeSource` 的第一步同一道閘）。
+    /// `preflightStoreSource` 的接縫版：多問一件事——`sources/` 所在的磁碟區做不做得到不覆寫的原子放置（b26 F6：旗標說做不到就整批拒絕、零寫入，
+    /// 與 `storeSource` 的第一步同一道閘；旗標讀不到時這裡不擋，見上面的例外一格）。
     internal func preflightStoreSource(digest: String, temporaryToken: String, placement: BlobPlacement) throws {
         try assertSourcesVolumeCanPlace(placement)
         guard ProvenanceReference.isWellFormedDigest(digest) else {
@@ -279,7 +283,7 @@ public extension LibraryStore {
     /// - **index 路徑自己過 fail-closed 閘**（security HIGH-1：blob 的探測路徑不能
     ///   代替 index 的——#145 教訓同形；`sources/*/` 這種窄規則會放 blob 擋 index）
     /// - **結尾換行守衛**（logic HIGH-2：檔尾無 `\n` 時直接 append 會把新行黏進
-    ///   既有行、毀掉它的可解析性——照抄同檔 `ensureSourcesIgnoreBlock` 的兩條件寫法）
+    ///   既有行、毀掉它的可解析性——`SourcesIgnoreBlock.swift` 的附加用同一個守衛）
     /// - **O_APPEND**（logic HIGH-1：`FileHandle(forWritingTo:)` 是 O_WRONLY，
     ///   seekToEnd+write 之間無互斥，併發寫者會互相覆寫）
     private func appendIndexEntry(digest: String, bytes: Int,
@@ -746,25 +750,5 @@ public extension LibraryStore {
                     + "標記區塊），或確認沒有其他規則反向 un-ignore 它，再重試")
         }
         return true
-    }
-
-    /// `.gitignore` 的 sources 排除區塊（task 4.3）。**以標記為判準的 idempotent**：
-    /// `# BEGIN akashic sources` 已在（即使內文是手工版本、與程式版不同）就不寫
-    /// 也不改寫——真實 store 的區塊是手工先寫的（#66 落地前），程式必須與既有
-    /// 狀態相容，改寫等於用程式版覆蓋使用者的措辭。
-    internal func ensureSourcesIgnoreBlock() throws {
-        let ignoreURL = root.appendingPathComponent(".gitignore")
-        let existing = (try? String(contentsOf: ignoreURL, encoding: .utf8)) ?? ""
-        guard !existing.contains("# BEGIN akashic sources") else { return }
-        var out = existing
-        if !out.isEmpty && !out.hasSuffix("\n") { out += "\n" }
-        out += """
-        # BEGIN akashic sources — 存檔的來源內容（第三方逐字位元組）
-        # 被指涉的內容本身不進 remote（Akashic-Library#66）；指涉紀錄（references:）照常追蹤。
-        sources/
-        # END akashic sources
-
-        """
-        try out.write(to: ignoreURL, atomically: true, encoding: .utf8)
     }
 }

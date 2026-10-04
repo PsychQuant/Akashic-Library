@@ -165,11 +165,15 @@ struct LibraryOptions: ParsableArguments {
     /// 不到的 in-store `.akashic/`，並且**重建錯的那個 index**——`~/.akashic/index/
     /// <key>.sqlite` 從來沒被 `doctor` 更新過。少一個丟得掉 key 的入口，比修兩個呼叫點
     /// 更可靠。
-    func openOrCreateStore() throws -> LibraryStore {
+    ///
+    /// `sourcesIgnore`（#700 b31 W5）：寫入類命令用 `.refuse`（預設——讀不懂的 `.gitignore` 在建立任何東西之前拒絕），`doctor` 用 `.report`
+    /// （照常建佈局、`.gitignore` 不動，回傳的原因由 doctor 印成 warning）。
+    func openOrCreateStore(sourcesIgnore policy: SourcesIgnorePolicy = .refuse) throws
+        -> (store: LibraryStore, sourcesIgnoreProblem: SourcesIgnoreProblem?) {
         let r = try resolved()
         let store = LibraryStore(root: r.root, key: r.key)
-        try store.ensureLayout()
-        return store
+        let problem = try store.ensureLayout(sourcesIgnore: policy)
+        return (store, problem)
     }
 
     /// #37：index 位置取決於 registry key，所以解析要保留 key 而不只是 root。

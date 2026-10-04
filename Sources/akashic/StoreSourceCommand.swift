@@ -18,7 +18,7 @@ import AkashicMCPKit
 struct StoreSourceCmd: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "store-source",
-        abstract: "存一份 source 的位元組進 sources/（內容定址、冪等；#264）。store 所在的磁碟區做不到不覆寫的原子放置（exFAT、FAT32）時整個拒絕、零寫入——要放在 APFS 或 HFS+")
+        abstract: "存一份 source 的位元組進 sources/（內容定址、冪等；#264）。store 所在的磁碟區做不到不覆寫的原子放置（exFAT、FAT32）時每一次都整個拒絕、零寫入（位址上已有同一份、只差補 index 也一樣）——要放在 APFS 或 HFS+。MCP akashic_store_source 同一道閘，它的說明因位元組預算沒寫這一格")
 
     @OptionGroup var options: LibraryOptions
 

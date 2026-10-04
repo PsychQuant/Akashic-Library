@@ -56,6 +56,14 @@
 
 plugin 版號沒有動（skill 文字的改動；行為在 CLI）。
 
+## #700、#703 — b31 W5 修正（2026-10-04）：讀不懂的 `.gitignore` 不再被整份換掉
+
+- **`akashic_import_zotero`、`akashic_import_wos`（含 `dry_run`）**：兩者建佈局時會在 store 根目錄的 `.gitignore` 補 sources 排除區塊。先前 `.gitignore` 讀不出來（不是 UTF-8、UTF-16、讀取權限不足）就當成空檔、整份換成只含區塊——使用者原有的規則全部消失、沒有任何訊息；`.gitignore` 是 symlink 時被換成一般檔。現在標記以位元組比對，已有區塊就不動；要加時只在尾端附加位元組；讀不懂的（讀不到、不是 UTF-8 文字或含 NUL、symlink 而指向的內容沒有區塊、不是一般檔、沒有寫入權限）**在建立任何東西之前具名拒絕**，訊息附上要自己加的那段。CLI 的 `file add`、`import-zotero` 同；`doctor` 不拒絕、`.gitignore` 不動、印一則 warning。`akashic_doctor` 不建佈局、不受影響。
+- `akashic_doctor` 的說明：`sources` 的「20 則、總數在 *Total」改寫成「後兩列各 20 則」——四個舊鍵（`orphanBlobs` 等）不截、沒有 `*Total`；`strayTemporaryFiles` 不再寫成「中斷存檔的」暫存檔（時間不可信時判不出）。位元組數不變。
+- 旗標讀不到的磁碟區上，放置探測的暫存檔建不起來時，訊息改說「這次沒有寫入 digest …（位址上若已有同一份，它沒有被動）」——先前說「沒有存」，對位址上已有同一份的重存是假的。拒絕本身不變：分片目錄不可寫時，連已在的內容重存也被拒（記錄、不改）。
+- `akashic_store_source` 的說明沒有寫「做不到不覆寫放置的磁碟區上每一次都拒絕、含只差補 index 的那一筆」（約 94 bytes）：位元組預算的政策是不淨增，這一格寫在 CLI `store-source --help` 與本 repo 的 `docs/store-format.md`（安裝的 plugin 讀不到），要不要加進 MCP 說明待使用者裁決。
+- `tools/list`：58,971 → 58,971 bytes（±0）。
+
 ## #611、#692、#693、#708 — R3 修正（2026-10-02）
 
 - **同一個 id 被另一組候選占著的拒絕看得到出路**（#611，`akashic_record_divergence`、`record-divergence`、匯入的提名）：訊息逐行、出路在第二行（`akashic divergences` 看它、CLI `resolve-divergence` 合併、`dismiss-divergence`／MCP `akashic_dismiss_divergence` 放棄它）；R2 的單行訊息在兩面的錯誤出口都被截在出路之前。`import_zotero` 的 `failed` 列原因接成一行，截 512 之後出路仍完整。MCP 描述的出路改成 `akashic_dismiss_divergence` 或合併。
@@ -381,7 +389,7 @@ plugin 的 wrapper 會自動下載新版 `akashic-mcp`，skill 文字可能比 b
 
 **b29 V5 之後**：
 
-- 磁碟區**沒有回報**能力旗標時（網路掛載、FUSE 之類，未實測），寫入之前在分片目錄裡實際放一次空的探測檔：做不到就同一句拒絕、零寫入、不補 index——先前位址上已有同一份內容的那一筆不經任何放置呼叫就回成功，缺條目時還補一列。拒絕也因此在複製內容之前。`copy-zotero-attachments` 的乾跑不探測（乾跑不寫），旗標讀不到時實跑逐筆拒絕。
+- 磁碟區**沒有回報**能力旗標時（網路掛載、FUSE 之類，未實測），寫入之前在分片目錄裡實際放一次空的探測檔：做不到就同一句拒絕、零寫入、不補 index——先前位址上已有同一份內容的那一筆不經任何放置呼叫就回成功，缺條目時還補一列。拒絕也因此在複製內容之前。`copy-zotero-attachments` 的乾跑不探測（乾跑不寫），旗標讀不到時實跑逐筆探測、做不到才逐筆拒絕（探測做得到就照常存——b31 W5 更正：先前這裡寫「實跑逐筆拒絕」）。
 - 同步的「不支援」多三個 errno（`ENOTTY`、`ENODEV`、`ENOSYS`）：沒有 `F_FULLFSYNC` 的磁碟區上不再每次都以「同步到裝置失敗」拒絕，改退到 `fsync`；真的 I/O 錯誤（`EIO`、`ENOSPC`、`EDQUOT`、`EROFS`）照樣拒絕。訊息說出 errno 與它的說明。
 - `akashic_doctor` 的 `sources.strayTemporaryFiles[].possiblyInProgress`：時間不可信（`ageSeconds` 是 `null`）時是 `true`——判不出就不要刪；CLI 對同一個檔不再說「中斷的存檔留下的——…可以刪掉」。
 - `akashic_store_source` 的說明先前寫「exclusionVerified=false 時拒絕」，與行為相反：`false` 是 store 不在 git 工作樹內、排除沒驗，**照存**；sources/ 未被 git 忽略才拒絕。說明已更正，行為沒變。
@@ -392,7 +400,7 @@ plugin 的 wrapper 會自動下載新版 `akashic-mcp`，skill 文字可能比 b
 
 **b26 F6 之後**：`akashic_libraries` 的說明把 `libraries` 寫成鍵名的形式（先前只靠 store 的欄位路徑 `akashic.libraries` 過關）；`akashic_doctor` 的 `sources` 說明寫齊 `occupantProblems[]`、`strayTemporaryFiles[]` 與它們的元素鍵（`path`、`kind`、`occupant`、`storedBytes`、`indexedBytes`、`bytes`、`ageSeconds`、`possiblyInProgress`）；`akashic_store_source` 的說明刪掉與 `retrieved` 參數說明重複的一句。回應本身沒有變；`tools/list` 整體 54,515 → 54,513 bytes（−2）。
 
-**b29 V5 之後**：`akashic_tag`、`akashic_libraries` 的說明寫出回應的鍵（`回 citekey、tags（改後清單）`、`回 citekey、libraries（改後清單）`——先前 `tags` 只出現在參數說明「要加的 tags」、`libraries` 只出現在「改 entry 的 libraries」這句講輸入的散文）；`akashic_resolve_venues` 的「各腿回」補 `rejected`；`akashic_doctor` 的 `sources` 說明補四個舊鍵 `orphanBlobs`／`danglingIndexEntries`／`malformedIndexLines`／`unreadableShards`，`ageSeconds` 寫明 `null`＝判不出。回應本身沒有變；`tools/list` 58,938 → 59,184 bytes（+246，預算 60,000）。
+**b29 V5 之後**：`akashic_tag`、`akashic_libraries` 的說明寫出回應的鍵（`回 citekey、tags（改後清單）`、`回 citekey、libraries（改後清單）`——先前 `tags` 只出現在參數說明「要加的 tags」、`libraries` 只出現在「改 entry 的 libraries」這句講輸入的散文）；`akashic_resolve_venues` 的「各腿回」補 `rejected`；`akashic_doctor` 的 `sources` 說明補四個舊鍵 `orphanBlobs`／`danglingIndexEntries`／`malformedIndexLines`／`unreadableShards`，`ageSeconds` 寫明 `null`＝判不出。回應本身沒有變；`tools/list` 這一輪 +246 bytes（修正輪分支上量的 58,938 → 59,184；與同批其他修正一起推上 main（`e5182cf1`）後實測 58,971，預算 60,000——b31 W5 LOW 10：先前只寫分支上的絕對值）。
 
 ## #704 — `akashic_import_zotero` 的 `residualFields` 說明改成「這次讀到的條目」
 

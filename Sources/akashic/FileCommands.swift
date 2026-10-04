@@ -49,7 +49,7 @@ struct FileList: ParsableCommand {
 
 struct FileAdd: ParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "add", abstract: "註冊一個檔案並確保 layout（缺的目錄與格式標記才建立；既有的 .gitignore 沒有 sources 標記區塊時附加一段、既有的行不動；同 key 或同路徑已註冊時具名拒絕、不覆寫；不切換 current）")
+        commandName: "add", abstract: "註冊一個檔案並確保 layout（缺的才建立：目錄、格式標記 store.yaml、化身 id 檔 incarnation、沒有 .gitignore 時新建一個；既有的 .gitignore 沒有 sources 標記區塊時在尾端附加一段，原有的位元組不動。.gitignore 讀不到、不是 UTF-8 文字、是 symlink 或沒有寫入權限時不改它、拒絕註冊，什麼都不建，訊息附上要自己加的那段；同 key 或同路徑已註冊時具名拒絕、不覆寫；不切換 current）")
 
     @Argument(help: "檔案 key（小寫英數起頭、僅 a-z0-9-）") var key: String
     @Argument(help: "store root 路徑") var path: String

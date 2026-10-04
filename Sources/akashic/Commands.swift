@@ -16,7 +16,12 @@ struct Doctor: ParsableCommand {
     @OptionGroup var options: LibraryOptions
 
     func run() throws {
-        let store = try options.openOrCreateStore()
+        let (store, ignoreProblem) = try options.openOrCreateStore(sourcesIgnore: .report)
+        // #700 b31 W5：讀不懂的 .gitignore（讀不到、非 UTF-8、symlink…）doctor 不改寫，改報一則 warning——先印，後面的早退吞不掉它
+        if let p = ignoreProblem {
+            print("⚠ .gitignore 沒有 sources 排除區塊，doctor 沒有改寫它：\(p.reason)。\(p.remedy)：")   // display-safe-exempt: p.reason、p.remedy 是固定句與 errno 說明（SourcesIgnoreProblem）
+            for line in LibraryStore.sourcesIgnoreBlock.split(separator: "\n") { print("    \(line)") }   // display-safe-exempt: line 取自常數 LibraryStore.sourcesIgnoreBlock
+        }
         let root = store.root
         let load = try store.load()
         // #504：doctor 先前是 `StoreHealth` 之外的第四條讀取路徑——自己算 cross-record、殘留、
@@ -353,7 +358,7 @@ struct ImportZotero: ParsableCommand {
         // #658（使用者 2026-09-28 裁決）：pull 整份替換 `fields`、覆寫未歸戶的 literal 作者（fieldsRemovedByPull／
         // authorsOverwritten），再跑一次回不去，而且沒有乾跑——寫錯 store 的代價要靠 git 收拾。沒有寫入旗標可掛，flag 傳空字串。
         try options.assertDestructiveTargetNamed("import-zotero", flag: "", hasDryRun: false)
-        let store = try options.openOrCreateStore()
+        let store = try options.openOrCreateStore().store
         let dbURL = URL(fileURLWithPath: (zoteroDb as NSString).expandingTildeInPath)
         guard FileManager.default.fileExists(atPath: dbURL.path) else {
             throw RuntimeFailure.state("找不到 zotero.sqlite：\(displaySafeInvisible(dbURL.path, max: 300))")

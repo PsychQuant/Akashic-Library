@@ -667,6 +667,23 @@ final class ServiceTests: XCTestCase {
         XCTAssertEqual(dropped?.count, 1, "收不進 fields 的欄位名必須出現在報告：\(obj)")
     }
 
+    /// #700 b31 W5 MEDIUM 0：MCP 的匯入也經 `ensureLayout`——`.gitignore` 讀不懂（這裡是 Latin-1、沒有 sources 區塊）時在寫任何東西之前拒絕，
+    /// `.gitignore` 逐位元組不變、沒有建任何 entry（先前整份換成只含區塊）。
+    func testImportWoSRefusesWithoutRewritingAnUndecodableGitignore() throws {
+        let ignore = root.appendingPathComponent(".gitignore")
+        let original = Data([0x23, 0x20, 0x63, 0x61, 0x66, 0xE9, 0x0A]) + Data("*.srt\n".utf8)
+        try original.write(to: ignore)
+        let before = try LibraryStore(root: root).load().entries.count
+        let path = try wosTSV([["Authors": "Lay, K-L", "Article Title": "Gitignore",
+                                "Publication Year": "2020", "Source Title": "DevPsy", "DOI": "10.2/gi"]])
+        XCTAssertThrowsError(try service.importWoS(path: path, csv: false, dryRun: false)) { error in
+            let message = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            XCTAssertTrue(message.contains("不是 UTF-8") && message.contains(".gitignore 沒有改寫"), message)
+        }
+        XCTAssertEqual(try Data(contentsOf: ignore), original, "原有內容要逐位元組保留")
+        XCTAssertEqual(try LibraryStore(root: root).load().entries.count, before)
+    }
+
     func testImportWoSMissingFileFailsLoud() {
         XCTAssertThrowsError(try service.importWoS(path: "/nonexistent/wos.txt",
                                                    csv: false, dryRun: false))

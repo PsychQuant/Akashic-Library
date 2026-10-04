@@ -26,7 +26,7 @@ struct CopyZoteroAttachments: ParsableCommand {
     @Option(name: .long, help: "只處理這些 citekeys（逗號分隔）；省略＝store 裡全部帶 zotero 附件記錄的 work")
     var citekeys: String?
 
-    @Flag(name: .long, help: "實際複製並寫入（預設只列出計畫）。寫入前要求被改寫的 work 檔已在 git 裡 commit、乾淨，且 sources/ 已被版控排除；任何一道過不了就整批零寫入")
+    @Flag(name: .long, help: "實際複製並寫入（預設只列出計畫）。寫入前要求被改寫的 work 檔已在 git 裡 commit、乾淨，且 sources/ 已被版控排除；任何一道過不了就整批零寫入（含 store 所在的磁碟區做不到不覆寫的原子放置，exFAT、FAT32）。例外：磁碟區沒回報能力旗標時預演不探測，實跑在每一筆複製之前實際放一次，做不到就逐筆拒絕（進寫入失敗、結束碼 1）")
     var apply = false
 
     /// `--citekeys` 切開後的清單（空段丟掉）——`validate()` 與 `run()` 讀同一個。

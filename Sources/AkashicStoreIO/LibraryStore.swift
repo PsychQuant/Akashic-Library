@@ -40,6 +40,9 @@ public enum StoreIOError: Error, LocalizedError, Equatable, SanitizedErrorDescri
     /// `detail` 在擲出端已消毒。**只在收集範圍外擲出**（#705）：回報面開的範圍裡，同一件事記成 `LegacyCopyLeft`、寫入照常回傳，
     /// 回報面把它列在成功那一側的 `writtenWithLegacyCopy`。
     case legacyCopyNotRemoved(id: UUID, file: String, detail: String)
+    /// #700 b31 W5：`ensureLayout` 沒有把 sources 排除區塊加進 `.gitignore`，而呼叫端是寫入類命令（`SourcesIgnorePolicy.refuse`）。
+    /// `.gitignore` 沒有改寫。`layoutWritten`：`false` 時佈局也還沒建（看的時候就發現了）；`true` 時佈局已建好、只有寫入那一步失敗。
+    case sourcesIgnoreNotWritten(SourcesIgnoreProblem, layoutWritten: Bool)
     /// `legacyCopyPresent` 的特例：兩份並存是**同一個操作稍早的一步**造成的——那一步寫進了 `entities/<id>.yaml`、搬移後的 legacy 拷貝
     /// 刪不掉，記在 `writtenWithLegacyCopy`（`LegacyCopyLedger.earlierWrite`）。#705 R2 verify 第 5 列：先前只有 `ZoteroImporter` 自己查、
     /// 說出前一步寫了；其他多步寫入者只得到泛用的「兩份並存，拒絕寫入」，讀的人會以為這一筆整個沒寫。現在所有寫入者同一句。
@@ -105,6 +108,11 @@ public enum StoreIOError: Error, LocalizedError, Equatable, SanitizedErrorDescri
         case let .legacyCopyNotRemoved(id, file, detail):
             return "已寫入 entities/\(id.uuidString).yaml，但搬移來源 legacy \(displaySafeInvisible(file, max: 300)) 沒刪掉：\(displaySafeClipOnly(detail, max: 600))"   // display-safe-exempt: id.uuidString：detail 已消毒（擲出端），只截
                  + "——同一筆記錄現在有兩份，load 會把它標成無法唯一定位。確認 entities/ 那份是新的之後刪掉 legacy 那份（#631、#702）"
+        case let .sourcesIgnoreNotWritten(problem, layoutWritten):
+            // problem 的 reason／remedy 只含固定句、errno 數字與系統的固定英文說明（`SourcesIgnoreProblem`）；區塊是常數
+            return "store 根目錄的 .gitignore 沒有 sources 排除區塊，這次不能替你加：\(problem.reason)。"   // display-safe-exempt: problem.reason 是固定句與 errno 說明（SourcesIgnoreProblem）
+                 + (layoutWritten ? ".gitignore 沒有改寫；佈局已建好，只差這一段。" : ".gitignore 沒有改寫，其他東西也還沒建。")
+                 + "\(problem.remedy)：\n" + LibraryStore.sourcesIgnoreBlock   // display-safe-exempt: problem.remedy 是固定句；LibraryStore.sourcesIgnoreBlock 是常數
         case let .legacyCopyLeftEarlierInThisOperation(id, file):
             return "同一個操作稍早已寫入這一筆（見 writtenWithLegacyCopy）：內容在 entities/\(id.uuidString).yaml，搬移後的 legacy "   // display-safe-exempt: id.uuidString：UUID 由型別保證
                  + "\(displaySafeInvisible(file, max: 300)) 沒刪掉、兩份並存——#631 拒絕同一筆的下一次寫入，這一步的改動沒有套用。"
@@ -283,8 +291,17 @@ public final class LibraryStore {
     /// **順序有意義**：`store.yaml` 必須先寫，下面才讀得到 format。`writeIfAbsent` 只
     /// 需要 `root` 存在；它判定 legacy 的依據是 `entries/`／`people/` 裡**既有的檔案**，
     /// 不需要目錄被先建（原本的順序能運作只是因為 `createDirectory` 對既存目錄是 no-op）。
-    public func ensureLayout() throws {
+    ///
+    /// **`.gitignore` 先看、最後才寫**（#700 b31 W5）：讀不懂的 `.gitignore`（讀不到、非 UTF-8、symlink…）不改寫。`policy` 是
+    /// `.refuse`（寫入類命令，預設）時在建立任何東西之前具名擲出；`.report`（`doctor`）時照常建佈局、`.gitignore` 不動，原因由回傳值給呼叫端報。
+    /// 回 `nil`＝區塊已在（本來就在或剛加上）。見 `SourcesIgnoreBlock.swift`。
+    @discardableResult
+    public func ensureLayout(sourcesIgnore policy: SourcesIgnorePolicy = .refuse) throws -> SourcesIgnoreProblem? {
         let fm = FileManager.default
+        let ignoreState = inspectSourcesIgnore()
+        if case .problem(let problem) = ignoreState, policy == .refuse {
+            throw Self.sourcesIgnoreRefusal(problem, layoutWritten: false)
+        }
         try fm.createDirectory(at: root, withIntermediateDirectories: true)
         // #24：新建的 store 自我聲明格式。既有檔不覆寫（可能是較新版本寫的）。
         try StoreVersion.writeIfAbsent(root: root)
@@ -323,11 +340,13 @@ public final class LibraryStore {
         for dir in dirs {
             try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         }
-        // #66：擷取內容的存檔目錄 + 版控排除區塊（idempotent；既有手工區塊不改寫）。
+        // #66：擷取內容的存檔目錄 + 版控排除區塊（idempotent；既有手工區塊不改寫；#700：只附加位元組、讀不懂的不動）。
         // 建目錄與寫排除**同一動作**——目錄先於排除存在的窗口，就是內容可能被
-        // commit 的窗口。
+        // commit 的窗口。（排除沒寫進去時 `sources/` 是空的；`storeSource` 寫入前以 git 驗排除，未生效即拒寫。）
         try fm.createDirectory(at: sourcesDir, withIntermediateDirectories: true)
-        try ensureSourcesIgnoreBlock()
+        guard let problem = applySourcesIgnore(ignoreState) else { return nil }
+        if policy == .refuse { throw Self.sourcesIgnoreRefusal(problem, layoutWritten: true) }
+        return problem
     }
 
     /// 佈局殘留（#107）：依當前 format 與 key **不該存在**、且是**空目錄或純衍生物**

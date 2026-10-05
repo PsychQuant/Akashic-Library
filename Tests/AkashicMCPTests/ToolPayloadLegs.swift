@@ -3,12 +3,12 @@ import Foundation
 /// 每條寫入腿都要有 payload 情境（#700，使用者 2026-09-30 裁決）——兩張封閉表。
 ///
 /// 守衛（`ToolPayloadLegTests`）從兩個來源列舉「腿」：
-/// 1. **CLI 的裁決表**（`Sources/akashic/WriteGateRulings.swift`）：每一個會寫 store 的命令、三個逐腿命令的每一條寫入腿。
+/// 1. **CLI 的裁決表**（`Sources/akashic/WriteGateRulings.swift`）：每一個會寫 store 的命令、逐腿命令的每一條寫入腿。
 ///    命令與腿先照機械規則對到 MCP（命令 `update-venue` → 工具 `akashic_update_venue`、旗標 `--drop-venue` → 參數
 ///    `drop_venue`）；對不上的在 `commands`／`legs` 寫一列——對到哪一個 MCP 工具與參數值，或為什麼只有 CLI。
 ///    對到的 MCP 參數必須有情境宣告它（`PayloadScenario.params`），只寫理由不算。
 /// 2. **MCP 工具的參數**（真 binary `tools/list` 的 `inputSchema.properties`）：每一個參數要有情境宣告它，或在
-///    `unexercised` 寫一列理由。**這一半才擋得到 #675**：`update-venue` 在裁決表裡是命令層的一格（逐腿只做三個命令，
+///    `unexercised` 寫一列理由。**這一半才擋得到 #675**：`update-venue` 當時在裁決表裡是命令層的一格（2026-10-05 起逐腿，
 ///    見 `WriteGateRulings.swift` 的誠實邊界），`edit_name_segment` 這條新腿在裁決表裡看不到，在 `tools/list` 裡看得到。
 ///
 /// 兩張表都是封閉列舉：新的一列要寫出它自己的理由，不從鄰居類推。
@@ -46,9 +46,14 @@ enum ToolPayloadLegs {
         "fmt": .cliOnly("mcp-cli-parity CLI-only 表：全庫改寫＝維運例外"),
     ]
 
-    /// 三個逐腿命令裡、機械規則對不上的寫入腿（`legRulings` 的 gated／notGated）。命令 → 旗標 → 對應。
-    /// 2026-09-30 的全部寫入腿都對得上（`--drop-author` → `drop_author`……），所以是空的；新腿對不上時在這裡加一列。
-    static let legs: [String: [String: MCPLeg]] = [:]
+    /// 逐腿命令裡、機械規則對不上的寫入腿（`legRulings` 的 gated／notGated）。命令 → 旗標 → 對應。
+    /// 2026-09-30 的全部寫入腿都對得上（`--drop-author` → `drop_author`……）；2026-10-05 `update-person`／`update-organization`／`update-venue`
+    /// 改成逐腿（#564 裁決第 4 點），前兩者的 `--remove-name` 在 MCP 面是複數的 `remove_names`、`update-venue` 的 `--add-name` 是 `add_names`。
+    static let legs: [String: [String: MCPLeg]] = [
+        "update-person": ["--remove-name": .tool("akashic_update_person", parameter: "remove_names")],
+        "update-organization": ["--remove-name": .tool("akashic_update_organization", parameter: "remove_names")],
+        "update-venue": ["--add-name": .tool("akashic_update_venue", parameter: "add_names")],
+    ]
 
     /// MCP 工具的參數裡、**沒有**情境宣告的（工具 → 參數 → 理由）。有情境宣告的參數不得再列（列了即紅：過期）。
     static let unexercised: [String: [String: String]] = [

@@ -5,7 +5,7 @@ import ArgumentParser
 @testable import AkashicStoreIO
 @testable import akashic
 
-/// 目標確認閘的裁決表（#658）：CLI 的每一個葉命令、三個逐腿命令的每一條腿，都要在
+/// 目標確認閘的裁決表（#658）：CLI 的每一個葉命令、六個逐腿命令的每一條腿，都要在
 /// `DestructiveTargetGate.commandRulings`／`legRulings` 有一格。
 ///
 /// **列舉走執行期的命令樹**（ArgumentParser 的 dump-help，與 `--experimental-dump-help` 同一份 JSON），
@@ -86,8 +86,8 @@ final class WriteGateRulingsTests: XCTestCase {
         let cross = try Self.crossCutting()
         XCTAssertTrue(cross.contains("--library") && cross.contains("--yes"), "橫切選項抽不出來：\(cross.sorted())")
         let perLeg = DestructiveTargetGate.commandRulings.filter { $0.value == .perLeg }.keys.sorted()
-        XCTAssertEqual(perLeg, ["resolve-organizations", "resolve-people", "resolve-venues"],
-                       "逐腿裁決的命令是封閉的三個（#658 的範圍）；要加第四個就改這裡並寫出理由")
+        XCTAssertEqual(perLeg, ["resolve-organizations", "resolve-people", "resolve-venues", "update-organization", "update-person", "update-venue"],
+                       "逐腿裁決的命令是封閉的六個（#658 的三個＋#564 使用者 2026-10-05 裁決第 4 點的三個）；要加第七個就改這裡並寫出理由")
         XCTAssertEqual(Set(DestructiveTargetGate.legRulings.keys), Set(perLeg),
                        "legRulings 的命令與 commandRulings 標 .perLeg 的命令要一致")
         for cmd in perLeg {
@@ -239,6 +239,39 @@ final class WriteGateRulingsTests: XCTestCase {
             "--drop-venue": ["--drop-venue", "x2020y:0=r"],
             "--rests-on": ["--rests-on", digest],
         ],
+        // #564 使用者 2026-10-05 裁決第 4 點：--remove-name 過閘、其餘腿不閘
+        "update-person": [
+            "--remove-name": ["--key", "p", "--remove-name", "X=r"],
+            "--fields": ["--key", "p", "--fields", #"{"note":"x"}"#],
+            "--judgement": ["--key", "p", "--fields", "{}", "--judgement", "r"],
+            "--rests-on": ["--key", "p", "--fields", "{}", "--rests-on", digest],
+            "--dry-run": ["--key", "p", "--fields", "{}", "--dry-run"],
+            "--key": ["--key", "p", "--fields", "{}"],
+        ],
+        // #564 使用者 2026-10-05 裁決第 4 點：三條移除腿過閘（--edit-name-segment 用帶 remove 的樣本；只有 set 的另一條測試）
+        "update-venue": [
+            "--remove-issn": ["v", "--remove-issn", "0317-8471=r"],
+            "--remove-reference": ["v", "--remove-reference", #"[{"field":"issn","value":"0317-8471","reason":"r"}]"#],
+            "--edit-name-segment": ["v", "--edit-name-segment", #"[{"name":"X","remove":true,"reason":"r"}]"#],
+            "--add-name": ["v", "--add-name", "X"],
+            "--add-issn": ["v", "--add-issn", "0317-8471"],
+            "--add-variant": ["v", "--add-variant", "X", "--judgement", "r"],
+            "--authorize": ["v", "--authorize", "X", "--judgement", "r"],
+            "--unauthorize": ["v", "--unauthorize", "X", "--judgement", "r"],
+            "--paginated": ["v", "--paginated", "true", "--judgement", "r", "--rests-on", digest],
+            "--clear-paginated": ["v", "--clear-paginated", "--judgement", "r", "--rests-on", digest],
+            "--references": ["v", "--references", #"[{"field":"issn","value":"0317-8471","kind":"retrieval","url":"https://portal.issn.org/","retrieved":"2026-10-05","status":200,"content":"\#(digest)"}]"#],
+            "--note": ["v", "--note", "n"],
+            "--type": ["v", "--type", "periodical"],
+            "--judgement": ["v", "--judgement", "r"],
+            "--rests-on": ["v", "--rests-on", digest],
+        ],
+        "update-organization": [
+            "--remove-name": ["o", "--remove-name", "X=r"],
+            "--authorize": ["o", "--authorize", "X", "--judgement", "r"],
+            "--judgement": ["o", "--judgement", "r"],
+            "--rests-on": ["o", "--rests-on", digest],
+        ],
         "resolve-organizations": [
             "--apply": ["--apply"],
             "--reject": ["--reject", "--org", "o"],
@@ -281,6 +314,36 @@ final class WriteGateRulingsTests: XCTestCase {
             }
         }
         XCTAssertGreaterThan(checked, 20)
+    }
+
+    // MARK: - #564 使用者 2026-10-05 裁決第 4 點
+
+    /// `update-person --remove-name` 過閘、乾跑不擋；`update-organization --remove-name` 沒有乾跑、一律擋，拒絕訊息說它沒有乾跑；
+    /// 指名目標之後通過閘（之後是 store 狀態的事）。
+    func testRemoveNameLegsAreGatedButThePersonDryRunIsNot() throws {
+        let dry = try CLITestHarness.run(["update-person", "--key", "p", "--remove-name", "X=r", "--dry-run"], env: unnamedEnv)
+        XCTAssertFalse(dry.output.contains("未指名目標 store"), dry.output)
+        let org = try CLITestHarness.run(["update-organization", "o", "--remove-name", "X=r"], env: unnamedEnv)
+        XCTAssertNotEqual(org.status, 0)
+        XCTAssertTrue(org.output.contains("update-organization --remove-name 拒絕執行：未指名目標 store") && org.output.contains("這條腿沒有 dry-run"),
+                      org.output)
+        let named = try CLITestHarness.run(["update-person", "--key", "p", "--remove-name", "X=r", "--library", root.path], env: unnamedEnv)
+        XCTAssertFalse(named.output.contains("未指名目標 store"), named.output)
+    }
+
+    /// `update-venue --edit-name-segment`：一條腿兩種動作——帶 remove 的過閘（拒絕訊息點名這條腿、說它沒有乾跑），只有 set 的不閘
+    /// （走到 store、被「找不到 venue」擋下）；`--yes` 之後帶 remove 的也通過閘。
+    func testVenueEditNameSegmentIsGatedOnlyWhenItRemoves() throws {
+        let remove = try CLITestHarness.run(["update-venue", "v", "--edit-name-segment", #"[{"name":"X","set":{"note":"n"},"reason":"r"},{"name":"Y","remove":true,"reason":"r"}]"#],
+                                            env: unnamedEnv)
+        XCTAssertNotEqual(remove.status, 0)
+        XCTAssertTrue(remove.output.contains("update-venue --edit-name-segment 拒絕執行：未指名目標 store") && remove.output.contains("這條腿沒有 dry-run"),
+                      remove.output)
+        let set = try CLITestHarness.run(["update-venue", "v", "--edit-name-segment", #"[{"name":"X","set":{"note":"n"},"reason":"r"}]"#], env: unnamedEnv)
+        XCTAssertFalse(set.output.contains("未指名目標 store"), set.output)
+        XCTAssertFalse(set.output.contains("Usage:"), "樣本要走到 store：\(set.output)")
+        let yes = try CLITestHarness.run(["update-venue", "v", "--edit-name-segment", #"[{"name":"Y","remove":true,"reason":"r"}]"#, "--yes"], env: unnamedEnv)
+        XCTAssertFalse(yes.output.contains("未指名目標 store"), yes.output)
     }
 
     // MARK: - #658 的兩格

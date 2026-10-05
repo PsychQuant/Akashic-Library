@@ -128,11 +128,27 @@ R2 verify 找到七個 MEDIUM（五個集中在合併搬記錄）與二十個 LO
 1. **合併搬記錄按位置接**：被併者的名字分類記錄按它自己的順序逐筆接到倖存者後面，每一筆只與那個名字那個分割此刻的最後一筆比位元組（`NameClassificationRecord.appendCollecting`，與寫入面同一個規則）。先前以整份歷史的位元組集合去重，「指定 R → 撤回 S → 指定 R」併進已有「指定 R」的倖存者時只搬撤回，倖存者的名字仍是對外形、最後一筆卻是撤回——修正輪自己說「只可能是手改」的狀態由工具造出（真 binary 重現，person 與 venue）。合併後一個名字的最後一筆就是最後一個帶到它的被併者的最後一筆；分類一致的被併者照它接過去，最後一筆必然與分類一致。
 2. **一道保險**：合併後倖存者上若有名字的最後一筆與它的分類矛盾、而那是這次合併帶進來的，preview 與實跑都拒絕（`wouldContradictClassificationTail`）。只有來源本身就不一致時會發生（手改，或修正輪之前的 binary）。
 3. **person 合併的錨定與 canonical**：記錄的名字要在合併後倖存者的 names 裡（`String ==`），否則 preview 與實跑都以 `wouldLoseFields` 拒絕、指出口（先在被併者刪掉這個拼法）；分類的相等看 canonical。先前 dry-run 說搬、實跑在寫入閘失敗。
-4. **person 的 `fields.names`**：沒有記錄的對外形整個離開 names 放行（附理由；報告 `authorizedRemovedWithoutRecord`）——整份替換改正拼寫的既有用法；format < 22 的拒絕說出寫入閘；一次上限只數 authorized。
+4. **person 的 `fields.names`**：~~沒有記錄的對外形整個離開 names 放行（附理由；報告 `authorizedRemovedWithoutRecord`）——整份替換改正拼寫的既有用法；~~（修正輪三退場，見下）format < 22 的拒絕說出寫入閘；一次上限只數 authorized。
 5. **刪名字**：拒絕依處境給出口（沒有記錄、不在分割裡而最後一筆是指定）；venue 的 variant 名字說出工具面的出口與代價；person 刪完至少留一個名字；organization 回報逐段的時間欄位、source、note；刪記錄改成線性。
 6. **其他**：理由開頭的檢查以性質判（Character 層的前綴）；合併預覽印出搬的記錄的 statement、依接上去的順序（不排序）；文字（organization「只增不減」、update-person 的寫入閘理由、同一句理由重送的說法）。
 
-**未改、交給使用者**：裁決 1 的 variant 讀法（上面第 1 點）；person `fields.names` 附理由時對仍在 authorized 的每個名字都寫確認（R2 verify 第 10 列）；organization 刪名字面的範圍（第 25 列，#557 待裁）；`Venue.displayName` 與 spec 的分岔要開 issue（第 11 列）。
+**未改、交給使用者**：裁決 1 的 variant 讀法（上面第 1 點）；person `fields.names` 附理由時對仍在 authorized 的每個名字都寫確認（R2 verify 第 10 列）；organization 刪名字面的範圍（第 25 列，#557 待裁）；`Venue.displayName` 與 spec 的分岔要開 issue（第 11 列）。前三件使用者 2026-10-05 裁了，見〈修正輪三〉。
+
+## 修正輪三（b33 X1；使用者 2026-10-05 的五點裁決）
+
+使用者 2026-10-05 對 b33 verify 之後的五件裁決（#564 的 Decision 留言），連同 b33 X1 的程式缺陷：
+
+1. **沒有記錄的對外形整個離開 names**：要 format ≥ 22，並替被移出的名字寫一筆「撤回：理由」。記錄錨定 names，所以實作的讀法是「對外形不得在替換裡整個離開 names——放在 variant」：替換讓對外形整個離開 names 一律整批拒絕（有沒有記錄都一樣），出口是把它留在 variant（附理由，寫撤回），之後要刪再用 `--remove-name`。改正拼寫因此仍是一次呼叫。修正輪二的 `authorizedRemovedWithoutRecord` 退場——那條路的理由既不入庫也不在回應、format < 22 的寫入閘因為沒有記錄要寫而沒觸發、也沒有 git 閘（b33 X1 第 0／2／3／8／11／13／18／23 列）。**這一句是實作的讀法**（另一種讀法是自動把它留在 variant；那會讓結果與呼叫端送的整份替換不同），列在 changelog 的「交給使用者」。
+2. **只替有變動的名字寫記錄**：進入的寫指定、移出的寫撤回，留下沒動的不寫確認。附了理由而沒有名字進出 authorized，整批拒絕——理由沒有地方放，不靜默丟掉。
+3. **只動 variant 不必理由**：確認修正輪的讀法。
+4. **會刪判定記錄的移除面過目標 store 確認閘**：`update-person`／`update-organization` 的 `--remove-name`，以及 `update-venue` 的三條移除腿（`--edit-name-segment` 帶 `remove` 的呼叫、`--remove-reference`、`--remove-issn`）。三個命令在寫入閘裁決表改成逐腿，其餘腿不刪東西、不閘（person 的 `--dry-run` 不擋；organization 與 venue 沒有乾跑）。`--edit-name-segment` 一條腿裡有兩種動作，只有帶 `remove` 的呼叫過閘、只有 `set` 的不閘。MCP 面不閘（`mcp-cli-parity` 橫切表的 `--yes` 列）。
+5. **organization 的 `remove_names` 保留**。
+
+程式缺陷：
+
+- **合併搬記錄**（第 1／4／9／10／21 列）：被併者依 key 排序再接（結果與處理順序無關）；倖存者已有、而且此刻尾端與分類一致的記錄不重搬（兩筆攣生歷史相同時不把整段再接一遍）；接續以索引做成線性；尾端矛盾以原始倖存者為基準、全部接完之後算一次差集。拒絕訊息的出口依實體、分割與方向各一句（第 6／7／14／25／31／32 列）。
+- **#582 的重複 reference 掃描**（第 5／12 列）：名字分類記錄是有順序的歷史，只報同一個名字同一個分割裡相鄰而彼此相等的；處置不叫人「留一筆」把歷史刪成別的形狀。
+- **替換不把 person 刪到沒有名字**（第 19／40 列）、刪名字的拒絕在 format < 22 說出寫入閘（第 17／30 列）、最後一個名字與 canonical 孿生拼法說出工具面的出口（第 26／28 列）、organization 的出口說出撤不掉的代價（第 20／29 列）、organization 刪名字的段只列有內容的、至多 20 段（第 22／27 列）、person 合併拒絕的出口句放在名字之前（第 24 列）。
 
 ## Implementation Contract
 
@@ -162,7 +178,7 @@ references:
 
 **驗收**：`NameClassificationRecordTests`（解析、附著、寫入閘）、`NameClassificationJudgementTests`（五個面的記錄形狀、缺理由拒絕、確認、撤回留史、位元組相同不重寫、ownership 四處）、`NameClassificationMergeTests`（拒絕 vs 提醒、分類一致搬移、不一致拒絕）、CLI 與 stdio 各至少一個 venue 面與一個 organization 面、`ToolPayloadKeyGuardTests` 與 `ToolPayloadLegTests` 的新情境、`tools/list` 以真 binary 量測不超過 53,500（當時的預算 54,000；修正輪時預算已調到 60,000，#578／#713，修正輪實測 57,213）。全套 `swift test` 與 `run-guards.sh` 綠。
 
-**範圍**：五個面、三個寫入閘、venue 合併、ownership 四處、authorize-names 的 marker、規則與文件。不含：回填、person variant 面、variant 撤回面、StoreHealth 掃描、organization 合併、App（App 沒有名字分類面）。
+**範圍**：五個面（修正輪起加 person 的 `fields.names`）、三個寫入閘、venue 與 person 合併、ownership 四處、authorize-names 的 marker、規則與文件。不含：回填、person variant 面、variant 撤回面、StoreHealth 掃描、organization 合併、App（App 沒有名字分類面）。
 
 ## Risks / Trade-offs
 

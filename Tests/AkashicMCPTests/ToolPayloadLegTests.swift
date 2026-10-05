@@ -130,7 +130,8 @@ final class ToolPayloadLegTests: XCTestCase {
         XCTAssertEqual(source.unparsed, [], "WriteGateRulings.swift 有讀不出來的行——表的寫法變了，讀法要跟著改")
         XCTAssertGreaterThan(source.commands.count, 40, "只讀出 \(source.commands.count) 個命令——讀法壞了")
         let perLeg = Set(source.commands.filter { $0.value == .perLeg }.keys)
-        XCTAssertEqual(perLeg, ["resolve-organizations", "resolve-people", "resolve-venues"], "逐腿命令讀出來不是那三個——讀法壞了")
+        XCTAssertEqual(perLeg, ["resolve-organizations", "resolve-people", "resolve-venues", "update-organization", "update-person", "update-venue"],
+                       "逐腿命令讀出來不是那六個——讀法壞了")
         XCTAssertEqual(Set(source.legs.keys), perLeg)
         for (cmd, legs) in source.legs { XCTAssertGreaterThan(legs.count, 3, "\(cmd) 只讀出 \(legs.keys.sorted())") }
 

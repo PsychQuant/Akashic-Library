@@ -132,7 +132,8 @@ extension AkashicService {
                                                  classifiedAs: inAuthorized ? "authorized" : nil,
                                                  withdrawHow: "用 --authorize 把同書寫系統的對外名稱換成別的名字，被換下的會留一筆撤回",
                                                  noRecordHow: Self.organizationNoRecordHow,
-                                                 redesignateHow: "--authorize 它、再 --authorize 同書寫系統的另一個名字把它換下，兩次都附 --judgement；換下的那一步寫撤回") {
+                                                 redesignateHow: "--authorize 它、再 --authorize 同書寫系統的另一個名字把它換下，兩次都附 --judgement；換下的那一步寫撤回——"
+                                                     + "代價：換上去的那個名字成為對外名稱，organization 沒有 --unauthorize、這個指定工具面撤不掉") {
                 throw ServiceError.invalid(why + "；整批拒絕、零寫入")   // display-safe-exempt: why 由 nameRemovalRefusal 組裝，名字逐項消毒
             }
             let pinned = org.references.filter { $0.field == "names" && $0.value.map { NameIdentity.canonical($0) == k } == true }.count
@@ -148,7 +149,9 @@ extension AkashicService {
             // 一個沿革名的整段（含時間與出處）一次刪掉，只回兩個計數的話它們只剩 git 裡有——與 venue 的 edit_name_segment（before／after）一致
             removed.append(["name": displaySafe(stored, max: 200), "reason": displaySafe(spec.reason, max: Self.maxStatementBytes),   // 理由只在報告裡——不截在入口上限之下
                             "segmentsRemoved": segments.count, "recordsRemoved": records.count,   // display-safe-exempt: Int
-                            "segments": segments.map { Self.nameSegmentFieldsDict($0) }])   // display-safe-exempt: segments、Self、$0：Self.nameSegmentFieldsDict 逐欄 displaySafe 每一段（venue 的 edit_name_segment 同一個函式）
+                            // 只列帶時間、source 或 note 的段（沒有這些的段回 {} 不帶任何資訊，b33 X1 第 27／34 列），至多 `segmentsListedCap` 段——
+                            // 段數由 store 內容決定（一個名字 3,000 段曾回 2 MB），總數在 segmentsRemoved（b33 X1 第 22 列）
+                            "segments": Array(segments.map { Self.nameSegmentFieldsDict($0) }.filter { !$0.isEmpty }.prefix(Self.segmentsListedCap))])   // display-safe-exempt: segments、Self、$0：Self.nameSegmentFieldsDict 逐欄 displaySafe 每一段（venue 的 edit_name_segment 同一個函式）
         }
         guard !org.names.entries.isEmpty else {
             throw ServiceError.invalid("這次刪完之後\(holder)沒有任何名字——organization 至少要有一個名字（add_organization 同）；整批拒絕、零寫入")   // display-safe-exempt: holder 已消毒
@@ -165,10 +168,15 @@ extension AkashicService {
     }
 
     /// organization 上沒有記錄的名字的出路（拒絕訊息用）：organization 沒有一般的名字移除面，這條只收已撤回的名字——要用它刪，得先讓名字有一筆撤回。
-    /// 代價寫出來（#564 R2 verify：b29 V1 第 7／23 列）。
+    /// 代價寫出來（#564 R2 verify：b29 V1 第 7／23 列；b33 X1 第 20／29 列：先前說「同書寫系統沒有別的名字時走不通，只能手改 YAML」是假話
+    /// ——不在 names 的名字 --authorize 時會一併加進去；先前也只說「多一對撤回／指定」，沒說換上去的名字成為撤不掉的對外名稱）。
     static let organizationNoRecordHow =
-        "organization 沒有一般的名字移除面（#557，待裁）——要用這條刪，先讓它有一筆撤回：--authorize 指定它、再 --authorize 同書寫系統原本的對外名稱"
-        + "（或另一個名字）把它換下，兩次都附 --judgement、都留記錄；被換下又換回的那個名字的歷史會多一對撤回／指定。同書寫系統沒有別的名字時走不通，只能手改 YAML"
+        "organization 沒有一般的名字移除面（#557）——要用這條刪，先讓它有一筆撤回：--authorize 指定它、再 --authorize 同書寫系統的另一個名字"
+        + "（不在 names 的會一併加進去）把它換下，兩次都附 --judgement、都留記錄。代價：換上去的那個名字成為對外名稱（寫一筆指定）；organization 沒有 --unauthorize、"
+        + "--remove-name 只收已撤回的名字，這個指定工具面撤不掉——authorized 原本是空的，做完就多了一個對外名稱；原本有對外名稱的，要再 --authorize 換回來，它的歷史多一對撤回／指定"
+
+    /// organization `remove_names` 的報告每個名字最多列幾段（b33 X1 第 22 列；同 venue `edit_name_segment` 的 20 項）。
+    static let segmentsListedCap = 20
 
     static let nameRemovalReasonNote = "理由只在這份報告裡——要留在 git，寫進接下來的 commit message（#564 第 2 點，比照使用者 2026-09-27 對移除面一族的裁決）；刪之前的名字與記錄在 git 的上一版"
 
@@ -186,22 +194,30 @@ extension AkashicService {
             throw ServiceError.notFound("person「\(displaySafeInvisible(key, max: 200))」")
         }
         let holder = "person「\(displaySafeInvisible(key, max: 200))」"
+        // 出口要寫判定記錄（撤回、指定）時，format < 22 的寫入閘會擋——拒絕訊息先說（b33 X1 第 17／30 列：live store 是 format 18，先前照做第一步才吃到第二次拒絕）
+        let gate = Self.nameClassificationGateNote(storeFormat: try StoreVersion.read(root: root))
         var removed: [[String: Any]] = []
         for spec in specs {
             let k = NameIdentity.canonical(spec.name)
             let hits = Array(Set(person.names.all.filter { NameIdentity.canonical($0) == k }))
             guard hits.count <= 1 else {
-                throw ServiceError.invalid("\(holder)有 \(hits.count) 個 canonical 相等、拼法不同的名字——定位不到唯一一個，手改 YAML；整批拒絕、零寫入")   // display-safe-exempt: holder 已消毒；Int
+                // b33 X1 第 28 列：沒有記錄錨定的拼法有工具面（整份替換），先前一律說「手改 YAML」
+                throw ServiceError.invalid(
+                    "\(holder)有 \(hits.count) 個 canonical 相等、拼法不同的名字——這條定位不到唯一一個；沒有記錄錨定的拼法用 update-person --fields 的 names "   // display-safe-exempt: holder 已消毒；Int
+                    + "整份替換拿掉（只動 variant 不必附理由），有記錄錨定的拼法沒有工具面，手改 YAML；整批拒絕、零寫入")
             }
             guard let stored = hits.first else {
                 throw ServiceError.invalid("\(holder)的 names 沒有「\(displaySafeInvisible(spec.name, max: 120))」（相等看 canonical）——整批拒絕、零寫入")   // display-safe-exempt: holder 已消毒
             }
             if let why = Self.nameRemovalRefusal(name: stored, holder: holder, references: person.references,
                                                  classifiedAs: person.names.authorized.contains(stored) ? "authorized" : nil,
-                                                 withdrawHow: "update-person --fields 的 names 把它從 authorized 移到 variant、附 --judgement，會寫一筆撤回",
-                                                 noRecordHow: "它沒有記錄，不必走這條：用 update-person --fields 的 names 整份替換把它拿掉（只動 variant 不必附理由；在 authorized 的要附 --judgement）",
-                                                 redesignateHow: "update-person --fields 的 names 先把它放進 authorized、再移回 variant，兩次都附 --judgement") {
-                throw ServiceError.invalid(why + "；整批拒絕、零寫入")   // display-safe-exempt: why 由 nameRemovalRefusal 組裝，名字逐項消毒
+                                                 withdrawHow: "update-person --fields 的 names 把它從 authorized 移到 variant、附 --judgement，會寫一筆撤回；沒有記錄的對外形也一樣（2026-10-05 裁決）",
+                                                 noRecordHow: "它在 variant 而沒有記錄，不必走這條：用 update-person --fields 的 names 整份替換把它拿掉（只動 variant 不必附理由）",
+                                                 redesignateHow: "update-person --fields 的 names 先把它放進 authorized、再移回 variant，兩次都附 --judgement（各寫一筆指定、撤回）；"
+                                                     + "同書寫系統已有對外形時 authorized 放不下兩個，兩步都要與那個對外形交換，它的歷史會多一對撤回／指定") {
+                // 出口會寫記錄的兩種（還在 authorized、記錄與分類不一致）在 format < 22 會被寫入閘擋——訊息先說
+                let needsRecord = person.names.authorized.contains(stored) || !NameClassificationRecord.allRecords(in: person.references, name: stored).isEmpty
+                throw ServiceError.invalid(why + "；整批拒絕、零寫入" + (needsRecord ? gate : ""))   // display-safe-exempt: why 由 nameRemovalRefusal 組裝，名字逐項消毒；needsRecord 是 Bool；gate 只含 Int 與字面（自成一行）
             }
             let pinned = person.references.filter { $0.field == "names" && $0.value.map { NameIdentity.canonical($0) == k } == true }.count
             guard pinned == 0 else {
@@ -218,7 +234,9 @@ extension AkashicService {
         // 刪完至少要留一個名字（#564 R2 verify：b29 V1 第 18 列）——organization（`removeOrganizationNames`）與 venue（`.noNamesLeft`）都拒，
         // 先前 person 是唯一能被刪成沒有名字的一個：載入與 validate 都過，export 與作者比對卻沒有可顯示的名字。乾跑同樣拒
         guard !person.names.all.isEmpty else {
-            throw ServiceError.invalid("這次刪完之後\(holder)沒有任何名字——person 至少要有一個名字（organization、venue 同）；整批拒絕、零寫入")   // display-safe-exempt: holder 已消毒
+            // 出口寫出來（b33 X1 第 26 列：先前不給出口，合併拒絕叫人「在被併者刪掉這個拼法」時，那是被併者唯一的名字就是死路）
+            throw ServiceError.invalid("這次刪完之後\(holder)沒有任何名字——person 至少要有一個名字（organization、venue 同）；"   // display-safe-exempt: holder 已消毒
+                + "要換掉它，先用 update-person --fields 的 names 加一個正確的名字（放在 variant 不必附理由），再刪；整批拒絕、零寫入")
         }
         var payload: [String: Any] = ["key": displaySafe(key, max: 200), "namesRemoved": removed,
                                       "namesTotal": person.names.all.count,   // display-safe-exempt: Int

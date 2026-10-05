@@ -54,26 +54,29 @@ final class NameClassificationR2Tests: XCTestCase {
         try payload(try service.committed(root).updatePerson(key: key, fields: [:], dryRun: dryRun, fieldsGiven: false, removeNames: specs))
     }
 
-    // MARK: - 第 4 列：整份替換改正對外形拼寫
+    // MARK: - 第 4 列：整份替換改正對外形拼寫（b34：使用者 2026-10-05 裁決第 1 點改了這一格）
 
-    /// 舊的對外形沒有任何記錄（機械值、或從沒判定過）：附理由的一次替換就能改正拼寫——進入的名字寫指定，離開的名字沒有地方錨定記錄、
-    /// 列在報告。修正輪之前一步就成；修正輪讓它變成三步（先寫撤回、commit、再刪）而且要為一個從沒記錄的名字寫撤回。
-    func testCorrectingAnUnrecordedAuthorizedSpellingIsOneCall() throws {
+    /// 舊的對外形沒有任何記錄（機械值）：R2 讓它附理由就能一步整個離開 names、不寫撤回；2026-10-05 裁決改成「要 format ≥ 22，並替被移出的
+    /// 名字寫一筆撤回」——記錄錨定 names，所以舊拼法留在 variant。改正拼寫仍是一次呼叫（撤回舊的、指定新的），之後要刪舊拼法再 --remove-name。
+    func testCorrectingAnUnrecordedAuthorizedSpellingWritesAWithdrawal() throws {
         var p = try person()
         p.names = PersonNames(authorized: ["Quinn Q"], variant: ["Q. Quinn"])   // 手寫的舊值，零記錄（live store 4,575 筆機械值的形）
         _ = try LibraryStore(root: root).writePerson(p)
-        XCTAssertThrowsError(try personNames(authorized: ["Quin Q"], variant: ["Q. Quinn"])) { e in
-            XCTAssertTrue(msg(e).contains("judgement"), msg(e))
+        XCTAssertThrowsError(try personNames(authorized: ["Quin Q"], variant: ["Q. Quinn"], judgement: "改正拼寫")) { e in
+            let m = msg(e)
+            XCTAssertTrue(m.contains("整個離開 names") && m.contains("Quinn Q") && m.contains("variant") && m.contains("--remove-name"), m)
         }
-        let preview = try personNames(authorized: ["Quin Q"], variant: ["Q. Quinn"], judgement: "改正拼寫", dryRun: true)
-        XCTAssertEqual(preview["authorizedRemovedWithoutRecord"] as? [String], ["Quinn Q"], "\(preview)")
-        let out = try personNames(authorized: ["Quin Q"], variant: ["Q. Quinn"], judgement: "改正拼寫")
-        XCTAssertEqual(out["judgementsRecorded"] as? Int, 1, "\(out)")
-        XCTAssertEqual(out["authorizedRemovedWithoutRecord"] as? [String], ["Quinn Q"])
+        XCTAssertEqual(try person(), p, "零寫入")
+        let out = try personNames(authorized: ["Quin Q"], variant: ["Q. Quinn", "Quinn Q"], judgement: "改正拼寫")
+        XCTAssertEqual(out["judgementsRecorded"] as? Int, 2, "\(out)")
+        XCTAssertNil(out["authorizedRemovedWithoutRecord"], "R2 的回應鍵退場")
         let after = try person()
         XCTAssertEqual(after.names.authorized, ["Quin Q"])
-        XCTAssertFalse(after.names.all.contains("Quinn Q"))
+        XCTAssertEqual(statements(after.references, name: "Quinn Q"), ["authorized 撤回：改正拼寫"], "理由入庫、可追溯")
         XCTAssertEqual(statements(after.references, name: "Quin Q"), ["authorized 指定：改正拼寫"])
+        let removed = try removePersonNames(["Quinn Q=打錯的舊拼法"])
+        XCTAssertEqual((removed["namesRemoved"] as? [[String: Any]])?.first?["recordsRemoved"] as? Int, 1)
+        XCTAssertFalse(try person().names.all.contains("Quinn Q"))
     }
 
     /// 有記錄的舊對外形仍然不能被整份替換拿掉（記錄會成孤兒）——那一格的拒絕不變。
@@ -141,6 +144,8 @@ final class NameClassificationR2Tests: XCTestCase {
         XCTAssertThrowsError(try removePersonNames(["Q. Quinn=不要"])) { e in
             let m = msg(e)
             XCTAssertTrue(m.contains("不在 authorized 裡") && m.contains("指定回去再撤回") && m.contains("放進 authorized"), m)
+            // b33 X1 第 6／31 列：同書寫系統已有對外形時放不進第二個——出口要說交換與代價
+            XCTAssertTrue(m.contains("交換") && m.contains("多一對撤回／指定"), m)
             XCTAssertFalse(m.contains("從 authorized 移到 variant"), "名字不在 authorized，這一步做不到：\(m)")
         }
     }
@@ -149,7 +154,8 @@ final class NameClassificationR2Tests: XCTestCase {
     func testOrganizationNoRecordNameRefusalNamesTheWayOut() throws {
         XCTAssertThrowsError(try service.committed(root).updateOrganization(key: "org2", authorize: [], removeNames: ["Beta Institute=不要"])) { e in
             let m = msg(e)
-            XCTAssertTrue(m.contains("沒有名字分類的判定記錄") && m.contains("--authorize") && m.contains("手改 YAML"), m)
+            XCTAssertTrue(m.contains("沒有名字分類的判定記錄") && m.contains("--authorize") && m.contains("撤不掉"), m)
+            XCTAssertFalse(m.contains("手改 YAML"), "工具面走得通，「只能手改 YAML」是假話（b33 X1 第 29 列）：\(m)")
         }
     }
 

@@ -175,17 +175,26 @@ final class NameClassificationCorrectionTests: XCTestCase {
     }
 
     /// 換對外形：舊的撤回、新的指定；附理由而 authorized 不變時是「確認」（person 的確認面）。
-    func testPersonReplacementWritesWithdrawalDesignationAndConfirmation() throws {
+    /// 使用者 2026-10-05 裁決第 2 點：只替有變動的名字寫——進入的寫指定、移出的寫撤回，留下沒動的不寫「確認」。
+    /// 原樣再送一次附理由：沒有名字進出 authorized，理由沒有地方放，拒絕（不靜默丟掉理由）、零寫入。
+    func testPersonReplacementWritesOnlyForNamesThatMove() throws {
         try personNames(authorized: ["Smith, Jhon"], variant: ["Smith, J."], judgement: "批次採用")
         let out = try personNames(authorized: ["Smith, John"], variant: ["Smith, J.", "Smith, Jhon"], judgement: "拼錯了")
         XCTAssertEqual(out["judgementsRecorded"] as? Int, 2)
-        let again = try personNames(authorized: ["Smith, John"], variant: ["Smith, J.", "Smith, Jhon"], judgement: "查證後確認")
-        XCTAssertEqual(again["judgementsRecorded"] as? Int, 1)
+        let before = try person()
+        XCTAssertThrowsError(try personNames(authorized: ["Smith, John"], variant: ["Smith, J.", "Smith, Jhon"], judgement: "查證後確認")) { e in
+            XCTAssertTrue(msg(e).contains("沒有讓任何名字進出") && msg(e).contains("不寫「確認」"), msg(e))
+        }
+        XCTAssertEqual(try person(), before, "零寫入")
+        // 兩個對外形之一移出：只替移出的那一個寫撤回，留下的不寫確認（先前每個留下的都寫一筆確認，依據是那句講另一個名字的理由）
+        try personNames(authorized: ["Smith, John", "史密斯"], variant: ["Smith, J.", "Smith, Jhon"], judgement: "中文名")
+        try personNames(authorized: ["史密斯"], variant: ["Smith, J.", "Smith, Jhon", "Smith, John"], judgement: "拉丁拼法另議")
         XCTAssertEqual(records(try person().references), [
             ["authorized", "Smith, Jhon", "指定：批次採用"],
             ["authorized", "Smith, Jhon", "撤回：拼錯了"],
             ["authorized", "Smith, John", "指定：拼錯了"],
-            ["authorized", "Smith, John", "確認：查證後確認"],
+            ["authorized", "史密斯", "指定：中文名"],
+            ["authorized", "Smith, John", "撤回：拉丁拼法另議"],
         ])
     }
 

@@ -25,9 +25,9 @@ enum WriteGateRuling: Equatable {
 /// 不閘的理由散在各處的 doc 與散文裡，沒有一處是完整的。
 ///
 /// 所以裁決住在這裡，**每一格都要有**：CLI 的每一個葉命令一格（`library create` 這類巢狀命令以空白
-/// 串接路徑），`resolve-people`／`resolve-venues`／`resolve-organizations` 另逐腿一格
-/// （它們的每個 `@Option`／`@Flag`，`LibraryOptions` 的橫切選項除外）。
-/// `WriteGateRulingsTests` 在執行期列舉 CLI 的命令樹與那三個命令的旗標（ArgumentParser 的 dump-help，
+/// 串接路徑），`resolve-people`／`resolve-venues`／`resolve-organizations`／`update-person`／`update-organization`／`update-venue`
+/// 另逐腿一格（它們的每個 `@Option`／`@Flag`，`LibraryOptions` 的橫切選項除外）。
+/// `WriteGateRulingsTests` 在執行期列舉 CLI 的命令樹與那六個命令的旗標（ArgumentParser 的 dump-help，
 /// 不是文字掃描），與本表雙向比對：多一個命令、多一條腿、或表裡留著已退場的名字，都會紅；
 /// 並逐腿跑真 binary，確認 `.gated` 的腿真的被閘擋、其餘的沒有。
 ///
@@ -42,8 +42,12 @@ enum WriteGateRuling: Equatable {
 ///
 /// ## 誠實邊界
 ///
-/// - **逐腿只做三個命令。** `update-venue`、`update-person`、`library` 等也有多個寫入旗標，但它們以命令為
-///   單位裁決：那些命令新長一個寫入旗標時，本表的比對看不到（它只比命令名）。
+/// - **逐腿只做六個命令。** `library`、`update-entry` 等也有多個寫入旗標，但它們以命令為
+///   單位裁決：那些命令新長一個寫入旗標時，本表的比對看不到（它只比命令名）。`update-person`／`update-organization`／`update-venue`
+///   自 2026-10-05 起逐腿（#564 使用者裁決第 4 點：會刪判定記錄的移除腿過閘——前兩者的 `--remove-name`、`update-venue` 的
+///   `--remove-issn`／`--remove-reference`／`--edit-name-segment` 的 remove）。
+/// - **一條腿一格，而 `update-venue --edit-name-segment` 一條腿裡有兩種動作**：`.gated` 指的是帶 remove 的呼叫；只有 set 的不閘
+///   （`UpdateVenueCmd.removalLeg`）。真 binary 的逐腿檢查用帶 remove 的樣本，只有 set 的另有一條測試釘住。
 /// - **理由是人寫的。** 測試只驗「每一格都有、理由非空、`.gated` 與閘的呼叫一致」，驗不了理由對不對。
 /// - **不閘的格不都可逆。** #653 的裁決是「只閘使用者點名的不可逆寫入」，而「可逆」的界線沒有一句判準
 ///   （新增記錄沒有刪除面、`update-person` 整欄替換、`--judge` 沒有具名逆操作……）。各格的理由把自己的
@@ -78,6 +82,9 @@ extension DestructiveTargetGate {
         "resolve-people": .perLeg,
         "resolve-venues": .perLeg,
         "resolve-organizations": .perLeg,
+        "update-person": .perLeg,   // #564 使用者 2026-10-05 裁決第 4 點：--remove-name 過閘，其餘腿不閘
+        "update-organization": .perLeg,   // 同上
+        "update-venue": .perLeg,   // 同上：三條移除腿過閘，其餘腿不閘
 
         // ── 會寫 store、刻意不閘 ──
         "doctor": .notGated("只在佈局不存在時建立佈局（ensureLayout），並重建衍生的 index；不改寫任何既有記錄。.gitignore 只在沒有 sources 標記區塊時於尾端附加一段，讀不懂的（讀不到、非 UTF-8、symlink）不動、改報 warning（#700）"),
@@ -96,11 +103,7 @@ extension DestructiveTargetGate {
         "library set-kind": .notGated("只改一筆 library 記錄的成員性質與規則、不動任何 entry；整值替換會回顯先前的值，替換既有性質時要求 registry 檔 tracked 且 clean（#573 一族的可回溯閘），所以舊值在 git、再跑一次就改回（#642）"),
         "library remove": .notGated("集合語意、冪等：與 library add 互為逆操作"),
         "file add": .notGated("store 路徑由參數顯式給、不經 registry 的 current 解析；寫 registry，並在佈局不存在時建立佈局。.gitignore 只附加不改寫，讀不懂的（讀不到、非 UTF-8、symlink）在寫任何東西之前拒絕（#700）"),
-        "update-person": .notGated("逐筆指名一個 person key、有 --dry-run；提及的欄位整個替換、未提及的不動，references 只追加（被替換的舊值只在 git 歷史）。"
-            + "names 動到 authorized 要 --judgement，寫判定記錄（只追加，#564 修正輪）；--remove-name 只刪最後一筆記錄是撤回的名字、連同記錄，刪前要求 person 檔已 commit（git 閘，同 update-venue 的移除腿）。這條腿以 person key ＋ 名字定位，clone 或備份裡照樣對得上——那正是 #580 過閘的判準；它現在不閘、防線只有 git 閘（只查乾淨，乾淨的 clone 也過）與整批拒絕，與 update-venue 的移除腿同一格待使用者裁決。" + outsideNamedFamily),
         "fmt": .notGated("把全庫記錄重寫成 canonical form——字面上的 encode(decode(x)) 往返，只改排版不改內容，冪等；--check 只回報不寫。不是 #653 點名的格式遷移：遷移改格式版本與內容形狀，fmt 兩者都不改"),
-        "update-organization": .notGated("逐筆指名一個 organization key；--authorize 同書寫系統替換，被換下的名字留在 names、可以再指定回來（同書寫系統替換，位置不變），不刪任何名字或 reference——--remove-name 例外：只刪最後一筆名字分類記錄是撤回的名字（連同記錄），刪前要求 organization 檔已 commit（git 閘，#564 修正輪）；--authorize 新加進 names 的名字會留著，organization 沒有一般的名字移除面（#557，待裁）。都已是對外名稱而同一句理由已記過時不寫檔（#564 起必附 --judgement，對已是對外名稱的名字說「確認」也留一筆記錄，只追加）。沒有 --unauthorize：organization 沒有一般的名字移除面，撤回之後剛加進 names 的名字會成為 fallback 顯示名（names.current），那不是「回到未判定」，待使用者裁決。--remove-name 同樣以 key ＋ 名字定位、錯的 store 上照樣對得上（#580 的判準），沒有乾跑，與 update-venue 一起裁。與 update-venue 的 --authorize 同一份邏輯；那一格不閘，這一格跟著——update-venue 整個命令要不要有乾跑、要不要閘待使用者裁決，這一格與它一起裁。" + outsideNamedFamily),
-        "update-venue": .notGated("逐筆指名一個 venue key；名字、ISSN（含角色，已記的角色不改寫）與 --references 以追加為主（#587），--authorize 同書寫系統替換（舊指定留在 names）、--unauthorize 撤回（名字與分類都留在 names；--authorize 可把它指定回來但接在 authorized 尾端，預設顯示名可能不同，報告逐名帶原 index，不是精確逆操作，#559）、--note／--type 替換，--remove-issn、--remove-reference 與 --edit-name-segment（改或刪名字段的時間欄位、source、note；判定，單獨呼叫，#675）要求 venue 檔已 commit、乾淨（#588／#673／#675）。**這三條腿沒有乾跑，CLI 也不過目標 store 確認閘**（以 venue key ＋ 值的位元組定位，clone 或備份的 store 裡照樣對得上）——防線是 git 閘與整批拒絕零寫入；`update-venue` 整個命令要不要有乾跑（連帶要不要閘）待使用者裁決（b13f R1 verify 第 10／39 列；同族的 `--drop-venue` 在 `resolve-venues` 的逐腿裁決裡是過閘的，`update-entry` 的移除腿則預設乾跑）。" + outsideNamedFamily),
 
         // ── 不寫 store ──
         "validate": .readOnly("schema 驗證與健康報告：只讀記錄、不寫任何檔"),
@@ -148,7 +151,7 @@ extension DestructiveTargetGate {
         "s2 status": .readOnly("只看金鑰讀不讀得到與節流狀態檔，不連網、不開 store（#664）"),
     ]
 
-    /// 逐腿裁決的三個命令。鍵是旗標的主名（`--holder` 的舊名 `--person` 是同一格）。
+    /// 逐腿裁決的六個命令。鍵是旗標的主名（`--holder` 的舊名 `--person` 是同一格）。
     static let legRulings: [String: [String: WriteGateRuling]] = [
         "resolve-people": [
             "--apply": .gated,   // 篩選式批次歸戶（#298）
@@ -184,6 +187,43 @@ extension DestructiveTargetGate {
             "--holder": .readOnly("--apply／--reject 的收窄條件；不帶寫入腿時收窄列表"),
             "--org": .readOnly("--apply／--reject 的收窄條件；不帶寫入腿時收窄列表"),
             "--rests-on": .readOnly("--undecided 的證據參數，只伴隨它"),
+        ],
+        // #564 使用者 2026-10-05 裁決第 4 點：會刪判定記錄的面一律過閘——--remove-name 以 key ＋ 名字定位，clone 或備份裡照樣對得上（#580 的判準）
+        "update-person": [
+            "--remove-name": .gated,   // 有 --dry-run（乾跑不擋）；刪前另要求 person 檔已 commit（git 閘）
+            "--fields": .notGated("逐筆指名一個 person key、有 --dry-run；提及的欄位整個替換、未提及的不動，references 只追加（被替換的舊值只在 git 歷史）。"
+                + "names 讓名字進出 authorized 要 --judgement，只替進出的名字寫判定記錄（只追加，#564）；對外形不得整個離開 names。" + outsideNamedFamily),
+            "--judgement": .readOnly("--fields 的 names 的理由，只伴隨它"),
+            "--rests-on": .readOnly("--judgement 的證據參數，只伴隨它"),
+            "--dry-run": .readOnly("只預告會改什麼，不寫入"),
+            "--key": .readOnly("指名 person 的參數"),
+        ],
+        "update-organization": [
+            "--remove-name": .gated,   // 沒有乾跑；刪前另要求 organization 檔已 commit（git 閘）
+            "--authorize": .notGated("逐筆指名一個 organization key、必附 --judgement；同書寫系統替換，被換下的名字留在 names、可以再指定回來（位置不變），不刪任何名字或 reference；"
+                + "不在 names 的一併加進 names（organization 沒有一般的名字移除面，#557），判定記錄只追加（#564）。與 update-venue 的 --authorize 同一份邏輯，"
+                + "那一腿不閘（#564 使用者 2026-10-05 裁決第 4 點：只有會刪判定記錄的移除腿過閘），這一腿跟著。" + outsideNamedFamily),
+            "--judgement": .readOnly("--authorize 的理由，只伴隨它"),
+            "--rests-on": .readOnly("--judgement 的證據參數，只伴隨它"),
+        ],
+        // #564 使用者 2026-10-05 裁決第 4 點：三條移除腿（會刪判定記錄或它所依附的值）過閘——以 venue key ＋ 值的位元組定位，clone 或備份裡
+        // 照樣對得上（#580 的判準）；它們沒有乾跑，刪前另要求 venue 檔已 commit、乾淨（git 閘）。其餘腿只附加或替換，不閘
+        "update-venue": [
+            "--remove-issn": .gated,   // 連同指向那個號的 field: issn reference 一起刪（#588）
+            "--remove-reference": .gated,   // 刪 reference（#673）
+            "--edit-name-segment": .gated,   // 只有帶 remove 的呼叫過閘（刪名字段，名字的最後一筆記錄是撤回時連記錄一起刪，#564）；只有 set 的不閘
+            "--add-name": .notGated("逐筆指名一個 venue key；只附加 canonical 形不在的名字（整組替換刻意不提供），不刪任何東西。" + outsideNamedFamily),
+            "--add-issn": .notGated("只附加號（含角色；已記的角色不改寫，#587），不刪任何東西。" + outsideNamedFamily),
+            "--add-variant": .notGated("必附 --judgement；把名字標成異寫（不在 names 的一併加入），判定記錄只追加（#564），不刪任何東西。" + outsideNamedFamily),
+            "--authorize": .notGated("必附 --judgement；同書寫系統替換，被換下的名字留在 names（寫一筆撤回），判定記錄只追加，不刪任何名字或記錄。" + outsideNamedFamily),
+            "--unauthorize": .notGated("必附 --judgement；撤回指定（名字與分類都留在 names，寫一筆撤回，#559），不刪任何名字或記錄；--authorize 可把它指定回來但接在 authorized 尾端，不是精確逆操作。" + outsideNamedFamily),
+            "--paginated": .notGated("「本刊是否使用頁碼」的判定，必附 --judgement 與 --rests-on；翻轉判定留史（只追加），不刪任何東西（#406）。" + outsideNamedFamily),
+            "--clear-paginated": .notGated("把 paginated 退回未判定，必附 --judgement 與 --rests-on；判定史只追加、不刪舊的。" + outsideNamedFamily),
+            "--references": .notGated("通用 reference 寫入面，append-only、以位元組去重（#587），不刪任何東西。" + outsideNamedFamily),
+            "--note": .notGated("替換備註；舊值只在 git 歷史（同 update-person 的純量欄位）。" + outsideNamedFamily),
+            "--type": .notGated("替換 venue 類型（封閉值域）；舊值只在 git 歷史，同一次再送一次就改回。" + outsideNamedFamily),
+            "--judgement": .readOnly("--paginated／--clear-paginated／--authorize／--unauthorize／--add-variant 的理由，只伴隨它們"),
+            "--rests-on": .readOnly("--judgement 的證據參數，只伴隨它"),
         ],
     ]
 

@@ -221,7 +221,7 @@ struct AddVenueCmd: ParsableCommand {
 struct UpdateVenueCmd: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "update-venue",
-        abstract: "venue 的部分更新（#306／#394／#471／#554／#559／#587／#673／#675）——append 語意：--add-name／--add-issn／--add-variant／--references 只附加不重複的值（整組替換刻意不提供）；--authorize 是同書寫系統替換（不是 append，見其 help）、--unauthorize 撤回（名字留在 names，#559）；--note／--type 替換；--remove-issn／--remove-reference 是移除（判定，理由只進報告，要求 venue 檔已 commit）；--edit-name-segment 改或刪名字段的時間欄位、source、note（判定，同上，#675）。venue 無法唯一定位（\(UnlocatableReason.venue)）時整批拒絕、零寫入（#670）")
+        abstract: "venue 的部分更新（#306／#394／#471／#554／#559／#587／#673／#675）——append 語意：--add-name／--add-issn／--add-variant／--references 只附加不重複的值（整組替換刻意不提供）；--authorize 是同書寫系統替換（不是 append，見其 help）、--unauthorize 撤回（名字留在 names，#559）；--note／--type 替換；--remove-issn／--remove-reference 是移除（判定，理由只進報告，要求 venue 檔已 commit）；--edit-name-segment 改或刪名字段的時間欄位、source、note（判定，同上，#675）。這三條移除腿（--edit-name-segment 只算帶 remove 的）沒有乾跑，未指名目標 store（--library／--yes）時拒絕（#564）。venue 無法唯一定位（\(UnlocatableReason.venue)）時整批拒絕、零寫入（#670）")
 
     @OptionGroup var options: LibraryOptions
 
@@ -246,7 +246,7 @@ struct UpdateVenueCmd: ParsableCommand {
 
     /// #588：寫錯的號（常是姊妹刊的號）在此之前拿不掉，只能手改 YAML。
     @Option(name: .customLong("remove-issn"), parsing: .upToNextOption,
-            help: "移除 ISSN（可多個）：<issn>=理由。移除是判定的逆轉，理由必填；理由只印在報告（issnRemoved，全文），不寫進 store。指向被移除號的 field: issn provenance reference 一併刪除，報告逐號列筆數（referencesRemoved）。所以這個 venue 檔要已在 git 裡 commit（tracked、無未提交修改），否則整批拒絕——git 保存的是移除前的檔，理由要留在 git 得自己寫進 commit message。號不合法、這本刊沒有這個號、同一次呼叫裡重複、或同時出現在 --add-issn，都整批拒絕、零寫入（#588）")
+            help: "移除 ISSN（可多個）：<issn>=理由。移除是判定的逆轉，理由必填；理由只印在報告（issnRemoved，全文），不寫進 store。指向被移除號的 field: issn provenance reference 一併刪除，報告逐號列筆數（referencesRemoved）。所以這個 venue 檔要已在 git 裡 commit（tracked、無未提交修改），否則整批拒絕——git 保存的是移除前的檔，理由要留在 git 得自己寫進 commit message。號不合法、這本刊沒有這個號、同一次呼叫裡重複、或同時出現在 --add-issn，都整批拒絕、零寫入（#588）。沒有乾跑；未指名目標 store（--library／--yes）時拒絕（#564 使用者 2026-10-05 裁決：會刪判定記錄的移除腿過閘）")
     var removeISSN: [String] = []
 
     @Option(name: .customLong("add-variant"), parsing: .upToNextOption,
@@ -335,7 +335,7 @@ struct UpdateVenueCmd: ParsableCommand {
                                    + "名字分類的判定記錄（field: authorized／variant 的「指定／確認／撤回：理由」，#564）不在本面：field: variant 一律拒收，field: authorized 只命中這種記錄時具名拒絕"
                                    + "（改分類用 --authorize／--unauthorize／--add-variant；連記錄一起刪名字用 --edit-name-segment 的 remove，名字的最後一筆記錄要是撤回）。"
                                    + "一次至多 200 筆。報告：referencesRemoved（逐筆帶被移除 reference 的內容與理由）、referencesTotal（剩下幾筆）；"
-                                   + "寫檔之後 index 重建失敗時呼叫仍回成功、報告多 indexRebuilt: false 與 indexNote（要跑 akashic doctor 重建）。沒有乾跑，CLI 也不過目標 store 確認閘：防線是 git 閘與整批拒絕零寫入"))
+                                   + "寫檔之後 index 重建失敗時呼叫仍回成功、報告多 indexRebuilt: false 與 indexNote（要跑 akashic doctor 重建）。沒有乾跑；未指名目標 store（--library／--yes）時拒絕（#564 使用者 2026-10-05 裁決：會刪判定記錄的移除腿過閘），另有 git 閘與整批拒絕零寫入"))
     var removeReference: String?
 
     /// #675：names 的名字段（`TemporalValue`）帶時間欄位、source、note，卻沒有任何面改得了它們；#565 起合併對「同名而這幾格不同」的兩段具名拒絕，出路只有手改 YAML。
@@ -356,7 +356,7 @@ struct UpdateVenueCmd: ParsableCommand {
                                    + "改寫前的內容只剩 git 的副本，所以這個 venue 檔要已在 git 裡 commit（tracked、無未提交修改），否則整批拒絕。"
                                    + "每一項都沒有變動時不寫檔、不過 git 閘（報告 written: false）。一次至多 200 筆。"
                                    + "報告：nameSegments（逐項 name／action：set／remove／unchanged、before／after 的欄位、reason）、namesTotal；"
-                                   + "寫檔之後 index 重建失敗時呼叫仍回成功、報告多 indexRebuilt: false 與 indexNote（要跑 akashic doctor 重建）。沒有乾跑，CLI 也不過目標 store 確認閘：防線是 git 閘與整批拒絕零寫入"))
+                                   + "寫檔之後 index 重建失敗時呼叫仍回成功、報告多 indexRebuilt: false 與 indexNote（要跑 akashic doctor 重建）。沒有乾跑；含 remove 的一次呼叫在未指名目標 store（--library／--yes）時拒絕（#564 使用者 2026-10-05 裁決：會刪判定記錄的移除腿過閘），只有 set 的不閘；另有 git 閘與整批拒絕零寫入"))
     var editNameSegment: String?
 
     /// `--references`／`--remove-reference`／`--edit-name-segment` 的 JSON——不是 JSON 陣列是用法錯誤（64），在 `validate()` 擋；`run()` 用同一個解析。
@@ -389,7 +389,22 @@ struct UpdateVenueCmd: ParsableCommand {
         }
     }
 
+    /// 會刪判定記錄的移除腿（#564 使用者 2026-10-05 裁決第 4 點）：`--remove-issn`、`--remove-reference`、`--edit-name-segment` 的 remove。
+    /// 以 venue key ＋ 值定位，clone 或備份的 store 裡照樣對得上（#580 的判準），所以過目標確認閘；其餘腿（附加、替換、`--edit-name-segment` 只有 set）不閘。
+    /// 回傳這次呼叫帶的第一條移除腿（拒絕訊息點名它）；nil＝這次不刪東西。
+    var removalLeg: String? {
+        if !removeISSN.isEmpty { return "--remove-issn" }
+        if removeReference != nil { return "--remove-reference" }
+        let segments = (try? Self.jsonObjectArray(editNameSegment, flag: "--edit-name-segment")) ?? nil
+        if segments?.contains(where: { ($0 as? [String: Any])?["remove"] as? Bool == true }) == true { return "--edit-name-segment" }
+        return nil
+    }
+
+    /// 移除腿沒有乾跑，也沒有「不帶寫入旗標只列候選」的模式——閘的拒絕訊息自己說怎麼辦
+    static let removalHint = "這條腿沒有 dry-run：指名之後就會刪（venue 檔要先 commit，刪之前的內容在 git 的上一版）。"
+
     func run() throws {
+        if let leg = removalLeg { try options.assertDestructiveTargetNamed("update-venue", flag: leg, hasDryRun: false, noPreviewHint: Self.removalHint) }
         let store = try options.openStore()
         let service = AkashicService(root: store.root, key: store.key,
                                      environment: ProcessInfo.processInfo.environment)

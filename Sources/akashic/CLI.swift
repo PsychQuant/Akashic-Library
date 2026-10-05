@@ -150,9 +150,10 @@ struct LibraryOptions: ParsableArguments {
     /// registry 打到真 store，867 個 person 檔被改名重發 id。核心不是解析錯了，是
     /// **呼叫者以為自己在 scratch**，而沒有任何東西告訴他。
     func assertDestructiveTargetNamed(_ command: String, flag: String = "--apply", hasDryRun: Bool = true,
-                                      dryRunFlag: String? = nil) throws {
+                                      dryRunFlag: String? = nil, noPreviewHint: String? = nil) throws {
         try DestructiveTargetGate.assertTargetNamed(
-            command: command, flag: flag, hasDryRun: hasDryRun, dryRunFlag: dryRunFlag, explicitLibrary: library, yes: yes,
+            command: command, flag: flag, hasDryRun: hasDryRun, dryRunFlag: dryRunFlag, noPreviewHint: noPreviewHint,
+            explicitLibrary: library, yes: yes,
             resolved: try resolved().root)
     }
 

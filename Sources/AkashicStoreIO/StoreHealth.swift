@@ -691,16 +691,55 @@ extension LibraryStore {
     /// 它們在 D69／D73 之前也不被 `==` 去重，不是那次替換打開的格；只差 rests-on 順序的兩筆同樣不報（`byteExactKey` 與 `==` 都把
     /// rests-on 當有序陣列）。
     /// **severity 是 warning**：兩筆都合法，處置是人決定留哪一筆。2026-09-27 實測 live store：0 組（量法見 `zero-instance-guards` 第 35 列）。
+    ///
+    /// **名字分類記錄（#564）另算**（b33 X1 第 5／12 列）：它們是有順序的歷史，不相鄰的兩筆位元組相同（「指定 R → 撤回 S → 指定 R」）是合法的
+    /// 兩次轉移、不報；只報同一個名字同一個分割裡**相鄰**而彼此相等的（`classificationRuns`）——刪掉相鄰的多餘那一筆不改變最後一筆。
+    /// 先前與一般 reference 一起以集合分組，合法的歷史被報成重複、處置「留一筆」照做會讓最後一筆與分類矛盾。
     func duplicateReferenceIssues(in load: LibraryLoad) -> [StoreHealth.OwnedIssue] {
         // canonical 鍵：`byteExactKey` 逐段取 NFC——與 Swift `String` 的 `==` 同一個等價關係（canonical equivalence），
         // 而 `ProvenanceReference` 刻意不合成 `Hashable`，要當鍵只有從 `byteExactKey` 出發。
         func canonicalKey(_ r: ProvenanceReference) -> [[UInt8]] {
             r.byteExactKey.map { Array(String(decoding: $0, as: UTF8.self).precomposedStringWithCanonicalMapping.utf8) }
         }
+        // **名字分類記錄是有順序的歷史，不是集合**（#564 b33 X1 第 5／12 列）：「指定 R → 撤回 S → 指定 R」的兩筆「指定 R」位元組相同，
+        // 卻是兩次轉移——寫入面（`NameClassificationRecord.appendCollecting`）只比同一個名字同一個分割的最後一筆，store-format §3.5 把它定為合法。
+        // 先前它們與一般 reference 一起以集合分組，這段合法的歷史被報成「同一個動作做了兩次」、處置叫人留一筆——照做刪掉第三筆，名字仍是
+        // 對外形、最後一筆卻是撤回，正是合併閘與刪名字閘要擋的狀態。所以名字分類記錄只報**同一個名字同一個分割裡相鄰的**兩筆彼此相等
+        // （刪掉其中一筆不改變最後一筆），不相鄰的不報。
+        func classificationRuns(_ refs: [ProvenanceReference], owner: String, kind: String) -> [StoreHealth.OwnedIssue] {
+            var last: [String: (key: [[UInt8]], index: Int)] = [:]   // 分組 → 最後一筆的 canonical 鍵與它所在的連續段
+            var runs: [(first: ProvenanceReference, count: Int, spellings: Set<[[UInt8]]>)] = []
+            for r in refs where NameClassificationRecord.isRecord(r) {
+                let group = NameClassificationRecord.groupKey(field: r.field, name: r.value ?? "")
+                let k = canonicalKey(r)
+                if let prev = last[group], prev.key == k {
+                    runs[prev.index].count += 1
+                    runs[prev.index].spellings.insert(r.byteExactKey)
+                } else {
+                    runs.append((r, 1, [r.byteExactKey]))
+                    last[group] = (k, runs.count - 1)
+                }
+            }
+            return runs.filter { $0.count > 1 }.map { g in
+                let identicalExtra = g.count - g.spellings.count
+                var parts: [String] = []
+                if g.spellings.count > 1 { parts.append("只差位元組（\(g.spellings.count) 種拼法）") }
+                if identicalExtra > 0 { parts.append("其中 \(identicalExtra) 筆與前一筆位元組完全相同") }
+                let valuePart = g.first.value.map { "（value「\(displaySafeInvisible($0, max: 120))」）" } ?? ""
+                return StoreHealth.OwnedIssue(
+                    owner: owner, kind: kind,
+                    issue: ValidationIssue(
+                        severity: .warning,
+                        message: "\(StoreHealth.duplicateReferencePrefix)：\(displaySafeInvisible(g.first.field, max: 120))\(valuePart) 的名字分類記錄有 \(g.count) 筆相鄰而彼此相等；"   // display-safe-exempt: 前綴是常量；Int
+                               + parts.joined(separator: "；")   // display-safe-exempt: parts 是兩句字面常量＋Int
+                               + "——同一個動作連著記了兩次（手改或舊 binary；工具面只比最後一筆，寫不出相鄰的兩筆位元組相同）。處置：相鄰的多餘那幾筆刪掉不改變最後一筆"
+                               + "（名字分類記錄沒有移除面，手改 YAML）；不相鄰的同一句（指定 → 撤回 → 指定）是合法的歷史，不在此列"))
+            }
+        }
         func scan(_ refs: [ProvenanceReference], owner: String, kind: String) -> [StoreHealth.OwnedIssue] {
             var groups: [[[UInt8]]: (first: ProvenanceReference, count: Int, spellings: Set<[[UInt8]]>)] = [:]
             var order: [[[UInt8]]] = []
-            for r in refs where !ProvenanceReference.resolutionVerdictFields.contains(r.field) {
+            for r in refs where !ProvenanceReference.resolutionVerdictFields.contains(r.field) && !NameClassificationRecord.isRecord(r) {
                 let k = canonicalKey(r)
                 groups[k, default: (r, 0, [])].count += 1
                 groups[k]!.spellings.insert(r.byteExactKey)
@@ -741,9 +780,11 @@ extension LibraryStore {
         }
         var out: [StoreHealth.OwnedIssue] = []
         for e in load.entries { out += scan(e.references, owner: e.citekey, kind: "entry") }
-        for p in load.people { out += scan(p.references, owner: p.key, kind: "person") }
-        for o in load.organizations { out += scan(o.references, owner: o.key, kind: "organization") }
-        for v in load.venues { out += scan(v.references, owner: v.key, kind: "venue") }
+        for p in load.people { out += scan(p.references, owner: p.key, kind: "person") + classificationRuns(p.references, owner: p.key, kind: "person") }
+        for o in load.organizations {
+            out += scan(o.references, owner: o.key, kind: "organization") + classificationRuns(o.references, owner: o.key, kind: "organization")
+        }
+        for v in load.venues { out += scan(v.references, owner: v.key, kind: "venue") + classificationRuns(v.references, owner: v.key, kind: "venue") }
         return out
     }
 }

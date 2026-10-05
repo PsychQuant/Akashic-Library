@@ -122,4 +122,40 @@ final class DuplicateReferenceScanTests: XCTestCase {
         let h = store.health(from: try store.load())
         XCTAssertTrue(h.duplicateReferences.isEmpty, h.duplicateReferences.map(\.issue.message).description)
     }
+
+    // MARK: - #564 b33 X1 第 5／12 列：名字分類記錄是有順序的歷史
+
+    private func classified(_ name: String, _ action: NameClassificationRecord.Action, _ reason: String, field: String = "authorized") -> ProvenanceReference {
+        NameClassificationRecord.make(field: field, name: name, action: action, reason: reason, restsOn: [])
+    }
+    private func venueWithHistory(_ key: String, name: String, authorized: Bool, _ refs: [ProvenanceReference]) throws {
+        var v = Venue(key: key, type: .periodical, names: Timeline([TemporalValue(value: name)]), authorized: authorized ? [name] : [])
+        v.references = refs
+        try store.writeVenue(v)
+    }
+
+    /// 「指定 R → 撤回 S → 指定 R」是寫入面自己會寫出的合法歷史（只比最後一筆）：不報重複。person 與 venue 都是。
+    func testALegitimateRedesignationHistoryIsNotADuplicate() throws {
+        try venueWithHistory("vz", name: "Zed Z", authorized: true,
+                             [classified("Zed Z", .designate, "R"), classified("Zed Z", .withdraw, "S"), classified("Zed Z", .designate, "R")])
+        var p = Person(key: "pz", names: PersonNames(authorized: ["Zed, Z"], variant: []))
+        p.references = [classified("Zed, Z", .designate, "R"), classified("Zed, Z", .withdraw, "S"), classified("Zed, Z", .designate, "R")]
+        _ = try store.writePerson(p)
+        let h = store.health(from: try store.load())
+        XCTAssertTrue(h.duplicateReferences.isEmpty, h.duplicateReferences.map(\.issue.message).description)
+    }
+
+    /// 相鄰的兩筆彼此相等（手改或舊 binary）照報；處置不叫人「留一筆」把歷史刪成別的形狀，而是說相鄰的多餘那一筆刪掉不改變最後一筆。
+    func testAdjacentEqualClassificationRecordsAreReported() throws {
+        try venueWithHistory("va", name: "Adj A", authorized: true,
+                             [classified("Adj A", .designate, "R"), classified("Adj A", .designate, "R"), classified("Adj A", .withdraw, "S"),
+                              classified("Adj A", .designate, "R")])
+        try venueWithHistory("vb", name: "Adj B", authorized: false,
+                             [classified("Adj B", .designate, "R"), classified("Adj B", .withdraw, "S")])
+        let found = store.health(from: try store.load()).duplicateReferences
+        XCTAssertEqual(found.map(\.owner), ["va"], found.map(\.issue.message).description)
+        let m = try XCTUnwrap(found.first?.issue.message)
+        XCTAssertTrue(m.contains("相鄰") && m.contains("2 筆") && m.contains("不改變最後一筆") && m.contains("不相鄰的同一句"), m)
+        XCTAssertFalse(m.contains("留一筆"), m)
+    }
 }

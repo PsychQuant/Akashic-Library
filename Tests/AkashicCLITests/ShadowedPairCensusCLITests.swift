@@ -9,8 +9,8 @@ import Foundation
 /// - CLI `akashic doctor` 的 `unresolved author literals` 自己從完整的 load 數（MCP 讀 `health`），`no authorized name`、`authorized only by
 ///   citation form`、`deceased with open affiliation`、`digest 形式的 source`、zero-dates 與日期值域的普查也吃完整的 load——同一份輸出
 ///   `entries: 1` 而 `unresolved author literals: 2`、`no authorized name` 把同一個 key 列兩次；
-/// - ~~`bootstrap-organizations` 只把 entries 換成視圖~~（#709 第三次 verify：寫入候選面收回到完整的 load，待使用者確認視圖的延伸；
-///   輸出開頭說出計畫含幾份拷貝）；
+/// - ~~`bootstrap-organizations` 只把 entries 換成視圖~~（#709 第三次 verify：寫入候選面收回到完整的 load；使用者 2026-10-05 裁決維持它、
+///   計畫讀到拷貝時 `--apply` 整批拒絕；乾跑開頭說出計畫讀到幾份拷貝）；
 /// - `library list` 把一對算成兩個成員（成員數是讀數，仍取視圖；依據看完整的 load）。
 ///
 /// 本檔走真 binary。doctor 那一支拿同一個 store 先跑一次（沒有拷貝）再加拷貝跑一次：`library:` 之後的普查段要逐行相同。
@@ -102,7 +102,7 @@ final class ShadowedPairCensusCLITests: XCTestCase {
 
     // MARK: - bootstrap-organizations
 
-    /// #709 第三次 verify（MEDIUM 0）：寫入候選面看完整的 load（R2 曾讓兩個 literal 來源都取視圖，那一半待使用者確認、本輪收回）。
+    /// #709 第三次 verify（MEDIUM 0）：寫入候選面看完整的 load（R2 曾讓兩個 literal 來源都取視圖；使用者 2026-10-05 裁決不延伸視圖）。
     /// 兩份的隸屬 literal 不同：legacy 拷貝獨有的機構名也是候選，輸出開頭說出計畫含幾份拷貝。
     func testBootstrapOrganizationsReadsTheFullLoadAndSaysTheCopyIsInThePlan() throws {
         var person = Person(key: "smith-j", names: PersonNames(authorized: ["Smith, John"]))
@@ -130,6 +130,46 @@ final class ShadowedPairCensusCLITests: XCTestCase {
         XCTAssertEqual(r.status, 0, r.output)
         XCTAssertTrue(r.output.contains("×2  Institute of Real Things"), "\(r.output)")
         XCTAssertTrue(r.output.contains("計畫含 1 份 legacy 拷貝") && r.output.contains("多算一次出現"), r.output)
+    }
+
+    /// 使用者 2026-10-05 裁決 2（#709 第四次 verify MEDIUM 5）：計畫讀到 legacy 拷貝時 `--apply` 整批拒絕、零寫入。organizations 的計畫讀 person 的
+    /// 隸屬與 work 的團體作者兩種——person 拷貝與 work 拷貝都擋（`BootstrapPlanSource.organizations`）。
+    func testBootstrapOrganizationsApplyIsRefusedForAPersonCopyAndForAWorkCopy() throws {
+        var person = Person(key: "smith-j", names: PersonNames(authorized: ["Smith, John"]))
+        person.profile.affiliations = TimelineOf<OrgRef>([TemporalValue(value: .literal("Institute of Real Things"))])
+        try writeEntities(person)
+        try writeLegacy(person)
+        var before = try storeFiles()
+        var r = try cli(["bootstrap-organizations", "--apply"])
+        XCTAssertEqual(r.status, 1, r.output)
+        XCTAssertTrue(r.output.contains("bootstrap-organizations --apply") && r.output.contains("整批拒絕、零寫入")
+                      && r.output.contains("people/smith-j.yaml"), r.output)
+        XCTAssertEqual(try storeFiles(), before, "零寫入")
+
+        // work 拷貝（團體作者 literal）同樣在計畫裡
+        try FileManager.default.removeItem(at: store.personURL(key: "smith-j"))
+        let work = Entry(id: UUID(), citekey: "anon2020group", type: .periodicalArticle, title: "T",
+                         authors: [.literal("Ghost Consortium")], date: "2020")
+        try writeEntities(work)
+        try writeLegacy(work)
+        let dry = try cli(["bootstrap-organizations"])
+        XCTAssertTrue(dry.output.contains("計畫含 1 份 legacy 拷貝") && dry.output.contains("entries/anon2020group.yaml"), dry.output)
+        before = try storeFiles()
+        r = try cli(["bootstrap-organizations", "--apply"])
+        XCTAssertEqual(r.status, 1, r.output)
+        XCTAssertTrue(r.output.contains("entries/anon2020group.yaml"), r.output)
+        XCTAssertEqual(try storeFiles(), before, "零寫入")
+    }
+
+    /// store 裡每個 YAML 檔的位元組（相對路徑 → 內容）——零寫入的量法。
+    private func storeFiles() throws -> [String: Data] {
+        var out: [String: Data] = [:]
+        for dir in [store.entitiesDir, store.entriesDir, store.peopleDir] {
+            for url in (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? [] {
+                out[dir.lastPathComponent + "/" + url.lastPathComponent] = try Data(contentsOf: url)
+            }
+        }
+        return out
     }
 
     /// 對照組：沒有拷貝時不印附註。
@@ -177,10 +217,22 @@ final class ShadowedPairCensusCLITests: XCTestCase {
         XCTAssertTrue(check.output.contains("⚠ 依據不明確"), check.output)
         XCTAssertTrue(check.output.contains("✕ anon2021mem"), check.output)
         XCTAssertFalse(check.output.contains("全部符合"), check.output)
+        // #709 第四次 verify（LOW 23，INFO 26、28）：原因在依據、不在成員——不建議逐筆 library remove，指向先修依據
+        XCTAssertFalse(check.output.contains("確認後用 akashic library remove"), check.output)
+        XCTAssertTrue(check.output.contains("原因在上一行的依據") && check.output.contains("先修好依據"), check.output)
         let list = try cli(["library", "list"])
         XCTAssertEqual(list.status, 0, list.output)
         XCTAssertTrue(list.output.contains("Docs（1 entries）"), list.output)
         XCTAssertTrue(list.output.contains("1 筆成員不符規則"), list.output)
+
+        // 對照組：依據明確、成員真的不符（不在文件的 cites）時照舊建議 library remove
+        try FileManager.default.removeItem(at: store.entriesDir.appendingPathComponent("anon2020doc.yaml"))
+        var stray = Entry(id: UUID(), citekey: "anon2022stray", type: .periodicalArticle, title: "Stray", date: "2022")
+        stray.akashic.libraries = ["docs"]
+        try writeEntities(stray)
+        let control = try cli(["library", "check", "docs"])
+        XCTAssertFalse(control.output.contains("依據不明確"), control.output)
+        XCTAssertTrue(control.output.contains("✕ anon2022stray") && control.output.contains("確認後用 akashic library remove"), control.output)
     }
 
     // MARK: - resolve-people

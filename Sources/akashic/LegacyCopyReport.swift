@@ -65,6 +65,9 @@ enum LegacyCopyReport {
     /// 而它恰好在兩種需要重跑的情形出現——(1) 那幾筆裡有 `laterWriteRefused` 的（之後的寫入沒套用，刪掉拷貝之後要重跑才補得上）；(2) 沒有訊息的
     /// 非零結束（例如 import-zotero 的 `writeFailed`：有記錄沒寫成功）。只擷取 stderr 與結束碼的呼叫端讀到「不要重跑」就不會重跑。
     /// 現在：「不必重跑」只說給**已經寫了、沒有後續被拒**的那幾筆；有沒套用的就說要重跑幾筆；失敗本身（有訊息或沒有）另說「要另外處理」。
+    ///
+    /// 刪 legacy 那份帶「確認 entities/ 那份是新的之後」（#705 第四次 verify LOW 20）：標題（`LegacyCopyLeft.explanation`）上一輪加了這個前提——
+    /// 兩份可能已經分岔、手改過的 legacy 那份 index 看不到——而這一行是 cron／CI 唯一讀到的一行，先前仍無條件說「要刪掉 legacy 那份」。
     static func stderrText(errorText: String) -> String {
         stderrText(errorText: errorText, reported: reportedOnStdout, notApplied: notAppliedOnStdout)
     }
@@ -74,7 +77,7 @@ enum LegacyCopyReport {
         guard reported > 0 else { return errorText }
         // 不以 `writtenWithLegacyCopy` 開頭：那是 stdout 報告的標題，合併兩個串流讀的呼叫端找它時不該先找到這一行
         var lead = "已寫入 \(reported) 筆、搬移後的 legacy 拷貝沒刪掉（writtenWithLegacyCopy，清單在 stdout）"   // display-safe-exempt: Int
-            + "——那幾筆的寫入不是失敗，要刪掉 legacy 那份（兩份並存時 #631 拒絕同一筆的下一次寫入）；"
+            + "——那幾筆的寫入不是失敗；確認 entities/ 那份是新的之後刪掉 legacy 那份（兩份並存時 #631 拒絕同一筆的下一次寫入）；"
         lead += notApplied > 0
             ? "其中 \(notApplied) 筆之後的寫入沒套用，刪掉 legacy 那份之後要重跑才補得上。"   // display-safe-exempt: Int
             : "它們不必為了自己重跑。"

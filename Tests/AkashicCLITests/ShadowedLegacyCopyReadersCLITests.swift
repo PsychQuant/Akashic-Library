@@ -9,7 +9,7 @@ import Foundation
 ///
 /// 本檔走真 binary：
 /// - ~~`bootstrap-people`（與 `-organizations`、`-venues` 同一個作法）的 literal 來源只取 entities/ 那份~~（#709 第三次 verify：寫入候選面
-///   收回到完整的 load，待使用者確認視圖的延伸；輸出說出計畫含幾份拷貝）；
+///   收回到完整的 load；使用者 2026-10-05 裁決維持它，並裁定計畫讀到拷貝時 `--apply` 整批拒絕；乾跑說出計畫讀到幾份拷貝）；
 /// - `view show --keys-only`（餵下游腳本）不列改名留下的舊 citekey。
 final class ShadowedLegacyCopyReadersCLITests: XCTestCase {
     private var root: URL!
@@ -45,7 +45,7 @@ final class ShadowedLegacyCopyReadersCLITests: XCTestCase {
         try EntryYAML.encode(e).write(to: store.entriesDir.appendingPathComponent("\(e.citekey).yaml"), atomically: true, encoding: .utf8)
     }
 
-    /// #709 第三次 verify：寫入候選面看完整的 load（R3 曾改用視圖，那一半待使用者確認、本輪收回）——legacy 拷貝裡多出來的 literal 也是候選、
+    /// #709 第三次 verify：寫入候選面看完整的 load（R3 曾改用視圖；使用者 2026-10-05 裁決不延伸視圖）——legacy 拷貝裡多出來的 literal 也是候選、
     /// 一對相同的 literal 算兩次出現；輸出（`--json` 是 `legacyCopiesInPlan`）說出計畫含幾份拷貝。
     func testBootstrapPeopleReadsTheFullLoadAndSaysTheCopyIsInThePlan() throws {
         let id = UUID()
@@ -83,6 +83,82 @@ final class ShadowedLegacyCopyReadersCLITests: XCTestCase {
         XCTAssertTrue(r.output.contains("Journal of Real Things"), r.output)
         XCTAssertTrue(r.output.contains("Ghost Quarterly"), "拷貝裡的刊名不被安靜略過：\(r.output)")
         XCTAssertTrue(r.output.contains("計畫含 1 份 legacy 拷貝"), r.output)
+    }
+
+    /// 使用者 2026-10-05 裁決 2（#709 第四次 verify MEDIUM 5，LOW 6、13、15）：計畫讀到 legacy 拷貝時 `--apply` 整批拒絕、零寫入——先前附註之後照寫，
+    /// 一篇 work 加它的拷貝讓 `Doe, A.` 以 ×2 越過 `--min-occurrences 2` 而建檔。乾跑照常列出並說明。
+    func testBootstrapPeopleApplyIsRefusedWhenThePlanReadsAWorkCopy() throws {
+        let canonical = Entry(id: UUID(), citekey: "doe2020a", type: .periodicalArticle, title: "T",
+                              authors: [.literal("Doe, A.")], date: "2020")
+        try writeEntities(canonical)
+        try writeLegacy(canonical)
+
+        let dry = try cli(["bootstrap-people", "--min-occurrences", "2"])
+        XCTAssertEqual(dry.status, 0, dry.output)
+        XCTAssertTrue(dry.output.contains("×2  Doe, A."), "乾跑照常列出：\(dry.output)")
+        XCTAssertTrue(dry.output.contains("--apply 會整批拒絕、零寫入") && dry.output.contains("entries/doe2020a.yaml"), dry.output)
+
+        let before = try storeFiles()
+        let r = try cli(["bootstrap-people", "--min-occurrences", "2", "--apply"])
+        XCTAssertEqual(r.status, 1, r.output)
+        XCTAssertTrue(r.output.contains("整批拒絕、零寫入") && r.output.contains("entries/doe2020a.yaml")
+                      && r.output.contains("確認 entities/ 那份是新的之後"), r.output)
+        XCTAssertEqual(try storeFiles(), before, "零寫入")
+    }
+
+    func testBootstrapVenuesApplyIsRefusedWhenThePlanReadsAWorkCopy() throws {
+        var canonical = Entry(id: UUID(), citekey: "doe2020a", type: .periodicalArticle, title: "T", date: "2020")
+        canonical.fields["journaltitle"] = "Journal of Alpha Things"
+        try writeEntities(canonical)
+        try writeLegacy(canonical)
+
+        let before = try storeFiles()
+        let r = try cli(["bootstrap-venues", "--min-occurrences", "2", "--apply"])
+        XCTAssertEqual(r.status, 1, r.output)
+        XCTAssertTrue(r.output.contains("bootstrap-venues --apply") && r.output.contains("整批拒絕、零寫入"), r.output)
+        XCTAssertEqual(try storeFiles(), before, "零寫入")
+    }
+
+    /// #709 第四次 verify（MEDIUM 1、3，LOW 11）：只有一份改名留下的 **person** 拷貝——people／venues 的計畫只讀 entries，那份拷貝不在計畫裡：
+    /// 不印附註、`--json` 沒有 `legacyCopiesInPlan`、`--apply` 照常寫入。先前兩個命令都說「計畫含 1 份、拷貝裡的 literal 也是候選」。
+    func testAPersonOnlyCopyIsNotInThePeopleOrVenuesPlan() throws {
+        let id = UUID()
+        try PersonYAML.encode(Person(key: "kim-c", names: PersonNames(authorized: ["Kim, Chris"]), id: id))
+            .write(to: store.entityURL(id: id), atomically: true, encoding: .utf8)
+        try FileManager.default.createDirectory(at: store.peopleDir, withIntermediateDirectories: true)
+        try PersonYAML.encode(Person(key: "old-kim", names: PersonNames(authorized: ["Kim, Chris"]), id: id))
+            .write(to: store.personURL(key: "old-kim"), atomically: true, encoding: .utf8)
+        var work = Entry(id: UUID(), citekey: "doe2020a", type: .periodicalArticle, title: "T",
+                         authors: [.literal("Doe, A.")], date: "2020")
+        work.fields["journaltitle"] = "Journal of Real Things"
+        try writeEntities(work)
+        XCTAssertEqual(try store.load().shadowedLegacyCopies.map(\.key), ["old-kim"], "前提：load 認得出這份 person 拷貝")
+
+        let json = try cli(["bootstrap-people", "--json"])
+        XCTAssertEqual(json.status, 0, json.output)
+        let obj = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(json.output.utf8)) as? [String: Any], json.output)
+        XCTAssertNil(obj["legacyCopiesInPlan"], "person 拷貝不進作者 literal 的來源：\(json.output)")
+        for command in ["bootstrap-people", "bootstrap-venues"] {
+            let dry = try cli([command])
+            XCTAssertEqual(dry.status, 0, dry.output)
+            XCTAssertFalse(dry.output.contains("legacy 拷貝"), "\(command)：\(dry.output)")
+            let r = try cli([command, "--apply"])
+            XCTAssertEqual(r.status, 0, "\(command) --apply 不被計畫沒讀到的拷貝擋：\(r.output)")
+        }
+        let load = try store.load()
+        XCTAssertTrue(load.people.contains { $0.key == "doe-a" }, "bootstrap-people 寫入了")
+        XCTAssertTrue(load.venues.contains { $0.key == "journal-of-real-things" }, "bootstrap-venues 寫入了")
+    }
+
+    /// store 裡每個 YAML 檔的位元組（相對路徑 → 內容）——零寫入的量法。
+    private func storeFiles() throws -> [String: Data] {
+        var out: [String: Data] = [:]
+        for dir in [store.entitiesDir, store.entriesDir, store.peopleDir] {
+            for url in (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? [] {
+                out[dir.lastPathComponent + "/" + url.lastPathComponent] = try Data(contentsOf: url)
+            }
+        }
+        return out
     }
 
     /// 改名留下的拷貝帶舊 citekey：`view show --keys-only` 餵下游腳本，不該把新舊兩個 citekey 並列。

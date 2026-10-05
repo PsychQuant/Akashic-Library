@@ -221,18 +221,27 @@ plugin 版號沒有動（skill 與 wrapper 文字的改動）。
 - `akashic_doctor` 其餘由記錄內容算出來的讀數也取 `entities/` 那份：`noAuthorizedName`（含 `firstPeople`）、`authorizedOnlyByCitationForm`、`deceasedWithOpenAffiliation`、`digestSources`，以及 index 沒重建時的 `entries`。先前同一份回應可以是 `people: 25` 而 `noAuthorizedName.people: 50`。
 - `akashic_libraries` 的 `list`（`members`、`nonconforming`）、`check`（成員數與不符清單）、`set-kind` 的回報：一對 legacy 拷貝算一個成員。
 - `akashic_create_entry` 的 `doiHits`：一對 legacy 拷貝不再列成「已在：k、k」。
-- CLI：`doctor` 的 `unresolved author literals` 與上面幾項同一個視圖（先前 CLI 自己從完整的 load 數，與 MCP 不同）；`bootstrap-organizations` 的 person 隸屬 literal、`authorize-names` 的計畫也取 `entities/` 那份。
+- CLI：`doctor` 的 `unresolved author literals` 與上面幾項同一個視圖（先前 CLI 自己從完整的 load 數，與 MCP 不同）；~~`bootstrap-organizations` 的 person 隸屬 literal、`authorize-names` 的計畫也取 `entities/` 那份。~~（2026-10-04 收回，見下）
 - 仍然讀完整 load 的（有記錄的殘留）：`akashic_person`、`akashic_get_entry` 的單筆查詢（排序讓 `entities/` 那份在前）；`akashic_resolve_people`／`akashic_resolve_venues`／`akashic_resolve_organizations` 的候選產生；`akashic_record_divergence` 的候選存在檢查（改名留下的舊 citekey 收得下）；CLI `references nominate` 的比對表；CLI `validate` 結尾的筆數。
 - ~~寫入候選面（三個 bootstrap、`authorize-names`）改取 `entities/` 那份超出使用者 2026-10-01 的裁決範圍，待確認。~~（2026-10-04 收回，見下）
 - 工具說明沒有改。
 
 2026-10-04，第三次驗證之後（寫入候選面與依據判定收回到完整的 load；以 entities/ 為準的視圖只留給讀數）：
 
-- `akashic_libraries` 的 `check`／`list`／`set-kind`：依據（`basisProblem`：文件型的文件在庫裡有幾筆、規則的 venue 有幾筆）看完整的 load，與 `add` 和 `akashic_doctor` 同一份判定。文件自己有 legacy 拷貝時，`check` 先前回 `basisProblem: null`、「全部符合」，`add` 卻以「文件的 citekey 有不只一筆」拒絕；現在 `check` 回 `basisProblem` 與每個成員的不符原因，`list` 的 `nonconforming` 跟著算進去。成員數與不符清單仍只算 `entities/` 那一份。
+- `akashic_libraries` 的 `check`／`list`／`set-kind`：依據（`basisProblem`：文件型的文件在庫裡有幾筆、規則的 venue 有幾筆）看完整的 load，與 `add` 和 `akashic_doctor` 同一份判定。文件自己有 legacy 拷貝時，`check` 先前的回應沒有 `basisProblem` 這個鍵（~~先前回 `basisProblem: null`~~，2026-10-05 更正：nil 時整個鍵省略，不是 null）、「全部符合」，`add` 卻以「文件的 citekey 有不只一筆」拒絕；現在 `check` 回 `basisProblem` 與每個成員的不符原因，`list` 的 `nonconforming` 跟著算進去。成員數與不符清單仍只算 `entities/` 那一份。
 - `akashic_person` 的名字查找：每個候選的 `publications`（含 literal 候選）只算 `entities/` 那一份——先前一對拷貝讓篇數加倍。候選的 person 列照舊來自完整的 load（同一筆 person 的一對列兩次，篇數相同）。
-- `akashic_enrich` 以 DOI 定位、命中改名留下的拷貝（citekey 不同、id 相同）時，理由說出那是同一筆記錄的 entities/ 與 legacy 拷貝、刪掉 legacy 那份之後再跑；先前指向 #459 的攣生管線。行為不變（`ambiguous`、零寫入）。
-- CLI：`authorize-names` 的計畫與 `--apply` 的拒絕都看完整的 load（第二次驗證之後改取視圖，讓改名留下拷貝的 person 從整批拒絕變成寫入）；乾跑列出 `--apply` 會擋的那幾筆、不再說「確認後執行」。三個 bootstrap 的 literal 來源回到完整的 load，有拷貝時開頭印一行說計畫含幾份拷貝（`bootstrap-people --json` 是 `legacyCopiesInPlan`）。`resolve-people` 無候選時的「literal 作者 N 個」與 doctor 同一個數。
+- `akashic_enrich` 以 DOI 定位、命中改名留下的拷貝（citekey 不同、id 相同）時，~~理由說出那是同一筆記錄的 entities/ 與 legacy 拷貝、刪掉 legacy 那份之後再跑~~；先前指向 #459 的攣生管線。行為不變（`ambiguous`、零寫入）。（2026-10-05 更正：這一版只憑 id 相等就這麼說，兩份都是 legacy 的同 id 兩筆也被說成拷貝並叫人刪檔——見下）
+- CLI：`authorize-names` 的計畫與 `--apply` 的拒絕都看完整的 load（第二次驗證之後改取視圖，讓改名留下拷貝的 person 從整批拒絕變成寫入）；乾跑列出 `--apply` 會擋的那幾筆、不再說「確認後執行」。三個 bootstrap 的 literal 來源回到完整的 load，有拷貝時開頭印一行說計畫含幾份拷貝（`bootstrap-people --json` 是 `legacyCopiesInPlan`；2026-10-05 起只數計畫讀到的種類、`--apply` 整批拒絕，見下）。`resolve-people` 無候選時的「literal 作者 N 個」與 doctor 同一個數。
 - 仍然讀完整 load 的（有記錄的殘留，取代上一份）：`akashic_person`／`akashic_get_entry` 的單筆查詢——同 key 的一對靠排序讓 `entities/` 那份在前，**改名留下的拷貝**以舊 key 查到的是 legacy 那份的內容；名字查找的 person 列；三個 `resolve-*` 的候選產生；`akashic_record_divergence` 的候選存在檢查；`akashic_enrich` 的 DOI 定位（寫入面）；CLI `references nominate`、`validate` 結尾的筆數、`literal-census`（直接掃 YAML，有拷貝時比 doctor 多算拷貝裡的 literal）。
+- 工具說明沒有改（`tools/list` 一行不變）。
+
+2026-10-05，第四次驗證之後（使用者 2026-10-05 裁決：寫入候選面一律看完整資料、視圖只用於讀數；bootstrap 的計畫讀到 legacy 拷貝時 `--apply` 整批拒絕）：
+
+- `akashic_enrich` 以 DOI 定位、命中兩筆以上時，哪一筆是 legacy 拷貝只問 load 的標記（同一種、同一個 id、另一份在 `entities/`），不再以 id 相等自己推。被標成拷貝的：理由點名它的 legacy 檔與 entities/ 那份，說「確認 entities/ 那份是新的之後刪掉 legacy 那份」。同 id 而沒有被標成拷貝的（兩份都是 legacy——手動複製檔案忘了換 id）：說 UUID 重複是 error、指向 validate，不說「不是兩篇作品」、不叫人刪檔。拿掉拷貝之後仍有兩筆以上：照舊說不判定哪一筆才對（#459）。行為不變（`ambiguous`、零寫入）。
+- CLI：三個 bootstrap 的附註與 `bootstrap-people --json` 的 `legacyCopiesInPlan` 只數流進該命令 literal 來源的拷貝（`bootstrap-people`／`bootstrap-venues`：work；`bootstrap-organizations`：work 與 person）——只有一份 person 拷貝時 venues／people 不再說計畫含拷貝。計畫讀到拷貝時 `--apply` 整批拒絕、零寫入（結束碼 1），訊息逐份點名 legacy 檔；乾跑照常列出候選並說明。
+- CLI：`authorize-names` 的寫入集合裡有任何一筆的 id 還有 legacy 拷貝時，`--apply` 也整批拒絕——先前改名一對而 legacy 那份已有 authorized 時，只寫 entities/ 那份。
+- CLI：`library check`／`set-kind` 在依據不明確時不再建議逐筆 `library remove`（原因在依據、不在成員）。
+- skill：`akashic-bootstrap` 的 `references/writing-to-the-store.md` 在 `bootstrap-people --apply` 那一列註明這個拒絕。
 - 工具說明沒有改（`tools/list` 一行不變）。
 
 ## #564 — 名字分類的判定面必附理由、留判定記錄（不相容）；store format 22
@@ -378,7 +387,7 @@ plugin 的 wrapper 會自動下載新版 `akashic-mcp`，skill 文字可能比 b
 
 第三輪驗證之後（2026-10-02）：
 
-- **`sourceDigest` 前後的空白只在 reference 真的會寫時才拒絕**：只給 digest（回顯、不寫 reference）時，前後的空白或換行照舊收下（trim 之後驗；只有空白視同沒給）——先前第二輪起整批拒絕，而且理由「reference 記的是送來的原值」在那一格不成立；`shasum` 的輸出帶換行。給了 `sourceURL`／`sourceRetrieved`／`sourceMediaType` 時仍驗原值。
+- **`sourceDigest` 前後的空白只在 ~~reference 真的會寫~~ 四個來源欄位齊備時才拒絕**（2026-10-05 更正：判準是四欄齊備，不是 reference 一定會寫——見下方第五輪）：只給 digest（回顯、不寫 reference）時，前後的空白或換行照舊收下（trim 之後驗；只有空白視同沒給）——先前第二輪起整批拒絕，而且理由「reference 記的是送來的原值」在那一格不成立；`shasum` 的輸出帶換行。給了 `sourceURL`／`sourceRetrieved`／`sourceMediaType` 時仍驗原值。
 - url 的方括號 IPv6 位址要有結尾 `]`、括號內只收十六進位／冒號／點（可接 `%25` 加 zone id）。`https://[user:hunter2/x`、`https://[hunter2]/x` 先前會通過（繞過 port 的檢查），現在整批拒絕；真的 IPv6 位址（含加 port）照收。
 - 訊息：「sourceDigest 不是 `sha256:` …」不再重複說「整批拒絕、零寫入」；相容定界符的拒絕訊息不再含字面的反斜線（在 MCP／CLI 出口會被逃脫成 `\u{005C}`）。
 - `akashic_enrich` 的輸入說明（`sourceURL`／`sourceRetrieved`／`sourceMediaType`）補上字元規則的摘要。
@@ -387,7 +396,7 @@ plugin 的 wrapper 會自動下載新版 `akashic-mcp`，skill 文字可能比 b
 第四輪驗證之後（2026-10-03）：
 
 - url 的方括號裡要是解析得開的 IPv6 位址（`[1234]`、`[cafe:babe]`、`[....]`、`[:::::]` 先前會通過），zone id 要是 `%25` 加 1–15 個位元組（unreserved 字元或 `%HH`）：`[::1%hunter2]`、`[::1%]`、`[::1%25]`、`[fe80::1%en0]` 現在整批拒絕。`[fe80::1%25en0]` 照收。兩個面（`akashic_enrich` 的 `sourceURL`、`akashic_update_person`／`akashic_update_venue` 的 `references`）同一個函式。
-- `sourceDigest` 前後的空白只在 reference 真的會寫——`sourceDigest`、`sourceURL`、`sourceRetrieved`、`sourceStatus` 四欄都給了——時才拒絕；先前給了 url、取得日期或 media type 之一就拒絕，而缺取得日期時 reference 根本不寫。
+- `sourceDigest` 前後的空白只在 ~~reference 真的會寫——~~`sourceDigest`、`sourceURL`、`sourceRetrieved`、`sourceStatus` 四欄都給了~~——~~時才拒絕（2026-10-05 更正：四欄齊備不等於 reference 會寫，見第五輪）；先前給了 url、取得日期或 media type 之一就拒絕，而缺取得日期時 reference 根本不寫。
 - reference 不寫時，回應的 `sourceDigest` 回顯 trim 之後的值（先前回顯原值，換行成了 `\u{000A}`）；只有空白的 digest 視同沒給，不再回顯、也不再說「只給了 sourceDigest」。
 - 長度超過上限的拒絕訊息不再把「整批拒絕、零寫入」說兩次。
 
@@ -395,7 +404,7 @@ plugin 的 wrapper 會自動下載新版 `akashic-mcp`，skill 文字可能比 b
 
 第五輪驗證之後（2026-10-04，只改文字與測試，行為不變）：
 
-- `sourceDigest` 帶空白的拒絕訊息改成「四個來源欄位齊備時 reference 記原值」：判準是四欄齊備，不是 reference 一定會寫——目標欄位已在、記錄找不到、store format 收不下時什麼都不寫，帶空白的 digest 照樣整批拒絕（冪等重跑一份已套用的提案檔會多一次拒絕）。
+- `sourceDigest` 帶空白的拒絕訊息改成「四個來源欄位齊備時 reference 記原值」：判準是四欄齊備，不是 reference 一定會寫——目標欄位已在、記錄找不到、store format 收不下時什麼都不寫，帶空白的 digest 照樣整批拒絕~~（冪等重跑一份已套用的提案檔會多一次拒絕）~~（2026-10-05 更正：這個後果在本版不可達——帶空白、四欄齊備的提案第一次就被拒，不可能先被套用；可達的是目標欄位已在時帶空白仍拒、去掉空白則是「已有」）。
 - 方括號 IPv6 的誠實邊界（寫進 store 格式文件）：這是語法檢查，位址形狀的內容擋不住（合法位址本身裝得下 32 位十六進位、zone 裡 15 個位元組以內的英數字或 `%HH` 照收、zone 不限連結本地位址）；Darwin 的 `inet_pton` 收每群多於四位的前導零與 IPv4 八位元組的前導零（glibc 不收，拒絕集合依平台而異）；port 不驗位數與 0–65535 的範圍，百分比編碼的帳密看不出來。
 
 ## #703 — `akashic_store_source` 單檔上限 256 MiB

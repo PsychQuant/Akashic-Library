@@ -86,8 +86,11 @@ public struct LegacyCopyNotice: Equatable {
     /// 之後對同一筆的寫入被 #631 拒絕，**原因就是這份拷貝**（兩份並存時 #631 拒絕同一筆的下一次寫入），那一步沒有套用。先前的標題把這個後續錯誤
     /// 一概歸給別的原因，使用者會同時看到拒寫的錯誤與否認其原因的提示，被引去找別的原因、而不是去清留下的拷貝。
     /// 有任何一筆標了 `laterWriteRefused` 時，標題另說這一件事（與 CLI／MCP 同一句 `laterWriteRefusedNote`）。
+    ///
+    /// 第二句不再重複「刪掉 legacy 那份」、不說「即可」（#705 第四次 verify INFO 29）：`explanation` 剛說完「確認 entities/ 那份是新的之後刪掉」，
+    /// 先前緊接著再說一次「刪掉 legacy 那份之後重跑即可」，把上一輪拿掉的「即可」與無前提的刪除又放回同一個標題。
     public var headline: String {
-        let base = "\(LegacyCopyLeft.explanation)（\(items.count) 筆）。同一個動作若另有錯誤，請依那個錯誤的訊息處理；後續的寫入可能因為這份 legacy 拷貝還在（兩份並存）而被拒絕，刪掉 legacy 那份之後重跑即可。"   // display-safe-exempt: explanation：常量字面；count：Int
+        let base = "\(LegacyCopyLeft.explanation)（\(items.count) 筆）。同一個動作若另有錯誤，請依那個錯誤的訊息處理；後續的寫入可能因為這份 legacy 拷貝還在（兩份並存）而被拒絕——照上一句處理拷貝之後重跑那些寫入。"   // display-safe-exempt: explanation：常量字面；count：Int
         let refused = items.filter(\.laterWriteRefused).count
         guard refused > 0 else { return base }
         return base + "其中 \(refused) 筆：\(LegacyCopyLeft.laterWriteRefusedNote)。"   // display-safe-exempt: refused：Int；laterWriteRefusedNote：常量字面

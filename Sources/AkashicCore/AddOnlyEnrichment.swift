@@ -490,17 +490,41 @@ public enum AddOnlyEnrichment {
         return result
     }
 
-    /// DOI 命中兩筆以上的理由（零寫入）。命中裡有共用同一個 id 的——同一筆記錄改名之後留下的 legacy 拷貝（#709：citekey 不同、id 相同）——
-    /// 時說出來：那不是兩篇作品，出路是刪掉 legacy 那份，不是 #459 的攣生管線（resolve-divergence 對有拷貝的候選拒絕）。
-    /// 定位仍看完整的 load（寫入面）；只有理由分開說（#709 第三次 verify）。
+    /// DOI 命中兩筆以上的理由（零寫入）。定位仍看完整的 load（寫入面）；只有理由分開說（#709）。
+    ///
+    /// **哪一筆是 legacy 拷貝，只問 load 的標記**（`fileSituation.shadowedLegacyFile`，判準只有一份，在
+    /// `LibraryStore.markLegacyCopiesShadowedByEntities`）——不以 id 相等自己推。#709 第四次 verify：先前以 `Dictionary(grouping:by: \.id)`
+    /// 當代理，兩個 legacy 檔共用 UUID、entities/ 沒有那個 id 時（手動複製一個檔忘了換 id——validate 判成兩筆不同記錄的 error）照樣說
+    /// 「是同一筆記錄的 entities/ 與 legacy 拷貝，不是兩篇作品：刪掉 legacy 那份」，可能把人導去刪掉一篇真的作品。現在三種情形分開說：
+    ///
+    /// 1. 被標成拷貝的：點名它與它的 legacy 檔、說出 entities/ 那份是誰，帶「確認 entities/ 那份是新的之後」（#705 的同一個前提——兩份可能已經分岔）。
+    /// 2. 同 id 而沒有被標成拷貝的：UUID 重複是 error、指向 validate，**不**下「是不是同一篇」的結論。
+    /// 3. 拿掉拷貝之後仍有兩筆以上：不判定哪一筆才對（#459）——拷貝加真孿生並存時，刪掉拷貝之後仍歧義，指路不能丟。
     static func ambiguousDOIReason(_ target: DOI, hits: [Entry]) -> String {
-        let byID = Dictionary(grouping: hits, by: \.id).values.filter { $0.count > 1 }
-            .map { $0.map(\.citekey).sorted() }.sorted { $0[0] < $1[0] }
         let head = "DOI「\(target.normalized)」命中 \(hits.count) 筆"
-        guard !byID.isEmpty else { return head + "——不判定哪一筆才對（#459），零寫入" }
-        let pairs = byID.map { $0.joined(separator: "、") }.joined(separator: "；")
-        return head + "——其中 \(pairs) 是同一筆記錄（同一個 id）的 entities/ 與 legacy 拷貝，不是兩篇作品：刪掉 legacy 那份"
-            + "（akashic validate 列出）之後再跑，零寫入"
+        let copies = hits.filter { $0.fileSituation.shadowedLegacyFile != nil }.sorted { $0.citekey < $1.citekey }
+        let records = hits.filter { $0.fileSituation.shadowedLegacyFile == nil }
+        let sharedID = Dictionary(grouping: records, by: \.id).values.filter { $0.count > 1 }
+            .map { $0.map(\.citekey).sorted() }.sorted { $0[0] < $1[0] }
+        var clauses: [String] = []
+        if !copies.isEmpty {
+            let shown = copies.prefix(5).map { copy -> String in
+                let twin = records.filter { $0.id == copy.id }.map(\.citekey).sorted().first
+                    .map { "entities/ 那份是 \($0)" } ?? "entities/ 那份是 entities/\(copy.id.uuidString).yaml，它不帶這個 DOI"
+                // citekey 與 legacy 檔名是原始值——同 `matches`，唯一出口 AkashicService.enrich 對整句 displaySafe(max: 512)，在這裡逃會二次逃脫
+                return "\(copy.citekey)（legacy 檔 \(copy.fileSituation.shadowedLegacyFile ?? "")；\(twin)）"   // display-safe-exempt: copy 與 twin 是原始值，出口端逃一次
+            }.joined(separator: "、") + (copies.count > 5 ? "…另 \(copies.count - 5) 份" : "")
+            clauses.append("其中 \(shown) 是同一筆記錄的 legacy 拷貝：確認 entities/ 那份是新的之後刪掉 legacy 那份（akashic validate 列出）"
+                + (records.count < 2 ? "再跑" : ""))
+        }
+        if !sharedID.isEmpty {
+            let pairs = sharedID.map { $0.joined(separator: "、") }.joined(separator: "／")   // 「；」留給子句之間
+            clauses.append("\(pairs) 共用同一個 id，卻不是 load 認得的 legacy 拷貝：UUID 重複是 error（akashic validate 列出），先修好")
+        }
+        if records.count >= 2 {
+            clauses.append((copies.isEmpty ? "" : "拿掉拷貝之後仍有 \(records.count) 筆記錄帶這個 DOI——") + "不判定哪一筆才對（#459）")
+        }
+        return head + "——" + clauses.joined(separator: "；") + "，零寫入"
     }
 
     /// 把一筆計畫套進 entry，回傳**新的** entry（不 mutate 傳入者）。
@@ -581,14 +605,17 @@ public enum AddOnlyEnrichment {
         // **驗的是寫進去的那個值**（#695 R2 verify 第 12 列）：先前以 trim 過的值驗、`retrievalKind` 卻把原值寫進 reference——
         // `" sha256:…\n"` 乾跑說會寫、apply 被寫入閘拒絕。現在不 trim，前後有空白就在這裡拒絕、說出是空白。
         //
-        // **只在 reference 真的會寫的時候才嚴格**（#695 R3 verify，三席各自重現）：只給 digest 是回顯、不寫 reference（#517），那時前後的空白不會
+        // **只在四個來源欄位齊備時才嚴格**（#695 R3 verify，三席各自重現；標題原寫「只在 reference 真的會寫的時候」，第三次 verify 更正——見本段末）：
+        // 只給 digest 是回顯、不寫 reference（#517），那時前後的空白不會
         // 進 store，先前整批拒絕還說「reference 記的是送來的原值」是假的，而 `shasum` 的輸出帶換行、`present()` 原本就會 trim。回顯模式維持 trim 之後
         // 驗（只有空白的值視同沒給）。
         //
         // 判準是 `retrievalKind` 不是 nil（digest、url、取得日期、status 四欄齊備；#695 R4）。R3 用的是「給了 url、取得日期或 media type 之一」，
         // 比這寬：digest＋url＋status 而沒有取得日期時 reference 不寫（報告說「來源欄位不齊」），帶換行的 digest 卻整批拒絕。
         // **四欄齊備不等於 reference 會寫**（#695 第三次 verify）：這裡逐提案、不看 store，目標欄位已在、記錄找不到或不只一筆、store format 收不下
-        // （`provenanceOmitted`）時 reference 不會寫，帶空白的 digest 仍整批拒絕——冪等重跑一份已套用的提案檔會多一次拒絕。行為不變（訊息只說四欄齊備時會怎樣）。
+        // （`provenanceOmitted`）時 reference 不會寫，帶空白的 digest 仍整批拒絕；去掉空白的同一份提案在目標欄位已在時是「已有、沒補任何值」。行為不變
+        // （訊息只說四欄齊備時會怎樣）。~~冪等重跑一份已套用的提案檔會多一次拒絕~~（#695 第四次 verify LOW 19、24：這裡不看 store，帶空白、四欄齊備
+        // 的提案第一次就被拒，不可能先被套用——除非那份檔是接受空白的舊 binary 套用的）。
         let writesReference = p.retrievalKind != nil
         if let d = writesReference ? given(p.sourceDigest) : present(p.sourceDigest), !ProvenanceReference.isValidDigest(d) {
             if writesReference, ProvenanceReference.isValidDigest(d.trimmingCharacters(in: .whitespacesAndNewlines)) {

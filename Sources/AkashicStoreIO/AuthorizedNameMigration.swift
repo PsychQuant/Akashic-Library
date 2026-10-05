@@ -87,7 +87,8 @@ public enum AuthorizedNameMigration {
         public var peopleWithoutNames = 0
         /// 仍然歧義的記錄 key（依字典序），給報告用。
         public var undecidedKeys: [String] = []
-        /// 要寫的 person 裡無法唯一定位的 key（`unlocatablePersonKeys`，依字典序、不重複）。非空時 `--apply` 整批拒絕、零寫入；
+        /// 會讓 `--apply` 整批拒絕的 key（依字典序、不重複）：要寫的 person 裡無法唯一定位的（`unlocatablePersonKeys`），或同一個 id 還有 legacy 拷貝的
+        /// （#709 第四次 verify LOW 22）。非空時 `--apply` 整批拒絕、零寫入；
         /// 乾跑照樣算出來、由呼叫端說出——乾跑報的計畫要是實跑會做的那一個（#709 第三次 verify：先前乾跑說「確認後加 --apply」，實跑必拒）。
         public var blockedKeys: [String] = []
     }
@@ -167,17 +168,22 @@ public enum AuthorizedNameMigration {
         // 不能安全搬移），前面的指定已經落盤而 marker 沒 bump——舊 binary 會照舊語意讀新格式，正是 marker 要擋的情境。
         // 寫入集合裡有無法唯一定位的，就在第一次寫入之前整批拒絕。乾跑也算這一組、放進報告（`blockedKeys`）：乾跑與實跑對同一個 store
         // 說同一件事（#709 第三次 verify：先前只有實跑算，乾跑印「確認後加 --apply」而實跑必拒）。
+        //
+        // #709 第四次 verify（LOW 22）：上面那一類擋不住所有改名留下的拷貝——legacy 那份已經有 authorized（不在寫入集合裡）而 entities/ 那份沒有時，
+        // 只有 entities/ 那份要寫，它單獨看寫得進去，於是兩份各帶不同的 authorized 狀態。寫入集合裡有任何一筆的 **id** 還有 legacy 拷貝（load 的標記，
+        // 判準只有 `markLegacyCopiesShadowedByEntities` 一份），同樣整批拒絕——與三個 bootstrap 對同類狀態的處置一致（使用者 2026-10-05 裁決 2）。
         let unlocatable = load.people.unlocatablePersonKeys
-        let blocked = Array(Set(toWrite.map(\.key).filter { unlocatable.contains($0) })).sorted()
+        let copyIDs = Set(load.shadowedLegacyCopies.filter { $0.kind == .person }.map(\.id))
+        let blocked = Array(Set(toWrite.filter { unlocatable.contains($0.key) || copyIDs.contains($0.id) }.map(\.key))).sorted()
         report.blockedKeys = blocked
         if apply {
             guard blocked.isEmpty else {
                 let shown = blocked.prefix(20).map { displaySafeInvisible($0, max: 120) }.joined(separator: "、")
                 throw StoreIOError.invalidInput(
                     what: "authorize-names",
-                    why: "要寫的 person 裡有 \(blocked.count) 筆無法唯一定位（\(UnlocatableReason.person)）："   // display-safe-exempt: blocked.count 是 Int；UnlocatableReason 是常數字面
-                       + "\(shown)\(blocked.count > 20 ? "…" : "")——寫到一半會留下已指定卻沒 bump marker 的 store，"   // display-safe-exempt: shown 已逐項 displaySafeInvisible
-                       + "整批拒絕、零寫入；先修好再跑（#641）")
+                    why: "要寫的 person 裡有 \(blocked.count) 筆無法唯一定位或還有 legacy 拷貝（\(UnlocatableReason.person)；"   // display-safe-exempt: blocked.count 是 Int；UnlocatableReason 是常數字面
+                       + "或同一個 id 在 people/ 還有一份）：\(shown)\(blocked.count > 20 ? "…" : "")——寫到一半會留下已指定卻沒 bump marker 的 store，"   // display-safe-exempt: shown 已逐項 displaySafeInvisible
+                       + "兩份並存時只寫一份會讓它們各帶不同的 authorized 狀態；整批拒絕、零寫入。akashic validate 說出每一筆的原因，先修好再跑（#641、#709）")
             }
             // #648 C2b verify：writePerson 在寫入當下跑的每一道（含 encode 與讀取上限）先對整個寫入集合跑一次——上面只擋了
             // #641 的那一類，一筆寫出後超過讀取上限的 person 仍會在中途被拒、前面的指定已落盤而 marker 沒 bump

@@ -84,6 +84,24 @@ final class ResolveVenuesSuppressedCLITests: XCTestCase {
         XCTAssertEqual(mcp["truncated"] as? Bool, true)
     }
 
+    /// #712（使用者 2026-10-05 裁決）：CLI 面同一把——只差 NFC／NFD 的邊列在 `suppressed`。
+    func testCLIListsAnEdgeThatDiffersOnlyInNormalizationForm() throws {
+        let nfc = "Caf\u{E9} Journal", nfd = "Cafe\u{301} Journal"
+        let store = LibraryStore(root: root)
+        try store.writeVenue(Venue(key: "cafe-journal", type: .periodical,
+                                   names: Timeline([TemporalValue(value: nfc)]), authorized: []))
+        var e = Entry(id: UUID(), citekey: "w0000", type: .periodicalArticle, title: "T", date: "2020")
+        e.venues = [.literal(nfc), .literal(nfd)]
+        _ = try store.writeEntry(e)
+        XCTAssertEqual(try run(["resolve-venues", "--reject", "w0000:0"]).status, 0)
+
+        let d = try listing()
+        XCTAssertEqual(d["suppressedTotal"] as? Int, 1, "\(d)")
+        let row = try XCTUnwrap((d["suppressed"] as? [[String: Any]])?.first)
+        XCTAssertEqual(row["venueIndex"] as? Int, 1)
+        XCTAssertEqual((row["literal"] as? String).map { Array($0.utf8) }, Array(nfd.utf8))
+    }
+
     func testHelpDescribesTheSuppressedSection() throws {
         let r = try CLITestHarness.run(["resolve-venues", "--help"], env: ["HOME": tmp.path, "AKASHIC_HOME": tmp.path])
         XCTAssertTrue(r.output.contains("suppressed") && r.output.contains("suppressedTotal") && r.output.contains("#712"),

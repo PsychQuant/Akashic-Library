@@ -23,7 +23,7 @@ akashic_venues                      # 全部 venue：key / type / 顯示名 / �
 akashic_venue（key:）               # 單一 venue：記錄＋刊名沿革＋文章編年 list（現算）
 ```
 
-要查證的配對來自 candidates 列的 `id`（`citekey:venueIndex`）。**先確認配對還在**——已否決的不會重列，而且 venue 列表**沒有**已否決段：逐字被否決的那條邊哪裡都不列。literal 沒有出現在 candidates，有四種可能，先分清楚再動手：(1) 在 `ambiguities`（對到 2+ venue）；(2) 在 `suppressed`（同 work 同 venue 的另一個拼法被 reject／demote 過，以正規化配對被壓掉——`rejectedLiterals` 是壓住它的拼法，`suppressedTotal` 是全數；MCP 面截 20 筆，`truncated` 為真時要說出來）；(3) 這條邊逐字被否決過或已歸戶；(4) 店裡沒有任何 venue 的名字（含沿革各段）命中它——那是「先建 venue／補異名」的工作，見邊界。
+要查證的配對來自 candidates 列的 `id`（`citekey:venueIndex`）。**先確認配對還在**——已否決的不會重列，而且 venue 列表**沒有**已否決段：逐字被否決的那條邊哪裡都不列。literal 沒有出現在 candidates，有四種可能，先分清楚再動手：(1) 在 `ambiguities`（對到 2+ venue）；(2) 在 `suppressed`（同 work 同 venue 的另一個拼法被 reject／demote 過，以正規化配對被壓掉——`rejectedLiterals` 是壓住它的拼法，`suppressedTotal` 是全數；MCP 面截 20 筆，`truncated` 為真時要說出來）；(3) 這條邊逐字（位元組相等）被否決過或已歸戶——只差 NFC／NFD 的拼法不算逐字，它在 (2)；(4) 店裡沒有任何 venue 的名字（含沿革各段）命中它——那是「先建 venue／補異名」的工作，見邊界。
 
 ### 1. 證據鏈（依序查；每次查詢在報告第 3 項記一列，本輪沒查的源也記一列，寫法見該項）
 

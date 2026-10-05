@@ -304,15 +304,20 @@ public enum ResolutionLedger {
     }
 
     /// venue 族的已否決配對（#304——family 第三員，同構）。
-    public static func rejectedPairings(venues: [Venue]) -> Set<ResolutionPairing> {
-        var set = Set<ResolutionPairing>()
+    ///
+    /// **回陣列、不在這裡去重**（#712，使用者 2026-10-05 裁決）：`ResolutionPairing` 的 `Hashable` 比 Swift `String`（canonical
+    /// equivalence），放進 `Set` 會把只差 NFC／NFD 的兩筆否決收成一筆、留下哪一筆看插入順序——`VenueResolver` 的「同一個拼法」
+    /// 自此比位元組，它要看到每一筆否決原本的位元組。去重（依位元組）在 `VenueResolver` 裡做。person／organization 兩族照舊回 `Set`
+    /// （它們的列表沒有 `suppressed` 段，#721）。
+    public static func rejectedPairings(venues: [Venue]) -> [ResolutionPairing] {
+        var out: [ResolutionPairing] = []
         for v in venues {
             for verdict in verdicts(references: v.references).verdicts where verdict.kind == .rejected {
-                set.insert(ResolutionPairing(holderKind: verdict.holderKind, holder: verdict.holder,
+                out.append(ResolutionPairing(holderKind: verdict.holderKind, holder: verdict.holder,
                                              literal: verdict.literal, judgedKey: v.key))
             }
         }
-        return set
+        return out
     }
 
     /// 全庫 malformed verdict 的彙整（呈現面消費——lossless-intake：丟棄必須可見）。

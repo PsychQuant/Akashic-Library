@@ -56,6 +56,13 @@
 
 plugin 版號沒有動（skill 文字的改動；行為在 CLI）。
 
+## #712 — R4：`suppressed` 的「同一個拼法」比位元組（2026-10-05）
+
+- **`akashic_resolve_venues` 的列表**：只差 NFC／NFD 的邊先前在 `candidates` 與 `suppressed` 兩邊都不出現（「同一個拼法」比的是 Swift 的 canonical equivalence）；自此比位元組（使用者 2026-10-05 裁決，與 `confirmedLiteral` 一致），那條邊列在 `suppressed`，`rejectedLiterals` 的兩種拼法各列一次。回應的鍵不變，`tools/list` 一行不變。
+- **`akashic-verify-venue`** Step 0 的第三種可能寫明「逐字＝位元組相等，只差 NFC／NFD 的在第二種」。
+
+plugin 版號沒有動（行為在 CLI／MCP binary；skill 文字的改動）。
+
 ## #613 R3 修正輪（2026-10-04）— 讀不到的分頁可能是 PDF、落地頁的登入長相先判、分類用同一份快照、第 0 步問契約版本
 
 **仍需要新的 `akashic` CLI**：SKILL 第 0 步改問 `akashic fulltext contract`（印 `fulltext-contract 4`，唯讀、不碰瀏覽器、不連網）；先前 `take` 的兩條探測分不出 R1、R2 的 CLI，它們現在一律被擋。

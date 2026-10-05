@@ -22,12 +22,9 @@ struct Doctor: ParsableCommand {
 
     func run() throws {
         let (store, ignoreProblem) = try options.openOrCreateStore(sourcesIgnore: .report)
-        // #700 b31 W5：讀不懂的 .gitignore（讀不到、非 UTF-8、symlink…）doctor 不改寫，改報一則 warning——先印，後面的早退吞不掉它
-        if let p = ignoreProblem {
-            print("⚠ .gitignore 沒有 sources 排除區塊，doctor " + (p.leavesGitignoreUntouched ? "沒有改寫它" : "寫到一半、沒能收回")
-                  + "：\(p.reason)。\(p.remedy)：")   // display-safe-exempt: p.reason、p.remedy 是固定句與 errno 說明（SourcesIgnoreProblem）
-            for line in LibraryStore.sourcesIgnoreBlock.split(separator: "\n") { print("    \(line)") }   // display-safe-exempt: line 取自常數 LibraryStore.sourcesIgnoreBlock
-        }
+        // #700 b31 W5：讀不懂的 .gitignore（讀不到、非 UTF-8、symlink…）doctor 不改寫，改報一則 warning——先印，後面的早退吞不掉它。
+        // 文字與匯入的 warning 同一份（`warningLines`，#700 b35）
+        for line in ignoreProblem?.warningLines(by: "doctor") ?? [] { print(line) }   // display-safe-exempt: line：warningLines 只含固定句、errno 說明與常數區塊（SourcesIgnoreProblem）
         let root = store.root
         let load = try store.load()
         // #504：doctor 先前是 `StoreHealth` 之外的第四條讀取路徑——自己算 cross-record、殘留、
@@ -354,7 +351,8 @@ struct ImportZotero: ParsableCommand {
         discussion: """
         佈局不存在時建立（同 file add），並在 store 根目錄的 .gitignore 沒有 sources 排除區塊時於尾端附加一段（原有的位元組不動）。\
         .gitignore 沒有區塊而讀不到、不是 UTF-8 文字、是 symlink 或硬連結、不是一般檔、大到 git 不讀、有標記沒有規則、沒有寫入權限時\
-        不改它、拒絕匯入——在讀 zotero.sqlite 之前、這一次什麼都不建，訊息附上要自己加的那段（#700）。
+        不改它、照常匯入，在讀 zotero.sqlite 之前於 stderr 印一則 ⚠ warning 與要自己加的那段，結束碼不因此改變（#700）。匯入不寫 sources/；\
+        store 在 git 工作樹裡時，sources/ 沒被排除之前 store-source 拒絕寫入。
         """)
 
     @OptionGroup var options: LibraryOptions
@@ -369,7 +367,12 @@ struct ImportZotero: ParsableCommand {
         // #658（使用者 2026-09-28 裁決）：pull 整份替換 `fields`、覆寫未歸戶的 literal 作者（fieldsRemovedByPull／
         // authorsOverwritten），再跑一次回不去，而且沒有乾跑——寫錯 store 的代價要靠 git 收拾。沒有寫入旗標可掛，flag 傳空字串。
         try options.assertDestructiveTargetNamed("import-zotero", flag: "", hasDryRun: false)
-        let store = try options.openOrCreateStore().store
+        // #700（使用者 2026-10-05 裁決第 1 項）：讀不懂的 .gitignore 不擋匯入——不改寫它、照常匯入，warning 印到 stderr（stdout 是匯入報告）。
+        // 在讀 zotero.sqlite 之前印：之後的失敗吞不掉它（同 doctor）。匯入不寫 sources/，擋存檔進版控的防線在 store-source
+        let (store, ignoreProblem) = try options.openOrCreateStore(sourcesIgnore: .report)
+        for line in ignoreProblem?.warningLines(by: "import-zotero", note: SourcesIgnoreProblem.importContinuedNote) ?? [] {
+            try? FileHandle.standardError.write(contentsOf: Data((line + "\n").utf8))   // display-safe-exempt: line：warningLines 只含固定句、errno 說明與常數區塊（SourcesIgnoreProblem）
+        }
         let dbURL = URL(fileURLWithPath: (zoteroDb as NSString).expandingTildeInPath)
         guard FileManager.default.fileExists(atPath: dbURL.path) else {
             throw RuntimeFailure.state("找不到 zotero.sqlite：\(displaySafeInvisible(dbURL.path, max: 300))")

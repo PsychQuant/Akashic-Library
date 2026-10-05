@@ -44,7 +44,13 @@ enum ToolPayloadKeyExemptions {
             "items[].reason": advisory("給人讀的一句話，說明這筆為什麼落在它的 category（citekey 不在、DOI 不合、命中多筆……）；呼叫端依 category 分支"),
         ],
         "akashic_enrich_from_zotero": ["dryRun": echo("回顯 dry_run")],
-        "akashic_import_wos": ["dryRun": echo("回顯 dry_run")],
+        "akashic_import_wos": [
+            "dryRun": echo("回顯 dry_run"),
+            "gitignoreWarning": advisory("讀不懂的 .gitignore 沒加上 sources 區塊時的說明（原因、匯入照常完成、要自己加的那段；#700）；匯入照常完成，呼叫端不依它分支。說明不為它加字（#578 預算），同 mcp-cli-parity 那一格「MCP 說明不寫」"),
+        ],
+        "akashic_import_zotero": [
+            "gitignoreWarning": advisory("同 akashic_import_wos 的 gitignoreWarning（#700）"),
+        ],
         "akashic_update_person": [
             "dryRun": echo("回顯 dry_run"),
             "reasonNote": advisory("remove_names 的報告：提醒理由只在報告裡、要留在 git 得寫進 commit message"),

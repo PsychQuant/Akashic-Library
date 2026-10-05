@@ -26,6 +26,11 @@ struct AkashicCLI: ParsableCommand {
             if case .failure = result { failed = true }
             LegacyCopyReport.printTrailer(written, commandFailed: failed)   // #705 R2 verify 第 19 列：JSON 命令失敗時 stdout 仍是一份 JSON
             try result.get()
+            // #705（使用者 2026-10-05 裁決）：結束碼 0、但同一個操作之後的寫入沒套用時，stderr 多印一行——結束碼 0 時使用者最可能不看 stdout。
+            // 非零結束走下面 catch 裡的 `stderrText`（第一行已說要重跑幾筆），兩條不會同時出現
+            if let line = LegacyCopyReport.successStderrLine() {
+                try? FileHandle.standardError.write(contentsOf: Data((line + "\n").utf8))   // display-safe-exempt: line：successStderrLine 只含筆數與字面
+            }
         } catch {
             // **非 ArgumentParser 的錯誤先逃一次**（R31 D83；R30 verify 第 2 列）：五個包裝站點（#549 起是 `RuntimeFailure.state(displaySafeErrorText(…))`，原本是 `ValidationError`）之外，直接傳到頂層的
             // Yams／Foundation／StoreIO 錯誤在 R30 只經下面列舉式的 `displaySafeAssembled`——ZWSP／TAG 原樣落 stderr，而同一個錯誤在
@@ -168,8 +173,8 @@ struct LibraryOptions: ParsableArguments {
     /// <key>.sqlite` 從來沒被 `doctor` 更新過。少一個丟得掉 key 的入口，比修兩個呼叫點
     /// 更可靠。
     ///
-    /// `sourcesIgnore`（#700 b31 W5）：寫入類命令用 `.refuse`（預設——讀不懂的 `.gitignore` 在建立任何東西之前拒絕），`doctor` 用 `.report`
-    /// （照常建佈局、`.gitignore` 不動，回傳的原因由 doctor 印成 warning）。
+    /// `sourcesIgnore`（#700 b31 W5）：預設 `.refuse`（讀不懂的 `.gitignore` 在建立任何東西之前拒絕）；`doctor` 與 `import-zotero` 用 `.report`
+    /// （照常建佈局、`.gitignore` 不動，回傳的原因由呼叫端印成 warning——`import-zotero` 自 2026-10-05 的裁決起，#700 b35）。
     func openOrCreateStore(sourcesIgnore policy: SourcesIgnorePolicy = .refuse) throws
         -> (store: LibraryStore, sourcesIgnoreProblem: SourcesIgnoreProblem?) {
         let r = try resolved()

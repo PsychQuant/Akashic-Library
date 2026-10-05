@@ -363,7 +363,24 @@ enum ToolPayloadScenarios {
         PayloadScenario("akashic_import_wos", "dry_run", params: ["path", "dry_run"]) {
             try $0.service.importWoS(path: try $0.woSFile(), csv: false, dryRun: true)
         },
+        // #700（使用者 2026-10-05 裁決第 1 項）：讀不懂的 .gitignore 不擋匯入，回應帶 gitignoreWarning
+        PayloadScenario("akashic_import_zotero", "undecodable gitignore", params: ["zotero_db"]) {
+            try $0.writeUndecodableGitignore()
+            let z = try PayloadZoteroDB(dir: $0.dir)
+            return try $0.service.importZotero(zoteroDb: z.url.path, libraryID: nil)
+        },
+        PayloadScenario("akashic_import_wos", "undecodable gitignore", params: ["path", "dry_run"]) {
+            try $0.writeUndecodableGitignore()
+            return try $0.service.importWoS(path: try $0.woSFile(), csv: false, dryRun: true)
+        },
     ]
+}
+
+extension PayloadWorld {
+    /// 換成一個讀不懂（Latin-1、沒有 sources 區塊）的 `.gitignore`——兩個匯入照常跑、回應帶 `gitignoreWarning`（#700）。
+    func writeUndecodableGitignore() throws {
+        try (Data([0x23, 0x20, 0x63, 0x61, 0x66, 0xE9, 0x0A]) + Data("*.srt\n".utf8)).write(to: root.appendingPathComponent(".gitignore"))
+    }
 }
 
 extension PayloadWorld {

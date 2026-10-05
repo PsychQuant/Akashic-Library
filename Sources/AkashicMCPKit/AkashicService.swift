@@ -2846,14 +2846,16 @@ public final class AkashicService {
         guard FileManager.default.fileExists(atPath: path) else {
             throw ServiceError.notFound("zotero.sqlite：\(displaySafeInvisible(path, max: 300))")
         }
-        try store.ensureLayout()
+        // #700（使用者 2026-10-05 裁決第 1 項）：讀不懂的 .gitignore 不擋匯入——不改寫它、照常匯入，回應帶 `gitignoreWarning`
+        let ignoreProblem = try store.ensureLayout(sourcesIgnore: .report)
         let report = try ZoteroImporter(store: store)
             .run(zoteroDB: URL(fileURLWithPath: path), libraryID: libraryID)
         // R10（R9-verify M3/M5）：rebuild 擲錯不得吞掉整份 import report——
         // 磁碟滿等原因與 writeFailed 正相關，最需要報告的場景恰好最易被吞。
         // #610 R1 verify：先前那條分支只帶四個計數，`ambiguousSourceClaims`（有條目本趟被整個略過）與 `secondarySource*` 都消失——
         // 現在把成功時回傳的那一份報告原樣放進錯誤訊息，兩條路徑同一個 payload、不會再各漏各的。
-        let payload = Self.importReportPayload(report, claimLimit: claimLimit, listLimit: listLimit)
+        var payload = Self.importReportPayload(report, claimLimit: claimLimit, listLimit: listLimit)
+        if let ignoreProblem { payload[Self.gitignoreWarningKey] = Self.gitignoreWarning(ignoreProblem, by: "akashic_import_zotero") }
         do {
             try LibraryIndex(store: store).rebuild()
         } catch {
@@ -3300,7 +3302,9 @@ public final class AkashicService {
             throw ServiceError.notFound("WoS 匯出檔：\(displaySafeInvisible(expanded, max: 300))")
         }
         let text = try String(contentsOf: URL(fileURLWithPath: expanded), encoding: .utf8)
-        try store.ensureLayout()
+        // #700（使用者 2026-10-05 裁決第 1 項）：讀不懂的 .gitignore 不擋匯入（含 dry_run）——不改寫它、照常匯入，回應帶 `gitignoreWarning`
+        let ignoreProblem = try store.ensureLayout(sourcesIgnore: .report)
+        let warning = ignoreProblem.map { Self.gitignoreWarning($0, by: "akashic_import_wos") }
         let report = try WoSImport.run(text: text, store: store,
                                        separator: csv ? "," : "\t", dryRun: dryRun)
         // rebuild 擲錯不得吞掉整份 import report（同 importZotero 的 R10 裁決）
@@ -3308,10 +3312,11 @@ public final class AkashicService {
             do {
                 try LibraryIndex(store: store).rebuild()
             } catch {
+                let warningSuffix = warning.map { "\n" + $0 } ?? ""
                 throw ServiceError.invalid(
                     "index rebuild 失敗：\(displaySafeError(error, max: 512))"
                     + "（本趟 import 已落地：created \(report.created.count)、"
-                    + "enriched \(report.enriched.count)）")
+                    + "enriched \(report.enriched.count)）" + warningSuffix)   // display-safe-exempt: warningSuffix：gitignoreWarning 只含固定句、errno 說明與常數區塊（SourcesIgnoreProblem.warningLines）
             }
         }
         var d: [String: Any] = [
@@ -3333,7 +3338,18 @@ public final class AkashicService {
                 report.droppedColumns.sorted { $0.key < $1.key }.map { (displaySafe($0.key, max: 200), $0.value) },
                 uniquingKeysWith: { first, _ in first })
         }
+        if let warning { d[Self.gitignoreWarningKey] = warning }
         return try jsonString(d)
+    }
+
+    /// 兩個匯入的回應鍵：`.gitignore` 沒加上 sources 排除區塊時的 warning（只在有問題時出現）。#700：使用者 2026-10-05 裁決第 1 項——
+    /// 匯入不寫 `sources/`，讀不懂的 `.gitignore` 改成警告後繼續（同 `doctor`）；擋存檔進版控的防線在 `store-source`。
+    public static let gitignoreWarningKey = "gitignoreWarning"
+
+    /// `gitignoreWarningKey` 的值：與 CLI `doctor`／`import-zotero` 同一份文字（`SourcesIgnoreProblem.warningLines`），以換行接起來。
+    /// 只含固定句、errno 數字與系統的固定英文說明、常數區塊——不含使用者資料。
+    static func gitignoreWarning(_ problem: SourcesIgnoreProblem, by tool: String) -> String {
+        problem.warningLines(by: tool, note: SourcesIgnoreProblem.importContinuedNote).joined(separator: "\n")
     }
 
     // MARK: - Internals

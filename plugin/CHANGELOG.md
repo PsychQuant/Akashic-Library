@@ -1,5 +1,13 @@
 # Changelog
 
+## #700、#705 — 使用者 2026-10-05 裁決（b35）：匯入遇到讀不懂的 `.gitignore` 改成警告後繼續；結束碼 0 而之後的寫入沒套用時 stderr 多印一行
+
+- **`akashic_import_zotero`、`akashic_import_wos`（含 `dry_run`）、CLI `import-zotero`**（#700，使用者 2026-10-05 裁決第 1 項）：store 根目錄的 `.gitignore` 讀不懂（讀不到、不是 UTF-8、symlink、硬連結、唯讀、太大、有標記沒有規則…）時**照常匯入**、`.gitignore` 不動；先前在建立任何東西之前拒絕。MCP 回應多一個 `gitignoreWarning`（只在有問題時出現：原因、匯入照常完成、要自己加的那段；index rebuild 失敗時錯誤訊息裡的報告也帶），CLI `import-zotero` 把同一則印到 stderr（stdout 是匯入報告，結束碼不因此改變）。三處與 `doctor` 的 warning 同一份文字。匯入本身不寫 `sources/`：擋第三方存檔進版控的防線仍在 `store-source`——store 在 git 裡而 `sources/` 沒被排除時它拒寫。`file add` 照舊拒絕；CLI `import-wos` 開既有 store、不碰 `.gitignore`（不變）。
+- **CLI**（#705，使用者 2026-10-05 裁決）：結束碼 0、但同一個操作之後的寫入沒套用時（`writtenWithLegacyCopy` 裡標了「之後對這一筆的寫入沒有套用」的列），stderr 多印一行：幾筆、清單在 stdout 的哪裡（文字輸出的 `writtenWithLegacyCopy` 段，或 JSON 的 `laterWriteNotApplied`／`writtenWithLegacyCopyNotApplied`）、確認 entities/ 那份是新的之後刪掉 legacy 那份再重跑。今天走得到這一格的命令只有 `import-zotero`。MCP 不變（`writtenWithLegacyCopyNotApplied` 已是它的訊號）。
+- `tools/list`：58,949 → 58,949 bytes（±0；MCP 說明沒有改，`gitignoreWarning` 在 payload 鍵守衛裡以 advisory 具名豁免）。
+
+plugin 版號沒有動（行為在 binary）。
+
 ## #692、#700 — b33 verify 修正（2026-10-05）：`web-read` 不刪目錄、開分頁前的網址檢查進 CLI；`.gitignore` 同時跑不再寫兩份
 
 **需要新的 `akashic` CLI**：web-access.md〈開始前〉第 4 點多一條探測（`web-read url` 要放行一條公開網站形狀的網址），上一輪的 CLI 過不了。這個要求本身待使用者裁決（#692 Blocking）。

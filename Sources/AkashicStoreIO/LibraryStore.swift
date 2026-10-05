@@ -40,7 +40,8 @@ public enum StoreIOError: Error, LocalizedError, Equatable, SanitizedErrorDescri
     /// `detail` 在擲出端已消毒。**只在收集範圍外擲出**（#705）：回報面開的範圍裡，同一件事記成 `LegacyCopyLeft`、寫入照常回傳，
     /// 回報面把它列在成功那一側的 `writtenWithLegacyCopy`。
     case legacyCopyNotRemoved(id: UUID, file: String, detail: String)
-    /// #700 b31 W5：`ensureLayout` 沒有把 sources 排除區塊加進 `.gitignore`，而呼叫端是寫入類命令（`SourcesIgnorePolicy.refuse`）。
+    /// #700 b31 W5：`ensureLayout` 沒有把 sources 排除區塊加進 `.gitignore`，而呼叫端是 `file add`（`SourcesIgnorePolicy.refuse`；
+    /// 兩個匯入自 2026-10-05 的裁決起是 `.report`，不擲這一格）。
     /// `.gitignore` 沒有改寫。`layoutWritten`：`false` 時佈局也還沒建（看的時候就發現了）；`true` 時佈局已建好、只有寫入那一步失敗。
     case sourcesIgnoreNotWritten(SourcesIgnoreProblem, layoutWritten: Bool)
     /// `legacyCopyPresent` 的特例：兩份並存是**同一個操作稍早的一步**造成的——那一步寫進了 `entities/<id>.yaml`、搬移後的 legacy 拷貝
@@ -295,9 +296,9 @@ public final class LibraryStore {
     /// 不需要目錄被先建（原本的順序能運作只是因為 `createDirectory` 對既存目錄是 no-op）。
     ///
     /// **`.gitignore` 先看、最後才寫**（#700 b31 W5）：讀不懂的 `.gitignore`（讀不到、非 UTF-8、symlink…）不改寫。`policy` 是
-    /// `.refuse`（寫入類命令，預設）時，看得出的原因在建立任何東西之前具名擲出；開檔、取鎖、寫入時才發現的原因（寫入失敗、看與寫之間一直在變、
-    /// 鎖內重看才看到的形狀）在佈局建好之後擲出（`layoutWritten: true`）。`.report`（`doctor`）時照常建佈局、`.gitignore` 不動，原因由回傳值給
-    /// 呼叫端報。回 `nil`＝區塊已在（本來就在、剛加上、或同時跑的另一個程序剛加上）。見 `SourcesIgnoreBlock.swift`。
+    /// `.refuse`（`file add`，預設）時，看得出的原因在建立任何東西之前具名擲出；開檔、取鎖、寫入時才發現的原因（寫入失敗、看與寫之間一直在變、
+    /// 鎖內重看才看到的形狀）在佈局建好之後擲出（`layoutWritten: true`）。`.report`（`doctor` 與兩個匯入，#700 b35）時照常建佈局、`.gitignore` 不動，
+    /// 原因由回傳值給呼叫端報。回 `nil`＝區塊已在（本來就在、剛加上、或同時跑的另一個程序剛加上）。見 `SourcesIgnoreBlock.swift`。
     @discardableResult
     public func ensureLayout(sourcesIgnore policy: SourcesIgnorePolicy = .refuse) throws -> SourcesIgnoreProblem? {
         let fm = FileManager.default

@@ -341,3 +341,92 @@ extension ZoteroReportCLITests {
         XCTAssertFalse(first.contains("不必為了自己重跑"), first)
     }
 }
+
+/// #705（使用者 2026-10-05 裁決）：結束碼 0、但同一個操作之後的寫入沒套用時，stderr 多印一行——結束碼 0 時使用者最可能不看 stdout 的報告。
+/// 2026-10-05 走得到這一格的 CLI 命令只有 `import-zotero`（`LegacyCopyReport.successStderrLine` 的 doc 寫了為什麼）。造法同上一支
+/// 非零結束的測試，少了共用 DOI 的那 10 筆：同一趟先清 orphan 標記（寫進 entities/、legacy 刪不掉），接著的書目更新被 #631 拒絕，以 0 結束。
+extension ZoteroReportCLITests {
+    /// 一筆 legacy work（`entries/` 唯讀、已 commit）；回傳它與還原權限的 closure。權限擋不住刪檔（以 root 執行）時 skip。
+    private func legacyWorkWithUndeletableCopy(orphaned: Bool) throws -> (entry: Entry, restore: () -> Void) {
+        let store = LibraryStore(root: root)
+        try FileManager.default.createDirectory(at: store.entriesDir, withIntermediateDirectories: true)
+        var e = Entry(id: UUID(), citekey: "legacy2025identifiability", type: .periodicalArticle, title: "舊標題")
+        e.provenance = Provenance(zoteroKey: "KEYART01", zoteroVersion: 1, libraryID: 1, orphanedAt: orphaned ? gone : nil)
+        try EntryYAML.encode(e).write(to: store.entriesDir.appendingPathComponent("\(e.citekey).yaml"),
+                                      atomically: true, encoding: .utf8)
+        git(["init", "-q"]); git(["add", "-A"]); git(["commit", "-q", "-m", "fixture"])
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: store.entriesDir.path)
+        let restore = { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: store.entriesDir.path) }
+        let probe = store.entriesDir.appendingPathComponent("probe-\(UUID().uuidString)")
+        if FileManager.default.createFile(atPath: probe.path, contents: Data()) {
+            try? FileManager.default.removeItem(at: probe)
+            restore()
+            throw XCTSkip("這個環境的權限擋不住刪檔（以 root 執行？），造不出「寫完之後刪 legacy 失敗」")
+        }
+        return (e, { _ = restore() })
+    }
+
+    func testAnExitZeroImportWithANotAppliedLaterWriteSaysSoOnStderr() throws {
+        let (e, restore) = try legacyWorkWithUndeletableCopy(orphaned: true)
+        defer { restore() }
+        let r = try runSplit(["import-zotero", "--zotero-db", zoteroDB.path])
+        XCTAssertEqual(r.status, 0, "前提：以 0 結束：\(r.out)\n\(r.err)")
+        XCTAssertTrue(r.out.contains("work「\(e.citekey)」") && r.out.contains(LegacyCopyLeft.laterWriteRefusedNote),
+                      "前提：stdout 的列帶「之後的寫入沒有套用」：\(r.out)")
+        let lines = r.err.split(separator: "\n").map(String.init)
+        XCTAssertEqual(lines.count, 1, "恰好一行：\(r.err)")
+        let line = lines.first ?? ""
+        XCTAssertTrue(line.hasPrefix("⚠ 結束碼 0，但有 1 筆之後的寫入沒套用"), line)
+        XCTAssertTrue(line.contains("清單在 stdout 的 writtenWithLegacyCopy 段"), "說出去哪裡看：\(line)")
+        XCTAssertTrue(line.contains("確認 entities/ 那份是新的，刪掉 legacy 那份之後要重跑才補得上"), "說出要重跑：\(line)")
+        XCTAssertFalse(r.out.contains("⚠ 結束碼 0"), "那一行在 stderr、不混進 stdout 的報告")
+    }
+
+    /// 負面：同一趟只寫一次（沒有 orphan 標記，只有書目更新），legacy 拷貝刪不掉、沒有之後被拒的寫入——以 0 結束、stderr 什麼都不印。
+    func testAnExitZeroImportWhoseWritesAllAppliedPrintsNothingOnStderr() throws {
+        let (e, restore) = try legacyWorkWithUndeletableCopy(orphaned: false)
+        defer { restore() }
+        let r = try runSplit(["import-zotero", "--zotero-db", zoteroDB.path])
+        XCTAssertEqual(r.status, 0, "\(r.out)\n\(r.err)")
+        XCTAssertTrue(r.out.contains("work「\(e.citekey)」"), "前提：留下 legacy 拷貝的那一筆在 stdout：\(r.out)")
+        XCTAssertFalse(r.out.contains(LegacyCopyLeft.laterWriteRefusedNote), "前提：沒有之後被拒的寫入：\(r.out)")
+        XCTAssertEqual(r.err, "", "全部套用時 stderr 什麼都不印")
+    }
+}
+
+/// #700（使用者 2026-10-05 裁決第 1 項）：`import-zotero` 遇到讀不懂的 `.gitignore`（這裡是 Latin-1、沒有 sources 區塊）——不改寫它、
+/// 照常匯入、以 0 結束，warning 在 stderr（stdout 是匯入報告）。匯入本身不寫 sources/：擋第三方存檔進版控的防線在 store-source，
+/// 所以之後的 `store-source` 仍被擋（store 在 git 工作樹裡、sources/ 沒被排除）。b31 W5 到 b34 是在讀 zotero.sqlite 之前拒絕匯入。
+extension ZoteroReportCLITests {
+    func testImportWarnsOnStderrAndContinuesThenStoreSourceIsStillRefused() throws {
+        let ignore = root.appendingPathComponent(".gitignore")
+        let original = Data([0x23, 0x20, 0x63, 0x61, 0x66, 0xE9, 0x0A]) + Data("*.srt\n".utf8)
+        try original.write(to: ignore)
+        git(["init", "-q"])
+        let r = try runSplit(["import-zotero", "--zotero-db", zoteroDB.path])
+        XCTAssertEqual(r.status, 0, "照常匯入：\(r.out)\n\(r.err)")
+        XCTAssertTrue(r.out.contains("created: 1"), r.out)
+        XCTAssertFalse(r.out.contains("⚠ .gitignore"), "warning 不混進 stdout 的報告：\(r.out)")
+        let first = String(r.err.split(separator: "\n").first ?? "")
+        XCTAssertTrue(first.hasPrefix("⚠ .gitignore 沒有 sources 排除區塊，import-zotero 沒有改寫它：") && first.contains("不是 UTF-8"), r.err)
+        XCTAssertTrue(first.contains("匯入照常完成") && first.contains("store-source 拒絕寫入"), "說出防線在哪：\(first)")
+        XCTAssertTrue(r.err.contains("\n    sources/\n"), "附上要自己加的那段：\(r.err)")
+        XCTAssertEqual(try Data(contentsOf: ignore), original, ".gitignore 逐位元組不變")
+
+        let pdf = fakeHome.appendingPathComponent("third-party.pdf")
+        try Data("third-party bytes".utf8).write(to: pdf)
+        let s = try runSplit(["store-source", pdf.path, "--media-type", "application/pdf", "--retrieved", "2026-10-05",
+                              "--origin", "https://example.org/x.pdf", "--acquisition", "browser-download"])
+        XCTAssertNotEqual(s.status, 0, "store-source 仍被擋：\(s.out)\n\(s.err)")
+        XCTAssertTrue(s.err.contains("sources/ 未被版控忽略"), s.err)
+        let blobs = (try? FileManager.default.subpathsOfDirectory(atPath: root.appendingPathComponent("sources").path)) ?? []
+        XCTAssertEqual(blobs.filter { !$0.hasPrefix(".") }, [], "拒寫時不留任何位元組")
+    }
+
+    /// 負面：`.gitignore` 正常（setUp 的 ensureLayout 已加上區塊）時 stderr 什麼都不印。
+    func testImportWithAWellFormedGitignorePrintsNothingOnStderr() throws {
+        let r = try runSplit(["import-zotero", "--zotero-db", zoteroDB.path])
+        XCTAssertEqual(r.status, 0, "\(r.out)\n\(r.err)")
+        XCTAssertEqual(r.err, "", "沒有 warning")
+    }
+}

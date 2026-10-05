@@ -121,22 +121,86 @@ public enum NameClassificationRecord {
         appendCollecting(new, to: &refs).count
     }
 
-    /// `append` 的同一個規則，回傳實際寫下的那幾筆（依寫入順序）。**合併也走這一份**（#564 R2 verify：b29 V1 第 0／2／6 列）——
-    /// 被併者的記錄按它自己的順序逐筆接到倖存者後面，每一筆只與那個名字那個分割**此刻的最後一筆**比位元組；先前合併以整份歷史的位元組
-    /// 集合去重，「指定 R → 撤回 S → 指定 R」的第三筆因為倖存者已有一筆「指定 R」而被丟掉，倖存者的名字仍在 authorized、最後一筆卻是撤回。
-    /// 照這個規則接，一個名字合併後的最後一筆就是最後一個帶到它的被併者的最後一筆（或與它位元組相同的那一筆）。
+    /// `append` 的同一個規則，回傳實際寫下的那幾筆（依寫入順序）。寫入面用它（每一筆只與那個名字那個分割**此刻的最後一筆**比位元組）；
+    /// 合併改用 `carryCollecting`（多一條「倖存者已有、而且尾端一致就不重搬」，#564 b33 X1 第 4／10 列）。
+    ///
+    /// **線性**（#564 b33 X1 第 9 列）：每個（分割, 名字）的最後一筆在開始時一次建好索引（O(R)），每接一筆就更新——先前每一筆都倒著掃整份
+    /// references、對每一筆算一次 canonical，名字互異時是 O(N×R)，兩筆各帶 4,000 個名字的合併乾跑要 89 秒。
     public static func appendCollecting(_ new: [ProvenanceReference], to refs: inout [ProvenanceReference]) -> [ProvenanceReference] {
+        var index = TailIndex(refs)
         var written: [ProvenanceReference] = []
         for r in new {
-            guard isRecord(r), let name = r.value else {
+            guard let group = TailIndex.group(of: r) else {
                 assertionFailure("NameClassificationRecord.append 收到一筆不是名字分類記錄的 reference")
                 continue
             }
-            if let last = latestRecord(in: refs, field: r.field, name: name), last.byteExactKey == r.byteExactKey { continue }
+            let key = r.byteExactKey
+            if index.last[group]?.key == key { continue }
             refs.append(r)
+            index.note(r, group: group, key: key)
             written.append(r)
         }
         return written
+    }
+
+    /// 合併搬記錄的規則（#564 b33 X1 第 1／4／9／10 列）：被併者的記錄依序逐筆接到倖存者後面，**兩種情形不接**——
+    ///
+    /// 1. 與那個名字那個分割此刻的最後一筆位元組相同（與寫入面同一條，`appendCollecting`）；
+    /// 2. 倖存者那個名字那個分割的歷史裡**已有**位元組相同的一筆，**而且**此刻的最後一筆與名字合併後的分類一致。
+    ///
+    /// 第 2 條是 b33 加的：先前只比最後一筆，兩筆攣生各有「指定 R → 確認 S」時合併把整段歷史再接一遍（倖存者四筆，validate 報兩則重複），
+    /// 倖存者「指定 R → 確認 R2」併入「指定 R」也把較早的「指定 R」重新接成最後一筆。條件裡的「尾端一致」保住修正輪二要的那一格：被併者
+    /// 「指定 R → 撤回 S → 指定 R」併進「指定 R」——第一筆「指定 R」不接（倖存者已有、尾端一致），「撤回 S」接上之後尾端與分類矛盾，
+    /// 第三筆「指定 R」雖然倖存者也有，此刻尾端不一致，照接——最後一筆回到指定。
+    ///
+    /// 分類一致的被併者照這條接過去，那個名字的尾端必然一致：被併者的最後一筆要嘛接上了（它與分類一致）、要嘛因為與最後一筆相同或倖存者已有而
+    /// 尾端一致才沒接。`isMember(field, name)` 回答名字**合併後**在不在那個分割。回傳寫下的那幾筆在 `new` 裡的索引（呼叫端用它歸因）。線性，同上。
+    public static func carryCollecting(_ new: [ProvenanceReference], to refs: inout [ProvenanceReference],
+                                       isMember: (_ field: String, _ name: String) -> Bool) -> [Int] {
+        var index = TailIndex(refs)
+        var written: [Int] = []
+        for (i, r) in new.enumerated() {
+            guard let group = TailIndex.group(of: r), let name = r.value else {
+                assertionFailure("NameClassificationRecord.carryCollecting 收到一筆不是名字分類記錄的 reference")
+                continue
+            }
+            let key = r.byteExactKey
+            if let last = index.last[group] {
+                if last.key == key { continue }
+                let consistent = (last.action == .withdraw) != isMember(r.field, name)
+                if consistent, index.held[group]?.contains(key) == true { continue }
+            }
+            refs.append(r)
+            index.note(r, group: group, key: key)
+            written.append(i)
+        }
+        return written
+    }
+
+    /// 名字分類記錄的分組鍵（分割＋canonical 名字）——一個名字一個分割的歷史就是同一個鍵的記錄依序。**只有這一份定義**：寫入面、合併的接續與
+    /// 尾端矛盾（`TailIndex`、`tailConflicts`、`LibraryStore.tailGroup`）、#582 的相鄰重複掃描（`StoreHealth`）都呼叫它（b34：StoreHealth 曾手寫一份）。
+    public static func groupKey(field: String, name: String) -> String { field + "\u{0}" + NameIdentity.canonical(name) }
+
+    /// 每個（分割, 名字）的最後一筆與歷史裡出現過的位元組——`appendCollecting`／`carryCollecting` 一次建好、逐筆更新。
+    /// 名字的相等看 `NameIdentity.canonical`（與 `latestRecord` 同一把）。
+    struct TailIndex {
+        var last: [String: (key: [[UInt8]], action: Action)] = [:]
+        var held: [String: Set<[[UInt8]]>] = [:]
+
+        static func group(of r: ProvenanceReference) -> String? {
+            guard isRecord(r), let name = r.value else { return nil }
+            return groupKey(field: r.field, name: name)
+        }
+
+        init(_ refs: [ProvenanceReference]) {
+            for r in refs { if let g = Self.group(of: r) { note(r, group: g, key: r.byteExactKey) } }
+        }
+
+        mutating func note(_ r: ProvenanceReference, group: String, key: [[UInt8]]) {
+            guard case .judgement(let statement, _) = r.kind, let action = parse(statement)?.action else { return }
+            last[group] = (key, action)
+            held[group, default: []].insert(key)
+        }
     }
 
     /// 最後一筆記錄與名字現在的分類矛盾的（分割, 名字）：最後一筆是「撤回」而名字仍在那個分割，或最後一筆是「指定／確認」而名字不在。
@@ -152,7 +216,7 @@ public enum NameClassificationRecord {
         for r in refs {
             guard isRecord(r), let name = r.value, case .judgement(let statement, _) = r.kind,
                   let action = parse(statement)?.action else { continue }
-            let group = r.field + "\u{0}" + NameIdentity.canonical(name)
+            let group = groupKey(field: r.field, name: name)
             if lastByGroup[group] == nil { order.append(group) }
             lastByGroup[group] = (r.field, name, action)
         }

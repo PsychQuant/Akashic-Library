@@ -98,7 +98,10 @@ final class DestructiveTargetGateTests: XCTestCase {
         let conditions = ["resolve-organizations": "apply || reject", "resolve-venues": "let leg = writeLeg",
                           // #653：預設就寫、以 --dry-run 預覽的命令只在不帶 --dry-run 時閘
                           "migrate": "!dryRun", "migrate-provenance": "!dryRun", "resolve-divergence": "!dryRun",
-                          "dismiss-divergence": "!dryRun"]   // #586 R1 verify
+                          "dismiss-divergence": "!dryRun",   // #586 R1 verify
+                          // #564 使用者 2026-10-05 裁決第 4 點：只有 --remove-name 這條腿過閘（person 的乾跑不擋）
+                          "update-person": "!removeName.isEmpty && !dryRun", "update-organization": "!removeName.isEmpty",
+                          "update-venue": "let leg = removalLeg"]
         // 沒有乾跑、每次都寫的命令無條件呼叫閘（#653／#650；#658 的 import-zotero）
         let unconditional: Set<String> = ["rename", "rename-person", "import-zotero"]
         for name in Self.enumerated {

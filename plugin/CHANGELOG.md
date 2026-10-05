@@ -14,6 +14,19 @@
 
 plugin 版號沒有動（skill 文字的改動；行為在 CLI）。
 
+## #564 修正輪三 — person 的對外形不在替換裡整個消失、只替進出的名字寫記錄、會刪判定記錄的 CLI 移除腿過目標 store 確認閘（2026-10-05，不相容）
+
+使用者 2026-10-05 的五點裁決與 b33 X1 的處置，細節在 `changelog/2026-10-05-b34-k1-fixes-564.md`。
+
+- `akashic_update_person`：`fields.names` 讓對外形整個離開 names 一律整批拒絕（有沒有記錄都一樣——移出要寫「撤回：理由」、記錄錨定 names，出口是放在 variant）；修正輪二的 `authorizedRemovedWithoutRecord` 退場。只替進出 authorized 的名字寫記錄（指定／撤回），留下的不寫「確認」；附了 `judgement` 而沒有名字進出 authorized 整批拒絕。替換不把 person 刪到沒有名字。store format < 22 時這些改法都被寫入閘擋下，拒絕訊息先說。
+- `remove_names`（person、organization）：拒絕在 format < 22 時說出寫入閘；刪到沒有名字、canonical 孿生拼法的拒絕說出工具面的出口；organization 沒有記錄的名字的出口說出換上去的名字成為撤不掉的對外名稱（先前說「只能手改 YAML」）；organization 回應的 `segments` 只列帶時間、source 或 note 的段、每個名字至多 20 段（總數在 `segmentsRemoved`）。CLI 的 `--remove-name` 過目標 store 確認閘（未指名 `--library`／`--yes` 時拒絕；person 的 `--dry-run` 不擋）；MCP 不閘。
+- `update-venue`（CLI）：三條移除腿——`--remove-issn`、`--remove-reference`、`--edit-name-segment` 帶 `remove` 的呼叫——過目標 store 確認閘（未指名 `--library`／`--yes` 時拒絕；沒有乾跑）；只有 `set` 的 `--edit-name-segment` 與其餘腿不閘。MCP `akashic_update_venue` 不閘。`akashic-verify-venue` 的 CLI 範例補上 `--library`。
+- person／venue 合併（CLI `resolve-divergence`）：被併者依 key 排序再接，結果不受給定順序影響；倖存者已有而尾端一致的記錄不重搬（兩筆攣生歷史相同時不再把整段歷史接兩遍）；接續是線性的；尾端矛盾以原始倖存者為基準、全部接完之後算；拒絕的出口依實體、分割與方向各一句。
+- `akashic_doctor`／`akashic validate` 的「重複的 reference」不再把合法的「指定 → 撤回 → 指定」歷史報成重複：名字分類記錄只報相鄰而彼此相等的。
+
+plugin 版號沒有動（MCP 描述淨減 4 位元組；行為在 binary）。
+
+
 
 
 

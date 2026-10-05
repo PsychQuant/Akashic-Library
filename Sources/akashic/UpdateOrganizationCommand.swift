@@ -46,9 +46,13 @@ struct UpdateOrganizationCmd: ParsableCommand {
                 "刪掉一個名字：<名字>=<理由>（可重複；以第一個 = 切）",
                 discussion: "organization 沒有一般的名字移除面（待裁，#557）；這條只收最後一筆名字分類記錄是「撤回」的名字（#564 第 2 點，打錯字的名字的出路——"
                     + "用 --authorize 把同書寫系統的對外名稱換成別的名字，被換下的會留一筆撤回）：名字的每一段連同它的名字分類記錄一起刪。"
-                    + "理由必填、只回在報告（namesRemoved）、不寫進 store；organization 檔要已在 git 裡 commit、無未提交修改。單獨呼叫，不與 --authorize／--judgement／--rests-on 組合；"
+                    + "理由必填、只回在報告（namesRemoved）、不寫進 store；organization 檔要已在 git 裡 commit、無未提交修改，未指名目標 store（--library／--yes）時拒絕"
+                    + "（#564 使用者 2026-10-05 裁決：會刪判定記錄的面過閘；沒有 dry-run）。單獨呼叫，不與 --authorize／--judgement／--rests-on 組合；"
                     + "一次至多 200 個。沒有記錄、最後一筆不是撤回、還是對外名稱、被 field: names 的 reference 指著、刪完沒有名字，都整批拒絕、零寫入"))
     var removeName: [String] = []
+
+    /// --remove-name 沒有乾跑，也沒有「不帶寫入旗標只列候選」的模式——閘的拒絕訊息自己說怎麼辦
+    static let removeNameHint = "這條腿沒有 dry-run：指名之後就會刪（organization 檔要先 commit，刪之前的名字與記錄在 git 的上一版）。"
 
     /// 只看 argv 的檢查早於開 store（#654）：與服務在讀 store 之前跑的是同一個函式
     func validate() throws {
@@ -60,6 +64,8 @@ struct UpdateOrganizationCmd: ParsableCommand {
     }
 
     func run() throws {
+        // #564 使用者 2026-10-05 裁決第 4 點：--remove-name 會刪判定記錄、以 key ＋ 名字定位（錯的 store 上照樣對得上，#580 的判準）——過目標確認閘
+        if !removeName.isEmpty { try options.assertDestructiveTargetNamed("update-organization", flag: "--remove-name", hasDryRun: false, noPreviewHint: Self.removeNameHint) }
         let store = try options.openStore()
         let service = AkashicService(root: store.root, key: store.key,
                                      environment: ProcessInfo.processInfo.environment)

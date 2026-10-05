@@ -27,10 +27,10 @@ struct UpdatePersonCmd: ParsableCommand {
     @Option(name: .long, help: ArgumentHelp(
         "--fields 的 names 動到 authorized 時的理由（#564）",
         discussion: "names 的替換讓名字進或出 authorized 時必填（只動 variant 的不必）；至多 4,096 位元組，開頭不得是組合符號或不可見字元、要有字母或數字。"
-            + "每個成為對外形的名字寫一筆 field: authorized「指定：理由」、仍是對外形的寫「確認：理由」、移出的寫「撤回：理由」；"
-            + "與那個名字最後一筆記錄位元組完全相同的不重寫，報告 judgementsRecorded（dry-run 是 judgementsToRecord）；需要 store format ≥ 22。"
-            + "替換拿掉一個有記錄的名字整批拒絕（出口見 --remove-name）；沒有記錄的對外形整個離開 names 放行（附理由——改正對外形的拼寫，報告 authorizedRemovedWithoutRecord）。"
-            + "附了理由時，替換後仍在 authorized 的每個名字都寫一筆確認——只動 variant 時不要附。authorized 一次至多 200 個（variant 不計）"))
+            + "只替有變動的名字寫（#564 使用者 2026-10-05 裁決）：每個成為對外形的名字寫一筆 field: authorized「指定：理由」、移到 variant 的寫「撤回：理由」，"
+            + "仍是對外形的不寫；與那個名字最後一筆記錄位元組完全相同的不重寫，報告 judgementsRecorded（dry-run 是 judgementsToRecord）；需要 store format ≥ 22。"
+            + "對外形不得整個離開 names（有沒有記錄都一樣：移出要寫撤回、記錄錨定 names——放在 variant，改正拼寫也是這樣一步做完，之後要刪再用 --remove-name）；"
+            + "替換拿掉一個有記錄的名字也整批拒絕。給了理由而沒有名字進出 authorized、或替換會讓 person 沒有任何名字，都整批拒絕。authorized 一次至多 200 個（variant 不計）"))
     var judgement: String?
 
     @Option(name: .customLong("rests-on"), parsing: .upToNextOption,
@@ -41,9 +41,10 @@ struct UpdatePersonCmd: ParsableCommand {
             help: ArgumentHelp(
                 "刪掉一個名字：<名字>=<理由>（可重複；以第一個 = 切）",
                 discussion: "只收最後一筆名字分類記錄是「撤回」的名字（#564 第 2 點，打錯字的名字的出路）：從 variant 刪掉它，連同它的名字分類記錄。"
-                    + "還在 authorized 的先用 --fields 的 names 把它移到 variant（附 --judgement，寫一筆撤回）。理由必填、只回在報告（namesRemoved）、不寫進 store；"
-                    + "person 檔要已在 git 裡 commit、無未提交修改（--dry-run 不檢查）。單獨呼叫，不與 --fields／--judgement／--rests-on 組合；一次至多 200 個。"
-                    + "沒有記錄（出口：--fields 的 names 整份替換直接拿掉）、最後一筆不是撤回、被 field: names 的 reference 指著（person 的 reference 沒有移除面）、"
+                    + "還在 authorized 的先用 --fields 的 names 把它移到 variant（附 --judgement，寫一筆撤回；需要 store format ≥ 22）。理由必填、只回在報告（namesRemoved）、不寫進 store；"
+                    + "person 檔要已在 git 裡 commit、無未提交修改，未指名目標 store（--library／--yes）時拒絕（#564 使用者 2026-10-05 裁決：會刪判定記錄的面過閘；--dry-run 兩者都不檢查）。"
+                    + "單獨呼叫，不與 --fields／--judgement／--rests-on 組合；一次至多 200 個。"
+                    + "variant 裡沒有記錄的名字不必走這條（--fields 的 names 整份替換直接拿掉，只動 variant 不必附理由）；最後一筆不是撤回、被 field: names 的 reference 指著（person 的 reference 沒有移除面）、"
                     + "刪完 person 沒有任何名字，都整批拒絕、零寫入"))
     var removeName: [String] = []
 
@@ -86,6 +87,8 @@ struct UpdatePersonCmd: ParsableCommand {
             }
             dict = d
         }
+        // #564 使用者 2026-10-05 裁決第 4 點：--remove-name 會刪判定記錄、以 key ＋ 名字定位（錯的 store 上照樣對得上，#580 的判準）——過目標確認閘
+        if !removeName.isEmpty && !dryRun { try options.assertDestructiveTargetNamed("update-person", flag: "--remove-name", dryRunFlag: "--dry-run") }
         let store = try options.openStore()
         // `key:` 不可省——見 `PersonCommand.swift` 的長註解（verify #220 HIGH）。
         // **先前的註解說「寫入路徑所以沒炸」——那是假的**（#218 R2 verify MEDIUM，

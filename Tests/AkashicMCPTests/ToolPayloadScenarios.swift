@@ -238,9 +238,9 @@ enum ToolPayloadScenarios {
             try $0.service.updatePerson(key: "desc-solo", fields: ["names": ["authorized": ["Desc Solo"], "variant": [String]()]], dryRun: true,
                                         judgement: "本人署名")
         },
-        // #564 R2 verify（b29 V1 第 4 列）：沒有記錄的對外形整個離開 names——放行，回 authorizedRemovedWithoutRecord
-        PayloadScenario("akashic_update_person", "names drop unrecorded authorized", params: ["key", "fields", "judgement"]) {
-            try $0.service.updatePerson(key: "cheng-che", fields: ["names": ["authorized": ["Cheng, Che", "鄭澈"], "variant": [String]()]],
+        // #564 使用者 2026-10-05 裁決第 1 點：沒有記錄的對外形改正拼寫——舊拼法留在 variant、寫撤回，新拼法寫指定（對外形不得整個離開 names）
+        PayloadScenario("akashic_update_person", "names correct unrecorded authorized", params: ["key", "fields", "judgement"]) {
+            try $0.service.updatePerson(key: "cheng-che", fields: ["names": ["authorized": ["Cheng, Che", "鄭澈"], "variant": ["Che Cheng"]]],
                                         dryRun: false, judgement: "改正拼寫")
         },
         // #564 修正輪（裁決第 2 點）：最後一筆記錄是撤回的名字連同記錄一起刪（remove_names 單獨呼叫，不帶 fields）

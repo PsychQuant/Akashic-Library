@@ -65,6 +65,7 @@ enum DestructiveTargetGate {
                                   flag: String = "--apply",
                                   hasDryRun: Bool = true,
                                   dryRunFlag: String? = nil,
+                                  noPreviewHint: String? = nil,
                                   explicitLibrary: String?,
                                   yes: Bool,
                                   resolved: URL) throws {
@@ -75,7 +76,8 @@ enum DestructiveTargetGate {
         // 叫人「先跑 dry-run」是假話。rename-person 沒有旗標可掛，flag 傳空字串。
         let invocation = flag.isEmpty ? command : command + " " + flag
         // 預設就寫、以 `--dry-run` 預覽的命令（migrate 族、resolve-divergence，#653）：提示要說「加」那個旗標，不是「不帶」寫入旗標
-        let previewHint = dryRunFlag.map { "加 " + $0 + " 可以先看到會改什麼。" }
+        // `noPreviewHint`：沒有乾跑、也沒有「不帶寫入旗標只列候選」模式的寫入腿自己說怎麼辦（update-organization --remove-name，#564 b33 X1）
+        let previewHint = dryRunFlag.map { "加 " + $0 + " 可以先看到會改什麼。" } ?? noPreviewHint
             ?? (hasDryRun
                 ? "先跑一次不帶 " + flag + " 的 dry-run 可以看到會改什麼。"
                 : flag.isEmpty

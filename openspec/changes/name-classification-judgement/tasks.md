@@ -43,3 +43,11 @@
 - [x] 6.3 person `fields.names`：沒有記錄的對外形離開 names 放行、format < 22 的拒絕說出寫入閘、上限只數 authorized。驗證：`NameClassificationR2Tests`
 - [x] 6.4 刪名字：依處境的出口、venue variant 的工具面出口、person 不刪到沒有名字、organization 逐段回報、線性刪除。驗證：`NameClassificationR2Tests`
 - [x] 6.5 理由開頭以性質判；合併預覽印 statement、不排序；文字更正。負控、規則、文件、changelog
+
+## 7. 修正輪三（b33 X1，使用者 2026-10-05 的五點裁決）
+
+- [x] 7.1 person `fields.names`：對外形不得整個離開 names（移出寫撤回、format ≥ 22），只替進出的名字寫記錄，附理由而沒有進出的拒絕，替換不刪到沒有名字。驗證：`NameClassificationB34Tests`、`NameClassificationR2Tests`、`NameClassificationCorrectionTests`
+- [x] 7.2 `update-person`／`update-organization` 的 `--remove-name` 與 `update-venue` 的三條移除腿過目標 store 確認閘（寫入閘裁決表逐腿；`--edit-name-segment` 只有帶 remove 的呼叫）。驗證：`WriteGateRulingsTests`（含真 binary 的逐腿檢查與 `testVenueEditNameSegmentIsGatedOnlyWhenItRemoves`）、`DestructiveTargetGateTests`
+- [x] 7.3 合併搬記錄：被併者依 key 排序、倖存者已有而尾端一致的不重搬、線性、尾端矛盾以原始倖存者為基準全部接完後算；出口依實體、分割、方向。驗證：`NameClassificationMergeOrderTests`
+- [x] 7.4 #582 的重複 reference 掃描只報名字分類記錄裡相鄰而相等的。驗證：`DuplicateReferenceScanTests`
+- [x] 7.5 拒絕訊息與報告（format 閘、最後一個名字、canonical 孿生、organization 代價與段的上限、person 合併拒絕的出口句位置）。負控、規則、文件、changelog

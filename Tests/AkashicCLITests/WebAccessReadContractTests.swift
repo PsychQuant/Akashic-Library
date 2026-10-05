@@ -302,16 +302,31 @@ final class WebAccessReadContractTests: XCTestCase {
         XCTAssertFalse(exists("first-\(tag).txt"))
     }
 
-    /// 讀取前後主機不同、而換到的是已知的驗證服務：不是「不可達」（4），是整批暫停（2）——R4 verify 第 10 列：4 的處置是關掉分頁、
-    /// 繼續下一個 DOI，那會對同一家出版商繼續發請求。
-    func testAVerificationServiceHostPausesInsteadOfReportingUnreachable() throws {
-        try (good + "\n").write(toFile: landingFile, atomically: true, encoding: .utf8)
-        try safariReports([good, good, "https://challenges.cloudflare.com"])
-        try pageReturns(["truncated": false, "rawLength": 4, "text": "text"])
-        let r = try run(Self.blockTwo, land: landingFile)
-        XCTAssertEqual(r.status, 2, r.out)
-        XCTAssertTrue(r.out.contains("STOP THE WHOLE RUN"), r.out)
-        XCTAssertFalse(exists("first-\(tag).txt"))
+    /// 讀取前後主機不同、而換到的是已知的驗證服務：不是「不可達」（4）——R4 verify 第 10 列：4 的處置是關掉分頁、繼續下一個 DOI，
+    /// 那會對同一家出版商繼續發請求。以頁面文字分（使用者 2026-10-05）：等人驗證 3，其他整批暫停 2；文字都不寫出。
+    func testAVerificationServiceHostIsJudgedByThePageTextInsteadOfReportingUnreachable() throws {
+        for (text, code, token) in [("text", Int32(2), "STOP THE WHOLE RUN"), ("Just a moment...", Int32(3), "READ-VERIFY")] {
+            try (good + "\n").write(toFile: landingFile, atomically: true, encoding: .utf8)
+            try safariReports([good, good, "https://challenges.cloudflare.com"])
+            try pageReturns(["truncated": false, "rawLength": text.utf16.count, "text": text])
+            let r = try run(Self.blockTwo, land: landingFile)
+            XCTAssertEqual(r.status, code, r.out)
+            XCTAssertTrue(r.out.contains(token), r.out)
+            XCTAssertFalse(exists("first-\(tag).txt"))
+        }
+    }
+
+    /// 驗證服務的處置只有一種（使用者 2026-10-05）：文件與 verify-venue 不再描述「換到驗證服務一律 2、直接落在上面照樣讀」的舊分流。
+    /// 行為由上面幾支從文件抽出的區塊釘住；這一支釘散文——上一輪改的是行為的說明而沒有東西核對兩者（b33 X2 第 5／21 列）。
+    func testTheDocsDescribeOneHandlingForVerificationServices() {
+        let skill = Self.text("plugin/skills/akashic-verify-venue/SKILL.md")
+        XCTAssertFalse(skill.isEmpty)
+        for stale in ["比中止條款保守", "也不判驗證服務", "換到已知的驗證服務是結束碼 2", "主機換到已知的驗證服務"] {
+            XCTAssertFalse(Self.doc.contains(stale), "web-access.md 還有舊的說法：\(stale)")
+            XCTAssertFalse(skill.contains(stale), "verify-venue SKILL 還有舊的說法：\(stale)")
+        }
+        XCTAssertTrue(Self.doc.contains("2 整批暫停、3 等人驗證"), "web-read 的結束碼清單要列 3")
+        XCTAssertTrue(skill.contains("區塊二或讀取以 3 結束是等人驗證"), "讀取區塊也可能以 3 結束")
     }
 
     // MARK: - 剔除與上限在 web-read check
@@ -393,7 +408,8 @@ final class WebAccessReadContractTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: w.appendingPathComponent("first-\(tag).txt"), encoding: .utf8), "Psychometrika")
     }
 
-    /// 使用者確認的網址被轉到別的主機（`EXPECT`）：REJECT，兩個主機都印出來；轉到已知的驗證服務是 2（整批暫停）。
+    /// 使用者確認的網址被轉到別的主機（`EXPECT`）：REJECT，兩個主機都印出來。轉到已知的驗證服務不是 REJECT：落地主機區塊印 OK、
+    /// 寫下它，之後的區塊二以頁面文字分等人驗證 3／整批暫停 2（使用者 2026-10-05：先前這裡一律 2，判不出是不是等人驗證）。
     func testAConfirmedUrlRedirectedElsewhereIsRejected() throws {
         let url = w.appendingPathComponent("url-1.txt")
         try "https://journal-a.example.com/about\n".write(to: url, atomically: true, encoding: .utf8)
@@ -403,10 +419,42 @@ final class WebAccessReadContractTests: XCTestCase {
         XCTAssertTrue(r.out.contains("other.example.com") && r.out.contains("journal-a.example.com"), r.out)
         try safariReports(["https://journal-a.example.com"])
         XCTAssertEqual(try run(Self.landingBlock, expect: url.path).status, 0)
-        try safariReports(["https://challenges.cloudflare.com"])
-        let v = try run(Self.landingBlock, expect: url.path)
-        XCTAssertEqual(v.status, 2, v.out)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: landingFile))
+        for (text, code) in [("Just a moment...", Int32(3)), ("Welcome to journal A", Int32(2))] {
+            try safariReports(["https://challenges.cloudflare.com"])
+            let v = try run(Self.landingBlock, expect: url.path)
+            XCTAssertEqual(v.status, 0, v.out)
+            XCTAssertTrue(v.out.contains("已知的驗證服務") && v.out.contains("journal-a.example.com"), v.out)
+            XCTAssertEqual(try String(contentsOfFile: landingFile, encoding: .utf8), "https://challenges.cloudflare.com\n")
+            try safariReports(["https://challenges.cloudflare.com"])
+            try pageReturns(["truncated": false, "rawLength": text.utf16.count, "text": text])
+            let two = try run(Self.blockTwo, land: landingFile)
+            XCTAssertEqual(two.status, code, "\(text)：\(two.out)")
+            XCTAssertFalse(exists("first-\(tag).txt"), "驗證服務上的文字不寫出")
+        }
+    }
+
+    /// 直接落在已知的驗證服務上（沒有預期主機；或沒有接上落地主機檢查的 skill，`LAND="-"`）：與「換到」同一個處置——以頁面文字分 3／2，
+    /// 區塊二與讀取區塊都一樣。先前這裡 READ-OK、沒有訊號的驗證服務頁面在區塊二以 0 結束，讀取區塊把它讀成內容。
+    func testLandingDirectlyOnAVerificationServiceIsJudgedTheSameWay() throws {
+        let service = "https://challenges.cloudflare.com"
+        try safariReports([service])
+        let land = try run(Self.landingBlock)
+        XCTAssertEqual(land.status, 0, land.out)
+        XCTAssertTrue(land.out.contains("已知的驗證服務"), land.out)
+        for lockLand in [landingFile, nil] as [String?] {
+            for (text, code) in [("Just a moment...", Int32(3)), ("Welcome to journal A", Int32(2))] {
+                try safariReports([service])
+                try pageReturns(["truncated": false, "rawLength": text.utf16.count, "text": text])
+                let two = try run(Self.blockTwo, land: lockLand)
+                XCTAssertEqual(two.status, code, "區塊二 \(lockLand ?? "-")／\(text)：\(two.out)")
+                XCTAssertFalse(exists("first-\(tag).txt"))
+                try safariReports([service])
+                let read = try run(Self.readBlock, land: lockLand)
+                XCTAssertEqual(read.status, code, "讀取 \(lockLand ?? "-")／\(text)：\(read.out)")
+                XCTAssertFalse(exists("r-7.txt"), "驗證服務的頁面不當內容讀")
+                XCTAssertFalse(exists("raw-7.json"))
+            }
+        }
     }
 
     /// 落地主機檢查是選用的：沒有接上的 skill 照抄區塊二（`LAND` 預設 `-`）、沒有落地主機檔，照樣讀得到——

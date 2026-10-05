@@ -18,15 +18,16 @@ public enum WebRead {
         public var stderr: [String] = []
     }
 
-    /// 結束碼（封閉列舉）：0 通過；1 讀不到、形狀不對、鎖的個數不是 1；2 主機換到已知的驗證服務——整批暫停；4 主機不合。
+    /// 結束碼（封閉列舉）：0 通過；1 讀不到、形狀不對、鎖的個數不是 1；2 整批暫停；3 等人驗證；4 主機不合。命令列本身打錯是 ArgumentParser 的 64。
     ///
-    /// **2 是比中止條款保守的一邊，刻意的**（b33 verify X2 第 5／21 列）：中止條款（使用者 2026-10-02）把**已知驗證服務上的驗證頁**
-    /// 分到「等人驗證」（區塊二的 3），而這裡只看主機、不看頁面文字，判不出那一頁是不是驗證頁，所以一律整批暫停。同一個終態（分頁停在
-    /// 驗證服務的主機上）因此依「有沒有觀察到換主機」走兩種處置：沒有預期主機時（`--expect -`、`--landing -` 而讀取前後同一個主機）
-    /// 這裡放行，由區塊二的文字比對分 3／2。要不要改成一種，待使用者裁決（#692 Blocking）。
-    /// 不用 3：區塊二以 3 表示等人驗證。命令列本身打錯是 ArgumentParser 的 64。
+    /// **2 與 3 只出自 `check` 在已知驗證服務上的文字比對**（使用者 2026-10-05，#692 裁決第 2 項：不論**換到**或**直接落在**驗證服務，都照
+    /// 中止條款以頁面文字分）。先前只看主機：`landing` 與 `check` 觀察到主機**換到**驗證服務就一律 2，直接落在上面則照一般主機放行、交給
+    /// 區塊二的 bot-signals——同一個終態（分頁停在驗證服務上）兩種處置，而放行的那一條在文字沒有訊號時以 0 結束、讀取區塊把驗證服務的頁面
+    /// 讀成內容。現在 `landing` 對驗證服務一律 OK（寫下它、印明是驗證服務），`check` 對它一律不給 READ-OK：等人驗證的標籤 → 3，其他
+    /// （整批暫停的標籤、沒有訊號、讀回的文字不能用）→ 2——中止條款「拿不準是哪一種就當整批暫停」。3 與區塊二的 3 同一個意思。
     public static let rejectCode: Int32 = 4
     public static let pauseCode: Int32 = 2
+    public static let verifyCode: Int32 = 3
 
     /// `rawLength` 的上限（R4 verify 第 7／13 列）：頁面自報的原文長度原樣印進 `READ-OK` 行，而那一行會進模型的 context——
     /// 不設界的話頁面可以塞一個四千多位數的整數。十億個 UTF-16 單位遠超任何誠實的頁面；超過就是 `READ-FAIL`，與「讀回的 JSON 太大」同一類。
@@ -123,7 +124,8 @@ public enum WebRead {
 
     /// 這個主機是不是已知的驗證服務（`BotSignals.knownVerificationHosts`，加上以路徑區分的 reCAPTCHA 主機）。
     /// 只看主機：origin 沒有路徑，所以 `www.google.com` 這類只在 `/recaptcha/` 才算驗證服務的主機在這裡**算進來**——
-    /// 用到它的地方是「主機不合」的分流，算進來的結果是整批暫停（保守的一邊，中止條款「拿不準是哪一種就當整批暫停」）。
+    /// 算進來的結果是那個頁面不當內容讀、只以文字分等人驗證或整批暫停（保守的一邊，中止條款「拿不準是哪一種就當整批暫停」）。
+    /// 清單與 `akashic fulltext fetch` 同一份（`BotSignals.isKnownVerificationService`），判斷的形不同：那邊有完整網址、看路徑。
     public static func isVerificationServiceHost(_ origin: String) -> Bool {
         guard hostIsAcceptable(origin) else { return false }
         if BotSignals.isKnownVerificationService(url: origin + "/") { return true }
@@ -226,7 +228,8 @@ public enum WebRead {
     }
 
     /// `landing`：**先刪掉落地主機檔**，形狀合格（給了開的網址檔時還要與它的主機相同）才寫回去（先寫暫存檔再改名）——`REJECT` 之後
-    /// 沒有一個「驗過的」檔留著。主機不合但落地主機是已知的驗證服務時不是 4，是 2（整批暫停，R4 verify 第 10 列）。
+    /// 沒有一個「驗過的」檔留著。落地主機是已知的驗證服務時**不論與開的網址的主機同不同**都寫下它、印 OK 並註明是驗證服務：不是「不可達」
+    /// （R4 verify 第 10 列），也不在這裡判——這裡看不到頁面文字。之後的 `check` 對驗證服務不給 READ-OK，以頁面文字分 3／2（使用者 2026-10-05）。
     public static func landingMode(originFile: String, landingFile: String, expectFile: String?) -> Outcome {
         if let why = removalProblem(landingFile) {
             return Outcome(code: 1, stdout: ["LANDING-FAIL --out " + shownPath(landingFile) + " " + why + "：只刪一般檔或 symlink，什麼都沒刪"])
@@ -241,11 +244,8 @@ public enum WebRead {
         } catch {
             return Outcome(code: 1, stdout: ["LANDING-FAIL 讀不到：" + displaySafeError(error, max: 200)])
         }
-        if !hostIsAcceptable(got) || got != want {
-            if got != want, isVerificationServiceHost(got) {
-                return Outcome(code: pauseCode, stdout: ["REJECT " + shown(got) + "（已知的驗證服務；開的網址的主機是 " + shown(want)
-                                                         + "）- STOP THE WHOLE RUN：整批暫停（只看主機、判不出是不是等人驗證，取保守的一邊），不是不可達"])
-            }
+        let service = isVerificationServiceHost(got)
+        if !service, !hostIsAcceptable(got) || got != want {
             return Outcome(code: rejectCode, stdout: ["REJECT " + shown(got) + (got == want ? "" : "（開的網址的主機是 " + shown(want) + "）")])
         }
         do {
@@ -253,7 +253,9 @@ public enum WebRead {
         } catch {
             return Outcome(code: 1, stdout: ["LANDING-FAIL 寫不進落地主機檔：" + displaySafeError(error, max: 200)])
         }
-        return Outcome(code: 0, stdout: ["OK " + shown(got)])
+        guard service else { return Outcome(code: 0, stdout: ["OK " + shown(got)]) }
+        return Outcome(code: 0, stdout: ["OK " + shown(got) + "（已知的驗證服務" + (got == want ? "" : "；開的網址的主機是 " + shown(want))
+                                         + "）：不是內容——區塊二以頁面文字分等人驗證（3）或整批暫停（2），不會讀成內容"])
     }
 
     /// `check` 的輸入（全部是暫存目錄裡的檔；`landingFile` 是 nil 時不比對落地主機）。
@@ -275,8 +277,11 @@ public enum WebRead {
     /// 先前以 `FileManager.removeItem` 刪，`--raw <目錄>` 整棵遞迴刪除），然後**先刪掉輸出檔**（`READ-REJECT` 或 `READ-FAIL` 之後不留上一次的
     /// 文字），**不論結果都刪掉讀回的 JSON**（第三方文字；通過檢查的文字另寫在輸出檔）——刪不掉就報出來，原本是 `READ-OK` 時改成 `READ-FAIL`
     /// 並收回寫出的文字（第三方原文還在，這一次不算讀成）。讀取前後 Safari 回報的主機不同、或與驗過的落地主機不同 → 4；沒有比對落地主機時，
-    /// 主機還要形狀合格（R4 verify 第 15 列：預設不再 fail-open）→ 否則 4；換到已知的驗證服務 → 2。讀回的 JSON 太大、欄位型別不對、
-    /// `rawLength` 超出範圍或比頁面交回的文字還短、剔除之後沒有看得見的字 → `READ-FAIL`（1）。通過才截、剔除、寫出。
+    /// 主機還要形狀合格（R4 verify 第 15 列：預設不再 fail-open）→ 否則 4。讀回的 JSON 太大、欄位型別不對、`rawLength` 超出範圍或比頁面
+    /// 交回的文字還短、剔除之後沒有看得見的字 → `READ-FAIL`（1）。通過才截、剔除、寫出。
+    ///
+    /// **讀取之前或之後，Safari 回報的主機是已知的驗證服務時，上面的主機比對都不做**：那個頁面不當內容讀，以剔除後的文字分
+    /// （`judgeOnVerificationService`）——等人驗證 3、其他 2，文字不寫出；讀回的文字不能用也是 2（不是 1）。
     public static func checkMode(_ input: CheckInput) -> Outcome {
         for (flag, path) in [("--out", input.outFile), ("--raw", input.rawFile)] {
             if let why = removalProblem(path) {
@@ -308,8 +313,11 @@ public enum WebRead {
         } catch {
             return Outcome(code: 1, stdout: ["READ-FAIL " + displaySafeError(error, max: 200)])
         }
+        // 分頁在已知的驗證服務上（讀取之前或之後，不論有沒有比對落地主機、落地主機是什麼）：不當內容讀，交給頁面文字
+        if [before, after].contains(where: isVerificationServiceHost) {
+            return judgeOnVerificationService(readPage(input), before: before, after: after)
+        }
         if before != after {
-            if let pause = pauseIfVerificationService([before, after]) { return pause }
             return Outcome(code: rejectCode, stdout: ["READ-REJECT 讀取前後分頁的主機不同：前 " + shown(before) + "、後 " + shown(after) + "（文字不寫出）"])
         }
         if let landingFile = input.landingFile {
@@ -317,20 +325,49 @@ public enum WebRead {
                 return Outcome(code: 1, stdout: ["READ-FAIL 找不到驗過的落地主機檔 " + shownPath(landingFile) + "：這個分頁要先跑落地主機區塊"])
             }
             if !hostIsAcceptable(want) || before != want {
-                if before != want, let pause = pauseIfVerificationService([before]) { return pause }
                 return Outcome(code: rejectCode, stdout: ["READ-REJECT 落地主機不合：驗過的 " + shown(want) + "，Safari 這次回報的 " + shown(before) + "（文字不寫出）"])
             }
         } else if !hostIsAcceptable(before) {
             return Outcome(code: rejectCode, stdout: ["READ-REJECT 分頁的主機形狀不合（不是 https、帶埠號、私有或本機用的名稱、IP 位址的形狀）：" + shown(before) + "（文字不寫出）"])
         }
+        let page: Page
+        switch readPage(input) {
+        case .unusable(let why): return Outcome(code: 1, stdout: ["READ-FAIL " + why])
+        case .page(let p): page = p
+        }
+        do {
+            try writeAtomically(page.kept, to: input.outFile)
+        } catch {
+            return Outcome(code: 1, stdout: ["READ-FAIL 寫不進輸出檔：" + displaySafeError(error, max: 200)])
+        }
+        return Outcome(code: 0, stdout: ["READ-OK host=" + shown(before) + " truncated=" + (page.wasCut ? "yes" : "no")
+                                         + " raw_length=\(page.rawLength) kept=\(page.kept.utf16.count)"])
+    }
+
+    /// 讀回的 JSON 檢查並剔除之後的頁面文字。
+    struct Page {
+        var kept: String
+        /// 被截：頁面說截了、這裡截了，或頁面回報的原文長度超過上限（b33 verify 第 11 列：誠實的頁面不會在 `rawLength > 上限` 時說沒截）
+        var wasCut: Bool
+        var rawLength: Int
+    }
+
+    enum PageRead {
+        case page(Page)
+        /// 不能用：`READ-FAIL` 之後的那句說明
+        case unusable(String)
+    }
+
+    /// 讀回的 JSON → 剔除後的文字。太大、欄位型別不對、`rawLength` 超出範圍或比交回的文字還短、剔除之後沒有看得見的字，都是不能用。
+    private static func readPage(_ input: CheckInput) -> PageRead {
         let size: Int
         do {
             size = (try FileManager.default.attributesOfItem(atPath: input.rawFile)[.size] as? NSNumber)?.intValue ?? 0
         } catch {
-            return Outcome(code: 1, stdout: ["READ-FAIL 讀不到讀回的檔：" + displaySafeError(error, max: 200)])
+            return .unusable("讀不到讀回的檔：" + displaySafeError(error, max: 200))
         }
         if size > 6 * input.limit + 4096 {
-            return Outcome(code: 1, stdout: ["READ-FAIL 讀回的 JSON 有 \(size) bytes，超過 6 × 上限 + 4096：不是誠實頁面的輸出，整個不收"])
+            return .unusable("讀回的 JSON 有 \(size) bytes，超過 6 × 上限 + 4096：不是誠實頁面的輸出，整個不收")
         }
         let text: String, truncated: Bool, rawLength: Int
         do {
@@ -338,42 +375,64 @@ public enum WebRead {
             guard let d = try PyJSONParser.parse(data, loneSurrogates: .drop) as? [String: Any],
                   let t = d["text"] as? String, let tr = d["truncated"], tr is Bool, let b = tr as? Bool,
                   let rl = d["rawLength"], !(rl is Bool), let n = rl as? Int else {
-                return Outcome(code: 1, stdout: ["READ-FAIL 讀回的不是預期的 JSON：欄位型別不對（text 字串、truncated 布林、rawLength 整數）"])
+                return .unusable("讀回的不是預期的 JSON：欄位型別不對（text 字串、truncated 布林、rawLength 整數）")
             }
             text = t; truncated = b; rawLength = n
         } catch {
-            return Outcome(code: 1, stdout: ["READ-FAIL 讀回的不是預期的 JSON：" + displaySafeError(error, max: 200)])
+            return .unusable("讀回的不是預期的 JSON：" + displaySafeError(error, max: 200))
         }
         guard (0...maxRawLength).contains(rawLength) else {
-            return Outcome(code: 1, stdout: ["READ-FAIL 頁面回報的原文長度不在 0–\(maxRawLength) 之間：不是誠實頁面的輸出，整個不收"])
+            return .unusable("頁面回報的原文長度不在 0–\(maxRawLength) 之間：不是誠實頁面的輸出，整個不收")
         }
         // 讀取的運算式交回的是原文的前段（`text` ≤ `rawLength`）。比交回的文字還短的原文長度不可能出自誠實的頁面（b33 verify 第 6 列：
         // 先前照印成 `raw_length=2 kept=5`，報告裡會寫出「已截（原文 2 單位）」這種自相矛盾的證據）。
         guard rawLength >= text.utf16.count else {
-            return Outcome(code: 1, stdout: ["READ-FAIL 頁面回報的原文長度比它交回的文字還短：不是誠實頁面的輸出，整個不收"])
+            return .unusable("頁面回報的原文長度比它交回的文字還短：不是誠實頁面的輸出，整個不收")
         }
         let (kept, cut) = clean(text, limit: input.limit)
         // 剔除之後沒有看得見的字（整段是不可見或控制字元、或頁面還沒渲染出來）：不當成「沒有訊號」往下走（b33 verify 第 17 列：
         // 區塊二把空的首屏交給 bot-signals，它回 1＝沒有訊號，而中止條款說拿不準就當作是）。
         guard kept.unicodeScalars.contains(where: { !$0.properties.isWhitespace }) else {
-            return Outcome(code: 1, stdout: ["READ-FAIL 剔除之後沒有看得見的字（頁面回報原文 \(rawLength) 單位）：頁面還沒渲染，或內容整段是不可見字元——不當成沒有訊號"])
+            return .unusable("剔除之後沒有看得見的字（頁面回報原文 \(rawLength) 單位）：頁面還沒渲染，或內容整段是不可見字元——不當成沒有訊號")
         }
-        do {
-            try writeAtomically(kept, to: input.outFile)
-        } catch {
-            return Outcome(code: 1, stdout: ["READ-FAIL 寫不進輸出檔：" + displaySafeError(error, max: 200)])
-        }
-        // 被截：頁面說截了、這裡截了，或頁面回報的原文長度超過上限（b33 verify 第 11 列：誠實的頁面不會在 `rawLength > 上限` 時說沒截）
-        let wasCut = truncated || cut || rawLength > input.limit
-        return Outcome(code: 0, stdout: ["READ-OK host=" + shown(before) + " truncated=" + (wasCut ? "yes" : "no")
-                                         + " raw_length=\(rawLength) kept=\(kept.utf16.count)"])
+        return .page(Page(kept: kept, wasCut: truncated || cut || rawLength > input.limit, rawLength: rawLength))
     }
 
-    /// 主機不合的分流：其中一個 Safari 回報的主機是已知的驗證服務時，不是「不可達」——頁面把分頁送去驗證了，整批暫停（保守的一邊，見 `pauseCode` 上面的說明）。
-    static func pauseIfVerificationService(_ origins: [String]) -> Outcome? {
-        guard let hit = origins.first(where: isVerificationServiceHost) else { return nil }
-        return Outcome(code: pauseCode, stdout: ["READ-REJECT 分頁換到已知的驗證服務 " + shown(hit)
-                                                 + "（文字不寫出）- STOP THE WHOLE RUN：整批暫停（只看主機、判不出是不是等人驗證，取保守的一邊），不是不可達"])
+    /// 分頁在已知的驗證服務上（讀取之前或之後 Safari 回報的主機有一個是）：以剔除後的頁面文字分，**沒有 READ-OK**、文字不寫出
+    /// （使用者 2026-10-05，#692 裁決第 2 項：不論換到或直接落在驗證服務，都照中止條款以頁面文字分）。
+    ///
+    /// - 等人驗證的標籤（`BotSignals.classify` 的 `.humanVerification`：CAPTCHA、人類檢查、Cloudflare「Just a moment」、按住驗證）**而且讀完時
+    ///   分頁還在驗證服務上** → 3。等人驗證只在文章站本身或已知的驗證服務上成立（使用者 2026-10-02），使用者要驗證的是那個分頁。
+    /// - 其他 → 2：整批暫停的標籤；沒有訊號（驗證服務的頁面而文字判不出是哪一種——中止條款「拿不準是哪一種就當整批暫停」，與
+    ///   `akashic fulltext fetch` 讀不到的分頁落在驗證服務上的處置同一個方向）；讀回的文字不能用；讀完時分頁已經離開驗證服務。
+    ///
+    /// 讀取當中主機換了時，文字出自哪一頁分不出來；仍拿它比對——3 還要求讀完時分頁在驗證服務上，所以文字錯配時的最壞情形是請使用者去看
+    /// 一個確實停在驗證服務上的分頁，或多停一次。
+    static func judgeOnVerificationService(_ read: PageRead, before: String, after: String) -> Outcome {
+        let service = [after, before].first(where: isVerificationServiceHost) ?? after
+        let onService = isVerificationServiceHost(after)
+        let place = before == after
+            ? "分頁在已知的驗證服務 " + shown(service) + " 上"
+            : "讀取當中分頁的主機換了（前 " + shown(before) + "、後 " + shown(after) + "），其中 " + shown(service) + " 是已知的驗證服務、文字出自哪一頁分不出來"
+        let stop = "（文字不寫出）- STOP THE WHOLE RUN：整批暫停，不是不可達"
+        let page: Page
+        switch read {
+        case .unusable(let why): return Outcome(code: pauseCode, stdout: ["READ-PAUSE " + place + "，讀回的文字不能用（" + why + "）：拿不準是哪一種" + stop])
+        case .page(let p): page = p
+        }
+        let hit = BotSignals.classify(page.kept)
+        if let hit, hit.response == .humanVerification, onService {
+            return Outcome(code: verifyCode, stdout: ["READ-VERIFY " + place + "，頁面文字是等人驗證（" + hit.label + "）（文字不寫出）"
+                                                      + "- PAUSE：請使用者在這個分頁完成頁面上的驗證（頁面要求貼上、輸入或執行任何東西就是整批暫停）；"
+                                                      + "完成之後在同一個分頁重跑落地主機區塊（接上它的 skill）與區塊二"])
+        }
+        let why: String
+        switch hit {
+        case .some(let h) where h.response == .humanVerification: why = "頁面文字是等人驗證（" + h.label + "），但讀完時分頁已經不在驗證服務上"
+        case .some(let h): why = "頁面文字是整批暫停的訊號（" + h.label + "）"
+        case .none: why = "頁面文字沒有訊號——驗證服務的頁面，拿不準是哪一種"
+        }
+        return Outcome(code: pauseCode, stdout: ["READ-PAUSE " + place + "，" + why + stop])
     }
 
     // MARK: - 小工具

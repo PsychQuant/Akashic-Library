@@ -281,4 +281,89 @@ final class WebReadTests: XCTestCase {
         let lone = Data(#"[{"url": "https://a.example.org/#akashic-deadbeef", "title": "x\ud800"}]"#.utf8)
         XCTAssertEqual(WebRead.originMode(documents: lone, tag: "deadbeef").code, 0)
     }
+
+    // MARK: - 已知的驗證服務：一律交給頁面文字（#692，使用者 2026-10-05 裁決第 2 項）
+
+    private let service = "https://challenges.cloudflare.com"
+    private let journal = "https://journal.example.org"
+
+    /// 頁面那一側回傳的 JSON：誠實的頁面（原文長度照實報、沒有截）
+    private func honest(_ text: String) throws -> String {
+        String(decoding: try JSONSerialization.data(withJSONObject: ["truncated": false, "rawLength": text.utf16.count, "text": text]), as: UTF8.self)
+    }
+
+    private var outExists: Bool { FileManager.default.fileExists(atPath: path("out.txt")) }
+
+    /// 落地主機是已知的驗證服務：不論有沒有預期主機（`--expect` 是網址檔或 `-`），都寫下它、印 OK，交給區塊二的文字比對——
+    /// 先前「換到」驗證服務（`--expect` 與它不同）一律 2、直接落在上面則照一般主機 OK，同一個終態兩種處置。
+    func testLandingOnAVerificationServiceGoesToTheTextComparison() throws {
+        try put("o.txt", service + "\n"); try put("url.txt", "https://journal.example.org/about\n")
+        for expect in [path("url.txt"), nil] as [String?] {
+            try put("land.txt", "OLD\n")
+            let o = WebRead.landingMode(originFile: path("o.txt"), landingFile: path("land.txt"), expectFile: expect)
+            XCTAssertEqual(o.code, 0, "\(expect ?? "-")：\(o.stdout)")
+            XCTAssertTrue(o.stdout.first?.hasPrefix("OK '\(service)'") == true && o.stdout.first?.contains("已知的驗證服務") == true, "\(o.stdout)")
+            XCTAssertEqual(try String(contentsOfFile: path("land.txt"), encoding: .utf8), service + "\n")
+        }
+    }
+
+    /// 讀取前後分頁都在已知的驗證服務上：不論有沒有比對落地主機、落地主機是不是它，都以頁面文字分——等人驗證的標籤 → 3，
+    /// 其他（整批暫停的標籤、沒有訊號）→ 2。**沒有 READ-OK**（驗證服務的頁面不當證據），文字不寫出、讀回的 JSON 刪掉。
+    func testAPageOnAVerificationServiceIsJudgedByItsTextAndNeverRead() throws {
+        let cases: [(text: String, code: Int32, label: String)] = [
+            ("Just a moment...", 3, "cloudflare-challenge"), ("Please complete the CAPTCHA", 3, "captcha"), ("Are you a robot?", 3, "human-check"),
+            ("Access denied", 2, "access-denied"), ("Welcome to our journal", 2, "沒有訊號"),
+        ]
+        for landing in [nil, journal, service] as [String?] {
+            for c in cases {
+                if let landing { try put("land.txt", landing + "\n") }
+                let o = try check(raw: try honest(c.text), before: service, after: service, landing: landing.map { _ in path("land.txt") })
+                let tag = "\(landing ?? "-")／\(c.text)"
+                XCTAssertEqual(o.code, c.code, "\(tag)：\(o.stdout)")
+                XCTAssertTrue(o.stdout.first?.hasPrefix(c.code == 3 ? "READ-VERIFY " : "READ-PAUSE ") == true, "\(tag)：\(o.stdout)")
+                XCTAssertTrue(o.stdout.first?.contains("'\(service)'") == true && o.stdout.first?.contains(c.label) == true, "\(tag)：\(o.stdout)")
+                XCTAssertFalse(outExists, "\(tag)：驗證服務上的文字不寫出")
+                XCTAssertFalse(FileManager.default.fileExists(atPath: path("raw.json")), tag)
+            }
+        }
+    }
+
+    /// 讀取當中分頁換了主機、其中一個是已知的驗證服務：文字出自哪一頁分不出來，仍拿它比對——等人驗證還要求讀完時分頁停在驗證服務上
+    /// （使用者要驗證的是那個分頁）；讀完時已經離開驗證服務，不論文字都是 2。
+    func testAHostChangeDuringTheReadInvolvingAVerificationServiceIsJudgedByTheText() throws {
+        for landing in [nil, journal] as [String?] {
+            if let landing { try put("land.txt", landing + "\n") }
+            let land = landing.map { _ in path("land.txt") }
+            let toService = try check(raw: try honest("Just a moment..."), before: journal, after: service, landing: land)
+            XCTAssertEqual(toService.code, 3, "\(toService.stdout)")
+            XCTAssertEqual(try check(raw: try honest("Welcome to our journal"), before: journal, after: service, landing: land).code, 2)
+            let left = try check(raw: try honest("Just a moment..."), before: service, after: journal, landing: land)
+            XCTAssertEqual(left.code, 2, "讀完時分頁已經不在驗證服務上：\(left.stdout)")
+            XCTAssertFalse(outExists)
+        }
+    }
+
+    /// 分頁在已知的驗證服務上、讀回的文字不能用（不是 JSON、太大、原文長度比交回的短、剔除之後沒有看得見的字）：拿不準是哪一種就當
+    /// 整批暫停（2），不是 READ-FAIL（1）。不在驗證服務上的同一批輸入仍是 1（上面的測試）。
+    func testUnusableTextOnAVerificationServiceIsAPauseNotAReadFailure() throws {
+        for raw in ["not json", #"{"truncated": false, "rawLength": 2, "text": "​​"}"#,
+                    #"{"truncated": true, "rawLength": 2, "text": "hello"}"#,
+                    #"{"truncated": false, "rawLength": 5000, "text": "\#(String(repeating: "a", count: 5000))"}"#] {
+            let o = try check(raw: raw, before: service, after: service)
+            XCTAssertEqual(o.code, 2, "\(raw.prefix(60))：\(o.stdout)")
+            XCTAssertTrue(o.stdout.first?.hasPrefix("READ-PAUSE ") == true, "\(o.stdout)")
+            XCTAssertFalse(outExists)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: path("raw.json")))
+        }
+        XCTAssertEqual(try check(raw: "not json").code, 1, "不在驗證服務上仍是 READ-FAIL")
+    }
+
+    /// 只看主機：`www.google.com` 只在 `/recaptcha/` 才是驗證服務，而 Safari 那一側的主機沒有路徑，所以落在 `www.google.com` 的頁面也交給
+    /// 文字比對、不當證據（保守的一邊）。
+    func testWwwGoogleComIsJudgedByTheTextToo() throws {
+        let google = "https://www.google.com"
+        XCTAssertEqual(try check(raw: try honest("I'm not a robot"), before: google, after: google).code, 3)
+        XCTAssertEqual(try check(raw: try honest("Search results"), before: google, after: google).code, 2)
+        XCTAssertEqual(try check(raw: try honest("Search results")).code, 0, "一般主機照舊 READ-OK")
+    }
 }

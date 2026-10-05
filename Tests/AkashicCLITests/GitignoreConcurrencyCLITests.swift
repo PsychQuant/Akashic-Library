@@ -72,8 +72,8 @@ final class GitignoreConcurrencyCLITests: XCTestCase {
         }
     }
 
-    /// `import-zotero`（`.refuse`，MCP 的兩個匯入走同一條）：`.gitignore` 那一步在讀 zotero.sqlite 之前，所以給一個不存在的 db 也走得到
-    /// （之後以「找不到 zotero.sqlite」結束，那不是這裡要看的）。沒有一個被 `.gitignore` 假拒絕。
+    /// `import-zotero`（`.report`，MCP 的兩個匯入走同一條；2026-10-05 的裁決之前是 `.refuse`）：`.gitignore` 那一步在讀 zotero.sqlite 之前，
+    /// 所以給一個不存在的 db 也走得到（之後以「找不到 zotero.sqlite」結束，那不是這裡要看的）。沒有一個被 `.gitignore` 假拒絕、也沒有假警告。
     func testConcurrentImportsAreNotRefusedOverTheGitignore() throws {
         for round in 0..<rounds {
             let dir = base.appendingPathComponent("import-\(round)")
@@ -84,6 +84,7 @@ final class GitignoreConcurrencyCLITests: XCTestCase {
             }, home: base.appendingPathComponent("home-import-\(round)"))
             for r in results {
                 XCTAssertFalse(r.output.contains("這次不能替你加"), "第 \(round) 輪：\(r.output)")
+                XCTAssertFalse(r.output.contains("⚠ .gitignore"), "第 \(round) 輪：區塊已由另一個程序加上，不得報假警告：\(r.output)")
                 XCTAssertTrue(r.output.contains("找不到 zotero.sqlite"), "第 \(round) 輪：要走到 db 那一步：\(r.output)")
             }
             XCTAssertEqual(try markerCount(dir), 1, "第 \(round) 輪：區塊恰好一份")

@@ -17,6 +17,8 @@ import AkashicMCPKit
 /// **失敗時 stderr 的第一行也說寫了**（#705 R2 verify 第 16／19 列）：報告在 stdout、錯誤在 stderr，只擷取 stderr 與結束碼的呼叫端
 /// （cron、CI）先前只讀到 UNIQUE 失敗，不知道那幾筆其實寫了、重跑會被 #631 拒絕。
 ///
+/// **結束碼 0 而之後的寫入沒套用時 stderr 也說一行**（使用者 2026-10-05 裁決）：`successStderrLine`，進入點在命令成功之後印。
+///
 /// CLI 一個 process 跑一個命令，所以兩個狀態放在 static：這一趟的 stdout 是不是 service JSON、stdout 上已經報了幾筆。
 enum LegacyCopyReport {
     /// `payload` 進入時設下：這個命令的 stdout 是一份 service JSON。
@@ -79,10 +81,31 @@ enum LegacyCopyReport {
         var lead = "已寫入 \(reported) 筆、搬移後的 legacy 拷貝沒刪掉（writtenWithLegacyCopy，清單在 stdout）"   // display-safe-exempt: Int
             + "——那幾筆的寫入不是失敗；確認 entities/ 那份是新的之後刪掉 legacy 那份（兩份並存時 #631 拒絕同一筆的下一次寫入）；"
         lead += notApplied > 0
-            ? "其中 \(notApplied) 筆之後的寫入沒套用，刪掉 legacy 那份之後要重跑才補得上。"   // display-safe-exempt: Int
+            ? "其中 \(notApplied) 筆之後的寫入沒套用，\(rerunAdvice)。"   // display-safe-exempt: Int；rerunAdvice：本型別的字面常量
             : "它們不必為了自己重跑。"
         return errorText.isEmpty
             ? lead + "這次以非零結束碼結束、沒有錯誤訊息——非零的原因在 stdout 的報告裡（例如沒寫成功的記錄），那一部分要依報告處理，可能需要重跑。"
             : lead + "以下是這次失敗的原因（它要另外處理）：\n" + errorText
+    }
+
+    /// 之後的寫入沒套用時要不要重跑——兩條 stderr 訊息（非零結束的第一行、結束碼 0 的那一行）同一句，判準同一個（有沒套用的就要重跑）。
+    static let rerunAdvice = "刪掉 legacy 那份之後要重跑才補得上"
+
+    /// 結束碼 0 時 stderr 的那一行（#705，使用者 2026-10-05 裁決：結束碼 0 時使用者最可能不看 stdout 的報告與 JSON）。stdout 上報告過、
+    /// 標了 `laterWriteRefused` 的筆數 > 0 才有；沒有就回 nil、不印。進入點（`AkashicCLI.main`）在命令成功之後呼叫——每一個命令都經過那裡，
+    /// 所以新命令不必記得接（同 `printTrailer`）。2026-10-05 走得到這一格的只有 `import-zotero`（同一趟先清 orphan 標記、再更新書目欄位，
+    /// 第二步被 #631 拒絕而 `guardedWrite` 接住）；其他寫入者對同一筆在一次呼叫裡只寫一次，第二次寫入被拒時以非零結束、走 `stderrText`。
+    static func successStderrLine() -> String? {
+        successStderrLine(notApplied: notAppliedOnStdout, stdoutIsJSON: stdoutIsJSON)
+    }
+
+    /// 純函式版本——兩個狀態由呼叫端給（測試不依賴 process 內累積的 static）。只含筆數與字面，沒有 store 字串。
+    static func successStderrLine(notApplied: Int, stdoutIsJSON: Bool) -> String? {
+        guard notApplied > 0 else { return nil }
+        let place = stdoutIsJSON
+            ? "stdout 那份 JSON 的 writtenWithLegacyCopy（各列的 laterWriteNotApplied；筆數在 writtenWithLegacyCopyNotApplied）"
+            : "stdout 的 writtenWithLegacyCopy 段（列尾寫「同一個操作之後對這一筆的寫入沒有套用」的那幾列）"
+        return "⚠ 結束碼 0，但有 \(notApplied) 筆之後的寫入沒套用：同一個操作稍早已寫入那幾筆、搬移後的 legacy 拷貝沒刪掉，"   // display-safe-exempt: Int
+            + "兩份並存時 #631 拒絕同一筆的下一次寫入。清單在 \(place)——確認 entities/ 那份是新的，\(rerunAdvice)。"   // display-safe-exempt: place、rerunAdvice：本函式與本型別的字面
     }
 }

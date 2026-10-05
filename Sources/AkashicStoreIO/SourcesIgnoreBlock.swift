@@ -17,8 +17,11 @@ import Darwin
 ///   報「被換掉或改過」而不重看（假拒絕、假警告）。現在遇到這兩種情形重看一次（至多 `applyAttempts` 次），重看之後區塊在就算成功。
 ///   寫到一半失敗時只截掉這一次寫進去的位元組（大小還是「原長＋這一次寫的」才截；`ftruncate` 的結果要看），截不回來具名回報。
 /// - 讀不到、不是 UTF-8 文字（含 NUL 也算——UTF-16 存的檔）、是 symlink 而指向的內容沒有區塊、symlink 打不開、不是一般檔、有其他硬連結、
-///   大到 git 不讀、有標記沒有規則、沒有寫入權限：**不動它**。寫入類命令在建立任何東西之前具名拒絕（`SourcesIgnorePolicy.refuse`）；
-///   `doctor` 照常建佈局、改報一則 warning（`.report`）。開檔、取鎖、寫入這一段才發現的原因（寫入失敗、重看之後仍在變），那時佈局已建好。
+///   大到 git 不讀、有標記沒有規則、沒有寫入權限：**不動它**。`file add` 在建立任何東西之前具名拒絕（`SourcesIgnorePolicy.refuse`）；
+///   `doctor` 與兩個匯入照常建佈局、改報一則 warning（`.report`；匯入見下）。開檔、取鎖、寫入這一段才發現的原因（寫入失敗、重看之後仍在變），那時佈局已建好。
+/// - **匯入是 warning，不是拒絕**（使用者 2026-10-05 裁決 #700 第 1 項）：`import-zotero` 與 MCP 的兩個匯入（含 `dry_run`）本身不寫
+///   `sources/`，擋住第三方存檔進版控的防線在 `store-source`——它寫入前以 `git check-ignore` 驗排除，區塊沒加上就拒寫（`assertSourcesExcluded`）。
+///   先前匯入也在建立任何東西之前拒絕，等於讓一個讀不懂的 `.gitignore` 擋住一件與它無關的事。警告的文字只有 `warningLines` 一份。
 /// - symlink 與硬連結選拒絕、不寫到那個檔：它可能在 store 之外、被別的 repo 共用，替人改 store 之外的檔不是建佈局該做的事。
 ///   指向的內容已有區塊時照樣什麼都不做，symlink 不動。
 extension LibraryStore {
@@ -294,7 +297,7 @@ extension LibraryStore {
         while flock(fd, LOCK_SH) != 0 && errno == EINTR {}
     }
 
-    /// 寫入類命令的拒絕（`ensureLayout` 的兩個擲出點共用這一個建構點）。
+    /// `file add` 的拒絕（`.refuse`；`ensureLayout` 的兩個擲出點共用這一個建構點）。
     internal static func sourcesIgnoreRefusal(_ problem: SourcesIgnoreProblem, layoutWritten: Bool) -> StoreIOError {
         StoreIOError.sourcesIgnoreNotWritten(problem, layoutWritten: layoutWritten)   // display-safe-exempt: problem 是封閉列舉 SourcesIgnoreProblem（描述端只讀它的固定句與 errno 說明）；layoutWritten 是 Bool
     }
@@ -324,11 +327,15 @@ internal enum SourcesIgnoreIO {
 }
 
 /// `ensureLayout` 遇到 `.gitignore` 的問題時怎麼做（#700）。
+///
+/// 呼叫端是封閉列舉（2026-10-05 的 `ensureLayout` 呼叫者全部在此）：`.refuse`＝`file add`；`.report`＝`doctor`、CLI `import-zotero`、
+/// MCP `akashic_import_zotero`、`akashic_import_wos`（含 `dry_run`）。CLI `import-wos` 開既有 store（`openStore`），不經 `ensureLayout`。
 public enum SourcesIgnorePolicy: Sendable {
-    /// 寫入類命令（`file add`、`import-zotero`、MCP 的兩個匯入）：擲出 `StoreIOError.sourcesIgnoreNotWritten`。看得出的原因在建立任何
-    /// 東西之前擲；開檔、取鎖、寫入時才發現的原因在佈局建好之後擲（訊息說是哪一種）。
+    /// `file add`：擲出 `StoreIOError.sourcesIgnoreNotWritten`。看得出的原因在建立任何東西之前擲；開檔、取鎖、寫入時才發現的原因在
+    /// 佈局建好之後擲（訊息說是哪一種）。
     case refuse
-    /// 診斷面（`doctor`）：照常建佈局、`.gitignore` 不動，原因由 `ensureLayout` 的回傳值交給呼叫端報。
+    /// `doctor` 與兩個匯入：照常建佈局、`.gitignore` 不動，原因由 `ensureLayout` 的回傳值交給呼叫端報（`SourcesIgnoreProblem.warningLines`）。
+    /// 匯入不寫 `sources/`，擋第三方存檔進版控的防線在 `store-source`（使用者 2026-10-05 裁決 #700 第 1 項）。
     case report
 }
 
@@ -388,6 +395,19 @@ public enum SourcesIgnoreProblem: Equatable, Sendable {
                 + "）——.gitignore 尾端可能留著半段區塊"
         }
     }
+
+    /// 一則 warning（`.report` 的呼叫端報它）：一行說明加上要自己加的那段（每行縮排四格）。`doctor` 印到 stdout、`import-zotero` 印到
+    /// stderr、MCP 的兩個匯入以換行接起來放進回應的 `gitignoreWarning`——三處同一份文字（#700 b35）。`actor` 是程式字面（命令名），
+    /// `note` 是呼叫端的固定句，接在原因之後。只含固定句、errno 數字與系統的固定英文說明，不含使用者資料。
+    public func warningLines(by actor: String, note: String = "") -> [String] {
+        ["⚠ .gitignore 沒有 sources 排除區塊，\(actor) " + (leavesGitignoreUntouched ? "沒有改寫它" : "寫到一半、沒能收回")   // display-safe-exempt: actor 是呼叫端的程式字面（命令名）
+            + "：\(reason)。\(note)\(remedy)："]   // display-safe-exempt: reason、remedy 是本型別的固定句與 errno 說明；note 是呼叫端的固定句
+            + LibraryStore.sourcesIgnoreBlock.split(separator: "\n").map { "    \($0)" }   // display-safe-exempt: 取自常數 LibraryStore.sourcesIgnoreBlock
+    }
+
+    /// 匯入的 warning 接在原因之後的那一句（CLI `import-zotero` 與 MCP 的兩個匯入同一句）。
+    public static let importContinuedNote =
+        "匯入照常完成（匯入不寫 sources/）；store 在 git 工作樹裡時，sources/ 沒被排除之前 store-source 拒絕寫入。"
 
     /// 處置。
     public var remedy: String {

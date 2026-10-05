@@ -2,6 +2,7 @@ import XCTest
 import Foundation
 @testable import AkashicStoreIO
 @testable import akashic
+import AkashicMCPKit
 
 /// #705 R3 verify（logic 席）：命令以**沒有訊息**的非零結束碼收場（`throw ExitCode(1)`——import-zotero 的 `writeFailed`、未記下的 DOI 提名，
 /// 以及其他幾個命令）時，CLI 進入點先前以 `!safe.isEmpty` 守住 stderr 的第一行，於是這一格 stderr 整個是空的：stdout 有 `writtenWithLegacyCopy`
@@ -72,6 +73,34 @@ final class LegacyCopyStderrTextTests: XCTestCase {
             let text = LegacyCopyReport.stderrText(errorText: "", reported: reported, notApplied: notApplied)
             XCTAssertTrue(text.contains("確認 entities/ 那份是新的之後刪掉 legacy 那份"), text)
             XCTAssertFalse(text.contains("即可"), text)
+        }
+    }
+}
+
+/// #705（使用者 2026-10-05 裁決）：結束碼 0、但同一個操作之後的寫入沒套用時，stderr 多印的那一行。真 binary 的兩支在
+/// `ZoteroReportCLITests`（`import-zotero` 是 2026-10-05 唯一走得到這一格的命令）；這裡釘純函式的兩種 stdout（文字、JSON）與「沒有就不印」。
+extension LegacyCopyStderrTextTests {
+    func testTheExitZeroLineIsAbsentWhenEverythingApplied() {
+        XCTAssertNil(LegacyCopyReport.successStderrLine(notApplied: 0, stdoutIsJSON: false))
+        XCTAssertNil(LegacyCopyReport.successStderrLine(notApplied: 0, stdoutIsJSON: true))
+    }
+
+    func testTheExitZeroLineSaysHowManyWhereToLookAndToRerun() throws {
+        let text = try XCTUnwrap(LegacyCopyReport.successStderrLine(notApplied: 2, stdoutIsJSON: false))
+        XCTAssertFalse(text.contains("\n"), "恰好一行：\(text)")
+        XCTAssertTrue(text.contains("有 2 筆之後的寫入沒套用"), text)
+        XCTAssertTrue(text.contains("stdout 的 writtenWithLegacyCopy 段"), text)
+        XCTAssertTrue(text.contains(LegacyCopyReport.rerunAdvice) && text.contains("確認 entities/ 那份是新的"),
+                      "要重跑的判準與非零結束的第一行同一句：\(text)")
+        XCTAssertFalse(text.contains("不必") || text.contains("不要重跑"), text)
+        let nonZero = LegacyCopyReport.stderrText(errorText: "", reported: 3, notApplied: 2)
+        XCTAssertTrue(nonZero.contains(LegacyCopyReport.rerunAdvice), "兩條訊息共用同一句：\(nonZero)")
+    }
+
+    func testTheExitZeroLineNamesTheJSONKeysWhenStdoutIsJSON() throws {
+        let text = try XCTUnwrap(LegacyCopyReport.successStderrLine(notApplied: 1, stdoutIsJSON: true))
+        for key in ["writtenWithLegacyCopy", "laterWriteNotApplied", AkashicService.writtenWithLegacyCopyNotAppliedKey] {
+            XCTAssertTrue(text.contains(key), "\(key)：\(text)")
         }
     }
 }

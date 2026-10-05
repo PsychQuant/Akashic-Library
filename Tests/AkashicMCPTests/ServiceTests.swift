@@ -667,21 +667,53 @@ final class ServiceTests: XCTestCase {
         XCTAssertEqual(dropped?.count, 1, "收不進 fields 的欄位名必須出現在報告：\(obj)")
     }
 
-    /// #700 b31 W5 MEDIUM 0：MCP 的匯入也經 `ensureLayout`——`.gitignore` 讀不懂（這裡是 Latin-1、沒有 sources 區塊）時在寫任何東西之前拒絕，
-    /// `.gitignore` 逐位元組不變、沒有建任何 entry（先前整份換成只含區塊）。
-    func testImportWoSRefusesWithoutRewritingAnUndecodableGitignore() throws {
+    /// #700（使用者 2026-10-05 裁決第 1 項）：MCP 的匯入也經 `ensureLayout`——`.gitignore` 讀不懂（這裡是 Latin-1、沒有 sources 區塊）時
+    /// **照常匯入**、`.gitignore` 逐位元組不變，回應帶 `gitignoreWarning`（原因、匯入照常完成、要自己加的那段）。b31 W5 到 b34 是在寫任何東西
+    /// 之前拒絕；匯入本身不寫 sources/，擋存檔進版控的防線在 store-source（下一支測試）。
+    func testImportWoSWarnsAndContinuesWithoutRewritingAnUndecodableGitignore() throws {
         let ignore = root.appendingPathComponent(".gitignore")
         let original = Data([0x23, 0x20, 0x63, 0x61, 0x66, 0xE9, 0x0A]) + Data("*.srt\n".utf8)
         try original.write(to: ignore)
         let before = try LibraryStore(root: root).load().entries.count
         let path = try wosTSV([["Authors": "Lay, K-L", "Article Title": "Gitignore",
                                 "Publication Year": "2020", "Source Title": "DevPsy", "DOI": "10.2/gi"]])
-        XCTAssertThrowsError(try service.importWoS(path: path, csv: false, dryRun: false)) { error in
-            let message = (error as? LocalizedError)?.errorDescription ?? "\(error)"
-            XCTAssertTrue(message.contains("不是 UTF-8") && message.contains(".gitignore 沒有改寫"), message)
-        }
+        // dry_run 也經 ensureLayout：同一則警告、不寫 entry
+        let dry = try json(try service.importWoS(path: path, csv: false, dryRun: true)) as! [String: Any]
+        let dryWarning = try XCTUnwrap(dry[AkashicService.gitignoreWarningKey] as? String, "\(dry)")
+        XCTAssertTrue(dryWarning.contains("不是 UTF-8") && dryWarning.contains("匯入照常完成"), dryWarning)
+        XCTAssertEqual(try LibraryStore(root: root).load().entries.count, before, "dry_run 不寫 entry")
+        let obj = try json(try service.importWoS(path: path, csv: false, dryRun: false)) as! [String: Any]
+        let warning = try XCTUnwrap(obj[AkashicService.gitignoreWarningKey] as? String, "\(obj)")
+        XCTAssertTrue(warning.hasPrefix("⚠ .gitignore 沒有 sources 排除區塊，akashic_import_wos 沒有改寫它：") && warning.contains("不是 UTF-8"), warning)
+        XCTAssertTrue(warning.contains("store-source 拒絕寫入") && warning.contains("    sources/"), "說出防線在哪、附上要加的那段：\(warning)")
+        XCTAssertEqual((obj["created"] as? [String])?.count, 1, "照常匯入：\(obj)")
         XCTAssertEqual(try Data(contentsOf: ignore), original, "原有內容要逐位元組保留")
-        XCTAssertEqual(try LibraryStore(root: root).load().entries.count, before)
+        XCTAssertEqual(try LibraryStore(root: root).load().entries.count, before + 1)
+    }
+
+    /// #700 裁決第 1 項的前提：匯入照常完成之後，store-source 仍然被擋——`.gitignore` 讀不懂、沒有區塊，sources/ 沒被排除，
+    /// store 在 git 工作樹裡時 `assertSourcesExcluded` 拒寫（在寫入任何位元組之前）。這一支釘住「防線在 store-source」這句話。
+    func testStoreSourceIsStillRefusedAfterAnImportWarnedAboutTheGitignore() throws {
+        StoreGitCommit.run(["init", "-q"], in: root)
+        let original = Data([0x23, 0x20, 0x63, 0x61, 0x66, 0xE9, 0x0A]) + Data("*.srt\n".utf8)
+        try original.write(to: root.appendingPathComponent(".gitignore"))
+        let path = try wosTSV([["Authors": "Lay, K-L", "Article Title": "Gate",
+                                "Publication Year": "2020", "Source Title": "DevPsy", "DOI": "10.2/gate"]])
+        let obj = try json(try service.importWoS(path: path, csv: false, dryRun: false)) as! [String: Any]
+        XCTAssertNotNil(obj[AkashicService.gitignoreWarningKey], "前提：匯入警告後照常完成：\(obj)")
+        XCTAssertEqual((obj["created"] as? [String])?.count, 1, "\(obj)")
+        let pdf = FileManager.default.temporaryDirectory.appendingPathComponent("gate-\(UUID().uuidString).pdf")
+        try Data("third-party bytes".utf8).write(to: pdf)
+        addTeardownBlock { try? FileManager.default.removeItem(at: pdf) }
+        XCTAssertThrowsError(try service.storeSource(path: pdf.path, mediaType: "application/pdf", retrieved: "2026-10-05",
+                                                     origin: "https://example.org/x.pdf", acquisition: "browser-download",
+                                                     note: "gate")) { error in
+            let message = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            XCTAssertTrue(message.contains("sources/ 未被版控忽略"), message)
+        }
+        let blobs = (try? FileManager.default.subpathsOfDirectory(atPath: root.appendingPathComponent("sources").path)) ?? []
+        XCTAssertEqual(blobs.filter { !$0.hasPrefix(".") }, [], "拒寫時不留任何位元組")
+        XCTAssertEqual(try Data(contentsOf: root.appendingPathComponent(".gitignore")), original, ".gitignore 仍不動")
     }
 
     func testImportWoSMissingFileFailsLoud() {

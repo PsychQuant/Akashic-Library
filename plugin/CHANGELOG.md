@@ -1,5 +1,16 @@
 # Changelog
 
+## #692 — 分頁在已知的驗證服務上一律以頁面文字分（2026-10-05）
+
+使用者 2026-10-05 裁決（#692 第 2 項）：不論換到或直接落在驗證服務，都照中止條款以頁面文字分。細節在 `changelog/2026-10-05-b35-m2-verification-service-692.md`。
+
+- **`akashic web-read landing`**：落地主機是已知的驗證服務（Cloudflare 挑戰、hCaptcha、reCAPTCHA 的主機；只看主機，`www.google.com` 也算）時，不論與 `--expect` 的主機同不同都寫下它、印 `OK` 並註明是驗證服務。先前與 `--expect` 不同時是 2（整批暫停）。
+- **`akashic web-read check`**：讀取之前或之後 Safari 回報的主機是已知的驗證服務時，不給 `READ-OK`、文字不寫出，以剔除後的頁面文字分——等人驗證的四種而且讀完時分頁還在驗證服務上 → `READ-VERIFY`、結束碼 **3**；其他（整批暫停的訊號、**沒有訊號**、讀回的文字不能用、讀完時已經離開驗證服務）→ `READ-PAUSE`、結束碼 2。先前觀察到主機換到驗證服務就一律 2；直接落在上面則 `READ-OK`，文字沒有訊號時區塊二以 0 結束、讀取區塊把驗證服務的頁面讀成內容。
+- **web-access.md**、**`akashic-verify-venue`**：中止條款、結束碼清單、落地主機區塊、區塊二與讀取區塊的說明照上面改；讀取區塊也可能以 3 結束（等人驗證）。「結束碼 2 比中止條款保守」那一點拿掉。
+- `tools/list`：沒有改（`web-read` 沒有 MCP 面）。
+
+plugin 版號沒有動（skill 文字的改動；行為在 CLI，要新的 `akashic`）。
+
 ## #692、#700 — b33 verify 修正（2026-10-05）：`web-read` 不刪目錄、開分頁前的網址檢查進 CLI；`.gitignore` 同時跑不再寫兩份
 
 **需要新的 `akashic` CLI**：web-access.md〈開始前〉第 4 點多一條探測（`web-read url` 要放行一條公開網站形狀的網址），上一輪的 CLI 過不了。這個要求本身待使用者裁決（#692 Blocking）。
@@ -7,7 +18,7 @@
 - **`akashic web-read landing`／`check` 不刪目錄**（#692）：`--out`／`--raw` 指的路徑只刪一般檔或 symlink（刪連結本身），目錄與其他型態在刪任何東西之前以 1 拒絕。先前對目錄整棵遞迴刪除——`landing --out .` 會刪掉目前目錄。讀回的 JSON 刪不掉時 `READ-OK` 改成 `READ-FAIL`、寫出的文字收回。
 - **開分頁之前的網址檢查改成 `akashic web-read url --file <網址檔>`**（`web-access.md`〈插值前先驗形狀〉的「完整網址」一列、`akashic-verify-venue`）：先前是一條正則由模型照著看，主機那一半比落地主機的檢查寬（`.home`、`.box`、`.private`、`127.0.0.1.nip.io` 都過得了），而開分頁就是帶著 cookie 送出請求。現在主機與落地主機同一個檢查；兩邊另擋特殊用途的頂層名稱（`.test`、`.example`、`.invalid`、`.onion`、`.alt`）。
 - **`web-read check`**：頁面回報的原文長度比交回的文字還短、剔除之後沒有看得見的字（整段不可見字元、或還沒渲染的空白首屏——區塊二先前把它當成「沒有訊號」往下走）都是 `READ-FAIL`；原文長度超過上限時 `truncated=yes`（不論頁面怎麼說）；剔除另加 noncharacter（與 repo 給 LLM 的出口同一個加項）。
-- **web-access.md**：〈鎖不到的時候〉不再用 Python 把分頁的整條網址印進對話，改數分頁（`web-read origin`）；區塊二與讀取區塊在動到分頁之前先確認讀取的運算式檔在；結束碼 2（主機換到已知的驗證服務）寫明是比中止條款保守的一邊、只在主機**換到**驗證服務時觸發，待使用者裁決；`LAND="-"` 對 http、帶埠號、私有名稱維持拒絕（使用者 2026-10-05 裁決）。Unicode 表的版本改說實話：是執行 `akashic` 那台 macOS 的 Swift runtime，不是建置時的。
+- **web-access.md**：〈鎖不到的時候〉不再用 Python 把分頁的整條網址印進對話，改數分頁（`web-read origin`）；區塊二與讀取區塊在動到分頁之前先確認讀取的運算式檔在；~~結束碼 2（主機換到已知的驗證服務）寫明是比中止條款保守的一邊、只在主機**換到**驗證服務時觸發，待使用者裁決；~~（使用者 2026-10-05 已裁決，見上面「分頁在已知的驗證服務上一律以頁面文字分」一節）`LAND="-"` 對 http、帶埠號、私有名稱維持拒絕（使用者 2026-10-05 裁決）。Unicode 表的版本改說實話：是執行 `akashic` 那台 macOS 的 Swift runtime，不是建置時的。
 - **`akashic-verify-venue`**：「已截」寫成頁面回報、未經核實的長度；區塊二以 3 結束是等人驗證（在同一個分頁完成後重跑），不是停在那裡；修正一個指向已改名小節的引用。
 - **`akashic_import_zotero`、`akashic_import_wos`（含 `dry_run`）、CLI `file add`／`import-zotero`／`doctor`**（#700）：兩個以上的程序同時第一次對同一個 store 建佈局時，不再寫出兩份 sources 區塊、不再對已經加好的區塊假拒絕或報假警告（開檔後取鎖、鎖內重讀內容再決定；第一次看也等持鎖的寫入者寫完）。不改寫 `.gitignore` 的情形多四種：有其他硬連結、大到 git 不讀（≥ 100 MiB）、有標記而標記之後沒有 `sources/` 那一行（寫到一半中斷，先前被當成已在）、symlink 打不開（懸空、迴圈——訊息不再說「指向的內容沒有區塊」）。寫到一半失敗時只截掉這一次寫的，截不回來具名說出來。MCP 說明沒有改（位元組預算）；錯誤訊息自己說原因並附要加的那段，CLI `doctor --help`、`import-zotero --help`、`file add --help` 寫出這些行為。
 - `tools/list`：58,953 → 58,953 bytes（±0；MCP 說明沒有改）。

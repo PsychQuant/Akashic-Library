@@ -182,6 +182,9 @@ func protectedInventory() -> (guards: [String], data: [String]) {
     DATA += globFiles(".claude/rules/*.md").sorted()
     // CLAUDE.md 是資料而非守衛：`decision-matrix-drift` 拿它的決策矩陣當輸入（#407 R27）。
     DATA += ["CLAUDE.md"]
+    // #711（使用者 2026-10-05 裁決）：零實例裁決表的量測與歷輪補記搬到這份不自動載入的文件，`zero-instance-rows-audit`
+    // （自證閘、棘輪標記）與 `measured-numbers-audit`（「實測 N」）讀它。它不在 `.claude/rules/` 的 glob 裡，所以顯式列。
+    DATA += [zeroInstanceMeasurementsPath]
     // #522：棘輪檔是 protected-ratchet 的輸入。**它自己也進清單**——那樣「棘輪檔被刪掉」
     // 除了 protected-ratchet 自己的 rc=2 之外，missing 檢查也會具名它。
     DATA += [".githooks/protected-ratchet.txt"]

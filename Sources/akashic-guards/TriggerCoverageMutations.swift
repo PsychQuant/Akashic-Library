@@ -76,7 +76,8 @@ func triggerCoverageMutations() -> Int32 {
         // 全部 case 會因為同一個與注入無關的理由變紅（#407 R27 加 `CLAUDE.md` 時 14/14
         // 全紅；#518 加 `mcpb/manifest.json` 時 31/31 全紅）。兩次都是加完才發現。
         // 沒有在此修根治（那要讓 harness 讀得到守衛的 `DATA`）——記在 #518 的 residue。
-        for f in ["mcpb/manifest.json"] {
+        // #711 的量測文件是同一形狀的第三次（`docs/` 其餘的檔沒有守衛讀，只複製這一份）。
+        for f in ["mcpb/manifest.json", zeroInstanceMeasurementsPath] {
             let s = "\(repoRoot)/\(f)"
             if FileManager.default.fileExists(atPath: s) {
                 let dir = tmp + "/" + (f as NSString).deletingLastPathComponent

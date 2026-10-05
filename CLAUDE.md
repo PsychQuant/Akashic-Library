@@ -104,7 +104,8 @@ Foresay 管**人機確認的格式與迴圈**，本 repo 的規則管**哪些寫
 | [no-compat-fallback.md](.claude/rules/no-compat-fallback.md) | 不留相容 fallback——要改格式就一次改完全部；例外須離開 default 位置、附退場量測、退場即刪 |
 | [replace-endnote-and-zotero.md](.claude/rules/replace-endnote-and-zotero.md) | 目標是完全取代 EndNote 與 Zotero——檔案住 Akashic、位元組複製進 store、對 Zotero 的 pull 是過渡、能力缺口記 issue 不得靠「回去用 Zotero」帶過 |
 | [apa7-is-the-work-floor.md](.claude/rules/apa7-is-the-work-floor.md) | 一筆 work 的資訊下限是「能產出正確的 APA7 參考文獻」——ch10 的 113 例是驗收矩陣、`Entry.type` 的值域須**細分**（非等於）ch10 的 16 節；下限不是上限，分類可更細不可更粗 |
-| [zero-instance-guards.md](.claude/rules/zero-instance-guards.md) | 為「還沒發生過的形狀」寫守衛是一列一列裁決出來的——封閉決策表＋理由欄同列，刻意不給總括判準（那會在邊界上長出沒人同意的答案）|
+| [zero-instance-guards.md](.claude/rules/zero-instance-guards.md) | 為「還沒發生過的形狀」寫守衛是一列一列裁決出來的——封閉決策表＋理由欄同列，刻意不給總括判準（那會在邊界上長出沒人同意的答案）；各列的量測腳本與逐輪補記住在不自動載入的 [`docs/zero-instance-measurements.md`](docs/zero-instance-measurements.md)，規則檔每一列只留核心（#711）|
+| [measurement-commands-self-prove.md](.claude/rules/measurement-commands-self-prove.md) | **數 binary 輸出的量測只有一種寫法**——自證閘（舊 binary 印 `0` 與「檢查過且乾淨」要分得開）、`LC_ALL=C`、必要變數的前置條件寫在整條最前面；讀 store 用 YAML 解析、讀不到的檔要計數、數字旁寫日期與條件；`zero-instance-rows-audit` 掃零實例的規則檔與量測文件（#711 從量測段抽出）|
 | [blocked-issues-must-be-scannable.md](.claude/rules/blocked-issues-must-be-scannable.md) | 被阻塞的 issue 必須把「在等什麼」寫在工具掃得到的三個位置之一，不得只寫在散文裡——四次「空等」的實測（#314）＋哪些「等」需要標記的封閉裁決表 |
 | [two-kinds-of-edits.md](.claude/rules/two-kinds-of-edits.md) | 每個寫入面只能是兩種編輯之一——AI 編輯（判定型、依規則，必留 verdict 且可逆轉）或程式編輯（決定論式，冪等、整批擋、附量測）；混合面拆成「提名（程式）→ 判定（AI）→ 落地（程式）」；封閉的歸類表逐列理由（#505） |
 | [swift-is-the-implementation-language.md](.claude/rules/swift-is-the-implementation-language.md) | **新的程式一律寫成 Swift**——守衛是 `akashic-guards` 子命令、能力是 `akashic` CLI／`akashic-mcp`、skill 要的確定性計算做成 CLI 子命令由 skill 呼叫、測試進 Swift test target；可以不是 Swift 的只有兩類封閉例外（binary 存在前就得跑的串接殼層、逐檔列名的既有檔，只減不增） |

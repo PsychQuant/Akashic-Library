@@ -14,6 +14,10 @@
 // 辨識的條數地板（棘輪標記）。R4（#711 R4 verify）：R3 仍在列舉寫法，R4 反過來——認不出時偏向「是量測」與「同一個單位」，模板加上
 // 前置條件（`: "${V:?…}" && test -f …`），退場標記拿掉。細節見 `selfProofIssues`、`selfProofRatchetIssues` 與 `selfProofNeedleIssues`。
 //
+// **兩份檔**（#711，使用者 2026-10-05 裁決）：裁決表住在規則檔，各列的量測、歷輪補記與棘輪標記住在不自動載入的
+// `docs/zero-instance-measurements.md`。表格、列號與共通段的檢查只讀規則檔；自證閘兩份都掃（表格裡仍可能有量測）。
+// 量測寫法的通則抽成規則 `measurement-commands-self-prove`，它引用的模板是 `selfProofTemplate` 的第二份描述，所以另查兩者逐字相同。
+//
 // **誠實邊界（三條，與 Python 版同）**：
 //
 //   · 只驗編號在場，**不驗守衛做的事對不對**（那要人判斷，正是該規則保留給人的部分）。
@@ -30,10 +34,24 @@
 
 import Foundation
 
+/// 裁決表的規則檔。
+let zeroInstanceRulePath = ".claude/rules/zero-instance-guards.md"
+/// 各列的量測與歷輪補記（#711，使用者 2026-10-05 裁決）：規則檔每個 session 自動載入，量測腳本與逐輪補記搬到這份不自動載入的文件。
+/// 自證閘兩份都掃；棘輪標記住在這裡。
+let zeroInstanceMeasurementsPath = "docs/zero-instance-measurements.md"
+/// 量測寫法的通則從規則檔抽成的獨立規則（#711）。它引用 `selfProofTemplate`——那是第二份描述，所以守衛查兩者逐字相同。
+let selfProofTemplateRulePath = ".claude/rules/measurement-commands-self-prove.md"
+
 func zeroInstanceRowsAudit() -> Int32 {
-    let rulePath = ".claude/rules/zero-instance-guards.md"
+    let rulePath = zeroInstanceRulePath
     guard let rule = readFile(rulePath) else {
         FileHandle.standardError.write(Data("✗ 找不到 \(rulePath)\n".utf8))
+        return 1
+    }
+    // 量測文件不在不是「沒有量測」：兩者在輸出上要分得開（第 3 列）
+    guard let measurements = readFile(zeroInstanceMeasurementsPath) else {
+        FileHandle.standardError.write(Data(("✗ 找不到 \(zeroInstanceMeasurementsPath)——各列的量測與棘輪標記住在那裡（#711），"
+            + "它不在時自證閘與棘輪都沒有輸入\n").utf8))
         return 1
     }
     // **排除由腳本生成的測試資料檔**（#433）：`AuditGuardsMutationsData.swift` 等把
@@ -189,22 +207,27 @@ func zeroInstanceRowsAudit() -> Int32 {
         fails.append("找不到「## 各列共通的東西」——這一段是理由欄的第二層，不得消失")
     }
 
-    // **量測指令的自證閘**（#711）。空掃描不是通過：一條都沒掃到，代表抽取式與檔的寫法脫節了。
-    let proof = selfProofIssues(in: rule)
-    if proof.checked == 0 {
-        fails.append("量測區塊裡對 binary 輸出計數的指令一條都沒掃到——"
+    // **量測指令的自證閘**（#711）。規則檔與量測文件各掃一次——表格裡仍可能有量測（第 56 列），量測文件是它們主要住的地方。
+    // 空掃描不是通過：量測文件裡一條都沒掃到，代表抽取式與檔的寫法脫節了。規則檔裡零條是正常的（量測本來就該住在量測文件）。
+    let ruleProof = selfProofIssues(in: rule, file: rulePath)
+    let docProof = selfProofIssues(in: measurements, file: zeroInstanceMeasurementsPath)
+    if docProof.checked == 0 {
+        fails.append("\(zeroInstanceMeasurementsPath) 裡對 binary 輸出計數的指令一條都沒掃到——"
                      + "抽取式與檔的寫法脫節了，自證閘的檢查等於沒跑")
     }
-    fails += proof.issues
+    fails += ruleProof.issues + docProof.issues
+    let gates = ruleProof.gates + docProof.gates
     // 閘的片段的條件見 `selfProofNeedleIssues`（條數不寫在這裡——寫死的計數會與那份清單分岔，#711 R4 verify 第 18、34 列）
-    fails += selfProofNeedleIssues(gates: proof.gates)
-    // #711 R3：條數的地板不靠辨識；R4 起依閘去重（`selfProofRatchetIssues`）
-    let ratchet = selfProofRatchetIssues(rule: rule, gates: proof.gates)
+    fails += selfProofNeedleIssues(gates: gates)
+    // #711 R3：條數的地板不靠辨識；R4 起依閘去重（`selfProofRatchetIssues`）；標記住在量測文件
+    let ratchet = selfProofRatchetIssues(rule: rule, measurements: measurements, gates: gates)
     fails += ratchet.issues
+    fails += selfProofTemplateCopyIssues(readFile(selfProofTemplateRulePath))
+    let checked = ruleProof.checked + docProof.checked
 
     // 標題列印出條數與棘輪下限（R3 verify 第 7 列：條數掉了，審閱的人在輸出裡要看得到）
-    var out = "══ zero-instance 裁決表：\(rows.count) 列；量測指令 \(proof.checked) 條數 binary 輸出"
-        + "（合模板 \(proof.gates.count) 條、依閘去重 \(selfProofDistinctGates(proof.gates)) 條，"
+    var out = "══ zero-instance 裁決表：\(rows.count) 列；量測指令 \(checked) 條數 binary 輸出"
+        + "（合模板 \(gates.count) 條、依閘去重 \(selfProofDistinctGates(gates)) 條，"
         + "棘輪下限 \(ratchet.floor.map(String.init) ?? "—")） ══\n"
     for f in fails { out += "  ✗ \(f)\n" }
     out += "\n══ " + (fails.isEmpty ? "每一列裁決「寫」的都找得到實作"
@@ -523,11 +546,14 @@ private enum SelfProofPlace {
     case prose              // fence 與 inline code 以外：縮排區塊、`<pre>`、散文
 }
 
+/// 一條合模板的量測的閘：片段、binary 名、所在的檔與行號（#711：量測住在兩份檔，訊息要說是哪一份）。
+typealias SelfProofGate = (needle: String, binary: String, line: Int, file: String)
+
 /// 自證閘的掃描結果。`gates`：合模板的量測各一個閘。
 struct SelfProofScan {
     var issues: [String] = []
     var checked = 0
-    var gates: [(needle: String, binary: String, line: Int)] = []
+    var gates: [SelfProofGate] = []
 }
 
 /// 回 (問題, 掃到幾條數 binary 輸出的指令, 掃到的閘)。
@@ -574,7 +600,7 @@ struct SelfProofScan {
 /// · **散文裡 binary 名與計數不在同一個邏輯行**：辨識以邏輯行（與 inline code 段）為單位，不以整個 fence 或段落為單位——後者會把
 ///   「一行跑 binary、下一行數別的檔」（第 51 列）這種合法的寫法也判成量測。
 /// · **兩段 inline code 之間隔著文字**（不只空白與一個接續運算子）：不接。
-func selfProofIssues(in rule: String) -> SelfProofScan {
+func selfProofIssues(in rule: String, file: String) -> SelfProofScan {
     var scan = SelfProofScan()
 
     func judge(_ raw: String, line: Int, physical: Int, place: SelfProofPlace, pipes: Bool = true) {
@@ -620,7 +646,7 @@ func selfProofIssues(in rule: String) -> SelfProofScan {
                 return
             }
             scan.gates.append((ns.substring(with: m.range(withName: "needle")),
-                               selfProofBinaryName(ns.substring(with: m.range(withName: "bin"))), line))
+                               selfProofBinaryName(ns.substring(with: m.range(withName: "bin"))), line, file))
             return
         }
         var hint = ""
@@ -780,6 +806,8 @@ func selfProofIssues(in rule: String) -> SelfProofScan {
         flushFence(f)
         scan.issues.append("第 \(f.line) 行開的 fence 到檔尾都沒有收尾——之後整份檔被當成 fence 內，量測的判讀會錯。補上收尾的一行")
     }
+    // 兩份檔各掃一次（#711：量測搬到量測文件，表格裡仍可能有）——每則訊息以檔名開頭，行號是那份檔的行號
+    scan.issues = scan.issues.map { "\(file) " + $0 }
     return scan
 }
 
@@ -829,21 +857,41 @@ private func selfProofBinaryName(_ bin: String) -> String {
 let selfProofRatchetPattern = #"<!-- zero-instance-rows-audit 棘輪：合模板的量測（依 binary 與閘的片段去重）至少 (\d+) 條 -->"#
 
 /// 去重後的閘數。
-func selfProofDistinctGates(_ gates: [(needle: String, binary: String, line: Int)]) -> Int {
+func selfProofDistinctGates(_ gates: [SelfProofGate]) -> Int {
     Set(gates.map { $0.binary + "\u{0}" + $0.needle }).count
 }
 
-func selfProofRatchetIssues(rule: String, gates: [(needle: String, binary: String, line: Int)]) -> (issues: [String], floor: Int?) {
-    let found = captures(rule, selfProofRatchetPattern, multiline: true)
-    let marks = matches(rule, selfProofRatchetPattern)
+func selfProofRatchetIssues(rule: String, measurements: String, gates: [SelfProofGate]) -> (issues: [String], floor: Int?) {
+    // 標記住在量測文件（#711）：規則檔裡出現一個是搬錯了地方——兩份各一個時地板有兩個數，哪個算數沒有答案
+    let inRule = matches(rule, selfProofRatchetPattern).count
+    guard inRule == 0 else {
+        return (["棘輪標記住在 \(zeroInstanceMeasurementsPath)，\(zeroInstanceRulePath) 裡不得有（找到 \(inRule) 個）"
+                 + "——量測搬到量測文件之後，地板跟著量測住"], nil)
+    }
+    let found = captures(measurements, selfProofRatchetPattern, multiline: true)
+    let marks = matches(measurements, selfProofRatchetPattern)
     guard marks.count == 1, let floorText = found.first, let floor = Int(floorText) else {
         return (["棘輪標記要恰好一個（找到 \(marks.count) 個）：`<!-- zero-instance-rows-audit 棘輪：合模板的量測（依 binary 與閘的片段去重）至少 N 條 -->`"
-                 + "——它是量測條數不靠辨識的地板"], nil)
+                 + "，住在 \(zeroInstanceMeasurementsPath)——它是量測條數不靠辨識的地板"], nil)
     }
     let distinct = selfProofDistinctGates(gates)
     guard distinct < floor else { return ([], floor) }
     return (["合模板的量測依閘去重後只有 \(distinct) 條，棘輪標記的下限是 \(floor) 條——量測被拿掉、改成守衛不判讀的寫法（以變數或檔案當來源、"
              + "別名執行），或只是同一道閘的複本。真的是有意的，把棘輪標記的下限改成 \(distinct)"], floor)
+}
+
+/// 規則 `measurement-commands-self-prove` 引用的模板與 `selfProofTemplate` 逐字相同（#711：通則抽成獨立規則之後，那份規則裡的模板是
+/// 第二份描述——它與守衛分岔時，照規則寫的人寫出的量測會被守衛判紅，或規則放行的寫法守衛不收）。檔不在也紅：規則被刪或搬走時，
+/// 「沒有東西可比」不得冒充「一致」。
+func selfProofTemplateCopyIssues(_ text: String?) -> [String] {
+    guard let text else {
+        return ["找不到 \(selfProofTemplateRulePath)——量測寫法的規則住在那裡，守衛要拿它的模板與 `selfProofTemplate` 對照"]
+    }
+    guard text.contains("`" + selfProofTemplate + "`") else {
+        return ["\(selfProofTemplateRulePath) 裡找不到與守衛逐字相同的模板 `\(selfProofTemplate)`——規則與守衛分岔了："
+                + "改了守衛就同批改規則那一行，反之亦然"]
+    }
+    return []
 }
 
 // MARK: - 閘的片段要在 binary 裡、而且不能是負控自己種進去的（#711 R1）
@@ -953,7 +1001,7 @@ let selfProofNeedleMetacharacters: Set<Character> = [".", "[", "]", "*", "^", "$
 /// 4. 對 `akashic-guards` 的閘：**片段不得出現在 harness 檔的任何字面段裡**（見 `selfProofIsHarness`）。harness 要比對那段訊息時，
 ///    改用同一則訊息裡的另一段文字。
 /// 只查 binary 是 `akashic`／`akashic-guards` 的閘（模板只收這兩支）。
-func selfProofNeedleIssues(gates: [(needle: String, binary: String, line: Int)]) -> [String] {
+func selfProofNeedleIssues(gates: [SelfProofGate]) -> [String] {
     let relevant = gates.filter { $0.binary == "akashic" || $0.binary == "akashic-guards" }
     guard !relevant.isEmpty else { return [] }
     let needleBytes = Set(relevant.map(\.needle)).map { Array($0.utf8) }
@@ -982,29 +1030,29 @@ func selfProofNeedleIssues(gates: [(needle: String, binary: String, line: Int)])
     for g in relevant where seen.insert(g.binary + sep + g.needle).inserted {
         let meta = Set(g.needle).intersection(selfProofNeedleMetacharacters)
         if !meta.isEmpty {
-            out.append("第 \(g.line) 行的自證閘片段「\(g.needle)」含基本正規式的特殊字元（\(meta.sorted().map { "`\($0)`" }.joined(separator: "、"))）"
+            out.append("\(g.file) 第 \(g.line) 行的自證閘片段「\(g.needle)」含基本正規式的特殊字元（\(meta.sorted().map { "`\($0)`" }.joined(separator: "、"))）"   // display-safe-exempt: g.file 是 rulePath 或 zeroInstanceMeasurementsPath 兩個程式常量（repo 內的檔案路徑，不是 store 內容）；g 的其餘欄位取自同一份 repo 文件
                        + "——`grep -a -q` 把片段當正規式：`.`、`*` 讓閘對任何非空檔成立，`[` 讓 grep 出錯、閘恆失敗。"
                        + "改用同一則訊息裡不含 `.[]*^$\\` 的一段")
         }
         // R3 verify 第 12 列：`grep -a -q '--include-absent-authors' f` 把片段當選項、結束碼 2，閘恆失敗——新 binary 被讀成舊的
         if g.needle.hasPrefix("-") {
-            out.append("第 \(g.line) 行的自證閘片段「\(g.needle)」以 `-` 開頭——`grep -a -q` 把它當成選項（認不得時結束碼 2），"
+            out.append("\(g.file) 第 \(g.line) 行的自證閘片段「\(g.needle)」以 `-` 開頭——`grep -a -q` 把它當成選項（認不得時結束碼 2），"
                        + "閘恆失敗、把有這條檢查的 binary 讀成舊的。改用同一則訊息裡不以 `-` 開頭的一段")
         }
         if g.needle.utf8.count < selfProofMinNeedleBytes {
-            out.append("第 \(g.line) 行的自證閘片段「\(g.needle)」只有 \(g.needle.utf8.count) 位元組（下限 \(selfProofMinNeedleBytes)）"
+            out.append("\(g.file) 第 \(g.line) 行的自證閘片段「\(g.needle)」只有 \(g.needle.utf8.count) 位元組（下限 \(selfProofMinNeedleBytes)）"
                        + "——太短的片段在任何版本的 binary 裡都找得到，閘恆真。改用同一則訊息裡較長的一段")
         }
         if anyLength[g.binary]?.range(of: g.needle, options: .literal) == nil {
-            out.append("第 \(g.line) 行的自證閘片段「\(g.needle)」在 `\(g.binary)` 的原始碼裡找不到（任何字串字面段都沒有）"
+            out.append("\(g.file) 第 \(g.line) 行的自證閘片段「\(g.needle)」在 `\(g.binary)` 的原始碼裡找不到（任何字串字面段都沒有）"
                        + "——訊息改了字、或那條檢查已移除。更新這一列的閘與量測，讓它們對著現在的訊息")
         } else if long[g.binary]?.range(of: g.needle, options: .literal) == nil {
-            out.append("第 \(g.line) 行的自證閘片段「\(g.needle)」只在 `\(g.binary)` 原始碼裡短於 \(selfProofMinLiteralSegmentBytes) 位元組的字串字面段裡"
+            out.append("\(g.file) 第 \(g.line) 行的自證閘片段「\(g.needle)」只在 `\(g.binary)` 原始碼裡短於 \(selfProofMinLiteralSegmentBytes) 位元組的字串字面段裡"
                        + "——最佳化建置會把 15 位元組以內的字面段當 immediate 嵌進指令，release 版的 binary 裡找不到它，"
                        + "閘會把有這條檢查的 binary 讀成舊的。改用同一則訊息裡較長字面段的一段")
         }
         if g.binary == "akashic-guards", harness.range(of: g.needle, options: .literal) != nil {
-            out.append("第 \(g.line) 行的自證閘片段「\(g.needle)」出現在負控 harness（`*Mutations.swift`／`*MutationsData.swift`）的字串裡"
+            out.append("\(g.file) 第 \(g.line) 行的自證閘片段「\(g.needle)」出現在負控 harness（`*Mutations.swift`／`*MutationsData.swift`）的字串裡"
                        + "——它們編進同一支 `akashic-guards`，真的檢查不在時閘照樣成立。harness 改用那則訊息的另一段文字")
         }
     }

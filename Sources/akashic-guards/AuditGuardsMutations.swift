@@ -113,6 +113,10 @@ func auditGuardsMutations() -> Int32 {
         // `plugin-store-format-parity` 只讀它的 manifest（#629）。
         try? fm.createDirectory(atPath: tmp + "/mcpb", withIntermediateDirectories: true)
         try? fm.copyItem(atPath: "\(repoRoot)/mcpb/manifest.json", toPath: tmp + "/mcpb/manifest.json")
+        // **量測文件**（#711）：`docs/` 其餘的檔沒有守衛讀，只複製這一份——它是受保護檔，少了它 baseline 會以
+        // 「受保護清單裡有不存在的路徑」全紅，`zero-instance-rows-audit` 也會以「找不到量測文件」中止。
+        try? fm.createDirectory(atPath: tmp + "/docs", withIntermediateDirectories: true)
+        try? fm.copyItem(atPath: "\(repoRoot)/\(zeroInstanceMeasurementsPath)", toPath: tmp + "/" + zeroInstanceMeasurementsPath)
 
         // **同一個 path 的多個 edit 依序套用，套完才檢查「有沒有改到東西」。**
         //

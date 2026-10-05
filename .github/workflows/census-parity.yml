@@ -86,6 +86,8 @@ on:
       - "CLAUDE.md"
       # measured-numbers-audit 讀 .claude/rules 與 plugin/rules 兩處（#407 R36）。
       - ".claude/rules/**"
+      # 零實例裁決表的量測與歷輪補記（#711）：zero-instance-rows-audit 與 measured-numbers-audit 讀它。
+      - "docs/zero-instance-measurements.md"
       # parity-table-drift 拿這兩支當真值來源（#407 R50）。
       - "Sources/akashic-mcp/Server.swift"
       - "Sources/akashic/*.swift"

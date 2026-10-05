@@ -7,6 +7,7 @@
 .claude/rules/literal-first-then-key.md
 .claude/rules/lossless-intake.md
 .claude/rules/mcp-cli-parity.md
+.claude/rules/measurement-commands-self-prove.md
 .claude/rules/no-compat-fallback.md
 .claude/rules/replace-endnote-and-zotero.md
 .claude/rules/swift-is-the-implementation-language.md
@@ -54,6 +55,7 @@ Sources/akashic-guards/main.swift
 Sources/akashic-mcp/Server.swift
 Sources/akashic/CLI.swift
 Sources/akashic/CreateEntryCommand.swift
+docs/zero-instance-measurements.md
 mcpb/manifest.json
 plugin/.claude-plugin/plugin.json
 plugin/rules/assertions-must-be-measured.md

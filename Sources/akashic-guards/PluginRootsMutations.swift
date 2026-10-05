@@ -101,7 +101,8 @@ func pluginRootsMutations() -> Int32 {
             try? fm.createDirectory(atPath: tmp + "/.claude", withIntermediateDirectories: true)
             try? fm.copyItem(atPath: "\(repoRoot)/.claude/rules", toPath: tmp + "/.claude/rules")
         }
-        for f in ["CLAUDE.md", "mcpb/manifest" + ".json"] where fm.fileExists(atPath: "\(repoRoot)/\(f)") {
+        // #711：量測文件是受保護檔（`docs/` 其餘的檔沒有守衛讀，只複製這一份）
+        for f in ["CLAUDE.md", "mcpb/manifest" + ".json", zeroInstanceMeasurementsPath] where fm.fileExists(atPath: "\(repoRoot)/\(f)") {
             try? fm.createDirectory(atPath: tmp + "/" + (f as NSString).deletingLastPathComponent,
                                     withIntermediateDirectories: true)
             try? fm.copyItem(atPath: "\(repoRoot)/\(f)", toPath: tmp + "/" + f)

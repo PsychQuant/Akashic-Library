@@ -19,6 +19,7 @@
 // trigger-coverage: reads plugin/rules/*.md
 // trigger-coverage: reads .claude/rules/*.md
 // trigger-coverage: reads CLAUDE.md
+// trigger-coverage: reads docs/zero-instance-measurements.md
 
 import Foundation
 
@@ -121,6 +122,9 @@ func measuredNumbersAudit() -> Int32 {
         (".claude/rules/*.md", globFiles(".claude/rules/*.md")),
         ("plugin/rules/*.md", globFiles("plugin/rules/*.md")),
         ("CLAUDE.md", fileExists("CLAUDE.md") ? ["CLAUDE.md"] : []),
+        // #711（使用者 2026-10-05 裁決）：零實例裁決表的量測與歷輪補記從規則檔搬到 docs/zero-instance-measurements.md（不自動載入）——那些「實測 N」
+        // 原本在 `.claude/rules/` 裡受這支守衛檢查，搬走之後要跟著讀，否則搬一次就等於拿掉檢查。
+        (zeroInstanceMeasurementsPath, fileExists(zeroInstanceMeasurementsPath) ? [zeroInstanceMeasurementsPath] : []),
     ]
     let empty = sources.filter { $0.1.isEmpty }
     if !empty.isEmpty {
@@ -129,8 +133,8 @@ func measuredNumbersAudit() -> Int32 {
         }
         return 1
     }
-    // **排序跨三個來源做一次，不是各自排完再串**：`.claude` < `CLAUDE.md` < `plugin`
-    // （ASCII `.`=46 < `C`=67 < `p`=112），而先前的寫法把 CLAUDE.md 排在最前面。
+    // **排序跨全部來源做一次，不是各自排完再串**：`.claude` < `CLAUDE.md` < `docs` < `plugin`
+    // （ASCII `.`=46 < `C`=67 < `d`=100 < `p`=112），而先前的寫法把 CLAUDE.md 排在最前面。
     // 單檔注入的 mutation 看不出差別——要兩個不同來源同時有 finding 才會現形。
     let files = sources.flatMap { $0.1 }.sorted()
     var total = 0

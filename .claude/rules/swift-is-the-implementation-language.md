@@ -34,8 +34,12 @@
 ## 不適用（同樣是封閉列舉，只有五類）
 
 1. **`SKILL.md` 與文件裡給模型或人照著執行的指令列**——呼叫 `akashic`、`safari-browser`、
-   `pdftotext`、`gh` 等。那是使用工具，不是在 repo 裡新增程式。**不含**：文件裡要模型照抄、寫進暫存檔再執行的程式
-   （含解析、驗證、比對邏輯的）——那是新增的程式，照放置表第 3 列寫成 `akashic` 子命令（#692 R4，見〈觸發過的實例〉）。
+   `pdftotext`、`gh` 等。那是使用工具，不是在 repo 裡新增程式。**不含**：文件裡要模型照抄、寫進暫存檔再執行的程式——
+   那是新增的程式，照放置表第 3 列寫成 `akashic` 子命令（#692 R4，見〈觸發過的實例〉）。**這個「不含」的例外是封閉列舉，只有一項**：
+   `web-access.md` 的 `read-3000.js`／`read-20000.js`（讀頁面文字的 JS 運算式，兩個檔只差上限）——它必須在頁面自己的 JS 環境裡
+   求值，`akashic` 執行不到那裡；它只截長度，主機、剔除與上限的檢查都在 `akashic web-read check`。新的同類運算式要在這裡加一項，
+   不從這一項類推。指令列裡**沒有寫進暫存檔**的單行 `python3 -c`（`json.dumps` 轉 JS 字串、百分比編碼、數 profile 的分頁、
+   讀頁內 fetch 回傳的狀態碼）仍屬本類；其中讀狀態碼那一行有解析與分支，要不要也移進 `akashic` 沒有裁決（#692 b33 verify）。
 2. **被呼叫的外部工具本身**——它們用什麼語言寫不歸本 repo 管。
 3. **`repos/` 底下的 submodule**——各自是獨立的 repo。
 4. **不 commit 的一次性量測腳本**——放暫存目錄、量完即丟；要留下來重跑的，就不是一次性的，
@@ -101,7 +105,8 @@ parity 測試不是「移植」而是**受測物不存在後退場**）。
 |---|---|---|
 | 2026-09-24 | #625：官方 plugin 驗證守衛第一版寫成 `plugin/tests/official-validate.py`，與 #433 的方向相反；使用者問「本體是不是改成 swift」才發現 | 同一輪改寫成 `akashic-guards official-validate`（`OfficialValidate.swift`），四個情境（實際 repo、未知欄位、允許清單過期、沒有 CLI）輸出與 Python 版一致 |
 | 2026-09-23～24 | akashic-fetch-fulltext skill 新增 5 支 Python 與 1 支 Python 測試（`verify_pdf.py` 等），在本規則成文之前 | 列入〈既有檔〉；移植成 `akashic` CLI 子命令由 #629 追蹤 |
-| 2026-10-03～04 | #692 R3 把讀頁面的安全檢查寫成 `web-access.md` 裡約 175 行、要模型照抄進暫存目錄再執行的 Python（`check-read.py`：主機形狀驗證、UTF-16 截斷、逐碼位剔除），以「不適用」第 1 類（文件裡的指令列）辯護，規則檔沒改。R4 verify 四席指出那是依性質相似類推：第 1 類是呼叫工具的指令列；留在 Python 的理由（舊 CLI 會停）也不成立——同一個區塊本來就硬依賴 `akashic fulltext bot-signals --kind`。代價是實的：跑的是抄本、測試釘的是文件；它重寫一份 `UnsafeToEmitScalar`，macOS 的 `/usr/bin/python3`（3.9、Unicode 13）留下九個之後才指派的格式字元；`swift test` 因此需要 python3 | 移植成 `akashic web-read origin｜landing｜check`（`Sources/AkashicSkillTools/WebRead.swift`，剔除集合就是 `UnsafeToEmitScalar`）；文件只留呼叫子命令的指令列；「不適用」第 1 類補一句「不含要照抄執行的程式」 |
+| 2026-10-03～04 | #692 R3 把讀頁面的安全檢查寫成 `web-access.md` 裡約 175 行、要模型照抄進暫存目錄再執行的 Python（`check-read.py`：主機形狀驗證、UTF-16 截斷、逐碼位剔除），以「不適用」第 1 類（文件裡的指令列）辯護，規則檔沒改。R4 verify 四席指出那是依性質相似類推：第 1 類是呼叫工具的指令列；留在 Python 的理由（舊 CLI 會停）也不成立——同一個區塊本來就硬依賴 `akashic fulltext bot-signals --kind`。代價是實的：跑的是抄本、測試釘的是文件；它重寫一份 `UnsafeToEmitScalar`，macOS 的 `/usr/bin/python3`（3.9、Unicode 13）留下九個之後才指派的格式字元；`swift test` 因此需要 python3 | 移植成 `akashic web-read origin｜landing｜check`（`Sources/AkashicSkillTools/WebRead.swift`，剔除集合是 `UnsafeToEmitScalar`，b33 起加 noncharacter）；文件裡要照抄進暫存檔的程式只剩讀頁面的 JS 運算式（單行的 `python3 -c` 指令列仍在，見第 1 類）；「不適用」第 1 類補一句「不含要照抄執行的程式」 |
+| 2026-10-05 | #692 b33 verify：上一列補的那一句寫成「不含：…的程式（含解析、驗證、比對邏輯的）」——括號裡是性質判準，而文件仍要模型把 `read-*.js` 寫進暫存檔、當 JS 執行（它含 `t.length > LIMIT` 的比較與截斷），落在邊界上沒有答案 | 拿掉性質限定詞；例外改成封閉列舉的一項（`read-*.js`，理由寫在第 1 類） |
 
 ## 語言組成（tracked，排除 `repos/`、`docs/`、`changelog/`、`openspec/`）
 

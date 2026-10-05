@@ -6,17 +6,19 @@ import AkashicSkillTools
 /// `web-access.md` 讀頁面的三個檢查（#692 R4 verify：文件裡的 `check-read.py` 移植成 Swift，見 `WebRead`）。
 ///
 /// 全部**不寫 store、不連網、不碰瀏覽器**：輸入是 skill 寫進暫存目錄的檔與 `safari-browser documents --json` 的輸出，
-/// 輸出是一行判定與（`landing`、`check` 通過時）一個暫存檔。MCP 沒有對應面：這是 skill 讀頁面時的內部步驟
+/// 輸出是一行判定與（`landing`、`check` 通過時）一個暫存檔。`landing` 與 `check` 會**刪** `--out`／`--raw` 指的檔——只刪一般檔或 symlink，
+/// 目錄與其他型態在刪任何東西之前具名拒絕（b33 verify X2 第 0／1 列）。MCP 沒有對應面：這是 skill 讀頁面時的內部步驟
 /// （`mcp-cli-parity` 的 CLI-only 表一列）。
 struct WebReadCmd: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "web-read",
-        abstract: "web-access.md 讀頁面的檢查（skill 用）：鎖到的分頁的主機、驗落地主機、檢查讀回的文字並剔除",
+        abstract: "web-access.md 讀頁面的檢查（skill 用）：開之前的網址、鎖到的分頁的主機、驗落地主機、檢查讀回的文字並剔除",
         discussion: """
-        結束碼（三個子命令共用）：0 通過；1 讀不到、形狀不對、鎖到的分頁不是恰好一個；2 主機換到已知的驗證服務——照中止條款整批暫停；\
-        4 主機不合（文字不寫出）。命令列本身打錯是 64。不寫 store、不連網、不碰瀏覽器。
+        結束碼（四個子命令共用）：0 通過；1 讀不到、形狀不對、鎖到的分頁不是恰好一個、--out／--raw 是目錄；2 主機換到已知的驗證服務——\
+        整批暫停（只看主機、判不出是不是等人驗證，取保守的一邊）；4 主機不合（文字不寫出、網址不開）。命令列本身打錯是 64。\
+        不寫 store、不連網、不碰瀏覽器；landing 與 check 刪 --out／--raw 指的檔（只刪一般檔或 symlink）。
         """,
-        subcommands: [WebReadOriginCmd.self, WebReadLandingCmd.self, WebReadCheckCmd.self])
+        subcommands: [WebReadURLCmd.self, WebReadOriginCmd.self, WebReadLandingCmd.self, WebReadCheckCmd.self])
 }
 
 /// 一次性碼的形狀（web-access.md 區塊一以 `od -An -N4 -tx1 /dev/urandom` 產生）。
@@ -30,6 +32,25 @@ private func emit(_ outcome: WebRead.Outcome) throws {
     for line in outcome.stdout { print(line) }   // display-safe-exempt: line：WebRead 組成的固定文字，主機只印 `shown` 驗過形狀的字串、錯誤文字已過 displaySafeInvisible
     for line in outcome.stderr { FileHandle.standardError.write(Data((line + "\n").utf8)) }
     if outcome.code != 0 { throw ExitCode(outcome.code) }
+}
+
+struct WebReadURLCmd: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "url",
+        abstract: "開分頁之前檢查要開的網址：URL-OK＝0 才開；主機形狀不合＝4；其餘形狀不合或讀不到＝1",
+        discussion: """
+        網址整串：https、ASCII 主機（國際化網域名稱寫成 xn-- 形）、不帶埠號；路徑與查詢只收 A–Z a–z 0–9 與 ._~%!*+,;=:@/()-（查詢另收 ?&）；\
+        不含 #、引號、反斜線、反引號、$、空白；路徑段百分比解碼後不得是 . 或 ..。主機另過與 landing 同一個形狀檢查（私有、本機或特殊用途的\
+        頂層名稱如 .local .home .test .example .onion，IP 位址的形狀如 127.0.0.1.nip.io，都不收）。只印主機。這是形狀檢查：擋不了解析到\
+        私有位址的公開名稱，也擋不了轉址之後的主機（那由 landing 驗）。
+        """)
+
+    @Option(name: .long, help: "要開的網址檔（一行；web-access.md 的 <W>/url-<序號>.txt）")
+    var file: String
+
+    func run() throws {
+        try emit(WebRead.urlMode(urlFile: file))
+    }
 }
 
 struct WebReadOriginCmd: ParsableCommand {
@@ -56,8 +77,10 @@ struct WebReadLandingCmd: ParsableCommand {
         commandName: "landing",
         abstract: "驗落地主機：先刪掉 --out，形狀合格（--expect 是網址檔時還要與那條網址的主機相同）才寫回；OK＝0、REJECT＝4",
         discussion: """
-        形狀：https、主機至少兩段、最後一段是字母或 xn-- 形、不帶埠號、不是私有或本機用的名稱、不像 IP 位址。\
-        主機不合而落地主機是已知的驗證服務時結束碼是 2（整批暫停），不是 4。
+        形狀：https、主機至少兩段、最後一段是字母或 xn-- 形、不帶埠號、不是私有、本機或特殊用途的名稱、不像 IP 位址。\
+        主機與 --expect 的不合而落地主機是已知的驗證服務（Cloudflare 挑戰、hCaptcha、reCAPTCHA 的主機；只看主機，所以 www.google.com 也算）時\
+        結束碼是 2（整批暫停），不是 4；--expect - 時不比對，直接落在驗證服務上照樣 OK（之後由區塊二的文字比對分辨）。\
+        --out 是目錄或其他不是一般檔、symlink 的東西時結束碼 1、什麼都不刪。
         """)
 
     @Option(name: .long, help: "origin 子命令寫下的檔（Safari 回報的主機）")
@@ -82,11 +105,13 @@ struct WebReadLandingCmd: ParsableCommand {
 struct WebReadCheckCmd: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "check",
-        abstract: "檢查讀回的 JSON 並寫出剔除後的文字：先刪 --out、不論結果都刪 --raw；READ-OK＝0、READ-FAIL＝1、READ-REJECT＝4",
+        abstract: "檢查讀回的 JSON 並寫出剔除後的文字：參數驗過之後先刪 --out、不論結果都刪 --raw；READ-OK＝0、READ-FAIL＝1、READ-REJECT＝4",
         discussion: """
+        --out、--raw 要是不存在、一般檔或 symlink；是目錄或其他型態時 READ-FAIL、什麼都不刪（命令列本身打錯的 64 也不刪）。\
         讀取前後 Safari 回報的主機（--before、--after）要相同；--landing 是落地主機檔時還要等於它，是 - 時主機要形狀合格。\
-        讀回的 JSON 超過 6 × 上限 + 4096 bytes、欄位型別不對、rawLength 不在 0–1,000,000,000 之間都是 READ-FAIL。\
-        通過才截到 --limit 個 UTF-16 單位、剔除不可見與控制字元（與 repo 輸出端同一份定義）、寫出。主機換到已知的驗證服務時結束碼是 2。
+        讀回的 JSON 超過 6 × 上限 + 4096 bytes、欄位型別不對、rawLength 不在 0–1,000,000,000 之間或比交回的文字還短、剔除之後沒有看得見的字，\
+        都是 READ-FAIL。通過才截到 --limit 個 UTF-16 單位、剔除不可見與控制字元（repo 輸出端那一份加 noncharacter）、寫出；--raw 刪不掉時\
+        改成 READ-FAIL、收回寫出的文字。truncated=yes：頁面說截了、這裡截了，或頁面回報的原文長度超過 --limit。主機換到已知的驗證服務時結束碼是 2。
         """)
 
     @Option(name: .long, help: "safari-browser js --output 寫下的 JSON（{text, truncated, rawLength}）；不論結果都刪")

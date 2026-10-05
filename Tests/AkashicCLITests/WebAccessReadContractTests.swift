@@ -148,10 +148,61 @@ final class WebAccessReadContractTests: XCTestCase {
     func testFormatCharactersNewerThanTheSystemPythonAreStripped() throws {
         try safariReports([good])
         let late = "\u{0890}\u{0891}\u{13439}\u{1343A}\u{1343F}"
-        try pageReturns(["truncated": false, "rawLength": 20, "text": "Psycho" + late + "metrika"])
+        try pageReturns(["truncated": false, "rawLength": 21, "text": "Psycho" + late + "metrika"])
         let r = try run(Self.blockTwo)
         XCTAssertEqual(r.status, 0, r.out)
         XCTAssertEqual(try String(contentsOf: w.appendingPathComponent("first-\(tag).txt"), encoding: .utf8), "Psychometrika")
+    }
+
+    /// 〈鎖不到的時候〉的診斷不印分頁的網址（b33 verify X2 第 13／18／20 列：先前一行 Python 把符合的分頁的整條網址——路徑與查詢由頁面
+    /// 決定——印進對話）。改用 `web-read origin` 數分頁。
+    func testTheLockFailureDiagnosticPrintsNoUrl() throws {
+        let doc = Self.doc
+        let a = try XCTUnwrap(doc.range(of: "### 鎖不到的時候"))
+        let b = try XCTUnwrap(doc.range(of: "\n### ", range: a.upperBound..<doc.endIndex))
+        let section = String(doc[a.upperBound..<b.lowerBound])
+        XCTAssertFalse(section.contains("python3"), section)
+        XCTAssertFalse(section.contains("d[\"url\"]"), section)
+        XCTAssertTrue(section.contains("akashic web-read origin --tag"), section)
+    }
+
+    /// 讀取的運算式檔不在：區塊在動到分頁之前以 1 停下（b33 verify X2 第 12 列：先前 `"$(cat 缺檔)"` 不觸發 `set -e`，空字串被當成 JS 交給
+    /// `safari-browser js`）。
+    func testTheReadBlocksStopBeforeTouchingTheTabWhenTheExpressionIsMissing() throws {
+        for (anchor, js) in [(Self.blockTwo, "read-3000.js"), (Self.readBlock, "read-20000.js")] {
+            try FileManager.default.removeItem(at: w.appendingPathComponent(js))
+            try safariReports([good])
+            try pageReturns(["truncated": false, "rawLength": 4, "text": "text"])
+            let r = try run(anchor)
+            XCTAssertEqual(r.status, 1, r.out)
+            XCTAssertTrue(r.out.contains("\(js) missing"), r.out)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: fake.appendingPathComponent("count").path), "「\(anchor)」：不得先動到分頁")
+            try "x".write(to: w.appendingPathComponent(js), atomically: true, encoding: .utf8)
+        }
+    }
+
+    /// skill 引用 web-access.md 的節名都要在（b33 verify X2 第 8／19 列：R4 改了一個節名，verify-venue 的引用懸空而全套照綠）。
+    /// 比對的是標題的開頭（節名後面可以有括號與副標）。
+    func testEverySectionReferenceIntoWebAccessResolves() throws {
+        let heads = Self.doc.split(separator: "\n").filter { $0.hasPrefix("#") }
+            .map { $0.drop { $0 == "#" }.trimmingCharacters(in: .whitespaces) }
+        var refs = 0
+        var dangling: [String] = []
+        for dir in ["plugin", "plugins"] {
+            let root = Self.repo.appendingPathComponent(dir)
+            guard let e = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil) else { continue }
+            for case let f as URL in e where f.pathExtension == "md" {
+                let t = (try? String(contentsOf: f, encoding: .utf8)) ?? ""
+                let re = try NSRegularExpression(pattern: #"web-access\.md[^〈\n]{0,6}〈([^〉]+)〉"#)
+                for m in re.matches(in: t, range: NSRange(t.startIndex..., in: t)) {
+                    let name = String(t[Range(m.range(at: 1), in: t)!])
+                    refs += 1
+                    if !heads.contains(where: { $0.hasPrefix(name) }) { dangling.append("\(f.lastPathComponent)：〈\(name)〉") }
+                }
+            }
+        }
+        XCTAssertGreaterThan(refs, 20, "要真的掃到引用（2026-10-05：39 處）")
+        XCTAssertEqual(dangling, [])
     }
 
     // MARK: - 清理：第一個可能失敗的瀏覽器指令之前（R4 verify 第 0／21 列）
@@ -269,16 +320,17 @@ final class WebAccessReadContractTests: XCTestCase {
     func testTheStripAndTheCapApplyWhateverThePageReturns() throws {
         try (good + "\n").write(toFile: landingFile, atomically: true, encoding: .utf8)
         try safariReports([good])
-        let hidden = "\u{200B}\u{FE0F}\u{202E}\u{E0049}\u{E0067}\u{2800}\u{00AD}\u{180E}\u{3164}\u{E000}"
-        try pageReturns(["truncated": false, "rawLength": 5,
-                         "text": "Psychometrika" + hidden + "\u{3000}x\u{2028}y" + String(repeating: "z", count: 30_000)])
+        let hidden = "\u{200B}\u{FE0F}\u{202E}\u{E0049}\u{E0067}\u{2800}\u{00AD}\u{180E}\u{3164}\u{E000}" + String(Unicode.Scalar(0xFFFF)!) + String(Unicode.Scalar(0xFDD0)!)   // noncharacter：字面值寫不出來
+        let page = "Psychometrika" + hidden + "\u{3000}x\u{2028}y" + String(repeating: "z", count: 30_000)
+        // 謊報沒被截（`truncated: false`）；原文長度照實報（比交回的文字短是 READ-FAIL，見 WebReadTests）
+        try pageReturns(["truncated": false, "rawLength": page.utf16.count, "text": page])
         let r = try run(Self.readBlock, land: landingFile)
         XCTAssertEqual(r.status, 0, r.out)
         XCTAssertTrue(r.out.contains("READ-OK host='\(good)'") && r.out.contains("truncated=yes"), r.out)
         let text = try String(contentsOf: w.appendingPathComponent("r-7.txt"), encoding: .utf8)
         XCTAssertTrue(text.hasPrefix("Psychometrika x\ny"), String(text.prefix(40)))
-        XCTAssertFalse(text.unicodeScalars.contains { UnsafeToEmitScalar.contains($0) && $0 != "\n" && $0 != "\t" },
-                       "不可見與控制字元一個都不留")
+        XCTAssertFalse(text.unicodeScalars.contains { (UnsafeToEmitScalar.contains($0) || $0.properties.isNoncharacterCodePoint) && $0 != "\n" && $0 != "\t" },
+                       "不可見與控制字元、noncharacter 一個都不留")
         XCTAssertLessThanOrEqual(text.utf16.count, 20_000)
         XCTAssertFalse(exists("raw-7.json"), "通過時讀回的 JSON 也不留")
     }

@@ -2513,7 +2513,7 @@ PY
 # 2026-10-03：4575｜0｜0
 ```
 
-**第 87 列的量測（2026-10-04，可重跑，唯讀；2026-10-05 第 94 列改寫）**：每個註冊的 store 的 `.gitignore` 是什麼形狀、有沒有區塊。會被 `file add` 與匯入拒絕、`doctor` 報 warning 的是：**不是 `block`**，而且是 `symlink`、`hardlink`、`NOT-utf8`、`marker-without-rule`、`read-only`、`not-regular`、`too-large`、`broken-symlink`、`unreadable` 之一（`block` 的什麼形狀都放行）：
+**第 87 列的量測（2026-10-04，可重跑，唯讀；2026-10-05 第 94 列改寫）**：每個註冊的 store 的 `.gitignore` 是什麼形狀、有沒有區塊。會被 `file add` 拒絕、`doctor` 與兩個匯入報 warning 的是（匯入自 2026-10-05 起報 warning，#700）：**不是 `block`**，而且是 `symlink`、`hardlink`、`NOT-utf8`、`marker-without-rule`、`read-only`、`not-regular`、`too-large`、`broken-symlink`、`unreadable` 之一（`block` 的什麼形狀都放行）：
 
 ```bash
 python3 - <<'PY'

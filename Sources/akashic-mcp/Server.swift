@@ -436,7 +436,7 @@ actor AkashicMCPServer {
              ], required: ["path"])),
         // #664：Semantic Scholar（附在陣列最後：不改變既有工具對 client 的呈現順序）。與 CLI `akashic s2` 共用 AkashicS2；契約細節在 `akashic s2 --help`。
         Tool(name: "akashic_s2",
-             description: "查 Semantic Scholar（金鑰在 keychain、全機每秒至多 1 次、不寫 store）。回傳 {endpoint,total,returned,truncated,offset,nextOffset,data}，上限 48 KiB、只放完整筆數；nextOffset 非 null 時以它當 offset 續查（null＝沒有下一頁；paper／match／batch／recommend 不分頁，永遠 null——它們 truncated 時少給 id、降低 limit 或少要 fields 重查）。endpoint=status 回 {keychain,throttle,host}。缺金鑰時的設定見 akashic s2 --help",
+             description: "查 Semantic Scholar（金鑰在 keychain、全機每秒至多 1 次、不寫 store）。回傳 {endpoint,total,returned,truncated,offset,nextOffset,data}，上限 48 KiB、只放完整筆數；nextOffset 非 null 時以它當 offset 續查（null＝沒有下一頁；paper／match／batch／recommend 不分頁，永遠 null——它們 truncated 時少給 id、降低 limit 或少要 fields 重查）。endpoint=status 回 {keychain,throttle,host}。缺金鑰時的設定見 plugin 的 references/semantic-scholar.md 或 akashic s2 --help",
              inputSchema: obj([
                 "endpoint": .object(["type": .string("string"),
                                      "enum": .array(S2Tool.endpointNames.map { .string($0) })]),

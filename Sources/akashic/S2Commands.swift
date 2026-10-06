@@ -12,7 +12,7 @@ struct S2Cmd: ParsableCommand {
         commandName: "s2",
         abstract: "查詢 Semantic Scholar（金鑰從 keychain 讀取；全機每秒至多 1 個請求）",
         discussion: """
-        金鑰存在 keychain：service「semantic-scholar」、account「default」。設定方法見 \(S2Settings.setupDocument)。
+        金鑰存在 keychain：service「semantic-scholar」、account「default」。設定方法見 \(S2Settings.setupDocument)；只裝 plugin 的話見 \(S2Settings.setupDocumentInPlugin)。
         結束碼：0 成功、1 環境覆寫或輸入檔有誤、3 金鑰不可用、4 限流用盡、5 S2 或網路錯誤、64 參數錯誤。
         """,
         subcommands: [S2PaperCmd.self, S2MatchCmd.self, S2BatchCmd.self, S2ReferencesCmd.self,

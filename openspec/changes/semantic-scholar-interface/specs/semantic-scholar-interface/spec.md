@@ -98,7 +98,7 @@ A recorded 429 back-off is not stale: it has its own bound (see "Rate-limit resp
 
 ### Requirement: Rate-limit responses back off for every caller
 
-On HTTP 429 the system SHALL move the shared next allowed send time to at least now plus the `Retry-After` delay (the recorded back-off is capped at one hour, so a longer delay is recorded as one hour), so that every caller waits, and SHALL then retry the same request. `Retry-After` SHALL be accepted as seconds or as an HTTP date; without it, the delays SHALL be 2, 4, and 8 seconds. A request SHALL be retried at most three times. When the retries are exhausted, or when `Retry-After` exceeds 60 seconds, the CLI SHALL exit with code 4 and the MCP tool SHALL return an error.
+On HTTP 429 the system SHALL move the shared next allowed send time to no earlier than now plus the `Retry-After` delay, where the delay counts for at most one hour (that is, `min(delay, 1 hour)`), so that every caller waits, and SHALL then retry the same request. `Retry-After` SHALL be accepted as seconds or as an HTTP date; without it, the delays SHALL be 2, 4, and 8 seconds. A request SHALL be retried at most three times. When the retries are exhausted, or when `Retry-After` exceeds 60 seconds, the CLI SHALL exit with code 4 and the MCP tool SHALL return an error.
 
 In every case the back-off SHALL be recorded in the shared state **before** the call gives up: a caller that stops retrying does not release the other callers from S2's back-off. The recorded back-off SHALL be at most one hour. A caller that finds a recorded back-off with more than 60 seconds left SHALL fail the same way (exit code 4) without sending a request and without sleeping through it; with 60 seconds or less left it SHALL wait for the back-off to pass and then send.
 
@@ -225,6 +225,20 @@ A refused value SHALL stop the command before any request, with exit code 1 on t
 ### Requirement: Status reports readiness without revealing the key
 
 `akashic s2 status` SHALL report the keychain service and account, whether the item is present, whether it is readable without a prompt, the throttle state file, and the next allowed send time. It SHALL NOT send a network request, and SHALL NOT print the key or its length.
+
+`present` SHALL be `false` only when the keychain explicitly answers that the item was not found (`errSecItemNotFound`). Every other keychain answer (a locked keychain, an access refusal, unreadable content, any unexpected status) SHALL report `present: true` with `readable: false`, because a skill chooses between "ask the user to store the key" and "stop and report" from this field.
+
+#### Scenario: A keychain that answers "not found"
+
+- **GIVEN** the keychain answers `errSecItemNotFound` for the item
+- **WHEN** the user runs `akashic s2 status --json`
+- **THEN** `keychain.present` SHALL be false and the command SHALL exit with code 3
+
+#### Scenario: A keychain that answers anything else is not a missing key
+
+- **GIVEN** the keychain answers a locked-keychain, access-refused, or other unexpected status for the item
+- **WHEN** the user runs `akashic s2 status --json`
+- **THEN** `keychain.present` SHALL be true, `keychain.readable` SHALL be false, and the command SHALL exit with code 3
 
 #### Scenario: Status on a configured machine
 

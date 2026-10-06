@@ -44,19 +44,25 @@ public enum S2KeyError: Error, Equatable, CustomStringConvertible, SanitizedErro
             // 解鎖與重存都是使用者自己的動作：登入密碼比 S2 金鑰值錢得多，不進對話、不經 agent。
             return """
             keychain 裡有 service「\(s)」、account「\(a)」的項目，但現在無法在不跳出授權框的情況下讀取它。可能的原因，依序檢查：
-            (1) keychain 鎖著（SSH 或背景工作階段最常見）：請你在自己的 Terminal 執行 security unlock-keychain（不要加 -p，密碼由系統提示輸入；登入密碼不要貼進對話，AI agent 不要代跑）
-            (2) 項目的存取權限不允許：請你刪除該項目、照說明帶 -A 重存（改成所有 app 可讀；金鑰由你自己輸入，不要貼進對話）
+            (1) keychain 鎖著（SSH 或背景工作階段最常見）：請你在自己的 Terminal 執行 security unlock-keychain（不要加 -p，密碼由系統提示輸入；登入密碼不要貼進對話，AI agent 不要代跑）。解鎖後仍讀不到的話，請在執行 akashic／akashic-mcp 的同一個工作階段再解鎖一次（解鎖是否跨工作階段尚未實機驗證，#725）
+            (2) 項目的存取權限不允許：請你刪除該項目、照說明帶 -A 重存（改成所有 app 可讀；金鑰由你自己輸入，不要貼進對話；AI agent 不要代刪、代存）
             說明見 \(doc)
             只裝 plugin 的話見 \(pluginDoc)
             """   // display-safe-exempt: s、a 建構端已 displaySafeInvisible；doc、pluginDoc 是常量
         case .invalidValue(let s, let a):
             return """
             keychain 項目 service「\(s)」、account「\(a)」的內容不是可用的金鑰（空的、不是 UTF-8，或含換行等控制字元）。
-            請你自己重新存入（同一條指令加 -U 更新現有項目；金鑰由你自己輸入，不要貼進對話），做法見 \(doc)
+            請你自己在 Terminal 重新存入（-w 後面不要接金鑰，系統會提示你輸入；金鑰不要貼進對話，AI agent 不要代跑、代存）：
+            security add-generic-password -U -s "\(s)" -a "\(a)" -A -w
+            做法見 \(doc)
             只裝 plugin 的話見 \(pluginDoc)
             """   // display-safe-exempt: s、a 建構端已 displaySafeInvisible；doc、pluginDoc 是常量
         case .keychain(let status):
-            return "讀取 keychain 失敗（OSStatus \(status)）"   // display-safe-exempt: status 是 OSStatus（Int32）
+            return """
+            讀取 keychain 失敗（OSStatus \(status)）。這不是「沒有金鑰」：項目可能在，請你自己處理（解鎖、權限、重存都是你在自己 Terminal 的動作，AI agent 不要代跑）。
+            說明見 \(doc)
+            只裝 plugin 的話見 \(pluginDoc)
+            """   // display-safe-exempt: status 是 OSStatus（Int32）；doc、pluginDoc 是常量
         }
     }
 }

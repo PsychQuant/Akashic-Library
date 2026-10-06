@@ -60,4 +60,13 @@
 - [x] 11.3 `S2Client` 拒絕帶磁碟快取的注入連線改為 `send` 的錯誤（`S2Error.unsafeSession`），不再 `precondition`；有測試
 - [x] 11.4 `Retry-After` 比 `Int` 還大的數字視為封頂值，不是「沒給」；`backOff` 寫進狀態檔的 `blockedUntil` 有測試；被拒的識別碼不回顯內容；缺金鑰訊息拆成多行（plugin 安裝處的路徑不再被行長上限截掉）
 - [x] 11.5 `plugin/CHANGELOG.md` 與 `changelog/2026-10-06-s2-interface-664.md`；「看過、沒有修」表更正兩條站不住的理由，並補上暴露期
-- [ ] 11.6 **R3 之後的修正沒有再經 ensemble 驗證**：以測試與守衛驗證程式，以自己重讀驗證文字。要再驗證請跑 `/idd-verify #664`
+- [x] 11.6 R3 之後的修正已在 R4 驗證（見下一組）
+
+## 12. verify R4 修正（推送前的最後一輪：沒有 HIGH、沒有 MEDIUM，26 個 LOW；2026-10-07）
+
+- [x] 12.1 我引入的回歸：`akashic s2 --help` 與 MCP 工具描述補回 plugin 安裝處的設定文件位置
+- [x] 12.2 路由文字照實：錯誤訊息分不出「鎖著」與「權限」（同一個狀態碼）——先解鎖、仍讀不到才查權限；查詢本身回結束碼 3／1／64 時重跑 `status --json` 再選路；「其他結果」補上 MCP `status` 的 `isError` 與 `BASE_URL` 生效時的 null
+- [x] 12.3 錯誤訊息：刪除與重存的「agent 不代刪、代存」、`invalidValue` 把 `-U` 指令印出來、不明的 keychain 錯誤指向文件並說明不是「沒有金鑰」、解鎖是否跨工作階段的提醒（未實測，併進 #725）
+- [x] 12.4 規格補 `present` 的語意與兩個情境；`Retry-After` 的句子改成 `min(delay, 1 hour)`；design 更正「不叫使用者重存」、`--ids-file` 的不做理由（承認第三方機密的殘餘風險）、「只有那一筆」限定在這台開發機
+- [x] 12.5 追蹤：五個小決定開成 #727；changelog 補「給從公開 `main` 建置過的人」的影響窗口提醒
+- [ ] 12.6 R4 之後的修正（小，多為文字與錯誤訊息字串）沒有再經 ensemble 驗證；推送時 pre-push 會跑全套測試

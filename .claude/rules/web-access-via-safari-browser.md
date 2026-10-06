@@ -130,7 +130,7 @@ Crossref、ORCID、DOI 解析、出版商頁面）一直是 skill 層的事；�
      Crossref、ORCID 等不需金鑰的 API 照舊經 safari-browser；出現第二個需要金鑰的 API 時，要顯式
      新增一類（連同規則第 2 條與守衛的封閉清單），不從本類類推。
 
-## Semantic Scholar 的取得順序（封閉列舉：`akashic s2 status` 的結果只有四種處置）
+## Semantic Scholar 的取得順序（封閉列舉：只有五條處置，由 `akashic s2 status --json` 的結果與查詢的結果決定）
 
 使用者 2026-09-29（+08:00）裁決：「有 key 走 key，沒 key 最後才用 safari-browser」。skill 查 S2 之前先跑
 `akashic s2 status --json`（MCP 是 `akashic_s2` 的 `endpoint: status`），**看 `keychain.present` 與 `keychain.readable`，
@@ -142,17 +142,22 @@ Crossref、ORCID、DOI 解析、出版商頁面）一直是 skill 層的事；�
    （`errSecItemNotFound`），其他任何狀態都不會是 false。指向 `plugin/skills/akashic-bootstrap/references/semantic-scholar.md`，
    訊息裡的 service／account 照轉。使用者表示不設定、或這次設定不了，才**最後**經 safari-browser 查 S2：不帶金鑰，照本規則
    第 1 條與〈使用紀律〉的全部條款（鎖分頁、中止條款、讀大型回應後核對身分）。
-3. **`present` 為 true 但 `readable` 為 false（項目在，現在讀不到）→ 不是沒有金鑰，停下來回報。** 原因有三，先跑一個查詢
-   子命令讀它的錯誤訊息，那則訊息會指出是哪一個：keychain 鎖著（SSH、背景工作階段最常見）→ 使用者解鎖；存取權限不允許
-   無提示讀取 → 使用者刪除項目、帶 `-A` 重存；內容不是可用的金鑰 → 使用者用 `-U` 更新；另外任何不明的 keychain 錯誤
-   也歸這一條。**不要只再跑一次 `add-generic-password`**（項目已存在會回重複項目），**更不退到 safari-browser**——金鑰明明在，
-   退過去就是「有 key 卻不走 key」，而且繞過全機節流。**解鎖與重存都是使用者自己在 Terminal 的動作**：登入密碼與金鑰都
-   不進對話，`security unlock-keychain` 不加 `-p`，agent 不代跑。
-4. **其他任何結果 → 停下來回報，不退到 safari-browser。** 這一條把前面沒列的結果寫明，它不是另一種
-   「沒有金鑰」：結束碼 1（`AKASHIC_S2_*` 環境覆寫被拒——改環境）；結束碼 64 或 MCP 的「未知工具」
-   （裝的 `akashic`／`akashic-mcp` 比 #664 舊，plugin 釘的 binary 版本可能還沒有這個工具——更新或重建，
-   見 #633，之後再問使用者）。把這些當成沒有金鑰而退到頁面，等於在接口壞掉時悄悄換一條不受節流保護的路。
-   （`AKASHIC_S2_BASE_URL` 生效時 `status` 不讀 keychain、回 0——只出現在測試，不是金鑰存在的證據。）
+3. **`present` 為 true 但 `readable` 為 false（項目在，現在讀不到）→ 不是沒有金鑰，停下來回報。** 原因有三：keychain
+   鎖著（SSH、背景工作階段最常見）、存取權限不允許無提示讀取、內容不是可用的金鑰；另外任何不明的 keychain 錯誤也歸這一條。
+   先跑一個查詢子命令讀它的錯誤訊息：訊息分得出「內容不是可用的金鑰」（使用者用 `-U` 更新）、「不明的 keychain 錯誤」與
+   「現在讀不到」，但**分不出「鎖著」與「權限」**（同一個狀態碼 `errSecInteractionNotAllowed`）——那則訊息把兩個都列出，
+   **先解鎖，解鎖後仍讀不到才查權限**（刪除項目、帶 `-A` 重存）；不要因為訊息提到重存就直接叫使用者重存。
+   **不要只再跑一次 `add-generic-password`**（項目已存在會回重複項目），**更不退到 safari-browser**——金鑰明明在，
+   退過去就是「有 key 卻不走 key」，而且繞過全機節流。**解鎖、刪除與重存都是使用者自己在 Terminal 的動作**：登入密碼與
+   金鑰都不進對話，`security unlock-keychain` 不加 `-p`，agent 不代跑、不代刪、不代存。
+4. **其他任何結果 → 停下來回報，不退到 safari-browser。** 這是前面三條以外的全部：結束碼 1（`AKASHIC_S2_*` 環境覆寫被拒——
+   改環境）；結束碼 64 或 MCP 的「未知工具」（裝的 `akashic`／`akashic-mcp` 比 #664 舊，plugin 釘的 binary 版本可能還沒有
+   這個工具——更新或重建，見 #633，之後再問使用者）；MCP `status` 回 `isError`（同樣是覆寫被拒）；`AKASHIC_S2_BASE_URL`
+   生效時 `status` 不讀 keychain、回 0 而 `present`／`readable` 是 null（只出現在測試，不是金鑰存在的證據）。把這些
+   當成沒有金鑰而退到頁面，等於在接口壞掉時悄悄換一條不受節流保護的路。
+5. **查詢本身（不是 `status`）回結束碼 3、1 或 64，或 MCP 回 `keyUnavailable` 的 `isError`** ——例如 `status` 回 0 之後
+   keychain 才鎖上，或流程沒跑 `status` 就直接查——**重跑 `status --json`，依上面第 1–4 條選路**；不是第 4／5 以外的
+   「`akashic s2` 沒有金鑰就以結束碼 3 停下」就可以退到頁面：那句話描述的是接口，退不退由這裡的選路決定。
 
 兩個邊界：
 

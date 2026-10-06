@@ -158,7 +158,6 @@ final class S2KeyProviderTests: XCTestCase {
     /// 缺金鑰的訊息拆成多行：每行都在 400 個 scalar 的行長上限以內，plugin 安裝處的路徑不會被截掉。
     func testMissingKeyMessageKeepsEveryLineWithinTheLineCapAndNamesBothDocumentLocations() {
         let m = displaySafeErrorText(S2KeyError.missing(service: "semantic-scholar", account: "default"))
-        XCTAssertTrue(m.contains("plugin"), m)
         XCTAssertTrue(m.contains("-A＝所有 app 可讀") || m.contains("所有 app 可讀"), "要說 -A 給了什麼：\(m)")
         XCTAssertTrue(m.split(separator: "\n").allSatisfy { $0.unicodeScalars.count < 400 }, m)
         let out = displaySafeErrorMultiline(S2KeyError.missing(service: "semantic-scholar", account: "default"), prefix: "Error: ")
@@ -172,6 +171,18 @@ final class S2KeyProviderTests: XCTestCase {
         XCTAssertTrue(m.contains("不要加 -p"), m)
         XCTAssertTrue(m.contains("不要貼進對話"), m)
         XCTAssertTrue(m.contains("不要代跑"), m)
+        XCTAssertTrue(m.contains("不要代刪"), "刪除項目也是使用者自己的動作：\(m)")
+        let invalid = displaySafeErrorText(S2KeyError.invalidValue(service: "semantic-scholar", account: "default"))
+        XCTAssertTrue(invalid.contains("security add-generic-password -U"), "要把指令印出來：\(invalid)")
+        XCTAssertTrue(invalid.contains("不要代跑"), invalid)
+    }
+
+    /// 不明的 keychain 錯誤的訊息也要指向文件、並說明它不是「沒有金鑰」（先前只有一行狀態碼）。
+    func testAnUnexpectedKeychainErrorPointsToTheDocumentsAndIsNotCalledAMissingKey() {
+        let m = displaySafeErrorText(S2KeyError.keychain(status: -25291))
+        XCTAssertTrue(m.contains("-25291"), m)
+        XCTAssertTrue(m.contains("不是「沒有金鑰」"), m)
+        XCTAssertTrue(m.contains(S2Settings.setupDocument) && m.contains(S2Settings.setupDocumentInPlugin), m)
     }
 
     /// 只裝 plugin 的使用者讀不到 repo 內的設定文件：錯誤訊息本身就要有可以照著做的指令（#664 verify R1 第 26 列）。
@@ -488,7 +499,7 @@ final class S2EndpointsTests: XCTestCase {
         } catch {
             XCTAssertEqual(error as? S2ArgumentError, .malformedIdentifier(endpoint: "batch", position: 2))
             let text = displaySafeErrorText(error)
-            XCTAssertTrue(text.contains("2"), text)
+            XCTAssertTrue(text.contains("第 2 個"), text)
             XCTAssertFalse(text.contains("SECRET-VALUE"), text)
         }
         XCTAssertEqual(StubURLProtocol.requests.count, 0)

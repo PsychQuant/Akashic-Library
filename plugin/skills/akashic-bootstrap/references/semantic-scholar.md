@@ -36,7 +36,7 @@ security add-generic-password -s semantic-scholar -a default -A -w
 
 **為什麼帶 `-A`**（所有 app 可讀）：
 
-- `security` 建立項目時，預設只信任建立它的程式；接口以 `akashic` 或 `akashic-mcp` 的身分讀，會被存取權限擋下（結束碼 3 的第二種原因）。
+- `security` 建立項目時，預設只信任建立它的程式；接口以 `akashic` 或 `akashic-mcp` 的身分讀，預期會被存取權限以結束碼 3 擋下（第二種原因）；是否完全不跳授權框尚未實機驗證，見下一點與 #725。
 - 接口讀 keychain 時一律不允許互動：MCP server 在背景執行，授權框沒有人能按。**「不跳授權框」這一點尚未在實機驗證**：Apple 的文件沒有說明 `interactionNotAllowed` 是否涵蓋舊式檔案型 keychain 的授權框；萬一跳框，風險是 MCP server 卡住，不是金鑰外洩。追蹤在 #725。
 - 只授權特定 binary（`-T`）也行，但 `akashic` 是本機建置、ad-hoc 簽署的，每次重建都是新的 binary 身分，限定 binary 的存取權限隨之失效，得重新授權。**讀金鑰的有兩個不同的 binary**：CLI 的 `akashic` 與 MCP server 的 `akashic-mcp`，`-T` 要各給一個（`-T <akashic 的路徑> -T <akashic-mcp 的路徑>`）；只授權其中一個，另一個會以結束碼 3 讀不到。
 

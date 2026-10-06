@@ -64,7 +64,7 @@ public final class S2FileThrottle: S2Throttling, @unchecked Sendable {
     }
 
     /// 在排他鎖內預約一個送出時段並回傳它；**解鎖後**呼叫者才等待，
-    /// 所以其他程序可以接著預約下一個時段。存的時間比現在晚超過 60 秒時視為過期。
+    /// 所以其他程序可以接著預約下一個時段。存的**送出時段**比現在晚超過 60 秒時視為過期（429 的封鎖不在此列，它有自己的門檻，見 `remainingBlock`）。
     func reserveSlot() throws -> Date {
         try withLockedState { state in
             let t = now().timeIntervalSince1970

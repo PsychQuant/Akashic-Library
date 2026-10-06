@@ -5,7 +5,7 @@ safari-browser，這可以是整個專案預設的」。
 
 **本 repo 的本體是離線的，只有一個目錄例外**：2026-09-24 量 `Sources/` 內 `URLSession`／
 `URLRequest` 0 處；#664（2026-09-29）起 `Sources/AkashicS2/` 是本體裡唯一可以連網、唯一可以讀
-keychain 的地方，其餘由 `akashic-guards network-confinement` 機械地擋。對外查詢（OpenAlex、
+keychain 的地方；`akashic-guards network-confinement` 檢查九個字樣不出現在別的目錄（字面的封閉清單，證明不了沒有別的連網途徑，靠程式審查補）。對外查詢（OpenAlex、
 Crossref、ORCID、DOI 解析、出版商頁面）一直是 skill 層的事；本規則把「skill 層用什麼去拿」定成
 一條路徑，唯一走本體的是帶金鑰的 Semantic Scholar 查詢（〈例外〉第 2 類）。
 

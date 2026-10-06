@@ -113,7 +113,12 @@ Crossref、ORCID、DOI 解析、出版商頁面）一直是 skill 層的事；�
      `status`。
    - **金鑰只在程序內從 keychain 讀**（service `semantic-scholar`、account `default`，非互動），
      不收指令參數或環境變數；`x-api-key` 只附給 scheme 為 `https`、host 恰為
-     `api.semanticscholar.org` 的請求。
+     `api.semanticscholar.org` 的請求。請求用無快取、無 cookie 的連線，**不跟隨轉址**（3xx 是錯誤）——
+     金鑰不寫進任何檔案，也不會隨轉址帶到別的主機（#664 verify R1：預設連線的 URLCache 曾把它寫進
+     `~/Library/Caches/akashic/Cache.db`）。
+   - **skill 與 agent 不得直接讀這個 keychain 項目。** 設定文件建議的 `-A` ACL 讓任何同使用者的程序
+     （包括 agent 的 shell）不經提示就能 `security find-generic-password … -w` 印出金鑰，值會進對話或
+     log——接口自己永遠不印金鑰，但這條路不在接口裡。要確認金鑰在不在，用 `akashic s2 status`。
    - **全機合計每秒至多 1 個請求。** 所有呼叫者以檔案鎖預約送出時段，429 的退避也共用；重試
      用盡或 `Retry-After` 超過 60 秒即停（CLI 結束碼 4）。這是本類自帶的限流處理，不在上面
      〈使用紀律〉中止條款的涵蓋範圍內——那條中止條款管的是 safari-browser 那條路。
@@ -125,7 +130,7 @@ Crossref、ORCID、DOI 解析、出版商頁面）一直是 skill 層的事；�
      Crossref、ORCID 等不需金鑰的 API 照舊經 safari-browser；出現第二個需要金鑰的 API 時，要顯式
      新增一類（連同規則第 2 條與守衛的封閉清單），不從本類類推。
 
-## Semantic Scholar 的取得順序（封閉列舉，只看 `akashic s2 status` 的結束碼，只有兩種狀態）
+## Semantic Scholar 的取得順序（封閉列舉：`akashic s2 status` 的結果只有三種處置）
 
 使用者 2026-09-29（+08:00）裁決：「有 key 走 key，沒 key 最後才用 safari-browser」。skill 查 S2 之前先跑
 `akashic s2 status`（MCP 是 `akashic_s2` 的 `endpoint: status`，看 `keychain.present` 與
@@ -137,6 +142,11 @@ Crossref、ORCID、DOI 解析、出版商頁面）一直是 skill 層的事；�
    `plugin/skills/akashic-bootstrap/references/semantic-scholar.md`，訊息裡的 service／account 照轉。
    使用者表示不設定、或這次設定不了，才**最後**經 safari-browser 查 S2：不帶金鑰，照本規則第 1 條與
    〈使用紀律〉的全部條款（鎖分頁、中止條款、讀大型回應後核對身分）。
+3. **其他任何結果 → 停下來回報，不退到 safari-browser。** 這一條把前兩條沒列的結果寫明，它不是第三種
+   「沒有金鑰」：結束碼 1（`AKASHIC_S2_*` 環境覆寫被拒——改環境）；結束碼 64 或 MCP 的「未知工具」
+   （裝的 `akashic`／`akashic-mcp` 比 #664 舊，plugin 釘的 binary 版本可能還沒有這個工具——更新或重建，
+   見 #633，之後再問使用者）。把這些當成沒有金鑰而退到頁面，等於在接口壞掉時悄悄換一條不受節流保護的路。
+   （`AKASHIC_S2_BASE_URL` 生效時 `status` 不讀 keychain、回 0——只出現在測試，不是金鑰存在的證據。）
 
 兩個邊界：
 
@@ -190,7 +200,7 @@ safari-browser 開）、`akashic-bootstrap/references/web-access.md`（程序本
 由 skill 照 web-access.md 取回後存進回應目錄再跑；`calibrate` 讀本機的 Crossref 回應目錄）。這同時關掉 #634 記著的缺口——那支腳本的
 錯誤處理不是中止條款（查詢階段的請求失敗讓整支腳本以未捕捉的例外中止、反向驗證把錯誤寫進結果後繼續下一筆）：現在每個請求都是 skill 經
 web-access.md 的一次取得，403／429／5xx 在取得那一步就是中止條款，404 存成 `.404` 標記＝查無此筆。
-量法上一個新的判斷（不是機械結果）：`Sources/` 沒有 HTTP client，量法第一行的 `URLSession` 字樣在 `Sources/` 的命中是 0（2026-09-29 重量）。
+量法上一個新的判斷（不是機械結果）：`Sources/` 沒有 HTTP client，量法第一行的 `URLSession` 字樣在 `Sources/` 的命中是 0（2026-09-29 #629 重量；**#664 之後命中只在 `Sources/AkashicS2/`**，`akashic-guards network-confinement` 機械地擋其他目錄——那是字面的封閉清單，擋得住這九個字樣，證明不了沒有別的連網途徑）。
 
 **量法不涵蓋的一個檔**：`docs/skill-evals/akashic-bootstrap-workspace/skill-snapshot-old/scripts/crossref_match.py` 仍以 `urllib` 直連 Crossref，
 屬上面〈不適用〉第 4 類，不在量法的掃描路徑裡（#629 R1 verify 第 44 則；R2 verify 第 42 則指出先前稱它「不適用」卻不在那張封閉列舉裡）。
@@ -264,6 +274,7 @@ grep -rlE -- '--tab-in-window' plugin/skills plugins/*/skills Sources | grep -vE
 | 2026-09-29 | #629 第二塊：把 `crossref_match.py`、`calibrate_title_match.py`（直連 Crossref 的 Python 腳本）與 `fetch-fulltext.sh`（視窗編號鎖）移植成 Swift。直連的兩支若照字面移植就是在 `Sources/` 新增 HTTP client；`fetch-fulltext.sh` 若順手改鎖法，就是在沒有裁決、沒有實跑 Safari 的情況下改動一條安全紀律 | `crossref-match` 做成重播式（取得回到 skill，缺的請求以 JSON 列出、exit 3）、`calibrate` 讀本機目錄，`Sources/` 仍沒有 HTTP client；`fetch` 鎖法不變（〈例外〉第二種形狀），改 `--url-endswith` 仍待使用者裁決。新舊差分（17 萬個判定案例、1,860 筆 Crossref 比對、18 條 fetch 路徑對同一個 stub）記在 changelog；**Swift 版 `fetch` 沒有對真的 safari-browser 跑過**（不得操作 Safari），引數向量逐字沿用舊腳本、由測試逐條斷言 |
 | 2026-09-29 | #664：使用者有 Semantic Scholar 的 API 金鑰，想讓 Akashic 用它查詢。照本規則只能經 safari-browser 頁內 fetch，而那得把金鑰放進 `safari-browser js` 的指令參數、出現在 process list（#640 指出）；五條要用 S2 的工作線（#640、#620、#621、#622、#665）各自實作又會有五份金鑰處理與節流。本規則當時的第 2 條（`Sources/` 不新增 HTTP client）與「不適用」第 2 類（「`akashic` CLI……沒有網路」）都擋在這條路上 | 使用者在 Clarity Surface 與 spectra-discuss 定案後，Spectra change `semantic-scholar-interface` 新增 `AkashicS2` target、`akashic s2` 子命令群與 `akashic_s2` MCP 工具；第 2 條改為只有 `Sources/AkashicS2/` 例外、〈例外〉從一類改為兩類、「不適用」第 2 類點名排除 `akashic s2`；`akashic-guards network-confinement`（負對照 `network-confinement-mutations`）把網路與 keychain API 鎖在那個目錄 |
 | 2026-09-29 | #664 實作完成後使用者裁決 S2 的取得順序：「有 key 走 key，沒 key 最後才用 safari-browser」——先前的例外只規定「帶金鑰的查詢走 `akashic s2`」，沒說無金鑰時能不能經 safari-browser 查 S2，也沒擋住有金鑰時仍經頁面查 S2 這條繞過節流的路 | 新增〈Semantic Scholar 的取得順序〉：依 `akashic s2 status` 的結束碼分兩種狀態；有金鑰一律走 `akashic s2`，沒有金鑰先請使用者設定、最後才經 safari-browser；查詢遇到 4、5 不改走頁面 |
+| 2026-09-29 | #664 的 verify（六席，4 lens＋DA＋Codex）判 FAIL，而實作者自己的驗證全綠：接口用預設的共用 `URLSession`，它的 `URLCache` 把含 `x-api-key` 的請求寫進 `~/Library/Caches/akashic/Cache.db`（本機實機驗證那一筆就在裡面），轉址時又把金鑰帶到新位址——「金鑰不寫進任何檔案、只送 S2 主機」是設計承諾，實作用共用連線破了它。自己的測試都用 `URLProtocol` stub，stub 不經快取也不轉址，所以看不到 | 預設連線改為無快取、無 cookie、不跟隨轉址，並加會失敗的測試（stub 模擬轉址；CLI 測試前後比對 URLCache 的檔案），兩者都做過變異檢查（拿掉保護，測試會紅）。教訓：**承諾的對象是真實的網路層時，stub 驗不到**——要有一個測試碰真的預設連線 |
 | 2026-10-01 | #692：`akashic-verify-venue` 的第 4 源（出版商頁）先前不抓不讀，請使用者自己去看、回覆成文字，理由是一個由 OpenAlex 欄位決定的網址會在使用者已登入的 profile 裡被打開；#593 已把瀏覽器的做法定成 web-access.md，這一源仍寫著「待裁決」 | 使用者裁決照 web-access.md 讀：只開〈開哪個網址〉的兩種（store 的 DOI 組出的 `doi.org` 網址、使用者給定或確認的網址），讀渲染後的頁面並照〈承重存檔〉存檔；原本的顧慮在該 skill 的「第 4 源」一段逐條寫出處理；三處「待裁決」的指標移除。R1 verify 補：~~`doi.org` 落地的網址仍不驗~~ → 落地**主機**在讀內容之前以 `location.protocol`／`hostname`／`port` 驗形狀（`web-access.md`〈轉址之後、讀內容之前：驗落地主機〉，形狀檢查、擋不住解析到私有位址的公開名稱）、落地主機寫進報告；取值的運算式設 20,000 字元上限並剔除 Cf／Cc 字元；第 4 源在實跑過之前只當佐證、不計入「至少兩源」 |
 | 2026-10-02 | #692 R2 verify（四席：requirements、logic、security、codex）對 R1 的修正輪：(1) 落地主機檢查只掛在「開分頁」那一步，同分頁讀下一頁（verify-venue 的第 2、3 個 DOI）只重跑區塊二、檢查被跳過；(2) 檢查是一次性的快照，頁面可用 JS 複製 `location.hash` 把自己導到別的主機而鎖照樣對得到，讀取不再斷言主機；(3) 區塊二的首屏讀取（3,000 字元）沒有剔除，而 SKILL 宣稱「字元層的花招因此擋得住」；(4) 剔除集合 `[\p{Cf}\p{Cc}]` 比 repo 自己的 `UnsafeToEmitScalar` 窄（變體選擇子、CGJ、各種 filler、U+2800、Zl／Zp／Zs、Co 都活著）；(5)「讀回剛好 20,000 字元就是被截」不成立（先截再剔除，被截的頁面讀回少於上限，剛好上限的頁面被誤標）；(6) 落地主機區塊用 `return …` 敘述形、結束碼 3 與區塊二的「等人驗證」相衝、所有失敗都被叫做「落地主機不合」；(7) 共用的 `web-access.md` 寫成每個讀頁面的 skill 都要驗，實際只有 verify-venue 做 | 落地主機區塊每載入新頁（開分頁、導航到下一頁）都要跑；區塊二與讀取改經同一個運算式，~~**同一次求值**回傳 `{protocol, hostname, port, truncated, rawLength, text}`，`check-read.py` 與驗過的主機比對~~（→ 2026-10-03 那一列：運算式在頁面自己的 JS 環境裡跑，主機與剔除都可以被頁面偽造）、不同就不寫出文字（結束碼 4）；運算式的剔除集合逐碼位對照 `UnsafeToEmitScalar`（Node 26 與 Swift 各 141,760／141,762 個，差別只有刻意保留的 TAB 與 LF）；`truncated` 由剔除之前的長度算；落地主機區塊改運算式形、REJECT 改結束碼 4；共用檔寫明範圍（會被第三方轉址的頁面）與目前只有 verify-venue 照做。副本的分岔記為〈操作程序的兩份描述〉第 (10) 條。**沒有對 Safari 實跑**：區塊以假的 `safari-browser` 與 Node 測過 |
 | 2026-10-03 | #692 R3 verify（含 Codex 盲審的 HIGH）：R2 的「主機與文字同一次求值，所以文字一定出自宣告的主機」與「字元層的隱形通道擋得住」都不成立——`safari-browser js` 在**頁面自己的** JS 環境裡求值，頁面的腳本可以事先改寫 `JSON.stringify`、`String.prototype.replace`，連取回結果的通道都在頁面那一側；DA 以 Node 在合成頁面上實測：蓋掉 `JSON.stringify` 的頁面讓 R2 的區塊二印 `READ-OK` 與它宣告的主機、三個不可見字元都沒剔除。另外：落地主機區塊在判 REJECT 之前就寫了 `landing-<T>.txt`，`check-read.py` 照樣當它是「驗過的」；REJECT 之後輸出檔留著上一次的文字；共用的區塊二與讀取區塊預設 `LAND` 是落地主機檔，等於把檢查強加給每一個還沒接上的 skill，與「只有 verify-venue 照做」的說法矛盾 | **主機改從 Safari 那一側取**（`documents --json` 的 `url`、AppleScript 的 `URL of tab`；頁面的 JS 換不了它的主機），讀取前後各一次、都要等於驗過的落地主機；**剔除與長度上限移到 `check-read.py`**（頁面碰不到的那一側），運算式只截到上限當傳輸量；落地主機區塊先刪檔、只在 OK 時寫回，讀取時重新驗形狀；`check-read.py` 先刪輸出檔；`LAND` 預設 `-`（選用）；使用者確認的網址被轉到別的主機也算落地主機不合（`EXPECT`）。保證句改成實話：文字出自讀取前後 Safari 回報的網址都在驗過的主機上的分頁——頁面控制自己的內容，不誠實的頁面仍可以在文字裡說謊。~~`check-read.py` 仍是 web-access.md 裡的文件片段（執行時才寫進暫存目錄），不是新增的 Python 檔~~（→ 2026-10-04 那一列：那是依性質相似類推「不適用」第 1 類，R4 移成 `akashic web-read`）；repo 的 `WebAccessReadContractTests`（Swift）從文件抽出它與區塊實跑、並把剔除集合與 `UnsafeToEmitScalar` 逐碼位比對 |

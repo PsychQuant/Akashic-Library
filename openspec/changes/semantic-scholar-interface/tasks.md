@@ -35,3 +35,12 @@
 - [x] 8.1 [P] 改寫 `.claude/rules/web-access-via-safari-browser.md`：第 2 條改為只有 `Sources/AkashicS2/` 例外；例外清單從一類改為兩類（帶金鑰的 S2 呼叫經 `akashic s2` 與 `akashic_s2`）；「不適用」第 2 類把 `akashic s2` 排除；〈為什麼〉與〈觸發過的實例〉各補 #664。同步 `CLAUDE.md` 的規則索引；`.claude/rules/mcp-cli-parity.md` 的 MCP 表加 `akashic_s2` 對 `s2` 一列，工具數 33 改為 34，寫明兩面有記錄的差異（MCP 位元組上限、CLI 不截）。驗證：`akashic-guards parity-table-drift` 與 rule-prose 類守衛全綠；逐段讀過，例外與不適用仍是封閉列舉。
 - [x] 8.2 [P] 寫設定文件 `plugin/skills/akashic-bootstrap/references/semantic-scholar.md`（存金鑰的指令、ACL 取捨、以 `akashic s2 status` 確認、結束碼 3 的兩種原因），並在 `README.md` 加 S2 段落。驗證：文件裡的 service、account、路徑與 CLI 錯誤訊息逐字一致；rule-coverage 守衛全綠。
 - [x] 8.3 整體驗證：`swift build` 與 `swift test` 全綠，且 `RealHomeSandboxGuard` 未報錯；`bash .githooks/run-guards.sh` 全綠；`spectra validate semantic-scholar-interface` 通過。實機（使用者機器、真金鑰，不進自動測試）：`akashic s2 status` 回報 present 與 readable 皆為 true，`akashic s2 paper DOI:10.1037/a0038889 --json` 回傳該論文。
+
+## 9. verify R1 修正（pai-ensemble 六席驗證判 FAIL，2026-09-29；契約變動見 design〈verify R1 偏離與已知取捨〉）
+
+- [x] 9.1 連線不快取、不跟隨轉址：預設連線改為 ephemeral（`urlCache`、cookie 儲存為 nil），每個請求帶不快取、不處理 cookie，task delegate 把 3xx 當最終回應；測試 `S2SessionHardeningTests` 與 CLI `testARunLeavesNoCacheFileBehind`，兩者都做過變異檢查
+- [x] 9.2 429 共用與狀態檔：放棄之前先記退避、長退避有自己的過期門檻（最多一小時）、其他呼叫者對超過 60 秒的封鎖快速失敗（結束碼 4）；狀態檔不跟隨 symlink、收緊到 0600、`errno` 先取走
+- [x] 9.3 續查契約：`S2Result.hasMore` 取自 S2 的 `next`；不分頁的端點與空的一頁 `nextOffset` 為 null；第一筆就超過 48 KiB 回錯誤並點名 `fields`；MCP `limit` 預設 100、至多 1000；`batch` 空白 id 兩面一致丟掉
+- [x] 9.4 JSON 面的清理改為字串原樣＋序列化後無損逃脫（`documentSafeJSON`）；位元組上限量實際輸出
+- [x] 9.5 其餘程式修正：空白 `--title`／`--name` 回 64、`--ids-file` 大小上限與識別碼形狀檢查、金鑰錯誤訊息帶可照做的指令並先講「keychain 鎖著」
+- [x] 9.6 規則、規格與文件：取得順序補「其他結果停下回報」、`mcp-cli-parity` 例外改封閉列舉、`-T` 兩個 binary、skill／agent 不得直接讀 keychain 項目、`akashic_s2` 附在 tools 陣列最後、proposal Impact 補齊、偏離與未修的項目記入 design

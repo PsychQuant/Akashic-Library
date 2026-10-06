@@ -17,9 +17,9 @@ CLI-only 能力已於同日一次性補裁（見 CLI-only 表）——此前的�
 **在 `Server.swift` 新增一個工具的同一個變更裡，必須裁決它的 CLI 面**，二選一：
 
 1. **同時補 CLI subcommand**（照 `PersonCommand.swift` 模式：同一個
-   `AkashicService` 函式、`key:` 必帶（能力不開 store 時改為兩面同一個不經服務層的
-   library 函式、沒有 `key:`——目前只有 `akashic_s2`／`s2` 一列，走 `AkashicS2`，理由見
-   該列）；**讀取面**須 `--json` 原樣轉印 + 人可讀同源。**寫入面是封閉例外**：只回
+   `AkashicService` 函式、`key:` 必帶（**封閉例外，只有 `akashic_s2`／`s2` 這一列**：兩面同一個
+   不經服務層的 library 函式（`AkashicS2`）、沒有 `key:`，理由見該列；**不得依「也不開 store」
+   類推第二列**——新的工具要走這條，得在本檔顯式加一列、寫出它為什麼不能經服務層）；**讀取面**須 `--json` 原樣轉印 + 人可讀同源。**寫入面是封閉例外**：只回
    service payload、不設 `--json` 旗標也無人可讀分支——`link`／`tag`／`set-status` 即此形；例外只有這一類，不得類推），**並在
    下表加一列**；或
 2. **記錄一個有理由的缺席**——開 issue 載明為什麼這個能力可以只有 MCP 面

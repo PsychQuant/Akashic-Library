@@ -1,6 +1,6 @@
 ## Purpose
 
-Akashic's core stays offline: only the `AkashicS2` target may use networking or keychain APIs. A guard checks this mechanically on every guard run, and a mutation control proves the guard fires, so that a later change cannot open a second network path without the guard saying so.
+Akashic's core stays offline: only the `AkashicS2` target may use networking or keychain APIs. A guard checks this mechanically on every guard run, and a mutation control proves the guard fires. The guard is a closed lexical list: it catches a later change that spells one of the listed patterns outside `AkashicS2`. It does not prove that no other path exists (a subprocess, a dynamically loaded API, or a pattern not on the list); those are for code review, and a new pattern is added to the list when one is found.
 
 ## ADDED Requirements
 

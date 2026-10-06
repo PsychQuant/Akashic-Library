@@ -52,6 +52,8 @@
     - Tests/AkashicS2Tests/S2ClientTests.swift
     - Tests/AkashicS2Tests/S2ThrottleTests.swift
     - Tests/AkashicS2Tests/S2OutputTests.swift
+    - Tests/AkashicS2Tests/S2SessionHardeningTests.swift（verify R1）
+    - Tests/AkashicS2Tests/AAASandboxGuardActivation.swift
     - Tests/AkashicCLITests/S2CommandTests.swift
     - Tests/AkashicMCPTests/S2ToolTests.swift
     - plugin/skills/akashic-bootstrap/references/semantic-scholar.md
@@ -65,3 +67,8 @@
     - .claude/rules/mcp-cli-parity.md
     - CLAUDE.md
     - README.md
+    - Sources/akashic-guards/ParityTableDrift.swift（名稱 regex 允許數字）、.githooks/protected-ratchet.txt（守衛接線）
+    - Sources/akashic/WriteGateRulings.swift（九個 `s2` 葉命令登記為唯讀）
+    - Tests/AkashicCLITests/CLITestHarness.swift（`s2` 呼叫的預設測試 service 與暫存狀態目錄）
+    - Tests/AkashicMCPTests/StdioE2ETests.swift（工具數 33 → 34）
+    - plugin/skills/akashic-bootstrap/SKILL.md、plugin/skills/akashic-bootstrap/references/web-access.md（把使用者 2026-09-29 的取得順序裁決帶給 plugin 讀者；不是接線，見 design〈verify R1 偏離〉）

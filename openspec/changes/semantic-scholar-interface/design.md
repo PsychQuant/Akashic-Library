@@ -24,7 +24,7 @@
 
 **Non-Goals:**
 
-- 不接上任何使用者 skill。#640、#620、#621、#622、#665 各自以本接口為前提另外實作
+- 不接上任何使用者 skill。#640、#620、#621、#622、#665 各自以本接口為前提另外實作。**唯一的例外**：使用者 2026-09-29 的取得順序裁決（有金鑰走 `akashic s2`／`akashic_s2`，沒金鑰最後才經 safari-browser）寫進 plugin 側的 `akashic-bootstrap/SKILL.md` 與 `references/web-access.md`——plugin 讀者讀不到專案規則，而照「一律經 safari-browser」去查 S2 正是金鑰外露的那條路。那是路由文字，不是接線（bootstrap 並沒有開始用 S2 補欄位，那是 #665 的事）
 - 不寫 store。S2 回傳一律是線索；欄位值的依據依 `source-of-truth-over-consent`
 - 不做回應快取
 - 不做跨機器的節流協調（Clarity 4：只在本機使用）
@@ -61,16 +61,21 @@
 - `x-api-key` 只在請求的 host 恰為 `api.semanticscholar.org` 且 scheme 為 `https` 時附上。
 - 金鑰以一個 description 一律回 `<redacted>` 的型別持有，避免被字串插值或 log 意外印出。
 - 不提供環境變數或指令參數當金鑰來源：同使用者的程序可以用 `ps -E` 看到環境變數。
+- **連線不留任何落盤的東西**（verify R1）：預設的共用 `URLSession` 帶著 `URLCache`，S2 的回應沒有 `Cache-Control`，GET 會被啟發式快取，序列化的請求（含 `x-api-key`）寫進 `~/Library/Caches/<程序名>/Cache.db`（實測：本機 8.3 的實機驗證留下一筆）。所以預設連線是 `URLSessionConfiguration.ephemeral`，`urlCache`、`httpCookieStorage` 都是 nil；每個請求另外帶 `reloadIgnoringLocalAndRemoteCacheData` 與不處理 cookie，換成注入的連線也一樣。
+- **不跟隨轉址**（verify R1）：host 規則只檢查第一個網址，而 URLSession 轉址時把自訂 header 原樣帶到新位址。每個請求帶一個 task delegate 把 3xx 當成最終回應交還，`S2Client` 把它報成錯誤（結束碼 5，訊息帶狀態碼），不對轉址目標送任何請求。S2 的 API 本來就不該轉址，所以沒有「同主機的轉址放行」這種例外。
 
 ### 跨程序節流：預約時段，429 退避共用
 
-狀態檔 `~/Library/Caches/akashic/s2-throttle`（目錄 0700、檔案 0600），內容是 JSON `{"nextAllowedAt": <Unix 秒，Double>, "blockedUntil": <Unix 秒，Double，可省略>, "lastReleasedAt": <Unix 秒，Double，可省略>}`（`lastReleasedAt` 是 #701 加的）。
+狀態檔 `~/Library/Caches/akashic/s2-throttle`（目錄**建立時** 0700——已存在的目錄不動它的權限；檔案 0600，已存在而較寬的收緊到 0600；開檔帶 `O_NOFOLLOW`，symlink 不跟隨），內容是 JSON `{"nextAllowedAt": <Unix 秒，Double>, "blockedUntil": <Unix 秒，Double，可省略>, "lastReleasedAt": <Unix 秒，Double，可省略>}`（`lastReleasedAt` 是 #701 加的）。
 
 - **預約**：以 `flock(LOCK_EX)` 鎖住狀態檔 → 讀出 `nextAllowedAt` → `slot = max(now, nextAllowedAt)` → 寫回 `nextAllowedAt = slot + 1.05` → 解鎖 → 睡到 `slot` 才送出。睡眠期間不持有鎖，其他程序可以接著預約下一個時段，順序接近先到先得。
 - **429 退避**：收到 429 時鎖住狀態檔，把 `nextAllowedAt` 與 `blockedUntil` 都推到至少 `now + retryAfter`，所有呼叫者一起等。
 - **醒來後重新檢查**：只推 `nextAllowedAt` 不夠——已經預約了較早時段、正在睡的呼叫者不會受影響（實作任務 3.2 時發現）。所以每個呼叫者睡醒後、送出前，在鎖內再看一次 `blockedUntil`；仍在封鎖期就重新預約。`Retry-After` 可以是秒數或 HTTP-date；沒有這個 header 時依序用 2、4、8 秒。
 - **放行間隔在鎖內保證**（#701）：預約只保證每一次放行不早於自己的時段，不保證兩次放行的間隔。`Task.sleep` 睡得越久晚醒越多（2026-09-30 實測：睡約 1.05 秒的晚醒 124–139 ms，睡約 0.5 秒的晚醒約 58 ms），前一個呼叫者晚醒、後一個準時醒時，兩次放行只差 0.92–0.98 秒。所以醒來後在鎖內比對上一次放行的時刻（`lastReleasedAt`），不到 1.05 秒就再等；放行時記下這一刻，並把 `nextAllowedAt` 推到至少這一刻加 1.05。小於 1 ms 的等待不睡，所以保證的間隔是 1.049 秒。舊 binary 寫回狀態檔時會丟掉 `lastReleasedAt`，那一次的間隔回到只由預約保證。
-- **上限**：同一請求最多重試 3 次；`Retry-After` 超過 60 秒視為限流用盡，不等。讀到的 `nextAllowedAt` 比現在晚超過 60 秒（時鐘回撥或狀態檔損毀）時視為過期，以現在為準重設。
+- **上限**：同一請求最多重試 3 次；`Retry-After` 超過 60 秒視為限流用盡，不等。讀到的 `nextAllowedAt` 與 `lastReleasedAt` 比現在晚超過 60 秒（時鐘回撥或狀態檔損毀）時視為過期，以現在為準重設。
+- **放棄之前先記退避**（verify R1）：收到 429 時**先**把退避寫進共用狀態，再決定這次呼叫要不要等或放棄。最後一次 429 與 `Retry-After` 超過 60 秒原本都在寫入之前就拋錯，其他 session 看不到，照常打。沒有 `Retry-After` 時第 4 次 429 記 8 秒。
+- **長退避不被當成過期**（verify R1）：`blockedUntil` 有自己的過期門檻——記錄時最多記一小時（`maxBackOff`），讀到比現在晚超過一小時加 60 秒才視為過期。原本與時段共用 60 秒的門檻，所以 `Retry-After: 120` 即使記下來也會在下次讀取時被清掉。
+- **快速失敗，不睡過去**（verify R1）：其他呼叫者遇到剩下超過 60 秒（`maxWait`）的封鎖，在預約時段之前就以 `S2ThrottleError.blocked` 失敗，`S2Client` 把它報成 `rateLimited`（結束碼 4），不送請求、不睡；剩下 60 秒以內才睡過去再送。`Retry-After` 超過 60 秒的呼叫者與這些呼叫者因此得到同一個結果。
 - `flock` 隨檔案描述子關閉而釋放，程序中途死掉不會留下鎖。
 - 狀態檔不放在 `~/.akashic`：`RealHomeSandboxGuard` 監看那裡，全套測試期間的寫入會被判成沙箱逃逸。
 
@@ -78,7 +83,7 @@
 
 ### 測試接縫：三個受限的覆寫
 
-測試不得碰真的 keychain 項目、真的網路、真的 `~/Library/Caches/akashic`。三個覆寫都走 `environment:` 注入參數（沿用 `LibraryLocator` 的慣例），而且各自有限制：
+測試不得碰真的 keychain 項目、真的網路、真的 `~/Library/Caches/akashic`（連線不快取後，`AKASHIC_S2_STATE_DIR` 只管節流狀態檔，URLCache 不再有檔案可寫；CLI 測試 `testARunLeavesNoCacheFileBehind` 在前後比對那個目錄的檔案）。三個覆寫都走 `environment:` 注入參數（沿用 `LibraryLocator` 的慣例），而且各自有限制：
 
 | 覆寫 | 限制 | 理由 |
 |---|---|---|
@@ -120,7 +125,7 @@ in-process 的 client 測試用 `URLProtocol` stub 攔截請求，並注入替�
 | `status` | 無 | 不連網 |
 
 - `paper-id` 照 S2 的語法接收（`DOI:…`、`CorpusId:…`、S2 paperId 等）；以 `10.` 開頭的裸 DOI 自動加上 `DOI:`。id 在送出前做百分比編碼。
-- `--json` 的輸出：`{"source":"semantic-scholar","endpoint":"<子命令名>","request":{…},"fetchedAt":"<ISO 8601，帶本機時區 offset>","total":<整數或 null>,"data":<S2 的資料，字串經 displaySafe>}`。分頁端點的 `data` 是全部筆數串成的陣列。
+- `--json` 的輸出：`{"source":"semantic-scholar","endpoint":"<子命令名>","request":{…},"fetchedAt":"<ISO 8601，帶本機時區 offset>","total":<整數或 null>,"data":<S2 的資料>}`。字串原樣保留（只在超過長度上限時截斷），序列化後的 JSON 文字以 `\uXXXX` 無損逃脫危險 scalar（`documentSafeJSON`，與 CSL-JSON 出口同一個函式）；人可讀的面是終端機，字串經 `displaySafe`。分頁端點的 `data` 是全部筆數串成的陣列。
 - 人可讀輸出與 `--json` 同源：分頁與單篇都一行一筆，格式為年份、標題、第一作者、主要 id。
 - `status --json`：`{"keychain":{"service":"semantic-scholar","account":"default","present":<bool>,"readable":<bool>},"throttle":{"stateFile":"…","nextAllowedAt":"<ISO 8601 或 null>"},"host":"api.semanticscholar.org"}`。不印金鑰，也不印它的長度。
 
@@ -140,7 +145,9 @@ in-process 的 client 測試用 `URLProtocol` stub 攔截請求，並注入替�
 **MCP 工具 `akashic_s2`**：
 
 - 參數：`endpoint`（`paper`／`match`／`batch`／`references`／`citations`／`recommend`／`author_search`／`author_papers`／`status`）、`id`、`title`、`year`、`name`、`ids`（陣列）、`fields`（陣列）、`offset`、`limit`。
-- 回傳：`{"endpoint","total","returned","truncated","offset","nextOffset","data"}`。只放完整的筆數，加入下一筆會超過 48 KiB 就停，此時 `truncated: true`、`nextOffset = offset + returned`。
+- 回傳：`{"endpoint","total","returned","truncated","offset","nextOffset","data"}`。只放完整的筆數，加入下一筆會超過 48 KiB（量的是實際輸出的文字，含 `\uXXXX` 逃脫）就停，此時 `truncated: true`。**續查的訊號是 `nextOffset`，不是 `truncated`**：`nextOffset` 非 null 就用它當下一次的 `offset`，null 就是沒有下一頁。
+- `nextOffset` 的規則（verify R1）：分頁端點（references／citations／author_search／author_papers）在位元組上限截斷、或 S2 自己回了前進的 `next`（`S2Result.hasMore`）時是 `offset + returned`，否則 null；`paper`／`match`／`batch`／`recommend` 不接 `offset`，永遠 null；空的一頁永遠 null（`nextOffset == offset` 是定點）。**不用 `total` 判斷有沒有下一頁**：它來自另一個請求，可以比 S2 實際給得出的筆數大（出版商沒提供的參考文獻），也可以查不到。第一筆就超過 48 KiB 時回錯誤並點名 `fields`，不回「成功、0 筆」。
+- `limit`：分頁端點 1–1000（S2 的一頁），預設 100（一個呼叫不拉回上千筆，其餘以 `nextOffset` 續查）；不分頁的 `batch` 一次至多 500 個 id（空白的 id 丟掉，含空白或控制字元、超過 512 字元的 id 不送出）。
 - `total` 的來源：references／citations 以同一個 paper 的 `referenceCount`／`citationCount` 取得（多一次請求，受同一個節流）；author-papers 以 author 的 `paperCount` 取得；search 類端點用 S2 回應的 `total`。
 - 錯誤時 `isError: true`，文字與 CLI 同一段訊息（金鑰不可用、限流用盡、S2 錯誤）。
 
@@ -152,11 +159,29 @@ in-process 的 client 測試用 `URLProtocol` stub 攔截請求，並注入替�
 - 兩個子程序共用同一個 `AKASHIC_S2_STATE_DIR`、各送 3 個請求，所有請求的送出時間兩兩間隔至少 1 秒（容許 50 ms 誤差）。
 - `AKASHIC_S2_KEYCHAIN_SERVICE=akashic-test-<隨機>`（不設 `AKASHIC_S2_BASE_URL`）時，`akashic s2 paper DOI:10.1037/a0038889` 以結束碼 3 結束；「讀不到金鑰時不發出任何請求」由 in-process 測試以 `URLProtocol` stub 驗證。
 - 實機驗證（需真金鑰，只在使用者的機器上跑、不進自動測試）：`akashic s2 status` 回報 present／readable 皆為 true；`akashic s2 paper DOI:10.1037/a0038889 --json` 回傳該論文。
+- **尚未驗證（verify R1 第 10 列）**：ACL 不允許非互動讀取的項目，是否真的不跳授權框。Apple 文件沒有說明 `interactionNotAllowed` 是否涵蓋舊式檔案型 keychain 的 ACL 對話框（見上〈金鑰〉）。自動測試只涵蓋 `-25308`／`-25293` 的狀態碼對應，沒有涵蓋「沒有框」本身；要驗得在使用者的 login keychain 建一個限制存取的測試項目、從 `akashic s2 status` 讀它，萬一跳框會出現在使用者的畫面上，所以不放進自動測試，也沒有替使用者做。MCP server 在背景執行、看不到框，這件事的風險是**卡住**而不是外洩。
 
 **範圍**：
 
 - 在範圍內：`AkashicS2` target、`akashic s2` 子命令群、`akashic_s2` MCP 工具、`network-confinement` 守衛與負對照、兩份規則與 `CLAUDE.md` 索引、`README.md`、設定文件。
 - 不在範圍內：任何使用者 skill 的接線、store 寫入、回應快取、其他需要金鑰的 API、`~/bin/akashic` 的重建（依 #633 的閘另外處理）。
+
+## verify R1 偏離與已知取捨（2026-09-29，#664）
+
+pai-ensemble 六席驗證（4 lens＋DA＋Codex）判 FAIL，49 條合併為 33 列；修正都寫進上面各段與 spec。這裡只記**偏離原設計的決定**與**看過但沒有修的**：
+
+| 項目 | 決定 |
+|---|---|
+| 預設連線、轉址 | 改成 ephemeral 無快取連線、不跟隨轉址（見〈金鑰〉）。原設計「金鑰不出現在檔案」是承諾，實作用共用連線破了它 |
+| 429 | 放棄之前先記退避；長退避有自己的過期門檻；其他呼叫者快速失敗（見〈跨程序節流〉）。第 3 列（醒來後同時送出）已由 #701 在本單之外修掉 |
+| 續查契約 | `S2Result.hasMore` 取自 S2 的 `next`；`nextOffset` 的規則見〈MCP 工具〉；MCP 預設 `limit` 100 是**新增的決定**（原 spec 情境沒有預設值，照寫會跑出 120 筆），情境改為明傳 `limit: 1000` 並補預設值的情境 |
+| JSON 面的清理 | 改為字串原樣、序列化後無損逃脫；原設計「每個字串經 `displaySafe`」對終端機面成立、對 JSON 面會不可逆地改寫反斜線與排版空白 |
+| bootstrap SKILL.md 與 `web-access.md` 的取得順序段落 | 見〈Non-Goals〉的例外：路由文字，不是接線；#665 要知道這段文字已經存在，避免兩處分岔 |
+| `status` 的結束碼 | 取得順序只列 0 與 3；其他結果（1＝環境覆寫被拒；64 或「未知工具」＝裝的 binary 比本單舊）一律**停下來回報**，不退回 safari-browser（規則〈取得順序〉）。`AKASHIC_S2_BASE_URL` 生效時 `status` 不讀 keychain、回 0，只用於測試 |
+| 識別碼保留 `/` | **沒有修**（第 18 列）：DOI、`URL:`、舊式 arXiv id 都含 `/`，不能一律編碼；識別碼是呼叫者自己給的，改指到的是同一個 S2 主機上的另一個 GET，不外洩金鑰、不寫入。`.`／`..` 片段照舊拒絕 |
+| 非互動讀取的「不跳框」 | **沒有自動測試**（第 10 列）：見〈驗收條件〉的「尚未驗證」，風險是卡住不是外洩 |
+| `network-confinement` | 字面的封閉清單，不證明沒有別的連網途徑；文件已改成這樣說 |
+| `-A` ACL | 同使用者的任何程序（包括 agent 的 shell）不經提示就能讀到金鑰；規則與設定文件明寫「skill 與 agent 不得直接讀這個項目」，見規則〈例外〉第 2 類 |
 
 ## Risks / Trade-offs
 

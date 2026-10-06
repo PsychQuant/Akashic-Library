@@ -22,7 +22,7 @@
 - `--fields` 是逗號分隔的 S2 欄位名，照原樣轉給 S2；省略時論文類取 `title,year,authors`、作者類取 `name,paperCount`。
 - CLI 加 `--json` 輸出 `{"source","endpoint","request","fetchedAt","total","data"}`。分頁端點（references、citations、author-papers）CLI 預設取全部，用 `--limit`、`--offset` 收窄，輸出不截。
 - MCP 一次只回完整的筆數，整份以 48 KiB 為上限。**續查看 `nextOffset`**：非 null 就把它當下一次的 `offset`，null 就是沒有下一頁。`truncated` 只表示被 48 KiB 上限截斷，不是續查的訊號（預設一頁 100 筆剛好放得下、S2 還有更多時，`truncated` 是 false、`nextOffset` 非 null）。
-- 分頁端點（references、citations、author_search、author_papers）的 `limit` 預設 100、至多 1000；`paper`、`match`、`batch`、`recommend` 不分頁，`nextOffset` 永遠是 null。`batch`／`recommend` 被截斷（`truncated` 為 true）時，少給幾個 id、少要幾個 `fields` 重查。第一筆就超過 48 KiB 時回錯誤，用 `fields` 縮小（例如拿掉 abstract、authors）或改用 CLI。
+- 分頁端點（references、citations、author_search、author_papers）的 `limit` 預設 100、至多 1000；`paper`、`match`、`batch`、`recommend` 不分頁，`nextOffset` 永遠是 null。`batch` 被截斷（`truncated` 為 true）時少給幾個 id 或少要幾個 `fields` 重查；`recommend` 則降低 `limit` 或少要 `fields`。第一筆就超過 48 KiB 時回錯誤，用 `fields` 縮小（例如拿掉 abstract、authors）或改用 CLI。
 
 ## 存金鑰
 
@@ -32,7 +32,7 @@
 security add-generic-password -s semantic-scholar -a default -A -w
 ```
 
-`-w` 放在最後、後面不接值，`security` 會提示輸入金鑰：它因此不進 shell 歷史，也不出現在指令參數（process list）裡。
+`-w` 放在最後、後面不接值，`security` 會提示輸入金鑰：它因此不進 shell 歷史，也不出現在指令參數（process list）裡。**請你自己在 Terminal 執行**：金鑰不進對話，AI agent 不代你存（錯誤訊息把指令直接給出來，是給你看的）。
 
 **為什麼帶 `-A`**（所有 app 可讀）：
 
@@ -97,15 +97,17 @@ MCP 遇到錯誤時回 `isError: true`，文字與 CLI 的錯誤訊息相同。
 
 ## 沒有金鑰時，skill 怎麼查
 
-skill 查 Semantic Scholar 之前先看 `status`：
+skill 查 Semantic Scholar 之前先看 `status`（`--json` 的 `keychain.present` 與 `keychain.readable` 分得出下面第 2、3 種）：
 
 1. **結束碼 0（金鑰存在且可讀）**：一律用 `akashic s2`／`akashic_s2`。不會再經 safari-browser 查 S2——那會用另一個額度打同一個主機，繞過全機節流。
-2. **結束碼 3（沒有金鑰或讀不到）**：skill 先請你照〈存金鑰〉設定。你不設定、或這次設定不了，skill 才**最後**經 safari-browser、不帶金鑰查 S2（共用額度，常回 429；照 [web-access.md](web-access.md) 的程序與中止條款）。
+2. **結束碼 3 且 `keychain.present` 為 false（keychain 裡沒有這個項目）**：skill 先請你照〈存金鑰〉設定。你不設定、或這次設定不了，skill 才**最後**經 safari-browser、不帶金鑰查 S2（共用額度，常回 429；照 [web-access.md](web-access.md) 的程序與中止條款）。
+3. **結束碼 3 但 `keychain.present` 為 true（項目在，現在讀不到）**：**不是沒有金鑰**。skill 請你解鎖 keychain（SSH、背景工作階段最常見），或照〈結束碼 3：兩種原因〉改存取權限，然後停下；不叫你重存（項目已存在），也**不退到 safari-browser**——金鑰明明在，退過去等於繞過全機節流。
+4. **其他結果**（結束碼 1 或 64、MCP 的「未知工具」）：也不是「沒有金鑰」，見上〈確認〉。skill 停下來回報，不退到 safari-browser。
 
 查詢遇到結束碼 4 或 5 時，skill 不會改走 safari-browser 補查。`akashic s2` 本身沒有匿名模式：退到 safari-browser 的是 skill，不是這個接口。
 
 ## 頻率限制
 
 - 全機所有程序（CLI、MCP server、多個 session）合計每秒至多 1 個請求。每個請求先在狀態檔上預約一個送出時段（間隔 1.05 秒），等到時段才送。分頁端點的每一頁各占一個時段，一次取全部 references 會花對應的時間。
-- 狀態檔在 `~/Library/Caches/akashic/s2-throttle`（檔案 0600，已存在而較寬的會收緊；目錄在建立時是 0700，已存在的目錄不改權限；不跟隨 symlink）。可以刪，下次請求會重建；空檔、損毀的內容、或存的時間比現在晚超過 60 秒，都視同全新。
+- 狀態檔在 `~/Library/Caches/akashic/s2-throttle`（檔案 0600，已存在而較寬的會收緊；目錄在建立時是 0700，已存在的目錄不改權限；不跟隨 symlink）。可以刪，下次請求會重建；空檔、損毀的內容、或存的送出時段比現在晚超過 60 秒，都視同全新；**429 的封鎖不在此列**（它有自己的上限：最多記一小時，讀到比現在晚超過一小時加 60 秒才視為過期，見下一點）。
 - 收到 429 時，所有呼叫者一起退避：共用的下次可送時間被推到 `Retry-After` 之後（秒數或 HTTP 日期都收；沒有這個 header 時依序等 2、4、8 秒），再重試同一個請求，至多 3 次。仍是 429，或 `Retry-After` 超過 60 秒（不等），就是結束碼 4。**不論這次呼叫等不等，429 都先記進共用狀態**（最多記一小時）：其他呼叫者遇到剩下超過 60 秒的封鎖，不睡、直接結束碼 4；60 秒以內才睡過去再送。

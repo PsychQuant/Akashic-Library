@@ -39,7 +39,7 @@ The system SHALL read the API key from the keychain generic-password item with s
 
 ##### Example: Why the session is not the shared default
 
-The platform's shared default session carries a disk cache. S2 answers without `Cache-Control`, so a GET is cached heuristically, and the cached entry holds the serialized request, custom headers included. The interface therefore SHALL use a session with no URL cache and no cookie storage, and every request SHALL opt out of caches and cookies on its own.
+The platform's shared default session carries a disk cache. S2 answers without `Cache-Control`, so a GET is cached heuristically, and the cached entry holds the serialized request, custom headers included. The interface therefore SHALL use a session with no URL cache and no cookie storage, and SHALL refuse a caller-supplied session whose cache has a disk capacity. A per-request cache policy is not a substitute: it controls only whether a cached response is read, and does not stop the request from being stored.
 
 #### Scenario: A failed request does not echo the key
 
@@ -90,9 +90,11 @@ All processes on one machine that use the interface SHALL together send at most 
 
 #### Scenario: A stale state file does not block callers
 
-- **GIVEN** the state file's next allowed send time is more than 60 seconds after now
+- **GIVEN** no back-off is recorded, and the state file's next allowed send time is more than 60 seconds after now
 - **WHEN** a request reserves a slot
 - **THEN** the stored time SHALL be treated as stale and the slot SHALL be reserved from now
+
+A recorded 429 back-off is not stale: it has its own bound (see "Rate-limit responses back off for every caller") and SHALL outlive the 60-second threshold that applies to send slots.
 
 ### Requirement: Rate-limit responses back off for every caller
 

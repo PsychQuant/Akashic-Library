@@ -165,7 +165,7 @@ extension S2Output {
     public static func statusJSON(settings: S2Settings, probe: S2KeyProbe?) -> String {
         let throttle = S2FileThrottle(stateDirectory: settings.stateDirectory)
         let keychain: S2JSON = .object([
-            "service": .string(settings.keychainService), "account": .string(settings.keychainAccount),   // display-safe-exempt: string(settings.keychainService／keychainAccount) 是常量或已驗證的 akashic-test- 名稱，整份輸出再經 sanitized
+            "service": .string(settings.keychainService), "account": .string(settings.keychainAccount),   // display-safe-exempt: string(settings.keychainService／keychainAccount) 是常量或已驗證的 akashic-test- 名稱，整份輸出再經 clipped＋jsonText（documentSafeJSON）
             "present": probe.map { .bool($0.present) } ?? .null,
             "readable": probe.map { .bool($0.readable) } ?? .null,
         ])

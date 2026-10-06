@@ -275,6 +275,27 @@ final class S2CommandTests: XCTestCase {
         XCTAssertTrue(server.seen.isEmpty, "不得送出任何請求")
     }
 
+    /// 轉址不跟隨——**碰真的網路層**，不靠 URLProtocol stub（stub 自己決定要不要轉址，驗不到預設連線的真行為）。
+    /// 伺服器 A 回 302 指向伺服器 B：B 一個請求都不能收到，結束碼 5。
+    func testARealRedirectIsNotFollowed() throws {
+        let target = try LoopbackS2Server { _, _ in (200, [:], Data("{}".utf8)) }
+        defer { target.stop() }
+        let first = try LoopbackS2Server { _, _ in (302, ["Location": "http://127.0.0.1:\(target.port)/stolen"], Data()) }
+        defer { first.stop() }
+        let r = try CLITestHarness.run(["s2", "paper", "DOI:10.1/x"], env: env(["AKASHIC_S2_BASE_URL": first.baseURL]))
+        XCTAssertEqual(r.status, 5, r.output)
+        XCTAssertTrue(r.output.contains("302"), r.output)
+        XCTAssertEqual(first.seen.count, 1)
+        XCTAssertTrue(target.seen.isEmpty, "轉址目標不得收到任何請求")
+    }
+
+    /// `--ids-file` 的上限量的是**讀進來的位元組**，不是檔案屬性：裝置檔與 FIFO 的大小是 0，量屬性擋不住。
+    func testTheIdsFileCapHoldsForADeviceThatReportsSizeZero() throws {
+        let r = try CLITestHarness.run(["s2", "batch", "--ids-file", "/dev/zero"], env: env())
+        XCTAssertEqual(r.status, 1, r.output)
+        XCTAssertTrue(r.output.contains("256 KiB"), r.output)
+    }
+
     func testBatchRefusesAHugeIdsFileWithoutReadingItAll() throws {
         let file = NSTemporaryDirectory() + "ids-big-\(UUID().uuidString).txt"
         try String(repeating: "DOI:10.1/x\n", count: 40_000).write(toFile: file, atomically: true, encoding: .utf8)   // ≈ 440 KB

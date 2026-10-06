@@ -118,9 +118,9 @@ Crossref、ORCID、DOI 解析、出版商頁面）一直是 skill 層的事；�
      `~/Library/Caches/akashic/Cache.db`）。
    - **skill 與 agent 不得直接讀這個 keychain 項目。** 設定文件建議的 `-A` ACL 讓任何同使用者的程序
      （包括 agent 的 shell）不經提示就能 `security find-generic-password … -w` 印出金鑰，值會進對話或
-     log——接口自己永遠不印金鑰，但這條路不在接口裡。要確認金鑰在不在，用 `akashic s2 status`。
+     log——接口自己永遠不印金鑰，但這條路不在接口裡。要確認金鑰在不在，用 `akashic s2 status`。**也不代使用者存金鑰**：存金鑰是 user-only action——金鑰不進對話，`-w` 後面不接值、由使用者在自己的 Terminal 輸入（缺金鑰的錯誤訊息把指令直接給出來，是給使用者看的）。
    - **全機合計每秒至多 1 個請求。** 所有呼叫者以檔案鎖預約送出時段，429 的退避也共用；重試
-     用盡或 `Retry-After` 超過 60 秒即停（CLI 結束碼 4）。這是本類自帶的限流處理，不在上面
+     用盡、`Retry-After` 超過 60 秒、或另一個呼叫者記下的封鎖還剩超過 60 秒，都即停（CLI 結束碼 4）。這是本類自帶的限流處理，不在上面
      〈使用紀律〉中止條款的涵蓋範圍內——那條中止條款管的是 safari-browser 那條路。
    - **回傳是線索，不是寫入。** 兩個面都不開 store；要把 S2 給的值寫進 store，依據照
      `plugin/rules/source-of-truth-over-consent.md` 另行取得。
@@ -130,7 +130,7 @@ Crossref、ORCID、DOI 解析、出版商頁面）一直是 skill 層的事；�
      Crossref、ORCID 等不需金鑰的 API 照舊經 safari-browser；出現第二個需要金鑰的 API 時，要顯式
      新增一類（連同規則第 2 條與守衛的封閉清單），不從本類類推。
 
-## Semantic Scholar 的取得順序（封閉列舉：`akashic s2 status` 的結果只有三種處置）
+## Semantic Scholar 的取得順序（封閉列舉：`akashic s2 status` 的結果只有四種處置）
 
 使用者 2026-09-29（+08:00）裁決：「有 key 走 key，沒 key 最後才用 safari-browser」。skill 查 S2 之前先跑
 `akashic s2 status`（MCP 是 `akashic_s2` 的 `endpoint: status`，看 `keychain.present` 與
@@ -138,11 +138,16 @@ Crossref、ORCID、DOI 解析、出版商頁面）一直是 skill 層的事；�
 
 1. **結束碼 0（金鑰存在且可讀）→ 一律走〈例外〉第 2 類。** 這時**不得**經 safari-browser 查
    Semantic Scholar——那是用另一個額度打同一個主機、繞過全機節流的第二條路。
-2. **結束碼 3（沒有金鑰，或讀不到）→ 先請使用者設定金鑰**：指向
+2. **結束碼 3 且 `keychain.present` 為 false（keychain 裡沒有這個項目）→ 先請使用者設定金鑰**：指向
    `plugin/skills/akashic-bootstrap/references/semantic-scholar.md`，訊息裡的 service／account 照轉。
    使用者表示不設定、或這次設定不了，才**最後**經 safari-browser 查 S2：不帶金鑰，照本規則第 1 條與
    〈使用紀律〉的全部條款（鎖分頁、中止條款、讀大型回應後核對身分）。
-3. **其他任何結果 → 停下來回報，不退到 safari-browser。** 這一條把前兩條沒列的結果寫明，它不是第三種
+3. **結束碼 3 但 `keychain.present` 為 true（項目在，現在讀不到）→ 不是沒有金鑰，停下來回報。** 多半是
+   keychain 鎖著（SSH、背景工作階段最常見）或存取權限不允許無提示讀取：請使用者解鎖，或照設定文件
+   〈結束碼 3：兩種原因〉改權限。**不叫使用者重存金鑰**（項目已存在，`add-generic-password` 會回重複項目），
+   **更不退到 safari-browser**——金鑰明明在，退過去就是「有 key 卻不走 key」，而且繞過全機節流。
+   （`status --json` 兩個欄位都看得到；MCP 的 `status` 回 `keychain.present`／`keychain.readable`。）
+4. **其他任何結果 → 停下來回報，不退到 safari-browser。** 這一條把前面沒列的結果寫明，它不是另一種
    「沒有金鑰」：結束碼 1（`AKASHIC_S2_*` 環境覆寫被拒——改環境）；結束碼 64 或 MCP 的「未知工具」
    （裝的 `akashic`／`akashic-mcp` 比 #664 舊，plugin 釘的 binary 版本可能還沒有這個工具——更新或重建，
    見 #633，之後再問使用者）。把這些當成沒有金鑰而退到頁面，等於在接口壞掉時悄悄換一條不受節流保護的路。

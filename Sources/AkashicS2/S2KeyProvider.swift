@@ -30,7 +30,7 @@ public enum S2KeyError: Error, Equatable, CustomStringConvertible, SanitizedErro
         switch self {
         case .missing(let s, let a):
             // 錯誤訊息本身帶可以照著做的指令：只裝 plugin 的使用者讀不到 repo 內的設定文件。`-w` 後面不接金鑰，系統會提示輸入。
-            return "找不到 Semantic Scholar 的 API 金鑰：keychain 裡沒有 service「\(s)」、account「\(a)」的項目。在 Terminal 執行 security add-generic-password -s \"\(s)\" -a \"\(a)\" -A -w（-w 後面不要接金鑰，系統會提示你輸入）。說明見 \(doc)（plugin 使用者：plugin 安裝處的 skills/akashic-bootstrap/references/semantic-scholar.md）"   // display-safe-exempt: s、a 建構端已 displaySafeInvisible；doc 是常量
+            return "找不到 Semantic Scholar 的 API 金鑰：keychain 裡沒有 service「\(s)」、account「\(a)」的項目。請你自己在 Terminal 執行 security add-generic-password -s \"\(s)\" -a \"\(a)\" -A -w（-w 後面不要接金鑰，系統會提示你輸入；AI agent 不要代跑，金鑰也不要貼進對話）。說明見 \(doc)"   // display-safe-exempt: s、a 建構端已 displaySafeInvisible；doc 是常量
         case .notReadable(let s, let a):
             // -25308 既是「存取權限需要提示」也是「keychain 鎖著」，兩者回同一個狀態碼，所以兩個原因都講、先講便宜的那個。
             return "keychain 裡有 service「\(s)」、account「\(a)」的項目，但現在無法在不跳出授權框的情況下讀取它。可能的原因，依序檢查：(1) keychain 鎖著（SSH 或背景工作階段最常見）——先解鎖；(2) 項目的存取權限不允許——把它改成所有 app 可讀，做法見 \(doc)"   // display-safe-exempt: s、a 建構端已 displaySafeInvisible；doc 是常量

@@ -519,8 +519,8 @@ write、last-wins、index 冪等重建（單人場景設計）。
 - **金鑰在 keychain**：generic password，service `semantic-scholar`、account `default`；不收環境變數或指令參數。沒有金鑰就停在結束碼 3，不退回匿名請求。存法、ACL 的取捨與結束碼 3 的兩種原因見 [`plugin/skills/akashic-bootstrap/references/semantic-scholar.md`](plugin/skills/akashic-bootstrap/references/semantic-scholar.md)；`akashic s2 status` 檢查金鑰是否存在且可讀，不印金鑰。
 - **全機每秒至多 1 個請求**：CLI、MCP server 與多個 session 共用狀態檔 `~/Library/Caches/akashic/s2-throttle` 排送出時段；收到 429 時所有呼叫者一起退避。
 - **結束碼**：0 成功、1 環境覆寫或輸入檔有誤、3 金鑰不可用、4 限流用盡、5 S2 或網路錯誤、64 參數錯誤。逐碼的意思在上面那份文件。
-- **兩面的差別**：CLI 的輸出不截（`--json` 為 `{source, endpoint, request, fetchedAt, total, data}`）；MCP 一次只回完整的筆數、整份以 48 KiB 為上限，`truncated` 時以 `nextOffset` 續查。
-- **這是 Akashic 唯一會連網、會讀 keychain 的 Swift 程式碼**：`URLSession`、`SecItem` 這類網路與 keychain API 只准出現在 `Sources/AkashicS2/`，由 `akashic-guards network-confinement` 機械地檢查。其他外部取得（OpenAlex、Crossref、ORCID、出版商頁）照舊由 skill 經 safari-browser 做（`.claude/rules/web-access-via-safari-browser.md`）；帶金鑰的 S2 呼叫是那條規則的封閉例外，因為頁內 fetch 得把金鑰交給 `safari-browser js` 的指令參數，會出現在 process list（#640）。
+- **兩面的差別**：CLI 的輸出不截（`--json` 為 `{source, endpoint, request, fetchedAt, total, data}`）；MCP 一次只回完整的筆數、整份以 48 KiB 為上限；**續查看 `nextOffset`**（非 null 就當下一次的 `offset`，null 是沒有下一頁），`truncated` 只表示被上限截斷。
+- **這是 Akashic 唯一會連網、會讀 keychain 的 Swift 程式碼**：`URLSession`、`SecItem` 這類網路與 keychain API 只准出現在 `Sources/AkashicS2/`，由 `akashic-guards network-confinement` 檢查——那是字面的封閉清單，擋得住這幾個字樣出現在別處，證明不了沒有別的連網途徑（子行程、動態載入）。其他外部取得（OpenAlex、Crossref、ORCID、出版商頁）照舊由 skill 經 safari-browser 做（`.claude/rules/web-access-via-safari-browser.md`）；帶金鑰的 S2 呼叫是那條規則的封閉例外，因為頁內 fetch 得把金鑰交給 `safari-browser js` 的指令參數，會出現在 process list（#640）。
 
 ## 輸出消毒（`displaySafe` / `documentSafe`）與它的機械守衛
 

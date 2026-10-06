@@ -44,3 +44,11 @@
 - [x] 9.4 JSON 面的清理改為字串原樣＋序列化後無損逃脫（`documentSafeJSON`）；位元組上限量實際輸出
 - [x] 9.5 其餘程式修正：空白 `--title`／`--name` 回 64、`--ids-file` 大小上限與識別碼形狀檢查、金鑰錯誤訊息帶可照做的指令並先講「keychain 鎖著」
 - [x] 9.6 規則、規格與文件：取得順序補「其他結果停下回報」、`mcp-cli-parity` 例外改封閉列舉、`-T` 兩個 binary、skill／agent 不得直接讀 keychain 項目、`akashic_s2` 附在 tools 陣列最後、proposal Impact 補齊、偏離與未修的項目記入 design
+
+## 10. verify R2 修正（修正輪的六席驗證：沒有 HIGH、9 個 MEDIUM；2026-10-06）
+
+- [x] 10.1 連線層的保證：逐請求的 `cachePolicy` 擋不住寫入（R2 實測），所以注入的連線若帶磁碟快取就拒絕（`S2Client.isCacheFree`）；預設連線全程序共用一個（`S2Client.defaultSession`，每次新建會在長駐的 MCP server 裡隨呼叫次數增長）。碰真網路層的轉址測試 `testARealRedirectIsNotFollowed` 做過變異檢查
+- [x] 10.2 `Retry-After` 封頂一天（`Int.max` 轉 `Int(delay)` 會讓整個程序當掉）；`backOff` 先清掉過期的遠期狀態再合併；`--ids-file` 的上限量讀進來的位元組（`/dev/zero` 與 FIFO 量屬性擋不住）；`setupDocument` 兩種位置都寫；缺金鑰的訊息註明請使用者自己執行、agent 不代跑
+- [x] 10.3 取得順序補洞：結束碼 3 且 `keychain.present` 為 true（項目在、讀不到）不是沒有金鑰，停下請使用者解鎖或改權限，不退到 safari-browser；skill／agent 不代使用者存金鑰
+- [x] 10.4 文字追上契約：parity 表 `akashic_s2` 列（續查看 `nextOffset`、JSON 面無損、結束碼清單、MCP 專有的三項限制）、README、規格的過期狀態情境、設定文件的過期門檻與 `recommend` 的建議、`network-confinement` 的「字面清單、不是證明」
+- [x] 10.5 追蹤與記錄：「不跳授權框」的人工實機驗證追蹤在 #725；金鑰輪替（使用者 2026-10-06 裁決沿用）、`AKASHIC_S2_STATE_DIR` 正式環境也接受、硬連結、`nextOffset` 以筆數計、預約時段的 60 秒門檻，都記進 design 的「看過但沒有修」表

@@ -3,7 +3,8 @@
 // **為什麼有這支**：Akashic 的核心是離線的——store 在本機，外部查詢走 safari-browser、
 // 由人在場（`web-access-via-safari-browser.md`）。#664 開了唯一一個例外：帶金鑰的
 // Semantic Scholar 呼叫，而它被收在獨立的 target `AkashicS2`。這支把「只有那一個 target」
-// 變成機械可判定的事：之後的改動若在別處開出第二條網路路徑、或在別處讀 keychain，這裡會紅。
+// 變成機械可判定的事：之後的改動若在別處用到下面清單上的字樣來開出第二條網路路徑或讀 keychain，這裡會紅。
+// **它是字面的封閉清單，不是證明**：子行程（`Process` 叫 `curl` 以外的東西）、動態載入、清單上沒有的 API，它看不到——那些靠程式審查。
 //
 // **判準是字樣，不是語意**：下面九個字樣只准出現在 `Sources/AkashicS2/`。**註解也計入**
 // ——量測（2026-09-29，`grep -rnF` 對 `Sources/` 下全部 `.swift`）：這些字樣在 AkashicS2

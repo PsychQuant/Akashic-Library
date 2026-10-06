@@ -61,7 +61,7 @@
 - `x-api-key` 只在請求的 host 恰為 `api.semanticscholar.org` 且 scheme 為 `https` 時附上。
 - 金鑰以一個 description 一律回 `<redacted>` 的型別持有，避免被字串插值或 log 意外印出。
 - 不提供環境變數或指令參數當金鑰來源：同使用者的程序可以用 `ps -E` 看到環境變數。
-- **連線不留任何落盤的東西**（verify R1）：預設的共用 `URLSession` 帶著 `URLCache`，S2 的回應沒有 `Cache-Control`，GET 會被啟發式快取，序列化的請求（含 `x-api-key`）寫進 `~/Library/Caches/<程序名>/Cache.db`（實測：本機 8.3 的實機驗證留下一筆）。所以預設連線是 `URLSessionConfiguration.ephemeral`，`urlCache`、`httpCookieStorage` 都是 nil；每個請求另外帶 `reloadIgnoringLocalAndRemoteCacheData` 與不處理 cookie，換成注入的連線也一樣。
+- **連線不留任何落盤的東西**（verify R1）：預設的共用 `URLSession` 帶著 `URLCache`，S2 的回應沒有 `Cache-Control`，GET 會被啟發式快取，序列化的請求（含 `x-api-key`）寫進 `~/Library/Caches/<程序名>/Cache.db`（實測：本機 8.3 的實機驗證留下一筆）。所以預設連線是 `URLSessionConfiguration.ephemeral`，`urlCache`、`httpCookieStorage` 都是 nil；每個請求另外帶 `reloadIgnoringLocalAndRemoteCacheData` 與不處理 cookie——**那只管「讀不讀快取」，不管「存不存」**（R2 實測：帶磁碟快取的連線照樣把含 `x-api-key` 的請求存進 `Cache.db`，task delegate 的 `willCacheResponse` 也不會被呼叫），所以保證放在連線這一層：`S2Client.init` 拒絕 `urlCache` 帶磁碟容量的注入連線（`S2Client.isCacheFree`），預設連線全程序共用一個（`S2Client.defaultSession`；每次新建一個，長駐的 `akashic-mcp` 會隨呼叫次數增長）。
 - **不跟隨轉址**（verify R1）：host 規則只檢查第一個網址，而 URLSession 轉址時把自訂 header 原樣帶到新位址。每個請求帶一個 task delegate 把 3xx 當成最終回應交還，`S2Client` 把它報成錯誤（結束碼 5，訊息帶狀態碼），不對轉址目標送任何請求。S2 的 API 本來就不該轉址，所以沒有「同主機的轉址放行」這種例外。
 
 ### 跨程序節流：預約時段，429 退避共用
@@ -179,7 +179,12 @@ pai-ensemble 六席驗證（4 lens＋DA＋Codex）判 FAIL，49 條合併為 33 
 | bootstrap SKILL.md 與 `web-access.md` 的取得順序段落 | 見〈Non-Goals〉的例外：路由文字，不是接線；#665 要知道這段文字已經存在，避免兩處分岔 |
 | `status` 的結束碼 | 取得順序只列 0 與 3；其他結果（1＝環境覆寫被拒；64 或「未知工具」＝裝的 binary 比本單舊）一律**停下來回報**，不退回 safari-browser（規則〈取得順序〉）。`AKASHIC_S2_BASE_URL` 生效時 `status` 不讀 keychain、回 0，只用於測試 |
 | 識別碼保留 `/` | **沒有修**（第 18 列）：DOI、`URL:`、舊式 arXiv id 都含 `/`，不能一律編碼；識別碼是呼叫者自己給的，改指到的是同一個 S2 主機上的另一個 GET，不外洩金鑰、不寫入。`.`／`..` 片段照舊拒絕 |
-| 非互動讀取的「不跳框」 | **沒有自動測試**（第 10 列）：見〈驗收條件〉的「尚未驗證」，風險是卡住不是外洩 |
+| 非互動讀取的「不跳框」 | **沒有自動測試**（第 10 列）：見〈驗收條件〉的「尚未驗證」，風險是卡住不是外洩。**追蹤在 #725**（一次性的人工實機驗證）——規格的 SHALL 不因為 #664 結案而沒有人看 |
+| 金鑰輪替 | R1 建議輪替（舊金鑰曾被 URLCache 寫進 `Cache.db`）。**使用者 2026-10-06 裁決沿用舊金鑰**，不輪替。修正後已刪掉那些快取檔；刪檔不保證磁碟區塊被覆寫，也不處理 Time Machine 與本機快照——接受，理由：`~/Library/Caches` 是 0700、`-A` 的威脅模型本來就接受同使用者的程序讀得到金鑰 |
+| `AKASHIC_S2_STATE_DIR` 在正式環境也被接受 | **沒有修**（R2 第 11／24／29／35 列）：它能把節流狀態檔指到別處、讓兩個程序不再共用全機額度。另兩個覆寫有「只指向測試用的東西」的判別式（loopback、`akashic-test-` 前綴），這一個沒有，也沒有「正式／測試」的判別。只接受絕對路徑；影響範圍是使用者自己設的環境變數拆開自己的節流，不外洩金鑰、不寫別人的檔。要擋得先有判別式，那是另一個決定 |
+| 節流狀態檔的硬連結 | **沒有修**（R2 第 29 列）：`O_NOFOLLOW` 擋 symlink，不擋硬連結；狀態檔只含時間戳，硬連結讓別的檔被寫進 JSON 的前提是攻擊者已能在同一個 0700 目錄建檔 |
+| `nextOffset` 數的是筆數，不是 S2 的位置 | **沒有修**（R2 第 16 列）：S2 回短頁時 `offset + returned` 與 S2 的 `next` 可能差一段；`paginate` 本身照 `next` 翻（所以 CLI 不受影響），MCP 的 `nextOffset` 以筆數計。S2 的 `next` 在實測中等於 offset 加回傳筆數，目前沒有量到分歧 |
+| 預約時段的 60 秒過期門檻 | **沒有改**（R2 第 17／33 列）：`nextAllowedAt` 仍用 60 秒，所以排在短封鎖後面的隊伍在封鎖結束後可能被重設為「現在」；放行間隔由 `release()` 在鎖內保證（#701），所以結果只是排隊順序不嚴格，不會超速 |
 | `network-confinement` | 字面的封閉清單，不證明沒有別的連網途徑；文件已改成這樣說 |
 | `-A` ACL | 同使用者的任何程序（包括 agent 的 shell）不經提示就能讀到金鑰；規則與設定文件明寫「skill 與 agent 不得直接讀這個項目」，見規則〈例外〉第 2 類 |
 

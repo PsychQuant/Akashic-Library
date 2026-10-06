@@ -25,10 +25,30 @@ final class S2SessionHardeningTests: XCTestCase {
         XCTAssertEqual(c.requestCachePolicy, .reloadIgnoringLocalAndRemoteCacheData)
     }
 
-    func testEveryRequestOptsOutOfCachesAndCookiesEvenOnAnInjectedSession() throws {
+    /// 逐請求的旗標只管「讀不讀快取」，**不管「存不存」**（R2 實測：帶磁碟快取的連線照樣把含 `x-api-key` 的請求寫進
+    /// `Cache.db`；把 `willCacheResponse` 交給 task delegate 也沒用，它根本不會被呼叫）。所以保證在 session 這一層：
+    /// 注入的連線若帶磁碟快取就拒絕。旗標仍然帶著，只是不再宣稱它擋得住寫入。
+    func testEveryRequestStillAsksNotToReadCachesOrHandleCookies() throws {
         let r = try client().makeURLRequest(paper, key: S2APIKey(value: "k-123"))
         XCTAssertEqual(r.cachePolicy, .reloadIgnoringLocalAndRemoteCacheData)
         XCTAssertFalse(r.httpShouldHandleCookies)
+    }
+
+    func testASessionWithADiskCacheIsRefusedAndTheOnesWeUseAreNot() {
+        XCTAssertFalse(S2Client.isCacheFree(URLSession.shared), "共用連線帶磁碟快取")
+        let c = URLSessionConfiguration.ephemeral
+        c.urlCache = URLCache(memoryCapacity: 1 << 20, diskCapacity: 1 << 22,
+                              directory: FileManager.default.temporaryDirectory.appendingPathComponent("s2-cache-\(UUID().uuidString)"))
+        XCTAssertFalse(S2Client.isCacheFree(URLSession(configuration: c)))
+        XCTAssertTrue(S2Client.isCacheFree(S2Client.makeSession()))
+        XCTAssertTrue(S2Client.isCacheFree(StubURLProtocol.session()), "測試用的 stub 連線不帶磁碟快取")
+    }
+
+    /// 全程序共用一個預設連線：每次 MCP 呼叫都新建一個，長駐的 akashic-mcp 會隨呼叫次數長（R2 實測 2,000 次 +61 MiB；
+    /// 補 `invalidate` 只省約 5%，要共用才行）。
+    func testTheDefaultSessionIsOneSharedInstance() {
+        XCTAssertTrue(S2Client.defaultSession === S2Client.defaultSession)
+        XCTAssertTrue(S2Client.isCacheFree(S2Client.defaultSession))
     }
 
     // MARK: 不跟隨轉址

@@ -134,8 +134,11 @@ public final class S2FileThrottle: S2Throttling, @unchecked Sendable {
         try withLockedState { state in
             let t = now().timeIntervalSince1970
             let u = Swift.min(until.timeIntervalSince1970, t + Self.maxBackOff)
+            // 先清掉過期的遠期狀態（時鐘回撥、檔案損毀）再合併：否則 `max` 留下的是那個過期值，下次讀取把它清掉，新的退避就跟著不見。
+            _ = Self.remainingBlock(&state, at: t)
+            let next = state.nextAllowedAt - t > Self.blockStaleAfter ? t : state.nextAllowedAt
             state.blockedUntil = Swift.max(state.blockedUntil ?? 0, u)
-            state.nextAllowedAt = Swift.max(state.nextAllowedAt, u)
+            state.nextAllowedAt = Swift.max(next, u)
         }
     }
 

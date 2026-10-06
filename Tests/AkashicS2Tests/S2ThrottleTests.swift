@@ -156,6 +156,17 @@ final class S2ThrottleBackOffTests: XCTestCase {
         XCTAssertTrue(clock.slept.isEmpty)
     }
 
+    /// 狀態檔裡留著比一小時還遠的舊封鎖（時鐘回撥、檔案損毀）：新的 429 退避不能被它蓋掉。
+    func testAFreshBackOffSurvivesAStaleFarFutureBlockInTheFile() throws {
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let far = t0.addingTimeInterval(100_000).timeIntervalSince1970
+        try Data("{\"nextAllowedAt\":\(far),\"blockedUntil\":\(far)}".utf8).write(to: dir.appendingPathComponent("s2-throttle"))
+        let clock = FakeClock(t0)
+        let a = clock.throttle(dir)
+        try a.backOff(until: t0.addingTimeInterval(30))
+        XCTAssertGreaterThanOrEqual(try a.reserveSlot().timeIntervalSince(t0), 30, "新的退避不見了")
+    }
+
     // MARK: 狀態檔（#664 verify R1 第 20、23 列）
 
     /// 狀態檔若是 symlink，不跟隨——否則寫入會落到別處。
@@ -269,6 +280,15 @@ final class S2RetryTests: XCTestCase {
             XCTAssertTrue(reason.contains("120"), reason)
         }
         XCTAssertEqual(StubURLProtocol.requests.count, 0)
+    }
+
+    /// `Retry-After` 是對方給的任意整數：`Int.max` 轉成 `Int(delay)` 會讓整個程序當掉（MCP 時是整個 server）。
+    func testAnAbsurdRetryAfterIsRateLimitedAndDoesNotCrash() async {
+        let (r, throttle, sent) = await run([limited("9223372036854775807"), ok])
+        XCTAssertEqual(sent, 1)
+        guard case .failure(let e) = r, case .rateLimited? = e as? S2Error else { return XCTFail("expected rateLimited, got \(r)") }
+        XCTAssertEqual(throttle.backOffs.count, 1)
+        XCTAssertLessThanOrEqual(throttle.backOffs[0].timeIntervalSince(t0), 86_400)
     }
 
     func testRetryAfterSecondsAndHTTPDateAreHonoured() async {

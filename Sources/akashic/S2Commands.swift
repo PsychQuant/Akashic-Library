@@ -167,12 +167,21 @@ struct S2BatchCmd: ParsableCommand {
     @OptionGroup var options: S2Options
     static let maxIdsFileBytes = 256 * 1024
     func run() throws {
-        // 至多 500 個 id、每個至多 512 字元，遠小於 256 KiB；超過的不是 id 清單，不整份讀進來（也不 POST 給第三方）。
-        if let size = (try? FileManager.default.attributesOfItem(atPath: idsFile))?[.size] as? Int, size > Self.maxIdsFileBytes {
-            throw RuntimeFailure.state("--ids-file 超過 256 KiB（至多 500 個 id，不需要這麼大）：\(displaySafeInvisible(idsFile, max: 300))")
-        }
+        // 上限量的是**讀進來的位元組**：至多 500 個 id、每個至多 512 字元，遠小於 256 KiB；超過的不是 id 清單，
+        // 不整份讀進來、也不 POST 給第三方。不量檔案屬性——裝置檔與 FIFO 的大小是 0，`/dev/zero` 會讀不完。
         let text: String
-        do { text = try String(contentsOfFile: idsFile, encoding: .utf8) } catch {
+        do {
+            guard let handle = FileHandle(forReadingAtPath: idsFile) else { throw CocoaError(.fileReadNoSuchFile) }
+            defer { try? handle.close() }
+            let data = try handle.read(upToCount: Self.maxIdsFileBytes + 1) ?? Data()
+            if data.count > Self.maxIdsFileBytes {
+                throw RuntimeFailure.state("--ids-file 超過 256 KiB（至多 500 個 id，不需要這麼大）：\(displaySafeInvisible(idsFile, max: 300))")
+            }
+            guard let decoded = String(data: data, encoding: .utf8) else { throw CocoaError(.fileReadInapplicableStringEncoding) }
+            text = decoded
+        } catch let failure as RuntimeFailure {
+            throw failure
+        } catch {
             throw RuntimeFailure.state("讀不到 --ids-file：\(displaySafeInvisible(idsFile, max: 300))")
         }
         let ids = text.split(whereSeparator: \.isNewline)

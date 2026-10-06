@@ -14,7 +14,8 @@ public struct S2Settings: Sendable, Equatable {
     /// 但無法把讀取指向任何真實項目。
     public static let testServicePrefix = "akashic-test-"
     /// 給使用者的金鑰設定文件（錯誤訊息引用它）。
-    public static let setupDocument = "plugin/skills/akashic-bootstrap/references/semantic-scholar.md"
+    /// 只裝 plugin 的使用者讀不到 repo 內的路徑，所以兩種位置都寫。
+    public static let setupDocument = "plugin/skills/akashic-bootstrap/references/semantic-scholar.md（只裝 plugin 的使用者：plugin 安裝處的 skills/akashic-bootstrap/references/semantic-scholar.md）"
 
     /// 請求送往哪裡。「讀不讀 keychain」由它推導，不另設旗標——
     /// 兩者分開存放時會出現「覆寫了網址卻還讀金鑰」這種不一致的組合。
@@ -203,6 +204,17 @@ public final class S2Client: Sendable {
         return URLSession(configuration: config)
     }
 
+    /// 全程序共用的預設連線。每次呼叫都新建一個，長駐的 `akashic-mcp` 會隨呼叫次數增長（R2 實測 2,000 次約 +61 MiB；
+    /// 每次補 `invalidate` 只省約 5%）。連線本身無快取、無 cookie，共用沒有跨呼叫的狀態。
+    public static let defaultSession: URLSession = makeSession()
+
+    /// 這個連線會不會把請求寫進磁碟快取。**逐請求的 `cachePolicy` 擋不住寫入**（它只管讀；R2 實測：帶磁碟快取的連線照樣把含
+    /// `x-api-key` 的請求存進 `Cache.db`，task delegate 的 `willCacheResponse` 也不會被呼叫），所以保證在連線這一層。
+    public static func isCacheFree(_ session: URLSession) -> Bool {
+        guard let cache = session.configuration.urlCache else { return true }
+        return cache.diskCapacity == 0
+    }
+
     public let settings: S2Settings
     let keyProvider: S2KeyProviding
     let throttle: S2Throttling
@@ -210,7 +222,10 @@ public final class S2Client: Sendable {
     let now: @Sendable () -> Date
 
     public init(settings: S2Settings, keyProvider: S2KeyProviding, throttle: S2Throttling,
-                session: URLSession = S2Client.makeSession(), now: @escaping @Sendable () -> Date = { Date() }) {
+                session: URLSession = S2Client.defaultSession, now: @escaping @Sendable () -> Date = { Date() }) {
+        // 注入的連線若帶磁碟快取，含金鑰的請求會被寫進磁碟（見 `isCacheFree`）。兩條出貨路徑都用預設連線；
+        // 這一行擋的是呼叫端換進來的連線，不是使用者輸入。
+        precondition(Self.isCacheFree(session), "S2Client 不接受帶磁碟快取的 URLSession：含 x-api-key 的請求會被寫進磁碟")
         self.settings = settings
         self.keyProvider = keyProvider
         self.throttle = throttle
@@ -274,19 +289,22 @@ public final class S2Client: Sendable {
 
     static let maxRetries = 3
     static let maxRetryAfter: TimeInterval = 60
+    /// 解析 `Retry-After` 時的封頂（一天）。
+    static let maxParsedRetryAfter: TimeInterval = 86_400
     /// 沒有 `Retry-After` 時第 1、2、3 次重試前的等待。
     static let defaultBackOff: [TimeInterval] = [2, 4, 8]
 
     /// `Retry-After` 可以是秒數或 HTTP-date（RFC 9110）；無法解讀時回 nil。
     static func retryAfter(_ header: String?, now: Date) -> TimeInterval? {
         guard let raw = header?.trimmingCharacters(in: .whitespaces), !raw.isEmpty else { return nil }
-        if let seconds = Int(raw), seconds >= 0 { return TimeInterval(seconds) }
+        // 對方給的任意整數：`Int.max` 之類轉成 `Int(delay)` 會讓整個程序當掉。超過一天的等待與超過一分鐘沒有差別（都是限流用盡），封頂。
+        if let seconds = Int(raw), seconds >= 0 { return Swift.min(TimeInterval(seconds), maxParsedRetryAfter) }
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone(identifier: "GMT")
         formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss 'GMT'"
         guard let date = formatter.date(from: raw) else { return nil }
-        return Swift.max(0, date.timeIntervalSince(now))
+        return Swift.min(Swift.max(0, date.timeIntervalSince(now)), maxParsedRetryAfter)
     }
 
     /// 組出 `URLRequest`。`x-api-key` 只在 `attachesKey(to:)` 成立時附上。
@@ -310,7 +328,7 @@ public final class S2Client: Sendable {
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = request.method.rawValue
         urlRequest.timeoutInterval = 60
-        // 換了別的 session（測試、呼叫端注入）也一樣不快取、不帶 cookie。
+        // 只管「讀不讀快取」與 cookie，**不管「存不存」**——存不存由連線決定（`makeSession`、`isCacheFree`）。
         urlRequest.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
         urlRequest.httpShouldHandleCookies = false
         if let body = request.body {

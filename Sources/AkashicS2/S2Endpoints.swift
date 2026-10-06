@@ -38,7 +38,8 @@ public enum S2ArgumentError: Error, Equatable, CustomStringConvertible, Sanitize
     case unknownEndpoint(String)
     case missingArgument(endpoint: String, name: String)
     /// 不像識別碼的一行（含空白或控制字元，或太長）：`batch` 的 id 會 POST 給第三方，送出前先擋。
-    case malformedIdentifier(endpoint: String, identifier: String)
+    /// 只說第幾個，不回顯內容：那一行可能是使用者不該貼進來的東西，訊息會進終端或 agent 的對話。
+    case malformedIdentifier(endpoint: String, position: Int)
 
     public var description: String {
         switch self {
@@ -52,7 +53,7 @@ public enum S2ArgumentError: Error, Equatable, CustomStringConvertible, Sanitize
         case .unknownEndpoint(let e):
             return "endpoint 必須是 \(S2Tool.endpointNames.joined(separator: "、")) 之一；收到「\(e)」"   // display-safe-exempt: S2Tool 的 endpointNames 是常量清單；e 擲出端已 displaySafeInvisible
         case .missingArgument(let e, let n): return "\(e) 需要參數 \(n)"   // display-safe-exempt: e、n 擲出端已 displaySafeInvisible
-        case .malformedIdentifier(let e, let id): return "\(e) 的識別碼「\(id)」不像 S2 的識別碼（含空白或控制字元，或超過 \(S2Endpoints.maxIdentifierLength) 個字元），不送出"   // display-safe-exempt: e、id 擲出端已 displaySafeInvisible；S2Endpoints.maxIdentifierLength 是常量
+        case .malformedIdentifier(let e, let position): return "\(e) 的第 \(position) 個識別碼（空白的不算）不像 S2 的識別碼（含空白或控制字元，或超過 \(S2Endpoints.maxIdentifierLength) 個字元），不送出"   // display-safe-exempt: e 擲出端已 displaySafeInvisible；position 是 Int；S2Endpoints.maxIdentifierLength 是常量
         }
     }
 }
@@ -145,9 +146,9 @@ public struct S2Endpoints: Sendable {
         // 空白的 id 丟掉——CLI 讀檔時本來就丟，MCP 與 CLI 在同一個地方做，兩面不會分岔。
         let cleaned = ids.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
         guard Self.batchRange.contains(cleaned.count) else { throw S2ArgumentError.batchSize(cleaned.count) }
-        for id in cleaned where id.count > Self.maxIdentifierLength
+        for (index, id) in cleaned.enumerated() where id.count > Self.maxIdentifierLength
             || id.unicodeScalars.contains(where: { CharacterSet.whitespacesAndNewlines.contains($0) || CharacterSet.controlCharacters.contains($0) }) {
-            throw S2ArgumentError.malformedIdentifier(endpoint: "batch", identifier: displaySafeInvisible(id, max: 80))
+            throw S2ArgumentError.malformedIdentifier(endpoint: "batch", position: index + 1)   // display-safe-exempt: index + 1 是 Int（第幾個）
         }
         let normalized = cleaned.map(Self.normalizePaperID)
         let body = try JSONEncoder().encode(["ids": normalized])

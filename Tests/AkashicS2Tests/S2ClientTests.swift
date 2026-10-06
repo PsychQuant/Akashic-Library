@@ -1,5 +1,6 @@
 import XCTest
 @testable import AkashicS2
+import AkashicCore
 
 /// #664 任務 1.1：三個測試覆寫的解析（Requirement「Test overrides are confined」）。
 /// 期望值一律寫成字面值，不呼叫被測程式推導。
@@ -143,6 +144,34 @@ final class S2KeyProviderTests: XCTestCase {
         XCTAssertTrue(missing.contains("semantic-scholar.md"), missing)
         let unreadable = String(describing: S2KeyError.notReadable(service: "semantic-scholar", account: "default"))
         XCTAssertTrue(unreadable.contains("所有 app"), unreadable)
+    }
+
+    /// `present` 只有一個意思：keychain 明確回答「找不到」才是 false。其他狀態（鎖著、權限、其他 keychain 錯誤）都不是
+    /// 「沒有金鑰」——取得順序靠它分辨「先請使用者設定」與「停下回報」，分錯就會在金鑰存在時退到不受節流的頁面路徑（R3）。
+    func testPresentIsFalseOnlyWhenTheKeychainSaysNotFound() {
+        XCTAssertFalse(S2KeychainKeyProvider.itemMayExist(forAttributeStatus: -25300), "errSecItemNotFound")
+        for status: Int32 in [0, -25308, -25293, -25291, -25294, -34018, -25299] {
+            XCTAssertTrue(S2KeychainKeyProvider.itemMayExist(forAttributeStatus: status), "OSStatus \(status)")
+        }
+    }
+
+    /// 缺金鑰的訊息拆成多行：每行都在 400 個 scalar 的行長上限以內，plugin 安裝處的路徑不會被截掉。
+    func testMissingKeyMessageKeepsEveryLineWithinTheLineCapAndNamesBothDocumentLocations() {
+        let m = displaySafeErrorText(S2KeyError.missing(service: "semantic-scholar", account: "default"))
+        XCTAssertTrue(m.contains("plugin"), m)
+        XCTAssertTrue(m.contains("-A＝所有 app 可讀") || m.contains("所有 app 可讀"), "要說 -A 給了什麼：\(m)")
+        XCTAssertTrue(m.split(separator: "\n").allSatisfy { $0.unicodeScalars.count < 400 }, m)
+        let out = displaySafeErrorMultiline(S2KeyError.missing(service: "semantic-scholar", account: "default"), prefix: "Error: ")
+        XCTAssertTrue(out.contains(S2Settings.setupDocumentInPlugin), "被截掉了：\(out)")
+    }
+
+    /// 解鎖與重存都是使用者自己的動作：登入密碼不進對話、agent 不代跑（R3 第 4 列）。
+    func testUnlockAndRestoreInstructionsAreUserOnly() {
+        let m = displaySafeErrorText(S2KeyError.notReadable(service: "semantic-scholar", account: "default"))
+        XCTAssertTrue(m.contains("security unlock-keychain"), m)
+        XCTAssertTrue(m.contains("不要加 -p"), m)
+        XCTAssertTrue(m.contains("不要貼進對話"), m)
+        XCTAssertTrue(m.contains("不要代跑"), m)
     }
 
     /// 只裝 plugin 的使用者讀不到 repo 內的設定文件：錯誤訊息本身就要有可以照著做的指令（#664 verify R1 第 26 列）。
@@ -448,6 +477,21 @@ final class S2EndpointsTests: XCTestCase {
             try await e.recommend(id: "DOI:10.1/x", limit: 5, fields: []),
         ]
         for r in results { XCTAssertNil(r.hasMore, r.endpoint) }
+    }
+
+    /// 被拒的識別碼不回顯內容（只說第幾個）：整行可能是使用者不該貼進來的東西，訊息會進終端或 agent 的對話（R3）。
+    func testAMalformedIdentifierIsReportedByPositionWithoutEchoingIt() async throws {
+        StubURLProtocol.install { _ in Self.json([]) }
+        do {
+            _ = try await endpoints().batch(ids: ["DOI:10.1/ok", "token=SECRET-VALUE with spaces"], fields: [])
+            XCTFail("應該拒絕")
+        } catch {
+            XCTAssertEqual(error as? S2ArgumentError, .malformedIdentifier(endpoint: "batch", position: 2))
+            let text = displaySafeErrorText(error)
+            XCTAssertTrue(text.contains("2"), text)
+            XCTAssertFalse(text.contains("SECRET-VALUE"), text)
+        }
+        XCTAssertEqual(StubURLProtocol.requests.count, 0)
     }
 
     func testBatchDropsBlankIdsLikeTheCLIDoes() async throws {

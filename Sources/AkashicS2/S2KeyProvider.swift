@@ -26,16 +26,35 @@ public enum S2KeyError: Error, Equatable, CustomStringConvertible, SanitizedErro
     case keychain(status: Int32)
 
     public var description: String {
-        let doc = S2Settings.setupDocument
+        let doc = S2Settings.setupDocument, pluginDoc = S2Settings.setupDocumentInPlugin
         switch self {
         case .missing(let s, let a):
-            // 錯誤訊息本身帶可以照著做的指令：只裝 plugin 的使用者讀不到 repo 內的設定文件。`-w` 後面不接金鑰，系統會提示輸入。
-            return "找不到 Semantic Scholar 的 API 金鑰：keychain 裡沒有 service「\(s)」、account「\(a)」的項目。請你自己在 Terminal 執行 security add-generic-password -s \"\(s)\" -a \"\(a)\" -A -w（-w 後面不要接金鑰，系統會提示你輸入；AI agent 不要代跑，金鑰也不要貼進對話）。說明見 \(doc)"   // display-safe-exempt: s、a 建構端已 displaySafeInvisible；doc 是常量
+            // 多行：行長上限是每行 400 個 scalar，單行會把最後一個文件位置截掉。錯誤訊息本身帶可以照著做的指令（只裝 plugin 的使用者
+            // 讀不到 repo 內的設定文件）；`-w` 後面不接金鑰。存金鑰是使用者自己的動作，金鑰不進對話。
+            return """
+            找不到 Semantic Scholar 的 API 金鑰：keychain 裡沒有 service「\(s)」、account「\(a)」的項目。
+            請你自己在 Terminal 執行下面這行（-w 後面不要接金鑰，系統會提示你輸入；AI agent 不要代跑，金鑰也不要貼進對話）：
+            security add-generic-password -s "\(s)" -a "\(a)" -A -w
+            （-A＝所有 app 可讀：同一使用者的任何程序都讀得到這把金鑰，取捨見說明）
+            說明見 \(doc)
+            只裝 plugin 的話見 \(pluginDoc)
+            """   // display-safe-exempt: s、a 建構端已 displaySafeInvisible；doc、pluginDoc 是常量
         case .notReadable(let s, let a):
             // -25308 既是「存取權限需要提示」也是「keychain 鎖著」，兩者回同一個狀態碼，所以兩個原因都講、先講便宜的那個。
-            return "keychain 裡有 service「\(s)」、account「\(a)」的項目，但現在無法在不跳出授權框的情況下讀取它。可能的原因，依序檢查：(1) keychain 鎖著（SSH 或背景工作階段最常見）——先解鎖；(2) 項目的存取權限不允許——把它改成所有 app 可讀，做法見 \(doc)"   // display-safe-exempt: s、a 建構端已 displaySafeInvisible；doc 是常量
+            // 解鎖與重存都是使用者自己的動作：登入密碼比 S2 金鑰值錢得多，不進對話、不經 agent。
+            return """
+            keychain 裡有 service「\(s)」、account「\(a)」的項目，但現在無法在不跳出授權框的情況下讀取它。可能的原因，依序檢查：
+            (1) keychain 鎖著（SSH 或背景工作階段最常見）：請你在自己的 Terminal 執行 security unlock-keychain（不要加 -p，密碼由系統提示輸入；登入密碼不要貼進對話，AI agent 不要代跑）
+            (2) 項目的存取權限不允許：請你刪除該項目、照說明帶 -A 重存（改成所有 app 可讀；金鑰由你自己輸入，不要貼進對話）
+            說明見 \(doc)
+            只裝 plugin 的話見 \(pluginDoc)
+            """   // display-safe-exempt: s、a 建構端已 displaySafeInvisible；doc、pluginDoc 是常量
         case .invalidValue(let s, let a):
-            return "keychain 項目 service「\(s)」、account「\(a)」的內容不是可用的金鑰（空的、不是 UTF-8，或含換行等控制字元）。請重新存入，做法見 \(doc)"   // display-safe-exempt: s、a 建構端已 displaySafeInvisible；doc 是常量
+            return """
+            keychain 項目 service「\(s)」、account「\(a)」的內容不是可用的金鑰（空的、不是 UTF-8，或含換行等控制字元）。
+            請你自己重新存入（同一條指令加 -U 更新現有項目；金鑰由你自己輸入，不要貼進對話），做法見 \(doc)
+            只裝 plugin 的話見 \(pluginDoc)
+            """   // display-safe-exempt: s、a 建構端已 displaySafeInvisible；doc、pluginDoc 是常量
         case .keychain(let status):
             return "讀取 keychain 失敗（OSStatus \(status)）"   // display-safe-exempt: status 是 OSStatus（Int32）
         }
@@ -79,17 +98,17 @@ public struct S2KeychainKeyProvider: S2KeyProviding {
         return try Self.decode(data, service: service, account: account)
     }
 
+    /// `present` 只有一個意思：keychain **明確回答「找不到」**（`errSecItemNotFound`）才是 false。其他任何狀態——鎖著、
+    /// 權限、其他 keychain 錯誤——都不是「沒有金鑰」：取得順序靠這個欄位分辨「先請使用者設定」與「停下回報」，
+    /// 把不明的錯誤算成「沒有」，就會在金鑰存在時退到不受全機節流的頁面路徑（#664 verify R3）。
+    static func itemMayExist(forAttributeStatus status: Int32) -> Bool { status != errSecItemNotFound }
+
     public func probe() -> S2KeyProbe {
         var attributes: CFTypeRef?
         let status = SecItemCopyMatching(query(returningData: false) as CFDictionary, &attributes)
-        switch Self.classify(status: status, service: service, account: account) {
-        case .none, .notReadable?:
-            // 屬性查得到（或存在但受權限保護）＝存在；可讀與否要實際試讀。
-            let readable = (try? key()) != nil
-            return S2KeyProbe(present: true, readable: readable)
-        default:
-            return S2KeyProbe(present: false, readable: false)
-        }
+        guard Self.itemMayExist(forAttributeStatus: status) else { return S2KeyProbe(present: false, readable: false) }
+        // 屬性查得到（或存在但受權限保護、或 keychain 出了別的錯）：可讀與否要實際試讀。
+        return S2KeyProbe(present: true, readable: (try? key()) != nil)
     }
 
     private func query(returningData: Bool) -> [CFString: Any] {

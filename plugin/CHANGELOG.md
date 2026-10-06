@@ -1,5 +1,16 @@
 # Changelog
 
+## #664 — Semantic Scholar 共用接口：MCP 工具 `akashic_s2`、取得順序、設定文件（2026-10-06）
+
+細節在 `changelog/2026-10-06-s2-interface-664.md`。
+
+- **新 MCP 工具 `akashic_s2`**（與 CLI `akashic s2 …` 共用 `AkashicS2`）：八個端點加 `status`；金鑰從 keychain 讀、全機每秒至多 1 個請求、只讀。附在 `tools/list` 陣列最後，不改變其他工具的順序。**需要新的 `akashic-mcp`**：plugin 釘的 `binary_version`（0.12.1）沒有這個工具，在發布之前 skill 遇到「未知工具」會停下回報、不退到 safari-browser（#633）。
+- **`akashic-bootstrap` 的 `SKILL.md`、`references/web-access.md`**：S2 不走 safari-browser，查之前先看 `status` 的 `keychain.present`／`readable`，不只看結束碼（找不到 → 請使用者自己存金鑰、最後才經 safari-browser 不帶金鑰查；項目在但讀不到、其他結果 → 停下回報）。這是路由文字，不是接線——bootstrap 還沒有開始用 S2 補欄位（#665）。
+- **新的 `references/semantic-scholar.md`**：存金鑰（使用者自己在 Terminal 執行，金鑰不進對話）、`-A` 的取捨、結束碼 3 的原因與處置、續查看 `nextOffset`。
+- `tools/list`：35 個工具、59,137 位元組。
+
+plugin 版號沒有動（skill 文字的改動；工具要新的 `akashic-mcp`）。
+
 ## #692 — 分頁在已知的驗證服務上一律以頁面文字分（2026-10-05）
 
 使用者 2026-10-05 裁決（#692 第 2 項）：不論換到或直接落在驗證服務，都照中止條款以頁面文字分。細節在 `changelog/2026-10-05-b35-m2-verification-service-692.md`。

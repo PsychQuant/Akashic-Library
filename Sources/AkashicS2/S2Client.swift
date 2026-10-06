@@ -15,7 +15,9 @@ public struct S2Settings: Sendable, Equatable {
     public static let testServicePrefix = "akashic-test-"
     /// 給使用者的金鑰設定文件（錯誤訊息引用它）。
     /// 只裝 plugin 的使用者讀不到 repo 內的路徑，所以兩種位置都寫。
-    public static let setupDocument = "plugin/skills/akashic-bootstrap/references/semantic-scholar.md（只裝 plugin 的使用者：plugin 安裝處的 skills/akashic-bootstrap/references/semantic-scholar.md）"
+    public static let setupDocument = "plugin/skills/akashic-bootstrap/references/semantic-scholar.md"
+    /// 只裝 plugin 的使用者讀不到上面那個 repo 內的路徑；錯誤訊息把兩個位置分行寫，行長上限不會截掉第二個。
+    public static let setupDocumentInPlugin = "plugin 安裝處的 skills/akashic-bootstrap/references/semantic-scholar.md"
 
     /// 請求送往哪裡。「讀不讀 keychain」由它推導，不另設旗標——
     /// 兩者分開存放時會出現「覆寫了網址卻還讀金鑰」這種不一致的組合。
@@ -154,6 +156,9 @@ public enum S2Error: Error, Equatable, CustomStringConvertible, SanitizedErrorDe
     case network(endpoint: String, reason: String)
     case invalidResponse(endpoint: String)
     case invalidRequest(endpoint: String)
+    /// 注入的連線帶磁碟快取：含 `x-api-key` 的請求會被寫進磁碟。程式錯誤，不是使用者能修的——在讀金鑰之前就拒絕，
+    /// 以錯誤回報（MCP 時是 `isError`），不是讓整個程序 trap。
+    case unsafeSession(endpoint: String)
 
     public var description: String {
         switch self {
@@ -169,6 +174,8 @@ public enum S2Error: Error, Equatable, CustomStringConvertible, SanitizedErrorDe
             return "連線 Semantic Scholar 失敗（\(endpoint)）：\(reason)"   // display-safe-exempt: endpoint、reason 擲出端已 displaySafeInvisible
         case .invalidResponse(let endpoint):
             return "Semantic Scholar 的回應無法解讀（\(endpoint)）"   // display-safe-exempt: endpoint 擲出端已 displaySafeInvisible
+        case .unsafeSession(let endpoint):
+            return "拒絕送出 \(endpoint)：這個 URLSession 帶磁碟快取，含金鑰的請求會被寫進磁碟（程式錯誤，請回報；預設連線不帶快取）"   // display-safe-exempt: endpoint 擲出端已 displaySafeInvisible
         case .invalidRequest(let endpoint):
             return "無法組出 \(endpoint) 的請求網址"   // display-safe-exempt: endpoint 擲出端已 displaySafeInvisible
         }
@@ -223,9 +230,6 @@ public final class S2Client: Sendable {
 
     public init(settings: S2Settings, keyProvider: S2KeyProviding, throttle: S2Throttling,
                 session: URLSession = S2Client.defaultSession, now: @escaping @Sendable () -> Date = { Date() }) {
-        // 注入的連線若帶磁碟快取，含金鑰的請求會被寫進磁碟（見 `isCacheFree`）。兩條出貨路徑都用預設連線；
-        // 這一行擋的是呼叫端換進來的連線，不是使用者輸入。
-        precondition(Self.isCacheFree(session), "S2Client 不接受帶磁碟快取的 URLSession：含 x-api-key 的請求會被寫進磁碟")
         self.settings = settings
         self.keyProvider = keyProvider
         self.throttle = throttle
@@ -235,6 +239,9 @@ public final class S2Client: Sendable {
 
     /// 送出一個請求並回傳回應本文。讀不到金鑰時在送出任何請求之前就停下。
     public func send(_ request: S2Request) async throws -> Data {
+        // 注入的連線若帶磁碟快取，含金鑰的請求會被寫進磁碟（見 `isCacheFree`）：在讀金鑰與送出任何請求之前就拒絕。
+        // 用錯誤，不用 `precondition`——後者在 MCP server 裡會讓每個工具一起掛掉。兩條出貨路徑都用預設連線，所以這一行擋的是呼叫端換進來的連線。
+        guard Self.isCacheFree(session) else { throw S2Error.unsafeSession(endpoint: displaySafeInvisible(request.endpoint)) }
         let key: S2APIKey?
         if settings.readsKeychain {
             do { key = try keyProvider.key() } catch let e as S2KeyError { throw S2Error.keyUnavailable(e) }   // display-safe-exempt: e 是 S2KeyError（SanitizedErrorDescription，建構端已逃）
@@ -299,6 +306,8 @@ public final class S2Client: Sendable {
         guard let raw = header?.trimmingCharacters(in: .whitespaces), !raw.isEmpty else { return nil }
         // 對方給的任意整數：`Int.max` 之類轉成 `Int(delay)` 會讓整個程序當掉。超過一天的等待與超過一分鐘沒有差別（都是限流用盡），封頂。
         if let seconds = Int(raw), seconds >= 0 { return Swift.min(TimeInterval(seconds), maxParsedRetryAfter) }
+        // 全是數字、卻大到放不進 `Int`：對方說的是「很久」，不是「沒給」——不能落到預設的 2／4／8 秒重試。
+        if raw.unicodeScalars.allSatisfy({ ("0"..."9").contains($0) }) { return maxParsedRetryAfter }
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone(identifier: "GMT")

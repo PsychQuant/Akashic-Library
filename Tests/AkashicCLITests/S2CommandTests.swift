@@ -2,6 +2,9 @@ import Foundation
 import Network
 import XCTest
 
+/// 與 `S2Settings.setupDocumentInPlugin` 同字（這個 bundle 不依賴 AkashicS2，所以不直接引用）。
+let S2SettingsPluginLocation = "plugin 安裝處的 skills/akashic-bootstrap/references/semantic-scholar.md"
+
 /// 只聽 127.0.0.1 的假 S2 伺服器（綁 loopback，不觸發防火牆提示）。記錄每個請求的
 /// 方法、目標、header 與送達時間；回應由 `handler` 決定。只處理不帶 body 的請求。
 final class LoopbackS2Server: @unchecked Sendable {
@@ -126,6 +129,7 @@ final class S2CommandTests: XCTestCase {
         XCTAssertTrue(r.output.contains(service), r.output)
         XCTAssertTrue(r.output.contains("default"), r.output)
         XCTAssertTrue(r.output.contains("semantic-scholar.md"), r.output)
+        XCTAssertTrue(r.output.contains(S2SettingsPluginLocation), "只裝 plugin 的使用者要看得到那個位置，不能被行長上限截掉：\(r.output)")
     }
 
     /// harness 的保險：沒指定 keychain service 的 `s2` 呼叫一律補上 akashic-test-harness。
@@ -294,6 +298,25 @@ final class S2CommandTests: XCTestCase {
         let r = try CLITestHarness.run(["s2", "batch", "--ids-file", "/dev/zero"], env: env())
         XCTAssertEqual(r.status, 1, r.output)
         XCTAssertTrue(r.output.contains("256 KiB"), r.output)
+    }
+
+    /// 行為鎖定：分段寫入的 FIFO 要讀到 EOF。第一段是合法的 id、第二段不是——只讀第一段會安靜地越過壞行（結束碼 3：缺金鑰），
+    /// 讀到 EOF 才會看到它（結束碼 1）。**注意：這不是一個抓得到 bug 的測試**——把循環改回單次 `read(upToCount:)` 它照樣綠
+    /// （R3 的 Codex 席說單次讀會漏第二段，實測不成立，Foundation 讀到 EOF）；它只是防日後有人換成真的只讀一次的 API。
+    func testAnIdsFileThatArrivesInTwoSegmentsIsReadToTheEnd() throws {
+        let fifo = NSTemporaryDirectory() + "ids-fifo-\(UUID().uuidString)"
+        XCTAssertEqual(mkfifo(fifo, 0o600), 0)
+        defer { try? FileManager.default.removeItem(atPath: fifo) }
+        DispatchQueue.global().async {
+            let fd = open(fifo, O_WRONLY)
+            guard fd >= 0 else { return }
+            _ = "DOI:10.1/ok\n".withCString { write(fd, $0, strlen($0)) }
+            Thread.sleep(forTimeInterval: 0.6)
+            _ = "this line is not an identifier\n".withCString { write(fd, $0, strlen($0)) }
+            close(fd)
+        }
+        let r = try CLITestHarness.run(["s2", "batch", "--ids-file", fifo], env: env())
+        XCTAssertEqual(r.status, 1, "讀到 EOF 才會看到第二段的壞行：\(r.output)")
     }
 
     func testBatchRefusesAHugeIdsFileWithoutReadingItAll() throws {

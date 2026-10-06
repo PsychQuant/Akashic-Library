@@ -167,6 +167,19 @@ final class S2ThrottleBackOffTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(try a.reserveSlot().timeIntervalSince(t0), 30, "新的退避不見了")
     }
 
+    /// 寫進狀態檔的 `blockedUntil` 必須是新的退避值，不是留著的舊遠期值（R3：只驗 `nextAllowedAt` 那一半，
+    /// 拿掉清除舊 `blockedUntil` 的那一行測試照綠）。
+    func testThePersistedBlockIsTheFreshBackOffNotTheStaleOne() throws {
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let far = t0.addingTimeInterval(100_000).timeIntervalSince1970
+        let file = dir.appendingPathComponent("s2-throttle")
+        try Data("{\"nextAllowedAt\":\(far),\"blockedUntil\":\(far)}".utf8).write(to: file)
+        try FakeClock(t0).throttle(dir).backOff(until: t0.addingTimeInterval(30))
+        let state = try JSONDecoder().decode(S2FileThrottle.State.self, from: Data(contentsOf: file))
+        XCTAssertEqual(state.blockedUntil ?? 0, t0.addingTimeInterval(30).timeIntervalSince1970, accuracy: 1e-6)
+        XCTAssertEqual(state.nextAllowedAt, t0.addingTimeInterval(30).timeIntervalSince1970, accuracy: 1e-6)
+    }
+
     // MARK: 狀態檔（#664 verify R1 第 20、23 列）
 
     /// 狀態檔若是 symlink，不跟隨——否則寫入會落到別處。
@@ -289,6 +302,16 @@ final class S2RetryTests: XCTestCase {
         guard case .failure(let e) = r, case .rateLimited? = e as? S2Error else { return XCTFail("expected rateLimited, got \(r)") }
         XCTAssertEqual(throttle.backOffs.count, 1)
         XCTAssertLessThanOrEqual(throttle.backOffs[0].timeIntervalSince(t0), 86_400)
+    }
+
+    /// 比 `Int.max` 還大的 `Retry-After`：`Int(raw)` 解不出來，以前被當成「沒給」而照預設 2／4／8 秒重試——
+    /// 對方明明說了「很久」。現在視為封頂值。
+    func testARetryAfterBeyondIntRangeIsTreatedAsVeryLongNotAsAbsent() async {
+        let (r, throttle, sent) = await run([limited("99999999999999999999999999"), ok])
+        XCTAssertEqual(sent, 1, "不得照預設 2 秒重試")
+        guard case .failure(let e) = r, case .rateLimited? = e as? S2Error else { return XCTFail("expected rateLimited, got \(r)") }
+        XCTAssertEqual(throttle.backOffs.count, 1)
+        XCTAssertGreaterThan(throttle.backOffs[0].timeIntervalSince(t0), 3_600 - 1)
     }
 
     func testRetryAfterSecondsAndHTTPDateAreHonoured() async {

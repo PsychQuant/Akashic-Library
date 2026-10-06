@@ -44,6 +44,23 @@ final class S2SessionHardeningTests: XCTestCase {
         XCTAssertTrue(S2Client.isCacheFree(StubURLProtocol.session()), "測試用的 stub 連線不帶磁碟快取")
     }
 
+    /// 帶磁碟快取的連線：在**讀金鑰與送出任何請求之前**就以錯誤拒絕，不是讓整個程序（MCP 時是整個 server）trap。
+    func testASessionWithADiskCacheIsRefusedAtSendBeforeTheKeyIsReadOrAnythingIsSent() async throws {
+        let c = URLSessionConfiguration.ephemeral
+        c.protocolClasses = [StubURLProtocol.self]
+        c.urlCache = URLCache(memoryCapacity: 1 << 20, diskCapacity: 1 << 22,
+                              directory: FileManager.default.temporaryDirectory.appendingPathComponent("s2-cache-\(UUID().uuidString)"))
+        StubURLProtocol.install { _ in .init(status: 200, headers: [:], body: Data("{}".utf8)) }
+        let key = CountingKeyProvider(.success(S2APIKey(value: "k-123")))
+        let client = S2Client(settings: try S2Settings.resolve(environment: ["HOME": "/Users/tester"]),
+                              keyProvider: key, throttle: NoThrottle(), session: URLSession(configuration: c))
+        do { _ = try await client.send(paper); XCTFail("應該拒絕") } catch {
+            XCTAssertEqual(error as? S2Error, .unsafeSession(endpoint: "paper"))
+        }
+        XCTAssertEqual(key.calls, 0, "拒絕發生在讀金鑰之前")
+        XCTAssertEqual(StubURLProtocol.requests.count, 0)
+    }
+
     /// 全程序共用一個預設連線：每次 MCP 呼叫都新建一個，長駐的 akashic-mcp 會隨呼叫次數長（R2 實測 2,000 次 +61 MiB；
     /// 補 `invalidate` 只省約 5%，要共用才行）。
     func testTheDefaultSessionIsOneSharedInstance() {

@@ -39,7 +39,7 @@ The system SHALL read the API key from the keychain generic-password item with s
 
 ##### Example: Why the session is not the shared default
 
-The platform's shared default session carries a disk cache. S2 answers without `Cache-Control`, so a GET is cached heuristically, and the cached entry holds the serialized request, custom headers included. The interface therefore SHALL use a session with no URL cache and no cookie storage, and SHALL refuse a caller-supplied session whose cache has a disk capacity. A per-request cache policy is not a substitute: it controls only whether a cached response is read, and does not stop the request from being stored.
+The platform's shared default session carries a disk cache. S2 answers without `Cache-Control`, so a GET is cached heuristically, and the cached entry holds the serialized request, custom headers included. The interface therefore SHALL use a session with no URL cache and no cookie storage, and SHALL refuse a caller-supplied session whose cache has a disk capacity: the call fails with an error before the key is read and before any request is sent (it SHALL NOT abort the process, because the MCP server would take every tool down with it). A per-request cache policy is not a substitute: it controls only whether a cached response is read, and does not stop the request from being stored.
 
 #### Scenario: A failed request does not echo the key
 
@@ -98,7 +98,7 @@ A recorded 429 back-off is not stale: it has its own bound (see "Rate-limit resp
 
 ### Requirement: Rate-limit responses back off for every caller
 
-On HTTP 429 the system SHALL move the shared next allowed send time to at least now plus the `Retry-After` delay, so that every caller waits, and SHALL then retry the same request. `Retry-After` SHALL be accepted as seconds or as an HTTP date; without it, the delays SHALL be 2, 4, and 8 seconds. A request SHALL be retried at most three times. When the retries are exhausted, or when `Retry-After` exceeds 60 seconds, the CLI SHALL exit with code 4 and the MCP tool SHALL return an error.
+On HTTP 429 the system SHALL move the shared next allowed send time to at least now plus the `Retry-After` delay (the recorded back-off is capped at one hour, so a longer delay is recorded as one hour), so that every caller waits, and SHALL then retry the same request. `Retry-After` SHALL be accepted as seconds or as an HTTP date; without it, the delays SHALL be 2, 4, and 8 seconds. A request SHALL be retried at most three times. When the retries are exhausted, or when `Retry-After` exceeds 60 seconds, the CLI SHALL exit with code 4 and the MCP tool SHALL return an error.
 
 In every case the back-off SHALL be recorded in the shared state **before** the call gives up: a caller that stops retrying does not release the other callers from S2's back-off. The recorded back-off SHALL be at most one hour. A caller that finds a recorded back-off with more than 60 seconds left SHALL fail the same way (exit code 4) without sending a request and without sleeping through it; with 60 seconds or less left it SHALL wait for the back-off to pass and then send.
 

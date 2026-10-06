@@ -69,7 +69,7 @@ public enum S2Tool {
         let paperFields = a.fields ?? S2Endpoints.defaultPaperFields
         let offset = a.offset ?? 0
         let limit = a.limit ?? defaultPageLimit
-        // 分頁端點的 limit 上限是 S2 的一頁（1000）：一個呼叫的翻頁請求有界（外加一個 total 請求），不會獨占全機每秒 1 次的額度好幾分鐘。S2 回短頁時會多翻幾頁，但每頁都要前進。
+        // 分頁端點的 limit 上限是 S2 的一頁（1000）：一個呼叫要的筆數有界（至多 1000），不會獨占全機每秒 1 次的額度好幾分鐘。實際的請求數不止一個：S2 回短頁時 `paginate` 會再翻（每頁都要前進），references／citations／author_papers 另外多一個取 total 的請求。
         if ["references", "citations", "author_search", "author_papers"].contains(a.endpoint),
            !(1...S2Endpoints.pageSize).contains(limit) {
             throw S2ArgumentError.limitOutOfRange(endpoint: displaySafeInvisible(a.endpoint), limit: limit, min: 1, max: S2Endpoints.pageSize)   // display-safe-exempt: limit 是 Int；S2Endpoints.pageSize 是 Int 常量

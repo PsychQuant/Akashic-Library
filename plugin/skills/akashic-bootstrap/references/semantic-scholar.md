@@ -37,7 +37,7 @@ security add-generic-password -s semantic-scholar -a default -A -w
 **為什麼帶 `-A`**（所有 app 可讀）：
 
 - `security` 建立項目時，預設只信任建立它的程式；接口以 `akashic` 或 `akashic-mcp` 的身分讀，會被存取權限擋下（結束碼 3 的第二種原因）。
-- 接口讀 keychain 時一律不允許互動：MCP server 在背景執行，授權框沒有人能按。
+- 接口讀 keychain 時一律不允許互動：MCP server 在背景執行，授權框沒有人能按。**「不跳授權框」這一點尚未在實機驗證**：Apple 的文件沒有說明 `interactionNotAllowed` 是否涵蓋舊式檔案型 keychain 的授權框；萬一跳框，風險是 MCP server 卡住，不是金鑰外洩。追蹤在 #725。
 - 只授權特定 binary（`-T`）也行，但 `akashic` 是本機建置、ad-hoc 簽署的，每次重建都是新的 binary 身分，限定 binary 的存取權限隨之失效，得重新授權。**讀金鑰的有兩個不同的 binary**：CLI 的 `akashic` 與 MCP server 的 `akashic-mcp`，`-T` 要各給一個（`-T <akashic 的路徑> -T <akashic-mcp 的路徑>`）；只授權其中一個，另一個會以結束碼 3 讀不到。
 
 **取捨**：同一使用者下跑的任何程序都讀得到這把金鑰。S2 金鑰免費、有額度限制、可撤銷重發，這個風險可以接受。不接受的話改用 `-T`（兩個 binary 各一個），代價是每次重建後都要刪掉重存。
@@ -68,7 +68,7 @@ akashic s2 status --json
 {"keychain":{"service":"semantic-scholar","account":"default","present":true,"readable":true},"throttle":{"stateFile":"…","nextAllowedAt":null},"host":"api.semanticscholar.org"}
 ```
 
-skill 只看結束碼就能決定要不要請使用者設定。用 MCP 時呼叫 `akashic_s2` 的 `endpoint: status`，讀回傳的 `keychain.present` 與 `keychain.readable`；金鑰不在或讀不了時它也不會回 `isError`。
+結束碼 3 涵蓋兩種不同的情形，skill 選路要再看 `--json` 的 `keychain.present`：`false`＝keychain 明確說找不到；`true`＝項目在、現在讀不到（見下〈結束碼 3〉），**不是沒有金鑰**。用 MCP 時呼叫 `akashic_s2` 的 `endpoint: status`，讀回傳的 `keychain.present` 與 `keychain.readable`；金鑰不在或讀不了時它也不會回 `isError`。
 
 ## 結束碼
 
@@ -89,19 +89,19 @@ MCP 遇到錯誤時回 `isError: true`，文字與 CLI 的錯誤訊息相同。
 
 **1. keychain 裡沒有這個項目。** 訊息說「keychain 裡沒有 service「semantic-scholar」、account「default」的項目」。照〈存金鑰〉存一次。沒有金鑰時接口**不會退回匿名請求**（設計如此），什麼都不送出。
 
-**2. 項目存在，但現在無法在不跳出授權框的情況下讀取。** 狀態碼 `errSecInteractionNotAllowed` 有兩個原因，訊息依序列出：(a) **keychain 鎖著**（SSH 或背景工作階段最常見）——先解鎖，不必動項目；(b) 項目的存取權限不允許——刪除該項目，照〈存金鑰〉帶 `-A` 重存。先排除 (a)：解鎖後問題消失就不用重存。
+**2. 項目存在，但現在無法在不跳出授權框的情況下讀取。** 狀態碼 `errSecInteractionNotAllowed` 有兩個原因，訊息依序列出：(a) **keychain 鎖著**（SSH 或背景工作階段最常見）——先解鎖，不必動項目；(b) 項目的存取權限不允許——刪除該項目，照〈存金鑰〉帶 `-A` 重存。先排除 (a)：解鎖後問題消失就不用重存。**兩者都是你自己在 Terminal 的動作**：解鎖用 `security unlock-keychain`（不要加 `-p`，密碼由系統提示輸入；登入密碼不貼進對話、AI agent 不代跑）；重存時金鑰由你自己輸入。
 
 `status` 只說存在與可讀，不說原因；要看原因，跑一次任何查詢子命令讀它的訊息（金鑰不可用時，它在送出請求之前就停下）。
 
-另有兩種少見的情形也是結束碼 3：項目的內容不是可用的金鑰（空的、不是 UTF-8，或含換行等控制字元），照〈存金鑰〉重存；其他 keychain 錯誤，訊息帶 OSStatus 碼，本檔不涵蓋。
+另有兩種情形也是結束碼 3，而且 `present` 都是 true：項目的內容不是可用的金鑰（空的、不是 UTF-8，或含換行等控制字元）——**你自己**用 `-U` 重存（金鑰由你輸入，不貼進對話）；其他 keychain 錯誤，訊息帶 OSStatus 碼，本檔不涵蓋（它們也算「項目可能在」，不會被當成沒有金鑰）。
 
-## 沒有金鑰時，skill 怎麼查
+## skill 怎麼選路
 
-skill 查 Semantic Scholar 之前先看 `status`（`--json` 的 `keychain.present` 與 `keychain.readable` 分得出下面第 2、3 種）：
+skill 查 Semantic Scholar 之前先跑 `akashic s2 status --json`（MCP：`akashic_s2` 的 `endpoint: status`），**看 `keychain.present` 與 `keychain.readable`，不只看結束碼**：
 
-1. **結束碼 0（金鑰存在且可讀）**：一律用 `akashic s2`／`akashic_s2`。不會再經 safari-browser 查 S2——那會用另一個額度打同一個主機，繞過全機節流。
-2. **結束碼 3 且 `keychain.present` 為 false（keychain 裡沒有這個項目）**：skill 先請你照〈存金鑰〉設定。你不設定、或這次設定不了，skill 才**最後**經 safari-browser、不帶金鑰查 S2（共用額度，常回 429；照 [web-access.md](web-access.md) 的程序與中止條款）。
-3. **結束碼 3 但 `keychain.present` 為 true（項目在，現在讀不到）**：**不是沒有金鑰**。skill 請你解鎖 keychain（SSH、背景工作階段最常見），或照〈結束碼 3：兩種原因〉改存取權限，然後停下；不叫你重存（項目已存在），也**不退到 safari-browser**——金鑰明明在，退過去等於繞過全機節流。
+1. **都是 true（結束碼 0）**：一律用 `akashic s2`／`akashic_s2`。不會再經 safari-browser 查 S2——那會用另一個額度打同一個主機，繞過全機節流。
+2. **`present` 為 false**（keychain 明確回答找不到；其他任何狀態都不會是 false）：skill 先請你照〈存金鑰〉**自己**設定。你不設定、或這次設定不了，skill 才**最後**經 safari-browser、不帶金鑰查 S2（共用額度，常回 429；照 [web-access.md](web-access.md) 的程序與中止條款）。
+3. **`present` 為 true、`readable` 為 false**（項目在，現在讀不到）：**不是沒有金鑰**。skill 停下回報，並請你看一次查詢子命令的錯誤訊息——它會指出是 keychain 鎖著、存取權限不允許，還是內容不是可用的金鑰，各有各的處置（見上〈結束碼 3〉）。**不要只再跑一次 `add-generic-password`**（項目已存在會回重複項目），也**不退到 safari-browser**——金鑰明明在，退過去等於繞過全機節流。解鎖與重存都是你自己在 Terminal 的動作：登入密碼與金鑰都不進對話，AI agent 不代跑。
 4. **其他結果**（結束碼 1 或 64、MCP 的「未知工具」）：也不是「沒有金鑰」，見上〈確認〉。skill 停下來回報，不退到 safari-browser。
 
 查詢遇到結束碼 4 或 5 時，skill 不會改走 safari-browser 補查。`akashic s2` 本身沒有匿名模式：退到 safari-browser 的是 skill，不是這個接口。

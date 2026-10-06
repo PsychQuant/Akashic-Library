@@ -110,7 +110,7 @@ public final class S2FileThrottle: S2Throttling, @unchecked Sendable {
     /// 記下這一刻（`lastReleasedAt`），下一個醒來的呼叫者離它不到 `interval` 就再等；這個比對在同一把鎖裡，程序之間不會同時通過。
     /// 放行時也把 `nextAllowedAt` 推到至少這一刻加 `interval`，之後的預約從實際放行算起。代價：單一呼叫者連續請求時，
     /// 每個間隔都多付前一次的晚醒量（#701 R1 verify 實測平均 1.10 秒對 1.056 秒，約 5%），理由見 changelog。
-    /// 封鎖期與上一次放行比現在晚超過 60 秒時視為過期（時鐘回撥或檔案損毀）。
+    /// 上一次放行比現在晚超過 60 秒時視為過期（時鐘回撥或檔案損毀）；封鎖期（`blockedUntil`）有自己的門檻——最多記一小時，讀到比現在晚超過一小時加 60 秒才視為過期（`remainingBlock`），不與時段共用 60 秒。
     func release() throws -> Release {
         try withLockedState { state in
             let t = now().timeIntervalSince1970

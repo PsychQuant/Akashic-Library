@@ -52,3 +52,12 @@
 - [x] 10.3 取得順序補洞：結束碼 3 且 `keychain.present` 為 true（項目在、讀不到）不是沒有金鑰，停下請使用者解鎖或改權限，不退到 safari-browser；skill／agent 不代使用者存金鑰
 - [x] 10.4 文字追上契約：parity 表 `akashic_s2` 列（續查看 `nextOffset`、JSON 面無損、結束碼清單、MCP 專有的三項限制）、README、規格的過期狀態情境、設定文件的過期門檻與 `recommend` 的建議、`network-confinement` 的「字面清單、不是證明」
 - [x] 10.5 追蹤與記錄：「不跳授權框」的人工實機驗證追蹤在 #725；金鑰輪替（使用者 2026-10-06 裁決沿用）、`AKASHIC_S2_STATE_DIR` 正式環境也接受、硬連結、`nextOffset` 以筆數計、預約時段的 60 秒門檻，都記進 design 的「看過但沒有修」表
+
+## 11. verify R3 修正（修正輪的第二次驗證：沒有 HIGH、7 個 MEDIUM；2026-10-06）
+
+- [x] 11.1 結束碼 3 的路由：`present` 只在 keychain 明確回答找不到時是 false（`itemMayExist(forAttributeStatus:)`，有單元測試）；取得順序改成看 `present`／`readable`，不只看結束碼；規則、`SKILL.md`、`web-access.md`、設定文件、parity 列同一套說法；「不要只再跑一次 add」取代「不叫使用者重存」（原話與它指向的處置自相矛盾）
+- [x] 11.2 使用者自己的動作：解鎖（`security unlock-keychain`，不加 `-p`）與重存都是使用者在自己 Terminal 的事，登入密碼與金鑰不進對話；缺金鑰與讀不到的錯誤訊息都這樣寫
+- [x] 11.3 `S2Client` 拒絕帶磁碟快取的注入連線改為 `send` 的錯誤（`S2Error.unsafeSession`），不再 `precondition`；有測試
+- [x] 11.4 `Retry-After` 比 `Int` 還大的數字視為封頂值，不是「沒給」；`backOff` 寫進狀態檔的 `blockedUntil` 有測試；被拒的識別碼不回顯內容；缺金鑰訊息拆成多行（plugin 安裝處的路徑不再被行長上限截掉）
+- [x] 11.5 `plugin/CHANGELOG.md` 與 `changelog/2026-10-06-s2-interface-664.md`；「看過、沒有修」表更正兩條站不住的理由，並補上暴露期
+- [ ] 11.6 **R3 之後的修正沒有再經 ensemble 驗證**：以測試與守衛驗證程式，以自己重讀驗證文字。要再驗證請跑 `/idd-verify #664`

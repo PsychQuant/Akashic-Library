@@ -94,7 +94,7 @@ enum S2CLI {
         switch error {
         case .keyUnavailable: return 3
         case .rateLimited: return 4
-        case .notFound, .http, .network, .invalidResponse, .invalidRequest: return 5
+        case .notFound, .http, .network, .invalidResponse, .invalidRequest, .unsafeSession: return 5
         }
     }
 
@@ -169,13 +169,21 @@ struct S2BatchCmd: ParsableCommand {
     func run() throws {
         // 上限量的是**讀進來的位元組**：至多 500 個 id、每個至多 512 字元，遠小於 256 KiB；超過的不是 id 清單，
         // 不整份讀進來、也不 POST 給第三方。不量檔案屬性——裝置檔與 FIFO 的大小是 0，`/dev/zero` 會讀不完。
+        // 迴圈讀到 EOF 或上限，不押在單次 `read(upToCount:)` 的行為上。實測（R3）：Foundation 目前對分段寫入的 FIFO 一次就讀到 EOF——
+        // 驗證時 Codex 席說它只回第一段，那個說法在這個平台上不成立；迴圈沒有改變行為，只是不依賴那個實作細節（`<(…)` 就是這個形狀）。
+        // 指向一個永遠不關閉的 FIFO 會一直等，與任何讀 stdin 的 CLI 相同，不另外處理。
         let text: String
         do {
             guard let handle = FileHandle(forReadingAtPath: idsFile) else { throw CocoaError(.fileReadNoSuchFile) }
             defer { try? handle.close() }
-            let data = try handle.read(upToCount: Self.maxIdsFileBytes + 1) ?? Data()
-            if data.count > Self.maxIdsFileBytes {
-                throw RuntimeFailure.state("--ids-file 超過 256 KiB（至多 500 個 id，不需要這麼大）：\(displaySafeInvisible(idsFile, max: 300))")
+            var data = Data()
+            while true {
+                let chunk = try handle.read(upToCount: Swift.min(65_536, Self.maxIdsFileBytes + 1 - data.count)) ?? Data()
+                if chunk.isEmpty { break }
+                data.append(chunk)
+                if data.count > Self.maxIdsFileBytes {
+                    throw RuntimeFailure.state("--ids-file 超過 256 KiB（至多 500 個 id，不需要這麼大）：\(displaySafeInvisible(idsFile, max: 300))")
+                }
             }
             guard let decoded = String(data: data, encoding: .utf8) else { throw CocoaError(.fileReadInapplicableStringEncoding) }
             text = decoded
@@ -267,7 +275,7 @@ struct S2AuthorPapersCmd: ParsableCommand {
 }
 
 /// 不連網。回報 keychain 項目存在與否、可否讀取、節流狀態；**不印金鑰，也不印它的長度**。
-/// 結束碼：金鑰存在且可讀為 0，否則 3——skill 只看結束碼就能決定要不要提示設定。
+/// 結束碼：金鑰存在且可讀為 0，否則 3。skill 選路要再看 `--json` 的 `keychain.present`（false＝keychain 說找不到；true＝項目在、現在讀不到，不是沒有金鑰）。
 struct S2StatusCmd: ParsableCommand {
     static let configuration = CommandConfiguration(commandName: "status", abstract: "檢查金鑰與節流狀態（不連網、不印金鑰）")
     @Flag(name: .long, help: "輸出 JSON") var json = false

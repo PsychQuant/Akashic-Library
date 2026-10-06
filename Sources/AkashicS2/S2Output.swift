@@ -1,6 +1,19 @@
 import AkashicCore
 import Foundation
 
+/// 字串 payload 在擲出端逃脫一次，描述原樣組句（#554）。
+public enum S2OutputError: Error, Equatable, CustomStringConvertible, SanitizedErrorDescription {
+    /// 第一筆就放不進 MCP 的位元組上限：不能回「成功、0 筆」——那會讓續查永遠原地踏步。
+    case recordExceedsBudget(endpoint: String, kib: Int)
+
+    public var description: String {
+        switch self {
+        case .recordExceedsBudget(let endpoint, let kib):
+            return "\(endpoint) 的第一筆就超過 MCP 結果的 \(kib) KiB 上限：請用 fields 減少欄位（例如拿掉 abstract、authors），或改用 CLI（akashic s2 …）"   // display-safe-exempt: endpoint 擲出端已 displaySafeInvisible；kib 是 Int
+        }
+    }
+}
+
 /// MCP 面的一頁結果。`text` 就是要交給 MCP 呼叫端的 JSON。
 public struct S2MCPPage: Sendable, Equatable {
     public let text: String
@@ -35,7 +48,43 @@ public enum S2Output {
 
     public static func sanitized(_ result: S2Result) -> S2Result {
         S2Result(endpoint: result.endpoint, request: result.request.mapValues(sanitized),
-                 total: result.total, offset: result.offset, data: sanitized(result.data))
+                 total: result.total, offset: result.offset, data: sanitized(result.data), hasMore: result.hasMore)
+    }
+
+    /// JSON 面（CLI `--json`、MCP、`status --json`）的字串處理：只截斷長度，**不改寫任何字元**——逃脫在序列化之後、
+    /// 對整份 JSON 文字做（`jsonText`）。終端機用的 `displaySafe` 把反斜線改成字面的 `\u{005C}`、連不換行空格與軟連字號
+    /// 也改掉；`displaySafeClipOnly` 仍把殘留的控制／方向字元改成字面的 `\u{…}`。兩者在 JSON 面都解不回來，而反斜線、
+    /// 不換行空格、軟連字號都是書目標題的正當內容（#664 verify R1）。
+    public static func clipped(_ json: S2JSON) -> S2JSON {
+        switch json {
+        case .string(let s):
+            return .string(clip(s))
+        case .array(let a):
+            return .array(a.map(clipped))
+        case .object(let o):
+            var out: [String: S2JSON] = [:]
+            for (k, v) in o { out[clip(k)] = clipped(v) }
+            return .object(out)
+        case .null, .bool, .int, .double:
+            return json
+        }
+    }
+
+    /// 超過 `stringLimit` 個 scalar 就截斷並附上標記；不動其他任何字元。
+    static func clip(_ s: String) -> String {
+        guard s.unicodeScalars.count > stringLimit else { return s }
+        return String(String.UnicodeScalarView(s.unicodeScalars.prefix(stringLimit))) + "…（已截斷）"
+    }
+
+    public static func clipped(_ result: S2Result) -> S2Result {
+        S2Result(endpoint: result.endpoint, request: result.request.mapValues(clipped),
+                 total: result.total, offset: result.offset, data: clipped(result.data), hasMore: result.hasMore)
+    }
+
+    /// 編碼後把字串字面值內的危險 scalar 改寫成 JSON 自己的 `\uXXXX`（`documentSafeJSON`，與 CSL-JSON 出口同一個函式）。
+    /// 無損：解碼後就是原字元；輸出文字裡不會出現方向覆寫、控制字元等原樣的危險 scalar。
+    static func jsonText<T: Encodable>(_ value: T) -> String? {
+        (try? encoder().encode(value)).map { documentSafeJSON(String(decoding: $0, as: UTF8.self)) }
     }
 
     /// 所有 S2 輸出共用的 JSON 格式：鍵排序、不跳脫斜線、不縮排。
@@ -72,23 +121,27 @@ public enum S2Output {
     /// 只放完整的筆數：逐筆加入，每加一筆就算整份輸出的實際位元組數，會超過 `budget` 就停在前一筆。
     /// 單篇查詢（`data` 是物件）視為一筆。
     public static func mcpPage(_ result: S2Result, budget: Int = mcpByteBudget) -> S2MCPPage {
-        let clean = sanitized(result)
+        let clean = clipped(result)
         let records: [S2JSON]
         if case .array(let a) = clean.data { records = a } else { records = [clean.data] }
-        let enc = encoder()
-        let sizes = records.map { (try? enc.encode($0).count) ?? Int.max / 4 }
+        // 量的是**實際輸出**的位元組數：`\uXXXX` 改寫會讓文字變長，不能拿改寫前的大小去算。
+        let sizes = records.map { jsonText($0)?.utf8.count ?? Int.max / 4 }
 
+        // 續查的訊號：有 `nextOffset` 就用它當下一次的 `offset`，null 就是沒有下一頁。
+        // - 不分頁的端點（`hasMore` 為 nil）永遠 null：它們不接 `offset`，給了也會被忽略、讓呼叫者拿到同一頁。
+        // - 空的一頁永遠 null：`nextOffset == offset` 是定點。
+        // - 被位元組上限截斷：從沒放進去的那一筆接著；否則看 S2 自己有沒有下一頁，**不看 `total`**（#664 verify R1）。
         func nextOffset(_ n: Int) -> Int? {
+            guard let hasMore = clean.hasMore, n > 0 else { return nil }
             if n < records.count { return clean.offset + n }
-            if let total = clean.total, total > clean.offset + n { return clean.offset + n }
-            return nil
+            return hasMore ? clean.offset + n : nil
         }
         func envelope(_ kept: [S2JSON], _ n: Int) -> MCPEnvelope {
             MCPEnvelope(data: kept, endpoint: clean.endpoint, nextOffset: nextOffset(n), offset: clean.offset,
                         returned: n, total: clean.total, truncated: n < records.count)
         }
         // 外框在 `data` 為空時的大小；放入 n 筆後的大小 = 外框 + 各筆大小 + (n − 1) 個逗號。
-        func emptyEnvelopeSize(_ n: Int) -> Int { (try? enc.encode(envelope([], n)).count) ?? Int.max / 4 }
+        func emptyEnvelopeSize(_ n: Int) -> Int { jsonText(envelope([], n))?.utf8.count ?? Int.max / 4 }
 
         var n = 0
         var dataBytes = 0
@@ -99,7 +152,7 @@ public enum S2Output {
             n += 1
         }
         let final = envelope(Array(records.prefix(n)), n)
-        let text = (try? enc.encode(final)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+        let text = jsonText(final) ?? "{}"
         return S2MCPPage(text: text, returned: n, truncated: final.truncated, nextOffset: final.nextOffset)
     }
 }
@@ -122,7 +175,7 @@ extension S2Output {
                                  "nextAllowedAt": throttle.peekNextAllowedAt().map { .string(timestamp($0)) } ?? .null]),
             "host": .string(settings.baseURL.host ?? ""),
         ])
-        return (try? encoder().encode(sanitized(out))).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+        return jsonText(clipped(out)) ?? "{}"
     }
 
     /// ISO 8601，帶本機時區 offset（例：`2026-09-29T09:30:00+08:00`）。
@@ -153,11 +206,12 @@ extension S2Output {
         }
     }
 
-    /// `--json` 的輸出。傳入的 `result` 須已經過 `sanitized`。
+    /// `--json` 的輸出。傳入**原始**的結果：JSON 面不用 `sanitized`（那是終端機用的），清理在這裡做（`clipped`＋`jsonText`）。
     public static func cliJSON(_ result: S2Result, fetchedAt: Date) -> String {
-        let env = CLIEnvelope(data: result.data, endpoint: result.endpoint, fetchedAt: timestamp(fetchedAt),
-                              request: result.request, total: result.total)
-        return (try? encoder().encode(env)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+        let clean = clipped(result)
+        let env = CLIEnvelope(data: clean.data, endpoint: clean.endpoint, fetchedAt: timestamp(fetchedAt),
+                              request: clean.request, total: clean.total)
+        return jsonText(env) ?? "{}"
     }
 
     /// 人可讀的輸出，與 `--json` 出自同一份（已清理的）結果：標頭一行，之後一筆一行。

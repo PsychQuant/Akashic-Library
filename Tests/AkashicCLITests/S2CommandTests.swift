@@ -233,6 +233,56 @@ final class S2CommandTests: XCTestCase {
         let rec = try CLITestHarness.run(["s2", "recommend", "DOI:10.1/x", "--limit", "501"], env: env())
         XCTAssertEqual(rec.status, 64, rec.output)
     }
+
+    /// 空白的 `--title`／`--name` 只看 argv 就判得出（#549），所以是 64，不是讀完才發現的 1（#664 verify R1 第 16 列）。
+    func testBlankTitleOrNameExit64() throws {
+        for args in [["s2", "match", "--title", ""], ["s2", "match", "--title", "   "],
+                     ["s2", "author-search", "--name", ""], ["s2", "author-search", "--name", "  "]] {
+            let r = try CLITestHarness.run(args, env: env())
+            XCTAssertEqual(r.status, 64, "\(args)：\(r.output)")
+        }
+    }
+
+    /// 金鑰不得落盤（#664 verify R1 第 1 列）：預設連線若帶 `URLCache`，每個 GET 都會在
+    /// `~/Library/Caches/akashic/Cache.db` 留下一筆（含請求 header）。跑一次查詢，前後那個檔不得有任何變動。
+    func testARunLeavesNoCacheFileBehind() throws {
+        let caches = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Caches/akashic")
+        func fingerprint() -> String {
+            ["Cache.db", "Cache.db-wal", "Cache.db-shm", "fsCachedData"].map { name -> String in
+                let attrs = try? FileManager.default.attributesOfItem(atPath: caches.appendingPathComponent(name).path)
+                return "\(name):\((attrs?[.size] as? Int).map(String.init) ?? "-"):\((attrs?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0)"
+            }.joined(separator: "|")
+        }
+        let before = fingerprint()
+        let server = try LoopbackS2Server(handler: referencesStub(count: 5))
+        defer { server.stop() }
+        let r = try CLITestHarness.run(["s2", "references", "DOI:10.1/x", "--json"],
+                                       env: env(["AKASHIC_S2_BASE_URL": server.baseURL]))
+        XCTAssertEqual(r.status, 0, r.output)
+        XCTAssertFalse(server.seen.isEmpty)
+        XCTAssertEqual(fingerprint(), before, "查詢不得動到 URLCache 的檔案")
+    }
+
+    /// `--ids-file` 的內容是要 POST 給第三方的：不像識別碼的行（含空白）在送出任何請求之前就拒絕（#664 verify R1 第 24 列）。
+    func testBatchRefusesLinesThatDoNotLookLikeIdentifiersBeforeSendingAnything() throws {
+        let server = try LoopbackS2Server { _, _ in (200, [:], Data("[]".utf8)) }
+        defer { server.stop() }
+        let file = NSTemporaryDirectory() + "ids-\(UUID().uuidString).txt"
+        try "DOI:10.1/ok\nthis is not an identifier, it is a sentence\n".write(toFile: file, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(atPath: file) }
+        let r = try CLITestHarness.run(["s2", "batch", "--ids-file", file], env: env(["AKASHIC_S2_BASE_URL": server.baseURL]))
+        XCTAssertEqual(r.status, 1, r.output)
+        XCTAssertTrue(server.seen.isEmpty, "不得送出任何請求")
+    }
+
+    func testBatchRefusesAHugeIdsFileWithoutReadingItAll() throws {
+        let file = NSTemporaryDirectory() + "ids-big-\(UUID().uuidString).txt"
+        try String(repeating: "DOI:10.1/x\n", count: 40_000).write(toFile: file, atomically: true, encoding: .utf8)   // ≈ 440 KB
+        defer { try? FileManager.default.removeItem(atPath: file) }
+        let r = try CLITestHarness.run(["s2", "batch", "--ids-file", file], env: env())
+        XCTAssertEqual(r.status, 1, r.output)
+        XCTAssertTrue(r.output.contains("256 KiB"), r.output)
+    }
 }
 
 final class ThreadSafeStatuses: @unchecked Sendable {

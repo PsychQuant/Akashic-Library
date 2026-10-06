@@ -4,10 +4,13 @@ import Foundation
 /// path 在擲出端逃脫一次，描述原樣組句（#554）。
 public enum S2ThrottleError: Error, Equatable, CustomStringConvertible, SanitizedErrorDescription {
     case stateFile(path: String, errno: Int32)
+    /// 另一個呼叫者收到 429，共用封鎖還有這麼久，而且比一個呼叫者願意等的上限（60 秒）長：快速失敗，不睡過去。
+    case blocked(seconds: Int)
 
     public var description: String {
         switch self {
         case .stateFile(let path, let e): return "無法使用 S2 節流狀態檔 \(path)（errno \(e)）"   // display-safe-exempt: path 擲出端已 displaySafeInvisible；e 是 errno（Int32）
+        case .blocked(let seconds): return "另一個呼叫者收到 Semantic Scholar 的 429，共用封鎖還有 \(seconds) 秒"   // display-safe-exempt: seconds 是 Int
         }
     }
 }
@@ -16,6 +19,13 @@ public enum S2ThrottleError: Error, Equatable, CustomStringConvertible, Sanitize
 public final class S2FileThrottle: S2Throttling, @unchecked Sendable {
     public static let interval: TimeInterval = 1.05
     public static let staleAfter: TimeInterval = 60
+    /// 一個呼叫者願意等一個封鎖過去的上限；剩下比這長就快速失敗（結束碼 4），與 `Retry-After` 超過 60 秒時的處置一致。
+    public static let maxWait: TimeInterval = 60
+    /// 共用封鎖最多記多久：S2 回再長的 `Retry-After` 也只記這麼久，之後的呼叫者再試一次、必要時再記一次。
+    public static let maxBackOff: TimeInterval = 3600
+    /// 封鎖比「現在＋`maxBackOff`」還遠超過 `staleAfter` 才視為過期（時鐘回撥或檔案損毀）。
+    /// 與時段／放行的 `staleAfter` 分開：合法的長退避不能被 60 秒的過期門檻丟掉（#664 verify R1）。
+    static var blockStaleAfter: TimeInterval { maxBackOff + staleAfter }
     public static let fileName = "s2-throttle"
     /// 比這短的等待不睡（#701）：排程器兌現不了，而準時醒來的呼叫者會因浮點誤差差上幾個 ulp。
     /// 放行間隔因此保證的是 `interval − releaseSlack`＝1.049 秒。
@@ -58,6 +68,9 @@ public final class S2FileThrottle: S2Throttling, @unchecked Sendable {
     func reserveSlot() throws -> Date {
         try withLockedState { state in
             let t = now().timeIntervalSince1970
+            if let remaining = Self.remainingBlock(&state, at: t), remaining > Self.maxWait {
+                throw S2ThrottleError.blocked(seconds: Int(remaining.rounded(.up)))
+            }
             var next = state.nextAllowedAt
             if next - t > Self.staleAfter { next = t }
             let slot = Swift.max(t, next)
@@ -101,8 +114,10 @@ public final class S2FileThrottle: S2Throttling, @unchecked Sendable {
     func release() throws -> Release {
         try withLockedState { state in
             let t = now().timeIntervalSince1970
-            if let blocked = state.blockedUntil {
-                if blocked - t > Self.staleAfter { state.blockedUntil = nil } else if blocked > t { return .rebook }
+            if let remaining = Self.remainingBlock(&state, at: t) {
+                // 封鎖還剩很久就快速失敗；剩得短才睡過去（`.rebook` 會睡到 `nextAllowedAt`，`backOff` 已把它推到封鎖結束）。
+                if remaining > Self.maxWait { throw S2ThrottleError.blocked(seconds: Int(remaining.rounded(.up))) }
+                return .rebook
             }
             if let last = state.lastReleasedAt, last - t <= Self.staleAfter {
                 let more = last + Self.interval - t
@@ -117,28 +132,40 @@ public final class S2FileThrottle: S2Throttling, @unchecked Sendable {
     /// 記下 429 的退避：`until` 之前任何呼叫者都不送出。
     public func backOff(until: Date) throws {
         try withLockedState { state in
-            let u = until.timeIntervalSince1970
+            let t = now().timeIntervalSince1970
+            let u = Swift.min(until.timeIntervalSince1970, t + Self.maxBackOff)
             state.blockedUntil = Swift.max(state.blockedUntil ?? 0, u)
             state.nextAllowedAt = Swift.max(state.nextAllowedAt, u)
         }
     }
 
+    /// 仍然有效的封鎖還剩幾秒；沒有或已過回 nil。過期的（時鐘回撥或檔案損毀）順手清掉。
+    static func remainingBlock(_ state: inout State, at t: Double) -> TimeInterval? {
+        guard let blocked = state.blockedUntil else { return nil }
+        if blocked - t > blockStaleAfter { state.blockedUntil = nil; return nil }
+        return blocked > t ? blocked - t : nil
+    }
+
     /// 開檔 → `flock(LOCK_EX)` → 讀 → 改 → 寫回 → 關檔（關檔即解鎖，程序中途死掉也不留鎖）。
+    /// `errno` 在失敗的那個呼叫之後**立刻**取走，再去組錯誤（組錯誤會呼叫別的函式，可能改掉它）。
+    /// 狀態檔不跟隨 symlink（`O_NOFOLLOW`），並收緊到 0600——目錄只在建立時是 0700，已存在的目錄不動它的權限。
     func withLockedState<T>(_ body: (inout State) throws -> T) throws -> T {
         try FileManager.default.createDirectory(
             at: stateDirectory, withIntermediateDirectories: true,
             attributes: [.posixPermissions: 0o700])
         let path = stateFile.path
-        let fd = open(path, O_RDWR | O_CREAT, 0o600)
-        guard fd >= 0 else { throw S2ThrottleError.stateFile(path: displaySafeInvisible(path, max: 800), errno: errno) }
+        func failure(_ e: Int32) -> S2ThrottleError { .stateFile(path: displaySafeInvisible(path, max: 800), errno: e) }
+        let fd = open(path, O_RDWR | O_CREAT | O_NOFOLLOW, 0o600)
+        guard fd >= 0 else { throw failure(errno) }
         defer { close(fd) }
-        guard flock(fd, LOCK_EX) == 0 else { throw S2ThrottleError.stateFile(path: displaySafeInvisible(path, max: 800), errno: errno) }
+        guard flock(fd, LOCK_EX) == 0 else { throw failure(errno) }
+        _ = fchmod(fd, 0o600)   // 別人先建出來而權限較寬的檔；不是自己的檔就收不動，照樣用
 
         var bytes = Data()
         var buffer = [UInt8](repeating: 0, count: 4096)
         while true {
             let n = read(fd, &buffer, buffer.count)
-            if n < 0 { throw S2ThrottleError.stateFile(path: displaySafeInvisible(path, max: 800), errno: errno) }
+            if n < 0 { throw failure(errno) }
             if n == 0 { break }
             bytes.append(buffer, count: n)
         }
@@ -147,11 +174,11 @@ public final class S2FileThrottle: S2Throttling, @unchecked Sendable {
         let result = try body(&state)
 
         let out = try JSONEncoder().encode(state)
-        guard ftruncate(fd, 0) == 0, lseek(fd, 0, SEEK_SET) == 0 else {
-            throw S2ThrottleError.stateFile(path: displaySafeInvisible(path, max: 800), errno: errno)
-        }
+        guard ftruncate(fd, 0) == 0 else { throw failure(errno) }
+        guard lseek(fd, 0, SEEK_SET) == 0 else { throw failure(errno) }
         let written = out.withUnsafeBytes { write(fd, $0.baseAddress, out.count) }
-        guard written == out.count else { throw S2ThrottleError.stateFile(path: displaySafeInvisible(path, max: 800), errno: errno) }
+        if written < 0 { throw failure(errno) }
+        if written != out.count { throw failure(EIO) }   // 寫了一半：errno 沒有意義，不拿舊的充數
         return result
     }
 }

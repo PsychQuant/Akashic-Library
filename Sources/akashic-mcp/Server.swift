@@ -80,21 +80,6 @@ actor AkashicMCPServer {
     // MARK: - Tools
 
     static let tools: [Tool] = [
-        // #664：Semantic Scholar。與 CLI `akashic s2` 共用 AkashicS2；契約細節在 `akashic s2 --help`。
-        Tool(name: "akashic_s2",
-             description: "查 Semantic Scholar（金鑰在 keychain、全機每秒至多 1 次、不寫 store）。回傳 {endpoint,total,returned,truncated,offset,nextOffset,data}，上限 48 KiB、只放完整筆數；truncated 時以 nextOffset 續查。endpoint=status 回 {keychain,throttle,host}。缺金鑰時的設定見 akashic s2 --help",
-             inputSchema: obj([
-                "endpoint": .object(["type": .string("string"),
-                                     "enum": .array(S2Tool.endpointNames.map { .string($0) })]),
-                "id": str("論文（DOI:…、CorpusId:…；裸 DOI 自動加 DOI:）或作者識別碼"),
-                "title": str("match 的標題"),
-                "year": str("match 的出版年（可省略）"),
-                "name": str("author_search 的姓名"),
-                "ids": strArray("batch 的 id（1–500）"),
-                "fields": strArray("S2 欄位名，照原樣轉給 S2"),
-                "offset": int("起始筆數"),
-                "limit": int("向 S2 要幾筆（分頁端點預設 100；recommend 1–500）"),
-             ], required: ["endpoint"])),
         Tool(name: "akashic_search",
              description: "搜尋文獻庫（欄位篩選；全走本地 index）。回傳 citekey/type/title/year/journal/authors 的 JSON 陣列。",
              inputSchema: obj([
@@ -449,6 +434,21 @@ actor AkashicMCPServer {
                 "dry_run": .object(["type": .string("boolean"),
                                     "description": .string("true＝只回報會做什麼，不寫檔（預設 false）")]),
              ], required: ["path"])),
+        // #664：Semantic Scholar（附在陣列最後：不改變既有工具對 client 的呈現順序）。與 CLI `akashic s2` 共用 AkashicS2；契約細節在 `akashic s2 --help`。
+        Tool(name: "akashic_s2",
+             description: "查 Semantic Scholar（金鑰在 keychain、全機每秒至多 1 次、不寫 store）。回傳 {endpoint,total,returned,truncated,offset,nextOffset,data}，上限 48 KiB、只放完整筆數；nextOffset 非 null 時以它當 offset 續查（null＝沒有下一頁；paper／match／batch／recommend 不分頁，永遠 null）。endpoint=status 回 {keychain,throttle,host}。缺金鑰時的設定見 akashic s2 --help",
+             inputSchema: obj([
+                "endpoint": .object(["type": .string("string"),
+                                     "enum": .array(S2Tool.endpointNames.map { .string($0) })]),
+                "id": str("論文（DOI:…、CorpusId:…；裸 DOI 自動加 DOI:）或作者識別碼"),
+                "title": str("match 的標題"),
+                "year": str("match 的出版年（可省略）"),
+                "name": str("author_search 的姓名"),
+                "ids": strArray("batch 的 id（1–500）"),
+                "fields": strArray("S2 欄位名，照原樣轉給 S2"),
+                "offset": int("起始筆數"),
+                "limit": int("向 S2 要幾筆（分頁端點預設 100、至多 1000；recommend 1–500）"),
+             ], required: ["endpoint"])),
     ]
 
     // MARK: - Dispatch

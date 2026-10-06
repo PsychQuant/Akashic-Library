@@ -67,6 +67,72 @@ final class S2ToolTests: XCTestCase {
         XCTAssertEqual((obj["data"] as? [Any])?.count, 120)
     }
 
+    // MARK: 續查契約（#664 verify R1 第 5、6、7、22 列）
+
+    private func referencesStub(count: Int, titleLength: Int = 10) {
+        S2ToolStub.install { request in
+            if request.url!.path.hasSuffix("/references") {
+                let q = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
+                let offset = Int(q.first { $0.name == "offset" }?.value ?? "0")!
+                let limit = Int(q.first { $0.name == "limit" }?.value ?? "100")!
+                let end = min(count, offset + limit)
+                var body: [String: Any] = ["offset": offset, "data": (offset..<end).map {
+                    ["citedPaper": ["paperId": "p\($0)", "title": String(repeating: "t", count: titleLength)]]
+                }]
+                if end < count { body["next"] = end }
+                return (200, try! JSONSerialization.data(withJSONObject: body))
+            }
+            return (200, try! JSONSerialization.data(withJSONObject: ["paperId": "seed", "referenceCount": count]))
+        }
+    }
+
+    /// 第一筆就超過上限：以前回「成功、returned 0、nextOffset 等於 offset」，照它續查永遠原地踏步。
+    func testARecordLargerThanTheBudgetIsAnErrorNotAnEmptySuccess() async {
+        referencesStub(count: 1, titleLength: 5_000)
+        let out = await S2Tool.run(S2ToolArguments(endpoint: "references", id: "DOI:10.1/x", fields: [], limit: 1),
+                                   environment: env(["AKASHIC_S2_BASE_URL": "http://127.0.0.1:9"]),
+                                   session: S2ToolStub.session(), budget: 1_000)
+        XCTAssertTrue(out.isError, out.text)
+        XCTAssertTrue(out.text.contains("fields"), "要告訴呼叫者怎麼縮小：\(out.text)")
+    }
+
+    /// 預設 limit 100 剛好放得下、S2 還有更多：`truncated` 是 false，但 `nextOffset` 要指出還有下一頁——
+    /// 續查的訊號是 `nextOffset`，不是 `truncated`（那只表示被位元組上限截斷）。
+    func testWhenTheDefaultPageFitsButS2HasMoreTheCursorStillSaysSo() async throws {
+        referencesStub(count: 1000)
+        let out = await S2Tool.run(S2ToolArguments(endpoint: "references", id: "DOI:10.1/x", fields: []),
+                                   environment: env(["AKASHIC_S2_BASE_URL": "http://127.0.0.1:9"]),
+                                   session: S2ToolStub.session())
+        XCTAssertFalse(out.isError, out.text)
+        let obj = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(out.text.utf8)) as? [String: Any], out.text)
+        XCTAssertEqual(obj["returned"] as? Int, 100)
+        XCTAssertEqual(obj["truncated"] as? Bool, false)
+        XCTAssertEqual(obj["nextOffset"] as? Int, 100)
+        XCTAssertEqual(obj["total"] as? Int, 1000)
+    }
+
+    /// 讀到最後一頁：`nextOffset` 是 null，照它續查就會停。
+    func testTheLastPageEndsTheContinuation() async throws {
+        referencesStub(count: 130)
+        let out = await S2Tool.run(S2ToolArguments(endpoint: "references", id: "DOI:10.1/x", fields: [], offset: 100),
+                                   environment: env(["AKASHIC_S2_BASE_URL": "http://127.0.0.1:9"]),
+                                   session: S2ToolStub.session())
+        let obj = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(out.text.utf8)) as? [String: Any], out.text)
+        XCTAssertEqual(obj["returned"] as? Int, 30)
+        XCTAssertTrue(obj["nextOffset"] is NSNull, out.text)
+    }
+
+    /// MCP 的 limit 上限是 S2 的一頁（1000）：一個呼叫不能獨占全機每秒 1 次的額度好幾分鐘。
+    func testALimitBeyondOneS2PageIsRefusedBeforeAnyRequest() async {
+        referencesStub(count: 10)
+        let out = await S2Tool.run(S2ToolArguments(endpoint: "references", id: "DOI:10.1/x", fields: [], limit: 1_000_000),
+                                   environment: env(["AKASHIC_S2_BASE_URL": "http://127.0.0.1:9"]),
+                                   session: S2ToolStub.session())
+        XCTAssertTrue(out.isError, out.text)
+        XCTAssertTrue(out.text.contains("1000"), out.text)
+        XCTAssertEqual(S2ToolStub.count, 0)
+    }
+
     func testMissingKeyIsAnErrorWithTheSetupGuidanceAndNoRequest() async {
         S2ToolStub.install { _ in (200, Data("{}".utf8)) }
         let service = "akashic-test-\(UUID().uuidString)"

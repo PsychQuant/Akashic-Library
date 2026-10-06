@@ -181,7 +181,28 @@ public protocol S2Throttling: Sendable {
     func backOff(until: Date) throws
 }
 
+/// 不跟隨轉址：S2 的 API 不該轉址，而 URLSession 轉址時會把自訂 header（`x-api-key`）原樣帶到新位址——
+/// 目標若是別的主機或 `http`，金鑰就送出去了（#664 verify R1）。回傳 nil＝把 3xx 當成最終回應交還給呼叫者。
+final class S2NoRedirectDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    func urlSession(_ session: URLSession, task: URLSessionTask,
+                    willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+        completionHandler(nil)
+    }
+}
+
 public final class S2Client: Sendable {
+    /// 預設連線：不快取、不存 cookie。`URLSession.shared` 帶著 `URLCache.shared`，S2 的回應沒有 `Cache-Control`，
+    /// GET 會被啟發式快取，序列化的請求（含 `x-api-key`）就寫進 `~/Library/Caches/<程序名>/Cache.db`（#664 verify R1）。
+    public static func makeSession() -> URLSession {
+        let config = URLSessionConfiguration.ephemeral
+        config.urlCache = nil
+        config.httpCookieStorage = nil
+        config.httpShouldSetCookies = false
+        config.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        return URLSession(configuration: config)
+    }
+
     public let settings: S2Settings
     let keyProvider: S2KeyProviding
     let throttle: S2Throttling
@@ -189,7 +210,7 @@ public final class S2Client: Sendable {
     let now: @Sendable () -> Date
 
     public init(settings: S2Settings, keyProvider: S2KeyProviding, throttle: S2Throttling,
-                session: URLSession = .shared, now: @escaping @Sendable () -> Date = { Date() }) {
+                session: URLSession = S2Client.makeSession(), now: @escaping @Sendable () -> Date = { Date() }) {
         self.settings = settings
         self.keyProvider = keyProvider
         self.throttle = throttle
@@ -208,11 +229,15 @@ public final class S2Client: Sendable {
         let urlRequest = try makeURLRequest(request, key: key)
 
         for attempt in 0...Self.maxRetries {
-            try await throttle.acquire()
+            do { try await throttle.acquire() } catch S2ThrottleError.blocked(let seconds) {
+                // 另一個呼叫者記下了比我願意等的更長的封鎖：照 429 用盡處理（結束碼 4），一個請求都不送。
+                throw S2Error.rateLimited(endpoint: displaySafeInvisible(request.endpoint),
+                                          reason: displaySafeInvisible("另一個呼叫者收到 429，共用封鎖還有 \(seconds) 秒"))
+            }
             let data: Data
             let response: URLResponse
             do {
-                (data, response) = try await session.data(for: urlRequest)
+                (data, response) = try await session.data(for: urlRequest, delegate: S2NoRedirectDelegate())
             } catch let e as URLError {
                 throw S2Error.network(endpoint: displaySafeInvisible(request.endpoint), reason: displaySafeInvisible("URLError \(e.code.rawValue)"))
             } catch {
@@ -227,17 +252,19 @@ public final class S2Client: Sendable {
             case 404:
                 throw S2Error.notFound(endpoint: displaySafeInvisible(request.endpoint), subject: displaySafeInvisible(request.subject ?? request.path))
             case 429:
+                let delay = Self.retryAfter(http.value(forHTTPHeaderField: "Retry-After"), now: now())
+                    ?? Self.defaultBackOff[Swift.min(attempt, Self.defaultBackOff.count - 1)]
+                // 先把退避記進共用狀態，再決定這次呼叫要不要等或放棄：一個呼叫者「不再重試」不代表其他呼叫者
+                // 可以無視 S2 的退避（最後一次 429、`Retry-After` 超過 60 秒都一樣；#664 verify R1）。
+                try throttle.backOff(until: now().addingTimeInterval(delay))
                 if attempt == Self.maxRetries {
                     throw S2Error.rateLimited(endpoint: displaySafeInvisible(request.endpoint),
                                               reason: displaySafeInvisible("重試 \(Self.maxRetries) 次後仍是 429"))
                 }
-                let delay = Self.retryAfter(http.value(forHTTPHeaderField: "Retry-After"), now: now())
-                    ?? Self.defaultBackOff[attempt]
                 if delay > Self.maxRetryAfter {
                     throw S2Error.rateLimited(endpoint: displaySafeInvisible(request.endpoint),
                                               reason: displaySafeInvisible("Retry-After 為 \(Int(delay)) 秒，超過 \(Int(Self.maxRetryAfter)) 秒"))
                 }
-                try throttle.backOff(until: now().addingTimeInterval(delay))
             default:
                 throw S2Error.http(endpoint: displaySafeInvisible(request.endpoint), status: http.statusCode)   // display-safe-exempt: http.statusCode 是 Int
             }
@@ -283,6 +310,9 @@ public final class S2Client: Sendable {
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = request.method.rawValue
         urlRequest.timeoutInterval = 60
+        // 換了別的 session（測試、呼叫端注入）也一樣不快取、不帶 cookie。
+        urlRequest.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        urlRequest.httpShouldHandleCookies = false
         if let body = request.body {
             urlRequest.httpBody = body
             urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")

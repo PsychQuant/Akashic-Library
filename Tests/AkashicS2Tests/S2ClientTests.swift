@@ -144,6 +144,21 @@ final class S2KeyProviderTests: XCTestCase {
         let unreadable = String(describing: S2KeyError.notReadable(service: "semantic-scholar", account: "default"))
         XCTAssertTrue(unreadable.contains("所有 app"), unreadable)
     }
+
+    /// 只裝 plugin 的使用者讀不到 repo 內的設定文件：錯誤訊息本身就要有可以照著做的指令（#664 verify R1 第 26 列）。
+    func testMissingKeyMessageCarriesTheCommandToStoreIt() {
+        let missing = String(describing: S2KeyError.missing(service: "semantic-scholar", account: "default"))
+        XCTAssertTrue(missing.contains("security add-generic-password -s \"semantic-scholar\" -a \"default\" -A -w"), missing)
+        XCTAssertTrue(missing.contains("不要接金鑰") || missing.contains("-w 後面不要"), "指令不得要求把金鑰寫在命令列：\(missing)")
+    }
+
+    /// `errSecInteractionNotAllowed` 既是「ACL 需要提示」也是「keychain 鎖著」（SSH、背景工作階段最常見）：
+    /// 訊息兩個原因都講，而且先講解鎖，不要只叫人去改權限（#664 verify R1 第 17 列）。
+    func testNotReadableMessageNamesTheLockedKeychainFirst() throws {
+        let m = String(describing: S2KeyError.notReadable(service: "semantic-scholar", account: "default"))
+        let lock = try XCTUnwrap(m.range(of: "鎖")), acl = try XCTUnwrap(m.range(of: "所有 app"))
+        XCTAssertLessThan(lock.lowerBound, acl.lowerBound, m)
+    }
 }
 
 // MARK: - 測試替身（同 target 的其他測試檔共用）
@@ -180,6 +195,13 @@ final class StubURLProtocol: URLProtocol {
             let reply = try handler(request)
             let response = HTTPURLResponse(url: request.url!, statusCode: reply.status,
                                            httpVersion: "HTTP/1.1", headerFields: reply.headers)!
+            // 3xx 加 Location：照真的網路層的做法交給 URLSession 決定要不要跟（task delegate 說了算）。
+            // 請求的 header 原樣帶過去——這正是 URLSession 轉址時會做的事（custom header 不會被拿掉）。
+            if (301...308).contains(reply.status), let location = reply.headers["Location"], let target = URL(string: location) {
+                var next = request
+                next.url = target
+                client?.urlProtocol(self, wasRedirectedTo: next, redirectResponse: response)
+            }
             client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
             client?.urlProtocol(self, didLoad: reply.body)
             client?.urlProtocolDidFinishLoading(self)
@@ -315,6 +337,20 @@ final class S2EndpointsTests: XCTestCase {
         .init(status: 200, headers: [:], body: try! JSONSerialization.data(withJSONObject: object))
     }
 
+    /// URLProtocol 收到的請求把 body 轉成 `httpBodyStream`，`httpBody` 是 nil。
+    private static func bodyData(_ request: URLRequest) -> Data? {
+        if let body = request.httpBody { return body }
+        guard let stream = request.httpBodyStream else { return nil }
+        stream.open(); defer { stream.close() }
+        var data = Data(); var buffer = [UInt8](repeating: 0, count: 4096)
+        while stream.hasBytesAvailable {
+            let n = stream.read(&buffer, maxLength: buffer.count)
+            if n <= 0 { break }
+            data.append(buffer, count: n)
+        }
+        return data
+    }
+
     private static func queryValue(_ request: URLRequest, _ name: String) -> String? {
         URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?
             .queryItems?.first { $0.name == name }?.value
@@ -367,6 +403,59 @@ final class S2EndpointsTests: XCTestCase {
         guard case .array(let records) = r.data else { return XCTFail("data should be an array") }
         XCTAssertEqual(records.count, 30)
         XCTAssertNil(r.total)
+    }
+
+    // MARK: hasMore 取自 S2 自己的 next（#664 verify R1 第 6 列）
+
+    func testHasMoreIsTrueWhenTheLimitStoppedUsBeforeS2RanOut() async throws {
+        installReferences(count: 300)
+        let r = try await endpoints().references(id: "DOI:10.1037/a0038889", fields: [], limit: 100, offset: 0)
+        XCTAssertEqual(r.hasMore, true)
+    }
+
+    func testHasMoreIsFalseWhenWeReadToTheEnd() async throws {
+        installReferences(count: 250)
+        let r = try await endpoints().references(id: "DOI:10.1037/a0038889", fields: [], limit: nil, offset: 0)
+        XCTAssertEqual(r.hasMore, false)
+    }
+
+    /// 計數說 40、S2 只給 30 筆也沒有 `next`：沒有下一頁，不能因為 `total > 已取` 就說還有。
+    func testHasMoreIgnoresACountLargerThanWhatS2ActuallyReturns() async throws {
+        StubURLProtocol.install { request in
+            if request.url!.absoluteString.contains("/references") {
+                return Self.json(["offset": 0, "data": (0..<30).map { ["citedPaper": ["paperId": "p\($0)"]] }])
+            }
+            return Self.json(["paperId": "seed", "referenceCount": 40])
+        }
+        let r = try await endpoints().references(id: "DOI:10.1037/a0038889", fields: [], limit: 100, offset: 0)
+        XCTAssertEqual(r.total, 40)
+        XCTAssertEqual(r.hasMore, false)
+    }
+
+    func testEndpointsThatDoNotPageHaveNoHasMore() async throws {
+        StubURLProtocol.install { request in
+            let u = request.url!.absoluteString
+            if u.contains("/paper/batch") { return Self.json([["paperId": "a"]]) }
+            if u.contains("/recommendations/") { return Self.json(["recommendedPapers": [["paperId": "r"]]]) }
+            if u.contains("/search/match") { return Self.json(["data": [["paperId": "m"]]]) }
+            return Self.json(["paperId": "x"])
+        }
+        let e = try endpoints()
+        let results = [
+            try await e.paper(id: "DOI:10.1/x", fields: []),
+            try await e.match(title: "t", year: nil, fields: []),
+            try await e.batch(ids: ["DOI:10.1/x"], fields: []),
+            try await e.recommend(id: "DOI:10.1/x", limit: 5, fields: []),
+        ]
+        for r in results { XCTAssertNil(r.hasMore, r.endpoint) }
+    }
+
+    func testBatchDropsBlankIdsLikeTheCLIDoes() async throws {
+        StubURLProtocol.install { _ in Self.json([["paperId": "a"]]) }
+        _ = try await endpoints().batch(ids: ["", " 10.1/x ", "   "], fields: [])
+        let body = try XCTUnwrap(Self.bodyData(StubURLProtocol.requests[0]))
+        let ids = (try JSONSerialization.jsonObject(with: body) as? [String: Any])?["ids"] as? [String]
+        XCTAssertEqual(ids, ["DOI:10.1/x"])
     }
 
     func testBareDOIGetsThePrefixAndIdentifiersAreEncoded() async throws {

@@ -107,6 +107,79 @@ final class S2ThrottleBackOffTests: XCTestCase {
         try a.backOff(until: t0.addingTimeInterval(4.00))
         XCTAssertGreaterThanOrEqual(try a.reserveSlot().timeIntervalSince(t0), 4.00)
     }
+
+    // MARK: 長退避（#664 verify R1 第 4、19 列）
+
+    /// 比 60 秒長的 `Retry-After` 以前被當成「過期的狀態」清掉，其他 session 看不到它。
+    /// 現在記下來；剩下的封鎖超過 60 秒時，其他呼叫者**快速失敗**（結束碼 4），不睡上好幾分鐘。
+    func testALongBackOffIsKeptAndOtherCallersFailFastInsteadOfSleepingThroughIt() async throws {
+        let clock = FakeClock(t0)
+        let a = clock.throttle(dir), b = clock.throttle(dir)
+        try a.backOff(until: t0.addingTimeInterval(120))
+        do {
+            try await b.acquire()
+            XCTFail("封鎖還有 120 秒，應該快速失敗")
+        } catch {
+            XCTAssertEqual(error as? S2ThrottleError, .blocked(seconds: 120))
+        }
+        XCTAssertTrue(clock.slept.isEmpty, "快速失敗不睡")
+    }
+
+    /// 剩下的封鎖降到 60 秒以內，呼叫者就等它過去再送——而且是睡過去，不是在鎖上空轉。
+    func testWhenTheRemainingBlockIsShortACallerSleepsThroughItAndThenGoes() async throws {
+        let clock = FakeClock(t0)
+        let a = clock.throttle(dir)
+        try a.backOff(until: t0.addingTimeInterval(120))
+        clock.set(t0.addingTimeInterval(70))
+        try await a.acquire()
+        XCTAssertGreaterThanOrEqual(clock.now.timeIntervalSince(t0), 120 - 1e-9)
+        XCTAssertLessThan(clock.slept.count, 5, "睡了 \(clock.slept.count) 次：這是空轉")
+    }
+
+    /// 荒謬的 `Retry-After`（一天）只記一小時：之後的呼叫者不會被一個過期很久的狀態卡到明天。
+    func testAnAbsurdRetryAfterIsRecordedAsAtMostOneHour() async throws {
+        let clock = FakeClock(t0)
+        let a = clock.throttle(dir)
+        try a.backOff(until: t0.addingTimeInterval(86_400))
+        clock.set(t0.addingTimeInterval(3_601))
+        try await a.acquire()                                   // 不丟、不睡
+        XCTAssertTrue(clock.slept.isEmpty)
+    }
+
+    /// 時鐘被往回撥或檔案壞掉時，比一小時還遠的封鎖才視為過期。
+    func testABlockFarBeyondTheCapIsTreatedAsStale() async throws {
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let far = t0.addingTimeInterval(100_000).timeIntervalSince1970
+        try Data("{\"nextAllowedAt\":0,\"blockedUntil\":\(far)}".utf8).write(to: dir.appendingPathComponent("s2-throttle"))
+        let clock = FakeClock(t0)
+        try await clock.throttle(dir).acquire()
+        XCTAssertTrue(clock.slept.isEmpty)
+    }
+
+    // MARK: 狀態檔（#664 verify R1 第 20、23 列）
+
+    /// 狀態檔若是 symlink，不跟隨——否則寫入會落到別處。
+    func testAStateFileThatIsASymlinkIsRefusedAndTheTargetIsNotWritten() throws {
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let target = dir.appendingPathComponent("elsewhere")
+        try Data("untouched".utf8).write(to: target)
+        try FileManager.default.createSymbolicLink(at: dir.appendingPathComponent("s2-throttle"), withDestinationURL: target)
+        XCTAssertThrowsError(try FakeClock(t0).throttle(dir).reserveSlot()) { error in
+            guard case .stateFile(_, let e)? = error as? S2ThrottleError else { return XCTFail("\(error)") }
+            XCTAssertEqual(e, ELOOP)
+        }
+        XCTAssertEqual(try String(contentsOf: target, encoding: .utf8), "untouched")
+    }
+
+    /// 已存在而權限較寬的狀態檔（例如別的程式建的）收緊到 0600。
+    func testAnExistingWiderStateFileIsTightenedTo0600() throws {
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let file = dir.appendingPathComponent("s2-throttle")
+        try Data("{}".utf8).write(to: file)
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: file.path)
+        _ = try FakeClock(t0).throttle(dir).reserveSlot()
+        XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? Int, 0o600)
+    }
 }
 
 /// 記錄 backOff 的節流替身（不真的等）。
@@ -160,8 +233,10 @@ final class S2RetryTests: XCTestCase {
     }
 
     func testFourth429IsRateLimited() async {
-        let (r, _, sent) = await run([limited(), limited(), limited(), limited()])
+        let (r, throttle, sent) = await run([limited(), limited(), limited(), limited()])
         XCTAssertEqual(sent, 4)
+        // 最後一次 429 也要記進共用退避：這次呼叫不再重試，不代表其他呼叫者可以無視 S2 的退避（verify R1 第 4 列）。
+        XCTAssertEqual(throttle.backOffs, [2, 4, 8, 8].map { t0.addingTimeInterval($0) })
         guard case .failure(let e) = r, case .rateLimited(let endpoint, _)? = e as? S2Error else {
             return XCTFail("expected rateLimited, got \(r)")
         }
@@ -171,10 +246,29 @@ final class S2RetryTests: XCTestCase {
     func testRetryAfterOver60SecondsFailsWithoutWaiting() async {
         let (r, throttle, sent) = await run([limited("120"), ok])
         XCTAssertEqual(sent, 1)
-        XCTAssertTrue(throttle.backOffs.isEmpty)
+        XCTAssertEqual(throttle.backOffs, [t0.addingTimeInterval(120)], "這次呼叫不等，但要讓其他呼叫者知道")
         guard case .failure(let e) = r, case .rateLimited? = e as? S2Error else {
             return XCTFail("expected rateLimited, got \(r)")
         }
+    }
+
+    /// 另一個呼叫者記下了超過 60 秒的封鎖：這個呼叫者在送出任何請求之前就以 `rateLimited` 失敗（結束碼 4），
+    /// 不是節流層的原始錯誤（結束碼 1）。
+    func testABlockRecordedByAnotherCallerSurfacesAsRateLimitedWithoutSendingAnything() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("s2-blocked-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let clock = FakeClock(t0)
+        try clock.throttle(dir).backOff(until: t0.addingTimeInterval(120))
+        StubURLProtocol.install { _ in .init(status: 200, headers: [:], body: Data("{}".utf8)) }
+        let client = S2Client(settings: try S2Settings.resolve(environment: ["HOME": "/Users/tester"]),
+                              keyProvider: CountingKeyProvider(.success(S2APIKey(value: "k-123"))),
+                              throttle: clock.throttle(dir), session: StubURLProtocol.session(), now: { [t0] in t0 })
+        do { _ = try await client.send(paper); XCTFail("應該以 rateLimited 失敗") } catch {
+            guard case .rateLimited(let endpoint, let reason)? = error as? S2Error else { return XCTFail("\(error)") }
+            XCTAssertEqual(endpoint, "paper")
+            XCTAssertTrue(reason.contains("120"), reason)
+        }
+        XCTAssertEqual(StubURLProtocol.requests.count, 0)
     }
 
     func testRetryAfterSecondsAndHTTPDateAreHonoured() async {

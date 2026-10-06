@@ -18,6 +18,14 @@ public struct S2Result: Sendable, Equatable {
     public let total: Int?
     public let offset: Int
     public let data: S2JSON
+    /// 還有沒有下一頁——**取自 S2 自己回的 `next`**，不從 `total`（另一個端點的計數）推：計數可以比 S2 實際給得出的筆數大、
+    /// 也可以查不到。`nil` 表示這個端點本身不分頁（`paper`、`match`、`batch`、`recommend`），沒有續查這回事（#664 verify R1）。
+    public let hasMore: Bool?
+
+    public init(endpoint: String, request: [String: S2JSON], total: Int?, offset: Int, data: S2JSON, hasMore: Bool? = nil) {
+        self.endpoint = endpoint; self.request = request; self.total = total
+        self.offset = offset; self.data = data; self.hasMore = hasMore
+    }
 }
 
 /// 字串 payload 在擲出端逃脫一次，描述原樣組句（#554）。上限以兩個整數表示——`nil` 表示沒有上限。
@@ -29,6 +37,8 @@ public enum S2ArgumentError: Error, Equatable, CustomStringConvertible, Sanitize
     case invalidIdentifier(endpoint: String, identifier: String)
     case unknownEndpoint(String)
     case missingArgument(endpoint: String, name: String)
+    /// 不像識別碼的一行（含空白或控制字元，或太長）：`batch` 的 id 會 POST 給第三方，送出前先擋。
+    case malformedIdentifier(endpoint: String, identifier: String)
 
     public var description: String {
         switch self {
@@ -42,6 +52,7 @@ public enum S2ArgumentError: Error, Equatable, CustomStringConvertible, Sanitize
         case .unknownEndpoint(let e):
             return "endpoint 必須是 \(S2Tool.endpointNames.joined(separator: "、")) 之一；收到「\(e)」"   // display-safe-exempt: S2Tool 的 endpointNames 是常量清單；e 擲出端已 displaySafeInvisible
         case .missingArgument(let e, let n): return "\(e) 需要參數 \(n)"   // display-safe-exempt: e、n 擲出端已 displaySafeInvisible
+        case .malformedIdentifier(let e, let id): return "\(e) 的識別碼「\(id)」不像 S2 的識別碼（含空白或控制字元，或超過 \(S2Endpoints.maxIdentifierLength) 個字元），不送出"   // display-safe-exempt: e、id 擲出端已 displaySafeInvisible；maxIdentifierLength 是常量
         }
     }
 }
@@ -98,6 +109,8 @@ public struct S2Endpoints: Sendable {
     /// S2 單頁的上限；分頁端點一律用它向 S2 要，S2 回得比較少時照 `next` 繼續翻。
     static let pageSize = 1000
     static let batchRange = 1...500
+    /// 一個識別碼的長度上限（DOI 與 URL 形式的 id 都遠短於此）。
+    static let maxIdentifierLength = 512
     static let recommendRange = 1...500
     /// `author-search` 未指定 `--limit` 時的筆數。
     public static let defaultSearchLimit = 100
@@ -129,8 +142,14 @@ public struct S2Endpoints: Sendable {
     }
 
     public func batch(ids: [String], fields: [String]) async throws -> S2Result {
-        guard Self.batchRange.contains(ids.count) else { throw S2ArgumentError.batchSize(ids.count) }
-        let normalized = ids.map(Self.normalizePaperID)
+        // 空白的 id 丟掉——CLI 讀檔時本來就丟，MCP 與 CLI 在同一個地方做，兩面不會分岔。
+        let cleaned = ids.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        guard Self.batchRange.contains(cleaned.count) else { throw S2ArgumentError.batchSize(cleaned.count) }
+        for id in cleaned where id.count > Self.maxIdentifierLength
+            || id.unicodeScalars.contains(where: { CharacterSet.whitespacesAndNewlines.contains($0) || CharacterSet.controlCharacters.contains($0) }) {
+            throw S2ArgumentError.malformedIdentifier(endpoint: "batch", identifier: displaySafeInvisible(id, max: 80))
+        }
+        let normalized = cleaned.map(Self.normalizePaperID)
         let body = try JSONEncoder().encode(["ids": normalized])
         let request = S2Request(endpoint: "batch", method: .post, path: "\(Self.graph)/paper/batch",
                                 query: Self.fieldsQuery(fields), body: body, subject: nil)
@@ -166,25 +185,25 @@ public struct S2Endpoints: Sendable {
         let n = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !n.isEmpty else { throw S2ArgumentError.emptyIdentifier(endpoint: "author-search") }
         let cap = limit ?? Self.defaultSearchLimit
-        let (records, first) = try await paginate("author-search", path: "\(Self.graph)/author/search",
-                                                  query: [URLQueryItem(name: "query", value: n)] + Self.fieldsQuery(fields),
-                                                  limit: cap, offset: offset, subject: n)
+        let (records, first, hasMore) = try await paginate("author-search", path: "\(Self.graph)/author/search",
+                                                           query: [URLQueryItem(name: "query", value: n)] + Self.fieldsQuery(fields),
+                                                           limit: cap, offset: offset, subject: n)
         return S2Result(endpoint: "author-search",
                         request: ["name": .string(n), "limit": .int(cap), "offset": .int(offset), "fields": Self.list(fields)],
-                        total: first?["total"]?.intValue, offset: offset, data: .array(records))
+                        total: first?["total"]?.intValue, offset: offset, data: .array(records), hasMore: hasMore)
     }
 
     public func authorPapers(id: String, fields: [String], limit: Int?, offset: Int) async throws -> S2Result {
         let aid = id.trimmingCharacters(in: .whitespacesAndNewlines)
         let seg = try Self.segment(aid, endpoint: "author-papers")
-        let (records, _) = try await paginate("author-papers", path: "\(Self.graph)/author/\(seg)/papers",
+        let (records, _, hasMore) = try await paginate("author-papers", path: "\(Self.graph)/author/\(seg)/papers",
                                               query: Self.fieldsQuery(fields), limit: limit, offset: offset, subject: aid)
         let total = try? await get("author-papers", "\(Self.graph)/author/\(seg)",
                                    fields: ["paperCount"], subject: aid)["paperCount"]?.intValue
         return S2Result(endpoint: "author-papers",
                         request: ["id": .string(aid), "limit": limit.map(S2JSON.int) ?? .null,
                                   "offset": .int(offset), "fields": Self.list(fields)],
-                        total: total ?? nil, offset: offset, data: .array(records))
+                        total: total ?? nil, offset: offset, data: .array(records), hasMore: hasMore)
     }
 
     // MARK: - 內部
@@ -193,19 +212,21 @@ public struct S2Endpoints: Sendable {
                            limit: Int?, offset: Int) async throws -> S2Result {
         let pid = Self.normalizePaperID(id)
         let seg = try Self.segment(pid, endpoint: endpoint)
-        let (records, _) = try await paginate(endpoint, path: "\(Self.graph)/paper/\(seg)/\(endpoint)",
+        let (records, _, hasMore) = try await paginate(endpoint, path: "\(Self.graph)/paper/\(seg)/\(endpoint)",
                                               query: Self.fieldsQuery(fields), limit: limit, offset: offset, subject: pid)
         // total 多花一次請求；失敗時回 nil，資料照回（design〈Implementation Contract〉）。
         let total = try? await get(endpoint, "\(Self.graph)/paper/\(seg)", fields: [countField], subject: pid)[countField]?.intValue
         return S2Result(endpoint: endpoint,
                         request: ["id": .string(pid), "limit": limit.map(S2JSON.int) ?? .null,
                                   "offset": .int(offset), "fields": Self.list(fields)],
-                        total: total ?? nil, offset: offset, data: .array(records))
+                        total: total ?? nil, offset: offset, data: .array(records), hasMore: hasMore)
     }
 
     /// 照 `next` 翻頁，直到結果或 `limit` 用盡；`next` 沒有前進時停下，不會無限迴圈。
+    /// `hasMore` 只有兩種來源：停在 `limit` 時 S2 最後一頁帶著前進的 `next`，或 S2 給的筆數比我們要的多；
+    /// 讀到 S2 不再給 `next`（或給空頁）就是 false。
     private func paginate(_ endpoint: String, path: String, query: [URLQueryItem], limit: Int?, offset: Int,
-                          subject: String) async throws -> ([S2JSON], S2JSON?) {
+                          subject: String) async throws -> (records: [S2JSON], first: S2JSON?, hasMore: Bool) {
         guard offset >= 0 else { throw S2ArgumentError.negativeOffset(offset) }
         if let limit, limit < 1 {
             throw S2ArgumentError.limitOutOfRange(endpoint: displaySafeInvisible(endpoint), limit: limit, min: 1, max: nil)   // display-safe-exempt: limit 是 Int
@@ -213,9 +234,10 @@ public struct S2Endpoints: Sendable {
         var records: [S2JSON] = []
         var cursor = offset
         var first: S2JSON?
+        var hasMore = false
         while true {
             let want = limit.map { Swift.min(Self.pageSize, $0 - records.count) } ?? Self.pageSize
-            guard want > 0 else { break }
+            guard want > 0 else { hasMore = true; break }   // 到這裡表示上一頁帶著前進的 next，而 limit 已經用盡
             let q = query + [URLQueryItem(name: "offset", value: "\(cursor)"),
                              URLQueryItem(name: "limit", value: "\(want)")]
             let page = try Self.decode(try await client.send(
@@ -223,10 +245,11 @@ public struct S2Endpoints: Sendable {
             if first == nil { first = page }
             let items = page["data"]?.arrayValue ?? []
             records.append(contentsOf: items.prefix(want))
+            if items.count > want { hasMore = true; break }   // S2 給的比我們要的多：後面還有
             guard let next = page["next"]?.intValue, next > cursor, !items.isEmpty else { break }
             cursor = next
         }
-        return (records, first)
+        return (records, first, hasMore)
     }
 
     private func get(_ endpoint: String, _ path: String, fields: [String], extra: [URLQueryItem] = [],

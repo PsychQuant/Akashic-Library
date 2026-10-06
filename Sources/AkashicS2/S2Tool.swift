@@ -35,7 +35,7 @@ public enum S2Tool {
 
     public static func run(_ args: S2ToolArguments,
                            environment: [String: String] = ProcessInfo.processInfo.environment,
-                           session: URLSession = .shared,
+                           session: URLSession = S2Client.makeSession(),
                            budget: Int = S2Output.mcpByteBudget) async -> S2ToolOutcome {
         do {
             guard endpointNames.contains(args.endpoint) else {
@@ -49,7 +49,11 @@ public enum S2Tool {
             let client = S2Client(settings: settings, keyProvider: S2KeychainKeyProvider(settings: settings),
                                   throttle: S2FileThrottle(stateDirectory: settings.stateDirectory), session: session)
             let result = try await call(S2Endpoints(client: client), args)
-            return S2ToolOutcome(text: S2Output.mcpPage(result, budget: budget).text, isError: false)
+            let page = S2Output.mcpPage(result, budget: budget)
+            if page.returned == 0 && page.truncated {
+                throw S2OutputError.recordExceedsBudget(endpoint: displaySafeInvisible(args.endpoint), kib: budget / 1024)   // display-safe-exempt: budget / 1024 是 Int
+            }
+            return S2ToolOutcome(text: page.text, isError: false)
         } catch {
             return S2ToolOutcome(text: displaySafeErrorMultiline(error, prefix: "Error: "), isError: true)
         }
@@ -65,6 +69,11 @@ public enum S2Tool {
         let paperFields = a.fields ?? S2Endpoints.defaultPaperFields
         let offset = a.offset ?? 0
         let limit = a.limit ?? defaultPageLimit
+        // 分頁端點的 limit 上限是 S2 的一頁：一個呼叫最多一次翻頁請求，不會獨占全機每秒 1 次的額度好幾分鐘。
+        if ["references", "citations", "author_search", "author_papers"].contains(a.endpoint),
+           !(1...S2Endpoints.pageSize).contains(limit) {
+            throw S2ArgumentError.limitOutOfRange(endpoint: displaySafeInvisible(a.endpoint), limit: limit, min: 1, max: S2Endpoints.pageSize)   // display-safe-exempt: limit 是 Int
+        }
         switch a.endpoint {
         case "paper": return try await e.paper(id: need(a.id, "id"), fields: paperFields)
         case "match": return try await e.match(title: need(a.title, "title"), year: a.year, fields: paperFields)

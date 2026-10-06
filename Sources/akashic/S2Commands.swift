@@ -72,8 +72,8 @@ enum S2CLI {
         } catch let e as S2ThrottleError {
             throw RuntimeFailure.state(displaySafeErrorText(e))
         }
-        let clean = S2Output.sanitized(result)
-        print(options.json ? S2Output.cliJSON(clean, fetchedAt: Date()) : S2Output.humanReadable(clean))
+        // JSON 面無損（`cliJSON` 自己清理）；人可讀的面是終端機，走 `sanitized`。
+        print(options.json ? S2Output.cliJSON(result, fetchedAt: Date()) : S2Output.humanReadable(S2Output.sanitized(result)))
     }
 
     /// 環境變數不是 argv（#549）：覆寫被拒回 1，不是 64。
@@ -149,6 +149,12 @@ struct S2MatchCmd: ParsableCommand {
     @Option(name: .long, help: "論文標題") var title: String
     @Option(name: .long, help: "出版年（可省略）") var year: String?
     @OptionGroup var options: S2Options
+    /// 只看 argv（#549）：空白標題在這裡回 64，不是等到查詢時才失敗。
+    func validate() throws {
+        if title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            throw ValidationError(displaySafeErrorText(S2ArgumentError.emptyIdentifier(endpoint: "match")))
+        }
+    }
     func run() throws {
         let t = title, y = year, fields = options.fieldList(default: S2CLI.paperFields)
         try S2CLI.run(options) { try await $0.match(title: t, year: y, fields: fields) }
@@ -159,7 +165,12 @@ struct S2BatchCmd: ParsableCommand {
     static let configuration = CommandConfiguration(commandName: "batch", abstract: "批次查詢（檔案一行一個 id，至多 500 個）")
     @Option(name: .long, help: "id 清單檔") var idsFile: String
     @OptionGroup var options: S2Options
+    static let maxIdsFileBytes = 256 * 1024
     func run() throws {
+        // 至多 500 個 id、每個至多 512 字元，遠小於 256 KiB；超過的不是 id 清單，不整份讀進來（也不 POST 給第三方）。
+        if let size = (try? FileManager.default.attributesOfItem(atPath: idsFile))?[.size] as? Int, size > Self.maxIdsFileBytes {
+            throw RuntimeFailure.state("--ids-file 超過 256 KiB（至多 500 個 id，不需要這麼大）：\(displaySafeInvisible(idsFile, max: 300))")
+        }
         let text: String
         do { text = try String(contentsOfFile: idsFile, encoding: .utf8) } catch {
             throw RuntimeFailure.state("讀不到 --ids-file：\(displaySafeInvisible(idsFile, max: 300))")
@@ -221,6 +232,11 @@ struct S2AuthorSearchCmd: ParsableCommand {
     @Option(name: .long, help: "姓名") var name: String
     @OptionGroup var page: S2PageOptions
     @OptionGroup var options: S2Options
+    func validate() throws {
+        if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            throw ValidationError(displaySafeErrorText(S2ArgumentError.emptyIdentifier(endpoint: "author-search")))
+        }
+    }
     func run() throws {
         let n = name, limit = page.limit, offset = page.offset, fields = options.fieldList(default: S2CLI.authorFields)
         try S2CLI.run(options) { try await $0.authorSearch(name: n, fields: fields, limit: limit, offset: offset) }

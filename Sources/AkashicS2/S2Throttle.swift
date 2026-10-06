@@ -69,7 +69,7 @@ public final class S2FileThrottle: S2Throttling, @unchecked Sendable {
         try withLockedState { state in
             let t = now().timeIntervalSince1970
             if let remaining = Self.remainingBlock(&state, at: t), remaining > Self.maxWait {
-                throw S2ThrottleError.blocked(seconds: Int(remaining.rounded(.up)))
+                throw S2ThrottleError.blocked(seconds: Int(remaining.rounded(.up)))   // display-safe-exempt: Int(remaining.rounded(.up)) 是 Int（剩下的秒數）
             }
             var next = state.nextAllowedAt
             if next - t > Self.staleAfter { next = t }
@@ -116,7 +116,7 @@ public final class S2FileThrottle: S2Throttling, @unchecked Sendable {
             let t = now().timeIntervalSince1970
             if let remaining = Self.remainingBlock(&state, at: t) {
                 // 封鎖還剩很久就快速失敗；剩得短才睡過去（`.rebook` 會睡到 `nextAllowedAt`，`backOff` 已把它推到封鎖結束）。
-                if remaining > Self.maxWait { throw S2ThrottleError.blocked(seconds: Int(remaining.rounded(.up))) }
+                if remaining > Self.maxWait { throw S2ThrottleError.blocked(seconds: Int(remaining.rounded(.up))) }   // display-safe-exempt: Int(remaining.rounded(.up)) 是 Int（剩下的秒數）
                 return .rebook
             }
             if let last = state.lastReleasedAt, last - t <= Self.staleAfter {
@@ -147,25 +147,35 @@ public final class S2FileThrottle: S2Throttling, @unchecked Sendable {
     }
 
     /// 開檔 → `flock(LOCK_EX)` → 讀 → 改 → 寫回 → 關檔（關檔即解鎖，程序中途死掉也不留鎖）。
-    /// `errno` 在失敗的那個呼叫之後**立刻**取走，再去組錯誤（組錯誤會呼叫別的函式，可能改掉它）。
+    /// `errno` 在失敗的那個呼叫之後**立刻**取走（`let e = errno`），再去組錯誤：組錯誤的引數裡有函式呼叫
+    /// （`displaySafeInvisible`），照引數由左到右求值，`errno: errno` 會讀到它之後的值。
     /// 狀態檔不跟隨 symlink（`O_NOFOLLOW`），並收緊到 0600——目錄只在建立時是 0700，已存在的目錄不動它的權限。
+    /// 每個擲出站點都內聯 `displaySafeInvisible`（#554：payload 在擲出端逃脫一次；守衛靠看見它判定型別有消毒）。
     func withLockedState<T>(_ body: (inout State) throws -> T) throws -> T {
         try FileManager.default.createDirectory(
             at: stateDirectory, withIntermediateDirectories: true,
             attributes: [.posixPermissions: 0o700])
         let path = stateFile.path
-        func failure(_ e: Int32) -> S2ThrottleError { .stateFile(path: displaySafeInvisible(path, max: 800), errno: e) }
         let fd = open(path, O_RDWR | O_CREAT | O_NOFOLLOW, 0o600)
-        guard fd >= 0 else { throw failure(errno) }
+        guard fd >= 0 else {
+            let e = errno
+            throw S2ThrottleError.stateFile(path: displaySafeInvisible(path, max: 800), errno: e)   // display-safe-exempt: e 是 errno（Int32）
+        }
         defer { close(fd) }
-        guard flock(fd, LOCK_EX) == 0 else { throw failure(errno) }
+        guard flock(fd, LOCK_EX) == 0 else {
+            let e = errno
+            throw S2ThrottleError.stateFile(path: displaySafeInvisible(path, max: 800), errno: e)   // display-safe-exempt: e 是 errno（Int32）
+        }
         _ = fchmod(fd, 0o600)   // 別人先建出來而權限較寬的檔；不是自己的檔就收不動，照樣用
 
         var bytes = Data()
         var buffer = [UInt8](repeating: 0, count: 4096)
         while true {
             let n = read(fd, &buffer, buffer.count)
-            if n < 0 { throw failure(errno) }
+            if n < 0 {
+                let e = errno
+                throw S2ThrottleError.stateFile(path: displaySafeInvisible(path, max: 800), errno: e)   // display-safe-exempt: e 是 errno（Int32）
+            }
             if n == 0 { break }
             bytes.append(buffer, count: n)
         }
@@ -174,11 +184,22 @@ public final class S2FileThrottle: S2Throttling, @unchecked Sendable {
         let result = try body(&state)
 
         let out = try JSONEncoder().encode(state)
-        guard ftruncate(fd, 0) == 0 else { throw failure(errno) }
-        guard lseek(fd, 0, SEEK_SET) == 0 else { throw failure(errno) }
+        guard ftruncate(fd, 0) == 0 else {
+            let e = errno
+            throw S2ThrottleError.stateFile(path: displaySafeInvisible(path, max: 800), errno: e)   // display-safe-exempt: e 是 errno（Int32）
+        }
+        guard lseek(fd, 0, SEEK_SET) == 0 else {
+            let e = errno
+            throw S2ThrottleError.stateFile(path: displaySafeInvisible(path, max: 800), errno: e)   // display-safe-exempt: e 是 errno（Int32）
+        }
         let written = out.withUnsafeBytes { write(fd, $0.baseAddress, out.count) }
-        if written < 0 { throw failure(errno) }
-        if written != out.count { throw failure(EIO) }   // 寫了一半：errno 沒有意義，不拿舊的充數
+        if written < 0 {
+            let e = errno
+            throw S2ThrottleError.stateFile(path: displaySafeInvisible(path, max: 800), errno: e)   // display-safe-exempt: e 是 errno（Int32）
+        }
+        if written != out.count {   // 寫了一半：errno 沒有意義，不拿舊的充數
+            throw S2ThrottleError.stateFile(path: displaySafeInvisible(path, max: 800), errno: EIO)   // display-safe-exempt: EIO 是 errno 常數（Int32）
+        }
         return result
     }
 }

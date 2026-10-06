@@ -72,7 +72,7 @@ public enum S2Tool {
         // 分頁端點的 limit 上限是 S2 的一頁：一個呼叫最多一次翻頁請求，不會獨占全機每秒 1 次的額度好幾分鐘。
         if ["references", "citations", "author_search", "author_papers"].contains(a.endpoint),
            !(1...S2Endpoints.pageSize).contains(limit) {
-            throw S2ArgumentError.limitOutOfRange(endpoint: displaySafeInvisible(a.endpoint), limit: limit, min: 1, max: S2Endpoints.pageSize)   // display-safe-exempt: limit 是 Int
+            throw S2ArgumentError.limitOutOfRange(endpoint: displaySafeInvisible(a.endpoint), limit: limit, min: 1, max: S2Endpoints.pageSize)   // display-safe-exempt: limit 是 Int；S2Endpoints.pageSize 是 Int 常量
         }
         switch a.endpoint {
         case "paper": return try await e.paper(id: need(a.id, "id"), fields: paperFields)

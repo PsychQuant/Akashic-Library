@@ -52,7 +52,7 @@ public enum S2ArgumentError: Error, Equatable, CustomStringConvertible, Sanitize
         case .unknownEndpoint(let e):
             return "endpoint 必須是 \(S2Tool.endpointNames.joined(separator: "、")) 之一；收到「\(e)」"   // display-safe-exempt: S2Tool 的 endpointNames 是常量清單；e 擲出端已 displaySafeInvisible
         case .missingArgument(let e, let n): return "\(e) 需要參數 \(n)"   // display-safe-exempt: e、n 擲出端已 displaySafeInvisible
-        case .malformedIdentifier(let e, let id): return "\(e) 的識別碼「\(id)」不像 S2 的識別碼（含空白或控制字元，或超過 \(S2Endpoints.maxIdentifierLength) 個字元），不送出"   // display-safe-exempt: e、id 擲出端已 displaySafeInvisible；maxIdentifierLength 是常量
+        case .malformedIdentifier(let e, let id): return "\(e) 的識別碼「\(id)」不像 S2 的識別碼（含空白或控制字元，或超過 \(S2Endpoints.maxIdentifierLength) 個字元），不送出"   // display-safe-exempt: e、id 擲出端已 displaySafeInvisible；S2Endpoints.maxIdentifierLength 是常量
         }
     }
 }

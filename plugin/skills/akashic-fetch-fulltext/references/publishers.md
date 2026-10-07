@@ -22,7 +22,7 @@
 | SAGE | 頁面 60 秒內 `readyState` 未到 `complete` | `interactive` 即可繼續 | 2026-09-23，1 篇 |
 | Wiley（onlinelibrary.wiley.com）| 頁面的 `/doi/pdf/<doi>` 通到 HTML 檢視器 | 導航後分頁是 HTML → 結束碼 7 `html-page`：請使用者在檢視器按下載 | 2026-09-23，2 篇成功（當時以拼出來的 `pdfdirect` 頁內 fetch；#613 起不拼）|
 | APA PsycNet（psycnet.apa.org）| 有權限時 DOI 跳到 `/fulltext/<id>.html`；有時停在 `doiLanding?doi=…`、只有 `/record/<id>` 連結 | 頁面沒有自己的 PDF 連結時 → 結束碼 3。**不拼** `/fulltext/<id>.pdf`；請使用者在頁面上找 PDF 按鈕 | 2026-09-23，3 篇成功（拼網址＋頁內 fetch）|
-| APA PsycNet 無權限 | 書目頁只有 Login／Get Access；`/fulltext/<id>.pdf` 回 HTTP 200、約 8,028 bytes、內容「Loading…」 | 「沒有權限」，不是起疑：列入「需要人」，或改走下方〈EBSCO APA PsycInfo〉 | 2026-09-23，6 篇；2026-09-28，1 篇（Luce & Edwards, 1958）|
+| APA PsycNet 無權限 | 書目頁只有 Login／Get Access；`/fulltext/<id>.pdf` 回 HTTP 200、約 8,028 bytes、內容「Loading…」 | 「沒有權限」，不是起疑：列入「需要人」，或改走下方〈EBSCO APA PsycInfo〉 | 2026-09-23，6 篇；2026-09-28，1 篇（Luce & Edwards, 1958）；2026-10-07，1 篇（Marsh et al., 2013；手動開書目頁只有 Get Access。同一篇用 #613 之前的舊 shell 腳本跑，在 `doiLanding` 停於結束碼 6 `cloudflare-challenge`，但訊號網址是 sciencedirect.com 的 `__cf_chl_rt_tk`、不是 psycnet——舊腳本讀到哪一頁未查證）|
 | Annual Reviews（annualreviews.org）| 「download PDF」是 `href="#"` 的按鈕，外層是 POST 表單 `form.ft-download-content__form--pdf`；第一個 `.pdf` 連結是**補充資料** | 結束碼 7 `button`：請使用者按下載按鈕（不代按、不代送表單）；`take` 的驗證會擋下補充資料 | 2026-09-23，1 篇（當時以表單頁內送出）|
 | Oxford Academic（academic.oup.com）| 頁內 fetch PDF 回 403「Just a moment…」（Cloudflare）| Cloudflare「Just a moment」→ 結束碼 8 **等人驗證**（使用者 2026-09-28 裁決；挑戰頁以 403 回應也一樣）；頁面同時有封鎖句時整批暫停（結束碼 6）。2026-09-23 當時是改找 PMC 作者稿繼續——那是在被懷疑之後換路，2026-09-24 起不再這樣做 | 2026-09-23，1 篇 |
 | PubMed Central（pmc.ncbi.nlm.nih.gov）| 頁內 fetch PDF 回約 1.8 KB 的防爬蟲驗證頁（「preparing to download」、proof of work） | 那個驗證頁是**整批暫停**（使用者 2026-10-01：下載前驗證頁不當成等人驗證）。#613 拿掉了 `--prime`：它只是為了讓之後的頁內 fetch 過得去，導航本來就像讀者點連結 | 2026-09-23，1 篇成功（`--prime`＋頁內 fetch）|
@@ -48,6 +48,17 @@
 **2026-09-28 的步驟 4–5 不再照做**：當時在閱讀器分頁內頁內 fetch 同源的 `api/researcher-edge-aggregator/v1/records/<id>/fulltext/pdf?…` 取得 JSON 裡的取件網址，再把分頁導到 `content.ebscohost.com/cds/retrieve?content=…`、在那個分頁頁內 fetch `location.href`。前者是頁內以 JS 發請求（最高原則規則 1）；後者**就算改成單純導航**，也是對閱讀器已經載入過的同一份檔再發一次請求（規則 2——ScienceDirect 的第二次 CAPTCHA 就是這個形狀）。所以這一段**沒有只用導航的寫法**：閱讀器之後一律交給人。
 
 當時的其他觀察（保留作紀錄）：取回的是 16 頁、對應期刊頁碼 222–237，首頁有期刊名、卷期、標題、作者，另印「This document is copyrighted by the American Psychological Association」；全程沒有 CAPTCHA、驗證頁或起疑字樣；在 research.ebsco.com 頁內直接 fetch `content.ebscohost.com` 是 CORS 失敗。網址跨三個網域（research.ebsco.com → content.ebscohost.com），`--url` 子字串鎖會失配。權限依機構而異：「成功」只代表臺大 EBSCO 訂閱在 2026-09-28 涵蓋這篇。
+
+### 2026-10-07 的觀察（含一次違規）
+
+這一次是**用過期的 skill 版本**做的：本機 plugin 快取停在 #613 之前（0.13.2），本機 repo 落後 origin 229 個 commit，agent 照舊版「頁內取檔」的寫法走，違反了上面三步之後「交給人」的規定。記下來是為了兩件事：留下量到的站點行為，以及讓這個失敗形狀被看見——**舊版 skill 沒有第 0 步的契約版本檢查，所以察覺不到自己過期**。
+
+- **入口**：在機構網路下開 `…/c/rw5enf/search`，頁首直接顯示機構名，沒有出現登入頁（這一天、這個網路下的觀察；其他網路照上面的前提由使用者登入）。
+- **搜尋**：`…/search/results?q=DO%20<DOI>`（`DO` 是 EBSCO 的 DOI 欄位）回 1 筆，即本篇；結果頁網址自己補上 `db=psyh`。在搜尋框 `fill`／`type` 之後按 Enter 或點檢索鈕都沒有送出（頁面掛著 Cookie 同意橫幅，未代按）。
+- **詳細頁**：直接把分頁導到 `…/search/details/<id>` 回「頁面無法使用，發生錯誤」——詳細頁要從結果列表點進去（與上面第 2 步一致）。
+- **「存取選項」**：這一次是**對按鈕派送合成的 pointer 事件**才展開（`click` 沒反應），選單有三項：`PDF`（`…/viewer/pdf/<recordId>`）、`線上全文`（HTML）、機構的 link resolver。**派送合成事件就是「往出版商頁面另外送 JS」（最高原則規則 5），不要照做**；展不開就照上面第 2 步走詳細頁。
+- **違規的取檔**：在閱讀器分頁頁內 fetch `api/researcher-edge-aggregator/…/fulltext/pdf?…&intent=view…`（帶 credentials）取得 JSON 的取件網址，再在**同一個 research.ebsco.com 分頁**頁內 fetch `content.ebscohost.com/cds/retrieve?content=…`：**帶** `credentials:"include"` 那次沒有任何結果（沒接 `catch`，錯誤未記錄）；**不帶**的那次回 `200 application/pdf`、500,609 bytes。這與上面 2026-09-28「在 research.ebsco.com 頁內直接 fetch `content.ebscohost.com` 是 CORS 失敗」不同——兩次差在有沒有帶 credentials，但 09-28 那次帶了什麼沒有記錄，所以不能說哪一個是通則。**兩種都是被禁止的做法，記下來只為了不讓下一個人再去試。**
+- 取回的檔：21 頁、對應期刊頁碼 108–128，`verify` 結果標題完全相符、首頁印的 DOI 相符、正式版。全程沒有 CAPTCHA、驗證頁或起疑字樣——**沒被擋不代表做法可以**（2026-09-28 ScienceDirect 的兩次 CAPTCHA 也是在同樣形狀的請求之後才出現）。
 
 **這個管道沒有接進 `akashic fulltext fetch`**：`fetch` 從 `https://doi.org/<DOI>` 出發，走不到 EBSCO 的搜尋。上面三步是照 web-access.md 手動導航；到閱讀器就交給人。
 

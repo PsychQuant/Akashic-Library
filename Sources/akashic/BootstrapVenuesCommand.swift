@@ -17,7 +17,7 @@ struct BootstrapVenues: ParsableCommand {
 
     @OptionGroup var options: LibraryOptions
 
-    @Flag(name: .long, help: "實際寫入（預設只列出；計畫讀到 legacy 拷貝時整批拒絕、零寫入，#709）")
+    @Flag(name: .long, help: "實際寫入（預設只列出；計畫讀到 legacy 拷貝或無法唯一定位的記錄時整批拒絕、零寫入，#709）")
     var apply = false
 
     @Option(name: .long, help: "只處理出現次數 ≥ N 的（投報率優先）")
@@ -32,15 +32,15 @@ struct BootstrapVenues: ParsableCommand {
         if apply { try options.assertDestructiveTargetNamed("bootstrap-venues") }
         let store = try options.openStore()
         let load = try store.load()
-        // 同 bootstrap-people（使用者 2026-10-05 裁決，#709）：寫入候選面看完整的 load；計畫讀到 work 拷貝時 --apply 整批拒絕、零寫入，
-        // 乾跑照常列出、開頭的附註說明（拷貝裡的刊名也是候選，一對相同的算兩次出現）
-        if apply { try load.refuseApplyWithLegacyCopiesInPlan(.venues) }
+        // 同 bootstrap-people（使用者 2026-10-05 裁決、2026-10-09 裁決 2，#709）：寫入候選面看完整的 load；計畫讀到 work 拷貝或無法唯一定位的
+        // work 時 --apply 整批拒絕、零寫入，乾跑照常列出、開頭的附註說明（拷貝裡的刊名也是候選，一對相同的算兩次出現）
+        if apply { try load.refuseApplyWithPlanBlockers(.venues) }
 
         let result = VenueBootstrap.result(entries: load.entries, existing: load.venues)
         var cands = result.candidates.filter { $0.occurrences >= minOccurrences }
         let total = cands.count
         if let limit { cands = Array(cands.prefix(limit)) }
-        if let note = load.legacyCopiesInPlanNote(.venues) { print(note) }   // display-safe-exempt: 已消毒（常數字面、Int、逐項 displaySafeInvisible 的檔名）
+        if let note = load.planBlockersNote(.venues) { print(note) }   // display-safe-exempt: 已消毒（常數字面、Int、逐項 displaySafeInvisible 的檔名）
 
         print("literal 刊名 → venue 候選：\(total) 個"
               + (minOccurrences > 1 ? "（已濾出現次數 ≥ \(minOccurrences)）" : ""))

@@ -89,7 +89,10 @@ enum LegacyCopyReport {
     }
 
     /// 之後的寫入沒套用時要不要重跑——兩條 stderr 訊息（非零結束的第一行、結束碼 0 的那一行）同一句，判準同一個（有沒套用的就要重跑）。
-    static let rerunAdvice = "刪掉 legacy 那份之後要重跑才補得上"
+    ///
+    /// 不自己再說一次刪除（#709 b36 verify LOW 16）：先前是「刪掉 legacy 那份之後要重跑才補得上」——同一行前面已經說了帶前提的刪除，這一句又說一次無前提的。
+    /// 兩條訊息都在它前面說帶前提的刪除，這一句只說重跑。
+    static let rerunAdvice = "那幾筆在拷貝處理掉之後要重跑才補得上"
 
     /// 結束碼 0 時 stderr 的那一行（#705，使用者 2026-10-05 裁決：結束碼 0 時使用者最可能不看 stdout 的報告與 JSON）。stdout 上報告過、
     /// 標了 `laterWriteRefused` 的筆數 > 0 才有；沒有就回 nil、不印。進入點（`AkashicCLI.main`）在命令成功之後呼叫——每一個命令都經過那裡，
@@ -106,6 +109,6 @@ enum LegacyCopyReport {
             ? "stdout 那份 JSON 的 writtenWithLegacyCopy（各列的 laterWriteNotApplied；筆數在 writtenWithLegacyCopyNotApplied）"
             : "stdout 的 writtenWithLegacyCopy 段（列尾寫「同一個操作之後對這一筆的寫入沒有套用」的那幾列）"
         return "⚠ 結束碼 0，但有 \(notApplied) 筆之後的寫入沒套用：同一個操作稍早已寫入那幾筆、搬移後的 legacy 拷貝沒刪掉，"   // display-safe-exempt: Int
-            + "兩份並存時 #631 拒絕同一筆的下一次寫入。清單在 \(place)——確認 entities/ 那份是新的，\(rerunAdvice)。"   // display-safe-exempt: place、rerunAdvice：本函式與本型別的字面
+            + "兩份並存時 #631 拒絕同一筆的下一次寫入。清單在 \(place)——確認 entities/ 那份是新的之後刪掉 legacy 那份；\(rerunAdvice)。"   // display-safe-exempt: place、rerunAdvice：本函式與本型別的字面
     }
 }

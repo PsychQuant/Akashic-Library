@@ -101,8 +101,10 @@ final class ShadowedLegacyCopyReadersCLITests: XCTestCase {
         let before = try storeFiles()
         let r = try cli(["bootstrap-people", "--min-occurrences", "2", "--apply"])
         XCTAssertEqual(r.status, 1, r.output)
-        XCTAssertTrue(r.output.contains("整批拒絕、零寫入") && r.output.contains("entries/doe2020a.yaml")
-                      && r.output.contains("確認 entities/ 那份是新的之後"), r.output)
+        // 拒絕訊息不帶逐份清單（b36 verify LOW 6、8、12、14：單行出口把換行逃成字面 \u{000A}、在 400 處截斷）——清單在乾跑
+        XCTAssertTrue(r.output.contains("整批拒絕、零寫入") && r.output.contains("計畫含 1 份 legacy 拷貝")
+                      && r.output.contains("乾跑（不帶 --apply）逐份列出") && r.output.contains("確認 entities/ 那份是新的之後"), r.output)
+        XCTAssertFalse(r.output.contains("\\u{000A}"), r.output)
         XCTAssertEqual(try storeFiles(), before, "零寫入")
     }
 
@@ -119,9 +121,10 @@ final class ShadowedLegacyCopyReadersCLITests: XCTestCase {
         XCTAssertEqual(try storeFiles(), before, "零寫入")
     }
 
-    /// #709 第四次 verify（MEDIUM 1、3，LOW 11）：只有一份改名留下的 **person** 拷貝——people／venues 的計畫只讀 entries，那份拷貝不在計畫裡：
-    /// 不印附註、`--json` 沒有 `legacyCopiesInPlan`、`--apply` 照常寫入。先前兩個命令都說「計畫含 1 份、拷貝裡的 literal 也是候選」。
-    func testAPersonOnlyCopyIsNotInThePeopleOrVenuesPlan() throws {
+    /// #709 第四次 verify（MEDIUM 1、3，LOW 11）：只有一份改名留下的 **person** 拷貝——venues 的計畫只讀 entries，那份拷貝不在計畫裡：不印附註、
+    /// `--apply` 照常寫入。~~people 也一樣~~：使用者 2026-10-09 裁決 1（b36 verify MEDIUM 1、3）——`bootstrap-people` 讀 person 記錄的 key、名字
+    /// 與否決／確認史，person 拷貝也在計畫裡：附註、`--json` 的 `legacyCopiesInPlan`、`--apply` 整批拒絕（三條反例在 `BootstrapPlanBlockersCLITests`）。
+    func testAPersonOnlyCopyIsInThePeoplePlanButNotTheVenuesPlan() throws {
         let id = UUID()
         try PersonYAML.encode(Person(key: "kim-c", names: PersonNames(authorized: ["Kim, Chris"]), id: id))
             .write(to: store.entityURL(id: id), atomically: true, encoding: .utf8)
@@ -137,17 +140,20 @@ final class ShadowedLegacyCopyReadersCLITests: XCTestCase {
         let json = try cli(["bootstrap-people", "--json"])
         XCTAssertEqual(json.status, 0, json.output)
         let obj = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(json.output.utf8)) as? [String: Any], json.output)
-        XCTAssertNil(obj["legacyCopiesInPlan"], "person 拷貝不進作者 literal 的來源：\(json.output)")
-        for command in ["bootstrap-people", "bootstrap-venues"] {
-            let dry = try cli([command])
-            XCTAssertEqual(dry.status, 0, dry.output)
-            XCTAssertFalse(dry.output.contains("legacy 拷貝"), "\(command)：\(dry.output)")
-            let r = try cli([command, "--apply"])
-            XCTAssertEqual(r.status, 0, "\(command) --apply 不被計畫沒讀到的拷貝擋：\(r.output)")
-        }
-        let load = try store.load()
-        XCTAssertTrue(load.people.contains { $0.key == "doe-a" }, "bootstrap-people 寫入了")
-        XCTAssertTrue(load.venues.contains { $0.key == "journal-of-real-things" }, "bootstrap-venues 寫入了")
+        XCTAssertEqual(obj["legacyCopiesInPlan"] as? Int, 1, "person 拷貝在 people 的計畫裡：\(json.output)")
+        let peopleDry = try cli(["bootstrap-people"])
+        XCTAssertTrue(peopleDry.output.contains("計畫含 1 份 legacy 拷貝") && peopleDry.output.contains("people/old-kim.yaml"), peopleDry.output)
+        let before = try storeFiles()
+        let refused = try cli(["bootstrap-people", "--apply"])
+        XCTAssertEqual(refused.status, 1, refused.output)
+        XCTAssertEqual(try storeFiles(), before, "零寫入")
+
+        let dry = try cli(["bootstrap-venues"])
+        XCTAssertEqual(dry.status, 0, dry.output)
+        XCTAssertFalse(dry.output.contains("legacy 拷貝"), dry.output)
+        let r = try cli(["bootstrap-venues", "--apply"])
+        XCTAssertEqual(r.status, 0, "bootstrap-venues --apply 不被計畫沒讀到的拷貝擋：\(r.output)")
+        XCTAssertTrue(try store.load().venues.contains { $0.key == "journal-of-real-things" }, "bootstrap-venues 寫入了")
     }
 
     /// store 裡每個 YAML 檔的位元組（相對路徑 → 內容）——零寫入的量法。

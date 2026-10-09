@@ -23,6 +23,18 @@ plugin 版號沒有動（行為在 binary）。
 
 plugin 版號沒有動（skill 文字的改動）。
 
+## #709 — b36 verify 修正（2026-10-09）：bootstrap 的拒絕涵蓋 person 拷貝與無法唯一定位的記錄；enrich 的 DOI 歧義理由看完整的命中
+
+使用者 2026-10-09 兩項裁決。細節在 `changelog/2026-10-09-b37-n4-fixes-709.md`。
+
+- **`akashic_enrich`／CLI `enrich`**：DOI 命中兩筆以上時，命中以完整的 load 算——同 citekey 的 legacy 拷貝不再把 entities/ 那份擠掉（先前會說 entities/ 那份「不帶這個 DOI」、叫人刪拷貝「再跑」而真孿生仍在；或在 entities/ 那份帶 DOI 時回 notFound）。`reason` 的結論與處置（#459、UUID 重複、確認 entities/ 那份是新的之後再刪）排在逐份明細之前，回應截到 512 字時被截的只會是明細。`matches` 同一個 citekey 只列一次。鍵與 `ambiguous` 不變。
+- **`writtenWithLegacyCopy` 每一列的 `laterWriteNotApplied`**（MCP、CLI 逐筆列、App 列同一句）：改成「確認 entities/ 那份是新的之後刪掉 legacy 那份，再重跑才補得上」——先前是無前提的「刪掉 legacy 那份之後重跑即可補上」。鍵不變。
+- **CLI `bootstrap-people`／`-venues`／`-organizations`**：`--apply` 的拒絕條件是計畫讀到的種類裡 load 標出的 legacy 拷貝 ∪ 無法唯一定位的記錄；`bootstrap-people` 的計畫也讀 person 拷貝。乾跑逐份、逐筆點名，`bootstrap-people --json` 另帶 `unlocatableInPlan`；拒絕訊息只說筆數與處置（清單先前被逃成字面 `\u{000A}`、在 400 處截斷）。
+- **CLI `authorize-names`**：點名 entities/ 那份的 key 時接上它的 legacy 檔（validate 以 legacy 那份的 key 列出）。
+- `tools/list`：59,183 → 59,183 bytes（±0；MCP 說明沒有改）。
+
+plugin 版號沒有動（行為在 binary）。
+
 ## #664 — Semantic Scholar 共用接口：MCP 工具 `akashic_s2`、取得順序、設定文件（2026-10-06）
 
 細節在 `changelog/2026-10-06-s2-interface-664.md`。

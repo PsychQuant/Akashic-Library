@@ -89,11 +89,15 @@ public struct LegacyCopyNotice: Equatable {
     ///
     /// 第二句不再重複「刪掉 legacy 那份」、不說「即可」（#705 第四次 verify INFO 29）：`explanation` 剛說完「確認 entities/ 那份是新的之後刪掉」，
     /// 先前緊接著再說一次「刪掉 legacy 那份之後重跑即可」，把上一輪拿掉的「即可」與無前提的刪除又放回同一個標題。
+    ///
+    /// 有 `laterWriteRefused` 時那一句也一樣（#709 b36 verify LOW 10、16、17）：先前接的是整句 `laterWriteRefusedNote`（「刪掉 legacy 那份之後重跑即可補上」），
+    /// 那一支把無前提的刪除與「即可」又放回標題，而測試只驗了沒有被拒的那一支。標題接的是事實（`laterWriteRefusedFact`），處置直接寫「拷貝處理掉之後」——
+    /// 不靠「照上一句」的位置指涉（標題被拆行或接在別處時「上一句」不一定是 explanation）。
     public var headline: String {
-        let base = "\(LegacyCopyLeft.explanation)（\(items.count) 筆）。同一個動作若另有錯誤，請依那個錯誤的訊息處理；後續的寫入可能因為這份 legacy 拷貝還在（兩份並存）而被拒絕——照上一句處理拷貝之後重跑那些寫入。"   // display-safe-exempt: explanation：常量字面；count：Int
+        let base = "\(LegacyCopyLeft.explanation)（\(items.count) 筆）。同一個動作若另有錯誤，請依那個錯誤的訊息處理；後續的寫入可能因為這份 legacy 拷貝還在（兩份並存）而被拒絕——拷貝處理掉之後重跑那些寫入。"   // display-safe-exempt: explanation：常量字面；count：Int
         let refused = items.filter(\.laterWriteRefused).count
         guard refused > 0 else { return base }
-        return base + "其中 \(refused) 筆：\(LegacyCopyLeft.laterWriteRefusedNote)。"   // display-safe-exempt: refused：Int；laterWriteRefusedNote：常量字面
+        return base + "其中 \(refused) 筆：\(LegacyCopyLeft.laterWriteRefusedFact)，拷貝處理掉之後要重跑才補得上。"   // display-safe-exempt: refused：Int；laterWriteRefusedFact：常量字面
     }
 
     private static func sameLeftover(_ a: LegacyCopyLeft, _ b: LegacyCopyLeft) -> Bool {

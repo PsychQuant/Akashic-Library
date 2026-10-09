@@ -91,6 +91,18 @@ public enum AuthorizedNameMigration {
         /// （#709 第四次 verify LOW 22）。非空時 `--apply` 整批拒絕、零寫入；
         /// 乾跑照樣算出來、由呼叫端說出——乾跑報的計畫要是實跑會做的那一個（#709 第三次 verify：先前乾跑說「確認後加 --apply」，實跑必拒）。
         public var blockedKeys: [String] = []
+        /// `blockedKeys` 裡因為同一個 id 在 people/ 還有一份 legacy 拷貝而被擋、而它自己是 entities/ 那份的 key → 那份 legacy 檔（相對 store root，
+        /// **原始值**，輸出端消毒）。b36 verify LOW 7、INFO 23：validate 以 legacy 那份的 key 列出兩份並存，改名一對時點名的卻是 entities/ 那份的
+        /// 新 key——照訊息去 validate 找新 key 找不到。輸出（`blockedDisplay`）把 legacy 檔接在 key 後面。
+        public var blockedCopyFiles: [String: String] = [:]
+    }
+
+    /// `blockedKeys` 的顯示形（至多 20 筆，已消毒）：key 後面接它的 legacy 拷貝檔（`blockedCopyFiles`）。CLI 乾跑與 `--apply` 的拒絕共用。
+    public static func blockedDisplay(_ report: Report) -> String {
+        report.blockedKeys.prefix(20).map { key in
+            displaySafeInvisible(key, max: 120)
+                + (report.blockedCopyFiles[key].map { "（legacy 拷貝 \(displaySafeInvisible($0, max: 300))）" } ?? "")
+        }.joined(separator: "、") + (report.blockedKeys.count > 20 ? "…" : "")
     }
 
     /// 對整個 store 跑一次提名。`apply: false`（預設）只回報，不寫。
@@ -173,17 +185,25 @@ public enum AuthorizedNameMigration {
         // 只有 entities/ 那份要寫，它單獨看寫得進去，於是兩份各帶不同的 authorized 狀態。寫入集合裡有任何一筆的 **id** 還有 legacy 拷貝（load 的標記，
         // 判準只有 `markLegacyCopiesShadowedByEntities` 一份），同樣整批拒絕——與三個 bootstrap 對同類狀態的處置一致（使用者 2026-10-05 裁決 2）。
         let unlocatable = load.people.unlocatablePersonKeys
-        let copyIDs = Set(load.shadowedLegacyCopies.filter { $0.kind == .person }.map(\.id))
-        let blocked = Array(Set(toWrite.filter { unlocatable.contains($0.key) || copyIDs.contains($0.id) }.map(\.key))).sorted()
+        let personCopies = load.shadowedLegacyCopies.filter { $0.kind == .person }
+        let copyIDs = Set(personCopies.map(\.id))
+        let blockedPeople = toWrite.filter { unlocatable.contains($0.key) || copyIDs.contains($0.id) }
+        let blocked = Array(Set(blockedPeople.map(\.key))).sorted()
         report.blockedKeys = blocked
+        // entities/ 那份被它的拷貝擋住時，說出那份 legacy 檔——validate 以 legacy 那份的 key 列出（b36 verify LOW 7、INFO 23）
+        for p in blockedPeople where p.fileSituation.shadowedLegacyFile == nil {
+            if let copy = personCopies.first(where: { $0.id == p.id && $0.key != p.key }) { report.blockedCopyFiles[p.key] = copy.legacyFile }
+        }
         if apply {
             guard blocked.isEmpty else {
-                let shown = blocked.prefix(20).map { displaySafeInvisible($0, max: 120) }.joined(separator: "、")
+                let shown = Self.blockedDisplay(report)
                 throw StoreIOError.invalidInput(
                     what: "authorize-names",
+                    // 清單放最後（b36 verify 對 bootstrap 拒絕訊息的同一個發現）：CLI 的單行出口在 400 處截斷，處置與 validate 的指路要在清單之前
                     why: "要寫的 person 裡有 \(blocked.count) 筆無法唯一定位或還有 legacy 拷貝（\(UnlocatableReason.person)；"   // display-safe-exempt: blocked.count 是 Int；UnlocatableReason 是常數字面
-                       + "或同一個 id 在 people/ 還有一份）：\(shown)\(blocked.count > 20 ? "…" : "")——寫到一半會留下已指定卻沒 bump marker 的 store，"   // display-safe-exempt: shown 已逐項 displaySafeInvisible
-                       + "兩份並存時只寫一份會讓它們各帶不同的 authorized 狀態；整批拒絕、零寫入。akashic validate 說出每一筆的原因，先修好再跑（#641、#709）")
+                       + "或同一個 id 在 people/ 還有一份）——寫到一半會留下已指定卻沒 bump marker 的 store，"
+                       + "兩份並存時只寫一份會讓它們各帶不同的 authorized 狀態；整批拒絕、零寫入。akashic validate 逐筆說出原因（還有 legacy 拷貝的，"
+                       + "以 legacy 那份的 key 列出），先修好再跑（#641、#709）：\(shown)")   // display-safe-exempt: shown 已逐項 displaySafeInvisible（blockedDisplay）
             }
             // #648 C2b verify：writePerson 在寫入當下跑的每一道（含 encode 與讀取上限）先對整個寫入集合跑一次——上面只擋了
             // #641 的那一類，一筆寫出後超過讀取上限的 person 仍會在中途被拒、前面的指定已落盤而 marker 沒 bump

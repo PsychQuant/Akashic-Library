@@ -119,7 +119,7 @@ public enum StoreIOError: Error, LocalizedError, Equatable, SanitizedErrorDescri
         case let .legacyCopyLeftEarlierInThisOperation(id, file):
             return "同一個操作稍早已寫入這一筆（見 writtenWithLegacyCopy）：內容在 entities/\(id.uuidString).yaml，搬移後的 legacy "   // display-safe-exempt: id.uuidString：UUID 由型別保證
                  + "\(displaySafeInvisible(file, max: 300)) 沒刪掉、兩份並存——#631 拒絕同一筆的下一次寫入，這一步的改動沒有套用。"
-                 + "確認 entities/ 那份是新的、刪掉 legacy 那份之後重跑即可補上（#631、#705）"
+                 + "確認 entities/ 那份是新的之後刪掉 legacy 那份，再重跑才補得上（#631、#705）"
         case .invalidKey(let kind, let value):
             // #142：value 是 caller 剛送進來的畸形 key——原始 ESC/bidi 位元組經
             // MCP error 直達 LLM context；kind 是程式字面量

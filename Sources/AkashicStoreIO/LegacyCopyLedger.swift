@@ -75,9 +75,15 @@ public struct LegacyCopyLeft: Equatable, Sendable {
         return lines
     }
 
-    /// 之後的寫入沒有套用（`laterWriteRefused`）——人可讀報告每筆的附句與 MCP 列的 `laterWriteNotApplied` 同一句。
-    public static let laterWriteRefusedNote =
-        "同一個操作之後對這一筆的寫入沒有套用（兩份並存時 #631 拒絕同一筆的下一次寫入）——刪掉 legacy 那份之後重跑即可補上"
+    /// 之後的寫入沒有套用（`laterWriteRefused`）這件事本身——App 的標題用它（標題前半已經說過帶前提的刪除，不再說第二次）。
+    public static let laterWriteRefusedFact = "同一個操作之後對這一筆的寫入沒有套用（兩份並存時 #631 拒絕同一筆的下一次寫入）"
+
+    /// 人可讀報告每筆的附句與 MCP 列的 `laterWriteNotApplied` 同一句：事實加處置。
+    ///
+    /// 處置帶「確認 entities/ 那份是新的之後」、不說「即可」（#709 b36 verify LOW 10、16、17）：先前是「刪掉 legacy 那份之後重跑即可補上」——
+    /// #705 第三、四次 verify 對 `explanation` 與 App 標題拿掉的兩樣（無前提的刪除、「即可」）在這一句還在，而它出現在 CLI 逐筆的列、MCP 每一列與
+    /// App 列的 detail；MCP 那一列沒有 `explanation` 的標題可依，這一句要自己帶前提。被拒的正是最需要確認前提的情形——使用者可能照字面刪掉較新的那份。
+    public static let laterWriteRefusedNote = laterWriteRefusedFact + "——確認 entities/ 那份是新的之後刪掉 legacy 那份，再重跑才補得上"
 }
 
 /// 收集 `LegacyCopyLeft` 的範圍（#705）。

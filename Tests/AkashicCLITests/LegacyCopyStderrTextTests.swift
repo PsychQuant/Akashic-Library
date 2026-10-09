@@ -67,6 +67,32 @@ final class LegacyCopyStderrTextTests: XCTestCase {
         XCTAssertTrue(lines[1].contains(LegacyCopyLeft.laterWriteRefusedNote), "要重跑的那一句在逐筆的列上：\(lines[1])")
     }
 
+    /// #709 b36 verify（LOW 10、16、17）：這一族每一處說「刪掉 legacy 那份」的地方，都緊接在「確認 entities/ 那份是新的之後」後面，也沒有「即可」——
+    /// 先前 `laterWriteRefusedNote`（CLI 逐筆的列、MCP 每一列的 `laterWriteNotApplied`、App 的列）與 `rerunAdvice`、
+    /// `legacyCopyLeftEarlierInThisOperation` 的訊息還是無前提的「刪掉 legacy 那份之後重跑即可補上」。
+    func testEveryDeletionInstructionCarriesThePremise() throws {
+        let premise = "確認 entities/ 那份是新的之後"
+        let texts = [
+            LegacyCopyLeft.explanation,
+            LegacyCopyLeft.laterWriteRefusedNote,
+            LegacyCopyLeft.reportLines([item(notApplied: true)]).joined(separator: "\n"),
+            LegacyCopyLeft.reportLines([item(notApplied: true), item(notApplied: true)], limit: 1).joined(separator: "\n"),
+            LegacyCopyReport.stderrText(errorText: "", reported: 2, notApplied: 1),
+            LegacyCopyReport.stderrText(errorText: "", reported: 1, notApplied: 0),
+            try XCTUnwrap(LegacyCopyReport.successStderrLine(notApplied: 1, stdoutIsJSON: false)),
+            try XCTUnwrap(StoreIOError.legacyCopyLeftEarlierInThisOperation(id: UUID(), file: "entries/x.yaml").errorDescription),
+            try XCTUnwrap(StoreIOError.legacyCopyNotRemoved(id: UUID(), file: "entries/x.yaml", detail: "d").errorDescription),
+        ]
+        for text in texts {
+            XCTAssertFalse(text.contains("即可"), text)
+            let pieces = text.components(separatedBy: "刪掉 legacy 那份")
+            XCTAssertGreaterThan(pieces.count, 1, "前提：這一句說了刪除：\(text)")
+            for before in pieces.dropLast() {
+                XCTAssertTrue(before.hasSuffix(premise), "每一處刪除都帶前提：\(text)")
+            }
+        }
+    }
+
     /// #705 第四次 verify（LOW 20）：stderr 的第一行是 cron／CI 唯一讀到的一行，先前仍無條件說「要刪掉 legacy 那份」——標題上一輪加的前提沒有跟上。
     func testTheStderrLeadCarriesTheSameCaveatAsTheHeadline() {
         for (reported, notApplied) in [(1, 0), (2, 1)] {

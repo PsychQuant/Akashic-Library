@@ -914,7 +914,9 @@ R3 把辨識補寬，另加一個不靠辨識的地板：規則檔裡一行棘�
 
 **理由欄的其餘部分**
 
-**判準只有一份**：哪一筆是拷貝問 load 的標記（`markLegacyCopiesShadowedByEntities`），附註、`legacyCopiesInPlan` 與拒絕都由 `legacyCopiesInPlan` 算——第四次 verify 的另一半正是附註先前數了計畫沒讀到的種類（只有 person 拷貝時 venues 也說「計畫含 1 份」）。
+**判準只有一份**：哪一筆是拷貝問 load 的標記（`markLegacyCopiesShadowedByEntities`），附註、`legacyCopiesInPlan` 與拒絕都由 ~~`legacyCopiesInPlan`~~ `planBlockers`（2026-10-09 起，也收第 102 列的無法唯一定位）算——第四次 verify 的另一半正是附註先前數了計畫沒讀到的種類（只有 person 拷貝時 venues 也說「計畫含 1 份」）。
+
+**2026-10-09 補記（b36 verify MEDIUM 1、3，LOW 6／8／11／12／14／18，使用者裁決 1）**：~~`bootstrap-people` 的計畫只讀 work 拷貝——person 拷貝只進 existing 與否決／確認史，只會讓候選少一個~~。那句前提沒量過，verify 以真 binary 否掉三次：拷貝帶 entities/ 那份沒有的否決記錄，本該先消歧的名字被建檔；拷貝多一個名字，literal 被當成已存在而安靜消失；內容相同的改名拷貝留下舊 key，`--apply` 寫出的新 key 多一個 `-2`。裁決：person 拷貝也算，有就拒絕（`BootstrapPlanSource.people` 的種類加 person）。同輪：拒絕訊息不再帶逐份清單——CLI 的單行出口把換行逃成字面 `\u{000A}`、整行在 400 處截斷，12 份拷貝時只點名得到兩份；清單只在乾跑的附註（stdout）。觸發條件那一句也改了：先前寫「legacy 殘留數 > 0 時三個 bootstrap 都拒絕」，殘留數不蘊含拷貝（拷貝要有 entities/ 那份），也不蘊含每個 bootstrap 都讀到它。
 
 ### 第 92 列（#692）
 
@@ -2699,6 +2701,27 @@ PY
 **第 100 列的量測（2026-10-09，可重跑）**：前置條件的訊息數 `LC_ALL=C grep -a -q '驗過的是另一個目錄' .build/debug/akashic-guards && .build/debug/akashic-guards zero-instance-rows-audit 2>&1 | grep -c '行的量測'`（應印 0；自證同第 13 列。`行的量測` 是前置條件那一族訊息的開頭）。唯讀子命令的來源是 `WriteGateRulings` 命令層的 `.readOnly` 格：`grep -c '^        "[a-z][a-z -]*": \.readOnly(' Sources/akashic/WriteGateRulings.swift`（2026-10-09：35）。
 
 **第 101 列的量測（2026-10-09，可重跑）**：裸數字數 `LC_ALL=C grep -a -q '小節標題的編號不背書' .build/debug/akashic-guards && .build/debug/akashic-guards measured-numbers-audit 2>&1 | grep -c '沒有時間錨也沒有可重跑的指令'`（應印 0；自證同第 13 列——舊 binary 的標題列沒有這一段，閘失敗、什麼都不印）。
+
+**第 102 列的量測（2026-10-09，可重跑，唯讀）**：legacy 殘留數，以及 entities/ 裡重複的 citekey、共用的 id、重複的 person key——前者是第 3 類的前提，後三者是第 1、2 類（`unlocatableCitekeys`／`unlocatablePersonKeys` 的定義在 `DuplicateCitekeys.swift`）。entities/ 的檔名就是 id，所以那裡的「共用 id」應恆為 0，列出來是為了量法完整。讀不到的檔計數，同第 24 列：
+
+```bash
+python3 - <<'PY'
+import collections, glob, io, os, yaml
+root = os.path.expanduser('~/.akashic')
+works, people, bad = [], [], 0
+for f in glob.glob(os.path.join(root, 'entities', '*.yaml')):
+    try: d = yaml.safe_load(io.open(f, encoding='utf8'))
+    except Exception: bad += 1; continue
+    if not isinstance(d, dict): bad += 1; continue
+    if 'work' in d: works.append((str(d.get('citekey')), str(d.get('id'))))
+    elif 'person' in d: people.append(str(d.get('key')))
+legacy = {d: len([x for x in glob.glob(os.path.join(root, d, '*')) if x.lower().endswith('.yaml')]) for d in ('entries', 'people')}
+dup = lambda xs: sum(1 for n in collections.Counter(xs).values() if n > 1)
+print('legacy', legacy, '｜重複 citekey', dup(c for c, _ in works), '｜共用 id', dup(i for _, i in works),
+      '｜重複 person key', dup(people), '｜讀不到的檔', bad)
+PY
+# 2026-10-09：legacy {'entries': 0, 'people': 0}｜0｜0｜0｜0
+```
 
 ## 附：#711 R1–R4 時寫在第 19 列量測段的量測寫法說明
 

@@ -336,7 +336,7 @@ extension ZoteroReportCLITests {
                       "stdout 的列帶「之後的寫入沒有套用」：\(r.out)")
         let first = String(r.err.split(separator: "\n").first ?? "")
         XCTAssertTrue(first.hasPrefix("已寫入 1 筆、搬移後的 legacy 拷貝沒刪掉"), "stderr 第一行：\(r.err)")
-        XCTAssertTrue(first.contains("其中 1 筆之後的寫入沒套用，刪掉 legacy 那份之後要重跑才補得上"), first)
+        XCTAssertTrue(first.contains("其中 1 筆之後的寫入沒套用，那幾筆在拷貝處理掉之後要重跑才補得上"), first)
         XCTAssertTrue(first.contains("沒有錯誤訊息"), "沒有訊息的非零結束另說：\(first)")
         XCTAssertFalse(first.contains("不必為了自己重跑"), first)
     }
@@ -378,7 +378,7 @@ extension ZoteroReportCLITests {
         let line = lines.first ?? ""
         XCTAssertTrue(line.hasPrefix("⚠ 結束碼 0，但有 1 筆之後的寫入沒套用"), line)
         XCTAssertTrue(line.contains("清單在 stdout 的 writtenWithLegacyCopy 段"), "說出去哪裡看：\(line)")
-        XCTAssertTrue(line.contains("確認 entities/ 那份是新的，刪掉 legacy 那份之後要重跑才補得上"), "說出要重跑：\(line)")
+        XCTAssertTrue(line.contains("確認 entities/ 那份是新的之後刪掉 legacy 那份；那幾筆在拷貝處理掉之後要重跑才補得上"), "說出要重跑：\(line)")
         XCTAssertFalse(r.out.contains("⚠ 結束碼 0"), "那一行在 stderr、不混進 stdout 的報告")
     }
 

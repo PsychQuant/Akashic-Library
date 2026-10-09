@@ -24,11 +24,38 @@ public struct ShadowedLegacyCopy: Equatable, Sendable {
     public var entitiesFile: String { "entities/\(id.uuidString).yaml" }
 }
 
-/// 三個 bootstrap 的計畫各讀哪幾種記錄的 literal（#709 第四次 verify）。封閉三列，不得依性質相似類推——新的寫入候選面要自己加一列、
-/// 寫出它的 literal 來源。附註、`bootstrap-people --json` 的 `legacyCopiesInPlan` 與 `--apply` 的拒絕都只數這幾種的拷貝。
+/// 計畫讀到的一筆無法唯一定位的記錄（#709，使用者 2026-10-09 裁決 2）。
+public struct UnlocatablePlanRecord: Hashable, Sendable {
+    public let kind: LegacyCopyLeft.Kind
+    /// citekey（work）或 person key。**原始值**，輸出端消毒。
+    public let key: String
+
+    public init(kind: LegacyCopyLeft.Kind, key: String) { self.kind = kind; self.key = key }
+}
+
+/// 一個 bootstrap 計畫讀到、而讓 `--apply` 整批拒絕的記錄（`LibraryLoad.planBlockers`）。
+public struct BootstrapPlanBlockers: Equatable, Sendable {
+    /// load 標出的 legacy 拷貝（計畫讀到的種類）。
+    public let copies: [ShadowedLegacyCopy]
+    /// 計畫讀到的種類中無法唯一定位、而不在任何一對拷貝裡的記錄，依 (kind, key) 排序、不重複。
+    public let unlocatable: [UnlocatablePlanRecord]
+
+    public init(copies: [ShadowedLegacyCopy], unlocatable: [UnlocatablePlanRecord]) {
+        self.copies = copies; self.unlocatable = unlocatable
+    }
+
+    public var isEmpty: Bool { copies.isEmpty && unlocatable.isEmpty }
+}
+
+/// 三個 bootstrap 的計畫各讀哪幾種記錄（#709 第四次 verify；使用者 2026-10-09 裁決 1）。封閉三列，不得依性質相似類推——新的寫入候選面要自己加一列、
+/// 寫出它讀哪幾種記錄。附註、`bootstrap-people --json` 的兩個計數與 `--apply` 的拒絕都只看這幾種（`LibraryLoad.planBlockers`）。
 public enum BootstrapPlanSource: Sendable {
-    /// 作者 literal 只來自 entries。person 記錄（含 person 的拷貝）只進 `existing`（「已存在」的 key 與名字）與否決／確認史：
-    /// 它們不增加任何 literal 的出現次數，只會讓候選少一個（保守側），所以 person 拷貝不在計畫裡。
+    /// 作者 literal 來自 entries；person 記錄（含 person 的拷貝）進 `existing`——已用的 key、已知的名字——與否決／確認史。
+    ///
+    /// ~~person 拷貝只會讓候選少一個（保守側），不在計畫裡~~：#709 b36 verify（MEDIUM 1、3）以真 binary 否掉，三條反例——拷貝帶 entities/ 那份沒有的否決記錄，
+    /// 本該「與既有 person 寬鬆共鍵、先消歧」的名字被放行建檔；拷貝多一個名字，那個 literal 被當成已存在、既不是候選也不在 pending；內容相同的改名拷貝
+    /// 讓舊 key 留在已用的 key 裡，`--apply` 寫出的新 key 多一個 `-2` 後綴、拷貝刪掉之後也改不回來。所以 person 拷貝的影響可以往三個方向走，
+    /// 使用者 2026-10-09 裁決：person 拷貝也算，有就拒絕。
     case people
     /// 刊名 literal 只來自 entries（`VenueBootstrap.result(entries:existing:)`）。
     case venues
@@ -37,8 +64,8 @@ public enum BootstrapPlanSource: Sendable {
 
     public var kinds: Set<LegacyCopyLeft.Kind> {
         switch self {
-        case .people, .venues: return [.work]
-        case .organizations: return [.work, .person]
+        case .venues: return [.work]
+        case .people, .organizations: return [.work, .person]
         }
     }
 
@@ -79,7 +106,7 @@ extension LibraryLoad {
     /// 從集合裡消失——`authorize-names` 先前就是靠 legacy 那份被算進寫入集合而整批拒絕，R2 改用視圖之後改名留下拷貝的 person 從拒絕變成寫入。
     /// 所以**寫入候選面與依據判定**（三個 bootstrap、`authorize-names`、library 規則的依據）看完整的 load，不用這個視圖——使用者 2026-10-05
     /// 裁決（#709）：不把「以 entities/ 為準」延伸到寫入候選面，寫入一律看完整資料，視圖只用在讀數；計畫讀到拷貝時三個 bootstrap 的
-    /// `--apply` 整批拒絕（`refuseApplyWithLegacyCopiesInPlan`）。
+    /// `--apply` 整批拒絕（`refuseApplyWithPlanBlockers`）。
     ///
     /// 驗證（validate、doctor 的 `crossRecordIssues`、App 的健康總覽）**不**用這個視圖——它們要照舊看到兩份並存。
     public func withoutShadowedLegacyCopies() -> LibraryLoad {
@@ -106,51 +133,118 @@ extension LibraryLoad {
         return out
     }
 
-    /// 一個 bootstrap 計畫實際讀到的 legacy 拷貝：只有流進該命令 literal 來源的那幾種（`BootstrapPlanSource.kinds`），依 (kind, key) 排序。
+    /// 一個 bootstrap 計畫讀到、而讓它的 `--apply` 整批拒絕的記錄（#709）：load 標出的 legacy 拷貝 ∪ 計畫來源種類中無法唯一定位的記錄，
+    /// 只看流進該命令的那幾種（`BootstrapPlanSource.kinds`）。附註、`bootstrap-people --json` 的兩個計數與 `--apply` 的拒絕都由這裡算——判準只有這一份。
     ///
-    /// #709 第四次 verify（MEDIUM 1、3，LOW 11）：先前附註與 `legacyCopiesInPlan` 數 `shadowedLegacyCopies.count`（work 與 person 都算），
-    /// 只有一份改名留下的 person 拷貝時 `bootstrap-venues` 也說「計畫含 1 份、拷貝裡的 literal 也是候選」，而它的計畫根本不讀 person。
-    public func legacyCopiesInPlan(_ source: BootstrapPlanSource) -> [ShadowedLegacyCopy] {
-        shadowedLegacyCopies.filter { source.kinds.contains($0.kind) }
+    /// - 拷貝：#709 第四次 verify（MEDIUM 1、3，LOW 11）讓附註只數計畫讀到的種類；使用者 2026-10-09 裁決 1 讓 `bootstrap-people` 也讀 person 拷貝。
+    /// - 無法唯一定位（使用者 2026-10-09 裁決 2，b36 verify MEDIUM 4）：只認 load 的拷貝標記時，兩個 legacy 檔共用 id、或 entities/ 與 legacy 同 citekey
+    ///   而 id 不同，計數同樣加倍，乾跑沒有附註、`--apply` 寫入之後才以 index 的 UNIQUE 失敗收場。條件與 `authorize-names` 的現行判準一致：works 問
+    ///   `unlocatableCitekeys`、people 問 `unlocatablePersonKeys`（各自的封閉類別寫在那裡，這裡不另寫一份）。同一對拷貝的兩份本來就無法唯一定位，
+    ///   已經在 `copies` 說了，不重複列。
+    public func planBlockers(_ source: BootstrapPlanSource) -> BootstrapPlanBlockers {
+        let copies = shadowedLegacyCopies.filter { source.kinds.contains($0.kind) }
+        let pairIDs = Set(copies.map { "\($0.kind.rawValue):\($0.id.uuidString)" })
+        var found = Set<UnlocatablePlanRecord>()
+        if source.kinds.contains(.work) {
+            let keys = entries.unlocatableCitekeys
+            for e in entries where keys.contains(e.citekey) && !pairIDs.contains("work:\(e.id.uuidString)") {
+                found.insert(UnlocatablePlanRecord(kind: .work, key: e.citekey))
+            }
+        }
+        if source.kinds.contains(.person) {
+            let keys = people.unlocatablePersonKeys
+            for p in people where keys.contains(p.key) && !pairIDs.contains("person:\(p.id.uuidString)") {
+                found.insert(UnlocatablePlanRecord(kind: .person, key: p.key))
+            }
+        }
+        return BootstrapPlanBlockers(copies: copies,
+                                     unlocatable: found.sorted { ($0.kind.rawValue, $0.key) < ($1.kind.rawValue, $1.key) })
     }
 
-    /// 寫入候選面（三個 bootstrap）乾跑的計畫附註：說出計畫讀到幾份拷貝、逐份點名（至多 20 份）、說 `--apply` 會整批拒絕；
-    /// 計畫沒讀到任何拷貝時 nil。已消毒（檔名逐項 `displaySafeInvisible`，其餘是常數字面與筆數）。
+    /// 寫入候選面（三個 bootstrap）乾跑的計畫附註：說出計畫讀到幾份拷貝與幾筆無法唯一定位的記錄、各自怎麼影響計畫、逐份點名（各至多 20），
+    /// 說 `--apply` 會整批拒絕；都沒有時 nil。走 stdout（`print`），換行照常分行。已消毒（檔名與 key 逐項 `displaySafeInvisible`，其餘是常數字面與筆數）。
     ///
-    /// 這些面看完整的 load（使用者 2026-10-05 裁決 1：寫入候選面一律看完整資料）——拷貝裡的 literal 也是候選，與 entities/ 那份相同的
-    /// 多算一次出現、可能越過 `--min-occurrences`。乾跑照常列出候選（裁決 2）；`--apply` 由 `refuseApplyWithLegacyCopiesInPlan` 擋。
-    public func legacyCopiesInPlanNote(_ source: BootstrapPlanSource) -> String? {
-        let copies = legacyCopiesInPlan(source)
-        guard !copies.isEmpty else { return nil }
-        return "⚠ 計畫含 \(copies.count) 份 legacy 拷貝（同一筆記錄在 entities/ 也有一份）：本命令看完整的資料，拷貝裡的 literal 也是候選，"   // display-safe-exempt: copies.count：Int
-            + "與 entities/ 那份相同的會多算一次出現（可能越過 --min-occurrences）——下面的候選照常列出，--apply 會整批拒絕、零寫入；"
-            + Self.legacyCopiesRemedy + "：\n" + Self.legacyCopyLines(copies)
+    /// 這些面看完整的 load（使用者 2026-10-05 裁決 1：寫入候選面一律看完整資料）。乾跑照常列出候選（2026-10-05 裁決 2）；`--apply` 由
+    /// `refuseApplyWithPlanBlockers` 擋。
+    public func planBlockersNote(_ source: BootstrapPlanSource) -> String? {
+        let b = planBlockers(source)
+        guard !b.isEmpty else { return nil }
+        var lines = ["⚠ 計畫含 " + Self.blockerCounts(b) + "：本命令看完整的資料，下面的候選照常列出，--apply 會整批拒絕、零寫入（#709）"]
+        if !b.copies.isEmpty {
+            lines.append("  legacy 拷貝（同一筆記錄在 entities/ 也有一份）的內容也進計畫：")
+            lines += Self.copyEffects(source, kinds: Set(b.copies.map(\.kind))).map { "    · " + $0 }
+            lines.append("  " + Self.legacyCopiesRemedy + "：")
+            lines += Self.limitedLines(b.copies.map {
+                "    \(displaySafeInvisible($0.legacyFile, max: 300))（\($0.kind.rawValue)，entities/ 那份是 \($0.entitiesFile)）"   // display-safe-exempt: kind.rawValue 是常數；entitiesFile 由 UUID 組成
+            }, unit: "份")
+        }
+        if !b.unlocatable.isEmpty {
+            let reasons = Set(b.unlocatable.map(\.kind)).sorted { $0.rawValue < $1.rawValue }
+                .map { $0 == .work ? "work：" + UnlocatableReason.work : "person：" + UnlocatableReason.person }.joined(separator: "；")
+            lines.append("  無法唯一定位的記錄（\(reasons)）的內容也進計畫：重複的那幾筆讓計數加倍、寫入之後的 index 重建可能撞上 UNIQUE；"   // display-safe-exempt: reasons 由常數字面組成
+                         + "只有一份而寫入時會被拒的，是還沒處理的 legacy 殘留。先修好再跑：")
+            lines += Self.limitedLines(b.unlocatable.map {
+                "    \($0.kind.rawValue)「\(displaySafeInvisible($0.key, max: 200))」"   // display-safe-exempt: kind.rawValue 是常數
+            }, unit: "筆")
+        }
+        return lines.joined(separator: "\n")
     }
 
-    /// 三個 bootstrap 的 `--apply`：計畫讀到 legacy 拷貝時整批拒絕、零寫入（使用者 2026-10-05 裁決 2——與 `authorize-names` 對同類狀態的處置
-    /// 一致）。先前只在輸出開頭印一行附註、之後照寫：附註的補救（先刪拷貝再跑）到達時寫入已經發生，只被一篇 work 用到的名字因拷貝越過門檻而建檔
-    /// （#709 第四次 verify MEDIUM 5，LOW 6、13、15）。判準與附註同一個：`legacyCopiesInPlan`——計畫沒讀到的拷貝不擋。
-    public func refuseApplyWithLegacyCopiesInPlan(_ source: BootstrapPlanSource) throws {
-        let copies = legacyCopiesInPlan(source)
-        guard !copies.isEmpty else { return }
-        let remedy = Self.legacyCopiesRemedy, lines = Self.legacyCopyLines(copies)
+    /// 三個 bootstrap 的 `--apply`：計畫讀到 legacy 拷貝或無法唯一定位的記錄時整批拒絕、零寫入（使用者 2026-10-05 裁決 2、2026-10-09 裁決 1／2）。
+    /// 先前只在輸出開頭印一行附註、之後照寫：附註的補救（先刪拷貝再跑）到達時寫入已經發生（#709 第四次 verify MEDIUM 5，LOW 6、13、15）。
+    /// 判準與附註同一個：`planBlockers`——計畫沒讀到的種類不擋。
+    ///
+    /// **訊息不帶逐份清單**（b36 verify LOW 6、8、12、14）：錯誤走 CLI 的單行出口，換行被逃成字面 `\u{000A}`、整行在 400 處截斷——12 份拷貝時
+    /// 只點名得到兩份，「至多 20 份」「…另 N 份」都到不了使用者。清單在乾跑的附註（stdout，照常分行）；這裡只說筆數、處置與去哪裡看。
+    public func refuseApplyWithPlanBlockers(_ source: BootstrapPlanSource) throws {
+        let b = planBlockers(source)
+        guard !b.isEmpty else { return }
+        var remedies: [String] = []
+        if !b.copies.isEmpty { remedies.append("確認 entities/ 那份是新的之後刪掉 legacy 拷貝") }
+        if !b.unlocatable.isEmpty { remedies.append("無法唯一定位的先修好") }
+        let counts = Self.blockerCounts(b), remedy = remedies.joined(separator: "、")
         throw StoreIOError.invalidInput(
             what: "\(source.command) --apply",   // display-safe-exempt: source.command 是常數字面
-            why: "計畫含 \(copies.count) 份 legacy 拷貝（同一筆記錄在 entities/ 也有一份）——拷貝裡的 literal 也是候選、"   // display-safe-exempt: copies.count 是 Int
-               + "與 entities/ 那份相同的多算一次出現，計數不準；整批拒絕、零寫入（#709，使用者 2026-10-05 裁決）。"
-               + remedy + "：\n" + lines)   // display-safe-exempt: remedy 是常數字面；lines 已逐項 displaySafeInvisible
+            why: "計畫含 " + counts + "，計數與既有記錄都可能不準；整批拒絕、零寫入（#709）。"   // display-safe-exempt: counts 由 Int 與常數字面組成（blockerCounts）
+               + "乾跑（不帶 --apply）逐份列出，akashic validate 逐筆說出原因；" + remedy + "，再跑")   // display-safe-exempt: remedy 由常數字面組成
+    }
+
+    /// 「N 份 legacy 拷貝、M 筆無法唯一定位的記錄」（沒有的那一半省略）——附註與拒絕共用。只含 Int 與常數字面。
+    static func blockerCounts(_ b: BootstrapPlanBlockers) -> String {
+        var parts: [String] = []
+        if !b.copies.isEmpty { parts.append("\(b.copies.count) 份 legacy 拷貝") }   // display-safe-exempt: Int
+        if !b.unlocatable.isEmpty { parts.append("\(b.unlocatable.count) 筆無法唯一定位的記錄") }   // display-safe-exempt: Int
+        return parts.joined(separator: "、")
+    }
+
+    /// 拷貝對這個計畫的影響，一種一句——依計畫與拷貝的種類說實話（使用者 2026-10-09 裁決 1：先前那句「person 拷貝只會讓候選少一個」是假的）。只含常數字面。
+    static func copyEffects(_ source: BootstrapPlanSource, kinds: Set<LegacyCopyLeft.Kind>) -> [String] {
+        var out: [String] = []
+        if kinds.contains(.work) {
+            out.append("work 拷貝裡的 literal 也是候選，與 entities/ 那份相同的多算一次出現（可能越過 --min-occurrences）")
+        }
+        if kinds.contains(.person) {
+            switch source {
+            case .people:
+                out.append("person 拷貝的 key、名字與否決／確認記錄也算數：多出的否決可能讓該先消歧的名字成為候選、多出的名字可能讓 literal "
+                           + "被當成已存在而不列出、留著的舊 key 可能讓新 key 多一個後綴")
+            case .organizations:
+                out.append("person 拷貝裡的隸屬 literal 也是候選，與 entities/ 那份相同的多算一次出現")
+            case .venues:
+                break   // 不讀 person（`kinds`）
+            }
+        }
+        return out
     }
 
     /// 刪拷貝的前提——兩份可能已經分岔（#705 第三次 verify 對 `LegacyCopyLeft.explanation` 的同一個前提）。
     static let legacyCopiesRemedy = "確認 entities/ 那份是新的之後刪掉 legacy 拷貝（akashic validate 逐筆列出），再跑"
 
-    /// 逐份一行：legacy 檔與它的 entities/ 那份。至多 20 行，其餘一行概括。已消毒。
-    static func legacyCopyLines(_ copies: [ShadowedLegacyCopy]) -> String {
-        var lines = copies.prefix(20).map {
-            "  \(displaySafeInvisible($0.legacyFile, max: 300))（\($0.kind.rawValue)，entities/ 那份是 \($0.entitiesFile)）"   // display-safe-exempt: kind.rawValue 是常數；entitiesFile 由 UUID 組成
-        }
-        if copies.count > 20 { lines.append("  …另 \(copies.count - 20) 份") }   // display-safe-exempt: Int
-        return lines.joined(separator: "\n")
+    /// 至多 20 行，其餘一行概括。
+    static func limitedLines(_ lines: [String], unit: String) -> [String] {
+        var out = Array(lines.prefix(20))
+        if lines.count > 20 { out.append("    …另 \(lines.count - 20) \(unit)") }   // display-safe-exempt: Int；unit 是呼叫端的常數字面
+        return out
     }
 
     /// 已消毒（`unwritableReason` 的契約）。

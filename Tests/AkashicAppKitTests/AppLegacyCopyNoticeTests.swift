@@ -357,7 +357,11 @@ final class AppLegacyCopyNoticeTests: XCTestCase {
         let plain = LegacyCopyLeft(kind: .person, key: "someone", id: UUID(), legacyFile: "people/someone.yaml", detail: "d")
         let notice = LegacyCopyNotice(items: [refused, plain], root: URL(fileURLWithPath: "/tmp/store"))
 
-        XCTAssertTrue(notice.headline.contains("其中 1 筆：\(LegacyCopyLeft.laterWriteRefusedNote)"), "標題說出後續寫入沒套用：\(notice.headline)")
+        XCTAssertTrue(notice.headline.contains("其中 1 筆：\(LegacyCopyLeft.laterWriteRefusedFact)"), "標題說出後續寫入沒套用：\(notice.headline)")
+        // #709 b36 verify（LOW 10、16、17）：被拒的那一支同樣只說一次帶前提的刪除、不說「即可」——先前接整句 laterWriteRefusedNote（「刪掉 legacy 那份之後
+        // 重跑即可補上」），而上一個測試只驗了沒有被拒的那一支
+        XCTAssertFalse(notice.headline.contains("即可") || notice.headline.contains("照上一句"), notice.headline)
+        XCTAssertEqual(notice.headline.components(separatedBy: "刪掉 legacy 那份").count - 1, 1, "刪除只說一次、帶前提：\(notice.headline)")
         XCTAssertFalse(notice.headline.contains("與這份拷貝無關") || notice.headline.contains("別的原因"), notice.headline)
         let details = notice.rows.map(\.displayDetail)
         XCTAssertEqual(details[0], refused.message + "；" + LegacyCopyLeft.laterWriteRefusedNote, "標了的那一列帶附句，與 reportLines 同一句")
@@ -365,7 +369,7 @@ final class AppLegacyCopyNoticeTests: XCTestCase {
         XCTAssertTrue(LegacyCopyLeft.reportLines([refused]).joined().contains(LegacyCopyLeft.laterWriteRefusedNote), "CLI／MCP 的附句是同一份")
 
         let none = LegacyCopyNotice(items: [plain], root: URL(fileURLWithPath: "/tmp/store"))
-        XCTAssertFalse(none.headline.contains(LegacyCopyLeft.laterWriteRefusedNote), "全部沒標時標題不提：\(none.headline)")
+        XCTAssertFalse(none.headline.contains(LegacyCopyLeft.laterWriteRefusedFact), "全部沒標時標題不提：\(none.headline)")
     }
 
     /// 每一列顯示 legacy 檔的完整路徑（store root ＋ 相對路徑），使用者不必自己知道 store 在哪裡才刪得掉（#708 R1 verify 第 12／32 列）。

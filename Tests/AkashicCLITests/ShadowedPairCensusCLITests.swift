@@ -139,11 +139,13 @@ final class ShadowedPairCensusCLITests: XCTestCase {
         person.profile.affiliations = TimelineOf<OrgRef>([TemporalValue(value: .literal("Institute of Real Things"))])
         try writeEntities(person)
         try writeLegacy(person)
+        XCTAssertTrue(try cli(["bootstrap-organizations"]).output.contains("people/smith-j.yaml"), "乾跑逐份點名")
         var before = try storeFiles()
         var r = try cli(["bootstrap-organizations", "--apply"])
         XCTAssertEqual(r.status, 1, r.output)
+        // 拒絕訊息只說筆數與處置、指向乾跑（b36 verify LOW 6、8、12、14：清單被單行出口逃成 \u{000A} 並截斷）
         XCTAssertTrue(r.output.contains("bootstrap-organizations --apply") && r.output.contains("整批拒絕、零寫入")
-                      && r.output.contains("people/smith-j.yaml"), r.output)
+                      && r.output.contains("計畫含 1 份 legacy 拷貝"), r.output)
         XCTAssertEqual(try storeFiles(), before, "零寫入")
 
         // work 拷貝（團體作者 literal）同樣在計畫裡
@@ -157,7 +159,7 @@ final class ShadowedPairCensusCLITests: XCTestCase {
         before = try storeFiles()
         r = try cli(["bootstrap-organizations", "--apply"])
         XCTAssertEqual(r.status, 1, r.output)
-        XCTAssertTrue(r.output.contains("entries/anon2020group.yaml"), r.output)
+        XCTAssertTrue(r.output.contains("計畫含 1 份 legacy 拷貝"), r.output)
         XCTAssertEqual(try storeFiles(), before, "零寫入")
     }
 

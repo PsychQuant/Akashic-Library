@@ -65,6 +65,7 @@ final class GitSpawnHygieneTests: XCTestCase {
         "ZoteroReportCLITests.swift",     // #705：同上（import-zotero 的那一格）
         "AppLegacyCopyNoticeTests.swift",  // #708：legacy 檔要受 git 追蹤、乾淨，App 的寫入才會搬移它（fixture 自己剝 GIT_*）
         "SourceIntakeMemoryCLITests.swift", // #703 R1：copy-zotero-attachments --apply 的記憶體量測前先 commit fixture（GIT_* 前綴剝除）
+        "BootstrapPlanBlockersCLITests.swift", // #709 b36：單份 legacy 檔要已 commit 才寫得進去，「無法唯一定位」才只由要測的那一類造成（GIT_* 前綴剝除）
         // 這條清單是封閉列舉：多了會紅（stale），少了也會紅（spawn git 卻未登記——#585 R1 verify 第 16／36 列：先前只有
         // 「沒剝環境」才紅，有剝環境但沒登記的檔安靜通過，於是清單與實際分岔而守衛照綠）。
         //

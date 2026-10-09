@@ -414,9 +414,14 @@ public enum AddOnlyEnrichment {
         // 1. 整批驗證，零寫入——任一筆語法錯就不產生任何 item。
         let validated = try proposals.enumerated().map { try validate($1, index: $0 + 1) }
 
-        var working: [String: Entry] = [:]
-        for e in entries { working[e.citekey] = e }
-        // #628：citekey 在 store 裡不只一筆、或與另一筆共用 id——`working` 是後者勝的字典，補值會落到猜的那一筆；#641 起也含檔案寫入時會被拒的
+        // 完整的 load，**不經 citekey 去重**（#709 b36 verify MEDIUM 2、5）：先前是 `working[e.citekey] = e` 的字典、同 citekey 後者勝，
+        // 而 load 先讀 entities/ 再讀 legacy——同 citekey 的 legacy 拷貝把 entities/ 那份擠掉。後果兩個：DOI 命中只剩拷貝，歧義理由說 entities/
+        // 那份「不帶這個 DOI」、叫人刪拷貝「再跑」（刪了仍與真孿生歧義，#459 的指路不見）；entities/ 帶 DOI 而拷貝沒有時說「沒有記錄帶 DOI」，
+        // 同一個 store 的 `create-entry --dry-run` 卻說「DOI 已在」。陣列保留每一筆；後面的提案看得到前面補的鍵，靠的是就地更新那一筆的位置。
+        var working = entries
+        var positions: [String: [Int]] = [:]
+        for (i, e) in entries.enumerated() { positions[e.citekey, default: []].append(i) }
+        // #628：citekey 在 store 裡不只一筆、或與另一筆共用 id——寫入以 citekey／id 定位，補值會落到猜的那一筆；#641 起也含檔案寫入時會被拒的
         let unlocatable = entries.unlocatableCitekeys
 
         var result = Result()
@@ -425,7 +430,7 @@ public enum AddOnlyEnrichment {
             // 2. 定位
             let citekey: String
             if let ck = p.citekey {
-                guard working[ck] != nil else {
+                guard positions[ck] != nil else {
                     result.items.append(Item(proposalIndex: i, citekey: nil, category: .notFound,
                                              outcome: Outcome(), additions: [], alreadyPresent: [],
                                              reason: "citekey「\(ck)」不在 store 裡",
@@ -442,16 +447,17 @@ public enum AddOnlyEnrichment {
                                              matches: [], sourceDigest: digest))
                     continue
                 }
-                let hits = working.values.filter { $0.canonicalDOIs.contains(target) }
-                let matches = hits.map(\.citekey).sorted()
-                if matches.isEmpty {
+                let hits = working.filter { $0.canonicalDOIs.contains(target) }
+                // 同一個 citekey 的兩筆（同一筆記錄的 legacy 拷貝與 entities/ 那份）在 `matches` 只列一次；歧義與否看筆數
+                let matches = Set(hits.map(\.citekey)).sorted()
+                if hits.isEmpty {
                     result.items.append(Item(proposalIndex: i, citekey: nil, category: .notFound,
                                              outcome: Outcome(), additions: [], alreadyPresent: [],
                                              reason: "沒有記錄帶 DOI「\(target.normalized)」",
                                              matches: [], sourceDigest: digest))
                     continue
                 }
-                if matches.count >= 2 {
+                if hits.count >= 2 {
                     result.items.append(Item(proposalIndex: i, citekey: nil, category: .ambiguous,
                                              outcome: Outcome(), additions: [], alreadyPresent: [],
                                              reason: ambiguousDOIReason(target, hits: hits),
@@ -469,8 +475,9 @@ public enum AddOnlyEnrichment {
                                          matches: [citekey], sourceDigest: digest))
                 continue
             }
-            // 3. 政策（逐字自 ZoteroEnrichment.plan）
-            let entry = working[citekey]!
+            // 3. 政策（逐字自 ZoteroEnrichment.plan）。不在 `unlocatable` 的 citekey 恰好一筆（`unlocatableCitekeys` 含重複的 citekey）
+            let position = positions[citekey]![0]
+            let entry = working[position]
             let (outcome, alreadyPresent, note) = policy(entry: entry, proposal: p,
                                                          includeAbsentAuthors: includeAbsentAuthors,
                                                          dateReference: dateReference,
@@ -480,7 +487,7 @@ public enum AddOnlyEnrichment {
                 category = outcome.refused.isEmpty ? .skipped : .rejected
             } else {
                 category = .added
-                working[citekey] = applied(outcome, to: entry)
+                working[position] = applied(outcome, to: entry)
             }
             result.items.append(Item(proposalIndex: i, citekey: citekey, category: category,
                                      outcome: outcome, additions: additions(of: outcome),
@@ -490,41 +497,55 @@ public enum AddOnlyEnrichment {
         return result
     }
 
-    /// DOI 命中兩筆以上的理由（零寫入）。定位仍看完整的 load（寫入面）；只有理由分開說（#709）。
+    /// DOI 命中兩筆以上的理由（零寫入）。定位仍看完整的 load（寫入面）；只有理由分開說（#709）。`hits` 是**完整的**命中——不經 citekey 去重
+    /// （`plan` 的 `working` 是陣列），所以同 citekey 的 legacy 拷貝與 entities/ 那份都在裡面（b36 verify MEDIUM 2、5）。
     ///
     /// **哪一筆是 legacy 拷貝，只問 load 的標記**（`fileSituation.shadowedLegacyFile`，判準只有一份，在
     /// `LibraryStore.markLegacyCopiesShadowedByEntities`）——不以 id 相等自己推。#709 第四次 verify：先前以 `Dictionary(grouping:by: \.id)`
     /// 當代理，兩個 legacy 檔共用 UUID、entities/ 沒有那個 id 時（手動複製一個檔忘了換 id——validate 判成兩筆不同記錄的 error）照樣說
-    /// 「是同一筆記錄的 entities/ 與 legacy 拷貝，不是兩篇作品：刪掉 legacy 那份」，可能把人導去刪掉一篇真的作品。現在三種情形分開說：
+    /// 「是同一筆記錄的 entities/ 與 legacy 拷貝，不是兩篇作品：刪掉 legacy 那份」，可能把人導去刪掉一篇真的作品。三種情形分開說：
     ///
-    /// 1. 被標成拷貝的：點名它與它的 legacy 檔、說出 entities/ 那份是誰，帶「確認 entities/ 那份是新的之後」（#705 的同一個前提——兩份可能已經分岔）。
+    /// 1. 拿掉拷貝之後仍有兩筆以上：不判定哪一筆才對（#459）——拷貝加真孿生並存時，刪掉拷貝之後仍歧義，指路不能丟、也不說「再跑」。
     /// 2. 同 id 而沒有被標成拷貝的：UUID 重複是 error、指向 validate，**不**下「是不是同一篇」的結論。
-    /// 3. 拿掉拷貝之後仍有兩筆以上：不判定哪一筆才對（#459）——拷貝加真孿生並存時，刪掉拷貝之後仍歧義，指路不能丟。
+    /// 3. 被標成拷貝的：帶「確認 entities/ 那份是新的之後」（#705 的同一個前提——兩份可能已經分岔）再刪 legacy 那份。
+    ///
+    /// **結論與處置在前、逐份明細在後**（b36 verify MEDIUM 0，LOW 9、13、15）：唯一出口 `AkashicService.enrich` 對整句 `displaySafe(max: 512)`，
+    /// 先前明細在前，四份以上拷貝（或 citekey 較長）時「確認 entities/ 那份是新的之後」、「再跑」、#459 與「零寫入」被截掉。現在被截的只會是明細；
+    /// 前段只含筆數、常數字面與 DOI（DOI 長於 100 字時截短），最長約 300 字。
     static func ambiguousDOIReason(_ target: DOI, hits: [Entry]) -> String {
-        let head = "DOI「\(target.normalized)」命中 \(hits.count) 筆"
-        let copies = hits.filter { $0.fileSituation.shadowedLegacyFile != nil }.sorted { $0.citekey < $1.citekey }
+        let doi = target.normalized.count > 100 ? String(target.normalized.prefix(100)) + "…" : target.normalized
+        let copies = hits.filter { $0.fileSituation.shadowedLegacyFile != nil }
+            .sorted { ($0.citekey, $0.fileSituation.shadowedLegacyFile ?? "") < ($1.citekey, $1.fileSituation.shadowedLegacyFile ?? "") }
         let records = hits.filter { $0.fileSituation.shadowedLegacyFile == nil }
         let sharedID = Dictionary(grouping: records, by: \.id).values.filter { $0.count > 1 }
             .map { $0.map(\.citekey).sorted() }.sorted { $0[0] < $1[0] }
-        var clauses: [String] = []
+
+        var verdicts: [String] = []
+        if records.count >= 2 {
+            verdicts.append((copies.isEmpty ? "" : "拿掉 legacy 拷貝之後仍有 \(records.count) 筆記錄帶這個 DOI——") + "不判定哪一筆才對（#459）")   // display-safe-exempt: Int
+        }
+        if !sharedID.isEmpty {
+            verdicts.append("其中 \(sharedID.count) 組共用同一個 id，卻不是 load 認得的 legacy 拷貝：UUID 重複是 error（akashic validate 列出），先修好")   // display-safe-exempt: Int
+        }
         if !copies.isEmpty {
-            let shown = copies.prefix(5).map { copy -> String in
+            verdicts.append("其中 \(copies.count) 份是同一筆記錄的 legacy 拷貝：確認 entities/ 那份是新的之後刪掉 legacy 那份（akashic validate 列出）"   // display-safe-exempt: Int
+                + (records.count < 2 ? "，再跑" : ""))
+        }
+        var details: [String] = []
+        if !copies.isEmpty {
+            details.append("拷貝：" + copies.prefix(5).map { copy -> String in
                 let twin = records.filter { $0.id == copy.id }.map(\.citekey).sorted().first
                     .map { "entities/ 那份是 \($0)" } ?? "entities/ 那份是 entities/\(copy.id.uuidString).yaml，它不帶這個 DOI"
                 // citekey 與 legacy 檔名是原始值——同 `matches`，唯一出口 AkashicService.enrich 對整句 displaySafe(max: 512)，在這裡逃會二次逃脫
                 return "\(copy.citekey)（legacy 檔 \(copy.fileSituation.shadowedLegacyFile ?? "")；\(twin)）"   // display-safe-exempt: copy 與 twin 是原始值，出口端逃一次
-            }.joined(separator: "、") + (copies.count > 5 ? "…另 \(copies.count - 5) 份" : "")
-            clauses.append("其中 \(shown) 是同一筆記錄的 legacy 拷貝：確認 entities/ 那份是新的之後刪掉 legacy 那份（akashic validate 列出）"
-                + (records.count < 2 ? "再跑" : ""))
+            }.joined(separator: "、") + (copies.count > 5 ? "…另 \(copies.count - 5) 份" : ""))   // display-safe-exempt: Int
         }
         if !sharedID.isEmpty {
-            let pairs = sharedID.map { $0.joined(separator: "、") }.joined(separator: "／")   // 「；」留給子句之間
-            clauses.append("\(pairs) 共用同一個 id，卻不是 load 認得的 legacy 拷貝：UUID 重複是 error（akashic validate 列出），先修好")
+            details.append("共用 id：" + sharedID.prefix(5).map { $0.joined(separator: "、") }.joined(separator: "／")   // 「；」留給段落之間
+                + (sharedID.count > 5 ? "…另 \(sharedID.count - 5) 組" : ""))   // display-safe-exempt: Int
         }
-        if records.count >= 2 {
-            clauses.append((copies.isEmpty ? "" : "拿掉拷貝之後仍有 \(records.count) 筆記錄帶這個 DOI——") + "不判定哪一筆才對（#459）")
-        }
-        return head + "——" + clauses.joined(separator: "；") + "，零寫入"
+        return "DOI「\(doi)」命中 \(hits.count) 筆，零寫入：" + verdicts.joined(separator: "；")   // display-safe-exempt: doi 是原始值，出口端逃一次；Int
+            + (details.isEmpty ? "" : "。" + details.joined(separator: "；"))
     }
 
     /// 把一筆計畫套進 entry，回傳**新的** entry（不 mutate 傳入者）。

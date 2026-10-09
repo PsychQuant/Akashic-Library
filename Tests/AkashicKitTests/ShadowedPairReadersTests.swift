@@ -286,9 +286,14 @@ final class ShadowedPairReadersTests: XCTestCase {
         let dry = try AuthorizedNameMigration.run(store: store, apply: false)
         XCTAssertEqual(dry.alreadyDesignated, 1, "legacy 那份已指定、不在寫入集合：\(dry)")
         XCTAssertEqual(dry.blockedKeys, ["smith-j"], "乾跑說出 --apply 會擋的那一筆：\(dry)")
+        // b36 verify（LOW 7、INFO 23）：validate 以 legacy 那份的 key（smith-old）列出兩份並存——點名 smith-j 時一併說出它的 legacy 檔，照訊息找得到
+        XCTAssertEqual(dry.blockedCopyFiles, ["smith-j": "people/smith-old.yaml"], "\(dry)")
+        XCTAssertEqual(AuthorizedNameMigration.blockedDisplay(dry), "smith-j（legacy 拷貝 people/smith-old.yaml）")
+        XCTAssertTrue(try store.load().crossRecordIssues().contains { $0.message.contains("smith-old") }, "前提：validate 點名的是 legacy 那份的 key")
         let before = try personFileBytes()
         XCTAssertThrowsError(try AuthorizedNameMigration.run(store: store, apply: true, judgement: "測試")) {
-            XCTAssertTrue("\($0)".contains("legacy 拷貝") && "\($0)".contains("smith-j"), "\($0)")
+            XCTAssertTrue("\($0)".contains("legacy 拷貝") && "\($0)".contains("smith-j（legacy 拷貝 people/smith-old.yaml）")
+                          && "\($0)".contains("以 legacy 那份的 key 列出"), "\($0)")
         }
         XCTAssertEqual(try personFileBytes(), before, "零寫入")
     }
@@ -378,7 +383,7 @@ final class ShadowedPairReadersTests: XCTestCase {
 
         let reason = try enrichReason(doi: "10.1234/abc.def", matches: ["alpha2020", "beta2020"])
         XCTAssertFalse(reason.contains("是同一筆記錄的 legacy 拷貝") || reason.contains("不是兩篇") || reason.contains("刪掉"), reason)
-        XCTAssertTrue(reason.contains("alpha2020、beta2020 共用同一個 id，卻不是 load 認得的 legacy 拷貝")
+        XCTAssertTrue(reason.contains("1 組共用同一個 id，卻不是 load 認得的 legacy 拷貝") && reason.contains("共用 id：alpha2020、beta2020")
                       && reason.contains("UUID 重複是 error") && reason.contains("akashic validate"), reason)
 
         // MCP／CLI 共用的 service payload 也是這一句（CLI 印同一份 payload）
@@ -403,8 +408,74 @@ final class ShadowedPairReadersTests: XCTestCase {
         try writeEntities(twin)
         let reason = try enrichReason(doi: "10.1234/abc.def", matches: ["b2021d", "c2021d2", "oldcite2021"])
         XCTAssertTrue(reason.contains("oldcite2021（legacy 檔 entries/oldcite2021.yaml；entities/ 那份是 b2021d）"), reason)
-        XCTAssertTrue(reason.contains("拿掉拷貝之後仍有 2 筆記錄帶這個 DOI") && reason.contains("#459"), reason)
+        XCTAssertTrue(reason.contains("拿掉 legacy 拷貝之後仍有 2 筆記錄帶這個 DOI") && reason.contains("#459"), reason)
         XCTAssertFalse(reason.contains("再跑"), "刪掉拷貝之後重跑仍歧義，不說「再跑」：\(reason)")
+    }
+
+    /// b36 verify（MEDIUM 2、5）：**同 citekey** 的 legacy 拷貝（#631 搬移中斷的主要殘留形）加一筆真孿生。先前 `plan` 以 `working[e.citekey] = e`
+    /// 建表、同 citekey 後者勝，load 先 entities/ 後 legacy——命中只剩拷貝，理由說 entities/ 那份「它不帶這個 DOI」（假）、叫人刪拷貝「再跑」
+    /// （刪了仍與真孿生歧義），#459 的指路不見。
+    func testEnrichKeepsTheTwinPointerWhenASameCitekeyCopyAndAnotherRecordShareTheDOI() throws {
+        var same = Entry(id: UUID(), citekey: "x2020same", type: .periodicalArticle, title: "T", date: "2020")
+        same.doi = [DOI("10.1234/abc.def")!]
+        var twin = same
+        twin.id = UUID()
+        twin.citekey = "y2020twin"
+        try writeEntities(same)
+        try writeLegacy(same)
+        try writeEntities(twin)
+        XCTAssertEqual(try store.load().shadowedLegacyCopies.map(\.legacyFile), ["entries/x2020same.yaml"], "前提：同 citekey 的拷貝")
+        let reason = try enrichReason(doi: "10.1234/abc.def", matches: ["x2020same", "y2020twin"])
+        XCTAssertTrue(reason.contains("x2020same（legacy 檔 entries/x2020same.yaml；entities/ 那份是 x2020same）"), reason)
+        XCTAssertTrue(reason.contains("拿掉 legacy 拷貝之後仍有 2 筆記錄帶這個 DOI——不判定哪一筆才對（#459）"), reason)
+        XCTAssertFalse(reason.contains("它不帶這個 DOI") || reason.contains("再跑"), reason)
+    }
+
+    /// b36 verify（MEDIUM 5 的副作用 t8）：entities/ 那份帶 DOI、同 citekey 的舊 legacy 拷貝沒有。先前字典留下拷貝，`enrich` 說「沒有記錄帶 DOI」
+    /// （notFound），同一個 store 的 `create-entry --dry-run` 卻說「DOI 已在」。現在命中 entities/ 那份，而那個 citekey 無法唯一定位——零寫入、說出來。
+    func testEnrichFindsTheDOIOnTheEntitiesCopyWhenTheSameCitekeyLegacyCopyLacksIt() throws {
+        var current = Entry(id: UUID(), citekey: "x2020same", type: .periodicalArticle, title: "T", date: "2020")
+        current.doi = [DOI("10.1234/abc.def")!]
+        var stale = current
+        stale.doi = []
+        try writeEntities(current)
+        try writeLegacy(stale)
+        let plan = try AddOnlyEnrichment.plan(entries: try store.load().entries,
+                                              proposals: [.init(doi: "10.1234/abc.def", fields: ["abstract": "A"])])
+        let item = try XCTUnwrap(plan.items.first)
+        XCTAssertEqual(item.category, .ambiguous, "不是 notFound：entities/ 那份帶這個 DOI：\(item)")
+        XCTAssertEqual(item.matches, ["x2020same"])
+        XCTAssertTrue((item.reason ?? "").contains("無法唯一定位"), "\(item)")
+    }
+
+    /// b36 verify（MEDIUM 0，LOW 9、13、15）：出口 `AkashicService.enrich` 對理由 `displaySafe(max: 512)`。先前逐份明細在前，四份以上拷貝或 citekey
+    /// 較長時「確認 entities/ 那份是新的之後」、#459 與「零寫入」被截掉。走 service 出口：六份改名留下的拷貝（長 citekey、entities/ 那份不帶這個 DOI，
+    /// 每份明細最長）加兩筆真孿生——截斷之後結論與處置仍在。
+    func testTheEnrichReasonKeepsTheGuidanceAfterTheServiceTruncation() throws {
+        let doi = "10.1234/abc.def"
+        for i in 0..<6 {
+            let current = Entry(id: UUID(), citekey: "newkey2019n\(i)", type: .periodicalArticle, title: "T\(i)", date: "2019")
+            var leftover = current
+            leftover.citekey = "smithjonesmillerwilliams2019oldkey\(i)"
+            leftover.doi = [DOI(doi)!]
+            try writeEntities(current)
+            try writeLegacy(leftover)
+        }
+        for ck in ["twin2019a", "twin2019b"] {
+            var e = Entry(id: UUID(), citekey: ck, type: .periodicalArticle, title: "T", date: "2019")
+            e.doi = [DOI(doi)!]
+            try writeEntities(e)
+        }
+        let core = try enrichReason(doi: doi, matches: (0..<6).map { "smithjonesmillerwilliams2019oldkey\($0)" } + ["twin2019a", "twin2019b"])
+        XCTAssertGreaterThan(core.count, 512, "前提：完整理由超過出口上限：\(core.count)")
+
+        let service = AkashicService(root: root, key: nil, environment: [:])
+        let out = try service.enrich(proposals: [.init(doi: doi, fields: ["abstract": "A"])], dryRun: true, includeAbsentAuthors: false)
+        let obj = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(out.utf8)) as? [String: Any], out)
+        let reason = try XCTUnwrap((obj["items"] as? [[String: Any]])?.first?["reason"] as? String, out)
+        XCTAssertTrue(reason.hasSuffix("（已截斷）"), "前提：出口截斷了：\(reason)")
+        XCTAssertTrue(reason.contains("零寫入") && reason.contains("拿掉 legacy 拷貝之後仍有 2 筆記錄帶這個 DOI——不判定哪一筆才對（#459）")
+                      && reason.contains("確認 entities/ 那份是新的之後刪掉 legacy 那份"), "截斷後結論與處置仍在：\(reason)")
     }
 
     /// 以 DOI 定位一筆 enrich 提案、斷言歧義與命中，回傳理由（走真的 load：標記由 load 設定）。

@@ -2135,7 +2135,7 @@ R8 verify 第 21／28／38 列；理由句 R10 依 R9 verify 第 24 列改寫—
 **序列化註記**：純數字刊名（`1843`）由本 repo 的 YAML 寫出時不加引號，Swift 讀回是字串
 （本檔 §3.4 的 canonical form 只對 Swift 側承諾）；外部 YAML 解析器（PyYAML）會讀成整數
 ——`010` 讀成 8。用外部工具量本節的不變式時要對 `names` 做 `str()`，第 25 列的 Python
-對照腳本（`.claude/rules/zero-instance-guards.md`）就是這樣寫的。
+對照腳本（`docs/zero-instance-measurements.md`，#711 起從規則檔搬到那裡）就是這樣寫的。
 
 ### 5.8 `divergence`：未決的同一性問題（normative，#71）
 

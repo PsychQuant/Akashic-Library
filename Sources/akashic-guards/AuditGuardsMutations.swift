@@ -68,6 +68,12 @@ private func applyEdit(_ e: AGMEdit, _ text: String) -> String? {
     }
 }
 
+/// 一格有 `maxSeconds` 而守衛跑得比它久：回一段附在失敗訊息後面的話，否則 nil（#711 b37）。
+private func agmTooSlow(_ c: AGMCase, _ elapsed: TimeInterval) -> String? {
+    guard let limit = c.maxSeconds, elapsed > limit else { return nil }
+    return "，跑了 \(String(format: "%.1f", elapsed)) 秒（上限 \(String(format: "%.0f", limit)) 秒）"
+}
+
 /// 本 harness 在執行時宣告的負控對象（#707）。每一支都要有資料檔裡 `guardRel:` 指向它的 case。
 let agmDeclaredGuards = [
     "backlink-field-ratchet", "measured-claims-audit", "measured-numbers-audit", "parity-table-drift",
@@ -300,15 +306,17 @@ func auditGuardsMutations() -> Int32 {
     for c in cases {
         if skipped.contains(c.desc) { continue }
         abort = nil
+        let t0 = Date()
         let (rc, out) = run(c.guardRel, c.edits, c.desc, .red)
+        let slow = agmTooSlow(c, Date().timeIntervalSince(t0))
         if let a = abort { print(a); continue }
         let miss = c.expect.filter { !out.contains($0) }
         if pairedFlat.contains(c.desc) { paired[c.desc] = out }
         byOutput[c.guardRel + "\u{1F}" + out, default: []].append(c.desc)
-        if rc != 0 && miss.isEmpty {
+        if rc != 0 && miss.isEmpty && slow == nil {
             print("✓ 注入「\(c.desc)」→ rc=\(rc)，具名"); ok += 1
         } else {
-            print("✗ 注入「\(c.desc)」→ rc=\(rc)" + (miss.isEmpty ? "" : "，缺 \(pyRepr(miss))"))
+            print("✗ 注入「\(c.desc)」→ rc=\(rc)" + (miss.isEmpty ? "" : "，缺 \(pyRepr(miss))") + (slow ?? ""))
             print("   " + String((out.isEmpty ? "（無輸出）" : out)
                 .replacingOccurrences(of: "\n", with: "\n   ").prefix(500)))
         }
@@ -364,22 +372,35 @@ func auditGuardsMutations() -> Int32 {
             pristine[c.guardRel] = first
         }
         abort = nil
+        let t0 = Date()
         let (rc, out) = run(c.guardRel, c.edits, c.desc, .green)
+        let slow = agmTooSlow(c, Date().timeIntervalSince(t0))
         if let a = abort { print(a); continue }
         guard let pri = pristine[c.guardRel] else { continue }   // 前提不成立時不假裝通過
         let miss = c.expect.filter { !out.contains($0) }
         let drift = out != pri
-        if rc == 0 && miss.isEmpty && !drift {
+        if rc == 0 && miss.isEmpty && !drift && slow == nil {
             print("✓ 重排注入「\(c.desc)」→ 維持綠，且輸出與未注入逐字相同"); ok += 1
         } else {
             print("✗ 重排注入「\(c.desc)」→ rc=\(rc)"
                 + (miss.isEmpty ? "" : "，缺 \(pyRepr(miss))")
-                + (drift ? "，輸出與未注入不同" : ""))
+                + (drift ? "，輸出與未注入不同" : "") + (slow ?? ""))
         }
     }
 
+    // **後設：zi-rows 的判讀是線性的**（#711 b37）：b36 verify 量到兩條二次方的路徑（一長串空白行、計數選項的回溯），b37 再找到三條
+    // （行中一長串空白、相鄰 inline code 的接續、表的編號逐列掃 Sources）。上面的格子只能從整支守衛的耗時間接看到，而檔案與段落的上限
+    // 讓那些輸入在上限之下都很小——這一項直接呼叫判讀函式、放大 10 倍、要在固定秒數內（`selfProofLinearityIssues`）。
+    let linearity = selfProofLinearityIssues()
+    if linearity.issues.isEmpty {
+        print("✓ 後設：zi-rows 的判讀是線性的（輸入放大 10 倍：\(linearity.report)；上限 "
+            + "\(String(format: "%.0f", selfProofLinearityBoundSeconds)) 秒）"); ok += 1
+    } else {
+        for i in linearity.issues { print("✗ 後設：\(i)") }
+    }
+
     let same = before == mtimes()
-    let expected = cases.count - skipped.count + agmRobust.count + 2   // +2 = 不變式、重複掃描
+    let expected = cases.count - skipped.count + agmRobust.count + 3   // +3 = 不變式、重複掃描、zi-rows 的線性
     if !sourceInjected.isEmpty {
         let uniq = Array(Set(sourceInjected.map { base($0) })).sorted()
         print("ℹ \(sourceInjected.count) 個 case 注入的是守衛**自己的原始碼**"
@@ -388,7 +409,7 @@ func auditGuardsMutations() -> Int32 {
             + "能改成環境注入的就該改（見注入處的說明）。")
     }
     print("\n=== negative control \(ok)/\(expected) "
-        + "（\(cases.count - skipped.count) 須紅 ＋ \(agmRobust.count) 須綠 ＋ 2 後設檢查）==="
+        + "（\(cases.count - skipped.count) 須紅 ＋ \(agmRobust.count) 須綠 ＋ 3 後設檢查）==="
         + (skipped.isEmpty ? "" : "（另有 \(skipped.count) 個因缺 swift 跳過）"))
     print("\(same ? "出貨檔未被開啟以寫入" : "**出貨檔被動到了**")：\(agmWatched.count) 個受監看檔")
     if ok != expected || !same { return 1 }

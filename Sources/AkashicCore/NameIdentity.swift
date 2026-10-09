@@ -210,7 +210,7 @@ public enum NameIdentity {
     /// 拉丁、西里爾、CJK 之間的 joiner 不在任一支。它們在那些文字裡**只有排版意義**（德文用 ZWNJ 抑制
     /// 跨複合詞的連字：Auf\u{200C}lage——R6 verify 第 48 列指出「沒有意義」這句是假的），對身分沒有意義，
     /// 而且正是 confusable 通道——所以拒（fail-closed，`matchingKey` 刪 Cf 所以 resolve-venues 仍配得到）。
-    /// `zero-instance-guards` 第 25 列的 Python 對照腳本鏡射這兩支；改一邊要同批改另一邊。
+    /// `docs/zero-instance-measurements.md` 第 25 列的 Python 對照腳本鏡射這兩支（`zero-instance-guards` 第 25 列的量測，#711 起住在量測文件）；改一邊要同批改另一邊。
     static func joinerIsLegal(in scalars: [Unicode.Scalar], at i: Int) -> Bool {
         let prev: Unicode.Scalar? = i > 0 ? scalars[i - 1] : nil
         let next: Unicode.Scalar? = i + 1 < scalars.count ? scalars[i + 1] : nil

@@ -131,10 +131,10 @@
 
 1. **一筆作品可以有多個 DOI**——實測 **37 組**「標題與年份相同但 DOI 不同」
    （JSTOR vs 出版商、preprint vs 正式版）。所以識別碼**不能當唯一鍵**。
-   重跑（2026-08-23 仍是 37）：
+   重跑（2026-08-23 仍是 37；寫法見 [`measurement-commands-self-prove`](measurement-commands-self-prove.md)，閘失敗＝PATH 上是沒有這條檢查的舊 binary）：
 
    ```bash
-   akashic validate 2>&1 | grep -c '標題與年份相同但 DOI 不同'
+   LC_ALL=C grep -a -q '標題與年份相同但 DOI 不同' "$(command -v akashic)" && "$(command -v akashic)" validate 2>&1 | grep -c '標題與年份相同但 DOI 不同'
    ```
 2. **一個 DOI 可能指到你不要的鄰居**——審稿報告帶 `/v1/reviewN` 後綴、同前綴的會議
    摘要只差幾碼、erratum 與原文共用 DOI（三型都記在 `work-sources.md`）。

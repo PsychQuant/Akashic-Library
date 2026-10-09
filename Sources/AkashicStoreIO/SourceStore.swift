@@ -21,7 +21,7 @@ public extension LibraryStore {
     ///
     /// 超過的內容**不截斷、不存**、具名拒絕：`store-source`（CLI／MCP）整個呼叫拒絕、零寫入；`copy-zotero-attachments` 逐檔略過並印出
     /// 路徑與大小，其餘照跑。錨點是 2026-09-30 的本機實測：Zotero storage 最大單檔 5,499,190 bytes（全部 2,817 個檔、磁碟用量 66 MB），上限是它的 48.8 倍——
-    /// 量法見 `zero-instance-guards` 第 72 列。
+    /// 量法見 `docs/zero-instance-measurements.md` 第 72 列（`zero-instance-guards` 第 72 列的量測）。
     ///
     /// **只有這一份**（`no-compat-fallback` §同一件事只能有一份描述）：`storeSource`、`ZoteroStorageFile` 的定位與開檔、`store-source` 的入口
     /// 都讀這個常數；各函式的 `limit` 參數只是測試接縫，預設值就是它。要調整回 #703 重新裁決。

@@ -595,7 +595,7 @@ public extension LibraryStore {
     /// 這一族讓中間那一格看得見。**severity 是 warning**：記錄合法可載入，兩筆各自都是一個人的判定；error 會讓一筆只能手改才修得好的
     /// 記錄擋住自己所有的寫入。處置寫在訊息裡：留一筆，或把其中一筆的 value 改成它實際描述的記錄。
     ///
-    /// **2026-09-16 實測 live store：0 筆**（量法見 `zero-instance-guards` 第 28 列）。
+    /// **2026-09-16 實測 live store：0 筆**（量法見 `docs/zero-instance-measurements.md` 第 28 列）。
     ///
     /// `listing`／`only`（#581）：單筆完整明細只掃指名的那一筆、且不套每筆記錄的列出上限——掃描本身只看那筆記錄自己的 references，
     /// 所以先篩記錄再掃，不必替其餘 holder 算一份不套上限的輸出。
@@ -690,7 +690,7 @@ extension LibraryStore {
     /// **誠實邊界**（R1 verify）：只看 canonical 相等（Swift `==`）。只差 Cf 字元（例如 ZWSP）的兩筆不是 canonical 相等、不報——
     /// 它們在 D69／D73 之前也不被 `==` 去重，不是那次替換打開的格；只差 rests-on 順序的兩筆同樣不報（`byteExactKey` 與 `==` 都把
     /// rests-on 當有序陣列）。
-    /// **severity 是 warning**：兩筆都合法，處置是人決定留哪一筆。2026-09-27 實測 live store：0 組（量法見 `zero-instance-guards` 第 35 列）。
+    /// **severity 是 warning**：兩筆都合法，處置是人決定留哪一筆。2026-09-27 實測 live store：0 組（量法見 `docs/zero-instance-measurements.md` 第 35 列）。
     ///
     /// **名字分類記錄（#564）另算**（b33 X1 第 5／12 列）：它們是有順序的歷史，不相鄰的兩筆位元組相同（「指定 R → 撤回 S → 指定 R」）是合法的
     /// 兩次轉移、不報；只報同一個名字同一個分割裡**相鄰**而彼此相等的（`classificationRuns`）——刪掉相鄰的多餘那一筆不改變最後一筆。

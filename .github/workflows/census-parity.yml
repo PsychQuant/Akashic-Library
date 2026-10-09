@@ -111,6 +111,10 @@ concurrency:
 jobs:
   parity:
     runs-on: macos-15
+    # 上限（#711 b37，b36 verify 第 10 列）：這個 workflow 以 pull_request 觸發，而守衛讀的規則檔與量測文件 PR 改得到；
+    # 沒寫時是 GitHub 預設的 360 分鐘。60 分鐘高過整條的耗時（冷建置加全部守衛；2026-10-09 本機跑全部守衛 353 秒，當時同時有其他工作線在跑），
+    # 擋的是「一個 PR 讓 macOS runner（10× 計費）跑上幾小時」。守衛自己的上限見 zero-instance-guards 第 99 列。
+    timeout-minutes: 60
     steps:
       # Actions 釘到 commit SHA（#706）：版本標籤可以被移動，SHA 不行。更新時先選定確切的版本標籤
       # （vX.Y.Z，不是 v4 這種會移動的），以 `gh api repos/actions/<name>/commits/<vX.Y.Z> --jq .sha` 取 SHA，

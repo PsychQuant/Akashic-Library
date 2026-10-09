@@ -55,6 +55,7 @@ Sources/akashic-guards/main.swift
 Sources/akashic-mcp/Server.swift
 Sources/akashic/CLI.swift
 Sources/akashic/CreateEntryCommand.swift
+Sources/akashic/WriteGateRulings.swift
 docs/zero-instance-measurements.md
 mcpb/manifest.json
 plugin/.claude-plugin/plugin.json

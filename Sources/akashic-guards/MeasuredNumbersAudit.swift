@@ -6,7 +6,9 @@
 //
 // **判準（三選一即算有背書）**：
 //   1. 同一行有時間錨（`2026-08-23`／`當日`／`立案當時`／`#NNN`）
-//   2. 所在**小節的標題到該行之間**有時間錨
+//   2. 所在**小節的標題到該行之間**有時間錨——**標題本身的 `#NNN` 不算**（#711 b37，b36 verify 第 17 列）：量測文件的歷輪補記
+//      小節標題都是「### 第 N 列（#NNN）」，那個編號說的是這一節講哪一列，不是這段數字何時量的；算進去的話，那 87 節下的任何
+//      「實測 N」都被標題自動背書，守衛對它們等於沒在看。標題裡的日期照樣算。
 //   3. 前 4 行至後 8 行內有**可重跑的指令**——不只是工具名：還要含路徑分隔／管線／
 //      旗標／命令替換其中之一（#407 R39 收緊）
 //
@@ -143,20 +145,28 @@ func measuredNumbersAudit() -> Int32 {
     for f in files {
         guard let raw = readFile(f) else { continue }
         let lines = raw.components(separatedBy: "\n")
-        var sec = 0, inFence = false
+        // secAnchored：從小節標題到目前這一行之間有沒有時間錨——逐行累積，不對每個數字重接一次整節（#711 b37：一節裡很多個「實測 N」
+        // 時，重接是節長乘上數字個數）。標題那一行去掉 `#NNN` 再算（見檔頭判準 2）；第一個標題之前，從檔頭起算
+        var secAnchored = false, inFence = false
         for (i, line) in lines.enumerated() {
-            if unquote(line).hasPrefix("```") { inFence.toggle(); continue }
-            if inFence { continue }
-            if line.hasPrefix("#") { sec = i }
+            let lineMarked = !matches(line, markRe).isEmpty
+            // fence 裡的行不判讀數字、也不是標題，但照樣算進小節的時間錨（先前的寫法把整節原文接起來，fence 也在裡面）
+            if unquote(line).hasPrefix("```") { inFence.toggle(); secAnchored = secAnchored || lineMarked; continue }
+            if inFence { secAnchored = secAnchored || lineMarked; continue }
+            if line.hasPrefix("#") {
+                let stripped = line.replacingOccurrences(of: #"#\d{2,4}"#, with: "", options: .regularExpression)
+                secAnchored = !matches(stripped, markRe).isEmpty
+            } else {
+                secAnchored = secAnchored || lineMarked
+            }
             let ns = line as NSString
+            var around: String? = nil
             for m in matches(line, numRe) {
                 let n = ns.substring(with: m.range(at: 1))
                 if !matches(n, #"^20\d\d"#).isEmpty { continue }   // 日期，不是計數
                 total += 1
-                let secText = lines[sec...i].joined(separator: "\n")
-                let around = lines[max(0, i - 4)..<min(lines.count, i + 8)].joined(separator: "\n")
-                let anchored = !matches(line, markRe).isEmpty
-                    || !matches(secText, markRe).isEmpty || hasCmd(around)
+                if around == nil { around = lines[max(0, i - 4)..<min(lines.count, i + 8)].joined(separator: "\n") }
+                let anchored = lineMarked || secAnchored || hasCmd(around!)
                 if !anchored {
                     bare.append((f, i + 1, n, String(line.trimmingCharacters(in: .whitespaces).prefix(60))))
                 }
@@ -164,7 +174,8 @@ func measuredNumbersAudit() -> Int32 {
         }
     }
 
-    print("══ 規則檔的 `實測 <數字>`：共 \(total) 個（\(files.count) 個檔）══")
+    // 標題列說出判準 2 的收窄（#711 b37）：「全部都有時間錨」是在小節標題的編號不背書之下說的——量測文件第 101 列的自證閘也用這一段
+    print("══ 規則檔的 `實測 <數字>`：共 \(total) 個（\(files.count) 個檔；小節標題的編號不背書）══")
     for (rel, i, n, s) in bare {
         print("  ✗ \(rel):\(i) 「\(n)」——沒有時間錨也沒有可重跑的指令\n     \(s)")
     }

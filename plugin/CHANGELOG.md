@@ -13,6 +13,16 @@ b36 verify（Y1）的處置，細節在 `changelog/2026-10-09-b37-n1-fixes-564.m
 
 plugin 版號沒有動（行為在 binary）。
 
+## #613 — 取全文 b37：複合路徑段只認明確的登入字、讀的當中換到登入頁先判登入、safari-browser 的錯誤只轉印第一行（2026-10-09）
+
+使用者 2026-10-09 裁決（#613）：複合路徑段只認明確的登入字。細節在 `changelog/2026-10-09-b37-n2-fixes-613.md`。
+
+- **`akashic-fetch-fulltext` 的 `SKILL.md`**：第 0 步要求 `fulltext-contract 6`。〈整批暫停〉的路徑規則改寫：複合段只認 `login`、`logon`、`signin`、四個 IdP 服務名與 `sign-in`、`log-in` 兩種連字號寫法（封閉清單，與程式對帳），`cas`、`auth`、`idp`、`sso`、`authenticate` 只在整段比；「代價」一句改成實情（`/login-behaviour-in-online-games`、`/psychopathy-and-sign-in-language` 仍會停，`/two-factor-auth-usability` 不再停）。另寫明：讀頁面的當中換到同站登入頁先判登入長相、導航之後同站的 HTML 頁不看網址的登入長相（交給人 `html-page`）、落定的網頁讀不到頁面文字在導航前後都是整批暫停、同一主機帶帳密的連結照常跟、safari-browser 的錯誤只轉印第一行、兩個標籤的主機與第二個標籤的登入字詞怎麼判、使用者 2026-10-05 本輪之後的兩則裁決。
+- **`akashic-bootstrap` 的 `references/work-sources.md`**：借用取全文第 3、4 步查機構時，先照它第 0 步確認 CLI 的契約版本。
+- 行為在 CLI（`akashic fulltext fetch`），要新的 `akashic`；`tools/list` 沒有改（`fulltext` 沒有 MCP 面）。
+
+plugin 版號沒有動（skill 文字的改動）。
+
 ## #664 — Semantic Scholar 共用接口：MCP 工具 `akashic_s2`、取得順序、設定文件（2026-10-06）
 
 細節在 `changelog/2026-10-06-s2-interface-664.md`。

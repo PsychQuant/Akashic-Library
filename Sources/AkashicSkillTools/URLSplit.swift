@@ -9,6 +9,8 @@ struct URLSplit {
     var scheme = Scalars()
     var netloc = Scalars()
     var path = ""
+    /// 有沒有 authority（scheme 之後、或整串開頭是 `//`）。`netloc` 可以是空的而 authority 在（`https:///x`）。
+    var hasAuthority = false
 
     init(_ url: String) {
         var s = Scalars(url.unicodeScalars)
@@ -20,6 +22,7 @@ struct URLSplit {
             s = Scalars(s[(colon + 1)...])
         }
         if PyText.hasPrefix(s, ["/", "/"]) {
+            hasAuthority = true
             let rest = Scalars(s[2...])
             let end = rest.firstIndex(where: { $0 == "/" || $0 == "?" || $0 == "#" }) ?? rest.count
             netloc = Scalars(rest[..<end])

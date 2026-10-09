@@ -36,7 +36,8 @@ import AkashicStoreIO
 ///     6 **整批暫停**（SKILL.md〈中止條款〉）：其他起疑訊號——封鎖頁、HTTP 403／429、異常流量、PMC 的下載前驗證頁、ScienceDirect
 ///       的「Preparing your download」、其他主機上的驗證字樣、分頁跑到別的網站而那一頁是登入／驗證頁的長相、DOI 落地頁的網址是登入頁
 ///       的長相、讀不到的分頁停在登入主機的長相上（只看主機）、卡住（落地頁、導航之後、別的主機上的頁面約 60 秒沒落定）、停在 doi.org
-///       卻看不到它自己的查無證據（使用者 2026-10-05 第 1 則）、導航之前的文章頁讀不到頁面文字而無從檢查。分頁留著給使用者看。
+///       卻看不到它自己的查無證據（使用者 2026-10-05 第 1 則）、落定的網頁讀不到頁面文字而無從檢查（導航之前的文章頁、導航之後文章站上
+///       落定的 HTML 頁、別的主機上落定的頁面；連 `document.contentType` 都讀不到的分頁是 7 `unverifiable`）。分頁留著給使用者看。
 ///     3 頁面上找不到 PDF 連結（我們的分頁關掉）
 ///     1 自動化失敗（見 stderr）；或頁面給的 PDF 連結不是同站的絕對 https 網址（`points off-site`）；或帳本讀不懂
 ///
@@ -63,9 +64,10 @@ import AkashicStoreIO
 /// 一起調（`SkillToolsCLITests` 比對兩邊相等）。
 public final class FulltextFetch {
     /// 1＝#613 只導航、交給人；2＝R1 修正輪（2026-10-02）；3＝R2 修正輪（e5182cf1）；4＝R3（2026-10-04）；5＝b34（2026-10-05：文章站上
-    /// 讀不到的分頁與別的主機同一套、讀不到的分頁在登入主機上整批暫停、文章站上同一份快照、使用者 2026-10-05 的主機標籤與路徑段裁決）。
-    /// 前三版的 CLI 沒有 `contract` 子命令——數字只是給歷史一個名字，第 0 步擋它們靠的是「沒有這個子命令」。
-    public static let contractVersion = 5
+    /// 讀不到的分頁與別的主機同一套、讀不到的分頁在登入主機上整批暫停、文章站上同一份快照、使用者 2026-10-05 的主機標籤與路徑段裁決）；
+    /// 6＝b37（2026-10-09：複合路徑段只認明確的登入字、讀的當中換到同站登入頁先判登入長相、safari-browser 的錯誤只轉印第一行、`plainURL`
+    /// 與站的比對同一個主機）。前三版的 CLI 沒有 `contract` 子命令——數字只是給歷史一個名字，第 0 步擋它們靠的是「沒有這個子命令」。
+    public static let contractVersion = 6
 
     public struct Options {
         public var window: Int
@@ -293,7 +295,7 @@ public final class FulltextFetch {
     /// safari-browser 會 fail-closed（2026-09-23 觀察）。
     private func openOwnTab(_ url: String) throws {
         let r = browser.run(["open", "--new-tab", "--window", String(window), url])
-        if r.status != 0 { throw fail("open: \(FulltextFetch.redactingURLs(r.stderr.trimmingTrailingNewlines()))") }
+        if r.status != 0 { throw fail("open: \(FulltextFetch.safariFailure(r.stderr))") }
         ownTab = currentTab()
         if ownTab.isEmpty { throw fail("cannot identify the tab just opened") }
     }
@@ -361,12 +363,21 @@ public final class FulltextFetch {
     }
 
     /// 我們的分頁（在文章站上）有沒有起疑訊號。等人驗證的訊號 → 結束碼 8；其他 → 6；讀不到頁面 → 6。回判斷的那一頁的網址。
-    /// 同一份快照：讀的當中換了頁就先過 `siteGuard`（換到別的主機照 `leftSite` 判）再讀一次；連三次都在換頁＝無從檢查，整批暫停。
+    /// 同一份快照：讀的當中換了頁就先過 `siteGuard`（換到別的主機照 `leftSite` 判）再讀一次；連三次都在換頁＝無從檢查，整批暫停。三次（約
+    /// 6–10 秒）是讀**同一頁**的次數，不是等頁面落定的時間：頁面在讀的當中一直變，使用者 2026-10-05 裁決維持整批暫停。
+    ///
+    /// `beforeNavigation`：導航到 PDF 連結**之前**的檢查（落地頁、讀連結之前、導航之前的接續）——每一份快照先判網址的**登入長相**，命中就整批暫停，
+    /// 再判起疑訊號（#613 b37，b36 Y2 第 0 則：先前呼叫端只在呼叫之前看一次網址，讀的當中分頁轉到同站的 `/login`、那一頁寫著 CAPTCHA，就成了
+    /// 等人驗證、印出以文章站為目標的 `resume:`——登入頁降成等人驗證，正是 R3 對落地頁修掉的形狀）。導航**之後**（`awaitShown`）傳 false：
+    /// 那時同站的 HTML 頁是頁面自己的 PDF 連結的結果，與 `decideShown` 同一套只看文字訊號、交給人 `html-page`（b36 Y2 第 16 則）。
     @discardableResult
-    private func botCheckPage(_ site: String) throws -> String {
+    private func botCheckPage(_ site: String, beforeNavigation: Bool) throws -> String {
         for _ in 1...3 {
             try siteGuard(site)
             guard let snap = readPage(accept: { self.sameSite($0, site) }) else { nap(2); continue }
+            if beforeNavigation, BotSignals.urlGateLook(snap.url) == "login" {
+                throw botStop("the page on the article site has the look of a login page → \(FulltextFetch.plainURL(snap.url)) (login page)", site)
+            }
             if let stop = onSiteSuspicion(snap, site) { throw stop }
             return snap.url
         }
@@ -540,12 +551,13 @@ public final class FulltextFetch {
     /// 3. **驗證頁的長相後判**：文章站自己的 CAPTCHA 頁常在 `/captcha/` 之類的路徑上（Optica 2026-09-28），它的訊號先得 8；沒有訊號而網址是
     ///    驗證頁的長相才整批暫停。
     ///
-    /// 第 3 步看的是第 2 步**判的那一頁**的網址（`botCheckPage` 的快照，#613 b34）：讀的當中分頁在文章站上換了頁，判的是新的那一頁。
+    /// 第 2、3 步看的是**判的那一頁**的網址（`botCheckPage` 的快照，#613 b34）：讀的當中分頁在文章站上換了頁，判的是新的那一頁——第 1 步
+    /// 對那一頁同樣先判（`botCheckPage` 的 `beforeNavigation`，b37）：換到的若是同站的登入頁，頁面文字的 CAPTCHA 不把它降成等人驗證。
     private func checkTheArticlePage(url: String, site: String) throws {
         if BotSignals.urlGateLook(url) == "login" {
             throw botStop("the article page has the look of a login page → \(FulltextFetch.plainURL(url)) (login page)", site)
         }
-        let judged = try botCheckPage(site)
+        let judged = try botCheckPage(site, beforeNavigation: true)
         if let gate = BotSignals.urlGateLook(judged) {
             throw botStop("the article page has the look of a \(gate) page → \(FulltextFetch.plainURL(judged)) (\(gate) page)", site)
         }
@@ -657,7 +669,7 @@ public final class FulltextFetch {
                 if BotSignals.urlGateLook(url) == "login" {
                     return .stop(self.botStop("the tab shows a page with the look of a login page → \(FulltextFetch.plainURL(url)) (login page)", site))
                 }
-                let judged = try self.botCheckPage(site)   // 還在驗證頁 → 8；別的訊號 → 6
+                let judged = try self.botCheckPage(site, beforeNavigation: true)   // 讀的當中換到登入頁 → 6；還在驗證頁 → 8；別的訊號 → 6
                 switch BotSignals.urlGateLook(judged) {
                 case "login":
                     return .stop(self.botStop("the tab shows a page with the look of a login page → \(FulltextFetch.plainURL(judged)) (login page)", site))
@@ -675,10 +687,10 @@ public final class FulltextFetch {
         try siteGuard(site)
         _ = browser.run(["wait"] + lock + ["--js", FulltextFetch.hasLinkJS, "--timeout", "45000"])
         try siteGuard(site)
-        try botCheckPage(site)   // 插頁在我們等的時候可以變成挑戰頁
+        try botCheckPage(site, beforeNavigation: true)   // 插頁在我們等的時候可以變成挑戰頁或登入頁
         try siteGuard(site)
         let linkRun = browser.run(["js"] + lock + [FulltextFetch.linkJS])
-        if linkRun.status != 0 { throw fail("could not read the page's links: \(FulltextFetch.redactingURLs(linkRun.stderr.trimmingTrailingNewlines()))") }
+        if linkRun.status != 0 { throw fail("could not read the page's links: \(FulltextFetch.safariFailure(linkRun.stderr))") }
         let link = linkRun.value
         guard let space = link.firstIndex(of: " ") else {
             err("no PDF link on \(displaySafeInvisible(FulltextFetch.plainURL(tabURL(ownTab)), max: 600))")
@@ -721,7 +733,7 @@ public final class FulltextFetch {
         let before = tabURL(ownTab)
         stage = .followed   // 從這裡起，等人驗證之後接著走的是「分頁顯示什麼」，不是再讀一次連結
         let navigation = browser.run(["open"] + lock + [target])
-        if navigation.status != 0 { throw fail("could not navigate the tab to the PDF link: \(FulltextFetch.redactingURLs(navigation.stderr.trimmingTrailingNewlines()))") }
+        if navigation.status != 0 { throw fail("could not navigate the tab to the PDF link: \(FulltextFetch.safariFailure(navigation.stderr))") }
         try awaitShown(site: site, before: before)
     }
 
@@ -736,7 +748,7 @@ public final class FulltextFetch {
         }
         try siteGuard(site)   // 分頁不見了 → 6；到了別的主機 → 照 `leftSite`（PDF／沒有標記的頁面交給人，訊號與登入頁停）
         if !moved {
-            let judged = try botCheckPage(site)
+            let judged = try botCheckPage(site, beforeNavigation: false)
             if judged == before { throw handover(.tabUnchanged, at: judged) }
         }
         try decideShown(site: site)
@@ -822,29 +834,21 @@ public final class FulltextFetch {
     ///
     /// **代價**：查詢字串本身就是文件身分的網址（`viewcontent.cgi?article=…`、`doiLanding?doi=…`）在 `origin` 裡也少了那一段——只剝
     /// 已知的憑證參數要一份會漏的清單，這裡選擇全剝（R2 verify 第 22 則，留給使用者裁決）；路徑參數同理，`;type=pdf` 也剝。
+    ///
+    /// **主機段與站的比對同一把**（#613 b37，b36 Y2 第 11、20、21 則）：scheme、authority 與路徑由 `URLSplit` 切，印出的主機是
+    /// `URLSplit.hostPort`——在反斜線處結束、去掉最後一個 `@` 之前的帳密。先前這裡自己切：authority 只在 `/` 結束、`://` 在整串裡找，
+    /// `https://evil.example\@pub.example/x` 印成 `pub.example` 而站的比對是 `evil.example`，`//u:p@h/a/https://z/q` 的帳密原樣印出。
+    /// authority 裡反斜線之後到第一個 `/` 的那一段不印（它不是主機也不是路徑的一部分，`evil.example\@pub.example` 的 `pub.example` 印出來
+    /// 只會讓人讀錯主機）。scheme 照 `URLSplit` 轉小寫。
     static func plainURL(_ url: String) -> String {
         var s = url
         if let cut = s.unicodeScalars.firstIndex(where: { $0 == "?" || $0 == "#" }) {
             s = String(String.UnicodeScalarView(s.unicodeScalars[..<cut]))
         }
-        let head: String
-        let rest: Substring.UnicodeScalarView
-        if let schemeEnd = s.range(of: "://") {
-            head = String(s[..<schemeEnd.upperBound])
-            rest = Substring(s[schemeEnd.upperBound...]).unicodeScalars
-        } else if s.hasPrefix("//") {
-            head = "//"
-            rest = Substring(s.dropFirst(2)).unicodeScalars
-        } else {
-            return withoutPathParameters(s)
-        }
-        let authorityEnd = rest.firstIndex(of: "/") ?? rest.endIndex
-        var authority = String(String.UnicodeScalarView(rest[..<authorityEnd]))
-        if let at = authority.unicodeScalars.lastIndex(of: "@") {
-            authority = String(String.UnicodeScalarView(authority.unicodeScalars[authority.unicodeScalars.index(after: at)...]))
-        }
-        let path = String(String.UnicodeScalarView(rest[authorityEnd...]))
-        return head + authority + withoutPathParameters(path)
+        let parts = URLSplit(s)
+        guard parts.hasAuthority else { return withoutPathParameters(s) }
+        let head = parts.scheme.isEmpty ? "//" : PyText.string(parts.scheme) + "://"
+        return head + parts.hostPort + withoutPathParameters(parts.path)
     }
 
     /// 路徑的每一段去掉 `;名=值`（`;`、`=` 也可以是百分比編碼的 `%3B`、`%3D`），丟掉 ASP.NET 的 `(X(…))` 整段（一段裡可以有幾個群組、
@@ -863,8 +867,22 @@ public final class FulltextFetch {
         return kept.joined(separator: "/")
     }
 
-    /// safari-browser 自己的 stderr 原樣轉印之前，裡面的每一個網址先過 `plainURL`（b33 X3 第 12、24 則：`open:`、導航失敗、讀連結失敗三處
-    /// 先前原樣轉印，safari-browser 回顯的簽章網址會帶著查詢字串出去）。
+    /// safari-browser 失敗時轉印它 stderr 的**第一行**（第一個非空行），裡面的網址過 `redactingURLs`；其餘的行不轉印，只說有幾行沒印
+    /// （#613 b37，b36 Y2 第 1 則：`documentNotFound` 從第三行起列出**所有**視窗的目前分頁——含使用者其他 profile 的 session，這個命令沒帶
+    /// `--profile`，那份清單不過濾；`targetTabChanged` 的第二行是那個位置此刻顯示的網址。網址去掉查詢字串之後，主機與路徑仍在）。
+    /// safari-browser 每一種錯誤的第一行說的是**我們的目標**（`No Safari document matches "window 5 tab 2".`），所以診斷用的那一句還在；要看
+    /// 完整訊息，人自己跑同一個 safari-browser 命令。`open:`、讀連結失敗、導航失敗三處都走這裡。行以 `Character.isNewline` 切（`\r\n` 是一個
+    /// `Character`）。
+    static func safariFailure(_ stderr: String) -> String {
+        let lines = stderr.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        guard let first = lines.first else { return "(safari-browser printed no message)" }
+        let rest = lines.count - 1
+        guard rest > 0 else { return redactingURLs(first) }
+        return redactingURLs(first) + " (\(rest) more line\(rest == 1 ? "" : "s") from safari-browser not shown: \(rest == 1 ? "it" : "they") can list other tabs and profiles)"
+    }
+
+    /// 文字裡的每一個網址先過 `plainURL`（b33 X3 第 12、24 則：`open:`、導航失敗、讀連結失敗三處先前原樣轉印 safari-browser 的 stderr，
+    /// 回顯的簽章網址會帶著查詢字串出去）。b37 起只用在 `safariFailure` 取出的第一行。
     static func redactingURLs(_ text: String) -> String {
         let re = try! NSRegularExpression(pattern: #"(?i)(?<![A-Za-z0-9+.-])[a-z][a-z0-9+.-]*://[^\s"'<>]+"#)   // 編譯期常數
         let ns = text as NSString

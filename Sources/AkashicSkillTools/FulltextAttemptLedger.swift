@@ -17,7 +17,8 @@ import AkashicCore
 /// store；index 只記存進去的成功，失敗的嘗試（它們一樣打到了網站）不會出現；index 的 `origin` 是 PDF 的網址、主機不是文章頁的；
 /// `retrieved` 是自由字串，沒有強制帶時區。
 ///
-/// 每行一筆 JSON：`{"at": "<ISO 8601，帶 +08:00>", "site": "<主機>", "landing": "<--landing>"}`。
+/// 每行一筆 JSON：`{"at": "<ISO 8601，帶 +08:00>", "site": "<主機>", "landing": "<--landing 去掉查詢、片段與路徑參數>"}`（`landing` 寫的是
+/// `FulltextFetch.plainURL(--landing)`，#613 b34；它不參與計數，只是記錄——DOI 裡的 `?` 之後也會被切掉）。
 ///
 /// **讀不懂就拒絕（fail-closed）**：檔案存在但讀不了、不是普通檔（symlink、目錄）、有一行不是這個形狀、`at` 沒有明確的時區
 /// ——一律丟具名錯誤，`fetch` 在碰瀏覽器之前停下。數不出今天的次數，就不能保證沒超過上限。

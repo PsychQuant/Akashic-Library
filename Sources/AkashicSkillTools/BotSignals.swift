@@ -163,9 +163,12 @@ public enum BotSignals {
     ///   登入字詞不算：`journals.auth.gr` 的 `auth` 是大學名稱、`www.cas.cn` 的 `cas` 是機構縮寫（第 4 則：先前主機的任一字詞命中就整批暫停）。
     /// - **主機的驗證字詞**：主機的任何一個字（以非字母數字切開），或去掉連字號的任何一個標籤。驗證字詞很少是機構名，沒有被裁決收窄。
     /// - **路徑**：**整段**比（`/login`、`/cas/login`）。一段可以帶一個網頁副檔名（`pageExtensions`：`/login.php`、`/login.cfm`），可以有 `;`
-    ///   之後的路徑參數（`/login;jsessionid=…`），連字號與底線可省（`/sign-in`、`/log_in`）。**登入字詞另拆複合段**（第 3 則）：這一段是
-    ///   網頁名稱時（沒有副檔名，或副檔名是網頁副檔名），以連字號與底線切成的字、或相鄰兩個字接起來，是登入字詞就算（`/sso-login`、
-    ///   `/login-required`、`/sign-in-required`）。檔名（`.pdf`）與帶點的 DOI 片段不拆，驗證字詞不拆（`the-challenge-of-replication` 是文章）。
+    ///   之後的路徑參數（`/login;jsessionid=…`）。整段去掉連字號與底線的寫法只給**明確的登入字**（`compoundLoginWords`：`/sign-in`、`/log_in`、
+    ///   `/log-on`）——`/c-as`、`/s-s-o` 不是 `cas`、`sso`（使用者 2026-10-09：歧義的字只有整段就是那個字才算）。**複合段只認明確的登入字**
+    ///   （使用者 2026-10-09，收窄 2026-10-05 第 3 則）：這一段是網頁名稱時（沒有副檔名，或副檔名是網頁副檔名），以連字號與底線切成的字是
+    ///   `compoundLoginWords` 之一、或相鄰兩字是 `compoundLoginJoins` 之一（`sign-in`、`log-in`）就算（`/sso-login`、`/login-required`、
+    ///   `/sign-in-required`）。`cas`、`auth`、`idp`、`sso`、`authenticate` 在複合段裡不算，任意相鄰兩字也不接（`hepatitis-c-as-…` 不是 `cas`、
+    ///   `log-on-log-scale` 不是 `logon`）。檔名（`.pdf`）與帶點的 DOI 片段不拆，驗證字詞不拆（`the-challenge-of-replication` 是文章）。
     /// - **標題**：片語是**整個字詞**的連續序列（`Please log in to continue` 是，`Analog input` 不是；`Sign-In` 與 `sign in` 同一個片語）。
     static let loginTokens: Set<String> = ["login", "logon", "signin", "sso", "auth", "authenticate", "shibboleth", "saml", "openathens", "wayf", "idp", "cas"]
     static let verificationTokens: Set<String> = ["verify", "verification", "challenge", "captcha", "validate", "turnstile"]
@@ -174,6 +177,15 @@ public enum BotSignals {
     /// IdP 服務自己的名稱——**封閉列舉，只有這四個**（#613 b34，使用者 2026-10-05 第 4 則）：在主機的**任何一個標籤**都算登入主機
     /// （`my.openathens.net`、`idp.shibboleth.uni.edu`、`wayf.surfnet.nl`）。其餘登入字詞只在最左邊的標籤算。不得依「看起來也是 IdP」類推第五個。
     static let identityProviderNames: Set<String> = ["shibboleth", "saml", "openathens", "wayf"]
+    /// 複合路徑段裡算數的登入字——**封閉列舉，只有這七個**（使用者 2026-10-09：複合段只認明確的登入字；b36 Y2 第 2、3、8 則：先前複合段比全部
+    /// 登入字詞，`the-cognitive-assessment-system-cas-in-children`、法文的 `un-cas-de-…`、`idp-and-the-role-of-sso-…` 都在落地頁整批暫停）。
+    /// `login`、`logon`、`signin` 是裁決點名的三個；IdP 服務的四個名稱（`identityProviderNames`）是使用者 2026-10-05 第 4 則已認定為不歧義的字
+    /// （主機的任何一個標籤都算），一併收——這一步是收合裁決的「這類」，待使用者確認。`authenticate` 不收：一般英文動詞，verify 量到
+    /// `how-to-authenticate-participants` 的誤停。歧義的 `cas`、`auth`、`idp`、`sso` 只在整段比。不得依「看起來也明確」類推第八個。
+    static let compoundLoginWords: Set<String> = ["login", "logon", "signin", "shibboleth", "saml", "openathens", "wayf"]
+    /// 複合路徑段裡相鄰兩字接起來算一個登入字的寫法——**封閉列舉，只有這兩對**（使用者 2026-10-09：`sign-in`、`log-in` 這種連字號寫法）。
+    /// 其他任意相鄰兩字不接：先前每一對都接，`c`＋`as`＝`cas`、`log`＋`on`＝`logon`、`ss`＋`o`＝`sso`。不得類推第三對。
+    static let compoundLoginJoins: [(first: String, second: String)] = [("sign", "in"), ("log", "in")]
     /// 路徑的一段可以帶的網頁副檔名（**封閉清單**）。`cas.12345`、`cas.12345.pdf` 的「副檔名」不在這裡，所以那一段不是 `cas`。
     /// b34 加 `cfm`、`cfml`、`xhtml`、`jsf`、`jspx`、`faces`、`shtml`、`phtml`（使用者 2026-10-05 第 2 則：ColdFusion、JSF、SSI 的動態頁）。
     static let pageExtensions: Set<String> = ["php", "asp", "aspx", "jsp", "do", "action", "cgi", "htm", "html", "pl",
@@ -192,13 +204,14 @@ public enum BotSignals {
         let parts = URLSplit(url)
         if hostLoginLook(url) { return "login" }
         var pathWords = Set<String>()
-        var pathLoginWords = Set<String>()
+        var pathLogin = false
         for raw in parts.path.split(separator: "/") {
             let segment = pathSegment(String(raw))
-            pathWords.formUnion(segment.whole)
-            pathLoginWords.formUnion(segment.whole.union(segment.compound))
+            pathWords.formUnion([segment.bare, segment.unhyphenated])
+            if loginTokens.contains(segment.bare) || compoundLoginWords.contains(segment.unhyphenated)
+                || !segment.compound.isDisjoint(with: compoundLoginWords) { pathLogin = true }
         }
-        if !pathLoginWords.isDisjoint(with: loginTokens) { return "login" }
+        if pathLogin { return "login" }
         let host = parts.host
         var hostWords = Set(host.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init))
         for label in host.split(separator: ".") { hostWords.insert(label.replacingOccurrences(of: "-", with: "")) }
@@ -218,9 +231,16 @@ public enum BotSignals {
         return !Set(anywhere).isDisjoint(with: identityProviderNames)
     }
 
-    /// 路徑的一段 → 拿來比的字。`whole`：整段（去掉 `;` 之後的路徑參數與一個網頁副檔名）與它去掉連字號、底線的寫法。`compound`：這一段是
-    /// 網頁名稱時（沒有副檔名，或副檔名在 `pageExtensions`），以連字號與底線切成的字與相鄰兩個字接起來的寫法——只給登入字詞用。
-    static func pathSegment(_ raw: String) -> (whole: Set<String>, compound: Set<String>) {
+    /// 路徑的一段 → 拿來比的字。`bare`：整段（去掉 `;` 之後的路徑參數與一個網頁副檔名）；`unhyphenated`：它去掉連字號、底線的寫法。
+    /// `compound`：這一段是網頁名稱時（沒有副檔名，或副檔名在 `pageExtensions`），以連字號與底線切成的字，加上 `compoundLoginJoins` 那兩對
+    /// 相鄰兩字接起來的寫法——只拿來比 `compoundLoginWords`。
+    struct PathSegment {
+        let bare: String
+        let unhyphenated: String
+        let compound: Set<String>
+    }
+
+    static func pathSegment(_ raw: String) -> PathSegment {
         var segment = (raw.removingPercentEncoding ?? raw).lowercased()
         if let semicolon = segment.firstIndex(of: ";") { segment = String(segment[..<semicolon]) }
         var isPageName = true
@@ -231,12 +251,14 @@ public enum BotSignals {
                 isPageName = false
             }
         }
-        let whole: Set<String> = [segment, segment.replacingOccurrences(of: "-", with: "").replacingOccurrences(of: "_", with: "")]
-        guard isPageName, !segment.contains(".") else { return (whole, []) }
+        let unhyphenated = segment.replacingOccurrences(of: "-", with: "").replacingOccurrences(of: "_", with: "")
+        guard isPageName, !segment.contains(".") else { return PathSegment(bare: segment, unhyphenated: unhyphenated, compound: []) }
         let words = segment.split(whereSeparator: { $0 == "-" || $0 == "_" }).map(String.init)
         var compound = Set(words)
-        for i in words.indices.dropLast() { compound.insert(words[i] + words[i + 1]) }
-        return (whole, compound)
+        for i in words.indices.dropLast() where compoundLoginJoins.contains(where: { $0.first == words[i] && $0.second == words[i + 1] }) {
+            compound.insert(words[i] + words[i + 1])
+        }
+        return PathSegment(bare: segment, unhyphenated: unhyphenated, compound: compound)
     }
 
     /// 只看標題的那一半：片語是整個字詞的連續序列。

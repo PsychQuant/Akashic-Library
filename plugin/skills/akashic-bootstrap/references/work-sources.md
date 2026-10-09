@@ -203,7 +203,7 @@ Europe PMC 不收的那些（統計、數學、CS、環境），要一條一條�
 | 4 | **DOAJ API**（開放取用的 Elsevier 文章） | Elsevier 自己餵的 metadata feed，離印刷版一步之遙 |
 | 5 | **OpenAlex `raw_affiliation_strings`** | 最後手段。見下方的重要區分 |
 
-**順位 1、3 的「取 PDF 走 akashic-fetch-fulltext」是只讀不存的用法**：機構查證只需要讀註腳，不需要那個 skill 為 Find Full Text 做的整條流程。只用它第 3、4 步：`akashic fulltext fetch` 在使用者自己的 Safari 裡走到頁面自己的 PDF 連結、交給使用者存檔（#613 起它只導航，一樣受它的中止條款與每站每日上限管），使用者存好的檔交給 `akashic fulltext take`（`--title` 必填，2026-10-02 起沒給是結束碼 64）放進暫存目錄，**讀完不 `store-source`、不連回記錄**（除非你本來就要它當承重存檔，那時才照該 skill 的第 5、6 步）。它的驗證照看但不當門檻：正式版通常帶 DOI 可過；**arXiv 預印本的 PDF 沒印出版版 DOI，驗證會停在結束碼 5、檔案存成 `*.unverified.pdf`**——檔案仍可讀，但那份機構證據要在結論裡標明「預印本、身分未驗證」，不當成印刷版的證據。這個用法沒有實跑過。
+**順位 1、3 的「取 PDF 走 akashic-fetch-fulltext」是只讀不存的用法**：機構查證只需要讀註腳，不需要那個 skill 為 Find Full Text 做的整條流程。只用它第 0、3、4 步：**先照它第 0 步確認 `akashic` CLI 的契約版本**（`akashic fulltext contract`；版本不夠新的 `fetch` 不照那個 skill 的中止條款走，更舊的還在頁內取檔——確認不了就不跑），再以 `akashic fulltext fetch` 在使用者自己的 Safari 裡走到頁面自己的 PDF 連結、交給使用者存檔（#613 起它只導航，一樣受它的中止條款與每站每日上限管），使用者存好的檔交給 `akashic fulltext take`（`--title` 必填，2026-10-02 起沒給是結束碼 64）放進暫存目錄，**讀完不 `store-source`、不連回記錄**（除非你本來就要它當承重存檔，那時才照該 skill 的第 5、6 步）。它的驗證照看但不當門檻：正式版通常帶 DOI 可過；**arXiv 預印本的 PDF 沒印出版版 DOI，驗證會停在結束碼 5、檔案存成 `*.unverified.pdf`**——檔案仍可讀，但那份機構證據要在結論裡標明「預印本、身分未驗證」，不當成印刷版的證據。這個用法沒有實跑過。
 
 ### 真的瀏覽器 session 能過 Cloudflare
 

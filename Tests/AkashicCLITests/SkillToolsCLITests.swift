@@ -344,6 +344,18 @@ final class SkillToolsCLITests: XCTestCase {
         XCTAssertFalse(probe.output.contains("PROBE-PASSED"), probe.output)
     }
 
+    /// 第 0 步擋得住契約 5 的 CLI（#613 b34）：b37 起複合路徑段只認明確的登入字、讀的當中換到同站登入頁先判登入長相、safari-browser 的錯誤只轉印
+    /// 第一行——照這份 SKILL 跑的 agent 拿 b34 的 CLI 跑，`hepatitis-c-as-…` 這種文章在落地頁就整批暫停，錯誤訊息還會帶出其他 profile 的分頁。
+    func testTheStepZeroProbeTellsAB34CLIFromThisOne() throws {
+        let cli = base.appendingPathComponent("b34-akashic")
+        try "#!/bin/sh\nif [ \"$1\" = fulltext ] && [ \"$2\" = contract ]; then echo 'fulltext-contract 5'; exit 0; fi\nexit 64\n"
+            .write(to: cli, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: cli.path)
+        let probe = try runStepZeroProbe(akashic: cli)
+        XCTAssertNotEqual(probe.status, 0, probe.output)
+        XCTAssertFalse(probe.output.contains("PROBE-PASSED"), probe.output)
+    }
+
     /// SKILL 第 0 步要求的版本就是這個 binary 印的版本：版本號往上調時 SKILL 要一起調（要求高於 binary，真的 CLI 也過不了第 0 步；
     /// 要求低於 binary，舊的 CLI 會被放過）。
     func testTheContractVersionTheSkillRequiresIsTheOneThisCLIPrints() throws {

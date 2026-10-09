@@ -378,13 +378,14 @@ final class FulltextB34Tests: XCTestCase {
     }
 
     /// 第 3 則：`/sso-login`、`/login-required` 這類複合段算登入頁。只拆網頁名稱（沒有副檔名、或副檔名是網頁副檔名）——檔名（`.pdf`）與
-    /// DOI 片段不拆；驗證字詞不拆（沒有被裁決放寬）。
+    /// DOI 片段不拆；驗證字詞不拆（沒有被裁決放寬）。使用者 2026-10-09 收窄成只認明確的登入字（`FulltextB37Tests`）：`auth-callback` 不再算。
     func testCompoundPathSegmentsWithALoginWordAreLoginPages() {
         for url in ["https://pub.example/sso-login", "https://pub.example/login-required", "https://pub.example/user_login.php",
-                    "https://pub.example/sign-in-required", "https://pub.example/x/auth-callback.jsf", "https://pub.example/shibboleth-ds"] {
+                    "https://pub.example/sign-in-required", "https://pub.example/shibboleth-ds"] {
             XCTAssertEqual(BotSignals.urlGateLook(url), "login", url)
         }
-        for url in ["https://cdn.example/files/how-to-login-guide.pdf", "https://pub.example/loginhelp-faq", "https://pub.example/the-challenge-of-replication",
+        for url in ["https://pub.example/x/auth-callback.jsf",
+                    "https://cdn.example/files/how-to-login-guide.pdf", "https://pub.example/loginhelp-faq", "https://pub.example/the-challenge-of-replication",
                     "https://pub.example/doi/10.1016/S0022-2496(05)80001-1", "https://pub.example/doi/10.3758/s13428-019-01234-5",
                     "https://pub.example/catalog-in-print", "https://pub.example/10.1111/cas.12345"] {
             XCTAssertNil(BotSignals.urlGateLook(url), url)

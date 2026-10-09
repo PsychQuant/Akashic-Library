@@ -1,7 +1,8 @@
 import Foundation
 import AkashicCore
 
-/// `web-access.md` 讀頁面的三個檢查——`akashic web-read origin｜landing｜check`（#692 R4 verify 把文件裡的 `check-read.py` 移植過來）。
+/// `web-access.md` 讀頁面的四個檢查——`akashic web-read url｜origin｜landing｜check`（#692 R4 verify 把文件裡的 `check-read.py` 移植過來；
+/// `url` 是 b34 加的開分頁之前的網址檢查）。
 ///
 /// **為什麼不留在文件裡**：那支約 175 行的 Python 是安全閘，卻要模型每次照抄寫進暫存目錄再跑——跑的是抄本，測試釘的是文件；
 /// 它還重寫了一份 `UnsafeToEmitScalar`，而 macOS 的 `/usr/bin/python3`（Unicode 13）判不出之後才指派的格式字元（R4 verify 實測
@@ -98,8 +99,10 @@ public enum WebRead {
                                                "test", "example", "invalid", "onion", "alt"]
 
     /// 落地主機的形狀檢查：`https://` 加一個公開網站形狀的主機——至少兩段、每段只有字母數字與連字號、最後一段是字母（或 IDN 頂層名稱的
-    /// `xn--` 形）、不是私有或本機用的後綴、不像 IP 位址（含把四段數字塞進名稱的 `127.0.0.1.nip.io`）、不帶埠號。
-    /// **這是形狀檢查，不是信任判斷**：解析到私有位址的公開名稱擋不住。
+    /// `xn--` 形）、不是私有或本機用的後綴、不像 IP 位址（四段數字以 `.` 或 `-` 相連、前面是名稱開頭或 `.`／`-`：`127.0.0.1.nip.io`、
+    /// `10-0-0-1.nip.io`、`app-127-0-0-1.nip.io` 都算——b36 verify：先前左邊只認開頭或 `.`，nip.io 文件寫的「名稱加連字號」形照樣放行；
+    /// 放寬時以 live store 讀過的 71 個主機量過，多拒的 0 個，2026-10-09）、不帶埠號。
+    /// **這是形狀檢查，不是信任判斷**：解析到私有位址的公開名稱擋不住（`foo.nip.io` 這類萬用 DNS、`7f000001.nip.io` 的十六進位形都過得了）。
     public static func hostIsAcceptable(_ origin: String) -> Bool {
         guard origin.hasPrefix("https://") else { return false }
         let host = String(origin.dropFirst("https://".count))
@@ -112,7 +115,7 @@ public enum WebRead {
         let tldOK = (tld.count >= 2 && tld.unicodeScalars.allSatisfy(isASCIILetter))
             || (tld.hasPrefix("xn--") && tld.count > 4)
         guard tldOK, !privateSuffixes.contains(tld) else { return false }
-        return host.range(of: #"(^|\.)[0-9]{1,3}([.-][0-9]{1,3}){3}(\.|$)"#, options: .regularExpression) == nil
+        return host.range(of: #"(^|[.-])[0-9]{1,3}([.-][0-9]{1,3}){3}(\.|$)"#, options: .regularExpression) == nil
     }
 
     /// 印給人看的主機：只印 `<協定>://<主機>[:<埠>]` 形狀的字串（加單引號，與 Python 版的 `ascii()` 同一個樣子），其餘印佔位字。
@@ -203,14 +206,18 @@ public enum WebRead {
     public static func urlMode(urlFile: String) -> Outcome {
         let url: String
         do {
-            url = try readTrimmed(urlFile)
+            // 不修剪：區塊一以 `"$(cat …)"` 引用網址檔，`$(…)` 只去掉結尾的換行——檢查的對象要就是開出去的那一份（b36 verify：先前修剪兩端的
+            // 空白與換行再比對，前導空白、CRLF 的 CR、結尾的 NBSP 都過得了，而 shell 開的是沒修剪的那一份）
+            url = try String(contentsOfFile: urlFile, encoding: .utf8).replacingOccurrences(of: #"\n+\z"#, with: "", options: .regularExpression)
         } catch {
             return Outcome(code: 1, stdout: ["URL-FAIL 讀不到網址檔：" + displaySafeError(error, max: 200)])
         }
-        let shape = #"\Ahttps://([A-Za-z0-9-]+\.)+[A-Za-z]{2,}(/[A-Za-z0-9._~%!*+,;=:@/()-]*)?(\?[A-Za-z0-9._~%!*+,;=:@/?()&-]*)?\z"#
+        // 頂層名稱收字母或 `xn--` 形（與 `hostIsAcceptable` 同；b36 verify：先前只收字母，`.xn--p1ai` 這類 IDN 頂層名稱過得了落地主機的檢查、
+        // 過不了這一條）
+        let shape = #"\Ahttps://([A-Za-z0-9-]+\.)+([A-Za-z]{2,}|[Xx][Nn]--[A-Za-z0-9-]+)(/[A-Za-z0-9._~%!*+,;=:@/()-]*)?(\?[A-Za-z0-9._~%!*+,;=:@/?()&-]*)?\z"#
         guard url.range(of: shape, options: .regularExpression) != nil else {
-            return Outcome(code: 1, stdout: ["URL-REJECT 網址形狀不合（只收 https 與 ASCII 主機；路徑與查詢只收 A–Z a–z 0–9 與 ._~%!*+,;=:@/()-、查詢另收 ?&；"
-                                             + "不含 #、引號、反斜線、反引號、$、空白）：不開"])
+            return Outcome(code: 1, stdout: ["URL-REJECT 網址形狀不合（只收 https 與 ASCII 主機、頂層名稱是字母或 xn-- 形；路徑與查詢只收 A–Z a–z 0–9 與 ._~%!*+,;=:@/()-、"
+                                             + "查詢另收 ?&；不含 #、引號、反斜線、反引號、$、空白，前後也不留空白——結尾的換行除外）：不開"])
         }
         let host = origin(of: url)
         guard hostIsAcceptable(host) else {
@@ -360,18 +367,32 @@ public enum WebRead {
 
     /// 讀回的 JSON → 剔除後的文字。太大、欄位型別不對、`rawLength` 超出範圍或比交回的文字還短、剔除之後沒有看得見的字，都是不能用。
     private static func readPage(_ input: CheckInput) -> PageRead {
-        let size: Int
+        // 大小量的是**讀進來的那一份**：開檔（跟 symlink）之後 fstat 同一個 fd、最多讀上限加一個位元組（b36 verify：先前以
+        // `attributesOfItem` 量——那是 lstat，`--raw` 是 symlink 時量到連結自己的大小，`Data(contentsOf:)` 卻跟著連結讀整個目標）
+        let cap = 6 * input.limit + 4096
+        // O_NONBLOCK：symlink 指向 FIFO 時 open 不會卡住（下面以 fstat 判它不是一般檔）
+        let fd = open(input.rawFile, O_RDONLY | O_NONBLOCK | O_CLOEXEC)
+        guard fd >= 0 else {
+            let code = errno
+            return .unusable("讀不到讀回的檔：" + displaySafeError(POSIXError(POSIXErrorCode(rawValue: code) ?? .EIO), max: 200))
+        }
+        defer { close(fd) }
+        var st = stat()
+        guard fstat(fd, &st) == 0, st.st_mode & S_IFMT == S_IFREG else { return .unusable("讀回的檔不是一般檔") }
+        if st.st_size > off_t(cap) {
+            return .unusable("讀回的 JSON 有 \(st.st_size) bytes，超過 6 × 上限 + 4096：不是誠實頁面的輸出，整個不收")
+        }
+        let data: Data
         do {
-            size = (try FileManager.default.attributesOfItem(atPath: input.rawFile)[.size] as? NSNumber)?.intValue ?? 0
+            data = try FileHandle(fileDescriptor: fd, closeOnDealloc: false).read(upToCount: cap + 1) ?? Data()
         } catch {
             return .unusable("讀不到讀回的檔：" + displaySafeError(error, max: 200))
         }
-        if size > 6 * input.limit + 4096 {
-            return .unusable("讀回的 JSON 有 \(size) bytes，超過 6 × 上限 + 4096：不是誠實頁面的輸出，整個不收")
+        if data.count > cap {
+            return .unusable("讀回的 JSON 超過 6 × 上限 + 4096 bytes（讀的當下還在變大）：不是誠實頁面的輸出，整個不收")
         }
         let text: String, truncated: Bool, rawLength: Int
         do {
-            let data = try Data(contentsOf: URL(fileURLWithPath: input.rawFile))
             guard let d = try PyJSONParser.parse(data, loneSurrogates: .drop) as? [String: Any],
                   let t = d["text"] as? String, let tr = d["truncated"], tr is Bool, let b = tr as? Bool,
                   let rl = d["rawLength"], !(rl is Bool), let n = rl as? Int else {

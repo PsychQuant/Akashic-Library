@@ -59,9 +59,10 @@ final class GitignoreConcurrencyCLITests: XCTestCase {
                 let original = Data("*.srt\n".utf8)
                 if start == "utf8" { try original.write(to: dir.appendingPathComponent(".gitignore")) }
                 let results = try runConcurrently({ _ in ["doctor", "--library", dir.path] }, home: base.appendingPathComponent("home-\(start)-\(round)"))
-                // 結束碼不在這裡斷言：同時跑的 doctor 重建 index 另有一個與 .gitignore 無關的競態（改名撞上別人剛放好的 index 檔，
-                // base 3043aaf7 的 binary 同樣出現，2026-10-05 實測 6 個程序 × 15 輪有 2–4 輪），不屬 #700
+                // 結束碼要是 0（b36 verify：先前不斷言，因為同時重建 index 時改名會撞上別人剛放好的 index 檔——6 個程序 × 15 輪有 2–4 輪；
+                // `LibraryIndex.rebuild` 改用 rename(2) 原子取代之後不再出現）
                 for r in results {
+                    XCTAssertEqual(r.status, 0, "\(start) 第 \(round) 輪：\(r.output)")
                     XCTAssertFalse(r.output.contains("⚠ .gitignore"), "\(start) 第 \(round) 輪：區塊已由另一個程序加上，不得報假警告：\(r.output)")
                 }
                 XCTAssertEqual(try markerCount(dir), 1, "\(start) 第 \(round) 輪：區塊恰好一份")

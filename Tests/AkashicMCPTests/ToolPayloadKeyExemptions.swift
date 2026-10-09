@@ -46,7 +46,7 @@ enum ToolPayloadKeyExemptions {
         "akashic_enrich_from_zotero": ["dryRun": echo("回顯 dry_run")],
         "akashic_import_wos": [
             "dryRun": echo("回顯 dry_run"),
-            "gitignoreWarning": advisory("讀不懂的 .gitignore 沒加上 sources 區塊時的說明（原因、匯入照常完成、要自己加的那段；#700）；匯入照常完成，呼叫端不依它分支。說明不為它加字（#578 預算），同 mcp-cli-parity 那一格「MCP 說明不寫」"),
+            "gitignoreWarning": advisory("讀不懂或 git 不讀的 .gitignore 沒加上 sources 區塊時的說明（原因、匯入不因此中止、要自己加的那段；#700）；匯入不因此中止，呼叫端不依它分支。說明不為它加字（#578 預算），同 mcp-cli-parity 那一格「MCP 說明不寫」"),
         ],
         "akashic_import_zotero": [
             "gitignoreWarning": advisory("同 akashic_import_wos 的 gitignoreWarning（#700）"),

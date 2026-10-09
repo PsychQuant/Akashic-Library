@@ -112,7 +112,7 @@ public enum StoreIOError: Error, LocalizedError, Equatable, SanitizedErrorDescri
         case let .sourcesIgnoreNotWritten(problem, layoutWritten):
             // problem 的 reason／remedy 只含固定句、errno 數字與系統的固定英文說明（`SourcesIgnoreProblem`）；區塊是常數
             // layoutWritten：這一次有沒有建任何東西（既有的佈局本來就在時，false 只表示這一次什麼都沒建——b33 verify X5 第 6 列）
-            return "store 根目錄的 .gitignore 沒有 sources 排除區塊，這次不能替你加：\(problem.reason)。"   // display-safe-exempt: problem.reason 是固定句與 errno 說明（SourcesIgnoreProblem）
+            return "store 根目錄的 .gitignore 沒有生效的 sources 排除區塊，這次不能替你加：\(problem.reason)。"   // display-safe-exempt: problem.reason 是固定句與 errno 說明（SourcesIgnoreProblem）
                  + (problem.leavesGitignoreUntouched ? ".gitignore 沒有改寫" : ".gitignore 尾端可能留著這一次寫了一半的區塊")
                  + (layoutWritten ? "；佈局已建好，只差這一段。" : "，這一次也沒有建立任何東西。")
                  + "\(problem.remedy)：\n" + LibraryStore.sourcesIgnoreBlock   // display-safe-exempt: problem.remedy 是固定句；LibraryStore.sourcesIgnoreBlock 是常數

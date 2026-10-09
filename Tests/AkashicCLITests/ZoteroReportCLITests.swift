@@ -408,8 +408,9 @@ extension ZoteroReportCLITests {
         XCTAssertTrue(r.out.contains("created: 1"), r.out)
         XCTAssertFalse(r.out.contains("⚠ .gitignore"), "warning 不混進 stdout 的報告：\(r.out)")
         let first = String(r.err.split(separator: "\n").first ?? "")
-        XCTAssertTrue(first.hasPrefix("⚠ .gitignore 沒有 sources 排除區塊，import-zotero 沒有改寫它：") && first.contains("不是 UTF-8"), r.err)
-        XCTAssertTrue(first.contains("匯入照常完成") && first.contains("store-source 拒絕寫入"), "說出防線在哪：\(first)")
+        XCTAssertTrue(first.hasPrefix("⚠ .gitignore 沒有生效的 sources 排除區塊，import-zotero 沒有改寫它：") && first.contains("不是 UTF-8"), r.err)
+        XCTAssertTrue(first.contains("匯入不因此中止") && first.contains("store-source 拒絕寫入"), "說出防線在哪：\(first)")
+        XCTAssertTrue(first.contains("後跑 akashic doctor（或重跑匯入）"), "處置不叫人重做已經做完的匯入：\(first)")
         XCTAssertTrue(r.err.contains("\n    sources/\n"), "附上要自己加的那段：\(r.err)")
         XCTAssertEqual(try Data(contentsOf: ignore), original, ".gitignore 逐位元組不變")
 
@@ -421,6 +422,21 @@ extension ZoteroReportCLITests {
         XCTAssertTrue(s.err.contains("sources/ 未被版控忽略"), s.err)
         let blobs = (try? FileManager.default.subpathsOfDirectory(atPath: root.appendingPathComponent("sources").path)) ?? []
         XCTAssertEqual(blobs.filter { !$0.hasPrefix(".") }, [], "拒寫時不留任何位元組")
+    }
+
+    /// b36 verify LOW：warning 在讀 zotero.sqlite 之前印，不得對還沒發生的匯入下斷言——先前寫「匯入照常完成」，之後找不到 db 而以 1 結束，
+    /// 只讀 stderr 的人先看到「照常完成」。
+    func testTheWarningDoesNotClaimAnImportThatThenFails() throws {
+        let ignore = root.appendingPathComponent(".gitignore")
+        let original = Data([0x23, 0x20, 0x63, 0x61, 0x66, 0xE9, 0x0A]) + Data("*.srt\n".utf8)
+        try original.write(to: ignore)
+        let r = try runSplit(["import-zotero", "--zotero-db", fakeHome.appendingPathComponent("nope.sqlite").path])
+        XCTAssertNotEqual(r.status, 0, r.err)
+        XCTAssertTrue(r.err.contains("找不到 zotero.sqlite"), r.err)
+        let first = String(r.err.split(separator: "\n").first ?? "")
+        XCTAssertTrue(first.hasPrefix("⚠ .gitignore 沒有生效的 sources 排除區塊"), r.err)
+        XCTAssertFalse(r.err.contains("照常完成"), "匯入沒有完成：\(r.err)")
+        XCTAssertEqual(try Data(contentsOf: ignore), original)
     }
 
     /// 負面：`.gitignore` 正常（setUp 的 ensureLayout 已加上區塊）時 stderr 什麼都不印。

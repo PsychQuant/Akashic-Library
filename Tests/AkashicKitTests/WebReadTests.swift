@@ -366,4 +366,64 @@ final class WebReadTests: XCTestCase {
         XCTAssertEqual(try check(raw: try honest("Search results"), before: google, after: google).code, 2)
         XCTAssertEqual(try check(raw: try honest("Search results")).code, 0, "一般主機照舊 READ-OK")
     }
+
+    // MARK: - b36 verify（#692 LOW）
+
+    /// `url` 檢查的是 shell 開出去的那一份：區塊一以 `"$(cat …)"` 引用網址檔，`$(…)` 只去掉結尾的換行。先前修剪兩端的空白與換行再比對，
+    /// 前導空白、CRLF 的 CR、結尾的 NBSP、前導的 U+2028 都印 `URL-OK`。
+    func testUrlModeChecksTheStringTheShellOpens() throws {
+        func run(_ raw: String) throws -> WebRead.Outcome {
+            try put("url.txt", raw)
+            return WebRead.urlMode(urlFile: path("url.txt"))
+        }
+        for raw in ["  https://a.example.org/x\n", "https://a.example.org/x\r\n", "https://a.example.org/x\u{A0}\n",
+                    "\u{2028}https://a.example.org/x\n", "https://a.example.org/x \n", "\thttps://a.example.org/x"] {
+            XCTAssertEqual(try run(raw).code, 1, raw.debugDescription)
+        }
+        for raw in ["https://a.example.org/x", "https://a.example.org/x\n", "https://a.example.org/x\n\n"] {
+            XCTAssertEqual(try run(raw), .init(code: 0, stdout: ["URL-OK 'https://a.example.org'"]), raw.debugDescription)
+        }
+    }
+
+    /// 頂層名稱是 `xn--` 形的 IDN：`url` 與落地主機的檢查同一個答案（先前 `url` 的形狀正則只收字母頂層名稱，`landing` 收）。
+    func testUrlModeAcceptsIDNTopLevelNamesLikeLanding() throws {
+        for u in ["https://example.xn--p1ai/", "https://xn--e1afmkfd.xn--p1ai/path", "https://journal.XN--FIQS8S/x"] {
+            try put("url.txt", u + "\n")
+            let o = WebRead.urlMode(urlFile: path("url.txt"))
+            XCTAssertEqual(o.code, 0, "\(u)：\(o.stdout)")
+            try put("o.txt", WebRead.origin(of: u) + "\n")
+            XCTAssertEqual(WebRead.landingMode(originFile: path("o.txt"), landingFile: path("land.txt"), expectFile: path("url.txt")).code, 0, u)
+        }
+        try put("url.txt", "https://example.xn--/\n")
+        XCTAssertNotEqual(WebRead.urlMode(urlFile: path("url.txt")).code, 0, "只有 xn-- 前綴不算頂層名稱")
+    }
+
+    /// 四段數字以連字號接在名稱裡（nip.io 文件寫的「名稱加連字號」形）也算 IP 位址的形狀：`url` 與 `landing` 共用 `hostIsAcceptable`。
+    func testADashedIPAddressInsideALabelIsRefused() throws {
+        for host in ["https://app-127-0-0-1.nip.io", "https://magic-10-0-0-1.sslip.io", "https://a.x-192-168-1-1.nip.io"] {
+            XCTAssertFalse(WebRead.hostIsAcceptable(host), host)
+            try put("url.txt", host + "/\n")
+            XCTAssertEqual(WebRead.urlMode(urlFile: path("url.txt")).code, 4, host)
+        }
+        for host in ["https://web-2016.example.org", "https://x1-2-3.example.org", "https://www.sciencedirect.com"] {
+            XCTAssertTrue(WebRead.hostIsAcceptable(host), host)
+        }
+    }
+
+    /// `--raw` 是 symlink：上限量的是讀進來的目標，不是連結自己（先前以 lstat 量，5 MB 的目標經 symlink 照樣 READ-OK）。
+    /// 連結照舊刪掉、目標不動。
+    func testASymlinkedRawIsCappedByWhatItPointsTo() throws {
+        let big = try honest(String(repeating: "a", count: 6000))   // 上限 100：6 × 100 + 4096 = 4696 bytes；目標約 6 KB
+        let target = path("target.json")
+        try big.write(toFile: target, atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(atPath: path("raw.json"), withDestinationPath: target)
+        try put("b.txt", journal + "\n"); try put("a.txt", journal + "\n")
+        let o = WebRead.checkMode(.init(rawFile: path("raw.json"), outFile: path("out.txt"), limit: 100, landingFile: nil,
+                                        beforeFile: path("b.txt"), afterFile: path("a.txt")))
+        XCTAssertEqual(o.code, 1, "\(o)")
+        XCTAssertTrue(o.stdout.first?.contains("超過 6 × 上限 + 4096") == true, "\(o.stdout)")
+        XCTAssertFalse(outExists)
+        XCTAssertNil(try? FileManager.default.destinationOfSymbolicLink(atPath: path("raw.json")), "連結刪掉")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: target), "目標不動")
+    }
 }

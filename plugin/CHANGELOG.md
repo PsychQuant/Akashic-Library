@@ -35,6 +35,19 @@ plugin 版號沒有動（skill 文字的改動）。
 
 plugin 版號沒有動（行為在 binary）。
 
+## #692、#700 — b36 verify 修正（2026-10-09）：〈開始前〉探測分得出 b35 之前的 CLI、「區塊已在」與 git 一致
+
+細節在 `changelog/2026-10-09-b37-n5-fixes-692-700.md`。**需要新的 `akashic` CLI**（`web-read`、`file add`、`doctor`、`import-zotero`）與新的 `akashic-mcp`（兩個匯入的 `.gitignore` 判讀與 warning 文字）；其餘 MCP 工具不變。
+
+- **web-access.md〈開始前〉第 4 點**（#692）：多一條真呼叫——`web-read check` 對停在已知驗證服務上、文字沒有訊號的合成讀取要以 2 結束、不寫出文字。b34 的 CLI 過得了先前的探測，它的 `check` 卻把這種頁面讀成內容（`READ-OK`）。
+- **開分頁、導航到下一頁、〈取一次 API〉三個區塊**自己先跑 `akashic web-read url`（先前只是另一步，跳過不會出聲）；區塊二與讀取區塊在「運算式檔不在」而停下之前先清掉上一輪的檔。
+- **`akashic web-read url`**：不修剪網址檔（只去結尾的換行，檢查的就是 `"$(cat …)"` 開出去的那一份）；頂層名稱收 `xn--` 形（與落地主機的檢查同）。**`url`／`landing` 的主機形狀**：四段數字以連字號接在名稱裡（`app-127-0-0-1.nip.io`）也算 IP 位址。**`web-read check --raw` 是 symlink 時**大小量的是目標。
+- **`.gitignore` 的 sources 區塊**（#700；CLI `file add`／`doctor`／`import-zotero`，MCP `akashic_import_zotero`／`akashic_import_wos`）：規則行照 git 的切法比（行首帶空白或 tab、行尾帶 tab 的 `sources/` 不算已在——先前算、doctor 不出聲，而 git 不排除）；`.gitignore` 是 symlink 時不論指向的內容有沒有區塊都報（git 不讀 symlink 的 `.gitignore`）；等鎖至多 10 秒。warning 首句改成「沒有生效的 sources 排除區塊」；匯入的那一句改成「匯入不因此中止」、處置改成「跑 akashic doctor（或重跑匯入）」。
+- **`akashic_import_wos` 的 `dry_run` 說明**照實寫「不寫記錄（佈局與 .gitignore 區塊照建）」（行為不變）。
+- `tools/list`：59,183 → 59,182 bytes（−1）。
+
+plugin 版號沒有動（skill 文字的改動；行為在 binary）。
+
 ## #664 — Semantic Scholar 共用接口：MCP 工具 `akashic_s2`、取得順序、設定文件（2026-10-06）
 
 細節在 `changelog/2026-10-06-s2-interface-664.md`。
@@ -67,7 +80,7 @@ plugin 版號沒有動（行為在 binary）。
 
 ## #692、#700 — b33 verify 修正（2026-10-05）：`web-read` 不刪目錄、開分頁前的網址檢查進 CLI；`.gitignore` 同時跑不再寫兩份
 
-**需要新的 `akashic` CLI**：web-access.md〈開始前〉第 4 點多一條探測（`web-read url` 要放行一條公開網站形狀的網址），上一輪的 CLI 過不了。這個要求本身待使用者裁決（#692 Blocking）。
+**需要新的 `akashic` CLI**：web-access.md〈開始前〉第 4 點多一條探測（`web-read url` 要放行一條公開網站形狀的網址），上一輪的 CLI 過不了。~~這個要求本身待使用者裁決（#692 Blocking）。~~（使用者 2026-10-05 已裁決：第 4 源要求新的 CLI。）
 
 - **`akashic web-read landing`／`check` 不刪目錄**（#692）：`--out`／`--raw` 指的路徑只刪一般檔或 symlink（刪連結本身），目錄與其他型態在刪任何東西之前以 1 拒絕。先前對目錄整棵遞迴刪除——`landing --out .` 會刪掉目前目錄。讀回的 JSON 刪不掉時 `READ-OK` 改成 `READ-FAIL`、寫出的文字收回。
 - **開分頁之前的網址檢查改成 `akashic web-read url --file <網址檔>`**（`web-access.md`〈插值前先驗形狀〉的「完整網址」一列、`akashic-verify-venue`）：先前是一條正則由模型照著看，主機那一半比落地主機的檢查寬（`.home`、`.box`、`.private`、`127.0.0.1.nip.io` 都過得了），而開分頁就是帶著 cookie 送出請求。現在主機與落地主機同一個檢查；兩邊另擋特殊用途的頂層名稱（`.test`、`.example`、`.invalid`、`.onion`、`.alt`）。
@@ -171,7 +184,7 @@ plugin 版號沒有動（skill 文字的改動；行為在 CLI）。
 
 ## #700、#703 — b31 W5 修正（2026-10-04）：讀不懂的 `.gitignore` 不再被整份換掉
 
-- **`akashic_import_zotero`、`akashic_import_wos`（含 `dry_run`）**：兩者建佈局時會在 store 根目錄的 `.gitignore` 補 sources 排除區塊。先前 `.gitignore` 讀不出來（不是 UTF-8、UTF-16、讀取權限不足）就當成空檔、整份換成只含區塊——使用者原有的規則全部消失、沒有任何訊息；`.gitignore` 是 symlink 時被換成一般檔。現在標記以位元組比對，已有區塊就不動；要加時只在尾端附加位元組；讀不懂的（讀不到、不是 UTF-8 文字或含 NUL、symlink 而指向的內容沒有區塊、不是一般檔、沒有寫入權限）**在建立任何東西之前具名拒絕**，訊息附上要自己加的那段。CLI 的 `file add`、`import-zotero` 同；`doctor` 不拒絕、`.gitignore` 不動、印一則 warning。`akashic_doctor` 不建佈局、不受影響。
+- **`akashic_import_zotero`、`akashic_import_wos`（含 `dry_run`）**：兩者建佈局時會在 store 根目錄的 `.gitignore` 補 sources 排除區塊。先前 `.gitignore` 讀不出來（不是 UTF-8、UTF-16、讀取權限不足）就當成空檔、整份換成只含區塊——使用者原有的規則全部消失、沒有任何訊息；`.gitignore` 是 symlink 時被換成一般檔。現在標記以位元組比對，已有區塊就不動；要加時只在尾端附加位元組；讀不懂的（讀不到、不是 UTF-8 文字或含 NUL、symlink 而指向的內容沒有區塊、不是一般檔、沒有寫入權限）~~**在建立任何東西之前具名拒絕**，訊息附上要自己加的那段。CLI 的 `file add`、`import-zotero` 同；~~（使用者 2026-10-05 裁決之後只有 CLI `file add` 拒絕；兩個 MCP 匯入與 CLI `import-zotero` 照常匯入、報 warning，見上面 b35 那一節）`doctor` 不拒絕、`.gitignore` 不動、印一則 warning。`akashic_doctor` 不建佈局、不受影響。
 - `akashic_doctor` 的說明：`sources` 的「20 則、總數在 *Total」改寫成「後兩列各 20 則」——四個舊鍵（`orphanBlobs` 等）不截、沒有 `*Total`；`strayTemporaryFiles` 不再寫成「中斷存檔的」暫存檔（時間不可信時判不出）。位元組數不變。
 - 旗標讀不到的磁碟區上，放置探測的暫存檔建不起來時，訊息改說「這次沒有寫入 digest …（位址上若已有同一份，它沒有被動）」——先前說「沒有存」，對位址上已有同一份的重存是假的。拒絕本身不變：分片目錄不可寫時，連已在的內容重存也被拒（記錄、不改）。
 - `akashic_store_source` 的說明沒有寫「做不到不覆寫放置的磁碟區上每一次都拒絕、含只差補 index 的那一筆」（約 94 bytes）：位元組預算的政策是不淨增，這一格寫在 CLI `store-source --help` 與本 repo 的 `docs/store-format.md`（安裝的 plugin 讀不到），要不要加進 MCP 說明待使用者裁決。

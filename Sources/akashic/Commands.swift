@@ -14,8 +14,9 @@ struct Doctor: ParsableCommand {
         commandName: "doctor", abstract: "建立/檢查 library 佈局、重建 index、一致性報告",
         discussion: """
         佈局不存在時建立（store.yaml、incarnation、各目錄、sources/）。store 根目錄的 .gitignore 沒有 sources 排除區塊時在尾端附加一段\
-        （原有的位元組不動；沒有 .gitignore 時新建）。.gitignore 讀不到、不是 UTF-8 文字、是 symlink、有其他硬連結、不是一般檔、\
-        大到 git 不讀、有標記沒有規則或沒有寫入權限時不改它，印一則 ⚠ warning 與要自己加的那段，結束碼不因此改變（#700）。
+        （原有的位元組不動；沒有 .gitignore 時新建）。.gitignore 讀不到、不是 UTF-8 文字、是 symlink（git 不讀 symlink 的 .gitignore，\
+        指向的檔有區塊也不生效）、有其他硬連結、不是一般檔、大到 git 不讀、有標記而沒有 git 認得的 sources/ 規則（行首帶空白、行尾帶 tab \
+        的不算）、沒有寫入權限，或另一個程序持鎖超過 10 秒時不改它，印一則 ⚠ warning 與要自己加的那段，結束碼不因此改變（#700）。
         """)
 
     @OptionGroup var options: LibraryOptions
@@ -350,9 +351,10 @@ struct ImportZotero: ParsableCommand {
         commandName: "import-zotero", abstract: "Zotero → Akashic 單向 pull（zotero.sqlite 唯讀）；沒有乾跑，未指名目標 store（--library 或 --yes）即拒絕（#658）",
         discussion: """
         佈局不存在時建立（同 file add），並在 store 根目錄的 .gitignore 沒有 sources 排除區塊時於尾端附加一段（原有的位元組不動）。\
-        .gitignore 沒有區塊而讀不到、不是 UTF-8 文字、是 symlink 或硬連結、不是一般檔、大到 git 不讀、有標記沒有規則、沒有寫入權限時\
-        不改它、照常匯入，在讀 zotero.sqlite 之前於 stderr 印一則 ⚠ warning 與要自己加的那段，結束碼不因此改變（#700）。匯入不寫 sources/；\
-        store 在 git 工作樹裡時，sources/ 沒被排除之前 store-source 拒絕寫入。
+        .gitignore 讀不到、不是 UTF-8 文字、是 symlink（git 不讀它）或硬連結、不是一般檔、大到 git 不讀、有標記而沒有 git 認得的 sources/ \
+        規則、沒有寫入權限，或另一個程序持鎖超過 10 秒時不改它、照常匯入，在讀 zotero.sqlite 之前於 stderr 印一則 ⚠ warning 與要自己加的\
+        那段，結束碼不因此改變（#700）。warning 只說匯入不因此中止，不預告匯入的結果；處置之後跑 akashic doctor 就補上區塊，不必重跑匯入。\
+        匯入不寫 sources/；store 在 git 工作樹裡時，sources/ 沒被排除之前 store-source 拒絕寫入。
         """)
 
     @OptionGroup var options: LibraryOptions
@@ -370,7 +372,8 @@ struct ImportZotero: ParsableCommand {
         // #700（使用者 2026-10-05 裁決第 1 項）：讀不懂的 .gitignore 不擋匯入——不改寫它、照常匯入，warning 印到 stderr（stdout 是匯入報告）。
         // 在讀 zotero.sqlite 之前印：之後的失敗吞不掉它（同 doctor）。匯入不寫 sources/，擋存檔進版控的防線在 store-source
         let (store, ignoreProblem) = try options.openOrCreateStore(sourcesIgnore: .report)
-        for line in ignoreProblem?.warningLines(by: "import-zotero", note: SourcesIgnoreProblem.importContinuedNote) ?? [] {
+        for line in ignoreProblem?.warningLines(by: "import-zotero", note: SourcesIgnoreProblem.importContinuedNote,
+                                                rerun: SourcesIgnoreProblem.importRerun) ?? [] {
             try? FileHandle.standardError.write(contentsOf: Data((line + "\n").utf8))   // display-safe-exempt: line：warningLines 只含固定句、errno 說明與常數區塊（SourcesIgnoreProblem）
         }
         let dbURL = URL(fileURLWithPath: (zoteroDb as NSString).expandingTildeInPath)

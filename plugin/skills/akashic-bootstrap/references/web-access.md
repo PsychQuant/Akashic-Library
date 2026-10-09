@@ -27,9 +27,15 @@
    f=$(mktemp) && printf 'https://a.example.org/x\n' > "$f" && u=$(akashic web-read url --file "$f" 2>/dev/null) || u=""; rm -f "$f"
    [ "$u" = "URL-OK 'https://a.example.org'" ] \
      || { echo "akashic CLI 太舊或沒裝（沒有 web-read url）——先更新 CLI，開分頁之前的網址檢查靠它" >&2; exit 1; }
+   d=$(mktemp -d) && printf 'https://challenges.cloudflare.com\n' > "$d/o" \
+     && printf '{"truncated": false, "rawLength": 21, "text": "Journal of Foo: about"}' > "$d/raw.json"
+   c=0; akashic web-read check --raw "$d/raw.json" --out "$d/out.txt" --limit 3000 --landing - --before "$d/o" --after "$d/o" >/dev/null 2>&1 || c=$?
+   w=0; [ -e "$d/out.txt" ] && w=1; rm -rf "$d"
+   [ "$c" -eq 2 ] && [ "$w" -eq 0 ] \
+     || { echo "akashic CLI 太舊（web-read check 把已知驗證服務上沒有訊號的頁面讀成內容——#692 b35 之前的契約）——先更新 CLI" >&2; exit 1; }
    ```
 
-   探測用**真的呼叫**（乾淨文字的結束碼要恰好是 1、`jitter --dry-run` 要成功、`web-read origin` 要印出那一個分頁的主機、`web-read url` 要放行一條公開網站形狀的網址；帶 `--kind` 是因為下面的區塊靠它分辨等人驗證與整批暫停，#613 之前的 binary 沒有這個旗標、回 64），**不是 `--help`**：ArgumentParser 對舊 binary 的 `akashic fulltext bot-signals --help` 也回 0（印根命令的用法），探不出子命令不存在（2026-09-29 實測）。確認不了就停下來告訴使用者；不要改成「沒有這個檢查也照跑」。
+   探測用**真的呼叫**（乾淨文字的結束碼要恰好是 1、`jitter --dry-run` 要成功、`web-read origin` 要印出那一個分頁的主機、`web-read url` 要放行一條公開網站形狀的網址、`web-read check` 對**停在已知驗證服務上而文字沒有訊號**的合成讀取要以 2 結束且不寫出文字；帶 `--kind` 是因為下面的區塊靠它分辨等人驗證與整批暫停，#613 之前的 binary 沒有這個旗標、回 64）。最後一條是 #692 b35 的契約（使用者 2026-10-05：分頁在驗證服務上一律以頁面文字分 3／2）：b34 的 binary 有 `url`、前面幾條都過，但它的 `check` 對這種讀取印 `READ-OK`、以 0 結束並寫出文字——讀取區塊之後沒有別的文字檢查，會把驗證服務的頁面當內容讀（b36 verify）。所以 CLI 的行為改了，探測就多一條真呼叫，**不是 `--help`**：ArgumentParser 對舊 binary 的 `akashic fulltext bot-signals --help` 也回 0（印根命令的用法），探不出子命令不存在（2026-09-29 實測）。確認不了就停下來告訴使用者；不要改成「沒有這個檢查也照跑」。
 5. **每一次 Bash 呼叫是新的 shell，變數不跨呼叫保留**：下面每個動到分頁的區塊都是**自足**的——同一次呼叫內自己設 `P`、`T`、`LOCK`，並確認非空才動作（鎖若是空的，safari-browser 會退回 front tab，那可能是別人 profile 的分頁）。**不要**把區塊裡的單一行拆出去單獨跑，也不要在另一次呼叫裡沿用上一次的 `$LOCK`。字面值（`<P>`、`<T>`、`<W>`、`<序號>`）每次都寫進命令。
 
 ## 中止條款：網站一懷疑是自動化就停——驗證頁等人，其他整批暫停
@@ -74,7 +80,7 @@
 | ISSN | `^[0-9]{4}-[0-9]{3}[0-9X]$` |
 | PMID | `^[0-9]+$` |
 | ROR id | `^0[a-z0-9]{8}$` |
-| **完整網址** | 照下面「完整網址不經 shell 字串」寫進 `<W>/url-<序號>.txt` 之後跑 `akashic web-read url --file "<W>/url-<序號>.txt"`：印 `URL-OK '<主機>'`（結束碼 0）才開，其他一律不開（4＝主機形狀不合，1＝其餘形狀不合或讀不到）。檢查的定義在那個子命令（#692 b33 verify：先前是寫在這一格的一條正則，主機那一半比落地主機的檢查寬，`.home`、`.box`、`127.0.0.1.nip.io` 都過得了）；摘要：只收 https 與 ASCII 主機（國際化網域名稱寫成 `xn--` 形）、不帶埠號；主機過與落地主機同一個形狀檢查（私有、本機或特殊用途的頂層名稱——`.local`、`.home`、`.test`、`.example`、`.onion` 之類——與 IP 位址的形狀都不收）；路徑與查詢只收少數字元、路徑段（百分比解碼後）不得是 `.` 或 `..`；不含 `'`、`"`、反斜線、反引號、`$`、`#`、空白 |
+| **完整網址** | 照下面「完整網址不經 shell 字串」寫進 `<W>/url-<序號>.txt` 之後跑 `akashic web-read url --file "<W>/url-<序號>.txt"`：印 `URL-OK '<主機>'`（結束碼 0）才開，其他一律不開（4＝主機形狀不合，1＝其餘形狀不合或讀不到）。檢查的定義在那個子命令（#692 b33 verify：先前是寫在這一格的一條正則，主機那一半比落地主機的檢查寬，`.home`、`.box`、`127.0.0.1.nip.io` 都過得了）；摘要：只收 https 與 ASCII 主機（國際化網域名稱寫成 `xn--` 形，頂層名稱也可以是 `xn--` 形）、不帶埠號；主機過與落地主機同一個形狀檢查（私有、本機或特殊用途的頂層名稱——`.local`、`.home`、`.test`、`.example`、`.onion` 之類——與 IP 位址的形狀都不收）；路徑與查詢只收少數字元、路徑段（百分比解碼後）不得是 `.` 或 `..`；不含 `'`、`"`、反斜線、反引號、`$`、`#`、空白；**網址檔不修剪**——檢查的就是 `"$(cat …)"` 開出去的那一份，所以前後不得有空白、CR 之類（只容許結尾的換行，#692 b36 verify） |
 | **回應裡取出、要放進下一個請求的值**（例如 OpenAlex 的 `meta.next_cursor`、回應裡的 id） | 同一份紀律：id 照各自那一列；cursor 只收 base64 字元 `^[A-Za-z0-9+/=_-]{1,500}$`（字元集與長度上限沒有實測，以 OpenAlex 的 cursor 是 base64 型字串為據），放進查詢字串前再百分比編碼。不符合就停下來，不要硬塞 |
 
 **自由文字**（標題、刊名、姓名、機構名）不經 shell 引號：用 Write 工具把原文寫進 `<W>/q-<序號>.txt`，再把它轉成百分比編碼——
@@ -107,7 +113,7 @@ LOCK=(--profile "$P" --url-endswith "#akashic-$T")
 
 ### 讀頁面文字用的運算式與檢查（區塊二、〈讀渲染後的頁面〉與落地主機區塊共用）
 
-讀頁面文字的運算式寫成一個檔，放在 `<W>` 裡：用 Write 工具寫、**不經 shell 字串**（裡面有反斜線與引號；命令裡以 `"$(cat …)"` 引用，輸出不會被 shell 再展開）。同一個 run 寫一次就夠。**檢查不寫成檔**：是 `akashic web-read` 的三個子命令（下面），區塊裡直接呼叫。
+讀頁面文字的運算式寫成一個檔，放在 `<W>` 裡：用 Write 工具寫、**不經 shell 字串**（裡面有反斜線與引號；命令裡以 `"$(cat …)"` 引用，輸出不會被 shell 再展開）。同一個 run 寫一次就夠。**檢查不寫成檔**：是 `akashic web-read` 的四個子命令（下面），區塊裡直接呼叫。
 
 **信任的界線在哪裡**（#692 R3 verify）：`safari-browser js` 在**頁面自己的** JS 環境裡求值。頁面的腳本可以在運算式跑之前改寫 `JSON.stringify`、`String.prototype.slice`／`replace`，連 safari-browser 取回結果的通道都在頁面那一側——所以運算式回傳的**每一個欄位都由頁面決定**，在頁面裡做的剔除、截斷、`location` 讀取都可以被偽造（R3 verify 以 Node 在合成的頁面上實測：先蓋掉 `JSON.stringify` 的頁面讓 R2 版的區塊印出 `READ-OK` 與它宣告的主機，三個不可見字元一個都沒剔除）。所以：
 
@@ -144,11 +150,12 @@ set -euo pipefail
 P="<P>"
 T=$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')
 [ -n "$P" ] && [ "${#T}" -eq 8 ] || { echo "P/T missing" >&2; exit 1; }
+akashic web-read url --file "<W>/url-<序號>.txt"   # 不是 URL-OK 就以它的結束碼停下，分頁不開
 safari-browser open --new-tab --profile "$P" "$(cat "<W>/url-<序號>.txt")#akashic-$T"
 echo "T=$T"
 ```
 
-把印出的 `T` 記下，以下寫成 `<T>`（8 個十六進位字元）。
+把印出的 `T` 記下，以下寫成 `<T>`（8 個十六進位字元）。**網址檢查寫在區塊裡**（#692 b36 verify）：先前「開之前先跑 `web-read url`」只是另一步，跳過或順序錯了都不會出聲，而開分頁就是帶著這個 profile 的 cookie 送出請求；現在區塊在開分頁之前自己跑它，`set -e` 讓不合格的網址以 4（主機形狀不合）或 1（其餘形狀不合、讀不到）停下。導航到下一頁與〈取一次 API〉的區塊同樣在動作之前跑它。
 
 **接下來走哪一條取決於呼叫的 skill**：**接上落地主機檢查的 skill**（目前只有 `akashic-verify-venue` 的第 4 源）開的是會被第三方轉到自選主機的頁面（`doi.org`、出版商頁、名冊）時，**先跑〈轉址之後、讀內容之前：驗落地主機〉、通過才跑區塊二**；其他情形（取 API 的分頁、還沒接上的 skill）直接跑區塊二。
 
@@ -160,10 +167,10 @@ P="<P>"; T="<T>"
 LAND="-"   # 預設：不比對落地主機。接上落地主機檢查的 skill 改寫成 LAND="<W>/landing-<T>.txt"
 LOCK=(--profile "$P" --url-endswith "#akashic-$T")
 [ ${#LOCK[@]} -eq 4 ] && [ -n "$P" ] && [ -n "$T" ] && [ -n "$LAND" ] || { echo "lock missing" >&2; exit 1; }
-[ -s "<W>/read-3000.js" ] || { echo "<W>/read-3000.js missing - write it first (see the expression section)" >&2; exit 1; }
 RAW="<W>/raw-first-<T>.json"
 rm -f "<W>/first-<T>.txt" "$RAW" "<W>/o-before-<T>.txt" "<W>/o-after-<T>.txt"   # 在第一個可能失敗的瀏覽器指令之前：失敗之後不留上一次的檔
 trap 'rm -f "$RAW"' EXIT   # 讀回的 JSON 是第三方文字：不論哪一步失敗都刪掉
+[ -s "<W>/read-3000.js" ] || { echo "<W>/read-3000.js missing - write it first (see the expression section)" >&2; exit 1; }
 safari-browser documents --json --profile "$P" | akashic web-read origin --tag "$T" >/dev/null   # 鎖到的分頁要恰好一個
 safari-browser wait "${LOCK[@]}" --js "['complete','interactive'].includes(document.readyState)" --timeout 60000
 safari-browser documents --json --profile "$P" | akashic web-read origin --tag "$T" > "<W>/o-before-<T>.txt"
@@ -182,7 +189,7 @@ case "$rc" in
 esac
 ```
 
-區塊以 3 結束＝等人驗證、以 2 結束＝整批暫停（含 `web-read check` 在已知的驗證服務上以頁面文字判的 `READ-VERIFY` 3／`READ-PAUSE` 2）、以 4 結束＝主機不合（`READ-REJECT`：讀取前後 Safari 回報的主機不同、與驗過的落地主機不同，或沒有比對落地主機時主機形狀不合；首屏文字**不寫出**；照〈轉址之後、讀內容之前：驗落地主機〉的 REJECT 處理，關掉這個分頁）；`READ-FAIL`（結束碼 1）是讀回的東西不能用（含剔除之後沒有看得見的字：頁面還沒渲染，或首屏整段是不可見字元——拿不準就不當成沒有訊號），照〈鎖不到的時候〉；讀取的運算式檔不在也是 1（區塊在動到分頁之前就停）。**首屏文字經過剔除**（在 `akashic web-read check` 做，〈讀頁面文字用的運算式與檢查〉），所以「區塊結束後也自己讀一遍」讀的是 `<W>/first-<T>.txt` 剔除後的文字——**只在 `READ-OK` 之後才有這個檔**（結束碼 0，以及 bot-signals 命中的 3、2；`web-read check` 在驗證服務上判的 3／2 不寫出文字）：區塊在第一個可能失敗的瀏覽器指令（數分頁）**之前**就刪掉它與上一次的讀取檔，`web-read check` 只在 `READ-OK` 時寫——鎖不到、`wait` 逾時、讀取之後分頁不見了，都不會留下上一輪的文字讓你讀成這一輪的（#692 R4 verify）。讀回的 JSON（`raw-first-<T>.json`）不論在哪一步結束都由 `trap … EXIT` 刪掉。60 秒沒載完、有訊號、頁面讀不到，都是中止條款——**不發下一個 `fetch`**。讀頁面的那一段 JS 寫成運算式（不是 `return …` 的敘述）：`safari-browser js` 先把程式碼當運算式試一次，敘述形的第一次注入是一段解析不了的程式碼（akashic-fetch-fulltext SKILL.md〈最高原則〉規則 5）。
+區塊以 3 結束＝等人驗證、以 2 結束＝整批暫停（含 `web-read check` 在已知的驗證服務上以頁面文字判的 `READ-VERIFY` 3／`READ-PAUSE` 2）、以 4 結束＝主機不合（`READ-REJECT`：讀取前後 Safari 回報的主機不同、與驗過的落地主機不同，或沒有比對落地主機時主機形狀不合；首屏文字**不寫出**；照〈轉址之後、讀內容之前：驗落地主機〉的 REJECT 處理，關掉這個分頁）；`READ-FAIL`（結束碼 1）是讀回的東西不能用（含剔除之後沒有看得見的字：頁面還沒渲染，或首屏整段是不可見字元——拿不準就不當成沒有訊號），照〈鎖不到的時候〉；讀取的運算式檔不在也是 1（區塊清掉上一次的檔之後、動到分頁之前就停）。**首屏文字經過剔除**（在 `akashic web-read check` 做，〈讀頁面文字用的運算式與檢查〉），所以「區塊結束後也自己讀一遍」讀的是 `<W>/first-<T>.txt` 剔除後的文字——**只在 `READ-OK` 之後才有這個檔**（結束碼 0，以及 bot-signals 命中的 3、2；`web-read check` 在驗證服務上判的 3／2 不寫出文字）：區塊在第一個可能失敗的瀏覽器指令（數分頁）**之前**就刪掉它與上一次的讀取檔，`web-read check` 只在 `READ-OK` 時寫——鎖不到、`wait` 逾時、讀取之後分頁不見了，都不會留下上一輪的文字讓你讀成這一輪的（#692 R4 verify）。讀回的 JSON（`raw-first-<T>.json`）不論在哪一步結束都由 `trap … EXIT` 刪掉。60 秒沒載完、有訊號、頁面讀不到，都是中止條款——**不發下一個 `fetch`**。讀頁面的那一段 JS 寫成運算式（不是 `return …` 的敘述）：`safari-browser js` 先把程式碼當運算式試一次，敘述形的第一次注入是一段解析不了的程式碼（akashic-fetch-fulltext SKILL.md〈最高原則〉規則 5）。
 
 **分頁開在該站第一個請求的網址，所以那個網址會被請求兩次**（開分頁一次、之後的頁內 `fetch` 一次）。要省掉第二次，得直接從分頁的 DOM 讀回 JSON；`document.body.innerText` 對 JSON 頁夠不夠用沒有實測，所以本檔不那樣寫。頁內 `fetch` 不換頁，所以取 API 的整個流程裡分頁網址不變、這把鎖一直有效。換一個站就另開一個帶新 fragment 的分頁。
 
@@ -204,6 +211,7 @@ LOCK=(--profile "$P" --url-endswith "#akashic-$T")
 safari-browser documents --json --profile "$P" | akashic web-read origin --tag "$T" >/dev/null   # 鎖到的分頁要恰好一個
 T2=$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')
 [ "${#T2}" -eq 8 ] || { echo "T2 missing" >&2; exit 1; }
+akashic web-read url --file "<W>/url-<序號>.txt"   # 不是 URL-OK 就停下，不導航
 U=$(python3 -c 'import json,sys;print(json.dumps(open(sys.argv[1],encoding="utf-8").read().strip()+sys.argv[2]))' "<W>/url-<序號>.txt" "#akashic-$T2")
 safari-browser js "${LOCK[@]}" "(location.href = $U, 'navigating')"
 echo "T=$T2"
@@ -230,7 +238,7 @@ akashic web-read landing --origin "<W>/o-landing-<T>.txt" --out "<W>/landing-<T>
 
 印出 `OK '<協定>://<主機>'`（只印形狀像主機的字串；不像的印 `'<不像主機，未印>'`）才往下跑區塊二（`LAND="<W>/landing-<T>.txt"`）；印 `REJECT '…'`（**結束碼 4**）就是「不可達：落地主機不合」——**不讀內容**，把印出的落地主機寫進回報，照〈其他〉關掉這個分頁（鎖這時仍對得到，所以關得掉）。`REJECT` 時 `landing-<T>.txt` 已經刪掉（區塊在數分頁之前就先刪；`web-read landing` 也先刪、只在 `OK` 時寫回），所以就算照樣往下跑，區塊二與讀取也會以 `READ-FAIL` 停下、不寫出文字；鎖不到、`wait` 逾時這類在 `web-read landing` 之前就結束的情形也一樣，上一次留下的檔不會被當成這一次驗過的（#692 R4 verify）。給了 `EXPECT`（開的是使用者給定或確認的網址）而落地主機與那條網址的主機不同，也是 `REJECT`，兩個主機都印出來：使用者確認的是那一條網址，被轉到別的主機就不是他確認的東西。**常見的同站轉址**（`example.org` 轉到 `www.example.org`、期刊站的正式主機）也落在這裡：先不要關分頁，把兩個主機列給使用者；使用者確認落地主機也是他要的那個網站，就把 `https://<落地主機>/` 用 Write 工具寫進新的 `<W>/url-<序號>.txt`（同樣過〈插值前先驗形狀〉的「完整網址」一列）、`EXPECT` 改指它，**在同一個分頁重跑這個區塊**（不重新開、不導航）——那一條就是使用者確認的網址；使用者沒確認或說不是，才照上面記「不可達」、關掉分頁。**落地主機是已知的驗證服務**（Cloudflare 挑戰、hCaptcha、reCAPTCHA 的主機；`www.google.com` 也算）：不論 `EXPECT` 是什麼，都印 `OK '<驗證服務>'（已知的驗證服務…）`、寫下它——頁面把分頁送去驗證了，不是「不可達」，這裡也不判（看不到頁面文字）；照樣往下跑區塊二，它以頁面文字分等人驗證（3）或整批暫停（2），不會以 0 結束（見〈讀頁面文字用的運算式與檢查〉「分頁在已知的驗證服務上」）。寫進回報的落地主機註明是驗證服務。**結束碼 4 只代表主機不合**（區塊二以 3 結束是等人驗證、以 2 結束是整批暫停，不要混）；這個區塊其他的非零結束（鎖的個數不是 1、`wait` 60 秒逾時、safari-browser 本身出錯）**不是**主機不合，沒有落地主機可寫進回報：鎖不到照〈鎖不到的時候〉，60 秒沒載完是中止條款。**通過時也把落地主機寫進回報**，讓使用者核對它是不是那家出版商的主機。這個區塊與區塊二一樣自足：動到分頁之前先數一次。
 
-這是形狀檢查，不是信任判斷，五個限制要寫出來：(1) 只擋形狀上明顯不是公開網站的主機——非 https、帶埠號、沒有點的名稱、`localhost` 與 `.local`／`.lan`／`.home`／`.box`／`.internal` 之類私有或本機用的後綴、IP 位址的形狀（含 `127.0.0.1.nip.io` 這種把四段數字塞進名稱的），以及 `web-read origin` 認不出主機的網址（帳密、百分比編碼、反斜線，見〈讀頁面文字用的運算式與檢查〉）。**解析到私有位址的公開名稱擋不住**：一個名稱解析到哪裡，從字串看不出來。(2) 通過只代表形狀上可讀，不代表那個主機是出版商的：登記者可以把 DOI 登記到任何公開主機，頁面自己宣告的內容（DOI、標題）也證明不了它是誰的頁面，所以主機名要給使用者看。(3) 頁面自己做的轉址（meta refresh、JavaScript 設 `location`）讓 fragment 掉時，這個區塊也鎖對不到，照〈鎖不到的時候〉。(4) **這一步是某一刻的快照**：頁面自己的 JS 能讀 `location.hash`，所以一次性碼對落地頁不是秘密，一個敵意頁面可以在檢查之後把自己導到別的主機並複製 fragment，鎖照樣對得到。擋它的是讀取本身：區塊二的首屏與〈讀渲染後的頁面〉在讀取**之前與之後**各從 Safari 那一側讀一次主機，兩次都要等於這一步存的 `landing-<T>.txt`，不同就以 4 結束、不寫出文字（其中一個是已知的驗證服務時改以頁面文字分 3／2，同樣不寫出）。寫出的文字仍是頁面給的，保證的範圍只到〈讀頁面文字用的運算式與檢查〉的「保證的只有這一句」。(5) Safari 回報的網址對國際化網域名稱是 punycode 還是 Unicode 沒有實測；兩種都比得起來（`web-read origin` 把 Unicode 經 IDNA 轉成 punycode，頂層名稱是 `xn--` 形的也收）。轉不出純 ASCII 名稱的印 `invalid://`、拒絕。
+這是形狀檢查，不是信任判斷，五個限制要寫出來：(1) 只擋形狀上明顯不是公開網站的主機——非 https、帶埠號、沒有點的名稱、`localhost` 與 `.local`／`.lan`／`.home`／`.box`／`.internal` 之類私有或本機用的後綴、IP 位址的形狀（含把四段數字以 `.` 或 `-` 塞進名稱的 `127.0.0.1.nip.io`、`10-0-0-1.nip.io`、`app-127-0-0-1.nip.io`——只擋這幾種寫法，不是擋整個 nip.io／sslip.io 一類服務：`foo.nip.io` 這類萬用 DNS、`7f000001.nip.io` 的十六進位形都過得了），以及 `web-read origin` 認不出主機的網址（帳密、百分比編碼、反斜線，見〈讀頁面文字用的運算式與檢查〉）。**解析到私有位址的公開名稱擋不住**：一個名稱解析到哪裡，從字串看不出來。(2) 通過只代表形狀上可讀，不代表那個主機是出版商的：登記者可以把 DOI 登記到任何公開主機，頁面自己宣告的內容（DOI、標題）也證明不了它是誰的頁面，所以主機名要給使用者看。(3) 頁面自己做的轉址（meta refresh、JavaScript 設 `location`）讓 fragment 掉時，這個區塊也鎖對不到，照〈鎖不到的時候〉。(4) **這一步是某一刻的快照**：頁面自己的 JS 能讀 `location.hash`，所以一次性碼對落地頁不是秘密，一個敵意頁面可以在檢查之後把自己導到別的主機並複製 fragment，鎖照樣對得到。擋它的是讀取本身：區塊二的首屏與〈讀渲染後的頁面〉在讀取**之前與之後**各從 Safari 那一側讀一次主機，兩次都要等於這一步存的 `landing-<T>.txt`，不同就以 4 結束、不寫出文字（其中一個是已知的驗證服務時改以頁面文字分 3／2，同樣不寫出）。寫出的文字仍是頁面給的，保證的範圍只到〈讀頁面文字用的運算式與檢查〉的「保證的只有這一句」。(5) Safari 回報的網址對國際化網域名稱是 punycode 還是 Unicode 沒有實測；兩種都比得起來（`web-read origin` 把 Unicode 經 IDNA 轉成 punycode，頂層名稱是 `xn--` 形的也收）。轉不出純 ASCII 名稱的印 `invalid://`、拒絕。
 
 ## 取一次 API：頁內 fetch，每次換一個變數名
 
@@ -243,6 +251,7 @@ LOCK=(--profile "$P" --url-endswith "#akashic-$T")
 [ ${#LOCK[@]} -eq 4 ] && [ -n "$P" ] && [ -n "$T" ] || { echo "lock missing" >&2; exit 1; }
 case "$K" in ''|*[!0-9]*) echo "K must be a number" >&2; exit 1 ;; esac
 safari-browser documents --json --profile "$P" | akashic web-read origin --tag "$T" >/dev/null   # 鎖到的分頁要恰好一個
+akashic web-read url --file "<W>/url-$K.txt"   # 不是 URL-OK 就停下，不發請求
 U=$(python3 -c 'import json,sys;print(json.dumps(open(sys.argv[1],encoding="utf-8").read().strip()))' "<W>/url-$K.txt")
 safari-browser js "${LOCK[@]}" "window.__ak_$K = {done:false};
   fetch($U).then(r => { window.__ak_$K.status = r.status; window.__ak_$K.ctype = r.headers.get('content-type'); return r.text(); })
@@ -281,10 +290,10 @@ LAND="-"   # 預設：不比對落地主機。接上落地主機檢查的 skill 
 LOCK=(--profile "$P" --url-endswith "#akashic-$T")
 [ ${#LOCK[@]} -eq 4 ] && [ -n "$P" ] && [ -n "$T" ] && [ -n "$LAND" ] || { echo "lock missing" >&2; exit 1; }
 case "$K" in ''|*[!0-9]*) echo "K must be a number" >&2; exit 1 ;; esac
-[ -s "<W>/read-20000.js" ] || { echo "<W>/read-20000.js missing - write it first (see the expression section)" >&2; exit 1; }
 RAW="<W>/raw-$K.json"
 rm -f "<W>/r-$K.txt" "$RAW" "<W>/o-before-$K.txt" "<W>/o-after-$K.txt"   # 在第一個可能失敗的瀏覽器指令之前：失敗之後不留上一次的檔
 trap 'rm -f "$RAW"' EXIT   # 讀回的 JSON 是第三方文字：不論哪一步失敗都刪掉
+[ -s "<W>/read-20000.js" ] || { echo "<W>/read-20000.js missing - write it first (see the expression section)" >&2; exit 1; }
 safari-browser documents --json --profile "$P" | akashic web-read origin --tag "$T" >/dev/null   # 鎖到的分頁要恰好一個
 safari-browser documents --json --profile "$P" | akashic web-read origin --tag "$T" > "<W>/o-before-$K.txt"
 safari-browser js "${LOCK[@]}" --large --output "$RAW" "$(cat "<W>/read-20000.js")"

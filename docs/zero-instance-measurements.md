@@ -894,7 +894,9 @@ R3 把辨識補寬，另加一個不靠辨識的地板：規則檔裡一行棘�
 
 (e) 不是值的守衛而是清理順序：失敗之後留下的上一輪檔案會被讀成這一輪的結果，「沒寫出」與「寫的是舊的」在讀的人眼裡一樣（第 3 列沉默的歧義的同形）。釘住 `WebAccessReadContractTests`（從文件抽出區塊、假 safari-browser 接真 `akashic`）與 `WebReadTests`；每一道都有對應的測試，(e) 與剔除集合另有負控（changelog `2026-10-04-b32-f2-fixes-692.md`）。**誠實邊界**：(a) 不模擬 WebKit，只在會分岔的地方拒絕——WebKit 回報的若是正規化之後的網址，這些形狀不會出現；(d) 只看主機，`www.google.com` 這類只在 `/recaptcha/` 才算驗證服務的主機也算進來（保守的一邊）；國際化網域名稱轉 punycode 走 Foundation 的 IDNA，Safari 實際回報哪一種沒量過。
 
-**b33 verify 補三道**（同一條讀取路徑、同一個零）：(c) 加「`rawLength` 比交回的文字還短」與「剔除之後沒有看得見的字」也是 `READ-FAIL`，`truncated` 另由「原文長度超過上限」算；剔除加 noncharacter；(d) 寫明是比中止條款保守的一邊、只在主機**換到**驗證服務時觸發，待使用者裁決
+**b33 verify 補三道**（同一條讀取路徑、同一個零）：(c) 加「`rawLength` 比交回的文字還短」與「剔除之後沒有看得見的字」也是 `READ-FAIL`，`truncated` 另由「原文長度超過上限」算；剔除加 noncharacter；~~(d) 寫明是比中止條款保守的一邊、只在主機**換到**驗證服務時觸發，待使用者裁決~~ → b35（使用者 2026-10-05 裁決）：分頁在已知的驗證服務上，不論**換到**或**直接落在**，`landing` 印 `OK` 並寫下它、`check` 不給 `READ-OK`、以頁面文字分等人驗證 3／整批暫停 2（沒有訊號是 2）
+
+**b36 verify 補記**（同一條讀取路徑、同一個零）：〈開始前〉的 CLI 探測多一條 `web-read check` 的真呼叫（停在驗證服務上而文字沒有訊號的合成讀取要以 2 結束、不寫出文字）——b34 的 binary 有 `url`、先前的探測全部通過，`check` 卻照 b35 之前的契約印 `READ-OK`；開分頁、導航、取 API 的區塊在動作之前自己跑 `web-read url`；`url` 不再修剪網址檔兩端（只去結尾的換行，與 `$(cat …)` 相同）、頂層名稱收 `xn--` 形（與落地主機的檢查同）；IP 形狀的左邊界收 `-`（`app-127-0-0-1.nip.io`；以 live store 讀過的 71 個主機量過，多拒 0 個，2026-10-09）；`check --raw` 的大小量讀進來的目標（先前 lstat 量到 symlink 自己）。負控見 `changelog/2026-10-09-b37-n5-fixes-692-700.md`
 
 ### 第 90 列（#711）
 
@@ -2523,7 +2525,7 @@ PY
 # 2026-10-03：4575｜0｜0
 ```
 
-**第 87 列的量測（2026-10-04，可重跑，唯讀；2026-10-05 第 94 列改寫）**：每個註冊的 store 的 `.gitignore` 是什麼形狀、有沒有區塊。會被 `file add` 拒絕、`doctor` 與兩個匯入報 warning 的是（匯入自 2026-10-05 起報 warning，#700）：**不是 `block`**，而且是 `symlink`、`hardlink`、`NOT-utf8`、`marker-without-rule`、`read-only`、`not-regular`、`too-large`、`broken-symlink`、`unreadable` 之一（`block` 的什麼形狀都放行）：
+**第 87 列的量測（2026-10-04，可重跑，唯讀；2026-10-05 第 94 列改寫；2026-10-09 b36 verify 改規則行的切法與 symlink）**：每個註冊的 store 的 `.gitignore` 是什麼形狀、有沒有區塊。會被 `file add` 拒絕、`doctor` 與兩個匯入報 warning 的是（匯入自 2026-10-05 起報 warning，#700）：`symlink`（**不論有沒有區塊**——git 2.32 起不讀 symlink 的 `.gitignore`，b36 verify；先前指向的內容有區塊就放行）、`broken-symlink`，以及**不是 `block`** 而是 `hardlink`、`NOT-utf8`、`marker-without-rule`、`read-only`、`not-regular`、`too-large`、`unreadable` 之一（一般檔的 `block` 什麼形狀都放行；規則行照 git 的切法比，行首帶空白或 tab、行尾帶 tab 的不算）：
 
 ```bash
 python3 - <<'PY'
@@ -2532,7 +2534,7 @@ cfg = yaml.safe_load(io.open(os.path.expanduser('~/.akashic/config.yaml'), encod
 for k, v in (cfg.get('files') or {}).items():
     p = os.path.join(os.path.expanduser(v), '.gitignore')
     if not os.path.lexists(p): print(k, 'absent'); continue
-    link = os.path.islink(p)   # symlink 跟過去讀：指向的檔已有區塊時照樣放行（b33 verify X5 第 25 列）
+    link = os.path.islink(p)   # symlink 跟過去讀只為了印出形狀：不論有沒有區塊都會被拒／報（git 不讀 symlink 的 .gitignore，b36 verify）
     try: st = os.stat(p)
     except OSError as e: print(k, 'broken-symlink' if link else 'unreadable', e.errno); continue
     if not stat.S_ISREG(st.st_mode): print(k, 'not-regular'); continue
@@ -2541,17 +2543,19 @@ for k, v in (cfg.get('files') or {}).items():
     except OSError as e: print(k, 'unreadable', e.errno); continue
     i = b.find(b'# BEGIN akashic sources')
     rules = {b'sources/', b'/sources/', b'sources', b'/sources', b'sources/*', b'/sources/*', b'sources/**', b'/sources/**'}
-    block = 'no-marker' if i < 0 else ('block' if any(l.strip(b' \t\r') in rules for l in b[i:].split(b'\n')[1:]) else 'marker-without-rule')
+    cut = lambda l: (l[:-1] if l.endswith(b'\r') else l).rstrip(b' ')   # git 的切法：行尾一個 CR、再行尾的空格；行首空白與 tab 不去（b36 verify）
+    block = 'no-marker' if i < 0 else ('block' if any(cut(l) in rules for l in b[i:].split(b'\n')[1:]) else 'marker-without-rule')
     try: b.decode('utf8'); text = b'\0' not in b
     except UnicodeDecodeError: text = False
     kind = 'symlink' if link else ('hardlink' if st.st_nlink > 1 else 'file')
     print(k, len(b), kind, 'utf8' if text else 'NOT-utf8', block, 'writable' if os.access(p, os.W_OK) else 'read-only')   # 寫入權限（第 19 列）
 PY
-# 2026-10-04：main 913 utf8 marker（舊腳本）；2026-10-05：main 913 file utf8 block writable
+# 2026-10-04：main 913 utf8 marker（舊腳本）；2026-10-05：main 913 file utf8 block writable；2026-10-09（b36 的切法）：同
 ```
 
 拒絕與 warning 由 `GitignorePreservationCLITests`（真 binary：Latin-1、UTF-16、mode 000、symlink、已有區塊而尾端有非 UTF-8 位元組，`file add` 與 `doctor` 各驗原有位元組不變）與
-`ServiceTests.testImportWoSRefusesWithoutRewritingAnUndecodableGitignore` 釘住；負控見 `changelog/2026-10-04-b32-f6-fixes-700-703.md`。
+~~`ServiceTests.testImportWoSRefusesWithoutRewritingAnUndecodableGitignore`~~ `ServiceTests.testImportWoSWarnsAndContinuesWithoutRewritingAnUndecodableGitignore`（b35 改名：匯入那一側自此只有 warning、沒有拒絕）釘住；負控見 `changelog/2026-10-04-b32-f6-fixes-700-703.md`。
+「區塊已在」與 git 的判讀一致由 `GitignorePreservationCLITests.testThePresentJudgementAgreesWithGitCheckIgnore` 釘住（13 種規則行加 symlink 與硬連結，每一種都在暫存的 git repo 裡以 `git check-ignore` 對照；負控見 `changelog/2026-10-09-b37-n5-fixes-692-700.md`）。
 
 **第 88 列的量測（2026-10-04；2026-10-05 R4 重量，可重跑）**：棘輪的訊息數應為 0；標題列印出量測條數、合模板的條數、依閘去重的條數與棘輪下限
 （2026-10-04：35 條、合模板 35 條、下限 35、退場區塊 1 個、5 行不掃；2026-10-05 R4：39 條、合模板 39 條、依閘去重 37 條、下限 37——多的四條是

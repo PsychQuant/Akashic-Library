@@ -59,7 +59,7 @@ final class GitignorePreservationCLITests: XCTestCase {
     private func assertDoctorWarns(_ dir: URL, original: Data, file: StaticString = #filePath, line: UInt = #line) throws {
         let r = try cli(["doctor", "--library", dir.path])
         XCTAssertEqual(r.status, 0, r.output, file: file, line: line)
-        XCTAssertTrue(r.output.contains("⚠ .gitignore 沒有 sources 排除區塊，doctor 沒有改寫它"), r.output, file: file, line: line)
+        XCTAssertTrue(r.output.contains("⚠ .gitignore 沒有生效的 sources 排除區塊，doctor 沒有改寫它"), r.output, file: file, line: line)
         XCTAssertEqual(try bytes(dir.appendingPathComponent(".gitignore")), original, "原有內容要逐位元組保留", file: file, line: line)
         XCTAssertTrue(FileManager.default.fileExists(atPath: dir.appendingPathComponent("store.yaml").path), "doctor 照常建佈局", file: file, line: line)
     }
@@ -137,7 +137,9 @@ final class GitignorePreservationCLITests: XCTestCase {
         XCTAssertEqual(try bytes(d.appendingPathComponent(".gitignore")), original)
     }
 
-    /// 正例：UTF-8 檔、沒有區塊、檔尾沒有換行（CRLF 結尾的前一行）——原有位元組逐一保留、補一個 `\n` 後附加區塊；symlink 指向的檔已有區塊時什麼都不做。
+    /// 正例：UTF-8 檔、沒有區塊、檔尾沒有換行（CRLF 結尾的前一行）——原有位元組逐一保留、補一個 `\n` 後附加區塊。
+    /// symlink 指向的檔已有區塊：先前什麼都不做、判成「已在」；b36 verify 起 `file add` 拒絕、`doctor` 報——git（2.32 起）不讀 symlink 的
+    /// `.gitignore`，那個區塊不生效（`testThePresentJudgementAgreesWithGitCheckIgnore` 對真的 git 比過）。兩者都不動 symlink 與它指向的檔。
     func testUTF8GitignoreGetsTheBlockAppendedAfterItsOwnBytes() throws {
         let original = Data("a\r\nb".utf8)
         let dir = try storeDir("append", gitignore: original)
@@ -155,7 +157,12 @@ final class GitignorePreservationCLITests: XCTestCase {
         try FileManager.default.createDirectory(at: linked, withIntermediateDirectories: true)
         try FileManager.default.createSymbolicLink(at: linked.appendingPathComponent(".gitignore"), withDestinationURL: target)
         let r2 = try cli(["file", "add", "linked", linked.path, "--config", config])
-        XCTAssertEqual(r2.status, 0, r2.output)
+        XCTAssertNotEqual(r2.status, 0, r2.output)
+        XCTAssertTrue(r2.output.contains("git（2.32 起）不讀工作樹裡 symlink 的 .gitignore"), r2.output)
+        XCTAssertFalse(r2.output.contains("在它指向的檔加上"), "加在指向的檔也不生效，不得這樣指路：\(r2.output)")
+        let rd = try cli(["doctor", "--library", linked.path])
+        XCTAssertEqual(rd.status, 0, rd.output)
+        XCTAssertTrue(rd.output.contains("⚠ .gitignore 沒有生效的 sources 排除區塊，doctor 沒有改寫它") && rd.output.contains("是 symlink"), rd.output)
         XCTAssertEqual(try bytes(target), withBlock)
         XCTAssertNoThrow(try FileManager.default.destinationOfSymbolicLink(atPath: linked.appendingPathComponent(".gitignore").path))
     }
@@ -178,7 +185,7 @@ final class GitignorePreservationCLITests: XCTestCase {
         chmod(d.appendingPathComponent(".gitignore").path, 0o444)
         let rd = try cli(["doctor", "--library", d.path])
         XCTAssertEqual(rd.status, 0, rd.output)
-        XCTAssertTrue(rd.output.contains("⚠ .gitignore 沒有 sources 排除區塊，doctor 沒有改寫它") && rd.output.contains("沒有寫入權限"), rd.output)
+        XCTAssertTrue(rd.output.contains("⚠ .gitignore 沒有生效的 sources 排除區塊，doctor 沒有改寫它") && rd.output.contains("沒有寫入權限"), rd.output)
         XCTAssertEqual(try bytes(d.appendingPathComponent(".gitignore")), original)
     }
 
@@ -236,26 +243,39 @@ final class GitignorePreservationCLITests: XCTestCase {
     }
 
     /// 標記在、排除規則不在（寫到一半中斷）：不算已在（第 2 列：先前永遠被當成已在而不補）；不改寫既有的區塊、拒絕／報。
-    /// 手工寫的區塊用 `/sources/`、CRLF、前後空白也算數。
+    /// 手工寫的區塊用 `/sources/`、CRLF、行尾空格也算數；**行首帶空白或 tab、行尾帶 tab、CR 不在行尾**的不算——git 不認那幾種
+    /// （b36 verify：先前前後的空白、tab 都剝掉，`  sources  ` 被判成已在，而 git 不排除）。
     func testAMarkerWithoutTheRuleIsNotTreatedAsPresent() throws {
         let half = Data("*.srt\n# BEGIN akashic sources — 存檔的來源內容\n".utf8)
         let a = try storeDir("half-add", gitignore: half)
         let r = try cli(["file", "add", "half", a.path, "--config", config])
         XCTAssertNotEqual(r.status, 0, r.output)
-        XCTAssertTrue(r.output.contains("標記之後沒有排除"), r.output)
+        XCTAssertTrue(r.output.contains("標記之後沒有一行 git 會當成排除"), r.output)
         XCTAssertEqual(try bytes(a.appendingPathComponent(".gitignore")), half)
         let d = try storeDir("half-doctor", gitignore: half)
         let rd = try cli(["doctor", "--library", d.path])
         XCTAssertEqual(rd.status, 0, rd.output)
-        XCTAssertTrue(rd.output.contains("標記之後沒有排除"), rd.output)
+        XCTAssertTrue(rd.output.contains("標記之後沒有一行 git 會當成排除"), rd.output)
         XCTAssertEqual(try bytes(d.appendingPathComponent(".gitignore")), half)
 
-        for (i, rule) in ["/sources/\r\n", "  sources  \n", "sources/**\n"].enumerated() {
+        for (i, rule) in ["/sources/\r\n", "sources  \n", "sources/ \r\n", "sources/**\n"].enumerated() {
             let hand = Data("# BEGIN akashic sources\n# 手寫的\n\(rule)# END akashic sources\n".utf8)
             let dir = try storeDir("hand-\(i)", gitignore: hand)
             let rr = try cli(["file", "add", "hand\(i)", dir.path, "--config", config])
             XCTAssertEqual(rr.status, 0, "\(rule)：\(rr.output)")
             XCTAssertEqual(try bytes(dir.appendingPathComponent(".gitignore")), hand, "手工區塊不改寫")
+        }
+        for (i, rule) in ["  sources  \n", "\tsources/\n", "sources/\t\n", "sources/\r \n"].enumerated() {
+            let hand = Data("# BEGIN akashic sources\n\(rule)# END akashic sources\n".utf8)
+            let dir = try storeDir("hand-off-\(i)", gitignore: hand)
+            let rr = try cli(["file", "add", "handoff\(i)", dir.path, "--config", config])
+            XCTAssertNotEqual(rr.status, 0, "git 不認 \(rule.debugDescription)，不得判成已在：\(rr.output)")
+            XCTAssertTrue(rr.output.contains("行首帶空白或 tab、行尾帶 tab 的 sources/ git 不認"), rr.output)
+            XCTAssertEqual(try bytes(dir.appendingPathComponent(".gitignore")), hand, "既有的區塊不改寫")
+            let d2 = try storeDir("hand-off-doctor-\(i)", gitignore: hand)
+            let rd2 = try cli(["doctor", "--library", d2.path])
+            XCTAssertEqual(rd2.status, 0, rd2.output)
+            XCTAssertTrue(rd2.output.contains("⚠ .gitignore 沒有生效的 sources 排除區塊，doctor 沒有改寫它"), "doctor 要出聲：\(rd2.output)")
         }
     }
 
@@ -349,5 +369,118 @@ final class GitignorePreservationCLITests: XCTestCase {
         XCTAssertEqual(LibraryStore.judgeSourcesIgnore(Array(LibraryStore.sourcesIgnoreBlock.utf8)), .blockPresent)
         XCTAssertEqual(LibraryStore.judgeSourcesIgnore(Array("# BEGIN akashic sources\n!sources/\n".utf8)), .markerWithoutRule, "否定規則不算")
         XCTAssertEqual(LibraryStore.judgeSourcesIgnore(Array("sources/\n# BEGIN akashic sources\n".utf8)), .markerWithoutRule, "規則要在標記之後")
+    }
+
+    // MARK: - b36 verify：判成「已在」要與 git 的判讀一致（#700 MEDIUM 0、LOW 15／22）
+
+    /// 規則行的切法與 git 相同：行尾一個 CR 先去、再去行尾空格；行首的空白與 tab、行尾的 tab、不在行尾的 CR 都是規則的一部分。
+    func testRuleLinesAreCutTheWayGitCutsThem() {
+        func judge(_ rule: String) -> LibraryStore.SourcesIgnoreContent {
+            LibraryStore.judgeSourcesIgnore(Array("# BEGIN akashic sources\n\(rule)\n# END akashic sources\n".utf8))
+        }
+        for rule in ["sources/", "sources/ ", "sources/  ", "sources/\r", "sources/ \r", "/sources/**  "] {
+            XCTAssertEqual(judge(rule), .blockPresent, rule.debugDescription)
+        }
+        for rule in ["  sources/", "\tsources/", " /sources/", "sources/\t", "sources/\r ", "sources/\r\r", "sources/\\ "] {
+            XCTAssertEqual(judge(rule), .markerWithoutRule, "git 不認 \(rule.debugDescription)")
+        }
+        // 檔尾沒有換行時，最後一行同樣去掉行尾的 CR 與空格（git 讀檔時在尾端補一個換行）
+        XCTAssertEqual(LibraryStore.judgeSourcesIgnore(Array("# BEGIN akashic sources\nsources/ \r".utf8)), .blockPresent)
+    }
+
+    /// 一個 store 被判成「區塊已在」（`.present`）若且唯若真的 git 排除 `sources/`：每一種形狀都在暫存的 git repo 裡以
+    /// `git check-ignore` 對照。包括 symlink 指向有區塊的檔（git 2.32 起不讀 symlink 的 `.gitignore`）與硬連結（git 照讀）。
+    /// git 的環境剝掉 `GIT_*`、不讀使用者與系統設定（全域的 excludes 會讓 `sources/` 被別的規則排除）。
+    func testThePresentJudgementAgreesWithGitCheckIgnore() throws {
+        let git = URL(fileURLWithPath: "/usr/bin/git")
+        try XCTSkipUnless(FileManager.default.isExecutableFile(atPath: git.path), "沒有 git")
+        let gitHome = base.appendingPathComponent("git-home")
+        try FileManager.default.createDirectory(at: gitHome, withIntermediateDirectories: true)
+        // 共用名稱 scrubbedGitEnvironment 讓 GitSpawnHygieneTests 認得這一處已剝除 GIT_*（#234／#239）
+        let scrubbedGitEnvironment = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("GIT_") && $0.key != "XDG_CONFIG_HOME" }
+        var env = scrubbedGitEnvironment
+        env["HOME"] = gitHome.path
+        env["GIT_CONFIG_NOSYSTEM"] = "1"
+        env["GIT_CONFIG_GLOBAL"] = "/dev/null"
+        func run(_ args: [String], in dir: URL) -> Int32 {
+            let p = Process()
+            p.executableURL = git
+            p.arguments = ["-C", dir.path] + args
+            p.environment = env
+            p.standardOutput = Pipe(); p.standardError = Pipe()
+            do { try p.run() } catch { return -1 }
+            p.waitUntilExit()
+            return p.terminationStatus
+        }
+        let shared = base.appendingPathComponent("shared-with-block")
+        try Data(LibraryStore.sourcesIgnoreBlock.utf8).write(to: shared)
+        let rules = ["sources/", "/sources/", "sources", "sources/**", "sources/  ", "sources/\r", "sources/ \r",
+                     "  sources/", "\tsources/", "sources/\t", "sources/\r ", "sources/\r\r", "!sources/"]
+        var shapes: [(name: String, setUp: (URL) throws -> Void)] = rules.enumerated().map { i, rule in
+            ("rule-\(i) \(rule.debugDescription)", { dir in
+                try Data("# BEGIN akashic sources\n\(rule)\n# END akashic sources\n".utf8).write(to: dir.appendingPathComponent(".gitignore"))
+            })
+        }
+        shapes.append(("symlink-to-block", { dir in
+            try FileManager.default.createSymbolicLink(at: dir.appendingPathComponent(".gitignore"), withDestinationURL: shared)
+        }))
+        shapes.append(("hardlink-to-block", { dir in
+            let own = dir.deletingLastPathComponent().appendingPathComponent("\(dir.lastPathComponent)-own")
+            try Data(LibraryStore.sourcesIgnoreBlock.utf8).write(to: own)
+            XCTAssertEqual(link(own.path, dir.appendingPathComponent(".gitignore").path), 0)
+        }))
+        var checked = 0
+        for (i, shape) in shapes.enumerated() {
+            let dir = base.appendingPathComponent("git-\(i)")
+            try FileManager.default.createDirectory(at: dir.appendingPathComponent("sources"), withIntermediateDirectories: true)
+            FileManager.default.createFile(atPath: dir.appendingPathComponent("sources/x").path, contents: Data("x".utf8))
+            XCTAssertEqual(run(["init", "-q"], in: dir), 0)
+            try shape.setUp(dir)
+            let rc = run(["check-ignore", "-q", "--", "sources/x"], in: dir)
+            XCTAssertTrue(rc == 0 || rc == 1, "\(shape.name)：git check-ignore 結束碼 \(rc)")
+            let judgedPresent = LibraryStore(root: dir).inspectSourcesIgnore() == .present
+            XCTAssertEqual(judgedPresent, rc == 0, "\(shape.name)：判成「已在」＝\(judgedPresent)，git 排除＝\(rc == 0)")
+            checked += 1
+        }
+        XCTAssertEqual(checked, rules.count + 2)
+    }
+
+    /// 持鎖的程序卡住時，先看不無限期等（b36 verify LOW：先前 `flock(LOCK_SH)` 沒有上限，`doctor` 與兩個匯入卡在連佈局都還沒建的
+    /// 第一步）。上限到了報 `lockTimedOut`，不讀不寫。測試把上限換成 0.3 秒；修前 `ensureLayout` 一直等到放鎖。
+    func testAWedgedLockHolderDoesNotHangTheFirstLook() throws {
+        let (store, gi) = try layoutStore("wedged", gitignore: Data("*.srt\n".utf8))
+        let fd = open(gi.path, O_RDWR)
+        XCTAssertGreaterThanOrEqual(fd, 0)
+        XCTAssertEqual(flock(fd, LOCK_EX), 0)
+        let done = expectation(description: "ensureLayout returns while the lock is still held")
+        let box = ProblemBox()
+        Thread.detachNewThread {
+            box.value = SourcesIgnoreIO.$lockWait.withValue(0.3) { try? store.ensureLayout(sourcesIgnore: .report) }
+            done.fulfill()
+        }
+        wait(for: [done], timeout: 5)
+        flock(fd, LOCK_UN); close(fd)
+        XCTAssertEqual(box.value, .lockTimedOut)
+        XCTAssertEqual(try bytes(gi), Data("*.srt\n".utf8), "沒有寫")
+        let line = SourcesIgnoreProblem.lockTimedOut.warningLines(by: "doctor").first ?? ""
+        XCTAssertTrue(line.contains("持有它的鎖") && line.contains("確認沒有卡住的 akashic 程序"), line)
+    }
+
+    private final class ProblemBox: @unchecked Sendable { var value: SourcesIgnoreProblem? }
+
+    /// 區塊在、但檔案大到 git 不讀（≥ 100 MiB；稀疏檔）：首句不說「沒有 sources 排除區塊」、處置不叫人再加一份
+    /// （b36 verify LOW：先前固定首句與處置讓使用者在已經有區塊的檔裡再貼一份）。
+    func testATooLargeGitignoreThatHasTheBlockIsNotToldToAddAnother() throws {
+        let dir = base.appendingPathComponent("huge-with-block")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let gi = dir.appendingPathComponent(".gitignore")
+        FileManager.default.createFile(atPath: gi.path, contents: Data(LibraryStore.sourcesIgnoreBlock.utf8))
+        XCTAssertEqual(truncate(gi.path, off_t(LibraryStore.gitignoreSizeLimit)), 0)
+        let r = try cli(["doctor", "--library", dir.path])
+        XCTAssertEqual(r.status, 0, r.output)
+        XCTAssertTrue(r.output.contains("⚠ .gitignore 沒有生效的 sources 排除區塊，doctor 沒有改寫它"), r.output)
+        XCTAssertFalse(r.output.contains("沒有 sources 排除區塊"), "區塊在，只是 git 不讀：\(r.output)")
+        XCTAssertTrue(r.output.contains("區塊已在就不會再加一份"), r.output)
+        XCTAssertFalse(r.output.contains("並自己加上下面這段"), r.output)
     }
 }

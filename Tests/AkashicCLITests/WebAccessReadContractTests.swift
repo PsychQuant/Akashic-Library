@@ -27,13 +27,19 @@ final class WebAccessReadContractTests: XCTestCase {
         (try? String(contentsOf: repo.appendingPathComponent(rel), encoding: .utf8)) ?? ""
     }
 
-    /// `anchor` 之後的第一個 ```lang 區塊
+    /// `anchor` 之後的第一個 ```lang 區塊。區塊縮排在清單項目裡（〈開始前〉第 4 點）時，以開頭圍欄的縮排找結尾圍欄、並去掉每行的縮排。
     private static func block(after anchor: String, lang: String) throws -> String {
         let doc = Self.doc
         let a = try XCTUnwrap(doc.range(of: anchor), "web-access.md 找不到「\(anchor)」")
         let open = try XCTUnwrap(doc.range(of: "```\(lang)\n", range: a.upperBound..<doc.endIndex), "「\(anchor)」之後沒有 \(lang) 區塊")
-        let close = try XCTUnwrap(doc.range(of: "\n```", range: open.upperBound..<doc.endIndex))
-        return String(doc[open.upperBound..<close.lowerBound])
+        let lineStart = doc[..<open.lowerBound].lastIndex(of: "\n").map { doc.index(after: $0) } ?? doc.startIndex
+        let lead = String(doc[lineStart..<open.lowerBound])
+        let indent = lead.allSatisfy({ $0 == " " }) ? lead : ""
+        let close = try XCTUnwrap(doc.range(of: "\n" + indent + "```", range: open.upperBound..<doc.endIndex))
+        let body = String(doc[open.upperBound..<close.lowerBound])
+        guard !indent.isEmpty else { return body }
+        return body.split(separator: "\n", omittingEmptySubsequences: false)
+            .map { $0.hasPrefix(indent) ? String($0.dropFirst(indent.count)) : String($0) }.joined(separator: "\n")
     }
 
     override func setUpWithError() throws {
@@ -62,7 +68,8 @@ final class WebAccessReadContractTests: XCTestCase {
                   *) printf '[{"url": "%s#akashic-\(tag)", "title": "t"}]\\n' "$u" ;;
                 esac ;;
               wait) [ -e "$F/wait-fails" ] && exit 1; exit 0 ;;
-              js) out=""; while [ $# -gt 0 ]; do [ "$1" = "--output" ] && out="$2"; shift; done
+              open) touch "$F/opened" ;;
+              js) touch "$F/js-called"; out=""; while [ $# -gt 0 ]; do [ "$1" = "--output" ] && out="$2"; shift; done
                   [ -n "$out" ] && cp "$F/page.json" "$out" && touch "$F/js-wrote" ;;
               *) exit 9 ;;
             esac
@@ -95,10 +102,11 @@ final class WebAccessReadContractTests: XCTestCase {
 
     /// 跑文件裡的一個區塊：佔位符換成這裡的值；`land` 非 nil 時把 `LAND="-"` 換成那個值、`expect` 非 nil 時把 `EXPECT="-"` 換成那個值
     /// （接上落地主機檢查的 skill 的寫法）
-    private func run(_ anchor: String, land: String? = nil, expect: String? = nil) throws -> (status: Int32, out: String) {
+    private func run(_ anchor: String, land: String? = nil, expect: String? = nil, extraPath: String? = nil) throws -> (status: Int32, out: String) {
         var script = try Self.block(after: anchor, lang: "bash")
             .replacingOccurrences(of: "<P>", with: "個人").replacingOccurrences(of: "<T>", with: tag)
             .replacingOccurrences(of: "<W>", with: w.path).replacingOccurrences(of: "<序號，字面值，逐次遞增>", with: "7")
+            .replacingOccurrences(of: "<序號>", with: "7")
         if let land {
             XCTAssertTrue(script.contains("LAND=\"-\""), "區塊要有預設的 LAND=\"-\"：\(script)")
             script = script.replacingOccurrences(of: "LAND=\"-\"", with: "LAND=\"\(land)\"")
@@ -111,7 +119,7 @@ final class WebAccessReadContractTests: XCTestCase {
         p.executableURL = URL(fileURLWithPath: "/bin/bash")
         p.arguments = ["-c", script]
         let home = w.deletingLastPathComponent().appendingPathComponent("home").path
-        p.environment = ["PATH": fake.appendingPathComponent("bin").path + ":" + CLITestHarness.productsDirectory.path + ":/usr/bin:/bin",
+        p.environment = ["PATH": (extraPath.map { $0 + ":" } ?? "") + fake.appendingPathComponent("bin").path + ":" + CLITestHarness.productsDirectory.path + ":/usr/bin:/bin",
                          "HOME": home, "AKASHIC_HOME": home + "/.akashic-home", "LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8"]
         let o = Pipe(); p.standardOutput = o; p.standardError = o
         try p.run()
@@ -167,17 +175,68 @@ final class WebAccessReadContractTests: XCTestCase {
     }
 
     /// 讀取的運算式檔不在：區塊在動到分頁之前以 1 停下（b33 verify X2 第 12 列：先前 `"$(cat 缺檔)"` 不觸發 `set -e`，空字串被當成 JS 交給
-    /// `safari-browser js`）。
+    /// `safari-browser js`），**而且上一輪的文字、讀回的 JSON 與前後主機檔已經刪掉**（b36 verify：先前這個檢查排在清理與 trap 之前，
+    /// 停下時留著上一輪的 `first-<T>.txt`／`r-<K>.txt`，可能被讀成這一輪的）。
     func testTheReadBlocksStopBeforeTouchingTheTabWhenTheExpressionIsMissing() throws {
-        for (anchor, js) in [(Self.blockTwo, "read-3000.js"), (Self.readBlock, "read-20000.js")] {
+        for (anchor, js, old) in [(Self.blockTwo, "read-3000.js", ["first-\(tag).txt", "raw-first-\(tag).json", "o-before-\(tag).txt", "o-after-\(tag).txt"]),
+                                  (Self.readBlock, "read-20000.js", ["r-7.txt", "raw-7.json", "o-before-7.txt", "o-after-7.txt"])] {
             try FileManager.default.removeItem(at: w.appendingPathComponent(js))
+            for name in old { try plant(name) }
             try safariReports([good])
             try pageReturns(["truncated": false, "rawLength": 4, "text": "text"])
             let r = try run(anchor)
             XCTAssertEqual(r.status, 1, r.out)
             XCTAssertTrue(r.out.contains("\(js) missing"), r.out)
             XCTAssertFalse(FileManager.default.fileExists(atPath: fake.appendingPathComponent("count").path), "「\(anchor)」：不得先動到分頁")
+            for name in old { XCTAssertFalse(exists(name), "「\(anchor)」：上一輪的 \(name) 要先刪掉") }
             try "x".write(to: w.appendingPathComponent(js), atomically: true, encoding: .utf8)
+        }
+    }
+
+    // MARK: - 〈開始前〉的 CLI 探測（#692 b36 verify MEDIUM）
+
+    private static let startProbe = "## 開始前"
+
+    /// 真的 binary 過得了〈開始前〉第 4 點的探測（全部是真呼叫）。
+    func testTheStartProbePassesWithTheCurrentCLI() throws {
+        let r = try run(Self.startProbe)
+        XCTAssertEqual(r.status, 0, r.out)
+    }
+
+    /// 替身 CLI：有 `web-read url`（b34），`check` 卻是 b35 之前的契約——停在已知驗證服務上而文字沒有訊號的讀取印 `READ-OK`、以 0
+    /// 結束並寫出文字。探測要攔下它（先前只呼叫 `origin` 與 `url`，b34 的 binary 全部通過，讀取區塊之後沒有別的文字檢查）。
+    func testTheStartProbeStopsACLIWithTheOldCheckContract() throws {
+        let standIn = fake.appendingPathComponent("old-cli")
+        try FileManager.default.createDirectory(at: standIn, withIntermediateDirectories: true)
+        let real = CLITestHarness.productsDirectory.appendingPathComponent("akashic").path
+        let script = """
+            #!/bin/bash
+            if [ "$1" = "web-read" ] && [ "$2" = "check" ]; then
+              out=""; raw=""; while [ $# -gt 0 ]; do case "$1" in --out) out="$2" ;; --raw) raw="$2" ;; esac; shift; done
+              printf 'text' > "$out"; rm -f "$raw"
+              echo "READ-OK host='https://challenges.cloudflare.com' truncated=no raw_length=21 kept=21"; exit 0
+            fi
+            exec "\(real)" "$@"
+            """
+        try script.write(to: standIn.appendingPathComponent("akashic"), atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: standIn.appendingPathComponent("akashic").path)
+        let r = try run(Self.startProbe, extraPath: standIn.path)
+        XCTAssertEqual(r.status, 1, r.out)
+        XCTAssertTrue(r.out.contains("web-read check 把已知驗證服務上沒有訊號的頁面讀成內容"), r.out)
+    }
+
+    // MARK: - 開分頁、導航、取 API 的區塊自己跑網址檢查（#692 b36 verify LOW）
+
+    /// 網址檢查寫在動作的區塊裡：不合格的網址（主機是塞進名稱的 IP）讓區塊在開分頁、導航、發請求之前以 4 停下。
+    func testTheBlocksThatSendARequestCheckTheUrlFirst() throws {
+        try "https://app-127-0-0-1.nip.io/admin\n".write(to: w.appendingPathComponent("url-7.txt"), atomically: true, encoding: .utf8)
+        for (anchor, marker) in [("區塊一，開分頁。", "opened"), ("同一站要讀下一頁時不另開分頁", "js-called"), ("## 取一次 API", "js-called")] {
+            try? FileManager.default.removeItem(at: fake.appendingPathComponent(marker))
+            try safariReports([good])
+            let r = try run(anchor)
+            XCTAssertEqual(r.status, 4, "「\(anchor)」：\(r.out)")
+            XCTAssertTrue(r.out.contains("URL-REJECT"), r.out)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: fake.appendingPathComponent(marker).path), "「\(anchor)」：不得送出請求")
         }
     }
 

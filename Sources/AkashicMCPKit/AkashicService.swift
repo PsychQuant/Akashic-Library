@@ -3349,7 +3349,8 @@ public final class AkashicService {
     /// `gitignoreWarningKey` 的值：與 CLI `doctor`／`import-zotero` 同一份文字（`SourcesIgnoreProblem.warningLines`），以換行接起來。
     /// 只含固定句、errno 數字與系統的固定英文說明、常數區塊——不含使用者資料。
     static func gitignoreWarning(_ problem: SourcesIgnoreProblem, by tool: String) -> String {
-        problem.warningLines(by: tool, note: SourcesIgnoreProblem.importContinuedNote).joined(separator: "\n")
+        problem.warningLines(by: tool, note: SourcesIgnoreProblem.importContinuedNote, rerun: SourcesIgnoreProblem.importRerun)
+            .joined(separator: "\n")
     }
 
     // MARK: - Internals

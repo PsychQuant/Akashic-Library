@@ -425,14 +425,14 @@ actor AkashicMCPServer {
         Tool(name: "akashic_import_wos",
              description: "匯入 Web of Science 匯出檔（tab-delimited；csv:true 改逗號分隔）。"
                         + "無損匯入：12 具名欄對映＋其餘欄位原樣入 fields；idempotent（citekey＋內容）、既有記錄只補缺欄（enriched）、內容分歧不覆寫（conflicts）。"
-                        + "回傳完整 report（created/unchanged/enriched/conflicts/aliasGroups/skippedRows/droppedColumns）。"
-                        + "path 是 server 本機路徑。建議先 dry_run:true 看報告；清單層 QA 見 akashic-import-wos skill。" + legacyCopyNote,
+                        + "回傳 report（created/unchanged/enriched/conflicts/aliasGroups/skippedRows/droppedColumns）。"
+                        + "path 是 server 本機路徑。建議先 dry_run:true；清單層 QA 見 akashic-import-wos skill。" + legacyCopyNote,
              inputSchema: obj([
                 "path": str("WoS 匯出檔路徑（server 本機；~ 可用）"),
                 "csv": .object(["type": .string("boolean"),
                                 "description": .string("true＝來源是逗號分隔（預設 tab）")]),
                 "dry_run": .object(["type": .string("boolean"),
-                                    "description": .string("true＝只回報會做什麼，不寫檔（預設 false）")]),
+                                    "description": .string("true＝不寫記錄（佈局與 .gitignore 區塊照建；預設 false）")]),
              ], required: ["path"])),
         // #664：Semantic Scholar（附在陣列最後：不改變既有工具對 client 的呈現順序）。與 CLI `akashic s2` 共用 AkashicS2；契約細節在 `akashic s2 --help`。
         Tool(name: "akashic_s2",

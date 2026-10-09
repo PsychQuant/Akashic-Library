@@ -258,14 +258,17 @@ public struct LibraryIndex {
         try db.execute("COMMIT")
         db.closeForHandoff()   // 換位前必須關閉——SQLite 對已開啟檔案的搬移無定義行為
 
-        // atomic 換位。`replaceItemAt` 在同一 volume 上是 rename(2)，查詢端永遠看到
-        // 「舊的完整 index」或「新的完整 index」，沒有中間態。目的檔不存在時
-        // `replaceItemAt` 會失敗，退回直接 move。
+        // atomic 換位：rename(2)，查詢端永遠看到「舊的完整 index」或「新的完整 index」，沒有中間態。temp 與 index 在同一個目錄，
+        // 不跨 volume。目的檔在不在都是同一個呼叫——先前「在就 `replaceItemAt`、不在就 `moveItem`」是先看後做：兩個同時重建的程序都看到
+        // 不在、都去 move，後到的撞上前一個剛放好的檔而失敗（`… couldn't be moved … because an item with the same name already exists`；
+        // 6 個 `doctor` 同時跑約 2／120 次，b34 changelog 與 b36 verify 實測）。rename(2) 對已存在的目的檔原子取代，後到的照樣成功。
         let fm = FileManager.default
-        if fm.fileExists(atPath: finalURL.path) {
-            _ = try fm.replaceItemAt(finalURL, withItemAt: tmpURL)
-        } else {
-            try fm.moveItem(at: tmpURL, to: finalURL)
+        if rename(tmpURL.path, finalURL.path) != 0 {
+            let code = errno
+            throw CocoaError(.fileWriteUnknown, userInfo: [
+                NSUnderlyingErrorKey: NSError(domain: NSPOSIXErrorDomain, code: Int(code)),
+                NSFilePathErrorKey: finalURL.path,
+            ])
         }
         // SQLite 的 -wal / -shm 屬於舊 index，換位後是孤兒且會讓新 index 讀到舊狀態。
         for suffix in ["-wal", "-shm"] {

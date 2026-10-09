@@ -3,7 +3,7 @@ import Foundation
 import AkashicCore
 import AkashicSkillTools
 
-/// `web-access.md` 讀頁面的三個檢查（#692 R4 verify：文件裡的 `check-read.py` 移植成 Swift，見 `WebRead`）。
+/// `web-access.md` 讀頁面的四個檢查（#692 R4 verify：文件裡的 `check-read.py` 移植成 Swift，見 `WebRead`；b34 加開分頁之前的 `url`）。
 ///
 /// 全部**不寫 store、不連網、不碰瀏覽器**：輸入是 skill 寫進暫存目錄的檔與 `safari-browser documents --json` 的輸出，
 /// 輸出是一行判定與（`landing`、`check` 通過時）一個暫存檔。`landing` 與 `check` 會**刪** `--out`／`--raw` 指的檔——只刪一般檔或 symlink，
@@ -40,10 +40,12 @@ struct WebReadURLCmd: ParsableCommand {
         commandName: "url",
         abstract: "開分頁之前檢查要開的網址：URL-OK＝0 才開；主機形狀不合＝4；其餘形狀不合或讀不到＝1",
         discussion: """
-        網址整串：https、ASCII 主機（國際化網域名稱寫成 xn-- 形）、不帶埠號；路徑與查詢只收 A–Z a–z 0–9 與 ._~%!*+,;=:@/()-（查詢另收 ?&）；\
-        不含 #、引號、反斜線、反引號、$、空白；路徑段百分比解碼後不得是 . 或 ..。主機另過與 landing 同一個形狀檢查（私有、本機或特殊用途的\
-        頂層名稱如 .local .home .test .example .onion，IP 位址的形狀如 127.0.0.1.nip.io，都不收）。只印主機。這是形狀檢查：擋不了解析到\
-        私有位址的公開名稱，也擋不了轉址之後的主機（那由 landing 驗）。
+        網址整串：https、ASCII 主機（國際化網域名稱寫成 xn-- 形，頂層名稱也可以是 xn-- 形）、不帶埠號；路徑與查詢只收 A–Z a–z 0–9 與 \
+        ._~%!*+,;=:@/()-（查詢另收 ?&）；不含 #、引號、反斜線、反引號、$、空白；路徑段百分比解碼後不得是 . 或 ..。網址檔不修剪：只去掉結尾的\
+        換行（與 "$(cat …)" 相同），前後的空白、CR 都算形狀不合——檢查的要就是 shell 開出去的那一份。主機另過與 landing 同一個形狀檢查（私有、\
+        本機或特殊用途的頂層名稱如 .local .home .test .example .onion，IP 位址的形狀如 127.0.0.1.nip.io、app-127-0-0-1.nip.io，都不收）。\
+        只印主機。這是形狀檢查：擋不了解析到私有位址的公開名稱（foo.nip.io 這類萬用 DNS、7f000001.nip.io 的十六進位形都過得了），\
+        也擋不了轉址之後的主機（那由 landing 驗）。
         """)
 
     @Option(name: .long, help: "要開的網址檔（一行；web-access.md 的 <W>/url-<序號>.txt）")

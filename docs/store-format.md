@@ -1343,20 +1343,23 @@ reference；遷移留下的認不出的角色只能手改 YAML）。倖存者有
 處置相同；追蹤的是**指涉紀錄**（references 欄位），不是被指涉的位元組。
 `ensureLayout()` 建 `sources/` 並寫入 `.gitignore` 標記區塊（`# BEGIN akashic
 sources` … `# END`；idempotent——標記已在、而且標記之後有一行排除規則（`sources/`，或 `/sources/`、`sources/**` 這類手工寫法，
-`LibraryStore.sourcesRuleLines` 是封閉列舉）就不寫也不改寫，含手工版本）。標記以**位元組**比對；
+`LibraryStore.sourcesRuleLines` 是封閉列舉；一行照 git 讀 `.gitignore` 的切法比——行尾一個 CR、再行尾的空格去掉，行首的空白與 tab、
+行尾的 tab 是規則的一部分，git 不認那種寫法，所以不算，#700 b36 verify）就不寫也不改寫，含手工版本）。標記以**位元組**比對；
 要加區塊時只在尾端**附加位元組**（檔尾不是換行先補一個），原有的位元組一個都不動。**看與寫之間**（#700 b33 verify）：真的要寫時開檔、
 取 `flock(LOCK_EX)`、在鎖內重讀一次內容再決定——同時跑的兩個 akashic 程序一個寫、另一個看到區塊已在就算成功，第一次看也先取 `flock(LOCK_SH)`、等持鎖的寫入者寫完（先前以 inode 與大小比對
 代替鎖，實測會寫出兩份區塊、並對已在的區塊報假拒絕與假警告）；寫到一半失敗時只截掉這一次寫進去的位元組（大小還是「原長＋這一次寫的」
 才截），截不回來具名回報。檔案系統不支援 `flock` 時不鎖、照常往下（鎖內重看仍擋得住「別人已經寫好」，擋不住兩邊同時寫）。
+等鎖有上限（10 秒，#700 b36 verify）：持鎖的程序卡住時不無限期等，報「另一個程序持有它的鎖」、不讀不寫。
 **讀不懂的 `.gitignore` MUST NOT 被改寫**（#700 b31 W5）：讀不到、不是 UTF-8 文字（含非 UTF-8 位元組或 NUL——Latin-1、UTF-16
-存的檔）、是 symlink 而指向的內容沒有區塊、symlink 打不開（懸空、迴圈、不可讀）、不是一般檔、有其他硬連結、大到 git 不讀
+存的檔）、是 symlink（不論指向的內容有沒有區塊——git 2.32 起不讀工作樹裡 symlink 的 `.gitignore`，#700 b36 verify）、symlink 打不開（懸空、迴圈、不可讀）、不是一般檔、有其他硬連結、大到 git 不讀
 （≥ 100 MiB：git 不讀這麼大的 `.gitignore`，附加會讓原本生效的檔越過那條線）、有標記沒有排除規則（寫到一半中斷）、沒有寫入權限
 （以有效 uid 判）時，`file add` 在建立任何東西之前具名拒絕、訊息附上要自己加的那段；`doctor` 與兩個匯入（`import-zotero`、MCP 的
 `akashic_import_zotero`／`akashic_import_wos`，含 `dry_run`）照常建佈局、`.gitignore` 不動、報一則 warning（`doctor` 印在 stdout、
 `import-zotero` 印在 stderr、MCP 放在回應的 `gitignoreWarning`；三處同一份文字，附上要自己加的那段）。匯入改成 warning 是使用者 2026-10-05
 的裁決（#700）：匯入本身不寫 `sources/`，擋存檔進版控的防線是下面那道寫入存檔前的 git 驗證——store 在 git 裡而 `sources/` 沒被排除時它拒寫。`file add` 開檔、取鎖、
-寫入這一段才發現的原因（寫入失敗、看與寫之間一直在變）在佈局建好之後才擲出，訊息說是哪一種。symlink 與硬連結不經它寫入（那個檔可能在 store 之外、被別處共用）；指向的內容已有
-區塊時照樣什麼都不做。先前讀不出來就當成空檔、整份以只含區塊的內容替換，
+寫入這一段才發現的原因（寫入失敗、看與寫之間一直在變）在佈局建好之後才擲出，訊息說是哪一種。symlink 與硬連結不經它寫入（那個檔可能在 store 之外、被別處共用）；~~指向的內容已有
+區塊時照樣什麼都不做~~ → symlink 不論指向的內容有沒有區塊都不算已在（git 不讀它，#700 b36 verify）；硬連結的檔已有區塊時照樣什麼都不做
+（git 讀硬連結）。先前讀不出來就當成空檔、整份以只含區塊的內容替換，
 使用者原有的規則（擋 raw 逐字稿的 `*.srt` 之類）全部消失；symlink 被換成一般檔。寫入存檔
 前 **MUST** 以 git 自身的忽略判定驗證排除生效（fail-closed）：未生效拒寫、git 不可
 用拒寫；store 非 git repo 時跳過驗證，跳過的事實記錄在寫入回條。

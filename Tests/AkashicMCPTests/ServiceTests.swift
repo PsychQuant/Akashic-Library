@@ -668,7 +668,7 @@ final class ServiceTests: XCTestCase {
     }
 
     /// #700（使用者 2026-10-05 裁決第 1 項）：MCP 的匯入也經 `ensureLayout`——`.gitignore` 讀不懂（這裡是 Latin-1、沒有 sources 區塊）時
-    /// **照常匯入**、`.gitignore` 逐位元組不變，回應帶 `gitignoreWarning`（原因、匯入照常完成、要自己加的那段）。b31 W5 到 b34 是在寫任何東西
+    /// **照常匯入**、`.gitignore` 逐位元組不變，回應帶 `gitignoreWarning`（原因、匯入不因此中止、要自己加的那段）。b31 W5 到 b34 是在寫任何東西
     /// 之前拒絕；匯入本身不寫 sources/，擋存檔進版控的防線在 store-source（下一支測試）。
     func testImportWoSWarnsAndContinuesWithoutRewritingAnUndecodableGitignore() throws {
         let ignore = root.appendingPathComponent(".gitignore")
@@ -680,11 +680,13 @@ final class ServiceTests: XCTestCase {
         // dry_run 也經 ensureLayout：同一則警告、不寫 entry
         let dry = try json(try service.importWoS(path: path, csv: false, dryRun: true)) as! [String: Any]
         let dryWarning = try XCTUnwrap(dry[AkashicService.gitignoreWarningKey] as? String, "\(dry)")
-        XCTAssertTrue(dryWarning.contains("不是 UTF-8") && dryWarning.contains("匯入照常完成"), dryWarning)
+        XCTAssertTrue(dryWarning.contains("不是 UTF-8") && dryWarning.contains("匯入不因此中止"), dryWarning)
+        XCTAssertFalse(dryWarning.contains("照常完成"), "dry_run 沒有匯入任何東西：\(dryWarning)")
         XCTAssertEqual(try LibraryStore(root: root).load().entries.count, before, "dry_run 不寫 entry")
         let obj = try json(try service.importWoS(path: path, csv: false, dryRun: false)) as! [String: Any]
         let warning = try XCTUnwrap(obj[AkashicService.gitignoreWarningKey] as? String, "\(obj)")
-        XCTAssertTrue(warning.hasPrefix("⚠ .gitignore 沒有 sources 排除區塊，akashic_import_wos 沒有改寫它：") && warning.contains("不是 UTF-8"), warning)
+        XCTAssertTrue(warning.hasPrefix("⚠ .gitignore 沒有生效的 sources 排除區塊，akashic_import_wos 沒有改寫它：") && warning.contains("不是 UTF-8"), warning)
+        XCTAssertTrue(warning.contains("後跑 akashic doctor（或重跑匯入）"), warning)
         XCTAssertTrue(warning.contains("store-source 拒絕寫入") && warning.contains("    sources/"), "說出防線在哪、附上要加的那段：\(warning)")
         XCTAssertEqual((obj["created"] as? [String])?.count, 1, "照常匯入：\(obj)")
         XCTAssertEqual(try Data(contentsOf: ignore), original, "原有內容要逐位元組保留")

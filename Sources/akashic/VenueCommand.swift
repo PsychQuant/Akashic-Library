@@ -355,7 +355,7 @@ struct UpdateVenueCmd: ParsableCommand {
                                    + "改寫是判定：理由只印在報告（nameSegments[].reason，全文），不寫進 store——要留在 git 就寫進 commit message；"
                                    + "改寫前的內容只剩 git 的副本，所以這個 venue 檔要已在 git 裡 commit（tracked、無未提交修改），否則整批拒絕。"
                                    + "每一項都沒有變動時不寫檔、不過 git 閘（報告 written: false）。一次至多 200 筆。"
-                                   + "報告：nameSegments（逐項 name／action：set／remove／unchanged、before／after 的欄位、reason）、namesTotal；"
+                                   + "報告：nameSegments（逐項 name／action：set／remove／unchanged、before／after 的欄位——每段 attested 至多 20 個，超過時最後一項說出省略數；reason）、namesTotal；"
                                    + "寫檔之後 index 重建失敗時呼叫仍回成功、報告多 indexRebuilt: false 與 indexNote（要跑 akashic doctor 重建）。沒有乾跑；含 remove 的一次呼叫在未指名目標 store（--library／--yes）時拒絕（#564 使用者 2026-10-05 裁決：會刪判定記錄的移除腿過閘），只有 set 的不閘；另有 git 閘與整批拒絕零寫入"))
     var editNameSegment: String?
 

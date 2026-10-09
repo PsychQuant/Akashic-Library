@@ -114,7 +114,7 @@ R1 verify（b26 F2 第 8 列）：兩筆攣生在不同批次各跑一次 `autho
 
 R1 verify 的三個程式錯誤與四件要裁決的事，使用者 2026-10-02 四件都選建議方案（#564 的 Decision 留言）：
 
-1. **person 的 `fields.names` 是第六個名字分類面**：替換讓名字進或出 authorized 時 `--judgement`（MCP `judgement`）必填，比照 venue 寫指定／確認／撤回記錄；只動 variant 的不必（**這一句是實作的讀法**，裁決原文是「只要動到 authorized／variant 就要 --judgement」——person 的 variant 沒有 `field: variant` 的記錄可寫，待使用者確認；R2 verify b29 V1 第 24 列）。替換拿掉有記錄的名字具名拒絕並指出口（R2 起：讓沒有記錄的對外形整個離開 names 放行，見〈修正輪二〉）。
+1. **person 的 `fields.names` 是第六個名字分類面**：替換讓名字進或出 authorized 時 `--judgement`（MCP `judgement`）必填，比照 venue 寫指定／確認／撤回記錄；只動 variant 的不必（**這一句是實作的讀法**，裁決原文是「只要動到 authorized／variant 就要 --judgement」——person 的 variant 沒有 `field: variant` 的記錄可寫，~~待使用者確認~~ → 使用者 2026-10-05 裁決第 3 點確認；R2 verify b29 V1 第 24 列）。替換拿掉有記錄的名字具名拒絕並指出口（R2 起：讓沒有記錄的對外形整個離開 names 放行，見〈修正輪二〉）。
 2. **最後一筆記錄是撤回的名字可以連同記錄一起刪**（打錯字的出路）：venue 擴充 `--edit-name-segment` 的 remove；organization 與 person 各多一條 `--remove-name '<名字>=<理由>'`（MCP `remove_names`）。比照移除面一族：理由必填、只進報告，檔案要先 commit，歷史留在 git。最後一筆不是撤回的拒絕，出口是先撤回、再刪。
 3. **person 合併**：分類一致時被併者的名字分類記錄逐位元組搬到倖存者（上一節）。
 4. **一次至多 200 個名字**：venue 的三條腿合計、organization 的 `authorize`、person 的 `fields.names`、`remove_names`；取其他寫入腿的一次上限（`maxSpecsPerCall`），不另立數字。`authorize-names` 不設：它每個 person 至多三筆，上限防的是單筆記錄被同一句理由灌爆。
@@ -132,13 +132,13 @@ R2 verify 找到七個 MEDIUM（五個集中在合併搬記錄）與二十個 LO
 5. **刪名字**：拒絕依處境給出口（沒有記錄、不在分割裡而最後一筆是指定）；venue 的 variant 名字說出工具面的出口與代價；person 刪完至少留一個名字；organization 回報逐段的時間欄位、source、note；刪記錄改成線性。
 6. **其他**：理由開頭的檢查以性質判（Character 層的前綴）；合併預覽印出搬的記錄的 statement、依接上去的順序（不排序）；文字（organization「只增不減」、update-person 的寫入閘理由、同一句理由重送的說法）。
 
-**未改、交給使用者**：裁決 1 的 variant 讀法（上面第 1 點）；person `fields.names` 附理由時對仍在 authorized 的每個名字都寫確認（R2 verify 第 10 列）；organization 刪名字面的範圍（第 25 列，#557 待裁）；`Venue.displayName` 與 spec 的分岔要開 issue（第 11 列）。前三件使用者 2026-10-05 裁了，見〈修正輪三〉。
+~~**未改、交給使用者**~~ → 下列前三件已裁：裁決 1 的 variant 讀法（上面第 1 點）；person `fields.names` 附理由時對仍在 authorized 的每個名字都寫確認（R2 verify 第 10 列）；organization 刪名字面的範圍（第 25 列，#557 待裁）；`Venue.displayName` 與 spec 的分岔要開 issue（第 11 列）。前三件使用者 2026-10-05 裁了，見〈修正輪三〉。
 
 ## 修正輪三（b33 X1；使用者 2026-10-05 的五點裁決）
 
 使用者 2026-10-05 對 b33 verify 之後的五件裁決（#564 的 Decision 留言），連同 b33 X1 的程式缺陷：
 
-1. **沒有記錄的對外形整個離開 names**：要 format ≥ 22，並替被移出的名字寫一筆「撤回：理由」。記錄錨定 names，所以實作的讀法是「對外形不得在替換裡整個離開 names——放在 variant」：替換讓對外形整個離開 names 一律整批拒絕（有沒有記錄都一樣），出口是把它留在 variant（附理由，寫撤回），之後要刪再用 `--remove-name`。改正拼寫因此仍是一次呼叫。修正輪二的 `authorizedRemovedWithoutRecord` 退場——那條路的理由既不入庫也不在回應、format < 22 的寫入閘因為沒有記錄要寫而沒觸發、也沒有 git 閘（b33 X1 第 0／2／3／8／11／13／18／23 列）。**這一句是實作的讀法**（另一種讀法是自動把它留在 variant；那會讓結果與呼叫端送的整份替換不同），列在 changelog 的「交給使用者」。
+1. **沒有記錄的對外形整個離開 names**：要 format ≥ 22，並替被移出的名字寫一筆「撤回：理由」。記錄錨定 names，所以實作的讀法是「對外形不得在替換裡整個離開 names——放在 variant」：替換讓對外形整個離開 names 一律整批拒絕（有沒有記錄都一樣），出口是把它留在 variant（附理由，寫撤回），之後要刪再用 `--remove-name`。改正拼寫因此仍是一次呼叫。修正輪二的 `authorizedRemovedWithoutRecord` 退場——那條路的理由既不入庫也不在回應、format < 22 的寫入閘因為沒有記錄要寫而沒觸發、也沒有 git 閘（b33 X1 第 0／2／3／8／11／13／18／23 列）。**這一句是實作的讀法**（另一種讀法是自動把它留在 variant；那會讓結果與呼叫端送的整份替換不同），~~列在 changelog 的「交給使用者」~~ → 使用者 2026-10-05（05:18Z）裁：維持現狀。
 2. **只替有變動的名字寫記錄**：進入的寫指定、移出的寫撤回，留下沒動的不寫確認。附了理由而沒有名字進出 authorized，整批拒絕——理由沒有地方放，不靜默丟掉。
 3. **只動 variant 不必理由**：確認修正輪的讀法。
 4. **會刪判定記錄的移除面過目標 store 確認閘**：`update-person`／`update-organization` 的 `--remove-name`，以及 `update-venue` 的三條移除腿（`--edit-name-segment` 帶 `remove` 的呼叫、`--remove-reference`、`--remove-issn`）。三個命令在寫入閘裁決表改成逐腿，其餘腿不刪東西、不閘（person 的 `--dry-run` 不擋；organization 與 venue 沒有乾跑）。`--edit-name-segment` 一條腿裡有兩種動作，只有帶 `remove` 的呼叫過閘、只有 `set` 的不閘。MCP 面不閘（`mcp-cli-parity` 橫切表的 `--yes` 列）。
@@ -149,6 +149,21 @@ R2 verify 找到七個 MEDIUM（五個集中在合併搬記錄）與二十個 LO
 - **合併搬記錄**（第 1／4／9／10／21 列）：被併者依 key 排序再接（結果與處理順序無關）；倖存者已有、而且此刻尾端與分類一致的記錄不重搬（兩筆攣生歷史相同時不把整段再接一遍）；接續以索引做成線性；尾端矛盾以原始倖存者為基準、全部接完之後算一次差集。拒絕訊息的出口依實體、分割與方向各一句（第 6／7／14／25／31／32 列）。
 - **#582 的重複 reference 掃描**（第 5／12 列）：名字分類記錄是有順序的歷史，只報同一個名字同一個分割裡相鄰而彼此相等的；處置不叫人「留一筆」把歷史刪成別的形狀。
 - **替換不把 person 刪到沒有名字**（第 19／40 列）、刪名字的拒絕在 format < 22 說出寫入閘（第 17／30 列）、最後一個名字與 canonical 孿生拼法說出工具面的出口（第 26／28 列）、organization 的出口說出撤不掉的代價（第 20／29 列）、organization 刪名字的段只列有內容的、至多 20 段（第 22／27 列）、person 合併拒絕的出口句放在名字之前（第 24 列）。
+
+## 修正輪四（b36 Y1；b37）
+
+使用者 2026-10-05（05:18Z）對修正輪三留下的三項裁決：對外形整個離開 names 拒絕而不自動留在 variant——**維持現狀**；organization `remove_names` 的 `segments` 少列——**不加回應鍵**；`--edit-name-segment`——**維持一條腿**，裁決表註明只閘 remove。
+
+程式缺陷（b36 Y1）：
+
+- **報告裡一段名字的 `attested` 有上限**（第 0／1／13 列）：organization `remove_names` 的 `segments` 與 venue `edit_name_segment` 的 before／after 每段至多列 20 個觀測點，超過時最後一項說出省略數與總數（不新增回應鍵，同上面第 2 項裁決的取捨）；讀取面照舊全列（`match` 要逐項相同）。先前只截段數，一段兩萬個觀測點一次回 46 萬位元組。
+- **`update-person --fields` 對同 key 兩筆的 person 拒絕**（第 2／14 列）：一般欄位與 names 附理由（含乾跑）在兩筆不同的 person（id 不同）共用 key 時拒絕（同一筆記錄的 legacy 拷貝與其他檔案處境由寫入當下的 #631 前置擋，單檔寫入沒有撕裂、訊息另說同一個操作稍早寫過）。
+- **MCP `judgement` 屬性說明改成實話**（第 3 列）。
+- **organization `--remove-name` 的拒絕在 format < 22 說出寫入閘**（第 7 列）。
+- **合併**：被併者自己的記錄就與分類矛盾時一律拒絕（第 12 列：先前看全部接完之後的最後一筆，被併者依 key 排序，同樣兩份歷史只換 key 拼法就從放行翻成拒絕）；venue variant「不在 variant 卻以指定結尾」的出口改成兩邊都 `--add-variant`（第 11 列）。合併後倖存者 references 的順序：不是名字分類記錄的 reference 在走過每一筆被併者時就接上，名字分類記錄在全部走完之後依 key 順序接——兩類之間的相對順序不承載意義（第 9 列，記在 `docs/store-format.md` §3.5）。
+- 孤兒掃描改成線性（第 8 列）、`--yes` 說明在 `--edit-name-segment` 後面加「（帶 remove 的呼叫）」（第 10 列）。
+
+**issue Expected 3（確認既有的值留記錄）對 person 不成立**（第 5 列）：2026-10-05 裁決第 2 點之後，person 的 `fields.names` 不寫「確認」，而 person 沒有別的面能對既有的對外形說「確認」（`authorize-names` 只指定）——Expected 3 只對 venue 與 organization 成立。這是裁決的後果，不是實作漏項；要不要另給 person 一個確認面，列在 changelog 的「交給使用者」。
 
 ## Implementation Contract
 

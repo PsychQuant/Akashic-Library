@@ -51,3 +51,11 @@
 - [x] 7.3 合併搬記錄：被併者依 key 排序、倖存者已有而尾端一致的不重搬、線性、尾端矛盾以原始倖存者為基準全部接完後算；出口依實體、分割、方向。驗證：`NameClassificationMergeOrderTests`
 - [x] 7.4 #582 的重複 reference 掃描只報名字分類記錄裡相鄰而相等的。驗證：`DuplicateReferenceScanTests`
 - [x] 7.5 拒絕訊息與報告（format 閘、最後一個名字、canonical 孿生、organization 代價與段的上限、person 合併拒絕的出口句位置）。負控、規則、文件、changelog
+
+## 8. 修正輪四（b36 Y1；b37）
+
+- [x] 8.1 報告裡一段名字的 attested 截在 20 個、最後一項說出省略數（organization `remove_names`、venue `edit_name_segment` 的 before／after；讀取面全列）。驗證：`NameClassificationB37Tests` 的兩支 attested 測試
+- [x] 8.2 `update-person --fields` 對兩筆不同的 person 共用同一個 key 整批拒絕（含乾跑）。驗證：`testUpdatePersonRefusesADuplicatedKeyOnEveryFieldsPath`
+- [x] 8.3 MCP `judgement` 屬性說明改成實話。驗證：`NameClassificationSchemaTextTests`（真 binary）
+- [x] 8.4 organization 與 venue 的移除拒絕在 format < 22 說出寫入閘；孤兒掃描線性；`--yes` 說明的限定語。驗證：`NameClassificationB37Tests`、`WriteGateQualifierTests`
+- [x] 8.5 合併：被併者自己不一致就拒絕（結論不取決於 key 拼法）；variant 出口兩邊都 `--add-variant`。驗證：`NameClassificationMergeB37Tests`、改寫的 `NameClassificationMergeOrderTests`。負控、規則、文件、changelog

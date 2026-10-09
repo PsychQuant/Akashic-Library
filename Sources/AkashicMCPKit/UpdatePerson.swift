@@ -165,9 +165,12 @@ public extension AkashicService {
                 + "這次整批拒絕、零寫入" + gate)   // display-safe-exempt: gate 只含 Int 與字面
         }
         // 記錄錨定在**拼法**上（`String ==`，與 `validateReferenceAttachment` 同一把）：替換後 names 沒有那個拼法的記錄會成孤兒
+        // 順序照記錄第一次出現的位置（訊息用），去重另用一個集合——先前以陣列的 contains 去重，O(記錄數 × 孤兒數)（#564 b36 Y1 第 8 列：
+        // 一萬個名字各一筆撤回時這一圈佔掉 2.4 秒）
         var orphaned: [String] = []
+        var orphanedSeen = Set<String>()
         for r in person.references where NameClassificationRecord.isRecord(r) {
-            if let v = r.value, !afterAll.contains(v), !orphaned.contains(v) { orphaned.append(v) }
+            if let v = r.value, !afterAll.contains(v), orphanedSeen.insert(v).inserted { orphaned.append(v) }
         }
         guard orphaned.isEmpty else {
             throw ServiceError.invalid(
@@ -287,6 +290,14 @@ public extension AkashicService {
         if !args.removals.isEmpty { return try removePersonNames(key: key, specs: args.removals, dryRun: dryRun) }
         try Self.checkUpdatePersonFields(fields)
         let load = try store.load()   // 寫前重讀（同 AppState.mutate 的防 lost-update 語意）
+        // 兩筆**不同**的 person（id 不同）共用這個 key：寫進哪一筆是猜（#564 b36 Y1 第 2／14 列：這條 fields 路徑先前沒有，名字分類記錄與一般欄位
+        // 都寫進先載入的那一筆）。乾跑同樣拒（在分岔之前）。同一筆記錄的 legacy 拷貝（id 相同，`crossRecordIssues` 報 warning 的那一種）與其他
+        // 「load 判定它的檔寫入時會被拒」的（`unlocatablePersonKeys` 的第 2 類，#641）不在這裡擋：那是給**多檔**寫入者在第一次寫入之前擋撕裂用的；
+        // 這裡只寫一個檔，那幾類由寫入當下的 #631 前置擋下（零寫入），而且訊息說得更準——同一個操作稍早寫過這一筆時說出來、並把那一筆標成之後的
+        // 寫入沒套用（#705，`WrittenWithLegacyCopyR2Tests`；第一版照 `remove_names` 問整個 `unlocatablePersonKeys`，全套測試抓到它擋在那之前）
+        guard Set(load.people.lazy.filter { $0.key == key }.map(\.id)).count <= 1 else {
+            throw ServiceError.invalid("person「\(displaySafeInvisible(key, max: 200))」無法唯一定位（person key 有不只一筆記錄——akashic validate 以跨記錄 error 列出）——整批拒絕、零寫入")
+        }
         guard var person = load.people.first(where: { $0.key == key }) else {
             throw ServiceError.notFound("person「\(displaySafeInvisible(key, max: 200))」")
         }

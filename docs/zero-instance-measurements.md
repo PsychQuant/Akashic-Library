@@ -962,6 +962,14 @@ R2 讓沒有記錄的對外形一步離開 names、不寫撤回：理由既不�
 
 現在只列帶內容的段、每個名字至多 20 段，總數在既有的 `segmentsRemoved`。2026-10-05 唯讀量測 live store：organization 13 筆，同一個名字最多 1 段。重跑腳本見量測文件
 
+**b37 補記（b36 Y1 第 0／1／13 列）**：b34 的量測只數段數、沒數每段的 attested——還在長的那一軸沒有量到，而報告照樣整列它。b37 起每段的 attested 也截在 20 個（最後一項是「…另 N 個觀測點未列出（共 M 個）」），venue `edit_name_segment` 報告的 before／after 同一個上限；讀取面全列（`match` 要逐項相同）。真 binary 對 b36 重現的形（一段 20,000 個觀測點、`update-organization --remove-name`）：回應 460,506（b36 verify 席在 b089dc73 量的）→ 1,095 位元組（b37 自己量的，同一個形）。量測腳本改成兩軸都量（organization 與 venue 的名字段）。2026-10-09 唯讀量測 live store：organization 13 筆、venue 485 筆，同一個名字最多 1 段、一段最多 0 個觀測點。
+
+### 第 98 列（#564）
+
+**情形欄的其餘部分**
+
+b36 Y1 第 12 列（devil's advocate 席，真 binary）：倖存者 `指定 R`；一筆被併者自己不一致（`撤回：手改` 卻仍在 authorized），另一筆 `確認：C`。不一致那一筆叫 d1 時乾跑通過（d2 的確認最後接上，矛盾被蓋住、validate 全綠），改叫 d9 時同一份內容被拒。b37 起兩種拼法都拒絕並說出那筆被併者（`NameClassificationMergeB37Tests`）。
+
 ## 各列的量測
 
 **第 12 列的零是駁回出來的——量測腳本**（2026-09-03，`~/.akashic/entities`）。第一行印 person 總數與三個計數，對應第 12 列情形欄的 865／11／1／0（有 ≥2 個不同 confirmed literal 的 person、其中跨書寫系統的、其中有兩個彼此無共同 token 拉丁名的）；接著逐人列出那些 literal，**駁回理由要拿這份清單逐筆核對**（實跑：10 組只差縮寫形、標點或大小寫，1 組跨書寫系統）。「拉丁名」的判準寫在腳本裡（至少一個字母，且每個字母的 Unicode 名稱都以 `LATIN ` 或 `FULLWIDTH LATIN ` 開頭——後者是 #568 補的，與 Swift 的 `WritingSystem` 對齊；live store 沒有全形名字，計數不受影響——漢字、假名、諺文、西里爾都不算；不要求 ASCII、不靠 code-point 範圍）。這個判準改了兩次：第一版只排除 CJK，會把其他書寫系統當拉丁名、空 token 會誤算「無共同 token」（Codex R2 抓到）；第二版要求至少一個 ASCII 字母且只認部分拉丁區塊，`É` 單獨會被判非拉丁、`[À-ɏ]` 範圍含 `×`／`÷`（Codex R3 抓到）。三版在 live store 上都得同一組數——邊界案例目前沒有實例，但判準要與散文說的一致：
@@ -2591,26 +2599,60 @@ PY
 
 拒絕本身由 `NameClassificationB34Tests`（format 18 與 22 各一）、`NameClassificationR2Tests.testCorrectingAnUnrecordedAuthorizedSpellingWritesAWithdrawal`、`NameClassificationCorrectionTests.testPersonReplacementWritesOnlyForNamesThatMove` 釘住。
 
-**第 96 列的量測（2026-10-05，可重跑，唯讀）**：organization 數與同一個名字（canonical）最多幾段。讀不到的檔計數，同第 24 列：
+**第 96 列的量測（2026-10-05；b37 2026-10-09 加 attested 一軸與 venue，可重跑，唯讀）**：organization 與 venue 的筆數、同一個名字（canonical）最多幾段、一段最多幾個觀測點（報告截的兩軸）。讀不到的檔計數，同第 24 列：
 
 ```bash
 python3 - <<'PY'
 import collections, glob, io, os, re, unicodedata, yaml
 def canon(s): return re.sub(r'\s+', ' ', unicodedata.normalize('NFC', str(s))).strip()
-orgs = most = bad = 0
+n = {'organization': 0, 'venue': 0}; most = attested = bad = 0
 for f in glob.glob(os.path.expanduser('~/.akashic/entities') + '/*.yaml'):
     try: d = yaml.safe_load(io.open(f, encoding='utf8'))
     except Exception: bad += 1; continue
-    if not isinstance(d, dict) or 'organization' not in d: continue
-    orgs += 1
-    c = collections.Counter(canon(x.get('value') if isinstance(x, dict) else x) for x in d.get('names') or [])
+    if not isinstance(d, dict): continue
+    kind = next((k for k in n if k in d), None)
+    if kind is None: continue
+    n[kind] += 1
+    segs = d.get('names') or []
+    c = collections.Counter(canon(x.get('value') if isinstance(x, dict) else x) for x in segs)
     most = max([most] + list(c.values()))
-print('organization', orgs, '｜同一個名字最多幾段', most, '｜讀不到的檔', bad)
+    attested = max([attested] + [len(x.get('attested') or []) for x in segs if isinstance(x, dict)])
+print('organization', n['organization'], '｜venue', n['venue'], '｜同一個名字最多幾段', most, '｜一段最多幾個觀測點', attested, '｜讀不到的檔', bad)
 PY
-# 2026-10-05：13｜1｜0
+# 2026-10-05（只量 organization 的段數）：13｜1｜0
+# 2026-10-09：organization 13｜venue 485｜1｜0｜0
 ```
 
 **第 97 列的量測（2026-10-05，可重跑）**：模板分岔的訊息數 `LC_ALL=C grep -a -q '規則與守衛分岔了' .build/debug/akashic-guards && .build/debug/akashic-guards zero-instance-rows-audit 2>&1 | grep -c '規則與守衛分岔了'`（應印 0；自證同第 13 列）。棘輪標記搬回規則檔、量測文件不在兩則各有負控（`audit-guards-mutations` 的「棘輪標記出現在規則檔」「量測文件不見」）；它們不是計數，所以這裡不另列指令。
+
+**第 98 列的量測（2026-10-09，可重跑，唯讀）**：名字分類記錄數，與其中「記錄自己的最後一筆就與名字的分類矛盾」的（實體, 分割, 名字）數——合併時這種被併者一律被拒。讀不到的檔計數，同第 24 列：
+
+```bash
+python3 - <<'PY'
+import glob, io, os, re, unicodedata, yaml
+def canon(s): return re.sub(r'\s+', ' ', unicodedata.normalize('NFC', str(s))).strip()
+recs = bad = selfc = 0
+for f in glob.glob(os.path.expanduser('~/.akashic/entities') + '/*.yaml'):
+    try: d = yaml.safe_load(io.open(f, encoding='utf8'))
+    except Exception: bad += 1; continue
+    if not isinstance(d, dict) or not any(k in d for k in ('person', 'venue', 'organization')): continue
+    names = d.get('names') or {}
+    if isinstance(names, dict): authorized = names.get('authorized') or []; variant = []
+    else: authorized = d.get('authorized') or []; variant = d.get('variant') or []
+    member = {'authorized': {canon(x) for x in authorized}, 'variant': {canon(x) for x in variant}}
+    last = {}
+    for r in d.get('references') or []:
+        if not isinstance(r, dict) or r.get('field') not in member: continue
+        j = str(r.get('judgement') or '')
+        if not j.startswith(('指定：', '確認：', '撤回：')): continue
+        recs += 1; last[(r['field'], canon(r.get('value')))] = j[:2]
+    selfc += sum((a == '撤回') == (nm in member[fld]) for (fld, nm), a in last.items())
+print('名字分類記錄', recs, '｜最後一筆與分類矛盾', selfc, '｜讀不到的檔', bad)
+PY
+# 2026-10-09：0｜0｜0
+```
+
+拒絕本身由 `NameClassificationMergeB37Tests.testTheVerdictDoesNotDependOnHowTheInconsistentDoomedIsSpelled` 與改寫過的 `NameClassificationMergeOrderTests` 三支釘住。
 
 ## 附：#711 R1–R4 時寫在第 19 列量測段的量測寫法說明
 

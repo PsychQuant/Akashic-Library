@@ -105,13 +105,13 @@ final class NameClassificationMergeOrderTests: XCTestCase {
 
     // MARK: - 尾端矛盾以原始倖存者為基準、順序無關（第 1／21 列）
 
-    /// 倖存者原本就以撤回結尾（名字仍是對外形）；一筆被併者以指定結尾、另一筆以撤回結尾。合併後的狀態與原始倖存者一樣有那個矛盾——
+    /// 倖存者原本就以撤回結尾（名字仍是對外形）；兩筆被併者自己都一致（一筆指定、一筆確認）。合併後的尾端一致，原始倖存者就有的矛盾
     /// 不是這次帶進來的，兩種順序都放行，結果逐位元組相同。
     func testAPreExistingContradictionIsNotBlamedOnTheMergeInEitherOrder() {
         let keeper = person("k", authorized: ["Xu, Yi"], refs: [record("authorized", "Xu, Yi", .designate, "R"),
                                                               record("authorized", "Xu, Yi", .withdraw, "S")])
         let a = person("a-doom", authorized: ["Xu, Yi"], refs: [record("authorized", "Xu, Yi", .designate, "T")])
-        let b = person("b-doom", authorized: ["Xu, Yi"], refs: [record("authorized", "Xu, Yi", .withdraw, "U")])
+        let b = person("b-doom", authorized: ["Xu, Yi"], refs: [record("authorized", "Xu, Yi", .confirm, "U")])
         let ab = LibraryStore.mergedPersonKeeper(keeper, absorbing: [a, b])
         let ba = LibraryStore.mergedPersonKeeper(keeper, absorbing: [b, a])
         XCTAssertEqual(ab.classificationTailConflicts, [], "原始倖存者就有的矛盾不擋")
@@ -120,8 +120,9 @@ final class NameClassificationMergeOrderTests: XCTestCase {
         XCTAssertEqual(ab.referencesCarried, ba.referencesCarried)
     }
 
-    /// 一筆被併者自己不一致（以撤回結尾而仍是對外形），另一筆接在它後面以指定結尾：合併後的最後一筆一致——先前逐被併者累加，先處理到
-    /// 不一致那一筆時就被擋，結論隨順序翻轉。現在兩種輸入順序同一個結論、同一份結果。
+    /// 一筆被併者自己不一致（以撤回結尾而仍是對外形），另一筆以指定結尾：b34 依 key 排序後讓指定最後接上、放行——把不一致那一筆的 key
+    /// 改成排在後面，同一份內容就被拒（b36 Y1 第 12 列：store 沒有時間資訊說哪一筆較新，依字典序決勝等於讓不可逆合併的結論取決於檔名）。
+    /// 現在被併者自己不一致就拒絕，兩種輸入順序、兩種 key 拼法同一個結論；乾跑與實跑都拒、零寫入。
     func testTheDecisionDoesNotDependOnTheOrderTheDoomedAreGiven() throws {
         let keeper = person("k", authorized: ["Xu, Yi"], refs: [record("authorized", "Xu, Yi", .designate, "R")])
         let first = person("a-doom", authorized: ["Xu, Yi"], refs: [record("authorized", "Xu, Yi", .withdraw, "手改")])
@@ -130,16 +131,16 @@ final class NameClassificationMergeOrderTests: XCTestCase {
         let backward = LibraryStore.mergedPersonKeeper(keeper, absorbing: [second, first])
         XCTAssertEqual(forward.classificationTailConflicts, backward.classificationTailConflicts)
         XCTAssertEqual(forward.keeper.references.map(\.byteExactKey), backward.keeper.references.map(\.byteExactKey))
-        XCTAssertEqual(forward.classificationTailConflicts, [], "依 key 排序後 b-doom 的指定最後接上，尾端一致")
-        XCTAssertEqual(NameClassificationRecord.latestAction(in: forward.keeper.references, name: "Xu, Yi"), .designate)
+        XCTAssertEqual(forward.classificationTailConflicts.map(\.broughtBy), ["a-doom"], "不一致的被併者具名")
 
-        // 走 store（候選順序與 key 順序相反）：乾跑與實跑都放行，說同一份 referencesCarried
+        // 走 store（候選順序與 key 順序相反）：乾跑與實跑都拒絕、零寫入
         let d = try seedPeople(keeper: keeper, doomed: [second, first])
-        let preview = try store.previewResolveDivergence(id: d.id, survivor: "k", overrideReason: nil)
-        XCTAssertEqual(preview.referencesCarried, forward.referencesCarried)
-        let report = try store.resolveDivergence(id: d.id, survivor: "k")
-        XCTAssertFalse(report.hasFailures, report.failures.joined(separator: "\n"))
-        XCTAssertEqual(report.referencesCarried, preview.referencesCarried)
+        XCTAssertThrowsError(try store.previewResolveDivergence(id: d.id, survivor: "k", overrideReason: nil)) { e in
+            guard case DivergenceResolveError.wouldContradictClassificationTail = e else { return XCTFail("\(e)") }
+            XCTAssertTrue(message(e).contains("a-doom"), message(e))
+        }
+        XCTAssertThrowsError(try store.resolveDivergence(id: d.id, survivor: "k"))
+        XCTAssertEqual(Set(try store.load().people.map(\.key)), ["k", "a-doom", "b-doom"], "零寫入")
     }
 
     /// 三筆被併者、六種輸入順序：結論與結果都相同（被併者依 key 排序再接）。
@@ -158,7 +159,8 @@ final class NameClassificationMergeOrderTests: XCTestCase {
             XCTAssertEqual(r.classificationTailConflicts, results[0].classificationTailConflicts)
             XCTAssertEqual(r.referencesCarried, results[0].referencesCarried)
         }
-        XCTAssertEqual(results[0].classificationTailConflicts, [], "d2 的確認最後接上，authorized 的尾端一致")
+        XCTAssertEqual(results[0].classificationTailConflicts.map(\.broughtBy), ["d1"],
+                       "d1 自己以撤回結尾而仍是對外形——不論 d2 的確認是否最後接上，都拒絕（b36 Y1 第 12 列）")
     }
 
     // MARK: - 出口依分割與方向（第 6／7 列）

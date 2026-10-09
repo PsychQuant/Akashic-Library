@@ -334,7 +334,7 @@ actor AkashicMCPServer {
                 ]),
                 "dry_run": .object(["type": .string("boolean"),
                                     "description": .string("true＝只回報會改什麼並預演 format gate、零寫入（預設 false）")]),
-                "judgement": str("fields.names 的理由（動到 authorized 時必填；仍是對外形的寫確認）"),
+                "judgement": str("fields.names 的理由（名字進出 authorized 時必填，否則拒收）"),
                 "rests_on": strArray("judgement 的證據 digest（可省略）"),
                 "remove_names": strArray("刪已撤回的名字（單獨呼叫）：<名字>=理由（只回在 namesRemoved）。最後一筆名字分類記錄要是撤回的 variant 名字，連同記錄一起刪；回報 namesTotal；檔要已 commit（dry_run 不查）"),
              ], required: ["key"])),

@@ -62,6 +62,8 @@ extension AkashicService {
     /// `match` 與 `set` 共用的六個鍵。鍵名同讀取面的 `names[]`（`ended` 不是 `ended_unknown`）與 YAML。
     static let nameSegmentFieldKeys: Set<String> = ["start", "end", "ended", "attested", "source", "note"]
     static let maxNameSegmentAttestedPoints = 200
+    /// 報告（`edit_name_segment` 的 before／after、organization `remove_names` 的 `segments`）每段至多列幾個觀測點（#564 b36 Y1；同 `segmentsListedCap`）。
+    static let nameSegmentAttestedListedCap = 20
 
     /// 一個字串欄位「給了什麼」：一個值，或明確的 `null`（`match`＝要求缺席、`set`＝清除）。沒給的鍵是外層的 nil。
     enum GivenText: Equatable {
@@ -374,7 +376,7 @@ extension AkashicService {
 
     /// 編輯之後的記錄與每一項的結果。**只算不寫**：改完要成立的檢查都在這裡（時間欄位、名字不消失得沒有出路、`Venue.validate()` 的 error 沒有新增），
     /// 任何一項不成立即擲——`editVenueNameSegments` 在它之後才過 git 閘與寫入。
-    static func planNameSegmentEdits(_ specs: [NameSegmentEditSpec], located: [Int], venue: Venue, venueKey: String) throws
+    static func planNameSegmentEdits(_ specs: [NameSegmentEditSpec], located: [Int], venue: Venue, venueKey: String, gate: String = "") throws
         -> (venue: Venue, outcomes: [NameSegmentEditOutcome]) {
         var entries = venue.names.entries
         var removed = Set<Int>()
@@ -404,7 +406,7 @@ extension AkashicService {
         var edited = venue
         edited.names = Timeline(entries.enumerated().filter { !removed.contains($0.offset) }.map(\.element))
         if !removed.isEmpty {
-            try assertRemovalLeavesNoOrphan(original: venue, removed: removed, venueLabel: venueLabel)
+            try assertRemovalLeavesNoOrphan(original: venue, removed: removed, venueLabel: venueLabel, gate: gate)
             // #564 第 2 點：最後一筆記錄是「撤回」的名字整個消失時，它的名字分類記錄一起刪（blocker 只放行這一種）——歷史在 git（git 閘在寫之前）
             let gone = venue.classificationRecordsRemoved(removing: removed)
             Self.removingRecords(gone, from: &edited.references)   // O(R)，與 person／organization 的刪名字同一份（#564 R2 verify：b29 V1 第 16 列）
@@ -424,7 +426,9 @@ extension AkashicService {
 
     /// 移除讓一個名字**整個消失**（它的每一段都被移除）時：不得留下指著它的 `authorized`／`variant`／`field: names` reference，也不得讓 venue 沒有任何名字。
     /// 程式不替人動那些判定——具名拒絕並指路。判準是 `Venue.nameSegmentRemovalBlocker`（#565 合併拒絕訊息推不推薦 remove 也問它），這裡只負責訊息。
-    private static func assertRemovalLeavesNoOrphan(original: Venue, removed: Set<Int>, venueLabel: String) throws {
+    /// `gate`：出口要經 `--authorize`／`--unauthorize` 寫名字分類記錄的三種（authorized、variant、判定史）在 store format < 22 時另起一行說寫入閘
+    /// （`nameClassificationGateNote`；#564 b37——organization 與 person 的 `remove_names` 同一句，b36 Y1 第 7 列查同判斷的路徑時補上）。
+    private static func assertRemovalLeavesNoOrphan(original: Venue, removed: Set<Int>, venueLabel: String, gate: String) throws {
         guard let blocker = original.nameSegmentRemovalBlocker(removing: removed) else { return }
         switch blocker {
         case .noNamesLeft:
@@ -432,7 +436,7 @@ extension AkashicService {
         case .authorized(let name):
             throw ServiceError.invalid(
                 "移除「\(displaySafeInvisible(name, max: 120))」的最後一段會讓它在\(venueLabel)的 authorized 裡成孤兒——程式不替人改對外形的判定；"   // display-safe-exempt: venueLabel 已消毒；name 已消毒
-                + "先用 --unauthorize（MCP unauthorize）把它移出 authorized、或用 --authorize（MCP authorize）把同書寫系統的對外形換成別的名字（這個名字會留在 names），再重跑；整批拒絕、零寫入")
+                + "先用 --unauthorize（MCP unauthorize）把它移出 authorized、或用 --authorize（MCP authorize）把同書寫系統的對外形換成別的名字（這個名字會留在 names），再重跑；整批拒絕、零寫入" + gate)   // display-safe-exempt: gate 只含 Int 與字面（自成一行）
         case .variant(let name):
             // #564 R2 verify（b29 V1 第 1／14／19／23 列）：先前說「variant 目前沒有移除面，只能手改 YAML」——工具面其實有一條路（實測刪掉名字與 4 筆記錄），
             // 訊息把人引去手改 YAML，正是 `replace-endnote-and-zotero` 第 4 條要防的繞過。這條路有代價，一起說
@@ -440,7 +444,7 @@ extension AkashicService {
                 "移除「\(displaySafeInvisible(name, max: 120))」的最後一段會讓它在\(venueLabel)的 variant 裡成孤兒（分割是對 names 的標記，孤兒 variant 是 error）——程式不替人改異寫法的判定；"   // display-safe-exempt: name 與 venueLabel 已消毒
                 + "variant 沒有單獨的撤回腿，出口是先讓它的最後一筆變成撤回再刪：--authorize 它（抬出 variant，寫 variant 的撤回與 authorized 的指定）→ "
                 + "--unauthorize 它（寫 authorized 的撤回），兩次都附 --judgement → commit → 再 remove。代價：同書寫系統原本的對外形會在第一步被換下、留在未標"
-                + "（寫一筆撤回），要再 --authorize 它補回，它的歷史因此多一對撤回／指定；--authorize 每次每個書寫系統只收一個名字，標錯很多個要逐一走；整批拒絕、零寫入")
+                + "（寫一筆撤回），要再 --authorize 它補回，它的歷史因此多一對撤回／指定；--authorize 每次每個書寫系統只收一個名字，標錯很多個要逐一走；整批拒絕、零寫入" + gate)   // display-safe-exempt: gate 只含 Int 與字面（自成一行）
         case .pinnedByReferences(let name, let count):
             throw ServiceError.invalid(
                 "移除「\(displaySafeInvisible(name, max: 120))」的最後一段會讓\(venueLabel)有 \(count) 筆 `field: names` 的 reference 成孤兒（值被改寫後 provenance 成了孤兒、寫入會被拒）——"   // display-safe-exempt: name 與 venueLabel 已消毒；count 是 Int
@@ -450,7 +454,7 @@ extension AkashicService {
             throw ServiceError.invalid(
                 "移除「\(displaySafeInvisible(name, max: 120))」的最後一段會讓\(venueLabel)有 \(count) 筆名字分類的判定記錄成孤兒（它們錨定 names，#564），"   // display-safe-exempt: name 與 venueLabel 已消毒；count 是 Int
                 + "而它的最後一筆不是「撤回」——人說過的判定還成立，刪名字只收已撤回的名字：先撤回（用 --authorize 把它指定為對外形、再用 --unauthorize 撤回，"
-                + "兩次都附 --judgement；最後一筆就是撤回；第一步會換下同書寫系統原本的對外形，要再 --authorize 它補回），再刪——那時它的記錄會隨名字一起刪；整批拒絕、零寫入")
+                + "兩次都附 --judgement；最後一筆就是撤回；第一步會換下同書寫系統原本的對外形，要再 --authorize 它補回），再刪——那時它的記錄會隨名字一起刪；整批拒絕、零寫入" + gate)   // display-safe-exempt: gate 只含 Int 與字面（自成一行）
         }
     }
 
@@ -470,7 +474,8 @@ extension AkashicService {
             throw ServiceError.notFound("venue「\(displaySafeInvisible(key, max: 200))」")
         }
         let located = try Self.locateNameSegments(specs, in: venue, venueKey: key)
-        let plan = try Self.planNameSegmentEdits(specs, located: located, venue: venue, venueKey: key)
+        let plan = try Self.planNameSegmentEdits(specs, located: located, venue: venue, venueKey: key,
+                                                 gate: Self.nameClassificationGateNote(storeFormat: try StoreVersion.read(root: root)))
         let changed = plan.outcomes.filter { $0.kind != .unchanged }.count
         var written = false
         var rebuildFailure: Error?
@@ -493,8 +498,8 @@ extension AkashicService {
         let items: [[String: Any]] = plan.outcomes.enumerated().map { n, o in
             var item: [String: Any] = ["name": displaySafe(o.before.value, max: 200), "action": o.kind.rawValue]   // display-safe-exempt: o.kind.rawValue 是本檔的字面 enum 值
             if detailLimit.map({ n < $0 }) ?? true {
-                item["before"] = Self.nameSegmentFieldsDict(o.before)
-                if let after = o.after { item["after"] = Self.nameSegmentFieldsDict(after) }
+                item["before"] = Self.nameSegmentFieldsDict(o.before, attestedCap: Self.nameSegmentAttestedListedCap)
+                if let after = o.after { item["after"] = Self.nameSegmentFieldsDict(after, attestedCap: Self.nameSegmentAttestedListedCap) }
             }
             // 理由不進 store，報告是它唯一的一份——不截在入口上限之下（#588 R1 verify 的同一條）
             item["reason"] = displaySafe(o.reason, max: Self.maxStatementBytes)   // display-safe-exempt: reason 是呼叫端原文、在這裡消毒一次
@@ -527,13 +532,23 @@ extension AkashicService {
 
     /// 一段名字的時間欄位、`source`、`note` 的輸出形（不含名字本身）：讀取面（`venue`／`akashic_venue` 的 `names[]`）與編輯報告共用——
     /// 讀取面看到的鍵就是 `match`／`set` 收的鍵。字串逐一消毒且有長度上限（超過上限的形只用來認得，定位仍以 YAML 的逐字值為準）。
-    static func nameSegmentFieldsDict(_ seg: TemporalValue<String>) -> [String: Any] {
+    ///
+    /// `attestedCap`：報告（`edit_name_segment` 的 before／after、organization `remove_names` 的 `segments`）傳 `nameSegmentAttestedListedCap`，
+    /// `attested` 至多列這麼多個，超過時最後一項是「…另 N 個觀測點未列出（共 M 個）」（`cappedCitekeys` 同形，**不新增回應鍵**——使用者
+    /// 2026-10-05 對 `segments` 少列的同一個取捨）。#564 b36 Y1 第 0／1／13 列：先前只截段數，一段帶兩萬個觀測點時一次回 46 萬位元組；
+    /// 被刪或被改的段的完整內容在 git 的上一版，報告只是索引。讀取面傳 nil、全列：它呈現的是記錄本身（`match` 要逐項相同，列不全就拼不出），
+    /// 與 person 讀取面的隸屬段同一個做法。
+    static func nameSegmentFieldsDict(_ seg: TemporalValue<String>, attestedCap: Int?) -> [String: Any] {
         var n: [String: Any] = [:]
         if let st = seg.range.start { n["start"] = displaySafe(st, max: 40) }
         if let en = seg.range.end { n["end"] = displaySafe(en, max: 40) }
         if seg.range.endedUnknown { n["ended"] = true }   // display-safe-exempt: Bool
         if !seg.range.attested.isEmpty {
-            n["attested"] = seg.range.attested.map { displaySafe($0, max: 40) }
+            let total = seg.range.attested.count
+            let cap = attestedCap ?? total
+            var listed = seg.range.attested.prefix(cap).map { displaySafe($0, max: 40) }
+            if total > cap { listed.append("…另 \(total - cap) 個觀測點未列出（共 \(total) 個）") }   // display-safe-exempt: Int
+            n["attested"] = listed
         }
         if let s = seg.source { n["source"] = displaySafe(s, max: 300) }
         if let note = seg.note { n["note"] = displaySafe(note, max: 300) }

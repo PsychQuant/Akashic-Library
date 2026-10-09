@@ -237,11 +237,18 @@ extension DestructiveTargetGate {
         }
     })
 
+    /// 一條 `.gated` 的腿只在部分呼叫過閘時，`--yes` 說明裡接在腿名後面的限定語（#564 b36 Y1 第 10 列：生成的句子先前把
+    /// `--edit-name-segment` 寫得像每一次呼叫都要 `--library`／`--yes`，只有 set 的其實不閘）。鍵必須是 `legRulings` 裡 `.gated` 的腿（測試釘住）。
+    static let gatedLegQualifiers: [String: [String: String]] = [
+        "update-venue": ["--edit-name-segment": "（帶 remove 的呼叫）"],
+    ]
+
     /// `--yes` 的說明，由表現算——先前那一句手寫的清單在 #653／#572 各漂過一次。
     static var yesHelp: String {
         let commands = commandRulings.filter { $0.value == .gated }.keys.sorted()
         let legs = legRulings.keys.sorted().compactMap { name -> String? in
             let gated = (legRulings[name] ?? [:]).filter { $0.value == .gated }.keys.sorted()
+                .map { $0 + (gatedLegQualifiers[name]?[$0] ?? "") }
             return gated.isEmpty ? nil : name + " 的 " + gated.joined(separator: "／")
         }
         // 分隔符帶空白：ArgumentParser 只在空白處折行，而 CLI 頂層對輸出逐行截 400（`displaySafeAssembled`）——

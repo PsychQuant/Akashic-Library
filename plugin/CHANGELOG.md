@@ -1,5 +1,18 @@
 # Changelog
 
+## #564 修正輪四 — 報告裡的 attested 有上限、update-person 對同 key 兩筆拒絕、MCP 屬性說明改成實話、合併的結論不取決於 key 拼法（2026-10-09）
+
+b36 verify（Y1）的處置，細節在 `changelog/2026-10-09-b37-n1-fixes-564.md`。
+
+- **`akashic_update_organization` 的 `remove_names`、`akashic_update_venue` 的 `edit_name_segment`**：報告裡每段名字的 `attested` 至多列 20 個，超過時陣列最後一項是「…另 N 個觀測點未列出（共 M 個）」（不新增回應鍵；先前只截段數，一段兩萬個觀測點一次回 46 萬位元組）。`akashic_venue` 的 `names[].attested` 照舊全列。
+- **`akashic_update_person`**：`fields` 的每一條路（一般欄位、`names` 附 `judgement`，含 `dry_run`）對兩筆不同的 person 共用同一個 key 整批拒絕、零寫入——先前寫進先載入的那一筆。`judgement` 屬性的說明改成「名字進出 authorized 時必填，否則拒收」（先前仍寫「仍是對外形的寫確認」）。
+- **`remove_names`（organization）、`edit_name_segment` 的 remove（venue）**：出口要寫名字分類記錄的拒絕在 store format < 22 時另起一行說出寫入閘（修正輪三那一句「拒絕在 format < 22 時說出寫入閘」自此對 organization 也為真）。
+- **合併（CLI `resolve-divergence`）**：被併者自己的名字分類記錄就與分類矛盾時，preview 與實跑一律拒絕並說出那筆被併者——先前結論隨被併者的 key 拼法翻轉；venue variant「不在 variant 卻以指定結尾」的出口改成兩邊都 `--add-variant`。
+- CLI `--yes` 的說明在 `update-venue --edit-name-segment` 後面加「（帶 remove 的呼叫）」。
+- `tools/list`：59,183 → 59,174 bytes（−9；`judgement` 屬性說明改短）。
+
+plugin 版號沒有動（行為在 binary）。
+
 ## #664 — Semantic Scholar 共用接口：MCP 工具 `akashic_s2`、取得順序、設定文件（2026-10-06）
 
 細節在 `changelog/2026-10-06-s2-interface-664.md`。

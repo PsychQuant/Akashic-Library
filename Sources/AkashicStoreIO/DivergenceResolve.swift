@@ -2195,8 +2195,12 @@ extension LibraryStore {
             carried.append(Self.describeCarriedReference(queue[i].from, queue[i].ref))
             carriers[Self.tailGroup(queue[i].ref)] = queue[i].from
         }
-        let tail = Self.classificationTailDelta(before: Self.venueTailConflicts(original), after: Self.venueTailConflicts(keeper),
-                                                carriers: carriers)
+        let isMember: (String, String) -> Bool = { field, name in
+            (field == NameClassificationRecord.variantField ? mergedVariant : mergedAuthorized).contains(NameIdentity.canonical(name))
+        }
+        let tail = Self.withDoomedTailConflicts(
+            Self.classificationTailDelta(before: Self.venueTailConflicts(original), after: Self.venueTailConflicts(keeper), carriers: carriers),
+            Self.doomedTailConflicts(queue, isMember: isMember))
         return (keeper, m.migrated, m.collapsed, carried, tail)
     }
 
@@ -2237,6 +2241,31 @@ extension LibraryStore {
         }
     }
 
+    /// **被併者自己**的名字分類記錄就與分類矛盾的（分割, 名字）（#564 b36 Y1 第 12 列）。只看全部接完之後的最後一筆時，結論取決於誰最後接上，
+    /// 而被併者依 key 排序：兩筆被併者對同一個名字一筆一致、一筆不一致（手改，或修正輪之前的工具），換一個 key 拼法就從放行變成拒絕——
+    /// store 沒有時間資訊說哪一筆較新，依字典序決勝等於讓不可逆合併的結論取決於檔名（`disambiguate-before-irreversible-writes`：政策預設不是判定的
+    /// 替代品）。不替人決勝：被併者帶來的記錄自己就不一致，一律拒絕，與它排在哪裡無關。`queue` 只含分類與倖存者一致、要搬的記錄
+    /// （`venueReferenceCarry`／`personReferenceCarry` 的 carry），所以這裡的分類就是被併者自己的分類。倖存者原本就有的矛盾不在這裡（`classificationTailDelta`）。
+    static func doomedTailConflicts(_ queue: [(from: String, ref: ProvenanceReference)],
+                                    isMember: (_ field: String, _ name: String) -> Bool) -> [ClassificationTailConflict] {
+        var order: [String] = []
+        var byDoomed: [String: [ProvenanceReference]] = [:]
+        for q in queue {
+            if byDoomed[q.from] == nil { order.append(q.from) }
+            byDoomed[q.from, default: []].append(q.ref)
+        }
+        return order.flatMap { from in
+            NameClassificationRecord.tailConflicts(in: byDoomed[from] ?? [], isMember: isMember)
+                .map { ClassificationTailConflict(field: $0.field, name: $0.name, last: $0.last, broughtBy: from) }
+        }
+    }
+
+    /// 合併後的尾端矛盾（`classificationTailDelta`）加上被併者自己的（`doomedTailConflicts`），同一個（分割, 名字, 被併者）只列一次。
+    static func withDoomedTailConflicts(_ delta: [ClassificationTailConflict], _ doomed: [ClassificationTailConflict]) -> [ClassificationTailConflict] {
+        var seen = Set(delta.map { tailGroup(field: $0.field, name: $0.name) + "\u{0}" + ($0.broughtBy ?? "") })
+        return delta + doomed.filter { seen.insert(tailGroup(field: $0.field, name: $0.name) + "\u{0}" + ($0.broughtBy ?? "")).inserted }
+    }
+
     /// 尾端矛盾逐條的說明：名字、分割、最後一筆、誰帶來的。**出口不在這裡**（`tailConflictExits`）——它是不含 store 內容的固定句子，
     /// 接在一行被截到 400 字的說明後面會被長名字擠掉（b33 X1 第 24 列的形）。
     static func describeTailConflicts(_ conflicts: [ClassificationTailConflict], kind: String) -> [String] {
@@ -2251,7 +2280,8 @@ extension LibraryStore {
     /// 尾端矛盾的出口（#564 b33 X1 第 6／7／14／25／31／32 列）：依實體、分割與矛盾的方向各一句，只列這次出現的那幾種。
     /// 先前一句話涵蓋全部——variant 分割「不在 variant 卻以指定結尾」那一格給的是 authorized 的做法（`--authorize` 再 `--unauthorize`
     /// 只寫 authorized 的記錄），照做之後同一則拒絕原樣回來；person「不在 authorized」那一格沒說同書寫系統已有對外形時要交換、交換的代價。
-    /// 每一句都是在**帶來它的被併者**上做（倖存者自己的那一格也在被併者上做：在被併者上補一筆與分類一致的記錄，接過去就成為最後一筆）。
+    /// 每一句都是在**帶來它的被併者**上做（倖存者自己的那一格也在被併者上做：在被併者上補一筆與分類一致的記錄，接過去就成為最後一筆）——
+    /// 例外是 venue variant「要它是異寫」：那一步改了分類，倖存者也要做，否則兩邊分類不同、合併改以「分類不同」拒絕（#564 b36 Y1 第 11 列）。
     static func tailConflictExits(_ conflicts: [ClassificationTailConflict], kind: String) -> [String] {
         var out: [String] = []
         func add(_ s: String) { if !out.contains(s) { out.append(s) } }
@@ -2267,7 +2297,8 @@ extension LibraryStore {
             case (_, NameClassificationRecord.variantField, true):
                 add("仍在 variant 卻以撤回結尾（venue）：update-venue --add-variant 它、附 --judgement（在 variant 裡的名字寫一筆確認）")
             case (_, NameClassificationRecord.variantField, false):
-                add("不在 variant 卻以指定或確認結尾（venue）：要它是異寫就 --add-variant 它（附 --judgement）；要它不是異寫，--add-variant 它、--authorize 它"
+                add("不在 variant 卻以指定或確認結尾（venue）：要它是異寫，被併者與倖存者兩邊都 --add-variant 它（附 --judgement）——只在被併者上做，兩邊分類不同，"
+                    + "合併改以「分類不同」拒絕；要它不是異寫，在被併者上 --add-variant 它、--authorize 它"
                     + "（抬出 variant，寫 variant 的撤回）、再 --unauthorize 它，三次都附 --judgement——同書寫系統原本的對外形在 --authorize 那一步被換下（寫撤回），要再 --authorize 補回")
             case (_, _, true):
                 add("仍在 authorized 卻以撤回結尾（venue）：update-venue --authorize 它、附 --judgement（已是對外形的名字寫一筆確認）")
@@ -2394,8 +2425,9 @@ extension LibraryStore {
             carried.append(Self.describeCarriedReference(queue[i].from, queue[i].ref, kind: "person"))
             carriers[Self.tailGroup(queue[i].ref)] = queue[i].from
         }
-        let tail = Self.classificationTailDelta(before: Self.personTailConflicts(original), after: Self.personTailConflicts(keeper),
-                                                carriers: carriers)
+        let tail = Self.withDoomedTailConflicts(
+            Self.classificationTailDelta(before: Self.personTailConflicts(original), after: Self.personTailConflicts(keeper), carriers: carriers),
+            Self.doomedTailConflicts(queue, isMember: { _, name in authorizedKeys.contains(NameIdentity.canonical(name)) }))
         return (keeper, m.migrated, m.collapsed, carried, tail)
     }
 

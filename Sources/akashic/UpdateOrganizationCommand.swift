@@ -48,7 +48,8 @@ struct UpdateOrganizationCmd: ParsableCommand {
                     + "用 --authorize 把同書寫系統的對外名稱換成別的名字，被換下的會留一筆撤回）：名字的每一段連同它的名字分類記錄一起刪。"
                     + "理由必填、只回在報告（namesRemoved）、不寫進 store；organization 檔要已在 git 裡 commit、無未提交修改，未指名目標 store（--library／--yes）時拒絕"
                     + "（#564 使用者 2026-10-05 裁決：會刪判定記錄的面過閘；沒有 dry-run）。單獨呼叫，不與 --authorize／--judgement／--rests-on 組合；"
-                    + "一次至多 200 個。沒有記錄、最後一筆不是撤回、還是對外名稱、被 field: names 的 reference 指著、刪完沒有名字，都整批拒絕、零寫入"))
+                    + "一次至多 200 個。沒有記錄、最後一筆不是撤回、還是對外名稱、被 field: names 的 reference 指著、刪完沒有名字，都整批拒絕、零寫入"
+                    + "（出口都經 --authorize 寫記錄：store format < 22 時拒絕訊息一併說出寫入閘）。報告的 segments 每段 attested 至多 20 個，超過時最後一項說出省略數"))
     var removeName: [String] = []
 
     /// --remove-name 沒有乾跑，也沒有「不帶寫入旗標只列候選」的模式——閘的拒絕訊息自己說怎麼辦

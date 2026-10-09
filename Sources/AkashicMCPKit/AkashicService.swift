@@ -3659,7 +3659,7 @@ public final class AkashicService {
             // #675 起多帶 `source`／`note`：`update-venue --edit-name-segment` 的 `match`／`set` 收這六個鍵，而在此之前讀取面看不到後兩個——
             // 同名的兩段只差 source 或 note 時（#565 起合併會拒絕的那種），呼叫端無從認出要改哪一段（能寫不能讀，#218／#219 的形狀）
             "names": record.names.inSerializationOrder.map { seg -> [String: Any] in
-                var n = Self.nameSegmentFieldsDict(seg)
+                var n = Self.nameSegmentFieldsDict(seg, attestedCap: nil)   // 讀取面全列（`match` 要逐項相同）
                 n["value"] = displaySafe(seg.value, max: 200)
                 return n
             },

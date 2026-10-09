@@ -28,7 +28,7 @@ Resolving a person divergence SHALL carry each name-classification record held b
 
 ### Requirement: A merge SHALL keep each name's latest classification record consistent with its classification
 
-A venue or person merge SHALL append the carried name-classification records after the survivor's, taking the merged records in key order and each merged record's records in its own order. A carried record SHALL NOT be appended when it is byte-identical to the latest record of the same name and partition at that moment, or when the survivor already holds a byte-identical record for that name and partition and that latest record agrees with the name's classification after the merge. The result SHALL NOT depend on the order in which the merged records are given. When the merge would leave a name whose latest record is a withdrawal while the name is in that partition, or whose latest record is a designation or confirmation while the name is not, and the original survivor did not hold that contradiction on that name and partition, the merge SHALL be refused in preview and in apply alike; the contradictions SHALL be computed once after all records are carried. The refusal SHALL name a way out for each kind of contradiction present, by entity, partition, and direction.
+A venue or person merge SHALL append the carried name-classification records after the survivor's, taking the merged records in key order and each merged record's records in its own order. A carried record SHALL NOT be appended when it is byte-identical to the latest record of the same name and partition at that moment, or when the survivor already holds a byte-identical record for that name and partition and that latest record agrees with the name's classification after the merge. The result SHALL NOT depend on the order in which the merged records are given. When the merge would leave a name whose latest record is a withdrawal while the name is in that partition, or whose latest record is a designation or confirmation while the name is not, and the original survivor did not hold that contradiction on that name and partition, the merge SHALL be refused in preview and in apply alike; the contradictions SHALL be computed once after all records are carried. The refusal SHALL name a way out for each kind of contradiction present, by entity, partition, and direction. When a merged record's own latest name-classification record on a name and partition it carries contradicts that name's classification, the merge SHALL be refused in preview and in apply alike, naming that merged record, whether or not a record carried after it would make the survivor's latest record agree; whether the merge is refused SHALL NOT depend on the merged records' keys. Carried references that are not name-classification records SHALL be appended as each merged record is walked, before the carried name-classification records; their order relative to those records carries no meaning.
 
 #### Scenario: A redesignation repeats an earlier record
 
@@ -40,6 +40,12 @@ A venue or person merge SHALL append the carried name-classification records aft
 - **WHEN** a merged person's authorized name has `撤回：S` as its latest record
 - **THEN** the merge SHALL be refused
 - **AND** the store SHALL be unchanged
+
+#### Scenario: A merged record contradicts itself whatever its key
+
+- **WHEN** the survivor holds `指定：R` on an authorized name, one merged person holds `撤回：手改` as its latest record on that still-authorized name, and another merged person holds `確認：C` on it
+- **THEN** the merge SHALL be refused naming the first merged person
+- **AND** renaming the first merged person's key so that it sorts after the other SHALL give the same refusal
 
 #### Scenario: Twins with the same history
 

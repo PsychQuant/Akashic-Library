@@ -120,6 +120,9 @@ extension AkashicService {
             throw ServiceError.notFound("organization「\(displaySafeInvisible(key, max: 200))」")
         }
         let holder = "organization「\(displaySafeInvisible(key, max: 200))」"
+        // 出口（`--authorize` 附 `--judgement`）都要寫判定記錄，format < 22 的寫入閘會擋——拒絕訊息先說（#564 b36 Y1 第 7 列：person 那條 b34 補了，
+        // organization 這條沒有；照出口做第一步才吃到第二次拒絕）
+        let gate = Self.nameClassificationGateNote(storeFormat: try StoreVersion.read(root: root))
         var removed: [[String: Any]] = []
         for spec in specs {
             let k = NameIdentity.canonical(spec.name)
@@ -134,7 +137,10 @@ extension AkashicService {
                                                  noRecordHow: Self.organizationNoRecordHow,
                                                  redesignateHow: "--authorize 它、再 --authorize 同書寫系統的另一個名字把它換下，兩次都附 --judgement；換下的那一步寫撤回——"
                                                      + "代價：換上去的那個名字成為對外名稱，organization 沒有 --unauthorize、這個指定工具面撤不掉") {
-                throw ServiceError.invalid(why + "；整批拒絕、零寫入")   // display-safe-exempt: why 由 nameRemovalRefusal 組裝，名字逐項消毒
+                // 三條出口都經 `--authorize`（寫記錄）；只有「記錄讀不出動作」那一格沒有出口，不加
+                let unreadable = !inAuthorized && NameClassificationRecord.latestAction(in: org.references, name: stored) == nil
+                    && !NameClassificationRecord.allRecords(in: org.references, name: stored).isEmpty
+                throw ServiceError.invalid(why + "；整批拒絕、零寫入" + (unreadable ? "" : gate))   // display-safe-exempt: why 由 nameRemovalRefusal 組裝，名字逐項消毒；unreadable 是 Bool；gate 只含 Int 與字面（自成一行）
             }
             let pinned = org.references.filter { $0.field == "names" && $0.value.map { NameIdentity.canonical($0) == k } == true }.count
             guard pinned == 0 else {
@@ -150,8 +156,9 @@ extension AkashicService {
             removed.append(["name": displaySafe(stored, max: 200), "reason": displaySafe(spec.reason, max: Self.maxStatementBytes),   // 理由只在報告裡——不截在入口上限之下
                             "segmentsRemoved": segments.count, "recordsRemoved": records.count,   // display-safe-exempt: Int
                             // 只列帶時間、source 或 note 的段（沒有這些的段回 {} 不帶任何資訊，b33 X1 第 27／34 列），至多 `segmentsListedCap` 段——
-                            // 段數由 store 內容決定（一個名字 3,000 段曾回 2 MB），總數在 segmentsRemoved（b33 X1 第 22 列）
-                            "segments": Array(segments.map { Self.nameSegmentFieldsDict($0) }.filter { !$0.isEmpty }.prefix(Self.segmentsListedCap))])   // display-safe-exempt: segments、Self、$0：Self.nameSegmentFieldsDict 逐欄 displaySafe 每一段（venue 的 edit_name_segment 同一個函式）
+                            // 段數由 store 內容決定（一個名字 3,000 段曾回 2 MB），總數在 segmentsRemoved（b33 X1 第 22 列）；每段的 attested 也至多
+                            // `nameSegmentAttestedListedCap` 個（b36 Y1 第 0／1／13 列：先前只截段數，一段兩萬個觀測點一次回 46 萬位元組）。lazy：只為列出的段建報告
+                            "segments": Array(segments.lazy.map { Self.nameSegmentFieldsDict($0, attestedCap: Self.nameSegmentAttestedListedCap) }.filter { !$0.isEmpty }.prefix(Self.segmentsListedCap))])   // display-safe-exempt: segments、Self、$0：Self.nameSegmentFieldsDict 逐欄 displaySafe 每一段（venue 的 edit_name_segment 同一個函式）
         }
         guard !org.names.entries.isEmpty else {
             throw ServiceError.invalid("這次刪完之後\(holder)沒有任何名字——organization 至少要有一個名字（add_organization 同）；整批拒絕、零寫入")   // display-safe-exempt: holder 已消毒

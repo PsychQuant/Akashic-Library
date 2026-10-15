@@ -185,6 +185,9 @@ func protectedInventory() -> (guards: [String], data: [String]) {
     // #711（使用者 2026-10-05 裁決）：零實例裁決表的量測與歷輪補記搬到這份不自動載入的文件，`zero-instance-rows-audit`
     // （自證閘、棘輪標記）與 `measured-numbers-audit`（「實測 N」）讀它。它不在 `.claude/rules/` 的 glob 裡，所以顯式列。
     DATA += [zeroInstanceMeasurementsPath]
+    // 2026-10-15：三份規則的裁決表（`mcp-cli-parity`、`two-kinds-of-edits`、`zero-instance-guards`）搬到 `docs/rulings/`（不自動載入）。
+    // `zero-instance-rows-audit`、`parity-table-drift`、`measured-numbers-audit` 讀它們，而它們不在 `.claude/rules/` 的 glob 裡，所以顯式列。
+    DATA += globFiles("docs/rulings/*.md").sorted()
     // #711 b37：`zero-instance-rows-audit` 讀 `WriteGateRulings` 命令層的 `.readOnly` 格，決定量測的哪些子命令不必 `--library`。
     // 那張表改了（例如 `doctor` 被誤標成唯讀），這支守衛的判讀跟著變，所以它是輸入。
     DATA += [selfProofWriteGateRulingsPath]

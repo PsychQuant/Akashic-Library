@@ -3,8 +3,8 @@
 從 [`zero-instance-guards`](zero-instance-guards.md) 的量測段抽出來的通則（#711，使用者 2026-10-05 裁決：規則檔裡本身是通則的段落抽成獨立的小規則）。
 那份表有幾十條「重跑指令」，原本各自寫「同第 13 列的自證」，而那個「自證」的寫法與理由只住在第 13 列與第 19 列的量測段裡（現在都在量測文件）。
 
-適用於**零實例裁決表的量測**——規則檔與 [`docs/zero-instance-measurements.md`](../../docs/zero-instance-measurements.md)（量測文件）裡給人重跑的指令；
-`zero-instance-rows-audit` 兩份都掃。其他地方（changelog、issue comment、別的規則檔）寫給人照抄重跑的量測，用同一個寫法——守衛不掃那裡
+適用於**零實例裁決表的量測**——規則檔、裁決表 [`docs/rulings/zero-instance-guards.md`](../../docs/rulings/zero-instance-guards.md)（2026-10-15 從規則檔搬出）與 [`docs/zero-instance-measurements.md`](../../docs/zero-instance-measurements.md)（量測文件）裡給人重跑的指令；
+`zero-instance-rows-audit` 三份都掃。其他地方（changelog、issue comment、別的規則檔）寫給人照抄重跑的量測，用同一個寫法——守衛不掃那裡
 （2026-10-09 #711 b37：`.claude/rules/` 底下別的規則檔裡數 binary 輸出的量測只有 `identity-is-judged-not-matched` 一條，已改成這個寫法）。
 
 ## 規則
@@ -35,16 +35,16 @@
 
    **第 2、3 條的既有違反**（#711 b37，b36 verify 第 5 列；逐列列名、只減不增，改到那一段時順手修，新腳本不得照抄）：量測文件裡第 13、23 列
    的行級 grep 數 store（第 2 條）；第 18、41、64、77 列的腳本對讀不到的檔或 index 列靜默略過（第 3 條，第 24 列的量測段記過第 18 列）。
-4. **每個數字旁寫日期與條件**（`# 2026-09-29：…`）：數字會過期，寫出條件，重跑的人才知道比的是什麼。`measured-numbers-audit` 對規則檔與量測文件裡
+4. **每個數字旁寫日期與條件**（`# 2026-09-29：…`）：數字會過期，寫出條件，重跑的人才知道比的是什麼。`measured-numbers-audit` 對規則檔、裁決表與量測文件裡
    的「實測 N」要求時間錨或可重跑的指令。
 5. **新增合模板的量測之後，把量測文件的棘輪下限調高**（`<!-- zero-instance-rows-audit 棘輪：… -->`）：它記依閘去重後至少幾條，少於下限守衛就紅。
 
 ## 守衛與它管不到的
 
-`zero-instance-rows-audit` 掃規則檔與量測文件：提到 binary 又有計數的單位就是一條量測，不合模板即紅、具名那一行；量測文件裡一條都掃不到也紅；
+`zero-instance-rows-audit` 掃規則檔、裁決表與量測文件：提到 binary 又有計數的單位就是一條量測，不合模板即紅、具名那一行；量測文件裡一條都掃不到也紅；
 合模板的量測依閘去重後少於棘輪下限也紅。負控是 `audit-guards-mutations` 裡 `zi-rows：` 開頭的格子。
 
-這兩份檔 PR 改得到，所以守衛的判讀是線性的，另有三道上限：每份檔 4 MiB、單一 fence 或段落 1,500 行與 128 KiB、依閘去重 500 條——
+這三份檔 PR 改得到，所以守衛的判讀是線性的，另有三道上限：每份檔 4 MiB、單一 fence 或段落 1,500 行與 128 KiB、依閘去重 500 條——
 超過即具名紅、不判讀那一塊（#711 b37）。接近上限時先問那份檔是不是該拆。
 
 **認不出來、所以不紅的寫法是開放的**：binary 的輸出先存進變數或檔案、在另一個單位計數；以別名、複本或名字不以 akashic 開頭的變數執行 binary；

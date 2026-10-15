@@ -17,6 +17,11 @@
 //     會比它要防的漂移更脆弱。與規則檔自己記過的不對稱一致：誤擋可見可逆，漏報安靜。
 //
 // trigger-coverage: reads .claude/rules/mcp-cli-parity.md
+// trigger-coverage: reads docs/rulings/mcp-cli-parity.md
+//
+// **兩份檔**（2026-10-15）：三張裁決表與機械稽核程序搬到 `docs/rulings/mcp-cli-parity.md`
+// （不自動載入），規則檔只留陳述與指向那裡的一行。本支把兩份接在一起當成一份讀——
+// 表在哪一份不影響判讀；裁決史檔讀不到時整個失敗，不當成表是空的。
 
 import Foundation
 
@@ -88,12 +93,19 @@ private func noExoticStrings(_ srcs: String) -> String? {
 
 func parityTableDrift() -> Int32 {
     let rulePath = ".claude/rules/mcp-cli-parity.md"
-    guard let rule = readFile(rulePath),
+    let rulingsPath = "docs/rulings/mcp-cli-parity.md"
+    guard let ruleText = readFile(rulePath),
           let server = readFile("Sources/akashic-mcp/Server.swift"),
           let cli = readFile("Sources/akashic/CLI.swift") else {
         print("✗ 讀不到 \(rulePath)／Server.swift／CLI.swift 之一")
         return 1
     }
+    guard let rulingsText = readFile(rulingsPath) else {
+        print("✗ 讀不到 \(rulingsPath)——裁決表住在那裡（2026-10-15 從規則檔搬出），它不在時兩面的表都沒有輸入")
+        return 1
+    }
+    // 規則檔與裁決史檔接成一份：表在哪一份都算數，而兩份都在掃描範圍內。
+    let rule = ruleText + "\n" + rulingsText
     var fails: [String] = []
 
     // ① MCP 面：嚴格集合相等，兩個方向都驗。

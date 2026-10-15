@@ -132,6 +132,14 @@ struct OrphanView: View {
     /// 理由草稿：失敗之後重開同一筆還在（不必重打），空理由時破壞性按鈕停用。
     @State private var removalDraft = RemovalReasonDraft()
 
+    /// 標題的串接拆到 body 之外、三元先定型成 String：寫在 `.navigationTitle(…)` 的引數裡時，CI 對整個 body 報
+    /// type-check 逾時（unable to type-check this expression in reasonable time）。組出來的字串逐字不變
+    private var navigationTitleText: String {
+        let additional: String = (model?.orphanedAdditionalSourceEntries.count ?? 0) > 0
+            ? "＋\(model!.orphanedAdditionalSourceEntries.count) 附加來源" : ""
+        return "Orphans（\(model?.orphans.count ?? 0)" + additional + "）"
+    }
+
     var body: some View {
         Group {
             if let model {
@@ -187,9 +195,7 @@ struct OrphanView: View {
                 }
             }
         }
-        .navigationTitle("Orphans（\(model?.orphans.count ?? 0)"
-                         + ((model?.orphanedAdditionalSourceEntries.count ?? 0) > 0
-                            ? "＋\(model!.orphanedAdditionalSourceEntries.count) 附加來源" : "") + "）")
+        .navigationTitle(navigationTitleText)
         .task(id: state.reloadCount) { model = OrphanModel(state: state) }
         .confirmationDialog("刪除這筆 entry？檔案會移到垃圾桶（可救回）。",
                             isPresented: Binding(
@@ -225,9 +231,11 @@ struct OrphanView: View {
         } message: { presented in
             switch presented {
             case .confirmRemoval(let pending):
-                Text("將拿掉這幾個在 Zotero 端已刪除的來源：\(pending.sourcesLabel)。"   // display-safe-exempt: pending.sourcesLabel 是 `displayOrphanedAdditionalSources` 的消毒投影
-                     + "主來源與活著的來源不動，書目欄位不動。"
-                     + "記錄檔要先 commit——移除前的版本只留在 git 裡。理由不寫進 store，請寫進 commit message。")
+                // `verbatim:` 讓串接直接定型成 String（同上：body 的 type-check 逾時）；`+` 的結果本來就是 String、
+                // 走的就是不翻譯的那個 init，顯示逐字不變
+                Text(verbatim: "將拿掉這幾個在 Zotero 端已刪除的來源：\(pending.sourcesLabel)。"   // display-safe-exempt: pending.sourcesLabel 是 `displayOrphanedAdditionalSources` 的消毒投影
+                               + "主來源與活著的來源不動，書目欄位不動。"
+                               + "記錄檔要先 commit——移除前的版本只留在 git 裡。理由不寫進 store，請寫進 commit message。")
             case .removed(let report):
                 Text(report)   // display-safe-exempt: 報告在 kit 層逐項消毒
             case .failed(let message):

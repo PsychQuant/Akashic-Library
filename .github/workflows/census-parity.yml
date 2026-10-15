@@ -88,6 +88,9 @@ on:
       - ".claude/rules/**"
       # 零實例裁決表的量測與歷輪補記（#711）：zero-instance-rows-audit 與 measured-numbers-audit 讀它。
       - "docs/zero-instance-measurements.md"
+      # 三份規則的裁決表（2026-10-15 從 .claude/rules 搬出、不自動載入）：zero-instance-rows-audit、
+      # parity-table-drift、measured-numbers-audit 讀它們，trigger-coverage 以檔名把它們算進讀 .claude/rules 同名檔的守衛。
+      - "docs/rulings/**"
       # parity-table-drift 拿這兩支當真值來源（#407 R50）。
       - "Sources/akashic-mcp/Server.swift"
       - "Sources/akashic/*.swift"

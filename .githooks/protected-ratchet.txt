@@ -56,6 +56,9 @@ Sources/akashic-mcp/Server.swift
 Sources/akashic/CLI.swift
 Sources/akashic/CreateEntryCommand.swift
 Sources/akashic/WriteGateRulings.swift
+docs/rulings/mcp-cli-parity.md
+docs/rulings/two-kinds-of-edits.md
+docs/rulings/zero-instance-guards.md
 docs/zero-instance-measurements.md
 mcpb/manifest.json
 plugin/.claude-plugin/plugin.json

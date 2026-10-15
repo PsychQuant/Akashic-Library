@@ -16,6 +16,9 @@
 //
 // **兩份檔**（#711，使用者 2026-10-05 裁決）：裁決表住在規則檔，各列的量測、歷輪補記與棘輪標記住在不自動載入的
 // `docs/zero-instance-measurements.md`。表格、列號與共通段的檢查只讀規則檔；自證閘兩份都掃（表格裡仍可能有量測）。
+// **三份檔**（2026-10-15）：規則檔每個 session 自動載入，裁決表與「各列共通的東西」搬到不自動載入的
+// `docs/rulings/zero-instance-guards.md`（裁決史檔）。表格、列號與共通段的檢查改讀裁決史檔；規則檔只留陳述與指向那裡的一行，
+// 表格列寫回規則檔即紅；自證閘三份都掃。
 // 量測寫法的通則抽成規則 `measurement-commands-self-prove`，它引用的模板是 `selfProofTemplate` 的第二份描述，所以另查兩者逐字相同。
 //
 // **誠實邊界（三條，與 Python 版同）**：
@@ -39,6 +42,9 @@ let zeroInstanceRulePath = ".claude/rules/zero-instance-guards.md"
 /// 各列的量測與歷輪補記（#711，使用者 2026-10-05 裁決）：規則檔每個 session 自動載入，量測腳本與逐輪補記搬到這份不自動載入的文件。
 /// 自證閘兩份都掃；棘輪標記住在這裡。
 let zeroInstanceMeasurementsPath = "docs/zero-instance-measurements.md"
+/// 裁決表與「各列共通的東西」（2026-10-15 從規則檔搬出）：規則檔每個 session 自動載入，表格佔了它大部分的位元組，搬到這份不自動載入的文件。
+/// 列號、實作與共通段的檢查讀這裡；規則檔只留陳述與指向這裡的一行，表格列寫回規則檔即紅。
+let zeroInstanceRulingsPath = "docs/rulings/zero-instance-guards.md"
 /// 量測寫法的通則從規則檔抽成的獨立規則（#711）。它引用 `selfProofTemplate`——那是第二份描述，所以守衛查兩者逐字相同。
 let selfProofTemplateRulePath = ".claude/rules/measurement-commands-self-prove.md"
 
@@ -49,7 +55,8 @@ let selfProofTemplateRulePath = ".claude/rules/measurement-commands-self-prove.m
 // 「線性」的常數也有界。**超過即具名紅、不判讀那一塊**——不是放行，也不是截斷了再判讀（那會把截掉的量測當成不存在）。
 // 上限都取 2026-10-09 的實測值十倍以上，數字旁寫著量到多少；要提高就改這裡並寫理由。
 
-/// 被掃的檔（規則檔、量測文件）各自的位元組上限。2026-10-09（加入第 98–100 列之後）：規則檔 181,439、量測文件 256,003 位元組。
+/// 被掃的檔（規則檔、裁決史檔、量測文件）各自的位元組上限。2026-10-09（加入第 98–100 列之後）：規則檔 181,439、量測文件 256,003 位元組。
+/// 2026-10-15 搬出表格之後：規則檔 9,175、裁決史檔 180,620 位元組。
 let selfProofMaxFileBytes = 4 << 20
 /// 一個 fence 或一個段落的行數上限。每一個單位都在一個 fence 或段落裡（跨段落的接續至多接兩個段落），所以這兩道也是單位的上限。
 /// 2026-10-09：量測文件最大的 fence 152 行，最大的段落 20 行（規則檔的表格一列一段；量法見量測文件第 99 列）。
@@ -100,9 +107,15 @@ func zeroInstanceRowsAudit() -> Int32 {
             + "它不在時自證閘與棘輪都沒有輸入\n").utf8))
         return 1
     }
-    // **檔案大小的上限**（#711 b37）：這兩份檔 PR 改得到（`census-parity.yml` 以 `pull_request` 觸發），判讀的工作量要有界。
+    // 裁決表不在不是「沒有列」：搬出規則檔之後，表格、列號與共通段的檢查都讀這份（2026-10-15）
+    guard let rulings = readFile(zeroInstanceRulingsPath) else {
+        FileHandle.standardError.write(Data(("✗ 找不到 \(zeroInstanceRulingsPath)——裁決表與「各列共通的東西」住在那裡（2026-10-15 從規則檔搬出），"
+            + "它不在時列號、實作與共通段的檢查都沒有輸入\n").utf8))
+        return 1
+    }
+    // **檔案大小的上限**（#711 b37）：這三份檔 PR 改得到（`census-parity.yml` 以 `pull_request` 觸發），判讀的工作量要有界。
     // 超過就不掃、具名紅——不是放行
-    let oversized = [(rulePath, rule), (zeroInstanceMeasurementsPath, measurements)]
+    let oversized = [(rulePath, rule), (zeroInstanceRulingsPath, rulings), (zeroInstanceMeasurementsPath, measurements)]
         .filter { $0.1.utf8.count > selfProofMaxFileBytes }
     if !oversized.isEmpty {
         for (path, text) in oversized {
@@ -140,8 +153,9 @@ func zeroInstanceRowsAudit() -> Int32 {
     // 改成整行切欄：`|` 兩側的空白一律 trim，與 markdown 的實際語意一致。
     let rowRe = try! NSRegularExpression(pattern: #"^\|\s*(\d+)\s*\|(.*)$"#,
                                          options: [.anchorsMatchLines])
-    let ns = rule as NSString
-    let rows = rowRe.matches(in: rule, range: NSRange(location: 0, length: ns.length))
+    // 裁決表住在裁決史檔（2026-10-15 從規則檔搬出）
+    let ns = rulings as NSString
+    let rows = rowRe.matches(in: rulings, range: NSRange(location: 0, length: ns.length))
     guard !rows.isEmpty else {
         FileHandle.standardError.write(
             Data("✗ 裁決表一列都沒讀到——抽取式與表的寫法脫節了\n".utf8))
@@ -172,6 +186,13 @@ func zeroInstanceRowsAudit() -> Int32 {
     let issueRe = try! NSRegularExpression(pattern: #"#(\d{2,4})"#)
     let present = zeroInstanceIssuePrefixes(in: src)
     var fails: [String] = []
+    // **表格列不得寫回規則檔**（2026-10-15）：規則檔每個 session 自動載入，表格搬到裁決史檔就是為了讓它保持小；寫回去的列也不會被
+    // 列號與實作檢查讀到（它們只讀裁決史檔），於是兩份各有一段表、只有一段被檢查
+    let strayRows = rowRe.numberOfMatches(in: rule, range: NSRange(location: 0, length: (rule as NSString).length))
+    if strayRows > 0 {
+        fails.append("\(rulePath) 裡有 \(strayRows) 個裁決表的列——裁決表住在 \(zeroInstanceRulingsPath)（2026-10-15 從規則檔搬出，不自動載入），"
+                     + "規則檔只留陳述與指向那裡的一行；把列搬過去")
+    }
 
     for m in rows {
         let num = ns.substring(with: m.range(at: 1))
@@ -238,8 +259,8 @@ func zeroInstanceRowsAudit() -> Int32 {
     // 於是擷取到的會是**量測區塊的尾巴**而不是真的段落，結果是 16 列被誤報成沒有 bullet。
     // 實地踩到——加完量測腳本的下一次執行就紅了。同型的坑本 repo 記過：
     // `parity-table-drift` 的表格第一欄不得用反引號，因為守衛會把那些 token 當成宣稱。
-    if let ci = rule.range(of: "\n## 各列共通的東西") {
-        let after = rule[ci.upperBound...]
+    if let ci = rulings.range(of: "\n## 各列共通的東西") {
+        let after = rulings[ci.upperBound...]
         let common = after.range(of: "\n## ").map { String(after[..<$0.lowerBound]) } ?? String(after)
         // **只認「以 `- 第 N 列的理由是` 開頭的 bullet」，不是段落裡任何一次提到 N**
         // （#479，第一版就是後者而它太弱）。那一段裡到處都是跨列比較——「第 4 列與
@@ -265,16 +286,17 @@ func zeroInstanceRowsAudit() -> Int32 {
         fails.append("找不到「## 各列共通的東西」——這一段是理由欄的第二層，不得消失")
     }
 
-    // **量測指令的自證閘**（#711）。規則檔與量測文件各掃一次——表格裡仍可能有量測（第 56 列），量測文件是它們主要住的地方。
+    // **量測指令的自證閘**（#711）。規則檔、裁決史檔（2026-10-15）與量測文件各掃一次——表格裡仍可能有量測（第 56 列），量測文件是它們主要住的地方。
     // 空掃描不是通過：量測文件裡一條都沒掃到，代表抽取式與檔的寫法脫節了。規則檔裡零條是正常的（量測本來就該住在量測文件）。
     let ruleProof = selfProofIssues(in: rule, file: rulePath)
+    let rulingsProof = selfProofIssues(in: rulings, file: zeroInstanceRulingsPath)
     let docProof = selfProofIssues(in: measurements, file: zeroInstanceMeasurementsPath)
     if docProof.checked == 0 {
         fails.append("\(zeroInstanceMeasurementsPath) 裡對 binary 輸出計數的指令一條都沒掃到——"
                      + "抽取式與檔的寫法脫節了，自證閘的檢查等於沒跑")
     }
-    fails += ruleProof.issues + docProof.issues
-    let gates = ruleProof.gates + docProof.gates
+    fails += ruleProof.issues + rulingsProof.issues + docProof.issues
+    let gates = ruleProof.gates + rulingsProof.gates + docProof.gates
     // 閘的片段的條件見 `selfProofNeedleIssues`（條數不寫在這裡——寫死的計數會與那份清單分岔，#711 R4 verify 第 18、34 列）。
     // 每一道閘的片段要在 Sources 的字面段裡各找一次，工作量是條數乘上 Sources 的大小，所以條數有上限（#711 b37）
     let distinctGates = selfProofDistinctGates(gates)
@@ -285,10 +307,10 @@ func zeroInstanceRowsAudit() -> Int32 {
         fails += selfProofNeedleIssues(gates: gates)
     }
     // #711 R3：條數的地板不靠辨識；R4 起依閘去重（`selfProofRatchetIssues`）；標記住在量測文件
-    let ratchet = selfProofRatchetIssues(rule: rule, measurements: measurements, gates: gates)
+    let ratchet = selfProofRatchetIssues(rule: rule, rulings: rulings, measurements: measurements, gates: gates)
     fails += ratchet.issues
     fails += selfProofTemplateCopyIssues(readFile(selfProofTemplateRulePath))
-    let checked = ruleProof.checked + docProof.checked
+    let checked = ruleProof.checked + rulingsProof.checked + docProof.checked
 
     // 標題列印出條數與棘輪下限（R3 verify 第 7 列：條數掉了，審閱的人在輸出裡要看得到）
     var out = "══ zero-instance 裁決表：\(rows.count) 列；量測指令 \(checked) 條數 binary 輸出"
@@ -1120,12 +1142,14 @@ func selfProofDistinctGates(_ gates: [SelfProofGate]) -> Int {
     Set(gates.map { $0.binary + "\u{0}" + $0.needle }).count
 }
 
-func selfProofRatchetIssues(rule: String, measurements: String, gates: [SelfProofGate]) -> (issues: [String], floor: Int?) {
-    // 標記住在量測文件（#711）：規則檔裡出現一個是搬錯了地方——兩份各一個時地板有兩個數，哪個算數沒有答案
-    let inRule = matches(rule, selfProofRatchetPattern).count
-    guard inRule == 0 else {
-        return (["棘輪標記住在 \(zeroInstanceMeasurementsPath)，\(zeroInstanceRulePath) 裡不得有（找到 \(inRule) 個）"
-                 + "——量測搬到量測文件之後，地板跟著量測住"], nil)
+func selfProofRatchetIssues(rule: String, rulings: String = "", measurements: String, gates: [SelfProofGate]) -> (issues: [String], floor: Int?) {
+    // 標記住在量測文件（#711）：規則檔或裁決史檔（2026-10-15 從規則檔搬出的表格）裡出現一個是搬錯了地方——兩份各一個時地板有兩個數，哪個算數沒有答案
+    for (path, text) in [(zeroInstanceRulePath, rule), (zeroInstanceRulingsPath, rulings)] {
+        let n = matches(text, selfProofRatchetPattern).count
+        guard n == 0 else {
+            return (["棘輪標記住在 \(zeroInstanceMeasurementsPath)，\(path) 裡不得有（找到 \(n) 個）"
+                     + "——量測搬到量測文件之後，地板跟著量測住"], nil)
+        }
     }
     let found = captures(measurements, selfProofRatchetPattern, multiline: true)
     let marks = matches(measurements, selfProofRatchetPattern)

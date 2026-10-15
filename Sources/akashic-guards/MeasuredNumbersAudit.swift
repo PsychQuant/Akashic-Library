@@ -22,6 +22,7 @@
 // trigger-coverage: reads .claude/rules/*.md
 // trigger-coverage: reads CLAUDE.md
 // trigger-coverage: reads docs/zero-instance-measurements.md
+// trigger-coverage: reads docs/rulings/*.md
 
 import Foundation
 
@@ -127,6 +128,9 @@ func measuredNumbersAudit() -> Int32 {
         // #711（使用者 2026-10-05 裁決）：零實例裁決表的量測與歷輪補記從規則檔搬到 docs/zero-instance-measurements.md（不自動載入）——那些「實測 N」
         // 原本在 `.claude/rules/` 裡受這支守衛檢查，搬走之後要跟著讀，否則搬一次就等於拿掉檢查。
         (zeroInstanceMeasurementsPath, fileExists(zeroInstanceMeasurementsPath) ? [zeroInstanceMeasurementsPath] : []),
+        // 2026-10-15：三份規則的裁決表搬到 docs/rulings/（不自動載入），表格裡的「實測 N」原本在 `.claude/rules/` 裡受檢查——
+        // 理由同上一列：搬一次不得等於拿掉檢查。逐來源，所以整個目錄不見也會出聲。
+        ("docs/rulings/*.md", globFiles("docs/rulings/*.md")),
     ]
     let empty = sources.filter { $0.1.isEmpty }
     if !empty.isEmpty {

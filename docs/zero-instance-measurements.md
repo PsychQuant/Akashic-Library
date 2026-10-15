@@ -6,6 +6,8 @@
 
 **守衛讀這份文件**：`zero-instance-rows-audit` 掃這裡與規則檔的量測指令（自證閘、合模板的條數與棘輪標記——棘輪標記住在這裡），`measured-numbers-audit` 掃這裡的「實測 N」。寫法見 [`measurement-commands-self-prove`](../.claude/rules/measurement-commands-self-prove.md)。
 
+**2026-10-15 補記**：規則檔的裁決表與「各列共通的東西」搬到 [`docs/rulings/zero-instance-guards.md`](rulings/zero-instance-guards.md)（同樣不自動載入；`.claude/rules/` 底下的檔合計 738,145 位元組，雲端 session 一開場就被撐爆 context）。上面兩段說的「規則檔的裁決表」「每一列的核心句仍在規則檔」，自此指那份檔；`zero-instance-rows-audit` 與 `measured-numbers-audit` 也掃它。
+
 ## 各列的歷輪補記
 
 只列有補記被搬過來的列。
@@ -1032,7 +1034,7 @@ EOF
 ```bash
 python3 - <<'EOF'
 import io, re
-t = io.open('.claude/rules/zero-instance-guards.md', encoding='utf8').read()
+t = io.open('docs/rulings/zero-instance-guards.md', encoding='utf8').read()  # 2026-10-15 起裁決表住在 docs/rulings/
 rows = [int(n) for n in re.findall(r'^\| (\d+) \|', t, re.M)]
 i = t.index('## 各列共通的東西'); sec = t[i:]
 cited = set()
@@ -2693,7 +2695,7 @@ def sizes(path):
             if standalone: flush('para', block); block = []
     flush('para', block)
     return len(t.encode()), out['fence'], out['para']
-for p in ['.claude/rules/zero-instance-guards.md', 'docs/zero-instance-measurements.md']:
+for p in ['.claude/rules/zero-instance-guards.md', 'docs/rulings/zero-instance-guards.md', 'docs/zero-instance-measurements.md']:
     b, f, g = sizes(p)
     print(f'{p}：{b} 位元組｜最大的 fence {f[0]} 行、{f[1]} 位元組｜最大的段落 {g[0]} 行、{g[1]} 位元組')
 PY

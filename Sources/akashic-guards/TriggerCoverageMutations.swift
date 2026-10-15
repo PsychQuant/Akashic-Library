@@ -85,6 +85,12 @@ func triggerCoverageMutations() -> Int32 {
                 try? FileManager.default.copyItem(atPath: s, toPath: tmp + "/" + f)
             }
         }
+        // 2026-10-15：三份規則的裁決表搬到 `docs/rulings/`（受保護檔，同上一格的形狀：少了它全部 case 一起紅）。
+        let rulingsSrc = "\(repoRoot)/docs/rulings"
+        if FileManager.default.fileExists(atPath: rulingsSrc) {
+            try? FileManager.default.createDirectory(atPath: tmp + "/docs", withIntermediateDirectories: true)
+            try? FileManager.default.copyItem(atPath: rulingsSrc, toPath: tmp + "/docs/rulings")
+        }
         for e in edits {
             let p = tmp + "/" + e.path
             guard let t = try? String(contentsOfFile: p, encoding: .utf8) else { return nil }

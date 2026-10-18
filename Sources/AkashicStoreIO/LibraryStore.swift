@@ -2969,6 +2969,19 @@ public extension LibraryLoad {
             return Array(dup)
         }
 
+        // 一組候選裡重複的 citekey（#709 b40 verify LOW 1、8）：同 citekey 而 id 不同的兩筆是不同的記錄、validate 另報 error「citekey 重複」——
+        // `record-divergence` 不收同一個 citekey 的兩個候選（「重複的候選不構成歧異」），以 citekey 定位的寫入面也拒絕（#627）。這種組不指
+        // record-divergence，說先修好那個重複；組裡還有別的 citekey 時，修好之後其餘的才是編目判斷。三則共用（DOI 共用、Zotero 來源多筆宣稱、
+        // 標題與年份相同而 DOI 不同）——b38 修掉 enrich 理由裡的同一個矛盾，validate 是那句理由指路的下一站。拷貝不在這三則的名單裡（DOI 與標題那兩則
+        // 跳過拷貝，Zotero 那則以 id 去重），所以這裡的重複都是兩筆不同的記錄。nil＝沒有重複。已消毒（citekey 逐項 `displaySafeInvisible`）。
+        func repeatedCitekeysNote(_ cites: [String]) -> String? {
+            let rep = duplicates(cites).sorted()
+            guard !rep.isEmpty else { return nil }
+            return "其中 citekey" + rep.map { "「\(displaySafeInvisible($0, max: 200))」" }.joined(separator: "、")
+                + "不只一筆記錄（validate 另以 error 報 citekey 重複）——record-divergence 不收同一個 citekey 的兩個候選、"
+                + "以 citekey 定位的寫入面也拒絕它，先修好那個重複"
+        }
+
         // #709：同一筆記錄的 legacy 拷貝（load 的 `shadowedLegacyFile`，判準在 `markLegacyCopiesShadowedByEntities`）。
         // 使用者 2026-10-01 裁決：**只由這一對造成**的重複（整組是同一個 id、其中一份在 entities/）降為 warning——index、匯出與 App 以
         // entities/ 那份為準，這一對不再讓 doctor 不重建、不再讓 `assertNoCrossRecordErrors` 擋下整個 store 的改名與合併。那一筆自己
@@ -3254,7 +3267,8 @@ public extension LibraryLoad {
         var firstByID: [UUID: Entry] = [:]
         for e in entries where firstByID[e.id] == nil { firstByID[e.id] = e }
         for (source, ids) in ZoteroSourceClaims.claimants(entries).sorted(by: { $0.key < $1.key }) where ids.count > 1 {
-            let names = ids.compactMap { firstByID[$0] }.map { displaySafeInvisible($0.citekey, max: 200) }.sorted()
+            let claimantCites = ids.compactMap { firstByID[$0]?.citekey }
+            let names = claimantCites.map { displaySafeInvisible($0, max: 200) }.sorted()
             let shown = names.prefix(10).joined(separator: ", ") + (names.count > 10 ? "…共 \(names.count) 筆" : "")   // display-safe-exempt: Int
             let isBareKey = source.hasPrefix("?:")
             let locator = displaySafeInvisible(source, max: 120)   // 移除面的定位鍵：就是這個來源鍵（`<library_id>:<zotero_key>` 或 `?:<zotero_key>`）
@@ -3265,12 +3279,16 @@ public extension LibraryLoad {
                 ? "其中一筆記錯了就用 update-entry --remove-zotero-source（MCP update_entry 的 remove_zotero_sources；定位鍵 \(locator)）拿掉那個來源，"   // display-safe-exempt: locator 已消毒
                   + "或在 YAML 補上它真正的 library_id（#610、#680）"
                 : "其中一筆記錯了就用 update-entry --remove-zotero-source（MCP update_entry 的 remove_zotero_sources；定位鍵 \(locator)）拿掉那個來源（#610、#680）"   // display-safe-exempt: locator 已消毒
+            let merge = "兩筆是同一篇就用 record-divergence 記下、resolve-divergence 合併（合併把來源併成一份）；" + fix
+            let disposition = repeatedCitekeysNote(claimantCites).map {
+                $0 + "（update-entry --remove-zotero-source 也以 citekey 定位）"
+                    + (Set(claimantCites).count >= 2 ? "；修好之後其餘的：" + merge : "")
+            } ?? merge
             out.append(ValidationIssue(
                 severity: .warning,
                 message: "\(label)被 \(ids.count) 筆 entry 宣稱（\(shown)）"   // display-safe-exempt: Int；shown 的每一項已消毒；label 已逐項消毒；ids 是 Array
                        + "——再匯入分不出要更新哪一筆，import-zotero 對這個條目不更新任何一筆、也不新建。"
-                       + "兩筆是同一篇就用 record-divergence 記下、resolve-divergence 合併（合併把來源併成一份）；"
-                       + fix))
+                       + disposition))   // display-safe-exempt: disposition 由常數字面、已消毒的 citekey 與已消毒的 fix 組成
         }
         out += libraryMembershipIssues()
         // **排序是刻意的**（#579 R2 verify）：參照完整性的警告（懸空的作者、團體作者、venue、歧異候選、library）
@@ -3311,13 +3329,14 @@ public extension LibraryLoad {
         for (doi, cites) in byDOI.sorted(by: { $0.key < $1.key }) where cites.count > 1 {
             let names = cites.sorted().map { displaySafeInvisible($0, max: 200) }
             reportedByDOI.formUnion(cites)
+            let judgement = "要不要視為同一筆是編目判斷，可用 record-divergence 記下未決的同一性"
+            let disposition = repeatedCitekeysNote(cites).map {
+                $0 + (Set(cites).count >= 2 ? "；修好之後其餘的" + judgement : "")
+            } ?? "通常是同一出版品的多筆記錄（不同 Zotero library、線上先行 vs 出刊、更正啟事），不是資料損壞；" + judgement
             out.append(ValidationIssue(
                 severity: .warning,
                 message: "DOI「\(displaySafeInvisible(doi, max: 200))」被 \(names.count) 筆 work 共用"
-                       + "（\(names.joined(separator: ", "))）"
-                       + "——通常是同一出版品的多筆記錄（不同 Zotero library、線上先行 vs 出刊、"
-                       + "更正啟事），不是資料損壞；要不要視為同一筆是編目判斷，"
-                       + "可用 record-divergence 記下未決的同一性"))
+                       + "（\(names.joined(separator: ", "))）——" + disposition))   // display-safe-exempt: disposition 由常數字面與已消毒的 citekey 組成
         }
 
         // **同一個 ISSN 掛在 2 個以上 venue**（#588）。ISSN 的 mod-11 檢查碼擋得住亂碼，擋不住**合法但屬於姊妹刊的號**
@@ -3369,9 +3388,10 @@ public extension LibraryLoad {
             out.append(ValidationIssue(
                 severity: .warning,
                 message: "標題與年份相同但 DOI 不同的 \(names.count) 筆 work"
-                       + "（\(names.joined(separator: ", "))）：「\(displaySafeInvisible(title, max: 120))」"
-                       + "——常見成因是同一篇有多個 DOI（JSTOR vs 出版商、arXiv 預印本 vs 正式版）；"
-                       + "處置同上，留給編目判斷"))
+                       + "（\(names.joined(separator: ", "))）：「\(displaySafeInvisible(title, max: 120))」——"
+                       + (repeatedCitekeysNote(cites).map {   // display-safe-exempt: 由常數字面與已消毒的 citekey 組成
+                            $0 + (Set(cites).count >= 2 ? "；修好之後其餘的留給編目判斷（同 DOI 共用那一則，可用 record-divergence 記下）" : "")
+                         } ?? "常見成因是同一篇有多個 DOI（JSTOR vs 出版商、arXiv 預印本 vs 正式版）；處置同上，留給編目判斷")))
         }
 
         return out

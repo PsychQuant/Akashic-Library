@@ -423,6 +423,8 @@ public enum AddOnlyEnrichment {
         for (i, e) in entries.enumerated() { positions[e.citekey, default: []].append(i) }
         // #628：citekey 在 store 裡不只一筆、或與另一筆共用 id——寫入以 citekey／id 定位，補值會落到猜的那一筆；#641 起也含檔案寫入時會被拒的
         let unlocatable = entries.unlocatableCitekeys
+        // 刪掉 load 標出的拷貝之後仍無法唯一定位的——歧義理由說不說「刪掉 legacy 那份，再跑」看這個（b40 verify MEDIUM 0、LOW 4）；只有 DOI 命中兩筆以上時才算
+        lazy var unlocatableAfterDeletingCopies = entries.unlocatableCitekeysAfterDeletingShadowedCopies
 
         var result = Result()
         for (i, p) in validated.enumerated() {
@@ -433,7 +435,7 @@ public enum AddOnlyEnrichment {
                 guard positions[ck] != nil else {
                     result.items.append(Item(proposalIndex: i, citekey: nil, category: .notFound,
                                              outcome: Outcome(), additions: [], alreadyPresent: [],
-                                             reason: "citekey「\(ck)」不在 store 裡",
+                                             reason: "citekey 不在 store 裡：「\(echo(ck))」",
                                              matches: [], sourceDigest: digest))
                     continue
                 }
@@ -443,7 +445,7 @@ public enum AddOnlyEnrichment {
                 guard let target = DOI(rawDOI) else {
                     result.items.append(Item(proposalIndex: i, citekey: nil, category: .notFound,
                                              outcome: Outcome(), additions: [], alreadyPresent: [],
-                                             reason: "「\(rawDOI)」不是合法的 DOI 形狀（\(DOI.shapeDescription)）",
+                                             reason: "不是合法的 DOI 形狀（\(DOI.shapeDescription)）：「\(echo(rawDOI))」",
                                              matches: [], sourceDigest: digest))
                     continue
                 }
@@ -453,14 +455,15 @@ public enum AddOnlyEnrichment {
                 if hits.isEmpty {
                     result.items.append(Item(proposalIndex: i, citekey: nil, category: .notFound,
                                              outcome: Outcome(), additions: [], alreadyPresent: [],
-                                             reason: "沒有記錄帶 DOI「\(target.normalized)」",
+                                             reason: "沒有記錄帶 DOI「\(echo(target.normalized))」",
                                              matches: [], sourceDigest: digest))
                     continue
                 }
                 if hits.count >= 2 {
                     result.items.append(Item(proposalIndex: i, citekey: nil, category: .ambiguous,
                                              outcome: Outcome(), additions: [], alreadyPresent: [],
-                                             reason: ambiguousDOIReason(target, hits: hits, unlocatable: unlocatable),
+                                             reason: ambiguousDOIReason(target, hits: hits, unlocatable: unlocatable,
+                                                                        unlocatableAfterDeletingCopies: unlocatableAfterDeletingCopies),
                                              matches: matches, sourceDigest: digest))
                     continue
                 }
@@ -471,7 +474,7 @@ public enum AddOnlyEnrichment {
             if unlocatable.contains(citekey) {
                 result.items.append(Item(proposalIndex: i, citekey: nil, category: .ambiguous,
                                          outcome: Outcome(), additions: [], alreadyPresent: [],
-                                         reason: "citekey「\(citekey)」無法唯一定位（\(UnlocatableReason.work)）——零寫入；先修好（#628／#641）",
+                                         reason: "citekey 無法唯一定位（\(UnlocatableReason.work)）——零寫入；先修好（#628／#641）：「\(echo(citekey))」",
                                          matches: [citekey], sourceDigest: digest))
                 continue
             }
@@ -508,22 +511,35 @@ public enum AddOnlyEnrichment {
     /// 1. 命中裡無法唯一定位的 citekey（`unlocatable`＝`plan` 的 `unlocatableCitekeys`，與只命中一筆時的那一支同一個集合、同一句
     ///    `UnlocatableReason.work`）：先修好（#628／#641）。b38 verify MEDIUM（logic、regression、devil's advocate）：同 citekey 而 id 不同、
     ///    兩筆都帶這個 DOI 的重複記錄（validate 的 error「citekey 重複」，不是 load 認得的拷貝）在 b37 改成看筆數之後落進 #459 的孿生指路，
-    ///    而 `record-divergence` 對同一個 citekey 的兩個候選拒絕——訊息叫人做的事，程式隨即拒絕。拷貝那一對與共用 id 的那一組另有自己的
-    ///    一句，不在這裡重說（除非那個 citekey 在拷貝以外的命中裡也重複）。
+    ///    而 `record-divergence` 對同一個 citekey 的兩個候選拒絕——訊息叫人做的事，程式隨即拒絕。
+    ///
+    ///    拷貝那一對與共用 id 的那一組另有自己的一句，不在這裡重說，但各有一個例外：
+    ///    - 拷貝：只限**刪掉 load 標出的拷貝之後就能唯一定位**的 citekey（`unlocatableAfterDeletingCopies`＝
+    ///      `unlocatableCitekeysAfterDeletingShadowedCopies`，在完整的 load 上算）。b40 verify MEDIUM 0（Codex）、LOW 4（logic，真 binary 兩種形狀）：
+    ///      先前只看命中——同一個 citekey 另有一筆**不帶這個 DOI**、id 不同的記錄時，拷貝那一句照樣說「刪掉 legacy 那份……，再跑」，照做之後
+    ///      citekey 仍重複，重跑被「無法唯一定位」擋下。命中的重複（b38 的 `duplicatedInRecords`）是這個判準的特例。
+    ///    - 共用 id：除非那個 citekey 在命中裡另有一筆 id 不同的記錄（兩個 legacy 檔共用 id、其中一個的 citekey 又與 entities/ 的另一筆相同）。
     /// 2. 同 id 而沒有被標成拷貝的：UUID 重複是 error、指向 validate，**不**下「是不是同一篇」的結論。
     /// 3. 拿掉拷貝之後仍有兩個以上的 citekey：不判定哪一筆才對（#459）——拷貝加真孿生並存時，刪掉拷貝之後仍歧義，指路不能丟、也不說「再跑」。
-    ///    看 citekey 的個數、不看筆數：同一個 citekey 的兩筆不是孿生管線收得下的候選（第 1 類）。前兩類都是 validate 的跨記錄 error，
-    ///    合併在它們修好之前也會被擋（`assertNoCrossRecordErrors`），所以排在 #459 之前。
-    /// 4. 被標成拷貝的：帶「確認 entities/ 那份是新的之後」（#705 的同一個前提——兩份可能已經分岔）再刪 legacy 那份；只有這一類時才說「再跑」。
+    ///    看 citekey 的個數、不看筆數：同一個 citekey 的兩筆不是孿生管線收得下的候選（第 1 類）。
+    ///
+    ///    **為什麼排在前兩類之後**：前兩類說的是寫入之前要先修好的東西，而它們擋住寫入的方式不同（b40 verify LOW 5、INFO 12：先前這裡寫「前兩類都是
+    ///    validate 的跨記錄 error，合併在修好之前也會被 `assertNoCrossRecordErrors` 擋」，對第 1 類裡的第 3 類不成立）——
+    ///    - citekey 重複與 UUID 重複是跨記錄 **error**：`resolve-divergence` 先跑 `assertNoCrossRecordErrors`，修好之前合併做不了。
+    ///    - 第 3 類（只有一份、load 判定寫入時會被拒的 legacy 殘留，例如不受 git 追蹤的單檔）在 validate 只是 **warning**、不經那道檢查；擋它的是
+    ///      寫入當下的 #631 前置——load 用的就是同一組判斷，那筆記錄的檔寫不進去，以它為對象的寫入（合併改寫它、enrich 補它）都會被拒。
+    ///    所以先修好的排在前面，與第 3 類是 error 還是 warning 無關。第 3 類該不該讓 bootstrap 的 `--apply` 也擋，是 #709 `### Blocking` 裡待使用者
+    ///    裁決的一項；這裡只改理由的寫法，不改順序。
+    /// 4. 被標成拷貝的：帶「確認 entities/ 那份是新的之後」（#705 的同一個前提——兩份可能已經分岔）再刪 legacy 那份；只有這一類時才說「再跑」
+    ///    ——第 1 類的例外保證這時刪掉拷貝之後，命中裡留下的那幾筆都能唯一定位。
     ///
     /// **結論與處置在前、逐份明細在後**（b36 verify MEDIUM 0，LOW 9、13、15）：唯一出口 `AkashicService.enrich` 對整句 `displaySafe(max: 512)`，
-    /// 而它在逃脫支數的是**輸入 Unicode scalar**。前段只含筆數、常數字面與 DOI；DOI 長於 `reasonDOIScalarLimit` 個 scalar 時截短——b38 verify LOW 7、13：
+    /// 而它在逃脫支數的是**輸入 Unicode scalar**。前段只含筆數、常數字面與 DOI；DOI 長於 `reasonEchoScalarLimit` 個 scalar 時截短（`echo`）——b38 verify LOW 7、13：
     /// 先前以 `Character`（字形群）計，一個字形群可以帶任意多個組合符號，600 個 U+0301 的後綴讓結論與處置整段被截掉。四類全在時前段約 440 個 scalar（筆數都到四位數時約 460），
     /// 被截的只會是明細（`ShadowedPairReadersTests` 走 service 出口釘住）。
-    static func ambiguousDOIReason(_ target: DOI, hits: [Entry], unlocatable: Set<String>) -> String {
-        let scalars = target.normalized.unicodeScalars
-        let doi = scalars.dropFirst(reasonDOIScalarLimit).isEmpty
-            ? target.normalized : String(String.UnicodeScalarView(scalars.prefix(reasonDOIScalarLimit))) + "…"
+    static func ambiguousDOIReason(_ target: DOI, hits: [Entry], unlocatable: Set<String>,
+                                   unlocatableAfterDeletingCopies: Set<String>) -> String {
+        let doi = echo(target.normalized)
         let copies = hits.filter { $0.fileSituation.shadowedLegacyFile != nil }
             .sorted { ($0.citekey, $0.fileSituation.shadowedLegacyFile ?? "") < ($1.citekey, $1.fileSituation.shadowedLegacyFile ?? "") }
         let records = hits.filter { $0.fileSituation.shadowedLegacyFile == nil }
@@ -532,9 +548,11 @@ public enum AddOnlyEnrichment {
         let recordsByCitekey = Dictionary(grouping: records, by: \.citekey)
         let duplicatedInRecords = Set(recordsByCitekey.filter { $0.value.count > 1 }.keys)
         let copyIDs = Set(copies.map(\.id))
-        // 已由拷貝那一句或共用 id 那一句說明的 citekey——除非它在拷貝以外的命中裡也重複（那是另一件事，要另外修）
-        let explained = Set(copies.map(\.citekey)).union(records.filter { copyIDs.contains($0.id) }.map(\.citekey))
-            .union(sharedID.joined()).subtracting(duplicatedInRecords)
+        // 拷貝那一句說明得了的：拷貝與它的孿生（同 id）的 citekey——只限刪掉拷貝之後就能唯一定位的（見 doc 第 1 點的例外）
+        let explainedByCopies = Set(copies.map(\.citekey)).union(records.filter { copyIDs.contains($0.id) }.map(\.citekey))
+            .subtracting(unlocatableAfterDeletingCopies)
+        // 共用 id 那一句說明得了的——除非那個 citekey 在命中裡另有一筆 id 不同的記錄（那是另一件事，要另外修）
+        let explained = explainedByCopies.union(Set(sharedID.joined()).subtracting(duplicatedInRecords))
         let unlocatableHits = Set(recordsByCitekey.keys).intersection(unlocatable).subtracting(explained).sorted()
         let twins = recordsByCitekey.count >= 2
 
@@ -577,8 +595,20 @@ public enum AddOnlyEnrichment {
             + (details.isEmpty ? "" : "。" + details.joined(separator: "；"))
     }
 
-    /// 歧義理由裡 DOI 的長度上限，以 **Unicode scalar** 計——與唯一出口 `displaySafe(max: 512)` 的逃脫支同一個單位（b38 verify LOW 7、13）。
-    static let reasonDOIScalarLimit = 100
+    /// 理由與拒絕訊息裡回顯的未信任字串（呼叫端給的 citekey、DOI、欄位名與值，store 裡的 citekey）的長度上限，以 **Unicode scalar** 計——
+    /// 與出口 `displaySafe(max:)`／`displaySafeError(max:)` 的逃脫支同一個單位（b38 verify LOW 7、13）。
+    static let reasonEchoScalarLimit = 100
+
+    /// 回顯一個未信任字串：長於 `reasonEchoScalarLimit` 個 scalar 時截短、接「…」。**原始值**——消毒在出口端（同 `matches`，在這裡逃會二次逃脫）。
+    ///
+    /// 用它的句子一律**結論在前、回顯在後**（b40 verify LOW 6、7、10、11）：先前 `notFound` 的「「rawDOI」不是合法的 DOI 形狀」與
+    /// 「citekey「…」不在 store 裡」把呼叫端的原字串放在結論之前、不截——5,000 個字元的不合法 DOI、或誤貼進 doi 欄位的一段摘要，讓出口在 512 處
+    /// 截掉的正是結論。同一份計畫的其他句子（`refused`、`partial`、空值的附註、兩個欄位名的整批拒絕、只命中一筆而無法唯一定位）一起改。
+    static func echo(_ s: String) -> String {
+        let scalars = s.unicodeScalars
+        guard !scalars.dropFirst(reasonEchoScalarLimit).isEmpty else { return s }
+        return String(String.UnicodeScalarView(scalars.prefix(reasonEchoScalarLimit))) + "…"
+    }
 
     /// 把一筆計畫套進 entry，回傳**新的** entry（不 mutate 傳入者）。
     ///
@@ -686,7 +716,7 @@ public enum AddOnlyEnrichment {
         for (i, key) in p.fields.keys.sorted().enumerated() {
             // 鍵先於值，且**訊息裡放位置不放內容**——一個 64 KiB 的鍵印出來會淹掉錯誤本身。
             try checkLength(key, "第 \(i + 1) 個欄位鍵")
-            try checkLength(p.fields[key], "欄位「\(key)」的值")
+            try checkLength(p.fields[key], "欄位「\(echo(key))」的值")
         }
         for (i, a) in p.authors.enumerated() {
             try checkLength(a, "第 \(i + 1) 個 author")
@@ -715,11 +745,11 @@ public enum AddOnlyEnrichment {
         for key in p.fields.keys.sorted() {
             guard let k = FieldKey.normalized(key) else {
                 throw InputError.invalidProposal(
-                    index: index, reason: "欄位名「\(key)」無法表達成合法的 biblatex 欄位鍵")
+                    index: index, reason: "欄位名無法表達成合法的 biblatex 欄位鍵：「\(echo(key))」")
             }
             guard fields[k] == nil else {
                 throw InputError.invalidProposal(
-                    index: index, reason: "欄位名「\(key)」正規化後（\(k)）與另一個欄位相撞")
+                    index: index, reason: "欄位名正規化後與另一個欄位相撞：「\(echo(key))」（正規化為 \(echo(k))）")
             }
             fields[k] = p.fields[key]
         }
@@ -750,14 +780,13 @@ public enum AddOnlyEnrichment {
 
         for k in p.fields.keys.sorted() {
             let v = p.fields[k]!
-            guard !v.isEmpty else { notes.append("\(k) 的值為空，略過"); continue }
+            guard !v.isEmpty else { notes.append("值為空，略過：「\(echo(k))」"); continue }   // 結論在前、鍵截短（`echo`；b40 verify LOW 6、7、10、11 的同一類）
             switch k {
             case "issn":
                 // **work 一律不收 ISSN。** spec（entity-identifier）逐字：「WHEN a work record
                 // carries an ISSN THEN the store SHALL treat that as a misplacement, because ISSN
                 // identifies the serial and not the article」。補回去等於製造 spec 明文指為錯置的東西。
-                refused.append("issn「\(v)」——ISSN 識別的是期刊不是文章，"
-                               + "work 不收；要補請補到它的 venue")
+                refused.append("issn：ISSN 識別的是期刊不是文章，work 不收；要補請補到它的 venue——「\(echo(v))」")
             case "doi", "pmid", "isbn":
                 // 三態（#394 verify R8／R9）：解析不出 → 拒；全解 → 進結構化欄位、不留殘留；
                 // 部分解 → 值進結構化欄位**且**原字串保留在 `fields`（殘留是解不了的值唯一的棲身處）。
@@ -783,7 +812,7 @@ public enum AddOnlyEnrichment {
                     if parsedCount > 0, !hasStructured { addedISBNs = r.values }
                 }
                 if parsedCount == 0 {
-                    refused.append("\(k)「\(v)」——解析不出 \(k.uppercased()) 的形狀，不猜")
+                    refused.append("\(k)：解析不出 \(k.uppercased()) 的形狀，不猜——「\(echo(v))」")
                 } else {
                     if hasStructured { alreadyPresent.append(k) }
                     if !unparseable.isEmpty {
@@ -791,10 +820,11 @@ public enum AddOnlyEnrichment {
                         // 同樣適用，只在該鍵原本不存在時加。
                         let kept = entry.fields[k] == nil
                         if kept { added[k] = v }
-                        partial.append("\(k)「\(v)」——只解析出 \(parsedCount) 個，"
+                        partial.append("\(k)：只解析出 \(parsedCount) 個，"
                                        + "其餘 token 的形狀不認得；"
                                        + (kept ? "原字串已一併加進 fields 供人裁"
-                                               : "fields 已有該鍵，原字串未動"))
+                                               : "fields 已有該鍵，原字串未動")
+                                       + "——「\(echo(v))」")
                     }
                 }
             default:

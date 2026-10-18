@@ -1,5 +1,17 @@
 # Changelog
 
+## #709 — b40 verify 修正（2026-10-19）：enrich 的拷貝那一句只說刪掉拷貝之後就能定位的、理由結論在前且回顯截短；validate 對同 citekey 的重複不指 record-divergence
+
+細節在 `changelog/2026-10-19-b41-enrich-reasons-709.md`。行為在 binary（新的 `akashic` 與 `akashic-mcp`）；skill 文字沒有改。
+
+- **`akashic_enrich`／CLI `enrich`**：DOI 命中兩筆以上、而命中裡有拷貝時，拷貝那一句只替**刪掉拷貝之後就能唯一定位**的 citekey 說明——同一個 citekey 另有一筆不帶這個 DOI、id 不同的記錄時，改說「命中裡有 N 個 citekey 無法唯一定位……先修好」、不接「，再跑」（先前照做刪掉拷貝之後重跑仍被擋）。
+- **`akashic_enrich`／CLI `enrich`、`enrich-from-zotero`**：回顯呼叫端字串的句子一律結論在前、回顯以 Unicode scalar 截到 100——「citekey 不在 store 裡：「…」」「不是合法的 DOI 形狀（…）：「…」」，以及 `refused`、`partial`、空值附註、欄位名的整批拒絕、只命中一筆而無法唯一定位。先前前兩句把原字串放在前面，5,000 個字元的輸入讓出口截掉結論。鍵、類別與 `matches` 不變。
+- **`akashic_doctor`／CLI `validate`**：「DOI 被 N 筆 work 共用」「標題與年份相同但 DOI 不同」「Zotero 來源被 N 筆 entry 宣稱」三則在組裡有重複的 citekey 時，不叫人用 `record-divergence`（它拒收同一個 citekey 的兩個候選），說先修好那個重複；沒有重複的組逐字不變。
+- **CLI `bootstrap-people`／`-venues`／`-organizations`**：計畫被擋而附註列不完（每類至多 20）時，乾跑最後一行說出沒列出的筆數、指向 `akashic validate`。
+- `tools/list`：59,171 → 59,171 bytes（±0；MCP 說明沒有改）。下一段 b38 那一條的 59,173 已更正。
+
+plugin 版號沒有動（行為在 binary）。
+
 ## #709 — b38 verify 修正（2026-10-15）：enrich 的 DOI 歧義理由對同 citekey 的重複說先修好、DOI 以 scalar 截短；bootstrap 乾跑被擋時結尾不說「加 --apply」
 
 細節在 `changelog/2026-10-15-b39-p4-fixes-709.md`。
@@ -8,7 +20,7 @@
 - **CLI `bootstrap-people`／`-venues`／`-organizations`**：計畫被擋時乾跑的最後一行不說「加 --apply」，改說 `--apply` 會整批拒絕、先處理開頭附註列的那幾筆。
 - **CLI `authorize-names`**：`--apply` 的拒絕在清單之前說乾跑逐筆列出（單行出口在 400 處截斷清單）。
 - **`akashic-bootstrap` 的 `references/writing-to-the-store.md`**：`bootstrap-people --apply` 那一列的拒絕條件補上 person 拷貝與無法唯一定位的記錄（使用者 2026-10-09 兩項裁決）。
-- `tools/list`：59,173 → 59,173 bytes（±0；MCP 說明沒有改）。
+- `tools/list`：~~59,173 → 59,173 bytes~~（±0；MCP 說明沒有改）。2026-10-19 更正（#709 b40 verify INFO 13、16）：59,173 是整合之前的分支量測，整合之後的 main（`04131a49`）是 59,171 bytes（同一批 #564 的 −2）。
 
 plugin 殼版號隨同一批的 #613 b39 升到 0.13.4（這一段改了 skill 文字，與下面兩段同一次出貨；行為在 binary）。
 

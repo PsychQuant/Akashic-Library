@@ -85,6 +85,29 @@ extension Collection where Element == Entry {   // 多次遍歷——限定 Coll
         for e in self where e.fileSituation.unwritableReason != nil { out.insert(e.citekey) }   // #641
         return out
     }
+
+    /// 刪掉 load 標出的 legacy 拷貝（`fileSituation.shadowedLegacyFile`）**之後**仍無法唯一定位的 citekey——「刪掉 legacy 那份，再跑」這句話成立與否的判準
+    /// （#709 b40 verify MEDIUM 0、LOW 4）。定義仍是 `unlocatableCitekeys`，只是算在拿掉拷貝之後的集合上，多一步：拷貝的孿生（`entities/` 那份）
+    /// 自己的第 3 類理由若正是那份拷貝造成的，刪掉拷貝之後它就不在了，不算。
+    ///
+    /// 「正是那份拷貝造成的」怎麼判：load 對 `entities/` 讀進來的一筆，只讀 `entries/<它的 citekey>.yaml` 這一個 legacy 檔來判第 3 類
+    /// （`LibraryStore.annotateFileSituations`）；那個檔解得出同一個 id 時，load 也把它讀進來、標成拷貝（`markLegacyCopiesShadowedByEntities`——
+    /// legacy 檔名與 citekey 不符的會被隔離，所以那份拷貝的 citekey 就是孿生的 citekey）。所以孿生的理由來自拷貝，當且僅當有一份拷貝與它
+    /// **同 id、同 citekey**。改名留下的拷貝 citekey 不同、不擋孿生自己的檔（孿生的無法唯一定位來自共用 id，拿掉拷貝就沒了）；同一個位置上被隔離的
+    /// legacy 檔不是拷貝，它造成的理由刪掉拷貝之後照樣在，照算。
+    ///
+    /// 沒有拷貝時與 `unlocatableCitekeys` 相同。
+    public var unlocatableCitekeysAfterDeletingShadowedCopies: Set<String> {
+        let copies = Set(compactMap { e in e.fileSituation.shadowedLegacyFile.map { _ in "\(e.id.uuidString)\u{0}\(e.citekey)" } })   // display-safe-exempt: 集合鍵，不輸出
+        guard !copies.isEmpty else { return unlocatableCitekeys }
+        let kept = filter { $0.fileSituation.shadowedLegacyFile == nil }.map { e -> Entry in
+            guard e.fileSituation.unwritableReason != nil, copies.contains("\(e.id.uuidString)\u{0}\(e.citekey)") else { return e }   // display-safe-exempt: 集合鍵，不輸出
+            var twin = e
+            twin.fileSituation.unwritableReason = nil
+            return twin
+        }
+        return kept.unlocatableCitekeys
+    }
 }
 
 extension Collection where Element == Person {

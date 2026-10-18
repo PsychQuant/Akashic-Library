@@ -48,8 +48,21 @@ public struct BootstrapPlanBlockers: Equatable, Sendable {
 
     /// 三個 bootstrap 乾跑最後一行用的那半句（b38 verify LOW 12）：計畫被擋時不說「加 --apply」。開頭的附註已說 `--apply` 會整批拒絕，
     /// 而結尾是使用者最後讀到、最可能照做的一句——照做的結果是結束碼 1（`authorize-names` 的乾跑在 #709 第三次 verify 已改成說實跑會做的事）。
-    /// 只含常數字面。
-    public static let dryRunApplyRefused = "--apply 會整批拒絕、零寫入：先處理開頭附註列的那幾筆，再加 --apply"
+    ///
+    /// 附註每類至多列 `noteListLimit` 筆、其餘一行「…另 N 份／筆」（`LibraryLoad.limitedLines`）。列不完時結尾說出還有幾筆沒列、去哪裡看
+    /// （b40 verify LOW 9、INFO 18：先前一律說「先處理開頭附註列的那幾筆」——處理完列出的 20 筆，`--apply` 仍被拒，而這一行沒有提 validate）。
+    /// 只含 Int 與常數字面。
+    public var dryRunApplyRefused: String {
+        var unlisted: [String] = []
+        if copies.count > Self.noteListLimit { unlisted.append("另 \(copies.count - Self.noteListLimit) 份 legacy 拷貝") }   // display-safe-exempt: Int
+        if unlocatable.count > Self.noteListLimit { unlisted.append("另 \(unlocatable.count - Self.noteListLimit) 筆無法唯一定位的記錄") }   // display-safe-exempt: Int
+        return "--apply 會整批拒絕、零寫入：先處理開頭附註列的那幾筆"
+            + (unlisted.isEmpty ? "" : "，以及附註沒列出的" + unlisted.joined(separator: "、") + "（akashic validate 逐筆列出）")
+            + "，再加 --apply"
+    }
+
+    /// 附註每類至多列幾筆（`LibraryLoad.limitedLines`）——結尾的「附註沒列出的另 N 筆」與它同一個數。
+    public static let noteListLimit = 20
 }
 
 /// 三個 bootstrap 的計畫各讀哪幾種記錄（#709 第四次 verify；使用者 2026-10-09 裁決 1）。封閉三列，不得依性質相似類推——新的寫入候選面要自己加一列、
@@ -245,10 +258,11 @@ extension LibraryLoad {
     /// 刪拷貝的前提——兩份可能已經分岔（#705 第三次 verify 對 `LegacyCopyLeft.explanation` 的同一個前提）。
     static let legacyCopiesRemedy = "確認 entities/ 那份是新的之後刪掉 legacy 拷貝（akashic validate 逐筆列出），再跑"
 
-    /// 至多 20 行，其餘一行概括。
+    /// 至多 `BootstrapPlanBlockers.noteListLimit`（20）行，其餘一行概括。
     static func limitedLines(_ lines: [String], unit: String) -> [String] {
-        var out = Array(lines.prefix(20))
-        if lines.count > 20 { out.append("    …另 \(lines.count - 20) \(unit)") }   // display-safe-exempt: Int；unit 是呼叫端的常數字面
+        let limit = BootstrapPlanBlockers.noteListLimit
+        var out = Array(lines.prefix(limit))
+        if lines.count > limit { out.append("    …另 \(lines.count - limit) \(unit)") }   // display-safe-exempt: Int；unit 是呼叫端的常數字面
         return out
     }
 

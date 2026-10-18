@@ -881,7 +881,7 @@ struct BootstrapPeople: ParsableCommand {
             printPendingMutual()
             printUnkeyable()
             // 計畫被擋時結尾不說「加 --apply」（b38 verify LOW 12）——開頭的附註已說 --apply 會整批拒絕
-            print(blockers.isEmpty ? "（只列候選；要建立加 --apply）" : "（只列候選；" + BootstrapPlanBlockers.dryRunApplyRefused + "）")   // display-safe-exempt: blockers 只取 isEmpty；BootstrapPlanBlockers.dryRunApplyRefused 是常數字面
+            print(blockers.isEmpty ? "（只列候選；要建立加 --apply）" : "（只列候選；" + blockers.dryRunApplyRefused + "）")   // display-safe-exempt: blockers 只取 isEmpty 與 dryRunApplyRefused（由 Int 與常數字面組成）
             return
         }
         var written = 0
@@ -1017,8 +1017,9 @@ struct BootstrapOrganizations: ParsableCommand {
             }
             reportDropped()
             // 計畫被擋時結尾不說「加 --apply」（b38 verify LOW 12，同 bootstrap-people）
-            print(load.planBlockers(.organizations).isEmpty
-                  ? "（只列候選；要建立加 --apply）" : "（只列候選；" + BootstrapPlanBlockers.dryRunApplyRefused + "）")   // display-safe-exempt: load 只取 planBlockers 的 isEmpty；BootstrapPlanBlockers.dryRunApplyRefused 是常數字面
+            let blockers = load.planBlockers(.organizations)
+            print(blockers.isEmpty
+                  ? "（只列候選；要建立加 --apply）" : "（只列候選；" + blockers.dryRunApplyRefused + "）")   // display-safe-exempt: blockers 只取 isEmpty 與 dryRunApplyRefused（由 Int 與常數字面組成）
             return
         }
         // #154 verify 154-8：per-item 收容（同 ResolveOrganizations 與 ResolvePeople

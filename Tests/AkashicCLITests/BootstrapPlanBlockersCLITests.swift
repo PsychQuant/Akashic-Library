@@ -330,6 +330,8 @@ final class BootstrapPlanBlockersCLITests: XCTestCase {
         XCTAssertTrue(dry.output.contains("計畫含 22 份 legacy 拷貝") && dry.output.contains("…另 2 份"), dry.output)
         let listed = dry.output.split(separator: "\n").filter { $0.hasPrefix("    entries/w2020n") }
         XCTAssertEqual(listed.count, 20, dry.output)
+        // b40 verify LOW 9、INFO 18：處理完列出的 20 份，--apply 仍被拒——結尾說出還有 2 份沒列、去 validate 看
+        assertDryRunEndingSaysApplyIsRefused(dry.output, "bootstrap-people", unlisted: "另 2 份 legacy 拷貝")
         try assertApplyRefused("bootstrap-people")
     }
 
@@ -337,10 +339,16 @@ final class BootstrapPlanBlockersCLITests: XCTestCase {
 
     /// 乾跑的結尾在計畫被擋時不說「加 --apply」（b38 verify LOW 12）：開頭的附註說 `--apply` 會整批拒絕，結尾卻是「要建立加 --apply」——使用者最後讀到、
     /// 最可能照做的一句，照做的結果是結束碼 1。
-    private func assertDryRunEndingSaysApplyIsRefused(_ output: String, _ command: String, file: StaticString = #filePath, line: UInt = #line) {
+    ///
+    /// `unlisted`：附註列不完（每類至多 20）時，結尾要說出還有幾筆沒列、去 validate 看（b40 verify LOW 9、INFO 18）——字面寫在這裡，不由
+    /// `dryRunApplyRefused` 算（拿被測的函式算期望值，等於什麼都沒測）。
+    private func assertDryRunEndingSaysApplyIsRefused(_ output: String, _ command: String, unlisted: String? = nil,
+                                                      file: StaticString = #filePath, line: UInt = #line) {
         XCTAssertFalse(output.contains("要建立加 --apply") || output.contains("加 --apply 實際寫入"), "\(command)：\(output)", file: file, line: line)
         let last = output.split(separator: "\n").last.map(String.init) ?? ""
-        XCTAssertTrue(last.contains(BootstrapPlanBlockers.dryRunApplyRefused), "\(command) 的最後一行：\(last)", file: file, line: line)
+        let expected = "--apply 會整批拒絕、零寫入：先處理開頭附註列的那幾筆"
+            + (unlisted.map { "，以及附註沒列出的\($0)（akashic validate 逐筆列出）" } ?? "") + "，再加 --apply"
+        XCTAssertTrue(last.contains(expected), "\(command) 的最後一行：\(last)", file: file, line: line)
     }
 
     /// b38 verify LOW 5：同一對拷貝（同一種、同一個 id）的兩份本來就無法唯一定位，只在拷貝那一段列一次——不同時算成「無法唯一定位的記錄」
@@ -400,7 +408,7 @@ final class BootstrapPlanBlockersCLITests: XCTestCase {
         XCTAssertEqual(lines.filter { $0.hasPrefix("    work「d2020dup") }.count, 20, dry.output)
         XCTAssertTrue(lines.contains("    …另 2 筆"), dry.output)
         XCTAssertFalse(lines.contains { $0.hasPrefix("    work「c2020copy") }, "拷貝那一對不在無法唯一定位那一段：\(dry.output)")
-        assertDryRunEndingSaysApplyIsRefused(dry.output, "bootstrap-venues")
+        assertDryRunEndingSaysApplyIsRefused(dry.output, "bootstrap-venues", unlisted: "另 2 筆無法唯一定位的記錄")
 
         try assertApplyRefused("bootstrap-venues")
         let r = try cli(["bootstrap-venues", "--apply"])

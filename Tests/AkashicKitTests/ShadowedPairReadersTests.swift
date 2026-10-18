@@ -560,7 +560,7 @@ final class ShadowedPairReadersTests: XCTestCase {
         let head = core.components(separatedBy: "。").first ?? core
         XCTAssertLessThanOrEqual(head.unicodeScalars.count, 512, "前段在出口預算之內：\(head.unicodeScalars.count)")
         // DOI 以 scalar 截短：100 個 scalar（`10.1234/x` 的 9 個加 91 個 U+0301）接「…」——比的是 scalar，`contains` 以字形群比會把組合符號併進前一個字
-        XCTAssertEqual(head.unicodeScalars.filter { $0.value == 0x0301 }.count, AddOnlyEnrichment.reasonDOIScalarLimit - 9, head)
+        XCTAssertEqual(head.unicodeScalars.filter { $0.value == 0x0301 }.count, AddOnlyEnrichment.reasonEchoScalarLimit - 9, head)
         XCTAssertTrue(head.contains("…」命中 5 筆（4 個 citekey），零寫入："), head)
 
         let service = AkashicService(root: root, key: nil, environment: [:])

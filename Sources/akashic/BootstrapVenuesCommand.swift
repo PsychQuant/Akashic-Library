@@ -112,7 +112,8 @@ struct BootstrapVenues: ParsableCommand {
             print("")
             // 沒有候選時不說「建出來的 venue」（#563 R2 verify 第 17／23／28 列：那句說的是不存在的記錄）
             // 計畫被擋時不說「加 --apply 實際寫入」（b38 verify LOW 12，同 bootstrap-people）——開頭的附註已說 --apply 會整批拒絕
-            print("（dry-run）" + (load.planBlockers(.venues).isEmpty ? "加 --apply 實際寫入" : BootstrapPlanBlockers.dryRunApplyRefused)   // display-safe-exempt: load 只取 planBlockers 的 isEmpty、cands 只取 isEmpty；BootstrapPlanBlockers.dryRunApplyRefused 是常數字面
+            let blockers = load.planBlockers(.venues)
+            print("（dry-run）" + (blockers.isEmpty ? "加 --apply 實際寫入" : blockers.dryRunApplyRefused)   // display-safe-exempt: blockers 只取 isEmpty 與 dryRunApplyRefused（由 Int 與常數字面組成）、cands 只取 isEmpty
                   + "。**只建立、不歸戶**"
                   + "——entry 的 venues literal 原樣留著，歸戶是 resolve-venues 的第二步。"
                   + (cands.isEmpty ? "" : "建出來的 venue 不指定對外形（authorized 留空，#563）。"))

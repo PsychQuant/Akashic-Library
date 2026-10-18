@@ -1031,7 +1031,7 @@ EOF
 **第 19 列的量測（2026-09-09，可重跑）**：未被 bullet 引用的列數應為 0——`LC_ALL=C grep -a -q '沒有任何 bullet 講它' .build/debug/akashic-guards && .build/debug/akashic-guards zero-instance-rows-audit 2>&1 | grep -c '沒有任何 bullet 講它'`（用含這條檢查的 binary；同第 13 列的自證，舊 binary 印不出東西。`akashic-guards` 不裝進 PATH，只在 `swift build` 之後的 `.build/debug/`——#711 R1 之前這裡寫 `"$(command -v akashic-guards)"`，在沒有它的 PATH 上閘必然失敗、什麼都不印，與舊 binary 分不開。第 70、71 列一直寫這個路徑；第 20、21、51 列 #711 R2 起也改成它——R1 在這裡寫「第 20、21 列早就寫這個路徑」，那是錯的：
 它們與第 51 列寫的都是 PATH 上沒有的裸 `akashic-guards`，R2 verify 第 24 列）。量測指令的寫法（自證閘、前置條件、判讀原則、認不出來的寫法）見規則 [`measurement-commands-self-prove`](../.claude/rules/measurement-commands-self-prove.md)；#711 R1–R4 寫在這裡的原文移到本文件最後一節。合模板的量測由下面這一行**棘輪**兜底（依 binary 與閘的片段去重後至少幾條，少於下限守衛就紅；新增量測之後把下限調高）：
 
-<!-- zero-instance-rows-audit 棘輪：合模板的量測（依 binary 與閘的片段去重）至少 41 條 -->
+<!-- zero-instance-rows-audit 棘輪：合模板的量測（依 binary 與閘的片段去重）至少 42 條 -->
 
 手算對照：
 
@@ -2750,14 +2750,30 @@ for p in ['.claude/rules/zero-instance-guards.md', 'docs/rulings/zero-instance-g
     b, f, g = sizes(p)
     print(f'{p}：{b} 位元組｜最大的 fence {f[0]} 行、{f[1]} 位元組｜最大的段落 {g[0]} 行、{g[1]} 位元組')
 PY
-# 2026-10-09（加入第 98–100 列之後）：規則檔 181,439 位元組、沒有 fence、最大的段落 10 行 1,419 位元組；量測文件 256,003 位元組、最大的 fence 152 行 11,803 位元組、最大的段落 20 行 3,989 位元組
+# 2026-10-09（加入這三列之後；整合時它們改號為第 99–101 列，量的是改號之前的那一版檔）：規則檔 181,439 位元組、沒有 fence、最大的段落 10 行 1,419 位元組；量測文件 256,003 位元組、最大的 fence 152 行 11,803 位元組、最大的段落 20 行 3,989 位元組
+# 2026-10-15（b39，改完本列與第 100、101 列之後重量）：規則檔 189,733 位元組、沒有 fence、最大的段落 10 行 1,419 位元組；量測文件 269,050 位元組、最大的 fence 152 行 11,803 位元組、最大的段落 20 行 3,989 位元組
 ```
 
-依閘去重的條數見守衛標題列（2026-10-09：41 條，上限 500）。判讀本身的線性由 `audit-guards-mutations` 的後設檢查「zi-rows 的判讀是線性的」量（2026-10-09：五個向量放大 10 倍都在 0.1 秒內，上限 3 秒；把 `selfProofLogicalLines` 退回逐行重掃，空白行與註解行兩個向量各要 42.6 與 36.7 秒）。
+fence 行數離上限 9.9 倍（1,500 ÷ 152），其餘都在十倍以上——b38 verify 第 8、16 列指出先前寫的「都在十倍以上」對 fence 行數不成立（上限的值待使用者裁決，這裡只寫實際的倍數）。依閘去重的條數見守衛標題列（2026-10-15：42 條，上限 500）。判讀本身的線性由 `audit-guards-mutations` 的後設檢查「zi-rows 的判讀是線性的」量（2026-10-09：五個向量放大 10 倍都在 0.1 秒內，上限 3 秒——b38 verify 第 23 列在機器忙時量到相鄰 inline code 那一格 0.26 秒；把 `selfProofLogicalLines` 退回逐行重掃，空白行與註解行兩個向量各要 42.6 與 36.7 秒）。2026-10-15（b39）多兩個向量——以 `|` 結尾、空行隔開的段落與清單項目接成的散文鏈，繞過上限、10n 是兩萬段：0.33 與 0.39 秒；把散文鏈退回逐段整串重接、重問接續，各要 22.1 與 32.6 秒。
 
-**第 100 列的量測（2026-10-09，可重跑）**：前置條件的訊息數 `LC_ALL=C grep -a -q '驗過的是另一個目錄' .build/debug/akashic-guards && .build/debug/akashic-guards zero-instance-rows-audit 2>&1 | grep -c '行的量測'`（應印 0；自證同第 13 列。`行的量測` 是前置條件那一族訊息的開頭）。唯讀子命令的來源是 `WriteGateRulings` 命令層的 `.readOnly` 格：`grep -c '^        "[a-z][a-z -]*": \.readOnly(' Sources/akashic/WriteGateRulings.swift`（2026-10-09：35）。
+**`measured-numbers-audit` 的上限與線性（2026-10-15，b39）**：上限的訊息數 `LC_ALL=C grep -a -q '拆行，或提高' .build/debug/akashic-guards && .build/debug/akashic-guards measured-numbers-audit 2>&1 | grep -c '超過上限'`（應印 0；自證同第 13 列——片段只在行的上限那一則訊息裡，檔案上限那一則用同一個樣式數到）。這支的單位是一行，沿用 `selfProofMaxFileBytes` 與 `selfProofMaxBlockBytes`；離上限多遠，唯讀、不依賴 binary（從 repo 根目錄跑）：
 
-**第 101 列的量測（2026-10-09，可重跑）**：裸數字數 `LC_ALL=C grep -a -q '小節標題的編號不背書' .build/debug/akashic-guards && .build/debug/akashic-guards measured-numbers-audit 2>&1 | grep -c '沒有時間錨也沒有可重跑的指令'`（應印 0；自證同第 13 列——舊 binary 的標題列沒有這一段，閘失敗、什麼都不印）。
+```bash
+python3 - <<'PY'
+import glob, os
+fs = sorted(glob.glob('.claude/rules/*.md') + glob.glob('plugin/rules/*.md') + ['CLAUDE.md', 'docs/zero-instance-measurements.md'])
+big = max(fs, key=os.path.getsize)
+longest = max(((len(l.encode()), f'{f}:{i + 1}') for f in fs for i, l in enumerate(open(f, encoding='utf8').read().split('\n'))))
+print(f'{len(fs)} 份檔｜最大的檔 {big} {os.path.getsize(big)} 位元組（上限 4,194,304）｜最長的一行 {longest[1]} {longest[0]} 位元組（上限 131,072）')
+PY
+# 2026-10-15：20 份檔｜最大的檔 .claude/rules/mcp-cli-parity.md 281520 位元組（上限 4,194,304）｜最長的一行 .claude/rules/mcp-cli-parity.md:162 55559 位元組（上限 131,072）
+```
+
+最長的一行是 `mcp-cli-parity.md` 的一列表格，離行的上限只有 2.36 倍，而表格的一列拆不成兩行——那一列再長下去，這支守衛會紅（上限的值待使用者裁決）。判讀本身的線性由後設檢查「numbers 的判讀是線性的」量（2026-10-15：三個向量放大 10 倍都在 0.01 秒內，上限 3 秒；把行內指令的判讀退回正規式，沒收尾的反引號那一格 1,000 個「grep | 」要 23.4 秒；把逐行的事實與視窗的判讀退回每個數字各算一次，兩個「一行很多個數字」的向量各要 38.7 與 37.1 秒）。
+
+**第 100 列的量測（2026-10-09，可重跑）**：前置條件的訊息數 `LC_ALL=C grep -a -q '驗過的是另一個目錄' .build/debug/akashic-guards && .build/debug/akashic-guards zero-instance-rows-audit 2>&1 | grep -c '行的量測'`（應印 0；自證同第 13 列。`行的量測` 是前置條件那一族訊息的開頭）。「不寫 store」的子命令的來源是 `WriteGateRulings` 命令層的 `.readOnly` 格：`grep -c '^        "[a-z0-9][a-z0-9 -]*": \.readOnly(' Sources/akashic/WriteGateRulings.swift`（2026-10-15：44；2026-10-09 寫的「35」是同一個字元類沒有數字的正規式量的，漏了 9 格 `s2 …`——b38 verify 第 13 列，守衛的抽取同一個錯，交叉檢查重現了缺陷而不是偵測它。現在守衛另查抽到的格數等於不限字元類的 `grep -c '^        "[^"]*": \.readOnly(' Sources/akashic/WriteGateRulings.swift`，2026-10-15 同為 44）。量測可以用、不必帶 `--library` 的是其中的 24 格（`selfProofMeasurementCommands`，每一格都是 `.readOnly`，守衛另查）；其餘 20 格不寫 store，但改 registry、寫呼叫端指定的檔、開瀏覽器或連網，量測不收（b38 verify 第 6、26 列）。
+
+**第 101 列的量測（2026-10-09，可重跑）**：裸數字數 `LC_ALL=C grep -a -q '小節標題的編號不背書' .build/debug/akashic-guards && .build/debug/akashic-guards measured-numbers-audit 2>&1 | grep -c '沒有時間錨也沒有可重跑的指令'`（應印 0；自證同第 13 列——舊 binary 的標題列沒有這一段，閘失敗、什麼都不印）。2026-10-15（b39）：標題改用 CommonMark 的 ATX 判準（行首至多三個空白、`#` 之後是空白或行尾）之後，四個來源的輸出與改之前逐字相同；縮排一個空白的標題由 `audit-guards-mutations` 的「numbers：縮排一個空白的小節標題之下的裸 `實測 N`」與後設檢查的樣例釘住。
 
 **第 102 列的量測（2026-10-09，可重跑，唯讀）**：legacy 殘留數，以及 entities/ 裡重複的 citekey、共用的 id、重複的 person key——前者是第 3 類的前提，後三者是第 1、2 類（`unlocatableCitekeys`／`unlocatablePersonKeys` 的定義在 `DuplicateCitekeys.swift`）。entities/ 的檔名就是 id，所以那裡的「共用 id」應恆為 0，列出來是為了量法完整。讀不到的檔計數，同第 24 列：
 

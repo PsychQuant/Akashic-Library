@@ -69,6 +69,9 @@ enum GuardExpectation {
 }
 
 /// 子行程的結果。`combined` 是 stdout 接 stderr（各 harness 原本的 `exec` 回傳的就是這個）。
+/// `runGuardProcess` 在另一條執行緒讀 stdout 的容器（讀完才由主執行緒取，`readDone` 確保先後）。
+final class GuardPipeReader: @unchecked Sendable { var data = Data() }
+
 struct GuardSpawn {
     let status: Int32
     let stdout: String
@@ -168,8 +171,12 @@ func declareNegativeControl(for guards: [String]) {
 /// - `label`：這一格的名字（寫進紀錄，截到 300 字）。
 /// - `expect`：harness 的預期；成不成立由這裡用觀察到的 rc 與 stdout 算。**子行程根本沒跑起來時一律不成立**
 ///   （`met` 為 false，rc 是 127）：一次沒有發生的執行不能被記成「守衛如預期變紅」。
+/// - `deadline`：秒數。到時還沒結束就送 SIGTERM（三秒後仍在就 SIGKILL），回 rc 124（與 `timeout(1)` 同）並在 stderr 具名說明
+///   （#711 b39，b38 verify 第 18 列：`maxSeconds` 原本只在子行程回來之後比秒數，退化成二次方的守衛會讓 harness 掛住幾十分鐘，
+///   而不是在上限處變紅）。只終止這裡自己起的那個子行程。
 func runGuardProcess(_ argv: [String], cwd: String, env extra: [String: String] = [:],
-                     mergeOutput: Bool = false, label: String, expect: GuardExpectation) -> GuardSpawn {
+                     mergeOutput: Bool = false, label: String, expect: GuardExpectation,
+                     deadline: Double? = nil) -> GuardSpawn {
     precondition(!argv.isEmpty, "runGuardProcess：argv 是空的")
     let fm = FileManager.default
     let p = Process()
@@ -196,14 +203,30 @@ func runGuardProcess(_ argv: [String], cwd: String, env extra: [String: String] 
 
     let result: GuardSpawn
     var spawned = false
+    let exited = DispatchSemaphore(value: 0)
+    p.terminationHandler = { _ in exited.signal() }
     if (try? p.run()) != nil {
         spawned = true
-        let od = out.fileHandleForReading.readDataToEndOfFile()
+        // stdout 在另一條執行緒讀到 EOF：主執行緒要能在期限到時終止子行程（讀不完的 pipe 會讓 `readDataToEndOfFile` 永遠不回來）
+        let reader = GuardPipeReader()
+        let readDone = DispatchSemaphore(value: 0)
+        let handle = out.fileHandleForReading
+        DispatchQueue.global().async { reader.data = handle.readDataToEndOfFile(); readDone.signal() }
+        var timedOut = false
+        if let d = deadline, exited.wait(timeout: .now() + d) == .timedOut {
+            timedOut = true
+            p.terminate()
+            if exited.wait(timeout: .now() + 3) == .timedOut { kill(p.processIdentifier, SIGKILL); exited.wait() }
+        } else if deadline == nil {
+            exited.wait()
+        }
+        readDone.wait()
         p.waitUntilExit()
         let ed = errFile.flatMap { fm.contents(atPath: $0) } ?? Data()
-        result = GuardSpawn(status: p.terminationStatus,
-                            stdout: String(data: od, encoding: .utf8) ?? "",
-                            stderr: String(data: ed, encoding: .utf8) ?? "")
+        let note = timedOut ? "\n（runGuardProcess：超過 \(String(format: "%.0f", deadline ?? 0)) 秒仍未結束，已終止——逾時）\n" : ""
+        result = GuardSpawn(status: timedOut ? 124 : p.terminationStatus,
+                            stdout: String(data: reader.data, encoding: .utf8) ?? "",
+                            stderr: (String(data: ed, encoding: .utf8) ?? "") + note)
     } else {
         result = GuardSpawn(status: 127, stdout: "", stderr: "spawn 失敗：\(argv[0])")
     }

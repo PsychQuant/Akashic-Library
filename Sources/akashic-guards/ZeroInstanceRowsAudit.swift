@@ -51,15 +51,17 @@ let selfProofTemplateRulePath = ".claude/rules/measurement-commands-self-prove.m
 // MARK: - 掃描的上限（#711 b37）
 //
 // 規則檔與量測文件 PR 改得到（`census-parity.yml` 以 `pull_request` 觸發，跑在 macOS runner；`audit-guards-mutations` 再在副本上跑這支幾十次），
-// 所以這支守衛對它們的工作量要有界：每一個掃描迴圈都是線性的（#711 b36 verify 量到兩條二次方的路徑，b37 再找到三條），另外三道上限讓
-// 「線性」的常數也有界。**超過即具名紅、不判讀那一塊**——不是放行，也不是截斷了再判讀（那會把截掉的量測當成不存在）。
-// 上限都取 2026-10-09 的實測值十倍以上，數字旁寫著量到多少；要提高就改這裡並寫理由。
+// 所以這支守衛對它們的工作量要有界：每一個掃描迴圈都是線性的（#711 b36 verify 量到兩條二次方的路徑，b37 再找到三條，b38 verify 又找到
+// 散文的跨段落接續——見 `selfProofIssues` 的 `ProseChain`），另外三道上限讓「線性」的常數也有界。**超過即具名紅、不判讀那一塊**——不是放行，
+// 也不是截斷了再判讀（那會把截掉的量測當成不存在）。`measured-numbers-audit` 讀同一批檔，沿用前兩個值（#711 b39）。
+// 數字旁寫著量到多少與離上限幾倍（2026-10-15：fence 行數 9.9 倍，其餘十倍以上——先前寫「都在十倍以上」，b38 verify 第 16 列指出對 fence 行數
+// 不成立）；要提高就改這裡並寫理由（上限的值待使用者裁決）。
 
-/// 被掃的檔（規則檔、裁決史檔、量測文件）各自的位元組上限。2026-10-09（加入第 98–100 列之後）：規則檔 181,439、量測文件 256,003 位元組。
-/// 2026-10-15 搬出表格之後：規則檔 9,175、裁決史檔 180,620 位元組。
+/// 被掃的檔（規則檔、裁決史檔、量測文件）各自的位元組上限。2026-10-09（加入 #711 b37 的三列之後，那三列整合時改號為第 99–101 列）：規則檔 181,439、
+/// 量測文件 256,003 位元組；2026-10-15 搬出表格之後：規則檔 9,175、裁決史檔 180,620 位元組。b39 的值見量測文件第 99 列。
 let selfProofMaxFileBytes = 4 << 20
-/// 一個 fence 或一個段落的行數上限。每一個單位都在一個 fence 或段落裡（跨段落的接續至多接兩個段落），所以這兩道也是單位的上限。
-/// 2026-10-09：量測文件最大的 fence 152 行，最大的段落 20 行（規則檔的表格一列一段；量法見量測文件第 99 列）。
+/// 一個 fence 或一個段落的行數上限。跨段落接成的散文單位（`ProseChain`）同一道上限（#711 b39；先前寫「至多接兩個段落」，b38 verify 第 3、7 列
+/// 指出散文的接續沒有那個界）。2026-10-09：量測文件最大的 fence 152 行，最大的段落 20 行（規則檔的表格一列一段；量法見量測文件第 99 列）。
 let selfProofMaxBlockLines = 1_500
 /// 一個 fence 或一個段落的位元組上限。2026-10-09：最大的 fence 11,803 位元組，最長的一行 4,263 位元組（規則檔的表格列最長 2,536）。
 let selfProofMaxBlockBytes = 128 << 10
@@ -121,6 +123,18 @@ func zeroInstanceRowsAudit() -> Int32 {
         for (path, text) in oversized {
             FileHandle.standardError.write(Data(("✗ \(path) 有 \(text.utf8.count) 位元組，超過上限 \(selfProofMaxFileBytes)——這支守衛不掃它"
                 + "（被掃的檔 PR 改得到，上限讓判讀的工作量有界）。拆檔，或提高 `selfProofMaxFileBytes` 並寫理由\n").utf8))
+        }
+        return 1
+    }
+    // **CR**（#711 b39，b38 verify 第 27 列）：Swift 把 `\r\n` 當一個字元，CRLF 的檔讓「## 各列共通的東西」找不到、fence 收尾行帶 info、
+    // 段落超過上限——三則訊息都在怪文件內容。repo 沒有 `.gitattributes` 釘 eol，autocrlf 的 checkout 或編輯器轉檔就會走到這裡，所以先具名
+    let withCR = [(rulePath, rule), (zeroInstanceRulingsPath, rulings), (zeroInstanceMeasurementsPath, measurements),
+                  (selfProofTemplateRulePath, readFile(selfProofTemplateRulePath) ?? "")]
+        .filter { $0.1.utf8.contains(0x0D) }
+    if !withCR.isEmpty {
+        for (path, _) in withCR {
+            FileHandle.standardError.write(Data(("✗ \(path) 含 CR（`\\r`，多半是 CRLF 行尾）——這支守衛逐行判讀，CR 會讓標題、fence 與段落都認錯，"
+                + "之後的訊息會指向錯的原因。轉成 LF 行尾再跑\n").utf8))
         }
         return 1
     }
@@ -310,6 +324,7 @@ func zeroInstanceRowsAudit() -> Int32 {
     let ratchet = selfProofRatchetIssues(rule: rule, rulings: rulings, measurements: measurements, gates: gates)
     fails += ratchet.issues
     fails += selfProofTemplateCopyIssues(readFile(selfProofTemplateRulePath))
+    fails += selfProofMeasurementCommandIssues()
     let checked = ruleProof.checked + rulingsProof.checked + docProof.checked
 
     // 標題列印出條數與棘輪下限（R3 verify 第 7 列：條數掉了，審閱的人在輸出裡要看得到）
@@ -378,11 +393,23 @@ private let selfProofPipeRe = try! NSRegularExpression(pattern: #"(?<!\|)\|(?!\|
 /// 照樣算（R4 verify 第 4 列：R3 的 lookbehind 把它與 `che-akashic` 一起排除）。後面不是字、`.`、`/`、`-`：
 /// `~/.akashic`、`akashic-mcp`、`akashic.sources`、`Sources/akashic/…`、`akashic_doctor`、`Akashic-Library` 不是執行它的寫法。
 /// **變數名以 akashic 開頭的參數展開也算**（#711 b37，b36 verify 第 15 列：`"$AKASHIC_BIN"`、`${AKASHIC_CLI}`——#629 之前的 shell 腳本
-/// 真的這樣寫，而後面的 `_` 讓上面那條的字邊界把它當成另一個名字）：`$` 或 `${` 之後、以 akashic 開頭的名字。除了兩個指向 store 的
-/// 環境變數 `AKASHIC_HOME`、`AKASHIC_LIBRARY`（它們是路徑，不是 binary）。
+/// 真的這樣寫，而後面的 `_` 讓上面那條的字邊界把它當成另一個名字）：`$` 或 `${` 之後、以 akashic 開頭的名字，除了
+/// `selfProofNonBinaryVariables` 列的那些（#711 b39，b38 verify 第 22 列：repo 裡的 `AKASHIC_GUARD_RUN_LOG`、`AKASHIC_SKIP_CASES` 這類是
+/// 紀錄檔、旗標與路徑，`wc -l "$AKASHIC_GUARD_RUN_LOG"` 先前被判成計數 binary 的輸出）。
 private let selfProofBinaryMentionRe = try! NSRegularExpression(pattern:
     #"(?i)(?:(?<![\w.~/])(?:(?<![\w.~/-]-)|(?<=\$\{[A-Za-z_][A-Za-z0-9_]{0,63}-))(?:[\w.~-]*/)*(?:akashic-guards|akashic)(?![\w./-])"#
-    + #"|(?<=\$|\$\{)(?!akashic_(?:home|library)(?!\w))akashic\w*)"#)
+    + #"|(?<=\$|\$\{)(?!akashic_(?:"# + selfProofNonBinaryVariables.sorted().map { $0.lowercased() }.joined(separator: "|")
+    + #")(?!\w))akashic\w*)"#)
+/// **不是 binary 的 `AKASHIC_*` 環境變數**（封閉列舉，名字去掉 `AKASHIC_`）：路徑、紀錄檔、旗標、設定。2026-10-15 取自 repo 裡出現過的
+/// 全部 `AKASHIC_*`（`git grep -ohE 'AKASHIC_[A-Z0-9_]+'`），只有 `AKASHIC_BIN`、`AKASHIC_CLI` 是 binary。清單外的名字一律當成 binary——
+/// 認不出的方向是紅；某個變數其實不是 binary、而守衛把它當成了，加進這裡並寫用途（放行由人加，同 `selfProofDisplayFilters`）。
+let selfProofNonBinaryVariables: Set<String> = [
+    "HOME", "LIBRARY",                                                  // store 的位置
+    "S2_BASE_URL", "S2_KEYCHAIN_SERVICE", "S2_STATE_DIR",               // s2 的設定
+    "GUARD_RUN_LOG", "PRE_PUSH_PROBE_LOG", "PRE_PUSH_STAGES",           // 守衛與 pre-push 的紀錄、階段
+    "SKIP_CASES", "POISON_GUARD", "POISON_BASELINE",                    // harness 的旗標
+    "CANONICAL_REPLAY", "CANONICAL_REPLAY_CHILD",                       // 測試的旗標
+]
 /// 計數的選項：`-c`（併在選項串裡也算，例如 `-Ec`）、以 `--cou` 開頭的長選項（`--count`、它的縮寫、`--count-matches`、`--count=…`），
 /// 前後可以有引號（`grep '-c' …`）。
 /// **不回溯**（#711 b37；b36 verify：`-[A-Za-z]*c[A-Za-z]*` 的兩個 `*` 對 `-` 加一長串 `c` 再接 `_` 互相回溯，兩萬個 `c` 要 16 秒）：
@@ -466,12 +493,14 @@ func selfProofPipesIntoCounter(_ s: String) -> Bool {
 ///   以子字串比對——讀的是名字相近的另一個檔（`/tmp/o` 與 `/tmp/other`）也算，偏向紅。
 ///   單位裡的寫入目標超過 `selfProofMaxRedirectTargets` 個時直接當成計數（認不出來的方向是紅；這也讓這一步的工作量有界）。
 /// 都是一趟掃過：分隔字元的位置先算好，同一段命令只判讀一次。
+/// `pipes` 為 false（表格列）時 `|` 不是命令的分隔、是欄的分隔（#711 b39，b38 verify 第 14 列：先前不看 `pipes`，表格列裡的 `>`、`->` 把後面
+/// 某一欄當成「讀那個檔的另一段命令」，`| k | akashic validate 的數 > 0 | 0 筆 |` 這種散文被判成量測）。
 let selfProofMaxRedirectTargets = 16
-func selfProofFeedsCounterWithoutPipe(_ s: String) -> Bool {
+func selfProofFeedsCounterWithoutPipe(_ s: String, pipes: Bool = true) -> Bool {
     guard let first = selfProofFirstMatch(selfProofBinaryMentionRe, s) else { return false }
     let u = Array(s.utf16)
     let n = u.count
-    func isSep(_ c: UInt16) -> Bool { c == 0x7C || c == 0x3B || c == 0x26 || c == 0x0A }   // | ; & 換行
+    func isSep(_ c: UInt16) -> Bool { (pipes && c == 0x7C) || c == 0x3B || c == 0x26 || c == 0x0A }   // | ; & 換行
     // prevSep[i]：i 之前（不含 i）最後一個分隔字元的位置，沒有是 -1；nextSep[i]：i 起（含 i）第一個分隔字元的位置，沒有是 n
     var prevSep = [Int](repeating: -1, count: n + 1)
     for i in 0..<n { prevSep[i + 1] = isSep(u[i]) ? i : prevSep[i] }
@@ -524,7 +553,7 @@ private let selfProofRedirectRe = try! NSRegularExpression(pattern:
 /// 或不經管線送進那樣的命令（`selfProofFeedsCounterWithoutPipe`）。都看含註解的原文（R3 起不切註解）。
 func selfProofIsMeasurement(_ s: String, pipes: Bool = true) -> Bool {
     guard selfProofFirstMatch(selfProofBinaryMentionRe, s) != nil else { return false }
-    return selfProofHasCount(s) || (pipes && selfProofPipesIntoCounter(s)) || selfProofFeedsCounterWithoutPipe(s)
+    return selfProofHasCount(s) || (pipes && selfProofPipesIntoCounter(s)) || selfProofFeedsCounterWithoutPipe(s, pipes: pipes)
 }
 
 /// `${V:?…}` 寫在管線裡（R4 verify 第 1、3、5 列）：回第一個那樣的展開，沒有回 nil。開頭的前置條件（`: "${V:?…}" && `）裡的不算；
@@ -793,7 +822,9 @@ struct SelfProofScan {
 /// · **散文裡 binary 名與計數不在同一個邏輯行**：辨識以邏輯行（與 inline code 段）為單位，不以整個 fence 或段落為單位——後者會把
 ///   「一行跑 binary、下一行數別的檔」（第 51 列）這種合法的寫法也判成量測。
 /// · **兩段 inline code 之間隔著文字**（不只空白與一個接續運算子）：不接。
-func selfProofIssues(in rule: String, file: String) -> SelfProofScan {
+/// `unitCaps`：fence、段落與散文鏈的上限。只有後設檢查（`selfProofLinearityIssues`）傳別的值——它量的是判讀本身、不是上限。
+func selfProofIssues(in rule: String, file: String,
+                     unitCaps: (lines: Int, bytes: Int) = (selfProofMaxBlockLines, selfProofMaxBlockBytes)) -> SelfProofScan {
     var scan = SelfProofScan()
 
     func judge(_ raw: String, line: Int, physical: Int, place: SelfProofPlace, pipes: Bool = true) {
@@ -852,7 +883,8 @@ func selfProofIssues(in rule: String, file: String) -> SelfProofScan {
                            + "<BIN> 兩處逐字相同、是路徑或 `\"$(command -v …)\"`；<參數> 不含 `#`、單引號；整個單位只有這一條指令——"
                            + "前後不接 `;`／`||`／`|`、不包在 `if`／`$( … )`／`{ }` 裡、寫在一行——行尾至多一段 `#` 註解。不合模板的寫法在"
                            + "沒有那條檢查的舊 binary 上照樣印 `0`，與「檢查過且乾淨」分不開。這一行其實不計數（`| sort`、`| tee` 之類只是顯示）時，"
-                           + "把那個命令加進 `ZeroInstanceRowsAudit.swift` 的 `selfProofDisplayFilters` 並寫一行理由——放行由人加，不改寫成守衛認不出的形狀")
+                           + "把那個命令加進 `ZeroInstanceRowsAudit.swift` 的 `selfProofDisplayFilters` 並寫一行理由；被當成 binary 的是一個 `AKASHIC_*` 變數、"
+                           + "而它其實不是 binary 時，加進同一檔的 `selfProofNonBinaryVariables`——放行由人加，不改寫成守衛認不出的形狀")
     }
 
     // ── fence 外的段落：inline code 與其餘文字 ──
@@ -868,9 +900,14 @@ func selfProofIssues(in rule: String, file: String) -> SelfProofScan {
     }
     /// 散文（含縮排區塊、`<pre>`）的同一件事：上一個段落最後一個邏輯行，與下一個段落的第一個邏輯行之間只有空白行、兩者以接續運算子相連時
     /// 接成一個（縮排區塊裡 `akashic validate |`、空白行、`grep -c x`——shell 照接，fence 裡的同一種寫法 R4 起接上了）。
-    var pendingProse: (line: Int, text: String, lastLine: Int)? = nil
+    /// 接起來的單位可以再往下一個段落接（shell 也照接），所以它是一條**鏈**：各段收在 `parts`、判讀時才接成一個字串，接續的判讀以
+    /// `SelfProofContinuation` 增量地維護（#711 b39，b38 verify 第 3、7 列：b37 每接一段就把整串重接、重問一次「是否以接續運算子結尾」，
+    /// N 個以 `|` 結尾的段落是 N²——一萬六千段 13 秒、三萬兩千段 303 秒，而每一段都在段落的上限之下）。鏈本身也有上限：接起來超過
+    /// `selfProofMaxBlockLines` 行或 `selfProofMaxBlockBytes` 位元組即具名紅、不判讀，鏈從下一個段落重新開始——上限說的「每一個單位」包括它。
+    struct ProseChain { var line: Int; var parts: [String]; var tail: SelfProofContinuation; var bytes: Int; var lastLine: Int }
+    var pendingProse: ProseChain? = nil
     func judgePendingProse() {
-        if let p = pendingProse { judge(p.text, line: p.line, physical: 1, place: .prose) }
+        if let p = pendingProse { judge(p.parts.joined(), line: p.line, physical: 1, place: .prose) }
         pendingProse = nil
     }
     /// `from` 之後到 `to` 之前（行號，1 起算）都是空白行（引用區塊的 `>` 已剝掉）。
@@ -882,7 +919,7 @@ func selfProofIssues(in rule: String, file: String) -> SelfProofScan {
         guard !block.isEmpty else { return }   // 連續的空白行：上一個段落留下的那一段繼續等
         // 段落的上限（#711 b37）：超過就不判讀這一段——上一個段落留下的那一段不往這裡接，照它自己判讀
         let blockBytes = block.reduce(0) { $0 + $1.text.utf8.count + 1 }
-        if block.count > selfProofMaxBlockLines || blockBytes > selfProofMaxBlockBytes {
+        if block.count > unitCaps.lines || blockBytes > unitCaps.bytes {
             judgePending()
             judgePendingProse()
             scan.issues.append(selfProofOversizeIssue("第 \(block[0].line) 行起的段落", lines: block.count, bytes: blockBytes))
@@ -936,19 +973,35 @@ func selfProofIssues(in rule: String, file: String) -> SelfProofScan {
         for s in spans { for q in s.start..<s.end where prose[q] != "\n" { prose[q] = " " } }
         let proseLines = String(prose).components(separatedBy: "\n").enumerated()
             .map { (line: block[$0.offset].line, text: selfProofProseText($0.element)) }
-        var logical = selfProofLogicalLines(proseLines)
-        if let p = pendingProse {
-            if !table, onlyBlankBetween(p.lastLine, block[0].line), let first = logical.first,
-               selfProofContinues(p.text) || selfProofIsContinuation(first.text) {
-                logical[0] = (p.line, p.text + " " + first.text, 2)
-                pendingProse = nil
+        let logical = selfProofLogicalLines(proseLines)
+        let lastLine = block[block.count - 1].line
+        var carried: ProseChain? = nil   // 上一個段落留下、接到這個段落第一個邏輯行的鏈
+        if var c = pendingProse {
+            // 先放掉存著的那一份，`parts` 才是唯一的參照、append 就地做——留著的話每接一段就把整串複製一次，又是 N²
+            pendingProse = nil
+            if !table, onlyBlankBetween(c.lastLine, block[0].line), let first = logical.first,
+               c.tail.continues || selfProofIsContinuation(first.text) {
+                c.parts.append(" "); c.parts.append(first.text)
+                c.tail.feed(" "); c.tail.feed(first.text)
+                c.bytes += 1 + first.text.utf8.count
+                carried = c
             } else {
-                judgePendingProse()
+                judge(c.parts.joined(), line: c.line, physical: 1, place: .prose)
             }
         }
         for (i, l) in logical.enumerated() {
+            if i == 0, var c = carried {
+                carried = nil   // 同上：交出去之前放掉這一份
+                if lastLine - c.line + 1 > unitCaps.lines || c.bytes > unitCaps.bytes {
+                    scan.issues.append(selfProofOversizeIssue("第 \(c.line) 行起跨段落接成的散文單位", lines: lastLine - c.line + 1, bytes: c.bytes))
+                    continue
+                }
+                if logical.count == 1, !table { c.lastLine = lastLine; pendingProse = c; continue }
+                judge(c.parts.joined(), line: c.line, physical: 2, place: .prose, pipes: !table)
+                continue
+            }
             if i == logical.count - 1, !table {
-                pendingProse = (l.line, l.text, block[block.count - 1].line)
+                pendingProse = ProseChain(line: l.line, parts: [l.text], tail: SelfProofContinuation(l.text), bytes: l.text.utf8.count, lastLine: lastLine)
                 continue
             }
             judge(l.text, line: l.line, physical: l.physical, place: .prose, pipes: !table)
@@ -961,7 +1014,7 @@ func selfProofIssues(in rule: String, file: String) -> SelfProofScan {
         defer { fenceLines = [] }
         // fence 的上限（#711 b37）：超過就不判讀這個 fence
         let fenceBytes = fenceLines.reduce(0) { $0 + $1.text.utf8.count + 1 }
-        if fenceLines.count > selfProofMaxBlockLines || fenceBytes > selfProofMaxBlockBytes {
+        if fenceLines.count > unitCaps.lines || fenceBytes > unitCaps.bytes {
             scan.issues.append(selfProofOversizeIssue("第 \(f.line) 行開的 fence ", lines: fenceLines.count, bytes: fenceBytes))
             return
         }
@@ -1034,8 +1087,13 @@ func selfProofIssues(in rule: String, file: String) -> SelfProofScan {
 /// 3. `--library` 的每一個引數（與 shell 同一組分隔：空白、TAB，或 `=`；b37，b36 verify 第 0 列：R4 只認一個空白或 `=`，`--library<TAB>"$V"`
 ///    不被認出、不要求 `test -f`）去掉雙引號之後，`test -f` 的路徑逐字是它加 `/store.yaml`（b37，第 8、20 列：R4 只比變數名，
 ///    `--library "$V/sub"` 配 `test -f "$V/store.yaml"` 過關——驗的是另一個目錄）。`${V}` 與 `$V` 視為同一個寫法。
-/// 4. `akashic` 的子命令不是 `WriteGateRulings` 裁決為唯讀的那些時，`<參數>` 要有 `--library`（b37，第 9 列：`doctor` 建佈局、重建 index，
-///    不帶 `--library` 時寫的是預設解析到的那一份）。
+/// 4. `akashic` 的子命令會寫 store（不是 `WriteGateRulings` 的 `.readOnly`）時，`<參數>` 要有 `--library`（b37，第 9 列：`doctor` 建佈局、
+///    重建 index，不帶 `--library` 時寫的是預設解析到的那一份）。
+/// 5. `akashic` 的子命令不寫 store、卻不在量測可用的清單（`selfProofMeasurementCommands`）裡時——它有 store 以外的副作用（改 registry、
+///    寫 `--out` 指定的檔、開瀏覽器、連網）——不論帶不帶 `--library` 都不收（b39，b38 verify 第 6、13、26 列：b37 拿 `.readOnly` 當「唯讀」，
+///    而它只說「不開 store 的寫入閘」，`file use`、`export-bib --output <任意路徑>` 照樣過關）。
+/// `<參數>` 先照 shell 拆字、去掉雙引號再判讀（b39，b38 verify 第 1、25 列：b37 在原文上找 `--library`，`"--library" "$V/sub"` 認不出、
+/// `"--library $V"` 與 `./--library` 反而被當成有）。
 private func selfProofPreconditionIssue(_ m: NSTextCheckingResult, in ns: NSString) -> String? {
     func group(_ name: String) -> String? {
         let r = m.range(withName: name)
@@ -1057,46 +1115,110 @@ private func selfProofPreconditionIssue(_ m: NSTextCheckingResult, in ns: NSStri
         return "用到 \(list)，前面卻沒有 `: \"${\(unguarded[0]):?…}\" && `——沒設時 `--library \"\"` 等同沒傳、落到預設解析到的 store"
             + "（在這台機器上那是活的一份），`--from \"\"` 之類讀不到東西、計數印 `0`"
     }
-    let libraries = selfProofLibraryArguments(args)
+    let words = selfProofShellWords(args)
+    // 子命令要寫在最前面（#711 b39）：`akashic --library "$V" validate` 是 usage error（選項住在子命令上），計數照印 `0`；
+    // 子命令認不出來時，「會不會寫 store」「量測能不能用」兩件事都判不了
+    if let first = words.first?.value, first.hasPrefix("-") {
+        return "中 `<參數>` 以選項 `\(words[0].raw)` 開頭——子命令要寫在最前面：選項住在子命令上，寫在前面時 ArgumentParser 報錯、計數照印 `0`，"
+            + "守衛也認不出是哪個子命令"
+    }
+    let parsed = selfProofLibraryArguments(words)
+    if let why = parsed.issue { return why }
+    let libraries = parsed.libraries
     for (word, path) in libraries {
         let want = path + "/store.yaml"
         guard let t = test else {
-            return "以 `--library \(word)` 指名 store，前面卻沒有 `test -f \"\(want)\" && `——那個路徑打錯成一個不是 store 的目錄時，"
+            return "以 `\(word)` 指名 store，前面卻沒有 `test -f \"\(want)\" && `——那個路徑打錯成一個不是 store 的目錄時，"
                 + "`validate` 報錯而 `grep -c` 照印 `0`，`doctor` 還會在那裡建出一個 store"
         }
         guard selfProofSamePath(t, want) else {
-            return "以 `--library \(word)` 指名 store，前面的 `test -f` 驗的卻是 `\(t)`，不是 `\(want)`——驗過的是另一個目錄，"
+            return "以 `\(word)` 指名 store，前面的 `test -f` 驗的卻是 `\(t)`，不是 `\(want)`——驗過的是另一個目錄，"
                 + "被量的那一個不是 store 時 `grep -c` 照印 `0`"
         }
     }
-    if libraries.isEmpty, selfProofBinaryName(group("bin") ?? "") == "akashic" {
-        let readOnly = selfProofReadOnlyCommands
-        let trimmed = args.trimmingCharacters(in: .whitespaces)
-        let isReadOnly = readOnly.contains { k in
-            trimmed == k || trimmed.hasPrefix(k + " ") || trimmed.hasPrefix(k + "\t")
+    if selfProofBinaryName(group("bin") ?? "") == "akashic" {
+        let noStoreWrite = selfProofReadOnlyCommands
+        let values = words.map(\.value)
+        let command = selfProofCommandName(values, among: noStoreWrite)
+        if let c = command, selfProofMeasurementCommands[c] == nil {
+            return "用的子命令 `\(c)` 不寫 store（`\(selfProofWriteGateRulingsPath)` 的 `.readOnly`），卻不在量測可用的清單"
+                + "（`ZeroInstanceRowsAudit.swift` 的 `selfProofMeasurementCommands`）裡——`.readOnly` 只說不開 store 的寫入閘，"
+                + "這個命令可能改 registry、寫 `--out`／`--output` 指定的檔、開瀏覽器或連網，照抄重跑會改到 store 以外的東西。量測不用它；"
+                + "確實只讀、只印時，把它加進那張清單並寫一行理由——放行由人加"
         }
-        if !isReadOnly {
-            let sub = trimmed.split(whereSeparator: { $0 == " " || $0 == "\t" }).first.map(String.init) ?? trimmed
-            return "用的子命令 `\(sub)` 不是 `\(selfProofWriteGateRulingsPath)` 裁決為唯讀（`.readOnly`）的命令，卻沒有 `--library`——"
-                + "它可能寫 store（`doctor` 建佈局、重建 index），不帶 `--library` 時寫的是預設解析到的那一份（在這台機器上是活的 store）。"
+        if libraries.isEmpty, command == nil {
+            let sub = values.first ?? args.trimmingCharacters(in: .whitespaces)
+            return "用的子命令 `\(sub)` 會寫 store（不是 `\(selfProofWriteGateRulingsPath)` 的 `.readOnly`），卻沒有 `--library`——"
+                + "`doctor` 建佈局、重建 index，不帶 `--library` 時寫的是預設解析到的那一份（在這台機器上是活的 store）。"
                 + "以 `--library \"$V\"` 指名，前面加 `: \"${V:?…}\" && test -f \"$V/store.yaml\" && `"
-                + (readOnly.isEmpty ? "（讀不到那張表的唯讀裁決，所以每一條 `akashic` 的量測都要 `--library`）" : "")
+                + (noStoreWrite.isEmpty ? "（讀不到那張表的 `.readOnly` 裁決，所以每一條 `akashic` 的量測都要 `--library`）" : "")
         }
     }
     return nil
 }
 
+/// `<參數>` 照 shell 拆成字：(原文, 去掉雙引號之後的值)。`<參數>` 不含單引號、反斜線、反引號、括號（`selfProofArgsPattern`），雙引號成對
+/// （模板另查），所以一個字是雙引號段與非空白字元的串接，引號外的空白與 TAB 是分隔——與 shell 相同（#711 b39，b38 verify 第 1、25 列）。
+func selfProofShellWords(_ args: String) -> [(raw: String, value: String)] {
+    var out: [(raw: String, value: String)] = []
+    var raw = "", value = "", inQuote = false, inWord = false
+    for c in args {
+        if c == "\"" { inQuote.toggle(); raw.append(c); inWord = true; continue }
+        if !inQuote, c == " " || c == "\t" {
+            if inWord { out.append((raw, value)); raw = ""; value = ""; inWord = false }
+            continue
+        }
+        raw.append(c); value.append(c); inWord = true
+    }
+    if inWord { out.append((raw, value)) }
+    return out
+}
+
+/// 子命令的名字：`among` 裡、與開頭幾個字（去引號之後）逐字相同的最長那一個（`file use`、`s2 status` 這類巢狀命令以空白串接）。
+func selfProofCommandName(_ values: [String], among names: Set<String>) -> String? {
+    names.filter { name in
+        let parts = name.split(separator: " ").map(String.init)
+        return parts.count <= values.count && zip(parts, values).allSatisfy { $0 == $1 }
+    }.max { $0.split(separator: " ").count < $1.split(separator: " ").count }
+}
+
 /// `$` 後面不是具名變數（`$1`、`$@`、`$#`、`$?`、`${1}`…）。
 private let selfProofUnnamedExpansionRe = try! NSRegularExpression(pattern: #"\$(?![A-Za-z_]|\{[A-Za-z_])(?:\{[^}\s"]*\}|[^\s"])?"#)
 
-/// `<參數>` 裡 `--library` 的每一個引數：(原文, 去掉雙引號的路徑)。分隔字元與 shell 相同——空白或 TAB（可以多個），或 `=`。
-/// `<參數>` 不含單引號、反斜線（`selfProofArgsPattern`），所以一個字是雙引號段與非空白字元的串接。
-func selfProofLibraryArguments(_ args: String) -> [(word: String, path: String)] {
-    let ns = args as NSString
-    return matches(args, #"(?<![\w-])--library(?:[ \t]+|=)((?:"[^"]*"|[^\s"])+)"#).map {
-        let word = ns.substring(with: $0.range(at: 1))
-        return (word, word.replacingOccurrences(of: "\"", with: ""))
+/// `<參數>` 裡 `--library` 的每一個引數：(選項連同引數的原文, 去掉雙引號的路徑)。判讀在 shell 拆字、去引號之後（`selfProofShellWords`）——
+/// ArgumentParser 看到的就是那些字：`"--library" "$V"`、`--"library"` 是那個選項，`"--library $V"`（一個字）、`./--library` 不是。
+/// 第一個值是 `--` 的字之後都是位置參數。回 (引數, 說明哪裡不對的話)：
+/// · `--library` 後面沒有字、`--library=` 沒有值——ArgumentParser 報錯，計數照印 `0`。
+/// · 一個字含 `--library` 卻不是那個選項（一個字裡含空白、前面有別的字元、寫在 `--` 之後）——它不指名 store，ArgumentParser 不認得
+///   時計數照印 `0`，不寫 store 的命令量到的是預設解析到的那一份（b38 verify 第 25 列）。`--library-` 開頭的別的選項（`--library-id`）不算。
+func selfProofLibraryArguments(_ words: [(raw: String, value: String)]) -> (libraries: [(word: String, path: String)], issue: String?) {
+    var libraries: [(word: String, path: String)] = []
+    var positional = false, skip = false
+    for (k, w) in words.enumerated() {
+        if skip { skip = false; continue }
+        if !positional, w.value == "--" { positional = true; continue }
+        if !positional, w.value == "--library" {
+            guard k + 1 < words.count else {
+                return ([], "中 `\(w.raw)` 後面沒有引數——ArgumentParser 報錯，計數照印 `0`")
+            }
+            libraries.append((w.raw + " " + words[k + 1].raw, words[k + 1].value)); skip = true
+            continue
+        }
+        if !positional, w.value.hasPrefix("--library=") {
+            let path = String(w.value.dropFirst("--library=".count))
+            guard !path.isEmpty else {
+                return ([], "中 `\(w.raw)` 沒有值——ArgumentParser 報錯，計數照印 `0`")
+            }
+            libraries.append((w.raw, path))
+            continue
+        }
+        if w.value.contains("--library"), positional || !w.value.hasPrefix("--library-") {
+            return ([], "中 `\(w.raw)` 含 `--library` 卻不是那個選項（shell 拆字、去掉引號之後不是 `--library` 或 `--library=<路徑>`"
+                + (positional ? "，而且寫在 `--` 之後、是位置參數" : "") + "）——它不指名 store：ArgumentParser 不認得時計數照印 `0`，"
+                + "不寫 store 的命令量到的是預設解析到的那一份。寫成 `--library \"$V\"`")
+        }
     }
+    return (libraries, nil)
 }
 
 /// 兩個路徑在 `${V}` 與 `$V` 視為相同之後逐字相同（`${V}x` 不會被寫成 `$Vx`——後面接名字字元的不換）。
@@ -1107,15 +1229,72 @@ func selfProofSamePath(_ a: String, _ b: String) -> Bool {
     return norm(a) == norm(b)
 }
 
-/// `akashic` 的子命令裡、`WriteGateRulings` 裁決為唯讀（`.readOnly`）的那些（命令層的格子，`library list` 這類巢狀命令以空白串接）。
-/// 單一來源是那張表，這裡不另列清單（`no-compat-fallback`：同一件事一份描述）。讀不到或一格都沒有時是空集合——每一條 `akashic` 的量測
-/// 都要 `--library`，偏向紅。
+/// `akashic` 的子命令裡、`WriteGateRulings` 裁決為 `.readOnly` 的那些（命令層的格子，`library list` 這類巢狀命令以空白串接）。
+/// **它的意思是「不寫 store」**——`.readOnly` 只說不開 store 的寫入閘，`file use` 改 registry、`export-bib --output` 寫檔都在裡面
+/// （#711 b39，b38 verify 第 6、26 列：b37 把它叫「唯讀」）。「會不會寫 store」的單一來源是那張表，這裡不另列（`no-compat-fallback`）；
+/// 「量測可以用」另是一件事，見 `selfProofMeasurementCommands`。讀不到或一格都沒有時是空集合——每一條 `akashic` 的量測都要 `--library`，偏向紅。
+/// 名字的字元類含數字（b39，b38 verify 第 13 列：先前只收字母，`s2 status` 等 9 格被丟掉）；另查抽到的格數與命令層的 `.readOnly` 格數相同
+/// （`selfProofMeasurementCommandIssues`）。
 let selfProofWriteGateRulingsPath = "Sources/akashic/WriteGateRulings.swift"
 let selfProofReadOnlyCommands: Set<String> = {
     guard let text = readFile(selfProofWriteGateRulingsPath) else { return [] }
     // 引號與左括號寫成 `\x22`、`\x28`：字面的 `": ` 與不成對的 `(` 會讓 `DisplaySinkCoverageTests` 把之後的每一行都當成輸出的續行
-    return Set(captures(text, #"^ {8}\x22([a-z][a-z -]*)\x22: \.readOnly\x28"#, multiline: true))
+    return Set(captures(text, #"^ {8}\x22([a-z0-9][a-z0-9 -]*)\x22: \.readOnly\x28"#, multiline: true))
 }()
+/// 命令層的 `.readOnly` 格數（名字不限字元類）——與 `selfProofReadOnlyCommands` 的大小比，抽取漏了格子時說得出來。
+let selfProofReadOnlyCellCount: Int = {
+    guard let text = readFile(selfProofWriteGateRulingsPath) else { return 0 }
+    return matches(text, #"^ {8}\x22[^\x22\n]*\x22: \.readOnly\x28"#, multiline: true).count
+}()
+
+/// **量測可以用、不必帶 `--library` 的 `akashic` 子命令**（封閉列舉，#711 b39，b38 verify 第 6、13、26 列）：不寫 store，而且只讀、只印——
+/// 不改 registry、不寫呼叫端指定的檔、不開瀏覽器、不連網。每一個都要是 `selfProofReadOnlyCommands` 的成員（另查）：那張表改判它會寫 store
+/// 時，這裡的放行跟著失效。清單外的 `.readOnly` 命令一律不收（`export-bib`、`export-tables`、`file use`／`remove`、`fulltext fetch`／`take`、
+/// `web-read landing`／`check`、`crossref-match`、`abstracts-to-proposals`、會連網的 `s2` 查詢、還沒有人看過的 `references` 兩個）——
+/// 認不出的方向是紅，放行由人加、寫一行理由（同 `selfProofDisplayFilters`）。
+let selfProofMeasurementCommands: [String: String] = [
+    "validate": "只讀記錄、印健康報告",
+    "query": "走 index 的讀取面",
+    "graph": "關係圖的讀取面",
+    "person": "person 的讀取面",
+    "people": "person 清單的讀取面",
+    "get-entry": "work 的讀取面",
+    "divergences": "歧異記錄的讀取面",
+    "venue": "venue 的讀取面",
+    "venues": "venue 清單的讀取面",
+    "view list": "列出 view",
+    "view show": "展開 view 的外延，現算、不寫檔",
+    "library list": "列出 libraries",
+    "library check": "列出不符成員規則的成員",
+    "file list": "列出 registry，不改 current",
+    "literal-census": "只讀記錄檔與 marker",
+    "scan-yaml-profile": "只讀 YAML 檔",
+    "fulltext verify": "比對本機 PDF 與記錄、印 JSON，不寫檔",
+    "fulltext contract": "印一個常數",
+    "fulltext bot-signals": "從 stdin 讀、印到 stdout",
+    "fulltext calibrate": "只讀本機 PDF 與回應目錄",
+    "fulltext jitter": "睡一個間隔，不寫檔",
+    "web-read url": "只讀 --file、印到 stdout",
+    "web-read origin": "從 stdin 讀、印到 stdout",
+    "s2 status": "只看金鑰與節流狀態檔，不連網",
+]
+
+/// 兩件與上面兩份清單對帳的事：抽到的 `.readOnly` 格數要等於命令層的格數；`selfProofMeasurementCommands` 的每一個都要是 `.readOnly`。
+/// 讀不到那張表時不查（那時每一條 `akashic` 的量測都要 `--library`，量測可用的清單整個不生效）。
+func selfProofMeasurementCommandIssues() -> [String] {
+    let readOnly = selfProofReadOnlyCommands
+    guard !readOnly.isEmpty else { return [] }
+    var out: [String] = []
+    if readOnly.count != selfProofReadOnlyCellCount {
+        out.append("`\(selfProofWriteGateRulingsPath)` 命令層有 \(selfProofReadOnlyCellCount) 格 `.readOnly`，名字的抽取只抽到 \(readOnly.count) 格"
+                   + "——`selfProofReadOnlyCommands` 的字元類漏了某些名字（b38 verify 第 13 列漏的是含數字的 `s2 …`），被漏掉的命令會被要求帶它不收的 `--library`")
+    }
+    for c in selfProofMeasurementCommands.keys.sorted() where !readOnly.contains(c) {
+        out.append("`selfProofMeasurementCommands` 的 `\(c)` 已不是 `\(selfProofWriteGateRulingsPath)` 的 `.readOnly`——那張表改判它會寫 store"
+                   + "（或命令改名、移除了），量測用它時要帶 `--library`。從清單拿掉")
+    }
+    return out
+}
 
 /// `<BIN>` 的 binary 名：`"$(command -v X)"` 取 X，路徑取最後一段。只用來決定片段該在哪支 binary 的原始碼裡找——判準是兩處逐字相同。
 private func selfProofBinaryName(_ bin: String) -> String {
@@ -1370,6 +1549,12 @@ func selfProofLinearityIssues() -> (issues: [String], report: String) {
         // 段落的位元組上限之下（10n 段、每段 7 位元組左右）
         ("只隔空白、以 `|` 結尾的相鄰 inline code", 1_500, { k in
             _ = selfProofIssues(in: (0..<k).map { "`x\($0 % 10) |`" }.joined(separator: " ") + "\n", file: "linearity") }),
+        // #711 b39（b38 verify 第 3、7 列）：散文的跨段落接續是一條鏈——空行隔開、或一列一個清單項目，每一段都以 `|` 結尾。
+        // 鏈的上限（1,500 行）在 750 段就截斷它，所以這兩格繞過上限——量的是鏈本身（上限另有負控）
+        ("以 `|` 結尾、空行隔開的段落接成的散文鏈", 2_000, { k in
+            _ = selfProofIssues(in: String(repeating: "x |\n\n", count: k), file: "linearity", unitCaps: (.max, .max)) }),
+        ("以 `|` 結尾的清單項目接成的散文鏈", 2_000, { k in
+            _ = selfProofIssues(in: String(repeating: "- x |\n", count: k), file: "linearity", unitCaps: (.max, .max)) }),
     ]
     var issues: [String] = []
     var parts: [String] = []

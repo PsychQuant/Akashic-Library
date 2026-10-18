@@ -90,8 +90,9 @@ func auditGuardsMutations() -> Int32 {
     var abort: String? = nil          // 取代 Python 的 SystemExit（case 無效時具名並跳過）
 
     // 執行守衛一律經 `runGuardProcess`（#707）：它留下執行紀錄——哪一格、預期什麼、守衛實際回了什麼。
-    func exec(_ argv: [String], cwd: String, _ label: String, _ expect: GuardExpectation) -> (Int32, String) {
-        let r = runGuardProcess(argv, cwd: cwd, label: label, expect: expect)
+    func exec(_ argv: [String], cwd: String, _ label: String, _ expect: GuardExpectation,
+              deadline: Double? = nil) -> (Int32, String) {
+        let r = runGuardProcess(argv, cwd: cwd, label: label, expect: expect, deadline: deadline)
         return (r.status, r.combined)
     }
 
@@ -101,7 +102,7 @@ func auditGuardsMutations() -> Int32 {
     /// 佔 2.0 GB），而守衛讀的只有規則檔（144 KB）。全樹複製
     /// 16.5 秒一次 × 每個 case，讓這支 harness 曾漲到 13 分鐘以上。
     func withCopy(_ guardRel: String, _ edits: [AGMEdit], _ label: String,
-                  _ expect: GuardExpectation) -> (Int32, String) {
+                  _ expect: GuardExpectation, deadline: Double? = nil) -> (Int32, String) {
         let tmp = NSTemporaryDirectory() + "audit-mut-" + UUID().uuidString
         try? fm.createDirectory(atPath: tmp, withIntermediateDirectories: true)
         defer { try? fm.removeItem(atPath: tmp) }
@@ -174,7 +175,7 @@ func auditGuardsMutations() -> Int32 {
         if guardRel.hasPrefix("akashic-guards ") {
             let sub = guardRel.split(separator: " ")[1]
             guard fm.isExecutableFile(atPath: BIN) else { return (2, "（\(BIN) 不存在——本 case 未執行）") }
-            return exec([BIN, String(sub)], cwd: tmp, label, expect)
+            return exec([BIN, String(sub)], cwd: tmp, label, expect, deadline: deadline)
         }
         let interp: String
         switch (guardRel as NSString).pathExtension {
@@ -213,7 +214,7 @@ func auditGuardsMutations() -> Int32 {
     ///
     /// **它必須在未設定時完全沒有行為**——否則就是一個藏在出貨路徑裡的後門。
     func poisonedIfRequested(_ guardRel: String, _ edits: [AGMEdit], _ label: String,
-                             _ expect: GuardExpectation) -> (Int32, String) {
+                             _ expect: GuardExpectation, deadline: Double? = nil) -> (Int32, String) {
         let env = ProcessInfo.processInfo.environment
         // **檢查二的注入**：把 `measured-numbers-audit` 的 baseline 弄髒（規則檔多一個裸
         // 數字），harness 必須在跑任何 case **之前**攔下並具名。
@@ -236,9 +237,12 @@ func auditGuardsMutations() -> Int32 {
             let r = withCopy(guardRel, [], label, expect)
             return (r.0, r.1 + "\n\(poisonCounter)")
         }
-        return withCopy(guardRel, edits, label, expect)
+        return withCopy(guardRel, edits, label, expect, deadline: deadline)
     }
-    let run = poisonedIfRequested
+    func run(_ guardRel: String, _ edits: [AGMEdit], _ label: String, _ expect: GuardExpectation,
+             _ deadline: Double? = nil) -> (Int32, String) {
+        poisonedIfRequested(guardRel, edits, label, expect, deadline: deadline)
+    }
 
     // ── 主流程 ───────────────────────────────────────────────────────────
     var paired: [String: String] = [:]
@@ -310,7 +314,8 @@ func auditGuardsMutations() -> Int32 {
         if skipped.contains(c.desc) { continue }
         abort = nil
         let t0 = Date()
-        let (rc, out) = run(c.guardRel, c.edits, c.desc, .red)
+        // 限時的格子在期限到時終止守衛（#711 b39，b38 verify 第 18 列）：退化成二次方時是紅，不是掛住
+        let (rc, out) = run(c.guardRel, c.edits, c.desc, .red, c.maxSeconds)
         let slow = agmTooSlow(c, Date().timeIntervalSince(t0))
         if let a = abort { print(a); continue }
         let miss = c.expect.filter { !out.contains($0) }
@@ -376,7 +381,7 @@ func auditGuardsMutations() -> Int32 {
         }
         abort = nil
         let t0 = Date()
-        let (rc, out) = run(c.guardRel, c.edits, c.desc, .green)
+        let (rc, out) = run(c.guardRel, c.edits, c.desc, .green, c.maxSeconds)
         let slow = agmTooSlow(c, Date().timeIntervalSince(t0))
         if let a = abort { print(a); continue }
         guard let pri = pristine[c.guardRel] else { continue }   // 前提不成立時不假裝通過
@@ -402,8 +407,19 @@ func auditGuardsMutations() -> Int32 {
         for i in linearity.issues { print("✗ 後設：\(i)") }
     }
 
+    // **後設：numbers 的判讀是線性的**（#711 b39）：b38 verify 量到 `measured-numbers-audit` 對同一批 PR 改得到的檔有三條超線性的路徑
+    // （沒收尾的反引號讓正規式回溯、一行很多個數字各重掃一次視窗、各 trim 一次整行），而上面那一項只看 zi-rows——後設檢查放在缺陷會發生
+    // 的地方（`measuredNumbersLinearityIssues`）。
+    let numbersLinearity = measuredNumbersLinearityIssues()
+    if numbersLinearity.issues.isEmpty {
+        print("✓ 後設：numbers 的判讀是線性的（輸入放大 10 倍：\(numbersLinearity.report)；上限 "
+            + "\(String(format: "%.0f", selfProofLinearityBoundSeconds)) 秒），換掉的正規式與標題判準的樣例相符"); ok += 1
+    } else {
+        for i in numbersLinearity.issues { print("✗ 後設：\(i)") }
+    }
+
     let same = before == mtimes()
-    let expected = cases.count - skipped.count + agmRobust.count + 3   // +3 = 不變式、重複掃描、zi-rows 的線性
+    let expected = cases.count - skipped.count + agmRobust.count + 4   // +4 = 不變式、重複掃描、zi-rows 的線性、numbers 的線性
     if !sourceInjected.isEmpty {
         let uniq = Array(Set(sourceInjected.map { base($0) })).sorted()
         print("ℹ \(sourceInjected.count) 個 case 注入的是守衛**自己的原始碼**"
@@ -412,7 +428,7 @@ func auditGuardsMutations() -> Int32 {
             + "能改成環境注入的就該改（見注入處的說明）。")
     }
     print("\n=== negative control \(ok)/\(expected) "
-        + "（\(cases.count - skipped.count) 須紅 ＋ \(agmRobust.count) 須綠 ＋ 3 後設檢查）==="
+        + "（\(cases.count - skipped.count) 須紅 ＋ \(agmRobust.count) 須綠 ＋ 4 後設檢查）==="
         + (skipped.isEmpty ? "" : "（另有 \(skipped.count) 個因缺 swift 跳過）"))
     print("\(same ? "出貨檔未被開啟以寫入" : "**出貨檔被動到了**")：\(agmWatched.count) 個受監看檔")
     if ok != expected || !same { return 1 }

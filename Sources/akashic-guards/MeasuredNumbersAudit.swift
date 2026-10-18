@@ -7,10 +7,14 @@
 // **判準（三選一即算有背書）**：
 //   1. 同一行有時間錨（`2026-08-23`／`當日`／`立案當時`／`#NNN`）
 //   2. 所在**小節的標題到該行之間**有時間錨——**標題本身的 `#NNN` 不算**（#711 b37，b36 verify 第 17 列）：量測文件的歷輪補記
-//      小節標題都是「### 第 N 列（#NNN）」，那個編號說的是這一節講哪一列，不是這段數字何時量的；算進去的話，那 87 節下的任何
-//      「實測 N」都被標題自動背書，守衛對它們等於沒在看。標題裡的日期照樣算。
+//      小節標題都是「### 第 N 列（#NNN）」，那個編號說的是這一節講哪一列，不是這段數字何時量的；算進去的話，那些小節（2026-10-15：
+//      `grep -c '^### 第 [0-9]* 列（#' docs/zero-instance-measurements.md` 得 82 節；先前寫的「87」是 b36 評審的敘述，b38 verify 第 8 列）下的任何
+//      「實測 N」都被標題自動背書，守衛對它們等於沒在看。標題裡的日期照樣算。標題是 CommonMark 的 ATX 標題（行首至多三個空白，#711 b39）；
+//      標題那一行自己的數字照判準 1 看同一行。
 //   3. 前 4 行至後 8 行內有**可重跑的指令**——不只是工具名：還要含路徑分隔／管線／
 //      旗標／命令替換其中之一（#407 R39 收緊）
+//
+// **判讀是線性的、有上限**（#711 b39，b38 verify 第 0、2、4、5、7 列）：讀的檔 PR 改得到；見 `measuredNumbersScan`。
 //
 // **誠實邊界（三條，都量過）**：
 //   · **觸發詞只認「實測」。** 換個寫法就逃掉。這是 heuristic 不是覆蓋保證。
@@ -36,7 +40,16 @@ private let markRe = #"20\d\d-\d\d-\d\d|20\d\d 年|當日|立案當時|#\d{2,4}"
 // **收尾**反引號會被當成新的開頭，一路吃過表格好幾列。加 `\n` 到排除集合即修好。
 private let toolRe = #"(?:grep|awk|sed|git |gh |python3|swift|bash|jq|wc |find |validate)"#
 private let runnableRe = #"[|/$-]"#
-private let cmdInline = "`[^`\n]*" + toolRe + "[^`\n]*" + runnableRe + "[^`\n]*`"
+private let toolRegex = try! NSRegularExpression(pattern: toolRe)
+private let runnableChars = CharacterSet(charactersIn: "|/$-")
+private let numRegex = try! NSRegularExpression(pattern: numRe)
+private let markRegex = try! NSRegularExpression(pattern: markRe)
+/// 合法的 ATX 標題（CommonMark：行首至多三個空白、一到六個 `#`、之後是空白或行尾）。小節的錨與 `rowsAfter` 跨過的標題用同一個判準
+/// （#711 b39，b38 verify 第 15、24 列：先前小節的錨用 `hasPrefix("#")`——行首的 `#NNN` 散文被當成標題、縮排一個空白的標題又不算）。
+private let atxHeadingRegex = try! NSRegularExpression(pattern: #"^ {0,3}#{1,6}(?:\s|$)"#)
+func measuredNumbersIsHeading(_ line: String) -> Bool {
+    atxHeadingRegex.firstMatch(in: line, range: NSRange(location: 0, length: (line as NSString).length)) != nil
+}
 // 字元類**刻意比 `digits` 認得的略寬**（#407 R67i）：只收認得的字，「解析不出要報」
 // 那條路徑就永遠不可達——一段沒有輸入到得了的程式碼，讀起來卻像一道防線。收進
 // `廿`／`卅`／`萬` 這些真實會出現但不處理的字，讓那條路徑有東西走得到。
@@ -87,7 +100,7 @@ private func rowsAfter(_ lines: [String], _ i: Int) -> RowsAfter {
         let l = lines[j]
         if l.trimmingCharacters(in: .whitespaces).hasPrefix("```") { fenced.toggle(); continue }
         if fenced { continue }
-        if !matches(l, #"^#{1,6}(\s|$)"#).isEmpty { crossed.append(l.trimmingCharacters(in: .whitespaces)) }
+        if measuredNumbersIsHeading(l) { crossed.append(l.trimmingCharacters(in: .whitespaces)) }
         if !matches(l, sep).isEmpty {
             if !crossed.isEmpty { return .borrowed(crossed) }
             var k = j + 1, rows = 0
@@ -101,16 +114,109 @@ private func rowsAfter(_ lines: [String], _ i: Int) -> RowsAfter {
     return .none
 }
 
-private func hasCmd(_ chunk: String) -> Bool {
-    if !matches(chunk, cmdInline).isEmpty { return true }
-    // ② 圍籬區塊。**必須支援**：兩個真的可重跑的配方就寫在 ```bash 裡，而 inline 那條
-    //    看不到它們——先前它們「通過」靠的是①跨行誤配對出來的假 match（#407 R40）。
-    var fenced = false
-    for line in chunk.components(separatedBy: "\n") {
-        if line.trimmingCharacters(in: .whitespaces).hasPrefix("```") { fenced.toggle(); continue }
-        if fenced && !matches(line, toolRe).isEmpty && !matches(line, runnableRe).isEmpty { return true }
+/// 一行裡有沒有 inline code 形式的可重跑指令：同一行**相鄰兩個反引號之間**的一段含工具名，而工具名之後還有 runnable 字元。
+///
+/// 與先前的正規式 `` `[^`\n]*TOOL[^`\n]*RUNNABLE[^`\n]*` `` 答案相同：那三段 `[^`\n]*` 都不跨反引號與換行，所以一個命中恰好是
+/// 同一行相鄰兩個反引號之間的一段（含兩段 inline code 之間的那段文字——先前就是如此）；工具名彼此不互為子字串、同一個起點至多一個
+/// 命中，所以最左邊的工具名也是最早結束的那個，「它之後有沒有 runnable 字元」就是「有沒有任何一個工具名之後有」。
+/// **線性**（#711 b39，b38 verify 第 0、4、7 列）：正規式對一個沒收尾的反引號後接一長串「工具名＋runnable 字元」回溯成約 n^2.4
+/// ——800 個「grep | 」（一行 5.6 KB）9 秒、2,000 個超過兩分鐘。這裡每一段只找一次工具名、再找一次 runnable 字元。
+func measuredNumbersInlineCmd(_ line: String) -> Bool {
+    let parts = line.components(separatedBy: "`")
+    guard parts.count >= 3 else { return false }
+    for seg in parts[1..<(parts.count - 1)] {
+        let ns = seg as NSString
+        guard let t = toolRegex.firstMatch(in: seg, range: NSRange(location: 0, length: ns.length)) else { continue }
+        let after = t.range.location + t.range.length
+        if ns.rangeOfCharacter(from: runnableChars, options: [], range: NSRange(location: after, length: ns.length - after)).location
+            != NSNotFound { return true }
     }
     return false
+}
+
+/// fence 裡的一行算不算可重跑的指令：同一行有工具名、也有 runnable 字元（不論先後——與先前相同）。
+private func fencedCmdLine(_ line: String) -> Bool {
+    let ns = line as NSString
+    let all = NSRange(location: 0, length: ns.length)
+    return toolRegex.firstMatch(in: line, range: all) != nil
+        && ns.rangeOfCharacter(from: runnableChars, options: [], range: all).location != NSNotFound
+}
+
+/// 一份檔的判讀結果：數到幾個 `實測 N`、哪些是裸的、哪幾行超過行的上限（那幾行不判讀）。
+struct MeasuredNumbersScan {
+    var total = 0
+    var bare: [(line: Int, number: String, shown: String)] = []
+    var oversizeLines: [(line: Int, bytes: Int)] = []
+}
+
+/// 判讀一份檔的 `實測 N`（檔頭的三條判準）。
+///
+/// **線性**（#711 b39，b38 verify 第 2、4、5、7 列）：b37 把小節的錨改成逐行累積，但每個數字仍各做兩件與行長成正比的事——
+/// 對同一個 12 行視窗重跑一次判準 3（`hasCmd`）、重新 trim 一次整行。一行 N 個沒有時間錨的數字因此是 N 乘上行長：一行兩萬個 51 秒。
+/// 現在每一行的事實（有沒有 inline 指令、是不是 fence 的分隔、fence 裡算不算指令）各算一次，每一行的判準 3 也只算一次，
+/// 要用到時才算；顯示用的那一段 trim 每行至多一次。
+/// **行的上限**：`lineByteCap` 位元組以上的行不判讀、記在 `oversizeLines`（呼叫端具名紅）。這裡的單位是一行，所以沿用
+/// `selfProofMaxBlockBytes`；`selfProofMaxBlockLines` 對一行沒有意義（一個單位恆為一行）。後設檢查（`measuredNumbersLinearityIssues`）
+/// 傳 `Int.max` 繞過它——那裡量的是判讀本身。
+func measuredNumbersScan(_ lines: [String], lineByteCap: Int = selfProofMaxBlockBytes) -> MeasuredNumbersScan {
+    var scan = MeasuredNumbersScan()
+    let n = lines.count
+    // 逐行的事實，要用到時才算（0 未算、1 否、2 是）
+    var inlineAt = [UInt8](repeating: 0, count: n)
+    var fenceAt = [UInt8](repeating: 0, count: n)
+    var fencedCmdAt = [UInt8](repeating: 0, count: n)
+    var windowAt = [UInt8](repeating: 0, count: n)
+    func fact(_ memo: inout [UInt8], _ j: Int, _ compute: (String) -> Bool) -> Bool {
+        if memo[j] == 0 { memo[j] = compute(lines[j]) ? 2 : 1 }
+        return memo[j] == 2
+    }
+    /// 判準 3：前 4 行至後 8 行內有可重跑的指令。fence 的開合從視窗頂端起算（與先前把視窗接成一段再逐行讀相同）。
+    func hasCmd(around i: Int) -> Bool {
+        if windowAt[i] != 0 { return windowAt[i] == 2 }
+        let lo = max(0, i - 4), hi = min(n, i + 8)
+        var found = false
+        for j in lo..<hi where fact(&inlineAt, j, measuredNumbersInlineCmd) { found = true; break }
+        if !found {
+            var fenced = false
+            for j in lo..<hi {
+                if fact(&fenceAt, j, { $0.trimmingCharacters(in: .whitespaces).hasPrefix("```") }) { fenced.toggle(); continue }
+                if fenced && fact(&fencedCmdAt, j, fencedCmdLine) { found = true; break }
+            }
+        }
+        windowAt[i] = found ? 2 : 1
+        return found
+    }
+    // secAnchored：從小節標題到目前這一行之間有沒有時間錨——逐行累積（#711 b37）。標題那一行去掉 `#NNN` 再算（見檔頭判準 2）；
+    // 第一個標題之前，從檔頭起算
+    var secAnchored = false, inFence = false
+    for (i, line) in lines.enumerated() {
+        let ns = line as NSString
+        let lineMarked = markRegex.firstMatch(in: line, range: NSRange(location: 0, length: ns.length)) != nil
+        // fence 裡的行不判讀數字、也不是標題，但照樣算進小節的時間錨（先前的寫法把整節原文接起來，fence 也在裡面）
+        if unquote(line).hasPrefix("```") { inFence.toggle(); secAnchored = secAnchored || lineMarked; continue }
+        if inFence { secAnchored = secAnchored || lineMarked; continue }
+        if measuredNumbersIsHeading(line) {
+            // 標題的 `#NNN` 不替這一節的其他行背書（判準 2）。標題那一行自己的數字照判準 1 看同一行——`mcp-cli-parity` 的
+            // 「（#422 verify R1 實測表頭的「12 命令…」）」那個編號就是那個數字的出處（#711 b39，b38 verify 第 15 列考慮過把它也去掉，
+            // 那會把這種寫法判成裸數字）
+            let stripped = line.replacingOccurrences(of: #"#\d{2,4}"#, with: "", options: .regularExpression)
+            secAnchored = markRegex.firstMatch(in: stripped, range: NSRange(location: 0, length: (stripped as NSString).length)) != nil
+        } else {
+            secAnchored = secAnchored || lineMarked
+        }
+        let bytes = line.utf8.count
+        if bytes > lineByteCap { scan.oversizeLines.append((i + 1, bytes)); continue }
+        var shown: String? = nil
+        for m in numRegex.matches(in: line, range: NSRange(location: 0, length: ns.length)) {
+            let num = ns.substring(with: m.range(at: 1))
+            if num.hasPrefix("20"), num.count >= 4, num.prefix(4).allSatisfy(\.isNumber) { continue }   // 日期，不是計數
+            scan.total += 1
+            if lineMarked || secAnchored || hasCmd(around: i) { continue }
+            if shown == nil { shown = String(line.trimmingCharacters(in: .whitespaces).prefix(60)) }
+            scan.bare.append((i + 1, num, shown!))
+        }
+    }
+    return scan
 }
 
 private func unquote(_ l: String) -> String {
@@ -145,37 +251,21 @@ func measuredNumbersAudit() -> Int32 {
     let files = sources.flatMap { $0.1 }.sorted()
     var total = 0
     var bare: [(String, Int, String, String)] = []
+    // **上限**（#711 b39，b38 verify 第 2、4、5、7 列）：這幾份檔 PR 改得到（`census-parity.yml` 以 `pull_request` 觸發），b37 只在
+    // `zero-instance-rows-audit` 設了上限。每份檔沿用 `selfProofMaxFileBytes`、每一行沿用 `selfProofMaxBlockBytes`（這支的單位是一行）——
+    // 同一組值，改一處兩支一起動。超過即具名紅、不判讀那一塊，不截斷。
+    var oversizeFiles: [(String, Int)] = []
+    var oversizeLines: [(String, Int, Int)] = []
+    var texts: [String: String] = [:]
 
     for f in files {
         guard let raw = readFile(f) else { continue }
-        let lines = raw.components(separatedBy: "\n")
-        // secAnchored：從小節標題到目前這一行之間有沒有時間錨——逐行累積，不對每個數字重接一次整節（#711 b37：一節裡很多個「實測 N」
-        // 時，重接是節長乘上數字個數）。標題那一行去掉 `#NNN` 再算（見檔頭判準 2）；第一個標題之前，從檔頭起算
-        var secAnchored = false, inFence = false
-        for (i, line) in lines.enumerated() {
-            let lineMarked = !matches(line, markRe).isEmpty
-            // fence 裡的行不判讀數字、也不是標題，但照樣算進小節的時間錨（先前的寫法把整節原文接起來，fence 也在裡面）
-            if unquote(line).hasPrefix("```") { inFence.toggle(); secAnchored = secAnchored || lineMarked; continue }
-            if inFence { secAnchored = secAnchored || lineMarked; continue }
-            if line.hasPrefix("#") {
-                let stripped = line.replacingOccurrences(of: #"#\d{2,4}"#, with: "", options: .regularExpression)
-                secAnchored = !matches(stripped, markRe).isEmpty
-            } else {
-                secAnchored = secAnchored || lineMarked
-            }
-            let ns = line as NSString
-            var around: String? = nil
-            for m in matches(line, numRe) {
-                let n = ns.substring(with: m.range(at: 1))
-                if !matches(n, #"^20\d\d"#).isEmpty { continue }   // 日期，不是計數
-                total += 1
-                if around == nil { around = lines[max(0, i - 4)..<min(lines.count, i + 8)].joined(separator: "\n") }
-                let anchored = lineMarked || secAnchored || hasCmd(around!)
-                if !anchored {
-                    bare.append((f, i + 1, n, String(line.trimmingCharacters(in: .whitespaces).prefix(60))))
-                }
-            }
-        }
+        if raw.utf8.count > selfProofMaxFileBytes { oversizeFiles.append((f, raw.utf8.count)); continue }
+        texts[f] = raw
+        let scan = measuredNumbersScan(raw.components(separatedBy: "\n"))
+        total += scan.total
+        bare += scan.bare.map { (f, $0.line, $0.number, $0.shown) }
+        oversizeLines += scan.oversizeLines.map { (f, $0.line, $0.bytes) }
     }
 
     // 標題列說出判準 2 的收窄（#711 b37）：「全部都有時間錨」是在小節標題的編號不背書之下說的——量測文件第 101 列的自證閘也用這一段
@@ -184,6 +274,15 @@ func measuredNumbersAudit() -> Int32 {
         print("  ✗ \(rel):\(i) 「\(n)」——沒有時間錨也沒有可重跑的指令\n     \(s)")
     }
     if bare.isEmpty { print("  全部都有時間錨或可重跑的指令") }
+    for (rel, bytes) in oversizeFiles {
+        print("  ✗ \(rel) 有 \(bytes) 位元組，超過上限 \(selfProofMaxFileBytes)——這支守衛不掃它（被掃的檔 PR 改得到，"
+              + "上限讓判讀的工作量有界）。拆檔，或提高 `selfProofMaxFileBytes` 並寫理由")
+    }
+    for (rel, i, bytes) in oversizeLines {
+        print("  ✗ \(rel):\(i) 這一行有 \(bytes) 位元組，超過上限 \(selfProofMaxBlockBytes)——不判讀這一行的數字"
+              + "（被掃的檔 PR 改得到，上限讓判讀的工作量有界）。拆行，或提高 `selfProofMaxBlockBytes` 並寫理由")
+    }
+    let oversize = oversizeFiles.count + oversizeLines.count
 
     // 標題宣稱的列數 vs 下方的表
     var drift: [(String, Int, String, Int)] = []
@@ -192,10 +291,10 @@ func measuredNumbersAudit() -> Int32 {
     var unparsed: [(String, Int, String)] = []
     var counts = 0
     for f in files {
-        guard let raw = readFile(f) else { continue }
+        guard let raw = texts[f] else { continue }   // 讀不到的、超過檔案上限的不判讀（後者上面已具名）
         let lines = raw.components(separatedBy: "\n")
         for (i, line) in lines.enumerated()
-        where line.trimmingCharacters(in: .whitespaces).hasPrefix("#") {
+        where line.utf8.count <= selfProofMaxBlockBytes && line.trimmingCharacters(in: .whitespaces).hasPrefix("#") {
             let ns = line as NSString
             for m in matches(line, countRe) {
                 counts += 1
@@ -227,6 +326,64 @@ func measuredNumbersAudit() -> Int32 {
     if bad == 0 { print("  \(counts) 處全部與其下方的表相符") }
 
     print("\n══ \(bare.isEmpty ? "無裸數字" : "**\(bare.count) 個裸數字**")"
-          + "｜\(bad == 0 ? "列數宣稱皆相符" : "**\(bad) 處列數不符**") ══")
-    return (bare.isEmpty && bad == 0) ? 0 : 1
+          + "｜\(bad == 0 ? "列數宣稱皆相符" : "**\(bad) 處列數不符**")"
+          + (oversize == 0 ? "" : "｜**\(oversize) 處超過上限**") + " ══")
+    return (bare.isEmpty && bad == 0 && oversize == 0) ? 0 : 1
+}
+
+// MARK: - 判讀是線性的：輸入放大 10 倍要在固定秒數內（#711 b39）
+
+/// `audit-guards-mutations` 的一項後設檢查：b38 verify 量到的三條超線性路徑（第 0、2、4、5、7 列），各以 n 與 10n 的輸入直接呼叫
+/// `measuredNumbersScan`（繞過行的上限——量的是判讀本身），10n 那一次要在 `selfProofLinearityBoundSeconds` 秒內。
+/// 先前的版本在這幾個 10n 上要十幾秒到幾分鐘，線性的在一秒內。回 (問題, 一行報告)。
+func measuredNumbersLinearityIssues() -> (issues: [String], report: String) {
+    func seconds(_ body: () -> Void) -> Double {
+        let t0 = DispatchTime.now().uptimeNanoseconds
+        body()
+        return Double(DispatchTime.now().uptimeNanoseconds - t0) / 1e9
+    }
+    let vectors: [(name: String, size: Int, line: (Int) -> String)] = [
+        // 第 0 列：一個沒收尾的反引號後接一長串「工具名＋runnable 字元」，同一行一個沒有時間錨的數字（正規式回溯，約 n^2.4）
+        ("沒收尾的反引號後接一長串「grep | 」", 100, { k in "實測 3 筆 `" + String(repeating: "grep | ", count: k) }),
+        // 第 4 列：一行很多個數字、旁邊有 inline 指令——每個數字各把同一個視窗重掃一次
+        ("一行很多個「實測 N」、同一行有 inline 指令", 1_500, { k in "`grep -c x` " + String(repeating: "實測 7 筆，", count: k) }),
+        // 第 2、5 列：一行很多個沒有時間錨的數字——每個數字各重掃一次視窗、各 trim 一次整行
+        ("一行很多個沒有時間錨的「實測 N」", 1_500, { k in String(repeating: "實測 7 筆，", count: k) }),
+    ]
+    var issues: [String] = []
+    var parts: [String] = []
+    for v in vectors {
+        let small = seconds { _ = measuredNumbersScan(["## 補充", "", v.line(v.size)], lineByteCap: .max) }
+        let large = seconds { _ = measuredNumbersScan(["## 補充", "", v.line(v.size * 10)], lineByteCap: .max) }
+        parts.append("\(v.name) \(String(format: "%.2f", small))→\(String(format: "%.2f", large)) 秒")
+        if large > selfProofLinearityBoundSeconds {
+            issues.append("「\(v.name)」輸入放大 10 倍（\(v.size * 10)）要 \(String(format: "%.1f", large)) 秒，上限 "
+                          + "\(String(format: "%.0f", selfProofLinearityBoundSeconds)) 秒——超線性的判讀回來了（#711 b38 verify 量到的形狀）")
+        }
+    }
+    // 換掉正規式之後答案要相同：與正規式 `` `[^`\n]*TOOL[^`\n]*RUNNABLE[^`\n]*` `` 逐一比對（短輸入，回溯無妨）
+    let regex = try! NSRegularExpression(pattern: "`[^`\n]*" + toolRe + "[^`\n]*" + runnableRe + "[^`\n]*`")
+    let samples = ["`grep -c x`", "`grep x`", "`a | grep`", "`grep` 與 `x|y`", "`grep ` | `", "x `grep -c", "`sed s/a/b/`",
+                   "``grep -c x``", "`git log` 之後 `/`", "`validate`-", "`python3 -`", "`gh pr` `x`", "`find .` `wc -l`"]
+    for s in samples {
+        let expected = regex.firstMatch(in: s, range: NSRange(location: 0, length: (s as NSString).length)) != nil
+        if measuredNumbersInlineCmd(s) != expected {
+            issues.append("`measuredNumbersInlineCmd` 對「\(s)」的答案與先前的正規式不同（應為 \(expected)）——它換掉的是那個正規式，答案要相同")
+        }
+    }
+    // 小節錨的標題判準（#711 b39，b38 verify 第 15、24 列）：縮排一到三個空白的 ATX 標題也是標題、它的 `#NNN` 不背書；行首 `#NNN` 的散文
+    // 不是標題、不重設小節的錨；標題那一行自己的數字照判準 1 看同一行
+    let headingSamples: [(name: String, lines: [String], bare: Int)] = [
+        ("縮排一個空白的標題，其下的數字", [" ### 第 200 列（#711）", "", "這一節的補記：實測 777 筆。"], 1),
+        ("行首 `#NNN` 的散文不重設小節的錨", ["### 小節（2026-10-09）", "#711 的說明：", "實測 777 筆。"], 0),
+        ("標題那一行自己的數字照判準 1", ["### 第 5 列（#711）實測 777 筆"], 0),
+        ("無縮排的標題，其下的數字", ["### 第 200 列（#711）", "", "這一節的補記：實測 777 筆。"], 1),
+    ]
+    for s in headingSamples {
+        let got = measuredNumbersScan(s.lines).bare.count
+        if got != s.bare {
+            issues.append("標題判準的樣例「\(s.name)」報了 \(got) 個裸數字，應為 \(s.bare)")
+        }
+    }
+    return (issues, parts.joined(separator: "、"))
 }

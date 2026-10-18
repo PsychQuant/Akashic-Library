@@ -558,7 +558,9 @@ let agmCases: [AGMCase] = [
         AGMEdit(path: "docs/rulings/zero-instance-guards.md", kind: "replaceFirst",
                 a: "`LC_ALL=C grep -a -q '附加 Zotero 來源沒記 library_id' \"$(command -v akashic)\" && ",
                 b: "`"),
-    ], expect: ["docs/rulings/zero-instance-guards.md 第", "不是唯一合法的寫法", "grep -c '附加 Zotero 來源沒記 library_id'"]),
+    ], expect: ["docs/rulings/zero-instance-guards.md 第", "不是唯一合法的寫法", "grep -c '附加 Zotero 來源沒記 library_id'",
+                // 假紅的出口（使用者 2026-10-05 裁決：放行由人加）——b38 verify 第 11 列：先前沒有任何一格釘住這句話
+                "`selfProofDisplayFilters`", "`selfProofNonBinaryVariables`", "放行由人加"]),
     // ── 2026-10-15：裁決表與「各列共通的東西」搬到不自動載入的 docs/rulings/zero-instance-guards.md。守衛的每一條新分支各一格。
     // 裁決史檔不在：不得當成「沒有列」——列號、實作與共通段的檢查都沒有輸入時要說輸入不在。
     AGMCase(desc: "zi-rows：裁決史檔不見（不得當成沒有列）", guardRel: "akashic-guards zero-instance-rows-audit", edits: [
@@ -599,7 +601,7 @@ let agmCases: [AGMCase] = [
                 a: "<!-- zero-instance-rows-audit 棘輪：",
                 b: "```bash\nLC_ALL=C grep -a -q '本機缺承重存檔' \"$(command -v akashic)\" && \"$(command -v akashic)\" doctor --zr5-c1 2>&1 | grep -c '本機缺承重存檔：'\n```\n\n"
                     + "<!-- zero-instance-rows-audit 棘輪："),
-    ], expect: ["用的子命令 `doctor` 不是", "WriteGateRulings.swift", "zr5-c1"]),
+    ], expect: ["用的子命令 `doctor` 會寫 store", "WriteGateRulings.swift", "zr5-c1"]),
     // 補寬的辨識（第 15 列）：變數名以 akashic 開頭的參數展開、`<(`、寫檔再讀、here-string。
     AGMCase(desc: "zi-rows：$AKASHIC_BIN、<(…)、寫檔再讀、<<< 的計數", guardRel: "akashic-guards zero-instance-rows-audit", edits: [
         AGMEdit(path: "docs/zero-instance-measurements.md", kind: "replaceFirst",
@@ -628,6 +630,69 @@ let agmCases: [AGMCase] = [
                 b: "```bash\n" + (0..<501).map { "LC_ALL=C grep -a -q 'zr5-gate-\($0)-needle' \"$(command -v akashic)\" && \"$(command -v akashic)\" validate 2>&1 | grep -c 'x'\n" }.joined()
                     + "```\n\n<!-- zero-instance-rows-audit 棘輪："),
     ], expect: ["條，超過上限 500", "片段的檢查不跑"], maxSeconds: 60),
+    // ── #711 b39（b38 verify）：每一則 MEDIUM 與 LOW 的修正各一格。
+    // `--library` 在 shell 拆字、去引號之後判讀（第 1、25 列）：引號包起來的選項名仍是那個選項，`test -f` 照樣要綁到它的引數。
+    AGMCase(desc: "zi-rows：引號包起來的 --library（拆字、去引號之後才判讀）", guardRel: "akashic-guards zero-instance-rows-audit", edits: [
+        AGMEdit(path: "docs/zero-instance-measurements.md", kind: "replaceFirst",
+                a: "<!-- zero-instance-rows-audit 棘輪：",
+                b: "```bash\n: \"${STORE:?x}\" && test -f \"$STORE/store.yaml\" && LC_ALL=C grep -a -q '不在載入集合，且沒有任何檔宣稱它' \"$(command -v akashic)\" && \"$(command -v akashic)\" validate --zr6-a1 \"--library\" \"$STORE/sub\" 2>&1 | grep -c '死 verdict'\n"
+                    + ": \"${STORE:?x}\" && test -f \"$STORE/store.yaml\" && LC_ALL=C grep -a -q '不在載入集合，且沒有任何檔宣稱它' \"$(command -v akashic)\" && \"$(command -v akashic)\" validate --zr6-a2 --\"library\" \"$STORE/sub\" 2>&1 | grep -c '死 verdict'\n"
+                    + ": \"${STORE:?x}\" && test -f \"$STORE/store.yaml\" && LC_ALL=C grep -a -q '不在載入集合，且沒有任何檔宣稱它' \"$(command -v akashic)\" && \"$(command -v akashic)\" validate --zr6-a3 \"--library=$STORE/sub\" 2>&1 | grep -c '死 verdict'\n```\n\n"
+                    + "<!-- zero-instance-rows-audit 棘輪："),
+    ], expect: ["驗的卻是 `$STORE/store.yaml`，不是 `$STORE/sub/store.yaml`", "zr6-a1", "zr6-a2", "zr6-a3"]),
+    // 含 `--library` 卻不是那個選項：一個字裡有空白、前面有別的字元、寫在 `--` 之後；`--library=` 沒有值（第 25 列）；選項寫在子命令前面
+    // （usage error，子命令也認不出來）。
+    AGMCase(desc: "zi-rows：含 --library 卻不是那個選項、--library= 沒有值", guardRel: "akashic-guards zero-instance-rows-audit", edits: [
+        AGMEdit(path: "docs/zero-instance-measurements.md", kind: "replaceFirst",
+                a: "<!-- zero-instance-rows-audit 棘輪：",
+                b: "```bash\n: \"${STORE:?x}\" && test -f \"$STORE/store.yaml\" && LC_ALL=C grep -a -q '不在載入集合，且沒有任何檔宣稱它' \"$(command -v akashic)\" && \"$(command -v akashic)\" validate --zr6-b1 \"--library $STORE\" 2>&1 | grep -c '死 verdict'\n"
+                    + ": \"${STORE:?x}\" && test -f \"$STORE/store.yaml\" && LC_ALL=C grep -a -q '不在載入集合，且沒有任何檔宣稱它' \"$(command -v akashic)\" && \"$(command -v akashic)\" validate --zr6-b2 ./--library \"$STORE\" 2>&1 | grep -c '死 verdict'\n"
+                    + ": \"${STORE:?x}\" && test -f \"$STORE/store.yaml\" && LC_ALL=C grep -a -q '不在載入集合，且沒有任何檔宣稱它' \"$(command -v akashic)\" && \"$(command -v akashic)\" validate --zr6-b3 -- --library \"$STORE\" 2>&1 | grep -c '死 verdict'\n"
+                    + ": \"${STORE:?x}\" && test -f \"$STORE/store.yaml\" && LC_ALL=C grep -a -q '不在載入集合，且沒有任何檔宣稱它' \"$(command -v akashic)\" && \"$(command -v akashic)\" validate --zr6-b4 --library= \"$STORE\" 2>&1 | grep -c '死 verdict'\n"
+                    + ": \"${STORE:?x}\" && test -f \"$STORE/store.yaml\" && LC_ALL=C grep -a -q '不在載入集合，且沒有任何檔宣稱它' \"$(command -v akashic)\" && \"$(command -v akashic)\" --library \"$STORE\" validate --zr6-b5 2>&1 | grep -c '死 verdict'\n```\n\n"
+                    + "<!-- zero-instance-rows-audit 棘輪："),
+    ], expect: ["含 `--library` 卻不是那個選項", "zr6-b1", "zr6-b2", "寫在 `--` 之後", "zr6-b3", "沒有值", "zr6-b4",
+                "子命令要寫在最前面", "zr6-b5"]),
+    // `.readOnly` 只說不寫 store（第 6、26 列）：改 registry、寫 `--output` 的檔、連網的命令不在量測可用的清單裡，帶不帶 `--library` 都不收。
+    AGMCase(desc: "zi-rows：不寫 store 卻有其他副作用的命令不收", guardRel: "akashic-guards zero-instance-rows-audit", edits: [
+        AGMEdit(path: "docs/zero-instance-measurements.md", kind: "replaceFirst",
+                a: "<!-- zero-instance-rows-audit 棘輪：",
+                b: "```bash\nLC_ALL=C grep -a -q '不在載入集合，且沒有任何檔宣稱它' \"$(command -v akashic)\" && \"$(command -v akashic)\" file use zr6-c1 2>&1 | grep -c '死 verdict'\n"
+                    + ": \"${STORE:?x}\" && test -f \"$STORE/store.yaml\" && LC_ALL=C grep -a -q '不在載入集合，且沒有任何檔宣稱它' \"$(command -v akashic)\" && \"$(command -v akashic)\" export-bib --zr6-c2 --library \"$STORE\" --output /tmp/zr6 2>&1 | grep -c '死 verdict'\n"
+                    + "LC_ALL=C grep -a -q '不在載入集合，且沒有任何檔宣稱它' \"$(command -v akashic)\" && \"$(command -v akashic)\" s2 paper zr6-c3 2>&1 | grep -c '死 verdict'\n```\n\n"
+                    + "<!-- zero-instance-rows-audit 棘輪："),
+    ], expect: ["不在量測可用的清單", "zr6-c1", "zr6-c2", "zr6-c3"]),
+    // 散文的跨段落接續是一條鏈（第 3、7 列）：鏈本身也有上限——八百個以 `|` 結尾的段落接到第 751 個時是 1,501 行，具名紅、不判讀。
+    AGMCase(desc: "zi-rows：跨段落接成的散文單位超過上限（具名紅、不判讀）", guardRel: "akashic-guards zero-instance-rows-audit", edits: [
+        AGMEdit(path: "docs/zero-instance-measurements.md", kind: "replaceFirst",
+                a: "<!-- zero-instance-rows-audit 棘輪：",
+                b: String(repeating: "x |\n\n", count: 800) + "<!-- zero-instance-rows-audit 棘輪："),
+    ], expect: ["行起跨段落接成的散文單位有 1501 行", "超過上限（1500 行、131072 位元組）"], maxSeconds: 60),
+    // `measured-numbers-audit` 的超線性路徑（第 0、2、4、5、7 列），上限之下、放大 10 倍：先前的版本要跑上數十分鐘到數小時，
+    // 限時 60 秒（逾時即終止、記成紅——第 18 列）。
+    AGMCase(desc: "numbers：沒收尾的反引號後接放大 10 倍的「grep | 」（上限之下，要快）", guardRel: "akashic-guards measured-numbers-audit", edits: [
+        AGMEdit(path: "plugin/rules/assertions-must-be-measured.md", kind: "replaceFirst", a: "## 誠實邊界",
+                b: "## 補充（放大）\n\n實測 7301 筆 `" + String(repeating: "grep | ", count: 8_000) + "\n\n## 誠實邊界"),
+    ], expect: ["「7301」", "沒有時間錨也沒有可重跑的指令"], maxSeconds: 60),
+    AGMCase(desc: "numbers：十行各八千個「實測 N」、同一行有 inline 指令（上限之下，要快）", guardRel: "akashic-guards measured-numbers-audit", edits: [
+        AGMEdit(path: "plugin/rules/assertions-must-be-measured.md", kind: "replaceFirst", a: "## 誠實邊界",
+                b: "## 補充（放大）\n\n實測 7302 筆。\n" + String(repeating: "\n", count: 10)
+                    + String(repeating: "`grep -c x` " + String(repeating: "實測 7 筆，", count: 8_000) + "\n", count: 10) + "\n## 誠實邊界"),
+    ], expect: ["「7302」", "沒有時間錨也沒有可重跑的指令"], maxSeconds: 60),
+    // 上限（第 2、5、7 列）：一行 135,000 位元組、一份檔四百多萬位元組——具名紅、不判讀，不截斷。
+    AGMCase(desc: "numbers：一行超過上限（具名紅、不判讀）", guardRel: "akashic-guards measured-numbers-audit", edits: [
+        AGMEdit(path: "plugin/rules/assertions-must-be-measured.md", kind: "replaceFirst", a: "## 誠實邊界",
+                b: "## 補充（放大）\n\n" + String(repeating: "實測 7 筆，", count: 9_000) + "\n\n## 誠實邊界"),
+    ], expect: ["這一行有 135000 位元組，超過上限 131072", "不判讀這一行的數字", "1 處超過上限"], maxSeconds: 60),
+    AGMCase(desc: "numbers：一份檔超過上限（具名紅、不掃）", guardRel: "akashic-guards measured-numbers-audit", edits: [
+        AGMEdit(path: "plugin/rules/assertions-must-be-measured.md", kind: "replaceFirst", a: "## 誠實邊界",
+                b: String(repeating: "散文一行，沒有數字。\n", count: 150_000) + "\n## 誠實邊界"),
+    ], expect: ["assertions-must-be-measured.md 有", "超過上限 4194304", "這支守衛不掃它"], maxSeconds: 60),
+    // 小節的錨用 CommonMark 的 ATX 標題判準（第 15、24 列）：縮排一個空白的標題也是標題，它的 `#NNN` 照樣不背書。
+    AGMCase(desc: "numbers：縮排一個空白的小節標題之下的裸 `實測 N`（標題的編號不背書）", guardRel: "akashic-guards measured-numbers-audit", edits: [
+        AGMEdit(path: "docs/zero-instance-measurements.md", kind: "replaceFirst", a: "## 各列的歷輪補記",
+                b: " ### 第 200 列（#711）\n\n這一節的補記：實測 7303 筆。\n\n## 各列的歷輪補記"),
+    ], expect: ["「7303」", "沒有時間錨也沒有可重跑的指令"]),
     AGMCase(desc: "ratchet：同名誘餌 ＋ 真欄位改型別（裸名鍵會被騙過）", guardRel: "akashic-guards backlink-field-ratchet", edits: [
         AGMEdit(path: "Sources/AkashicCore/Models.swift", kind: "replaceFirst", a: "public var authors:", b: "public var affiliations: TimelineOf<OrgRef> = .init()\n    public var authors:"),
         AGMEdit(path: "Sources/AkashicCore/Temporal.swift", kind: "replaceFirst", a: "public var affiliations: TimelineOf<OrgRef>", b: "public var affiliations: [String]"),
@@ -689,6 +754,16 @@ let agmRobust: [AGMCase] = [
                 b: "```bash\n\"$(command -v akashic)\" validate 2>&1 | grep -" + String(repeating: "c", count: 100_000) + "_\n```\n\n"
                     + "```bash\necho " + String(repeating: " ", count: 100_000) + "x |\ngrep y\n```\n\n<!-- zero-instance-rows-audit 棘輪："),
     ], expect: ["每一列裁決「寫」的都找得到實作"], maxSeconds: 60),
+    // #711 b39（b38 verify 第 14、22 列）：表格列裡的 `>`、`->` 不是寫進檔（`|` 是欄的分隔、不是命令的分隔）；repo 裡用到的非 binary 的
+    // `AKASHIC_*` 變數（紀錄檔、旗標）不是 binary。都不是量測，不改變任何輸出。
+    AGMCase(desc: "zi-rows：表格列裡的 > 與 ->、非 binary 的 AKASHIC_* 變數不是量測", guardRel: "akashic-guards zero-instance-rows-audit", edits: [
+        AGMEdit(path: "docs/rulings/zero-instance-guards.md", kind: "replaceFirst",
+                a: "\n## 各列共通的東西",
+                b: "\n| 欄 | 說明 |\n|---|---|\n| k | akashic validate 的數 > 0 | 0 筆 |\n| b | akashic 的 doctor -> 結果 | 結果 如下 |\n\n## 各列共通的東西"),
+        AGMEdit(path: "docs/zero-instance-measurements.md", kind: "replaceFirst",
+                a: "<!-- zero-instance-rows-audit 棘輪：",
+                b: "```bash\nwc -l \"$AKASHIC_GUARD_RUN_LOG\"\necho \"$AKASHIC_SKIP_CASES\" | grep -c x\n```\n\n<!-- zero-instance-rows-audit 棘輪："),
+    ], expect: ["每一列裁決「寫」的都找得到實作"]),
 
     // #526 的第一個坑：`ci.yml` 自己就有一段註解逐字寫著「原本是 python3 …」——掃全檔會把
     // 那個**刻意記下的已刪檔名**當成引用，於是修好的東西因為被寫進註解而重新變紅。

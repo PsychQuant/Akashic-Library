@@ -10,7 +10,7 @@
 - **`akashic-bootstrap` 的 `references/writing-to-the-store.md`**：`bootstrap-people --apply` 那一列的拒絕條件補上 person 拷貝與無法唯一定位的記錄（使用者 2026-10-09 兩項裁決）。
 - `tools/list`：59,173 → 59,173 bytes（±0；MCP 說明沒有改）。
 
-plugin 版號沒有動（行為在 binary；skill 文字的改動）。
+plugin 殼版號隨同一批的 #613 b39 升到 0.13.4（這一段改了 skill 文字，與下面兩段同一次出貨；行為在 binary）。
 
 ## #692、#700 — b38 verify 修正（2026-10-15）：〈開始前〉探測攔得下 `web-read url` 的舊契約、規則之後的否定規則算不生效、等鎖上限的揭露
 
@@ -23,7 +23,16 @@ plugin 版號沒有動（行為在 binary；skill 文字的改動）。
 - CLI `file add`／`doctor`／`import-zotero` 的說明把「沒有生效的區塊而…才不改」與「不論有沒有區塊都不改」兩種條件分開（b37 拿掉了限定，已有區塊的硬連結或 Latin-1 檔讀起來像一律拒絕）。
 - `tools/list`：59,173 → 59,173 bytes（±0；MCP 說明沒有改）。
 
-plugin 版號沒有動（skill 文字的改動；行為在 binary）。
+plugin 殼版號隨同一批的 #613 b39 升到 0.13.4（這一段改了 skill 文字，與上下兩段同一次出貨；行為在 binary）。
+
+## #613 — 取全文 b39：safari-browser 的錯誤轉印它的錯誤那一行、對話框的文字不轉印、`plainURL` 的兩個帳密回歸；plugin 殼 0.13.3 → 0.13.4（2026-10-15）
+
+b38 verify（Z2）的處置，細節在 `changelog/2026-10-15-b39-p2-fixes-613.md`。
+
+- **plugin 殼版本 0.13.3 → 0.13.4**（`binary_version` 0.12.1 不動，先例 `afebc917`、`6f9d960d`）：送出 #613 b37（`akashic-fetch-fulltext` 第 0 步要求契約版本 6、中止條款的路徑規則）與 #692／#700（`akashic-bootstrap` 的 web-access.md〈開始前〉探測）改過的 skill 文字，以及同一批 b39 的 #709（`references/writing-to-the-store.md`）與 #692／#700（web-access.md〈開始前〉的 `web-read url` 探測）兩段。那兩筆當時寫「plugin 版號沒有動（skill 文字的改動）」——那是錯的，兩段都已更正。新測試 `PluginShellVersionTests` 把版號送出的殼內容記成摘要：skill、rule、wrapper、`.mcp.json`、`plugin.json`（`version` 除外）改了而摘要沒有重記就紅。
+- **`akashic-fetch-fulltext` 的 `SKILL.md`**：結束碼 1 那一列寫 safari-browser 的命令失敗時 stderr 印什麼——它的 `Error:` 那一行（網址去憑證），下一行說還有幾行沒轉印、失敗的是哪個命令；那一行仍可能帶頁面寫的字（`JavaScript error:` 的訊息）；JavaScript 對話框的文字不轉印。先前這一句寫在結束碼 7 那一列，而這三處失敗是 1。複合段那一段拿掉「一併收、待使用者確認」（四個 IdP 名字收不收還沒有裁決，記在 #613 的 `### Blocking`，不寫進 agent 執行的規格）；代價補 `/the-p-value-shibboleth` 與別的主機上的複合段（`/sso-redirect` 那裡同樣不算登入頁）；頁面連結的 authority 在反斜線之後還有 `@` 時主機段印 `<ambiguous-host>`。
+- **`akashic-bootstrap` 的 `references/work-sources.md`**：借用取全文時寫明是〈開始前〉第 0–3 步（含選視窗與 profile）與〈流程〉第 3、4 步——先前「第 0、3、4 步」把兩份各自編號的清單混在一起。
+- 行為在 CLI（`akashic fulltext fetch`），要新的 `akashic`。契約版本仍是 6：結束碼、交給人的原因、整批暫停的頁面都沒有變。`tools/list` 沒有改（59,173 bytes）。
 
 ## #564 修正輪四 — 報告裡的 attested 有上限、update-person 對同 key 兩筆拒絕、MCP 屬性說明改成實話、合併的結論不取決於 key 拼法（2026-10-09）
 
@@ -46,7 +55,7 @@ plugin 版號沒有動（行為在 binary）。
 - **`akashic-bootstrap` 的 `references/work-sources.md`**：借用取全文第 3、4 步查機構時，先照它第 0 步確認 CLI 的契約版本。
 - 行為在 CLI（`akashic fulltext fetch`），要新的 `akashic`；`tools/list` 沒有改（`fulltext` 沒有 MCP 面）。
 
-plugin 版號沒有動（skill 文字的改動）。
+plugin 版號當時沒有升——**這是錯的**（b38 Z2 第 0 則）：skill 文字改了而版號沒升，`claude plugin update` 回報已是最新、使用者機器上載入的仍是要求契約版本 5 的舊 SKILL（#729 修過的同一個形狀）。0.13.4（#613 b39）送出。
 
 ## #709 — b36 verify 修正（2026-10-09）：bootstrap 的拒絕涵蓋 person 拷貝與無法唯一定位的記錄；enrich 的 DOI 歧義理由看完整的命中
 
@@ -71,7 +80,7 @@ plugin 版號沒有動（行為在 binary）。
 - **`akashic_import_wos` 的 `dry_run` 說明**照實寫「不寫記錄（佈局與 .gitignore 區塊照建）」（行為不變）。
 - `tools/list`：59,183 → 59,182 bytes（−1）。
 
-plugin 版號沒有動（skill 文字的改動；行為在 binary）。
+plugin 版號當時沒有升——**skill 文字那一半是錯的**（b38 Z2 第 0 則）：web-access.md 改了而版號沒升，快取不換（#729 的形狀）。0.13.4（#613 b39）送出。行為在 binary 的那一半照舊要新的 `akashic`／`akashic-mcp`。
 
 ## #664 — Semantic Scholar 共用接口：MCP 工具 `akashic_s2`、取得順序、設定文件（2026-10-06）
 

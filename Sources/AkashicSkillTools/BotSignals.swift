@@ -174,17 +174,24 @@ public enum BotSignals {
     static let verificationTokens: Set<String> = ["verify", "verification", "challenge", "captcha", "validate", "turnstile"]
     static let loginTitlePhrases = ["sign in", "sign-in", "log in", "log-in", "login", "single sign-on", "authentication required"]
     static let verificationTitlePhrases = ["verify", "verification", "are you a human", "are you a robot"]
-    /// IdP 服務自己的名稱——**封閉列舉，只有這四個**（#613 b34，使用者 2026-10-05 第 4 則）：在主機的**任何一個標籤**都算登入主機
+    /// IdP 服務自己的名稱——**封閉列舉，只有這四個**（#613 b34）：在主機的**任何一個標籤**都算登入主機
     /// （`my.openathens.net`、`idp.shibboleth.uni.edu`、`wayf.surfnet.nl`）。其餘登入字詞只在最左邊的標籤算。不得依「看起來也是 IdP」類推第五個。
+    /// **出處**（b38 Z2 第 12 則更正）：使用者 2026-10-05 第 4 則只把主機的登入字詞收窄（`journals.auth.gr` 不再整批暫停），沒有提 IdP 服務名；
+    /// 「這四個名稱在任何一個標籤都算」是 b34 收窄時為了不放掉 IdP 主機自加的，方向是多停。b34、b37 的 changelog 與先前的註解寫成那一則裁決
+    /// 認定了它們，是誤植。
     static let identityProviderNames: Set<String> = ["shibboleth", "saml", "openathens", "wayf"]
     /// 複合路徑段裡算數的登入字——**封閉列舉，只有這七個**（使用者 2026-10-09：複合段只認明確的登入字；b36 Y2 第 2、3、8 則：先前複合段比全部
     /// 登入字詞，`the-cognitive-assessment-system-cas-in-children`、法文的 `un-cas-de-…`、`idp-and-the-role-of-sso-…` 都在落地頁整批暫停）。
-    /// `login`、`logon`、`signin` 是裁決點名的三個；IdP 服務的四個名稱（`identityProviderNames`）是使用者 2026-10-05 第 4 則已認定為不歧義的字
-    /// （主機的任何一個標籤都算），一併收——這一步是收合裁決的「這類」，待使用者確認。`authenticate` 不收：一般英文動詞，verify 量到
+    /// `login`、`logon`、`signin` 是裁決點名的三個；IdP 服務的四個名稱（`identityProviderNames`）是 b37 對裁決的「這類」的延伸——**還沒有
+    /// 使用者裁決**（#613 `### Blocking`；那四個名稱在主機規則裡的地位也不是使用者給的，見 `identityProviderNames`）。`shibboleth` 是英文字，
+    /// 標題 slug 帶它的落地頁（`the-p-value-shibboleth`）整批暫停（b38 Z2 第 3、12 則量到）。使用者不收時要一起改的，列在
+    /// `changelog/2026-10-15-b39-p2-fixes-613.md`〈IdP 四個名字被否決時要改什麼〉。`authenticate` 不收：一般英文動詞，verify 量到
     /// `how-to-authenticate-participants` 的誤停。歧義的 `cas`、`auth`、`idp`、`sso` 只在整段比。不得依「看起來也明確」類推第八個。
     static let compoundLoginWords: Set<String> = ["login", "logon", "signin", "shibboleth", "saml", "openathens", "wayf"]
     /// 複合路徑段裡相鄰兩字接起來算一個登入字的寫法——**封閉列舉，只有這兩對**（使用者 2026-10-09：`sign-in`、`log-in` 這種連字號寫法）。
     /// 其他任意相鄰兩字不接：先前每一對都接，`c`＋`as`＝`cas`、`log`＋`on`＝`logon`、`ss`＋`o`＝`sso`。不得類推第三對。
+    /// **這兩對只管複合段**（b38 Z2 第 28 則）：整段的比法是另一條——整段去掉**所有**連字號與底線再比 `compoundLoginWords`，所以整段的
+    /// `/log-on`、`/open-athens`、`/lo-gin` 都算，而同樣的字在較長的 slug 裡（`please-log-on`、`open-athens-redirect`）不算。
     static let compoundLoginJoins: [(first: String, second: String)] = [("sign", "in"), ("log", "in")]
     /// 路徑的一段可以帶的網頁副檔名（**封閉清單**）。`cas.12345`、`cas.12345.pdf` 的「副檔名」不在這裡，所以那一段不是 `cas`。
     /// b34 加 `cfm`、`cfml`、`xhtml`、`jsf`、`jspx`、`faces`、`shtml`、`phtml`（使用者 2026-10-05 第 2 則：ColdFusion、JSF、SSI 的動態頁）。

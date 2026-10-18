@@ -169,8 +169,11 @@ public final class FulltextFetch {
 
     /// 一般的自動化失敗。它說明我們的分頁在哪裡，因為人在重試之前應該先看一眼：頁面若讀起來像起疑，即使程式自己分不出來，那也是
     /// 結束碼 6 的領域。
-    private func fail(_ message: String) -> Stop {
+    /// `note`：另起一行的說明（`safariFailure` 的「其餘幾行沒轉印」）。不接在 `message` 後面：`message` 截在 600 字，接在後面的說明會在
+    /// 第一行很長時被截掉（#613 b39，b38 Z2 第 5 則）。
+    private func fail(_ message: String, note: String? = nil) -> Stop {
         err("✗ \(displaySafeInvisible(message, max: 600))")
+        if let note { err("  \(displaySafeInvisible(note, max: 600))") }
         if !ownTab.isEmpty { err("  our tab (window \(window), tab \(ownTab)) is left open — look at it before retrying.") }
         return Stop(code: 1)
     }
@@ -295,7 +298,10 @@ public final class FulltextFetch {
     /// safari-browser 會 fail-closed（2026-09-23 觀察）。
     private func openOwnTab(_ url: String) throws {
         let r = browser.run(["open", "--new-tab", "--window", String(window), url])
-        if r.status != 0 { throw fail("open: \(FulltextFetch.safariFailure(r.stderr))") }
+        if r.status != 0 {
+            let f = FulltextFetch.safariFailure(r.stderr, command: "open --new-tab --window \(window) <the landing URL>")
+            throw fail("open: \(f.line)", note: f.note)
+        }
         ownTab = currentTab()
         if ownTab.isEmpty { throw fail("cannot identify the tab just opened") }
     }
@@ -558,6 +564,8 @@ public final class FulltextFetch {
             throw botStop("the article page has the look of a login page → \(FulltextFetch.plainURL(url)) (login page)", site)
         }
         let judged = try botCheckPage(site, beforeNavigation: true)
+        // `botCheckPage(beforeNavigation: true)` 對 `judged` 已先判登入長相（命中就 throw），這裡的 `gate` 今天只會是 verification。
+        // `login` 那一支是縱深防禦，不是死碼要刪：那個閘日後改成有條件時，由這裡接手、仍是整批暫停（b38 Z2 第 19、24 則）
         if let gate = BotSignals.urlGateLook(judged) {
             throw botStop("the article page has the look of a \(gate) page → \(FulltextFetch.plainURL(judged)) (\(gate) page)", site)
         }
@@ -671,7 +679,7 @@ public final class FulltextFetch {
                 }
                 let judged = try self.botCheckPage(site, beforeNavigation: true)   // 讀的當中換到登入頁 → 6；還在驗證頁 → 8；別的訊號 → 6
                 switch BotSignals.urlGateLook(judged) {
-                case "login":
+                case "login":   // 今天到不了（`botCheckPage` 已先判、throw）；縱深防禦，同 `checkTheArticlePage`（b38 Z2 第 19、24 則）
                     return .stop(self.botStop("the tab shows a page with the look of a login page → \(FulltextFetch.plainURL(judged)) (login page)", site))
                 case "verification":
                     return .waitForTheURLToChange(judged)
@@ -690,7 +698,10 @@ public final class FulltextFetch {
         try botCheckPage(site, beforeNavigation: true)   // 插頁在我們等的時候可以變成挑戰頁或登入頁
         try siteGuard(site)
         let linkRun = browser.run(["js"] + lock + [FulltextFetch.linkJS])
-        if linkRun.status != 0 { throw fail("could not read the page's links: \(FulltextFetch.safariFailure(linkRun.stderr))") }
+        if linkRun.status != 0 {
+            let f = FulltextFetch.safariFailure(linkRun.stderr, command: "js --window \(window) --tab-in-window \(ownTab) <the link script>")
+            throw fail("could not read the page's links: \(f.line)", note: f.note)
+        }
         let link = linkRun.value
         guard let space = link.firstIndex(of: " ") else {
             err("no PDF link on \(displaySafeInvisible(FulltextFetch.plainURL(tabURL(ownTab)), max: 600))")
@@ -733,7 +744,10 @@ public final class FulltextFetch {
         let before = tabURL(ownTab)
         stage = .followed   // 從這裡起，等人驗證之後接著走的是「分頁顯示什麼」，不是再讀一次連結
         let navigation = browser.run(["open"] + lock + [target])
-        if navigation.status != 0 { throw fail("could not navigate the tab to the PDF link: \(FulltextFetch.safariFailure(navigation.stderr))") }
+        if navigation.status != 0 {
+            let f = FulltextFetch.safariFailure(navigation.stderr, command: "open --window \(window) --tab-in-window \(ownTab) <the PDF link>")
+            throw fail("could not navigate the tab to the PDF link: \(f.line)", note: f.note)
+        }
         try awaitShown(site: site, before: before)
     }
 
@@ -836,19 +850,48 @@ public final class FulltextFetch {
     /// 已知的憑證參數要一份會漏的清單，這裡選擇全剝（R2 verify 第 22 則，留給使用者裁決）；路徑參數同理，`;type=pdf` 也剝。
     ///
     /// **主機段與站的比對同一把**（#613 b37，b36 Y2 第 11、20、21 則）：scheme、authority 與路徑由 `URLSplit` 切，印出的主機是
-    /// `URLSplit.hostPort`——在反斜線處結束、去掉最後一個 `@` 之前的帳密。先前這裡自己切：authority 只在 `/` 結束、`://` 在整串裡找，
+    /// `URLSplit.hostPort`——在反斜線處結束、去掉最後一個 `@` 之前的帳密（兩種讀法對帳密說法不同時例外，見下一段）。先前這裡自己切：authority 只在 `/` 結束、`://` 在整串裡找，
     /// `https://evil.example\@pub.example/x` 印成 `pub.example` 而站的比對是 `evil.example`，`//u:p@h/a/https://z/q` 的帳密原樣印出。
-    /// authority 裡反斜線之後到第一個 `/` 的那一段不印（它不是主機也不是路徑的一部分，`evil.example\@pub.example` 的 `pub.example` 印出來
-    /// 只會讓人讀錯主機）。scheme 照 `URLSplit` 轉小寫。
+    /// authority 裡反斜線之後到第一個 `/` 的那一段不印。scheme 照 `URLSplit` 轉小寫。
+    ///
+    /// **兩種讀法對帳密說法不同的 authority 不印主機段**（#613 b39，b38 Z2 第 13 則）：authority 在反斜線之後還有 `@` 時
+    /// （`user:SECRET\@pub.example`、`evil.example\@pub.example`），反斜線之前那一段在 WHATWG 的讀法裡是主機加埠號（站的比對用它，見
+    /// `URLSplit.hostPort`），在 RFC 3986／Python 的讀法裡整段是帳密（帳密到最後一個 `@` 為止）。b37 印 `hostPort`，`user:SECRET\@pub.example`
+    /// 因此印成 `https://user:SECRET/…`。印 `<ambiguous-host>`（`ambiguousHost`）：哪一種讀法的帳密都不印，也不印另一種讀法的主機（那只會
+    /// 讓人讀錯主機）。站的比對不變（照 `hostPort`，這種網址與文章站永遠對不上）。Safari 回報的分頁網址不會是這個形狀（WHATWG 對 https 把
+    /// `\` 當 `/`，這種網址解析失敗）、`--landing` 的形狀檢查不收反斜線，會到這裡的是頁面給的 PDF 連結（`linkJS` 的 `new URL()` 失敗時
+    /// 原樣回 `citation_pdf_url`）。
+    ///
+    /// **網址不在字串開頭時**（#613 b39，b38 Z2 第 8、10、27 則）：從第一個 `://` 起當網址印——前面的字原樣、authority 照上面去帳密
+    /// （`FOO https://u:p@h/x`、`view-source:https://u:p@h/x`、BOM 開頭的網址）。b37 改由 `URLSplit` 切之後，這種字串沒有 authority、整串原樣
+    /// 回傳；`unexpected answer from the link script` 那一行把整個回答交給這裡。之後再出現的 `://` 是路徑的一部分，與有 authority 的網址相同
+    /// （上面「也不剝一般的路徑段」）。
     static func plainURL(_ url: String) -> String {
         var s = url
         if let cut = s.unicodeScalars.firstIndex(where: { $0 == "?" || $0 == "#" }) {
             s = String(String.UnicodeScalarView(s.unicodeScalars[..<cut]))
         }
         let parts = URLSplit(s)
-        guard parts.hasAuthority else { return withoutPathParameters(s) }
-        let head = parts.scheme.isEmpty ? "//" : PyText.string(parts.scheme) + "://"
-        return head + parts.hostPort + withoutPathParameters(parts.path)
+        if parts.hasAuthority {
+            let head = parts.scheme.isEmpty ? "//" : PyText.string(parts.scheme) + "://"
+            return head + printedHostPort(parts) + withoutPathParameters(parts.path)
+        }
+        let scalars = Array(s.unicodeScalars)
+        guard let sep = scalars.indices.first(where: { PyText.hasPrefix(scalars, [":", "/", "/"], at: $0) }) else {
+            return withoutPathParameters(s)
+        }
+        let inner = URLSplit("//" + PyText.string(Array(scalars[(sep + 3)...])))
+        return PyText.string(Array(scalars[..<sep])) + "://" + printedHostPort(inner) + withoutPathParameters(inner.path)
+    }
+
+    /// 兩種讀法對帳密說法不同時印的主機段（見 `plainURL`）。
+    static let ambiguousHost = "<ambiguous-host>"
+
+    /// 印出的主機段：`hostPort`；authority 在反斜線之後還有 `@` 時是 `ambiguousHost`。
+    private static func printedHostPort(_ parts: URLSplit) -> String {
+        let n = parts.netloc
+        if let backslash = n.firstIndex(of: "\\"), let at = n.lastIndex(of: "@"), backslash < at { return ambiguousHost }
+        return parts.hostPort
     }
 
     /// 路徑的每一段去掉 `;名=值`（`;`、`=` 也可以是百分比編碼的 `%3B`、`%3D`），丟掉 ASP.NET 的 `(X(…))` 整段（一段裡可以有幾個群組、
@@ -867,22 +910,61 @@ public final class FulltextFetch {
         return kept.joined(separator: "/")
     }
 
-    /// safari-browser 失敗時轉印它 stderr 的**第一行**（第一個非空行），裡面的網址過 `redactingURLs`；其餘的行不轉印，只說有幾行沒印
-    /// （#613 b37，b36 Y2 第 1 則：`documentNotFound` 從第三行起列出**所有**視窗的目前分頁——含使用者其他 profile 的 session，這個命令沒帶
-    /// `--profile`，那份清單不過濾；`targetTabChanged` 的第二行是那個位置此刻顯示的網址。網址去掉查詢字串之後，主機與路徑仍在）。
-    /// safari-browser 每一種錯誤的第一行說的是**我們的目標**（`No Safari document matches "window 5 tab 2".`），所以診斷用的那一句還在；要看
-    /// 完整訊息，人自己跑同一個 safari-browser 命令。`open:`、讀連結失敗、導航失敗三處都走這裡。行以 `Character.isNewline` 切（`\r\n` 是一個
-    /// `Character`）。
-    static func safariFailure(_ stderr: String) -> String {
+    /// safari-browser 失敗時轉印什麼（`safariFailure`）。
+    struct SafariFailure: Equatable {
+        /// 轉印的那一行（網址去憑證）。
+        let line: String
+        /// 其餘的行沒有轉印時的說明，另起一行印（`fail` 的 `note`）；safari-browser 只印了一行時是 nil。
+        let note: String?
+    }
+
+    /// JavaScript 對話框的兩種行——**封閉列舉，只有這兩種**：safari-browser 的錯誤 `javaScriptDialogBlocking`（`A JavaScript dialog is open and
+    /// blocking this tab: "<對話框的文字>"`）與它在錯誤之前印的警告（`BlockingDialogWarning.firstLine`：`⚠ BLOCKING DIALOG in <視窗>: "<對話框的文字>"
+    /// — buttons: …`）。對話框的文字就是頁面 `alert()`／`confirm()` 的引數，整行換成 `pageDialogLine`。比的是去掉開頭非 ASCII 字母之後的字
+    /// （`Error:` 前綴另外先去掉；`⚠` 後面可以有 VS16）。不得依「看起來也帶頁面的字」類推第三種——那一類見 `safariFailure` 的說明。
+    static let pageDialogLineHeads = ["A JavaScript dialog is open and blocking this tab", "BLOCKING DIALOG"]
+    /// 對話框那一行換成的固定一句：不轉印頁面的字，留下唯一可行動的那一句。
+    static let pageDialogLine = "A JavaScript dialog is open in the tab and blocks it (its text is the page's and is not relayed) — the user has to dismiss it in Safari; safari-browser does not, and neither does this command"
+
+    /// safari-browser 失敗時轉印什麼（#613 b37；b39＝b38 Z2 第 5、9、11、18、29 則）。`command` 是失敗的那個命令（子命令與目標旗標，不含網址與
+    /// JS），寫進說明。
+    ///
+    /// - **只轉印它的錯誤那一行**：第一個以 `Error:` 開頭的行——ArgumentParser 印錯誤時的前綴，safari-browser 的命令以它結束；沒有這樣的行才
+    ///   退回第一個非空行（safari-browser 沒跑起來時是 `ToolRunner` 的錯誤）。b37 取第一個非空行，而 safari-browser 在錯誤之前會先印進度與
+    ///   警告（`⏳ Waiting for System Events...`、`⚠️  System Events not responding, attempting restart...`、`⚠ BLOCKING DIALOG …`、分頁在背景時
+    ///   的 `Warning: the resolved target was in the background …`）：那時轉印的是那一行，真正的錯誤被藏起來。
+    /// - **其餘的行一律不轉印**：`documentNotFound` 從第三行起、`ambiguousWindowMatch` 從第二行起列出所有視窗的分頁（含其他 profile 的
+    ///   session，這個命令沒帶 `--profile`，清單不過濾）；`targetTabChanged` 的第二行是那個位置此刻顯示的網址。說明另起一行（`note`）：
+    ///   有幾行沒印、為什麼、失敗的是哪個命令。不接在那一行後面——`fail` 把訊息截在 600 字，第一行很長時說明會被截掉。
+    /// - **那一行是錯誤的標題，不一定說的是我們的目標**：`AppleScript error: …`、`Process timed out after N seconds: <命令>` 帶的是底層訊息。
+    ///   它**仍可能帶頁面寫的字**：`AppleScript error: JavaScript error: <訊息>` 的訊息可以由頁面決定（頁面改寫了我們注入的運算式用到的 API；
+    ///   CSP 擋下時是瀏覽器的字，那是診斷要的）——一行、截在 600 字，是資料不是指令（SKILL 第 3 步）。對話框的兩種行（`pageDialogLineHeads`）
+    ///   整行換成 `pageDialogLine`：那一行除了頁面的字，只剩「請使用者自己關掉」可以照做。
+    /// - 那一行裡的網址過 `redactingURLs`。行以 `Character.isNewline` 切（`\r\n` 是一個 `Character`）。
+    /// - 格式取自 safari-browser 的原始碼（`Errors.swift`、`SafariBridge.swift`、`BlockingDialogGate.swift`、`BackgroundTabDiagnostics.swift`），
+    ///   沒有對真的 binary 觸發。
+    static func safariFailure(_ stderr: String, command: String) -> SafariFailure {
         let lines = stderr.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-        guard let first = lines.first else { return "(safari-browser printed no message)" }
+        guard !lines.isEmpty else { return SafariFailure(line: "(safari-browser printed no message)", note: nil) }
+        let picked = lines.first { $0.hasPrefix("Error:") } ?? lines[0]
+        let line = relayedSafariLine(picked)
         let rest = lines.count - 1
-        guard rest > 0 else { return redactingURLs(first) }
-        return redactingURLs(first) + " (\(rest) more line\(rest == 1 ? "" : "s") from safari-browser not shown: \(rest == 1 ? "it" : "they") can list other tabs and profiles)"
+        guard rest > 0 else { return SafariFailure(line: line, note: nil) }
+        let note = "safari-browser `\(command)` printed \(rest) more line\(rest == 1 ? "" : "s"), not relayed: its error output can list "
+            + "the tabs of other windows and profiles. The user can read \(rest == 1 ? "it" : "them") by running that command in Terminal."
+        return SafariFailure(line: line, note: note)
+    }
+
+    private static func relayedSafariLine(_ line: String) -> String {
+        let isError = line.hasPrefix("Error:")
+        let body = isError ? String(line.dropFirst("Error:".count)) : line
+        let head = String(String.UnicodeScalarView(body.unicodeScalars.drop(while: { !($0.isASCII && $0.properties.isAlphabetic) })))
+        if pageDialogLineHeads.contains(where: { head.hasPrefix($0) }) { return (isError ? "Error: " : "") + pageDialogLine }
+        return redactingURLs(line)
     }
 
     /// 文字裡的每一個網址先過 `plainURL`（b33 X3 第 12、24 則：`open:`、導航失敗、讀連結失敗三處先前原樣轉印 safari-browser 的 stderr，
-    /// 回顯的簽章網址會帶著查詢字串出去）。b37 起只用在 `safariFailure` 取出的第一行。
+    /// 回顯的簽章網址會帶著查詢字串出去）。b37 起只用在 `safariFailure` 轉印的那一行。
     static func redactingURLs(_ text: String) -> String {
         let re = try! NSRegularExpression(pattern: #"(?i)(?<![A-Za-z0-9+.-])[a-z][a-z0-9+.-]*://[^\s"'<>]+"#)   // 編譯期常數
         let ns = text as NSString

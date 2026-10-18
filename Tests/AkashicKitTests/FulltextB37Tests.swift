@@ -128,7 +128,8 @@ final class FulltextB37Tests: XCTestCase {
         for leak in ["mail.other-profile", "MAILSECRET", "bank.example", "4417-1234-5678", "Available documents"] {
             XCTAssertFalse(errText.contains(leak), "\(note)：\(leak)\n\(errText)", file: file, line: line)
         }
-        XCTAssertTrue(errText.contains("5 more lines from safari-browser not shown"), "\(note)\n\(errText)", file: file, line: line)
+        // b39：說明另起一行、帶失敗的命令（b38 Z2 第 5、11 則）
+        XCTAssertTrue(errText.contains("printed 5 more lines, not relayed"), "\(note)\n\(errText)", file: file, line: line)
     }
 
     func testOpeningTheTabRelaysOnlyTheFirstLineOfSafariBrowsersError() {
@@ -152,12 +153,17 @@ final class FulltextB37Tests: XCTestCase {
         assertOnlyTheFirstLine(code, "navigation")
     }
 
-    /// 第一行的網址照樣去憑證；CRLF 的輸出也只取第一行（Swift 的 `\r\n` 是一個 `Character`）；沒有訊息時說沒有。
+    /// 轉印那一行的網址照樣去憑證；CRLF 的輸出也照行切（Swift 的 `\r\n` 是一個 `Character`）；沒有訊息時說沒有。b39 起轉印的是第一個
+    /// `Error:` 行（沒有才退回第一個非空行），說明另起一行（`SafariFailure.note`）。
     func testTheRelayedLineIsRedactedAndCRLFIsALineBreak() {
-        XCTAssertEqual(FulltextFetch.safariFailure("Target tab changed mid-command: https://pub.example/x?sig=S1 moved\r\nTarget position now shows: https://bank.example/acct\r\n"),
-                       "Target tab changed mid-command: https://pub.example/x moved (1 more line from safari-browser not shown: it can list other tabs and profiles)")
-        XCTAssertEqual(FulltextFetch.safariFailure("\n\n  boom  \n"), "boom")
-        XCTAssertEqual(FulltextFetch.safariFailure(""), "(safari-browser printed no message)")
+        let f = FulltextFetch.safariFailure("Error: Target tab changed mid-command: https://pub.example/x?sig=S1 moved\r\nTarget position now shows: https://bank.example/acct\r\n",
+                                            command: "js --window 5 --tab-in-window 2 <the link script>")
+        XCTAssertEqual(f.line, "Error: Target tab changed mid-command: https://pub.example/x moved")
+        XCTAssertEqual(f.note, "safari-browser `js --window 5 --tab-in-window 2 <the link script>` printed 1 more line, not relayed: its error output can list "
+                       + "the tabs of other windows and profiles. The user can read it by running that command in Terminal.")
+        XCTAssertEqual(FulltextFetch.safariFailure("\n\n  boom  \n", command: "js").line, "boom")
+        XCTAssertNil(FulltextFetch.safariFailure("\n\n  boom  \n", command: "js").note)
+        XCTAssertEqual(FulltextFetch.safariFailure("", command: "js").line, "(safari-browser printed no message)")
     }
 
     // MARK: LOW 11、INFO 20、21：印出的主機就是站的比對用的主機
@@ -165,13 +171,14 @@ final class FulltextB37Tests: XCTestCase {
     /// `plainURL` 與 `URLSplit.hostPort`（`sameSite`、`siteOrigin`、`linkTargetOrigin` 都用它）先前各切各的：authority 裡的反斜線、`://` 出現在
     /// 路徑裡的沒有 scheme 的網址，兩邊說的主機不同，帳密也可能原樣印出。
     func testPlainURLNamesTheHostTheSiteComparisonUses() {
-        for url in ["https://evil.example\\@pub.example/x", "https://u:p@\u{301}pub.example/x", "//u:p@h.example/x", "//u:SECRET@h.example/a/https://z/q",
+        // b39：`https://evil.example\\@pub.example/x` 移到 `FulltextB39Tests`——反斜線之後還有 `@` 的 authority 兩種讀法對帳密說法不同，不印主機段
+        for url in ["https://u:p@\u{301}pub.example/x", "//u:p@h.example/x", "//u:SECRET@h.example/a/https://z/q",
                     "https://u:SECRET@pub.example/a://b", "https://pub.example:8443/x;jsessionid=1", "https://user:SECRET@pub.example\\x/y"] {
             let printed = FulltextFetch.plainURL(url)
             XCTAssertEqual(URLSplit(printed).hostPort, URLSplit(url).hostPort, "\(url) → \(printed)")
             XCTAssertFalse(printed.contains("SECRET"), "\(url) → \(printed)")
         }
-        XCTAssertEqual(FulltextFetch.plainURL("https://evil.example\\@pub.example/x"), "https://evil.example/x")
+        XCTAssertEqual(FulltextFetch.plainURL("https://evil.example\\@pub.example/x"), "https://<ambiguous-host>/x")   // b39
         XCTAssertEqual(FulltextFetch.plainURL("//u:SECRET@h.example/a/https://z/q?x=1"), "//h.example/a/https://z/q")
         XCTAssertEqual(FulltextFetch.plainURL("https:no-authority;jsessionid=1"), "https:no-authority")
     }
@@ -212,7 +219,8 @@ final class FulltextB37Tests: XCTestCase {
         }
     }
 
-    /// 兩份封閉清單的關係：複合段算的字都是登入字詞；IdP 服務的名稱（使用者 2026-10-05 第 4 則已認定為不歧義）在複合段也算；歧義的四個字不在。
+    /// 兩份封閉清單的關係：複合段算的字都是登入字詞；IdP 服務的名稱在複合段也算（b37 對裁決的延伸，還沒有使用者裁決——b39 更正：先前這裡寫
+    /// 「使用者 2026-10-05 第 4 則已認定為不歧義」，那一則沒有提 IdP 服務名）；歧義的四個字不在。
     func testTheCompoundListIsTheExplicitPartOfTheLoginWords() {
         XCTAssertTrue(BotSignals.compoundLoginWords.isSubset(of: BotSignals.loginTokens))
         XCTAssertTrue(BotSignals.identityProviderNames.isSubset(of: BotSignals.compoundLoginWords))

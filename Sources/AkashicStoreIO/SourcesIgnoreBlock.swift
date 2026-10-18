@@ -7,7 +7,8 @@ import Darwin
 /// 內容原子替換——使用者原有的規則（擋 raw 逐字稿的 `*.srt` 之類）全部消失、沒有任何訊息；`.gitignore` 是 symlink 時被換成一般檔。
 /// `file add`、`doctor`、`import-zotero`、MCP 的兩個匯入都經 `ensureLayout` 走到這裡。現在：
 /// - 標記以**位元組**比對（`# BEGIN akashic sources` 是 ASCII），而且標記之後要有一行排除規則（`sourcesRuleLines`，b33 verify X5 第 2 列：
-///   寫到一半中斷的區塊只有標記、沒有規則，先前被當成「已在」而永遠不補）——兩者都在就什麼都不做，不論那個檔是什麼編碼。
+///   寫到一半中斷的區塊只有標記、沒有規則，先前被當成「已在」而永遠不補），而且那一行沒有被更後面的否定規則放回來（`ruleState`，
+///   #700 b38 verify）——都成立就什麼都不做，不論那個檔是什麼編碼。
 /// - 要加區塊時以 `O_APPEND` 在尾端**附加位元組**，原有的位元組一個都不動；檔尾不是 `\n` 先補一個（同 `appendIndexEntry` 的守衛）。
 ///   檔案不存在時以 `O_EXCL` 新建。
 /// - **看與寫之間**（b33 verify X5 第 0 列 MEDIUM）：先看（`inspectSourcesIgnore`，不寫）決定要不要在建立任何東西之前拒絕；真的要寫時
@@ -18,7 +19,7 @@ import Darwin
 ///   報「被換掉或改過」而不重看（假拒絕、假警告）。現在遇到這兩種情形重看一次（至多 `applyAttempts` 次），重看之後區塊在就算成功。
 ///   寫到一半失敗時只截掉這一次寫進去的位元組（大小還是「原長＋這一次寫的」才截；`ftruncate` 的結果要看），截不回來具名回報。
 /// - 讀不到、不是 UTF-8 文字（含 NUL 也算——UTF-16 存的檔）、是 symlink、symlink 打不開、不是一般檔、有其他硬連結、
-///   大到 git 不讀、有標記沒有規則、沒有寫入權限、等鎖逾時：**不動它**。`file add` 在建立任何東西之前具名拒絕（`SourcesIgnorePolicy.refuse`）；
+///   大到 git 不讀、有標記沒有規則、規則被之後的否定規則放回來、沒有寫入權限、等鎖逾時：**不動它**。`file add` 在建立任何東西之前具名拒絕（`SourcesIgnorePolicy.refuse`）；
 ///   `doctor` 與兩個匯入照常建佈局、改報一則 warning（`.report`；匯入見下）。開檔、取鎖、寫入這一段才發現的原因（寫入失敗、重看之後仍在變），那時佈局已建好。
 /// - **匯入是 warning，不是拒絕**（使用者 2026-10-05 裁決 #700 第 1 項）：`import-zotero` 與 MCP 的兩個匯入（含 `dry_run`）本身不寫
 ///   `sources/`，擋住第三方存檔進版控的防線在 `store-source`——它寫入前以 `git check-ignore` 驗排除，區塊沒加上就拒寫（`assertSourcesExcluded`）。
@@ -41,11 +42,14 @@ extension LibraryStore {
 
     """
 
-    /// 標記之後算數的排除規則（封閉列舉；一行照 git 的切法去掉行尾之後逐位元組比對，見 `hasRuleLine`）。程式寫的是 `sources/`；
+    /// 標記之後算數的排除規則（封閉列舉；一行照 git 的切法去掉行尾之後逐位元組比對，見 `ruleState`）。程式寫的是 `sources/`；
     /// 手工區塊常見的寫法一併收（git 對這幾種都會排除根目錄的 `sources/` 底下的內容）。不在這裡的寫法（萬用字元的其他形狀、否定規則）
     /// 不算，那時區塊被判成「有標記沒有規則」、交給人看——`storeSource` 寫入前另以 `git check-ignore` 驗排除，未生效即拒寫。
-    internal static let sourcesRuleLines: [[UInt8]] =
-        ["sources/", "/sources/", "sources", "/sources", "sources/*", "/sources/*", "sources/**", "/sources/**"].map { Array($0.utf8) }
+    /// 前四種排除**目錄**本身（git 不進被排除的目錄，裡面的檔無法被之後的否定規則放回來）；後四種只排除目錄**裡的**內容，
+    /// 目錄本身沒被排除（之後的否定規則放得回裡面的檔）。兩種在否定規則的判讀上不同，見 `ruleState`。
+    internal static let sourcesDirectoryRuleLines: [[UInt8]] = ["sources/", "/sources/", "sources", "/sources"].map { Array($0.utf8) }
+    internal static let sourcesContentRuleLines: [[UInt8]] = ["sources/*", "/sources/*", "sources/**", "/sources/**"].map { Array($0.utf8) }
+    internal static let sourcesRuleLines: [[UInt8]] = sourcesDirectoryRuleLines + sourcesContentRuleLines
 
     /// git 不讀的 `.gitignore` 大小：≥ 100 MiB（實測 git 2.55，2026-10-05：104,857,600 bytes 的 `.gitignore` 印
     /// `ignoring excessively large pattern file`、裡面的規則全部不生效；少一個 byte 就照常讀）。區塊加進去也不生效，附加會讓原本生效的
@@ -71,6 +75,8 @@ extension LibraryStore {
     internal enum SourcesIgnoreContent: Equatable {
         case blockPresent
         case markerWithoutRule
+        /// 標記之後有排除規則，但更後面的否定規則（`!` 開頭）把 `sources/` 放了回來（#700 b38 verify）。
+        case ruleNegatedLater
         case notUTF8Text
         case needsBlock(needsNewline: Bool)
     }
@@ -122,6 +128,7 @@ extension LibraryStore {
         switch Self.judgeSourcesIgnore(bytes) {
         case .blockPresent: return .present
         case .markerWithoutRule: return .problem(.markerWithoutRule)
+        case .ruleNegatedLater: return .problem(.ruleNegatedLater)
         case .notUTF8Text: return .problem(fileStat.st_nlink > 1 ? .hardLinked : .notUTF8Text)
         case .needsBlock(let needsNewline):
             if fileStat.st_nlink > 1 { return .problem(.hardLinked) }
@@ -173,7 +180,11 @@ extension LibraryStore {
             return .failed(.openFailed(errno: code))   // EMFILE 之類：與權限無關，什麼都沒寫（b33 verify X5 第 9／18 列）
         }
         defer { close(fd) }
-        guard Self.lock(fd, LOCK_EX) else { return .failed(.lockTimedOut) }
+        guard Self.lock(fd, LOCK_EX) else {
+            // 這一步以 O_EXCL 建的檔、仍是空的、路徑仍指著它：刪掉，訊息說的「沒有寫」才成立（b38 verify INFO：先前留下一個空檔）
+            if create { Self.removeIfStillOurEmptyFile(fd, path) }
+            return .failed(.lockTimedOut)
+        }
         var held = stat(), named = stat()
         guard fstat(fd, &held) == 0 else { return .failed(.unreadable(errno: errno)) }
         // 取到鎖時路徑還指著這個檔？（前一個持鎖者新建失敗而刪掉了它、或有人換掉了它）——不然重看
@@ -190,6 +201,7 @@ extension LibraryStore {
         switch Self.judgeSourcesIgnore(bytes) {
         case .blockPresent: return .done   // 別的程序在我們取鎖之前加好了
         case .markerWithoutRule: return .failed(.markerWithoutRule)
+        case .ruleNegatedLater: return .failed(.ruleNegatedLater)
         case .notUTF8Text: return .failed(held.st_nlink > 1 ? .hardLinked : .notUTF8Text)
         case .needsBlock(let n): needsNewline = n
         }
@@ -212,11 +224,16 @@ extension LibraryStore {
         return .failed(.writeFailed(errno: writeErrno))
     }
 
-    /// 內容的判讀（不看檔案的種類與權限）：標記之後有一行排除規則＝區塊在；只有標記＝有標記沒有規則；沒有標記時看是不是 UTF-8 文字。
+    /// 內容的判讀（不看檔案的種類與權限）：標記之後有一行排除規則、而且沒有被更後面的否定規則放回來＝區塊在；只有標記＝有標記沒有規則；
+    /// 規則被放回來＝`ruleNegatedLater`；沒有標記時看是不是 UTF-8 文字。
     internal static func judgeSourcesIgnore(_ bytes: [UInt8]) -> SourcesIgnoreContent {
         let marker = Array(sourcesIgnoreMarker.utf8)
         if let at = firstIndex(of: marker, in: bytes) {
-            return hasRuleLine(bytes, from: at + marker.count) ? .blockPresent : .markerWithoutRule
+            switch ruleState(bytes, from: at + marker.count) {
+            case .noRule: return .markerWithoutRule
+            case .effective: return .blockPresent
+            case .negated: return .ruleNegatedLater
+            }
         }
         // NUL 不是文字——沒有 BOM 的 UTF-16 是合法的 UTF-8
         guard !bytes.contains(0), isValidUTF8(bytes) else { return .notUTF8Text }
@@ -246,24 +263,118 @@ extension LibraryStore {
         }
     }
 
-    /// `from` 之後（從下一行開始）有沒有一行是 `sourcesRuleLines` 之一。一行的行尾照 git 讀 `.gitignore` 的切法去掉（2026-10-09 以
-    /// git 2.55 的 `check-ignore` 逐形實測）：行尾**一個** CR（緊接換行或檔尾）先去掉，再去掉行尾的空格。**行首的空白與 tab、行尾的
-    /// tab 都是規則的一部分**：`  sources/` 對 git 是「以兩個空白開頭的名字」，不排除根目錄的 `sources/`；`sources/\r ` 的 CR 不在行尾，
-    /// 也不去（#700 b36 verify：先前前後的空白、tab 與任意個 CR 都剝掉，這幾種區塊被判成「已在」、doctor 不出聲，而 git 不排除）。
-    /// git 不去反斜線跳脫的行尾空格，這裡一律去：差別只在含反斜線的行，而 `sourcesRuleLines` 沒有一個含反斜線，判讀相同。
-    private static func hasRuleLine(_ bytes: [UInt8], from start: Int) -> Bool {
+    /// 標記之後的排除規則落在哪個狀態（`ruleState`）。
+    internal enum RuleState: Equatable { case noRule, effective, negated }
+
+    /// `from` 之後（從下一行開始）逐行照 git 的順序走：`sourcesRuleLines` 之一的那一行排除 `sources/`，`!` 開頭而會放回 `sources/` 的那一行
+    /// 撤銷它——git 對同一個 `.gitignore` 以**最後一條**符合的規則為準（#700 b38 verify：先前只找規則行、不看它後面的否定，區塊之後接一行
+    /// `!sources/`、`!sou*/`、`!*` 時判成「已在」、doctor 不出聲，而 git 不排除；2026-10-15 以 git 2.55 的 `check-ignore` 逐形實測）。
+    ///
+    /// **規則行的切法**（2026-10-09 以 git 2.55 逐形實測）：行尾**一個** CR（緊接換行或檔尾）先去掉，再去掉行尾的空格。**行首的空白與 tab、
+    /// 行尾的 tab 都是規則的一部分**：`  sources/` 對 git 是「以兩個空白開頭的名字」，不排除根目錄的 `sources/`；`sources/\r ` 的 CR 不在行尾，
+    /// 也不去（#700 b36 verify）。git 不去反斜線跳脫的行尾空格，規則行這裡一律去：`sourcesRuleLines` 沒有一個含反斜線，判讀相同。
+    ///
+    /// **否定規則**只看行首就是 `!` 的行（`  !sources/` 對 git 是一個以空白開頭的一般規則，`\!sources/` 是名字以 `!` 開頭的一般規則）；
+    /// 行尾照 git 的 `trim_trailing_spaces` 去（反斜線跳脫的空格保留）。兩種排除各自記：
+    /// - 目錄形（`sources/`、`sources` 等前四種）：git 不進被排除的目錄，只有**符合根目錄的 `sources` 這個目錄本身**的否定規則放得回來
+    ///   （`!sources/`、`!/sources`、`!sou*/`、`!*`、`!*/`、`!**`、`!**/sources`；`!sources/x`、`!sources/*` 放不回來）——`negationReachesSources`。
+    /// - 內容形（`sources/*`、`sources/**` 等後四種）：目錄本身沒被排除，否定規則放得回裡面的檔；這裡不知道裡面有哪些檔名，**任何一行**
+    ///   非空的否定規則都當成會放回（保守：可能把 git 仍排除的形狀判成不生效，方向是多報、不是漏報）。
+    /// 否定之後再出現一行規則行，那一行重新排除（最後一條為準）。只看標記之後：標記之前的規則行不算（先前就如此，方向同樣是多報）。
+    internal static func ruleState(_ bytes: [UInt8], from start: Int) -> RuleState {
         let newline = UInt8(ascii: "\n")
-        guard var i = bytes[start...].firstIndex(of: newline) else { return false }
+        guard var i = bytes[start...].firstIndex(of: newline) else { return .noRule }
         i += 1
+        var sawRule = false, directoryExcluded = false, contentExcluded = false
         while i < bytes.count {
             let end = bytes[i...].firstIndex(of: newline) ?? bytes.count
             var hi = end
             if hi > i, bytes[hi - 1] == 0x0D { hi -= 1 }
+            let withoutCR = hi
             while hi > i, bytes[hi - 1] == 0x20 { hi -= 1 }
-            if hi - i <= 12, sourcesRuleLines.contains(where: { $0.elementsEqual(bytes[i..<hi]) }) { return true }
+            let line = bytes[i..<hi]
+            if hi - i <= 12, sourcesDirectoryRuleLines.contains(where: { $0.elementsEqual(line) }) {
+                sawRule = true; directoryExcluded = true
+            } else if hi - i <= 12, sourcesContentRuleLines.contains(where: { $0.elementsEqual(line) }) {
+                sawRule = true; contentExcluded = true
+            } else if i < withoutCR, bytes[i] == UInt8(ascii: "!") {
+                let pattern = gitTrimmedTrailingSpaces(bytes[(i + 1)..<withoutCR])
+                if !pattern.isEmpty {   // 只有一個 `!` 的行 git 不當規則（實測）
+                    if negationReachesSources(Array(pattern)) { directoryExcluded = false }
+                    contentExcluded = false
+                }
+            }
             i = end + 1
         }
-        return false
+        guard sawRule else { return .noRule }
+        return directoryExcluded || contentExcluded ? .effective : .negated
+    }
+
+    /// git 的 `trim_trailing_spaces`（dir.c）：去掉行尾的空格，反斜線跳脫的那一個保留。
+    private static func gitTrimmedTrailingSpaces(_ s: ArraySlice<UInt8>) -> ArraySlice<UInt8> {
+        var lastSpace: Int?
+        var p = s.startIndex
+        while p < s.endIndex {
+            switch s[p] {
+            case 0x20:
+                if lastSpace == nil { lastSpace = p }
+            case 0x5C:
+                p += 1
+                if p >= s.endIndex { return s }
+                lastSpace = nil
+            default:
+                lastSpace = nil
+            }
+            p += 1
+        }
+        return lastSpace.map { s[s.startIndex..<$0] } ?? s
+    }
+
+    /// 一行否定規則（去掉 `!` 之後）符不符合根目錄的 `sources` 這個目錄（照 git 的 `.gitignore` 語意：結尾的 `/` 只限目錄、`sources` 是目錄；
+    /// 不含 `/` 的比最後一段名字、在任何深度；含 `/` 的對 `.gitignore` 所在目錄錨定，開頭的 `**/` 可以是零層）。名字的比對見 `globMatches`；
+    /// 認不出的寫法（`[…]` 字元類）當成符合——保守，方向是多報。
+    internal static func negationReachesSources(_ pattern: [UInt8]) -> Bool {
+        var p = pattern[...]
+        if p.last == UInt8(ascii: "/") { p = p.dropLast() }
+        guard !p.isEmpty else { return false }
+        let slash = UInt8(ascii: "/")
+        if p.contains(slash) {
+            if p.first == slash { p = p.dropFirst() }
+            let doubleStar = Array("**/".utf8)
+            while p.starts(with: doubleStar) { p = p.dropFirst(3) }
+            if p.contains(slash) { return false }   // 還有一層以上：符合的是 sources 底下或別處的路徑，不是根目錄的 sources 本身
+        }
+        return globMatches(Array(p), Array("sources".utf8)) ?? true
+    }
+
+    /// 一段名字的 glob（git wildmatch 的子集：`*`、`?`、反斜線跳脫、其餘逐字），ASCII 不分大小寫——macOS 上 `git init` 的 repo
+    /// 預設 `core.ignorecase=true`，`!SOURCES/` 放得回來；區分大小寫的 repo 照這裡判是多報。`[` 開頭的字元類不模擬，回 `nil`。
+    internal static func globMatches(_ pattern: [UInt8], _ text: [UInt8]) -> Bool? {
+        func lower(_ b: UInt8) -> UInt8 { (0x41...0x5A).contains(b) ? b + 0x20 : b }
+        let star = UInt8(ascii: "*"), question = UInt8(ascii: "?"), backslash = UInt8(ascii: "\\"), open = UInt8(ascii: "[")
+        if pattern.contains(open) { return nil }
+        var p = 0, t = 0, starP = -1, starT = -1
+        while t < text.count {
+            if p < pattern.count {
+                let c = pattern[p]
+                if c == star {
+                    while p < pattern.count, pattern[p] == star { p += 1 }
+                    starP = p; starT = t
+                    continue
+                }
+                if c == question { p += 1; t += 1; continue }
+                if c == backslash {
+                    guard p + 1 < pattern.count else { return false }   // 結尾的反斜線：符合不了任何名字
+                    if lower(pattern[p + 1]) == lower(text[t]) { p += 2; t += 1; continue }
+                } else if lower(c) == lower(text[t]) {
+                    p += 1; t += 1; continue
+                }
+            }
+            guard starP >= 0 else { return false }
+            starT += 1; t = starT; p = starP
+        }
+        while p < pattern.count, pattern[p] == star { p += 1 }
+        return p == pattern.count
     }
 
     private enum ReadOutcome { case bytes([UInt8]), tooLarge, failed(Int32) }
@@ -286,6 +397,14 @@ extension LibraryStore {
         }
     }
 
+    /// `fd` 是這一步剛以 `O_EXCL` 建的檔：仍是空的、路徑仍指著同一個 inode 時刪掉路徑。
+    private static func removeIfStillOurEmptyFile(_ fd: Int32, _ path: String) {
+        var held = stat(), named = stat()
+        guard fstat(fd, &held) == 0, held.st_size == 0, lstat(path, &named) == 0,
+              named.st_dev == held.st_dev, named.st_ino == held.st_ino else { return }
+        unlink(path)
+    }
+
     /// `open`，`EINTR` 重試（b33 verify X5 第 18 列）。
     private static func openRetrying(_ path: String, _ flags: Int32, mode: mode_t = 0) -> Int32 {
         while true {
@@ -301,17 +420,20 @@ extension LibraryStore {
 
     /// 取 `flock`：`LOCK_EX`（附加前，同時跑的 akashic 程序在這裡排隊）或 `LOCK_SH`（先看在讀內容之前取，等持 `LOCK_EX` 的寫入者
     /// 寫完）。以 `LOCK_NB` 每 20 ms 試一次，到 `lockWaitSeconds` 還拿不到回 `false`（呼叫端報 `lockTimedOut`、不讀不寫）。
-    /// 檔案系統不支援（`ENOTSUP`／`EOPNOTSUPP`，部分網路掛載）時不鎖、照常往下（回 `true`）——那時鎖內重看仍會擋掉「別人已經寫好」
-    /// 的那一種，擋不住兩邊同時寫（誠實邊界）。`EINTR` 重試。
+    /// **期限用單調時鐘**（`ContinuousClock`；使用者 2026-10-15 裁決，b38 verify：先前用牆上時鐘 `Date()`，等待期間系統時間往回撥，
+    /// 上限就跟著拉長）；`EINTR` 也看期限（先前直接重試、不看期限——`LOCK_NB` 實務上不會被中斷，但重試的每一條路都要過同一個期限）。
+    /// `EWOULDBLOCK` 以外的錯誤一律不鎖、照常往下（回 `true`）：檔案系統不支援（`ENOTSUP`／`EOPNOTSUPP`，部分網路掛載）、網路掛載的
+    /// 鎖服務停了（`ENOLCK`）之類都在這一類（b38 verify INFO：先前的說明只寫前兩個）——那時鎖內重看仍會擋掉「別人已經寫好」的那一種，
+    /// 擋不住兩邊同時寫（誠實邊界）。測試以 `SourcesIgnoreIO.tryLock` 換掉 `flock` 本身。
     private static func lock(_ fd: Int32, _ operation: Int32) -> Bool {
-        let deadline = Date().addingTimeInterval(SourcesIgnoreIO.lockWait ?? lockWaitSeconds)
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(SourcesIgnoreIO.lockWait ?? lockWaitSeconds))
+        let attempt = SourcesIgnoreIO.tryLock ?? { flock($0, $1 | LOCK_NB) == 0 ? nil : errno }
         while true {
-            if flock(fd, operation | LOCK_NB) == 0 { return true }
-            let code = errno
-            if code == EINTR { continue }
-            guard code == EWOULDBLOCK else { return true }   // 不支援或其他錯誤：照常往下（同先前的阻塞版）
-            if Date() >= deadline { return false }
-            usleep(20_000)
+            guard let code = attempt(fd, operation) else { return true }
+            guard code == EWOULDBLOCK || code == EINTR else { return true }   // 不支援或其他錯誤：照常往下（同先前的阻塞版）
+            if clock.now >= deadline { return false }
+            if code == EWOULDBLOCK { usleep(20_000) }
         }
     }
 
@@ -335,7 +457,7 @@ extension LibraryStore {
     }
 }
 
-/// 測試用的注入點：附加的寫入、失敗後的截斷與等鎖的上限（`withValue` 的範圍內有效；`nil`＝真的 `write`／`ftruncate`、預設上限）。
+/// 測試用的注入點：附加的寫入、失敗後的截斷、等鎖的上限與試鎖本身（`withValue` 的範圍內有效；`nil`＝真的 `write`／`ftruncate`／`flock`、預設上限）。
 /// 寫入失敗與截斷失敗在真的檔案系統上造不出來（RLIMIT_FSIZE 在 macOS 對附加不生效，b33 verify X5 DA 實測）。
 internal enum SourcesIgnoreIO {
     /// 回寫進去的位元組數與 errno（成功時 `nil`）。
@@ -344,6 +466,8 @@ internal enum SourcesIgnoreIO {
     @TaskLocal static var truncate: (@Sendable (Int32, off_t) -> Int32?)?
     /// 等鎖的上限（秒；`nil`＝`LibraryStore.lockWaitSeconds`）。
     @TaskLocal static var lockWait: Double?
+    /// 試一次 `flock(fd, operation | LOCK_NB)`：回 errno（拿到鎖時 `nil`）。`EINTR` 在 `LOCK_NB` 下造不出來，測試由這裡給。
+    @TaskLocal static var tryLock: (@Sendable (Int32, Int32) -> Int32?)?
 }
 
 /// `ensureLayout` 遇到 `.gitignore` 的問題時怎麼做（#700）。
@@ -377,6 +501,8 @@ public enum SourcesIgnoreProblem: Equatable, Sendable {
     case tooLarge
     /// 有 `# BEGIN akashic sources` 標記，但標記之後沒有一行排除規則（寫到一半中斷，或手改過）。
     case markerWithoutRule
+    /// 標記之後有排除規則，但更後面有一行否定規則（`!` 開頭）把 `sources/` 放了回來（git 以最後一條符合的規則為準；#700 b38 verify）。
+    case ruleNegatedLater
     /// 沒有寫入權限。
     case notWritable(errno: Int32)
     /// 打不開來寫，原因與權限無關（`EMFILE` 之類）；什麼都沒寫。
@@ -407,6 +533,7 @@ public enum SourcesIgnoreProblem: Equatable, Sendable {
         case .hardLinked: return "有其他硬連結——附加會改到別處共用的同一個檔（與 symlink 同一個理由）"
         case .tooLarge: return "大到 git 不讀（git 不讀 100 MiB 以上的 .gitignore），或附加之後會越過那條線——加了也不生效"
         case .markerWithoutRule: return "有 sources 標記，但標記之後沒有一行 git 會當成排除 sources/ 的規則（區塊寫到一半中斷或被改過；行首帶空白或 tab、行尾帶 tab 的 sources/ git 不認）——不改寫既有的區塊"
+        case .ruleNegatedLater: return "標記之後有排除 sources/ 的規則，但更後面有一行否定規則（! 開頭，例如 !sources/、!*）把它放了回來——git 對同一個 .gitignore 以最後一條符合的規則為準（排除規則是 sources/* 這類只排除內容的寫法時，之後任何一行否定規則都算）；不改寫既有的規則"
         case .notWritable(let code): return "沒有寫入權限（\(LibraryStore.errnoText(code))）"   // display-safe-exempt: LibraryStore.errnoText 只回 errno 數字與系統的固定英文說明（code 是 Int32）
         case .openFailed(let code): return "打不開來寫（\(LibraryStore.errnoText(code))），什麼都沒寫"   // display-safe-exempt: LibraryStore.errnoText 只回 errno 數字與系統的固定英文說明（code 是 Int32）
         case .changedWhileChecking: return "看與寫之間一直被換掉或改動（重看了 \(LibraryStore.applyAttempts) 次）"   // display-safe-exempt: LibraryStore.applyAttempts 是 Int 常數
@@ -419,15 +546,25 @@ public enum SourcesIgnoreProblem: Equatable, Sendable {
         }
     }
 
+    /// 首句的主詞與狀態（warning 與 `file add` 的拒絕共用）。讀不到與等鎖逾時**沒有讀內容**，不知道裡面有沒有區塊：說「沒有讀」，
+    /// 不斷言「沒有生效的區塊」（使用者 2026-10-15 裁決，b38 verify：先前一律說「沒有生效的」，處置又叫人自己加一段，持鎖的檔很可能已有區塊）。
+    /// 其餘各格讀過內容，或 git 本來就不讀那個檔（symlink、不是一般檔、大到 git 不讀），「沒有生效的」成立。
+    public var headline: String {
+        switch self {
+        case .unreadable, .lockTimedOut: return ".gitignore 沒有讀到，不知道裡面有沒有生效的 sources 排除區塊"
+        default: return ".gitignore 沒有生效的 sources 排除區塊"
+        }
+    }
+
     /// 一則 warning（`.report` 的呼叫端報它）：一行說明加上要自己加的那段（每行縮排四格）。`doctor` 印到 stdout、`import-zotero` 印到
     /// stderr、MCP 的兩個匯入以換行接起來放進回應的 `gitignoreWarning`——三處同一份文字（#700 b35）。`actor` 是程式字面（命令名），
     /// `note` 是呼叫端的固定句，接在原因之後；`rerun` 是處置裡「之後怎麼再跑」那幾個字（`remedy(rerun:)`）。只含固定句、errno 數字與
     /// 系統的固定英文說明，不含使用者資料。
     ///
-    /// 首句說「沒有**生效的**」排除區塊（#700 b36 verify）：symlink、大到 git 不讀的檔裡可能有區塊，只是 git 不讀——先前說「沒有 sources
-    /// 排除區塊」，處置又叫人「自己加上下面這段」，使用者在已經有區塊的檔裡再貼一份。
+    /// 首句是 `headline`：「沒有**生效的**」排除區塊（#700 b36 verify）——symlink、大到 git 不讀的檔裡可能有區塊，只是 git 不讀；先前說
+    /// 「沒有 sources 排除區塊」，處置又叫人「自己加上下面這段」，使用者在已經有區塊的檔裡再貼一份。沒有讀內容的兩格改說「沒有讀」（b38 verify）。
     public func warningLines(by actor: String, note: String = "", rerun: String = Self.defaultRerun) -> [String] {
-        ["⚠ .gitignore 沒有生效的 sources 排除區塊，\(actor) " + (leavesGitignoreUntouched ? "沒有改寫它" : "寫到一半、沒能收回")   // display-safe-exempt: actor 是呼叫端的程式字面（命令名）
+        ["⚠ " + headline + "，\(actor) " + (leavesGitignoreUntouched ? "沒有改寫它" : "寫到一半、沒能收回")   // display-safe-exempt: headline 是本型別的固定句；actor 是呼叫端的程式字面（命令名）
             + "：\(reason)。\(note)\(remedy(rerun: rerun))："]   // display-safe-exempt: reason、remedy 是本型別的固定句與 errno 說明；note、rerun 是呼叫端的固定句
             + LibraryStore.sourcesIgnoreBlock.split(separator: "\n").map { "    \($0)" }   // display-safe-exempt: 取自常數 LibraryStore.sourcesIgnoreBlock
     }
@@ -450,7 +587,7 @@ public enum SourcesIgnoreProblem: Equatable, Sendable {
     /// 處置；`rerun` 是「之後怎麼再跑」那幾個字（匯入是 `importRerun`）。
     public func remedy(rerun: String) -> String {
         switch self {
-        case .unreadable: return "修好讀取權限後\(rerun)，或自己在 .gitignore 加上下面這段"   // display-safe-exempt: rerun 是呼叫端的固定句
+        case .unreadable: return "修好讀取權限後\(rerun)；或自己打開它看，沒有區塊才加上下面這段（區塊已在就不用加）"   // display-safe-exempt: rerun 是呼叫端的固定句
         case .notUTF8Text: return "把它轉存成 UTF-8 後\(rerun)，或自己在 .gitignore 加上下面這段"   // display-safe-exempt: rerun 是呼叫端的固定句
         case .symlink: return "把 symlink 換成一般檔（內容照抄過去）後\(rerun)，區塊還沒有就會補上；或換好之後自己加上下面這段"   // display-safe-exempt: rerun 是呼叫端的固定句
         case .brokenSymlink: return "把 symlink 換成一般檔後\(rerun)"   // display-safe-exempt: rerun 是呼叫端的固定句
@@ -458,8 +595,9 @@ public enum SourcesIgnoreProblem: Equatable, Sendable {
         case .hardLinked: return "確認別處共用的那個檔也該有這段之後自己加上下面這段，或把 .gitignore 換成獨立的一般檔後\(rerun)"   // display-safe-exempt: rerun 是呼叫端的固定句
         case .tooLarge: return "把 .gitignore 縮到 100 MiB 以下（git 才會讀它）後\(rerun)，區塊已在就不會再加一份、還沒有就會補上；或縮好之後自己加上下面這段"   // display-safe-exempt: rerun 是呼叫端的固定句
         case .markerWithoutRule: return "在標記區塊裡補上頂格的 sources/ 一行（行首不留空白、行尾不留 tab），或刪掉殘缺的區塊、換成下面這段後\(rerun)"   // display-safe-exempt: rerun 是呼叫端的固定句
+        case .ruleNegatedLater: return "刪掉區塊之後放回 sources/ 的否定規則（或把它移到區塊之前）後\(rerun)；區塊已在，不要再貼一份——對照用的區塊"   // display-safe-exempt: rerun 是呼叫端的固定句
         case .notWritable: return "給它寫入權限後\(rerun)，或自己在 .gitignore 加上下面這段"   // display-safe-exempt: rerun 是呼叫端的固定句
-        case .lockTimedOut: return "確認沒有卡住的 akashic 程序後\(rerun)；仍不行就自己在 .gitignore 加上下面這段"   // display-safe-exempt: rerun 是呼叫端的固定句
+        case .lockTimedOut: return "確認沒有卡住的 akashic 程序後\(rerun)；仍拿不到鎖就自己打開它看，沒有區塊才加上下面這段（區塊已在就不用加）"   // display-safe-exempt: rerun 是呼叫端的固定句
         case .openFailed, .changedWhileChecking, .writeFailed: return "\(rerun)；仍不行就自己在 .gitignore 加上下面這段"   // display-safe-exempt: rerun 是呼叫端的固定句
         case .rollbackFailed: return "打開 .gitignore 看尾端，刪掉不完整的那段後\(rerun)，或換成下面這段"   // display-safe-exempt: rerun 是呼叫端的固定句
         }

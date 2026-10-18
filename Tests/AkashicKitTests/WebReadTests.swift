@@ -385,6 +385,23 @@ final class WebReadTests: XCTestCase {
         }
     }
 
+    /// 開頭的 UTF-8 BOM 也算形狀不合（#692 b38 verify）：`String(contentsOfFile:encoding:)` 解碼時把它拿掉、印 `URL-OK`，而 shell 的
+    /// `"$(cat …)"` 與區塊裡 Python 的 `read().strip()` 都留著它——開出去的是 U+FEFF 開頭的字串。不是合法 UTF-8 的檔照舊是讀不到。
+    func testUrlModeKeepsALeadingByteOrderMark() throws {
+        let file = URL(fileURLWithPath: path("url.txt"))
+        try (Data([0xEF, 0xBB, 0xBF]) + Data("https://a.example.org/x\n".utf8)).write(to: file)
+        let bom = WebRead.urlMode(urlFile: file.path)
+        XCTAssertEqual(bom.code, 1, "\(bom.stdout)")
+        XCTAssertTrue(bom.stdout.first?.hasPrefix("URL-REJECT 網址形狀不合") ?? false, "\(bom.stdout)")
+        try (Data("https://a.example.org/x".utf8) + Data([0xC3, 0x28, 0x0A])).write(to: file)
+        let invalid = WebRead.urlMode(urlFile: file.path)
+        XCTAssertEqual(invalid.code, 1)
+        XCTAssertTrue(invalid.stdout.first?.hasPrefix("URL-FAIL 讀不到網址檔") ?? false, "\(invalid.stdout)")
+        // 主機檔同一個讀法：BOM 留著，主機判成認不出（落地主機的比對不會把它當成 https://a.example.org）
+        try (Data([0xEF, 0xBB, 0xBF]) + Data("https://a.example.org\n".utf8)).write(to: URL(fileURLWithPath: path("o.txt")))
+        XCTAssertEqual(try WebRead.readTrimmed(path("o.txt")).unicodeScalars.first, "\u{FEFF}")
+    }
+
     /// 頂層名稱是 `xn--` 形的 IDN：`url` 與落地主機的檢查同一個答案（先前 `url` 的形狀正則只收字母頂層名稱，`landing` 收）。
     func testUrlModeAcceptsIDNTopLevelNamesLikeLanding() throws {
         for u in ["https://example.xn--p1ai/", "https://xn--e1afmkfd.xn--p1ai/path", "https://journal.XN--FIQS8S/x"] {

@@ -51,11 +51,12 @@ struct FileAdd: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "add", abstract: "註冊一個檔案並確保 layout（缺的才建立：目錄、格式標記 store.yaml、化身 id 檔 incarnation、沒有 .gitignore 時新建一個；既有的 .gitignore 沒有 sources 標記區塊時在尾端附加一段，原有的位元組不動；同 key 或同路徑已註冊時具名拒絕、不覆寫；不切換 current）",
         discussion: """
-        .gitignore 是一般檔、已有 sources 標記區塊（標記之後有一行 git 認得的 sources/ 規則；行首帶空白或 tab、行尾帶 tab 的不算）時\
-        什麼都不做，不論它是什麼編碼。它讀不到、不是 UTF-8 文字、是 symlink（git 不讀 symlink 的 .gitignore，指向的檔有區塊也不生效）或\
-        硬連結、不是一般檔、大到 git 不讀、有標記沒有規則、沒有寫入權限，或另一個程序持鎖超過 10 秒時不改它、拒絕註冊，這一次什麼都不建，\
-        訊息附上要自己加的那段。開檔或寫入時才失敗（極少見：寫入錯誤、同時跑的程序一直在改它）時佈局已建好、只差這一段，訊息會說是哪一種；同時跑的另一個\
-        akashic 已經加好區塊時照常成功。
+        .gitignore 是一般檔、已有生效的 sources 標記區塊（標記之後有一行 git 認得的 sources/ 規則、之後沒有否定規則把它放回來；行首帶空白\
+        或 tab、行尾帶 tab 的不算）時什麼都不做，不論它是什麼編碼、有沒有其他硬連結。沒有生效的區塊而它不是 UTF-8 文字、有其他硬連結、\
+        沒有寫入權限，或有標記而沒有規則、規則被之後的否定規則（! 開頭）放回來時，不改它、拒絕註冊；它讀不到、是 symlink（git 不讀 symlink \
+        的 .gitignore，指向的檔有區塊也不生效）、不是一般檔、大到 git 不讀，或另一個程序持鎖超過 10 秒時，不論有沒有區塊都拒絕。拒絕時這一次\
+        什麼都不建，訊息附上區塊那一段（讀不到或等不到鎖時沒有讀內容，區塊已在就不用再加）。開檔或寫入時才失敗（極少見：寫入錯誤、同時跑的\
+        程序一直在改它）時佈局已建好、只差這一段，訊息會說是哪一種；同時跑的另一個 akashic 已經加好區塊時照常成功。
         """)
 
     @Argument(help: "檔案 key（小寫英數起頭、僅 a-z0-9-）") var key: String

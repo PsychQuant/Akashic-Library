@@ -207,8 +207,8 @@ public enum WebRead {
         let url: String
         do {
             // 不修剪：區塊一以 `"$(cat …)"` 引用網址檔，`$(…)` 只去掉結尾的換行——檢查的對象要就是開出去的那一份（b36 verify：先前修剪兩端的
-            // 空白與換行再比對，前導空白、CRLF 的 CR、結尾的 NBSP 都過得了，而 shell 開的是沒修剪的那一份）
-            url = try String(contentsOfFile: urlFile, encoding: .utf8).replacingOccurrences(of: #"\n+\z"#, with: "", options: .regularExpression)
+            // 空白與換行再比對，前導空白、CRLF 的 CR、結尾的 NBSP 都過得了，而 shell 開的是沒修剪的那一份）。開頭的 BOM 也留著（`readExactly`）
+            url = try readExactly(urlFile).replacingOccurrences(of: #"\n+\z"#, with: "", options: .regularExpression)
         } catch {
             return Outcome(code: 1, stdout: ["URL-FAIL 讀不到網址檔：" + displaySafeError(error, max: 200)])
         }
@@ -217,7 +217,7 @@ public enum WebRead {
         let shape = #"\Ahttps://([A-Za-z0-9-]+\.)+([A-Za-z]{2,}|[Xx][Nn]--[A-Za-z0-9-]+)(/[A-Za-z0-9._~%!*+,;=:@/()-]*)?(\?[A-Za-z0-9._~%!*+,;=:@/?()&-]*)?\z"#
         guard url.range(of: shape, options: .regularExpression) != nil else {
             return Outcome(code: 1, stdout: ["URL-REJECT 網址形狀不合（只收 https 與 ASCII 主機、頂層名稱是字母或 xn-- 形；路徑與查詢只收 A–Z a–z 0–9 與 ._~%!*+,;=:@/()-、"
-                                             + "查詢另收 ?&；不含 #、引號、反斜線、反引號、$、空白，前後也不留空白——結尾的換行除外）：不開"])
+                                             + "查詢另收 ?&；不含 #、引號、反斜線、反引號、$、空白，前後也不留空白或 BOM 之類的不可見字元——結尾的換行除外）：不開"])
         }
         let host = origin(of: url)
         guard hostIsAcceptable(host) else {
@@ -462,7 +462,19 @@ public enum WebRead {
     static func isASCIIDigit(_ u: Unicode.Scalar) -> Bool { ("0"..."9").contains(u) }
 
     static func readTrimmed(_ path: String) throws -> String {
-        try String(contentsOfFile: path, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
+        try readExactly(path).trimmingCharacters(in: .whitespacesAndNewlines)   // 修剪的集合不含 U+FEFF：開頭的 BOM 留著，主機判成認不出
+    }
+
+    /// 讀檔、以 UTF-8 解碼，**不去掉開頭的 BOM**（#692 b38 verify：`String(contentsOfFile:encoding:)` 解碼時把開頭的一個 U+FEFF 拿掉，而
+    /// shell 的 `"$(cat …)"` 與區塊裡 Python 的 `open(…).read().strip()` 都留著它——檢查過的字串與開出去的字串不同）。不是合法的 UTF-8
+    /// 時擲錯（解碼再編碼要逐位元組相同，同 `LibraryStore.isValidUTF8` 的判準）。
+    static func readExactly(_ path: String) throws -> String {
+        let data = try Data(contentsOf: URL(fileURLWithPath: path))
+        let text = String(decoding: data, as: UTF8.self)
+        guard text.utf8.elementsEqual(data) else {
+            throw CocoaError(.fileReadInapplicableStringEncoding, userInfo: [NSFilePathErrorKey: path])
+        }
+        return text
     }
 
     // MARK: - 刪檔（b33 verify X2 第 0／1 列）

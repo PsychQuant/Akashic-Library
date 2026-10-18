@@ -12,6 +12,19 @@
 
 plugin 版號沒有動（行為在 binary；skill 文字的改動）。
 
+## #692、#700 — b38 verify 修正（2026-10-15）：〈開始前〉探測攔得下 `web-read url` 的舊契約、規則之後的否定規則算不生效、等鎖上限的揭露
+
+細節在 `changelog/2026-10-15-b39-web-read-and-sources-ignore.md`。**需要新的 `akashic` CLI**（`web-read url`、`file add`、`doctor`、`import-zotero`）與新的 `akashic-mcp`（兩個匯入的 `.gitignore` 判讀與 warning 文字）；其餘 MCP 工具不變。
+
+- **web-access.md〈開始前〉第 4 點**（#692）：多一條 `web-read url` 的真呼叫——前導空白、開頭的 BOM、`app-127-0-0-1.nip.io` 三個網址檔依序要以 1、1、4 結束；b38 以前的 CLI 都在這裡停下（b37 改了 `url` 的契約卻只為 `check` 補了探測）。說明寫出「CLI 的契約每改一次，探測就多一條真呼叫」。
+- **`akashic web-read url`**：網址檔以位元組解碼，開頭的 UTF-8 BOM 留著、算形狀不合（先前 Foundation 解碼時拿掉它，檢查過的字串與 shell 開出去的不同）。
+- **`.gitignore` 的 sources 區塊**（#700；CLI `file add`／`doctor`／`import-zotero`，MCP `akashic_import_zotero`／`akashic_import_wos`）：規則之後有一行把 `sources/` 放回來的否定規則（`!sources/`、`!*`、`!sou*/` 之類；git 以最後一條符合的規則為準）時算不生效——`file add` 拒絕、其餘報 warning，說出是否定規則、不叫人再貼一份（先前判成「已在」、不出聲）。讀不到與等鎖逾時的首句改成「沒有讀到，不知道裡面有沒有生效的 sources 排除區塊」，處置是「沒有區塊才加」。等鎖的期限改用單調時鐘。
+- **揭露**：b36 verify 修正（下面那一段）的「等鎖至多 10 秒」改了使用者 2026-10-05 的「只記錄」（非 akashic 程序長時間持鎖時 akashic 會一直等），當時沒有寫出來；使用者 2026-10-15 裁決保留這個上限。
+- CLI `file add`／`doctor`／`import-zotero` 的說明把「沒有生效的區塊而…才不改」與「不論有沒有區塊都不改」兩種條件分開（b37 拿掉了限定，已有區塊的硬連結或 Latin-1 檔讀起來像一律拒絕）。
+- `tools/list`：59,173 → 59,173 bytes（±0；MCP 說明沒有改）。
+
+plugin 版號沒有動（skill 文字的改動；行為在 binary）。
+
 ## #564 修正輪四 — 報告裡的 attested 有上限、update-person 對同 key 兩筆拒絕、MCP 屬性說明改成實話、合併的結論不取決於 key 拼法（2026-10-09）
 
 b36 verify（Y1）的處置，細節在 `changelog/2026-10-09-b37-n1-fixes-564.md`。
@@ -47,7 +60,7 @@ plugin 版號沒有動（skill 文字的改動）。
 
 plugin 版號沒有動（行為在 binary）。
 
-## #692、#700 — b36 verify 修正（2026-10-09）：〈開始前〉探測分得出 b35 之前的 CLI、「區塊已在」與 git 一致
+## #692、#700 — b36 verify 修正（2026-10-09）：〈開始前〉探測分得出 b35 之前的 CLI、~~「區塊已在」與 git 一致~~ 規則行照 git 的切法（「一致」只對單一規則行的形狀成立，見上面 2026-10-15 那一段）
 
 細節在 `changelog/2026-10-09-b37-n5-fixes-692-700.md`。**需要新的 `akashic` CLI**（`web-read`、`file add`、`doctor`、`import-zotero`）與新的 `akashic-mcp`（兩個匯入的 `.gitignore` 判讀與 warning 文字）；其餘 MCP 工具不變。
 

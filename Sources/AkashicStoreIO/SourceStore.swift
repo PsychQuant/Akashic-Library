@@ -747,8 +747,8 @@ public extension LibraryStore {
                 what: "sources 版控排除",
                 why: "sources/ 未被版控忽略——存檔是第三方逐字內容，不得進 remote。"
                     + "在 store 的 .gitignore 加上頂格的「sources/」（akashic doctor 在沒有生效的標記區塊時附加一段；"
-                    + ".gitignore 讀不懂、是 symlink（git 不讀 symlink 的 .gitignore）或硬連結、唯讀、規則行帶行首空白時它不改，"
-                    + "改印原因與要自己加的那段），或確認沒有其他規則反向 un-ignore 它，再重試")
+                    + ".gitignore 讀不懂、是 symlink（git 不讀 symlink 的 .gitignore）或硬連結、唯讀、規則行帶行首空白、"
+                    + "區塊之後有 ! 開頭的否定規則把 sources/ 放回來時它不改，改印原因），或確認沒有其他規則反向 un-ignore 它，再重試")
         }
         return true
     }

@@ -225,6 +225,40 @@ final class WebAccessReadContractTests: XCTestCase {
         XCTAssertTrue(r.out.contains("web-read check 把已知驗證服務上沒有訊號的頁面讀成內容"), r.out)
     }
 
+    /// 替身 CLI 的 `web-read url`：`transform` 是一段 bash，讀 `$f`（網址檔）、把要交給真 binary 的內容寫到 `$g`——模擬舊契約
+    /// （修剪、拿掉 BOM、把塞進名稱的 IP 換成公開名稱）。其餘子命令轉給真 binary。
+    private func standInUrl(_ name: String, transform: String) throws -> String {
+        let standIn = fake.appendingPathComponent(name)
+        try FileManager.default.createDirectory(at: standIn, withIntermediateDirectories: true)
+        let real = CLITestHarness.productsDirectory.appendingPathComponent("akashic").path
+        let script = """
+            #!/bin/bash
+            if [ "$1" = "web-read" ] && [ "$2" = "url" ]; then
+              f="$4"; g=$(mktemp)
+              \(transform)
+              "\(real)" web-read url --file "$g"; rc=$?; rm -f "$g"; exit $rc
+            fi
+            exec "\(real)" "$@"
+            """
+        try script.write(to: standIn.appendingPathComponent("akashic"), atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: standIn.appendingPathComponent("akashic").path)
+        return standIn.path
+    }
+
+    /// 探測攔得下 `web-read url` 的舊契約（#692 b38 verify MEDIUM：先前 `url` 只呼叫一條 happy path，b35 到 b38 的 binary 全部通過，
+    /// 而開分頁、導航、取 API 三個區塊靠它擋住送出去的網址）。三個替身各缺一條：修剪網址檔（b36 以前）、拿掉開頭的 BOM（b37、b38：
+    /// Foundation 解碼時拿掉）、放行塞進名稱的 IP（b36 以前）——每一個都要以 1 停下、說出是 `web-read url` 的契約。
+    func testTheStartProbeStopsACLIWithAnOldUrlContract() throws {
+        let trims = try standInUrl("trims", transform: #"sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$f" > "$g""#)
+        let dropsBOM = try standInUrl("drops-bom", transform: #"LC_ALL=C sed -e $'1s/^\xef\xbb\xbf//' "$f" > "$g""#)
+        let dashedIP = try standInUrl("dashed-ip", transform: #"sed -e 's/app-127-0-0-1\.nip\.io/a.example.org/' "$f" > "$g""#)
+        for (name, path) in [("trims", trims), ("drops-bom", dropsBOM), ("dashed-ip", dashedIP)] {
+            let r = try run(Self.startProbe, extraPath: path)
+            XCTAssertEqual(r.status, 1, "\(name)：\(r.out)")
+            XCTAssertTrue(r.out.contains("web-read url 放行前導空白、開頭的 BOM 或塞進名稱的 IP"), "\(name)：\(r.out)")
+        }
+    }
+
     // MARK: - 開分頁、導航、取 API 的區塊自己跑網址檢查（#692 b36 verify LOW）
 
     /// 網址檢查寫在動作的區塊裡：不合格的網址（主機是塞進名稱的 IP）讓區塊在開分頁、導航、發請求之前以 4 停下。

@@ -950,7 +950,7 @@ verify 以真 binary 實測兩個以上的程序同時第一次對同一個 stor
 
 **理由欄的其餘部分**
 
-四個新形狀各自是「不動它」的一格：硬連結與 symlink 同一個理由（那個檔可能在 store 之外）；git 不讀 ≥ 100 MiB 的 `.gitignore`（實測 git 2.55），附加會讓原本生效的檔越過那條線；只有標記沒有規則是寫到一半中斷的形狀，先前被當成已在而永遠不補。**誠實邊界**：檔案系統不支援 `flock` 時不鎖（鎖內重看仍擋得住「別人已寫好」，擋不住兩邊同時寫）；非 akashic 的寫入者不經這把鎖——回滾因此先看大小是不是「原長＋這一次寫的」，不是才截；同時跑的 `doctor` 重建 index 另有一個與 `.gitignore` 無關的競態（3043aaf7 同樣出現），不在這一列。
+四個新形狀各自是「不動它」的一格：硬連結與 symlink 同一個理由（那個檔可能在 store 之外）；git 不讀 ≥ 100 MiB 的 `.gitignore`（實測 git 2.55），附加會讓原本生效的檔越過那條線；只有標記沒有規則是寫到一半中斷的形狀，先前被當成已在而永遠不補。**等鎖的上限**（b36 verify 補，b38 verify 補記到這一列）：兩種鎖都以 `LOCK_NB` 每 20 ms 試一次、至多 10 秒，逾時是 `lockTimedOut`（不讀不寫；`file add` 拒絕，`doctor` 與兩個匯入報 warning，首句說「沒有讀到」而不是「沒有生效的區塊」，b39）；期限用單調時鐘 `ContinuousClock`、`EINTR` 也看期限（b39，先前是牆上時鐘 `Date()`、`EINTR` 直接重試）；新建的 `.gitignore` 拿不到鎖時刪掉這一步建的空檔（b39）。這個上限改了使用者 2026-10-05 的「只記錄」（非 akashic 程序長時間持鎖時 akashic 會一直等），b37 沒有揭露；使用者 2026-10-15 裁決保留。觸發條件：持鎖者正常只持微秒級，`lockTimedOut` 出現就是持鎖的程序卡住（被 `SIGSTOP`、網路掛載）——2026-10-15 沒有量到實例（這個狀態不留痕跡，只在當下的輸出裡）。`EWOULDBLOCK` 以外的錯誤（`ENOTSUP`、`ENOLCK` 等）一律不鎖、照常往下。**誠實邊界**：檔案系統不支援 `flock` 時不鎖（鎖內重看仍擋得住「別人已寫好」，擋不住兩邊同時寫）；非 akashic 的寫入者不經這把鎖——回滾因此先看大小是不是「原長＋這一次寫的」，不是才截；同時跑的 `doctor` 重建 index 另有一個與 `.gitignore` 無關的競態（3043aaf7 同樣出現），不在這一列。
 
 ### 第 95 列（#564）
 
@@ -2527,7 +2527,7 @@ PY
 # 2026-10-03：4575｜0｜0
 ```
 
-**第 87 列的量測（2026-10-04，可重跑，唯讀；2026-10-05 第 94 列改寫；2026-10-09 b36 verify 改規則行的切法與 symlink）**：每個註冊的 store 的 `.gitignore` 是什麼形狀、有沒有區塊。會被 `file add` 拒絕、`doctor` 與兩個匯入報 warning 的是（匯入自 2026-10-05 起報 warning，#700）：`symlink`（**不論有沒有區塊**——git 2.32 起不讀 symlink 的 `.gitignore`，b36 verify；先前指向的內容有區塊就放行）、`broken-symlink`，以及**不是 `block`** 而是 `hardlink`、`NOT-utf8`、`marker-without-rule`、`read-only`、`not-regular`、`too-large`、`unreadable` 之一（一般檔的 `block` 什麼形狀都放行；規則行照 git 的切法比，行首帶空白或 tab、行尾帶 tab 的不算）：
+**第 87 列的量測（2026-10-04，可重跑，唯讀；2026-10-05 第 94 列改寫；2026-10-09 b36 verify 改規則行的切法與 symlink；2026-10-15 b38 verify 加否定規則）**：每個註冊的 store 的 `.gitignore` 是什麼形狀、有沒有區塊。會被 `file add` 拒絕、`doctor` 與兩個匯入報 warning 的是（匯入自 2026-10-05 起報 warning，#700）：`symlink`（**不論有沒有區塊**——git 2.32 起不讀 symlink 的 `.gitignore`，b36 verify；先前指向的內容有區塊就放行）、`broken-symlink`，以及**不是 `block`** 而是 `hardlink`、`NOT-utf8`、`marker-without-rule`、`rule-negated`、`read-only`、`not-regular`、`too-large`、`unreadable` 之一（一般檔的 `block` 什麼形狀都放行；規則行照 git 的切法比，行首帶空白或 tab、行尾帶 tab 的不算；`rule-negated` 是規則之後有 `!` 開頭的否定規則把 `sources/` 放回來——git 以最後一條符合的規則為準，b38 verify）。腳本的判讀是 `LibraryStore.ruleState` 的第二份（同一個切法、同一個 glob 子集），改一邊要改另一邊：
 
 ```bash
 python3 - <<'PY'
@@ -2544,20 +2544,65 @@ for k, v in (cfg.get('files') or {}).items():
     try: b = open(p, 'rb').read()
     except OSError as e: print(k, 'unreadable', e.errno); continue
     i = b.find(b'# BEGIN akashic sources')
-    rules = {b'sources/', b'/sources/', b'sources', b'/sources', b'sources/*', b'/sources/*', b'sources/**', b'/sources/**'}
-    cut = lambda l: (l[:-1] if l.endswith(b'\r') else l).rstrip(b' ')   # git 的切法：行尾一個 CR、再行尾的空格；行首空白與 tab 不去（b36 verify）
-    block = 'no-marker' if i < 0 else ('block' if any(cut(l) in rules for l in b[i:].split(b'\n')[1:]) else 'marker-without-rule')
+    dirs, content = {b'sources/', b'/sources/', b'sources', b'/sources'}, {b'sources/*', b'/sources/*', b'sources/**', b'/sources/**'}
+    def trim(p):   # git 的 trim_trailing_spaces：行尾的空格去掉，反斜線跳脫的保留
+        last, k = None, 0
+        while k < len(p):
+            if p[k:k+1] == b' ': last = k if last is None else last
+            elif p[k:k+1] == b'\\':
+                k += 1
+                if k >= len(p): return p
+                last = None
+            else: last = None
+            k += 1
+        return p if last is None else p[:last]
+    def glob(p, t=b'sources'):   # `*`、`?`、反斜線；`[` 不模擬（保守，當成符合）；ASCII 不分大小寫
+        if b'[' in p: return True
+        p, pi, ti, sp, st = p.lower(), 0, 0, -1, -1
+        while ti < len(t):
+            if pi < len(p) and p[pi:pi+1] == b'*':
+                while pi < len(p) and p[pi:pi+1] == b'*': pi += 1
+                sp, st = pi, ti; continue
+            if pi < len(p) and p[pi:pi+1] == b'?': pi += 1; ti += 1; continue
+            if pi < len(p) and p[pi:pi+1] == b'\\':
+                if pi + 1 >= len(p): return False
+                if p[pi+1] == t[ti]: pi += 2; ti += 1; continue
+            elif pi < len(p) and p[pi] == t[ti]: pi += 1; ti += 1; continue
+            if sp < 0: return False
+            st += 1; ti, pi = st, sp
+        while pi < len(p) and p[pi:pi+1] == b'*': pi += 1
+        return pi == len(p)
+    def reaches(p):   # 否定規則符不符合根目錄的 sources 這個目錄
+        if p.endswith(b'/'): p = p[:-1]
+        if not p: return False
+        if b'/' in p:
+            if p.startswith(b'/'): p = p[1:]
+            while p.startswith(b'**/'): p = p[3:]
+            if b'/' in p: return False
+        return glob(p)
+    def state(b, i):   # 逐行照 git 的順序：規則行排除，放回 sources/ 的否定規則撤銷（最後一條為準，b38 verify）
+        saw = dx = cx = False
+        for l in b[i:].split(b'\n')[1:]:
+            l = l[:-1] if l.endswith(b'\r') else l   # git 的切法：行尾一個 CR、再行尾的空格；行首空白與 tab 不去（b36 verify）
+            r = l.rstrip(b' ')
+            if r in dirs: saw = dx = True
+            elif r in content: saw = cx = True
+            elif l.startswith(b'!') and trim(l[1:]):
+                if reaches(trim(l[1:])): dx = False
+                cx = False
+        return 'marker-without-rule' if not saw else ('block' if dx or cx else 'rule-negated')
+    block = 'no-marker' if i < 0 else state(b, i)
     try: b.decode('utf8'); text = b'\0' not in b
     except UnicodeDecodeError: text = False
     kind = 'symlink' if link else ('hardlink' if st.st_nlink > 1 else 'file')
     print(k, len(b), kind, 'utf8' if text else 'NOT-utf8', block, 'writable' if os.access(p, os.W_OK) else 'read-only')   # 寫入權限（第 19 列）
 PY
-# 2026-10-04：main 913 utf8 marker（舊腳本）；2026-10-05：main 913 file utf8 block writable；2026-10-09（b36 的切法）：同
+# 2026-10-04：main 913 utf8 marker（舊腳本）；2026-10-05：main 913 file utf8 block writable；2026-10-09（b36 的切法）：同；2026-10-15（b38 的否定規則）：同
 ```
 
 拒絕與 warning 由 `GitignorePreservationCLITests`（真 binary：Latin-1、UTF-16、mode 000、symlink、已有區塊而尾端有非 UTF-8 位元組，`file add` 與 `doctor` 各驗原有位元組不變）與
 ~~`ServiceTests.testImportWoSRefusesWithoutRewritingAnUndecodableGitignore`~~ `ServiceTests.testImportWoSWarnsAndContinuesWithoutRewritingAnUndecodableGitignore`（b35 改名：匯入那一側自此只有 warning、沒有拒絕）釘住；負控見 `changelog/2026-10-04-b32-f6-fixes-700-703.md`。
-「區塊已在」與 git 的判讀一致由 `GitignorePreservationCLITests.testThePresentJudgementAgreesWithGitCheckIgnore` 釘住（13 種規則行加 symlink 與硬連結，每一種都在暫存的 git repo 裡以 `git check-ignore` 對照；負控見 `changelog/2026-10-09-b37-n5-fixes-692-700.md`）。
+~~「區塊已在」與 git 的判讀一致~~（b38 verify：只對語料裡的形狀成立，語料只變動單一規則行、看不到「規則之後接否定」）→ 「判成區塊已在 ⇒ git 排除」由 `GitignorePreservationCLITests.testThePresentJudgementAgreesWithGitCheckIgnore` 釘住：13 種規則行、symlink、硬連結與 29 種否定規則的形狀是若且唯若，另 5 種保守的形狀單向（判成不在而 git 可能排除：規則寫在標記之前、`[…]` 字元類、只排除內容的規則之後接一行碰不到 `sources/x` 的否定、大小寫取決於 `core.ignorecase`），每一種都在暫存的 git repo 裡以 `git check-ignore` 對照（負控見 `changelog/2026-10-09-b37-n5-fixes-692-700.md` 與 `changelog/2026-10-15-b39-web-read-and-sources-ignore.md`）。
 
 **第 88 列的量測（2026-10-04；2026-10-05 R4 重量，可重跑）**：棘輪的訊息數應為 0；標題列印出量測條數、合模板的條數、依閘去重的條數與棘輪下限
 （2026-10-04：35 條、合模板 35 條、下限 35、退場區塊 1 個、5 行不掃；2026-10-05 R4：39 條、合模板 39 條、依閘去重 37 條、下限 37——多的四條是

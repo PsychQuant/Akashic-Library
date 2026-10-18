@@ -92,6 +92,10 @@ final class GitignorePreservationCLITests: XCTestCase {
         let rd = try cli(["doctor", "--library", d.path])
         XCTAssertEqual(rd.status, 0, rd.output)
         XCTAssertTrue(rd.output.contains("讀不到"), rd.output)
+        // 沒有讀內容：不斷言「沒有生效的」區塊（使用者 2026-10-15 裁決）
+        for out in [ra.output, rd.output] {
+            XCTAssertTrue(out.contains(".gitignore 沒有讀到") && !out.contains(".gitignore 沒有生效的"), out)
+        }
         for dir in [a, d] {
             let gi = dir.appendingPathComponent(".gitignore")
             var st = stat()
@@ -388,8 +392,12 @@ final class GitignorePreservationCLITests: XCTestCase {
         XCTAssertEqual(LibraryStore.judgeSourcesIgnore(Array("# BEGIN akashic sources\nsources/ \r".utf8)), .blockPresent)
     }
 
-    /// 一個 store 被判成「區塊已在」（`.present`）若且唯若真的 git 排除 `sources/`：每一種形狀都在暫存的 git repo 裡以
-    /// `git check-ignore` 對照。包括 symlink 指向有區塊的檔（git 2.32 起不讀 symlink 的 `.gitignore`）與硬連結（git 照讀）。
+    /// 判成「區塊已在」（`.present`）要與真的 git 一致：每一種形狀都在暫存的 git repo 裡以 `git check-ignore -q sources/x` 對照。
+    /// **`shapes` 的每一種是若且唯若**（判成已在 ⇔ git 排除）；**`conservative` 的每一種是單向的**——判成不在，而 git 可能排除
+    /// （規則寫在標記之前、`[…]` 字元類、只排除內容的規則之後接一行碰不到 `sources/x` 的否定規則、大小寫取決於 `core.ignorecase`）：
+    /// 方向是多報、不是漏報，`store-source` 寫入前另以 `git check-ignore` 驗。所以整體的命題是「判成已在 ⇒ git 排除」對列出的每一種成立，
+    /// 「⇐」只對 `shapes` 成立（#700 b38 verify：先前寫「若且唯若」，而語料只變動單一規則行，看不到「規則之後接否定」）。
+    /// 包括 symlink 指向有區塊的檔（git 2.32 起不讀 symlink 的 `.gitignore`）與硬連結（git 照讀）。
     /// git 的環境剝掉 `GIT_*`、不讀使用者與系統設定（全域的 excludes 會讓 `sources/` 被別的規則排除）。
     func testThePresentJudgementAgreesWithGitCheckIgnore() throws {
         let git = URL(fileURLWithPath: "/usr/bin/git")
@@ -429,7 +437,24 @@ final class GitignorePreservationCLITests: XCTestCase {
             try Data(LibraryStore.sourcesIgnoreBlock.utf8).write(to: own)
             XCTAssertEqual(link(own.path, dir.appendingPathComponent(".gitignore").path), 0)
         }))
+        // b38 verify：區塊之後（或區塊裡、規則之後）的否定規則——git 以最後一條符合的規則為準
+        func whole(_ text: String) -> (URL) throws -> Void {
+            { dir in try Data(text.utf8).write(to: dir.appendingPathComponent(".gitignore")) }
+        }
+        for shape in Self.negationShapes { shapes.append(("negation \(shape.name)", whole(shape.text))) }
+        let conservative: [(name: String, setUp: (URL) throws -> Void)] = Self.conservativeNegationShapes.map { ("conservative \($0.name)", whole($0.text)) }
         var checked = 0
+        for (i, shape) in conservative.enumerated() {
+            let dir = base.appendingPathComponent("git-c\(i)")
+            try FileManager.default.createDirectory(at: dir.appendingPathComponent("sources"), withIntermediateDirectories: true)
+            FileManager.default.createFile(atPath: dir.appendingPathComponent("sources/x").path, contents: Data("x".utf8))
+            XCTAssertEqual(run(["init", "-q"], in: dir), 0)
+            try shape.setUp(dir)
+            let rc = run(["check-ignore", "-q", "--", "sources/x"], in: dir)
+            XCTAssertTrue(rc == 0 || rc == 1, "\(shape.name)：git check-ignore 結束碼 \(rc)")
+            XCTAssertNotEqual(LibraryStore(root: dir).inspectSourcesIgnore(), .present, "\(shape.name)：保守的一邊判成不在（git 排除＝\(rc == 0)）")
+            checked += 1
+        }
         for (i, shape) in shapes.enumerated() {
             let dir = base.appendingPathComponent("git-\(i)")
             try FileManager.default.createDirectory(at: dir.appendingPathComponent("sources"), withIntermediateDirectories: true)
@@ -442,7 +467,148 @@ final class GitignorePreservationCLITests: XCTestCase {
             XCTAssertEqual(judgedPresent, rc == 0, "\(shape.name)：判成「已在」＝\(judgedPresent)，git 排除＝\(rc == 0)")
             checked += 1
         }
-        XCTAssertEqual(checked, rules.count + 2)
+        XCTAssertEqual(checked, rules.count + 2 + Self.negationShapes.count + Self.conservativeNegationShapes.count)
+    }
+
+    private static let block = "# BEGIN akashic sources\nsources/\n# END akashic sources\n"
+
+    /// 否定規則的形狀與 git 的答案（2026-10-15 以 git 2.55 實測；`present` 是 git 排除 `sources/x`）。`shapes` 那一組：若且唯若。
+    static let negationShapes: [(name: String, text: String, present: Bool)] = [
+        ("!sources/", block + "!sources/\n", false),
+        ("!sou*/", block + "!sou*/\n", false),
+        ("!*", block + "!*\n", false),
+        ("!*/", block + "!*/\n", false),
+        ("!/sources", block + "!/sources\n", false),
+        ("!sources", block + "!sources\n", false),
+        ("!/*", block + "!/*\n", false),
+        ("!**", block + "!**\n", false),
+        ("!**/", block + "!**/\n", false),
+        ("!**/sources", block + "!**/sources\n", false),
+        ("!s?urces", block + "!s?urces\n", false),
+        ("!sources/ (trailing space)", block + "!sources/ \n", false),
+        ("!sources/ CRLF", block + "!sources/\r\n", false),
+        ("negation inside the block", "# BEGIN akashic sources\nsources/\n!sources/\n# END akashic sources\n", false),
+        ("bare sources then !sources/", "# BEGIN akashic sources\nsources\n# END akashic sources\n!sources/\n", false),
+        ("/sources then !sources", "# BEGIN akashic sources\n/sources\n# END akashic sources\n!sources\n", false),
+        ("sources/* then !sources/x", "# BEGIN akashic sources\nsources/*\n# END akashic sources\n!sources/x\n", false),
+        ("!sources/ then sources/ again", block + "!sources/\nsources/\n", true),
+        ("!sources/x", block + "!sources/x\n", true),
+        ("!sources/*", block + "!sources/*\n", true),
+        ("!sources/**", block + "!sources/**\n", true),
+        ("!/sources/**/", block + "!/sources/**/\n", true),
+        ("!*/**", block + "!*/**\n", true),
+        ("!.gitkeep", block + "!.gitkeep\n", true),
+        ("!foo/", block + "!foo/\n", true),
+        ("indented !sources/", block + "  !sources/\n", true),
+        ("escaped \\!sources/", block + "\\!sources/\n", true),
+        ("lone !", block + "!\n", true),
+        ("!sources with an escaped trailing space", block + "!sources\\ \n", true),
+    ]
+
+    /// 判成不在、git 可能排除的形狀（多報的一邊）。
+    static let conservativeNegationShapes: [(name: String, text: String)] = [
+        ("rule before the marker", "sources/\n# BEGIN akashic sources\n# END akashic sources\n"),
+        ("![a]ources (bracket not modelled)", block + "![a]ources\n"),
+        ("sources/* then !.gitkeep", "# BEGIN akashic sources\nsources/*\n# END akashic sources\n!.gitkeep\n"),
+        ("sources/** then !ab/", "# BEGIN akashic sources\nsources/**\n# END akashic sources\n!ab/\n"),
+        ("!SOURCES/ (core.ignorecase)", block + "!SOURCES/\n"),
+    ]
+
+    /// 判讀本身（不經 git）：上面每一種形狀的答案，加上保守的那幾種（#700 b38 verify：先前只找規則行、不看它後面的否定）。
+    func testANegationAfterTheRuleIsJudgedTheWayGitReadsIt() {
+        for shape in Self.negationShapes {
+            let judged = LibraryStore.judgeSourcesIgnore(Array(shape.text.utf8))
+            XCTAssertEqual(judged, shape.present ? .blockPresent : .ruleNegatedLater, shape.name)
+        }
+        for shape in Self.conservativeNegationShapes {
+            XCTAssertNotEqual(LibraryStore.judgeSourcesIgnore(Array(shape.text.utf8)), .blockPresent, shape.name)
+        }
+        XCTAssertEqual(LibraryStore.judgeSourcesIgnore(Array(LibraryStore.sourcesIgnoreBlock.utf8)), .blockPresent)
+        XCTAssertEqual(LibraryStore.globMatches(Array("s*s".utf8), Array("sources".utf8)), true)
+        XCTAssertEqual(LibraryStore.globMatches(Array("so\\urces".utf8), Array("sources".utf8)), true)
+        XCTAssertEqual(LibraryStore.globMatches(Array("source".utf8), Array("sources".utf8)), false)
+        XCTAssertEqual(LibraryStore.globMatches(Array("*x".utf8), Array("sources".utf8)), false)
+        XCTAssertNil(LibraryStore.globMatches(Array("[s]ources".utf8), Array("sources".utf8)))
+    }
+
+    /// 真 binary：區塊之後接 `!sources/` 時 `doctor` 出聲、說出是否定規則、不叫人再貼一份，`file add` 拒絕；兩者都不改 `.gitignore`。
+    func testDoctorAndFileAddReportARuleThatALaterNegationUndoes() throws {
+        let original = Data((Self.block + "!sources/\n").utf8)
+        let d = try storeDir("negated-doctor", gitignore: original)
+        try assertDoctorWarns(d, original: original)
+        let r = try cli(["doctor", "--library", d.path])
+        XCTAssertTrue(r.output.contains("否定規則") && r.output.contains("不要再貼一份"), r.output)
+        let a = try storeDir("negated-add", gitignore: original)
+        try assertFileAddRefused(a, original: original)
+    }
+
+    /// 三個命令的說明分得出兩種條件：「沒有生效的區塊而…」才不改（非 UTF-8、硬連結、沒有寫入權限、有標記沒有規則、規則被否定），
+    /// 「不論有沒有區塊」都不改（讀不到、symlink、不是一般檔、大到 git 不讀、等鎖逾時）。b37 拿掉了「沒有區塊而」的限定，硬連結或
+    /// Latin-1 而已有區塊的檔讀起來像一律拒絕，而行為是照常成功（b38 verify）。只取沒有空白的片段（ArgumentParser 在空白處換行）。
+    func testTheHelpSeparatesConditionsThatNeedNoBlockFromUnconditionalOnes() throws {
+        for args in [["file", "add", "--help"], ["doctor", "--help"], ["import-zotero", "--help"]] {
+            let out = try cli(args).output
+            XCTAssertTrue(out.contains("沒有生效的區塊而它不是"), "\(args)：\(out)")
+            XCTAssertTrue(out.contains("不論有沒有區塊都"), "\(args)：\(out)")
+            XCTAssertTrue(out.contains("否定規則"), "\(args)：\(out)")
+        }
+        let r = try cli(["file", "add", "--help"])
+        XCTAssertTrue(r.output.contains("有沒有其他硬連結"), r.output)
+    }
+
+    // MARK: - b38 verify：等鎖的期限與「沒有讀」的首句（#700，使用者 2026-10-15 裁決）
+
+    /// 期限用單調時鐘：`lock(_:_:)` 的本文不讀牆上時鐘（先前 `Date()`，系統時間往回撥時上限跟著拉長）。
+    func testTheLockDeadlineDoesNotUseTheWallClock() throws {
+        let src = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("Sources/AkashicStoreIO/SourcesIgnoreBlock.swift"), encoding: .utf8)
+        let start = try XCTUnwrap(src.range(of: "private static func lock(_ fd: Int32, _ operation: Int32) -> Bool {"))
+        let end = try XCTUnwrap(src.range(of: "\n    }\n", range: start.upperBound..<src.endIndex))
+        let body = String(src[start.upperBound..<end.lowerBound])
+        XCTAssertFalse(body.contains("Date("), body)
+        XCTAssertTrue(body.contains("ContinuousClock"), body)
+    }
+
+    /// `EINTR` 也看期限：試鎖一直回 `EINTR` 時照樣在上限之後報 `lockTimedOut`（先前直接重試、不看期限，永遠不返回）。
+    func testAnInterruptedLockAttemptStillHonoursTheDeadline() throws {
+        let (store, gi) = try layoutStore("eintr", gitignore: Data("*.srt\n".utf8))
+        let done = expectation(description: "ensureLayout returns")
+        let box = ProblemBox()
+        Thread.detachNewThread {
+            box.value = SourcesIgnoreIO.$tryLock.withValue({ _, _ in EINTR }) {
+                SourcesIgnoreIO.$lockWait.withValue(0.2) { try? store.ensureLayout(sourcesIgnore: .report) }
+            }
+            done.fulfill()
+        }
+        wait(for: [done], timeout: 5)
+        XCTAssertEqual(box.value, .lockTimedOut)
+        XCTAssertEqual(try bytes(gi), Data("*.srt\n".utf8))
+    }
+
+    /// 新建的 `.gitignore` 拿不到鎖：這一步建的空檔刪掉，訊息說的「沒有寫」才成立（b38 verify INFO：先前留下一個空檔）。
+    func testACreatedGitignoreIsRemovedWhenItsLockTimesOut() throws {
+        let (store, gi) = try layoutStore("created-wedged", gitignore: nil)
+        let problem = try SourcesIgnoreIO.$tryLock.withValue({ _, _ in EWOULDBLOCK }) {
+            try SourcesIgnoreIO.$lockWait.withValue(0.05) { try store.ensureLayout(sourcesIgnore: .report) }
+        }
+        XCTAssertEqual(problem, .lockTimedOut)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: gi.path), "空檔要刪掉")
+    }
+
+    /// 讀不到與等鎖逾時沒有讀內容：首句說「沒有讀到」、不說「沒有生效的」，處置不無條件叫人再貼一段（使用者 2026-10-15 裁決）。
+    /// 其餘讀過內容的原因照舊說「沒有生效的」。`file add` 的拒絕（`StoreIOError`）與 warning 同一個首句。
+    func testUnreadAndLockTimedOutDoNotClaimThereIsNoBlock() {
+        for problem in [SourcesIgnoreProblem.lockTimedOut, .unreadable(errno: EACCES)] {
+            let first = problem.warningLines(by: "doctor").first ?? ""
+            XCTAssertTrue(first.hasPrefix("⚠ .gitignore 沒有讀到，不知道裡面有沒有生效的 sources 排除區塊，doctor 沒有改寫它："), first)
+            XCTAssertFalse(first.contains(".gitignore 沒有生效的"), first)
+            XCTAssertTrue(first.contains("沒有區塊才加上下面這段（區塊已在就不用加）"), first)
+            let refusal = LibraryStore.sourcesIgnoreRefusal(problem, layoutWritten: false).errorDescription ?? ""
+            XCTAssertTrue(refusal.hasPrefix("store 根目錄的 .gitignore 沒有讀到，不知道裡面有沒有生效的 sources 排除區塊，這次不能替你加："), refusal)
+        }
+        for problem in [SourcesIgnoreProblem.notUTF8Text, .symlink, .tooLarge, .markerWithoutRule, .ruleNegatedLater] {
+            XCTAssertTrue((problem.warningLines(by: "doctor").first ?? "").hasPrefix("⚠ .gitignore 沒有生效的 sources 排除區塊"), "\(problem)")
+        }
     }
 
     /// 持鎖的程序卡住時，先看不無限期等（b36 verify LOW：先前 `flock(LOCK_SH)` 沒有上限，`doctor` 與兩個匯入卡在連佈局都還沒建的

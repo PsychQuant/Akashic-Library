@@ -332,4 +332,79 @@ final class BootstrapPlanBlockersCLITests: XCTestCase {
         XCTAssertEqual(listed.count, 20, dry.output)
         try assertApplyRefused("bootstrap-people")
     }
+
+    // MARK: - b38 verify
+
+    /// 乾跑的結尾在計畫被擋時不說「加 --apply」（b38 verify LOW 12）：開頭的附註說 `--apply` 會整批拒絕，結尾卻是「要建立加 --apply」——使用者最後讀到、
+    /// 最可能照做的一句，照做的結果是結束碼 1。
+    private func assertDryRunEndingSaysApplyIsRefused(_ output: String, _ command: String, file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertFalse(output.contains("要建立加 --apply") || output.contains("加 --apply 實際寫入"), "\(command)：\(output)", file: file, line: line)
+        let last = output.split(separator: "\n").last.map(String.init) ?? ""
+        XCTAssertTrue(last.contains(BootstrapPlanBlockers.dryRunApplyRefused), "\(command) 的最後一行：\(last)", file: file, line: line)
+    }
+
+    /// b38 verify LOW 5：同一對拷貝（同一種、同一個 id）的兩份本來就無法唯一定位，只在拷貝那一段列一次——不同時算成「無法唯一定位的記錄」
+    /// （`planBlockers` 的 pairIDs 排除）。先前的純拷貝測試只用 contains 檢查「計畫含 N 份 legacy 拷貝」，拿掉排除之後全綠。work 一對與 person 一對各一。
+    func testACopyPairIsListedOnceAndNotAlsoAsUnlocatable() throws {
+        let work = sampleWork("a2020alpha")
+        try writeEntities(work)
+        try writeLegacy(work)
+        var person = Person(key: "kim-c", names: PersonNames(authorized: ["Kim, Chris"]))
+        person.profile.affiliations = TimelineOf<OrgRef>([TemporalValue(value: .literal("Institute of Real Things"))])   // 讓 organizations 也有候選、印得出結尾
+        try writeEntities(person)
+        try writeLegacy(person)
+        commit()
+        let load = try store.load()
+        XCTAssertEqual(load.shadowedLegacyCopies.map(\.key).sorted(), ["a2020alpha", "kim-c"], "前提：load 認得出兩對拷貝")
+        XCTAssertEqual(load.entries.unlocatableCitekeys, ["a2020alpha"], "前提：一對拷貝的兩份本來就無法唯一定位")
+        XCTAssertEqual(load.people.unlocatablePersonKeys, ["kim-c"], "前提：同上（person）")
+        for source in [BootstrapPlanSource.people, .venues, .organizations] {
+            let b = load.planBlockers(source)
+            XCTAssertEqual(b.unlocatable, [], "\(source.command)：拷貝不重複算成無法唯一定位")
+            XCTAssertEqual(b.copies.count, source.kinds.count, "\(source.command)：只數計畫讀到的種類")
+        }
+        let json = try peopleJSON()
+        XCTAssertEqual(json["legacyCopiesInPlan"] as? Int, 2, "\(json)")
+        XCTAssertNil(json["unlocatableInPlan"], "\(json)")
+
+        for (command, copies) in [("bootstrap-people", 2), ("bootstrap-venues", 1), ("bootstrap-organizations", 2)] {
+            let dry = try cli([command])
+            XCTAssertEqual(dry.status, 0, "\(command)：\(dry.output)")
+            XCTAssertTrue(dry.output.contains("⚠ 計畫含 \(copies) 份 legacy 拷貝：") && !dry.output.contains("無法唯一定位"),
+                          "\(command)：一對拷貝只在拷貝那一段列一次：\(dry.output)")
+            assertDryRunEndingSaysApplyIsRefused(dry.output, command)
+            try assertApplyRefused(command)
+        }
+    }
+
+    /// 拷貝與無法唯一定位的記錄同時出現在一份計畫裡：附註兩段並列、無法唯一定位那一段超過 20 筆時以「…另 N 筆」概括，拒絕訊息的兩個處置以「、」連接
+    /// （b38 verify LOW 5 指出這三件都沒有測試）。22 個 citekey 各有 entities/ 與 legacy 兩份不同 id 的記錄。
+    func testCopiesAndUnlocatableRecordsShareOnePlanNote() throws {
+        let pair = sampleWork("c2020copy")
+        try writeEntities(pair)
+        try writeLegacy(pair)
+        for i in 0..<22 {
+            try writeEntities(sampleWork("d2020dup\(i)"))
+            try writeLegacy(sampleWork("d2020dup\(i)"))
+        }
+        commit()
+        XCTAssertEqual(try peopleJSON()["unlocatableInPlan"] as? Int, 22)
+
+        let dry = try cli(["bootstrap-venues"])
+        XCTAssertEqual(dry.status, 0, dry.output)
+        XCTAssertTrue(dry.output.contains("⚠ 計畫含 1 份 legacy 拷貝、22 筆無法唯一定位的記錄："), dry.output)
+        let lines = dry.output.split(separator: "\n").map(String.init)
+        let copySection = try XCTUnwrap(lines.firstIndex { $0.contains("legacy 拷貝（同一筆記錄在 entities/ 也有一份）") }, dry.output)
+        let unlocatableSection = try XCTUnwrap(lines.firstIndex { $0.contains("無法唯一定位的記錄（") }, dry.output)
+        XCTAssertLessThan(copySection, unlocatableSection, "兩段並列、拷貝在前：\(dry.output)")
+        XCTAssertEqual(lines.filter { $0.hasPrefix("    work「d2020dup") }.count, 20, dry.output)
+        XCTAssertTrue(lines.contains("    …另 2 筆"), dry.output)
+        XCTAssertFalse(lines.contains { $0.hasPrefix("    work「c2020copy") }, "拷貝那一對不在無法唯一定位那一段：\(dry.output)")
+        assertDryRunEndingSaysApplyIsRefused(dry.output, "bootstrap-venues")
+
+        try assertApplyRefused("bootstrap-venues")
+        let r = try cli(["bootstrap-venues", "--apply"])
+        XCTAssertTrue(r.output.contains("計畫含 1 份 legacy 拷貝、22 筆無法唯一定位的記錄")
+                      && r.output.contains("確認 entities/ 那份是新的之後刪掉 legacy 拷貝、無法唯一定位的先修好，再跑"), r.output)
+    }
 }

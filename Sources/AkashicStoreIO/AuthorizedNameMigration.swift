@@ -199,11 +199,12 @@ public enum AuthorizedNameMigration {
                 let shown = Self.blockedDisplay(report)
                 throw StoreIOError.invalidInput(
                     what: "authorize-names",
-                    // 清單放最後（b36 verify 對 bootstrap 拒絕訊息的同一個發現）：CLI 的單行出口在 400 處截斷，處置與 validate 的指路要在清單之前
+                    // 清單放最後（b36 verify 對 bootstrap 拒絕訊息的同一個發現）：CLI 的單行出口在 400 處截斷，處置與 validate 的指路要在清單之前；
+                    // 完整的清單（至多 20 筆）在乾跑的 stdout——這一行被截時要說得出去哪裡看（b38 verify LOW 9，同 bootstrap 的拒絕）
                     why: "要寫的 person 裡有 \(blocked.count) 筆無法唯一定位或還有 legacy 拷貝（\(UnlocatableReason.person)；"   // display-safe-exempt: blocked.count 是 Int；UnlocatableReason 是常數字面
                        + "或同一個 id 在 people/ 還有一份）——寫到一半會留下已指定卻沒 bump marker 的 store，"
                        + "兩份並存時只寫一份會讓它們各帶不同的 authorized 狀態；整批拒絕、零寫入。akashic validate 逐筆說出原因（還有 legacy 拷貝的，"
-                       + "以 legacy 那份的 key 列出），先修好再跑（#641、#709）：\(shown)")   // display-safe-exempt: shown 已逐項 displaySafeInvisible（blockedDisplay）
+                       + "以 legacy 那份的 key 列出），先修好再跑（#641、#709）；乾跑（不帶 --apply）逐筆列出（至多 20 筆）。要寫的這幾筆：\(shown)")   // display-safe-exempt: shown 已逐項 displaySafeInvisible（blockedDisplay）
             }
             // #648 C2b verify：writePerson 在寫入當下跑的每一道（含 encode 與讀取上限）先對整個寫入集合跑一次——上面只擋了
             // #641 的那一類，一筆寫出後超過讀取上限的 person 仍會在中途被拒、前面的指定已落盤而 marker 沒 bump

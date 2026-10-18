@@ -1,5 +1,17 @@
 # Changelog
 
+## #709 — b38 verify 修正（2026-10-15）：enrich 的 DOI 歧義理由對同 citekey 的重複說先修好、DOI 以 scalar 截短；bootstrap 乾跑被擋時結尾不說「加 --apply」
+
+細節在 `changelog/2026-10-15-b39-p4-fixes-709.md`。
+
+- **`akashic_enrich`／CLI `enrich`**：DOI 命中兩筆以上、而命中裡有無法唯一定位的 citekey（同 citekey 而 id 不同的重複記錄，或與另一筆共用 id、檔案寫入時會被拒）時，`reason` 說「命中裡有 N 個 citekey 無法唯一定位（…akashic validate 列出是哪一種），先修好（#628／#641）」，與只命中一筆時同一句——先前同 citekey 的重複落進「不判定哪一筆才對（#459）」，而 `record-divergence` 對同一個 citekey 的兩個候選拒絕。#459 只在拿掉拷貝之後仍有兩個以上的 citekey 時說，排在先修好的之後；「命中 N 筆」與 citekey 個數不同時括號說出個數（`matches` 同一個 citekey 只列一次）。DOI 以 Unicode scalar 截到 100——與出口 512 的單位相同；先前以字形群截，後綴堆疊組合符號的 DOI 讓結論與處置整段被截掉。鍵與 `ambiguous` 不變。
+- **CLI `bootstrap-people`／`-venues`／`-organizations`**：計畫被擋時乾跑的最後一行不說「加 --apply」，改說 `--apply` 會整批拒絕、先處理開頭附註列的那幾筆。
+- **CLI `authorize-names`**：`--apply` 的拒絕在清單之前說乾跑逐筆列出（單行出口在 400 處截斷清單）。
+- **`akashic-bootstrap` 的 `references/writing-to-the-store.md`**：`bootstrap-people --apply` 那一列的拒絕條件補上 person 拷貝與無法唯一定位的記錄（使用者 2026-10-09 兩項裁決）。
+- `tools/list`：59,173 → 59,173 bytes（±0；MCP 說明沒有改）。
+
+plugin 版號沒有動（行為在 binary；skill 文字的改動）。
+
 ## #564 修正輪四 — 報告裡的 attested 有上限、update-person 對同 key 兩筆拒絕、MCP 屬性說明改成實話、合併的結論不取決於 key 拼法（2026-10-09）
 
 b36 verify（Y1）的處置，細節在 `changelog/2026-10-09-b37-n1-fixes-564.md`。
@@ -27,7 +39,7 @@ plugin 版號沒有動（skill 文字的改動）。
 
 使用者 2026-10-09 兩項裁決。細節在 `changelog/2026-10-09-b37-n4-fixes-709.md`。
 
-- **`akashic_enrich`／CLI `enrich`**：DOI 命中兩筆以上時，命中以完整的 load 算——同 citekey 的 legacy 拷貝不再把 entities/ 那份擠掉（先前會說 entities/ 那份「不帶這個 DOI」、叫人刪拷貝「再跑」而真孿生仍在；或在 entities/ 那份帶 DOI 時回 notFound）。`reason` 的結論與處置（#459、UUID 重複、確認 entities/ 那份是新的之後再刪）排在逐份明細之前，回應截到 512 字時被截的只會是明細。`matches` 同一個 citekey 只列一次。鍵與 `ambiguous` 不變。
+- **`akashic_enrich`／CLI `enrich`**：DOI 命中兩筆以上時，命中以完整的 load 算——同 citekey 的 legacy 拷貝不再把 entities/ 那份擠掉（先前會說 entities/ 那份「不帶這個 DOI」、叫人刪拷貝「再跑」而真孿生仍在；或在 entities/ 那份帶 DOI 時回 notFound）。`reason` 的結論與處置（#459、UUID 重複、確認 entities/ 那份是新的之後再刪）排在逐份明細之前，回應截到 512 字時被截的只會是明細（2026-10-15 更正：對後綴堆疊組合符號的 DOI 不成立——DOI 以字形群截短、出口以 scalar 計，見上方 b38 那一節）。`matches` 同一個 citekey 只列一次。鍵與 `ambiguous` 不變。
 - **`writtenWithLegacyCopy` 每一列的 `laterWriteNotApplied`**（MCP、CLI 逐筆列、App 列同一句）：改成「確認 entities/ 那份是新的之後刪掉 legacy 那份，再重跑才補得上」——先前是無前提的「刪掉 legacy 那份之後重跑即可補上」。鍵不變。
 - **CLI `bootstrap-people`／`-venues`／`-organizations`**：`--apply` 的拒絕條件是計畫讀到的種類裡 load 標出的 legacy 拷貝 ∪ 無法唯一定位的記錄；`bootstrap-people` 的計畫也讀 person 拷貝。乾跑逐份、逐筆點名，`bootstrap-people --json` 另帶 `unlocatableInPlan`；拒絕訊息只說筆數與處置（清單先前被逃成字面 `\u{000A}`、在 400 處截斷）。
 - **CLI `authorize-names`**：點名 entities/ 那份的 key 時接上它的 legacy 檔（validate 以 legacy 那份的 key 列出）。
@@ -343,7 +355,7 @@ plugin 版號沒有動（skill 與 wrapper 文字的改動）。
 2026-10-05，第四次驗證之後（使用者 2026-10-05 裁決：寫入候選面一律看完整資料、視圖只用於讀數；bootstrap 的計畫讀到 legacy 拷貝時 `--apply` 整批拒絕）：
 
 - `akashic_enrich` 以 DOI 定位、命中兩筆以上時，哪一筆是 legacy 拷貝只問 load 的標記（同一種、同一個 id、另一份在 `entities/`），不再以 id 相等自己推。被標成拷貝的：理由點名它的 legacy 檔與 entities/ 那份，說「確認 entities/ 那份是新的之後刪掉 legacy 那份」。同 id 而沒有被標成拷貝的（兩份都是 legacy——手動複製檔案忘了換 id）：說 UUID 重複是 error、指向 validate，不說「不是兩篇作品」、不叫人刪檔。拿掉拷貝之後仍有兩筆以上：照舊說不判定哪一筆才對（#459）。行為不變（`ambiguous`、零寫入）。
-- CLI：三個 bootstrap 的附註與 `bootstrap-people --json` 的 `legacyCopiesInPlan` 只數流進該命令 literal 來源的拷貝（`bootstrap-people`／`bootstrap-venues`：work；`bootstrap-organizations`：work 與 person）——只有一份 person 拷貝時 venues／people 不再說計畫含拷貝。計畫讀到拷貝時 `--apply` 整批拒絕、零寫入（結束碼 1），訊息逐份點名 legacy 檔；乾跑照常列出候選並說明。
+- CLI：三個 bootstrap 的附註與 `bootstrap-people --json` 的 `legacyCopiesInPlan` 只數流進該命令 literal 來源的拷貝（~~`bootstrap-people`／~~`bootstrap-venues`：work；`bootstrap-organizations`：work 與 person）——只有一份 person 拷貝時 venues~~／people~~ 不再說計畫含拷貝。計畫讀到拷貝時 `--apply` 整批拒絕、零寫入（結束碼 1），~~訊息逐份點名 legacy 檔~~；乾跑照常列出候選並說明。（2026-10-15 更正：使用者 2026-10-09 裁決 1 起 `bootstrap-people` 的計畫也讀 person 拷貝——work 與 person，同 organizations；裁決 2 起無法唯一定位的記錄也擋；`--apply` 的拒絕訊息只說筆數、處置與去哪裡看，逐份清單只在乾跑。見上方 2026-10-09 那一節）
 - CLI：`authorize-names` 的寫入集合裡有任何一筆的 id 還有 legacy 拷貝時，`--apply` 也整批拒絕——先前改名一對而 legacy 那份已有 authorized 時，只寫 entities/ 那份。
 - CLI：`library check`／`set-kind` 在依據不明確時不再建議逐筆 `library remove`（原因在依據、不在成員）。
 - skill：`akashic-bootstrap` 的 `references/writing-to-the-store.md` 在 `bootstrap-people --apply` 那一列註明這個拒絕。

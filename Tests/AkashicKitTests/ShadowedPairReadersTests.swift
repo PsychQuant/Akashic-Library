@@ -294,6 +294,11 @@ final class ShadowedPairReadersTests: XCTestCase {
         XCTAssertThrowsError(try AuthorizedNameMigration.run(store: store, apply: true, judgement: "測試")) {
             XCTAssertTrue("\($0)".contains("legacy 拷貝") && "\($0)".contains("smith-j（legacy 拷貝 people/smith-old.yaml）")
                           && "\($0)".contains("以 legacy 那份的 key 列出"), "\($0)")
+            // b38 verify LOW 9：CLI 的單行出口在 400 處截斷清單——去哪裡看完整的清單要在清單之前說
+            let text = "\($0)"
+            let pointer = text.range(of: "乾跑（不帶 --apply）逐筆列出")
+            let list = text.range(of: "smith-j（legacy 拷貝")
+            XCTAssertTrue(pointer != nil && list != nil && pointer!.lowerBound < list!.lowerBound, text)
         }
         XCTAssertEqual(try personFileBytes(), before, "零寫入")
     }
@@ -428,6 +433,9 @@ final class ShadowedPairReadersTests: XCTestCase {
         let reason = try enrichReason(doi: "10.1234/abc.def", matches: ["x2020same", "y2020twin"])
         XCTAssertTrue(reason.contains("x2020same（legacy 檔 entries/x2020same.yaml；entities/ 那份是 x2020same）"), reason)
         XCTAssertTrue(reason.contains("拿掉 legacy 拷貝之後仍有 2 筆記錄帶這個 DOI——不判定哪一筆才對（#459）"), reason)
+        // b38 verify LOW 6：「命中 3 筆」與兩個 citekey 的 `matches` 並列時說出個數；拷貝那一句的「其中」不再接在「2 筆記錄」之後（拷貝不在那 2 筆裡）
+        XCTAssertTrue(reason.hasPrefix("DOI「10.1234/abc.def」命中 3 筆（2 個 citekey），零寫入："), reason)
+        XCTAssertTrue(reason.contains("命中裡有 1 份是同一筆記錄的 legacy 拷貝") && !reason.contains("其中"), reason)
         XCTAssertFalse(reason.contains("它不帶這個 DOI") || reason.contains("再跑"), reason)
     }
 
@@ -476,6 +484,93 @@ final class ShadowedPairReadersTests: XCTestCase {
         XCTAssertTrue(reason.hasSuffix("（已截斷）"), "前提：出口截斷了：\(reason)")
         XCTAssertTrue(reason.contains("零寫入") && reason.contains("拿掉 legacy 拷貝之後仍有 2 筆記錄帶這個 DOI——不判定哪一筆才對（#459）")
                       && reason.contains("確認 entities/ 那份是新的之後刪掉 legacy 那份"), "截斷後結論與處置仍在：\(reason)")
+    }
+
+    /// b38 verify MEDIUM（logic、regression、devil's advocate）：同 citekey、不同 id、兩筆都帶這個 DOI 的重複記錄——validate 的 error「citekey 重複」，
+    /// 不是 load 認得的拷貝。b37 改成看筆數之後它落進 #459 的孿生指路，而 `record-divergence` 對同一個 citekey 的兩個候選拒絕；理由也寫「命中 2 筆」
+    /// 而 `matches` 只列一個 citekey。現在說無法唯一定位（`UnlocatableReason.work`，指向 validate）、先修好，不提 #459。兩種形狀：兩份都在 entities/、
+    /// entities/ 與 legacy 各一份（bootstrap 也為它補過的那一類）。
+    func testEnrichSendsASameCitekeyDuplicateToValidateNotTheTwinPipeline() throws {
+        var first = Entry(id: UUID(), citekey: "a2020alpha", type: .periodicalArticle, title: "Alpha", date: "2020")
+        first.doi = [DOI("10.1234/alpha")!]
+        var second = first
+        second.id = UUID()
+        second.title = "Alpha (other)"
+        for legacySecond in [false, true] {
+            try? FileManager.default.removeItem(at: store.entitiesDir)
+            try? FileManager.default.removeItem(at: store.entriesDir)
+            try store.ensureLayout()
+            try writeEntities(first)
+            if legacySecond { try writeLegacy(second) } else { try writeEntities(second) }
+            let load = try store.load()
+            XCTAssertEqual(load.shadowedLegacyCopies, [], "前提：id 不同，不是拷貝")
+            XCTAssertTrue(load.crossRecordIssues().contains { $0.severity == .error && $0.message.contains("a2020alpha") && $0.message.contains("重複") },
+                          "前提：validate 判成 citekey 重複的 error")
+
+            let reason = try enrichReason(doi: "10.1234/alpha", matches: ["a2020alpha"])
+            XCTAssertTrue(reason.hasPrefix("DOI「10.1234/alpha」命中 2 筆（1 個 citekey），零寫入：命中裡有 1 個 citekey 無法唯一定位（\(UnlocatableReason.work)），先修好（#628／#641）"),
+                          "legacy=\(legacySecond)：\(reason)")
+            XCTAssertTrue(reason.contains("無法唯一定位：a2020alpha") && reason.contains("akashic validate"), reason)
+            XCTAssertFalse(reason.contains("#459") || reason.contains("不判定哪一筆才對") || reason.contains("拷貝") || reason.contains("UUID"),
+                           "不是孿生、不是拷貝、不是共用 id：\(reason)")
+
+            // CLI 與 MCP 共用的 service 出口（CLI 印同一份 payload）
+            let service = AkashicService(root: root, key: nil, environment: [:])
+            let out = try service.enrich(proposals: [.init(doi: "10.1234/alpha", fields: ["abstract": "A"])], dryRun: true, includeAbsentAuthors: false)
+            let obj = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(out.utf8)) as? [String: Any], out)
+            let item = try XCTUnwrap((obj["items"] as? [[String: Any]])?.first, out)
+            XCTAssertEqual(item["category"] as? String, "ambiguous", out)
+            XCTAssertEqual(item["matches"] as? [String], ["a2020alpha"], out)
+            let served = try XCTUnwrap(item["reason"] as? String, out)
+            XCTAssertTrue(served.contains("無法唯一定位") && served.contains("先修好（#628／#641）") && !served.contains("#459"), served)
+        }
+
+        // 再加一筆不同 citekey 的真孿生：先修好的那一句在前，#459 在後（合併在 citekey 重複修好之前會被 assertNoCrossRecordErrors 擋）
+        var twin = first
+        twin.id = UUID()
+        twin.citekey = "b2020beta"
+        try writeEntities(twin)
+        let mixed = try enrichReason(doi: "10.1234/alpha", matches: ["a2020alpha", "b2020beta"])
+        let fix = try XCTUnwrap(mixed.range(of: "無法唯一定位（"), mixed)
+        let pipeline = try XCTUnwrap(mixed.range(of: "不判定哪一筆才對（#459）"), mixed)
+        XCTAssertLessThan(fix.lowerBound, pipeline.lowerBound, "先修好的在前：\(mixed)")
+        XCTAssertTrue(mixed.hasPrefix("DOI「10.1234/alpha」命中 3 筆（2 個 citekey），零寫入："), mixed)
+    }
+
+    /// b38 verify LOW 7、13：DOI 截短以字形群計、出口預算以 scalar 計——後綴帶 600 個 U+0301 的 DOI 是一個字形群（不截），出口截到 512 時結論與處置全不見。
+    /// 這裡四類一起出現（無法唯一定位、共用 id、#459、拷貝），走 service 出口：截短之後每一句結論與處置都還在，前段（明細之前）不超過出口的 512 個 scalar。
+    func testTheEnrichReasonKeepsTheGuidanceWhenTheDOIStacksCombiningMarks() throws {
+        let doi = "10.1234/x" + String(repeating: "\u{0301}", count: 600)
+        XCTAssertNotNil(DOI(doi), "前提：DOI 的後綴收組合符號")
+        XCTAssertEqual(doi.count, 9, "前提：600 個組合符號掛在同一個字形群上")
+        func work(_ ck: String, id: UUID = UUID(), carriesDOI: Bool = true) -> Entry {
+            var e = Entry(id: id, citekey: ck, type: .periodicalArticle, title: "T \(ck)", date: "2020")
+            if carriesDOI { e.doi = [DOI(doi)!] }
+            return e
+        }
+        // 拷貝：改名留下的 legacy 那份帶 DOI；共用 id：兩個 legacy 檔；citekey 重複：兩份都在 entities/
+        let copyID = UUID(), sharedID = UUID()
+        try writeEntities(work("cur2020new", id: copyID, carriesDOI: false))
+        try writeLegacy(work("old2020old", id: copyID))
+        try writeLegacy(work("p2020share", id: sharedID))
+        try writeLegacy(work("q2020share", id: sharedID))
+        try writeEntities(work("d2020dup"))
+        try writeEntities(work("d2020dup"))
+        let core = try enrichReason(doi: doi, matches: ["d2020dup", "old2020old", "p2020share", "q2020share"])
+        let head = core.components(separatedBy: "。").first ?? core
+        XCTAssertLessThanOrEqual(head.unicodeScalars.count, 512, "前段在出口預算之內：\(head.unicodeScalars.count)")
+        // DOI 以 scalar 截短：100 個 scalar（`10.1234/x` 的 9 個加 91 個 U+0301）接「…」——比的是 scalar，`contains` 以字形群比會把組合符號併進前一個字
+        XCTAssertEqual(head.unicodeScalars.filter { $0.value == 0x0301 }.count, AddOnlyEnrichment.reasonDOIScalarLimit - 9, head)
+        XCTAssertTrue(head.contains("…」命中 5 筆（4 個 citekey），零寫入："), head)
+
+        let service = AkashicService(root: root, key: nil, environment: [:])
+        let out = try service.enrich(proposals: [.init(doi: doi, fields: ["abstract": "A"])], dryRun: true, includeAbsentAuthors: false)
+        let obj = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(out.utf8)) as? [String: Any], out)
+        let reason = try XCTUnwrap((obj["items"] as? [[String: Any]])?.first?["reason"] as? String, out)
+        for guidance in ["零寫入", "無法唯一定位", "先修好（#628／#641）", "UUID 重複是 error", "不判定哪一筆才對（#459）",
+                         "確認 entities/ 那份是新的之後刪掉 legacy 那份"] {
+            XCTAssertTrue(reason.contains(guidance), "截斷之後「\(guidance)」仍在：\(reason)")
+        }
     }
 
     /// 以 DOI 定位一筆 enrich 提案、斷言歧義與命中，回傳理由（走真的 load：標記由 load 設定）。

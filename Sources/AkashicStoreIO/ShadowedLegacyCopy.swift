@@ -45,6 +45,11 @@ public struct BootstrapPlanBlockers: Equatable, Sendable {
     }
 
     public var isEmpty: Bool { copies.isEmpty && unlocatable.isEmpty }
+
+    /// 三個 bootstrap 乾跑最後一行用的那半句（b38 verify LOW 12）：計畫被擋時不說「加 --apply」。開頭的附註已說 `--apply` 會整批拒絕，
+    /// 而結尾是使用者最後讀到、最可能照做的一句——照做的結果是結束碼 1（`authorize-names` 的乾跑在 #709 第三次 verify 已改成說實跑會做的事）。
+    /// 只含常數字面。
+    public static let dryRunApplyRefused = "--apply 會整批拒絕、零寫入：先處理開頭附註列的那幾筆，再加 --apply"
 }
 
 /// 三個 bootstrap 的計畫各讀哪幾種記錄（#709 第四次 verify；使用者 2026-10-09 裁決 1）。封閉三列，不得依性質相似類推——新的寫入候選面要自己加一列、

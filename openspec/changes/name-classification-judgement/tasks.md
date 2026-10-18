@@ -59,3 +59,9 @@
 - [x] 8.3 MCP `judgement` 屬性說明改成實話。驗證：`NameClassificationSchemaTextTests`（真 binary）
 - [x] 8.4 organization 與 venue 的移除拒絕在 format < 22 說出寫入閘；孤兒掃描線性；`--yes` 說明的限定語。驗證：`NameClassificationB37Tests`、`WriteGateQualifierTests`
 - [x] 8.5 合併：被併者自己不一致就拒絕（結論不取決於 key 拼法）；variant 出口兩邊都 `--add-variant`。驗證：`NameClassificationMergeB37Tests`、改寫的 `NameClassificationMergeOrderTests`。負控、規則、文件、changelog
+
+## 9. 修正輪五（b38 Z1；b39，使用者 2026-10-15 裁決）
+
+- [x] 9.1 合併：被併者自己不一致只在它單獨併進原始倖存者時會搬那個（分割, 名字）的記錄、原始倖存者在那裡沒有矛盾時才拒絕；拒絕訊息說被併者自己的最後一筆。驗證：`NameClassificationMergeB39Tests`、恢復原樣的 `testAPreExistingContradictionIsNotBlamedOnTheMergeInEitherOrder`
+- [x] 9.2 venue 合併拒絕的兩句出口（名字是對外形、名字在 variant）。驗證：`NameClassificationB39Tests` 的兩支出口測試（照做到合併通過）
+- [x] 9.3 organization `remove_names` 的 MCP 報告 `segments` 合計至多 20 段；`update-person --fields --dry-run` 跑 #631 前置；MCP `judgement` 說明；死碼。驗證：`NameClassificationB39Tests`、`NameClassificationSchemaTextTests`。負控、規則、文件、changelog

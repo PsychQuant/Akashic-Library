@@ -34,6 +34,17 @@ b38 verify（Z2）的處置，細節在 `changelog/2026-10-15-b39-p2-fixes-613.m
 - **`akashic-bootstrap` 的 `references/work-sources.md`**：借用取全文時寫明是〈開始前〉第 0–3 步（含選視窗與 profile）與〈流程〉第 3、4 步——先前「第 0、3、4 步」把兩份各自編號的清單混在一起。
 - 行為在 CLI（`akashic fulltext fetch`），要新的 `akashic`。契約版本仍是 6：結束碼、交給人的原因、整批暫停的頁面都沒有變。`tools/list` 沒有改（59,173 bytes）。
 
+## #564 修正輪五 — 合併的「被併者自己不一致」收窄、organization 刪名字報告的總量、update-person 的乾跑跑 #631 前置（2026-10-15）
+
+b38 verify（Z1）的處置與使用者 2026-10-15 的裁決，細節在 `changelog/2026-10-15-b39-name-classification-564.md`。
+
+- **合併（CLI `resolve-divergence`）**：被併者自己的名字分類記錄就與分類矛盾時，只在它單獨併進原始倖存者時真的會搬那個名字的記錄、而倖存者原本沒有同一個矛盾時才拒絕——修正輪四連「被併者什麼都不搬」與「攣生持有同一個矛盾」的合併也擋。拒絕訊息對這一種說被併者自己的最後一筆（先前說「合併後它在…的最後一筆是…」，對它是假話）。venue 的兩句出口補上名字是對外形、名字在 variant 的做法（照先前那兩句做會被 store 擋下或改以「分類不同」拒絕）。
+- **`akashic_update_organization` 的 `remove_names`**：報告的 `segments` 在 MCP 面合計至多 20 段——依名字的順序，放不下的名字與其後的不帶 `segments`，以新的 `detailsTruncated`／`detailsListed`（帶 segments 的名字數）揭露；CLI 每個名字都列。先前名字數這一維沒有上限，200 個各 20 段的名字一次回 3–4.7 MB。
+- **`akashic_update_person`**：`dry_run` 跑寫入當下的 #631 前置——同一筆記錄的 legacy 拷貝先前乾跑回 `wouldChange`、實跑被拒；兩筆不同 person 共用 key 的拒絕多說出口。`judgement` 屬性說明改成「進出 authorized 時必填，沒進出則拒收」。
+- `tools/list`：59,173 → 59,171 bytes（−2；`remove_names` 多寫兩個回應鍵，同一份說明與 organization、person 的其他句子收短抵銷）。
+
+plugin 版號沒有動（行為在 binary）。
+
 ## #564 修正輪四 — 報告裡的 attested 有上限、update-person 對同 key 兩筆拒絕、MCP 屬性說明改成實話、合併的結論不取決於 key 拼法（2026-10-09）
 
 b36 verify（Y1）的處置，細節在 `changelog/2026-10-09-b37-n1-fixes-564.md`。

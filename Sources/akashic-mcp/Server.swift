@@ -286,13 +286,13 @@ actor AkashicMCPServer {
              ], required: ["key", "names"])),
         // #557：organization 的 authorized 寫入面；CLI 對應 update-organization，兩面同一個 AkashicService.updateOrganization
         Tool(name: "akashic_update_organization",
-             description: "organization 的 authorized（CLI update-organization）。authorize 同 akashic_update_venue 的同名參數，必附 judgement（寫判定記錄）；key 重複、沒給／空陣列／只有空白項、一次超過 200 個名字整批拒絕；都已是對外名稱而同一句理由已是最後一筆記錄＝不寫檔。沒有 unauthorize（給了即拒絕，待裁）。回報 namesAdded、authorizedAdded、authorizedRemoved、alreadyAuthorized、authorizedRewritten、authorizeDropped、authorizedTotal、judgementsRecorded；有事才出現：authorizedNotCurrent（指定的名字沒有開放段、而機構另有現行名稱）、indexRebuilt:false／indexRebuildError／indexNote（已寫檔、index 沒重建）",
+             description: "organization 的 authorized（CLI update-organization）。authorize 同 akashic_update_venue 的同名參數，必附 judgement（寫判定記錄）；key 重複、沒給、空陣列或全空白、一次超過 200 個名字整批拒絕；都已是對外名稱而同一句理由已是最後一筆記錄＝不寫檔。沒有 unauthorize（待裁）。回報 namesAdded、authorizedAdded、authorizedRemoved、alreadyAuthorized、authorizedRewritten、authorizeDropped、authorizedTotal、judgementsRecorded；有事才出現：authorizedNotCurrent（指定的名字沒有開放段、而機構另有現行名稱）、indexRebuilt:false／indexRebuildError／indexNote（已寫檔、index 沒重建）",
              inputSchema: obj([
                 "key": str("既有 organization key"),
                 "authorize": strArray("對外名稱（同書寫系統替換）"),
                 "judgement": str("authorize 的理由（必填）"),
                 "rests_on": strArray("證據 digest（可省略）"),
-                "remove_names": strArray("刪已撤回的名字（單獨呼叫）：<名字>=理由（只回在 namesRemoved）。最後一筆名字分類記錄要是撤回，名字的每一段連同記錄一起刪；回報 namesTotal；檔要已 commit。沒有記錄、不是撤回、仍是對外名稱 → 整批拒絕"),
+                "remove_names": strArray("刪已撤回的名字（單獨呼叫）：<名字>=理由（只回在 namesRemoved）。名字不得是對外名稱、最後一筆名字分類記錄是撤回，每一段連同記錄一起刪，否則整批拒絕；檔要已 commit。回 namesTotal；segments 合計至多 20 段（detailsTruncated／detailsListed）"),
              ], required: ["key"])),
         Tool(name: "akashic_resolve_organizations",
              description: "org 解析（literal → organization；完整契約見 CLI `akashic resolve-organizations --help`）。不帶寫入腿回 {candidates, ambiguities}：candidates 是 person affiliations／org parents 的 literal 與某 org name 完全命中且不歧義者。候選列與歧義條目都帶 id 與 undecidedChecks（候選列是整數；歧義條目是 orgKey → 次數、只列非零）；頂層 undecidedTotal（候選配對中查過未決、尚未判定的數目）與 ambiguityUndecidedTotal（歧義條目逐個 org 數）。work、person 或 organization 無法唯一定位（原因見 akashic validate）時該列帶 unlocatableCitekey:true／unlocatablePersonKey:true／unlocatableOrganizationKey:true：這種 id 的 apply／reject 整批拒絕、judge／undecided 該筆略過。apply（候選 id，holderKey::literal）歸戶並寫 confirmed verdict；reject 寫 rejected verdict；需 store format ≥ 8。各寫入腿回自己的清單（applied／rejected／judged／undecided）與改寫檔數 peopleRewritten／organizationsRewritten／entriesRewritten。undecided、judge 各自單獨呼叫。" + legacyCopyNote,
@@ -325,7 +325,7 @@ actor AkashicMCPServer {
                 "orcid": str("ORCID（可選）"), "openalex": str("OpenAlex author ID（可選）"),
              ], required: ["key", "names"])),
         Tool(name: "akashic_update_person",
-             description: "person 的部分更新：提及的欄位整個換、未提及不動；回 key 與 updated（實跑）／wouldChange（dry_run），值是欄位名。純量欄位（orcid/openalex/died/note）收字串或 null（null＝清除）；names 收 {authorized:[…], variant:[…]} object（全量替換；平坦陣列拒收）；profile 收維度 object（維度級覆寫，段形狀同 YAML：value/start/end/ended/source/note）——contacts 是**一個**維度，提及它＝整個 contacts map 替換；references 收 object 陣列，**append-only**（每項 {field, value?, kind: retrieval{url,retrieved,status,media_type,content}|judgement{statement,rests_on}}，比位元組去重——只差 NFC／NFD 的兩筆都會進 store），與 akashic_update_venue 的 references 同一個解析：status 必填（不預設 200）、不認得的鍵拒收、url 只收 http／https 且不含帳密、retrieved 是 ISO 8601、一次至多 200 筆（statement 4,096 位元組、rests_on 20 個）、空陣列拒絕；verdict 欄位對拒收（只能經 resolve 流程寫），名字分類記錄也拒收。names 讓名字進出 authorized 時 judgement 必填，只替進出的名字寫指定／撤回記錄（format ≥ 22；回報 judgementsRecorded，dry_run 是 judgementsToRecord）；對外形整個離開 names、拿掉有記錄的名字都整批拒絕（先移到 variant，再 remove_names）。" + legacyCopyNote,
+             description: "person 的部分更新：提及的欄位整個換、未提及不動；回 key 與 updated（實跑）／wouldChange（dry_run），值是欄位名。純量欄位（orcid/openalex/died/note）收字串或 null（null＝清除）；names 收 {authorized:[…], variant:[…]} object（全量替換；平坦陣列拒收）；profile 收維度 object（維度級覆寫，段形狀同 YAML：value/start/end/ended/source/note）——contacts 是**一個**維度，提及它＝整個 contacts map 替換；references 收 object 陣列，**append-only**（每項 {field, value?, kind: retrieval{url,retrieved,status,media_type,content}|judgement{statement,rests_on}}，比位元組去重——只差 NFC／NFD 的兩筆都會進 store），與 akashic_update_venue 的 references 同一個解析：status 必填（不預設 200）、不認得的鍵拒收、url 只收 http／https 且不含帳密、retrieved 是 ISO 8601、一次至多 200 筆（statement 4,096 位元組、rests_on 20 個）、空陣列拒絕；verdict 欄位對拒收（只能經 resolve 流程寫），名字分類記錄也拒收。names 讓名字進出 authorized 時 judgement 必填、只替進出的名字寫記錄（format ≥ 22；回報 judgementsRecorded，dry_run 是 judgementsToRecord）；對外形整個離開 names、拿掉有記錄的名字都整批拒絕（先移到 variant，再 remove_names）。" + legacyCopyNote,
              inputSchema: obj([
                 "key": str("person key"),
                 "fields": .object([
@@ -334,7 +334,7 @@ actor AkashicMCPServer {
                 ]),
                 "dry_run": .object(["type": .string("boolean"),
                                     "description": .string("true＝只回報會改什麼並預演 format gate、零寫入（預設 false）")]),
-                "judgement": str("fields.names 的理由（名字進出 authorized 時必填，否則拒收）"),
+                "judgement": str("fields.names 的理由（進出 authorized 時必填，沒進出則拒收）"),
                 "rests_on": strArray("judgement 的證據 digest（可省略）"),
                 "remove_names": strArray("刪已撤回的名字（單獨呼叫）：<名字>=理由（只回在 namesRemoved）。最後一筆名字分類記錄要是撤回的 variant 名字，連同記錄一起刪；回報 namesTotal；檔要已 commit（dry_run 不查）"),
              ], required: ["key"])),

@@ -85,11 +85,10 @@ extension AkashicService {
         if let partition = classifiedAs {
             return "\(holder)的\(shown)還在 \(partition) 裡——刪名字只收已撤回的名字：先撤回（\(withdrawHow)），再刪"   // display-safe-exempt: holder 由呼叫端消毒；partition 是字面常量；withdrawHow 是呼叫端的字面片語
         }
-        let records = NameClassificationRecord.allRecords(in: references, name: name)
+        // 沒有最後一筆就是沒有記錄：`latestAction` 與 `allRecords` 都只收 `isRecord`（statement 讀得出動作）的記錄，「有記錄卻讀不出動作」到不了
+        // （b38 Z1 第 16／17 列：先前那一格的分支與 organization 呼叫端的 `unreadable` 判斷都是死碼）
         guard let last = NameClassificationRecord.latestAction(in: references, name: name) else {
-            return records.isEmpty
-                ? "\(holder)的\(shown)沒有名字分類的判定記錄——這條只刪最後一筆記錄是「撤回」的名字（#564 第 2 點）；\(noRecordHow)"   // display-safe-exempt: holder 由呼叫端消毒；noRecordHow 是呼叫端的字面片語
-                : "\(holder)的\(shown)的名字分類記錄讀不出動作——這條只刪最後一筆記錄是「撤回」的名字"   // display-safe-exempt: holder 由呼叫端消毒
+            return "\(holder)的\(shown)沒有名字分類的判定記錄——這條只刪最後一筆記錄是「撤回」的名字（#564 第 2 點）；\(noRecordHow)"   // display-safe-exempt: holder 由呼叫端消毒；noRecordHow 是呼叫端的字面片語
         }
         guard last == .withdraw else {
             return "\(holder)的\(shown)不在 authorized 裡，最後一筆名字分類記錄卻是「\(last.rawValue)」不是「撤回」（記錄與分類不一致：手改，或 #564 修正輪之前的工具）——"   // display-safe-exempt: holder 由呼叫端消毒；rawValue 是 enum 常數
@@ -111,7 +110,13 @@ extension AkashicService {
     /// `update-organization --remove-name`（MCP `remove_names`）。organization 沒有一般的名字移除面（待裁，#557）——這條**只**刪最後一筆記錄是撤回的名字：
     /// 名字的每一段與它的名字分類記錄一起刪，報告逐段回時間欄位、source、note（`segments`）。被 `field: names` 的 reference 指著的拒絕
     /// （organization 的 reference 沒有移除面）。刪完至少要留一個名字。
-    func removeOrganizationNames(key: String, specs: [NameRemovalSpec]) throws -> String {
+    ///
+    /// `detailLimit`：整份報告的 `segments` 合計至多幾段（MCP 面傳 `removalDetailCap`；CLI 傳 nil 全列，輸出進人的終端機）——#564 b38 Z1 第 2／11 列：
+    /// 每個名字的段（`segmentsListedCap`）與每段的 attested（`nameSegmentAttestedListedCap`）都封頂之後，名字數（一次至多 200）這一維仍沒有上限，
+    /// 200 個各 20 段的名字一次回 3–4.7 MB。依名字的順序，一個名字列出的段放得進剩下的額度才帶 `segments`，第一個放不下的名字與其後的都只回
+    /// name／reason／segmentsRemoved／recordsRemoved，以 `detailsTruncated`／`detailsListed`（帶 segments 的名字數）揭露——venue `edit_name_segment`
+    /// 的前 20 項帶改寫前後內容（`removalDetailCap`）同一個形，單位換成段：一個名字最多 20 段，以名字計會讓 20 個名字回 400 段。
+    func removeOrganizationNames(key: String, specs: [NameRemovalSpec], detailLimit: Int? = AkashicService.removalDetailCap) throws -> String {
         let load = try store.load()
         guard !load.organizations.unlocatableOrganizationKeys.contains(key) else {
             throw ServiceError.invalid("organization「\(displaySafeInvisible(key, max: 200))」無法唯一定位（\(UnlocatableReason.organization)）——整批拒絕、零寫入；先改掉其中一筆的 key")   // display-safe-exempt: UnlocatableReason.organization 是編譯期常量
@@ -124,6 +129,9 @@ extension AkashicService {
         // organization 這條沒有；照出口做第一步才吃到第二次拒絕）
         let gate = Self.nameClassificationGateNote(storeFormat: try StoreVersion.read(root: root))
         var removed: [[String: Any]] = []
+        var detailBudget = detailLimit   // nil＝不限
+        var detailsListed = 0
+        var detailsStopped = false
         for spec in specs {
             let k = NameIdentity.canonical(spec.name)
             let segments = org.names.entries.filter { NameIdentity.canonical($0.value) == k }
@@ -137,10 +145,8 @@ extension AkashicService {
                                                  noRecordHow: Self.organizationNoRecordHow,
                                                  redesignateHow: "--authorize 它、再 --authorize 同書寫系統的另一個名字把它換下，兩次都附 --judgement；換下的那一步寫撤回——"
                                                      + "代價：換上去的那個名字成為對外名稱，organization 沒有 --unauthorize、這個指定工具面撤不掉") {
-                // 三條出口都經 `--authorize`（寫記錄）；只有「記錄讀不出動作」那一格沒有出口，不加
-                let unreadable = !inAuthorized && NameClassificationRecord.latestAction(in: org.references, name: stored) == nil
-                    && !NameClassificationRecord.allRecords(in: org.references, name: stored).isEmpty
-                throw ServiceError.invalid(why + "；整批拒絕、零寫入" + (unreadable ? "" : gate))   // display-safe-exempt: why 由 nameRemovalRefusal 組裝，名字逐項消毒；unreadable 是 Bool；gate 只含 Int 與字面（自成一行）
+                // 三條出口都經 `--authorize`（寫記錄）
+                throw ServiceError.invalid(why + "；整批拒絕、零寫入" + gate)   // display-safe-exempt: why 由 nameRemovalRefusal 組裝，名字逐項消毒；gate 只含 Int 與字面（自成一行）
             }
             let pinned = org.references.filter { $0.field == "names" && $0.value.map { NameIdentity.canonical($0) == k } == true }.count
             guard pinned == 0 else {
@@ -153,12 +159,22 @@ extension AkashicService {
             Self.removingRecords(records, from: &org.references)
             // 刪掉的每一段的時間欄位、source、note 也回報（#564 R2 verify：b29 V1 第 20 列）：「最後一筆是撤回」分不出打錯字的名字與合法的歷史名稱，
             // 一個沿革名的整段（含時間與出處）一次刪掉，只回兩個計數的話它們只剩 git 裡有——與 venue 的 edit_name_segment（before／after）一致
-            removed.append(["name": displaySafe(stored, max: 200), "reason": displaySafe(spec.reason, max: Self.maxStatementBytes),   // 理由只在報告裡——不截在入口上限之下
-                            "segmentsRemoved": segments.count, "recordsRemoved": records.count,   // display-safe-exempt: Int
-                            // 只列帶時間、source 或 note 的段（沒有這些的段回 {} 不帶任何資訊，b33 X1 第 27／34 列），至多 `segmentsListedCap` 段——
-                            // 段數由 store 內容決定（一個名字 3,000 段曾回 2 MB），總數在 segmentsRemoved（b33 X1 第 22 列）；每段的 attested 也至多
-                            // `nameSegmentAttestedListedCap` 個（b36 Y1 第 0／1／13 列：先前只截段數，一段兩萬個觀測點一次回 46 萬位元組）。lazy：只為列出的段建報告
-                            "segments": Array(segments.lazy.map { Self.nameSegmentFieldsDict($0, attestedCap: Self.nameSegmentAttestedListedCap) }.filter { !$0.isEmpty }.prefix(Self.segmentsListedCap))])   // display-safe-exempt: segments、Self、$0：Self.nameSegmentFieldsDict 逐欄 displaySafe 每一段（venue 的 edit_name_segment 同一個函式）
+            var row: [String: Any] = ["name": displaySafe(stored, max: 200), "reason": displaySafe(spec.reason, max: Self.maxStatementBytes),   // 理由只在報告裡——不截在入口上限之下
+                                      "segmentsRemoved": segments.count, "recordsRemoved": records.count]   // display-safe-exempt: Int
+            if !detailsStopped {
+                // 只列帶時間、source 或 note 的段（沒有這些的段回 {} 不帶任何資訊，b33 X1 第 27／34 列），至多 `segmentsListedCap` 段——
+                // 段數由 store 內容決定（一個名字 3,000 段曾回 2 MB），總數在 segmentsRemoved（b33 X1 第 22 列）；每段的 attested 也至多
+                // `nameSegmentAttestedListedCap` 個（b36 Y1 第 0／1／13 列：先前只截段數，一段兩萬個觀測點一次回 46 萬位元組）。lazy：只為列出的段建報告
+                let listed = Array(segments.lazy.map { Self.nameSegmentFieldsDict($0, attestedCap: Self.nameSegmentAttestedListedCap) }.filter { !$0.isEmpty }.prefix(Self.segmentsListedCap))   // display-safe-exempt: segments、Self、$0：Self.nameSegmentFieldsDict 逐欄 displaySafe 每一段（venue 的 edit_name_segment 同一個函式）
+                if let budget = detailBudget, listed.count > budget {
+                    detailsStopped = true   // 這個名字與其後的不帶 segments（b38 Z1 第 2／11 列）
+                } else {
+                    row["segments"] = listed
+                    detailBudget = detailBudget.map { $0 - listed.count }
+                    detailsListed += 1
+                }
+            }
+            removed.append(row)
         }
         guard !org.names.entries.isEmpty else {
             throw ServiceError.invalid("這次刪完之後\(holder)沒有任何名字——organization 至少要有一個名字（add_organization 同）；整批拒絕、零寫入")   // display-safe-exempt: holder 已消毒
@@ -170,6 +186,10 @@ extension AkashicService {
         var payload: [String: Any] = ["key": displaySafe(key, max: 200), "namesRemoved": removed,
                                       "namesTotal": org.names.entries.count,   // display-safe-exempt: Int
                                       "reasonNote": Self.nameRemovalReasonNote]   // display-safe-exempt: Self.nameRemovalReasonNote 是編譯期字面常量
+        if detailsStopped {
+            payload["detailsTruncated"] = true   // display-safe-exempt: Bool
+            payload["detailsListed"] = detailsListed   // display-safe-exempt: Int
+        }
         if let failure = rebuildIndexCapturingFailure() { Self.noteIndexRebuildFailure(failure, in: &payload) }
         return try jsonString(payload)
     }

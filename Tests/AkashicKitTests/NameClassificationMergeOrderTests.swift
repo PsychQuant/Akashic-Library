@@ -105,13 +105,16 @@ final class NameClassificationMergeOrderTests: XCTestCase {
 
     // MARK: - 尾端矛盾以原始倖存者為基準、順序無關（第 1／21 列）
 
-    /// 倖存者原本就以撤回結尾（名字仍是對外形）；兩筆被併者自己都一致（一筆指定、一筆確認）。合併後的尾端一致，原始倖存者就有的矛盾
-    /// 不是這次帶進來的，兩種順序都放行，結果逐位元組相同。
+    /// 倖存者原本就以撤回結尾（名字仍是對外形）；一筆被併者以指定結尾、另一筆以撤回結尾（被併者自己不一致，而那正是倖存者原本就有的矛盾）。
+    /// 合併後的狀態與原始倖存者一樣有那個矛盾——不是這次帶進來的，兩種順序都放行，結果逐位元組相同。
+    ///
+    /// b37 把 b-doom 改成「確認」（兩筆被併者都一致）來避開它新加的「被併者自己不一致就拒絕」，這一格因此沒有測試、行為悄悄翻成拒絕
+    /// （#564 b38 Z1 第 0／1／3 列）。使用者 2026-10-15 裁決收窄：原始倖存者已有同一個矛盾的不擋——資料恢復成 b34 的原樣。
     func testAPreExistingContradictionIsNotBlamedOnTheMergeInEitherOrder() {
         let keeper = person("k", authorized: ["Xu, Yi"], refs: [record("authorized", "Xu, Yi", .designate, "R"),
                                                               record("authorized", "Xu, Yi", .withdraw, "S")])
         let a = person("a-doom", authorized: ["Xu, Yi"], refs: [record("authorized", "Xu, Yi", .designate, "T")])
-        let b = person("b-doom", authorized: ["Xu, Yi"], refs: [record("authorized", "Xu, Yi", .confirm, "U")])
+        let b = person("b-doom", authorized: ["Xu, Yi"], refs: [record("authorized", "Xu, Yi", .withdraw, "U")])
         let ab = LibraryStore.mergedPersonKeeper(keeper, absorbing: [a, b])
         let ba = LibraryStore.mergedPersonKeeper(keeper, absorbing: [b, a])
         XCTAssertEqual(ab.classificationTailConflicts, [], "原始倖存者就有的矛盾不擋")

@@ -970,11 +970,15 @@ R2 讓沒有記錄的對外形一步離開 names、不寫撤回：理由既不�
 
 **b37 補記（b36 Y1 第 0／1／13 列）**：b34 的量測只數段數、沒數每段的 attested——還在長的那一軸沒有量到，而報告照樣整列它。b37 起每段的 attested 也截在 20 個（最後一項是「…另 N 個觀測點未列出（共 M 個）」），venue `edit_name_segment` 報告的 before／after 同一個上限；讀取面全列（`match` 要逐項相同）。真 binary 對 b36 重現的形（一段 20,000 個觀測點、`update-organization --remove-name`）：回應 460,506（b36 verify 席在 b089dc73 量的）→ 1,095 位元組（b37 自己量的，同一個形）。量測腳本改成兩軸都量（organization 與 venue 的名字段）。2026-10-09 唯讀量測 live store：organization 13 筆、venue 485 筆，同一個名字最多 1 段、一段最多 0 個觀測點。
 
+**b39 補記（b38 Z1 第 2／11 列）**：段數與 attested 都封頂之後，名字數這一維（一次至多 200 個名字）仍由 store 內容決定報告的大小——devil's advocate 席造 200 個已撤回的名字、各 20 段（300 字元的 source、note），MCP 單次回 3,011,093 位元組；security 席 200 名 × 21 段 × 21 個觀測點，4,699,784 位元組。b39 起 MCP 面的 `segments` 合計至多 20 段（`removalDetailCap`）：依名字的順序，一個名字列出的段放得進剩下的額度才帶 `segments`，其後的只回名字、理由與計數，`detailsTruncated`／`detailsListed` 揭露；CLI 全列。`NameClassificationB39Tests` 以 40 個名字各 20 段（每段 300 字元的 source 與 note）釘住 MCP 回應在 48 KiB 之內。2026-10-15 唯讀量測 live store：同上（名字分類記錄 0 筆，沒有能被 `remove_names` 刪的名字）。
+
 ### 第 98 列（#564）
 
 **情形欄的其餘部分**
 
 b36 Y1 第 12 列（devil's advocate 席，真 binary）：倖存者 `指定 R`；一筆被併者自己不一致（`撤回：手改` 卻仍在 authorized），另一筆 `確認：C`。不一致那一筆叫 d1 時乾跑通過（d2 的確認最後接上，矛盾被蓋住、validate 全綠），改叫 d9 時同一份內容被拒。b37 起兩種拼法都拒絕並說出那筆被併者（`NameClassificationMergeB37Tests`）。
+
+**b39 補記（b38 Z1 第 0／1／3／6／7 列；使用者 2026-10-15 裁決收窄）**：b37 的版本對被併者自己的記錄尾端一律拒絕，兩種合併因此被擋——(1) 攣生逐位元組持有同一個矛盾（倖存者原本就有，合併什麼都不搬）；(2) 倖存者一致（「指定 r → 撤回 w」、名字在 variant）而被併者只有「指定 r」（倖存者歷史的前綴，合併什麼都不搬）。兩席真 binary 重現，訊息一邊說「倖存者合併前就有的矛盾不擋」、一邊說矛盾是被併者帶來的、「合併後它在…的最後一筆是…」也是假話；照出口做還得替即將刪掉的被併者編兩筆理由，合併後倖存者的永久歷史多出四筆。b37 把鎖住 (1) 的測試資料由「撤回」改成「確認」避開了它。收窄後只在兩個條件都成立時拒絕：那筆被併者**單獨**併進原始倖存者時真的會搬那個（分割, 名字）的記錄、原始倖存者在那裡沒有同一個方向的矛盾（方向不同只發生在倖存者的記錄錨不到 names 的手改 store）。「會不會搬」不看實際合併時誰先接上：一筆只有「指定 x」、另一筆「指定 x → 撤回 w」，後者先接時前者的指定被「倖存者已有」略過——以實際合併來判，換個 key 拼法就從拒絕變成放行。拒絕訊息對這一種說的是被併者自己的最後一筆（`describeTailConflicts`）。
 
 ## 各列的量測
 
@@ -2674,11 +2678,12 @@ print('organization', n['organization'], '｜venue', n['venue'], '｜同一個�
 PY
 # 2026-10-05（只量 organization 的段數）：13｜1｜0
 # 2026-10-09：organization 13｜venue 485｜1｜0｜0
+# 2026-10-15：organization 13｜venue 485｜1｜0｜0
 ```
 
 **第 97 列的量測（2026-10-05，可重跑）**：模板分岔的訊息數 `LC_ALL=C grep -a -q '規則與守衛分岔了' .build/debug/akashic-guards && .build/debug/akashic-guards zero-instance-rows-audit 2>&1 | grep -c '規則與守衛分岔了'`（應印 0；自證同第 13 列）。棘輪標記搬回規則檔、量測文件不在兩則各有負控（`audit-guards-mutations` 的「棘輪標記出現在規則檔」「量測文件不見」）；它們不是計數，所以這裡不另列指令。
 
-**第 98 列的量測（2026-10-09，可重跑，唯讀）**：名字分類記錄數，與其中「記錄自己的最後一筆就與名字的分類矛盾」的（實體, 分割, 名字）數——合併時這種被併者一律被拒。讀不到的檔計數，同第 24 列：
+**第 98 列的量測（2026-10-09；2026-10-15 重量，可重跑，唯讀）**：名字分類記錄數，與其中「記錄自己的最後一筆就與名字的分類矛盾」的（實體, 分割, 名字）數——合併時這種被併者若會把那個名字的記錄搬進倖存者、而倖存者沒有同一個矛盾就被拒（b39 收窄）。讀不到的檔計數，同第 24 列：
 
 ```bash
 python3 - <<'PY'
@@ -2703,9 +2708,10 @@ for f in glob.glob(os.path.expanduser('~/.akashic/entities') + '/*.yaml'):
 print('名字分類記錄', recs, '｜最後一筆與分類矛盾', selfc, '｜讀不到的檔', bad)
 PY
 # 2026-10-09：0｜0｜0
+# 2026-10-15：0｜0｜0
 ```
 
-拒絕本身由 `NameClassificationMergeB37Tests.testTheVerdictDoesNotDependOnHowTheInconsistentDoomedIsSpelled` 與改寫過的 `NameClassificationMergeOrderTests` 三支釘住。
+拒絕本身由 `NameClassificationMergeB37Tests.testTheVerdictDoesNotDependOnHowTheInconsistentDoomedIsSpelled` 與 `NameClassificationMergeOrderTests` 三支釘住；b39 的收窄由 `NameClassificationMergeB39Tests`（攣生、什麼都不搬、「會不會搬」以原始倖存者判、「同一個矛盾」要同一個方向、措辭）與恢復原樣的 `testAPreExistingContradictionIsNotBlamedOnTheMergeInEitherOrder` 釘住。
 
 **第 99 列的量測（2026-10-09，可重跑）**：上限的訊息數 `LC_ALL=C grep -a -q '上限讓判讀的工作量有界' .build/debug/akashic-guards && .build/debug/akashic-guards zero-instance-rows-audit 2>&1 | grep -c '超過上限'`（應印 0；自證同第 13 列——片段在檔案上限與 fence／段落上限兩則訊息裡，依閘去重的上限那一則用同一個樣式數到）。離上限多遠，唯讀、不依賴 binary（從 repo 根目錄跑）：
 

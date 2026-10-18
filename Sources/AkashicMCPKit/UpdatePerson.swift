@@ -296,7 +296,8 @@ public extension AkashicService {
         // 這裡只寫一個檔，那幾類由寫入當下的 #631 前置擋下（零寫入），而且訊息說得更準——同一個操作稍早寫過這一筆時說出來、並把那一筆標成之後的
         // 寫入沒套用（#705，`WrittenWithLegacyCopyR2Tests`；第一版照 `remove_names` 問整個 `unlocatablePersonKeys`，全套測試抓到它擋在那之前）
         guard Set(load.people.lazy.filter { $0.key == key }.map(\.id)).count <= 1 else {
-            throw ServiceError.invalid("person「\(displaySafeInvisible(key, max: 200))」無法唯一定位（person key 有不只一筆記錄——akashic validate 以跨記錄 error 列出）——整批拒絕、零寫入")
+            throw ServiceError.invalid("person「\(displaySafeInvisible(key, max: 200))」無法唯一定位（person key 有不只一筆記錄——akashic validate 以跨記錄 error 列出）——整批拒絕、零寫入；"
+                + "先手改 YAML 改掉其中一筆的 key（rename-person 在 key 重複時同樣拒絕）")
         }
         guard var person = load.people.first(where: { $0.key == key }) else {
             throw ServiceError.notFound("person「\(displaySafeInvisible(key, max: 200))」")
@@ -323,6 +324,10 @@ public extension AkashicService {
         // dry-run 一併預演。
         let validationErrors = person.validate().filter { $0.severity == .error }
         if dryRun {
+            // 寫入當下的 #631 前置（legacy 拷貝、目的檔被隔離或是另一種記錄、legacy 檔不能安全搬移）也在乾跑跑一次，不寫（#564 b38 Z1 第 4／8 列：
+            // 同一筆記錄的 legacy 拷貝與 entities/ 那份 id 相同、上面那一道不擋，乾跑說 wouldChange 而實跑被拒——乾跑成了假預覽，#139 F1）。
+            // 實跑不在這裡問：`writePerson` 會問，而同一個操作稍早寫過這一筆時那一道的訊息更準（#705）
+            _ = try store.personWritePlan(person)
             var out: [String: Any] = [
                 "dryRun": true,
                 "key": displaySafe(key, max: 200),

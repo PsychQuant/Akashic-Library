@@ -96,11 +96,14 @@ extension AkashicService {
     /// 同一句理由再確認一次（與那個名字的最後一筆記錄位元組完全相同）才是沒有新記錄。**寫檔成功之後 index 重建失敗不讓呼叫失敗**（第 1 列）：檔案已經落盤、
     /// 報告是改了什麼的唯一一份；以同一句理由重試會得到 `alreadyAuthorized` 並多一筆「確認」（#557 R2 verify 第 30／38 列：先前說「重試只會得到
     /// alreadyAuthorized」，#564 之後為假）——用移除面一族的做法（`RemovalReportSupport.swift`），報告多 `indexRebuilt: false`。
+    ///
+    /// `removalDetailLimit`：`remove_names` 報告的 `segments` 合計至多幾段——MCP 面截（預設），CLI 傳 nil 全列（`removeOrganizationNames` 的 doc）。
     public func updateOrganization(key: String, authorize: [String], judgement: String? = nil,
-                                   restsOn: [String]? = nil, removeNames: [String]? = nil) throws -> String {
+                                   restsOn: [String]? = nil, removeNames: [String]? = nil,
+                                   removalDetailLimit: Int? = AkashicService.removalDetailCap) throws -> String {
         let args = try Self.updateOrganizationArguments(key: key, authorize: authorize, judgement: judgement, restsOn: restsOn,
                                                         removeNames: removeNames)
-        if !args.removals.isEmpty { return try removeOrganizationNames(key: key, specs: args.removals) }   // #564 第 2 點
+        if !args.removals.isEmpty { return try removeOrganizationNames(key: key, specs: args.removals, detailLimit: removalDetailLimit) }   // #564 第 2 點
         let load = try store.load()
         guard !load.organizations.unlocatableOrganizationKeys.contains(key) else {
             throw ServiceError.invalid("organization「\(displaySafeInvisible(key, max: 200))」無法唯一定位（\(UnlocatableReason.organization)）——整批拒絕、零寫入；先改掉其中一筆的 key")   // display-safe-exempt: UnlocatableReason.organization 是編譯期常量

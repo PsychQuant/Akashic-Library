@@ -165,6 +165,16 @@ R2 verify 找到七個 MEDIUM（五個集中在合併搬記錄）與二十個 LO
 
 **issue Expected 3（確認既有的值留記錄）對 person 不成立**（第 5 列）：2026-10-05 裁決第 2 點之後，person 的 `fields.names` 不寫「確認」，而 person 沒有別的面能對既有的對外形說「確認」（`authorize-names` 只指定）——Expected 3 只對 venue 與 organization 成立。這是裁決的後果，不是實作漏項；要不要另給 person 一個確認面，列在 changelog 的「交給使用者」。
 
+## 修正輪五（b38 Z1；b39）
+
+使用者 2026-10-15 對 b38 Z1 的裁決：**「被併者自己不一致就拒絕」收窄**——只在被併者真的會把記錄搬進倖存者、而且原始倖存者沒有同一個矛盾時才拒絕，豁免條件綁原始倖存者的歷史、不綁處理順序；恢復 b37 改掉的測試資料，補上攣生與「什麼都不搬」兩種情形的測試，拒絕訊息另寫被併者自己矛盾時的措辭。
+
+- **合併**（第 0／1／3／6／7 列）：`doomedTailConflicts` 對每一筆被併者，模擬它**單獨**併進原始倖存者（`carryCollecting` 的同一條規則），只留它真的會接上至少一筆記錄的（分割, 名字），再去掉原始倖存者已有矛盾的。後者與合併後的保險（`classificationTailDelta`）共用 `heldTailContradictions` 一份定義：同一個（分割, 名字）、同一個方向——倖存者的記錄錨不到 names（手改）而被併者把那個名字帶進來時，方向可能不同，那時不豁免（先前的保險只比（分割, 名字））。以實際合併時誰先接上來判「會不會搬」會讓結論重新取決於 key 順序（一筆只有「指定」、另一筆「指定 → 撤回」，後者先接時前者的指定被「倖存者已有」略過）。被併者自己的矛盾在拒絕訊息裡說成「被併者自己的記錄裡…最後一筆是…」，不說「合併後」。
+- **venue 合併拒絕的出口**（第 5／13 列）：variant 欄「不在 variant 卻以指定結尾」而名字是對外形時，`--add-variant` 收不了它——改成 `--unauthorize`、`--add-variant`、`--authorize`；authorized 欄「不在 authorized 卻以指定結尾」而名字在 variant 時，`--authorize` 把它抬出 variant，最後要 `--add-variant` 放回去。兩句都以真的寫入面照做到合併通過（`NameClassificationB39Tests`）。
+- **organization `remove_names` 報告的總量**（第 2／11 列）：MCP 面 `segments` 合計至多 20 段，`detailsTruncated`／`detailsListed` 揭露；CLI 全列。
+- **`update-person --fields --dry-run`**（第 4／8 列）：乾跑跑寫入當下的 #631 前置（`personWritePlan`），同一筆記錄的 legacy 拷貝不再乾跑說 `wouldChange`、實跑被拒。
+- **文字**：MCP `judgement` 屬性說明「進出 authorized 時必填，沒進出則拒收」（第 10／12 列）；organization 刪名字拒絕的死碼刪掉（第 16／17 列）。
+
 ## Implementation Contract
 
 **行為**：

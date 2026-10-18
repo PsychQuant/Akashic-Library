@@ -107,6 +107,11 @@ func pluginRootsMutations() -> Int32 {
                                     withIntermediateDirectories: true)
             try? fm.copyItem(atPath: "\(repoRoot)/\(f)", toPath: tmp + "/" + f)
         }
+        // 2026-10-15：三份規則的裁決表搬到 `docs/rulings/`（受保護檔）
+        if fm.fileExists(atPath: "\(repoRoot)/docs/rulings") {
+            try? fm.createDirectory(atPath: tmp + "/docs", withIntermediateDirectories: true)
+            try? fm.copyItem(atPath: "\(repoRoot)/docs/rulings", toPath: tmp + "/docs/rulings")
+        }
         return body(tmp)
     }
 

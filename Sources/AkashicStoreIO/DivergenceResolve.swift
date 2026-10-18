@@ -146,25 +146,33 @@ public enum DivergenceResolveError: Error, LocalizedError, SanitizedErrorDescrip
                  + "或在倖存者上 update-venue \(displaySafeInvisible(survivor, max: 200)) --authorize <名字> --judgement <理由> 指定它"
                  + "（同書寫系統原本的指定會被換下、寫一筆撤回），再合併"
         case let .wouldContradictClassificationTail(survivor, details, exits):
+            // 含 closure 與三元的運算元先拆成具型別的 let：寫在同一串 `+` 裡時 CI 的 type-check 逾時（unable to type-check this
+            // expression in reasonable time）。輸出逐字不變
+            let detailLines: String = details.prefix(5).map { "  • " + $0 }.joined(separator: "\n")   // display-safe-exempt: details 擲出端逐項 displaySafeInvisible
+            let detailMore: String = details.count > 5 ? "\n  …共 \(details.count) 個名字" : ""   // display-safe-exempt: Int
+            let exitLines: String = exits.map { "  – " + $0 }.joined(separator: "\n")   // display-safe-exempt: exits 是 tailConflictExits 的字面常量句子，不含 store 內容
             return "拒絕合併：併入「\(displaySafeInvisible(survivor, max: 200))」之後，名字分類記錄的最後一筆會與那個名字的分類矛盾"
                  + "（被併者自己的記錄就與它的分類不一致——手改，或 #564 修正輪之前的 binary 寫的；或這次合併改了倖存者某個名字的分類）："
                  + "比的是原始倖存者，倖存者合併前就有的矛盾不擋\n"
-                 + details.prefix(5).map { "  • " + $0 }.joined(separator: "\n")   // display-safe-exempt: details 擲出端逐項 displaySafeInvisible
-                 + (details.count > 5 ? "\n  …共 \(details.count) 個名字" : "")   // display-safe-exempt: Int
+                 + detailLines
+                 + detailMore
                  + "\n合併不替人改判定。出口（在帶來它的被併者上做；「倖存者自己的」那一格在把它標成 variant 的被併者上做——補一筆與分類一致的記錄，"
                  + "接過去就成為最後一筆），每一種情形各一句：\n"
-                 + exits.map { "  – " + $0 }.joined(separator: "\n")   // display-safe-exempt: exits 是 tailConflictExits 的字面常量句子，不含 store 內容
+                 + exitLines
                  + "\n讓它的最後一筆與分類一致，再合併"
         case let .doomedRecordInvalid(merged, why):
             return "拒絕合併：被併的「\(displaySafeInvisible(merged, max: 200))」自己違反 venue 的寫入期不變式——\(why)"   // display-safe-exempt: why 由 NameIdentity 的固定訊息與已 displaySafe 的名字組成
                  + "。先修它的 YAML（docs/store-format.md §5.7）再合併；不猜、不靜默修"
         case let .namedByLibraryRule(merged, shape, libraries, steps):
+            // 同上：兩個 closure 先拆成具型別的 let（type-check 逾時）；輸出逐字不變
+            let libraryList: String = libraries.map { displaySafeInvisible($0, max: 200) }.joined(separator: "、")
+            let stepLines: String = steps.map { "  • " + $0 }.joined(separator: "\n")   // display-safe-exempt: steps 由 libraryRuleMergeSteps 組裝、逐項 displaySafeInvisible
             return "拒絕合併：被併的\(shape)「\(displaySafeInvisible(merged, max: 200))」被 library「"   // display-safe-exempt: shape 是呼叫端字面量（work／venue）
-                 + libraries.map { displaySafeInvisible($0, max: 200) }.joined(separator: "、")
+                 + libraryList
                  + "」的成員規則指涉，合併不遷移規則、被併鍵消失之後規則會安靜懸空。"
                  + "出路（不經過 topic：規則全程都在，只是換了指涉的對象；set-kind 替換既有規則要求 registry 檔已 commit）——"
                  + "每個 library 各做一次，做完重跑這次消歧：\n"
-                 + steps.map { "  • " + $0 }.joined(separator: "\n")   // display-safe-exempt: steps 由 libraryRuleMergeSteps 組裝、逐項 displaySafeInvisible
+                 + stepLines
                  + "\n（要先讀出完整規則：akashic library check <library>；#642）"
         case let .wouldLoseFields(merged, survivor, losses):
             return "拒絕合併：被併的「\(displaySafeInvisible(merged, max: 200))」帶有倖存者"
@@ -185,20 +193,27 @@ public enum DivergenceResolveError: Error, LocalizedError, SanitizedErrorDescrip
             // 刪第一筆重跑仍被拒）：帶進來的才是要處理的；倖存配對既有的列出供對照，明說不擋。**「帶進來的」自 R16 起包含合併前住在
             // 被併鍵上的**（R15 verify 第 20 列：R15 末句寫「含住在被併鍵上的不擋」，而被搬到別的配對上、把它的歧義變大的那幾筆正是
             // 住在被併鍵上——訊息與判準互相矛盾；D45 的判準寫在末句）
-            return "拒絕合併：併入「\(displaySafeInvisible(survivor, max: 200))」之後，\(Self.whoWouldHold(record, survivor: survivor))對 work"   // display-safe-exempt: Self.whoWouldHold、record、survivor：whoWouldHold 內部逐項 displaySafe
-                 + "「\(displaySafeInvisible(citekey, max: 200))」會持有兩個以上正規化後不同的 confirmed literal——這次合併帶進來的（合併前住在被併記錄裡、或住在被併鍵上）：\n"
-                 + brought.map { "  • " + $0 }.joined(separator: "\n")   // display-safe-exempt: brought 由 describeVerdictSource 組裝且已在擲出端截到 5 筆（R28），store 字串已逐項 displaySafeInvisible（displaySafe 不冪等）
-                 + (broughtTotal > brought.count ? "\n  …共 \(broughtTotal) 筆" : "")   // display-safe-exempt: Int
-                 + (existing.isEmpty ? "" : "\n倖存配對合併前就持有的（不擋，列出供對照）：\n"
-                    + existing.map { "  • " + $0 }.joined(separator: "\n")   // display-safe-exempt: existing 同上
-                    + (existingTotal > existing.count ? "\n  …共 \(existingTotal) 筆" : ""))   // display-safe-exempt: Int
-                 + "\nverdict 不帶 index，之後那筆 work 的邊在 resolve-venues 的 demote／repoint 上都會被拒（D23）。"
+            // 含 closure 與三元的運算元先拆成具型別的 let，末段的出路說明也另成一個 let：寫在同一串 `+` 裡時 CI 的 type-check
+            // 逾時。existingBlock 與原本的巢狀三元組出同一個字串（existing 為空時是 ""）；輸出逐字不變
+            let broughtLines: String = brought.map { "  • " + $0 }.joined(separator: "\n")   // display-safe-exempt: brought 由 describeVerdictSource 組裝且已在擲出端截到 5 筆（R28），store 字串已逐項 displaySafeInvisible（displaySafe 不冪等）
+            let broughtMore: String = broughtTotal > brought.count ? "\n  …共 \(broughtTotal) 筆" : ""   // display-safe-exempt: Int
+            let existingLines: String = existing.map { "  • " + $0 }.joined(separator: "\n")   // display-safe-exempt: existing 同上
+            let existingMore: String = existingTotal > existing.count ? "\n  …共 \(existingTotal) 筆" : ""   // display-safe-exempt: Int
+            let existingBlock: String = existing.isEmpty ? "" : "\n倖存配對合併前就持有的（不擋，列出供對照）：\n" + existingLines + existingMore
+            let truncationHint: String = broughtTotal > brought.count ? "；標「…共 N 筆」時其餘幾筆要開倖存記錄與被併記錄的 YAML 找" : ""   // display-safe-exempt: Int 比較與字面常量（R30：R29 的版本在不截時印出「如上，）；」——R29 verify 第 29 列）
+            let remedy: String = "\nverdict 不帶 index，之後那筆 work 的邊在 resolve-venues 的 demote／repoint 上都會被拒（D23）。"
                  + "出路：把不屬於這條邊的那筆 confirmed verdict 從它所在記錄的 YAML 刪掉（先看「這次合併帶進來的」那幾筆——列出的出處如上"
-                 + (broughtTotal > brought.count ? "；標「…共 N 筆」時其餘幾筆要開倖存記錄與被併記錄的 YAML 找" : "")   // display-safe-exempt: Int 比較與字面常量（R30：R29 的版本在不截時印出「如上，）；」——R29 verify 第 29 列）
+                 + truncationHint
                  + "）；"
                  + "若那筆 work 另有一條邊指向被併者，也可以先用 resolve-venues --demote 把那條邊退回 literal。"
                  + "不擋的只有：倖存配對合併前就持有整組的違反，以及倖存配對合併前一筆都沒有、整組原樣從單一被併鍵搬來的（holder 遷移；validate 照報 warning）；"
                  + "整組住在被併記錄裡的（那個檔要刪、出處會消失——先在它的 YAML 修掉）、或讓倖存配對的既有歧義變大的，都擋"
+            return "拒絕合併：併入「\(displaySafeInvisible(survivor, max: 200))」之後，\(Self.whoWouldHold(record, survivor: survivor))對 work"   // display-safe-exempt: Self.whoWouldHold、record、survivor：whoWouldHold 內部逐項 displaySafe
+                 + "「\(displaySafeInvisible(citekey, max: 200))」會持有兩個以上正規化後不同的 confirmed literal——這次合併帶進來的（合併前住在被併記錄裡、或住在被併鍵上）：\n"
+                 + broughtLines
+                 + broughtMore
+                 + existingBlock
+                 + remedy
         case let .quarantinedPresent(files):
             let listed = files.prefix(3).map { displaySafeInvisible($0, max: 200) }
                 .joined(separator: "、") + (files.count > 3 ? "…" : "")

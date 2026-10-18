@@ -123,6 +123,9 @@ func auditGuardsMutations() -> Int32 {
         // 「受保護清單裡有不存在的路徑」全紅，`zero-instance-rows-audit` 也會以「找不到量測文件」中止。
         try? fm.createDirectory(atPath: tmp + "/docs", withIntermediateDirectories: true)
         try? fm.copyItem(atPath: "\(repoRoot)/\(zeroInstanceMeasurementsPath)", toPath: tmp + "/" + zeroInstanceMeasurementsPath)
+        // **裁決表**（2026-10-15）：三份規則的裁決史搬到 `docs/rulings/`（不自動載入），它們是受保護檔，
+        // `zero-instance-rows-audit`／`parity-table-drift`／`measured-numbers-audit` 讀它們——少了它們 baseline 同樣全紅。
+        try? fm.copyItem(atPath: "\(repoRoot)/docs/rulings", toPath: tmp + "/docs/rulings")
 
         // **同一個 path 的多個 edit 依序套用，套完才檢查「有沒有改到東西」。**
         //

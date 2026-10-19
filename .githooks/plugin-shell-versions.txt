@@ -11,6 +11,6 @@
 #   四次（854fd5d3、e21a76b5、7d34e7f7、5e8fca64）而版號沒升，同一個版號送出過不只一份內容（b40 Z2 第 6、18 則）
 # ── 列從下一行開始 ──
 plugin	0.13.4	f6dfba69a7ce3a9b1605c23a9478f9d30cd3994925d96f68609b7cf84d42e609
-plugin	0.13.5	042567f95e3d254f58fc7be093a4989d95039b283421d3da28d8b3b62a5238ce
+plugin	0.13.5	23fa03c1d816b07778dd5c4a393fd40c0bc420dc05baccde003cd1bd0bbf50da
 plugins/akashic-discovery	0.2.15	0217f9da6ff0bef17840b871fe3304b043dcd9923732f9cfd76bf21766f1ea70
 plugins/akashic-discovery	0.2.16	0217f9da6ff0bef17840b871fe3304b043dcd9923732f9cfd76bf21766f1ea70

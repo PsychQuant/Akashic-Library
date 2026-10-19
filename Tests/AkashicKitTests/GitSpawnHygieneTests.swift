@@ -48,6 +48,7 @@ final class GitSpawnHygieneTests: XCTestCase {
         // Sources/
         "DivergenceResolve.swift",     // 共用 helper git(_:in:)；SourceStore 與刪除閘都走它
         "Validation.swift",            // TractatusDocs 的歷史驗證（兩處），隨 #237 進 main
+        "PluginShellVersion.swift",    // #613 b41：akashic-guards plugin-shell-version 讀 ls-files／ls-tree／cat-file，它的負對照在暫存 repo 裡 init／commit
         // Tests/
         "GitFixture.swift",            // #234 的原始現場
         "CorpusValidationTests.swift", // history 測試的 runGit／gitOutput（#234 同類）

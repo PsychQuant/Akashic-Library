@@ -16,6 +16,7 @@
 .claude/rules/web-access-via-safari-browser.md
 .claude/rules/zero-instance-guards.md
 .githooks/acknowledged-ci-gaps.txt
+.githooks/plugin-shell-versions.txt
 .githooks/protected-ratchet.txt
 .githooks/run-guards.sh
 .github/workflows/census-parity.yml
@@ -41,6 +42,8 @@ Sources/akashic-guards/OraclePreconditionControl.swift
 Sources/akashic-guards/ParityTableDrift.swift
 Sources/akashic-guards/PluginRoots.swift
 Sources/akashic-guards/PluginRootsMutations.swift
+Sources/akashic-guards/PluginShellVersion.swift
+Sources/akashic-guards/PluginShellVersionMutations.swift
 Sources/akashic-guards/PluginStoreFormatParity.swift
 Sources/akashic-guards/ProtectedRatchet.swift
 Sources/akashic-guards/RuleCoverage.swift

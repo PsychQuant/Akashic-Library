@@ -159,8 +159,11 @@ final class FulltextB37Tests: XCTestCase {
         let f = FulltextFetch.safariFailure("Error: Target tab changed mid-command: https://pub.example/x?sig=S1 moved\r\nTarget position now shows: https://bank.example/acct\r\n",
                                             command: "js --window 5 --tab-in-window 2 <the link script>")
         XCTAssertEqual(f.line, "Error: Target tab changed mid-command: https://pub.example/x moved")
+        // b41（b40 Z2 第 5、10 則）：說明不再叫人重跑那個命令——印出的命令不含網址與 JS，導航的 `open` 重跑就是多送一次請求
         XCTAssertEqual(f.note, "safari-browser `js --window 5 --tab-in-window 2 <the link script>` printed 1 more line, not relayed: its error output can list "
-                       + "the tabs of other windows and profiles. The user can read it by running that command in Terminal.")
+                       + "the tabs of other windows and profiles. The command is shown without its URL and script, so it cannot be re-run as printed. "
+                       + "To see what it was about, the user can look at the tab in Safari, or list their own tabs with "
+                       + "`safari-browser documents --profile \"<their profile>\"`.")
         XCTAssertEqual(FulltextFetch.safariFailure("\n\n  boom  \n", command: "js").line, "boom")
         XCTAssertNil(FulltextFetch.safariFailure("\n\n  boom  \n", command: "js").note)
         XCTAssertEqual(FulltextFetch.safariFailure("", command: "js").line, "(safari-browser printed no message)")

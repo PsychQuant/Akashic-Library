@@ -25,7 +25,18 @@ plugin 版號沒有動（行為在 binary）。
 - **web-access.md〈開始前〉第 4 點**（#692）：「契約每改一次就多一條真呼叫」限縮成探測實際涵蓋的 `web-read url`、`origin`、`check`（`landing` 沒有探測）。只改說明，探測本身不變。
 - `tools/list`：59,171 → 59,171 bytes（±0；MCP 說明沒有改）。上一段與 #709、#613 兩段寫的 59,173 是那一批的 base，整合之後的 main（`04131a49`）是 59,171（同一批 #564 的 −2）。
 
-plugin 殼版號不動（0.13.4，未同步到 marketplace）；web-access.md 改了，殼摘要重記。
+plugin 殼版號隨同一批的 #613 b41 升到 0.13.5（這一段改了 web-access.md；0.13.4 已隨 `04131a49` 推上 main 而對外，本 repo 沒有另外的 marketplace 同步步驟）。
+
+## #613 — 取全文 b41：對話框的文字跨行也偽造不了錯誤行、說明不叫人重跑做不到的命令、頁面給的字裡每一個帳密都去掉；plugin 殼 0.13.4 → 0.13.5、akashic-discovery 0.2.15 → 0.2.16（2026-10-19）
+
+b40 verify（Z2）的處置，細節在 `changelog/2026-10-19-b41-fulltext-613.md`。
+
+- **plugin 殼版本 0.13.4 → 0.13.5**（`binary_version` 0.12.1 不動）、**akashic-discovery 0.2.15 → 0.2.16**。0.13.4 隨 `04131a49`（2026-10-18）推上 main 就已經對外——**本 repo 自己就是 marketplace，推上 main 就是發布，沒有另一個「同步」步驟**；b39 的測試訊息、changelog 與零實例表第 103 列把兩者寫成兩件事，那是錯的，已更正。akashic-discovery 的 0.2.15 設於 `5f7c8073`（2026-09-28），它經 symlink 送出的 `plugin/rules` 之後改了四次、版號沒升，裝過 0.2.15 的人一直拿著舊的規則文字；0.2.16 讓它們換掉快取。
+- **版號的守衛換成 `akashic-guards plugin-shell-version`**（取代 b39 的 XCTest `PluginShellVersionTests`）：版號表 `.githooks/plugin-shell-versions.txt` 記每個 plugin 的每個版號送出的殼內容摘要、只增不改；本機的 `origin/main` 在的時候，它送出的版號與內容表裡要有一模一樣的一列——已推上 main 的版號送出新內容只能升版，改記表也會紅。紅了該升版還是只改表，由它照 `origin/main` 判，不再由讀訊息的人判。akashic-discovery 一起管，symlink 指到的規則檔算進它的內容。它在 `run-guards.sh` 裡，pre-push 與 `census-parity.yml`（對 `plugin/**`、`plugins/**` 觸發）都跑。
+- **`akashic-fetch-fulltext` 的 `SKILL.md`**：結束碼 1 那一列改寫——說明裡的命令不含網址與 JS，不能照著重跑、也不要重跑導航的 `open`；要知道沒轉印的行說了什麼，請使用者看那個分頁或自己跑 `safari-browser documents --profile "<自己的 profile>"`；stderr 裡任何一處出現 JavaScript 對話框的訊息時，只轉印固定的一句，其餘的行（連 safari-browser 自己的錯誤那一行）都不轉印。第 0 步版本 6 那一段補上 b41 的行為，並寫明契約版本仍是 6 的理由（這幾版的 `akashic` CLI 都沒有發布過，第一次發布時再決定）。
+- **`references/publishers.md`**：「akashic-mcp 0.13.3 起修正」補上之後每一次 skill 改動都要再升版才送得到。
+- 行為在 CLI（`akashic fulltext fetch`），要新的 `akashic`：safari-browser 的 stderr 去掉終端機控制序列再判；對話框的判斷不只看挑到的那一行；網址不在撇號處結束；連結那一段 JS 的回答與頁面給的連結過新的 `redactingPageText`（第二個網址、tab 與換行夾在 `://` 裡、special scheme 沒有兩個斜線的寫法都去帳密）。契約版本仍是 6。`tools/list` 沒有改（59,171 → 59,171 bytes；上面 b39 那三段寫的 59,173 是各分支自己的基線，整合後是 59,171）。
+- 更正 b34 那一段的出處（第 4 則）：「IdP 服務名在任何一個標籤都算」是 b34 自加的規則，不是使用者 2026-10-05 第 4 則給的（待使用者裁決）。
 
 ## #709 — b38 verify 修正（2026-10-15）：enrich 的 DOI 歧義理由對同 citekey 的重複說先修好、DOI 以 scalar 截短；bootstrap 乾跑被擋時結尾不說「加 --apply」
 
@@ -227,7 +238,7 @@ plugin 版號沒有動（MCP 描述淨減 4 位元組；行為在 binary）。
 - **讀不到的分頁停在登入主機上整批暫停**（只看主機：最左邊的標籤是登入字詞，或任何標籤有 IdP 服務名 `shibboleth`、`saml`、`openathens`、`wayf`）。R3 讓它們一律交給人；登入頁維持整批暫停（使用者 2026-10-02）。
 - **文章站上的判斷也用同一份快照**：讀頁面文字的當中分頁轉到別的主機的登入頁，不再被交給人成 `html-page`，回去等、照別的主機判。
 - **導航之前的接續**：主機是登入主機的長相就整批暫停、不送 JS；分頁顯示 PDF 先交給人（`/auth/12345.pdf` 不再整批暫停）；判分頁此刻的網址，驗證頁的網址而沒有驗證字樣時等它轉走（約 60 秒，只讀網址）。
-- **使用者 2026-10-05**：停在 doi.org 卻看不到它自己的查無頁維持整批暫停（第 1 則，SKILL 改寫成已裁決）；網頁副檔名加 `cfm`、`cfml`、`xhtml`、`jsf`、`jspx`、`faces`、`shtml`、`phtml`（第 2 則）；`/sso-login`、`/login-required` 這類複合段算登入頁（第 3 則）；主機的登入字詞只認最左邊的標籤與 IdP 服務名，`journals.auth.gr` 這種期刊平台不再停（第 4 則）。
+- **使用者 2026-10-05**：停在 doi.org 卻看不到它自己的查無頁維持整批暫停（第 1 則，SKILL 改寫成已裁決）；網頁副檔名加 `cfm`、`cfml`、`xhtml`、`jsf`、`jspx`、`faces`、`shtml`、`phtml`（第 2 則）；`/sso-login`、`/login-required` 這類複合段算登入頁（第 3 則）；主機的登入字詞只認最左邊的標籤，`journals.auth.gr` 這種期刊平台不再停（第 4 則；「IdP 服務名在任何一個標籤都算」是 b34 自加的規則，不是這一則給的——#613 b41 更正，待使用者裁決）。
 - 帶帳密的落地頁上，同站的 PDF 連結照常跟（先前被說成 `points off-site`、帳密印到 stderr）；印出的網址另去掉百分比編碼的路徑參數、多群組的 ASP.NET 段、沒有 scheme 的帳密，safari-browser 自己的錯誤訊息裡的網址也去憑證；每日帳本的 `landing` 不帶查詢。
 - SKILL 的驗證服務標籤、IdP 服務名、〈交給人之後〉的原因表都與程式逐字對帳。
 

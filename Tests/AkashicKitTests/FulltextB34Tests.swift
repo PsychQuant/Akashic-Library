@@ -339,7 +339,8 @@ final class FulltextB34Tests: XCTestCase {
 
     // MARK: 使用者 2026-10-05 第 2、3、4 則：網頁副檔名、複合路徑段、主機標籤
 
-    /// 第 4 則：主機名稱裡帶 auth 一類字樣的期刊平台不再因此整批暫停。登入字詞只認最左邊的標籤；IdP 服務的名稱在任何一個標籤都算。
+    /// 第 4 則：主機名稱裡帶 auth 一類字樣的期刊平台不再因此整批暫停。登入字詞只認最左邊的標籤。（IdP 服務的名稱在任何一個標籤都算——那是 b34
+    /// 收窄時自加的規則、方向是多停，不是第 4 則給的；b41 更正這一句的出處，規則本身待使用者裁決，見 #613 的 `### Blocking`。）
     func testHostLoginWordsCountOnlyInTheLeftmostLabelOrAsIdentityProviderNames() {
         for url in ["https://journals.auth.gr/index.php/x", "https://www.cas.cn/x", "https://files.sso-cdn.example.org/x", "https://user:login@pub.example/x",
                     "https://pub.example:443/x"] {

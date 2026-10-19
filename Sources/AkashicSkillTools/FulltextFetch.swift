@@ -62,11 +62,17 @@ import AkashicStoreIO
 /// `contractVersion` 是這個命令（與 `take`）對 skill 的契約版本，`akashic fulltext contract` 印它；SKILL.md 第 0 步要求至少這個值（#613 R3，
 /// b31 W4 第 1 則：先前以 `take` 的行為探測，分不出 R1、R2 的 CLI）。結束碼、交給人的原因、或哪些頁面整批暫停改變時就往上調，SKILL 第 0 步
 /// 一起調（`SkillToolsCLITests` 比對兩邊相等）。
+///
+/// **印出的字改了要不要調，還沒有定**（b40 Z2 第 4、9、13、15 則）：b37 為了 safari-browser 的錯誤只轉印一行而從 5 調到 6；b39 與 b41 又改了
+/// 同一類（轉印哪一行、對話框的文字不轉印、帳密的邊角），契約仍是 6。理由：`akashic` CLI 從來沒有發布過——release 只發 `akashic-mcp`
+/// （`akashic-mcp-v0.12.1`，2026-09-24，早於 `fulltext` 子命令），CLI 要在本 repo `swift build`——所以「印 6 而行為是 b37 的」只會是維護者
+/// 自己 b37～b39 之間的建置，沒有使用者面。第一次發布 CLI 時一起決定：升到 7，或把「印出的字改了不調」寫成這裡的政策（那時要說明 b37 為什麼例外）。
 public final class FulltextFetch {
     /// 1＝#613 只導航、交給人；2＝R1 修正輪（2026-10-02）；3＝R2 修正輪（e5182cf1）；4＝R3（2026-10-04）；5＝b34（2026-10-05：文章站上
     /// 讀不到的分頁與別的主機同一套、讀不到的分頁在登入主機上整批暫停、文章站上同一份快照、使用者 2026-10-05 的主機標籤與路徑段裁決）；
     /// 6＝b37（2026-10-09：複合路徑段只認明確的登入字、讀的當中換到同站登入頁先判登入長相、safari-browser 的錯誤只轉印第一行、`plainURL`
-    /// 與站的比對同一個主機）。前三版的 CLI 沒有 `contract` 子命令——數字只是給歷史一個名字，第 0 步擋它們靠的是「沒有這個子命令」。
+    /// 與站的比對同一個主機；b39 起轉印 `Error:` 那一行、b41 起 stderr 有對話框的訊息時只轉印固定的一句——兩次都沒有調，理由見上面〈契約版本〉）。
+    /// 前三版的 CLI 沒有 `contract` 子命令——數字只是給歷史一個名字，第 0 步擋它們靠的是「沒有這個子命令」。
     public static let contractVersion = 6
 
     public struct Options {
@@ -710,13 +716,14 @@ public final class FulltextFetch {
         }
         let method = String(link[..<space])
         let target = String(link[link.index(after: space)...])
-        guard method == "GET" || method == "POST" else { throw fail("unexpected answer from the link script: \(FulltextFetch.plainURL(link))") }
+        // 回答是頁面影響得到的字（頁面可以遮蔽 `linkJS` 用到的 API）：過 `redactingPageText`，不是只認一個網址的 `plainURL`（b41＝b40 Z2 第 8、28 則）
+        guard method == "GET" || method == "POST" else { throw fail("unexpected answer from the link script: \(FulltextFetch.redactingPageText(link))") }
         // 頁面自己的連結來自 DOM（`citation_pdf_url`、`a[href]`、表單的 `action`）：只跟同一個站的絕對 https 網址走。拒絕不是中止條款
         // （不是網站起疑，是頁面給了一個不能照做的連結）：結束碼 1，分頁留著。站的比對看主機與埠號、不看帳密（與 `sameSite` 同一把，#613 b34，
         // b33 X3 第 6、23 則：先前連結的 origin 帶帳密而站的不帶，帶帳密的落地頁上同站的相對連結永遠被拒，訊息還把帳密印出來）。
         let linkOrigin = FulltextFetch.linkTargetOrigin(target)
         if linkOrigin != site.lowercased() {
-            throw fail("the page's PDF link points off-site (\(linkOrigin ?? "not an absolute https URL"), page origin \(site)): \(FulltextFetch.plainURL(target)) — not following a link the page chose to another site")
+            throw fail("the page's PDF link points off-site (\(linkOrigin ?? "not an absolute https URL"), page origin \(site)): \(FulltextFetch.redactingPageText(FulltextFetch.plainURL(target))) — not following a link the page chose to another site")
         }
 
         // --- 每站每天 10 次嘗試：準備取 PDF 的這一刻就算 ---
@@ -862,10 +869,13 @@ public final class FulltextFetch {
     /// `\` 當 `/`，這種網址解析失敗）、`--landing` 的形狀檢查不收反斜線，會到這裡的是頁面給的 PDF 連結（`linkJS` 的 `new URL()` 失敗時
     /// 原樣回 `citation_pdf_url`）。
     ///
-    /// **網址不在字串開頭時**（#613 b39，b38 Z2 第 8、10、27 則）：從第一個 `://` 起當網址印——前面的字原樣、authority 照上面去帳密
-    /// （`FOO https://u:p@h/x`、`view-source:https://u:p@h/x`、BOM 開頭的網址）。b37 改由 `URLSplit` 切之後，這種字串沒有 authority、整串原樣
-    /// 回傳；`unexpected answer from the link script` 那一行把整個回答交給這裡。之後再出現的 `://` 是路徑的一部分，與有 authority 的網址相同
-    /// （上面「也不剝一般的路徑段」）。
+    /// **網址不在字串開頭時**（#613 b39，b38 Z2 第 8、10、27 則）：從第一個 `://` 起當網址印——前面的字原樣（tab 與換行除外：`URLSplit` 切之前
+    /// 也去掉它們，b41）、authority 照上面去帳密（`FOO https://u:p@h/x`、`view-source:https://u:p@h/x`、BOM 開頭的網址）。b37 改由 `URLSplit` 切
+    /// 之後，這種字串沒有 authority、整串原樣回傳。之後再出現的 `://` 是路徑的一部分，與有 authority 的網址相同（上面「也不剝一般的路徑段」）。
+    ///
+    /// **這個函式只對一個網址負責**（b41＝b40 Z2 第 8、28 則）：字串裡的第二個網址、special scheme 沒有兩個斜線的寫法（`https:u:p@h`）它都看不到；
+    /// tab 與換行在 scheme 之前時，`URLSplit` 把前面的字接進 scheme（`GET<LF>https://u:p@h/x` → `gethttps://h/x`：帳密去掉了，字變了）。
+    /// 頁面給的字（`unexpected answer from the link script`、`points off-site` 那一行）改走 `redactingPageText`，b39 把整個回答交給這裡。
     static func plainURL(_ url: String) -> String {
         var s = url
         if let cut = s.unicodeScalars.firstIndex(where: { $0 == "?" || $0 == "#" }) {
@@ -876,7 +886,8 @@ public final class FulltextFetch {
             let head = parts.scheme.isEmpty ? "//" : PyText.string(parts.scheme) + "://"
             return head + printedHostPort(parts) + withoutPathParameters(parts.path)
         }
-        let scalars = Array(s.unicodeScalars)
+        // tab 與換行先去掉——`URLSplit` 切之前也去掉它們；先前這一支在原樣的字上找 `://`，`GET https:/<tab>/u:p@h/x` 帳密原樣印出（b41＝b40 Z2 第 8 則）
+        let scalars = Array(s.unicodeScalars.filter { $0 != "\t" && $0 != "\n" && $0 != "\r" })
         guard let sep = scalars.indices.first(where: { PyText.hasPrefix(scalars, [":", "/", "/"], at: $0) }) else {
             return withoutPathParameters(s)
         }
@@ -918,66 +929,152 @@ public final class FulltextFetch {
         let note: String?
     }
 
-    /// JavaScript 對話框的兩種行——**封閉列舉，只有這兩種**：safari-browser 的錯誤 `javaScriptDialogBlocking`（`A JavaScript dialog is open and
+    /// JavaScript 對話框的兩個記號——**封閉列舉，只有這兩個**：safari-browser 的錯誤 `javaScriptDialogBlocking`（`A JavaScript dialog is open and
     /// blocking this tab: "<對話框的文字>"`）與它在錯誤之前印的警告（`BlockingDialogWarning.firstLine`：`⚠ BLOCKING DIALOG in <視窗>: "<對話框的文字>"
-    /// — buttons: …`）。對話框的文字就是頁面 `alert()`／`confirm()` 的引數，整行換成 `pageDialogLine`。比的是去掉開頭非 ASCII 字母之後的字
-    /// （`Error:` 前綴另外先去掉；`⚠` 後面可以有 VS16）。不得依「看起來也帶頁面的字」類推第三種——那一類見 `safariFailure` 的說明。
-    static let pageDialogLineHeads = ["A JavaScript dialog is open and blocking this tab", "BLOCKING DIALOG"]
-    /// 對話框那一行換成的固定一句：不轉印頁面的字，留下唯一可行動的那一句。
+    /// — buttons: …`）。對話框的文字就是頁面 `alert()`／`confirm()` 的引數。stderr 裡**任何地方**出現其中一個（去掉終端機控制序列之後，行與行接起來
+    /// 比；`case` 寫明大小寫要不要相同），整段只轉印 `pageDialogLine`（#613 b41，b40 Z2 第 0、7、36 則）。不得依「看起來也帶頁面的字」類推第三個——
+    /// 那一類見 `safariFailure` 的說明。
+    ///
+    /// `BLOCKING DIALOG` 大小寫要相同：safari-browser 在探測不到對話框時印的 `a blocking dialog would go unnoticed`（`BlockingDialogWarning` 的
+    /// `unmappableLine`、`probeUnavailableLine`）是小寫，那不是有對話框。錯誤那一句不分大小寫，也不要求開頭的 `A`：包在別的前綴裡
+    /// （`Error: Failed: …`、daemon 模式的 `daemon remote error [code]: …`）或改了大小寫，照樣是對話框。
+    static let pageDialogMarkers: [(text: String, caseInsensitive: Bool)] = [
+        ("JavaScript dialog is open and blocking this tab", true),
+        ("BLOCKING DIALOG", false),
+    ]
+    /// 對話框擋住分頁時轉印的固定一句：不轉印頁面的字，留下唯一可行動的那一句。
     static let pageDialogLine = "A JavaScript dialog is open in the tab and blocks it (its text is the page's and is not relayed) — the user has to dismiss it in Safari; safari-browser does not, and neither does this command"
 
-    /// safari-browser 失敗時轉印什麼（#613 b37；b39＝b38 Z2 第 5、9、11、18、29 則）。`command` 是失敗的那個命令（子命令與目標旗標，不含網址與
-    /// JS），寫進說明。
+    /// safari-browser 失敗時轉印什麼（#613 b37；b39＝b38 Z2 第 5、9、11、18、29 則；b41＝b40 Z2 第 0、5、7、10、12、36 則）。`command` 是失敗的
+    /// 那個命令（子命令與目標旗標，不含網址與 JS），寫進說明。
     ///
-    /// - **只轉印它的錯誤那一行**：第一個以 `Error:` 開頭的行——ArgumentParser 印錯誤時的前綴，safari-browser 的命令以它結束；沒有這樣的行才
-    ///   退回第一個非空行（safari-browser 沒跑起來時是 `ToolRunner` 的錯誤）。b37 取第一個非空行，而 safari-browser 在錯誤之前會先印進度與
-    ///   警告（`⏳ Waiting for System Events...`、`⚠️  System Events not responding, attempting restart...`、`⚠ BLOCKING DIALOG …`、分頁在背景時
-    ///   的 `Warning: the resolved target was in the background …`）：那時轉印的是那一行，真正的錯誤被藏起來。
+    /// - **對話框擋住分頁時只轉印 `pageDialogLine`**：stderr 裡任何地方有 `pageDialogMarkers` 的其中一個，就不挑任何一行（b41）。b39 先挑第一個
+    ///   `Error:` 行再看它是不是對話框的那一行，兩個洞：對話框的文字若帶著沒逸出的換行，換行之後以 `Error:` 開頭的那一段（頁面寫的）會比真正的錯誤先被
+    ///   挑到（b40 Z2 第 0 則；現行 safari-browser 的 `TerminalText.quotedDialogField` 把七種換行摺成空白，這個形狀到不了——縱深防禦，不依賴上游的
+    ///   逸出）；警告之後是別的錯誤（`open` 逾時）時，挑到的是那一行，對話框這個診斷整個消失（第 7 則）。代價：有對話框時，真正的錯誤那一行也不轉印，
+    ///   說明寫出它在沒轉印的行裡；頁面讓這兩句出現在別的地方（例如分頁標題）時，會誤報成有對話框——方向是少說，不是洩漏。
+    /// - **其餘情形只轉印它的錯誤那一行**：第一個以 `Error:` 開頭的行——ArgumentParser 印錯誤時的前綴，safari-browser 的命令以它結束；沒有這樣的行
+    ///   才退回第一個非空行（safari-browser 沒跑起來時是 `ToolRunner` 的錯誤）。b37 取第一個非空行，而 safari-browser 在錯誤之前會先印進度與警告
+    ///   （`⏳ Waiting for System Events...`、`⚠️  System Events not responding, attempting restart...`、分頁在背景時的 `Warning: the resolved target
+    ///   was in the background …`）：那時轉印的是那一行，真正的錯誤被藏起來。
+    /// - **行先去掉終端機的控制序列**（`withoutTerminalEscapes`，b41＝第 36 則）：`ESC[1m` 開頭的錯誤行不以 `Error:` 開頭、`ESC[1;33m⚠ BLOCKING DIALOG`
+    ///   的去前綴比法停在序列裡的 `m`——兩者先前都 fail-open。現行 safari-browser 不輸出控制序列。
     /// - **其餘的行一律不轉印**：`documentNotFound` 從第三行起、`ambiguousWindowMatch` 從第二行起列出所有視窗的分頁（含其他 profile 的
     ///   session，這個命令沒帶 `--profile`，清單不過濾）；`targetTabChanged` 的第二行是那個位置此刻顯示的網址。說明另起一行（`note`）：
-    ///   有幾行沒印、為什麼、失敗的是哪個命令。不接在那一行後面——`fail` 把訊息截在 600 字，第一行很長時說明會被截掉。
+    ///   有幾行沒印、為什麼、失敗的是哪個命令，以及使用者可以怎麼看——看那個分頁，或自己列出自己 profile 的分頁。**不說「重跑那個命令」**（b41＝第 5、
+    ///   10 則）：印出的命令不含網址與 JS（`<the link script>` 使用者拿不到），導航的 `open` 重跑一次就是對網站多送一次請求（不經帳本、不計次）。
+    ///   不接在那一行後面——`fail` 把訊息截在 600 字，第一行很長時說明會被截掉。
     /// - **那一行是錯誤的標題，不一定說的是我們的目標**：`AppleScript error: …`、`Process timed out after N seconds: <命令>` 帶的是底層訊息。
     ///   它**仍可能帶頁面寫的字**：`AppleScript error: JavaScript error: <訊息>` 的訊息可以由頁面決定（頁面改寫了我們注入的運算式用到的 API；
-    ///   CSP 擋下時是瀏覽器的字，那是診斷要的）——一行、截在 600 字，是資料不是指令（SKILL 第 3 步）。對話框的兩種行（`pageDialogLineHeads`）
-    ///   整行換成 `pageDialogLine`：那一行除了頁面的字，只剩「請使用者自己關掉」可以照做。
+    ///   CSP 擋下時是瀏覽器的字，那是診斷要的）——一行、截在 600 字，是資料不是指令（SKILL 第 3 步）。
     /// - 那一行裡的網址過 `redactingURLs`。行以 `Character.isNewline` 切（`\r\n` 是一個 `Character`）。
-    /// - 格式取自 safari-browser 的原始碼（`Errors.swift`、`SafariBridge.swift`、`BlockingDialogGate.swift`、`BackgroundTabDiagnostics.swift`），
-    ///   沒有對真的 binary 觸發。
+    /// - 格式取自 safari-browser 的原始碼（`Errors.swift`、`SafariBridge.swift`、`BlockingDialogGate.swift`、`BackgroundTabDiagnostics.swift`、
+    ///   `TerminalText.swift`），沒有對真的 binary 觸發。
     static func safariFailure(_ stderr: String, command: String) -> SafariFailure {
-        let lines = stderr.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        let lines = stderr.split(whereSeparator: \.isNewline)
+            .map { withoutTerminalEscapes(String($0)).trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         guard !lines.isEmpty else { return SafariFailure(line: "(safari-browser printed no message)", note: nil) }
-        let picked = lines.first { $0.hasPrefix("Error:") } ?? lines[0]
-        let line = relayedSafariLine(picked)
         let rest = lines.count - 1
+        let more = "safari-browser `\(command)` printed \(rest) more line\(rest == 1 ? "" : "s"), not relayed"
+        if mentionsPageDialog(lines.joined(separator: " ")) {
+            let line = (lines.contains { $0.hasPrefix("Error:") } ? "Error: " : "") + pageDialogLine
+            guard rest > 0 else { return SafariFailure(line: line, note: nil) }
+            return SafariFailure(line: line, note: more + ": with a JavaScript dialog open they can carry the dialog's text (the page's), "
+                + "and its own error line is among them. The user can see the dialog in Safari and dismiss it there.")
+        }
+        let line = redactingURLs(lines.first { $0.hasPrefix("Error:") } ?? lines[0])
         guard rest > 0 else { return SafariFailure(line: line, note: nil) }
-        let note = "safari-browser `\(command)` printed \(rest) more line\(rest == 1 ? "" : "s"), not relayed: its error output can list "
-            + "the tabs of other windows and profiles. The user can read \(rest == 1 ? "it" : "them") by running that command in Terminal."
+        let note = more + ": its error output can list the tabs of other windows and profiles. The command is shown without its URL and script, "
+            + "so it cannot be re-run as printed. To see what it was about, the user can look at the tab in Safari, or list their own tabs with "
+            + "`safari-browser documents --profile \"<their profile>\"`."
         return SafariFailure(line: line, note: note)
     }
 
-    private static func relayedSafariLine(_ line: String) -> String {
-        let isError = line.hasPrefix("Error:")
-        let body = isError ? String(line.dropFirst("Error:".count)) : line
-        let head = String(String.UnicodeScalarView(body.unicodeScalars.drop(while: { !($0.isASCII && $0.properties.isAlphabetic) })))
-        if pageDialogLineHeads.contains(where: { head.hasPrefix($0) }) { return (isError ? "Error: " : "") + pageDialogLine }
-        return redactingURLs(line)
+    /// stderr 裡有沒有 `pageDialogMarkers` 的其中一個。
+    static func mentionsPageDialog(_ text: String) -> Bool {
+        pageDialogMarkers.contains { m in
+            m.caseInsensitive ? text.range(of: m.text, options: .caseInsensitive) != nil : text.contains(m.text)
+        }
+    }
+
+    /// 去掉終端機的控制序列：ESC 開頭的 CSI（`ESC [` 參數、中間字元、結尾字元）、OSC（`ESC ]` 到 BEL 或 `ESC \`）、其餘的 `ESC` 加一個字元，
+    /// 以及 C1 的 CSI（U+009B）。以 Unicode scalar 處理。沒有結尾的序列連同後面的字一起去掉（截斷的序列不留半個）。
+    static func withoutTerminalEscapes(_ s: String) -> String {
+        let a = Array(s.unicodeScalars)
+        var out = String.UnicodeScalarView()
+        var i = 0
+        func skipCSI(from start: Int) -> Int {   // 回傳結尾字元之後的位置
+            var j = start
+            while j < a.count, (0x20...0x3F).contains(a[j].value) { j += 1 }
+            return j < a.count && (0x40...0x7E).contains(a[j].value) ? j + 1 : a.count
+        }
+        while i < a.count {
+            let v = a[i].value
+            if v == 0x1B, i + 1 < a.count {
+                switch a[i + 1].value {
+                case 0x5B: i = skipCSI(from: i + 2)
+                case 0x5D:
+                    var j = i + 2
+                    while j < a.count, a[j].value != 0x07, !(a[j].value == 0x1B && j + 1 < a.count && a[j + 1].value == 0x5C) { j += 1 }
+                    i = j >= a.count ? a.count : (a[j].value == 0x07 ? j + 1 : j + 2)
+                default: i += 2
+                }
+            } else if v == 0x1B {
+                i += 1
+            } else if v == 0x9B {
+                i = skipCSI(from: i + 1)
+            } else {
+                out.append(a[i]); i += 1
+            }
+        }
+        return String(out)
     }
 
     /// 文字裡的每一個網址先過 `plainURL`（b33 X3 第 12、24 則：`open:`、導航失敗、讀連結失敗三處先前原樣轉印 safari-browser 的 stderr，
-    /// 回顯的簽章網址會帶著查詢字串出去）。b37 起只用在 `safariFailure` 轉印的那一行。
+    /// 回顯的簽章網址會帶著查詢字串出去）。b37 起只用在 `safariFailure` 轉印的那一行；`redactingPageText` 以它收尾。
+    ///
+    /// 網址在空白、`"`、`<`、`>` 處結束（WHATWG 在路徑、查詢、片段裡都把它們百分比編碼）。**不在 `'` 處結束**（b41＝b40 Z2 第 12 則）：
+    /// WHATWG 不把帳密與路徑裡的 `'` 編碼，`https://u:SEC'RET@h/x?sig=1` 先前只比到 `https://u:SEC`，`'RET@h/x?sig=1` 原樣留下。代價：網址後面
+    /// 緊接的 `'`（`'https://h/x'` 的結尾）算進網址——它在查詢裡時跟著查詢一起去掉。
     static func redactingURLs(_ text: String) -> String {
-        let re = try! NSRegularExpression(pattern: #"(?i)(?<![A-Za-z0-9+.-])[a-z][a-z0-9+.-]*://[^\s"'<>]+"#)   // 編譯期常數
+        let re = try! NSRegularExpression(pattern: #"(?i)(?<![A-Za-z0-9+.-])[a-z][a-z0-9+.-]*://[^\s"<>]+"#)   // 編譯期常數
+        return replacing(re, in: text) { plainURL($0) }
+    }
+
+    /// 頁面給的字印出之前去憑證：連結那一段 JS 的回答（`unexpected answer from the link script`）與頁面給的 PDF 連結（`points off-site`）
+    /// （#613 b41，b40 Z2 第 8、28 則）。`plainURL` 只對**一個**網址負責：字串裡第二個網址、tab 與換行夾在 `://` 中間、special scheme 沒有兩個
+    /// 斜線的寫法，它都看不到。這裡照 WHATWG 讀網址的方式把那些形狀的帳密也去掉：
+    ///
+    /// 1. 去掉 ASCII tab、LF、CR（WHATWG 讀網址時去掉它們，`URLSplit` 同）：`https:/<tab>/u:p@h` 是帶帳密的網址。**代價**：夾在字之間的換行跟著
+    ///    消失，`GET<LF>https://…` 印成 `gethttps://…`（`plainURL` 照 `URLSplit` 把 scheme 轉小寫）。
+    /// 2. special scheme（`http`、`https`、`ws`、`wss`、`ftp`、`file`）的 authority 不看斜線的個數與方向（`https:u:p@h`、`https:/\u:p@h`、
+    ///    `https:///u:p@h`），兩個以上斜線或反斜線起頭的寫法（`//u:p@h`、`\\u:p@h`、`///u:p@h`）同：去掉 authority 裡最後一個 `@` 之前的部分。
+    ///    不看前面是不是字的邊界（第 1 步可能把前面的字接上來）；代價是 `profile:x@y` 這種字也被剝成 `profile:y`——頁面的字，寧可多剝。
+    /// 3. 每一個網址過 `plainURL`（查詢、片段、路徑參數）：兩個以上斜線或反斜線起頭的、special scheme 起頭的（斜線幾個都算，`https:h/x?sig=…`
+    ///    也剝查詢），最後是每一個 `scheme://`（`redactingURLs`）。
+    static func redactingPageText(_ text: String) -> String {
+        let stripped = String(String.UnicodeScalarView(text.unicodeScalars.filter { $0 != "\t" && $0 != "\n" && $0 != "\r" }))
+        let userinfo = try! NSRegularExpression(pattern: #"(?i)((?:https?|wss?|ftp|file):[/\\]*|[/\\]{2,})[^/\\?#\s"<>]*@"#)   // 編譯期常數
+        let withoutUserinfo = userinfo.stringByReplacingMatches(in: stripped, range: NSRange(location: 0, length: (stripped as NSString).length),
+                                                                withTemplate: "$1")
+        let schemeless = try! NSRegularExpression(pattern: #"(?<![A-Za-z0-9+.:/\\-])[/\\]{2,}[^\s"<>]+"#)   // 編譯期常數
+        let special = try! NSRegularExpression(pattern: #"(?i)(?:https?|wss?|ftp|file):[^\s"<>]+"#)   // 編譯期常數
+        let tokens = replacing(special, in: replacing(schemeless, in: withoutUserinfo) { plainURL($0) }) { plainURL($0) }
+        return redactingURLs(tokens)
+    }
+
+    /// `re` 的每一個比對換成 `transform` 的結果，其餘原樣。
+    private static func replacing(_ re: NSRegularExpression, in text: String, _ transform: (String) -> String) -> String {
         let ns = text as NSString
         var out = ""
         var last = 0
         for m in re.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
             out += ns.substring(with: NSRange(location: last, length: m.range.location - last))
-            out += plainURL(ns.substring(with: m.range))
+            out += transform(ns.substring(with: m.range))
             last = m.range.location + m.range.length
         }
         return out + ns.substring(from: last)
     }
-
     /// `shownJS` 的回答（第二行是 readyState）是不是已經落定：complete 或 interactive。
     static func isSettled(_ value: String) -> Bool {
         let readyState = value.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false).dropFirst().first

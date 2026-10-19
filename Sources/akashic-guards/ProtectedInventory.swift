@@ -196,6 +196,8 @@ func protectedInventory() -> (guards: [String], data: [String]) {
     DATA += [".githooks/protected-ratchet.txt"]
     // #690 R1 verify：trigger-coverage 的已知缺口清單是它的輸入。被刪時 trigger-coverage 以 rc=2 中止、missing 也具名它。
     DATA += [".githooks/acknowledged-ci-gaps.txt"]
+    // #613 b41：plugin 殼的版號表是 `plugin-shell-version` 的輸入。被刪時那支以 rc=2 中止、missing 也具名它。
+    DATA += [pluginShellVersionsPath]
     // 顯式條目與推導出的 manifest 會重疊（`plugin/.claude-plugin/plugin.json`）；保序去重
     var seen = Set<String>()
     DATA = DATA.filter { seen.insert($0).inserted }

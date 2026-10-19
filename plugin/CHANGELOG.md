@@ -12,6 +12,21 @@
 
 plugin 版號沒有動（行為在 binary）。
 
+## #700、#692 — b40 verify 修正（2026-10-19）：sources 區塊只看 akashic 寫的路徑、NUL 與星號照 git 讀、`sources/.gitignore`、等鎖逾時不刪新建的空檔
+
+細節在 `changelog/2026-10-19-b41-sources-ignore-700.md`。**需要新的 `akashic` CLI**（`file add`、`doctor`、`import-zotero`）與新的 `akashic-mcp`（兩個匯入的 `.gitignore` 判讀與 `gitignoreWarning` 的文字）；MCP 工具與說明不變。
+
+- **`.gitignore` 的 sources 區塊**（#700；CLI `file add`／`doctor`／`import-zotero`，MCP `akashic_import_zotero`／`akashic_import_wos`）：
+  - 「區塊已在」說的是 **akashic 寫進 `sources/` 的路徑**（`index.jsonl`、兩個十六進位字元的存檔子目錄與裡面的檔）都被 git 排除。區塊之後的否定規則只算碰得到那些路徑的——`sources/*` 之後接 `!sources/.gitkeep`（保留空目錄的慣用寫法）自此照常放行（先前 `file add` 拒絕、`doctor` 每次都報，處置還叫人刪掉 `.gitkeep` 例外）。
+  - 一行在第一個 NUL 截斷（git 把一行當 C 字串讀）、三個以上的 `*` 與兩個相同：`!sources/` 後面接 NUL、`!***/sources` 這類先前判成已在而 git 不排除的形狀自此報。
+  - **新的拒絕／warning**：規則只排除內容（`sources/*` 之類）而 `sources/` 裡另有 `.gitignore` 時不算已在（git 會讀那一份，它比根目錄的優先）——先前放行。排除目錄本身的 `sources/` 不受影響。
+  - 否定規則與 `sources/.gitignore` 這兩格的首句改成「不能確定它生效」（先前首句說「沒有生效的區塊」、處置說「區塊已在」）；否定規則的處置改成先以 `git check-ignore -v` 看是哪一行決定，或在檔尾補一行頂格的 `sources/`。看與寫之間一直在變時首句說「沒有讀到穩定的內容」、處置只叫人「沒有區塊才加」。
+  - 這一次新建的 `.gitignore` 拿不到鎖時，空檔留著、訊息說出它留著（先前沒有持鎖就刪掉它，可能刪到正在寫區塊的另一個程序的檔）。
+- **web-access.md〈開始前〉第 4 點**（#692）：「契約每改一次就多一條真呼叫」限縮成探測實際涵蓋的 `web-read url`、`origin`、`check`（`landing` 沒有探測）。只改說明，探測本身不變。
+- `tools/list`：59,171 → 59,171 bytes（±0；MCP 說明沒有改）。上一段與 #709、#613 兩段寫的 59,173 是那一批的 base，整合之後的 main（`04131a49`）是 59,171（同一批 #564 的 −2）。
+
+plugin 殼版號不動（0.13.4，未同步到 marketplace）；web-access.md 改了，殼摘要重記。
+
 ## #709 — b38 verify 修正（2026-10-15）：enrich 的 DOI 歧義理由對同 citekey 的重複說先修好、DOI 以 scalar 截短；bootstrap 乾跑被擋時結尾不說「加 --apply」
 
 細節在 `changelog/2026-10-15-b39-p4-fixes-709.md`。
@@ -33,7 +48,7 @@ plugin 殼版號隨同一批的 #613 b39 升到 0.13.4（這一段改了 skill �
 - **`.gitignore` 的 sources 區塊**（#700；CLI `file add`／`doctor`／`import-zotero`，MCP `akashic_import_zotero`／`akashic_import_wos`）：規則之後有一行把 `sources/` 放回來的否定規則（`!sources/`、`!*`、`!sou*/` 之類；git 以最後一條符合的規則為準）時算不生效——`file add` 拒絕、其餘報 warning，說出是否定規則、不叫人再貼一份（先前判成「已在」、不出聲）。讀不到與等鎖逾時的首句改成「沒有讀到，不知道裡面有沒有生效的 sources 排除區塊」，處置是「沒有區塊才加」。等鎖的期限改用單調時鐘。
 - **揭露**：b36 verify 修正（下面那一段）的「等鎖至多 10 秒」改了使用者 2026-10-05 的「只記錄」（非 akashic 程序長時間持鎖時 akashic 會一直等），當時沒有寫出來；使用者 2026-10-15 裁決保留這個上限。
 - CLI `file add`／`doctor`／`import-zotero` 的說明把「沒有生效的區塊而…才不改」與「不論有沒有區塊都不改」兩種條件分開（b37 拿掉了限定，已有區塊的硬連結或 Latin-1 檔讀起來像一律拒絕）。
-- `tools/list`：59,173 → 59,173 bytes（±0；MCP 說明沒有改）。
+- `tools/list`：59,173 → 59,173 bytes（±0；MCP 說明沒有改）。更正（b40 verify）：59,173 是這一段的 base；整合之後的 main（`04131a49`）重量是 59,171（同一批 #564 的 −2）。
 
 plugin 殼版號隨同一批的 #613 b39 升到 0.13.4（這一段改了 skill 文字，與上下兩段同一次出貨；行為在 binary）。
 

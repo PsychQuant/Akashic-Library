@@ -1342,28 +1342,45 @@ reference；遷移留下的認不出的角色只能手改 YAML）。倖存者有
 **存檔 MUST NOT 進版控 remote**——它是第三方逐字內容，與本專案對 raw 逐字稿的
 處置相同；追蹤的是**指涉紀錄**（references 欄位），不是被指涉的位元組。
 `ensureLayout()` 建 `sources/` 並寫入 `.gitignore` 標記區塊（`# BEGIN akashic
-sources` … `# END`；idempotent——標記已在、而且標記之後有一行排除規則（`sources/`，或 `/sources/`、`sources/**` 這類手工寫法，
-`LibraryStore.sourcesRuleLines` 是封閉列舉；一行照 git 讀 `.gitignore` 的切法比——行尾一個 CR、再行尾的空格去掉，行首的空白與 tab、
-行尾的 tab 是規則的一部分，git 不認那種寫法，所以不算，#700 b36 verify），而且那一行之後沒有否定規則（`!` 開頭）把 `sources/` 放回來
-（git 對同一個 `.gitignore` 以最後一條符合的規則為準；#700 b38 verify：先前不看規則之後的否定，`!sources/`、`!*` 接在區塊之後時判成已在、
-不出聲，而 git 不排除）就不寫也不改寫，含手工版本）。判成已在 ⇒ git 排除；反方向有幾種保守的形狀（規則寫在標記之前、`[…]` 字元類、
-只排除內容的 `sources/*` 之後接任何否定規則）判成不在而 git 可能排除——方向是多報，見零實例量測文件第 87 列。標記以**位元組**比對；
+sources` … `# END`；idempotent——標記已在、而且標記之後有一行排除規則（`sources/`，或 `/sources/`、`sources/**` 這類手工寫法；
+`LibraryStore.sourcesDirectoryRuleLines` 與 `sourcesContentRuleLines` 兩份封閉列舉合起來是全部，前者排除目錄本身、後者只排除目錄裡的內容；
+一行照 git 讀 `.gitignore` 的切法比——git 把一行當 C 字串讀，第一個 NUL 之後不算，沒有 NUL 時行尾一個 CR、再行尾的空格去掉，行首的空白與 tab、
+行尾的 tab 是規則的一部分，git 不認那種寫法，所以不算，#700 b36 verify、b40 verify），而且 akashic 寫進 `sources/` 的路徑沒有被之後的否定規則（`!` 開頭）
+放回來（git 對同一個 `.gitignore` 以最後一條符合的規則為準；#700 b38 verify：先前不看規則之後的否定，`!sources/`、`!*` 接在區塊之後時判成已在、
+不出聲，而 git 不排除；b40 verify：只算碰得到那些路徑的否定規則——`sources/*` 之後接 `!sources/.gitkeep` 照樣已在），而且規則只排除內容時
+`sources/.gitignore` 不在（git 會讀那一份，它比根目錄的優先；b40 verify）就不寫也不改寫，含手工版本）。
+
+**判成已在 ⇒ git 排除 akashic 寫進 `sources/` 的每一個路徑**：`sources/index.jsonl`、兩個十六進位字元的存檔子目錄與裡面的存檔與
+`.…incoming-…` 暫存檔（`GitignorePreservationCLITests.testThePresentJudgementAgreesWithGitCheckIgnore` 以 `git check-ignore` 逐形對照）。
+這個命題的範圍：只說 store 根目錄的 `.gitignore` 與 `sources/.gitignore`（排除目錄本身時 git 不進 `sources/`，更深的 `.gitignore` 不讀；
+存檔子目錄被放回來時判成不在，所以也不必讀子目錄裡的）；不說 akashic 沒寫的路徑（`sources/.gitkeep` 之類）；不說已經被追蹤的檔
+（`.gitignore` 管不到它們）；git 的其他排除來源（`core.excludesFile`、`.git/info/exclude`）只會多排除。反方向有幾種保守的形狀判成不在
+而 git 可能排除（規則寫在標記之前、`[…]` 字元類、`core.ignorecase`、不在開頭也不在 `/` 之後的 `**`、否定之後以別種寫法重新排除、
+只排除內容而 `sources/.gitignore` 只有註解）——方向是多報，見零實例量測文件第 87 列。標記以**位元組**比對；
 要加區塊時只在尾端**附加位元組**（檔尾不是換行先補一個），原有的位元組一個都不動。**看與寫之間**（#700 b33 verify）：真的要寫時開檔、
 取 `flock(LOCK_EX)`、在鎖內重讀一次內容再決定——同時跑的兩個 akashic 程序一個寫、另一個看到區塊已在就算成功，第一次看也先取 `flock(LOCK_SH)`、等持鎖的寫入者寫完（先前以 inode 與大小比對
 代替鎖，實測會寫出兩份區塊、並對已在的區塊報假拒絕與假警告）；寫到一半失敗時只截掉這一次寫進去的位元組（大小還是「原長＋這一次寫的」
 才截），截不回來具名回報。檔案系統不支援 `flock` 時不鎖、照常往下（鎖內重看仍擋得住「別人已經寫好」，擋不住兩邊同時寫）。
 等鎖有上限（10 秒，#700 b36 verify；期限是單調時鐘，b38 verify）：持鎖的程序卡住時不無限期等，報「另一個程序持有它的鎖」、不讀不寫——
 首句說「沒有讀到，不知道裡面有沒有生效的 sources 排除區塊」，處置是「沒有區塊才加」（讀不到時同；使用者 2026-10-15 裁決）。這個上限改了
-使用者 2026-10-05 的「只記錄」，使用者 2026-10-15 裁決保留。`flock` 回 `EWOULDBLOCK` 以外的錯誤（`ENOTSUP`、`ENOLCK` 之類）時不鎖、照常往下。
-**讀不懂的 `.gitignore` MUST NOT 被改寫**（#700 b31 W5）：讀不到、不是 UTF-8 文字（含非 UTF-8 位元組或 NUL——Latin-1、UTF-16
-存的檔）、是 symlink（不論指向的內容有沒有區塊——git 2.32 起不讀工作樹裡 symlink 的 `.gitignore`，#700 b36 verify）、symlink 打不開（懸空、迴圈、不可讀）、不是一般檔、有其他硬連結、大到 git 不讀
-（≥ 100 MiB：git 不讀這麼大的 `.gitignore`，附加會讓原本生效的檔越過那條線）、有標記沒有排除規則（寫到一半中斷）、排除規則被之後的
-否定規則放回來、沒有寫入權限
-（以有效 uid 判）時，`file add` 在建立任何東西之前具名拒絕、訊息附上要自己加的那段；`doctor` 與兩個匯入（`import-zotero`、MCP 的
+使用者 2026-10-05 的「只記錄」，使用者 2026-10-15 裁決保留。這一次以 `O_EXCL` 新建的 `.gitignore` 拿不到鎖時，那個空檔**留著**、訊息說出
+它留著（b40 verify：鎖在打開了同一個檔的另一個程序手上，它可能正要把區塊寫進去；b39 在沒有持鎖時以「仍是空的、路徑仍指著它」為據刪掉它，
+檢查與刪除不是原子的，會刪掉對方剛寫好區塊的檔）。`flock` 回 `EWOULDBLOCK` 以外的錯誤（`ENOTSUP`、`ENOLCK` 之類）時不鎖、照常往下。
+
+**讀不懂的 `.gitignore` MUST NOT 被改寫**（#700 b31 W5）。條件分兩種（b40 verify：先前這一段把兩種列成同一張清單，讀起來像「有區塊也拒絕」，
+而有生效區塊的 Latin-1、硬連結、唯讀檔照常放行）：
+
+- **沒有生效的區塊、而** 它不是 UTF-8 文字（含非 UTF-8 位元組或 NUL——Latin-1、UTF-16 存的檔）、有其他硬連結、沒有寫入權限（以有效 uid 判），
+  或有標記沒有排除規則（寫到一半中斷）、排除規則可能被之後的否定規則放回來、規則只排除內容而 `sources/.gitignore` 在。已有生效的區塊時，
+  不論它是什麼編碼、有沒有其他硬連結、能不能寫，什麼都不做。
+- **不論有沒有區塊**：讀不到、是 symlink（git 2.32 起不讀工作樹裡 symlink 的 `.gitignore`，#700 b36 verify）、symlink 打不開（懸空、迴圈、
+  不可讀）、不是一般檔、大到 git 不讀（≥ 100 MiB：git 不讀這麼大的 `.gitignore`，附加會讓原本生效的檔越過那條線）、等鎖逾時。
+
+這些情形 `file add` 在建立任何東西之前具名拒絕、訊息附上要自己加的那段；`doctor` 與兩個匯入（`import-zotero`、MCP 的
 `akashic_import_zotero`／`akashic_import_wos`，含 `dry_run`）照常建佈局、`.gitignore` 不動、報一則 warning（`doctor` 印在 stdout、
 `import-zotero` 印在 stderr、MCP 放在回應的 `gitignoreWarning`；三處同一份文字，附上要自己加的那段）。匯入改成 warning 是使用者 2026-10-05
 的裁決（#700）：匯入本身不寫 `sources/`，擋存檔進版控的防線是下面那道寫入存檔前的 git 驗證——store 在 git 裡而 `sources/` 沒被排除時它拒寫。`file add` 開檔、取鎖、
-寫入這一段才發現的原因（寫入失敗、看與寫之間一直在變）在佈局建好之後才擲出，訊息說是哪一種。symlink 與硬連結不經它寫入（那個檔可能在 store 之外、被別處共用）；~~指向的內容已有
+寫入這一段才發現的原因（寫入失敗、看與寫之間一直在變、拿不到新建的 `.gitignore` 的鎖）在佈局建好之後才擲出，訊息說是哪一種。symlink 與硬連結不經它寫入（那個檔可能在 store 之外、被別處共用）；~~指向的內容已有
 區塊時照樣什麼都不做~~ → symlink 不論指向的內容有沒有區塊都不算已在（git 不讀它，#700 b36 verify）；硬連結的檔已有區塊時照樣什麼都不做
 （git 讀硬連結）。先前讀不出來就當成空檔、整份以只含區塊的內容替換，
 使用者原有的規則（擋 raw 逐字稿的 `*.srt` 之類）全部消失；symlink 被換成一般檔。寫入存檔

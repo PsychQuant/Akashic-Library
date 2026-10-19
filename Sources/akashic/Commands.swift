@@ -15,7 +15,8 @@ struct Doctor: ParsableCommand {
         discussion: """
         佈局不存在時建立（store.yaml、incarnation、各目錄、sources/）。store 根目錄的 .gitignore 沒有 sources 排除區塊時在尾端附加一段\
         （原有的位元組不動；沒有 .gitignore 時新建）。沒有生效的區塊而它不是 UTF-8 文字、有其他硬連結、沒有寫入權限，或有標記而沒有 git \
-        認得的 sources/ 規則（行首帶空白、行尾帶 tab 的不算）、規則被之後的否定規則（! 開頭）放回來時不改它；它讀不到、是 symlink（git 不讀 \
+        認得的 sources/ 規則（行首帶空白、行尾帶 tab 的不算）、之後的否定規則（! 開頭）可能把 akashic 寫的 index.jsonl 或存檔子目錄放回來，\
+        或規則只排除內容（sources/* 之類）而 sources/ 裡另有 .gitignore 時不改它；它讀不到、是 symlink（git 不讀 \
         symlink 的 .gitignore，指向的檔有區塊也不生效）、不是一般檔、大到 git 不讀，或另一個程序持鎖超過 10 秒時，不論有沒有區塊都不改它。\
         這些情形印一則 ⚠ warning 與區塊那一段，結束碼不因此改變（#700）。
         """)
@@ -352,9 +353,11 @@ struct ImportZotero: ParsableCommand {
         commandName: "import-zotero", abstract: "Zotero → Akashic 單向 pull（zotero.sqlite 唯讀）；沒有乾跑，未指名目標 store（--library 或 --yes）即拒絕（#658）",
         discussion: """
         佈局不存在時建立（同 file add），並在 store 根目錄的 .gitignore 沒有 sources 排除區塊時於尾端附加一段（原有的位元組不動）。\
-        沒有生效的區塊而它不是 UTF-8 文字、有其他硬連結、沒有寫入權限，或有標記而沒有 git 認得的 sources/ 規則、規則被之後的否定規則放回來\
-        時不改它；它讀不到、是 symlink（git 不讀它）、不是一般檔、大到 git 不讀，或另一個程序持鎖超過 10 秒時，不論有沒有區塊都不改它。這些\
-        情形照常匯入，在讀 zotero.sqlite 之前於 stderr 印一則 ⚠ warning 與區塊那一段，結束碼不因此改變（#700）。warning 只說匯入不因此中止，不預告匯入的結果；處置之後跑 akashic doctor 就補上區塊，不必重跑匯入。\
+        沒有生效的區塊而它不是 UTF-8 文字、有其他硬連結、沒有寫入權限，或有標記而沒有 git 認得的 sources/ 規則、之後的否定規則可能把 akashic \
+        寫的路徑放回來、規則只排除內容而 sources/ 裡另有 .gitignore 時不改它；它讀不到、是 symlink（git 不讀它）、不是一般檔、大到 git 不讀，\
+        或另一個程序持鎖超過 10 秒時，不論有沒有區塊都不改它。這些情形照常匯入，在讀 zotero.sqlite 之前於 stderr 印一則 ⚠ warning 與區塊\
+        那一段，結束碼不因此改變（#700）。warning 只說匯入不因此中止，不預告匯入的結果；處置之後跑 akashic doctor 就補上區塊，不必重跑匯入\
+        （區塊已在、只是被否定規則或 sources/.gitignore 擋住時 doctor 不補，問題還在就照報）。\
         匯入不寫 sources/；store 在 git 工作樹裡時，sources/ 沒被排除之前 store-source 拒絕寫入。
         """)
 

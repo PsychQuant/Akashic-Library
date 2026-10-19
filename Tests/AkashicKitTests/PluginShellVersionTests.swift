@@ -21,7 +21,7 @@ final class PluginShellVersionTests: XCTestCase {
     /// 目前的版號，與它送出的殼內容的摘要。這支紅的時候：
     /// - 殼的內容改了 → 升 `plugin.json` 的 `version`，把這兩個值改成新的版號與失敗訊息印出的摘要；
     /// - 這個版號還沒推上 main（還沒同步到 marketplace）→ 版號不動，只改摘要。
-    static let recorded = (version: "0.13.4", digest: "f6dfba69a7ce3a9b1605c23a9478f9d30cd3994925d96f68609b7cf84d42e609")
+    static let recorded = (version: "0.13.4", digest: "3e4ef18e720ee0c8087817c713630d67c65787dfc82458f7fc776eb12b2ff6a3")
 
     static var repo: URL {
         URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()

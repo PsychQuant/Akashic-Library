@@ -66,7 +66,9 @@ b34 以來每個 binary 都放行。使用者 2026-10-05 的裁決是「舊 CLI 
 **負控**：探測的判定改成 `true ||` → 新測試紅（3 個替身、6 則）；還原後與修改前的文件逐位元組相同（`cmp`）。
 
 **沒有改**：security 席另指出 `check` 那一條的 2 也是「讀回的文字不能用」的結果、證不到「沒有訊號 → 2」那條路徑本身。探測要的安全性質是「驗證服務上
-不給 `READ-OK`、不寫出文字」，兩條路徑都滿足；再比對輸出文字要依賴語系（中文字的比對），換到的只是分辨兩種同樣停下的路徑，這一輪不加。
+不給 `READ-OK`、不寫出文字」，兩條路徑都滿足；~~再比對輸出文字要依賴語系（中文字的比對），換到的只是分辨兩種同樣停下的路徑~~（b40 verify INFO 13：
+這個理由不成立——兩條路徑都印 ASCII 的 `READ-PAUSE`、以 2 結束，差別只在後面的中文原因句，`grep -F` 逐位元組比對，與語系無關）→ 兩條路徑同樣停下、
+都不給 `READ-OK`、不寫出文字，探測要的性質兩條都滿足，不需要分；這一輪不加。
 
 ## 3. #700 MEDIUM（2）與使用者 2026-10-15 裁決：等鎖的 10 秒上限保留
 
@@ -102,7 +104,7 @@ b34 以來每個 binary 都放行。使用者 2026-10-05 的裁決是「舊 CLI 
 | 7（#700） | 已修：`file add`、`doctor`、`import-zotero` 的說明把兩種條件分開——「沒有生效的區塊而…」（非 UTF-8、硬連結、沒有寫入權限、有標記沒有規則、規則被否定）才不改／拒絕，「不論有沒有區塊」（讀不到、symlink、不是一般檔、大到 git 不讀、等鎖逾時）都不改／拒絕；`file add` 寫明已有生效的區塊時「不論它是什麼編碼、有沒有其他硬連結」都什麼都不做。`testTheHelpSeparatesConditionsThatNeedNoBlockFromUnconditionalOnes` |
 | 14（#700） | 記錄、不改程式：b37 把 `LibraryIndex.rebuild` 的換位改成 `rename(2)`，換位之後 index 檔的模式與 xattr 是新建的那一份（先前 `replaceItemAt` 保留原檔的；regression 席以 scratch 程式量到 `0600` 與備份排除的 xattr 在重建後消失）。index 是衍生層、每次重建都換；手動對它 `chmod 600` 或設備份排除的人要知道這些設定不會留下來。devil's advocate 量到這個改動有因果（沒有它，6 個 `doctor` 同時跑 25 輪舊 binary 4／150 失敗、新的 0／150）。要不要在換位前把原檔的模式帶過去，沒有人裁決過，這一輪不改；沒有開 issue（只讀不寫 GitHub） |
 | 18（#700） | 第 3 節 |
-| 19（#700，INFO） | 不改：兩個匯入的 MCP 說明要不要為 `gitignoreWarning` 加字，待使用者裁決（#700 的 Blocking）。這一輪 `tools/list` 59,173 → 59,173 bytes（±0；`Server.swift` 沒有動） |
+| 19（#700，INFO） | 不改：兩個匯入的 MCP 說明要不要為 `gitignoreWarning` 加字，待使用者裁決（#700 的 Blocking）。這一輪 `tools/list` 59,173 → 59,173 bytes（±0；`Server.swift` 沒有動）。**更正**（b40 verify INFO 14、16、22）：59,173 是這一輪的 base；整合之後的 main（`04131a49`）以真 binary 重量是 **59,171**——同一批的 #564 少了 2 bytes（見 `2026-10-15-b39-name-classification-564.md`），餘裕約 829 而不是 827 |
 | 20（INFO） | 不在這一輪：b36 LOW 23 屬 #705（已 verified），處置交給那張 issue |
 | 21、28（INFO） | 驗證過、沒有缺陷，不動 |
 | 22（INFO） | 已修說明：`lock` 的 doc 與 `store-format.md` 寫明 `EWOULDBLOCK` 以外的錯誤（`ENOTSUP`、`ENOLCK` 之類）一律不鎖、照常往下；行為不變 |

@@ -424,6 +424,22 @@ extension ZoteroReportCLITests {
         XCTAssertEqual(blobs.filter { !$0.hasPrefix(".") }, [], "拒寫時不留任何位元組")
     }
 
+    /// #700 b40 verify LOW 4：區塊被之後的否定規則放回來（`ruleNegatedLater`）——CLI `import-zotero` 照常匯入、以 0 結束，stderr 的 warning
+    /// 與 MCP 的 `gitignoreWarning` 同一份文字（說出是否定規則、不叫人再貼一份），`.gitignore` 逐位元組不變。
+    func testImportWarnsWhenALaterNegationUndoesTheBlock() throws {
+        let ignore = root.appendingPathComponent(".gitignore")
+        let original = Data("# BEGIN akashic sources\nsources/\n# END akashic sources\n!sources/\n".utf8)
+        try original.write(to: ignore)
+        let r = try runSplit(["import-zotero", "--zotero-db", zoteroDB.path])
+        XCTAssertEqual(r.status, 0, "照常匯入：\(r.out)\n\(r.err)")
+        XCTAssertTrue(r.out.contains("created: 1"), r.out)
+        let expected = SourcesIgnoreProblem.ruleNegatedLater.warningLines(by: "import-zotero", note: SourcesIgnoreProblem.importContinuedNote,
+                                                                          rerun: SourcesIgnoreProblem.importRerun)
+        XCTAssertTrue(r.err.hasPrefix(expected.joined(separator: "\n") + "\n"), r.err)
+        XCTAssertTrue(r.err.contains("否定規則") && r.err.contains("不要再貼一份"), r.err)
+        XCTAssertEqual(try Data(contentsOf: ignore), original, ".gitignore 逐位元組不變")
+    }
+
     /// b36 verify LOW：warning 在讀 zotero.sqlite 之前印，不得對還沒發生的匯入下斷言——先前寫「匯入照常完成」，之後找不到 db 而以 1 結束，
     /// 只讀 stderr 的人先看到「照常完成」。
     func testTheWarningDoesNotClaimAnImportThatThenFails() throws {

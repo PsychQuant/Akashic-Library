@@ -718,6 +718,36 @@ final class ServiceTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: root.appendingPathComponent(".gitignore")), original, ".gitignore 仍不動")
     }
 
+    /// #700 b40 verify LOW 4：`.gitignore` 的區塊被之後的否定規則放回來（`ruleNegatedLater`）時，MCP 的兩個匯入（`akashic_import_wos` 含
+    /// `dry_run`、`akashic_import_zotero`）照常匯入、`.gitignore` 逐位元組不變，`gitignoreWarning` 說出是否定規則、不叫人再貼一份——與 `doctor`
+    /// 同一份文字（先前這一格只有判讀單元測試與真 binary 的 `doctor`／`file add`，匯入端的分派改了不會有測試變紅）。
+    func testBothImportsWarnWhenALaterNegationUndoesTheBlock() throws {
+        let ignore = root.appendingPathComponent(".gitignore")
+        let original = Data("# BEGIN akashic sources\nsources/\n# END akashic sources\n!sources/\n".utf8)
+        try original.write(to: ignore)
+        let expected = SourcesIgnoreProblem.ruleNegatedLater.warningLines(by: "akashic_import_wos", note: SourcesIgnoreProblem.importContinuedNote,
+                                                                          rerun: SourcesIgnoreProblem.importRerun).joined(separator: "\n")
+        let path = try wosTSV([["Authors": "Lay, K-L", "Article Title": "Negated",
+                                "Publication Year": "2020", "Source Title": "DevPsy", "DOI": "10.2/neg"]])
+        for dryRun in [true, false] {
+            let obj = try json(try service.importWoS(path: path, csv: false, dryRun: dryRun)) as! [String: Any]
+            let warning = try XCTUnwrap(obj[AkashicService.gitignoreWarningKey] as? String, "dry_run=\(dryRun)：\(obj)")
+            XCTAssertEqual(warning, expected, "dry_run=\(dryRun)")
+            XCTAssertTrue(warning.contains("否定規則") && warning.contains("不要再貼一份"), warning)
+            XCTAssertEqual((obj["created"] as? [String])?.count, 1, "照常匯入（dry_run 預告）：\(obj)")
+            XCTAssertEqual(try Data(contentsOf: ignore), original, "dry_run=\(dryRun)：.gitignore 逐位元組不變")
+        }
+        let zdir = FileManager.default.temporaryDirectory.appendingPathComponent("zdb-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: zdir, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: zdir) }
+        let z = try PayloadZoteroDB(dir: zdir)
+        let obj = try json(try service.importZotero(zoteroDb: z.url.path, libraryID: nil)) as! [String: Any]
+        let warning = try XCTUnwrap(obj[AkashicService.gitignoreWarningKey] as? String, "\(obj)")
+        XCTAssertEqual(warning, SourcesIgnoreProblem.ruleNegatedLater.warningLines(by: "akashic_import_zotero", note: SourcesIgnoreProblem.importContinuedNote,
+                                                                                   rerun: SourcesIgnoreProblem.importRerun).joined(separator: "\n"))
+        XCTAssertEqual(try Data(contentsOf: ignore), original, ".gitignore 逐位元組不變")
+    }
+
     func testImportWoSMissingFileFailsLoud() {
         XCTAssertThrowsError(try service.importWoS(path: "/nonexistent/wos.txt",
                                                    csv: false, dryRun: false))

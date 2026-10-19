@@ -950,7 +950,7 @@ verify 以真 binary 實測兩個以上的程序同時第一次對同一個 stor
 
 **理由欄的其餘部分**
 
-四個新形狀各自是「不動它」的一格：硬連結與 symlink 同一個理由（那個檔可能在 store 之外）；git 不讀 ≥ 100 MiB 的 `.gitignore`（實測 git 2.55），附加會讓原本生效的檔越過那條線；只有標記沒有規則是寫到一半中斷的形狀，先前被當成已在而永遠不補。**等鎖的上限**（b36 verify 補，b38 verify 補記到這一列）：兩種鎖都以 `LOCK_NB` 每 20 ms 試一次、至多 10 秒，逾時是 `lockTimedOut`（不讀不寫；`file add` 拒絕，`doctor` 與兩個匯入報 warning，首句說「沒有讀到」而不是「沒有生效的區塊」，b39）；期限用單調時鐘 `ContinuousClock`、`EINTR` 也看期限（b39，先前是牆上時鐘 `Date()`、`EINTR` 直接重試）；新建的 `.gitignore` 拿不到鎖時刪掉這一步建的空檔（b39）。這個上限改了使用者 2026-10-05 的「只記錄」（非 akashic 程序長時間持鎖時 akashic 會一直等），b37 沒有揭露；使用者 2026-10-15 裁決保留。觸發條件：持鎖者正常只持微秒級，`lockTimedOut` 出現就是持鎖的程序卡住（被 `SIGSTOP`、網路掛載）——2026-10-15 沒有量到實例（這個狀態不留痕跡，只在當下的輸出裡）。`EWOULDBLOCK` 以外的錯誤（`ENOTSUP`、`ENOLCK` 等）一律不鎖、照常往下。**誠實邊界**：檔案系統不支援 `flock` 時不鎖（鎖內重看仍擋得住「別人已寫好」，擋不住兩邊同時寫）；非 akashic 的寫入者不經這把鎖——回滾因此先看大小是不是「原長＋這一次寫的」，不是才截；同時跑的 `doctor` 重建 index 另有一個與 `.gitignore` 無關的競態（3043aaf7 同樣出現），不在這一列。
+四個新形狀各自是「不動它」的一格：硬連結與 symlink 同一個理由（那個檔可能在 store 之外）；git 不讀 ≥ 100 MiB 的 `.gitignore`（實測 git 2.55），附加會讓原本生效的檔越過那條線；只有標記沒有規則是寫到一半中斷的形狀，先前被當成已在而永遠不補。**等鎖的上限**（b36 verify 補，b38 verify 補記到這一列）：兩種鎖都以 `LOCK_NB` 每 20 ms 試一次、至多 10 秒，逾時是 `lockTimedOut`（不讀不寫；`file add` 拒絕，`doctor` 與兩個匯入報 warning，首句說「沒有讀到」而不是「沒有生效的區塊」，b39）；期限用單調時鐘 `ContinuousClock`、`EINTR` 也看期限（b39，先前是牆上時鐘 `Date()`、`EINTR` 直接重試）；~~新建的 `.gitignore` 拿不到鎖時刪掉這一步建的空檔（b39）~~（b40 verify MEDIUM 0：那時沒有持鎖，「仍是空的、路徑仍指著它」與刪除不是原子的；拿不到鎖正表示另一個打開了同一個檔的程序持有它、可能正要寫進區塊，刪掉它對方會寫進一個不在路徑上的檔）→ 空檔留著、報 `lockTimedOutAfterCreating`（b41）。這個上限改了使用者 2026-10-05 的「只記錄」（非 akashic 程序長時間持鎖時 akashic 會一直等），b37 沒有揭露；使用者 2026-10-15 裁決保留。觸發條件：持鎖者正常只持微秒級，`lockTimedOut` 出現就是持鎖的程序卡住（被 `SIGSTOP`、網路掛載）——2026-10-15 沒有量到實例（這個狀態不留痕跡，只在當下的輸出裡）。`EWOULDBLOCK` 以外的錯誤（`ENOTSUP`、`ENOLCK` 等）一律不鎖、照常往下。**誠實邊界**：檔案系統不支援 `flock` 時不鎖（鎖內重看仍擋得住「別人已寫好」，擋不住兩邊同時寫）；非 akashic 的寫入者不經這把鎖——回滾因此先看大小是不是「原長＋這一次寫的」，不是才截；同時跑的 `doctor` 重建 index 另有一個與 `.gitignore` 無關的競態（3043aaf7 同樣出現），不在這一列。
 
 ### 第 95 列（#564）
 
@@ -2531,12 +2531,93 @@ PY
 # 2026-10-03：4575｜0｜0
 ```
 
-**第 87 列的量測（2026-10-04，可重跑，唯讀；2026-10-05 第 94 列改寫；2026-10-09 b36 verify 改規則行的切法與 symlink；2026-10-15 b38 verify 加否定規則）**：每個註冊的 store 的 `.gitignore` 是什麼形狀、有沒有區塊。會被 `file add` 拒絕、`doctor` 與兩個匯入報 warning 的是（匯入自 2026-10-05 起報 warning，#700）：`symlink`（**不論有沒有區塊**——git 2.32 起不讀 symlink 的 `.gitignore`，b36 verify；先前指向的內容有區塊就放行）、`broken-symlink`，以及**不是 `block`** 而是 `hardlink`、`NOT-utf8`、`marker-without-rule`、`rule-negated`、`read-only`、`not-regular`、`too-large`、`unreadable` 之一（一般檔的 `block` 什麼形狀都放行；規則行照 git 的切法比，行首帶空白或 tab、行尾帶 tab 的不算；`rule-negated` 是規則之後有 `!` 開頭的否定規則把 `sources/` 放回來——git 以最後一條符合的規則為準，b38 verify）。腳本的判讀是 `LibraryStore.ruleState` 的第二份（同一個切法、同一個 glob 子集），改一邊要改另一邊：
+**第 87 列的量測（2026-10-04，可重跑，唯讀；2026-10-05 第 94 列改寫；2026-10-09 b36 verify 改規則行的切法與 symlink；2026-10-15 b38 verify 加否定規則；2026-10-19 b40 verify 改成只看 akashic 寫的路徑、NUL 截斷、星號、`sources/.gitignore`）**：每個註冊的 store 的 `.gitignore` 是什麼形狀、有沒有區塊。會被 `file add` 拒絕、`doctor` 與兩個匯入報 warning 的是（匯入自 2026-10-05 起報 warning，#700）：`symlink`（**不論有沒有區塊**——git 2.32 起不讀 symlink 的 `.gitignore`，b36 verify；先前指向的內容有區塊就放行）、`broken-symlink`，以及**不是 `block`** 而是 `hardlink`、`NOT-utf8`、`marker-without-rule`、`rule-negated`、`nested-gitignore`、`read-only`、`not-regular`、`too-large`、`unreadable` 之一（一般檔的 `block` 什麼形狀都放行；規則行照 git 的切法比，行首帶空白或 tab、行尾帶 tab 的不算；`rule-negated` 是規則之後有 `!` 開頭的否定規則碰得到 akashic 寫進 `sources/` 的路徑——git 以最後一條符合的規則為準，b38 verify；b40 verify 起只算碰得到 `index.jsonl` 或存檔子目錄的；`nested-gitignore` 是規則只排除內容而 `sources/.gitignore` 在，b40 verify）。腳本的判讀是 `LibraryStore.ruleState`／`negationReach`／`globCanMatch` 的第二份（同一個切法、同一個比對），改一邊要改另一邊（2026-10-19 對 20,000 個隨機形狀與量測用的 Python 鏡射逐一同答；鏡射與 git 2.55、2.54 對 5,500 個隨機 `.gitignore` 對照，判成已在而 git 不排除的 0 個）：
 
 ```bash
 python3 - <<'PY'
 import os, io, stat, yaml
 cfg = yaml.safe_load(io.open(os.path.expanduser('~/.akashic/config.yaml'), encoding='utf8')) or {}
+DIRS = {b'sources/', b'/sources/', b'sources', b'/sources'}
+CONTENT = {b'sources/*', b'/sources/*', b'sources/**', b'/sources/**'}
+def text(positions):   # 每個位置可以是哪些位元組 → (長度, 每個位元組可以落在哪些位置, 不是 / 的位置)；ASCII 不分大小寫
+    tbl, ns = [0] * 256, 0
+    for k, choices in enumerate(positions):
+        for c in choices:
+            tbl[c] |= 1 << k
+            if 0x41 <= c <= 0x5A: tbl[c + 0x20] |= 1 << k
+            if 0x61 <= c <= 0x7A: tbl[c - 0x20] |= 1 << k
+            if c != 0x2F: ns |= 1 << k
+    return (len(positions), tbl, ns)
+lit = lambda s: text([[b] for b in s])
+HEX = b'0123456789abcdef'
+D, IP, IN = lit(b'sources'), lit(b'sources/index.jsonl'), lit(b'index.jsonl')
+SP, SN = text([[b] for b in b'sources/'] + [HEX, HEX]), text([HEX, HEX])
+def glob(p, t):   # git 的 wildmatch（WM_PATHNAME）；`**`（含三個以上）一律可以跨 `/`、之後接 `/` 時可以是零層；`[` 不模擬（保守）
+    if b'[' in p: return None
+    n, tbl, ns = t; allm, reach, i = (1 << (n + 1)) - 1, 1, 0
+    while i < len(p):
+        if reach == 0: return False
+        c = p[i]
+        if c == 0x2A:
+            j = i
+            while j < len(p) and p[j] == 0x2A: j += 1
+            if j - i >= 2:
+                spread = allm & ~((reach & -reach) - 1)
+                if j < len(p) and p[j] == 0x2F: reach = (((spread & tbl[0x2F]) << 1) | reach) & allm; i = j + 1; continue
+                reach = spread
+            else:
+                spread = front = reach
+                while True:
+                    nxt = ((front & ns) << 1) & allm & ~spread
+                    if not nxt: break
+                    spread |= nxt; front = nxt
+                reach = spread
+            i = j; continue
+        if c == 0x3F: reach = ((reach & ns) << 1) & allm; i += 1; continue
+        if c == 0x5C:
+            if i + 1 >= len(p): return False
+            c = p[i + 1]; i += 1
+        reach = ((reach & tbl[c]) << 1) & allm; i += 1
+    return bool(reach & (1 << n))
+def reach(p):   # 否定規則碰得到哪幾個：sources 目錄本身、index.jsonl、存檔子目錄
+    donly = p.endswith(b'/')
+    if donly: p = p[:-1]
+    if not p: return (False, False, False)
+    anch = b'/' in p
+    if anch and p.startswith(b'/'): p = p[1:]
+    def r(path, name, isdir):
+        if donly and not isdir: return False
+        g = glob(p, path if anch else name)
+        return True if g is None else g
+    return (r(D, D, True), r(IP, IN, False), r(SP, SN, True))
+def trim(p):   # git 的 trim_trailing_spaces：行尾的空格去掉，反斜線跳脫的保留
+    last, k = None, 0
+    while k < len(p):
+        if p[k] == 0x20: last = k if last is None else last
+        elif p[k] == 0x5C:
+            k += 1
+            if k >= len(p): return p
+            last = None
+        else: last = None
+        k += 1
+    return p if last is None else p[:last]
+def state(b, i, nested):   # 逐行照 git 的順序；最後一條為準（b38 verify），只算碰得到 akashic 路徑的否定規則（b40 verify）
+    saw = dx = ix = sx = False
+    for l in b[i:].split(b'\n')[1:]:
+        if b'\0' in l: l = l[:l.index(b'\0')]   # git 把一行當 C 字串讀（b40 verify）
+        elif l.endswith(b'\r'): l = l[:-1]     # 行尾一個 CR、再行尾的空格；行首空白與 tab 不去（b36 verify）
+        r = l.rstrip(b' ')
+        if r in DIRS: saw = dx = True
+        elif r in CONTENT: saw = ix = sx = True
+        elif l.startswith(b'!') and trim(l[1:]):
+            d, x, s = reach(trim(l[1:]))
+            if d: dx = False
+            if x: ix = False
+            if s: sx = False
+    if not saw: return 'marker-without-rule'
+    if dx: return 'block'
+    if ix and sx: return 'nested-gitignore' if nested else 'block'
+    return 'rule-negated'
 for k, v in (cfg.get('files') or {}).items():
     p = os.path.join(os.path.expanduser(v), '.gitignore')
     if not os.path.lexists(p): print(k, 'absent'); continue
@@ -2547,66 +2628,23 @@ for k, v in (cfg.get('files') or {}).items():
     if st.st_size >= 100 * 1024 * 1024: print(k, 'too-large'); continue
     try: b = open(p, 'rb').read()
     except OSError as e: print(k, 'unreadable', e.errno); continue
+    try: os.lstat(os.path.join(os.path.expanduser(v), 'sources', '.gitignore')); nested = True
+    except FileNotFoundError: nested = False
+    except NotADirectoryError: nested = False
+    except OSError: nested = True   # 判斷不了也算在（保守）
     i = b.find(b'# BEGIN akashic sources')
-    dirs, content = {b'sources/', b'/sources/', b'sources', b'/sources'}, {b'sources/*', b'/sources/*', b'sources/**', b'/sources/**'}
-    def trim(p):   # git 的 trim_trailing_spaces：行尾的空格去掉，反斜線跳脫的保留
-        last, k = None, 0
-        while k < len(p):
-            if p[k:k+1] == b' ': last = k if last is None else last
-            elif p[k:k+1] == b'\\':
-                k += 1
-                if k >= len(p): return p
-                last = None
-            else: last = None
-            k += 1
-        return p if last is None else p[:last]
-    def glob(p, t=b'sources'):   # `*`、`?`、反斜線；`[` 不模擬（保守，當成符合）；ASCII 不分大小寫
-        if b'[' in p: return True
-        p, pi, ti, sp, st = p.lower(), 0, 0, -1, -1
-        while ti < len(t):
-            if pi < len(p) and p[pi:pi+1] == b'*':
-                while pi < len(p) and p[pi:pi+1] == b'*': pi += 1
-                sp, st = pi, ti; continue
-            if pi < len(p) and p[pi:pi+1] == b'?': pi += 1; ti += 1; continue
-            if pi < len(p) and p[pi:pi+1] == b'\\':
-                if pi + 1 >= len(p): return False
-                if p[pi+1] == t[ti]: pi += 2; ti += 1; continue
-            elif pi < len(p) and p[pi] == t[ti]: pi += 1; ti += 1; continue
-            if sp < 0: return False
-            st += 1; ti, pi = st, sp
-        while pi < len(p) and p[pi:pi+1] == b'*': pi += 1
-        return pi == len(p)
-    def reaches(p):   # 否定規則符不符合根目錄的 sources 這個目錄
-        if p.endswith(b'/'): p = p[:-1]
-        if not p: return False
-        if b'/' in p:
-            if p.startswith(b'/'): p = p[1:]
-            while p.startswith(b'**/'): p = p[3:]
-            if b'/' in p: return False
-        return glob(p)
-    def state(b, i):   # 逐行照 git 的順序：規則行排除，放回 sources/ 的否定規則撤銷（最後一條為準，b38 verify）
-        saw = dx = cx = False
-        for l in b[i:].split(b'\n')[1:]:
-            l = l[:-1] if l.endswith(b'\r') else l   # git 的切法：行尾一個 CR、再行尾的空格；行首空白與 tab 不去（b36 verify）
-            r = l.rstrip(b' ')
-            if r in dirs: saw = dx = True
-            elif r in content: saw = cx = True
-            elif l.startswith(b'!') and trim(l[1:]):
-                if reaches(trim(l[1:])): dx = False
-                cx = False
-        return 'marker-without-rule' if not saw else ('block' if dx or cx else 'rule-negated')
-    block = 'no-marker' if i < 0 else state(b, i)
-    try: b.decode('utf8'); text = b'\0' not in b
-    except UnicodeDecodeError: text = False
+    block = 'no-marker' if i < 0 else state(b, i + len(b'# BEGIN akashic sources'), nested)
+    try: b.decode('utf8'); text_ok = b'\0' not in b
+    except UnicodeDecodeError: text_ok = False
     kind = 'symlink' if link else ('hardlink' if st.st_nlink > 1 else 'file')
-    print(k, len(b), kind, 'utf8' if text else 'NOT-utf8', block, 'writable' if os.access(p, os.W_OK) else 'read-only')   # 寫入權限（第 19 列）
+    print(k, len(b), kind, 'utf8' if text_ok else 'NOT-utf8', block, 'writable' if os.access(p, os.W_OK) else 'read-only')   # 寫入權限（第 19 列）
 PY
-# 2026-10-04：main 913 utf8 marker（舊腳本）；2026-10-05：main 913 file utf8 block writable；2026-10-09（b36 的切法）：同；2026-10-15（b38 的否定規則）：同
+# 2026-10-04：main 913 utf8 marker（舊腳本）；2026-10-05：main 913 file utf8 block writable；2026-10-09（b36 的切法）：同；2026-10-15（b38 的否定規則）：同；2026-10-19（b40 的路徑範圍、NUL、星號、sources/.gitignore）：同
 ```
 
 拒絕與 warning 由 `GitignorePreservationCLITests`（真 binary：Latin-1、UTF-16、mode 000、symlink、已有區塊而尾端有非 UTF-8 位元組，`file add` 與 `doctor` 各驗原有位元組不變）與
 ~~`ServiceTests.testImportWoSRefusesWithoutRewritingAnUndecodableGitignore`~~ `ServiceTests.testImportWoSWarnsAndContinuesWithoutRewritingAnUndecodableGitignore`（b35 改名：匯入那一側自此只有 warning、沒有拒絕）釘住；負控見 `changelog/2026-10-04-b32-f6-fixes-700-703.md`。
-~~「區塊已在」與 git 的判讀一致~~（b38 verify：只對語料裡的形狀成立，語料只變動單一規則行、看不到「規則之後接否定」）→ 「判成區塊已在 ⇒ git 排除」由 `GitignorePreservationCLITests.testThePresentJudgementAgreesWithGitCheckIgnore` 釘住：13 種規則行、symlink、硬連結與 29 種否定規則的形狀是若且唯若，另 5 種保守的形狀單向（判成不在而 git 可能排除：規則寫在標記之前、`[…]` 字元類、只排除內容的規則之後接一行碰不到 `sources/x` 的否定、大小寫取決於 `core.ignorecase`），每一種都在暫存的 git repo 裡以 `git check-ignore` 對照（負控見 `changelog/2026-10-09-b37-n5-fixes-692-700.md` 與 `changelog/2026-10-15-b39-web-read-and-sources-ignore.md`）。
+~~「區塊已在」與 git 的判讀一致~~（b38 verify：只對語料裡的形狀成立，語料只變動單一規則行、看不到「規則之後接否定」）→ ~~「判成區塊已在 ⇒ git 排除」由…釘住：13 種規則行、symlink、硬連結與 29 種否定規則的形狀是若且唯若~~（b40 verify：對含 NUL 的否定行、`***/` 開頭的否定行、只排除內容而 `sources/.gitignore` 放回內容的形狀為假，而且「排除」量的是 `sources/x`——不是 akashic 寫的路徑）→ 「判成區塊已在 ⇒ git 排除 akashic 寫進 `sources/` 的每一個路徑」（`index.jsonl`、存檔子目錄與裡面的存檔與暫存檔；範圍是 store 根目錄與 `sources/` 的 `.gitignore`、未追蹤的路徑）由 `GitignorePreservationCLITests.testThePresentJudgementAgreesWithGitCheckIgnore` 釘住：16 種規則行（含 NUL）、symlink、硬連結、61 種否定規則的形狀與 3 種 `sources/.gitignore` 的形狀是若且唯若，另 7 種保守的形狀單向（判成不在而 git 可能排除：規則寫在標記之前、`[…]` 字元類兩種、大小寫取決於 `core.ignorecase`、不在開頭也不在 `/` 之後的 `**`、否定之後以別種寫法重新排除、只排除內容而 `sources/.gitignore` 只有註解），每一種都在暫存的 git repo 裡以 `git check-ignore` 對照 akashic 寫的每一個路徑（負控見 `changelog/2026-10-09-b37-n5-fixes-692-700.md`、`changelog/2026-10-15-b39-web-read-and-sources-ignore.md` 與 `changelog/2026-10-19-b41-sources-ignore-700.md`）。
 
 **第 88 列的量測（2026-10-04；2026-10-05 R4 重量，可重跑）**：棘輪的訊息數應為 0；標題列印出量測條數、合模板的條數、依閘去重的條數與棘輪下限
 （2026-10-04：35 條、合模板 35 條、下限 35、退場區塊 1 個、5 行不掃；2026-10-05 R4：39 條、合模板 39 條、依閘去重 37 條、下限 37——多的四條是

@@ -7,7 +7,8 @@
 # 摘要的算法與每一欄的意思見 `Sources/akashic-guards/PluginShellVersion.swift` 的檔頭；守衛紅的時候訊息印出要接的那一列。
 #
 # 已推上 main 的列（推送的 commit 寫在這裡給人看，守衛不讀這段註解）：
-#   plugin 0.13.4 ← 04131a49（2026-10-18）
+#   plugin 0.13.4 ← 04131a49（2026-10-18）；0.13.5 ← 7ba4d695（2026-10-19）；0.13.6 ← b022de1e（2026-10-20）
+#   plugins/akashic-discovery 0.2.16 ← 7ba4d695（2026-10-19）
 #   plugins/akashic-discovery 0.2.15 ← 5f7c8073（2026-09-28）設的版號；這裡記的是 04131a49 時它送出的內容——0.2.15 之後 plugin/rules 改了
 #   四次（854fd5d3、e21a76b5、7d34e7f7、5e8fca64）而版號沒升，同一個版號送出過不只一份內容（b40 Z2 第 6、18 則）
 # ── 列從下一行開始 ──

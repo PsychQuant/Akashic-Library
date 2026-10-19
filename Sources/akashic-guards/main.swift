@@ -146,7 +146,7 @@ case "plugin-store-format-parity":   // #408／#629：宣告的 store format 必
     finishGuard(pluginStoreFormatParity())
 case "rule-coverage":   // #407／#629：plugin 根的每條規則被每個 skill 掛到（`rule-coverage [plugin-root]`）
     finishGuard(ruleCoverage(argv: Array(CommandLine.arguments.dropFirst(2))))
-case "plugin-shell-version":   // #729／#613 b41：plugin 殼的內容改了就升版——版號表 ＋ origin/main（推上 main 就是發布）
+case "plugin-shell-version":   // #729／#613 b41：plugin 殼的內容改了就升版——版號表 ＋ 已發布的 main（推上 main 就是發布；b43 起 pre-push 比被推送的 commit 與推送時遠端回報的 main）
     finishGuard(pluginShellVersion())
 case "plugin-shell-version-mutations":   // #613 b41：在暫存的 git repo 裡逐格注入，plugin-shell-version 會紅嗎
     finishGuard(pluginShellVersionMutations())

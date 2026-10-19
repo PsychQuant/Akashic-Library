@@ -1,5 +1,7 @@
 // `plugin-shell-version-mutations`：`plugin-shell-version` 真的會紅嗎？（#613 b41；b43 補上被推送的 commit、只增不改、內容在表之外改了、
-// symlink 解不開、檔案模式、分支落後 main 等格——b42 第 1–3、6、11、14、15、17、19、21 則）
+// symlink 解不開、檔案模式、分支落後 main 等格——b42 第 1–3、6、11、14、15、17、19、21 則；b45 補上照訊息修好之後要綠的幾格——內容在表之外
+// 改了之後升版、撤掉與改名 plugin 根——與目錄換成 symlink、推送的樹沒有 plugin 殼、remote 是帶帳密的網址、路徑裡的控制字元——b44 第 0、1、4、
+// 8、14、15、17、18、22、23 則）
 //
 // **為什麼需要它**：這支守衛最可能的失效是永遠綠——摘要漏算一類檔（未追蹤的、symlink 之後的）、已發布的那一半沒接上、表的格式錯了
 // 被略過、看的是工作樹而推上去的是另一份。綠看起來與「殼的內容與版號一致」一模一樣。所以逐格注入，看它紅不紅、紅的理由對不對。
@@ -13,7 +15,8 @@
 // **摘要不由這裡算**：第一格在空表上跑守衛，從它的失敗訊息裡取要記的那一列——那也驗了訊息印出的列可以照抄。
 //
 // 每一格：守衛的 rc 符合預期（經 `runGuardProcess`，留執行紀錄），紅的那幾格另要求輸出含指名的那一句——紅的理由不對，這一格不算；
-// 有幾格另要求輸出**不含**某一句（例如內容在表之外改了的那一格不得建議改表）。
+// 有幾格另要求輸出**不含**某一句（例如內容在表之外改了的那一格不得建議改表）。**綠的格一樣重要**（b44 第 0、1 則）：訊息叫人怎麼修，
+// 照做之後就要綠——b43 的「只能升版」與「放回去」照做之後仍紅，負對照全是紅格，看不出來。
 
 import Foundation
 
@@ -267,6 +270,35 @@ func pluginShellVersionMutations() -> Int32 {
         expect("main 已在 1.0.1，刪了 disc 唯一的一列", .red, in: d, says: "plugins/disc 0.1.0（已發布的表")
     } else { invalid("刪 disc 的列") }
 
+    // ── 撤掉與改名 plugin 根（b44 第 1、17、22 則）：已發布的列原樣留著＝綠；改它、刪它＝紅 ──
+    let retireDisc: (String) -> Bool = { (try? fm.removeItem(atPath: $0 + "/\(disc)")) != nil }
+    if let d = copy(retireDisc) {
+        expect("撤掉 disc、它已發布的列留著", .green, in: d, says: "撤掉或改名的根", not: "不是 plugin 根（")
+        if commit(d, "retire disc"), let tip = head(d) {
+            expect("同上，推上 main", .green, in: d, env: push(tip, to: "refs/heads/main", remoteSHA: seedSHA), says: "撤掉或改名的根")
+        } else { invalid("撤掉 disc 的 commit") }
+    } else { invalid("撤掉 disc"); total += 1 }
+    if let d = copy({ retireDisc($0) && replace($0, pluginShellVersionsPath, "plugins/disc\t0.1.0\t\(d0.digest)", "plugins/disc\t0.1.0\t\(String(repeating: "0", count: 64))") }) {
+        expect("撤掉 disc、又改了它已發布的列", .red, in: d, says: "表只增不改，已發布的列改回 \(d0.digest)", not: "不見了")
+    } else { invalid("改撤掉的根的列") }
+    if let d = copy({ retireDisc($0) && replace($0, pluginShellVersionsPath, "plugins/disc\t0.1.0\t\(d0.digest)\n", "") }) {
+        expect("撤掉 disc、也刪了它已發布的列", .red, in: d, says: "不見了", not: "不是 plugin 根（")
+    } else { invalid("刪撤掉的根的列") }
+    if let d = copy({ retireDisc($0) && write($0, pluginShellVersionsPath, read($0, pluginShellVersionsPath) + "plugins/disc\t0.1.1\t\(d0.digest)\n") }) {
+        expect("撤掉 disc、又替它接一列沒發布過的", .red, in: d, says: "已發布的表也沒有 plugins/disc 0.1.1")
+    } else { invalid("替撤掉的根接列") }
+    // 改名：plugins/disc → plugins/disc2；disc 的列留著、disc2 接它自己的列（摘要取自守衛的訊息）
+    let renamed = disc + "2"
+    if let d = copy({ (try? fm.moveItem(atPath: $0 + "/\(disc)", toPath: $0 + "/\(renamed)")) != nil }) {
+        total += 1
+        let (_, out) = runGuard(d, "改名 disc → disc2：取新根要記的列", .red)
+        let row = firstGroup(out, "`" + NSRegularExpression.escapedPattern(for: renamed) + "\t0\\.1\\.0\t([0-9a-f]{64})`")
+        if let r = row, write(d, pluginShellVersionsPath, read(d, pluginShellVersionsPath) + "\(renamed)\t0.1.0\t\(r)\n") {
+            passed += 1; print("✓ 改名 disc → disc2：取新根要記的列")
+            expect("改名 disc → disc2、舊根的列留著、新根接一列", .green, in: d, says: "撤掉或改名的根")
+        } else { print("✗ 改名 disc → disc2：訊息沒有印出新根要記的列：\(String(out.prefix(400)))"); total += 1 }
+    } else { invalid("改名 disc"); total += 1 }
+
     // ── 內容在表之外改了（b42 第 6 則）：main 上的 skill 改了而 1.0.0 沒升，表也沒動 ──
     let changedOutsideTable: (String) -> Bool = { d in skillEdit(d) && commit(d, "skill only") && publish(d) }
     if let d = copy(changedOutsideTable) {
@@ -275,6 +307,21 @@ func pluginShellVersionMutations() -> Int32 {
     if let d = copy({ changedOutsideTable($0) && replace($0, pluginShellVersionsPath, "plugin\t1.0.0\t\(p0.digest)", "plugin\t1.0.0\t\(nd)") }) {
         expect("同上，再照已發布的摘要改記表（洗白）", .red, in: d, says: "表只增不改，已發布的列改回 \(p0.digest)")
     } else { invalid("洗白") }
+    // 照訊息修（b44 第 0 則）：1.0.0 那一列留著、升到 1.0.1、表接一列已發布的內容的摘要——綠，並說出那一次的不符
+    let repaired: (String) -> Bool = { d in
+        changedOutsideTable(d) && replace(d, manifest, #""version": "1.0.0""#, #""version": "1.0.1""#)
+            && write(d, pluginShellVersionsPath, read(d, pluginShellVersionsPath) + "plugin\t1.0.1\t\(nd)\n")
+    }
+    if let d = copy(repaired), let drift = head(d) {
+        expect("內容在表之外改了，照訊息升到 1.0.1、接一列（手動執行）", .green, in: d, says: "這次推送升到 1.0.1", also: { $0.contains("⚠") })
+        if commit(d, "repair"), let tip = head(d) {
+            expect("同上，推上 main（遠端回報表外改過的那個 commit）", .green, in: d, env: push(tip, to: "refs/heads/main", remoteSHA: drift),
+                   says: "這次推送升到 1.0.1")
+        } else { invalid("修好之後 commit") }
+    } else { invalid("內容在表之外改了之後升版"); total += 1 }
+    if let d = copy({ repaired($0) && replace($0, manifest, #""version": "1.0.1""#, #""version": "1.0.0""#) }) {
+        expect("同上，表接了 1.0.1 而版號沒升", .red, in: d, says: "內容在表之外改了")
+    } else { invalid("接了列而沒升版") }
 
     // ── 被推送的 commit，不是工作樹（b42 第 3、17、27 則）──
     // 部分 commit：只 commit 了 skill；升版與表的那一列還在工作樹
@@ -319,6 +366,30 @@ func pluginShellVersionMutations() -> Int32 {
         expect("推送資訊看不懂", .red, in: d, env: [pluginShellPushRefsEnv: "refs/heads/x not-a-sha refs/heads/x\n", pluginShellPushRemoteEnv: "origin"],
                says: "不是「local ref、local sha、remote ref、remote sha」")
     } else { invalid("tag／看不懂"); total += 1 }
+    // 被推送的 commit 沒有 plugin 殼（b44 第 8、18、23 則：表是 b41 才有的，之前分出去的分支、孤兒分支）：推的不是 main 時略過；推 main 時照判
+    let orphan: (String) -> String? = { d in
+        guard pluginShellGit(["checkout", "-q", "--orphan", "old"], in: d) != nil, pluginShellGit(["rm", "-rq", "--cached", "."], in: d) != nil,
+              (try? fm.removeItem(atPath: d + "/\(mcp)")) != nil, (try? fm.removeItem(atPath: d + "/plugins")) != nil,
+              (try? fm.removeItem(atPath: d + "/.githooks")) != nil, write(d, "README.md", "old branch\n"),
+              commit(d, "orphan") else { return nil }
+        return head(d)
+    }
+    if let d = copy({ _ in true }), let old = orphan(d) {
+        expect("推送的分支沒有 plugin 殼也沒有表（推的不是 main）", .green, in: d, env: push(old, remoteSHA: zero), says: "沒有送出 plugin 殼，略過")
+        expect("同上，推上 main", .red, in: d, env: push(old, to: "refs/heads/main", remoteSHA: seedSHA), says: "讀不到版號表")
+    } else { invalid("孤兒分支"); total += 1 }
+    // remote 是帶帳密的網址（b44 第 14 則、INFO 26：直接推到網址時 pre-push 的 $1 是網址原文）；路徑裡有控制字元（第 15 則）
+    if let d = copy({ _ in true }) {
+        expect("remote 是帶帳密的網址", .green, in: d,
+               env: [pluginShellPushRefsEnv: "refs/heads/feat \(seedSHA) refs/heads/feat \(zero)\n", pluginShellPushRemoteEnv: "https://user:SECRETTOKEN@example.invalid/r.git"],
+               says: "https://example.invalid", not: "SECRETTOKEN")
+    } else { invalid("帶帳密的 remote") }
+    // 根名取自被推送的樹，幾乎每一則訊息都帶它
+    let hostileRoot = disc.replacingOccurrences(of: "disc", with: "\u{1B}]0;TITLE\u{07}\u{1B}[31mx")
+    if let d = copy({ write($0, "\(hostileRoot)/\(pluginManifestRel)", #"{"name": "x", "version": "0.1.0"}"# + "\n") }), commit(d, "escape"), let tip = head(d) {
+        expect("plugin 根的名字裡有終端機控制序列（推送那個 commit）", .red, in: d, env: push(tip, remoteSHA: zero), says: "\\u{001B}[31mx", not: "\u{1B}",
+               also: { !$0.contains("\u{07}") })
+    } else { invalid("控制字元的根名") }
 
     // ── symlink 解不開：具名拒絕（b42 第 2、14、23 則）──
     if let d = copy({ symlink($0, "\(mcp)/rules/alias.md", to: "r.md") }) {
@@ -337,15 +408,37 @@ func pluginShellVersionMutations() -> Int32 {
 
     // ── 檔案模式（b42 第 11 則）：已發布的 1.0.0 的可執行檔失去 x 位元 ──
     if let d = copy({ chmod($0, tool, 0o644) }) {
-        expect("已發布的 1.0.0 的可執行檔 chmod -x", .red, in: d, says: "檔案模式改了")
+        expect("已發布的 1.0.0 的可執行檔 chmod -x", .red, in: d, says: "送出的樹改了（檔案模式或 symlink）：\(tool)（已發布：可執行檔")
         if commit(d, "chmod"), let tip = head(d) {
-            expect("同上，推送那個 commit", .red, in: d, env: push(tip, remoteSHA: zero), says: "檔案模式改了")
+            expect("同上，推送那個 commit", .red, in: d, env: push(tip, remoteSHA: zero), says: "送出的樹改了（檔案模式或 symlink）")
         } else { invalid("chmod commit") }
     } else { invalid("chmod"); total += 1 }
     if let d = copy({ chmod($0, tool, 0o644) && replace($0, manifest, #""version": "1.0.0""#, #""version": "1.0.1""#)
             && write($0, pluginShellVersionsPath, header + rows + "plugin\t1.0.1\t\(p0.digest)\n") }) {
         expect("chmod -x 並升到 1.0.1", .green, in: d)
     } else { invalid("chmod 升版") }
+    // ── 目錄換成指向同一份內容的 symlink（b44 第 4 則）：解開之後的檔、內容與種類都相同，送出的樹變了 ──
+    let skillsToLink: (String) -> Bool = { d in   // 照常的作法：搬目錄、建 symlink、`git add`（工作樹的讀法以 index 加上未追蹤的檔為準）
+        (try? fm.createDirectory(atPath: d + "/shared", withIntermediateDirectories: true)) != nil
+            && (try? fm.moveItem(atPath: d + "/\(mcp)/skills", toPath: d + "/shared/skills")) != nil
+            && symlink(d, "\(mcp)/skills", to: "../shared/skills") && pluginShellGit(["add", "-A"], in: d) != nil
+    }
+    if let d = copy(skillsToLink) {
+        expect("已發布的 1.0.0：skills 目錄換成指向同一份內容的 symlink", .red, in: d, says: "symlink → ../shared/skills")
+        if commit(d, "dir to link"), let tip = head(d) {
+            expect("同上，推送那個 commit", .red, in: d, env: push(tip, remoteSHA: zero), says: "symlink → ../shared/skills")
+        } else { invalid("目錄換成 symlink 的 commit") }
+    } else { invalid("目錄換成 symlink"); total += 1 }
+    let skillsToLinkBumped: (String) -> Bool = { d in
+        skillsToLink(d) && replace(d, manifest, #""version": "1.0.0""#, #""version": "1.0.1""#)
+            && write(d, pluginShellVersionsPath, header + rows + "plugin\t1.0.1\t\(p0.digest)\n")
+    }
+    if let d = copy(skillsToLinkBumped) {
+        expect("同上並升到 1.0.1", .green, in: d)
+        if commit(d, "dir to link, bumped"), let tip = head(d) {
+            expect("同上，推送那個 commit", .green, in: d, env: push(tip, remoteSHA: zero))
+        } else { invalid("升版的 commit") }
+    } else { invalid("目錄換成 symlink 並升版"); total += 1 }
 
     // ── 新的 plugin 根，origin/main 上沒有（b42 第 15 則）──
     let newRoot = disc.replacingOccurrences(of: "disc", with: "newp")

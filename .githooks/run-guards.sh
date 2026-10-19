@@ -99,8 +99,9 @@ done
 # 以及 plugin/ 以外的根真的被守衛看見的負對照（每格含對照組）。
 .build/debug/akashic-guards marketplace-consistency
 .build/debug/akashic-guards plugin-roots-mutations
-# #729／#613 b41：plugin 殼的內容改了就升版——版號表 `.githooks/plugin-shell-versions.txt` ＋ 本機的 origin/main（推上 main 就是發布，
-# 本 repo 自己是 marketplace），及其負對照（暫存 git repo 裡逐格注入）。原本是 XCTest（`PluginShellVersionTests`），只在 pre-push 的
+# #729／#613 b41：plugin 殼的內容改了就升版——版號表 `.githooks/plugin-shell-versions.txt` ＋ 已發布的 main（推上 main 就是發布，
+# 本 repo 自己是 marketplace；b43 起 pre-push 比被推送的 commit 與推送時遠端回報的 main，手動執行比工作樹與本機的 origin/main），
+# 及其負對照（暫存 git repo 裡逐格注入）。原本是 XCTest（`PluginShellVersionTests`），只在 pre-push 的
 # `swift test` 跑；搬到這裡之後 `census-parity.yml` 對 `plugin/**`、`plugins/**` 也會跑它（b40 Z2 第 16 則）。
 .build/debug/akashic-guards plugin-shell-version
 .build/debug/akashic-guards plugin-shell-version-mutations

@@ -870,7 +870,7 @@ public final class FulltextFetch {
     /// 原樣回 `citation_pdf_url`）。
     ///
     /// **網址不在字串開頭時**（#613 b39，b38 Z2 第 8、10、27 則）：從第一個 `://` 起當網址印——前面的字原樣（tab 與換行除外：`URLSplit` 切之前
-    /// 也去掉它們，b41）、authority 照上面去帳密（`FOO https://u:p@h/x`、`view-source:https://u:p@h/x`、BOM 開頭的網址）。b37 改由 `URLSplit` 切
+    /// 也去掉它們，b41；路徑參數除外：前面若是另一個沒有 `//` 的網址，`;名=值` 在那一段，b45）、authority 照上面去帳密（`FOO https://u:p@h/x`、`view-source:https://u:p@h/x`、BOM 開頭的網址）。b37 改由 `URLSplit` 切
     /// 之後，這種字串沒有 authority、整串原樣回傳。之後再出現的 `://` 是路徑的一部分，與有 authority 的網址相同（上面「也不剝一般的路徑段」）。
     ///
     /// **這個函式只對一個網址負責**（b41＝b40 Z2 第 8、28 則）：字串裡的第二個網址、special scheme 沒有兩個斜線的寫法（`https:u:p@h`）它都看不到；
@@ -892,7 +892,8 @@ public final class FulltextFetch {
             return withoutPathParameters(s)
         }
         let inner = URLSplit("//" + PyText.string(Array(scalars[(sep + 3)...])))
-        return PyText.string(Array(scalars[..<sep])) + "://" + printedHostPort(inner) + withoutPathParameters(inner.path)
+        // `://` 之前的字也去路徑參數（b45，b44 第 3、16 則）：沒有 authority 的網址後面接著另一個 `scheme://` 時，`;jsessionid=…` 在這一段
+        return withoutPathParameters(PyText.string(Array(scalars[..<sep]))) + "://" + printedHostPort(inner) + withoutPathParameters(inner.path)
     }
 
     /// 兩種讀法對帳密說法不同時印的主機段（見 `plainURL`）。
@@ -905,16 +906,19 @@ public final class FulltextFetch {
         return parts.hostPort
     }
 
+    /// `withoutPathParameters` 的兩條（編譯期常數）。只編一次（#613 b45，b44 LOW 13：先前每呼叫一次重編兩條，頁面的字有幾萬個網址時
+    /// 每個網址多花幾十微秒；b45 的第 3 步逐段呼叫它，次數更多）。
+    private static let pathParameterPattern = try! NSRegularExpression(pattern: #"(?:;|%3[Bb])(?:(?!%3[BbDd])[^;=/])+(?:=|%3[Dd])(?:(?!%3[Bb])[^;/])*"#)
+    private static let aspNetSessionPattern = try! NSRegularExpression(pattern: #"^(?:\((?:[A-Za-z]\([^()/]*\))+\))+$"#)
+
     /// 路徑的每一段去掉 `;名=值`（`;`、`=` 也可以是百分比編碼的 `%3B`、`%3D`），丟掉 ASP.NET 的 `(X(…))` 整段（一段裡可以有幾個群組、
     /// 也可以連著幾組）；一段因此變空（而它原本不是空的）就整段丟掉。
     private static func withoutPathParameters(_ path: String) -> String {
-        let param = try! NSRegularExpression(pattern: #"(?:;|%3[Bb])(?:(?!%3[BbDd])[^;=/])+(?:=|%3[Dd])(?:(?!%3[Bb])[^;/])*"#)   // 編譯期常數
-        let aspNetSession = try! NSRegularExpression(pattern: #"^(?:\((?:[A-Za-z]\([^()/]*\))+\))+$"#)
         var kept: [String] = []
         for segment in path.split(separator: "/", omittingEmptySubsequences: false).map(String.init) {
             let range = NSRange(segment.startIndex..., in: segment)
-            if aspNetSession.firstMatch(in: segment, range: range) != nil { continue }
-            let stripped = param.stringByReplacingMatches(in: segment, range: range, withTemplate: "")
+            if aspNetSessionPattern.firstMatch(in: segment, range: range) != nil { continue }
+            let stripped = pathParameterPattern.stringByReplacingMatches(in: segment, range: range, withTemplate: "")
             if stripped.isEmpty, !segment.isEmpty { continue }
             kept.append(stripped)
         }
@@ -1042,29 +1046,71 @@ public final class FulltextFetch {
     }
 
     /// 頁面給的字印出之前去憑證：連結那一段 JS 的回答（`unexpected answer from the link script`）與頁面給的 PDF 連結（`points off-site`）
-    /// （#613 b41，b40 Z2 第 8、28 則；b43，b42 第 0、4、5、7、12、13 則）。`plainURL` 只對**一個**網址負責：字串裡第二個網址、tab 與換行夾在
-    /// `://` 中間、special scheme 沒有兩個斜線的寫法，它都看不到。這裡照 WHATWG 讀**一個網址字串**的方式讀頁面給的字：
+    /// （#613 b41，b40 Z2 第 8、28 則；b43，b42 第 0、4、5、7、12、13 則；b45，b44 第 2、3、5、6、10、11、16、19、20 則與 INFO 28）。`plainURL`
+    /// 只對**一個**網址負責：字串裡第二個網址、tab 與換行夾在 `://` 中間、special scheme 沒有兩個斜線的寫法，它都看不到。這裡分三步讀頁面給的字：
     ///
     /// 1. 去掉 ASCII tab、LF、CR（WHATWG 讀網址時去掉它們，`URLSplit` 同）：`https:/<tab>/u:p@h` 是帶帳密的網址。**代價**：夾在字之間的換行跟著
-    ///    消失，`GET<LF>https://…` 印成 `gethttps://…`（`plainURL` 照 `URLSplit` 把 scheme 轉小寫）。
-    /// 2. **每一個** authority 的帳密（`withoutPageUserinfo`）：special scheme（`http`、`https`、`ws`、`wss`、`ftp`、`file`）加冒號、後面接任意個
-    ///    斜線或反斜線（`https:u:p@h`、`https:/\u:p@h`、`https:///u:p@h`），或兩個以上斜線或反斜線（`//u:p@h`、`\\u:p@h`），之後到 authority
-    ///    結束為止的最後一個 `@` 之前都去掉。**authority 只在 `/`、`\`、`?`、`#` 或字尾結束**——空白、`"`、`<`、`>`、NBSP、VT 不結束它（WHATWG
-    ///    在帳密裡把它們百分比編碼；b41 在它們那裡停，`https://u:SEC RET@h` 的帳密原樣印出，b42 第 0、12、13 則）。不看前面是不是字的邊界
-    ///    （第 1 步可能把前面的字接上來）。代價是 `profile:x@y`、`https: 寫信給 a@b` 這種字也被剝——頁面的字，寧可多剝。
-    /// 3. **從第一個網址的開頭到字尾是一個網址**（`firstPageURLStart`：special scheme 加冒號、前一個字不是 `[A-Za-z0-9+.:/\-]` 的兩個以上斜線
-    ///    或反斜線、或 `scheme://`），整段交給 `plainURL`：查詢與片段一直到字尾（WHATWG：查詢在 `#`、片段在字尾結束，空白不結束它們——b41 的
-    ///    網址在空白處結束，`?title=a b&sig=SECRET` 的 ` b&sig=SECRET` 原樣印出），路徑參數照 `plainURL` 逐段去掉。第一個網址之前的字原樣。
-    ///    之後出現的網址是它的路徑的一部分（帳密在第 2 步已去掉），最後每一個 `scheme://` 再過一次 `redactingURLs`。
+    ///    消失，`GET<LF>https://…` 印成 `GEThttps://…`（第 3 步從 `https:` 起算網址）。
+    /// 2. **authority 的帳密**（`withoutPageUserinfo`）。authority 從這三種地方開始——**封閉列舉**：(a) special scheme（`http`、`https`、`ws`、`wss`、
+    ///    `ftp`、`file`）加冒號、後面接任意個斜線或反斜線（`https:u:p@h`、`https:/\u:p@h`、`https:///u:p@h`）；(b) 兩個以上斜線或反斜線（`//u:p@h`、
+    ///    `\\u:p@h`）；(c) 前一個 authority 以 special scheme 加冒號結尾（`//cdn.example https:` 這種，帳密裡可以有空白，所以前一個 authority 吞得掉
+    ///    後面的 `https:`）時，緊接的一個斜線或反斜線（b44 第 2、5、6 則：b43 跳過了它，`https://u:p@h https:/v:SECRET@x/y` 的第二組帳密原樣印出；
+    ///    b41 的正規表示式有涵蓋）。authority **只在 `/`、`\`、`?`、`#` 或字尾結束**——空白、`"`、`<`、`>`、NBSP、VT 不結束它（WHATWG 在帳密裡把它們
+    ///    百分比編碼；b42 第 0、12、13 則），最後一個 `@` 之前去掉。authority 在反斜線結束、而反斜線之後到下一個 `/`、`?`、`#` 之前還有 `@` 時，
+    ///    兩種讀法對哪一段是帳密說法不同（`plainURL` 的 `<ambiguous-host>`）：從 authority 開頭到那個 `/`、`?`、`#` 整段印成 `<ambiguous-host>`（b44
+    ///    第 10、20 則與 INFO 28：先前第二個反斜線串被當成 (b) 的起點、剝掉了 `@`，`https://user:SECRET\\@pub.example/x` 印成 `https://user:SECRET/x`）。
+    ///    **不剝的**：不是這三種起點之後的 `@`——沒有斜線的非 special scheme（`ssh:u:p@h`）、一個斜線（`/u:p@h`）、沒有 scheme 的 `u:p@h`；它們在
+    ///    WHATWG 與 RFC 3986 兩種讀法裡都不是 authority。不看前面是不是字的邊界（第 1 步可能把前面的字接上來），代價是 `profile:x@y`、
+    ///    `https: 寫信給 a@b` 這種字也被剝——頁面的字，寧可多剝。
+    /// 3. **第一個網址**（`firstPageURLStart`：special scheme 加冒號、前一個字不是 `[A-Za-z0-9+.:/\-]` 的兩個以上斜線或反斜線、或 `scheme://`）：
+    ///    - **查詢與片段**：它的第一個 `?` 或 `#` 到字尾整段去掉（WHATWG：查詢在 `#`、片段在字尾結束，空白不結束它們——b41 的網址在空白處結束，
+    ///      `?title=a b&sig=SECRET` 的 ` b&sig=SECRET` 原樣印出）。
+    ///    - **它的開頭到那個 `?`／`#`**（`pageURLBody`）：逐個以空白、`"`、`<`、`>` 分開的段處理——第一段交給 `plainURL`，之後的段有網址起點的從
+    ///      那裡交給 `plainURL`、其餘只去路徑參數；最後整段再去一次路徑參數（名字裡夾著空白的 `;名 字=值`、群組裡夾著空白的 `(S(… …))`）。b43
+    ///      整段交給 `plainURL`：第一個網址沒有 `//` 時 `plainURL` 從後面的 `://` 切、之前的字原樣（`;jsessionid=…` 留著），ASP.NET 的群組後面接著
+    ///      空白與字時不是一整段（`(X(…)) more`）也留著（b44 第 3、11、16、19 則；b41 逐段處理，沒有這兩個洞）。
+    ///    - 第一個網址之前的字原樣。最後每一個 `scheme://` 再過一次 `redactingURLs`。
+    ///
+    /// **保證的範圍就是上面三步**（b44 第 2、5 則：b43 的 changelog 與這裡寫「每一個帳密」，對 (c) 那個形狀不成立）。不在這三步裡的：沒有網址起點
+    /// 的字整串原樣（`GET /download/x.pdf?sig=SECRET` 的查詢不剝）；第一個網址之後的路徑裡，不透明的 token 與 DOI 分不出來，原樣（與 `plainURL`
+    /// 同一個邊界）。
     ///
     /// **線性**（b42 第 4、5、7 則）：b41 的帳密那一條是沒有錨點的正規表示式，每一個斜線、每一個 `https:` 都是新的起點、各自掃到字尾才失敗——
-    /// 20,000 個斜線要 25 秒以上，頁面寫一個全是斜線的 `citation_pdf_url` 就讓 CLI 卡住。這裡第 2、3 步各掃一遍，每個字看常數次。**不先截短**：
-    /// `@` 在截斷點之外的帳密，前半段會留在印出的那一段裡（第 7 則）；`fail` 的 600 字截斷在去憑證之後。
+    /// 20,000 個斜線要 25 秒以上，頁面寫一個全是斜線的 `citation_pdf_url` 就讓 CLI 卡住。這裡第 2 步一遍、第 3 步一遍加每段各一遍，每個字看常數次；
+    /// 第 2 步判兩種讀法時要看到下一個 `/`、`?`、`#` 之前有沒有 `@`，事先從後往前一遍算好、查表（b45）。**不先截短**：`@` 在截斷點之外的帳密，
+    /// 前半段會留在印出的那一段裡（第 7 則）；`fail` 的 600 字截斷在去憑證之後。
     static func redactingPageText(_ text: String) -> String {
         let stripped = Scalars(text.unicodeScalars.filter { $0 != "\t" && $0 != "\n" && $0 != "\r" })
         let withoutUserinfo = withoutPageUserinfo(stripped)
         guard let start = firstPageURLStart(withoutUserinfo) else { return redactingURLs(PyText.string(withoutUserinfo)) }
-        return redactingURLs(PyText.string(Scalars(withoutUserinfo[..<start])) + plainURL(PyText.string(Scalars(withoutUserinfo[start...]))))
+        let queryStart = withoutUserinfo[start...].firstIndex(where: { $0 == "?" || $0 == "#" }) ?? withoutUserinfo.count
+        return redactingURLs(PyText.string(Scalars(withoutUserinfo[..<start])) + pageURLBody(Scalars(withoutUserinfo[start..<queryStart])))
+    }
+
+    /// `redactingPageText` 第 3 步：第一個網址從開頭到第一個 `?`／`#` 之前（見那裡）。段的界線與 b41 的網址、`redactingURLs` 相同：Unicode 的空白、
+    /// `"`、`<`、`>`。界線原樣留著。
+    static func pageURLBody(_ body: Scalars) -> String {
+        func isBoundary(_ c: Unicode.Scalar) -> Bool { c.properties.isWhitespace || c == "\"" || c == "<" || c == ">" }
+        var out = "", i = 0, first = true
+        while i < body.count {
+            var j = i
+            while j < body.count, isBoundary(body[j]) { j += 1 }
+            out += PyText.string(Scalars(body[i..<j]))
+            guard j < body.count else { break }
+            var k = j
+            while k < body.count, !isBoundary(body[k]) { k += 1 }
+            let piece = Scalars(body[j..<k])
+            if first {
+                out += plainURL(PyText.string(piece))   // 第一段從網址起點開始（`firstPageURLStart`）
+                first = false
+            } else if let s = firstPageURLStart(piece) {
+                out += withoutPathParameters(PyText.string(Scalars(piece[..<s]))) + plainURL(PyText.string(Scalars(piece[s...])))
+            } else {
+                out += withoutPathParameters(PyText.string(piece))
+            }
+            i = k
+        }
+        return withoutPathParameters(out)
     }
 
     private static func isSlash(_ c: Unicode.Scalar) -> Bool { c == "/" || c == "\\" }
@@ -1088,12 +1134,21 @@ public final class FulltextFetch {
         return nil
     }
 
-    /// `redactingPageText` 的第 2 步：每一個 authority 的帳密去掉（見那裡）。一遍掃完：authority 結束之前不會再有新的起點
-    /// （它不含斜線；裡面的 `https:` 的 authority 結束在同一個地方，而它的最後一個 `@` 已經去掉了）。
+    /// `redactingPageText` 的第 2 步：authority 的帳密去掉（三種起點與兩種讀法見那裡）。一遍掃完：authority 結束之前不會再有新的起點——它不含
+    /// 斜線，裡面的 special scheme 後面若不是斜線，它的 authority 結束在同一個地方，而最後一個 `@` 已經去掉了；後面若是斜線，那個斜線就是
+    /// 這個 authority 結束的地方，記下來、下一圈從那裡當起點 (c)。
     static func withoutPageUserinfo(_ s: Scalars) -> Scalars {
+        // 每個位置之後第一個 `/`、`?`、`#`（RFC 3986／Python 讀 authority 的結束：不在 `\` 結束）與第一個 `@`——從後往前一遍算好，
+        // 判兩種讀法時查表，不必每個 authority 再往後掃
+        var rfcEnd = [Int](repeating: s.count, count: s.count + 1), nextAt = rfcEnd
+        for j in stride(from: s.count - 1, through: 0, by: -1) {
+            rfcEnd[j] = s[j] == "/" || s[j] == "?" || s[j] == "#" ? j : rfcEnd[j + 1]
+            nextAt[j] = s[j] == "@" ? j : nextAt[j + 1]
+        }
+        let ambiguous = Scalars(ambiguousHost.unicodeScalars)
         var out = Scalars()
         out.reserveCapacity(s.count)
-        var i = 0
+        var i = 0, schemeEndsHere = false   // 上一個 authority 以 special scheme 加冒號結尾、結束在 `i` 的斜線上：起點 (c)
         while i < s.count {
             var start: Int? = nil
             if let k = specialSchemeEnd(s, at: i) {
@@ -1103,8 +1158,9 @@ public final class FulltextFetch {
             } else if isSlash(s[i]) {
                 var m = i
                 while m < s.count, isSlash(s[m]) { m += 1 }
-                if m - i >= 2 { start = m } else { out.append(s[i]); i += 1; continue }
+                if m - i >= 2 || schemeEndsHere { start = m }
             }
+            schemeEndsHere = false
             guard let from = start else { out.append(s[i]); i += 1; continue }
             out.append(contentsOf: s[i..<from])
             var end = from, lastAt: Int? = nil
@@ -1112,10 +1168,26 @@ public final class FulltextFetch {
                 if s[end] == "@" { lastAt = end }
                 end += 1
             }
+            if end < s.count, s[end] == "\\", nextAt[end] < rfcEnd[end] {   // 兩種讀法對帳密說法不同
+                // 整段印成 `<ambiguous-host>`，直到下一個 `/`、`?`、`#`——但結尾的反斜線串留給下一圈：它接著那個 `/` 可能是下一個
+                // authority 的開頭 (b)；這一段若以 special scheme 加冒號結尾，那個斜線是它的 authority 的開頭 (c)
+                var q = rfcEnd[end]
+                while q > end, s[q - 1] == "\\" { q -= 1 }
+                out.append(contentsOf: ambiguous)
+                schemeEndsHere = q < s.count && isSlash(s[q]) && specialSchemeEnds(s, at: q, notBefore: from)
+                i = q
+                continue
+            }
             out.append(contentsOf: s[(lastAt.map { $0 + 1 } ?? from)..<end])
+            schemeEndsHere = end < s.count && isSlash(s[end]) && specialSchemeEnds(s, at: end, notBefore: from)
             i = end
         }
         return out
+    }
+
+    /// `s[..<e]` 以 special scheme 加冒號結尾，而它從 `from` 或之後開始。
+    private static func specialSchemeEnds(_ s: Scalars, at e: Int, notBefore from: Int) -> Bool {
+        specialSchemes.contains { p in e - p.count >= from && specialSchemeEnd(s, at: e - p.count) == e }
     }
 
     /// `redactingPageText` 的第 3 步：第一個網址從哪裡開始（沒有網址回 nil）。三種起點與 b41 的三條正規表示式相同（special scheme 加冒號、

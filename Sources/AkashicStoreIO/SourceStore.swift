@@ -157,8 +157,8 @@ public extension LibraryStore {
 
     /// #224：存 source 的**唯一**公開動作——blob 與它的 provenance 條目一起落地。
     ///
-    /// 序：先 blob（含 fail-closed 排除驗證）、成功後 append index 條目。部分失敗
-    /// （blob 成功、append 失敗）throw 且留下的孤兒由 `auditSourceIndex` 兜底可見。
+    /// 序：先 blob（含 fail-closed 排除驗證；要附加 index 時，寫 blob 之前也先驗 index 的排除——#700 b42 verify INFO 20）、成功後 append index
+    /// 條目。部分失敗（blob 成功、append 失敗）throw 且留下的孤兒由 `auditSourceIndex` 兜底可見。
     /// 同 digest 已有條目 → 不重複 append，`indexEntryCreated: false`（provenance
     /// 以先到的為準；重存不覆寫既有敘述——append-only，index 永不重寫既有行）。
     ///
@@ -207,7 +207,8 @@ public extension LibraryStore {
                                temporaryToken: temporaryToken)
     }
 
-    /// 兩個入口共用的路徑（#703）。順序：大小（不讀）→ index 腐壞（任何寫入之前）→ 第一遍算 digest（不寫）→ blob（排除驗證 → 第二遍複製）→ index。
+    /// 兩個入口共用的路徑（#703）。順序：大小（不讀）→ index 腐壞（任何寫入之前）→ 第一遍算 digest（不寫）→ 要附加 index 時 index 的排除驗證
+    /// （#700 b42 verify INFO 20）→ blob（排除驗證 → 第二遍複製）→ index。
     ///
     /// **誠實邊界**（#703 R2 verify 第 16、47 則）：「index 已記過了嗎」是在寫 blob 之前掃的快照，append 在之後；同一份內容的幾個存檔並行時，
     /// 每一個都看到「還沒記」、各 append 一列（實測 6 個並行 6 列）。#703 之前同樣如此（沒有 store 層的鎖），不是本張引入的；讀的一方以第一列為準。
@@ -238,6 +239,10 @@ public extension LibraryStore {
         }
         guard bytes > 0 else { return .refused(.empty) }
         if let expectedDigest, expectedDigest != digest { return .refused(.changed(actual: digest)) }
+        // 要附加 index 時，寫存檔**之前**先問 index 被不被排除（#700 b42 verify INFO 20：`.gitignore` 只把 `sources/index.jsonl` 放回來時，
+        // 存檔與子目錄仍被排除、index 沒有——先前寫完存檔才在附加那一步拒絕，留下孤兒存檔）。已記過的 digest 不附加，不問。
+        // 附加那一步自己照舊再問一次（`appendIndexEntry`：這裡與那裡之間 .gitignore 可能被改）。
+        if !scan.digests.contains(digest) { try assertSourcesExcluded(relativePath: "sources/index.jsonl") }
         let blob: (exclusionVerified: Bool, bytesWritten: Bool)
         switch try writeBlob(&source, digest: digest, bytes: bytes, limit: limit,
                              token: temporaryToken ?? UUID().uuidString, placement: placement) {

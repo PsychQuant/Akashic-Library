@@ -134,6 +134,10 @@ extension LibraryStore {
         // 先看也等持鎖的寫入者寫完：這裡的判讀與鎖內重看是同一個判斷，先看讀到寫了一半的區塊（只有標記、或切在多位元組字元中間）
         // 會在建立任何東西之前假拒絕。共享鎖，看的程序之間不互等；fd 關掉即放鎖。等不到就報，不無限期卡住（b36 verify）
         guard Self.lock(fd, LOCK_SH) else { return .problem(.lockTimedOut) }
+        // 取到鎖時路徑還指著打開的這個檔？等鎖期間它可能被刪掉或換掉（不用 flock 的程式、`git checkout`、`mv`）——不然重看，同鎖內重看那一步
+        // （#700 b42 verify LOW 8：先前不比，讀已經不在路徑上的 inode、判成要附加，再以路徑問寫入權限得到 ENOENT，報「沒有寫入權限」）
+        var named = stat()
+        guard lstat(path, &named) == 0, named.st_dev == fileStat.st_dev, named.st_ino == fileStat.st_ino else { return nil }
         let bytes: [UInt8]
         switch Self.readAll(fd) {
         case .bytes(let b): bytes = b
@@ -239,7 +243,11 @@ extension LibraryStore {
         if written > 0, let truncateErrno = (SourcesIgnoreIO.truncate ?? { ftruncate($0, $1) == 0 ? nil : errno })(fd, base) {
             return .failed(.rollbackFailed(writeErrno: writeErrno, truncateErrno: truncateErrno))
         }
-        if create && base == 0 { unlink(path) }   // O_EXCL 建的、仍是空的：是這一步自己的檔
+        // 這一步以 O_EXCL 新建的檔（截回空的）**不以路徑刪**：鎖約束不到不用 flock 的程式（編輯器、`git checkout`、`mv`），寫入期間路徑可能已被
+        // 換成使用者的檔——以路徑 unlink 會刪掉它（#700 b42 verify MEDIUM 2：先前在這裡 unlink(path)，實測刪掉了換上來的 `*.srt`、`*.mp3`
+        // 兩條規則，還說「沒有改寫」）。「仍是我們的檔」與 unlink 之間不是原子的，比對 inode 只縮小窗口；同 `lockTimedOutAfterCreating`，
+        // 留著、照實說。空的 .gitignore 對 git 無害，下一次先看把它當既有的檔附加。
+        if create && base == 0 { return .failed(.writeFailedAfterCreating(errno: writeErrno)) }
         return .failed(.writeFailed(errno: writeErrno))
     }
 
@@ -589,8 +597,8 @@ public enum SourcesIgnorePolicy: Sendable {
     case report
 }
 
-/// `.gitignore` 沒有加上 sources 排除區塊的原因（#700）。封閉列舉；除了 `rollbackFailed`，每一格都表示這一次沒有改寫 `.gitignore`
-/// （`lockTimedOutAfterCreating` 新建了一個空檔、沒有寫入內容，原因裡說出那個空檔留著）。
+/// `.gitignore` 沒有加上 sources 排除區塊的原因（#700）。封閉列舉；這一次對 `.gitignore` 做了什麼見 `effect`——除了 `rollbackFailed`
+/// 都沒有寫進內容，`lockTimedOutAfterCreating` 與 `writeFailedAfterCreating` 新建了一個空檔（留著，原因裡說出它留著）。
 public enum SourcesIgnoreProblem: Equatable, Sendable {
     /// 讀不到（權限、I/O 錯誤）。
     case unreadable(errno: Int32)
@@ -624,15 +632,38 @@ public enum SourcesIgnoreProblem: Equatable, Sendable {
     /// 這一次新建了 `.gitignore`（空的），之後拿不到它的鎖：沒有讀、沒有寫入內容，新建的檔**留著**——持鎖的程序打開了同一個檔、可能正要把區塊
     /// 寫進去，沒有鎖時刪掉它會刪到對方寫好的檔（#700 b40 verify MEDIUM 0）。
     case lockTimedOutAfterCreating
-    /// 寫入失敗；這一次寫進去的部分已截回原長（新建的、仍是空的已刪掉）。
+    /// 附加到既有的 `.gitignore` 時寫入失敗；這一次寫進去的部分已截回原長。
     case writeFailed(errno: Int32)
+    /// 這一次新建了 `.gitignore`，寫入區塊時失敗：寫進去的部分已截回（空的），新建的檔**留著**——不以路徑刪：寫入期間不用 `flock` 的程式可能已把
+    /// 路徑換成使用者的檔，以路徑刪除會刪掉它（#700 b42 verify MEDIUM 2；同 `lockTimedOutAfterCreating`）。
+    case writeFailedAfterCreating(errno: Int32)
     /// 寫入失敗，而且沒能截回原長（`ftruncate` 失敗，或寫入期間檔案被別的程序改過——截了會刪掉別人的位元組）。`.gitignore` 尾端可能留著半段區塊。
     case rollbackFailed(writeErrno: Int32, truncateErrno: Int32?)
 
-    /// 這一次有沒有寫進 `.gitignore`：只有 `rollbackFailed` 是 false（`lockTimedOutAfterCreating` 只新建了空檔，沒有寫進內容）。
-    public var leavesGitignoreUntouched: Bool {
-        if case .rollbackFailed = self { return false }
-        return true
+    /// 這一次有沒有寫進 `.gitignore` 的**內容**：只有 `rollbackFailed` 是 false（新建了空檔的兩格沒有寫進內容；新建本身見 `effect`）。
+    public var leavesGitignoreUntouched: Bool { effect != .partiallyWritten }
+
+    /// 這一次對 `.gitignore` 做了什麼（`warningLines` 與 `file add` 的拒絕都照它說；#700 b42 verify LOW 5、INFO 13、16：先前只看
+    /// `leavesGitignoreUntouched`，新建了空檔的 `lockTimedOutAfterCreating` 也說「沒有改寫」，同一則訊息的原因卻說「這一次新建了它」）。
+    public enum Effect: Equatable, Sendable {
+        /// 沒有新建、也沒有寫進任何位元組。
+        case untouched
+        /// 這一次以 `O_EXCL` 新建了它，沒有寫入內容（空檔留著）。
+        case createdEmpty
+        /// 寫進了一部分、沒能收回。
+        case partiallyWritten
+    }
+
+    /// 逐格寫（不用 `default`：新增一格時編譯器逼人在這裡選一類）。
+    public var effect: Effect {
+        switch self {
+        case .lockTimedOutAfterCreating, .writeFailedAfterCreating: return .createdEmpty
+        case .rollbackFailed: return .partiallyWritten
+        case .unreadable, .notUTF8Text, .symlink, .brokenSymlink, .notRegularFile, .hardLinked, .tooLarge, .markerWithoutRule,
+             .ruleNegatedLater, .contentRuleWithNestedGitignore, .notWritable, .openFailed, .changedWhileChecking, .lockTimedOut,
+             .writeFailed:
+            return .untouched
+        }
     }
 
     /// 一句話的原因：固定字串、errno 數字與系統的固定英文說明，不含使用者資料。
@@ -647,13 +678,14 @@ public enum SourcesIgnoreProblem: Equatable, Sendable {
         case .tooLarge: return "大到 git 不讀（git 不讀 100 MiB 以上的 .gitignore），或附加之後會越過那條線——加了也不生效"
         case .markerWithoutRule: return "有 sources 標記，但標記之後沒有一行 git 會當成排除 sources/ 的規則（區塊寫到一半中斷或被改過；行首帶空白或 tab、行尾帶 tab 的 sources/ git 不認）——不改寫既有的區塊"
         case .ruleNegatedLater: return "標記之後有排除 sources/ 的規則，但更後面有一行否定規則（! 開頭，例如 !sources/、!*、!*.jsonl）碰得到 akashic 寫進 sources/ 的路徑（sources 這個目錄、index.jsonl、兩個十六進位字元的存檔子目錄）——git 對同一個 .gitignore 以最後一條符合的規則為準，那些路徑可能被放了回來。只碰得到別的檔的否定規則（例如 !sources/.gitkeep）不算；判讀是保守的：[…] 字元類一律算碰得到、不分大小寫，否定之後別種寫法的排除規則（例如 *）不算。不改寫既有的規則"
-        case .contentRuleWithNestedGitignore: return "標記之後的規則只排除 sources/ 裡的內容（sources/* 之類），sources 這個目錄本身沒被排除，而 sources/.gitignore 在——git 也讀那一份，它對 sources/ 底下的路徑比根目錄的優先，可能把 akashic 寫的檔放回來；這裡不讀它的內容，不判成已在（只有註解的那一份也一樣）"
+        case .contentRuleWithNestedGitignore: return "標記之後的規則只排除 sources/ 裡的內容（sources/* 之類），sources 這個目錄本身沒被排除，而 sources/.gitignore 在（看不到它在不在——例如 sources/ 沒有讀取權限——也算在）——git 也讀那一份，它對 sources/ 底下的路徑比根目錄的優先，可能把 akashic 寫的檔放回來；這裡不讀它的內容，不判成已在（只有註解的那一份也一樣）"
         case .notWritable(let code): return "沒有寫入權限（\(LibraryStore.errnoText(code))）"   // display-safe-exempt: LibraryStore.errnoText 只回 errno 數字與系統的固定英文說明（code 是 Int32）
         case .openFailed(let code): return "打不開來寫（\(LibraryStore.errnoText(code))），什麼都沒寫"   // display-safe-exempt: LibraryStore.errnoText 只回 errno 數字與系統的固定英文說明（code 是 Int32）
         case .changedWhileChecking: return "看與寫之間一直被換掉或改動（重看了 \(LibraryStore.applyAttempts) 次）"   // display-safe-exempt: LibraryStore.applyAttempts 是 Int 常數
         case .lockTimedOut: return "另一個程序持有它的鎖，等了 \(Int(LibraryStore.lockWaitSeconds)) 秒還拿不到（持鎖的程序可能卡住了），沒有讀也沒有寫"   // display-safe-exempt: Int(LibraryStore.lockWaitSeconds)：LibraryStore.lockWaitSeconds 是 Double 常數，Int 只是型別轉換
         case .lockTimedOutAfterCreating: return "這一次新建了它（空的），之後另一個程序持有它的鎖，等了 \(Int(LibraryStore.lockWaitSeconds)) 秒還拿不到——沒有讀，也沒有寫入內容；新建的檔留著：持鎖的程序打開了同一個檔、可能正要把區塊寫進去，沒有鎖時刪掉它會刪到對方寫好的檔"   // display-safe-exempt: Int(LibraryStore.lockWaitSeconds)：LibraryStore.lockWaitSeconds 是 Double 常數，Int 只是型別轉換
         case .writeFailed(let code): return "寫入失敗（\(LibraryStore.errnoText(code))）；這一次寫進去的部分已截回原長"   // display-safe-exempt: LibraryStore.errnoText 只回 errno 數字與系統的固定英文說明（code 是 Int32）
+        case .writeFailedAfterCreating(let code): return "這一次新建了它，寫入區塊時失敗（\(LibraryStore.errnoText(code))）——寫進去的部分已截回、新建的檔留著（空的）：不以路徑刪它，寫入期間別的程式可能已把路徑換成別的檔"   // display-safe-exempt: LibraryStore.errnoText 只回 errno 數字與系統的固定英文說明（code 是 Int32）
         case let .rollbackFailed(w, t):
             return "寫入失敗（\(LibraryStore.errnoText(w))），而且沒能截回原長（"   // display-safe-exempt: LibraryStore.errnoText 只回 errno 數字與系統的固定英文說明（w、t 是 Int32）
                 + (t.map { "ftruncate：" + LibraryStore.errnoText($0) } ?? "寫入期間檔案被別的程序改過，截了會刪掉別人的位元組")
@@ -678,27 +710,38 @@ public enum SourcesIgnoreProblem: Equatable, Sendable {
         case .ruleNegatedLater:
             return ".gitignore 的 sources 排除區塊之後有否定規則，不能確定它生效"
         case .contentRuleWithNestedGitignore:
-            return ".gitignore 的 sources 排除區塊只排除內容、sources/ 裡另有 .gitignore，不能確定它生效"
+            return ".gitignore 的 sources 排除區塊只排除內容、sources/ 裡另有 .gitignore（或看不到它在不在），不能確定它生效"
         case .notUTF8Text, .symlink, .brokenSymlink, .notRegularFile, .hardLinked, .tooLarge, .markerWithoutRule,
-             .notWritable, .openFailed, .writeFailed, .rollbackFailed:
+             .notWritable, .openFailed, .writeFailed, .writeFailedAfterCreating, .rollbackFailed:
             return ".gitignore 沒有生效的 sources 排除區塊"
         }
     }
 
-    /// 一則 warning（`.report` 的呼叫端報它）：一行說明加上要自己加的那段（每行縮排四格）。`doctor` 印到 stdout、`import-zotero` 印到
-    /// stderr、MCP 的兩個匯入以換行接起來放進回應的 `gitignoreWarning`——三處同一份文字（#700 b35）。`actor` 是程式字面（命令名），
-    /// `note` 是呼叫端的固定句，接在原因之後；`rerun` 是處置裡「之後怎麼再跑」那幾個字（`remedy(rerun:)`）。只含固定句、errno 數字與
+    /// 一則 warning（`.report` 的呼叫端報它）：說明、匯入的那一句（有的話）、處置各一行，再加上要自己加的那段（每行縮排四格）。`doctor` 印到 stdout、
+    /// `import-zotero` 印到 stderr、MCP 的兩個匯入以換行接起來放進回應的 `gitignoreWarning`——三處同一份文字（#700 b35）。`actor` 是程式字面（命令名），
+    /// `note` 是呼叫端的固定句，自己一行；`rerun` 是處置裡「之後怎麼再跑」那幾個字（`remedy(rerun:)`）。只含固定句、errno 數字與
     /// 系統的固定英文說明，不含使用者資料。
+    ///
+    /// **處置自己一行**（#700 b42 verify MEDIUM 1 的同一族）：MCP `akashic_import_wos` 的 index rebuild 失敗時，這則 warning 接在錯誤訊息後面、
+    /// 經錯誤出口逐行截 400——先前說明、匯入那一句與處置接成一行（`ruleNegatedLater` 約 650 字），處置被截掉。每一行的長度由
+    /// `GitignoreRemedyCLITests.testEveryComposedLineFitsTheSinkAndKeepsTheRemedy` 對每一種原因量。
     ///
     /// 首句是 `headline`：「沒有**生效的**」排除區塊（#700 b36 verify）——symlink、大到 git 不讀的檔裡可能有區塊，只是 git 不讀；先前說
     /// 「沒有 sources 排除區塊」，處置又叫人「自己加上下面這段」，使用者在已經有區塊的檔裡再貼一份。沒有讀內容的兩格改說「沒有讀」（b38 verify）。
     public func warningLines(by actor: String, note: String = "", rerun: String = Self.defaultRerun) -> [String] {
-        ["⚠ " + headline + "，\(actor) " + (leavesGitignoreUntouched ? "沒有改寫它" : "寫到一半、沒能收回")   // display-safe-exempt: headline 是本型別的固定句；actor 是呼叫端的程式字面（命令名）
-            + "：\(reason)。\(note)\(remedy(rerun: rerun))："]   // display-safe-exempt: reason、remedy 是本型別的固定句與 errno 說明；note、rerun 是呼叫端的固定句
+        let did: String
+        switch effect {
+        case .untouched: did = "沒有改寫它"
+        case .createdEmpty: did = "新建了它（空的）、沒有寫入內容"
+        case .partiallyWritten: did = "寫到一半、沒能收回"
+        }
+        return ["⚠ " + headline + "，\(actor) \(did)：\(reason)。"]   // display-safe-exempt: headline、did、reason 是本型別的固定句與 errno 說明；actor 是呼叫端的程式字面（命令名）
+            + (note.isEmpty ? [] : [note])   // display-safe-exempt: note 是呼叫端的固定句
+            + [remedy(rerun: rerun) + "："]   // display-safe-exempt: remedy 是本型別的固定句；rerun 是呼叫端的固定句
             + LibraryStore.sourcesIgnoreBlock.split(separator: "\n").map { "    \($0)" }   // display-safe-exempt: 取自常數 LibraryStore.sourcesIgnoreBlock
     }
 
-    /// 匯入的 warning 接在原因之後的那一句（CLI `import-zotero` 與 MCP 的兩個匯入同一句）。不對還沒發生的事下斷言（#700 b36 verify：
+    /// 匯入的 warning 在原因之後的那一行（CLI `import-zotero` 與 MCP 的兩個匯入同一句；b42 verify 起自己一行，先前接在原因後面）。不對還沒發生的事下斷言（#700 b36 verify：
     /// 先前寫「匯入照常完成」，CLI 在讀 zotero.sqlite 之前就印它，之後找不到 db 而以 1 結束時兩句互相矛盾）。
     public static let importContinuedNote =
         "匯入不因此中止（匯入不寫 sources/）；store 在 git 工作樹裡時，sources/ 沒被排除之前 store-source 拒絕寫入。"
@@ -724,12 +767,12 @@ public enum SourcesIgnoreProblem: Equatable, Sendable {
         case .hardLinked: return "確認別處共用的那個檔也該有這段之後自己加上下面這段，或把 .gitignore 換成獨立的一般檔後\(rerun)"   // display-safe-exempt: rerun 是呼叫端的固定句
         case .tooLarge: return "把 .gitignore 縮到 100 MiB 以下（git 才會讀它）後\(rerun)，區塊已在就不會再加一份、還沒有就會補上；或縮好之後自己加上下面這段"   // display-safe-exempt: rerun 是呼叫端的固定句
         case .markerWithoutRule: return "在標記區塊裡補上頂格的 sources/ 一行（行首不留空白、行尾不留 tab），或刪掉殘缺的區塊、換成下面這段後\(rerun)"   // display-safe-exempt: rerun 是呼叫端的固定句
-        case .ruleNegatedLater: return "store 在 git 工作樹裡時可用 git check-ignore -v sources/index.jsonl sources/00/ 看——它只列出被排除的，少了哪一個就是區塊之後的否定規則把它放了回來：刪掉那一行或把它移到區塊之前；兩個都列出、這裡仍判成不生效時是判讀保守。兩種情形都可以在檔尾補一行頂格的 sources/（排除目錄本身，它之後沒有否定規則就生效）。之後\(rerun)；區塊已在，不要再貼一份——對照用的區塊"   // display-safe-exempt: rerun 是呼叫端的固定句
-        case .contentRuleWithNestedGitignore: return "把區塊裡的規則改成排除目錄本身的頂格 sources/（git 就不讀 sources/.gitignore），或確認 sources/.gitignore 不需要之後移走它，再\(rerun)；區塊已在，不要再貼一份——對照用的區塊"   // display-safe-exempt: rerun 是呼叫端的固定句
+        case .ruleNegatedLater: return "store 在 git 工作樹裡時，可用 git check-ignore sources/index.jsonl sources/00/x 看（不加 -v）：它只印出被排除的路徑，沒印出來的那一個沒被排除；兩個都印出來只說明這兩個路徑，其他存檔子目錄要換成 sources/<hh>/x 逐一看。加 -v 時每一行是一個路徑與最後符合它的規則（檔名:行號:規則），規則以 ! 開頭的就是放回它的那一行（放回的是上層目錄時，那個路徑可能不在輸出裡）：刪掉那一行或把它移到區塊之前。最直接的做法是在檔尾補一行頂格的 sources/（排除目錄本身，它之後沒有否定規則就生效）。之後\(rerun)；區塊已在，不要再貼一份——對照用的區塊"   // display-safe-exempt: rerun 是呼叫端的固定句
+        case .contentRuleWithNestedGitignore: return "把區塊裡的規則改成排除目錄本身的頂格 sources/（git 就不讀 sources/.gitignore），或確認 sources/.gitignore 不需要之後移走它（看不到它時先給 sources/ 讀取權限），再\(rerun)；區塊已在，不要再貼一份——對照用的區塊"   // display-safe-exempt: rerun 是呼叫端的固定句
         case .notWritable: return "給它寫入權限後\(rerun)，或自己在 .gitignore 加上下面這段"   // display-safe-exempt: rerun 是呼叫端的固定句
         case .lockTimedOut, .lockTimedOutAfterCreating: return "確認沒有卡住的 akashic 程序後\(rerun)；仍拿不到鎖就自己打開它看，沒有區塊才加上下面這段（區塊已在就不用加）"   // display-safe-exempt: rerun 是呼叫端的固定句
         case .changedWhileChecking: return "\(rerun)；仍不行就自己打開它看，沒有區塊才加上下面這段（區塊已在就不用加）"   // display-safe-exempt: rerun 是呼叫端的固定句
-        case .openFailed, .writeFailed: return "\(rerun)；仍不行就自己在 .gitignore 加上下面這段"   // display-safe-exempt: rerun 是呼叫端的固定句
+        case .openFailed, .writeFailed, .writeFailedAfterCreating: return "\(rerun)；仍不行就自己在 .gitignore 加上下面這段"   // display-safe-exempt: rerun 是呼叫端的固定句
         case .rollbackFailed: return "打開 .gitignore 看尾端，刪掉不完整的那段後\(rerun)，或換成下面這段"   // display-safe-exempt: rerun 是呼叫端的固定句
         }
     }

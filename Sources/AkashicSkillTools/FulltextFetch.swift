@@ -1042,25 +1042,107 @@ public final class FulltextFetch {
     }
 
     /// 頁面給的字印出之前去憑證：連結那一段 JS 的回答（`unexpected answer from the link script`）與頁面給的 PDF 連結（`points off-site`）
-    /// （#613 b41，b40 Z2 第 8、28 則）。`plainURL` 只對**一個**網址負責：字串裡第二個網址、tab 與換行夾在 `://` 中間、special scheme 沒有兩個
-    /// 斜線的寫法，它都看不到。這裡照 WHATWG 讀網址的方式把那些形狀的帳密也去掉：
+    /// （#613 b41，b40 Z2 第 8、28 則；b43，b42 第 0、4、5、7、12、13 則）。`plainURL` 只對**一個**網址負責：字串裡第二個網址、tab 與換行夾在
+    /// `://` 中間、special scheme 沒有兩個斜線的寫法，它都看不到。這裡照 WHATWG 讀**一個網址字串**的方式讀頁面給的字：
     ///
     /// 1. 去掉 ASCII tab、LF、CR（WHATWG 讀網址時去掉它們，`URLSplit` 同）：`https:/<tab>/u:p@h` 是帶帳密的網址。**代價**：夾在字之間的換行跟著
     ///    消失，`GET<LF>https://…` 印成 `gethttps://…`（`plainURL` 照 `URLSplit` 把 scheme 轉小寫）。
-    /// 2. special scheme（`http`、`https`、`ws`、`wss`、`ftp`、`file`）的 authority 不看斜線的個數與方向（`https:u:p@h`、`https:/\u:p@h`、
-    ///    `https:///u:p@h`），兩個以上斜線或反斜線起頭的寫法（`//u:p@h`、`\\u:p@h`、`///u:p@h`）同：去掉 authority 裡最後一個 `@` 之前的部分。
-    ///    不看前面是不是字的邊界（第 1 步可能把前面的字接上來）；代價是 `profile:x@y` 這種字也被剝成 `profile:y`——頁面的字，寧可多剝。
-    /// 3. 每一個網址過 `plainURL`（查詢、片段、路徑參數）：兩個以上斜線或反斜線起頭的、special scheme 起頭的（斜線幾個都算，`https:h/x?sig=…`
-    ///    也剝查詢），最後是每一個 `scheme://`（`redactingURLs`）。
+    /// 2. **每一個** authority 的帳密（`withoutPageUserinfo`）：special scheme（`http`、`https`、`ws`、`wss`、`ftp`、`file`）加冒號、後面接任意個
+    ///    斜線或反斜線（`https:u:p@h`、`https:/\u:p@h`、`https:///u:p@h`），或兩個以上斜線或反斜線（`//u:p@h`、`\\u:p@h`），之後到 authority
+    ///    結束為止的最後一個 `@` 之前都去掉。**authority 只在 `/`、`\`、`?`、`#` 或字尾結束**——空白、`"`、`<`、`>`、NBSP、VT 不結束它（WHATWG
+    ///    在帳密裡把它們百分比編碼；b41 在它們那裡停，`https://u:SEC RET@h` 的帳密原樣印出，b42 第 0、12、13 則）。不看前面是不是字的邊界
+    ///    （第 1 步可能把前面的字接上來）。代價是 `profile:x@y`、`https: 寫信給 a@b` 這種字也被剝——頁面的字，寧可多剝。
+    /// 3. **從第一個網址的開頭到字尾是一個網址**（`firstPageURLStart`：special scheme 加冒號、前一個字不是 `[A-Za-z0-9+.:/\-]` 的兩個以上斜線
+    ///    或反斜線、或 `scheme://`），整段交給 `plainURL`：查詢與片段一直到字尾（WHATWG：查詢在 `#`、片段在字尾結束，空白不結束它們——b41 的
+    ///    網址在空白處結束，`?title=a b&sig=SECRET` 的 ` b&sig=SECRET` 原樣印出），路徑參數照 `plainURL` 逐段去掉。第一個網址之前的字原樣。
+    ///    之後出現的網址是它的路徑的一部分（帳密在第 2 步已去掉），最後每一個 `scheme://` 再過一次 `redactingURLs`。
+    ///
+    /// **線性**（b42 第 4、5、7 則）：b41 的帳密那一條是沒有錨點的正規表示式，每一個斜線、每一個 `https:` 都是新的起點、各自掃到字尾才失敗——
+    /// 20,000 個斜線要 25 秒以上，頁面寫一個全是斜線的 `citation_pdf_url` 就讓 CLI 卡住。這裡第 2、3 步各掃一遍，每個字看常數次。**不先截短**：
+    /// `@` 在截斷點之外的帳密，前半段會留在印出的那一段裡（第 7 則）；`fail` 的 600 字截斷在去憑證之後。
     static func redactingPageText(_ text: String) -> String {
-        let stripped = String(String.UnicodeScalarView(text.unicodeScalars.filter { $0 != "\t" && $0 != "\n" && $0 != "\r" }))
-        let userinfo = try! NSRegularExpression(pattern: #"(?i)((?:https?|wss?|ftp|file):[/\\]*|[/\\]{2,})[^/\\?#\s"<>]*@"#)   // 編譯期常數
-        let withoutUserinfo = userinfo.stringByReplacingMatches(in: stripped, range: NSRange(location: 0, length: (stripped as NSString).length),
-                                                                withTemplate: "$1")
-        let schemeless = try! NSRegularExpression(pattern: #"(?<![A-Za-z0-9+.:/\\-])[/\\]{2,}[^\s"<>]+"#)   // 編譯期常數
-        let special = try! NSRegularExpression(pattern: #"(?i)(?:https?|wss?|ftp|file):[^\s"<>]+"#)   // 編譯期常數
-        let tokens = replacing(special, in: replacing(schemeless, in: withoutUserinfo) { plainURL($0) }) { plainURL($0) }
-        return redactingURLs(tokens)
+        let stripped = Scalars(text.unicodeScalars.filter { $0 != "\t" && $0 != "\n" && $0 != "\r" })
+        let withoutUserinfo = withoutPageUserinfo(stripped)
+        guard let start = firstPageURLStart(withoutUserinfo) else { return redactingURLs(PyText.string(withoutUserinfo)) }
+        return redactingURLs(PyText.string(Scalars(withoutUserinfo[..<start])) + plainURL(PyText.string(Scalars(withoutUserinfo[start...]))))
+    }
+
+    private static func isSlash(_ c: Unicode.Scalar) -> Bool { c == "/" || c == "\\" }
+
+    /// special scheme 加冒號（小寫）。`https` 在 `http` 之前、`wss` 在 `ws` 之前：先比長的。
+    private static let specialSchemes: [Scalars] = ["https:", "http:", "wss:", "ws:", "ftp:", "file:"].map { Scalars($0.unicodeScalars) }
+
+    /// `s[i...]` 以 special scheme 加冒號開頭（大小寫不分）時，冒號之後的位置。
+    private static func specialSchemeEnd(_ s: Scalars, at i: Int) -> Int? {
+        switch s[i] {   // 每個位置都會問一次：先以第一個字擋掉
+        case "h", "H", "w", "W", "f", "F": break
+        default: return nil
+        }
+        for p in specialSchemes {
+            guard i + p.count <= s.count else { continue }
+            if (0..<p.count).allSatisfy({ k in
+                let c = s[i + k]
+                return c == p[k] || (c.isASCII && c.properties.isUppercase && Unicode.Scalar(c.value + 0x20) == p[k])
+            }) { return i + p.count }
+        }
+        return nil
+    }
+
+    /// `redactingPageText` 的第 2 步：每一個 authority 的帳密去掉（見那裡）。一遍掃完：authority 結束之前不會再有新的起點
+    /// （它不含斜線；裡面的 `https:` 的 authority 結束在同一個地方，而它的最後一個 `@` 已經去掉了）。
+    static func withoutPageUserinfo(_ s: Scalars) -> Scalars {
+        var out = Scalars()
+        out.reserveCapacity(s.count)
+        var i = 0
+        while i < s.count {
+            var start: Int? = nil
+            if let k = specialSchemeEnd(s, at: i) {
+                var m = k
+                while m < s.count, isSlash(s[m]) { m += 1 }
+                start = m
+            } else if isSlash(s[i]) {
+                var m = i
+                while m < s.count, isSlash(s[m]) { m += 1 }
+                if m - i >= 2 { start = m } else { out.append(s[i]); i += 1; continue }
+            }
+            guard let from = start else { out.append(s[i]); i += 1; continue }
+            out.append(contentsOf: s[i..<from])
+            var end = from, lastAt: Int? = nil
+            while end < s.count, !isSlash(s[end]), s[end] != "?", s[end] != "#" {
+                if s[end] == "@" { lastAt = end }
+                end += 1
+            }
+            out.append(contentsOf: s[(lastAt.map { $0 + 1 } ?? from)..<end])
+            i = end
+        }
+        return out
+    }
+
+    /// `redactingPageText` 的第 3 步：第一個網址從哪裡開始（沒有網址回 nil）。三種起點與 b41 的三條正規表示式相同（special scheme 加冒號、
+    /// 前一個字不是 `[A-Za-z0-9+.:/\-]` 的兩個以上斜線或反斜線、前一個字不是 `[A-Za-z0-9+.-]` 的 `scheme://`），只是不再在空白處結束。
+    static func firstPageURLStart(_ s: Scalars) -> Int? {
+        func isSchemeChar(_ c: Unicode.Scalar) -> Bool {
+            c.isASCII && (c.properties.isAlphabetic || ("0"..."9").contains(c) || c == "+" || c == "." || c == "-")
+        }
+        var i = 0
+        while i < s.count {
+            if specialSchemeEnd(s, at: i) != nil { return i }
+            let prev: Unicode.Scalar? = i > 0 ? s[i - 1] : nil
+            if isSlash(s[i]), i + 1 < s.count, isSlash(s[i + 1]), !(prev.map { isSchemeChar($0) || $0 == ":" || isSlash($0) } ?? false) {
+                return i
+            }
+            if s[i].isASCII, s[i].properties.isAlphabetic, !(prev.map(isSchemeChar) ?? false) {
+                var k = i
+                while k < s.count, isSchemeChar(s[k]) { k += 1 }
+                if PyText.hasPrefix(s, [":", "/", "/"], at: k) { return i }
+                // 這一段 scheme 字元之內的位置前一個字都是 scheme 字元，不是起點；跳過去（special scheme 已在每個位置上問過，見下）
+                for j in (i + 1)..<k where specialSchemeEnd(s, at: j) != nil { return j }
+                i = k
+                continue
+            }
+            i += 1
+        }
+        return nil
     }
 
     /// `re` 的每一個比對換成 `transform` 的結果，其餘原樣。

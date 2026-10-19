@@ -225,3 +225,39 @@ final class EnrichCLITests: XCTestCase {
         XCTAssertEqual(try entry("noauthor2020x").authors, [.literal("Some One")])
     }
 }
+
+/// #709 b42 verify MEDIUM 0、LOW 4：DOI 命中兩筆、命中裡有一份 legacy 拷貝，而同一個 id 另有一份不帶這個 DOI 的拷貝（E:x:A 帶、legacy x:A 帶、
+/// legacy y:A 不帶）。先前真 binary 的理由只列命中那一份、以「，再跑」收尾，照做之後重跑被「無法唯一定位」擋下。走真 binary：理由點名兩份，
+/// 照著刪掉理由列出的檔之後重跑，寫得進去。
+extension EnrichCLITests {
+    func testTheCopyReasonNamesEverySameIDCopyThroughTheBinary() throws {
+        let store = LibraryStore(root: root)
+        let id = UUID()
+        let doi = "10.1234/b43copy"
+        func work(_ citekey: String, carriesDOI: Bool) -> Entry {
+            Entry(id: id, citekey: citekey, type: .periodicalArticle, title: "Copy", date: "2020",
+                  doi: carriesDOI ? [DOI(doi)!] : [])
+        }
+        try EntryYAML.encode(work("x2020new", carriesDOI: true)).write(to: store.entityURL(id: id), atomically: true, encoding: .utf8)
+        try FileManager.default.createDirectory(at: store.entriesDir, withIntermediateDirectories: true)
+        for (ck, carries) in [("x2020new", true), ("y2019old", false)] {
+            try EntryYAML.encode(work(ck, carriesDOI: carries))
+                .write(to: store.entriesDir.appendingPathComponent("\(ck).yaml"), atomically: true, encoding: .utf8)
+        }
+        let f = try proposals(#"[{"doi":"\#(doi)","fields":{"abstract":"A"}}]"#)
+        func item() throws -> [String: Any] {
+            let r = try cli(["enrich", "--from", f, "--json"])
+            XCTAssertEqual(r.status, 0, r.output)
+            return try XCTUnwrap(((try JSONSerialization.jsonObject(with: Data(r.output.utf8)) as? [String: Any])?["items"] as? [[String: Any]])?.first, r.output)
+        }
+        let first = try item()
+        XCTAssertEqual(first["category"] as? String, "ambiguous", "\(first)")
+        let reason = try XCTUnwrap(first["reason"] as? String, "\(first)")
+        XCTAssertTrue(reason.contains("同 id 另有 1 份不帶這個 DOI") && reason.contains("（共 2 份，akashic validate 列出），再跑"), reason)
+        let named = reason.components(separatedBy: "legacy 檔 ").dropFirst().compactMap { $0.components(separatedBy: "；").first }
+        XCTAssertEqual(Set(named), ["entries/x2020new.yaml", "entries/y2019old.yaml"], reason)
+
+        for file in named { try FileManager.default.removeItem(at: root.appendingPathComponent(file)) }
+        XCTAssertEqual(try item()["category"] as? String, "added", "照著理由刪掉之後，「再跑」成立")
+    }
+}

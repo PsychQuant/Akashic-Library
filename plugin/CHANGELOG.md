@@ -1,5 +1,15 @@
 # Changelog
 
+## #709 — b42 verify 修正（2026-10-20）：enrich 的拷貝那一句點名同 id 的每一份拷貝、判準與處置算在同一個集合上；validate 的重複 citekey 結論在前、名單有上限；citekey／person key 重複的 error 帶處置；plugin 殼 0.13.5 → 0.13.6
+
+細節在 `changelog/2026-10-20-b43-enrich-reasons-709.md`。行為在 binary（新的 `akashic` 與 `akashic-mcp`）；skill 文字沒有改。
+
+- **`akashic_enrich`／CLI `enrich`**：DOI 命中兩筆以上而命中裡有 legacy 拷貝時，拷貝那一句也點名 store 裡**同 id 而不帶這個 DOI** 的拷貝（「同 id 另有 N 份不帶這個 DOI……（共 M 份，akashic validate 列出）」），而「，再跑」只在刪掉這些拷貝之後命中的記錄真的能唯一定位時才說——先前判準假設刪掉 store 裡全部拷貝、處置只叫人刪命中那幾份，照做之後重跑仍被「無法唯一定位」擋下。命中全是拷貝時改說刪掉之後這個 DOI 對不到任何記錄（先前說「再跑」，重跑得 notFound）。明細裡的 entities/ 那份一律以檔名（`entities/<id>.yaml`）指認。鍵、類別與 `matches` 不變。
+- **`akashic_doctor`／CLI `validate`**：「DOI 被 N 筆 work 共用」「標題與年份相同但 DOI 不同」「Zotero 來源被 N 筆 entry 宣稱」三則在組裡有重複的 citekey 時，「先修好那個重複」放在名單之前（MCP 每則截 300 個 scalar），重複的 citekey 至多列 5 個、組的名單至多 10 個（其餘「…共 N」）；沒有重複的組除了名單上限逐字不變。`citekey「…」重複`／`person key「…」重複` 的 error 多一句處置：手改 YAML 改掉其中一筆的 key（legacy 檔的檔名一起改），組裡有 legacy 拷貝時改說刪掉那一份並以檔名指認它的 entities/ 那份。`rename`／`rename-person`／`resolve-divergence` 的拒絕訊息帶這則 error，處置跟著到那裡。
+- `tools/list`：59,159 → 59,159 bytes（±0；MCP 說明沒有改；base `7ba4d695` 以真 binary 重量）。
+
+plugin 殼版號 0.13.5 → 0.13.6（這一段改了本檔；0.13.5 已隨 `7ba4d695` 推上 main 而對外）。本檔不在殼的內容摘要裡，所以 0.13.6 那一列的摘要與 0.13.5 相同；同一批若別的分支改了殼的內容，整合時重記。
+
 ## #709 — b40 verify 修正（2026-10-19）：enrich 的拷貝那一句只說刪掉拷貝之後就能定位的、理由結論在前且回顯截短；validate 對同 citekey 的重複不指 record-divergence
 
 細節在 `changelog/2026-10-19-b41-enrich-reasons-709.md`。行為在 binary（新的 `akashic` 與 `akashic-mcp`）；skill 文字沒有改。
@@ -10,7 +20,7 @@
 - **CLI `bootstrap-people`／`-venues`／`-organizations`**：計畫被擋而附註列不完（每類至多 20）時，乾跑最後一行說出沒列出的筆數、指向 `akashic validate`。
 - `tools/list`：59,171 → 59,171 bytes（±0；MCP 說明沒有改）。下一段 b38 那一條的 59,173 已更正。
 
-plugin 版號沒有動（行為在 binary）。
+~~plugin 版號沒有動（行為在 binary）。~~ plugin 殼版號隨同一批的 #613 b41 升到 0.13.5；這一段只改了本檔（版本史，不在殼的內容摘要裡——`akashic-guards plugin-shell-version` 算摘要時排除 `CHANGELOG.md`），行為在 binary（b42 verify LOW 8：先前那句與旁邊兩段的「升到 0.13.5」讀起來互相矛盾）。
 
 ## #700、#692 — b40 verify 修正（2026-10-19）：sources 區塊只看 akashic 寫的路徑、NUL 與星號照 git 讀、`sources/.gitignore`、等鎖逾時不刪新建的空檔
 

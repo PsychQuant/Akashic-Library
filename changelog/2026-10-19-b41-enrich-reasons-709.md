@@ -86,7 +86,8 @@ devil's advocate 更正 regression 席：附註被截時有「…另 N」，說�
 
 `ambiguousDOIReason` 的 doc 以「前兩類都是 validate 的跨記錄 error，合併在修好之前也被 `assertNoCrossRecordErrors` 擋」說明先修好排在 #459 之前，而第 1 類含
 第 3 類，它在 validate 是 warning。改寫成：citekey 重複與 UUID 重複是 error、由 `assertNoCrossRecordErrors` 擋；第 3 類是 warning、擋它的是寫入當下的 #631 前置
-（load 用同一組判斷，那筆記錄的檔寫不進去）。順序不變；第 3 類要不要讓 bootstrap 的 `--apply` 也擋，是 `### Blocking` 裡待使用者裁決的一項，doc 也寫明。
+（load 用同一組判斷，那筆記錄的檔寫不進去）。順序不變；~~第 3 類要不要讓 bootstrap 的 `--apply` 也擋，是 `### Blocking` 裡待使用者裁決的一項，doc 也寫明。~~（b42 verify INFO 11：讀起來像今天不擋——
+`--apply` 今天就對第 3 類拒絕；待裁決的是維持這樣、還是只在計數真的加倍時才拒。見 `2026-10-20-b43-enrich-reasons-709.md`。）
 上一節的第 3 類排序測試把順序釘住。
 
 ## INFO 13、16：tools/list 的量測數字
@@ -102,7 +103,7 @@ b39 的 changelog 與 `plugin/CHANGELOG.md` 的 #709 段寫 59,173 → 59,173；
 
 ## 仍待使用者裁決（本輪不動）
 
-- 「無法唯一定位」的第 3 類是否也讓 bootstrap 的 `--apply` 拒絕（`### Blocking` 第 1 項）。
+- ~~「無法唯一定位」的第 3 類是否也讓 bootstrap 的 `--apply` 拒絕~~ 「無法唯一定位」的第 3 類：`--apply` 今天照樣拒絕，維持這樣、還是只在計數真的加倍時才拒（`### Blocking` 第 1 項；b42 verify INFO 11 更正措辭）。
 - venue／organization 的重複 key（#669）要不要納入 bootstrap 的拒絕條件（`### Blocking` 第 2 項）。
 
 ## INFO（不動）

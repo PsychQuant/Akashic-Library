@@ -118,7 +118,7 @@ final class IndexPrefersEntitiesCopyTests: XCTestCase {
         XCTAssertThrowsError(try LibraryIndex(store: store).rebuild(), "一份 entities、一份 legacy") { error in
             XCTAssertTrue("\(error)".contains("UNIQUE"), "\(error)")
         }
-        XCTAssertTrue(try store.load().crossRecordIssues().contains { $0.severity == .error && $0.message == "citekey「dup2020x」重複" },
+        XCTAssertTrue(try store.load().crossRecordIssues().contains { $0.severity == .error && $0.message.hasPrefix("citekey「dup2020x」重複——") },
                       "不同的記錄共用 citekey 照舊是 error")
 
         try FileManager.default.removeItem(at: store.entriesDir)
@@ -313,8 +313,13 @@ final class IndexPrefersEntitiesCopyTests: XCTestCase {
         try writeEntities(Person(key: "chen-chun-houh", names: PersonNames(authorized: ["Chen, Chun-houh"]), id: id))
         try writeLegacy(Person(key: "chen-c-h", names: PersonNames(variant: ["C.-H. Chen"]), id: id))   // 改名前的舊 key
         let load = try store.load()
-        XCTAssertTrue(load.crossRecordIssues().contains { $0.severity == .error && $0.message == "person key「chen-c-h」重複" },
+        XCTAssertTrue(load.crossRecordIssues().contains { $0.severity == .error && $0.message.hasPrefix("person key「chen-c-h」重複——") },
                       "兩筆不同的記錄共用 key 照舊是 error")
+        // #709 b42 verify LOW 3：處置點名那份 legacy 拷貝與它的 entities/ 那份（檔名），拷貝以外只有一個人、不叫人改 key
+        let dup = try XCTUnwrap(load.crossRecordIssues().first { $0.message.hasPrefix("person key「chen-c-h」重複") }?.message)
+        XCTAssertTrue(dup.contains("其中 people/chen-c-h.yaml（entities/ 那份是 entities/\(id.uuidString).yaml） 是 legacy 拷貝："
+                                   + "確認 entities/ 那份是新的之後刪掉 legacy 那份"), dup)
+        XCTAssertFalse(dup.contains("改掉其中一筆"), dup)
         let view = load.withoutShadowedLegacyCopies()
         XCTAssertEqual(view.people.map(\.key).sorted(), ["chen-c-h", "chen-chun-houh"])
         XCTAssertTrue(view.people.unlocatablePersonKeys.contains("chen-c-h"), "過濾不讓它變得可寫")

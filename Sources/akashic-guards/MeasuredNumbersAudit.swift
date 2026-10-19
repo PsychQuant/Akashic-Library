@@ -142,11 +142,12 @@ private func fencedCmdLine(_ line: String) -> Bool {
         && ns.rangeOfCharacter(from: runnableChars, options: [], range: all).location != NSNotFound
 }
 
-/// 一份檔的判讀結果：數到幾個 `實測 N`、哪些是裸的、哪幾行超過行的上限（那幾行不判讀）。
+/// 一份檔的判讀結果：數到幾個 `實測 N`、哪些是裸的、哪幾行超過行的上限（那幾行不判讀）、到檔尾都沒收尾的 fence 從第幾行開。
 struct MeasuredNumbersScan {
     var total = 0
     var bare: [(line: Int, number: String, shown: String)] = []
     var oversizeLines: [(line: Int, bytes: Int)] = []
+    var unclosedFence: Int? = nil
 }
 
 /// 判讀一份檔的 `實測 N`（檔頭的三條判準）。
@@ -155,12 +156,15 @@ struct MeasuredNumbersScan {
 /// 對同一個 12 行視窗重跑一次判準 3（`hasCmd`）、重新 trim 一次整行。一行 N 個沒有時間錨的數字因此是 N 乘上行長：一行兩萬個 51 秒。
 /// 現在每一行的事實（有沒有 inline 指令、是不是 fence 的分隔、fence 裡算不算指令）各算一次，每一行的判準 3 也只算一次，
 /// 要用到時才算；顯示用的那一段 trim 每行至多一次。
-/// **行的上限**：`lineByteCap` 位元組以上的行不判讀、記在 `oversizeLines`（呼叫端具名紅）。這裡的單位是一行，所以沿用
-/// `selfProofMaxBlockBytes`；`selfProofMaxBlockLines` 對一行沒有意義（一個單位恆為一行）。後設檢查（`measuredNumbersLinearityIssues`）
+/// **行的上限**：`lineByteCap` 位元組以上的行不判讀、記在 `oversizeLines`（呼叫端具名紅）——fence 裡的行、fence 的分隔行也一樣，判準 3 的
+/// 視窗也不讀它（#711 b41，b40 verify 第 0 列：b39 的兩個 fence 分支在上限之前就 `continue`，視窗又經快取讀到超長行）；超長的分隔行照樣
+/// 開合 fence，其餘不看。**沒收尾的 fence**：到檔尾還在 fence 裡時記下開頭那一行（呼叫端具名紅），之後的數字沒被判讀（b40 verify 第 5、24 列）。
+/// 這裡的單位是一行，所以沿用 `selfProofMaxBlockBytes`；`selfProofMaxBlockLines` 對一行沒有意義（一個單位恆為一行）。後設檢查（`measuredNumbersLinearityIssues`）
 /// 傳 `Int.max` 繞過它——那裡量的是判讀本身。
 func measuredNumbersScan(_ lines: [String], lineByteCap: Int = selfProofMaxBlockBytes) -> MeasuredNumbersScan {
     var scan = MeasuredNumbersScan()
     let n = lines.count
+    let big = lines.map { $0.utf8.count > lineByteCap }
     // 逐行的事實，要用到時才算（0 未算、1 否、2 是）
     var inlineAt = [UInt8](repeating: 0, count: n)
     var fenceAt = [UInt8](repeating: 0, count: n)
@@ -175,12 +179,12 @@ func measuredNumbersScan(_ lines: [String], lineByteCap: Int = selfProofMaxBlock
         if windowAt[i] != 0 { return windowAt[i] == 2 }
         let lo = max(0, i - 4), hi = min(n, i + 8)
         var found = false
-        for j in lo..<hi where fact(&inlineAt, j, measuredNumbersInlineCmd) { found = true; break }
+        for j in lo..<hi where !big[j] && fact(&inlineAt, j, measuredNumbersInlineCmd) { found = true; break }
         if !found {
             var fenced = false
             for j in lo..<hi {
                 if fact(&fenceAt, j, { $0.trimmingCharacters(in: .whitespaces).hasPrefix("```") }) { fenced.toggle(); continue }
-                if fenced && fact(&fencedCmdAt, j, fencedCmdLine) { found = true; break }
+                if fenced && !big[j] && fact(&fencedCmdAt, j, fencedCmdLine) { found = true; break }
             }
         }
         windowAt[i] = found ? 2 : 1
@@ -188,12 +192,17 @@ func measuredNumbersScan(_ lines: [String], lineByteCap: Int = selfProofMaxBlock
     }
     // secAnchored：從小節標題到目前這一行之間有沒有時間錨——逐行累積（#711 b37）。標題那一行去掉 `#NNN` 再算（見檔頭判準 2）；
     // 第一個標題之前，從檔頭起算
-    var secAnchored = false, inFence = false
+    var secAnchored = false, inFence = false, fenceOpen = 0
     for (i, line) in lines.enumerated() {
+        if big[i] {
+            scan.oversizeLines.append((i + 1, line.utf8.count))
+            if unquote(line).hasPrefix("```") { inFence.toggle(); fenceOpen = i + 1 }
+            continue
+        }
         let ns = line as NSString
         let lineMarked = markRegex.firstMatch(in: line, range: NSRange(location: 0, length: ns.length)) != nil
         // fence 裡的行不判讀數字、也不是標題，但照樣算進小節的時間錨（先前的寫法把整節原文接起來，fence 也在裡面）
-        if unquote(line).hasPrefix("```") { inFence.toggle(); secAnchored = secAnchored || lineMarked; continue }
+        if unquote(line).hasPrefix("```") { inFence.toggle(); fenceOpen = i + 1; secAnchored = secAnchored || lineMarked; continue }
         if inFence { secAnchored = secAnchored || lineMarked; continue }
         if measuredNumbersIsHeading(line) {
             // 標題的 `#NNN` 不替這一節的其他行背書（判準 2）。標題那一行自己的數字照判準 1 看同一行——`mcp-cli-parity` 的
@@ -204,8 +213,6 @@ func measuredNumbersScan(_ lines: [String], lineByteCap: Int = selfProofMaxBlock
         } else {
             secAnchored = secAnchored || lineMarked
         }
-        let bytes = line.utf8.count
-        if bytes > lineByteCap { scan.oversizeLines.append((i + 1, bytes)); continue }
         var shown: String? = nil
         for m in numRegex.matches(in: line, range: NSRange(location: 0, length: ns.length)) {
             let num = ns.substring(with: m.range(at: 1))
@@ -216,6 +223,7 @@ func measuredNumbersScan(_ lines: [String], lineByteCap: Int = selfProofMaxBlock
             scan.bare.append((i + 1, num, shown!))
         }
     }
+    if inFence { scan.unclosedFence = fenceOpen }
     return scan
 }
 
@@ -256,16 +264,21 @@ func measuredNumbersAudit() -> Int32 {
     // 同一組值，改一處兩支一起動。超過即具名紅、不判讀那一塊，不截斷。
     var oversizeFiles: [(String, Int)] = []
     var oversizeLines: [(String, Int, Int)] = []
+    // 讀不到的檔、沒收尾的 fence 也具名紅（#711 b41，b40 verify 第 5、24 列：先前靜默略過，非 UTF-8 的一個位元組就讓整份檔不被讀而照樣綠——
+    // 第 3 列「未涵蓋不得冒充通過」；`zero-instance-rows-audit` 對兩者都具名紅）
+    var unreadable: [String] = []
+    var unclosed: [(String, Int)] = []
     var texts: [String: String] = [:]
 
     for f in files {
-        guard let raw = readFile(f) else { continue }
+        guard let raw = readFile(f) else { unreadable.append(f); continue }
         if raw.utf8.count > selfProofMaxFileBytes { oversizeFiles.append((f, raw.utf8.count)); continue }
         texts[f] = raw
         let scan = measuredNumbersScan(raw.components(separatedBy: "\n"))
         total += scan.total
         bare += scan.bare.map { (f, $0.line, $0.number, $0.shown) }
         oversizeLines += scan.oversizeLines.map { (f, $0.line, $0.bytes) }
+        if let open = scan.unclosedFence { unclosed.append((f, open)) }
     }
 
     // 標題列說出判準 2 的收窄（#711 b37）：「全部都有時間錨」是在小節標題的編號不背書之下說的——量測文件第 101 列的自證閘也用這一段
@@ -282,7 +295,14 @@ func measuredNumbersAudit() -> Int32 {
         print("  ✗ \(rel):\(i) 這一行有 \(bytes) 位元組，超過上限 \(selfProofMaxBlockBytes)——不判讀這一行的數字"
               + "（被掃的檔 PR 改得到，上限讓判讀的工作量有界）。拆行，或提高 `selfProofMaxBlockBytes` 並寫理由")
     }
+    for rel in unreadable {
+        print("  ✗ \(rel) 讀不到（不存在、不是檔，或不是合法的 UTF-8）——這支守衛沒有判讀它。修好編碼或拿掉那個檔")
+    }
+    for (rel, open) in unclosed {
+        print("  ✗ \(rel):\(open) 開的 fence 到檔尾都沒有收尾——之後的 `實測 N` 都被當成 fence 內、沒有判讀。補上收尾的一行")
+    }
     let oversize = oversizeFiles.count + oversizeLines.count
+    let unjudged = unreadable.count + unclosed.count
 
     // 標題宣稱的列數 vs 下方的表
     var drift: [(String, Int, String, Int)] = []
@@ -291,10 +311,12 @@ func measuredNumbersAudit() -> Int32 {
     var unparsed: [(String, Int, String)] = []
     var counts = 0
     for f in files {
-        guard let raw = texts[f] else { continue }   // 讀不到的、超過檔案上限的不判讀（後者上面已具名）
+        guard let raw = texts[f] else { continue }   // 讀不到的、超過檔案上限的不判讀（兩者上面都已具名）
         let lines = raw.components(separatedBy: "\n")
+        // 標題用 CommonMark 的 ATX 判準，與小節的錨、`rowsAfter` 同一個（#711 b41，b40 verify 第 19 列：b39 只換了那兩處，這裡仍是
+        // `hasPrefix("#")`，行首 `#NNN` 的散文被當成標題）
         for (i, line) in lines.enumerated()
-        where line.utf8.count <= selfProofMaxBlockBytes && line.trimmingCharacters(in: .whitespaces).hasPrefix("#") {
+        where line.utf8.count <= selfProofMaxBlockBytes && measuredNumbersIsHeading(line) {
             let ns = line as NSString
             for m in matches(line, countRe) {
                 counts += 1
@@ -327,8 +349,9 @@ func measuredNumbersAudit() -> Int32 {
 
     print("\n══ \(bare.isEmpty ? "無裸數字" : "**\(bare.count) 個裸數字**")"
           + "｜\(bad == 0 ? "列數宣稱皆相符" : "**\(bad) 處列數不符**")"
-          + (oversize == 0 ? "" : "｜**\(oversize) 處超過上限**") + " ══")
-    return (bare.isEmpty && bad == 0 && oversize == 0) ? 0 : 1
+          + (oversize == 0 ? "" : "｜**\(oversize) 處超過上限**")
+          + (unjudged == 0 ? "" : "｜**\(unjudged) 處沒有判讀**") + " ══")
+    return (bare.isEmpty && bad == 0 && oversize == 0 && unjudged == 0) ? 0 : 1
 }
 
 // MARK: - 判讀是線性的：輸入放大 10 倍要在固定秒數內（#711 b39）

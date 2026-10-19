@@ -151,6 +151,17 @@ func auditGuardsMutations() -> Int32 {
                 }
                 try? fm.removeItem(atPath: p); continue
             }
+            // **`appendInvalidUTF8` ＝ 在檔尾接兩個不是 UTF-8 的位元組**（#711 b41）：測「讀不到的檔」——字串的 edit 寫不出不合法的 UTF-8
+            if group.contains(where: { $0.kind == "appendInvalidUTF8" }) {
+                guard var d = fm.contents(atPath: p) else {
+                    abort = "✗ 注入讀不到 \(path)——這個 case 無效"; return (0, "")
+                }
+                d.append(contentsOf: [0xFF, 0xFE])
+                guard fm.createFile(atPath: p, contents: d) else {
+                    abort = "✗ 注入寫不進 \(path)——這個 case 無效"; return (0, "")
+                }
+                continue
+            }
             guard let before = try? String(contentsOfFile: p, encoding: .utf8) else {
                 abort = "✗ 注入讀不到 \(path)——這個 case 無效"; return (0, "")
             }
@@ -418,8 +429,17 @@ func auditGuardsMutations() -> Int32 {
         for i in numbersLinearity.issues { print("✗ 後設：\(i)") }
     }
 
+    // **後設：`runGuardProcess` 的期限**（#711 b41，b40 verify 第 1、8、11、20 列）：限時的格子靠它終止退化的守衛，而它自己的終止、
+    // 不等握著 pipe 的背景行程、逾時不記成如預期，先前都沒有一格釘住（`runGuardProcessDeadlineIssues`）。
+    let deadlineCheck = runGuardProcessDeadlineIssues()
+    if deadlineCheck.issues.isEmpty {
+        print("✓ 後設：runGuardProcess 的期限涵蓋子行程與 stdout 的讀取（期限 1 秒：\(deadlineCheck.report)），逾時不記成如預期"); ok += 1
+    } else {
+        for i in deadlineCheck.issues { print("✗ 後設：\(i)") }
+    }
+
     let same = before == mtimes()
-    let expected = cases.count - skipped.count + agmRobust.count + 4   // +4 = 不變式、重複掃描、zi-rows 的線性、numbers 的線性
+    let expected = cases.count - skipped.count + agmRobust.count + 5   // +5 = 不變式、重複掃描、zi-rows 的線性、numbers 的線性、期限
     if !sourceInjected.isEmpty {
         let uniq = Array(Set(sourceInjected.map { base($0) })).sorted()
         print("ℹ \(sourceInjected.count) 個 case 注入的是守衛**自己的原始碼**"
@@ -428,7 +448,7 @@ func auditGuardsMutations() -> Int32 {
             + "能改成環境注入的就該改（見注入處的說明）。")
     }
     print("\n=== negative control \(ok)/\(expected) "
-        + "（\(cases.count - skipped.count) 須紅 ＋ \(agmRobust.count) 須綠 ＋ 4 後設檢查）==="
+        + "（\(cases.count - skipped.count) 須紅 ＋ \(agmRobust.count) 須綠 ＋ 5 後設檢查）==="
         + (skipped.isEmpty ? "" : "（另有 \(skipped.count) 個因缺 swift 跳過）"))
     print("\(same ? "出貨檔未被開啟以寫入" : "**出貨檔被動到了**")：\(agmWatched.count) 個受監看檔")
     if ok != expected || !same { return 1 }

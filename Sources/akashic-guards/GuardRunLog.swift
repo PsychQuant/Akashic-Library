@@ -69,14 +69,26 @@ enum GuardExpectation {
 }
 
 /// 子行程的結果。`combined` 是 stdout 接 stderr（各 harness 原本的 `exec` 回傳的就是這個）。
-/// `runGuardProcess` 在另一條執行緒讀 stdout 的容器（讀完才由主執行緒取，`readDone` 確保先後）。
-final class GuardPipeReader: @unchecked Sendable { var data = Data() }
-
 struct GuardSpawn {
     let status: Int32
     let stdout: String
     let stderr: String
     var combined: String { stdout + stderr }
+}
+
+/// `runGuardProcess` 在另一條執行緒讀 stdout 的容器：讀到一塊就收一塊，主執行緒隨時可以取走已收到的部分——期限到時不必等 EOF
+/// （#711 b41，b40 verify 第 1 列：子行程開出的背景行程握著 pipe 時，EOF 不會來）。
+final class GuardPipeReader: @unchecked Sendable {
+    private let lock = NSLock()
+    private var buffer = Data()
+    func append(_ d: Data) { lock.lock(); buffer.append(d); lock.unlock() }
+    var data: Data { lock.lock(); defer { lock.unlock() }; return buffer }
+}
+
+/// 一筆 `invoke` 的 `met`：子行程跑起來、沒有逾時，而且 rc 與 stdout 符合預期。逾時的執行輸出不完整、rc 是 124——
+/// 不能記成「守衛如預期變紅」（#711 b41，b40 verify 第 20 列；與沒跑起來的 rc 127 同一個理由）。
+func guardInvokeMet(spawned: Bool, timedOut: Bool, expect: GuardExpectation, rc: Int32, stdout: String) -> Bool {
+    spawned && !timedOut && expect.isMet(rc: rc, stdout: stdout)
 }
 
 enum GuardRunLog {
@@ -173,7 +185,8 @@ func declareNegativeControl(for guards: [String]) {
 ///   （`met` 為 false，rc 是 127）：一次沒有發生的執行不能被記成「守衛如預期變紅」。
 /// - `deadline`：秒數。到時還沒結束就送 SIGTERM（三秒後仍在就 SIGKILL），回 rc 124（與 `timeout(1)` 同）並在 stderr 具名說明
 ///   （#711 b39，b38 verify 第 18 列：`maxSeconds` 原本只在子行程回來之後比秒數，退化成二次方的守衛會讓 harness 掛住幾十分鐘，
-///   而不是在上限處變紅）。只終止這裡自己起的那個子行程。
+///   而不是在上限處變紅）。只終止這裡自己起的那個子行程。stdout 的讀取也在同一個期限內：子行程結束了、它開出的背景行程仍握著 pipe 時，
+///   等到期限（已終止的再等一秒）就帶著已收到的輸出回來，同樣是 rc 124（#711 b41，b40 verify 第 1 列）。
 func runGuardProcess(_ argv: [String], cwd: String, env extra: [String: String] = [:],
                      mergeOutput: Bool = false, label: String, expect: GuardExpectation,
                      deadline: Double? = nil) -> GuardSpawn {
@@ -202,7 +215,7 @@ func runGuardProcess(_ argv: [String], cwd: String, env extra: [String: String] 
     defer { if let f = errFile { try? fm.removeItem(atPath: f) } }
 
     let result: GuardSpawn
-    var spawned = false
+    var spawned = false, timedOut = false
     let exited = DispatchSemaphore(value: 0)
     p.terminationHandler = { _ in exited.signal() }
     if (try? p.run()) != nil {
@@ -211,21 +224,36 @@ func runGuardProcess(_ argv: [String], cwd: String, env extra: [String: String] 
         let reader = GuardPipeReader()
         let readDone = DispatchSemaphore(value: 0)
         let handle = out.fileHandleForReading
-        DispatchQueue.global().async { reader.data = handle.readDataToEndOfFile(); readDone.signal() }
-        var timedOut = false
-        if let d = deadline, exited.wait(timeout: .now() + d) == .timedOut {
-            timedOut = true
+        DispatchQueue.global().async {
+            while true {
+                let chunk = handle.availableData
+                if chunk.isEmpty { break }
+                reader.append(chunk)
+            }
+            readDone.signal()
+        }
+        let end = deadline.map { DispatchTime.now() + $0 }
+        var killed = false, drainTimedOut = false
+        if let end, exited.wait(timeout: end) == .timedOut {
+            killed = true
             p.terminate()
             if exited.wait(timeout: .now() + 3) == .timedOut { kill(p.processIdentifier, SIGKILL); exited.wait() }
-        } else if deadline == nil {
+        } else if end == nil {
             exited.wait()
         }
-        readDone.wait()
+        if let end {
+            drainTimedOut = readDone.wait(timeout: killed ? .now() + 1 : end) == .timedOut
+        } else {
+            readDone.wait()
+        }
+        timedOut = killed || drainTimedOut
         p.waitUntilExit()
         let ed = errFile.flatMap { fm.contents(atPath: $0) } ?? Data()
-        let note = timedOut ? "\n（runGuardProcess：超過 \(String(format: "%.0f", deadline ?? 0)) 秒仍未結束，已終止——逾時）\n" : ""
+        let note = killed ? "\n（runGuardProcess：超過 \(String(format: "%.0f", deadline ?? 0)) 秒仍未結束，已終止——逾時）\n"
+            : drainTimedOut ? "\n（runGuardProcess：子行程結束了，stdout 到 \(String(format: "%.0f", deadline ?? 0)) 秒仍未讀完"
+                + "（它開出的行程還握著 pipe）——逾時，只帶回已收到的輸出）\n" : ""
         result = GuardSpawn(status: timedOut ? 124 : p.terminationStatus,
-                            stdout: String(data: reader.data, encoding: .utf8) ?? "",
+                            stdout: String(data: reader.data, encoding: .utf8) ?? String(decoding: reader.data, as: UTF8.self),
                             stderr: (String(data: ed, encoding: .utf8) ?? "") + note)
     } else {
         result = GuardSpawn(status: 127, stdout: "", stderr: "spawn 失敗：\(argv[0])")
@@ -241,7 +269,7 @@ func runGuardProcess(_ argv: [String], cwd: String, env extra: [String: String] 
             "expect": expect.tag,
             "rc": Int(result.status),
             // 沒有跑起來的子行程（`spawn 失敗` 的 rc=127）不能算「如預期變紅」——那是 harness 自稱做了一次它沒做的執行
-            "met": spawned && expect.isMet(rc: result.status, stdout: result.stdout),
+            "met": guardInvokeMet(spawned: spawned, timedOut: timedOut, expect: expect, rc: result.status, stdout: result.stdout),
         ])
     }
     return result
@@ -253,4 +281,32 @@ func spawnProbe() -> Int32 {
     _ = runGuardProcess(["/nonexistent/akashic-guards", "decision-matrix-drift"], cwd: repoRoot,
                         label: "spawn 不起來", expect: .red)
     return 0
+}
+
+/// `audit-guards-mutations` 的一項後設檢查（#711 b41，b40 verify 第 1、8、11、20 列）：`runGuardProcess` 的期限真的終止子行程、真的不等
+/// 握著 pipe 的背景行程，逾時的執行不記成如預期。前兩項以 `sh` 跑，期限 1 秒、要在 10 秒內回來、rc 是 124、帶回已收到的輸出：
+/// (a) `exec sleep 20`——要被終止；(b) 背景的 `sleep 20` 握著 stdout、`sh` 自己先結束——讀取不得等它（印出的 pid 由這裡結束掉，它是這裡起的）；
+/// (c) `guardInvokeMet` 對逾時的 `.red` 回 false。回 (問題, 一行報告)。
+func runGuardProcessDeadlineIssues() -> (issues: [String], report: String) {
+    var issues: [String] = []
+    var parts: [String] = []
+    let vectors: [(name: String, script: String, background: Bool)] = [
+        ("子行程到期限仍在跑", "echo $$; exec sleep 20", false),
+        ("子行程結束、背景行程握著 stdout", "sleep 20 & echo $!; exit 0", true),
+    ]
+    for v in vectors {
+        let t0 = DispatchTime.now().uptimeNanoseconds
+        let r = runGuardProcess(["/bin/sh", "-c", v.script], cwd: NSTemporaryDirectory(), label: "期限的後設檢查", expect: .none, deadline: 1)
+        let s = Double(DispatchTime.now().uptimeNanoseconds - t0) / 1e9
+        let pid = Int32(r.stdout.trimmingCharacters(in: .whitespacesAndNewlines))
+        if v.background, let pid, pid > 1 { kill(pid, SIGKILL) }
+        parts.append("\(v.name) \(String(format: "%.1f", s)) 秒")
+        if s > 10 { issues.append("「\(v.name)」期限 1 秒，\(String(format: "%.1f", s)) 秒才回來——期限沒有涵蓋\(v.background ? " stdout 的讀取" : "子行程的終止")") }
+        if r.status != 124 { issues.append("「\(v.name)」rc 是 \(r.status)，逾時應為 124") }
+        if pid == nil { issues.append("「\(v.name)」沒有帶回已收到的輸出（stdout：\(String(r.stdout.prefix(80)).debugDescription)）") }
+    }
+    if guardInvokeMet(spawned: true, timedOut: true, expect: .red, rc: 124, stdout: "") {
+        issues.append("`guardInvokeMet` 把逾時的執行記成「如預期變紅」——輸出不完整，不能算")
+    }
+    return (issues, parts.joined(separator: "、"))
 }

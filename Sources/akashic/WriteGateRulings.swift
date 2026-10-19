@@ -8,7 +8,7 @@ enum WriteGateRuling: Equatable {
     case gated
     /// 會寫 store，刻意不閘。字串是這一格的理由——**寫的是這一格自己的事實**，不是一句總括判準。
     case notGated(String)
-    /// 不寫任何 store。對命令：整個命令只讀（字串說它做什麼）；對腿：這個旗標自己不觸發寫入
+    /// 不寫任何 store。對命令：整個命令不寫 store（字串說它做什麼）——不是唯讀：可能改 registry、寫呼叫端指定的檔或衍生的 index；對腿：這個旗標自己不觸發寫入
     /// ——列表的篩選、輸出的旋鈕、或另一條腿的參數（字串說它是什麼）。
     case readOnly(String)
     /// 只用在命令層：這個命令有多條寫入腿、各自裁決，見 `DestructiveTargetGate.legRulings`。

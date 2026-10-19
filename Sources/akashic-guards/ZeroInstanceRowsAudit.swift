@@ -53,9 +53,11 @@ let selfProofTemplateRulePath = ".claude/rules/measurement-commands-self-prove.m
 // 規則檔與量測文件 PR 改得到（`census-parity.yml` 以 `pull_request` 觸發，跑在 macOS runner；`audit-guards-mutations` 再在副本上跑這支幾十次），
 // 所以這支守衛對它們的工作量要有界：每一個掃描迴圈都是線性的（#711 b36 verify 量到兩條二次方的路徑，b37 再找到三條，b38 verify 又找到
 // 散文的跨段落接續——見 `selfProofIssues` 的 `ProseChain`），另外三道上限讓「線性」的常數也有界。**超過即具名紅、不判讀那一塊**——不是放行，
-// 也不是截斷了再判讀（那會把截掉的量測當成不存在）。`measured-numbers-audit` 讀同一批檔，沿用前兩個值（#711 b39）。
-// 數字旁寫著量到多少與離上限幾倍（2026-10-15：fence 行數 9.9 倍，其餘十倍以上——先前寫「都在十倍以上」，b38 verify 第 16 列指出對 fence 行數
-// 不成立）；要提高就改這裡並寫理由（上限的值待使用者裁決）。
+// 也不是截斷了再判讀（那會把截掉的量測當成不存在）。`measured-numbers-audit` 也讀這幾份檔（另加 `.claude/rules`、`plugin/rules`、`docs/rulings`
+// 的其餘各檔與 `CLAUDE.md`，2026-10-19 共 23 份），沿用前兩個值，單位是一行（#711 b39）。
+// 離上限幾倍（2026-10-19，量法見量測文件第 99 列）：fence 行數 9.9 倍；`measured-numbers-audit` 每一行的上限 2.36 倍（它讀的
+// `docs/rulings/mcp-cli-parity.md` 有一列表格 55,559 位元組，表格的一列拆不成兩行）；其餘十倍以上（b40 verify 第 9、17 列：先前寫「其餘十倍以上」
+// 而沒算進每一行的上限）。要提高就改這裡並寫理由（上限的值待使用者裁決）。
 
 /// 被掃的檔（規則檔、裁決史檔、量測文件）各自的位元組上限。2026-10-09（加入 #711 b37 的三列之後，那三列整合時改號為第 99–101 列）：規則檔 181,439、
 /// 量測文件 256,003 位元組；2026-10-15 搬出表格之後：規則檔 9,175、裁決史檔 180,620 位元組。b39 的值見量測文件第 99 列。
@@ -63,7 +65,8 @@ let selfProofMaxFileBytes = 4 << 20
 /// 一個 fence 或一個段落的行數上限。跨段落接成的散文單位（`ProseChain`）同一道上限（#711 b39；先前寫「至多接兩個段落」，b38 verify 第 3、7 列
 /// 指出散文的接續沒有那個界）。2026-10-09：量測文件最大的 fence 152 行，最大的段落 20 行（規則檔的表格一列一段；量法見量測文件第 99 列）。
 let selfProofMaxBlockLines = 1_500
-/// 一個 fence 或一個段落的位元組上限。2026-10-09：最大的 fence 11,803 位元組，最長的一行 4,263 位元組（規則檔的表格列最長 2,536）。
+/// 一個 fence 或一個段落的位元組上限，也是 `measured-numbers-audit` 每一行的上限。2026-10-19：這支掃的三份檔裡最大的 fence 11,803 位元組、
+/// 最大的段落 4,869 位元組；`measured-numbers-audit` 掃的 23 份檔裡最長的一行 55,559 位元組（`docs/rulings/mcp-cli-parity.md` 的一列表格）。
 let selfProofMaxBlockBytes = 128 << 10
 /// 依閘去重後的條數上限：`selfProofNeedleIssues` 對每一道閘各掃一次 Sources 的字面段。2026-10-09：41 條。
 let selfProofMaxDistinctGates = 500
@@ -400,8 +403,9 @@ private let selfProofBinaryMentionRe = try! NSRegularExpression(pattern:
     #"(?i)(?:(?<![\w.~/])(?:(?<![\w.~/-]-)|(?<=\$\{[A-Za-z_][A-Za-z0-9_]{0,63}-))(?:[\w.~-]*/)*(?:akashic-guards|akashic)(?![\w./-])"#
     + #"|(?<=\$|\$\{)(?!akashic_(?:"# + selfProofNonBinaryVariables.sorted().map { $0.lowercased() }.joined(separator: "|")
     + #")(?!\w))akashic\w*)"#)
-/// **不是 binary 的 `AKASHIC_*` 環境變數**（封閉列舉，名字去掉 `AKASHIC_`）：路徑、紀錄檔、旗標、設定。2026-10-15 取自 repo 裡出現過的
-/// 全部 `AKASHIC_*`（`git grep -ohE 'AKASHIC_[A-Z0-9_]+'`），只有 `AKASHIC_BIN`、`AKASHIC_CLI` 是 binary。清單外的名字一律當成 binary——
+/// **不是 binary 的 `AKASHIC_*` 環境變數**（封閉列舉，名字去掉 `AKASHIC_`）：路徑、紀錄檔、旗標、設定。2026-10-15 取自 repo 裡出現過、
+/// 仍有作用的 `AKASHIC_*`（`git grep -ohE 'AKASHIC_[A-Z0-9_]+'`；`AKASHIC_REPO`、`AKASHIC_ROOT`、`AKASHIC_STORE` 只出現在 changelog 對已移除變數的
+/// 敘述裡，不列——b40 verify 第 21 列），只有 `AKASHIC_BIN`、`AKASHIC_CLI` 是 binary。清單外的名字一律當成 binary——
 /// 認不出的方向是紅；某個變數其實不是 binary、而守衛把它當成了，加進這裡並寫用途（放行由人加，同 `selfProofDisplayFilters`）。
 let selfProofNonBinaryVariables: Set<String> = [
     "HOME", "LIBRARY",                                                  // store 的位置
@@ -992,11 +996,14 @@ func selfProofIssues(in rule: String, file: String,
         for (i, l) in logical.enumerated() {
             if i == 0, var c = carried {
                 carried = nil   // 同上：交出去之前放掉這一份
-                if lastLine - c.line + 1 > unitCaps.lines || c.bytes > unitCaps.bytes {
-                    scan.issues.append(selfProofOversizeIssue("第 \(c.line) 行起跨段落接成的散文單位", lines: lastLine - c.line + 1, bytes: c.bytes))
+                // 鏈只接到這個段落的第一個邏輯行，行數算到它的最後一個實體行為止——不是段落的最後一行（#711 b41，b40 verify 第 23 列：
+                // `x |` 之後接一個 1,499 行的段落，5 位元組的鏈被報成 1,501 行）
+                let chainEnd = block[l.physical - 1].line
+                if chainEnd - c.line + 1 > unitCaps.lines || c.bytes > unitCaps.bytes {
+                    scan.issues.append(selfProofOversizeIssue("第 \(c.line) 行起跨段落接成的散文單位", lines: chainEnd - c.line + 1, bytes: c.bytes))
                     continue
                 }
-                if logical.count == 1, !table { c.lastLine = lastLine; pendingProse = c; continue }
+                if logical.count == 1, !table { c.lastLine = chainEnd; pendingProse = c; continue }
                 judge(c.parts.joined(), line: c.line, physical: 2, place: .prose, pipes: !table)
                 continue
             }
@@ -1090,7 +1097,7 @@ func selfProofIssues(in rule: String, file: String,
 /// 4. `akashic` 的子命令會寫 store（不是 `WriteGateRulings` 的 `.readOnly`）時，`<參數>` 要有 `--library`（b37，第 9 列：`doctor` 建佈局、
 ///    重建 index，不帶 `--library` 時寫的是預設解析到的那一份）。
 /// 5. `akashic` 的子命令不寫 store、卻不在量測可用的清單（`selfProofMeasurementCommands`）裡時——它有 store 以外的副作用（改 registry、
-///    寫 `--out` 指定的檔、開瀏覽器、連網）——不論帶不帶 `--library` 都不收（b39，b38 verify 第 6、13、26 列：b37 拿 `.readOnly` 當「唯讀」，
+///    寫 `--out` 指定的檔、建 index 檔、開瀏覽器、連網）——不論帶不帶 `--library` 都不收（b39，b38 verify 第 6、13、26 列：b37 拿 `.readOnly` 當「唯讀」，
 ///    而它只說「不開 store 的寫入閘」，`file use`、`export-bib --output <任意路徑>` 照樣過關）。
 /// `<參數>` 先照 shell 拆字、去掉雙引號再判讀（b39，b38 verify 第 1、25 列：b37 在原文上找 `--library`，`"--library" "$V/sub"` 認不出、
 /// `"--library $V"` 與 `./--library` 反而被當成有）。
@@ -1143,7 +1150,7 @@ private func selfProofPreconditionIssue(_ m: NSTextCheckingResult, in ns: NSStri
         if let c = command, selfProofMeasurementCommands[c] == nil {
             return "用的子命令 `\(c)` 不寫 store（`\(selfProofWriteGateRulingsPath)` 的 `.readOnly`），卻不在量測可用的清單"
                 + "（`ZeroInstanceRowsAudit.swift` 的 `selfProofMeasurementCommands`）裡——`.readOnly` 只說不開 store 的寫入閘，"
-                + "這個命令可能改 registry、寫 `--out`／`--output` 指定的檔、開瀏覽器或連網，照抄重跑會改到 store 以外的東西。量測不用它；"
+                + "這個命令可能改 registry、寫 `--out`／`--output` 指定的檔、建 index 檔、開瀏覽器或連網，照抄重跑會改到 store 以外的東西。量測不用它；"
                 + "確實只讀、只印時，把它加進那張清單並寫一行理由——放行由人加"
         }
         if libraries.isEmpty, command == nil {
@@ -1248,20 +1255,15 @@ let selfProofReadOnlyCellCount: Int = {
 }()
 
 /// **量測可以用、不必帶 `--library` 的 `akashic` 子命令**（封閉列舉，#711 b39，b38 verify 第 6、13、26 列）：不寫 store，而且只讀、只印——
-/// 不改 registry、不寫呼叫端指定的檔、不開瀏覽器、不連網。每一個都要是 `selfProofReadOnlyCommands` 的成員（另查）：那張表改判它會寫 store
-/// 時，這裡的放行跟著失效。清單外的 `.readOnly` 命令一律不收（`export-bib`、`export-tables`、`file use`／`remove`、`fulltext fetch`／`take`、
-/// `web-read landing`／`check`、`crossref-match`、`abstracts-to-proposals`、會連網的 `s2` 查詢、還沒有人看過的 `references` 兩個）——
-/// 認不出的方向是紅，放行由人加、寫一行理由（同 `selfProofDisplayFilters`）。
+/// 不改 registry、不寫呼叫端指定的檔、不建 index 檔、不開瀏覽器、不連網。每一個都要是 `selfProofReadOnlyCommands` 的成員（另查）：那張表改判它
+/// 會寫 store 時，這裡的放行跟著失效。清單外的 `.readOnly` 命令一律不收（`export-bib`、`export-tables`、`file use`／`remove`、
+/// `fulltext fetch`／`take`、`web-read landing`／`check`、`crossref-match`、`abstracts-to-proposals`、會連網的 `s2` 查詢、還沒有人看過的
+/// `references` 兩個；`query`、`graph`、`person`、`get-entry`、`venue`、`venues` 會建 index 檔，`graph` 另有 `--output`——#711 b41，b40 verify 第 2、4、6、14 列，
+/// 2026-10-19 在 scratch store 刪掉 index 之後逐一跑過，只有這六個建出它）——認不出的方向是紅，放行由人加、寫一行理由（同 `selfProofDisplayFilters`）。
 let selfProofMeasurementCommands: [String: String] = [
     "validate": "只讀記錄、印健康報告",
-    "query": "走 index 的讀取面",
-    "graph": "關係圖的讀取面",
-    "person": "person 的讀取面",
     "people": "person 清單的讀取面",
-    "get-entry": "work 的讀取面",
     "divergences": "歧異記錄的讀取面",
-    "venue": "venue 的讀取面",
-    "venues": "venue 清單的讀取面",
     "view list": "列出 view",
     "view show": "展開 view 的外延，現算、不寫檔",
     "library list": "列出 libraries",

@@ -29,9 +29,10 @@
    - **不用位置參數**（`$1`、`$@`、`$#`）：前置條件只收具名變數，那些沒有辦法先驗（#711 b37）。
    - **會寫 store 的子命令要 `--library`**：`akashic` 的子命令不是 `WriteGateRulings` 的 `.readOnly` 時（`doctor` 建佈局、重建 index），
      不帶 `--library` 寫的是預設解析到的那一份（#711 b37）。`.readOnly` 的意思是**不寫 store**，不是唯讀。
-   - **有 store 以外副作用的子命令不用在量測裡**：不寫 store、卻不在 `ZeroInstanceRowsAudit.swift` 的 `selfProofMeasurementCommands`
-     （只讀、只印的封閉清單）裡的命令——改 registry 的 `file use`／`remove`、寫 `--output`／`--out` 指定的檔的 `export-bib`、`web-read landing`
-     之類、開瀏覽器的、連網的——帶不帶 `--library` 都紅（#711 b39）。確實只讀、只印時把它加進那張清單並寫理由，放行由人加。
+   - **不寫 store 的子命令只收只讀、只印的那些**：不寫 store、卻不在 `ZeroInstanceRowsAudit.swift` 的 `selfProofMeasurementCommands`
+     （只讀、只印的封閉清單）裡的命令——改 registry 的 `file use`／`remove`、寫 `--output`／`--out` 指定的檔的 `export-bib`、`graph`、建 index 檔的
+     `query`、`venues` 之類、開瀏覽器的、連網的——帶不帶 `--library` 都紅（#711 b39、b41）。確實只讀、只印時把它加進那張清單並寫理由，放行由人加。
+     會寫 store 的子命令帶 `--library` 就收，它在 store 以外的副作用（`file add` 寫 registry）不判讀。
    - **守衛判紅、而那一行其實不計數**（`| sort`、`| tee` 只是顯示）：把那個命令加進 `ZeroInstanceRowsAudit.swift` 的
      `selfProofDisplayFilters` 並寫一行理由；被當成 binary 的是一個不是 binary 的 `AKASHIC_*` 變數（紀錄檔、旗標）時，加進同一檔的
      `selfProofNonBinaryVariables`——放行由人加（使用者 2026-10-05 裁決：偏向假紅）。不要把量測改寫成守衛認不出的形狀，
@@ -53,14 +54,15 @@
 合模板的量測依閘去重後少於棘輪下限也紅。負控是 `audit-guards-mutations` 裡 `zi-rows：` 開頭的格子。
 
 這三份檔 PR 改得到，所以守衛的判讀是線性的，另有三道上限：每份檔 4 MiB、單一 fence 或段落 1,500 行與 128 KiB、依閘去重 500 條——
-超過即具名紅、不判讀那一塊（#711 b37）。跨段落接成的散文單位也套 fence 與段落的上限；讀同一批檔的 `measured-numbers-audit` 判讀也是線性的、
-沿用檔與單位（一行）的上限（#711 b39）。接近上限時先問那份檔是不是該拆。
+超過即具名紅、不判讀那一塊（#711 b37）。跨段落接成的散文單位也套 fence 與段落的上限；`measured-numbers-audit`（讀這三份檔與其餘規則檔）判讀也是線性的、
+沿用檔與單位（一行）的上限，fence 裡的行也一樣；它讀不到的檔與沒收尾的 fence 具名紅（#711 b39、b41）。接近上限時先問那份檔是不是該拆。
 
 **認不出來、所以不紅的寫法是開放的**：binary 的輸出先存進變數或檔案、在另一個單位計數；以別名、複本或名字不以 akashic 開頭的變數執行 binary；
 散文裡 binary 名與計數不在同一個邏輯行；同一個單位裡以迴圈或算術計數（`for … in $(akashic …); do n=$((n+1)); done`）。它們由棘輪兜底——
 擋得住整批流失，擋不住少量。`akashic-mcp` 不在模板與辨識裡：`… | akashic-mcp | wc -c` 量的是 tools/list 的位元組，不是零實例的計數。
 （同一個單位裡的 `<(…)`、`<<<`、寫進檔再讀，與 `"$AKASHIC_BIN"` 這類變數，#711 b37 起認得。）
-**選項名對不對不判讀**：`--libr`、`--library-path` 這類 ArgumentParser 不認得的選項讓它報錯、計數照印 `0`，守衛只認得含 `--library`
+**子命令名與選項名對不對不判讀**：拼錯的子命令（`validte`）被當成會寫 store 的命令，帶 `--library` 就過；`--libr`、`--library-path` 這類
+ArgumentParser 不認得的選項讓它報錯、計數照印 `0`，守衛只認得含 `--library`
 卻不是那個選項的字（#711 b39），其餘認不得的選項與 `validate` 不收的引數看不出來——那要真的跑一次才知道。
 
 ## 為什麼

@@ -50,7 +50,7 @@ struct UpdateOrganizationCmd: ParsableCommand {
                     + "（#564 使用者 2026-10-05 裁決：會刪判定記錄的面過閘；沒有 dry-run）。單獨呼叫，不與 --authorize／--judgement／--rests-on 組合；"
                     + "一次至多 200 個。沒有記錄、最後一筆不是撤回、還是對外名稱、被 field: names 的 reference 指著、刪完沒有名字，都整批拒絕、零寫入"
                     + "（出口都經 --authorize 寫記錄：store format < 22 時拒絕訊息一併說出寫入閘）。報告的 segments 每段 attested 至多 20 個，超過時最後一項說出省略數；"
-                    + "CLI 列出每個名字的 segments，MCP 面合計至多 20 段（放不下的名字不帶 segments，以 detailsTruncated／detailsListed 揭露）"))
+                    + "CLI 列出每個名字的 segments，MCP 面合計至多 20 段、以 compact JSON 計至多 48 KiB（放不下的名字不帶 segments，以 detailsTruncated／detailsListed 揭露）"))
     var removeName: [String] = []
 
     /// --remove-name 沒有乾跑，也沒有「不帶寫入旗標只列候選」的模式——閘的拒絕訊息自己說怎麼辦
@@ -75,6 +75,6 @@ struct UpdateOrganizationCmd: ParsableCommand {
         print(try service.updateOrganization(key: key, authorize: authorize,
                                              judgement: judgement, restsOn: restsOn.isEmpty ? nil : restsOn,
                                              removeNames: removeName.isEmpty ? nil : removeName,
-                                             removalDetailLimit: nil))   // CLI 全列（輸出進人的終端機）；MCP 面的 segments 合計截在 removalDetailCap 段
+                                             removalDetailLimit: nil))   // CLI 全列（輸出進人的終端機）；MCP 面的 segments 合計截在 removalDetailCap 段與 candidateByteBudget 位元組
     }
 }

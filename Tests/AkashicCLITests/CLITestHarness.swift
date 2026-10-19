@@ -26,6 +26,14 @@ enum CLITestHarness {
                    environment: childEnvironment(args, env: env))
     }
 
+    /// 同 `run`，另把 `stdin` 餵給子行程（#564 b40 Z1 第 4 列：9 MiB 的 `update-person --fields` 放不進 argv，CLI 缺 `--fields` 時讀 stdin）。
+    @discardableResult
+    static func run(_ args: [String], env: [String: String], stdin: Data) throws
+        -> (status: Int32, output: String) {
+        try launch(executable: productsDirectory.appendingPathComponent("akashic"), arguments: args,
+                   environment: childEnvironment(args, env: env), stdin: stdin)
+    }
+
     /// 同 `run`，但經 `/usr/bin/time -l` 跑，另回子行程的尖峰 RSS（bytes，`maximum resident set size`）。#703 R1：記憶體的界要量
     /// 真 binary——測試行程自己的 heap 與 XCTest 每支測試外包的 autorelease pool 都會讓行程內量測失真，子行程的 `ru_maxrss` 只屬於它自己。
     /// 環境與 `run` 同一份（`childEnvironment`）。輸出裡找不到那一行就擲錯（量不到不等於量到 0）。
@@ -72,7 +80,7 @@ enum CLITestHarness {
         return childEnv
     }
 
-    private static func launch(executable: URL, arguments: [String], environment: [String: String]) throws
+    private static func launch(executable: URL, arguments: [String], environment: [String: String], stdin: Data? = nil) throws
         -> (status: Int32, output: String) {
         let process = Process()
         process.executableURL = executable
@@ -81,7 +89,19 @@ enum CLITestHarness {
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = pipe
+        let input = stdin.map { _ in Pipe() }
+        if let input { process.standardInput = input }
         try process.run()
+        if let input, let stdin {
+            // 另一條執行緒寫：輸入比 pipe 緩衝（64 KB）大，同一條執行緒先寫完再讀輸出會與子行程互等（#114 的同一個形）。
+            // 子行程沒讀完就結束時寫入得到 EPIPE：忽略 SIGPIPE、用會擲錯的 write(contentsOf:)，不讓測試行程被訊號或 NSException 打掉
+            signal(SIGPIPE, SIG_IGN)
+            let writer = input.fileHandleForWriting
+            DispatchQueue.global().async {
+                try? writer.write(contentsOf: stdin)
+                try? writer.close()
+            }
+        }
         // **先讀到 EOF、再 waitUntilExit**（#114）：反過來會 pipe 緩衝死鎖——
         // 輸出超過 pipe buffer（64 KB）時子程序 block 在 write、父程序 block 在
         // waitUntilExit 互等。既有測試輸出都小所以沒踩過；#114 的 2 MB 行測試

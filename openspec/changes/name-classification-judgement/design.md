@@ -169,11 +169,21 @@ R2 verify 找到七個 MEDIUM（五個集中在合併搬記錄）與二十個 LO
 
 使用者 2026-10-15 對 b38 Z1 的裁決：**「被併者自己不一致就拒絕」收窄**——只在被併者真的會把記錄搬進倖存者、而且原始倖存者沒有同一個矛盾時才拒絕，豁免條件綁原始倖存者的歷史、不綁處理順序；恢復 b37 改掉的測試資料，補上攣生與「什麼都不搬」兩種情形的測試，拒絕訊息另寫被併者自己矛盾時的措辭。
 
-- **合併**（第 0／1／3／6／7 列）：`doomedTailConflicts` 對每一筆被併者，模擬它**單獨**併進原始倖存者（`carryCollecting` 的同一條規則），只留它真的會接上至少一筆記錄的（分割, 名字），再去掉原始倖存者已有矛盾的。後者與合併後的保險（`classificationTailDelta`）共用 `heldTailContradictions` 一份定義：同一個（分割, 名字）、同一個方向——倖存者的記錄錨不到 names（手改）而被併者把那個名字帶進來時，方向可能不同，那時不豁免（先前的保險只比（分割, 名字））。以實際合併時誰先接上來判「會不會搬」會讓結論重新取決於 key 順序（一筆只有「指定」、另一筆「指定 → 撤回」，後者先接時前者的指定被「倖存者已有」略過）。被併者自己的矛盾在拒絕訊息裡說成「被併者自己的記錄裡…最後一筆是…」，不說「合併後」。
+- **合併**（第 0／1／3／6／7 列）：`doomedTailConflicts` 對每一筆被併者，模擬它**單獨**併進原始倖存者（`carryCollecting` 的同一條規則），只留它真的會接上至少一筆記錄的（分割, 名字），再去掉原始倖存者已有矛盾的。後者與合併後的保險（`classificationTailDelta`）共用 `heldTailContradictions` 一份定義：同一個（分割, 名字）、同一個方向——倖存者的記錄錨不到 names（手改）而被併者把那個名字帶進來時，方向可能不同，那時不豁免（先前的保險只比（分割, 名字））——b41 更正：那種記錄載入時整筆隔離，方向那一項在載得進來的 store 上不改變結論（見修正輪六）。以實際合併時誰先接上來判「會不會搬」會讓結論重新取決於 key 順序（一筆只有「指定」、另一筆「指定 → 撤回」，後者先接時前者的指定被「倖存者已有」略過）。被併者自己的矛盾在拒絕訊息裡說成「被併者自己的記錄裡…最後一筆是…」，不說「合併後」。
 - **venue 合併拒絕的出口**（第 5／13 列）：variant 欄「不在 variant 卻以指定結尾」而名字是對外形時，`--add-variant` 收不了它——改成 `--unauthorize`、`--add-variant`、`--authorize`；authorized 欄「不在 authorized 卻以指定結尾」而名字在 variant 時，`--authorize` 把它抬出 variant，最後要 `--add-variant` 放回去。兩句都以真的寫入面照做到合併通過（`NameClassificationB39Tests`）。
 - **organization `remove_names` 報告的總量**（第 2／11 列）：MCP 面 `segments` 合計至多 20 段，`detailsTruncated`／`detailsListed` 揭露；CLI 全列。
 - **`update-person --fields --dry-run`**（第 4／8 列）：乾跑跑寫入當下的 #631 前置（`personWritePlan`），同一筆記錄的 legacy 拷貝不再乾跑說 `wouldChange`、實跑被拒。
 - **文字**：MCP `judgement` 屬性說明「進出 authorized 時必填，沒進出則拒收」（第 10／12 列）；organization 刪名字拒絕的死碼刪掉（第 16／17 列）。
+
+## 修正輪六（b40 Z1；b41）
+
+b40 Z1 的處置，沒有新的使用者裁決；兩項待使用者裁決（被豁免的攣生該不該停止重搬；`detailsTruncated`／`detailsListed` 在不在 2026-10-05「不新增回應鍵」的範圍內）不在這一輪決定。
+
+- **帶時間的名字沒有 variant 的工具出口**（第 0 列）：venue variant「不在 variant 卻以指定或確認結尾」的兩句出口都要 `--add-variant`，而 variant 不得帶時間——名字是對外形時照做，第一步 `--unauthorize` 寫入、撤掉了對外形，第二步才被拒（真 binary 重現）。名字合併後有帶時間的段（`ClassificationTailConflict.dated`）時，出口在任何一步之前說只能手改、並說出手改什麼（在被併者的 references 末尾補一筆 variant 的撤回）；照那個手改做，合併通過。補回被換下的對外形那一步寫明同樣附 `--judgement`（第 14 列）。
+- **方向那一項不改變載得進來的 store 上的任何結論**（第 10 列）：修正輪五寫「倖存者的記錄錨不到 names（手改）時方向可能不同」，而那種記錄在載入時整筆隔離。定義保留；測試說明它是記憶體裡的構造，另一支釘住那個形狀載不進來。spec 的兩個 SHALL 補上「同一個方向」（第 9 列），與程式一致。
+- **攣生豁免之後照搬記錄的規則接**（第 3／12 列）：名字仍在分割、攣生都持有「指定 R → 撤回 W」時，較早的指定被重搬、倖存者的最後一筆變成指定。不改行為（待裁），spec 補一個 Scenario、測試斷言搬了什麼。
+- **`update-person` 的乾跑跑整條寫入前置**（第 4／7／17 列）：`LibraryStore.preflightWrite(_:contentGate:)` 與 `plannedWrite` 共用各段，內容閘以 `blockedBy*` 回報、其後的寫出上限與 #631 照拒。`--remove-name` 的乾跑同樣跑。
+- **organization `remove_names` 的報告有位元組預算**（第 6／11／18 列）：MCP 面列出的 segments 以 compact JSON 計合計至多 `candidateByteBudget`。
 
 ## Implementation Contract
 

@@ -324,10 +324,15 @@ public extension AkashicService {
         // dry-run 一併預演。
         let validationErrors = person.validate().filter { $0.severity == .error }
         if dryRun {
-            // 寫入當下的 #631 前置（legacy 拷貝、目的檔被隔離或是另一種記錄、legacy 檔不能安全搬移）也在乾跑跑一次，不寫（#564 b38 Z1 第 4／8 列：
-            // 同一筆記錄的 legacy 拷貝與 entities/ 那份 id 相同、上面那一道不擋，乾跑說 wouldChange 而實跑被拒——乾跑成了假預覽，#139 F1）。
-            // 實跑不在這裡問：`writePerson` 會問，而同一個操作稍早寫過這一筆時那一道的訊息更準（#705）
-            _ = try store.personWritePlan(person)
+            // 寫入當下的**每一道**前置也在乾跑跑一次，不寫（#139 F1：乾跑是還能反悔的時點，實跑才拒的乾跑就是假預覽）。b38 Z1 第 4／8 列只補了
+            // #631（legacy 拷貝、目的檔被隔離或是另一種記錄、legacy 檔不能安全搬移）；b40 Z1 第 4／7 列實測另兩類仍是乾跑說 wouldChange、實跑被拒——
+            // encode 的寫出上限（#648：9 MiB 的 note）與 `assertPersonWritable` 其餘的 format 閘（format 9 的 store 改一筆有 names 的 person）。
+            // 現在走 `writePerson` 的同一條前置（`preflightWrite(_:contentGate:)`）：內容閘（format gate 與 error 級驗證）照既有的形以 blockedBy* 回報、
+            // 不擲出，其後的 encode 與 #631 照擲。實跑不在這裡另問：`writePerson` 會問，而同一個操作稍早寫過這一筆時 #631 那一道的訊息更準（#705）
+            var contentGateRefusal: String?
+            if validationErrors.isEmpty {   // 有 error 級驗證錯誤時實跑在 writePerson 之前就拒絕（下面的 guard），乾跑以 blockedByValidation 說
+                try store.preflightWrite(person) { contentGateRefusal = displaySafeError($0, max: 512) }
+            }
             var out: [String: Any] = [
                 "dryRun": true,
                 "key": displaySafe(key, max: 200),
@@ -360,6 +365,11 @@ public extension AkashicService {
                         "real run 會被拒：ended 段需要 store format ≥ 6（本 store 是 \(format)）"
                         + "——確認所有 binary 已升級後把 store.yaml 的 format: 改成 6"
                 }
+            }
+            // 上面兩道預演之外的內容閘（attested ≥ 7、verdict ≥ 8、巢狀 names ≥ 10…，同一道 `assertPersonWritable`）：已有一個 blockedBy* 時不另報——
+            // 實跑停在第一道，那一個已經說了實跑會被拒
+            if let refusal = contentGateRefusal, out["blockedByFormatGate"] == nil, out["blockedByNameClassificationGate"] == nil {
+                out["blockedByFormatGate"] = "real run 會被拒：" + refusal   // display-safe-exempt: refusal 由 displaySafeError 逃一次
             }
             return try jsonString(out)
         }

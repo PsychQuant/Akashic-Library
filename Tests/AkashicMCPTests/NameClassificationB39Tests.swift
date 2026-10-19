@@ -65,6 +65,8 @@ final class NameClassificationB39Tests: XCTestCase {
     }
 
     /// 40 個名字各 20 段、每段帶 300 字元的 source 與 note：MCP 回應在 `candidateByteBudget`（48 KiB）之內——b37 這個形一次回五十多萬位元組。
+    /// **只在這個 fixture 下**（#564 b40 Z1 第 6／11／18 列）：b39 的段數上限不是位元組的不變式，逃脫放大與 attested 讓同樣 20 段回 30 多萬位元組；
+    /// b41 起列出的 segments 以 compact JSON 另有位元組預算（`NameClassificationB41Tests` 的兩支），整份回應另含呼叫端送的名字與理由。
     func testOrganizationRemovalReportStaysWithinTheMCPBudget() throws {
         let long = String(repeating: "出處", count: 150)
         let names = (0..<40).map { "Typo Inst \($0)" }

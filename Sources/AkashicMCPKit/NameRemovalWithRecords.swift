@@ -111,7 +111,9 @@ extension AkashicService {
     /// 名字的每一段與它的名字分類記錄一起刪，報告逐段回時間欄位、source、note（`segments`）。被 `field: names` 的 reference 指著的拒絕
     /// （organization 的 reference 沒有移除面）。刪完至少要留一個名字。
     ///
-    /// `detailLimit`：整份報告的 `segments` 合計至多幾段（MCP 面傳 `removalDetailCap`；CLI 傳 nil 全列，輸出進人的終端機）——#564 b38 Z1 第 2／11 列：
+    /// `detailLimit`：整份報告的 `segments` 合計至多幾段（MCP 面傳 `removalDetailCap`；CLI 傳 nil 全列，輸出進人的終端機）；MCP 面另以 compact JSON
+    /// 計合計至多 `candidateByteBudget` 位元組（b40 Z1 第 6／11 列：段數封頂擋不住逃脫放大）。報告其餘的部分——每個名字的 name、reason、兩個計數——
+    /// 由呼叫端送的名字與理由決定（理由只進報告、不截，移除面一族的裁決），不在這個預算裡。#564 b38 Z1 第 2／11 列：
     /// 每個名字的段（`segmentsListedCap`）與每段的 attested（`nameSegmentAttestedListedCap`）都封頂之後，名字數（一次至多 200）這一維仍沒有上限，
     /// 200 個各 20 段的名字一次回 3–4.7 MB。依名字的順序，一個名字列出的段放得進剩下的額度才帶 `segments`，第一個放不下的名字與其後的都只回
     /// name／reason／segmentsRemoved／recordsRemoved，以 `detailsTruncated`／`detailsListed`（帶 segments 的名字數）揭露——venue `edit_name_segment`
@@ -130,6 +132,11 @@ extension AkashicService {
         let gate = Self.nameClassificationGateNote(storeFormat: try StoreVersion.read(root: root))
         var removed: [[String: Any]] = []
         var detailBudget = detailLimit   // nil＝不限
+        // MCP 面另有**位元組**預算（#564 b40 Z1 第 6／11／18 列）：段數封頂之後每一段的位元組仍由 store 內容決定——`displaySafe` 的上限數的是輸入
+        // scalar，逃脫把一個控制字元展開成 `\u{XXXX}`、JSON 再把反斜線加倍；一個名字 20 段、每段 300 個 U+0001 的 source 與 note 加 20 個 40 字的
+        // attested，b39 一次回 318,939 位元組。列出的 segments 以 compact JSON 計（`jsonBytes`，resolve 候選與 doctor 的 per-record 清單同一把）合計
+        // 至多 `candidateByteBudget`；放不下的名字照段數那一軸的形不帶 segments。CLI（detailLimit 為 nil）不限
+        var detailBytesLeft: Int? = detailLimit == nil ? nil : Self.candidateByteBudget
         var detailsListed = 0
         var detailsStopped = false
         for spec in specs {
@@ -166,11 +173,15 @@ extension AkashicService {
                 // 段數由 store 內容決定（一個名字 3,000 段曾回 2 MB），總數在 segmentsRemoved（b33 X1 第 22 列）；每段的 attested 也至多
                 // `nameSegmentAttestedListedCap` 個（b36 Y1 第 0／1／13 列：先前只截段數，一段兩萬個觀測點一次回 46 萬位元組）。lazy：只為列出的段建報告
                 let listed = Array(segments.lazy.map { Self.nameSegmentFieldsDict($0, attestedCap: Self.nameSegmentAttestedListedCap) }.filter { !$0.isEmpty }.prefix(Self.segmentsListedCap))   // display-safe-exempt: segments、Self、$0：Self.nameSegmentFieldsDict 逐欄 displaySafe 每一段（venue 的 edit_name_segment 同一個函式）
+                let cost = detailBytesLeft == nil ? 0 : Self.jsonBytes(listed)
                 if let budget = detailBudget, listed.count > budget {
                     detailsStopped = true   // 這個名字與其後的不帶 segments（b38 Z1 第 2／11 列）
+                } else if let left = detailBytesLeft, cost > left {
+                    detailsStopped = true   // 位元組放不下（b40 Z1 第 6／11 列）——同一個形：這個名字與其後的不帶 segments
                 } else {
                     row["segments"] = listed
                     detailBudget = detailBudget.map { $0 - listed.count }
+                    detailBytesLeft = detailBytesLeft.map { $0 - cost }
                     detailsListed += 1
                 }
             }
@@ -269,6 +280,8 @@ extension AkashicService {
                                       "namesTotal": person.names.all.count,   // display-safe-exempt: Int
                                       "reasonNote": Self.nameRemovalReasonNote]   // display-safe-exempt: Self.nameRemovalReasonNote 是編譯期字面常量
         if dryRun {
+            // 寫入當下的前置也在乾跑跑（`writePerson` 的同一條，不寫；#564 b40 Z1 第 4／7 列的同判斷路徑）——git 閘照舊只在實跑查（help 寫明）
+            try store.preflightWrite(person)
             payload["dryRun"] = true   // display-safe-exempt: Bool
             return try jsonString(payload)
         }

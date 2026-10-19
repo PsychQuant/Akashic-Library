@@ -1335,9 +1335,28 @@ public final class LibraryStore {
     /// #648：`writePerson` 的全部前置，不寫（同 `preflightWrite(_: Entry)`）。
     public func preflightWrite(_ person: Person) throws { _ = try plannedWrite(person) }
 
+    /// 乾跑用的同一條前置（#564 b40 Z1 第 4／7 列）：順序與 `writePerson` 相同——store root、內容閘（`assertPersonWritable`：format gate 與
+    /// error 級驗證）、encode（含讀取上限，#648）、#631 目的檔。內容閘的擲出交給 `contentGate`、之後的不再問（實跑也停在第一道），乾跑以自己的
+    /// `blockedBy*` 鍵回報它；其餘每一道照擲，與實跑同樣拒絕。各段與 `plannedWrite` 共用（`plannedWriteAfterContentGates`），不是第二份描述。
+    public func preflightWrite(_ person: Person, contentGate: (Error) -> Void) throws {
+        try assertStoreRoot()
+        do {
+            try Self.assertPersonWritable(person, format: { try StoreVersion.read(root: self.root) })
+        } catch {
+            contentGate(error)
+            return
+        }
+        _ = try plannedWriteAfterContentGates(person)
+    }
+
     func plannedWrite(_ person: Person) throws -> PlannedWrite {
         try assertStoreRoot()
         try Self.assertPersonWritable(person, format: { try StoreVersion.read(root: self.root) })
+        return try plannedWriteAfterContentGates(person)
+    }
+
+    /// `plannedWrite(_: Person)` 在內容閘之後的那幾道（encode 含讀取上限、#631）。
+    private func plannedWriteAfterContentGates(_ person: Person) throws -> PlannedWrite {
         let dest = usesEntitiesLayout ? entityURL(id: person.id) : personURL(key: person.key)
         let yaml = try PersonYAML.encode(person, replacing: Self.currentFileBytes(at: dest))   // #648
         let moveFrom = try personWritePlan(person)   // #631：同 writeEntry

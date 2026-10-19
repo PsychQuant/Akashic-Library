@@ -52,6 +52,8 @@ final class NameClassificationMergeB39Tests: XCTestCase {
 
     /// 第 0 列的重現一：兩筆 person 逐位元組持有同一個矛盾（「Lin, Mei」在 variant、authorized 欄的最後一筆是「指定」）。合併什麼都不搬、
     /// 倖存者原本就有那個矛盾——乾跑與實跑都放行，倖存者的記錄不變。b37 拒絕並說矛盾是 pd「帶來的」。
+    /// 「什麼都不搬」只對這一種攣生成立（單筆指定、名字不在分割）：名字仍在分割、歷史以撤回結尾的攣生會重搬較早的指定
+    /// （`NameClassificationMergeB41Tests.testTwinsEndingInAWithdrawalOnAStillAuthorizedNameRecarryTheEarlierDesignation`，b40 Z1 第 3／12 列）。
     func testIdenticalTwinsHoldingTheSameContradictionMerge() throws {
         let history = [record("authorized", "Lin, Mei", .designate, "同一句理由")]
         let keeper = person("pk", authorized: ["Mei Lin"], variant: ["Lin, Mei"], refs: history)
@@ -66,16 +68,29 @@ final class NameClassificationMergeB39Tests: XCTestCase {
 
     /// 第 7 列：venue 攣生逐位元組持有「指定 r → 撤回 手改」而名字仍是對外形。被併者會搬（「指定 r」接上、合併後尾端回到一致），
     /// 但它重複的是倖存者原本就有的矛盾——條件 2 豁免，放行。
+    ///
+    /// 搬了什麼也要斷言（#564 b40 Z1 第 3／12 列：先前只斷言不拒絕）：倖存者的尾端本身矛盾，`carryCollecting` 的「倖存者已有、而且此刻尾端一致
+    /// 才略過」不成立，較早的「指定 r」被重新接在撤回之後，倖存者的最後一筆從撤回變成指定——合併改了倖存者原本的最後一筆。這是現況；
+    /// 被豁免的攣生該不該停止重搬，待使用者裁決。
     func testAVenueTwinRepeatingTheSurvivorsContradictionIsNotRefused() {
         let history = [record("authorized", "Real J", .designate, "r"), record("authorized", "Real J", .withdraw, "手改")]
         let keeper = venue("jv-k", names: ["Real J"], authorized: ["Real J"], refs: history)
         let merged = LibraryStore.mergedVenueKeeper(keeper, absorbing: [venue("jv-d1", names: ["Real J"], authorized: ["Real J"], refs: history)])
         XCTAssertEqual(merged.classificationTailConflicts, [], "倖存者合併前就有的矛盾不擋")
+        XCTAssertEqual(merged.referencesCarried, [LibraryStore.describeCarriedReference("jv-d1", history[0])], "較早的指定被重搬")
+        XCTAssertEqual(merged.keeper.references.map(\.byteExactKey), (history + [history[0]]).map(\.byteExactKey))
+        XCTAssertEqual(NameClassificationRecord.latestAction(in: merged.keeper.references, name: "Real J"), .designate,
+                       "倖存者的最後一筆從撤回變成指定（現況）")
     }
 
-    /// 「同一個矛盾」要同一個方向：倖存者手改出一筆錨不到 names 的 variant 記錄（「X J」不在它的 names、最後一筆「指定」——不在 variant 卻以指定結尾），
+    /// 「同一個矛盾」要同一個方向：倖存者持有一筆錨不到 names 的 variant 記錄（「X J」不在它的 names、最後一筆「指定」——不在 variant 卻以指定結尾），
     /// 被併者把「X J」以 variant 帶進來、自己的最後一筆是「撤回」（仍在 variant 卻以撤回結尾）。合併後「X J」在 variant、最後一筆是撤回——
     /// 那不是倖存者原本那個矛盾。先前兩道檢查都只比（分割, 名字），這一格放行。
+    ///
+    /// **這是記憶體裡建出來的倖存者，不是載得進來的 store**（#564 b40 Z1 第 10 列）：錨不到 names 的名字分類記錄在載入時整筆隔離
+    /// （`NameClassificationMergeB41Tests.testTheOtherDirectionShapeDoesNotLoad`），而倖存者的記錄錨定在 names 時，合併不改倖存者既有名字的分類、
+    /// 方向等於成員資格、兩種讀法結論相同。b39 寫「手改，載入不驗」是錯的。這支測試釘的是 `heldKey` 的定義本身——日後若放寬載入的錨定，
+    /// 方向那一項才開始承重。
     func testASurvivorContradictionInTheOtherDirectionDoesNotExempt() {
         let keeper = venue("kx", names: ["Main J"], authorized: ["Main J"], refs: [record("variant", "X J", .designate, "手改")])
         XCTAssertEqual(LibraryStore.venueTailConflicts(keeper).map(\.last), [.designate], "前提：倖存者原本的矛盾是「不在 variant 卻以指定結尾」")

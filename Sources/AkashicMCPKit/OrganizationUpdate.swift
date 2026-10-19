@@ -97,7 +97,7 @@ extension AkashicService {
     /// 報告是改了什麼的唯一一份；以同一句理由重試會得到 `alreadyAuthorized` 並多一筆「確認」（#557 R2 verify 第 30／38 列：先前說「重試只會得到
     /// alreadyAuthorized」，#564 之後為假）——用移除面一族的做法（`RemovalReportSupport.swift`），報告多 `indexRebuilt: false`。
     ///
-    /// `removalDetailLimit`：`remove_names` 報告的 `segments` 合計至多幾段——MCP 面截（預設），CLI 傳 nil 全列（`removeOrganizationNames` 的 doc）。
+    /// `removalDetailLimit`：`remove_names` 報告的 `segments` 合計至多幾段——MCP 面截（預設；另有 `candidateByteBudget` 的位元組預算），CLI 傳 nil 全列（`removeOrganizationNames` 的 doc）。
     public func updateOrganization(key: String, authorize: [String], judgement: String? = nil,
                                    restsOn: [String]? = nil, removeNames: [String]? = nil,
                                    removalDetailLimit: Int? = AkashicService.removalDetailCap) throws -> String {

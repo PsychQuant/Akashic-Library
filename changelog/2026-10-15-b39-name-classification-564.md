@@ -16,10 +16,10 @@ b37 的 `doomedTailConflicts` 看的是候選佇列裡被併者自己的記錄�
   1. 那筆被併者**單獨**併進原始倖存者時（`carryCollecting` 的同一條規則，在倖存者 references 的一份拷貝上模擬），真的會把那個（分割, 名字）的記錄接上至少一筆；
   2. 原始倖存者在同一個（分割, 名字）上沒有矛盾。
 - 條件 1 以原始倖存者為準、不看其他被併者先接了什麼。devil's advocate 席的提醒成立：以實際合併時寫下的記錄來判，一筆只有「指定 x」、另一筆「指定 x → 撤回 w」，後者先接時前者的指定被「倖存者已有」略過——換一個 key 拼法就從拒絕變成放行，正是第 98 列要擋的形。
-- 條件 2 與合併後的保險（`classificationTailDelta`）共用一份定義（`heldTailContradictions`）。「同一個矛盾」＝同一個（分割, 名字）、同一個方向（仍在分割卻以撤回結尾，或不在卻以指定／確認結尾）。倖存者的記錄錨定在它的 names 時（記錄錨定 names 是寫入期不變式），合併只加入倖存者沒有的名字、不增加 authorized，那些名字合併前後的分類相同、方向必然相同；方向不同只發生在倖存者的記錄錨不到 names（手改，載入不驗）而被併者把那個名字帶進來、分類變了——那時合併後的矛盾不是倖存者原本那一個。b33 起的保險只比（分割, 名字），那一格會放行；兩道檢查共用定義時一起收緊（零實例、只在手改的 store 上到得了，`testASurvivorContradictionInTheOtherDirectionDoesNotExempt`）。
+- 條件 2 與合併後的保險（`classificationTailDelta`）共用一份定義（`heldTailContradictions`）。「同一個矛盾」＝同一個（分割, 名字）、同一個方向（仍在分割卻以撤回結尾，或不在卻以指定／確認結尾）。倖存者的記錄錨定在它的 names 時（記錄錨定 names 是寫入期不變式），合併只加入倖存者沒有的名字、不增加 authorized，那些名字合併前後的分類相同、方向必然相同；方向不同只發生在倖存者的記錄錨不到 names（~~手改，載入不驗~~ → **b41 更正**：那種記錄載入時整筆隔離，手改的 store 同樣載不進來；方向那一項在任何載得進來的 store 上不改變結論，見 `changelog/2026-10-19-b41-name-classification-564.md`）而被併者把那個名字帶進來、分類變了——那時合併後的矛盾不是倖存者原本那一個。b33 起的保險只比（分割, 名字），那一格會放行；兩道檢查共用定義時一起收緊（零實例、~~只在手改的 store 上到得了~~ 只在記憶體裡建出來的倖存者上到得了，`testASurvivorContradictionInTheOtherDirectionDoesNotExempt`）。
 - 「會不會搬」以（分割, 名字）計：被併者搬了別的名字的記錄、這個名字的一筆都不搬時，它在這個名字上的不一致不進倖存者，不擋。被併者會搬這個名字的某幾筆、而它自己的最後一筆（不一致的那一筆）因為倖存者已有而不搬時，仍拒絕——裁決的字面是「真的會把記錄搬進倖存者」，記錄來自一筆自己不一致的被併者，哪一筆對只有人能判斷。
 - 拒絕訊息：被併者自己的矛盾另一句措辭——「被併的 venue「d」自己的記錄裡，「N」在 authorized 的最後一筆是「撤回」，而它仍在 authorized；它會把這個名字的記錄搬進倖存者，被併者自己不一致就擋，不論合併後的最後一筆是否一致」，不說「合併後」。開頭那句改成兩種矛盾都說，並寫明「倖存者合併前就有同一個矛盾的不擋」對兩種都成立。`ClassificationTailConflict` 多一個 `doomedOwn`。
-- 測試資料恢復成 b34 的原樣（b-doom「撤回：U」），註解寫出為什麼。新增 `NameClassificationMergeB39Tests`：person 攣生持有同一個矛盾（什麼都不搬，乾跑與實跑都通過、倖存者記錄不變）、venue 攣生重複倖存者的矛盾（會搬，條件 2 豁免）、倖存者的矛盾方向不同時不豁免、被併者是倖存者歷史的前綴（條件 1 豁免）、「會不會搬」不隨 key 拼法翻轉、措辭。
+- 測試資料恢復成 b34 的原樣（b-doom「撤回：U」），註解寫出為什麼。新增 `NameClassificationMergeB39Tests`：person 攣生持有同一個矛盾（什麼都不搬，乾跑與實跑都通過、倖存者記錄不變——**b41 補記**：只對單筆指定、名字不在分割的攣生成立；名字仍在分割、歷史以撤回結尾的攣生會重搬較早的指定、倖存者的最後一筆變成指定）、venue 攣生重複倖存者的矛盾（會搬，條件 2 豁免）、倖存者的矛盾方向不同時不豁免、被併者是倖存者歷史的前綴（條件 1 豁免）、「會不會搬」不隨 key 拼法翻轉、措辭。
 - 文件：`docs/store-format.md` §3.5 搬記錄規則那一段、divergence-record spec delta（同一條 Requirement 的兩個 SHALL 不再在攣生與「什麼都不搬」上結論相反；補五個 Scenario）、Spectra design〈修正輪五〉、零實例第 98 列與量測文件、`two-kinds-of-edits` 的合併一格。
 
 ### organization `remove_names` 的報告總量仍無上限（第 2 列；LOW 第 11 列同源）
@@ -30,14 +30,14 @@ b37 封了每個名字的段數（20）與每段的 attested（20），名字數
 
 為什麼選這個而不是位元組預算：venue 的移除面一族（`edit_name_segment`、`remove_reference`、`add_sources`）都用「前 N 項帶明細、其後只回識別與理由、兩個鍵揭露」，呼叫端已經認得這兩個鍵；位元組預算要另一套揭露。為什麼單位是段不是名字：一個名字最多 20 段，以名字計的 20 項是 400 段（約 0.7 MB，300 字元的 source、note 時），沒有解決問題；以段計，最壞是 20 段的明細（每段 start／end 各 40、attested 20 個、source、note 各 300 字元）加上 200 個名字的名字與理由，後者由呼叫端自己送的量決定。
 
-`NameClassificationB39Tests`：三個名字各 15、10、1 段——MCP 只有第一個帶 `segments`、`detailsListed: 1`，CLI 三個都列；40 個名字各 20 段、每段 300 字元的 source 與 note——MCP 回應小於 48 KiB（`candidateByteBudget`）。
+`NameClassificationB39Tests`：三個名字各 15、10、1 段——MCP 只有第一個帶 `segments`、`detailsListed: 1`，CLI 三個都列；40 個名字各 20 段、每段 300 字元的 source 與 note——MCP 回應小於 48 KiB（`candidateByteBudget`）。**b41 更正**：這只對那個 fixture 成立，段數不是位元組的上界（逃脫放大與 attested：同樣 20 段可達 318,939 位元組）；b41 起列出的 segments 以 compact JSON 另有位元組預算。
 
 ## LOW
 
 | 列 | 處置 |
 |---|---|
 | 3、6、7 | 同第 0、1 列（措辭、測試資料、範圍）。 |
-| 4、8 | `update-person --fields --dry-run` 跑寫入當下的 #631 前置（`personWritePlan`，不寫）：同一筆記錄的 legacy 拷貝（id 相同，b37 那一道「不同 id 共用 key」不擋）先前乾跑回 `wouldChange`、實跑被拒，現在兩者以同一句 #631 拒絕。實跑不另問（`writePerson` 會問，同一個操作稍早寫過時 #705 的訊息更準）。devil's advocate 席（第 19 列）指出這不是 b37 引入的、base 的 binary 同樣如此——照修，因為它是同一條乾跑的真實性，b37 的 changelog 與 help 寫「乾跑同樣拒」只對不同 id 成立。 |
+| 4、8 | （**b41 補記**：這一格只補了 #631；寫出上限 #648 與其餘 format 閘仍是乾跑說會改、實跑被拒，b41 改跑整條前置）`update-person --fields --dry-run` 跑寫入當下的 #631 前置（`personWritePlan`，不寫）：同一筆記錄的 legacy 拷貝（id 相同，b37 那一道「不同 id 共用 key」不擋）先前乾跑回 `wouldChange`、實跑被拒，現在兩者以同一句 #631 拒絕。實跑不另問（`writePerson` 會問，同一個操作稍早寫過時 #705 的訊息更準）。devil's advocate 席（第 19 列）指出這不是 b37 引入的、base 的 binary 同樣如此——照修，因為它是同一條乾跑的真實性，b37 的 changelog 與 help 寫「乾跑同樣拒」只對不同 id 成立。 |
 | 5、13 | venue 合併拒絕的兩句出口補上兩種處境（`ClassificationTailConflict.inOtherPartition`）：variant 欄「不在 variant 卻以指定結尾」而名字是對外形時，`--add-variant` 收不了它，出口改成 `--unauthorize`、`--add-variant`、`--authorize`；authorized 欄「不在 authorized 卻以指定結尾」而名字在 variant 時，`--authorize` 把它抬出 variant，照先前那句做完它不在任何分割、合併改以「分類不同」拒絕，出口最後多一步 `--add-variant` 放回去。兩句都以真的寫入面（`updateVenue`）照做到合併通過（`NameClassificationB39Tests`）。第 13 列的第三點（出口要求寫判定記錄來解除守衛）是使用者 2026-10-15 裁決收窄之後剩下的那一格：被併者真的會搬自己不一致的記錄時才拒，那時補記錄是唯一不靠手改 YAML 的出口。 |
 | 9 | **部分未改**。attested 最後一項是文字這件事沒有寫進 MCP 說明：它的形狀是「仍待使用者裁決」第 3 項（維持、另加回應鍵、或讀取面也截），裁決前寫進 MCP 說明會把一個待裁的形狀寫成契約；`tools/list` 也不能淨增。重複 key 的拒絕是錯誤路徑，訊息自己說出原因與出口，不寫進說明。 |
 | 10、12 | MCP `judgement` 屬性說明改成「fields.names 的理由（進出 authorized 時必填，沒進出則拒收）」，`NameClassificationSchemaTextTests` 釘住第二句本身（先前只釘三個詞各出現一次，兩種讀法都滿足）。 |

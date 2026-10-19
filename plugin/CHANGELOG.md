@@ -38,6 +38,17 @@ b40 verify（Z2）的處置，細節在 `changelog/2026-10-19-b41-fulltext-613.m
 - 行為在 CLI（`akashic fulltext fetch`），要新的 `akashic`：safari-browser 的 stderr 去掉終端機控制序列再判；對話框的判斷不只看挑到的那一行；網址不在撇號處結束；連結那一段 JS 的回答與頁面給的連結過新的 `redactingPageText`（第二個網址、tab 與換行夾在 `://` 裡、special scheme 沒有兩個斜線的寫法都去帳密）。契約版本仍是 6。`tools/list` 沒有改（59,171 → 59,171 bytes；上面 b39 那三段寫的 59,173 是各分支自己的基線，整合後是 59,171）。
 - 更正 b34 那一段的出處（第 4 則）：「IdP 服務名在任何一個標籤都算」是 b34 自加的規則，不是使用者 2026-10-05 第 4 則給的（待使用者裁決）。
 
+## #564 修正輪六 — 帶時間的名字的合併出口說只能手改、update-person 的乾跑跑整條寫入前置、organization 刪名字報告有位元組預算（2026-10-19）
+
+b40 verify（Z1）的處置，細節在 `changelog/2026-10-19-b41-name-classification-564.md`。
+
+- **合併（CLI `resolve-divergence`）**：venue 的 variant「不在 variant 卻以指定或確認結尾」而名字有帶時間欄位的段時，拒絕訊息在任何一步之前說工具面沒有出口、只能手改（在被併者的 references 末尾補一筆 variant 的撤回），不再給「--unauthorize、--add-variant、--authorize」——照那句做，第一步撤掉了對外形、第二步才被拒。補回被換下的對外形那一步寫明同樣附 `--judgement`。
+- **`akashic_update_person`／CLI `update-person`**：乾跑跑 `writePerson` 的整條前置——寫出位元組超過讀取上限（#648）與 #631 照拒、零寫入；format gate 與 error 級驗證照既有的形以 `blockedBy*` 回報（先前只預演 ended 與名字分類兩道，format 9 的 store 改一筆有 names 的 person 乾跑說會改）。`remove_names` 的乾跑同樣跑（git 閘照舊只在實跑）。MCP `dry_run` 說明改成「零寫入，實跑會拒的也拒」。
+- **`akashic_update_organization` 的 `remove_names`**：MCP 面列出的 `segments` 另以 compact JSON 計合計至多 48 KiB（段數不是位元組的上界：控制字元逃脫放大，20 段可達 31 萬位元組）；放不下的名字照舊不帶 `segments`、同兩個鍵揭露。整份回應另含呼叫端送的名字與理由。
+- `tools/list`：59,171 → 59,159 bytes（−12）。
+
+plugin 版號沒有動（行為在 binary）。
+
 ## #709 — b38 verify 修正（2026-10-15）：enrich 的 DOI 歧義理由對同 citekey 的重複說先修好、DOI 以 scalar 截短；bootstrap 乾跑被擋時結尾不說「加 --apply」
 
 細節在 `changelog/2026-10-15-b39-p4-fixes-709.md`。

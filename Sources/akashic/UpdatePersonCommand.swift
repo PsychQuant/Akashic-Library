@@ -22,7 +22,11 @@ struct UpdatePersonCmd: ParsableCommand {
             + "一次至多 200 筆／statement 4,096 位元組／rests_on 20 個；空陣列拒絕（#695）；verdict 欄位對拒收）。"
             + "兩筆不同的 person 共用這個 key 時整批拒絕、零寫入（--dry-run 同）"))
     var fields: String?
-    @Flag(name: .long, help: "只預告會改什麼（含 format gate 預演），不寫入")
+    @Flag(name: .long, help: ArgumentHelp(
+        "只預告會改什麼，不寫入",
+        discussion: "實跑會拒的乾跑也拒（#564 b40 Z1）：走 writePerson 的同一條前置——format gate 與 error 級驗證以 blockedByFormatGate／"
+            + "blockedByNameClassificationGate／blockedByValidation 回報（rc 0），encode 的回讀驗證（例如 reference 指名的欄位不存在）、寫出位元組超過讀取上限（8 MiB，#648）、#631 的 legacy 拷貝與目的檔照拒、零寫入。"
+            + "--remove-name 的乾跑同樣跑這條前置，git 閘與目標 store 確認閘不查"))
     var dryRun: Bool = false
 
     @Option(name: .long, help: ArgumentHelp(

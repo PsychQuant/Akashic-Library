@@ -65,3 +65,10 @@
 - [x] 9.1 合併：被併者自己不一致只在它單獨併進原始倖存者時會搬那個（分割, 名字）的記錄、原始倖存者在那裡沒有矛盾時才拒絕；拒絕訊息說被併者自己的最後一筆。驗證：`NameClassificationMergeB39Tests`、恢復原樣的 `testAPreExistingContradictionIsNotBlamedOnTheMergeInEitherOrder`
 - [x] 9.2 venue 合併拒絕的兩句出口（名字是對外形、名字在 variant）。驗證：`NameClassificationB39Tests` 的兩支出口測試（照做到合併通過）
 - [x] 9.3 organization `remove_names` 的 MCP 報告 `segments` 合計至多 20 段；`update-person --fields --dry-run` 跑 #631 前置；MCP `judgement` 說明；死碼。驗證：`NameClassificationB39Tests`、`NameClassificationSchemaTextTests`。負控、規則、文件、changelog
+
+## 10. 修正輪六（b40 Z1；b41）
+
+- [x] 10.1 venue 合併拒絕：名字有帶時間的段時，variant 那兩句出口改說只能手改（在任何一步之前）；補回對外形那一步寫明附理由。驗證：`NameClassificationB41Tests` 的三支出口測試（含照手改做到合併通過）
+- [x] 10.2 `update-person --fields --dry-run` 跑整條寫入前置（內容閘以 `blockedBy*` 回報），`--remove-name` 的乾跑同樣跑。驗證：`UpdatePersonDryRunPreflightCLITests`（真 binary，9 MiB 的 note）、`testRemoveNamesDryRunRefusesWhatTheRealRunRefuses`
+- [x] 10.3 organization `remove_names` 的 MCP 報告：列出的 segments 以 compact JSON 計合計至多 `candidateByteBudget`。驗證：`NameClassificationB41Tests` 的兩支位元組測試
+- [x] 10.4 文件與測試說實話：攣生重搬（`NameClassificationMergeB41Tests`、補斷言的 `testAVenueTwinRepeatingTheSurvivorsContradictionIsNotRefused`）、方向那一項不改變載得進來的 store 上的結論（`testTheOtherDirectionShapeDoesNotLoad`）、規則表與 spec。負控、changelog

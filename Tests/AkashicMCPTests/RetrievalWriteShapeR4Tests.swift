@@ -20,7 +20,11 @@ final class RetrievalWriteShapeR4Tests: XCTestCase {
         let store = LibraryStore(root: root)
         try store.ensureLayout()
         try store.writeEntry(Entry(id: UUID(), citekey: "anon2020x", type: .periodicalArticle, title: "Anon"))
-        try store.writePerson(Person(key: "p-one", names: PersonNames(authorized: ["Che Cheng"])))
+        // reference 指名 openalex：記錄要有這個欄位，否則實跑的 encode 回讀以「reference 指名的欄位必須存在」拒絕——#564 b41 起乾跑跑同一條前置，
+        // 先前這裡沒有 openalex、乾跑照樣通過（假預覽），測的只是網址形狀
+        var person = Person(key: "p-one", names: PersonNames(authorized: ["Che Cheng"]))
+        person.openalex = "A5017898742"
+        try store.writePerson(person)
     }
 
     override func tearDownWithError() throws {

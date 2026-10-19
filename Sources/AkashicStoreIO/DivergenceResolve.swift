@@ -2215,6 +2215,9 @@ extension LibraryStore {
             carriers[Self.tailGroup(queue[i].ref)] = queue[i].from
         }
         let held = Self.heldTailContradictions(Self.venueTailConflicts(original))
+        // 合併後帶時間欄位的名字（倖存者的與併入的段都在 keeper.names 裡）：variant 不得帶時間（`Venue.validate()` 的 dated-variant 不變式），
+        // 出口裡凡是要 --add-variant 它的那幾句都走不通（#564 b40 Z1 第 0 列）
+        let datedNames = Set(keeper.names.entries.filter { $0.range.makesTemporalClaim }.map { NameIdentity.canonical($0.value) })
         let tail = Self.withDoomedTailConflicts(
             Self.classificationTailDelta(held: held, after: Self.venueTailConflicts(keeper), carriers: carriers),
             Self.doomedTailConflicts(queue, original: original.references, held: held, isMember: isMember))
@@ -2224,6 +2227,7 @@ extension LibraryStore {
                 var c = c
                 c.inOtherPartition = (c.field == NameClassificationRecord.variantField ? mergedAuthorized : mergedVariant)
                     .contains(NameIdentity.canonical(c.name))
+                c.dated = datedNames.contains(NameIdentity.canonical(c.name))
                 return c
             }
         return (keeper, m.migrated, m.collapsed, carried, tail)
@@ -2240,7 +2244,8 @@ extension LibraryStore {
 
     /// 合併會造成的一個「最後一筆與分類矛盾」的（分割, 名字）。兩種來源：
     /// - 合併後倖存者上的（`classificationTailDelta`，`doomedOwn == false`）：`last` 是合併後的最後一筆；`broughtBy` 是最後一筆是誰接上的
-    ///   （被併者的 key），nil＝最後一筆是倖存者自己的記錄、矛盾來自這次合併改了名字的分類（venue：被併者把它標成 variant）。
+    ///   （被併者的 key），nil＝最後一筆是倖存者自己的記錄、矛盾來自這次合併改了名字的分類（venue：被併者把它標成 variant）。nil 那一格在載得進來的
+    ///   store 上到不了（#564 b40 Z1 第 10 列）：合併只把倖存者沒有的名字標 variant，倖存者自己的記錄錨定的名字分類不變；留著是防禦。
     /// - 被併者自己的（`doomedTailConflicts`，`doomedOwn == true`）：`last` 是**被併者自己的**最後一筆，不是合併後的——合併後的最後一筆可能
     ///   一致（b38 Z1 第 3／6 列：先前共用「合併後它在…的最後一筆是…」那一句，對這一種是假話）。`broughtBy` 是那筆被併者。
     struct ClassificationTailConflict: Equatable {
@@ -2251,6 +2256,10 @@ extension LibraryStore {
         var doomedOwn: Bool = false
         /// venue：名字合併後在另一個分割裡（variant 欄的矛盾＝它是對外形；authorized 欄的矛盾＝它在 variant）。出口依它不同；person 恆為 false。
         var inOtherPartition: Bool = false
+        /// venue：名字合併後有帶時間欄位的段（`DateRange.makesTemporalClaim`）。variant 不得帶時間，`--add-variant` 收不了它——variant 欄
+        /// 「不在 variant 卻以指定或確認結尾」的出口要先 `--add-variant`，對這種名字走不通（#564 b40 Z1 第 0 列：照先前的出口做，第一步 `--unauthorize`
+        /// 已寫入、撤掉了對外形，第二步才被拒）。person 的名字沒有時間欄位，恆為 false。
+        var dated: Bool = false
     }
 
     /// 尾端矛盾的分組鍵（分割＋canonical 名字）——與 `NameClassificationRecord.tailConflicts` 同一把。
@@ -2273,9 +2282,13 @@ extension LibraryStore {
 
     /// **原始倖存者**（合併前的記錄與分類）已經持有的尾端矛盾——「倖存者合併前就有**同一個**矛盾的不擋」的唯一一份定義，`classificationTailDelta`
     /// 與 `doomedTailConflicts` 共用（#564 b38 Z1 第 0／1 列：b37 的被併者檢查沒有這道豁免，攣生各持同一個矛盾時合併被拒、訊息還說矛盾是被併者
-    /// 帶來的）。「同一個」＝同一個（分割, 名字）、同一個方向（仍在分割卻以撤回結尾，或不在卻以指定／確認結尾；`heldKey`）。倖存者的記錄錨定在它的
-    /// names 時，合併前後那個名字的分類不變、兩個方向必然相同；方向不同只發生在倖存者的記錄錨不到 names（手改）而被併者把那個名字帶進來、分類變了——
-    /// 那時合併後的矛盾不是倖存者原本那一個，不豁免。b33 起的保險只比（分割, 名字），那一格會放行。
+    /// 帶來的）。「同一個」＝同一個（分割, 名字）、同一個方向（仍在分割卻以撤回結尾，或不在卻以指定／確認結尾；`heldKey`）。
+    ///
+    /// **方向那一項在任何載得進來的 store 上都不改變結論**（#564 b40 Z1 第 10 列；b39 這裡寫「方向不同只發生在倖存者的記錄錨不到 names（手改）時」，
+    /// 而那種記錄在載入時整筆隔離——手改的 store 同樣載不進來）：倖存者的每一筆名字分類記錄都錨定在它的 names，合併不改倖存者既有名字的分類
+    /// （venue 只把倖存者沒有的名字標 variant，person 的 authorized 不變），方向就是成員資格、合併前後必然相同。方向只在記憶體裡建出來的倖存者上
+    /// 起作用（`testASurvivorContradictionInTheOtherDirectionDoesNotExempt`；`testTheOtherDirectionShapeDoesNotLoad` 釘住那個形狀載不進來）；
+    /// 保留它，是讓定義在日後放寬載入的錨定時仍然對。b33 起的保險只比（分割, 名字）。
     static func heldTailContradictions(_ before: [(field: String, name: String, last: NameClassificationRecord.Action)]) -> Set<String> {
         Set(before.map { heldKey(field: $0.field, name: $0.name, last: $0.last) })
     }
@@ -2350,18 +2363,30 @@ extension LibraryStore {
     /// venue「不在某個分割卻以指定或確認結尾」再依名字在不在**另一個**分割分兩句（`inOtherPartition`，#564 b38 Z1 第 5／13 列）：variant 欄而名字是
     /// 對外形時，`--add-variant` 收不了 authorized 裡的名字（兩條支線第一步就被拒），要先 `--unauthorize`；authorized 欄而名字在 variant 時，
     /// `--authorize` 會把它抬出 variant，照先前那句做完它不在任何分割、與倖存者分類不同，最後要 `--add-variant` 放回去。
+    ///
+    /// variant 欄「不在 variant 卻以指定或確認結尾」而名字有帶時間欄位的段（`dated`，#564 b40 Z1 第 0 列）：variant 不得帶時間，兩句的
+    /// `--add-variant` 都被寫入閘拒絕，而 variant 的撤回只有 `--authorize` 抬出 variant 時會寫——沒有工具面的出口，訊息在任何一步之前說只能手改
+    /// （先前照「--unauthorize、--add-variant、--authorize」做，第一步撤掉了對外形、第二步才被拒）。補回被換下的對外形要另一步、同樣附理由（b40 Z1 第 14 列）。
     static func tailConflictExits(_ conflicts: [ClassificationTailConflict], kind: String) -> [String] {
         var out: [String] = []
         func add(_ s: String) { if !out.contains(s) { out.append(s) } }
         for c in conflicts {
             let stillIn = c.last == .withdraw
+            if kind != "person", !stillIn, c.dated, c.field == NameClassificationRecord.variantField {
+                // 在任何一步之前說（#564 b40 Z1 第 0 列）：下面兩句在這種名字上走不通——名字是對外形時第一步 --unauthorize 寫入、撤掉了它，
+                // 第二步 --add-variant 才被拒；名字未標時第一步 --add-variant 就被拒
+                add("不在 variant 卻以指定或確認結尾、而它有帶時間欄位的段（venue）：工具面沒有出口——variant 不得帶時間，--add-variant 收不了它，"
+                    + "而 variant 的撤回只在 --authorize 把名字抬出 variant 時才寫；不要先 --unauthorize 它（會寫入、撤掉對外形，之後的 --add-variant 仍被拒）。"
+                    + "只能手改帶來它的被併者的 YAML：在它的 references 末尾為這個名字補一筆 field: variant、judgement「撤回：理由」的記錄，commit 之後再合併")
+                continue
+            }
             if kind != "person", !stillIn, c.inOtherPartition {
                 if c.field == NameClassificationRecord.variantField {
                     add("不在 variant 卻以指定或確認結尾、而它是對外形（venue）：在被併者上 --unauthorize 它、--add-variant 它、再 --authorize 它，三次都附 --judgement"
                         + "——--add-variant 收不了還在 authorized 的名字；--authorize 把它抬出 variant（寫 variant 的撤回）、放回 authorized（寫指定）")
                 } else {
                     add("不在 authorized 卻以指定或確認結尾、而它在 variant（venue）：在被併者上 --authorize 它（抬出 variant）、--unauthorize 它、再 --add-variant 它放回 variant，"
-                        + "三次都附 --judgement——同書寫系統原本的對外形在 --authorize 那一步被換下（寫撤回），要再 --authorize 補回")
+                        + "每一步都附 --judgement；同書寫系統原本有別的對外形時，它在 --authorize 那一步被換下（寫撤回），第四步再 --authorize 它補回（同樣附 --judgement）")
                 }
                 continue
             }
@@ -2377,12 +2402,13 @@ extension LibraryStore {
             case (_, NameClassificationRecord.variantField, false):
                 add("不在 variant 卻以指定或確認結尾（venue）：要它是異寫，被併者與倖存者兩邊都 --add-variant 它（附 --judgement）——只在被併者上做，兩邊分類不同，"
                     + "合併改以「分類不同」拒絕；要它不是異寫，在被併者上 --add-variant 它、--authorize 它"
-                    + "（抬出 variant，寫 variant 的撤回）、再 --unauthorize 它，三次都附 --judgement——同書寫系統原本的對外形在 --authorize 那一步被換下（寫撤回），要再 --authorize 補回")
+                    + "（抬出 variant，寫 variant 的撤回）、再 --unauthorize 它，每一步都附 --judgement；同書寫系統原本有別的對外形時，它在 --authorize 那一步被換下（寫撤回），"
+                    + "第四步再 --authorize 它補回（同樣附 --judgement）")
             case (_, _, true):
                 add("仍在 authorized 卻以撤回結尾（venue）：update-venue --authorize 它、附 --judgement（已是對外形的名字寫一筆確認）")
             case (_, _, false):
-                add("不在 authorized 卻以指定或確認結尾（venue）：update-venue --authorize 它、再 --unauthorize 它，兩次都附 --judgement——"
-                    + "同書寫系統原本的對外形在第一步被換下（寫撤回），要再 --authorize 補回")
+                add("不在 authorized 卻以指定或確認結尾（venue）：update-venue --authorize 它、再 --unauthorize 它，兩次都附 --judgement；"
+                    + "同書寫系統原本有別的對外形時，它在第一步被換下（寫撤回），第三步再 --authorize 它補回（同樣附 --judgement）")
             }
         }
         return out

@@ -113,7 +113,8 @@ final class NameClassificationB37Tests: XCTestCase {
     // MARK: - 第 7 列：organization 的拒絕說出寫入閘
 
     /// format 18：organization `--remove-name` 的三種拒絕（還在 authorized、沒有記錄、記錄與分類不一致）出口都經 `--authorize` 寫記錄——
-    /// 訊息說出 format 與門檻；format 22 不說。記錄讀不出動作的那一格沒有出口，不加。
+    /// 訊息說出 format 與門檻；format 22 不說。（b37 這裡另寫「記錄讀不出動作的那一格沒有出口，不加」——那個分支 b39 當死碼刪掉了：
+    /// `latestAction` 與 `allRecords` 都只收 `isRecord` 的記錄，那一格到不了，#564 b40 Z1 第 13 列。）
     func testOrganizationRemovalRefusalsNameTheGateAtAnOldFormat() throws {
         var org = Organization(key: "oa", names: Timeline(["Real Inst", "Typo Institue", "Mis Inst", "Odd Inst"].map { TemporalValue(value: $0) }))
         org.authorized = ["Real Inst"]

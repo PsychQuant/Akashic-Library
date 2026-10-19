@@ -354,12 +354,13 @@ final class GitignorePreservationCLITests: XCTestCase {
         XCTAssertTrue(try bytes(gi).suffix(other.count) == other, "別人的位元組要還在")
     }
 
-    /// 新建的 `.gitignore` 一個位元組都沒寫進去就失敗：刪掉自己建的空檔（原因是 `writeFailed`，不是 `openFailed`）。
-    func testACreatedFileThatGotNothingIsRemoved() throws {
+    /// 新建的 `.gitignore` 一個位元組都沒寫進去就失敗：空檔**留著**、原因是 `writeFailedAfterCreating`（不是 `openFailed`）。b42 verify MEDIUM 2 之前
+    /// 這裡以路徑刪掉它——寫入期間路徑被換成使用者的檔時刪的是使用者的檔（`GitignoreRemedyCLITests`）。
+    func testACreatedFileThatGotNothingIsLeftEmpty() throws {
         let (store, gi) = try layoutStore("created", gitignore: nil)
         let problem = try SourcesIgnoreIO.$write.withValue({ _, _ in (0, ENOSPC) }) { try store.ensureLayout(sourcesIgnore: .report) }
-        XCTAssertEqual(problem, .writeFailed(errno: ENOSPC))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: gi.path))
+        XCTAssertEqual(problem, .writeFailedAfterCreating(errno: ENOSPC))
+        XCTAssertEqual(try bytes(gi), Data(), "空檔留著")
     }
 
     /// 判讀與 UTF-8 驗證：`isValidUTF8` 與先前的「解碼再編碼要逐位元組相同」對邊界序列給同一個答案。
@@ -764,7 +765,7 @@ final class GitignorePreservationCLITests: XCTestCase {
     /// - 沒有讀內容、沒有讀到穩定的內容：首句說「不知道裡面有沒有」，處置只叫人「沒有區塊才加」；
     /// - 讀過、區塊在而不能確定生效：首句不說「沒有生效的」，處置說「區塊已在，不要再貼一份」；
     /// - 其餘：「沒有生效的 sources 排除區塊」。
-    /// `kind` 的 switch 沒有 `default`：新增一格時這裡編不過，`all` 也要跟著列（集合比對 0..<17）。`file add` 的拒絕與 warning 同一個首句。
+    /// `kind` 的 switch 沒有 `default`：新增一格時這裡編不過，`all` 也要跟著列（集合比對 0..<18；b42 verify 加 `writeFailedAfterCreating`）。`file add` 的拒絕與 warning 同一個首句。
     func testEveryProblemsHeadlineAndRemedyAgreeWithWhatWasRead() {
         enum Read { case nothing, unstable, blockUnsure, content }
         func kind(_ p: SourcesIgnoreProblem) -> (index: Int, read: Read) {
@@ -786,14 +787,16 @@ final class GitignorePreservationCLITests: XCTestCase {
             case .lockTimedOutAfterCreating: return (14, .nothing)
             case .writeFailed: return (15, .content)
             case .rollbackFailed: return (16, .content)
+            case .writeFailedAfterCreating: return (17, .content)
             }
         }
         let all: [SourcesIgnoreProblem] = [
             .unreadable(errno: EACCES), .notUTF8Text, .symlink, .brokenSymlink(errno: ENOENT), .notRegularFile, .hardLinked, .tooLarge,
             .markerWithoutRule, .ruleNegatedLater, .contentRuleWithNestedGitignore, .notWritable(errno: EACCES), .openFailed(errno: EMFILE),
             .changedWhileChecking, .lockTimedOut, .lockTimedOutAfterCreating, .writeFailed(errno: EIO), .rollbackFailed(writeErrno: EIO, truncateErrno: nil),
+            .writeFailedAfterCreating(errno: EIO),
         ]
-        XCTAssertEqual(Set(all.map { kind($0).index }), Set(0..<17), "每一格都要列在 all")
+        XCTAssertEqual(Set(all.map { kind($0).index }), Set(0..<18), "每一格都要列在 all")
         for problem in all {
             let headline = problem.headline, remedy = problem.remedy
             let first = problem.warningLines(by: "doctor").first ?? ""
@@ -833,8 +836,8 @@ final class GitignorePreservationCLITests: XCTestCase {
         flock(fd, LOCK_UN); close(fd)
         XCTAssertEqual(box.value, .lockTimedOut)
         XCTAssertEqual(try bytes(gi), Data("*.srt\n".utf8), "沒有寫")
-        let line = SourcesIgnoreProblem.lockTimedOut.warningLines(by: "doctor").first ?? ""
-        XCTAssertTrue(line.contains("持有它的鎖") && line.contains("確認沒有卡住的 akashic 程序"), line)
+        let lines = SourcesIgnoreProblem.lockTimedOut.warningLines(by: "doctor")
+        XCTAssertTrue(lines[0].contains("持有它的鎖") && lines[1].contains("確認沒有卡住的 akashic 程序"), "\(lines)")
     }
 
     private final class ProblemBox: @unchecked Sendable { var value: SourcesIgnoreProblem? }

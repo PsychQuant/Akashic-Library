@@ -407,10 +407,13 @@ extension ZoteroReportCLITests {
         XCTAssertEqual(r.status, 0, "照常匯入：\(r.out)\n\(r.err)")
         XCTAssertTrue(r.out.contains("created: 1"), r.out)
         XCTAssertFalse(r.out.contains("⚠ .gitignore"), "warning 不混進 stdout 的報告：\(r.out)")
-        let first = String(r.err.split(separator: "\n").first ?? "")
+        // 說明、匯入那一句、處置各一行（#700 b42 verify：接成一行時經 400 字的 sink 會截掉處置）
+        let lines = r.err.split(separator: "\n").map(String.init)
+        XCTAssertGreaterThan(lines.count, 3, r.err)
+        let first = lines.first ?? ""
         XCTAssertTrue(first.hasPrefix("⚠ .gitignore 沒有生效的 sources 排除區塊，import-zotero 沒有改寫它：") && first.contains("不是 UTF-8"), r.err)
-        XCTAssertTrue(first.contains("匯入不因此中止") && first.contains("store-source 拒絕寫入"), "說出防線在哪：\(first)")
-        XCTAssertTrue(first.contains("後跑 akashic doctor（或重跑匯入）"), "處置不叫人重做已經做完的匯入：\(first)")
+        XCTAssertTrue(lines[1].contains("匯入不因此中止") && lines[1].contains("store-source 拒絕寫入"), "說出防線在哪：\(r.err)")
+        XCTAssertTrue(lines[2].contains("後跑 akashic doctor（或重跑匯入）"), "處置不叫人重做已經做完的匯入：\(r.err)")
         XCTAssertTrue(r.err.contains("\n    sources/\n"), "附上要自己加的那段：\(r.err)")
         XCTAssertEqual(try Data(contentsOf: ignore), original, ".gitignore 逐位元組不變")
 

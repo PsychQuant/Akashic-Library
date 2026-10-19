@@ -10,6 +10,19 @@
 
 plugin 殼版號 0.13.5 → 0.13.6（這一段改了本檔；0.13.5 已隨 `7ba4d695` 推上 main 而對外）。本檔不在殼的內容摘要裡，所以 0.13.6 那一列的摘要與 0.13.5 相同；同一批若別的分支改了殼的內容，整合時重記。
 
+## #700 — b42 verify 修正（2026-10-20）：否定規則那一格的查法照 git 實測改寫、`file add` 的拒絕與 warning 逐行放得下 400 字、新建的 `.gitignore` 寫入失敗時不以路徑刪；plugin 殼 0.13.5 → 0.13.6
+
+細節在 `changelog/2026-10-20-b43-sources-ignore-700.md`。行為在 binary（新的 `akashic` 與 `akashic-mcp`）；skill 只改 `akashic-bootstrap` 的 `writing-to-the-store.md` 一句。
+
+- **`.gitignore` 的 sources 區塊**（CLI `file add`／`doctor`／`import-zotero`，MCP `akashic_import_zotero`／`akashic_import_wos`）：
+  - 區塊之後有否定規則時，處置的查法改成 `git check-ignore sources/index.jsonl sources/00/x`（**不加 `-v`**：只印出被排除的路徑）；`-v` 時以 `!` 開頭的規則是放回它的那一行；點名的兩個路徑代表不了其他存檔子目錄。先前寫「`-v` 只列出被排除的」「兩個都列出是判讀保守」，兩句都不成立（`-v` 也列出被否定規則放回來的路徑）。
+  - `file add` 的拒絕分三行（首句與原因、這一次對 `.gitignore` 做了什麼與佈局建了沒有、處置），warning 的說明、匯入那一句、處置各自一行。先前接成一行，CLI 逐行截 400，否定規則那一格的處置被截掉；MCP `akashic_import_wos` 的 index rebuild 失敗時錯誤訊息末尾那則 warning 也是。
+  - 這一次新建的 `.gitignore` 寫入失敗時空檔留著（新的原因 `writeFailedAfterCreating`）：先前以路徑刪掉它，而寫入期間路徑可能已被不用 `flock` 的程式換成使用者的檔。新建了空檔的兩格說「新建了它（空的）」，不再說「沒有改寫」。
+  - 先看在等 `.gitignore` 的鎖時路徑被換掉或刪掉，取到鎖之後重看（先前讀舊的檔，報「沒有寫入權限（ENOENT）」）。
+- **`store-source`**：`.gitignore` 只把 `sources/index.jsonl` 放回來時，寫存檔之前就拒絕（先前寫完存檔才在附加 index 那一步拒絕，留下孤兒存檔）。
+- **`akashic-bootstrap` 的 `writing-to-the-store.md`**：存之前的查法改成不加 `-v` 的 `git check-ignore` 對實際路徑（先前是 `git check-ignore -v sources/`——被否定規則放回來時也印出一行）。
+- `tools/list`：59,159 → 59,159 bytes（±0；MCP 說明沒有改）。
+
 ## #709 — b40 verify 修正（2026-10-19）：enrich 的拷貝那一句只說刪掉拷貝之後就能定位的、理由結論在前且回顯截短；validate 對同 citekey 的重複不指 record-divergence
 
 細節在 `changelog/2026-10-19-b41-enrich-reasons-709.md`。行為在 binary（新的 `akashic` 與 `akashic-mcp`）；skill 文字沒有改。
@@ -30,7 +43,7 @@ plugin 殼版號 0.13.5 → 0.13.6（這一段改了本檔；0.13.5 已隨 `7ba4
   - 「區塊已在」說的是 **akashic 寫進 `sources/` 的路徑**（`index.jsonl`、兩個十六進位字元的存檔子目錄與裡面的檔）都被 git 排除。區塊之後的否定規則只算碰得到那些路徑的——`sources/*` 之後接 `!sources/.gitkeep`（保留空目錄的慣用寫法）自此照常放行（先前 `file add` 拒絕、`doctor` 每次都報，處置還叫人刪掉 `.gitkeep` 例外）。
   - 一行在第一個 NUL 截斷（git 把一行當 C 字串讀）、三個以上的 `*` 與兩個相同：`!sources/` 後面接 NUL、`!***/sources` 這類先前判成已在而 git 不排除的形狀自此報。
   - **新的拒絕／warning**：規則只排除內容（`sources/*` 之類）而 `sources/` 裡另有 `.gitignore` 時不算已在（git 會讀那一份，它比根目錄的優先）——先前放行。排除目錄本身的 `sources/` 不受影響。
-  - 否定規則與 `sources/.gitignore` 這兩格的首句改成「不能確定它生效」（先前首句說「沒有生效的區塊」、處置說「區塊已在」）；否定規則的處置改成先以 `git check-ignore -v` 看是哪一行決定，或在檔尾補一行頂格的 `sources/`。看與寫之間一直在變時首句說「沒有讀到穩定的內容」、處置只叫人「沒有區塊才加」。
+  - 否定規則與 `sources/.gitignore` 這兩格的首句改成「不能確定它生效」（先前首句說「沒有生效的區塊」、處置說「區塊已在」）；否定規則的處置改成~~先以 `git check-ignore -v` 看是哪一行決定~~（b42 verify 更正：`-v` 也列出被否定規則放回來的路徑，見上面 b42 那一段），或在檔尾補一行頂格的 `sources/`。看與寫之間一直在變時首句說「沒有讀到穩定的內容」、處置只叫人「沒有區塊才加」。
   - 這一次新建的 `.gitignore` 拿不到鎖時，空檔留著、訊息說出它留著（先前沒有持鎖就刪掉它，可能刪到正在寫區塊的另一個程序的檔）。
 - **web-access.md〈開始前〉第 4 點**（#692）：「契約每改一次就多一條真呼叫」限縮成探測實際涵蓋的 `web-read url`、`origin`、`check`（`landing` 沒有探測）。只改說明，探測本身不變。
 - `tools/list`：59,171 → 59,171 bytes（±0；MCP 說明沒有改）。上一段與 #709、#613 兩段寫的 59,173 是那一批的 base，整合之後的 main（`04131a49`）是 59,171（同一批 #564 的 −2）。

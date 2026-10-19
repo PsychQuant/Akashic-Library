@@ -13,8 +13,11 @@ inode，照樣回報成功，磁碟上沒有 `.gitignore`。
 
 **修正**：逾時就不刪，照實說——新的 `SourcesIgnoreProblem.lockTimedOutAfterCreating`：「這一次新建了它（空的），之後另一個程序持有它的鎖…新建的
 檔留著：持鎖的程序打開了同一個檔、可能正要把區塊寫進去，沒有鎖時刪掉它會刪到對方寫好的檔」。首句與處置同 `lockTimedOut`（「沒有讀到」、
-「沒有區塊才加」）。空的 `.gitignore` 對 git 無害，下一次先看把它當既有的檔附加。`removeIfStillOurEmptyFile` 拿掉。寫入失敗時的 `unlink`
-（`writeFailed`、新建且一個位元組都沒寫進去）不動：那時持著 `LOCK_EX`，之後取到鎖的程序會發現路徑不再指著它的檔而重看。
+「沒有區塊才加」）。空的 `.gitignore` 對 git 無害，下一次先看把它當既有的檔附加。`removeIfStillOurEmptyFile` 拿掉。~~寫入失敗時的 `unlink`
+（`writeFailed`、新建且一個位元組都沒寫進去）不動：那時持著 `LOCK_EX`，之後取到鎖的程序會發現路徑不再指著它的檔而重看。~~
+→ b43 更正（b42 verify MEDIUM 2、LOW 8）：這個理由只對持鎖的 akashic 程序成立——鎖約束不到不用 `flock` 的程式，寫入期間路徑被換成使用者的檔時
+`unlink` 刪的是使用者的檔；先看的 `LOCK_SH` 取到鎖之後也不重看路徑。b43 起寫入失敗時同樣不刪（`writeFailedAfterCreating`），見
+`changelog/2026-10-20-b43-sources-ignore-700.md`。
 
 **測試**：`testACreatedGitignoreIsNotDeletedWhileAnotherHolderHasItsLock`——試鎖的注入點在第一次被呼叫時（我們已經建好檔）以另一個 open file
 description 打開同一個檔、取真的 `flock(LOCK_EX)`（B），我們等 0.2 秒逾時；B 在 `ensureLayout` 回來之後寫進區塊。斷言 B 寫的區塊在路徑上。
@@ -61,8 +64,10 @@ description 打開同一個檔、取真的 `flock(LOCK_EX)`（B），我們等 0
 照新的範圍判成不在是對的）、只排除內容而 `sources/.gitignore` 只有註解。
 
 **訊息**（INFO 19、20）：`ruleNegatedLater` 的原因說出碰得到哪幾個路徑、只碰得到別的檔的否定規則不算、判讀在哪裡保守；處置改成「store 在 git 工作樹裡時
-可用 `git check-ignore -v sources/index.jsonl sources/00/` 看——少了哪一個就是區塊之後的否定規則把它放了回來：刪掉那一行或把它移到區塊之前；兩個都列出、
-這裡仍判成不生效時是判讀保守。兩種情形都可以在檔尾補一行頂格的 `sources/`」。首句改成「.gitignore 的 sources 排除區塊之後有否定規則，不能確定它生效」——
+可用 ~~`git check-ignore -v sources/index.jsonl sources/00/` 看——少了哪一個就是區塊之後的否定規則把它放了回來：刪掉那一行或把它移到區塊之前；兩個都列出、
+這裡仍判成不生效時是判讀保守~~。兩種情形都可以在檔尾補一行頂格的 `sources/`」。→ b43 更正（b42 verify MEDIUM 0、LOW 3、6）：劃線的那一段不成立——`-v` 也列出
+最後符合的是否定規則的路徑（那一行的規則以 `!` 開頭），一個存檔子目錄也代表不了其他的；「兩個都列出是判讀保守」拿掉。改寫後的查法見
+`changelog/2026-10-20-b43-sources-ignore-700.md` 第 1 節。首句改成「.gitignore 的 sources 排除區塊之後有否定規則，不能確定它生效」——
 先前首句說「沒有生效的區塊」、處置說「區塊已在」，同一則訊息兩句相反。`import-zotero` 的 `--help` 補「區塊已在、只是被否定規則或 `sources/.gitignore` 擋住時
 doctor 不補，問題還在就照報」（INFO 20：先前說「處置之後跑 doctor 就補上區塊」，對這一格不成立）。
 
@@ -119,7 +124,7 @@ doctor 不補，問題還在就照報」（INFO 20：先前說「處置之後跑
 - `store-source` 的拒絕訊息（`assertSourcesExcluded`）補一句「規則只排除內容而 sources/ 裡另有 .gitignore 時它不改」；它自己以 `git check-ignore` 驗，判讀不受影響。
 - 量測文件第 87 列的 Python 腳本是同一個判斷的第二份：照同一個演算法改寫（NUL、三件事、位元集合的 wildmatch、`sources/.gitignore`），與第 3 節的鏡射逐字同一份邏輯。
   live registry 重量：`main 913 file utf8 block writable`（不變）。
-- 等鎖逾時：`lock(_:_:)` 只有一份；`unlink` 只剩持著 `LOCK_EX` 的寫入失敗那一處。repo 裡另外兩處 `flock`（`S2Throttle`、`FulltextAttemptLedger`）不刪檔，不在這一輪。
+- 等鎖逾時：`lock(_:_:)` 只有一份；`unlink` 只剩持著 `LOCK_EX` 的寫入失敗那一處（b43 起那一處也拿掉，見上面第 1 節的更正）。repo 裡另外兩處 `flock`（`S2Throttle`、`FulltextAttemptLedger`）不刪檔，不在這一輪。
 - 三個 CLI 說明（`file add`、`doctor`、`import-zotero`）補「規則只排除內容而 sources/ 裡另有 .gitignore」；`file add` 補「拿不到這一次新建的 .gitignore 的鎖——那時新建的空檔留著」。
   MCP 說明（`Server.swift`）沒有動。
 

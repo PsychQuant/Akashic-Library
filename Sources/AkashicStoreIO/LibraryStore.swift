@@ -112,9 +112,19 @@ public enum StoreIOError: Error, LocalizedError, Equatable, SanitizedErrorDescri
         case let .sourcesIgnoreNotWritten(problem, layoutWritten):
             // problem 的 reason／remedy 只含固定句、errno 數字與系統的固定英文說明（`SourcesIgnoreProblem`）；區塊是常數
             // layoutWritten：這一次有沒有建任何東西（既有的佈局本來就在時，false 只表示這一次什麼都沒建——b33 verify X5 第 6 列）
-            return "store 根目錄的 \(problem.headline)，這次不能替你加：\(problem.reason)。"   // display-safe-exempt: problem.headline、problem.reason 是固定句與 errno 說明（SourcesIgnoreProblem）
-                 + (problem.leavesGitignoreUntouched ? ".gitignore 沒有改寫" : ".gitignore 尾端可能留著這一次寫了一半的區塊")
-                 + (layoutWritten ? "；佈局已建好，只差這一段。" : "，這一次也沒有建立任何東西。")
+            // **逐行、處置自己一行**（#700 b42 verify MEDIUM 1）：CLI 頂層與 MCP 的錯誤出口逐行截 400（`displaySafeErrorMultiline`）。先前首句、
+            // 原因、「沒有改寫」與處置接成一行，`ruleNegatedLater` 那一行 406 字，處置被截掉，緊接在後的整段區塊讀起來像在邀人再貼一份。
+            // 第二行照 `problem.effect` 說這一次對 .gitignore 做了什麼（b42 verify LOW 5：新建了空檔的兩格先前也說「沒有改寫」）。
+            let did: String
+            switch problem.effect {
+            case .untouched: did = ".gitignore 沒有改寫"
+            case .createdEmpty: did = ".gitignore 是這一次新建的空檔（沒有寫入內容）"
+            case .partiallyWritten: did = ".gitignore 尾端可能留著這一次寫了一半的區塊"
+            }
+            let built = layoutWritten ? "；佈局已建好，只差這一段。"
+                : (problem.effect == .createdEmpty ? "，除此之外這一次沒有建立任何東西。" : "，這一次也沒有建立任何東西。")
+            return "store 根目錄的 \(problem.headline)，這次不能替你加：\(problem.reason)。\n"   // display-safe-exempt: problem.headline、problem.reason 是固定句與 errno 說明（SourcesIgnoreProblem）
+                 + did + built + "\n"   // display-safe-exempt: did、built 是本分支的固定句
                  + "\(problem.remedy)：\n" + LibraryStore.sourcesIgnoreBlock   // display-safe-exempt: problem.remedy 是固定句；LibraryStore.sourcesIgnoreBlock 是常數
         case let .legacyCopyLeftEarlierInThisOperation(id, file):
             return "同一個操作稍早已寫入這一筆（見 writtenWithLegacyCopy）：內容在 entities/\(id.uuidString).yaml，搬移後的 legacy "   // display-safe-exempt: id.uuidString：UUID 由型別保證

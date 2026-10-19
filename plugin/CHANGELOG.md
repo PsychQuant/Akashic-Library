@@ -8,7 +8,7 @@
 - **`akashic_doctor`／CLI `validate`**：「DOI 被 N 筆 work 共用」「標題與年份相同但 DOI 不同」「Zotero 來源被 N 筆 entry 宣稱」三則在組裡有重複的 citekey 時，「先修好那個重複」放在名單之前（MCP 每則截 300 個 scalar），重複的 citekey 至多列 5 個、組的名單至多 10 個（其餘「…共 N」）；沒有重複的組除了名單上限逐字不變。`citekey「…」重複`／`person key「…」重複` 的 error 多一句處置：手改 YAML 改掉其中一筆的 key（legacy 檔的檔名一起改），組裡有 legacy 拷貝時改說刪掉那一份並以檔名指認它的 entities/ 那份。`rename`／`rename-person`／`resolve-divergence` 的拒絕訊息帶這則 error，處置跟著到那裡。
 - `tools/list`：59,159 → 59,159 bytes（±0；MCP 說明沒有改；base `7ba4d695` 以真 binary 重量）。
 
-plugin 殼版號 0.13.5 → 0.13.6（這一段改了本檔；0.13.5 已隨 `7ba4d695` 推上 main 而對外）。本檔不在殼的內容摘要裡，所以 0.13.6 那一列的摘要與 0.13.5 相同；同一批若別的分支改了殼的內容，整合時重記。
+plugin 殼版號 0.13.5 → 0.13.6（這一段改了本檔；0.13.5 已隨 `7ba4d695` 推上 main 而對外）。本檔不在殼的內容摘要裡；同一批 #700 改了 `akashic-bootstrap` 的一個參考檔，所以 0.13.6 那一列記的是整合後的摘要（`e4f0d725…`），不是 0.13.5 的。
 
 ## #700 — b42 verify 修正（2026-10-20）：否定規則那一格的查法照 git 實測改寫、`file add` 的拒絕與 warning 逐行放得下 400 字、新建的 `.gitignore` 寫入失敗時不以路徑刪；plugin 殼 0.13.5 → 0.13.6
 

@@ -99,7 +99,7 @@ b41 那一段寫「plugin 版號沒有動（行為在 binary）」，旁邊兩�
 並寫明這一點。
 
 本輪要寫 `plugin/CHANGELOG.md`（MCP 面的訊息改了），照主 session 的規則把殼升到 0.13.6（`plugin/.claude-plugin/plugin.json`、`.githooks/plugin-shell-versions.txt`
-接一列）。因為本檔不在摘要裡，0.13.6 那一列的摘要與 0.13.5 相同（守衛印出的就是這一列）；同一批若別的分支改了殼的內容，整合時重記。
+接一列）。本檔不在摘要裡，所以這個分支單獨看時 0.13.6 的摘要與 0.13.5 相同；整合時同一批的 #700 改了殼的內容，0.13.6 那一列記的是整合後的摘要（`e4f0d725…`）。
 
 ## INFO 11：doc 與 changelog 把第 3 類寫成今天不擋
 

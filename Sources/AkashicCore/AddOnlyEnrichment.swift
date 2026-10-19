@@ -423,8 +423,6 @@ public enum AddOnlyEnrichment {
         for (i, e) in entries.enumerated() { positions[e.citekey, default: []].append(i) }
         // #628：citekey 在 store 裡不只一筆、或與另一筆共用 id——寫入以 citekey／id 定位，補值會落到猜的那一筆；#641 起也含檔案寫入時會被拒的
         let unlocatable = entries.unlocatableCitekeys
-        // 刪掉 load 標出的拷貝之後仍無法唯一定位的——歧義理由說不說「刪掉 legacy 那份，再跑」看這個（b40 verify MEDIUM 0、LOW 4）；只有 DOI 命中兩筆以上時才算
-        lazy var unlocatableAfterDeletingCopies = entries.unlocatableCitekeysAfterDeletingShadowedCopies
 
         var result = Result()
         for (i, p) in validated.enumerated() {
@@ -462,8 +460,7 @@ public enum AddOnlyEnrichment {
                 if hits.count >= 2 {
                     result.items.append(Item(proposalIndex: i, citekey: nil, category: .ambiguous,
                                              outcome: Outcome(), additions: [], alreadyPresent: [],
-                                             reason: ambiguousDOIReason(target, hits: hits, unlocatable: unlocatable,
-                                                                        unlocatableAfterDeletingCopies: unlocatableAfterDeletingCopies),
+                                             reason: ambiguousDOIReason(target, hits: hits, entries: working, unlocatable: unlocatable),
                                              matches: matches, sourceDigest: digest))
                     continue
                 }
@@ -501,23 +498,31 @@ public enum AddOnlyEnrichment {
     }
 
     /// DOI 命中兩筆以上的理由（零寫入）。定位仍看完整的 load（寫入面）；只有理由分開說（#709）。`hits` 是**完整的**命中——不經 citekey 去重
-    /// （`plan` 的 `working` 是陣列），所以同 citekey 的 legacy 拷貝與 entities/ 那份都在裡面（b36 verify MEDIUM 2、5）。
+    /// （`plan` 的 `working` 是陣列），所以同 citekey 的 legacy 拷貝與 entities/ 那份都在裡面（b36 verify MEDIUM 2、5）。`entries` 是同一份完整的 load
+    /// （`plan` 的 `working`），用來找命中以外、與命中同 id 的拷貝。
     ///
     /// **哪一筆是 legacy 拷貝，只問 load 的標記**（`fileSituation.shadowedLegacyFile`，判準只有一份，在
     /// `LibraryStore.markLegacyCopiesShadowedByEntities`）——不以 id 相等自己推。#709 第四次 verify：先前以 `Dictionary(grouping:by: \.id)`
     /// 當代理，兩個 legacy 檔共用 UUID、entities/ 沒有那個 id 時（手動複製一個檔忘了換 id——validate 判成兩筆不同記錄的 error）照樣說
-    /// 「是同一筆記錄的 entities/ 與 legacy 拷貝，不是兩篇作品：刪掉 legacy 那份」，可能把人導去刪掉一篇真的作品。四種情形分開說，**先修好的在前**：
+    /// 「是同一筆記錄的 entities/ 與 legacy 拷貝，不是兩篇作品：刪掉 legacy 那份」，可能把人導去刪掉一篇真的作品。
+    ///
+    /// **叫人刪的拷貝與判準算在同一個集合上**（b42 verify MEDIUM 0、LOW 4）：要刪的是命中裡的拷貝，**加上** store 裡與命中任一筆同 id、卻不帶這個
+    /// DOI 的拷貝——後者 validate 的「UUID 被 N 筆 entry 共用」那一則同樣列出，不刪它，孿生照舊與它共用 id。這個集合交給
+    /// `unlocatableCitekeys(afterDeletingCopiesAt:)` 算「刪掉之後還能不能唯一定位」，明細逐份列出同一個集合。先前判準在**全部**拷貝都刪掉的集合上算、
+    /// 處置只叫人刪命中裡的那幾份：E:x:A（帶 DOI）、legacy x:A（帶）、legacy y:A（不帶）時理由以「，再跑」收尾，照做之後 y 仍與 x 共用 id A，
+    /// 重跑被「無法唯一定位……先修好」擋下。同 citekey 而 id 不同的拷貝（另一筆記錄改名留下的）不在集合裡——它不是這幾筆記錄的拷貝，
+    /// 它讓 citekey 重複，那一筆照第 1 類說先修好；validate 的「citekey 重複」那則會指出它是 legacy 拷貝。
+    ///
+    /// 四種情形分開說，**先修好的在前**：
     ///
     /// 1. 命中裡無法唯一定位的 citekey（`unlocatable`＝`plan` 的 `unlocatableCitekeys`，與只命中一筆時的那一支同一個集合、同一句
     ///    `UnlocatableReason.work`）：先修好（#628／#641）。b38 verify MEDIUM（logic、regression、devil's advocate）：同 citekey 而 id 不同、
     ///    兩筆都帶這個 DOI 的重複記錄（validate 的 error「citekey 重複」，不是 load 認得的拷貝）在 b37 改成看筆數之後落進 #459 的孿生指路，
     ///    而 `record-divergence` 對同一個 citekey 的兩個候選拒絕——訊息叫人做的事，程式隨即拒絕。
     ///
-    ///    拷貝那一對與共用 id 的那一組另有自己的一句，不在這裡重說，但各有一個例外：
-    ///    - 拷貝：只限**刪掉 load 標出的拷貝之後就能唯一定位**的 citekey（`unlocatableAfterDeletingCopies`＝
-    ///      `unlocatableCitekeysAfterDeletingShadowedCopies`，在完整的 load 上算）。b40 verify MEDIUM 0（Codex）、LOW 4（logic，真 binary 兩種形狀）：
-    ///      先前只看命中——同一個 citekey 另有一筆**不帶這個 DOI**、id 不同的記錄時，拷貝那一句照樣說「刪掉 legacy 那份……，再跑」，照做之後
-    ///      citekey 仍重複，重跑被「無法唯一定位」擋下。命中的重複（b38 的 `duplicatedInRecords`）是這個判準的特例。
+    ///    拷貝那一句與共用 id 的那一組另有自己的一句，不在這裡重說，但各有一個例外：
+    ///    - 拷貝：只限**刪掉上面那個集合之後就能唯一定位**的 citekey。b40 verify MEDIUM 0（Codex）、LOW 4（logic）：同一個 citekey 另有一筆
+    ///      **不帶這個 DOI**、id 不同的記錄時，刪掉拷貝之後 citekey 仍重複。命中的重複（b38 的 `duplicatedInRecords`）是這個判準的特例。
     ///    - 共用 id：除非那個 citekey 在命中裡另有一筆 id 不同的記錄（兩個 legacy 檔共用 id、其中一個的 citekey 又與 entities/ 的另一筆相同）。
     /// 2. 同 id 而沒有被標成拷貝的：UUID 重複是 error、指向 validate，**不**下「是不是同一篇」的結論。
     /// 3. 拿掉拷貝之後仍有兩個以上的 citekey：不判定哪一筆才對（#459）——拷貝加真孿生並存時，刪掉拷貝之後仍歧義，指路不能丟、也不說「再跑」。
@@ -528,27 +533,42 @@ public enum AddOnlyEnrichment {
     ///    - citekey 重複與 UUID 重複是跨記錄 **error**：`resolve-divergence` 先跑 `assertNoCrossRecordErrors`，修好之前合併做不了。
     ///    - 第 3 類（只有一份、load 判定寫入時會被拒的 legacy 殘留，例如不受 git 追蹤的單檔）在 validate 只是 **warning**、不經那道檢查；擋它的是
     ///      寫入當下的 #631 前置——load 用的就是同一組判斷，那筆記錄的檔寫不進去，以它為對象的寫入（合併改寫它、enrich 補它）都會被拒。
-    ///    所以先修好的排在前面，與第 3 類是 error 還是 warning 無關。第 3 類該不該讓 bootstrap 的 `--apply` 也擋，是 #709 `### Blocking` 裡待使用者
-    ///    裁決的一項；這裡只改理由的寫法，不改順序。
-    /// 4. 被標成拷貝的：帶「確認 entities/ 那份是新的之後」（#705 的同一個前提——兩份可能已經分岔）再刪 legacy 那份；只有這一類時才說「再跑」
-    ///    ——第 1 類的例外保證這時刪掉拷貝之後，命中裡留下的那幾筆都能唯一定位。
+    ///    所以先修好的排在前面，與第 3 類是 error 還是 warning 無關。bootstrap 的 `--apply` 今天對第 3 類照樣拒絕（`LibraryLoad.planBlockers`）；
+    ///    維持這樣、還是只在計數真的加倍時才拒，是 #709 `### Blocking` 裡待使用者裁決的一項（b42 verify INFO 11）。這裡只改理由的寫法，不改順序。
+    /// 4. 拷貝（命中裡的，加上同 id 而不帶這個 DOI 的）：帶「確認 entities/ 那份是新的之後」（#705 的同一個前提——兩份可能已經分岔）再刪 legacy 那份。
+    ///    只有這一類時，前三類的判準保證刪掉那個集合之後命中的記錄恰好剩一筆、而且能唯一定位：那時說「再跑」。命中**全是**拷貝時（entities/ 那份
+    ///    都不帶這個 DOI），刪掉之後這個 DOI 對不到任何記錄——說出來，不說「再跑」（b42 verify INFO 13：先前照樣說「再跑」，重跑得 notFound）。
     ///
     /// **結論與處置在前、逐份明細在後**（b36 verify MEDIUM 0，LOW 9、13、15）：唯一出口 `AkashicService.enrich` 對整句 `displaySafe(max: 512)`，
     /// 而它在逃脫支數的是**輸入 Unicode scalar**。前段只含筆數、常數字面與 DOI；DOI 長於 `reasonEchoScalarLimit` 個 scalar 時截短（`echo`）——b38 verify LOW 7、13：
-    /// 先前以 `Character`（字形群）計，一個字形群可以帶任意多個組合符號，600 個 U+0301 的後綴讓結論與處置整段被截掉。四類全在時前段約 440 個 scalar（筆數都到四位數時約 460），
-    /// 被截的只會是明細（`ShadowedPairReadersTests` 走 service 出口釘住）。
-    static func ambiguousDOIReason(_ target: DOI, hits: [Entry], unlocatable: Set<String>,
-                                   unlocatableAfterDeletingCopies: Set<String>) -> String {
+    /// 先前以 `Character`（字形群）計，一個字形群可以帶任意多個組合符號，600 個 U+0301 的後綴讓結論與處置整段被截掉。四類全在、拷貝那一句帶同 id 的
+    /// 另外幾份時前段 465 個 scalar（筆數都到四位數時 489；不帶時 439／457），被截的只會是明細（`ShadowedPairReadersTests` 走 service 出口釘住）。
+    ///
+    /// 明細裡的 entities/ 那份一律以檔名指認（`entities/<id>.yaml`，b42 verify LOW 10）：先前孿生在命中裡時印它的 citekey，而 citekey 重複的 store
+    /// （這個函式要處理的情形之一）裡同一個 citekey 有兩筆，指不出是哪一個檔。citekey 與拷貝不同（改名留下的）時另外寫出來。
+    static func ambiguousDOIReason(_ target: DOI, hits: [Entry], entries: [Entry], unlocatable: Set<String>) -> String {
         let doi = echo(target.normalized)
-        let copies = hits.filter { $0.fileSituation.shadowedLegacyFile != nil }
-            .sorted { ($0.citekey, $0.fileSituation.shadowedLegacyFile ?? "") < ($1.citekey, $1.fileSituation.shadowedLegacyFile ?? "") }
+        let byFile: (Entry, Entry) -> Bool = {
+            ($0.citekey, $0.fileSituation.shadowedLegacyFile ?? "") < ($1.citekey, $1.fileSituation.shadowedLegacyFile ?? "")
+        }
+        let copies = hits.filter { $0.fileSituation.shadowedLegacyFile != nil }.sorted(by: byFile)
         let records = hits.filter { $0.fileSituation.shadowedLegacyFile == nil }
+        // 要叫人刪的拷貝：命中裡的，加上 store 裡與命中任一筆同 id 而不帶這個 DOI 的（見 doc 的「同一個集合」）
+        let hitIDs = Set(hits.map(\.id))
+        let hitCopyFiles = Set(copies.compactMap(\.fileSituation.shadowedLegacyFile))
+        let sameIDCopies = entries.filter { e in
+            guard let file = e.fileSituation.shadowedLegacyFile else { return false }
+            return hitIDs.contains(e.id) && !hitCopyFiles.contains(file)
+        }.sorted(by: byFile)
+        let allCopies = copies + sameIDCopies
+        let toDelete = hitCopyFiles.union(sameIDCopies.compactMap(\.fileSituation.shadowedLegacyFile))
+        let unlocatableAfterDeletingCopies = entries.unlocatableCitekeys(afterDeletingCopiesAt: toDelete)
         let sharedID = Dictionary(grouping: records, by: \.id).values.filter { $0.count > 1 }
             .map { $0.map(\.citekey).sorted() }.sorted { $0[0] < $1[0] }
         let recordsByCitekey = Dictionary(grouping: records, by: \.citekey)
         let duplicatedInRecords = Set(recordsByCitekey.filter { $0.value.count > 1 }.keys)
-        let copyIDs = Set(copies.map(\.id))
-        // 拷貝那一句說明得了的：拷貝與它的孿生（同 id）的 citekey——只限刪掉拷貝之後就能唯一定位的（見 doc 第 1 點的例外）
+        let copyIDs = Set(allCopies.map(\.id))
+        // 拷貝那一句說明得了的：拷貝與它的孿生（同 id）的 citekey——只限刪掉那個集合之後就能唯一定位的（見 doc 第 1 點的例外）
         let explainedByCopies = Set(copies.map(\.citekey)).union(records.filter { copyIDs.contains($0.id) }.map(\.citekey))
             .subtracting(unlocatableAfterDeletingCopies)
         // 共用 id 那一句說明得了的——除非那個 citekey 在命中裡另有一筆 id 不同的記錄（那是另一件事，要另外修）
@@ -566,9 +586,15 @@ public enum AddOnlyEnrichment {
         if twins {
             verdicts.append((copies.isEmpty ? "" : "拿掉 legacy 拷貝之後仍有 \(records.count) 筆記錄帶這個 DOI——") + "不判定哪一筆才對（#459）")   // display-safe-exempt: Int
         }
-        if !copies.isEmpty {
-            verdicts.append("命中裡有 \(copies.count) 份是同一筆記錄的 legacy 拷貝：確認 entities/ 那份是新的之後刪掉 legacy 那份（akashic validate 列出）"   // display-safe-exempt: Int
-                + (verdicts.isEmpty ? "，再跑" : ""))
+        if !allCopies.isEmpty {
+            let lead = copies.isEmpty
+                ? "命中的記錄另有 \(sameIDCopies.count) 份同 id 的 legacy 拷貝（不帶這個 DOI）"   // display-safe-exempt: Int
+                : "命中裡有 \(copies.count) 份是同一筆記錄的 legacy 拷貝"   // display-safe-exempt: Int
+                    + (sameIDCopies.isEmpty ? "" : "、同 id 另有 \(sameIDCopies.count) 份不帶這個 DOI")   // display-safe-exempt: Int
+            let scope = copies.isEmpty || sameIDCopies.isEmpty ? "（akashic validate 列出）" : "（共 \(allCopies.count) 份，akashic validate 列出）"   // display-safe-exempt: Int
+            // 只有這一類時才收尾：命中的記錄剩一筆→再跑；命中全是拷貝→刪掉之後這個 DOI 對不到任何記錄（見 doc 第 4 點）
+            let tail = !verdicts.isEmpty ? "" : records.isEmpty ? "；entities/ 那份都不帶這個 DOI，刪掉之後它對不到任何記錄" : "，再跑"
+            verdicts.append(lead + "：確認 entities/ 那份是新的之後刪掉 legacy 那份" + scope + tail)
         }
         var details: [String] = []
         if !unlocatableHits.isEmpty {
@@ -576,13 +602,18 @@ public enum AddOnlyEnrichment {
             details.append("無法唯一定位：" + unlocatableHits.prefix(5).joined(separator: "、")   // display-safe-exempt: unlocatableHits 是原始值，出口端逃一次
                 + (unlocatableHits.count > 5 ? "…另 \(unlocatableHits.count - 5) 個" : ""))   // display-safe-exempt: Int
         }
-        if !copies.isEmpty {
-            details.append("拷貝：" + copies.prefix(5).map { copy -> String in
-                let twin = records.filter { $0.id == copy.id }.map(\.citekey).sorted().first
-                    .map { "entities/ 那份是 \($0)" } ?? "entities/ 那份是 entities/\(copy.id.uuidString).yaml，它不帶這個 DOI"
-                // citekey 與 legacy 檔名是原始值——同 `matches`，唯一出口 AkashicService.enrich 對整句 displaySafe(max: 512)，在這裡逃會二次逃脫
-                return "\(copy.citekey)（legacy 檔 \(copy.fileSituation.shadowedLegacyFile ?? "")；\(twin)）"   // display-safe-exempt: copy 與 twin 是原始值，出口端逃一次
-            }.joined(separator: "、") + (copies.count > 5 ? "…另 \(copies.count - 5) 份" : ""))   // display-safe-exempt: Int
+        if !allCopies.isEmpty {
+            let twinCitekey = Dictionary(entries.filter { $0.fileSituation.shadowedLegacyFile == nil }.map { ($0.id, $0.citekey) },
+                                         uniquingKeysWith: { first, _ in first })
+            let recordIDs = Set(records.map(\.id))
+            details.append("拷貝：" + allCopies.prefix(5).map { copy -> String in
+                let file = copy.fileSituation.shadowedLegacyFile ?? ""
+                // entities/ 那份以檔名指認（citekey 可能重複）；citekey 與拷貝不同（改名留下的）時另外寫出來
+                let renamed = twinCitekey[copy.id].flatMap { $0 == copy.citekey ? nil : "、citekey \($0)" } ?? ""
+                let note = !hitCopyFiles.contains(file) ? "；這份不帶這個 DOI" : recordIDs.contains(copy.id) ? "" : "，它不帶這個 DOI"
+                // citekey 與檔名是原始值——同 `matches`，唯一出口 AkashicService.enrich 對整句 displaySafe(max: 512)，在這裡逃會二次逃脫
+                return "\(copy.citekey)（legacy 檔 \(file)；entities/ 那份是 entities/\(copy.id.uuidString).yaml\(renamed)\(note)）"   // display-safe-exempt: copy、file 與 renamed 是原始值，出口端逃一次
+            }.joined(separator: "、") + (allCopies.count > 5 ? "…另 \(allCopies.count - 5) 份" : ""))   // display-safe-exempt: Int
         }
         if !sharedID.isEmpty {
             details.append("共用 id：" + sharedID.prefix(5).map { $0.joined(separator: "、") }.joined(separator: "／")   // 「；」留給段落之間

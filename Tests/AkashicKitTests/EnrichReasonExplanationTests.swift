@@ -94,6 +94,9 @@ final class EnrichReasonExplanationTests: XCTestCase {
                           "（\(shape)）\(reason)")
             XCTAssertTrue(reason.contains("無法唯一定位：x2020same"), "（\(shape)）\(reason)")
             XCTAssertTrue(reason.contains("命中裡有 1 份是同一筆記錄的 legacy 拷貝：確認 entities/ 那份是新的之後刪掉 legacy 那份"), "（\(shape)）拷貝照樣說：\(reason)")
+            // b42 verify LOW 10：entities/ 裡有兩筆 x2020same，那份以檔名指認、不以 citekey
+            XCTAssertTrue(reason.contains("x2020same（legacy 檔 entries/x2020same.yaml；entities/ 那份是 entities/\(id.uuidString).yaml"),
+                          "（\(shape)）\(reason)")
             XCTAssertFalse(reason.contains("再跑"), "（\(shape)）刪掉拷貝之後 citekey 仍重複，不說「再跑」：\(reason)")
             XCTAssertFalse(reason.contains("#459"), "（\(shape)）只有一個 citekey，不是孿生：\(reason)")
 
@@ -116,7 +119,7 @@ final class EnrichReasonExplanationTests: XCTestCase {
         XCTAssertEqual(load.shadowedLegacyCopies.count, 1, "前提：一對拷貝")
         XCTAssertNotNil(load.entries.first { $0.fileSituation.shadowedLegacyFile == nil }?.fileSituation.unwritableReason,
                         "前提：孿生自己也帶第 3 類的理由（就是那份拷貝）")
-        XCTAssertEqual(load.entries.unlocatableCitekeysAfterDeletingShadowedCopies, [], "刪掉拷貝之後能唯一定位")
+        XCTAssertEqual(load.entries.unlocatableCitekeys(afterDeletingCopiesAt: ["entries/x2020same.yaml"]), [], "刪掉拷貝之後能唯一定位")
 
         let reason = try ambiguousReason(doi: doi, matches: ["x2020same"])
         XCTAssertTrue(reason.hasPrefix("DOI「\(doi)」命中 2 筆（1 個 citekey），零寫入：命中裡有 1 份是同一筆記錄的 legacy 拷貝"), reason)
@@ -126,6 +129,110 @@ final class EnrichReasonExplanationTests: XCTestCase {
         // 照做之後重跑：寫得進去（added）
         try FileManager.default.removeItem(at: legacyURL("x2020same"))
         XCTAssertEqual(try item(doi: doi).category, .added)
+    }
+
+    // MARK: - 1b. 叫人刪的拷貝與判準算在同一個集合上（b42 verify MEDIUM 0、LOW 4、INFO 13）
+
+    /// 讀理由裡點名的 legacy 檔（「legacy 檔 entries/….yaml」），逐一刪掉——照著理由做的那一步。
+    private func deleteTheLegacyFilesNamed(in reason: String) throws -> [String] {
+        let files = reason.components(separatedBy: "legacy 檔 ").dropFirst().compactMap { $0.components(separatedBy: "；").first }
+        for f in files { try FileManager.default.removeItem(at: root.appendingPathComponent(f)) }
+        return files
+    }
+
+    /// 同一個 id 有兩份 legacy 拷貝，一份帶 DOI（在命中裡）、一份不帶（不在命中裡）：E:x:A（帶）、legacy x:A（帶）、legacy y:A（不帶）。先前判準在
+    /// **全部**拷貝都刪掉的集合上算、處置只列命中裡那一份，理由以「，再跑」收尾；照做之後 y 仍與 x 共用 id A，重跑被「無法唯一定位……先修好」擋下
+    /// （devils-advocate、logic 以真 binary 重現）。現在兩份都點名、「共 2 份」，照著刪掉理由列出的檔之後重跑寫得進去。兩種形狀：孿生沒改名（x）、
+    /// 孿生改名了（entities/ 那份是 z，legacy x 與 y 都是它的舊 citekey）。
+    func testTheCopyInstructionNamesEverySameIDCopySoTheRerunHolds() throws {
+        let doi = "10.1234/same"
+        for (shape, twinKey, matches) in [("沒改名", "x2020new", ["x2020new"]), ("改名", "z2021renamed", ["x2020new", "z2021renamed"])] {
+            try reset()
+            let id = UUID()
+            try writeEntities(work(twinKey, id: id, doi: doi))
+            try writeLegacy(work("x2020new", id: id, doi: doi))
+            try writeLegacy(work("y2019old", id: id, doi: nil))
+            XCTAssertEqual(Set(try store.load().shadowedLegacyCopies.map(\.legacyFile)), ["entries/x2020new.yaml", "entries/y2019old.yaml"],
+                           "前提（\(shape)）：兩份都是 load 標出的拷貝")
+
+            let reason = try ambiguousReason(doi: doi, matches: matches)
+            let tally = matches.count == 1 ? "命中 2 筆（1 個 citekey）" : "命中 2 筆"
+            XCTAssertTrue(reason.hasPrefix("DOI「\(doi)」\(tally)，零寫入：命中裡有 1 份是同一筆記錄的 legacy 拷貝、同 id 另有 1 份不帶這個 DOI："
+                                           + "確認 entities/ 那份是新的之後刪掉 legacy 那份（共 2 份，akashic validate 列出），再跑。"), "（\(shape)）\(reason)")
+            // y 的 citekey 與 entities/ 那份不同（舊 citekey）：citekey 另外寫出來；x 只在孿生改名時才寫
+            XCTAssertTrue(reason.contains("y2019old（legacy 檔 entries/y2019old.yaml；entities/ 那份是 entities/\(id.uuidString).yaml、citekey \(twinKey)；這份不帶這個 DOI）"),
+                          "（\(shape)）不帶 DOI 的那份也點名：\(reason)")
+            let renamed = twinKey == "x2020new" ? "" : "、citekey \(twinKey)"
+            XCTAssertTrue(reason.contains("x2020new（legacy 檔 entries/x2020new.yaml；entities/ 那份是 entities/\(id.uuidString).yaml\(renamed)）"),
+                          "（\(shape)）\(reason)")
+
+            // 照做：刪掉理由列出的每一份，重跑——寫得進去
+            XCTAssertEqual(Set(try deleteTheLegacyFilesNamed(in: reason)), ["entries/x2020new.yaml", "entries/y2019old.yaml"], "（\(shape)）")
+            XCTAssertEqual(try item(doi: doi).category, .added, "（\(shape)）「再跑」要成立")
+        }
+    }
+
+    /// 只刪命中裡那一份（先前理由只列這一份）就重跑：y 仍與孿生共用 id——判準要與處置算在同一個集合上，這正是不能只列命中那一份的原因。
+    func testDeletingOnlyTheHitCopyLeavesTheTwinUnlocatable() throws {
+        let doi = "10.1234/same"
+        let id = UUID()
+        try writeEntities(work("x2020new", id: id, doi: doi))
+        try writeLegacy(work("x2020new", id: id, doi: doi))
+        try writeLegacy(work("y2019old", id: id, doi: nil))
+        let load = try store.load()
+        XCTAssertEqual(load.entries.unlocatableCitekeys(afterDeletingCopiesAt: ["entries/x2020new.yaml"]), ["x2020new", "y2019old"],
+                       "只刪命中那一份：x 與 y 仍共用 id")
+        XCTAssertEqual(load.entries.unlocatableCitekeys(afterDeletingCopiesAt: ["entries/x2020new.yaml", "entries/y2019old.yaml"]), [],
+                       "兩份都刪：能唯一定位")
+        try FileManager.default.removeItem(at: legacyURL("x2020new"))
+        let rerun = try item(doi: doi)
+        XCTAssertEqual(rerun.category, .ambiguous, "\(rerun)")
+        XCTAssertTrue((rerun.reason ?? "").contains("無法唯一定位"), "\(rerun)")
+    }
+
+    /// 對照組：store 裡另有一對與命中無關的拷貝（id、citekey 都不同）——不點名、不算進「共 N 份」，照舊以「再跑」收尾。
+    func testAnUnrelatedCopyElsewhereIsNotNamed() throws {
+        let doi = "10.1234/same"
+        let id = UUID(), other = UUID()
+        try writeEntities(work("x2020new", id: id, doi: doi))
+        try writeLegacy(work("x2020new", id: id, doi: doi))
+        try writeEntities(work("w2018else", id: other, doi: nil))
+        try writeLegacy(work("w2018else", id: other, doi: nil))
+        let reason = try ambiguousReason(doi: doi, matches: ["x2020new"])
+        XCTAssertTrue(reason.contains("命中裡有 1 份是同一筆記錄的 legacy 拷貝：確認 entities/ 那份是新的之後刪掉 legacy 那份（akashic validate 列出），再跑"), reason)
+        XCTAssertFalse(reason.contains("w2018else") || reason.contains("同 id 另有") || reason.contains("共 2 份"), reason)
+    }
+
+    /// 命中**全是**拷貝、entities/ 那份都不帶這個 DOI（E:x:A 不帶、legacy x:A 帶、E:y:B 不帶、legacy y:B 帶）：刪掉之後這個 DOI 對不到任何記錄。
+    /// 先前照樣說「再跑」，重跑得 notFound（INFO 13）；現在說出來、不說「再跑」。
+    func testWhenEveryHitIsACopyTheReasonSaysTheDOIWillMatchNothing() throws {
+        let doi = "10.1234/copies"
+        let a = UUID(), b = UUID()
+        try writeEntities(work("x2020only", id: a, doi: nil))
+        try writeLegacy(work("x2020only", id: a, doi: doi))
+        try writeEntities(work("y2020only", id: b, doi: nil))
+        try writeLegacy(work("y2020only", id: b, doi: doi))
+        let reason = try ambiguousReason(doi: doi, matches: ["x2020only", "y2020only"])
+        XCTAssertTrue(reason.contains("命中裡有 2 份是同一筆記錄的 legacy 拷貝：確認 entities/ 那份是新的之後刪掉 legacy 那份（akashic validate 列出）"
+                                      + "；entities/ 那份都不帶這個 DOI，刪掉之後它對不到任何記錄。"), reason)
+        XCTAssertFalse(reason.contains("再跑"), reason)
+        _ = try deleteTheLegacyFilesNamed(in: reason)
+        XCTAssertEqual(try item(doi: doi).category, .notFound, "照做之後重跑：這個 DOI 對不到任何記錄")
+    }
+
+    /// 命中裡沒有拷貝、但命中的記錄另有不帶這個 DOI 的同 id 拷貝（改名留下的），加一筆真孿生：先前只說「無法唯一定位，先修好」，要去 validate 才知道
+    /// 那是一份拷貝；現在拷貝那一句點名它，#459 照舊、不說「再跑」。
+    func testASameIDCopyOfAHitRecordIsNamedEvenWhenNoHitIsACopy() throws {
+        let doi = "10.1234/twins"
+        let id = UUID()
+        try writeEntities(work("x2020new", id: id, doi: doi))
+        try writeLegacy(work("v2019old", id: id, doi: nil))
+        try writeEntities(work("w2020twin", doi: doi))
+        let reason = try ambiguousReason(doi: doi, matches: ["w2020twin", "x2020new"])
+        XCTAssertTrue(reason.contains("不判定哪一筆才對（#459）；命中的記錄另有 1 份同 id 的 legacy 拷貝（不帶這個 DOI）："
+                                      + "確認 entities/ 那份是新的之後刪掉 legacy 那份（akashic validate 列出）"), reason)
+        XCTAssertTrue(reason.contains("v2019old（legacy 檔 entries/v2019old.yaml；entities/ 那份是 entities/\(id.uuidString).yaml、citekey x2020new；這份不帶這個 DOI）"), reason)
+        XCTAssertFalse(reason.contains("無法唯一定位") || reason.contains("再跑"), "x 的無法唯一定位由拷貝那一句說明：\(reason)")
     }
 
     // MARK: - 2. 先前沒有測試的分支（LOW 3）

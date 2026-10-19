@@ -167,6 +167,8 @@ per-id 顯式契約。兩面的失敗語意相同且刻意分兩類：輸入語�
 
 **#709 b40 verify（2026-10-19），各列裁決不變、兩面契約有三處改、CLI-only 一處改**。(1) `akashic_enrich`／`enrich` 的 DOI 歧義理由：拷貝那一句說得了的 citekey 只限**刪掉 load 標出的拷貝之後就能唯一定位**的（`Collection<Entry>.unlocatableCitekeysAfterDeletingShadowedCopies`，在完整的 load 上算）——先前只看命中，同一個 citekey 另有一筆不帶這個 DOI、id 不同的記錄時照樣說「刪掉 legacy 那份……，再跑」，照做之後重跑被「無法唯一定位」擋下；現在說先修好、不說「再跑」。(2) 同一份計畫裡回顯未信任字串的句子一律結論在前、回顯以 Unicode scalar 截到 100（`AddOnlyEnrichment.echo`）：`notFound` 的「citekey 不在 store 裡」「不是合法的 DOI 形狀」「沒有記錄帶 DOI」、只命中一筆而無法唯一定位、`refused`／`partial`、空值的附註、兩個欄位名的整批拒絕——先前前兩句把原字串放在結論之前、不截，出口截掉的是結論。鍵、類別與 `matches` 不變。(3) `validate`／`akashic_doctor` 的三則跨記錄 warning（DOI 被 N 筆 work 共用、標題與年份相同而 DOI 不同、Zotero 來源被多筆 entry 宣稱）在組裡有重複的 citekey 時不指 `record-divergence`（它拒收同一個 citekey 的兩個候選），說先修好那個重複；組裡還有別的 citekey 時，修好之後其餘的才是編目判斷。兩面讀同一個 `crossRecordIssues`。(4) CLI-only：三個 bootstrap 的乾跑在附註列不完（每類至多 20）時，最後一行說出沒列出的筆數、指向 `akashic validate`（`BootstrapPlanBlockers.dryRunApplyRefused` 改成依計畫算）。`tools/list` 不變。
 
+**#709 b42 verify（2026-10-20），各列裁決不變、兩面契約有兩處改**。(1) `akashic_enrich`／`enrich` 的 DOI 歧義理由：叫人刪的拷貝與「再跑」的判準算在同一個集合上——命中裡的拷貝，加上 store 裡與命中任一筆同 id 而不帶這個 DOI 的拷貝；判準是 `Collection<Entry>.unlocatableCitekeys(afterDeletingCopiesAt:)`，只拿掉那幾份再算（上一段 (1) 的 `unlocatableCitekeysAfterDeletingShadowedCopies` 拿掉全部拷貝，而理由只叫人刪命中那幾份——同一個 id 另有一份不帶這個 DOI 的拷貝時，照做之後重跑仍被擋；它已刪除）。拷貝那一句說出另外幾份、明細逐份列出同一個集合、entities/ 那份以檔名指認；命中全是拷貝時說刪掉之後這個 DOI 對不到任何記錄、不說「再跑」。(2) `validate`／`akashic_doctor` 的三則跨記錄 warning 在組裡有重複的 citekey 時結論在前（MCP 每則截 300 個 scalar），重複的 citekey 至多列 5 個、組的名單至多 10 個；`citekey「…」重複`／`person key「…」重複` 的 error 帶處置（手改 YAML 改掉其中一筆的 key；組裡有 legacy 拷貝時說刪掉那一份）。兩面同一個 core plan 與同一份 `crossRecordIssues`；鍵、類別、`matches` 不變，`tools/list` 不變（59,159 bytes）。
+
 ## CLI-only 裁決表（表頭與引言留在規則檔）
 
 | CLI 能力 | 裁決 | 理由 |

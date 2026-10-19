@@ -86,22 +86,28 @@ extension Collection where Element == Entry {   // 多次遍歷——限定 Coll
         return out
     }
 
-    /// 刪掉 load 標出的 legacy 拷貝（`fileSituation.shadowedLegacyFile`）**之後**仍無法唯一定位的 citekey——「刪掉 legacy 那份，再跑」這句話成立與否的判準
-    /// （#709 b40 verify MEDIUM 0、LOW 4）。定義仍是 `unlocatableCitekeys`，只是算在拿掉拷貝之後的集合上，多一步：拷貝的孿生（`entities/` 那份）
-    /// 自己的第 3 類理由若正是那份拷貝造成的，刪掉拷貝之後它就不在了，不算。
+    /// 刪掉 `files` 列出的那幾份 legacy 拷貝（load 標出的 `fileSituation.shadowedLegacyFile`，相對 store root）**之後**仍無法唯一定位的 citekey——
+    /// 「刪掉這幾份 legacy 拷貝，再跑」這句話成立與否的判準（#709）。定義仍是 `unlocatableCitekeys`，只是算在拿掉那幾份之後的集合上，多一步：
+    /// 拷貝的孿生（`entities/` 那份）自己的第 3 類理由若正是被刪的那份拷貝造成的，刪掉之後它就不在了，不算。
+    ///
+    /// **只拿掉 `files` 列出的**（b42 verify MEDIUM 0、LOW 4）：先前這裡拿掉 load 裡的**全部**拷貝，而 enrich 的理由只叫人刪命中裡的那幾份——
+    /// 同一個 id 另有一份不帶這個 DOI 的拷貝時，判準說刪掉之後能定位、照做之後它仍與孿生共用 id，重跑被「無法唯一定位」擋下。判準與處置要算在
+    /// 同一個集合上：呼叫端把它要叫人刪的那幾份傳進來。`files` 裡不是拷貝的路徑沒有作用。
     ///
     /// 「正是那份拷貝造成的」怎麼判：load 對 `entities/` 讀進來的一筆，只讀 `entries/<它的 citekey>.yaml` 這一個 legacy 檔來判第 3 類
     /// （`LibraryStore.annotateFileSituations`）；那個檔解得出同一個 id 時，load 也把它讀進來、標成拷貝（`markLegacyCopiesShadowedByEntities`——
-    /// legacy 檔名與 citekey 不符的會被隔離，所以那份拷貝的 citekey 就是孿生的 citekey）。所以孿生的理由來自拷貝，當且僅當有一份拷貝與它
+    /// legacy 檔名與 citekey 不符的會被隔離，所以那份拷貝的 citekey 就是孿生的 citekey）。所以孿生的理由來自被刪的拷貝，當且僅當被刪的有一份與它
     /// **同 id、同 citekey**。改名留下的拷貝 citekey 不同、不擋孿生自己的檔（孿生的無法唯一定位來自共用 id，拿掉拷貝就沒了）；同一個位置上被隔離的
     /// legacy 檔不是拷貝，它造成的理由刪掉拷貝之後照樣在，照算。
     ///
-    /// 沒有拷貝時與 `unlocatableCitekeys` 相同。
-    public var unlocatableCitekeysAfterDeletingShadowedCopies: Set<String> {
-        let copies = Set(compactMap { e in e.fileSituation.shadowedLegacyFile.map { _ in "\(e.id.uuidString)\u{0}\(e.citekey)" } })   // display-safe-exempt: 集合鍵，不輸出
-        guard !copies.isEmpty else { return unlocatableCitekeys }
-        let kept = filter { $0.fileSituation.shadowedLegacyFile == nil }.map { e -> Entry in
-            guard e.fileSituation.unwritableReason != nil, copies.contains("\(e.id.uuidString)\u{0}\(e.citekey)") else { return e }   // display-safe-exempt: 集合鍵，不輸出
+    /// `files` 是空的、或對不到任何拷貝時與 `unlocatableCitekeys` 相同。
+    public func unlocatableCitekeys(afterDeletingCopiesAt files: Set<String>) -> Set<String> {
+        func deleted(_ e: Entry) -> Bool { e.fileSituation.shadowedLegacyFile.map(files.contains) ?? false }
+        let removed = Set(compactMap { e in deleted(e) ? "\(e.id.uuidString)\u{0}\(e.citekey)" : nil })   // display-safe-exempt: 集合鍵，不輸出
+        guard !removed.isEmpty else { return unlocatableCitekeys }
+        let kept = filter { !deleted($0) }.map { e -> Entry in
+            guard e.fileSituation.shadowedLegacyFile == nil, e.fileSituation.unwritableReason != nil,
+                  removed.contains("\(e.id.uuidString)\u{0}\(e.citekey)") else { return e }   // display-safe-exempt: 集合鍵，不輸出
             var twin = e
             twin.fileSituation.unwritableReason = nil
             return twin

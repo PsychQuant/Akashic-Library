@@ -358,7 +358,7 @@ final class ShadowedPairReadersTests: XCTestCase {
         try writeEntities(renamed)
         try writeLegacy(leftover)
         let reason = try enrichReason(doi: "10.1234/abc.def", matches: ["b2020alpha", "b2020beta"])
-        XCTAssertTrue(reason.contains("b2020alpha（legacy 檔 entries/b2020alpha.yaml；entities/ 那份是 b2020beta）"), reason)
+        XCTAssertTrue(reason.contains("b2020alpha（legacy 檔 entries/b2020alpha.yaml；entities/ 那份是 entities/\(id.uuidString).yaml、citekey b2020beta）"), reason)
         XCTAssertTrue(reason.contains("legacy 拷貝") && reason.contains("確認 entities/ 那份是新的之後"), reason)
         XCTAssertFalse(reason.contains("#459"), "拿掉拷貝之後只剩一筆，攣生管線不適用：\(reason)")
 
@@ -412,7 +412,7 @@ final class ShadowedPairReadersTests: XCTestCase {
         try writeLegacy(leftover)
         try writeEntities(twin)
         let reason = try enrichReason(doi: "10.1234/abc.def", matches: ["b2021d", "c2021d2", "oldcite2021"])
-        XCTAssertTrue(reason.contains("oldcite2021（legacy 檔 entries/oldcite2021.yaml；entities/ 那份是 b2021d）"), reason)
+        XCTAssertTrue(reason.contains("oldcite2021（legacy 檔 entries/oldcite2021.yaml；entities/ 那份是 entities/\(id.uuidString).yaml、citekey b2021d）"), reason)
         XCTAssertTrue(reason.contains("拿掉 legacy 拷貝之後仍有 2 筆記錄帶這個 DOI") && reason.contains("#459"), reason)
         XCTAssertFalse(reason.contains("再跑"), "刪掉拷貝之後重跑仍歧義，不說「再跑」：\(reason)")
     }
@@ -431,7 +431,7 @@ final class ShadowedPairReadersTests: XCTestCase {
         try writeEntities(twin)
         XCTAssertEqual(try store.load().shadowedLegacyCopies.map(\.legacyFile), ["entries/x2020same.yaml"], "前提：同 citekey 的拷貝")
         let reason = try enrichReason(doi: "10.1234/abc.def", matches: ["x2020same", "y2020twin"])
-        XCTAssertTrue(reason.contains("x2020same（legacy 檔 entries/x2020same.yaml；entities/ 那份是 x2020same）"), reason)
+        XCTAssertTrue(reason.contains("x2020same（legacy 檔 entries/x2020same.yaml；entities/ 那份是 entities/\(same.id.uuidString).yaml）"), reason)
         XCTAssertTrue(reason.contains("拿掉 legacy 拷貝之後仍有 2 筆記錄帶這個 DOI——不判定哪一筆才對（#459）"), reason)
         // b38 verify LOW 6：「命中 3 筆」與兩個 citekey 的 `matches` 並列時說出個數；拷貝那一句的「其中」不再接在「2 筆記錄」之後（拷貝不在那 2 筆裡）
         XCTAssertTrue(reason.hasPrefix("DOI「10.1234/abc.def」命中 3 筆（2 個 citekey），零寫入："), reason)
@@ -548,10 +548,12 @@ final class ShadowedPairReadersTests: XCTestCase {
             if carriesDOI { e.doi = [DOI(doi)!] }
             return e
         }
-        // 拷貝：改名留下的 legacy 那份帶 DOI；共用 id：兩個 legacy 檔；citekey 重複：兩份都在 entities/
+        // 拷貝：改名留下的 legacy 那份帶 DOI，同 id 另有一份不帶（b42 verify MEDIUM 0：拷貝那一句多一段「同 id 另有…」，前段最長）；
+        // 共用 id：兩個 legacy 檔；citekey 重複：兩份都在 entities/
         let copyID = UUID(), sharedID = UUID()
         try writeEntities(work("cur2020new", id: copyID, carriesDOI: false))
         try writeLegacy(work("old2020old", id: copyID))
+        try writeLegacy(work("older2018old", id: copyID, carriesDOI: false))
         try writeLegacy(work("p2020share", id: sharedID))
         try writeLegacy(work("q2020share", id: sharedID))
         try writeEntities(work("d2020dup"))
@@ -568,7 +570,7 @@ final class ShadowedPairReadersTests: XCTestCase {
         let obj = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(out.utf8)) as? [String: Any], out)
         let reason = try XCTUnwrap((obj["items"] as? [[String: Any]])?.first?["reason"] as? String, out)
         for guidance in ["零寫入", "無法唯一定位", "先修好（#628／#641）", "UUID 重複是 error", "不判定哪一筆才對（#459）",
-                         "確認 entities/ 那份是新的之後刪掉 legacy 那份"] {
+                         "同 id 另有 1 份不帶這個 DOI", "確認 entities/ 那份是新的之後刪掉 legacy 那份（共 2 份"] {
             XCTAssertTrue(reason.contains(guidance), "截斷之後「\(guidance)」仍在：\(reason)")
         }
     }

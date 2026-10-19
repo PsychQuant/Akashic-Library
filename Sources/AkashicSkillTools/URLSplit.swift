@@ -14,7 +14,8 @@ struct URLSplit {
 
     init(_ url: String) {
         var s = Scalars(url.unicodeScalars)
-        while let f = s.first, f.value <= 0x20 { s.removeFirst() }
+        // 一次切掉（#613 b43）：先前一個一個 `removeFirst`，每次搬整個陣列——頁面給的連結前面接幾萬個空白就是平方
+        s.removeFirst(s.firstIndex(where: { $0.value > 0x20 }) ?? s.count)
         s.removeAll { $0 == "\t" || $0 == "\r" || $0 == "\n" }
         if let colon = s.firstIndex(of: ":"), colon > 0, s[0].isASCII, s[0].properties.isAlphabetic,
            s[..<colon].allSatisfy({ $0.isASCII && ($0.properties.isAlphabetic || ("0"..."9").contains($0) || $0 == "+" || $0 == "-" || $0 == ".") }) {

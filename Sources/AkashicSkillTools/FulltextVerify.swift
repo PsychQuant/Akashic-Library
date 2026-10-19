@@ -110,7 +110,7 @@ public enum FulltextVerify {
         }
         if !stripped, PyText.hasPrefix(d, Scalars("doi:".unicodeScalars)) {
             d = Scalars(d[4...])
-            while let f = d.first, PyText.isSpace(f) { d.removeFirst() }
+            d.removeFirst(d.firstIndex(where: { !PyText.isSpace($0) }) ?? d.count)   // 一次切掉，不逐個 removeFirst（#613 b43，與 `URLSplit` 同）
         }
         if let cut = d.firstIndex(where: { $0 == "?" || $0 == "#" }) { d = Scalars(d[..<cut]) }   // 貼上的網址的查詢或片段不是 DOI
         return PyText.string(PyText.rstrip(d, Set(".,;:)]}/".unicodeScalars)))

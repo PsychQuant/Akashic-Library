@@ -136,7 +136,10 @@ case ",${AKASHIC_PRE_PUSH_STAGES:-build,test,guards}," in
       exit 1
     fi
     echo "pre-push: plugin 守衛（覆蓋／散文／parity，各含 negative control）"
-    bash "$(dirname "$0")/run-guards.sh"
+    # **被推送的是哪幾個 commit**（#613 b43）：`plugin-shell-version` 比的是推上去的樹與遠端此刻的 main，不是工作樹與本機的
+    # origin/main——只 commit 了 skill、版號與表的改動還留在工作樹時，推上去的 commit 兩者不一致（b42 第 3、17、27 則）。
+    # 只交給守衛這一階段：build 與 test 不需要它；harness 在暫存 repo 裡跑的守衛由 `runGuardProcess` 剝掉它。
+    AKASHIC_PUSH_REFS="$push_refs" AKASHIC_PUSH_REMOTE="${1:-}" bash "$(dirname "$0")/run-guards.sh"
     ;;
   *)
     echo "pre-push: （依 AKASHIC_PRE_PUSH_STAGES 略過守衛階段）"

@@ -198,6 +198,9 @@ func runGuardProcess(_ argv: [String], cwd: String, env extra: [String: String] 
     p.currentDirectoryURL = URL(fileURLWithPath: cwd)
     var env = ProcessInfo.processInfo.environment
     env.removeValue(forKey: GuardRunLog.envKey)
+    // pre-push 交給 `plugin-shell-version` 的推送資訊（`AKASHIC_PUSH_*`，#613 b43）說的是真實 repo 的 commit：harness 在暫存 repo 裡跑的守衛
+    // 不得看見它（看見了就去暫存 repo 裡找真實 repo 的 sha）。要它的那一格自己經 `extra` 給。
+    for k in env.keys where k.hasPrefix("AKASHIC_PUSH_") { env.removeValue(forKey: k) }
     for (k, v) in extra { env[k] = v }
     p.environment = env
 

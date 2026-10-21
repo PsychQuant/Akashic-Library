@@ -156,8 +156,10 @@ final class NameClassificationB41Tests: XCTestCase {
         func org(_ key: String) -> Organization {
             var entries = [TemporalValue(value: "Keep Inst")]
             for name in ["Typo A", "Typo B"] {
-                entries += (0..<5).map { TemporalValue(value: name, range: DateRange(start: String(1800 + $0), end: String(1800 + $0)),
-                                                       source: control, note: control) }
+                for i in 0..<5 {
+                    let year = String(1800 + i)
+                    entries.append(TemporalValue(value: name, range: DateRange(start: year, end: year), source: control, note: control))
+                }
             }
             var o = Organization(key: key, names: Timeline(entries))
             o.references = ["Typo A", "Typo B"].map { record("authorized", $0, .withdraw, "打錯") }

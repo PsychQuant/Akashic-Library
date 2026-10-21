@@ -72,7 +72,10 @@ final class NameClassificationB39Tests: XCTestCase {
         let names = (0..<40).map { "Typo Inst \($0)" }
         var entries = [TemporalValue(value: "Keep Inst")]
         for n in names {
-            entries += (0..<20).map { TemporalValue(value: n, range: DateRange(start: String(1800 + $0), end: String(1800 + $0)), source: long, note: long) }
+            for i in 0..<20 {
+                let year = String(1800 + i)
+                entries.append(TemporalValue(value: n, range: DateRange(start: year, end: year), source: long, note: long))
+            }
         }
         var o = Organization(key: "obig", names: Timeline(entries))
         o.references = names.map(withdrawn)

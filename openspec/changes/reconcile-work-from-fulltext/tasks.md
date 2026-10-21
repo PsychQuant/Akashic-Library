@@ -1,0 +1,42 @@
+## 1. Store 值域與格式（format 23）
+
+- [ ] 1.1 先寫測試再實作替換記錄的唯一解析器 `AuthorListReplacementRecordValue`：落實 Requirement「The replacement SHALL record the source it rests on as an author-list replacement record」的文法 `替換為 ⟦s1⟧ … ⟦sn⟧；依據第 N 頁：理由`（段數 ≥ 1、段內不含 `⟦⟧`、N ≥ 1、理由非空），與 `SplitRecordValue`、`AuthorRemovalRecordValue` 並列（design：D3 替換記錄的文法與唯一解析器）。驗證：新測試檔 `Tests/AkashicKitTests/AuthorListReplacementRecordTests.swift` 涵蓋合法、段為空、段含括號、缺頁序、頁序 0、理由空白六種輸入，`swift test --filter AuthorListReplacementRecordTests` 綠。
+- [ ] 1.2 `Entry.validateReferenceAttachment` 的 `field: authors` 接受第三種記錄：value 缺席、judgement、statement 由 1.1 的解析器解出、rests-on 恰一個合法且非空內容的 digest；一筆 work 至多一筆替換記錄，兩筆即拒（design：D2 作者列的依據寫成替換記錄，不寫完整性證言）。拆分與移除記錄的既有行為不變。驗證：同一測試檔加「value 缺席的拆分 statement 被拒」「兩筆替換記錄被拒」「rests-on 兩個 digest 被拒」三案，且既有 `SplitRecordReferenceTests` 全綠。
+- [ ] 1.3 Requirement「A work SHALL be able to carry the member lists of its group authors」的資料形狀：`Entry` 新增頂層 `group-members`（`group`、`rests-on`、`page`、`members`；成員是字串、次序照原文、無逐字重複），YAML 讀寫、canonical 序列化（緊接在 `authors` 之後）、decode 拒絕缺鍵與重複成員（design：D6 團體成員名單住在 work 頂層的 group-members，成員是字串）。驗證：round-trip 測試（寫出再讀回逐位元組相同）與四個拒絕案例在 `AuthorListReplacementRecordTests` 綠；`akashic fmt --check` 對含 `group-members` 的 scratch store 回 0。
+- [ ] 1.4 Requirement「The new shapes SHALL be governed by store format 23」：`StoreVersion.supported` 22 → 23、新增 `authorListReplacementFormat = 23`，寫入閘對帶替換記錄或 `group-members` 的 work 在 marker < 23 的 store 拒絕並說出 23（design：D7 store format 23 一次管兩個新形狀）。驗證：測試「format 22 的 store 寫入被拒、訊息含 23」「format 23 寫入成功」綠；`KnownLayerEvolutionTests` 等既有格式測試依新值更新後全綠。
+- [ ] 1.5 work 合併的遺失檢查（`DivergenceResolve` 的 `fieldsLostByMerging` 與其屬性封閉表）把 `group-members` 列入，以差集判準比較；被併者帶替換記錄時照 references 的既有差集判準報出。驗證：兩筆攣生 work 只有被併者帶 `group-members` 時，合併乾跑報出遺失並拒絕；測試綠。
+
+## 2. 替換腿（CLI＋MCP）
+
+- [ ] 2.1 先寫測試再實作替換腿的 JSON 解碼與驗證器（`Sources/AkashicMCPKit/AuthorListReplacement.swift`），兩面共用：未知鍵任一層即拒；`literal`／`group`／`from` 三選一；`group` 寫成 `CorporateName.mark`；輸入上限（reason ≤ 4,096、值 ≤ 65,536、page ≥ 1、authors 非空、無前後空白、literal 不得已帶大括號）；`source` 合法、已連在 `akashic.sources`、本機存在（design：D1 作者列替換掛在 update-entry，兩面共用一個 JSON 解析器）。驗證：`Tests/AkashicMCPTests/ReplaceAuthorsTests.swift` 每一條 failure mode 一個案例；每個案例對應的檢查拿掉後該案變紅（負控）。
+- [ ] 2.2 Requirement「Every resolved author position SHALL be carried over or explicitly released」：每個 `.key`／`.organization` 舊位必須被恰好一個 `from` 沿用或列在 `release`（附理由）；`release` 指 literal 位、與 `from` 重疊、重複即拒；`from` 越界或重複即拒；釋放不刪任何判定（design：D4 已歸戶的位置要被沿用或明列釋放）。驗證：ReplaceAuthorsTests 的「安靜丟掉 key 被拒且訊息具名位置與 key」「from 沿用 key」「release 附理由後通過且報告列出」三案綠。
+- [ ] 2.3 Requirement「Records about the previous author list SHALL be removed and listed」：實寫時移除該 work 的拆分、移除、先前替換記錄與 `akashic.author-list-completeness` 證言，逐筆列在 `recordsRemoved`／`witnessRemoved`；實寫前 `assertRecordsRecoverable`；`verdictsOnRetiredLiterals` 列出 person／organization 上指向已退役 literal 的 confirmed 判定且不改它們（design：D5 舊作者列的記錄一併移除並逐筆列出）。驗證：測試「帶拆分記錄與證言的 work 替換後兩者都不在、報告列出」「未 commit 的 work 檔實寫被拒」「判定記錄逐位元組不變且被列出」綠。
+- [ ] 2.4 `group-members` 的寫入規則：`groupMembers` 有給（含空陣列）即整組替換；沒給時保留 `group` 仍對得上新團體位的組，其餘移除並列在 `groupMembersRemoved`；`group` 對不上任何團體項、同組重複、`members` 為空即拒。驗證：ReplaceAuthorsTests 的三個 groupMembers 案例綠（13 位成員照原序存入；未知團體被拒；省略時對不上的組被移除且列出）。
+- [ ] 2.5 CLI `akashic update-entry <citekey> --replace-authors <file>`（不帶 `--apply` 為乾跑）與 MCP `akashic_update_entry.replace_authors`（`dry_run` 預設 true）接到同一條 service 路徑；與其他 update-entry 腿同時給即拒；落實 Requirement「The update-entry command SHALL offer a whole author-list replacement leg on both faces」與「The replacement response SHALL be bounded on the MCP face」（MCP 面 `verdictsOnRetiredLiterals` 截 20 筆並附 `…Total`／`truncated`，CLI 全列）。驗證：真 binary 的 CLI 測試與 stdio MCP 測試對同一份 JSON 回同一份 payload；25 筆判定記錄的案例在 MCP 截成 20、CLI 印 25。
+- [ ] 2.6 MCP 位元組預算：`replace_authors` 的 schema 只宣告 object 與一句描述（形狀指向 CLI `--help`），兩面 help 寫出 JSON 形狀、失敗類別與 format 23（design：D10 MCP 位元組預算不放寬）。驗證：`swift test --filter StdioE2ETests/testToolsListResponseStaysWithinByteBudget` 綠且實測值 ≤ 60,000；若超出則停下、不改預算，回 #578 請使用者裁決，並把實測值寫進該 issue。
+
+## 3. 健康檢查與 Zotero
+
+- [ ] 3.1 Requirement「A stale replacement record SHALL be reported as a warning」：`StoreHealth` 新增一族 warning（前綴 `作者列替換記錄與目前的作者列對不上`），段數與作者列長度不同、或 literal 位與段不是位元組相同時報出，key／organization 位視為相符；doctor 與 App 顯示計數（design：D8 替換記錄失效時出 warning）。驗證：測試「替換後 split 一位 → warning、validate exit 0」「替換後把 literal 升格為 key → 無 warning」綠；`StoreHealthSurfaceTests` 的反射名冊涵蓋新欄位。
+- [ ] 3.2 Requirement「A Zotero pull SHALL keep an author list that carries a replacement record」：`ZoteroImporter` 的更新分支在作者列有已歸戶位**或**該 work 帶替換記錄時保留作者列並記進 `authorsPreserved`（design：D9 Zotero pull 保留帶替換記錄的作者列）。驗證：測試「主來源是 Zotero、全 literal 作者列加替換記錄，pull 後作者列不變且列在 authorsPreserved」綠；既有 Zotero 匯入測試全綠。
+
+## 4. fulltext 子命令
+
+- [ ] 4.1 [P] Requirement「fulltext text SHALL write the page text of one of the work's PDFs to a file outside any git work tree」：`akashic fulltext text --citekey <ck> [--source <digest>] --out <file>` 以新的 PDFReader 函式逐頁取全部頁的文字，寫 JSON 到 `--out`；`PDFReader.read` 的兩頁行為不變；連了多份 PDF 未指定 `--source`、`--out` 在 git 工作樹內、本機沒有內容、沒有連任何 PDF 都拒絕（design：D11 確定性計算做成 fulltext 子命令，判讀留給 skill 裡的模型）。驗證：`Tests/AkashicCLITests/FulltextReconcileCLITests.swift` 以真 binary 對 fixture PDF 取得 7 頁；四個拒絕案例 exit 非 0 且不寫檔；既有 `fulltext verify`／`take` 測試全綠。
+- [ ] 4.2 [P] Requirement「A PDF with no letters in any page SHALL be reported as having no text layer」：`hasTextLayer` 在任何一頁都不含 general category L 字元時為 false。驗證：只有圖片的 fixture PDF 回 false、有文字的回 true，兩案在 FulltextReconcileCLITests 綠。
+- [ ] 4.3 Requirement「fulltext compare SHALL compare a proposal with the store and emit a ready replacement without writing」：`akashic fulltext compare --citekey <ck> --proposal <file> [--out <file>]` 輸出 `rows`、`replaceAuthors`、`refusal`；作者列以 2.1／2.2 的同一個驗證器先驗，會被拒的提議寫進 `refusal` 並 exit 0；不寫 store、不為非作者欄位產生寫入命令。驗證：測試「20 vs 7 的作者列 → differs 且 replaceAuthors 交給 update-entry 乾跑不被拒」「丟掉 key 的提議 → refusal 具名位置」「volume 不同只列一列」綠；跑前後 store 檔逐位元組相同。
+- [ ] 4.4 `Sources/akashic/WriteGateRulings.swift` 為 `fulltext text`、`fulltext compare` 登記不寫 store 的裁決（design：D13 規則表各加的列）。驗證：`swift test --filter WriteGateRulingsTests` 綠，印出的葉命令數與裁決表格數相等。
+
+## 5. skill 與 plugin 殼
+
+- [ ] 5.1 新增 `plugin/skills/akashic-verify-work/SKILL.md`，落實 Requirement「The akashic-verify-work skill SHALL show a dry run and write only after explicit approval」：步驟為 fulltext text（暫存目錄在 git 工作樹之外）→ 模型讀出 byline、成員名單與純量欄位（各帶 PDF 頁序）寫成提議 → fulltext compare → 顯示「欄位／store 現值／作品本身（頁）／提議寫入」表格 → 使用者在 session 內明確同意後才 `update-entry --replace-authors … --apply`；無文字層即標無法核對；unattended 只乾跑；只讀本機 sources；非作者欄位只列出並說明本 change 不記其依據（design：D12 akashic-verify-work skill 的邊界）。驗證：內容審查逐條對照 D12；`akashic-guards official-validate` 與 plugin 守衛全綠。
+- [ ] 5.2 `plugin/skills/akashic-fetch-fulltext/SKILL.md` 最後一步指向 `akashic-verify-work`；`plugin/skills/akashic-bootstrap/references/writing-to-the-store.md` 把「更新既有記錄的部分欄位沒有正規入口」一段改寫為作者列走 `update-entry --replace-authors`、其餘欄位的既有路徑與其依據缺口。驗證：內容審查；`plugin/tests/rule-coverage.sh` 與 plugin 守衛全綠。
+- [ ] 5.3 plugin 殼升版 0.13.6 → 0.13.7：`plugin/.claude-plugin/plugin.json` 與 marketplace 的版本號、`.githooks/plugin-shell-versions.txt` 接一列。驗證：`akashic-guards plugin-shell-version` 與其 mutations 綠。
+
+## 6. 規則、文件與追蹤
+
+- [ ] 6.1 規則與裁決表（design：D13 規則表各加的列）：`plugin/rules/source-of-truth-over-consent.md` 封閉表加「團體署名與成員名單」一列；`docs/rulings/two-kinds-of-edits.md` 加 `update-entry --replace-authors`（AI 編輯）一列；`docs/rulings/mcp-cli-parity.md` 在 `akashic_update_entry` 一列追加「#742 重新確認，裁決不變、契約有改」並在 CLI-only 表加 `fulltext text`／`fulltext compare`；`docs/rulings/zero-instance-guards.md` 為 D8 的 warning 加一列（含重跑量測）。驗證：`akashic-guards zero-instance-rows-audit`、`parity-table-drift` 與全部守衛綠；live store 唯讀重跑該列的量測，實測數寫進列裡。
+- [ ] 6.2 `docs/store-format.md` 寫明替換記錄的文法與定位、`group-members` 的形狀、format 23、與拆分／移除記錄的區分，並更正「作者位的來源若日後要記…（另案）」那一段指向本 change。驗證：內容審查；`measured-numbers-audit` 守衛綠。
+- [ ] 6.3 changelog `changelog/2026-10-21-reconcile-work-from-fulltext.md` 記下四項裁決、三個 binary 的部署順序（同一個 release → 使用者升三者 → 使用者升 marker 到 23）。驗證：內容審查。
+- [ ] 6.4 端到端：在 scratch `AKASHIC_HOME` 重建 `claw2018framework` 的形狀（20 位作者、其中一位已歸戶），以 fixture PDF 跑 skill 的確定性步驟與替換腿 apply：作者列 7 位、第 6 位是帶標記的 SING Consortium、第 7 位以 `from` 沿用原 key、13 位成員記在 `group-members`、`export-bib` 把團體輸出為一個 corporate 名、`validate` 與 `doctor` 無新 error／warning。驗證：端到端測試綠，並把命令與輸出摘要寫進 changelog。
+- [ ] 6.5 live store 的 `claw2018framework`：唯讀產出 `fulltext text`／`compare` 的乾跑結果與要執行的 `update-entry --replace-authors` 命令，交給使用者決定是否套用（不寫 live store）。另開兩張 issue：非作者欄位依全文更正後記不下依據（`update-entry` 沒有 references 腿）、團體成員升格為 person ref。驗證：兩張 issue 的連結寫進 changelog；live store 的 `git status` 在操作前後相同。

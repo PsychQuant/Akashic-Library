@@ -3500,7 +3500,7 @@ public final class AkashicService {
         if !entry.groupMembers.isEmpty {
             d["group-members"] = entry.groupMembers.map { list -> [String: Any] in
                 ["group": displaySafe(list.group, max: 400),
-                 "rests-on": list.restsOn,   // display-safe-exempt: decode 時過 isValidDigest（sha256: 加小寫十六進位）
+                 "rests-on": list.restsOn,   // display-safe-exempt: list.restsOn 在 decode 時過 isValidDigest（sha256: 加小寫十六進位）
                  "page": list.page,   // display-safe-exempt: Int
                  "members": list.members.map { displaySafe($0, max: 400) }]
             }

@@ -252,6 +252,111 @@ final class FulltextReconcileCLITests: XCTestCase {
         XCTAssertTrue(r.output.contains("journal"), r.output)
     }
 
+    // MARK: - 6.4 端到端：claw2018framework 的形狀（design Acceptance criteria 第 1 條）
+
+    private var scrubbedGitEnvironment: [String: String] {
+        ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("GIT_") }
+    }
+
+    private func git(_ args: [String]) {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        p.arguments = ["-C", root.path, "-c", "user.email=t@t", "-c", "user.name=t"] + args
+        p.environment = scrubbedGitEnvironment
+        p.standardOutput = Pipe(); p.standardError = Pipe()
+        try? p.run(); p.waitUntilExit()
+    }
+
+    func testClawShapeEndToEnd() throws {
+        try XCTSkipUnless(hasPoppler(), "需要 poppler")
+        let sing = "Summer internship for INdigenous peoples in Genomics (SING) Consortium"
+        let members = ["Joseph M. Yracheta", "Alice Popejoy", "Deborah A. Bolnick", "Jessica Bardill", "Lucas Brutus",
+                       "Jasmine Joseph", "Sean Fullerton", "Paul G. Spicer", "Ripan S. Malhi", "Kim TallBear",
+                       "Jessica Blanchard", "Austin Reid", "Kelsey Dalton"]
+        var pages: [[String]] = [["A framework for enhancing ethical genomic research",
+                                  "Katrina G. Claw, Matthew Z. Anderson, Rene L. Begay, Krystal S. Tsosie, Keolu Fox,",
+                                  "SING Consortium and Nanibaa A. Garrison"]]
+        pages += (2...6).map { ["Page \($0) body text"] }
+        pages.append(["SING Consortium"] + members)
+        let d = try storePDF(makePDF(pages: pages))
+        // Crossref 的形狀：20 位，第 20 位（index 19）已歸戶為 garrison-nanibaa；成員被攤成作者
+        var crossref: [Author] = ["Claw, Katrina G.", "Anderson, Matthew Z.", "Begay, Rene L.", "Tsosie, Krystal S.",
+                                  "Fox, Keolu"].map { .literal($0) }
+        crossref += members.prefix(14).map { .literal($0) }
+        while crossref.count < 19 { crossref.append(.literal("Extra \(crossref.count)")) }
+        crossref.append(.key("garrison-nanibaa"))
+        XCTAssertEqual(crossref.count, 20)
+        let store = LibraryStore(root: root, key: nil, environment: [:])
+        var e = Entry(id: UUID(), citekey: "claw2018framework", type: .periodicalArticle,
+                      title: "A framework for enhancing ethical genomic research with Indigenous communities",
+                      authors: crossref, date: "2018")
+        e.fields = ["journaltitle": "Nature Communications", "volume": "9", "number": "1", "eid": "2957"]
+        e.akashic.sources = [d]
+        try store.writeEntry(e)
+        try store.writePerson(Person(key: "garrison-nanibaa", names: ["Garrison, Nanibaa' A."]))
+        git(["init", "-q"]); git(["add", "-A"]); git(["commit", "-q", "-m", "fixture"])
+
+        // 1. 逐頁文字
+        let textOut = scratch.appendingPathComponent("text.json")
+        XCTAssertEqual(try text(["--citekey", "claw2018framework", "--out", textOut.path]).status, 0)
+        let t = try readJSON(textOut)
+        XCTAssertEqual(t["pageCount"] as? Int, 7)
+        XCTAssertEqual(t["hasTextLayer"] as? Bool, true)
+        // 2.–3. 提議與比對
+        var items: [[String: Any]] = ["Katrina G. Claw", "Matthew Z. Anderson", "Rene L. Begay", "Krystal S. Tsosie",
+                                      "Keolu Fox"].map { ["literal": $0] }
+        items.append(["group": sing])
+        items.append(["from": 19])
+        let r = try compare(["source": d,
+                             "authors": ["page": 1, "items": items, "reason": "PDF 第 1 頁 byline：Crossref 把 13 位聯盟成員列成作者"],
+                             "groupMembers": [["group": sing, "page": 7, "members": members]]])
+        XCTAssertEqual(r.status, 0, r.output)
+        let replace = try XCTUnwrap(r.json?["replaceAuthors"] as? [String: Any], "\(String(describing: r.json))")
+        XCTAssertTrue(r.json?["refusal"] is NSNull)
+        let rf = scratch.appendingPathComponent("replace.json")
+        try JSONSerialization.data(withJSONObject: replace).write(to: rf)
+        // 4.–5. 乾跑、實寫
+        let dry = try CLITestHarness.run(["update-entry", "claw2018framework", "--replace-authors", rf.path, "--library", root.path], env: env)
+        XCTAssertEqual(dry.status, 0, dry.output)
+        let apply = try CLITestHarness.run(["update-entry", "claw2018framework", "--replace-authors", rf.path,
+                                            "--library", root.path, "--apply"], env: env)
+        XCTAssertEqual(apply.status, 0, apply.output)
+
+        let after = try XCTUnwrap(try store.load().entries.first { $0.citekey == "claw2018framework" })
+        XCTAssertEqual(after.authors.count, 7)
+        XCTAssertEqual(after.authors[5], .literal("{\(sing)}"))
+        XCTAssertEqual(after.authors[6], .key("garrison-nanibaa"))
+        XCTAssertEqual(after.groupMembers.first?.members, members)
+        XCTAssertEqual(after.groupMembers.first?.page, 7)
+        XCTAssertEqual(after.authorListReplacementRecord?.record.segments.count, 7)
+        XCTAssertEqual(after.authorListReplacementRecord?.record.page, 1)
+
+        // export-bib：團體輸出為一個 corporate 名
+        let bib = try CLITestHarness.run(["export-bib", "--library", root.path, "--citekeys", "claw2018framework"], env: env)
+        XCTAssertEqual(bib.status, 0, bib.output)
+        XCTAssertTrue(bib.output.contains("{\(sing)}"), bib.output)
+        XCTAssertFalse(bib.output.contains("Joseph M. Yracheta"), "成員不進 AUTHOR：\(bib.output)")
+        // validate 與 doctor：沒有這一族的 warning
+        let validate = try CLITestHarness.run(["validate", "--library", root.path], env: env)
+        XCTAssertEqual(validate.status, 0, validate.output)
+        XCTAssertFalse(validate.output.contains("作者列替換記錄與目前的作者列對不上"), validate.output)
+        let doctor = try CLITestHarness.run(["doctor", "--library", root.path], env: env)
+        XCTAssertEqual(doctor.status, 0, doctor.output)
+        XCTAssertFalse(doctor.output.contains("作者列替換記錄與目前的作者列對不上"), doctor.output)
+        // 讀取面：get-entry 看得到 13 位成員
+        let get = try CLITestHarness.run(["get-entry", "claw2018framework", "--library", root.path], env: env)
+        XCTAssertTrue(get.output.contains("group-members") && get.output.contains("Kelsey Dalton"), get.output)
+
+        // D8：替換之後再拆一位 → validate 報 warning、exit 0
+        git(["add", "-A"]); git(["commit", "-q", "-m", "replaced"])
+        let split = try CLITestHarness.run(["resolve-people", "--library", root.path,
+                                            "--split-author", "claw2018framework:0: G. =測試：替換之後的拆分"], env: env)
+        XCTAssertEqual(split.status, 0, split.output)
+        let stale = try CLITestHarness.run(["validate", "--library", root.path], env: env)
+        XCTAssertEqual(stale.status, 0, stale.output)
+        XCTAssertTrue(stale.output.contains("作者列替換記錄與目前的作者列對不上"), stale.output)
+    }
+
     // MARK: - 4.2 hasTextLayer
 
     /// spec「An image-only PDF」：沒有任何一頁含字母——只畫線的頁、只有數字的頁都不算有字母。

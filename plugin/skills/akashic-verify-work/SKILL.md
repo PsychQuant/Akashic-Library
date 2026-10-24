@@ -122,10 +122,10 @@ akashic update-entry <citekey> --replace-authors "$WORK_DIR/replace.json" --appl
 `fulltext text` 回 `hasTextLayer: false` 時（2026-10-24 使用者裁決：「我覺得要叫bestOCR才行」），不跳過，改由 bestOCR 轉出文字再比對。Akashic 的 binary 不呼叫任何 OCR 引擎，這一步在本 skill 裡做。
 
 1. **確認引擎**：呼叫 bestOCR 的 `list_engines`。可用的**本機**引擎（不含 `cloud.*`）少於兩個 → 這筆無法核對（見下表）。只有一個引擎時**不退回**單一引擎的 `ocr`：它不輸出任何信心值，沒有共識就沒有信心可量。
-2. **逐頁共識**：對第 1 頁到第 `pageCount` 頁，**一次一頁**呼叫 bestOCR 的 `consensus`：`input_path` 是那份全文（`sources/` 裡的檔，或先複製到 `$WORK_DIR`），`pages` 設成那一頁的頁號（`"1"`、`"2"`…），`out_dir` 設在 `$WORK_DIR` 裡，**不帶 `engines`**（預設是全部本機引擎），**不指定任何 `cloud.*` 引擎**（那會把文件送出本機）。一次一頁，頁序就由呼叫方式確定，不必從輸出反推哪段文字在哪一頁。
-3. **讀文字與低共識清單**：每頁的 `<stem>.consensus.md`（⚠ 標出低共識項）與 `<stem>.consensus.json`（低共識複核清單）。第 2 步照常讀 byline 與成員名單，但記下每個值依據的是哪幾項。
+2. **逐頁共識**：先把那份全文複製到 `$WORK_DIR`、**檔名帶 `.pdf`**（`cp "<store>/sources/<前兩碼>/<其餘>" "$WORK_DIR/<citekey>.pdf"`；bestOCR 靠副檔名判斷種類，`sources/` 裡的存檔沒有副檔名會被拒）。對第 1 頁到第 `pageCount` 頁，**一次一頁**呼叫 bestOCR 的 `consensus`：`input_path` 是那份複本，`pages` 設成那一頁的頁號（`"1"`、`"2"`…），`out_dir` 設在 `$WORK_DIR` 裡，**不帶 `engines`**（預設是全部本機引擎），**不指定任何 `cloud.*` 引擎**（那會把文件送出本機）。一次一頁，頁序就由呼叫方式確定，不必從輸出反推哪段文字在哪一頁。
+3. **讀文字與低共識清單**：每頁的 `<stem>.consensus.md`（⚠ 標出低共識項）與 `<stem>.consensus.json`——低共識複核清單是它的 `low_consensus` 陣列（每項有 `consensus`、`confidence`、`page`、各引擎的 `responses`），參與的引擎是 `engines`。第 2 步照常讀 byline 與成員名單，但記下每個值依據的是哪幾項。
 4. **信心不足就不提議**：一個欄位的提議值所依據的文字，只要有**一項**在該頁的低共識複核清單裡，這一欄就標「無法核對（信心不足）」，不提議。**作者列與成員名單算同一欄**（它們由同一次替換寫入）：byline 或成員名單任何一項低共識，整個作者列不提議、不送 `replace_authors`。
-5. **標記與理由**：乾跑表每一列的「文字來源」寫 **OCR**。依 OCR 文字替換作者列時，提議的 `authors.reason`（它就是替換理由）寫明「依 bestOCR 多引擎共識辨識」並列出這次參與的引擎 id（取自 `list_engines` 或 `consensus.json`），例如：`PDF 第 1 頁 byline；依 bestOCR 多引擎共識辨識（vision、tesseract）`。這樣 store 日後說得出這一筆依據的是 OCR 文字。
+5. **標記與理由**：乾跑表每一列的「文字來源」寫 **OCR**。依 OCR 文字替換作者列時，提議的 `authors.reason`（它就是替換理由）寫明「依 bestOCR 多引擎共識辨識」並列出這次參與的引擎 id（取自 `consensus.json` 的 `engines`），例如：`PDF 第 1 頁 byline；依 bestOCR 多引擎共識辨識（vision、tesseract）`。這樣 store 日後說得出這一筆依據的是 OCR 文字。
 6. **寫入閘不變**：OCR 列同樣只有使用者在 session 內明確同意才 apply，unattended 不寫。共識只擋得住引擎之間意見不一的錯；多個引擎錯得一樣時照樣過關，所以人要看。
 
 ## 無法核對的情形（封閉列舉，只有這幾種）

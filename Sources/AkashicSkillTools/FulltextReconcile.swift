@@ -50,8 +50,9 @@ public enum FulltextReconcile {
                     + "先用 akashic-fetch-fulltext 取得並連上")
             }
             guard pdfs.count + unknown.count == 1 else {
-                throw SkillToolError.failure("\(label)連著不只一份可能是 PDF 的存檔，用 --source 指定一份："   // display-safe-exempt: label 已消毒
-                    + (pdfs + unknown).map { d in d + (notLocal(d) ? "（本機 sources/ 讀不到，判不出種類）" : "") }.joined(separator: "、"))   // display-safe-exempt: d 已過 decode 的 isValidDigest
+                let listed = (pdfs + unknown).map { d in d + (notLocal(d) ? "（本機 sources/ 讀不到，判不出種類）" : "") }
+                    .joined(separator: "、")
+                throw SkillToolError.failure("\(label)連著不只一份可能是 PDF 的存檔，用 --source 指定一份：\(listed)")   // display-safe-exempt: label 已消毒；listed 的每一項是 decode 時過 isValidDigest 的 digest 加固定句
             }
             digest = pdfs.first ?? unknown[0]
         }
@@ -75,7 +76,7 @@ public enum FulltextReconcile {
     /// 頁文字是第三方原文，原樣寫出（給 skill 讀的機器格式；消毒會改寫它）。
     public static func textJSON(citekey: String, digest: String, pageCount: Int, pages: [String]) throws -> Data {
         let object: [String: Any] = [
-            "citekey": citekey,
+            "citekey": citekey,   // display-safe-exempt: citekey 受 StoreKey 約束；本 JSON 是給 skill 讀的機器格式
             "source": digest,
             "pageCount": pageCount,
             "hasTextLayer": hasTextLayer(pages),
@@ -188,8 +189,8 @@ extension FulltextReconcile {
     public static func segment(_ a: Author) -> String {
         switch a {
         case .literal(let s): return s
-        case .key(let k): return "key:\(k)"
-        case .organization(let k): return "organization:\(k)"
+        case .key(let k): return "key:\(k)"   // display-safe-exempt: k 受 StoreKey 約束（[a-z0-9-]）
+        case .organization(let k): return "organization:\(k)"   // display-safe-exempt: k 受 StoreKey 約束
         }
     }
 
@@ -249,8 +250,8 @@ extension FulltextReconcile {
         guard needsReplacement else { return (rows, nil) }
         var replace: [String: Any] = [
             "source": p.source,
-            "page": p.authorsPage,
-            "reason": p.authorsReason ?? "PDF 第 \(p.authorsPage) 頁 byline",
+            "page": p.authorsPage,   // display-safe-exempt: p.authorsPage 是 Int
+            "reason": p.authorsReason ?? "PDF 第 \(p.authorsPage) 頁 byline",   // display-safe-exempt: p.authorsReason 是呼叫端提議的原文，進給替換腿讀的機器格式（替換腿的 payload 另外消毒）；p.authorsPage 是 Int
             "authors": p.authorItems,
         ]
         if let r = p.release { replace["release"] = r }

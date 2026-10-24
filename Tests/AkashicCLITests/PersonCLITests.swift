@@ -234,6 +234,7 @@ final class PersonCLITests: XCTestCase {
             "DivergenceCommands.swift",   // #586 dismiss-divergence
             "EnrichCommand.swift",
             "EntryEditCommands.swift",
+            "FulltextCommands.swift",   // #742 fulltext compare 跑替換腿的乾跑（帶 key:）
             "GetEntryCommand.swift",
             "LibraryCommands.swift",
             "PeopleCommand.swift",

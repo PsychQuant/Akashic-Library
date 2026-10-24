@@ -1,5 +1,17 @@
 # Changelog
 
+## #742 — 依作品全文核對一筆 work（2026-10-24）：新 skill akashic-verify-work；plugin 殼 0.13.6 → 0.13.7
+
+細節在 `changelog/2026-10-21-reconcile-work-from-fulltext.md`。行為在 binary（新的 `akashic`、`akashic-mcp` 與 App；store format 23）與 skill。
+
+- **新 skill `akashic-verify-work`**：`fulltext text` 取逐頁文字 → 讀出 byline、團體成員名單與純量欄位 → `fulltext compare` → 乾跑表（含「文字來源」一欄）→ 人在 session 內明確同意才 `update-entry --replace-authors --apply`；unattended 只乾跑。沒有文字層時逐頁呼叫 bestOCR 的多引擎共識（只用本機引擎、不退回單一引擎），低共識的欄位不提議，OCR 的值標「OCR」。
+- **`akashic-fetch-fulltext`**：最後一步指向 `akashic-verify-work`。
+- **`akashic-bootstrap` 的 `writing-to-the-store.md`**：入口表加 `update-entry --replace-authors`；「更新既有記錄」改寫為各欄位的現有路徑與依據缺口。
+- **plugin 的 `source-of-truth-over-consent`**：封閉表加「團體署名與成員名單」一列。
+- `tools/list`：59,159 → 59,816 bytes（預算依 #578 的裁決調到 65,000）。
+
+plugin 殼版號 0.13.6 → 0.13.7（新 skill 與上面幾個檔都在殼裡）；akashic-discovery 0.2.16 → 0.2.17（它經 symlink 送出 `plugin/rules`，`source-of-truth-over-consent` 改了）。
+
 ## #709 — b42 verify 修正（2026-10-20）：enrich 的拷貝那一句點名同 id 的每一份拷貝、判準與處置算在同一個集合上；validate 的重複 citekey 結論在前、名單有上限；citekey／person key 重複的 error 帶處置；plugin 殼 0.13.5 → 0.13.6
 
 細節在 `changelog/2026-10-20-b43-enrich-reasons-709.md`。行為在 binary（新的 `akashic` 與 `akashic-mcp`）；skill 文字沒有改。

@@ -323,6 +323,21 @@ final class AuthorListReplacementRecordTests: XCTestCase {
         XCTAssertTrue(try store.health(from: store.load()).staleReplacementRecords.isEmpty)
     }
 
+    // MARK: - 6.6 entity-backlink 第 18 條邊：group-members 的 rests-on 是內容指標
+
+    /// 名單依據的那份全文不在本機時，「本機缺承重存檔」要報出它——與 `akashic.sources`、`references` 的 digest 同一條路徑。
+    func testGroupMembersDigestCountsAsAReferencedSource() throws {
+        let (_, store) = try scratchStore(format: StoreVersion.supported)
+        try store.writeEntry(workWithMembers([
+            try XCTUnwrap(GroupMemberList(group: sing, restsOn: digestB, page: 7, members: ["A"])),
+        ]))
+        let report = try store.missingSourceDigests(store.load())
+        XCTAssertTrue(report.holders.contains { $0.digest == digestB && $0.slot == "group-members.rests-on"
+                                                && $0.owner == "claw2018framework" }, "\(report.holders)")
+        let health = try store.health(from: store.load())
+        XCTAssertTrue(health.danglingSources.contains { $0.owner == "claw2018framework" }, "\(health.danglingSources)")
+    }
+
     /// 替換記錄與拆分記錄可以並存（拆分發生在替換之後——D8 的失效 warning 管它，decode 不擋）。
     func testReplacementCoexistsWithASplitRecord() {
         let split = ProvenanceReference(field: "authors", value: "甲乙",

@@ -642,7 +642,7 @@ public extension LibraryStore {
             let owner: String
             /// `entry`／`person`／`organization`／`venue`／`divergence`——與 `StoreHealth.OwnedIssue.kind` 同詞彙。
             let kind: String
-            /// 指向該存檔的槽位：reference 的 `field`、`judgement.restsOn`、或 `akashic.sources`。
+            /// 指向該存檔的槽位：reference 的 `field`、`judgement.restsOn`、`akashic.sources`，或 `group-members.rests-on`（#742）。
             let slot: String
             let digest: String
             /// `false` ＝ 值根本不是 `sha256:` 形（`sourceURL` 解不出路徑）——無從在本機查找，
@@ -689,6 +689,8 @@ public extension LibraryStore {
             for digest in e.akashic.sources { claims.append((e.citekey, "entry", "akashic.sources", digest)) }
             // #453：`Entry.references`（第 15 條邊，#394 §5）——識別碼的來源存檔，先前不掃。
             collect(e.references, owner: e.citekey, kind: "entry")
+            // #742：團體成員名單的依據（第 18 條邊）——名單印在那一份全文的那一頁，全文不在本機就核對不了。
+            for list in e.groupMembers { claims.append((e.citekey, "entry", "group-members.rests-on", list.restsOn)) }
         }
         let fm = FileManager.default
         var absent = Set<String>()

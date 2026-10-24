@@ -104,6 +104,7 @@ group-members:
 - `group` 逐字等於作者列中一個團體位的值（含 corporate 標記）。寫入時必須對得上；之後該位被 attribute-org 升格為 organization，名單照留（它記的是作品裡寫的團體名）。
 - `members` 至少一位，次序照原文，不得有逐字重複。
 - `rests-on` 一個合法 digest、`page` 是 PDF 實體頁序。依據直接寫在名單上，不另寫 `Entry.references` 記錄：名單只由替換腿寫，理由已在替換記錄裡。
+- `rests-on` 是內容指標：`entity-backlink-completeness` 封閉邊表的第 18 條（同第 15、17 條的定址法），反向由 `missingSourceDigests` 現算（本機缺存檔時進「本機缺承重存檔」）。這一條是實作時 `backlink-field-ratchet` 出聲才補進表的。
 - 住頂層而不住 `akashic` 命名空間：成員名單是作品本身說的書目事實（與 `authors` 同類），不是 Akashic 的簿記。
 - 成員是字串，不是 `.literal`／`.key` 二態 ref。理由：目前沒有任何面能把成員升格為 person key；做成二態 ref 就是新的關係邊（`entity-backlink-completeness` 的封閉列舉要加一列），`rename-person` 與 person 合併都得遷移它，而它在這一輪不會有任何 key。升格為 ref 是一次顯式裁決，屆時另開 change（tasks 的 follow-up issue）。
 - 替換腿的 `groupMembers` 鍵：**有給**（含空陣列）→ 整組替換名單；**沒給** → 保留舊名單中 `group` 仍對得上新作者列團體位的組，其餘移除並列在報告（`groupMembersRemoved`）。

@@ -1179,7 +1179,7 @@ refuse-if-newer 的一句「請升級」，取代 per-file quarantine。format <
 `verdictsSkipped` 揭露。實際 bump store marker 的程序見 #247（先同步 distribution
 再改 marker）。
 
-### work 的 `references`：可附著的格（#394／#450／#457／#517／#655）
+### work 的 `references`：可附著的格（#394／#450／#457／#517／#655／#742）
 
 work（`Entry`）自 format 13 起有頂層 `references:`（`entity-backlink-completeness` 封閉列舉第 15 條邊）。
 可附著的 `field` 是**封閉列舉**，唯一的列舉在 `Entry.validateReferenceAttachment`；下表是現況的摘寫，
@@ -1189,6 +1189,7 @@ work（`Entry`）自 format 13 起有頂層 `references:`（`entity-backlink-com
 |---|---|---|---|---|
 | `doi`／`pmid`／`isbn` | 帶：那個號必須在清單內；不帶：必須是 retrieval | 帶 value 時兩種都收 | 帶 value＝那個號出自這份來源；不帶＝對這個欄位做過一次查找 | format 13（#394）；不帶 value 的查找 #517 |
 | `authors` | 必帶：被退役的原 literal 逐字 | 只收 judgement（`拆為 ⟦a⟧ ⟦b⟧：理由`／`移除：理由`） | 作者位記錄：拆分、移除 | format 16（#450）／17（#457） |
+| `authors` | **不收**：被換掉的是整份列，不是一格 | 只收 judgement，statement `替換為 ⟦a⟧ …；依據第 N 頁：理由`、rests-on **恰一個** digest | 作者列替換記錄（見下方「作者列替換記錄」）；一筆 work 至多一筆 | format 23（#742） |
 | `fields.<鍵>` | 不收（D2：純量） | retrieval，或帶 digest 的 judgement | 見下方三種讀法 | #517（沒有自己的 bump；寫入閘由 #668 補在 17，見 §5.0 format 17 那一列） |
 | `date` | 不收（D2：純量） | retrieval，或帶 digest 的 judgement | 頂層 `Entry.date` 的來源；三種讀法同下 | format 20（#655） |
 
@@ -1215,8 +1216,9 @@ work（`Entry`）自 format 13 起有頂層 `references:`（`entity-backlink-com
 literal、kind 是 judgement；`enrich` 補進去的作者是**在場**的值、來源是一次取得。同一個 field 承載兩種
 相反的語意，讀它的每一處（附著驗證、`staleSplitRecords`、`contradictedRemovalRecords`、un-split）都得先猜
 是哪一種——那正是 `fields.` 前綴消掉的那種歧義。所以 `enrich` 補作者時不寫 reference，理由具名進 item 的
-`provenanceOmitted.authors`。作者位的來源若日後要記，要另開一格並替會被拆、被移除、被升格的作者位設計
-定位（另案）。
+`provenanceOmitted.authors`。**作者列的來源自 format 23 起有一種記法**（#742）：依作品全文整組替換時寫的作者列替換記錄——
+它記的是整份列、不是個別作者位，所以不需要替會被拆、被移除、被升格的作者位設計定位（之後的升格不讓它失效，
+拆分與改寫由 `staleReplacementRecords` 報出，見下方「作者列替換記錄」）。`enrich` 補進去的作者仍不寫 reference。
 
 **寫入端**：會寫 `fields.<鍵>`、`date` 與識別碼來源的只有 `enrich`（#517／#655），而且只寫正結果——
 add-only 補值的前提是來源**給了**值；負結果的寫入端是查證流程，另案。`date` 那一格在 format < 20 的
@@ -1300,6 +1302,66 @@ kind 不看。搬了什麼在報告的 `referencesCarried`（dry-run 也預告�
 （出路：先在倖存者以 `--add-issn "號 (角色)"` 補上；兩邊矛盾時 `--remove-issn` 再 `--add-issn`，移除會連帶刪掉倖存者上指向那個號的
 reference；遷移留下的認不出的角色只能手改 YAML）。倖存者有角色而被併者沒有，不算失去。在此之前角色不在合併的比較裡：被併者的角色靜默消失，
 兩邊矛盾時倖存者靜默贏。
+
+### 作者列替換記錄（format 23，#742）
+
+依作品本身的全文整組替換一筆 work 的作者列時（`update-entry --replace-authors`／`akashic_update_entry.replace_authors`），
+在 work 的 `references` 寫一筆**作者列替換記錄**，記下這份作者列依據什麼：
+
+```yaml
+references:
+- field: authors
+  judgement: 替換為 ⟦Katrina G. Claw⟧ ⟦Matthew Z. Anderson⟧ ⟦key:garrison-nanibaa⟧ ⟦{Summer internship for INdigenous peoples in Genomics (SING) Consortium}⟧；依據第 1 頁：PDF 第 1 頁 byline
+  rests-on:
+  - sha256:<64 hex>
+```
+
+- **文法**：`替換為 ⟦s1⟧ ⟦s2⟧ … ⟦sn⟧；依據第 N 頁：理由`，唯一解析器 `AuthorListReplacementRecordValue`（寫入面、附著驗證、
+  `StoreHealth` 共用）。每段是替換後那一位寫進 store 的值，逐字：個人 literal、帶 corporate 大括號的團體名，或以 `from` 沿用的
+  已歸戶位寫成 `key:<person key>`／`organization:<org key>`。段數等於作者列長度（≥ 1），段內不得含 `⟦`／`⟧`。`N` 是 PDF 的
+  **實體頁序**（從 1 起算、只收 ASCII 數字、不收前導零——同一個頁序只有一種寫法），不是印刷頁碼。理由（trim 後）非空。
+- **定位**：value **缺席**、kind 是 judgement、`rests-on` 恰一個合法且非空內容的 digest（那份全文，必須是這筆 work 自己的
+  `akashic.sources` 之一——寫入面驗，附著驗證只驗形狀）。一筆 work 至多一筆；兩筆即整檔 quarantine（值域約束）。
+- **與拆分、移除記錄的區分**：三者都住 `field: authors`。拆分與移除的 value 必填（**已退役**的原 literal），替換記錄沒有 value
+  ——value 在不在場就把它分開，statement 前綴（`拆為 `／`移除：`／`替換為 `）再確認一次；value 缺席的拆分 statement、帶 value
+  的替換 statement 都拒收。替換**移除**這筆 work 上全部描述舊作者列的記錄（拆分、移除、先前的替換）與作者清單完整性證言
+  （`akashic.author-list-completeness`），所以替換之後新的拆分與它並存是正常的（之後的事），而不是一開始就共存。
+- **失效**：記錄寫下的是替換當時的依據。段數與作者列長度不同、或某個 literal 位與同位的段不是位元組相同時，`StoreHealth` 報 warning
+  （`staleReplacementRecords`，前綴「作者列替換記錄與目前的作者列對不上」；doctor 與 App 各一個計數）；`.key`／`.organization`
+  位一律視為相符——升格是常態工作。warning 不擋寫入、`validate` exit 0；處置是用全文重新核對後再替換一次。
+- **Zotero pull**：帶替換記錄的 work，pull 不覆寫作者列，記進 `authorsPreserved`（作品本身是書目的依據，#639）。
+- **為什麼不寫完整性證言**：證言綁著作者列的確切快照，decode 時不符即整檔 quarantine，而升格、拆分都會改變快照；寫證言等於讓
+  之後每一次正常的歸戶都把檔案打進隔離。替換記錄失效時只出 warning。
+
+### 團體成員名單：`group-members:`（format 23，#742）
+
+work 頂層的 `group-members:` 記團體作者的成員名單——照作品裡印的名單（文末、附錄、腳註）逐字、次序照原文，是**出版當時**的
+成員（使用者 2026-10-21 裁決 2：「需要紀錄，不然團體可能以後會換成員」）。成員**不在** `authors` 裡。
+
+```yaml
+authors:
+- literal: Katrina G. Claw
+- literal: '{Summer internship for INdigenous peoples in Genomics (SING) Consortium}'
+group-members:
+- group: '{Summer internship for INdigenous peoples in Genomics (SING) Consortium}'
+  rests-on: sha256:<64 hex>
+  page: 7
+  members:
+  - Joseph M. Yracheta
+  - Krystal S. Tsosie
+```
+
+- 鍵序緊接在 `authors` 之後；空清單不寫出（既有記錄零 diff）。每組的鍵是封閉的四個：`group`、`rests-on`、`page`、`members`。
+- `group` 帶 corporate 大括號、前後無空白，寫入時必須逐字等於作者列裡一個團體位的值；之後那一位被升格為 organization，
+  名單照留（它記的是作品裡寫的團體名）。同一個 `group` 至多一組。
+- `rests-on` 一個合法、非空內容的 digest；`page` 是 PDF 實體頁序（正規寫法的整數，`07` 拒收）。依據直接寫在名單上，不另寫
+  `references` 記錄：名單只由替換腿寫，理由已在替換記錄裡。
+- `members` 至少一位，次序照原文，不得有逐字重複；每位非空、前後無空白。規則只有一份（`GroupMemberList.problem`），decode 與寫入面共用。
+- **成員是字串，不是二態 ref**：目前沒有任何面能把成員升格為 person key；做成 ref 就是新的關係邊，`rename-person` 與 person 合併都得
+  遷移它，而它在這一輪不會有任何 key。升格是另一個 change 的顯式裁決。
+- work 合併時比對（差集判準、指名）：被併者獨有的那一組會遺失，合併拒絕並指名。三個讀取面（MCP `entryDict`、CLI `get-entry`、App）都顯示。
+- 寫入閘：帶 `group-members` 的 work 只能寫進 marker ≥ 23 的 store。format-22 binary 會 tolerant-preserve 原樣保留它（頂層未知鍵），
+  但它的 Zotero pull 不認得替換記錄，會蓋掉核對過的作者列、名單就與作者列脫鉤——所以與替換記錄共用一次 bump。
 
 ### 名字分類的判定記錄（format 22，#564）
 

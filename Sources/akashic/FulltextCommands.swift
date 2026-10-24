@@ -335,7 +335,7 @@ struct FulltextCompareCmd: ParsableCommand {
                     refusal = displaySafeErrorText(error)
                 }
             }
-            let object: [String: Any] = ["citekey": entry.citekey, "rows": result.rows,
+            let object: [String: Any] = ["citekey": entry.citekey, "rows": result.rows,   // display-safe-exempt: entry.citekey 受 StoreKey 約束；這份 JSON 是給 skill 讀的機器格式（值是作品與 store 的原文）
                                          "replaceAuthors": result.replaceAuthors ?? NSNull(), "refusal": refusal]
             let data = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .prettyPrinted, .withoutEscapingSlashes])
             if let outURL {

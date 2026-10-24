@@ -205,8 +205,8 @@ extension AkashicService {
     static func replacementSegment(_ a: Author) -> String {
         switch a {
         case .literal(let s): return s
-        case .key(let k): return "key:\(k)"
-        case .organization(let k): return "organization:\(k)"
+        case .key(let k): return "key:\(k)"   // display-safe-exempt: k 受 StoreKey 約束（[a-z0-9-]）；呈現端另外消毒
+        case .organization(let k): return "organization:\(k)"   // display-safe-exempt: k 受 StoreKey 約束；呈現端另外消毒
         }
     }
 
@@ -266,7 +266,7 @@ extension AkashicService {
             throw ServiceError.invalid(
                 "舊作者列有 \(dropped.count) 個已歸戶的位置既沒有被 from 沿用、也沒有列在 release："   // display-safe-exempt: dropped.count 是 Int
                 + dropped.map { "第 \($0.offset) 位 \(displaySafeInvisible(Self.replacementSegment($0.element), max: 200))" }.joined(separator: "、")   // display-safe-exempt: $0.offset 是 Int；值逐一消毒
-                + "——安靜丟掉一個已歸戶的位置等於撤銷一個身分判定。用 {\"from\": i} 沿用，或在 release 逐位附理由；整批拒絕、零寫入")
+                + "——安靜丟掉一個已歸戶的位置等於撤銷一個身分判定。用 {\"from\": i} 沿用，或在 release 逐位附理由；整批拒絕、零寫入")   // display-safe-exempt: i 是說明文字裡的字母，不是插值
         }
 
         // 新作者列
@@ -382,7 +382,7 @@ extension AkashicService {
                 if let v = r.value { d["value"] = displaySafe(v, max: 400) }
                 if case .judgement(let s, let restsOn) = r.kind {
                     d["statement"] = displaySafe(s, max: 70_000)
-                    d["restsOn"] = restsOn   // display-safe-exempt: decode 時過 isValidDigest
+                    d["restsOn"] = restsOn   // display-safe-exempt: restsOn 在 decode 時過 isValidDigest
                 }
                 return d
             },

@@ -224,7 +224,7 @@ actor AkashicMCPServer {
                 "add_sources": strArray("digest（sha256: 加 64 個小寫十六進位，0 byte 內容的 digest 拒收；先用 akashic_store_source 存）。本機 sources/ 沒有、index 沒有取得記錄、空內容的 digest、重複、超過 200 個 → 整批拒絕零寫入"),
                 "remove_zotero_sources": strArray("<library_id>:<zotero_key>=理由（沒記 library_id 的來源用 ?:<zotero_key>；理由 ≤ 4,096 位元組）。這筆沒有的來源、同來源兩次、形狀錯、理由空白或過長、超過 200 個 → 整批拒絕零寫入"),
                 "remove_sources": strArray("<digest>=理由（digest 要在該 work 的 akashic.sources 上；理由 ≤ 4,096 位元組）。不在清單上、digest 形狀不對、理由空白或過長、同一 digest 兩次、超過 200 個 → 整批拒絕零寫入"),
-                "replace_authors": .object(["type": .string("object"), "description": .string("形狀與失敗類別見 CLI `akashic update-entry --help` 的 --replace-authors")]),
+                "replace_authors": .object(["type": .string("object"), "description": .string("形狀與失敗類別見 CLI `akashic update-entry --help` 的 --replace-authors")]),   // display-safe-exempt: .object 是 schema 的編譯期常量
                 "dry_run": .object(["type": .string("boolean"), "description": .string("預設 true（只回計畫）；false 才寫")]),
              ], required: ["citekey"])),
         Tool(name: "akashic_venue",

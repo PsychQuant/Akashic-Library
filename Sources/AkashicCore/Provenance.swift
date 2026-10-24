@@ -894,12 +894,36 @@ extension Venue {
 /// 這一格的例外**只有 `authors`**，其他 field 不得類推（`default` 分支照舊拒絕）。
 extension Entry {
     public func validateReferenceAttachment() throws {
+        var replacementRecords = 0
         for r in references {
             switch r.field {
+            case "authors" where r.value == nil:
+                // **第三種記錄：作者列替換**（#742，design D2／D3）。value 缺席——被換掉的是整份列，不是一格——
+                // 所以 value 在不在場就把它與拆分、移除分開；statement 前綴（`替換為 `）再確認一次。
+                // 依據必須恰好是一份全文：rests-on 一個 digest（形狀與非空內容已由平面 init 的 `isValidDigest` 擋過）。
+                guard case .judgement(let statement, let restsOn) = r.kind,
+                      AuthorListReplacementRecordValue.parse(statement) != nil else {
+                    throw StoreYAMLError.invalidField(
+                        "entry.references(field: authors)",
+                        "沒有 value 的作者位記錄只能是作者列替換記錄（judgement，statement 走 "
+                        + "`替換為 ⟦a⟧ ⟦b⟧…；依據第 N 頁：理由`）；拆分與移除記錄必須帶 value＝被退役的原 literal")
+                }
+                guard restsOn.count == 1 else {
+                    throw StoreYAMLError.invalidField(
+                        "entry.references(field: authors)",
+                        "作者列替換記錄的 rests-on 必須恰好一個 digest（替換所依據的那一份全文），實得 \(restsOn.count) 個")
+                }
+                replacementRecords += 1
+                guard replacementRecords == 1 else {
+                    throw StoreYAMLError.invalidField(
+                        "entry.references(field: authors)",
+                        "一筆 work 至多一筆作者列替換記錄——新的替換會移除舊的（design D5）")
+                }
             case "authors":
-                // **兩種記錄共用這一格**：拆分（#450，退役後留 N ≥ 2 段）與移除（#457，留 0 段）。
+                // **帶 value 的兩種記錄**：拆分（#450，退役後留 N ≥ 2 段）與移除（#457，留 0 段）。
                 // 兩者的語意相同——value 是**已退役**的作者 literal——差別只在退役之後剩幾段，
                 // 所以它們住同一個 field，由 statement 前綴分辨（`拆為 ` vs `移除：`）。
+                // 沒有 value 的那一種（替換記錄，#742）在上一個 case。
                 guard let v = r.value, !v.isEmpty else {
                     throw StoreYAMLError.invalidField(
                         "entry.references(field: authors)",

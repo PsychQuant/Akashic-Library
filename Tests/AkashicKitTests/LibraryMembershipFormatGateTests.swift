@@ -23,9 +23,9 @@ final class LibraryMembershipFormatGateTests: XCTestCase {
     private let rule = LibraryMembership.rule(LibraryRule(venue: "psychological-methods"))
     private let document = LibraryMembership.document(citekey: "cheng2026critique")
 
-    /// #564 起 supported 是 22（名字分類的判定記錄）；成員性質的門檻仍是 21——兩個數各自是一個 vocabulary 的門檻。
-    func testSupportedIsTwentyTwoAndTheMembershipGateStaysAtTwentyOne() {
-        XCTAssertEqual(StoreVersion.supported, 22)
+    /// #742 起 supported 是 23（作者列替換記錄與 group-members）；成員性質的門檻仍是 21——兩個數各自是一個 vocabulary 的門檻。
+    func testSupportedIsTwentyThreeAndTheMembershipGateStaysAtTwentyOne() {
+        XCTAssertEqual(StoreVersion.supported, 23)
         XCTAssertEqual(StoreVersion.libraryMembershipFormat, 21)
     }
 

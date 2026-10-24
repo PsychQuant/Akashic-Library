@@ -228,7 +228,7 @@ group-members:
 
 **Scope**
 
-- In：上列 CLI／MCP 腿、兩個 fulltext 子命令、新 skill（含 D14 的 OCR 路徑）與 `akashic-fetch-fulltext` 的指向、format 23、D8 warning、D9 pull 規則、規則表與 `WriteGateRulings`、`docs/store-format.md`、`writing-to-the-store.md`、plugin 殼 0.13.7、changelog。
+- In：上列 CLI／MCP 腿、兩個 fulltext 子命令、新 skill（含 D14 的 OCR 路徑）與 `akashic-fetch-fulltext` 的指向、format 23、D8 warning、D9 pull 規則、規則表與 `WriteGateRulings`、`docs/store-format.md` 與 `README.md` 的 format 表、`group-members` 的三個讀取面（MCP `entryDict`、CLI `get-entry`、App `EntryDetailView`——既有守衛 `EntrySurfaceTests` 的要求）、`writing-to-the-store.md`、plugin 殼 0.13.7、changelog。
 - Out：Non-Goals 所列各項。
 
 ## Risks / Trade-offs

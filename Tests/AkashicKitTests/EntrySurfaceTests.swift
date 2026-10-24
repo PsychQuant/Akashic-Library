@@ -110,7 +110,8 @@ final class EntrySurfaceTests: XCTestCase {
     /// CLI 讀的是 `entryDict` 的 JSON 鍵，而 JSON 鍵沿用 YAML 鍵名——Swift 屬性名與序列化鍵名
     /// 不同的欄位要在這裡對照，否則守衛會把「讀到了」誤報成缺口（#605：`additionalProvenance`
     /// 在 YAML／JSON 都叫 `provenance_additional`）。
-    static let jsonKeyAlias = ["additionalProvenance": "provenance_additional"]
+    static let jsonKeyAlias = ["additionalProvenance": "provenance_additional",
+                               "groupMembers": "group-members"]   // #742：YAML／JSON 的鍵名是 `group-members`
 
     /// canonical accessor 也算讀到——它的 doc 明寫「讀取請走它」。
     /// 守衛若只認欄位名的字面，會**逼呼叫端改用較差的讀法才能過關**。

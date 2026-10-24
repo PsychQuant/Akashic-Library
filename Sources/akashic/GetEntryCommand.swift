@@ -67,6 +67,13 @@ struct GetEntryCmd: ParsableCommand {
                 print("venues\t\(rendered.joined(separator: "; "))")   // display-safe-exempt: 值取自 AkashicService.getEntry（entryDict 已逐欄位 displaySafe），二次消毒非冪等（\u{5C} 逃逸）
             }
         }
+        // 團體作者的成員名單（#742）：JSON 面有的，人可讀面也要看得到。一組一行：團體名、頁序、成員照原文次序。
+        if let lists = d["group-members"] as? [[String: Any]] {
+            for list in lists {
+                let members = (list["members"] as? [String] ?? []).joined(separator: "; ")
+                print("group-members\t\(list["group"] as? String ?? "")（第 \(list["page"] as? Int ?? 0) 頁）：\(members)")   // display-safe-exempt: 值取自 AkashicService.getEntry（entryDict 已逐欄位 displaySafe），二次消毒非冪等（\u{5C} 逃逸）
+            }
+        }
         if let thesis = d["thesis"] as? [String: Any] {
             if let degree = thesis["degree"] as? String {
                 print("thesis:degree\t\(degree)")   // display-safe-exempt: 值取自 AkashicService.getEntry（entryDict 已逐欄位 displaySafe），二次消毒非冪等（\u{5C} 逃逸）

@@ -3630,6 +3630,14 @@ extension LibraryStore {
                 }
             }.joined(separator: "、"))
         }
+        // group-members（#742）：差集判準、指名——同 attachments／venues 的形狀。名單是作品印出來的事實（出版當時的成員），
+        // 合併不搬它；被併者有而倖存者沒有的那一組會隨被併者的檔一起消失。被併者的作者列替換記錄由下方 references 的差集報出。
+        let lostMemberLists = e.groupMembers.filter { !keeper.groupMembers.contains($0) }
+        if !lostMemberLists.isEmpty {
+            losses.append("group-members: " + lostMemberLists.map {
+                "\($0.group)（\($0.members.count) 位，第 \($0.page) 頁）"   // display-safe-exempt: group：losses 在 fieldsLostByMerging 回傳前逐條 displaySafeInvisible（R28 D80）；count 與 page 是 Int
+            }.joined(separator: "、"))
+        }
         // status：被併有、倖存無或不同
         if let s = e.akashic.status, !s.isEmpty, keeper.akashic.status != s {
             losses.append("status: \(s)")
@@ -3976,7 +3984,8 @@ extension LibraryStore {
     /// 被併者的主＋附加來源，`Provenance.mergeSources` 把它們帶到倖存者。
     /// #641：第 19 個是 `fileSituation`——**刻意排除**。它不是記錄內容，是 load 對這筆記錄的檔案處境的觀察；
     /// 合併寫的是倖存者的檔、刪的是被併者的檔（兩者都先過 #631 的前置），觀察隨下一次 load 重算，沒有東西會遺失。
-    static let entryFieldsCoveredByMergeCheck = 19
+    /// #742：第 20 個是 `groupMembers`——**比對**（差集判準、指名）。名單是作品印的事實，合併不搬它，被併者獨有的那一組會遺失。
+    static let entryFieldsCoveredByMergeCheck = 20
 
     /// 合併後倖存者的 Zotero 來源（#605）：實跑與 dry-run 共用同一個計算，兩邊才不會分岔。
     static func absorbingZoteroSources(_ keeper: Entry, doomed: [Entry]) -> Entry {

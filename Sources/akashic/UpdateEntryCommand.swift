@@ -13,7 +13,7 @@ import AkashicMCPKit
 struct UpdateEntryCmd: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "update-entry",
-        abstract: "work 的部分更新（預設乾跑，--apply 才寫）：--remove-field 移除 fields 的值（#544）、--add-source 宣告已存的內容是這篇的副本（#614）、--remove-zotero-source 移除記下的 Zotero 來源（#680）、--remove-source 收回一條副本宣告（#677）；四者兩兩各自單獨呼叫")
+        abstract: "work 的部分更新（預設乾跑，--apply 才寫）：--remove-field 移除 fields 的值（#544）、--add-source 宣告已存的內容是這篇的副本（#614）、--remove-zotero-source 移除記下的 Zotero 來源（#680）、--remove-source 收回一條副本宣告（#677）、--replace-authors 依作品全文整組替換作者列（#742）；五者兩兩各自單獨呼叫")
 
     @OptionGroup var options: LibraryOptions
 
@@ -71,13 +71,38 @@ struct UpdateEntryCmd: ParsableCommand {
                              + "不與另外三條腿（--remove-field／--add-source／--remove-zotero-source）組合（#677）"))
     var removeSource: [String] = []
 
+    @Option(name: .customLong("replace-authors"),
+            help: ArgumentHelp("依作品全文整組替換作者列（#742）：<JSON 檔>。這是判定（哪一行是 byline 要讀全文才知道），依據與理由必填、寫成一筆作者列替換記錄。"
+                             + "JSON（與 MCP replace_authors 同形，鍵名 lowerCamelCase）：{\"source\": \"sha256:<64 hex>\", \"page\": 1, \"reason\": \"…\", "
+                             + "\"authors\": [{\"literal\": \"人名\"}, {\"group\": \"團體名（不含大括號）\"}, {\"from\": 19}], "
+                             + "\"release\": [{\"index\": 12, \"reason\": \"…\"}], \"groupMembers\": [{\"group\": \"與某個 group 項逐字相同\", \"page\": 7, \"members\": [\"成員\"]}]}。"
+                             + "release 與 groupMembers 可省；其他鍵在任何一層都拒絕。source 是作品全文的 digest，要已連在這筆的 akashic.sources（先 --add-source）、本機 sources/ 有這份；"
+                             + "page 是 PDF 的實體頁序（1 起算，整數；不收字串、布林、小數）；reason 與 release 的理由非空、至多 4,096 bytes。"
+                             + "authors 每一項恰好一個鍵：literal（個人名）、group（團體名，寫入時加 corporate 大括號）、from（原樣沿用舊作者列第 i 位，0 起算，三種狀態都可）；"
+                             + "名字非空、前後無空白、不含 ⟦ ⟧、至多 65,536 bytes，literal 不得自帶大括號（改用 group）。"
+                             + "舊作者列每個已歸戶位（key／organization）要被恰好一個 from 沿用、或列在 release 附理由，兩者都沒有即拒；release 只收已歸戶位、不得與 from 重疊或重複；from 不得越界或用兩次。"
+                             + "groupMembers 有給（含空陣列）就整組替換成員名單（group 要對得上 group 項、同組不得兩次、members 至少一位且不重複）；沒給就保留團體名仍對得上新作者列的組，其餘移除並列在 groupMembersRemoved。"
+                             + "實寫移除這筆描述舊作者列的拆分、移除、先前替換記錄與作者清單完整性證言（recordsRemoved、witnessRemoved），要求這筆 work 的檔已在 git 裡 commit、乾淨；"
+                             + "釋放不刪任何 verdict，仍指向已不在新列的 literal 的 confirmed verdict 列在 verdictsOnRetiredLiterals（CLI 全列，MCP 至多 20 筆）。"
+                             + "需要 store format 23；乾跑在較舊的 store 上照樣報出計畫，寫入閘的拒絕寫在 applyRefusal。不與另外四條腿組合"))
+    var replaceAuthors: String?
+
     @Flag(name: .long, help: "實際寫入（預設只列出會做什麼）")
     var apply = false
+
+    /// `--replace-authors` 的檔讀成位元組（解析在服務的唯一解碼器，CLI 不另解）。
+    private func replaceAuthorsData() throws -> Data? {
+        guard let path = replaceAuthors else { return nil }
+        do { return try Data(contentsOf: URL(fileURLWithPath: path)) } catch {
+            throw ValidationError("讀不到 --replace-authors 的檔「\(displaySafeInvisible(path, max: 300))」：\(displaySafeErrorText(error))")
+        }
+    }
 
     func validate() throws {
         try argvCheck {
             try AkashicService.checkUpdateEntryArguments(removeFields: removeField, addSources: addSource,
-                                                         removeZoteroSources: removeZoteroSource, removeSources: removeSource)
+                                                         removeZoteroSources: removeZoteroSource, removeSources: removeSource,
+                                                         replaceAuthors: try replaceAuthorsData())
         }
     }
 
@@ -90,8 +115,9 @@ struct UpdateEntryCmd: ParsableCommand {
         // 寫入面封閉例外形：只回 service payload（mcp-cli-parity 的既有裁決）
         print(try LegacyCopyReport.payload {   // #705：writtenWithLegacyCopy 進這份 JSON
             try service.updateEntry(citekey: citekey, removeFields: removeField, addSources: addSource,
-                                    removeZoteroSources: removeZoteroSource, removeSources: removeSource, dryRun: !apply,
-                                    sourcesLimit: nil)   // CLI 全列（輸出進人的終端機）；MCP 面截 20 筆，理由見 `sourcesAddedCap`
+                                    removeZoteroSources: removeZoteroSource, removeSources: removeSource,
+                                    replaceAuthors: try replaceAuthorsData(), dryRun: !apply,
+                                    sourcesLimit: nil, verdictsLimit: nil)   // CLI 全列（輸出進人的終端機）；MCP 面截 20 筆，理由見 `sourcesAddedCap`
         })
     }
 }

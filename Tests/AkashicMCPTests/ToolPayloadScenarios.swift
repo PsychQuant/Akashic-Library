@@ -124,6 +124,21 @@ enum ToolPayloadScenarios {
             return try $0.service.updateEntry(citekey: "zotero2020", removeFields: nil, removeZoteroSources: ["1:PRIM0001=主來源記錯了"],
                                               dryRun: true)
         },
+        // #742：第五條腿。指向 Hau-Hung Yang 的 confirmed verdict 在替換後指向已退役的 literal（verdictsNote 出現）
+        PayloadScenario("akashic_update_entry", "replace_authors dry_run", params: ["citekey", "replace_authors", "dry_run"]) {
+            let d = try $0.storeDigest()
+            _ = try $0.service.updateEntry(citekey: firstEntry, removeFields: nil, addSources: [d], dryRun: false)
+            var yang = Person(key: "yang-hau-hung")
+            yang.references = [ProvenanceReference(
+                field: "resolution-confirmed",
+                value: ProvenanceReference.VerdictPairingValue(holderKind: .work, holder: firstEntry, literal: "Hau-Hung Yang").encoded,
+                kind: .judgement(statement: "byline", restsOn: []))]
+            try $0.store.writePerson(yang)
+            let request: [String: Any] = ["source": d, "page": 1, "reason": "PDF 第 1 頁 byline",
+                                          "authors": [["from": 0], ["literal": "Yang, Hau-Hung"]]]
+            return try $0.service.updateEntry(citekey: firstEntry, removeFields: nil,
+                                              replaceAuthors: try JSONSerialization.data(withJSONObject: request), dryRun: true)
+        },
         PayloadScenario("akashic_store_source", "file", params: ["path", "media_type", "retrieved", "origin", "acquisition", "note"]) { try $0.storedSourceReceipt() },
         PayloadScenario("akashic_enrich", "dry_run", params: ["proposals", "dry_run"]) {
             try $0.service.enrich(proposals: [.init(citekey: "desc2020", fields: ["abstract": "補上的摘要"])],

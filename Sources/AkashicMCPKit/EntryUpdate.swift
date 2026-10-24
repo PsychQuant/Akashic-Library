@@ -132,39 +132,46 @@ extension AkashicService {
         let reason: String
     }
 
-    /// 一次呼叫做的那一件事（四條腿兩兩互斥，各自單獨呼叫）。
+    /// 一次呼叫做的那一件事（五條腿兩兩互斥，各自單獨呼叫）。
     enum UpdateEntryLeg {
         case removeFields([RemoveFieldSpec])
         case addSources([String])
         case removeZoteroSources([RemoveZoteroSourceSpec])
         case removeSources([RemoveSourceSpec])
+        /// #742：依作品全文整組替換作者列（`AuthorListReplacement.swift`）。
+        case replaceAuthors(AuthorListReplacementRequest)
     }
 
     /// CLI 的 `validate()` 用（#654 的形）：`update-entry` 只看參數的全部檢查——與服務在讀 store 之前跑的是同一個函式。
     public static func checkUpdateEntryArguments(removeFields: [String]?, addSources: [String]? = nil,
-                                                 removeZoteroSources: [String]? = nil, removeSources: [String]? = nil) throws {
+                                                 removeZoteroSources: [String]? = nil, removeSources: [String]? = nil,
+                                                 replaceAuthors: Data? = nil) throws {
         _ = try parseUpdateEntryArguments(removeFields: removeFields, addSources: addSources,
-                                          removeZoteroSources: removeZoteroSources, removeSources: removeSources)
+                                          removeZoteroSources: removeZoteroSources, removeSources: removeSources,
+                                          replaceAuthors: replaceAuthors)
     }
 
     /// 至少要有一件事、四條腿兩兩不組合，再交給各自的形狀檢查。**不組合的理由**：`remove_fields`、`remove_zotero_sources`、`remove_sources`
     /// 是判定（理由只進報告、要 git 閘，而被移除的東西各不相同：`fields` 的值、Zotero 來源、`akashic.sources` 的副本宣告），`add_sources` 是落地
     /// （程式編輯）——`two-kinds-of-edits` 要求兩種寫入分開，混在一次呼叫裡報告與閘的語意也跟著混；三條移除腿的報告形狀與閘的標籤不同，同樣不混。
     static func parseUpdateEntryArguments(removeFields: [String]?, addSources: [String]?,
-                                          removeZoteroSources: [String]? = nil, removeSources: [String]? = nil) throws -> UpdateEntryLeg {
+                                          removeZoteroSources: [String]? = nil, removeSources: [String]? = nil,
+                                          replaceAuthors: Data? = nil) throws -> UpdateEntryLeg {
         let removals = removeFields ?? [], additions = addSources ?? [], zoteroRemovals = removeZoteroSources ?? [], sourceRemovals = removeSources ?? []
-        let given = [!removals.isEmpty, !additions.isEmpty, !zoteroRemovals.isEmpty, !sourceRemovals.isEmpty].filter { $0 }.count
+        let given = [!removals.isEmpty, !additions.isEmpty, !zoteroRemovals.isEmpty, !sourceRemovals.isEmpty,
+                     replaceAuthors != nil].filter { $0 }.count
         guard given > 0 else {
             throw ServiceError.invalid(
-                "沒有要做的事：remove_fields（--remove-field）、add_sources（--add-source）、remove_zotero_sources（--remove-zotero-source）"
-                + "或 remove_sources（--remove-source）給一個")
+                "沒有要做的事：remove_fields（--remove-field）、add_sources（--add-source）、remove_zotero_sources（--remove-zotero-source）、"
+                + "remove_sources（--remove-source）或 replace_authors（--replace-authors）給一個")
         }
         guard given == 1 else {
             throw ServiceError.invalid(
                 "remove_fields（--remove-field）、add_sources（--add-source）、remove_zotero_sources（--remove-zotero-source）、"
-                + "remove_sources（--remove-source）兩兩各自單獨呼叫——有的是判定、有的是落地，被移除的東西也各不相同，"
-                + "混在一次呼叫裡會讓報告與 git 閘的語意混在一起；整批拒絕、零寫入")
+                + "remove_sources（--remove-source）、replace_authors（--replace-authors）兩兩各自單獨呼叫——有的是判定、有的是落地，"
+                + "被改的東西也各不相同，混在一次呼叫裡會讓報告與 git 閘的語意混在一起；整批拒絕、零寫入")
         }
+        if let replaceAuthors { return .replaceAuthors(try decodeReplaceAuthors(replaceAuthors)) }
         if !removals.isEmpty { return .removeFields(try parseRemoveFieldSpecs(removals)) }
         if !additions.isEmpty { return .addSources(try parseAddSources(additions)) }
         if !zoteroRemovals.isEmpty { return .removeZoteroSources(try parseRemoveZoteroSourceSpecs(zoteroRemovals)) }
@@ -392,10 +399,15 @@ extension AkashicService {
     /// `update-entry`／`akashic_update_entry` 的入口：只看參數的檢查在讀 store 之前（#654 的形），再分派到那一條腿。
     /// `sourcesLimit`：`add_sources` 的報告列幾筆。預設是 MCP 面的上限（`sourcesAddedCap`），CLI 傳 nil 全列（`sourcesAddedCap` 的 doc）。
     public func updateEntry(citekey: String, removeFields: [String]?, addSources: [String]? = nil,
-                            removeZoteroSources: [String]? = nil, removeSources: [String]? = nil, dryRun: Bool,
-                            sourcesLimit: Int? = AkashicService.sourcesAddedCap) throws -> String {
+                            removeZoteroSources: [String]? = nil, removeSources: [String]? = nil,
+                            replaceAuthors: Data? = nil, dryRun: Bool,
+                            sourcesLimit: Int? = AkashicService.sourcesAddedCap,
+                            verdictsLimit: Int? = AkashicService.retiredLiteralVerdictsCap) throws -> String {
         switch try Self.parseUpdateEntryArguments(removeFields: removeFields, addSources: addSources,
-                                                  removeZoteroSources: removeZoteroSources, removeSources: removeSources) {
+                                                  removeZoteroSources: removeZoteroSources, removeSources: removeSources,
+                                                  replaceAuthors: replaceAuthors) {
+        case .replaceAuthors(let request):
+            return try replaceEntryAuthors(citekey: citekey, request: request, dryRun: dryRun, verdictsLimit: verdictsLimit)
         case .removeFields(let specs): return try removeEntryFields(citekey: citekey, specs: specs, dryRun: dryRun)
         case .addSources(let digests): return try addEntrySources(citekey: citekey, digests: digests, dryRun: dryRun, sourcesLimit: sourcesLimit)
         case .removeZoteroSources(let specs): return try removeEntryZoteroSources(citekey: citekey, specs: specs, dryRun: dryRun)

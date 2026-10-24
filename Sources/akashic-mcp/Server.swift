@@ -214,13 +214,17 @@ actor AkashicMCPServer {
                  + "remove_zotero_sources 移除這筆記下的 Zotero 來源（主來源或附加來源；判定：理由必填、只回在 zoteroSourceRemovals；實寫要求 work 檔已 commit、乾淨）："
                  + "主來源移除後附加來源不升格（primaryRemovedNote），zoteroLinkState 回連結狀態前後，zoteroSourcesRemaining／zoteroSourcesRemainingTotal 是剩下的與總數。"
                  + "remove_sources 收回一條副本宣告（判定：理由必填、只回在 sourcesRemoved；只移除宣告，sources/ 的內容與取得記錄不動；實寫要求 work 檔已 commit、乾淨）。"
-                 + "四條腿兩兩不組合。work 無法唯一定位時拒絕。" + legacyCopyNote,
+                 + "replace_authors 依作品全文整組替換作者列（判定；形狀見 CLI help；需要 store format 23）：已歸戶位要 from 沿用或 release，回 authorsBefore／authorsAfter、"
+                 + "replacementRecord、released、recordsRemoved／witnessRemoved（移除的舊記錄與證言）、groupMembersAfter／groupMembersRemoved、"
+                 + "verdictsOnRetiredLiterals（至多 20 筆，verdictsOnRetiredLiteralsTotal／truncated）、unchanged、applyRefusal（乾跑時寫入閘的拒絕）；實寫要求 work 檔已 commit、乾淨。"
+                 + "五條腿兩兩不組合。work 無法唯一定位時拒絕。" + legacyCopyNote,
              inputSchema: obj([
                 "citekey": str("目標 work 的 citekey"),
                 "remove_fields": strArray("<鍵>=理由（鍵與 fields 現有的鍵逐字相符；理由 ≤ 4,096 位元組）。鍵不存在、同鍵兩次、理由空白或過長、超過 200 個 → 整批拒絕零寫入"),
                 "add_sources": strArray("digest（sha256: 加 64 個小寫十六進位，0 byte 內容的 digest 拒收；先用 akashic_store_source 存）。本機 sources/ 沒有、index 沒有取得記錄、空內容的 digest、重複、超過 200 個 → 整批拒絕零寫入"),
                 "remove_zotero_sources": strArray("<library_id>:<zotero_key>=理由（沒記 library_id 的來源用 ?:<zotero_key>；理由 ≤ 4,096 位元組）。這筆沒有的來源、同來源兩次、形狀錯、理由空白或過長、超過 200 個 → 整批拒絕零寫入"),
                 "remove_sources": strArray("<digest>=理由（digest 要在該 work 的 akashic.sources 上；理由 ≤ 4,096 位元組）。不在清單上、digest 形狀不對、理由空白或過長、同一 digest 兩次、超過 200 個 → 整批拒絕零寫入"),
+                "replace_authors": .object(["type": .string("object"), "description": .string("形狀與失敗類別見 CLI `akashic update-entry --help` 的 --replace-authors")]),
                 "dry_run": .object(["type": .string("boolean"), "description": .string("預設 true（只回計畫）；false 才寫")]),
              ], required: ["citekey"])),
         Tool(name: "akashic_venue",
@@ -762,6 +766,8 @@ actor AkashicMCPServer {
                                                  addSources: try argStrictList("add_sources"),
                                                  removeZoteroSources: try argStrictList("remove_zotero_sources"),
                                                  removeSources: try argStrictList("remove_sources"),
+                                                 // **同一個 JSON 解碼器**：`Value` 編回 JSON，交給 CLI 讀檔也走的 `decodeReplaceAuthors`（akashic_enrich 的先例）
+                                                 replaceAuthors: try params.arguments?["replace_authors"].map { try JSONEncoder().encode($0) },
                                                  dryRun: try argFlag("dry_run", default: true))
             case "akashic_venue":
                 output = try service.venue(key: arg("key") ?? "")

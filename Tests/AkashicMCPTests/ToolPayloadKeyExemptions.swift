@@ -78,6 +78,7 @@ enum ToolPayloadKeyExemptions {
             "reasonNote": advisory("提醒理由只在報告裡、要留在 git 得寫進 commit message"),
             "blobNote": advisory("提醒 remove_sources 只收回宣告、sources/ 的內容不動"),
             "reimportNote": advisory("給人讀的一句話：被移除的來源下一次 import-zotero 會怎樣；結構化的是各筆 zoteroSourceRemovals 的 reimportEffect"),
+            "verdictsNote": advisory("給人讀的一句話：verdictsOnRetiredLiterals 怎麼讀（carriedOver 的那幾筆不必處理）；結構化的是各筆的 carriedOver（#742）"),
         ],
         "akashic_update_venue": [
             "reasonNote": advisory("提醒理由只在報告裡、要留在 git 得寫進 commit message"),

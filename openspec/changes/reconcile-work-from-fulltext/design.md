@@ -201,7 +201,7 @@ group-members:
 
 `fulltext text` 的輸出：`{"citekey", "source", "pageCount", "hasTextLayer", "pages": [{"page": 1, "text": "…"}]}`。
 
-`fulltext compare` 的提議輸入：`{"source", "authors": {"page", "items": [同替換腿的作者項]}, "release": [...], "groupMembers": [...], "title": {"value", "page"}, "volume": {...}, "issue": {...}, "pages": {...}, "articleNumber": {...}, "date": {...}}`（作者以外的欄位都可省略）；輸出：`{"citekey", "rows": [{"field", "store", "proposed", "page", "status"}], "replaceAuthors": <替換腿 JSON 或 null>, "refusal": <替換腿驗證器的拒絕訊息或 null>}`，`status` ∈ `same`／`differs`／`absentInStore`／`notProposed`。
+`fulltext compare` 的提議輸入：`{"source", "authors": {"page", "items": [同替換腿的作者項], "reason"（選填；省略時填「PDF 第 N 頁 byline」，依 OCR 文字替換時 skill 用它寫明依據，D14）}, "release": [...], "groupMembers": [...], "title": {"value", "page"}, "volume": {...}, "issue": {...}, "pages": {...}, "articleNumber": {...}, "date": {...}}`（作者以外的欄位都可省略）；輸出：`{"citekey", "rows": [{"field", "store", "proposed", "page", "status"}], "replaceAuthors": <替換腿 JSON 或 null>, "refusal": <替換腿驗證器的拒絕訊息或 null>}`，`status` ∈ `same`／`differs`／`absentInStore`／`notProposed`。
 
 **Failure modes**（全部整批拒絕、零寫入、訊息具名）
 

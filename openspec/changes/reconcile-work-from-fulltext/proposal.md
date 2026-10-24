@@ -22,6 +22,7 @@
   - 全文沒有文字層時，skill 逐頁呼叫 bestOCR 的多引擎共識（只用本機引擎）轉出文字再比對；OCR 讀出的值在乾跑表標「OCR」，一律要使用者 apply 才寫入，替換理由寫明依據是 OCR 與參與的引擎。
   - 落在低共識複核清單的欄位，以及 bestOCR 不可用（沒有工具、本機引擎少於兩個、呼叫失敗）時，才標成無法核對並說出原因（使用者 2026-10-24 改判裁決 3）。
 - 規則與裁決表：`plugin/rules/source-of-truth-over-consent.md` 加「團體署名與成員名單」一列；`docs/rulings/two-kinds-of-edits.md`、`docs/rulings/mcp-cli-parity.md`、`docs/rulings/zero-instance-guards.md` 依各自的封閉列舉加列；`Sources/akashic/WriteGateRulings.swift` 為兩個新的 `fulltext` 子命令登記裁決。
+- MCP `tools/list` 的位元組預算 60,000 → 65,000，不拆分 MCP server（使用者 2026-10-21 於 #578 裁決，觸發點是 `replace_authors`）；守衛 `StdioE2ETests.toolsListByteBudget` 與 `.claude/rules/mcp-cli-parity.md` 的預算段一起改。
 - plugin 殼升版 0.13.6 → 0.13.7；`akashic-bootstrap` 的 `writing-to-the-store.md` 改寫「更新既有記錄」一段。
 
 ## Capabilities
@@ -67,6 +68,8 @@
     - docs/rulings/two-kinds-of-edits.md
     - docs/rulings/mcp-cli-parity.md
     - docs/rulings/zero-instance-guards.md
+    - Tests/AkashicMCPTests/StdioE2ETests.swift
+    - .claude/rules/mcp-cli-parity.md
     - plugin/rules/source-of-truth-over-consent.md
     - plugin/skills/akashic-fetch-fulltext/SKILL.md
     - plugin/skills/akashic-bootstrap/references/writing-to-the-store.md

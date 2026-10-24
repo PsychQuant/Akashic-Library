@@ -8,7 +8,7 @@
 - `Entry.validateReferenceAttachment` 的 `field: authors` 只收兩種 judgement（拆分 `拆為 ⟦a⟧ ⟦b⟧：理由`、移除 `移除：理由`），value 都是**已退役**的 literal。`docs/store-format.md` 寫明作者位的來源若要記，要另開一格並替會被拆、被移除、被升格的作者位設計定位。
 - `AuthorListCompletenessWitness`（`akashic.author-list-completeness`）綁著 work UUID、作者列快照與 fingerprint；decode 時快照與作者列不符即整檔隔離。全庫沒有任何寫入者，live store 0 筆。
 - `PDFReader.read` 以 `pdftotext -l 2` 只讀前兩頁，供 `fulltext verify`／`take` 判斷「這份 PDF 是不是這一篇」，不比對書目欄位。
-- `update-entry` 的 MCP 描述與 schema 計入 `tools/list` 位元組預算：60,000，現行 59,159（2026-10-20 量），剩約 840 bytes。
+- `update-entry` 的 MCP 描述與 schema 計入 `tools/list` 位元組預算：main（`494412f9`）上是 60,000，現行 59,159（2026-10-20 量），剩約 840 bytes。使用者 2026-10-21 於 #578 裁決把預算提高到 65,000、不拆分 MCP server（原話「提高預算好了，還是你覺得要拆不同mcp，哪一種比較好」），觸發點就是本 change 的 `replace_authors`；守衛常數 `StdioE2ETests.toolsListByteBudget` 在 main 上仍是 `60_000`，由本 change 改（D10）。
 
 使用者 2026-10-21 的四項裁決（#742 Decision comment），其中裁決 3 於 2026-10-24 改判（#742 Decision comment，原話「我覺得要叫bestOCR才行」）：
 
@@ -30,7 +30,7 @@
 
 **Non-Goals:**
 
-- **非作者欄位（標題、卷、期、頁碼或 article number、日期）的寫入與其依據記錄**：`compare` 會比對並列出不一致，但本 change 不新增它們的寫入面；既有路徑（`update-entry --remove-field` 再 `enrich`）寫得進值，卻記不下「出自哪份全文第幾頁」——`enrich` 的 retrieval 記錄要 url 與 HTTP 狀態，而 `sources/index.jsonl` 沒有這兩欄；而 `update-entry` 沒有 references 腿，再加一條會超出 MCP 位元組預算。另開 issue 追蹤（tasks 的最後一組）。
+- **非作者欄位（標題、卷、期、頁碼或 article number、日期）的寫入與其依據記錄**：`compare` 會比對並列出不一致，但本 change 不新增它們的寫入面；既有路徑（`update-entry --remove-field` 再 `enrich`）寫得進值，卻記不下「出自哪份全文第幾頁」——`enrich` 的 retrieval 記錄要 url 與 HTTP 狀態，而 `sources/index.jsonl` 沒有這兩欄；而 `update-entry` 沒有 references 腿，再加一條要另外佔用 MCP 位元組預算（D10），應在自己的 issue 裡量過再定。另開 issue 追蹤（tasks 的最後一組）。
 - **成員名單的歸戶**：成員以字串進庫，不是二態 ref；把成員升格為 person key 的面不在本 change（見 D6）。
 - **團體成員的時間軸**：團體做成 organization 實體、帶成員沿革，是另一件事（#742 Diagnosis 的 Residue）。
 - **完整性證言的寫入**：本 change 只移除失效的證言，不寫新的（見 D2）。
@@ -45,7 +45,7 @@
 
 替換腿是 `update-entry --replace-authors <JSON 檔>`（CLI）與 `akashic_update_entry.replace_authors`（MCP，同一個 JSON 物件）。`update-entry` 已經是 work 的部分更新面，命令層已過 #298 的目標確認閘（`WriteGateRulings` 的 `update-entry` 一格是 `.gated`，閘在 `--apply`），新腿不必另設閘。
 
-兩面同一個解析器（`enrich` 的 `decodeProposals` 先例：CLI 讀檔、MCP 把 `Value` 編回 JSON 再解），未知鍵在任何一層都整批拒絕。MCP 的 schema 只宣告 `replace_authors: {type: object}` 加一句描述、形狀指向 CLI `--help`——展開成巢狀 schema 會超出 `tools/list` 預算（D10）。
+兩面同一個解析器（`enrich` 的 `decodeProposals` 先例：CLI 讀檔、MCP 把 `Value` 編回 JSON 再解），未知鍵在任何一層都整批拒絕。MCP 的 schema 只宣告 `replace_authors: {type: object}` 加一句描述、形狀指向 CLI `--help`——不展開成巢狀 schema，因為 #578 的裁決要求接近預算時先瘦 input schema（D10）。
 
 替換腿單獨呼叫，不與 `remove_fields`／`add_sources`／`remove_zotero_sources`／`remove_sources` 組合（既有腿的同一條契約）。
 
@@ -120,9 +120,12 @@ group-members:
 
 `ZoteroImporter` 的更新分支今天在「沒有任何已歸戶作者」時以 Zotero 覆寫作者列。條件改為：沒有已歸戶作者**且**沒有替換記錄時才覆寫；有替換記錄時保留，記進既有的 `authorsPreserved`。依據 #639：作品本身是書目的依據，登記機構與 Zotero 是線索；全文核對過的作者列被下一次 pull 改回去，會安靜推翻一個判定。pull 對 `fields` 的整份替換不在本 change 的範圍（非作者欄位的 Non-Goal）。
 
-### D10 MCP 位元組預算不放寬
+### D10 MCP 位元組預算提高到 65,000，schema 仍不展開
 
-`replace_authors` 的 schema 是不展開的 object，描述一句指向 CLI `--help`。apply 時量 `tools/list`（`StdioE2ETests.testToolsListResponseStaysWithinByteBudget`）；超出 60,000 時**不改預算**，回 #578 請使用者裁決，在那之前不推。
+- 依使用者 2026-10-21 的 #578 裁決，守衛常數 `StdioE2ETests.toolsListByteBudget` 由 `60_000` 改為 `65_000`；常數上方的裁決史註解與 `.claude/rules/mcp-cli-parity.md` 的〈工具描述有位元組預算〉段各補一句這次裁決（日期、65,000、不拆分 MCP 的三個理由指向 #578）。
+- `replace_authors` 的 schema 仍是不展開的 object，描述一句指向 CLI `--help`。預算提高不是展開 schema 的理由：#578 的裁決同時寫明，下次接近預算時先瘦 input schema，再考慮提高。
+- apply 時量 `tools/list`（`StdioE2ETests.testToolsListResponseStaysWithinByteBudget`），實測值寫進 changelog。超出 65,000 時不再自行調高，停下回 #578 請使用者裁決，在那之前不推。
+- **考慮過的另一條路**：拆成讀、寫兩個 MCP server。使用者不採，理由記在 #578：active store 是各 server 的 session 狀態，拆開後會讀一個 store、寫另一個而沒有錯誤訊息；兩個 server 通常都開著，送進 context 的位元組總數不變；plugin、簽章與 parity 裁決表都得跟著拆。
 
 ### D11 確定性計算做成 fulltext 子命令，判讀留給 skill 裡的模型
 
@@ -219,7 +222,7 @@ group-members:
 - 替換後再對同一筆 split 一位，`validate` 出 D8 的 warning。
 - 主來源是 Zotero、帶替換記錄的 work，pull 之後作者列不變且列在 `authorsPreserved`。
 - `fulltext text` 對有文字層的 PDF 回 `hasTextLayer: true` 與全部頁；對只有圖片的 PDF 回 `false`；`--out` 落在 git 工作樹內時拒絕。
-- `tools/list` 不超過 60,000 bytes。
+- `StdioE2ETests.toolsListByteBudget` 是 `65_000`，`tools/list` 實測不超過 65,000 bytes。
 - 對只有圖片的三頁 fixture PDF 跑 skill：`consensus` 被呼叫三次（`pages` 為 `"1"`、`"2"`、`"3"`），沒有任何 `cloud.*` 引擎；乾跑表的列標「OCR」。在沒有 bestOCR 工具的 session 跑同一份：整筆標成無法核對，原因指名缺少的工具，且 `update-entry` 沒有被呼叫。
 - `Sources/` 內沒有任何對 bestOCR 或其他 OCR 引擎的呼叫。
 
@@ -230,7 +233,7 @@ group-members:
 
 ## Risks / Trade-offs
 
-- [MCP 預算只剩約 840 bytes] → schema 不展開、描述一句；超出時停下回 #578，不放寬（D10）。
+- [MCP 預算在 main 上只剩約 840 bytes] → 依 #578 裁決提高到 65,000；schema 仍不展開、描述一句；超出 65,000 時停下回 #578（D10）。
 - [format bump 打三個 binary] → 三者同一個 release；marker 由使用者在三者都升完後升；changelog 寫部署順序。
 - [模型抽錯 byline 而提議看起來是對的] → 一律先乾跑給人看，apply 要明確同意；`compare` 只產生提議，不寫。
 - [released 的 key 留下指向已退役 literal 的 confirmed 判定] → 報告逐筆列出；不自動刪（程式編輯不刪判定編輯的產物）。
@@ -250,4 +253,4 @@ group-members:
 
 ## Open Questions
 
-- 若 `replace_authors` 的描述在壓到最短之後仍使 `tools/list` 超過 60,000 bytes，要不要調高預算——由使用者在 #578 裁決（D10）。
+（none。原本的一題「`tools/list` 超過 60,000 時要不要調高預算」，使用者已於 2026-10-21 在 #578 裁決：提高到 65,000、不拆分 MCP，見 D10。）

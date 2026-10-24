@@ -329,6 +329,9 @@ struct Validate: ParsableCommand {
         if !health.unmergeableDivergences.isEmpty {
             print("歧異記錄的 shape 沒有合併管線: \(health.unmergeableDivergences.count)（逐則見上；zero-instance-guards 第 24 列的觸發條件之一，#555）")   // display-safe-exempt: Int
         }
+        if !health.staleReplacementRecords.isEmpty {
+            print("作者列替換記錄與目前的作者列對不上: \(health.staleReplacementRecords.count)（逐則見上；用全文重新核對後再替換一次，#742）")   // display-safe-exempt: Int
+        }
         if !health.staleSplitRecords.isEmpty {
             print("拆分記錄各段都已不在作者位: \(health.staleSplitRecords.count)（記錄仍保留供 un-split，#450）")
         }

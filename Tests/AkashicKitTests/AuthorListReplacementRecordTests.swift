@@ -294,6 +294,35 @@ final class AuthorListReplacementRecordTests: XCTestCase {
                       "\(LibraryStore.fieldsLostByMerging(doomed, into: keeper))")
     }
 
+    // MARK: - 3.1 替換記錄失效的 warning（spec「A stale replacement record SHALL be reported as a warning」）
+
+    /// spec Example「Matching a record against the current list」四列逐字。
+    func testStaleReplacementRecordMatchesTheSpecExampleTable() throws {
+        let rows: [(authors: [Author], warns: Bool)] = [
+            ([.literal("A"), .literal("B")], false),
+            ([.literal("A"), .key("b-person")], false),
+            ([.literal("A"), .literal("B2")], true),
+            ([.literal("A"), .literal("B1"), .literal("B2")], true),
+        ]
+        for (i, row) in rows.enumerated() {
+            let (_, store) = try scratchStore(format: StoreVersion.supported)
+            var e = Entry(id: UUID(), citekey: "claw2018framework", type: .periodicalArticle, title: "T", authors: row.authors)
+            e.references = [replacement(restsOn: [digestA], statement: "替換為 ⟦A⟧ ⟦B⟧；依據第 1 頁：byline")]
+            try store.writeEntry(e)
+            let health = try store.health(from: store.load())
+            XCTAssertEqual(health.staleReplacementRecords.count, row.warns ? 1 : 0, "第 \(i + 1) 列")
+            XCTAssertTrue(health.staleReplacementRecords.allSatisfy { $0.issue.severity == .warning && $0.owner == "claw2018framework" })
+            XCTAssertFalse(health.perRecordIssues.contains { $0.issue.severity == .error }, "warning 不讓 validate 變紅（第 \(i + 1) 列）")
+        }
+    }
+
+    /// 沒有替換記錄的 work 不會出這一族（零實例的空掃描不是通過——前一個測試證明它會響）。
+    func testNoReplacementRecordNoWarning() throws {
+        let (_, store) = try scratchStore(format: StoreVersion.supported)
+        try store.writeEntry(work([]))
+        XCTAssertTrue(try store.health(from: store.load()).staleReplacementRecords.isEmpty)
+    }
+
     /// 替換記錄與拆分記錄可以並存（拆分發生在替換之後——D8 的失效 warning 管它，decode 不擋）。
     func testReplacementCoexistsWithASplitRecord() {
         let split = ProvenanceReference(field: "authors", value: "甲乙",

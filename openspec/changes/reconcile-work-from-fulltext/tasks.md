@@ -18,8 +18,8 @@
 
 ## 3. 健康檢查與 Zotero
 
-- [ ] 3.1 Requirement「A stale replacement record SHALL be reported as a warning」：`StoreHealth` 新增一族 warning（前綴 `作者列替換記錄與目前的作者列對不上`），段數與作者列長度不同、或 literal 位與段不是位元組相同時報出，key／organization 位視為相符；doctor 與 App 顯示計數（design：D8 替換記錄失效時出 warning）。驗證：測試「替換後 split 一位 → warning、validate exit 0」「替換後把 literal 升格為 key → 無 warning」綠；`StoreHealthSurfaceTests` 的反射名冊涵蓋新欄位。
-- [ ] 3.2 Requirement「A Zotero pull SHALL keep an author list that carries a replacement record」：`ZoteroImporter` 的更新分支在作者列有已歸戶位**或**該 work 帶替換記錄時保留作者列並記進 `authorsPreserved`（design：D9 Zotero pull 保留帶替換記錄的作者列）。驗證：測試「主來源是 Zotero、全 literal 作者列加替換記錄，pull 後作者列不變且列在 authorsPreserved」綠；既有 Zotero 匯入測試全綠。
+- [x] 3.1 Requirement「A stale replacement record SHALL be reported as a warning」：`StoreHealth` 新增一族 warning（前綴 `作者列替換記錄與目前的作者列對不上`），段數與作者列長度不同、或 literal 位與段不是位元組相同時報出，key／organization 位視為相符；doctor 與 App 顯示計數（design：D8 替換記錄失效時出 warning）。驗證：測試「替換後 split 一位 → warning、validate exit 0」「替換後把 literal 升格為 key → 無 warning」綠；`StoreHealthSurfaceTests` 的反射名冊涵蓋新欄位。
+- [x] 3.2 Requirement「A Zotero pull SHALL keep an author list that carries a replacement record」：`ZoteroImporter` 的更新分支在作者列有已歸戶位**或**該 work 帶替換記錄時保留作者列並記進 `authorsPreserved`（design：D9 Zotero pull 保留帶替換記錄的作者列）。驗證：測試「主來源是 Zotero、全 literal 作者列加替換記錄，pull 後作者列不變且列在 authorsPreserved」綠；既有 Zotero 匯入測試全綠。
 
 ## 4. fulltext 子命令
 

@@ -343,9 +343,15 @@ public struct ZoteroImporter {
                     // #694：**只決定這一筆列在報告的哪一格**，不參與下面任何一個寫入的決定——兩格走同一段改寫、同一次寫入。
                     let hashOnly = Self.isHashOnlyDifference(storedHash: prov.zoteroHash, storedVersion: prov.zoteroVersion,
                                                              item: item, itemHash: itemHash)
+                    // #742（design D9）：已歸戶的位（person key 或 organization key）**或**作者列替換記錄在，作者列就保留。
+                    // 作品本身是書目的依據（#639），Zotero 是線索：依全文核對過的作者列被下一次 pull 改回去，會安靜推翻一個判定。
+                    // organization 位在 #323 之前不存在，原本這裡只看 `.key`；它同樣是人判定過的歸戶，一併保留。
                     let hadResolvedAuthors = existing.authors.contains {
-                        if case .key = $0 { return true } else { return false }
-                    }
+                        switch $0 {
+                        case .key, .organization: return true
+                        case .literal: return false
+                        }
+                    } || existing.authorListReplacementRecord != nil
                     // **記下 pull 會蓋掉什麼**（#208）。`applyBiblatexFields` 整份
                     // 替換 `fields`，所以 Zotero **這次沒給**的欄位會消失——包含
                     // 使用者手工補的、或別的 importer 寫的。Zotero 對它沒給的欄位

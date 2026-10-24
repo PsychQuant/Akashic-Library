@@ -165,6 +165,12 @@ public struct StoreHealth {
     public var contradictedRemovalRecords: [OwnedIssue] {
         perRecordIssues.filter { $0.issue.message.hasPrefix(Self.contradictedRemovalPrefix) }
     }
+    /// #742（design D8）：作者列替換記錄的各段與目前的作者列對不上——段數不同，或某個 literal 位與同位的段不是位元組相同
+    /// （`.key`／`.organization` 位一律視為相符：升格是常態工作）。記錄合法、不擋寫入，處置是用全文重新核對後再替換一次。
+    public static let staleReplacementRecordPrefix = "作者列替換記錄與目前的作者列對不上"
+    public var staleReplacementRecords: [OwnedIssue] {
+        perRecordIssues.filter { $0.issue.message.hasPrefix(Self.staleReplacementRecordPrefix) }
+    }
 
     /// 歧異記錄的候選 shape 沒有合併管線（#555 R2，D90）：記得起來（`recordDivergence` 的 `byShape` 收）、解不掉
     /// （`resolveDivergence` 擲 `unsupportedShape`）。今天只有 organization 是這個形——`zero-instance-guards` 第 24 列裁
@@ -395,6 +401,9 @@ extension LibraryStore {
         // 退役的 verdict（owner 是持有者）。跨記錄（work 的拆分記錄 vs person 的 verdict），單筆 validate()
         // 看不到；同一形：per-record warning。
         scans += orphanedSplitVerdictIssues(in: load)
+        // #742（design D8）：作者列替換記錄與目前的作者列對不上——owner 是 work。單筆記錄內就判得出，但與拆分記錄的失效同族、
+        // 同一形：per-record warning，不擋寫入。
+        scans += staleReplacementRecordIssues(in: load)
         perRecord += owner == nil ? scans : scans.filter { wanted($0.kind, $0.owner) }
         // **error 排在前面**（#416 R1 自審抓到）：MCP 面取 `prefix(20)`，而按族序
         // 排的話一個有 25 筆 warning 的 store 會把後面族別的 error **整個截掉**
@@ -875,6 +884,29 @@ public extension LibraryStore {
                 + "處置：先查是否有呼叫端在重複記未決（未決記錄不退役，#619）；持續增長時重開第 13 條邊的"
                 + "規模化裁決（#499），不要只放寬上限"
             return StoreHealth.OwnedIssue(owner: h.key, kind: h.kind,
+                                          issue: ValidationIssue(severity: .warning, message: message))
+        }
+    }
+}
+
+public extension LibraryStore {
+    /// **作者列替換記錄的失效掃描**（#742，design D8）。替換記錄寫下的是「替換當時依據什麼」，之後的拆分、移除、改寫會讓它與
+    /// 作者列脫鉤：段數與作者列長度不同，或某個 `.literal(s)` 位的 `s` 與同位的段不是位元組相同。`.key`／`.organization` 位一律視為
+    /// 相符——升格是 `literal-first-then-key` 的常態工作，不讓記錄失效。**severity 是 warning**：記錄合法可載入，處置是用全文重新核對後
+    /// 再替換一次（新的替換會移除舊記錄），不是修檔；`validate` exit 0。
+    func staleReplacementRecordIssues(in load: LibraryLoad) -> [StoreHealth.OwnedIssue] {
+        load.entries.compactMap { e in
+            guard let r = e.authorListReplacementRecord?.record else { return nil }
+            let segments = r.segments
+            let matches = segments.count == e.authors.count && zip(segments, e.authors).allSatisfy { segment, author in
+                if case .literal(let s) = author { return s == segment }
+                return true
+            }
+            guard !matches else { return nil }
+            let message = "\(StoreHealth.staleReplacementRecordPrefix)：記錄有 \(segments.count) 段（依據第 \(r.page) 頁），"   // display-safe-exempt: count 與 page 是 Int
+                + "作者列現在有 \(e.authors.count) 位，或有 literal 位與同位的段不同。處置：用全文重新核對後再替換一次"   // display-safe-exempt: e.authors.count 是 Int
+                + "（update-entry --replace-authors；新的替換會移除這筆記錄）"
+            return StoreHealth.OwnedIssue(owner: e.citekey, kind: "entry",
                                           issue: ValidationIssue(severity: .warning, message: message))
         }
     }

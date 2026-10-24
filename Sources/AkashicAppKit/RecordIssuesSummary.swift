@@ -32,6 +32,8 @@ struct RecordIssuesSummary: Equatable {
     let holderVerdictBudget: Int
     let orphanedSplitVerdicts: Int
     let staleSplitRecords: Int
+    /// #742（D8）：作者列替換記錄與目前的作者列對不上。
+    let staleReplacementRecords: Int
     let contradictedRemovalRecords: Int
     /// #555 R2（D90）：歧異記錄的候選 shape 沒有合併管線——`zero-instance-guards` 第 24 列的觸發條件由工具出聲。
     let unmergeableDivergences: Int
@@ -67,6 +69,7 @@ struct RecordIssuesSummary: Equatable {
         holderVerdictBudget = health.holderVerdictBudgetWarnings.count
         orphanedSplitVerdicts = health.orphanedSplitVerdicts.count
         staleSplitRecords = health.staleSplitRecords.count
+        staleReplacementRecords = health.staleReplacementRecords.count
         contradictedRemovalRecords = health.contradictedRemovalRecords.count
         unmergeableDivergences = health.unmergeableDivergences.count
         duplicateVenueEdges = health.duplicateVenueEdges.count

@@ -16,9 +16,11 @@
 - `validate` 新增 warning：替換記錄的各段與目前的作者列對不上（之後又被拆分、移除或改動）。
 - Zotero pull：帶作者列替換記錄的 work，pull 不覆寫其作者列，記進既有的 `authorsPreserved`。
 - 新增依全文核對的確定性子命令：
-  - `akashic fulltext text`：把 work 的一份全文 PDF 全頁轉成逐頁文字、寫到指定檔，並判斷有沒有文字層（沒有文字層即標成無法核對，使用者 2026-10-21 裁決 3，不做 OCR）。
+  - `akashic fulltext text`：把 work 的一份全文 PDF 全頁轉成逐頁文字、寫到指定檔，並判斷有沒有文字層。它只回報 `hasTextLayer`，本身不做 OCR；`hasTextLayer: false` 交給 skill 改呼叫 bestOCR（使用者 2026-10-24 改判裁決 3，原裁決是「沒有文字層即標成無法核對、不做 OCR」）。
   - `akashic fulltext compare`：把模型從全文讀出的提議（作者列、團體成員、標題、卷、期、頁碼或 article number、日期，各帶頁序）與 store 現值逐欄比對，輸出比對表與可直接交給 `update-entry --replace-authors` 的 JSON，不寫 store。
 - 新增 skill **`akashic-verify-work`**：編排「取全文文字 → 模型讀出 byline 等欄位 → compare 乾跑給人看 → 人確認後 apply」；並在 `akashic-fetch-fulltext` 的最後一步指向它（使用者 2026-10-21 裁決 1：先做獨立 skill，再接在取得全文之後）。
+  - 全文沒有文字層時，skill 逐頁呼叫 bestOCR 的多引擎共識（只用本機引擎）轉出文字再比對；OCR 讀出的值在乾跑表標「OCR」，一律要使用者 apply 才寫入，替換理由寫明依據是 OCR 與參與的引擎。
+  - 落在低共識複核清單的欄位，以及 bestOCR 不可用（沒有工具、本機引擎少於兩個、呼叫失敗）時，才標成無法核對並說出原因（使用者 2026-10-24 改判裁決 3）。
 - 規則與裁決表：`plugin/rules/source-of-truth-over-consent.md` 加「團體署名與成員名單」一列；`docs/rulings/two-kinds-of-edits.md`、`docs/rulings/mcp-cli-parity.md`、`docs/rulings/zero-instance-guards.md` 依各自的封閉列舉加列；`Sources/akashic/WriteGateRulings.swift` 為兩個新的 `fulltext` 子命令登記裁決。
 - plugin 殼升版 0.13.6 → 0.13.7；`akashic-bootstrap` 的 `writing-to-the-store.md` 改寫「更新既有記錄」一段。
 

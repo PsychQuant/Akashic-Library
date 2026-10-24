@@ -1,6 +1,6 @@
 ## Purpose
 
-Lets a work's stored bibliographic fields be checked against the work's own full text. Deterministic steps (page text extraction, text-layer detection, field-by-field comparison) are `akashic fulltext` subcommands; reading the byline and the member list is left to the model inside the `akashic-verify-work` skill, which shows a dry run before anything is written.
+Lets a work's stored bibliographic fields be checked against the work's own full text. Deterministic steps (page text extraction, text-layer detection, field-by-field comparison) are `akashic fulltext` subcommands; reading the byline and the member list is left to the model inside the `akashic-verify-work` skill, which shows a dry run before anything is written. When a PDF has no text layer, the skill obtains page text through bestOCR multi-engine consensus and labels every value read that way.
 
 ## ADDED Requirements
 
@@ -27,17 +27,62 @@ Lets a work's stored bibliographic fields be checked against the work's own full
 
 ### Requirement: A PDF with no letters in any page SHALL be reported as having no text layer
 
-`hasTextLayer` SHALL be false exactly when no page text contains a character of Unicode general category L. A work whose PDF has no text layer SHALL be reported by the skill as not checkable, and the skill SHALL NOT run OCR or propose any write for it.
+`hasTextLayer` SHALL be false exactly when no page text contains a character of Unicode general category L. `fulltext text` SHALL only report this value and SHALL NOT run OCR. The `akashic-verify-work` skill SHALL treat `hasTextLayer` false as the trigger for its OCR path and SHALL NOT report a work as not checkable on that ground alone.
 
 #### Scenario: An image-only PDF
 
 - **WHEN** the command runs on a PDF whose pages carry no extractable letters
 - **THEN** `hasTextLayer` SHALL be false
 
-#### Scenario: The skill skips it
+#### Scenario: The skill turns to OCR
 
 - **WHEN** the skill receives `hasTextLayer` false for a work
-- **THEN** it SHALL report that work as not checkable with the reason and SHALL NOT call `update-entry`
+- **THEN** it SHALL obtain the page text through the OCR path instead of reporting the work as not checkable
+
+---
+
+### Requirement: The akashic-verify-work skill SHALL obtain page text through bestOCR consensus, one page per call, when the PDF has no text layer
+
+When `fulltext text` reports `hasTextLayer` false, the skill SHALL call bestOCR's `consensus` tool once for every page from 1 to `pageCount`, with `pages` set to that single page number, with `out_dir` inside the temporary directory used for `fulltext text` (outside any git work tree), and without naming any `cloud.*` engine. A value read from OCR text SHALL carry the page number of the call that produced that text. The skill SHALL NOT fall back to the single-engine `ocr` tool. The skill SHALL report the whole work as not checkable, naming which of the following applies, when bestOCR's tools are absent from the session, when `list_engines` reports fewer than two available local engines, or when the `consensus` call for any page returns an error; in each of these cases it SHALL NOT call `update-entry`. The Akashic CLI, akashic-mcp and App SHALL NOT invoke bestOCR or any other OCR engine.
+
+#### Scenario: Pages are read one at a time on local engines
+
+- **GIVEN** a work whose linked PDF has three image-only pages
+- **WHEN** the skill runs
+- **THEN** it SHALL call `consensus` three times, with `pages` "1", "2" and "3"
+- **AND** no call SHALL name a `cloud.*` engine
+
+#### Scenario: bestOCR is not available
+
+- **WHEN** the skill runs on that work in a session without bestOCR's tools
+- **THEN** it SHALL report the work as not checkable, naming the missing tools
+- **AND** it SHALL NOT call `update-entry`
+
+#### Scenario: Only one local engine is available
+
+- **WHEN** `list_engines` reports exactly one available local engine
+- **THEN** the skill SHALL report the work as not checkable
+- **AND** it SHALL NOT call the `ocr` tool
+
+---
+
+### Requirement: A value read from OCR text SHALL be labelled and SHALL be proposed only when every item it rests on has consensus
+
+Every dry-run row whose value in the work was read from OCR text SHALL show `OCR` as its text source, and every other row SHALL show the text layer as its text source. A field whose proposed value rests on any item that the page's `consensus` output lists as low-consensus SHALL be reported as not checkable for low confidence, and no write SHALL be proposed for it. For this rule the author list and the group member lists SHALL count as one field. When the author list is replaced on the basis of OCR text, the replacement reason SHALL state that the text was recognised by bestOCR multi-engine consensus and SHALL name the engines that took part. OCR-labelled rows SHALL be written only under the approval rule of the dry-run requirement; no other write path SHALL exist for them.
+
+#### Scenario: A low-consensus byline is not proposed
+
+- **GIVEN** the `consensus` output for page 1 lists one line of the byline as low-consensus
+- **WHEN** the skill builds the dry run
+- **THEN** the author-list row SHALL be reported as not checkable for low confidence
+- **AND** the skill SHALL NOT call `update-entry` for that work
+
+#### Scenario: An OCR row is labelled and its reason says so
+
+- **GIVEN** every byline and member-list item has consensus
+- **WHEN** the user approves the dry run and the skill applies the replacement
+- **THEN** the author-list row SHALL have shown `OCR` as its text source
+- **AND** the stored replacement reason SHALL name bestOCR multi-engine consensus and the engines that took part
 
 ---
 
@@ -68,7 +113,7 @@ Lets a work's stored bibliographic fields be checked against the work's own full
 
 ### Requirement: The akashic-verify-work skill SHALL show a dry run and write only after explicit approval
 
-The skill SHALL take a citekey, run `fulltext text` into a temporary directory outside any git work tree, have the model read the byline, the member list and the scalar fields with their PDF pages into a proposal, run `fulltext compare`, and show a table whose rows are field, store value, value in the work with its page, and proposed write. It SHALL call `update-entry --replace-authors … --apply` only after the user explicitly approves that table in the session; in unattended mode it SHALL stop after the dry run. It SHALL read only local `sources/` content and SHALL NOT fetch from the network. For fields other than the author list it SHALL list the mismatches and state that this change records no source for them. `akashic-fetch-fulltext` SHALL point to this skill as the next step after a full text is stored.
+The skill SHALL take a citekey, run `fulltext text` into a temporary directory outside any git work tree, have the model read the byline, the member list and the scalar fields with their PDF pages into a proposal, run `fulltext compare`, and show a table whose rows are field, store value, value in the work with its page, text source, and proposed write. It SHALL call `update-entry --replace-authors … --apply` only after the user explicitly approves that table in the session; in unattended mode it SHALL stop after the dry run. It SHALL read only local `sources/` content and SHALL NOT fetch from the network; when it runs OCR, it SHALL use local engines only. For fields other than the author list it SHALL list the mismatches and state that this change records no source for them. `akashic-fetch-fulltext` SHALL point to this skill as the next step after a full text is stored.
 
 #### Scenario: No approval means no write
 

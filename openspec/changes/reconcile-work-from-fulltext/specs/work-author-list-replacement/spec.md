@@ -8,7 +8,7 @@ Lets a work's whole author list be replaced from the work's own full text, throu
 
 The CLI `akashic update-entry <citekey> --replace-authors <file>` and the MCP tool `akashic_update_entry` with the `replace_authors` object SHALL perform the same replacement through one service path and one JSON decoder. The leg SHALL default to a dry run: the CLI writes only with `--apply`, and MCP writes only with `dry_run: false`. The leg SHALL run alone; a call combining it with `remove_fields`, `add_sources`, `remove_zotero_sources` or `remove_sources` SHALL be refused. The JSON SHALL carry `source`, `page`, `reason` and `authors`, and its only optional keys SHALL be `release` and `groupMembers`; any other key at any level SHALL be refused.
 
-Each item of `authors` SHALL be exactly one of `{"literal": <name>}`, `{"group": <name>}` or `{"from": <index>}`. A `group` item SHALL be written to the store as a literal carrying the corporate-name mark. A `from` item SHALL carry over the value at that zero-based position of the current author list unchanged, in whichever of the three author states it is.
+Each item of `authors` SHALL be exactly one of `{"literal": <name>}`, `{"group": <name>}` or `{"from": <index>}`. A `group` item SHALL be written to the store as a literal carrying the corporate-name mark; a `group` name that does not yield a corporate-marked name once marked (for example because its braces do not balance) SHALL be refused. A `from` item SHALL carry over the value at that zero-based position of the current author list unchanged, in whichever of the three author states it is. Every integer in the JSON SHALL be decoded exactly; an integer outside the platform's integer range SHALL be refused rather than truncated.
 
 #### Scenario: A dry run writes nothing
 
@@ -64,7 +64,7 @@ Each position of the current author list that holds a person key or an organizat
 
 ### Requirement: The replacement SHALL record the source it rests on as an author-list replacement record
 
-A replacement written with `--apply` SHALL add exactly one reference to the work's `references` with field `authors`, no value, kind judgement, and a `rests-on` list holding exactly the `source` digest. Its statement SHALL follow the grammar `替換為 ⟦s1⟧ ⟦s2⟧ … ⟦sn⟧；依據第 N 頁：<reason>`, where each segment is the stored value of the corresponding new author position (a carried-over person key written as `key:<key>`, an organization key as `organization:<key>`), n equals the length of the new author list and is at least 1, N is the one-based physical PDF page, and the reason is non-blank. The grammar SHALL have exactly one parser, used by the write surface and by attachment validation. A work SHALL carry at most one replacement record. The `source` digest SHALL be a valid, non-empty-content digest, SHALL be linked in the work's `akashic.sources`, and SHALL be present in the local `sources/` store.
+A replacement written with `--apply` SHALL add exactly one reference to the work's `references` with field `authors`, no value, kind judgement, and a `rests-on` list holding exactly the `source` digest. Its statement SHALL follow the grammar `替換為 ⟦s1⟧ ⟦s2⟧ … ⟦sn⟧；依據第 N 頁：<reason>`, where each segment is the stored value of the corresponding new author position (a carried-over person key written as `key:<key>`, an organization key as `organization:<key>`), n equals the length of the new author list and is at least 1, N is the one-based physical PDF page, and the reason is non-blank. The grammar SHALL have exactly one parser, used by the write surface and by attachment validation. A work SHALL carry at most one replacement record. The `source` digest SHALL be a valid, non-empty-content digest, SHALL be linked in the work's `akashic.sources`, SHALL be present in the local `sources/` store, and SHALL be recorded in the source index with media type `application/pdf`.
 
 #### Scenario: The record parses back to the new list
 
@@ -83,7 +83,12 @@ A replacement written with `--apply` SHALL add exactly one reference to the work
 
 #### Scenario: Input bounds are enforced
 
-- **WHEN** `reason` is blank or longer than 4,096 bytes, `page` is not an integer of at least 1, `authors` is empty, or a `literal` or `group` value is blank, has leading or trailing whitespace, or exceeds 65,536 bytes
+- **WHEN** `reason` is blank or longer than 4,096 bytes, `page` is not an integer of at least 1, `authors` is empty, or a `literal` or `group` value is blank, has leading or trailing whitespace, contains a character of Unicode general category Cc, or exceeds 65,536 bytes
+- **THEN** the call SHALL be refused with zero writes
+
+#### Scenario: A source that is not a PDF is refused
+
+- **WHEN** `source` is linked to the work and stored locally but its source-index media type is not `application/pdf`
 - **THEN** the call SHALL be refused with zero writes
 
 #### Scenario: A literal that already carries the corporate mark is refused
@@ -95,14 +100,21 @@ A replacement written with `--apply` SHALL add exactly one reference to the work
 
 ### Requirement: Records about the previous author list SHALL be removed and listed
 
-When a replacement is applied, the work's split records, removal records and any earlier replacement record (all `field: authors` references), and its `akashic.author-list-completeness` witness, SHALL be removed. The response SHALL list each removed record verbatim in `recordsRemoved` and SHALL state in `witnessRemoved` whether a witness was removed. Before writing, the work's file SHALL be committed and clean in git; otherwise the call SHALL be refused with zero writes. The response SHALL list in `verdictsOnRetiredLiterals` every confirmed verdict on a person or organization record whose value is `work:<this citekey> :: <literal>` for a literal that does not occupy any literal position of the new list; such verdicts SHALL NOT be changed.
+When a replacement is applied and the new author list differs from the current one, the work's split records, removal records and any earlier replacement record (all `field: authors` references), and its `akashic.author-list-completeness` witness, SHALL be removed. When the new author list is byte-identical to the current one, only an earlier replacement record SHALL be removed; split records, removal records and the witness SHALL be kept. The response SHALL list each removed record in `recordsRemoved` with its value, statement and rests-on, display-sanitised and length-bounded as every response value is, and SHALL state in `witnessRemoved` whether a witness was removed; when one was, `witnessRemovedDetail` SHALL give its fingerprint, its attested author list and the number of its references. Before writing, the work's file SHALL be committed and clean in git; otherwise the call SHALL be refused with zero writes. The response SHALL list in `verdictsOnRetiredLiterals` every confirmed verdict on a person or organization record whose value is `work:<this citekey> :: <literal>` for a literal that is not byte-equal to any literal position of the new list; such verdicts SHALL NOT be changed, and the list SHALL be computed before anything is written.
 
 #### Scenario: A split record and a witness are removed
 
 - **GIVEN** a work carrying one split record and a completeness witness
 - **WHEN** a replacement is applied
 - **THEN** neither SHALL remain on the work
-- **AND** `recordsRemoved` SHALL hold the split record and `witnessRemoved` SHALL be true
+- **AND** `recordsRemoved` SHALL hold the split record, `witnessRemoved` SHALL be true and `witnessRemovedDetail` SHALL give the witness's fingerprint
+
+#### Scenario: A member-list-only replacement keeps the records about the list
+
+- **GIVEN** a work carrying one split record, a completeness witness and an earlier replacement record
+- **WHEN** a replacement whose new author list is byte-identical to the current one is applied with a new `groupMembers`
+- **THEN** the split record and the witness SHALL remain
+- **AND** `recordsRemoved` SHALL hold only the earlier replacement record and `witnessRemoved` SHALL be false
 
 #### Scenario: An uncommitted work file is refused
 
@@ -113,7 +125,7 @@ When a replacement is applied, the work's split records, removal records and any
 
 ### Requirement: A work SHALL be able to carry the member lists of its group authors
 
-A work SHALL accept a top-level `group-members` sequence. Each entry SHALL carry `group` (byte-equal to the stored value of a group author position at the time of writing, corporate mark included), `rests-on` (one valid digest), `page` (a one-based physical PDF page) and `members` (at least one string, in the order printed, with no byte-equal duplicates). Members SHALL be stored as strings, not as person references. Only the replacement leg SHALL write `group-members`. When `groupMembers` is present in the leg's JSON, including as an empty list, it SHALL replace the work's member lists wholesale; when it is absent, entries whose `group` still equals a group position of the new list SHALL be kept and the rest SHALL be removed and listed in `groupMembersRemoved`.
+A work SHALL accept a top-level `group-members` sequence. Each entry SHALL carry `group` (byte-equal to the stored value of a group author position at the time of writing, corporate mark included), `rests-on` (one valid digest), `page` (a one-based physical PDF page) and `members` (at least one string, in the order printed, with no byte-equal duplicates and no character of Unicode general category Cc). Members SHALL be stored as strings, not as person references. Only the replacement leg SHALL write `group-members`. A group position of the new list is any position holding a corporate-marked literal, whether it came from a `group` item or was carried over by `from`. When `groupMembers` is present in the leg's JSON, including as an empty list, it SHALL replace the work's member lists wholesale and each entry SHALL name a group position of the new list; when it is absent, entries whose `group` is still byte-equal to a group position of the new list SHALL be kept and the rest SHALL be removed and listed in `groupMembersRemoved`. Every comparison of names in this requirement SHALL be by bytes, not by Unicode canonical equivalence.
 
 #### Scenario: Members are stored on the work
 
@@ -123,8 +135,20 @@ A work SHALL accept a top-level `group-members` sequence. Each entry SHALL carry
 
 #### Scenario: A member list for an unknown group is refused
 
-- **WHEN** a `groupMembers` entry names a group that equals no `group` item of the new list
+- **WHEN** a `groupMembers` entry names a group that is byte-equal to no group position of the new list
 - **THEN** the call SHALL be refused with zero writes
+
+#### Scenario: A carried-over group position can hold a member list
+
+- **GIVEN** a current author list whose position 5 is the literal `{SING Consortium}`
+- **WHEN** `authors` carries that position with `{"from": 5}` and `groupMembers` names `SING Consortium`
+- **THEN** the replacement SHALL proceed and the member list SHALL be stored for that group
+
+#### Scenario: Names are compared by bytes
+
+- **WHEN** `members` holds `José` written once in NFC and once in NFD
+- **THEN** both SHALL be accepted as distinct members
+- **AND** a `groupMembers` entry whose group is the NFD form of an NFC group position SHALL be refused
 
 #### Scenario: Omitting groupMembers drops lists whose group is gone
 
@@ -190,7 +214,7 @@ When importing from Zotero updates an existing work, the importer SHALL keep the
 
 ### Requirement: The replacement response SHALL be bounded on the MCP face
 
-The response SHALL carry `citekey`, `dryRun`, `unchanged`, `authorsBefore`, `authorsAfter`, `released`, `recordsRemoved`, `witnessRemoved`, `groupMembersAfter`, `groupMembersRemoved` and `verdictsOnRetiredLiterals`. On the MCP face `verdictsOnRetiredLiterals` SHALL hold at most 20 entries and SHALL be accompanied by `verdictsOnRetiredLiteralsTotal` and `truncated`; the CLI SHALL print every entry.
+The response SHALL carry `citekey`, `dryRun`, `unchanged`, `authorsBefore`, `authorsAfter`, `released`, `recordsRemoved`, `witnessRemoved`, `groupMembersAfter`, `groupMembersRemoved` and `verdictsOnRetiredLiterals`, and `witnessRemovedDetail` when a witness is removed. On the MCP face `verdictsOnRetiredLiterals` SHALL hold at most 20 entries and SHALL be accompanied by `verdictsOnRetiredLiteralsTotal` and `truncated`; the CLI SHALL print every entry.
 
 #### Scenario: Many retired-literal verdicts are truncated on MCP only
 

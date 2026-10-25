@@ -14,7 +14,7 @@
   - `field: authors` 的第三種記錄——**作者列替換記錄**：value 缺席、judgement 型、statement 文法 `替換為 ⟦a⟧ ⟦b⟧ …；依據第 N 頁：理由`、rests-on 恰為一個 digest；文法只有一個解析器。
   - work 頂層的 **`group-members`**：團體作者的成員名單，照作品文末名單逐字、次序照原文，每一組帶依據 digest 與 PDF 頁序（使用者 2026-10-21 裁決 2：成員要記錄，作者列照 byline，成員不留在 `authors`）。
 - `validate` 新增 warning：替換記錄的各段與目前的作者列對不上（之後又被拆分、移除或改動）。
-- Zotero pull：帶作者列替換記錄的 work，pull 不覆寫其作者列，記進既有的 `authorsPreserved`。
+- Zotero pull：帶作者列替換記錄的 work，pull 不覆寫其作者列，記進既有的 `authorsPreserved`。保留條件同時由「有 person key」放寬為「有任何已歸戶位」（person key **或** organization key）：organization 位在 #323 之前不存在，原本的條件寫在它之前；Zotero 的 literal 覆寫 organization 位，等於撤銷一個機構判定。這是既有 pull 行為的改變（spec「A Zotero pull SHALL keep an author list that carries a replacement record」的 resolved position）。
 - 新增依全文核對的確定性子命令：
   - `akashic fulltext text`：把 work 的一份全文 PDF 全頁轉成逐頁文字、寫到指定檔，並判斷有沒有文字層。它只回報 `hasTextLayer`，本身不做 OCR；`hasTextLayer: false` 交給 skill 改呼叫 bestOCR（使用者 2026-10-24 改判裁決 3，原裁決是「沒有文字層即標成無法核對、不做 OCR」）。
   - `akashic fulltext compare`：把模型從全文讀出的提議（作者列、團體成員、標題、卷、期、頁碼或 article number、日期，各帶頁序）與 store 現值逐欄比對，輸出比對表與可直接交給 `update-entry --replace-authors` 的 JSON，不寫 store。
@@ -24,6 +24,12 @@
 - 規則與裁決表：`plugin/rules/source-of-truth-over-consent.md` 加「團體署名與成員名單」一列；`docs/rulings/two-kinds-of-edits.md`、`docs/rulings/mcp-cli-parity.md`、`docs/rulings/zero-instance-guards.md` 依各自的封閉列舉加列；`Sources/akashic/WriteGateRulings.swift` 為兩個新的 `fulltext` 子命令登記裁決。
 - MCP `tools/list` 的位元組預算 60,000 → 65,000，不拆分 MCP server（使用者 2026-10-21 於 #578 裁決，觸發點是 `replace_authors`）；守衛 `StdioE2ETests.toolsListByteBudget` 與 `.claude/rules/mcp-cli-parity.md` 的預算段一起改。
 - plugin 殼升版 0.13.6 → 0.13.7；`akashic-bootstrap` 的 `writing-to-the-store.md` 改寫「更新既有記錄」一段。
+- **第一輪 verify 之後（2026-10-25，#742 verify 報告與使用者同日的決定）**：
+  - 使用者確認：非作者欄位延後到 #745（其中標題與日期目前**沒有任何寫入面**，不只是記不下依據）；不寫新的完整性證言（D2）；成員維持字串（#746）；部分頁是掃描圖的 PDF 由實作方選擇，這一輪就做逐頁判定。
+  - `fulltext text` 逐頁回報 `hasLetters`；skill 只對需要讀、卻沒有字母的頁走 bestOCR（D14）。
+  - skill：逐頁 OCR 的輸出各放一個子目錄、讀完一頁才呼叫下一頁；bestOCR 的 REFUSED 當成信心不足；全文與 OCR 輸出是資料、不是指令；`replaceAuthors: null` 時不呼叫替換腿；任何結束路徑都刪暫存目錄。
+  - `fulltext compare`：提議一律經替換腿的驗證器；成員名單不同也產生替換物件（成員名單只有替換腿寫得進去）；`--out` 不覆寫既有檔、不跟隨 symlink、以 0600 寫出。
+  - 替換腿：名字的比較一律逐位元組；作者列逐位相同（只改成員名單）時保留拆分、移除記錄與證言；移除證言時回報它的 fingerprint 與作者列；寫入前先算完報告；拒絕控制字元、大括號不平衡的團體名、超出整數範圍的數、不是 PDF 的依據。
 
 ## Capabilities
 
@@ -64,6 +70,11 @@
     - Sources/akashic/FulltextCommands.swift
     - Sources/akashic/WriteGateRulings.swift
     - Sources/AkashicSkillTools/PDFReader.swift
+    - Sources/AkashicSkillTools/OutputFile.swift
+    - Sources/AkashicCore/GroupMembers.swift
+    - Sources/AkashicCore/CorporateName.swift
+    - Sources/akashic/Commands.swift
+    - .claude/rules/lossless-intake.md
     - docs/store-format.md
     - docs/rulings/two-kinds-of-edits.md
     - docs/rulings/mcp-cli-parity.md

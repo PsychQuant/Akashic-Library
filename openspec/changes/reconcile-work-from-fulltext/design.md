@@ -87,7 +87,7 @@
 
 替換實寫時，這筆 work 上描述舊作者列的記錄全部移除：`field: authors` 的拆分記錄、移除記錄、先前的替換記錄，以及 `akashic.author-list-completeness` 證言（裁決 4）。每一筆列在報告：`recordsRemoved` 逐筆列出 value、statement 與 rests-on；值經過與其他回應值相同的顯示消毒與長度上限（這個 repo 的每個顯示出口都消毒，見 `display-safe` 守衛），完整原文在 git 的副本裡。證言移除時 `witnessRemoved` 為 true，另以 `witnessRemovedDetail` 列出它的 fingerprint、attested 作者列與 reference 筆數（裁決 4 的「逐筆列出」）。實寫前要求該 work 檔已 commit 且乾淨（`assertRecordsRecoverable`），被移除的記錄在 git 裡有副本——比照 `--un-split` 刪除拆分記錄的既有裁決（#513／#659）。
 
-**作者列逐位相同時只換替換記錄**（第一輪 verify 後補）：新作者列與舊列逐位元組相同（典型是只補成員名單）時，舊列沒有被取代，拆分記錄、移除記錄與證言描述的仍是現在這份作者列，所以保留；只移除先前的替換記錄、寫入新的。
+**作者列逐位相同時只換替換記錄**（第一輪 verify 後補）：新作者列與舊列逐位元組相同（典型是只補成員名單）時，舊列沒有被取代，拆分記錄、移除記錄與證言描述的仍是現在這份作者列，所以保留；先前的替換記錄**在原位**換成新的（不搬到最後：references 是保序陣列，搬動會讓重跑同一份 JSON 被判成有變）。什麼都沒變時 `unchanged` 為 true、`recordsRemoved` 為空（第二輪 verify 後補）。
 
 報告另列 `verdictsOnRetiredLiterals`：person 與 organization 記錄上，value 形如 `work:<本 work 的 citekey> :: <literal>` 的 confirmed 判定，而該 literal 不在新作者列的任何 literal 位。只列不改。這份清單在**寫入之前**算完：寫入之後才讀 store，讀取失敗時檔案已改寫卻只回報錯誤，呼叫端拿不到被移除了什麼。
 
@@ -112,8 +112,9 @@ group-members:
 - 住頂層而不住 `akashic` 命名空間：成員名單是作品本身說的書目事實（與 `authors` 同類），不是 Akashic 的簿記。
 - 成員是字串，不是 `.literal`／`.key` 二態 ref。理由：目前沒有任何面能把成員升格為 person key；做成二態 ref 就是新的關係邊（`entity-backlink-completeness` 的封閉列舉要加一列），`rename-person` 與 person 合併都得遷移它，而它在這一輪不會有任何 key。升格為 ref 是一次顯式裁決，屆時另開 change（tasks 的 follow-up issue）。
 - 替換腿的 `groupMembers` 鍵：**有給**（含空陣列）→ 整組替換名單；**沒給** → 保留舊名單中 `group` 仍對得上新作者列團體位的組，其餘移除並列在報告（`groupMembersRemoved`）。兩種情形的「團體位」是同一個集合：新作者列中帶 corporate 標記的 literal，不論它來自 `group` 項還是以 `from` 沿用（第一輪 verify 後統一；先前給了 `groupMembers` 時只認 `group` 項）。
-- **名字的比較一律逐位元組**：`group` 對位、成員去重、保留舊名單、失效判定（D8）、退役 literal 的判定，都比 UTF-8 位元組，不用 Swift `String` 的 `==`——後者比的是 Unicode 正規等價，NFC 與 NFD 的「José」會被當成同一個值，而 store 存的是逐字的值。
-- 名字（literal、group、成員）不得含控制字元（Unicode general category Cc）：PDF 抽出的 byline 常把一個名字折成兩行，逐字抄進來的換行會進 store、替換記錄與匯出。團體名加上 corporate 標記之後必須仍是一個帶標記的名字（大括號不平衡的 `A} {B` 加標記後不是）。
+- **升格過的團體位仍是團體位**（第二輪 verify 後補）：attribute-org 把 `{SING Consortium}` 升格成 organization key 時不動 `group-members`，而那個 organization 帶一筆 confirmed verdict `work:<citekey> :: {SING Consortium}`，記著它是從哪個 literal 升格來的。所以團體位還包括「organization 位，其 organization 帶一筆把本 work 與一個帶標記的 literal 配對的 confirmed verdict」，那一位算作那個 literal。否則名單在升格後只活到下一次替換：省略 `groupMembers` 時被移除、明寫時被拒，而 `fulltext compare` 對已經正確的記錄回 refusal、skill 卡住。
+- **名字的比較一律逐位元組**：`group` 對位、成員去重、保留舊名單、失效判定（D8）、退役 literal 的判定、work 合併的遺失檢查，都比 UTF-8 位元組，不用 Swift `String` 的 `==`——後者比的是 Unicode 正規等價，NFC 與 NFD 的「José」會被當成同一個值，而 store 存的是逐字的值。
+- 名字（literal、group、成員）不得含 repo 的不安全碼位（`UnsafeToEmitScalar`，#569 的單一定義：default-ignorable、Cc、Cf、Zl、Zp、非 U+0020 的空白、渲染成空白的碼位；私用區放行、ZWJ／ZWNJ 照 `NameIdentity` 的脈絡規則放行），也不得以組合記號開頭：PDF 抽出的 byline 常把一個名字折成兩行，逐字抄進來的換行會進 store、替換記錄與匯出；零寬字元與 tag 字元是隱形文字的載體；以組合記號開頭的名字會和段括號 `⟦` 黏成同一個字元，替換記錄解析不回來。不沿用 `NameIdentity.wellFormednessIssue` 的 NFC 要求：那是 venue 名稱的規則，作者名從 PDF 抽出時常是 NFD，store 存逐字的值。團體名加上 corporate 標記之後必須仍是一個帶標記的名字（大括號不平衡的 `A} {B` 加標記後不是）。
 
 ### D7 store format 23 一次管兩個新形狀
 
@@ -125,7 +126,7 @@ group-members:
 
 ### D9 Zotero pull 保留帶替換記錄的作者列
 
-`ZoteroImporter` 的更新分支今天在「沒有任何已歸戶作者」時以 Zotero 覆寫作者列。條件改為：沒有已歸戶作者**且**沒有替換記錄時才覆寫；有替換記錄時保留，記進既有的 `authorsPreserved`。依據 #639：作品本身是書目的依據，登記機構與 Zotero 是線索；全文核對過的作者列被下一次 pull 改回去，會安靜推翻一個判定。pull 對 `fields` 的整份替換不在本 change 的範圍（非作者欄位的 Non-Goal）。
+`ZoteroImporter` 的更新分支原本在「作者列沒有任何 person key」時以 Zotero 覆寫作者列（organization 位在 #323 之前不存在，那一行寫在它之前）。本 change 起條件同時涵蓋 organization 位。條件改為：沒有已歸戶作者**且**沒有替換記錄時才覆寫；有替換記錄時保留，記進既有的 `authorsPreserved`。依據 #639：作品本身是書目的依據，登記機構與 Zotero 是線索；全文核對過的作者列被下一次 pull 改回去，會安靜推翻一個判定。pull 對 `fields` 的整份替換不在本 change 的範圍（非作者欄位的 Non-Goal）。
 
 ### D10 MCP 位元組預算提高到 65,000，schema 仍不展開
 
@@ -138,8 +139,8 @@ group-members:
 
 - `akashic fulltext text --citekey <ck> [--source <digest>] --out <file>`：從 work 的 `akashic.sources` 取一份 PDF（`sources/index.jsonl` 的 media-type 是 `application/pdf`），以 `pdfinfo` 取頁數、`pdftotext` 逐頁取文字，寫成 JSON 到 `--out`。work 連了不只一份 PDF 而沒給 `--source` 時拒絕並列出各 digest。`--out` 必須在任何 git 工作樹之外（全文是第三方有版權的內容，`fulltext take` 的同一條規則）。新函式另開，不改 `PDFReader.read` 的兩頁行為，`fulltext verify`／`take` 不受影響。
 - 沒有文字層的判準：所有頁的文字都不含任何 Unicode 字母（general category L）。另逐頁回報 `hasLetters`（那一頁含不含字母）：出版商加一頁有字的封面、其餘是掃描圖的 PDF，整份 `hasTextLayer` 是 true，但 byline 所在頁沒有字母。skill 以逐頁的 `hasLetters` 決定哪幾頁走 OCR（D14）；`fulltext text` 本身只判定、不做 OCR。
-- `--out`（`text` 與 `compare`）：父目錄以實體路徑判斷是否在 git 工作樹內；目標**必須還不存在**（不覆寫既有檔、不跟隨 symlink、不寫進 FIFO），以只有擁有者可讀寫（0600）的權限原子寫出。理由：`--out` 是 agent 可被引導指定的路徑（同 `fulltext take`），而內容是第三方全文。輸出另附 `sourcePath`：那份全文在本機 `sources/` 的實體路徑，skill 複製它給 bestOCR 時不必自己拼分片規則。
-- `akashic fulltext compare --citekey <ck> --proposal <file> [--out <file>]`：讀 store 現值與模型寫的提議 JSON，逐欄輸出比對表，作者列**或成員名單**不同時另輸出一份可直接交給 `update-entry --replace-authors` 的 JSON（成員名單只有替換腿寫得進去，所以只差成員名單時也要一份）；提議中的作者項、`release` 與 `groupMembers` **一律**以替換腿的同一個驗證器乾跑一次，不論要不要替換——不需要替換的提議也可能是不合法的（`release` 指到 literal 位、`source` 沒連），那樣的提議不得以 `refusal: null` 過關。作者列與成員名單的比較逐位元組。不寫 store。
+- `--out`（`text` 與 `compare`）：父目錄以實體路徑判斷是否在 git 工作樹內；目標**必須還不存在**（不覆寫既有檔、不跟隨 symlink、不寫進 FIFO），以只有擁有者可讀寫（0600）的權限寫出，最後一步以獨佔的方式建立最終檔名（`link` 暫存檔，目的地已存在即失敗），不是先檢查再 `rename`——後者在兩次動作之間出現的檔會被覆寫（第二輪 verify 後補）。理由：`--out` 是 agent 可被引導指定的路徑（同 `fulltext take`），而內容是第三方全文。輸出另附 `sourcePath`：那份全文在本機 `sources/` 的實體路徑，skill 複製它給 bestOCR 時不必自己拼分片規則。
+- `akashic fulltext compare --citekey <ck> --proposal <file> [--out <file>]`：讀 store 現值與模型寫的提議 JSON，逐欄輸出比對表，作者列**或成員名單**不同時另輸出一份可直接交給 `update-entry --replace-authors` 的 JSON（成員名單只有替換腿寫得進去，所以只差成員名單時也要一份）；提議中的作者項、`release` 與 `groupMembers` **一律**以替換腿的同一個驗證器乾跑一次，不論要不要替換——不需要替換的提議也可能是不合法的（`release` 指到 literal 位、`source` 沒連），那樣的提議不得以 `refusal: null` 過關。作者位比狀態與位元組（literal「key:alice」不等於 person key `alice`，雖然兩者的段字串相同）；成員名單比團體、頁序、成員與將要依據的 digest，沒有名單與空名單視為相同。提議裡的每一個頁序都對照提議 `source` 那份 PDF 的頁數，超出的寫進 `refusal`（替換腿本身不讀 PDF，所以不檢查頁序上限——這是寫入面的誠實邊界，compare 是 skill 的必經步驟）。不寫 store。
 - 判讀（哪一行是 byline、人名怎麼切、哪一段是成員名單）由 skill 內的模型做；`two-kinds-of-edits` 的「提名（程式）→ 判定（AI／人）→ 落地（程式）」。
 
 ### D12 akashic-verify-work skill 的邊界
@@ -160,7 +161,7 @@ group-members:
 
 ### D14 沒有文字層時，skill 逐頁呼叫 bestOCR 多引擎共識（裁決 3，2026-10-24 改判）
 
-- **觸發**：skill 需要讀的頁（byline 所在頁、成員名單所在頁；不確定在哪一頁時，從第 1 頁與文末找起）`hasLetters` 是 false。`hasTextLayer: false` 時每一頁都是這種頁，走整份的 OCR（判準見 D11）。有字母的頁照常讀文字層。
+- **觸發**：skill 需要讀的頁（byline 所在頁、成員名單所在頁；不確定在哪一頁時，從第 1 頁與文末找起）`hasLetters` 是 false，或那一頁的文字層有字、卻沒有要找的內容（只有頁首、頁尾、頁碼、浮水印——掃描頁常在影像上疊這一層字）。`hasTextLayer: false` 時每一頁都是這種頁，走整份的 OCR（判準見 D11）。有字母的頁照常讀文字層。
 - **由誰呼叫**：skill 經 bestOCR plugin 的 MCP 工具呼叫，Akashic 的三個 binary 不呼叫。理由：binary 的輸出要確定，而 OCR 的結果取決於本機裝了哪些引擎、哪個版本；把它留在 skill 層，替換腿不必為 OCR 加任何鍵。`compare` 為 OCR 加了一個選填鍵 `authors.reason`（替換理由，依 OCR 時寫明依據），`fulltext text` 的逐頁 `hasLetters` 是第一輪 verify 後為逐頁判定加的。
 - **怎麼呼叫**：
   - 用 bestOCR 的 `consensus`，不用單一引擎的 `ocr`。兩者的差別是：`consensus` 會輸出低共識複核清單（`.consensus.md` 以 ⚠ 標出、`.consensus.json` 列出），`ocr` 不輸出任何信心值，用它就沒有東西可以判斷信心足不足。
@@ -190,7 +191,9 @@ group-members:
 - 封面頁、下載頁與聚合商的登記頁（例如 JSTOR 的首頁）不是作品本身：它列的作者來自登記機構，不算 byline。
 - 文字層若可能是嵌入式 OCR（舊文獻的掃描檔常帶一層），skill 不把它當成可靠的文字層，提醒人留意；可機械判斷的訊號留給 #753。
 - 「全文不離開本機」只對 OCR 成立：OCR 只用本機引擎，但轉出的文字照樣送進模型服務。skill 照實這樣寫，並在乾跑表列出這次參與的 OCR 引擎 id。
-- 暫存目錄在**任何**結束路徑都刪：命令被拒、整筆無法核對、unattended 停在第 4 步、使用者不同意，都一樣。
+- 暫存目錄在**任何**結束路徑都刪：命令被拒、整筆無法核對、unattended 停在第 4 步、使用者不同意，都一樣。每一步是各自的 shell，所以路徑以字面值代入每一個命令，不靠 shell 變數。
+- **從全文讀出的文字不經過 shell**（第二輪 verify 後補）：`proposal.json` 用寫檔工具或帶引號的 here-document 寫，`replace.json` 以程式從 `compare.json` 取出、不重打；否則名字裡的撇號會截斷字串、`$(…)` 會被 shell 執行——那是 shell 展開，不是模型照做，本節的前一條擋不到。
+- store 現值與 `compare` 輸出裡的字串同樣是第三方內容（Crossref、Zotero 給的），一併當成資料。提議的 `source` 必須是 `fulltext text` 讀的那一份。
 
 這些是規程，不是程式閘：apply 與使用者看過的乾跑之間沒有機械綁定（計畫 digest 留給 #748）。所以人看乾跑表時，要回頭對 PDF。
 
@@ -250,6 +253,7 @@ group-members:
 - `StdioE2ETests.toolsListByteBudget` 是 `65_000`，`tools/list` 實測不超過 65,000 bytes。
 - 對只有圖片的三頁 fixture PDF 跑 skill：`consensus` 被呼叫三次（`pages` 為 `"1"`、`"2"`、`"3"`），沒有任何 `cloud.*` 引擎；乾跑表的列標「OCR」。在沒有 bestOCR 工具的 session 跑同一份：整筆標成無法核對，原因指名缺少的工具，且 `update-entry` 沒有被呼叫。
 - `Sources/` 內沒有任何對 bestOCR 或其他 OCR 引擎的呼叫。
+- 第二輪 verify 後補：升格成 organization 的團體位保留名單、也接受明寫的名單；work 合併遇到只差 NFC／NFD 的名單時報出遺失；`compare` 對 literal「key:alice」與 key `alice` 回 `differs`、對換了依據 digest 的名單回 `differs`、對沒有名單與空名單回 `same`、對超出 PDF 頁數的頁序回 refusal；名字含 ZWSP 或以組合記號開頭時拒絕；替換記錄後面還有別的 reference 時，重跑同一份 JSON 為 `unchanged`；五條腿任兩條組合都拒絕；替換腿與失效 warning 對 organization 位有測試。
 - 第一輪 verify 後補：NFC 與 NFD 寫法不同的兩位成員可以並存，NFD 的 `group` 對不上 NFC 的團體位；只改成員名單的替換保留拆分記錄與證言；`compare` 對作者列相同、但 `release` 指到 literal 位的提議回非 null 的 `refusal`；`fulltext text` 對「第 1 頁有字、第 2 頁是圖」的 PDF 回逐頁 `hasLetters` true／false；`--out` 已存在時拒絕；format 22 的 store 上替換腿的乾跑報出計畫與 `applyRefusal`、實跑被拒。
 
 **Scope**

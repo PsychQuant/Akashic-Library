@@ -83,7 +83,7 @@ A replacement written with `--apply` SHALL add exactly one reference to the work
 
 #### Scenario: Input bounds are enforced
 
-- **WHEN** `reason` is blank or longer than 4,096 bytes, `page` is not an integer of at least 1, `authors` is empty, or a `literal` or `group` value is blank, has leading or trailing whitespace, contains a character of Unicode general category Cc, or exceeds 65,536 bytes
+- **WHEN** `reason` is blank or longer than 4,096 bytes, `page` is not an integer of at least 1, `authors` is empty, or a `literal` or `group` value is blank, has leading or trailing whitespace, contains a scalar of the repository's unsafe-to-emit set (default-ignorable, Cc, Cf, Zl, Zp, a space separator other than U+0020, or a code point that renders blank; private-use code points and a ZWJ or ZWNJ in a script that uses it are allowed), begins with a combining mark, or exceeds 65,536 bytes
 - **THEN** the call SHALL be refused with zero writes
 
 #### Scenario: A source that is not a PDF is refused
@@ -100,7 +100,7 @@ A replacement written with `--apply` SHALL add exactly one reference to the work
 
 ### Requirement: Records about the previous author list SHALL be removed and listed
 
-When a replacement is applied and the new author list differs from the current one, the work's split records, removal records and any earlier replacement record (all `field: authors` references), and its `akashic.author-list-completeness` witness, SHALL be removed. When the new author list is byte-identical to the current one, only an earlier replacement record SHALL be removed; split records, removal records and the witness SHALL be kept. The response SHALL list each removed record in `recordsRemoved` with its value, statement and rests-on, display-sanitised and length-bounded as every response value is, and SHALL state in `witnessRemoved` whether a witness was removed; when one was, `witnessRemovedDetail` SHALL give its fingerprint, its attested author list and the number of its references. Before writing, the work's file SHALL be committed and clean in git; otherwise the call SHALL be refused with zero writes. The response SHALL list in `verdictsOnRetiredLiterals` every confirmed verdict on a person or organization record whose value is `work:<this citekey> :: <literal>` for a literal that is not byte-equal to any literal position of the new list; such verdicts SHALL NOT be changed, and the list SHALL be computed before anything is written.
+When a replacement is applied and the new author list differs from the current one, the work's split records, removal records and any earlier replacement record (all `field: authors` references), and its `akashic.author-list-completeness` witness, SHALL be removed. When the new author list is byte-identical to the current one, an earlier replacement record SHALL be replaced at its own position among the work's references, and split records, removal records and the witness SHALL be kept; when nothing changes at all, `unchanged` SHALL be true and `recordsRemoved` SHALL be empty. The response SHALL list each removed record in `recordsRemoved` with its value, statement and rests-on, display-sanitised and length-bounded as every response value is, and SHALL state in `witnessRemoved` whether a witness was removed; when one was, `witnessRemovedDetail` SHALL give its fingerprint, its attested author list and the number of its references. Before writing, the work's file SHALL be committed and clean in git; otherwise the call SHALL be refused with zero writes. The response SHALL list in `verdictsOnRetiredLiterals` every confirmed verdict on a person or organization record whose value is `work:<this citekey> :: <literal>` for a literal that is not byte-equal to any literal position of the new list; such verdicts SHALL NOT be changed, and the list SHALL be computed before anything is written.
 
 #### Scenario: A split record and a witness are removed
 
@@ -125,7 +125,7 @@ When a replacement is applied and the new author list differs from the current o
 
 ### Requirement: A work SHALL be able to carry the member lists of its group authors
 
-A work SHALL accept a top-level `group-members` sequence. Each entry SHALL carry `group` (byte-equal to the stored value of a group author position at the time of writing, corporate mark included), `rests-on` (one valid digest), `page` (a one-based physical PDF page) and `members` (at least one string, in the order printed, with no byte-equal duplicates and no character of Unicode general category Cc). Members SHALL be stored as strings, not as person references. Only the replacement leg SHALL write `group-members`. A group position of the new list is any position holding a corporate-marked literal, whether it came from a `group` item or was carried over by `from`. When `groupMembers` is present in the leg's JSON, including as an empty list, it SHALL replace the work's member lists wholesale and each entry SHALL name a group position of the new list; when it is absent, entries whose `group` is still byte-equal to a group position of the new list SHALL be kept and the rest SHALL be removed and listed in `groupMembersRemoved`. Every comparison of names in this requirement SHALL be by bytes, not by Unicode canonical equivalence.
+A work SHALL accept a top-level `group-members` sequence. Each entry SHALL carry `group` (byte-equal to the stored value of a group author position at the time of writing, corporate mark included), `rests-on` (one valid digest), `page` (a one-based physical PDF page) and `members` (at least one string, in the order printed, with no byte-equal duplicates and no scalar of the unsafe-to-emit set). Members SHALL be stored as strings, not as person references. Only the replacement leg SHALL write `group-members`. A group position of the new list is any position holding a corporate-marked literal, whether it came from a `group` item or was carried over by `from`, and any position holding an organization key whose organization carries a confirmed verdict pairing this work with a corporate-marked literal; such a position counts as that literal. When `groupMembers` is present in the leg's JSON, including as an empty list, it SHALL replace the work's member lists wholesale and each entry SHALL name a group position of the new list; when it is absent, entries whose `group` is still byte-equal to a group position of the new list SHALL be kept and the rest SHALL be removed and listed in `groupMembersRemoved`. Every comparison of names in this requirement, including the loss check of a work merge, SHALL be by bytes, not by Unicode canonical equivalence.
 
 #### Scenario: Members are stored on the work
 
@@ -143,6 +143,13 @@ A work SHALL accept a top-level `group-members` sequence. Each entry SHALL carry
 - **GIVEN** a current author list whose position 5 is the literal `{SING Consortium}`
 - **WHEN** `authors` carries that position with `{"from": 5}` and `groupMembers` names `SING Consortium`
 - **THEN** the replacement SHALL proceed and the member list SHALL be stored for that group
+
+#### Scenario: A promoted group position keeps its member list
+
+- **GIVEN** a work whose group position `{SING Consortium}` was promoted to the organization key `sing-consortium`, whose organization carries the confirmed verdict `work:<citekey> :: {SING Consortium}`, and whose member list names that group
+- **WHEN** a replacement carries that position with `from` and omits `groupMembers`
+- **THEN** the member list SHALL be kept
+- **AND** a replacement that names `SING Consortium` in `groupMembers` SHALL be accepted
 
 #### Scenario: Names are compared by bytes
 

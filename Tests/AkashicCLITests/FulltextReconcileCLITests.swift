@@ -372,4 +372,110 @@ final class FulltextReconcileCLITests: XCTestCase {
         XCTAssertEqual(j["pageCount"] as? Int, 3)
         XCTAssertEqual((j["pages"] as? [Any])?.count, 3)
     }
+
+    // MARK: - 7.5–7.7 第一輪 verify 之後（#742 verify 報告，2026-10-25）
+
+    /// spec「A text cover page over scanned pages」：逐頁 hasLetters；sourcePath 指向本機 sources/ 裡那一份。
+    func testPerPageLettersAndSourcePath() throws {
+        try XCTSkipUnless(hasPoppler(), "需要 poppler")
+        let pdf = makePDF(pages: [["Downloaded from an aggregator"], []])
+        let d = try storePDF(pdf)
+        try seedWork(sources: [d])
+        let out = scratch.appendingPathComponent("text.json")
+        let r = try text(["--citekey", "claw2018framework", "--out", out.path])
+        XCTAssertEqual(r.status, 0, r.output)
+        let j = try readJSON(out)
+        XCTAssertEqual(j["hasTextLayer"] as? Bool, true, "整份看起來有文字層")
+        let pages = try XCTUnwrap(j["pages"] as? [[String: Any]])
+        XCTAssertEqual(pages.map { $0["hasLetters"] as? Bool }, [true, false], "第 2 頁是圖")
+        let path = try XCTUnwrap(j["sourcePath"] as? String)
+        XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: path)), pdf, "sourcePath 是那份全文")
+    }
+
+    /// spec「An existing output path is refused」：普通檔與 symlink 都不碰。
+    func testExistingOutputIsRefused() throws {
+        try XCTSkipUnless(hasPoppler(), "需要 poppler")
+        let d = try storePDF(makePDF(pages: sevenPages))
+        try seedWork(sources: [d])
+        let existing = scratch.appendingPathComponent("existing.json")
+        try Data("keep".utf8).write(to: existing)
+        let r = try text(["--citekey", "claw2018framework", "--out", existing.path])
+        XCTAssertNotEqual(r.status, 0, r.output)
+        XCTAssertEqual(try String(contentsOf: existing, encoding: .utf8), "keep", "既有檔不變")
+        let target = scratch.appendingPathComponent("target.txt")
+        try Data("target".utf8).write(to: target)
+        let link = scratch.appendingPathComponent("link.json")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+        let viaLink = try text(["--citekey", "claw2018framework", "--out", link.path])
+        XCTAssertNotEqual(viaLink.status, 0, viaLink.output)
+        XCTAssertEqual(try String(contentsOf: target, encoding: .utf8), "target", "不跟隨 symlink")
+        XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: link.path), target.path, "symlink 本身不變")
+        let pf = scratch.appendingPathComponent("p.json")
+        try JSONSerialization.data(withJSONObject: ["source": d, "authors": ["page": 1, "items": [["literal": "Claw, Katrina G."]]]])
+            .write(to: pf)
+        let cmp = try CLITestHarness.run(["fulltext", "compare", "--library", root.path, "--citekey", "claw2018framework",
+                                          "--proposal", pf.path, "--out", existing.path], env: env)
+        XCTAssertNotEqual(cmp.status, 0, cmp.output)
+        XCTAssertEqual(try String(contentsOf: existing, encoding: .utf8), "keep", "compare 也不覆寫")
+    }
+
+    /// 7.6：全文是第三方內容，輸出只有擁有者可讀寫。
+    func testOutputIsOwnerOnly() throws {
+        try XCTSkipUnless(hasPoppler(), "需要 poppler")
+        let d = try storePDF(makePDF(pages: sevenPages))
+        try seedWork(sources: [d])
+        let out = scratch.appendingPathComponent("text.json")
+        XCTAssertEqual(try text(["--citekey", "claw2018framework", "--out", out.path]).status, 0)
+        let mode = try XCTUnwrap(FileManager.default.attributesOfItem(atPath: out.path)[.posixPermissions] as? Int)
+        XCTAssertEqual(mode & 0o777, 0o600)
+    }
+
+    /// spec「An invalid proposal is refused even when nothing would change」。
+    func testInvalidProposalIsRefusedEvenWhenNothingWouldChange() throws {
+        try XCTSkipUnless(hasPoppler(), "需要 poppler")
+        let d = try seedClaw(authors: [.literal("Katrina G. Claw")])
+        let r = try compare(["source": d, "authors": ["page": 1, "items": [["literal": "Katrina G. Claw"]]],
+                             "release": [["index": 0, "reason": "PDF byline 沒有這一位"]]])
+        XCTAssertEqual(r.status, 0, r.output)
+        let j = try XCTUnwrap(r.json)
+        XCTAssertTrue(j["replaceAuthors"] is NSNull, "\(j)")
+        let refusal = try XCTUnwrap(j["refusal"] as? String, "作者列相同也要驗：\(j)")
+        XCTAssertTrue(refusal.contains("release"), refusal)
+    }
+
+    /// spec「A member list alone yields a replacement object」。
+    func testMemberListAloneYieldsAReplacementObject() throws {
+        try XCTSkipUnless(hasPoppler(), "需要 poppler")
+        let d = try seedClaw(authors: [.literal("Katrina G. Claw"), .literal("{SING Consortium}")])
+        let members: [[String: Any]] = [["group": "SING Consortium", "page": 7, "members": ["Joseph M. Yracheta"]]]
+        let r = try compare(["source": d, "authors": ["page": 1, "items": [["literal": "Katrina G. Claw"], ["group": "SING Consortium"]]],
+                             "groupMembers": members])
+        XCTAssertEqual(r.status, 0, r.output)
+        let j = try XCTUnwrap(r.json)
+        let replace = try XCTUnwrap(j["replaceAuthors"] as? [String: Any], "\(j)")
+        XCTAssertEqual((replace["groupMembers"] as? [[String: Any]])?.count, 1)
+        XCTAssertTrue(j["refusal"] is NSNull, "\(j)")
+    }
+
+    /// 7.1：compare 的作者列比較逐位元組——NFD 的 store 值與 NFC 的提議是不同的值。
+    func testCompareComparesAuthorsByBytes() throws {
+        try XCTSkipUnless(hasPoppler(), "需要 poppler")
+        let d = try seedClaw(authors: [.literal("Jose\u{301} Rivera")])
+        let r = try compare(["source": d, "authors": ["page": 1, "items": [["literal": "Jos\u{E9} Rivera"]]]])
+        XCTAssertEqual(r.status, 0, r.output)
+        let rows = try XCTUnwrap(r.json?["rows"] as? [[String: Any]])
+        XCTAssertEqual(rows.first { $0["field"] as? String == "authors" }?["status"] as? String, "differs")
+    }
+
+    /// 7.2：提議裡的頁序也精確解碼——2^64+1 不得變成第 1 頁。
+    func testProposalIntegersOutsideTheIntRangeAreRefused() throws {
+        try XCTSkipUnless(hasPoppler(), "需要 poppler")
+        let d = try seedClaw(authors: [.literal("Katrina G. Claw")])
+        let pf = scratch.appendingPathComponent("p-range.json")
+        try Data(#"{"source":"\#(d)","authors":{"page":18446744073709551617,"items":[{"literal":"Katrina G. Claw"}]}}"#.utf8).write(to: pf)
+        let r = try CLITestHarness.run(["fulltext", "compare", "--library", root.path, "--citekey", "claw2018framework",
+                                        "--proposal", pf.path], env: env)
+        XCTAssertNotEqual(r.status, 0, r.output)
+        XCTAssertTrue(r.output.contains("整數範圍"), r.output)
+    }
 }

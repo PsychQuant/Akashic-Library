@@ -8,17 +8,21 @@ import AkashicStoreIO
 /// OCR 在 skill 那一層做：本 binary 的輸出要確定，而 OCR 的結果取決於本機裝了哪些引擎。
 public enum FulltextReconcile {
 
-    /// 沒有文字層的判準：所有頁的文字都不含任何 Unicode 字母（general category L——Lu／Ll／Lt／Lm／Lo）。
-    /// 只有數字、標點、空白的頁不算有字母（掃描頁常被 OCR 前置流程塞進頁碼）。
-    public static func hasTextLayer(_ pages: [String]) -> Bool {
-        pages.contains { page in
-            page.unicodeScalars.contains { s in
-                switch s.properties.generalCategory {
-                case .uppercaseLetter, .lowercaseLetter, .titlecaseLetter, .modifierLetter, .otherLetter: return true
-                default: return false
-                }
+    /// 一頁有沒有字母：含任何 Unicode 字母（general category L——Lu／Ll／Lt／Lm／Lo）。只有數字、標點、空白的頁不算有字母
+    /// （掃描頁常被 OCR 前置流程塞進頁碼）。skill 以逐頁的值決定哪幾頁走 OCR——出版商加一頁有字的封面、其餘是掃描圖的 PDF，
+    /// 整份看起來有文字層，byline 所在的頁卻沒有字（#742 verify、使用者 2026-10-25 的決定）。
+    public static func hasLetters(_ page: String) -> Bool {
+        page.unicodeScalars.contains { s in
+            switch s.properties.generalCategory {
+            case .uppercaseLetter, .lowercaseLetter, .titlecaseLetter, .modifierLetter, .otherLetter: return true
+            default: return false
             }
         }
+    }
+
+    /// 沒有文字層的判準：沒有任何一頁有字母。
+    public static func hasTextLayer(_ pages: [String]) -> Bool {
+        pages.contains(where: hasLetters)
     }
 
     /// 這筆 work 要讀哪一份全文：`akashic.sources` 裡 index 記為 `application/pdf` 的那一份。
@@ -72,35 +76,56 @@ public enum FulltextReconcile {
         return (digest, url)
     }
 
-    /// `fulltext text` 的輸出 JSON：`{"citekey", "source", "pageCount", "hasTextLayer", "pages": [{"page", "text"}]}`。
-    /// 頁文字是第三方原文，原樣寫出（給 skill 讀的機器格式；消毒會改寫它）。
-    public static func textJSON(citekey: String, digest: String, pageCount: Int, pages: [String]) throws -> Data {
+    /// `fulltext text` 的輸出 JSON：`{"citekey", "source", "sourcePath", "pageCount", "hasTextLayer", "pages": [{"page", "hasLetters", "text"}]}`。
+    /// 頁文字是第三方原文，原樣寫出（給 skill 讀的機器格式；消毒會改寫它）。`sourcePath` 是那份全文在本機 `sources/` 的實體路徑——
+    /// skill 要把它複製給 bestOCR，不必自己拼分片規則（位址規則只有 `SourceStore` 一份）。
+    public static func textJSON(citekey: String, digest: String, sourcePath: String, pageCount: Int, pages: [String]) throws -> Data {
         let object: [String: Any] = [
             "citekey": citekey,   // display-safe-exempt: citekey 受 StoreKey 約束；本 JSON 是給 skill 讀的機器格式
             "source": digest,
+            "sourcePath": sourcePath,   // display-safe-exempt: 本 JSON 是給 skill 讀的機器格式
             "pageCount": pageCount,
             "hasTextLayer": hasTextLayer(pages),
-            "pages": pages.enumerated().map { ["page": $0.offset + 1, "text": $0.element] as [String: Any] },
+            "pages": pages.enumerated().map {
+                ["page": $0.offset + 1, "hasLetters": hasLetters($0.element), "text": $0.element] as [String: Any]
+            },
         ]
         return try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .prettyPrinted, .withoutEscapingSlashes])
     }
 
-    /// `--out` 必須在任何 git 工作樹之外（全文是第三方有版權的內容，design D11）；父目錄要已經存在，位置上不得是目錄。
-    public static func checkOutput(_ path: String) throws -> URL {
+    /// `--out` 的規則（design D11）：父目錄以實體路徑判斷，必須在任何 git 工作樹之外（全文是第三方有版權的內容）；目標**必須還不存在**——
+    /// `--out` 是 agent 可被引導指定的路徑（同 `fulltext take`），不得覆寫一個既有的檔、不得跟隨 symlink、不得寫進 FIFO（#742 verify）。
+    /// 回傳實體路徑；寫入一律經 `write(_:to:)`。
+    public static func checkOutput(_ path: String) throws -> String {
         let url = URL(fileURLWithPath: path).standardizedFileURL
         let dir = url.deletingLastPathComponent()
         var isDir: ObjCBool = false
         guard FileManager.default.fileExists(atPath: dir.path, isDirectory: &isDir), isDir.boolValue else {
             throw SkillToolError.failure("--out 的目錄 \(displaySafeInvisible(dir.path, max: 300)) 不存在")
         }
-        if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue {
-            throw SkillToolError.failure("--out \(displaySafeInvisible(url.path, max: 300)) 是目錄，不是檔案")
+        let physicalDir = URL(fileURLWithPath: dir.path).resolvingSymlinksInPath().path
+        let target = physicalDir + "/" + url.lastPathComponent
+        switch try OutputFile.inspect(target) {
+        case .absent: break
+        case .regular:
+            throw SkillToolError.failure("--out \(displaySafeInvisible(target, max: 300)) 已經存在——本命令不覆寫既有的檔；換一個檔名")
+        case .other(let kind):
+            throw SkillToolError.failure("--out \(displaySafeInvisible(target, max: 300)) 已經存在而且是 \(displaySafeInvisible(kind, max: 40))——"
+                + "本命令只寫新的普通檔，不跟隨 symlink")
         }
-        guard !LibraryStore.isInsideVersionedWorkTree(dir) else {
-            throw SkillToolError.failure("--out \(displaySafeInvisible(url.path, max: 300)) 在 git 工作樹裡——全文是第三方內容，"
+        guard !LibraryStore.isInsideVersionedWorkTree(URL(fileURLWithPath: physicalDir)) else {
+            throw SkillToolError.failure("--out \(displaySafeInvisible(target, max: 300)) 在 git 工作樹裡——全文是第三方內容，"
                 + "寫到 git 之外的暫存目錄（例如 mktemp -d）")
         }
-        return url
+        return target
+    }
+
+    /// 以只有擁有者可讀寫的權限原子寫出（全文是第三方內容）。`checkOutput` 之後到這裡之間有人放了東西，`OutputFile.replace` 會拒絕非普通檔。
+    public static func write(_ data: Data, to target: String) throws {
+        guard case .absent = try OutputFile.inspect(target) else {
+            throw SkillToolError.failure("--out \(displaySafeInvisible(target, max: 300)) 在檢查之後出現了——不覆寫")
+        }
+        try OutputFile.replace(path: target, with: data, mode: 0o600)
     }
 }
 
@@ -179,10 +204,13 @@ extension FulltextReconcile {
     }
 
     private static func integer(_ v: Any?, at path: String) throws -> Int {
-        guard let n = v as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID(), !CFNumberIsFloatType(n), n.intValue >= 1 else {
+        switch v.map(JSONInteger.classify) {
+        case .integer(let i)? where i >= 1: return i
+        case .outOfRange?:
+            throw SkillToolError.failure("\(path) 超出整數範圍——不截斷成另一個頁序")   // display-safe-exempt: path 程式構造
+        default:
             throw SkillToolError.failure("\(path) 必須是 ≥ 1 的整數（PDF 的實體頁序）")   // display-safe-exempt: path 程式構造
         }
-        return n.intValue
     }
 
     /// 一個作者位在比對表裡的字串形——與替換記錄的段同一種寫法（literal 原值、`key:<k>`、`organization:<k>`）。
@@ -194,20 +222,24 @@ extension FulltextReconcile {
         }
     }
 
-    /// 逐欄比對，與（作者列或成員名單不同時）可直接交給 `update-entry --replace-authors` 的物件。不寫任何東西。
-    public static func compare(entry: Entry, proposal p: Proposal) -> (rows: [[String: Any]], replaceAuthors: [String: Any]?) {
+    /// 逐欄比對。`validation` 是這份提議對應的替換腿物件——**不論要不要替換都交給替換腿乾跑一次**（不需要替換的提議也可能不合法，
+    /// 例如 `release` 指到 literal 位；那樣的提議不得以 `refusal: null` 過關，#742 verify）；`replaceAuthors` 只在作者列或成員名單
+    /// 不同時給（成員名單只有替換腿寫得進去）。比較一律逐位元組。不寫任何東西。
+    public static func compare(entry: Entry, proposal p: Proposal)
+        -> (rows: [[String: Any]], replaceAuthors: [String: Any]?, validation: [String: Any]) {
         let storeAuthors = entry.authors.map(segment)
         let proposedAuthors: [String] = p.authorItems.map { raw in
             guard let o = raw as? [String: Any], o.count == 1, let (k, v) = o.first else { return "（形狀不合）" }
             switch (k, v) {
             case ("literal", let s as String): return s
             case ("group", let s as String): return CorporateName.mark(s)
-            case ("from", let n as NSNumber):
-                let i = n.intValue
+            case ("from", let n):
+                guard case .integer(let i) = JSONInteger.classify(n) else { return "（形狀不合）" }
                 return entry.authors.indices.contains(i) ? segment(entry.authors[i]) : "from \(i)（超出範圍）"
             default: return "（形狀不合）"
             }
         }
+        func sameBytes(_ a: [String], _ b: [String]) -> Bool { a.map { Array($0.utf8) } == b.map { Array($0.utf8) } }
         func status(store: Any?, proposed: Any?, equal: Bool) -> String {
             if proposed == nil { return "notProposed" }
             if store == nil { return "absentInStore" }
@@ -219,7 +251,7 @@ extension FulltextReconcile {
                          "page": page.map { $0 as Any } ?? NSNull(), "status": status])
         }
         let authorsStatus = status(store: storeAuthors.isEmpty ? nil : storeAuthors, proposed: proposedAuthors,
-                                   equal: storeAuthors == proposedAuthors)
+                                   equal: sameBytes(storeAuthors, proposedAuthors))
         row("authors", store: storeAuthors.isEmpty ? nil : storeAuthors, proposed: proposedAuthors, page: p.authorsPage,
             status: authorsStatus)
         // 成員名單：與替換腿同一個寫入，所以它不同時也要產生替換物件
@@ -244,10 +276,9 @@ extension FulltextReconcile {
             let s = read(entry).flatMap { $0.isEmpty ? nil : $0 }
             let given = p.scalars[name]
             row(name, store: s, proposed: given?.value, page: given?.page,
-                status: status(store: s, proposed: given?.value, equal: s == given?.value))
+                status: status(store: s, proposed: given?.value, equal: sameBytes([s ?? ""], [given?.value ?? ""])))
         }
         let needsReplacement = authorsStatus != "same" || (membersStatus != "same" && membersStatus != "notProposed")
-        guard needsReplacement else { return (rows, nil) }
         var replace: [String: Any] = [
             "source": p.source,
             "page": p.authorsPage,   // display-safe-exempt: p.authorsPage 是 Int
@@ -256,6 +287,6 @@ extension FulltextReconcile {
         ]
         if let r = p.release { replace["release"] = r }
         if let g = p.groupMembers { replace["groupMembers"] = g }
-        return (rows, replace)
+        return (rows, needsReplacement ? replace : nil, replace)
     }
 }

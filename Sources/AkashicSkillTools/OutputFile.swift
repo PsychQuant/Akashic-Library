@@ -56,7 +56,8 @@ enum OutputFile {
     }
 
     /// 原子替換（或建立）`path` 為 `data`。目的地是普通檔或不存在才動手；任何一步失敗都不留暫存檔、不動原本的東西。
-    static func replace(path: String, with data: Data, token: String = UUID().uuidString) throws {
+    /// `mode` 是暫存檔建立時的權限（仍受 umask 限制）；第三方全文用 `0o600`（#742 verify）。
+    static func replace(path: String, with data: Data, token: String = UUID().uuidString, mode: mode_t = 0o666) throws {
         let shown = displaySafeInvisible(path, max: 400)
         switch try inspect(path) {
         case .other(let kind):
@@ -65,7 +66,7 @@ enum OutputFile {
             break
         }
         let tmp = tempPath(for: path, token: token)
-        let fd = open(tmp, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o666)
+        let fd = open(tmp, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, mode)
         guard fd >= 0 else {
             throw SkillToolError.failure("cannot write \(shown): \(displaySafeInvisible(String(cString: strerror(errno)), max: 200))")   // display-safe-exempt: shown 上面已 displaySafeInvisible
         }

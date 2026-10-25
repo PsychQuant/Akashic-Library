@@ -47,22 +47,26 @@ public struct GroupMemberList: Equatable, Sendable {
         }
         guard page >= 1 else { return "page 是 PDF 的實體頁序，從 1 起算" }
         guard !members.isEmpty else { return "members 至少要有一位" }
-        var seen = Set<String>()
+        // 去重比位元組：`Set<String>` 比的是 Unicode 正規等價，NFC 與 NFD 的「José」會被當成同一位，而 store 存的是逐字的值（#742 verify）
+        var seen = Set<[UInt8]>()
         for m in members {
             guard !m.isEmpty, m == m.trimmingCharacters(in: .whitespacesAndNewlines) else {
                 return "成員名不得為空、不得有前後空白"
             }
-            guard seen.insert(m).inserted else { return "成員名逐字重複" }
+            guard !AuthorListReplacementRecordValue.containsControlCharacter(m) else {
+                return "成員名不得含控制字元（換行、tab 等）"
+            }
+            guard seen.insert(Array(m.utf8)).inserted else { return "成員名逐字重複" }
         }
         return nil
     }
 }
 
 extension Entry {
-    /// 一筆 work 的成員名單之間的約束：同一個 `group` 至多一組（各組自己的形狀由 `GroupMemberList` 保證）。
+    /// 一筆 work 的成員名單之間的約束：同一個 `group` 至多一組（各組自己的形狀由 `GroupMemberList` 保證）。比位元組，理由同成員去重。
     public static func groupMembersProblem(_ lists: [GroupMemberList]) -> String? {
-        var seen = Set<String>()
-        for l in lists where !seen.insert(l.group).inserted {
+        var seen = Set<[UInt8]>()
+        for l in lists where !seen.insert(Array(l.group.utf8)).inserted {
             return "同一個團體的成員名單出現兩組"
         }
         return nil

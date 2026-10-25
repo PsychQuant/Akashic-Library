@@ -316,6 +316,16 @@ final class AuthorListReplacementRecordTests: XCTestCase {
         }
     }
 
+    /// 7.1：失效判定比位元組——literal 換成 NFD 寫法，Swift 的 `==` 看不出差別，store 存的值卻已不同。
+    func testStaleReplacementRecordComparesBytes() throws {
+        let (_, store) = try scratchStore(format: StoreVersion.supported)
+        var e = Entry(id: UUID(), citekey: "claw2018framework", type: .periodicalArticle, title: "T",
+                      authors: [.literal("A"), .literal("Jose\u{301}")])
+        e.references = [replacement(restsOn: [digestA], statement: "替換為 ⟦A⟧ ⟦Jos\u{E9}⟧；依據第 1 頁：byline")]
+        try store.writeEntry(e)
+        XCTAssertEqual(try store.health(from: store.load()).staleReplacementRecords.count, 1)
+    }
+
     /// 沒有替換記錄的 work 不會出這一族（零實例的空掃描不是通過——前一個測試證明它會響）。
     func testNoReplacementRecordNoWarning() throws {
         let (_, store) = try scratchStore(format: StoreVersion.supported)

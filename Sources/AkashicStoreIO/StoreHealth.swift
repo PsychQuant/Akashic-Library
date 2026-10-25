@@ -898,8 +898,9 @@ public extension LibraryStore {
         load.entries.compactMap { e in
             guard let r = e.authorListReplacementRecord?.record else { return nil }
             let segments = r.segments
+            // 比位元組（spec「byte-equal」）：`==` 比 Unicode 正規等價，literal 被換成 NFD 寫法時看不出來（#742 verify）
             let matches = segments.count == e.authors.count && zip(segments, e.authors).allSatisfy { segment, author in
-                if case .literal(let s) = author { return s == segment }
+                if case .literal(let s) = author { return Array(s.utf8) == Array(segment.utf8) }
                 return true
             }
             guard !matches else { return nil }

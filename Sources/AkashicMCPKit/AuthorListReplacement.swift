@@ -134,17 +134,24 @@ extension AkashicService {
             guard !CorporateName.isMarked(s) else {
                 throw ServiceError.invalid("\(path).group 不得自帶大括號——寫入時會加上 corporate 標記")   // display-safe-exempt: path 程式構造
             }
+            // `mark` 只在外面包一層大括號、不確認結果：`A} {B` 會寫成 `{A} {B}`，那不是帶標記的名字，export-bib 照人名切開它（#742 verify）
+            guard CorporateName.isMarked(CorporateName.mark(s)) else {
+                throw ServiceError.invalid("\(path).group 的大括號不平衡——加上 corporate 標記之後不是一個帶標記的團體名；整批拒絕、零寫入")   // display-safe-exempt: path 程式構造
+            }
             return .group(s)
         }
     }
 
-    /// 作者名與團體名的共同上限：非空白、前後無空白、不含替換記錄的段分隔字元、至多 65,536 bytes。
+    /// 作者名與團體名的共同上限：非空白、前後無空白、不含控制字元、不含替換記錄的段分隔字元、至多 65,536 bytes。
     private static func checkedName(_ s: String, at path: String) throws -> String {
         guard !s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw ServiceError.invalid("\(path) 不得空白")   // display-safe-exempt: path 程式構造
         }
         guard s == s.trimmingCharacters(in: .whitespacesAndNewlines) else {
             throw ServiceError.invalid("\(path) 前後不得有空白——寫進 store 的值是逐字的")   // display-safe-exempt: path 程式構造
+        }
+        guard !AuthorListReplacementRecordValue.containsControlCharacter(s) else {
+            throw ServiceError.invalid("\(path) 不得含控制字元（換行、tab 等）——PDF 抽出的名字常被折成兩行，合併成一行再寫")   // display-safe-exempt: path 程式構造
         }
         guard !s.contains(AuthorListReplacementRecordValue.openBracket),
               !s.contains(AuthorListReplacementRecordValue.closeBracket) else {
@@ -193,13 +200,30 @@ extension AkashicService {
 
     private static func jsonInteger(_ value: Any?, at path: String) throws -> Int {
         guard let value else { throw ServiceError.invalid("缺 \(path)") }   // display-safe-exempt: path 程式構造
-        guard let n = value as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID(), !CFNumberIsFloatType(n) else {
+        switch JSONInteger.classify(value) {
+        case .integer(let i): return i
+        case .notAnInteger:
             throw ServiceError.invalid("\(path) 必須是整數（不收字串、布林或小數）")   // display-safe-exempt: path 程式構造
+        case .outOfRange:
+            throw ServiceError.invalid("\(path) 超出整數範圍——不截斷成另一個數；整批拒絕、零寫入")   // display-safe-exempt: path 程式構造
         }
-        return n.intValue
     }
 
     // MARK: - 服務
+
+    /// 作者位的位元組形：先標種類再接值——literal「key:x」與 person key「x」的段字串相同，位元組形不同。
+    static func authorBytes(_ a: Author) -> [UInt8] {
+        switch a {
+        case .literal(let s): return [0] + Array(s.utf8)
+        case .key(let k): return [1] + Array(k.utf8)
+        case .organization(let k): return [2] + Array(k.utf8)
+        }
+    }
+
+    /// 一組成員名單的位元組形（團體、頁序、依據、成員依序），用來判斷「名單有沒有變」——`GroupMemberList ==` 比的是 Unicode 正規等價。
+    static func memberListBytes(_ l: GroupMemberList) -> [UInt8] {
+        ([l.group, String(l.page), l.restsOn] + l.members).reduce(into: [UInt8]()) { $0 += Array($1.utf8) + [0] }
+    }
 
     /// 一個作者位寫進替換記錄（與報告）的字串形：literal 原值、`key:<k>`、`organization:<k>`（design D3）。
     static func replacementSegment(_ a: Author) -> String {
@@ -222,7 +246,13 @@ extension AkashicService {
                 + "先用 update-entry --add-source（MCP add_sources）連上，整批拒絕、零寫入")
         }
         switch try store.sourcePresence(digests: [request.source])[request.source] {
-        case .stored?: break
+        case .stored(let index)?:
+            // 依據要是作品的全文 PDF：替換記錄說「依據第 N 頁」，而筆記或補充檔沒有那一頁（#742 verify）
+            guard index["media-type"] == "application/pdf" else {
+                throw ServiceError.invalid(
+                    "source \(request.source) 在 sources/ 的 media-type 是「\(displaySafeInvisible(index["media-type"] ?? "（無）", max: 80))」，"   // display-safe-exempt: request.source 已過 isValidDigest
+                    + "不是 application/pdf——替換的依據要是這篇作品的全文 PDF；整批拒絕、零寫入")
+            }
         case .absent?, nil:
             throw ServiceError.invalid("source \(request.source)：本機的 sources/ 沒有這份存檔——依據要在本機讀得到；整批拒絕、零寫入")   // display-safe-exempt: request.source 已過 isValidDigest
         default:
@@ -283,21 +313,18 @@ extension AkashicService {
                 "新作者列寫不成替換記錄——沿用的舊位置含 ⟦ 或 ⟧（替換記錄的段分隔字元）；先用 resolve-people 處理那一位，整批拒絕、零寫入")
         }
 
-        // design D6：成員名單
-        let newGroups = Set(newAuthors.compactMap { a -> String? in
-            if case .literal(let s) = a, CorporateName.isMarked(s) { return s } else { return nil }
-        })
-        let groupItems = Set(request.authors.compactMap { item -> String? in
-            if case .group(let s) = item { return CorporateName.mark(s) } else { return nil }
+        // design D6：成員名單。團體位＝新作者列中帶 corporate 標記的 literal，不論來自 group 項還是 from 沿用；比位元組（spec「byte-equal」）
+        let newGroups = Set(newAuthors.compactMap { a -> [UInt8]? in
+            if case .literal(let s) = a, CorporateName.isMarked(s) { return Array(s.utf8) } else { return nil }
         })
         var membersAfter: [GroupMemberList]
         if let given = request.groupMembers {
             membersAfter = []
             for (i, m) in given.enumerated() {
                 let group = CorporateName.mark(m.group)
-                guard groupItems.contains(group) else {
+                guard newGroups.contains(Array(group.utf8)) else {
                     throw ServiceError.invalid(
-                        "groupMembers[\(i)] 的團體「\(displaySafeInvisible(m.group, max: 200))」對不上新作者列的任何 group 項——"   // display-safe-exempt: i 是 Int
+                        "groupMembers[\(i)] 的團體「\(displaySafeInvisible(m.group, max: 200))」對不上新作者列的任何團體位（逐字、逐位元組比）——"   // display-safe-exempt: i 是 Int
                         + "名單要掛在作者列裡那一個團體位上；整批拒絕、零寫入")
                 }
                 if let problem = GroupMemberList.problem(group: group, restsOn: request.source, page: m.page, members: m.members) {
@@ -309,21 +336,47 @@ extension AkashicService {
                 throw ServiceError.invalid("groupMembers：\(problem)；整批拒絕、零寫入")   // display-safe-exempt: problem 是常量句
             }
         } else {
-            membersAfter = entry.groupMembers.filter { newGroups.contains($0.group) }
+            membersAfter = entry.groupMembers.filter { newGroups.contains(Array($0.group.utf8)) }
         }
-        let membersRemoved = entry.groupMembers.filter { !membersAfter.contains($0) }
+        let membersRemoved = entry.groupMembers.filter { old in
+            !membersAfter.contains { Self.memberListBytes($0) == Self.memberListBytes(old) }
+        }
 
-        // design D5：描述舊作者列的記錄一併移除
+        // design D5：描述舊作者列的記錄一併移除——作者列逐位元組相同（典型是只補成員名單）時，舊列沒有被取代，拆分記錄、移除記錄與
+        // 證言描述的仍是現在這份作者列，只換掉先前的替換記錄（替換記錄是 value 缺席的那一種，D3）
+        let authorsUnchanged = newAuthors.map(Self.authorBytes) == old.map(Self.authorBytes)
+        let isRemoved: (ProvenanceReference) -> Bool = { $0.field == "authors" && (!authorsUnchanged || $0.value == nil) }
         var updated = entry
-        let recordsRemoved = entry.references.filter { $0.field == "authors" }
+        let recordsRemoved = entry.references.filter(isRemoved)
         updated.authors = newAuthors
-        updated.references = entry.references.filter { $0.field != "authors" }
+        updated.references = entry.references.filter { !isRemoved($0) }
             + [ProvenanceReference(field: "authors", value: nil,
                                    kind: .judgement(statement: record.encoded, restsOn: [request.source]))]
-        let witnessRemoved = entry.akashic.authorListCompleteness != nil
-        updated.akashic.authorListCompleteness = nil
+        let removedWitness = authorsUnchanged ? nil : entry.akashic.authorListCompleteness
+        if !authorsUnchanged { updated.akashic.authorListCompleteness = nil }
         updated.groupMembers = membersAfter
-        let unchanged = updated == entry
+        // `Entry ==` 比的是 Unicode 正規等價：只換了正規化寫法的替換會被當成沒變，所以作者列與名單另比位元組
+        let unchanged = updated == entry && authorsUnchanged
+            && membersAfter.map(Self.memberListBytes) == entry.groupMembers.map(Self.memberListBytes)
+
+        // 報告：person／organization 上仍指向本 work、literal 已不在新作者列任何 literal 位的 confirmed verdict（只列不改）。
+        // **寫入之前算完**：寫入之後才讀 store，讀取失敗時檔案已改寫卻只回報錯誤，呼叫端拿不到被移除了什麼（#742 verify）
+        let newLiterals = Set(newAuthors.compactMap { a -> [UInt8]? in if case .literal(let s) = a { return Array(s.utf8) } else { return nil } })
+        let newKeys = Set(newAuthors.compactMap { a -> String? in if case .key(let k) = a { return "person:\(k)" } else { return nil } })
+            .union(newAuthors.compactMap { a -> String? in if case .organization(let k) = a { return "organization:\(k)" } else { return nil } })
+        let load = try store.load()
+        var retired: [[String: Any]] = []
+        func scan(_ refs: [ProvenanceReference], holder: String) {
+            for r in refs where r.field == ProvenanceReference.resolutionConfirmedField {
+                guard let v = r.value, let pv = ProvenanceReference.VerdictPairingValue.parse(v),
+                      pv.holderKind == .work, pv.holder == citekey, !newLiterals.contains(Array(pv.literal.utf8)) else { continue }
+                retired.append(["record": displaySafe(holder, max: 220),
+                                "literal": displaySafe(pv.literal, max: 400),
+                                "carriedOver": newKeys.contains(holder)])   // display-safe-exempt: Bool
+            }
+        }
+        for p in load.people.sorted(by: { $0.key < $1.key }) { scan(p.references, holder: "person:\(p.key)") }
+        for o in load.organizations.sorted(by: { $0.key < $1.key }) { scan(o.references, holder: "organization:\(o.key)") }
 
         // 寫入前的檢查兩種模式都跑；乾跑時寫入閘的拒絕（例如 store format 不足）只記在報告、照樣報出計畫
         var applyRefusal: String?
@@ -341,24 +394,6 @@ extension AkashicService {
             try store.writeEntry(updated)
             rebuildFailure = rebuildIndexCapturingFailure()
         }
-
-        // 報告：person／organization 上仍指向本 work、literal 已不在新作者列任何 literal 位的 confirmed verdict（只列不改）
-        let newLiterals = Set(newAuthors.compactMap { a -> String? in if case .literal(let s) = a { return s } else { return nil } })
-        let newKeys = Set(newAuthors.compactMap { a -> String? in if case .key(let k) = a { return "person:\(k)" } else { return nil } })
-            .union(newAuthors.compactMap { a -> String? in if case .organization(let k) = a { return "organization:\(k)" } else { return nil } })
-        let load = try store.load()
-        var retired: [[String: Any]] = []
-        func scan(_ refs: [ProvenanceReference], holder: String) {
-            for r in refs where r.field == ProvenanceReference.resolutionConfirmedField {
-                guard let v = r.value, let pv = ProvenanceReference.VerdictPairingValue.parse(v),
-                      pv.holderKind == .work, pv.holder == citekey, !newLiterals.contains(pv.literal) else { continue }
-                retired.append(["record": displaySafe(holder, max: 220),
-                                "literal": displaySafe(pv.literal, max: 400),
-                                "carriedOver": newKeys.contains(holder)])   // display-safe-exempt: Bool
-            }
-        }
-        for p in load.people.sorted(by: { $0.key < $1.key }) { scan(p.references, holder: "person:\(p.key)") }
-        for o in load.organizations.sorted(by: { $0.key < $1.key }) { scan(o.references, holder: "organization:\(o.key)") }
 
         func listed(_ authors: [Author]) -> [String] { authors.map { displaySafe(Self.replacementSegment($0), max: 400) } }
         func membersDict(_ l: GroupMemberList) -> [String: Any] {
@@ -386,7 +421,7 @@ extension AkashicService {
                 }
                 return d
             },
-            "witnessRemoved": witnessRemoved,   // display-safe-exempt: Bool
+            "witnessRemoved": removedWitness != nil,   // display-safe-exempt: Bool
             "groupMembersAfter": membersAfter.map(membersDict),
             "groupMembersRemoved": membersRemoved.map(membersDict),
             "verdictsOnRetiredLiterals": verdictsLimit.map { Array(retired.prefix($0)) } ?? retired,
@@ -394,6 +429,14 @@ extension AkashicService {
         if let limit = verdictsLimit {
             payload["verdictsOnRetiredLiteralsTotal"] = retired.count   // display-safe-exempt: Int
             payload["truncated"] = retired.count > limit   // display-safe-exempt: Bool
+        }
+        if let w = removedWitness {
+            // 裁決 4「逐筆列出」：證言是一筆，列出它斷言了什麼（完整原文在 git 的副本裡）
+            payload["witnessRemovedDetail"] = [
+                "fingerprint": w.fingerprint.digest,   // display-safe-exempt: digest 在 AuthorListFingerprint.init 過 isWellFormedDigest
+                "attestedAuthors": listed(w.attestedAuthors),
+                "references": w.references.count,   // display-safe-exempt: Int
+            ] as [String: Any]
         }
         if !retired.isEmpty {
             payload["verdictsNote"] = "這些 confirmed verdict 判的 literal 已不在新作者列的任何 literal 位；本面不改它們。"

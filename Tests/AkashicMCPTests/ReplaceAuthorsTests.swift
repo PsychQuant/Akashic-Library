@@ -265,6 +265,10 @@ final class ReplaceAuthorsTests: XCTestCase {
         XCTAssertEqual(removed.first?["value"] as? String, "A與B")
         XCTAssertEqual(removed.first?["statement"] as? String, "拆為 ⟦A⟧ ⟦B⟧：黏成一格")
         XCTAssertEqual(out["witnessRemoved"] as? Bool, true)
+        let detail = try XCTUnwrap(out["witnessRemovedDetail"] as? [String: Any], "裁決 4：證言逐筆列出")
+        XCTAssertEqual(detail["fingerprint"] as? String, AuthorListFingerprint(authors: [.literal("A"), .literal("B")]).digest)
+        XCTAssertEqual(detail["attestedAuthors"] as? [String], ["A", "B"])
+        XCTAssertEqual(detail["references"] as? Int, 2)
         let after = try XCTUnwrap(LibraryStore(root: root).load().entries.first)
         XCTAssertTrue(after.splitRecords.isEmpty)
         XCTAssertNil(after.akashic.authorListCompleteness)
@@ -352,5 +356,161 @@ final class ReplaceAuthorsTests: XCTestCase {
                                                      replaceAuthors: try body(minimal()), dryRun: true)) { error in
             XCTAssertTrue(String(describing: error).contains("replace_authors"), "\(error)")
         }
+    }
+
+    // MARK: - 7.1–7.4 第一輪 verify 之後（#742 verify 報告，2026-10-25）
+
+    /// 替換腿層的 witness 夾具：fingerprint 綁 `authors`。
+    private func witness(for e: Entry) throws -> AuthorListCompletenessWitness {
+        try AuthorListCompletenessWitness(
+            workID: e.id, fingerprint: AuthorListFingerprint(authors: e.authors), attestedAuthors: e.authors,
+            references: [ProvenanceReference(field: "authors",
+                                             kind: .retrieval(url: "https://www.nature.com/articles/s41467-018-05188-3",
+                                                              retrieved: "2026-10-24", status: 200,
+                                                              mediaType: "text/html", content: digest)),
+                         ProvenanceReference(field: "authors",
+                                             kind: .judgement(statement: "The PDF enumerates the complete author list.",
+                                                              restsOn: [digest]))])
+    }
+
+    /// spec「Names are compared by bytes」：NFC 與 NFD 的 José 是兩位成員；NFD 的 group 對不上 NFC 的團體位。
+    func testNamesAreComparedByBytes() throws {
+        try seedDefault()
+        let nfc = "Jos\u{E9}", nfd = "Jose\u{301}"
+        XCTAssertEqual(nfc, nfd, "前提：Swift 的 String == 把兩者當成同一個值")
+        let out = try run(minimal(["authors": [["literal": "Katrina G. Claw"], ["group": "Consortium \(nfc)"]],
+                                   "groupMembers": [["group": "Consortium \(nfc)", "page": 7, "members": [nfc, nfd]]]]))
+        let after = try XCTUnwrap(out["groupMembersAfter"] as? [[String: Any]])
+        XCTAssertEqual((after.first?["members"] as? [String])?.count, 2, "兩種寫法是兩個值")
+        assertRefused(minimal(["authors": [["literal": "Katrina G. Claw"], ["group": "Consortium \(nfc)"]],
+                               "groupMembers": [["group": "Consortium \(nfd)", "page": 7, "members": ["A"]]]]),
+                      mentions: "對不上")
+    }
+
+    /// 7.2：名字不得含控制字元——PDF 抽出的 byline 常把一個名字折成兩行。
+    func testNamesWithControlCharactersAreRefused() throws {
+        try seedDefault()
+        assertRefused(minimal(["authors": [["literal": "Katrina G.\nClaw"]]]), mentions: "控制字元")
+        assertRefused(minimal(["authors": [["group": "SING\tConsortium"]]]), mentions: "控制字元")
+        assertRefused(minimal(["authors": [["group": singName]],
+                               "groupMembers": [["group": singName, "page": 7, "members": ["Joseph M.\nYracheta"]]]]),
+                      mentions: "控制字元")
+    }
+
+    /// 7.2：團體名加上 corporate 標記之後要仍是帶標記的名字。
+    func testGroupWhoseBracesDoNotBalanceIsRefused() throws {
+        try seedDefault()
+        assertRefused(minimal(["authors": [["group": "A} {B"]]]), mentions: "大括號")
+        assertRefused(minimal(["authors": [["group": "{A"]]]), mentions: "大括號")
+    }
+
+    /// 7.2：整數精確解碼——超出 Int 的數不截斷、不繞回。
+    func testIntegersOutsideTheIntRangeAreRefused() throws {
+        try seedDefault()
+        for (label, raw) in [
+            ("page", #"{"source":"\#(digest)","page":9223372036854775808,"reason":"r","authors":[{"literal":"A"}]}"#),
+            ("page", #"{"source":"\#(digest)","page":18446744073709551617,"reason":"r","authors":[{"literal":"A"}]}"#),
+            ("from", #"{"source":"\#(digest)","page":1,"reason":"r","authors":[{"from":18446744073709551616}]}"#),
+        ] {
+            XCTAssertThrowsError(try service.updateEntry(citekey: "claw2018framework", removeFields: nil,
+                                                         replaceAuthors: Data(raw.utf8), dryRun: true), raw) { error in
+                let m = String(describing: error)
+                XCTAssertTrue(m.contains(label) && m.contains("整數範圍"), "\(raw) → \(m)")
+            }
+        }
+    }
+
+    /// spec「A source that is not a PDF is refused」。
+    func testSourceThatIsNotAPDFIsRefused() throws {
+        let f = root.appendingPathComponent("in-note.txt")
+        try Data("notes about claw2018".utf8).write(to: f)
+        let stored = try json(try service.storeSource(path: f.path, mediaType: "text/plain",
+                                                      retrieved: "2026-10-24T10:00:00+08:00",
+                                                      origin: "https://example.org/notes.txt",
+                                                      acquisition: "browser-download", note: "notes"))
+        try FileManager.default.removeItem(at: f)
+        digest = try XCTUnwrap(stored["digest"] as? String)
+        try seed(authors: [.literal("Claw, Katrina G.")], sources: [digest])
+        assertRefused(minimal(), mentions: "application/pdf")
+    }
+
+    /// spec「A carried-over group position can hold a member list」（design D6）。
+    func testCarriedOverGroupPositionCanHoldMembers() throws {
+        digest = try storedPDF()
+        try seed(authors: [.literal("Katrina G. Claw"), .literal("{SING Consortium}")], sources: [digest])
+        let out = try run(minimal(["authors": [["from": 0], ["from": 1]],
+                                   "groupMembers": [["group": "SING Consortium", "page": 7, "members": ["A", "B"]]]]),
+                          dryRun: false)
+        XCTAssertEqual((out["groupMembersAfter"] as? [[String: Any]])?.first?["group"] as? String, "{SING Consortium}")
+        let e = try XCTUnwrap(LibraryStore(root: root).load().entries.first)
+        XCTAssertEqual(e.groupMembers.first?.members, ["A", "B"])
+    }
+
+    /// spec「A member-list-only replacement keeps the records about the list」（design D5）。
+    func testMemberListOnlyReplacementKeepsTheRecordsAboutTheList() throws {
+        digest = try storedPDF()
+        var e = Entry(id: UUID(), citekey: "claw2018framework", type: .periodicalArticle, title: "T",
+                      authors: [.literal("A"), .literal("B"), .literal("{G}")])
+        e.akashic.sources = [digest]
+        e.references = [ProvenanceReference(field: "authors", value: "A與B",
+                                            kind: .judgement(statement: "拆為 ⟦A⟧ ⟦B⟧：黏成一格", restsOn: []))]
+        e.akashic.authorListCompleteness = try witness(for: e)
+        try LibraryStore(root: root).writeEntry(e)
+        StoreGitCommit.commitAll(root)
+        let same: [[String: Any]] = [["literal": "A"], ["literal": "B"], ["group": "G"]]
+        let first = try run(minimal(["authors": same, "groupMembers": [["group": "G", "page": 7, "members": ["X"]]]]),
+                            dryRun: false)
+        XCTAssertEqual((first["recordsRemoved"] as? [Any])?.count, 0, "\(first)")
+        XCTAssertEqual(first["witnessRemoved"] as? Bool, false)
+        XCTAssertNil(first["witnessRemovedDetail"])
+        var after = try XCTUnwrap(LibraryStore(root: root).load().entries.first)
+        XCTAssertEqual(after.splitRecords.count, 1, "作者列沒變，拆分記錄仍然描述它")
+        XCTAssertNotNil(after.akashic.authorListCompleteness, "作者列沒變，證言仍然成立")
+        XCTAssertNotNil(after.authorListReplacementRecord)
+        StoreGitCommit.commitAll(root)
+        let second = try run(minimal(["authors": same, "groupMembers": [["group": "G", "page": 7, "members": ["X", "Y"]]]]),
+                             dryRun: false)
+        let removed = try XCTUnwrap(second["recordsRemoved"] as? [[String: Any]])
+        XCTAssertEqual(removed.count, 1, "只移除先前的替換記錄")
+        XCTAssertTrue((removed.first?["statement"] as? String ?? "").hasPrefix("替換為"), "\(removed)")
+        after = try XCTUnwrap(LibraryStore(root: root).load().entries.first)
+        XCTAssertEqual(after.splitRecords.count, 1)
+        XCTAssertEqual(after.groupMembers.first?.members, ["X", "Y"])
+    }
+
+    /// spec「Applying to a format-22 store is refused」「A dry run on a format-22 store still reports the plan」——在替換腿這一層。
+    func testFormat22StoreDryRunReportsThePlanAndApplyIsRefused() throws {
+        try seedDefault()
+        try StoreVersion.write(root: root, format: 22)
+        StoreGitCommit.commitAll(root)
+        let entities = root.appendingPathComponent("entities")
+        func bytes() throws -> [Data] {
+            try FileManager.default.contentsOfDirectory(atPath: entities.path).sorted()
+                .map { try Data(contentsOf: entities.appendingPathComponent($0)) }
+        }
+        let before = try bytes()
+        let dry = try run(minimal())
+        XCTAssertTrue((dry["applyRefusal"] as? String ?? "").contains("23"), "\(dry)")
+        XCTAssertEqual(dry["authorsAfter"] as? [String], ["Katrina G. Claw"], "計畫照樣報出")
+        assertRefused(minimal(), mentions: "23", dryRun: false)
+        XCTAssertEqual(try bytes(), before, "零寫入")
+    }
+
+    /// 同一份 JSON 連跑兩次：第二次 unchanged——references 的次序不讓「沒變」看起來像變了。
+    func testRerunningTheSameJSONIsUnchanged() throws {
+        try seedDefault()
+        let o = minimal(["authors": [["literal": "Katrina G. Claw"], ["group": singName]],
+                         "groupMembers": [["group": singName, "page": 7, "members": ["A"]]]])
+        _ = try run(o, dryRun: false)
+        StoreGitCommit.commitAll(root)
+        XCTAssertEqual(try run(o, dryRun: false)["unchanged"] as? Bool, true)
+    }
+
+    /// design Failure modes：work 無法唯一定位時拒絕。
+    func testUnlocatableCitekeyIsRefused() throws {
+        digest = try storedPDF()
+        try seed(authors: [.literal("A")], sources: [digest])
+        try seed(authors: [.literal("B")], sources: [digest])
+        assertRefused(minimal(), mentions: "無法唯一定位")
     }
 }

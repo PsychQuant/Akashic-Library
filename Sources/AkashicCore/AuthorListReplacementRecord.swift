@@ -41,6 +41,13 @@ public struct AuthorListReplacementRecordValue: Equatable, Sendable {
     public let page: Int
     public let reason: String
 
+    /// 替換腿新寫入的名字（literal、group、團體成員）不得含控制字元（Unicode general category Cc）：PDF 抽出的 byline 常把一個名字
+    /// 折成兩行，逐字抄進來的換行會進 store、替換記錄與匯出（#742 verify）。只管新寫入的值——以 `from` 沿用的舊值原樣保留，
+    /// 所以這條不放進 `init?`（那會讓既有的記錄解析不回來）。
+    public static func containsControlCharacter(_ s: String) -> Bool {
+        s.unicodeScalars.contains { $0.properties.generalCategory == .control }
+    }
+
     /// 回 nil＝這組值寫不成合法的 statement：零段、任一段空或含保留字元、頁序 < 1、理由（trim 後）空。
     public init?(segments: [String], page: Int, reason: String) {
         let trimmed = reason.trimmingCharacters(in: .whitespacesAndNewlines)

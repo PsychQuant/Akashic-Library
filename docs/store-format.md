@@ -1325,7 +1325,9 @@ references:
 - **與拆分、移除記錄的區分**：三者都住 `field: authors`。拆分與移除的 value 必填（**已退役**的原 literal），替換記錄沒有 value
   ——value 在不在場就把它分開，statement 前綴（`拆為 `／`移除：`／`替換為 `）再確認一次；value 缺席的拆分 statement、帶 value
   的替換 statement 都拒收。替換**移除**這筆 work 上全部描述舊作者列的記錄（拆分、移除、先前的替換）與作者清單完整性證言
-  （`akashic.author-list-completeness`），所以替換之後新的拆分與它並存是正常的（之後的事），而不是一開始就共存。
+  （`akashic.author-list-completeness`），所以替換之後新的拆分與它並存是正常的（之後的事），而不是一開始就共存。新作者列與舊列
+  逐位元組相同（典型是只補成員名單）時，舊列沒有被取代：拆分、移除記錄與證言保留，先前的替換記錄**在原位**換成新的（不搬到最後，
+  重跑同一份 JSON 才會是零 diff）；什麼都沒變時不寫入、報告的 `recordsRemoved` 為空（#742 verify 第二輪）。
 - **失效**：記錄寫下的是替換當時的依據。段數與作者列長度不同、或某個 literal 位與同位的段不是位元組相同時，`StoreHealth` 報 warning
   （`staleReplacementRecords`，前綴「作者列替換記錄與目前的作者列對不上」；doctor 與 App 各一個計數）；`.key`／`.organization`
   位一律視為相符——升格是常態工作。warning 不擋寫入、`validate` exit 0；處置是用全文重新核對後再替換一次。
@@ -1353,13 +1355,17 @@ group-members:
 
 - 鍵序緊接在 `authors` 之後；空清單不寫出（既有記錄零 diff）。每組的鍵是封閉的四個：`group`、`rests-on`、`page`、`members`。
 - `group` 帶 corporate 大括號、前後無空白，寫入時必須逐字等於作者列裡一個團體位的值；之後那一位被升格為 organization，
-  名單照留（它記的是作品裡寫的團體名）。同一個 `group` 至多一組。
+  名單照留（它記的是作品裡寫的團體名）。之後的替換仍把那個 organization 位算作那個團體位——以 organization 上「把本 work 與
+  一個帶標記 literal 配對」的 confirmed verdict 認出（attribute-org 升格時寫下的），名單可沿用、可改寫（#742 verify 第二輪）。
+  同一個 `group` 至多一組（逐位元組）。
 - `rests-on` 一個合法、非空內容的 digest；`page` 是 PDF 實體頁序（正規寫法的整數，`07` 拒收）。依據直接寫在名單上，不另寫
   `references` 記錄：名單只由替換腿寫，理由已在替換記錄裡。
-- `members` 至少一位，次序照原文，不得有逐字重複；每位非空、前後無空白。規則只有一份（`GroupMemberList.problem`），decode 與寫入面共用。
+- `members` 至少一位，次序照原文，不得有逐位元組重複；每位非空、前後無空白、不含 repo 的不安全碼位（`UnsafeToEmitScalar`，#569；
+  私用區放行，ZWJ／ZWNJ 照 `NameIdentity` 的脈絡規則放行）、不以組合記號開頭。規則只有一份（`GroupMemberList.problem`），
+  decode 與寫入面共用。名單之間、成員之間的相等一律比位元組（`String ==` 是 Unicode 正規等價，只差 NFC／NFD 的兩個名字會被當成同一個）。
 - **成員是字串，不是二態 ref**：目前沒有任何面能把成員升格為 person key；做成 ref 就是新的關係邊，`rename-person` 與 person 合併都得
   遷移它，而它在這一輪不會有任何 key。升格是另一個 change 的顯式裁決。
-- work 合併時比對（差集判準、指名）：被併者獨有的那一組會遺失，合併拒絕並指名。三個讀取面（MCP `entryDict`、CLI `get-entry`、App）都顯示。
+- work 合併時比對（差集判準、逐位元組、指名）：被併者獨有的那一組會遺失，合併拒絕並指名。三個讀取面（MCP `entryDict`、CLI `get-entry`、App）都顯示。
 - 寫入閘：帶 `group-members` 的 work 只能寫進 marker ≥ 23 的 store。format-22 binary 會 tolerant-preserve 原樣保留它（頂層未知鍵），
   但它的 Zotero pull 不認得替換記錄，會蓋掉核對過的作者列、名單就與作者列脫鉤——所以與替換記錄共用一次 bump。
 

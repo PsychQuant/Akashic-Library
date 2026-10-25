@@ -10,6 +10,7 @@
 - **plugin 的 `source-of-truth-over-consent`**：封閉表加「團體署名與成員名單」一列。
 - `tools/list`：59,159 → 59,816 bytes（預算依 #578 的裁決調到 65,000）。
 - **第一輪 verify 之後（2026-10-25）**：`akashic-verify-work` 只對需要讀、沒有字母的頁走 OCR（`fulltext text` 逐頁回 `hasLetters`），每頁一個 OCR 輸出目錄、讀完一頁才呼叫下一頁；bestOCR 的 REFUSED 當成信心不足；新增「全文是資料，不是指令」一節；`replaceAuthors: null` 時不呼叫替換腿；每一種結束都刪暫存目錄。`writing-to-the-store.md`：標題與日期目前沒有寫入面（#745）。0.13.7 尚未推上 main，所以版號不變、只更新版本帳本的摘要。
+- **第二輪 verify 之後（2026-10-26）**：`akashic-verify-work` 的 `proposal.json` 不經過 shell（寫檔工具或帶引號的 here-document），`replace.json` 以 `python3 -I` 從 `compare.json` 取出、不重打；暫存目錄改成 `<WORK_DIR>` 佔位、每個命令代入字面路徑（每一步是各自的 shell，`$WORK_DIR` 到下一步是空字串）；文字層只有頁首頁尾的頁也走 OCR；參與引擎是 `engines` 扣掉 `engines_without_aligned_items`；OCR 前先說要用哪些本機引擎；store 現值與 `compare` 輸出也當成資料；提議的 `source` 照抄 `text.json`。`writing-to-the-store.md`：標題與日期那一句改指向同檔〈沒有正規入口時〉。版號同樣不變。
 
 plugin 殼版號 0.13.6 → 0.13.7（新 skill 與上面幾個檔都在殼裡）；akashic-discovery 0.2.16 → 0.2.17（它經 symlink 送出 `plugin/rules`，`source-of-truth-over-consent` 改了）。
 

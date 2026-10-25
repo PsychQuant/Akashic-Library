@@ -71,6 +71,8 @@ akashic resolve-people --library <scratch> --split-author "claw2018framework:0: 
 
 ## OCR 路徑的實跑（5.4、5.5）
 
+> 這一節跑的是第一輪 verify **之前**的 skill：三頁共用一個 `out_dir`。第一輪 verify 指出共用目錄時後一頁會覆寫前一頁，skill 改成每頁一個子目錄；改寫後的路徑在 2026-10-26 另跑了一次，見〈第二輪 verify 之後〉的「OCR 實跑」。
+
 fixture：把一份三頁的文字 PDF 以 `pdftoppm -r 150` 點陣化、`sips` 包回 PDF、`pdfunite` 合併——`pdftotext` 抽不到任何字。
 
 - **(5.4 b)** `fulltext text` 回 `pageCount 3`、`hasTextLayer false`。bestOCR `list_engines`：本機可用 vision、tesseract、ext.rapidocr、ext.cnocr、ext.surya、doc.marker（雲端三個不可用）。
@@ -145,3 +147,43 @@ verify 報告在 #742（comment 6396427393）：pai-ensemble 2.25.1，四個 len
 - bestOCR 的 REFUSED 形狀（`REFUSED:` 開頭的摘要、沒有 `low_consensus` 鍵）取自 bestOCR 的原始碼與 verify 席的引證，這一輪沒有實跑出一次 REFUSED。
 - skill 的每一步是各自的 shell，`trap … EXIT` 撐不到最後一步，所以「每一種結束都刪暫存目錄」寫成明文規定，不是 trap。
 - 第一次推送（2026-10-25）沒有成功：pre-push 的全套測試在 load average 約 100 下，三個計時型測試超過寫死的時限；單獨重跑合計 6.4 秒通過。這是既有測試對負載敏感，記在 #752。
+
+## 第二輪 verify 之後（2026-10-26）
+
+第二輪 verify 報告在 #742（comment 6399280345），結果 **FAIL**：沒有 CRITICAL、HIGH；MEDIUM 6 項擋下，另有 LOW 若干。使用者 2026-10-25 要求「全部都做完」，所以再修一輪（Spectra 第 8 組），第三輪 verify 之後不論結果都停下交回。
+
+### 這一輪改了什麼（Spectra 第 8 組）
+
+| 項目 | 內容 |
+|---|---|
+| 8.1 升格過的團體位 | attribute-org 把 `{SING Consortium}` 升格成 organization 時不動 `group-members`，那個 organization 帶一筆 `work:<citekey> :: {SING Consortium}` 的 confirmed verdict。替換腿把這種 organization 位也算作團體位：省略 `groupMembers` 時保留名單、明寫時接受。先前名單在升格後只活到下一次替換，`compare` 對已經正確的記錄回 refusal |
+| 8.2 合併的遺失檢查 | `DivergenceResolve` 的 `group-members` 差集改比位元組；只差 NFC／NFD 的名單先前會在合併時安靜消失 |
+| 8.3 `compare` 的比較 | 作者位比狀態＋位元組（literal「key:alice」不再等於 person key `alice`）；名單連同將要依據的 digest 一起比；沒有名單與空名單相同；提議的頁序對照 `source` 那份 PDF 的頁數，超出寫進 `refusal` |
+| 8.4 名字閘 | 改用 repo 的單一定義 `UnsafeToEmitScalar`（私用區放行、ZWJ／ZWNJ 照 `NameIdentity` 的脈絡規則），並拒絕以組合記號開頭的名字；替換記錄的建構函式也拒絕這種段（它會和 `⟦` 黏成同一個字元） |
+| 8.5 替換記錄在原位換 | 作者列相同時先前的替換記錄留在原位置換掉；什麼都沒變時 `recordsRemoved` 為空。先前記錄被搬到 references 最後，替換記錄之後還有別的 reference 時，重跑同一份 JSON 會被判成有變 |
+| 8.6 `--out` 獨佔建立 | `OutputFile.createExclusive`：寫暫存檔、`link(2)` 掛到最終檔名（目的地已存在回 `EEXIST`）、刪暫存檔的名字。先前是檢查後 `rename`，兩次動作之間出現的檔會被蓋掉 |
+| 8.7 App | 成員名單的 `ForEach` id 改用團體名的位元組形 |
+| 8.8 測試補齊 | 五條腿兩兩互斥，CLI 與 MCP 兩面都是 10 對；organization 位的沿用與釋放；失效 warning 對 organization 位視為相符 |
+| 8.9 skill | `proposal.json` 用寫檔工具寫、不經過 shell；`replace.json` 以 `python3 -I` 從 `compare.json` 取出；`$WORK_DIR` 改成 `<WORK_DIR>` 佔位、代入字面路徑；文字層只有頁首頁尾的頁也走 OCR；參與引擎＝`engines` 扣掉 `engines_without_aligned_items`；OCR 前先說要用哪些本機引擎；store 現值與 `compare` 輸出也當成資料；`source` 照抄 `text.json` |
+| 8.10 文件 | `store-format.md` §3.5、`two-kinds-of-edits.md`、`mcp-cli-parity.md` 的腿數、`writing-to-the-store.md` 標題與日期那一句、替換腿檔頭 |
+
+### 測試與負控
+
+- 新測試：`ReplaceAuthorsTests` 4 個、`AuthorListReplacementRecordTests` 3 個、`FulltextReconcileCLITests` 3 個、`FulltextFetchHardeningTests` 1 個；`ServiceArgvExitCodeTests` 與 `StdioE2ETests` 的兩兩互斥從 6 對擴成 10 對。
+- 先紅後綠：新行為的案例實作前全部失敗（`createExclusive` 先以呼叫 `replace` 的空殼編譯過，再看它紅）。`testOrganizationPositionIsCarriedOverOrReleased` 與 `testStaleReplacementRecordTreatsAnOrganizationPositionAsMatching` 一開始就是綠的——它們釘的是既有行為。
+- 負控：12 個突變逐一讓對應的測試變紅，還原後無殘檔。
+- 全套 `swift test`：rc=0、0 failure（開始時 load average 約 10.5）；`swift test list` 共 5,402 個測試（上一輪 5,391，加 11 個新測試）。這次只留了輸出的最後 400 行，所以 skip 數沒有記下。`.githooks/run-guards.sh` rc=0，plugin 殼 0.13.7 的摘要更新為 `72b40d0d…`（0.13.7 還沒推上 main，只改摘要、不升版號）。
+- `tools/list`：59,981 → **59,981 bytes**（±0：這一輪沒有改 MCP 的說明文字；預算 65,000）。
+
+### OCR 實跑（2026-10-26，改寫後的逐頁路徑）
+
+fixture：兩頁點陣化 PDF（第 1 頁 byline、第 2 頁成員名單），`pdftotext` 抽不到任何字母。已安裝的 bestOCR 是 0.10.0，本機引擎 6 個。
+
+- 每頁一個 `out_dir`（`ocr/p1`、`ocr/p2`）：兩頁的 `.consensus.md`／`.json` 都在，各 6 個引擎參與、0 個低共識項，`low_consensus` 以空陣列出現。
+- 對照：兩頁共用一個 `out_dir`、先第 1 頁再第 2 頁——bestOCR 印出「note: overwrote existing consensus artifacts for this stem/out-dir」，目錄裡只剩第 2 頁的內容。這正是第一輪 verify 指出、skill 改成每頁一個子目錄的原因。
+- 已安裝的 0.10.0 沒有 REFUSED 路徑（REFUSED 來自開發中的版本），所以這一輪仍沒有實跑出一次 REFUSED；skill 照樣把它當成信心不足。
+
+### 照實記
+
+- `compare` 的頁序上限只在 `compare` 查；替換腿本身不讀 PDF，所以直接呼叫 `update-entry --replace-authors` 時不檢查頁序是否超出 PDF。skill 必經 `compare`，這是寫入面的誠實邊界。
+- 名字閘改用 `UnsafeToEmitScalar` 之後，`group-members` 的 decode 也用同一條規則；format 23 還沒有任何 store 在用，所以沒有既有資料受影響。

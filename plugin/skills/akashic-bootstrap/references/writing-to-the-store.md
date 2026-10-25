@@ -19,7 +19,8 @@
 **更新既有 work 的部分欄位，各欄位的路徑不同**（`create_entry` 與 `add_person` 都是 create-only，對已存在的目標拒寫，不能拿來改）：
 
 - **作者列**：`update-entry --replace-authors`（上表；#742）。依作品本身的 byline 整組替換，依據寫進 store。局部的改動另有 `resolve-people` 的歸戶、拆分、移除各腿。
-- **其他欄位**（標題、卷、期、頁碼、article number、日期）：`enrich` 只補**不存在**的鍵；值錯了要先 `update-entry --remove-field <鍵>=理由` 移除再 `enrich` 補。這條路寫得進值，卻**記不下「出自哪份全文第幾頁」**——`enrich` 的來源記錄要 url 與 HTTP 狀態，本機全文沒有這兩欄。依全文更正這些欄位的寫入面是 #742 之後另開的 issue。
+- **卷、期、頁碼、article number**（住在 `fields` 的 `volume`、`number`、`pages`、`eid`）：`enrich` 只補**不存在**的鍵；值錯了要先 `update-entry --remove-field <鍵>=理由` 移除再 `enrich` 補。這條路寫得進值，卻**記不下「出自哪份全文第幾頁」**——`enrich` 的來源記錄要 url 與 HTTP 狀態，本機全文沒有這兩欄。
+- **標題與日期**：它們是 work 的頂層欄位，不在 `fields` 裡，**目前沒有任何寫入面**——`--remove-field` 只認 `fields` 的鍵，`enrich` 不動標題、日期只在空白時才補。值錯了只能先記下來，不要手改 YAML。依全文更正這些欄位的寫入面在 #745。
 - 上面都涵蓋不到的改動（例如改一個已存在、沒有專用面的值）仍沒有正規入口，下面的紀律適用。這份文件其餘段落的過時之處記在 #743。
 
 沒有正規入口時：

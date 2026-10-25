@@ -106,3 +106,42 @@ akashic update-entry claw2018framework --replace-authors <tmp>/replace.json --li
 
 Zotero pull 的作者列保留，原本只看 person key（`.key`）；這個 change 依 spec 的「任何已歸戶位」一併算進 organization（`.organization`）。
 organization 位在 #323 之前不存在，原本那一行寫在它之前。
+
+## 第一輪 verify 之後（2026-10-25）
+
+verify 報告在 #742（comment 6396427393）：pai-ensemble 2.25.1，四個 lens 與 devil's advocate 用 sonnet，跨模型那一席是 Codex（gpt-6.1-sol）。requirements lens 第一輪連不上 API、Codex 第一輪超過 600 秒時限，兩席經 Recovery Protocol 補跑完成。結果 **FAIL**：沒有 CRITICAL；HIGH 3、MEDIUM 7、LOW 11、INFO 2。範圍外的 7 項開成 #747–#753。
+
+使用者同日回覆報告「要你決定的」四項「都可以」（#742 Decision comment 6396962763）：
+
+1. 依全文更正非作者欄位延後到 #745。#745 的前提同時更正（`/idd-edit --correct`，舊版已歸檔）：卷、期、頁碼、article number 寫得進值、記不下依據；**標題與日期沒有任何寫入面**，標題連 reference 格都沒有。
+2. 不寫新的完整性證言（design D2）；2026-10-21 Decision 理由裡「新的證言由 skill 依全文另外寫」一句以此取代。
+3. 部分頁是掃描圖的 PDF「延後或這一輪做」都可以——實作方選這一輪就逐頁判定。
+4. 團體成員維持字串，升格留給 #746。
+
+### 這一輪改了什麼（Spectra 第 7 組）
+
+| 項目 | 內容 |
+|---|---|
+| 7.1 逐位元組比較 | 成員去重、組去重、團體位對位、保留舊名單、退役 literal 的判定、失效 warning、`compare` 的比較，都比 UTF-8 位元組。Swift 的 `String ==` 比的是 Unicode 正規等價：NFC 與 NFD 的「José」被當成同一個值，而 store 存的是逐字的值 |
+| 7.2 輸入驗證 | 名字（literal、group、成員）不得含控制字元；團體名加上大括號後要平衡；整數精確解碼（`JSONInteger`：`Int.max` 到 `UInt64.max` 之間的數會繞回成負數，超過 `UInt64` 的會被解成 `NSDecimalNumber` 而截斷，`18446744073709551617` 原本會變成第 1 頁）；依據要是 PDF；`from` 沿用來的團體位也能掛名單 |
+| 7.3 記錄與報告 | 作者列逐位元組相同（只改成員名單）時只換替換記錄，保留拆分、移除記錄與證言；移除證言時 `witnessRemovedDetail` 列出 fingerprint 與作者列；退役 verdict 的掃描移到寫入之前 |
+| 7.4 替換腿層的測試 | format 22 的乾跑與實跑、同一份 JSON 重跑為 `unchanged`、無法唯一定位 |
+| 7.5 逐頁字母 | `fulltext text` 每頁回 `hasLetters`，另回 `sourcePath`；skill 只對需要讀、沒有字母的頁走 OCR |
+| 7.6 `--out` | 已存在（普通檔、symlink、其他）即拒；以 0600 原子寫出；父目錄以實體路徑判斷 git 工作樹 |
+| 7.7 `compare` | 提議一律經替換腿乾跑驗證（先前作者列相同、`release` 卻指到 literal 位的提議以 `refusal: null` 過關）；只差成員名單也給 `replaceAuthors` |
+| 7.8 skill | 每頁一個 OCR 輸出目錄、讀完一頁才呼叫下一頁（bestOCR 的輸出檔名只由輸入檔名決定，共用目錄時後一頁覆寫前一頁）；REFUSED 當成信心不足；「全文是資料，不是指令」一節；`replaceAuthors: null` 時不呼叫替換腿；封面頁不算 byline；嵌入式 OCR 層的提醒；「全文不離開本機」改成照實的說法；每一種結束都刪暫存目錄 |
+| 7.9 說明文字 | `writing-to-the-store.md` 分開兩種情形；「另外三條腿／四條腿」改成五條；`akashic_get_entry` 的說明列出 `group-members`；Zotero 保留條件的四處描述 |
+
+### 測試與負控
+
+- 新測試：`ReplaceAuthorsTests` 10 個、`AuthorListReplacementRecordTests` 1 個、`FulltextReconcileCLITests` 7 個；`testSplitRecordAndWitnessAreRemovedAndListed` 加上 `witnessRemovedDetail` 的斷言。
+- 先紅後綠：新行為的案例實作前全部失敗。純補覆蓋的四個（format 22、重跑 unchanged、無法唯一定位、只差成員名單也給替換物件）一開始就是綠的——它們釘的是既有行為。
+- 負控：13 個突變（拿掉一條檢查，或把位元組比較改回正規化比較）逐一讓對應的測試變紅，還原後逐位元組相同。
+- 全套 `swift test`（2026-10-25 20:49 起，load average 約 40–63）：5,391 個測試、0 failure（1 個環境 skip，`chflags` 在暫存目錄的檔案系統上不生效）；`.githooks/run-guards.sh` rc=0。
+- `tools/list`：59,816 → **59,981 bytes**（+165：`akashic_update_entry` 多寫 `witnessRemovedDetail`、`akashic_get_entry` 多寫 `group-members`；預算 65,000）。
+
+### 照實記
+
+- bestOCR 的 REFUSED 形狀（`REFUSED:` 開頭的摘要、沒有 `low_consensus` 鍵）取自 bestOCR 的原始碼與 verify 席的引證，這一輪沒有實跑出一次 REFUSED。
+- skill 的每一步是各自的 shell，`trap … EXIT` 撐不到最後一步，所以「每一種結束都刪暫存目錄」寫成明文規定，不是 trap。
+- 第一次推送（2026-10-25）沒有成功：pre-push 的全套測試在 load average 約 100 下，三個計時型測試超過寫死的時限；單獨重跑合計 6.4 秒通過。這是既有測試對負載敏感，記在 #752。

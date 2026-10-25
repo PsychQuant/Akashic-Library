@@ -61,8 +61,8 @@ public struct ImportReport: Equatable {
         /// **計數的時機是讀進每個 Zotero 條目時**，不論這一趟有沒有寫（含未變動、被多筆宣稱而略過、寫入失敗的條目）——
         /// 它說的是「讀到的條目帶哪些未對映欄位」，對寫入失敗的那一筆「入庫」兩個字不成立（#702 R1 verify）。
         public var residualFields: [String: Int] = [:]
-        /// pull 覆寫掉的**未歸戶** literal 作者（#208）。已歸戶的 `.key` 走
-        /// `authorsPreserved`，永不被覆寫。只記寫入成功的那一筆——寫不進去的只在 `writeFailed`／`quarantineConflicts`（#702）。
+        /// pull 覆寫掉的作者列（#208）：作者列沒有任何已歸戶位、也沒有作者列替換記錄時才覆寫。有已歸戶位（person `.key` 或 `.organization`，#742 起含後者）
+        /// 或替換記錄的作者列走 `authorsPreserved`，永不被覆寫。只記寫入成功的那一筆——寫不進去的只在 `writeFailed`／`quarantineConflicts`（#702）。
         public var authorsOverwritten: [String] = []
         /// pull **移除**的欄位名 → 次數（#208）。成因是 `applyBiblatexFields`
         /// 整份替換 `fields`：Zotero 這次沒給的欄位會消失，包含使用者手工補的。只算寫入成功的那幾筆（#702）。

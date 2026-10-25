@@ -72,7 +72,7 @@ extension DestructiveTargetGate {
         "enrich": .gated,   // #458：只加不存在的鍵，但仍改寫既有記錄檔；閘的成本是一行
         "enrich-from-zotero": .gated,
         "copy-zotero-attachments": .gated,   // #606：預設乾跑、--apply 才寫；把位元組存進 sources/ 並改寫既有 work 記錄的 akashic.sources（追加）——比照 update-entry／enrich
-        "update-entry": .gated,   // #544／#614／#680／#677：預設乾跑、--apply 才寫；--remove-field 刪 fields 的值、--add-source 追加副本引用、--remove-zotero-source 拿掉記下的 Zotero 來源、--remove-source 收回副本引用——都改寫既有記錄檔（比照 enrich）；四條腿同一格：閘在命令入口（--apply），不分腿
+        "update-entry": .gated,   // #544／#614／#680／#677：預設乾跑、--apply 才寫；--remove-field 刪 fields 的值、--add-source 追加副本引用、--remove-zotero-source 拿掉記下的 Zotero 來源、--remove-source 收回副本引用——都改寫既有記錄檔（比照 enrich）；五條腿同一格（#742 的 --replace-authors 也預設乾跑）：閘在命令入口（--apply），不分腿
         "authorize-names": .gated,   // #580 R1 verify：全庫掃蕩的布林 --apply，曾因宣告寫成 `: Bool` 漏在稽核外
         "resolve-divergence": .gated,
         "rename": .gated,   // #650／#653

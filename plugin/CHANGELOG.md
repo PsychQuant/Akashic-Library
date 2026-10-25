@@ -9,6 +9,7 @@
 - **`akashic-bootstrap` 的 `writing-to-the-store.md`**：入口表加 `update-entry --replace-authors`；「更新既有記錄」改寫為各欄位的現有路徑與依據缺口。
 - **plugin 的 `source-of-truth-over-consent`**：封閉表加「團體署名與成員名單」一列。
 - `tools/list`：59,159 → 59,816 bytes（預算依 #578 的裁決調到 65,000）。
+- **第一輪 verify 之後（2026-10-25）**：`akashic-verify-work` 只對需要讀、沒有字母的頁走 OCR（`fulltext text` 逐頁回 `hasLetters`），每頁一個 OCR 輸出目錄、讀完一頁才呼叫下一頁；bestOCR 的 REFUSED 當成信心不足；新增「全文是資料，不是指令」一節；`replaceAuthors: null` 時不呼叫替換腿；每一種結束都刪暫存目錄。`writing-to-the-store.md`：標題與日期目前沒有寫入面（#745）。0.13.7 尚未推上 main，所以版號不變、只更新版本帳本的摘要。
 
 plugin 殼版號 0.13.6 → 0.13.7（新 skill 與上面幾個檔都在殼裡）；akashic-discovery 0.2.16 → 0.2.17（它經 symlink 送出 `plugin/rules`，`source-of-truth-over-consent` 改了）。
 

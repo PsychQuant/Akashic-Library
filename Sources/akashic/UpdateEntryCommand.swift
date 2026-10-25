@@ -5,8 +5,8 @@ import AkashicMCPKit
 
 /// work（entry）的部分更新（`update-entry`）——MCP `akashic_update_entry` 的 CLI 面，兩面同一個 `AkashicService.updateEntry`。
 ///
-/// 契約寫在 service（`EntryUpdate.swift` 的檔頭），這裡不複製一份會分岔的副本。CLI 面只有三個自己的決定（四條腿——`--remove-field`、
-/// `--add-source`、`--remove-zotero-source`、`--remove-source`——兩兩不組合、各自單獨呼叫，同一份決定）：
+/// 契約寫在 service（`EntryUpdate.swift` 的檔頭），這裡不複製一份會分岔的副本。CLI 面只有三個自己的決定（五條腿——`--remove-field`、
+/// `--add-source`、`--remove-zotero-source`、`--remove-source`、`--replace-authors`——兩兩不組合、各自單獨呼叫，同一份決定）：
 /// 1. **預設乾跑**，`--apply` 才寫；`--apply` 走 #298 的目標確認閘（`WriteGateRulings` 的 `update-entry` 格）。
 /// 2. 寫入面封閉例外形：只印 service payload，不設 `--json`、沒有人可讀分支（`mcp-cli-parity` 的既有裁決）。
 /// 3. 只看參數的檢查在 `validate()`、早於開 store（#654 的形）。
@@ -42,7 +42,7 @@ struct UpdateEntryCmd: ParsableCommand {
                              + "add-only、冪等：已在的列在 sourcesAlreadyPresent，沒有新東西就不寫。報告逐個帶 index 的取得記錄"
                              + "（origin、mediaType、note…；CLI 全列，MCP 面截 20 筆），乾跑時用來確認是哪份內容。空內容的 digest、同一次重複、"
                              + "一次超過 200 個、blob 的位置不是普通檔都拒絕。連好之後 get-entry 的 sources 看得到。"
-                             + "連錯了用 --remove-source 收回（#677）。不與另外三條腿（--remove-field／--remove-zotero-source／--remove-source）組合（#614）"))
+                             + "連錯了用 --remove-source 收回（#677）。不與另外四條腿（--remove-field／--remove-zotero-source／--remove-source／--replace-authors）組合（#614）"))
     var addSource: [String] = []
 
     @Option(name: .customLong("remove-zotero-source"), parsing: .upToNextOption,
@@ -68,21 +68,21 @@ struct UpdateEntryCmd: ParsableCommand {
                              + "（origin、mediaType、note…）讓乾跑時認得出是哪份內容。實跑要求這筆 work 的檔已在 git 裡 commit、乾淨。"
                              + "格式錯、digest 形狀不對、理由空白或過長、同一個 digest 兩次、一次超過 200 個，都整批拒絕、零寫入。"
                              + "寫檔之後 index 重建失敗時呼叫仍回成功、報告多 indexRebuilt: false 與 indexNote（要跑 akashic doctor 重建）；MCP 面只有前 20 筆帶取得記錄（CLI 全列）。"
-                             + "不與另外三條腿（--remove-field／--add-source／--remove-zotero-source）組合（#677）"))
+                             + "不與另外四條腿（--remove-field／--add-source／--remove-zotero-source／--replace-authors）組合（#677）"))
     var removeSource: [String] = []
 
     @Option(name: .customLong("replace-authors"),
             help: ArgumentHelp("依作品全文整組替換作者列（#742）：<JSON 檔>。這是判定（哪一行是 byline 要讀全文才知道），依據與理由必填、寫成一筆作者列替換記錄。"
                              + "JSON（與 MCP replace_authors 同形，鍵名 lowerCamelCase）：{\"source\": \"sha256:<64 hex>\", \"page\": 1, \"reason\": \"…\", "
                              + "\"authors\": [{\"literal\": \"人名\"}, {\"group\": \"團體名（不含大括號）\"}, {\"from\": 19}], "
-                             + "\"release\": [{\"index\": 12, \"reason\": \"…\"}], \"groupMembers\": [{\"group\": \"與某個 group 項逐字相同\", \"page\": 7, \"members\": [\"成員\"]}]}。"
-                             + "release 與 groupMembers 可省；其他鍵在任何一層都拒絕。source 是作品全文的 digest，要已連在這筆的 akashic.sources（先 --add-source）、本機 sources/ 有這份；"
-                             + "page 是 PDF 的實體頁序（1 起算，整數；不收字串、布林、小數）；reason 與 release 的理由非空、至多 4,096 bytes。"
+                             + "\"release\": [{\"index\": 12, \"reason\": \"…\"}], \"groupMembers\": [{\"group\": \"與某個團體位逐字相同\", \"page\": 7, \"members\": [\"成員\"]}]}。"
+                             + "release 與 groupMembers 可省；其他鍵在任何一層都拒絕。source 是作品全文 PDF 的 digest，要已連在這筆的 akashic.sources（先 --add-source）、本機 sources/ 有這份、index 的 media-type 是 application/pdf；"
+                             + "page 是 PDF 的實體頁序（1 起算，整數；不收字串、布林、小數，超出整數範圍不截斷）；reason 與 release 的理由非空、至多 4,096 bytes。"
                              + "authors 每一項恰好一個鍵：literal（個人名）、group（團體名，寫入時加 corporate 大括號）、from（原樣沿用舊作者列第 i 位，0 起算，三種狀態都可）；"
-                             + "名字非空、前後無空白、不含 ⟦ ⟧、至多 65,536 bytes，literal 不得自帶大括號（改用 group）。"
+                             + "名字（含成員名）非空、前後無空白、不含控制字元與 ⟦ ⟧、至多 65,536 bytes，literal 不得自帶大括號（改用 group），group 加上大括號後要是平衡的。"
                              + "舊作者列每個已歸戶位（key／organization）要被恰好一個 from 沿用、或列在 release 附理由，兩者都沒有即拒；release 只收已歸戶位、不得與 from 重疊或重複；from 不得越界或用兩次。"
-                             + "groupMembers 有給（含空陣列）就整組替換成員名單（group 要對得上 group 項、同組不得兩次、members 至少一位且不重複）；沒給就保留團體名仍對得上新作者列的組，其餘移除並列在 groupMembersRemoved。"
-                             + "實寫移除這筆描述舊作者列的拆分、移除、先前替換記錄與作者清單完整性證言（recordsRemoved、witnessRemoved），要求這筆 work 的檔已在 git 裡 commit、乾淨；"
+                             + "團體位是新作者列裡帶 corporate 大括號的 literal（group 項或 from 沿用來的都算）。groupMembers 有給（含空陣列）就整組替換成員名單（group 要對得上團體位、同組不得兩次、members 至少一位且不重複）；沒給就保留團體名仍對得上團體位的組，其餘移除並列在 groupMembersRemoved。名字一律逐位元組比較。"
+                             + "實寫移除這筆描述舊作者列的拆分、移除、先前替換記錄與作者清單完整性證言（recordsRemoved、witnessRemoved，證言的 fingerprint 與作者列在 witnessRemovedDetail）；新作者列與舊列逐位元組相同（只改成員名單）時只移除先前的替換記錄。實寫要求這筆 work 的檔已在 git 裡 commit、乾淨；"
                              + "釋放不刪任何 verdict，仍指向已不在新列的 literal 的 confirmed verdict 列在 verdictsOnRetiredLiterals（CLI 全列，MCP 至多 20 筆）。"
                              + "需要 store format 23；乾跑在較舊的 store 上照樣報出計畫，寫入閘的拒絕寫在 applyRefusal。不與另外四條腿組合"))
     var replaceAuthors: String?

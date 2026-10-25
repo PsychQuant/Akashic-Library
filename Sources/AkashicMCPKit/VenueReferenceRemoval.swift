@@ -41,7 +41,7 @@ import AkashicIndex
 ///   reference 的其餘內容（url／statement／rests_on…，第三方字串），其後的省略並以 `detailsTruncated`／`detailsListed` 揭露；CLI 全列。
 ///   寫檔之後 index 重建失敗時呼叫仍回成功、報告多 `indexRebuilt: false`（`RemovalReportSupport.swift` 說明為什麼不是擲錯）。
 /// - **各腿單獨呼叫**（Claude 代裁）：不與 `update-venue` 的任何其他參數組合。其餘腿會改記錄的值、名字分割與同一批的 reference，
-///   與「移除的是哪一筆」交錯（例：`--remove-issn` 會連帶刪掉指向該號的 reference，同一次再定位它就落空），而 `update-entry` 的四條腿早已是這個形；
+///   與「移除的是哪一筆」交錯（例：`--remove-issn` 會連帶刪掉指向該號的 reference，同一次再定位它就落空），而 `update-entry` 的各條腿早已是這個形；
 ///   日後要放寬是可逆的，要收窄不是。
 /// - **只移除 reference，不動它指的值**：`issn` 的來源被移除，那個號仍在（移除號是 `--remove-issn`）；`names` 的來源被移除，那個名字仍在。
 ///

@@ -55,7 +55,7 @@ import AkashicIndex
 /// - add-only、冪等：已在 `akashic.sources` 的列在 `sourcesAlreadyPresent`，沒有新東西就不寫；新的追加在後，既有的不動。
 /// - 走編碼器（`writeEntry`，format ≥ 9 的閘在那裡）；預設乾跑。報告逐個帶 index 的取得記錄（origin、media-type、note…），
 ///   讓乾跑的人認得出這份內容是什麼。**MCP 面截 20 筆**（`sourcesAddedTotal`／`truncated` 揭露，`sourcesAddedCap`）、CLI 全列。
-/// - 不與另外三條腿（`remove_fields`、`remove_zotero_sources`、`remove_sources`）組合（移除是判定、加入是落地；四條腿兩兩互斥）。
+/// - 不與另外四條腿（`remove_fields`、`remove_zotero_sources`、`remove_sources`、`replace_authors`）組合（移除是判定、加入是落地；五條腿兩兩互斥）。
 ///
 /// **誠實邊界**：「必須在本機」只是寫入當下的閘——`sources/` 不進 git，別台 clone 讀到這條連結時內容可能不在
 /// （§2.4.1：載入成功、可回報缺席，`akashic validate` 的「本機缺承重存檔」）。**閘不重新雜湊 blob**：位置是普通檔、index 有記錄，
@@ -79,7 +79,7 @@ import AkashicIndex
 ///   刪存檔是另一件事（`#544` 同族的移除面，另案）。也不動 `Entry.references`（欄位層級的 digest 證據，§2.4.1 第一條：兩種關係不得合併）。
 /// - **不要求本機有位元組**：別台 clone 上 `sources/` 本來就可能不在（§2.4.1），連錯的宣告在那裡照樣要收得回來。報告帶 index 的取得記錄
 ///   （origin、mediaType、note…）只是讓乾跑的人認得出是哪份內容——本機沒有存檔或 index 讀不到時省略（`contentInfoUnreadable`）。
-/// - 預設乾跑、實跑要 git 閘；無法唯一定位的 work 拒絕（#628／#641）。與 `remove_fields`／`add_sources`／`remove_zotero_sources` 互斥（四條腿兩兩不組合，各自單獨呼叫）。
+/// - 預設乾跑、實跑要 git 閘；無法唯一定位的 work 拒絕（#628／#641）。與 `remove_fields`／`add_sources`／`remove_zotero_sources`／`replace_authors` 互斥（五條腿兩兩不組合，各自單獨呼叫）。
 /// - **MCP 面只有前 `sourcesLimit`（20）筆帶 index 的取得記錄**（origin、note… 是第三方字串、每筆至多約 2 KB）；其後的只回 `digest` 與 `reason`
 ///   （**理由是這一族唯一的一份，不截**），`detailsTruncated`／`detailsListed` 揭露。CLI 全列。
 ///
@@ -151,7 +151,7 @@ extension AkashicService {
                                           replaceAuthors: replaceAuthors)
     }
 
-    /// 至少要有一件事、四條腿兩兩不組合，再交給各自的形狀檢查。**不組合的理由**：`remove_fields`、`remove_zotero_sources`、`remove_sources`
+    /// 至少要有一件事、五條腿兩兩不組合，再交給各自的形狀檢查。**不組合的理由**：`remove_fields`、`remove_zotero_sources`、`remove_sources`
     /// 是判定（理由只進報告、要 git 閘，而被移除的東西各不相同：`fields` 的值、Zotero 來源、`akashic.sources` 的副本宣告），`add_sources` 是落地
     /// （程式編輯）——`two-kinds-of-edits` 要求兩種寫入分開，混在一次呼叫裡報告與閘的語意也跟著混；三條移除腿的報告形狀與閘的標籤不同，同樣不混。
     static func parseUpdateEntryArguments(removeFields: [String]?, addSources: [String]?,

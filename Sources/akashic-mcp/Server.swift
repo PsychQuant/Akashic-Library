@@ -94,7 +94,7 @@ actor AkashicMCPServer {
                 "library": str("store **內**的 membership 分類 key 篩選（省略＝全集）。**不是** store root——store 由伺服器啟動時決定，可用 akashic_files 的 use action 切換"),
              ])),
         Tool(name: "akashic_get_entry",
-             description: "以 citekey 取完整 entry：回 id／citekey／type／title／authors／date／fields／venues（邊是 {key} 或 {literal}）、有才出現的 doi／pmid／isbn、akashic namespace（tags／libraries／relations／sources 副本 digest）與 provenance（附加來源在 provenance_additional）；有才出現的 unknownFields（本 binary 不認得的欄位名）。",
+             description: "以 citekey 取完整 entry：回 id／citekey／type／title／authors／date／fields／venues（邊是 {key} 或 {literal}）、有才出現的 doi／pmid／isbn／group-members（團體作者的成員名單：group、rests-on、page、members）、akashic namespace（tags／libraries／relations／sources 副本 digest）與 provenance（附加來源在 provenance_additional）；有才出現的 unknownFields（本 binary 不認得的欄位名）。",
              inputSchema: obj(["citekey": str("citekey")], required: ["citekey"])),
         Tool(name: "akashic_relations",
              description: "關係查詢：same-journal / same-author / cites / cited-by / related。回 [{citekey, title, type, year, journal, authors}]。",
@@ -215,7 +215,7 @@ actor AkashicMCPServer {
                  + "主來源移除後附加來源不升格（primaryRemovedNote），zoteroLinkState 回連結狀態前後，zoteroSourcesRemaining／zoteroSourcesRemainingTotal 是剩下的與總數。"
                  + "remove_sources 收回一條副本宣告（判定：理由必填、只回在 sourcesRemoved；只移除宣告，sources/ 的內容與取得記錄不動；實寫要求 work 檔已 commit、乾淨）。"
                  + "replace_authors 依作品全文整組替換作者列（判定；形狀見 CLI help；需要 store format 23）：已歸戶位要 from 沿用或 release，回 authorsBefore／authorsAfter、"
-                 + "replacementRecord、released、recordsRemoved／witnessRemoved（移除的舊記錄與證言）、groupMembersAfter／groupMembersRemoved、"
+                 + "replacementRecord、released、recordsRemoved／witnessRemoved／witnessRemovedDetail（移除的舊記錄與證言；作者列逐位相同時只移除先前的替換記錄）、groupMembersAfter／groupMembersRemoved、"
                  + "verdictsOnRetiredLiterals（至多 20 筆，verdictsOnRetiredLiteralsTotal／truncated）、unchanged、applyRefusal（乾跑時寫入閘的拒絕）；實寫要求 work 檔已 commit、乾淨。"
                  + "五條腿兩兩不組合。work 無法唯一定位時拒絕。" + legacyCopyNote,
              inputSchema: obj([

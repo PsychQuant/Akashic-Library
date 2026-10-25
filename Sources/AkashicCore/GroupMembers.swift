@@ -26,6 +26,15 @@ public struct GroupMemberList: Equatable, Sendable {
     public let page: Int
     public let members: [String]
 
+    /// 團體名的位元組形——SwiftUI `ForEach` 的 id 與合併比對用。`String` 的相等與 hash 是 Unicode 正規等價，只差 NFC／NFD 的兩組會撞在一起，
+    /// 而 `Entry.groupMembersProblem` 按位元組允許它們並存（#742 verify 第二輪）。
+    public var groupBytes: [UInt8] { Array(group.utf8) }
+
+    /// 整組名單的位元組形（團體、頁序、依據、成員依序）：判斷兩組名單是不是同一份——synthesized `==` 比的是 Unicode 正規等價。
+    public var byteKey: [UInt8] {
+        ([group, String(page), restsOn] + members).reduce(into: [UInt8]()) { $0 += Array($1.utf8) + [0] }
+    }
+
     public init?(group: String, restsOn: String, page: Int, members: [String]) {
         guard Self.problem(group: group, restsOn: restsOn, page: page, members: members) == nil else { return nil }
         self.group = group
@@ -53,9 +62,7 @@ public struct GroupMemberList: Equatable, Sendable {
             guard !m.isEmpty, m == m.trimmingCharacters(in: .whitespacesAndNewlines) else {
                 return "成員名不得為空、不得有前後空白"
             }
-            guard !AuthorListReplacementRecordValue.containsControlCharacter(m) else {
-                return "成員名不得含控制字元（換行、tab 等）"
-            }
+            if let issue = AuthorListReplacementRecordValue.nameScalarIssue(m) { return "成員名\(issue)" }   // display-safe-exempt: issue 只含十六進位碼位與常量句
             guard seen.insert(Array(m.utf8)).inserted else { return "成員名逐字重複" }
         }
         return nil

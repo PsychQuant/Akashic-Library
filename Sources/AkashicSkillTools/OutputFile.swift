@@ -55,6 +55,35 @@ enum OutputFile {
         return (dir.isEmpty ? "." : dir) + "/.\(token).\(name)"
     }
 
+    /// 以 `data` **獨佔建立** `path`：目的地已存在（任何種類）就失敗、不覆寫（#742 verify 第二輪）。
+    ///
+    /// 先寫同目錄的暫存檔，再以 `link(2)` 把它掛到最終檔名——`link` 在目的地已存在時回 `EEXIST`、不跟隨 symlink，
+    /// 所以「檢查之後、寫入之前出現的檔」也不會被蓋掉；`replace` 用的 `rename(2)` 會無聲取代它。最後刪掉暫存檔的名字，不留殘檔。
+    static func createExclusive(path: String, with data: Data, mode: mode_t) throws {
+        let shown = displaySafeInvisible(path, max: 400)
+        let tmp = tempPath(for: path, token: UUID().uuidString)
+        let fd = open(tmp, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, mode)
+        guard fd >= 0 else {
+            throw SkillToolError.failure("cannot write \(shown): \(displaySafeInvisible(String(cString: strerror(errno)), max: 200))")   // display-safe-exempt: shown 上面已 displaySafeInvisible
+        }
+        var failure: String?
+        do {
+            let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: false)
+            try handle.write(contentsOf: data)
+            if fsync(fd) != 0 { failure = String(cString: strerror(errno)) }
+        } catch {
+            failure = displaySafeErrorText(error)
+        }
+        if close(fd) != 0, failure == nil { failure = String(cString: strerror(errno)) }
+        if failure == nil, link(tmp, path) != 0 {
+            failure = errno == EEXIST ? "it already exists — refusing to replace it" : String(cString: strerror(errno))
+        }
+        unlink(tmp)
+        if let failure {
+            throw SkillToolError.failure("cannot write \(shown): \(displaySafeInvisible(failure, max: 300))")   // display-safe-exempt: shown 上面已 displaySafeInvisible
+        }
+    }
+
     /// 原子替換（或建立）`path` 為 `data`。目的地是普通檔或不存在才動手；任何一步失敗都不留暫存檔、不動原本的東西。
     /// `mode` 是暫存檔建立時的權限（仍受 umask 限制）；第三方全文用 `0o600`（#742 verify）。
     static func replace(path: String, with data: Data, token: String = UUID().uuidString, mode: mode_t = 0o666) throws {

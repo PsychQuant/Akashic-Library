@@ -478,4 +478,57 @@ final class FulltextReconcileCLITests: XCTestCase {
         XCTAssertNotEqual(r.status, 0, r.output)
         XCTAssertTrue(r.output.contains("整數範圍"), r.output)
     }
+
+    // MARK: - 8.x 第二輪 verify 之後
+
+    /// 8.3：作者位比狀態——literal「key:alice」不等於 person key `alice`。
+    func testCompareDistinguishesALiteralFromAKey() throws {
+        try XCTSkipUnless(hasPoppler(), "需要 poppler")
+        let d = try seedClaw(authors: [.key("alice")])
+        let r = try compare(["source": d, "authors": ["page": 1, "items": [["literal": "key:alice"]]],
+                             "release": [["index": 0, "reason": "重新核對後釋放"]]])
+        XCTAssertEqual(r.status, 0, r.output)
+        let rows = try XCTUnwrap(r.json?["rows"] as? [[String: Any]])
+        XCTAssertEqual(rows.first { $0["field"] as? String == "authors" }?["status"] as? String, "differs")
+        XCTAssertNotNil(r.json?["replaceAuthors"] as? [String: Any])
+    }
+
+    /// 8.3：沒有名單與空名單相同；換了依據的名單不同。
+    func testCompareMemberListsByContentAndSource() throws {
+        try XCTSkipUnless(hasPoppler(), "需要 poppler")
+        let d = try seedClaw(authors: [.literal("Katrina G. Claw"), .literal("{SING Consortium}")])
+        let b = try storePDF(makePDF(pages: sevenPages + [["Author manuscript"]]), name: "b.pdf")   // store 進 git 之前存
+        let same: [[String: Any]] = [["literal": "Katrina G. Claw"], ["group": "SING Consortium"]]
+        let empty = try compare(["source": d, "authors": ["page": 1, "items": same], "groupMembers": []])
+        XCTAssertEqual(empty.status, 0, empty.output)
+        let rows = try XCTUnwrap(empty.json?["rows"] as? [[String: Any]])
+        XCTAssertEqual(rows.first { $0["field"] as? String == "groupMembers" }?["status"] as? String, "same")
+        XCTAssertTrue(empty.json?["replaceAuthors"] is NSNull, "\(String(describing: empty.json))")
+        // 先以 d 寫入名單，再以另一份 PDF 核對同一份名單
+        let members: [[String: Any]] = [["group": "SING Consortium", "page": 7, "members": ["A"]]]
+        let first = try compare(["source": d, "authors": ["page": 1, "items": same], "groupMembers": members])
+        let rf = scratch.appendingPathComponent("replace-1.json")
+        try JSONSerialization.data(withJSONObject: try XCTUnwrap(first.json?["replaceAuthors"] as? [String: Any])).write(to: rf)
+        git(["init", "-q"]); git(["add", "-A"]); git(["commit", "-q", "-m", "seed"])
+        let applied = try CLITestHarness.run(["update-entry", "claw2018framework", "--replace-authors", rf.path,
+                                              "--library", root.path, "--apply"], env: env)
+        XCTAssertEqual(applied.status, 0, applied.output)
+        var e = try XCTUnwrap(LibraryStore(root: root, key: nil, environment: [:]).load().entries.first)
+        e.akashic.sources.append(b)
+        try LibraryStore(root: root, key: nil, environment: [:]).writeEntry(e)
+        git(["add", "-A"]); git(["commit", "-q", "-m", "second pdf"])
+        let other = try compare(["source": b, "authors": ["page": 1, "items": same], "groupMembers": members])
+        let rows2 = try XCTUnwrap(other.json?["rows"] as? [[String: Any]])
+        XCTAssertEqual(rows2.first { $0["field"] as? String == "groupMembers" }?["status"] as? String, "differs", "依據換了")
+    }
+
+    /// 8.3：提議的頁序對照那份 PDF 的頁數。
+    func testComparePagesBeyondThePDFAreRefused() throws {
+        try XCTSkipUnless(hasPoppler(), "需要 poppler")
+        let d = try seedClaw(authors: [.literal("Katrina G. Claw")])
+        let r = try compare(["source": d, "authors": ["page": 99, "items": [["literal": "Katrina G. Claw"]]]])
+        XCTAssertEqual(r.status, 0, r.output)
+        let refusal = try XCTUnwrap(r.json?["refusal"] as? String, "\(String(describing: r.json))")
+        XCTAssertTrue(refusal.contains("99") && refusal.contains("7"), refusal)
+    }
 }

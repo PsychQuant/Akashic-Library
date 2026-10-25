@@ -100,8 +100,9 @@ struct EntryDetailView: View {
                     LabeledContent("Authors", value: entry.displayAuthors)
                     // **團體作者的成員名單**（#742）。App 是第三個讀取面（CLI 與 MCP 共用 `entryDict`，這裡要分別改）。
                     // 團體名與成員是作品裡的第三方原文——與 `authors` 的 literal 同源，要消毒。`group` 在一筆 work 內
-                    // 唯一（decode 擋），所以它是元素自己的識別，不是位置。標籤走 String 的 overload：逐字顯示、不當本地化鍵。
-                    ForEach(entry.groupMembers, id: \.group) { list in
+                    // **逐位元組**唯一（decode 擋），所以它是元素自己的識別，不是位置；id 用位元組形，因為 `String` 的相等是
+                    // Unicode 正規等價，只差 NFC／NFD 的兩組會被當成同一個 id（#742 verify 第二輪）。標籤走 String 的 overload：逐字顯示、不當本地化鍵。
+                    ForEach(entry.groupMembers, id: \.groupBytes) { list in
                         let label = "Members of \(displaySafe(CorporateName.unmark(list.group), max: 400)) (p. \(list.page))"
                         LabeledContent(label, value: list.members.map { displaySafe($0, max: 400) }.joined(separator: ", "))
                     }

@@ -35,6 +35,16 @@ public enum PDFReader {
         return Content(firstPages: firstPages, pageCount: count)
     }
 
+    /// 只讀頁數（`pdfinfo`）：`fulltext compare` 對照提議的頁序用，不抽文字（#742 verify 第二輪）。
+    public static func pageCount(path: String) throws -> Int {
+        let info = try ToolRunner.run(["pdfinfo", path], timeout: ToolRunner.popplerTimeout)
+        guard info.status == 0 else { throw SkillToolError.failure("pdfinfo failed (exit \(info.status))") }   // display-safe-exempt: info：status 是 Int 結束碼
+        guard let count = pageCount(fromPdfinfo: String(decoding: info.stdout, as: UTF8.self)) else {
+            throw SkillToolError.failure("pdfinfo reported no page count")
+        }
+        return count
+    }
+
     /// **全部頁**的文字（#742 `fulltext text`）：`pdfinfo` 報頁數、`pdftotext` 一次抽全檔，以分頁符 `\f` 切成逐頁。
     /// 與 `read` 分開，`read` 的「只讀前兩頁」是 `fulltext verify`／`take` 校準過的輸入，不動它。
     /// 切出來的頁數與 `pdfinfo` 不符時拒絕——頁序對不上，替換記錄的頁碼就是假的。

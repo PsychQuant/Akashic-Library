@@ -3632,7 +3632,9 @@ extension LibraryStore {
         }
         // group-members（#742）：差集判準、指名——同 attachments／venues 的形狀。名單是作品印出來的事實（出版當時的成員），
         // 合併不搬它；被併者有而倖存者沒有的那一組會隨被併者的檔一起消失。被併者的作者列替換記錄由下方 references 的差集報出。
-        let lostMemberLists = e.groupMembers.filter { !keeper.groupMembers.contains($0) }
+        // 比位元組：synthesized `==` 是 Unicode 正規等價，只差 NFC／NFD 的名單會被當成同一份而在合併時安靜消失（#742 verify 第二輪）
+        let keeperLists = Set(keeper.groupMembers.map(\.byteKey))
+        let lostMemberLists = e.groupMembers.filter { !keeperLists.contains($0.byteKey) }
         if !lostMemberLists.isEmpty {
             losses.append("group-members: " + lostMemberLists.map {
                 "\($0.group)（\($0.members.count) 位，第 \($0.page) 頁）"   // display-safe-exempt: group：losses 在 fieldsLostByMerging 回傳前逐條 displaySafeInvisible（R28 D80）；count 與 page 是 Int

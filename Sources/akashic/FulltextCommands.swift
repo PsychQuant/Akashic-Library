@@ -336,6 +336,16 @@ struct FulltextCompareCmd: ParsableCommand {
             } catch {
                 refusal = displaySafeErrorText(error)
             }
+            // 頁序上限：替換腿不讀 PDF，所以在這裡對照提議 source 那一份的頁數。source 本身不合（沒連在這筆、沒存、不是 PDF）時
+            // 替換腿已經拒絕並說出原因，這裡不重報（#742 verify 第二輪）
+            if refusal is NSNull, let chosen = try? FulltextReconcile.chooseSource(entry: entry, requested: p.source, store: store) {
+                do {
+                    let count = try PDFReader.pageCount(path: chosen.url.path)
+                    if let problem = FulltextReconcile.pageProblem(p, pageCount: count) { refusal = problem }
+                } catch {
+                    refusal = "讀不出這份 PDF 的頁數，無法核對提議的頁序：\(displaySafeErrorText(error))"
+                }
+            }
             let object: [String: Any] = ["citekey": entry.citekey, "rows": result.rows,   // display-safe-exempt: entry.citekey 受 StoreKey 約束；這份 JSON 是給 skill 讀的機器格式（值是作品與 store 的原文）
                                          "replaceAuthors": result.replaceAuthors ?? NSNull(), "refusal": refusal]
             let data = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .prettyPrinted, .withoutEscapingSlashes])

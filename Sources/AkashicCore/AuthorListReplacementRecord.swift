@@ -41,11 +41,31 @@ public struct AuthorListReplacementRecordValue: Equatable, Sendable {
     public let page: Int
     public let reason: String
 
-    /// 替換腿新寫入的名字（literal、group、團體成員）不得含控制字元（Unicode general category Cc）：PDF 抽出的 byline 常把一個名字
-    /// 折成兩行，逐字抄進來的換行會進 store、替換記錄與匯出（#742 verify）。只管新寫入的值——以 `from` 沿用的舊值原樣保留，
-    /// 所以這條不放進 `init?`（那會讓既有的記錄解析不回來）。
-    public static func containsControlCharacter(_ s: String) -> Bool {
-        s.unicodeScalars.contains { $0.properties.generalCategory == .control }
+    /// 替換腿新寫入的名字（literal、group、團體成員）的碼位閘：回 nil＝可以寫；否則回一句說得出是哪個碼位的話（#742 verify 第一、二輪）。
+    ///
+    /// 拒絕的集合是 repo 的單一定義 `UnsafeToEmitScalar`（#569：default-ignorable、Cc、Cf、Zl、Zp、非 U+0020 的空白、渲染成空白的碼位），
+    /// 扣掉私用區，ZWJ／ZWNJ 照 `NameIdentity.joinerIsLegal` 的脈絡規則放行——與名字輸入閘 `NameIdentity.wellFormednessIssue` 同一份
+    /// 碼位判準。**不沿用它的 NFC 要求**：那是 venue 名稱的規則，作者名從 PDF 抽出時常是 NFD，而 store 存逐字的值。另外拒絕以組合記號
+    /// 開頭的名字：它會和段括號 `⟦` 黏成同一個字元，替換記錄解析不回來。只管新寫入的值——以 `from` 沿用的舊值原樣保留。
+    public static func nameScalarIssue(_ s: String) -> String? {
+        let scalars = Array(s.unicodeScalars)
+        if let first = scalars.first, first.properties.isGraphemeExtend {
+            return "以組合記號 U+\(hex(first)) 開頭——它會和前一個字元黏在一起，請刪掉它或補上它所屬的字母"   // display-safe-exempt: 十六進位碼位
+        }
+        for (i, u) in scalars.enumerated() {
+            if u.value == 0x200C || u.value == 0x200D {
+                if NameIdentity.joinerIsLegal(in: scalars, at: i) { continue }
+                return "含不在使用它的文字裡的接合字元 U+\(hex(u))（ZWJ／ZWNJ）——不是名字的一部分，請刪掉它"   // display-safe-exempt: 十六進位碼位
+            }
+            guard UnsafeToEmitScalar.contains(u), u.properties.generalCategory != .privateUse else { continue }
+            return "含控制字元或不可見字元 U+\(hex(u))（換行、tab、零寬、方向控制等）——PDF 抽出的名字常帶進這類字元，刪掉它再寫"   // display-safe-exempt: 十六進位碼位
+        }
+        return nil
+    }
+
+    private static func hex(_ u: Unicode.Scalar) -> String {
+        let h = String(u.value, radix: 16, uppercase: true)
+        return String(repeating: "0", count: max(0, 4 - h.count)) + h
     }
 
     /// 回 nil＝這組值寫不成合法的 statement：零段、任一段空或含保留字元、頁序 < 1、理由（trim 後）空。
@@ -54,6 +74,8 @@ public struct AuthorListReplacementRecordValue: Equatable, Sendable {
         guard !segments.isEmpty, page >= 1, !trimmed.isEmpty else { return nil }
         for s in segments {
             guard !s.isEmpty, !s.contains(Self.openBracket), !s.contains(Self.closeBracket) else { return nil }
+            // 以組合記號開頭的段會和 `⟦` 黏成同一個 Character，`parse` 切不出它（#742 verify 第二輪）
+            guard s.unicodeScalars.first?.properties.isGraphemeExtend != true else { return nil }
         }
         self.segments = segments
         self.page = page

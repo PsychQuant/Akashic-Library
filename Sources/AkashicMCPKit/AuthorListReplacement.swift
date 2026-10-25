@@ -18,8 +18,10 @@ import AkashicStoreIO
 /// - `authors` 每一項恰好是 `literal`（個人名）、`group`（團體名，寫入時加 corporate 標記）或 `from`（原樣沿用舊作者列第 i 位，0 起算）之一。
 /// - 舊作者列裡每個已歸戶的位置（`.key`／`.organization`）要嘛被恰好一個 `from` 沿用，要嘛列在 `release` 附理由；兩者都沒有即拒——
 ///   安靜丟掉一個 key 等於撤銷一個身分判定（`identity-is-judged-not-matched`），依名字自動對回是字串謂詞做身分判定。釋放不刪任何 verdict。
-/// - 實寫時移除這筆 work 上描述舊作者列的記錄（拆分、移除、先前的替換記錄）與作者清單完整性證言，逐筆列在報告。
-/// - `groupMembers` 有給（含空陣列）就整組替換成員名單；沒給就保留團體名仍對得上新作者列團體位的組，其餘移除並列出。
+/// - 實寫時移除這筆 work 上描述舊作者列的記錄（拆分、移除、先前的替換記錄）與作者清單完整性證言，逐筆列在報告。作者列逐位元組
+///   不變（只改成員名單）時只換掉先前的替換記錄、而且在原位換；什麼都沒變時 `unchanged`、不移除任何東西（#742 verify 第二輪）。
+/// - `groupMembers` 有給（含空陣列）就整組替換成員名單；沒給就保留團體名仍對得上新作者列團體位的組，其餘移除並列出。團體位含
+///   升格過的 organization 位（organization 上記著它是從哪個帶標記 literal 升格來的 confirmed verdict）。
 /// - 預設乾跑。乾跑照樣跑寫入前檢查；store format 不足等寫入閘的拒絕在乾跑時寫進 `applyRefusal`、照樣報出計畫，實跑才擲錯。
 /// - 不與另外四條腿組合（`parseUpdateEntryArguments`）。
 ///
@@ -150,8 +152,8 @@ extension AkashicService {
         guard s == s.trimmingCharacters(in: .whitespacesAndNewlines) else {
             throw ServiceError.invalid("\(path) 前後不得有空白——寫進 store 的值是逐字的")   // display-safe-exempt: path 程式構造
         }
-        guard !AuthorListReplacementRecordValue.containsControlCharacter(s) else {
-            throw ServiceError.invalid("\(path) 不得含控制字元（換行、tab 等）——PDF 抽出的名字常被折成兩行，合併成一行再寫")   // display-safe-exempt: path 程式構造
+        if let issue = AuthorListReplacementRecordValue.nameScalarIssue(s) {
+            throw ServiceError.invalid("\(path) \(issue)；整批拒絕、零寫入")   // display-safe-exempt: path 程式構造；issue 只含十六進位碼位與常量句
         }
         guard !s.contains(AuthorListReplacementRecordValue.openBracket),
               !s.contains(AuthorListReplacementRecordValue.closeBracket) else {
@@ -220,10 +222,8 @@ extension AkashicService {
         }
     }
 
-    /// 一組成員名單的位元組形（團體、頁序、依據、成員依序），用來判斷「名單有沒有變」——`GroupMemberList ==` 比的是 Unicode 正規等價。
-    static func memberListBytes(_ l: GroupMemberList) -> [UInt8] {
-        ([l.group, String(l.page), l.restsOn] + l.members).reduce(into: [UInt8]()) { $0 += Array($1.utf8) + [0] }
-    }
+    /// 一組成員名單的位元組形（`GroupMemberList.byteKey`），用來判斷「名單有沒有變」——`GroupMemberList ==` 比的是 Unicode 正規等價。
+    static func memberListBytes(_ l: GroupMemberList) -> [UInt8] { l.byteKey }
 
     /// 一個作者位寫進替換記錄（與報告）的字串形：literal 原值、`key:<k>`、`organization:<k>`（design D3）。
     static func replacementSegment(_ a: Author) -> String {
@@ -313,10 +313,25 @@ extension AkashicService {
                 "新作者列寫不成替換記錄——沿用的舊位置含 ⟦ 或 ⟧（替換記錄的段分隔字元）；先用 resolve-people 處理那一位，整批拒絕、零寫入")
         }
 
-        // design D6：成員名單。團體位＝新作者列中帶 corporate 標記的 literal，不論來自 group 項還是 from 沿用；比位元組（spec「byte-equal」）
-        let newGroups = Set(newAuthors.compactMap { a -> [UInt8]? in
-            if case .literal(let s) = a, CorporateName.isMarked(s) { return Array(s.utf8) } else { return nil }
-        })
+        // design D6：成員名單。團體位＝新作者列中帶 corporate 標記的 literal（不論來自 group 項還是 from 沿用），以及**升格過的團體位**：
+        // organization 位，其 organization 帶一筆把本 work 與一個帶標記 literal 配對的 confirmed verdict（attribute-org 升格時留下、不動
+        // group-members），那一位算作那個 literal——否則名單在升格後只活到下一次替換（#742 verify 第二輪）。比位元組（spec「byte-equal」）
+        let load = try store.load()
+        let orgsByKey = Dictionary(load.organizations.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
+        var newGroups = Set<[UInt8]>()
+        for a in newAuthors {
+            switch a {
+            case .literal(let s) where CorporateName.isMarked(s):
+                newGroups.insert(Array(s.utf8))
+            case .organization(let k):
+                for r in orgsByKey[k]?.references ?? [] where r.field == ProvenanceReference.resolutionConfirmedField {
+                    guard let v = r.value, let pv = ProvenanceReference.VerdictPairingValue.parse(v),
+                          pv.holderKind == .work, pv.holder == entry.citekey, CorporateName.isMarked(pv.literal) else { continue }
+                    newGroups.insert(Array(pv.literal.utf8))
+                }
+            default: break
+            }
+        }
         var membersAfter: [GroupMemberList]
         if let given = request.groupMembers {
             membersAfter = []
@@ -346,25 +361,34 @@ extension AkashicService {
         // 證言描述的仍是現在這份作者列，只換掉先前的替換記錄（替換記錄是 value 缺席的那一種，D3）
         let authorsUnchanged = newAuthors.map(Self.authorBytes) == old.map(Self.authorBytes)
         let isRemoved: (ProvenanceReference) -> Bool = { $0.field == "authors" && (!authorsUnchanged || $0.value == nil) }
+        let newRecord = ProvenanceReference(field: "authors", value: nil,
+                                            kind: .judgement(statement: record.encoded, restsOn: [request.source]))
         var updated = entry
-        let recordsRemoved = entry.references.filter(isRemoved)
+        var recordsRemoved = entry.references.filter(isRemoved)
         updated.authors = newAuthors
-        updated.references = entry.references.filter { !isRemoved($0) }
-            + [ProvenanceReference(field: "authors", value: nil,
-                                   kind: .judgement(statement: record.encoded, restsOn: [request.source]))]
+        // 作者列相同時，先前的替換記錄**在原位**換成新的：references 是保序陣列，搬到最後會讓重跑同一份 JSON 因次序不同被判成有變
+        //（#742 verify 第二輪）。作者列換了的時候舊記錄全部移除、新記錄接在最後
+        var refs: [ProvenanceReference] = []
+        var placed = false
+        for r in entry.references {
+            guard isRemoved(r) else { refs.append(r); continue }
+            if authorsUnchanged && !placed { refs.append(newRecord); placed = true }
+        }
+        if !placed { refs.append(newRecord) }
+        updated.references = refs
         let removedWitness = authorsUnchanged ? nil : entry.akashic.authorListCompleteness
         if !authorsUnchanged { updated.akashic.authorListCompleteness = nil }
         updated.groupMembers = membersAfter
         // `Entry ==` 比的是 Unicode 正規等價：只換了正規化寫法的替換會被當成沒變，所以作者列與名單另比位元組
         let unchanged = updated == entry && authorsUnchanged
             && membersAfter.map(Self.memberListBytes) == entry.groupMembers.map(Self.memberListBytes)
+        if unchanged { recordsRemoved = [] }   // 什麼都沒變：沒有東西被移除（先前列出原樣寫回的那一筆，#742 verify 第二輪）
 
         // 報告：person／organization 上仍指向本 work、literal 已不在新作者列任何 literal 位的 confirmed verdict（只列不改）。
         // **寫入之前算完**：寫入之後才讀 store，讀取失敗時檔案已改寫卻只回報錯誤，呼叫端拿不到被移除了什麼（#742 verify）
         let newLiterals = Set(newAuthors.compactMap { a -> [UInt8]? in if case .literal(let s) = a { return Array(s.utf8) } else { return nil } })
         let newKeys = Set(newAuthors.compactMap { a -> String? in if case .key(let k) = a { return "person:\(k)" } else { return nil } })
             .union(newAuthors.compactMap { a -> String? in if case .organization(let k) = a { return "organization:\(k)" } else { return nil } })
-        let load = try store.load()
         var retired: [[String: Any]] = []
         func scan(_ refs: [ProvenanceReference], holder: String) {
             for r in refs where r.field == ProvenanceReference.resolutionConfirmedField {

@@ -649,12 +649,14 @@ extension StdioE2ETests {
         XCTAssertTrue(notListed.contains("akashic.sources 沒有"), notListed)
         XCTAssertFalse(notListed.contains("沒有要做的事"), notListed)
 
-        // 四條腿（remove_fields／add_sources／remove_zotero_sources／remove_sources）任兩條組合都被拒（#680／#677）：6 對，每一對都是同一個具名拒絕、磁碟不動
-        let legArgs: [(String, [String])] = [
+        // 五條腿（remove_fields／add_sources／remove_zotero_sources／remove_sources／replace_authors）任兩條組合都被拒（#680／#677／#742）：10 對，每一對都是同一個具名拒絕、磁碟不動
+        let legArgs: [(String, Any)] = [
             ("remove_fields", ["journaltitle=x"]),
             ("add_sources", ["sha256:" + String(repeating: "cd", count: 32)]),
             ("remove_zotero_sources", ["5:GRP00001=x"]),
             ("remove_sources", ["sha256:" + String(repeating: "cd", count: 32) + "=x"]),
+            ("replace_authors", ["source": "sha256:" + String(repeating: "cd", count: 32), "page": 1, "reason": "x",
+                                 "authors": [["literal": "A"]]] as [String: Any]),
         ]
         var pairId = 20, pairsChecked = 0
         for i in legArgs.indices {
@@ -665,7 +667,7 @@ extension StdioE2ETests {
                 pairId += 1; pairsChecked += 1
             }
         }
-        XCTAssertEqual(pairsChecked, 6)
+        XCTAssertEqual(pairsChecked, 10)
         let afterPairs = try LibraryStore(root: root).load().entries.first { $0.citekey == "zsrc2025" }
         XCTAssertEqual(afterPairs?.additionalProvenance.count, 1, "被拒的組合零寫入")
 

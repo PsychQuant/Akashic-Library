@@ -285,6 +285,31 @@ final class AuthorListReplacementRecordTests: XCTestCase {
                       "名單不同：被併者那一組不在倖存者身上")
     }
 
+    /// 8.2：合併的遺失檢查比位元組——只差 NFC／NFD 的名單不是同一份，被併者那一組會遺失。
+    func testMergeLossCheckComparesMemberListsByBytes() throws {
+        var keeper = twin("k"), doomed = twin("d")
+        keeper.groupMembers = [try XCTUnwrap(GroupMemberList(group: sing, restsOn: digestA, page: 7, members: ["Jose\u{301}"]))]
+        doomed.groupMembers = [try XCTUnwrap(GroupMemberList(group: sing, restsOn: digestA, page: 7, members: ["Jos\u{E9}"]))]
+        XCTAssertTrue(LibraryStore.fieldsLostByMerging(doomed, into: keeper).contains { $0.contains("group-members") },
+                      "位元組不同的名單要報出遺失")
+    }
+
+    /// 8.4：以組合記號開頭的段會和 `⟦` 黏成同一個字元，寫不成解析得回來的記錄。
+    func testSegmentStartingWithACombiningMarkIsRefused() {
+        XCTAssertNil(AuthorListReplacementRecordValue(segments: ["A", "\u{301}B"], page: 1, reason: "r"))
+        XCTAssertNotNil(AuthorListReplacementRecordValue(segments: ["A", "B\u{301}"], page: 1, reason: "r"), "記號不在開頭時照常")
+    }
+
+    /// 8.8：失效判定把 organization 位視為相符（升格是常態工作）。
+    func testStaleReplacementRecordTreatsAnOrganizationPositionAsMatching() throws {
+        let (_, store) = try scratchStore(format: StoreVersion.supported)
+        var e = Entry(id: UUID(), citekey: "claw2018framework", type: .periodicalArticle, title: "T",
+                      authors: [.literal("A"), .organization("sing-consortium")])
+        e.references = [replacement(restsOn: [digestA], statement: "替換為 ⟦A⟧ ⟦{SING Consortium}⟧；依據第 1 頁：byline")]
+        try store.writeEntry(e)
+        XCTAssertTrue(try store.health(from: store.load()).staleReplacementRecords.isEmpty)
+    }
+
     /// 被併者的替換記錄照 references 的既有差集判準報出（不另寫一條）。
     func testMergeLossCheckReportsTheDoomedReplacementRecord() {
         let keeper = twin("k")

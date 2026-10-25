@@ -513,4 +513,79 @@ final class ReplaceAuthorsTests: XCTestCase {
         try seed(authors: [.literal("B")], sources: [digest])
         assertRefused(minimal(), mentions: "無法唯一定位")
     }
+
+    // MARK: - 8.x 第二輪 verify 之後（#742 第二輪 verify 報告，2026-10-26）
+
+    /// organization 帶一筆把本 work 與一個 literal 配對的 confirmed verdict（attribute-org 升格時留下的）。
+    private func organization(_ key: String, promotedFrom literal: String? = nil) throws {
+        var refs: [ProvenanceReference] = []
+        if let literal {
+            refs = [ProvenanceReference(field: ProvenanceReference.resolutionConfirmedField,
+                                        value: ProvenanceReference.VerdictPairingValue(holderKind: .work, holder: "claw2018framework",
+                                                                                       literal: literal).encoded,
+                                        kind: .judgement(statement: "byline 的團體就是這個機構", restsOn: []))]
+        }
+        try LibraryStore(root: root).writeOrganization(Organization(key: key, references: refs))
+    }
+
+    /// spec「A promoted group position keeps its member list」（design D6）。
+    func testPromotedGroupPositionKeepsItsMemberList() throws {
+        digest = try storedPDF()
+        try organization("sing-consortium", promotedFrom: "{SING Consortium}")
+        var e = Entry(id: UUID(), citekey: "claw2018framework", type: .periodicalArticle, title: "T",
+                      authors: [.literal("Katrina G. Claw"), .organization("sing-consortium")])
+        e.akashic.sources = [digest]
+        e.groupMembers = [try XCTUnwrap(GroupMemberList(group: "{SING Consortium}", restsOn: digest, page: 7, members: ["A", "B"]))]
+        try LibraryStore(root: root).writeEntry(e)
+        StoreGitCommit.commitAll(root)
+        let kept = try run(minimal(["authors": [["literal": "Katrina Claw"], ["from": 1]]]), dryRun: false)
+        XCTAssertEqual((kept["groupMembersRemoved"] as? [Any])?.count, 0, "\(kept)")
+        XCTAssertEqual(try XCTUnwrap(LibraryStore(root: root).load().entries.first).groupMembers.first?.members, ["A", "B"])
+        StoreGitCommit.commitAll(root)
+        _ = try run(minimal(["authors": [["from": 0], ["from": 1]],
+                             "groupMembers": [["group": "SING Consortium", "page": 7, "members": ["A", "B", "C"]]]]), dryRun: false)
+        XCTAssertEqual(try XCTUnwrap(LibraryStore(root: root).load().entries.first).groupMembers.first?.members, ["A", "B", "C"])
+    }
+
+    /// 8.4：名字閘與 repo 的單一定義（`UnsafeToEmitScalar`，#569）同一份；組合記號開頭會和段括號黏在一起。
+    func testNameGateMatchesTheRepositoryDefinition() throws {
+        try seedDefault()
+        assertRefused(minimal(["authors": [["literal": "Katrina\u{200B}Claw"]]]), mentions: "U+200B")
+        assertRefused(minimal(["authors": [["literal": "Katrina G. Claw\u{E0041}"]]]), mentions: "U+E0041")
+        assertRefused(minimal(["authors": [["literal": "Katrina \u{202E}Claw"]]]), mentions: "U+202E")
+        assertRefused(minimal(["authors": [["literal": "\u{301}Abc"]]]), mentions: "組合記號")
+        assertRefused(minimal(["authors": [["group": singName]],
+                               "groupMembers": [["group": singName, "page": 7, "members": ["Joseph\u{200B}Yracheta"]]]]),
+                      mentions: "U+200B")
+        XCTAssertNoThrow(try run(minimal(["authors": [["literal": "علی\u{200C}رضا"]]])), "波斯文的 ZWNJ 合法")
+    }
+
+    /// 8.5：先前的替換記錄在原位換掉——它後面還有別的 reference 時，重跑同一份 JSON 仍是 unchanged、recordsRemoved 為空。
+    func testRerunWithAReferenceAfterTheRecordIsUnchanged() throws {
+        try seedDefault()
+        let o = minimal(["authors": [["literal": "Katrina G. Claw"]]])
+        _ = try run(o, dryRun: false)
+        var e = try XCTUnwrap(LibraryStore(root: root).load().entries.first)
+        e.fields["volume"] = "9"
+        e.references.append(ProvenanceReference(field: "fields.volume", value: nil,
+                                                kind: .judgement(statement: "PDF 第 1 頁", restsOn: [digest])))
+        try LibraryStore(root: root).writeEntry(e)
+        StoreGitCommit.commitAll(root)
+        let again = try run(o, dryRun: false)
+        XCTAssertEqual(again["unchanged"] as? Bool, true, "\(again)")
+        XCTAssertEqual((again["recordsRemoved"] as? [Any])?.count, 0, "沒變就沒有移除")
+    }
+
+    /// 8.8：organization 位的沿用與釋放。
+    func testOrganizationPositionIsCarriedOverOrReleased() throws {
+        digest = try storedPDF()
+        try organization("iss")
+        try seed(authors: [.organization("iss"), .literal("Claw, Katrina G.")], sources: [digest])
+        assertRefused(minimal(["authors": [["literal": "Katrina G. Claw"]]]), mentions: "organization:iss")
+        let carried = try run(minimal(["authors": [["from": 0], ["literal": "Katrina G. Claw"]]]))
+        XCTAssertEqual(carried["authorsAfter"] as? [String], ["organization:iss", "Katrina G. Claw"])
+        let released = try run(minimal(["authors": [["literal": "Katrina G. Claw"]],
+                                        "release": [["index": 0, "reason": "PDF byline 沒有這個機構"]]]))
+        XCTAssertEqual((released["released"] as? [[String: Any]])?.first?["value"] as? String, "organization:iss")
+    }
 }

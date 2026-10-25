@@ -120,12 +120,10 @@ public enum FulltextReconcile {
         return target
     }
 
-    /// 以只有擁有者可讀寫的權限原子寫出（全文是第三方內容）。`checkOutput` 之後到這裡之間有人放了東西，`OutputFile.replace` 會拒絕非普通檔。
+    /// 以只有擁有者可讀寫的權限寫出（全文是第三方內容）。最終檔名**獨佔建立**：`checkOutput` 之後到這裡之間有人放了東西，
+    /// `link` 回 `EEXIST`、不覆寫——不是先檢查再 `rename`（#742 verify 第二輪：兩次動作之間出現的檔會被 `rename` 蓋掉）。
     public static func write(_ data: Data, to target: String) throws {
-        guard case .absent = try OutputFile.inspect(target) else {
-            throw SkillToolError.failure("--out \(displaySafeInvisible(target, max: 300)) 在檢查之後出現了——不覆寫")
-        }
-        try OutputFile.replace(path: target, with: data, mode: 0o600)
+        try OutputFile.createExclusive(path: target, with: data, mode: 0o600)
     }
 }
 
@@ -213,6 +211,32 @@ extension FulltextReconcile {
         }
     }
 
+    /// 一個作者位的比較鍵：狀態標籤＋位元組。比對表顯示的段字串會撞——literal「key:alice」與 person key `alice` 的段都是 `key:alice`——
+    /// 所以比較不用段字串（#742 verify 第二輪；與替換腿的 `authorBytes` 同一種形狀）。
+    static func authorKey(_ a: Author) -> [UInt8] {
+        switch a {
+        case .literal(let s): return [0] + Array(s.utf8)
+        case .key(let k): return [1] + Array(k.utf8)
+        case .organization(let k): return [2] + Array(k.utf8)
+        }
+    }
+
+    /// 提議裡每個頁序（作者列、各組名單、各純量欄位）對照那份 PDF 的頁數；回第一個超出的頁序的說明，全在範圍內回 nil。
+    /// 替換腿本身不讀 PDF，所以頁序上限只在這裡查（#742 verify 第二輪）。
+    public static func pageProblem(_ p: Proposal, pageCount: Int) -> String? {
+        var pages: [(String, Int)] = [("authors.page", p.authorsPage)]
+        for (i, raw) in (p.groupMembers ?? []).enumerated() {
+            if let o = raw as? [String: Any], let v = o["page"], case .integer(let n) = JSONInteger.classify(v) {
+                pages.append(("groupMembers[\(i)].page", n))
+            }
+        }
+        for (name, given) in p.scalars.sorted(by: { $0.key < $1.key }) { pages.append(("\(name).page", given.page)) }
+        for (path, n) in pages where n > pageCount {
+            return "\(path) 是 \(n)，但這份 PDF 只有 \(pageCount) 頁——頁序是 PDF 的實體頁序，請對照 fulltext text 的 pages 重新確認"   // display-safe-exempt: path 程式構造；n、pageCount 是 Int
+        }
+        return nil
+    }
+
     /// 一個作者位在比對表裡的字串形——與替換記錄的段同一種寫法（literal 原值、`key:<k>`、`organization:<k>`）。
     public static func segment(_ a: Author) -> String {
         switch a {
@@ -228,17 +252,22 @@ extension FulltextReconcile {
     public static func compare(entry: Entry, proposal p: Proposal)
         -> (rows: [[String: Any]], replaceAuthors: [String: Any]?, validation: [String: Any]) {
         let storeAuthors = entry.authors.map(segment)
-        let proposedAuthors: [String] = p.authorItems.map { raw in
-            guard let o = raw as? [String: Any], o.count == 1, let (k, v) = o.first else { return "（形狀不合）" }
+        // 每一項：顯示用的段字串＋比較鍵（狀態＋位元組）。形狀不合的項沒有比較鍵，必然不等（替換腿會說出原因）
+        let proposed: [(shown: String, key: [UInt8]?)] = p.authorItems.map { raw in
+            guard let o = raw as? [String: Any], o.count == 1, let (k, v) = o.first else { return ("（形狀不合）", nil) }
             switch (k, v) {
-            case ("literal", let s as String): return s
-            case ("group", let s as String): return CorporateName.mark(s)
+            case ("literal", let s as String): return (s, authorKey(.literal(s)))
+            case ("group", let s as String): return (CorporateName.mark(s), authorKey(.literal(CorporateName.mark(s))))
             case ("from", let n):
-                guard case .integer(let i) = JSONInteger.classify(n) else { return "（形狀不合）" }
-                return entry.authors.indices.contains(i) ? segment(entry.authors[i]) : "from \(i)（超出範圍）"
-            default: return "（形狀不合）"
+                guard case .integer(let i) = JSONInteger.classify(n) else { return ("（形狀不合）", nil) }
+                guard entry.authors.indices.contains(i) else { return ("from \(i)（超出範圍）", nil) }   // display-safe-exempt: i 是 Int
+                return (segment(entry.authors[i]), authorKey(entry.authors[i]))
+            default: return ("（形狀不合）", nil)
             }
         }
+        let proposedAuthors = proposed.map(\.shown)
+        let authorsEqual = proposed.count == entry.authors.count
+            && zip(proposed, entry.authors).allSatisfy { $0.key == authorKey($1) }
         func sameBytes(_ a: [String], _ b: [String]) -> Bool { a.map { Array($0.utf8) } == b.map { Array($0.utf8) } }
         func status(store: Any?, proposed: Any?, equal: Bool) -> String {
             if proposed == nil { return "notProposed" }
@@ -251,7 +280,7 @@ extension FulltextReconcile {
                          "page": page.map { $0 as Any } ?? NSNull(), "status": status])
         }
         let authorsStatus = status(store: storeAuthors.isEmpty ? nil : storeAuthors, proposed: proposedAuthors,
-                                   equal: sameBytes(storeAuthors, proposedAuthors))
+                                   equal: authorsEqual)
         row("authors", store: storeAuthors.isEmpty ? nil : storeAuthors, proposed: proposedAuthors, page: p.authorsPage,
             status: authorsStatus)
         // 成員名單：與替換腿同一個寫入，所以它不同時也要產生替換物件
@@ -262,14 +291,26 @@ extension FulltextReconcile {
             if let g = o["group"] as? String { d["group"] = CorporateName.mark(g) }
             return d
         }
+        // 比較團體、頁序、成員與**將要依據的 digest**（提議的 source）：同一份名單改依另一份全文也是改動，替換腿會把依據換掉
+        //（#742 verify 第二輪）。逐位元組；沒有名單與空名單相同（兩者寫進 store 都是沒有 group-members）
         let membersEqual: Bool = {
             guard let proposedMembers else { return true }
-            let a = try? JSONSerialization.data(withJSONObject: storeMembers, options: .sortedKeys)
-            let b = try? JSONSerialization.data(withJSONObject: proposedMembers, options: .sortedKeys)
-            return a == b
+            let storeKeys = entry.groupMembers.map(\.byteKey)
+            var proposedKeys: [[UInt8]] = []
+            for d in proposedMembers {
+                guard let g = d["group"] as? String, let pv = d["page"], case .integer(let page) = JSONInteger.classify(pv),
+                      let ms = d["members"] as? [Any] else { return false }
+                let names = ms.compactMap { $0 as? String }
+                guard names.count == ms.count else { return false }
+                proposedKeys.append(([g, String(page), p.source] + names).reduce(into: [UInt8]()) { $0 += Array($1.utf8) + [0] })
+            }
+            return storeKeys == proposedKeys
         }()
-        let membersStatus = status(store: storeMembers.isEmpty ? nil : storeMembers, proposed: proposedMembers,
-                                   equal: membersEqual)
+        let membersStatus: String = {
+            if proposedMembers == nil { return "notProposed" }
+            if storeMembers.isEmpty && proposedMembers?.isEmpty == true { return "same" }
+            return status(store: storeMembers.isEmpty ? nil : storeMembers, proposed: proposedMembers, equal: membersEqual)
+        }()
         row("groupMembers", store: storeMembers.isEmpty ? nil : storeMembers, proposed: proposedMembers,
             page: nil, status: membersStatus)
         for (name, read) in scalarFields {

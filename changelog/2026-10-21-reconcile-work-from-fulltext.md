@@ -215,3 +215,29 @@ fixture：兩頁點陣化 PDF（第 1 頁 byline、第 2 頁成員名單），`p
 - 沒有測試的兩處：`YAML.swift` 的 encode 自檢（要造出 decode 會重新正規化的輸入才看得出差別）、`createExclusive` 的 hard link 訊息（要不支援 hard link 的磁碟區）。
 - 全套 `swift test`：rc=0（開始時 load average 約 58）：5,410 passed、0 failed、1 skipped（`MigrateProvenanceCLITests.testWriteFailureIsListedAndExitsNonZero`，`chflags` 在暫存目錄的檔案系統上不生效），共 5,411 個。第一次全套有 2 個 failure，都是 repo 自己的守衛：`ByteExactKeySiteInventoryTests`（`byteExactKey` 的使用檔是封閉清單，替換腿要加一列，`Provenance.swift` 的 doc 列舉也補上）與 `DisplaySinkCoverageTests`（`restsOn` 的豁免註記要點名運算式 `l.restsOn`／`$0.restsOn`）；修好後重跑全套通過。完整輸出留在 job 目錄的 `r4_fulltest2.log`。`.githooks/run-guards.sh` rc=0，plugin 殼 0.13.7 的摘要更新為 `704029ad…`。
 - `tools/list`：**59,981 bytes**（±0：這一輪沒有改 MCP 的說明文字；預算 65,000）。
+
+## 第四輪 verify 之後（2026-10-26，使用者 17:07「用idd-all把剩下的都解完，我要先出門」，無人值守）
+
+第四輪 verify 報告在 #742（comment 6411359213），結果 **FAIL**：沒有 CRITICAL、HIGH；MEDIUM 2 件 blocking（Codex），LOW 13、INFO 29（四個 lens 與 DA）。第三輪 3 件 blocking 由 Codex 與 DA 在 scratch store 以 `.build/debug` 的 binary 實跑確認修好。這一輪是 Spectra 第 10 組。
+
+### 這一輪改了什麼（Spectra 第 10 組）
+
+| 項目 | 內容 |
+|---|---|
+| 10.1 `compare` 的 `applyRefusal` 與頁數 | 先前以 `_ = try service.updateEntry(...)` 丟掉乾跑的回傳值，format 22 之類「乾跑接受、store 拒寫」的原因不見，`replaceAuthors` 照出。現在另列 `applyRefusal`、`replaceAuthors` 為 null；`chooseSource` 失敗（另一份已連 source 的 index 行壞掉）時寫進 `refusal`，不再以 `try?` 略過頁序閘 |
+| 10.2 organization key 讀不到時拒絕 | key 對到 0 筆 organization（不存在或被隔離）、而這筆有名單或這次給了 `groupMembers` 時拒絕；沒有名單牽涉時照常（dangling key 不擋無關的更正） |
+| 10.3 升格 verdict 比對不丟層 | 不用 `mark(unmark(…))`：同時認 verdict literal 本身（已帶標記時）與外面再包一層的值，巢狀的 `{{X}}` 兩種形狀都保留名單 |
+| 10.4 名字閘 | 段括號以 scalar 判斷（`⟦`＋組合記號不再通過）；黏字規則只套 literal 與 group（在替換腿的名字閘裡），成員名不套；名字中的換行、tab、NEL、LS、PS 叫人換成一般空白；`from` 沿用位寫不成段時叫人改寫成 literal 項 |
+| 10.5 YAML 自檢的閘門 | encode 自檢的 `guard` 本身另比 `group-members` 的位元組（第三輪只改了訊息函式） |
+| 10.6 skill | 兩種 refusal 分開處置、封閉表加兩列；清理先確認是存在的目錄、`已刪` 只在真的刪了之後印出（三種路徑實測：真目錄 → 已刪、同樣式但不存在 → 沒有刪、樣式不對 → 不刪）；拿掉 MCP 變體；雲端 OCR 說法以前綴為準 |
+| 10.7 說明文字 | `fulltext compare` 與 `--replace-authors` 的 help；替換腿的孤兒 doc comment 與「帶標記 literal」；`nameScalarIssue` 的 doc；`OutputFile.swift` 檔頭的 0600、EPERM 說「可能」、拿掉不會發生的 EXDEV；store-format §3.5 的段與理由規則；spec 補三個 compare 的 Scenario 與 skill 的 store 缺陷規則；tasks 5.4 加更正；proposal 的 What Changes 補第三、四輪 |
+
+### 測試與負控
+
+- 新測試：`ReplaceAuthorsTests` 7 個（讀不到 organization 的兩案、巢狀大括號、換行與 tab 的訊息、`⟦`＋組合記號、沿用位的補救、新 literal 在名字閘被擋）、`AuthorListReplacementRecordTests` 2 個（黏字只套段、`groupBytes` 分得出 NFC／NFD——App 的 `ForEach` id 用它）、`FulltextReconcileCLITests` 2 個（`applyRefusal`、讀不出頁數）；重複 key 的夾具補上「verdict 在後建的那一筆」。
+- 先紅後綠：新案例實作前失敗；`testUnloadableOrganizationPositionIsFineWithoutMemberLists` 一開始就是綠的（釘既有行為，防這一輪的拒絕擴大）。
+- 兩個舊測試的期望隨刻意的改動調整：`testDifferingVolumeIsListedOnly` 的輸出鍵集合多了 `applyRefusal`；`testNamesWithControlCharactersAreRefused` 斷言「控制字元」，新的分隔字元訊息保留這四個字。
+- 負控：10 個突變。第一次跑 9 紅 1 綠——`from-message-literal` 的測試只斷言訊息含「literal」，而訊息另一處本來就有「舊 literal」，刪掉補救那一句照樣通過；把斷言收緊成「改寫成一個 literal」後重跑變紅。全部輸出在 job 目錄的 `negctl5/`（完整、不截斷）。
+- 全套 `swift test`（開始時 load average 約 150，期間到 190）：5,420 passed、1 failed、1 skipped（`MigrateProvenanceCLITests` 的環境 skip）。那 1 個 failure 是計時型測試 `FulltextB45Tests.testManyURLsStayWithinTheBound`（上限 3.0 秒、量到 3.6 秒），單獨重跑（load 約 180）通過；它測的是 URL 處理，與這一輪改的兩個 SkillTools 檔無關，與 #752 同類。`.githooks/run-guards.sh` rc=0，plugin 殼 0.13.7 的摘要更新為 `806fa0ef…`。
+- `tools/list`：**59,981 bytes**（±0：這一輪沒有改 MCP 的說明文字；預算 65,000）。
+- 證據的保存：全套測試與負控的完整輸出放在 job 暫存目錄，job 刪除時一起消失；這一節記下的數字與判定是它們的摘要。

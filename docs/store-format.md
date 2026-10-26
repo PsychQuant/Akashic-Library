@@ -1318,8 +1318,10 @@ references:
 
 - **文法**：`替換為 ⟦s1⟧ ⟦s2⟧ … ⟦sn⟧；依據第 N 頁：理由`，唯一解析器 `AuthorListReplacementRecordValue`（寫入面、附著驗證、
   `StoreHealth` 共用）。每段是替換後那一位寫進 store 的值，逐字：個人 literal、帶 corporate 大括號的團體名，或以 `from` 沿用的
-  已歸戶位寫成 `key:<person key>`／`organization:<org key>`。段數等於作者列長度（≥ 1），段內不得含 `⟦`／`⟧`。`N` 是 PDF 的
-  **實體頁序**（從 1 起算、只收 ASCII 數字、不收前導零——同一個頁序只有一種寫法），不是印刷頁碼。理由（trim 後）非空。
+  已歸戶位寫成 `key:<person key>`／`organization:<org key>`。段數等於作者列長度（≥ 1），段內不得含 `⟦`／`⟧`（以 scalar 判斷）；夾在 `⟦`、`⟧` 之間時兩個括號必須仍是各自的字元——段不得以組合記號或
+  SpacingMark 開頭、以 Prepend 字元結尾（#742 verify 第三、四輪）。`N` 是 PDF 的
+  **實體頁序**（從 1 起算、只收 ASCII 數字、不收前導零——同一個頁序只有一種寫法），不是印刷頁碼。理由（trim 後）非空，開頭不得和前面的
+  `：` 黏成同一個字元。
 - **定位**：value **缺席**、kind 是 judgement、`rests-on` 恰一個合法且非空內容的 digest（那份全文，必須是這筆 work 自己的
   `akashic.sources` 之一——寫入面驗，附著驗證只驗形狀）。一筆 work 至多一筆；兩筆即整檔 quarantine（值域約束）。
 - **與拆分、移除記錄的區分**：三者都住 `field: authors`。拆分與移除的 value 必填（**已退役**的原 literal），替換記錄沒有 value

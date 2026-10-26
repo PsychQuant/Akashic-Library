@@ -754,4 +754,13 @@ final class ReplaceAuthorsTests: XCTestCase {
         try seedDefault()
         assertRefused(minimal(["authors": [["literal": "Katrina\u{C}Claw"]]]), mentions: "一般空白")
     }
+
+    // MARK: - 12.x 第六輪 verify 之後
+
+    /// 12.3：沿用位的舊值是帶 corporate 大括號的團體名時，補救是 group 項，不是 literal 項（literal 不得自帶大括號）。
+    func testCarriedOverGroupPositionMessageSuggestsAGroupItem() throws {
+        digest = try storedPDF()
+        try seed(authors: [.literal("{SING\u{27E6} Consortium}")], sources: [digest])
+        assertRefused(minimal(["authors": [["from": 0]]]), mentions: "改寫成一個 group 項")
+    }
 }

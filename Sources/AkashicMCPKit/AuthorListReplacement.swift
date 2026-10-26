@@ -311,9 +311,13 @@ extension AkashicService {
             // 走到這裡的是 from 沿用的舊值或理由
             if let (i, problem) = segments.enumerated().lazy.compactMap({ e in
                 AuthorListReplacementRecordValue.segmentProblem(e.element).map { (e.offset, $0) } }).first {
+                // 舊值帶 corporate 大括號時補救是 group 項：literal 不得自帶大括號（#742 verify 第六輪）
+                let rewrite = CorporateName.isMarked(segments[i])
+                    ? "改寫成一個 group 項、填去掉大括號並清理過的團體名"
+                    : "改寫成一個 literal 項、填清理後的名字"
                 throw ServiceError.invalid(
                     "新作者列第 \(i) 位（\(displaySafeInvisible(segments[i], max: 200))）寫不成替換記錄的段：\(problem)——"   // display-safe-exempt: i 是 Int；problem 是常量句
-                    + "那是以 from 沿用的舊 literal；不要沿用這一位，改寫成一個 literal 項、填清理後的名字（literal 位沿用與重寫是同一件事），整批拒絕、零寫入")
+                    + "那是以 from 沿用的舊 literal；不要沿用這一位，\(rewrite)（literal 位沿用與重寫是同一件事），整批拒絕、零寫入")   // display-safe-exempt: rewrite 是常量句
             }
             if let problem = AuthorListReplacementRecordValue.reasonProblem(request.reason) {
                 throw ServiceError.invalid("reason \(problem)；整批拒絕、零寫入")   // display-safe-exempt: problem 是常量句

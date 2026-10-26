@@ -294,7 +294,8 @@ struct FulltextCompareCmd: ParsableCommand {
         absentInStore、notProposed 之一，比較逐位元組；成員名單列的每組帶 restsOn（提議那一側是提議的 source）。作者列或成員名單不同時 \
         replaceAuthors 是替換腿的物件，否則 null；提議一律經替換腿乾跑驗一次（不論 replaceAuthors 是不是 null），會被拒時原因在 refusal、\
         結束碼 0。頁序對照提議 source 那份 PDF 的頁數，超出或讀不出頁數都寫進 refusal。乾跑接受、但 store 會拒絕寫入（例如 format 低於 23）時\
-        原因在 applyRefusal。refusal 或 applyRefusal 不是 null 時 replaceAuthors 一律 null：被拒的提議沒有寫入命令。作者列與成員名單以外的欄位只列出，不產生寫入命令。\
+        原因在 applyRefusal；只有提議與 store 不同、給得出替換物件時才有 applyRefusal，與 store 一致的提議沒有東西要寫、三欄皆 null。\
+        讀不出替換腿乾跑的報告時寫進 refusal。refusal 或 applyRefusal 不是 null 時 replaceAuthors 一律 null：被拒的提議沒有寫入命令。作者列與成員名單以外的欄位只列出，不產生寫入命令。\
         卷、期、頁碼、article number 對的是 fields 的 volume、number、pages、eid。--out 省略時印到 stdout；給了就必須在 git 工作樹之外、\
         而且還不存在（不覆寫、不跟隨 symlink），以 0600 寫出。
         """)

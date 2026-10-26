@@ -346,8 +346,11 @@ struct FulltextCompareCmd: ParsableCommand {
                     refusal = "讀不出這份 PDF 的頁數，無法核對提議的頁序：\(displaySafeErrorText(error))"
                 }
             }
+            // 被拒的提議不產生寫入命令：`refusal` 不是 null 時 `replaceAuthors` 一律 null（#742 verify 第三輪——頁序那一種原本只有這裡擋，
+            // 取出 replaceAuthors 交給替換腿就過關）
+            let replaceOut: Any = refusal is NSNull ? (result.replaceAuthors ?? NSNull()) : NSNull()
             let object: [String: Any] = ["citekey": entry.citekey, "rows": result.rows,   // display-safe-exempt: entry.citekey 受 StoreKey 約束；這份 JSON 是給 skill 讀的機器格式（值是作品與 store 的原文）
-                                         "replaceAuthors": result.replaceAuthors ?? NSNull(), "refusal": refusal]
+                                         "replaceAuthors": replaceOut, "refusal": refusal]
             let data = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .prettyPrinted, .withoutEscapingSlashes])
             if let target {
                 try FulltextReconcile.write(data, to: target)

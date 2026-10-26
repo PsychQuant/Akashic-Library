@@ -52,12 +52,22 @@ public struct AuthorListReplacementRecordValue: Equatable, Sendable {
         if let first = scalars.first, first.properties.isGraphemeExtend {
             return "以組合記號 U+\(hex(first)) 開頭——它會和前一個字元黏在一起，請刪掉它或補上它所屬的字母"   // display-safe-exempt: 十六進位碼位
         }
+        if !s.isEmpty, segmentProblem(s) != nil, !s.contains(openBracket), !s.contains(closeBracket) {
+            return "的開頭或結尾會和相鄰的字元黏成同一個字元（組合記號、SpacingMark 開頭或 Prepend 字元結尾）——請刪掉它或補上它所屬的字母"
+        }
         for (i, u) in scalars.enumerated() {
             if u.value == 0x200C || u.value == 0x200D {
                 if NameIdentity.joinerIsLegal(in: scalars, at: i) { continue }
                 return "含不在使用它的文字裡的接合字元 U+\(hex(u))（ZWJ／ZWNJ）——不是名字的一部分，請刪掉它"   // display-safe-exempt: 十六進位碼位
             }
             guard UnsafeToEmitScalar.contains(u), u.properties.generalCategory != .privateUse else { continue }
+            // 一般空白以外的空白（NBSP、thin space）在 pdftotext 裡常是名字的分隔：刪掉會把兩段黏在一起，要換成 U+0020（#742 verify 第三輪）
+            if u.properties.generalCategory == .spaceSeparator {
+                return "含一般空白以外的空白字元 U+\(hex(u))（NBSP、thin space 等）——換成一般空白（U+0020）再寫"   // display-safe-exempt: 十六進位碼位
+            }
+            if u.value == 0xAD {
+                return "含軟連字號 U+00AD——它不是名字的一部分，刪掉它再寫"
+            }
             return "含控制字元或不可見字元 U+\(hex(u))（換行、tab、零寬、方向控制等）——PDF 抽出的名字常帶進這類字元，刪掉它再寫"   // display-safe-exempt: 十六進位碼位
         }
         return nil
@@ -68,15 +78,39 @@ public struct AuthorListReplacementRecordValue: Equatable, Sendable {
         return String(repeating: "0", count: max(0, 4 - h.count)) + h
     }
 
+    /// 一段寫不寫得成替換記錄：回 nil＝可以；否則回原因（`init?` 與替換腿的拒絕訊息共用，#742 verify 第三輪）。
+    ///
+    /// 判準是**把它夾在 `⟦`、`⟧` 之間時，兩個括號仍是各自的 Character**——`parse` 以 Character 走訪，黏上去的括號就切不出段。
+    /// 會黏的有三種：以組合記號（Grapheme_Extend）開頭、以 SpacingMark 開頭、以 Prepend 字元結尾。只看第一個 scalar 是否
+    /// `isGraphemeExtend`（第二輪的寫法）漏掉後兩種。
+    public static func segmentProblem(_ s: String) -> String? {
+        if s.isEmpty { return "是空的" }
+        if s.contains(openBracket) || s.contains(closeBracket) { return "含段分隔字元 ⟦ 或 ⟧" }
+        let wrapped = Array(String(openBracket) + s + String(closeBracket))
+        guard wrapped.count == s.count + 2, wrapped.first == openBracket, wrapped.last == closeBracket else {
+            return "會和段括號黏成同一個字元（以組合記號或 SpacingMark 開頭、或以 Prepend 字元結尾）"
+        }
+        return nil
+    }
+
+    /// 理由寫不寫得成：開頭不得和前面的全形冒號黏成同一個字元（`parseTail` 以 Character 比對 `頁：`）。回 nil＝可以。
+    public static func reasonProblem(_ reason: String) -> String? {
+        let trimmed = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "是空的" }
+        let joined = Array(String(reasonSeparator) + trimmed)
+        guard joined.first == reasonSeparator, joined.count == trimmed.count + 1 else {
+            return "的開頭會和前面的分隔字元「：」黏成同一個字元（以組合記號開頭）"
+        }
+        return nil
+    }
+
     /// 回 nil＝這組值寫不成合法的 statement：零段、任一段空或含保留字元、頁序 < 1、理由（trim 後）空。
     public init?(segments: [String], page: Int, reason: String) {
         let trimmed = reason.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !segments.isEmpty, page >= 1, !trimmed.isEmpty else { return nil }
-        for s in segments {
-            guard !s.isEmpty, !s.contains(Self.openBracket), !s.contains(Self.closeBracket) else { return nil }
-            // 以組合記號開頭的段會和 `⟦` 黏成同一個 Character，`parse` 切不出它（#742 verify 第二輪）
-            guard s.unicodeScalars.first?.properties.isGraphemeExtend != true else { return nil }
-        }
+        // 段與理由寫不寫得成只有一份判準（`segmentProblem`／`reasonProblem`），替換腿的拒絕訊息也用它（#742 verify 第三輪）
+        for s in segments where Self.segmentProblem(s) != nil { return nil }
+        guard Self.reasonProblem(trimmed) == nil else { return nil }
         self.segments = segments
         self.page = page
         self.reason = trimmed
@@ -128,6 +162,18 @@ public struct AuthorListReplacementRecordValue: Equatable, Sendable {
         guard rest.hasPrefix(head) else { return nil }
         return AuthorListReplacementRecordValue(
             segments: segments, page: page, reason: String(rest.dropFirst(head.count)))
+    }
+}
+
+extension Author {
+    /// 一個作者位的位元組鍵：狀態標籤＋UTF-8。`Author ==` 比的是 Unicode 正規等價，而顯示用的段字串會撞（literal「key:alice」與
+    /// person key `alice` 的段都是 `key:alice`）。替換腿與 `fulltext compare` 共用這一份（#742 verify 第三輪：原本是兩份手抄）。
+    public var byteKey: [UInt8] {
+        switch self {
+        case .literal(let s): return [0] + Array(s.utf8)
+        case .key(let k): return [1] + Array(k.utf8)
+        case .organization(let k): return [2] + Array(k.utf8)
+        }
     }
 }
 

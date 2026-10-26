@@ -357,7 +357,7 @@ public enum EntryYAML {
         if a.type != b.type { bad.append("type") }
         if a.title != b.title { bad.append("title") }
         if a.authors != b.authors { bad.append("authors") }
-        if a.groupMembers != b.groupMembers { bad.append("group-members") }
+        if a.groupMembers.map(\.byteKey) != b.groupMembers.map(\.byteKey) { bad.append("group-members") }   // 比位元組：synthesized == 是正規等價（#742 verify 第三輪）
         if a.venues != b.venues { bad.append("venues") }
         if a.date != b.date { bad.append("date") }
         if a.fields != b.fields { bad.append("fields") }

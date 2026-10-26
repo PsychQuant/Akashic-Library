@@ -702,7 +702,8 @@ extension StdioE2ETests {
 /// **2026-10-21（+08:00）使用者裁決：預算調高到 65,000，不拆分 MCP server**（#578 的 Decision comment，觸發點是 #742 的 `replace_authors`）。
 /// 當時 main（`494412f9`）實測 59,159、只剩約 840 bytes。拆成讀、寫兩個 server 不採：active store 是各 server 的 session 狀態，拆開後會讀一個
 /// store、寫另一個而沒有錯誤訊息；兩個 server 通常都開著，送進 context 的位元組總數不變；plugin、簽章與 parity 裁決表都得跟著拆。
-/// #742 接上 `replace_authors` 之後實測 59816（2026-10-24，python 驅動 stdio 量 tools/list 那一行）——仍低於舊預算 60,000：
+/// #742 接上 `replace_authors` 之後實測 59816（2026-10-24，python 驅動 stdio 量 tools/list 那一行），第一輪 verify 修正後 59,981
+/// （2026-10-26，同一方法）——只比舊預算 60,000 低 19 bytes：
 /// 調高到 65,000 是使用者對 #578 的獨立裁決，不是這一次超出了。
 /// 下次接近預算時，先瘦 input schema（比描述還大），再考慮提高（同一則裁決）。
 /// 描述長到撞上它時，先把契約細節移到 #713 落地後的按需說明（在那之前是 CLI `--help` 或 docs/store-format.md），不是改這個數字；要調高須回 #578 重新裁決。

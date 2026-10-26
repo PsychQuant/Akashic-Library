@@ -211,15 +211,6 @@ extension FulltextReconcile {
         }
     }
 
-    /// 一個作者位的比較鍵：狀態標籤＋位元組。比對表顯示的段字串會撞——literal「key:alice」與 person key `alice` 的段都是 `key:alice`——
-    /// 所以比較不用段字串（#742 verify 第二輪；與替換腿的 `authorBytes` 同一種形狀）。
-    static func authorKey(_ a: Author) -> [UInt8] {
-        switch a {
-        case .literal(let s): return [0] + Array(s.utf8)
-        case .key(let k): return [1] + Array(k.utf8)
-        case .organization(let k): return [2] + Array(k.utf8)
-        }
-    }
 
     /// 提議裡每個頁序（作者列、各組名單、各純量欄位）對照那份 PDF 的頁數；回第一個超出的頁序的說明，全在範圍內回 nil。
     /// 替換腿本身不讀 PDF，所以頁序上限只在這裡查（#742 verify 第二輪）。
@@ -252,22 +243,23 @@ extension FulltextReconcile {
     public static func compare(entry: Entry, proposal p: Proposal)
         -> (rows: [[String: Any]], replaceAuthors: [String: Any]?, validation: [String: Any]) {
         let storeAuthors = entry.authors.map(segment)
-        // 每一項：顯示用的段字串＋比較鍵（狀態＋位元組）。形狀不合的項沒有比較鍵，必然不等（替換腿會說出原因）
+        // 每一項：顯示用的段字串＋比較鍵（`Author.byteKey`：狀態＋位元組，與替換腿同一份實作；段字串會撞——literal「key:alice」與
+        // person key `alice` 的段都是 `key:alice`）。形狀不合的項沒有比較鍵，必然不等（替換腿會說出原因）
         let proposed: [(shown: String, key: [UInt8]?)] = p.authorItems.map { raw in
             guard let o = raw as? [String: Any], o.count == 1, let (k, v) = o.first else { return ("（形狀不合）", nil) }
             switch (k, v) {
-            case ("literal", let s as String): return (s, authorKey(.literal(s)))
-            case ("group", let s as String): return (CorporateName.mark(s), authorKey(.literal(CorporateName.mark(s))))
+            case ("literal", let s as String): return (s, Author.literal(s).byteKey)
+            case ("group", let s as String): return (CorporateName.mark(s), Author.literal(CorporateName.mark(s)).byteKey)
             case ("from", let n):
                 guard case .integer(let i) = JSONInteger.classify(n) else { return ("（形狀不合）", nil) }
                 guard entry.authors.indices.contains(i) else { return ("from \(i)（超出範圍）", nil) }   // display-safe-exempt: i 是 Int
-                return (segment(entry.authors[i]), authorKey(entry.authors[i]))
+                return (segment(entry.authors[i]), entry.authors[i].byteKey)
             default: return ("（形狀不合）", nil)
             }
         }
         let proposedAuthors = proposed.map(\.shown)
         let authorsEqual = proposed.count == entry.authors.count
-            && zip(proposed, entry.authors).allSatisfy { $0.key == authorKey($1) }
+            && zip(proposed, entry.authors).allSatisfy { $0.key == $1.byteKey }
         func sameBytes(_ a: [String], _ b: [String]) -> Bool { a.map { Array($0.utf8) } == b.map { Array($0.utf8) } }
         func status(store: Any?, proposed: Any?, equal: Bool) -> String {
             if proposed == nil { return "notProposed" }
@@ -284,11 +276,15 @@ extension FulltextReconcile {
         row("authors", store: storeAuthors.isEmpty ? nil : storeAuthors, proposed: proposedAuthors, page: p.authorsPage,
             status: authorsStatus)
         // 成員名單：與替換腿同一個寫入，所以它不同時也要產生替換物件
-        let storeMembers: [[String: Any]] = entry.groupMembers.map { ["group": $0.group, "page": $0.page, "members": $0.members] }
+        // 名單列列出依據的 digest：只換依據時結果是 differs，人要看得出 A → B（#742 verify 第三輪）
+        let storeMembers: [[String: Any]] = entry.groupMembers.map {
+            ["group": $0.group, "page": $0.page, "members": $0.members, "restsOn": $0.restsOn]   // display-safe-exempt: $0.restsOn 是 GroupMemberList 建構時驗過的 digest；這份 JSON 是給 skill 讀的機器格式
+        }
         let proposedMembers: [[String: Any]]? = p.groupMembers?.map { raw in
             guard let o = raw as? [String: Any] else { return ["group": "（形狀不合）"] }
             var d = o
             if let g = o["group"] as? String { d["group"] = CorporateName.mark(g) }
+            d["restsOn"] = p.source
             return d
         }
         // 比較團體、頁序、成員與**將要依據的 digest**（提議的 source）：同一份名單改依另一份全文也是改動，替換腿會把依據換掉
@@ -302,7 +298,7 @@ extension FulltextReconcile {
                       let ms = d["members"] as? [Any] else { return false }
                 let names = ms.compactMap { $0 as? String }
                 guard names.count == ms.count else { return false }
-                proposedKeys.append(([g, String(page), p.source] + names).reduce(into: [UInt8]()) { $0 += Array($1.utf8) + [0] })
+                proposedKeys.append(GroupMemberList.byteKey(group: g, page: page, restsOn: p.source, members: names))
             }
             return storeKeys == proposedKeys
         }()

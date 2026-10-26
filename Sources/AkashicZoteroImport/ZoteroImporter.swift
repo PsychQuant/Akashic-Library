@@ -381,7 +381,7 @@ public struct ZoteroImporter {
                     let removedIdentifiers = identifiersBefore.subtracting(identifiersAfter).sorted()
                     var authorsOverwritten = false
                     if !hadResolvedAuthors {
-                        // 解析成果（person key）是使用者確認過的衍生知識，pull 不摧毀（寫入成功後記進 authorsPreserved）。
+                        // 解析成果（person key、organization key）與作者列替換記錄是使用者確認過的衍生知識，pull 不摧毀（寫入成功後記進 authorsPreserved）。
                         let after = item.authors.map { AkashicCore.Author.literal($0.display) }
                         // 未歸戶的 literal 作者會被 Zotero 版本覆寫。那是 pull-based
                         // sync 的正常語意（Zotero 是上游），但**與 import-wos 相反**

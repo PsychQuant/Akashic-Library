@@ -76,7 +76,13 @@ enum OutputFile {
         }
         if close(fd) != 0, failure == nil { failure = String(cString: strerror(errno)) }
         if failure == nil, link(tmp, path) != 0 {
-            failure = errno == EEXIST ? "it already exists — refusing to replace it" : String(cString: strerror(errno))
+            switch errno {
+            case EEXIST: failure = "it already exists — refusing to replace it"
+            // 獨佔建立靠 hard link；不支援的磁碟區（部分網路或 FAT 類檔案系統）要說出原因，不只印 errno 的字串（#742 verify 第三輪）
+            case EPERM, ENOTSUP, EXDEV, EMLINK:
+                failure = "this volume does not support the hard link used to create the file without replacing anything (\(String(cString: strerror(errno)))) — choose an --out on another volume"
+            default: failure = String(cString: strerror(errno))
+            }
         }
         unlink(tmp)
         if let failure {

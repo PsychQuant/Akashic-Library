@@ -300,6 +300,28 @@ final class AuthorListReplacementRecordTests: XCTestCase {
         XCTAssertNotNil(AuthorListReplacementRecordValue(segments: ["A", "B\u{301}"], page: 1, reason: "r"), "記號不在開頭時照常")
     }
 
+    /// 9.4：段夾在 ⟦ ⟧ 之間時，兩個括號都要是各自的字元——SpacingMark 開頭、Prepend 結尾都會黏上去。
+    func testSegmentsThatGlueToTheBracketsAreRefused() {
+        XCTAssertNil(AuthorListReplacementRecordValue(segments: ["\u{93E}Abc"], page: 1, reason: "r"), "SpacingMark 開頭")
+        XCTAssertNil(AuthorListReplacementRecordValue(segments: ["Abc\u{D4E}"], page: 1, reason: "r"), "Prepend 結尾")
+        XCTAssertNil(AuthorListReplacementRecordValue(segments: ["Abc"], page: 1, reason: "\u{301}r"), "理由以組合記號開頭")
+        XCTAssertNotNil(AuthorListReplacementRecordValue(segments: ["A\u{93E}bc"], page: 1, reason: "r"), "記號在中間照常")
+        XCTAssertNotNil(AuthorListReplacementRecordValue.segmentProblem("\u{93E}Abc"))
+        XCTAssertNil(AuthorListReplacementRecordValue.segmentProblem("Abc"))
+    }
+
+    /// 9.10（8.2 的驗證敘述）：合併乾跑層級——只差 NFC／NFD 的名單，乾跑與實跑都報出遺失並拒絕。
+    func testMergeDryRunRefusesWhenListsDifferOnlyInNormalization() throws {
+        var keeper = twin("claw2018framework"), doomed = twin("claw2018frameworkb")
+        keeper.groupMembers = [try XCTUnwrap(GroupMemberList(group: sing, restsOn: digestA, page: 7, members: ["Jose\u{301}"]))]
+        doomed.groupMembers = [try XCTUnwrap(GroupMemberList(group: sing, restsOn: digestA, page: 7, members: ["Jos\u{E9}"]))]
+        let (store, d) = try seedTwins(keeper: keeper, doomed: doomed)
+        XCTAssertThrowsError(try store.previewResolveDivergence(id: d.id, survivor: "claw2018framework", overrideReason: nil)) { error in
+            guard case DivergenceResolveError.wouldLoseFields(_, _, let losses) = error else { return XCTFail("預期 wouldLoseFields，實得 \(error)") }
+            XCTAssertTrue(losses.contains { $0.contains("group-members") }, "\(losses)")
+        }
+    }
+
     /// 8.8：失效判定把 organization 位視為相符（升格是常態工作）。
     func testStaleReplacementRecordTreatsAnOrganizationPositionAsMatching() throws {
         let (_, store) = try scratchStore(format: StoreVersion.supported)

@@ -31,7 +31,10 @@ public struct GroupMemberList: Equatable, Sendable {
     public var groupBytes: [UInt8] { Array(group.utf8) }
 
     /// 整組名單的位元組形（團體、頁序、依據、成員依序）：判斷兩組名單是不是同一份——synthesized `==` 比的是 Unicode 正規等價。
-    public var byteKey: [UInt8] {
+    public var byteKey: [UInt8] { Self.byteKey(group: group, page: page, restsOn: restsOn, members: members) }
+
+    /// 同一個鍵，給還沒建成 `GroupMemberList` 的值用（`fulltext compare` 比對提議時）。只有這一份實作（#742 verify 第三輪）。
+    public static func byteKey(group: String, page: Int, restsOn: String, members: [String]) -> [UInt8] {
         ([group, String(page), restsOn] + members).reduce(into: [UInt8]()) { $0 += Array($1.utf8) + [0] }
     }
 

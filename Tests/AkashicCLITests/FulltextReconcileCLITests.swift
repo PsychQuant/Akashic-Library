@@ -520,15 +520,48 @@ final class FulltextReconcileCLITests: XCTestCase {
         let other = try compare(["source": b, "authors": ["page": 1, "items": same], "groupMembers": members])
         let rows2 = try XCTUnwrap(other.json?["rows"] as? [[String: Any]])
         XCTAssertEqual(rows2.first { $0["field"] as? String == "groupMembers" }?["status"] as? String, "differs", "依據換了")
+        let row2 = try XCTUnwrap(rows2.first { $0["field"] as? String == "groupMembers" })
+        XCTAssertEqual(((row2["store"] as? [[String: Any]])?.first)?["restsOn"] as? String, d, "名單列列出依據（9.5）")
+        XCTAssertEqual(((row2["proposed"] as? [[String: Any]])?.first)?["restsOn"] as? String, b)
     }
 
     /// 8.3：提議的頁序對照那份 PDF 的頁數。
     func testComparePagesBeyondThePDFAreRefused() throws {
         try XCTSkipUnless(hasPoppler(), "需要 poppler")
         let d = try seedClaw(authors: [.literal("Katrina G. Claw")])
-        let r = try compare(["source": d, "authors": ["page": 99, "items": [["literal": "Katrina G. Claw"]]]])
+        // 提議與 store 不同（否則 replaceAuthors 本來就是 null，量不到 fail-closed）
+        let r = try compare(["source": d, "authors": ["page": 99, "items": [["literal": "Katrina Claw"]]]])
         XCTAssertEqual(r.status, 0, r.output)
         let refusal = try XCTUnwrap(r.json?["refusal"] as? String, "\(String(describing: r.json))")
         XCTAssertTrue(refusal.contains("99") && refusal.contains("7"), refusal)
+        XCTAssertTrue(r.json?["replaceAuthors"] is NSNull, "被拒的提議不產生寫入命令（9.5）：\(String(describing: r.json?["replaceAuthors"]))")
+    }
+
+    /// 9.1：以 resolve-organizations --apply 升格（真 binary），compare 對與 store 一致的提議回 refusal: null、replaceAuthors: null。
+    func testComparePassesAfterResolveOrganizationsPromotion() throws {
+        try XCTSkipUnless(hasPoppler(), "需要 poppler")
+        let d = try seedClaw(authors: [.literal("Katrina G. Claw"), .literal("{SING Consortium}")])
+        try LibraryStore(root: root, key: nil, environment: [:])
+            .writeOrganization(Organization(key: "sing-consortium", names: TimelineOf([TemporalValue(value: "SING Consortium")])))
+        git(["init", "-q"]); git(["add", "-A"]); git(["commit", "-q", "-m", "seed"])
+        let members: [[String: Any]] = [["group": "SING Consortium", "page": 7, "members": ["A", "B"]]]
+        let first = try compare(["source": d, "authors": ["page": 1, "items": [["literal": "Katrina G. Claw"], ["group": "SING Consortium"]]],
+                                 "groupMembers": members])
+        let rf = scratch.appendingPathComponent("replace-promote.json")
+        try JSONSerialization.data(withJSONObject: try XCTUnwrap(first.json?["replaceAuthors"] as? [String: Any])).write(to: rf)
+        let applied = try CLITestHarness.run(["update-entry", "claw2018framework", "--replace-authors", rf.path,
+                                              "--library", root.path, "--apply"], env: env)
+        XCTAssertEqual(applied.status, 0, applied.output)
+        git(["add", "-A"]); git(["commit", "-q", "-m", "members"])
+        let promote = try CLITestHarness.run(["resolve-organizations", "--apply", "--yes", "--org", "sing-consortium",
+                                              "--library", root.path], env: env)
+        XCTAssertEqual(promote.status, 0, promote.output)
+        let e = try XCTUnwrap(LibraryStore(root: root, key: nil, environment: [:]).load().entries.first)
+        XCTAssertEqual(e.authors.last, .organization("sing-consortium"), "前提：團體位已升格")
+        git(["add", "-A"]); git(["commit", "-q", "-m", "promote"])
+        let r = try compare(["source": d, "authors": ["page": 1, "items": [["from": 0], ["from": 1]]], "groupMembers": members])
+        XCTAssertEqual(r.status, 0, r.output)
+        XCTAssertTrue(r.json?["refusal"] is NSNull, "\(String(describing: r.json?["refusal"]))")
+        XCTAssertTrue(r.json?["replaceAuthors"] is NSNull, "與 store 一致，不必寫")
     }
 }

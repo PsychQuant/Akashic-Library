@@ -30,6 +30,7 @@ final class ByteExactKeySiteInventoryTests: XCTestCase {
             "Sources/AkashicCore/NameClassificationRecord.swift", // 名字分類判定記錄的 append-only 去重（#564）：與同一個名字同一個分割的最後一筆相同才不寫（修正輪）
             "Sources/AkashicMCPKit/NameRemovalWithRecords.swift", // 刪已撤回的名字時一併刪它的記錄（#564 第 2 點）：以位元組定位要刪的那幾筆——`removingRecords`，
                                                                   // venue 的 edit_name_segment remove 也呼叫它（#564 R2 verify：b29 V1 第 16 列，線性），所以 VenueNameSegmentEdit 不再自己比位元組
+            "Sources/AkashicMCPKit/AuthorListReplacement.swift",  // 作者列替換腿的 unchanged 判定：references 逐筆比位元組（#742 verify 第三輪）
         ]
         let sources = Self.repoRoot.appendingPathComponent("Sources")
         var found: Set<String> = []

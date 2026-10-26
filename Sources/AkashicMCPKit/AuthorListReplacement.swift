@@ -144,7 +144,7 @@ extension AkashicService {
         }
     }
 
-    /// 作者名與團體名的共同上限：非空白、前後無空白、不含控制字元、不含替換記錄的段分隔字元、至多 65,536 bytes。
+    /// 作者名與團體名的共同上限：非空白、前後無空白、不含 repo 的不安全碼位（`nameScalarIssue`）、不在段括號旁黏字、不含替換記錄的段分隔字元、至多 65,536 bytes。
     private static func checkedName(_ s: String, at path: String) throws -> String {
         guard !s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw ServiceError.invalid("\(path) 不得空白")   // display-safe-exempt: path 程式構造
@@ -214,13 +214,6 @@ extension AkashicService {
     // MARK: - 服務
 
     /// 作者位的位元組形：先標種類再接值——literal「key:x」與 person key「x」的段字串相同，位元組形不同。
-    static func authorBytes(_ a: Author) -> [UInt8] {
-        switch a {
-        case .literal(let s): return [0] + Array(s.utf8)
-        case .key(let k): return [1] + Array(k.utf8)
-        case .organization(let k): return [2] + Array(k.utf8)
-        }
-    }
 
     /// 一組成員名單的位元組形（`GroupMemberList.byteKey`），用來判斷「名單有沒有變」——`GroupMemberList ==` 比的是 Unicode 正規等價。
     static func memberListBytes(_ l: GroupMemberList) -> [UInt8] { l.byteKey }
@@ -309,25 +302,44 @@ extension AkashicService {
         }
         let segments = newAuthors.map(Self.replacementSegment)
         guard let record = AuthorListReplacementRecordValue(segments: segments, page: request.page, reason: request.reason) else {
-            throw ServiceError.invalid(
-                "新作者列寫不成替換記錄——沿用的舊位置含 ⟦ 或 ⟧（替換記錄的段分隔字元）；先用 resolve-people 處理那一位，整批拒絕、零寫入")
+            // 說出真正原因（#742 verify 第三輪：記錄寫不成有三種原因，訊息原本只說 ⟦ ⟧）。新寫入的名字已被名字閘擋過，
+            // 走到這裡的是 from 沿用的舊值或理由
+            if let (i, problem) = segments.enumerated().lazy.compactMap({ e in
+                AuthorListReplacementRecordValue.segmentProblem(e.element).map { (e.offset, $0) } }).first {
+                throw ServiceError.invalid(
+                    "新作者列第 \(i) 位（\(displaySafeInvisible(segments[i], max: 200))）寫不成替換記錄的段：\(problem)——"   // display-safe-exempt: i 是 Int；problem 是常量句
+                    + "那是以 from 沿用的舊值；先用 resolve-people 或 update-entry 處理那一位，整批拒絕、零寫入")
+            }
+            if let problem = AuthorListReplacementRecordValue.reasonProblem(request.reason) {
+                throw ServiceError.invalid("reason \(problem)；整批拒絕、零寫入")   // display-safe-exempt: problem 是常量句
+            }
+            throw ServiceError.invalid("新作者列寫不成替換記錄；整批拒絕、零寫入")
         }
 
         // design D6：成員名單。團體位＝新作者列中帶 corporate 標記的 literal（不論來自 group 項還是 from 沿用），以及**升格過的團體位**：
         // organization 位，其 organization 帶一筆把本 work 與一個帶標記 literal 配對的 confirmed verdict（attribute-org 升格時留下、不動
         // group-members），那一位算作那個 literal——否則名單在升格後只活到下一次替換（#742 verify 第二輪）。比位元組（spec「byte-equal」）
+        // 升格的三條路寫的 literal 形狀不同：attribute-org 寫作者位原值（帶大括號），resolve-organizations 的 --apply／--judge 寫
+        // OrgResolver 去標記後的名字——兩種都認，一律先 mark(unmark(…))（#742 verify 第三輪）。organization key 不唯一時讀哪一筆取決於
+        // 載入順序，取錯就刪掉名單，所以拒絕、不以先到先贏消解
         let load = try store.load()
-        let orgsByKey = Dictionary(load.organizations.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
+        let orgsByKey = Dictionary(grouping: load.organizations, by: \.key)
         var newGroups = Set<[UInt8]>()
         for a in newAuthors {
             switch a {
             case .literal(let s) where CorporateName.isMarked(s):
                 newGroups.insert(Array(s.utf8))
             case .organization(let k):
-                for r in orgsByKey[k]?.references ?? [] where r.field == ProvenanceReference.resolutionConfirmedField {
+                let records = orgsByKey[k] ?? []
+                guard records.count <= 1 else {
+                    throw ServiceError.invalid(
+                        "新作者列的 organization 位「\(displaySafeInvisible(k, max: 200))」對到 \(records.count) 筆 organization（key 重複）——"   // display-safe-exempt: records.count 是 Int
+                        + "讀哪一筆的判定取決於載入順序；先修好重複（akashic validate 列出），整批拒絕、零寫入")
+                }
+                for r in records.first?.references ?? [] where r.field == ProvenanceReference.resolutionConfirmedField {
                     guard let v = r.value, let pv = ProvenanceReference.VerdictPairingValue.parse(v),
-                          pv.holderKind == .work, pv.holder == entry.citekey, CorporateName.isMarked(pv.literal) else { continue }
-                    newGroups.insert(Array(pv.literal.utf8))
+                          pv.holderKind == .work, pv.holder == entry.citekey else { continue }
+                    newGroups.insert(Array(CorporateName.mark(CorporateName.unmark(pv.literal)).utf8))
                 }
             default: break
             }
@@ -359,7 +371,7 @@ extension AkashicService {
 
         // design D5：描述舊作者列的記錄一併移除——作者列逐位元組相同（典型是只補成員名單）時，舊列沒有被取代，拆分記錄、移除記錄與
         // 證言描述的仍是現在這份作者列，只換掉先前的替換記錄（替換記錄是 value 缺席的那一種，D3）
-        let authorsUnchanged = newAuthors.map(Self.authorBytes) == old.map(Self.authorBytes)
+        let authorsUnchanged = newAuthors.map(\.byteKey) == old.map(\.byteKey)
         let isRemoved: (ProvenanceReference) -> Bool = { $0.field == "authors" && (!authorsUnchanged || $0.value == nil) }
         let newRecord = ProvenanceReference(field: "authors", value: nil,
                                             kind: .judgement(statement: record.encoded, restsOn: [request.source]))
@@ -380,8 +392,10 @@ extension AkashicService {
         if !authorsUnchanged { updated.akashic.authorListCompleteness = nil }
         updated.groupMembers = membersAfter
         // `Entry ==` 比的是 Unicode 正規等價：只換了正規化寫法的替換會被當成沒變，所以作者列與名單另比位元組
+        // references 也比位元組：只改理由的正規化寫法時 `updated == entry` 仍成立，新理由會被當成沒變而不寫（#742 verify 第三輪）
         let unchanged = updated == entry && authorsUnchanged
             && membersAfter.map(Self.memberListBytes) == entry.groupMembers.map(Self.memberListBytes)
+            && updated.references.map(\.byteExactKey) == entry.references.map(\.byteExactKey)
         if unchanged { recordsRemoved = [] }   // 什麼都沒變：沒有東西被移除（先前列出原樣寫回的那一筆，#742 verify 第二輪）
 
         // 報告：person／organization 上仍指向本 work、literal 已不在新作者列任何 literal 位的 confirmed verdict（只列不改）。
@@ -422,7 +436,8 @@ extension AkashicService {
         func listed(_ authors: [Author]) -> [String] { authors.map { displaySafe(Self.replacementSegment($0), max: 400) } }
         func membersDict(_ l: GroupMemberList) -> [String: Any] {
             ["group": displaySafe(l.group, max: 400), "page": l.page,   // display-safe-exempt: page 是 Int
-             "members": l.members.map { displaySafe($0, max: 400) }]
+             "members": l.members.map { displaySafe($0, max: 400) },
+             "restsOn": l.restsOn]   // display-safe-exempt: l.restsOn 是 GroupMemberList 建構時驗過的 digest（sha256:<64 hex>）
         }
         var payload: [String: Any] = [
             "citekey": displaySafe(citekey, max: 200),

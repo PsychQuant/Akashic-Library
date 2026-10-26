@@ -588,4 +588,68 @@ final class ReplaceAuthorsTests: XCTestCase {
                                         "release": [["index": 0, "reason": "PDF byline 沒有這個機構"]]]))
         XCTAssertEqual((released["released"] as? [[String: Any]])?.first?["value"] as? String, "organization:iss")
     }
+
+    // MARK: - 9.x 第三輪 verify 之後（#742 第三輪 verify 報告，2026-10-26）
+
+    /// 有升格團體位與名單的 work（升格的 verdict literal 由呼叫端決定形狀）。
+    private func seedPromoted(verdictLiteral: String, duplicateKey: Bool = false) throws {
+        digest = try storedPDF()
+        try organization("sing-consortium", promotedFrom: verdictLiteral)
+        if duplicateKey { try LibraryStore(root: root).writeOrganization(Organization(key: "sing-consortium", id: UUID())) }
+        var e = Entry(id: UUID(), citekey: "claw2018framework", type: .periodicalArticle, title: "T",
+                      authors: [.literal("Katrina G. Claw"), .organization("sing-consortium")])
+        e.akashic.sources = [digest]
+        e.groupMembers = [try XCTUnwrap(GroupMemberList(group: "{SING Consortium}", restsOn: digest, page: 7, members: ["A", "B"]))]
+        try LibraryStore(root: root).writeEntry(e)
+        StoreGitCommit.commitAll(root)
+    }
+
+    /// spec「A group promoted by resolve-organizations keeps its member list」：resolve-organizations 寫的是去標記的 literal（design D6）。
+    func testGroupPromotedByResolveOrganizationsKeepsItsMemberList() throws {
+        try seedPromoted(verdictLiteral: "SING Consortium")
+        let kept = try run(minimal(["authors": [["literal": "Katrina Claw"], ["from": 1]]]))
+        XCTAssertEqual((kept["groupMembersRemoved"] as? [Any])?.count, 0, "\(kept)")
+        XCTAssertEqual(((kept["groupMembersAfter"] as? [[String: Any]])?.first)?["restsOn"] as? String, digest, "報告的名單帶依據（9.5）")
+        XCTAssertNoThrow(try run(minimal(["authors": [["from": 0], ["from": 1]],
+                                           "groupMembers": [["group": "SING Consortium", "page": 7, "members": ["A", "B", "C"]]]])))
+    }
+
+    /// spec「A duplicate organization key is refused」：讀哪一筆不得取決於載入順序（design D6）。
+    func testDuplicateOrganizationKeyIsRefused() throws {
+        try seedPromoted(verdictLiteral: "{SING Consortium}", duplicateKey: true)
+        assertRefused(minimal(["authors": [["literal": "Katrina Claw"], ["from": 1]]]), mentions: "sing-consortium")
+    }
+
+    /// 9.3：只改理由的正規化寫法也是改動，要寫進去（design D5）。
+    func testReasonDifferingOnlyInNormalizationIsWritten() throws {
+        try seedDefault()
+        _ = try run(minimal(["authors": [["literal": "Katrina G. Claw"]], "reason": "PDF 第 1 頁 byline，Jos\u{E9}"]), dryRun: false)
+        StoreGitCommit.commitAll(root)
+        let again = try run(minimal(["authors": [["literal": "Katrina G. Claw"]], "reason": "PDF 第 1 頁 byline，Jose\u{301}"]), dryRun: false)
+        XCTAssertEqual(again["unchanged"] as? Bool, false, "\(again)")
+        let e = try XCTUnwrap(LibraryStore(root: root).load().entries.first)
+        let statement = e.references.compactMap { r -> String? in
+            if r.field == "authors", r.value == nil, case .judgement(let s, _) = r.kind { return s } else { return nil }
+        }.first ?? ""
+        XCTAssertTrue(Array(statement.utf8).suffix(3) == Array("e\u{301}".utf8), "磁碟上是新理由的位元組：\(Array(statement.utf8).suffix(4))")
+    }
+
+    /// 9.4：沿用的舊位置以組合記號開頭時，訊息說真正原因，不說 ⟦ ⟧。
+    func testCarriedOverPositionStartingWithACombiningMarkNamesTheRealCause() throws {
+        digest = try storedPDF()
+        try seed(authors: [.literal("\u{301}Abc")], sources: [digest])
+        assertRefused(minimal(["authors": [["from": 0]]]), mentions: "組合記號")
+    }
+
+    /// 9.4：NBSP 的訊息叫人換成一般空白，不是刪掉（刪掉會把名字黏在一起）。
+    func testNonBreakingSpaceAsksForAnOrdinarySpace() throws {
+        try seedDefault()
+        assertRefused(minimal(["authors": [["literal": "Katrina\u{A0}Claw"]]]), mentions: "一般空白")
+    }
+
+    /// 9.4：理由以組合記號開頭會和前面的全形冒號黏在一起，替換記錄解析不回來。
+    func testReasonStartingWithACombiningMarkIsRefused() throws {
+        try seedDefault()
+        assertRefused(minimal(["authors": [["literal": "Katrina G. Claw"]], "reason": "\u{301}PDF 第 1 頁"]), mentions: "reason")
+    }
 }

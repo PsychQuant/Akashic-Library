@@ -36,15 +36,18 @@ description: 依作品本身的全文核對 Akashic 一筆 work 的書目欄位�
 
    ```bash
    D=$(mktemp -d "${TMPDIR:-/tmp}/akashic-verify-work.XXXXXX") || exit 1
-   R=$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 16)
-   if [ "${#R}" -eq 16 ] && printf '%s\n' "$R" > "${D}/.akashic-verify-work"; then
+   if R=$(od -An -N12 -tx1 /dev/urandom | tr -d ' \n') && [ "${#R}" -eq 24 ] \
+      && printf '%s\n' "$R" > "${D}/.akashic-verify-work"; then
      printf 'WORK_DIR=%s\nRUN_TOKEN=%s\n' "${D}" "${R}"
    else
-     rm -rf -- "${D}"; echo "寫不出暫存目錄的標記，已刪掉剛建的目錄：${D}——停下，不要繼續"
+     rm -rf -- "${D}"
+     if [ -e "${D}" ]; then echo "寫不出暫存目錄的標記，也沒能刪掉剛建的目錄：${D}——停下，請使用者刪掉它"
+     else echo "寫不出暫存目錄的標記，已刪掉剛建的目錄：${D}——停下，不要繼續"; fi
+     exit 1
    fi
    ```
 
-   建立目錄與寫標記在同一個命令裡：標記記的是這一次執行才有的隨機字串（`RUN_TOKEN`），第 6 步刪之前核對它，免得刪到另一次執行的目錄——同一筆 work 的另一次執行也分得出來。寫不出標記時目錄當場刪掉，這一筆停下。
+   建立目錄與寫標記在同一個命令裡：標記記的是這一次執行才有的隨機字串（`RUN_TOKEN`，從 `/dev/urandom` 讀固定的 12 bytes，不用無限串流接 `head`——那在 `set -e`＋`pipefail` 的 shell 會因 SIGPIPE 提早退出），第 6 步刪之前核對它，免得刪到另一次執行的目錄——同一筆 work 的另一次執行也分得出來。產生或寫入標記失敗時目錄當場刪掉、確認不在了才說已刪，這一筆停下。
 
    記下它印出的兩行。下文的 `<WORK_DIR>`、`<RUN_TOKEN>` 是佔位：**每一個命令都把它換成那兩行的字面值**再執行。每一步是各自的 shell，shell 變數留不到下一步——`$WORK_DIR` 在下一步是空字串，`rm -rf "$WORK_DIR/…"` 會變成刪 `/…`。**不論這一筆怎麼結束**——命令被拒、無法核對、unattended 停在第 4 步、使用者不同意、寫入完成——最後都要跑第 6 步的清理區塊（不要自己另寫 `rm -rf`）：它只刪 `WORK_DIR` 那一行指的目錄，結尾是 `akashic-verify-work.` 加上 mktemp 換上的六個隨機字元（不是樣板的 `XXXXXX`），不是空字串或它的上層。`trap … EXIT` 撐不到最後一步，所以要明確地刪。
 4. `fulltext text` 與 `compare` 的 `--out` 必須是**還不存在**的檔名（不覆寫、不跟隨 symlink）。同一步要重跑時換一個檔名（例如 `compare-2.json`）；第 4 步取出的替換物件同樣每次用新檔名、與 compare 同號（`replace-2.json`），第 5 步用同一個檔名。
@@ -162,6 +165,8 @@ case "${W##*/}" in
   *) echo "檔名不是 mktemp 印出的樣式，不刪：${W}" ;;
 esac
 ```
+
+標記讀不到、而你確定代入的就是第 3 步印出的 `WORK_DIR`（例如標記檔在執行中被刪掉）時，不要繞過核對、也不要自己寫 `rm -rf`：把路徑交給使用者，請使用者自己確認後刪除，回報裡寫「暫存目錄沒刪，已交給使用者」。
 
 檔名、上層目錄與標記分開核對：`case` 只比最後一段（`akashic-verify-work.` 加六個英數字元；樣式裡的 `?` 會匹配 `/`，所以不拿它比整條路徑）；上層目錄兩邊都去掉結尾的 `/` 再比——macOS 的 `TMPDIR` 結尾帶 `/`，`mktemp` 印出的路徑因此有 `//`，`${W%/*}` 會留下一個結尾的 `/`；最後比標記裡的 `RUN_TOKEN`。訊息裡的變數寫成 `${W}`：bash 在 UTF-8 locale 下會把緊接的全形字元讀進變數名（`$W——` 展開成空字串）。回報每筆一列：citekey、結果（已替換／乾跑待確認／沒有要寫的作者列／無法核對）、暫存目錄已刪或沒刪、文字來源、依據的 digest 與頁序、未寫入的不一致欄位、文件裡出現過的可疑指令（若有）。
 

@@ -294,3 +294,15 @@ fixture：兩頁點陣化 PDF（第 1 頁 byline、第 2 頁成員名單），`p
 - 全套 `swift test`（load average 約 160–190）：執行 5,428 個，5,427 passed、0 failed、1 skipped（`MigrateProvenanceCLITests` 的環境 skip）；這一次兩個計時型測試也通過。`.githooks/run-guards.sh` rc=0，plugin 殼 0.13.7 的摘要更新為 `08ff3dd8…`。
 - `tools/list`：**59,981 bytes**（±0；這一輪沒有改 MCP 的說明文字）。
 - 仍然沒有測試的：`compare` 的「讀不出替換腿乾跑的報告」分支（要讓同一個 binary 的乾跑吐出不是 JSON 物件的報告，現行程式沒有這條路）、`YAML.swift` 的 encode 自檢閘門、`createExclusive` 的 hard link 訊息、App `ForEach` 的 id。
+
+## 第七輪 verify 之後（2026-10-27，同一個「用idd-all把剩下的都解完」，無人值守）
+
+第七輪 verify 報告在 #742（comment 6423701974），只跑 Codex（第七輪的改動以文件與 skill 為主），結果 **PASS**：沒有 MEDIUM 以上；LOW 3 件。這一輪是 Spectra 第 13 組，修完再以 Codex 核一次，之後停下交回。
+
+| 項目 | 內容 |
+|---|---|
+| 13.1 建立暫存目錄 | `RUN_TOKEN` 改從 `/dev/urandom` 讀固定的 12 bytes（`od`，24 個十六進位字元）；先前 `tr </dev/urandom \| head -c 16` 在 `set -e`＋`pipefail` 的 shell 裡會因 SIGPIPE 在寫標記前退出、目錄留著。產生與寫入放進 `if` 的條件。失敗分支刪完確認不在了才說已刪，刪不掉就照實說、交給使用者，並 `exit 1` |
+| 13.2 標記遺失 | 第 6 步：標記讀不到、而確定代入的是第 3 步印出的路徑時，交給使用者確認後刪除，不繞過核對 |
+| 13.3 help | `--replace-authors` 的 help 提到大括號後接組合記號時跳脫不到是已知缺口 #754 |
+
+- 建立區塊在 zsh 與 `/bin/bash`、各在預設與 `errexit`＋`pipefail` 下實跑：四種都印出 24 字元的 `RUN_TOKEN`，與標記檔相同。模擬 `od` 失敗：剛建的目錄刪掉、說「已刪掉」、rc=1；再模擬 `rm` 也失敗：說「也沒能刪掉」、目錄還在、rc=1。

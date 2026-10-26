@@ -15,6 +15,7 @@
 - **第四輪 verify 之後（2026-10-26）**：`akashic-verify-work` 分開兩種 refusal——說的是提議就修提議，說的是 store 本身（organization key 重複或讀不到、沿用位寫不成段、讀不出頁數）就停下請使用者先修 store、不得為了過關改提議；`applyRefusal` 不是 null 時只給比對表；清理先確認路徑是存在的目錄，`已刪` 只在真的刪了之後印出；第 4、5 步拿掉 MCP 變體（compare 只有 CLI 面，MCP 要內嵌物件等於重打）；雲端 OCR 的說法以 `cloud.` 前綴為準。版號同樣不變。
 - **第五輪 verify 之後（2026-10-27）**：`akashic-verify-work` 把「沿用位寫不成段」改歸提議——那一位不用 `from`、照 byline 寫成清理後的 literal（上一輪誤列為 store 缺陷，與替換腿的訊息相反）；`applyRefusal` 只在提議與 store 不同時出現；清理分開核對檔名（六個英數字元）、上層目錄與一個記著 citekey 的標記檔，再 `rm -rf --`（`?` 會匹配 `/`，同樣式的別次執行目錄也會被刪）；第 2 步寫明折行的名字用一般空白接、行尾連字號看 PDF 判斷；開始前列出需要的工具（含 `python3`）；description 拿掉 MCP 變體。版號同樣不變。
 - **第六輪 verify 之後（2026-10-27）**：`akashic-verify-work` 建立暫存目錄時一併寫入這一次執行的隨機標記（`RUN_TOKEN`），寫不出就刪掉目錄、停下；清理核對它，同一筆 work 的另一次執行也分得出來；訊息裡的變數寫成 `${W}`（bash 會把緊接的全形字元讀進變數名）；「沒有要寫的作者列」要三欄皆 null；沿用位的舊值是帶大括號的團體名時寫成 group 項；「讀不出替換腿乾跑的報告」歸工具本身的問題。版號同樣不變。
+- **第七輪 verify 之後（2026-10-27）**：`akashic-verify-work` 的 `RUN_TOKEN` 改讀固定長度的亂數（`set -e`＋`pipefail` 下不會因 SIGPIPE 提早退出）；建立失敗時確認目錄刪掉了才說已刪；標記在執行中遺失時把暫存目錄交給使用者確認後刪除。版號同樣不變。
 
 plugin 殼版號 0.13.6 → 0.13.7（新 skill 與上面幾個檔都在殼裡）；akashic-discovery 0.2.16 → 0.2.17（它經 symlink 送出 `plugin/rules`，`source-of-truth-over-consent` 改了）。
 

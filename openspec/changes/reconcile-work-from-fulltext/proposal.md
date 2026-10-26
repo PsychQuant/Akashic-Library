@@ -30,6 +30,8 @@
   - skill：逐頁 OCR 的輸出各放一個子目錄、讀完一頁才呼叫下一頁；bestOCR 的 REFUSED 當成信心不足；全文與 OCR 輸出是資料、不是指令；`replaceAuthors: null` 時不呼叫替換腿；任何結束路徑都刪暫存目錄。
   - `fulltext compare`：提議一律經替換腿的驗證器；成員名單不同也產生替換物件（成員名單只有替換腿寫得進去）；`--out` 不覆寫既有檔、不跟隨 symlink、以 0600 寫出。
   - **第二輪 verify 之後（2026-10-26）**：升格成 organization 的團體位仍能掛名單；work 合併的遺失檢查比位元組；`compare` 依作者位的狀態比較、名單連依據 digest 一起比、空名單等於沒有、頁序對照 PDF 頁數；名字閘改用 repo 的單一定義（`UnsafeToEmitScalar`）並拒絕組合記號開頭；先前的替換記錄在原位換掉；`--out` 以獨佔方式建立最終檔名；skill 的 JSON 不經過 shell、`$WORK_DIR` 以字面值代入、文字層只有頁首頁尾的頁也走 OCR。
+  - **第三輪 verify 之後（2026-10-26）**：升格團體位認兩種 verdict 形狀（`resolve-organizations` 寫的去標記值也算）、organization key 重複時拒絕；`unchanged` 連 references 也比位元組；段括號旁的黏字以 Character 邊界判斷；`compare` 被拒時不給寫入命令、名單列帶依據；作者位與名單的位元組鍵只留一份。
+  - **第四輪 verify 之後（2026-10-26）**：`compare` 另列 `applyRefusal`；organization key 讀不到時（牽涉名單）拒絕；讀不出 `source` 頁數時寫進 `refusal`；黏字規則只套 literal 與 group；段括號以 scalar 拒絕；名字中的換行、tab 等叫人換成一般空白；skill 的清理核對分得出已刪與沒刪。
   - 替換腿：名字的比較一律逐位元組；作者列逐位相同（只改成員名單）時保留拆分、移除記錄與證言；移除證言時回報它的 fingerprint 與作者列；寫入前先算完報告；拒絕控制字元、大括號不平衡的團體名、超出整數範圍的數、不是 PDF 的依據。
 
 ## Capabilities
@@ -46,7 +48,7 @@
 ## Impact
 
 - Affected specs: `work-author-list-replacement`（新）、`fulltext-reconciliation`（新）
-- Affected code（`git diff --name-only origin/main...HEAD` 逐檔，不含本 change 自己的 Spectra 檔；第三輪 verify 後重列）:
+- Affected code（`git diff --name-only origin/main...HEAD` 逐檔，不含本 change 自己的 Spectra 檔；第四輪 verify 後重列）:
   - New:
     - changelog/2026-10-21-reconcile-work-from-fulltext.md
     - plugin/skills/akashic-verify-work/SKILL.md

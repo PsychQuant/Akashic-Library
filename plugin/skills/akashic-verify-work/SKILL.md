@@ -35,16 +35,18 @@ description: 依作品本身的全文核對 Akashic 一筆 work 的書目欄位�
 3. 開一個暫存目錄放全文文字與 OCR 輸出，**必須在任何 git 工作樹之外**（全文是第三方有版權的內容）：
 
    ```bash
-   mktemp -d "${TMPDIR:-/tmp}/akashic-verify-work.XXXXXX"
+   D=$(mktemp -d "${TMPDIR:-/tmp}/akashic-verify-work.XXXXXX") || exit 1
+   R=$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 16)
+   if [ "${#R}" -eq 16 ] && printf '%s\n' "$R" > "${D}/.akashic-verify-work"; then
+     printf 'WORK_DIR=%s\nRUN_TOKEN=%s\n' "${D}" "${R}"
+   else
+     rm -rf -- "${D}"; echo "寫不出暫存目錄的標記，已刪掉剛建的目錄：${D}——停下，不要繼續"
+   fi
    ```
 
-   接著在那個目錄寫一個標記檔，記下這一筆的 citekey（第 6 步刪之前核對它，免得刪到另一次執行的目錄）：
+   建立目錄與寫標記在同一個命令裡：標記記的是這一次執行才有的隨機字串（`RUN_TOKEN`），第 6 步刪之前核對它，免得刪到另一次執行的目錄——同一筆 work 的另一次執行也分得出來。寫不出標記時目錄當場刪掉，這一筆停下。
 
-   ```bash
-   printf '%s\n' '<citekey>' > "<WORK_DIR>/.akashic-verify-work"
-   ```
-
-   記下它印出的路徑。下文的 `<WORK_DIR>` 是佔位：**每一個命令都把它換成這個字面路徑**再執行。每一步是各自的 shell，shell 變數留不到下一步——`$WORK_DIR` 在下一步是空字串，`rm -rf "$WORK_DIR/…"` 會變成刪 `/…`。**不論這一筆怎麼結束**——命令被拒、無法核對、unattended 停在第 4 步、使用者不同意、寫入完成——最後都要跑 `rm -rf "<WORK_DIR>"`，刪的必須是 `mktemp` 印出的**整行**（結尾那一段是 `akashic-verify-work.` 加上 mktemp 換上的六個隨機字元，不是樣板的 `XXXXXX`），不是空字串或它的上層；第 6 步有核對的寫法。`trap … EXIT` 撐不到最後一步，所以要明確地刪。
+   記下它印出的兩行。下文的 `<WORK_DIR>`、`<RUN_TOKEN>` 是佔位：**每一個命令都把它換成那兩行的字面值**再執行。每一步是各自的 shell，shell 變數留不到下一步——`$WORK_DIR` 在下一步是空字串，`rm -rf "$WORK_DIR/…"` 會變成刪 `/…`。**不論這一筆怎麼結束**——命令被拒、無法核對、unattended 停在第 4 步、使用者不同意、寫入完成——最後都要跑第 6 步的清理區塊（不要自己另寫 `rm -rf`）：它只刪 `WORK_DIR` 那一行指的目錄，結尾是 `akashic-verify-work.` 加上 mktemp 換上的六個隨機字元（不是樣板的 `XXXXXX`），不是空字串或它的上層。`trap … EXIT` 撐不到最後一步，所以要明確地刪。
 4. `fulltext text` 與 `compare` 的 `--out` 必須是**還不存在**的檔名（不覆寫、不跟隨 symlink）。同一步要重跑時換一個檔名（例如 `compare-2.json`）；第 4 步取出的替換物件同樣每次用新檔名、與 compare 同號（`replace-2.json`），第 5 步用同一個檔名。
 
 ## 流程（一次一筆）
@@ -100,10 +102,10 @@ akashic fulltext compare --citekey <citekey> --proposal "<WORK_DIR>/proposal.jso
 輸出 `rows`（每欄一列：`field`、`store`、`proposed`、`page`、`status`∈`same`／`differs`／`absentInStore`／`notProposed`；成員名單那一列的每組帶 `restsOn`，提議那一側是提議的 `source`——只換依據時 status 是 differs，從這裡看出 A → B）、`replaceAuthors`（作者列**或成員名單**不同時，可直接交給 `update-entry --replace-authors` 的 JSON，否則 null）與 `refusal`（替換腿會拒絕這份提議時的原因，或提議的頁序超出那份 PDF 的頁數，否則 null——不論 `replaceAuthors` 是不是 null，提議都會被替換腿驗一次）。`refusal` 不是 null 時 `replaceAuthors` 一定是 null：被拒的提議沒有寫入命令可取。
 
 - `refusal` 不是 null → 先看它說的是提議還是 store：
-  - 說的是提議（多半是某個已歸戶位沒有 `from` 也沒有 `release`、頁序超出；或「以 from 沿用的舊 literal 寫不成段」——那一位不要用 `from`，照 byline 寫成清理後的 `literal` 項，literal 位沒有歸戶，改寫不是撤銷身分判定）→ 回第 2 步修提議，存成新檔名再比對。不要繞過它。
-  - 說的是 store 本身（organization key 重複或讀不到、讀不出 PDF 的頁數）→ 這筆**無法核對**（見下表），停下。**不得為了過關改提議**——例如把被擋的 organization 位改列 `release`，那等於為了繞過 store 的缺陷撤銷一個身分判定、移除成員名單。
+  - 說的是提議（多半是某個已歸戶位沒有 `from` 也沒有 `release`、頁序超出；或「以 from 沿用的舊 literal 寫不成段」——那一位不要用 `from`，照 byline 寫成清理後的 `literal` 項；舊值是帶 corporate 大括號的團體名時寫成 `group` 項。literal 位沒有歸戶，改寫不是撤銷身分判定）→ 回第 2 步修提議，存成新檔名再比對。不要繞過它。
+  - 說的是 store 本身（organization key 重複或讀不到、讀不出 PDF 的頁數），或工具本身（「讀不出替換腿乾跑的報告」）→ 這筆**無法核對**（見下表），停下。**不得為了過關改提議**——例如把被擋的 organization 位改列 `release`，那等於為了繞過 store 的缺陷撤銷一個身分判定、移除成員名單。
 - `applyRefusal` 不是 null（提議本身沒問題，但 store 寫不進去，例如 store format 低於 23）→ `replaceAuthors` 會是 null；第 4 步只給比對表，照實說「寫入被 store 擋下：<applyRefusal>」，停下。
-- `replaceAuthors` 是 null、`refusal` 是 null → **作者列與成員名單都不必寫**：不呼叫 `update-entry`，第 4 步只給比對表，回報「沒有要寫的作者列」。
+- `replaceAuthors`、`refusal`、`applyRefusal` 三個都是 null → **作者列與成員名單都不必寫**：不呼叫 `update-entry`，第 4 步只給比對表，回報「沒有要寫的作者列」。
 
 ### 4. 乾跑給人看
 
@@ -142,26 +144,26 @@ akashic update-entry <citekey> --replace-authors "<WORK_DIR>/replace.json" --app
 
 ### 6. 收尾（每一種結束都要做）
 
-代入 `mktemp` 印出的整行，先核對再刪，刪完確認不在了（全文文字、PDF 複本與 OCR 輸出不留在磁碟上；`rm -rf` 對不存在的路徑也回 0，所以代入錯了會什麼都沒刪而不報錯）：
+代入第 3 步印出的 `WORK_DIR` 與 `RUN_TOKEN`，先核對再刪，刪完確認不在了（全文文字、PDF 複本與 OCR 輸出不留在磁碟上；`rm -rf` 對不存在的路徑也回 0，所以代入錯了會什麼都沒刪而不報錯）：
 
 ```bash
 W="<WORK_DIR>"; T="${TMPDIR:-/tmp}"; P="${W%/*}"
 case "${W##*/}" in
   akashic-verify-work.[A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9])
     if [ "${P%/}" != "${T%/}" ]; then
-      echo "上層目錄不是 ${T}，不刪：$W"
+      echo "上層目錄不是 ${T}，不刪：${W}"
     elif [ ! -d "$W" ] || [ -L "$W" ]; then
-      echo "路徑不存在或不是目錄，沒有刪：$W——代入的多半不是 mktemp 印出的那一行，回頭找那一行"
-    elif [ "$(cat "$W/.akashic-verify-work" 2>/dev/null)" != "<citekey>" ]; then
-      echo "標記檔不是這一筆的，沒有刪：$W——那可能是另一次執行的目錄"
+      echo "路徑不存在或不是目錄，沒有刪：${W}——代入的多半不是第 3 步印出的 WORK_DIR，回頭找那一行"
+    elif [ "$(cat "${W}/.akashic-verify-work" 2>/dev/null)" != "<RUN_TOKEN>" ]; then
+      echo "標記不是這一次執行的，沒有刪：${W}——那可能是另一次執行的目錄；回頭找第 3 步印出的 WORK_DIR 與 RUN_TOKEN"
     else
       rm -rf -- "$W" && [ ! -e "$W" ] && echo 已刪 || echo 沒刪
     fi ;;
-  *) echo "檔名不是 mktemp 印出的樣式，不刪：$W" ;;
+  *) echo "檔名不是 mktemp 印出的樣式，不刪：${W}" ;;
 esac
 ```
 
-`case` 的樣式與 `mktemp` 用同一個 `${TMPDIR:-/tmp}` 組成，所以 macOS 的 `TMPDIR` 結尾帶 `/`、路徑出現 `//` 時兩邊一致（2026-10-26 實測）。回報每筆一列：citekey、結果（已替換／乾跑待確認／沒有要寫的作者列／無法核對）、暫存目錄已刪或沒刪、文字來源、依據的 digest 與頁序、未寫入的不一致欄位、文件裡出現過的可疑指令（若有）。
+檔名、上層目錄與標記分開核對：`case` 只比最後一段（`akashic-verify-work.` 加六個英數字元；樣式裡的 `?` 會匹配 `/`，所以不拿它比整條路徑）；上層目錄兩邊都去掉結尾的 `/` 再比——macOS 的 `TMPDIR` 結尾帶 `/`，`mktemp` 印出的路徑因此有 `//`，`${W%/*}` 會留下一個結尾的 `/`；最後比標記裡的 `RUN_TOKEN`。訊息裡的變數寫成 `${W}`：bash 在 UTF-8 locale 下會把緊接的全形字元讀進變數名（`$W——` 展開成空字串）。回報每筆一列：citekey、結果（已替換／乾跑待確認／沒有要寫的作者列／無法核對）、暫存目錄已刪或沒刪、文字來源、依據的 digest 與頁序、未寫入的不一致欄位、文件裡出現過的可疑指令（若有）。
 
 ## 沒有文字層：OCR 路徑
 
@@ -187,6 +189,7 @@ esac
 | 某一欄依據的文字有低共識項 | 只有那一欄（作者列與成員名單一起）標「信心不足」，其他欄照常 |
 | 某一欄依據的頁被 bestOCR 拒絕（`REFUSED:`，或 `.consensus.json` 沒有 `low_consensus`） | 只有依據那一頁的欄位（作者列與成員名單一起）標「信心不足」，說出拒絕原因；其他欄照常 |
 | `compare` 的 `refusal` 說的是 store 本身的缺陷（organization key 重複或讀不到、讀不出 PDF 的頁數） | 照 `refusal` 的訊息說出是哪一種，請使用者先修好 store（多半是 `akashic validate` 列出的那一項）再核對；不改提議 |
+| `compare` 的 `refusal` 是「讀不出替換腿乾跑的報告」 | 工具本身的問題：照實回報這則訊息與觸發它的 `compare` 命令，不重試、不改提議 |
 | `compare` 的 `applyRefusal` 不是 null（例如 store format 低於 23） | 比對表照給，說明寫入被 store 擋下、原因照抄；升 format 是使用者的事 |
 
 整筆無法核對時，不呼叫 `update-entry`。不論哪一種，最後都做第 6 步（刪 `<WORK_DIR>`）。

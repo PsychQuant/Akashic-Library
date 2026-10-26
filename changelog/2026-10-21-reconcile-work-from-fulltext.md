@@ -266,4 +266,31 @@ fixture：兩頁點陣化 PDF（第 1 頁 byline、第 2 頁成員名單），`p
 - 清理區塊在 zsh 實跑五種路徑：這一次的目錄 → 已刪；同樣式、存在、標記是別的 citekey → 沒有刪（目錄留著）；同樣式但不存在 → 沒有刪；含 `/../` → 檔名不符、不刪（受害目錄留著）；上層目錄不是 `$TMPDIR` → 不刪。
 - 全套 `swift test`（load average 約 150–180）：執行 5,427 個，5,424 passed、2 failed、1 skipped（`MigrateProvenanceCLITests` 的環境 skip）。2 個 failure 都是計時型：`FulltextB43Tests.testRedactingPageTextIsLinearOnHostileInput`（上限 3.0 秒、量到 3.0001 秒）與 `FulltextB45Tests.testManyURLsStayWithinTheBound`（量到 4.38 秒），兩個一起單獨重跑（load 約 110）通過；與這一輪的改動無關，與 #752 同類。
 - `tools/list`：**59,981 bytes**（±0；35 個工具；預算 65,000）。
+- `.githooks/run-guards.sh` rc=0（第六輪 verify 指出這一節漏記，2026-10-27 補）；plugin 殼 0.13.7 的摘要更新為 `ac16d2bc…`。
 - 仍然沒有測試的兩處：`YAML.swift` 的 encode 自檢閘門（design Non-Goals 記了理由）、`createExclusive` 的 hard link 訊息（要不支援 hard link 的磁碟區）。
+
+## 第六輪 verify 之後（2026-10-27，同一個「用idd-all把剩下的都解完」，無人值守）
+
+第六輪 verify 報告在 #742（comment 6422017317），結果 **PASS**：沒有 CRITICAL、HIGH、MEDIUM；LOW 8（去重後 5 件）、INFO 31。這一輪是 Spectra 第 12 組，以文件與 skill 為主。
+
+### 這一輪改了什麼（Spectra 第 12 組）
+
+| 項目 | 內容 |
+|---|---|
+| 12.1 design D6、D15 | D6 跟上第五輪：「organization 讀不到」只在有名單要靠它時拒絕；分隔字元補 VT、FF、U+001C–001F；團體名括號以兩種計法都要平衡；拿掉懸空的「見下一條」。D15 的「全文不離開本機」改成以引擎前綴分類為準 |
+| 12.2 skill | 建立暫存目錄與寫標記在同一個命令裡，標記記這一次執行的隨機字串 `RUN_TOKEN`（第五輪只記 citekey，同一筆 work 的兩次執行分不出來），寫不出就當場刪掉目錄、停下；清理核對 `RUN_TOKEN`；訊息裡的變數寫成 `${W}`——bash 在 UTF-8 locale 下把緊接的全形破折號讀進變數名，`$W——` 展開成空字串，兩個拒刪訊息丟掉路徑（只影響訊息，不影響刪不刪）；「沒有要寫的作者列」的判準補 `applyRefusal` 也是 null；「讀不出替換腿乾跑的報告」歸工具本身的問題；沿用位的舊值是帶大括號的團體名時寫成 group 項 |
+| 12.3 訊息與 help | 沿用位寫不成段、舊值帶 corporate 大括號時訊息叫人改寫成 group 項；`--replace-authors` 的 help 照實說 literal 不得「整個是」帶大括號的名字；`fulltext compare --help` 寫 `applyRefusal` 何時出現、讀不出乾跑報告會進 `refusal` |
+| 12.4 spec | 「skill 遇 store 缺陷停下」的 Scenario 移到 skill 的 requirement；新增「沿用位改寫」的 Scenario |
+| 12.5 紀錄 | tasks 5.4、10.4、10.6、10.7 加更正；上一節補 `run-guards.sh` 的結果 |
+
+### 不在本單修的：literal 項的大括號（#754）
+
+三席把「literal 作者項的大括號只以 Character 計」列為 LOW：`}`＋組合記號的 literal 被收下，`export-bib` 輸出的 AUTHOR 欄位以 scalar 計括號不平衡，`biber --tool --nodieonerror` 會讀出一筆偽造的 entry。DA 指出這是 `export-bib` 逐 Character 跳脫（`BibExport.braceSafe`）的既有缺陷：`create-entry` 寫入同樣的值得到同樣的輸出，`BibExport.swift` 在這個 branch 上沒有改動。2026-10-27 以 `create-entry` 重現（大括號深度最後是 −1，biber 讀出多一筆 `@MISC`），另開 #754，修在 `braceSafe` 一處就涵蓋所有寫入面。團體名的閘門擋的是另一件事：帶 corporate 標記的團體名 `export-bib` 原樣輸出，所以寫入時就得平衡。
+
+### 測試與負控
+
+- 新測試：`ReplaceAuthorsTests.testCarriedOverGroupPositionMessageSuggestsAGroupItem`（實作前失敗，原因是訊息只說 literal 項）；負控（把條件改成恆為 false）變紅，完整輸出在 job 目錄的 `negctl7/`。
+- 建立與清理區塊在 zsh 與 `/bin/bash`（LANG=en_US.UTF-8）各跑：這一次的目錄 → 已刪；同樣式、存在、`RUN_TOKEN` 不同 → 沒有刪（目錄留著）；打錯 → 不存在、沒有刪；含 `/../` → 檔名不符、不刪（受害目錄留著）；上層不是 `$TMPDIR` → 不刪；symlink → 不是目錄、沒有刪（目標留著）；`tr` 輸出空字串（模擬寫不出標記）→ 剛建的目錄當場刪掉。兩個 shell 的訊息都帶著路徑。
+- 全套 `swift test`（load average 約 160–190）：執行 5,428 個，5,427 passed、0 failed、1 skipped（`MigrateProvenanceCLITests` 的環境 skip）；這一次兩個計時型測試也通過。`.githooks/run-guards.sh` rc=0，plugin 殼 0.13.7 的摘要更新為 `08ff3dd8…`。
+- `tools/list`：**59,981 bytes**（±0；這一輪沒有改 MCP 的說明文字）。
+- 仍然沒有測試的：`compare` 的「讀不出替換腿乾跑的報告」分支（要讓同一個 binary 的乾跑吐出不是 JSON 物件的報告，現行程式沒有這條路）、`YAML.swift` 的 encode 自檢閘門、`createExclusive` 的 hard link 訊息、App `ForEach` 的 id。

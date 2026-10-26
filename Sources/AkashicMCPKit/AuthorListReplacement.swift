@@ -137,7 +137,8 @@ extension AkashicService {
                 throw ServiceError.invalid("\(path).group 不得自帶大括號——寫入時會加上 corporate 標記")   // display-safe-exempt: path 程式構造
             }
             // `mark` 只在外面包一層大括號、不確認結果：`A} {B` 會寫成 `{A} {B}`，那不是帶標記的名字，export-bib 照人名切開它（#742 verify）
-            guard CorporateName.isMarked(CorporateName.mark(s)) else {
+            // 以 Character 與以 scalar 計都要平衡：`}`＋組合記號在 Character 層級不算括號，以 scalar 讀的 export-bib 卻會算（#742 verify 第五輪）
+            guard CorporateName.isMarked(CorporateName.mark(s)), CorporateName.isMarkedByScalars(CorporateName.mark(s)) else {
                 throw ServiceError.invalid("\(path).group 的大括號不平衡——加上 corporate 標記之後不是一個帶標記的團體名；整批拒絕、零寫入")   // display-safe-exempt: path 程式構造
             }
             return .group(s)
@@ -329,18 +330,21 @@ extension AkashicService {
         let load = try store.load()
         let orgsByKey = Dictionary(grouping: load.organizations, by: \.key)
         var newGroups = Set<[UInt8]>()
+        var unloadableOrganizationKeys: [String] = []
+        func unloadableRefusal(_ why: String) -> ServiceError {
+            .invalid("新作者列的 organization 位「" + unloadableOrganizationKeys.map { displaySafeInvisible($0, max: 200) }.joined(separator: "」「")
+                     + "」讀不到任何 organization（不存在或檔案被隔離）——判斷不了它是不是升格過的團體位，而\(why)；"   // display-safe-exempt: why 是常量句
+                     + "先修好那個 organization（akashic validate 列出），整批拒絕、零寫入")
+        }
         for a in newAuthors {
             switch a {
             case .literal(let s) where CorporateName.isMarked(s):
                 newGroups.insert(Array(s.utf8))
             case .organization(let k):
                 let records = orgsByKey[k] ?? []
-                // 讀不到任何記錄（不存在或被隔離）時同樣判斷不了它是不是升格過的團體位；有名單牽涉時拒絕（#742 verify 第四輪）
-                if records.isEmpty && (!entry.groupMembers.isEmpty || request.groupMembers != nil) {
-                    throw ServiceError.invalid(
-                        "新作者列的 organization 位「\(displaySafeInvisible(k, max: 200))」讀不到任何 organization（不存在或檔案被隔離）——"
-                        + "判斷不了它是不是升格過的團體位，而這筆有成員名單；先修好那個 organization（akashic validate 列出），整批拒絕、零寫入")
-                }
+                // 讀不到任何記錄（不存在或被隔離）時判斷不了它是不是升格過的團體位——先記下，等算出哪些名單會受影響再決定（#742 verify
+                // 第四、五輪：只有名單真的要靠它時才拒絕；明確清空、或名單全掛在已知團體位上時照常）
+                if records.isEmpty { unloadableOrganizationKeys.append(k) }
                 guard records.count <= 1 else {
                     throw ServiceError.invalid(
                         "新作者列的 organization 位「\(displaySafeInvisible(k, max: 200))」對到 \(records.count) 筆 organization（key 重複）——"   // display-safe-exempt: records.count 是 Int
@@ -363,6 +367,7 @@ extension AkashicService {
             for (i, m) in given.enumerated() {
                 let group = CorporateName.mark(m.group)
                 guard newGroups.contains(Array(group.utf8)) else {
+                    if !unloadableOrganizationKeys.isEmpty { throw unloadableRefusal("groupMembers[\(i)] 的團體對不上任何已知的團體位") }   // display-safe-exempt: i 是 Int
                     throw ServiceError.invalid(
                         "groupMembers[\(i)] 的團體「\(displaySafeInvisible(m.group, max: 200))」對不上新作者列的任何團體位（逐字、逐位元組比）——"   // display-safe-exempt: i 是 Int
                         + "名單要掛在作者列裡那一個團體位上；整批拒絕、零寫入")
@@ -377,6 +382,9 @@ extension AkashicService {
             }
         } else {
             membersAfter = entry.groupMembers.filter { newGroups.contains(Array($0.group.utf8)) }
+            if membersAfter.count < entry.groupMembers.count && !unloadableOrganizationKeys.isEmpty {
+                throw unloadableRefusal("這筆有成員名單對不上任何已知的團體位（省略 groupMembers 時會被移除）")
+            }
         }
         let membersRemoved = entry.groupMembers.filter { old in
             !membersAfter.contains { Self.memberListBytes($0) == Self.memberListBytes(old) }

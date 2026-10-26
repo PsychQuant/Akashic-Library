@@ -338,9 +338,16 @@ struct FulltextCompareCmd: ParsableCommand {
                                                   dryRun: true, verdictsLimit: nil)
                 // 乾跑接受提議、但 store 會拒絕寫入（format 不足、寫入前置的上限）時，替換腿只把原因放在 applyRefusal、不擲錯——
                 // 另列出來，不給寫入命令（#742 verify 第四輪：先前只接 thrown error，這一類被丟掉）
-                if let obj = (try? JSONSerialization.jsonObject(with: Data(dry.utf8))) as? [String: Any],
-                   let reason = obj["applyRefusal"] as? String, !reason.isEmpty {
-                    applyRefusal = reason   // display-safe-exempt: reason 是替換腿已 displaySafeError 過的訊息
+                // 只在有東西要寫（給得出替換物件）時才採用：一致的提議沒有東西要寫，乾跑卻會因為要補一筆依據記錄而撞上 format 閘
+                //（#742 verify 第五輪）。報告讀不出來時寫進 refusal，不當成沒有拒絕（同輪：try? 讓解析失敗變成放行）
+                if result.replaceAuthors != nil {
+                    if let obj = (try? JSONSerialization.jsonObject(with: Data(dry.utf8))) as? [String: Any] {
+                        if let reason = obj["applyRefusal"] as? String, !reason.isEmpty {
+                            applyRefusal = reason   // display-safe-exempt: reason 是替換腿已 displaySafeError 過的訊息
+                        }
+                    } else {
+                        refusal = "讀不出替換腿乾跑的報告，無法確認寫不寫得進去"
+                    }
                 }
             } catch {
                 refusal = displaySafeErrorText(error)

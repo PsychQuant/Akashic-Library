@@ -596,4 +596,18 @@ final class FulltextReconcileCLITests: XCTestCase {
         XCTAssertFalse(r.json?["refusal"] is NSNull, "頁序閘沒跑時不得放行：\(String(describing: r.json))")
         XCTAssertTrue(r.json?["replaceAuthors"] is NSNull)
     }
+
+    // MARK: - 11.x 第五輪 verify 之後
+
+    /// 11.2：與 store 一致的提議沒有東西要寫——format 22 也不回 applyRefusal。
+    func testMatchingProposalReportsNothingToWriteEvenOnAnOldStore() throws {
+        try XCTSkipUnless(hasPoppler(), "需要 poppler")
+        let d = try seedClaw(authors: [.literal("Katrina G. Claw")])
+        try StoreVersion.write(root: root, format: 22)
+        let r = try compare(["source": d, "authors": ["page": 1, "items": [["literal": "Katrina G. Claw"]]]])
+        XCTAssertEqual(r.status, 0, r.output)
+        XCTAssertTrue(r.json?["replaceAuthors"] is NSNull)
+        XCTAssertTrue(r.json?["refusal"] is NSNull, "\(String(describing: r.json?["refusal"]))")
+        XCTAssertTrue(r.json?["applyRefusal"] is NSNull, "一致的提議不報寫入被擋：\(String(describing: r.json?["applyRefusal"]))")
+    }
 }

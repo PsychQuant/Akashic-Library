@@ -719,4 +719,39 @@ final class ReplaceAuthorsTests: XCTestCase {
         try seedDefault()
         assertRefused(minimal(["authors": [["literal": "\u{93E}Abc"]]]), mentions: "authors[0].literal")
     }
+
+    // MARK: - 11.x 第五輪 verify 之後
+
+    /// 11.3：明確清空名單（`groupMembers: []`）不必認任何團體位——dangling organization 不擋。
+    func testExplicitlyEmptyMemberListIsAcceptedWithAnUnloadableOrganization() throws {
+        digest = try storedPDF()
+        try seed(authors: [.literal("Claw, K."), .organization("ghost-org")], sources: [digest])
+        XCTAssertNoThrow(try run(minimal(["authors": [["literal": "Katrina G. Claw"], ["from": 1]], "groupMembers": []])))
+    }
+
+    /// 11.3：既有名單全掛在 literal 團體位上時，dangling organization 不可能是它們的主人——照常。
+    func testUnloadableOrganizationDoesNotBlockListsOnLiteralGroups() throws {
+        digest = try storedPDF()
+        var e = Entry(id: UUID(), citekey: "claw2018framework", type: .periodicalArticle, title: "T",
+                      authors: [.literal("{SING Consortium}"), .organization("ghost-org")])
+        e.akashic.sources = [digest]
+        e.groupMembers = [try XCTUnwrap(GroupMemberList(group: "{SING Consortium}", restsOn: digest, page: 7, members: ["A"]))]
+        try LibraryStore(root: root).writeEntry(e)
+        StoreGitCommit.commitAll(root)
+        let r = try run(minimal(["authors": [["group": "SING Consortium"], ["from": 1]]]))
+        XCTAssertEqual((r["groupMembersRemoved"] as? [Any])?.count, 0, "\(r)")
+    }
+
+    /// 11.4：團體名的大括號以 scalar 計——`}`＋組合記號、Prepend＋`}` 在 Character 層級不算括號。
+    func testGroupBracesAreCountedPerScalar() throws {
+        try seedDefault()
+        assertRefused(minimal(["authors": [["group": "A}\u{301}B"]]]), mentions: "大括號不平衡")
+        assertRefused(minimal(["authors": [["group": "A\u{D4E}}B"]]]), mentions: "大括號不平衡")
+    }
+
+    /// 11.5：FF 等分隔字元也叫人換成一般空白。
+    func testFormFeedInsideANameAsksForAnOrdinarySpace() throws {
+        try seedDefault()
+        assertRefused(minimal(["authors": [["literal": "Katrina\u{C}Claw"]]]), mentions: "一般空白")
+    }
 }

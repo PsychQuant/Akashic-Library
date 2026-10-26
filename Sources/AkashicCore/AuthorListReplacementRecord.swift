@@ -59,7 +59,7 @@ public struct AuthorListReplacementRecordValue: Equatable, Sendable {
             }
             guard UnsafeToEmitScalar.contains(u), u.properties.generalCategory != .privateUse else { continue }
             // 名字中間的換行、tab、NEL、LS、PS 多半是 PDF 折行或欄位分隔：刪掉會把兩段名字黏在一起，要換成 U+0020（#742 verify 第四輪）
-            if [0x09, 0x0A, 0x0D, 0x85, 0x2028, 0x2029].contains(u.value) {
+            if [0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x1C, 0x1D, 0x1E, 0x1F, 0x85, 0x2028, 0x2029].contains(u.value) {
                 return "含換行或 tab 這類分隔用的控制字元 U+\(hex(u))——名字被折成兩行或以 tab 分隔時，換成一般空白（U+0020）再寫"   // display-safe-exempt: 十六進位碼位
             }
             // 一般空白以外的空白（NBSP、thin space）在 pdftotext 裡常是名字的分隔：刪掉會把兩段黏在一起，要換成 U+0020（#742 verify 第三輪）

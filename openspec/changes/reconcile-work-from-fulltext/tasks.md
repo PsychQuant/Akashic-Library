@@ -111,3 +111,9 @@
 - [x] 12.3 訊息與 help：沿用位寫不成段、舊值帶 corporate 大括號時叫人改寫成 group 項；`--replace-authors` 的 help 照實說 literal 不得「整個是」帶大括號的名字；`fulltext compare --help` 寫 `applyRefusal` 只在提議與 store 不同時出現、讀不出乾跑報告會進 `refusal`。驗證：`ReplaceAuthorsTests.testCarriedOverGroupPositionMessageSuggestsAGroupItem` 先紅後綠、負控變紅；`testCarriedOverPositionMessageSuggestsALiteral` 仍綠。
 - [x] 12.4 spec：「skill 遇 store 缺陷停下」的 Scenario 移到 skill 的 requirement；新增「沿用位改寫」的 Scenario；skill 的 SHALL 補上工具本身的缺陷與 group 項。驗證：`spectra validate`、`spectra analyze` 0 findings。
 - [x] 12.5 紀錄：tasks 5.4、10.4、10.6、10.7 加更正；changelog 補第五輪 verify 後那一節的 `run-guards.sh` 結果、「讀不出乾跑報告」分支沒有測試；literal 大括號另開 #754。驗證：全套 `swift test` 與 `.githooks/run-guards.sh`（照實記結果）。
+
+## 13. 第七輪 verify 之後的修正（2026-10-27，#742 第七輪 verify 報告，Codex 單席 PASS 後的 LOW）
+
+- [x] 13.1 skill 第 3 步（design D15）：`RUN_TOKEN` 從 `/dev/urandom` 讀固定的 12 bytes（`od`），不用無限串流接 `head`——`set -e`＋`pipefail` 時 `tr` 收到 SIGPIPE 會讓區塊在寫標記前退出；產生與寫入放進 `if` 的條件；失敗分支刪完確認不在了才說已刪，刪不掉就說刪不掉、交給使用者，`exit 1`。驗證：zsh 與 `/bin/bash` 各在預設與 `errexit`＋`pipefail` 下跑建立區塊（token 24 字元、與標記相同）；`od` 失敗（目錄刪掉、rc=1）、`rm` 也失敗（說刪不掉、rc=1）兩種模擬。
+- [x] 13.2 skill 第 6 步：標記讀不到、而確定是第 3 步印出的路徑時，交給使用者確認後刪除，不繞過核對。驗證：內容審查。
+- [x] 13.3 `--replace-authors` 的 help 提到 #754 的已知缺口。驗證：build；全套 `swift test` 與 `.githooks/run-guards.sh`（照實記結果）。

@@ -40,6 +40,8 @@
 - **嵌入式 OCR 文字層的偵測**：掃描機或聚合商預先做好的隱形 OCR 層，在 `fulltext text` 看來就是文字層，不套 D14 的共識與標記；skill 只能提醒人留意（D15）。可機械判斷的訊號（Producer／Creator、抽樣交叉比對）留給 #753。部分頁是掃描圖的 PDF 不在此列：這一輪就逐頁判定（D11、D14，使用者 2026-10-25 的決定）。
 - **改 live store**：`claw2018framework` 只產出乾跑結果與要執行的命令，由使用者決定套用。
 - **#685 的全庫稽核**：本 change 提供工具，不做稽核本身。
+- **理由欄的碼位閘**：`reason` 與 `release[].reason` 只查非空、長度與段括號旁的黏字（第三輪 verify 後補），不套名字的 `UnsafeToEmitScalar` 閘：repo 其他判斷型 statement（`--remove-field` 等的理由）都沒有碼位閘，輸出端一律經 `displaySafe` 逃脫；只在這一條腿加，會讓同一種資料有兩套規則。要收緊就整族一起改，另開 issue。
+- **替換腿本身的頁序上限**：替換腿不讀 PDF，頁序只查 ≥ 1；上限在 `fulltext compare` 對照 PDF 頁數，而 skill 必經 compare、被拒的提議不產生寫入命令（D11）。直接手寫 JSON 呼叫替換腿時，頁序由呼叫的人負責。
 
 ## Decisions
 
@@ -112,9 +114,9 @@ group-members:
 - 住頂層而不住 `akashic` 命名空間：成員名單是作品本身說的書目事實（與 `authors` 同類），不是 Akashic 的簿記。
 - 成員是字串，不是 `.literal`／`.key` 二態 ref。理由：目前沒有任何面能把成員升格為 person key；做成二態 ref 就是新的關係邊（`entity-backlink-completeness` 的封閉列舉要加一列），`rename-person` 與 person 合併都得遷移它，而它在這一輪不會有任何 key。升格為 ref 是一次顯式裁決，屆時另開 change（tasks 的 follow-up issue）。
 - 替換腿的 `groupMembers` 鍵：**有給**（含空陣列）→ 整組替換名單；**沒給** → 保留舊名單中 `group` 仍對得上新作者列團體位的組，其餘移除並列在報告（`groupMembersRemoved`）。兩種情形的「團體位」是同一個集合：新作者列中帶 corporate 標記的 literal，不論它來自 `group` 項還是以 `from` 沿用（第一輪 verify 後統一；先前給了 `groupMembers` 時只認 `group` 項）。
-- **升格過的團體位仍是團體位**（第二輪 verify 後補）：attribute-org 把 `{SING Consortium}` 升格成 organization key 時不動 `group-members`，而那個 organization 帶一筆 confirmed verdict `work:<citekey> :: {SING Consortium}`，記著它是從哪個 literal 升格來的。所以團體位還包括「organization 位，其 organization 帶一筆把本 work 與一個帶標記的 literal 配對的 confirmed verdict」，那一位算作那個 literal。否則名單在升格後只活到下一次替換：省略 `groupMembers` 時被移除、明寫時被拒，而 `fulltext compare` 對已經正確的記錄回 refusal、skill 卡住。
+- **升格過的團體位仍是團體位**（第二輪 verify 後補）：attribute-org 把 `{SING Consortium}` 升格成 organization key 時不動 `group-members`，而那個 organization 帶一筆 confirmed verdict `work:<citekey> :: {SING Consortium}`，記著它是從哪個 literal 升格來的。所以團體位還包括「organization 位，其 organization 帶一筆把本 work 與一個團體名配對的 confirmed verdict」，那一位算作那個名字加上 corporate 標記。**三條升格路徑寫的 literal 形狀不同**（第三輪 verify 後補）：`resolve-people --attribute-org` 寫作者位原值（帶大括號），`resolve-organizations --apply`／`--judge` 寫 `OrgResolver` 去掉大括號後的名字；兩種都要認，比對時一律先 `CorporateName.mark(CorporateName.unmark(…))`。`group-members` 只可能掛在曾是帶標記 literal 的組上，所以多認一種寫法不會讓不相干的名單過關。**organization key 不唯一時拒絕**：兩筆 organization 共用一個 key（load 與 doctor 都會報出）時，讀哪一筆的 verdict 取決於載入順序，取錯就刪掉名單；替換腿在新作者列的 organization 位對到不只一筆 organization 時整批拒絕、零寫入，不以先到先贏消解歧義。否則名單在升格後只活到下一次替換：省略 `groupMembers` 時被移除、明寫時被拒，而 `fulltext compare` 對已經正確的記錄回 refusal、skill 卡住。
 - **名字的比較一律逐位元組**：`group` 對位、成員去重、保留舊名單、失效判定（D8）、退役 literal 的判定、work 合併的遺失檢查，都比 UTF-8 位元組，不用 Swift `String` 的 `==`——後者比的是 Unicode 正規等價，NFC 與 NFD 的「José」會被當成同一個值，而 store 存的是逐字的值。
-- 名字（literal、group、成員）不得含 repo 的不安全碼位（`UnsafeToEmitScalar`，#569 的單一定義：default-ignorable、Cc、Cf、Zl、Zp、非 U+0020 的空白、渲染成空白的碼位；私用區放行、ZWJ／ZWNJ 照 `NameIdentity` 的脈絡規則放行），也不得以組合記號開頭：PDF 抽出的 byline 常把一個名字折成兩行，逐字抄進來的換行會進 store、替換記錄與匯出；零寬字元與 tag 字元是隱形文字的載體；以組合記號開頭的名字會和段括號 `⟦` 黏成同一個字元，替換記錄解析不回來。不沿用 `NameIdentity.wellFormednessIssue` 的 NFC 要求：那是 venue 名稱的規則，作者名從 PDF 抽出時常是 NFD，store 存逐字的值。團體名加上 corporate 標記之後必須仍是一個帶標記的名字（大括號不平衡的 `A} {B` 加標記後不是）。
+- 名字（literal、group、成員）不得含 repo 的不安全碼位（`UnsafeToEmitScalar`，#569 的單一定義：default-ignorable、Cc、Cf、Zl、Zp、非 U+0020 的空白、渲染成空白的碼位；私用區放行、ZWJ／ZWNJ 照 `NameIdentity` 的脈絡規則放行），也不得在段括號旁黏成別的字元（以組合記號或 SpacingMark 開頭、以 Prepend 字元結尾；判準是把它夾在 `⟦`、`⟧` 之間時兩個括號仍是各自的 Character，第三輪 verify 後由「以 Grapheme_Extend 開頭」放寬成這個判準）；理由同樣不得以會和前面的全形冒號黏在一起的字元開頭：PDF 抽出的 byline 常把一個名字折成兩行，逐字抄進來的換行會進 store、替換記錄與匯出；零寬字元與 tag 字元是隱形文字的載體；以組合記號開頭的名字會和段括號 `⟦` 黏成同一個字元，替換記錄解析不回來。非 U+0020 的空白（NBSP、thin space）與軟連字號的拒絕訊息另寫：前者叫人換成一般空白，後者叫人刪掉——pdftotext 常以 NBSP 分隔名字，照「刪掉它」做會把兩段黏在一起（第三輪 verify 後補）。不沿用 `NameIdentity.wellFormednessIssue` 的 NFC 要求：那是 venue 名稱的規則，作者名從 PDF 抽出時常是 NFD，store 存逐字的值。團體名加上 corporate 標記之後必須仍是一個帶標記的名字（大括號不平衡的 `A} {B` 加標記後不是）。
 
 ### D7 store format 23 一次管兩個新形狀
 
@@ -140,7 +142,7 @@ group-members:
 - `akashic fulltext text --citekey <ck> [--source <digest>] --out <file>`：從 work 的 `akashic.sources` 取一份 PDF（`sources/index.jsonl` 的 media-type 是 `application/pdf`），以 `pdfinfo` 取頁數、`pdftotext` 逐頁取文字，寫成 JSON 到 `--out`。work 連了不只一份 PDF 而沒給 `--source` 時拒絕並列出各 digest。`--out` 必須在任何 git 工作樹之外（全文是第三方有版權的內容，`fulltext take` 的同一條規則）。新函式另開，不改 `PDFReader.read` 的兩頁行為，`fulltext verify`／`take` 不受影響。
 - 沒有文字層的判準：所有頁的文字都不含任何 Unicode 字母（general category L）。另逐頁回報 `hasLetters`（那一頁含不含字母）：出版商加一頁有字的封面、其餘是掃描圖的 PDF，整份 `hasTextLayer` 是 true，但 byline 所在頁沒有字母。skill 以逐頁的 `hasLetters` 決定哪幾頁走 OCR（D14）；`fulltext text` 本身只判定、不做 OCR。
 - `--out`（`text` 與 `compare`）：父目錄以實體路徑判斷是否在 git 工作樹內；目標**必須還不存在**（不覆寫既有檔、不跟隨 symlink、不寫進 FIFO），以只有擁有者可讀寫（0600）的權限寫出，最後一步以獨佔的方式建立最終檔名（`link` 暫存檔，目的地已存在即失敗），不是先檢查再 `rename`——後者在兩次動作之間出現的檔會被覆寫（第二輪 verify 後補）。理由：`--out` 是 agent 可被引導指定的路徑（同 `fulltext take`），而內容是第三方全文。輸出另附 `sourcePath`：那份全文在本機 `sources/` 的實體路徑，skill 複製它給 bestOCR 時不必自己拼分片規則。
-- `akashic fulltext compare --citekey <ck> --proposal <file> [--out <file>]`：讀 store 現值與模型寫的提議 JSON，逐欄輸出比對表，作者列**或成員名單**不同時另輸出一份可直接交給 `update-entry --replace-authors` 的 JSON（成員名單只有替換腿寫得進去，所以只差成員名單時也要一份）；提議中的作者項、`release` 與 `groupMembers` **一律**以替換腿的同一個驗證器乾跑一次，不論要不要替換——不需要替換的提議也可能是不合法的（`release` 指到 literal 位、`source` 沒連），那樣的提議不得以 `refusal: null` 過關。作者位比狀態與位元組（literal「key:alice」不等於 person key `alice`，雖然兩者的段字串相同）；成員名單比團體、頁序、成員與將要依據的 digest，沒有名單與空名單視為相同。提議裡的每一個頁序都對照提議 `source` 那份 PDF 的頁數，超出的寫進 `refusal`（替換腿本身不讀 PDF，所以不檢查頁序上限——這是寫入面的誠實邊界，compare 是 skill 的必經步驟）。不寫 store。
+- `akashic fulltext compare --citekey <ck> --proposal <file> [--out <file>]`：讀 store 現值與模型寫的提議 JSON，逐欄輸出比對表，作者列**或成員名單**不同時另輸出一份可直接交給 `update-entry --replace-authors` 的 JSON（成員名單只有替換腿寫得進去，所以只差成員名單時也要一份）；提議中的作者項、`release` 與 `groupMembers` **一律**以替換腿的同一個驗證器乾跑一次，不論要不要替換——不需要替換的提議也可能是不合法的（`release` 指到 literal 位、`source` 沒連），那樣的提議不得以 `refusal: null` 過關。作者位比狀態與位元組（literal「key:alice」不等於 person key `alice`，雖然兩者的段字串相同）；成員名單比團體、頁序、成員與將要依據的 digest，沒有名單與空名單視為相同；比對表的名單列與替換腿報告的 `groupMembersAfter`／`groupMembersRemoved` 都列出依據的 digest（只換依據時看得出 A → B）。作者位與名單的位元組鍵只有一份實作（`Author.byteKey`、`GroupMemberList.byteKey(group:page:restsOn:members:)`，AkashicCore），替換腿與 compare 都呼叫它。提議裡的每一個頁序都對照提議 `source` 那份 PDF 的頁數，超出的寫進 `refusal`；**`refusal` 不是 null 時 `replaceAuthors` 一律是 null**（第三輪 verify 後補：頁序那一種原本只有 compare 擋，取出 `replaceAuthors` 交給替換腿就過關），所以被拒的提議不會產生寫入命令（替換腿本身不讀 PDF，所以不檢查頁序上限——這是寫入面的誠實邊界，compare 是 skill 的必經步驟）。不寫 store。
 - 判讀（哪一行是 byline、人名怎麼切、哪一段是成員名單）由 skill 內的模型做；`two-kinds-of-edits` 的「提名（程式）→ 判定（AI／人）→ 落地（程式）」。
 
 ### D12 akashic-verify-work skill 的邊界
@@ -166,11 +168,11 @@ group-members:
 - **怎麼呼叫**：
   - 用 bestOCR 的 `consensus`，不用單一引擎的 `ocr`。兩者的差別是：`consensus` 會輸出低共識複核清單（`.consensus.md` 以 ⚠ 標出、`.consensus.json` 列出），`ocr` 不輸出任何信心值，用它就沒有東西可以判斷信心足不足。
   - 一次只送一頁：`pages` 設為那一頁的頁號。這樣替換記錄的頁序 `N` 由呼叫方式就確定，不必從 bestOCR 的輸出反推哪段文字在哪一頁。
-  - **每一頁一個 `out_dir`**（`$WORK_DIR/ocr/p<N>`），讀完那一頁的 `.consensus.md`／`.json` 才呼叫下一頁，不平行送出。bestOCR 的輸出檔名只由輸入檔名決定（`<stem>.consensus.*`，不含頁號），同一個 `out_dir` 逐頁呼叫時後一頁會覆寫前一頁，byline 頁的低共識清單就安靜地不見了（第一輪 verify 的 HIGH）。
+  - **每一頁一個 `out_dir`**（`<WORK_DIR>/ocr/p<N>`，`<WORK_DIR>` 是 `mktemp` 印出的字面路徑，見 D15），讀完那一頁的 `.consensus.md`／`.json` 才呼叫下一頁，不平行送出。bestOCR 的輸出檔名只由輸入檔名決定（`<stem>.consensus.*`，不含頁號），同一個 `out_dir` 逐頁呼叫時後一頁會覆寫前一頁，byline 頁的低共識清單就安靜地不見了（第一輪 verify 的 HIGH）。
   - 這些子目錄都在 `fulltext text` 用的同一個暫存目錄裡（git 工作樹之外），用完即丟。理由與 `fulltext text` 的 `--out` 規則相同：輸出是第三方有版權的全文。
   - 不指定任何 `cloud.*` 引擎（`consensus` 不帶 `engines` 時用全部本機引擎）。`cloud.*` 會把文件送出本機，與 D12 只讀本機的邊界衝突。
 - **信心不足的判準**：一個欄位的提議值所依據的文字，只要有一項落在該頁的低共識複核清單裡，這一欄就標成無法核對（信心不足），不提議。作者列與團體成員名單是同一欄，因為兩者由同一次替換寫入：byline 或成員名單任何一項低共識，作者列整欄不提議，`compare` 的提議也不送出。
-- **REFUSED 也是信心不足**：bestOCR 的 co-answer 與 single-consensus 兩道閘不過時，`consensus` 不回錯誤，而是回一個以 `REFUSED:` 開頭的摘要、`.consensus.md` 只有拒絕說明、`.consensus.json` **沒有** `low_consensus` 鍵（缺席，不是空陣列）。它是測量結果，不是工具錯誤，所以不落在下一段的三種失敗裡；但那一頁沒有任何可信的文字，依據它的欄位一律標「無法核對（信心不足）」並說出拒絕原因。`.consensus.json` 沒有 `low_consensus` 鍵時一律當成 REFUSED，**不得**讀成「零個低共識項」。
+- **REFUSED 也是信心不足**（2026-10-26 實測：已安裝的 bestOCR 0.10.0 沒有這條路徑，開發中的版本有）：bestOCR 的 co-answer 與 single-consensus 兩道閘不過時，`consensus` 不回錯誤，而是回一個以 `REFUSED:` 開頭的摘要、`.consensus.md` 只有拒絕說明、`.consensus.json` **沒有** `low_consensus` 鍵（缺席，不是空陣列）。它是測量結果，不是工具錯誤，所以不落在下一段的三種失敗裡；但那一頁沒有任何可信的文字，依據它的欄位一律標「無法核對（信心不足）」並說出拒絕原因。`.consensus.json` 沒有 `low_consensus` 鍵時一律當成 REFUSED，**不得**讀成「零個低共識項」。
 - **bestOCR 不可用或轉出失敗**：以下三種情形，整筆 work 標成無法核對，說出是哪一種，並附一行說明裝好 bestOCR plugin 後可以再核對：
   1. 這個 session 沒有 bestOCR 的 MCP 工具；
   2. `list_engines` 回報可用的本機引擎少於兩個（`consensus` 至少要兩個）；

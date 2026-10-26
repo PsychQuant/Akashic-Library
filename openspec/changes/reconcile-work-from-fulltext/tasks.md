@@ -60,13 +60,26 @@
 
 ## 8. 第二輪 verify 之後的修正（2026-10-26，#742 第二輪 verify 報告）
 
-- [x] 8.1 升格過的團體位仍是團體位（design D6）：替換腿以 organization 位上「把本 work 與帶標記 literal 配對的 confirmed verdict」把它算作那個 literal——省略 `groupMembers` 時保留名單、明寫時接受。驗證：`ReplaceAuthorsTests` 兩案（升格位以 from 沿用、省略名單 → 保留；明寫 `SING Consortium` → 接受）綠，負控變紅；`FulltextReconcileCLITests` 對已正確的升格記錄回 `refusal: null`。
-- [x] 8.2 work 合併的遺失檢查比位元組（design D6）：`DivergenceResolve` 的 `group-members` 差集改用位元組比較。驗證：只差 NFC／NFD 成員的兩筆攣生 work，合併乾跑報出遺失並拒絕；測試綠、負控變紅。
+- [x] 8.1 升格過的團體位仍是團體位（design D6）：替換腿以 organization 位上「把本 work 與帶標記 literal 配對的 confirmed verdict」把它算作那個 literal——省略 `groupMembers` 時保留名單、明寫時接受。驗證：`ReplaceAuthorsTests` 兩案（升格位以 from 沿用、省略名單 → 保留；明寫 `SING Consortium` → 接受）綠，負控變紅；`FulltextReconcileCLITests` 對已正確的升格記錄回 `refusal: null`。（第三輪 verify 更正：這一條 CLI 驗證當時沒有交付，而且 `resolve-organizations` 升格的形狀仍認不得；補在 9.1）
+- [x] 8.2 work 合併的遺失檢查比位元組（design D6）：`DivergenceResolve` 的 `group-members` 差集改用位元組比較。驗證：只差 NFC／NFD 成員的兩筆攣生 work，合併乾跑報出遺失並拒絕；測試綠、負控變紅。（第三輪 verify 更正：當時只測了 `fieldsLostByMerging`，合併乾跑層的測試補在 9.10）
 - [x] 8.3 `fulltext compare` 的比較（design D11）：作者位比狀態與位元組；成員名單比團體、頁序、成員與將要依據的 digest；沒有名單與空名單相同；提議的每個頁序對照 `source` 那份 PDF 的頁數，超出寫進 `refusal`。驗證：`FulltextReconcileCLITests` 四案（`key:alice` literal vs key → differs；換了 digest 的名單 → differs；空名單 → same、replaceAuthors null；page 99 對 7 頁 PDF → refusal）綠。
 - [x] 8.4 名字閘（design D6）：改用 `UnsafeToEmitScalar`（私用區放行、ZWJ／ZWNJ 照 `NameIdentity` 的脈絡規則）並拒絕組合記號開頭；替換記錄的建構函式拒絕以組合記號開頭的段。驗證：`ReplaceAuthorsTests` 加 ZWSP、tag 字元、組合記號開頭三案拒絕、一個合法 ZWNJ 的波斯文名接受；`AuthorListReplacementRecordTests` 的段開頭組合記號案例；負控變紅。
 - [x] 8.5 替換記錄在原位換掉（design D5）：作者列相同時先前的替換記錄留在原位置；什麼都沒變時 `recordsRemoved` 為空。驗證：替換記錄之後還有別的 reference 的夾具，重跑同一份 JSON → `unchanged: true`、`recordsRemoved` 為空；負控變紅。
 - [x] 8.6 `--out` 獨佔建立（design D11）：`OutputFile` 新增以 `link` 建立最終檔名的函式，目的地已存在即失敗、不覆寫；`fulltext text`／`compare` 改用它。驗證：單元測試「目的地在寫入前出現 → 拒絕、內容不變」綠。
-- [x] 8.7 App 成員名單的 `ForEach` id 改用位元組鍵。驗證：`swift build` 綠；`EntrySurfaceTests` 綠。
+- [x] 8.7 App 成員名單的 `ForEach` id 改用位元組鍵。驗證：`swift build` 綠；`EntrySurfaceTests` 綠。（第三輪 verify 更正：App 的 `ForEach` id 沒有新測試，這兩項只證明編譯與既有行為不變）
 - [x] 8.8 測試補齊：五條腿兩兩互斥的窮舉加入 `replace_authors`／`--replace-authors`；替換腿以 from 沿用 organization 位、release organization 位；失效 warning 把 organization 位視為相符。驗證：對應測試綠。
 - [x] 8.9 skill（design D14、D15）：文字層只有頁首頁尾的頁也走 OCR（第 1 步的觸發條件加這一種；封閉表「需要 OCR 的頁」各列因此涵蓋它，不另加列——它不是無法核對）；JSON 不經過 shell（Write 工具或帶引號的 here-document；`replace.json` 以 `python3 -I` 從 `compare.json` 取出）；`$WORK_DIR` 改為 `<WORK_DIR>` 佔位、以字面路徑代入；第 4 步非作者欄位分兩種情形說；byline 或名單任一讀自 OCR 時理由寫明 OCR；參與引擎＝`engines` 扣掉 `engines_without_aligned_items`；OCR 前先列出會用的本機引擎；store 現值與 compare 輸出也是資料；提議的 `source` 用 `text.json` 的 `source`。驗證：內容審查逐條對照 spec R2、R3、R6 與 design D14、D15。
 - [x] 8.10 文件與 changelog：`docs/store-format.md` §3.5（作者列相同時保留、成員名的不安全碼位規則）、`two-kinds-of-edits.md` 的 replace-authors 一列、替換腿檔頭；`writing-to-the-store.md` 標題與日期那句改為指向同檔「沒有正規入口時」；`mcp-cli-parity.md` 的腿數；`tools/list` 的位元組數（plugin CHANGELOG、changelog、#745）；changelog 加「第二輪 verify 之後」一節（含 2026-10-26 的 bestOCR 實跑：每頁一個 out_dir 兩頁都在、共用 out_dir 只剩後一頁；已安裝的 bestOCR 0.10.0 沒有 REFUSED 路徑）；版本帳本摘要。驗證：全套 `swift test` 與 `.githooks/run-guards.sh` 綠。
+
+## 9. 第三輪 verify 之後的修正（2026-10-26，#742 第三輪 verify 報告）
+
+- [x] 9.1 升格團體位認兩種 verdict 形狀（design D6）：organization 位的 confirmed verdict 的 literal 以 `CorporateName.mark(CorporateName.unmark(…))` 比對，`resolve-organizations` 寫的去標記值也算。驗證：`ReplaceAuthorsTests` 加去標記 verdict 的變體（省略名單 → 保留、明寫 → 接受）；`FulltextReconcileCLITests` 以真 binary 跑 `resolve-organizations --apply` 升格後，對與 store 一致的提議 `fulltext compare` 回 `refusal: null`、`replaceAuthors: null`；負控變紅。
+- [x] 9.2 organization key 不唯一時拒絕（design D6）：新作者列的 organization 位對到不只一筆 organization 時整批拒絕、零寫入、指名 key。驗證：`ReplaceAuthorsTests` 兩筆同 key 的夾具（verdict 在任一筆）→ 拒絕；負控變紅。
+- [x] 9.3 `unchanged` 比位元組（design D5）：references 以 `byteExactKey` 逐筆比較，只改理由的 NFC／NFD 會寫入。驗證：`ReplaceAuthorsTests` 只改理由正規化 → `unchanged: false`、實寫後磁碟上的記錄是新理由的位元組；負控變紅。
+- [x] 9.4 段括號旁的黏字（design D6）：`AuthorListReplacementRecordValue.segmentProblem` 以「夾在 ⟦ ⟧ 之間兩個括號仍是各自的 Character」判斷，`init?`、名字閘、`from` 沿用位的拒絕訊息共用；理由開頭同樣檢查。NBSP 等空白與軟連字號的訊息另寫。驗證：Kit 測試（SpacingMark 開頭、Prepend 結尾、理由以組合記號開頭）；MCP 測試（`from` 沿用位命中時訊息說真正原因；NBSP 的訊息叫人換成一般空白）。
+- [x] 9.5 `compare` 的 fail-closed 與依據（design D11）：`refusal` 非 null 時 `replaceAuthors` 為 null；名單列與替換腿報告列出 `restsOn`。驗證：`testComparePagesBeyondThePDFAreRefused` 斷言 `replaceAuthors` 為 null；名單列含 `restsOn`。
+- [x] 9.6 位元組鍵只留一份（design D11）：`Author.byteKey` 與 `GroupMemberList.byteKey(group:page:restsOn:members:)` 移到 AkashicCore，替換腿與 compare 都呼叫它，刪掉兩份手抄。驗證：全套 `swift test` 綠、`grep` 不再有第二份實作。
+- [x] 9.7 skill（design D15）：`replace.json` 每次取出用新檔名（與 `compare-N.json` 同號），第 5 步沿用同一個檔名；python 指定 `encoding="utf-8"`；第 6 步清理先核對路徑（`case` 對 `mktemp` 的樣式）、刪完以 `test ! -e` 回報已刪／沒刪；第 2 步加 NBSP→一般空白。驗證：內容審查對照 spec R6。
+- [x] 9.8 說明文字：CLI `--replace-authors` 的 help（名字閘、團體位含升格的 organization 位、`refusal` 與 `restsOn`）、替換腿的 doc comment、`ZoteroImporter.swift` 的行內註解、`ServiceArgvExitCodeTests` 的文件註解、`YAML.swift` 的自檢改比 `byteKey`、`OutputFile.createExclusive` 在 `link` 不受支援時說出原因。驗證：`swift build` 綠、全套測試綠。
+- [x] 9.9 文件與數字：`tools/list` 的現值改成 59,981（`plugin/CHANGELOG.md`、`StdioE2ETests.swift` 的註解、`.claude/rules/mcp-cli-parity.md`），#745 的「再加一條腿會碰到預算」改成照實的餘裕；proposal Impact 清單照 `git diff --name-only` 重列（去重、新檔歸 New）；store-format §3.5 補兩種 verdict 形狀與重複 key 的拒絕。驗證：`git diff --name-only origin/main...HEAD` 與 Impact 清單逐檔相符。
+- [x] 9.10 證據：全套 `swift test` 的完整輸出與負控輸出存檔、changelog 寫出 skip 數；8.2、8.7 的驗證敘述照實修正（8.2 補合併乾跑層的測試；8.7 是 build 與既有 `EntrySurfaceTests`，App 的 `ForEach` 沒有新測試）。驗證：changelog「第三輪 verify 之後」一節逐項對得上測試與輸出檔。

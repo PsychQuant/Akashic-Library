@@ -241,3 +241,29 @@ fixture：兩頁點陣化 PDF（第 1 頁 byline、第 2 頁成員名單），`p
 - 全套 `swift test`（開始時 load average 約 150，期間到 190）：5,420 passed、1 failed、1 skipped（`MigrateProvenanceCLITests` 的環境 skip）。那 1 個 failure 是計時型測試 `FulltextB45Tests.testManyURLsStayWithinTheBound`（上限 3.0 秒、量到 3.6 秒），單獨重跑（load 約 180）通過；它測的是 URL 處理，與這一輪改的兩個 SkillTools 檔無關，與 #752 同類。`.githooks/run-guards.sh` rc=0，plugin 殼 0.13.7 的摘要更新為 `806fa0ef…`。
 - `tools/list`：**59,981 bytes**（±0：這一輪沒有改 MCP 的說明文字；預算 65,000）。
 - 證據的保存：全套測試與負控的完整輸出放在 job 暫存目錄，job 刪除時一起消失；這一節記下的數字與判定是它們的摘要。
+
+## 第五輪 verify 之後（2026-10-27，同一個「用idd-all把剩下的都解完」，無人值守）
+
+第五輪 verify 報告在 #742（comment 6419978535），結果 **PASS**：沒有 CRITICAL、HIGH、MEDIUM；LOW 13、INFO 32。第四輪 2 件 blocking 由 Codex 靜態回查、DA 在 scratch store 以 `.build/debug` 的 binary 實跑確認修好。DA 第一次撞上月度用量上限，額度重置後以同一個 run 續跑。這一輪修 LOW 與便宜的 INFO，是 Spectra 第 11 組。
+
+### 這一輪改了什麼（Spectra 第 11 組）
+
+| 項目 | 內容 |
+|---|---|
+| 11.1 沿用位寫不成段歸提議 | 第四輪把它列為 store 缺陷（停下、不得改提議），與替換腿的訊息「改寫成一個 literal 項」相反，而 `validate` 也不列它——照 skill 做就沒有出路。literal 位沒有歸戶，改寫不是撤銷身分判定，所以改歸提議；design D11 的兩欄分工照實寫（`refusal` 也有幾種是 store 缺陷，封閉表列出） |
+| 11.2 `applyRefusal` 只在有東西要寫時 | 替換腿乾跑對還沒有替換記錄的 work 一律要補一筆依據記錄，format 22 時與 store 一致的提議也撞上 format 閘。現在只在 `replaceAuthors` 不是 null 時採用；乾跑報告讀不出來時寫進 `refusal`（先前 `try?` 讓解析失敗變成放行） |
+| 11.3 「organization 讀不到」收窄 | 只在有名單要靠它時拒絕：省略 `groupMembers` 而有舊名單對不上任何已知團體位，或給定的名單有一組對不上。`groupMembers: []`、名單全掛在 literal 團體位上時照常；訊息說出是哪一種，不再一律說「這筆有成員名單」 |
+| 11.4 團體名的大括號以 scalar 計 | `CorporateName.isMarkedByScalars`：`}`＋組合記號、Prepend＋`}` 在 Character 層級不是獨立的括號，寫進 store 後 `export-bib` 以 scalar 讀會不平衡（DA 實跑 `A}́B` → `AUTHOR = {…{A}́B}}`）。新寫入的團體名兩種計法都要平衡 |
+| 11.5 分隔字元 | VT、FF、U+001C–001F 也叫人換成一般空白 |
+| 11.6 skill | 清理分開核對檔名（`akashic-verify-work.` 加六個英數字元）、上層目錄（等於 `${TMPDIR:-/tmp}`）與一個記著 citekey 的標記檔（建立暫存目錄時寫），再 `rm -rf --`——`case` 的 `?` 會匹配 `/`，而只核對樣式時同樣式的另一次執行目錄也會被刪；第 2 步寫明折行的名字用一般空白接、行尾連字號看 PDF；開始前列出需要的工具（含 `python3`）；description 拿掉 MCP 變體 |
+| 11.7 說明文字 | `--replace-authors` 的 help（成員名的規則分開寫、讀不到的 organization、括號以 scalar 計）；store-format §3.5；design 的輸出範例補 `applyRefusal`、Failure modes 分開寫段名與成員名、D12 的雲端 OCR 說法以前綴為準、Non-Goals 記下 YAML 自檢閘門沒有測試；spec 的成員 requirement、升格 verdict 的兩個候選、兩個新 Scenario；tasks 10.7 的驗證敘述照實（全套測試有 1 個計時型 failure，不是「全套綠」）；proposal 的 Impact 照 `git diff` 重列 |
+
+### 測試與負控
+
+- 新測試：`ReplaceAuthorsTests` 4 個（`groupMembers: []` 與讀不到的 organization、名單全掛在 literal 團體位、大括號以 scalar 計、FF 的訊息）、`FulltextReconcileCLITests` 1 個（format 22、提議與 store 一致 → 三欄皆 null）。
+- 先紅後綠：5 個新測試在實作前都失敗，失敗原因都是它要釘的那一件。
+- 負控：5 個突變全部變紅（`applyRefusal-only-with-write`、`unloadable-omitted-lists`、`unloadable-too-wide`、`braces-by-scalar`、`more-separators`）。完整輸出在 job 目錄的 `negctl6/`。
+- 清理區塊在 zsh 實跑五種路徑：這一次的目錄 → 已刪；同樣式、存在、標記是別的 citekey → 沒有刪（目錄留著）；同樣式但不存在 → 沒有刪；含 `/../` → 檔名不符、不刪（受害目錄留著）；上層目錄不是 `$TMPDIR` → 不刪。
+- 全套 `swift test`（load average 約 150–180）：執行 5,427 個，5,424 passed、2 failed、1 skipped（`MigrateProvenanceCLITests` 的環境 skip）。2 個 failure 都是計時型：`FulltextB43Tests.testRedactingPageTextIsLinearOnHostileInput`（上限 3.0 秒、量到 3.0001 秒）與 `FulltextB45Tests.testManyURLsStayWithinTheBound`（量到 4.38 秒），兩個一起單獨重跑（load 約 110）通過；與這一輪的改動無關，與 #752 同類。
+- `tools/list`：**59,981 bytes**（±0；35 個工具；預算 65,000）。
+- 仍然沒有測試的兩處：`YAML.swift` 的 encode 自檢閘門（design Non-Goals 記了理由）、`createExclusive` 的 hard link 訊息（要不支援 hard link 的磁碟區）。

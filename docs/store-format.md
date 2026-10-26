@@ -1360,12 +1360,16 @@ group-members:
   名單照留（它記的是作品裡寫的團體名）。之後的替換仍把那個 organization 位算作那個團體位——以 organization 上「把本 work 與
   那個團體名配對」的 confirmed verdict 認出，名單可沿用、可改寫（#742 verify 第二輪）。verdict 的 literal 有兩種形狀：`resolve-people --attribute-org`
   寫作者位原值（帶大括號），`resolve-organizations` 的 `--apply`／`--judge` 寫去掉大括號的名字；兩種都認（第三輪）。那個 organization key
-  對到不只一筆 organization 時替換整批拒絕、零寫入——讀哪一筆取決於載入順序（第三輪）。
-  同一個 `group` 至多一組（逐位元組）。
+  對到不只一筆 organization 時替換整批拒絕、零寫入——讀哪一筆取決於載入順序（第三輪）。對到 0 筆（不存在或檔案被隔離）時判斷不了它
+  是不是團體位：有名單要靠它（省略 `groupMembers` 時有舊名單對不上任何已知團體位，或給定的名單有一組對不上）就整批拒絕；
+  明確給 `groupMembers: []`、或名單全掛在已知團體位上時照常（第四、五輪）。
+  同一個 `group` 至多一組（逐位元組）。替換腿新寫入的團體名，大括號以 Character 與以 scalar 計都要只在結尾閉合
+  （`}`＋組合記號在 Character 層級不算括號，以 scalar 讀的 `export-bib` 卻會算，第五輪）。
 - `rests-on` 一個合法、非空內容的 digest；`page` 是 PDF 實體頁序（正規寫法的整數，`07` 拒收）。依據直接寫在名單上，不另寫
   `references` 記錄：名單只由替換腿寫，理由已在替換記錄裡。
 - `members` 至少一位，次序照原文，不得有逐位元組重複；每位非空、前後無空白、不含 repo 的不安全碼位（`UnsafeToEmitScalar`，#569；
-  私用區放行，ZWJ／ZWNJ 照 `NameIdentity` 的脈絡規則放行）、不以組合記號開頭。規則只有一份（`GroupMemberList.problem`），
+  私用區放行，ZWJ／ZWNJ 照 `NameIdentity` 的脈絡規則放行）、不以組合記號開頭。成員不夾進 ⟦ ⟧，所以作者段的括號與黏字規則
+  不套在成員上。規則只有一份（`GroupMemberList.problem`），
   decode 與寫入面共用。名單之間、成員之間的相等一律比位元組（`String ==` 是 Unicode 正規等價，只差 NFC／NFD 的兩個名字會被當成同一個）。
 - **成員是字串，不是二態 ref**：目前沒有任何面能把成員升格為 person key；做成 ref 就是新的關係邊，`rename-person` 與 person 合併都得
   遷移它，而它在這一輪不會有任何 key。升格是另一個 change 的顯式裁決。

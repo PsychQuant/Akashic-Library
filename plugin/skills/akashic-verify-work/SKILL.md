@@ -1,6 +1,6 @@
 ---
 name: akashic-verify-work
-description: 依作品本身的全文核對 Akashic 一筆 work 的書目欄位——作者列（byline）、團體作者的成員名單、標題、卷、期、頁碼或 article number、日期——乾跑給人看，人在 session 裡明確同意後，才以 `update-entry --replace-authors`（MCP `akashic_update_entry` 的 `replace_authors`）整組替換作者列並記下依據（哪一份全文、第幾頁、理由）。全文要已經存在 store 的 `sources/` 並連在該 work 上（`akashic-fetch-fulltext` 之後的下一步）。需要讀的頁沒有文字層時（整份掃描檔，或有字的封面加掃描的內頁），改用 bestOCR 的多引擎共識逐頁轉出那幾頁的文字，OCR 讀出的值在乾跑表標「OCR」。當使用者說「用全文核對這筆」「作者列跟 PDF 不一樣」「照 byline 改作者」「團體作者的成員要記下來」「核對書目」「verify work」，或 `akashic-fetch-fulltext` 剛存好一份全文時使用。**不做**：取得全文（那是 akashic-fetch-fulltext）、判定某個名字是不是某個人（那是 akashic-verify-person）、改作者列以外的欄位（只列出不一致）。
+description: 依作品本身的全文核對 Akashic 一筆 work 的書目欄位——作者列（byline）、團體作者的成員名單、標題、卷、期、頁碼或 article number、日期——乾跑給人看，人在 session 裡明確同意後，才以 `update-entry --replace-authors`整組替換作者列並記下依據（哪一份全文、第幾頁、理由）；這個 skill 一律走 CLI（`fulltext compare` 只有 CLI 面）。全文要已經存在 store 的 `sources/` 並連在該 work 上（`akashic-fetch-fulltext` 之後的下一步）。需要讀的頁沒有文字層時（整份掃描檔，或有字的封面加掃描的內頁），改用 bestOCR 的多引擎共識逐頁轉出那幾頁的文字，OCR 讀出的值在乾跑表標「OCR」。當使用者說「用全文核對這筆」「作者列跟 PDF 不一樣」「照 byline 改作者」「團體作者的成員要記下來」「核對書目」「verify work」，或 `akashic-fetch-fulltext` 剛存好一份全文時使用。**不做**：取得全文（那是 akashic-fetch-fulltext）、判定某個名字是不是某個人（那是 akashic-verify-person）、改作者列以外的欄位（只列出不一致）。
 ---
 
 # 依全文核對一筆 work
@@ -29,13 +29,19 @@ description: 依作品本身的全文核對 Akashic 一筆 work 的書目欄位�
 
 ## 開始前
 
-0. **binary 夠不夠新**：`akashic fulltext text --help` 要能印出說明。印不出（`Unexpected argument`、找不到子命令）表示 `akashic` 比 #742 舊——停下，請使用者更新 Akashic 的 CLI、akashic-mcp 與 App，不要改用別的方法讀 PDF。
+0. **需要的工具**：`akashic`（CLI）、poppler（`pdfinfo`、`pdftotext`）、`python3`（第 4 步以它取出替換物件）；需要 OCR 時另要 bestOCR 的 MCP 工具。**binary 夠不夠新**：`akashic fulltext text --help` 要能印出說明。印不出（`Unexpected argument`、找不到子命令）表示 `akashic` 比 #742 舊——停下，請使用者更新 Akashic 的 CLI、akashic-mcp 與 App，不要改用別的方法讀 PDF。
 1. 這筆 work 要已經連著一份全文：`akashic get-entry <citekey> --json` 的 `akashic.sources` 至少一個 digest。沒有 → 先走 `akashic-fetch-fulltext`。連著兩份以上時，要使用者指定是哪一份（`--source <digest>`）。
 2. 寫入作者列替換記錄需要 **store format 23**。format 不足時 `fulltext compare` 的 `applyRefusal` 會說出來、不給寫入命令（第 3 步）；升 marker 是使用者在 CLI、akashic-mcp、App 三者都升級之後自己做的事，本 skill 不代改。
 3. 開一個暫存目錄放全文文字與 OCR 輸出，**必須在任何 git 工作樹之外**（全文是第三方有版權的內容）：
 
    ```bash
    mktemp -d "${TMPDIR:-/tmp}/akashic-verify-work.XXXXXX"
+   ```
+
+   接著在那個目錄寫一個標記檔，記下這一筆的 citekey（第 6 步刪之前核對它，免得刪到另一次執行的目錄）：
+
+   ```bash
+   printf '%s\n' '<citekey>' > "<WORK_DIR>/.akashic-verify-work"
    ```
 
    記下它印出的路徑。下文的 `<WORK_DIR>` 是佔位：**每一個命令都把它換成這個字面路徑**再執行。每一步是各自的 shell，shell 變數留不到下一步——`$WORK_DIR` 在下一步是空字串，`rm -rf "$WORK_DIR/…"` 會變成刪 `/…`。**不論這一筆怎麼結束**——命令被拒、無法核對、unattended 停在第 4 步、使用者不同意、寫入完成——最後都要跑 `rm -rf "<WORK_DIR>"`，刪的必須是 `mktemp` 印出的**整行**（結尾那一段是 `akashic-verify-work.` 加上 mktemp 換上的六個隨機字元，不是樣板的 `XXXXXX`），不是空字串或它的上層；第 6 步有核對的寫法。`trap … EXIT` 撐不到最後一步，所以要明確地刪。
@@ -66,7 +72,7 @@ akashic get-entry <citekey> --json
 
 從全文讀出：
 
-- **byline**（通常在第 1 頁）：作者的次序與寫法照原文逐字；團體作者寫成 `group`（不含大括號，寫入時會加 corporate 標記）。一個名字被折成兩行時合併成一行（名字裡不得有換行或 tab，替換腿會擋）。名字中間的 NBSP、thin space 換成一般空白（pdftotext 常以它們分隔名字；刪掉會把兩段黏在一起），軟連字號刪掉。**封面頁、下載頁、聚合商的登記頁（例如 JSTOR 的首頁）不是作品本身**：上面列的作者來自登記機構，不算 byline，往後找作品自己的首頁。
+- **byline**（通常在第 1 頁）：作者的次序與寫法照原文逐字；團體作者寫成 `group`（不含大括號，寫入時會加 corporate 標記）。一個名字被折成兩行時合併成一行、**中間用一般空白接**（名字裡不得有換行或 tab，替換腿會擋；直接刪掉換行會把兩段黏在一起）；行尾的連字號看 PDF 判斷——名字本身的連字號（`Mary-Jane`）保留，排版斷行加的拿掉、兩段直接接起來。名字中間的 NBSP、thin space 換成一般空白（pdftotext 常以它們分隔名字；刪掉會把兩段黏在一起），軟連字號刪掉。**封面頁、下載頁、聚合商的登記頁（例如 JSTOR 的首頁）不是作品本身**：上面列的作者來自登記機構，不算 byline，往後找作品自己的首頁。
 - **舊文獻的文字層可能是嵌入式 OCR**（掃描機或聚合商預先做的隱形文字層）：看起來是文字層，錯誤類型卻和 OCR 一樣（例如 communities 讀成 cohorts）。字形怪、空白錯亂、字母混著符號時，在乾跑表註明「文字層疑似嵌入式 OCR」，請使用者對 PDF 看；可機械判斷的訊號在 #753。
 - **團體成員名單**（文末或附錄，例如「SING Consortium: …」）：照原文次序逐字，記下所在頁。成員**不進** `authors`。
 - 標題、卷、期、頁碼或 article number、日期，各帶頁序。
@@ -94,8 +100,8 @@ akashic fulltext compare --citekey <citekey> --proposal "<WORK_DIR>/proposal.jso
 輸出 `rows`（每欄一列：`field`、`store`、`proposed`、`page`、`status`∈`same`／`differs`／`absentInStore`／`notProposed`；成員名單那一列的每組帶 `restsOn`，提議那一側是提議的 `source`——只換依據時 status 是 differs，從這裡看出 A → B）、`replaceAuthors`（作者列**或成員名單**不同時，可直接交給 `update-entry --replace-authors` 的 JSON，否則 null）與 `refusal`（替換腿會拒絕這份提議時的原因，或提議的頁序超出那份 PDF 的頁數，否則 null——不論 `replaceAuthors` 是不是 null，提議都會被替換腿驗一次）。`refusal` 不是 null 時 `replaceAuthors` 一定是 null：被拒的提議沒有寫入命令可取。
 
 - `refusal` 不是 null → 先看它說的是提議還是 store：
-  - 說的是提議（多半是某個已歸戶位沒有 `from` 也沒有 `release`、頁序超出）→ 回第 2 步修提議，存成新檔名再比對。不要繞過它。
-  - 說的是 store 本身（organization key 重複或讀不到、沿用位的舊值寫不成段、讀不出 PDF 的頁數）→ 這筆**無法核對**（見下表），停下。**不得為了過關改提議**——例如把被擋的 organization 位改列 `release`，那等於為了繞過 store 的缺陷撤銷一個身分判定、移除成員名單。
+  - 說的是提議（多半是某個已歸戶位沒有 `from` 也沒有 `release`、頁序超出；或「以 from 沿用的舊 literal 寫不成段」——那一位不要用 `from`，照 byline 寫成清理後的 `literal` 項，literal 位沒有歸戶，改寫不是撤銷身分判定）→ 回第 2 步修提議，存成新檔名再比對。不要繞過它。
+  - 說的是 store 本身（organization key 重複或讀不到、讀不出 PDF 的頁數）→ 這筆**無法核對**（見下表），停下。**不得為了過關改提議**——例如把被擋的 organization 位改列 `release`，那等於為了繞過 store 的缺陷撤銷一個身分判定、移除成員名單。
 - `applyRefusal` 不是 null（提議本身沒問題，但 store 寫不進去，例如 store format 低於 23）→ `replaceAuthors` 會是 null；第 4 步只給比對表，照實說「寫入被 store 擋下：<applyRefusal>」，停下。
 - `replaceAuthors` 是 null、`refusal` 是 null → **作者列與成員名單都不必寫**：不呼叫 `update-entry`，第 4 步只給比對表，回報「沒有要寫的作者列」。
 
@@ -139,14 +145,19 @@ akashic update-entry <citekey> --replace-authors "<WORK_DIR>/replace.json" --app
 代入 `mktemp` 印出的整行，先核對再刪，刪完確認不在了（全文文字、PDF 複本與 OCR 輸出不留在磁碟上；`rm -rf` 對不存在的路徑也回 0，所以代入錯了會什麼都沒刪而不報錯）：
 
 ```bash
-case "<WORK_DIR>" in
-  "${TMPDIR:-/tmp}"/akashic-verify-work.??????)
-    if [ -d "<WORK_DIR>" ] && [ ! -L "<WORK_DIR>" ]; then
-      rm -rf "<WORK_DIR>" && [ ! -e "<WORK_DIR>" ] && echo 已刪 || echo 沒刪
+W="<WORK_DIR>"; T="${TMPDIR:-/tmp}"; P="${W%/*}"
+case "${W##*/}" in
+  akashic-verify-work.[A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9][A-Za-z0-9])
+    if [ "${P%/}" != "${T%/}" ]; then
+      echo "上層目錄不是 ${T}，不刪：$W"
+    elif [ ! -d "$W" ] || [ -L "$W" ]; then
+      echo "路徑不存在或不是目錄，沒有刪：$W——代入的多半不是 mktemp 印出的那一行，回頭找那一行"
+    elif [ "$(cat "$W/.akashic-verify-work" 2>/dev/null)" != "<citekey>" ]; then
+      echo "標記檔不是這一筆的，沒有刪：$W——那可能是另一次執行的目錄"
     else
-      echo "路徑不存在或不是目錄，沒有刪：<WORK_DIR>——代入的多半不是 mktemp 印出的那一行，回頭找那一行"
+      rm -rf -- "$W" && [ ! -e "$W" ] && echo 已刪 || echo 沒刪
     fi ;;
-  *) echo "路徑不是 mktemp 印出的樣式，不刪：<WORK_DIR>" ;;
+  *) echo "檔名不是 mktemp 印出的樣式，不刪：$W" ;;
 esac
 ```
 
@@ -175,7 +186,7 @@ esac
 | 需要 OCR 的頁，某一頁的 `consensus` 回錯誤 | 說出是哪一頁、錯誤訊息 |
 | 某一欄依據的文字有低共識項 | 只有那一欄（作者列與成員名單一起）標「信心不足」，其他欄照常 |
 | 某一欄依據的頁被 bestOCR 拒絕（`REFUSED:`，或 `.consensus.json` 沒有 `low_consensus`） | 只有依據那一頁的欄位（作者列與成員名單一起）標「信心不足」，說出拒絕原因；其他欄照常 |
-| `compare` 的 `refusal` 說的是 store 本身的缺陷（organization key 重複或讀不到、沿用位的舊值寫不成段、讀不出 PDF 的頁數） | 照 `refusal` 的訊息說出是哪一種，請使用者先修好 store（多半是 `akashic validate` 列出的那一項）再核對；不改提議 |
+| `compare` 的 `refusal` 說的是 store 本身的缺陷（organization key 重複或讀不到、讀不出 PDF 的頁數） | 照 `refusal` 的訊息說出是哪一種，請使用者先修好 store（多半是 `akashic validate` 列出的那一項）再核對；不改提議 |
 | `compare` 的 `applyRefusal` 不是 null（例如 store format 低於 23） | 比對表照給，說明寫入被 store 擋下、原因照抄；升 format 是使用者的事 |
 
 整筆無法核對時，不呼叫 `update-entry`。不論哪一種，最後都做第 6 步（刪 `<WORK_DIR>`）。

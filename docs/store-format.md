@@ -1327,7 +1327,7 @@ references:
   的替換 statement 都拒收。替換**移除**這筆 work 上全部描述舊作者列的記錄（拆分、移除、先前的替換）與作者清單完整性證言
   （`akashic.author-list-completeness`），所以替換之後新的拆分與它並存是正常的（之後的事），而不是一開始就共存。新作者列與舊列
   逐位元組相同（典型是只補成員名單）時，舊列沒有被取代：拆分、移除記錄與證言保留，先前的替換記錄**在原位**換成新的（不搬到最後，
-  重跑同一份 JSON 才會是零 diff）；什麼都沒變時不寫入、報告的 `recordsRemoved` 為空（#742 verify 第二輪）。
+  重跑同一份 JSON 才會是零 diff）；什麼都沒變時不寫入、報告的 `recordsRemoved` 為空（#742 verify 第二輪）；「沒變」連 references 也比位元組，只改理由的正規化寫法會寫入（第三輪）。
 - **失效**：記錄寫下的是替換當時的依據。段數與作者列長度不同、或某個 literal 位與同位的段不是位元組相同時，`StoreHealth` 報 warning
   （`staleReplacementRecords`，前綴「作者列替換記錄與目前的作者列對不上」；doctor 與 App 各一個計數）；`.key`／`.organization`
   位一律視為相符——升格是常態工作。warning 不擋寫入、`validate` exit 0；處置是用全文重新核對後再替換一次。
@@ -1356,7 +1356,9 @@ group-members:
 - 鍵序緊接在 `authors` 之後；空清單不寫出（既有記錄零 diff）。每組的鍵是封閉的四個：`group`、`rests-on`、`page`、`members`。
 - `group` 帶 corporate 大括號、前後無空白，寫入時必須逐字等於作者列裡一個團體位的值；之後那一位被升格為 organization，
   名單照留（它記的是作品裡寫的團體名）。之後的替換仍把那個 organization 位算作那個團體位——以 organization 上「把本 work 與
-  一個帶標記 literal 配對」的 confirmed verdict 認出（attribute-org 升格時寫下的），名單可沿用、可改寫（#742 verify 第二輪）。
+  那個團體名配對」的 confirmed verdict 認出，名單可沿用、可改寫（#742 verify 第二輪）。verdict 的 literal 有兩種形狀：`resolve-people --attribute-org`
+  寫作者位原值（帶大括號），`resolve-organizations` 的 `--apply`／`--judge` 寫去掉大括號的名字；兩種都認（第三輪）。那個 organization key
+  對到不只一筆 organization 時替換整批拒絕、零寫入——讀哪一筆取決於載入順序（第三輪）。
   同一個 `group` 至多一組（逐位元組）。
 - `rests-on` 一個合法、非空內容的 digest；`page` 是 PDF 實體頁序（正規寫法的整數，`07` 拒收）。依據直接寫在名單上，不另寫
   `references` 記錄：名單只由替換腿寫，理由已在替換記錄裡。

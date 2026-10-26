@@ -187,3 +187,31 @@ fixture：兩頁點陣化 PDF（第 1 頁 byline、第 2 頁成員名單），`p
 
 - `compare` 的頁序上限只在 `compare` 查；替換腿本身不讀 PDF，所以直接呼叫 `update-entry --replace-authors` 時不檢查頁序是否超出 PDF。skill 必經 `compare`，這是寫入面的誠實邊界。
 - 名字閘改用 `UnsafeToEmitScalar` 之後，`group-members` 的 decode 也用同一條規則；format 23 還沒有任何 store 在用，所以沒有既有資料受影響。
+
+## 第三輪 verify 之後（2026-10-26，使用者同日下午「先把剩下的問題/idd-all修完」）
+
+第三輪 verify 報告在 #742（comment 6400317053），結果 **FAIL**：沒有 CRITICAL、HIGH；MEDIUM 3 件 blocking，另有 in-scope LOW 12 項。這一輪是 Spectra 第 9 組。
+
+### 這一輪改了什麼（Spectra 第 9 組）
+
+| 項目 | 內容 |
+|---|---|
+| 9.1 升格團體位的兩種 verdict 形狀 | `resolve-people --attribute-org` 寫帶大括號的 literal，`resolve-organizations --apply`／`--judge` 寫 `OrgResolver` 去標記後的名字。第二輪只認前者，所以批次升格之後名單照樣被刪、`compare` 照樣卡住。現在一律 `mark(unmark(…))` 比對 |
+| 9.2 organization key 重複時拒絕 | 先前以 `Dictionary(uniquingKeysWith:)` 先到先贏，取錯那一筆就刪掉名單 |
+| 9.3 `unchanged` 比 references 的位元組 | 只改理由的 NFC／NFD 時先前被判成沒變、新理由沒有寫進去 |
+| 9.4 段括號旁的黏字 | 判準改成「夾在 ⟦ ⟧ 之間時兩個括號仍是各自的 Character」（`segmentProblem`），涵蓋 SpacingMark 開頭與 Prepend 結尾；理由開頭另檢查（`reasonProblem`）；`from` 沿用位命中時訊息說出真正原因；NBSP 等空白叫人換成一般空白、軟連字號叫人刪掉 |
+| 9.5 `compare` fail-closed 與依據 | `refusal` 非 null 時 `replaceAuthors` 一律 null；名單列與替換腿報告的名單帶 `restsOn` |
+| 9.6 位元組鍵只留一份 | `Author.byteKey`、`GroupMemberList.byteKey(group:page:restsOn:members:)` 移到 AkashicCore，替換腿與 compare 的手抄刪掉 |
+| 9.7 skill | 替換物件每次新檔名、UTF-8、清理核對與已刪／沒刪、NBSP → 一般空白 |
+| 9.8 說明文字 | CLI help、替換腿 doc comment、`ZoteroImporter` 註解、`ServiceArgvExitCodeTests` 註解、`YAML.swift` 的 encode 自檢改比 `byteKey`、`createExclusive` 在不支援 hard link 的磁碟區說出原因 |
+| 9.9 文件與數字 | `tools/list` 現值三處；#745 的預算說法改成照實的餘裕（`/idd-edit --correct`）；proposal Impact 清單照 `git diff` 重列（10 新增、54 修改）；store-format §3.5 |
+| 9.10 證據 | 8.1、8.2、8.7 的驗證敘述加上更正；合併乾跑層的測試補上；全套測試與負控的輸出留檔 |
+
+### 測試與負控
+
+- 新測試：`ReplaceAuthorsTests` 6 個、`AuthorListReplacementRecordTests` 2 個、`FulltextReconcileCLITests` 1 個（以真 binary 跑 `resolve-organizations --apply` 升格後 `compare` 回 `refusal: null`）；既有的兩個 CLI 測試加斷言（頁序超出時 `replaceAuthors` 為 null、名單列帶 `restsOn`），`testGroupPromotedBy…` 斷言報告的名單帶 `restsOn`。
+- 先紅後綠：新案例 9 個在實作前失敗。`testMergeDryRunRefusesWhenListsDifferOnlyInNormalization` 一開始就是綠的——它釘的是第二輪已修的行為，補的是 8.2 欠的那一層。`testComparePagesBeyondThePDFAreRefused` 原本的夾具提議與 store 相同、`replaceAuthors` 本來就是 null，量不到 fail-closed，改成提議不同的值；它的紅由負控證明。
+- 負控：10 個突變逐一讓對應的測試變紅，還原後無殘檔；每個突變的輸出存在 job 目錄的 `negctl4/`。
+- 沒有測試的兩處：`YAML.swift` 的 encode 自檢（要造出 decode 會重新正規化的輸入才看得出差別）、`createExclusive` 的 hard link 訊息（要不支援 hard link 的磁碟區）。
+- 全套 `swift test`：rc=0（開始時 load average 約 58）：5,410 passed、0 failed、1 skipped（`MigrateProvenanceCLITests.testWriteFailureIsListedAndExitsNonZero`，`chflags` 在暫存目錄的檔案系統上不生效），共 5,411 個。第一次全套有 2 個 failure，都是 repo 自己的守衛：`ByteExactKeySiteInventoryTests`（`byteExactKey` 的使用檔是封閉清單，替換腿要加一列，`Provenance.swift` 的 doc 列舉也補上）與 `DisplaySinkCoverageTests`（`restsOn` 的豁免註記要點名運算式 `l.restsOn`／`$0.restsOn`）；修好後重跑全套通過。完整輸出留在 job 目錄的 `r4_fulltest2.log`。`.githooks/run-guards.sh` rc=0，plugin 殼 0.13.7 的摘要更新為 `704029ad…`。
+- `tools/list`：**59,981 bytes**（±0：這一輪沒有改 MCP 的說明文字；預算 65,000）。

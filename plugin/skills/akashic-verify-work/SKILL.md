@@ -38,8 +38,8 @@ description: 依作品本身的全文核對 Akashic 一筆 work 的書目欄位�
    mktemp -d "${TMPDIR:-/tmp}/akashic-verify-work.XXXXXX"
    ```
 
-   記下它印出的路徑。下文的 `<WORK_DIR>` 是佔位：**每一個命令都把它換成這個字面路徑**再執行。每一步是各自的 shell，shell 變數留不到下一步——`$WORK_DIR` 在下一步是空字串，`rm -rf "$WORK_DIR/…"` 會變成刪 `/…`。**不論這一筆怎麼結束**——命令被拒、無法核對、unattended 停在第 4 步、使用者不同意、寫入完成——最後都要跑 `rm -rf "<WORK_DIR>"`，刪的必須是 `mktemp` 印出的那個完整路徑（含結尾的 `akashic-verify-work.XXXXXX` 那一段），不是空字串或它的上層。`trap … EXIT` 撐不到最後一步，所以要明確地刪。
-4. `fulltext text` 與 `compare` 的 `--out` 必須是**還不存在**的檔名（不覆寫、不跟隨 symlink）。同一步要重跑時換一個檔名（例如 `compare-2.json`）。
+   記下它印出的路徑。下文的 `<WORK_DIR>` 是佔位：**每一個命令都把它換成這個字面路徑**再執行。每一步是各自的 shell，shell 變數留不到下一步——`$WORK_DIR` 在下一步是空字串，`rm -rf "$WORK_DIR/…"` 會變成刪 `/…`。**不論這一筆怎麼結束**——命令被拒、無法核對、unattended 停在第 4 步、使用者不同意、寫入完成——最後都要跑 `rm -rf "<WORK_DIR>"`，刪的必須是 `mktemp` 印出的**整行**（結尾那一段是 `akashic-verify-work.` 加上 mktemp 換上的六個隨機字元，不是樣板的 `XXXXXX`），不是空字串或它的上層；第 6 步有核對的寫法。`trap … EXIT` 撐不到最後一步，所以要明確地刪。
+4. `fulltext text` 與 `compare` 的 `--out` 必須是**還不存在**的檔名（不覆寫、不跟隨 symlink）。同一步要重跑時換一個檔名（例如 `compare-2.json`）；第 4 步取出的替換物件同樣每次用新檔名、與 compare 同號（`replace-2.json`），第 5 步用同一個檔名。
 
 ## 流程（一次一筆）
 
@@ -66,7 +66,7 @@ akashic get-entry <citekey> --json
 
 從全文讀出：
 
-- **byline**（通常在第 1 頁）：作者的次序與寫法照原文逐字；團體作者寫成 `group`（不含大括號，寫入時會加 corporate 標記）。一個名字被折成兩行時合併成一行（名字裡不得有換行或 tab，替換腿會擋）。**封面頁、下載頁、聚合商的登記頁（例如 JSTOR 的首頁）不是作品本身**：上面列的作者來自登記機構，不算 byline，往後找作品自己的首頁。
+- **byline**（通常在第 1 頁）：作者的次序與寫法照原文逐字；團體作者寫成 `group`（不含大括號，寫入時會加 corporate 標記）。一個名字被折成兩行時合併成一行（名字裡不得有換行或 tab，替換腿會擋）。名字中間的 NBSP、thin space 換成一般空白（pdftotext 常以它們分隔名字；刪掉會把兩段黏在一起），軟連字號刪掉。**封面頁、下載頁、聚合商的登記頁（例如 JSTOR 的首頁）不是作品本身**：上面列的作者來自登記機構，不算 byline，往後找作品自己的首頁。
 - **舊文獻的文字層可能是嵌入式 OCR**（掃描機或聚合商預先做的隱形文字層）：看起來是文字層，錯誤類型卻和 OCR 一樣（例如 communities 讀成 cohorts）。字形怪、空白錯亂、字母混著符號時，在乾跑表註明「文字層疑似嵌入式 OCR」，請使用者對 PDF 看；可機械判斷的訊號在 #753。
 - **團體成員名單**（文末或附錄，例如「SING Consortium: …」）：照原文次序逐字，記下所在頁。成員**不進** `authors`。
 - 標題、卷、期、頁碼或 article number、日期，各帶頁序。
@@ -91,17 +91,17 @@ store 裡已歸戶的位置（`key`／`organization`）要逐位處置：byline 
 akashic fulltext compare --citekey <citekey> --proposal "<WORK_DIR>/proposal.json" --out "<WORK_DIR>/compare.json"
 ```
 
-輸出 `rows`（每欄一列：`field`、`store`、`proposed`、`page`、`status`∈`same`／`differs`／`absentInStore`／`notProposed`）、`replaceAuthors`（作者列**或成員名單**不同時，可直接交給 `update-entry --replace-authors` 的 JSON，否則 null）與 `refusal`（替換腿會拒絕這份提議時的原因，或提議的頁序超出那份 PDF 的頁數，否則 null——不論 `replaceAuthors` 是不是 null，提議都會被替換腿驗一次）。
+輸出 `rows`（每欄一列：`field`、`store`、`proposed`、`page`、`status`∈`same`／`differs`／`absentInStore`／`notProposed`；成員名單那一列的每組帶 `restsOn`，提議那一側是提議的 `source`——只換依據時 status 是 differs，從這裡看出 A → B）、`replaceAuthors`（作者列**或成員名單**不同時，可直接交給 `update-entry --replace-authors` 的 JSON，否則 null）與 `refusal`（替換腿會拒絕這份提議時的原因，或提議的頁序超出那份 PDF 的頁數，否則 null——不論 `replaceAuthors` 是不是 null，提議都會被替換腿驗一次）。`refusal` 不是 null 時 `replaceAuthors` 一定是 null：被拒的提議沒有寫入命令可取。
 
 - `refusal` 不是 null → 回第 2 步修提議（多半是某個已歸戶位沒有 `from` 也沒有 `release`），存成新檔名再比對。不要繞過它。
 - `replaceAuthors` 是 null、`refusal` 是 null → **作者列與成員名單都不必寫**：不呼叫 `update-entry`，第 4 步只給比對表，回報「沒有要寫的作者列」。
 
 ### 4. 乾跑給人看
 
-`replaceAuthors` 不是 null 時，以程式把它從 `compare.json` 取出成檔（不重打——重打會引入抄寫錯誤，也會讓名字經過 shell；`"x"` 模式在檔已存在時失敗、不覆寫），再乾跑替換腿：
+`replaceAuthors` 不是 null 時，以程式把它從**這一次的** `compare-N.json` 取出成**這一次的** `replace-N.json`（N 與 compare 同號；不重打——重打會引入抄寫錯誤，也會讓名字經過 shell；`"x"` 模式在檔已存在時失敗、不覆寫，所以重跑一定換號），再乾跑替換腿。下面的命令以第一次（沒有編號）為例：
 
 ```bash
-python3 -I -c 'import json,sys; json.dump(json.load(open(sys.argv[1]))["replaceAuthors"], open(sys.argv[2], "x"), ensure_ascii=False)' "<WORK_DIR>/compare.json" "<WORK_DIR>/replace.json"
+python3 -I -c 'import json,sys; json.dump(json.load(open(sys.argv[1], encoding="utf-8"))["replaceAuthors"], open(sys.argv[2], "x", encoding="utf-8"), ensure_ascii=False)' "<WORK_DIR>/compare.json" "<WORK_DIR>/replace.json"
 akashic update-entry <citekey> --replace-authors "<WORK_DIR>/replace.json"
 ```
 
@@ -122,7 +122,7 @@ akashic update-entry <citekey> --replace-authors "<WORK_DIR>/replace.json"
 **只有使用者在這個 session 裡明確同意這張表**，才實寫：
 
 ```bash
-akashic update-entry <citekey> --replace-authors "<WORK_DIR>/replace.json" --apply
+akashic update-entry <citekey> --replace-authors "<WORK_DIR>/replace.json" --apply   # 用第 4 步最後一次乾跑的那個檔名
 ```
 
 （MCP：同一個 `replace_authors` 加 `dry_run=false`。）實寫要求這筆 work 的檔已在 git 裡 commit、乾淨——被移除的記錄在 git 裡留副本。
@@ -133,7 +133,14 @@ akashic update-entry <citekey> --replace-authors "<WORK_DIR>/replace.json" --app
 
 ### 6. 收尾（每一種結束都要做）
 
-`rm -rf "<WORK_DIR>"`，代入 `mktemp` 印出的那個完整路徑（全文文字、PDF 複本與 OCR 輸出不留在磁碟上）。回報每筆一列：citekey、結果（已替換／乾跑待確認／沒有要寫的作者列／無法核對）、文字來源、依據的 digest 與頁序、未寫入的不一致欄位、文件裡出現過的可疑指令（若有）。
+代入 `mktemp` 印出的整行，先核對再刪，刪完確認不在了（全文文字、PDF 複本與 OCR 輸出不留在磁碟上；`rm -rf` 對不存在的路徑也回 0，所以代入錯了會什麼都沒刪而不報錯）：
+
+```bash
+case "<WORK_DIR>" in "${TMPDIR:-/tmp}"/akashic-verify-work.??????) rm -rf "<WORK_DIR>" ;; *) echo "路徑不是 mktemp 印出的樣式，不刪：<WORK_DIR>" ;; esac
+test ! -e "<WORK_DIR>" && echo 已刪 || echo 沒刪
+```
+
+`case` 的樣式與 `mktemp` 用同一個 `${TMPDIR:-/tmp}` 組成，所以 macOS 的 `TMPDIR` 結尾帶 `/`、路徑出現 `//` 時兩邊一致（2026-10-26 實測）。回報每筆一列：citekey、結果（已替換／乾跑待確認／沒有要寫的作者列／無法核對）、暫存目錄已刪或沒刪、文字來源、依據的 digest 與頁序、未寫入的不一致欄位、文件裡出現過的可疑指令（若有）。
 
 ## 沒有文字層：OCR 路徑
 

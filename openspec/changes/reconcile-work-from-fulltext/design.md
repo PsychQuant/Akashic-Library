@@ -41,6 +41,7 @@
 - **改 live store**：`claw2018framework` 只產出乾跑結果與要執行的命令，由使用者決定套用。
 - **#685 的全庫稽核**：本 change 提供工具，不做稽核本身。
 - **理由欄的碼位閘**：`reason` 與 `release[].reason` 只查非空與長度，`reason` 另查開頭不和前面的「：」黏在一起（第三輪 verify 後補；`release[].reason` 不進替換記錄，不必查），都不套名字的 `UnsafeToEmitScalar` 閘：repo 其他判斷型 statement（`--remove-field` 等的理由）都沒有碼位閘，輸出端一律經 `displaySafe` 逃脫；只在這一條腿加，會讓同一種資料有兩套規則。要收緊就整族一起改，另開 issue。
+- **YAML 自檢閘門的測試**：encode 自檢的 `guard` 另比 `group-members` 的位元組（第四輪），但要讓它擋下東西，得有一個 decode 會重新正規化名字的輸入，而現行 decoder 不做這件事；所以這一處沒有測試，是可讀的程式碼與 changelog 的揭露（第五輪 verify 後補）。
 - **替換腿本身的頁序上限**：替換腿不讀 PDF，頁序只查 ≥ 1；上限在 `fulltext compare` 對照 PDF 頁數，而 skill 必經 compare、被拒的提議不產生寫入命令（D11）。直接手寫 JSON 呼叫替換腿時，頁序由呼叫的人負責。
 
 ## Decisions
@@ -142,12 +143,12 @@ group-members:
 - `akashic fulltext text --citekey <ck> [--source <digest>] --out <file>`：從 work 的 `akashic.sources` 取一份 PDF（`sources/index.jsonl` 的 media-type 是 `application/pdf`），以 `pdfinfo` 取頁數、`pdftotext` 逐頁取文字，寫成 JSON 到 `--out`。work 連了不只一份 PDF 而沒給 `--source` 時拒絕並列出各 digest。`--out` 必須在任何 git 工作樹之外（全文是第三方有版權的內容，`fulltext take` 的同一條規則）。新函式另開，不改 `PDFReader.read` 的兩頁行為，`fulltext verify`／`take` 不受影響。
 - 沒有文字層的判準：所有頁的文字都不含任何 Unicode 字母（general category L）。另逐頁回報 `hasLetters`（那一頁含不含字母）：出版商加一頁有字的封面、其餘是掃描圖的 PDF，整份 `hasTextLayer` 是 true，但 byline 所在頁沒有字母。skill 以逐頁的 `hasLetters` 決定哪幾頁走 OCR（D14）；`fulltext text` 本身只判定、不做 OCR。
 - `--out`（`text` 與 `compare`）：父目錄以實體路徑判斷是否在 git 工作樹內；目標**必須還不存在**（不覆寫既有檔、不跟隨 symlink、不寫進 FIFO），以只有擁有者可讀寫（0600）的權限寫出，最後一步以獨佔的方式建立最終檔名（`link` 暫存檔，目的地已存在即失敗），不是先檢查再 `rename`——後者在兩次動作之間出現的檔會被覆寫（第二輪 verify 後補）。理由：`--out` 是 agent 可被引導指定的路徑（同 `fulltext take`），而內容是第三方全文。輸出另附 `sourcePath`：那份全文在本機 `sources/` 的實體路徑，skill 複製它給 bestOCR 時不必自己拼分片規則。
-- `akashic fulltext compare --citekey <ck> --proposal <file> [--out <file>]`：讀 store 現值與模型寫的提議 JSON，逐欄輸出比對表，作者列**或成員名單**不同時另輸出一份可直接交給 `update-entry --replace-authors` 的 JSON（成員名單只有替換腿寫得進去，所以只差成員名單時也要一份）；提議中的作者項、`release` 與 `groupMembers` **一律**以替換腿的同一個驗證器乾跑一次，不論要不要替換——不需要替換的提議也可能是不合法的（`release` 指到 literal 位、`source` 沒連），那樣的提議不得以 `refusal: null` 過關。作者位比狀態與位元組（literal「key:alice」不等於 person key `alice`，雖然兩者的段字串相同）；成員名單比團體、頁序、成員與將要依據的 digest，沒有名單與空名單視為相同；比對表的名單列與替換腿報告的 `groupMembersAfter`／`groupMembersRemoved` 都列出依據的 digest（只換依據時看得出 A → B）。作者位與名單的位元組鍵只有一份實作（`Author.byteKey`、`GroupMemberList.byteKey(group:page:restsOn:members:)`，AkashicCore），替換腿與 compare 都呼叫它。提議裡的每一個頁序都對照提議 `source` 那份 PDF 的頁數，超出的寫進 `refusal`；**`refusal` 不是 null 時 `replaceAuthors` 一律是 null**（第三輪 verify 後補：頁序那一種原本只有 compare 擋，取出 `replaceAuthors` 交給替換腿就過關），所以被拒的提議不會產生寫入命令；替換腿乾跑接受提議、但 store 會拒絕寫入（`applyRefusal`，例如 format 不足）時，原因放在另一個欄位 `applyRefusal`、`replaceAuthors` 同樣是 null（第四輪：先前只接 thrown error，這一類被丟掉）——分兩欄是因為 `refusal` 要人改提議，`applyRefusal` 要人先處理 store；讀不出 `source` 的頁數時寫進 `refusal`，不略過頁序檢查（第四輪：`try?` 吞掉錯誤時整道閘不跑）（替換腿本身不讀 PDF，所以不檢查頁序上限——這是寫入面的誠實邊界，compare 是 skill 的必經步驟）。不寫 store。
+- `akashic fulltext compare --citekey <ck> --proposal <file> [--out <file>]`：讀 store 現值與模型寫的提議 JSON，逐欄輸出比對表，作者列**或成員名單**不同時另輸出一份可直接交給 `update-entry --replace-authors` 的 JSON（成員名單只有替換腿寫得進去，所以只差成員名單時也要一份）；提議中的作者項、`release` 與 `groupMembers` **一律**以替換腿的同一個驗證器乾跑一次，不論要不要替換——不需要替換的提議也可能是不合法的（`release` 指到 literal 位、`source` 沒連），那樣的提議不得以 `refusal: null` 過關。作者位比狀態與位元組（literal「key:alice」不等於 person key `alice`，雖然兩者的段字串相同）；成員名單比團體、頁序、成員與將要依據的 digest，沒有名單與空名單視為相同；比對表的名單列與替換腿報告的 `groupMembersAfter`／`groupMembersRemoved` 都列出依據的 digest（只換依據時看得出 A → B）。作者位與名單的位元組鍵只有一份實作（`Author.byteKey`、`GroupMemberList.byteKey(group:page:restsOn:members:)`，AkashicCore），替換腿與 compare 都呼叫它。提議裡的每一個頁序都對照提議 `source` 那份 PDF 的頁數，超出的寫進 `refusal`；**`refusal` 不是 null 時 `replaceAuthors` 一律是 null**（第三輪 verify 後補：頁序那一種原本只有 compare 擋，取出 `replaceAuthors` 交給替換腿就過關），所以被拒的提議不會產生寫入命令；替換腿乾跑接受提議、但 store 會拒絕寫入（`applyRefusal`，例如 format 不足）時，原因放在另一個欄位 `applyRefusal`、`replaceAuthors` 同樣是 null（第四輪：先前只接 thrown error，這一類被丟掉）——分兩欄是因為 `applyRefusal` 一定是 store 寫不進去（提議沒錯）；`refusal` 多半是提議的問題，但也有幾種是 store 本身的缺陷（organization key 重複或讀不到、讀不出頁數），skill 照訊息分辨，封閉表列出那幾種（第五輪 verify 後補：先前把「沿用位寫不成段」也算成 store 缺陷，那其實是提議的問題，改寫成 literal 就過）。只有提議與 store 不同、會給出替換物件時才採用 `applyRefusal`——一致的提議沒有東西要寫，替換腿乾跑卻會因為要補一筆依據記錄而撞上 format 閘（第五輪）；乾跑的報告讀不出來時寫進 `refusal`；讀不出 `source` 的頁數時寫進 `refusal`，不略過頁序檢查（第四輪：`try?` 吞掉錯誤時整道閘不跑）（替換腿本身不讀 PDF，所以不檢查頁序上限——這是寫入面的誠實邊界，compare 是 skill 的必經步驟）。不寫 store。
 - 判讀（哪一行是 byline、人名怎麼切、哪一段是成員名單）由 skill 內的模型做；`two-kinds-of-edits` 的「提名（程式）→ 判定（AI／人）→ 落地（程式）」。
 
 ### D12 akashic-verify-work skill 的邊界
 
-- 只讀本機 `sources/` 的全文；不連網，所以不涉及 `web-access-via-safari-browser`。需要 OCR 時只用 bestOCR 的本機引擎（D14）；OCR 不把文件送出本機，但轉出的文字與文字層一樣會進模型服務（D15）。
+- 只讀本機 `sources/` 的全文；不連網，所以不涉及 `web-access-via-safari-browser`。需要 OCR 時只用 bestOCR 的本機引擎（`list_engines` 裡不以 `cloud.` 開頭的那些，判斷以這個前綴為準；D14）；轉出的文字與文字層一樣會進模型服務（D15）。
 - 每次執行先乾跑：表格每列是「欄位／store 現值／作品本身（PDF 頁序）／文字來源（文字層或 OCR）／提議寫入」。使用者明確同意後才以 `update-entry --replace-authors … --apply` 寫入；unattended 時只產出乾跑。
 - PDF 不在本機、work 沒有連任何全文：標成無法核對並說出原因，不猜。沒有文字層不在此列，改走 D14 的 OCR 路徑；只有 D14 列出的情形（bestOCR 不可用、轉出失敗、信心不足）才因 OCR 而標成無法核對。
 - 非作者欄位的不一致只列出，並說明目前的寫入路徑記不下依據（Non-Goals）。
@@ -229,7 +230,7 @@ group-members:
 
 `fulltext text` 的輸出：`{"citekey", "source", "sourcePath", "pageCount", "hasTextLayer", "pages": [{"page": 1, "hasLetters": true, "text": "…"}]}`。
 
-`fulltext compare` 的提議輸入：`{"source", "authors": {"page", "items": [同替換腿的作者項], "reason"（選填；省略時填「PDF 第 N 頁 byline」，依 OCR 文字替換時 skill 用它寫明依據，D14）}, "release": [...], "groupMembers": [...], "title": {"value", "page"}, "volume": {...}, "issue": {...}, "pages": {...}, "articleNumber": {...}, "date": {...}}`（作者以外的欄位都可省略）；輸出：`{"citekey", "rows": [{"field", "store", "proposed", "page", "status"}], "replaceAuthors": <替換腿 JSON 或 null>, "refusal": <替換腿驗證器的拒絕訊息或 null>}`，`status` ∈ `same`／`differs`／`absentInStore`／`notProposed`。
+`fulltext compare` 的提議輸入：`{"source", "authors": {"page", "items": [同替換腿的作者項], "reason"（選填；省略時填「PDF 第 N 頁 byline」，依 OCR 文字替換時 skill 用它寫明依據，D14）}, "release": [...], "groupMembers": [...], "title": {"value", "page"}, "volume": {...}, "issue": {...}, "pages": {...}, "articleNumber": {...}, "date": {...}}`（作者以外的欄位都可省略）；輸出：`{"citekey", "rows": [{"field", "store", "proposed", "page", "status"}], "replaceAuthors": <替換腿 JSON 或 null>, "refusal": <替換腿驗證器的拒絕訊息、頁序或頁數的問題，或 null>, "applyRefusal": <提議與 store 不同、乾跑接受但 store 會拒寫時的原因，或 null>}`，`status` ∈ `same`／`differs`／`absentInStore`／`notProposed`。
 
 **Failure modes**（全部整批拒絕、零寫入、訊息具名）
 
@@ -237,7 +238,7 @@ group-members:
 - `source` 不是合法 digest、是空內容的 digest、沒有連在這筆 work 的 `akashic.sources`、本機 `sources/` 沒有這份內容。
 - `page` 不是 ≥ 1 的整數；`reason` 空白或超過 4,096 bytes；任何整數超出平台整數範圍（不截斷）。
 - `source` 在 index 裡的 media-type 不是 `application/pdf`。
-- `authors` 為空；某一項不是恰好一個鍵；`literal`／`group`／成員名空白、前後有空白、含控制字元、含 `⟦` 或 `⟧`、超過 65,536 bytes；`literal` 本身帶 corporate 大括號（要用 `group`）；`group` 加上標記後不是帶標記的名字（大括號不平衡）。
+- `authors` 為空；某一項不是恰好一個鍵；`literal`／`group` 空白、前後有空白、含不安全碼位、以組合記號開頭、含 `⟦` 或 `⟧`（以 scalar 判斷）、在段括號旁黏字、超過 65,536 bytes；成員名空白、前後有空白、含不安全碼位、以組合記號開頭（成員不夾進 ⟦ ⟧，括號與黏字規則不套在成員上）；`literal` 本身帶 corporate 大括號（要用 `group`）；`group` 加上標記後不是帶標記的名字（大括號不平衡，以 scalar 計，第五輪：`}`＋組合記號在 Character 層級不算括號）。
 - `fulltext text`／`compare` 的 `--out` 已經存在（不論是普通檔、symlink 或其他）。
 - `from` 超出範圍、同一位被沿用兩次；`release` 指到 literal 位、指到被 `from` 沿用的位、重複；有已歸戶位既沒被沿用也沒被釋放。
 - `groupMembers` 的 `group` 對不上任何團體項、同一組出現兩次、`members` 為空或有逐字重複。

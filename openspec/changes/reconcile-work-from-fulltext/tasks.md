@@ -92,4 +92,14 @@
 - [x] 10.4 名字閘（design D6）：黏字規則只套 literal 與 group，成員不套；段括號以 scalar 拒絕；名字中的換行、tab、NEL、LS、PS 叫人換成一般空白；`from` 沿用位寫不成段時，訊息叫人不要沿用、改寫成清理後的 literal。驗證：Kit 測試（成員以 SpacingMark 開頭照收；`A⟦́B` 被拒）；MCP 測試（`Katrina\nClaw` 的訊息叫人換成一般空白；沿用位的訊息含「literal」）。
 - [x] 10.5 YAML 的 encode 自檢閘門本身比 `group-members` 的位元組（不只訊息函式）。驗證：全套測試綠；`canaryMismatchDetail` 與閘門用同一個判準。
 - [x] 10.6 skill（design D15）：清理先 `test -d`，不存在就回報「路徑不存在，沒有刪」，`已刪` 只在 `rm -rf` 真的執行後印出；封閉表加「store 本身的缺陷擋住替換腿」一列（重複或讀不到的 organization key、沿用位寫不成段、store format 不足），指示停下、請使用者先修 store、不得為了過關改提議；第 4、5 步拿掉 MCP 變體（compare 是 CLI-only，MCP 要內嵌物件等於重打）；第 17 行的雲端 OCR 說法改成以 `cloud.*` 前綴為準。驗證：內容審查對照 spec R6。
-- [x] 10.7 說明文字與證據：`fulltext compare` 的 `--help`（`applyRefusal`、fail-closed、`restsOn`）；`--replace-authors` 的 help（成員名的規則與 literal／group 分開寫）；替換腿的孤兒 doc comment 與「帶標記 literal」的說法；`nameScalarIssue` 的 doc；`OutputFile.swift` 檔頭的 0600、EPERM 的訊息改成「可能」、拿掉 EXDEV；store-format §3.5 的段與理由規則；App 的 `ForEach` id（`groupBytes`）補一個 NFC／NFD 的測試；合併測試的敘述照實；重複 key 的夾具加「verdict 在後建的那一筆」；全套測試與負控的完整輸出存檔。驗證：全套 `swift test` 與 `.githooks/run-guards.sh` 綠。
+- [x] 10.7 說明文字與證據：`fulltext compare` 的 `--help`（`applyRefusal`、fail-closed、`restsOn`）；`--replace-authors` 的 help（成員名的規則與 literal／group 分開寫）；替換腿的孤兒 doc comment 與「帶標記 literal」的說法；`nameScalarIssue` 的 doc；`OutputFile.swift` 檔頭的 0600、EPERM 的訊息改成「可能」、拿掉 EXDEV；store-format §3.5 的段與理由規則；App 的 `ForEach` id（`groupBytes`）補一個 NFC／NFD 的測試；合併測試的敘述照實；重複 key 的夾具加「verdict 在後建的那一筆」；全套測試與負控的完整輸出存檔。驗證：全套 `swift test` 與 `.githooks/run-guards.sh` 綠。（第五輪 verify 更正：全套 `swift test` 是 5,420 passed、1 failed、1 skipped——那 1 個是負載下的計時型測試，單獨重跑通過；不是「全套綠」）
+
+## 11. 第五輪 verify 之後的修正（2026-10-27，#742 第五輪 verify 報告，PASS 後的 LOW 與 INFO）
+
+- [x] 11.1 沿用位寫不成段歸「提議」（design D11）：skill 第 3 步與封閉表拿掉這一類、改成「把那一位寫成清理後的 literal 項」，與替換腿的訊息一致；spec 的 skill requirement 同步。驗證：內容審查；`testCarriedOverPositionMessageSuggestsALiteral` 仍綠。
+- [x] 11.2 `compare` 的 `applyRefusal` 只在有替換物件時採用；乾跑報告讀不出來時寫進 `refusal`（design D11）。驗證：`FulltextReconcileCLITests` 一案（format 22、提議與 store 一致 → 三欄皆 null）；`testCompareReportsApplyRefusalAndGivesNoWriteCommand` 仍綠；負控變紅。
+- [x] 11.3 「organization 讀不到」只在有名單會受影響時拒絕（design D6）：沿用的舊名單（`groupMembers` 省略）或給定的名單（非空）有任一組對不上已知團體位時才拒絕；`groupMembers: []` 不拒；訊息說出是哪一種。驗證：`ReplaceAuthorsTests`（`[]` → 接受；名單全掛在 literal 團體位上 → 接受；既有兩案仍綠）；負控變紅。
+- [x] 11.4 團體名的大括號以 scalar 計（design D6）：`group` 加上標記後，以 scalar 計的大括號必須只在結尾閉合。驗證：`ReplaceAuthorsTests` 的 `A}́B`、`Aൎ}B` 被拒，`A}B` 的既有測試仍綠；負控變紅。
+- [x] 11.5 名字閘的分隔字元補上 VT、FF、U+001C–001F（叫人換成一般空白）。驗證：`ReplaceAuthorsTests` 的 FF 案例。
+- [x] 11.6 skill（design D15）：清理以檔名與上層目錄分開核對（不再用跨 `/` 的 `?`）、建立暫存目錄時寫一個記著 citekey 的標記檔、刪之前核對它、`rm -rf --`；第 2 步寫明換行換成空白、連字號斷行看 PDF 判斷；description 拿掉 MCP `replace_authors`；開始前列出 `python3`。驗證：內容審查；清理區塊在 zsh 實跑四種路徑（真目錄、同樣式不存在、同樣式但別的執行、含 `/../`）。
+- [x] 11.7 說明文字：`--replace-authors` 的 help（成員名的規則分開寫、「organization 讀不到」的拒絕、團體名的大括號以 scalar 計）；store-format §3.5（讀不到的 organization、成員規則、團體名的括號）；design 的輸出範例補 `applyRefusal`、Failure modes 與 D12；spec 的成員 requirement、升格 verdict 的兩個候選、兩個新 Scenario；tasks 10.7 的驗證敘述照實；changelog 延續「沒有測試的地方」的揭露。驗證：全套 `swift test` 與 `.githooks/run-guards.sh`（照實記結果）。

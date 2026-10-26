@@ -48,10 +48,8 @@
 ## Impact
 
 - Affected specs: `work-author-list-replacement`（新）、`fulltext-reconciliation`（新）
-- Affected code（`git diff --name-only origin/main...HEAD` 逐檔，不含本 change 自己的 Spectra 檔；第四輪 verify 後重列）:
+- Affected code（`git diff --name-only origin/main...HEAD` 逐檔，不含本 change 自己的 Spectra 檔；第五輪 verify 後重列）:
   - New:
-    - changelog/2026-10-21-reconcile-work-from-fulltext.md
-    - plugin/skills/akashic-verify-work/SKILL.md
     - Sources/AkashicCore/AuthorListReplacementRecord.swift
     - Sources/AkashicCore/GroupMembers.swift
     - Sources/AkashicCore/JSONInteger.swift
@@ -60,33 +58,18 @@
     - Tests/AkashicCLITests/FulltextReconcileCLITests.swift
     - Tests/AkashicKitTests/AuthorListReplacementRecordTests.swift
     - Tests/AkashicMCPTests/ReplaceAuthorsTests.swift
+    - changelog/2026-10-21-reconcile-work-from-fulltext.md
+    - plugin/skills/akashic-verify-work/SKILL.md
   - Modified:
     - .claude/rules/entity-backlink-completeness.md
     - .claude/rules/lossless-intake.md
     - .claude/rules/mcp-cli-parity.md
     - .githooks/plugin-shell-versions.txt
-    - docs/rulings/mcp-cli-parity.md
-    - docs/rulings/two-kinds-of-edits.md
-    - docs/rulings/zero-instance-guards.md
-    - docs/store-format.md
-    - mcpb/manifest.json
-    - plugin/.claude-plugin/plugin.json
-    - plugin/CHANGELOG.md
-    - plugin/rules/source-of-truth-over-consent.md
-    - plugin/skills/akashic-bootstrap/references/writing-to-the-store.md
-    - plugin/skills/akashic-fetch-fulltext/SKILL.md
-    - plugins/akashic-discovery/.claude-plugin/plugin.json
     - README.md
-    - Sources/akashic-guards/BacklinkRatchetData.swift
-    - Sources/akashic-mcp/Server.swift
-    - Sources/akashic/Commands.swift
-    - Sources/akashic/FulltextCommands.swift
-    - Sources/akashic/GetEntryCommand.swift
-    - Sources/akashic/UpdateEntryCommand.swift
-    - Sources/akashic/WriteGateRulings.swift
     - Sources/AkashicAppKit/EntryViews.swift
     - Sources/AkashicAppKit/RecordIssuesSection.swift
     - Sources/AkashicAppKit/RecordIssuesSummary.swift
+    - Sources/AkashicCore/CorporateName.swift
     - Sources/AkashicCore/Models.swift
     - Sources/AkashicCore/Provenance.swift
     - Sources/AkashicCore/YAML.swift
@@ -101,6 +84,13 @@
     - Sources/AkashicStoreIO/StoreHealth.swift
     - Sources/AkashicStoreIO/StoreVersion.swift
     - Sources/AkashicZoteroImport/ZoteroImporter.swift
+    - Sources/akashic-guards/BacklinkRatchetData.swift
+    - Sources/akashic-mcp/Server.swift
+    - Sources/akashic/Commands.swift
+    - Sources/akashic/FulltextCommands.swift
+    - Sources/akashic/GetEntryCommand.swift
+    - Sources/akashic/UpdateEntryCommand.swift
+    - Sources/akashic/WriteGateRulings.swift
     - Tests/AkashicCLITests/PersonCLITests.swift
     - Tests/AkashicCLITests/ServiceArgvExitCodeTests.swift
     - Tests/AkashicKitTests/ByteExactKeySiteInventoryTests.swift
@@ -115,4 +105,15 @@
     - Tests/AkashicMCPTests/StdioE2ETests.swift
     - Tests/AkashicMCPTests/ToolPayloadKeyExemptions.swift
     - Tests/AkashicMCPTests/ToolPayloadScenarios.swift
+    - docs/rulings/mcp-cli-parity.md
+    - docs/rulings/two-kinds-of-edits.md
+    - docs/rulings/zero-instance-guards.md
+    - docs/store-format.md
+    - mcpb/manifest.json
+    - plugin/.claude-plugin/plugin.json
+    - plugin/CHANGELOG.md
+    - plugin/rules/source-of-truth-over-consent.md
+    - plugin/skills/akashic-bootstrap/references/writing-to-the-store.md
+    - plugin/skills/akashic-fetch-fulltext/SKILL.md
+    - plugins/akashic-discovery/.claude-plugin/plugin.json
   - Removed: (none)

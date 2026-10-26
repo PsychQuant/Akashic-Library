@@ -40,14 +40,13 @@ description: 依作品本身的全文核對 Akashic 一筆 work 的書目欄位�
       && printf '%s\n' "$R" > "${D}/.akashic-verify-work"; then
      printf 'WORK_DIR=%s\nRUN_TOKEN=%s\n' "${D}" "${R}"
    else
-     rm -rf -- "${D}"
-     if [ -e "${D}" ]; then echo "寫不出暫存目錄的標記，也沒能刪掉剛建的目錄：${D}——停下，請使用者刪掉它"
-     else echo "寫不出暫存目錄的標記，已刪掉剛建的目錄：${D}——停下，不要繼續"; fi
+     if rm -rf -- "${D}" && [ ! -e "${D}" ]; then echo "寫不出暫存目錄的標記，已刪掉剛建的目錄：${D}——停下，不要繼續"
+     else echo "寫不出暫存目錄的標記，也沒能確認刪掉剛建的目錄：${D}——停下，請使用者確認並刪掉它"; fi
      exit 1
    fi
    ```
 
-   建立目錄與寫標記在同一個命令裡：標記記的是這一次執行才有的隨機字串（`RUN_TOKEN`，從 `/dev/urandom` 讀固定的 12 bytes，不用無限串流接 `head`——那在 `set -e`＋`pipefail` 的 shell 會因 SIGPIPE 提早退出），第 6 步刪之前核對它，免得刪到另一次執行的目錄——同一筆 work 的另一次執行也分得出來。產生或寫入標記失敗時目錄當場刪掉、確認不在了才說已刪，這一筆停下。
+   建立目錄與寫標記在同一個命令裡：標記記的是這一次執行才有的隨機字串（`RUN_TOKEN`，從 `/dev/urandom` 讀固定的 12 bytes，不用無限串流接 `head`——那在 `set -e`＋`pipefail` 的 shell 會因 SIGPIPE 提早退出），第 6 步刪之前核對它，免得刪到另一次執行的目錄——同一筆 work 的另一次執行也分得出來。產生或寫入標記失敗時目錄當場刪掉；`rm` 成功而且路徑不在了才說已刪（`rm` 放在 `if` 的條件裡，`errexit` 下失敗也走得到回報；只看 `! -e` 不夠，上層目錄沒有搜尋權限時它也成立），這一筆停下。
 
    記下它印出的兩行。下文的 `<WORK_DIR>`、`<RUN_TOKEN>` 是佔位：**每一個命令都把它換成那兩行的字面值**再執行。每一步是各自的 shell，shell 變數留不到下一步——`$WORK_DIR` 在下一步是空字串，`rm -rf "$WORK_DIR/…"` 會變成刪 `/…`。**不論這一筆怎麼結束**——命令被拒、無法核對、unattended 停在第 4 步、使用者不同意、寫入完成——最後都要跑第 6 步的清理區塊（不要自己另寫 `rm -rf`）：它只刪 `WORK_DIR` 那一行指的目錄，結尾是 `akashic-verify-work.` 加上 mktemp 換上的六個隨機字元（不是樣板的 `XXXXXX`），不是空字串或它的上層。`trap … EXIT` 撐不到最後一步，所以要明確地刪。
 4. `fulltext text` 與 `compare` 的 `--out` 必須是**還不存在**的檔名（不覆寫、不跟隨 symlink）。同一步要重跑時換一個檔名（例如 `compare-2.json`）；第 4 步取出的替換物件同樣每次用新檔名、與 compare 同號（`replace-2.json`），第 5 步用同一個檔名。

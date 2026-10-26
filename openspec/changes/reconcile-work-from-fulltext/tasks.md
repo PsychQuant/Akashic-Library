@@ -117,3 +117,4 @@
 - [x] 13.1 skill 第 3 步（design D15）：`RUN_TOKEN` 從 `/dev/urandom` 讀固定的 12 bytes（`od`），不用無限串流接 `head`——`set -e`＋`pipefail` 時 `tr` 收到 SIGPIPE 會讓區塊在寫標記前退出；產生與寫入放進 `if` 的條件；失敗分支刪完確認不在了才說已刪，刪不掉就說刪不掉、交給使用者，`exit 1`。驗證：zsh 與 `/bin/bash` 各在預設與 `errexit`＋`pipefail` 下跑建立區塊（token 24 字元、與標記相同）；`od` 失敗（目錄刪掉、rc=1）、`rm` 也失敗（說刪不掉、rc=1）兩種模擬。
 - [x] 13.2 skill 第 6 步：標記讀不到、而確定是第 3 步印出的路徑時，交給使用者確認後刪除，不繞過核對。驗證：內容審查。
 - [x] 13.3 `--replace-authors` 的 help 提到 #754 的已知缺口。驗證：build；全套 `swift test` 與 `.githooks/run-guards.sh`（照實記結果）。
+- [x] 13.4 第八輪 Codex 核對（PASS）後補的最後一行（使用者 2026-10-27 03:11 同意，不再送審）：建立失敗分支把 `rm` 放進 `if` 的條件，`rm` 成功而且路徑不在了才說已刪——先前 `errexit` 下 `rm` 失敗會在回報前退出，上層目錄沒有搜尋權限時 `! -e` 也會成立而誤報已刪。驗證：zsh 與 `/bin/bash`、預設與 `errexit`＋`pipefail`，各跑正常、`od` 失敗、`od` 與 `rm` 都失敗三種（12 組）；上層目錄沒有搜尋權限沒有實跑（不去改 `$TMPDIR` 的權限），由「`rm` 也要成功」涵蓋。

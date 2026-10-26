@@ -226,7 +226,8 @@ public enum EntryYAML {
         var ca = rd, cb = canaryNormalized(entry)
         ca.unknownFields = []; cb.unknownFields = []
         ca.akashic.unknownFields = []; cb.akashic.unknownFields = []
-        guard ca == cb,
+        // group-members 另比位元組：`Entry ==` 是正規等價，名單只差 NFC／NFD 時閘門看不出漂移（#742 verify 第四輪：先前只改了訊息函式）
+        guard ca == cb, ca.groupMembers.map(\.byteKey) == cb.groupMembers.map(\.byteKey),
               rd.unknownFields.map(\.key) == entry.unknownFields.map(\.key),
               rd.akashic.unknownFields.map(\.key) == entry.akashic.unknownFields.map(\.key)
         else {

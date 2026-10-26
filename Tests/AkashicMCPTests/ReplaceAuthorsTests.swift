@@ -592,14 +592,16 @@ final class ReplaceAuthorsTests: XCTestCase {
     // MARK: - 9.x 第三輪 verify 之後（#742 第三輪 verify 報告，2026-10-26）
 
     /// 有升格團體位與名單的 work（升格的 verdict literal 由呼叫端決定形狀）。
-    private func seedPromoted(verdictLiteral: String, duplicateKey: Bool = false) throws {
+    private func seedPromoted(verdictLiteral: String, duplicateKey: Bool = false, duplicateFirst: Bool = false,
+                              group: String = "{SING Consortium}") throws {
         digest = try storedPDF()
+        if duplicateKey && duplicateFirst { try LibraryStore(root: root).writeOrganization(Organization(key: "sing-consortium", id: UUID())) }
         try organization("sing-consortium", promotedFrom: verdictLiteral)
-        if duplicateKey { try LibraryStore(root: root).writeOrganization(Organization(key: "sing-consortium", id: UUID())) }
+        if duplicateKey && !duplicateFirst { try LibraryStore(root: root).writeOrganization(Organization(key: "sing-consortium", id: UUID())) }
         var e = Entry(id: UUID(), citekey: "claw2018framework", type: .periodicalArticle, title: "T",
                       authors: [.literal("Katrina G. Claw"), .organization("sing-consortium")])
         e.akashic.sources = [digest]
-        e.groupMembers = [try XCTUnwrap(GroupMemberList(group: "{SING Consortium}", restsOn: digest, page: 7, members: ["A", "B"]))]
+        e.groupMembers = [try XCTUnwrap(GroupMemberList(group: group, restsOn: digest, page: 7, members: ["A", "B"]))]
         try LibraryStore(root: root).writeEntry(e)
         StoreGitCommit.commitAll(root)
     }
@@ -617,6 +619,12 @@ final class ReplaceAuthorsTests: XCTestCase {
     /// spec「A duplicate organization key is refused」：讀哪一筆不得取決於載入順序（design D6）。
     func testDuplicateOrganizationKeyIsRefused() throws {
         try seedPromoted(verdictLiteral: "{SING Consortium}", duplicateKey: true)
+        assertRefused(minimal(["authors": [["literal": "Katrina Claw"], ["from": 1]]]), mentions: "sing-consortium")
+        // verdict 在後建的那一筆（10.7）：結果不依建立順序
+        try FileManager.default.removeItem(at: root)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try StoreVersion.write(root: root, format: StoreVersion.supported)
+        try seedPromoted(verdictLiteral: "{SING Consortium}", duplicateKey: true, duplicateFirst: true)
         assertRefused(minimal(["authors": [["literal": "Katrina Claw"], ["from": 1]]]), mentions: "sing-consortium")
     }
 
@@ -651,5 +659,64 @@ final class ReplaceAuthorsTests: XCTestCase {
     func testReasonStartingWithACombiningMarkIsRefused() throws {
         try seedDefault()
         assertRefused(minimal(["authors": [["literal": "Katrina G. Claw"]], "reason": "\u{301}PDF 第 1 頁"]), mentions: "reason")
+    }
+
+    // MARK: - 10.x 第四輪 verify 之後
+
+    /// 10.2：organization 位讀不到任何記錄、而這筆有名單時，判斷不了它是不是團體位——拒絕。
+    func testUnloadableOrganizationPositionIsRefusedWhenMemberListsAreInvolved() throws {
+        digest = try storedPDF()
+        var e = Entry(id: UUID(), citekey: "claw2018framework", type: .periodicalArticle, title: "T",
+                      authors: [.literal("Katrina G. Claw"), .organization("ghost-org")])
+        e.akashic.sources = [digest]
+        e.groupMembers = [try XCTUnwrap(GroupMemberList(group: "{Ghost Consortium}", restsOn: digest, page: 7, members: ["A"]))]
+        try LibraryStore(root: root).writeEntry(e)
+        StoreGitCommit.commitAll(root)
+        assertRefused(minimal(["authors": [["literal": "Katrina Claw"], ["from": 1]]]), mentions: "ghost-org")
+    }
+
+    /// 10.2：沒有名單牽涉其中時，dangling organization key 不擋無關的更正。
+    func testUnloadableOrganizationPositionIsFineWithoutMemberLists() throws {
+        digest = try storedPDF()
+        try seed(authors: [.literal("Claw, K."), .organization("ghost-org")], sources: [digest])
+        XCTAssertNoThrow(try run(minimal(["authors": [["literal": "Katrina G. Claw"], ["from": 1]]])))
+    }
+
+    /// 10.3：巢狀大括號的團體名——兩種 verdict 形狀都保留名單（mark(unmark(…)) 會少一層）。
+    func testNestedBracesGroupKeepsItsMemberListUnderBothVerdictShapes() throws {
+        for verdict in ["{{X}}", "{X}"] {
+            try FileManager.default.removeItem(at: root)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            try StoreVersion.write(root: root, format: StoreVersion.supported)
+            try seedPromoted(verdictLiteral: verdict, group: "{{X}}")
+            let kept = try run(minimal(["authors": [["literal": "Katrina Claw"], ["from": 1]]]))
+            XCTAssertEqual((kept["groupMembersRemoved"] as? [Any])?.count, 0, "verdict \(verdict)：\(kept)")
+        }
+    }
+
+    /// 10.4：名字中間的換行、tab 叫人換成一般空白（刪掉會把兩段名字黏在一起）。
+    func testLineBreakInsideANameAsksForAnOrdinarySpace() throws {
+        try seedDefault()
+        assertRefused(minimal(["authors": [["literal": "Katrina\nClaw"]]]), mentions: "一般空白")
+        assertRefused(minimal(["authors": [["literal": "Katrina\tClaw"]]]), mentions: "一般空白")
+    }
+
+    /// 10.4：段括號以 scalar 拒絕——`⟦`＋組合記號在 Character 層級不等於 `⟦`。
+    func testBracketFollowedByACombiningMarkIsRefused() throws {
+        try seedDefault()
+        assertRefused(minimal(["authors": [["literal": "A\u{27E6}\u{301}B"]]]), mentions: "⟦")
+    }
+
+    /// 10.4：沿用位寫不成段時，補救是不沿用、改寫成清理後的 literal。
+    func testCarriedOverPositionMessageSuggestsALiteral() throws {
+        digest = try storedPDF()
+        try seed(authors: [.literal("\u{301}Abc")], sources: [digest])
+        assertRefused(minimal(["authors": [["from": 0]]]), mentions: "改寫成一個 literal")
+    }
+
+    /// 10.4：新寫入的 literal 以 SpacingMark 開頭時，名字閘本身就擋下、指名欄位（不靠替換記錄建構時的後盾）。
+    func testNewLiteralThatGluesToTheBracketsIsRefusedAtTheNameGate() throws {
+        try seedDefault()
+        assertRefused(minimal(["authors": [["literal": "\u{93E}Abc"]]]), mentions: "authors[0].literal")
     }
 }

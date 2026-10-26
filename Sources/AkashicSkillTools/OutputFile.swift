@@ -12,8 +12,8 @@ import AkashicCore
 /// 2. 覆寫普通檔時在**目的地同目錄**開暫存檔、寫完 `rename(2)` 原子替換——`rename` 換的是名字、不跟隨 symlink、也不會遞迴刪任何
 ///    東西；目的地若在檢查之後變成目錄，`rename` 自己回 `EISDIR`，原檔（或目錄）原封不動。任何一步失敗，原本的檔案都還在。
 ///
-/// **權限**：暫存檔以 `open(2)` 的 `0666` 建立、受 umask 約束，與舊實作（先寫 `mktemp -d` 裡的檔再 `mv`）落地的權限一致——
-/// 不是 `mkstemp` 的 `0600`。第三方全文放不放 `0600` 是另一個裁決，這裡不順手改。
+/// **權限**：`replace` 的預設是 `open(2)` 的 `0666`、受 umask 約束，與 `fulltext take` 的舊實作落地的權限一致。`fulltext text`／
+/// `compare` 寫第三方全文時傳 `0o600`（#742 verify 第一輪的裁決），`createExclusive` 也由呼叫端給權限。
 enum OutputFile {
     enum State: Equatable {
         case absent
@@ -79,8 +79,9 @@ enum OutputFile {
             switch errno {
             case EEXIST: failure = "it already exists — refusing to replace it"
             // 獨佔建立靠 hard link；不支援的磁碟區（部分網路或 FAT 類檔案系統）要說出原因，不只印 errno 的字串（#742 verify 第三輪）
-            case EPERM, ENOTSUP, EXDEV, EMLINK:
-                failure = "this volume does not support the hard link used to create the file without replacing anything (\(String(cString: strerror(errno)))) — choose an --out on another volume"
+            // 暫存檔與目的地在同一個目錄，EXDEV 不會發生；EPERM 也可能是別的原因，所以說「可能」
+            case EPERM, ENOTSUP, EMLINK:
+                failure = "the hard link used to create the file without replacing anything failed (\(String(cString: strerror(errno)))) — this volume may not support hard links; try an --out on another volume"
             default: failure = String(cString: strerror(errno))
             }
         }

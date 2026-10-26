@@ -79,7 +79,7 @@ struct UpdateEntryCmd: ParsableCommand {
                              + "release 與 groupMembers 可省；其他鍵在任何一層都拒絕。source 是作品全文 PDF 的 digest，要已連在這筆的 akashic.sources（先 --add-source）、本機 sources/ 有這份、index 的 media-type 是 application/pdf；"
                              + "page 是 PDF 的實體頁序（1 起算，整數；不收字串、布林、小數，超出整數範圍不截斷）；reason 與 release 的理由非空、至多 4,096 bytes。"
                              + "authors 每一項恰好一個鍵：literal（個人名）、group（團體名，寫入時加 corporate 大括號）、from（原樣沿用舊作者列第 i 位，0 起算，三種狀態都可）；"
-                             + "名字（含成員名）非空、前後無空白、不含控制、格式與不可見字元（repo 的 UnsafeToEmitScalar；NBSP 等空白要換成一般空白）與 ⟦ ⟧、不在 ⟦ ⟧ 旁黏成同一個字元、至多 65,536 bytes，literal 不得自帶大括號（改用 group），group 加上大括號後要是平衡的。"
+                             + "literal 與 group 非空、前後無空白、不含 ⟦ ⟧（以 scalar 判斷）、不含控制、格式與不可見字元（repo 的 UnsafeToEmitScalar；名字中間的 NBSP、換行、tab 換成一般空白）、不以組合記號開頭、不在 ⟦ ⟧ 旁黏成同一個字元（SpacingMark 開頭、Prepend 結尾）、至多 65,536 bytes，literal 不得自帶大括號（改用 group），group 加上大括號後要是平衡的；成員名非空、前後無空白、同樣不含那些碼位、不以組合記號開頭（成員不夾進 ⟦ ⟧，不受黏字規則）。"
                              + "舊作者列每個已歸戶位（key／organization）要被恰好一個 from 沿用、或列在 release 附理由，兩者都沒有即拒；release 只收已歸戶位、不得與 from 重疊或重複；from 不得越界或用兩次。"
                              + "團體位是新作者列裡帶 corporate 大括號的 literal（group 項或 from 沿用來的都算），以及升格過的 organization 位（organization 上有把本 work 與那個團體名配對的 confirmed verdict；那個 organization key 對到不只一筆 organization 時拒絕）。groupMembers 有給（含空陣列）就整組替換成員名單（group 要對得上團體位、同組不得兩次、members 至少一位且不重複）；沒給就保留團體名仍對得上團體位的組，其餘移除並列在 groupMembersRemoved（每組帶 restsOn）。名字一律逐位元組比較；只差理由的正規化寫法也會寫入。"
                              + "實寫移除這筆描述舊作者列的拆分、移除、先前替換記錄與作者清單完整性證言（recordsRemoved、witnessRemoved，證言的 fingerprint 與作者列在 witnessRemovedDetail）；新作者列與舊列逐位元組相同（只改成員名單）時只移除先前的替換記錄。實寫要求這筆 work 的檔已在 git 裡 commit、乾淨；"

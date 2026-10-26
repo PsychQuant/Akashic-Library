@@ -21,7 +21,7 @@ import AkashicStoreIO
 /// - 實寫時移除這筆 work 上描述舊作者列的記錄（拆分、移除、先前的替換記錄）與作者清單完整性證言，逐筆列在報告。作者列逐位元組
 ///   不變（只改成員名單）時只換掉先前的替換記錄、而且在原位換；什麼都沒變時 `unchanged`、不移除任何東西（#742 verify 第二輪）。
 /// - `groupMembers` 有給（含空陣列）就整組替換成員名單；沒給就保留團體名仍對得上新作者列團體位的組，其餘移除並列出。團體位含
-///   升格過的 organization 位（organization 上記著它是從哪個帶標記 literal 升格來的 confirmed verdict）。
+///   升格過的 organization 位（organization 上有把本 work 與那個團體名配對的 confirmed verdict；literal 帶不帶大括號都認）。
 /// - 預設乾跑。乾跑照樣跑寫入前檢查；store format 不足等寫入閘的拒絕在乾跑時寫進 `applyRefusal`、照樣報出計畫，實跑才擲錯。
 /// - 不與另外四條腿組合（`parseUpdateEntryArguments`）。
 ///
@@ -144,7 +144,8 @@ extension AkashicService {
         }
     }
 
-    /// 作者名與團體名的共同上限：非空白、前後無空白、不含 repo 的不安全碼位（`nameScalarIssue`）、不在段括號旁黏字、不含替換記錄的段分隔字元、至多 65,536 bytes。
+    /// literal 與團體名的共同上限：非空白、前後無空白、不含段括號的 scalar、不含 repo 的不安全碼位（`nameScalarIssue`）、不在段括號旁黏字、至多 65,536 bytes。
+    /// 成員名不經這裡：它只過 `GroupMemberList.problem`（碼位閘與不以組合記號開頭），因為成員不夾進 ⟦ ⟧。
     private static func checkedName(_ s: String, at path: String) throws -> String {
         guard !s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw ServiceError.invalid("\(path) 不得空白")   // display-safe-exempt: path 程式構造
@@ -152,12 +153,17 @@ extension AkashicService {
         guard s == s.trimmingCharacters(in: .whitespacesAndNewlines) else {
             throw ServiceError.invalid("\(path) 前後不得有空白——寫進 store 的值是逐字的")   // display-safe-exempt: path 程式構造
         }
+        // 段括號以 scalar 判斷（#742 verify 第四輪：Character 層級的 contains 讓 `⟦`＋組合記號通過）
+        guard !AuthorListReplacementRecordValue.containsBracketScalar(s) else {
+            throw ServiceError.invalid("\(path) 不得含 ⟦ 或 ⟧（替換記錄的段分隔字元）")   // display-safe-exempt: path 程式構造
+        }
         if let issue = AuthorListReplacementRecordValue.nameScalarIssue(s) {
             throw ServiceError.invalid("\(path) \(issue)；整批拒絕、零寫入")   // display-safe-exempt: path 程式構造；issue 只含十六進位碼位與常量句
         }
-        guard !s.contains(AuthorListReplacementRecordValue.openBracket),
-              !s.contains(AuthorListReplacementRecordValue.closeBracket) else {
-            throw ServiceError.invalid("\(path) 不得含 ⟦ 或 ⟧（替換記錄的段分隔字元）")   // display-safe-exempt: path 程式構造
+        // literal 與 group 會夾進替換記錄的 ⟦ ⟧：不得和括號黏成同一個字元（成員名不夾進去，不查，#742 verify 第四輪）
+        guard AuthorListReplacementRecordValue.segmentProblem(CorporateName.mark(s)) == nil,
+              AuthorListReplacementRecordValue.segmentProblem(s) == nil else {
+            throw ServiceError.invalid("\(path) 的開頭或結尾會和替換記錄的段括號黏成同一個字元（組合記號、SpacingMark 開頭或 Prepend 字元結尾）——刪掉它或補上它所屬的字母；整批拒絕、零寫入")   // display-safe-exempt: path 程式構造
         }
         guard s.utf8.count <= AddOnlyEnrichment.maxValueBytes else {
             throw ServiceError.invalid("\(path) 超過 65,536 bytes")   // display-safe-exempt: path 程式構造
@@ -212,8 +218,6 @@ extension AkashicService {
     }
 
     // MARK: - 服務
-
-    /// 作者位的位元組形：先標種類再接值——literal「key:x」與 person key「x」的段字串相同，位元組形不同。
 
     /// 一組成員名單的位元組形（`GroupMemberList.byteKey`），用來判斷「名單有沒有變」——`GroupMemberList ==` 比的是 Unicode 正規等價。
     static func memberListBytes(_ l: GroupMemberList) -> [UInt8] { l.byteKey }
@@ -308,7 +312,7 @@ extension AkashicService {
                 AuthorListReplacementRecordValue.segmentProblem(e.element).map { (e.offset, $0) } }).first {
                 throw ServiceError.invalid(
                     "新作者列第 \(i) 位（\(displaySafeInvisible(segments[i], max: 200))）寫不成替換記錄的段：\(problem)——"   // display-safe-exempt: i 是 Int；problem 是常量句
-                    + "那是以 from 沿用的舊值；先用 resolve-people 或 update-entry 處理那一位，整批拒絕、零寫入")
+                    + "那是以 from 沿用的舊 literal；不要沿用這一位，改寫成一個 literal 項、填清理後的名字（literal 位沿用與重寫是同一件事），整批拒絕、零寫入")
             }
             if let problem = AuthorListReplacementRecordValue.reasonProblem(request.reason) {
                 throw ServiceError.invalid("reason \(problem)；整批拒絕、零寫入")   // display-safe-exempt: problem 是常量句
@@ -317,11 +321,11 @@ extension AkashicService {
         }
 
         // design D6：成員名單。團體位＝新作者列中帶 corporate 標記的 literal（不論來自 group 項還是 from 沿用），以及**升格過的團體位**：
-        // organization 位，其 organization 帶一筆把本 work 與一個帶標記 literal 配對的 confirmed verdict（attribute-org 升格時留下、不動
-        // group-members），那一位算作那個 literal——否則名單在升格後只活到下一次替換（#742 verify 第二輪）。比位元組（spec「byte-equal」）
+        // organization 位，其 organization 帶一筆把本 work 與那個團體名配對的 confirmed verdict（升格時留下、不動 group-members），
+        // 那一位算作那個帶標記的名字——否則名單在升格後只活到下一次替換（#742 verify 第二輪）。比位元組（spec「byte-equal」）
         // 升格的三條路寫的 literal 形狀不同：attribute-org 寫作者位原值（帶大括號），resolve-organizations 的 --apply／--judge 寫
-        // OrgResolver 去標記後的名字——兩種都認，一律先 mark(unmark(…))（#742 verify 第三輪）。organization key 不唯一時讀哪一筆取決於
-        // 載入順序，取錯就刪掉名單，所以拒絕、不以先到先贏消解
+        // OrgResolver 去標記後的名字——兩種都認（#742 verify 第三、四輪，比對方式見下方）。organization key 不唯一或讀不到時判斷不了，
+        // 拒絕、不以先到先贏或「當作不是團體」消解
         let load = try store.load()
         let orgsByKey = Dictionary(grouping: load.organizations, by: \.key)
         var newGroups = Set<[UInt8]>()
@@ -331,6 +335,12 @@ extension AkashicService {
                 newGroups.insert(Array(s.utf8))
             case .organization(let k):
                 let records = orgsByKey[k] ?? []
+                // 讀不到任何記錄（不存在或被隔離）時同樣判斷不了它是不是升格過的團體位；有名單牽涉時拒絕（#742 verify 第四輪）
+                if records.isEmpty && (!entry.groupMembers.isEmpty || request.groupMembers != nil) {
+                    throw ServiceError.invalid(
+                        "新作者列的 organization 位「\(displaySafeInvisible(k, max: 200))」讀不到任何 organization（不存在或檔案被隔離）——"
+                        + "判斷不了它是不是升格過的團體位，而這筆有成員名單；先修好那個 organization（akashic validate 列出），整批拒絕、零寫入")
+                }
                 guard records.count <= 1 else {
                     throw ServiceError.invalid(
                         "新作者列的 organization 位「\(displaySafeInvisible(k, max: 200))」對到 \(records.count) 筆 organization（key 重複）——"   // display-safe-exempt: records.count 是 Int
@@ -339,7 +349,10 @@ extension AkashicService {
                 for r in records.first?.references ?? [] where r.field == ProvenanceReference.resolutionConfirmedField {
                     guard let v = r.value, let pv = ProvenanceReference.VerdictPairingValue.parse(v),
                           pv.holderKind == .work, pv.holder == entry.citekey else { continue }
-                    newGroups.insert(Array(CorporateName.mark(CorporateName.unmark(pv.literal)).utf8))
+                    // 兩種形狀都認、不丟層：attribute-org 的 literal 就是作者位原值（已帶標記時原樣），resolve-organizations 的是剝掉
+                    // 一層後的名字（外面再包一層）。`mark(unmark(…))` 對巢狀的 `{{X}}` 會少一層（#742 verify 第四輪）
+                    if CorporateName.isMarked(pv.literal) { newGroups.insert(Array(pv.literal.utf8)) }
+                    newGroups.insert(Array(("{" + pv.literal + "}").utf8))
                 }
             default: break
             }

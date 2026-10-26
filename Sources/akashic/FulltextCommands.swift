@@ -290,9 +290,11 @@ struct FulltextCompareCmd: ParsableCommand {
         提議：{"source", "authors": {"page", "items", "reason"?}, "release"?, "groupMembers"?, "title"?, "volume"?, "issue"?, "pages"?, \
         "articleNumber"?, "date"?}；純量欄位是 {"value", "page"}。items、release、groupMembers 與 update-entry --replace-authors 同形。\
         reason 省略時填「PDF 第 N 頁 byline」。任何一層的未知鍵都拒絕（結束碼 1）。\
-        輸出：{"citekey", "rows": [{"field", "store", "proposed", "page", "status"}], "replaceAuthors", "refusal"}，status 是 same、differs、\
-        absentInStore、notProposed 之一，比較逐位元組。作者列或成員名單不同時 replaceAuthors 是替換腿的物件，否則 null；提議一律經替換腿\
-        乾跑驗一次（不論 replaceAuthors 是不是 null），會被拒時原因在 refusal、結束碼 0。作者列與成員名單以外的欄位只列出，不產生寫入命令。\
+        輸出：{"citekey", "rows": [{"field", "store", "proposed", "page", "status"}], "replaceAuthors", "refusal", "applyRefusal"}，status 是 same、differs、\
+        absentInStore、notProposed 之一，比較逐位元組；成員名單列的每組帶 restsOn（提議那一側是提議的 source）。作者列或成員名單不同時 \
+        replaceAuthors 是替換腿的物件，否則 null；提議一律經替換腿乾跑驗一次（不論 replaceAuthors 是不是 null），會被拒時原因在 refusal、\
+        結束碼 0。頁序對照提議 source 那份 PDF 的頁數，超出或讀不出頁數都寫進 refusal。乾跑接受、但 store 會拒絕寫入（例如 format 低於 23）時\
+        原因在 applyRefusal。refusal 或 applyRefusal 不是 null 時 replaceAuthors 一律 null：被拒的提議沒有寫入命令。作者列與成員名單以外的欄位只列出，不產生寫入命令。\
         卷、期、頁碼、article number 對的是 fields 的 volume、number、pages、eid。--out 省略時印到 stdout；給了就必須在 git 工作樹之外、\
         而且還不存在（不覆寫、不跟隨 symlink），以 0600 寫出。
         """)
@@ -329,28 +331,38 @@ struct FulltextCompareCmd: ParsableCommand {
             var refusal: Any = NSNull()
             // 替換腿的乾跑：同一個解碼器、同一套規則；乾跑不寫 store。不論要不要替換都跑
             let service = AkashicService(root: store.root, key: store.key, environment: ProcessInfo.processInfo.environment)
+            var applyRefusal: Any = NSNull()
             do {
-                _ = try service.updateEntry(citekey: citekey, removeFields: nil,
-                                            replaceAuthors: try JSONSerialization.data(withJSONObject: result.validation),
-                                            dryRun: true, verdictsLimit: nil)
+                let dry = try service.updateEntry(citekey: citekey, removeFields: nil,
+                                                  replaceAuthors: try JSONSerialization.data(withJSONObject: result.validation),
+                                                  dryRun: true, verdictsLimit: nil)
+                // 乾跑接受提議、但 store 會拒絕寫入（format 不足、寫入前置的上限）時，替換腿只把原因放在 applyRefusal、不擲錯——
+                // 另列出來，不給寫入命令（#742 verify 第四輪：先前只接 thrown error，這一類被丟掉）
+                if let obj = (try? JSONSerialization.jsonObject(with: Data(dry.utf8))) as? [String: Any],
+                   let reason = obj["applyRefusal"] as? String, !reason.isEmpty {
+                    applyRefusal = reason   // display-safe-exempt: reason 是替換腿已 displaySafeError 過的訊息
+                }
             } catch {
                 refusal = displaySafeErrorText(error)
             }
             // 頁序上限：替換腿不讀 PDF，所以在這裡對照提議 source 那一份的頁數。source 本身不合（沒連在這筆、沒存、不是 PDF）時
             // 替換腿已經拒絕並說出原因，這裡不重報（#742 verify 第二輪）
-            if refusal is NSNull, let chosen = try? FulltextReconcile.chooseSource(entry: entry, requested: p.source, store: store) {
+            // 讀不出頁數（含 chooseSource 失敗）時寫進 refusal，不略過這道閘：替換腿本身不查頁序上限，這裡是唯一的一道
+            //（#742 verify 第四輪：`try?` 吞掉錯誤時整道閘不跑、refusal 為 null）
+            if refusal is NSNull {
                 do {
+                    let chosen = try FulltextReconcile.chooseSource(entry: entry, requested: p.source, store: store)
                     let count = try PDFReader.pageCount(path: chosen.url.path)
                     if let problem = FulltextReconcile.pageProblem(p, pageCount: count) { refusal = problem }
                 } catch {
-                    refusal = "讀不出這份 PDF 的頁數，無法核對提議的頁序：\(displaySafeErrorText(error))"
+                    refusal = "讀不出提議 source 的頁數，無法核對提議的頁序：\(displaySafeErrorText(error))"
                 }
             }
             // 被拒的提議不產生寫入命令：`refusal` 不是 null 時 `replaceAuthors` 一律 null（#742 verify 第三輪——頁序那一種原本只有這裡擋，
             // 取出 replaceAuthors 交給替換腿就過關）
-            let replaceOut: Any = refusal is NSNull ? (result.replaceAuthors ?? NSNull()) : NSNull()
+            let replaceOut: Any = (refusal is NSNull && applyRefusal is NSNull) ? (result.replaceAuthors ?? NSNull()) : NSNull()
             let object: [String: Any] = ["citekey": entry.citekey, "rows": result.rows,   // display-safe-exempt: entry.citekey 受 StoreKey 約束；這份 JSON 是給 skill 讀的機器格式（值是作品與 store 的原文）
-                                         "replaceAuthors": replaceOut, "refusal": refusal]
+                                         "replaceAuthors": replaceOut, "refusal": refusal, "applyRefusal": applyRefusal]
             let data = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .prettyPrinted, .withoutEscapingSlashes])
             if let target {
                 try FulltextReconcile.write(data, to: target)

@@ -310,7 +310,7 @@ final class AuthorListReplacementRecordTests: XCTestCase {
         XCTAssertNil(AuthorListReplacementRecordValue.segmentProblem("Abc"))
     }
 
-    /// 9.10（8.2 的驗證敘述）：合併乾跑層級——只差 NFC／NFD 的名單，乾跑與實跑都報出遺失並拒絕。
+    /// 9.10（8.2 的驗證敘述）：合併乾跑層級——只差 NFC／NFD 的名單，乾跑（preview）報出遺失並拒絕。
     func testMergeDryRunRefusesWhenListsDifferOnlyInNormalization() throws {
         var keeper = twin("claw2018framework"), doomed = twin("claw2018frameworkb")
         keeper.groupMembers = [try XCTUnwrap(GroupMemberList(group: sing, restsOn: digestA, page: 7, members: ["Jose\u{301}"]))]
@@ -320,6 +320,21 @@ final class AuthorListReplacementRecordTests: XCTestCase {
             guard case DivergenceResolveError.wouldLoseFields(_, _, let losses) = error else { return XCTFail("預期 wouldLoseFields，實得 \(error)") }
             XCTAssertTrue(losses.contains { $0.contains("group-members") }, "\(losses)")
         }
+    }
+
+    /// 10.4：黏字規則只套進替換記錄的段——成員名不夾進 ⟦ ⟧，以 SpacingMark 開頭照收；段括號以 scalar 判斷。
+    func testGlueRuleAppliesToSegmentsNotMembers() throws {
+        XCTAssertNotNil(GroupMemberList(group: sing, restsOn: digestA, page: 7, members: ["\u{93E}Abc"]), "成員名不受黏字規則")
+        XCTAssertNil(AuthorListReplacementRecordValue(segments: ["A\u{27E6}\u{301}B"], page: 1, reason: "r"), "段括號以 scalar 拒絕")
+        XCTAssertNotNil(AuthorListReplacementRecordValue.segmentProblem("A\u{27E6}\u{301}B"))
+    }
+
+    /// 10.7：App 的 `ForEach` id 是團體名的位元組形——只差 NFC／NFD 的兩組是不同的 id。
+    func testGroupBytesDistinguishNormalizationForms() throws {
+        let nfc = try XCTUnwrap(GroupMemberList(group: "{Jos\u{E9}}", restsOn: digestA, page: 1, members: ["A"]))
+        let nfd = try XCTUnwrap(GroupMemberList(group: "{Jose\u{301}}", restsOn: digestA, page: 1, members: ["A"]))
+        XCTAssertNotEqual(nfc.groupBytes, nfd.groupBytes)
+        XCTAssertEqual(nfc.group, nfd.group, "String 的相等是正規等價——這正是 id 不能用 group 的原因")
     }
 
     /// 8.8：失效判定把 organization 位視為相符（升格是常態工作）。

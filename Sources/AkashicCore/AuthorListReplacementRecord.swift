@@ -46,14 +46,11 @@ public struct AuthorListReplacementRecordValue: Equatable, Sendable {
     /// 拒絕的集合是 repo 的單一定義 `UnsafeToEmitScalar`（#569：default-ignorable、Cc、Cf、Zl、Zp、非 U+0020 的空白、渲染成空白的碼位），
     /// 扣掉私用區，ZWJ／ZWNJ 照 `NameIdentity.joinerIsLegal` 的脈絡規則放行——與名字輸入閘 `NameIdentity.wellFormednessIssue` 同一份
     /// 碼位判準。**不沿用它的 NFC 要求**：那是 venue 名稱的規則，作者名從 PDF 抽出時常是 NFD，而 store 存逐字的值。另外拒絕以組合記號
-    /// 開頭的名字：它會和段括號 `⟦` 黏成同一個字元，替換記錄解析不回來。只管新寫入的值——以 `from` 沿用的舊值原樣保留。
+    /// 開頭的名字（成員名也適用）。名字中間的分隔字元（NBSP 等空白、換行、tab）叫人換成一般空白，軟連字號叫人刪掉。段括號旁的黏字（SpacingMark 開頭、Prepend 結尾）不在這裡查——那只關係到會夾進 ⟦ ⟧ 的 literal 與 group，由替換腿另以 `segmentProblem` 檢查（#742 verify 第四輪）。只管新寫入的值——以 `from` 沿用的舊值原樣保留。
     public static func nameScalarIssue(_ s: String) -> String? {
         let scalars = Array(s.unicodeScalars)
         if let first = scalars.first, first.properties.isGraphemeExtend {
             return "以組合記號 U+\(hex(first)) 開頭——它會和前一個字元黏在一起，請刪掉它或補上它所屬的字母"   // display-safe-exempt: 十六進位碼位
-        }
-        if !s.isEmpty, segmentProblem(s) != nil, !s.contains(openBracket), !s.contains(closeBracket) {
-            return "的開頭或結尾會和相鄰的字元黏成同一個字元（組合記號、SpacingMark 開頭或 Prepend 字元結尾）——請刪掉它或補上它所屬的字母"
         }
         for (i, u) in scalars.enumerated() {
             if u.value == 0x200C || u.value == 0x200D {
@@ -61,6 +58,10 @@ public struct AuthorListReplacementRecordValue: Equatable, Sendable {
                 return "含不在使用它的文字裡的接合字元 U+\(hex(u))（ZWJ／ZWNJ）——不是名字的一部分，請刪掉它"   // display-safe-exempt: 十六進位碼位
             }
             guard UnsafeToEmitScalar.contains(u), u.properties.generalCategory != .privateUse else { continue }
+            // 名字中間的換行、tab、NEL、LS、PS 多半是 PDF 折行或欄位分隔：刪掉會把兩段名字黏在一起，要換成 U+0020（#742 verify 第四輪）
+            if [0x09, 0x0A, 0x0D, 0x85, 0x2028, 0x2029].contains(u.value) {
+                return "含換行或 tab 這類分隔用的控制字元 U+\(hex(u))——名字被折成兩行或以 tab 分隔時，換成一般空白（U+0020）再寫"   // display-safe-exempt: 十六進位碼位
+            }
             // 一般空白以外的空白（NBSP、thin space）在 pdftotext 裡常是名字的分隔：刪掉會把兩段黏在一起，要換成 U+0020（#742 verify 第三輪）
             if u.properties.generalCategory == .spaceSeparator {
                 return "含一般空白以外的空白字元 U+\(hex(u))（NBSP、thin space 等）——換成一般空白（U+0020）再寫"   // display-safe-exempt: 十六進位碼位
@@ -85,12 +86,18 @@ public struct AuthorListReplacementRecordValue: Equatable, Sendable {
     /// `isGraphemeExtend`（第二輪的寫法）漏掉後兩種。
     public static func segmentProblem(_ s: String) -> String? {
         if s.isEmpty { return "是空的" }
-        if s.contains(openBracket) || s.contains(closeBracket) { return "含段分隔字元 ⟦ 或 ⟧" }
+        // 段括號以 scalar 判斷：`⟦`＋組合記號是一個不等於 `⟦` 的 Character，Character 層級的 contains 認不出（#742 verify 第四輪）
+        if containsBracketScalar(s) { return "含段分隔字元 ⟦ 或 ⟧" }
         let wrapped = Array(String(openBracket) + s + String(closeBracket))
         guard wrapped.count == s.count + 2, wrapped.first == openBracket, wrapped.last == closeBracket else {
             return "會和段括號黏成同一個字元（以組合記號或 SpacingMark 開頭、或以 Prepend 字元結尾）"
         }
         return nil
+    }
+
+    /// 值裡有沒有段括號的 scalar（U+27E6、U+27E7），不論它後面接不接組合記號。
+    public static func containsBracketScalar(_ s: String) -> Bool {
+        s.unicodeScalars.contains { $0 == "\u{27E6}" || $0 == "\u{27E7}" }
     }
 
     /// 理由寫不寫得成：開頭不得和前面的全形冒號黏成同一個字元（`parseTail` 以 Character 比對 `頁：`）。回 nil＝可以。

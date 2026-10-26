@@ -241,7 +241,7 @@ final class FulltextReconcileCLITests: XCTestCase {
         XCTAssertEqual(status("authors"), "same")
         XCTAssertEqual(status("issue"), "notProposed")
         XCTAssertTrue(j["replaceAuthors"] is NSNull, "作者列相同時沒有替換物件")
-        XCTAssertEqual(Set(j.keys), ["citekey", "rows", "replaceAuthors", "refusal"], "沒有非作者欄位的寫入命令")
+        XCTAssertEqual(Set(j.keys), ["citekey", "rows", "replaceAuthors", "refusal", "applyRefusal"], "沒有非作者欄位的寫入命令（applyRefusal 是第四輪 verify 後的輸出欄位）")
     }
 
     func testUnknownProposalKeyIsRefused() throws {
@@ -563,5 +563,37 @@ final class FulltextReconcileCLITests: XCTestCase {
         XCTAssertEqual(r.status, 0, r.output)
         XCTAssertTrue(r.json?["refusal"] is NSNull, "\(String(describing: r.json?["refusal"]))")
         XCTAssertTrue(r.json?["replaceAuthors"] is NSNull, "與 store 一致，不必寫")
+    }
+
+    // MARK: - 10.x 第四輪 verify 之後
+
+    /// 10.1：替換腿乾跑接受、但 store 會拒絕寫入（format 22）時，compare 另列 applyRefusal，不給寫入命令。
+    func testCompareReportsApplyRefusalAndGivesNoWriteCommand() throws {
+        try XCTSkipUnless(hasPoppler(), "需要 poppler")
+        let d = try seedClaw(authors: [.literal("Katrina G. Claw")])
+        try StoreVersion.write(root: root, format: 22)
+        let r = try compare(["source": d, "authors": ["page": 1, "items": [["literal": "Katrina Claw"]]]])
+        XCTAssertEqual(r.status, 0, r.output)
+        XCTAssertTrue(r.json?["refusal"] is NSNull, "\(String(describing: r.json?["refusal"]))")
+        let applyRefusal = try XCTUnwrap(r.json?["applyRefusal"] as? String, "\(String(describing: r.json))")
+        XCTAssertTrue(applyRefusal.contains("23"), applyRefusal)
+        XCTAssertTrue(r.json?["replaceAuthors"] is NSNull, "store 寫不進去就沒有寫入命令")
+    }
+
+    /// 10.1：讀不出 source 的頁數時寫進 refusal，不略過頁序檢查（另一份已連 source 的 index 行壞掉）。
+    func testCompareRefusesWhenThePageCountCannotBeChecked() throws {
+        try XCTSkipUnless(hasPoppler(), "需要 poppler")
+        let d = try seedClaw(authors: [.literal("Katrina G. Claw")])
+        let b = try storePDF(makePDF(pages: [["Other"]]), name: "b.pdf")
+        var e = try XCTUnwrap(LibraryStore(root: root, key: nil, environment: [:]).load().entries.first)
+        e.akashic.sources.append(b)
+        try LibraryStore(root: root, key: nil, environment: [:]).writeEntry(e)
+        let index = root.appendingPathComponent("sources/index.jsonl")
+        let kept = try String(contentsOf: index, encoding: .utf8).split(separator: "\n").filter { !$0.contains(b) }
+        try (kept.joined(separator: "\n") + "\n{not json\n").write(to: index, atomically: true, encoding: .utf8)
+        let r = try compare(["source": d, "authors": ["page": 9999, "items": [["literal": "Katrina Claw"]]]])
+        XCTAssertEqual(r.status, 0, r.output)
+        XCTAssertFalse(r.json?["refusal"] is NSNull, "頁序閘沒跑時不得放行：\(String(describing: r.json))")
+        XCTAssertTrue(r.json?["replaceAuthors"] is NSNull)
     }
 }

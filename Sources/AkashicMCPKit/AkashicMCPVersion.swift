@@ -4,5 +4,5 @@
 /// 改版時三者一起改；`MCPServerVersionTests` 比對本常數與 manifest，任一邊沒跟上就紅。先前寫死 `0.2.0`，#630 排查時
 /// 新舊兩個 binary 握手都回報同一個值，分不出連上的是哪一版。
 public enum AkashicMCPVersion {
-    public static let current = "0.12.1"
+    public static let current = "0.13.0"
 }

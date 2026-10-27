@@ -1,5 +1,10 @@
 # Changelog
 
+## akashic-mcp 0.13.0（binary）、plugin 殼 0.13.7 → 0.13.8（2026-10-27）
+
+- binary 發 0.13.0：#742 的作者列替換腿（`update-entry --replace-authors`／MCP `replace_authors`）、替換記錄與 `group-members:`（store format 23）。`binary_version` 0.12.1 → 0.13.0，wrapper 會下載新版。
+- store 的 marker 要升到 23，替換腿才寫得進去；之前只能乾跑。
+
 ## #742 — 依作品全文核對一筆 work（2026-10-24）：新 skill akashic-verify-work；plugin 殼 0.13.6 → 0.13.7
 
 細節在 `changelog/2026-10-21-reconcile-work-from-fulltext.md`。行為在 binary（新的 `akashic`、`akashic-mcp` 與 App；store format 23）與 skill。

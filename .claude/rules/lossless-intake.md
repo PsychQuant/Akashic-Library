@@ -177,7 +177,7 @@ WoS 走 `report.enriched`（與 `conflicts` 分開）。Zotero 走既有的 hash
 
 所以 Zotero 側把會蓋掉的東西**報出來**：`authorsOverwritten`（未歸戶作者被改成
 Zotero 版本）與 `fieldsRemovedByPull`（Zotero 這次沒給、整份替換後消失的欄位，
-含使用者手工補的）。已歸戶的 `.key` 作者永不被覆寫（`authorsPreserved`）。
+含使用者手工補的）。作者列有任何已歸戶位（person `.key` 或 `.organization`）、或帶作者列替換記錄時，整份作者列不被覆寫（`authorsPreserved`；#742 起含 organization 位與替換記錄）。
 
 **尚未解決的部分**：`applyBiblatexFields` 整份替換 `fields`，所以 Zotero
 「沒給」與「說沒有」被當成同一件事。要分開需要 per-field provenance，那是

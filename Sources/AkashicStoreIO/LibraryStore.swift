@@ -621,6 +621,21 @@ public final class LibraryStore {
                 }
             }
         }
+        // v23-only 語法的 format gate（#742）：作者列替換記錄（`field: authors`、沒有 value）與 `group-members:`。
+        // format-22 binary 的附著驗證要求 `field: authors` 必帶 value → 整檔 quarantine、rc=0；`group-members:` 它會原樣保留，
+        // 但它的 Zotero pull 不認得替換記錄、會蓋掉核對過的作者列（StoreVersion 23）。16／17 那兩道閘擋不住這一格，要各自一道。
+        if entry.references.contains(where: { $0.field == "authors" && $0.value == nil })
+            || !entry.groupMembers.isEmpty {
+            let format = try format()
+            let need = StoreVersion.authorListReplacementFormat, prior = need - 1
+            guard format >= need else {
+                throw StoreIOError.invalidInput(
+                    what: "entry「\(displaySafeInvisible(entry.citekey, max: 120))」",
+                    why: "含作者列替換記錄或團體成員名單（group-members），需要 store format ≥ \(need)；本 store 是 \(format)——" +
+                         "確認會碰這個 store 的 CLI/MCP/App 都已升級後，把 store.yaml 的 format: 改成 \(need)" +
+                         "（format-\(prior) binary 讀到替換記錄會整檔 quarantine，且 rc=0）")   // display-safe-exempt: need、prior 與 format 是 Int（StoreVersion 的門檻常量與 marker）
+            }
+        }
         // v20-only 語法的 format gate（#655）：頂層 `date` 的來源 reference（`field: date`）。format-19 binary 的
         // `Entry.validateReferenceAttachment` 沒有 `date` case → 封閉 default 擲錯 → **整檔 quarantine**、rc=0
         // （與 16 對 `authors` 同形）。`enrich` 在寫入前就依同一個數省略這一格並說明（StoreVersion 20）；

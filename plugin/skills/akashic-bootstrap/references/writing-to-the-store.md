@@ -10,14 +10,20 @@
 | 把裸字串作者歸戶到 person | `akashic resolve-people --apply` CLI | 篩選式批次：寬鬆層（非 exact）要 `--tier` 具名；有 `--citekey` / `--person` 可收窄；淘汰而得的唯一候選自動排除（#624）。**查過但判不出來的配對不要放進批次**——工具看不到它（#619），確認過的逐筆 `--judge` 或 MCP 三段 id 送 |
 | 匯入 WoS tab-delimited 匯出 | `akashic import-wos` CLI | 有 `--dry-run`；citekey 撞號且內容不同時**不覆寫** |
 | 加標籤 / 關係 / 狀態 | `akashic_tag` / `akashic_link` / `akashic_set_status` MCP | — |
+| 依作品全文整組替換作者列 | `akashic update-entry --replace-authors <JSON>` CLI／`akashic_update_entry` 的 `replace_authors` MCP | 預設乾跑；判定——依據（全文 digest、PDF 頁序）與理由必填，寫成作者列替換記錄；已歸戶位要 `from` 沿用或 `release` 附理由；團體成員記在 `group-members`；需要 store format 23（#742）。流程走 `akashic-verify-work` skill |
 
 以上全部走 store 自己的編碼路徑，產出的位元組形式一致。
 
 ## 沒有正規入口的操作
 
-**更新既有記錄的部分欄位。** 沒有任何 CLI 或 MCP 能做這件事——`create_entry` 與 `add_person` 都是 create-only，對已存在的目標拒寫。
+**更新既有 work 的部分欄位，各欄位的路徑不同**（`create_entry` 與 `add_person` 都是 create-only，對已存在的目標拒寫，不能拿來改）：
 
-這是已知缺口（Akashic-Library#68）。在它補上之前：
+- **作者列**：`update-entry --replace-authors`（上表；#742）。依作品本身的 byline 整組替換，依據寫進 store。局部的改動另有 `resolve-people` 的歸戶、拆分、移除各腿。
+- **卷、期、頁碼、article number**（住在 `fields` 的 `volume`、`number`、`pages`、`eid`）：`enrich` 只補**不存在**的鍵；值錯了要先 `update-entry --remove-field <鍵>=理由` 移除再 `enrich` 補。這條路寫得進值，卻**記不下「出自哪份全文第幾頁」**——`enrich` 的來源記錄要 url 與 HTTP 狀態，本機全文沒有這兩欄。
+- **標題與日期**：它們是 work 的頂層欄位，不在 `fields` 裡，**目前沒有任何寫入面**——`--remove-field` 只認 `fields` 的鍵，`enrich` 不動標題、日期只在空白時才補。值錯了先記下來；真的要改，照下面〈沒有正規入口時〉的紀律（走編碼器，或改完做 round-trip 檢查），不要直接編輯 YAML 檔而兩者都不做。依全文更正這些欄位的寫入面在 #745。
+- 上面都涵蓋不到的改動（例如改一個已存在、沒有專用面的值）仍沒有正規入口，下面的紀律適用。這份文件其餘段落的過時之處記在 #743。
+
+沒有正規入口時：
 
 ### 保證或檢查，二擇一——兩個都沒有才是錯的
 

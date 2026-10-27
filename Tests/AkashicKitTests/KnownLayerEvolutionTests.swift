@@ -140,12 +140,12 @@ final class KnownLayerEvolutionTests: XCTestCase {
     /// #406 R1 verify 由 14 改為 15——判定 reference 的 vocabulary bump、#450 由 15 改為 16——
     /// work 側拆分記錄的 vocabulary bump；其後 #457／#605／#619 各一次，#655 由 19 改為 20——
     /// work 的 `date` 來源 reference 那一格、#642 由 20 改為 21——library registry 的成員性質、#564 由 21 改為 22——
-    /// 名字分類的判定記錄）。
+    /// 名字分類的判定記錄、#742 由 22 改為 23——作者列替換記錄與 group-members）。
     ///
     /// **函式名帶數字是刻意的**：改值時被迫連名字一起改，否則會留下
     /// 「`IsExactlyEleven` 斷言 12」這種名字與內容分岔——本 repo 已修過三次同型
     /// （CLAUDE.md 兩處摘要、`13 條` vs `14 條`）。
-    func testCurrentSupportedFormatIsExactlyTwentyTwo() {
-        XCTAssertEqual(StoreVersion.supported, 22)
+    func testCurrentSupportedFormatIsExactlyTwentyThree() {
+        XCTAssertEqual(StoreVersion.supported, 23)
     }
 }

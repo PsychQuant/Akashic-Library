@@ -180,10 +180,22 @@ public enum StoreVersion {
     ///   **quarantine**、rc=0。write gate（`assertNameClassificationRecordsWritable`，門檻 `nameClassificationRecordFormat`）對 format < 22
     ///   拒寫帶這種記錄的 person／organization／venue。**無資料遷移**（這種記錄在 format 21 寫不出來，既有記錄零 diff）。
     ///   **升級前置**：CLI/MCP/App 全升 v22 世代 → 使用者手動 `format: 22`（`authorize-names --apply` 自 #564 起不再替人寫 marker）。
-    public static let supported = 22
+    /// - **23** ＝ work 的**作者列替換記錄**（`references` 裡 `field: authors`、沒有 value 的判斷型，statement 走
+    ///   `替換為 ⟦a⟧ …；依據第 N 頁：理由`）與頂層 **`group-members:`**（團體作者的成員名單）；#742，Spectra change
+    ///   `reconcile-work-from-fulltext`。兩個形狀共用一次 bump（design D7），成因各自足夠：(1) 替換記錄是 **non-additive**
+    ///   ——format-22 binary 的附著驗證要求 `field: authors` 必帶 value，讀到會**整檔 quarantine**、rc=0；(2) `group-members:`
+    ///   依本檔頂部判準表是 additive（舊 binary tolerant-preserve 原樣保留），**仍 bump 的理由是語意**（同 18、21 的「保留不等於
+    ///   遵守」）：舊 binary 的 Zotero pull 不認得替換記錄，會以 Zotero 的作者列蓋掉依全文核對過的那一份，名單就與作者列脫鉤。
+    ///   write gate（`assertEntryWritable`，門檻 `authorListReplacementFormat`）對 format < 23 拒寫帶任一形狀的 work。
+    ///   **無資料遷移**（兩種形狀在 format 22 都寫不出來，既有記錄零 diff）。**升級前置**：CLI/MCP/App 同一個 release 全升
+    ///   v23 世代 → 使用者手動 `format: 23`。
+    public static let supported = 23
 
     /// 名字分類的判定記錄（#564）需要的最低 store format。三個寫入閘與測試共用這一個數。
     public static let nameClassificationRecordFormat = 22
+
+    /// 作者列替換記錄與 `group-members`（#742）需要的最低 store format。寫入閘、替換腿與測試共用這一個數。
+    public static let authorListReplacementFormat = 23
 
     /// work 的 `date` 來源 reference（#655）需要的最低 store format。**寫入閘與 `enrich` 的事前判斷共用這一個數**
     /// ——兩邊各寫一個 20，會在下一次有人調整其中一邊時安靜地分岔（`enrich` 說「會寫」、寫入閘卻擋下）。

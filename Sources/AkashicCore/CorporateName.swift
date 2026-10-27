@@ -43,6 +43,23 @@ public enum CorporateName {
         return depth == 0
     }
 
+    /// 以 **scalar** 計的同一個判準：開頭是 `{`、結尾是 `}`，而且最外層只在結尾閉合。`isMarked` 逐 Character 計算，`}` 後面接組合記號、
+    /// 或前面是 Prepend 字元時，那個 `}` 不是一個獨立的 Character、不被計入——寫進 store 之後，以 scalar 讀的下游（`export-bib`
+    /// 的 BibTeX）就會看到不平衡的括號（#742 verify 第五輪）。替換腿對新寫入的團體名兩個都要求。
+    public static func isMarkedByScalars(_ s: String) -> Bool {
+        let u = Array(s.trimmingCharacters(in: .whitespaces).unicodeScalars)
+        guard u.count >= 2, u.first == "{", u.last == "}" else { return false }
+        var depth = 0
+        for (i, c) in u.enumerated() {
+            if c == "{" { depth += 1 }
+            if c == "}" {
+                depth -= 1
+                if depth < 0 || (depth == 0 && i != u.count - 1) { return false }
+            }
+        }
+        return depth == 0
+    }
+
     /// 加上標記（已標記則不重複加）。
     public static func mark(_ s: String) -> String {
         isMarked(s) ? s : "{\(s)}"

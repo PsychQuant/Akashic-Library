@@ -35,6 +35,9 @@ public struct Entry: Equatable {
     public var type: WorkType
     public var title: String
     public var authors: [Author]
+    /// 團體作者的成員名單（#742，design D6）——照作品裡印的名單逐字、次序照原文，是出版當時的名單。
+    /// 成員是字串、不是二態 ref；只有作者列替換腿寫它。YAML 寫在 `group-members:`，空則不寫出（既有記錄零 diff）。
+    public var groupMembers: [GroupMemberList] = []
     /// 發表載體的二態指涉（#304，有序——主要載體在前）。作品側是正典側
     /// （#300 六理由同構）；反向（venue → 文章編年）一律現算。匯入端只產生
     /// `.literal`（`literal-first-then-key` 規則）；`fields` 內的 journaltitle

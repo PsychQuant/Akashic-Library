@@ -72,7 +72,7 @@ extension DestructiveTargetGate {
         "enrich": .gated,   // #458：只加不存在的鍵，但仍改寫既有記錄檔；閘的成本是一行
         "enrich-from-zotero": .gated,
         "copy-zotero-attachments": .gated,   // #606：預設乾跑、--apply 才寫；把位元組存進 sources/ 並改寫既有 work 記錄的 akashic.sources（追加）——比照 update-entry／enrich
-        "update-entry": .gated,   // #544／#614／#680／#677：預設乾跑、--apply 才寫；--remove-field 刪 fields 的值、--add-source 追加副本引用、--remove-zotero-source 拿掉記下的 Zotero 來源、--remove-source 收回副本引用——都改寫既有記錄檔（比照 enrich）；四條腿同一格：閘在命令入口（--apply），不分腿
+        "update-entry": .gated,   // #544／#614／#680／#677：預設乾跑、--apply 才寫；--remove-field 刪 fields 的值、--add-source 追加副本引用、--remove-zotero-source 拿掉記下的 Zotero 來源、--remove-source 收回副本引用——都改寫既有記錄檔（比照 enrich）；五條腿同一格（#742 的 --replace-authors 也預設乾跑）：閘在命令入口（--apply），不分腿
         "authorize-names": .gated,   // #580 R1 verify：全庫掃蕩的布林 --apply，曾因宣告寫成 `: Bool` 漏在稽核外
         "resolve-divergence": .gated,
         "rename": .gated,   // #650／#653
@@ -135,6 +135,8 @@ extension DestructiveTargetGate {
         "fulltext take": .readOnly("收人存下來的本機 PDF：驗證、git 閘、只寫 --out 指定的檔（在 git 工作樹之外），不經 openStore、不寫 store；存進 store 是之後的 store-source（#613）"),
         "fulltext calibrate": .readOnly("開發用：在本機 PDF 資料夾與 Crossref 回應目錄上量驗證規則，只讀（#629）"),
         "fulltext contract": .readOnly("印一個契約版本常數，不讀不寫任何檔、不碰瀏覽器（#613）"),
+        "fulltext text": .readOnly("讀 store 找出 work 連著的全文 PDF、只寫 --out 指定的逐頁文字 JSON（在 git 工作樹之外），不寫 store、不做 OCR（#742）"),
+        "fulltext compare": .readOnly("讀 store 與提議檔、跑一次替換腿的乾跑取拒絕原因，只寫 --out 指定的比對表（或印到 stdout），不寫 store（#742）"),
         "web-read url": .readOnly("開分頁之前檢查網址檔的形狀，只讀 --file、只印到 stdout，不寫任何檔、不經 openStore（#692 b33 verify）"),
         "web-read origin": .readOnly("從 stdin 的 safari-browser documents 輸出取出鎖到的分頁的主機，只印到 stdout，不寫任何檔（#692 R4）"),
         "web-read landing": .readOnly("驗落地主機：刪 --out 指定的檔、通過才寫回它；不經 openStore。路徑由呼叫端給（skill 給的是暫存目錄裡的檔），程式不限制位置，只刪一般檔或 symlink、目錄具名拒絕（#692 R4、b33 verify）"),

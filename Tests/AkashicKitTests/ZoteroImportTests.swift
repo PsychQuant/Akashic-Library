@@ -260,6 +260,39 @@ final class ZoteroImportTests: XCTestCase {
         let after = try store.load().entries.first { $0.citekey == "cheng2025identifiability" }!
         XCTAssertEqual(after.authors.first, .key("cheng-che"))   // 解析成果不被 pull 摧毀
     }
+
+    /// #742（design D9）：主來源是 Zotero、全 literal 的作者列帶著作者列替換記錄——依全文核對過的作者列不被下一次 pull 改回去。
+    func testReplacedAuthorListIsPreservedOnUpdate() throws {
+        _ = try runImport()
+        var article = try store.load().entries.first { $0.citekey == "cheng2025identifiability" }!
+        article.authors = [.literal("C. Cheng (byline)"), .literal("H.-H. Yang (byline)")]
+        article.references.append(ProvenanceReference(
+            field: "authors", value: nil,
+            kind: .judgement(statement: "替換為 ⟦C. Cheng (byline)⟧ ⟦H.-H. Yang (byline)⟧；依據第 1 頁：PDF byline",
+                             restsOn: ["sha256:" + String(repeating: "ab", count: 32)])))
+        try store.writeEntry(article)
+        try fixture.db.execute("UPDATE items SET version=11 WHERE itemID=10")
+
+        let report = try runImport()
+        let after = try store.load().entries.first { $0.citekey == "cheng2025identifiability" }!
+        XCTAssertEqual(after.authors, [.literal("C. Cheng (byline)"), .literal("H.-H. Yang (byline)")], "替換過的作者列不被 pull 覆寫")
+        XCTAssertTrue(report.authorsPreserved.contains("cheng2025identifiability"), "\(report.authorsPreserved)")
+        XCTAssertFalse(report.authorsOverwritten.contains("cheng2025identifiability"))
+        XCTAssertNotNil(after.authorListReplacementRecord, "記錄本身也留著")
+    }
+
+    /// #742（design D9）：organization 位同樣是已歸戶的位——它在 #323 之前不存在，這條保留先前只看 person key。
+    func testResolvedOrganizationAuthorIsPreservedOnUpdate() throws {
+        _ = try runImport()
+        var article = try store.load().entries.first { $0.citekey == "cheng2025identifiability" }!
+        article.authors = [.literal("C. Cheng (byline)"), .organization("sing-consortium")]
+        try store.writeEntry(article)
+        try fixture.db.execute("UPDATE items SET version=12 WHERE itemID=10")
+        let report = try runImport()
+        let after = try store.load().entries.first { $0.citekey == "cheng2025identifiability" }!
+        XCTAssertEqual(after.authors, [.literal("C. Cheng (byline)"), .organization("sing-consortium")])
+        XCTAssertTrue(report.authorsPreserved.contains("cheng2025identifiability"), "\(report.authorsPreserved)")
+    }
 }
 
 extension ZoteroImportTests {

@@ -87,6 +87,11 @@ struct RecordIssuesSection: View {
                           + "verdict 不帶 index，demote／repoint 對那筆 work 會被拒（D23）；在 venue 的 YAML 裡留一筆——留之前先看「重複的判定記錄」"
                           + "那一列：本族只比 literal，只差位元組的兩筆 judgement／rests-on 若不同，那一族會另報一則（R26 D71／R27）。")
             }
+            if summary.staleReplacementRecords > 0 {
+                LabeledContent("作者列替換記錄對不上", value: summary.lowerBound(summary.staleReplacementRecords))
+                    .help("替換記錄的各段與目前的作者列對不上——替換之後作者列又被拆分、移除或改寫（#742）。"
+                          + "用全文重新核對後再替換一次；新的替換會移除這筆記錄。")
+            }
             if summary.staleSplitRecords > 0 {
                 LabeledContent("拆分記錄各段都不在", value: summary.lowerBound(summary.staleSplitRecords))
                     .help("一筆拆分記錄的各段沒有任何一段仍是作者位（#450）。"

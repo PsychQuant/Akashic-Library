@@ -109,14 +109,19 @@ final class ServiceArgvExitCodeTests: XCTestCase {
         try assertUsageError(["update-entry", "a2020b", "--remove-source", "\(digest)=r", "--remove-field", "a=b"], "單獨呼叫")
     }
 
-    /// 四條腿（`--remove-field`、`--add-source`、`--remove-zotero-source`、`--remove-source`）**任兩條組合都被拒**（#680／#677）：
-    /// C(4,2)＝6 對，每一對都是 exit 64（用法錯誤）、早於開 store。上面各腿的測試只釘到其中幾對。
+    /// 五條腿（`--remove-field`、`--add-source`、`--remove-zotero-source`、`--remove-source`、`--replace-authors`）**任兩條組合都被拒**
+    ///（#680／#677／#742）：C(5,2)＝10 對，每一對都是 exit 64（用法錯誤）、早於開 store。上面各腿的測試只釘到其中幾對。
     func testUpdateEntryLegsAreMutuallyExclusive() throws {
+        // CLI 先讀 --replace-authors 的檔再交給服務判互斥，所以要一個存在的檔（內容不會被解讀到）
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        let replaceFile = tmp.appendingPathComponent("replace.json")
+        try Data("{}".utf8).write(to: replaceFile)
         let legs: [(name: String, args: [String])] = [
             ("--remove-field", ["--remove-field", "a=b"]),
             ("--add-source", ["--add-source", digest]),
             ("--remove-zotero-source", ["--remove-zotero-source", "5:K=r"]),
             ("--remove-source", ["--remove-source", "\(digest)=r"]),
+            ("--replace-authors", ["--replace-authors", replaceFile.path]),
         ]
         var pairs = 0
         for i in legs.indices {
@@ -125,7 +130,7 @@ final class ServiceArgvExitCodeTests: XCTestCase {
                 pairs += 1
             }
         }
-        XCTAssertEqual(pairs, 6, "四條腿有 6 對")
+        XCTAssertEqual(pairs, 10, "五條腿有 10 對")
     }
 
     func testUpdateVenueArgvChecks() throws {

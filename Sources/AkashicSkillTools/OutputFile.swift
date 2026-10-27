@@ -12,8 +12,8 @@ import AkashicCore
 /// 2. 覆寫普通檔時在**目的地同目錄**開暫存檔、寫完 `rename(2)` 原子替換——`rename` 換的是名字、不跟隨 symlink、也不會遞迴刪任何
 ///    東西；目的地若在檢查之後變成目錄，`rename` 自己回 `EISDIR`，原檔（或目錄）原封不動。任何一步失敗，原本的檔案都還在。
 ///
-/// **權限**：暫存檔以 `open(2)` 的 `0666` 建立、受 umask 約束，與舊實作（先寫 `mktemp -d` 裡的檔再 `mv`）落地的權限一致——
-/// 不是 `mkstemp` 的 `0600`。第三方全文放不放 `0600` 是另一個裁決，這裡不順手改。
+/// **權限**：`replace` 的預設是 `open(2)` 的 `0666`、受 umask 約束，與 `fulltext take` 的舊實作落地的權限一致。`fulltext text`／
+/// `compare` 寫第三方全文時傳 `0o600`（#742 verify 第一輪的裁決），`createExclusive` 也由呼叫端給權限。
 enum OutputFile {
     enum State: Equatable {
         case absent
@@ -55,8 +55,45 @@ enum OutputFile {
         return (dir.isEmpty ? "." : dir) + "/.\(token).\(name)"
     }
 
+    /// 以 `data` **獨佔建立** `path`：目的地已存在（任何種類）就失敗、不覆寫（#742 verify 第二輪）。
+    ///
+    /// 先寫同目錄的暫存檔，再以 `link(2)` 把它掛到最終檔名——`link` 在目的地已存在時回 `EEXIST`、不跟隨 symlink，
+    /// 所以「檢查之後、寫入之前出現的檔」也不會被蓋掉；`replace` 用的 `rename(2)` 會無聲取代它。最後刪掉暫存檔的名字，不留殘檔。
+    static func createExclusive(path: String, with data: Data, mode: mode_t) throws {
+        let shown = displaySafeInvisible(path, max: 400)
+        let tmp = tempPath(for: path, token: UUID().uuidString)
+        let fd = open(tmp, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, mode)
+        guard fd >= 0 else {
+            throw SkillToolError.failure("cannot write \(shown): \(displaySafeInvisible(String(cString: strerror(errno)), max: 200))")   // display-safe-exempt: shown 上面已 displaySafeInvisible
+        }
+        var failure: String?
+        do {
+            let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: false)
+            try handle.write(contentsOf: data)
+            if fsync(fd) != 0 { failure = String(cString: strerror(errno)) }
+        } catch {
+            failure = displaySafeErrorText(error)
+        }
+        if close(fd) != 0, failure == nil { failure = String(cString: strerror(errno)) }
+        if failure == nil, link(tmp, path) != 0 {
+            switch errno {
+            case EEXIST: failure = "it already exists — refusing to replace it"
+            // 獨佔建立靠 hard link；不支援的磁碟區（部分網路或 FAT 類檔案系統）要說出原因，不只印 errno 的字串（#742 verify 第三輪）
+            // 暫存檔與目的地在同一個目錄，EXDEV 不會發生；EPERM 也可能是別的原因，所以說「可能」
+            case EPERM, ENOTSUP, EMLINK:
+                failure = "the hard link used to create the file without replacing anything failed (\(String(cString: strerror(errno)))) — this volume may not support hard links; try an --out on another volume"
+            default: failure = String(cString: strerror(errno))
+            }
+        }
+        unlink(tmp)
+        if let failure {
+            throw SkillToolError.failure("cannot write \(shown): \(displaySafeInvisible(failure, max: 300))")   // display-safe-exempt: shown 上面已 displaySafeInvisible
+        }
+    }
+
     /// 原子替換（或建立）`path` 為 `data`。目的地是普通檔或不存在才動手；任何一步失敗都不留暫存檔、不動原本的東西。
-    static func replace(path: String, with data: Data, token: String = UUID().uuidString) throws {
+    /// `mode` 是暫存檔建立時的權限（仍受 umask 限制）；第三方全文用 `0o600`（#742 verify）。
+    static func replace(path: String, with data: Data, token: String = UUID().uuidString, mode: mode_t = 0o666) throws {
         let shown = displaySafeInvisible(path, max: 400)
         switch try inspect(path) {
         case .other(let kind):
@@ -65,7 +102,7 @@ enum OutputFile {
             break
         }
         let tmp = tempPath(for: path, token: token)
-        let fd = open(tmp, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o666)
+        let fd = open(tmp, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, mode)
         guard fd >= 0 else {
             throw SkillToolError.failure("cannot write \(shown): \(displaySafeInvisible(String(cString: strerror(errno)), max: 200))")   // display-safe-exempt: shown 上面已 displaySafeInvisible
         }

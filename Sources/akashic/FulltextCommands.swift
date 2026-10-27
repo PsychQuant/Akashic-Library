@@ -2,6 +2,7 @@ import ArgumentParser
 import Foundation
 import AkashicCore
 import AkashicSkillTools
+import AkashicMCPKit
 
 /// `akashic-fetch-fulltext` skill 的決定論中間運算與抓取編排（#629 由 `scripts/*.py`、`fetch-fulltext.sh` 移植）。
 ///
@@ -11,9 +12,10 @@ import AkashicSkillTools
 struct FulltextCmd: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "fulltext",
-        abstract: "取全文 skill 的中間運算：驗證下載檔、起疑訊號、抖動、導航到 PDF 並交給人、收人存的檔、標題規則校準、契約版本",
+        abstract: "取全文與依全文核對的中間運算：驗證下載檔、起疑訊號、抖動、導航到 PDF 並交給人、收人存的檔、標題規則校準、契約版本、逐頁文字（text）",
         subcommands: [FulltextVerifyCmd.self, FulltextBotSignalsCmd.self, FulltextJitterCmd.self,
-                      FulltextFetchCmd.self, FulltextTakeCmd.self, FulltextCalibrateCmd.self, FulltextContractCmd.self])
+                      FulltextFetchCmd.self, FulltextTakeCmd.self, FulltextCalibrateCmd.self, FulltextContractCmd.self,
+                      FulltextTextCmd.self, FulltextCompareCmd.self])
 }
 
 /// `fetch`／`take` 對 skill 的契約版本（`FulltextFetch.contractVersion`）。SKILL.md 第 0 步用它分辨比這份 SKILL 舊的 CLI（#613 R3，b31 W4 第 1 則：
@@ -224,6 +226,161 @@ struct FulltextTakeCmd: ParsableCommand {
             err: { line in FileHandle.standardError.write(Data((line + "\n").utf8)) })
         let code = taker.run(.init(from: from, out: out, title: title, pages: pages, doi: doi))
         if code != 0 { throw ExitCode(code) }
+    }
+}
+
+/// 一筆 work 連著的全文 PDF 的**全部頁**文字（#742，`akashic-verify-work` skill 的第 1 步）。讀 store、不寫 store、不連網、不做 OCR。
+/// MCP 沒有對應面：輸出是第三方全文、要落在 git 之外的檔（`mcp-cli-parity` 的 CLI-only 表一列，理由同 `references`：skill 的內部步驟）。
+struct FulltextTextCmd: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "text",
+        abstract: "一筆 work 連著的全文 PDF 的逐頁文字與有沒有文字層，寫成 JSON 到 --out（git 工作樹之外）；不寫 store、不做 OCR",
+        discussion: """
+        輸出：{"citekey", "source", "sourcePath", "pageCount", "hasTextLayer", "pages": [{"page", "hasLetters", "text"}]}。page 是 PDF 的\
+        實體頁序（1 起算），不是印刷頁碼。hasLetters 是那一頁有沒有任何 Unicode 字母（只有數字、標點的頁不算）；hasTextLayer 是 false \
+        恰在沒有任何一頁有字母時。akashic-verify-work 對需要讀、卻沒有字母的頁改走 bestOCR，本命令不做 OCR。sourcePath 是那份全文在 \
+        本機 sources/ 的實體路徑。全文從 akashic.sources 裡 index 記為 application/pdf 的那一份取；連著不只一份時要 --source 指定。\
+        --out 必須是還不存在的檔（不覆寫、不跟隨 symlink），以 0600 寫出。拒絕（結束碼 1、不寫檔）：--out 在 git 工作樹內或已經存在、\
+        --source 沒連在這筆、這筆沒連任何 PDF、本機 sources/ 沒有那份存檔、pdftotext 切出的頁數與 pdfinfo 不符。需要 poppler（pdfinfo、pdftotext）。
+        """)
+
+    @OptionGroup var options: LibraryOptions
+
+    @Option(name: .long, help: "work 的 citekey")
+    var citekey: String
+
+    @Option(name: .long, help: "要讀的那一份全文的 digest（這筆連著不只一份 PDF 時必填）")
+    var source: String?
+
+    @Option(name: .long, help: "輸出的 JSON 檔；必須在任何 git 工作樹之外（全文是第三方內容），而且還不存在")
+    var out: String
+
+    func run() throws {
+        let store = try options.openStore()
+        do {
+            let target = try FulltextReconcile.checkOutput(out)
+            let entries = try store.load().entries
+            if entries.unlocatableCitekeys.contains(citekey) {
+                throw SkillToolError.failure("work「\(displaySafeInvisible(citekey, max: 200))」無法唯一定位——先修好（#628／#641）")
+            }
+            guard let entry = entries.first(where: { $0.citekey == citekey }) else {
+                throw SkillToolError.failure("找不到 citekey「\(displaySafeInvisible(citekey, max: 200))」")
+            }
+            let chosen = try FulltextReconcile.chooseSource(entry: entry, requested: source, store: store)
+            let read = try PDFReader.readAllPages(path: chosen.url.path)
+            let data = try FulltextReconcile.textJSON(citekey: entry.citekey, digest: chosen.digest, sourcePath: chosen.url.path,
+                                                      pageCount: read.pageCount, pages: read.pages)
+            try FulltextReconcile.write(data, to: target)
+            FileHandle.standardError.write(Data("✓ \(read.pageCount) 頁 → \(displaySafeInvisible(target, max: 300))\n".utf8))   // display-safe-exempt: pageCount 是 Int
+        } catch let e as SkillToolError {
+            throw RuntimeFailure.state(displaySafeErrorText(e))
+        }
+    }
+}
+
+/// 把模型從全文讀出的提議與 store 現值逐欄比對（#742，`akashic-verify-work` 的第 3 步）。讀 store、不寫 store、不連網。
+/// 提議裡的作者項、`release`、`groupMembers` 由**替換腿的同一個解碼器與規則**驗：這裡直接跑一次替換腿的乾跑，被拒的原因寫進 `refusal`
+/// （結束碼仍 0）——會被拒的提議在乾跑階段就說出來，不另寫一份驗證器。**不論要不要替換都跑**（#742 verify：作者列相同、`release`
+/// 卻指到 literal 位的提議，先前以 `refusal: null` 過關）。MCP 沒有對應面（CLI-only 表一列，理由同 `fulltext text`）。
+struct FulltextCompareCmd: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "compare",
+        abstract: "全文讀出的提議與 store 現值逐欄比對，輸出比對表與可直接交給 update-entry --replace-authors 的物件；不寫 store",
+        discussion: """
+        提議：{"source", "authors": {"page", "items", "reason"?}, "release"?, "groupMembers"?, "title"?, "volume"?, "issue"?, "pages"?, \
+        "articleNumber"?, "date"?}；純量欄位是 {"value", "page"}。items、release、groupMembers 與 update-entry --replace-authors 同形。\
+        reason 省略時填「PDF 第 N 頁 byline」。任何一層的未知鍵都拒絕（結束碼 1）。\
+        輸出：{"citekey", "rows": [{"field", "store", "proposed", "page", "status"}], "replaceAuthors", "refusal", "applyRefusal"}，status 是 same、differs、\
+        absentInStore、notProposed 之一，比較逐位元組；成員名單列的每組帶 restsOn（提議那一側是提議的 source）。作者列或成員名單不同時 \
+        replaceAuthors 是替換腿的物件，否則 null；提議一律經替換腿乾跑驗一次（不論 replaceAuthors 是不是 null），會被拒時原因在 refusal、\
+        結束碼 0。頁序對照提議 source 那份 PDF 的頁數，超出或讀不出頁數都寫進 refusal。乾跑接受、但 store 會拒絕寫入（例如 format 低於 23）時\
+        原因在 applyRefusal；只有提議與 store 不同、給得出替換物件時才有 applyRefusal，與 store 一致的提議沒有東西要寫、三欄皆 null。\
+        讀不出替換腿乾跑的報告時寫進 refusal。refusal 或 applyRefusal 不是 null 時 replaceAuthors 一律 null：被拒的提議沒有寫入命令。作者列與成員名單以外的欄位只列出，不產生寫入命令。\
+        卷、期、頁碼、article number 對的是 fields 的 volume、number、pages、eid。--out 省略時印到 stdout；給了就必須在 git 工作樹之外、\
+        而且還不存在（不覆寫、不跟隨 symlink），以 0600 寫出。
+        """)
+
+    @OptionGroup var options: LibraryOptions
+
+    @Option(name: .long, help: "work 的 citekey")
+    var citekey: String
+
+    @Option(name: .long, help: "提議的 JSON 檔")
+    var proposal: String
+
+    @Option(name: .long, help: "輸出的 JSON 檔（省略印到 stdout）；必須在 git 工作樹之外，而且還不存在")
+    var out: String?
+
+    func run() throws {
+        let store = try options.openStore()
+        do {
+            let target = try out.map { try FulltextReconcile.checkOutput($0) }
+            let p: FulltextReconcile.Proposal
+            do { p = try FulltextReconcile.decodeProposal(try Data(contentsOf: URL(fileURLWithPath: proposal))) } catch let e as SkillToolError {
+                throw e
+            } catch {
+                throw SkillToolError.failure("讀不到 --proposal：\(displaySafeErrorText(error))")
+            }
+            let entries = try store.load().entries
+            if entries.unlocatableCitekeys.contains(citekey) {
+                throw SkillToolError.failure("work「\(displaySafeInvisible(citekey, max: 200))」無法唯一定位——先修好（#628／#641）")
+            }
+            guard let entry = entries.first(where: { $0.citekey == citekey }) else {
+                throw SkillToolError.failure("找不到 citekey「\(displaySafeInvisible(citekey, max: 200))」")
+            }
+            let result = FulltextReconcile.compare(entry: entry, proposal: p)
+            var refusal: Any = NSNull()
+            // 替換腿的乾跑：同一個解碼器、同一套規則；乾跑不寫 store。不論要不要替換都跑
+            let service = AkashicService(root: store.root, key: store.key, environment: ProcessInfo.processInfo.environment)
+            var applyRefusal: Any = NSNull()
+            do {
+                let dry = try service.updateEntry(citekey: citekey, removeFields: nil,
+                                                  replaceAuthors: try JSONSerialization.data(withJSONObject: result.validation),
+                                                  dryRun: true, verdictsLimit: nil)
+                // 乾跑接受提議、但 store 會拒絕寫入（format 不足、寫入前置的上限）時，替換腿只把原因放在 applyRefusal、不擲錯——
+                // 另列出來，不給寫入命令（#742 verify 第四輪：先前只接 thrown error，這一類被丟掉）
+                // 只在有東西要寫（給得出替換物件）時才採用：一致的提議沒有東西要寫，乾跑卻會因為要補一筆依據記錄而撞上 format 閘
+                //（#742 verify 第五輪）。報告讀不出來時寫進 refusal，不當成沒有拒絕（同輪：try? 讓解析失敗變成放行）
+                if result.replaceAuthors != nil {
+                    if let obj = (try? JSONSerialization.jsonObject(with: Data(dry.utf8))) as? [String: Any] {
+                        if let reason = obj["applyRefusal"] as? String, !reason.isEmpty {
+                            applyRefusal = reason   // display-safe-exempt: reason 是替換腿已 displaySafeError 過的訊息
+                        }
+                    } else {
+                        refusal = "讀不出替換腿乾跑的報告，無法確認寫不寫得進去"
+                    }
+                }
+            } catch {
+                refusal = displaySafeErrorText(error)
+            }
+            // 頁序上限：替換腿不讀 PDF，所以在這裡對照提議 source 那一份的頁數。source 本身不合（沒連在這筆、沒存、不是 PDF）時
+            // 替換腿已經拒絕並說出原因，這裡不重報（#742 verify 第二輪）
+            // 讀不出頁數（含 chooseSource 失敗）時寫進 refusal，不略過這道閘：替換腿本身不查頁序上限，這裡是唯一的一道
+            //（#742 verify 第四輪：`try?` 吞掉錯誤時整道閘不跑、refusal 為 null）
+            if refusal is NSNull {
+                do {
+                    let chosen = try FulltextReconcile.chooseSource(entry: entry, requested: p.source, store: store)
+                    let count = try PDFReader.pageCount(path: chosen.url.path)
+                    if let problem = FulltextReconcile.pageProblem(p, pageCount: count) { refusal = problem }
+                } catch {
+                    refusal = "讀不出提議 source 的頁數，無法核對提議的頁序：\(displaySafeErrorText(error))"
+                }
+            }
+            // 被拒的提議不產生寫入命令：`refusal` 不是 null 時 `replaceAuthors` 一律 null（#742 verify 第三輪——頁序那一種原本只有這裡擋，
+            // 取出 replaceAuthors 交給替換腿就過關）
+            let replaceOut: Any = (refusal is NSNull && applyRefusal is NSNull) ? (result.replaceAuthors.map { $0 as Any } ?? NSNull()) : NSNull()
+            let object: [String: Any] = ["citekey": entry.citekey, "rows": result.rows,   // display-safe-exempt: entry.citekey 受 StoreKey 約束；這份 JSON 是給 skill 讀的機器格式（值是作品與 store 的原文）
+                                         "replaceAuthors": replaceOut, "refusal": refusal, "applyRefusal": applyRefusal]
+            let data = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .prettyPrinted, .withoutEscapingSlashes])
+            if let target {
+                try FulltextReconcile.write(data, to: target)
+            } else {
+                FileHandle.standardOutput.write(data)   // display-safe-exempt: 未消毒——給 skill 讀的機器格式，值是作品與 store 的原文
+                FileHandle.standardOutput.write(Data("\n".utf8))
+            }
+        } catch let e as SkillToolError {
+            throw RuntimeFailure.state(displaySafeErrorText(e))
+        }
     }
 }
 

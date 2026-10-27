@@ -61,8 +61,8 @@ public struct ImportReport: Equatable {
         /// **計數的時機是讀進每個 Zotero 條目時**，不論這一趟有沒有寫（含未變動、被多筆宣稱而略過、寫入失敗的條目）——
         /// 它說的是「讀到的條目帶哪些未對映欄位」，對寫入失敗的那一筆「入庫」兩個字不成立（#702 R1 verify）。
         public var residualFields: [String: Int] = [:]
-        /// pull 覆寫掉的**未歸戶** literal 作者（#208）。已歸戶的 `.key` 走
-        /// `authorsPreserved`，永不被覆寫。只記寫入成功的那一筆——寫不進去的只在 `writeFailed`／`quarantineConflicts`（#702）。
+        /// pull 覆寫掉的作者列（#208）：作者列沒有任何已歸戶位、也沒有作者列替換記錄時才覆寫。有已歸戶位（person `.key` 或 `.organization`，#742 起含後者）
+        /// 或替換記錄的作者列走 `authorsPreserved`，永不被覆寫。只記寫入成功的那一筆——寫不進去的只在 `writeFailed`／`quarantineConflicts`（#702）。
         public var authorsOverwritten: [String] = []
         /// pull **移除**的欄位名 → 次數（#208）。成因是 `applyBiblatexFields`
         /// 整份替換 `fields`：Zotero 這次沒給的欄位會消失，包含使用者手工補的。只算寫入成功的那幾筆（#702）。
@@ -343,9 +343,15 @@ public struct ZoteroImporter {
                     // #694：**只決定這一筆列在報告的哪一格**，不參與下面任何一個寫入的決定——兩格走同一段改寫、同一次寫入。
                     let hashOnly = Self.isHashOnlyDifference(storedHash: prov.zoteroHash, storedVersion: prov.zoteroVersion,
                                                              item: item, itemHash: itemHash)
+                    // #742（design D9）：已歸戶的位（person key 或 organization key）**或**作者列替換記錄在，作者列就保留。
+                    // 作品本身是書目的依據（#639），Zotero 是線索：依全文核對過的作者列被下一次 pull 改回去，會安靜推翻一個判定。
+                    // organization 位在 #323 之前不存在，原本這裡只看 `.key`；它同樣是人判定過的歸戶，一併保留。
                     let hadResolvedAuthors = existing.authors.contains {
-                        if case .key = $0 { return true } else { return false }
-                    }
+                        switch $0 {
+                        case .key, .organization: return true
+                        case .literal: return false
+                        }
+                    } || existing.authorListReplacementRecord != nil
                     // **記下 pull 會蓋掉什麼**（#208）。`applyBiblatexFields` 整份
                     // 替換 `fields`，所以 Zotero **這次沒給**的欄位會消失——包含
                     // 使用者手工補的、或別的 importer 寫的。Zotero 對它沒給的欄位
@@ -375,7 +381,7 @@ public struct ZoteroImporter {
                     let removedIdentifiers = identifiersBefore.subtracting(identifiersAfter).sorted()
                     var authorsOverwritten = false
                     if !hadResolvedAuthors {
-                        // 解析成果（person key）是使用者確認過的衍生知識，pull 不摧毀（寫入成功後記進 authorsPreserved）。
+                        // 解析成果（person key、organization key）與作者列替換記錄是使用者確認過的衍生知識，pull 不摧毀（寫入成功後記進 authorsPreserved）。
                         let after = item.authors.map { AkashicCore.Author.literal($0.display) }
                         // 未歸戶的 literal 作者會被 Zotero 版本覆寫。那是 pull-based
                         // sync 的正常語意（Zotero 是上游），但**與 import-wos 相反**

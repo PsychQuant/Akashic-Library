@@ -96,6 +96,18 @@ public enum EntryYAML {
             }
             pairs.append((Node("authors"), Node(authorNodes)))
         }
+        // #742：團體作者的成員名單，緊接 authors（它描述的是作者列裡的團體位）。空清單不寫出（既有記錄零 diff）。
+        if !entry.groupMembers.isEmpty {
+            let nodes: [Node] = entry.groupMembers.map { l in
+                Node([
+                    (Node("group"), Node(l.group)),
+                    (Node("rests-on"), Node(l.restsOn)),
+                    (Node("page"), Node(String(l.page))),
+                    (Node("members"), Node(l.members.map { Node($0) })),
+                ] as [(Node, Node)])
+            }
+            pairs.append((Node("group-members"), Node(nodes)))
+        }
         // #304：發表載體二態 ref，緊接 authors（同族的指涉欄位相鄰）。空集合省略。
         if !entry.venues.isEmpty {
             let venueNodes: [Node] = entry.venues.map { ref in
@@ -214,7 +226,8 @@ public enum EntryYAML {
         var ca = rd, cb = canaryNormalized(entry)
         ca.unknownFields = []; cb.unknownFields = []
         ca.akashic.unknownFields = []; cb.akashic.unknownFields = []
-        guard ca == cb,
+        // group-members 另比位元組：`Entry ==` 是正規等價，名單只差 NFC／NFD 時閘門看不出漂移（#742 verify 第四輪：先前只改了訊息函式）
+        guard ca == cb, ca.groupMembers.map(\.byteKey) == cb.groupMembers.map(\.byteKey),
               rd.unknownFields.map(\.key) == entry.unknownFields.map(\.key),
               rd.akashic.unknownFields.map(\.key) == entry.akashic.unknownFields.map(\.key)
         else {
@@ -345,6 +358,7 @@ public enum EntryYAML {
         if a.type != b.type { bad.append("type") }
         if a.title != b.title { bad.append("title") }
         if a.authors != b.authors { bad.append("authors") }
+        if a.groupMembers.map(\.byteKey) != b.groupMembers.map(\.byteKey) { bad.append("group-members") }   // 比位元組：synthesized == 是正規等價（#742 verify 第三輪）
         if a.venues != b.venues { bad.append("venues") }
         if a.date != b.date { bad.append("date") }
         if a.fields != b.fields { bad.append("fields") }
@@ -423,10 +437,12 @@ public enum EntryYAML {
     /// **形狀裸標籤也算已知鍵。** 不列入的話，tolerant-preserve 會把它當未知欄位
     /// 逐字保留並在寫回時重新產生——舊的 `type: person` 也是同理，見 `knownPersonKeys`。
     static let knownTopLevelKeys: Set<String> = Set([
-        "id", "citekey", "type", "title", "authors", "venues", "date",
+        "id", "citekey", "type", "title", "authors", "group-members", "venues", "date",
         "fields", "attachments", "provenance", "provenance_additional", "akashic", "thesis",
         "doi", "pmid", "isbn", "references",
     ]).union(EntityKind.knownLabels)
+    /// `group-members:` 每一組的封閉鍵域（#742）。
+    static let knownGroupMemberKeys: Set<String> = ["group", "rests-on", "page", "members"]
     static let knownAkashicKeys: Set<String> = [
         "tags", "libraries", "status", "relations", "author-list-completeness",
         "sources",
@@ -960,6 +976,43 @@ public enum EntryYAML {
                     throw StoreYAMLError.invalidField(
                         "authors", "必須恰好有 key／organization／literal 其一")
                 }
+            }
+        }
+        // #742：團體作者的成員名單。形狀規則只有一份（`GroupMemberList.problem`），這裡只搬運。
+        if let seq = try requireShape(map["group-members"], field: "group-members",
+                                      expect: "sequence", nullIsAbsent: true, { $0.sequence }) {
+            entry.groupMembers = try seq.enumerated().map { i, node in
+                let f = "group-members[\(i)]"
+                guard let m = node.mapping else {
+                    throw StoreYAMLError.invalidField(f, "形狀不符：預期 mapping")   // display-safe-exempt: f 程式構造（常量＋整數索引）
+                }
+                try rejectUnknownKeys(m, known: knownGroupMemberKeys, context: f)
+                func required(_ key: String) throws -> String {
+                    guard let s = try requireShape(m[key], field: "\(f).\(key)", expect: "scalar",
+                                                   { $0.scalar?.string }) else {
+                        throw StoreYAMLError.missingField("\(f).\(key)")   // display-safe-exempt: f 與 key 程式構造
+                    }
+                    return s
+                }
+                let group = try required("group")
+                let restsOn = try required("rests-on")
+                let pageString = try required("page")
+                guard let page = Int(pageString), String(page) == pageString else {
+                    throw StoreYAMLError.invalidField(
+                        "\(f).page", "「\(displaySafeInvisible(pageString, max: 40))」不是正規寫法的整數")   // display-safe-exempt: f 程式構造
+                }
+                guard let memberSeq = try requireShape(m["members"], field: "\(f).members",
+                                                       expect: "sequence", { $0.sequence }) else {
+                    throw StoreYAMLError.missingField("\(f).members")   // display-safe-exempt: f 程式構造
+                }
+                let members = try stringList(memberSeq, context: "\(f).members")
+                if let problem = GroupMemberList.problem(group: group, restsOn: restsOn, page: page, members: members) {
+                    throw StoreYAMLError.invalidField(f, problem)   // display-safe-exempt: f 程式構造（常量＋整數索引）；problem 是 GroupMemberList.problem 的常量句
+                }
+                return GroupMemberList(group: group, restsOn: restsOn, page: page, members: members)!
+            }
+            if let problem = Entry.groupMembersProblem(entry.groupMembers) {
+                throw StoreYAMLError.invalidField("group-members", problem)   // display-safe-exempt: problem 是常量句
             }
         }
         // #304：venues——形同 authors 的二態 ref（獨立 VenueRef 型別，定義域不同）。

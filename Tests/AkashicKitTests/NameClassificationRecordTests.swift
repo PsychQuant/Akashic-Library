@@ -193,8 +193,9 @@ final class NameClassificationRecordTests: XCTestCase {
 
     // MARK: - store format 22（spec「Writing a name-classification record SHALL require store format 22」）
 
-    func testSupportedIs22() {
-        XCTAssertEqual(StoreVersion.supported, 22)
+    /// #742 起 supported 是 23；名字分類記錄的門檻仍是 22——兩個數各自是一個 vocabulary 的門檻。
+    func testSupportedIs23AndTheNameClassificationGateStaysAt22() {
+        XCTAssertEqual(StoreVersion.supported, 23)
         XCTAssertEqual(StoreVersion.nameClassificationRecordFormat, 22)
     }
 

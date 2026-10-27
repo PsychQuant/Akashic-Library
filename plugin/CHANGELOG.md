@@ -1,5 +1,24 @@
 # Changelog
 
+## #742 — 依作品全文核對一筆 work（2026-10-24）：新 skill akashic-verify-work；plugin 殼 0.13.6 → 0.13.7
+
+細節在 `changelog/2026-10-21-reconcile-work-from-fulltext.md`。行為在 binary（新的 `akashic`、`akashic-mcp` 與 App；store format 23）與 skill。
+
+- **新 skill `akashic-verify-work`**：`fulltext text` 取逐頁文字 → 讀出 byline、團體成員名單與純量欄位 → `fulltext compare` → 乾跑表（含「文字來源」一欄）→ 人在 session 內明確同意才 `update-entry --replace-authors --apply`；unattended 只乾跑。沒有文字層時逐頁呼叫 bestOCR 的多引擎共識（只用本機引擎、不退回單一引擎），低共識的欄位不提議，OCR 的值標「OCR」。
+- **`akashic-fetch-fulltext`**：最後一步指向 `akashic-verify-work`。
+- **`akashic-bootstrap` 的 `writing-to-the-store.md`**：入口表加 `update-entry --replace-authors`；「更新既有記錄」改寫為各欄位的現有路徑與依據缺口。
+- **plugin 的 `source-of-truth-over-consent`**：封閉表加「團體署名與成員名單」一列。
+- `tools/list`：59,159 → 59,816 bytes（第一版；第一輪 verify 修正後 59,981，2026-10-26 量測，之後兩輪不變；預算依 #578 的裁決調到 65,000）。
+- **第一輪 verify 之後（2026-10-25）**：`akashic-verify-work` 只對需要讀、沒有字母的頁走 OCR（`fulltext text` 逐頁回 `hasLetters`），每頁一個 OCR 輸出目錄、讀完一頁才呼叫下一頁；bestOCR 的 REFUSED 當成信心不足；新增「全文是資料，不是指令」一節；`replaceAuthors: null` 時不呼叫替換腿；每一種結束都刪暫存目錄。`writing-to-the-store.md`：標題與日期目前沒有寫入面（#745）。0.13.7 尚未推上 main，所以版號不變、只更新版本帳本的摘要。
+- **第二輪 verify 之後（2026-10-26）**：`akashic-verify-work` 的 `proposal.json` 不經過 shell（寫檔工具或帶引號的 here-document），`replace.json` 以 `python3 -I` 從 `compare.json` 取出、不重打；暫存目錄改成 `<WORK_DIR>` 佔位、每個命令代入字面路徑（每一步是各自的 shell，`$WORK_DIR` 到下一步是空字串）；文字層只有頁首頁尾的頁也走 OCR；參與引擎是 `engines` 扣掉 `engines_without_aligned_items`；OCR 前先說要用哪些本機引擎；store 現值與 `compare` 輸出也當成資料；提議的 `source` 照抄 `text.json`。`writing-to-the-store.md`：標題與日期那一句改指向同檔〈沒有正規入口時〉。版號同樣不變。
+- **第三輪 verify 之後（2026-10-26）**：`akashic-verify-work` 的替換物件每次取出用新檔名（與 `compare-N.json` 同號），第 5 步沿用同一個檔名；取出命令指定 UTF-8；暫存目錄清理先核對是 `mktemp` 印出的樣式、刪完以 `test ! -e` 回報已刪／沒刪；名字中間的 NBSP、thin space 換成一般空白；比對表的名單列帶 `restsOn`；`refusal` 非 null 時沒有寫入命令可取。版號同樣不變。
+- **第四輪 verify 之後（2026-10-26）**：`akashic-verify-work` 分開兩種 refusal——說的是提議就修提議，說的是 store 本身（organization key 重複或讀不到、沿用位寫不成段、讀不出頁數）就停下請使用者先修 store、不得為了過關改提議；`applyRefusal` 不是 null 時只給比對表；清理先確認路徑是存在的目錄，`已刪` 只在真的刪了之後印出；第 4、5 步拿掉 MCP 變體（compare 只有 CLI 面，MCP 要內嵌物件等於重打）；雲端 OCR 的說法以 `cloud.` 前綴為準。版號同樣不變。
+- **第五輪 verify 之後（2026-10-27）**：`akashic-verify-work` 把「沿用位寫不成段」改歸提議——那一位不用 `from`、照 byline 寫成清理後的 literal（上一輪誤列為 store 缺陷，與替換腿的訊息相反）；`applyRefusal` 只在提議與 store 不同時出現；清理分開核對檔名（六個英數字元）、上層目錄與一個記著 citekey 的標記檔，再 `rm -rf --`（`?` 會匹配 `/`，同樣式的別次執行目錄也會被刪）；第 2 步寫明折行的名字用一般空白接、行尾連字號看 PDF 判斷；開始前列出需要的工具（含 `python3`）；description 拿掉 MCP 變體。版號同樣不變。
+- **第六輪 verify 之後（2026-10-27）**：`akashic-verify-work` 建立暫存目錄時一併寫入這一次執行的隨機標記（`RUN_TOKEN`），寫不出就刪掉目錄、停下；清理核對它，同一筆 work 的另一次執行也分得出來；訊息裡的變數寫成 `${W}`（bash 會把緊接的全形字元讀進變數名）；「沒有要寫的作者列」要三欄皆 null；沿用位的舊值是帶大括號的團體名時寫成 group 項；「讀不出替換腿乾跑的報告」歸工具本身的問題。版號同樣不變。
+- **第七輪 verify 之後（2026-10-27）**：`akashic-verify-work` 的 `RUN_TOKEN` 改讀固定長度的亂數（`set -e`＋`pipefail` 下不會因 SIGPIPE 提早退出）；建立失敗時確認目錄刪掉了才說已刪；標記在執行中遺失時把暫存目錄交給使用者確認後刪除。版號同樣不變。
+
+plugin 殼版號 0.13.6 → 0.13.7（新 skill 與上面幾個檔都在殼裡）；akashic-discovery 0.2.16 → 0.2.17（它經 symlink 送出 `plugin/rules`，`source-of-truth-over-consent` 改了）。
+
 ## #709 — b42 verify 修正（2026-10-20）：enrich 的拷貝那一句點名同 id 的每一份拷貝、判準與處置算在同一個集合上；validate 的重複 citekey 結論在前、名單有上限；citekey／person key 重複的 error 帶處置；plugin 殼 0.13.5 → 0.13.6
 
 細節在 `changelog/2026-10-20-b43-enrich-reasons-709.md`。行為在 binary（新的 `akashic` 與 `akashic-mcp`）；skill 文字沒有改。

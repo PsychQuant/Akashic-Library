@@ -419,6 +419,7 @@ public final class AkashicService {
                 "orphanedSplitVerdicts": health.orphanedSplitVerdicts.count,
                 "staleSplitRecords": health.staleSplitRecords.count,   // display-safe-exempt: Int
                 "contradictedRemovalRecords": health.contradictedRemovalRecords.count,
+                "staleReplacementRecords": health.staleReplacementRecords.count,   // display-safe-exempt: Int（#742 D8）
                 "unmergeableDivergences": health.unmergeableDivergences.count,   // display-safe-exempt: Int（#555 R2 D90：第 24 列的觸發條件）
                 // #554 配對唯一性的兩半（D28／D36）——計數讓呼叫端不必掃 first（截 20）就看見（R14 verify regression 第 22 列）
                 "duplicateVenueEdges": health.duplicateVenueEdges.count,   // display-safe-exempt: Int
@@ -3495,6 +3496,15 @@ public final class AkashicService {
                 uniquingKeysWith: { first, _ in first }),
         ]
         if let date = entry.date { d["date"] = displaySafe(date, max: 200) }
+        // **團體作者的成員名單**（#742）。鍵名沿用 YAML 的 `group-members`；團體名與成員是作品裡的第三方原文，逐一消毒。
+        if !entry.groupMembers.isEmpty {
+            d["group-members"] = entry.groupMembers.map { list -> [String: Any] in
+                ["group": displaySafe(list.group, max: 400),
+                 "rests-on": list.restsOn,   // display-safe-exempt: list.restsOn 在 decode 時過 isValidDigest（sha256: 加小寫十六進位）
+                 "page": list.page,   // display-safe-exempt: Int
+                 "members": list.members.map { displaySafe($0, max: 400) }]
+            }
+        }
         // **識別碼**（#425 verify HIGH）。在此之前 `entryDict` 一個都沒有——
         // `akashic get-entry` 與 MCP 兩面同時對 work 的識別碼失明，而它們自 §4 起
         // 就在磁碟上。與已修的 venue ISSN 是**同一族、換一個 entity kind**。

@@ -11,6 +11,7 @@ let adjudicated: Set<String> = [
     "Models.additionalProvenance", "Models.akashic", "Models.all",
     "Models.attachments", "Models.authorListCompleteness", "Models.authorized",
     "Models.authors", "Models.citekey", "Models.cites",
+    "Models.groupMembers",   // #742：entity-backlink 第 18 條邊
     "Models.date", "Models.dateIsConfirmedAbsent", "Models.description",
     "Models.died", "Models.displayName", "Models.doi",
     "Models.fields", "Models.id", "Models.importedAt",
@@ -74,6 +75,8 @@ let edgeTypes: [String: String] = [
     "Models.excluded": "[String]",
     "Models.references": "[ProvenanceReference]",
     "Models.related": "[String]",
+    // #742：`Entry.groupMembers`（entity-backlink 第 18 條邊：每組的 `rests-on` 是內容指標；成員是字串，不是邊）
+    "Models.groupMembers": "[GroupMemberList]",
     // #614 整合：`Entry.akashic.sources`（entity-backlink 第 17 條邊，#223 起就在 store 裡、2026-09-29 才進表）
     "Models.sources": "[String]",
     "Models.tags": "[String]",

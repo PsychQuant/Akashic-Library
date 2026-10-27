@@ -1,6 +1,7 @@
 import XCTest
 @testable import AkashicCore
 @testable import AkashicStoreIO
+@testable import AkashicMCPKit   // #742：replace_authors 的兩面一致測試要用 service 存全文
 import AkashicSQLite
 
 /// End-to-end：spawn akashic-mcp binary，走 JSON-RPC over stdio
@@ -648,12 +649,14 @@ extension StdioE2ETests {
         XCTAssertTrue(notListed.contains("akashic.sources 沒有"), notListed)
         XCTAssertFalse(notListed.contains("沒有要做的事"), notListed)
 
-        // 四條腿（remove_fields／add_sources／remove_zotero_sources／remove_sources）任兩條組合都被拒（#680／#677）：6 對，每一對都是同一個具名拒絕、磁碟不動
-        let legArgs: [(String, [String])] = [
+        // 五條腿（remove_fields／add_sources／remove_zotero_sources／remove_sources／replace_authors）任兩條組合都被拒（#680／#677／#742）：10 對，每一對都是同一個具名拒絕、磁碟不動
+        let legArgs: [(String, Any)] = [
             ("remove_fields", ["journaltitle=x"]),
             ("add_sources", ["sha256:" + String(repeating: "cd", count: 32)]),
             ("remove_zotero_sources", ["5:GRP00001=x"]),
             ("remove_sources", ["sha256:" + String(repeating: "cd", count: 32) + "=x"]),
+            ("replace_authors", ["source": "sha256:" + String(repeating: "cd", count: 32), "page": 1, "reason": "x",
+                                 "authors": [["literal": "A"]]] as [String: Any]),
         ]
         var pairId = 20, pairsChecked = 0
         for i in legArgs.indices {
@@ -664,7 +667,7 @@ extension StdioE2ETests {
                 pairId += 1; pairsChecked += 1
             }
         }
-        XCTAssertEqual(pairsChecked, 6)
+        XCTAssertEqual(pairsChecked, 10)
         let afterPairs = try LibraryStore(root: root).load().entries.first { $0.citekey == "zsrc2025" }
         XCTAssertEqual(afterPairs?.additionalProvenance.count, 1, "被拒的組合零寫入")
 
@@ -696,9 +699,16 @@ extension StdioE2ETests {
 /// `akashic_import_zotero` 的說明後 53,939、只剩 61 bytes，同一天第三次撞上。修剪的代價是把契約細節移到 CLI `--help`，
 /// 而只講 MCP 的 client 執行不了 CLI——修剪等於把契約藏到它讀不到的地方。結構性的解法另開 #713（按需讀完整說明的 MCP 工具）。
 /// 沒選的兩個方案：64,000（context 成本更高）、維持 54,000 繼續修剪。
+/// **2026-10-21（+08:00）使用者裁決：預算調高到 65,000，不拆分 MCP server**（#578 的 Decision comment，觸發點是 #742 的 `replace_authors`）。
+/// 當時 main（`494412f9`）實測 59,159、只剩約 840 bytes。拆成讀、寫兩個 server 不採：active store 是各 server 的 session 狀態，拆開後會讀一個
+/// store、寫另一個而沒有錯誤訊息；兩個 server 通常都開著，送進 context 的位元組總數不變；plugin、簽章與 parity 裁決表都得跟著拆。
+/// #742 接上 `replace_authors` 之後實測 59816（2026-10-24，python 驅動 stdio 量 tools/list 那一行），第一輪 verify 修正後 59,981
+/// （2026-10-26，同一方法）——只比舊預算 60,000 低 19 bytes：
+/// 調高到 65,000 是使用者對 #578 的獨立裁決，不是這一次超出了。
+/// 下次接近預算時，先瘦 input schema（比描述還大），再考慮提高（同一則裁決）。
 /// 描述長到撞上它時，先把契約細節移到 #713 落地後的按需說明（在那之前是 CLI `--help` 或 docs/store-format.md），不是改這個數字；要調高須回 #578 重新裁決。
 extension StdioE2ETests {
-    static let toolsListByteBudget = 60_000
+    static let toolsListByteBudget = 65_000
 
     /// 讀一行原始回應位元組（不解析）。10 秒內讀不到整行就丟錯——空掃描不是通過。
     func readRawLine() throws -> Data {
@@ -1090,5 +1100,73 @@ extension StdioE2ETests {
         for d in carrying {
             XCTAssertTrue(d.contains("鍵名加 Total＝總數") && d.contains("加 NotApplied＝"), d)
         }
+    }
+}
+
+// MARK: - #742：replace_authors 兩面一致（spec「Both faces return the same payload」「Many retired-literal verdicts are truncated on MCP only」）
+
+extension StdioE2ETests {
+    /// 同一個 store、同一份 JSON：MCP 經 stdio、CLI 經同一次 build 的 `akashic`。25 筆 confirmed verdict 指向不在新列的 literal——
+    /// MCP 截成 20 並附 Total／truncated，CLI 全列；其餘每個鍵兩面相同。乾跑，不需要 git。
+    func testReplaceAuthorsPayloadMatchesAcrossFacesAndOnlyMCPTruncatesVerdicts() throws {
+        let service = AkashicService(root: root)
+        let pdf = root.appendingPathComponent("in.pdf")
+        try Data("%PDF-1.4 claw2018".utf8).write(to: pdf)
+        let stored = try JSONSerialization.jsonObject(with: Data(try service.storeSource(
+            path: pdf.path, mediaType: "application/pdf", retrieved: "2026-10-24T10:00:00+08:00",
+            origin: "https://www.nature.com/articles/s41467-018-05188-3.pdf", acquisition: "browser-download",
+            note: "version of record").utf8)) as? [String: Any]
+        let digest = try XCTUnwrap(stored?["digest"] as? String)
+        try FileManager.default.removeItem(at: pdf)
+        let store = LibraryStore(root: root)
+        let literals = (1...25).map { String(format: "Author %02d", $0) }
+        var e = Entry(id: UUID(), citekey: "claw2018framework", type: .periodicalArticle, title: "T",
+                      authors: literals.map { .literal($0) })
+        e.akashic.sources = [digest]
+        try store.writeEntry(e)
+        for (i, l) in literals.enumerated() {
+            var p = Person(key: String(format: "author-%02d", i + 1))
+            p.references = [ProvenanceReference(
+                field: "resolution-confirmed",
+                value: ProvenanceReference.VerdictPairingValue(holderKind: .work, holder: "claw2018framework", literal: l).encoded,
+                kind: .judgement(statement: "byline", restsOn: []))]
+            try store.writePerson(p)
+        }
+        let request: [String: Any] = ["source": digest, "page": 1, "reason": "PDF 第 1 頁 byline",
+                                      "authors": [["literal": "Katrina G. Claw"], ["group": "SING Consortium"]]]
+
+        try initialize()
+        let mcp = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(try call(
+            9, "akashic_update_entry", ["citekey": "claw2018framework", "replace_authors": request])
+            .utf8)) as? [String: Any])
+
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("replace-\(UUID().uuidString).json")
+        try JSONSerialization.data(withJSONObject: request).write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent("akashic-e2e-home-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let p = Process()
+        p.executableURL = productsDirectory.appendingPathComponent("akashic")
+        p.arguments = ["update-entry", "claw2018framework", "--replace-authors", file.path, "--library", root.path]
+        p.environment = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("AKASHIC_") }
+            .merging(["AKASHIC_HOME": home.path, "HOME": home.path]) { _, new in new }
+        let out = Pipe(); p.standardOutput = out; p.standardError = Pipe()
+        try p.run(); p.waitUntilExit()
+        XCTAssertEqual(p.terminationStatus, 0)
+        let cli = try XCTUnwrap(try JSONSerialization.jsonObject(with: out.fileHandleForReading.readDataToEndOfFile()) as? [String: Any])
+
+        XCTAssertEqual((mcp["verdictsOnRetiredLiterals"] as? [Any])?.count, 20)
+        XCTAssertEqual(mcp["verdictsOnRetiredLiteralsTotal"] as? Int, 25)
+        XCTAssertEqual(mcp["truncated"] as? Bool, true)
+        XCTAssertEqual((cli["verdictsOnRetiredLiterals"] as? [Any])?.count, 25)
+        XCTAssertNil(cli["verdictsOnRetiredLiteralsTotal"], "CLI 全列，沒有截斷揭露")
+        let mcpOnly: Set<String> = ["verdictsOnRetiredLiterals", "verdictsOnRetiredLiteralsTotal", "truncated"]
+        XCTAssertEqual(Set(mcp.keys).subtracting(mcpOnly), Set(cli.keys).subtracting(mcpOnly))
+        for key in Set(cli.keys).subtracting(mcpOnly) {
+            XCTAssertEqual(try JSONSerialization.data(withJSONObject: [key: mcp[key]!], options: .sortedKeys),
+                           try JSONSerialization.data(withJSONObject: [key: cli[key]!], options: .sortedKeys), key)
+        }
+        XCTAssertEqual(cli["authorsAfter"] as? [String], ["Katrina G. Claw", "{SING Consortium}"])
     }
 }

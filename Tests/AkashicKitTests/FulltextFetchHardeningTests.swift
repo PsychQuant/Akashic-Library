@@ -525,4 +525,21 @@ final class FulltextFetchHardeningTests: XCTestCase {
         XCTAssertEqual(r.status, 0)
         XCTAssertEqual(String(decoding: r.stdout, as: UTF8.self), "hi\n")
     }
+
+    // MARK: - #742 第二輪 verify：最終檔名獨佔建立
+
+    func testCreateExclusiveRefusesAnExistingDestination() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("akashic-excl-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let target = dir.appendingPathComponent("out.json")
+        try OutputFile.createExclusive(path: target.path, with: Data("first".utf8), mode: 0o600)
+        XCTAssertEqual(try String(contentsOf: target, encoding: .utf8), "first")
+        XCTAssertThrowsError(try OutputFile.createExclusive(path: target.path, with: Data("second".utf8), mode: 0o600))
+        XCTAssertEqual(try String(contentsOf: target, encoding: .utf8), "first", "不覆寫")
+        let leftovers = try FileManager.default.contentsOfDirectory(atPath: dir.path).filter { $0 != "out.json" }
+        XCTAssertEqual(leftovers, [], "不留暫存檔")
+        let mode = try XCTUnwrap(FileManager.default.attributesOfItem(atPath: target.path)[.posixPermissions] as? Int)
+        XCTAssertEqual(mode & 0o777, 0o600)
+    }
 }

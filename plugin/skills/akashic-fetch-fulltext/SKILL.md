@@ -218,6 +218,10 @@ CLI 是 `akashic update-entry <citekey> --add-source <digest>`，加 `--apply` �
 
 每筆一列：citekey、結果（stored／handed over, not saved／no access／no link／not verified／daily cap／waiting for verification）、版本、digest、是否已連回記錄、頁數、來源。最後列出「需要人處理」的清單與原因（無權限的站、找不到連結的新站、每日上限明天再跑的篇）。**不寫「應該有權限」「大概是這篇」**——量到什麼寫什麼，見 [`assertions-must-be-measured`](../../rules/assertions-must-be-measured.md)。
 
+### 8. 下一步：依全文核對書目
+
+全文連回記錄之後，下一步是 [`akashic-verify-work`](../akashic-verify-work/SKILL.md)：讀這份全文的 byline 與成員名單，與 store 裡的作者列、標題、卷期頁比對，乾跑給人看、人同意後以 `update-entry --replace-authors` 整組替換作者列並記下依據（#742）。回報裡對已連回記錄的每一篇，提示可以接著跑它；**不要自動接著跑**——那一步要人確認。
+
 ## 不做的事
 
 - 不在出版商頁面內以 JS 取檔、不用任何 HTTP 客戶端取 PDF、不拼出版商的 PDF 網址、不對顯示中的 PDF 再發請求（最高原則的規則 1、2）。

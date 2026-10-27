@@ -329,6 +329,9 @@ struct Validate: ParsableCommand {
         if !health.unmergeableDivergences.isEmpty {
             print("歧異記錄的 shape 沒有合併管線: \(health.unmergeableDivergences.count)（逐則見上；zero-instance-guards 第 24 列的觸發條件之一，#555）")   // display-safe-exempt: Int
         }
+        if !health.staleReplacementRecords.isEmpty {
+            print("作者列替換記錄與目前的作者列對不上: \(health.staleReplacementRecords.count)（逐則見上；用全文重新核對後再替換一次，#742）")   // display-safe-exempt: Int
+        }
         if !health.staleSplitRecords.isEmpty {
             print("拆分記錄各段都已不在作者位: \(health.staleSplitRecords.count)（記錄仍保留供 un-split，#450）")
         }
@@ -457,14 +460,14 @@ struct ImportZotero: ParsableCommand {
             }
         }
         if !report.authorsPreserved.isEmpty {
-            print("authors preserved（已解析、未同步 Zotero 作者欄）: \(report.authorsPreserved.map { displaySafe($0, max: 200) }.joined(separator: ", "))")
+            print("authors preserved（有已歸戶位或作者列替換記錄、未同步 Zotero 作者欄）: \(report.authorsPreserved.map { displaySafe($0, max: 200) }.joined(separator: ", "))")
         }
         if !report.authorsOverwritten.isEmpty {
             // #208：pull-based sync 覆寫本地的未歸戶作者，**與 import-wos 相反**
             //（後者對任何分歧一律拒絕覆寫）。至少要讓它可見。
             print("authors overwritten（未歸戶 literal 作者已改為 Zotero 版本）: "
                 + "\(report.authorsOverwritten.count) 筆——"
-                + "已歸戶的 person key 不受影響（見 authors preserved）")
+                + "有已歸戶位（person 或 organization）或作者列替換記錄的作者列不受影響（見 authors preserved）")
         }
         if !report.fieldsRemovedByPull.isEmpty {
             let s = report.fieldsRemovedByPull.keys.sorted()

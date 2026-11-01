@@ -115,6 +115,7 @@ struct AkashicCLI: ParsableCommand {
             LiteralCensusCmd.self,   // #629：四域 literal 普查（原 literal-census.sh；唯讀，skill 的量測步驟）
             ScanYAMLProfileCmd.self,   // #629：YAML profile 外語法的統計（原 scan-yaml-profile.py；開發用、唯讀）
         MigrateIdentifiers.self,
+            CitedByCmd.self,      // #620：唯讀被引候選，沒有匯入能力
             ReferencesCmd.self,   // #617：skill 的中間運算（extract），不寫 store、不打網路
             FulltextCmd.self,   // #629：取全文 skill 的驗證／訊號／抖動／導航與收檔（#613）／校準（原 scripts/*.py 與 fetch-fulltext.sh）
             WebReadCmd.self,   // #692 R4：web-access.md 讀頁面的檢查（原文件裡的 check-read.py；不寫 store、不連網）

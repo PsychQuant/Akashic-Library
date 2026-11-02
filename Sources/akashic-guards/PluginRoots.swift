@@ -32,8 +32,19 @@ func pluginRoots() -> [String] {
 /// plugin manifest 相對於 plugin 根的位置
 let pluginManifestRel = [".claude-plugin", "plugin" + ".json"].joined(separator: "/")
 
-/// `akashic-guards plugin-roots`：每行一個根，給 shell 端用
+/// `akashic-guards plugin-roots`：每行一個根，給 shell 端用。
+///
+/// **名字含空白或控制字元的根讀不回來**（#613 b47，b46 LOW 12）：`run-guards.sh` 以空白分開這份輸出（`for root in $plugin_roots`），根名裡的空白
+/// 把它切成幾個不存在的根；控制字元原樣印出會把終端機控制序列送到終端機，逸出（`shownFromTree`）之後又不是原來的目錄名。兩種都不印清單、rc=1、
+/// 在 stderr 具名（逸出過的名字）——`run-guards.sh` 的 `set -e` 因此在這一行就停，不會拿一個讀錯的根去跑 `rule-coverage`。
 func pluginRootsCommand() -> Int32 {
-    for r in pluginRoots() { print(r) }
+    let roots = pluginRoots()
+    let unusable = roots.filter { r in r.unicodeScalars.contains { $0.properties.isWhitespace } || shownFromTree(r) != r }
+    guard unusable.isEmpty else {
+        FileHandle.standardError.write(Data(("✗ plugin 根的名字含空白或控制字元：\(unusable.map(shownFromTree).joined(separator: "、"))——"
+            + "run-guards.sh 以空白分開這份清單，這種名字讀不回原來的目錄（逸出之後也不是）：改名\n").utf8))
+        return 1
+    }
+    for r in roots { print(r) }
     return 0
 }

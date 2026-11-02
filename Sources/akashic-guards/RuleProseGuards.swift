@@ -45,7 +45,7 @@ func ruleProseGuards(argv: [String]) -> Int32 {
         if a[0] == "--root", a.count > 1 { plugin = abspath(a[1]); a.removeFirst(2) }
         else if a[0] == "--venue", a.count > 1 { venueArg = abspath(a[1]); a.removeFirst(2) }
         else if a[0] == "--prose-only" { proseOnly = true; a.removeFirst() }
-        else { print("✗ 未知參數：\(a[0])"); return 1 }
+        else { printShown("✗ 未知參數：\(a[0])"); return 1 }
     }
     let rulePath = "\(plugin)/rules/assertions-must-be-measured.md"
 
@@ -58,10 +58,10 @@ func ruleProseGuards(argv: [String]) -> Int32 {
     func check(_ n: Int, _ desc: String, _ actual: [String], _ expected: [String]) {
         let ok = actual == expected
         results.append(ok)
-        print("[\(n)] \(ok ? "PASS" : "FAIL")  \(desc)")
+        printShown("[\(n)] \(ok ? "PASS" : "FAIL")  \(desc)")
         if !ok {
-            print("      期望 \(pyRepr(expected))")
-            print("      實際 \(pyRepr(actual))")
+            printShown("      期望 \(pyRepr(expected))")
+            printShown("      實際 \(pyRepr(actual))")
         }
     }
 
@@ -104,7 +104,7 @@ func ruleProseGuards(argv: [String]) -> Int32 {
     // 空掃描不是通過（#644 R2 verify）：根打錯或不存在時 `walkFiles` 回空，第 1、2 項對空清單照樣 PASS——未涵蓋冒充了乾淨。
     // 全五項的跑法另有規則檔的讀取擋著；`--prose-only` 沒有，所以在這裡擋。
     if proseOnly && allFiles.isEmpty {
-        print("✗ --prose-only：\(plugin) 不存在或沒有任何 .md／.sh／.py——空掃描不是通過")
+        printShown("✗ --prose-only：\(plugin) 不存在或沒有任何 .md／.sh／.py——空掃描不是通過")
         return 1
     }
 
@@ -145,8 +145,8 @@ func ruleProseGuards(argv: [String]) -> Int32 {
     }
     check(2, "提到 repo 專屬路徑卻未在同一行揭露取用限制", undisclosed, [])
     if proseOnly {
-        print("")
-        print("=== \(results.filter { $0 }.count)/\(results.count) PASS（--prose-only：\(base(plugin))）===")
+        printShown("")
+        printShown("=== \(results.filter { $0 }.count)/\(results.count) PASS（--prose-only：\(base(plugin))）===")
         return results.allSatisfy { $0 } ? 0 : 1
     }
 
@@ -184,12 +184,12 @@ func ruleProseGuards(argv: [String]) -> Int32 {
         // **未涵蓋不得冒充通過**（`zero-instance-guards` 第 3 列）。前一版在這裡只
         // print 一行 SKIP，於是 plugin 單獨安裝時輸出「4/4 PASS」並 exit 0——
         // 「沒被檢查」與「檢查過且乾淨」在輸出上完全一樣。
-        for m in msg { print(m) }
-        print("")
-        print("=== \(results.filter { $0 }.count)/\(results.count) PASS，但第 \(n) 項未涵蓋 ===")
+        for m in msg { printShown(m) }
+        printShown("")
+        printShown("=== \(results.filter { $0 }.count)/\(results.count) PASS，但第 \(n) 項未涵蓋 ===")
         if n == 5 && msg.count > 1 {
-            print("   plugin 單獨安裝時沒有 Akashic repo 的原始碼（不隨 plugin 出貨）。")
-            print("   這不是通過：用 --venue <path> 指向 Venue.swift，或在 repo 內跑。")
+            printShown("   plugin 單獨安裝時沒有 Akashic repo 的原始碼（不隨 plugin 出貨）。")
+            printShown("   這不是通過：用 --venue <path> 指向 Venue.swift，或在 repo 內跑。")
         }
         return results.allSatisfy { $0 } ? 2 : 1
     }
@@ -308,7 +308,7 @@ func ruleProseGuards(argv: [String]) -> Int32 {
     //
     // **真正防住那個坑的是別的東西**：`trigger-coverage` 對它的受保護清單逐條驗存在
     // ——那份清單是**程式碼**（會被執行），不是散文，所以謂詞可以是精確的。
-    print("")
-    print("=== \(results.filter { $0 }.count)/\(results.count) PASS ===")
+    printShown("")
+    printShown("=== \(results.filter { $0 }.count)/\(results.count) PASS ===")
     return results.allSatisfy { $0 } ? 0 : 1
 }

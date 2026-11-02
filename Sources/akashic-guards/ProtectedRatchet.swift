@@ -75,7 +75,7 @@ func protectedRatchet(argv: [String]) -> Int32 {
                  + "往已在 CI paths 的路徑根加一個零讀者的檔，可以零成本灌水（#522 半二 3）\n"
         }
         out += "  確認之後接受它：.build/debug/akashic-guards protected-ratchet --accept\n"
-        FileHandle.standardError.write(Data(out.utf8))
+        FileHandle.standardError.write(Data(shownLines(out).utf8))   // b47：路徑取自樹（`shownLines`，b46 LOW 12）
         return 1
     }
     print("══ 受保護清單與棘輪相符：\(current.count) 條 ══")

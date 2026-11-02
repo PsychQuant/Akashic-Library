@@ -79,7 +79,7 @@ func fileExists(_ rel: String) -> Bool {
 /// 意義不同——一個要去修 store／規則，另一個要去修守衛的輸入。
 func requireContents(ofFile path: String, what: String) -> String {
     guard let s = try? String(contentsOfFile: path, encoding: .utf8) else {
-        print("✗ 讀不到 \(what)（\(path)）——守衛的輸入不在，它無法判定任何事")
+        printShown("✗ 讀不到 \(what)（\(path)）——守衛的輸入不在，它無法判定任何事")
         exit(2)
     }
     return s
@@ -280,9 +280,9 @@ func invoked(_ text: String) -> Set<String> {
         // **逐筆具名，不彙總。**（#407 R24，DA 席的 cry-wolf 論證）上一版印一則不指名
         // 的旁白，而主判定訊息在「真的是例外路徑」與「skip-flag 幾乎必跑」兩種情況下
         // **完全相同**。人看過幾次假警報之後，會學會對所有帶 ℹ 的判定一起打折扣。
-        print("   ℹ `||` 後的段（語意靜態判不出，保守不計入覆蓋）：")
-        for c in conditional { print("      · \(c)") }
-        print("      ↑ 可能是例外路徑（`main || handle_failure`，缺口為真），"
+        printShown("   ℹ `||` 後的段（語意靜態判不出，保守不計入覆蓋）：")
+        for c in conditional { printShown("      · \(c)") }
+        printShown("      ↑ 可能是例外路徑（`main || handle_failure`，缺口為真），"
               + "也可能是正常路徑（`[ -f flag ] || do_work`，LHS 通常為假 → "
               + "**缺口是假警報**）。逐筆確認上面那幾行，或改寫成 `&&`／分行")
     }
@@ -290,11 +290,11 @@ func invoked(_ text: String) -> Set<String> {
         // `cd A && bash X` 這類串接：第一個 token 不是直譯器，所以認不出來。**方向是
         // 漏報**（守衛會紅、不會假綠），但仍要印——R20c 才立下的原則是「寫在註解裡的
         // 已知限制，對讀輸出的人等於沒人知道」（#407 R20e）。
-        print("   ℹ 有 \(chained.count) 個串接段帶著腳本檔名卻認不出執行形式"
+        printShown("   ℹ 有 \(chained.count) 個串接段帶著腳本檔名卻認不出執行形式"
               + "（變數展開、前置賦值等）——那些呼叫看不到（漏報，會讓守衛紅）")
     }
     if !blocks.isEmpty {
-        print("   ℹ 有 \(blocks.count) 個 `run: |` 區塊，續行已展開後逐行解析（#407 R43）；"
+        printShown("   ℹ 有 \(blocks.count) 個 `run: |` 區塊，續行已展開後逐行解析（#407 R43）；"
               + "仍不解析 shell 控制流（`if`／`case` 內的分支一律當成會執行）——"
               + "若守衛改用區塊形式呼叫，這裡會看不到它（漏報，會讓守衛紅）")
     }
@@ -437,8 +437,8 @@ func triggerCoverage(argv: [String]) -> Int32 {
     // ── 前置：清單自己不得含不存在的路徑 ────────────────────────────────
     let missing = (GUARDS + DATA).filter { !fileExists($0) }
     if !missing.isEmpty {
-        print("✗ 受保護清單裡有不存在的路徑（守衛指不到東西比沒有守衛更糟）：")
-        for p in missing { print("    · \(p)") }
+        printShown("✗ 受保護清單裡有不存在的路徑（守衛指不到東西比沒有守衛更糟）：")
+        for p in missing { printShown("    · \(p)") }
         return 1
     }
     let PROTECTED = Array(Set(GUARDS + DATA)).sorted()
@@ -550,7 +550,7 @@ func triggerCoverage(argv: [String]) -> Int32 {
         }.joined()
     HOOK += hookSuffix
 
-    print("守衛 \(GUARDS.count) 支｜受保護 \(PROTECTED.count) 個｜workflow \(WORKFLOWS.count) 份\n")
+    printShown("守衛 \(GUARDS.count) 支｜受保護 \(PROTECTED.count) 個｜workflow \(WORKFLOWS.count) 份\n")
 
     // **有宣告就必須解析得到。** 若有人把 `declared()`「統一」成走 `codeOnly()`，宣告行
     // （是註解）會被剝掉、機制整個失效——而守衛**不會紅**：它只是少考慮幾個 pair，沉默地。
@@ -849,16 +849,16 @@ func triggerCoverage(argv: [String]) -> Int32 {
         s.count >= n ? s : s + String(repeating: " ", count: n - s.count)
     }
 
-    print("每支守衛被判定讀了哪些受保護檔（啟發式，漏報方向——見 READS 上方註解）：")
+    printShown("每支守衛被判定讀了哪些受保護檔（啟發式，漏報方向——見 READS 上方註解）：")
     for g in GUARDS {
         let decl = declared(g)
         // 標出來源：宣告來的加 ⟨宣⟩。一個誤宣告（教學範例被當成宣告）會在這裡顯示成
         // 「這個守衛讀了它其實不讀的東西」——約定被違反時的可見性。
         let parts = READS[g]!.sorted().filter { $0 != g }
             .map { label($0) + (decl.contains($0) ? "⟨宣⟩" : "") }
-        print("   \(pad(label(g), 40)) → \(parts.isEmpty ? "（只有自己）" : parts.joined(separator: "、"))")
+        printShown("   \(pad(label(g), 40)) → \(parts.isEmpty ? "（只有自己）" : parts.joined(separator: "、"))")
     }
-    print("")
+    printShown("")
 
     for f in PROTECTED {
         let readers = GUARDS.filter { READS[$0]!.contains(f) }
@@ -870,7 +870,7 @@ func triggerCoverage(argv: [String]) -> Int32 {
             covered += readers.filter { w.runs.contains(base($0)) }
         }
         let gap = readers.filter { !covered.contains($0) }
-        print("\(gap.isEmpty ? "✓" : "✗") \(pad(label(f), 40)) 讀它的守衛 \(readers.count)｜CI 未覆蓋 \(gap.count)")
+        printShown("\(gap.isEmpty ? "✓" : "✗") \(pad(label(f), 40)) 讀它的守衛 \(readers.count)｜CI 未覆蓋 \(gap.count)")
         for g in gap {
             let whereS = HOOK.contains(base(g)) ? "pre-push 有" : "pre-push 也沒有"
             fails.append("改 \(label(f)) 時 \(label(g)) 不在任何 CI workflow 跑（\(whereS)）")
@@ -950,32 +950,32 @@ func triggerCoverage(argv: [String]) -> Int32 {
         }
     }
     if !scopeLines.isEmpty {
-        print("\n宣告範圍裡不在受保護集合的檔（上面的逐對表只走受保護集合，看不到它們）：")
-        for s in scopeLines { print(s) }
+        printShown("\n宣告範圍裡不在受保護集合的檔（上面的逐對表只走受保護集合，看不到它們）：")
+        for s in scopeLines { printShown(s) }
     }
 
     // pre-push 是唯一目前真的會跑的路徑（CLAUDE.md 的觸發點表有量測），所以它必須涵蓋
     // 全部守衛——這一條與上面的逐對檢查是不同的性質。
     let uncoveredHook = GUARDS.filter { !HOOK.contains(base($0)) }
-    print("\n\(uncoveredHook.isEmpty ? "✓" : "✗") pre-push 涵蓋 "
+    printShown("\n\(uncoveredHook.isEmpty ? "✓" : "✗") pre-push 涵蓋 "
         + "\(GUARDS.count - uncoveredHook.count)/\(GUARDS.count) 支守衛")
     for g in uncoveredHook { fails.append("\(base(g)) 不在 pre-push 裡") }
 
     if !known.isEmpty {
-        print("\n══ 已知缺口 \(known.count)（有 issue 追蹤，不計入 rc；清單在 \(acknowledgedCIGapsFile)）══")
-        for m in known { print("  ⊘ \(m)") }
+        printShown("\n══ 已知缺口 \(known.count)（有 issue 追蹤，不計入 rc；清單在 \(acknowledgedCIGapsFile)）══")
+        for m in known { printShown("  ⊘ \(m)") }
     }
     if !warnings.isEmpty {
-        print("\n══ 待人確認 \(warnings.count)（啟發式警告，不構成缺口）══")
-        for m in warnings { print("  ? \(m)") }
+        printShown("\n══ 待人確認 \(warnings.count)（啟發式警告，不構成缺口）══")
+        for m in warnings { printShown("  ? \(m)") }
     }
     if !fails.isEmpty {
-        print("\n══ 缺口 \(fails.count) ══")
-        for m in fails { print("  · \(m)") }
+        printShown("\n══ 缺口 \(fails.count) ══")
+        for m in fails { printShown("  · \(m)") }
         return 1
     }
     // 已知缺口還在時不說「無缺口」——那是同一份輸出裡兩句矛盾的話
-    print(known.isEmpty ? "\n══ 觸發點覆蓋無缺口（逐對意義，非聯集）══"
+    printShown(known.isEmpty ? "\n══ 觸發點覆蓋無缺口（逐對意義，非聯集）══"
                         : "\n══ 觸發點覆蓋沒有未列管的缺口（逐對意義，非聯集；已知缺口 \(known.count) 條見上）══")
     return 0
 }

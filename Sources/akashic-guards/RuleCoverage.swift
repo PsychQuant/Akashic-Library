@@ -43,7 +43,7 @@
 import Foundation
 
 func ruleCoverage(argv: [String]) -> Int32 {
-    let err = { (s: String) in FileHandle.standardError.write(Data((s + "\n").utf8)) }
+    let err = { (s: String) in FileHandle.standardError.write(Data((shownLines(s) + "\n").utf8)) }   // b47：根名與路徑取自樹（`shownLines`）
     let fm = FileManager.default
 
     // 找不到就停，**不退回檢查 `plugin/`**：退回的話打錯的根會拿到一個與它無關的綠燈
@@ -76,11 +76,11 @@ func ruleCoverage(argv: [String]) -> Int32 {
         (try? fm.attributesOfItem(atPath: "\(skillsDir)/\($0)")[.type] as? FileAttributeType) == .typeDirectory
     }.count
     if nSkills == 0 {
-        print("═══ rule coverage：\(rootRel) 有 0 個 skill（vacuous）═══")
+        printShown("═══ rule coverage：\(rootRel) 有 0 個 skill（vacuous）═══")
         return 0
     }
-    print("═══ rule coverage：\(nSkills) 個 skill ═══")
-    print("")
+    printShown("═══ rule coverage：\(nSkills) 個 skill ═══")
+    printShown("")
 
     // `rules/*.md`（glob：不含隱藏檔；不要求是 regular file，與 shell 的 glob 同）
     let rules = children(rulesDir).filter { $0.hasSuffix(".md") }
@@ -94,15 +94,15 @@ func ruleCoverage(argv: [String]) -> Int32 {
     // 一條名叫 `*` 的規則，於是每個 skill 都缺）；Swift 版的空迴圈會直接印綠燈——「沒有東西可檢查」
     // 與「檢查過且乾淨」在輸出上無法區分。所以顯式報紅，並說出是哪一種。
     guard !rules.isEmpty else {
-        print("✗ \(rootRel)/rules/ 底下沒有任何 .md 規則檔——不是「全部掛上」，是沒有東西可檢查")
-        print("═══ 1 個缺口 ═══")
+        printShown("✗ \(rootRel)/rules/ 底下沒有任何 .md 規則檔——不是「全部掛上」，是沒有東西可檢查")
+        printShown("═══ 1 個缺口 ═══")
         return 1
     }
 
     var fail = 0
     for ruleFile in rules {
         let name = String(ruleFile.dropLast(".md".count))
-        print("── \(name) ──")
+        printShown("── \(name) ──")
         // `[^)`" \n]`：與 grep 逐行掃描同——token 不跨行。ICU 的否定字元類會吃換行，要明寫。
         let pattern = #"\.\./[^)`" \n]*"# + NSRegularExpression.escapedPattern(for: name) + #"[^)`" \n]*"#
         for skill in skills {
@@ -117,7 +117,7 @@ func ruleCoverage(argv: [String]) -> Int32 {
                 let rel = ns.substring(with: m.range)
                 // 擷取到的整個 token 必須就是規則檔本身（不是它的前綴）
                 guard base(rel) == ruleFile else {
-                    print("  ✗ \(shown) 的引用不是這條規則本身：\(rel)")
+                    printShown("  ✗ \(shown) 的引用不是這條規則本身：\(rel)")
                     fail += 1
                     continue
                 }
@@ -125,20 +125,20 @@ func ruleCoverage(argv: [String]) -> Int32 {
                 if fm.fileExists(atPath: "\(skillDir)/\(rel)", isDirectory: &f), !f.boolValue {
                     found = true
                 } else {
-                    print("  ✗ \(shown) 的相對路徑解析不到：\(rel)")
+                    printShown("  ✗ \(shown) 的相對路徑解析不到：\(rel)")
                     fail += 1
                 }
             }
             if found {
-                print("  ✓ \(skill)")
+                printShown("  ✓ \(skill)")
             } else {
-                print("  ✗ \(skill) ← 沒有指向這條規則的可解析相對路徑")
+                printShown("  ✗ \(skill) ← 沒有指向這條規則的可解析相對路徑")
                 fail += 1
             }
         }
     }
 
-    print("")
-    print(fail == 0 ? "═══ 全部掛上，相對路徑全部解析得到 ═══" : "═══ \(fail) 個缺口 ═══")
+    printShown("")
+    printShown(fail == 0 ? "═══ 全部掛上，相對路徑全部解析得到 ═══" : "═══ \(fail) 個缺口 ═══")
     return fail > 0 ? 1 : 0
 }

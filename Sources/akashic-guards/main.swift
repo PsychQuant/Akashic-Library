@@ -33,16 +33,46 @@ struct Verdict {
     /// **不印「全部通過」以外的成功摘要**——那會讓輸出隨守衛數量膨脹（#394 R9 的
     /// pipe 死鎖正是輸出成長越過 8 KB 造成的）。
     func exitCode(_ summary: String) -> Int32 {
+        // 每一則都是一行，經 `shownFromTree`（#613 b47，b46 LOW 12）：訊息裡的根名、路徑、manifest 的名字取自被推送的樹
         if failures.isEmpty {
-            FileHandle.standardOutput.write(Data("══ \(summary) ══\n".utf8))
+            FileHandle.standardOutput.write(Data("══ \(shownFromTree(summary)) ══\n".utf8))
             return 0
         }
         var out = "══ \(failures.count) 個宣稱不成立 ══\n"
-        for f in failures { out += "  ✗ \(f)\n" }
+        for f in failures { out += "  ✗ \(shownFromTree(f))\n" }
         FileHandle.standardError.write(Data(out.utf8))
         return 1
     }
 }
+
+/// 印出之前逸出終端機的控制字元——**守衛共用的一個出口**（#613 b45，b44 第 15 則起在 `plugin-shell-version`；b47，b46 LOW 12 起所有印出樹裡的名字的
+/// 守衛都經過它）：根名、檔路徑、symlink 目標、manifest 裡的名字都取自被推送的樹（別人的分支簽出之後推送），名字裡的 ESC 會把終端機控制序列原樣
+/// 印到終端機與 agent 讀到的輸出裡。C0（TAB 除外：訊息裡要照抄的那一列以 TAB 分欄）、DEL、C1 寫成 `\u{XXXX}`；LF 也是 C0，這裡一併逸出——
+/// 訊息本身要換行的，用 `shownLines`。冪等：逸出之後只多了可印的 ASCII。
+///
+/// **只擋終端機的控制序列，不擋顯示偽造**（b46 INFO 18、20）：方向控制（U+202E 等）、零寬字元、LS／PS 照原樣印——它們不操作終端機，只讓顯示的字
+/// 與位元組不同。`akashic-guards` 刻意零依賴，不用 AkashicCore 的 `displaySafe`（那一份逸出更多類）。
+func shownFromTree(_ s: String) -> String {
+    var out = String.UnicodeScalarView()
+    for u in s.unicodeScalars {
+        if u.value != 0x09, u.value < 0x20 || (0x7F...0x9F).contains(u.value) {
+            out.append(contentsOf: String(format: "\\u{%04X}", u.value).unicodeScalars)
+        } else {
+            out.append(u)
+        }
+    }
+    return String(out)
+}
+
+/// 多行的訊息逐行過 `shownFromTree`：訊息自己的換行留著，每一行裡的控制字元逸出。名字裡的 LF 因此照樣換行（那是顯示偽造，不是終端機控制序列——
+/// 同上一段的邊界）。
+func shownLines(_ s: String) -> String {
+    s.split(separator: "\n", omittingEmptySubsequences: false).map { shownFromTree(String($0)) }.joined(separator: "\n")
+}
+
+/// `print` 經 `shownLines`：印出樹裡的名字的守衛用它（b47，b46 LOW 12 的同判斷掃描：`rule-coverage`、`protected-ratchet`、`rule-prose-guards`、
+/// `trigger-coverage`）。
+func printShown(_ s: String) { print(shownLines(s)) }
 
 /// repo 根目錄。**由 cwd 決定**——`run-guards.sh` 保證在根目錄執行，
 /// 而寫死路徑會讓守衛在 worktree（#433 的 oracle 比對要用）裡指到錯的地方。

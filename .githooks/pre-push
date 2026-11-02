@@ -139,7 +139,15 @@ case ",${AKASHIC_PRE_PUSH_STAGES:-build,test,guards}," in
     # **被推送的是哪幾個 commit**（#613 b43）：`plugin-shell-version` 比的是推上去的樹與遠端此刻的 main，不是工作樹與本機的
     # origin/main——只 commit 了 skill、版號與表的改動還留在工作樹時，推上去的 commit 兩者不一致（b42 第 3、17、27 則）。
     # 只交給守衛這一階段：build 與 test 不需要它；harness 在暫存 repo 裡跑的守衛由 `runGuardProcess` 剝掉它。
-    AKASHIC_PUSH_REFS="$push_refs" AKASHIC_PUSH_REMOTE="${1:-}" bash "$(dirname "$0")/run-guards.sh"
+    # **remote 只交名字**（#613 b47，b46 LOW 9）：直接推到網址時第一個參數是網址原文，可以帶帳密，先前原樣進了每一支守衛的環境。名字的判準與
+    # 守衛的 `pluginShellIsRemoteName` 同一個：不以 `-` 開頭、`refs/remotes/<名字>/main` 通過 `git check-ref-format`（網址與 `user@主機:路徑`
+    # 都有 `:`，一律不過）。不是名字就交空的——守衛改找 `refs/remotes/origin/main`，印出時不印 remote。
+    push_remote="${1:-}"
+    case "$push_remote" in
+      ""|-*) push_remote="" ;;
+      *) git check-ref-format "refs/remotes/$push_remote/main" >/dev/null 2>&1 || push_remote="" ;;
+    esac
+    AKASHIC_PUSH_REFS="$push_refs" AKASHIC_PUSH_REMOTE="$push_remote" bash "$(dirname "$0")/run-guards.sh"
     ;;
   *)
     echo "pre-push: （依 AKASHIC_PRE_PUSH_STAGES 略過守衛階段）"

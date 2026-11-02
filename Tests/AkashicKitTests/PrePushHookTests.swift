@@ -538,6 +538,31 @@ final class PrePushHookTests: XCTestCase {
     /// hook 的複本放在暫存目錄的 `.githooks/`，旁邊的 `run-guards.sh` 是 stub，記下它看到的兩個環境變數；`swift` 是 mock
     /// （`build --show-bin-path` 印出產物目錄，`.build/debug` 指向它，守衛階段的核對才會過）。
     func testHookHandsThePushedRefsAndTheRemoteToTheGuards() throws {
+        let refs = "refs/heads/feat \(String(repeating: "a", count: 40)) refs/heads/main \(String(repeating: "b", count: 40))\n"
+            + "refs/heads/x \(String(repeating: "c", count: 40)) refs/heads/x \(String(repeating: "0", count: 40))\n"
+        let seen = try runHookWithStubGuards(firstArgument: "origin", refs: refs)
+        XCTAssertEqual(seen.status, 0, seen.err)
+        // `$(cat)` 去掉結尾的換行；其餘逐字相同
+        XCTAssertEqual(seen.refs, String(refs.dropLast()), "守衛看到的要是 git 餵 hook 的那份 ref 清單：\(seen.err)")
+        XCTAssertEqual(seen.remote, "origin", "守衛看到的要是 hook 的第一個參數")
+    }
+
+    /// #613 b47（b46 LOW 9）：hook 只把 remote 的**名字**交給守衛——直接推到網址時第一個參數是網址原文、可以帶帳密，先前原樣進了每一支守衛的環境。
+    /// 名字的判準是 git 的（`refs/remotes/<名字>/main` 通過 `git check-ref-format`、不以 `-` 開頭）：含 `/` 的名字照收（b46 LOW 7）。
+    func testHookHandsOnlyARemoteNameToTheGuards() throws {
+        let refs = "refs/heads/feat \(String(repeating: "a", count: 40)) refs/heads/feat \(String(repeating: "0", count: 40))\n"
+        for (argument, expected) in [("https://user:SECRETTOKEN@example.invalid/r.git", ""), ("user:SECRETTOKEN@host.invalid:r.git", ""),
+                                     ("ext::sh -c 'curl -u user:SECRETTOKEN@h http://x'", ""), ("-oops", ""), ("a..b", ""), ("bad name", ""),
+                                     ("team/fork", "team/fork"), ("upstream", "upstream"), ("ü-remote", "ü-remote")] {
+            let seen = try runHookWithStubGuards(firstArgument: argument, refs: refs)
+            XCTAssertEqual(seen.status, 0, "\(argument)：\(seen.err)")
+            XCTAssertEqual(seen.remote, expected, "第一個參數 \(argument.debugDescription)")
+            XCTAssertFalse(seen.remote.contains("SECRETTOKEN"), argument)
+        }
+    }
+
+    /// hook 的複本放在暫存目錄的 `.githooks/`，旁邊的 `run-guards.sh` 是 stub，記下它看到的兩個環境變數；`swift` 是 mock。
+    private func runHookWithStubGuards(firstArgument: String, refs: String) throws -> (status: Int32, err: String, refs: String, remote: String) {
         let fm = FileManager.default
         let temporary = fm.temporaryDirectory.appendingPathComponent("akashic-prepush-pushrefs-\(UUID().uuidString)")
         defer { try? fm.removeItem(at: temporary) }
@@ -562,11 +587,9 @@ final class PrePushHookTests: XCTestCase {
         """.write(to: mockSwift, atomically: true, encoding: .utf8)
         try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: mockSwift.path)
 
-        let refs = "refs/heads/feat \(String(repeating: "a", count: 40)) refs/heads/main \(String(repeating: "b", count: 40))\n"
-            + "refs/heads/x \(String(repeating: "c", count: 40)) refs/heads/x \(String(repeating: "0", count: 40))\n"
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
-        process.arguments = [hooks.appendingPathComponent("pre-push").path, "origin", "https://example.invalid/r.git"]
+        process.arguments = [hooks.appendingPathComponent("pre-push").path, firstArgument, "https://example.invalid/r.git"]
         process.currentDirectoryURL = temporary
         var environment = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("GIT_") && !$0.key.hasPrefix("AKASHIC_") }
         environment["PATH"] = "\(mockSwift.deletingLastPathComponent().path):/usr/bin:/bin"
@@ -580,11 +603,8 @@ final class PrePushHookTests: XCTestCase {
         try? input.fileHandleForWriting.close()
         let err = String(decoding: stderr.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
         process.waitUntilExit()
-        XCTAssertEqual(process.terminationStatus, 0, err)
-        // `$(cat)` 去掉結尾的換行；其餘逐字相同
-        XCTAssertEqual(try String(contentsOf: seenRefs, encoding: .utf8), String(refs.dropLast()),
-                       "守衛看到的要是 git 餵 hook 的那份 ref 清單：\(err)")
-        XCTAssertEqual(try String(contentsOf: seenRemote, encoding: .utf8), "origin", "守衛看到的要是 hook 的第一個參數")
+        return (process.terminationStatus, err, (try? String(contentsOf: seenRefs, encoding: .utf8)) ?? "<none>",
+                (try? String(contentsOf: seenRemote, encoding: .utf8)) ?? "<none>")
     }
 
     private var repositoryRoot: URL {

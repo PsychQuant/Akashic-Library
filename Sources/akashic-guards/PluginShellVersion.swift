@@ -1,5 +1,5 @@
 // `plugin-shell-version`：plugin 殼送出的內容改了，`plugin.json` 的 `version` 就要升（#729；#613 b39＝b38 Z2 第 0 則、b41＝b40 Z2 第 1–3、6、16、18 則、
-// b43＝b42 第 1–3、6、9–11、14、15、17–19、21、23、27 則；b45＝b44 第 0、1、4、8、12、14、15、17、18、22、23 則）。
+// b43＝b42 第 1–3、6、9–11、14、15、17–19、21、23、27 則；b45＝b44 第 0、1、4、8、12、14、15、17、18、22、23 則；b47＝b46 第 2、5–9、12 則與 INFO 24）。
 //
 // **為什麼有這支**：Claude Code 以 `version` 決定要不要換掉使用者機器上的 plugin 快取。內容改了而版號沒升，`claude plugin update` 回報
 // 「已是最新」，使用者載入的仍是舊的 skill。#729（2026-10-08，0.13.2 → 0.13.3）修過一次；之後 #613 b37 與 #692／#700 又改了 skill 而沒升。
@@ -23,17 +23,19 @@
 //         merge-base 而不比已發布的表本身：分支落後 main 時，main 之後才加的列不算被刪。main 之後才加、受測的表也有同一個版號卻記別的摘要＝同一個
 //         版號兩份內容，紅。**撤掉或改名的根**（b45，b44 第 1、17、22 則）：受測內容裡已不是 plugin 根的列，已發布的表（或分開時的表）有同一個根
 //         與版號的照收、照這一項比摘要；沒有的才紅（「還沒發布的列刪掉」）。改名＝舊根的列留著、新根接它自己的列。b43 一律報「不是 plugin 根」
-//         而這一項又要它放回去，沒有任何一張表兩邊都過。
+//         而這一項又要它放回去，沒有任何一張表兩邊都過。**撤掉的根底下不得還有送出的檔**（b47，b46 INFO 24：只刪了 `plugin.json` 時 b45 照綠）。
+//         這條綠的路徑要有已發布的表可比（沒有 `origin/main` 時照舊報「不是 plugin 根」，見誠實邊界）。
 //      b. 已發布的每個根的版號與摘要，表裡要有那一列、摘要相同。**那一列與已發布的表相同、摘要卻與已發布的內容不同＝內容在表之外改了**（部分
 //         commit、`--no-verify`、直接在 GitHub 上改）：只能升版（b42 第 6 則：b41 的第一句建議叫人把那一列改成已發布的摘要，照做就洗白了）。
 //         受測的版號已經比已發布的新＝已經照這一句升了版：只印一行 `⚠` 說明，不擋（b45，b44 第 0 則：b43 照訊息升版之後仍紅）。
 //      c. 受測內容的版號等於已發布的版號而內容不同、或檔案模式不同（可執行位元、一般檔換成 symlink——b42 第 11 則）、或 symlink 本身不同（目錄或
 //         檔換成指向同一份內容的 symlink、連結改指別處——b45，b44 第 4 則：解開之後的檔與種類都相同），只能升版。
 //      d. 分支落後 main（main 已送出比表的最後一列新的版號）：推的不是 main 時只印一行說明、不擋（b42 第 19 則：與 plugin 無關的 push 先前也被擋）；
-//         推 main 時紅。被推送的 commit 沒有表、也沒有 `plugin/`、`plugins/`（b41 之前分出去的分支、孤兒分支）：推的不是 main 時略過（b45，b44 第 23 則）。
+//         推 main 時紅。被推送的 commit 沒有表（b41 之前分出去的分支、孤兒分支）：推的不是 main 時略過、說明（b45 只略過連 `plugin/`、`plugins/` 都
+//         沒有的，b44 第 23 則；b47 起帶著 plugin 殼的也略過，b46 LOW 2——推的不是 main 不發布任何東西）；推 main 時 rc=2。
 //
-// **印出的字**（b45，b44 第 14、15 則）：每一則訊息經 `pluginShellShown` 逸出控制字元（根名、路徑、symlink 目標取自被推送的樹）；remote 經
-// `pluginShellRemoteShown`（直接推到網址時 pre-push 的第一個參數是網址原文，可以帶帳密）。
+// **印出的字**（b45，b44 第 14、15 則）：每一則訊息經 `shownFromTree`（`main.swift`，b47 起守衛共用）逸出控制字元（根名、路徑、symlink 目標取自被推送的樹）；remote 經
+// `pluginShellRemoteShown`（直接推到網址時 pre-push 的第一個參數是網址原文，可以帶帳密；b47 起 pre-push 只交 remote 的名字，見 `pluginShellIsRemoteName`）。
 //
 // **送出的內容**＝根底下 git 認得的檔，除了根的 `CHANGELOG.md`（版本史，不是 Claude Code 載入的東西）；`plugin.json` 去掉 `version` 本身再算（其餘
 // 欄位改了同樣要升）。**symlink 解開一層**：`plugins/akashic-discovery/rules` 指向 `plugin/rules`，那些規則檔以 `plugins/akashic-discovery/rules/<檔>`
@@ -415,9 +417,9 @@ func pluginShellPublished(ref: String) -> PluginShellPublished? {
 /// 對一份內容跑全部的判斷（見檔頭第 1、2 項）；印出結果、回 rc。`targetIsMain`：這次推的就是 main（落後 main 時紅；否則只說明）。
 func pluginShellCheck(_ source: PluginShellSource, published: PluginShellPublished?, targetIsMain: Bool) -> Int32 {
     var v = Verdict()
-    // 印出的字逸出控制字元（`pluginShellShown`）：根名、檔路徑與 symlink 目標取自被推送的樹，是別人寫得進來的字
-    func say(_ s: String) { print(pluginShellShown(s)) }
-    func fail(_ s: String) { _ = v.check(false, pluginShellShown(s)) }
+    // 印出的字逸出控制字元（`shownFromTree`，`main.swift`：守衛共用的一個出口）：根名、檔路徑與 symlink 目標取自被推送的樹，是別人寫得進來的字
+    func say(_ s: String) { print(shownFromTree(s)) }
+    func fail(_ s: String) { _ = v.check(false, shownFromTree(s)) }
     guard let roots = source.roots(), !roots.isEmpty else { say("✗ 一個 plugin 根都找不到（\(source.label)）——空掃描不是通過"); return 2 }
     guard let tableText = source.table() else {
         say("✗ 讀不到版號表 \(pluginShellVersionsPath)（\(source.label)）——沒有表就判不了版號送出的是哪一份內容"
@@ -463,7 +465,20 @@ func pluginShellCheck(_ source: PluginShellSource, published: PluginShellPublish
             + "：還沒發布的列刪掉；撤掉或改名的根，已發布的列原樣留著（只增不改）、新的根另接它自己的列")
     }
     for (root, n) in retired.sorted(by: { $0.key < $1.key }) {
-        say("ℹ \(root) 不是受測內容裡的 plugin 根（撤掉或改名的根）：它已發布的 \(n) 列照只增不改留在表裡，不再比內容")
+        // 撤掉的根底下不得還有送出的東西（b47，b46 INFO 24）：只刪了 plugin.json、目錄與它的 skill、規則照樣送出時，它不是 plugin 根只因為 manifest
+        // 不見了——b45 照綠、內容不再比、版號也不必再動；b43 報「不是 plugin 根」（紅）。工作樹裡刪掉而還在 index 的檔（讀不到內容）不算送出
+        guard let left = source.listing(root) else {
+            say("✗ 讀不到 \(root) 送出的檔（\(source.label)；git ls-files／ls-tree 或 cat-file 失敗）——判不了它是不是真的撤掉了"); return 2
+        }
+        let shipping = left.files.filter { $0.data != nil }.map(\.path).sorted()
+        if shipping.isEmpty, left.refusals.isEmpty {
+            say("ℹ \(root) 不是受測內容裡的 plugin 根（撤掉或改名的根）：它已發布的 \(n) 列照只增不改留在表裡，不再比內容")
+        } else {
+            let what = shipping.isEmpty ? "\(left.refusals.count) 個解不開的 symlink 或 submodule"
+                : "\(shipping.count) 個檔（\(shipping.prefix(3).joined(separator: "、"))\(shipping.count > 3 ? "…" : "")）"
+            fail("\(root) 不是受測內容裡的 plugin 根（沒有 \(pluginManifestRel)），它底下卻還送出 \(what)：撤掉一個根要把整個目錄刪掉"
+                + "（它已發布的 \(n) 列照只增不改留著）；\(pluginManifestRel) 是誤刪的就放回去")
+        }
     }
     if published != nil {
         for r in baseRows {
@@ -565,6 +580,14 @@ func pluginShellCheck(_ source: PluginShellSource, published: PluginShellPublish
                 } else {
                     say("ℹ \(root)：\(pubName) 已送出 \(s.version)，這裡的表最後一列是 \(last.version)——這個分支落後 main。推的不是 main，不擋；合併 main 時把那幾列併進來")
                 }
+            } else if let b = row(baseRows, root, s.version) {
+                // 受測的表把分開時就有的這一列刪了：第 2a 項已經叫人原樣放回那一列，這裡同一句（b47，b46 LOW 5：b45 這裡叫人補一列送出的內容的摘要，
+                // main 的內容在表之外改過時兩個摘要不同，照做之後第 2a 項紅）。放回之後內容與那一列不符的，由上面的 ⚠／「只能升版」處理
+                fail("\(root)：\(pubName) 送出的 \(s.version) 不在表裡——這一列在分支開出來時的表裡就有：照只增不改原樣放回 "
+                    + "`\(root)\t\(s.version)\t\(b.digest)`（與上面「不見了」那一句同一列）")
+            } else if let pr = row(publishedRows, root, s.version) {
+                fail("\(root)：\(pubName) 送出的 \(s.version) 不在表裡——已發布的表有這一列：先合併 main，把 `\(root)\t\(s.version)\t\(pr.digest)` 併進來"
+                    + "（依版號排在對的位置）")
             } else {
                 fail("\(root)：\(pubName) 送出的 \(s.version) 不在表裡——補一列 `\(root)\t\(s.version)\t\(s.digest)`（依版號排在對的位置）")
             }
@@ -605,17 +628,17 @@ func pluginShellCheck(_ source: PluginShellSource, published: PluginShellPublish
                 guard case .workingTree = source else { return false }
                 return pluginShellGit(["config", "--bool", "core.fileMode"]).map { String(decoding: $0, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) } == "false"
             }()
-            var changed: [String] = []
+            let mineKinds = Dictionary(listing.files.map { ($0.path, $0.kind) }, uniquingKeysWith: { a, _ in a })
+            var paths = Set<String>()
             if fileModeOff {
                 say("ℹ core.fileMode 是 false：\(root) 的檔案模式（可執行位元）不與 \(pubName) 比；symlink 照比")
             } else {
-                let mineKinds = Dictionary(listing.files.map { ($0.path, $0.kind) }, uniquingKeysWith: { a, _ in a })
-                changed += mineKinds.keys.sorted().filter { mineKinds[$0] != s.kinds[$0] }
-                    .map { "\($0)（已發布：\(s.kinds[$0]?.rawValue ?? "?")，這裡：\(mineKinds[$0]!.rawValue)）" }
+                paths.formUnion(mineKinds.keys.filter { mineKinds[$0] != s.kinds[$0] })
             }
-            func link(_ dest: String?) -> String { dest.map { "symlink → \($0)" } ?? "不是 symlink" }
-            changed += Set(listing.links.keys).union(s.links.keys).sorted().filter { listing.links[$0] != s.links[$0] }
-                .map { "\($0)（已發布：\(link(s.links[$0]))，這裡：\(link(listing.links[$0]))）" }
+            paths.formUnion(Set(listing.links.keys).union(s.links.keys).filter { listing.links[$0] != s.links[$0] })
+            // 一個路徑一則（b47，b46 LOW 6：一般檔換成指向同一份內容的 symlink 時，種類與連結兩邊都變，b45 列兩次、算兩處）
+            func side(_ kind: PluginShellFile.Kind?, _ link: String?) -> String { link.map { "symlink → \($0)" } ?? kind?.rawValue ?? "不是 symlink" }
+            let changed = paths.sorted().map { "\($0)（已發布：\(side(s.kinds[$0], s.links[$0]))，這裡：\(side(mineKinds[$0], listing.links[$0]))）" }
             if !changed.isEmpty {
                 fail("\(root) \(version) 已推上 main（\(pubName)），內容相同而送出的樹改了（檔案模式或 symlink）：\(changed.prefix(5).joined(separator: "、"))"
                     + "\(changed.count > 5 ? "等 \(changed.count) 處" : "")——送出的東西變了（摘要不看這些），只能升版：改 \(root)/\(pluginManifestRel) 的 version，"
@@ -625,38 +648,36 @@ func pluginShellCheck(_ source: PluginShellSource, published: PluginShellPublish
         summary.append("\(root) \(version)" + (shipped.map { "（main：\($0.version)）" } ?? ""))
     }
     fflush(stdout)   // 上面的 ℹ 是 `print`（有緩衝），`exitCode` 直接寫——先清掉，順序才對
-    return v.exitCode(pluginShellShown("plugin 殼的版號與送出的內容一致（\(source.label)）：\(summary.joined(separator: "、"))"))
+    return v.exitCode(shownFromTree("plugin 殼的版號與送出的內容一致（\(source.label)）：\(summary.joined(separator: "、"))"))
 }
 
-/// 印出之前逸出控制字元（b45，b44 第 15 則）：根名、檔路徑與 symlink 目標取自被推送的樹——別人的分支簽出之後推送，名字裡的 ESC 會把終端機
-/// 控制序列原樣印到終端機與 agent 讀到的輸出裡。C0（TAB 除外：訊息裡要照抄的那一列以 TAB 分欄）、DEL、C1 寫成 `\u{XXXX}`。
-func pluginShellShown(_ s: String) -> String {
-    var out = String.UnicodeScalarView()
-    for u in s.unicodeScalars {
-        if u.value != 0x09, u.value < 0x20 || (0x7F...0x9F).contains(u.value) {
-            out.append(contentsOf: String(format: "\\u{%04X}", u.value).unicodeScalars)
-        } else {
-            out.append(u)
-        }
-    }
-    return String(out)
+/// pre-push 的第一個參數是不是一個 remote 的**名字**（不是網址）。直接推到網址時 git 給的是網址原文（githooks(5)），可以帶帳密。
+///
+/// 判準是 git 自己的（b47，b46 LOW 7）：不以 `-` 開頭、`refs/remotes/<名字>/main` 通過 `git check-ref-format`——那正是這支拿它去找的 ref。
+/// git 收的名字這裡都收：含 `/`（`team/fork`）、非 ASCII；不收 `..`、控制字元、空白、`:`（網址與 `user@主機:路徑` 都有 `:`，因此一律不是名字）。
+/// b45 只收 `[A-Za-z0-9._-]+`，`team/fork` 被當成不是名字、安靜地改找 `refs/remotes/origin/main`。`.githooks/pre-push` 對它的第一個參數做同一個判斷
+/// （同一個 `git check-ref-format`），不是名字就交空的。
+func pluginShellIsRemoteName(_ s: String) -> Bool {
+    !s.isEmpty && !s.hasPrefix("-") && pluginShellGit(["check-ref-format", "refs/remotes/\(s)/main"]) != nil
 }
 
-/// pre-push 的第一個參數是不是一個具名的 remote（字母、數字、`.`、`_`、`-`）。直接推到網址時 git 給的是網址原文（githooks(5)）。
-func pluginShellIsRemoteName(_ s: String) -> Bool { !matches(s, #"\A[A-Za-z0-9._-]+\z"#).isEmpty }
-
-/// remote 印出來的樣子（b45，b44 第 14 則、INFO 26）：具名的原樣；網址只印 scheme 與主機（`scheme://主機`，帳密與路徑不印）；
-/// `user@主機:路徑` 只印主機；其餘一律不印——網址可以帶帳密（`https://user:TOKEN@…`），git 自己的 `To <url>` 也會去掉它。
+/// remote 印出來的樣子（b45，b44 第 14 則、INFO 26；b47，b46 LOW 8）：具名的原樣（印出時照樣經 `shownFromTree`）；網址只印 scheme 與主機
+/// （`scheme://主機`，帳密與路徑不印）——**`://` 之前那一段要是 scheme**（`[A-Za-z][A-Za-z0-9+.-]*`，可以接一個 git 的 remote helper
+/// `::scheme`，例如 `hg::https`），不是就不印（b45 原樣印出那一段：`ext::sh -c 'curl -u user:SEC@h http://x'`、`user:SEC@host:path://x`）；
+/// `user@主機:路徑` 只印主機；其餘一律印「（被推送的 remote）」——git 自己的 `To <url>` 也會去掉帳密。
 func pluginShellRemoteShown(_ s: String) -> String {
+    let neutral = "（被推送的 remote）"
     if pluginShellIsRemoteName(s) { return s }
     if let sep = s.range(of: "://") {
+        let scheme = String(s[..<sep.lowerBound])
+        guard !matches(scheme, #"\A[A-Za-z][A-Za-z0-9+.-]*(?:::[A-Za-z0-9+.-]+)?\z"#).isEmpty else { return neutral }
         let rest = s[sep.upperBound...]
         let authority = rest.prefix { $0 != "/" && $0 != "?" && $0 != "#" }
         let host = authority.split(separator: "@", omittingEmptySubsequences: false).last.map(String.init) ?? ""
-        return String(s[..<sep.lowerBound]) + "://" + host
+        return scheme + "://" + host
     }
     if let at = s.lastIndex(of: "@"), let colon = s[at...].firstIndex(of: ":") { return String(s[s.index(after: at)..<colon]) }
-    return "（被推送的 remote）"
+    return neutral
 }
 
 /// 被推送的 commit 的樹完全沒有 plugin 殼：沒有版號表、也沒有 `plugin/`、`plugins/`（b45，b44 第 8、18、23 則）。
@@ -686,7 +707,7 @@ func pluginShellVersion() -> Int32 {
         if line.isEmpty { continue }
         let f = line.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
         guard f.count == 4, pluginShellIsSHA(f[1]), pluginShellIsSHA(f[3]) else {
-            print(pluginShellShown("✗ \(pluginShellPushRefsEnv) 第 \(n + 1) 行不是「local ref、local sha、remote ref、remote sha」：\(pyRepr([String(line.prefix(160))]))"))
+            print(shownFromTree("✗ \(pluginShellPushRefsEnv) 第 \(n + 1) 行不是「local ref、local sha、remote ref、remote sha」：\(pyRepr([String(line.prefix(160))]))"))
             worst = max(worst, 2); continue
         }
         let (localRef, localSHA, remoteRef, remoteSHA) = (f[0], f[1], f[2], f[3])
@@ -694,14 +715,17 @@ func pluginShellVersion() -> Int32 {
         guard remoteRef.hasPrefix("refs/heads/") else { continue }    // tag 等：marketplace 讀的是 main
         branches += 1
         let toMain = remoteRef == "refs/heads/main"
-        print(pluginShellShown("── 推送 \(localRef) → \(remoteShown.isEmpty ? "" : "\(remoteShown) ")\(remoteRef)（\(localSHA.prefix(12))）──"))
+        print(shownFromTree("── 推送 \(localRef) → \(remoteShown.isEmpty ? "" : "\(remoteShown) ")\(remoteRef)（\(localSHA.prefix(12))）──"))
         guard pluginShellResolve(localSHA) == localSHA else {
             print("✗ 被推送的 commit \(localSHA.prefix(12)) 在這個 repo 裡讀不到"); worst = max(worst, 2); continue
         }
-        if !toMain, pluginShellTreeShipsNothing(localSHA) {
-            // 刪除與 tag 同樣的理由：這個 commit 沒有送出任何 plugin 殼（表是 #613 b41 才有的，之前分出去的分支、孤兒分支都是這個形狀）。
-            // 推 main 時照常判（main 沒有表＝已發布的列全被刪了，只增不改那一項會紅）
-            print("ℹ 被推送的 commit 沒有版號表、也沒有 plugin/ 與 plugins/：它沒有送出 plugin 殼，略過（推的不是 main）")
+        if !toMain, pluginShellTableText(at: localSHA) == nil {
+            // 推的不是 main 時不發布任何東西（推上 main 才是發布，本 repo 是 marketplace）：沒有表就判不了，也不必判——略過並說明。表是 #613 b41
+            // 才有的，之前分出去的分支（帶著 plugin/）、孤兒分支（連 plugin 殼都沒有）都是這個形狀。b45 只略過後者，前者 rc=2、每一個都要先 rebase
+            // 或 --no-verify（b47，b46 LOW 2）。推 main 時照常判：沒有表 rc=2（main 沒有表＝已發布的列全被刪了）
+            print(pluginShellTreeShipsNothing(localSHA)
+                ? "ℹ 被推送的 commit 沒有版號表、也沒有 plugin/ 與 plugins/：它沒有送出 plugin 殼，略過（推的不是 main）"
+                : "ℹ 被推送的 commit 有 plugin 殼而沒有版號表（#613 b41 之前分出去的分支）：推的不是 main、不發布任何東西，略過——推上 main 之前先 rebase 到 main")
             continue
         }
         var published: PluginShellPublished? = nil
@@ -718,7 +742,7 @@ func pluginShellVersion() -> Int32 {
             let own = remoteName.isEmpty || remoteName == "origin" ? nil : "refs/remotes/\(remoteName)/main"
             published = own.flatMap { pluginShellPublished(ref: $0) } ?? pluginShellPublished(ref: pluginShellPublishedRef)
             if published == nil {
-                print(pluginShellShown("ℹ \(own.map { "\($0) 與 \(pluginShellPublishedRef) 都" } ?? "\(pluginShellPublishedRef) ")不在：只照版號表判斷，分不出最後一列推上 main 了沒"))
+                print(shownFromTree("ℹ \(own.map { "\($0) 與 \(pluginShellPublishedRef) 都" } ?? "\(pluginShellPublishedRef) ")不在：只照版號表判斷，分不出最後一列推上 main 了沒"))
             }
         }
         worst = max(worst, pluginShellCheck(.commit(localSHA), published: published, targetIsMain: toMain))

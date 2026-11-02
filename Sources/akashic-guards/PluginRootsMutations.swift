@@ -10,8 +10,9 @@
 // `plugin-roots` 這份根目錄清單的後果，不是那三支守衛的負控；它們各有自己的 harness，刪掉那支時要紅（#689 R1 verify）。
 // `migrated-guard-control` 只採用宣告過的守衛的執行紀錄，所以這三支在這裡變紅不替它們作證。
 //
-// **`plugin-roots` 的負控是輸出比對，不是變紅**（#707）：它是列舉命令，本來就只回 0。它的格子是「在一棵放了沒有
-// manifest 的雜目錄的副本上，輸出剛好是該有的那份」——預期寫成 `.exactOutput`，由 `runGuardProcess` 比對。
+// **`plugin-roots` 的負控主要是輸出比對**（#707）：它是列舉命令，平常只回 0。它的格子是「在一棵放了沒有
+// manifest 的雜目錄的副本上，輸出剛好是該有的那份」——預期寫成 `.exactOutput`，由 `runGuardProcess` 比對。b47（#613，b46 LOW 12）起它對名字含
+// 空白或控制字元的根 rc=1，那一格是變紅（下面 `cases` 的第一格）。
 //
 // **每一格都有對照組**：同一棵 copy、只做前置（`setup`）不做突變時，守衛必須是綠的——
 // 否則紅的原因分不出是突變還是前置本身（`oracle-precondition-control` 的同一個紀律）。
@@ -35,6 +36,8 @@ private struct PluginRootMutation {
     let mutate: (String) -> Bool
     /// 失敗輸出必須包含的字串（肇事者的名字或路徑）
     let expect: String
+    /// 輸出不得包含的字串（b47：名字裡的終端機控制序列原樣印出）
+    var forbid: String? = nil
 }
 
 func pluginRootsMutations() -> Int32 {
@@ -116,7 +119,21 @@ func pluginRootsMutations() -> Int32 {
     }
 
     let consistency = ["marketplace-consistency"]
+    // b47（#613，b46 LOW 12）：根名取自被推送的樹。名字裡的終端機控制序列不得原樣印出（`shownFromTree`）；`plugin-roots` 對這種名字不印清單、rc=1
+    // （`run-guards.sh` 以空白分開它的輸出，逸出之後也不是原來的目錄）
+    let hostileRoot = "plugins/" + "\u{1B}]0;PWNED\u{07}\u{1B}[31mx"
+    let plantHostileRoot: (String) -> Bool = { write($0, hostileRoot + "/.claude-plugin/plugin" + ".json", "{\"name\": \"x\", \"version\": \"0.1.0\"}\n") }
     let cases: [PluginRootMutation] = [
+        .init(desc: "plugin 根的名字含終端機控制序列（plugin-roots 不印清單、具名拒絕）",
+              guardArgv: ["plugin-roots"],
+              setup: { _ in true },
+              mutate: plantHostileRoot,
+              expect: "\\u{001B}]0;PWNED", forbid: "\u{1B}"),
+        .init(desc: "plugin 根的名字含終端機控制序列（marketplace-consistency 逸出之後指名）",
+              guardArgv: consistency,
+              setup: { _ in true },
+              mutate: plantHostileRoot,
+              expect: "\\u{001B}]0;PWNED", forbid: "\u{1B}"),
         .init(desc: "plugins 根下新增未接線的測試",
               guardArgv: ["trigger-coverage"],
               setup: { _ in true },
@@ -235,7 +252,9 @@ func pluginRootsMutations() -> Int32 {
         if !applied {
             print("✗ \(label) → 突變套不上（目標不存在），未被抓到"); continue
         }
-        if rc != 0 && out.contains(c.expect) {
+        if let bad = c.forbid, out.contains(bad) {
+            print("✗ \(label) → rc=\(rc)，但輸出含不得出現的 \(shownFromTree(bad))")
+        } else if rc != 0 && out.contains(c.expect) {
             print("✓ \(label) → rc=\(rc)，指名了 \(c.expect)"); caught += 1
         } else if rc != 0 {
             print("✗ \(label) → rc=\(rc)，但沒指名 \(c.expect) ← 紅的原因不是這個突變")

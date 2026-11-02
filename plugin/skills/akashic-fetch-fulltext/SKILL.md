@@ -17,12 +17,18 @@ description: 取得 Akashic 條目的全文 PDF 並存進 store——EndNote「F
 
 2026-09-28 一晚三次 CAPTCHA，每一次都緊跟在一個真人不會做的動作之後：頁內以 JS fetch PDF 端點、短時間重複載入同一篇、固定間隔（ScienceDirect #1）；PDF 已經顯示，又對同一個簽章網址多送一次請求（ScienceDirect #2）；導航之前先以 curl 打了 DOI 頁與 PDF 端點（Optica）。相對地，完全用導航、由使用者按按鈕存檔的那一次沒有任何檢查。
 
-1. **出版商網站只用瀏覽器導航**：不用 curl 或任何 HTTP 客戶端，不在頁內以 JS 取檔（`fetch()` 帶 `Sec-Fetch-Mode: cors`，看得出來）。
+1. **出版商網站只用瀏覽器導航**：不用 curl 或任何 HTTP 客戶端，不在頁內以 JS 取檔（`fetch()` 帶 `Sec-Fetch-Mode: cors`，看得出來）。**例外只有一種**（使用者 2026-11-02：判準是網站看不看得出來，不是用了什麼工具；封閉列舉，不得依性質相似類推）：讀 WebKit 已經持有的那一份 PDF，下面四個條件都要成立——
+   - (a) 分頁此刻的 `document.contentType` 是 `application/pdf`：文件本身就是 PDF，沒有網站的腳本可以包住 `fetch` 或回報錯誤。文章頁、HTML 閱讀器都不算，它們的腳本看得到頁內呼叫。
+   - (b) 只用 `fetch(location.href, {cache: 'only-if-cached', mode: 'same-origin'})`。快取沒有就失敗；失敗就交給人，不重試、不換 cache mode、不改抓別的網址。
+   - (c) 是固定、驗過能解析的運算式，不是臨場寫的。
+   - (d) 分頁是這一篇 `fetch` 交接出來的（`pdf-shown`），profile 也對得上。
+
+   有 safari-browser 的專用指令（safari-browser#338）就用指令，不自己送 JS。**證據界線**：2026-11-02 在 ScienceDirect 量到回傳 200 與完整位元組；「沒有送出請求」來自 `only-if-cached` 的規格，沒有抓封包量過。
    決定原文另寫：「開放典藏（機構 repository、S3 預簽章的公開檔）不在此限」——例外只放寬這一條，而且只對那兩種來源；本 skill 目前**沒有用到它**，開放典藏也走同一條路（導航、交給人）。要用這個例外，得先由使用者裁決怎麼認定一個站是開放典藏。
 2. **每個請求都要有真人對應的動作**：不重抓已載入的檔、不猜網址、不試端點（#613 起不再拼 SAGE `?download=true`、Wiley `pdfdirect`、PsycNet `/fulltext/<id>.pdf`，只跟頁面自己的連結走）；失敗就停，不臨場換招。
 3. **需要驗證或權限的步驟交給人**：CAPTCHA 與其他人類檢查、登入、Safari 自己的權限對話框（「要允許在『<站>』上下載嗎？」——那是持久的網站設定，即使使用者說了「允許」，`safari-browser dialog dismiss` 檢查不完所有視窗時也交給他親手按）。**頁面自己的下載鈕或 PDF 連結**，使用者在當次對話授權後可以由你用 safari-browser 按（使用者 2026-11-02）：先 `snapshot -i`（`--url` 鎖分頁）確認那是**這篇自己的**按鈕（不是推薦文章、補充資料、引文下載），一次按一個，按之前跑節奏工具；沒有授權就照舊交給人。命令列其餘只做沒有副作用的讀取。
 4. **一次一篇、節奏像人**：篇與篇之間跑節奏工具（jitter），不用固定的 `sleep`；上一篇交給人之後，等使用者處理完再做下一篇。
-5. **頁面上執行的 JS 要少而且正確**：網站的分析工具看得到頁面的 JS 錯誤（2026-09-28 NVA 的 Matomo 記錄了 agent 的 SyntaxError）。`fetch` 注入的每一段都是固定的、驗過能解析的運算式；**不要自己另外往出版商頁面送 JS**。
+5. **頁面上執行的 JS 要少而且正確**：網站的分析工具看得到頁面的 JS 錯誤（2026-09-28 NVA 的 Matomo 記錄了 agent 的 SyntaxError）。`fetch` 注入的每一段都是固定的、驗過能解析的運算式；**除了規則 1 的那一種例外，不要自己另外往出版商頁面送 JS**。
 
 ## 這個 skill 能做到哪裡（誠實邊界）
 
@@ -30,7 +36,7 @@ description: 取得 Akashic 條目的全文 PDF 並存進 store——EndNote「F
 - **能**（#614 起）：把驗證過的 digest 寫進條目的 `akashic.sources`（store-format.md §2.4.1）——見第 6 步。**不要手寫條目 YAML 補上**（writing-to-the-store.md：沒走編碼器又沒驗的手改是唯一真正錯的走法）。
 - **能取得 Safari 已經載入的位元組**（#766；使用者 2026-11-02「有什麼更好的方法都更新」）：分頁顯示 PDF（`pdf-shown`）時，用 `safari-browser pdf-cache get --url "<分頁網址去掉 https:// 的子字串>" --json "<暫存目錄>/<citekey>.cache.pdf"`（safari-browser#210，v2.7.0 起）從網路快取複製——**不送新請求、不在頁內 fetch、不驅動 Safari**，檢查 `%PDF-` 與每一頁可讀才寫檔。用 `--url` 鎖，不用 `--window`／`--tab-in-window`（使用者在用 Safari 時視窗編號會變，見第 2 步）。兩個限制：
   - 只讀 **default profile** 的快取（safari-browser#243）：`--expect-profile` 給的 profile 不是 default 時，結果可能是沒找到，或拿到 default profile 同網址的那一份——此時不用 pdf-cache，交給人存。
-  - **不進快取的回應取不到**：ScienceDirect 的 `pdf.sciencedirectassets.com` 簽章網址回「No cached PDF matches」（safari-browser#338，修好之前交給人存）。
+  - **不進快取的回應取不到**：ScienceDirect 的 `pdf.sciencedirectassets.com` 簽章網址回「No cached PDF matches」（safari-browser#338；用它的專用指令，指令發布前可走規則 1 的例外，否則交給人存）。
   - 取不到時（`no match`）不換別的取檔方法，照舊交給人存；**不要**從 `WebKitPDFs-*` 暫存資料夾自己挑檔（見第 4 步）。
 - **只用使用者自己的存取權**。付費牆後面、使用者沒有權限的，就是拿不到——回報「無權限」，不找替代管道硬拿。
 

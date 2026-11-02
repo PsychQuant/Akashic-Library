@@ -199,10 +199,21 @@ final class FulltextB45Tests: XCTestCase {
         for (name, text) in [("'https://h/x ' × 20,000", String(repeating: "https://h/x ", count: 20_000)),
                              ("'a://b ' × 20,000", String(repeating: "a://b ", count: 20_000)),
                              ("'https:/h/x;j=1 ' × 20,000", String(repeating: "https:/h/x;j=1 ", count: 20_000))] {
-            let t0 = DispatchTime.now().uptimeNanoseconds
-            _ = FulltextFetch.redactingPageText(text)
-            let t = Double(DispatchTime.now().uptimeNanoseconds - t0) / 1e9
+            let t = threadCPUSeconds { _ = FulltextFetch.redactingPageText(text) }
             XCTAssertLessThan(t, 3, "\(name)：\(String(format: "%.2f", t)) 秒")
         }
+    }
+
+    /// `threadCPUSeconds` 數的是運算、不是等待：睡著不算，真的在算才算。少了這一支，上限可能什麼都沒量到（例如 clock 用錯、永遠回 0）還是綠的。
+    func testTheBoundCountsWorkNotWaiting() {
+        let slept = threadCPUSeconds { Thread.sleep(forTimeInterval: 0.3) }
+        XCTAssertLessThan(slept, 0.1, "睡 0.3 秒量到 \(slept) 秒")
+        var sink: UInt64 = 0
+        let worked = threadCPUSeconds {
+            let end = DispatchTime.now().uptimeNanoseconds + 300_000_000
+            while DispatchTime.now().uptimeNanoseconds < end { sink &+= 1 }
+        }
+        XCTAssertGreaterThan(sink, 0)
+        XCTAssertGreaterThan(worked, 0.01, "忙 0.3 秒量到 \(worked) 秒")
     }
 }

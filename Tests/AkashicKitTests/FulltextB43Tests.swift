@@ -5,6 +5,19 @@ import XCTest
 /// #613 b43：b42 verify 對 b41 `redactingPageText` 的 finding——帳密那一條正規表示式對斜線串與重複的 `https:` 是平方的（頁面可以讓 CLI
 /// 卡住幾分鐘）、帳密含普通空白（與引號、角括號、NBSP、VT）原樣印出、查詢在空白之後的那一段原樣印出。與 `FulltextFetchPathTests` 同一個
 /// 記憶體內的假瀏覽器，不碰 Safari、不連網。
+/// 這條執行緒實際花掉的 CPU 時間（秒）。線性度的上限量這個，不量牆鐘：機器負載高時牆鐘會變長，算法沒有變慢——2026-11-02 load average 約 350，
+/// `testManyURLsStayWithinTheBound` 牆鐘 6.09 秒、閒置時 1.93 秒，pre-push 因此擋下推送（同一類見 #752）。受測的函式都在這條執行緒上同步跑完。
+func threadCPUSeconds(_ body: () -> Void) -> Double {
+    func now() -> Double {
+        var t = timespec()
+        clock_gettime(CLOCK_THREAD_CPUTIME_ID, &t)
+        return Double(t.tv_sec) + Double(t.tv_nsec) / 1e9
+    }
+    let t0 = now()
+    body()
+    return now() - t0
+}
+
 final class FulltextB43Tests: XCTestCase {
     typealias Scenario = FulltextFetchPathTests.Scenario
     typealias FakeBrowser = FulltextFetchPathTests.FakeBrowser
@@ -31,11 +44,7 @@ final class FulltextB43Tests: XCTestCase {
 
     private var errText: String { stderr.joined(separator: "\n") }
 
-    private func seconds(_ body: () -> Void) -> Double {
-        let t0 = DispatchTime.now().uptimeNanoseconds
-        body()
-        return Double(DispatchTime.now().uptimeNanoseconds - t0) / 1e9
-    }
+    private func seconds(_ body: () -> Void) -> Double { threadCPUSeconds(body) }
 
     // MARK: MEDIUM 4、5、7：頁面給的字的長度不得讓去憑證變成平方
 

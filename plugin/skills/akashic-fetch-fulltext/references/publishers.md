@@ -69,3 +69,26 @@
 - **zsh 保留變數**：`UID` 在 zsh 是唯讀的使用者 ID，賦值會變成「切換使用者」而被拒。這是舊 shell 腳本踩過的；#629 起 `fetch` 是 Swift，不再有這個問題（條目保留當作紀錄：新寫的 shell 片段仍要避開這個名字）。
 - **`%PDF` 不等於這篇**：補充資料、作者稿都通過檔頭檢查；`akashic fulltext take`（與 `verify`）比對頁數與首頁標題（門檻與校準資料寫在 akashic repo 內 `FulltextVerify.swift` 的型別註解，plugin 安裝處讀不到）。
 - **`pdfinfo` 的 Title 不可靠**：ScienceDirect 版本的 Title 是 `doi:…` 字串，不是論文標題；標題驗證看首頁文字（`take` 就是這樣做的）。
+
+## 2026-11-02 一批（21 篇，pdf-cache 改接之後）
+
+導航仍走 `fetch`；`pdf-shown` 之後用 `pdf-cache get --url` 取快取（#766）。都在使用者的機構網路、default profile 下。
+
+| 站 | 結果 | 處置 | 觀察 |
+|---|---|---|---|
+| Oxford Academic（JAC，`watermark02.silverchair.com`）| `pdf-shown`，快取取得；首頁有印 DOI、無 XMP DOI，增刊頁碼 `iii11-iii24` 比不了 → `take` 結束碼 5 | Claude 讀首頁確認 | 1 篇成功 |
+| Oxford Academic（CID）| 文章頁找不到 PDF 連結（結束碼 3）；同一批另一次交接時分頁位置對到使用者自己的分頁 | 列入「需要人」 | 1 篇未取得 |
+| Deutsches Ärzteblatt | 轉到 `di.aerzteblatt.de` → `left-site` | 使用者存檔 | 1 篇成功 |
+| SAGE | `pdf-shown`，網址在 `/history/<uuid>/<doi>.<n>.pdf`，快取取得，`take` 結束碼 0（正式版）| 自動 | 2 篇成功 |
+| SAGE | 頁面的 `citation_pdf_url` 指向別的站（引用的德國指引 `awmf.org`）→ 結束碼 1 `points off-site`；文章頁的 `PDF/EPUB` 連結到 `/doi/epub/<doi>` 閱讀頁，閱讀頁的 `Download PDF`（`#favourite-download`）直接下載 | 使用者授權後代按，下載資料夾取檔 | 1 篇成功 |
+| SAGE | 文章頁找不到 PDF 連結（結束碼 3）| 列入「需要人」 | 1 篇未取得 |
+| Nature（Sci Rep）| `pdf-shown`（`/articles/<id>.pdf`），快取取得，結束碼 0 | 自動 | 1 篇成功 |
+| MDPI | 導航到 `/pdf` 之後分頁不變（`tab-unchanged`），Safari 直接下載 `<journal>-<vol>-<id>-v<n>.pdf` 到下載資料夾；article number 比不了頁碼 → 結束碼 5 | 下載資料夾取檔；Claude 讀首頁確認 | 2 篇成功 |
+| Wolters Kluwer（Neurosurgery）| DOI 轉到 `www.ovid.com/jnls/neurosurgery/fulltext/...`，找不到 PDF 連結（結束碼 3）| 列入「需要人」 | 1 篇未取得 |
+| Wiley | `/doi/pdf/<doi>` 是 HTML 閱讀器（`html-page`）；`snapshot -i` 讀不到任何下載鈕（閱讀器多半在框架裡）| 列入「需要人」 | 1 篇未取得 |
+| AME（jss.amegroups.org）| `/article/view/<id>/pdf` 是 HTML（`html-page`）；`#pdfDownloadLink`「Download」按下去跳出 Safari 的「要允許在『jss.amegroups.org』上下載嗎？」；`dialog dismiss` 回「無法在預算內檢查所有視窗」| 權限對話框交給使用者親手按 | 1 篇待使用者 |
+| J-STAGE | `pdf-shown`（`/_pdf`），快取取得；首頁沒有 DOI 與卷期，第 2 頁起的頁首有 → 結束碼 5 | Claude 確認（頁首）| 1 篇成功 |
+| AJNR | `pdf-shown`（`.full.pdf`），快取取得，結束碼 0 | 自動 | 1 篇成功 |
+| Springer（Eur Spine J）| `pdf-shown`（`/content/pdf/<doi>.pdf`），快取取得，結束碼 0 | 自動 | 1 篇成功 |
+| ScienceDirect | 第一篇落地就是 CAPTCHA（結束碼 8）；使用者驗證後在同一分頁接續，但視窗編號已變，`--resume-tab` 找不到分頁（結束碼 1，已記一次嘗試）。另一篇導航到 `pdf.sciencedirectassets.com` 的 `main.pdf?X-Amz-...` → `pdf-shown`，但 `pdf-cache get` 回 `No cached PDF matches`（不進快取）。在那個分頁以 `fetch(location.href,{cache:'only-if-cached',mode:'same-origin'})` 只讀探測（使用者同意後一次）回 `status=200 bytes=1220093 head=%PDF-`——WebKit 持有位元組，見 safari-browser#338 | 使用者存檔（1 篇）；其餘等 #338 | 1 篇成功、3 篇待 #338 |
+

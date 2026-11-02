@@ -20,7 +20,7 @@ description: 取得 Akashic 條目的全文 PDF 並存進 store——EndNote「F
 1. **出版商網站只用瀏覽器導航**：不用 curl 或任何 HTTP 客戶端，不在頁內以 JS 取檔（`fetch()` 帶 `Sec-Fetch-Mode: cors`，看得出來）。
    決定原文另寫：「開放典藏（機構 repository、S3 預簽章的公開檔）不在此限」——例外只放寬這一條，而且只對那兩種來源；本 skill 目前**沒有用到它**，開放典藏也走同一條路（導航、交給人）。要用這個例外，得先由使用者裁決怎麼認定一個站是開放典藏。
 2. **每個請求都要有真人對應的動作**：不重抓已載入的檔、不猜網址、不試端點（#613 起不再拼 SAGE `?download=true`、Wiley `pdfdirect`、PsycNet `/fulltext/<id>.pdf`，只跟頁面自己的連結走）；失敗就停，不臨場換招。
-3. **需要按鈕或驗證的步驟交給人**：存 PDF（用預覽程式打開、下載鈕、⌘S）、頁面的下載按鈕、CAPTCHA。命令列只做沒有副作用的讀取。
+3. **需要驗證或權限的步驟交給人**：CAPTCHA 與其他人類檢查、登入、Safari 自己的權限對話框（「要允許在『<站>』上下載嗎？」——那是持久的網站設定，即使使用者說了「允許」，`safari-browser dialog dismiss` 檢查不完所有視窗時也交給他親手按）。**頁面自己的下載鈕或 PDF 連結**，使用者在當次對話授權後可以由你用 safari-browser 按（使用者 2026-11-02）：先 `snapshot -i`（`--url` 鎖分頁）確認那是**這篇自己的**按鈕（不是推薦文章、補充資料、引文下載），一次按一個，按之前跑節奏工具；沒有授權就照舊交給人。命令列其餘只做沒有副作用的讀取。
 4. **一次一篇、節奏像人**：篇與篇之間跑節奏工具（jitter），不用固定的 `sleep`；上一篇交給人之後，等使用者處理完再做下一篇。
 5. **頁面上執行的 JS 要少而且正確**：網站的分析工具看得到頁面的 JS 錯誤（2026-09-28 NVA 的 Matomo 記錄了 agent 的 SyntaxError）。`fetch` 注入的每一段都是固定的、驗過能解析的運算式；**不要自己另外往出版商頁面送 JS**。
 
@@ -28,7 +28,10 @@ description: 取得 Akashic 條目的全文 PDF 並存進 store——EndNote「F
 
 - **能**：在使用者的 Safari 裡走到頁面自己的 PDF 連結、交給使用者存檔；驗證使用者存下來的檔、以 `store-source` 存進 `sources/`（內容定址、git 排除已驗證才寫），回報每筆的 digest。
 - **能**（#614 起）：把驗證過的 digest 寫進條目的 `akashic.sources`（store-format.md §2.4.1）——見第 6 步。**不要手寫條目 YAML 補上**（writing-to-the-store.md：沒走編碼器又沒驗的手改是唯一真正錯的走法）。
-- **不能自己取得位元組**：PDF 顯示出來之後，存檔是使用者的動作。三種存法（用預覽程式打開、下載鈕、⌘S）哪一個是標準流程，由 PsychQuant/safari-browser#210 的實驗決定，本 skill 不挑；那之前使用者用他習慣的方式存。
+- **能取得 Safari 已經載入的位元組**（#766；使用者 2026-11-02「有什麼更好的方法都更新」）：分頁顯示 PDF（`pdf-shown`）時，用 `safari-browser pdf-cache get --url "<分頁網址去掉 https:// 的子字串>" --json "<暫存目錄>/<citekey>.cache.pdf"`（safari-browser#210，v2.7.0 起）從網路快取複製——**不送新請求、不在頁內 fetch、不驅動 Safari**，檢查 `%PDF-` 與每一頁可讀才寫檔。用 `--url` 鎖，不用 `--window`／`--tab-in-window`（使用者在用 Safari 時視窗編號會變，見第 2 步）。兩個限制：
+  - 只讀 **default profile** 的快取（safari-browser#243）：`--expect-profile` 給的 profile 不是 default 時，結果可能是沒找到，或拿到 default profile 同網址的那一份——此時不用 pdf-cache，交給人存。
+  - **不進快取的回應取不到**：ScienceDirect 的 `pdf.sciencedirectassets.com` 簽章網址回「No cached PDF matches」（safari-browser#338，修好之前交給人存）。
+  - 取不到時（`no match`）不換別的取檔方法，照舊交給人存；**不要**從 `WebKitPDFs-*` 暫存資料夾自己挑檔（見第 4 步）。
 - **只用使用者自己的存取權**。付費牆後面、使用者沒有權限的，就是拿不到——回報「無權限」，不找替代管道硬拿。
 
 ## 中止條款：起疑訊號分兩種處置
@@ -86,7 +89,7 @@ DOI 解不開是 `doi-not-resolved`：分頁停在 doi.org（看主機，不是�
 
    **確認不了就停，不要用舊的 `fetch`、也不要自己改寫一段取檔的流程。**
 1. **確認節奏工具**：`safari-browser wait --help` 有 `--jitter` 就用 `safari-browser wait --jitter cauchy`；沒有就用 `akashic fulltext jitter`（同一個分布與預設值；印出秒數再睡；**跑不起來就停下，不要略過節奏**）。**不要**用固定的 `sleep`，也不要用 safari-browser SKILL.md 舊的 `max(2, …)` 一行公式——它把 22.3% 的間隔堆在 2.0 秒（PsychQuant/safari-browser#182 的 10⁶ 次模擬）。
-2. **選視窗**：`safari-browser documents --json --profile "<使用者自己的 profile>"` 只列那個 profile 的視窗（**不要不帶 `--profile`**：會把所有 profile、含別人的 session 的分頁網址與標題倒進對話）。選一個視窗編號 `<N>`，第 3 步的 `--window` 用它；其他 profile 是別人的 session。拿不準就問。
+2. **選視窗**（**每一篇都重選**：視窗編號是 z-order，使用者在 Safari 裡切換視窗就會變；2026-11-02 一批之內變了三次，一次讓 `fetch` 拒絕、一次讓接續找不到分頁）：`safari-browser documents --json --profile "<使用者自己的 profile>"` 只列那個 profile 的視窗（**不要不帶 `--profile`**：會把所有 profile、含別人的 session 的分頁網址與標題倒進對話）。選一個視窗編號 `<N>`，第 3 步的 `--window` 用它；其他 profile 是別人的 session。拿不準就問。
 3. **先載 `safari-browser` skill** 的 tab-locking 段（全域 CLAUDE.md 要求）。
 4. **第 2 步的 OpenAlex 查詢**（頁內 fetch，查的是 OpenAlex 的 API，不是出版商）先照 [web-access.md](../akashic-bootstrap/references/web-access.md) 的〈開始前〉問 profile、建暫存目錄。
 
@@ -138,11 +141,11 @@ akashic fulltext fetch --window <N> --expect-profile "<使用者自己的 profil
 
 | 原因 | 請使用者做什麼 |
 |---|---|
-| `pdf-shown` | 分頁回報顯示 PDF：請他先看一眼——依據是分頁讀得到的 `document.contentType`，頁面腳本改得了它；確實是 PDF 就存下來（用他習慣的方式），告訴你存在哪裡；顯示的是登入、驗證或封鎖頁就是中止條款 |
-| `html-page` | 頁面自己的 PDF 連結通到 HTML 頁（線上閱讀器、登入頁、無權限的外殼）：有下載按鈕就請他按；寫著沒有權限就列入「需要人」 |
+| `pdf-shown` | 分頁回報顯示 PDF：**先用 `pdf-cache get --url`**（見〈能做到哪裡〉）取快取裡那一份，交給第 4 步；`take` 會驗證是不是這篇（`%PDF-` 檔頭擋掉登入或驗證頁）。快取沒有（`no match`）才請使用者看一眼並存檔——依據是分頁讀得到的 `document.contentType`，頁面腳本改得了它；顯示的是登入、驗證或封鎖頁就是中止條款 |
+| `html-page` | 頁面自己的 PDF 連結通到 HTML 頁（線上閱讀器、登入頁、無權限的外殼）：有下載按鈕就請他按——使用者授權時你按（規則 3；實測 SAGE 閱讀頁的 `Download PDF`、AME 的 `Download`），然後照 `tab-unchanged` 那一列在下載資料夾找新檔；`snapshot -i` 讀不到按鈕（Wiley 的 epdf 閱讀器）就交給人；寫著沒有權限就列入「需要人」 |
 | `unverifiable` | `fetch` 讀不到分頁（Safari 的 PDF 檢視器可能不能執行頁面 JS），**什麼都沒檢查過**——文章站上與別的主機上同一個條件（同一個網址連三次讀不到；標題、網址的一般字樣與路徑的登入長相不算數，停在登入主機上的整批暫停）：請他看一眼——顯示 PDF 就存；顯示登入、驗證或封鎖頁就是中止條款。**這一筆交給人，使用者看過之後再做下一篇**（規則 4） |
-| `tab-unchanged` | 導航之後分頁沒有離開文章頁：連結可能直接開始下載了（看 Safari 的下載項目），或需要按一下 |
-| `button` | 頁面的 PDF 下載是表單按鈕（Annual Reviews 型）：請他按 |
+| `tab-unchanged` | 導航之後分頁沒有離開文章頁：連結多半直接開始下載了（MDPI 實測，2026-11-02）。`fetch` 之前先 `touch "<暫存目錄>/<citekey>.start"`，之後在 Safari 的下載資料夾找比它新的 `*.pdf`（輪詢約 15 秒）；找到就交給第 4 步，`acquisition=browser-download`。跳出 Safari 的下載權限對話框就交給人（規則 3）；沒有新檔才是需要按一下 |
+| `button` | 頁面的 PDF 下載是表單按鈕（Annual Reviews 型）：請他按；使用者授權時你按（規則 3，不代送表單以外的東西），再照 `tab-unchanged` 那一列找新檔 |
 | `left-site` | 分頁到了**別的主機**，那一頁載完了、沒有命中驗證、封鎖或登入的封閉清單（跨主機的中繼頁、檔案主機）——**這不代表它不是登入頁**：請他看一眼——顯示 PDF 就存；是登入、驗證或封鎖頁就是中止條款；都不是就列入「需要人」。**這一筆交給人，批次繼續**：使用者看過之後再做下一篇（規則 4） |
 | `doi-not-resolved` | DOI 解不開（分頁停在 doi.org，而且是 doi.org 自己的「查無」頁：標題或頁面寫著 `DOI Not Found`，或 HTTP 404）：資料問題，不是起疑訊號。沒有檔可存。列入「需要人」，寫「DOI 解不開」，請使用者核對記錄的 DOI；**批次繼續** |
 
@@ -153,6 +156,8 @@ akashic fulltext fetch --window <N> --expect-profile "<使用者自己的 profil
 每篇之間跑一次節奏工具。**連續兩篇在同一站出現同樣的失敗樣子就停**，不要把整批跑完——2026-09-23 同一站連續 5 篇卡在同一個點，每篇都留下一個分頁；同型失敗是系統性的，重試只會累積副作用與請求量。
 
 ### 4. 收使用者存下來的檔：`take`
+
+**不要從 `~/Library/Containers/com.apple.Safari/Data/tmp/WebKitPDFs-*` 撈檔**，也不要請使用者從那裡給路徑：那個暫存資料夾混著所有分頁開過的 PDF，而且只有使用者對 PDF 做過動作（⌘S、用預覽程式打開）才會出現。2026-11-02 第一篇就從那裡拿錯了另一篇（`take` 的 DOI 比對擋下）。檔案來源只用三種：`pdf-cache get` 的輸出、下載資料夾裡比 `.start` 新的檔、使用者另存到他指定位置的檔。
 
 ```bash
 akashic fulltext take --from "$(cat '<暫存目錄>/<citekey>.from.txt')" --out "<暫存目錄>/<citekey>.pdf" \
@@ -193,7 +198,7 @@ akashic fulltext take --from "$(cat '<暫存目錄>/<citekey>.from.txt')" --out 
 akashic_store_source(path=<pdf>, media_type="application/pdf",
                      retrieved="<取得時間，ISO 8601 帶 +08:00>",
                      origin="<分頁顯示那份 PDF 時的網址，不帶查詢字串>",
-                     acquisition="browser-download"   # 本 skill 一律經使用者自己的 Safari、由使用者存檔；照實寫
+                     acquisition="browser-cache"      # pdf-cache get 從快取複製；瀏覽器自己下載或使用者存檔的寫 browser-download；照實寫
                      note="<版本：version of record / author manuscript / preprint；verify 摘要；由使用者存檔>")
 ```
 
@@ -206,7 +211,7 @@ akashic_store_source(path=<pdf>, media_type="application/pdf",
 **Claude 讀首頁確認**（使用者 2026-11-02 裁決：「你是會看 pdf 的」）：結束碼 5 不必每篇都停下來問使用者。用 Read 工具讀 `*.unverified.pdf` 的首頁（`pages: "1"`，看的是渲染後的頁面影像，不是 `pdftotext` 的文字），**以下三條全部成立**才算確認是這篇（封閉列舉，不得依性質相似類推第四條）：
 
 1. 首頁的標題就是記錄標題（大小寫、標點、破折號的差異不算不同；繁簡字、譯名不同時寫進 note）。
-2. 首頁印的 DOI 等於記錄 DOI；首頁沒有印 DOI 時，刊名、年份、卷、期與起始頁都要和記錄一致。
+2. 首頁印的 DOI 等於記錄 DOI；首頁沒有印 DOI 時，刊名、年份、卷、期與起始頁都要和記錄一致。有些期刊只在**第 2 頁起的頁首或頁尾**印 DOI 與卷期（J-STAGE 實測，2026-11-02）：用 `pdftotext` 找那幾行，印的 DOI 或刊名卷期頁與記錄一致也算，note 寫明是哪一頁的頁首。
 3. 首頁的第一作者就是記錄的第一作者。
 
 另外這幾種一律**不確認、交給使用者**：verify JSON 的 `flags` 有 `supplement`、`doi_state` 是 `metadata-mismatch` 或 `page-mismatch`（檔案或首頁自己說它是別篇）、首頁看起來是勘誤、回應文或補充資料、頁面讀不出來（掃描檔字跡不清）。三條成立時照常存、連，`note` 寫「Claude 讀首頁確認為這篇：<日期>；首頁的刊名卷期頁、DOI、第一作者；verify 的 flags：<…>」——note 照實寫是 Claude 判的，不寫成人工確認。

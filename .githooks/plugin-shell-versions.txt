@@ -8,6 +8,7 @@
 #
 # 已推上 main 的列（推送的 commit 寫在這裡給人看，守衛不讀這段註解）：
 #   plugin 0.13.4 ← 04131a49（2026-10-18）；0.13.5 ← 7ba4d695（2026-10-19）；0.13.6 ← b022de1e（2026-10-20）
+#   plugin 0.13.9 ← 1fe5d137、0.13.10 ← 24974ebc（2026-11-02）：這兩次推送時表沒有接列（守衛對它們會紅），#613 b47 照它們送出的內容補記
 #   plugins/akashic-discovery 0.2.16 ← 7ba4d695（2026-10-19）
 #   plugins/akashic-discovery 0.2.15 ← 5f7c8073（2026-09-28）設的版號；這裡記的是 04131a49 時它送出的內容——0.2.15 之後 plugin/rules 改了
 #   四次（854fd5d3、e21a76b5、7d34e7f7、5e8fca64）而版號沒升，同一個版號送出過不只一份內容（b40 Z2 第 6、18 則）
@@ -20,3 +21,5 @@ plugin	0.13.6	e4f0d725dc3bb6b484f72d9e026744eb81fc05731ef2b3fb4cd996205ef4b3f8
 plugin	0.13.7	f63797ca9881e505a72c7af27852e469e21de53423f65be715ce83c327cff095
 plugins/akashic-discovery	0.2.17	66022f7b52de58e0af4d5164d87c691c17e03fa953c9d4bc21b5d368ceda0d37
 plugin	0.13.8	c2ed582c667efa96d6e82c5ec58711db1178a6afbeca127b2e444055108c68ab
+plugin	0.13.9	a7f9a4c20e22f23805c0d19400b7c868cd8ca17d52f279f332a8886afedb26b9
+plugin	0.13.10	1ef1b007c9319a35a5ac18339535b055bd103b89697b0fcac0b2097e100d16f3

@@ -182,7 +182,7 @@ akashic fulltext take --from "$(cat '<暫存目錄>/<citekey>.from.txt')" --out 
 | 碼 | 意思 | 下一步 |
 |---|---|---|
 | 0 | 存好了，而且驗證是這篇（`--title` 必填，所以 0 一定驗證過） | 進第 5 步 |
-| 5 | 是 PDF 但驗證不是這篇（存成 `*.unverified.pdf`） | 看 `*.unverified.pdf` 與 verify JSON：`flags` 有 `supplement` 是補充資料；`title_match` 為 null 是首頁沒有任何一行等於記錄標題（別篇，或記錄與 PDF 用字不同，例如繁簡字）；`doi_state` 是 `metadata-mismatch`／`page-mismatch` 是檔案或首頁指向別的 DOI；`page-match` 而 `pages_ok` 不是 true、或 `title_match` 為 `main-title-response`，是只有首頁印的 DOI、不夠確定；`absent` 是沒有任何 DOI 可比。看了再決定 |
+| 5 | 是 PDF 但驗證不是這篇（存成 `*.unverified.pdf`） | 看 `*.unverified.pdf` 與 verify JSON：`flags` 有 `supplement` 是補充資料；`title_match` 為 null 是首頁沒有任何一行等於記錄標題（別篇，或記錄與 PDF 用字不同，例如繁簡字）；`doi_state` 是 `metadata-mismatch`／`page-mismatch` 是檔案或首頁指向別的 DOI；`page-match` 而 `pages_ok` 不是 true、或 `title_match` 為 `main-title-response`，是只有首頁印的 DOI、不夠確定；`absent` 是沒有任何 DOI 可比。看了再決定——**你自己就能看**：用 Read 工具讀 `*.unverified.pdf` 的首頁（`pages: "1"`），照第 6 步〈Claude 讀首頁確認〉的條件判 |
 | 2 | `--from` 不是 PDF（沒有 `%PDF-` 檔頭），什麼都沒寫（stderr 只印位元組數、前 8 個位元組與「像 HTML 頁」，不印內容） | 使用者存到的可能是 HTML 頁；請他確認存的是什麼。讀起來像起疑頁就照中止條款停 |
 | 1 | 其他失敗（`--from` 不是普通檔、太大；輸出目的地不合；git 閘拒絕；**驗證本身跑不起來**——stdout 的 verify JSON 是 `{"error": …}` 形狀，沒有 `flags`／`title_match`，常見原因是使用者在下載到一半時存檔（截斷的 PDF）或機器沒裝 poppler：什麼都沒寫） | 看 stderr；`error` 形狀請使用者重存完整的檔，或確認 `pdfinfo`／`pdftotext` 裝了。**不是「別篇」**，不要照結束碼 5 的方式處理 |
 | 64 | 命令列打錯，含沒給 `--title` 或標題是空的 | 見上面〈`--title` 必填〉 |
@@ -202,6 +202,16 @@ akashic_store_source(path=<pdf>, media_type="application/pdf",
 ### 6. 連結回記錄
 
 只連**第 5 步存了、而且第 4 步驗證通過（結束碼 0）**的那幾篇；結束碼 5 經人看過、確認是這篇的，同樣可以連——那一種存的是 `*.unverified.pdf`（第 5 步照存），`note` 要寫「人工確認為這篇：<誰>／<日期>；verify 的 flags：<…>」，因為連結說的「這份就是這篇」只有 note 記得是誰判的。驗證不過又沒人確認的不連——那正是驗證在判的事。
+
+**Claude 讀首頁確認**（使用者 2026-11-02 裁決：「你是會看 pdf 的」）：結束碼 5 不必每篇都停下來問使用者。用 Read 工具讀 `*.unverified.pdf` 的首頁（`pages: "1"`，看的是渲染後的頁面影像，不是 `pdftotext` 的文字），**以下三條全部成立**才算確認是這篇（封閉列舉，不得依性質相似類推第四條）：
+
+1. 首頁的標題就是記錄標題（大小寫、標點、破折號的差異不算不同；繁簡字、譯名不同時寫進 note）。
+2. 首頁印的 DOI 等於記錄 DOI；首頁沒有印 DOI 時，刊名、年份、卷、期與起始頁都要和記錄一致。
+3. 首頁的第一作者就是記錄的第一作者。
+
+另外這幾種一律**不確認、交給使用者**：verify JSON 的 `flags` 有 `supplement`、`doi_state` 是 `metadata-mismatch` 或 `page-mismatch`（檔案或首頁自己說它是別篇）、首頁看起來是勘誤、回應文或補充資料、頁面讀不出來（掃描檔字跡不清）。三條成立時照常存、連，`note` 寫「Claude 讀首頁確認為這篇：<日期>；首頁的刊名卷期頁、DOI、第一作者；verify 的 flags：<…>」——note 照實寫是 Claude 判的，不寫成人工確認。
+
+> 為什麼：2026-11-02 一篇增刊論文（頁碼 iii11–iii24）因為沒有 XMP DOI、羅馬字頁碼又比不了而停在結束碼 5；標題與首頁 DOI 其實都對。Claude 本來就能讀 PDF 頁面，卻照舊規則停下來請使用者確認。
 
 先乾跑，看 `sourcesAdded` 帶回來的取得記錄（origin、note）是不是剛存的那一份，再實寫：
 

@@ -870,8 +870,11 @@ public final class FulltextFetch {
     /// 原樣回 `citation_pdf_url`）。
     ///
     /// **網址不在字串開頭時**（#613 b39，b38 Z2 第 8、10、27 則）：從第一個 `://` 起當網址印——前面的字原樣（tab 與換行除外：`URLSplit` 切之前
-    /// 也去掉它們，b41；路徑參數除外：前面若是另一個沒有 `//` 的網址，`;名=值` 在那一段，b45）、authority 照上面去帳密（`FOO https://u:p@h/x`、`view-source:https://u:p@h/x`、BOM 開頭的網址）。b37 改由 `URLSplit` 切
+    /// 也去掉它們，b41；路徑參數除外：前面若是另一個沒有 `//` 的網址，`;名=值` 在那一段，b45——只去那個網址本身，從它的起點到第一個空白、`"`、
+    /// `<`、`>`，前後的字原樣，b47）、authority 照上面去帳密（`FOO https://u:p@h/x`、`view-source:https://u:p@h/x`、BOM 開頭的網址）。b37 改由 `URLSplit` 切
     /// 之後，這種字串沒有 authority、整串原樣回傳。之後再出現的 `://` 是路徑的一部分，與有 authority 的網址相同（上面「也不剝一般的路徑段」）。
+    /// **不在保證裡的**（b47）：那個沒有 `//` 的網址的路徑參數，值、名字或 ASP.NET 群組跨過空白、`"`、`<`、`>` 時，界線之後的部分原樣（b43 整段
+    /// 原樣；b45 去掉它，連同之後到 `://` 的說明文字與 scheme）。
     ///
     /// **這個函式只對一個網址負責**（b41＝b40 Z2 第 8、28 則）：字串裡的第二個網址、special scheme 沒有兩個斜線的寫法（`https:u:p@h`）它都看不到；
     /// tab 與換行在 scheme 之前時，`URLSplit` 把前面的字接進 scheme（`GET<LF>https://u:p@h/x` → `gethttps://h/x`：帳密去掉了，字變了）。
@@ -892,8 +895,17 @@ public final class FulltextFetch {
             return withoutPathParameters(s)
         }
         let inner = URLSplit("//" + PyText.string(Array(scalars[(sep + 3)...])))
-        // `://` 之前的字也去路徑參數（b45，b44 第 3、16 則）：沒有 authority 的網址後面接著另一個 `scheme://` 時，`;jsessionid=…` 在這一段
-        return withoutPathParameters(PyText.string(Array(scalars[..<sep]))) + "://" + printedHostPort(inner) + withoutPathParameters(inner.path)
+        // `://` 之前那一段裡的網址也去路徑參數（b45，b44 第 3、16 則）：沒有 authority 的網址後面接著另一個 `scheme://` 時，`;jsessionid=…` 在
+        // 這一段。**只去那個網址本身**（b47，b46 INFO 22）：從它的起點（`firstPageURLStart`）到第一個界線（`isPageURLBoundary`：空白、`"`、`<`、
+        // `>`——`redactingURLs` 的網址、`pageURLBody` 的段同一組）；之前、之後的字原樣，與 b43 相同。b45 對 `://` 之前整段去：`Error: navigation
+        // failed; code=5 for https://h/x` 的 `; code=5 for https` 被當成路徑參數、連 scheme 一起吃掉。
+        let before = Scalars(scalars[..<sep])
+        guard let urlStart = firstPageURLStart(before) else {
+            return PyText.string(before) + "://" + printedHostPort(inner) + withoutPathParameters(inner.path)
+        }
+        let urlEnd = before[urlStart...].firstIndex(where: isPageURLBoundary) ?? before.count
+        return PyText.string(Scalars(before[..<urlStart])) + withoutPathParameters(PyText.string(Scalars(before[urlStart..<urlEnd])))
+            + PyText.string(Scalars(before[urlEnd...])) + "://" + printedHostPort(inner) + withoutPathParameters(inner.path)
     }
 
     /// 兩種讀法對帳密說法不同時印的主機段（見 `plainURL`）。
@@ -913,12 +925,18 @@ public final class FulltextFetch {
 
     /// 路徑的每一段去掉 `;名=值`（`;`、`=` 也可以是百分比編碼的 `%3B`、`%3D`），丟掉 ASP.NET 的 `(X(…))` 整段（一段裡可以有幾個群組、
     /// 也可以連著幾組）；一段因此變空（而它原本不是空的）就整段丟掉。
+    ///
+    /// 一段裡以反斜線分開的部分整個是群組的，也丟掉（#613 b47，b46 INFO 16：WHATWG 對 special scheme 把 `\` 當 `/`，`https://h/(S(…))\x` 的
+    /// 群組是一整段；先前只以 `/` 分段，群組原樣印出，b41、b43 同）。只丟、不改其餘的字：路徑參數的值照舊跨過 `\`（`[^;/]*`，與 b43 同）。
     private static func withoutPathParameters(_ path: String) -> String {
+        func isGroup(_ s: String) -> Bool { aspNetSessionPattern.firstMatch(in: s, range: NSRange(s.startIndex..., in: s)) != nil }
         var kept: [String] = []
         for segment in path.split(separator: "/", omittingEmptySubsequences: false).map(String.init) {
-            let range = NSRange(segment.startIndex..., in: segment)
-            if aspNetSessionPattern.firstMatch(in: segment, range: range) != nil { continue }
-            let stripped = pathParameterPattern.stringByReplacingMatches(in: segment, range: range, withTemplate: "")
+            if isGroup(segment) { continue }
+            let rest = segment.contains("\\")
+                ? segment.split(separator: "\\", omittingEmptySubsequences: false).map(String.init).filter { !isGroup($0) }.joined(separator: "\\")
+                : segment
+            let stripped = pathParameterPattern.stringByReplacingMatches(in: rest, range: NSRange(rest.startIndex..., in: rest), withTemplate: "")
             if stripped.isEmpty, !segment.isEmpty { continue }
             kept.append(stripped)
         }
@@ -1046,7 +1064,8 @@ public final class FulltextFetch {
     }
 
     /// 頁面給的字印出之前去憑證：連結那一段 JS 的回答（`unexpected answer from the link script`）與頁面給的 PDF 連結（`points off-site`）
-    /// （#613 b41，b40 Z2 第 8、28 則；b43，b42 第 0、4、5、7、12、13 則；b45，b44 第 2、3、5、6、10、11、16、19、20 則與 INFO 28）。`plainURL`
+    /// （#613 b41，b40 Z2 第 8、28 則；b43，b42 第 0、4、5、7、12、13 則；b45，b44 第 2、3、5、6、10、11、16、19、20 則與 INFO 28；b47，b46 第 0、1、4 則
+    /// 與 INFO 16、19）。`plainURL`
     /// 只對**一個**網址負責：字串裡第二個網址、tab 與換行夾在 `://` 中間、special scheme 沒有兩個斜線的寫法，它都看不到。這裡分三步讀頁面給的字：
     ///
     /// 1. 去掉 ASCII tab、LF、CR（WHATWG 讀網址時去掉它們，`URLSplit` 同）：`https:/<tab>/u:p@h` 是帶帳密的網址。**代價**：夾在字之間的換行跟著
@@ -1065,15 +1084,26 @@ public final class FulltextFetch {
     /// 3. **第一個網址**（`firstPageURLStart`：special scheme 加冒號、前一個字不是 `[A-Za-z0-9+.:/\-]` 的兩個以上斜線或反斜線、或 `scheme://`）：
     ///    - **查詢與片段**：它的第一個 `?` 或 `#` 到字尾整段去掉（WHATWG：查詢在 `#`、片段在字尾結束，空白不結束它們——b41 的網址在空白處結束，
     ///      `?title=a b&sig=SECRET` 的 ` b&sig=SECRET` 原樣印出）。
-    ///    - **它的開頭到那個 `?`／`#`**（`pageURLBody`）：逐個以空白、`"`、`<`、`>` 分開的段處理——第一段交給 `plainURL`，之後的段有網址起點的從
-    ///      那裡交給 `plainURL`、其餘只去路徑參數；最後整段再去一次路徑參數（名字裡夾著空白的 `;名 字=值`、群組裡夾著空白的 `(S(… …))`）。b43
-    ///      整段交給 `plainURL`：第一個網址沒有 `//` 時 `plainURL` 從後面的 `://` 切、之前的字原樣（`;jsessionid=…` 留著），ASP.NET 的群組後面接著
-    ///      空白與字時不是一整段（`(X(…)) more`）也留著（b44 第 3、11、16、19 則；b41 逐段處理，沒有這兩個洞）。
+    ///    - **它的開頭到那個 `?`／`#`**（`pageURLBody`），三遍：(i) **整段當一個網址**（`withoutWholeURLParameters`）——刪掉 b43 把整段交給
+    ///      `plainURL` 時會刪的：路徑參數（值是 `[^;/]*`，跨過空白、`"`、`<`、`>` 到下一個 `;`、`/`、`%3B`）、整段是 ASP.NET 群組的路徑段、authority
+    ///      裡反斜線之後到第一個 `/` 的那一段（b47，b46 第 0、1、4 則與 INFO 19：b45 只有 (ii)、(iii)，值跨過界線時界線之後的部分原樣印出）；
+    ///      (ii) 逐個以空白、`"`、`<`、`>`（`isPageURLBoundary`）分開的段處理——第一段交給 `plainURL`，之後的段有網址起點的從那裡交給 `plainURL`、
+    ///      其餘只去路徑參數（b45：第一個網址沒有 `//` 時 `plainURL` 從後面的 `://` 切，`://` 之前的那一段 (i) 不碰，由這一遍去；ASP.NET 群組後面接著
+    ///      空白與字時不是一整段，也由這一遍去——b44 第 3、11、16、19 則）；(iii) 整段再去一次路徑參數（`;名 字=值` 這種名字裡夾著空白的、
+    ///      `(S(… …))` 這種群組裡夾著空白的，(i) 沒有涵蓋到的位置）。
     ///    - 第一個網址之前的字原樣。最後每一個 `scheme://` 再過一次 `redactingURLs`。
     ///
-    /// **保證的範圍就是上面三步**（b44 第 2、5 則：b43 的 changelog 與這裡寫「每一個帳密」，對 (c) 那個形狀不成立）。不在這三步裡的：沒有網址起點
-    /// 的字整串原樣（`GET /download/x.pdf?sig=SECRET` 的查詢不剝）；第一個網址之後的路徑裡，不透明的 token 與 DOI 分不出來，原樣（與 `plainURL`
-    /// 同一個邊界）。
+    /// **保證的範圍就是上面三步**（b44 第 2、5 則：b43 的 changelog 與這裡寫「每一個帳密」，對 (c) 那個形狀不成立）。**對 b43 的保證**（b47）：b43
+    /// 第 3 步刪掉的這裡都刪——(i) 照 b43 的 `plainURL` 的切法、只刪不改（b43 對沒有 `//` 而後面接著 `://` 的網址，`://` 之前那一段什麼都不刪）；
+    /// (ii)、(iii) 只再多刪。`FulltextB47Tests` 以 b43（`6bc979f7`）的副本當 oracle 差分。**不在保證裡的**（封閉列舉）：
+    ///    - 沒有網址起點的字整串原樣（`GET /download/x.pdf?sig=SECRET` 的查詢不剝）；第一個網址之後的路徑裡，不透明的 token 與 DOI 分不出來，
+    ///      原樣（與 `plainURL` 同一個邊界）。
+    ///    - 第一個網址沒有 `//`、後面又有 `scheme://` 時，`://` 之前那一段的路徑參數跨過空白、`"`、`<`、`>` 的部分（`https:h/x;k=SEC RET https://z`
+    ///      的 ` RET`）原樣——b43 那一整段原樣，b45 同這裡；要去就得把值之後到 `://` 的說明文字一起吞掉（b43 不吞）。
+    ///    - 第 2 步印成 `<ambiguous-host>` 的那一段吞掉了唯一的網址起點時（`GET\\ws:\\…@/;a=SECRET`：`\\` 前一個字是 scheme 字元，不是起點），
+    ///      第 3 步沒有網址可處理，之後的路徑參數原樣（b46 INFO 16；b41、b43 同）。
+    ///    - 名字夾著空白的 `;名 字=值`、群組夾著空白的 `(S(… …))` 在第一個網址之後再出現時，(iii) 對它們以 `/` 分段去——值在下一個 `/` 或 `;`
+    ///      結束；它不是一個「網址」的處理，只是多去一次。
     ///
     /// **線性**（b42 第 4、5、7 則）：b41 的帳密那一條是沒有錨點的正規表示式，每一個斜線、每一個 `https:` 都是新的起點、各自掃到字尾才失敗——
     /// 20,000 個斜線要 25 秒以上，頁面寫一個全是斜線的 `citation_pdf_url` 就讓 CLI 卡住。這裡第 2 步一遍、第 3 步一遍加每段各一遍，每個字看常數次；
@@ -1087,18 +1117,21 @@ public final class FulltextFetch {
         return redactingURLs(PyText.string(Scalars(withoutUserinfo[..<start])) + pageURLBody(Scalars(withoutUserinfo[start..<queryStart])))
     }
 
-    /// `redactingPageText` 第 3 步：第一個網址從開頭到第一個 `?`／`#` 之前（見那裡）。段的界線與 b41 的網址、`redactingURLs` 相同：Unicode 的空白、
-    /// `"`、`<`、`>`。界線原樣留著。
-    static func pageURLBody(_ body: Scalars) -> String {
-        func isBoundary(_ c: Unicode.Scalar) -> Bool { c.properties.isWhitespace || c == "\"" || c == "<" || c == ">" }
-        var out = "", i = 0, first = true
+    /// 網址的界線：Unicode 的空白、`"`、`<`、`>`（b41 的網址、`redactingURLs` 的 `[^\s"<>]`）。`pageURLBody` 的段、`plainURL` 無 authority 分支裡
+    /// 「那個網址本身」都在這裡結束（b47：兩處同一組）。
+    static func isPageURLBoundary(_ c: Unicode.Scalar) -> Bool { c.properties.isWhitespace || c == "\"" || c == "<" || c == ">" }
+
+    /// `redactingPageText` 第 3 步：第一個網址從開頭到第一個 `?`／`#` 之前（三遍，見那裡）。段的界線是 `isPageURLBoundary`，界線原樣留著。
+    static func pageURLBody(_ whole: Scalars) -> String {
+        let body = withoutWholeURLParameters(whole)   // (i)
+        var out = "", i = 0, first = true            // (ii)
         while i < body.count {
             var j = i
-            while j < body.count, isBoundary(body[j]) { j += 1 }
+            while j < body.count, isPageURLBoundary(body[j]) { j += 1 }
             out += PyText.string(Scalars(body[i..<j]))
             guard j < body.count else { break }
             var k = j
-            while k < body.count, !isBoundary(body[k]) { k += 1 }
+            while k < body.count, !isPageURLBoundary(body[k]) { k += 1 }
             let piece = Scalars(body[j..<k])
             if first {
                 out += plainURL(PyText.string(piece))   // 第一段從網址起點開始（`firstPageURLStart`）
@@ -1110,7 +1143,42 @@ public final class FulltextFetch {
             }
             i = k
         }
-        return withoutPathParameters(out)
+        return withoutPathParameters(out)   // (iii)
+    }
+
+    /// `pageURLBody` 的第一遍 (i)（b47，b46 第 0、1、4 則與 INFO 19）：把整段當**一個**網址、照 b43 的 `plainURL` 的切法（b43 的第 3 步就是把
+    /// 整段交給它），刪掉它會刪的東西——路徑的路徑參數與 ASP.NET 群組（`withoutPathParameters`）、authority 裡反斜線之後到第一個 `/` 的那一段
+    /// （`hostPort` 不印它）。只刪、不改寫其餘的字（scheme 的大小寫、主機段由之後的逐段處理照 `plainURL` 印）。
+    ///
+    /// 這一遍的意義在**跨過界線的值**：逐段處理在空白、`"`、`<`、`>` 處切段，`;jsessionid=SEC RET` 的第一段去掉 `;jsessionid=SEC` 之後，
+    /// ` RET` 落在下一段、`;名=` 已經不在，補不回來（b45 印出 `RET`，b43 不印）；值以引號或角括號開頭時整個值落在下一段（`;k="SECRET"`）。
+    /// 整段讀時值是 `[^;/]*`，跨過那些界線到下一個 `;`、`/`、`%3B` 為止，與 b43 相同——**代價也與 b43 相同**：值之後到下一個 `/` 或 `;` 之前的字
+    /// 一起去掉（`https://h/x;k=v more` 印成 `https://h/x`）。
+    ///
+    /// **b43 的 `plainURL` 不刪的這裡也不刪**：沒有 `//` 的網址後面接著 `scheme://` 時，`://` 之前那一段 b43 原樣印出，這裡不碰——吞下去就會把值
+    /// 之後到 `://` 的說明文字一起吞掉。那一段的路徑參數由之後的逐段處理去掉，跨過界線的部分照樣印出（`redactingPageText` 的「不在保證裡的」）。
+    static func withoutWholeURLParameters(_ body: Scalars) -> Scalars {
+        func isSchemeChar(_ c: Unicode.Scalar) -> Bool {
+            c.isASCII && (c.properties.isAlphabetic || ("0"..."9").contains(c) || c == "+" || c == "-" || c == ".")
+        }
+        /// `s[from...]` 是 authority 開頭（`//` 之後）：authority 裡反斜線之後的那一段刪掉，路徑去路徑參數
+        func authorityAndPath(_ s: Scalars, from: Int) -> Scalars {
+            let end = s[from...].firstIndex(of: "/") ?? s.count
+            let kept = s[from..<end].firstIndex(of: "\\") ?? end
+            return Scalars(s[from..<kept]) + Scalars(withoutPathParameters(PyText.string(Scalars(s[end...]))).unicodeScalars)
+        }
+        // scheme 照 `URLSplit` 讀（`body` 從網址起點開始、沒有 tab 與換行，不必去前導的空白）
+        var afterScheme = 0
+        if let colon = body.firstIndex(of: ":"), colon > 0, body[0].isASCII, body[0].properties.isAlphabetic, body[..<colon].allSatisfy(isSchemeChar) {
+            afterScheme = colon + 1
+        }
+        if PyText.hasPrefix(body, ["/", "/"], at: afterScheme) {
+            return Scalars(body[..<(afterScheme + 2)]) + authorityAndPath(body, from: afterScheme + 2)
+        }
+        guard let sep = body.indices.first(where: { PyText.hasPrefix(body, [":", "/", "/"], at: $0) }) else {
+            return Scalars(withoutPathParameters(PyText.string(body)).unicodeScalars)
+        }
+        return Scalars(body[..<(sep + 3)]) + authorityAndPath(body, from: sep + 3)
     }
 
     private static func isSlash(_ c: Unicode.Scalar) -> Bool { c == "/" || c == "\\" }

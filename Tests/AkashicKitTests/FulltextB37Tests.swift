@@ -101,7 +101,8 @@ final class FulltextB37Tests: XCTestCase {
     }
 
     /// 對照（刻意不動）：導航**之後**分頁沒離開文章頁、檢查的當中轉到同站的登入頁——那是頁面自己的 PDF 連結的結果（沒有權限時常見），
-    /// 與 `decideShown` 同一套：同站的 HTML 頁只看文字訊號，交給人 `html-page`，不看網址的登入長相（b36 Y2 第 16 則記下的既有行為）。
+    /// 與 `decideShown` 同一套：同站的 HTML 頁不因網址的登入長相整批暫停，沒有起疑訊號就交給人 `html-page`（b36 Y2 第 16 則記下的既有行為）；
+    /// 寫著 CAPTCHA 時見下一則（b49）。
     func testAfterNavigationASameSiteLoginPageIsStillHandedOverAsAnHTMLPage() {
         var s = Scenario(); s.afterNavURL = ""; s.afterNavContentType = "text/html"
         var swapped = false
@@ -113,6 +114,116 @@ final class FulltextB37Tests: XCTestCase {
         }
         XCTAssertEqual(code, 7, errText)
         XCTAssertTrue(outText.contains("handover: html-page window 5 tab 2 https://pub.example/login"), outText)
+    }
+
+    /// b49（使用者 2026-11-04 第 6 則，b38 INFO 17）：同一個情形、那一頁又寫著 CAPTCHA——整批暫停（6），不是等人驗證（8）。
+    /// 先前得 8、印出以文章站為目標的 `resume:`。沒有那段文字仍交給人 `html-page`（上一則）。
+    func testAfterNavigationASameSiteLoginPageWithACaptchaPausesTheBatch() {
+        var s = Scenario(); s.afterNavURL = ""; s.afterNavContentType = "text/html"
+        var swapped = false
+        let code = run(s) { args, fake in
+            guard args[0] == "js", fake.navigated, args.last!.contains("innerText.slice") else { return nil }
+            if !swapped { swapped = true; fake.tabs[1] = ("https://pub.example/login", "Sign in") }
+            return SafariRun(status: 0, stdout: "\nSign in\nPlease complete the CAPTCHA below\n")
+        }
+        XCTAssertEqual(code, 6, errText)
+        XCTAssertTrue(errText.contains("STOP THE WHOLE RUN"), errText)
+        XCTAssertTrue(errText.contains("(login page)"), errText)
+        XCTAssertFalse(errText.contains("WAITING FOR HUMAN VERIFICATION"), errText)
+        XCTAssertFalse(outText.contains("resume:"), outText)
+    }
+
+    /// b49（使用者 2026-11-04 第 8 則，b38 INFO 22）：整段的 `/sign-on`、`/single-sign-on` 是登入頁。較長 slug 裡的同樣字詞不算。
+    func testSignOnPathsHaveTheLookOfALoginPage() {
+        for u in ["https://pub.example/sign-on", "https://pub.example/single-sign-on", "https://pub.example/sign_on.php",
+                  "https://pub.example/Single-Sign-On?next=x"] {
+            XCTAssertEqual(BotSignals.urlGateLook(u), "login", u)
+        }
+        for u in ["https://pub.example/doi/the-sign-on-bonus", "https://pub.example/designon"] {
+            XCTAssertNil(BotSignals.urlGateLook(u), u)
+        }
+    }
+
+    /// 第 6 則被觸發之後的停法：整批暫停、不印 resume（導航已經發生，不檢查導航與帳本）。
+    private func assertSameSiteLoginCaptchaStop(_ code: Int32, file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertEqual(code, 6, "\(errText)\n\(outText)", file: file, line: line)
+        XCTAssertTrue(errText.contains("STOP THE WHOLE RUN"), errText, file: file, line: line)
+        XCTAssertTrue(errText.contains("(login page)"), errText, file: file, line: line)
+        XCTAssertFalse(errText.contains("WAITING FOR HUMAN VERIFICATION"), errText, file: file, line: line)
+        XCTAssertFalse(outText.contains("resume:"), outText, file: file, line: line)
+    }
+
+    /// b49 第 6 則，`decideShown` 那條路：導航之後分頁**換到**同站的 `/login`（不是讀的當中換），那一頁寫著 CAPTCHA——整批暫停。
+    /// 對照：同站、網址不是登入長相的驗證頁（`/captcha/…`）仍是等人驗證，印 `--resume-stage followed`。
+    func testAfterNavigationTheTabLandsOnASameSiteLoginPageWithACaptchaPauses() {
+        var s = Scenario(); s.afterNavURL = "https://pub.example/login"; s.afterNavTitle = "Sign in"
+        s.afterNavContentType = "text/html"; s.afterNavText = "Please complete the CAPTCHA below"
+        assertSameSiteLoginCaptchaStop(run(s))
+
+        var control = s; control.afterNavURL = "https://pub.example/captcha/check"
+        XCTAssertEqual(run(control), 8, errText)
+        XCTAssertTrue(outText.contains("--resume-stage followed"), outText)
+    }
+
+    /// b49 第 6 則，`onSiteSuspicion` 只有標題的那一支：頁面文字讀不到（`document.contentType` 讀得到，是一般網頁）、標題是 Cloudflare 的
+    /// 「Just a moment...」、網址是同站的 `/login`——整批暫停。先前這一支沒有測試，改回 `stop(for:)` 全套仍綠（b50 verify DA）。
+    func testAfterNavigationATitleOnlyHitOnASameSiteLoginPagePauses() {
+        var s = Scenario(); s.afterNavURL = "https://pub.example/login"; s.afterNavTitle = "Just a moment..."
+        s.afterNavContentType = "text/html"
+        let code = run(s) { args, fake in
+            guard args[0] == "js", fake.navigated, args.last!.contains("innerText.slice") else { return nil }
+            return SafariRun(status: 1)
+        }
+        assertSameSiteLoginCaptchaStop(code)
+    }
+
+    /// b49 第 6 則，`--resume-stage followed`：使用者驗證完接著走，分頁現在是同站的 `/login`、寫著 CAPTCHA——整批暫停，不再等人驗證。
+    func testResumingAfterNavigationOnASameSiteLoginPageWithACaptchaPauses() {
+        var s = Scenario(); s.pageText = "Sign in\nPlease complete the CAPTCHA below"
+        browser = FakeBrowser(s)
+        browser.tabs.append(("https://pub.example/login", "Sign in"))
+        stdout = []; stderr = []
+        let fetcher = FulltextFetch(browser: browser, sleeper: { _ in }, now: { Self.now }, out: { self.stdout.append($0) }, err: { self.stderr.append($0) })
+        let code = fetcher.run(.init(window: 5, landing: Self.landing, ledger: ledger, resumeTab: 2, resumeOrigin: "https://pub.example", resumeStage: .followed))
+        assertSameSiteLoginCaptchaStop(code)
+        XCTAssertTrue(navigations.isEmpty, "接續不導航：\(browser.calls)")
+    }
+
+    /// b49 第 8 則落到流程上：DOI 落地頁是 `/sign-on` 時整批暫停（先前照一般網頁讀）；單字寫法的 slug 也算，兩個字的寫法不算。
+    func testALandingPageAtSignOnPausesTheBatch() {
+        for landing in ["https://pub.example/sign-on", "https://pub.example/doi/the-signon-bonus"] {
+            var s = Scenario(); s.landingFinal = landing
+            assertLoginStop(run(s), landing)
+        }
+        var s = Scenario(); s.landingFinal = "https://pub.example/doi/the-sign-on-bonus"
+        XCTAssertEqual(run(s), 7, errText)
+    }
+
+    /// b49 第 8 則的副作用（BotSignals 註解與 changelog 寫明）：主機最左邊的標籤是 `signon`、`sign-on`、`single-sign-on` 也算登入主機。
+    func testASignOnHostLabelIsALoginHost() {
+        for u in ["https://signon.uni.example/x", "https://sign-on.uni.example/x", "https://single-sign-on.uni.example/x"] {
+            XCTAssertEqual(BotSignals.urlGateLook(u), "login", u)
+        }
+        XCTAssertNil(BotSignals.urlGateLook("https://www.signon.example/x"), "第二個標籤不算")
+    }
+
+    /// 第 6 則的邊界（b51 verify 釘住）：連 `document.contentType` 都讀不到的同站分頁走 `judgeUnreadable`，不看路徑的登入長相（使用者
+    /// 2026-10-02，保護 PDF 檢視器的分頁）；標題是 Cloudflare 的「Just a moment...」就照驗證服務的標記，仍是等人驗證（8）。
+    func testAnUnreadableSameSiteTabAtALoginPathWithAServiceMarkerStillWaits() {
+        var s = Scenario(); s.afterNavURL = "https://pub.example/login"; s.afterNavTitle = "Just a moment..."; s.afterNavJSFails = true
+        XCTAssertEqual(run(s), 8, errText)
+        XCTAssertTrue(outText.contains("--resume-stage followed"), outText)
+    }
+
+    /// 第 8 則落到別的主機上：導航之後分頁落在別的主機的 `/sign-on`（HTML）——整批暫停（版本 8 是交給人 `left-site`）；
+    /// 同一個主機上的 `/welcome` 仍交給人。
+    func testAfterNavigationASignOnPageOnAnotherHostPauses() {
+        var s = Scenario(); s.afterNavURL = "https://other.example/sign-on"; s.afterNavTitle = "Welcome"; s.afterNavContentType = "text/html"
+        XCTAssertEqual(run(s), 6, errText)
+        XCTAssertTrue(errText.contains("STOP THE WHOLE RUN"), errText)
+        var control = s; control.afterNavURL = "https://other.example/welcome"
+        XCTAssertEqual(run(control), 7, errText)
+        XCTAssertTrue(outText.contains("handover: left-site"), outText)
     }
 
     // MARK: MEDIUM 1：safari-browser 的 stderr 只轉印第一行
@@ -229,7 +340,7 @@ final class FulltextB37Tests: XCTestCase {
         }
     }
 
-    /// 兩份封閉清單的關係：複合段算的字都是登入字詞；IdP 服務的名稱在複合段也算（b37 對裁決的延伸，還沒有使用者裁決——b39 更正：先前這裡寫
+    /// 兩份封閉清單的關係：複合段算的字都是登入字詞；IdP 服務的名稱在複合段也算（b37 對裁決的延伸，當時還沒有使用者裁決，使用者 2026-11-04 第 1 則裁決維持收——b39 更正：先前這裡寫
     /// 「使用者 2026-10-05 第 4 則已認定為不歧義」，那一則沒有提 IdP 服務名）；歧義的四個字不在。
     func testTheCompoundListIsTheExplicitPartOfTheLoginWords() {
         XCTAssertTrue(BotSignals.compoundLoginWords.isSubset(of: BotSignals.loginTokens))

@@ -1,5 +1,13 @@
 # Changelog
 
+## #613 b49 — 取全文的十項裁決（2026-11-04）：plugin 殼 0.13.12 → 0.13.13
+
+細節在 `changelog/2026-11-04-b49-fulltext-613.md`。
+
+- `akashic-fetch-fulltext`：登入字詞的封閉清單多 `signon`、`singlesignon`（整段的 `/sign-on`、`/single-sign-on` 算登入頁）；結束碼 8 註明文章站上有登入頁長相的那一頁寫著 CAPTCHA 時整批暫停；`origin` 的查詢字串與片段一律不留；第 0 步要求 `fulltext-contract 9`（2026-11-06 到這一輪之間從 main 建的 CLI 印 8、照舊的判斷，會被擋下，要重建 CLI；使用者 2026-11-09）。
+- `akashic-fetch-fulltext` 的〈中止條款〉：導航之後同站登入長相那一句補上第 6 則的例外（文字是等人驗證的訊號、網址有登入頁長相時整批暫停），「文章站上的假 CAPTCHA 頁仍是 8」那一句同樣補上；複合段登入字改成九個並寫出處；第 5 則改成已裁決（b50 verify 修正）。
+- 行為在 CLI（`akashic fulltext fetch`），要新的 `akashic`。
+
 ## #768 — `fulltext fetch` 只讀自己開的分頁，而且不再關分頁（2026-11-03）：plugin 殼 0.13.11 → 0.13.12
 
 細節在 `changelog/2026-11-03-fulltext-own-tab-768.md`。行為在 `akashic` CLI，要重新建置才有；binary 版號不變，這一輪沒有發布。
@@ -89,7 +97,7 @@ b40 verify（Z2）的處置，細節在 `changelog/2026-10-19-b41-fulltext-613.m
 - **`akashic-fetch-fulltext` 的 `SKILL.md`**：結束碼 1 那一列改寫——說明裡的命令不含網址與 JS，不能照著重跑、也不要重跑導航的 `open`；要知道沒轉印的行說了什麼，請使用者看那個分頁或自己跑 `safari-browser documents --profile "<自己的 profile>"`；stderr 裡任何一處出現 JavaScript 對話框的訊息時，只轉印固定的一句，其餘的行（連 safari-browser 自己的錯誤那一行）都不轉印。第 0 步版本 6 那一段補上 b41 的行為，並寫明契約版本仍是 6 的理由（這幾版的 `akashic` CLI 都沒有發布過，第一次發布時再決定）。
 - **`references/publishers.md`**：「akashic-mcp 0.13.3 起修正」補上之後每一次 skill 改動都要再升版才送得到。
 - 行為在 CLI（`akashic fulltext fetch`），要新的 `akashic`：safari-browser 的 stderr 去掉終端機控制序列再判；對話框的判斷不只看挑到的那一行；網址不在撇號處結束；連結那一段 JS 的回答與頁面給的連結過新的 `redactingPageText`（第二個網址、tab 與換行夾在 `://` 裡、special scheme 沒有兩個斜線的寫法都去帳密）。契約版本仍是 6。`tools/list` 沒有改（59,171 → 59,171 bytes；上面 b39 那三段寫的 59,173 是各分支自己的基線，整合後是 59,171）。
-- 更正 b34 那一段的出處（第 4 則）：「IdP 服務名在任何一個標籤都算」是 b34 自加的規則，不是使用者 2026-10-05 第 4 則給的（待使用者裁決）。
+- 更正 b34 那一段的出處（第 4 則）：「IdP 服務名在任何一個標籤都算」是 b34 自加的規則，不是使用者 2026-10-05 第 4 則給的（待使用者裁決；使用者 2026-11-04 第 9 則追認）。
 
 ## #564 修正輪六 — 帶時間的名字的合併出口說只能手改、update-person 的乾跑跑整條寫入前置、organization 刪名字報告有位元組預算（2026-10-19）
 
@@ -302,7 +310,7 @@ plugin 版號沒有動（MCP 描述淨減 4 位元組；行為在 binary）。
 - **讀不到的分頁停在登入主機上整批暫停**（只看主機：最左邊的標籤是登入字詞，或任何標籤有 IdP 服務名 `shibboleth`、`saml`、`openathens`、`wayf`）。R3 讓它們一律交給人；登入頁維持整批暫停（使用者 2026-10-02）。
 - **文章站上的判斷也用同一份快照**：讀頁面文字的當中分頁轉到別的主機的登入頁，不再被交給人成 `html-page`，回去等、照別的主機判。
 - **導航之前的接續**：主機是登入主機的長相就整批暫停、不送 JS；分頁顯示 PDF 先交給人（`/auth/12345.pdf` 不再整批暫停）；判分頁此刻的網址，驗證頁的網址而沒有驗證字樣時等它轉走（約 60 秒，只讀網址）。
-- **使用者 2026-10-05**：停在 doi.org 卻看不到它自己的查無頁維持整批暫停（第 1 則，SKILL 改寫成已裁決）；網頁副檔名加 `cfm`、`cfml`、`xhtml`、`jsf`、`jspx`、`faces`、`shtml`、`phtml`（第 2 則）；`/sso-login`、`/login-required` 這類複合段算登入頁（第 3 則）；主機的登入字詞只認最左邊的標籤，`journals.auth.gr` 這種期刊平台不再停（第 4 則；「IdP 服務名在任何一個標籤都算」是 b34 自加的規則，不是這一則給的——#613 b41 更正，待使用者裁決）。
+- **使用者 2026-10-05**：停在 doi.org 卻看不到它自己的查無頁維持整批暫停（第 1 則，SKILL 改寫成已裁決）；網頁副檔名加 `cfm`、`cfml`、`xhtml`、`jsf`、`jspx`、`faces`、`shtml`、`phtml`（第 2 則）；`/sso-login`、`/login-required` 這類複合段算登入頁（第 3 則）；主機的登入字詞只認最左邊的標籤，`journals.auth.gr` 這種期刊平台不再停（第 4 則；「IdP 服務名在任何一個標籤都算」是 b34 自加的規則，不是這一則給的——#613 b41 更正，待使用者裁決；使用者 2026-11-04 第 9 則追認）。
 - 帶帳密的落地頁上，同站的 PDF 連結照常跟（先前被說成 `points off-site`、帳密印到 stderr）；印出的網址另去掉百分比編碼的路徑參數、多群組的 ASP.NET 段、沒有 scheme 的帳密，safari-browser 自己的錯誤訊息裡的網址也去憑證；每日帳本的 `landing` 不帶查詢。
 - SKILL 的驗證服務標籤、IdP 服務名、〈交給人之後〉的原因表都與程式逐字對帳。
 

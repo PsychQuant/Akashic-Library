@@ -170,7 +170,7 @@ public enum BotSignals {
     ///   `/sign-in-required`）。`cas`、`auth`、`idp`、`sso`、`authenticate` 在複合段裡不算，任意相鄰兩字也不接（`hepatitis-c-as-…` 不是 `cas`、
     ///   `log-on-log-scale` 不是 `logon`）。檔名（`.pdf`）與帶點的 DOI 片段不拆，驗證字詞不拆（`the-challenge-of-replication` 是文章）。
     /// - **標題**：片語是**整個字詞**的連續序列（`Please log in to continue` 是，`Analog input` 不是；`Sign-In` 與 `sign in` 同一個片語）。
-    static let loginTokens: Set<String> = ["login", "logon", "signin", "sso", "auth", "authenticate", "shibboleth", "saml", "openathens", "wayf", "idp", "cas"]
+    static let loginTokens: Set<String> = ["login", "logon", "signin", "signon", "singlesignon", "sso", "auth", "authenticate", "shibboleth", "saml", "openathens", "wayf", "idp", "cas"]
     static let verificationTokens: Set<String> = ["verify", "verification", "challenge", "captcha", "validate", "turnstile"]
     static let loginTitlePhrases = ["sign in", "sign-in", "log in", "log-in", "login", "single sign-on", "authentication required"]
     static let verificationTitlePhrases = ["verify", "verification", "are you a human", "are you a robot"]
@@ -178,16 +178,16 @@ public enum BotSignals {
     /// （`my.openathens.net`、`idp.shibboleth.uni.edu`、`wayf.surfnet.nl`）。其餘登入字詞只在最左邊的標籤算。不得依「看起來也是 IdP」類推第五個。
     /// **出處**（b38 Z2 第 12 則更正）：使用者 2026-10-05 第 4 則只把主機的登入字詞收窄（`journals.auth.gr` 不再整批暫停），沒有提 IdP 服務名；
     /// 「這四個名稱在任何一個標籤都算」是 b34 收窄時為了不放掉 IdP 主機自加的，方向是多停。b34、b37 的 changelog 與先前的註解寫成那一則裁決
-    /// 認定了它們，是誤植。
+    /// 認定了它們，是誤植。使用者 2026-11-04 第 9 則追認這條規則。
     static let identityProviderNames: Set<String> = ["shibboleth", "saml", "openathens", "wayf"]
-    /// 複合路徑段裡算數的登入字——**封閉列舉，只有這七個**（使用者 2026-10-09：複合段只認明確的登入字；b36 Y2 第 2、3、8 則：先前複合段比全部
+    /// 複合路徑段裡算數的登入字——**封閉列舉，只有這九個**（使用者 2026-10-09：複合段只認明確的登入字；b36 Y2 第 2、3、8 則：先前複合段比全部
     /// 登入字詞，`the-cognitive-assessment-system-cas-in-children`、法文的 `un-cas-de-…`、`idp-and-the-role-of-sso-…` 都在落地頁整批暫停）。
-    /// `login`、`logon`、`signin` 是裁決點名的三個；IdP 服務的四個名稱（`identityProviderNames`）是 b37 對裁決的「這類」的延伸——**還沒有
-    /// 使用者裁決**（#613 `### Blocking`；那四個名稱在主機規則裡的地位也不是使用者給的，見 `identityProviderNames`）。`shibboleth` 是英文字，
-    /// 標題 slug 帶它的落地頁（`the-p-value-shibboleth`）整批暫停（b38 Z2 第 3、12 則量到）。使用者不收時要一起改的，列在
-    /// `changelog/2026-10-15-b39-p2-fixes-613.md`〈IdP 四個名字被否決時要改什麼〉。`authenticate` 不收：一般英文動詞，verify 量到
-    /// `how-to-authenticate-participants` 的誤停。歧義的 `cas`、`auth`、`idp`、`sso` 只在整段比。不得依「看起來也明確」類推第八個。
-    static let compoundLoginWords: Set<String> = ["login", "logon", "signin", "shibboleth", "saml", "openathens", "wayf"]
+    /// `login`、`logon`、`signin` 是裁決點名的三個；IdP 服務的四個名稱（`identityProviderNames`）是 b37 對裁決的「這類」的延伸，使用者
+    /// 2026-11-04 第 1 則裁決維持收；`signon`、`singlesignon` 是 2026-11-04 第 8 則（整段的 `/sign-on`、`/single-sign-on` 算登入頁，b38 INFO 22；
+    /// 去掉連字號後比，所以較長 slug 裡的 `sign-on` 不算——沒有加 `(sign, on)` 這一對）。`shibboleth` 是英文字，
+    /// 標題 slug 帶它的落地頁（`the-p-value-shibboleth`）整批暫停（b38 Z2 第 3、12 則量到）。使用者 2026-11-04 決定照收，這個誤停是接受的代價（停下來交給人）。`authenticate` 不收：一般英文動詞，verify 量到
+    /// `how-to-authenticate-participants` 的誤停。歧義的 `cas`、`auth`、`idp`、`sso` 只在整段比。不得依「看起來也明確」擴充這份封閉清單。
+    static let compoundLoginWords: Set<String> = ["login", "logon", "signin", "signon", "singlesignon", "shibboleth", "saml", "openathens", "wayf"]
     /// 複合路徑段裡相鄰兩字接起來算一個登入字的寫法——**封閉列舉，只有這兩對**（使用者 2026-10-09：`sign-in`、`log-in` 這種連字號寫法）。
     /// 其他任意相鄰兩字不接：先前每一對都接，`c`＋`as`＝`cas`、`log`＋`on`＝`logon`、`ss`＋`o`＝`sso`。不得類推第三對。
     /// **這兩對只管複合段**（b38 Z2 第 28 則）：整段的比法是另一條——整段去掉**所有**連字號與底線再比 `compoundLoginWords`，所以整段的
@@ -293,7 +293,7 @@ public enum BotSignals {
     ///
     /// **這條規則擋得住什麼、擋不住什麼**（#613 R2 verify 第 5、28、29 則）：它擋的是**之後的轉址**——文章站把分頁送到另一個主機，
     /// 那個主機要人驗證。它**擋不住文章站本身**：文章站就是 doi.org 解析到的主機，而那是 DOI 註冊者決定的，所以註冊者自己架的假 CAPTCHA 頁
-    /// （要使用者貼上指令到終端機那一類）落在文章站上仍是等人驗證（結束碼 8）——使用者的裁決是文章站算，行為照裁決。那一格唯一的防線是
+    /// （要使用者貼上指令到終端機那一類）落在文章站上仍是等人驗證（結束碼 8）——使用者的裁決是文章站算，行為照裁決；網址有登入頁長相的那一頁例外，整批暫停（使用者 2026-11-04 第 6 則，`FulltextFetch.onSiteStop`；網址由文章站決定，這是判斷真登入頁的經驗法則，不是防線）。那一格唯一的防線是
     /// **使用者自己看頁面**：程式與 agent 都看不到頁面，所以結束碼 8 的訊息要 agent 請使用者看、頁面要求貼上或執行任何東西就整批停、
     /// 只在使用者說完成之後接著走。
     static let knownVerificationHosts: [String] = ["challenges.cloudflare.com", "hcaptcha.com", "recaptcha.net"]

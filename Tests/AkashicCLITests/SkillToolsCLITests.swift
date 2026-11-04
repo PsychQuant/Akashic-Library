@@ -356,6 +356,18 @@ final class SkillToolsCLITests: XCTestCase {
         XCTAssertFalse(probe.output.contains("PROBE-PASSED"), probe.output)
     }
 
+    /// 第 0 步擋得住契約 8 的 CLI（#613 b49，使用者 2026-11-09）：2026-11-06 到 b49 之間從 main 建的 CLI 印 8，文章站上有登入頁長相的那一頁
+    /// 寫著 CAPTCHA 時回 8（等人驗證），落地頁是 `/sign-on` 時照一般網頁讀；照這份 SKILL 跑的 agent 不能拿它跑。
+    func testTheStepZeroProbeTellsAPreB49CLIFromThisOne() throws {
+        let cli = base.appendingPathComponent("pre-b49-akashic")
+        try "#!/bin/sh\nif [ \"$1\" = fulltext ] && [ \"$2\" = contract ]; then echo 'fulltext-contract 8'; exit 0; fi\nexit 64\n"
+            .write(to: cli, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: cli.path)
+        let probe = try runStepZeroProbe(akashic: cli)
+        XCTAssertNotEqual(probe.status, 0, probe.output)
+        XCTAssertFalse(probe.output.contains("PROBE-PASSED"), probe.output)
+    }
+
     /// SKILL 第 0 步要求的版本就是這個 binary 印的版本：版本號往上調時 SKILL 要一起調（要求高於 binary，真的 CLI 也過不了第 0 步；
     /// 要求低於 binary，舊的 CLI 會被放過）。
     func testTheContractVersionTheSkillRequiresIsTheOneThisCLIPrints() throws {

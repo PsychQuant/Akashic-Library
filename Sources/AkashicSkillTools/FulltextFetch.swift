@@ -30,12 +30,12 @@ import AkashicStoreIO
 ///       沒有命中驗證／封鎖／登入的封閉清單——那不代表它不是登入頁）與 `doi-not-resolved`（停在 doi.org，而且看得到 doi.org 自己的
 ///       查無證據）。
 ///     8 等人驗證：出現 CAPTCHA／人類檢查／Cloudflare「Just a moment」／按住驗證，**而且在文章站本身或已知的驗證服務上**
-///       （`BotSignals.isKnownVerificationService`；其他主機上的驗證字樣是結束碼 6）。暫停這一篇；使用者驗證完，以
+///       （`BotSignals.isKnownVerificationService`；其他主機上的驗證字樣是結束碼 6；文章站上網址有登入頁長相的那一頁命中等人驗證的訊號也是 6，使用者 2026-11-04 第 6 則，見 `onSiteStop`；連 `document.contentType` 都讀不到的分頁不適用，照 `judgeUnreadable`）。暫停這一篇；使用者驗證完，以
 ///       `--resume-tab`／`--resume-origin`（導航之後的驗證另帶 `--resume-stage followed`）在**同一個分頁**接著走（不重新載入）。分頁留著。
 ///     9 這個站今天已經 10 次嘗試（Asia/Taipei）：停這個站，隔天再跑。沒有導航到 PDF。分頁留著。
 ///     6 **整批暫停**（SKILL.md〈中止條款〉）：其他起疑訊號——封鎖頁、HTTP 403／429、異常流量、PMC 的下載前驗證頁、ScienceDirect
 ///       的「Preparing your download」、其他主機上的驗證字樣、分頁跑到別的網站而那一頁是登入／驗證頁的長相、DOI 落地頁的網址是登入頁
-///       的長相、讀不到的分頁停在登入主機的長相上（只看主機）、卡住（落地頁、導航之後、別的主機上的頁面約 60 秒沒落定）、停在 doi.org
+///       的長相、導航之後（含 `--resume-stage followed`）文章站上網址有登入頁長相的那一頁命中等人驗證的訊號（使用者 2026-11-04 第 6 則）、讀不到的分頁停在登入主機的長相上（只看主機）、卡住（落地頁、導航之後、別的主機上的頁面約 60 秒沒落定）、停在 doi.org
 ///       卻看不到它自己的查無證據（使用者 2026-10-05 第 1 則）、落定的網頁讀不到頁面文字而無從檢查（導航之前的文章頁、導航之後文章站上
 ///       落定的 HTML 頁、別的主機上落定的頁面；連 `document.contentType` 都讀不到的分頁是 7 `unverifiable`）。分頁留著給使用者看。
 ///     3 頁面上找不到 PDF 連結。分頁留著：這個命令不關任何分頁（#768）
@@ -70,10 +70,9 @@ import AkashicStoreIO
 /// b31 W4 第 1 則：先前以 `take` 的行為探測，分不出 R1、R2 的 CLI）。結束碼、交給人的原因、或哪些頁面整批暫停改變時就往上調，SKILL 第 0 步
 /// 一起調（`SkillToolsCLITests` 比對兩邊相等）。
 ///
-/// **印出的字改了要不要調，還沒有定**（b40 Z2 第 4、9、13、15 則）：b37 為了 safari-browser 的錯誤只轉印一行而從 5 調到 6；b39 與 b41 又改了
-/// 同一類（轉印哪一行、對話框的文字不轉印、帳密的邊角），契約仍是 6。理由：`akashic` CLI 從來沒有發布過——release 只發 `akashic-mcp`
-/// （`akashic-mcp-v0.12.1`，2026-09-24，早於 `fulltext` 子命令），CLI 要在本 repo `swift build`——所以「印 6 而行為是 b37 的」只會是維護者
-/// 自己 b37～b39 之間的建置，沒有使用者面。第一次發布 CLI 時一起決定：升到 7，或把「印出的字改了不調」寫成這裡的政策（那時要說明 b37 為什麼例外）。
+/// **只改印出的字（skill 不解析的那幾行）不調**：使用者 2026-11-04 第 10 則（「維持」契約版本；範圍以 2026-11-09 的問答為準，見 #613 的 Decision comment）。b39、b41、b43、b45 改的都是轉印哪一行、對話框的文字、
+/// 帳密的邊角，契約都沒有調。b37 為了 safari-browser 的錯誤只轉印一行而從 5 調到 6，是這條裁決之前的例外。`akashic` CLI 從來沒有發布過
+/// （release 只發 `akashic-mcp`，CLI 要在本 repo `swift build`），所以這幾次沒有調只影響維護者自己的建置。
 public final class FulltextFetch {
     /// 1＝#613 只導航、交給人；2＝R1 修正輪（2026-10-02）；3＝R2 修正輪（e5182cf1）；4＝R3（2026-10-04）；5＝b34（2026-10-05：文章站上
     /// 讀不到的分頁與別的主機同一套、讀不到的分頁在登入主機上整批暫停、文章站上同一份快照、使用者 2026-10-05 的主機標籤與路徑段裁決）；
@@ -82,10 +81,13 @@ public final class FulltextFetch {
     /// 7＝#768 第一到第四版（2026-11-03～04）：分頁的認法逐版在改（比對清單、記號）。調它是為了讓第 0 步擋下會讀、會關使用者分頁的舊 CLI；這幾版
     /// 本身也不可使用（第一版還會關分頁，第三版導航時會在前景視窗開出新分頁）。
     /// 8＝#768 第五版起（2026-11-04～05）：記號鎖帶 `--profile`、別的 profile 的視窗開著就停（開頭、接續、每一眼）、頁面文字這類讀取的鎖找不到分頁時
-    /// 重跑一次、PDF 連結的答案綁在判過的那一頁上、接續可帶 `--resume-mark`。第五到第七版的開發建置也印 8 而行為不同（第五版有版本閘、第六版接續
-    /// 不判別的 profile、讀連結會重跑），都沒有發布（CLI 沒有發布版），第 0 步分不出來：CLI 從合併之後的 commit 建置。
+    /// 重跑一次、PDF 連結的答案綁在判過的那一頁上、接續可帶 `--resume-mark`。第五到第八版的開發建置也印 8 而行為不同（第五版有版本閘、第六版接續
+    /// 不判別的 profile、讀連結會重跑、第八版同一個位置兩列不停、換頁之後不等落定），都沒有發布（CLI 沒有發布版）；第 0 步要求 9 之後一律被擋下。
+    /// 9＝#613 b49（2026-11-09）：導航之後（含 `--resume-stage followed`）文章站上網址有登入頁長相的那一頁寫著 CAPTCHA 時整批暫停（先前是 8，等人驗證；導航之前自 b37 起就是 6）；`/sign-on`、`/single-sign-on`
+    /// 與單字寫法的 `signon`、`singlesignon` 算登入頁（落地頁是它們時整批暫停，先前照一般網頁讀；導航之後落在別的主機上的這種頁面整批暫停，
+    /// 先前交給人 `left-site`；主機最左邊的標籤是 `signon`、`sign-on`、`single-sign-on` 也算登入主機）。2026-11-06 到 b49 之間從 main 建的 CLI 印 8，碰到這兩種頁面照舊的判斷，所以要調（使用者 2026-11-09）。
     /// 前三版的 CLI 沒有 `contract` 子命令——數字只是給歷史一個名字，第 0 步擋它們靠的是「沒有這個子命令」。
-    public static let contractVersion = 8
+    public static let contractVersion = 9
 
     public struct Options {
         public var window: Int
@@ -574,11 +576,21 @@ public final class FulltextFetch {
     /// 乾淨）；乾淨 → nil。
     private func onSiteSuspicion(_ snap: PageSnapshot, _ site: String) -> Stop? {
         guard let page = snap.page else {
-            if let hit = BotSignals.classify(snap.title) { return stop(for: hit, site, at: snap.url) }
+            if let hit = BotSignals.classify(snap.title) { return onSiteStop(for: hit, snap, site) }
             return botStop("page-unreadable: could not check it for suspicion", site)
         }
-        if let hit = BotSignals.classify(snap.title + "\n" + page.text, status: page.status) { return stop(for: hit, site, at: snap.url) }
+        if let hit = BotSignals.classify(snap.title + "\n" + page.text, status: page.status) { return onSiteStop(for: hit, snap, site) }
         return nil
+    }
+
+    /// 同站頁面上命中訊號之後的停法。等人驗證的訊號落在**登入頁的長相**上時整批暫停，不降成等人驗證（使用者 2026-11-04 第 6 則，b38 INFO 17：
+    /// 導航之後落定的同站 `/login` 頁寫著 CAPTCHA，先前得 8）。導航之前的檢查在這之前就已經對登入長相整批暫停，所以這一條只改變導航之後與
+    /// `--resume-stage followed` 的判斷；沒有訊號的同站登入頁仍交給人 `html-page`。
+    private func onSiteStop(for hit: BotSignals.Hit, _ snap: PageSnapshot, _ site: String) -> Stop {
+        if hit.response == .humanVerification, BotSignals.urlGateLook(snap.url) == "login" {
+            return botStop("\(hit.label) on a page on the article site that has the look of a login page → \(FulltextFetch.plainURL(snap.url)) (login page)", site)
+        }
+        return stop(for: hit, site, at: snap.url)
     }
 
     /// 我們的分頁（在文章站上）有沒有起疑訊號。等人驗證的訊號 → 結束碼 8；其他 → 6；讀不到頁面 → 6。回判斷的那一頁的網址。
@@ -588,7 +600,7 @@ public final class FulltextFetch {
     /// `beforeNavigation`：導航到 PDF 連結**之前**的檢查（落地頁、讀連結之前、導航之前的接續）——每一份快照先判網址的**登入長相**，命中就整批暫停，
     /// 再判起疑訊號（#613 b37，b36 Y2 第 0 則：先前呼叫端只在呼叫之前看一次網址，讀的當中分頁轉到同站的 `/login`、那一頁寫著 CAPTCHA，就成了
     /// 等人驗證、印出以文章站為目標的 `resume:`——登入頁降成等人驗證，正是 R3 對落地頁修掉的形狀）。導航**之後**（`awaitShown`）傳 false：
-    /// 那時同站的 HTML 頁是頁面自己的 PDF 連結的結果，與 `decideShown` 同一套只看文字訊號、交給人 `html-page`（b36 Y2 第 16 則）。
+    /// 那時同站的 HTML 頁是頁面自己的 PDF 連結的結果，與 `decideShown` 同一套：不因網址的登入長相整批暫停，只看文字訊號，沒有訊號就交給人 `html-page`（b36 Y2 第 16 則）；文字訊號是等人驗證、而網址有登入頁的長相時整批暫停（`onSiteStop`，使用者 2026-11-04 第 6 則）。
     @discardableResult
     private func botCheckPage(_ site: String, beforeNavigation: Bool) throws -> String {
         for _ in 1...3 {
@@ -1185,7 +1197,7 @@ public final class FulltextFetch {
     /// （`/dl/<token>/file.pdf`、分享連結的 id）與 DOI、檔案 id 分不出來，原樣印出——那是這份形狀清單管不到的一半。
     ///
     /// **代價**：查詢字串本身就是文件身分的網址（`viewcontent.cgi?article=…`、`doiLanding?doi=…`）在 `origin` 裡也少了那一段——只剝
-    /// 已知的憑證參數要一份會漏的清單，這裡選擇全剝（R2 verify 第 22 則，留給使用者裁決）；路徑參數同理，`;type=pdf` 也剝。
+    /// 已知的憑證參數要一份會漏的清單，這裡選擇全剝（R2 verify 第 22 則；使用者 2026-11-04 第 4 則裁決維持全剝）；路徑參數同理，`;type=pdf` 也剝。
     ///
     /// **主機段與站的比對同一把**（#613 b37，b36 Y2 第 11、20、21 則）：scheme、authority 與路徑由 `URLSplit` 切，印出的主機是
     /// `URLSplit.hostPort`——在反斜線處結束、去掉最後一個 `@` 之前的帳密（兩種讀法對帳密說法不同時例外，見下一段）。先前這裡自己切：authority 只在 `/` 結束、`://` 在整串裡找，

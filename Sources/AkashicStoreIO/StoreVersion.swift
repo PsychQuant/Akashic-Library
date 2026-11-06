@@ -276,7 +276,10 @@ public enum StoreVersion {
     /// 不得為了解析 marker 再回頭讀磁碟。
     static func read(data: Data?, path: String) throws -> Int {
         guard let data else { return 1 }
-        guard let text = String(data: data, encoding: .utf8) else {
+        // BOM 由這裡去掉，不靠 Foundation：`String(data:encoding:)` 留不留 BOM 依系統版本而異（CI 的 macOS 15 留著、判 malformed，
+        // 本機的 macOS 27 吃掉、判 accept，#770）。同一個 store 不能因為換了一台機器就打不開。
+        let body = data.starts(with: [0xEF, 0xBB, 0xBF]) ? data.dropFirst(3) : data
+        guard let text = String(data: body, encoding: .utf8) else {
             throw StoreVersionError.malformed(path: displaySafeInvisible(path, max: 300), line: "(標記檔不是 UTF-8)")
         }
         var found: Int?

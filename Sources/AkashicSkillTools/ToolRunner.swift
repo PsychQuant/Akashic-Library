@@ -26,8 +26,7 @@ enum ToolRunner {
         var timedOut: Bool { get { lock.lock(); defer { lock.unlock() }; return flag } set { lock.lock(); flag = newValue; lock.unlock() } }
     }
 
-    /// poppler 對下載來的第三方 PDF 跑的逾時（秒）。舊實作（`subprocess.run` 無逾時）遇到病態 PDF 會無限期卡住整批——`fetch`
-    /// 的驗證在 `closeOwnTab` 之後，卡住時連留給人看的分頁都沒有（R1 verify 第 51 則）。一般 PDF 的 `pdftotext -l 2` 在毫秒到秒的量級。
+    /// poppler 對下載來的第三方 PDF 跑的逾時（秒）。舊實作（`subprocess.run` 無逾時）遇到病態 PDF 會無限期卡住整批（R1 verify 第 51 則；當時的 `fetch` 還會關分頁，#768 起不關）。一般 PDF 的 `pdftotext -l 2` 在毫秒到秒的量級。
     static let popplerTimeout: TimeInterval = 120
 
     static func run(_ argv: [String], stdin: Data? = nil, environment: [String: String]? = nil, timeout: TimeInterval? = nil) throws -> Result {

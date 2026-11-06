@@ -1,5 +1,11 @@
 # Changelog
 
+## #768 — `fulltext fetch` 只讀自己開的分頁，而且不再關分頁（2026-11-03）：plugin 殼 0.13.11 → 0.13.12
+
+細節在 `changelog/2026-11-03-fulltext-own-tab-768.md`。行為在 `akashic` CLI，要重新建置才有；binary 版號不變，這一輪沒有發布。
+
+- **`akashic-fetch-fulltext` 的 `SKILL.md`**：第 0 步要求 `fulltext-contract 8`，舊 CLI 會被擋下（比 7 舊的可能讀、甚至關掉使用者自己的分頁；印 7 的是這個 issue 的開發建置，其中第三版導航時會在前景視窗開出新分頁）；這個 CLI 沒有發布版，要從 repo 建置，步驟寫在那一行的錯誤訊息裡。第 3 步的警告改寫：Safari 只留一個視窗、不要動那個視窗的分頁；說明 `fetch` 用一次性記號（fragment）認分頁、哪些出版商保留它（Elsevier 不會），並列出它擋不住的情形。結束碼 1 多四種原因（分頁對不上；有別的 profile 的視窗開著；判過之後頁面換了；分頁清單同一個位置兩列，可能是頁面標題偽造（safari-browser#355），也可能是列舉途中視窗被拉到前面）。記號在時以 `--profile`＋`--url-endswith` 鎖分頁（只帶 `--url-endswith` 的 `open` 會開新分頁，safari-browser#233）。別的 profile 的視窗（或認不出 profile 的視窗）開著就停：開頭、接續與追蹤分頁的每一眼都判，每一眼只看開頭沒有的視窗；這道停止無條件，safari-browser#352（以視窗 id 指定視窗）發布之前不放寬。PDF 連結的答案綁在判過的那一頁上：讀連結之後與導航之前網址變了就不導航，等新的那一頁落定再判：登入、驗證頁 6／8（驗證頁的網址也算），一直不落定 6，PDF 與讀不到的頁面交給人，其他是結束碼 1。頁面文字這類讀取的鎖找不到分頁時重跑一次；讀 PDF 連結與導航不重跑。記號不見就改用位置追蹤，頁面用腳本轉到的登入、驗證頁照常是 6／8；記號在位置追蹤之後回來時要在我們的位置上，否則停。接續的 `resume:` 一行多印 `--window` 與（記號還在時）`--resume-mark`，接續以記號找分頁。`fetch` 不再關任何分頁，結束碼 3、9 也留著，並印出分頁的位置。`followed` 照位置接續時，不在文章站的分頁也會先問它顯示什麼（使用者 2026-11-05 裁決接受，代價寫在 SKILL）。
+
 ## akashic-mcp 0.13.0（binary）、plugin 殼 0.13.7 → 0.13.8（2026-10-27）
 
 - binary 發 0.13.0：#742 的作者列替換腿（`update-entry --replace-authors`／MCP `replace_authors`）、替換記錄與 `group-members:`（store format 23）。`binary_version` 0.12.1 → 0.13.0，wrapper 會下載新版。

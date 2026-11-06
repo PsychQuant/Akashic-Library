@@ -76,14 +76,21 @@ final class FulltextB37Tests: XCTestCase {
     /// 直接判起疑訊號：同站的 CAPTCHA 是等人驗證（8），印出以文章站為目標的 `resume:`。登入頁的網址是比頁面文字更強的證據（R3 已把落地頁的
     /// 這個順序定下來），重讀得到的那一頁也要同一個順序：整批暫停（6）。
     func testALandingThatTurnsIntoASameSiteLoginPageWhileBeingReadPauses() {
-        let code = run(Scenario(), hook: Self.movesToALoginPageWhileReading(onRead: 1, to: "https://pub.example/login?next=x"))
-        assertLoginStop(code)
+        // 落地時記號在或不在都一樣：轉到登入頁時記號丟了，改用位置追蹤，照登入長相判（#768 第三輪 verify 第 13 則；使用者 2026-11-04）
+        for keeps in [true, false] {
+            var s = Scenario(); s.keepsMark = keeps
+            let code = run(s, hook: Self.movesToALoginPageWhileReading(onRead: 1, to: "https://pub.example/login?next=x"))
+            assertLoginStop(code)
+        }
     }
 
     /// 同一件事在讀 PDF 連結之前的那一次檢查（`followThePagesOwnLink` 的 `botCheckPage`）：先前那裡連登入檢查都沒有。
     func testTheCheckBeforeReadingTheLinkAlsoPutsTheLoginLookFirst() {
-        let code = run(Scenario(), hook: Self.movesToALoginPageWhileReading(onRead: 2, to: "https://pub.example/sso-login"))
-        assertLoginStop(code)
+        for keeps in [true, false] {
+            var s = Scenario(); s.keepsMark = keeps
+            let code = run(s, hook: Self.movesToALoginPageWhileReading(onRead: 2, to: "https://pub.example/sso-login"))
+            assertLoginStop(code)
+        }
     }
 
     /// 導航之前的接續（`--resume-stage article`）：使用者驗證完，讀頁面的當中分頁轉到同站的登入頁。

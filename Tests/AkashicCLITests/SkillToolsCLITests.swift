@@ -382,9 +382,16 @@ final class SkillToolsCLITests: XCTestCase {
         S='\(state.path)'
         case "$1" in
           documents)
-            if [ -f "$S/navigated" ]; then u='https://pub.example/doi/pdf/10.1/x'; else u='https://pub.example/doi/10.1/x'; fi
-            printf '[{"window":5,"index":1,"tab_in_window":1,"url":"https://user.example/","title":"mine","profile":"own","is_current":false},{"window":5,"index":2,"tab_in_window":2,"url":"%s","title":"Article","profile":"own","is_current":true}]\\n' "$u" ;;
-          open) case " $* " in *" --new-tab "*) : ;; *) : > "$S/navigated" ;; esac ;;
+            d='"blocking_dialog":{"state":"unknown","window_id":9005}'
+            mine='{"window":5,"index":1,"tab_in_window":1,"url":"https://user.example/","title":"mine","profile":"own",'"$d"'}'
+            if [ ! -f "$S/opened" ]; then printf '[%s]\\n' "$mine"; exit 0; fi
+            m=$(cat "$S/opened")   # 這次執行的記號（#768）：新分頁的網址帶著它
+            if [ -f "$S/navigated" ]; then u="https://pub.example/doi/pdf/10.1/x#$m"; else u="https://pub.example/doi/10.1/x#$m"; fi
+            printf '[%s,{"window":5,"index":2,"tab_in_window":2,"url":"%s","title":"Article","profile":"own",%s}]\\n' "$mine" "$u" "$d" ;;
+          open) for a; do last=$a; done
+            # 真的 safari-browser 的 open 只把這幾個旗標當成指定了分頁（safari-browser#233）；沒有指定就不導航那個分頁
+            case " $* " in *" --new-tab "*) printf '%s' "${last#*#}" > "$S/opened" ;;
+              *" --profile "*|*" --tab-in-window "*|*" --window "*|*" --url "*) : > "$S/navigated" ;; esac ;;
           js)
             for a; do last=$a; done
             case "$last" in

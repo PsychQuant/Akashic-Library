@@ -225,14 +225,14 @@ grep -rlE -- '--tab-in-window' plugin/skills plugins/*/skills Sources | grep -vE
 2026-09-29（#629 第二塊移植後）命中 4 個檔，其中 2 個不算（`web-access.md` 與 `akashic-work-references/SKILL.md` 提到它是在說「不要用」）；剩下的：
 
 - `Sources/AkashicSkillTools/FulltextFetch.swift`（`akashic fulltext fetch`，原 `fetch-fulltext.sh`），以及 `plugin/skills/akashic-fetch-fulltext/SKILL.md` 的第 3 步
-  （描述那條命令）：**鎖法仍是 `--window N --tab-in-window T`（#613 的作法）；#629 移植時沒有改，改成 `--url-endswith` 仍待使用者裁決、且要實跑 Safari**。
+  （描述那條命令）：（歷史：#613、#629 時鎖法是 `--window N --tab-in-window T`；#768 起改成記號加 `--profile`，見本段末。）
   理由：`publishers.md` 記著——使用者已開著同一頁時，URL 鎖會比對到兩個分頁、safari-browser fail-closed。**便宜的解**（沒實測）：
   對 `--landing` 加一次性 fragment，同一頁已開的問題自然消失（#634 驗證第 41 列）。**但 `--landing` 的形狀檢查（`landingShapeProblem`）
   自 #629 R2 起拒絕 `#`**：照這個解做，得先讓形狀檢查放行結尾的那一段 fragment，或由工具在檢查之後自己加上（#629 R3 verify 第 2、42 則）。這個 skill 因此**同時有兩個鎖法**：第 2 步（頁內
-  OpenAlex 查詢）用 web-access.md 的鎖，第 3 步（`fetch`）用命令自己的視窗編號鎖；SKILL.md 第 3 步明寫兩者不混用。**移植後這條鎖法有一個
+  OpenAlex 查詢）用 web-access.md 的鎖，第 3 步（`fetch`）用命令自己的記號鎖（#768 之前是視窗編號）；SKILL.md 第 3 步明寫兩者不混用。**移植後這條鎖法有一個
   比以前好的地方**：`SafariBrowser` 介面讓「這支程式對瀏覽器說了什麼」可以在測試裡逐條斷言（`FulltextFetchPathTests`），改鎖法時測試會告訴你哪些
-  引數向量變了——以前只有一個 Python stub 的結束碼。**要改時**：`FulltextFetch.swift` 的三個引數向量建構點（`open`／`close`／`js`／`wait` 的 `--window`
-  `--tab-in-window`）改成 `--profile`＋`--url-endswith`，`currentTab()` 與「以位置認分頁」的整套邏輯要重想（分頁由 fragment 認，不需要位置）。
+  引數向量變了——以前只有一個 Python stub 的結束碼。**要改時**：`FulltextFetch.swift` 的引數向量建構點（`open`／`js`／`wait` 的 `--window`
+  `--tab-in-window`）改成 `--profile`＋`--url-endswith`，`stillOurTab` 與「以位置認分頁」的邏輯只剩記號不在時的後備。**#768（2026-11-04）已部分採用 fragment**：使用者選定 `fetch` 的分頁以一次性記號（`#akashic-<16 hex>`）認、記號還在時以 `--profile`＋`--url-endswith` 鎖分頁（一定帶 `--profile`：只帶 `--url-endswith` 的 `open` 會在前景視窗開新分頁、不導航那個分頁，safari-browser#233，#768 第三輪 verify），接受頁面腳本看得到它的代價；Elsevier 在授權轉址時丟掉記號，所以位置追蹤仍是後備。`--window`／`--tab-in-window` 只用在記號不在時。
 
 歷史：2026-09-25 同一個量法（沒有最後一段）命中 13 個檔，其中 2 個不算，其餘 11 個。#634 於 2026-09-29
 遷移了其中 8 個：`akashic-bootstrap` 的 `person-sources.md`、`work-sources.md`，`akashic-disambiguate` 的

@@ -6,7 +6,7 @@ import XCTest
 /// 不連網。
 ///
 /// 結束碼是它對 agent 的契約：7 交給人、8 等人驗證、9 這個站今天到上限、6 整批暫停、3 找不到連結、1 看一眼。落錯碼就是把中止條款悄悄
-/// 變成重試。每個案例把一條路徑釘在它的碼上，並檢查契約承諾的副作用：7／8／6 時我們的分頁**不**被關；3／9 時關掉的只有我們的分頁；
+/// 變成重試。每個案例把一條路徑釘在它的碼上，並檢查契約承諾的副作用：任何路徑都**不**關分頁（#768）；
 /// **任何路徑都沒有頁內取檔的 JS**，也沒有導航到頁面連結以外的網址。
 final class FulltextFetchPathTests: XCTestCase {
 
@@ -36,12 +36,21 @@ final class FulltextFetchPathTests: XCTestCase {
         var navigationFails = false
         /// 導航之前，分頁（含 `--resume-tab` 接手的分頁）的 `document.contentType`
         var currentContentType = "text/html"
+        /// 轉址之後網址還帶著這次執行的記號（#768：SAGE、Wiley、Springer、APA、T&F 會；Elsevier 不會）
+        var keepsMark = true
     }
 
     final class FakeBrowser: SafariBrowser {
         var scenario: Scenario
         var tabs: [(url: String, title: String)] = [("https://user.example/mine", "the user's own tab")]
         var current = 1
+        /// `documents --json` 回報的 `blocking_dialog.window_id`：換了就是別的視窗拿到了這個編號。
+        var windowID = 9005
+        /// `documents --json` 回報的視窗編號（前後順序）
+        var windowNumber = 5
+        /// `documents` 被讀了幾次；新分頁開完之後的第二次讀，分頁從落地網址轉到 `landingFinal`（第一次讀還帶著記號，像真的 Safari）
+        var docCount = 0
+        var pendingRedirect: (from: String, due: Int)?
         var checked = false
         var navigated = false
         var calls: [String] = []
@@ -53,6 +62,65 @@ final class FulltextFetchPathTests: XCTestCase {
 
         private func opt(_ args: [String], _ name: String) -> String? { args.firstIndex(of: name).flatMap { $0 + 1 < args.count ? args[$0 + 1] : nil } }
 
+        /// 兩個以上的分頁符合 `--url-endswith`：真的 safari-browser 回 `ambiguousWindowMatch`（`Errors.swift`），不是找不到。
+        func ambiguous(_ args: [String]) -> Bool {
+            guard let suffix = opt(args, "--url-endswith") else { return false }
+            return tabs.filter { $0.url.hasSuffix(suffix) }.count > 1
+        }
+        static let ambiguousMatch = SafariRun(status: 1, stderr: "Error: Multiple Safari windows match \"(suffix)\":\n  [window 5 tab 1] x\n")
+
+        /// 指令鎖的是哪一個分頁（1 起算）：`--tab-in-window`，或 `--url-endswith`（剛好一個分頁符合才算，否則像 safari-browser 一樣失敗）。
+        /// 帶了 `--profile` 而不是這個視窗的 profile：沒有分頁符合。沒帶 `--profile` 時 `--window` 是全域的視窗編號，要等於這個視窗的編號；
+        /// 帶了 `--profile` 時 `--window k` 是那個 profile 的第 k 個視窗（假瀏覽器只有一個視窗：k 要是 1）。
+        func target(_ args: [String]) -> Int? {
+            if let p = opt(args, "--profile"), p != scenario.profile { return nil }
+            if let w = opt(args, "--window").flatMap(Int.init), w != (args.contains("--profile") ? 1 : windowNumber) { return nil }
+            if let k = opt(args, "--tab-in-window").flatMap(Int.init) { return tabs.indices.contains(k - 1) ? k : nil }
+            if let suffix = opt(args, "--url-endswith") {
+                let hits = tabs.indices.filter { tabs[$0].url.hasSuffix(suffix) }
+                return hits.count == 1 ? hits[0] + 1 : nil
+            }
+            return nil
+        }
+
+        /// safari-browser 的 `open`（沒有 `--new-tab`）把哪些旗標當成「指定了分頁」：`OpenCommand.swift` 自己算的 `hasExplicitTarget`，
+        /// v2.7.0、v2.8.0 與 main 相同。**`--url-exact`、`--url-endswith`、`--url-regex` 不算**（safari-browser#233）：只帶它們的 `open`
+        /// 不導航那個分頁，而是找網址完全相同的分頁拉到前面，找不到就在前景視窗開新分頁（#768 第三輪 verify）。
+        static let openTargetFlags = ["--url", "--window", "--tab", "--document", "--tab-in-window", "--profile"]
+
+        /// `open` 沒有指定分頁時真的 safari-browser 做的事：網址完全相同的分頁拉到前面；沒有就在前景視窗開新分頁（這裡只有一個視窗）。
+        func openWithoutATarget(_ url: String) {
+            if let i = tabs.firstIndex(where: { $0.url == url }) { current = i + 1; calls.append("focus \(Self.unmarked(url))"); return }
+            calls.append("open-new-tab \(Self.unmarked(url))")
+            tabs.append((url, scenario.afterNavTitle))
+            current = tabs.count
+        }
+
+        /// 網址去掉記號（`#akashic-…`），讓紀錄與先前的斷言相同。
+        static func unmarked(_ url: String) -> String {
+            guard let r = url.range(of: "#akashic-", options: .backwards) else { return url }
+            return String(url[..<r.lowerBound])
+        }
+
+        /// 新分頁出現，網址是開的那一個（帶著記號）；第二次讀清單時轉到 `landingFinal`（保留記號與否看 `keepsMark`）。
+        func openedNewTab(_ url: String, at index: Int? = nil, title: String? = nil) {
+            calls.append("open \(Self.unmarked(url))")
+            let tab = (url: url, title: title ?? scenario.tabTitle)
+            if let index { tabs.insert(tab, at: index) } else { tabs.append(tab) }
+            pendingRedirect = (url, docCount + 2)
+        }
+
+        private func applyRedirectIfDue() {
+            guard let p = pendingRedirect, docCount >= p.due else { return }
+            pendingRedirect = nil
+            guard let i = tabs.firstIndex(where: { $0.url == p.from }) else { return }   // 測試自己改過這個分頁
+            let fragment = p.from.range(of: "#").map { String(p.from[$0.lowerBound...]) } ?? ""
+            tabs[i].url = scenario.landingFinal + (scenario.keepsMark ? fragment : "")
+        }
+
+        /// 真的 safari-browser 的 `documentNotFound`（`Errors.swift`）：找不到符合目標的分頁時印的第一行。第五輪 verify 之前這裡是自己編的字。
+        private static let noMatch = SafariRun(status: 1, stderr: "Error: No Safari document matches \"(target)\".\n\nAvailable documents:\n")
+
         func run(_ args: [String]) -> SafariRun {
             if let hook, let answer = hook(args, self) {
                 if args[0] == "js" { injected.append(args.last!) }
@@ -60,34 +128,38 @@ final class FulltextFetchPathTests: XCTestCase {
             }
             switch args[0] {
             case "documents":
+                docCount += 1
+                applyRedirectIfDue()
                 let items = tabs.enumerated().map { i, t in
-                    PyJSON.object([("window", .int(5)), ("index", .int(i + 1)), ("tab_in_window", .int(i + 1)), ("url", .string(t.url)),
-                                   ("title", .string(t.title)), ("profile", .string(scenario.profile)), ("is_current", .bool(i + 1 == current))])
+                    PyJSON.object([("window", .int(windowNumber)), ("index", .int(i + 1)), ("tab_in_window", .int(i + 1)), ("url", .string(t.url)),
+                                   ("title", .string(t.title)), ("profile", .string(scenario.profile)), ("is_current", .bool(i + 1 == current)),
+                                   ("blocking_dialog", PyJSON.object([("state", .string("unknown")), ("window_id", .int(windowID))]))])
                 }
                 return SafariRun(status: 0, stdout: PyJSON.array(items).dumps() + "\n")
             case "open":
                 let url = args.last!
                 if args.contains("--new-tab") {
-                    calls.append("open \(url)")
-                    tabs.append((scenario.landingFinal, scenario.tabTitle))
+                    openedNewTab(url)
                     current = tabs.count
                 } else {
-                    calls.append("navigate \(url)")
+                    guard Self.openTargetFlags.contains(where: args.contains) else { openWithoutATarget(url); return SafariRun(status: 0) }
+                    calls.append("navigate \(Self.unmarked(url))")
                     if scenario.navigationFails { return SafariRun(status: 1, stderr: "no\n") }
-                    let k = Int(opt(args, "--tab-in-window")!)!
+                    guard let k = target(args) else { return Self.noMatch }
                     navigated = true
                     let landed = scenario.afterNavURL ?? url
                     if !landed.isEmpty { tabs[k - 1] = (landed, scenario.afterNavTitle) }
                 }
                 return SafariRun(status: 0)
             case "close":
-                let k = Int(opt(args, "--tab-in-window")!)!
+                guard let k = target(args) else { return Self.noMatch }
                 calls.append("close \(k) \(tabs[k - 1].url)")
                 tabs.remove(at: k - 1)
                 current = min(current, tabs.count)
                 return SafariRun(status: 0)
             case "js":
-                let k = Int(opt(args, "--tab-in-window")!)!
+                if ambiguous(args) { return Self.ambiguousMatch }
+                guard let k = target(args) else { return Self.noMatch }
                 let src = args.last!
                 injected.append(src)
                 if src.contains("document.contentType") {
@@ -114,6 +186,8 @@ final class FulltextFetchPathTests: XCTestCase {
                 return SafariRun(status: 0)
             case "wait":
                 if let js = opt(args, "--js") { injected.append(js) }
+                if ambiguous(args) { return Self.ambiguousMatch }
+                guard target(args) != nil else { return Self.noMatch }   // 真的 wait 也要先解析目標（第六輪 verify 第 20 則）
                 return SafariRun(status: 0)
             default:
                 return SafariRun(status: 2)
@@ -297,11 +371,14 @@ final class FulltextFetchPathTests: XCTestCase {
     }
 
     /// 同一條規則在文章頁階段：等 PDF 連結的時候分頁從中繼頁換到文章頁（別的主機）→ 交給人，不是整批暫停。
+    /// 落地時記號在或不在（Elsevier）都一樣：頁面用腳本轉走時記號丟了，fetch 改用位置追蹤照常判（#768 第三輪 verify 第 13 則）。
     func testAnIntermediaryPageThatBecomesTheArticleOnAnotherHostIsHandedOver() {
-        var s = Scenario(); s.redirectAfterCheck = "https://pub2.example/article/x"
-        assertHandover(run(s), .leftSite)
-        XCTAssertEqual(navigations, [])
-        XCTAssertEqual(ledgerLines.count, 0, "還沒準備取 PDF，不記")
+        for keeps in [true, false] {
+            var s = Scenario(); s.redirectAfterCheck = "https://pub2.example/article/x"; s.keepsMark = keeps
+            assertHandover(run(s), .leftSite)
+            XCTAssertEqual(navigations, [], "keepsMark \(keeps)")
+            XCTAssertEqual(ledgerLines.count, 0, "還沒準備取 PDF，不記")
+        }
     }
 
     /// DOI 解不開：分頁停在 doi.org 自己的頁面。資料問題，不是起疑訊號——這一筆交給人，批次繼續。
@@ -446,8 +523,17 @@ final class FulltextFetchPathTests: XCTestCase {
     }
 
     func testTabMovesToAnotherSite() {
+        var s = Scenario(); s.redirectAfterCheck = "https://verify.other.example/c"; s.keepsMark = false
+        assertStop(run(s))
+    }
+
+    /// 同一件事，但落地時記號還在：頁面自己用腳本轉走時丟掉記號，fetch 改用位置追蹤、照常判那一頁——別的主機上的驗證頁整批暫停（6），
+    /// 不是結束碼 1（使用者 2026-11-04：記號不見時改用位置追蹤；第三輪的「落定後記號不見就停」把這一頁變成 1）。
+    func testTabMovesToAnotherSiteWhileTheMarkLasts() {
         var s = Scenario(); s.redirectAfterCheck = "https://verify.other.example/c"
         assertStop(run(s))
+        XCTAssertTrue(errText.contains("verify.other.example"), errText)
+        XCTAssertFalse(browser.navigated)
     }
 
     func testPageUnreadable() {
@@ -470,7 +556,8 @@ final class FulltextFetchPathTests: XCTestCase {
     func testNoPDFLink() {
         var s = Scenario(); s.link = ""
         XCTAssertEqual(run(s), 3, errText)
-        XCTAssertTrue(browser.calls.contains("close 2 \(Self.finalURL)"), "\(browser.calls)")
+        XCTAssertFalse(browser.calls.contains { $0.hasPrefix("close") }, "這個命令不關分頁：\(browser.calls)")
+        XCTAssertTrue(errText.contains("left open"), errText)
         XCTAssertEqual(ledgerLines.count, 0)
     }
 
@@ -505,8 +592,7 @@ final class FulltextFetchPathTests: XCTestCase {
         XCTAssertTrue(errText.contains("DAILY CAP"), errText)
         XCTAssertEqual(navigations, [], "到上限就不導航到 PDF")
         XCTAssertEqual(ledgerLines.count, 10, "被擋下的不記")
-        XCTAssertTrue(browser.calls.contains("close 2 \(Self.finalURL)"), "關的是我們自己的分頁：\(browser.calls)")
-        XCTAssertFalse(browser.calls.contains { $0.contains("user.example") && $0.hasPrefix("close") })
+        XCTAssertFalse(browser.calls.contains { $0.hasPrefix("close") }, "這個命令不關分頁：\(browser.calls)")
     }
 
     /// 日界是 Asia/Taipei：`2026-09-30T16:30:00Z` 是臺北 10/1 00:30（算今天），`2026-09-30T23:59:59+08:00` 是昨天；別的站不算。

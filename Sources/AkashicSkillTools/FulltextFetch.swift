@@ -32,28 +32,35 @@ import AkashicStoreIO
 ///     8 等人驗證：出現 CAPTCHA／人類檢查／Cloudflare「Just a moment」／按住驗證，**而且在文章站本身或已知的驗證服務上**
 ///       （`BotSignals.isKnownVerificationService`；其他主機上的驗證字樣是結束碼 6）。暫停這一篇；使用者驗證完，以
 ///       `--resume-tab`／`--resume-origin`（導航之後的驗證另帶 `--resume-stage followed`）在**同一個分頁**接著走（不重新載入）。分頁留著。
-///     9 這個站今天已經 10 次嘗試（Asia/Taipei）：停這個站，隔天再跑。沒有導航到 PDF。
+///     9 這個站今天已經 10 次嘗試（Asia/Taipei）：停這個站，隔天再跑。沒有導航到 PDF。分頁留著。
 ///     6 **整批暫停**（SKILL.md〈中止條款〉）：其他起疑訊號——封鎖頁、HTTP 403／429、異常流量、PMC 的下載前驗證頁、ScienceDirect
 ///       的「Preparing your download」、其他主機上的驗證字樣、分頁跑到別的網站而那一頁是登入／驗證頁的長相、DOI 落地頁的網址是登入頁
 ///       的長相、讀不到的分頁停在登入主機的長相上（只看主機）、卡住（落地頁、導航之後、別的主機上的頁面約 60 秒沒落定）、停在 doi.org
 ///       卻看不到它自己的查無證據（使用者 2026-10-05 第 1 則）、落定的網頁讀不到頁面文字而無從檢查（導航之前的文章頁、導航之後文章站上
 ///       落定的 HTML 頁、別的主機上落定的頁面；連 `document.contentType` 都讀不到的分頁是 7 `unverifiable`）。分頁留著給使用者看。
-///     3 頁面上找不到 PDF 連結（我們的分頁關掉）
-///     1 自動化失敗（見 stderr）；或頁面給的 PDF 連結不是同站的絕對 https 網址（`points off-site`）；或帳本讀不懂
+///     3 頁面上找不到 PDF 連結。分頁留著：這個命令不關任何分頁（#768）
+///     1 自動化失敗（見 stderr）；或頁面給的 PDF 連結不是同站的絕對 https 網址（`points off-site`）；或帳本讀不懂；或對不上我們的分頁
+///       （`cannot find the tab just opened`、`went to another Safari window`、`the tabs in window <N> changed…`，#768：使用者正在動那個視窗）；
+///       或判過之後頁面換了（`the page changed after it was checked`：PDF 連結不是從判過的那一頁讀來的，不導航）；
+///       或有別的 profile 的視窗（或讀不出 profile 的視窗）開著（`a Safari window of another profile`；開頭、接續與 `ownTabNow` 的每一眼都判，
+///       每一眼只看開頭沒有的視窗；safari-browser#352 以視窗 id 指定視窗之前不放寬）
 ///
 /// **沒有結束碼 0**：這個命令的正常終點就是交給人。先前的 0（「取得並驗證」）、2（回應不是 PDF）、4（無權限的登入殼）、5（驗證不過）
 /// 都跟著取位元組一起離開這個命令——2 與 5 在 `take`，4 由看分頁的人判斷。舊的呼叫端把 0 當成「檔案存好了」，新的碼不會被它讀錯。
 ///
-/// # 鎖分頁
+/// # 鎖分頁（#768）
 ///
-/// 仍是 `--window N` 加它自己開的分頁位置（`--tab-in-window`，#613 的作法：使用者已開著同一頁時 URL 鎖會對到兩個分頁、
-/// safari-browser fail-closed），**不是** `web-access-via-safari-browser.md` 的 `--profile`＋`--url-endswith`；規則檔〈例外〉形狀 (b) 的
-/// grandfathered 項目。`--resume-tab` 沿用同一種鎖，另外要求那個分頁此刻顯示：導航之前的接續（`article`）是 `--resume-origin`；
+/// 分頁以落地網址上的一次性記號（`#akashic-` 加 16 個十六進位數字）認。記號在時以 `--profile <P> --url-endswith '#akashic-…'` 鎖——
+/// `web-access-via-safari-browser.md` 的形狀，記號就是那個 suffix；**一定帶 `--profile`**：safari-browser 的 `open` 不把 `--url-endswith`
+/// 當成指定了分頁，只帶它會在前景視窗開新分頁（safari-browser#233，第三輪 verify）。記號不在時（Elsevier 的轉址丟掉它、頁面用腳本轉走）
+/// 退回 `--window N` 加位置（`--tab-in-window`，`ownTabNow` 剛確認過），規則檔〈例外〉形狀 (b)。`--resume-tab` 帶了 `--resume-mark` 時先以
+/// 記號找分頁，找不到才照位置；另外要求那個分頁此刻顯示：導航之前的接續（`article`）是 `--resume-origin`；
 /// 導航之後的接續（`followed`）是 `--resume-origin`、已知的驗證服務、或 PDF（只讀 `document.contentType` 判斷，不讀頁面文字）——
 /// 使用者驗證時把視窗拉到前面，視窗編號會變；對不上就停（結束碼 1），不猜是哪一個分頁。**`--resume-origin` 是呼叫端給的**：接續時
 /// 「文章站」就是它，主機的判斷信任這個參數。
 ///
-/// **仍沒有的**：沒對真的 `safari-browser` 跑過（只對記憶體內的假瀏覽器）；Safari 的 PDF 檢視器能不能執行頁面 JS、`document.contentType`
+/// **仍沒有的**：真的 Safari 只跑過兩次（2026-11-04：SAGE 找不到連結、Elsevier 接續之後導航到 PDF），記號還在時的導航沒有實跑；Safari 的
+/// PDF 檢視器能不能執行頁面 JS、`document.contentType`
 /// 在那裡回什麼、`PerformanceNavigationTiming.responseStatus` 在 Safari 有沒有值，都沒有實測——讀不到時照「無從檢查」處理（交給人或暫停），
 /// 不當成乾淨。
 ///
@@ -72,8 +79,13 @@ public final class FulltextFetch {
     /// 讀不到的分頁與別的主機同一套、讀不到的分頁在登入主機上整批暫停、文章站上同一份快照、使用者 2026-10-05 的主機標籤與路徑段裁決）；
     /// 6＝b37（2026-10-09：複合路徑段只認明確的登入字、讀的當中換到同站登入頁先判登入長相、safari-browser 的錯誤只轉印第一行、`plainURL`
     /// 與站的比對同一個主機；b39 起轉印 `Error:` 那一行、b41 起 stderr 有對話框的訊息時只轉印固定的一句——兩次都沒有調，理由見上面〈契約版本〉）。
+    /// 7＝#768 第一到第四版（2026-11-03～04）：分頁的認法逐版在改（比對清單、記號）。調它是為了讓第 0 步擋下會讀、會關使用者分頁的舊 CLI；這幾版
+    /// 本身也不可使用（第一版還會關分頁，第三版導航時會在前景視窗開出新分頁）。
+    /// 8＝#768 第五版起（2026-11-04～05）：記號鎖帶 `--profile`、別的 profile 的視窗開著就停（開頭、接續、每一眼）、頁面文字這類讀取的鎖找不到分頁時
+    /// 重跑一次、PDF 連結的答案綁在判過的那一頁上、接續可帶 `--resume-mark`。第五到第七版的開發建置也印 8 而行為不同（第五版有版本閘、第六版接續
+    /// 不判別的 profile、讀連結會重跑），都沒有發布（CLI 沒有發布版），第 0 步分不出來：CLI 從合併之後的 commit 建置。
     /// 前三版的 CLI 沒有 `contract` 子命令——數字只是給歷史一個名字，第 0 步擋它們靠的是「沒有這個子命令」。
-    public static let contractVersion = 6
+    public static let contractVersion = 8
 
     public struct Options {
         public var window: Int
@@ -86,10 +98,13 @@ public final class FulltextFetch {
         public var resumeOrigin: String?
         /// 等人驗證發生在哪一步（結束碼 8 印出的 `--resume-stage`；沒印就是 `article`）。
         public var resumeStage: ResumeStage
+        /// 停在等人驗證的那一次執行的記號（結束碼 8 的 `resume:` 一行有印才有）：接續時先找網址以它結尾的分頁，找不到才照位置（#768 第三輪 verify
+        /// 第 7 則）。
+        public var resumeMark: String?
         public init(window: Int, landing: String, ledger: String, expectProfile: String? = nil,
-                    resumeTab: Int? = nil, resumeOrigin: String? = nil, resumeStage: ResumeStage = .article) {
+                    resumeTab: Int? = nil, resumeOrigin: String? = nil, resumeStage: ResumeStage = .article, resumeMark: String? = nil) {
             self.window = window; self.landing = landing; self.ledger = ledger; self.expectProfile = expectProfile
-            self.resumeTab = resumeTab; self.resumeOrigin = resumeOrigin; self.resumeStage = resumeStage
+            self.resumeTab = resumeTab; self.resumeOrigin = resumeOrigin; self.resumeStage = resumeStage; self.resumeMark = resumeMark
         }
     }
 
@@ -146,14 +161,46 @@ public final class FulltextFetch {
     private var window = 0
     /// 我們的分頁在視窗裡的位置；空字串＝目前沒有。
     private var ownTab = ""
+    /// 這個視窗所有分頁的網址（依位置）：最後一次確認 `ownTab` 還是我們的分頁時看到的。下一眼拿來比（`ownTabNow`，#768）。
+    private var lastTabs: [String] = []
+    /// 我們的視窗（`documents --json` 的 `blocking_dialog.window_id`）。`--window` 的編號是前後順序，這個才是穩定的；每一眼都以它找回視窗的編號（#768）。
+    private var ownWindowID: Int?
+    /// 這次執行的記號（`akashic-` 加 16 個十六進位數字），開分頁時加在落地網址後、導航到 PDF 連結時也帶著（#768，使用者 2026-11-04 選定）。
+    /// fragment 不送伺服器，HTTP 轉址會保留它，所以網址結尾是它的分頁就是我們的分頁（例外：記號不見之後以位置鎖導航回來的，要在我們的位置上才算，見 `ownTabNow`）。2026-11-04 在 Safari 量到：SAGE、Wiley、Springer、APA、
+    /// Taylor & Francis 轉址後還在，Elsevier 在授權轉址（id.elsevier.com）時丟掉。頁面的腳本看得到它：這是接受了的代價。
+    /// 接續（`--resume-mark`）時換成上一次執行的記號。
+    private var mark: String
+    private var markSuffix: String { "#" + mark }
+    /// 上一眼有一個分頁帶著記號：指令改用 `--profile`＋`--url-endswith` 鎖分頁。`js`、`wait` 在同一段 AppleScript 裡重驗目標；`open` 不重驗：
+    /// 它先解析記號、再以另一個 Apple event 導航那個分頁（safari-browser 的 `openURL`）。
+    private var markSeen = false
+    /// 這一站的嘗試已經記進帳本：之後停下要說已經算了。
+    private var attemptCounted = false
+    /// 開了新分頁、還沒認出是哪一個：失敗訊息要提醒有一個分頁可能留著。
+    private var openedUnidentified = false
     private var landing = ""
     /// 目前走到哪一步；等人驗證時印進 `--resume-stage`（導航到 PDF 連結之後是 `followed`）。
     private var stage: ResumeStage = .article
 
     public init(browser: SafariBrowser, sleeper: @escaping (Double) -> Void = { Thread.sleep(forTimeInterval: $0) },
                 now: @escaping () -> Date = Date.init,
-                out: @escaping (String) -> Void, err: @escaping (String) -> Void) {
-        self.browser = browser; self.sleeper = sleeper; self.now = now; self.out = out; self.err = err
+                out: @escaping (String) -> Void, err: @escaping (String) -> Void, mark: String = FulltextFetch.newMark()) {
+        self.browser = browser; self.sleeper = sleeper; self.now = now; self.out = out; self.err = err; self.mark = mark
+    }
+
+    /// 一個新的記號：`akashic-` 加 16 個十六進位數字。
+    public static func newMark() -> String {
+        var g = SystemRandomNumberGenerator()
+        return "akashic-" + String(format: "%016llx", g.next() as UInt64)
+    }
+
+    /// `--resume-mark` 的值不是 `newMark()` 的形狀：回原因，是就回 nil。
+    public static func markShapeProblem(_ value: String) -> String? {
+        let hex = value.hasPrefix("akashic-") ? value.dropFirst("akashic-".count) : ""
+        guard hex.count == 16, hex.unicodeScalars.allSatisfy({ ("0"..."9").contains($0) || ("a"..."f").contains($0) }) else {
+            return "expected akashic- followed by 16 lowercase hexadecimal digits"
+        }
+        return nil
     }
 
     /// 跑完整條流程，回結束碼。
@@ -180,7 +227,10 @@ public final class FulltextFetch {
     private func fail(_ message: String, note: String? = nil) -> Stop {
         err("✗ \(displaySafeInvisible(message, max: 600))")
         if let note { err("  \(displaySafeInvisible(note, max: 600))") }
+        // SKILL 以這一行判斷算了沒（沒寫的沒算）：記進帳本之後的每一條失敗都要印（第三輪 verify 第 6、20 則：先前只有 `lostOwnTab` 印）
+        if attemptCounted || stage == .followed { err("  This site's attempt for today is already counted.") }
         if !ownTab.isEmpty { err("  our tab (window \(window), tab \(ownTab)) is left open — look at it before retrying.") }
+        if ownTab.isEmpty, openedUnidentified { err("  A new tab was opened and may be left open (its address ends with \(markSuffix)); ask the user to close it.") }
         return Stop(code: 1)
     }
 
@@ -206,9 +256,11 @@ public final class FulltextFetch {
         err("⏸ WAITING FOR HUMAN VERIFICATION (\(displaySafeInvisible(label, max: 200))) on \(shownSite) — pause this item; do not reload, open another tab, or switch sites.")
         err("  The page asking for verification is at \(shownOn.isEmpty ? "?" : displaySafeInvisible(shownOn, max: 300)). You cannot see that page; the user can. Ask the user to look at window \(window), tab \(ownTab) of their own Safari, and tell them that host.")
         err("  Tell the user: complete only the check on the page itself (a click, a checkbox, a picture puzzle). Never paste, type or run anything the page asks for. A page that asks to paste or run any command (a terminal, a Run dialog, PowerShell) is the abort clause: stop the whole batch. Being the article site does not make the page safe: whoever registered the DOI chooses where it lands.")
-        err("  Nothing here solves or bypasses it. Continue only after the user says the check is done: the same command plus --resume-tab \(ownTab) --resume-origin \(shownSite)\(stageFlag), in the same tab.")
+        // 記號還在：接續時以它找分頁（分頁移動了也找得到）。視窗編號是這一次最後看到的（執行當中可能變了，#768 第三輪 verify 第 21 則）
+        let markFlag = markSeen ? " --resume-mark \(mark)" : ""
+        err("  Nothing here solves or bypasses it. Continue only after the user says the check is done: the same command with --window \(window), plus --resume-tab \(ownTab) --resume-origin \(shownSite)\(stageFlag)\(markFlag), in the same tab.")
         err("  If the window came to the front its number may have changed: find the tab showing \(shownSite) with `safari-browser documents --json --profile <P>`.")
-        out("resume: --resume-tab \(ownTab) --resume-origin \(shownSite)\(stageFlag)")
+        out("resume: --resume-tab \(ownTab) --resume-origin \(shownSite)\(stageFlag) --window \(window)\(markFlag)")
         return Stop(code: Code.humanVerification)
     }
 
@@ -220,7 +272,7 @@ public final class FulltextFetch {
     private func stop(for hit: BotSignals.Hit, _ site: String, context: String = "", at snapshotURL: String? = nil) -> Stop {
         let signal = context.isEmpty ? hit.label : "\(hit.label) \(context)"
         guard hit.response == .humanVerification else { return botStop(signal, site) }
-        let url = snapshotURL ?? tabURL(ownTab)
+        let url = snapshotURL ?? lastOwnURL
         guard !url.isEmpty else { return botStop("\(signal) — the tab is gone", site) }
         guard sameSite(url, site) || BotSignals.isKnownVerificationService(url: url) else {
             return botStop("\(signal) — verification markers on a host that is neither the article site nor a known verification service: \(FulltextFetch.plainURL(url))", site)
@@ -237,7 +289,7 @@ public final class FulltextFetch {
     /// ——那一下分頁可能已經換了頁。沒傳就讀分頁此刻的網址。
     private func handover(_ reason: Handover, at snapshotURL: String? = nil) -> Stop {
         // 網址不帶查詢與片段：簽章網址（`X-Amz-Signature` 之類的短效憑證）沒有理由出現在 stdout、agent 的對話與 `sources/index.jsonl` 的 `origin`
-        let shownURL = snapshotURL ?? tabURL(ownTab)
+        let shownURL = snapshotURL ?? lastOwnURL
         let u = FulltextFetch.plainURL(shownURL)
         out("handover: \(reason.rawValue) window \(window) tab \(ownTab) \(displaySafeInvisible(u, max: 1000))")
         err("✋ HANDED OVER TO YOU (\(reason.rawValue)) — window \(window), tab \(ownTab).")
@@ -273,17 +325,31 @@ public final class FulltextFetch {
         var url: String
         var title: String
         var profile: String?
-        var isCurrent: Bool
+        var windowID: Int?
     }
 
-    private func docs() -> [Tab] {
+    /// 讀不到清單就停，不回空的：空的清單會被讀成「分頁不見了」，而「不知道」不是「可以繼續」（#768）。
+    private func docs() throws -> [Tab] {
         let r = browser.run(["documents", "--json"])
-        guard let root = try? JSONSerialization.jsonObject(with: Data(r.stdout.utf8)), let items = root as? [[String: Any]] else { return [] }
-        return items.compactMap { d in
+        guard r.status == 0, let root = try? JSONSerialization.jsonObject(with: Data(r.stdout.utf8)), let items = root as? [[String: Any]] else {
+            let f = FulltextFetch.safariFailure(r.stderr, command: "documents --json")
+            throw fail("could not read Safari's tab list, so nothing more was read or navigated: \(f.line)", note: f.note)
+        }
+        let rows: [Tab] = items.compactMap { d in
             guard let w = FulltextFetch.int(d["window"]), let t = FulltextFetch.int(d["tab_in_window"]) else { return nil }
             return Tab(window: w, tabInWindow: t, url: (d["url"] as? String) ?? "", title: (d["title"] as? String) ?? "",
-                       profile: d["profile"] as? String, isCurrent: (d["is_current"] as? Bool) ?? false)
+                       profile: d["profile"] as? String,
+                       windowID: (d["blocking_dialog"] as? [String: Any]).flatMap { FulltextFetch.int($0["window_id"]) })
         }
+        // safari-browser 把分頁標題不跳脫地接進以控制字元分隔的列舉（safari-browser#355），所以頁面可以用 `document.title` 寫出一列假的分頁，
+        // 帶上它讀得到的記號：`ownTabNow` 認記號，導航就打到別的分頁（第八輪 verify 第 1 則）。假列刪不掉別的分頁的列，指向存在的分頁時通常
+        // 與真的列同位置，所以同一個位置兩列就是這份清單不可信。視窗編號可以亂寫，safari-browser 以 id 解析分頁，所以兩種認法都比。
+        // 比不到的形狀：我們的分頁是 current 時視窗名帶著標題，真列可能全都讀不到 id，一份帶對 id 的假列就不重複。擋住它的是頁面讀不到視窗 id（猜錯就
+        // 走 `lostOwnTab`），不是這裡（第九輪 verify 第 9 則）。同一個視窗被讀兩次（列舉途中視窗被拉到前面）也是兩列，所以訊息兩種都說（第 1、7 則）。
+        if FulltextFetch.hasDuplicatedPosition(rows.map { (window: $0.window, id: $0.windowID, tab: $0.tabInWindow) }) {
+            throw fail("Safari's tab list has two entries for one tab position, so it cannot be trusted (a window raised while the list was read, or a page title forging an entry, safari-browser#355); nothing more was read or navigated.")
+        }
+        return rows
     }
 
     private static func int(_ any: Any?) -> Int? {
@@ -291,46 +357,187 @@ public final class FulltextFetch {
         return nil
     }
 
-    private func tab(_ n: String) -> Tab? { docs().first { $0.window == window && String($0.tabInWindow) == n } }
-    private func tabURL(_ n: String) -> String { tab(n)?.url ?? "" }
-    private func currentTab() -> String { docs().first { $0.window == window && $0.isCurrent }.map { String($0.tabInWindow) } ?? "" }
+    /// 同一個位置有兩列：以視窗編號認，或以視窗 id 認（id 讀不到的列只以編號認）。
+    static func hasDuplicatedPosition(_ rows: [(window: Int, id: Int?, tab: Int)]) -> Bool {
+        var byNumber = Set<[Int]>(), byID = Set<[Int]>()
+        for row in rows {
+            if !byNumber.insert([row.window, row.tab]).inserted { return true }
+            if let id = row.id, !byID.insert([id, row.tab]).inserted { return true }
+        }
+        return false
+    }
+
+    /// 這個視窗的分頁，依位置排。
+    private func tabsHere(_ all: [Tab]) -> [Tab] { all.filter { $0.window == window }.sorted { $0.tabInWindow < $1.tabInWindow } }
+
+    /// 我們的分頁此刻的樣子，**先確認它還是我們的分頁**（#768）。
+    ///
+    /// 1. 有一個分頁的網址以記號結尾：那就是我們的分頁。它的位置與視窗編號跟著它走（左邊開關分頁、拖動、切換視窗都不必停）；兩個分頁帶著記號
+    ///    （使用者複製了分頁）、或它在別的視窗，就停。例外：上一眼沒有記號，這一眼才帶著（以位置鎖導航帶回來的），那個分頁要在我們的位置上、位置
+    ///    追蹤也要成立，否則是導航打到了使用者的分頁，記號在那個分頁上（第七輪 verify 第 2 則）。
+    /// 2. 沒有分頁帶著記號：改用位置追蹤（`stillOurTab`），不論記號是轉址丟掉的（Elsevier）、頁面自己用腳本轉走時丟掉的、還是從沒出現過
+    ///    （使用者 2026-11-04：記號不見時改用位置追蹤；第三輪曾在頁面落定之後改成停下，第三輪 verify 指出它把腳本轉到的登入、驗證頁從 6／8
+    ///    變成 1，使用者裁決照原決定）。視窗一律以 id 找回編號。
+    ///
+    /// 對不上就停（`lostOwnTab`），不讀、不導航。**位置追蹤仍然不是證明**：確認與 JS 是兩個 Apple event，分頁剛好在兩者之間移動，那一段 JS
+    /// 會打到別的分頁，只是答案不會被用；記號已經不在時（Elsevier），使用者在我們的分頁裡開別的網頁也分不出來。這就是這個命令不關分頁的原因。
+    private func ownTabNow() throws -> Tab? {
+        guard let position = Int(ownTab) else { return nil }
+        let all = try docs()
+        // 執行當中才開的別的 profile 的視窗：位置鎖可能打到它，停（第六輪 verify 第 8 則）。只看開頭沒有的視窗：開頭就在的視窗檢查過，它的 profile
+        // 不會變，讀不出來只是載入中標題空白（第七輪 verify 第 4 則）
+        if otherProfileWindowOpen(in: all.filter { $0.windowID.map { !windowsAtStart.contains($0) } ?? true }) {
+            throw fail("a Safari window of another profile (or one whose profile cannot be read) was opened while this ran; a position-locked command could reach it, so nothing more was read or navigated. Ask the user: those windows have to be closed first, and only the user decides that.")
+        }
+        let mine = all.filter { $0.windowID == ownWindowID }.sorted { $0.tabInWindow < $1.tabInWindow }
+        let marked = all.filter { $0.url.hasSuffix(markSuffix) }
+        if !marked.isEmpty {
+            guard marked.count == 1, let t = marked.first, t.windowID == ownWindowID else { throw lostOwnTab() }
+            // 上一眼沒有記號：記號是我們以位置鎖導航帶回來的，所以它要在我們的位置上，而且位置追蹤要成立。否則導航打到了別的分頁（左邊開關分頁時
+            // `--tab-in-window T` 指到使用者的分頁），記號在那個分頁上（第六輪 verify 第 6 則、第七輪 verify 第 2 則）
+            if !markSeen {
+                let index = position - 1
+                guard t.tabInWindow == position, mine.indices.contains(index), mine[index].tabInWindow == position,
+                      FulltextFetch.stillOurTab(last: lastTabs, position: position, now: mine.map(\.url)) else { throw lostOwnTab() }
+            }
+            window = t.window
+            ownTab = String(t.tabInWindow)
+            lastTabs = mine.map(\.url)
+            lastOwnShown = t.url
+            markSeen = true
+            return t
+        }
+        let index = position - 1
+        let urls = mine.map(\.url)
+        guard let number = mine.first?.window, mine.indices.contains(index), mine[index].tabInWindow == position,
+              FulltextFetch.stillOurTab(last: lastTabs, position: position, now: urls) else { throw lostOwnTab() }
+        window = number
+        lastTabs = urls
+        lastOwnShown = mine[index].url
+        markSeen = false
+        return mine[index]
+    }
+
+    private func ownURL() throws -> String { try ownTabNow()?.url ?? "" }
+
+    /// 最後一次確認時我們的分頁顯示的網址。不讀分頁：訊息與判斷用它，不會把別的分頁的網址印出來。記的是確認的那個分頁本身的網址，
+    /// 不依位置從清單取（清單的位置有缺號時會取到旁邊的分頁，第三輪 verify 第 27 則）。
+    private var lastOwnShown = ""
+    private var lastOwnURL: String { ownTab.isEmpty ? "" : lastOwnShown }
+
+    /// 位置上可能已經不是我們的分頁。這裡印的只有**我們自己的分頁**最後的網址，那個位置現在顯示什麼不印（那是使用者的分頁）。
+    private func lostOwnTab() -> Stop {
+        let shown = displaySafeInvisible(FulltextFetch.plainURL(lastOwnURL), max: 600)
+        err("✗ the tabs in window \(window) changed while this ran: position \(ownTab) may no longer be the tab this command was working in (it last showed \(shown)). Nothing more was read or navigated.")
+        if attemptCounted || stage == .followed { err("  This site's attempt for today is already counted.") }
+        err("  No tab was closed. Ask the user to look at the window and close the leftover tab; run this again only when the tabs have stopped changing: another run loads the article page again.")
+        ownTab = ""
+        return Stop(code: 1)
+    }
+
     /// `scheme://主機[:埠號]`，不帶帳密（`URLSplit.siteOrigin`）：站的比對、訊息與帳本的站名都從這裡來。
     private func origin(_ url: String) -> String { URLSplit(url).siteOrigin }
     /// 分頁的網址是不是還在這個 origin（主機不分大小寫）。
     private func sameSite(_ url: String, _ site: String) -> Bool { origin(url).lowercased() == site.lowercased() }
-    private var lock: [String] { ["--window", String(window), "--tab-in-window", ownTab] }
+    /// 記號在：以它鎖分頁（safari-browser 在同一段 AppleScript 裡重驗）。不在：以視窗編號與位置鎖（`ownTabNow` 剛確認過）。
+    /// 記號鎖一定帶 `--profile`：safari-browser 的 `open` 不把 `--url-endswith` 當成指定了分頁，只帶它會在前景視窗開新分頁（safari-browser#233，
+    /// #768 第三輪 verify；使用者 2026-11-04 選定）。`--profile` 讓 `open` 解析記號、導航那個分頁。視窗的 profile 不只一個時改用位置鎖。
+    ///
+    /// 位置鎖是全域的 `--window N`（視窗的前後順序）。確認與命令之間使用者點了自己的另一個視窗，那一次會打到那個視窗；別的 profile 的視窗
+    /// 開頭開著就不開始、執行當中才開的下一眼就停，但一眼與命令之間才開、又搶到同一個編號的視窗，那一次打得到。第五版曾改成「profile 內的第 k 個視窗」，第五輪 verify 指出那個 k 與
+    /// safari-browser 自己的算法會對不上（沒有分頁的視窗、載入中標題空白時讀不出 profile），使用者 2026-11-04 選定改回並改做 safari-browser#352
+    /// （以視窗 id 指定視窗）。
+    private var lock: [String] {
+        if markSeen, let p = ownProfile { return ["--profile", p, "--url-endswith", markSuffix] }
+        return ["--window", String(window), "--tab-in-window", ownTab]
+    }
+    /// 我們的視窗所屬的 profile（開頭讀到恰好一個時）。
+    private var ownProfile: String?
+    /// 我們的視窗的分頁回報的 profile（開頭讀到的全部；通常只有一個）。
+    private var ownProfiles: Set<String> = []
+    /// 開頭檢查過的視窗（id）。每一眼的檢查只看這份清單以外的視窗。
+    private var windowsAtStart: Set<Int> = []
 
-    /// 開一個分頁，用**位置**記住是哪一個，之後只關它。用位置而不是 URL：使用者已開著同一頁時，URL 鎖會對到兩個分頁、
-    /// safari-browser 會 fail-closed（2026-09-23 觀察）。
+    /// 清單裡有沒有不屬於我們視窗、而 profile 是別的或讀不出來的分頁。
+    private func otherProfileWindowOpen(in all: [Tab]) -> Bool {
+        all.contains { t in
+            guard t.windowID != ownWindowID else { return false }
+            let q = t.profile ?? ""
+            return q.isEmpty || !ownProfiles.contains(q)
+        }
+    }
+    /// 上一個鎖分頁的命令實際用的鎖（失敗訊息印它，不是重算一次；第四輪 verify 第 21 則）。
+    private var usedLock: [String] = []
+    private var lockText: String { (usedLock.isEmpty ? lock : usedLock).joined(separator: " ") }
+
+    /// 鎖住我們的分頁跑一個 safari-browser 命令。**讀取**（`js`、`wait`）的記號鎖找不到分頁（記號剛好在確認與命令之間不見了：頁面用腳本換網址、
+    /// `history.replaceState`；或 `--profile` 一時對不上）時，再確認一次分頁、照確認到的鎖重跑**一次**——記號不見就是位置鎖（第四輪 verify
+    /// 第 8 則）。分頁對不上照常停（`ownTabNow` 丟出）。只重跑「沒有分頁符合」：別的失敗是命令本身的答案，不重跑。**導航（`open`）不重跑**：
+    /// 重跑之前只確認了分頁是誰，沒有重新判那一頁（第五輪 verify 第 2 則：記號不見正是頁面剛換了網址的訊號，可能是驗證頁或登入頁），所以導航
+    /// 找不到分頁就失敗（結束碼 1，已計次）。
+    ///
+    /// `retry: false`：答案會直接決定下一步、而呼叫端不再重判那一頁的讀取（讀 PDF 連結：重跑可能讀到剛換成同站登入或驗證頁的連結，接著就
+    /// 導航過去；第六輪 verify 第 2 則）。
+    private func locked(_ verb: String, _ rest: [String], retry: Bool = true) throws -> SafariRun {
+        usedLock = lock
+        let first = browser.run([verb] + usedLock + rest)
+        guard retry, verb != "open", first.status != 0, usedLock.contains("--url-endswith"), FulltextFetch.noTabMatched(first.stderr) else { return first }
+        _ = try ownTabNow()
+        if markSeen { nap(1) }
+        usedLock = lock
+        return browser.run([verb] + usedLock + rest)
+    }
+
+    /// safari-browser 的錯誤是「沒有分頁符合這個目標」：`documentNotFound` 的 `Error: No Safari document matches "…"`（`Errors.swift`，
+    /// v2.7.0 起）。只看 safari-browser 自己的那一行（`Error:` 開頭），不看頁面寫得進去的字（第五輪 verify 第 1、25 則：先前比對的是假瀏覽器
+    /// 自己編的字，真的 safari-browser 一次也對不上）。
+    /// 只看第一個非空行：頁面的 JavaScript 錯誤也以 `Error:` 開頭，訊息可以跨行寫出一行假的 `No Safari document matches`
+    /// （第六輪 verify 第 17、21、31 則）。
+    static func noTabMatched(_ stderr: String) -> Bool {
+        stderr.split(whereSeparator: \.isNewline).first { !$0.trimmingCharacters(in: .whitespaces).isEmpty }?
+            .hasPrefix("Error: No Safari document matches ") ?? false
+    }
+
+
+    /// 開一個分頁，網址帶著這次執行的記號，再找出網址以記號結尾的那一個分頁（#768）。先前取「目前的分頁」：使用者正在用 Safari 時那是他的分頁，
+    /// 站名也取自那個分頁，頁面文字被讀，找不到連結時連分頁都關了；第二版比對開之前與之後的分頁清單，最後一個分頁同時換頁時會認錯。
+    /// 記號在新分頁剛出現時一定還在（六家出版商都量到；Elsevier 約 2 秒後才丟掉），所以只看開完之後的頭幾眼。
     private func openOwnTab(_ url: String) throws {
-        let r = browser.run(["open", "--new-tab", "--window", String(window), url])
+        let r = browser.run(["open", "--new-tab", "--window", String(window), url + markSuffix])
         if r.status != 0 {
             let f = FulltextFetch.safariFailure(r.stderr, command: "open --new-tab --window \(window) <the landing URL>")
             throw fail("open: \(f.line)", note: f.note)
         }
-        ownTab = currentTab()
-        if ownTab.isEmpty { throw fail("cannot identify the tab just opened") }
-    }
-
-    /// 只在分頁還顯示我們開的那個站時才關。
-    private func closeOwnTab(_ expectedOrigin: String) {
-        let u = tabURL(ownTab)
-        if !u.isEmpty, sameSite(u, expectedOrigin) {
-            let r = browser.run(["close", "--window", String(window), "--tab-in-window", ownTab])
-            if r.status == 0 {
-                out("tab closed")
-                ownTab = ""
+        openedUnidentified = true
+        for attempt in 1...FulltextFetch.markLooks {
+            if attempt > 1 { nap(0.5) }
+            let all = try docs()
+            let marked = all.filter { $0.url.hasSuffix(markSuffix) }
+            guard let t = marked.first else { continue }
+            guard marked.count == 1 else {
+                throw fail("more than one Safari tab shows this run's mark, so the tab just opened cannot be told apart. Nothing was read.")
             }
-        } else {
-            err("⚠ tab \(ownTab) no longer shows \(displaySafeInvisible(expectedOrigin, max: 300)) — left open, not closed (tabs may have moved)")
+            guard t.windowID == ownWindowID else {
+                openedUnidentified = false
+                throw fail("the tab just opened went to another Safari window (window \(t.window)), not window \(window) (safari-browser#351). Nothing was read. Ask the user to close that tab (its address ends with \(markSuffix)); keeping a single Safari window open avoids this.")
+            }
+            openedUnidentified = false
+            window = t.window
+            ownTab = String(t.tabInWindow)
+            lastTabs = all.filter { $0.windowID == ownWindowID }.sorted { $0.tabInWindow < $1.tabInWindow }.map(\.url)
+            lastOwnShown = t.url
+            markSeen = true
+            return
         }
+        throw fail("cannot find the tab just opened: no Safari tab showed this run's mark within about 3 s, so nothing was read.")
     }
 
     /// 我們分頁的（HTTP 狀態碼，標題與前 3000 字）。兩次嘗試；失敗回 nil，絕不當成「頁面乾淨」。狀態碼取自頁面自己的
     /// `PerformanceNavigationTiming.responseStatus`（已載入的資料，不發請求）；瀏覽器沒有這個值時是 nil。
-    private func pageText() -> (status: Int?, text: String)? {
-        for _ in 1...2 {
-            let r = browser.run(["js"] + lock + [FulltextFetch.pageTextJS])
+    private func pageText() throws -> (status: Int?, text: String)? {
+        for attempt in 1...2 {
+            if attempt > 1 { _ = try ownTabNow() }   // 第一次之前呼叫端（`readPage`）剛確認過；等了之後要再確認
+            let r = try locked("js", [FulltextFetch.pageTextJS])
             if r.status == 0 {
                 let value = r.value
                 let firstLine = value.prefix { $0 != "\n" }
@@ -351,10 +558,10 @@ public final class FulltextFetch {
         let title: String
         let page: (status: Int?, text: String)?
     }
-    private func readPage(accept: (String) -> Bool) -> PageSnapshot? {
-        guard let first = tabSnapshot(), !first.url.isEmpty, accept(first.url) else { pageChanges += 1; return nil }
-        let page = pageText()
-        guard let second = tabSnapshot(), second.url == first.url, second.title == first.title else { pageChanges += 1; return nil }
+    private func readPage(accept: (String) -> Bool) throws -> PageSnapshot? {
+        guard let first = try tabSnapshot(), !first.url.isEmpty, accept(first.url) else { pageChanges += 1; return nil }
+        let page = try pageText()
+        guard let second = try tabSnapshot(), second.url == first.url, second.title == first.title else { pageChanges += 1; return nil }
         return PageSnapshot(url: first.url, title: first.title, page: page)
     }
 
@@ -386,22 +593,22 @@ public final class FulltextFetch {
     private func botCheckPage(_ site: String, beforeNavigation: Bool) throws -> String {
         for _ in 1...3 {
             try siteGuard(site)
-            guard let snap = readPage(accept: { self.sameSite($0, site) }) else { nap(2); continue }
+            guard let snap = try readPage(accept: { self.sameSite($0, site) }) else { nap(2); continue }
             if beforeNavigation, BotSignals.urlGateLook(snap.url) == "login" {
                 throw botStop("the page on the article site has the look of a login page → \(FulltextFetch.plainURL(snap.url)) (login page)", site)
             }
             if let stop = onSiteSuspicion(snap, site) { throw stop }
             return snap.url
         }
-        throw botStop("the page kept changing while it was being read: could not check it for suspicion → \(FulltextFetch.plainURL(tabURL(ownTab)))", site)
+        throw botStop("the page kept changing while it was being read: could not check it for suspicion → \(FulltextFetch.plainURL(lastOwnURL))", site)
     }
 
     /// 每個進一步動作之前：我們的分頁必須還顯示文章的站。分頁離開了文章站（使用者 2026-10-02），照 `leftSite` 判；分頁在等它落定的
     /// 時候回到文章站就照常往下走。
     private func siteGuard(_ site: String) throws {
-        let u = tabURL(ownTab)
+        let u = try ownURL()
         if !u.isEmpty, sameSite(u, site) { return }
-        guard !u.isEmpty else { throw botStop("site changed → <our tab is gone>", site) }
+        guard !u.isEmpty else { throw botStop("site changed → <our tab shows nothing>", site) }
         if let stop = try leftSite(from: site) { throw stop }
     }
 
@@ -427,25 +634,25 @@ public final class FulltextFetch {
         pageChanges = 0
         for poll in 1...30 {
             if poll > 1, now().timeIntervalSince(start) >= FulltextFetch.settleSeconds { break }
-            let before = tabURL(ownTab)
-            let shown = browser.run(["js"] + lock + [FulltextFetch.shownJS])
-            let url = tabURL(ownTab)
-            if url.isEmpty { return botStop("site changed → <our tab is gone>", site) }
+            let before = try ownURL()
+            let shown = try locked("js", [FulltextFetch.shownJS])
+            let url = try ownURL()
+            if url.isEmpty { return botStop("site changed → <our tab shows nothing>", site) }
             if sameSite(url, site) { pageChanges = outer; return nil }
             if url == before {   // 看的這一下分頁沒有換頁：這個回答屬於這個網址
                 if shown.status == 0, FulltextFetch.contentTypeIsPDF(shown.value) { return handover(.pdfShown, at: url) }
                 if shown.status != 0 || FulltextFetch.isUnreadableShown(shown.value) {
-                    if tally.unreadable(at: url), let stop = judgeUnreadable(url, site) { return stop }
+                    if tally.unreadable(at: url), let stop = try judgeUnreadable(url, site) { return stop }
                 } else {
                     tally.answered(at: url)
-                    if FulltextFetch.isSettled(shown.value), let stop = offSiteSettled(url, site) { return stop }
+                    if FulltextFetch.isSettled(shown.value), let stop = try offSiteSettled(url, site) { return stop }
                 }
             } else {
                 tally.moved()   // 換頁中：讀不到的這一下不算到任何一個網址
             }
             nap(2)
         }
-        return botStop("the tab left the article site and the page did not settle (stalled)\(pageChangesNote) → \(FulltextFetch.plainURL(tabURL(ownTab)))", site)
+        return botStop("the tab left the article site and the page did not settle (stalled)\(pageChangesNote) → \(FulltextFetch.plainURL(lastOwnURL))", site)
     }
 
     /// 讀不到的分頁要「同一個網址**連三次**、那個網址上從沒讀到過一般網頁的回答」才算（b31 W4 第 5 則；b34 起文章站上同一個規則，b33 X3
@@ -467,14 +674,14 @@ public final class FulltextFetch {
     }
 
     /// 分頁此刻的（網址，標題）——同一次 `documents` 讀到的一對。
-    private func tabSnapshot() -> (url: String, title: String)? { tab(ownTab).map { ($0.url, $0.title) } }
+    private func tabSnapshot() throws -> (url: String, title: String)? { try ownTabNow().map { ($0.url, $0.title) } }
 
     /// 別的主機上的頁面落定了：標題、網址、頁面文字與狀態碼一起判訊號，再看登入／驗證頁的長相，都沒有就交給人。
     ///
     /// **同一份快照**（#613 R3，b31 W4 第 0 則；`readPage`）：讀完之後網址或標題變了＝讀的當中分頁換了頁（中繼頁轉到登入頁），這一份不用，回 nil
     /// 讓 `leftSite` 回去等。先前標題、頁面文字、交給人時印的網址各讀各的，舊中繼頁的網址與標題配上新登入頁的文字，三樣都沒命中就交給人。
-    private func offSiteSettled(_ url: String, _ site: String) -> Stop? {
-        guard let snap = readPage(accept: { $0 == url }) else { return nil }
+    private func offSiteSettled(_ url: String, _ site: String) throws -> Stop? {
+        guard let snap = try readPage(accept: { $0 == url }) else { return nil }
         let moved = "→ \(FulltextFetch.plainURL(url))"
         guard let page = snap.page else {
             // 讀不到頁面文字：狀態碼也不知道，只剩標題與網址
@@ -498,8 +705,8 @@ public final class FulltextFetch {
     ///    其他主機一律整批暫停）。
     /// 其他 → 交給人（`unverifiable`），訊息說讀不到、什麼都沒檢查。判斷用同一次 `documents` 的（網址，標題）；那一下網址不是 `url` 就回 nil，
     /// 回去等。
-    private func judgeUnreadable(_ url: String, _ site: String) -> Stop? {
-        guard let snap = tabSnapshot(), snap.url == url else { pageChanges += 1; return nil }
+    private func judgeUnreadable(_ url: String, _ site: String) throws -> Stop? {
+        guard let snap = try tabSnapshot(), snap.url == url else { pageChanges += 1; return nil }
         let context = sameSite(url, site) ? "" : "→ \(FulltextFetch.plainURL(url))"
         if BotSignals.isKnownVerificationService(url: url) {
             if let hit = BotSignals.classify(snap.title + "\n" + url) { return stop(for: hit, site, context: context, at: url) }
@@ -529,23 +736,46 @@ public final class FulltextFetch {
         if let origin = o.resumeOrigin, let why = FulltextFetch.resumeOriginProblem(origin) {
             throw fail("--resume-origin must be https://<host> exactly (\(why)): \(origin)")
         }
+        if let m = o.resumeMark {
+            guard o.resumeTab != nil else { throw fail("--resume-mark goes with --resume-tab") }
+            if let why = FulltextFetch.markShapeProblem(m) { throw fail("--resume-mark: \(why)") }
+        }
+        // 導航之後的接續：嘗試在上一次執行就記過了，從這裡起的每一條失敗都要說（第四輪 verify 第 4 則）
+        if o.resumeTab != nil { stage = o.resumeStage }
         let ledger = FulltextAttemptLedger(path: o.ledger)
         do { _ = try ledger.load() } catch { throw fail("\(displaySafeErrorText(error))") }   // 數不出今天的次數，就不能保證沒超過上限
 
         // 視窗不存在，或它的分頁都沒有 profile 欄位：兩者對這支程式是同一件事——無從確認它屬於誰，不碰
-        let profile = Set(docs().filter { $0.window == window }.compactMap(\.profile).filter { !$0.isEmpty }).sorted().joined(separator: ",")
-        guard !profile.isEmpty else {
-            err("✗ Safari window \(window) not found")
-            throw Stop(code: 1)
-        }
+        let everything = try docs()
+        let tabsBefore = tabsHere(everything)
+        let profiles = Set(tabsBefore.compactMap(\.profile).filter { !$0.isEmpty })
+        ownProfiles = profiles
+        let profile = profiles.sorted().joined(separator: ",")
+        ownProfile = profiles.count == 1 ? profiles.first : nil
+        guard !profile.isEmpty else { throw fail("Safari window \(window) not found") }
         out("window \(window) profile: \(displaySafeInvisible(profile, max: 200))")
         if let expected = o.expectProfile, !expected.isEmpty, profile != expected {
-            err("✗ window \(window) belongs to profile '\(displaySafeInvisible(profile, max: 200))', not '\(displaySafeInvisible(expected, max: 200))' — refusing to touch it")
-            throw Stop(code: 1)
+            throw fail("window \(window) belongs to profile '\(profile)', not '\(expected)' — refusing to touch it")   // `fail()` 跳脫整則訊息，這裡再跳脫就是兩次
         }
 
+        // 視窗編號是前後順序，使用者一切換就指到別的視窗。認視窗要靠它的 id；拿不到就無從知道視窗換了沒（判不出來就不碰）
+        let ids = Set(tabsBefore.map(\.windowID))
+        guard ids.count == 1, let only = ids.first, let id = only else {
+            throw fail("safari-browser did not report one window id for window \(window) (`blocking_dialog.window_id` in `documents --json`), so a change of window could not be noticed — update safari-browser")
+        }
+        ownWindowID = id
+
+        // safari-browser#351：多個視窗時 `open --new-tab --window N` 可能開進別的視窗。那個視窗若屬於別的 profile（Safari 的 profile 可能屬於
+        // 別人），落地頁就以那個 profile 的 cookie 與登入載入、記進它的瀏覽紀錄；位置鎖（全域的 `--window N`）在視窗順序變了時也會打到它。
+        // 有別的 profile 的分頁開著就停（第三輪 verify 第 12 則）；認不出 profile 的別的視窗也算（第四輪 verify 第 6 則）。不印那個 profile 的名字。
+        // 無條件：safari-browser 沒有穩定指定視窗的方式之前沒有安全的放寬（使用者 2026-11-04；以視窗 id 指定視窗是 safari-browser#352）。
+        // **接續也一樣**，所以在 `resume` 之前判（第六輪 verify 第 1、4 則：先前放在 `resume` 之後，接續的 run 從不判）；之後每一眼也判（第 8 則）
+        if otherProfileWindowOpen(in: everything) {
+            throw fail("a Safari window of another profile (or one whose profile cannot be read) is open, and this safari-browser can put the new tab or a position-locked command in another window (safari-browser#352), which would load or read a page under that profile (possibly someone else's). Nothing was opened or read. Ask the user: those windows have to be closed first, and only the user decides that (they may belong to someone else).")
+        }
+        windowsAtStart = Set(everything.compactMap(\.windowID))
         if let resumeTab = o.resumeTab, let resumeOrigin = o.resumeOrigin {
-            try resume(tab: resumeTab, origin: resumeOrigin, stage: o.resumeStage, ledger: ledger)
+            try resume(tab: resumeTab, origin: resumeOrigin, stage: o.resumeStage, mark: o.resumeMark, ledger: ledger)
         }
         try openOwnTab(o.landing)
         let landed = try settleLanding()
@@ -569,12 +799,20 @@ public final class FulltextFetch {
         if BotSignals.urlGateLook(url) == "login" {
             throw botStop("the article page has the look of a login page → \(FulltextFetch.plainURL(url)) (login page)", site)
         }
+        try judgedArticlePage(site)
+    }
+
+    /// `checkTheArticlePage` 的第 2、3 步：起疑訊號，再看判的那一頁的網址。回判的那一頁的網址。導航之前判頁面的地方，除了 `resume` 的 `.article`（那裡驗證頁的網址是等它變，不是停），都走這裡（第八輪 verify 第 5 則：
+    /// 驗證頁的網址閘先前只在落地頁與接續，等連結時或讀完連結後到了同站的 `/captcha/`、頁面還沒寫出訊號，就成了結束碼 3 或 1，整批不暫停）。
+    @discardableResult
+    private func judgedArticlePage(_ site: String) throws -> String {
         let judged = try botCheckPage(site, beforeNavigation: true)
         // `botCheckPage(beforeNavigation: true)` 對 `judged` 已先判登入長相（命中就 throw），這裡的 `gate` 今天只會是 verification。
         // `login` 那一支是縱深防禦，不是死碼要刪：那個閘日後改成有條件時，由這裡接手、仍是整批暫停（b38 Z2 第 19、24 則）
         if let gate = BotSignals.urlGateLook(judged) {
             throw botStop("the article page has the look of a \(gate) page → \(FulltextFetch.plainURL(judged)) (\(gate) page)", site)
         }
+        return judged
     }
 
     /// 等頁面落定：越過 doi.org，DOM 越過 "loading"。插頁可以在文章頁取代它之前就回報 readyState=complete，所以真正的關卡是下一步
@@ -588,13 +826,13 @@ public final class FulltextFetch {
         for poll in 1...30 {
             if poll > 1, now().timeIntervalSince(start) >= FulltextFetch.settleSeconds { break }
             nap(2)
-            let u = tabURL(ownTab)
+            let u = try ownURL()
             if u.isEmpty || FulltextFetch.isDOIResolver(u) { continue }
-            let rs = browser.run(["js"] + lock + [FulltextFetch.readyStateJS]).value
+            let rs = try locked("js", [FulltextFetch.readyStateJS]).value
             if rs == "complete" || rs == "interactive" { final = u; break }
         }
         if final.isEmpty {
-            let u = tabURL(ownTab)
+            let u = lastOwnURL   // 迴圈的最後一眼剛看過；組訊息時不再讀分頁（讀失敗會把整批暫停變成結束碼 1）
             if FulltextFetch.isDOIResolver(u) { try stillOnTheDOIResolver(u) }
             throw botStop("page did not settle in 60 s (stalled) → \(FulltextFetch.plainURL(u))", origin(landing))
         }
@@ -615,9 +853,9 @@ public final class FulltextFetch {
     private func stillOnTheDOIResolver(_ u: String) throws -> Never {
         let site = origin(u)
         let here = "→ \(FulltextFetch.plainURL(u))"
-        let rs = browser.run(["js"] + lock + [FulltextFetch.readyStateJS]).value
+        let rs = try locked("js", [FulltextFetch.readyStateJS]).value
         guard rs == "complete" || rs == "interactive" else { throw botStop("page did not settle in 60 s (stalled) \(here)", site) }
-        guard let snap = readPage(accept: { FulltextFetch.isDOIResolver($0) }) else {
+        guard let snap = try readPage(accept: { FulltextFetch.isDOIResolver($0) }) else {
             throw botStop("the tab was still on doi.org after 60 s and changed page while it was being read \(here): could not check it", site)
         }
         guard let page = snap.page else {
@@ -646,12 +884,30 @@ public final class FulltextFetch {
     ///   `/auth/12345.pdf` 不整批暫停）；讀不到 → `judgeUnreadable`；落定的網頁 → 判的是**分頁此刻的網址**（先前用接續開始時讀的舊網址）：
     ///   路徑的登入長相 → 整批暫停、起疑訊號 → 8 或 6、驗證頁的網址而沒有訊號 → 使用者說驗證完了而頁面還在轉址，**等它轉走**（只讀分頁網址、
     ///   不送 JS，與等落定同一個約 60 秒），轉走了照常往下走、沒轉走整批暫停。
-    private func resume(tab position: Int, origin expected: String, stage resumeStage: ResumeStage, ledger: FulltextAttemptLedger) throws -> Never {
-        guard let t = tab(String(position)) else {
-            err("✗ window \(window) has no tab \(position) — the tab may have moved; find the one showing \(displaySafeInvisible(expected, max: 300)) with `safari-browser documents --json --profile <P>`")
-            throw Stop(code: 1)
+    private func resume(tab requested: Int, origin expected: String, stage resumeStage: ResumeStage, mark resumeMark: String?,
+                        ledger: FulltextAttemptLedger) throws -> Never {
+        let all = try docs()   // 別的 profile 的視窗已在 `execute` 呼叫這裡之前判過
+        let here = tabsHere(all)
+        var position = requested
+        // 上一次執行的記號還在一個分頁上：那就是停下的那個分頁，不論它現在在哪個位置（分頁移動了也不會接到別的分頁）。它必須在這個視窗；
+        // 兩個分頁帶著它、或它在別的視窗，就停。沒有分頁帶著它（Elsevier 的轉址丟掉了）才照位置（使用者 2026-11-04：記號不見時改用位置）
+        if let m = resumeMark {
+            mark = m
+            let marked = all.filter { $0.url.hasSuffix(markSuffix) }
+            if !marked.isEmpty {
+                guard marked.count == 1, let found = marked.first, found.windowID == ownWindowID else {
+                    throw fail("the tab ending with \(markSuffix) is not exactly one tab of window \(window) — not resuming. Find it with `safari-browser documents --json --profile <P>` and pass its window.")
+                }
+                position = found.tabInWindow
+                markSeen = true
+            }
+        }
+        guard here.allSatisfy({ $0.windowID == ownWindowID }), let t = here.first(where: { $0.tabInWindow == position }) else {
+            throw fail("window \(window) has no tab \(position) — the tab may have moved; find the one showing \(expected) with `safari-browser documents --json --profile <P>`")
         }
         ownTab = String(position)
+        lastTabs = here.map(\.url)   // 追蹤從這一眼開始
+        lastOwnShown = t.url
         stage = resumeStage
         switch resumeStage {
         case .followed:
@@ -660,10 +916,13 @@ public final class FulltextFetch {
                 throw fail("window \(window) tab \(position) shows nothing — not resuming there.")
             }
             if !sameSite(t.url, expected), !BotSignals.isKnownVerificationService(url: t.url) {
-                let shown = browser.run(["js"] + lock + [FulltextFetch.shownJS])
+                // 維護者 2026-11-05 裁決接受：記號不在時（ScienceDirect 的 `pdfft` 之後）這裡只有位置，分頁又不在文章站，仍先問它顯示什麼，因為
+                // Elsevier 的 PDF 在別的主機上，拒絕就接不上。代價：左邊的分頁關掉時，這段腳本會跑在使用者的分頁裡（只讀 `document.contentType` 與
+                // `readyState`，不讀頁面文字）。回報 PDF 的分頁會被當成我們的。
+                let shown = try locked("js", [FulltextFetch.shownJS])
                 guard shown.status == 0, FulltextFetch.contentTypeIsPDF(shown.value) else {
                     ownTab = ""   // 那不是我們的分頁
-                    throw fail("window \(window) tab \(position) shows \(FulltextFetch.plainURL(t.url)) — not \(expected), a known verification service, or a PDF; not resuming there. Find the tab you verified in with `safari-browser documents --json --profile <P>` and pass its window/tab; if it is that tab, look at it yourself.")
+                    throw fail("window \(window) tab \(position) shows another page — not \(expected), a known verification service, or a PDF; not resuming there. Find the tab you verified in with `safari-browser documents --json --profile <P>` and pass its window/tab; if it is that tab, look at it yourself.")
                 }
             }
             out("resuming: window \(window) tab \(ownTab) \(displaySafeInvisible(FulltextFetch.plainURL(t.url), max: 600)) (after the PDF link was followed)")
@@ -671,7 +930,7 @@ public final class FulltextFetch {
         case .article:
             guard !t.url.isEmpty, sameSite(t.url, expected) else {
                 ownTab = ""   // 那不是我們的分頁
-                throw fail("window \(window) tab \(position) shows \(t.url.isEmpty ? "nothing" : FulltextFetch.plainURL(t.url)), not \(expected) — not resuming there. Find the tab showing \(expected) with `safari-browser documents --json --profile <P>` and pass its window/tab.")
+                throw fail("window \(window) tab \(position) shows \(t.url.isEmpty ? "nothing" : "another page"), not \(expected) — not resuming there. Find the tab showing \(expected) with `safari-browser documents --json --profile <P>` and pass its window/tab.")
             }
             let site = origin(t.url)
             out("resuming: window \(window) tab \(ownTab) \(displaySafeInvisible(FulltextFetch.plainURL(t.url), max: 600))")
@@ -698,20 +957,24 @@ public final class FulltextFetch {
 
     /// 讀頁面自己的 PDF 連結、記一次嘗試、把同一個分頁導過去、交給人。
     private func followThePagesOwnLink(site: String, ledger: FulltextAttemptLedger) throws -> Never {
+        // 連結可能晚出現（最多約 45 秒）。`wait` 等的時候沒有人看分頁，所以切成小段，每段之前確認一次（#768）
+        for _ in 1...FulltextFetch.linkWaitSlices {
+            try siteGuard(site)
+            if try locked("wait", ["--js", FulltextFetch.hasLinkJS, "--timeout", FulltextFetch.linkWaitSliceMilliseconds]).status == 0 { break }
+        }
         try siteGuard(site)
-        _ = browser.run(["wait"] + lock + ["--js", FulltextFetch.hasLinkJS, "--timeout", "45000"])
+        let judged = try judgedArticlePage(site)   // 插頁在我們等的時候可以變成挑戰頁或登入頁
         try siteGuard(site)
-        try botCheckPage(site, beforeNavigation: true)   // 插頁在我們等的時候可以變成挑戰頁或登入頁
-        try siteGuard(site)
-        let linkRun = browser.run(["js"] + lock + [FulltextFetch.linkJS])
+        let linkRun = try locked("js", [FulltextFetch.linkJS], retry: false)
+        try siteGuard(site)   // 讀的當中分頁移動了：這個答案不用
+        try requireTheJudgedPage(judged, shown: lastOwnURL, site: site)
         if linkRun.status != 0 {
-            let f = FulltextFetch.safariFailure(linkRun.stderr, command: "js --window \(window) --tab-in-window \(ownTab) <the link script>")
+            let f = FulltextFetch.safariFailure(linkRun.stderr, command: "js \(lockText) <the link script>")
             throw fail("could not read the page's links: \(f.line)", note: f.note)
         }
         let link = linkRun.value
         guard let space = link.firstIndex(of: " ") else {
-            err("no PDF link on \(displaySafeInvisible(FulltextFetch.plainURL(tabURL(ownTab)), max: 600))")
-            closeOwnTab(site)
+            err("no PDF link on \(displaySafeInvisible(FulltextFetch.plainURL(lastOwnURL), max: 600)); our tab (window \(window), tab \(ownTab)) is left open")
             throw Stop(code: 3)
         }
         let method = String(link[..<space])
@@ -738,24 +1001,49 @@ public final class FulltextFetch {
         switch reservation {
         case .capReached(let used):
             err("⏹ DAILY CAP: \(displaySafeInvisible(host, max: 300)) already has \(used) attempts on \(day) (Asia/Taipei) — stop this site for today; it has not been asked for the PDF (the article page itself was already loaded).")
+            err("  our tab (window \(window), tab \(ownTab)) is left open.")
             out("cap: \(displaySafeInvisible(host, max: 300)) \(used)/\(FulltextAttemptLedger.dailyCap) \(day)")
-            closeOwnTab(site)
             throw Stop(code: Code.dailyCapReached)
         case .granted(let used):
+            attemptCounted = true
             out("attempt: \(displaySafeInvisible(host, max: 300)) \(used)/\(FulltextAttemptLedger.dailyCap) \(day)")
         }
 
         if method == "POST" { throw handover(.button) }   // 表單按鈕交給人按，不代按、不代送
 
         out("pdf:  \(displaySafeInvisible(FulltextFetch.plainURL(target), max: 600))")
-        let before = tabURL(ownTab)
+        let before = try ownURL()
+        try requireTheJudgedPage(judged, shown: before, site: site)
         stage = .followed   // 從這裡起，等人驗證之後接著走的是「分頁顯示什麼」，不是再讀一次連結
-        let navigation = browser.run(["open"] + lock + [target])
+        let navigation = try locked("open", [FulltextFetch.withMark(target, markSuffix)])
         if navigation.status != 0 {
-            let f = FulltextFetch.safariFailure(navigation.stderr, command: "open --window \(window) --tab-in-window \(ownTab) <the PDF link>")
+            let f = FulltextFetch.safariFailure(navigation.stderr, command: "open \(lockText) <the PDF link>")
             throw fail("could not navigate the tab to the PDF link: \(f.line)", note: f.note)
         }
         try awaitShown(site: site, before: before)
+    }
+
+    /// 連結的答案屬於判過的那一頁（第七輪 verify 第 1、3 則）：`siteGuard` 只看主機，位置追蹤把同位置、同站的新網址當成我們的分頁在換頁，所以讀完
+    /// 連結之後分頁到了同站的登入或驗證頁，先前照樣拿舊頁面的連結導航，把那一頁蓋掉（結束碼 6／8 不出現）。網址與判過的不同（我們的記號不算：
+    /// 頁面用腳本拿掉 fragment 不是換頁）就**等新的那一頁落定、判它**，走 `watchOnSite`，與導航之前的接續同一套（第八輪 verify 第 5、10 則：先前只讀一次、
+    /// 不看驗證頁的網址）：登入、驗證頁 6／8，一直不落定 6，PDF 交給人，讀不到的頁面交給人（7 `unverifiable`，落地頁同樣的頁面是 6，第九輪 verify 第 2、6 則），
+    /// 其他都不導航（結束碼 1）：連結不是從判過的那一頁讀來的，而重讀一次又是同一個問題。別的 fragment 或 query
+    /// 算換頁：`#/login` 這種路由也長這樣，看不出是不是同一頁，停的方向是安全的，訊息說明只有這部分變了（第八輪 verify 第 11、18 則）。
+    /// 這是 Apple event 之間看得到的變化；網址不變而內容換了、或比對之後才換，看不到（導航收不回，SKILL 的限制 (b)）。
+    private func requireTheJudgedPage(_ judged: String, shown: String, site: String) throws {
+        let page = { (url: String) in url.hasSuffix(self.markSuffix) ? String(url.dropLast(self.markSuffix.count)) : url }
+        if page(shown) == page(judged) { return }
+        do {
+            try watchOnSite(site, stalled: "the page changed after it was checked and did not settle (stalled)") { url in
+                try self.judgedArticlePage(site)
+                let was = FulltextFetch.plainURL(judged), now = FulltextFetch.plainURL(url)
+                let change = was == now ? "now \(now), differing at most in a part of the address not printed here" : "\(was) → \(now)"
+                return .stop(self.fail("the page changed after it was checked (\(change)), so the PDF link was not followed: nothing was navigated. Look at the tab; retry after it has settled."))
+            }
+        } catch let stop as Stop where stop.code == 6 || stop.code == Code.humanVerification {
+            if attemptCounted { err("  This site's attempt for today is already counted.") }   // 6／8 的訊息不印這一行；SKILL 以它判斷算了沒
+            throw stop
+        }
     }
 
     /// 導航之後：等分頁離開文章頁（20 秒），再看它顯示什麼。分頁沒離開：檢查起疑訊號（同一份快照）——判的那一頁還是導航之前的那一頁才是
@@ -764,10 +1052,10 @@ public final class FulltextFetch {
         var moved = false
         for _ in 1...10 {
             nap(2)
-            let u = tabURL(ownTab)
+            let u = try ownURL()
             if u.isEmpty || u != before { moved = true; break }
         }
-        try siteGuard(site)   // 分頁不見了 → 6；到了別的主機 → 照 `leftSite`（PDF／沒有標記的頁面交給人，訊號與登入頁停）
+        try siteGuard(site)   // 分頁對不上 → 1（`lostOwnTab`）；到了別的主機 → 照 `leftSite`（PDF／沒有標記的頁面交給人，訊號與登入頁停）
         if !moved {
             let judged = try botCheckPage(site, beforeNavigation: false)
             if judged == before { throw handover(.tabUnchanged, at: judged) }
@@ -779,7 +1067,7 @@ public final class FulltextFetch {
     /// 接著走（`resume --resume-stage followed`）是同一段——驗證完不重新讀連結、不再導航。
     private func decideShown(site: String) throws -> Never {
         try watchOnSite(site, stalled: "the tab did not settle after following the PDF link (stalled)") { url in
-            guard let snap = self.readPage(accept: { $0 == url }) else { return .retry }
+            guard let snap = try self.readPage(accept: { $0 == url }) else { return .retry }
             if let stop = self.onSiteSuspicion(snap, site) { return .stop(stop) }
             return .stop(self.handover(.htmlPage, at: snap.url))
         }
@@ -796,7 +1084,7 @@ public final class FulltextFetch {
 
     /// 等分頁在文章站上給出一個屬於**同一個網址**的回答（#613 b34，b33 X3 第 2、4、8 則：R3 只在別的主機上這樣讀，文章站上一次讀分頁顯示什麼、
     /// 讀不到累積計數、判完再讀網址印出來）。導航之後（`decideShown`）與導航之前的接續（`resume` 的 `article`）同一套：
-    /// - 每一次輪詢先過 `siteGuard`（分頁到了別的主機照 `leftSite` 判、不見了 → 6）；讀之前與之後的網址相同，這個回答才屬於那個網址。
+    /// - 每一次輪詢先過 `siteGuard`（分頁到了別的主機照 `leftSite` 判、對不上 → 1）；讀之前與之後的網址相同，這個回答才屬於那個網址。
     /// - PDF → 交給人（`pdf-shown`，印那個網址）。
     /// - 讀不到 → 同一個網址連三次、那裡從沒讀到過一般網頁才算（`UnreadableTally`），照 `judgeUnreadable` 判（與別的主機同一套）。
     /// - 落定的網頁 → `consider`。
@@ -810,17 +1098,17 @@ public final class FulltextFetch {
             if poll > 1, now().timeIntervalSince(start) >= FulltextFetch.settleSeconds { break }
             try siteGuard(site)
             if let h = holding {
-                if tabURL(ownTab) == h { nap(2); continue }
+                if try ownURL() == h { nap(2); continue }
                 holding = nil
             }
-            let before = tabURL(ownTab)
-            let shown = browser.run(["js"] + lock + [FulltextFetch.shownJS])
-            let url = tabURL(ownTab)
+            let before = try ownURL()
+            let shown = try locked("js", [FulltextFetch.shownJS])
+            let url = try ownURL()
             if url.isEmpty || url != before || !sameSite(url, site) { tally.moved(); nap(2); continue }   // 換頁中：下一輪 `siteGuard` 再看
             if shown.status == 0, FulltextFetch.contentTypeIsPDF(shown.value) { throw handover(.pdfShown, at: url) }
             if shown.status != 0 || FulltextFetch.isUnreadableShown(shown.value) {
                 // 空的或 `undefined` 的回答（對非 HTML 文件跑 `do JavaScript` 的可能結果）與失敗同樣算「讀不到」，不是「還在載入」
-                if tally.unreadable(at: url), let stop = judgeUnreadable(url, site) { throw stop }
+                if tally.unreadable(at: url), let stop = try judgeUnreadable(url, site) { throw stop }
             } else {
                 tally.answered(at: url)
                 if FulltextFetch.isSettled(shown.value) {
@@ -836,10 +1124,53 @@ public final class FulltextFetch {
         if let h = holding {
             throw botStop("the tab stayed on a page with the look of a verification page after the check → \(FulltextFetch.plainURL(h)) (verification page)", site)
         }
-        throw botStop("\(stalled)\(pageChangesNote) → \(FulltextFetch.plainURL(tabURL(ownTab)))", site)
+        throw botStop("\(stalled)\(pageChangesNote) → \(FulltextFetch.plainURL(lastOwnURL))", site)
     }
 
     // MARK: 純函式（測試直接呼叫）
+
+    /// 等連結時切成幾段、一段多久：每段至少 3 秒，加上每段的分頁解析與確認；2026-11-04 實測一篇找不到連結的 SAGE 從開分頁到結束共 100 秒
+    /// （先前一次等 45 秒）。每段之間有人看分頁。
+    static let linkWaitSlices = 15
+    static let linkWaitSliceMilliseconds = "3000"
+
+    /// 開完分頁之後，找記號看幾眼（每眼間隔 0.5 秒）。
+    static let markLooks = 6
+
+    /// 網址接上記號。網址本身已有 fragment（頁面給的連結帶 `#…`）就原樣不動：導過去的要是驗過的那一串；記號不在之後靠位置追蹤。
+    static func withMark(_ url: String, _ suffix: String) -> String {
+        url.contains("#") ? url : url + suffix
+    }
+
+    /// 同一個視窗裡，上一眼與這一眼之間，`position` 上還是不是同一個分頁（1 起算；視窗換了由 `ownTabNow` 比 id）。只有位置與網址可看，所以這是
+    /// 判斷，不是證明。
+    ///
+    /// - 分頁數變了：只有我們右邊開關分頁才不影響位置，所以左邊與我們自己都要沒變。
+    /// - 分頁數沒變、這個位置的網址也沒變：同一個分頁；別的分頁換頁與我們無關（使用者照常工作，不能因此停）。
+    /// - 分頁數沒變、這個位置的網址變了：可能是我們的分頁換頁，也可能是別的分頁移到這裡。以下任一成立就不是我們的分頁：
+    ///   1. 這個新網址上一眼在別的位置，而那個位置現在不再顯示它（那個分頁移過來了）。使用者開著同一頁而我們轉址過去不算：他的分頁還在原位。
+    ///   2. 我們上一眼的網址現在出現在別的位置（我們的分頁移走了）。
+    ///   3. 其他分頁沒有一個還顯示原來的網址（整份清單換了，例如切換分頁群組）。兩個群組剛好有一個相同的分頁（都有空白起始頁）時擋不住；
+    ///      空白分頁若不算，視窗裡只有一個空白分頁時，Elsevier 丟掉記號的那一刻就會誤停，那更常見。
+    /// - 顯示過網址的位置變成空白：不是我們的分頁（⌘W 再 ⌘T 補上同一個位置）。
+    ///
+    /// **擋不住的**：(a) 使用者在我們的分頁裡開別的網頁（⌘L，或關掉它再開一個補上這個位置）：只有這個位置的網址變了，與換頁完全相同；
+    /// (b) 顯示同一個網址的兩個分頁互換位置。所以這個判斷只拿來決定要不要繼續讀，不拿來決定關分頁。
+    static func stillOurTab(last: [String], position: Int, now: [String]) -> Bool {
+        let p = position - 1
+        guard last.indices.contains(p), now.indices.contains(p) else { return false }
+        let was = last[p], shows = now[p]
+        if shows.isEmpty, !was.isEmpty { return false }   // 顯示過網址的分頁變成空白：多半是被關掉、補上了新分頁（⌘W 再 ⌘T）
+        if now.count != last.count { return shows == was && now[..<p] == last[..<p] }
+        if shows == was { return true }
+        var anotherStayed = false
+        for q in last.indices where q != p {
+            if last[q] == shows, now[q] != shows { return false }
+            if now[q] == was, last[q] != was { return false }
+            if now[q] == last[q] { anotherStayed = true }
+        }
+        return anotherStayed || last.count == 1
+    }
 
     /// 帳本用的站名：origin 的主機（加埠號），小寫，不帶帳密（b31 W4 第 16 則：先前是整個 netloc，帳密以小寫寫進帳本）。
     static func siteKey(_ origin: String) -> String { URLSplit(origin).hostPort.lowercased() }

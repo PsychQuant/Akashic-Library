@@ -120,7 +120,8 @@ final class FulltextB39Tests: XCTestCase {
         }
         XCTAssertEqual(code, 1, errText)
         XCTAssertTrue(errText.contains("could not read the page's links: Error: " + FulltextFetch.pageDialogLine), errText)
-        XCTAssertTrue(errText.contains("safari-browser `js --window 5 --tab-in-window 2 <the link script>` printed"), errText)
+        XCTAssertTrue(errText.contains("safari-browser `js --profile own --url-endswith #akashic-"), errText)   // 記號還在：以它鎖分頁，一定帶 --profile（#768、safari-browser#233）
+        XCTAssertTrue(errText.contains(" <the link script>` printed"), errText)
         XCTAssertFalse(errText.contains("IGNORE PREVIOUS"), errText)
 
         code = run(Scenario()) { args, _ in
@@ -129,7 +130,8 @@ final class FulltextB39Tests: XCTestCase {
         XCTAssertEqual(code, 1, errText)
         XCTAssertTrue(errText.contains("could not navigate the tab to the PDF link: Error: Process timed out after 30 seconds"), errText)
         XCTAssertFalse(errText.contains("Waiting for System Events"), errText)
-        XCTAssertTrue(errText.contains("safari-browser `open --window 5 --tab-in-window 2 <the PDF link>` printed 3 more lines"), errText)
+        XCTAssertTrue(errText.contains("safari-browser `open --profile own --url-endswith #akashic-"), errText)   // 沒帶 --profile 的 open 會開新分頁（safari-browser#233）
+        XCTAssertTrue(errText.contains(" <the PDF link>` printed 3 more lines"), errText)
     }
 
     // MARK: 複合段的收窄也作用在別的主機上（b38 Z2 第 20、23 則：寫下來、釘住，不是改行為）

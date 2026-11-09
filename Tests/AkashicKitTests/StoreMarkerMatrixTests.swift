@@ -15,7 +15,7 @@ import Foundation
 /// 所以它同時是讀端 grammar 的一份可否證規格——特別是那些反直覺的格子：
 /// 全形／天城體／阿拉伯數字是 malformed（Swift 的 `Int(String)` 只吃 ASCII）、`#` 後緊跟 combining mark 或 ZWJ 時
 /// 那一行**不是**註解（`hasPrefix("#")` 是 grapheme 層比較）、U+200B 被 `CharacterSet.whitespaces` trim 掉
-/// （Foundation 的空白集含 ZWSP，而 ZWSP 是 Cf 不是 Zs）、BOM 被 Foundation 吃掉所以是合法的。
+/// （Foundation 的空白集含 ZWSP，而 ZWSP 是 Cf 不是 Zs）、BOM 由讀端自己去掉所以是合法的（Foundation 留不留它依系統版本而異，#770）。
 /// **這些行為取決於 Swift／Unicode 的版本**：Swift 或作業系統更新讓某一格的答案變了，這裡會紅——那是這個
 /// 矩陣被留下來的理由（以前由 hash-table-drift 那條路徑守著「表過期是安靜的」，現在是這裡）。
 ///

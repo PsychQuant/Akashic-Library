@@ -28,7 +28,7 @@
 # `--version` 逾時就不再探契約；任何失敗都 exit 0、不寫 stderr。
 #
 # 這支是 shell 而不是 Swift：它要判斷的就是 `akashic` binary 本身（不存在、過舊、卡住），判斷者不能住在被判斷的 binary
-# 裡（`.claude/rules/swift-is-the-implementation-language.md` 例外 1）。行為測試在 Tests/AkashicCLITests/CheckCLIHookTests.swift。
+# 裡（`.claude/rules/swift-is-the-implementation-language.md` 例外 1）。行為測試在 Tests/AkashicCLITests/CheckCLIHookTests.swift。（這兩個是 repo 內的檔，plugin 安裝處讀不到。）
 
 SOURCE_DIR="${AKASHIC_SOURCE_DIR:-${HOME}/Developer/Akashic-Library}"
 COMPILED_PATHS=(Sources Package.swift Package.resolved repos/biblatex-apa-swift)

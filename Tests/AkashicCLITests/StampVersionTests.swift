@@ -38,8 +38,10 @@ final class StampVersionTests: XCTestCase {
 
     // MARK: - helpers
 
-    private var gitEnvironment: [String: String] {
-        var env = ProcessInfo.processInfo.environment
+    /// 先剝除所有 `GIT_*`（#234／#239）：從 git hook（pre-push）執行時父環境帶著 `GIT_DIR` 等變數，`-C` 與 cwd 都擋不住，
+    /// 暫存 repo 的 init／commit 會寫進真的 repo。剝除之後才加這支測試自己要的設定。
+    private var scrubbedGitEnvironment: [String: String] {
+        var env = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("GIT_") }
         env["GIT_CONFIG_GLOBAL"] = "/dev/null"
         env["GIT_CONFIG_NOSYSTEM"] = "1"
         env["GIT_AUTHOR_NAME"] = "t"; env["GIT_AUTHOR_EMAIL"] = "t@example.invalid"
@@ -62,7 +64,7 @@ final class StampVersionTests: XCTestCase {
         p.executableURL = URL(fileURLWithPath: exe)
         p.arguments = args
         p.currentDirectoryURL = dir
-        p.environment = gitEnvironment
+        p.environment = scrubbedGitEnvironment
         let o = Pipe(), e = Pipe()
         p.standardOutput = o; p.standardError = e
         p.standardInput = FileHandle.nullDevice
@@ -125,7 +127,7 @@ final class StampVersionTests: XCTestCase {
         p.executableURL = URL(fileURLWithPath: "/bin/bash")
         p.arguments = ["scripts/stamp-version.sh", versionFile, "--", "/bin/sleep", "30"]
         p.currentDirectoryURL = repo
-        p.environment = gitEnvironment
+        p.environment = scrubbedGitEnvironment
         p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice
         p.standardInput = FileHandle.nullDevice
         try p.run()

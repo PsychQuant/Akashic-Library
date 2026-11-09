@@ -78,7 +78,8 @@ final class CheckCLIHookTests: XCTestCase {
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: u.path)
     }
 
-    private func gitEnvironment(date: String? = nil) -> [String: String] {
+    /// 從零組起，不繼承父環境（所以也不帶 pre-push 時的 `GIT_DIR` 等 `GIT_*`，#234／#239）；hook 以同一份環境執行。
+    private func scrubbedGitEnvironment(date: String? = nil) -> [String: String] {
         var env: [String: String] = ["PATH": "/usr/bin:/bin", "HOME": root.appendingPathComponent("home").path,
                                      "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1",
                                      "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.invalid",
@@ -93,7 +94,7 @@ final class CheckCLIHookTests: XCTestCase {
         p.executableURL = URL(fileURLWithPath: "/usr/bin/git")
         p.arguments = args
         p.currentDirectoryURL = src
-        p.environment = gitEnvironment(date: date)
+        p.environment = scrubbedGitEnvironment(date: date)
         let o = Pipe(), e = Pipe()
         p.standardOutput = o; p.standardError = e; p.standardInput = FileHandle.nullDevice
         try p.run()
@@ -129,7 +130,7 @@ final class CheckCLIHookTests: XCTestCase {
 
     private func runHook(_ env: [String: String] = [:], onPath: Bool = true,
                          sourceDir: String? = nil) throws -> HookResult {
-        var e = gitEnvironment()
+        var e = scrubbedGitEnvironment()
         // UTF-8 locale：Claude Code 跑 hook 的環境就是這樣（本機實測 LANG=C.UTF-8）。bash 在 UTF-8 locale 下會把緊接在
         // 變數名後面的全形標點當成名字的一部分（`$HAVE，` 被讀成變數 `HAVE，`），印出半個字元。第一版的測試環境沒有 LANG、
         // 跑在 C locale，18 支全綠，而實機第一次跑就整排亂碼——所以這裡固定用 UTF-8 locale。

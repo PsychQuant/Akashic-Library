@@ -1,5 +1,13 @@
 # Changelog
 
+## #775 — 開 session 時檢查 `akashic` CLI 是否過期（2026-11-09）：plugin 殼 0.13.13 → 0.13.14
+
+細節在 `changelog/2026-11-09-cli-stale-check-775.md`。binary 版號不變，這一輪沒有發布。
+
+- **新的 SessionStart hook**（`hooks/check-cli.sh`）：每個 session 開始時印一行 `akashic` CLI 的狀態。找不到 CLI、`fulltext contract` 比 `akashic-fetch-fulltext` SKILL 第 0 步要求的小、或 CLI 落後原始碼時，多印原因與重建指令。不連網、不自動安裝、不覆蓋現有 binary，任何失敗都不中斷 session。
+- **原始碼位置**：`$AKASHIC_SOURCE_DIR`，預設 `$HOME/Developer/Akashic-Library`；落後的基準是那裡的 `origin/main`（上次 fetch 時），沒有才用 HEAD。沒有原始碼時只比契約。
+- **CLI 要經 `scripts/stamp-version.sh` 建置，`akashic --version` 才說得出自己的 commit**；裸 `swift build` 建出的印 `unknown`，hook 改比檔案時間。`akashic-fetch-fulltext` 第 0 步的建置指示同步改寫。
+
 ## #613 b49 — 取全文的十項裁決（2026-11-04）：plugin 殼 0.13.12 → 0.13.13
 
 細節在 `changelog/2026-11-04-b49-fulltext-613.md`。

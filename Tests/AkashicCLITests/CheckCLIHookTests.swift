@@ -130,6 +130,10 @@ final class CheckCLIHookTests: XCTestCase {
     private func runHook(_ env: [String: String] = [:], onPath: Bool = true,
                          sourceDir: String? = nil) throws -> HookResult {
         var e = gitEnvironment()
+        // UTF-8 locale：Claude Code 跑 hook 的環境就是這樣（本機實測 LANG=C.UTF-8）。bash 在 UTF-8 locale 下會把緊接在
+        // 變數名後面的全形標點當成名字的一部分（`$HAVE，` 被讀成變數 `HAVE，`），印出半個字元。第一版的測試環境沒有 LANG、
+        // 跑在 C locale，18 支全綠，而實機第一次跑就整排亂碼——所以這裡固定用 UTF-8 locale。
+        e["LANG"] = "C.UTF-8"
         e["PATH"] = (onPath ? root.appendingPathComponent("stubs/bin").path + ":" : "") + "/usr/bin:/bin"
         e["CLAUDE_PLUGIN_ROOT"] = root.appendingPathComponent("plugin").path
         e["AKASHIC_SOURCE_DIR"] = sourceDir ?? src.path
@@ -152,6 +156,8 @@ final class CheckCLIHookTests: XCTestCase {
     private func assertQuietSuccess(_ r: HookResult, file: StaticString = #filePath, line: UInt = #line) {
         XCTAssertEqual(r.status, 0, r.out, file: file, line: line)
         XCTAssertEqual(r.err, "", "hook 不得寫 stderr", file: file, line: line)
+        // 不是合法 UTF-8 的位元組在解碼時變成 U+FFFD：變數被全形標點吃掉時，印出來的正是半個字元
+        XCTAssertFalse(r.out.contains("\u{FFFD}"), "輸出有不完整的 UTF-8：\(r.out)", file: file, line: line)
     }
 
     private let behind = "落後原始碼"

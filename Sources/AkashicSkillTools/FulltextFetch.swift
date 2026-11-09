@@ -30,7 +30,7 @@ import AkashicStoreIO
 ///       沒有命中驗證／封鎖／登入的封閉清單——那不代表它不是登入頁）與 `doi-not-resolved`（停在 doi.org，而且看得到 doi.org 自己的
 ///       查無證據）。
 ///     8 等人驗證：出現 CAPTCHA／人類檢查／Cloudflare「Just a moment」／按住驗證，**而且在文章站本身或已知的驗證服務上**
-///       （`BotSignals.isKnownVerificationService`；其他主機上的驗證字樣是結束碼 6；文章站上網址有登入頁長相的那一頁命中等人驗證的訊號也是 6，使用者 2026-11-04 第 6 則，見 `onSiteStop`；連 `document.contentType` 都讀不到的分頁不適用，照 `judgeUnreadable`）。暫停這一篇；使用者驗證完，以
+///       （`BotSignals.isKnownVerificationService`；其他主機上的驗證字樣是結束碼 6；文章站上網址有登入頁長相的那一頁命中等人驗證的訊號也是 6，使用者 2026-11-04 第 6 則，見 `onSiteStop`；連 `document.contentType` 都讀不到的分頁不適用，照 `judgeUnreadable`——要不要延伸到那一格待使用者裁決，#777）。暫停這一篇；使用者驗證完，以
 ///       `--resume-tab`／`--resume-origin`（導航之後的驗證另帶 `--resume-stage followed`）在**同一個分頁**接著走（不重新載入）。分頁留著。
 ///     9 這個站今天已經 10 次嘗試（Asia/Taipei）：停這個站，隔天再跑。沒有導航到 PDF。分頁留著。
 ///     6 **整批暫停**（SKILL.md〈中止條款〉）：其他起疑訊號——封鎖頁、HTTP 403／429、異常流量、PMC 的下載前驗證頁、ScienceDirect
@@ -585,7 +585,8 @@ public final class FulltextFetch {
 
     /// 同站頁面上命中訊號之後的停法。等人驗證的訊號落在**登入頁的長相**上時整批暫停，不降成等人驗證（使用者 2026-11-04 第 6 則，b38 INFO 17：
     /// 導航之後落定的同站 `/login` 頁寫著 CAPTCHA，先前得 8）。導航之前的檢查在這之前就已經對登入長相整批暫停，所以這一條只改變導航之後與
-    /// `--resume-stage followed` 的判斷；沒有訊號的同站登入頁仍交給人 `html-page`。
+    /// `--resume-stage followed` 的判斷；沒有訊號的同站登入頁仍交給人 `html-page`。連 `document.contentType` 都讀不到的分頁不經過這裡，
+    /// 照 `judgeUnreadable` 判（帶驗證服務標記仍是 8；要不要延伸第 6 則待使用者裁決，#777）。
     private func onSiteStop(for hit: BotSignals.Hit, _ snap: PageSnapshot, _ site: String) -> Stop {
         if hit.response == .humanVerification, BotSignals.urlGateLook(snap.url) == "login" {
             return botStop("\(hit.label) on a page on the article site that has the look of a login page → \(FulltextFetch.plainURL(snap.url)) (login page)", site)

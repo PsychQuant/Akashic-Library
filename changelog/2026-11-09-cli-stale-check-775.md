@@ -36,4 +36,7 @@ safari-browser 的 plugin 已有一個 SessionStart hook 解決同一件事（`h
 - `CLIVersionTests`（1）、`StampVersionTests`（8）、`CheckCLIHookTests`（18）全綠。hook 的八個負對照（不用 origin/main、計數不限 package 原始碼、squash 後同內容不當最新、契約不比、逾時仍探契約、不看 `$HOME/bin`、檔案時間不比、dirty 不說）與戳記腳本的兩個（不排除 tag、拿掉 TERM 的 trap）都讓對應的測試轉紅。
 - `CheckCLIHookTests.testRealSkillRequirementMatchesTheCLIConstant` 用真的 SKILL 與 CLI 自己的 `fulltext contract`，同時釘住「hook 抽得到 SKILL 的數字」與「那個數字等於 `FulltextFetch.contractVersion`」：升契約版本卻忘了改 SKILL 第 0 步，這支會紅。
 - **第一版在實機跑出整排亂碼，而 18 支測試全綠。** UTF-8 locale 下 bash 會把緊接在變數名後面的全形標點當成名字的一部分：`$HAVE，` 被讀成變數 `HAVE，`，印出半個字元。測試給 hook 的環境沒有 `LANG`、跑在 C locale，所以沒抓到；Claude Code 跑 hook 的環境是 `LANG=C.UTF-8`。修法：hook 的程式碼行一律寫 `${名字}`；測試固定在 `LANG=C.UTF-8` 下跑，所有 hook 測試共用的斷言另加「輸出不得有 U+FFFD」（改 hook 之前，同一組 18 支在這個環境下出現 21 個失敗）。
-- 實機：對本機現有的 `~/bin/akashic`（2026-10-28 建置，只讀、未覆蓋）與本機原始碼實跑 hook，印出「fulltext 契約是 6，要求 ≥ 8」與「binary 2026-10-28，origin/main 最後一次動到 package 原始碼是 2026-11-09」並附重建指令——正是本 issue 描述的情境。
+- 實機（`~/bin/akashic` 只讀、這一輪沒有覆蓋它）：
+  - 2026-11-09 晚，對當時的 `~/bin/akashic`（2026-10-28 建置）與本機原始碼實跑 hook，印出「fulltext 契約是 6，要求 ≥ 8」與「binary 2026-10-28，origin/main 最後一次動到 package 原始碼是 2026-11-09」並附重建指令——正是本 issue 描述的情境。
+  - 2026-11-10 rebase 到 #613 b49 之後（b49 把契約升到 9），`~/bin/akashic` 已由另一條工作線以 b49 的程式碼重建（00:50，印 `fulltext-contract 9`，不認得 `--version`，因為不是從本 branch 建置的）。hook 只印一行 ✓：契約 9 ≥ 9；不認得 `--version` 改比檔案時間，binary（00:50）晚於 origin/main 最後一次動到 package 原始碼（23:40）。
+  - 以本 branch 經戳記腳本建置的 CLI（裝在暫存目錄）：`--version` 印出與 HEAD 相同的 12 位 hash，建完工作樹乾淨、佔位檔已還原；hook 讀到版本，說明它「比 origin/main 新」並改比檔案時間。

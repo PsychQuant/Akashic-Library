@@ -199,7 +199,7 @@ final class FulltextB37Tests: XCTestCase {
         XCTAssertEqual(run(s), 7, errText)
     }
 
-    /// b49 第 8 則的副作用（SKILL 版本 9 那段、`FulltextFetch.contractVersion` 的註解與 b49 changelog 寫明；要不要保留待使用者裁決，#777）：
+    /// b49 第 8 則的副作用（SKILL 版本 9 那段、`FulltextFetch.contractVersion` 的註解與 b49 changelog 寫明；要不要保留待使用者裁決，#777 第 4 件）：
     /// 主機最左邊的標籤是 `signon`、`sign-on`、`single-sign-on` 也算登入主機。
     func testASignOnHostLabelIsALoginHost() {
         for u in ["https://signon.uni.example/x", "https://sign-on.uni.example/x", "https://single-sign-on.uni.example/x"] {
@@ -210,6 +210,7 @@ final class FulltextB37Tests: XCTestCase {
 
     /// 第 6 則的邊界（b51 verify 釘住）：連 `document.contentType` 都讀不到的同站分頁走 `judgeUnreadable`，不看路徑的登入長相（使用者
     /// 2026-10-02，保護 PDF 檢視器的分頁）；標題是 Cloudflare 的「Just a moment...」就照驗證服務的標記，仍是等人驗證（8）。
+    /// 這是現行行為；要不要把第 6 則延伸到這一格待使用者裁決（#777 第 2 件），裁決改了這一支跟著改。
     func testAnUnreadableSameSiteTabAtALoginPathWithAServiceMarkerStillWaits() {
         var s = Scenario(); s.afterNavURL = "https://pub.example/login"; s.afterNavTitle = "Just a moment..."; s.afterNavJSFails = true
         XCTAssertEqual(run(s), 8, errText)

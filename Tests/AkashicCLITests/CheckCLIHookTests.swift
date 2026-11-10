@@ -698,6 +698,7 @@ final class CheckCLIHookTests: XCTestCase {
     /// 檔名被 git 加了引號（含雙引號）時還原不回去，改用整個 package 路徑算。分支與基準各自新增了同名的檔、內容不同：
     /// 把加了引號的字串直接當成 pathspec 會什麼都對不到，被讀成「基準沒動過它」。
     func testAQuotedFileNameFallsBackToThePackagePaths() throws {
+        // 改用整個 package 路徑時，訊息要說出來（verify r3）：數字把只動到其他檔的 commit 也算進去了。
         try git("checkout", "-q", "-b", "feature", shas["D"]!)
         try commit("P", ["Sources/akashic/a\"b.swift": "// mine\n"], date: "2026-01-05T12:00:00+08:00")
         try git("checkout", "-q", "-b", "mainline", shas["D"]!)
@@ -707,6 +708,8 @@ final class CheckCLIHookTests: XCTestCase {
         let r = try runHook(["FAKE_VERSION": try short("P"), "FAKE_CONTRACT": "\(Self.required)"])
         assertQuietSuccess(r)
         XCTAssertTrue(r.out.contains(behind), r.out)
+        XCTAssertTrue(r.out.contains("以整個 package 路徑計"), r.out)
+        XCTAssertFalse(r.out.contains("動過這次建置裡與它內容不同的檔"), "以整個 package 路徑計時，不能說只數了那些檔：\(r.out)")
     }
 
     /// submodule 是基準唯一的更新，而 `.gitmodules` 寫了 `ignore = all`（verify r2）：diff-tree 預設不列 gitlink 的變更，

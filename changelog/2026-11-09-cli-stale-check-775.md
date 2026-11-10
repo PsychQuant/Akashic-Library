@@ -95,7 +95,7 @@ PR #783 的第一輪 verify（四席審查、Devil's Advocate、Codex）判 FAIL
 
 - 判定改成四步：這次建置與基準的 package 原始碼內容相同 → 最新；建置是基準的祖先 → 落後；基準是建置的祖先 → 最新；兩者分岔 → 基準上不在這次建置歷史裡的 commit，有沒有哪一個在那些內容不同的檔上與它的任何一個 parent 不同，有就落後。
 - 最後一步怎麼問 git，試了三種。審查建議的 `diff-tree --stdin` 對讀不到的 commit 與無法辨識的輸入都回結束碼 0、輸出是空的，失敗會被讀成「沒有動過」。帶著 `建置..基準` 的範圍問 `rev-list -- <檔>`，git 只拿 merge 跟不在建置歷史裡的 parent 比：基準把建置的一個祖先 merge 進來、解衝突時把檔退回舊內容，那個 merge 就不算動過（實測漏報）。定案的做法是兩份清單取交集：`rev-list 建置..基準`（不在建置歷史裡的 commit）與 `rev-list --full-history 基準 -- <檔>`（基準整段歷史裡動過那些檔的 commit）。兩者都看結束碼，交集在記憶體裡算。
-- 內容不同的檔名原樣當成 pathspec（`--literal-pathspecs`）；被 git 加了引號的檔名還原不回去、檔超過 200 個時參數也放不下，這兩種情形改用整個 package 路徑，只會多報。
+- 內容不同的檔名原樣當成 pathspec（`--literal-pathspecs`）；被 git 加了引號的檔名還原不回去、檔超過 200 個時參數也放不下，這兩種情形改用整個 package 路徑，~~只會多報~~。（verify r3 更正：檔名總長超過系統的參數上限時，200 個以內也會讓 `rev-list` 失敗，那時改比檔案時間、不保證多報，見下一節。）
 - 在 27 種歷史形狀的小 repo 上對過答案：squash 後 revert、部分撤回、cherry-pick、真的 merge、`-s ours`、merge 解衝突退回舊內容（三種）、併入無關的歷史、改名、刪了又建回來、基準改了又改回去、檔名含空白／中文／引號／glob 字元。
 
 **B2：`core.fsmonitor` 設定的程式會被執行。** `diff-tree` 會讀 index，讀 index 會執行它，寫在 repo 或全域設定都算；設成 `true` 時還會啟動常駐的 daemon。上一節那句「那些設定 plumbing 讀不到」因此不成立。
@@ -106,7 +106,7 @@ PR #783 的第一輪 verify（四席審查、Devil's Advocate、Codex）判 FAIL
 **B3：戳記腳本在檢查與備份之間隔著 `git describe` 與 `git status`。** 另一次建置在這段時間寫入戳記的話，這一次備份到的就是戳記，建完「還原」回去的也是戳記，兩邊都回 0。上一節「新的誠實邊界」對這個窗口的推論是錯的。
 
 - 備份之後再查一次備份本身：放回去的就是那份備份，所以查的是它。
-- 戳記過的檔多一行標記（`stamp-version:stamped`），佔位檔沒有。沒有 git、不在 repo 根目錄時寫進去的戳記值也是 `unknown`，只看值分不出它與佔位檔；被中斷的建置留下這種戳記時，之後每一次建置都會是 `-dirty`。
+- 戳記過的檔多一行標記（`stamp-version:stamped`），佔位檔沒有。沒有 git、不在 repo 根目錄時寫進去的戳記值也是 `unknown`，只看值分不出它與佔位檔；~~被中斷的建置留下這種戳記時，之後每一次建置都會是 `-dirty`~~。（verify r3 更正：那是加標記之前的行為；現在這種殘留會被拒絕，結束碼 3。）
 
 **上一輪造成的迴歸**：hook 把 `PATH` 收窄成系統目錄，被探測的 CLI 也繼承了。PATH 上的 `akashic` 是一支包裝腳本（用裸名呼叫使用者 PATH 上的另一個程式）時，被報成「執行失敗（結束碼 127）」並建議 `install`，照做會用 binary 蓋掉那支腳本。現在 CLI 用使用者的 PATH（只含絕對路徑的那一份）執行；組內的計時器因此改用 `/bin/sleep`，不從那份 PATH 找。
 
@@ -139,3 +139,36 @@ PR #783 的第一輪 verify（四席審查、Devil's Advocate、Codex）判 FAIL
 - 三個量出來、決定了做法的事實（2026-11-10，git 2.54／2.55）：`diff-tree --stdin` 對不存在的 commit 與無法辨識的輸入回結束碼 0；`diff-tree` 帶不帶路徑都會執行 `core.fsmonitor` 設定的程式，`rev-parse`、`rev-list`、`merge-base`、`cat-file` 不會；`rev-list --full-history 建置..基準 -- <檔>` 在「基準 merge 了建置的祖先並退回舊內容」的形狀數到 0。
 - 實機（`~/bin/akashic` 只讀，沒有覆蓋它）：對 00:50 建置的 `~/bin/akashic` 與本機原始碼跑新的 hook，印一行 ✓、0.3 秒、stderr 沒有輸出；帶著 `GIT_DIR`、`BASH_ENV`、以 `.` 開頭的 `PATH` 重跑，輸出相同，`BASH_ENV` 沒有被讀。
 - 27 種歷史形狀與 33 個負對照用的腳本是這一輪的暫存工具，沒有進 repo；其中有對應 Swift 測試的形狀是 squash 後 revert、部分撤回、兩種 merge 解衝突、基準改了又改回去（祖先與分岔各一）、檔名含 glob 字元與引號、只動 submodule。
+
+## verify r3 之後的修正（2026-11-10）
+
+verify r3（PR #783）確認 r2 的三個 blocking 都已關上、落後判定沒有新的漏報，但有兩個 MEDIUM 落在 r2 修正輪新寫的程式上。r2 的報告預告過這種情形的處理方式：不再加新機制，改成收縮範圍、照實寫成界線。使用者 2026-11-10 裁決照這個做法：M2 寫成界線、另開 issue（#793），這一輪只做不加機制的修改。
+
+### 改了什麼
+
+- **探測用的小 shell 指名 `/bin/bash`（M1）。** r2 的修正把它寫成 `/bin/sh -p`。macOS 的 `/bin/sh` 依 `/private/var/select/sh` 轉交給 bash、dash 或 zsh；dash 不認得 `-p`，回「Illegal option -p」、結束碼 2，於是每一次探測都失敗，正常的 CLI 被報成壞掉。預設的 macOS 指向 bash，不受影響。`-p` 不能省（環境裡匯入的函式會蓋掉 `kill`），所以改成指名 `/bin/bash -p`；hook 的 shebang 本來就是 bash。
+- **改用整個 package 路徑時，訊息說實話（L2）。** 內容不同的檔名被 git 加了引號、或超過 200 個時，數字把只動到其他檔的 commit 也算進去；訊息原本仍說「動過這次建置裡與它內容不同的檔」。現在另印一句，說明是以整個 package 路徑計、會多算。
+- **基準上找不到動過 package 原始碼的 commit 時**，訊息不再只說「讀不出」：沒有這種 commit 與讀不出歷史走的是同一個出口，兩種都說。
+- **測試**：新增 `testTheProbeDoesNotDependOnWhichShellBinShIs`（把 hook 複本裡的 `/bin/sh` 換成 `/bin/dash` 再跑）；`testAProbeKilledByTheSafetyTimerIsATimeout` 改名為 `testAFailedProbeWithTheTimeoutMarkIsATimeout`，它測到的是「有逾時標記的異常結束算逾時」，沒有等真的計時器動手；兩支含時間上限的測試放寬上限（上限只在機器卡住時才碰得到）。
+
+### 更正前面寫過的句子
+
+- 「分岔時改用整個 package 路徑，只會多報」少了一種情形：檔名總長超過系統的參數上限時（200 個檔以內也可能），`rev-list` 失敗，hook 印「讀不出…之間的歷史」（說不出是參數太長）並改比檔案時間，那時不保證多報。
+- 「replace ref 會讓 git 讀到被換過的歷史；照真的歷史比」只對 replace ref 成立：`.git/info/grafts` 不受 `--no-replace-objects` 管。
+- hook 檔頭的「`core.fsmonitor` 每個 session 被執行兩次」：次數取決於那個程式的結束碼，不寫死。
+- `stamp-version.sh` 檔頭的「任何 git 失敗都變成 `unknown`」：`git status` 失敗時得到的是 `<hash>-dirty`。
+- 上一節 B3 第二點「被中斷的建置留下這種戳記時，之後每一次建置都會是 `-dirty`」描述的是修正之前的行為；現在這種殘留會被拒絕（結束碼 3）。
+
+### 新的誠實邊界
+
+- **分岔時的比對成本沒有上限（M2）。** 兩份 commit 清單在 bash 裡逐一比對，成本是兩者長度的乘積：各 1,500 個約 1.6 秒，各 5,000 個約 17 秒，再長會撞上 `hooks.json` 的 30 秒上限。這個 repo 目前最壞約 1 秒。量過的兩個做法（讓 git 自己數、加上限）附在 #793。
+- **hook 被 `hooks.json` 的上限砍掉時**：砍在探測之後，已經寫出的行（例如 ✓）留著、後面的判定沒有印；砍在探測期間，什麼都沒有印，暫存檔留在 `TMPDIR`。Claude Code 怎麼處理被砍的 hook 已經寫出的輸出，沒有驗證。
+- **`.git/info/grafts`**：有 grafts 時比的是接過的歷史，落後可能被判成最新。grafts 是本機狀態，別人的 commit 帶不進來。
+- **建置自己撤回基準的改動，算最新。** 分支 merge 了基準、又在分支上撤掉基準的某個改動時，binary 確實缺那段程式碼，但那是建置自己的改動。
+- **探測的暫存檔**：逾時標記檔的名字沒有事先保留、hook 自己建不出暫存檔時會怪到 CLI（#791）。
+- **CLI 是包裝腳本而確實落後時**，提示的 `install` 目的是那支腳本（#792）。
+- M1 沒有在 `/bin/sh` 真的指向 dash 的機器上跑過；測試是把 hook 複本裡的 `/bin/sh` 換成 `/bin/dash`。
+
+### 驗證
+
+（裁決後、推送前補上實際數字：目標測試、全套測試、守衛、負對照、27 個歷史形狀、實機唯讀執行、`claude plugin validate`。）

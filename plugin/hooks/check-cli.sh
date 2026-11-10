@@ -32,6 +32,9 @@
 #   · `--version` 回 64（比 #775 舊的 CLI）而基準上已經有 BuildVersion.swift → 必定落後；基準上還沒有 → 比檔案時間。
 #   已知的界線：分岔時以檔為單位比，會過報——基準上有 commit 動過某個檔（即使後來改回去），而分支自己也改了那個檔，
 #   就報落後；分支的前半被 squash 合併之後又改了同一個檔，也是這樣。訊息裡的數字是「動過那些檔的 commit」，同樣會多算。
+#   分岔時的比對成本沒有上限：兩份 commit 清單（基準上不在建置歷史裡的、動過那些檔的）在 bash 裡逐一比對，成本是兩者
+#   長度的乘積。2026-11-10 實測各 1,500 個約 1.6 秒、各 5,000 個約 17 秒；再長會撞上 hooks.json 的上限，那時的輸出見下方
+#   「被那個上限砍掉時」。這個 repo 目前最壞約 1 秒（#793）。
 #
 # 每個 session 開始時都會跑（plugin 是全域的），輸出進的是模型的 context，所以：
 #   · 不連網、不自動安裝、不覆蓋現有的 binary；提示寫明要不要重建由使用者決定。
@@ -302,7 +305,7 @@ latest_source_commit() {
 # 建置的 commit 與基準比（規則見檔頭）。比不出來時說明原因並回 1，呼叫端改比檔案時間。
 # 每一步的失敗都要看得出來，不得被讀成「沒有差異」：清單看 git 的結束碼，數量要是數字，commit 要是完整的 hash。
 report_by_commit() {
-    local commit differs mb count only touching hay sha latest name rest quoted="" n=0 nl=$'\n'
+    local commit differs mb count only touching hay sha latest name rest quoted="" wide="" n=0 nl=$'\n'
     local -a files shas
     commit=$(sgit rev-parse --verify --quiet "${BUILD_REF}^{commit}") || {
         echo "ℹ️  akashic CLI 建置自 ${BUILD_REF}，$(clean "${SOURCE_TOP}") 裡沒有這個 commit（在別處建置，或 checkout 沒有 fetch）：改比檔案時間。"
@@ -325,8 +328,9 @@ report_by_commit() {
     if [[ "${mb}" != "${commit}" ]]; then
         # 三、分岔：基準上不在這次建置歷史裡的 commit（only），有沒有哪一個動過那些內容不同的檔（touching）。
         # 檔名原樣當成 pathspec（`--literal-pathspecs`：檔名裡的 `*`、`[` 與開頭的 `:` 不當成 pathspec 語法，否則會連別的
-        # 檔一起算）。被 git 加了引號的檔名（含引號、反斜線、控制字元）還原不回去，檔太多時參數也放不下——這兩種情形
-        # 改用整個 package 路徑，只會多報。
+        # 檔一起算）。被 git 加了引號的檔名（含引號、反斜線、控制字元）還原不回去；檔超過 200 個時也不逐一列——這兩種
+        # 情形改用整個 package 路徑，只會多報（訊息另外說明）。檔名總長超過系統的參數上限時（200 個以內也可能），下面的
+        # rev-list 會失敗：那時印「讀不出…之間的歷史」（說不出是參數太長）、改比檔案時間，不保證多報（verify r3 實測）。
         files=()
         rest="${differs}${nl}"
         while [[ -n "${rest}" ]]; do
@@ -338,6 +342,7 @@ report_by_commit() {
         done
         if [[ -n "${quoted}" ]] || (( ${#files[@]} > 200 )); then
             files=("${COMPILED_PATHS[@]}")
+            wide=1
         fi
         # touching 從基準的整段歷史取，不帶 `建置..基準` 這個範圍：帶了範圍，git 只拿 merge 跟「不在建置歷史裡」的 parent
         # 比，基準把建置的某個祖先併進來、解衝突時把檔退回舊內容的那個 merge 就不算動過（2026-11-10 實測漏報）。
@@ -361,7 +366,11 @@ report_by_commit() {
             case "${hay}" in *"${nl}${sha}${nl}"*) n=$((n + 1)) ;; esac
         done
         (( n == 0 )) && return 0                       # 基準沒動過那些檔：不同之處是建置自己的改動
-        echo "⬆️  akashic CLI 落後原始碼：這次建置（${VERSION}）不在 ${BASE_NAME} 的歷史裡；${BASE_LABEL} 有 ${n} 個不在這次建置歷史裡的 commit，動過這次建置裡與它內容不同的檔（分支自己也改過同一個檔時會多算）。"
+        if [[ -n "${wide}" ]]; then
+            echo "⬆️  akashic CLI 落後原始碼：這次建置（${VERSION}）不在 ${BASE_NAME} 的歷史裡；${BASE_LABEL} 有 ${n} 個不在這次建置歷史裡的 commit 動到 package 原始碼（內容不同的檔太多或檔名無法逐一比對，以整個 package 路徑計，會多算）。"
+        else
+            echo "⬆️  akashic CLI 落後原始碼：這次建置（${VERSION}）不在 ${BASE_NAME} 的歷史裡；${BASE_LABEL} 有 ${n} 個不在這次建置歷史裡的 commit，動過這次建置裡與它內容不同的檔（分支自己也改過同一個檔時會多算）。"
+        fi
     else
         # 建置是基準的祖先：印基準上在它之後動到 package 原始碼的 commit 數。`--full-history`：不因為 merge 與其中一個
         # parent 內容相同就略過它（少了它，merge 解衝突把檔退回舊內容時會數到 0）。內容不同時這個數至少是 1——從基準

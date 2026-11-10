@@ -59,12 +59,15 @@ final class StampVersionTests: XCTestCase {
         return r.out.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func run(_ exe: String, _ args: [String], in dir: URL) throws -> (status: Int32, out: String, err: String) {
+    private func run(_ exe: String, _ args: [String], in dir: URL,
+                     env extra: [String: String] = [:]) throws -> (status: Int32, out: String, err: String) {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: exe)
         p.arguments = args
         p.currentDirectoryURL = dir
-        p.environment = scrubbedGitEnvironment
+        var env = scrubbedGitEnvironment
+        for (k, v) in extra { env[k] = v }
+        p.environment = env
         let o = Pipe(), e = Pipe()
         p.standardOutput = o; p.standardError = e
         p.standardInput = FileHandle.nullDevice
@@ -122,7 +125,8 @@ final class StampVersionTests: XCTestCase {
         XCTAssertEqual(try currentFile(), placeholder)
     }
 
-    func testTermDuringTheCommandRestoresThePlaceholder() throws {
+    /// 啟動一次戳記建置（被包的命令是 `sleep 30`），等到佔位檔被改寫（腳本已進入「命令執行中」）才回傳。
+    private func startLongStampedBuild() throws -> Process {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/bash")
         p.arguments = ["scripts/stamp-version.sh", versionFile, "--", "/bin/sleep", "30"]
@@ -131,14 +135,141 @@ final class StampVersionTests: XCTestCase {
         p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice
         p.standardInput = FileHandle.nullDevice
         try p.run()
-        // 等到佔位檔被改寫（腳本已進入「命令執行中」），再送 TERM
         let deadline = Date().addingTimeInterval(10)
         while (try? currentFile()) == placeholder && Date() < deadline { usleep(50_000) }
         XCTAssertNotEqual(try currentFile(), placeholder, "10 秒內沒有看到戳記值寫進去")
-        p.terminate()
+        return p
+    }
+
+    private func assertSignalRestores(_ signal: Int32, exit expected: Int32,
+                                      file: StaticString = #filePath, line: UInt = #line) throws {
+        let p = try startLongStampedBuild()
+        kill(p.processIdentifier, signal)
         p.waitUntilExit()
-        XCTAssertEqual(p.terminationStatus, 143)
-        XCTAssertEqual(try currentFile(), placeholder, "收到 TERM 之後佔位檔要回到原樣")
+        XCTAssertEqual(p.terminationStatus, expected, file: file, line: line)
+        XCTAssertEqual(try currentFile(), placeholder, "收到訊號 \(signal) 之後佔位檔要回到原樣", file: file, line: line)
+    }
+
+    // 四種訊號各一支（verify r1 第 13 項：changelog 說四種都還原，先前只測了 TERM）
+    func testTermDuringTheCommandRestoresThePlaceholder() throws { try assertSignalRestores(SIGTERM, exit: 143) }
+    func testInterruptDuringTheCommandRestoresThePlaceholder() throws { try assertSignalRestores(SIGINT, exit: 130) }
+    func testHangupDuringTheCommandRestoresThePlaceholder() throws { try assertSignalRestores(SIGHUP, exit: 129) }
+    func testQuitDuringTheCommandRestoresThePlaceholder() throws { try assertSignalRestores(SIGQUIT, exit: 131) }
+
+    /// bash 3.2 的背景命令忽略 INT／QUIT，在子 shell 裡 `trap - INT QUIT` 也還原不了（2026-11-10 實測）。腳本自己收到
+    /// 這兩個訊號時改送 TERM 給命令（上面兩支）。這支釘住現況：哪天被包的命令收得到 INT，檔頭那段說明要跟著改。
+    func testTheWrappedCommandItselfIgnoresInterrupts() throws {
+        let r = try run("/bin/bash", ["scripts/stamp-version.sh", versionFile, "--", "/bin/sh", "-c", "kill -INT $$; echo survived"], in: repo)
+        XCTAssertEqual(r.status, 0, r.err)
+        XCTAssertTrue(r.out.contains("survived"), r.out)
+        XCTAssertEqual(try currentFile(), placeholder)
+    }
+
+    // MARK: - 佔位檔不是佔位值、寫不進去（verify r1 blocking 3）
+
+    private let stamped = "/// stamped\nenum BuildVersion { static let value = \"0123456789ab\" }\n"
+
+    /// 兩次重疊的戳記建置：第二次看到的是第一次寫進去的戳記值。先前它把那個值當成原檔備份、建完「還原」回去，
+    /// 戳記值就永久留在受追蹤的檔裡。
+    func testASecondRunWhileTheFirstIsStillRunningIsRefused() throws {
+        let first = try startLongStampedBuild()
+        defer { if first.isRunning { first.terminate(); first.waitUntilExit() } }
+        let marker = repo.appendingPathComponent("second-ran")
+        let second = try run("/bin/bash", ["scripts/stamp-version.sh", versionFile, "--", "/usr/bin/touch", marker.path], in: repo)
+        XCTAssertEqual(second.status, 3, second.err)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path), "被拒絕時不得執行命令")
+        XCTAssertNotEqual(try currentFile(), placeholder, "第一次建置還在跑，它的戳記值應該還在")
+        first.terminate(); first.waitUntilExit()
+        XCTAssertEqual(try currentFile(), placeholder, "兩次都結束後佔位檔要回到原樣")
+    }
+
+    /// 被 SIGKILL 的建置留下戳記值：下一次不得把它當成原檔。
+    func testALeftoverStampedValueIsRefused() throws {
+        try stamped.write(to: repo.appendingPathComponent(versionFile), atomically: true, encoding: .utf8)
+        let marker = repo.appendingPathComponent("ran")
+        let r = try run("/bin/bash", ["scripts/stamp-version.sh", versionFile, "--", "/usr/bin/touch", marker.path], in: repo)
+        XCTAssertEqual(r.status, 3, r.err)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path))
+        XCTAssertEqual(try currentFile(), stamped, "拒絕時不動檔案")
+        XCTAssertTrue(r.err.contains("placeholder"), r.err)
+    }
+
+    /// 其他測試用的都是自製的兩行佔位檔。這支拿 repo 裡真的 `Sources/akashic/BuildVersion.swift`：腳本認佔位值靠的是
+    /// 檔裡那一段 `static let value = "unknown"`，真檔的寫法一改，腳本會拒絕每一次建置（結束碼 3），訊息還會說成
+    /// 「另一次建置還在跑」。
+    func testTheTrackedPlaceholderFileIsAccepted() throws {
+        let real = try String(contentsOf: Self.repoRoot.appendingPathComponent(versionFile), encoding: .utf8)
+        try real.write(to: repo.appendingPathComponent(versionFile), atomically: true, encoding: .utf8)
+        try git("commit", "-q", "-am", "real placeholder")
+        let head = try git("rev-parse", "--short=12", "HEAD")
+        let r = try stampAndCat()
+        XCTAssertEqual(r.status, 0, r.err)
+        XCTAssertEqual(stampedValue(r.out), head, r.out)
+        XCTAssertEqual(try currentFile(), real, "建完要回到真檔的內容")
+    }
+
+    /// 戳記寫不進去（唯讀）：先前照樣建置，binary 印的是佔位值而沒有人知道。
+    func testAWriteFailureAbortsBeforeTheCommand() throws {
+        let path = repo.appendingPathComponent(versionFile).path
+        try FileManager.default.setAttributes([.posixPermissions: 0o444], ofItemAtPath: path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: path) }
+        let marker = repo.appendingPathComponent("ran")
+        let r = try run("/bin/bash", ["scripts/stamp-version.sh", versionFile, "--", "/usr/bin/touch", marker.path], in: repo)
+        XCTAssertEqual(r.status, 4, r.err)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path), "寫入失敗時不得執行命令")
+        XCTAssertEqual(try currentFile(), placeholder)
+    }
+
+    // MARK: - -dirty 與白名單
+
+    /// `git describe --dirty` 不看未追蹤檔，SwiftPM 卻會編譯它們（verify r1 第 12 項）。
+    func testAnUntrackedFileInThePackageSourceAddsTheDirtySuffix() throws {
+        try "// new\n".write(to: repo.appendingPathComponent("Sources/akashic/New.swift"), atomically: true, encoding: .utf8)
+        let head = try git("rev-parse", "--short=12", "HEAD")
+        let r = try stampAndCat()
+        XCTAssertEqual(stampedValue(r.out), head + "-dirty", r.out)
+    }
+
+    func testAnUntrackedFileOutsideThePackageSourceDoesNot() throws {
+        try "scratch\n".write(to: repo.appendingPathComponent("notes.txt"), atomically: true, encoding: .utf8)
+        let head = try git("rev-parse", "--short=12", "HEAD")
+        let r = try stampAndCat()
+        XCTAssertEqual(stampedValue(r.out), head, "不進 binary 的未追蹤檔不算：\(r.out)")
+    }
+
+    /// 白名單以外的字元一律變成 `unknown`（verify r1 第 13 項）。先前的檢查經過 `$(…)`，內部的換行被吃掉；
+    /// 字元範圍也要在 C locale 下比（bash 3.2 在 UTF-8 locale 下 `A-Z` 會放行非 ASCII 字母）。
+    func testADescribeOutsideTheWhitelistBecomesUnknown() throws {
+        let stub = FileManager.default.temporaryDirectory.appendingPathComponent("stamp-stub-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: stub) }
+        try FileManager.default.createDirectory(at: stub, withIntermediateDirectories: true)
+        let fakeGit = stub.appendingPathComponent("git")
+        try "#!/bin/sh\ncase \"$1\" in\n  rev-parse) pwd -P ;;\n  describe) printf '%b' \"$FAKE_DESCRIBE\" ;;\n  *) exit 0 ;;\nesac\n"
+            .write(to: fakeGit, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeGit.path)
+        // 非 ASCII 字母用八進位跳脫交給假 git 的 `printf %b` 印出（UTF-8 的 é 是 303 251）。不能把 "abé" 直接放進環境變數：
+        // Foundation 的 `Process` 把參數與環境變數轉成分解形，腳本收到的是 `e` 加 U+0301（2026-11-10 實測 65 cc 81），
+        // 那個值在任何 locale 下都會被擋，測不到「字元範圍要在 C locale 下比」——負對照拿掉 `local LC_ALL=C`，這支仍然通過。
+        for hostile in ["ab\"c", "ab\\ncd", "ab\\0303\\0251", "a b"] {
+            let r = try run("/bin/bash", ["scripts/stamp-version.sh", versionFile, "--", "/bin/cat", versionFile], in: repo,
+                            env: ["PATH": stub.path + ":/usr/bin:/bin", "LANG": "en_US.UTF-8", "FAKE_DESCRIBE": hostile])
+            XCTAssertEqual(r.status, 0, r.err)
+            XCTAssertEqual(stampedValue(r.out), "unknown", "describe 印出 \(hostile)：\(r.out)")
+            XCTAssertEqual(r.out.split(separator: "\n").count, 2, "戳記檔應該只有兩行：\(r.out)")
+        }
+    }
+
+    /// 兩支腳本各有一份「會被編進 binary 的路徑」，要是同一行（同一件事的兩份描述，由這支對帳）。
+    func testTheStampScriptAndTheHookListTheSamePackagePaths() throws {
+        func line(_ rel: String) throws -> String {
+            let text = try String(contentsOf: Self.repoRoot.appendingPathComponent(rel), encoding: .utf8)
+            let lines = text.components(separatedBy: "\n").filter { $0.hasPrefix("COMPILED_PATHS=(") }
+            XCTAssertEqual(lines.count, 1, "\(rel) 應該恰有一行 COMPILED_PATHS=(…)")
+            return lines.first ?? ""
+        }
+        let stamp = try line("scripts/stamp-version.sh")
+        XCTAssertFalse(stamp.isEmpty)
+        XCTAssertEqual(stamp, try line("plugin/hooks/check-cli.sh"))
     }
 
     func testNotTheRootOfItsOwnRepositoryGivesUnknown() throws {

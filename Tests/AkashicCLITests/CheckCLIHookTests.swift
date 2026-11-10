@@ -139,9 +139,10 @@ final class CheckCLIHookTests: XCTestCase {
         e["CLAUDE_PLUGIN_ROOT"] = root.appendingPathComponent("plugin").path
         e["AKASHIC_SOURCE_DIR"] = sourceDir ?? src.path
         for (k, v) in env { e[k] = v }
+        // 直接執行 hook，不經 `/bin/bash <檔>`：hooks.json 是 exec form，Claude Code 就是這樣啟動它的，shebang 的 `-p` 才會生效。
         let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/bin/bash")
-        p.arguments = [root.appendingPathComponent("plugin/hooks/check-cli.sh").path]
+        p.executableURL = root.appendingPathComponent("plugin/hooks/check-cli.sh")
+        p.arguments = []
         p.environment = e
         if let cwd { p.currentDirectoryURL = cwd }
         let o = Pipe(), er = Pipe()
@@ -282,7 +283,7 @@ final class CheckCLIHookTests: XCTestCase {
         let r = try runHook(["FAKE_VERSION": try short("A"), "FAKE_CONTRACT": "\(Self.required)"])
         assertQuietSuccess(r)
         XCTAssertTrue(r.out.contains("\(behind)"), r.out)
-        XCTAssertTrue(r.out.contains("有 2 個 commit 動到 package 原始碼"), "B 只改文件，不算：\(r.out)")
+        XCTAssertTrue(r.out.contains("之後，上次 fetch 的 origin/main 有 2 個 commit 動到 package 原始碼"), "B 只改文件，不算：\(r.out)")
         XCTAssertTrue(r.out.contains("origin/main"), r.out)
         XCTAssertTrue(r.out.contains("scripts/stamp-version.sh"), "落後時要給重建指令：\(r.out)")
     }
@@ -367,7 +368,9 @@ final class CheckCLIHookTests: XCTestCase {
         XCTAssertFalse(r.out.contains(fallsBack), r.out)
     }
 
-    func testABranchBuildBehindASquashedBaseSaysTheCountIncludesSquashes() throws {
+    /// 基準在 squash（Q）之後又前進（R）。Q 與 R 都不在這次建置的歷史裡，但 Q 動的檔在建置裡是同一份內容，不算；
+    /// 數的是動過「內容不同的檔」的 commit（verify r2：先前數的是所有動到 package 原始碼的 commit，會把 Q 算進去）。
+    func testABranchBuildBehindASquashedBaseCountsOnlyWhatTouchesTheDifferingFiles() throws {
         try squashedBranch()
         try commit("R", ["Sources/akashic/r.swift": "// r\n"], date: "2026-01-08T12:00:00+08:00")
         try git("update-ref", "refs/remotes/origin/main", shas["R"]!)
@@ -375,8 +378,8 @@ final class CheckCLIHookTests: XCTestCase {
         let r = try runHook(["FAKE_VERSION": try short("P2"), "FAKE_CONTRACT": "\(Self.required)"])
         assertQuietSuccess(r)
         XCTAssertTrue(r.out.contains(behind), r.out)
-        XCTAssertTrue(r.out.contains("2 個"), "Q 與 R 都不在這次建置的歷史裡：\(r.out)")
-        XCTAssertTrue(r.out.contains("squash"), "數字含 squash 的 commit，要說出來：\(r.out)")
+        XCTAssertTrue(r.out.contains("有 1 個不在這次建置歷史裡的 commit"), "只有 R 動過建置裡內容不同的檔：\(r.out)")
+        XCTAssertTrue(r.out.contains("會多算"), "這個數字可能多算，要說出來：\(r.out)")
     }
 
     /// 基準改了又改回來（verify r1 第 14 項）：commit 數是 2，內容與這次建置相同。
@@ -587,6 +590,279 @@ final class CheckCLIHookTests: XCTestCase {
         XCTAssertTrue(r.out.contains(behind), r.out)
         XCTAssertTrue(r.out.contains("建置產物"), r.out)
         XCTAssertFalse(r.out.contains("install -m 755"), r.out)
+    }
+
+    // MARK: - verify r2
+
+    /// PR 被 squash 合併之後又在基準上被 revert（verify r2）：共同祖先到基準的淨差異是空的，從 PR 分支建的 binary 裝的
+    /// 卻是基準已經撤掉的程式碼。要看基準上每一個 commit 各自動過什麼才看得到。
+    func testASquashThatWasRevertedOnTheBaseIsBehind() throws {
+        try git("checkout", "-q", "-b", "feature", shas["D"]!)
+        try commit("P1", ["Sources/akashic/a.swift": "// a buggy\n"], date: "2026-01-05T12:00:00+08:00")
+        try git("checkout", "-q", "-b", "mainline", shas["D"]!)
+        try commit("Q", ["Sources/akashic/a.swift": "// a buggy\n"], date: "2026-01-06T12:00:00+08:00")   // squash
+        try commit("V", ["Sources/akashic/a.swift": "// a\n"], date: "2026-01-07T12:00:00+08:00")         // revert
+        try git("update-ref", "refs/remotes/origin/main", shas["V"]!)
+        try setBinaryTime("2026-02-01T00:00:00+08:00")   // 檔案時間會說「新」
+        let r = try runHook(["FAKE_VERSION": try short("P1"), "FAKE_CONTRACT": "\(Self.required)"])
+        assertQuietSuccess(r)
+        XCTAssertTrue(r.out.contains(behind), "淨差異是空的，但基準撤掉了這次建置裡的改動：\(r.out)")
+        XCTAssertTrue(r.out.contains("2 個"), "Q 與 V 都不在這次建置的歷史裡：\(r.out)")
+        XCTAssertFalse(r.out.contains(fallsBack), r.out)
+    }
+
+    /// 同一件事的另一個形狀：squash 進基準之後，基準只把其中一個檔改回去。
+    func testASquashThatWasPartlyUndoneOnTheBaseIsBehind() throws {
+        try git("checkout", "-q", "-b", "feature", shas["D"]!)
+        try commit("P1", ["Sources/akashic/a.swift": "// a2\n", "Sources/AkashicCore/c.swift": "// c2\n"],
+                   date: "2026-01-05T12:00:00+08:00")
+        try git("checkout", "-q", "-b", "mainline", shas["D"]!)
+        try commit("Q", ["Sources/akashic/a.swift": "// a2\n", "Sources/AkashicCore/c.swift": "// c2\n"],
+                   date: "2026-01-06T12:00:00+08:00")
+        try commit("U", ["Sources/akashic/a.swift": "// a\n"], date: "2026-01-07T12:00:00+08:00")
+        try git("update-ref", "refs/remotes/origin/main", shas["U"]!)
+        try setBinaryTime("2026-02-01T00:00:00+08:00")
+        let r = try runHook(["FAKE_VERSION": try short("P1"), "FAKE_CONTRACT": "\(Self.required)"])
+        assertQuietSuccess(r)
+        XCTAssertTrue(r.out.contains(behind), r.out)
+    }
+
+    /// 已知的過報，釘住現況（檔頭與 changelog 的界線）：基準把一個檔改了又改回去，分支自己也改了那個檔。基準沒有任何
+    /// 這次建置缺的東西，但以檔為單位比分不出來，報成落後；訊息要說這個數字可能多算。哪天分得出來了，這支要跟著改。
+    func testABaseThatTouchedAndRestoredAFileTheBranchAlsoChangedIsOverReported() throws {
+        try git("checkout", "-q", "-b", "feature", shas["D"]!)
+        try commit("P", ["Sources/akashic/a.swift": "// mine\n"], date: "2026-01-05T12:00:00+08:00")
+        try git("checkout", "-q", "-b", "mainline", shas["D"]!)
+        try commit("X", ["Sources/akashic/a.swift": "// a2\n"], date: "2026-01-06T12:00:00+08:00")
+        try commit("Y", ["Sources/akashic/a.swift": "// a\n"], date: "2026-01-07T12:00:00+08:00")
+        try git("update-ref", "refs/remotes/origin/main", shas["Y"]!)
+        let r = try runHook(["FAKE_VERSION": try short("P"), "FAKE_CONTRACT": "\(Self.required)"])
+        assertQuietSuccess(r)
+        XCTAssertTrue(r.out.contains(behind), r.out)
+        XCTAssertTrue(r.out.contains("有 2 個不在這次建置歷史裡的 commit"), r.out)
+        XCTAssertTrue(r.out.contains("會多算"), r.out)
+    }
+
+    /// 基準上的 merge 在解衝突時把檔退回舊內容（verify r2）。建置是基準的祖先、內容不同，一定落後；少了
+    /// `--full-history`，rev-list 會因為 merge 與另一個 parent 內容相同而略過它，數到 0。
+    func testABaseMergeThatDropsAChangeIsCounted() throws {
+        try commit("E", ["Sources/akashic/a.swift": "// a2\n"], date: "2026-01-05T12:00:00+08:00")
+        try git("checkout", "-q", "-b", "side", shas["D"]!)
+        try commit("T", ["README.md": "side\n"], date: "2026-01-06T12:00:00+08:00")
+        try git("checkout", "-q", "-b", "mainline", shas["E"]!)
+        try git("merge", "-q", "--no-ff", "--no-commit", "side")
+        try commit("M", ["Sources/akashic/a.swift": "// a\n"], date: "2026-01-07T12:00:00+08:00")
+        try git("update-ref", "refs/remotes/origin/main", shas["M"]!)
+        let r = try runHook(["FAKE_VERSION": try short("E"), "FAKE_CONTRACT": "\(Self.required)"])
+        assertQuietSuccess(r)
+        XCTAssertTrue(r.out.contains(behind), r.out)
+        XCTAssertTrue(r.out.contains("有 1 個 commit"), "那個 merge 本身就是動到它的 commit：\(r.out)")
+    }
+
+    /// 基準把這次建置的一個祖先 merge 進來，解衝突時把檔退回舊內容（verify r2）。帶著「建置..基準」的範圍問 git
+    /// 「誰動過這個檔」時，git 只拿 merge 跟不在建置歷史裡的 parent 比，這個 merge 就不算動過——所以要從基準的整段
+    /// 歷史問，再與「不在建置歷史裡的 commit」取交集。
+    func testABaseMergeOfABuildAncestorThatDropsItsChangeIsBehind() throws {
+        try git("checkout", "-q", "-b", "feature", shas["D"]!)
+        try commit("P1", ["Sources/akashic/a.swift": "// a1\n"], date: "2026-01-05T12:00:00+08:00")
+        try commit("P2", ["Sources/akashic/a.swift": "// a2\n"], date: "2026-01-06T12:00:00+08:00")
+        try git("checkout", "-q", "-b", "mainline", shas["D"]!)
+        try commit("T", ["README.md": "mainline\n"], date: "2026-01-07T12:00:00+08:00")
+        try git("merge", "-q", "--no-ff", "--no-commit", shas["P1"]!)
+        try commit("M", ["Sources/akashic/a.swift": "// a\n"], date: "2026-01-08T12:00:00+08:00")
+        try git("update-ref", "refs/remotes/origin/main", shas["M"]!)
+        try setBinaryTime("2026-02-01T00:00:00+08:00")   // 檔案時間會說「新」
+        let r = try runHook(["FAKE_VERSION": try short("P2"), "FAKE_CONTRACT": "\(Self.required)"])
+        assertQuietSuccess(r)
+        XCTAssertTrue(r.out.contains(behind), "基準撤掉了這次建置的祖先帶來的改動：\(r.out)")
+        XCTAssertTrue(r.out.contains("有 1 個不在這次建置歷史裡的 commit"), "那個 merge 就是動過它的 commit：\(r.out)")
+        XCTAssertFalse(r.out.contains(fallsBack), r.out)
+    }
+
+    /// 內容不同的檔名原樣當成 pathspec（verify r2）。分支新增了一個名叫 `[a].swift` 的檔；基準把 `a.swift` 改了又改回去。
+    /// 把 `[a].swift` 當成 glob 會對到 `a.swift`，把那兩個 commit 算成「基準動過建置裡不同的檔」。
+    func testADifferingFileNameIsNotReadAsAGlob() throws {
+        try git("checkout", "-q", "-b", "feature", shas["D"]!)
+        try commit("P", ["Sources/akashic/[a].swift": "// bracket\n"], date: "2026-01-05T12:00:00+08:00")
+        try git("checkout", "-q", "-b", "mainline", shas["D"]!)
+        try commit("X", ["Sources/akashic/a.swift": "// a2\n"], date: "2026-01-06T12:00:00+08:00")
+        try commit("Y", ["Sources/akashic/a.swift": "// a\n"], date: "2026-01-07T12:00:00+08:00")
+        try git("update-ref", "refs/remotes/origin/main", shas["Y"]!)
+        try setBinaryTime("2025-01-01T00:00:00+08:00")   // 檔案時間會說「舊」：不該走到那一步
+        let r = try runHook(["FAKE_VERSION": try short("P"), "FAKE_CONTRACT": "\(Self.required)"])
+        assertQuietSuccess(r)
+        XCTAssertFalse(r.out.contains(behind), "不同的只有分支自己新增的檔：\(r.out)")
+        XCTAssertFalse(r.out.contains(olderThanSource), r.out)
+    }
+
+    /// 檔名被 git 加了引號（含雙引號）時還原不回去，改用整個 package 路徑算。分支與基準各自新增了同名的檔、內容不同：
+    /// 把加了引號的字串直接當成 pathspec 會什麼都對不到，被讀成「基準沒動過它」。
+    func testAQuotedFileNameFallsBackToThePackagePaths() throws {
+        try git("checkout", "-q", "-b", "feature", shas["D"]!)
+        try commit("P", ["Sources/akashic/a\"b.swift": "// mine\n"], date: "2026-01-05T12:00:00+08:00")
+        try git("checkout", "-q", "-b", "mainline", shas["D"]!)
+        try commit("X", ["Sources/akashic/a\"b.swift": "// theirs\n"], date: "2026-01-06T12:00:00+08:00")
+        try git("update-ref", "refs/remotes/origin/main", shas["X"]!)
+        try setBinaryTime("2026-02-01T00:00:00+08:00")
+        let r = try runHook(["FAKE_VERSION": try short("P"), "FAKE_CONTRACT": "\(Self.required)"])
+        assertQuietSuccess(r)
+        XCTAssertTrue(r.out.contains(behind), r.out)
+    }
+
+    /// submodule 是基準唯一的更新，而 `.gitmodules` 寫了 `ignore = all`（verify r2）：diff-tree 預設不列 gitlink 的變更，
+    /// 清單是空的、被讀成「內容相同」。gitlink 直接寫進 index，不必真的有一個 submodule。
+    func testASubmoduleOnlyUpdateIsSeenDespiteIgnoreAll() throws {
+        try "[submodule \"bib\"]\n\tpath = repos/biblatex-apa-swift\n\turl = ./nowhere\n\tignore = all\n"
+            .write(to: src.appendingPathComponent(".gitmodules"), atomically: true, encoding: .utf8)
+        try git("add", "-A")
+        try git("update-index", "--add", "--cacheinfo", "160000,\(String(repeating: "1", count: 40)),repos/biblatex-apa-swift")
+        try git("commit", "-q", "-m", "G1", date: "2026-01-05T12:00:00+08:00")
+        let built = try git("rev-parse", "--short=12", "HEAD")
+        try git("update-index", "--cacheinfo", "160000,\(String(repeating: "2", count: 40)),repos/biblatex-apa-swift")
+        try git("commit", "-q", "-m", "G2", date: "2026-01-06T12:00:00+08:00")
+        try git("update-ref", "refs/remotes/origin/main", try git("rev-parse", "HEAD"))
+        let r = try runHook(["FAKE_VERSION": built, "FAKE_CONTRACT": "\(Self.required)"])
+        assertQuietSuccess(r)
+        XCTAssertTrue(r.out.contains(behind), r.out)
+        XCTAssertTrue(r.out.contains("有 1 個 commit"), r.out)
+    }
+
+    /// `core.fsmonitor` 設定的程式不得被執行（verify r2）：`diff-tree` 會讀 index，讀 index 會執行它，寫在 repo 或
+    /// 全域設定都一樣。只挑 plumbing 子命令擋不住這個。
+    func testAConfiguredFsmonitorProgramIsNotRun() throws {
+        let marker = root.appendingPathComponent("fsmonitor-ran")
+        try writeExecutable("stubs/fsmon", "#!/bin/sh\ntouch '\(marker.path)'\n")
+        let stub = root.appendingPathComponent("stubs/fsmon").path
+        let built = try short("A")
+        try "[core]\n\tfsmonitor = \(stub)\n".write(to: root.appendingPathComponent("home/.gitconfig"),
+                                                     atomically: true, encoding: .utf8)
+        try git("config", "core.fsmonitor", stub)      // 最後才設：之後不再呼叫會讀 index 的 git
+        let r = try runHook(["FAKE_VERSION": built, "FAKE_CONTRACT": "\(Self.required)"])
+        assertQuietSuccess(r)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path), "hook 執行了 core.fsmonitor 設定的程式")
+        XCTAssertTrue(r.out.contains("有 2 個 commit"), r.out)
+    }
+
+    /// replace ref 不得改變答案（verify r2）：戳記是真的 commit，照真的歷史比。這裡把 D 換成 C，照著讀會少算一個。
+    func testReplaceRefsDoNotChangeTheAnswer() throws {
+        try git("replace", shas["D"]!, shas["C"]!)
+        let r = try runHook(["FAKE_VERSION": try short("A"), "FAKE_CONTRACT": "\(Self.required)"])
+        assertQuietSuccess(r)
+        XCTAssertTrue(r.out.contains("有 2 個 commit"), r.out)
+    }
+
+    /// PATH 上的 `akashic` 是一支包裝腳本，用裸名呼叫使用者 PATH 上的另一個程式（verify r2）。hook 自己把 PATH 收窄成
+    /// 系統目錄，探測 CLI 時不能把那份 PATH 傳下去：skill 實際呼叫它時找得到的程式，探測時也要找得到。
+    func testAWrapperCLIRunsWithTheUsersPath() throws {
+        try writeExecutable("stubs/bin/akashic-real", Self.fakeCLI)
+        try writeExecutable("stubs/bin/akashic", "#!/bin/sh\nexec akashic-real \"$@\"\n")
+        let r = try runHook(["FAKE_VERSION": try short("D"), "FAKE_CONTRACT": "\(Self.required)"])
+        assertQuietSuccess(r)
+        XCTAssertEqual(r.out.split(separator: "\n").count, 1, r.out)
+        XCTAssertTrue(r.out.contains("✓ akashic CLI"), r.out)
+        XCTAssertTrue(r.out.contains(try short("D")), r.out)
+    }
+
+    /// `BASH_ENV` 與環境裡匯入的函式不得生效（verify r2；shebang 的 `-p`）。假 CLI 換成 /bin/sh 的腳本：bash 腳本自己
+    /// 會讀 `BASH_ENV`，分不出是誰讀的。
+    func testBashEnvAndExportedFunctionsAreIgnored() throws {
+        let marker = root.appendingPathComponent("bash-env-sourced")
+        let envFile = root.appendingPathComponent("env.sh")
+        try "touch '\(marker.path)'\n".write(to: envFile, atomically: true, encoding: .utf8)
+        try writeExecutable("stubs/bin/akashic", """
+            #!/bin/sh
+            case "$1" in
+              --version) echo "$FAKE_VERSION" ;;
+              fulltext) echo "fulltext-contract $FAKE_CONTRACT" ;;
+              *) exit 64 ;;
+            esac
+            """)
+        let r = try runHook(["FAKE_VERSION": try short("D"), "FAKE_CONTRACT": "\(Self.required)",
+                             "BASH_ENV": envFile.path, "BASH_FUNC_tr%%": "() { echo hijacked; }"])
+        assertQuietSuccess(r)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path), "hook 讀了 BASH_ENV")
+        XCTAssertFalse(r.out.contains("hijacked"), "hook 用了環境裡匯入的函式：\(r.out)")
+        XCTAssertTrue(r.out.contains("✓ akashic CLI：" + root.appendingPathComponent("stubs/bin/akashic").path), r.out)
+    }
+
+    /// CLI 是建置產物的 hardlink（verify r2）：`-ef` 成立，但重建寫出的是新檔，hardlink 留在舊的 inode，仍然要安裝。
+    func testAHardlinkedBuildProductIsStillToldToInstall() throws {
+        let fm = FileManager.default
+        try writeExecutable("src/.build/release/akashic", Self.fakeCLI)
+        try fm.removeItem(at: root.appendingPathComponent("stubs/bin/akashic"))
+        try fm.linkItem(atPath: src.appendingPathComponent(".build/release/akashic").path,
+                        toPath: root.appendingPathComponent("stubs/bin/akashic").path)
+        let r = try runHook(["FAKE_VERSION": try short("A"), "FAKE_CONTRACT": "\(Self.required)"])
+        assertQuietSuccess(r)
+        XCTAssertTrue(r.out.contains(behind), r.out)
+        XCTAssertTrue(r.out.contains("install -m 755"), r.out)
+        XCTAssertFalse(r.out.contains("建置產物"), r.out)
+    }
+
+    /// 不連網：partial clone 缺物件時 git 會去 fetch（執行 upload-pack，遠端是網路時就是連網）。這裡用真的 partial clone
+    ///（不帶 tree、不 checkout），把 upload-pack 換成會留記錄的腳本。
+    func testAPartialCloneIsNotFetchedFrom() throws {
+        try git("config", "uploadpack.allowFilter", "true")
+        let clone = root.appendingPathComponent("partial")
+        try git("-c", "protocol.file.allow=always", "clone", "-q", "--no-checkout", "--filter=tree:0",
+                "file://" + src.path, clone.path)
+        let fetched = root.appendingPathComponent("upload-pack-ran")
+        try writeExecutable("stubs/upload-pack", "#!/bin/sh\ntouch '\(fetched.path)'\nexec git-upload-pack \"$@\"\n")
+        try git("-C", clone.path, "config", "remote.origin.uploadpack", root.appendingPathComponent("stubs/upload-pack").path)
+        let r = try runHook(["FAKE_VERSION": try short("A"), "FAKE_CONTRACT": "\(Self.required)"], sourceDir: clone.path)
+        assertQuietSuccess(r)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fetched.path), "hook 讓 git 去抓缺的物件")
+        XCTAssertFalse(r.out.contains(behind), r.out)
+        XCTAssertTrue(r.out.contains("沒有拿 CLI 跟原始碼比新舊"), "讀不出歷史要說出來：\(r.out)")
+    }
+
+    /// 路徑含控制字元時不印路徑（verify r2）：刪掉控制字元再印，印出來的是另一個路徑，照貼會寫到別的地方。
+    func testAPathWithAControlCharacterIsNotPrintedAsAnotherPath() throws {
+        let r = try runHook(onPath: false, sourceDir: root.path + "/a\tb")
+        assertQuietSuccess(r)
+        XCTAssertTrue(r.out.contains("路徑含控制字元"), r.out)
+        XCTAssertFalse(r.out.contains("git clone https://github.com/PsychQuant/Akashic-Library.git " + root.path + "/ab"), r.out)
+    }
+
+    /// 組內的計時器先動手時也算逾時（verify r2）。判斷靠它動手前留下的標記檔，不靠結束碼與經過的時間。
+    func testAProbeKilledByTheSafetyTimerIsATimeout() throws {
+        try writeExecutable("stubs/bin/akashic", "#!/bin/sh\n: > \"$PROBE_TIMED_OUT\"\nkill -KILL $$\n")
+        let r = try runHook(["FAKE_CONTRACT": "\(Self.required)"])
+        assertQuietSuccess(r)
+        XCTAssertTrue(r.out.contains("沒有回應"), r.out)
+        XCTAssertFalse(r.out.contains("✓"), r.out)
+    }
+
+    /// `PATH` 的過濾要在第一個外部命令之前（verify r2）：沒有 `CLAUDE_PLUGIN_ROOT` 時，算它的預設值就會呼叫 dirname。
+    func testNoCommandRunsBeforeThePathIsFiltered() throws {
+        let ran = root.appendingPathComponent("cwd-dirname-ran")
+        try writeExecutable("proj/dirname", "#!/bin/sh\ntouch '\(ran.path)'\nexec /usr/bin/dirname \"$@\"\n")
+        let r = try runHook(["FAKE_VERSION": try short("D"), "FAKE_CONTRACT": "\(Self.required)", "CLAUDE_PLUGIN_ROOT": ""],
+                            cwd: root.appendingPathComponent("proj"), pathPrefix: ".:")
+        assertQuietSuccess(r)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: ran.path), "hook 執行了當前目錄的 dirname")
+        XCTAssertFalse(r.out.contains("讀不到 akashic-fetch-fulltext 要求的契約版本"), "PLUGIN_ROOT 的預設值要算得出來：\(r.out)")
+    }
+
+    /// shallow clone 看不到共同歷史時，訊息要提到 shallow，不能只說兩者無關（verify r2）。
+    func testAShallowCheckoutIsNamedAsTheReason() throws {
+        try (shas["D"]! + "\n").write(to: src.appendingPathComponent(".git/shallow"), atomically: true, encoding: .utf8)
+        try setBinaryTime("2026-02-01T00:00:00+08:00")
+        let r = try runHook(["FAKE_VERSION": try short("A"), "FAKE_CONTRACT": "\(Self.required)"])
+        assertQuietSuccess(r)
+        XCTAssertTrue(r.out.contains("shallow clone"), r.out)
+        XCTAssertTrue(r.out.contains(fallsBack), r.out)
+    }
+
+    /// 原始碼 repo 還沒有任何 commit：說出來，不安靜地跳過比對（verify r2）。
+    func testASourceRepoWithoutCommitsIsSaid() throws {
+        let empty = root.appendingPathComponent("empty")
+        try FileManager.default.createDirectory(at: empty, withIntermediateDirectories: true)
+        try git("init", "-q", empty.path)
+        let r = try runHook(["FAKE_VERSION": "0123456789ab", "FAKE_CONTRACT": "\(Self.required)"], sourceDir: empty.path)
+        assertQuietSuccess(r)
+        XCTAssertTrue(r.out.contains("也沒有 HEAD 的 commit"), r.out)
+        XCTAssertFalse(r.out.contains(behind), r.out)
     }
 
     // MARK: - 卡住

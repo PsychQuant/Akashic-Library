@@ -171,4 +171,9 @@ verify r3（PR #783）確認 r2 的三個 blocking 都已關上、落後判定�
 
 ### 驗證
 
-（裁決後、推送前補上實際數字：目標測試、全套測試、守衛、負對照、27 個歷史形狀、實機唯讀執行、`claude plugin validate`。）
+- `CLIVersionTests`（1）、`StampVersionTests`（26）、`CheckCLIHookTests`（56）全綠。新測試 `testTheProbeDoesNotDependOnWhichShellBinShIs` 先放、後換腳本：在 r3 受審版的 hook 上是紅的。L2 的兩個斷言是後加的，沒有在舊腳本上跑過，由負對照驗。
+- 嚴格建置（`-warnings-as-errors`）與全套測試：7 個測試 bundle、5,640 支、0 失敗、1 支 skip（比 r3 多的 1 支就是上面那支新測試）。第一次執行時另一個工作線正在寫真實的 `~/.akashic`，`RealHomeSandboxGuard` 中止了三個 bundle（沒有任何測試失敗）；等 store 連續 10 分鐘沒有寫入之後重跑，才是上面的數字。
+- 35 個負對照（r3 的 33 個，加上 M1 改回 `/bin/sh -p`、L2 的訊息不分情形），每個都讓指定的測試轉紅；跑完後兩支腳本與快照逐位元相同。
+- 27 種歷史形狀：判定與 r3 受審版相同；訊息不同的只有一個（檔名被加了引號、改用整個 package 路徑的那一個，現在照實說）。
+- 守衛全部通過；`claude plugin validate plugin` 通過，兩個警告是既有的（`binary_version` 欄位、沒有 icon），與這次的修改無關。
+- 實機（`~/bin/akashic` 只讀，沒有覆蓋它）：印一行 ✓，stderr 沒有輸出。

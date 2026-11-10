@@ -4,9 +4,10 @@
 
 細節在 `changelog/2026-11-09-cli-stale-check-775.md`。binary 版號不變，這一輪沒有發布。
 
-- **新的 SessionStart hook**（`hooks/check-cli.sh`）：每個 session 開始時印一行 `akashic` CLI 的狀態。找不到 CLI、`fulltext contract` 比 `akashic-fetch-fulltext` SKILL 第 0 步要求的小、或 CLI 落後原始碼時，多印原因與重建指令。不連網、不自動安裝、不覆蓋現有 binary，任何失敗都不中斷 session。
-- **原始碼位置**：`$AKASHIC_SOURCE_DIR`，預設 `$HOME/Developer/Akashic-Library`；落後的基準是那裡的 `origin/main`（上次 fetch 時），沒有才用 HEAD。沒有原始碼時只比契約。
-- **CLI 要經 `scripts/stamp-version.sh` 建置，`akashic --version` 才說得出自己的 commit**；裸 `swift build` 建出的印 `unknown`，hook 改比檔案時間。`akashic-fetch-fulltext` 第 0 步的建置指示同步改寫。
+- **新的 SessionStart hook**（`hooks/check-cli.sh`）：每個 session 開始時印一行 `akashic` CLI 的狀態。找不到 CLI、`fulltext contract` 比 `akashic-fetch-fulltext` SKILL 第 0 步要求的小、CLI 落後原始碼、或 CLI 沒有回應時，多印原因；需要重建時附指令，並寫明要不要重建由使用者決定。不連網、不自動安裝、不覆蓋現有 binary，任何失敗都不中斷 session。`hooks.json` 用 exec form（`"args": []`），整支上限 30 秒。
+- **原始碼位置**：`$AKASHIC_SOURCE_DIR`，預設 `$HOME/Developer/Akashic-Library`；落後的基準是那裡的 `origin/main`（上次 fetch 時），沒有才用 HEAD。沒有原始碼時只比契約；目錄存在但不是 repo 的根目錄時會說出來。
+- **落後與否看內容**：squash merge 之後的 binary、從還沒合併的分支建的 binary 不算落後；從沒 rebase 的分支建置而 main 又前進時會報。
+- **CLI 要經 `scripts/stamp-version.sh` 建置，`akashic --version` 才說得出自己的 commit**；裸 `swift build` 建出的印 `unknown`，hook 改比檔案時間。同一個工作樹裡重疊的第二次戳記建置會被拒絕。`akashic-fetch-fulltext` 第 0 步的建置指示同步改寫。
 
 ## #613 b49 — 取全文的十項裁決（2026-11-04）：plugin 殼 0.13.12 → 0.13.13
 

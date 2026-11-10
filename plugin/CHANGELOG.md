@@ -1,6 +1,6 @@
 # Changelog
 
-## #775 — 開 session 時檢查 `akashic` CLI 是否過期（2026-11-09）：plugin 殼 0.13.13 → 0.13.14
+## #775 — 開 session 時檢查 `akashic` CLI 是否過期（2026-11-09）：plugin 殼 0.13.14 → 0.13.15
 
 細節在 `changelog/2026-11-09-cli-stale-check-775.md`。binary 版號不變，這一輪沒有發布。
 
@@ -9,6 +9,12 @@
 - **落後與否看內容**：package 原始碼與基準相同（squash merge 之後就是這樣）不算落後，建置比基準新也不算；從沒 rebase 的分支建置而 main 又前進、或 PR 被 squash 合併之後又在 main 上被 revert 時會報。建置與基準分岔時以檔為單位比，會過報：main 動過某個檔而分支自己也改了它，就報落後。分支 merge 了 main、又自己撤掉 main 的某個改動時算最新（那是建置自己的改動）。分岔時的比對成本沒有上限，歷史很長時可能撞上 30 秒上限（#793）。
 - **不吃繼承的環境**：`bash -p`、清掉 `GIT_*`、`PATH` 只看以絕對路徑寫的項目；每次 git 呼叫都關掉 `core.fsmonitor` 與 replace ref。探測 CLI 時用使用者的 PATH，所以 PATH 上的 `akashic` 可以是包裝腳本。
 - **CLI 要經 `scripts/stamp-version.sh` 建置，`akashic --version` 才說得出自己的 commit**；裸 `swift build` 建出的印 `unknown`，hook 改比檔案時間。佔位檔已經被戳記過時（另一次建置還在跑，或被中斷的建置留下戳記）拒絕執行；它沒有鎖，兩次建置幾乎同時啟動時其中一個 binary 可能印 `unknown`（#789）。`akashic-fetch-fulltext` 第 0 步的建置指示同步改寫。
+
+## #779 — 取全文的待裁事項寫成「待使用者裁決」（2026-11-10）：plugin 殼 0.13.13 → 0.13.14
+
+從 #777 拆出、不依賴裁決的部分；只改文字，行為與輸出不變，契約版本不調。細節在 `changelog/2026-11-04-b49-fulltext-613.md` 的〈#779 的文字修正〉與〈待使用者裁決（#777）〉。
+
+- `akashic-fetch-fulltext`：四件沒有使用者接受過的現行行為（Atypon 的 `/action/showLogin` 不算登入長相；讀不到的同站分頁路徑有登入長相、帶 Cloudflare 挑戰或按住驗證的標記時仍是 8；PDF 連結路徑恰好有 `auth` 或 `login` 也算登入長相；主機標籤 `signon` 等算登入主機）在結束碼 8 那一列、〈讀不到的分頁〉、版本 9 那段寫明待使用者裁決（#777）；〈中止條款〉「文章站上的假 CAPTCHA 頁仍是 8」那一句補上讀不到的分頁不適用。
 
 ## #613 b49 — 取全文的十項裁決（2026-11-04）：plugin 殼 0.13.12 → 0.13.13
 

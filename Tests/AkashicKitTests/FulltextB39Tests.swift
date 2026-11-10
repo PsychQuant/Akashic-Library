@@ -148,8 +148,8 @@ final class FulltextB39Tests: XCTestCase {
         XCTAssertTrue(errText.contains("(login page)"), errText)
     }
 
-    /// 待使用者裁決的代價（`### Blocking` 第 1 項；b38 Z2 第 3、12 則量到；使用者 2026-11-04 第 1 則裁決維持收，這一支照舊是正例）：`shibboleth` 是英文字，標題 slug 帶它的落地頁整批暫停。
-    /// SKILL「代價」寫著這個例子；裁決為不收時這一支改成負例（`changelog/2026-10-15-b39-p2-fixes-613.md` 的清單第 4 項）。
+    /// 已裁決的代價（使用者 2026-11-04 第 1 則：IdP 四個名字維持收進複合路徑段；b38 Z2 第 3、12 則量到）：`shibboleth` 是英文字，
+    /// 標題 slug 帶它的落地頁整批暫停。SKILL「代價」寫著這個例子。這一支是正例，釘住裁決後的行為。
     func testAnIdPNameInATitleSlugStillPausesTheLanding() {
         XCTAssertEqual(BotSignals.urlGateLook("https://www.cambridge.org/core/journals/psychometrika/article/the-p-value-shibboleth/AB12CD"), "login")
     }

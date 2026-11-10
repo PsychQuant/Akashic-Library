@@ -5,7 +5,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/check-cli.sh"
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/check-cli.sh",
+            "args": [],
+            "timeout": 30
           }
         ]
       }

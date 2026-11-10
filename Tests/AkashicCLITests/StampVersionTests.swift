@@ -255,7 +255,7 @@ final class StampVersionTests: XCTestCase {
                             env: ["PATH": stub.path + ":/usr/bin:/bin", "LANG": "en_US.UTF-8", "FAKE_DESCRIBE": hostile])
             XCTAssertEqual(r.status, 0, r.err)
             XCTAssertEqual(stampedValue(r.out), "unknown", "describe 印出 \(hostile)：\(r.out)")
-            XCTAssertEqual(r.out.split(separator: "\n").count, 2, "戳記檔應該只有兩行：\(r.out)")
+            XCTAssertEqual(r.out.split(separator: "\n").count, 3, "戳記檔應該只有三行（標記、註解、值）：\(r.out)")
         }
     }
 
@@ -295,4 +295,152 @@ final class StampVersionTests: XCTestCase {
         let r = try run("/bin/bash", ["scripts/stamp-version.sh", "nope.swift", "--", "/usr/bin/true"], in: repo)
         XCTAssertEqual(r.status, 2)
     }
+
+    // MARK: - verify r2
+
+    /// 一支放在 PATH 最前面的假 git：`when` 這個子命令出現時先做 `before`，其餘原樣交給真的 git。
+    private func gitStub(when subcommand: String, _ before: String) throws -> URL {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("stamp-git-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let stub = dir.appendingPathComponent("git")
+        try "#!/bin/sh\nfor a in \"$@\"; do if [ \"$a\" = \(subcommand) ]; then \(before); fi; done\nexec /usr/bin/git \"$@\"\n"
+            .write(to: stub, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: stub.path)
+        return dir
+    }
+
+    private func waitForFile(_ url: URL, seconds: TimeInterval = 10) -> Bool {
+        let deadline = Date().addingTimeInterval(seconds)
+        while !FileManager.default.fileExists(atPath: url.path) && Date() < deadline { usleep(50_000) }
+        return FileManager.default.fileExists(atPath: url.path)
+    }
+
+    /// 檢查與備份之間隔著幾個 git 查詢（verify r2）。另一次建置在這段時間寫入戳記的話，這一次備份到的就是戳記，建完
+    /// 「還原」回去的也是戳記——兩邊都回 0，戳記留在受追蹤的檔裡。備份之後要再查一次備份本身。
+    /// 順序不靠 sleep：B 的 `git describe` 卡住，直到 A 已經戳記；A 的「建置」則等到 B 結束才結束，所以 B 備份的時候
+    /// A 的戳記一定還在檔裡。
+    func testAStampWrittenBetweenTheCheckAndTheBackupIsRefused() throws {
+        let sync = FileManager.default.temporaryDirectory.appendingPathComponent("stamp-sync-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: sync, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: sync) }
+        let waiting = sync.appendingPathComponent("b-in-describe"), stampedByA = sync.appendingPathComponent("a-stamped")
+        let stub = try gitStub(when: "describe", """
+            : > '\(waiting.path)'; i=0; while [ ! -e '\(stampedByA.path)' ] && [ $i -lt 100 ]; do /bin/sleep 0.1; i=$((i+1)); done
+            """)
+        defer { try? FileManager.default.removeItem(at: stub) }
+        let ranB = repo.appendingPathComponent("b-ran")
+
+        let b = Process()
+        b.executableURL = URL(fileURLWithPath: "/bin/bash")
+        b.arguments = ["scripts/stamp-version.sh", versionFile, "--", "/usr/bin/touch", ranB.path]
+        b.currentDirectoryURL = repo
+        var env = scrubbedGitEnvironment
+        env["PATH"] = stub.path + ":/usr/bin:/bin"
+        b.environment = env
+        b.standardOutput = FileHandle.nullDevice; b.standardError = FileHandle.nullDevice
+        b.standardInput = FileHandle.nullDevice
+        try b.run()
+        XCTAssertTrue(waitForFile(waiting), "B 沒有走到 git describe")
+
+        // A：這時才開始。戳記之後留下記號（B 才繼續），然後等 B 結束（最多 20 秒）
+        let a = try run("/bin/bash", ["scripts/stamp-version.sh", versionFile, "--", "/bin/sh", "-c", """
+            : > '\(stampedByA.path)'; i=0
+            while kill -0 \(b.processIdentifier) 2>/dev/null && [ $i -lt 200 ]; do /bin/sleep 0.1; i=$((i+1)); done
+            """], in: repo)
+        b.waitUntilExit()
+        XCTAssertEqual(a.status, 0, a.err)
+        XCTAssertEqual(b.terminationStatus, 3, "B 備份到的是 A 的戳記，要拒絕")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: ranB.path), "被拒絕時不得執行命令")
+        XCTAssertEqual(try currentFile(), placeholder, "兩次都結束後佔位檔要回到原樣")
+    }
+
+    /// 戳記值本身是 `unknown`（不是 git repo）時，戳記過的檔仍然認得出來（verify r2）：只看值的話，它與佔位檔一樣。
+    func testAnUnknownStampIsStillRecognisedAsAStamp() throws {
+        let bare = FileManager.default.temporaryDirectory.appendingPathComponent("stamp-bare-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: bare) }
+        let fm = FileManager.default
+        try fm.createDirectory(at: bare.appendingPathComponent("Sources/akashic"), withIntermediateDirectories: true)
+        try fm.createDirectory(at: bare.appendingPathComponent("scripts"), withIntermediateDirectories: true)
+        try fm.copyItem(at: Self.repoRoot.appendingPathComponent("scripts/stamp-version.sh"),
+                        to: bare.appendingPathComponent("scripts/stamp-version.sh"))
+        let file = bare.appendingPathComponent(versionFile)
+        try placeholder.write(to: file, atomically: true, encoding: .utf8)
+
+        let first = Process()
+        first.executableURL = URL(fileURLWithPath: "/bin/bash")
+        first.arguments = ["scripts/stamp-version.sh", versionFile, "--", "/bin/sleep", "30"]
+        first.currentDirectoryURL = bare
+        first.environment = scrubbedGitEnvironment
+        first.standardOutput = FileHandle.nullDevice; first.standardError = FileHandle.nullDevice
+        first.standardInput = FileHandle.nullDevice
+        try first.run()
+        defer { if first.isRunning { first.terminate(); first.waitUntilExit() } }
+        let deadline = Date().addingTimeInterval(10)
+        while (try? String(contentsOf: file, encoding: .utf8)) == placeholder && Date() < deadline { usleep(50_000) }
+        let during = try String(contentsOf: file, encoding: .utf8)
+        XCTAssertEqual(stampedValue(during), "unknown", during)
+        XCTAssertNotEqual(during, placeholder, "10 秒內沒有看到戳記寫進去")
+
+        let marker = bare.appendingPathComponent("second-ran")
+        let second = try run("/bin/bash", ["scripts/stamp-version.sh", versionFile, "--", "/usr/bin/touch", marker.path], in: bare)
+        XCTAssertEqual(second.status, 3, second.err)
+        XCTAssertFalse(fm.fileExists(atPath: marker.path))
+        first.terminate(); first.waitUntilExit()
+        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), placeholder, "兩次都結束後佔位檔要回到原樣")
+    }
+
+    /// 被中斷的建置留下 `unknown` 的戳記：下一次不得把它當成原檔。
+    func testALeftoverUnknownStampIsRefused() throws {
+        let leftover = "// stamp-version:stamped\n/// 戳記值\nenum BuildVersion { static let value = \"unknown\" }\n"
+        try leftover.write(to: repo.appendingPathComponent(versionFile), atomically: true, encoding: .utf8)
+        let marker = repo.appendingPathComponent("ran")
+        let r = try run("/bin/bash", ["scripts/stamp-version.sh", versionFile, "--", "/usr/bin/touch", marker.path], in: repo)
+        XCTAssertEqual(r.status, 3, r.err)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path))
+        XCTAssertEqual(try currentFile(), leftover, "拒絕時不動檔案")
+    }
+
+    /// 腳本寫進去的戳記帶著它認得的那個標記（上面兩支的前提）。
+    func testTheStampCarriesTheMarkTheScriptLooksFor() throws {
+        let r = try stampAndCat()
+        XCTAssertEqual(r.status, 0, r.err)
+        XCTAssertTrue(r.out.contains("stamp-version:stamped"), r.out)
+        XCTAssertFalse(placeholder.contains("stamp-version:stamped"))
+        let real = try String(contentsOf: Self.repoRoot.appendingPathComponent(versionFile), encoding: .utf8)
+        XCTAssertFalse(real.contains("stamp-version:stamped"), "真的佔位檔不得帶戳記的標記")
+    }
+
+    /// submodule 裡的未追蹤檔也算 `-dirty`（verify r2）：`git describe --dirty` 不看它，SwiftPM 會編譯它。
+    /// `submodule.<名字>.ignore=all` 也不得把它藏起來。
+    func testAnUntrackedFileInsideASubmoduleAddsTheDirtySuffix() throws {
+        let sub = FileManager.default.temporaryDirectory.appendingPathComponent("stamp-sub-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: sub) }
+        try FileManager.default.createDirectory(at: sub, withIntermediateDirectories: true)
+        try "// lib\n".write(to: sub.appendingPathComponent("Lib.swift"), atomically: true, encoding: .utf8)
+        try git("init", "-q", in: sub)
+        try git("add", "-A", in: sub)
+        try git("commit", "-q", "-m", "lib", in: sub)
+        try git("-c", "protocol.file.allow=always", "submodule", "--quiet", "add", sub.path, "repos/biblatex-apa-swift")
+        try git("commit", "-q", "-m", "add submodule")
+        let head = try git("rev-parse", "--short=12", "HEAD")
+        XCTAssertEqual(stampedValue(try stampAndCat().out), head, "乾淨的 submodule 不算 dirty")
+
+        try "// half-written\n".write(to: repo.appendingPathComponent("repos/biblatex-apa-swift/Half.swift"),
+                                      atomically: true, encoding: .utf8)
+        XCTAssertEqual(stampedValue(try stampAndCat().out), head + "-dirty")
+        try git("config", "submodule.repos/biblatex-apa-swift.ignore", "all")
+        XCTAssertEqual(stampedValue(try stampAndCat().out), head + "-dirty", "ignore=all 也照樣算")
+    }
+
+    /// `git status` 失敗時不宣稱是乾淨的建置（verify r2）：失敗的輸出是空的，與「沒有未追蹤檔」一樣。
+    func testAStatusThatFailsDoesNotClaimACleanBuild() throws {
+        let stub = try gitStub(when: "status", "exit 128")
+        defer { try? FileManager.default.removeItem(at: stub) }
+        let head = try git("rev-parse", "--short=12", "HEAD")
+        let r = try run("/bin/bash", ["scripts/stamp-version.sh", versionFile, "--", "/bin/cat", versionFile], in: repo,
+                        env: ["PATH": stub.path + ":/usr/bin:/bin"])
+        XCTAssertEqual(r.status, 0, r.err)
+        XCTAssertEqual(stampedValue(r.out), head + "-dirty", r.out)
+    }
+
 }

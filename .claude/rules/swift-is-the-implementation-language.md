@@ -29,8 +29,8 @@
    `Sources/akashic/BuildVersion.swift`、建完還原，#775）、`plugin/hooks/check-cli.sh`（akashic-mcp plugin 的
    SessionStart hook，#775）。**它們只做串接**——檢查 binary、依序呼叫、下載、編排外部
    CLI。領域判斷一旦出現在裡面，就移進 Swift。
-   **`plugin/hooks/check-cli.sh` 是這一句的具名例外**（使用者 2026-11-09 裁決，#775）：它含判斷——建置的 commit 與原始碼
-   的祖先關係、比不出時改比檔案時間、契約數字的比較——但它判斷的對象就是 `akashic` binary 本身（不存在、過舊、卡住），
+   **`plugin/hooks/check-cli.sh` 是這一句的具名例外**（使用者 2026-11-09 裁決，#775）：它含判斷——這次建置與原始碼的內容
+   是否相同、兩者的祖先關係、基準上哪些 commit 動過內容不同的檔、比不出時改比檔案時間、契約數字的比較——但它判斷的對象就是 `akashic` binary 本身（不存在、過舊、卡住），
    判斷者不能住在被判斷的 binary 裡；那些也不是 store 的領域判斷。它的行為測試寫在 Swift test target
    （`Tests/AkashicCLITests/CheckCLIHookTests.swift`）。下面〈已移植〉的 `fetch-fulltext.sh` 處置相反，理由也正是這一點：
    那支的判斷搬得進 `akashic`，因為 skill 跑它的時候 `akashic` 一定在。下一支想援用這個例外的殼層，要在這裡另外加列並寫明

@@ -10,8 +10,8 @@ safari-browser 的 plugin 已有一個 SessionStart hook 解決同一件事（`h
 - **akashic-mcp plugin 的 SessionStart hook**（`plugin/hooks/check-cli.sh`、`hooks.json`）：
   - 找不到 CLI（PATH 上沒有，`$HOME/bin/akashic` 也不存在）→ 印建置指令；沒有原始碼時先印 clone 指令。只在 `$HOME/bin` 找到時多說一句「不在 PATH 上」。指令的第一行寫明要不要重建由使用者決定；路徑加 shell 引號，`install` 前先 `mkdir -p`。
   - **契約**：要求的數字從 plugin 內 `akashic-fetch-fulltext/SKILL.md` 第 0 步那一行抽出（只寫在那裡，不在 hook 裡另寫一份）；CLI 印的比它小 → 兩個數字都說出來；CLI 沒有 `fulltext contract`（或執行失敗）→ 說讀不到，並說出要求的數字；SKILL 抽不到 → 說「沒有比對」，不當成通過。這一項不需要原始碼 checkout。
-  - **落後原始碼**：原始碼目錄是 `$AKASHIC_SOURCE_DIR`（預設 `$HOME/Developer/Akashic-Library`），基準是 `origin/main`（上次 fetch 時，不連網），沒有這個 ref 才用 HEAD。「package 原始碼」是 `Sources`、`Package.swift`、`Package.resolved`、`repos/biblatex-apa-swift`。判定看內容：基準上沒有「不在這次建置的歷史裡、又動到 package 原始碼」的 commit → 最新；有的話，從共同祖先到基準之間基準改過的檔，在這次建置裡都是同一份內容 → 最新（squash merge 之後就是這樣）；其中有檔不同 → 落後，印 commit 數與基準上最後一個這類 commit 的 hash、日期。checkout 裡沒有建置的 commit、兩者沒有共同歷史、git 讀不出來 → 說明原因、改比檔案時間；沒有戳記（`unknown`）也比檔案時間。比這一輪舊的 CLI（`--version` 回 64）：基準上已經有 `BuildVersion.swift` → 必定落後，還沒有 → 比檔案時間。
-  - 每個 session 都會跑，輸出進的是模型的 context：不連網（`GIT_NO_LAZY_FETCH=1`）、不自動安裝、不覆蓋現有 binary；`--version` 與 `fulltext contract` 各約 4 秒上限，`--version` 逾時就不再探契約，`hooks.json` 另給整支 30 秒上限；任何失敗都 exit 0、不寫 stderr。清掉繼承的 `GIT_*`，`PATH` 只看絕對路徑的項目，git 只用 plumbing（不執行 gpg 與外部 diff），不印 commit subject。
+  - **落後原始碼**：原始碼目錄是 `$AKASHIC_SOURCE_DIR`（預設 `$HOME/Developer/Akashic-Library`），基準是 `origin/main`（上次 fetch 時，不連網），沒有這個 ref 才用 HEAD。「package 原始碼」是 `Sources`、`Package.swift`、`Package.resolved`、`repos/biblatex-apa-swift`。判定看內容：這次建置與基準的 package 原始碼相同 → 最新（squash merge 之後就是這樣）；不同而建置是基準的祖先 → 落後；不同而基準是建置的祖先 → 最新；兩者分岔 → 基準上不在這次建置歷史裡的 commit，有沒有哪一個動過那些內容不同的檔，有就落後。落後時印 commit 數與基準上最後一個動到 package 原始碼的 commit 的 hash、日期。checkout 裡沒有建置的 commit、看不到兩者的共同歷史、git 讀不出來 → 說明原因、改比檔案時間；沒有戳記（`unknown`）也比檔案時間。比這一輪舊的 CLI（`--version` 回 64）：基準上已經有 `BuildVersion.swift` → 必定落後，還沒有 → 比檔案時間。
+  - 每個 session 都會跑，輸出進的是模型的 context：hook 自己不 fetch（另設 `GIT_NO_LAZY_FETCH=1`，git 2.45 起才有這個變數）、不自動安裝、不覆蓋現有 binary；`--version` 與 `fulltext contract` 各約 4 秒上限，`--version` 逾時就不再探契約，`hooks.json` 另給整支 30 秒上限；任何失敗都 exit 0、不寫 stderr。以 `bash -p` 執行、清掉繼承的 `GIT_*`，`PATH` 只看以絕對路徑寫的項目；git 不用 `git log`、`git diff`（不執行 gpg 與外部 diff），每次呼叫都關掉 `core.fsmonitor` 與 replace ref；不印 commit subject。
 - **`akashic-fetch-fulltext` SKILL 第 0 步**：錯誤訊息裡的建置指示改經戳記腳本，並以 `install -m 755` 放回原位（換新的 inode；原地 `cp` 覆寫已簽章的 binary，下次執行會被系統終止）。
 - **`.claude/rules/swift-is-the-implementation-language.md`**：例外 1 由四個檔改成六個。`check-cli.sh` 含判斷，照「含判斷者移進 Swift」本該移植；它是具名例外，理由是它判斷的對象就是 `akashic` binary 本身（使用者 2026-11-09 裁決）。
 - **`docs/rulings/mcp-cli-parity.md`**：CLI-only 表加「根層旗標 --version」一列——它不是 subcommand 也不是 `ParsableArguments`，機械稽核枚舉不到。
@@ -47,12 +47,12 @@ PR #783 的第一輪 verify（四席審查、Devil's Advocate、Codex）判 FAIL
 
 **Blocking 1：比不出祖先關係時安靜地漏報。** 先前只要建置的 commit 不是基準的祖先，就改比檔案時間；binary 的時間比基準上最後一次修改新，就只印 ✓。兩個實例：從還沒 rebase 的分支建置而基準又前進；比 #775 舊的 CLI（`--version` 回 64）在 #775 合併之後重建自不含它的分支。
 
-- 落後與否改看內容。祖先與非祖先走同一段程式：先數基準上「不在這次建置的歷史裡、又動到 package 原始碼」的 commit，是 0 就是最新；不是 0 再看從共同祖先到基準之間基準改過的檔，在這次建置裡是不是同一份內容。基準改了又改回來也不再算落後。
+- 落後與否改看內容。~~祖先與非祖先走同一段程式：先數基準上「不在這次建置的歷史裡、又動到 package 原始碼」的 commit，是 0 就是最新；不是 0 再看從共同祖先到基準之間基準改過的檔，在這次建置裡是不是同一份內容。~~ 基準改了又改回來也不再算落後。（verify r2 更正：比淨差異會漏掉「squash 之後又被 revert」，判定改寫了，見下一節 B1。）
 - `probe` 傳回 CLI 的結束碼：64 而基準已經有 `BuildVersion.swift` → 必定落後；逾時與其他失敗不印 ✓，各有自己的一行。逾時只由一個計時器判定（先前兩個計時器互搶，系統忙的時候逾時會被當成「舊 CLI」，還照樣探第二次）。
 
 **Blocking 2：git 呼叫吃使用者的設定與繼承的環境。** `log.showSignature=true` 時簽章文字排在格式那一行前面，檔案時間讀不到數字、警告安靜消失，每個 session 還呼叫一次 gpg；`diff.trustExitCode` 加外部 diff 時 `git diff --quiet` 會執行它，回 0 就被當成「原始碼相同」；繼承的 `GIT_DIR` 讓根目錄檢查通過而比到別的 repo。
 
-- 不再用 `git log` 與 `git diff`，只用 plumbing（`rev-parse`、`merge-base`、`rev-list`、`diff-tree`、`cat-file`）。那些設定 plumbing 讀不到，所以不是逐一關掉，是沒有地方生效。
+- 不再用 `git log` 與 `git diff`，只用 plumbing（`rev-parse`、`merge-base`、`rev-list`、`diff-tree`、`cat-file`）。~~那些設定 plumbing 讀不到，所以不是逐一關掉，是沒有地方生效。~~（verify r2 更正：這句不成立，`diff-tree` 會執行 `core.fsmonitor` 設定的程式，見下一節 B2。）
 - 開頭清掉所有繼承的 `GIT_*`。`PATH` 只看絕對路徑的項目（`.` 與空項指的是專案目錄），使用者的 `PATH` 只用來找 `akashic` 與 `git`，其餘工具只從 `/usr/bin`、`/bin` 找。整支在 C locale 下跑。
 - 不印 commit subject（那是別人寫的字，squash 時就是 PR 標題），只印 hash 與日期。
 
@@ -74,7 +74,7 @@ PR #783 的第一輪 verify（四席審查、Devil's Advocate、Codex）判 FAIL
 - 內容以檔為單位比：分支的前半被 squash 合併之後又改了同一個檔，會被報成落後。
 - 建置不是基準的祖先時，印出的 commit 數含 squash 的 commit，實際缺的可能較少；訊息會說。
 - 被包的命令自己收不到 INT／QUIT：bash 讓背景命令忽略這兩個訊號，bash 3.2 在子 shell 裡 `trap - INT QUIT` 也還原不了（2026-11-10 實測）。Ctrl-C 由戳記腳本接住、改送 TERM 給命令，再還原佔位檔；`StampVersionTests.testTheWrappedCommandItselfIgnoresInterrupts` 釘住現況。
-- 戳記腳本的「拒絕非佔位值」是先查再寫：兩次建置在同一瞬間啟動時都查得過。照程式讀，那時兩邊備份的都是佔位值，結束後檔案仍回到佔位值，代價是其中一個 binary 可能印 `unknown`；這個情形沒有實測。
+- ~~戳記腳本的「拒絕非佔位值」是先查再寫：兩次建置在同一瞬間啟動時都查得過。照程式讀，那時兩邊備份的都是佔位值，結束後檔案仍回到佔位值，代價是其中一個 binary 可能印 `unknown`；這個情形沒有實測。~~（verify r2 更正：這個推論是錯的。檢查與備份之間隔著幾次 git 查詢，另一次建置在這段時間寫入的話，備份到的是戳記，戳記會留在受追蹤的檔裡，見下一節 B3。）
 - 檔案時間的比對用 BSD 的 `stat -f %m` 與 `date -r <秒>`（macOS）；其他平台沒有測過。
 
 **驗證**
@@ -86,3 +86,56 @@ PR #783 的第一輪 verify（四席審查、Devil's Advocate、Codex）判 FAIL
 - 實機（`~/bin/akashic` 只讀，沒有覆蓋它）：2026-11-10 對 00:50 建置的 `~/bin/akashic`（不認得 `--version`）與本機原始碼跑新的 hook，印一行 ✓、不到 1 秒、stderr 沒有輸出。`origin/main` 還沒有 `BuildVersion.swift`，所以走檔案時間，binary 較新。帶著指向別的 repo 的 `GIT_DIR`、以 `.` 開頭的 `PATH` 重跑，結果相同。
 
 **沒有在這一輪處理**（r1 的 follow-up，各有 issue）：`akashic-work-references` SKILL 仍叫人裸 `swift build`（併入 #776）；只改 `plugin/**` 的 push 在 CI 不跑 `CheckCLIHookTests`（#784）；official-validate 守衛只對 marketplace 根跑（#785）；hook 的 `PATH` 與 Bash 工具的 `PATH` 可能不同（#786）。
+
+## verify r2 之後的修正（2026-11-10）
+
+第二輪 verify 審的是上一節的三個修正 commit，判 FAIL：三個 blocking 都落在上一輪新寫的程式與句子上，另有一個上一輪造成的迴歸。報告在 PR #783。上面〈改了什麼〉已改成修正後的行為。
+
+**B1：PR 被 squash 合併之後又在 main 上被 revert，從 PR 分支建的 binary 被判成最新。** 上一輪比的是「共同祖先到基準」的淨差異；被撤回的檔淨差異是空的，而 binary 裝的是 main 已經撤掉的程式碼。只撤回其中一個檔時也一樣。
+
+- 判定改成四步：這次建置與基準的 package 原始碼內容相同 → 最新；建置是基準的祖先 → 落後；基準是建置的祖先 → 最新；兩者分岔 → 基準上不在這次建置歷史裡的 commit，有沒有哪一個在那些內容不同的檔上與它的任何一個 parent 不同，有就落後。
+- 最後一步怎麼問 git，試了三種。審查建議的 `diff-tree --stdin` 對讀不到的 commit 與無法辨識的輸入都回結束碼 0、輸出是空的，失敗會被讀成「沒有動過」。帶著 `建置..基準` 的範圍問 `rev-list -- <檔>`，git 只拿 merge 跟不在建置歷史裡的 parent 比：基準把建置的一個祖先 merge 進來、解衝突時把檔退回舊內容，那個 merge 就不算動過（實測漏報）。定案的做法是兩份清單取交集：`rev-list 建置..基準`（不在建置歷史裡的 commit）與 `rev-list --full-history 基準 -- <檔>`（基準整段歷史裡動過那些檔的 commit）。兩者都看結束碼，交集在記憶體裡算。
+- 內容不同的檔名原樣當成 pathspec（`--literal-pathspecs`）；被 git 加了引號的檔名還原不回去、檔超過 200 個時參數也放不下，這兩種情形改用整個 package 路徑，只會多報。
+- 在 27 種歷史形狀的小 repo 上對過答案：squash 後 revert、部分撤回、cherry-pick、真的 merge、`-s ours`、merge 解衝突退回舊內容（三種）、併入無關的歷史、改名、刪了又建回來、基準改了又改回去、檔名含空白／中文／引號／glob 字元。
+
+**B2：`core.fsmonitor` 設定的程式會被執行。** `diff-tree` 會讀 index，讀 index 會執行它，寫在 repo 或全域設定都算；設成 `true` 時還會啟動常駐的 daemon。上一節那句「那些設定 plumbing 讀不到」因此不成立。
+
+- 每一次 git 呼叫都帶 `-c core.fsmonitor=false`，另帶 `--no-replace-objects`（replace ref 會讓 hook 讀到被換過的歷史）與 `-c core.quotePath=false`（檔名裡的非 ASCII 字元原樣印）。`diff-tree` 加 `--ignore-submodules=none`：`submodule.<名字>.ignore=all` 會讓它不列 gitlink 的變更，submodule 是唯一的更新時被讀成「內容相同」（Codex 點名的 `diff.ignoreSubmodules` 實測對 `diff-tree` 沒有作用）。
+- 檔頭改成逐項列出關掉了什麼，不再宣稱某一類設定都讀不到。
+
+**B3：戳記腳本在檢查與備份之間隔著 `git describe` 與 `git status`。** 另一次建置在這段時間寫入戳記的話，這一次備份到的就是戳記，建完「還原」回去的也是戳記，兩邊都回 0。上一節「新的誠實邊界」對這個窗口的推論是錯的。
+
+- 備份之後再查一次備份本身：放回去的就是那份備份，所以查的是它。
+- 戳記過的檔多一行標記（`stamp-version:stamped`），佔位檔沒有。沒有 git、不在 repo 根目錄時寫進去的戳記值也是 `unknown`，只看值分不出它與佔位檔；被中斷的建置留下這種戳記時，之後每一次建置都會是 `-dirty`。
+
+**上一輪造成的迴歸**：hook 把 `PATH` 收窄成系統目錄，被探測的 CLI 也繼承了。PATH 上的 `akashic` 是一支包裝腳本（用裸名呼叫使用者 PATH 上的另一個程式）時，被報成「執行失敗（結束碼 127）」並建議 `install`，照做會用 binary 蓋掉那支腳本。現在 CLI 用使用者的 PATH（只含絕對路徑的那一份）執行；組內的計時器因此改用 `/bin/sleep`，不從那份 PATH 找。
+
+**其餘**
+
+- shebang 改成 `#!/bin/bash -p`：不讀 `BASH_ENV`、不匯入環境裡的函式、不吃 `SHELLOPTS`（verify 實測：被換成函式的 `sleep` 會讓正常的 CLI 被報成卡住）。`hooks.json` 是 exec form，Claude Code 直接執行這個檔，shebang 的參數會生效；測試也改成直接執行它，不經 `/bin/bash <檔>`。
+- `PATH` 的過濾移到第一個外部命令之前（沒有 `CLAUDE_PLUGIN_ROOT` 時，算它的預設值會呼叫 `dirname`）。
+- 逾時改看組內計時器動手前留下的標記檔，不再用「結束碼 137 而且超過 3 秒」去猜。
+- 路徑含控制字元時，指令裡不印路徑（刪掉控制字元再印，印出來的是另一條路徑）。
+- CLI 是建置產物的 hardlink 時仍然印 `install`（重建寫出的是新檔，hardlink 留在舊的 inode）。
+- 檔案時間這條路讀不到資料時說出來；原始碼 repo 還沒有 commit 時也說出來。
+- 戳記腳本：describe 說乾淨之後，package 路徑下 `git status` 還有任何一列就算 `-dirty`（未追蹤檔，以及裡面有未追蹤或改過的檔的 submodule）；讀不出狀態也算。
+- 訊息：基準的標籤改成「上次 fetch 的 origin/main」（先前的全形括號後面多一個空白）；契約那兩行改成陳述句；看不到共同歷史時提到 shallow clone；git 拒絕讀取（例如擁有者不同）時不再只說「不是 repo 的根目錄」。
+- 文件：`.claude/rules/swift-is-the-implementation-language.md` 例外 1 對 hook 的描述、README 的 `AKASHIC_SOURCE_DIR`、plugin CHANGELOG 跟著改。`hooks.json` 的 exec form 需要 Claude Code 2.1.139 以上（上游 CHANGELOG 該版加入 `args`）；更舊的版本遇到這個欄位會怎樣沒有查證。
+
+**新的誠實邊界**
+
+- 分岔時會過報：基準上有 commit 動過某個檔（即使後來改回去），而分支自己也改了那個檔，就報落後。
+- 「不連網」指的是 hook 自己不 fetch。原始碼目錄是 partial clone 而 git 早於 2.45 時，擋 lazy fetch 的環境變數沒有作用（#790）。PATH 上以絕對路徑寫的目錄裡的 `git`、`akashic` 仍會被執行，那是使用者自己的 PATH。
+- 戳記腳本沒有鎖：兩次建置都在對方寫入之前備份到佔位檔時，檔案最後仍是佔位值，但後編譯的那個 binary 可能印 `unknown`；收到訊號時不等被包的命令結束就還原（#789）。它是使用者自己啟動的建置，`git describe`、`git status` 照使用者的 git 設定執行，不像 hook 那樣隔離。
+- 原始碼目錄不存在時只比契約，不說沒有比新舊；原始碼目錄不在 main 上時，提示裡的 `git pull` 拉的是那個分支（#788）。
+- 沒有處理的三件小事：被 `.gitignore` 忽略但 SwiftPM 仍會編譯的檔不算 `-dirty`；以 `-` 開頭的相對 `AKASHIC_SOURCE_DIR` 印進指令時會被當成選項；沒有 Command Line Tools 的機器上 `/usr/bin/git` 會跳系統對話框。
+
+**驗證**
+
+- `CLIVersionTests`（1）、`StampVersionTests`（26）、`CheckCLIHookTests`（55）全綠。先放測試、後換腳本：當時的新測試與改過斷言的測試裡，24 支（hook 17、戳記腳本 7）在上一輪的腳本上是紅的；檔名當成 pathspec 的兩支在舊腳本上是綠的（它們守的是這一輪才有的程式），由負對照驗。換上新腳本之後又改了一支的預期（squash 之後的計數）、加了一支（釘住已知的過報），這兩支沒有在舊腳本上跑過。
+- 33 個負對照，每個把一處修正改回去、跑對應的測試、再從快照還原，全部讓指定的測試轉紅：分岔時改回帶範圍的問法、改回淨差異、不先比內容、不認「基準是建置的祖先」、計數拿掉 `--full-history`、檔名當成 glob、加了引號的檔名照樣當 pathspec、不關 fsmonitor、不關 replace ref、拿掉 `--ignore-submodules=none`、拿掉 `GIT_NO_LAZY_FETCH`、探測沿用收窄的 PATH、shebang 拿掉 `-p`、不看逾時標記、`dirname` 用過濾前的 PATH、不查 hardlink、控制字元照刪、兩處「沒有比對」不出聲；戳記腳本的不查備份、不查標記、兩處檢查都拿掉、只算未追蹤檔、不帶 `--ignore-submodules=none`、status 失敗當成乾淨；另重跑上一輪仍適用的 8 個。
+- hook 的測試改成直接執行 hook（`hooks.json` 是 exec form），不經 `/bin/bash <檔>`：這樣 shebang 的 `-p` 才測得到。
+- 這一輪新增的測試裡有三支是第一次實際驗到檔頭的宣稱：真的 partial clone（不帶 tree、不 checkout）加上會留記錄的 upload-pack，確認 hook 不讓 git 去抓缺的物件；`core.fsmonitor` 指向會留記錄的程式（repo 與全域設定都設）；`BASH_ENV` 與環境裡匯入的函式。
+- 三個量出來、決定了做法的事實（2026-11-10，git 2.54／2.55）：`diff-tree --stdin` 對不存在的 commit 與無法辨識的輸入回結束碼 0；`diff-tree` 帶不帶路徑都會執行 `core.fsmonitor` 設定的程式，`rev-parse`、`rev-list`、`merge-base`、`cat-file` 不會；`rev-list --full-history 建置..基準 -- <檔>` 在「基準 merge 了建置的祖先並退回舊內容」的形狀數到 0。
+- 實機（`~/bin/akashic` 只讀，沒有覆蓋它）：對 00:50 建置的 `~/bin/akashic` 與本機原始碼跑新的 hook，印一行 ✓、0.3 秒、stderr 沒有輸出；帶著 `GIT_DIR`、`BASH_ENV`、以 `.` 開頭的 `PATH` 重跑，輸出相同，`BASH_ENV` 沒有被讀。
+- 27 種歷史形狀與 33 個負對照用的腳本是這一輪的暫存工具，沒有進 repo；其中有對應 Swift 測試的形狀是 squash 後 revert、部分撤回、兩種 merge 解衝突、基準改了又改回去（祖先與分岔各一）、檔名含 glob 字元與引號、只動 submodule。

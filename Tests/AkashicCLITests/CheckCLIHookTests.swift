@@ -785,6 +785,23 @@ final class CheckCLIHookTests: XCTestCase {
         XCTAssertTrue(r.out.contains("✓ akashic CLI：" + root.appendingPathComponent("stubs/bin/akashic").path), r.out)
     }
 
+    /// 探測不經 `/bin/sh`（verify r3）。macOS 的 `/bin/sh` 依 `/private/var/select/sh` 轉交給 bash、dash 或 zsh；dash 不認得
+    /// `-p`（「Illegal option -p」、結束碼 2），探測若寫成 `/bin/sh -p`，在那種機器上每一次都失敗，正常的 CLI 被報成壞掉。
+    /// 測試換不掉系統的 `/bin/sh`，所以把 hook 複本裡每一處 `/bin/sh` 換成 `/bin/dash` 再跑：hook 不靠 `/bin/sh` 是哪一個
+    /// shell 的話，換了也照常。
+    func testTheProbeDoesNotDependOnWhichShellBinShIs() throws {
+        try XCTSkipUnless(FileManager.default.isExecutableFile(atPath: "/bin/dash"), "這台機器沒有 /bin/dash")
+        let hook = root.appendingPathComponent("plugin/hooks/check-cli.sh")
+        let text = try String(contentsOf: hook, encoding: .utf8)
+        try text.replacingOccurrences(of: "/bin/sh ", with: "/bin/dash ").write(to: hook, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: hook.path)
+        let r = try runHook(["FAKE_VERSION": try short("D"), "FAKE_CONTRACT": "\(Self.required)"])
+        assertQuietSuccess(r)
+        XCTAssertEqual(r.out.split(separator: "\n").count, 1, r.out)
+        XCTAssertTrue(r.out.contains("✓ akashic CLI"), r.out)
+        XCTAssertTrue(r.out.contains(try short("D")), r.out)
+    }
+
     /// CLI 是建置產物的 hardlink（verify r2）：`-ef` 成立，但重建寫出的是新檔，hardlink 留在舊的 inode，仍然要安裝。
     func testAHardlinkedBuildProductIsStillToldToInstall() throws {
         let fm = FileManager.default
@@ -824,8 +841,9 @@ final class CheckCLIHookTests: XCTestCase {
         XCTAssertFalse(r.out.contains("git clone https://github.com/PsychQuant/Akashic-Library.git " + root.path + "/ab"), r.out)
     }
 
-    /// 組內的計時器先動手時也算逾時（verify r2）。判斷靠它動手前留下的標記檔，不靠結束碼與經過的時間。
-    func testAProbeKilledByTheSafetyTimerIsATimeout() throws {
+    /// 探測異常結束而逾時標記檔在場時，算逾時（verify r2）：判斷靠組內計時器動手前留下的標記檔，不靠結束碼與經過的時間。
+    /// 這支只測「看到標記就歸成逾時」這一半——假 CLI 自己留下標記再結束自己，沒有等真的計時器（8 秒）動手（verify r3）。
+    func testAFailedProbeWithTheTimeoutMarkIsATimeout() throws {
         try writeExecutable("stubs/bin/akashic", "#!/bin/sh\n: > \"$PROBE_TIMED_OUT\"\nkill -KILL $$\n")
         let r = try runHook(["FAKE_CONTRACT": "\(Self.required)"])
         assertQuietSuccess(r)
@@ -871,7 +889,9 @@ final class CheckCLIHookTests: XCTestCase {
         let log = root.appendingPathComponent("calls.log")
         let r = try runHook(["FAKE_VERSION_HANG": "1", "FAKE_CONTRACT": "\(Self.required)", "CALL_LOG": log.path])
         assertQuietSuccess(r)
-        XCTAssertLessThan(r.seconds, 7, "單次探測的上限約 4 秒")
+        // 假 CLI 會睡 30 秒；探測的上限約 4 秒，但那是迴圈圈數、不是牆鐘時間，機器很忙時每一圈都會變長（verify r3）。
+        // 這裡只要證明沒有等到它睡完。
+        XCTAssertLessThan(r.seconds, 20, "卡住的探測要被截斷，不能等到 CLI 自己結束")
         XCTAssertTrue(r.out.contains("沒有回應"), r.out)
         XCTAssertFalse(r.out.contains("✓"), "卡住的 CLI 不得標成正常（verify r1）：\(r.out)")
         // 只量時間證不到「沒有探第二次」：假 CLI 的 `fulltext contract` 不會卡，探了也只多零點幾秒。直接看它被叫了什麼。

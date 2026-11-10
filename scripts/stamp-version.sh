@@ -15,7 +15,8 @@
 #   - package 路徑（COMPILED_PATHS）下有未追蹤的檔也算 `-dirty`，submodule 裡的也算：`git describe --dirty` 兩種都不看，
 #     SwiftPM 卻會編譯它們，實作到一半的新檔就在 binary 裡。讀不出工作樹狀態時同樣加 `-dirty`——不宣稱是乾淨的建置。
 #     看不到的只剩被 .gitignore 忽略、SwiftPM 仍會編譯的檔。
-#   - 白名單（字母、數字、`.`、`_`、`+`、`-`）以外的字元、任何 git 失敗（沒有 .git、沒有 git、沒有 commit）都變成 `unknown`。
+#   - 白名單（字母、數字、`.`、`_`、`+`、`-`）以外的字元，以及算不出 commit 的情形（沒有 .git、沒有 git、沒有 commit、
+#     `git describe` 失敗）都變成 `unknown`。只有 `git status` 失敗時不是：commit 算得出來，結果是 `<hash>-dirty`（見上一點）。
 #     這個值會放進 Swift 字串字面值裡，引號與換行不能進檔。
 #   - 所在目錄必須是自己 repo 的根目錄。`git describe` 會往上找，解壓在別的 repo 裡的原始碼會被蓋上那個 repo 的值，
 #     看起來是真的。

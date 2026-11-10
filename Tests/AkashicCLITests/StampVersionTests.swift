@@ -325,7 +325,7 @@ final class StampVersionTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: sync) }
         let waiting = sync.appendingPathComponent("b-in-describe"), stampedByA = sync.appendingPathComponent("a-stamped")
         let stub = try gitStub(when: "describe", """
-            : > '\(waiting.path)'; i=0; while [ ! -e '\(stampedByA.path)' ] && [ $i -lt 100 ]; do /bin/sleep 0.1; i=$((i+1)); done
+            : > '\(waiting.path)'; i=0; while [ ! -e '\(stampedByA.path)' ] && [ $i -lt 600 ]; do /bin/sleep 0.1; i=$((i+1)); done
             """)
         defer { try? FileManager.default.removeItem(at: stub) }
         let ranB = repo.appendingPathComponent("b-ran")
@@ -340,12 +340,13 @@ final class StampVersionTests: XCTestCase {
         b.standardOutput = FileHandle.nullDevice; b.standardError = FileHandle.nullDevice
         b.standardInput = FileHandle.nullDevice
         try b.run()
-        XCTAssertTrue(waitForFile(waiting), "B 沒有走到 git describe")
+        XCTAssertTrue(waitForFile(waiting, seconds: 60), "B 沒有走到 git describe")
 
-        // A：這時才開始。戳記之後留下記號（B 才繼續），然後等 B 結束（最多 20 秒）
+        // A：這時才開始。戳記之後留下記號（B 才繼續），然後等 B 結束。兩邊的等待上限（B 等 60 秒、A 等 90 秒）只在機器
+        // 卡住時才碰得到；碰到的話紅的是這支測試，不是腳本（verify r3）
         let a = try run("/bin/bash", ["scripts/stamp-version.sh", versionFile, "--", "/bin/sh", "-c", """
             : > '\(stampedByA.path)'; i=0
-            while kill -0 \(b.processIdentifier) 2>/dev/null && [ $i -lt 200 ]; do /bin/sleep 0.1; i=$((i+1)); done
+            while kill -0 \(b.processIdentifier) 2>/dev/null && [ $i -lt 900 ]; do /bin/sleep 0.1; i=$((i+1)); done
             """], in: repo)
         b.waitUntilExit()
         XCTAssertEqual(a.status, 0, a.err)

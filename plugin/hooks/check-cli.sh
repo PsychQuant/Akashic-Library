@@ -35,7 +35,8 @@
 #
 # 每個 session 開始時都會跑（plugin 是全域的），輸出進的是模型的 context，所以：
 #   · 不連網、不自動安裝、不覆蓋現有的 binary；提示寫明要不要重建由使用者決定。
-#   · 兩次探測各有約 4 秒上限，`--version` 逾時就不再探契約；整支 hook 在 hooks.json 另有上限。
+#   · 兩次探測各有約 4 秒上限，`--version` 逾時就不再探契約；整支 hook 在 hooks.json 另有上限。被那個上限砍掉時，
+#     已經寫出的行（例如 ✓）留著，後面的判定沒有印；砍在探測期間則什麼都沒有印，暫存檔會留在 TMPDIR（verify r3 實測）。
 #   · 任何失敗都 exit 0、不寫 stderr。
 #   · 不吃繼承的環境：`bash -p`（不讀 `BASH_ENV`、不匯入環境裡的函式、不吃 `SHELLOPTS`），清掉所有 `GIT_*`（`GIT_DIR` 會把
 #     git 帶到別的 repo），`PATH` 只看以絕對路徑寫的項目，內部用的工具只從 /usr/bin、/bin 找。PATH 上以絕對路徑寫的
@@ -93,9 +94,11 @@ find_on_user_path() {
 GIT=$(find_on_user_path git)
 # 每一次 git 呼叫都帶的選項：
 #   · `-c core.fsmonitor=false`：`diff-tree` 會讀 index，讀 index 會執行 `core.fsmonitor` 設定的程式（寫在 repo 或全域
-#     設定都算；2026-11-10 實測每個 session 兩次，rev-parse、rev-list、merge-base、cat-file 不會）。
+#     設定都算；2026-11-10 實測，rev-parse、rev-list、merge-base、cat-file 不會）。
 #   · `-c core.quotePath=false`：檔名裡的非 ASCII 字元原樣印，只有引號、反斜線、控制字元才會被加引號。
 #   · `--no-replace-objects`：replace ref 會讓 git 讀到被換過的歷史；戳記是真的 commit，照真的歷史比。
+#     `.git/info/grafts` 不受這個選項管：有 grafts 時比的是接過的歷史，落後可能被判成最新（verify r3 實測）。grafts 是
+#     這個 checkout 的本機狀態，別人的 commit 帶不進來，所以只寫成界線。
 GIT_SAFE=(--no-replace-objects -c core.fsmonitor=false -c core.quotePath=false)
 # 原始碼 repo 的 git
 sgit() { "${GIT}" "${GIT_SAFE[@]}" -C "${SOURCE_TOP}" "$@" 2>/dev/null; }
@@ -123,6 +126,8 @@ probe_cleanup() {
 # CLI 用使用者的 PATH 執行（只含絕對路徑的那一份）：PATH 上的 `akashic` 可以是一支包裝腳本，用裸名呼叫使用者 PATH 上
 # 的另一個程式；把 hook 自己收窄過的 PATH 傳給它，它就找不到那個程式，而 skill 實際呼叫它時找得到（verify r2）。
 # 計時器因此用 /bin/sleep，不從那份 PATH 找。
+# 包住計時器與 CLI 的那個小 shell 指名 /bin/bash，不寫 /bin/sh：macOS 的 /bin/sh 依 /private/var/select/sh 轉交給 bash、
+# dash 或 zsh，dash 不認得 `-p`，每一次探測都會以結束碼 2 失敗（verify r3）。`-p` 不能省：環境裡匯入的函式會蓋掉 `kill`。
 # 只讀前 4 KiB：答案是一行。呼叫時要丟掉 stderr——bash 會在那裡報告它 kill 掉的 job。
 probe() {
     local waited=0 grace=0 rc=0
@@ -131,7 +136,7 @@ probe() {
     PROBE_OUT=$(mktemp "${TMPDIR:-/tmp}/akashic-check-cli.XXXXXX") || return 1
     set -m
     PROBE_TIMED_OUT="${PROBE_OUT}.timeout" PATH="${USER_PATH:-/usr/bin:/bin}" \
-        /bin/sh -p -c '(/bin/sleep 8; : > "${PROBE_TIMED_OUT}"; kill -KILL 0) & exec "$0" "$@"' "${CLI}" "$@" \
+        /bin/bash -p -c '(/bin/sleep 8; : > "${PROBE_TIMED_OUT}"; kill -KILL 0) & exec "$0" "$@"' "${CLI}" "$@" \
         >"${PROBE_OUT}" 2>/dev/null </dev/null &
     PROBE_PID=$!
     set +m
@@ -382,7 +387,7 @@ report_by_file_times() {
     local latest src_ts bin_ts
     latest=$(latest_source_commit)
     [[ -n "${latest}" ]] || {
-        echo "ℹ️  讀不出 ${BASE_NAME} 上最後一次動到 package 原始碼的 commit：沒有拿 CLI 跟原始碼比新舊。"
+        echo "ℹ️  ${BASE_NAME} 上找不到動過 package 原始碼的 commit（沒有這種 commit，或讀不出歷史）：沒有拿 CLI 跟原始碼比新舊。"
         return 0
     }
     src_ts="${latest%% *}"

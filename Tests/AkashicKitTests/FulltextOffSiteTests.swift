@@ -273,7 +273,7 @@ final class FulltextOffSiteTests: XCTestCase {
 
     // MARK: 等人驗證的訊息（R2 verify 第 5 則）
 
-    /// 文章站本身由 DOI 註冊者決定：落在那裡的假 CAPTCHA 仍得 8（使用者裁決：文章站算；網址有登入頁長相的那一頁例外，2026-11-04 第 6 則）。所以訊息要 agent 請**使用者**看頁面——agent 看不到；
+    /// 文章站本身由 DOI 註冊者決定：落在那裡的假 CAPTCHA 仍得 8（使用者裁決：文章站算；網址有登入頁長相的那一頁例外，2026-11-04 第 6 則；連 `document.contentType` 都讀不到的分頁不適用）。所以訊息要 agent 請**使用者**看頁面——agent 看不到；
     /// 頁面要求貼上或執行任何東西就整批停；只在使用者說完成之後接著走。
     func testTheVerificationMessageHandsTheJudgementToTheUser() {
         var s = Scenario(); s.landingFinal = "https://evil-publisher.example/article/123"

@@ -698,7 +698,7 @@ final class CheckCLIHookTests: XCTestCase {
     /// 檔名被 git 加了引號（含雙引號）時還原不回去，改用整個 package 路徑算。分支與基準各自新增了同名的檔、內容不同：
     /// 把加了引號的字串直接當成 pathspec 會什麼都對不到，被讀成「基準沒動過它」。
     func testAQuotedFileNameFallsBackToThePackagePaths() throws {
-        // 改用整個 package 路徑時，訊息要說出來（verify r3）：數字把只動到其他檔的 commit 也算進去了。
+        // 改用整個 package 路徑時，訊息要說出來（verify r3）：數字可能把只動到其他檔的 commit 也算進去。
         try git("checkout", "-q", "-b", "feature", shas["D"]!)
         try commit("P", ["Sources/akashic/a\"b.swift": "// mine\n"], date: "2026-01-05T12:00:00+08:00")
         try git("checkout", "-q", "-b", "mainline", shas["D"]!)
@@ -893,7 +893,8 @@ final class CheckCLIHookTests: XCTestCase {
         let r = try runHook(["FAKE_VERSION_HANG": "1", "FAKE_CONTRACT": "\(Self.required)", "CALL_LOG": log.path])
         assertQuietSuccess(r)
         // 假 CLI 會睡 30 秒；探測的上限約 4 秒，但那是迴圈圈數、不是牆鐘時間，機器很忙時每一圈都會變長（verify r3）。
-        // 這裡只要證明沒有等到它睡完。
+        // 這裡只要證明沒有等到它睡完。代價（verify r4）：約 4 秒的迴圈逾時壞掉時，由 8 秒的計時器收尾、輸出相同，
+        // 這支測試抓不到。改回 7 秒在 background QoS 下只剩 0.3–0.7 秒餘裕（實測正常路徑 6.3–6.7 秒），誤紅會擋下 pre-push。
         XCTAssertLessThan(r.seconds, 20, "卡住的探測要被截斷，不能等到 CLI 自己結束")
         XCTAssertTrue(r.out.contains("沒有回應"), r.out)
         XCTAssertFalse(r.out.contains("✓"), "卡住的 CLI 不得標成正常（verify r1）：\(r.out)")

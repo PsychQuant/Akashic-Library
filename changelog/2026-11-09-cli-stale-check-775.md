@@ -95,7 +95,7 @@ PR #783 的第一輪 verify（四席審查、Devil's Advocate、Codex）判 FAIL
 
 - 判定改成四步：這次建置與基準的 package 原始碼內容相同 → 最新；建置是基準的祖先 → 落後；基準是建置的祖先 → 最新；兩者分岔 → 基準上不在這次建置歷史裡的 commit，有沒有哪一個在那些內容不同的檔上與它的任何一個 parent 不同，有就落後。
 - 最後一步怎麼問 git，試了三種。審查建議的 `diff-tree --stdin` 對讀不到的 commit 與無法辨識的輸入都回結束碼 0、輸出是空的，失敗會被讀成「沒有動過」。帶著 `建置..基準` 的範圍問 `rev-list -- <檔>`，git 只拿 merge 跟不在建置歷史裡的 parent 比：基準把建置的一個祖先 merge 進來、解衝突時把檔退回舊內容，那個 merge 就不算動過（實測漏報）。定案的做法是兩份清單取交集：`rev-list 建置..基準`（不在建置歷史裡的 commit）與 `rev-list --full-history 基準 -- <檔>`（基準整段歷史裡動過那些檔的 commit）。兩者都看結束碼，交集在記憶體裡算。
-- 內容不同的檔名原樣當成 pathspec（`--literal-pathspecs`）；被 git 加了引號的檔名還原不回去、檔超過 200 個時參數也放不下，這兩種情形改用整個 package 路徑，~~只會多報~~。（verify r3 更正：檔名總長超過系統的參數上限時，200 個以內也會讓 `rev-list` 失敗，那時改比檔案時間、不保證多報，見下一節。）
+- 內容不同的檔名原樣當成 pathspec（`--literal-pathspecs`）；被 git 加了引號的檔名還原不回去、檔超過 200 個時參數也放不下，這兩種情形改用整個 package 路徑，只會多報。（verify r3、r4 更正：這兩種情形仍只會多報；不成立的是這句隱含的「200 個以內參數就放得下」——檔名總長超過系統的參數上限時，200 個以內也會讓 `rev-list` 失敗，那時改比檔案時間、不保證多報，見下一節。）
 - 在 27 種歷史形狀的小 repo 上對過答案：squash 後 revert、部分撤回、cherry-pick、真的 merge、`-s ours`、merge 解衝突退回舊內容（三種）、併入無關的歷史、改名、刪了又建回來、基準改了又改回去、檔名含空白／中文／引號／glob 字元。
 
 **B2：`core.fsmonitor` 設定的程式會被執行。** `diff-tree` 會讀 index，讀 index 會執行它，寫在 repo 或全域設定都算；設成 `true` 時還會啟動常駐的 daemon。上一節那句「那些設定 plumbing 讀不到」因此不成立。
@@ -147,13 +147,13 @@ verify r3（PR #783）確認 r2 的三個 blocking 都已關上、落後判定�
 ### 改了什麼
 
 - **探測用的小 shell 指名 `/bin/bash`（M1）。** r2 的修正把它寫成 `/bin/sh -p`。macOS 的 `/bin/sh` 依 `/private/var/select/sh` 轉交給 bash、dash 或 zsh；dash 不認得 `-p`，回「Illegal option -p」、結束碼 2，於是每一次探測都失敗，正常的 CLI 被報成壞掉。預設的 macOS 指向 bash，不受影響。`-p` 不能省（環境裡匯入的函式會蓋掉 `kill`），所以改成指名 `/bin/bash -p`；hook 的 shebang 本來就是 bash。
-- **改用整個 package 路徑時，訊息說實話（L2）。** 內容不同的檔名被 git 加了引號、或超過 200 個時，數字把只動到其他檔的 commit 也算進去；訊息原本仍說「動過這次建置裡與它內容不同的檔」。現在另印一句，說明是以整個 package 路徑計、會多算。
+- **改用整個 package 路徑時，訊息說實話（L2）。** 內容不同的檔名被 git 加了引號、或超過 200 個時，數字可能把只動到其他檔的 commit 也算進去；訊息原本仍說「動過這次建置裡與它內容不同的檔」。現在這種情形換成另一句，說明是以整個 package 路徑計、可能多算。
 - **基準上找不到動過 package 原始碼的 commit 時**，訊息不再只說「讀不出」：沒有這種 commit 與讀不出歷史走的是同一個出口，兩種都說。
-- **測試**：新增 `testTheProbeDoesNotDependOnWhichShellBinShIs`（把 hook 複本裡的 `/bin/sh` 換成 `/bin/dash` 再跑）；`testAProbeKilledByTheSafetyTimerIsATimeout` 改名為 `testAFailedProbeWithTheTimeoutMarkIsATimeout`，它測到的是「有逾時標記的異常結束算逾時」，沒有等真的計時器動手；兩支含時間上限的測試放寬上限（上限只在機器卡住時才碰得到）。
+- **測試**：新增 `testTheProbeDoesNotDependOnWhichShellBinShIs`（把 hook 複本裡的 `/bin/sh` 換成 `/bin/dash` 再跑）；`testAProbeKilledByTheSafetyTimerIsATimeout` 改名為 `testAFailedProbeWithTheTimeoutMarkIsATimeout`，它測到的是「有逾時標記的異常結束算逾時」，沒有等真的計時器動手；兩支含時間上限的測試放寬上限：戳記那支的等待上限只在機器卡住時才碰得到；卡住那支改成 20 秒之後，只證明探測不會等到 CLI 自己結束，約 4 秒的迴圈逾時沒有測試守著（迴圈壞掉時由 8 秒的計時器收尾，輸出相同）。
 
 ### 更正前面寫過的句子
 
-- 「分岔時改用整個 package 路徑，只會多報」少了一種情形：檔名總長超過系統的參數上限時（200 個檔以內也可能），`rev-list` 失敗，hook 印「讀不出…之間的歷史」（說不出是參數太長）並改比檔案時間，那時不保證多報。
+- 「這兩種情形改用整個 package 路徑，只會多報」那一句隱含「200 個以內參數就放得下」，少了一種情形：檔名總長超過系統的參數上限時（200 個檔以內也可能），`rev-list` 失敗，hook 印「讀不出…之間的歷史」（說不出是參數太長）並改比檔案時間，那時不保證多報。
 - 「replace ref 會讓 git 讀到被換過的歷史；照真的歷史比」只對 replace ref 成立：`.git/info/grafts` 不受 `--no-replace-objects` 管。
 - hook 檔頭的「`core.fsmonitor` 每個 session 被執行兩次」：次數取決於那個程式的結束碼，不寫死。
 - `stamp-version.sh` 檔頭的「任何 git 失敗都變成 `unknown`」：`git status` 失敗時得到的是 `<hash>-dirty`。
@@ -161,8 +161,8 @@ verify r3（PR #783）確認 r2 的三個 blocking 都已關上、落後判定�
 
 ### 新的誠實邊界
 
-- **分岔時的比對成本沒有上限（M2）。** 兩份 commit 清單在 bash 裡逐一比對，成本是兩者長度的乘積：各 1,500 個約 1.6 秒，各 5,000 個約 17 秒，再長會撞上 `hooks.json` 的 30 秒上限。這個 repo 目前最壞約 1 秒。量過的兩個做法（讓 git 自己數、加上限）附在 #793。
-- **hook 被 `hooks.json` 的上限砍掉時**：砍在探測之後，已經寫出的行（例如 ✓）留著、後面的判定沒有印；砍在探測期間，什麼都沒有印，暫存檔留在 `TMPDIR`。Claude Code 怎麼處理被砍的 hook 已經寫出的輸出，沒有驗證。
+- **分岔時的比對成本沒有上限（M2）。** 兩份 commit 清單在 bash 裡逐一比對，成本是兩者長度的乘積。2026-11-11 在 hook 的條件下實測（C locale、`/bin/bash` 3.2，兩份清單沒有交集的最壞情形，迴圈的 CPU 時間）：各 1,500 個約 0.4 秒、各 5,000 個約 4 秒、各 12,000 個約 22 秒；兩份各約 12,500–14,000 個時，光是這段迴圈就會撞上 `hooks.json` 的 30 秒上限。這個 repo 目前最壞約 0.3 秒。verify r3 報告與 #793 原本寫的 1.6／17／67 秒是在 UTF-8 locale 下量的，約是實際的 4 倍（verify r4 更正）。量過的兩個做法（讓 git 自己數、加上限）附在 #793。
+- **hook 被 `hooks.json` 的上限砍掉時**：已經寫出的行留著、後面的判定沒有印：砍在 `--version` 探測期間時一行都沒有；砍在之後時只剩 ✓ 那一行，看起來與最新相同。SIGKILL 送給 hook 的整個 process group 時，探測的兩個暫存檔會留在 `TMPDIR`（只砍 hook 本身、或送 SIGTERM 時不會留）。Claude Code 怎麼處理被砍的 hook 已經寫出的輸出，沒有驗證。
 - **`.git/info/grafts`**：有 grafts 時比的是接過的歷史，落後可能被判成最新。grafts 是本機狀態，別人的 commit 帶不進來。
 - **建置自己撤回基準的改動，算最新。** 分支 merge 了基準、又在分支上撤掉基準的某個改動時，binary 確實缺那段程式碼，但那是建置自己的改動。
 - **探測的暫存檔**：逾時標記檔的名字沒有事先保留、hook 自己建不出暫存檔時會怪到 CLI（#791）。
@@ -177,3 +177,14 @@ verify r3（PR #783）確認 r2 的三個 blocking 都已關上、落後判定�
 - 27 種歷史形狀：判定與 r3 受審版相同；訊息不同的只有一個（檔名被加了引號、改用整個 package 路徑的那一個，現在照實說）。
 - 守衛全部通過；`claude plugin validate plugin` 通過，兩個警告是既有的（`binary_version` 欄位、沒有 icon），與這次的修改無關。
 - 實機（`~/bin/akashic` 只讀，沒有覆蓋它）：印一行 ✓，stderr 沒有輸出。
+
+### verify r4（停損輪）
+
+verify r4（PR #783）只看上面這一節的修改：兩席 Claude、Codex 與 Devil's Advocate 都沒有 MEDIUM 以上的問題，判 PASS。它們找到的都是這一節新寫的句子不成立，修法只改字，已照改：成本秒數改成 hook 實際條件（C locale）下的量測；「砍在探測期間什麼都沒印」只對 `--version` 那一次成立；殘檔只在 SIGKILL 送給整個 process group 時才會留；改用整個 package 路徑時是「可能」多算；卡住那支測試放寬到 20 秒的代價。
+
+另外記下、這個 PR 不處理的：
+
+- 新測試 `testTheProbeDoesNotDependOnWhichShellBinShIs` 擋得住寫回 `/bin/sh -p`，擋不住寫回 r2 的 `/bin/sh -c`（那時 dash 不會拒絕，但環境裡匯入的函式會生效）。名稱說的範圍也比它換到的大：它只把 `"/bin/sh "` 換成 `/bin/dash`。
+- r3 報告列為 INFO 而沒有處理的六項：全域設定的 `trace2.*` 仍會寫出 git 呼叫的紀錄；戳記標記沒有錨在整行；逾時標記檔的路徑也傳給了被探測的 CLI；CLI 本身就是建置產物、又另有 hardlink 時，`install` 的來源與目的是同一個檔；git 2.35 以前 `core.fsmonitor=false` 會被當成執行名叫 `false` 的程式（無害）；bash 3.2 的 `-p` 不忽略 `CDPATH`（環境裡匯出了 `CDPATH` 時，相對的 `AKASHIC_SOURCE_DIR` 不一定相對於開 session 時的工作目錄）。
+- 契約探測卡住時，hook 說成「沒有 fulltext contract 子命令，或執行失敗」並建議重建（r1 就有的行為）。
+

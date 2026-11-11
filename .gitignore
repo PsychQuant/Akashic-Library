@@ -36,7 +36,9 @@ openspec/.vector-search.db*
 # IDD parallel worktree isolation (idd-worktree.sh #167) — not tracked in main tree
 .claude/worktrees/
 
-# IDD per-clone config（legacy 形式；現行 .claude/.idd/local.json 照常追蹤）
+# IDD per-clone config。.claude/.idd/local.json 不追蹤：IDD 的 CI 閘只收未受追蹤的
+# 設定檔，各 clone 自己建（內容與重建方式見 #797）。legacy 形式照舊忽略。
+.claude/.idd/local.json
 .claude/issue-driven-dev.local.*
 
 # Python 建置產物（#407 R40）。守衛與 negative control 是 .py，而 harness 會被

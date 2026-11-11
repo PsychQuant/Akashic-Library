@@ -91,7 +91,7 @@ public final class FulltextFetch {
     /// 先前交給人 `left-site`；主機最左邊的標籤是 `signon`、`sign-on`、`single-sign-on`、`singlesignon` 也算登入主機——第 8 則的副作用，使用者 2026-11-11 裁決保留，#777 第 4 件）。2026-11-06 到 b49 之間從 main 建的 CLI 印 8，碰到這兩種頁面照舊的判斷，所以要調（使用者 2026-11-09）。
     /// 10＝#777（2026-11-11）：Atypon 的 `/action/showLogin` 算登入頁（`BotSignals.pathOnlyLoginSegments`，只看路徑；既有的 8 個呼叫點都跟著算——
     /// 導航之後同站寫著 CAPTCHA 的那一頁 8 → 6；別的主機上落定的頁面 7（交給人 `left-site`）→ 6；落地頁與導航之前的同站頁先前照一般網頁讀
-    /// （多半等不到 PDF 連結、以 3 結束），現在 6）；連 `document.contentType` 都讀不到的同站分頁命中
+    /// （頁面文字有起疑訊號就照訊號，沒有的多半等不到 PDF 連結、以 3 結束），現在 6）；連 `document.contentType` 都讀不到的同站分頁命中
     /// Cloudflare 挑戰或按住驗證的標記、而路徑有登入長相時整批暫停（先前 8）。這幾格的結束碼變了，所以要調。
     /// 前三版的 CLI 沒有 `contract` 子命令——數字只是給歷史一個名字，第 0 步擋它們靠的是「沒有這個子命令」。
     public static let contractVersion = 10

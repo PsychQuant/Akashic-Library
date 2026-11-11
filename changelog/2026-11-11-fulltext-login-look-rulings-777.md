@@ -6,7 +6,7 @@
 
 - **第 1 件**：`BotSignals` 新增只給路徑用的封閉清單 `pathOnlyLoginSegments`，只有 `showlogin`。`urlGateLook` 的路徑迴圈以整段（`PathSegment.bare`：百分比解碼、小寫、去掉 `;` 之後的路徑參數與一個網頁副檔名）比它。**不放進 `loginTokens` 或 `compoundLoginWords`**：那兩份也給主機用，主機標籤 `showlogin.<網域>` 使用者沒有裁過，維持不算；較長 slug 裡的 `showlogin`（`how-to-showlogin-errors`）也不算。
   - `urlGateLook`／`gateLook` 在 `FulltextFetch` 的 8 個呼叫點都跟著算：導航之後同站寫著 CAPTCHA 的那一頁（`onSiteStop`，8 → 6，使用者問句描述的那一格）、DOI 落地頁與導航之前的同站頁（照一般網頁讀 → 6）、導航之後分頁跑到別的主機的 `/action/showLogin`（交給人 `left-site` → 6）、doi.org 落地的判讀。方向都是多停。
-  - **落地頁那一格的實際效果**：站把讀者從 DOI 落地頁轉到 `/action/showLogin` 時（例如要求先登入），那一篇會停下整批，不是只跳過那一篇。先前那一頁照一般網頁讀，多半等不到 PDF 連結、以結束碼 3 結束，批次繼續。這是第 1 件加上 2026-10-02 的裁決（登入頁維持整批暫停）的結果。
+  - **落地頁那一格的實際效果**：站把讀者從 DOI 落地頁轉到 `/action/showLogin` 時（例如要求先登入），那一篇會停下整批，不是只跳過那一篇。先前那一頁照一般網頁讀：頁面文字有起疑訊號就照訊號，沒有的話多半等不到 PDF 連結、以結束碼 3 結束，批次繼續。這是第 1 件加上 2026-10-02 的裁決（登入頁維持整批暫停）的結果。
   - 同站、導航之後、**沒有**起疑訊號的 `/action/showLogin` 仍交給人 `html-page`（第 6 則只看有訊號的那一頁，與 `/login` 相同）。
 - **第 2 件**：`FulltextFetch.judgeUnreadable` 第 3 步——驗證服務標記命中 `cloudflare-challenge` 或 `perimeterx-press-and-hold`（等人驗證的兩個）、分頁在文章站上、網址的路徑有登入長相時整批暫停，訊息帶 `(login page)`；先前是等人驗證（8）。沒有標記的讀不到分頁照舊不看路徑（使用者 2026-10-02，保護 PDF 檢視器的分頁），交給人 `unverifiable`。
 - **契約版本 9 → 10**：兩格的結束碼變了。SKILL 第 0 步要求 10，版本沿革加版本 10。

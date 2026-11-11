@@ -194,7 +194,7 @@ public enum BotSignals {
     /// `/log-on`、`/open-athens`、`/lo-gin` 都算，而同樣的字在較長的 slug 裡（`please-log-on`、`open-athens-redirect`）不算。
     static let compoundLoginJoins: [(first: String, second: String)] = [("sign", "in"), ("log", "in")]
     /// 只給**路徑**用的登入段——**封閉列舉，只有這一個**（使用者 2026-11-11，#777 第 1 件：Atypon 平台（Wiley、T&F、SAGE）的登入頁
-    /// `/action/showLogin` 算登入頁長相）。整段（`PathSegment.bare`：小寫、去掉 `;` 之後的路徑參數與一個網頁副檔名）就是它才算；較長 slug 裡的
+    /// `/action/showLogin` 算登入頁長相）。整段（`PathSegment.bare`：百分比解碼、小寫、去掉 `;` 之後的路徑參數與一個網頁副檔名）就是它才算；較長 slug 裡的
     /// `showlogin`（`how-to-showlogin-errors`）不算。**不放進 `loginTokens` 或 `compoundLoginWords`**：那兩份清單也給主機用（`hostLoginLook`），
     /// 而裁決只講路徑——主機標籤 `showlogin.<網域>` 不算登入主機（主機那一格使用者沒有裁過）。不得依「看起來也是登入頁的路徑」類推第二個。
     static let pathOnlyLoginSegments: Set<String> = ["showlogin"]

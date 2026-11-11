@@ -27,7 +27,7 @@
 
 程式的行為不變，契約版本維持 10。
 
-- 規格 `fulltext-gate-look`：第一條的正規化敘述補上百分比解碼，並寫明導航之前判到這個長相的文章站頁面整批暫停；加三個 Example（百分比編碼的寫法、DOI 落地頁、讀頁面當中轉過去的同站頁）。第二條寫明標記命中而路徑不是登入長相時照原本的方式判；加一個 Example（路徑是驗證頁的長相 `/captcha/x`，仍是結束碼 8）。Example 從 9 個變成 13 個。
+- 規格 `fulltext-gate-look`：第一條的正規化敘述補上百分比解碼（跳脫序列解不開的那一段照原樣比），並寫明導航之前判到這個長相的文章站頁面整批暫停；加三個 Example（百分比編碼的寫法、DOI 落地頁、讀頁面當中轉過去的同站頁）。第二條寫明標記命中而路徑不是登入長相時照原本的方式判，並把最後一句收緊（沒有標記而交給人的那一格，不含登入主機與已知驗證服務上的分頁）；加一個 Example（路徑是驗證頁的長相 `/captcha/x`，仍是結束碼 8）。合併後的規格從 9 個 Example 變成 13 個（新增 4 個）。
 - 測試：四個新 Example 各一支帶標記的測試（兩支在 `FulltextLoginLookRulingsTests`，兩支在 `FulltextB37Tests`）；第 3 件補一支不帶標記的正向測試（導航之後落在 `/auth/12345.pdf`、頁面寫著 CAPTCHA → 6、`(login page)`）。
 - 文字：SKILL〈中止條款〉與 `FulltextOffSiteTests` 的註解裡「讀不到的分頁不適用」改成與 `BotSignals` 同一句；SKILL 版本 10 那段、本檔與 plugin CHANGELOG 直說落地頁那一格的實際效果；`contractVersion` 版本 10 的註解逐格寫出先前的結束碼；版本沿革裡「第 0 步要求 9」的兩句標明是當時的門檻。
 - SKILL 與 plugin CHANGELOG 改了，`.githooks/plugin-shell-versions.txt` 裡 0.13.15 那一列的摘要重算（0.13.15 還沒有發布過）。

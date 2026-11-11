@@ -2,7 +2,7 @@
 
 ### Requirement: An Atypon showLogin path segment SHALL have the look of a login page
 
-A URL SHALL have the look of a login page when one whole path segment, after percent-decoding, lowercasing, removing any `;` path parameters and removing one web-page extension, equals `showlogin`. This list SHALL be used for path segments only: a host label `showlogin` SHALL NOT make a host a login host, and `showlogin` inside a longer hyphenated slug SHALL NOT count. The login words shared by host and path SHALL NOT gain `showlogin`. When the fetch command judges an HTML page on the article site before navigating to the PDF link (the DOI landing page once it has settled, or the page the tab turned into while its text was being read) and that page's URL has this look, it SHALL pause the whole run (exit 6) with a message containing `(login page)`.
+A URL SHALL have the look of a login page when one whole path segment, after percent-decoding (a segment whose escapes cannot be decoded is left as it is), lowercasing, removing any `;` path parameters and removing one web-page extension, equals `showlogin`. This list SHALL be used for path segments only: a host label `showlogin` SHALL NOT make a host a login host, and `showlogin` inside a longer hyphenated slug SHALL NOT count. The login words shared by host and path SHALL NOT gain `showlogin`. When the fetch command judges an HTML page on the article site before navigating to the PDF link (the DOI landing page once it has settled, or the page the tab turned into while its text was being read) and that page's URL has this look, it SHALL pause the whole run (exit 6) with a message containing `(login page)`.
 
 #### Scenario: The Atypon login path
 
@@ -29,7 +29,7 @@ A URL SHALL have the look of a login page when one whole path segment, after per
 
 ##### Example: A percent-encoded showLogin segment is a login look
 
-- **GIVEN** the URL `https://pub.example/action/%73howLogin`
+- **GIVEN** the URL `https://pub.example/action/%73howLogin`, or `https://pub.example/action/show%4Cogin?x=1`
 - **WHEN** the URL's gate look is computed
 - **THEN** it SHALL be `login`
 
@@ -60,7 +60,7 @@ A URL SHALL have the look of a login page when one whole path segment, after per
 ---
 ### Requirement: An unreadable same-site tab with a human-check marker at a login path SHALL pause the run
 
-When a tab on the article site cannot be read at all (not even `document.contentType`), and the service marker found in its title or URL is `cloudflare-challenge` or `perimeterx-press-and-hold`, and the URL's path has the look of a login page, the fetch command SHALL pause the whole run (exit 6) with a message containing `(login page)`, instead of waiting for human verification (exit 8). When the marker is found and the path does not have the look of a login page (a path with the look of a verification page included), the path SHALL NOT change the outcome: the tab is judged as it was before this ruling, which means waiting for human verification (exit 8) when the article site is a plain `https://<host>` origin whose host does not have the look of a login host. Without a service-marker hit, the path SHALL NOT be judged for an unreadable tab, and such a tab SHALL be handed to the user as `unverifiable` (exit 7).
+When a tab on the article site cannot be read at all (not even `document.contentType`), and the service marker found in its title or URL is `cloudflare-challenge` or `perimeterx-press-and-hold`, and the URL's path has the look of a login page, the fetch command SHALL pause the whole run (exit 6) with a message containing `(login page)`, instead of waiting for human verification (exit 8). When the marker is found and the path does not have the look of a login page (a path with the look of a verification page included), the path SHALL NOT change the outcome: the tab is judged as it was before this ruling, which means waiting for human verification (exit 8) when the article site is a plain `https://<host>` origin whose host does not have the look of a login host. Without a service-marker hit, the path SHALL NOT be judged for an unreadable tab: when its host is neither a known verification service nor a host with the look of a login host, such a tab SHALL be handed to the user as `unverifiable` (exit 7).
 
 #### Scenario: Marker and login path
 

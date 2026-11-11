@@ -730,7 +730,12 @@ public final class FulltextFetch {
         if BotSignals.hostLoginLook(url) {
             return botStop("page-unreadable on a host with the look of a login page → \(FulltextFetch.plainURL(url)) (login page)", site)
         }
-        if let hit = BotSignals.serviceMarker(snap.title + "\n" + url) { return stop(for: hit, site, context: context, at: url) }
+        if let hit = BotSignals.serviceMarker(snap.title + "\n" + url) {
+            if hit.response == .humanVerification, sameSite(url, site), BotSignals.urlGateLook(url) == "login" {
+                return botStop("\(hit.label) on an unreadable page on the article site that has the look of a login page → \(FulltextFetch.plainURL(url)) (login page)", site)
+            }
+            return stop(for: hit, site, context: context, at: url)
+        }
         return handover(.unverifiable, at: url)
     }
 

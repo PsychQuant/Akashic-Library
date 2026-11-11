@@ -208,13 +208,13 @@ final class FulltextB37Tests: XCTestCase {
         XCTAssertNil(BotSignals.urlGateLook("https://www.signon.example/x"), "第二個標籤不算")
     }
 
-    /// 第 6 則的邊界（b51 verify 釘住）：連 `document.contentType` 都讀不到的同站分頁走 `judgeUnreadable`，不看路徑的登入長相（使用者
-    /// 2026-10-02，保護 PDF 檢視器的分頁）；標題是 Cloudflare 的「Just a moment...」就照驗證服務的標記，仍是等人驗證（8）。
-    /// 這是現行行為；要不要把第 6 則延伸到這一格待使用者裁決（#777 第 2 件），裁決改了這一支跟著改。
-    func testAnUnreadableSameSiteTabAtALoginPathWithAServiceMarkerStillWaits() {
+    /// 第 6 則延伸到讀不到的分頁（使用者 2026-11-11，#777 第 2 件）：連 `document.contentType` 都讀不到的同站分頁走 `judgeUnreadable`；
+    /// 標題是 Cloudflare 的「Just a moment...」（`cloudflare-challenge` 標記）而網址的路徑有登入長相時整批暫停（6），不再等人驗證
+    /// （b51 verify 釘住的 8）。沒有標記時仍不看路徑（使用者 2026-10-02，保護 PDF 檢視器的分頁），見 `FulltextLoginLookRulingsTests` 的負控。
+    // spec-example: fulltext-gate-look / Unreadable same-site login path with a Cloudflare marker pauses
+    func testAnUnreadableSameSiteTabAtALoginPathWithAServiceMarkerPauses() {
         var s = Scenario(); s.afterNavURL = "https://pub.example/login"; s.afterNavTitle = "Just a moment..."; s.afterNavJSFails = true
-        XCTAssertEqual(run(s), 8, errText)
-        XCTAssertTrue(outText.contains("--resume-stage followed"), outText)
+        assertSameSiteLoginCaptchaStop(run(s))
     }
 
     /// 第 8 則落到別的主機上：導航之後分頁落在別的主機的 `/sign-on`（HTML）——整批暫停（版本 8 是交給人 `left-site`）；

@@ -112,4 +112,16 @@ final class FulltextLoginLookRulingsTests: XCTestCase {
         let skill = try String(contentsOf: repo.appendingPathComponent("plugin/skills/akashic-fetch-fulltext/SKILL.md"), encoding: .utf8)
         XCTAssertTrue(skill.contains("[ \"${v#fulltext-contract }\" -ge 10 ]"), "SKILL 第 0 步要求 10")
     }
+
+    /// SKILL〈中止條款〉的只給路徑用的登入段就是程式的那一份（對帳；同 `FulltextB37Tests.testTheSkillsCompoundListsAreTheCodesLists`）。
+    func testTheSkillsPathOnlyListIsTheCodesList() throws {
+        let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let skill = try String(contentsOf: repo.appendingPathComponent("plugin/skills/akashic-fetch-fulltext/SKILL.md"), encoding: .utf8)
+        let start = "**只給路徑用的登入段**（`BotSignals.pathOnlyLoginSegments`）："
+        guard let a = skill.range(of: start), let b = skill.range(of: "——", range: a.upperBound..<skill.endIndex) else {
+            return XCTFail("SKILL 找不到只給路徑用的登入段")
+        }
+        let listed = skill[a.upperBound..<b.lowerBound].split(separator: "`", omittingEmptySubsequences: false).enumerated().filter { $0.offset % 2 == 1 }.map { String($0.element) }
+        XCTAssertEqual(Set(listed), BotSignals.pathOnlyLoginSegments)
+    }
 }

@@ -199,7 +199,7 @@ final class FulltextB37Tests: XCTestCase {
         XCTAssertEqual(run(s), 7, errText)
     }
 
-    /// b49 第 8 則的副作用（SKILL 版本 9 那段、`FulltextFetch.contractVersion` 的註解與 b49 changelog 寫明；要不要保留待使用者裁決，#777 第 4 件）：
+    /// b49 第 8 則的副作用（SKILL 版本 9 那段、`FulltextFetch.contractVersion` 的註解與 b49 changelog 寫明；使用者 2026-11-11 裁決保留，#777 第 4 件）：
     /// 主機最左邊的標籤是 `signon`、`sign-on`、`single-sign-on` 也算登入主機。
     func testASignOnHostLabelIsALoginHost() {
         for u in ["https://signon.uni.example/x", "https://sign-on.uni.example/x", "https://single-sign-on.uni.example/x"] {

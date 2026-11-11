@@ -1,0 +1,26 @@
+# #777：取全文的四件待裁事項，使用者 2026-11-11 裁決（plugin 殼 0.13.14 → 0.13.15，契約版本 9 → 10）
+
+使用者 2026-11-11 對 #777 的四件回答（#777 的 Decision comment）：第 1 件 `/action/showLogin` 算登入頁、第 2 件讀不到的同站分頁改整批暫停、第 3 件接受（多停）、第 4 件保留（多停）。前兩件改程式，後兩件只把文件裡的「待使用者裁決」改成已裁決。規格：Spectra change `idd-777-fulltext-login-look-rulings`（新 capability `fulltext-gate-look`）。
+
+## 改了程式的兩件
+
+- **第 1 件**：`BotSignals` 新增只給路徑用的封閉清單 `pathOnlyLoginSegments`，只有 `showlogin`。`urlGateLook` 的路徑迴圈以整段（`PathSegment.bare`：小寫、去掉 `;` 之後的路徑參數與一個網頁副檔名）比它。**不放進 `loginTokens` 或 `compoundLoginWords`**：那兩份也給主機用，主機標籤 `showlogin.<網域>` 使用者沒有裁過，維持不算；較長 slug 裡的 `showlogin`（`how-to-showlogin-errors`）也不算。
+  - `urlGateLook`／`gateLook` 在 `FulltextFetch` 的 8 個呼叫點都跟著算：導航之後同站寫著 CAPTCHA 的那一頁（`onSiteStop`，8 → 6，使用者問句描述的那一格）、DOI 落地頁與導航之前的同站頁（照一般網頁讀 → 6）、導航之後分頁跑到別的主機的 `/action/showLogin`（交給人 `left-site` → 6）、doi.org 落地的判讀。方向都是多停。
+  - 同站、導航之後、**沒有**起疑訊號的 `/action/showLogin` 仍交給人 `html-page`（第 6 則只看有訊號的那一頁，與 `/login` 相同）。
+- **第 2 件**：`FulltextFetch.judgeUnreadable` 第 3 步——驗證服務標記命中 `cloudflare-challenge` 或 `perimeterx-press-and-hold`（等人驗證的兩個）、分頁在文章站上、網址的路徑有登入長相時整批暫停，訊息帶 `(login page)`；先前是等人驗證（8）。沒有標記的讀不到分頁照舊不看路徑（使用者 2026-10-02，保護 PDF 檢視器的分頁），交給人 `unverifiable`。
+- **契約版本 9 → 10**：兩格的結束碼變了。SKILL 第 0 步要求 10，版本沿革加版本 10。
+
+## 改成已裁決的兩件
+
+- **第 3 件**：PDF 連結路徑恰好有整段的 `auth`、`login`（`/auth/12345.pdf`），導航之後落在那裡的挑戰頁算登入長相、整批暫停（6）。維持。
+- **第 4 件**：主機最左邊的標籤是 `signon`、`sign-on`、`single-sign-on`、`singlesignon` 也算登入主機。維持。
+
+## 測試
+
+- 新檔 `Tests/AkashicKitTests/FulltextLoginLookRulingsTests.swift`：`showLogin` 的三個 `urlGateLook` 案例（含查詢字串、主機標籤不算、較長 slug 不算）、兩個流程案例（導航之後同站 `/action/showLogin` 寫著 CAPTCHA → 6；別的主機上的 `/action/showLogin` → 6）、兩個負控（讀不到的同站 `/login`、`/auth/12345.pdf`，沒有標記 → 7 `unverifiable`）、契約版本 10 與 SKILL 第 0 步一致、SKILL 的路徑清單與程式一致。
+- `FulltextB37Tests.testAnUnreadableSameSiteTabAtALoginPathWithAServiceMarkerStillWaits`（釘住 8）改名為 `…Pauses`，斷言 6、`STOP THE WHOLE RUN`、`(login page)`、不印 `resume:`。
+- 每支對應 spec Example 的測試帶 `spec-example: fulltext-gate-look / …` 標記。
+
+## 衝突
+
+PR #783（#775）也把 plugin 殼升到 0.13.15；後合併的那一個要改成下一號，並在 `.githooks/plugin-shell-versions.txt` 重接一列。

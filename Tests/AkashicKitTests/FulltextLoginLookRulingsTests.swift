@@ -103,6 +103,39 @@ final class FulltextLoginLookRulingsTests: XCTestCase {
         XCTAssertTrue(outText.contains("handover: unverifiable"), outText)
     }
 
+    // MARK: 第 2 件：那一支只收文章站上、等人驗證的兩個標記
+
+    /// 裁決點名的第二個標記：按住驗證（`perimeterx-press-and-hold`）。讀不到的同站分頁在登入路徑上、標題是按住驗證的頁面用語時整批暫停。
+    /// Cloudflare 挑戰那一個標記的測試在 `FulltextB37Tests.testAnUnreadableSameSiteTabAtALoginPathWithAServiceMarkerPauses`。
+    func testAnUnreadableSameSiteLoginPathWithAPressAndHoldMarkerPauses() {
+        var s = Scenario(); s.afterNavURL = "https://pub.example/login"; s.afterNavTitle = "Press & Hold to confirm you are a human (and not a bot)"
+        s.afterNavJSFails = true
+        assertLoginPause(run(s))
+        XCTAssertTrue(errText.contains("perimeterx-press-and-hold"), errText)
+    }
+
+    /// 別的主機上讀不到的分頁：登入路徑加上 Cloudflare 挑戰的標記，本來就整批暫停（服務標記在文章站與已知驗證服務之外）。停止的理由要照實說是
+    /// 別的主機，不說成「文章站上的登入頁」——第 2 件那一支有 `sameSite` 這個條件，結束碼不靠它，訊息靠它。
+    func testAnUnreadableLoginPathOnAnotherHostIsNotCalledTheArticleSite() {
+        var s = Scenario(); s.afterNavURL = "https://other.example/login"; s.afterNavTitle = "Just a moment..."; s.afterNavJSFails = true
+        XCTAssertEqual(run(s), 6, errText)
+        XCTAssertTrue(errText.contains("STOP THE WHOLE RUN"), errText)
+        XCTAssertTrue(errText.contains("neither the article site nor a known verification service"), errText)
+        XCTAssertFalse(errText.contains("on the article site"), errText)
+        XCTAssertFalse(outText.contains("resume:"), outText)
+    }
+
+    /// 整批暫停的標記（等人驗證的兩個以外的四個）在同站的登入路徑上照舊以自己的標籤停：第 2 件那一支只收等人驗證的標記（裁決的範圍），
+    /// 封鎖頁的理由是「被封鎖」，不改說成登入頁。結束碼兩邊都是 6，這一支釘的是訊息。
+    func testAnUnreadableSameSiteLoginPathWithABlockMarkerKeepsItsOwnReason() {
+        var s = Scenario(); s.afterNavURL = "https://pub.example/login"; s.afterNavTitle = "Pardon Our Interruption"; s.afterNavJSFails = true
+        XCTAssertEqual(run(s), 6, errText)
+        XCTAssertTrue(errText.contains("STOP THE WHOLE RUN"), errText)
+        XCTAssertTrue(errText.contains("akamai-block"), errText)
+        XCTAssertFalse(errText.contains("(login page)"), errText)
+        XCTAssertFalse(outText.contains("resume:"), outText)
+    }
+
     // MARK: 契約版本
 
     // spec-example: fulltext-gate-look / Skill and CLI agree on contract 10

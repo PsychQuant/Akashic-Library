@@ -20,6 +20,7 @@
 - 新檔 `Tests/AkashicKitTests/FulltextLoginLookRulingsTests.swift`：`showLogin` 的三個 `urlGateLook` 案例（含查詢字串、主機標籤不算、較長 slug 不算）、兩個流程案例（導航之後同站 `/action/showLogin` 寫著 CAPTCHA → 6；別的主機上的 `/action/showLogin` → 6）、兩個負控（讀不到的同站 `/login`、`/auth/12345.pdf`，沒有標記 → 7 `unverifiable`）、契約版本 10 與 SKILL 第 0 步一致、SKILL 的路徑清單與程式一致。
 - `FulltextB37Tests.testAnUnreadableSameSiteTabAtALoginPathWithAServiceMarkerStillWaits`（釘住 8）改名為 `…Pauses`，斷言 6、`STOP THE WHOLE RUN`、`(login page)`、不印 `resume:`。
 - 每支對應 spec Example 的測試帶 `spec-example: fulltext-gate-look / …` 標記。
+- verify 之前補的三支（同一個檔，不對應 spec Example）：讀不到的同站 `/login`、標題是按住驗證的用語 → 6、`(login page)`（裁決點名的第二個標記）；別的主機上讀不到的 `/login`、標題是 Cloudflare 挑戰 → 6，訊息說的是別的主機，不說成文章站；讀不到的同站 `/login`、標題是封鎖頁 → 6，訊息是封鎖的標籤、沒有 `(login page)`。後兩支釘的是訊息：拿掉 `judgeUnreadable` 新分支的 `sameSite` 或「等人驗證」條件，結束碼不變（別的主機與其他四個標記本來就是 6），先前沒有測試會變紅。
 
 ## 衝突
 

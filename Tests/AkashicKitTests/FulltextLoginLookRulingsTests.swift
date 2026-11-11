@@ -69,6 +69,14 @@ final class FulltextLoginLookRulingsTests: XCTestCase {
         }
     }
 
+    /// 路徑的一段先做百分比解碼再比（與其他登入字詞同一條 `pathSegment`）：編碼過的寫法也算。
+    // spec-example: fulltext-gate-look / A percent-encoded showLogin segment is a login look
+    func testAPercentEncodedShowLoginSegmentIsALoginLook() {
+        for u in ["https://pub.example/action/%73howLogin", "https://pub.example/action/show%4Cogin?x=1"] {
+            XCTAssertEqual(BotSignals.urlGateLook(u), "login", u)
+        }
+    }
+
     // spec-example: fulltext-gate-look / A CAPTCHA on the showLogin page after navigation pauses the run
     func testACaptchaOnTheShowLoginPageAfterNavigationPausesTheRun() {
         var s = Scenario(); s.afterNavURL = "https://pub.example/action/showLogin?redirectUri=%2Fdoi%2Fx"; s.afterNavTitle = "Log in"
@@ -134,6 +142,27 @@ final class FulltextLoginLookRulingsTests: XCTestCase {
         XCTAssertTrue(errText.contains("akamai-block"), errText)
         XCTAssertFalse(errText.contains("(login page)"), errText)
         XCTAssertFalse(outText.contains("resume:"), outText)
+    }
+
+    /// 第 2 件只收登入長相：讀不到的同站分頁、標題是 Cloudflare 挑戰、路徑是**驗證頁**的長相（`/captcha/x`）時仍是等人驗證（8），
+    /// 印出導航之後的接續參數。把新分支的條件放寬成「網址有任何長相」會讓這一格變成 6（第 1 輪 verify 的 mutation）。
+    // spec-example: fulltext-gate-look / Unreadable same-site verification path with a Cloudflare marker still waits
+    func testAnUnreadableSameSiteVerificationPathWithAChallengeMarkerStillWaits() {
+        var s = Scenario(); s.afterNavURL = "https://pub.example/captcha/x"; s.afterNavTitle = "Just a moment..."; s.afterNavJSFails = true
+        XCTAssertEqual(run(s), 8, errText)
+        XCTAssertTrue(outText.contains("--resume-stage followed"), outText)
+        XCTAssertFalse(errText.contains("(login page)"), errText)
+        XCTAssertFalse(errText.contains("STOP THE WHOLE RUN"), errText)
+    }
+
+    // MARK: 第 3 件（維持現行行為）
+
+    /// 頁面自己的 PDF 連結恰好是 `/auth/12345.pdf`：導航之後落在那裡的是讀得到的網頁、寫著 CAPTCHA 時整批暫停，訊息標 `(login page)`
+    /// ——登入長相來自路徑整段的 `auth`（使用者 2026-11-11 裁決接受，#777 第 3 件）。
+    func testACaptchaPageAtAnAuthPDFPathAfterNavigationPausesTheRun() {
+        var s = Scenario(); s.link = "GET https://pub.example/auth/12345.pdf"; s.afterNavTitle = "Just a moment..."
+        s.afterNavContentType = "text/html"; s.afterNavText = "Please complete the CAPTCHA below"
+        assertLoginPause(run(s))
     }
 
     // MARK: 契約版本

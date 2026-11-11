@@ -199,6 +199,23 @@ final class FulltextB37Tests: XCTestCase {
         XCTAssertEqual(run(s), 7, errText)
     }
 
+    /// #777 第 1 件落到導航之前：DOI 落地頁就是 Atypon 的 `/action/showLogin`（站把沒登入的讀者轉過去）時整批暫停，不導航、不記嘗試
+    /// ——先前照一般網頁讀。
+    // spec-example: fulltext-gate-look / A landing page at showLogin pauses the run
+    func testALandingPageAtShowLoginPausesTheBatch() {
+        var s = Scenario(); s.landingFinal = "https://pub.example/action/showLogin?redirectUri=%2Fdoi%2F10.1%2Fx"
+        assertLoginStop(run(s))
+    }
+
+    /// 同一件事在讀頁面的當中：落地頁通過網址檢查之後，分頁轉到同站的 `/action/showLogin`，那一頁寫著 CAPTCHA——照登入長相整批暫停，
+    /// 不照頁面文字降成等人驗證。
+    // spec-example: fulltext-gate-look / A page that turns into showLogin before navigation pauses the run
+    func testALandingThatTurnsIntoShowLoginWhileBeingReadPauses() {
+        let s = Scenario()
+        let code = run(s, hook: Self.movesToALoginPageWhileReading(onRead: 1, to: "https://pub.example/action/showLogin?redirectUri=x"))
+        assertLoginStop(code)
+    }
+
     /// b49 第 8 則的副作用（SKILL 版本 9 那段、`FulltextFetch.contractVersion` 的註解與 b49 changelog 寫明；使用者 2026-11-11 裁決保留，#777 第 4 件）：
     /// 主機最左邊的標籤是 `signon`、`sign-on`、`single-sign-on` 也算登入主機。
     func testASignOnHostLabelIsALoginHost() {

@@ -1,5 +1,9 @@
 import Foundation
+#if os(Linux)
+import Glibc
+#else
 import Darwin
+#endif
 
 /// `ensureLayout` 對 store 根目錄 `.gitignore` 的處置：沒有 sources 排除區塊（#66 task 4.3）就加上。
 ///

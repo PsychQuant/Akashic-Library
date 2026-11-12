@@ -1,4 +1,5 @@
 import Foundation
+import AkashicCore   // #794：Linux 的 `autoreleasepool`（macOS 用 Foundation 的）
 #if os(Linux)
 import Crypto
 #else

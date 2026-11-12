@@ -216,4 +216,39 @@ final class ZoteroStorageFileTests: XCTestCase {
         XCTAssertEqual(ZoteroStorageFile.mediaType(forFilename: "noext"), "application/octet-stream")
         XCTAssertEqual(ZoteroStorageFile.mediaType(forFilename: "weird.zzz"), "application/octet-stream")
     }
+
+    /// #794：descriptor 的真實位置在兩個平台都答得出來（macOS `F_GETPATH`、Linux `/proc/self/fd`），並落在 `storage/` 之內；
+    /// `openVerified` 以它判斷，所以同一個檔在兩個平台都開得成。Linux 上檔案被刪掉之後 kernel 回 `<路徑> (deleted)`，`kernelPath`
+    /// 要回 nil（呼叫端因此是 `.unreadable`，不是放行）。
+    func testTheDescriptorPathIsInsideStorageAndADeletedFileHasNone() throws {
+        try put("storage/ABCD1234/paper.pdf", "%PDF-1.7 hello")
+        let fileURL = storage.appendingPathComponent("ABCD1234/paper.pdf")
+        let fd = openDescriptor(fileURL.path, O_RDONLY | O_CLOEXEC)
+        XCTAssertGreaterThanOrEqual(fd, 0)
+        defer { close(fd) }
+        let dirFD = openDescriptor(storage.path, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+        XCTAssertGreaterThanOrEqual(dirFD, 0)
+        defer { close(dirFD) }
+        let realStorage = try XCTUnwrap(ZoteroStorageFile.kernelPath(dirFD))
+        let realFile = try XCTUnwrap(ZoteroStorageFile.kernelPath(fd))
+        XCTAssertTrue(realFile.hasPrefix(realStorage + "/"), "\(realFile) 不在 \(realStorage) 之內")
+        XCTAssertTrue(realFile.hasSuffix("/ABCD1234/paper.pdf"), realFile)
+
+        guard case .found(let located) = ZoteroStorageFile.locate(dataDir: dir, attachmentPath: "storage/ABCD1234/paper.pdf") else {
+            return XCTFail("普通檔應該定位得到")
+        }
+        guard case .file(let handle, let bytes) = ZoteroStorageFile.openVerified(dataDir: dir, located: located) else {
+            return XCTFail("storage 之內的普通檔應該開得成")
+        }
+        XCTAssertEqual(bytes, 14)
+        try handle.close()
+
+        try FileManager.default.removeItem(at: fileURL)
+        #if os(Linux)
+        XCTAssertNil(ZoteroStorageFile.kernelPath(fd), "被刪掉的檔，/proc/self/fd 回的是帶 (deleted) 的舊路徑，不是現存的位置")
+        #endif
+    }
 }
+
+/// `open(2)`：在檔案層級呼叫，避開 XCTestCase 自己的 `open` 方法。
+private func openDescriptor(_ path: String, _ flags: Int32) -> Int32 { open(path, flags) }

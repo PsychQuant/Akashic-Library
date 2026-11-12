@@ -1,5 +1,9 @@
 import Foundation
+#if os(Linux)
+import Glibc
+#else
 import Darwin
+#endif
 import AkashicCore
 
 /// `sources/` 存檔的暫存檔與「放上位址」那一步（#703；R1 verify 之後從 `SourceStore.swift` 拆出——那個檔加上這一輪會超過 800 行）。
@@ -51,10 +55,27 @@ extension LibraryStore {
         var volumeSupportsExclusivePlacement: @Sendable (_ path: String) -> Bool? = {
             LibraryStore.volumeSupportsExclusivePlacement(at: $0)
         }
+        #if os(Linux)
+        /// Linux（#794）：`renameat2(RENAME_NOREPLACE)` 是 `renamex_np(RENAME_EXCL)` 的對應——原子、目的地在就 `EEXIST`、從不取代。
+        /// Swift 的 Glibc 模組不露出 `renameat2`，所以執行期以符號查找取得（`LinuxRenameNoReplace`），本 repo 不加任何 C 程式碼。
+        static let system = BlobPlacement(
+            renameExclusive: LinuxRenameNoReplace.call(LinuxRenameNoReplace.symbol),
+            hardLink: { Glibc.link($0, $1) == 0 ? 0 : errno })
+        #else
         static let system = BlobPlacement(
             renameExclusive: { renamex_np($0, $1, UInt32(RENAME_EXCL)) == 0 ? 0 : errno },
             hardLink: { Darwin.link($0, $1) == 0 ? 0 : errno })
+        #endif
     }
+
+    /// 放置閘的排他改名呼叫叫什麼（訊息用，固定字串）。macOS 的兩句逐字是 #794 之前的寫法。
+    #if os(Linux)
+    internal static let exclusiveRenameCall = "renameat2 RENAME_NOREPLACE"
+    internal static let exclusiveRenameFlag = "RENAME_NOREPLACE"
+    #else
+    internal static let exclusiveRenameCall = "renamex_np RENAME_EXCL"
+    internal static let exclusiveRenameFlag = "RENAME_EXCL"
+    #endif
 
     /// 放上位址的結果：放了，或位址上已經有東西（不覆寫；那是什麼由呼叫端以 `sourceOccupant` 判）。
     internal enum Placed { case placed, alreadyThere }
@@ -62,8 +83,21 @@ extension LibraryStore {
     /// 檔案系統「不支援這個呼叫」的 errno（封閉列舉）：`ENOTSUP`／`EOPNOTSUPP`（實測 exFAT、FAT32）；`renamex_np` 另收 `EINVAL`
     /// （手冊：旗標值不被接受——SMB／NFS 掛載可能以它回應，沒有實測），`link` 另收 `EPERM`（Linux 與部分網路檔案系統以它表示不支援
     /// hard link；macOS 手冊的 `EPERM` 只指目錄，暫存檔不是目錄）。其餘 errno 不退，直接具名擲出。
-    private static func placementUnsupported(_ code: Int32, orAlso extra: Int32) -> Bool {
-        code == ENOTSUP || code == EOPNOTSUPP || code == extra
+    ///
+    /// **Linux（#794）**：排他改名另收 `ENOSYS`——kernel 3.15 以前沒有 `renameat2`、glibc 2.28 以前沒有它的符號（找不到符號也回
+    /// `ENOSYS`，見 `LinuxRenameNoReplace`）；`EINVAL` 是 `renameat2` 手冊寫的「檔案系統不支援這個旗標」。`ENOSYS` 只把呼叫導向 `link(2)`
+    /// 或拒絕，不會導向覆寫。macOS 的兩份清單不變。
+    internal static func exclusiveRenameUnsupported(_ code: Int32) -> Bool {
+        #if os(Linux)
+        return code == ENOTSUP || code == EOPNOTSUPP || code == EINVAL || code == ENOSYS
+        #else
+        return code == ENOTSUP || code == EOPNOTSUPP || code == EINVAL
+        #endif
+    }
+
+    /// `link(2)` 的那一份（兩個平台相同）。
+    internal static func hardLinkUnsupported(_ code: Int32) -> Bool {
+        code == ENOTSUP || code == EOPNOTSUPP || code == EPERM
     }
 
     /// 系統給的錯誤說明（固定英文字串，不含使用者資料）。放置與同步的錯誤訊息共用。
@@ -73,15 +107,29 @@ extension LibraryStore {
     /// APFS 或 HFS+。曾有第三條路（以 `O_EXCL` 建立目的檔後逐塊複製），拿掉的理由：exFAT／FAT32 上新建檔案的 inode 在第一次寫入後會變，
     /// 靠 inode 認「自己的檔」的失敗清理與訊號清理全部失效，半截檔留在內容位址上、讀回驗證抓到的壞檔之後還被記進 index。
     internal static func unsupportedVolumeError(_ detail: String) -> StoreIOError {
+        #if os(Linux)
+        // #794：Linux 的拒絕不叫人改用 APFS／HFS+；說出呼叫的名字與要的檔案系統性質（沒有實際不支援的檔案系統可以量，不列舉哪些不行）
+        StoreIOError.invalidInput(
+            what: "sources/ 存檔",
+            why: "sources/ 所在的檔案系統做不到不覆寫的原子放置（\(detail)）——沒有存任何東西。"   // display-safe-exempt: detail 是本檔的固定句與 errno 說明
+                + "把 store 放在支援 hard link 或 renameat2 RENAME_NOREPLACE 的本機檔案系統上（ext4、xfs 這類）")
+        #else
         StoreIOError.invalidInput(
             what: "sources/ 存檔",
             why: "sources/ 所在的檔案系統做不到不覆寫的原子放置（\(detail)；exFAT、FAT32 即此類）——沒有存任何東西。"   // display-safe-exempt: detail 是本檔的固定句與 errno 說明
                 + "把 store 放在 APFS 或 HFS+ 的磁碟區上")
+        #endif
     }
 
     /// 磁碟區的能力旗標（`getattrlist`，`ATTR_VOL_CAPABILITIES`）：`RENAME_EXCL` 或 hard link 至少一個有 → `true`；兩個旗標都有效而都沒有 → `false`
     /// （實測 exFAT、FAT32：兩者都是有效旗標、值為 0；APFS：兩者皆 1）；其餘（查不到、旗標無效）→ `nil`，交給實際呼叫的結果。
+    ///
+    /// **Linux 一律回 `nil`**（#794）：沒有對應的能力旗標，交給 `assertDirectoryCanPlace` 在分片目錄裡實際放一次。不維護「哪些檔案系統類型
+    /// 做得到」的允許清單——那是另一份會與實際行為分岔的描述；代價是每次存檔多一次建檔、改名、刪檔。
     internal static func volumeSupportsExclusivePlacement(at path: String) -> Bool? {
+        #if os(Linux)
+        return nil
+        #else
         struct VolCaps { var length: UInt32 = 0; var caps = vol_capabilities_attr_t() }
         var request = attrlist()
         request.bitmapcount = u_short(ATTR_BIT_MAP_COUNT)
@@ -95,6 +143,7 @@ extension LibraryStore {
         if (hardLinks.valid && hardLinks.cap) || (renameExcl.valid && renameExcl.cap) { return true }
         if hardLinks.valid && renameExcl.valid { return false }
         return nil
+        #endif
     }
 
     /// 存檔之前（`storeSource` 的第一步、`preflightStoreSource`）問磁碟區：做不到不覆寫的原子放置就具名拒絕，一個位元組都不寫。
@@ -180,9 +229,13 @@ extension LibraryStore {
     /// **`EINTR`：重試**（每個呼叫至多 8 次；訊號被我們忽略或由 dispatch 接手，實際上不會發生，仍以有界迴圈寫明）；用完仍 `EINTR` 當成錯誤回傳。
     /// 2026-10-01 本機實測（APFS、200 KB 的檔）：`F_FULLFSYNC` 平均 4.3 ms、`fsync` 0.1 ms——`copy-zotero-attachments` 一趟 2,817 個附件約多 12 秒。
     /// 兩個系統呼叫是參數（預設是真的），測試以它們模擬「`F_FULLFSYNC` 回 `EIO`、`fsync` 成功」。
+    ///
+    /// **Linux（#794）**：完整同步就是 `fsync(2)`（依手冊它把資料送到裝置並清裝置的寫入快取——在檔案系統下 barrier／flush 時成立，ext4、xfs
+    /// 預設如此；VM 裡量不到這件事，不宣稱與 `F_FULLFSYNC` 等價）。Linux 沒有更弱的第二個呼叫可退，所以 `plainFsync` 的預設回 `ENOSYS`
+    /// （「不支援」）：`fsync` 回「不支援」時的結局與 macOS 兩個呼叫都不支援時相同（盡力而為、回 0），真錯誤照樣回傳。
     internal static func syncFile(_ fd: Int32,
-                                  fullFsync: (Int32) -> Int32 = { fcntl($0, F_FULLFSYNC) == 0 ? 0 : errno },
-                                  plainFsync: (Int32) -> Int32 = { fsync($0) == 0 ? 0 : errno }) -> Int32 {
+                                  fullFsync: (Int32) -> Int32 = LibraryStore.defaultFullSync,
+                                  plainFsync: (Int32) -> Int32 = LibraryStore.defaultPlainSync) -> Int32 {
         func retryingInterrupts(_ call: () -> Int32) -> Int32 {
             var code = call()
             var retries = 0
@@ -195,6 +248,14 @@ extension LibraryStore {
         let plain = retryingInterrupts { plainFsync(fd) }
         return plain == 0 || syncUnsupported(plain) ? 0 : plain
     }
+
+    #if os(Linux)
+    internal static let defaultFullSync: (Int32) -> Int32 = { fsync($0) == 0 ? 0 : errno }
+    internal static let defaultPlainSync: (Int32) -> Int32 = { _ in ENOSYS }
+    #else
+    internal static let defaultFullSync: (Int32) -> Int32 = { fcntl($0, F_FULLFSYNC) == 0 ? 0 : errno }
+    internal static let defaultPlainSync: (Int32) -> Int32 = { fsync($0) == 0 ? 0 : errno }
+    #endif
 
     /// 同步呼叫回「這個檔案或檔案系統不實作這個呼叫」的 errno（封閉列舉，b29 V5：先前只有前三個）：`ENOTSUP`／`EOPNOTSUPP`／`EINVAL`，
     /// 加上 `ENOTTY`（實測 cd9660 映像的 `F_FULLFSYNC`）、`ENODEV`（實測 devfs 的 `F_FULLFSYNC`）、`ENOSYS`（沒有實作的呼叫）。
@@ -226,8 +287,8 @@ extension LibraryStore {
         let excl = placement.renameExclusive(tmp, dest)
         if excl == 0 { return .placed }
         if excl == EEXIST { return .alreadyThere }
-        guard Self.placementUnsupported(excl, orAlso: EINVAL) else {
-            throw fail("暫存檔無法放到位址上（renamex_np RENAME_EXCL：\(Self.errnoText(excl))）")
+        guard Self.exclusiveRenameUnsupported(excl) else {
+            throw fail("暫存檔無法放到位址上（\(Self.exclusiveRenameCall)：\(Self.errnoText(excl))）")
         }
         let ln = placement.hardLink(tmp, dest)
         if ln == 0 {
@@ -235,10 +296,10 @@ extension LibraryStore {
             return .placed
         }
         if ln == EEXIST { return .alreadyThere }
-        guard Self.placementUnsupported(ln, orAlso: EPERM) else {
-            throw fail("這個檔案系統不支援排他改名（RENAME_EXCL：\(Self.errnoText(excl))），hard link 也失敗（\(Self.errnoText(ln))）")
+        guard Self.hardLinkUnsupported(ln) else {
+            throw fail("這個檔案系統不支援排他改名（\(Self.exclusiveRenameFlag)：\(Self.errnoText(excl))），hard link 也失敗（\(Self.errnoText(ln))）")
         }
-        throw Self.unsupportedVolumeError("RENAME_EXCL：\(Self.errnoText(excl))；link：\(Self.errnoText(ln))")
+        throw Self.unsupportedVolumeError("\(Self.exclusiveRenameFlag)：\(Self.errnoText(excl))；link：\(Self.errnoText(ln))")
     }
 }
 
@@ -296,7 +357,11 @@ internal enum InFlightSourceFiles {
     static func currentDisposition(_ sig: Int32) -> Disposition {
         var current = sigaction()
         guard sigaction(sig, nil, &current) == 0 else { return .custom }
+        #if os(Linux)
+        let handler = unsafeBitCast(current.__sigaction_handler, to: Int.self)   // glibc 的欄位名（#794）
+        #else
         let handler = unsafeBitCast(current.__sigaction_u, to: Int.self)
+        #endif
         if handler == unsafeBitCast(SIG_DFL, to: Int.self) { return .defaultAction }
         if handler == unsafeBitCast(SIG_IGN, to: Int.self) { return .ignored }
         return .custom
@@ -361,8 +426,16 @@ internal enum InFlightSourceFiles {
     }
 
     /// 呼叫端持有 `lock`。
+    ///
+    /// **Linux 不接管（#794，2026-11-12 在 noble 與 jammy 量過）**：libdispatch 在 Linux 以自己的 `sigaction` handler 觀察訊號——source
+    /// `resume` 之後（非同步地）處置就變成它的 handler（`custom`），`SIG_IGN` 時 source 收不到；而事件處理裡 `signal(SIG_DFL)` 加 `raise`
+    /// 不會結束行程（`raise` 送給 worker thread，那條 thread 擋著訊號，訊號停在 pending）。照 macOS 的狀態機接管的話，存檔期間送來的
+    /// Ctrl-C 被吞掉、不刪檔也不結束，而且釋放時處置不是「我們的忽略」、不還原，行程從此不會被 SIGINT／SIGTERM／SIGHUP 結束。
+    /// 所以 Linux 上登記照記（`removeRegistered` 照常可用），訊號不接管：Ctrl-C 由 kernel 照預設處置結束行程，留下的暫存檔由 doctor 的
+    /// `strayTemporaryFiles` 報（與 `SIGKILL` 相同，只報不刪）。Linux 上的接管做法另案。
     private static func takeSignals() {
         taken = []
+        #if !os(Linux)
         for sig in signals {
             // 先只讀（`sigaction` 不改任何東西）：原本不是預設處置（被忽略、或有別的處理——含 `SA_SIGINFO` 的）就不碰它
             guard currentDisposition(sig) == .defaultAction else { continue }
@@ -375,6 +448,7 @@ internal enum InFlightSourceFiles {
                 sources[sig] = s
             }
         }
+        #endif
     }
 
     /// 呼叫端持有 `lock`。只還原處置**仍是我們設的忽略**的訊號：登記期間別人改過它（主機裝了自己的 handler）就不動，

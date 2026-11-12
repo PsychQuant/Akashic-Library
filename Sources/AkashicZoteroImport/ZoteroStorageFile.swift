@@ -80,7 +80,7 @@ public enum ZoteroStorageFile {
     ///
     /// `locate` 的檢查（lstat、真實路徑前綴）與之後的讀取之間有時間窗：若在那之間檔案被換成 symlink、或 KEY 目錄被換成指出去的 symlink，
     /// 以路徑再讀一次就會跟過去。這裡以 `O_NOFOLLOW` 開啟（最後一段是 symlink 就失敗）、`fstat` 確認開到的是非空普通檔、大小不超過上限，
-    /// 再以 `F_GETPATH` 問 kernel 這個 descriptor 的真實位置、要求它在 `storage/` 之內（`storage/` 自己也經 descriptor 問，兩邊同一種寫法，
+    /// 再以 `F_GETPATH`（Linux 是 `/proc/self/fd`，見 `kernelPath`）問 kernel 這個 descriptor 的真實位置、要求它在 `storage/` 之內（`storage/` 自己也經 descriptor 問，兩邊同一種寫法，
     /// 大小寫與 `/private` 前綴不會對不上）。`O_NONBLOCK`：換進來的若是 FIFO，開啟不會卡住（隨後以種類拒絕）。
     /// 不 mmap——檔案在讀的時候被截短，mmap 會讓行程收到 SIGBUS。讀的時候長大超過上限，由逐塊讀的那一方停下（它數得到讀了多少）。
     public static func openVerified(dataDir: URL, located: Located, limit: Int = LibraryStore.maxSourceBytes) -> Opened {
@@ -111,11 +111,22 @@ public enum ZoteroStorageFile {
         return .file(handle, bytes: Int(st.st_size))
     }
 
-    /// descriptor 的真實位置（kernel 的 `F_GETPATH`）。答不出來回 nil。
-    private static func kernelPath(_ fd: Int32) -> String? {
+    /// descriptor 的真實位置（macOS：kernel 的 `F_GETPATH`）。答不出來回 nil；nil 在呼叫端是 `.unreadable`（拒絕，不是放行）。
+    ///
+    /// **Linux（#794）**：沒有 `F_GETPATH`，讀 `/proc/self/fd/<fd>` 這個 symlink（kernel 對同一個問題的回答）。讀不到（沒有掛 `/proc`）、
+    /// 或結果以 ` (deleted)` 結尾（檔案已被刪，kernel 回的是它曾經的路徑加註記，不是一個現存的位置）時回 nil。
+    internal static func kernelPath(_ fd: Int32) -> String? {
+        #if os(Linux)
+        var buf = [CChar](repeating: 0, count: Int(PATH_MAX) + 1)
+        let n = readlink("/proc/self/fd/\(fd)", &buf, Int(PATH_MAX))
+        guard n > 0 else { return nil }
+        let path = String(decoding: buf[0..<n].map { UInt8(bitPattern: $0) }, as: UTF8.self)
+        return path.hasSuffix(" (deleted)") ? nil : path
+        #else
         var buf = [CChar](repeating: 0, count: Int(PATH_MAX) + 1)
         guard fcntl(fd, F_GETPATH, &buf) != -1 else { return nil }
         return String(cString: buf)
+        #endif
     }
 
     /// 由副檔名推 media type；認不得的是 `application/octet-stream`。Zotero 的 `itemAttachments.contentType` 不在附件記錄裡

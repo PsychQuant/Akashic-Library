@@ -1,5 +1,9 @@
 import Foundation
+#if os(Linux)
+import Glibc
+#else
 import Darwin
+#endif
 import AkashicCore
 
 /// 一個 digest 的位址上是什麼（#703 R2 verify 第 4、5、6、15 則）。**這四個讀者共用這一個分類**：`writeBlob`（位址上已經有東西時）、

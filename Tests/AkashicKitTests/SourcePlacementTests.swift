@@ -5,7 +5,11 @@ import Crypto
 import CryptoKit
 #endif
 import Foundation
+#if os(Linux)
+import Glibc
+#else
 import Darwin
+#endif
 @testable import AkashicCore
 @testable import AkashicStoreIO
 
@@ -51,6 +55,16 @@ final class SourcePlacementTests: XCTestCase {
         return text.split(separator: "\n").count
     }
     private func message(_ e: Error) -> String { (e as? LocalizedError)?.errorDescription ?? "\(e)" }
+
+    /// 拒絕訊息裡指名「要放在哪種檔案系統」的字（#794）：macOS 逐字是 #794 之前的 APFS／HFS+；Linux 是 renameat2 與 ext4，
+    /// 不叫人改用 APFS。
+    private func namesTheFittingFilesystem(_ msg: String) -> Bool {
+        #if os(Linux)
+        return msg.contains("renameat2") && msg.contains("ext4") && !msg.contains("APFS")
+        #else
+        return msg.contains("APFS") && msg.contains("HFS+")
+        #endif
+    }
 
     /// 真的系統呼叫，只把指定的那幾步換掉。`beforeRename` 在 `renamex_np` 之前被呼叫（看得到位址與暫存檔的狀態）。
     private func placement(renameExclusive: Int32? = nil, hardLink: Int32? = nil,
@@ -101,7 +115,7 @@ final class SourcePlacementTests: XCTestCase {
                                   volume: { _ in false })
         XCTAssertThrowsError(try store(data, placement: untouched)) { e in
             let msg = message(e)
-            XCTAssertTrue(msg.contains("APFS") && msg.contains("HFS+") && msg.contains("沒有存任何東西"), msg)
+            XCTAssertTrue(namesTheFittingFilesystem(msg) && msg.contains("沒有存任何東西"), msg)
         }
         XCTAssertEqual(sourcesResidue(), [], "連分片目錄與暫存檔都不建")
         XCTAssertEqual(indexLineCount(), 0)
@@ -111,7 +125,7 @@ final class SourcePlacementTests: XCTestCase {
     func testEveryStoreIsRefusedOnSuchAVolumeEvenWhenTheContentIsAlreadyThere() throws {
         let data = Data("already stored elsewhere".utf8)
         _ = try store(data, placement: .system)
-        XCTAssertThrowsError(try store(data, placement: fatLike())) { e in XCTAssertTrue(message(e).contains("APFS"), message(e)) }
+        XCTAssertThrowsError(try store(data, placement: fatLike())) { e in XCTAssertTrue(namesTheFittingFilesystem(message(e)), message(e)) }
         XCTAssertEqual(indexLineCount(), 1, "拒絕不寫 index")
     }
 
@@ -120,7 +134,7 @@ final class SourcePlacementTests: XCTestCase {
         let digest = oneShot(Data("batch".utf8))
         XCTAssertNoThrow(try store.preflightStoreSource(digest: digest, temporaryToken: UUID().uuidString, placement: .system))
         XCTAssertThrowsError(try store.preflightStoreSource(digest: digest, temporaryToken: UUID().uuidString, placement: fatLike())) { e in
-            XCTAssertTrue(message(e).contains("HFS+"), message(e))
+            XCTAssertTrue(namesTheFittingFilesystem(message(e)), message(e))
         }
         XCTAssertEqual(sourcesResidue(), [])
     }
@@ -139,7 +153,7 @@ final class SourcePlacementTests: XCTestCase {
                                    sync: { fd, system in _ = syncs.next(); return system(fd) }, volume: { _ in nil })
         XCTAssertThrowsError(try store(data, placement: attempting)) { e in
             let msg = message(e)
-            XCTAssertTrue(msg.contains("APFS") && msg.contains("errno \(ENOTSUP)") && msg.contains("沒有存任何東西"), msg)
+            XCTAssertTrue(namesTheFittingFilesystem(msg) && msg.contains("errno \(ENOTSUP)") && msg.contains("沒有存任何東西"), msg)
         }
         XCTAssertEqual(calls.next(), 1, "RENAME_EXCL 被呼叫過一次（探測）")
         XCTAssertEqual(syncs.next(), 0, "拒絕在複製之前：內容沒有被寫進暫存檔、沒有同步")
@@ -158,7 +172,7 @@ final class SourcePlacementTests: XCTestCase {
         guard case .stored(let first) = try store(data, placement: .system) else { return XCTFail() }
         // 有條目時：拒絕、index 不變
         XCTAssertThrowsError(try store(data, placement: fatLike(volumeReports: nil))) { e in
-            XCTAssertTrue(message(e).contains("APFS") && message(e).contains("沒有存任何東西"), message(e))
+            XCTAssertTrue(namesTheFittingFilesystem(message(e)) && message(e).contains("沒有存任何東西"), message(e))
         }
         XCTAssertEqual(indexLineCount(), 1)
         // 缺條目時（先前的繞過會補一列）：同樣拒絕、不補
@@ -167,7 +181,7 @@ final class SourcePlacementTests: XCTestCase {
         let unknown = placement(renameExclusive: ENOTSUP, hardLink: ENOTSUP,
                                 beforeRename: { _, _ in _ = calls.next() }, volume: { _ in nil })
         XCTAssertThrowsError(try store(data, placement: unknown)) { e in
-            XCTAssertTrue(message(e).contains("HFS+") && message(e).contains("errno \(ENOTSUP)"), message(e))
+            XCTAssertTrue(namesTheFittingFilesystem(message(e)) && message(e).contains("errno \(ENOTSUP)"), message(e))
         }
         XCTAssertEqual(calls.next(), 1, "實際放了一次（探測），沒有被「已經在了」略過")
         XCTAssertEqual(indexLineCount(), 0, "拒絕不補 index")
@@ -209,7 +223,7 @@ final class SourcePlacementTests: XCTestCase {
         let shardPath = shard.path
         let splitVolumes = placement(volume: { path in path == shardPath ? false : true })
         XCTAssertThrowsError(try store(data, placement: splitVolumes)) { e in
-            XCTAssertTrue(message(e).contains("APFS") && message(e).contains("沒有存任何東西"), message(e))
+            XCTAssertTrue(namesTheFittingFilesystem(message(e)) && message(e).contains("沒有存任何東西"), message(e))
         }
         XCTAssertFalse(FileManager.default.fileExists(atPath: blobURL(digest).path))
         XCTAssertEqual(temporaryResidue(), [])
@@ -218,17 +232,30 @@ final class SourcePlacementTests: XCTestCase {
 
     /// 磁碟區能力的讀取是真的：測試用的暫存目錄所在的磁碟區（APFS）回 `true`；不存在的路徑讀不到、回 `nil`（不擋）。
     /// 另在真的 exFAT 映像上量過（2026-10-02，changelog）：兩個旗標都有效、值為 0。
-    func testTheVolumeCapabilityProbeReadsTheRealFlags() {
+    func testTheVolumeCapabilityProbeReadsTheRealFlags() throws {
+        #if os(Linux)
+        throw XCTSkip("macOS 專屬：getattrlist 的能力旗標只有 macOS 有；Linux 那一半是 testTheVolumeCapabilityIsUnknownOnLinux")
+        #else
         XCTAssertEqual(LibraryStore.volumeSupportsExclusivePlacement(at: root.path), true)
         XCTAssertNil(LibraryStore.volumeSupportsExclusivePlacement(at: root.appendingPathComponent("no-such-\(UUID().uuidString)").path))
+        #endif
     }
+
+    /// #794：Linux 沒有能力旗標，一律回 `nil`（判不出來），由每一次存檔的實際放置決定。macOS 讀真的旗標（上一支）。
+    /// 只在 Linux 編譯（macOS 那一半是上一支），所以 macOS 的測試數與略過數不因它改變。
+    #if os(Linux)
+    func testTheVolumeCapabilityIsUnknownOnLinux() {
+        XCTAssertNil(LibraryStore.volumeSupportsExclusivePlacement(at: root.path))
+        XCTAssertNil(LibraryStore.BlobPlacement.system.volumeSupportsExclusivePlacement(root.path))
+    }
+    #endif
 
     /// `RENAME_EXCL` 的其他失敗（不是「不支援」）不退：直接具名擲出，不去試 link。
     func testOtherRenameFailuresDoNotFallBack() throws {
         let data = Data("permission problem".utf8)
         let noLink = placement(renameExclusive: EACCES, beforeHardLink: { _ in XCTFail("不該退到 link") })
         XCTAssertThrowsError(try store(data, placement: noLink)) { e in
-            XCTAssertTrue(message(e).contains("RENAME_EXCL") && message(e).contains("errno \(EACCES)"), message(e))
+            XCTAssertTrue(message(e).contains(LibraryStore.exclusiveRenameCall) && message(e).contains("errno \(EACCES)"), message(e))
         }
         XCTAssertEqual(temporaryResidue(), [])
     }
@@ -241,10 +268,12 @@ final class SourcePlacementTests: XCTestCase {
         let data = Data((0..<(2 * LibraryStore.sourceChunkBytes + 5)).map { UInt8(truncatingIfNeeded: $0 &* 3) })
         let url = blobURL(oneShot(data))
         let seen = RenameObservations()
-        let watching = placement(beforeRename: { from, _ in
+        let urlPath = url.path
+        let watching = placement(beforeRename: { from, to in
+            guard to == urlPath else { return }   // #794：只數目標是內容位址的改名；能力判不出來時（Linux 一律）另有一次探測改名
             var st = stat()
             let size = lstat(from, &st) == 0 ? Int(st.st_size) : -1
-            seen.record(addressExisted: FileManager.default.fileExists(atPath: url.path), temporaryBytes: size)
+            seen.record(addressExisted: FileManager.default.fileExists(atPath: urlPath), temporaryBytes: size)
         })
         guard case .stored(let r) = try store(data, placement: watching) else { return XCTFail() }
         XCTAssertTrue(r.bytesWritten)
@@ -308,7 +337,8 @@ final class SourcePlacementTests: XCTestCase {
         XCTAssertEqual(seen.observations.first?.tempExisted, true, "同步的是暫存檔")
     }
 
-    /// 同步失敗：不放上位址、不留暫存、不寫 index，錯誤說出 errno。
+    /// 同步失敗：不放上位址、不留暫存、不寫 index，錯誤說出 errno。兩個平台同一支（Linux 的同步是 `fsync(2)`，接縫一樣）。
+    // spec-example: source-storage-gates / Injected sync failure on Linux
     func testASyncFailureRefusesAndLeavesNothing() throws {
         let data = Data("the device refuses to sync".utf8)
         let failing = placement(sync: { _, _ in EIO })
@@ -439,6 +469,156 @@ final class SourcePlacementTests: XCTestCase {
         }
     }
 
+    // MARK: 2a. Linux 的放置閘（#794）
+
+    /// 表中每一列經同一個接縫注入（兩個平台都跑）。`ENOSYS` 與「找不到 `renameat2` 符號」是 Linux 專屬的退路：Linux 退到 `link(2)`；
+    /// macOS 的清單不變，所以同樣的回傳值在 macOS 是具名錯誤、不退。「符號缺席」以 `LinuxRenameNoReplace.call(nil)` 造（真的呼叫路徑）。
+    /// 沒有實際不支援的檔案系統（NFS、FUSE、vfat）可以量：`EINVAL`、`ENOSYS` 與符號缺席三條退路只在這個接縫上驗過。
+    // spec-example: source-storage-gates / Linux placement fallback table
+    func testThePlacementFallbackTable() throws {
+        enum Outcome: Equatable { case placed, placedByLink, alreadyThere, refused, namedError }
+        let linuxOnly = { (linux: Outcome) -> Outcome in
+            #if os(Linux)
+            return linux
+            #else
+            return .namedError   // macOS 的排他改名清單不收 ENOSYS（#794 不改 macOS）
+            #endif
+        }
+        let rows: [(rename: Int32?, renameCall: (@Sendable (String, String) -> Int32)?, link: Int32?, expected: Outcome)] = [
+            (0, nil, nil, .placed),
+            (EEXIST, nil, nil, .alreadyThere),
+            (EINVAL, nil, 0, .placedByLink),
+            (ENOSYS, nil, 0, linuxOnly(.placedByLink)),
+            (nil, LinuxRenameNoReplace.call(nil), 0, linuxOnly(.placedByLink)),
+            (EINVAL, nil, EPERM, .refused),
+            (EIO, nil, nil, .namedError),
+        ]
+        for (i, row) in rows.enumerated() {
+            let dir = root.appendingPathComponent("table-\(i)")
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let tmp = dir.appendingPathComponent(".tmp").path
+            let dest = dir.appendingPathComponent("blob").path
+            try Data("row \(i)".utf8).write(to: URL(fileURLWithPath: tmp))
+            if row.expected == .alreadyThere { try Data("occupant".utf8).write(to: URL(fileURLWithPath: dest)) }
+            let links = PlacementCallCounter()
+            let call = row.renameCall
+            let renameValue = row.rename
+            let linkValue = row.link
+            let seam = LibraryStore.BlobPlacement(
+                renameExclusive: { from, to in
+                    if let call { return call(from, to) }
+                    let v = renameValue ?? 0
+                    if v == 0 { return rename(from, to) == 0 ? 0 : errno }
+                    return v
+                },
+                hardLink: { from, to in
+                    _ = links.next()
+                    let v = linkValue ?? 0
+                    if v == 0 { return link(from, to) == 0 ? 0 : errno }
+                    return v
+                })
+            var outcome: Outcome
+            do {
+                switch try store.placeTemporaryBlob(tmp, at: dest, digest: "sha256:" + String(repeating: "a", count: 64), placement: seam) {
+                case .placed: outcome = links.next() == 1 ? .placedByLink : .placed
+                case .alreadyThere: outcome = .alreadyThere
+                }
+            } catch {
+                outcome = message(error).contains("沒有存任何東西") ? .refused : .namedError
+            }
+            XCTAssertEqual(outcome, row.expected, "第 \(i) 列")
+            let written = FileManager.default.fileExists(atPath: dest)
+            switch row.expected {
+            case .placed, .placedByLink:
+                XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: dest)), Data("row \(i)".utf8), "第 \(i) 列：位址上是這一份")
+            case .alreadyThere:
+                XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: dest)), Data("occupant".utf8), "第 \(i) 列：位址上的東西不動")
+            case .refused, .namedError:
+                XCTAssertFalse(written, "第 \(i) 列：沒有寫任何東西到位址上")
+            }
+        }
+    }
+
+    /// 真的系統呼叫（不經接縫）：位址上已有 `B` 時回「已經在了」、`B` 不變；位址是空的時放上新內容。Linux 上是 `renameat2(RENAME_NOREPLACE)`，
+    /// macOS 是 `renamex_np(RENAME_EXCL)`。noble 驗收以 `TMPDIR` 分別放在 `/tmp`（overlayfs）與 `/dev/shm`（tmpfs）各跑一次。
+    // spec-example: source-storage-gates / Exclusive rename onto an occupied address
+    func testTheRealExclusiveRenameNeverOverwrites() throws {
+        let dir = root.appendingPathComponent("real-rename")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let occupied = dir.appendingPathComponent("occupied").path
+        let free = dir.appendingPathComponent("free").path
+        let tmpA = dir.appendingPathComponent(".a").path
+        let tmpB = dir.appendingPathComponent(".b").path
+        try Data("B".utf8).write(to: URL(fileURLWithPath: occupied))
+        try Data("new".utf8).write(to: URL(fileURLWithPath: tmpA))
+        try Data("new".utf8).write(to: URL(fileURLWithPath: tmpB))
+        let system = LibraryStore.BlobPlacement.system
+        XCTAssertEqual(system.renameExclusive(tmpA, occupied), EEXIST)
+        XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: occupied)), Data("B".utf8), "位址上的東西不變")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: tmpA), "改名失敗時暫存檔還在")
+        XCTAssertEqual(system.renameExclusive(tmpB, free), 0)
+        XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: free)), Data("new".utf8))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: tmpB))
+    }
+
+    /// 能力判不出來時（Linux 一律；macOS 以接縫讓它判不出來）每一次存檔：恰一次改名的目標是內容位址，另一次的目標是同一個分片目錄裡的探測名，
+    /// 存完之後探測名不殘留。
+    // spec-example: source-storage-gates / Rename count on Linux
+    func testAnUnknownCapabilityProbesOnceBeforeTheBlobIsPlaced() throws {
+        let data = Data((0..<200).map { UInt8(truncatingIfNeeded: $0 &* 7) })
+        let address = blobURL(oneShot(data))
+        let names = ProbeNames()
+        #if os(Linux)
+        let unknown = placement(beforeRename: { from, to in names.record(from, to) })
+        #else
+        let unknown = placement(beforeRename: { from, to in names.record(from, to) }, volume: { _ in nil })
+        #endif
+        guard case .stored(let r) = try store(data, placement: unknown) else { return XCTFail() }
+        XCTAssertTrue(r.bytesWritten)
+        let toAddress = names.all.filter { $0.to == address.path }
+        let toProbe = names.all.filter { $0.to != address.path }
+        XCTAssertEqual(toAddress.count, 1, "恰一次改名的目標是內容位址：\(names.all)")
+        XCTAssertEqual(toProbe.count, 1, "恰一次探測改名：\(names.all)")
+        if let probe = toProbe.first {
+            XCTAssertEqual((probe.to as NSString).deletingLastPathComponent, address.deletingLastPathComponent().path, "探測在同一個分片目錄裡")
+            XCTAssertTrue(LibraryStore.isTemporaryBlobName((probe.to as NSString).lastPathComponent), probe.to)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: probe.to), "探測名不殘留")
+        }
+        XCTAssertEqual(temporaryResidue(), [])
+        XCTAssertEqual(try Data(contentsOf: address), data)
+    }
+
+    /// 預設的同步在兩個平台都真的同步了一個普通檔（回 0）；Linux 的預設是 `fsync(2)`，沒有第二個呼叫可退（`defaultPlainSync` 回「不支援」）。
+    func testTheDefaultSyncSucceedsOnARegularFile() throws {
+        let f = root.appendingPathComponent("sync-me")
+        try Data("sync".utf8).write(to: f)
+        let handle = try XCTUnwrap(FileHandle(forUpdatingAtPath: f.path))   // XCTestCase 有自己的 `open`
+        defer { try? handle.close() }
+        let fd = handle.fileDescriptor
+        XCTAssertEqual(LibraryStore.syncFile(fd), 0)
+        #if os(Linux)
+        XCTAssertEqual(LibraryStore.defaultPlainSync(fd), ENOSYS)
+        XCTAssertTrue(LibraryStore.syncUnsupported(LibraryStore.defaultPlainSync(fd)))
+        #endif
+    }
+
+    /// 兩個放置呼叫都回「不支援」時的拒絕：Linux 指名 `renameat2`、不叫人改用 APFS；`sources/` 沒有新檔、不寫 index。macOS 的訊息逐字不變。
+    // spec-example: source-storage-gates / Linux refusal text
+    func testTheRefusalNamesTheFittingFilesystem() throws {
+        let data = Data("neither call is supported".utf8)
+        let unsupported = placement(renameExclusive: EINVAL, hardLink: EPERM, volume: { _ in nil })
+        XCTAssertThrowsError(try store(data, placement: unsupported)) { e in
+            let msg = message(e)
+            #if os(Linux)
+            XCTAssertTrue(msg.contains("renameat2") && !msg.contains("APFS") && !msg.contains("HFS+"), msg)
+            #else
+            XCTAssertTrue(msg.contains("把 store 放在 APFS 或 HFS+ 的磁碟區上") && msg.contains("RENAME_EXCL"), msg)
+            #endif
+        }
+        XCTAssertEqual(sourcesResidue(), [], "sources/ 沒有新檔")
+        XCTAssertEqual(indexLineCount(), 0)
+    }
+
     // MARK: 3. token、訊號
 
     /// 暫存檔 token 要是 UUID（R2 verify 第 20 則）：兩個公開入口在任何讀寫之前擋下，不留任何東西。
@@ -469,7 +649,7 @@ final class SourcePlacementTests: XCTestCase {
         XCTAssertEqual(lstat(mine.path, &before), 0)
         let replacement = root.appendingPathComponent("replacement.tmp")
         try Data("same name, different inode".utf8).write(to: replacement)
-        XCTAssertEqual(Darwin.rename(replacement.path, mine.path), 0)
+        XCTAssertEqual(rename(replacement.path, mine.path), 0)
         var after = stat()
         XCTAssertEqual(lstat(mine.path, &after), 0)
         XCTAssertNotEqual(before.st_ino, after.st_ino, "前提：inode 真的變了（exFAT 上第一次寫入之後就是這樣）")
@@ -517,7 +697,7 @@ final class SourcePlacementTests: XCTestCase {
         XCTAssertEqual(sigaction(sig, nil, &old), 0)
         hostHandlerCalls = 0
         var host = sigaction()
-        host.__sigaction_u = __sigaction_u(__sa_handler: hostSignalHandler)
+        setHostHandler(&host)
         sigemptyset(&host.sa_mask)
         XCTAssertEqual(sigaction(sig, &host, nil), 0)
         defer { sigaction(sig, &old, nil) }
@@ -538,7 +718,7 @@ final class SourcePlacementTests: XCTestCase {
         var old = sigaction()
         XCTAssertEqual(sigaction(sig, nil, &old), 0)
         var host = sigaction()
-        host.__sigaction_u = __sigaction_u(__sa_handler: hostSignalHandler)
+        setHostHandler(&host)
         sigemptyset(&host.sa_mask)
         XCTAssertEqual(sigaction(sig, &host, nil), 0)
         InFlightSourceFiles.unregister(id)
@@ -552,6 +732,15 @@ final class SourcePlacementTests: XCTestCase {
 /// 主機自己的訊號 handler（C 呼叫慣例，不捕捉）。
 private var hostHandlerCalls = 0
 private func hostSignalHandler(_ sig: Int32) { hostHandlerCalls += 1 }
+
+/// 把 `hostSignalHandler` 填進 `sigaction`：欄位名依平台（macOS `__sigaction_u`、glibc `__sigaction_handler`，#794）。
+private func setHostHandler(_ action: inout sigaction) {
+    #if os(Linux)
+    action.__sigaction_handler = .init(sa_handler: hostSignalHandler)
+    #else
+    action.__sigaction_u = __sigaction_u(__sa_handler: hostSignalHandler)
+    #endif
+}
 
 /// 放置前被呼叫時看到的狀態。
 final class RenameObservations: @unchecked Sendable {

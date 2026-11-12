@@ -1,6 +1,10 @@
 import XCTest
 import Foundation
+#if os(Linux)
+import Glibc
+#else
 import Darwin
+#endif
 @testable import AkashicStoreIO
 
 /// #703 R2 verify 第 27 則：`store-source` 複製途中收到 Ctrl-C（`SIGINT`）或 `SIGTERM`，先前留下最大 256 MiB 的暫存檔——`defer` 對訊號

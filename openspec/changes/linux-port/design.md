@@ -300,3 +300,5 @@ ASSUMPTION: submodule 的 `ZoteroDiff.swift` 也 import `SQLite3`。在那個 re
 2. `.gitignore` 判讀維持不分大小寫（暫定），還是依 `core.ignorecase`。
 3. biblatex-apa-swift 用 swift-toolchain-sqlite 的做法，以及那個 repo 的合併與 tag。
 4. `akashic s2` 在 Linux 沿用結束碼 3（暫定）還是另立。
+5. 存檔途中收到 SIGINT、SIGTERM、SIGHUP 時，Linux 要不要刪掉寫到一半的暫存檔。macOS 以 dispatch 的 signal source 接管這三個訊號、刪掉暫存檔再照預設結束。2026-11-12 在 noble 與 jammy 量到同一段寫法在 Linux 不成立：source `resume` 之後訊號的處置變成 libdispatch 自己的 handler；處置是 `SIG_IGN` 時 source 收不到訊號；事件處理裡還原預設再 `raise` 不會結束行程。暫定：Linux 不接管，訊號照 kernel 的預設結束行程，留下的暫存檔由 doctor 的殘留暫存檔檢查報出、不自動刪。代價是 Linux 上存檔被中斷會留下暫存檔（單檔上限 256 MiB），而 `SourcePlacementTests` 有兩支、`SourceSignalCleanupCLITests` 有兩支在 Linux 是紅的，沒有標略過。另一個做法是不經 libdispatch、自己以 `sigaction` 或專門等訊號的 thread 實作，還沒有試作。task 4.8 在這一項決定之前不勾。
+6. Linux 的 `fsync(2)` 回「不支援」的 errno（`ENOTSUP`、`EINVAL`、`ENOSYS` 這一類）時，暫定算成功、繼續放置（與 macOS 上 `F_FULLFSYNC` 與 `fsync` 都不支援時的結局相同），還是改成拒絕存檔。`EIO` 這類真的錯誤兩個平台都拒絕。

@@ -1,5 +1,9 @@
 import Foundation
+#if os(Linux)
+import Crypto
+#else
 import CryptoKit
+#endif
 import AkashicCore
 
 /// 擷取內容的存檔（#66 task 4.x）：`sources/<前2字元>/<其餘>`、內容定址、無副檔名。

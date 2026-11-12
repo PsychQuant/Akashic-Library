@@ -1,5 +1,9 @@
 import Foundation
+#if os(Linux)
+import Crypto
+#else
 import CryptoKit
+#endif
 
 /// 逐塊讀取（#703，使用者 2026-09-30 裁決「SHA-256 逐塊計算」）：`sources/` 的寫入與比對不再把整份內容讀進記憶體。
 ///

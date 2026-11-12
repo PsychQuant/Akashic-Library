@@ -1,5 +1,9 @@
 import XCTest
+#if os(Linux)
+import Crypto
+#else
 import CryptoKit
+#endif
 import Foundation
 @testable import AkashicCore
 @testable import AkashicStoreIO

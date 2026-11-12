@@ -36,7 +36,9 @@
 
 動到的檔：design〈Implementation Contract〉列的 10 個原始檔（`PluginShellVersion.swift` 除外）與 14 個測試檔。依賴：1.1。
 
-- [ ] 2.1 `import CryptoKit` 改成 `#if os(Linux) import Crypto #else import CryptoKit #endif`（design「條件編譯以 os(Linux) 對齊 manifest 的條件」）。API 不變（`SHA256`、`Insecure.SHA1`）。驗證：macOS 全套測試綠；noble 驗收的建置成功；`DeterministicUUID` 與 `LibrarySnapshot` 既有的 digest 測試在兩個平台給同一個值。
+- [x] 2.1 `import CryptoKit` 改成 `#if os(Linux) import Crypto #else import CryptoKit #endif`（design「條件編譯以 os(Linux) 對齊 manifest 的條件」）。API 不變（`SHA256`、`Insecure.SHA1`）。驗證：macOS 全套測試綠；noble 驗收的建置成功；`DeterministicUUID` 與 `LibrarySnapshot` 既有的 digest 測試在兩個平台給同一個值。
+  - 完成註記：改的是 24 個檔（10 個原始檔、14 個測試檔），`akashic-guards/PluginShellVersion.swift`（10.1）與 `Tools/UnicodeNormalizationGenerator/main.swift`（digest 釘住）不動；改完產生器的 SHA-256 仍是 `c52fe7f7…`。macOS：`-warnings-as-errors` 建置 0 警告；全套 `swift test` 七個 bundle 5,643 支、0 失敗、1 略過（`MigrateProvenanceCLITests/testWriteFailureIsListedAndExitsNonZero`，chflags 在這個目錄不生效，既有的環境略過）。
+  - **noble 驗收的建置還沒成功**：`AkashicCore` 停在 `JSONInteger.swift` 的 CF 呼叫（第 6 組）。以探針確認 `import Crypto` 本身沒有問題：在 clone 的副本把那三個 CF 呼叫暫改成 `objCType`（不 commit），noble 以非 root、`-warnings-as-errors` 建 `AkashicCore` 與 `TractatusDocs` 都成功；`AkashicStoreIO` 停在 `SourceOccupant.swift` 的 `import Darwin`（第 4 組）。`AkashicStoreIO`、`AkashicSkillTools`、`AkashicZoteroImport` 的 `import Crypto` 與 `DeterministicUUID`／`LibrarySnapshot` digest 測試在 Linux 的值，要等第 4、6 組之後驗。
 
 ## 3. SQLite
 

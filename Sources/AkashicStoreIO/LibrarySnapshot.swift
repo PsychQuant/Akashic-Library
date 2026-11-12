@@ -1,5 +1,9 @@
 import Foundation
+#if os(Linux)
+import Crypto
+#else
 import CryptoKit
+#endif
 import AkashicCore
 
 /// 一個 store 的持久化化身身分。它回答「哪一個 store」，不回答內容版本。

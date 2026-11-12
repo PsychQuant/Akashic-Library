@@ -1,5 +1,9 @@
 import Foundation
+#if os(Linux)
+import Crypto
+#else
 import CryptoKit
+#endif
 import AkashicCore
 
 /// 用標題＋期刊＋年份比對 Crossref 記錄取得 DOI，並做反向驗證（#629 由 `crossref_match.py` 移植）。

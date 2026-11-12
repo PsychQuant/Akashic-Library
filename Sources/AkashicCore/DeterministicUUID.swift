@@ -1,5 +1,9 @@
 import Foundation
+#if os(Linux)
+import Crypto
+#else
 import CryptoKit
+#endif
 
 /// 從既有字串身分推出**確定性** UUID（#35）。
 ///

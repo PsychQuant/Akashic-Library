@@ -1,5 +1,9 @@
 import AkashicCore
+#if os(Linux)
+import Crypto
+#else
 import CryptoKit
+#endif
 import Foundation
 
 /// **不**宣告 `SanitizedErrorDescription`（R31；R30 verify 第 8／18／34 列）：它沒有 `errorDescription`／`description`，Error → 文字會走

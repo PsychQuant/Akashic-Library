@@ -86,6 +86,8 @@ struct AkashicCLI: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "akashic",
         abstract: "Akashic-Library — 檔案為本的文獻整合系統",
+        // #775：建置時的 commit（`scripts/stamp-version.sh` 寫入；平常的建置是 `unknown`）。SessionStart hook 讀它判斷 CLI 是否過期
+        version: BuildVersion.value,
         subcommands: [
             ImportZotero.self, Validate.self, ExportBib.self,
             ResolvePeople.self, Doctor.self, Query.self, Graph.self, Rename.self, RenamePerson.self, LibraryCmd.self, FileCmd.self,

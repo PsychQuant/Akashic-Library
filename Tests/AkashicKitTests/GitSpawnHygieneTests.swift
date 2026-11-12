@@ -70,6 +70,8 @@ final class GitSpawnHygieneTests: XCTestCase {
         "GitignorePreservationCLITests.swift", // #700 b36：「區塊已在」的判斷以 git check-ignore 對照（GIT_* 前綴剝除、不讀使用者與系統設定）
         "GitignoreRemedyCLITests.swift",     // #700 b42：照否定規則那一格的處置真的跑 git check-ignore（GIT_* 前綴剝除、不讀使用者與系統設定）
         "FulltextReconcileCLITests.swift",   // #742：端到端的 --replace-authors --apply 要求 work 檔已 commit（GIT_* 前綴剝除）
+        "StampVersionTests.swift",           // #775：在暫存 repo 裡 init／commit／tag，再跑戳記腳本（GIT_* 前綴剝除、不讀使用者與系統設定）
+        "CheckCLIHookTests.swift",           // #775：暫存原始碼 repo 的 init／commit／update-ref，hook 以同一份環境執行（環境從零組起，不繼承 GIT_*）
         // 這條清單是封閉列舉：多了會紅（stale），少了也會紅（spawn git 卻未登記——#585 R1 verify 第 16／36 列：先前只有
         // 「沒剝環境」才紅，有剝環境但沒登記的檔安靜通過，於是清單與實際分岔而守衛照綠）。
         //

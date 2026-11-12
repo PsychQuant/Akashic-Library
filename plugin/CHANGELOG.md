@@ -1,5 +1,15 @@
 # Changelog
 
+## #775 — 開 session 時檢查 `akashic` CLI 是否過期（2026-11-09）：plugin 殼 0.13.14 → 0.13.15
+
+細節在 `changelog/2026-11-09-cli-stale-check-775.md`。binary 版號不變，這一輪沒有發布。
+
+- **新的 SessionStart hook**（`hooks/check-cli.sh`）：每個 session 開始時印一行 `akashic` CLI 的狀態。找不到 CLI、`fulltext contract` 比 `akashic-fetch-fulltext` SKILL 第 0 步要求的小、CLI 落後原始碼、或 CLI 沒有回應時，多印原因；需要重建時附指令，並寫明要不要重建由使用者決定。hook 自己不 fetch、不安裝、不覆蓋現有 binary，任何失敗都不中斷 session。`hooks.json` 用 exec form（`"args": []`，Claude Code 2.1.139 起支援），整支上限 30 秒。
+- **原始碼位置**：`$AKASHIC_SOURCE_DIR`，預設 `$HOME/Developer/Akashic-Library`；落後的基準是那裡的 `origin/main`（上次 fetch 時），沒有才用 HEAD。沒有原始碼時只比契約；目錄存在但不是 repo 的根目錄、或 PATH 上找不到 git 時會說出來。
+- **落後與否看內容**：package 原始碼與基準相同（squash merge 之後就是這樣）不算落後，建置比基準新也不算；從沒 rebase 的分支建置而 main 又前進、或 PR 被 squash 合併之後又在 main 上被 revert 時會報。建置與基準分岔時以檔為單位比，會過報：main 動過某個檔而分支自己也改了它，就報落後。分支 merge 了 main、又自己撤掉 main 的某個改動時算最新（那是建置自己的改動）。分岔時的比對成本沒有上限，歷史很長時可能撞上 30 秒上限（#793）。
+- **不吃繼承的環境**：`bash -p`、清掉 `GIT_*`、`PATH` 只看以絕對路徑寫的項目；每次 git 呼叫都關掉 `core.fsmonitor` 與 replace ref。探測 CLI 時用使用者的 PATH，所以 PATH 上的 `akashic` 可以是包裝腳本。
+- **CLI 要經 `scripts/stamp-version.sh` 建置，`akashic --version` 才說得出自己的 commit**；裸 `swift build` 建出的印 `unknown`，hook 改比檔案時間。佔位檔已經被戳記過時（另一次建置還在跑，或被中斷的建置留下戳記）拒絕執行；它沒有鎖，兩次建置幾乎同時啟動時其中一個 binary 可能印 `unknown`（#789）。`akashic-fetch-fulltext` 第 0 步的建置指示同步改寫。
+
 ## #779 — 取全文的待裁事項寫成「待使用者裁決」（2026-11-10）：plugin 殼 0.13.13 → 0.13.14
 
 從 #777 拆出、不依賴裁決的部分；只改文字，行為與輸出不變，契約版本不調。細節在 `changelog/2026-11-04-b49-fulltext-613.md` 的〈#779 的文字修正〉與〈待使用者裁決（#777）〉。

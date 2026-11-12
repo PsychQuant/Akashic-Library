@@ -1,6 +1,15 @@
 // swift-tools-version: 5.9
 import PackageDescription
 
+// #794：Linux 支援。CryptoKit 與 SDK 的 SQLite3 只有 Apple 平台有，Linux 改用 swift-crypto 的 `Crypto` 與
+// swift-toolchain-sqlite。兩個套件對每個平台都宣告（下方 `dependencies`），product 只在 Linux 掛上：
+// macOS 不編譯它們，而且兩個平台 resolve 出同一份 Package.resolved（只在 Linux 宣告套件時，鎖定檔會隨
+// 最後在哪個平台 resolve 而翻轉——試作量過）。原始碼以 `#if os(Linux)` 選 import，與這裡的條件是同一個命題。
+let cryptoOnLinux: Target.Dependency = .product(
+    name: "Crypto", package: "swift-crypto", condition: .when(platforms: [.linux]))
+let sqliteOnLinux: Target.Dependency = .product(
+    name: "SwiftToolchainCSQLite", package: "swift-toolchain-sqlite", condition: .when(platforms: [.linux]))
+
 let package = Package(
     name: "AkashicKit",
     platforms: [.macOS(.v14)],
@@ -19,23 +28,28 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.3.0"),
         .package(url: "https://github.com/modelcontextprotocol/swift-sdk.git", .upToNextMinor(from: "0.12.0")),
         .package(path: "repos/biblatex-apa-swift"),
+        // #794：只在 Linux 掛上 product（見檔頭）。
+        .package(url: "https://github.com/apple/swift-crypto.git", from: "4.5.0"),
+        .package(url: "https://github.com/swiftlang/swift-toolchain-sqlite.git", .upToNextMinor(from: "1.0.9")),
     ],
     targets: [
         .target(name: "AkashicCore", dependencies: [
             .product(name: "Yams", package: "Yams"),
+            cryptoOnLinux,
         ]),
         .target(name: "AkashicStoreIO", dependencies: [
             "AkashicCore",
             .product(name: "Yams", package: "Yams"),
+            cryptoOnLinux,
         ]),
         .target(name: "AkashicEntity", dependencies: ["AkashicCore"]),
         // skill 的決定論中間運算（#629 由 Python／shell 移植）：全文 PDF 的驗證與抓取編排、Crossref 比對、
         // 階段 B 摘要 → 提案。**不含任何 HTTP client**——取得由 skill 經 safari-browser 完成
         // （`.claude/rules/web-access-via-safari-browser.md`），這裡只吃本機檔或替 safari-browser 編排。
-        .target(name: "AkashicSkillTools", dependencies: ["AkashicCore", "AkashicStoreIO"]),
+        .target(name: "AkashicSkillTools", dependencies: ["AkashicCore", "AkashicStoreIO", cryptoOnLinux]),
         .target(name: "AkashicProposition", dependencies: ["AkashicCore", "AkashicStoreIO"]),
-        .target(name: "AkashicSQLite"),
-        .target(name: "AkashicZoteroImport", dependencies: ["AkashicStoreIO", "AkashicSQLite"]),
+        .target(name: "AkashicSQLite", dependencies: [sqliteOnLinux]),
+        .target(name: "AkashicZoteroImport", dependencies: ["AkashicStoreIO", "AkashicSQLite", cryptoOnLinux]),
         .target(name: "AkashicIndex", dependencies: ["AkashicStoreIO", "AkashicSQLite"]),
         .target(name: "AkashicQuery", dependencies: ["AkashicIndex", "AkashicSQLite", "AkashicCore"]),
         .target(name: "AkashicGraph", dependencies: ["AkashicIndex", "AkashicSQLite", "AkashicCore"]),
@@ -73,6 +87,7 @@ let package = Package(
         .target(name: "TractatusDocs", dependencies: [
             "AkashicCore",
             .product(name: "Yams", package: "Yams"),
+            cryptoOnLinux,
         ]),
         // 守衛的 Swift 實作（#433）。**無依賴**——它們只讀檔案與跑 regex,
         // 不該碰 store 的任何型別:守衛要能在一個建不起來的樹上仍然跑得動。
@@ -103,19 +118,30 @@ let package = Package(
             // APA7GoldenTests（#327）用對方的 BibParser 解析 ch10 fixture——顯式宣告，
             // 不靠 AkashicExport 的傳遞依賴（那能編過但會隨對方的依賴調整而斷）。
             .product(name: "BiblatexAPA", package: "biblatex-apa-swift"),
+            cryptoOnLinux,
         ]),
         .testTarget(
             name: "AkashicPropositionTests",
-            dependencies: ["AkashicProposition", "AkashicCore", "AkashicStoreIO"],
+            dependencies: ["AkashicProposition", "AkashicCore", "AkashicStoreIO", cryptoOnLinux],
             resources: [.copy("Fixtures")]
         ),
         .testTarget(name: "AkashicS2Tests", dependencies: ["AkashicS2", "AkashicCore", "AkashicTestGuard"]),
-        .testTarget(name: "AkashicCLITests", dependencies: ["akashic", "AkashicTestGuard"]),
-        .testTarget(name: "AkashicMCPTests", dependencies: ["AkashicMCPKit", "akashic-mcp", "AkashicTestGuard", "AkashicQuery", "AkashicGraph", "AkashicStoreIO", "AkashicS2"]),
+        .testTarget(name: "AkashicCLITests", dependencies: ["akashic", "AkashicTestGuard", cryptoOnLinux]),
+        .testTarget(name: "AkashicMCPTests", dependencies: ["AkashicMCPKit", "akashic-mcp", "AkashicTestGuard", "AkashicQuery", "AkashicGraph", "AkashicStoreIO", "AkashicS2", cryptoOnLinux]),
         .testTarget(name: "AkashicAppKitTests",
                     dependencies: ["AkashicAppKit", "AkashicCore", "AkashicStoreIO", "AkashicTestGuard"]),
         .testTarget(name: "TractatusDocsTests", dependencies: [
             "TractatusDocs", "tractatus-doc", "AkashicTestGuard",
+            cryptoOnLinux,
         ], resources: [.copy("Fixtures")]),
     ]
 )
+
+// #794：Linux 上不宣告這三個 target 與 `AkashicAppKit` product。App 只在 macOS 有；Unicode 表產生器 import
+// CryptoKit，而它的原始碼被 `UnicodeNormalizationV1TrustAnchor.json` 的 digest 釘住、不能改，它又是離線工具，
+// production 不依賴它。上方的宣告文字在 macOS 不變（`PackageManifestTests` 讀的是這段字面）。
+#if os(Linux)
+let notDeclaredOnLinux: Set<String> = ["AkashicAppKit", "AkashicAppKitTests", "UnicodeNormalizationGenerator"]
+package.targets.removeAll { notDeclaredOnLinux.contains($0.name) }
+package.products.removeAll { $0.name == "AkashicAppKit" }
+#endif

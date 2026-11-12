@@ -71,6 +71,33 @@ final class PackageManifestTests: XCTestCase {
         }
     }
 
+    /// #794：Linux 上不宣告的恰好是 App 的兩個 target 與 Unicode 表產生器，而它們在 macOS 照舊宣告。
+    /// macOS 這一半讀 manifest 的字面：三個宣告仍在，且尾端 `#if os(Linux)` 移除的集合恰好是這三個
+    /// （多移一個，Linux 就少建一個應該建的 target；少移一個，Linux 會去建 App）。Linux 那一半由 Linux CI 的
+    /// `swift package dump-package` 驗（task 12.2）。
+    // spec-example: linux-platform-support / Targets declared on Linux and macOS
+    func testTheThreeTargetsExcludedOnLinuxAreStillDeclaredForMacOS() throws {
+        let manifest = try String(contentsOf: repoRoot().appendingPathComponent("Package.swift"), encoding: .utf8)
+        let excluded: Set<String> = ["AkashicAppKit", "AkashicAppKitTests", "UnicodeNormalizationGenerator"]
+        let declared = Set(declaredDependencies(manifest).keys)
+        XCTAssertEqual(excluded.subtracting(declared), [], "manifest 的字面宣告少了：\(excluded.subtracting(declared).sorted())")
+
+        // 尾端 `#if os(Linux)` 區塊裡移除的 target 集合
+        let blockRe = try NSRegularExpression(pattern: #"#if os\(Linux\)\n(.*?)\n#endif"#, options: [.dotMatchesLineSeparators])
+        let ns = manifest as NSString
+        let blocks = blockRe.matches(in: manifest, range: NSRange(location: 0, length: ns.length)).map { ns.substring(with: $0.range(at: 1)) }
+        XCTAssertEqual(blocks.count, 1, "manifest 應恰有一段 `#if os(Linux)`：找到 \(blocks.count) 段")
+        let block = try XCTUnwrap(blocks.first)
+        let setRe = try NSRegularExpression(pattern: #"let notDeclaredOnLinux: Set<String> = \[([^\]]*)\]"#)
+        let bns = block as NSString
+        let setBody = try XCTUnwrap(setRe.firstMatch(in: block, range: NSRange(location: 0, length: bns.length)).map { bns.substring(with: $0.range(at: 1)) },
+                                    "`#if os(Linux)` 區塊裡找不到 notDeclaredOnLinux")
+        let names = Set(setBody.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "\"")) })
+        XCTAssertEqual(names, excluded, "Linux 上移除的 target 集合不是那三個")
+        XCTAssertTrue(block.contains(#"package.targets.removeAll { notDeclaredOnLinux.contains($0.name) }"#), block)
+        XCTAssertTrue(block.contains(#"package.products.removeAll { $0.name == "AkashicAppKit" }"#), block)
+    }
+
     /// R20 verify logic 第 12 列、regression 第 16 列：R20 的走訪是非遞迴、目錄讀不到就 `continue`、且只認名字以 Tests 結尾的 target
     /// ——一支抓「沉默缺口」的守衛自己留了三個沉默缺口。R21：遞迴走訪、讀不到即紅、母體取自 `.testTarget(` 宣告；並把掃過的檔數與
     /// `Tests/` 底下實際的 `.swift` 檔數對帳（多一個沒被掃到的檔就紅）。

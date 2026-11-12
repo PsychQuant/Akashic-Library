@@ -1,6 +1,15 @@
 import Foundation
 import AkashicCore
 
+// #794：Linux 的 Swift 工具鏈下限。`atomicWrite` 以 `FileManager.replaceItemAt` 覆寫每一筆記錄，而 Swift 6.0.3 的
+// Linux corelibs 在這一步刪掉目的檔——用它建出來的 binary 第一次覆寫記錄就會讓記錄消失，當下沒有任何跡象。
+// 6.4.2 量過是對的；6.1 到 6.3 沒有量，所以下限定在 6.4。6.0.x 走不到這一行（swift-crypto 4.5 宣告
+// swift-tools-version 6.1，resolve 就失敗），這一段擋的是 6.1 到 6.3。寫成編譯錯誤而不是散文，是因為散文擋不住
+// 有人用舊 toolchain 建置。`RecordOverwriteTests` 在支援的 toolchain 上釘住覆寫行為。
+#if os(Linux) && !compiler(>=6.4)
+#error("AkashicKit on Linux requires Swift 6.4 or newer (#794): older Linux toolchains delete a record when FileManager.replaceItemAt overwrites it.")
+#endif
+
 public enum StoreIOError: Error, LocalizedError, Equatable, SanitizedErrorDescription {
     case invalidKey(String, String)
     /// #108：root 不是一個 store（無 marker 也無 canonical 目錄）——寫入拒絕。

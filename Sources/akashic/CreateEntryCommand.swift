@@ -175,7 +175,7 @@ struct CreateEntryCmd: ParsableCommand {
                     if let n = v as? NSNumber {
                         // Bool 判定先於數字：JSON 的 true/false 進 [String: Any] 是
                         // NSNumber，`as? Int` 對它也成立（YAML 那邊踩過同一個坑）
-                        fields[k] = CFGetTypeID(n) == CFBooleanGetTypeID()
+                        fields[k] = JSONScalar.classify(n) == .boolean
                             ? (n.boolValue ? "true" : "false") : n.stringValue
                         continue
                     }
@@ -243,7 +243,7 @@ struct CreateEntryCmd: ParsableCommand {
         case is [Any]: return "陣列"
         case is [String: Any]: return "object"
         case let n as NSNumber:
-            return CFGetTypeID(n) == CFBooleanGetTypeID() ? "布林" : "數字"
+            return JSONScalar.classify(n) == .boolean ? "布林" : "數字"
         default: return String(describing: type(of: v))
         }
     }

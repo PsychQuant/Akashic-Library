@@ -357,7 +357,7 @@ public final class FulltextFetch {
     }
 
     private static func int(_ any: Any?) -> Int? {
-        if let n = any as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID() { return n.intValue }
+        if let n = any as? NSNumber, JSONScalar.classify(n) != .boolean { return n.intValue }
         return nil
     }
 

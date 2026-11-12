@@ -14,15 +14,12 @@ public enum JSONInteger {
         case outOfRange
     }
 
+    /// 判讀本身在 `JSONScalar`（#794：macOS 與 Linux 同一個答案）；這裡只把它的五種結果收成三種。
     public static func classify(_ value: Any) -> Outcome {
-        guard let n = value as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID() else { return .notAnInteger }
-        if n is NSDecimalNumber {
-            let s = n.stringValue
-            let digits = s.hasPrefix("-") ? s.dropFirst() : Substring(s)
-            return !digits.isEmpty && digits.allSatisfy({ $0.isASCII && $0.isNumber }) ? .outOfRange : .notAnInteger
+        switch JSONScalar.classify(value) {
+        case .integer(let i): return .integer(i)
+        case .integerOutOfRange: return .outOfRange
+        case .boolean, .nonInteger, .other: return .notAnInteger
         }
-        guard !CFNumberIsFloatType(n) else { return .notAnInteger }
-        let i = n.intValue
-        return n.stringValue == String(i) ? .integer(i) : .outOfRange
     }
 }

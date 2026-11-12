@@ -88,8 +88,8 @@ public enum AbstractProposals {
         case nil, is NSNull: return "None"
         case let s as String: return s
         case let n as NSNumber:
-            if CFGetTypeID(n) == CFBooleanGetTypeID() { return n.boolValue ? "True" : "False" }
-            return CFNumberIsFloatType(n) ? PyJSON.repr(n.doubleValue) : String(n.intValue)
+            if JSONScalar.classify(n) == .boolean { return n.boolValue ? "True" : "False" }
+            return JSONScalar.isFloatingPoint(n) ? PyJSON.repr(n.doubleValue) : String(n.intValue)
         default: return PyJSONBridge.convert(any).dumps()
         }
     }

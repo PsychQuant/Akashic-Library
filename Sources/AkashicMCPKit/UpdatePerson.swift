@@ -451,7 +451,7 @@ public extension AkashicService {
         }
         if v is NSNull { return Node("null", Tag(.null)) }
         if let num = v as? NSNumber {
-            if CFGetTypeID(num) == CFBooleanGetTypeID() {
+            if JSONScalar.classify(num) == .boolean {
                 // style 顯式 .plain：ended 的 decode 只收裸寫 true/false（#131 F4 慣例）
                 return .scalar(.init(num.boolValue ? "true" : "false", Tag(.bool), .plain))
             }

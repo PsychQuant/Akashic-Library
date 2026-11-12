@@ -73,8 +73,12 @@
 
 動到的檔：新檔 `Sources/AkashicCore/JSONScalar.swift`、`Sources/AkashicCore/JSONInteger.swift`、design〈Implementation Contract〉列的 CF 判讀 10 個檔、一個新的測試檔。依賴：無。
 
-- [ ] 6.1 先寫測試（RED）：spec-example: linux-platform-support / JSON scalar table。對每一列以 `JSONSerialization` 解出值再分類（design「JSON 純量判讀集中到一個函式」）。驗證：實作前紅。
-- [ ] 6.2 實作 `JSONScalar.classify(_:)`（macOS 分支逐字沿用 CF 呼叫，Linux 分支以 `objCType` 判並註明只對 `JSONSerialization` 的輸出成立），`JSONInteger.classify` 改建在它上面，10 個檔的 CF 呼叫改呼叫它（JSON scalar types are classified identically on both platforms）。`WebRead` 的 `is Bool` 不動。驗證：6.1 在 macOS 與 noble 驗收都綠；既有 `JSONInteger` 的測試不變而綠；`Sources/` 裡 `CFGetTypeID` 只出現在 `JSONScalar.swift`。
+- [x] 6.1 先寫測試（RED）：spec-example: linux-platform-support / JSON scalar table。對每一列以 `JSONSerialization` 解出值再分類（design「JSON 純量判讀集中到一個函式」）。驗證：實作前紅。
+  - 完成註記：`Tests/AkashicKitTests/JSONScalarTests.swift`，表中九列之外另驗邊界（`Int.max`、無號 NSNumber、`NSDecimalNumber`）、MCP 面的值（`NSNumber(booleanLiteral:)`、原生 `Int`／`Double`）、`isFloatingPoint` 與 `JSONInteger` 的回傳值。實作前編譯不過（型別不存在）。
+- [x] 6.2 實作 `JSONScalar.classify(_:)`（macOS 分支逐字沿用 CF 呼叫，Linux 分支以 `objCType` 判並註明只對 `JSONSerialization` 的輸出成立），`JSONInteger.classify` 改建在它上面，10 個檔的 CF 呼叫改呼叫它（JSON scalar types are classified identically on both platforms）。`WebRead` 的 `is Bool` 不動。驗證：6.1 在 macOS 與 noble 驗收都綠；既有 `JSONInteger` 的測試不變而綠；`Sources/` 裡 `CFGetTypeID` 只出現在 `JSONScalar.swift`。
+  - ASSUMPTION: 另加 public 的 `JSONScalar.isFloatingPoint(_:)`，是 `CFNumberIsFloatType` 的對應。`pyStr`（AbstractProposals）與 `PyJSONBridge`（CrossrefMatch）沿用原本的「浮點／整數」二分，而 `NSDecimalNumber` 在 macOS 是浮點型、`classify` 把它歸成 `integerOutOfRange`，只用 `classify` 會改變 macOS 的輸出。
+  - 量測（2026-11-12，macOS、noble、jammy 各一次，探針 `scalars.swift`）：Linux 上布林的 `objCType` 一律是 `c`（`JSONSerialization` 的 `true`／`false`、MCP 的 `NSNumber(booleanLiteral:)`、原生 `Bool` 橋接），整數是 `i`／`q`／`Q`（連 `NSNumber(value: Int8)` 也是 `i`），小數是 `d`，超過 `UInt64` 的是 `NSDecimalNumber`；原生 `Int`／`Double` 在 Linux 也能 `as? NSNumber`。所以 Linux 分支對 MCP 面造出的值同樣成立，函式文件寫明這個前提。
+  - 完成註記：`Sources/` 裡 `CFGetTypeID`、`CFBooleanGetTypeID`、`CFNumberIsFloatType` 只出現在 `JSONScalar.swift`（另改了 `akashic-mcp/Server.swift` 一句提到 CFBoolean 的註解）。macOS：嚴格建置 0 警告；`JSONScalar`、`JSONInteger`、CreateEntry、UpdatePerson、Crossref、AbstractProposals、FulltextFetch、VenueNameSegment、VenueReferenceRemoval、ReferenceWrite、SourceStore、NameClassification 的測試全綠。Linux：整個 test target 要等其他組才建得起來，所以把 `JSONScalar.swift`、`JSONInteger.swift` 與 `JSONScalarTests.swift` 放進一個只供探針的小套件（不 commit），在 noble 與 jammy 以 `-warnings-as-errors` 跑，5 支全綠；把 Linux 分支換成 `is Bool` 後 5 支全紅（負對照）。
 
 ## 7. macOS 專屬能力的具名錯誤
 

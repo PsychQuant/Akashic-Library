@@ -114,7 +114,7 @@ extension AkashicService {
     }
 
     private static func strictBool(_ v: Any) -> Bool? {
-        guard let n = v as? NSNumber, CFGetTypeID(n) == CFBooleanGetTypeID() else { return nil }
+        guard let n = v as? NSNumber, JSONScalar.classify(n) == .boolean else { return nil }
         return n.boolValue
     }
 

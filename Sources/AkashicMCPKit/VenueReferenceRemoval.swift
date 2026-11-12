@@ -172,7 +172,7 @@ extension AkashicService {
         }
         var status: Int?
         if let v = obj["status"], !(v is NSNull) {
-            guard let n = v as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID(), let exact = Int(exactly: n.doubleValue) else {
+            guard let n = v as? NSNumber, JSONScalar.classify(n) != .boolean, let exact = Int(exactly: n.doubleValue) else {
                 throw ServiceError.invalid("\(at).status 必須是整數（HTTP 狀態碼）")   // display-safe-exempt: at 是字面＋Int
             }
             status = exact

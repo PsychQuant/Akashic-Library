@@ -168,7 +168,7 @@ public enum CrossrefMatch {
 
     /// Python 的 `int(x)`（只收整數與整數字串）；不能轉的回 nil。
     static func pyInt(_ any: Any?) -> Int? {
-        if let n = any as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID() {
+        if let n = any as? NSNumber, JSONScalar.classify(n) != .boolean {
             let d = n.doubleValue
             return d.isFinite && abs(d) < 1e15 ? Int(d) : nil
         }
@@ -465,8 +465,8 @@ enum PyJSONBridge {
         case is NSNull: return .null
         case let s as String: return .string(s)
         case let n as NSNumber:
-            if CFGetTypeID(n) == CFBooleanGetTypeID() { return .bool(n.boolValue) }
-            if CFNumberIsFloatType(n) { return .double(n.doubleValue) }
+            if JSONScalar.classify(n) == .boolean { return .bool(n.boolValue) }
+            if JSONScalar.isFloatingPoint(n) { return .double(n.doubleValue) }
             return .int(n.intValue)
         case let a as [Any]: return .array(a.map { convert($0) })
         case let d as [String: Any]: return .object(d.keys.sorted().map { ($0, convert(d[$0])) })

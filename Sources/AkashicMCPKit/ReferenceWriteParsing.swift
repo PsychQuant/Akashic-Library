@@ -101,7 +101,7 @@ extension AkashicService {
         let statement = try string("statement", cap: maxStatementBytes)
         var status: Int?
         if let v = obj["status"], !(v is NSNull) {
-            guard let n = v as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID(),
+            guard let n = v as? NSNumber, JSONScalar.classify(n) != .boolean,
                   let exact = Int(exactly: n.doubleValue) else {
                 throw ServiceError.invalid("\(at).status 必須是整數（HTTP 狀態碼；離線來源改用 judgement 型）")   // display-safe-exempt: at 是字面＋Int
             }

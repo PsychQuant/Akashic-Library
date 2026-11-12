@@ -959,7 +959,7 @@ actor AkashicMCPServer {
 }
 
 /// MCP `Value` → Foundation `Any`（#68：update_person 的 fields 收任意巢狀 JSON）。
-/// bool 用 NSNumber(booleanLiteral)——AkashicService 端以 CFBoolean 判定還原。
+/// bool 用 NSNumber(booleanLiteral)——AkashicService 端以 `JSONScalar.classify` 判定還原（#794）。
 /// **深度上限 64**（#148 verify F3）：與 jsonToNode 同一理由——這條遞迴在它之前跑，
 /// 兩層都要守，回 nil 讓呼叫端回真正的錯誤而不是進程死亡。
 func valueToAny(_ v: Value, depth: Int = 0) -> Any? {

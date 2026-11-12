@@ -372,7 +372,7 @@ public extension LibraryStore {
                 if entries[content] == nil {
                     entries[content] = obj.compactMapValues { $0 as? String }
                     // 只收整數（JSON 的 true／1.5 不是大小）：NSNumber 的 objCType 要是整數型別
-                    if let n = obj["bytes"] as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID(), n.doubleValue == Double(n.intValue) {
+                    if let n = obj["bytes"] as? NSNumber, JSONScalar.classify(n) != .boolean, n.doubleValue == Double(n.intValue) {
                         sizes[content] = n.intValue
                     }
                 }

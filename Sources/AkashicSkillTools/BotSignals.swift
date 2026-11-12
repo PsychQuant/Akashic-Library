@@ -193,6 +193,11 @@ public enum BotSignals {
     /// **這兩對只管複合段**（b38 Z2 第 28 則）：整段的比法是另一條——整段去掉**所有**連字號與底線再比 `compoundLoginWords`，所以整段的
     /// `/log-on`、`/open-athens`、`/lo-gin` 都算，而同樣的字在較長的 slug 裡（`please-log-on`、`open-athens-redirect`）不算。
     static let compoundLoginJoins: [(first: String, second: String)] = [("sign", "in"), ("log", "in")]
+    /// 只給**路徑**用的登入段——**封閉列舉，只有這一個**（使用者 2026-11-11，#777 第 1 件：Atypon 平台（Wiley、T&F、SAGE）的登入頁
+    /// `/action/showLogin` 算登入頁長相）。整段（`PathSegment.bare`：百分比解碼、小寫、去掉 `;` 之後的路徑參數與一個網頁副檔名）就是它才算；較長 slug 裡的
+    /// `showlogin`（`how-to-showlogin-errors`）不算。**不放進 `loginTokens` 或 `compoundLoginWords`**：那兩份清單也給主機用（`hostLoginLook`），
+    /// 而裁決只講路徑——主機標籤 `showlogin.<網域>` 不算登入主機（主機那一格使用者沒有裁過）。不得依「看起來也是登入頁的路徑」類推第二個。
+    static let pathOnlyLoginSegments: Set<String> = ["showlogin"]
     /// 路徑的一段可以帶的網頁副檔名（**封閉清單**）。`cas.12345`、`cas.12345.pdf` 的「副檔名」不在這裡，所以那一段不是 `cas`。
     /// b34 加 `cfm`、`cfml`、`xhtml`、`jsf`、`jspx`、`faces`、`shtml`、`phtml`（使用者 2026-10-05 第 2 則：ColdFusion、JSF、SSI 的動態頁）。
     static let pageExtensions: Set<String> = ["php", "asp", "aspx", "jsp", "do", "action", "cgi", "htm", "html", "pl",
@@ -215,7 +220,7 @@ public enum BotSignals {
         for raw in parts.path.split(separator: "/") {
             let segment = pathSegment(String(raw))
             pathWords.formUnion([segment.bare, segment.unhyphenated])
-            if loginTokens.contains(segment.bare) || compoundLoginWords.contains(segment.unhyphenated)
+            if loginTokens.contains(segment.bare) || pathOnlyLoginSegments.contains(segment.bare) || compoundLoginWords.contains(segment.unhyphenated)
                 || !segment.compound.isDisjoint(with: compoundLoginWords) { pathLogin = true }
         }
         if pathLogin { return "login" }
@@ -293,7 +298,7 @@ public enum BotSignals {
     ///
     /// **這條規則擋得住什麼、擋不住什麼**（#613 R2 verify 第 5、28、29 則）：它擋的是**之後的轉址**——文章站把分頁送到另一個主機，
     /// 那個主機要人驗證。它**擋不住文章站本身**：文章站就是 doi.org 解析到的主機，而那是 DOI 註冊者決定的，所以註冊者自己架的假 CAPTCHA 頁
-    /// （要使用者貼上指令到終端機那一類）落在文章站上仍是等人驗證（結束碼 8）——使用者的裁決是文章站算，行為照裁決；網址有登入頁長相的那一頁例外，整批暫停（使用者 2026-11-04 第 6 則，`FulltextFetch.onSiteStop`；連 `document.contentType` 都讀不到的分頁不適用；網址由文章站決定，這是判斷真登入頁的經驗法則，不是防線）。那一格唯一的防線是
+    /// （要使用者貼上指令到終端機那一類）落在文章站上仍是等人驗證（結束碼 8）——使用者的裁決是文章站算，行為照裁決；網址有登入頁長相的那一頁例外，整批暫停（使用者 2026-11-04 第 6 則，`FulltextFetch.onSiteStop`；連 `document.contentType` 都讀不到的分頁只在 Cloudflare 挑戰或按住驗證的標記命中時適用，使用者 2026-11-11，#777 第 2 件，`FulltextFetch.judgeUnreadable`；網址由文章站決定，這是判斷真登入頁的經驗法則，不是防線）。那一格唯一的防線是
     /// **使用者自己看頁面**：程式與 agent 都看不到頁面，所以結束碼 8 的訊息要 agent 請使用者看、頁面要求貼上或執行任何東西就整批停、
     /// 只在使用者說完成之後接著走。
     static let knownVerificationHosts: [String] = ["challenges.cloudflare.com", "hcaptcha.com", "recaptcha.net"]

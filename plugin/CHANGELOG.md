@@ -1,5 +1,11 @@
 # Changelog
 
+## #777 — 取全文四件待裁事項的裁決（2026-11-11）：plugin 殼 0.13.15 → 0.13.16，契約版本 9 → 10
+
+使用者 2026-11-11 裁決；細節在 `changelog/2026-11-11-fulltext-login-look-rulings-777.md`。**需要新的 `akashic` CLI**：SKILL 第 0 步要求契約版本 10。#775 的開場檢查（`hooks/check-cli.sh`）從同一行讀這個門檻，CLI 印的契約比 10 小時會在 session 開始時說出來並附重建指令。
+
+- `akashic-fetch-fulltext`：Atypon 的 `/action/showLogin` 算登入頁（只看路徑；落在那裡、頁面寫著 CAPTCHA 時整批暫停，先前等人驗證；站把讀者從 DOI 落地頁轉到那裡時，那一篇也會停下整批，先前照一般網頁讀）；連 `document.contentType` 都讀不到的同站分頁命中 Cloudflare 挑戰或按住驗證的標記、而路徑有登入長相時整批暫停（先前等人驗證）。PDF 連結路徑的 `auth`／`login` 算登入長相、主機標籤 `signon` 一族算登入主機，維持現行行為；結束碼 8 那一列、〈讀不到的分頁〉、〈中止條款〉與版本沿革改成已裁決。
+
 ## #775 — 開 session 時檢查 `akashic` CLI 是否過期（2026-11-09）：plugin 殼 0.13.14 → 0.13.15
 
 細節在 `changelog/2026-11-09-cli-stale-check-775.md`。binary 版號不變，這一輪沒有發布。

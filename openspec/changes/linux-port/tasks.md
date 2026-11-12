@@ -44,7 +44,9 @@
 
 動到的檔：`Sources/AkashicSQLite/SQLiteDB.swift`。依賴：1.1。
 
-- [ ] 3.1 `SQLiteDB.swift` 依 design「Linux 上的 SQLite 用 swift-toolchain-sqlite」改成 `#if os(Linux) internal import SwiftToolchainCSQLite #else import SQLite3 #endif`。驗證：jammy 驗收（映像裡沒有 `sqlite3.h`）的建置成功，產出的 `akashic` 以 `ldd` 看不到 libsqlite3；macOS 的 `akashic` 以 `otool -L` 仍連系統的 libsqlite3；`AkashicIndex` 與 `AkashicQuery` 的測試在 macOS 與 jammy 驗收都綠。
+- [x] 3.1 `SQLiteDB.swift` 依 design「Linux 上的 SQLite 用 swift-toolchain-sqlite」改成 `#if os(Linux) internal import SwiftToolchainCSQLite #else import SQLite3 #endif`。驗證：jammy 驗收（映像裡沒有 `sqlite3.h`）的建置成功，產出的 `akashic` 以 `ldd` 看不到 libsqlite3；macOS 的 `akashic` 以 `otool -L` 仍連系統的 libsqlite3；`AkashicIndex` 與 `AkashicQuery` 的測試在 macOS 與 jammy 驗收都綠。
+  - 完成註記：`AkashicSQLite` 的公開介面不露出 C 型別（`OpaquePointer` 是 private），所以用 `internal import`。noble 與 jammy（兩者都沒有 `/usr/include/sqlite3.h`）以非 root、`--force-resolved-versions -Xswiftc -warnings-as-errors --target AkashicSQLite` 建置成功、0 警告，`Package.resolved` 前後不變。macOS：`otool -L .build/debug/akashic` 連 `/usr/lib/libsqlite3.dylib`；`AkashicIndex` 與 `AkashicQuery` 的測試在 macOS 全套裡綠。
+  - **還沒驗**：`ldd akashic` 與 jammy 上 `AkashicIndex`／`AkashicQuery` 的測試——它們依賴 `AkashicStoreIO`（第 4 組）與 `AkashicCore`（第 6 組），Linux 的 `akashic` 要到那之後才建得出來。biblatex-apa-swift 的同一個改動在 submodule 的分支上（第 0 組），Linux 建 `AkashicExport` 時才會用到。
 
 ## 4. sources/ 的放置閘與平台 import
 

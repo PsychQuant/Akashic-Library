@@ -1,5 +1,12 @@
 import Foundation
+// #794：macOS 連系統的 SQLite3；Linux 沒有這個模組，官方 Swift 映像也沒有 `sqlite3.h`，改用 swift-toolchain-sqlite
+// （`Package.swift` 只在 Linux 掛上它的 product，條件與這裡同一個命題）。`internal import`：這個模組的公開介面
+// 不露出任何 C 型別。
+#if os(Linux)
+internal import SwiftToolchainCSQLite
+#else
 import SQLite3
+#endif
 
 public enum SQLiteError: Error, LocalizedError {
     case openFailed(String)

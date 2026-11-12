@@ -52,12 +52,14 @@ final class WriteGateRulingsTests: XCTestCase {
         return out
     }
 
-    /// 橫切選項（`LibraryOptions` 的 `--library`／`--yes`）與 ArgumentParser 自帶的 `--help`——不是任何一條腿。
+    /// 橫切選項（`LibraryOptions` 的 `--library`／`--yes`）與 ArgumentParser 自帶的 `--help`、`--version`——不是任何一條腿。
     /// 取自 `LibraryOptions` 自己的 dump，不寫死：它長出新的橫切選項時自動排除（那一族由 `mcp-cli-parity` 的橫切表管）。
+    /// `--version`：#775 起根命令的 `CommandConfiguration` 設了 `version:`，ArgumentParser 把這個旗標加到每一個子命令上；
+    /// 它只印建置時的 commit、不讀不寫 store（裁決寫在 `docs/rulings/mcp-cli-parity.md` 的「根層旗標 --version」）。
     private static func crossCutting() throws -> Set<String> {
         let obj = try JSONSerialization.jsonObject(with: Data(LibraryOptions._dumpHelp().utf8)) as? [String: Any]
         let node = try XCTUnwrap(obj?["command"] as? [String: Any])
-        return longNames(node).union(["--help"])
+        return longNames(node).union(["--help", "--version"])
     }
 
     // MARK: - 表與命令樹雙向相等

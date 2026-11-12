@@ -22,11 +22,19 @@
 
 ## 例外：可以不是 Swift 的檔案（封閉列舉，只有兩類，不得依性質相似類推第三類）
 
-1. **在 Swift binary 存在之前就得先跑、或本身是外部工具約定入口的殼層**。目前恰為四個檔：
+1. **在 Swift binary 存在之前就得先跑、或本身是外部工具約定入口的殼層**。目前恰為六個檔：
    `.githooks/pre-push`、`.githooks/run-guards.sh`（git hook 與守衛入口）、
    `plugin/bin/akashic-mcp-wrapper.sh`（下載 server binary）、`scripts/release-signed.sh`
-   （編排 `codesign`／`notarytool`）。**它們只做串接**——檢查 binary、依序呼叫、下載、編排外部
+   （編排 `codesign`／`notarytool`）、`scripts/stamp-version.sh`（建置期間把 commit 寫進
+   `Sources/akashic/BuildVersion.swift`、建完還原，#775）、`plugin/hooks/check-cli.sh`（akashic-mcp plugin 的
+   SessionStart hook，#775）。**它們只做串接**——檢查 binary、依序呼叫、下載、編排外部
    CLI。領域判斷一旦出現在裡面，就移進 Swift。
+   **`plugin/hooks/check-cli.sh` 是這一句的具名例外**（使用者 2026-11-09 裁決，#775）：它含判斷——這次建置與原始碼的內容
+   是否相同、兩者的祖先關係、基準上哪些 commit 動過內容不同的檔、比不出時改比檔案時間、契約數字的比較——但它判斷的對象就是 `akashic` binary 本身（不存在、過舊、卡住），
+   判斷者不能住在被判斷的 binary 裡；那些也不是 store 的領域判斷。它的行為測試寫在 Swift test target
+   （`Tests/AkashicCLITests/CheckCLIHookTests.swift`）。下面〈已移植〉的 `fetch-fulltext.sh` 處置相反，理由也正是這一點：
+   那支的判斷搬得進 `akashic`，因為 skill 跑它的時候 `akashic` 一定在。下一支想援用這個例外的殼層，要在這裡另外加列並寫明
+   它判斷的對象為什麼不能是 Swift，不從這一支類推。
 2. **本規則成文前已存在的檔（grandfathered）**，逐檔列在下方〈既有檔〉。可以修 bug、可以
    小改；**不得在它們旁邊新增同類檔案**，也不得把新功能長在它們裡面。大幅改寫時移植成
    上表的 Swift 形式。
@@ -107,8 +115,11 @@ parity 測試不是「移植」而是**受測物不存在後退場**）。
 | 2026-09-23～24 | akashic-fetch-fulltext skill 新增 5 支 Python 與 1 支 Python 測試（`verify_pdf.py` 等），在本規則成文之前 | 列入〈既有檔〉；移植成 `akashic` CLI 子命令由 #629 追蹤 |
 | 2026-10-03～04 | #692 R3 把讀頁面的安全檢查寫成 `web-access.md` 裡約 175 行、要模型照抄進暫存目錄再執行的 Python（`check-read.py`：主機形狀驗證、UTF-16 截斷、逐碼位剔除），以「不適用」第 1 類（文件裡的指令列）辯護，規則檔沒改。R4 verify 四席指出那是依性質相似類推：第 1 類是呼叫工具的指令列；留在 Python 的理由（舊 CLI 會停）也不成立——同一個區塊本來就硬依賴 `akashic fulltext bot-signals --kind`。代價是實的：跑的是抄本、測試釘的是文件；它重寫一份 `UnsafeToEmitScalar`，macOS 的 `/usr/bin/python3`（3.9、Unicode 13）留下九個之後才指派的格式字元；`swift test` 因此需要 python3 | 移植成 `akashic web-read origin｜landing｜check`（`Sources/AkashicSkillTools/WebRead.swift`，剔除集合是 `UnsafeToEmitScalar`，b33 起加 noncharacter）；文件裡要照抄進暫存檔的程式只剩讀頁面的 JS 運算式（單行的 `python3 -c` 指令列仍在，見第 1 類）；「不適用」第 1 類補一句「不含要照抄執行的程式」 |
 | 2026-10-05 | #692 b33 verify：上一列補的那一句寫成「不含：…的程式（含解析、驗證、比對邏輯的）」——括號裡是性質判準，而文件仍要模型把 `read-*.js` 寫進暫存檔、當 JS 執行（它含 `t.length > LIMIT` 的比較與截斷），落在邊界上沒有答案 | 拿掉性質限定詞；例外改成封閉列舉的一項（`read-*.js`，理由寫在第 1 類） |
+| 2026-11-09 | #775：比照 safari-browser 給 akashic-mcp plugin 加 CLI 過期提示，需要兩支 shell——建置戳記腳本與 SessionStart hook。戳記腳本是例外 1 的原型（建置前就得跑、只做串接）；hook 卻含判斷，照「含判斷者移進 Swift」本該移植，但它判斷的是 `akashic` binary 本身 | 使用者裁決修改例外 1：四個檔改六個，hook 以具名例外列入並寫明理由（判斷對象是 binary 本身）；它的測試在 Swift test target |
 
 ## 語言組成（tracked，排除 `repos/`、`docs/`、`changelog/`、`openspec/`）
+
+**2026-11-09（#775 branch 上量）**：Swift 681、Python 0、shell 6（恰為例外 1 的六個檔）。
 
 **2026-09-29（#629 R1 修正後重量）**：Swift 511、Python 0、shell 4（含沒有副檔名的 `.githooks/pre-push`；恰為例外 1 的四個檔）。
 第一版這裡寫 Swift 497，驗證席在同一個 commit 上重量得 501（R1 verify 第 20 則；497 是 rebase 之前量的）——**這個數字隨每個 commit 變動**（別的工作線也在加 Swift 檔），

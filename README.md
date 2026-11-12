@@ -224,6 +224,7 @@ akashic export-tables --view iss -o out/   # view-scoped 關聯表匯出（#274�
 |---|---|
 | `AKASHIC_HOME` | 覆寫 akashic home（預設 `~/.akashic`）。**同時決定 registry（`config.yaml`）與衍生 index（`index/<key>-<化身>.sqlite`）的位置**——兩者必須同源，否則會出現「registry 讀一個 home、index 寫另一個 home」的跨 profile 混用（#101 修正）。CLI / MCP / App 三面一致遵守 |
 | `AKASHIC_LIBRARY` | 直接指定 library root，等同 `--library`。路徑已註冊時**反查 registry 帶 key**（#105）——同一個 store 不因開法不同而有兩份 index |
+| `AKASHIC_SOURCE_DIR` | Akashic-Library 原始碼 checkout 的根目錄（預設 `~/Developer/Akashic-Library`）。只有 akashic-mcp plugin 的 SessionStart 檢查（`plugin/hooks/check-cli.sh`，#775）讀它：拿 `akashic --version` 說的建置 commit 跟那裡的 `origin/main`（上次 fetch 時；沒有這個 ref 才用 HEAD）比，CLI 落後時在開 session 時說出來。目錄不存在時只比 fulltext 契約；存在但不是 repo 的根目錄、或 PATH 上找不到 git 時會說明、不比對。判定看內容：分支自己撤掉 main 的某個改動時算最新（那是建置自己的改動；merge 時解衝突丟掉了 main 的修正也算）；判定規則與已知的界線寫在 hook 檔頭。請寫絕對路徑（相對路徑是相對於開 session 時的工作目錄）。CLI、MCP、App 都不讀這個變數 |
 
 Library root 的解析順序：`--library` → `$AKASHIC_LIBRARY` → `$AKASHIC_HOME/config.yaml`（`current` 指向的
 `files:` 項）。三條路都會解析 registry key：前兩者對已註冊路徑**反查**（#105），未註冊才 keyless。

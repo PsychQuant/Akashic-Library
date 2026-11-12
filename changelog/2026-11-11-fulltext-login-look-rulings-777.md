@@ -1,4 +1,4 @@
-# #777：取全文的四件待裁事項，使用者 2026-11-11 裁決（plugin 殼 0.13.14 → 0.13.15，契約版本 9 → 10）
+# #777：取全文的四件待裁事項，使用者 2026-11-11 裁決（plugin 殼 0.13.15 → 0.13.16，契約版本 9 → 10）
 
 使用者 2026-11-11 對 #777 的四件回答（#777 的 Decision comment）：第 1 件 `/action/showLogin` 算登入頁、第 2 件讀不到的同站分頁改整批暫停、第 3 件接受（多停）、第 4 件保留（多停）。前兩件改程式，後兩件只把文件裡的「待使用者裁決」改成已裁決。規格：Spectra change `idd-777-fulltext-login-look-rulings`（新 capability `fulltext-gate-look`）；第 1 輪 verify 之後的修正是 change `idd-777-fix1`（見最後一節）。
 
@@ -30,8 +30,14 @@
 - 規格 `fulltext-gate-look`：第一條的正規化敘述補上百分比解碼（跳脫序列解不開的那一段照原樣比），並寫明導航之前判到這個長相的文章站頁面整批暫停；加三個 Example（百分比編碼的寫法、DOI 落地頁、讀頁面當中轉過去的同站頁）。第二條寫明標記命中而路徑不是登入長相時照原本的方式判，並把最後一句收緊（沒有標記而交給人的那一格，不含登入主機與已知驗證服務上的分頁）；加一個 Example（路徑是驗證頁的長相 `/captcha/x`，仍是結束碼 8）。合併後的規格從 9 個 Example 變成 13 個（新增 4 個）。
 - 測試：四個新 Example 各一支帶標記的測試（兩支在 `FulltextLoginLookRulingsTests`，兩支在 `FulltextB37Tests`）；第 3 件補一支不帶標記的正向測試（導航之後落在 `/auth/12345.pdf`、頁面寫著 CAPTCHA → 6、`(login page)`）。
 - 文字：SKILL〈中止條款〉與 `FulltextOffSiteTests` 的註解裡「讀不到的分頁不適用」改成與 `BotSignals` 同一句；SKILL 版本 10 那段、本檔與 plugin CHANGELOG 直說落地頁那一格的實際效果；`contractVersion` 版本 10 的註解逐格寫出先前的結束碼；版本沿革裡「第 0 步要求 9」的兩句標明是當時的門檻。
-- SKILL 與 plugin CHANGELOG 改了，`.githooks/plugin-shell-versions.txt` 裡 0.13.15 那一列的摘要重算（0.13.15 還沒有發布過）。
+- SKILL 與 plugin CHANGELOG 改了，`.githooks/plugin-shell-versions.txt` 裡這一張那一列的摘要重算（當時用的版號是 0.13.15，還沒有發布過；之後改成 0.13.16，見下一節）。
 
-## 衝突
+## 併入 main（#775 先合併）
 
-PR #783（#775）也把 plugin 殼升到 0.13.15；後合併的那一個要改成下一號，並在 `.githooks/plugin-shell-versions.txt` 重接一列。
+#775（PR #783）在 2026-11-12 先合併進 main，用掉了 plugin 殼 0.13.15。這一張把 main 併進 branch，改成 0.13.15 → 0.13.16：
+
+- `plugin/.claude-plugin/plugin.json` 的版號改成 0.13.16；`.githooks/plugin-shell-versions.txt` 保留 #775 的 0.13.15 那一列，另接 0.13.16 一列。
+- `plugin/CHANGELOG.md`：這一張的條目在 #775 的條目上面，版號改成 0.13.15 → 0.13.16。
+- SKILL 第 0 步有一處衝突：門檻用這一張的 10，建置指示用 #775 改寫過的（`scripts/stamp-version.sh` 與 `install -m 755`），訊息保留「印 9 的是 #777 之前的建置」。
+- #775 的開場檢查（`plugin/hooks/check-cli.sh`）從 SKILL 第 0 步那一行讀契約門檻，所以門檻升到 10 之後，印 9 的 CLI 會在 session 開始時被指出來，並附重建指令。
+- 程式（`Sources/`）與規格沒有衝突，也沒有因為這次併入而改動。

@@ -83,8 +83,9 @@ The package SHALL resolve to a single `Package.resolved` on macOS and on Linux. 
 ##### Example: macOS build contains no Linux-only product
 
 - **GIVEN** a macOS debug build of every target
-- **WHEN** the build directory is searched for files whose names contain `SwiftToolchainCSQLite` or `CCryptoBoringSSL`
-- **THEN** none are found
+- **WHEN** the build directory is searched for files whose names contain `SwiftToolchainCSQLite`, `CCryptoBoringSSL` or `CryptoBoringWrapper`, or whose module name is `Crypto` or `_CryptoExtras` (`Crypto.o`, `Crypto.swiftmodule`, `Crypto-t.build`, …)
+- **THEN** none are found, and the same search finds an object of `AkashicSQLite`, so an empty search does not pass
+- swift-crypto never compiles `CCryptoBoringSSL` on Apple platforms, so the `Crypto` module itself is what shows that the Linux condition held
 
 ### Requirement: macOS behaviour is unchanged
 
@@ -163,7 +164,7 @@ Every split of text into lines under `Sources/` SHALL go through one shared func
 
 ### Requirement: JSON scalar types are classified identically on both platforms
 
-Values decoded by `JSONSerialization` SHALL be classified as boolean, integer, non-integer number or other by one shared function that gives the same answer on macOS and Linux. Every check under `Sources/` that uses CoreFoundation type identity (`CFGetTypeID`, `CFBooleanGetTypeID`, `CFNumberIsFloatType`) to tell a JSON boolean from a JSON number SHALL use it instead. Checks written with `is Bool` are out of scope: `is Bool` is true for the JSON numbers `0`, `1` and `1.0` on macOS as well as on Linux, so they already behave the same on both platforms.
+Values decoded by `JSONSerialization` SHALL be classified as boolean, integer, non-integer number or other by one shared function that gives the same answer on macOS and Linux. Every check under `Sources/` that uses CoreFoundation type identity (`CFGetTypeID`, `CFBooleanGetTypeID`, `CFNumberIsFloatType`) to tell a JSON boolean from a JSON number SHALL use it instead. Checks written with `is Bool` on values produced by `PyJSONParser` are out of scope: that parser returns native Swift values, for which `is Bool` is true only for `true` and `false` on both platforms. `is Bool` is true for the JSON numbers `0`, `1` and `1.0` only on the `NSNumber` values that `JSONSerialization` produces, which this requirement covers.
 
 #### Scenario: Booleans and numbers are told apart on Linux
 
@@ -228,6 +229,25 @@ The shell hook that compares the installed CLI with the plugin SHALL read a file
 - **GIVEN** `swift:6.4.2-noble`, `swift:6.4.2-jammy` and macOS
 - **WHEN** `CheckCLIHookTests` runs
 - **THEN** every test passes, including `testUnknownVersionComparesFileTimes` and `testSignatureDisplayNeitherRunsGpgNorHidesStaleness`
+
+### Requirement: The bot-signal word class agrees with Python 3.13 on both platforms
+
+The word class that `BotSignals` uses in place of `\b` SHALL agree with Python 3.13's `\w` on every assigned, non-private-use Unicode scalar that Python 3.13 knows (Unicode 15.1.0), on macOS and on Linux. Scalars assigned after Unicode 15.1.0 are outside the comparison, because Python 3.13 treats them as unassigned and the Unicode data of ICU and of the Swift standard library differ between the two platforms for them. The product's word class SHALL NOT change.
+
+#### Scenario: The comparison holds on Linux
+
+- **WHEN** the word-class test runs in a supported Linux image
+- **THEN** it SHALL find no scalar of Unicode 15.1.0 or earlier on which the word class and Python's `\w` disagree
+
+##### Example: Word class against Python's \w
+
+| Platform | Scalars compared | Differences | `U+088F` (age 17.0) |
+|---|---|---|---|
+| macOS | every assigned non-private scalar of age 15.1 or earlier | 0 | not compared |
+| `swift:6.4.2-noble` | same | 0 | not compared |
+| `swift:6.4.2-jammy` | same | 0 | not compared |
+
+- The test also fails if it compares fewer scalars than its stated floor, so an empty comparison does not pass
 
 ### Requirement: Tests skipped on Linux equal an audited list
 

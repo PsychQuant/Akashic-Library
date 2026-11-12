@@ -28,8 +28,7 @@ AkashicKit 只宣告 macOS（`platforms: [.macOS(.v14)]`），`Sources/` 沒有�
 - 在 Linux 提供金鑰來源（環境變數、檔案、libsecret）：裁決 3 是報錯，這張不新增。
 - 把 `~/Library/...` 的預設路徑改成 XDG：只有 macOS 專屬能力用到它們，Linux 上那些能力在用到路徑之前就報錯。
 - Windows、musl、Swift 6.4 以前的 Linux toolchain。
-- 讓 `sources/` 的放置在兩個平台都 fsync 父目錄（現況兩邊都沒有，另開 issue）。
-- `BotSignalsPythonBoundaryTests` 因 Unicode 17 而失敗的修正（與 Linux 無關，另開 issue）。
+- 讓 `sources/` 的放置在兩個平台都 fsync 父目錄（現況兩邊都沒有，#805）。
 - 量「送到 Linux 跑是否比較快」（#794 Residue 已寫明由另一張 issue 決定）。
 
 ## Decisions
@@ -57,19 +56,20 @@ ASSUMPTION: 依 lead 的設計傾向與試作 §11.2。swift-crypto 與 swift-to
 
 lead 要求在「把 SQLite amalgamation 收成 Linux 專用的 C target」與「依賴 swiftlang/swift-toolchain-sqlite」之間選一個。選後者。
 
-| | amalgamation 收進本 repo | swift-toolchain-sqlite 1.0.9 | 系統 libsqlite3（試作的做法） |
+| | amalgamation 收進本 repo | swift-toolchain-sqlite 1.0.13 | 系統 libsqlite3（試作的做法） |
 |---|---|---|---|
 | 沒有 root、沒有 `sqlite3.h` 的 Linux 機器 | 可 | 可（2026-11-12 量：兩個映像都沒有 `/usr/include/sqlite3.h`，建置成功，`ldd` 看不到 libsqlite3） | 不可 |
 | 本 repo 新增的 C 程式碼 | 約 9 MB 的 `sqlite3.c`，要在 `swift-is-the-implementation-language` 的放置表加一列 | 無；它與 Yams 一樣是相依套件 | modulemap 與一個 header |
 | 授權 | SQLite 是 public domain | 包裝是 Apache-2.0，套件內的 `Sources/LICENSE.txt` 寫明 SQLite 原始碼已獻給 public domain | 系統套件 |
 | 原始碼大小 | 收進 repo | 11 MB，只在 `.build/checkouts`，不進 repo | — |
-| 版本怎麼釘 | 手動換檔 | `Package.resolved`（1.0.9 帶 SQLite 3.53.0） | 隨發行版（noble 3.45.1、jammy 3.37.2） |
+| 版本怎麼釘 | 手動換檔 | `Package.resolved`（1.0.13 帶 SQLite 3.53.4） | 隨發行版（noble 3.45.1、jammy 3.37.2） |
 | 維護者 | 本 repo | swiftlang（SwiftPM 自己在 Linux 用它） | 發行版 |
 | macOS | 不受影響 | 不受影響（條件式 product，量過不編譯） | 不受影響 |
 
+- 版本：manifest 寫 `.upToNextMinor(from: "1.0.9")`，2026-11-12 在 macOS resolve 到 1.0.13（SQLite 3.53.4），鎖定檔收的是 1.0.13。表中的量測是對 1.0.9 做的；兩版的 `Package.swift` 逐位元組相同（`git diff 1.0.9 1.0.13 -- Package.swift` 為空），差別只在 SQLite 的修正版（3.53.0 到 3.53.4）與 `sqlite` shell，所以沒有 `sqlite3.h`、不需要 root 這兩列對 1.0.13 一樣成立（第 3 組在兩個映像以 1.0.13 建 `AkashicSQLite` 成功）。
 - import 寫法：`#if os(Linux)` 時 `internal import SwiftToolchainCSQLite`，否則照舊 `import SQLite3`。
 - 量測（2026-11-12）：`internal import` 建置時沒有警告，但以 `swiftc` 單獨對該模組的 `.swiftmodule` 編譯 client 時，兩個映像都報 `missing required module 'SwiftToolchainCSQLite'`——`internal import` 不讓 client 免載入 C 模組。本 repo 以 `swiftc` 直接編譯 client 的測試只 import `AkashicProposition`，它的依賴閉包（AkashicCore、AkashicStoreIO、Yams）不經過 `AkashicSQLite`，所以不受影響；這也是下一個 Decision 不在 `AkashicStoreIO` 放任何 C 模組的理由之一。
-- SQL 特性：試作 §3.2 掃過用 SQLite 的 target，jammy 3.37.2 以後才有的特性 0 處；3.53.0 比它新，沒有相容問題。
+- SQL 特性：試作 §3.2 掃過用 SQLite 的 target，jammy 3.37.2 以後才有的特性 0 處；3.53.4 比它新，沒有相容問題。
 
 ### 本 repo 不新增任何 C 程式碼
 
@@ -79,7 +79,7 @@ lead 要求在「把 SQLite amalgamation 收成 Linux 專用的 C target」與�
 - `renameat2`：Swift 的 Glibc 模組在 6.4.2 仍然不露出它（量：`cannot find 'renameat2' in scope`），但以 `dlopen(nil, RTLD_NOW)` 加 `dlsym("renameat2")` 取得、轉成 `@convention(c)` 函式型別後，非 root 使用者在 overlayfs 與 tmpfs 上覆寫既有檔回 `-1`／`EEXIST`、目的檔內容不變，放到新名字回 `0`。`RENAME_NOREPLACE` 是 Linux uapi 的固定值 1、`AT_FDCWD` 是 -100，寫成具名常數並附出處。
 - `ioctl(FS_IOC_GETFLAGS)`：從 Swift 的 Glibc overlay 直接呼叫成功（overlayfs 讀到 `0x80000`，tmpfs 讀到 0）。
 
-所以 `swift-is-the-implementation-language` 的放置表不用加列。另記一件不屬本 change 的事：既有的 C target `AkashicTestGuardLoader`（`loader.c`）在那條規則的例外與既有檔清單裡都沒有出現，規則的語言組成數字也沒算它，列成要另開的 issue。
+所以 `swift-is-the-implementation-language` 的放置表不用加列。另記一件不屬本 change 的事：既有的 C target `AkashicTestGuardLoader`（`loader.c`）在那條規則的例外與既有檔清單裡都沒有出現，規則的語言組成數字也沒算它，記在 #806。
 
 ### 條件編譯以 os(Linux) 對齊 manifest 的條件
 
@@ -94,7 +94,7 @@ ASSUMPTION: 依 lead 的設計傾向 5。
 - 磁碟區能力：Linux 一律回「判不出來」（`nil`），交給既有的 `assertDirectoryCanPlace` 在分片目錄裡實際放一次。不做檔案系統類型的允許清單：允許清單是另一份要維護、會與實際行為分岔的描述，而實際放一次本來就是 `nil` 時的既有路徑。代價是 Linux 上每次存檔多一次建檔、改名、刪檔。
 - 同步：Linux 用 `fsync(2)`。macOS 的 `F_FULLFSYNC` 連裝置的寫入快取一起清，`fsync` 在 macOS 不保證這一點；Linux 的 `fsync` 依 man page 要求把資料送到裝置並清裝置快取，但只有在檔案系統下 barrier／flush 時成立（ext4、xfs 預設會）。這個等價在 VM 裡量不到，寫進 Risks。Linux 沒有「完整同步不支援就退一般同步」那一步，因為只有一個呼叫。
 - 拒絕訊息：Linux 版寫 `renameat2`，並說要放在支援 hard link 或 RENAME_NOREPLACE 的本機檔案系統（ext4、xfs 這類），不叫人改用 APFS／HFS+。macOS 版逐字不變。
-- 放置之後兩個平台都沒有 fsync 父目錄，新名字在斷電時不保證留下；這是既有缺口，另開 issue，本 change 不改 macOS 的行為。
+- 放置之後兩個平台都沒有 fsync 父目錄，新名字在斷電時不保證留下；這是既有缺口，記在 #805，本 change 不改 macOS 的行為。
 - 閘不比現在寬的論證：Linux 的三個步驟對應 macOS 的三個步驟，不支援時的結局（具名拒絕、零寫入）相同；Linux 多收的 `ENOSYS` 只會把呼叫導向 `link(2)` 或拒絕，不會導向覆寫。
 
 ### Linux 上以 /proc/self/fd 取得 descriptor 的真實路徑
@@ -121,7 +121,7 @@ ASSUMPTION: 依 lead 的設計傾向 5。
 - 新增 AkashicCore 的 `JSONScalar.classify(_:)`，回 `boolean`、`integer(Int)`、`integerOutOfRange`、`nonInteger`、`other`。macOS 分支逐字沿用現在的 CF 呼叫；Linux 分支以 `NSNumber.objCType` 判（試作量到 `JSONSerialization` 的 `true`／`false` 是 `c`、整數是 `i`／`q`／`Q`、小數是 `d`、超過 `UInt64` 的是 `NSDecimalNumber`）。這個判讀只對 `JSONSerialization` 的輸出成立，函式文件寫明這個前提。
 - `JSONInteger.classify` 改成建在它上面，回傳值不變。
 - 10 個檔裡的 CF 呼叫改呼叫它。spec 的表在兩個平台跑同一組斷言；表中每一列的原始值（型別、`objCType`、`is Bool`）2026-11-12 在 macOS host 與 noble 各量過一次。
-- `WebRead` 的兩處 `is Bool` 不在範圍內。試作說「Linux 上 `1 is Bool` 為真」，而 2026-11-12 在 macOS host 量到 `0`、`1`、`1.0` 的 `is Bool` 也都是 true——那兩處在兩個平台一樣寬鬆（接受 `truncated: 1`、拒絕 `rawLength: 0`），改用 `JSONScalar` 會改變 macOS 的行為。列成要另開的 issue。
+- `WebRead` 的兩處 `is Bool`（第 397–398 行）不改，也不另開 issue：它們判讀的不是 `JSONSerialization` 的輸出，而是 `PyJSONParser` 的輸出。`PyJSONParser` 回原生的 Swift 值，2026-11-12 在 macOS 與 `swift:6.4.2-noble` 各量一次，`0`、`1`、`1.0`、`-3` 的 `is Bool` 都是 false，只有 `true`／`false` 是 true，兩個平台相同，所以那兩處在兩個平台都正確。`is Bool` 對 `0`、`1`、`1.0` 為 true 只發生在 `JSONSerialization` 產生的 `NSNumber` 上——本節的 `JSONScalar` 處理的正是那一種。
 
 ### macOS 專屬能力在 Linux 回具名錯誤
 
@@ -196,6 +196,16 @@ ASSUMPTION: 依 lead 的設計傾向 9。產生器 import `CryptoKit`，改它�
 
 `testUnicodeV1TrustChainAndOfficialConformanceArePinned` 現在把「digest 釘住」與「以 `swift run --disable-automatic-resolution` 離線重建產生器」放在同一支。拆成兩支：釘住的檢查兩個平台都跑；離線重建在 Linux 標 `macos-only`（產生器不在 Linux 的套件圖裡）。macOS 上離線重建要從 SwiftPM 全域快取取得所有相依套件，新增的兩個套件也要在快取裡；`ci.yml` 的快取 key 綁 `Package.resolved`，第一次會 miss 再補。task 1.1 的驗收包含在 macOS 單跑這支測試。
 
+### BotSignals 字詞類別的測試只比對 Python 3.13 認得的碼位
+
+`BotSignalsPythonBoundaryTests/testTheWordClassAgreesWithPythonsWordOnEveryScalar` 在 macOS 通過、在兩個 Linux 映像失敗。它不是 macOS 專屬的測試（試作 §11.4 推測 macOS 可能也紅；2026-11-12 在 macOS 跑過，6 支全部通過），依裁決 2 要在 Linux 通過，所以屬於本 change。
+
+- 產品怎麼判斷：`BotSignals.wordClass` 是 ICU 正則的字元類 `(?-i:[\p{L}\p{N}_])`，用的是 Foundation 帶的 ICU 的 Unicode 資料。測試拿它與 `PyText.isWord`（以標準函式庫的 `generalCategory`／`numericType` 重寫 Python 3.13 的 `\w`）在每個已指派、非私用區的 scalar 上比對。
+- 量測（2026-11-12，同一支探針分別在 macOS 與 `swift:6.4.2-noble` 跑）：兩個平台的標準函式庫都是 Unicode 17；macOS 的 ICU 與它一致（0 個不一致），Linux 的 ICU 比它舊——4,657 個不一致全部是 age 17.0 的碼位（例如 U+088F、U+A7CE、U+10940），全部是 ICU 判「不是字詞字元」、標準函式庫判「是」。age 16.0 以前的碼位兩邊一致。
+- 這 4,657 個碼位 Python 3.13（`unicodedata.unidata_version` 為 15.1.0）根本不認得，Python 的 `\w` 對它們是 false；在 macOS 上 ICU 與標準函式庫都說 true，測試通過只表示兩者彼此一致，不表示與 Python 一致。`PyText` 的檔頭已把「新指派的碼位可能不同」列為已知差異。
+- 做法：測試只比對 age 不超過 15.1 的碼位，也就是 Python 3.13 的 Unicode 資料涵蓋的範圍；比對的碼位數要過一個下限，空掃描不算通過。產品不改。
+- 不選「讓字詞類別不隨 Unicode 版本變動」：那要把產品的 ICU 字元類換成固定版本的表（repo 有信任鏈釘住的 `Vendor/Unicode/15.1.0/UnicodeData.txt`，可以產生這張表），會改變 macOS 的行為——Unicode 16、17 的新字母旁邊的訊號從「不命中」變「命中」，違反「macOS 行為不變」；也多一張要維護的 Unicode 表，而測試的命題（與 Python 3.13 一致）不需要它。
+
 ### plugin hook 改成 GNU 與 BSD 都能用
 
 `plugin/hooks/check-cli.sh` 讀連結數（`stat -L -f %l`）與修改時間（`stat -L -f %m`）的兩處是 BSD 寫法；GNU 的 `stat -L -f %m` 印的是檔案系統資訊並以 1 結束（試作在 jammy 量）。改成一個函式：`stat --version` 成功（GNU）時用 `stat -L -c %h`／`%Y`，否則用 BSD 寫法。`date -r FILE` 兩邊都能用，不改。這支 hook 是 `swift-is-the-implementation-language` 例外 1 的具名成員（#775），改的是它既有的判斷，不新增 shell 檔。這支 hook 是裝到使用者機器上的 plugin 殼，所以 plugin 殼的版號要升（`plugin-shell-version` 守衛會要求），合併前後各查一次 main 上的版號有沒有被別的 PR 先用掉。
@@ -217,7 +227,7 @@ ASSUMPTION: submodule 的 `ZoteroDiff.swift` 也 import `SQLite3`。在那個 re
 - `.github/workflows/linux.yml`：矩陣兩個映像，`runs-on: ubuntu-24.04`，`container:` 以 digest 指定。容器內先以 root 安裝 `git`、`poppler-utils`，建一個非 root 使用者，之後建置、測試、守衛全部以那個使用者執行（試作 §5.1：root 會讓 77 支權限相關測試略過，建置與測試用不同使用者會造成 Code 513）。
 - 步驟：checkout（釘 SHA、`persist-credentials: false`、`fetch-depth: 0`、連同 submodule 一起取）→ 把工作目錄的擁有者改成那個非 root 使用者，並為他把工作目錄加進 git 的 `safe.directory`（checkout 在容器裡以 root 執行，不改的話他寫不了 `.build`，測試裡呼叫的 git 也會報 dubious ownership）→ 以 `--force-resolved-versions` 與 `-warnings-as-errors` 建置含測試 → `swift test --force-resolved-versions`，輸出存檔 → 檢查 `Package.resolved` 沒有變動（放在測試之後，測試的 resolve 也算在內）→ `akashic-guards linux-skip-audit`。
 - ASSUMPTION: 觸發條件與 `ci.yml` 相同（只在 push to main，沿用它的 `paths-ignore`）。Linux runner 是 1× 計費，也可以在 PR 跑，但 repo 有計費事故的紀錄（CLAUDE.md），要不要在 PR 跑由使用者決定。
-- `ci.yml` 檔頭「沒有 Linux 選項」那句改掉。CLAUDE.md 記的 #435（ubuntu 沒有 toolchain，所以守衛只能在 macOS 跑）的前提從此不成立，是否把守衛移到 Linux runner 另開 issue。
+- `ci.yml` 檔頭「沒有 Linux 選項」那句改掉。CLAUDE.md 記的 #435（ubuntu 沒有 toolchain，所以守衛只能在 macOS 跑）的前提從此不成立，是否把守衛移到 Linux runner 記在 #807。
 
 ## Implementation Contract
 
@@ -258,14 +268,14 @@ ASSUMPTION: submodule 的 `ZoteroDiff.swift` 也 import `SQLite3`。在那個 re
 ## Risks / Trade-offs
 
 - [所有量測都在 aarch64，CI 是 x86_64] → 第一次 CI 就是量測；CI 那一組的驗收是兩個 x86_64 job 都綠，紅了照實回報。
-- [`BotSignalsPythonBoundaryTests` 在 6.4.2 必紅（Unicode 17，試作 §11.4），macOS host 可能也紅（沒有跑）] → 不在本 change 修；CI 那一組的前置是那張另開的 issue 先合併，否則「其餘全部通過」驗收不了。
+- [Linux 的 ICU 與標準函式庫的 Unicode 版本不同（量到 ICU 停在 16、標準函式庫是 17）] → 字詞類別的測試只比對 Python 3.13 認得的碼位（見「BotSignals 字詞類別的測試只比對 Python 3.13 認得的碼位」）；其他以 ICU 與標準函式庫交叉比對的測試若在 Linux 紅，同樣先量差異是否全落在 Unicode 16 以後的碼位。
 - [corelibs 的 URLSession 對真實轉址的行為沒量] → 測試可攜性那一組的第一個 task 量；不符時當產品發現回報，不以略過收場。
 - [`renameat2` 的 `EINVAL`、`ENOSYS` 與符號缺席三條退路只在測試接縫上驗過，沒有真的檔案系統（NFS、FUSE、vfat）可量] → 接縫測試把三條都走一次；真實檔案系統留給使用者遇到時回報。
 - [Linux 的 `fsync` 是否清裝置快取取決於檔案系統的 barrier] → 寫進 design 與 README，不宣稱等價。
 - [Linux 每次存檔多一次探測放置] → 接受，換到的是不維護允許清單。
 - [設不了 immutable 旗標，Linux 讀旗標的整條路徑不在 CI 測到] → 旗標解碼以純函式測，ioctl 呼叫本身以讀到 0 的情況在 CI 測。
 - [swift-crypto 在 macOS 是否完全不編譯沒量] → task 1.1 驗收。
-- [SQLite 版本兩個平台不同（macOS 系統 3.54.0、Linux 3.53.0）] → 試作的特性掃描 0 處；日後若用到新特性，兩個平台的測試都要過。
+- [SQLite 版本兩個平台不同（macOS 系統 3.54.0、Linux 3.53.4，swift-toolchain-sqlite 1.0.13）] → 試作的特性掃描 0 處；日後若用到新特性，兩個平台的測試都要過。
 - [Unicode 信任鏈的離線重建依賴 SwiftPM 全域快取裡有新套件] → task 1.1 在 macOS 單跑；CI 快取 key 綁鎖定檔。
 - [CI 計費] → 觸發條件與 `ci.yml` 相同，是否加 PR 由使用者決定。
 - [`.gitignore` 判讀在 Linux 會多拒絕一些大小寫變體的排列] → 接受；改依 `core.ignorecase` 由使用者決定。
@@ -276,7 +286,7 @@ ASSUMPTION: submodule 的 `ZoteroDiff.swift` 也 import `SQLite3`。在那個 re
 2. manifest 與相依、CryptoKit、SQLite、平台 import：Linux 建置成功、macOS 照舊。
 3. 產品行為：放置閘、切行、JSON 判讀、可刪檢查、平台錯誤、hook。
 4. 測試可攜性與略過清單、守衛、警告。
-5. CI 最後開，前置是 BotSignals 那張 issue 已合併。
+5. CI 最後開。
 
 第 1 步要等使用者，第 2 到 4 步在那之前就能做：在工作 clone 裡把 submodule 切到 biblatex-apa-swift 未合併的分支、在本機的兩個映像建置與測試，但 submodule 的指標不 commit；第 1 步完成後再把指標改成已 tag 的 commit 並重跑一次。
 
@@ -289,5 +299,4 @@ ASSUMPTION: submodule 的 `ZoteroDiff.swift` 也 import `SQLite3`。在那個 re
 1. Linux CI 只在 push to main 跑（暫定），還是也在 PR 跑。
 2. `.gitignore` 判讀維持不分大小寫（暫定），還是依 `core.ignorecase`。
 3. biblatex-apa-swift 用 swift-toolchain-sqlite 的做法，以及那個 repo 的合併與 tag。
-4. `BotSignalsPythonBoundaryTests` 那張 issue 排在 CI 開啟之前。
-5. `akashic s2` 在 Linux 沿用結束碼 3（暫定）還是另立。
+4. `akashic s2` 在 Linux 沿用結束碼 3（暫定）還是另立。

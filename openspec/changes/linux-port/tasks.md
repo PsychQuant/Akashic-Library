@@ -11,7 +11,6 @@
 動到的檔：biblatex-apa-swift 那個 repo；本 repo 只有 submodule 指標。依賴：無。
 
 - [ ] 0.1 biblatex-apa-swift 能在 Linux 建置：在那個 repo 開 issue 並實作——manifest 無條件宣告 swift-toolchain-sqlite、`SwiftToolchainCSQLite` product 以 `.when(platforms: [.linux])` 掛上、`ZoteroDiff.swift` 以 `#if os(Linux)` 改 import（design「biblatex-apa-swift 用同一個 SQLite 套件，先在那個 repo 合併」）。**那個 repo 的合併與 tag 要等使用者**，本 repo 的 submodule 只指向已合併的 commit。驗證：該 repo 在兩個映像以 `--force-resolved-versions` 建置並跑它自己的測試通過；macOS 照舊通過；本 repo 的 submodule 指標等於那個 repo 預設分支上已 tag 的 commit。
-- [ ] 0.2 另開的 `BotSignalsPythonBoundaryTests`（Unicode 17）issue 已合併；這是第 12 組的前置，否則「其餘全部通過」驗收不了（design Risks）。驗證：該 issue 已 close，`BotSignalsPythonBoundaryTests/testTheWordClassAgreesWithPythonsWordOnEveryScalar` 在 macOS 與 noble 驗收都通過。
 
 ## 1. Manifest、相依套件與工具鏈下限
 
@@ -109,6 +108,8 @@
 - [ ] 9.8 `MacOSOnly.require(_:)`（AkashicTestGuard，它已 import XCTest）與 macOS 專屬的測試逐支呼叫它：`FulltextHumanLikeTests` 用 `JavaScriptCore` 的三支（框架程式碼放進 `#if canImport(JavaScriptCore)`）、`IndexIdentityTests/testIsCurrentAcceptsOwnIndexIncludingPathAliases`、4.4、7.2、8.3 標的那幾支、Unicode 信任鏈測試拆出的離線重建那一支（design「macOS 專屬測試逐支略過，Linux 的略過集合等於審過的清單」、「Unicode 表產生器在 Linux 不宣告，信任鏈測試拆成兩支」）。驗證：noble 驗收的輸出逐支列出略過與理由；macOS 上這些測試照常執行。
 - [ ] 9.9 寫 `Tests/linux-skipped-tests.txt`，列 9.8 的每一支（`macos-only`）與環境缺件（`AliasEventBudgetTests/testRealCorpusPasses`、`OrganizationParentLevelsTests` 兩支，`environment`），每行帶理由（Tests skipped on Linux equal an audited list）。驗證：noble 驗收跑全套，略過數等於清單行數；`akashic-guards linux-skip-audit` 對那份輸出 exit 0（依賴 10.4）。
 
+- [ ] 9.10 The bot-signal word class agrees with Python 3.13 on both platforms：`BotSignalsPythonBoundaryTests/testTheWordClassAgreesWithPythonsWordOnEveryScalar` 只比對 age 不超過 15.1 的碼位，並斷言比對數過一個下限（design「BotSignals 字詞類別的測試只比對 Python 3.13 認得的碼位」）。產品的 `BotSignals.wordClass` 不改。spec-example: linux-platform-support / Word class against Python's \w。驗證：macOS、noble、jammy 驗收都綠；把篩選上限改成 17.0 時 noble 紅（負對照，做完還原）。
+
 ## 10. 守衛
 
 動到的檔：新檔 `Sources/akashic-guards/PortableSHA256.swift`、`LinuxSkipAudit.swift`、`LinuxSkipAuditMutations.swift`，`Sources/akashic-guards/PluginShellVersion.swift`、`main.swift`、`ZeroInstanceRowsAudit.swift`、`Sources/AkashicStoreIO/SourcesIgnoreBlock.swift`、`.githooks/run-guards.sh`、`.githooks/protected-ratchet.txt`、`docs/rulings/zero-instance-guards.md`、`docs/zero-instance-measurements.md`，測試檔。依賴：5.3 之後做 10.1（同檔）；10.5 依賴 5.4、10.4、12.1。
@@ -127,7 +128,7 @@
 
 ## 12. Linux CI
 
-動到的檔：新檔 `.github/workflows/linux.yml`、一個新的測試檔。依賴：0.1、0.2、第 1 到 11 組。
+動到的檔：新檔 `.github/workflows/linux.yml`、一個新的測試檔。依賴：0.1、第 1 到 11 組。
 
 - [ ] 12.1 新增 `linux.yml`（design「Linux CI 新增一個 workflow」）：矩陣兩個映像以 index digest 指定；容器內以 root 只做套件安裝、建立使用者、把工作目錄的擁有者改成他並加進他的 git `safe.directory`；建置、測試、守衛以那個使用者執行；建置與測試都帶 `--force-resolved-versions`，測試之後檢查 `Package.resolved` 沒有變動（步驟註解帶 spec-example: linux-platform-support / Lockfile unchanged after Linux resolve）；actions 釘 SHA、`persist-credentials: false`、`fetch-depth: 0`、取 submodule；觸發條件與 `ci.yml` 相同（ASSUMPTION，見 design Open Questions）。Linux CI builds and tests both Ubuntu versions as a non-root user。寫測試：spec-example: linux-platform-support / Static check of the Linux workflow，以原始碼掃描讀這個 workflow 斷言 spec 列的各項。驗證：靜態測試在 macOS 綠；`akashic-guards workflow-run-scripts` 與 `trigger-coverage` 綠；在本機 noble 照 workflow 的指令跑一次，改一個 pin 後鎖定檔那一步非零結束。
 - [ ] 12.2 `linux.yml` 加一步 `swift package dump-package`，以 `jq` 斷言三個排除的 target 不在（spec-example: linux-platform-support / Targets declared on Linux and macOS 的 Linux 那一半，步驟註解帶這個標記）。驗證：在本機 noble 照指令跑，輸出符合 spec。
@@ -146,3 +147,5 @@
 
 - [ ] 14.1 macOS behaviour is unchanged：同一個 commit 在 macOS 跑 `-warnings-as-errors` 建置、全套 `swift test`、`bash .githooks/run-guards.sh`、`.githooks/pre-push`。寫測試：spec-example: linux-platform-support / Generator digest pin stays valid，即拆分後的信任鏈測試在 macOS 綠，且 `Tools/UnicodeNormalizationGenerator/main.swift` 的 SHA-256 仍是 `c52fe7f7f1c209d14973ab1461df4cb8195a640dc9a0dd4ae7be6baf60cd5c6f`。驗證：全部 exit 0；`DisplaySinkCoverageTests` 綠。
 - [ ] 14.2 Linux 全套：jammy 與 noble 驗收跑全套（不帶 `--filter`）與略過稽核。驗證：失敗 0、崩潰 0、略過集合等於清單；`spectra validate linux-port` 通過。
+- [ ] 14.3 Linux 的 `akashic` 不連系統 SQLite：jammy 與 noble 驗收建出的 `akashic` 以 `ldd` 看不到 `libsqlite3`（design「Linux 上的 SQLite 用 swift-toolchain-sqlite」，3.1 延後的那一半）。驗證：兩個映像的 `ldd` 輸出記進本 task 的完成註記。
+- [ ] 14.4 spec-example: linux-platform-support / Older Linux toolchains are refused 的第二列以完整建置重量：在一個官方 6.1、6.2 或 6.3 映像（1.4 用的是 `swift:6.3-noble`）以非 root 使用者 `swift build`，建置停在編譯 `AkashicStoreIO`、輸出含 `Swift 6.4` 與 `#794`（1.4 延後的那一半；1.4 當時 `AkashicCore` 在 Linux 還編不過，只能以 `swiftc -typecheck` 驗 `#error` 本身）。驗證：結束碼與錯誤行記進本 task 的完成註記。

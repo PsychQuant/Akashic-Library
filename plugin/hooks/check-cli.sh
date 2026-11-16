@@ -41,8 +41,10 @@
 #   · 不連網、不自動安裝、不覆蓋現有的 binary；提示寫明要不要重建由使用者決定。
 #   · 兩次探測各有約 4 秒上限，`--version` 逾時就不再探契約；整支 hook 在 hooks.json 另有上限。被那個上限砍掉時，
 #     已經寫出的行留著、後面的判定沒有印：砍在 `--version` 探測期間時一行都沒有，砍在之後時只剩 ✓ 那一行，看起來與
-#     最新相同。SIGKILL 送給 hook 的整個 process group 時，探測的兩個暫存檔會留在 TMPDIR（只砍 hook 本身、或送 SIGTERM
-#     時不會）。Claude Code 怎麼處理被砍的 hook 已經寫出的輸出，沒有驗證（verify r3、r4 實測）。
+#     最新相同。探測的暫存檔都在 `mktemp -d` 建的私有目錄裡，探測結束時整個刪掉。SIGKILL 送給 hook 的整個 process
+#     group 時 EXIT trap 不會跑，收尾的是組內的計時器：第 8 秒先刪輸出檔，跑探測的子 shell 已經不在就刪掉整個目錄；計時器
+#     檢查之後子 shell 才死、或它的 PID 被重用時，目錄會留在 TMPDIR（#791）。Claude Code 怎麼處理被砍的 hook 已經寫出的
+#     輸出，沒有驗證（verify r3、r4 實測）。
 #   · 任何失敗都 exit 0、不寫 stderr。
 #   · 不吃繼承的環境：`bash -p`（不讀 `BASH_ENV`、不匯入環境裡的函式、不吃 `SHELLOPTS`），清掉所有 `GIT_*`（`GIT_DIR` 會把
 #     git 帶到別的 repo），`PATH` 只看以絕對路徑寫的項目，內部用的工具只從 /usr/bin、/bin 找。PATH 上以絕對路徑寫的
@@ -111,23 +113,26 @@ sgit() { "${GIT}" "${GIT_SAFE[@]}" -C "${SOURCE_TOP}" "$@" 2>/dev/null; }
 
 # 探測的暫存檔與 process group，不論探測怎麼結束都要清掉。`probe` 在 $(...) 子 shell 裡跑，子 shell 不繼承之後才設的
 # 變數值、也不繼承 trap，所以它自己裝這個清理。
-PROBE_OUT=""
+PROBE_DIR=""
 PROBE_PID=""
 probe_cleanup() {
     [[ -n "${PROBE_PID}" ]] && kill -KILL -- "-${PROBE_PID}" 2>/dev/null
-    [[ -n "${PROBE_OUT}" ]] && rm -f "${PROBE_OUT}" "${PROBE_OUT}.timeout"
+    [[ -n "${PROBE_DIR}" ]] && rm -rf -- "${PROBE_DIR}"
     PROBE_PID=""
-    PROBE_OUT=""
+    PROBE_DIR=""
 }
 
 # 執行 `$CLI <參數>`，成功時印它的第一行輸出。回傳值：
 #     0    成功
 #     64   CLI 回 64（ArgumentParser 的用法錯誤：不認得這個旗標或子命令）
 #     124  逾時（約 4 秒）
-#     其他 CLI 的結束碼（CLI 自己回 124 時改成 1，不與逾時混淆）
+#     125  hook 建不出探測用的暫存目錄（`mktemp -d` 失敗），CLI 沒有被執行（#791）
+#     其他 CLI 的結束碼（CLI 自己回 124 或 125 時改成 1，不與逾時、建不出暫存目錄混淆）
+# 暫存檔（輸出檔 out 與逾時標記 timeout）都在 `mktemp -d` 建的私有目錄（0700）裡：別的使用者無法在裡面預放檔案。
 # 探測自己一個 process group（job control），子行程跟著一起停；逾時先 TERM，半秒後 KILL。逾時只由下面的迴圈判定。
 # group 裡另有一個 8 秒的計時器（KILL 整組）：自己一個 group 之後，送給 hook 本身 group 的 SIGKILL 碰不到它，
-# hook 被砍掉時由它收尾。迴圈慢到讓它先動手（系統很忙）時，它在動手前留下一個標記檔，這裡看到標記才算逾時——
+# hook 被砍掉時由它收尾：先刪輸出檔，跑探測的子 shell（`bash -p -c` 那支小 shell 的 `$PPID`，計時器的 `( … )` 沿用同一個值）
+# 已經不在就刪掉整個目錄，還在就留下標記檔再收掉整組。迴圈慢到讓它先動手（系統很忙）時，這裡看到標記才算逾時——
 # 不從結束碼或經過的時間去猜：CLI 自己被別的來源 SIGKILL（137，例如原地覆寫過的已簽章 binary）不是逾時。
 # CLI 用使用者的 PATH 執行（只含絕對路徑的那一份）：PATH 上的 `akashic` 可以是一支包裝腳本，用裸名呼叫使用者 PATH 上
 # 的另一個程式；把 hook 自己收窄過的 PATH 傳給它，它就找不到那個程式，而 skill 實際呼叫它時找得到（verify r2）。
@@ -139,11 +144,14 @@ probe() {
     local waited=0 grace=0 rc=0
     trap probe_cleanup EXIT
     trap 'exit 1' INT TERM HUP
-    PROBE_OUT=$(mktemp "${TMPDIR:-/tmp}/akashic-check-cli.XXXXXX") || return 1
+    PROBE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/akashic-check-cli.XXXXXX" 2>/dev/null) || { PROBE_DIR=""; return 125; }
     set -m
-    PROBE_TIMED_OUT="${PROBE_OUT}.timeout" PATH="${USER_PATH:-/usr/bin:/bin}" \
-        /bin/bash -p -c '(/bin/sleep 8; : > "${PROBE_TIMED_OUT}"; kill -KILL 0) & exec "$0" "$@"' "${CLI}" "$@" \
-        >"${PROBE_OUT}" 2>/dev/null </dev/null &
+    PROBE_OUT_FILE="${PROBE_DIR}/out" PROBE_TIMED_OUT="${PROBE_DIR}/timeout" PROBE_DIR="${PROBE_DIR}" \
+        PATH="${USER_PATH:-/usr/bin:/bin}" \
+        /bin/bash -p -c '(/bin/sleep 8; /bin/rm -f -- "${PROBE_OUT_FILE}"
+                          if kill -0 "${PPID}" 2>/dev/null; then : > "${PROBE_TIMED_OUT}"; else /bin/rm -rf -- "${PROBE_DIR}"; fi
+                          kill -KILL 0) & exec "$0" "$@"' "${CLI}" "$@" \
+        >"${PROBE_DIR}/out" 2>/dev/null </dev/null &
     PROBE_PID=$!
     set +m
     while kill -0 "${PROBE_PID}" 2>/dev/null; do
@@ -164,10 +172,10 @@ probe() {
     wait "${PROBE_PID}"
     rc=$?
     if (( rc == 0 )); then
-        head -c 4096 "${PROBE_OUT}" | head -n 1
-    elif [[ -e "${PROBE_OUT}.timeout" ]]; then
+        head -c 4096 "${PROBE_DIR}/out" | head -n 1
+    elif [[ -e "${PROBE_DIR}/timeout" ]]; then
         rc=124
-    elif (( rc == 124 )); then
+    elif (( rc == 124 || rc == 125 )); then
         rc=1
     fi
     probe_cleanup
@@ -263,6 +271,9 @@ case "${VERSION_RC}" in
     0)   echo "✓ akashic CLI：$(clean "${CLI}")${VERSION:+（${VERSION}）}" ;;
     64)  echo "✓ akashic CLI：$(clean "${CLI}")" ;;
     124) echo "⚠️  akashic CLI（$(clean "${CLI}")）在約 4 秒內沒有回應 --version：沒有比對契約。" ;;
+    125) # 建不出暫存目錄是 hook 自己的問題，不是 CLI 的：不比契約、不比落後，所以不印重建與安裝的提示（#791）
+         echo "⚠️  hook 建不出探測用的暫存目錄（TMPDIR=$(clean "${TMPDIR:-/tmp}")）：沒有檢查 akashic CLI（$(clean "${CLI}")）。"
+         exit 0 ;;
     *)   echo "⚠️  akashic CLI（$(clean "${CLI}")）執行 --version 失敗（結束碼 ${VERSION_RC}）。" ;;
 esac
 [[ -n "${OFF_PATH}" ]] && echo "   它不在 PATH 上：akashic-fetch-fulltext 等 skill 呼叫的是 PATH 上的 akashic。"
@@ -283,8 +294,11 @@ if (( VERSION_RC != 124 )); then
     else
         HAVE=""
         CONTRACT_LINE=$(probe fulltext contract 2>/dev/null)
+        CONTRACT_RC=$?
         [[ "${CONTRACT_LINE}" =~ ^fulltext-contract\ ([0-9]{1,6})$ ]] && HAVE="${BASH_REMATCH[1]}"
-        if [[ -z "${HAVE}" ]]; then
+        if (( CONTRACT_RC == 125 )); then
+            echo "⚠️  hook 建不出探測用的暫存目錄（TMPDIR=$(clean "${TMPDIR:-/tmp}")）：沒有比對契約。"
+        elif [[ -z "${HAVE}" ]]; then
             echo "⬆️  讀不到 akashic CLI 的 fulltext 契約（沒有 fulltext contract 子命令，或執行失敗），akashic-fetch-fulltext 要求 ≥ ${REQUIRED}：要先重建 CLI 才能跑那個 skill。"
             NEEDS_REBUILD=1
         elif (( 10#${HAVE} < 10#${REQUIRED} )); then

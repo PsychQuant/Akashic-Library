@@ -914,4 +914,88 @@ final class CheckCLIHookTests: XCTestCase {
         XCTAssertTrue(r.out.contains("✓ akashic CLI"), r.out)
         XCTAssertTrue(r.out.contains(try short("D")), r.out)
     }
+
+    // MARK: - 探測的暫存目錄（#791）
+
+    /// `TMPDIR` 裡探測留下的項目。名字是 `akashic-check-cli.` 開頭（目錄或舊版的兩個檔都算）。
+    private func probeLeftovers(in dir: URL) -> [String] {
+        ((try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []).filter { $0.hasPrefix("akashic-check-cli.") }.sorted()
+    }
+
+    private func emptyTmp() throws -> URL {
+        let t = root.appendingPathComponent("tmp-\(UUID().uuidString.prefix(8))")
+        try FileManager.default.createDirectory(at: t, withIntermediateDirectories: true)
+        return t
+    }
+
+    // spec-example: session-start-cli-check / A normal probe leaves nothing in TMPDIR
+    func testANormalProbeLeavesNothingInTMPDIR() throws {
+        let tmp = try emptyTmp()
+        let r = try runHook(["FAKE_VERSION": try short("D"), "FAKE_CONTRACT": "\(Self.required)", "TMPDIR": tmp.path])
+        assertQuietSuccess(r)
+        XCTAssertTrue(r.out.contains("✓ akashic CLI"), r.out)
+        XCTAssertEqual(probeLeftovers(in: tmp), [], "正常的探測之後 TMPDIR 要是空的")
+    }
+
+    // spec-example: session-start-cli-check / A timed-out probe leaves nothing in TMPDIR
+    func testATimedOutProbeLeavesNothingInTMPDIR() throws {
+        let tmp = try emptyTmp()
+        let r = try runHook(["FAKE_VERSION_HANG": "1", "FAKE_CONTRACT": "\(Self.required)", "TMPDIR": tmp.path])
+        assertQuietSuccess(r)
+        XCTAssertTrue(r.out.contains("沒有回應"), r.out)
+        XCTAssertEqual(probeLeftovers(in: tmp), [], "逾時的探測之後 TMPDIR 要是空的")
+    }
+
+    /// hook 與跑探測的子 shell 都被 SIGKILL：EXIT trap 不會跑，收尾的只剩組內的 8 秒計時器。
+    /// 不砍 process group——hook 由這個測試直接啟動，可能與測試程序同一組。分別砍 hook 與子 shell（假 CLI 的 PPID），
+    /// 計時器與 CLI 在它們自己的那一組裡繼續跑，第 8 秒由計時器清掉目錄、再收掉那一組。機器很忙時 8 秒會變長，所以等到 30 秒。
+    // spec-example: session-start-cli-check / Killing the hook during a probe leaves nothing in TMPDIR after the timer
+    func testKillingTheHookDuringAProbeLeavesNothingInTMPDIRAfterTheTimer() throws {
+        let tmp = try emptyTmp()
+        let owner = root.appendingPathComponent("probe-owner.pid")
+        try writeExecutable("stubs/bin/akashic", "#!/bin/bash\necho \"$PPID\" > '\(owner.path)'\nexec /bin/sleep 30\n")
+        var e = scrubbedGitEnvironment()
+        e["LANG"] = "C.UTF-8"
+        e["PATH"] = root.appendingPathComponent("stubs/bin").path + ":/usr/bin:/bin"
+        e["CLAUDE_PLUGIN_ROOT"] = root.appendingPathComponent("plugin").path
+        e["AKASHIC_SOURCE_DIR"] = src.path
+        e["TMPDIR"] = tmp.path
+        let p = Process()
+        p.executableURL = root.appendingPathComponent("plugin/hooks/check-cli.sh")
+        p.environment = e
+        p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice; p.standardInput = FileHandle.nullDevice
+        try p.run()
+        var ownerPID: Int32 = 0
+        for _ in 0..<200 {   // 最多 20 秒等 CLI 起來
+            if let s = try? String(contentsOf: owner, encoding: .utf8), let v = Int32(s.trimmingCharacters(in: .whitespacesAndNewlines)), v > 1 {
+                ownerPID = v; break
+            }
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+        guard ownerPID > 1 else { p.terminate(); return XCTFail("假 CLI 沒有起來，量不到") }
+        XCTAssertNotEqual(ownerPID, p.processIdentifier, "PPID 應是跑探測的子 shell，不是 hook 本身")
+        XCTAssertFalse(probeLeftovers(in: tmp).isEmpty, "探測期間 TMPDIR 裡應該有探測的目錄")
+        kill(p.processIdentifier, SIGKILL)
+        kill(ownerPID, SIGKILL)
+        p.waitUntilExit()
+        var left = probeLeftovers(in: tmp)
+        for _ in 0..<300 where !left.isEmpty {   // 最多 30 秒
+            Thread.sleep(forTimeInterval: 0.1)
+            left = probeLeftovers(in: tmp)
+        }
+        XCTAssertEqual(left, [], "計時器動手之後 TMPDIR 要是空的")
+    }
+
+    // spec-example: session-start-cli-check / A missing TMPDIR is reported as the hook's own problem
+    func testAMissingTMPDIRIsReportedAsTheHooksOwnProblem() throws {
+        let log = root.appendingPathComponent("calls.log")
+        let r = try runHook(["FAKE_VERSION": try short("D"), "FAKE_CONTRACT": "\(Self.required)", "CALL_LOG": log.path,
+                             "TMPDIR": root.appendingPathComponent("no-such-dir").path])
+        assertQuietSuccess(r)
+        XCTAssertTrue(r.out.contains("TMPDIR"), r.out)
+        for bad in ["✓", "執行 --version 失敗", "要先重建", "install -m 755"] {
+            XCTAssertFalse(r.out.contains(bad), "不該出現「\(bad)」：\(r.out)")
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: log.path), "建不出暫存目錄時不該執行 CLI")
+    }
 }

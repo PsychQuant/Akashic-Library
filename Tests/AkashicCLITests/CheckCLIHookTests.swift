@@ -998,4 +998,35 @@ final class CheckCLIHookTests: XCTestCase {
         }
         XCTAssertFalse(FileManager.default.fileExists(atPath: log.path), "建不出暫存目錄時不該執行 CLI")
     }
+
+    // spec-example: session-start-cli-check / A CLI that exits 125 is reported as exit 1
+    func testACLIThatExits125IsReportedAsExit1() throws {
+        let tmp = try emptyTmp()
+        let r = try runHook(["FAKE_VERSION_RC": "125", "FAKE_CONTRACT": "\(Self.required)", "TMPDIR": tmp.path])
+        assertQuietSuccess(r)
+        XCTAssertTrue(r.out.contains("執行 --version 失敗（結束碼 1）"), r.out)
+        XCTAssertFalse(r.out.contains("暫存目錄"), "CLI 自己回 125 不是 hook 建不出暫存目錄：\(r.out)")
+    }
+
+    /// 假 CLI 回答 `--version` 時順手把 TMPDIR 改成唯讀，第二次探測（契約）就建不出目錄。
+    // spec-example: session-start-cli-check / A contract probe that cannot create its directory does not ask for a rebuild
+    func testAContractProbeThatCannotCreateItsDirectoryDoesNotAskForARebuild() throws {
+        let tmp = try emptyTmp()
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: tmp.path) }
+        try writeExecutable("stubs/bin/akashic", """
+            #!/bin/bash
+            case "$1" in
+              --version) /bin/chmod 500 "$TMPDIR"; echo "\(try short("D"))" ;;
+              fulltext) echo "fulltext-contract \(Self.required)" ;;
+              *) exit 64 ;;
+            esac
+            """)
+        let r = try runHook(["TMPDIR": tmp.path])
+        assertQuietSuccess(r)
+        XCTAssertTrue(r.out.contains("✓ akashic CLI"), r.out)
+        XCTAssertTrue(r.out.contains("TMPDIR"), r.out)
+        XCTAssertTrue(r.out.contains("沒有比對契約"), r.out)
+        XCTAssertFalse(r.out.contains("讀不到 akashic CLI 的 fulltext 契約"), r.out)
+        XCTAssertFalse(r.out.contains("要先重建"), r.out)
+    }
 }

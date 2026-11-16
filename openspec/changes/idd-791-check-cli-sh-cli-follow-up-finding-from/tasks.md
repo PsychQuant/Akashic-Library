@@ -17,3 +17,9 @@ ASSUMPTION: Plan tier 在 /idd-all 的無人值守批次裡沒有經過 /idd-pla
 
 - [x] 3.1 新增 `changelog/2026-11-16-check-cli-probe-tempdir-791.md`，記三件改了什麼、剩下的界線、測試的耗時。驗證：檔案存在
 - [x] 3.2 `spectra validate` 通過；封存後 `spec-change.py links` 回 ok（四個 Example 都有標記）
+
+## 4. spectra-verify 之後（無 critical；照 3 個 warning 與 2 個 suggestion 修）
+
+- [x] 4.1 清理順序改成先刪目錄、再砍整組；逾時路徑在送 TERM 之前先刪目錄。子 shell 在刪除之前被砍時計時器還活著，會收尾；刪除之後被砍時沒有東西留下，所以規格「only when」那句成立。先看逾時標記再讀輸出：CLI 已回 0 而計時器已刪掉輸出檔時算逾時。驗證：`bash -n` 通過；兩處都是競態窗口，沒有可穩定重現的測試，`CheckCLIHookTests` 全綠證明沒有退步
+- [x] 4.2 規格第三條加兩個 Example（`A CLI that exits 125 is reported as exit 1`、`A contract probe that cannot create its directory does not ask for a rebuild`），把「the same message」改成「a message that names TMPDIR and says the contract was not compared」；各加一支帶 spec-example 標記的測試。兩支覆蓋的是既有行為，在修正前的 hook 上也是綠的。驗證：`swift test --filter CheckCLIHookTests` 62 支全過
+- [x] 4.3 changelog 刪掉 zombie 那一條界線（hook 沒有 EXIT trap，那段描述與程式不符），加〈spectra-verify 之後的調整〉一節。驗證：檔案內容

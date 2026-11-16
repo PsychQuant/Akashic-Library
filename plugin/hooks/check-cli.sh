@@ -115,9 +115,10 @@ sgit() { "${GIT}" "${GIT_SAFE[@]}" -C "${SOURCE_TOP}" "$@" 2>/dev/null; }
 # 變數值、也不繼承 trap，所以它自己裝這個清理。
 PROBE_DIR=""
 PROBE_PID=""
+# 先刪目錄、再砍整組：這支子 shell 在刪除之前被砍時，組內的計時器還活著，由它收尾（spectra-verify #791）。
 probe_cleanup() {
-    [[ -n "${PROBE_PID}" ]] && kill -KILL -- "-${PROBE_PID}" 2>/dev/null
     [[ -n "${PROBE_DIR}" ]] && rm -rf -- "${PROBE_DIR}"
+    [[ -n "${PROBE_PID}" ]] && kill -KILL -- "-${PROBE_PID}" 2>/dev/null
     PROBE_PID=""
     PROBE_DIR=""
 }
@@ -156,6 +157,8 @@ probe() {
     set +m
     while kill -0 "${PROBE_PID}" 2>/dev/null; do
         if (( waited >= 30 )); then
+            # 這條路直接回 124、不讀標記：先刪目錄再送 TERM，理由同 probe_cleanup 的順序
+            rm -rf -- "${PROBE_DIR}"
             kill -TERM -- "-${PROBE_PID}" 2>/dev/null
             while kill -0 "${PROBE_PID}" 2>/dev/null && (( grace < 5 )); do
                 sleep 0.1
@@ -171,9 +174,12 @@ probe() {
     done
     wait "${PROBE_PID}"
     rc=$?
-    if (( rc == 0 )); then
+    # 先看標記：系統很忙、迴圈慢過 8 秒時，CLI 可能已經回 0，而計時器已刪掉輸出檔並留下標記——那一次算逾時
+    if [[ -e "${PROBE_DIR}/timeout" ]]; then
+        rc=124
+    elif (( rc == 0 )) && [[ -f "${PROBE_DIR}/out" ]]; then
         head -c 4096 "${PROBE_DIR}/out" | head -n 1
-    elif [[ -e "${PROBE_DIR}/timeout" ]]; then
+    elif (( rc == 0 )); then
         rc=124
     elif (( rc == 124 || rc == 125 )); then
         rc=1

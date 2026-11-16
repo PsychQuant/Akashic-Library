@@ -42,7 +42,7 @@ The probe runs the CLI in its own process group together with an 8-second timer.
 
 ### Requirement: A check that cannot create its temporary directory SHALL say so and SHALL NOT report the CLI as failing
 
-When `mktemp -d` fails, the probe SHALL return 125 without running the CLI, and a CLI that itself exits 125 SHALL be reported as exit 1. When the version probe returns 125, the check SHALL print that the hook could not create its temporary directory and name `TMPDIR`, SHALL NOT print the ✓ line, SHALL NOT say that the CLI failed, and SHALL stop there, so it prints no rebuild or install hint. When the contract probe returns 125, the check SHALL print the same message and SHALL NOT ask for a rebuild because of the contract; the later comparison with the source code runs as before.
+When `mktemp -d` fails, the probe SHALL return 125 without running the CLI, and a CLI that itself exits 125 SHALL be reported as exit 1. When the version probe returns 125, the check SHALL print that the hook could not create its temporary directory and name `TMPDIR`, SHALL NOT print the ✓ line, SHALL NOT say that the CLI failed, and SHALL stop there, so it prints no rebuild or install hint. When the contract probe returns 125, the check SHALL print a message that names `TMPDIR` and says the contract was not compared, and SHALL NOT ask for a rebuild because of the contract; the later comparison with the source code runs as before.
 
 #### Scenario: TMPDIR points at a missing directory
 
@@ -54,3 +54,15 @@ When `mktemp -d` fails, the probe SHALL return 125 without running the CLI, and 
 - **GIVEN** `TMPDIR` names a directory that does not exist, and a CLI that would answer normally
 - **WHEN** the check runs
 - **THEN** its output SHALL mention `TMPDIR`, SHALL NOT contain `✓`, `執行 --version 失敗`, `要先重建` or `install -m 755`, and the CLI SHALL NOT have been run
+
+##### Example: A CLI that exits 125 is reported as exit 1
+
+- **GIVEN** a CLI whose `--version` exits 125 and a `TMPDIR` the hook can write to
+- **WHEN** the check runs
+- **THEN** its output SHALL say that `--version` failed with exit 1 and SHALL NOT contain the temporary-directory message
+
+##### Example: A contract probe that cannot create its directory does not ask for a rebuild
+
+- **GIVEN** a CLI whose `--version` answers normally and, while answering, makes `TMPDIR` unwritable
+- **WHEN** the check probes the fulltext contract
+- **THEN** its output SHALL contain the `✓` line and a message that names `TMPDIR` and says the contract was not compared, and SHALL NOT contain `讀不到 akashic CLI 的 fulltext 契約` or `要先重建`

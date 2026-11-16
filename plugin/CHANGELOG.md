@@ -4,7 +4,7 @@
 
 細節在 `changelog/2026-11-16-check-cli-probe-tempdir-791.md`。binary 與契約版本不變，不需要重建 CLI。
 
-- `hooks/check-cli.sh`：探測 CLI 的暫存檔改放 `mktemp -d` 建的私有目錄，清理時整個刪掉；hook 在探測中途被砍時，組內的計時器第 8 秒收掉目錄；`TMPDIR` 建不出目錄時說出是 hook 自己的問題，不再報成 CLI 執行失敗、也不叫人重建。
+- `hooks/check-cli.sh`：探測 CLI 的暫存檔改放 `mktemp -d` 建的私有目錄，清理時整個刪掉；hook 在探測中途被砍時，組內的計時器第 8 秒收掉目錄；`TMPDIR` 建不出目錄時說出是 hook 自己的問題，不再報成 CLI 執行失敗、也不叫人重建。計時器寫標記時不寫穿路徑上既有的檔案或 symlink；CLI 以 0 回答時一律讀它的輸出。
 
 ## #777 — 取全文四件待裁事項的裁決（2026-11-11）：plugin 殼 0.13.15 → 0.13.16，契約版本 9 → 10
 

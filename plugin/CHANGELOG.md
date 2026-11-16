@@ -1,5 +1,11 @@
 # Changelog
 
+## #791 — SessionStart 檢查的探測暫存檔（2026-11-16）：plugin 殼 0.13.16 → 0.13.17
+
+細節在 `changelog/2026-11-16-check-cli-probe-tempdir-791.md`。binary 與契約版本不變，不需要重建 CLI。
+
+- `hooks/check-cli.sh`：探測 CLI 的暫存檔改放 `mktemp -d` 建的私有目錄，清理時整個刪掉；hook 在探測中途被砍時，組內的計時器第 8 秒收掉目錄；`TMPDIR` 建不出目錄時說出是 hook 自己的問題，不再報成 CLI 執行失敗、也不叫人重建。
+
 ## #777 — 取全文四件待裁事項的裁決（2026-11-11）：plugin 殼 0.13.15 → 0.13.16，契約版本 9 → 10
 
 使用者 2026-11-11 裁決；細節在 `changelog/2026-11-11-fulltext-login-look-rulings-777.md`。**需要新的 `akashic` CLI**：SKILL 第 0 步要求契約版本 10。#775 的開場檢查（`hooks/check-cli.sh`）從同一行讀這個門檻，CLI 印的契約比 10 小時會在 session 開始時說出來並附重建指令。

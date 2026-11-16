@@ -14,6 +14,10 @@
 - 先看逾時標記再讀輸出：系統很忙、迴圈慢過 8 秒時，CLI 可能已經回 0，而計時器已刪掉輸出檔並留下標記——那一次算逾時，不會讀到空的版本、也不會因此誤報要重建。
 - 規格第三條加兩個 Example（CLI 自己回 125 報成 1、契約探測回 125 不要求重建），各一支測試。
 
+## 版號
+
+plugin 殼 0.13.16 → 0.13.17（`plugin/.claude-plugin/plugin.json`、`plugin/CHANGELOG.md`、`.githooks/plugin-shell-versions.txt` 接一列）。binary 與 fulltext 契約版本不變，不需要重建 CLI。
+
 ## 還在的界線
 
 - 計時器檢查子 shell 之後、子 shell 才死，或子 shell 的 PID 在 8 秒內被重用時，目錄會留在 `TMPDIR`（檔頭「已知的界線」照實寫）。

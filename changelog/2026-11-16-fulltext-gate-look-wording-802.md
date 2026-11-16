@@ -5,7 +5,7 @@
 ## 規格 `fulltext-gate-look`
 
 - **Atypon showLogin**：「導航之前判斷文章站上的 HTML 頁」的括號原本只列 DOI 落地頁落定之後、讀文字時分頁變成的頁兩處。`FulltextFetch` 的 `resume` 在 `.article` 階段（導航之前）也是同一條件下以 `(login page)` 整批暫停，補成三處列齊。
-- **讀不到的同站分頁**：補一句既有的順序。服務標記的判斷（`BotSignals.serviceMarker`）先回整批暫停的標記，所以標題或網址同時命中這種標記時，以那個標記整批暫停（exit 6），訊息是那個標記、不含 `(login page)`（`judgeUnreadable` → `stop(for:)` → `botStop`）。先前的寫法讀起來像「只要命中等人驗證的兩個標記之一、路徑是登入長相，訊息就有 `(login page)`」。
+- **讀不到的同站分頁**：補一句既有的順序。服務標記的判斷（`BotSignals.serviceMarker`）先回整批暫停的標記，所以主機不是登入主機的長相、而標題或網址同時命中這種標記時，以那個標記整批暫停（exit 6），訊息是那個標記、不含 `(login page)`（`judgeUnreadable` → `stop(for:)` → `botStop`）。主機本身是登入主機的長相時，`judgeUnreadable` 先判 `hostLoginLook`，訊息仍帶 `(login page)`（spectra-verify 指出，正常流程碰不到：落地頁與 `.article` 的 resume 都先擋下）。先前的寫法讀起來像「只要命中等人驗證的兩個標記之一、路徑是登入長相，訊息就有 `(login page)`」。
 - **契約版本**：理由句「Because two cells changed exit code」改成指這幾格。`contractVersion` 註解第 10 版那一段逐格列了四種情形（導航之後同站寫著 CAPTCHA 的頁 8 → 6、別的主機上落定的頁 7 → 6、落地頁與導航之前的同站頁改成 6、讀不到的同站分頁命中標記而路徑有登入長相 8 → 6），不止兩格。
 
 ## 文件

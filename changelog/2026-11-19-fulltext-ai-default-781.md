@@ -12,7 +12,7 @@
   - 主機小寫化之後當鍵。**已知的差別**：`fetch` 的鍵是文章頁的「主機加埠號」，`attempt` 不收埠號；文章站開在非預設埠時兩邊的鍵會不同。沒有遇過這樣的出版商，沒有處理。
   - 不碰瀏覽器、不連網、不經 `openStore`。`WriteGateRulings` 記成 readOnly（帳本在 store 之外，與 `fetch` 同一個理由）；`docs/rulings/mcp-cli-parity.md` 的 `fulltext` 一列補上它與不開 MCP 面的理由。
 - **契約版本 10 → 11**（`FulltextFetch.contractVersion`）：`fetch` 與 `take` 的結束碼、交接的原因、哪些頁面整批暫停都沒有變。調它是因為 SKILL 開始依賴 `attempt`：印 10 的 CLI 配上新的 SKILL，Claude 按的每一下都不會記帳。型別註解的〈契約版本〉補上「skill 開始依賴一個新的子命令時也調」。
-- `fetch` 本身的行為沒有改。它印的字仍是 hand over；SKILL 把結束碼 7 稱為「交接」，接手的是 Claude。
+- `fetch` 本身的行為沒有改。它印的字仍是 hand over；SKILL 把結束碼 7 稱為「交接」，接手的是 Claude。第 1 輪 verify 之後，各原因的提示文字跟著改（見最後一節）。
 
 ## SKILL（`plugin/skills/akashic-fetch-fulltext/SKILL.md`）
 
@@ -38,3 +38,19 @@
 - 落點第 9 種（按了之後沒有變化）：Claude 分不出是儲存面板在等、權限提示在等、還是什麼都沒發生。SKILL 寫成不猜、請使用者看畫面，列在最後交給使用者的清單。它嚴格說不在五類封閉清單的任何一類裡（可能是 (c)，也可能不是）；這是照使用者 2026-11-10 10:39「等頁面落定一次，再交給人」寫的，沒有另立一類。
 - `fetch` 結束碼 1 的幾種自動化失敗（別的 profile 的視窗開著、分頁清單不可信、分頁對不上）原本就寫「告訴使用者、等他處理」，這次沒有改：那些是使用者自己的 Safari 的狀態，不是某一篇取不取得到。
 - `safari-browser documents --json` 的 `blocking_dialog` 讀不讀得到 Safari 的下載權限提示，沒有量過；儲存面板確定讀不到（PsychQuant/safari-browser#358）。
+
+## 第 1 輪 verify 之後（Spectra change `idd-781-fix1`）
+
+第 1 輪 verify（#781 issuecomment-7001377123）判 FAIL：三處擋住合併、27 處要在這個 branch 修。這一輪照它們改，規格 `fulltext-division-of-labour` 多了七條 requirement、記帳那一條補上 `--site` 的來源與結束碼 64，每個 Example 一支帶標記的測試（`Tests/AkashicCLITests/FulltextClickProcedureTests.swift`），都先在 5aa42d02 的 SKILL 上看它們失敗。契約版本維持 11，plugin 殼維持 0.13.17（還沒推上 main，只重算表裡那一列的摘要）。
+
+**三處擋住合併的**：
+
+- **別的主機上的登入頁恢復整批暫停**。上一版把 `left-site` 與落點表第 6 種的登入頁一律當成 (b)，與〈整批暫停〉的登入長相那一條矛盾，也沒有使用者裁決。現在 (b) 只給文章站本身的登入頁；別的主機上要求登入、或有登入頁長相的頁面是 (e)，與基底版本相同（使用者 2026-11-10 10:34 說中止條款不變）。別的主機上要求登入而沒有命中登入長相的那一種，基底是由使用者看了判；這一版照「只有文章站是 (b)」寫成 (e)，這一格沒有使用者裁決。
+- **按了之後讀得到頁面文字**。規則 5 的封閉清單加上 safari-browser 的唯讀命令 `get url`、`get title`、不帶選擇器的 `get text`、`get attr <ref> href`；落點表的起疑檢查以 `get text` 讀整頁文字交給 `akashic fulltext bot-signals --kind`。讀不到文字的落定網頁是 (e)，與〈整批暫停〉第五點同一條；鎖對不到分頁是「取不到」。
+- **落點表有判斷順序**：5 → 3 → 4 → 1 → 8 → 6 → 7 → 9 → 2。第 2 種只在頁面換了（網址變了或新分頁）而且是另一個元件時成立，剛按的那一個不算；「沒有變化」排在它前面，所以同一個鈕不會被按第二次。
+
+**其餘各列**：按了之後落到的人類驗證也是 (a)（主機條件與結束碼 8 相同），同站剩下的各篇一起延後，它沒有 `resume:` 一行，使用者驗證完之後不重新載入、用落點表重判同一個分頁；「同一個站」用 `fetch` 印過的主機，還沒跑到的用 DOI 前綴（經驗法則）；等一次之後第 1 到第 8 種都重判；對不上任何一種、以及〈人機分工〉清單外的情形，都列入最後交給使用者的清單；第 1 種的 `save-pdf` 說 `not a PDF` 時往下判，其他失敗才是「取不到」；鎖分頁的 `$lock` 在同一個 Bash 呼叫裡以 `jq -r` 從 `documents --json` 取進變數（網址的路徑可以帶 `$(…)`），`--site` 只在主機是乾淨的字元時放進單引號；按之前以 `get attr` 讀 href，指到別的主機不按；`--site` 沒有 `attempt:` 一行時用 `page:` 一行的主機，`attempt` 結束碼 64 是「取不到」；批次中途停下的封閉清單從四種變六種（加上帳本讀不懂、按了之後的定時讀取 Safari 沒有回答），中途詢問只有兩處，Finder 改檔名移到最後；第 5、9 種之後下一篇之前以 `perl` 的 `alarm` 做一次 20 秒的定時讀取（**沒有量過**：掛著儲存面板時下一篇會怎樣、20 秒夠不夠都沒有實測）；延到最後的那幾篇一次交一篇，(c) 的每一篇交之前 `touch` 一個 `.handover` 記號，只取比它新的檔；「連續兩篇同樣的失敗就停」只算「取不到」；規則 3 拿掉 `dialog dismiss` 的條件；規則 1 例外 (d) 收 `left-site` 交接之後才顯示 PDF 的同一個分頁；`tab-unchanged` 寫明 `fetch` 的導航算第一下（基底版本在這裡由使用者授權後再按一下，#781 起不再按）；點擊程序的入口寫明不經 `fetch` 到達的頁面不算，EBSCO 閱讀器因此列入最後交給使用者的清單（要加成入口需要使用者裁決）；`browser-cache` 那一句補上 2026-11-19 的四篇；`publishers.md` 2026-11-10、2026-11-19 那一段拿掉 issue 沒有回報的話（機構網路、2026-11-10 是誰按的）。
+
+**鏡像與程式文字**：`akashic-bootstrap` 的 `work-sources.md` 取 PDF 那一句、`.claude/rules/web-access-via-safari-browser.md`〈不適用〉第 3 類的例子、`fulltext fetch` 的說明文字、`fetch` 在 stderr 印的 `pdf-shown`、`unverifiable`、`left-site` 三種提示（先前寫 save it yourself），以及 `FulltextFetch.swift` 的註解。提示文字的改動不升契約版本：skill 不解析那些字（與 b37–b41 改 stderr 轉印的字時同一個理由）。
+
+**沒有做的**：verify 第 31–36 列留作 follow-up（`attempt --site` 不收埠號、點擊與記帳沒有機械的綁定、`left-site` 主機下載非 PDF 檔、測試的時鐘、`button` 一下記兩次、沒有對出版商網站實跑）。這一輪同樣沒有對任何出版商網站跑過。

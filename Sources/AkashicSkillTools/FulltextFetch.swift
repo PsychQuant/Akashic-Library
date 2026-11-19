@@ -327,7 +327,7 @@ public final class FulltextFetch {
         case .leftSite:
             err("  The tab left the article site for \(displaySafeInvisible(origin(shownURL), max: 300)); the page finished loading and matched none of the closed lists of verification, block or login markers — that does not mean it is not one. Read it as the skill's exit-7 table says: if it shows the PDF, take it with `safari-browser save-pdf`; a login page on this other host, or a verification or block page, is the abort clause. Unless it is, the rest of the batch can go on.")
         case .doiNotResolved:
-            err("  doi.org did not resolve this DOI (the tab stayed on doi.org's own not-found page). Check the DOI in the record; there is no file to save. This item is handed to you — the rest of the batch can go on.")
+            err("  doi.org did not resolve this DOI (the tab stayed on doi.org's own not-found page). Check the DOI in the record; there is no file to save. Report this item as not obtained (the DOI did not resolve) — the rest of the batch can go on.")
         }
         // DOI 解不開時沒有任何檔可存：不叫人把「存下的檔」交給 take（R2 verify 第 14 則）
         // `doi-not-resolved` 沒有檔；`unverifiable` 的分頁 `save-pdf` 用不了，SKILL 記成「取不到」（#781 verify 第 1 輪第 22 列）

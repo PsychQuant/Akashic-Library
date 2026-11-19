@@ -6,7 +6,7 @@ import AkashicMCPKit
 
 /// `akashic-fetch-fulltext` skill 的決定論中間運算與抓取編排（#629 由 `scripts/*.py`、`fetch-fulltext.sh` 移植）。
 ///
-/// 全部**不寫 store、不連網**：`fetch` 只在使用者自己的 Safari 裡導航、把 PDF 交給人（本身沒有 HTTP client，也不在頁內取檔，
+/// 全部**不寫 store、不連網**：`fetch` 只在使用者自己的 Safari 裡導航、交接（結束碼 7；接手的是照 skill 執行的 agent，#781）（本身沒有 HTTP client，也不在頁內取檔，
 /// `.claude/rules/web-access-via-safari-browser.md`、#613 的「跟真人一樣」），`take` 收人存下來的本機檔；其餘是「取得之後怎麼判斷」。
 /// MCP 沒有對應面：輸入是本機檔案或使用者的瀏覽器，不是 store 狀態（`mcp-cli-parity` 的 CLI-only 表一列）。
 struct FulltextCmd: ParsableCommand {
@@ -113,7 +113,7 @@ struct FulltextJitterCmd: ParsableCommand {
     }
 }
 
-/// 在使用者自己的 Safari 裡從 DOI 走到頁面自己的 PDF 連結，交給人（#613）。**不取位元組、不寫任何輸出檔**；結束碼是它對 agent 的契約
+/// 在使用者自己的 Safari 裡從 DOI 走到頁面自己的 PDF 連結，交接（#613；#781 起接手的是照 skill 執行的 agent）。**不取位元組、不寫任何輸出檔**；結束碼是它對 agent 的契約
 /// （見 `FulltextFetch`）。分頁以網址上的一次性記號認、以 `--profile`＋`--url-endswith` 鎖；記號不在時以視窗 id 與位置追蹤（#768），
 /// 位置鎖與新分頁都以 `--window-id` 指定開頭選定的視窗（#772）。
 struct FulltextFetchCmd: ParsableCommand {

@@ -131,7 +131,7 @@ extension DestructiveTargetGate {
         "fulltext verify": .readOnly("比對本機 PDF 與記錄、印 JSON 判定，不寫任何檔、不經 openStore（#629）"),
         "fulltext bot-signals": .readOnly("從 stdin 比對頁面文字的起疑訊號，不寫任何檔（#629）"),
         "fulltext jitter": .readOnly("睡一個抽出來的間隔，不寫任何檔（#629）"),
-        "fulltext fetch": .readOnly("在使用者的 Safari 裡導航到頁面自己的 PDF 連結、交給人；不取位元組、不寫輸出檔，只在 store 之外的每日嘗試帳本（--ledger）記一筆，不經 openStore（#629、#613）"),
+        "fulltext fetch": .readOnly("在使用者的 Safari 裡導航到頁面自己的 PDF 連結、交接（#781）；不取位元組、不寫輸出檔，只在 store 之外的每日嘗試帳本（--ledger）記一筆，不經 openStore（#629、#613）"),
         "fulltext attempt": .readOnly("在 store 之外的每日嘗試帳本（--ledger）記一筆、印次數；不碰瀏覽器、不連網、不經 openStore、不寫 store（#781、#780）"),
         "fulltext take": .readOnly("收人存下來的本機 PDF：驗證、git 閘、只寫 --out 指定的檔（在 git 工作樹之外），不經 openStore、不寫 store；存進 store 是之後的 store-source（#613）"),
         "fulltext calibrate": .readOnly("開發用：在本機 PDF 資料夾與 Crossref 回應目錄上量驗證規則，只讀（#629）"),

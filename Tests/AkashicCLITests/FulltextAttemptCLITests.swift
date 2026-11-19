@@ -93,7 +93,7 @@ final class FulltextAttemptCLITests: XCTestCase {
         S='\(state.path)'
         case "$1" in
           documents)
-            d='"blocking_dialog":{"state":"unknown","window_id":9005}'
+            d='"window_id":9005,"blocking_dialog":{"state":"unknown","window_id":9005}'
             mine='{"window":5,"index":1,"tab_in_window":1,"url":"https://user.example/","title":"mine","profile":"own",'"$d"'}'
             if [ ! -f "$S/opened" ]; then printf '[%s]\\n' "$mine"; exit 0; fi
             m=$(cat "$S/opened")
@@ -101,7 +101,7 @@ final class FulltextAttemptCLITests: XCTestCase {
             printf '[%s,{"window":5,"index":2,"tab_in_window":2,"url":"%s","title":"Article","profile":"own",%s}]\\n' "$mine" "$u" "$d" ;;
           open) for a; do last=$a; done
             case " $* " in *" --new-tab "*) printf '%s' "${last#*#}" > "$S/opened" ;;
-              *" --profile "*|*" --tab-in-window "*|*" --window "*|*" --url "*) : > "$S/navigated" ;; esac ;;
+              *" --profile "*|*" --tab-in-window "*|*" --window "*|*" --window-id "*|*" --url "*) : > "$S/navigated" ;; esac ;;
           js)
             for a; do last=$a; done
             case "$last" in

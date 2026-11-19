@@ -75,6 +75,8 @@ final class FulltextFetchPathTests: XCTestCase {
         func target(_ args: [String]) -> Int? {
             if let p = opt(args, "--profile"), p != scenario.profile { return nil }
             if let w = opt(args, "--window").flatMap(Int.init), w != (args.contains("--profile") ? 1 : windowNumber) { return nil }
+            // `--window-id W`：以穩定的 id 指定視窗（safari-browser v2.9.0，#352）；id 不對就沒有分頁符合，不退回前景視窗（#772）
+            if let id = opt(args, "--window-id").flatMap(Int.init), id != windowID { return nil }
             if let k = opt(args, "--tab-in-window").flatMap(Int.init) { return tabs.indices.contains(k - 1) ? k : nil }
             if let suffix = opt(args, "--url-endswith") {
                 let hits = tabs.indices.filter { tabs[$0].url.hasSuffix(suffix) }
@@ -84,9 +86,9 @@ final class FulltextFetchPathTests: XCTestCase {
         }
 
         /// safari-browser 的 `open`（沒有 `--new-tab`）把哪些旗標當成「指定了分頁」：`OpenCommand.swift` 自己算的 `hasExplicitTarget`，
-        /// v2.7.0、v2.8.0 與 main 相同。**`--url-exact`、`--url-endswith`、`--url-regex` 不算**（safari-browser#233）：只帶它們的 `open`
+        /// v2.7.0、v2.8.0 相同；v2.9.0 加了 `--window-id`（#352）。**`--url-exact`、`--url-endswith`、`--url-regex` 不算**（safari-browser#233）：只帶它們的 `open`
         /// 不導航那個分頁，而是找網址完全相同的分頁拉到前面，找不到就在前景視窗開新分頁（#768 第三輪 verify）。
-        static let openTargetFlags = ["--url", "--window", "--tab", "--document", "--tab-in-window", "--profile"]
+        static let openTargetFlags = ["--url", "--window", "--window-id", "--tab", "--document", "--tab-in-window", "--profile"]
 
         /// `open` 沒有指定分頁時真的 safari-browser 做的事：網址完全相同的分頁拉到前面；沒有就在前景視窗開新分頁（這裡只有一個視窗）。
         func openWithoutATarget(_ url: String) {
@@ -133,7 +135,7 @@ final class FulltextFetchPathTests: XCTestCase {
                 let items = tabs.enumerated().map { i, t in
                     PyJSON.object([("window", .int(windowNumber)), ("index", .int(i + 1)), ("tab_in_window", .int(i + 1)), ("url", .string(t.url)),
                                    ("title", .string(t.title)), ("profile", .string(scenario.profile)), ("is_current", .bool(i + 1 == current)),
-                                   ("blocking_dialog", PyJSON.object([("state", .string("unknown")), ("window_id", .int(windowID))]))])
+                                   ("window_id", .int(windowID)), ("blocking_dialog", PyJSON.object([("state", .string("unknown")), ("window_id", .int(windowID))]))])
                 }
                 return SafariRun(status: 0, stdout: PyJSON.array(items).dumps() + "\n")
             case "open":

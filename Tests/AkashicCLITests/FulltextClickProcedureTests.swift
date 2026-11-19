@@ -140,9 +140,20 @@ final class FulltextClickProcedureTests: XCTestCase {
 
     // MARK: 批次中途的停止與詢問
 
-    // spec-example: fulltext-division-of-labour / Six mid-run stops
-    func testSixMidRunStops() throws {
-        assertContains(try section("## 人機分工"), ["只有這六種", "不得依性質相似類推第七種", "帳本讀不懂", "定時讀取"], "〈人機分工〉")
+    // spec-example: fulltext-division-of-labour / Five mid-run stops
+    func testFiveMidRunStops() throws {
+        let part = try section("## 人機分工")
+        assertContains(part, ["只有這五種", "不得依性質相似類推第六種", "帳本讀不懂", "定時讀取"], "〈人機分工〉")
+        XCTAssertFalse(part.contains("a Safari window of another profile"), "別的 profile 的視窗不再是停下的理由（#772）")
+    }
+
+    // MARK: #772：以視窗 id 鎖分頁
+
+    // spec-example: fulltext-window-lock / The skill names the window-id lock
+    func testTheSkillNamesTheWindowIDLock() throws {
+        let text = try skill()
+        for present in ["--window-id", "2.9.0", "-ge 12"] { XCTAssertTrue(text.contains(present), "SKILL 缺 \(present)") }
+        XCTAssertFalse(text.contains("a Safari window of another profile"), "SKILL 還留著別的 profile 的停止")
     }
 
     // spec-example: fulltext-division-of-labour / No other mid-batch asks

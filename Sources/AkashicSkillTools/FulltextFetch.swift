@@ -338,6 +338,11 @@ public final class FulltextFetch {
 
     private func nap(_ seconds: Double) { sleeper(seconds) }
 
+    /// `own-tab: window-id <W> tab <T>[ mark <記號>]`（#772）：只在分頁確認是我們的之後印，skill 之後的讀與按以它鎖分頁。
+    private func printOwnTab() {
+        out("own-tab: window-id \(ownWindowID.map(String.init) ?? "") tab \(ownTab)\(markSeen ? " mark \(mark)" : "")")
+    }
+
     // MARK: Safari 輔助：一律走 `documents --json`，不讀人看的表格
 
     private struct Tab {
@@ -534,7 +539,7 @@ public final class FulltextFetch {
             lastTabs = all.filter { $0.windowID == ownWindowID }.sorted { $0.tabInWindow < $1.tabInWindow }.map(\.url)
             lastOwnShown = t.url
             markSeen = true
-            out("own-tab: window-id \(windowID) tab \(ownTab) mark \(mark)")
+            printOwnTab()
             return
         }
         throw fail("cannot find the tab just opened: no Safari tab showed this run's mark within about 3 s, so nothing was read.")
@@ -933,7 +938,6 @@ public final class FulltextFetch {
             throw fail("window \(window) has no tab \(position) — the tab may have moved; find the one showing \(expected) with `safari-browser documents --json --profile <P>`")
         }
         ownTab = String(position)
-        out("own-tab: window-id \(ownWindowID.map(String.init) ?? "") tab \(position)\(markSeen ? " mark \(mark)" : "")")
         lastTabs = here.map(\.url)   // 追蹤從這一眼開始
         lastOwnShown = t.url
         stage = resumeStage
@@ -953,6 +957,7 @@ public final class FulltextFetch {
                     throw fail("window \(window) tab \(position) shows another page — not \(expected), a known verification service, or a PDF; not resuming there. Find the tab you verified in with `safari-browser documents --json --profile <P>` and pass its window/tab; if it is that tab, look at it yourself.")
                 }
             }
+            printOwnTab()   // 接受了才印：上面兩個拒絕會把 `ownTab` 清掉，那時印出的會是別人的分頁（#781 第 2 輪之後的 advisor 檢查）
             out("resuming: window \(window) tab \(ownTab) \(displaySafeInvisible(FulltextFetch.plainURL(t.url), max: 600)) (after the PDF link was followed)")
             try decideShown(site: expected)
         case .article:
@@ -961,6 +966,7 @@ public final class FulltextFetch {
                 throw fail("window \(window) tab \(position) shows \(t.url.isEmpty ? "nothing" : "another page"), not \(expected) — not resuming there. Find the tab showing \(expected) with `safari-browser documents --json --profile <P>` and pass its window/tab.")
             }
             let site = origin(t.url)
+            printOwnTab()
             out("resuming: window \(window) tab \(ownTab) \(displaySafeInvisible(FulltextFetch.plainURL(t.url), max: 600))")
             // 主機是登入主機的長相：不往那個分頁送任何 JS（PDF 不從 IdP 主機出來）
             if BotSignals.hostLoginLook(t.url) {

@@ -134,4 +134,11 @@ final class FulltextWindowLockTests: XCTestCase {
         XCTAssertEqual(fetch(), 7, errText)
         XCTAssertTrue(outText.contains("own-tab: window-id 9005 tab 2 mark \(Self.mark)"), outText)
     }
+
+    /// 接續時分頁被拒（顯示別的網頁）：`own-tab:` 不印——那個位置可能是使用者自己的分頁，skill 不能拿它去鎖。
+    func testARefusedResumePrintsNoOwnTabLine() {
+        let code = fetch(configure: { $0.resumeTab = 1; $0.resumeOrigin = "https://pub.example" })
+        XCTAssertEqual(code, 1, errText)
+        XCTAssertFalse(outText.contains("own-tab:"), outText)
+    }
 }

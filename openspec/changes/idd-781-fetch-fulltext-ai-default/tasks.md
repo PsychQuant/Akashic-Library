@@ -23,4 +23,4 @@
 ## 4. 發布與驗收 [after: 2.6, 3.4]
 
 - [x] 4.1 plugin 殼升版（`plugin/.claude-plugin/plugin.json` 0.13.16 → 0.13.17 與 marketplace 的對應欄位）、`plugin/CHANGELOG.md` 加一則、新增 `changelog/2026-11-19-fulltext-ai-default-781.md`（含 acquisition 新值的名稱），最後才在 `.githooks/plugin-shell-versions.txt` 加一列；驗證：`.build/debug/akashic-guards plugin-shell-version` 通過
-- [ ] 4.2 `swift build -Xswiftc -warnings-as-errors`、`swift test --filter Fulltext`、全套 `swift test`、`bash .githooks/run-guards.sh` 都通過；驗證：四個指令的結束碼都是 0，結果記在 Implementation Complete
+- [x] 4.2 `swift build -Xswiftc -warnings-as-errors`、`swift test --filter Fulltext`、全套 `swift test`、`bash .githooks/run-guards.sh` 都通過；驗證：四個指令的結束碼都是 0，結果記在 Implementation Complete

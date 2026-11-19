@@ -1,5 +1,18 @@
 # Changelog
 
+## #781／#780 — 取全文預設由 Claude 做，交給人只有封閉清單（2026-11-19）：plugin 殼 0.13.16 → 0.13.17，契約版本 10 → 11
+
+使用者 2026-11-10 的裁決與 2026-11-19 的確認；細節在 `changelog/2026-11-19-fulltext-ai-default-781.md`。**需要新的 `akashic` CLI**：SKILL 第 0 步要求契約版本 11（版本 11 的 CLI 才有 `akashic fulltext attempt`）。開場檢查（`hooks/check-cli.sh`）從同一行讀這個門檻，CLI 印的契約比 11 小時會在 session 開始時說出來並附重建指令。
+
+- `akashic-fetch-fulltext` 新增〈人機分工〉：每一步預設由 Claude 做，不必每次對話再授權。交給使用者的只有封閉清單——(a) CAPTCHA 與人類驗證、(b) 登入與機構 SSO、(c) Safari 的權限對話框與儲存面板、(d) 付費——那一篇先跳過，整批跑完一次交給他；(e) 整批暫停照舊立刻停。結局分「交給你處理」與「取不到」兩張清單。
+- 頁面要先按才到得了 PDF 時，Claude 按**這篇自己的**連結（〈一層層按〉：讀、記帳、節奏、按，落點是九種的封閉列舉）。每按一下先跑 `akashic fulltext attempt`，算進每站每天 10 次；每篇不設固定的點擊上限。按了之後沒有任何反應時等一次，不按第二次。
+- 分頁顯示 PDF（`pdf-shown`，或按到的 PDF 分頁）改用 `safari-browser save-pdf`；不再指示 `pdf-cache`（它不認 WebKitCache Version 18，PsychQuant/safari-browser#375）。這樣取得的檔 `acquisition` 記成 `browser-save-pdf`，與 `browser-download` 分開。
+- 等人驗證（結束碼 8）：那一篇與這一批同站剩下的各篇延到最後，別的站照常；批次結束後使用者驗證，再照 `resume:` 接續。
+- 第 2 步查到的合法開放版本不在批次中途問，只在回報列出。
+- 刪掉「不要代按任何按鈕」；〈不做的事〉只留登入、授權、「接受」、付費，並改正那一條的出處。
+- `references/publishers.md` 補 2026-11-10 與 2026-11-19 的實測（Ovid／LWW、SAGE 閱讀頁與儲存面板、AME、Wiley epdf、Project Euclid、Oxford Academic、ScienceDirect）。
+- `akashic-bootstrap` 的 `web-access.md`：兩句提到取全文的話跟著改。
+
 ## #777 — 取全文四件待裁事項的裁決（2026-11-11）：plugin 殼 0.13.15 → 0.13.16，契約版本 9 → 10
 
 使用者 2026-11-11 裁決；細節在 `changelog/2026-11-11-fulltext-login-look-rulings-777.md`。**需要新的 `akashic` CLI**：SKILL 第 0 步要求契約版本 10。#775 的開場檢查（`hooks/check-cli.sh`）從同一行讀這個門檻，CLI 印的契約比 10 小時會在 session 開始時說出來並附重建指令。

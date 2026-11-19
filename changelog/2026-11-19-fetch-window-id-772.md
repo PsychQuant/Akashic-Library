@@ -9,7 +9,7 @@
   - 拿掉 `otherProfileWindowOpen` 與 `windowsAtStart`：開頭、接續、執行當中都不再因為別的 profile 的視窗（或讀不出 profile 的視窗）而停。
   - profile 只用來選視窗：`--expect-profile` 給了才在開頭比一次（讀不出 profile 也拒絕）；沒給時讀不出 profile 的視窗可以用（記號鎖要 profile，那時一律用位置鎖）。視窗沒有任何列才是 `Safari window N not found`。
   - `documents --json` 的列沒有頂層的 `window_id`（safari-browser v2.9.0 與 `--window-id` 同一個 commit 加的）就在開任何分頁之前停（結束碼 1，`safari-browser 2.9.0 or later is needed`）。檢查的是欄位，不是 `--version`：safari-browser 的開發建置印 `unknown`。
-  - 認出自己的分頁時（開新分頁、接續）stdout 印 `own-tab: window-id <W> tab <T> mark <記號>`（記號不在時沒有 ` mark …`）。這一行給 skill 之後的讀與按鎖同一個視窗與分頁；**沒有使用者裁決涵蓋它**，是實作時定的（#781 第 2 輪 verify 第 3 列要用）。
+  - 認出自己的分頁時（開新分頁、接續；接續時等分頁通過檢查之後才印，被拒的分頁不印）stdout 印 `own-tab: window-id <W> tab <T> mark <記號>`（記號不在時沒有 ` mark …`）。這一行給 skill 之後的讀與按鎖同一個視窗與分頁；**沒有使用者裁決涵蓋它**，是實作時定的（#781 第 2 輪 verify 第 3 列要用）。
   - 契約版本 11 → 12。
 - `Sources/akashic/FulltextCommands.swift`：`--expect-profile` 選填（給了不得是空的）；說明文字寫 `--window-id` 與 `own-tab:`。
 

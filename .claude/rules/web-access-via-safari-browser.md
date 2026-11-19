@@ -174,8 +174,9 @@ Crossref、ORCID、DOI 解析、出版商頁面）一直是 skill 層的事；�
    **`akashic s2` 與 `akashic_s2` 不在此類**：它們連網，歸上面〈例外〉第 2 類，受那一類的邊界
    約束。#664 之前本類寫的是「`akashic` CLI……沒有網路」，`akashic s2` 落地後那句為假；所以把
    它點名排除，而不是讓「本機工具」這個字面把一個連網的子命令收進來。
-3. **使用者本人在瀏覽器上的操作**——登入、授權、付費牆後的點擊。那是人的動作；skill 不代按
-   登入或授權按鈕。
+3. **使用者本人在瀏覽器上的操作**——登入、授權、付費。那是人的動作；skill 不代按
+   登入、授權或付費的按鈕。文章自己的 PDF 或下載連結不在此列：`akashic-fetch-fulltext` 預設由 Claude 按
+   （該 skill 的〈人機分工〉；#781）。
 4. **凍結的評測快照**——`docs/skill-evals/**/skill-snapshot-*/` 底下的舊 skill（與 `swift-is-the-implementation-language`
    〈不適用〉第 5 類同一批檔，2026-09-29 #629 R2 加列）。它是 A／B 比對的基準線，不被任何 skill、CLI、守衛或測試執行；
    改寫它就不再是基準線。

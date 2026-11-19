@@ -12,9 +12,11 @@ import AkashicStoreIO
 /// - **只用瀏覽器導航**：開 `--landing`、等頁面落定、讀頁面**自己的** PDF 連結、把同一個分頁導過去。**不在頁內以 JS 取檔**（`fetch()`
 ///   帶 `Sec-Fetch-Mode: cors`，看得出來），不用任何 HTTP 客戶端，**不自己拼出版商的 PDF 網址**（#613 起刪掉 SAGE `?download=true`、
 ///   Wiley `pdfdirect`、PsycNet `/fulltext/<id>.pdf` 三條規則與 `url-rule` 子命令）。
-/// - **不取位元組、不寫任何輸出檔**：PDF 顯示出來之後就交給人（結束碼 7）。人存檔之後交給 `fulltext take`（不碰瀏覽器、不連網）。
+/// - **不取位元組、不寫任何輸出檔**：PDF 顯示出來之後就交接（結束碼 7）。接手的是照 SKILL 執行的 agent（#781 起預設由它以 `safari-browser save-pdf`
+///   取分頁已持有的那一份）；取得的檔交給 `fulltext take`（不碰瀏覽器、不連網）。
 ///   **不重抓已載入的檔**——不對顯示中的 PDF 再發請求。
-/// - **按鈕與驗證交給人**：頁面的下載是表單按鈕、連結通到 HTML 閱讀器、出現 CAPTCHA，都停下來交給使用者。
+/// - **按鈕與驗證不由這個命令處理**：頁面的下載是表單按鈕、連結通到 HTML 閱讀器時交接（結束碼 7），出現 CAPTCHA 時等人驗證（結束碼 8）。
+///   之後誰做什麼寫在 SKILL〈人機分工〉：#781 起這篇自己的按鈕由 agent 按，人類驗證交給使用者。
 /// - **每站每天 10 次嘗試**（`FulltextAttemptLedger`）：準備導航到 PDF（或把按鈕交給人）就記一次；到上限就停那個站（結束碼 9）。
 /// - **頁面上執行的 JS 少而且正確**：每一段都寫成**運算式**。`safari-browser js` 先把程式碼包成運算式試一次、解析失敗才退回函式本體
 ///   （它的 `JSWrapper`），所以寫成 `return …` 的敘述，第一次注入就是一段解析不了的程式碼。頁面的錯誤處理器看不看得到 `do JavaScript`
@@ -140,7 +142,7 @@ public final class FulltextFetch {
         public static let dailyCapReached: Int32 = 9
     }
 
-    /// 交給人的原因（結束碼 7；stdout 的 `handover:` 一行印它的 `rawValue`）。SKILL〈交給人之後〉的表逐一列它們（`FulltextB34Tests.testTheSkillsHandoverTableIsTheHandoverEnum` 對帳）。
+    /// 交給人的原因（結束碼 7；stdout 的 `handover:` 一行印它的 `rawValue`）。SKILL〈結束碼 7 之後〉的表逐一列它們（`FulltextB34Tests.testTheSkillsHandoverTableIsTheHandoverEnum` 對帳；#781 起那一節改名，接手的是照 SKILL 執行的 agent）。
     public enum Handover: String, CaseIterable {
         /// 分頁回報它顯示 PDF（`document.contentType` 含 pdf）。那是頁面讀得到的值，頁面腳本改得了它（b31 W4 第 18、33 則）——訊息照實說
         case pdfShown = "pdf-shown"
@@ -307,17 +309,17 @@ public final class FulltextFetch {
         err("✋ HANDED OVER TO YOU (\(reason.rawValue)) — window \(window), tab \(ownTab).")
         switch reason {
         case .pdfShown:
-            err("  The tab reports that it shows a PDF (document.contentType — a page can claim that, so look at it before saving). Save it yourself (which Safari control is the standard one is being settled in safari-browser#210). If it shows a login, verification or block page instead, that is the abort clause.")
+            err("  The tab reports that it shows a PDF (document.contentType — a page can claim that, so look at it before saving). Take it with `safari-browser save-pdf` (the skill's exit-7 table); do not load the PDF again. If it shows a login, verification or block page instead, that is the abort clause.")
         case .htmlPage:
             err("  The page's own PDF link opened an HTML page — a reader, a login page, or an access shell. If it has a download button, press it yourself; if it says there is no access, report that.")
         case .unverifiable:
-            err("  This command could not read the tab (Safari's PDF viewer may not run page scripts), so nothing on it was checked — it is unverified, not clean. Look at it: save the PDF if it shows one; a login, verification or block page is the abort clause.")
+            err("  This command could not read the tab (Safari's PDF viewer may not run page scripts), so nothing on it was checked — it is unverified, not clean. `save-pdf` cannot be used on it (its content type cannot be read); the skill reports this item as not obtained, with the window and tab. A login, verification or block page there is the abort clause.")
         case .tabUnchanged:
             err("  The tab did not leave the article page after following the PDF link — the link may have started a download (check Safari's downloads) or needs a click.")
         case .button:
             err("  The page's PDF download is a form button. Press it yourself; the site may download the file.")
         case .leftSite:
-            err("  The tab left the article site for \(displaySafeInvisible(origin(shownURL), max: 300)); the page finished loading and matched none of the closed lists of verification, block or login markers — that does not mean it is not one. Look at it: if it shows the PDF, save it; a login, verification or block page is the abort clause. This item is handed to you; the rest of the batch can go on once you have looked at it.")
+            err("  The tab left the article site for \(displaySafeInvisible(origin(shownURL), max: 300)); the page finished loading and matched none of the closed lists of verification, block or login markers — that does not mean it is not one. Read it as the skill's exit-7 table says: if it shows the PDF, take it with `safari-browser save-pdf`; a login page on this other host, or a verification or block page, is the abort clause. Unless it is, the rest of the batch can go on.")
         case .doiNotResolved:
             err("  doi.org did not resolve this DOI (the tab stayed on doi.org's own not-found page). Check the DOI in the record; there is no file to save. This item is handed to you — the rest of the batch can go on.")
         }
@@ -1039,7 +1041,7 @@ public final class FulltextFetch {
             out("attempt: \(displaySafeInvisible(host, max: 300)) \(used)/\(FulltextAttemptLedger.dailyCap) \(day)")
         }
 
-        if method == "POST" { throw handover(.button) }   // 表單按鈕交給人按，不代按、不代送
+        if method == "POST" { throw handover(.button) }   // 表單按鈕不由這個命令按、不代送；#781 起由照 SKILL 執行的 agent 按（SKILL〈結束碼 7 之後〉的 `button` 列）
 
         out("pdf:  \(displaySafeInvisible(FulltextFetch.plainURL(target), max: 600))")
         let before = try ownURL()

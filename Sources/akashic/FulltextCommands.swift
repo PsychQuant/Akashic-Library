@@ -118,10 +118,10 @@ struct FulltextJitterCmd: ParsableCommand {
 struct FulltextFetchCmd: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "fetch",
-        abstract: "在使用者自己的 Safari 裡導航到頁面自己的 PDF 連結、交給人存檔；不取位元組、不寫檔；結束碼 6＝整批暫停",
+        abstract: "在使用者自己的 Safari 裡導航到頁面自己的 PDF 連結，然後交接（結束碼 7）；不取位元組、不寫檔；結束碼 6＝整批暫停",
         discussion: """
-        只用瀏覽器導航（不在頁內取檔、不拼出版商網址）。結束碼：7 交給人，批次繼續（PDF 已顯示——含在別的主機上顯示、頁面的下載按鈕要人按、\
-        分頁到了別的主機、頁面載完而沒有命中驗證／封鎖／登入的封閉清單（不代表不是登入頁）、讀不到的分頁（可能是 Safari 的 PDF 檢視器，什麼都沒檢查過；文章站上與別的主機上同一套）、DOI 解不開（doi.org 自己的查無頁）；原因在 stdout 的 `handover:` 一行；人存檔之後用 `fulltext take`）；\
+        只用瀏覽器導航（不在頁內取檔、不拼出版商網址）。結束碼：7 交接，批次繼續（接手的是照 skill 執行的人或 agent；PDF 已顯示——含在別的主機上顯示、頁面的下載是表單按鈕、\
+        分頁到了別的主機、頁面載完而沒有命中驗證／封鎖／登入的封閉清單（不代表不是登入頁）、讀不到的分頁（可能是 Safari 的 PDF 檢視器，什麼都沒檢查過；文章站上與別的主機上同一套）、DOI 解不開（doi.org 自己的查無頁）；原因在 stdout 的 `handover:` 一行；取得的檔交給 `fulltext take`）；\
         8 等人驗證（CAPTCHA 等，只在文章站本身或已知的驗證服務上成立，文章站上網址有登入頁長相、讀得到的那一頁除外；使用者驗證完加 stdout `resume:` 一行印出的 \
         --resume-tab／--resume-origin（導航之後的驗證另有 --resume-stage followed；有印 --resume-mark 一起帶；--window 換成那一行的值）在同一個分頁接著走）；\
         9 這個站今天（Asia/Taipei）已經 10 次嘗試，停這個站；6 整批暫停：其他起疑訊號（含其他主機上的驗證字樣、HTTP 403／429、登入頁、登入頁長相的 DOI 落地頁、文章站上網址有登入頁長相而命中 CAPTCHA 等訊號的頁面、讀不到而停在登入主機上的分頁、停在 doi.org 卻沒有查無證據、頁面約 60 秒沒載完），\

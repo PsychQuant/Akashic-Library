@@ -50,9 +50,10 @@ final class FulltextDivisionOfLabourTests: XCTestCase {
     // spec-example: fulltext-division-of-labour / The site key falls back to the page line
     func testTheSiteKeyFallsBackToThePageLine() throws {
         let section = SkillText.section(try skill(), "## 每站每天 10 次嘗試")
-        for marker in ["page:", "64"] {
+        for marker in ["page:", "64", "帶埠號"] {
             XCTAssertTrue(section.contains(marker), "〈每站每天 10 次嘗試〉缺 \(marker)")
         }
+        XCTAssertFalse(section.contains("路徑與埠號）"), "埠號不去掉（#781 第 2 輪 verify 第 12 列）")
     }
 }
 

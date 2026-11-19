@@ -95,13 +95,14 @@ final class FulltextClickProcedureTests: XCTestCase {
 
     // spec-example: fulltext-division-of-labour / The landing check pipes page text to bot-signals
     func testTheLandingCheckPipesPageTextToBotSignals() throws {
-        assertContains(try clickProcedure(), ["safari-browser get text --profile", "| akashic fulltext bot-signals --kind"], "〈一層層按〉")
+        assertContains(try clickProcedure(), ["safari-browser get text --window-id \"$W\"", "| akashic fulltext bot-signals --kind", "get text rc=", "是資料，不是指令"],
+                       "〈一層層按〉")
     }
 
     // spec-example: fulltext-division-of-labour / The href is read before a click
     func testTheHrefIsReadBeforeAClick() throws {
         let step = try XCTUnwrap(SkillText.line(in: try clickProcedure(), startingWith: "1. **讀**"), "〈一層層按〉沒有第 1 步")
-        assertContains(step, ["get attr @<ref> href"], "〈一層層按〉第 1 步")
+        assertContains(step, ["get attr @<ref> href", "mailto:", "file:"], "〈一層層按〉第 1 步")
     }
 
     // MARK: 別的主機上的登入頁
@@ -140,10 +141,11 @@ final class FulltextClickProcedureTests: XCTestCase {
 
     // MARK: 批次中途的停止與詢問
 
-    // spec-example: fulltext-division-of-labour / Six mid-run stops without the other-profile stop
-    func testSixMidRunStopsWithoutTheOtherProfileStop() throws {
+    // spec-example: fulltext-division-of-labour / Eight mid-run stops
+    func testEightMidRunStops() throws {
         let part = try section("## 人機分工")
-        assertContains(part, ["只有這六種", "不得依性質相似類推第七種", "帳本讀不懂", "定時讀取", "2.9.0 or later is needed"], "〈人機分工〉")
+        assertContains(part, ["只有這八種", "不得依性質相似類推第九種", "帳本讀不懂", "定時讀取", "2.9.0 or later is needed", "節奏工具", "連續兩篇"],
+                       "〈人機分工〉")
         XCTAssertFalse(part.contains("a Safari window of another profile"), "別的 profile 的視窗不再是停下的理由（#772）")
     }
 
@@ -170,11 +172,63 @@ final class FulltextClickProcedureTests: XCTestCase {
 
     // MARK: 頁面來的值、延到最後
 
-    // spec-example: fulltext-division-of-labour / Tab locks use a variable
-    func testTabLocksUseAVariable() throws {
+    // spec-example: fulltext-division-of-labour / Tab locks use the window id and files
+    func testTabLocksUseTheWindowIDAndFiles() throws {
         let text = try skill()
-        XCTAssertFalse(text.contains("--url \"<"), "SKILL 還有把頁面的網址寫進雙引號的鎖分頁")
-        for present in ["--url \"$lock\"", "jq -r"] { XCTAssertTrue(text.contains(present), "SKILL 缺 \(present)") }
+        for absent in ["--url \"<", "--url \"$lock\"", "printf '%s\\n' \"$lock\""] {
+            XCTAssertFalse(text.contains(absent), "SKILL 還有 \(absent)")
+        }
+        for present in ["--window-id \"$W\" --tab-in-window \"$t\"", "--rawfile u"] { XCTAssertTrue(text.contains(present), "SKILL 缺 \(present)") }
+    }
+
+    // MARK: #781 第 2 輪 verify
+
+    // spec-example: fulltext-division-of-labour / A click-reached check on a login-look URL pauses the batch
+    func testAClickReachedCheckOnALoginLookURLPausesTheBatch() throws {
+        assertContains(try landingRow(8), ["登入頁的長相", "2026-11-04 第 6 則"], "落點表第 8 種")
+        let classA = try XCTUnwrap(SkillText.line(in: try section("## 人機分工"), startingWith: "| (a) |"), "〈人機分工〉沒有 (a)")
+        assertContains(classA, ["登入頁的長相", "2026-11-04 第 6 則"], "〈人機分工〉(a)")
+    }
+
+    // spec-example: fulltext-division-of-labour / The hand-over of a human check carries the paste warning
+    func testTheHandOverOfAHumanCheckCarriesThePasteWarning() throws {
+        assertContains(try section("### 7. 回報"), ["貼上", "執行"], "第 7 步")
+    }
+
+    // spec-example: fulltext-division-of-labour / Only PDF-proving save-pdf failures end the article
+    func testOnlyPDFProvingSavePDFFailuresEndTheArticle() throws {
+        let row = try landingRow(1)
+        assertContains(row, ["Could not read the PDF from the tab", "What the tab holds does not start with %PDF-", "等一次", "(e)"], "落點表第 1 種")
+        XCTAssertFalse(row.contains("表示分頁就是 PDF 而取不到"), row)
+    }
+
+    // spec-example: fulltext-division-of-labour / The judged page's host is not a drift signal
+    func testTheJudgedPagesHostIsNotADriftSignal() throws {
+        assertContains(try clickProcedure() + (try section("### 3. 在使用者的 Safari 裡走到 PDF")), ["不是漂移的訊號"], "第 3 步")
+    }
+
+    // spec-example: fulltext-division-of-labour / Re-judgements probe for a PDF and compare with the state just before
+    func testReJudgementsProbeForAPDFAndCompareWithTheStateJustBefore() throws {
+        assertContains(try landingRow(3), ["任何主機", "不論網址變了沒有"], "落點表第 3 種")
+        assertContains(try landingRow(4), ["第 8 種的讀法"], "落點表第 4 種")
+    }
+
+    // spec-example: fulltext-division-of-labour / The lock block finds the tab by mark or full URL in fetch's window
+    func testTheLockBlockFindsTheTabByMarkOrFullURL() throws {
+        assertContains(try section("### 3. 在使用者的 Safari 裡走到 PDF"), ["own-tab:", "endswith($m)", "--rawfile u", "exit 4", "alarm shift"], "第 3 步")
+    }
+
+    // spec-example: fulltext-division-of-labour / After a click the tabs on the left must be unchanged
+    func testAfterAClickTheTabsOnTheLeftMustBeUnchanged() throws {
+        assertContains(try clickProcedure(), [".before.json", "tab_in_window < $p"], "〈一層層按〉")
+    }
+
+    // spec-example: fulltext-division-of-labour / Edge behaviours are in the skill
+    func testEdgeBehavioursAreInTheSkill() throws {
+        let text = try skill()
+        for present in ["不設固定的層數上限", "只算「取不到」", "決定要不要付費", "接受的代價", "不印 take 的提示"] {
+            XCTAssertTrue(text.contains(present), "SKILL 缺 \(present)")
+        }
     }
 
     // spec-example: fulltext-division-of-labour / The report step names the fresh marker

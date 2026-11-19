@@ -379,6 +379,23 @@ final class FulltextLockBlockTests: XCTestCase {
         XCTAssertEqual(out, "moved\n")
     }
 
+    /// 第 1 步讀的時候就交出去（還沒按、沒有 `.after.json`）：交出去那一刻的狀態從鎖分頁那一段寫的 `.docs.json` 存，之後再接照樣跑得起來。
+    func testAHandOverBeforeAnyClickCanBeTakenAgain() throws {
+        let rows = [row(1, 9005, 1, "https://user.example/"), row(1, 9005, 2, Self.article + "#" + Self.mark)]
+        var (rc, _, _) = try run(try startBlock(position: 2, mark: Self.mark), docs: rows)
+        XCTAssertEqual(rc, 0)
+        (rc, _, _) = try run(try lockBlock(mark: Self.mark), docs: rows)
+        XCTAssertEqual(rc, 0)
+        XCTAssertFalse(exists("k1.after.json"))
+        let skill = try String(contentsOf: try repoRoot().appendingPathComponent("plugin/skills/akashic-fetch-fulltext/SKILL.md"), encoding: .utf8)
+        XCTAssertTrue(skill.contains("`cp \"$D/$K.docs.json\" \"$D/$K.held.json\"`"), "SKILL 沒寫還沒按就交出去時怎麼存狀態")
+        try FileManager.default.copyItem(at: base.appendingPathComponent("k1.docs.json"), to: base.appendingPathComponent("k1.held.json"))
+        let out: String
+        (rc, out, _) = try run(try afterBlock(held: true), docs: [rows[0], row(1, 9005, 2, "https://www.sd.example/science/article/pii/S1/pdf")])
+        XCTAssertEqual(rc, 0, out)
+        XCTAssertTrue(out.hasPrefix("url-changed=true host=www.sd.example"), out)
+    }
+
     /// 擋住分頁的對話框：每一則訊息都是 Safari 自己的下載權限提示才是 (c)，其他的當成 JavaScript 對話框；訊息的字不印。
     func testTheDialogIsSortedWithoutPrintingItsText() throws {
         try clicked(before: beforeRows)

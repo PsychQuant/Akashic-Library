@@ -82,7 +82,7 @@
 - **`--profile`**：`fetch` 的 `window <N> profile:` 一行有 profile 時，`documents --json` 與每一個命令都帶；讀不出時才讀整份清單、以視窗 id 篩完就刪。
 - **只印主機**：去掉 `user:pw@`；沒有 `://` 的網址只印 scheme。`url-changed` 比的是按的那一刻。
 - **落點表**：第 4 種的下載同時換了頁或收下過新分頁時，先跑第 1 種的探測，不是 PDF 才讀文字、看第 6 種；第 5 種只收 Safari 自己的下載提示，其他擋住分頁的對話框是第 (3) 種停止（訊息只在 `jq` 裡比、不印）。讀頁面文字也看 `get title` 的狀態。
-- **交出去之後再接**：(a)、(b)、(d) 都適用；交之前先以此刻更新基準，做完之後 `moved` 是「取不到」；第 4 種的新檔比 `.handover`。
+- **交出去之後再接**：(a)、(b)、(d) 都適用；交之前先以此刻更新基準，做完之後 `moved` 是「取不到」；第 4 種的新檔比 `.handover`；第 1 步讀的時候（還沒按）就交出去時，交出去那一刻的狀態從 `.docs.json` 存（那時還沒有 `.after.json`）。`tab-unchanged` 判落點之前留下 `.clicked`（`fetch` 的導航就是那一下）。
 - 各段 bash 的結束碼列成一張表（落點那一段的基準檔不在是 6，不再與讀頁面文字那一段的 3 重疊）；`tab-unchanged` 與 `button` 的說法各只有一個。
 - 文字：(b) 不含「Log in for access」這類取得權限的選項；規則 1 (d) 的條件改成 `fetch` 的固定視窗；S:158、S:39 照實寫記號鎖；批次中途的停止寫「這八種」、(5) 涵蓋每一段定時讀取；S:82 讀不到的接續分頁是「取不到」；探測的代價也到別的主機上的分頁；一次一篇交接寫明沒有裁決。規則檔 R:34、R:64、R:101–102 加上這個 skill 的例外。`fetch` 的 `tab-unchanged` 提示不再說 needs a click；`FulltextCommands.swift` 的 `--expect-profile` 註解、`contract --help` 與兩個檔的註解改成「交接」，契約版本的註解是 12。`publishers.md` 的 `--url` 鎖註明是當時的作法。
 - **更正**：fix2 的報告寫 `FulltextLockBlockTests` 有 12 支，實際是 11 支（第 3 輪 verify 第 22 列）。

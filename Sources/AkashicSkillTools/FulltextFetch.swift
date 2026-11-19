@@ -324,7 +324,8 @@ public final class FulltextFetch {
             err("  doi.org did not resolve this DOI (the tab stayed on doi.org's own not-found page). Check the DOI in the record; there is no file to save. This item is handed to you — the rest of the batch can go on.")
         }
         // DOI 解不開時沒有任何檔可存：不叫人把「存下的檔」交給 take（R2 verify 第 14 則）
-        if reason != .doiNotResolved { err("  Then pass the saved file to `akashic fulltext take --from <file> --out <path> --title … --doi …`.") }
+        // `doi-not-resolved` 沒有檔；`unverifiable` 的分頁 `save-pdf` 用不了，SKILL 記成「取不到」（#781 verify 第 1 輪第 22 列）
+        if reason != .doiNotResolved, reason != .unverifiable { err("  Then pass the saved file to `akashic fulltext take --from <file> --out <path> --title … --doi …`.") }
         err("  Nothing requested the PDF bytes and no file was written. The tab is left open.")
         return Stop(code: Code.handedOver)
     }

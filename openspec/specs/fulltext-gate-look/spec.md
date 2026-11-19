@@ -98,17 +98,17 @@ When a tab on the article site cannot be read at all (not even `document.content
 - **THEN** it SHALL exit 7 with handover `unverifiable`
 
 ---
-### Requirement: The fetch contract version SHALL be 10
+### Requirement: The fetch contract version SHALL be 11
 
-Because two cells changed exit code, `akashic fulltext contract` SHALL print `fulltext-contract 10`, and the skill's step 0 SHALL require at least 10.
+`akashic fulltext contract` SHALL print `fulltext-contract 11`, and the skill's step 0 SHALL require at least 11. Version 11 SHALL mean that the CLI has the `fulltext attempt` command; the exit codes of `fetch` and `take` are those of version 10.
 
 #### Scenario: Contract printed
 
 - **WHEN** `akashic fulltext contract` runs
-- **THEN** it SHALL print `fulltext-contract 10`
+- **THEN** it SHALL print `fulltext-contract 11`
 
-##### Example: Skill and CLI agree on contract 10
+##### Example: Skill and CLI agree on contract 11
 
 - **GIVEN** the CLI's contract version and the skill's step-0 threshold
 - **WHEN** they are compared
-- **THEN** both SHALL be 10
+- **THEN** both SHALL be 11

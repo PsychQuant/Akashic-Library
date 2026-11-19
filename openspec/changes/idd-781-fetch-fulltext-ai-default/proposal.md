@@ -32,5 +32,5 @@
 
 - Affected specs: fulltext-attempt-accounting（新）、fulltext-division-of-labour（新）、fulltext-gate-look（契約版本）
 - Affected code:
-  - Modified: Sources/akashic/FulltextCommands.swift, Sources/AkashicSkillTools/FulltextFetch.swift, Sources/akashic/WriteGateRulings.swift, docs/rulings/mcp-cli-parity.md, Tests/AkashicKitTests/FulltextLoginLookRulingsTests.swift, plugin/skills/akashic-fetch-fulltext/SKILL.md, plugin/skills/akashic-fetch-fulltext/references/publishers.md, plugin/CHANGELOG.md, plugin/.claude-plugin/plugin.json, .githooks/plugin-shell-versions.txt
-  - New: Tests/AkashicCLITests/FulltextAttemptCLITests.swift, Tests/AkashicCLITests/FulltextDivisionOfLabourTests.swift, changelog/2026-11-19-fulltext-ai-default-781.md
+  - Modified: Sources/akashic/FulltextCommands.swift, Sources/AkashicSkillTools/FulltextFetch.swift, Sources/akashic/WriteGateRulings.swift, docs/rulings/mcp-cli-parity.md, Tests/AkashicKitTests/FulltextLoginLookRulingsTests.swift, Tests/AkashicKitTests/FulltextB34Tests.swift, plugin/skills/akashic-bootstrap/references/web-access.md, plugin/skills/akashic-fetch-fulltext/SKILL.md, plugin/skills/akashic-fetch-fulltext/references/publishers.md, plugin/CHANGELOG.md, plugin/.claude-plugin/plugin.json, .githooks/plugin-shell-versions.txt
+  - New: Sources/AkashicSkillTools/FulltextAttempt.swift, Tests/AkashicCLITests/FulltextAttemptCLITests.swift, Tests/AkashicCLITests/FulltextDivisionOfLabourTests.swift, changelog/2026-11-19-fulltext-ai-default-781.md

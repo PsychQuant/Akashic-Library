@@ -159,6 +159,8 @@ final class FulltextAttemptCLITests: XCTestCase {
         let r = try attempt(site: "journals.example")
         XCTAssertEqual(r.status, 1, r.out + r.err)
         XCTAssertEqual(r.out, "", "沒有記到就不印 attempt:")
+        XCTAssertTrue(r.err.contains("attempt ledger"), "原因印在 stderr：\(r.err)")
+        XCTAssertTrue(r.err.contains("nothing was recorded"), r.err)
         XCTAssertEqual(try String(contentsOfFile: ledger, encoding: .utf8), "not json\n")
     }
 }

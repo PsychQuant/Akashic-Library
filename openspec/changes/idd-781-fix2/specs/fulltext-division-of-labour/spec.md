@@ -199,7 +199,7 @@ The skill SHALL NOT show a command that writes a value chosen by a page (a tab U
 
 ### Requirement: Reads and clicks after fetch SHALL stay on fetch's window and tab
 
-After `fetch`, every safari-browser command the model sends to the article's tab (`snapshot -i`, `get`, `click`, `save-pdf`) SHALL be locked by the window id fetch printed on its `own-tab:` line and by the tab found in the same Bash call: the tab whose URL ends with this run's mark while the mark lasts, and otherwise the one tab of that window whose URL equals the full URL kept in a file from the previous step. When no such tab, or more than one, is found, the command SHALL NOT be sent. After a click, the tab at the clicked position SHALL be taken as the article's tab only when the tabs to its left are unchanged. Every `documents --json` read SHALL be timed.
+After `fetch`, every safari-browser command the model sends to the article's tab (`snapshot -i`, `get`, `click`, `save-pdf`) SHALL be locked by the window id fetch printed on its `own-tab:` line and by the tab found in the same Bash call: the tab whose URL ends with this run's mark while the mark lasts, and otherwise the one tab of that window whose URL equals the full URL kept in a file from the previous step. An empty kept URL SHALL match nothing. When no such tab, or more than one, is found, the command SHALL NOT be sent. After a click, the tab at the clicked position SHALL be taken as the article's tab only when the tabs to its left are unchanged, and a tab SHALL count as new only when the window gained tabs and the gain equals the number of tabs with unseen URLs. After a human check handed to the person, the tab SHALL be taken again by its position against the state saved at the hand-over. Every `documents --json` read SHALL be timed; it is read without `--profile`, and only the window's rows SHALL be kept, the full list being deleted in the same call.
 
 #### Scenario: A drifted tab is not acted on
 
@@ -210,13 +210,13 @@ After `fetch`, every safari-browser command the model sends to the article's tab
 
 - **GIVEN** the section headed `### 3. 在使用者的 Safari 裡走到 PDF`
 - **WHEN** it is searched
-- **THEN** it SHALL contain `own-tab:`, `endswith($m)`, `--rawfile u`, `exit 4` and `alarm shift`
+- **THEN** it SHALL contain `own-tab:`, `endswith($m)`, `--rawfile u`, `exit 4`, `alarm shift` and `rm -f "$D/$K.raw.json"`
 
 ##### Example: After a click the tabs on the left must be unchanged
 
 - **GIVEN** the section headed `#### 一層層按`
 - **WHEN** it is searched
-- **THEN** it SHALL contain `.before.json` and `tab_in_window < $p`
+- **THEN** it SHALL contain `.before.json`, `tab_in_window < $p`, `ambiguous` and `.held.json`
 
 ### Requirement: The skill SHALL state the edge behaviours of the click procedure
 

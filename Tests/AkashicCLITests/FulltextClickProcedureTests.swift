@@ -215,12 +215,12 @@ final class FulltextClickProcedureTests: XCTestCase {
 
     // spec-example: fulltext-division-of-labour / The lock block finds the tab by mark or full URL in fetch's window
     func testTheLockBlockFindsTheTabByMarkOrFullURL() throws {
-        assertContains(try section("### 3. 在使用者的 Safari 裡走到 PDF"), ["own-tab:", "endswith($m)", "--rawfile u", "exit 4", "alarm shift"], "第 3 步")
+        assertContains(try section("### 3. 在使用者的 Safari 裡走到 PDF"), ["own-tab:", "endswith($m)", "--rawfile u", "exit 4", "alarm shift", "rm -f \"$D/$K.raw.json\""], "第 3 步")
     }
 
     // spec-example: fulltext-division-of-labour / After a click the tabs on the left must be unchanged
     func testAfterAClickTheTabsOnTheLeftMustBeUnchanged() throws {
-        assertContains(try clickProcedure(), [".before.json", "tab_in_window < $p"], "〈一層層按〉")
+        assertContains(try clickProcedure(), [".before.json", "tab_in_window < $p", "ambiguous", ".held.json"], "〈一層層按〉")
     }
 
     // spec-example: fulltext-division-of-labour / Edge behaviours are in the skill

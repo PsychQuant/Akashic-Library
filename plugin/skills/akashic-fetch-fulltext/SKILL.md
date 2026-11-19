@@ -162,26 +162,28 @@ akashic fulltext fetch --window <N> [--expect-profile "<使用者自己的 profi
 - **不要帶 `--ledger`，也不要改 `HOME` 跑 `fetch`**：它們換一個帳本、把每站今天的次數歸零；`--ledger` 只給測試（CLI 會在 stderr 警告）。
 - **`fetch` 跑的時候，請使用者不要動 `fetch` 用的那個視窗的分頁，尤其不要在 `fetch` 開的分頁裡打字**（#768）。**別的視窗——包括別的 profile 的視窗——開著不影響**（#772，使用者 2026-11-19 09:24：「我是覺得在別的是窗沒差，只要鎖定好固定視窗就好」）：`fetch` 在開頭以 `--window <N>` 選定一個視窗、記下它的 id，新分頁以 `open --new-tab --window-id <id>` 開，記號不在時的位置鎖也是 `--window-id <id> --tab-in-window <T>`；視窗被拉到前面、前後順序變了，指的仍是同一個視窗，id 不存在時 safari-browser 失敗、不退回前景視窗（safari-browser#352，v2.9.0）。先前用的是前後順序的 `--window N`，`open --new-tab` 曾三次把分頁開進別的視窗（safari-browser#351，2026-11-04），所以有別的 profile 的視窗開著 `fetch` 就停；#772 拿掉了那道停止。**沒有實測的**：別的 profile 的視窗開著時，`open --new-tab --window-id` 的新分頁是否一定落在指定的視窗，還沒有在真的 Safari 上跑過（#772 Strategy 第 7 項，要使用者在場）。新分頁真的落到別的視窗時 `fetch` 照舊發現（`went to another Safari window`，結束碼 1）、不讀它，但那一頁已經在那個視窗載入了，請使用者關掉它。`open --new-tab --window-id` 不把 Safari 拉到前面，但會把新分頁設成那個視窗的目前分頁，所以使用者在那個視窗的下一個 ⌘L 就落在那個分頁上。**`fetch` 認出自己的分頁時印一行 `own-tab: window-id <W> tab <T> mark <記號>`**（記號已經不在、從位置接續時沒有 ` mark …`）：`fetch` 結束之後你的讀與按以它鎖同一個視窗、同一個分頁（下一點）。**`fetch` 怎麼認分頁**：落地網址後面加一個這次執行才有的記號（`#akashic-` 加 16 個十六進位數字；fragment 不送伺服器），網址以它結尾的分頁就是 `fetch` 的分頁（例外：記號不見之後以位置鎖導航帶回來的記號，要在 `fetch` 的位置上才算；導航打到使用者的分頁時，帶著記號的是使用者的分頁，見下面的 (b)）；記號還在時，分頁移位、切換視窗都跟得上，指令以 `--profile <P> --url-endswith '#akashic-…'` 鎖分頁（視窗的 profile 讀不出、沒有 `<P>` 時一律用下面的位置鎖）——**一定帶 `--profile`**：safari-browser 的 `open` 不把 `--url-endswith` 當成指定了分頁，只帶它會在前景視窗開新分頁、我們的分頁沒被導航（safari-browser#233，第三輪 verify）。`js`、`wait` 在同一段 AppleScript 裡重驗目標；導航用的 `open` 不重驗（先解析記號，再以另一個動作導航那個分頁）。記號什麼時候不見都一樣，改用下面的位置追蹤（使用者 2026-11-04）：頁面用腳本轉到的登入、驗證頁照常判成 6／8。2026-11-04 量到：SAGE、Wiley、Springer、APA、Taylor & Francis 轉址後記號都在；**Elsevier 在授權轉址（id.elsevier.com）時丟掉它**，跟 PDF 連結之後的轉址（`pdfft` → pdf.sciencedirectassets.com）也會丟，之後只能以視窗 id 與位置追蹤（位置鎖 `--window-id <W> --tab-in-window <T>`）：左邊開關分頁、拖動、我們的分頁被關或變空白、整份清單換了就停；使用者在別的分頁換頁、在右邊開關分頁通常不影響，但剛好和我們的分頁換頁落在同一眼時也會停（停下是保守的，不會讀錯分頁）。**它擋不住的**：(a) 使用者在 `fetch` 的分頁裡開別的網頁（⌘L）——**任何出版商都一樣**：⌘L 本身就讓記號不見，`fetch` 改用位置追蹤，與分頁自己換頁分不出來（使用者 2026-11-04 接受的代價），那一頁的文字會被讀來判斷起疑訊號、網址會印出來，導航之前那一頁有自己的 PDF 連結時分頁還會被導過去；(b) 確認與導航一律是兩個動作（記號在時也是：`open` 不重驗），記號不在時確認與讀也是；分頁剛好在兩者之間移動，那一次讀或導航會打到別的分頁。讀到的答案下一眼對不上就不用；導航收不回：左邊開關分頁時 `--tab-in-window T` 指到使用者的分頁，它被導航、帶著我們的記號，下一眼對不上就停（結束碼 1，已計次），那個分頁留著，請使用者看一眼。位置鎖以視窗 id 指定視窗（#772）：使用者剛好在兩者之間點了自己的另一個視窗，指的仍是同一個視窗——先前的全域 `--window N` 在這時會打到那個視窗，那是 #735 記的失敗，`--window-id` 拿掉了它的視窗那一半；同一個視窗裡左邊開關分頁、`--tab-in-window T` 指到別的分頁的那一半（上面這一段）仍在。**PDF 連結的答案綁在判過的那一頁上**：讀連結之後與導航之前，分頁的網址（我們的記號不算）與判過的那一頁不同就不導航，等新的那一頁落定再判，與導航之前的接續同一套：登入頁與驗證頁（訊號或網址的長相）6／8，一直不落定 6，PDF 交接，讀不到的頁面也交接（7 `unverifiable`，落地頁讀不到是 6），其他是結束碼 1（`the page changed after it was checked`；只有 query、fragment 這類不印出來的部分變了也算，訊息會說）。這是看得到的換頁；網址不變而內容換了、或最後一次比對之後才換，看不到。頁面文字、`document.contentType`、readyState 與等連結的讀取，記號鎖找不到分頁時（記號剛好在兩者之間不見），`fetch` 再確認一次、照確認到的鎖重跑一次；**讀 PDF 連結與導航不重跑**：讀連結失敗是結束碼 1、還沒計次，導航失敗是結束碼 1、已計次；(c) 顯示同一個網址的兩個分頁互換位置、或兩個分頁群組剛好有一個相同的分頁時切換群組；(d) 頁面的腳本看得到記號（`location.hash`），分析腳本可能把它連同網址送出去，它也說明了這是工具開的分頁；(e) 頁面標題可能在 `documents --json` 裡偽造一列（safari-browser#355，還沒在真實的 Safari 上確認）：指向存在的分頁的假列通常與真的列同位置，`fetch` 看到同一個位置兩列就停（結束碼 1，`cannot be trusted`；列舉途中視窗被拉到前面、同一個視窗讀兩次也是這樣），位置不存在的假列讓導航失敗，其餘要猜中頁面讀不到的視窗 id；最後一眼之後才寫的假列看不到（`open` 自己重新列舉，不經這道檢查），讀 profile 的路徑也一樣，都要等 safari-browser 修。所以 **`fetch` 不關任何分頁**：找不到連結（結束碼 3）、到上限（結束碼 9）同樣留著，跑完一批要告訴使用者留了哪幾個分頁。safari-browser 要 2.9.0 以上：`documents --json` 的每一列要有頂層的 `window_id`（v2.9.0 與 `--window-id` 同一個 commit 加的；沒有時 `fetch` 在開任何分頁之前就停。它看的是這個欄位，不是 `--version`：safari-browser 的開發建置印 `unknown`），`--profile` 加 `--url-endswith` 在 2.7.0 起的 `open`、`js`、`wait` 都解析得到分頁。等連結最多 15 段、每段 3 秒，每段之前確認一次分頁；加上每段的分頁解析，2026-11-04 實測一篇找不到連結的 SAGE 從開分頁到結束共 100 秒。
 - **`fetch` 自己的鎖分頁**：記號在時是 web-access.md 的 `--profile`＋`--url-endswith`（記號就是那個 suffix，每次執行不同，使用者開著同一頁也不會對到兩個分頁）；記號不在時退回位置鎖 `--window-id <W> --tab-in-window <T>`（規則檔〈例外〉形狀 (b)；`<W>` 是開頭選定的視窗的 id，#772）。第 2 步的頁內 OpenAlex 查詢照 web-access.md、第 3 步的**導航**只用 `fetch`，兩者不混用。
-- **`fetch` 之後的鎖分頁**（你自己的 `snapshot -i`、`get`、`click`、`save-pdf`；#781 第 2 輪 verify 第 3、6、7、11 列）：一律以 `--window-id "$W" --tab-in-window "$t"` 送，`$W` 是 `fetch` 的 `own-tab:` 一行印的視窗 id，`$t` 在**同一個** Bash 呼叫裡從 `documents --json` 認出來（變數不跨呼叫），不用 `--url`、不用 `--window`。認分頁的方法：記號還在（`own-tab:` 一行有 ` mark …`、而網址以它結尾的分頁在這個視窗恰好一個）就是它；記號不在（Elsevier 的轉址丟掉它，或按了之後頁面換了）就是這個視窗裡網址**整個**等於上一步存下來的那個網址的分頁，恰好一個。認不出來（沒有、或不只一個）就**不送命令**，結束碼 4。網址是頁面決定的字串，路徑可以帶 `$(…)`、反引號與引號：它只經 `jq` 進檔案、在 `jq` 裡比對，**不寫進任何命令列**；印出來的只有主機（簽章網址的憑證與 session 不進對話）。`documents --json` 一律以 `perl` 的 `alarm` 定時 20 秒（`timeout` 不是 macOS 內建的），沒有回答是結束碼 5（〈人機分工〉當場告訴使用者的第 (5) 種）。
+- **`fetch` 之後的鎖分頁**（你自己的 `snapshot -i`、`get`、`click`、`save-pdf`；#781 第 2 輪 verify 第 3、6、7、11 列）：一律以 `--window-id "$W" --tab-in-window "$t"` 送，`$W` 是 `fetch` 的 `own-tab:` 一行印的視窗 id，`$t` 在**同一個** Bash 呼叫裡從 `documents --json` 認出來（變數不跨呼叫），不用 `--url`、不用 `--window`。認分頁的方法：記號還在（`own-tab:` 一行有 ` mark …`、而網址以它結尾的分頁在這個視窗恰好一個）就是它；記號不在（Elsevier 的轉址丟掉它，或按了之後頁面換了）就是這個視窗裡網址**整個**等於上一步存下來的那個網址的分頁，恰好一個。認不出來（沒有、或不只一個；上一步存的網址是空的也不認，免得認到空白分頁）就**不送命令**，結束碼 4。`documents --json` 不帶 `--profile`：profile 只用來選視窗（#772），這裡以視窗 id 篩——完整的清單只寫進一個暫存檔、篩完就刪，留下的只有這個視窗的列，也不印進對話（規則檔〈使用紀律〉要 `documents` 一律帶 `--profile`，理由是不把別的 profile 的分頁倒進對話；這裡以篩選做到，登記在規則檔形狀 (b)）。網址是頁面決定的字串，路徑可以帶 `$(…)`、反引號與引號：它只經 `jq` 進檔案、在 `jq` 裡比對，**不寫進任何命令列**；印出來的只有主機（簽章網址的憑證與 session 不進對話）。`documents --json` 一律以 `perl` 的 `alarm` 定時 20 秒（`timeout` 不是 macOS 內建的），沒有回答是結束碼 5（〈人機分工〉當場告訴使用者的第 (5) 種）。
 
   ```bash
   D='<暫存目錄>'; K='<citekey>'; W=<W>; M='<記號>'   # W、M 照抄 own-tab: 一行（只有數字與 akashic- 加十六進位）；記號不在時 M=''
-  perl -e 'alarm shift; exec @ARGV' 20 safari-browser documents --json > "$D/$K.docs.json"; rc=$?
-  [ "$rc" -eq 0 ] || { echo "documents rc=$rc（142＝20 秒內沒有回答）" >&2; exit 5; }
-  t=$(jq -r --argjson w "$W" --arg m "#$M" --rawfile u "$D/$K.url" '
-    [.[] | select(.window_id == $w)] as $mine
-    | [$mine[] | select($m != "#" and (.url | endswith($m)))] as $marked
+  perl -e 'alarm shift; exec @ARGV' 20 safari-browser documents --json > "$D/$K.raw.json"; rc=$?
+  [ "$rc" -eq 0 ] || { rm -f "$D/$K.raw.json"; echo "documents rc=$rc（142＝20 秒內沒有回答）" >&2; exit 5; }
+  jq --argjson w "$W" '[.[] | select(.window_id == $w)]' "$D/$K.raw.json" > "$D/$K.docs.json"; rc=$?; rm -f "$D/$K.raw.json"
+  [ "$rc" -eq 0 ] || { echo "documents 的輸出讀不懂" >&2; exit 5; }
+  t=$(jq -r --arg m "#$M" --rawfile u "$D/$K.url" '
+    ($u | rtrimstr("\n")) as $k
+    | [.[] | select($m != "#" and (.url | endswith($m)))] as $marked
     | if ($marked | length) == 1 then $marked[0].tab_in_window
-      elif ($marked | length) > 1 then empty
-      else ([$mine[] | select(.url == ($u | rtrimstr("\n")))] | if length == 1 then .[0].tab_in_window else empty end) end' "$D/$K.docs.json") || t=""
+      elif ($marked | length) > 1 or $k == "" then empty
+      else ([.[] | select(.url == $k)] | if length == 1 then .[0].tab_in_window else empty end) end' "$D/$K.docs.json") || t=""
   [ -n "$t" ] || { echo "對不到分頁" >&2; exit 4; }
-  jq -r --argjson w "$W" --argjson t "$t" '.[] | select(.window_id == $w and .tab_in_window == $t) | .url' "$D/$K.docs.json" > "$D/$K.url"
+  jq -r --argjson t "$t" '.[] | select(.tab_in_window == $t) | .url' "$D/$K.docs.json" > "$D/$K.url"
   printf '%s\n' "$t" > "$D/$K.pos"
   sed -E 's#^[A-Za-z][A-Za-z0-9+.-]*://([^/?#]*).*#\1#' "$D/$K.url"   # 只印主機
   safari-browser snapshot -i --window-id "$W" --tab-in-window "$t"     # 這一行換成這一步要送的命令
   ```
 
-  **起點**（`fetch` 剛結束，每篇一次）：`<暫存目錄>/<citekey>.url` 還沒有。記號還在時上面那一段直接認得到（先 `: > "$D/$K.url"` 建一個空檔）；記號已經不在時，以 `fetch` 印的位置 `<T>`（`own-tab:` 或 `handover:` 一行；只有數字）取一次完整網址：`jq -r --argjson w "$W" --argjson t <T> '[.[] | select(.window_id == $w and .tab_in_window == $t)] | if length == 1 then .[0].url else empty end' "$D/$K.docs.json" > "$D/$K.url"`（`docs.json` 照上面那一段的第二行以 `alarm` 讀），然後照印出的主機核對：不是 `handover:`、`page:` 印的那個主機就不往下，那一篇是「取不到」。這是唯一以位置認分頁的一下，緊接在 `fetch` 確認過分頁之後。**按過之後**被判的那一頁換了主機**不是漂移的訊號**——那正是落點表要判的事；按過之後怎麼認分頁見〈一層層按〉的「按了之後讀什麼」。
+  **起點**（`fetch` 剛結束，每篇一次）：`<暫存目錄>/<citekey>.url` 還沒有。記號還在時上面那一段直接認得到（先 `: > "$D/$K.url"` 建一個空檔；空檔不會被當成網址去比）；記號已經不在時，以 `fetch` 印的位置 `<T>`（`own-tab:` 或 `handover:` 一行；只有數字）取一次完整網址：`jq -r --argjson t <T> '[.[] | select(.tab_in_window == $t)] | if length == 1 then .[0].url else empty end' "$D/$K.docs.json" > "$D/$K.url"`（`docs.json` 照上面那一段的第二到第四行讀：定時、只留這個視窗的列），然後照印出的主機核對：不是 `handover:`、`page:` 印的那個主機就不往下，那一篇是「取不到」。這是唯一以位置認分頁的一下，緊接在 `fetch` 確認過分頁之後。**按過之後**被判的那一頁換了主機**不是漂移的訊號**——那正是落點表要判的事；按過之後怎麼認分頁見〈一層層按〉的「按了之後讀什麼」。
 
   **仍然擋不住的**：`documents --json` 與命令是兩個動作，分頁剛好在兩者之間移動，那一下會送到同一個視窗裡別的分頁（`click` 的 `@eN` 是 `snapshot -i` 在那個分頁上給的，到了別的分頁通常找不到那個元件而失敗，但不是保證）；同一個視窗裡兩個分頁網址完全相同時認不出來（結束碼 4，那一篇「取不到」）。
 
@@ -228,22 +230,28 @@ akashic fulltext fetch --window <N> [--expect-profile "<使用者自己的 profi
 **按了之後讀什麼**（都是規則 5 的固定命令；#781 verify 第 1 輪第 2 列，第 2 輪第 1、3、6、11 列）。先看什麼變了——以按之前存的 `.before.json` 為基準，**被按的那個位置左邊的分頁都沒變**，才把那個位置此刻的分頁當成這一篇的（與 `fetch` 的位置追蹤同一個判法）：
 
 ```bash
-D='<暫存目錄>'; K='<citekey>'; W=<W>
-perl -e 'alarm shift; exec @ARGV' 20 safari-browser documents --json > "$D/$K.after.json"; rc=$?
-[ "$rc" -eq 0 ] || { echo "documents rc=$rc（142＝20 秒內沒有回答）" >&2; exit 5; }
-jq -r --slurpfile b "$D/$K.before.json" --argjson w "$W" --argjson p "$(cat "$D/$K.pos")" --rawfile u "$D/$K.url" '
+D='<暫存目錄>'; K='<citekey>'; W=<W>; B="$D/$K.before.json"   # B：比對的基準（交出去之後再接時換成 .held.json，見下）
+perl -e 'alarm shift; exec @ARGV' 20 safari-browser documents --json > "$D/$K.raw.json"; rc=$?
+[ "$rc" -eq 0 ] || { rm -f "$D/$K.raw.json"; echo "documents rc=$rc（142＝20 秒內沒有回答）" >&2; exit 5; }
+jq --argjson w "$W" '[.[] | select(.window_id == $w)]' "$D/$K.raw.json" > "$D/$K.after.json"; rc=$?; rm -f "$D/$K.raw.json"
+[ "$rc" -eq 0 ] || { echo "documents 的輸出讀不懂" >&2; exit 5; }
+jq -r --slurpfile b "$B" --argjson p "$(cat "$D/$K.pos")" --rawfile u "$D/$K.url" '
   def host: sub("^[A-Za-z][A-Za-z0-9+.-]*://"; "") | sub("[/?#].*$"; "");
-  [$b[0][] | select(.window_id == $w)] as $bm | [.[] | select(.window_id == $w)] as $am
+  $b[0] as $bm | . as $am
   | ([$bm[] | select(.tab_in_window < $p) | .url] == [$am[] | select(.tab_in_window < $p) | .url]) as $leftSame
   | [$am[] | select(.tab_in_window == $p)] as $ours
+  | (($am | length) - ($bm | length)) as $grew
+  | [$am[] | select(.tab_in_window != $p) | select(.url as $x | ([$bm[].url] | index($x)) == null)] as $cand
   | if ($leftSame | not) or ($ours | length) != 1 then "moved"
-    else "url-changed=\($ours[0].url != ($u | rtrimstr("\n"))) host=\($ours[0].url | host) dialog=\($ours[0].blocking_dialog.state // "unknown") new-tabs=\([$am[] | select(.url as $x | ([$bm[].url] | index($x)) == null) | select(.tab_in_window != $p) | "\(.tab_in_window):\(.url | host)"] | join(","))" end' "$D/$K.after.json" > "$D/$K.landing" || exit 3
+    else "url-changed=\($ours[0].url != ($u | rtrimstr("\n"))) host=\($ours[0].url | host) dialog=\($ours[0].blocking_dialog.state // "unknown") new-tabs=\(if $grew <= 0 then "" elif $grew == ($cand | length) then ($cand | map("\(.tab_in_window):\(.url | host)") | join(",")) else "ambiguous" end)" end' "$D/$K.after.json" > "$D/$K.landing" || exit 3
 cat "$D/$K.landing"
 case "$(cat "$D/$K.landing")" in moved) exit 4 ;; url-changed=true*)
-  jq -r --argjson w "$W" --argjson p "$(cat "$D/$K.pos")" '.[] | select(.window_id == $w and .tab_in_window == $p) | .url' "$D/$K.after.json" > "$D/$K.url" ;; esac
+  jq -r --argjson p "$(cat "$D/$K.pos")" '.[] | select(.tab_in_window == $p) | .url' "$D/$K.after.json" > "$D/$K.url" ;; esac
 ```
 
-它印一行：網址變了沒（`url-changed`）、那一頁的主機、`blocking_dialog` 的狀態（`present`／`clear`／`unknown`）、新分頁的位置與主機；網址變了就把新的網址存進 `.url`，之後的鎖分頁以它認。`moved`（結束碼 4）是左邊的分頁變了、說不準哪一個是這一篇的：當成鎖對不到（見下）。另外看下載資料夾有沒有比 `.start` 新的 `*.pdf`；第 1 種用 `save-pdf` 探測；第 8 種讀頁面文字：
+它印一行：網址變了沒（`url-changed`）、那一頁的主機、`blocking_dialog` 的狀態（`present`／`clear`／`unknown`）、新分頁的位置與主機（只在這個視窗的分頁**變多**時才算新分頁，變多的數目與網址沒見過的分頁數對不上時印 `ambiguous`——右邊使用者自己的分頁換了頁不算新分頁）；網址變了就把新的網址存進 `.url`，之後的鎖分頁以它認。`moved`（結束碼 4）是左邊的分頁變了、說不準哪一個是這一篇的：當成鎖對不到（見下）。
+
+**交出去之後再接**（第 8 種的 (a)：批次結束、使用者說驗證完成之後）：交出去的那一刻先 `cp "$D/$K.after.json" "$D/$K.held.json"`、`touch "$D/$K.handover"`。接的時候跑上面那一段，第一行的 `B` 換成 `"$D/$K.held.json"`：左邊的分頁沒變，就收下 `.pos` 那個位置此刻的分頁與網址（驗證完常轉到新的網址，所以這裡不以舊網址認）；`moved` 就不猜，那一篇是「取不到」（接手之後還沒按任何東西）。這一次印的 `new-tabs` 不用（批次後面各篇開的分頁也在裡面）。然後 `cp "$D/$K.after.json" "$D/$K.before.json"`，從落點表的最前面判：第 1 種的探測照跑，第 4 種的新檔要比 `.handover` 新才算。另外看下載資料夾有沒有比 `.start` 新的 `*.pdf`；第 1 種用 `save-pdf` 探測；第 8 種讀頁面文字：
 
 ```bash
 # 先照第 3 步〈fetch 之後的鎖分頁〉那一段取 $W、$t（不送 snapshot），再：
@@ -264,12 +272,12 @@ echo "get text rc=$rc"; head -1 "$D/$K.text.err" | cut -c1-200
 |---|---|---|---|
 | 1 | 分頁顯示 PDF | 分頁網址變了（再判的時候不論變了沒有）、`save-pdf` 取得到（它自己檢查 `document.contentType`）。這是探測，照 `save-pdf` 錯誤的第一行（`Error:` 之後）分三種（safari-browser v2.9.0 的 `SavePDFFailure`，封閉列舉）：**(i)** `The tab's document is '…', not a PDF` 就不是第 1 種，往下判；**(ii)** 證明分頁就是 PDF 的那七種（`save-pdf` 先查過 `document.contentType` 才會遇到）：`A service worker controls this tab`、`Could not read the PDF from the tab`（WebKit 不再持有）、`The tab answered with HTTP`、`WebKit answered, but the tab could not prepare the document`、`The PDF is … over the … byte limit of save-pdf`、`What the tab holds does not start with %PDF-`、`Could not write the temporary copy`——是「取不到（`save-pdf` 失敗）」，不重試；**(iii)** 其他（`The tab is not running scripts`、`The tab's page was replaced during the read`、`The tab did not finish reading the PDF within`、`The reply from the tab was damaged`、`No Safari document matches`、取鎖以 4 結束，或任何別的字）說不出分頁是不是 PDF：照上面的「鎖對不到」等一次、重取鎖、從頭判，仍然如此就是 (e) 整批暫停（#781 第 2 輪 verify 第 1 列；先前把 (i) 以外的失敗都當成「分頁就是 PDF」）。**接受的代價**：探測在 HTML 頁上也會跑 `save-pdf` 自己的一小段腳本（它先在頁面放一個暫存的全域變數，才查 `document.contentType`），頁面看得到它；不先探測就得讀 PDF 分頁的文字（規則 5 不准），固定的讀取又分不出 PDF 與 HTML，所以接受（#781 第 2 輪 verify 第 21 列） | `save-pdf` 取得的檔 → 第 4 步，`acquisition=browser-save-pdf` |
 | 2 | 又一個這篇自己的下載元件 | **頁面換了**（分頁網址變了，或第 3 種的新分頁）**而且**看到的是另一個這篇自己的下載元件；剛按的那一個元件不算，不論它還在不在頁面上（SAGE 的 `/doi/epub/` 閱讀頁上的 `Download PDF` 實測） | 回到第 1 步再走一輪。**每篇不設固定的層數上限**（使用者 2026-11-10 10:34），由每站每天 10 次與起疑訊號擋 |
-| 3 | 開了新分頁 | 落點那一段的 `new-tabs` 有一個分頁，**任何主機**都算（AME 的「PDF」連結實測；別的主機上的 IdP 登入、CDN 上的 PDF 也從這裡進來，#781 第 2 輪 verify 第 9 列） | 改以新分頁為這一篇的分頁：`printf '%s\n' <新分頁的位置> > "$D/$K.pos"`，以 `jq` 從 `.after.json` 取它的網址存進 `.url`，`cp "$D/$K.after.json" "$D/$K.before.json"`，再從這張表依同一個順序判一次（第 1 種的探測不論網址變了沒有都跑）。新分頁不只一個：不猜，列入最後交給使用者的清單 |
+| 3 | 開了新分頁 | 落點那一段的 `new-tabs` 有一個分頁，**任何主機**都算（AME 的「PDF」連結實測；別的主機上的 IdP 登入、CDN 上的 PDF 也從這裡進來，#781 第 2 輪 verify 第 9 列） | 改以新分頁為這一篇的分頁：`printf '%s\n' <新分頁的位置> > "$D/$K.pos"`，以 `jq` 從 `.after.json` 取它的網址存進 `.url`，`cp "$D/$K.after.json" "$D/$K.before.json"`，再從這張表依同一個順序判一次（第 1 種的探測不論網址變了沒有都跑）。新分頁不只一個，或 `new-tabs=ambiguous`：不猜，列入最後交給使用者的清單 |
 | 4 | 直接開始下載 | 下載資料夾出現比 `.start` 新的 `*.pdf`（輪詢約 15 秒） | 網址也變了或開了新分頁時，先用第 8 種的讀法讀那一頁：命中就照第 8 種處理（(a) 或 (e)），檔案先不交給第 4 步（#781 第 2 輪 verify 第 5 列）；沒有命中，或網址沒變、沒有新分頁：交給第 4 步，`acquisition=browser-download` |
 | 5 | Safari 的下載權限對話框或「儲存為」面板 | 落點那一段印的 `dialog=present`，或使用者說他看到了 | **不按**：(c)，這一篇跳過、最後交給使用者（照第 7 步一次一篇；他按「允許」或「儲存」之後，檔案會出現在下載資料夾，再交給第 4 步）；下一篇之前先做一次定時讀取（表下那一段） |
 | 6 | 登入、SSO | **先看主機**。別的主機上：頁面要求登入、輸入帳密、選機構，或網址、標題有登入頁的長相（〈整批暫停〉第三點的 `BotSignals.gateLook` 清單）。文章站本身：頁面**本身就是**登入頁（帳密欄位、「Sign in to continue」、選機構的頁面）——只是網址或標題有登入頁的長相、頁面上是這篇的內容或「Log in for access」這類取得權限的選項，不算（那是第 7 種）；這與 `fetch` 在導航之後不看文章站網址的登入長相同一個判法（〈整批暫停〉第三點；#781 第 2 輪 verify 第 13 列） | 文章站本身：**不按**，(b)，跳過、最後交給使用者。**別的主機**：(e) 整批暫停，照〈中止條款〉——(b) 只給文章站本身（#781 verify 第 1 輪第 1 列；使用者 2026-11-10 10:34 說中止條款不變；別的主機上的 IdP 登入頁是 (e)，使用者 2026-11-19 19:31 確認） |
 | 7 | 沒有權限 | 頁面只有「Check Access」「Log in for access」「Get Access」「Purchase」這一類、沒有這篇自己的 PDF 連結（Ovid 停在 `/abstract/` 實測） | 頁面提供購買或租用這一篇（「Purchase」「Buy」「Rent」）：(d)，**不按**，跳過、最後交給使用者**決定要不要付費**；只寫著沒有權限、沒有購買的選項：「取不到（無權限）」。兩種都寫明頁面上看到的字（#781 第 2 輪 verify 第 14 列：先前購買鈕也是「取不到」，(d) 永遠到不了） |
-| 8 | 起疑訊號 | 標題、網址與頁面文字交給 `akashic fulltext bot-signals --kind` 有命中（上面的讀法），讀不到頁面文字（同上），或讀起來像被懷疑 | 命中 `verify`（等人驗證的四種），**而且**這一頁在文章站本身或已知的驗證服務上（〈中止條款〉等人驗證那一段的封閉清單），**而且**網址沒有〈中止條款〉登入頁的長相（第三點的清單；拿不準就當有）→ (a)：跳過這一篇，這一批同一個站剩下的各篇也延到最後（與結束碼 8 相同）。這一頁沒有 `resume:` 一行：批次結束、使用者說驗證完成之後，**不重新載入、不開新分頁**，用這張表從頭判同一個分頁（看它不算一次嘗試；顯示 PDF 就 `save-pdf`，要再按這篇自己的連結就是新的一下，照常記帳）。其餘（`pause`、別的主機上的驗證、**網址有登入頁的長相的驗證頁**——使用者 2026-11-04 第 6 則、#777，與 `fetch` 的結束碼 6 同一條，#781 第 2 輪 verify 第 2 列、讀不到頁面文字、讀起來像被懷疑）→ (e) 整批暫停 |
+| 8 | 起疑訊號 | 標題、網址與頁面文字交給 `akashic fulltext bot-signals --kind` 有命中（上面的讀法），讀不到頁面文字（同上），或讀起來像被懷疑 | 命中 `verify`（等人驗證的四種），**而且**這一頁在文章站本身或已知的驗證服務上（〈中止條款〉等人驗證那一段的封閉清單），**而且**網址沒有〈中止條款〉登入頁的長相（第三點的清單；拿不準就當有）→ (a)：跳過這一篇，這一批同一個站剩下的各篇也延到最後（與結束碼 8 相同）。這一頁沒有 `resume:` 一行：批次結束、使用者說驗證完成之後，**不重新載入、不開新分頁**，照上面的「交出去之後再接」認分頁，用這張表從頭判同一個分頁（看它不算一次嘗試；顯示 PDF 就 `save-pdf`，要再按這篇自己的連結就是新的一下，照常記帳）。其餘（`pause`、別的主機上的驗證、**網址有登入頁的長相的驗證頁**——使用者 2026-11-04 第 6 則、#777，與 `fetch` 的結束碼 6 同一條，#781 第 2 輪 verify 第 2 列、讀不到頁面文字、讀起來像被懷疑）→ (e) 整批暫停 |
 | 9 | 沒有變化 | 分頁網址沒變、沒有新分頁、下載資料夾沒有新檔、`dialog` 不是 `present` | **等頁面落定一次**（這一下還沒等過的話）：再跑一次節奏工具，然後依同一個順序把整張表再判一次——第 1 到第 8 種都要再看，不只第 3、4、5 種（晚一步才換成 PDF、登入頁或起疑頁的也要接到；#781 verify 第 1 輪第 6 列）。仍然是第 9 種就停：**不按第二次**（使用者 2026-11-10 10:39）。這一篇列入最後交給使用者的清單，原因照實寫「按了之後沒有檔案、分頁沒變」：這時 Safari 可能掛著儲存面板或下載權限提示（(c)，你讀不到），也可能什麼都沒發生——**你分不出來，不要猜是哪一種，請使用者看畫面**（2026-11-19 實測：SAGE 的下載鈕按下去之後是儲存面板在等，當時被誤報成權限提示）。下一篇之前先做一次定時讀取（表下那一段） |
 
 **第 5 種與第 9 種之後，下一篇之前先做一次定時讀取**（#781 verify 第 1 輪第 12 列）：這時 Safari 可能掛著你讀不到的面板，而批次只用一個視窗。先照第 3 步〈`fetch` 之後的鎖分頁〉那一段取 `$W`、`$t`（它的 `documents --json` 本身就定時），再：

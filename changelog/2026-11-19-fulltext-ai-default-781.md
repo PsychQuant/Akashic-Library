@@ -41,7 +41,7 @@
 
 ## 第 1 輪 verify 之後（Spectra change `idd-781-fix1`）
 
-第 1 輪 verify（#781 issuecomment-7001377123）判 FAIL：三處擋住合併、27 處要在這個 branch 修。這一輪照它們改，規格 `fulltext-division-of-labour` 多了七條 requirement、記帳那一條補上 `--site` 的來源與結束碼 64，每個 Example 一支帶標記的測試（`Tests/AkashicCLITests/FulltextClickProcedureTests.swift`），都先在 5aa42d02 的 SKILL 上看它們失敗。契約版本維持 11，plugin 殼維持 0.13.17（還沒推上 main，只重算表裡那一列的摘要）。
+第 1 輪 verify（#781 issuecomment-7001377123）判 FAIL：三處擋住合併、27 處要在這個 branch 修。這一輪照它們改，規格 `fulltext-division-of-labour` 多了八條 requirement、記帳那一條補上 `--site` 的來源與結束碼 64，每個 Example 一支帶標記的測試（`Tests/AkashicCLITests/FulltextClickProcedureTests.swift`），都先在 5aa42d02 的 SKILL 上看它們失敗。契約版本維持 11，plugin 殼維持 0.13.17（還沒推上 main，只重算表裡那一列的摘要）。
 
 **三處擋住合併的**：
 

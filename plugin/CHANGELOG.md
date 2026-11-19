@@ -22,6 +22,7 @@
 - `references/publishers.md` 補 2026-11-10 與 2026-11-19 的實測（Ovid／LWW、SAGE 閱讀頁與儲存面板、AME、Wiley epdf、Project Euclid、Oxford Academic、ScienceDirect）。
 - `akashic-bootstrap` 的 `web-access.md`：兩句提到取全文的話跟著改。
 - 第 1 輪 verify 之後（同一個版號，還沒推上 main）：別的主機上的登入頁恢復整批暫停，(b) 只給文章站本身；規則 5 加上 safari-browser 的唯讀命令 `get url`、`get title`、`get text`、`get attr … href`，按了之後以 `get text` 交給 `bot-signals --kind` 檢查起疑；落點表有判斷順序（5 → 3 → 4 → 1 → 8 → 6 → 7 → 9 → 2），剛按的那一個鈕不算「又一個下載元件」，不會按第二次；按了之後落到的人類驗證同樣延後同站各篇；鎖分頁的網址經 `jq -r` 取進變數再用；批次中途停下的封閉清單從四種變六種（帳本讀不懂、定時讀取 Safari 沒有回答）；延到最後的那幾篇一次交一篇。`akashic-bootstrap` 的 `work-sources.md` 取 PDF 那一句跟著改。細節在 `changelog/2026-11-19-fulltext-ai-default-781.md` 最後一節。
+- 第 2 輪 verify 之後（fix2，同一個版號）：`fetch` 之後的讀與按以 `own-tab:` 一行的視窗 id 加記號或完整網址鎖分頁，不再用 `--url "$lock"`，網址只印主機、`documents --json` 一律定時；落點表第 1 種只有證明分頁是 PDF 的 `save-pdf` 失敗才是「取不到」，其他失敗與鎖對不到等一次、仍判不出就整批暫停；按了之後的驗證頁網址有登入長相時整批暫停；新分頁任何主機都以整張表判；第 7 種提供購買是 (d)；批次中途的停止補成八種；規則 1 例外 (d) 與「機構 SSO」改引使用者 2026-11-19 19:31 的裁決。細節在 changelog。
 
 ## #777 — 取全文四件待裁事項的裁決（2026-11-11）：plugin 殼 0.13.15 → 0.13.16，契約版本 9 → 10
 

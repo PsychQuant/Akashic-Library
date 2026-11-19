@@ -43,7 +43,7 @@
 2. **詳細頁**：點結果標題 → `…/search/details/<recordId>?db=psyh…`。有全文權限時，頁面有「前往全功能閱讀檢視」連到 `…/viewer/pdf/<recordId>`。結果列表的「存取選項」按鈕在該例展不開，不要依賴它。
 3. **閱讀器**：導到 `…/viewer/pdf/<recordId>`。PDF 由閱讀器自己的 JS 載入並繪製，頁面上沒有直接的檔案連結。
 
-**然後**：閱讀器自己的下載鈕是這一篇自己的元件，照 SKILL.md〈一層層按〉處理（先記帳、按、看落點；**2026-11-19 起的分工，EBSCO 閱讀器上沒有實測過**——`snapshot -i` 讀不到那個鈕就是「取不到」，由使用者自己存），取得的檔交給 `akashic fulltext take`（與 SKILL.md 第 4 步同一條）。
+**然後**：閱讀器自己的下載鈕是這一篇自己的元件，但這個閱讀器不經 `fetch` 到達，不在 SKILL.md〈一層層按〉封閉的五種入口裡（那五種都是 `fetch` 的結果；沒有 `fetch` 印的位置與主機，就沒有分頁可鎖、沒有 `--site` 可記帳）。所以這一篇列入最後交給使用者的清單、註明不在 (a)–(d) 裡，由使用者自己按閱讀器的下載鈕存檔；要把 EBSCO 閱讀器加成〈一層層按〉的一種入口，需要使用者裁決（#781 verify 第 1 輪第 14 列）。存下的檔交給 `akashic fulltext take`（與 SKILL.md 第 4 步同一條）。
 
 **2026-09-28 的步驟 4–5 不再照做**：當時在閱讀器分頁內頁內 fetch 同源的 `api/researcher-edge-aggregator/v1/records/<id>/fulltext/pdf?…` 取得 JSON 裡的取件網址，再把分頁導到 `content.ebscohost.com/cds/retrieve?content=…`、在那個分頁頁內 fetch `location.href`。前者是頁內以 JS 發請求（最高原則規則 1）；後者**就算改成單純導航**，也是對閱讀器已經載入過的同一份檔再發一次請求（規則 2——ScienceDirect 的第二次 CAPTCHA 就是這個形狀）。所以這一段**沒有只用導航的寫法**：那個取件網址不由 Claude 去取；閱讀器之後只走閱讀器自己的下載鈕。
 
@@ -94,7 +94,7 @@
 
 ## 2026-11-10、2026-11-19 的實測（#780、#781：一層層按與 `save-pdf`）
 
-兩批都在使用者的機構網路、使用者自己的 Safari profile 下。2026-11-10 那一批是使用者在對話裡授權之後由 Claude 按；2026-11-19 那一批同樣。**這兩批按的每一下都沒有記進每站每天的帳本**（當時還沒有 `akashic fulltext attempt`）。環境：safari-browser v2.9.0；2026-11-19 是 macOS 27.3、`akashic fulltext contract` 印 10。
+兩批都在使用者自己的 Safari profile 下。2026-11-19 那一批 SAGE 的兩下是 Claude 按的，**沒有記進每站每天的帳本**（#780 的 2026-11-19 留言：當天的帳本沒有 `journals.sagepub.com` 的紀錄；當時還沒有 `akashic fulltext attempt`）。2026-11-10 那一批是誰按的，#780 正文沒有寫；當時同樣還沒有 `attempt`，所以那幾下也不可能記進帳本——這是推論，issue 沒有回報（#781 verify 第 1 輪第 18 列：先前這一段寫了兩批都在機構網路、2026-11-10 由 Claude 按，issue 都沒有回報）。環境：safari-browser v2.9.0；2026-11-19 是 macOS 27.3、`akashic fulltext contract` 印 10。
 
 | 站 | `fetch` 的結果 | 之後做了什麼、看到什麼 | 觀察 |
 |---|---|---|---|

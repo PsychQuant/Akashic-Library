@@ -12,9 +12,9 @@ import AkashicMCPKit
 struct FulltextCmd: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "fulltext",
-        abstract: "取全文與依全文核對的中間運算：驗證下載檔、起疑訊號、抖動、導航到 PDF 並交給人、收人存的檔、標題規則校準、契約版本、逐頁文字（text）",
+        abstract: "取全文與依全文核對的中間運算：驗證下載檔、起疑訊號、抖動、導航到 PDF 並交接、記一次嘗試（attempt）、收存下來的檔、標題規則校準、契約版本、逐頁文字（text）",
         subcommands: [FulltextVerifyCmd.self, FulltextBotSignalsCmd.self, FulltextJitterCmd.self,
-                      FulltextFetchCmd.self, FulltextTakeCmd.self, FulltextCalibrateCmd.self, FulltextContractCmd.self,
+                      FulltextFetchCmd.self, FulltextAttemptCmd.self, FulltextTakeCmd.self, FulltextCalibrateCmd.self, FulltextContractCmd.self,
                       FulltextTextCmd.self, FulltextCompareCmd.self])
 }
 
@@ -190,6 +190,50 @@ struct FulltextFetchCmd: ParsableCommand {
                                     expectProfile: expectProfile, resumeTab: resumeTab, resumeOrigin: resumeOrigin,
                                     resumeStage: FulltextFetch.ResumeStage(rawValue: resumeStage) ?? .article, resumeMark: resumeMark))
         throw ExitCode(code)
+    }
+}
+
+/// 在每站每日的嘗試帳本上記一次（#781、#780）。skill 以 safari-browser 按頁面上這篇自己的連結之前呼叫：先記到，才按。
+/// 不碰瀏覽器、不連網、不讀不寫 store；與 `fetch` 共用同一本帳（`FulltextAttemptLedger.reserve`）。
+struct FulltextAttemptCmd: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "attempt",
+        abstract: "在每站每日的嘗試帳本上記一次（與 fetch 共用同一本帳）；記到＝0，這個站今天已到上限＝9；不碰瀏覽器、不連網、不寫 store",
+        discussion: """
+        取全文的 skill 在出版商頁面上每按一下之前呼叫一次：結束碼 0 才按。結束碼：0 記到了，stdout 一行 attempt: <站> <n>/10 <日>；\
+        9 這個站今天（Asia/Taipei）已經 10 次嘗試，stdout 一行 cap: <站> <n>/10 <日>，帳本不變——停這個站，不要按；\
+        1 帳本讀不懂或寫不了，帳本不變，不要按；命令列打錯是 64，含 --site 不是乾淨的主機名稱、--landing 不是絕對的 https 網址（都在碰帳本之前擋下）。\
+        --site 是文章頁的主機（doi.org 轉址之後的那一個，也就是 fetch 記帳用的鍵），不是 PDF 所在的主機；大小寫不分。\
+        --ledger 只給測試：換帳本等於重算上限，不要為了繞過每站 10 次而用它。
+        """)
+
+    @Option(name: .long, help: "文章頁的主機（例如 journals.sagepub.com）：不帶 scheme、路徑、帳密、埠號")
+    var site: String
+
+    @Option(name: .long, help: "這一篇的落地頁網址（https://doi.org/<DOI>）；只是記錄，不參與計數，查詢字串與片段不留")
+    var landing: String
+
+    @Option(name: .long, help: "每日嘗試帳本的路徑（只給測試；預設 $HOME/Library/Application Support/akashic/fulltext-attempts.jsonl）")
+    var ledger: String?
+
+    func validate() throws {
+        if let problem = FulltextAttempt.siteProblem(site) {
+            throw ValidationError("--site 必須是乾淨的主機名稱（\(displaySafeInvisible(problem, max: 200))）")
+        }
+        if let problem = FulltextAttempt.landingProblem(landing) {
+            throw ValidationError("--landing 必須是絕對的 https 網址（\(displaySafeInvisible(problem, max: 200))）")
+        }
+    }
+
+    func run() throws {
+        if let ledger, ledger != FulltextAttemptLedger.defaultPath() {
+            FileHandle.standardError.write(Data("⚠ using a ledger other than the default (\(displaySafeInvisible(ledger, max: 300))): --ledger is for tests — a different ledger recounts the per-site daily cap from zero\n".utf8))
+        }
+        let attempt = FulltextAttempt(
+            out: { line in print(line); fflush(stdout) },
+            err: { line in FileHandle.standardError.write(Data((line + "\n").utf8)) })
+        let code = attempt.run(site: site, landing: landing, ledger: ledger ?? FulltextAttemptLedger.defaultPath())
+        if code != 0 { throw ExitCode(code) }
     }
 }
 

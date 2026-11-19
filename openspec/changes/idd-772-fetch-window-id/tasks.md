@@ -17,7 +17,7 @@
 
 ## 3. 文件 [after: 2.2]
 
-- [ ] 3.1 SKILL：第 0 步要求 12；safari-browser 2.9.0；第 3 步鎖分頁的段落；〈人機分工〉批次中途停下改成五種；結束碼 1 那一列；#735 的處置
+- [ ] 3.1 SKILL：第 0 步要求 12；safari-browser 2.9.0；第 3 步鎖分頁的段落；〈人機分工〉批次中途停下拿掉別的 profile、加上 safari-browser 太舊；結束碼 1 那一列；#735 的處置
 - [ ] 3.2 `akashic-bootstrap/references/web-access.md` 與 `.claude/rules/web-access-via-safari-browser.md` 形狀 (b) 的段落
 - [ ] 3.3 `plugin/CHANGELOG.md`、`changelog/2026-11-19-fetch-window-id-772.md`、`.githooks/plugin-shell-versions.txt` 0.13.17 那一列的摘要
 

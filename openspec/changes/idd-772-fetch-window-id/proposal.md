@@ -12,7 +12,7 @@ safari-browser v2.9.0（2026-11-06）出了 `--window-id`：以視窗的穩定 i
 - safari-browser 的最低版本 2.7.0 → 2.9.0：`documents --json` 的列沒有頂層的 `window_id`（v2.9.0 與 `--window-id` 同一個 commit 加的）就在開任何分頁之前停。檢查的是能力，不是版本字串（safari-browser 的開發建置印 `unknown`）。
 - `fetch` 在認出自己的分頁時印一行 `own-tab: window-id <W> tab <T>[ mark <記號>]`，讓 skill 之後的讀與按鎖同一個視窗、同一個分頁（#781 第 2 輪 verify 第 3 列要用；沒有使用者裁決涵蓋這一行，是實作時定的）。
 - 契約版本 11 → 12（新的 stdout 一行、少了一種結束碼 1、`--expect-profile` 改成選填），SKILL 第 0 步一起調。
-- SKILL、`akashic-bootstrap/references/web-access.md`、`.claude/rules/web-access-via-safari-browser.md` 形狀 (b) 的鎖分頁段落改寫；SKILL〈人機分工〉批次中途停下的封閉清單從六種變五種。
+- SKILL、`akashic-bootstrap/references/web-access.md`、`.claude/rules/web-access-via-safari-browser.md` 形狀 (b) 的鎖分頁段落改寫；SKILL〈人機分工〉批次中途停下的封閉清單拿掉別的 profile 的視窗、加上 safari-browser 太舊（仍是六種）。
 
 ## Non-Goals
 
@@ -29,11 +29,12 @@ safari-browser v2.9.0（2026-11-06）出了 `--window-id`：以視窗的穩定 i
 
 ### Modified Capabilities
 
-- `fulltext-division-of-labour`: 批次中途停下的封閉清單少了「別的 profile 的視窗開著」，從六種變五種
+- `fulltext-division-of-labour`: 批次中途停下的封閉清單少了「別的 profile 的視窗開著」、加上「safari-browser 太舊」，仍是六種
+- `fulltext-gate-look`: 契約版本 11 → 12（REMOVED 11、ADDED 12，與 #781 調 10 → 11 時同一個寫法）
 
 ## Impact
 
-- Affected specs: fulltext-window-lock（新）、fulltext-division-of-labour
+- Affected specs: fulltext-window-lock（新）、fulltext-division-of-labour、fulltext-gate-look
 - Affected code:
-  - Modified: Sources/AkashicSkillTools/FulltextFetch.swift, Sources/akashic/FulltextCommands.swift, plugin/skills/akashic-fetch-fulltext/SKILL.md, plugin/skills/akashic-bootstrap/references/web-access.md, .claude/rules/web-access-via-safari-browser.md, Tests/AkashicKitTests/FulltextFetchPathTests.swift, Tests/AkashicKitTests/FulltextMarkLockTests.swift, Tests/AkashicKitTests/FulltextOwnTabTests.swift, Tests/AkashicKitTests/FulltextB37Tests.swift, Tests/AkashicKitTests/FulltextB39Tests.swift, Tests/AkashicKitTests/FulltextB41Tests.swift, Tests/AkashicCLITests/SkillToolsCLITests.swift, Tests/AkashicCLITests/FulltextAttemptCLITests.swift, Tests/AkashicCLITests/FulltextClickProcedureTests.swift, plugin/CHANGELOG.md, .githooks/plugin-shell-versions.txt
+  - Modified: Sources/AkashicSkillTools/FulltextFetch.swift, Sources/akashic/FulltextCommands.swift, plugin/skills/akashic-fetch-fulltext/SKILL.md, plugin/skills/akashic-bootstrap/references/web-access.md, .claude/rules/web-access-via-safari-browser.md, Tests/AkashicKitTests/FulltextFetchPathTests.swift, Tests/AkashicKitTests/FulltextMarkLockTests.swift, Tests/AkashicKitTests/FulltextOwnTabTests.swift, Tests/AkashicKitTests/FulltextB37Tests.swift, Tests/AkashicKitTests/FulltextB39Tests.swift, Tests/AkashicKitTests/FulltextB41Tests.swift, Tests/AkashicCLITests/SkillToolsCLITests.swift, Tests/AkashicCLITests/FulltextAttemptCLITests.swift, Tests/AkashicCLITests/FulltextClickProcedureTests.swift, Tests/AkashicKitTests/FulltextLoginLookRulingsTests.swift, plugin/CHANGELOG.md, .githooks/plugin-shell-versions.txt
   - New: Tests/AkashicKitTests/FulltextWindowLockTests.swift, changelog/2026-11-19-fetch-window-id-772.md

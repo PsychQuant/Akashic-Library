@@ -1,5 +1,14 @@
 # Changelog
 
+## #772 — `fetch` 鎖在開頭選定的視窗，別的 profile 的視窗開著不再停（2026-11-19）：plugin 殼維持 0.13.17（同一條分支、還沒推上 main），契約版本 11 → 12
+
+使用者 2026-11-19 09:24、09:25 的決定；細節在 `changelog/2026-11-19-fetch-window-id-772.md`。**需要新的 `akashic` CLI 與 safari-browser 2.9.0 以上**：SKILL 第 0 步要求契約版本 12。
+
+- `fetch` 開頭以 `--window N` 選定視窗，之後新分頁與記號不在時的位置鎖都以那個視窗的穩定 id 指定（`--window-id`）。別的 profile 的視窗開著不再停；`--expect-profile` 改成選填，只在開頭比一次。
+- safari-browser 太舊（`documents --json` 沒有頂層 `window_id`）時，`fetch` 在開任何分頁之前停。
+- `fetch` 認出自己的分頁時印 `own-tab: window-id <W> tab <T> mark <記號>`。
+- 〈人機分工〉批次中途停下的封閉清單拿掉別的 profile 的視窗、加上 safari-browser 太舊（仍是六種）。#735 的視窗那一半由 `--window-id` 拿掉，同一個視窗裡分頁移位的那一半仍在。沒有在真的 Safari 上跑過。
+
 ## #781／#780 — 取全文預設由 Claude 做，交給人只有封閉清單（2026-11-19）：plugin 殼 0.13.16 → 0.13.17，契約版本 10 → 11
 
 使用者 2026-11-10 的裁決與 2026-11-19 的確認；細節在 `changelog/2026-11-19-fulltext-ai-default-781.md`。**需要新的 `akashic` CLI**：SKILL 第 0 步要求契約版本 11（版本 11 的 CLI 才有 `akashic fulltext attempt`）。開場檢查（`hooks/check-cli.sh`）從同一行讀這個門檻，CLI 印的契約比 11 小時會在 session 開始時說出來並附重建指令。

@@ -30,8 +30,8 @@ Crossref、ORCID、DOI 解析、出版商頁面）一直是 skill 層的事；�
   再用 `"${LOCK[@]}"`（陣列：zsh 不對未加引號的變數分詞）。fragment 不送伺服器，只讓這把鎖
   對得到唯一的分頁。**不要**用 `--url <子字串>`：它取第一個符合的分頁、而且跨所有 profile，
   別人的 session 開著同一站就會被選中（#617 verify）。**也不要**用 `--window N --tab-in-window T`：
-  視窗編號依前後順序排，使用者一切換就漂移（#617 落地時實際發生；`fetch-fulltext.sh` 仍是這個鎖法，
-  是 grandfathered 的例外，見〈例外〉）。**`documents` 一律帶 `--profile`**：不帶會把所有 profile
+  視窗編號依前後順序排，使用者一切換就漂移（#617 落地時實際發生）。`akashic fulltext fetch`（原 `fetch-fulltext.sh`）記號不在時的
+  位置鎖是 grandfathered 的例外（見〈例外〉），#772 起是 `--window-id W --tab-in-window T`（穩定的視窗 id，不是前後順序）。**`documents` 一律帶 `--profile`**：不帶會把所有 profile
   （含別人的 session）的分頁網址與標題整份倒進對話。
 - **為什麼從 `--url-exact` 改成 `--url-endswith`，查證了什麼，沒實測什麼**（CLAUDE.md〈Rules〉的執行語意第 2 條：
   覺得規則錯了就顯式改、寫下為什麼、附上查證；#634 的驗證第 16 列指出）：
@@ -226,14 +226,14 @@ grep -rlE -- '--tab-in-window' plugin/skills plugins/*/skills Sources | grep -vE
 2026-09-29（#629 第二塊移植後）命中 4 個檔，其中 2 個不算（`web-access.md` 與 `akashic-work-references/SKILL.md` 提到它是在說「不要用」）；剩下的：
 
 - `Sources/AkashicSkillTools/FulltextFetch.swift`（`akashic fulltext fetch`，原 `fetch-fulltext.sh`），以及 `plugin/skills/akashic-fetch-fulltext/SKILL.md` 的第 3 步
-  （描述那條命令）：（歷史：#613、#629 時鎖法是 `--window N --tab-in-window T`；#768 起改成記號加 `--profile`，見本段末。）
+  （描述那條命令）：（歷史：#613、#629 時鎖法是 `--window N --tab-in-window T`；#768 起改成記號加 `--profile`；#772 起記號不在時的位置鎖以視窗 id 指定視窗，見本段末。）
   理由：`publishers.md` 記著——使用者已開著同一頁時，URL 鎖會比對到兩個分頁、safari-browser fail-closed。**便宜的解**（沒實測）：
   對 `--landing` 加一次性 fragment，同一頁已開的問題自然消失（#634 驗證第 41 列）。**但 `--landing` 的形狀檢查（`landingShapeProblem`）
   自 #629 R2 起拒絕 `#`**：照這個解做，得先讓形狀檢查放行結尾的那一段 fragment，或由工具在檢查之後自己加上（#629 R3 verify 第 2、42 則）。這個 skill 因此**同時有兩個鎖法**：第 2 步（頁內
   OpenAlex 查詢）用 web-access.md 的鎖，第 3 步（`fetch`）用命令自己的記號鎖（#768 之前是視窗編號）；SKILL.md 第 3 步明寫兩者不混用。**移植後這條鎖法有一個
   比以前好的地方**：`SafariBrowser` 介面讓「這支程式對瀏覽器說了什麼」可以在測試裡逐條斷言（`FulltextFetchPathTests`），改鎖法時測試會告訴你哪些
   引數向量變了——以前只有一個 Python stub 的結束碼。**要改時**：`FulltextFetch.swift` 的引數向量建構點（`open`／`js`／`wait` 的 `--window`
-  `--tab-in-window`）改成 `--profile`＋`--url-endswith`，`stillOurTab` 與「以位置認分頁」的邏輯只剩記號不在時的後備。**#768（2026-11-04）已部分採用 fragment**：使用者選定 `fetch` 的分頁以一次性記號（`#akashic-<16 hex>`）認、記號還在時以 `--profile`＋`--url-endswith` 鎖分頁（一定帶 `--profile`：只帶 `--url-endswith` 的 `open` 會在前景視窗開新分頁、不導航那個分頁，safari-browser#233，#768 第三輪 verify），接受頁面腳本看得到它的代價；Elsevier 在授權轉址時丟掉記號，所以位置追蹤仍是後備。`--window`／`--tab-in-window` 只用在記號不在時。
+  `--tab-in-window`）改成 `--profile`＋`--url-endswith`，`stillOurTab` 與「以位置認分頁」的邏輯只剩記號不在時的後備。**#768（2026-11-04）已部分採用 fragment**：使用者選定 `fetch` 的分頁以一次性記號（`#akashic-<16 hex>`）認、記號還在時以 `--profile`＋`--url-endswith` 鎖分頁（一定帶 `--profile`：只帶 `--url-endswith` 的 `open` 會在前景視窗開新分頁、不導航那個分頁，safari-browser#233，#768 第三輪 verify），接受頁面腳本看得到它的代價；Elsevier 在授權轉址時丟掉記號，所以位置追蹤仍是後備，只用在記號不在時。**#772（2026-11-19）起位置鎖是 `--window-id W --tab-in-window T`**：W 是 `fetch` 開頭以 `--window N` 選定的視窗的穩定 id（safari-browser v2.9.0 的 `--window-id`，id 不存在時失敗、不退回前景視窗），新分頁也以 `open --new-tab --window-id W` 開。視窗被拉到前面不再讓命令打到別的視窗（#735 的視窗那一半）；同一個視窗裡左邊開關分頁時 `--tab-in-window T` 仍會指到別的分頁，所以每一步之前照舊以 `documents --json` 核對。別的 profile 的視窗開著不再讓 `fetch` 停（使用者 2026-11-19 09:24、09:25：只要鎖定固定的視窗；profile 只用來選視窗）。
 
 歷史：2026-09-25 同一個量法（沒有最後一段）命中 13 個檔，其中 2 個不算，其餘 11 個。#634 於 2026-09-29
 遷移了其中 8 個：`akashic-bootstrap` 的 `person-sources.md`、`work-sources.md`，`akashic-disambiguate` 的

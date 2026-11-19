@@ -38,7 +38,58 @@ final class FulltextDivisionOfLabourTests: XCTestCase {
     }
 
     // spec-example: fulltext-division-of-labour / Click procedure calls the attempt command
+    /// 只看〈一層層按〉第 2 步那一行（#781 verify 第 1 輪第 25 列：先前搜整份 SKILL，〈每站每天 10 次嘗試〉那一句就讓它通過，
+    /// 刪掉點擊程序的記帳那一步也不會紅）。
     func testTheClickProcedureCallsTheAttemptCommand() throws {
-        XCTAssertTrue(try skill().contains("akashic fulltext attempt --site"), "點擊程序沒有叫記帳命令")
+        let step = try XCTUnwrap(SkillText.line(in: SkillText.section(try skill(), "#### 一層層按"), startingWith: "2. **記帳**"),
+                                 "〈一層層按〉沒有第 2 步")
+        XCTAssertTrue(step.contains("akashic fulltext attempt --site"), "點擊程序沒有叫記帳命令：\(step)")
+        XCTAssertTrue(step.contains("64"), "第 2 步沒有寫結束碼 64：\(step)")
+    }
+
+    // spec-example: fulltext-division-of-labour / The site key falls back to the page line
+    func testTheSiteKeyFallsBackToThePageLine() throws {
+        let section = SkillText.section(try skill(), "## 每站每天 10 次嘗試")
+        for marker in ["page:", "64"] {
+            XCTAssertTrue(section.contains(marker), "〈每站每天 10 次嘗試〉缺 \(marker)")
+        }
+    }
+}
+
+/// 從 SKILL 取一節、一行。只給 SKILL 文字的測試用：節以標題的 `#` 個數為界（同級或更高一級的下一個標題為止），
+/// 程式碼區塊（``` 之間）裡以 `#` 開頭的行不算標題。
+enum SkillText {
+    static func section(_ text: String, _ heading: String) -> String {
+        let level = heading.prefix { $0 == "#" }.count
+        var lines: [Substring] = []
+        var inside = false
+        var fenced = false
+        for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            if line.hasPrefix("```") { fenced.toggle() }
+            if !fenced, line.hasPrefix("#") {
+                let hashes = line.prefix { $0 == "#" }.count
+                let isHeading = line.dropFirst(hashes).hasPrefix(" ")
+                if inside, isHeading, hashes <= level { break }
+                if !inside, isHeading, line.hasPrefix(heading) { inside = true; continue }
+            }
+            if inside { lines.append(line) }
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    /// 去掉行首空白之後以 `prefix` 開頭的第一行。
+    static func line(in text: String, startingWith prefix: String) -> String? {
+        text.split(separator: "\n").map { String($0.drop { $0 == " " }) }.first { $0.hasPrefix(prefix) }
+    }
+
+    /// 含 `needle` 的第一行。
+    static func line(in text: String, containing needle: String) -> String? {
+        text.split(separator: "\n").map(String.init).first { $0.contains(needle) }
+    }
+
+    /// 以 `prefix` 開頭、到下一個空行為止的那一段。
+    static func paragraph(in text: String, startingWith prefix: String) -> String? {
+        let paragraphs = text.components(separatedBy: "\n\n")
+        return paragraphs.first { $0.hasPrefix(prefix) }
     }
 }

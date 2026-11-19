@@ -167,12 +167,12 @@ final class FulltextLoginLookRulingsTests: XCTestCase {
 
     // MARK: 契約版本
 
-    // spec-example: fulltext-gate-look / Skill and CLI agree on contract 10
-    func testTheContractVersionIsTen() throws {
-        XCTAssertEqual(FulltextFetch.contractVersion, 10)
+    // spec-example: fulltext-gate-look / Skill and CLI agree on contract 11
+    func testTheContractVersionIsEleven() throws {
+        XCTAssertEqual(FulltextFetch.contractVersion, 11)
         let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let skill = try String(contentsOf: repo.appendingPathComponent("plugin/skills/akashic-fetch-fulltext/SKILL.md"), encoding: .utf8)
-        XCTAssertTrue(skill.contains("[ \"${v#fulltext-contract }\" -ge 10 ]"), "SKILL 第 0 步要求 10")
+        XCTAssertTrue(skill.contains("[ \"${v#fulltext-contract }\" -ge 11 ]"), "SKILL 第 0 步要求 11")
     }
 
     /// SKILL〈中止條款〉的只給路徑用的登入段就是程式的那一份（對帳；同 `FulltextB37Tests.testTheSkillsCompoundListsAreTheCodesLists`）。

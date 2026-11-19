@@ -114,7 +114,8 @@ struct FulltextJitterCmd: ParsableCommand {
 }
 
 /// 在使用者自己的 Safari 裡從 DOI 走到頁面自己的 PDF 連結，交給人（#613）。**不取位元組、不寫任何輸出檔**；結束碼是它對 agent 的契約
-/// （見 `FulltextFetch`）。分頁以網址上的一次性記號認、以 `--profile`＋`--url-endswith` 鎖；記號不在時以視窗 id 與位置追蹤（#768）。
+/// （見 `FulltextFetch`）。分頁以網址上的一次性記號認、以 `--profile`＋`--url-endswith` 鎖；記號不在時以視窗 id 與位置追蹤（#768），
+/// 位置鎖與新分頁都以 `--window-id` 指定開頭選定的視窗（#772）。
 struct FulltextFetchCmd: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "fetch",
@@ -126,6 +127,8 @@ struct FulltextFetchCmd: ParsableCommand {
         --resume-tab／--resume-origin（導航之後的驗證另有 --resume-stage followed；有印 --resume-mark 一起帶；--window 換成那一行的值）在同一個分頁接著走）；\
         9 這個站今天（Asia/Taipei）已經 10 次嘗試，停這個站；6 整批暫停：其他起疑訊號（含其他主機上的驗證字樣、HTTP 403／429、登入頁、登入頁長相的 DOI 落地頁、文章站上網址有登入頁長相而命中 CAPTCHA 等訊號的頁面、讀不到而停在登入主機上的分頁、停在 doi.org 卻沒有查無證據、頁面約 60 秒沒載完），\
         分頁留著給使用者看；3 頁面上找不到 PDF 連結；1 自動化失敗（看 stderr）。沒有結束碼 0。命令列本身打錯是 64。\
+        --window 在開頭選一個視窗，之後每一個以位置認分頁的命令都以那個視窗的 id 指定（--window-id，要 safari-browser 2.9.0 以上）；\
+        認出分頁時 stdout 印 `own-tab: window-id <W> tab <T> [mark <記號>]`。別的 profile 的視窗開著不停。\
         每次準備導航到 PDF 就在帳本（預設 $HOME/Library/Application Support/akashic/fulltext-attempts.jsonl，在 store 之外）記一次；\
         查數與記錄是一步（跨行程的鎖）。--ledger 只給測試：換帳本等於重算上限，不要為了繞過每站 10 次而用它。
         """)
@@ -136,8 +139,8 @@ struct FulltextFetchCmd: ParsableCommand {
     @Option(name: .long, help: "落地頁網址（一律是 https://doi.org/<DOI>，見 SKILL.md 第 2 步）")
     var landing: String
 
-    @Option(name: .customLong("expect-profile"), help: "這個視窗必須屬於的 Safari profile（使用者自己的；必填）；不符就在開任何分頁之前拒絕")
-    var expectProfile: String
+    @Option(name: .customLong("expect-profile"), help: "選填：這個視窗必須屬於的 Safari profile；給了就在開任何分頁之前比對一次，不符或讀不出就拒絕（之後每一步不再比，#772）")
+    var expectProfile: String?
 
     @Option(name: .long, help: "每日嘗試帳本的路徑（只給測試；預設 $HOME/Library/Application Support/akashic/fulltext-attempts.jsonl）")
     var ledger: String?
@@ -160,7 +163,7 @@ struct FulltextFetchCmd: ParsableCommand {
     func validate() throws {
         guard window >= 1 else { throw ValidationError("--window 必須是 1 以上的整數") }
         // 視窗屬於誰是唯一防止「動到別人的 Safari session」的檢查：文件一直寫「一律帶」，程式現在也強制（R1 verify 第 31 則）
-        guard !expectProfile.isEmpty else { throw ValidationError("--expect-profile 不可為空：它是唯一防止動到別人的 Safari session 的檢查") }
+        if let p = expectProfile, p.isEmpty { throw ValidationError("--expect-profile 給了就不可為空（不帶這個旗標才是不比對 profile）") }
         guard (resumeTab == nil) == (resumeOrigin == nil) else { throw ValidationError("--resume-tab 與 --resume-origin 要一起給") }
         if let t = resumeTab, t < 1 { throw ValidationError("--resume-tab 必須是 1 以上的整數") }
         guard FulltextFetch.ResumeStage(rawValue: resumeStage) != nil else { throw ValidationError("--resume-stage 只能是 article 或 followed") }

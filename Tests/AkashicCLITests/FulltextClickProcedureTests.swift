@@ -140,10 +140,10 @@ final class FulltextClickProcedureTests: XCTestCase {
 
     // MARK: 批次中途的停止與詢問
 
-    // spec-example: fulltext-division-of-labour / Five mid-run stops
-    func testFiveMidRunStops() throws {
+    // spec-example: fulltext-division-of-labour / Six mid-run stops without the other-profile stop
+    func testSixMidRunStopsWithoutTheOtherProfileStop() throws {
         let part = try section("## 人機分工")
-        assertContains(part, ["只有這五種", "不得依性質相似類推第六種", "帳本讀不懂", "定時讀取"], "〈人機分工〉")
+        assertContains(part, ["只有這六種", "不得依性質相似類推第七種", "帳本讀不懂", "定時讀取", "2.9.0 or later is needed"], "〈人機分工〉")
         XCTAssertFalse(part.contains("a Safari window of another profile"), "別的 profile 的視窗不再是停下的理由（#772）")
     }
 

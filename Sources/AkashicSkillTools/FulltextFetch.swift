@@ -47,8 +47,8 @@ import AkashicStoreIO
 ///     1 自動化失敗（見 stderr）；或頁面給的 PDF 連結不是同站的絕對 https 網址（`points off-site`）；或帳本讀不懂；或對不上我們的分頁
 ///       （`cannot find the tab just opened`、`went to another Safari window`、`the tabs in window <N> changed…`，#768：使用者正在動那個視窗）；
 ///       或判過之後頁面換了（`the page changed after it was checked`：PDF 連結不是從判過的那一頁讀來的，不導航）；
-///       或有別的 profile 的視窗（或讀不出 profile 的視窗）開著（`a Safari window of another profile`；開頭、接續與 `ownTabNow` 的每一眼都判，
-///       每一眼只看開頭沒有的視窗；safari-browser#352 以視窗 id 指定視窗之前不放寬）
+///       或 safari-browser 太舊、`documents --json` 的列沒有頂層的 `window_id`（v2.9.0 與 `--window-id` 一起加的；開任何分頁之前就停）。
+///       別的 profile 的視窗開著**不**停（#772，使用者 2026-11-19：「在別的是窗沒差，只要鎖定好固定視窗就好」；先前開頭、接續與每一眼都停）
 ///
 /// **沒有結束碼 0**：這個命令的正常終點就是交給人。先前的 0（「取得並驗證」）、2（回應不是 PDF）、4（無權限的登入殼）、5（驗證不過）
 /// 都跟著取位元組一起離開這個命令——2 與 5 在 `take`，4 由看分頁的人判斷。舊的呼叫端把 0 當成「檔案存好了」，新的碼不會被它讀錯。
@@ -58,10 +58,12 @@ import AkashicStoreIO
 /// 分頁以落地網址上的一次性記號（`#akashic-` 加 16 個十六進位數字）認。記號在時以 `--profile <P> --url-endswith '#akashic-…'` 鎖——
 /// `web-access-via-safari-browser.md` 的形狀，記號就是那個 suffix；**一定帶 `--profile`**：safari-browser 的 `open` 不把 `--url-endswith`
 /// 當成指定了分頁，只帶它會在前景視窗開新分頁（safari-browser#233，第三輪 verify）。記號不在時（Elsevier 的轉址丟掉它、頁面用腳本轉走）
-/// 退回 `--window N` 加位置（`--tab-in-window`，`ownTabNow` 剛確認過），規則檔〈例外〉形狀 (b)。`--resume-tab` 帶了 `--resume-mark` 時先以
+/// 退回 `--window-id W` 加位置（`--tab-in-window`，`ownTabNow` 剛確認過），規則檔〈例外〉形狀 (b)。`W` 是開頭以 `--window N` 選定的那個視窗的
+/// 穩定 id（#772，safari-browser v2.9.0 的 `--window-id`）：視窗被拉到前面、前後順序變了也是同一個視窗；新分頁也以它開
+/// （`open --new-tab --window-id W`，不把 Safari 拉到前面）。profile 只用來選視窗：`--expect-profile` 給了才在開頭比一次（使用者 2026-11-19 09:25）。`--resume-tab` 帶了 `--resume-mark` 時先以
 /// 記號找分頁，找不到才照位置；另外要求那個分頁此刻顯示：導航之前的接續（`article`）是 `--resume-origin`；
 /// 導航之後的接續（`followed`）是 `--resume-origin`、已知的驗證服務、或 PDF（只讀 `document.contentType` 判斷，不讀頁面文字）——
-/// 使用者驗證時把視窗拉到前面，視窗編號會變；對不上就停（結束碼 1），不猜是哪一個分頁。**`--resume-origin` 是呼叫端給的**：接續時
+/// 使用者驗證時把視窗拉到前面，視窗編號會變（接續的 `--window` 要換成那一刻的編號）；對不上就停（結束碼 1），不猜是哪一個分頁。**`--resume-origin` 是呼叫端給的**：接續時
 /// 「文章站」就是它，主機的判斷信任這個參數。
 ///
 /// **仍沒有的**：真的 Safari 只跑過兩次（2026-11-04：SAGE 找不到連結、Elsevier 接續之後導航到 PDF），記號還在時的導航沒有實跑；Safari 的
@@ -98,8 +100,11 @@ public final class FulltextFetch {
     /// 11＝#781／#780（2026-11-19）：新增 `fulltext attempt`（skill 在出版商頁面上每按一下之前記一次，與 `fetch` 共用同一本帳）。`fetch` 與 `take`
     /// 的結束碼、交接的原因、哪些頁面整批暫停都與版本 10 相同；調它是因為 SKILL 改成預設由 Claude 按這篇自己的連結，而每一下都要先記帳——
     /// 沒有這個子命令的 CLI（印 10 以下的）配上新的 SKILL，點擊就不會算進每站每天 10 次，所以第 0 步要擋下它們。
+    /// 12＝#772（2026-11-19）：每一個以位置認分頁的動作與新分頁都帶 `--window-id`（開頭選定的視窗的穩定 id），別的 profile 的視窗開著不再停（少了
+    /// 一種結束碼 1）、`--expect-profile` 改成選填、`documents --json` 的列沒有頂層 `window_id`（safari-browser 2.9.0 以前）就停、認出分頁時印
+    /// `own-tab:` 一行（skill 之後的讀與按以它鎖同一個視窗與分頁）。skill 要用新的一行，舊的 CLI 又會在別的 profile 的視窗開著時停，所以要調。
     /// 前三版的 CLI 沒有 `contract` 子命令——數字只是給歷史一個名字，第 0 步擋它們靠的是「沒有這個子命令」。
-    public static let contractVersion = 11
+    public static let contractVersion = 12
 
     public struct Options {
         public var window: Int
@@ -177,7 +182,8 @@ public final class FulltextFetch {
     private var ownTab = ""
     /// 這個視窗所有分頁的網址（依位置）：最後一次確認 `ownTab` 還是我們的分頁時看到的。下一眼拿來比（`ownTabNow`，#768）。
     private var lastTabs: [String] = []
-    /// 我們的視窗（`documents --json` 的 `blocking_dialog.window_id`）。`--window` 的編號是前後順序，這個才是穩定的；每一眼都以它找回視窗的編號（#768）。
+    /// 我們的視窗（`documents --json` 的 `window_id`）。`--window` 的編號是前後順序，這個才是穩定的；每一眼都以它找回視窗的編號（#768），
+    /// 每一個以位置認分頁的命令都以它指定視窗（`--window-id`，#772）。
     private var ownWindowID: Int?
     /// 這次執行的記號（`akashic-` 加 16 個十六進位數字），開分頁時加在落地網址後、導航到 PDF 連結時也帶著（#768，使用者 2026-11-04 選定）。
     /// fragment 不送伺服器，HTTP 轉址會保留它，所以網址結尾是它的分頁就是我們的分頁（例外：記號不見之後以位置鎖導航回來的，要在我們的位置上才算，見 `ownTabNow`）。2026-11-04 在 Safari 量到：SAGE、Wiley、Springer、APA、
@@ -341,6 +347,8 @@ public final class FulltextFetch {
         var title: String
         var profile: String?
         var windowID: Int?
+        /// 這一列有頂層的 `window_id` 鍵（值可以是 null）：safari-browser v2.9.0 起才有，與 `--window-id` 同一個 commit（safari-browser#352）。
+        var reportsWindowIDKey: Bool
     }
 
     /// 讀不到清單就停，不回空的：空的清單會被讀成「分頁不見了」，而「不知道」不是「可以繼續」（#768）。
@@ -354,7 +362,8 @@ public final class FulltextFetch {
             guard let w = FulltextFetch.int(d["window"]), let t = FulltextFetch.int(d["tab_in_window"]) else { return nil }
             return Tab(window: w, tabInWindow: t, url: (d["url"] as? String) ?? "", title: (d["title"] as? String) ?? "",
                        profile: d["profile"] as? String,
-                       windowID: (d["blocking_dialog"] as? [String: Any]).flatMap { FulltextFetch.int($0["window_id"]) })
+                       windowID: FulltextFetch.int(d["window_id"]) ?? (d["blocking_dialog"] as? [String: Any]).flatMap { FulltextFetch.int($0["window_id"]) },
+                       reportsWindowIDKey: d.keys.contains("window_id"))
         }
         // safari-browser 把分頁標題不跳脫地接進以控制字元分隔的列舉（safari-browser#355），所以頁面可以用 `document.title` 寫出一列假的分頁，
         // 帶上它讀得到的記號：`ownTabNow` 認記號，導航就打到別的分頁（第八輪 verify 第 1 則）。假列刪不掉別的分頁的列，指向存在的分頁時通常
@@ -399,11 +408,7 @@ public final class FulltextFetch {
     private func ownTabNow() throws -> Tab? {
         guard let position = Int(ownTab) else { return nil }
         let all = try docs()
-        // 執行當中才開的別的 profile 的視窗：位置鎖可能打到它，停（第六輪 verify 第 8 則）。只看開頭沒有的視窗：開頭就在的視窗檢查過，它的 profile
-        // 不會變，讀不出來只是載入中標題空白（第七輪 verify 第 4 則）
-        if otherProfileWindowOpen(in: all.filter { $0.windowID.map { !windowsAtStart.contains($0) } ?? true }) {
-            throw fail("a Safari window of another profile (or one whose profile cannot be read) was opened while this ran; a position-locked command could reach it, so nothing more was read or navigated. Ask the user: those windows have to be closed first, and only the user decides that.")
-        }
+        // 別的 profile 的視窗不看（#772）：位置鎖帶 `--window-id`，到不了別的視窗
         let mine = all.filter { $0.windowID == ownWindowID }.sorted { $0.tabInWindow < $1.tabInWindow }
         let marked = all.filter { $0.url.hasSuffix(markSuffix) }
         if !marked.isEmpty {
@@ -458,29 +463,15 @@ public final class FulltextFetch {
     /// 記號鎖一定帶 `--profile`：safari-browser 的 `open` 不把 `--url-endswith` 當成指定了分頁，只帶它會在前景視窗開新分頁（safari-browser#233，
     /// #768 第三輪 verify；使用者 2026-11-04 選定）。`--profile` 讓 `open` 解析記號、導航那個分頁。視窗的 profile 不只一個時改用位置鎖。
     ///
-    /// 位置鎖是全域的 `--window N`（視窗的前後順序）。確認與命令之間使用者點了自己的另一個視窗，那一次會打到那個視窗；別的 profile 的視窗
-    /// 開頭開著就不開始、執行當中才開的下一眼就停，但一眼與命令之間才開、又搶到同一個編號的視窗，那一次打得到。第五版曾改成「profile 內的第 k 個視窗」，第五輪 verify 指出那個 k 與
-    /// safari-browser 自己的算法會對不上（沒有分頁的視窗、載入中標題空白時讀不出 profile），使用者 2026-11-04 選定改回並改做 safari-browser#352
-    /// （以視窗 id 指定視窗）。
+    /// 位置鎖以視窗 id 指定視窗（`--window-id W`，#772；safari-browser#352，v2.9.0）：id 在視窗開著時不變，視窗被拉到前面也是同一個；id 不存在
+    /// 時 safari-browser 失敗、不退回前景視窗。先前是全域的 `--window N`（前後順序），確認與命令之間使用者點了自己的另一個視窗，那一次會打到
+    /// 那個視窗（#735）。**仍然擋不住的**：確認與命令之間，同一個視窗裡左邊開關分頁時 `--tab-in-window T` 指到別的分頁（見 `ownTabNow`）。
     private var lock: [String] {
         if markSeen, let p = ownProfile { return ["--profile", p, "--url-endswith", markSuffix] }
-        return ["--window", String(window), "--tab-in-window", ownTab]
+        return ["--window-id", ownWindowID.map(String.init) ?? "", "--tab-in-window", ownTab]
     }
     /// 我們的視窗所屬的 profile（開頭讀到恰好一個時）。
     private var ownProfile: String?
-    /// 我們的視窗的分頁回報的 profile（開頭讀到的全部；通常只有一個）。
-    private var ownProfiles: Set<String> = []
-    /// 開頭檢查過的視窗（id）。每一眼的檢查只看這份清單以外的視窗。
-    private var windowsAtStart: Set<Int> = []
-
-    /// 清單裡有沒有不屬於我們視窗、而 profile 是別的或讀不出來的分頁。
-    private func otherProfileWindowOpen(in all: [Tab]) -> Bool {
-        all.contains { t in
-            guard t.windowID != ownWindowID else { return false }
-            let q = t.profile ?? ""
-            return q.isEmpty || !ownProfiles.contains(q)
-        }
-    }
     /// 上一個鎖分頁的命令實際用的鎖（失敗訊息印它，不是重算一次；第四輪 verify 第 21 則）。
     private var usedLock: [String] = []
     private var lockText: String { (usedLock.isEmpty ? lock : usedLock).joined(separator: " ") }
@@ -518,9 +509,10 @@ public final class FulltextFetch {
     /// 站名也取自那個分頁，頁面文字被讀，找不到連結時連分頁都關了；第二版比對開之前與之後的分頁清單，最後一個分頁同時換頁時會認錯。
     /// 記號在新分頁剛出現時一定還在（六家出版商都量到；Elsevier 約 2 秒後才丟掉），所以只看開完之後的頭幾眼。
     private func openOwnTab(_ url: String) throws {
-        let r = browser.run(["open", "--new-tab", "--window", String(window), url + markSuffix])
+        let windowID = ownWindowID.map(String.init) ?? ""
+        let r = browser.run(["open", "--new-tab", "--window-id", windowID, url + markSuffix])
         if r.status != 0 {
-            let f = FulltextFetch.safariFailure(r.stderr, command: "open --new-tab --window \(window) <the landing URL>")
+            let f = FulltextFetch.safariFailure(r.stderr, command: "open --new-tab --window-id \(windowID) <the landing URL>")
             throw fail("open: \(f.line)", note: f.note)
         }
         openedUnidentified = true
@@ -534,7 +526,7 @@ public final class FulltextFetch {
             }
             guard t.windowID == ownWindowID else {
                 openedUnidentified = false
-                throw fail("the tab just opened went to another Safari window (window \(t.window)), not window \(window) (safari-browser#351). Nothing was read. Ask the user to close that tab (its address ends with \(markSuffix)); keeping a single Safari window open avoids this.")
+                throw fail("the tab just opened went to another Safari window (window \(t.window)), not window \(window) (safari-browser#351; `open --new-tab --window-id` should not do this). Nothing was read. Ask the user to close that tab (its address ends with \(markSuffix)).")
             }
             openedUnidentified = false
             window = t.window
@@ -542,6 +534,7 @@ public final class FulltextFetch {
             lastTabs = all.filter { $0.windowID == ownWindowID }.sorted { $0.tabInWindow < $1.tabInWindow }.map(\.url)
             lastOwnShown = t.url
             markSeen = true
+            out("own-tab: window-id \(windowID) tab \(ownTab) mark \(mark)")
             return
         }
         throw fail("cannot find the tab just opened: no Safari tab showed this run's mark within about 3 s, so nothing was read.")
@@ -778,16 +771,22 @@ public final class FulltextFetch {
         let ledger = FulltextAttemptLedger(path: o.ledger)
         do { _ = try ledger.load() } catch { throw fail("\(displaySafeErrorText(error))") }   // 數不出今天的次數，就不能保證沒超過上限
 
-        // 視窗不存在，或它的分頁都沒有 profile 欄位：兩者對這支程式是同一件事——無從確認它屬於誰，不碰
+        // 選視窗：`--window N` 在這一刻指的那個視窗。之後一律以它的 id 指定（#772），profile 只用在這裡（使用者 2026-11-19 09:25：「也不一定要在
+        // 個人，只要固定視窗就好了嗎」）——`--expect-profile` 給了才比，讀不出 profile 的視窗在沒給時也可以用（記號鎖要 profile，那時一律用位置鎖）
         let everything = try docs()
         let tabsBefore = tabsHere(everything)
+        guard !tabsBefore.isEmpty else { throw fail("Safari window \(window) not found") }
+        // 每一個以位置認分頁的命令都帶 `--window-id`：safari-browser 沒有它就什麼都不開。檢查的是能力（`documents --json` 的頂層 `window_id`，
+        // 與 `--window-id` 同一個 commit 加的），不是版本字串——safari-browser 的開發建置 `--version` 印 `unknown`
+        guard everything.allSatisfy(\.reportsWindowIDKey) else {
+            throw fail("this safari-browser does not report window ids (`window_id` in `documents --json`), so it has no `--window-id` to keep every command in window \(window) — safari-browser 2.9.0 or later is needed. Nothing was opened or read.")
+        }
         let profiles = Set(tabsBefore.compactMap(\.profile).filter { !$0.isEmpty })
-        ownProfiles = profiles
         let profile = profiles.sorted().joined(separator: ",")
         ownProfile = profiles.count == 1 ? profiles.first : nil
-        guard !profile.isEmpty else { throw fail("Safari window \(window) not found") }
-        out("window \(window) profile: \(displaySafeInvisible(profile, max: 200))")
+        out("window \(window) profile: \(profile.isEmpty ? "(none read)" : displaySafeInvisible(profile, max: 200))")
         if let expected = o.expectProfile, !expected.isEmpty, profile != expected {
+            if profile.isEmpty { throw fail("window \(window)'s profile cannot be read, so it cannot be checked against '\(expected)' — refusing to touch it") }
             throw fail("window \(window) belongs to profile '\(profile)', not '\(expected)' — refusing to touch it")   // `fail()` 跳脫整則訊息，這裡再跳脫就是兩次
         }
 
@@ -798,15 +797,10 @@ public final class FulltextFetch {
         }
         ownWindowID = id
 
-        // safari-browser#351：多個視窗時 `open --new-tab --window N` 可能開進別的視窗。那個視窗若屬於別的 profile（Safari 的 profile 可能屬於
-        // 別人），落地頁就以那個 profile 的 cookie 與登入載入、記進它的瀏覽紀錄；位置鎖（全域的 `--window N`）在視窗順序變了時也會打到它。
-        // 有別的 profile 的分頁開著就停（第三輪 verify 第 12 則）；認不出 profile 的別的視窗也算（第四輪 verify 第 6 則）。不印那個 profile 的名字。
-        // 無條件：safari-browser 沒有穩定指定視窗的方式之前沒有安全的放寬（使用者 2026-11-04；以視窗 id 指定視窗是 safari-browser#352）。
-        // **接續也一樣**，所以在 `resume` 之前判（第六輪 verify 第 1、4 則：先前放在 `resume` 之後，接續的 run 從不判）；之後每一眼也判（第 8 則）
-        if otherProfileWindowOpen(in: everything) {
-            throw fail("a Safari window of another profile (or one whose profile cannot be read) is open, and this safari-browser can put the new tab or a position-locked command in another window (safari-browser#352), which would load or read a page under that profile (possibly someone else's). Nothing was opened or read. Ask the user: those windows have to be closed first, and only the user decides that (they may belong to someone else).")
-        }
-        windowsAtStart = Set(everything.compactMap(\.windowID))
+        // 別的 profile 的視窗開著不停（#772，使用者 2026-11-19 09:24：「我是覺得在別的是窗沒差，只要鎖定好固定視窗就好」）。先前這裡停
+        // （#768，safari-browser#351：`open --new-tab --window N` 可能開進別的視窗、以那個 profile 的身分載入落地頁；位置鎖在視窗順序變了時也會
+        // 打到它）。現在新分頁以 `open --new-tab --window-id <id>` 開，位置鎖帶 `--window-id`，兩者都到不了別的視窗。**沒有在真的 Safari 上量過**
+        // 別的 profile 的視窗開著時新分頁是否一定落在這個視窗（#772 Strategy 第 7 項）；「新分頁跑到別的視窗就停、不讀它」的檢查照舊。
         if let resumeTab = o.resumeTab, let resumeOrigin = o.resumeOrigin {
             try resume(tab: resumeTab, origin: resumeOrigin, stage: o.resumeStage, mark: o.resumeMark, ledger: ledger)
         }
@@ -919,7 +913,7 @@ public final class FulltextFetch {
     ///   不送 JS，與等落定同一個約 60 秒），轉走了照常往下走、沒轉走整批暫停。
     private func resume(tab requested: Int, origin expected: String, stage resumeStage: ResumeStage, mark resumeMark: String?,
                         ledger: FulltextAttemptLedger) throws -> Never {
-        let all = try docs()   // 別的 profile 的視窗已在 `execute` 呼叫這裡之前判過
+        let all = try docs()
         let here = tabsHere(all)
         var position = requested
         // 上一次執行的記號還在一個分頁上：那就是停下的那個分頁，不論它現在在哪個位置（分頁移動了也不會接到別的分頁）。它必須在這個視窗；
@@ -939,6 +933,7 @@ public final class FulltextFetch {
             throw fail("window \(window) has no tab \(position) — the tab may have moved; find the one showing \(expected) with `safari-browser documents --json --profile <P>`")
         }
         ownTab = String(position)
+        out("own-tab: window-id \(ownWindowID.map(String.init) ?? "") tab \(position)\(markSeen ? " mark \(mark)" : "")")
         lastTabs = here.map(\.url)   // 追蹤從這一眼開始
         lastOwnShown = t.url
         stage = resumeStage

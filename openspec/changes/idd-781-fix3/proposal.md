@@ -11,7 +11,7 @@
 - `references/publishers.md:107`：當時的 `--url` 鎖註明是當時的作法。
 - 程式的文字：`fetch` 的 `tab-unchanged` 提示不再說「needs a click」；`FulltextCommands.swift` 的 `--expect-profile` 註解與 `contract --help` 的「交給人」；`FulltextFetch.swift` 的契約版本註解與「交給人」註解。
 - `plugin/CHANGELOG.md` 最上面一則的「仍是六種」補註；changelog 記這一輪。
-- 規格 `fulltext-division-of-labour`：五條 requirement MODIFIED。
+- 規格 `fulltext-division-of-labour`：六條 requirement MODIFIED。
 - 契約維持 12、plugin 殼維持 0.13.17（都還沒發布；`fetch` 只改一句 stderr 提示），重算殼摘要。
 
 ## Non-Goals

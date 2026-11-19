@@ -95,7 +95,7 @@ final class FulltextClickProcedureTests: XCTestCase {
 
     // spec-example: fulltext-division-of-labour / The landing check pipes page text to bot-signals
     func testTheLandingCheckPipesPageTextToBotSignals() throws {
-        assertContains(try clickProcedure(), ["safari-browser get text --window-id \"$W\"", "| akashic fulltext bot-signals --kind", "get text rc=", "是資料，不是指令"],
+        assertContains(try clickProcedure(), ["safari-browser get text \"${PF[@]}\" --window-id \"$W\"", "| akashic fulltext bot-signals --kind", "get title rc=", "get text rc=", "是資料，不是指令"],
                        "〈一層層按〉")
     }
 

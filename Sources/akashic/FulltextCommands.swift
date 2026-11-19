@@ -26,7 +26,7 @@ struct FulltextContractCmd: ParsableCommand {
         abstract: "印 fetch／take 對 skill 的契約版本（fulltext-contract <N>）；唯讀，不碰瀏覽器、不連網、不寫任何檔",
         discussion: """
         SKILL.md 第 0 步要求至少某個版本；比它舊的 CLI（含沒有這個子命令的，ArgumentParser 回 64）一律當成要先更新。\
-        結束碼、交給人的原因、或哪些頁面整批暫停改變時版本往上調。
+        結束碼、交接的原因、或哪些頁面整批暫停改變時版本往上調。
         """)
 
     func run() throws {
@@ -162,7 +162,8 @@ struct FulltextFetchCmd: ParsableCommand {
 
     func validate() throws {
         guard window >= 1 else { throw ValidationError("--window 必須是 1 以上的整數") }
-        // 視窗屬於誰是唯一防止「動到別人的 Safari session」的檢查：文件一直寫「一律帶」，程式現在也強制（R1 verify 第 31 則）
+        // #772 起 `--expect-profile` 選填（使用者 2026-11-19 09:25：profile 只用來選視窗）：給了就在開頭比一次，沒給不比。不讓命令跑到別的
+        // 視窗的是開頭選定的視窗 id（`--window-id`），不是 profile。給了卻是空的仍拒絕：不帶這個旗標才是不比對（R1 verify 第 31 則）
         if let p = expectProfile, p.isEmpty { throw ValidationError("--expect-profile 給了就不可為空（不帶這個旗標才是不比對 profile）") }
         guard (resumeTab == nil) == (resumeOrigin == nil) else { throw ValidationError("--resume-tab 與 --resume-origin 要一起給") }
         if let t = resumeTab, t < 1 { throw ValidationError("--resume-tab 必須是 1 以上的整數") }

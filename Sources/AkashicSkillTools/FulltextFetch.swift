@@ -2,7 +2,7 @@ import Foundation
 import AkashicCore
 import AkashicStoreIO
 
-/// 在使用者自己的 Safari 裡，把一篇 work 從 DOI 走到頁面自己的 PDF 連結，然後**交給人**（#613；#629 由 `fetch-fulltext.sh` 移植）。
+/// 在使用者自己的 Safari 裡，把一篇 work 從 DOI 走到頁面自己的 PDF 連結，然後**交接**（#613；#629 由 `fetch-fulltext.sh` 移植）。
 ///
 /// # 最高原則：跟真人一樣（使用者 2026-09-28）
 ///
@@ -17,7 +17,7 @@ import AkashicStoreIO
 ///   **不重抓已載入的檔**——不對顯示中的 PDF 再發請求。
 /// - **按鈕與驗證不由這個命令處理**：頁面的下載是表單按鈕、連結通到 HTML 閱讀器時交接（結束碼 7），出現 CAPTCHA 時等人驗證（結束碼 8）。
 ///   之後誰做什麼寫在 SKILL〈人機分工〉：#781 起這篇自己的按鈕由 agent 按，人類驗證交給使用者。
-/// - **每站每天 10 次嘗試**（`FulltextAttemptLedger`）：準備導航到 PDF（或把按鈕交給人）就記一次；到上限就停那個站（結束碼 9）。
+/// - **每站每天 10 次嘗試**（`FulltextAttemptLedger`）：準備導航到 PDF（或把按鈕交接）就記一次；到上限就停那個站（結束碼 9）。
 /// - **頁面上執行的 JS 少而且正確**：每一段都寫成**運算式**。`safari-browser js` 先把程式碼包成運算式試一次、解析失敗才退回函式本體
 ///   （它的 `JSWrapper`），所以寫成 `return …` 的敘述，第一次注入就是一段解析不了的程式碼。頁面的錯誤處理器看不看得到 `do JavaScript`
 ///   的解析錯誤沒有實測；2026-09-28 NVA 的 Matomo 記錄了 agent 的 SyntaxError，是使用者訂這一條的理由。`FulltextJavaScriptTests` 用
@@ -25,8 +25,8 @@ import AkashicStoreIO
 ///
 /// # 結束碼是它對 agent 的契約
 ///
-///     7 交給人：分頁已導到頁面自己的 PDF 連結（或該按的按鈕已找到），這個命令沒有取位元組、沒有寫檔。分頁留著。**批次繼續**：
-///       這一筆交給人，不是整批停。原因（`handover:` 一行）：`pdf-shown`（含另一個主機上顯示的 PDF——依據是頁面讀得到的
+///     7 交接：分頁已導到頁面自己的 PDF 連結（或該按的按鈕已找到），這個命令沒有取位元組、沒有寫檔。分頁留著。**批次繼續**：
+///       這一筆交接，不是整批停。原因（`handover:` 一行）：`pdf-shown`（含另一個主機上顯示的 PDF——依據是頁面讀得到的
 ///       `document.contentType`，頁面腳本改得了它）、`html-page`、`unverifiable`（讀不到分頁，什麼都沒檢查；文章站上與別的主機上同一個
 ///       條件：同一個網址連三次讀不到、而那裡從沒讀到過一般網頁的分頁）、`tab-unchanged`、`button`、`left-site`（導航之後分頁到了別的主機、頁面載完而
 ///       沒有命中驗證／封鎖／登入的封閉清單——那不代表它不是登入頁）與 `doi-not-resolved`（停在 doi.org，而且看得到 doi.org 自己的
@@ -50,7 +50,7 @@ import AkashicStoreIO
 ///       或 safari-browser 太舊、`documents --json` 的列沒有頂層的 `window_id`（v2.9.0 與 `--window-id` 一起加的；開任何分頁之前就停）。
 ///       別的 profile 的視窗開著**不**停（#772，使用者 2026-11-19：「在別的是窗沒差，只要鎖定好固定視窗就好」；先前開頭、接續與每一眼都停）
 ///
-/// **沒有結束碼 0**：這個命令的正常終點就是交給人。先前的 0（「取得並驗證」）、2（回應不是 PDF）、4（無權限的登入殼）、5（驗證不過）
+/// **沒有結束碼 0**：這個命令的正常終點就是交接。先前的 0（「取得並驗證」）、2（回應不是 PDF）、4（無權限的登入殼）、5（驗證不過）
 /// 都跟著取位元組一起離開這個命令——2 與 5 在 `take`，4 由看分頁的人判斷。舊的呼叫端把 0 當成「檔案存好了」，新的碼不會被它讀錯。
 ///
 /// # 鎖分頁（#768）
@@ -68,20 +68,20 @@ import AkashicStoreIO
 ///
 /// **仍沒有的**：真的 Safari 只跑過兩次（2026-11-04：SAGE 找不到連結、Elsevier 接續之後導航到 PDF），記號還在時的導航沒有實跑；Safari 的
 /// PDF 檢視器能不能執行頁面 JS、`document.contentType`
-/// 在那裡回什麼、`PerformanceNavigationTiming.responseStatus` 在 Safari 有沒有值，都沒有實測——讀不到時照「無從檢查」處理（交給人或暫停），
+/// 在那裡回什麼、`PerformanceNavigationTiming.responseStatus` 在 Safari 有沒有值，都沒有實測——讀不到時照「無從檢查」處理（交接或暫停），
 /// 不當成乾淨。
 ///
 /// # 契約版本
 ///
 /// `contractVersion` 是這個命令（與 `take`）對 skill 的契約版本，`akashic fulltext contract` 印它；SKILL.md 第 0 步要求至少這個值（#613 R3，
-/// b31 W4 第 1 則：先前以 `take` 的行為探測，分不出 R1、R2 的 CLI）。結束碼、交給人的原因、或哪些頁面整批暫停改變時就往上調，skill 開始依賴一個新的子命令時也調（版本 11 的 `attempt`），SKILL 第 0 步
+/// b31 W4 第 1 則：先前以 `take` 的行為探測，分不出 R1、R2 的 CLI）。結束碼、交接的原因、或哪些頁面整批暫停改變時就往上調，skill 開始依賴一個新的子命令時也調（版本 11 的 `attempt`），SKILL 第 0 步
 /// 一起調（`SkillToolsCLITests` 比對兩邊相等）。
 ///
 /// **只改印出的字（skill 不解析的那幾行）不調**：使用者 2026-11-04 第 10 則（「維持」契約版本；範圍以 2026-11-09 的問答為準，見 #613 的 Decision comment）。b39、b41、b43、b45 改的都是轉印哪一行、對話框的文字、
 /// 帳密的邊角，契約都沒有調。b37 為了 safari-browser 的錯誤只轉印一行而從 5 調到 6，是這條裁決之前的例外。`akashic` CLI 從來沒有發布過
 /// （release 只發 `akashic-mcp`，CLI 要在本 repo `swift build`），所以這幾次沒有調只影響維護者自己的建置。
 public final class FulltextFetch {
-    /// 1＝#613 只導航、交給人；2＝R1 修正輪（2026-10-02）；3＝R2 修正輪（e5182cf1）；4＝R3（2026-10-04）；5＝b34（2026-10-05：文章站上
+    /// 1＝#613 只導航、交接；2＝R1 修正輪（2026-10-02）；3＝R2 修正輪（e5182cf1）；4＝R3（2026-10-04）；5＝b34（2026-10-05：文章站上
     /// 讀不到的分頁與別的主機同一套、讀不到的分頁在登入主機上整批暫停、文章站上同一份快照、使用者 2026-10-05 的主機標籤與路徑段裁決）；
     /// 6＝b37（2026-10-09：複合路徑段只認明確的登入字、讀的當中換到同站登入頁先判登入長相、safari-browser 的錯誤只轉印第一行、`plainURL`
     /// 與站的比對同一個主機；b39 起轉印 `Error:` 那一行、b41 起 stderr 有對話框的訊息時只轉印固定的一句——兩次都沒有調，理由見上面〈契約版本〉）。
@@ -89,12 +89,12 @@ public final class FulltextFetch {
     /// 本身也不可使用（第一版還會關分頁，第三版導航時會在前景視窗開出新分頁）。
     /// 8＝#768 第五版起（2026-11-04～05）：記號鎖帶 `--profile`、別的 profile 的視窗開著就停（開頭、接續、每一眼）、頁面文字這類讀取的鎖找不到分頁時
     /// 重跑一次、PDF 連結的答案綁在判過的那一頁上、接續可帶 `--resume-mark`。第五到第八版的開發建置也印 8 而行為不同（第五版有版本閘、第六版接續
-    /// 不判別的 profile、讀連結會重跑、第八版同一個位置兩列不停、換頁之後不等落定），都沒有發布（CLI 沒有發布版）；第 0 步的門檻升到 9 之後（現在是 11）一律被擋下。
+    /// 不判別的 profile、讀連結會重跑、第八版同一個位置兩列不停、換頁之後不等落定），都沒有發布（CLI 沒有發布版）；第 0 步的門檻升到 9 之後（現在是 12）一律被擋下。
     /// 9＝#613 b49（2026-11-09）：導航之後（含 `--resume-stage followed`）文章站上網址有登入頁長相的那一頁寫著 CAPTCHA 時整批暫停（先前是 8，等人驗證；導航之前自 b37 起就是 6）；`/sign-on`、`/single-sign-on`
     /// 與單字寫法的 `signon`、`singlesignon` 算登入頁（落地頁是它們時整批暫停，先前照一般網頁讀；導航之後落在別的主機上的這種頁面整批暫停，
-    /// 先前交給人 `left-site`；主機最左邊的標籤是 `signon`、`sign-on`、`single-sign-on`、`singlesignon` 也算登入主機——第 8 則的副作用，使用者 2026-11-11 裁決保留，#777 第 4 件）。2026-11-06 到 b49 之間從 main 建的 CLI 印 8，碰到這兩種頁面照舊的判斷，所以要調（使用者 2026-11-09）。
+    /// 先前交接 `left-site`；主機最左邊的標籤是 `signon`、`sign-on`、`single-sign-on`、`singlesignon` 也算登入主機——第 8 則的副作用，使用者 2026-11-11 裁決保留，#777 第 4 件）。2026-11-06 到 b49 之間從 main 建的 CLI 印 8，碰到這兩種頁面照舊的判斷，所以要調（使用者 2026-11-09）。
     /// 10＝#777（2026-11-11）：Atypon 的 `/action/showLogin` 算登入頁（`BotSignals.pathOnlyLoginSegments`，只看路徑；既有的 8 個呼叫點都跟著算——
-    /// 導航之後同站寫著 CAPTCHA 的那一頁 8 → 6；別的主機上落定的頁面 7（交給人 `left-site`）→ 6；落地頁與導航之前的同站頁先前照一般網頁讀
+    /// 導航之後同站寫著 CAPTCHA 的那一頁 8 → 6；別的主機上落定的頁面 7（交接 `left-site`）→ 6；落地頁與導航之前的同站頁先前照一般網頁讀
     /// （頁面文字有起疑訊號就照訊號，沒有的多半等不到 PDF 連結、以 3 結束），現在 6）；連 `document.contentType` 都讀不到的同站分頁命中
     /// Cloudflare 挑戰或按住驗證的標記、而路徑有登入長相時整批暫停（先前 8）。這幾格的結束碼變了，所以要調。
     /// 11＝#781／#780（2026-11-19）：新增 `fulltext attempt`（skill 在出版商頁面上每按一下之前記一次，與 `fetch` 共用同一本帳）。`fetch` 與 `take`
@@ -131,7 +131,7 @@ public final class FulltextFetch {
     public enum ResumeStage: String {
         /// 導航到 PDF 連結**之前**（文章頁上的驗證）：接著讀頁面的連結、記一次嘗試、導過去
         case article
-        /// 導航到 PDF 連結**之後**（嘗試已經記過、已經導航過）：回到「分頁顯示什麼」的判斷——PDF → 交給人，HTML 閱讀器 → 交給人；
+        /// 導航到 PDF 連結**之後**（嘗試已經記過、已經導航過）：回到「分頁顯示什麼」的判斷——PDF → 交接，HTML 閱讀器 → 交接；
         /// 不再讀連結、不再導航、不再記嘗試。分頁此刻可以在別的主機（PDF 放在另一個主機）；這一步只讀、不導航、不關分頁
         case followed
     }
@@ -147,7 +147,7 @@ public final class FulltextFetch {
         public static let dailyCapReached: Int32 = 9
     }
 
-    /// 交給人的原因（結束碼 7；stdout 的 `handover:` 一行印它的 `rawValue`）。SKILL〈結束碼 7 之後〉的表逐一列它們（`FulltextB34Tests.testTheSkillsHandoverTableIsTheHandoverEnum` 對帳；#781 起那一節改名，接手的是照 SKILL 執行的 agent）。
+    /// 交接的原因（結束碼 7；stdout 的 `handover:` 一行印它的 `rawValue`）。SKILL〈結束碼 7 之後〉的表逐一列它們（`FulltextB34Tests.testTheSkillsHandoverTableIsTheHandoverEnum` 對帳；#781 起那一節改名，接手的是照 SKILL 執行的 agent）。
     public enum Handover: String, CaseIterable {
         /// 分頁回報它顯示 PDF（`document.contentType` 含 pdf）。那是頁面讀得到的值，頁面腳本改得了它（b31 W4 第 18、33 則）——訊息照實說
         case pdfShown = "pdf-shown"
@@ -162,7 +162,7 @@ public final class FulltextFetch {
         /// 頁面的 PDF 下載是表單按鈕（Annual Reviews 型）
         case button = "button"
         /// 分頁到了別的主機（跨主機的中繼頁、CDN 的檔案主機），頁面載完而沒有命中驗證／封鎖／登入的封閉清單——那不代表它不是登入頁；
-        /// 那裡顯示的是 PDF 時是 `pdf-shown`（使用者 2026-10-02）。這一筆交給人，批次繼續
+        /// 那裡顯示的是 PDF 時是 `pdf-shown`（使用者 2026-10-02）。這一筆交接，批次繼續
         case leftSite = "left-site"
         /// DOI 解不開：分頁停在 doi.org，而且看得到 doi.org 自己的查無證據（`DOI Not Found` 或 404）。這是資料問題，不是起疑訊號
         case doiNotResolved = "doi-not-resolved"
@@ -303,7 +303,7 @@ public final class FulltextFetch {
         return verificationStop(signal, site, shownOn: origin(url))
     }
 
-    /// 交給人（結束碼 7）。這個命令沒有取 PDF 的位元組、沒有寫任何輸出檔；分頁留著。
+    /// 交接（結束碼 7）。這個命令沒有取 PDF 的位元組、沒有寫任何輸出檔；分頁留著。
     ///
     /// `at`：判斷時那一份快照的網址（別的主機上的判斷傳它，#613 R3，b31 W4 第 0 則）。印出來的網址要是判斷的那一頁，不是判完之後再讀一次的
     /// ——那一下分頁可能已經換了頁。沒傳就讀分頁此刻的網址。
@@ -321,7 +321,7 @@ public final class FulltextFetch {
         case .unverifiable:
             err("  This command could not read the tab (Safari's PDF viewer may not run page scripts), so nothing on it was checked — it is unverified, not clean. `save-pdf` cannot be used on it (its content type cannot be read); the skill reports this item as not obtained, with the window and tab. A login, verification or block page there is the abort clause.")
         case .tabUnchanged:
-            err("  The tab did not leave the article page after following the PDF link — the link may have started a download (check Safari's downloads) or needs a click.")
+            err("  The tab did not leave the article page after following the PDF link — the link may have started a download (check Safari's downloads). Following the link was the click: do not click it again. If no file arrives, wait once and then hand the item to the person.")
         case .button:
             err("  The page's PDF download is a form button. Press it yourself; the site may download the file.")
         case .leftSite:
@@ -596,7 +596,7 @@ public final class FulltextFetch {
 
     /// 同站頁面上命中訊號之後的停法。等人驗證的訊號落在**登入頁的長相**上時整批暫停，不降成等人驗證（使用者 2026-11-04 第 6 則，b38 INFO 17：
     /// 導航之後落定的同站 `/login` 頁寫著 CAPTCHA，先前得 8）。導航之前的檢查在這之前就已經對登入長相整批暫停，所以這一條只改變導航之後與
-    /// `--resume-stage followed` 的判斷；沒有訊號的同站登入頁仍交給人 `html-page`。連 `document.contentType` 都讀不到的分頁不經過這裡，
+    /// `--resume-stage followed` 的判斷；沒有訊號的同站登入頁仍交接 `html-page`。連 `document.contentType` 都讀不到的分頁不經過這裡，
     /// 照 `judgeUnreadable` 判（同站、帶 Cloudflare 挑戰或按住驗證的標記（`cloudflare-challenge`、`perimeterx-press-and-hold`）、路徑有登入長相時同樣整批暫停——使用者 2026-11-11 把第 6 則延伸到那一格，#777 第 2 件；其他四個標記本來就是 6）。
     private func onSiteStop(for hit: BotSignals.Hit, _ snap: PageSnapshot, _ site: String) -> Stop {
         if hit.response == .humanVerification, BotSignals.urlGateLook(snap.url) == "login" {
@@ -612,7 +612,7 @@ public final class FulltextFetch {
     /// `beforeNavigation`：導航到 PDF 連結**之前**的檢查（落地頁、讀連結之前、導航之前的接續）——每一份快照先判網址的**登入長相**，命中就整批暫停，
     /// 再判起疑訊號（#613 b37，b36 Y2 第 0 則：先前呼叫端只在呼叫之前看一次網址，讀的當中分頁轉到同站的 `/login`、那一頁寫著 CAPTCHA，就成了
     /// 等人驗證、印出以文章站為目標的 `resume:`——登入頁降成等人驗證，正是 R3 對落地頁修掉的形狀）。導航**之後**（`awaitShown`）傳 false：
-    /// 那時同站的 HTML 頁是頁面自己的 PDF 連結的結果，與 `decideShown` 同一套：不因網址的登入長相整批暫停，只看文字訊號，沒有訊號就交給人 `html-page`（b36 Y2 第 16 則）；文字訊號是等人驗證、而網址有登入頁的長相時整批暫停（`onSiteStop`，使用者 2026-11-04 第 6 則）。
+    /// 那時同站的 HTML 頁是頁面自己的 PDF 連結的結果，與 `decideShown` 同一套：不因網址的登入長相整批暫停，只看文字訊號，沒有訊號就交接 `html-page`（b36 Y2 第 16 則）；文字訊號是等人驗證、而網址有登入頁的長相時整批暫停（`onSiteStop`，使用者 2026-11-04 第 6 則）。
     @discardableResult
     private func botCheckPage(_ site: String, beforeNavigation: Bool) throws -> String {
         for _ in 1...3 {
@@ -637,7 +637,7 @@ public final class FulltextFetch {
     }
 
     /// 分頁離開了文章站。順序（#613 R2 verify 第 0、1、2、3、6、7、8、10 則；R3＝b31 W4 第 0、3、4、5、7、12 則）：
-    /// 1. **先問 PDF**（`document.contentType`；頁面讀得到的值，頁面腳本改得了它——不是回應本身）→ 交給人（`pdf-shown`）。Safari 的 PDF
+    /// 1. **先問 PDF**（`document.contentType`；頁面讀得到的值，頁面腳本改得了它——不是回應本身）→ 交接（`pdf-shown`）。Safari 的 PDF
     ///    分頁標題通常就是文章標題，先前標題與網址的長相排在前面，`Research design in …` 這種標題讓 PDF 變成整批暫停。
     /// 2. 不是 PDF 的頁面**要等它落定**（readyState 是 complete／interactive；最多約 60 秒，以時鐘計、也不超過 30 次輪詢）：還在載入的頁面說不出
     ///    「沒有標記」。一直沒落定 → 卡住，整批暫停。等的時候分頁又換了網址就重新看（換到登入頁就判登入頁；回到文章站就照常往下走）。
@@ -645,7 +645,7 @@ public final class FulltextFetch {
     ///    等人驗證；等人驗證只在已知的驗證服務上成立，其他主機一律整批暫停。這幾樣要是**同一頁的**（`readPage`）：讀完之後分頁的網址或
     ///    標題變了，那一份不用，回去等。
     /// 4. 登入／驗證頁的長相（`BotSignals.gateLook`：網址的主機與路徑、標題的整字片語）→ 整批暫停。
-    /// 5. 其他（CDN 的檔案主機、跨主機的中繼頁）→ 這一筆交給人（`left-site`），批次繼續。沒命中封閉清單不代表不是登入頁，訊息照說。
+    /// 5. 其他（CDN 的檔案主機、跨主機的中繼頁）→ 這一筆交接（`left-site`），批次繼續。沒命中封閉清單不代表不是登入頁，訊息照說。
     ///
     /// **讀不到**（頁面 JS 跑不起來；Safari 的 PDF 檢視器可能就是這樣）：同一個網址**連三次**讀不到、而且那個網址上**從沒讀到過一般網頁**的回答
     /// 才算（`UnreadableTally`），照 `judgeUnreadable` 判——文章站上同一套。讀到過「還在載入」的網址是一般網頁，不是 PDF 檢視器——讀不到就
@@ -680,7 +680,7 @@ public final class FulltextFetch {
     }
 
     /// 讀不到的分頁要「同一個網址**連三次**、那個網址上從沒讀到過一般網頁的回答」才算（b31 W4 第 5 則；b34 起文章站上同一個規則，b33 X3
-    /// 第 4 則：先前文章站上是累積計數，失敗、還在載入、失敗、失敗就交給人、批次繼續，別的主機上同一串回答是卡住）。
+    /// 第 4 則：先前文章站上是累積計數，失敗、還在載入、失敗、失敗就交接、批次繼續，別的主機上同一串回答是卡住）。
     private struct UnreadableTally {
         private var count = 0
         private var url = ""
@@ -700,10 +700,10 @@ public final class FulltextFetch {
     /// 分頁此刻的（網址，標題）——同一次 `documents` 讀到的一對。
     private func tabSnapshot() throws -> (url: String, title: String)? { try ownTabNow().map { ($0.url, $0.title) } }
 
-    /// 別的主機上的頁面落定了：標題、網址、頁面文字與狀態碼一起判訊號，再看登入／驗證頁的長相，都沒有就交給人。
+    /// 別的主機上的頁面落定了：標題、網址、頁面文字與狀態碼一起判訊號，再看登入／驗證頁的長相，都沒有就交接。
     ///
     /// **同一份快照**（#613 R3，b31 W4 第 0 則；`readPage`）：讀完之後網址或標題變了＝讀的當中分頁換了頁（中繼頁轉到登入頁），這一份不用，回 nil
-    /// 讓 `leftSite` 回去等。先前標題、頁面文字、交給人時印的網址各讀各的，舊中繼頁的網址與標題配上新登入頁的文字，三樣都沒命中就交給人。
+    /// 讓 `leftSite` 回去等。先前標題、頁面文字、交接時印的網址各讀各的，舊中繼頁的網址與標題配上新登入頁的文字，三樣都沒命中就交接。
     private func offSiteSettled(_ url: String, _ site: String) throws -> Stop? {
         guard let snap = try readPage(accept: { $0 == url }) else { return nil }
         let moved = "→ \(FulltextFetch.plainURL(url))"
@@ -720,7 +720,7 @@ public final class FulltextFetch {
     /// 讀不到的分頁（頁面 JS 跑不起來）：只剩標題與網址，而這樣的分頁可能就是 Safari 的 PDF 檢視器——PDF 分頁的標題常是文章標題、檔案的路徑
     /// 常有 `auth`、`validate` 之類的段。**文章站上與別的主機上同一套**（#613 b34，b33 X3 第 1、3、5、7 則：R3 只在別的主機上這樣判，文章站上
     /// 仍以標題與網址的一般字樣判——同站 PDF 的文章標題 `A Survey of CAPTCHA Design` 得 8、`Analysis of unusual traffic patterns` 得 6）。
-    /// 一般的訊號字詞、路徑與標題的登入／驗證長相都**不看**（使用者 2026-10-02：PDF 交給人），只看三件封閉的事，依序：
+    /// 一般的訊號字詞、路徑與標題的登入／驗證長相都**不看**（使用者 2026-10-02：PDF 交接），只看三件封閉的事，依序：
     /// 1. 網址在已知的驗證服務上（`isKnownVerificationService`）：照訊號處理（等人驗證或整批暫停）；沒有訊號也整批暫停——那是驗證服務的頁面，
     ///    而它讀不到。
     /// 2. **主機**是登入主機的長相（`BotSignals.hostLoginLook`：最左邊的標籤、或 IdP 服務的名稱）→ 整批暫停（使用者 2026-10-02：登入頁維持
@@ -729,7 +729,7 @@ public final class FulltextFetch {
     ///    其他主機一律整批暫停）。**例外**（使用者 2026-11-11，#777 第 2 件）：文章站上的人類檢查（`cloudflare-challenge`、
     ///    `perimeterx-press-and-hold`）而網址的**路徑**有登入長相 → 整批暫停，與 `onSiteStop` 同一條（第 6 則）。路徑只在標記命中之後才看；
     ///    沒有標記的讀不到分頁照舊不看路徑（使用者 2026-10-02，PDF 檢視器的路徑常有 `auth`、`validate`）。
-    /// 其他 → 交給人（`unverifiable`），訊息說讀不到、什麼都沒檢查。判斷用同一次 `documents` 的（網址，標題）；那一下網址不是 `url` 就回 nil，
+    /// 其他 → 交接（`unverifiable`），訊息說讀不到、什麼都沒檢查。判斷用同一次 `documents` 的（網址，標題）；那一下網址不是 `url` 就回 nil，
     /// 回去等。
     private func judgeUnreadable(_ url: String, _ site: String) throws -> Stop? {
         guard let snap = try tabSnapshot(), snap.url == url else { pageChanges += 1; return nil }
@@ -873,14 +873,14 @@ public final class FulltextFetch {
     }
 
     /// 60 秒之後分頁還在 doi.org。DOI 解不開時 doi.org 留在自己的「查無」頁——那是記錄的資料問題，不是起疑訊號（使用者 2026-10-02）：
-    /// 這一筆交給人（`doi-not-resolved`），批次繼續。但只在**看得到 doi.org 自己的「查無」證據**時（標題或頁面文字有 `DOI Not Found`，
+    /// 這一筆交接（`doi-not-resolved`），批次繼續。但只在**看得到 doi.org 自己的「查無」證據**時（標題或頁面文字有 `DOI Not Found`，
     /// 或 HTTP 404）——Safari 離線時在同一個網址上顯示自己的錯誤頁，那不是 DOI 的問題，是整批暫停（R2 verify 第 9 則）。
     ///
     /// 這裡的起疑訊號一律整批暫停，**包括等人驗證的那四種**：doi.org 不是文章站，驗證完它會轉到出版商，`--resume-origin https://doi.org`
     /// 接不回去（R2 verify 第 17 則）。登入／驗證頁的長相同樣整批暫停。還在載入是卡住（整批暫停）。停在 doi.org 卻看不到它自己的查無證據
     /// 整批暫停是使用者 2026-10-05 第 1 則的裁決（對 2026-10-01 裁決的收窄，以它為準）。
     ///
-    /// 標題、頁面文字與交給人時印的網址是**同一份快照**（`readPage`，#613 b34）：讀的當中分頁離開了 doi.org 就不判——那一頁是誰的已經說不準，
+    /// 標題、頁面文字與交接時印的網址是**同一份快照**（`readPage`，#613 b34）：讀的當中分頁離開了 doi.org 就不判——那一頁是誰的已經說不準，
     /// 整批暫停。
     private func stillOnTheDOIResolver(_ u: String) throws -> Never {
         let site = origin(u)
@@ -907,12 +907,12 @@ public final class FulltextFetch {
     ///
     /// - `article`（導航到 PDF 連結之前的驗證）：分頁必須還顯示文章站；接著讀頁面的連結、記一次嘗試、導過去。
     /// - `followed`（導航到 PDF 連結**之後**的驗證）：嘗試已經記過、已經導航過——**不讀連結、不導航、不記嘗試**，回到「分頁顯示什麼」
-    ///   的判斷（PDF → 交給人；HTML 閱讀器 → 交給人）。分頁此刻可以在別的主機（PDF 放在另一個主機，驗證完瀏覽器把分頁帶過去），所以
+    ///   的判斷（PDF → 交接；HTML 閱讀器 → 交接）。分頁此刻可以在別的主機（PDF 放在另一個主機，驗證完瀏覽器把分頁帶過去），所以
     ///   這一步不要求分頁顯示文章站；它只讀分頁、不導航、不關分頁。但分頁要是這三種之一：文章站（`--resume-origin`）、已知的驗證服務、
     ///   或此刻顯示 PDF——其他分頁（使用者驗證時開關分頁，位置漂移到他自己的信箱或銀行）拒絕（結束碼 1）。判斷 PDF 只讀
     ///   `document.contentType`，不讀那個分頁的文字（#613 R2 verify 第 12、16、19、21 則：先前只要網址非空就對它跑讀頁文字的 JS）。
     /// - `article` 的順序（#613 b34，b33 X3 第 0、21 則）：主機是登入主機的長相 → 整批暫停，不送任何 JS；然後與導航之後同一套讀法
-    ///   （`watchOnSite`）——分頁顯示 PDF → 交給人（舊的呼叫端沒帶 `--resume-stage`，驗證發生在導航之後；**PDF 先於路徑的登入長相**，
+    ///   （`watchOnSite`）——分頁顯示 PDF → 交接（舊的呼叫端沒帶 `--resume-stage`，驗證發生在導航之後；**PDF 先於路徑的登入長相**，
     ///   `/auth/12345.pdf` 不整批暫停）；讀不到 → `judgeUnreadable`；落定的網頁 → 判的是**分頁此刻的網址**（先前用接續開始時讀的舊網址）：
     ///   路徑的登入長相 → 整批暫停、起疑訊號 → 8 或 6、驗證頁的網址而沒有訊號 → 使用者說驗證完了而頁面還在轉址，**等它轉走**（只讀分頁網址、
     ///   不送 JS，與等落定同一個約 60 秒），轉走了照常往下走、沒轉走整批暫停。
@@ -989,7 +989,7 @@ public final class FulltextFetch {
         }
     }
 
-    /// 讀頁面自己的 PDF 連結、記一次嘗試、把同一個分頁導過去、交給人。
+    /// 讀頁面自己的 PDF 連結、記一次嘗試、把同一個分頁導過去、交接。
     private func followThePagesOwnLink(site: String, ledger: FulltextAttemptLedger) throws -> Never {
         // 連結可能晚出現（最多約 45 秒）。`wait` 等的時候沒有人看分頁，所以切成小段，每段之前確認一次（#768）
         for _ in 1...FulltextFetch.linkWaitSlices {
@@ -1060,7 +1060,7 @@ public final class FulltextFetch {
     /// 連結的答案屬於判過的那一頁（第七輪 verify 第 1、3 則）：`siteGuard` 只看主機，位置追蹤把同位置、同站的新網址當成我們的分頁在換頁，所以讀完
     /// 連結之後分頁到了同站的登入或驗證頁，先前照樣拿舊頁面的連結導航，把那一頁蓋掉（結束碼 6／8 不出現）。網址與判過的不同（我們的記號不算：
     /// 頁面用腳本拿掉 fragment 不是換頁）就**等新的那一頁落定、判它**，走 `watchOnSite`，與導航之前的接續同一套（第八輪 verify 第 5、10 則：先前只讀一次、
-    /// 不看驗證頁的網址）：登入、驗證頁 6／8，一直不落定 6，PDF 交給人，讀不到的頁面交給人（7 `unverifiable`，落地頁同樣的頁面是 6，第九輪 verify 第 2、6 則），
+    /// 不看驗證頁的網址）：登入、驗證頁 6／8，一直不落定 6，PDF 交接，讀不到的頁面交接（7 `unverifiable`，落地頁同樣的頁面是 6，第九輪 verify 第 2、6 則），
     /// 其他都不導航（結束碼 1）：連結不是從判過的那一頁讀來的，而重讀一次又是同一個問題。別的 fragment 或 query
     /// 算換頁：`#/login` 這種路由也長這樣，看不出是不是同一頁，停的方向是安全的，訊息說明只有這部分變了（第八輪 verify 第 11、18 則）。
     /// 這是 Apple event 之間看得到的變化；網址不變而內容換了、或比對之後才換，看不到（導航收不回，SKILL 的限制 (b)）。
@@ -1081,7 +1081,7 @@ public final class FulltextFetch {
     }
 
     /// 導航之後：等分頁離開文章頁（20 秒），再看它顯示什麼。分頁沒離開：檢查起疑訊號（同一份快照）——判的那一頁還是導航之前的那一頁才是
-    /// `tab-unchanged`；檢查的當中換了頁就照「分頁顯示什麼」判（b33 X3 第 8 則的同一個形狀：先前交給人時才讀網址，印的是換過去的那一頁）。
+    /// `tab-unchanged`；檢查的當中換了頁就照「分頁顯示什麼」判（b33 X3 第 8 則的同一個形狀：先前交接時才讀網址，印的是換過去的那一頁）。
     private func awaitShown(site: String, before: String) throws -> Never {
         var moved = false
         for _ in 1...10 {
@@ -1089,7 +1089,7 @@ public final class FulltextFetch {
             let u = try ownURL()
             if u.isEmpty || u != before { moved = true; break }
         }
-        try siteGuard(site)   // 分頁對不上 → 1（`lostOwnTab`）；到了別的主機 → 照 `leftSite`（PDF／沒有標記的頁面交給人，訊號與登入頁停）
+        try siteGuard(site)   // 分頁對不上 → 1（`lostOwnTab`）；到了別的主機 → 照 `leftSite`（PDF／沒有標記的頁面交接，訊號與登入頁停）
         if !moved {
             let judged = try botCheckPage(site, beforeNavigation: false)
             if judged == before { throw handover(.tabUnchanged, at: judged) }
@@ -1097,7 +1097,7 @@ public final class FulltextFetch {
         try decideShown(site: site)
     }
 
-    /// 分頁顯示什麼：PDF → 交給人；HTML 頁落定 → 查訊號（同一份快照）、交給人；讀不到 → `judgeUnreadable`。導航之後的判斷與等人驗證之後
+    /// 分頁顯示什麼：PDF → 交接；HTML 頁落定 → 查訊號（同一份快照）、交接；讀不到 → `judgeUnreadable`。導航之後的判斷與等人驗證之後
     /// 接著走（`resume --resume-stage followed`）是同一段——驗證完不重新讀連結、不再導航。
     private func decideShown(site: String) throws -> Never {
         try watchOnSite(site, stalled: "the tab did not settle after following the PDF link (stalled)") { url in
@@ -1119,7 +1119,7 @@ public final class FulltextFetch {
     /// 等分頁在文章站上給出一個屬於**同一個網址**的回答（#613 b34，b33 X3 第 2、4、8 則：R3 只在別的主機上這樣讀，文章站上一次讀分頁顯示什麼、
     /// 讀不到累積計數、判完再讀網址印出來）。導航之後（`decideShown`）與導航之前的接續（`resume` 的 `article`）同一套：
     /// - 每一次輪詢先過 `siteGuard`（分頁到了別的主機照 `leftSite` 判、對不上 → 1）；讀之前與之後的網址相同，這個回答才屬於那個網址。
-    /// - PDF → 交給人（`pdf-shown`，印那個網址）。
+    /// - PDF → 交接（`pdf-shown`，印那個網址）。
     /// - 讀不到 → 同一個網址連三次、那裡從沒讀到過一般網頁才算（`UnreadableTally`），照 `judgeUnreadable` 判（與別的主機同一套）。
     /// - 落定的網頁 → `consider`。
     /// 約 60 秒（時鐘）沒有結果 → 卡住，整批暫停；停在等它轉走的網址上 → 整批暫停，訊息說是驗證頁的網址。

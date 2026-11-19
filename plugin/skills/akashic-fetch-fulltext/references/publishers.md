@@ -104,7 +104,7 @@
 | SAGE，同一條路 | 結束碼 1 `points off-site` | 同上兩下：文章頁的「PDF/EPUB」連結（href `/doi/reader/<DOI>`），閱讀頁上的 `a#favourite-download`（aria-label「Download PDF」，href 的路徑是 `/doi/pdf/<DOI>`）。第二下之後 `click` 結束碼 0、分頁網址不變、之後 18 秒下載資料夾沒有新檔：**Safari 掛著的是「儲存為」面板**（PsychQuant/safari-browser#358），不是下載權限提示；使用者按「儲存」之後檔案才寫入，`take` 結束碼 0（標題、PDF metadata 的 DOI、頁數都相符）。所以這一站目前每一篇最後都要使用者按一次「儲存」（SKILL.md〈人機分工〉的 (c)）。2026-11-10 那一次沒有下載檔可能是同一個面板在等——這是推測，沒有查證 | 2026-11-19，1 篇成功 |
 | AME（jss.amegroups）| `.com` 轉到 `.org`，結束碼 7 `left-site` | 文章頁 Article Options 的「PDF」連結（`a.pdf` → `/article/view/<id>/pdf`）開成新分頁；新分頁裡的 `#pdfDownloadLink`「Download」按下去跳出 Safari 的下載權限提示，那一步由使用者按 | 2026-11-10，1 篇 |
 | Wiley epdf 閱讀器 | — | `snapshot -i` 讀不到任何下載鈕，由使用者自己存 | 2026-11-10 |
-| Project Euclid | 結束碼 7 `pdf-shown`（PDF 在文章站本身）| `save-pdf` 以 `--url` 鎖 `fetch` 交接出來的分頁，取得 | 2026-11-19，2 篇成功 |
+| Project Euclid | 結束碼 7 `pdf-shown`（PDF 在文章站本身）| `save-pdf` 以 `--url` 鎖 `fetch` 交接出來的分頁，取得（當時的鎖法；現在照 SKILL 第 3 步〈`fetch` 之後的鎖分頁〉，不用 `--url`） | 2026-11-19，2 篇成功 |
 | Oxford Academic | 結束碼 7 `pdf-shown`（PDF 在 `watermark02.silverchair.com`）| `save-pdf` 取得，27 頁 | 2026-11-19，1 篇成功 |
 | ScienceDirect | 結束碼 7 `pdf-shown`（PDF 在 `pdf.sciencedirectassets.com`）| `save-pdf` 取得，29 頁；中途兩次人工驗證（#819，處置待使用者裁決） | 2026-11-19，1 篇成功 |
 

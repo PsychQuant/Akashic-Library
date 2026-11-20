@@ -332,10 +332,15 @@ final class FulltextFetchPathTests: XCTestCase {
         assertVerification(run(s))
     }
 
+    // spec-example: fulltext-gate-look / The tab-unchanged hint points to the landing table
     func testATabThatDoesNotMoveIsHandedOver() {
         var s = Scenario(); s.afterNavURL = ""
         assertHandover(run(s), .tabUnchanged)
         XCTAssertTrue(errText.contains("may have started a download"), errText)
+        // 提示不替 skill 決定結局：照 skill 的落點表判（第 4 輪 verify 第 22 列：先前寫「等一次、再交給人」，比 SKILL 窄）
+        XCTAssertTrue(errText.contains("Following the link was the click: do not click it again"), errText)
+        XCTAssertTrue(errText.contains("judge what happened as the skill's landing table says"), errText)
+        XCTAssertFalse(errText.contains("wait once and then hand the item to the person"), errText)
     }
 
     /// 登入頁維持整批暫停（使用者 2026-10-02：登入頁、驗證頁、封鎖頁維持現行的處置）。登入頁是 HTML（#613 R2 起 PDF 的判斷排在最前面，

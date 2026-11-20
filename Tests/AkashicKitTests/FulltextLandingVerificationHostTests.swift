@@ -22,8 +22,11 @@ final class FulltextLandingVerificationHostTests: XCTestCase {
     func testTheLandingBlocksVerificationHostsAreBotSignals() throws {
         let jq = try jqPath()
         let skill = try String(contentsOf: try repoRoot().appendingPathComponent("plugin/skills/akashic-fetch-fulltext/SKILL.md"), encoding: .utf8)
-        let def = try XCTUnwrap(skill.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.first { $0.hasPrefix("def vsvc:") },
-                                "SKILL 的落點那一段沒有 def vsvc: 那一行")
+        let defs = skill.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { $0.hasPrefix("def vsvc:") }
+        let def = try XCTUnwrap(defs.first, "SKILL 的落點那一段沒有 def vsvc: 那一行")
+        // 落點與交出去之後再接兩段各寫了一份：每一份都要是同一行，下面量的才是每一份
+        XCTAssertGreaterThanOrEqual(defs.count, 2, "落點與再接兩段都要有 def vsvc:")
+        XCTAssertEqual(Set(defs).count, 1, "SKILL 裡的 def vsvc: 各行不一致")
         let urls = [
             "https://challenges.cloudflare.com/turnstile/v0/x", "https://a.challenges.cloudflare.com/x", "https://hcaptcha.com/x",
             "https://newassets.hcaptcha.com/captcha/v1", "https://recaptcha.net/recaptcha/api2", "https://www.recaptcha.net/x",

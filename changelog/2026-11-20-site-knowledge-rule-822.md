@@ -10,9 +10,10 @@
 
 ## 文件
 
-- `plugin/rules/site-knowledge-goes-back-into-the-plugin.md`（新）：六條。第 1、3、4 條是封閉列舉（什麼算要寫回的更新、寫到哪個檔、誰來寫）；第 6 條是合併之後更新安裝的版本，只適用有原始碼 repo 的維護者，而且合併與更新各自仍要使用者確認。規則自己寫明三件做不到的事：它不自動載入、一般安裝的使用者不送出就到不了 plugin、沒有檢查會發現「量到了卻沒寫」。
+- `plugin/rules/site-knowledge-goes-back-into-the-plugin.md`（新）：六條。第 1、3、4 條是封閉列舉（什麼算要寫回的更新、寫到哪個檔、誰來寫）；第 6 條是合併之後更新安裝的版本，只適用有原始碼 repo 的維護者，而且合併與更新各自仍要使用者確認。規則自己寫明三件做不到的事：它不自動載入（靠各 skill 引用，守衛只保證連結在）、一般安裝的使用者不送出就到不了 plugin、沒有檢查會發現「量到了卻沒寫」。
 - `plugin/skills/akashic-fetch-fulltext/SKILL.md`：第 7 步加「回報之前，把這一批量到的寫回 plugin」；〈相關〉加這條規則；`html-page` 一列括號裡 Wiley epdf 的例子改成兩次量測各自的結果。
 - `plugin/skills/akashic-bootstrap/references/web-access.md`：〈其他〉加一點，讓每一個照它取得的 skill 都讀得到這條義務。
+- 其餘九個 skill 的 `SKILL.md`：各加一行指向這條規則。規則覆蓋的守衛（`run-guards.sh` 的 rule coverage）要求每一條 plugin 規則都被每一個 skill 以可解析的相對路徑引用；第一次跑守衛時九個 skill 缺這個連結。`akashic-merge-twins`、`akashic-promote-literals`、`akashic-verify-work` 沒有自己的網頁取得步驟，那一行照實這樣寫。
 - `plugin/skills/akashic-fetch-fulltext/references/publishers.md`：新增〈2026-11-20 的實測〉一節（九篇、六個站，每一列只有表裡寫的篇數）；規則表與先前各節裡被這一批推翻或補上的六處加註。
 - `CLAUDE.md`：plugin 規則的說明由兩條改成三條。
 - `plugins/akashic-discovery/.claude-plugin/plugin.json` 0.2.17 → 0.2.18 與 `.githooks/plugin-shell-versions.txt` 兩列：`akashic-discovery` 的 `rules/` 連到 `plugin/rules`，新規則讓它的殼內容變了；兩個殼都照 `akashic-guards plugin-shell-version` 印出的摘要接列。

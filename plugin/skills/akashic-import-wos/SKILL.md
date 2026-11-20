@@ -105,3 +105,4 @@ link），絕不靜默丟列。確認後的交接是**檔案**，不是口頭：
 - [`akashic-bootstrap`](../akashic-bootstrap/SKILL.md)——逐筆實體的補完；本 skill 是它上游的清單層 QA 閘
 - [`assertions-must-be-measured`](../../rules/assertions-must-be-measured.md)——**intake 報告裡的每個計數與每次 Crossref 判定都受它管**：查得到就寫查到什麼、查不到就寫「在哪些來源、以什麼查詢、哪一天查無」，不寫「應該是」。分母定案是人要照著行動的數字，過寬的斷言會直接流進下游統計
 - [`source-of-truth-over-consent`](../../rules/source-of-truth-over-consent.md)——匯入檔與 Crossref 對不上的欄位列為歧異、不擅選；使用者同意匯入，不等於同意寫入錯的值
+- [`site-knowledge-goes-back-into-the-plugin`](../../rules/site-knowledge-goes-back-into-the-plugin.md)——一批做完、回報之前，把這一批量到的網站或 API 行為（plugin 還沒有紀錄的、與 plugin 寫的不同的、照字面做不到的一步）寫回 plugin，並在回報列出寫了什麼（#822）

@@ -66,6 +66,7 @@ docs/zero-instance-measurements.md
 mcpb/manifest.json
 plugin/.claude-plugin/plugin.json
 plugin/rules/assertions-must-be-measured.md
+plugin/rules/site-knowledge-goes-back-into-the-plugin.md
 plugin/rules/source-of-truth-over-consent.md
 plugin/skills/akashic-promote-literals/SKILL.md
 plugins/akashic-discovery/.claude-plugin/plugin.json

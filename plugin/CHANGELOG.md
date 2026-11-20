@@ -4,7 +4,7 @@
 
 使用者 2026-11-20 的指示與三個選擇；細節在 `changelog/2026-11-20-site-knowledge-rule-822.md`。**只改文件，沒有改 `akashic` CLI**：SKILL 第 0 步要求的契約版本仍是 13。
 
-- 新規則 `rules/site-knowledge-goes-back-into-the-plugin.md`：碰網站的 skill 在一批做完、回報之前，把量到的站別做法寫回 plugin（什麼算、寫到哪個檔、誰來寫、要帶哪些欄位都是封閉列舉）；改動合併之後，同一個工作階段把安裝的 plugin 與 CLI 更新到合併後的版本。`akashic-fetch-fulltext` 第 7 步與 `akashic-bootstrap` 的 `web-access.md`〈其他〉引用它。
+- 新規則 `rules/site-knowledge-goes-back-into-the-plugin.md`：碰網站的 skill 在一批做完、回報之前，把量到的站別做法寫回 plugin（什麼算、寫到哪個檔、誰來寫、要帶哪些欄位都是封閉列舉）；改動合併之後，同一個工作階段把安裝的 plugin 與 CLI 更新到合併後的版本。`akashic-fetch-fulltext` 第 7 步與 `akashic-bootstrap` 的 `web-access.md`〈其他〉引用它；其餘九個 skill 的 `SKILL.md` 各加一行指向它（規則覆蓋的守衛要求每一條 plugin 規則都被每一個 skill 引用），不自己讀網站的三個 skill 寫明這一點。
 - `akashic-fetch-fulltext` 的 `references/publishers.md` 新增〈2026-11-20 的實測〉：合併後的流程第一次用在真的出版商網站，九篇、六個站（SAGE、Wiley 的學會子網域、Cambridge Core、Taylor & Francis、Oxford Academic、SpringerLink），以及對話框探測在出現 PDF 分頁之後整個視窗讀成 `unknown` 的觀察（PsychQuant/safari-browser#345）。
 - 被這一批推翻的舊句加註、不刪：Wiley 的 epdf 閱讀器「讀不到任何下載鈕」（那一篇讀得到）、SAGE「每一篇最後都要使用者按一次儲存」（下載位置是固定資料夾時不必）。SKILL 的 `html-page` 一列括號裡的例子跟著改。
 - `akashic-discovery` 的殼 0.2.17 → 0.2.18：它的 `rules/` 是指向 `plugin/rules` 的連結，多了一條規則就是殼的內容變了（`akashic-guards plugin-shell-version` 要求升版），skill 本身沒有改。

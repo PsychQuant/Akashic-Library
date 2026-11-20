@@ -25,7 +25,7 @@
 | 量到的是 | 寫進 |
 |---|---|
 | 出版商或網站的行為，由 `akashic-fetch-fulltext` 量到 | `skills/akashic-fetch-fulltext/references/publishers.md`：依日期開一節，一站一列 |
-| Safari 或 safari-browser 本身的行為（分頁開在哪裡、對話框與面板讀起來是什麼） | `skills/akashic-fetch-fulltext/references/safari-measurements.md`；同時在 safari-browser 的 repo 查有沒有既有的 issue，有就補實測，沒有就照下面第 4 條的 (b) 處理 |
+| Safari 或 safari-browser 本身的行為（分頁開在哪裡、對話框與面板讀起來是什麼） | `skills/akashic-fetch-fulltext/references/safari-measurements.md`；同時在 safari-browser 的 repo 查有沒有既有的 issue，有就把這次量到的補在那一張，沒有就照下面〈誰來寫〉的 (b) 處理 |
 | 期刊網站的行為，由 `akashic-venue-works` 量到 | `skills/akashic-venue-works/references/site-access.md` |
 | web API 或名冊、個人頁的行為，由其他經 `web-access.md` 取得的 skill 量到 | `skills/akashic-bootstrap/references/` 下講那個來源的檔（作品來源在 `work-sources.md`，人的來源在 `person-sources.md`，Semantic Scholar 在 `semantic-scholar.md`）；取得程序本身的行為寫進 `web-access.md` |
 
@@ -74,6 +74,6 @@
 
 ## 這條規則做不到的事
 
-- 它不讓規則自己被讀到：`plugin/rules/` 不自動載入，要靠各 skill 在回報那一步引用它（`akashic-fetch-fulltext` 第 7 步、`web-access.md`〈其他〉）。沒有引用到的 skill 不會照做。
+- 它不讓規則自己被讀到：`plugin/rules/` 不自動載入，要靠各 skill 引用它。每個 skill 的 `SKILL.md` 都有一行指向本檔，repo 的守衛只檢查那個連結在、路徑解析得到；寫在回報步驟裡的只有 `akashic-fetch-fulltext` 第 7 步與 `web-access.md`〈其他〉。skill 執行時有沒有讀、有沒有照做，沒有東西檢查。
 - 第 4 條的 (b) 只做到把觀察交到使用者手上；他不送出，plugin 就不會知道。
 - 沒有檢查會發現「量到了卻沒寫」。

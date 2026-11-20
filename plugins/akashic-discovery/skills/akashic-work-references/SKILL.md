@@ -215,6 +215,8 @@ warnings：
 
 **寫入以 source of truth 為準**：`cites` 的依據是種子的參考文獻；library 成員的依據是那個 library 的規則（目錄）、那份文件的參考文獻（文件型），或使用者的選擇（主題型）。使用者要求的寫入對不上時，改成正確的再寫，乾跑逐筆寫出「要求／依據／實際寫入」——見 [`source-of-truth-over-consent`](../../rules/source-of-truth-over-consent.md)。
 
+**量到的站別做法要寫回 plugin**：一批做完、回報之前，把這一批量到的網站或 API 行為（plugin 還沒有紀錄的、與 plugin 寫的不同的、照字面做不到的一步）寫回 plugin，並在回報列出寫了什麼——見 [`site-knowledge-goes-back-into-the-plugin`](../../rules/site-knowledge-goes-back-into-the-plugin.md)（#822）。
+
 ## 已知限制
 
 - **切分是啟發式的**：斷點（頁首、圖表、補充資料或致謝等結束標題）之後是否接續，是用「作者按字母順序接得上、年份括號後接標題」判定的。作者—年份格式以外的清單（例如 `[AB99]` 標籤制書目、年份不帶括號的書目）、條目沒有按作者排序的清單、嚴重的排版會切錯。`warnings` 與「只在 PDF／只在 OpenAlex」兩類就是讓這些誤差被看見的地方。

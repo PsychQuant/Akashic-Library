@@ -257,7 +257,7 @@ akashic fulltext fetch --window <N> [--expect-profile "<使用者自己的 profi
 | 原因 | 你做什麼 |
 |---|---|
 | `pdf-shown` | 分頁回報顯示 PDF（含顯示在**另一個主機**上：檔案放在 CDN 或儲存主機）：先確認 `handover:` 印的網址是這一篇的（規則 1 的 (d)），再用 `safari-browser save-pdf`（見〈能做到哪裡〉）取那一份，交給第 4 步；`take` 會驗證是不是這篇（`%PDF-` 檔頭擋掉登入或驗證頁）。`save-pdf` 失敗（WebKit 不再持有、分頁其實不是 PDF）就是「取不到」，不重試、不重新載入。「顯示 PDF」的依據是分頁讀得到的 `document.contentType`，頁面腳本改得了它：取到的不是 PDF、或讀起來是登入、驗證、封鎖頁，照〈中止條款〉 |
-| `html-page` | 頁面自己的 PDF 連結通到 HTML 頁（線上閱讀器、登入頁、無權限的外殼）：照〈一層層按〉的第 1 步讀那一頁（你還沒按任何東西，所以這裡沒有落點表的第 9 種）——是落點表第 5–8 種就照那一列處理（寫著沒有權限是「取不到（無權限）」；要求登入是 (b)：`html-page` 只在文章站上出現，所以這一頁在文章站本身）；有這篇自己的下載鈕就照四步按（SAGE 閱讀頁的 `Download PDF`、AME 的 `Download` 實測）；`snapshot -i` 讀不到任何這篇自己的下載元件（Wiley 的 epdf 閱讀器實測）是「取不到」 |
+| `html-page` | 頁面自己的 PDF 連結通到 HTML 頁（線上閱讀器、登入頁、無權限的外殼）：照〈一層層按〉的第 1 步讀那一頁（你還沒按任何東西，所以這裡沒有落點表的第 9 種）——是落點表第 5–8 種就照那一列處理（寫著沒有權限是「取不到（無權限）」；要求登入是 (b)：`html-page` 只在文章站上出現，所以這一頁在文章站本身）；有這篇自己的下載鈕就照四步按（SAGE 閱讀頁的 `Download PDF`、AME 的 `Download` 實測）；`snapshot -i` 讀不到任何這篇自己的下載元件是「取不到」（Wiley 的 epdf 閱讀器 2026-11-10 那一篇是這樣；2026-11-20 學會子網域上的另一篇讀得到「Download PDF」、按成了，見 publishers.md——所以到了 epdf 閱讀器照樣先讀，不要憑站名判） |
 | `button` | 頁面的 PDF 下載是表單按鈕（Annual Reviews 型；`fetch` 已經記了一次嘗試）：照〈一層層按〉按那個按鈕（**只按，不代填、不代送表單以外的東西**；按之前照常再記一次），按了之後由落點表決定（找新檔就是它的第 4 種；第 3 輪 verify 第 7 列：先前另外寫「照 `tab-unchanged` 那一列找新檔」，兩個說法對同一刻） |
 | `tab-unchanged` | 導航之後分頁沒有離開文章頁：連結多半直接開始下載了（MDPI 實測，2026-11-02）。在 Safari 的下載資料夾找比 `<暫存目錄>/<citekey>.start` 新的 `*.pdf`（輪詢約 15 秒）；找到就交給第 4 步，`acquisition=browser-download`。沒有新檔：先 `touch "<暫存目錄>/<citekey>.clicked"`（`fetch` 的導航就是這一下，之後鎖對不到、`moved` 照按過之後處理），再跑〈一層層按〉的落點那一段（基準是起點那一段存的 `.before.json`，`.pos`、`.url` 也是它寫的；第 3 輪 verify 第 7 列：先前這時沒有基準檔，那一段會以讀頁面文字那一段的結束碼結束），照落點表判，「沒有變化」就照那一列處理（等一次，不再按）；判到第 2 種（頁面換了、出現另一個這篇自己的下載元件）也不按，照那一列列入最後交給使用者的清單。這裡的〈落點〉那一段是單獨跑的，所以它看到視窗多了分頁就印 `grown`、停下整批：`fetch` 的導航沒有可以比對的連結——`fetch` 導航到這篇自己的 PDF 連結算第一下（等於按了那個連結），所以這裡不再按，不走〈一層層按〉（#781 起有意的改變：基底版本在這裡由使用者授權後再按一下；使用者 2026-11-10 10:39「不按第二次」；#781 verify 第 1 輪第 26 列要求寫明） |
 | `left-site` | 分頁到了**別的主機**，那一頁載完了、沒有命中驗證、封鎖或登入的封閉清單（跨主機的中繼頁、檔案主機、出版商換了網域——AME 的 `.com` → `.org` 實測）——**這不代表它不是登入頁**。照這個順序讀那一頁，第一個成立的就照它做（你還沒按任何東西，所以這裡沒有落點表的第 9 種；靜態、沒有連結的頁面只有一個結局，就是最後的「取不到」，第 4 輪 verify 第 9 列）：先跑落點表第 1 種的探測（`fetch` 已經判過這個主機不是驗證服務、網址沒有登入頁的長相），顯示 PDF 就 `save-pdf`（規則 1 例外 (d) 收這個分頁）；不是 PDF 就照〈一層層按〉的第 1 步讀——讀起來像被懷疑（`get text` 交給 `bot-signals`）是 (e)；**要求登入、輸入帳密或選機構，或有登入頁的長相（〈整批暫停〉第三點），是 (e) 整批暫停**——這一頁在別的主機上，不是 (b)（基底版本就是中止條款；#781 verify 第 1 輪第 1 列恢復；別的主機上的 IdP 登入頁是 (e)，使用者 2026-11-19 19:31 確認）；有這篇自己的 PDF 或下載連結就照四步按；都不是就是「取不到」。不是 (e) 時**批次繼續** |
@@ -550,6 +550,8 @@ CLI 是 `akashic update-entry <citekey> --add-source <digest>`，加 `--apply` �
 
 另外列出：第 2 步查到的合法開放版本（位址，供使用者決定要不要改用）、留在 Safari 裡沒關的分頁、今天各站用掉幾次嘗試、當場停下過的每一次（第 3 步落點那一段印的 `grown …` 一行照抄：多出來的分頁在哪個位置、什麼主機，或多了幾個視窗；對話框只寫 `present` 或 `unknown`，訊息不寫）。整批暫停時先回報 (e)：哪個站、哪個訊號、在哪一步、完成到哪一篇。**不寫「應該有權限」「大概是這篇」**——量到什麼寫什麼，見 [`assertions-must-be-measured`](../../rules/assertions-must-be-measured.md)。
 
+**回報之前，把這一批量到的寫回 plugin**（使用者 2026-11-20，#822）：這一批裡量到 [publishers.md](references/publishers.md) 還沒有的站別行為、與它或本檔寫的不同的行為、或本檔照字面做不到的一步，就照 [`site-knowledge-goes-back-into-the-plugin`](../../rules/site-knowledge-goes-back-into-the-plugin.md) 寫回去——什麼算、寫到哪個檔、誰來寫（這個工作階段有 plugin 的原始碼 repo，或只有安裝的版本）、每一列要帶哪些欄位，都在那一條。回報裡加一節列出寫了什麼；什麼都沒量到新的，就寫一句「這一批沒有要寫回的觀察」。你自己漏做的一步（本檔有寫、執行時沒照做）不寫進 plugin，在回報照實寫。
+
 ### 8. 下一步：依全文核對書目
 
 全文連回記錄之後，下一步是 [`akashic-verify-work`](../akashic-verify-work/SKILL.md)：讀這份全文的 byline 與成員名單，與 store 裡的作者列、標題、卷期頁比對，乾跑給人看、人同意後以 `update-entry --replace-authors` 整組替換作者列並記下依據（#742）。回報裡對已連回記錄的每一篇，提示可以接著跑它；**不要自動接著跑**——那一步要人確認。
@@ -568,6 +570,7 @@ CLI 是 `akashic update-entry <citekey> --add-source <digest>`，加 `--apply` �
 
 - [`assertions-must-be-measured`](../../rules/assertions-must-be-measured.md)——回報與 publishers.md 的每條站點描述都是關於世界的斷言，帶觀察日期
 - [`source-of-truth-over-consent`](../../rules/source-of-truth-over-consent.md)——存進 `sources/` 的全文要核對過就是這一篇；使用者指定的連結是線索，對不上就不存
+- [`site-knowledge-goes-back-into-the-plugin`](../../rules/site-knowledge-goes-back-into-the-plugin.md)——一批做完、回報之前，把量到的站別做法寫回 publishers.md 與本檔（#822）
 - akashic-bootstrap 的 work-sources.md——DOI 反查與 OpenAlex 的兩個陷阱
 - [safari-measurements.md](references/safari-measurements.md)——2026-11-20 在真的 Safari 上的量測（M0–M8）：第 3 步關於新分頁、新視窗與對話框的每一條規則都指到它的某一列，或寫明沒有量過
 - #613（本 skill；2026-09-28「最高原則：跟真人一樣」、2026-10-01 兩則裁決）、#614（`akashic.sources` 寫入入口）、#781／#780（預設由 Claude 做、一層層按、`fulltext attempt`）、PsychQuant/safari-browser#210（存檔方式的比較與 pdf-cache）、#375（`pdf-cache` 不認 WebKitCache Version 18）、#358（儲存面板按不到；它開著時讀到的只有 `unknown`，2026-11-20 實測的 M6）、#182（`wait --jitter`）、#183（CLI 沒有下載指令）

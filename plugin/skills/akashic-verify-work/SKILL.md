@@ -211,6 +211,7 @@ esac
 
 - [`source-of-truth-over-consent`](../../rules/source-of-truth-over-consent.md)——團體署名與成員名單的依據是作品本身；使用者的話是線索
 - [`assertions-must-be-measured`](../../rules/assertions-must-be-measured.md)——回報裡的每一句都要量過；拿不準就標無法核對
+- [`site-knowledge-goes-back-into-the-plugin`](../../rules/site-knowledge-goes-back-into-the-plugin.md)——本檔沒有自己的網頁取得步驟；過程中若經別的 skill 去讀外部網站，量到的站別做法照這一條在回報之前寫回 plugin（#822）
 - akashic-fetch-fulltext——取得全文、存進 `sources/`、連回 work（本 skill 的前一步）
 - akashic-verify-person——「這個 literal 是不是這個人」的身分判定
 - #742（本 skill 與替換腿；2026-10-21 四項裁決、2026-10-24 裁決 3 改判）

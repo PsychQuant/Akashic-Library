@@ -2,7 +2,7 @@
 
 每一條都是**某一天觀察到的站點行為**，不是永久事實——出版商會改版。表中日期是最後一次實測；超過幾個月沒再遇到的，用之前先看一眼頁面。
 
-所有觀察都在使用者的機構網路下、以使用者自己的 Safari profile 進行。**權限因機構而異**：這裡寫「取得成功」只代表那個機構那一天有權限。
+2026-11-10 之前各批的觀察都在使用者的機構網路下、以使用者自己的 Safari profile 進行；2026-11-10 與 2026-11-19 兩批在哪個 profile、哪個網路下，issue 沒有回報（見〈2026-11-10、2026-11-19 的實測〉；#781 第 4 輪 verify 第 26 列：這一句先前涵蓋了那兩批）。**權限因機構而異**：這裡寫「取得成功」只代表那個機構那一天有權限。
 
 ## #613 之後怎麼讀這張表
 
@@ -94,15 +94,15 @@
 
 ## 2026-11-10、2026-11-19 的實測（#780、#781：一層層按與 `save-pdf`）
 
-兩批在哪個 Safari profile、哪個網路下，issue 都沒有回報（#781 第 2 輪 verify 第 17 列：先前這裡寫兩批都在使用者自己的 profile 下）。2026-11-19 那一批 SAGE 的兩下是 Claude 按的，**沒有記進每站每天的帳本**（#780 的 2026-11-19 留言：當天的帳本沒有 `journals.sagepub.com` 的紀錄；當時還沒有 `akashic fulltext attempt`）。2026-11-10 那一批是誰按的，#780 正文沒有寫；當時同樣還沒有 `attempt`，所以那幾下也不可能記進帳本——這是推論，issue 沒有回報（#781 verify 第 1 輪第 18 列：先前這一段寫了兩批都在機構網路、2026-11-10 由 Claude 按，issue 都沒有回報）。環境：safari-browser v2.9.0；2026-11-19 是 macOS 27.3、`akashic fulltext contract` 印 10。
+兩批在哪個 Safari profile、哪個網路下，issue 都沒有回報（#781 第 2 輪 verify 第 17 列：先前這裡寫兩批都在使用者自己的 profile 下）。2026-11-19 那一批 SAGE 的兩下是 Claude 按的，**沒有記進每站每天的帳本**（#780 的 2026-11-19 留言：當天的帳本沒有 `journals.sagepub.com` 的紀錄；當時還沒有 `akashic fulltext attempt`）。2026-11-10 那一批是誰按的，#780 正文沒有寫；當時同樣還沒有 `attempt`，所以那幾下也不可能記進帳本——這是推論，issue 沒有回報（#781 verify 第 1 輪第 18 列：先前這一段寫了兩批都在機構網路、2026-11-10 由 Claude 按，issue 都沒有回報）。環境：safari-browser v2.9.0；2026-11-19 是 macOS 27.3、`akashic fulltext contract` 印 10。**2026-11-20 另有一次在真的 Safari 上的量測**（按了之後分頁開在哪裡、對話框與儲存面板讀起來是什麼），用的是本機的測試頁、沒有連任何出版商網站，所以下表沒有新的一列；結果在 [safari-measurements.md](safari-measurements.md)，SKILL.md 第 3 步的規則以它為依據。
 
 | 站 | `fetch` 的結果 | 之後做了什麼、看到什麼 | 觀察 |
 |---|---|---|---|
 | Ovid／LWW（`ovid.com/jnls/<刊>/fulltext/…`）| 結束碼 3 | 頁面有「View full text」與「Download PDF」；「Download PDF」是這篇自己的連結，後面才接推薦文章。按下去，同一個分頁導到 `/pdf/…`，`save-pdf` 取得 | 2026-11-10，2 篇成功 |
-| Ovid／LWW，沒有權限 | 分頁落在 `/abstract/` | 頁面只有「Check Access」「Log in for access」：沒有權限 | 2026-11-10，1 篇未取得 |
+| Ovid／LWW，沒有權限 | 沒有回報 | 分頁在 `/abstract/`（#780 沒有寫那是 `fetch` 落的還是按了之後到的；#781 第 4 輪 verify 第 26 列），頁面只有「Check Access」「Log in for access」：沒有權限 | 2026-11-10，1 篇未取得 |
 | SAGE（journals.sagepub.com）| 結束碼 1 `points off-site`：`citation_pdf_url` 指到 Google Scholar | 文章頁的「PDF/EPUB」連到 `/doi/epub/…` 閱讀頁，閱讀頁上再按 `#favourite-download`（#780 正文的寫法；href 與 aria-label 是 2026-11-19 那一次讀到的，見下一列）。沒有產生下載檔，最後由使用者自己存 | 2026-11-10，1 篇 |
-| SAGE，同一條路 | 結束碼 1 `points off-site` | 同上兩下：文章頁的「PDF/EPUB」連結（href `/doi/reader/<DOI>`），閱讀頁上的 `a#favourite-download`（aria-label「Download PDF」，href 的路徑是 `/doi/pdf/<DOI>`）。第二下之後 `click` 結束碼 0、分頁網址不變、之後 18 秒下載資料夾沒有新檔：**Safari 掛著的是「儲存為」面板**（PsychQuant/safari-browser#358），不是下載權限提示；使用者按「儲存」之後檔案才寫入，`take` 結束碼 0（標題、PDF metadata 的 DOI、頁數都相符）。所以這一站目前每一篇最後都要使用者按一次「儲存」（SKILL.md〈人機分工〉的 (c)）。2026-11-10 那一次沒有下載檔可能是同一個面板在等——這是推測，沒有查證 | 2026-11-19，1 篇成功 |
-| AME（jss.amegroups）| `.com` 轉到 `.org`，結束碼 7 `left-site` | 文章頁 Article Options 的「PDF」連結（`a.pdf` → `/article/view/<id>/pdf`）開成新分頁；新分頁裡的 `#pdfDownloadLink`「Download」按下去跳出 Safari 的下載權限提示，那一步由使用者按 | 2026-11-10，1 篇 |
+| SAGE，同一條路 | 結束碼 1 `points off-site` | 同上兩下：文章頁的「PDF/EPUB」連結（href `/doi/reader/<DOI>`），閱讀頁上的 `a#favourite-download`（aria-label「Download PDF」，href 的路徑是 `/doi/pdf/<DOI>`）。第二下之後 `click` 結束碼 0、分頁網址不變、之後 18 秒下載資料夾沒有新檔：**Safari 掛著的是「儲存為」面板**（PsychQuant/safari-browser#358），不是下載權限提示；使用者按「儲存」之後檔案才寫入，`take` 結束碼 0（標題、PDF metadata 的 DOI、頁數都相符）。所以這一站目前每一篇最後都要使用者按一次「儲存」（SKILL.md〈人機分工〉的 (c)）。當時沒有讀 `documents --json` 的 `blocking_dialog`；2026-11-20 在本機測試頁上量到儲存面板開著時它是 `unknown`（[safari-measurements.md](safari-measurements.md) 的 M6），照現在的 SKILL，按了之後讀到 `unknown` 就當場停下請使用者看（落點表第 5 種）——這一站會不會每一篇都這樣停一次，是從 M6 推出來的，沒有在這一站量過。2026-11-10 那一次沒有下載檔可能是同一個面板在等——這是推測，沒有查證 | 2026-11-19，1 篇成功 |
+| AME（jss.amegroups）| `.com` 轉到 `.org`，結束碼 7 `left-site` | 文章頁 Article Options 的「PDF」連結（`a.pdf` → `/article/view/<id>/pdf`）開成新分頁（開在視窗的哪個位置當時沒有記）；新分頁裡的 `#pdfDownloadLink`「Download」按下去跳出 Safari 的下載權限提示，那一步由使用者按（這個提示在 `documents --json` 裡是什麼樣子沒有量過：2026-11-20 的量測裡它沒有出現） | 2026-11-10，1 篇 |
 | Wiley epdf 閱讀器 | — | `snapshot -i` 讀不到任何下載鈕，由使用者自己存 | 2026-11-10 |
 | Project Euclid | 結束碼 7 `pdf-shown`（PDF 在文章站本身）| `save-pdf` 以 `--url` 鎖 `fetch` 交接出來的分頁，取得（當時的鎖法；現在照 SKILL 第 3 步〈`fetch` 之後的鎖分頁〉，不用 `--url`） | 2026-11-19，2 篇成功 |
 | Oxford Academic | 結束碼 7 `pdf-shown`（PDF 在 `watermark02.silverchair.com`）| `save-pdf` 取得，27 頁 | 2026-11-19，1 篇成功 |

@@ -13,7 +13,7 @@
 ## 開始前
 
 1. 先載 `safari-browser` skill 的 tab-locking 段。
-2. **Profile**：問使用者他自己的 Safari profile 名稱（Safari 視窗標題列「`<profile> — <標題>`」的前綴），**不要猜**。以下寫成 `<P>`。它不含 `"`、`$`、反引號、反斜線或換行；不符合就停下來問。其他 profile 是別人的 session，不碰。**不要跑不帶 `--profile` 的 `documents`**：它會把所有 profile 的分頁網址與標題整份倒進對話，其中有別人的 session。確認名稱有效、只印個數：`safari-browser documents --json --profile "<P>" | python3 -c 'import json,sys;print(len(json.load(sys.stdin)))'`——印 0 或失敗就停下來問（`--profile` 對不存在的名稱怎麼回應沒有實測）。
+2. **Profile**：問使用者他自己的 Safari profile 名稱（Safari 視窗標題列「`<profile> — <標題>`」的前綴），**不要猜**。以下寫成 `<P>`。它不含 `"`、`$`、反引號、反斜線或換行；不符合就停下來問。其他 profile 是別人的 session，不碰。**不要跑不帶 `--profile` 的 `documents`**：它會把所有 profile 的分頁網址與標題整份倒進對話，其中有別人的 session（唯一的例外不在本檔：`akashic-fetch-fulltext` 第 3 步在 `fetch` 讀不出視窗的 profile 時，把整份清單只寫進暫存檔、在同一個呼叫裡以視窗 id 篩完就刪、不印進對話；那是那個 skill 自己登記的後備，別處不得比照）。確認名稱有效、只印個數：`safari-browser documents --json --profile "<P>" | python3 -c 'import json,sys;print(len(json.load(sys.stdin)))'`——印 0 或失敗就停下來問（`--profile` 對不存在的名稱怎麼回應沒有實測）。
 3. **暫存目錄**：`mktemp -d`，印出路徑，以下寫成 `<W>`。回應是第三方內容，只留在這裡，不進任何 repo；承重的那幾份另以 `store-source` 存進 `sources/`（見 [writing-to-the-store.md](writing-to-the-store.md)）。
 4. **`akashic` 要含 #629 的子命令**（`fulltext`、`crossref-match`、`abstracts-to-proposals`、`literal-census`）**與 #692 的 `web-read`**。前者原本是隨 plugin 出貨的 python／shell 腳本，`web-read` 原本是本檔裡要照抄的檢查腳本，現在都是 `akashic` CLI 的子命令；plugin 只自動下載 `akashic-mcp`、**不出貨 `akashic` CLI**，所以 plugin 的文字可能比使用者機器上的 CLI 新。舊 binary 的症狀：`akashic fulltext bot-signals` 印 `Error: … unexpected arguments: 'fulltext', 'bot-signals'`、結束碼 64（子命令不存在），`akashic web-read` 同形。**中止條款與讀頁面的檢查靠它們**，所以先確認再開始：
 

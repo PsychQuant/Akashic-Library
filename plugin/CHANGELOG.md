@@ -1,5 +1,13 @@
 # Changelog
 
+## #822 — 2026-11-21 的實測：三篇 Psychometrika 從 SpringerLink 的文章頁取得（2026-11-21）：plugin 殼 0.13.18 → 0.13.19，契約版本不變（13）
+
+照 `rules/site-knowledge-goes-back-into-the-plugin.md` 寫回的第一批。**只改 `references/publishers.md` 與版號，沒有改 SKILL、沒有改 `akashic` CLI。**
+
+- `akashic-fetch-fulltext` 的 `references/publishers.md` 新增〈2026-11-21 的實測〉：前一天在 Cambridge Core 被寫成沒有權限的三篇 Psychometrika（DOI 是 `10.1007/…`），入口改成使用者確認的 `https://link.springer.com/article/<DOI>` 之後，三篇都是結束碼 7 `pdf-shown`、`save-pdf` 取得。
+- 加註、不刪：〈2026-11-20 的實測〉Cambridge Core 一列（那一列量到的是那一站沒有權限，不是那三篇拿不到）；規則表 Springer 一列的出處。
+- **沒有改的**：SKILL 第 2 步「`--landing` 一律是 `https://doi.org/<DOI>`」。這一批顯示期刊換過出版商時，舊出版商的站可能還給得到全文；要不要讓流程自己提出或自己試那個入口，等使用者裁決。
+
 ## #822 — 量到的站別做法要寫回 plugin（2026-11-20）：plugin 殼 0.13.17 → 0.13.18，契約版本不變（13）
 
 使用者 2026-11-20 的指示與三個選擇；細節在 `changelog/2026-11-20-site-knowledge-rule-822.md`。**只改文件，沒有改 `akashic` CLI**：SKILL 第 0 步要求的契約版本仍是 13。

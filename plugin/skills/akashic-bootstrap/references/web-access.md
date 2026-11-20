@@ -330,6 +330,7 @@ grep -q '[^[:space:]]' "<W>/r-$K.txt" || { echo "empty read - read failed" >&2; 
 
 - **持久狀態變更先問**：清 cache、註銷 service worker、改 cookie 或 storage，先說明意圖、取得同意再做。
 - **不代按登入、授權、「接受」之類的按鈕**：那是使用者本人的操作。
+- **量到的站別做法要寫回 plugin**（使用者 2026-11-20，#822）：一批做完、向使用者回報之前，這一批裡量到 plugin 還沒有紀錄的網站或 API 行為、與 plugin 寫的不同的行為、或本檔照字面做不到的一步，照 [`site-knowledge-goes-back-into-the-plugin`](../../../rules/site-knowledge-goes-back-into-the-plugin.md) 寫回去（寫到哪個檔、誰來寫、要帶哪些欄位都在那一條），並在回報列出寫了什麼。這一條對每一個照本檔取得的 skill 都適用。
 - **用完的分頁**：整個 run **沒有**觸發中止條款時，用同一把鎖關掉自己開的分頁（每個站一個）：
 
   ```bash

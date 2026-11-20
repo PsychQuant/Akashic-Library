@@ -484,7 +484,7 @@ final class FulltextLockBlockTests: XCTestCase {
         XCTAssertEqual(rc, 0, out)
         XCTAssertTrue(out.hasSuffix("dialog=clear was=clear new-tab=3:pub.example\n"), out)
         XCTAssertEqual(calls, [Self.documents, Self.click, Self.documents])
-        for (other, host) in [("favorites://", ""),                                               // M3：⌘T 的分頁也在最後面
+        for (other, host) in [("favorites://", "(favorites)"),                                    // M3：⌘T 的分頁也在最後面；沒有主機的網址印 scheme
                               ("https://pub.example/search?q=mine&t=SECRET", "pub.example"),        // 使用者自己在出版商網站上開的分頁
                               ("https://cdn.example/x.pdf?sig=SECRET", "cdn.example")] {          // M2e：轉址過的連結，新分頁顯示的不是 href
             (rc, out, calls) = try startAndClick(before: before, after: [tabs(Self.user, Self.page, other)])
@@ -570,7 +570,7 @@ final class FulltextLockBlockTests: XCTestCase {
         var (rc, out, _) = try startAndClick(before: tabs(Self.user, Self.page), after: [after], link: "#")
         XCTAssertEqual(rc, 10, out)
         XCTAssertFalse(out.contains("moved"), out)
-        XCTAssertTrue(out.contains("grown why=link-unresolvable "), out)
+        XCTAssertTrue(out.contains("grown why=link-unresolvable windows-new=0 unseen=3:pub.example\n"), "被按的分頁自己不列在 unseen 裡：\(out)")
         XCTAssertEqual(file("k1.url"), "https://pub.example/doi/full/10.1/x#\n", "被按的分頁的新網址存下來")
         XCTAssertEqual(file("k1.mark"), "", "記號已經不在那個分頁的網址上")
         // 同一下沒有開分頁：只是網址換了
@@ -812,6 +812,36 @@ final class FulltextLockBlockTests: XCTestCase {
             XCTAssertEqual(out, line)
             XCTAssertEqual(file("k1.url"), now + "\n")
         }
+    }
+
+    // spec-example: fulltext-division-of-labour / A re-take on another host is not read
+    func testASameSiteNeighbourThatSlidInAfterAHandOverIsNotTaken() throws {
+        // 同一個出版商的幾篇接連延到最後，是批次裡常見的排列：交出去的那個分頁右邊緊鄰的就是同一個站的另一篇
+        // （版面沒有量過；`fetch` 的分頁依序開在最後面，M1）。協調者重放 a0e2696c 時找到：右邊緊鄰的那一篇滑進來會被收下。
+        let held = tabs("https://news.example/", "https://a.example/article", "https://b.example/signin?paper=1", "https://b.example/doi/10.1/paper2")
+        try deferred("k1", url: "https://b.example/signin?paper=1", position: 3, held: held)
+        var (rc, out, calls) = try run(try handOverStep(key: "k1"), docs: held)
+        XCTAssertEqual(rc, 0, out)
+        // 交出去的分頁關掉了，右邊同一個站的那一篇滑進這個位置（清單變短，它原本的位置已經不存在）
+        (rc, out, calls) = try run(try retakeBlock(site: "b.example"),
+                                   docs: tabs("https://news.example/", "https://a.example/article", "https://b.example/doi/10.1/paper2"))
+        XCTAssertEqual(rc, 4, out)
+        XCTAssertEqual(out, "moved\n")
+        XCTAssertEqual(calls, [Self.documents])
+        XCTAssertEqual(file("k1.url"), "https://b.example/signin?paper=1\n", "沒有收下鄰居的網址")
+        // 右邊還有別的分頁時也一樣（清單變短，滑進來的仍是緊鄰的那一篇）
+        let longer = held + [row(1, 9005, 5, "https://c.example/x")]
+        try write(longer, to: "k1.held.json")
+        (rc, out, _) = try run(try retakeBlock(site: "b.example"),
+                               docs: tabs("https://news.example/", "https://a.example/article", "https://b.example/doi/10.1/paper2", "https://c.example/x"))
+        XCTAssertEqual(rc, 4, out)
+        XCTAssertEqual(out, "moved\n")
+        // 對照：鄰居留在原位、交出去的那一個分頁登入之後換到這一篇的網址——收
+        try write(held, to: "k1.held.json")
+        (rc, out, _) = try run(try retakeBlock(site: "b.example"),
+                               docs: tabs("https://news.example/", "https://a.example/article", "https://b.example/doi/10.1/paper1", "https://b.example/doi/10.1/paper2"))
+        XCTAssertEqual(rc, 0, out)
+        XCTAssertEqual(out, "retake=ok url-changed=true host=b.example vsvc=false\n")
     }
 
     // spec-example: fulltext-division-of-labour / A hand-over whose tab cannot be found is not made

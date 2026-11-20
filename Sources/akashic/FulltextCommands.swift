@@ -12,9 +12,9 @@ import AkashicMCPKit
 struct FulltextCmd: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "fulltext",
-        abstract: "取全文與依全文核對的中間運算：驗證下載檔、起疑訊號、抖動、導航到 PDF 並交接、記一次嘗試（attempt）、收存下來的檔、標題規則校準、契約版本、逐頁文字（text）",
+        abstract: "取全文與依全文核對的中間運算：驗證下載檔、起疑訊號、抖動、導航到 PDF 並交接、記一次嘗試（attempt）、新分頁是不是按的那個連結（same-target）、收存下來的檔、標題規則校準、契約版本、逐頁文字（text）",
         subcommands: [FulltextVerifyCmd.self, FulltextBotSignalsCmd.self, FulltextJitterCmd.self,
-                      FulltextFetchCmd.self, FulltextAttemptCmd.self, FulltextTakeCmd.self, FulltextCalibrateCmd.self, FulltextContractCmd.self,
+                      FulltextFetchCmd.self, FulltextAttemptCmd.self, FulltextSameTargetCmd.self, FulltextTakeCmd.self, FulltextCalibrateCmd.self, FulltextContractCmd.self,
                       FulltextTextCmd.self, FulltextCompareCmd.self])
 }
 
@@ -238,6 +238,49 @@ struct FulltextAttemptCmd: ParsableCommand {
             err: { line in FileHandle.standardError.write(Data((line + "\n").utf8)) })
         let code = attempt.run(site: site, landing: landing, ledger: ledger ?? FulltextAttemptLedger.defaultPath())
         if code != 0 { throw ExitCode(code) }
+    }
+}
+
+/// 按了之後多出來的那一個分頁，顯示的是不是按的那個連結指的網址（#781 第 4 輪 verify 第 1、2 列）。skill 的落點那一段呼叫它；
+/// 三個值都是頁面決定的字串，所以都從檔案讀，不經命令列。不碰瀏覽器、不連網、不讀不寫 store、不寫任何檔。
+struct FulltextSameTargetCmd: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "same-target",
+        abstract: "新分頁的網址是不是按的那個連結（href 對被按的那一頁解析之後）指的網址；印 match、differ 或 unresolvable 一行；唯讀",
+        discussion: """
+        取全文的 skill 按了頁面上這篇自己的連結之後，視窗多了一個分頁時呼叫：印 match 才把那個分頁當成這一下開的。\
+        三個檔各放一個值（結尾的換行不算）：--page-file 被按的那一頁當時的網址，--href-file 按之前讀到的 href 屬性原文，--tab-file 新分頁的網址。\
+        比的是 scheme、主機、埠號、路徑與查詢字串，片段不比。stdout 恰好一行，封閉的三種：\
+        match（解析得出來、與新分頁相同）；differ（解析得出來、新分頁是別的網址，含轉址過的連結）；\
+        unresolvable（href 是空的、只有片段、不是 https、帶帳密、主機不乾淨、有不解析的字元、解析之後就是那一頁自己，或那一頁的網址不是乾淨的 https 網址；\
+        --href-file 不在也算）。印了這三種之一時結束碼 0；--page-file 或 --tab-file 讀不到是 1、什麼都不印；命令列打錯是 64。\
+        呼叫端把 match 以外的任何輸出與任何非零的結束碼都當成「不是這一下開的」。
+        """)
+
+    @Option(name: .customLong("page-file"), help: "放著被按的那一頁當時的網址的檔")
+    var pageFile: String
+
+    @Option(name: .customLong("href-file"), help: "放著按之前讀到的 href 屬性原文的檔（不在或是空的＝沒有 href）")
+    var hrefFile: String
+
+    @Option(name: .customLong("tab-file"), help: "放著新分頁的網址的檔")
+    var tabFile: String
+
+    private static func read(_ path: String) -> String? {
+        guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+        defer { try? handle.close() }
+        guard let data = try? handle.read(upToCount: FulltextSameTarget.maxBytes + 1) else { return nil }
+        // 超過上限或不是 UTF-8 的內容不是一個網址：回一個必然不解析的值
+        guard data.count <= FulltextSameTarget.maxBytes, let text = String(data: data, encoding: .utf8) else { return "\u{0}" }
+        return text
+    }
+
+    func run() throws {
+        guard let page = Self.read(pageFile), let tab = Self.read(tabFile) else {
+            FileHandle.standardError.write(Data("✗ --page-file or --tab-file cannot be read — nothing was compared; treat the tab as not opened by this click.\n".utf8))
+            throw ExitCode(1)
+        }
+        print(FulltextSameTarget.judge(page: page, href: Self.read(hrefFile) ?? "", tab: tab).rawValue)
     }
 }
 

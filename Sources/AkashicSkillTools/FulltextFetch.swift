@@ -89,7 +89,7 @@ public final class FulltextFetch {
     /// 本身也不可使用（第一版還會關分頁，第三版導航時會在前景視窗開出新分頁）。
     /// 8＝#768 第五版起（2026-11-04～05）：記號鎖帶 `--profile`、別的 profile 的視窗開著就停（開頭、接續、每一眼）、頁面文字這類讀取的鎖找不到分頁時
     /// 重跑一次、PDF 連結的答案綁在判過的那一頁上、接續可帶 `--resume-mark`。第五到第八版的開發建置也印 8 而行為不同（第五版有版本閘、第六版接續
-    /// 不判別的 profile、讀連結會重跑、第八版同一個位置兩列不停、換頁之後不等落定），都沒有發布（CLI 沒有發布版）；第 0 步的門檻升到 9 之後（現在是 12）一律被擋下。
+    /// 不判別的 profile、讀連結會重跑、第八版同一個位置兩列不停、換頁之後不等落定），都沒有發布（CLI 沒有發布版）；第 0 步的門檻升到 9 之後（現在是 13）一律被擋下。
     /// 9＝#613 b49（2026-11-09）：導航之後（含 `--resume-stage followed`）文章站上網址有登入頁長相的那一頁寫著 CAPTCHA 時整批暫停（先前是 8，等人驗證；導航之前自 b37 起就是 6）；`/sign-on`、`/single-sign-on`
     /// 與單字寫法的 `signon`、`singlesignon` 算登入頁（落地頁是它們時整批暫停，先前照一般網頁讀；導航之後落在別的主機上的這種頁面整批暫停，
     /// 先前交接 `left-site`；主機最左邊的標籤是 `signon`、`sign-on`、`single-sign-on`、`singlesignon` 也算登入主機——第 8 則的副作用，使用者 2026-11-11 裁決保留，#777 第 4 件）。2026-11-06 到 b49 之間從 main 建的 CLI 印 8，碰到這兩種頁面照舊的判斷，所以要調（使用者 2026-11-09）。
@@ -103,8 +103,11 @@ public final class FulltextFetch {
     /// 12＝#772（2026-11-19）：每一個以位置認分頁的動作與新分頁都帶 `--window-id`（開頭選定的視窗的穩定 id），別的 profile 的視窗開著不再停（少了
     /// 一種結束碼 1）、`--expect-profile` 改成選填、`documents --json` 的列沒有頂層 `window_id`（safari-browser 2.9.0 以前）就停、認出分頁時印
     /// `own-tab:` 一行（skill 之後的讀與按以它鎖同一個視窗與分頁）。skill 要用新的一行，舊的 CLI 又會在別的 profile 的視窗開著時停，所以要調。
+    /// 13＝#781 第 4 輪 verify 之後（2026-11-20）：新增 `fulltext same-target`（skill 按了之後視窗多一個分頁時，比它的網址是不是按的那個連結；
+    /// `FulltextSameTarget`），`tab-unchanged` 的 stderr 提示改成照 skill 的落點表判。`fetch`、`take`、`attempt` 的結束碼與 stdout 都與版本 12 相同；
+    /// 調它是因為 SKILL 的落點那一段要呼叫 `same-target`，沒有這個子命令的 CLI（印 12 以下的）配上新的 SKILL，按了之後開的新分頁一律認不出來。
     /// 前三版的 CLI 沒有 `contract` 子命令——數字只是給歷史一個名字，第 0 步擋它們靠的是「沒有這個子命令」。
-    public static let contractVersion = 12
+    public static let contractVersion = 13
 
     public struct Options {
         public var window: Int
@@ -321,7 +324,7 @@ public final class FulltextFetch {
         case .unverifiable:
             err("  This command could not read the tab (Safari's PDF viewer may not run page scripts), so nothing on it was checked — it is unverified, not clean. `save-pdf` cannot be used on it (its content type cannot be read); the skill reports this item as not obtained, with the window and tab. A login, verification or block page there is the abort clause.")
         case .tabUnchanged:
-            err("  The tab did not leave the article page after following the PDF link — the link may have started a download (check Safari's downloads). Following the link was the click: do not click it again. If no file arrives, wait once and then hand the item to the person.")
+            err("  The tab did not leave the article page after following the PDF link — the link may have started a download (check Safari's downloads). Following the link was the click: do not click it again. If no file arrives, judge what happened as the skill's landing table says (its exit-7 row for tab-unchanged); the table decides whether the item is handed to the person, is not obtained, or stops the batch.")
         case .button:
             err("  The page's PDF download is a form button. Press it yourself; the site may download the file.")
         case .leftSite:

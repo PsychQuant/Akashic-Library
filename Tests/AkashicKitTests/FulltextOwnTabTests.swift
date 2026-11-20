@@ -109,7 +109,7 @@ final class FulltextOwnTabTests: XCTestCase {
             for (i, url) in urls.enumerated() {
                 items.append(PyJSON.object([("window", .int(window)), ("index", .int(i + 1)), ("tab_in_window", .int(i + 1)), ("url", .string(url)),
                                             ("title", .string("t")), ("profile", .string("own")), ("is_current", .bool(i == 0)),
-                                            ("blocking_dialog", PyJSON.object([("state", .string("unknown")), ("window_id", .int(window == 5 ? 9005 : 9000 + window))]))]))
+                                            ("window_id", .int(window == 5 ? 9005 : 9000 + window)), ("blocking_dialog", PyJSON.object([("state", .string("unknown")), ("window_id", .int(window == 5 ? 9005 : 9000 + window))]))]))
             }
         }
         return PyJSON.array(items).dumps() + "\n"
@@ -451,7 +451,7 @@ final class FulltextOwnTabTests: XCTestCase {
         var looks = 0
         let row = { (position: Int, url: String) in
             PyJSON.object([("window", .int(5)), ("index", .int(position)), ("tab_in_window", .int(position)), ("url", .string(url)), ("title", .string("t")),
-                           ("profile", .string("own")), ("blocking_dialog", PyJSON.object([("window_id", .int(9005))]))])
+                           ("profile", .string("own")), ("window_id", .int(9005)), ("blocking_dialog", PyJSON.object([("window_id", .int(9005))]))])
         }
         let code = run(documentsAnswer: { _ in
             looks += 1

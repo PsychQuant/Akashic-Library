@@ -156,11 +156,16 @@ final class SkillToolsCLITests: XCTestCase {
         XCTAssertEqual(try runSplit(["fulltext", "fetch", "--window", "0", "--expect-profile", "own", "--landing", "x"]).status, 64)
     }
 
-    /// `--expect-profile` 是唯一防止動到別人的 Safari session 的檢查：文件一直寫「一律帶」，命令列現在強制（R1 verify 第 31 則）。
-    func testFetchRequiresAnExpectedProfile() throws {
-        let noProfile = try runSplit(["fulltext", "fetch", "--window", "5", "--landing", "https://doi.org/10.1/x"])
-        XCTAssertEqual(noProfile.status, 64, noProfile.err)
-        XCTAssertTrue(noProfile.err.contains("expect-profile"), noProfile.err)
+    /// #772（使用者 2026-11-19 09:25「也不一定要在個人，只要固定視窗就好了嗎」）：`--expect-profile` 改成選填，只在選視窗的那一下比對。
+    /// 先前它是必填（R1 verify 第 31 則），因為別的 profile 的視窗可能被位置鎖打到；現在每一個以位置認分頁的動作都帶 `--window-id`。給了就不得是空的。
+    // spec-example: fulltext-window-lock / The expected profile can be omitted
+    func testFetchAcceptsAMissingExpectedProfile() throws {
+        let stub = base.appendingPathComponent("stub-no-window")
+        try "#!/bin/sh\nif [ \"$1\" = documents ]; then echo '[]'; fi\n".write(to: stub, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: stub.path)
+        let noProfile = try runSplit(["fulltext", "fetch", "--window", "5", "--landing", "https://doi.org/10.1/x", "--ledger", ledger, "--bin", stub.path])
+        XCTAssertNotEqual(noProfile.status, 64, noProfile.err)
+        XCTAssertTrue(noProfile.err.contains("Safari window 5 not found"), noProfile.err)
         let empty = try runSplit(["fulltext", "fetch", "--window", "5", "--expect-profile", "", "--landing", "https://doi.org/10.1/x"])
         XCTAssertEqual(empty.status, 64, empty.err)
     }
@@ -394,7 +399,7 @@ final class SkillToolsCLITests: XCTestCase {
         S='\(state.path)'
         case "$1" in
           documents)
-            d='"blocking_dialog":{"state":"unknown","window_id":9005}'
+            d='"window_id":9005,"blocking_dialog":{"state":"unknown","window_id":9005}'
             mine='{"window":5,"index":1,"tab_in_window":1,"url":"https://user.example/","title":"mine","profile":"own",'"$d"'}'
             if [ ! -f "$S/opened" ]; then printf '[%s]\\n' "$mine"; exit 0; fi
             m=$(cat "$S/opened")   # 這次執行的記號（#768）：新分頁的網址帶著它
@@ -403,7 +408,7 @@ final class SkillToolsCLITests: XCTestCase {
           open) for a; do last=$a; done
             # 真的 safari-browser 的 open 只把這幾個旗標當成指定了分頁（safari-browser#233）；沒有指定就不導航那個分頁
             case " $* " in *" --new-tab "*) printf '%s' "${last#*#}" > "$S/opened" ;;
-              *" --profile "*|*" --tab-in-window "*|*" --window "*|*" --url "*) : > "$S/navigated" ;; esac ;;
+              *" --profile "*|*" --tab-in-window "*|*" --window "*|*" --window-id "*|*" --url "*) : > "$S/navigated" ;; esac ;;
           js)
             for a; do last=$a; done
             case "$last" in

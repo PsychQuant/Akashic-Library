@@ -75,6 +75,8 @@ final class FulltextFetchPathTests: XCTestCase {
         func target(_ args: [String]) -> Int? {
             if let p = opt(args, "--profile"), p != scenario.profile { return nil }
             if let w = opt(args, "--window").flatMap(Int.init), w != (args.contains("--profile") ? 1 : windowNumber) { return nil }
+            // `--window-id W`：以穩定的 id 指定視窗（safari-browser v2.9.0，#352）；id 不對就沒有分頁符合，不退回前景視窗（#772）
+            if let id = opt(args, "--window-id").flatMap(Int.init), id != windowID { return nil }
             if let k = opt(args, "--tab-in-window").flatMap(Int.init) { return tabs.indices.contains(k - 1) ? k : nil }
             if let suffix = opt(args, "--url-endswith") {
                 let hits = tabs.indices.filter { tabs[$0].url.hasSuffix(suffix) }
@@ -84,9 +86,9 @@ final class FulltextFetchPathTests: XCTestCase {
         }
 
         /// safari-browser 的 `open`（沒有 `--new-tab`）把哪些旗標當成「指定了分頁」：`OpenCommand.swift` 自己算的 `hasExplicitTarget`，
-        /// v2.7.0、v2.8.0 與 main 相同。**`--url-exact`、`--url-endswith`、`--url-regex` 不算**（safari-browser#233）：只帶它們的 `open`
+        /// v2.7.0、v2.8.0 相同；v2.9.0 加了 `--window-id`（#352）。**`--url-exact`、`--url-endswith`、`--url-regex` 不算**（safari-browser#233）：只帶它們的 `open`
         /// 不導航那個分頁，而是找網址完全相同的分頁拉到前面，找不到就在前景視窗開新分頁（#768 第三輪 verify）。
-        static let openTargetFlags = ["--url", "--window", "--tab", "--document", "--tab-in-window", "--profile"]
+        static let openTargetFlags = ["--url", "--window", "--window-id", "--tab", "--document", "--tab-in-window", "--profile"]
 
         /// `open` 沒有指定分頁時真的 safari-browser 做的事：網址完全相同的分頁拉到前面；沒有就在前景視窗開新分頁（這裡只有一個視窗）。
         func openWithoutATarget(_ url: String) {
@@ -133,7 +135,7 @@ final class FulltextFetchPathTests: XCTestCase {
                 let items = tabs.enumerated().map { i, t in
                     PyJSON.object([("window", .int(windowNumber)), ("index", .int(i + 1)), ("tab_in_window", .int(i + 1)), ("url", .string(t.url)),
                                    ("title", .string(t.title)), ("profile", .string(scenario.profile)), ("is_current", .bool(i + 1 == current)),
-                                   ("blocking_dialog", PyJSON.object([("state", .string("unknown")), ("window_id", .int(windowID))]))])
+                                   ("window_id", .int(windowID)), ("blocking_dialog", PyJSON.object([("state", .string("unknown")), ("window_id", .int(windowID))]))])
                 }
                 return SafariRun(status: 0, stdout: PyJSON.array(items).dumps() + "\n")
             case "open":
@@ -330,10 +332,15 @@ final class FulltextFetchPathTests: XCTestCase {
         assertVerification(run(s))
     }
 
+    // spec-example: fulltext-gate-look / The tab-unchanged hint points to the landing table
     func testATabThatDoesNotMoveIsHandedOver() {
         var s = Scenario(); s.afterNavURL = ""
         assertHandover(run(s), .tabUnchanged)
         XCTAssertTrue(errText.contains("may have started a download"), errText)
+        // 提示不替 skill 決定結局：照 skill 的落點表判（第 4 輪 verify 第 22 列：先前寫「等一次、再交給人」，比 SKILL 窄）
+        XCTAssertTrue(errText.contains("Following the link was the click: do not click it again"), errText)
+        XCTAssertTrue(errText.contains("judge what happened as the skill's landing table says"), errText)
+        XCTAssertFalse(errText.contains("wait once and then hand the item to the person"), errText)
     }
 
     /// 登入頁維持整批暫停（使用者 2026-10-02：登入頁、驗證頁、封鎖頁維持現行的處置）。登入頁是 HTML（#613 R2 起 PDF 的判斷排在最前面，

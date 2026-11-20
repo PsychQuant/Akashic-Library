@@ -303,7 +303,7 @@ final class FulltextLockBlockTests: XCTestCase {
     // spec-example: fulltext-division-of-labour / Only the host is printed
     func testOnlyTheHostIsPrinted() throws {
         for (url, host) in [("https://alice:s3cret@pub.example/x?token=SECRET", "pub.example"), ("blob:https://pub.example/2f1c-SECRET", "(blob)"),
-                            ("data:text/html,<h1>SECRET</h1>", "(data)")] {
+                            ("data:text/html,<h1>SECRET</h1>", "(data)"), ("file:///Users/SECRET/x.pdf", "(file)"), ("favorites://", "(favorites)")] {
             try kept(url)
             let (rc, out, _) = try run(try lockBlock(), docs: [row(1, 9005, 1, url)])
             XCTAssertEqual(rc, 0, url)

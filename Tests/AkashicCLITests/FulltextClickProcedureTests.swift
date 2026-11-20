@@ -102,7 +102,7 @@ final class FulltextClickProcedureTests: XCTestCase {
     // spec-example: fulltext-division-of-labour / The href is read before a click
     func testTheHrefIsReadBeforeAClick() throws {
         let step = try XCTUnwrap(SkillText.line(in: try clickProcedure(), startingWith: "1. **讀**"), "〈一層層按〉沒有第 1 步")
-        assertContains(step, ["get attr @<ref> href", "> \"$D/$K.href\"", "mailto:", "file:"], "〈一層層按〉第 1 步")
+        assertContains(step, ["get attr @<ref> href", "> \"$D/$K.href\"", "mailto:", "file:", "只有這五類", "Accept and download"], "〈一層層按〉第 1 步")
     }
 
     // MARK: 別的主機上的登入頁
@@ -220,8 +220,22 @@ final class FulltextClickProcedureTests: XCTestCase {
     // spec-example: fulltext-division-of-labour / Every present dialog stops the batch and an unknown probe asks the person
     func testEveryPresentDialogStopsTheBatchAndAnUnknownProbeAsksThePerson() throws {
         let row = try landingRow(5)
-        assertContains(row, ["dialog=present", "不論訊息是什麼", "dialog=unknown", "第 (3) 種", "第 (5) 種", "沒有量過", "每一下都讓整批停一次"], "落點表第 5 種")
+        assertContains(row, ["dialog=present", "不論訊息是什麼", "dialog=unknown", "第 (3) 種", "第 (5) 種", "沒有量過", "confirm()", "畫面上什麼都沒有",
+                             "不是他的原話", "每一下都讓整批停一次"], "落點表第 5 種")
         XCTAssertFalse(row.contains("present:safari-download"), row)
+    }
+
+    // spec-example: fulltext-division-of-labour / The dialog state is read before a click
+    func testTheDialogStateIsReadBeforeAClick() throws {
+        let step = try XCTUnwrap(SkillText.line(in: try clickProcedure(), startingWith: "1. **讀**"), "〈一層層按〉沒有第 1 步")
+        assertContains(step, ["先看它印的 `dialog=`", "仍然是 `unknown` 就停下整批", "不按、不記帳"], "〈一層層按〉第 1 步")
+    }
+
+    // spec-example: fulltext-division-of-labour / The article of a growth stop goes to the end list
+    func testTheArticleOfAGrowthStopGoesToTheEndList() throws {
+        let line = try XCTUnwrap(SkillText.line(in: try clickProcedure(), startingWith: "- **視窗有沒有多出分頁"), "〈一層層按〉沒有新分頁那一點")
+        assertContains(line, ["註明不在 (a)–(d) 裡", "從下一篇接著跑", "每一次都與同一個基準比"], "新分頁那一點")
+        XCTAssertFalse(line.contains("請他自己存檔"), "請使用者存檔不在 (a)–(d) 裡")
     }
 
     // spec-example: fulltext-division-of-labour / The probe is skipped on verification and login hosts
@@ -270,7 +284,8 @@ final class FulltextClickProcedureTests: XCTestCase {
         let unmeasured = SkillText.section(file, "## 沒有量過的")
         assertContains(unmeasured, ["下載權限提示", "人按的一下", "confirm()", "別的 Safari 版本", "比本機 302 慢的轉址"], "〈沒有量過的〉")
         let procedure = try clickProcedure()
-        assertContains(procedure, ["M2", "M2e", "M3", "M4a", "M4b", "M5", "M6", "M7", "M8", "沒有量過"], "〈一層層按〉")
+        assertContains(procedure, ["M2", "M2e", "M3", "M4a", "M4b", "M5", "M6", "M7", "M8", "沒有量過", "下載權限提示", "人按的一下", "confirm()", "慢的轉址",
+                                   "版本與設定"], "〈一層層按〉")
         XCTAssertTrue(try skill().contains("references/safari-measurements.md"), "SKILL 沒有連到量測檔")
         // 〈一層層按〉引用的每一個 M 編號，量測表都有那一列
         let cited = Set(procedure.matches(of: #/M[0-8][a-e]?/#).map { String($0.output) })

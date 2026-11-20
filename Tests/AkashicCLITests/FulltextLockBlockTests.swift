@@ -310,7 +310,7 @@ final class FulltextLockBlockTests: XCTestCase {
             XCTAssertTrue(out.contains(host), "\(url) → \(out)")
             for leak in ["alice", "s3cret", "SECRET"] { XCTAssertFalse(out.contains(leak), "\(url) → \(out)") }
         }
-        // 按了之後同一個分頁換到 CDN 上的網址（分頁數沒變）
+        // 按了之後同一個分頁換到 CDN 上的網址（分頁數沒變）。版面是 M1（文章分頁在最後）；同一個分頁換頁這件事 2026-11-20 沒有量
         try clicked(before: tabs(Self.user, Self.page))
         let (_, out, _) = try run(try afterBlock(), docs: tabs(Self.user, "https://alice:s3cret@cdn.example/x.pdf"))
         XCTAssertTrue(out.contains("host=cdn.example "), out)
@@ -320,7 +320,7 @@ final class FulltextLockBlockTests: XCTestCase {
     // spec-example: fulltext-division-of-labour / The profile name is read from a file
     func testTheProfileNameIsReadFromAFile() throws {
         let name = "Che's \"work\""
-        let rows = tabs(Self.user, Self.article)
+        let rows = tabs(Self.user, Self.article)   // 版面是 M1；profile 的名字不是版面的一部分，帶引號的名字沒有在真的 Safari 上試過
         var (rc, _, calls) = try run(try startBlock(position: 2, mark: "", profile: name, inline: false), docs: rows)
         XCTAssertEqual(rc, 0)
         XCTAssertEqual(calls, ["documents --json --profile \(name)"], "名字裡有引號也照樣帶 --profile")
@@ -333,7 +333,7 @@ final class FulltextLockBlockTests: XCTestCase {
 
     // spec-example: fulltext-division-of-labour / Positions that are not 1 to n are refused
     func testPositionsThatAreNotOneToNAreRefused() throws {
-        // 頁面標題偽造的一列（safari-browser#355）：fetch 的視窗裡同一個位置兩列
+        // 頁面標題偽造的一列（safari-browser#355）：fetch 的視窗裡同一個位置兩列。**沒有量過**：#355 還沒在真的 Safari 上確認，2026-11-20 也沒有量
         let forged = tabs(Self.user, Self.article) + [row(1, 9005, 2, "https://evil.example/")]
         var (rc, _, calls) = try run(try startBlock(position: 2, mark: ""), docs: forged)
         XCTAssertEqual(rc, 7, "起點")
@@ -457,6 +457,7 @@ final class FulltextLockBlockTests: XCTestCase {
     /// `url-changed` 比的是基準（按的那一刻那個位置的網址），不是上一次判時改寫過的 `.url`（第 3 輪 verify 第 18 列）；
     /// 沒變的時候 `.url` 也照樣存（第 4 輪 verify 第 6 列）。
     func testURLChangedComparesWithTheClick() throws {
+        // 版面是 M2b（被按的分頁在 3 個裡的第 2 個）；同一個分頁換頁再換回來沒有量過
         try clicked(before: beforeRows, keptURL: "https://pub.example/reader/x")
         var (_, out, _) = try run(try afterBlock(), docs: [row(1, 9005, 1, "https://user.example/"), row(1, 9005, 2, "https://pub.example/reader/x"),
                                                            row(1, 9005, 3, "https://mail.example/")])
@@ -469,7 +470,7 @@ final class FulltextLockBlockTests: XCTestCase {
 
     /// 驗證服務上的頁面印 `vsvc=true`（落點表第 1 種看它決定要不要探測）。
     func testTheLandingLineSaysWhetherThePageIsOnAVerificationService() throws {
-        try clicked(before: tabs(Self.user, "https://pub.example/doi/10.1/x"))   // 文章分頁在最後（M1）
+        try clicked(before: tabs(Self.user, "https://pub.example/doi/10.1/x"))   // 文章分頁在最後（M1）；驗證服務的頁面沒有量過（量測沒有連任何外部網站）
         let (_, out, _) = try run(try afterBlock(), docs: tabs(Self.user, "https://challenges.cloudflare.com/turnstile/x?t=SECRET"))
         XCTAssertTrue(out.hasPrefix("url-changed=true host=challenges.cloudflare.com vsvc=true "), out)
         XCTAssertFalse(out.contains("SECRET"), out)
@@ -498,7 +499,7 @@ final class FulltextLockBlockTests: XCTestCase {
     // spec-example: fulltext-division-of-labour / Other growth stops the batch
     func testOtherGrowthStopsTheBatch() throws {
         let before = tabs(Self.user, Self.page)   // M1
-        // 一下開了兩個分頁（PDF 與 IdP 的登入頁）
+        // 一下開了兩個分頁（PDF 與 IdP 的登入頁）。一下開兩個分頁沒有量過；量到的是新分頁都落在最後面（M2–M4a）
         var (rc, out, calls) = try startAndClick(before: before, after: [tabs(Self.user, Self.page, "https://idp.uni.example/login?t=SECRET", Self.target)])
         XCTAssertEqual(rc, 10, out)
         XCTAssertTrue(out.contains("grown why=several-tabs windows-new=0 unseen=3:idp.uni.example,4:pub.example\n"), out)
@@ -509,14 +510,33 @@ final class FulltextLockBlockTests: XCTestCase {
         XCTAssertEqual(rc, 10, out)
         XCTAssertTrue(out.contains("grown why=new-window windows-new=1 unseen=\n"), out)
         XCTAssertEqual(calls, [Self.documents, Self.click, Self.documents])
-        // 最後面多一個分頁，同時前面使用者的分頁也換了頁
+        // 最後面多一個分頁（M2b），同時前面使用者的分頁也換了頁（這個組合沒有量過）
         (rc, out, _) = try startAndClick(before: tabs(Self.user, Self.page, "https://mail.example/"), after: [tabs(Self.user, Self.page, "https://mail.example/inbox", Self.target)])
         XCTAssertEqual(rc, 10, out)
         XCTAssertTrue(out.contains("grown why=not-last-or-others-changed "), out)
+        XCTAssertTrue(out.contains("unseen=3:mail.example,4:pub.example\n"), out)
         // M4a：沒有 href 的按鈕（window.open）開的分頁在最後面
         (rc, out, _) = try startAndClick(before: before, after: [tabs(Self.user, Self.page, Self.target)], link: nil)
         XCTAssertEqual(rc, 10, out)
         XCTAssertTrue(out.contains("grown why=link-unresolvable windows-new=0 unseen=3:pub.example\n"), out)
+        // 最後面多一個對得上連結的分頁，同時基準裡的一個視窗不見了：視窗 id 的集合要和基準一樣才收（這個組合沒有量過）
+        let other = row(2, 9006, 1, "https://elsewhere.example/")
+        (rc, out, _) = try startAndClick(before: before + [other], after: [tabs(Self.user, Self.page, Self.target)])
+        XCTAssertEqual(rc, 10, out)
+        XCTAssertTrue(out.contains("grown why=windows-changed windows-new=0 unseen=3:pub.example\n"), out)
+    }
+
+    // spec-example: fulltext-division-of-labour / A new window seen in a later read also stops the batch
+    func testANewWindowSeenInALaterReadAlsoStopsTheBatch() throws {
+        let before = tabs(Self.user, Self.page)   // M1
+        var (rc, out, _) = try startAndClick(before: before, after: [before])
+        XCTAssertEqual(rc, 0, out)
+        // 等過之後單獨再判：這時多了一個視窗（M4b 量到按一下可以開新視窗；晚一步才開出來的時機沒有量過）
+        let calls: [String]
+        (rc, out, calls) = try run(try afterBlock(), docs: before + [row(2, 9007, 1, "https://idp.uni.example/login?t=SECRET")])
+        XCTAssertEqual(rc, 10, out)
+        XCTAssertEqual(out, "grown why=new-window windows-new=1 unseen=\n")
+        XCTAssertEqual(calls, [Self.documents], "新視窗裡的分頁不讀、不送命令")
     }
 
     // spec-example: fulltext-division-of-labour / A new tab is adopted wherever the clicked tab sits
@@ -534,7 +554,8 @@ final class FulltextLockBlockTests: XCTestCase {
         var (rc, out, _) = try startAndClick(before: before, after: [before])
         XCTAssertEqual(rc, 0, out)
         XCTAssertTrue(out.hasSuffix("new-tab=\n"), out)
-        // 等過之後單獨再判：這時才出現的分頁，即使網址就是連結的目標，也不是按的那一次讀取裡看到的
+        // 等過之後單獨再判：這時才出現的分頁，即使網址就是連結的目標，也不是按的那一次讀取裡看到的。
+        // 量到的新分頁都在第一次讀取就出現（M2）；晚一步才出現的時機沒有量過，位置照 M2、M3（最後面）
         let calls: [String]
         (rc, out, calls) = try run(try afterBlock(), docs: tabs(Self.user, Self.page, Self.target))
         XCTAssertEqual(rc, 10, out)
@@ -628,7 +649,7 @@ final class FulltextLockBlockTests: XCTestCase {
         let message = "來自「http://127.0.0.1:47231」： measurement alert: plain page message"   // M8
         let before = tabs(Self.user, Self.page)
         for (state, messages, reason) in [("present", [message], String?.none),
-                                          ("present", ["Do you want to allow downloads on “pub.example”?"], nil),   // 頁面可以寫任何字：不以字分類
+                                          ("present", ["Do you want to allow downloads on “pub.example”?"], nil),   // 沒有量過的字樣（Safari 的下載提示沒有出現）；頁面可以寫任何字，所以不以字分類
                                           ("unknown", [String](), "incomplete")] {                                  // M6
             let now = [row(1, 9005, 1, Self.user, dialog: state, messages: messages, reason: reason),
                        row(1, 9005, 2, Self.page, dialog: state, messages: messages, reason: reason)]
@@ -671,7 +692,7 @@ final class FulltextLockBlockTests: XCTestCase {
 
     // spec-example: fulltext-division-of-labour / After a lock miss the landing block finds the tab again
     func testAfterALockMissTheLandingBlockFindsTheTabAgain() throws {
-        // SAGE（2026-11-19 的實測路徑）：按了之後同一個分頁先到 /doi/reader/，落點那一段存下它；之後分頁又轉到 /doi/epub/
+        // SAGE（2026-11-19 在出版商網站上看到的路徑，不在 2026-11-20 的量測裡）：按了之後同一個分頁先到 /doi/reader/，落點那一段存下它；之後分頁又轉到 /doi/epub/
         let before = tabs(Self.user, Self.page)   // M1
         var (rc, out, _) = try startAndClick(before: before, after: [tabs(Self.user, "https://pub.example/doi/reader/10.1/x")])
         XCTAssertEqual(rc, 0, out)
@@ -687,7 +708,7 @@ final class FulltextLockBlockTests: XCTestCase {
         XCTAssertEqual(rc, 0, "落點那一段以位置認到、改寫了 .url")
         XCTAssertEqual(calls.last, "snapshot -i --profile own --window-id 9005 --tab-in-window 2")
 
-        // 收下的新分頁（M2）自己轉址、又轉回基準的那個網址
+        // 收下的新分頁（M2）自己轉址、又轉回基準的那個網址（轉址再轉回沒有量過）
         (rc, out, _) = try startAndClick(before: before, after: [tabs(Self.user, Self.page, Self.target)])
         XCTAssertTrue(out.hasSuffix("new-tab=3:pub.example\n"), out)
         (rc, _, _) = try run(try adoptBlock(position: 3), docs: [])
@@ -706,7 +727,7 @@ final class FulltextLockBlockTests: XCTestCase {
 
     // spec-example: fulltext-division-of-labour / A page that moved on before any click is judged
     func testAPageThatMovedOnBeforeAnyClickIsJudged() throws {
-        // left-site：fetch 落定在中繼頁（記號已經不在），之後那一頁自己轉到 IdP 的登入頁；文章分頁是最後一個（M1）
+        // left-site：fetch 落定在中繼頁（記號已經不在），之後那一頁自己轉到 IdP 的登入頁；文章分頁是最後一個（M1）。頁面自己轉走沒有量過
         var (rc, out, _) = try run(try startBlock(position: 2, mark: ""), docs: tabs(Self.user, "https://relay.other.example/go?id=1"))
         XCTAssertEqual(rc, 0)
         XCTAssertTrue(out.contains("by=position host=relay.other.example"), out)
@@ -725,6 +746,8 @@ final class FulltextLockBlockTests: XCTestCase {
     // MARK: 交出去與再接
 
     /// 批次當中記下來的一篇（落點或鎖分頁那一段留下的 `.url`、`.pos`），`held` 是 63a87a98 在交出去那一刻就存的狀態。
+    /// **交出去與再接的各個版面都沒有量過**（2026-11-20 的量測沒有做交接）：這裡用的是 M1 推出來的排列（`fetch` 每一篇的分頁都開在最後面，
+    /// 所以先延後的在左邊）與第 4 輪 verify 的重現。
     private func deferred(_ key: String, url: String, position: Int, held: [[String: Any]]) throws {
         _ = vars(key: key)
         try kept(url, key: key)
@@ -762,6 +785,7 @@ final class FulltextLockBlockTests: XCTestCase {
 
     // spec-example: fulltext-division-of-labour / A re-take on another host is not read
     func testAReTakeOnAnotherHostIsNotRead() throws {
+        // 版面沒有量過（見 deferred 的說明）；使用者把交給他的分頁拿去看別的網站、關掉分頁，都是設想的情形
         let held = tabs("https://news.example/", "https://pub.example/captcha", "https://pub.example/other-paper")
         try deferred("k1", url: "https://pub.example/captcha", position: 2, held: held)
         var (rc, out, calls) = try run(try handOverStep(key: "k1"), docs: held)
@@ -792,6 +816,7 @@ final class FulltextLockBlockTests: XCTestCase {
 
     // spec-example: fulltext-division-of-labour / A hand-over whose tab cannot be found is not made
     func testAHandOverWhoseTabCannotBeFoundIsNotMade() throws {
+        // 版面沒有量過：驗證頁在等的當中自己換了網址（設想的情形）
         try deferred("k1", url: "https://pub.example/captcha?t=1", position: 2, held: [])
         try FileManager.default.removeItem(at: base.appendingPathComponent("k1.clicked"))
         try FileManager.default.removeItem(at: base.appendingPathComponent("k1.held.json"))
@@ -803,7 +828,7 @@ final class FulltextLockBlockTests: XCTestCase {
 
     /// 第 1 步讀的時候就交出去（還沒按）：批次結束時照樣認得到、交得出去、接得回來。
     func testAHandOverBeforeAnyClickCanBeTakenAgain() throws {
-        let rows = tabs(Self.user, Self.article + "#" + Self.mark)   // M1
+        let rows = tabs(Self.user, Self.article + "#" + Self.mark)   // M1；再接的那一步沒有量過
         var (rc, _, _) = try run(try startBlock(position: 2, mark: Self.mark), docs: rows)
         XCTAssertEqual(rc, 0)
         (rc, _, _) = try run(try lockBlock(mark: Self.mark), docs: rows)
@@ -820,13 +845,20 @@ final class FulltextLockBlockTests: XCTestCase {
 
     // spec-example: fulltext-division-of-labour / A missing state file is its own stop
     func testAMissingStateFileIsItsOwnStop() throws {
-        let rows = tabs(Self.user, Self.page)
+        let rows = tabs(Self.user, Self.page)   // M1
         // 落點：基準不在
         try clicked(before: rows, keptURL: Self.page, mark: Self.mark)
         try FileManager.default.removeItem(at: base.appendingPathComponent("k1.before.json"))
         var (rc, _, calls) = try run(try afterBlock(), docs: rows)
         XCTAssertEqual(rc, 6, "落點")
         XCTAssertEqual(calls, [])
+        // 落點：位置的檔不在
+        try clicked(before: rows, keptURL: Self.page, mark: Self.mark)
+        try FileManager.default.removeItem(at: base.appendingPathComponent("k1.pos"))
+        (rc, _, calls) = try run(try afterBlock(), docs: rows)
+        XCTAssertEqual(rc, 6, "落點（位置）")
+        XCTAssertEqual(calls, [])
+        try clicked(before: rows, keptURL: Self.page, mark: Self.mark)
         // 鎖分頁：視窗 id 的檔不在（起點那一段沒跑）
         var script = try lockBlock(mark: Self.mark)
         try FileManager.default.removeItem(at: base.appendingPathComponent("k1.w"))
@@ -841,6 +873,11 @@ final class FulltextLockBlockTests: XCTestCase {
         script = try retakeBlock(site: "pub.example")
         (rc, _, calls) = try run(script, docs: rows)
         XCTAssertEqual(rc, 6, "再接")
+        XCTAssertEqual(calls, [])
+        try write(rows, to: "k1.held.json")
+        try FileManager.default.removeItem(at: base.appendingPathComponent("k1.pos"))
+        (rc, _, calls) = try run(script, docs: rows)
+        XCTAssertEqual(rc, 6, "再接（位置）")
         XCTAssertEqual(calls, [])
         let skill = try String(contentsOf: try repoRoot().appendingPathComponent("plugin/skills/akashic-fetch-fulltext/SKILL.md"), encoding: .utf8)
         let step3 = SkillText.section(skill, "### 3. 在使用者的 Safari 裡走到 PDF")

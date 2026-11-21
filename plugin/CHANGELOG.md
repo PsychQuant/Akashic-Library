@@ -1,10 +1,48 @@
 # Changelog
 
-## #791 — SessionStart 檢查的探測暫存檔（2026-11-16）：plugin 殼 0.13.16 → 0.13.17
+## #791 — SessionStart 檢查的探測暫存檔（2026-11-16）：plugin 殼 0.13.18 → 0.13.19
 
 細節在 `changelog/2026-11-16-check-cli-probe-tempdir-791.md`。binary 與契約版本不變，不需要重建 CLI。
 
 - `hooks/check-cli.sh`：探測 CLI 的暫存檔改放 `mktemp -d` 建的私有目錄，清理時整個刪掉；hook 在探測中途被砍時，組內的計時器第 8 秒收掉目錄；`TMPDIR` 建不出目錄或輸出檔時說出是 hook 自己的問題，不再報成 CLI 執行失敗、也不叫人重建。計時器以 `mkdir` 建標記，路徑上有任何東西都不開、不寫；CLI 以 0 回答時一律讀它的輸出。
+
+這條 branch 原本用 0.13.17，2026-11-21 併入 main 時 main 已用掉 0.13.17（#781／#780）與 0.13.18（#822），改成 0.13.19。
+
+## #822 — 量到的站別做法要寫回 plugin（2026-11-20）：plugin 殼 0.13.17 → 0.13.18，契約版本不變（13）
+
+使用者 2026-11-20 的指示與三個選擇；細節在 `changelog/2026-11-20-site-knowledge-rule-822.md`。**只改文件，沒有改 `akashic` CLI**：SKILL 第 0 步要求的契約版本仍是 13。
+
+- 新規則 `rules/site-knowledge-goes-back-into-the-plugin.md`：碰網站的 skill 在一批做完、回報之前，把量到的站別做法寫回 plugin（什麼算、寫到哪個檔、誰來寫、要帶哪些欄位都是封閉列舉）；改動合併之後，同一個工作階段把安裝的 plugin 與 CLI 更新到合併後的版本。`akashic-fetch-fulltext` 第 7 步與 `akashic-bootstrap` 的 `web-access.md`〈其他〉引用它；其餘九個 skill 的 `SKILL.md` 各加一行指向它（規則覆蓋的守衛要求每一條 plugin 規則都被每一個 skill 引用），不自己讀網站的三個 skill 寫明這一點。
+- `akashic-fetch-fulltext` 的 `references/publishers.md` 新增〈2026-11-20 的實測〉：合併後的流程第一次用在真的出版商網站，九篇、六個站（SAGE、Wiley 的學會子網域、Cambridge Core、Taylor & Francis、Oxford Academic、SpringerLink），以及對話框探測在出現 PDF 分頁之後整個視窗讀成 `unknown` 的觀察（PsychQuant/safari-browser#345）。
+- 被這一批推翻的舊句加註、不刪：Wiley 的 epdf 閱讀器「讀不到任何下載鈕」（那一篇讀得到）、SAGE「每一篇最後都要使用者按一次儲存」（下載位置是固定資料夾時不必）。SKILL 的 `html-page` 一列括號裡的例子跟著改。
+- `akashic-discovery` 的殼 0.2.17 → 0.2.18：它的 `rules/` 是指向 `plugin/rules` 的連結，多了一條規則就是殼的內容變了（`akashic-guards plugin-shell-version` 要求升版），skill 本身沒有改。
+- **沒有改的**：按之前讀到 `unknown` 就停的那條處置規則。這一批的觀察顯示它會讓第一個 PDF 分頁之後需要按的每一篇都停下來，要不要改等使用者裁決。
+
+## #772 — `fetch` 鎖在開頭選定的視窗，別的 profile 的視窗開著不再停（2026-11-19）：plugin 殼維持 0.13.17（同一條分支、還沒推上 main），契約版本 11 → 12
+
+使用者 2026-11-19 09:24、09:25 的決定；細節在 `changelog/2026-11-19-fetch-window-id-772.md`。**需要新的 `akashic` CLI 與 safari-browser 2.9.0 以上**：SKILL 第 0 步要求契約版本 12。
+
+- `fetch` 開頭以 `--window N` 選定視窗，之後新分頁與記號不在時的位置鎖都以那個視窗的穩定 id 指定（`--window-id`）。別的 profile 的視窗開著不再停；`--expect-profile` 改成選填，只在開頭比一次。
+- safari-browser 太舊（`documents --json` 沒有頂層 `window_id`）時，`fetch` 在開任何分頁之前停。
+- `fetch` 認出自己的分頁時印 `own-tab: window-id <W> tab <T> mark <記號>`。
+- 〈人機分工〉批次中途停下的封閉清單拿掉別的 profile 的視窗、加上 safari-browser 太舊（這一則當時是六種；#781 fix2 之後是八種，見下一節）。#735 的視窗那一半由 `--window-id` 拿掉，同一個視窗裡分頁移位的那一半仍在。沒有在真的 Safari 上跑過。
+
+## #781／#780 — 取全文預設由 Claude 做，交給人只有封閉清單（2026-11-19）：plugin 殼 0.13.16 → 0.13.17，契約版本 10 → 11
+
+使用者 2026-11-10 的裁決與 2026-11-19 的確認；細節在 `changelog/2026-11-19-fulltext-ai-default-781.md`。**需要新的 `akashic` CLI**：SKILL 第 0 步要求契約版本 11（版本 11 的 CLI 才有 `akashic fulltext attempt`）。開場檢查（`hooks/check-cli.sh`）從同一行讀這個門檻，CLI 印的契約比 11 小時會在 session 開始時說出來並附重建指令。
+
+- `akashic-fetch-fulltext` 新增〈人機分工〉：每一步預設由 Claude 做，不必每次對話再授權。交給使用者的只有封閉清單——(a) CAPTCHA 與人類驗證、(b) 登入與機構 SSO、(c) Safari 的權限對話框與儲存面板、(d) 付費——那一篇先跳過，整批跑完一次交給他；(e) 整批暫停照舊立刻停。結局分「交給你處理」與「取不到」兩張清單。
+- 頁面要先按才到得了 PDF 時，Claude 按**這篇自己的**連結（〈一層層按〉：讀、記帳、節奏、按，落點是九種的封閉列舉）。每按一下先跑 `akashic fulltext attempt`，算進每站每天 10 次；每篇不設固定的點擊上限。按了之後沒有任何反應時等一次，不按第二次。
+- 分頁顯示 PDF（`pdf-shown`，或按到的 PDF 分頁）改用 `safari-browser save-pdf`；不再指示 `pdf-cache`（它不認 WebKitCache Version 18，PsychQuant/safari-browser#375）。這樣取得的檔 `acquisition` 記成 `browser-save-pdf`，與 `browser-download` 分開。
+- 等人驗證（結束碼 8）：那一篇與這一批同站剩下的各篇延到最後，別的站照常；批次結束後使用者驗證，再照 `resume:` 接續。
+- 第 2 步查到的合法開放版本不在批次中途問，只在回報列出。
+- 刪掉「不要代按任何按鈕」；〈不做的事〉只留登入、授權、「接受」、付費，並改正那一條的出處。
+- `references/publishers.md` 補 2026-11-10 與 2026-11-19 的實測（Ovid／LWW、SAGE 閱讀頁與儲存面板、AME、Wiley epdf、Project Euclid、Oxford Academic、ScienceDirect）。
+- `akashic-bootstrap` 的 `web-access.md`：兩句提到取全文的話跟著改。
+- 第 1 輪 verify 之後（同一個版號，還沒推上 main）：別的主機上的登入頁恢復整批暫停，(b) 只給文章站本身；規則 5 加上 safari-browser 的唯讀命令 `get url`、`get title`、`get text`、`get attr … href`，按了之後以 `get text` 交給 `bot-signals --kind` 檢查起疑；落點表有判斷順序（5 → 3 → 4 → 1 → 8 → 6 → 7 → 9 → 2），剛按的那一個鈕不算「又一個下載元件」，不會按第二次；按了之後落到的人類驗證同樣延後同站各篇；鎖分頁的網址經 `jq -r` 取進變數再用；批次中途停下的封閉清單從四種變六種（帳本讀不懂、定時讀取 Safari 沒有回答）；延到最後的那幾篇一次交一篇。`akashic-bootstrap` 的 `work-sources.md` 取 PDF 那一句跟著改。細節在 `changelog/2026-11-19-fulltext-ai-default-781.md` 最後一節。
+- 第 2 輪 verify 之後（fix2，同一個版號）：`fetch` 之後的讀與按以 `own-tab:` 一行的視窗 id 加記號或完整網址鎖分頁，不再用 `--url "$lock"`，網址只印主機、`documents --json` 一律定時；落點表第 1 種只有證明分頁是 PDF 的 `save-pdf` 失敗才是「取不到」，其他失敗與鎖對不到等一次、仍判不出就整批暫停；按了之後的驗證頁網址有登入長相時整批暫停；新分頁任何主機都以整張表判；第 7 種提供購買是 (d)；批次中途的停止補成八種；規則 1 例外 (d) 與「機構 SSO」改引使用者 2026-11-19 19:31 的裁決。細節在 changelog。
+- 第 3 輪 verify 之後（fix3，同一個版號）：第 3 種收下新分頁之後鎖跟著它（記號存在每篇的檔裡、收下時清掉）；按了之後與交出去之後再接都照 `fetch` 的位置追蹤（`stillOurTab`）判，文章分頁關掉時滑進來的分頁不收；新分頁只收這一下在被按的分頁右邊開的、主機是同一站或已知的驗證服務，別的主機只送 `save-pdf` 探測、不是 PDF 就整批暫停（這一句當時寫得不準：照當時的 SKILL，證明分頁就是 PDF 的那幾種 `save-pdf` 失敗是「取不到」，不是整批暫停；第 4 輪 verify 第 14 列）；鎖對不到時這一篇還沒按過才是「取不到」；起點先找記號、再取 `handover:` 的位置；`fetch` 印了 profile 時每一段都帶 `--profile`；只印主機（去掉帳密）；對話框分 Safari 的下載提示與其他；整批跑完之前請使用者不要動那個視窗。細節見 changelog。**新分頁、對話框與交接這三處在 fix4 重做，見下一則。**
+- 第 4 輪 verify 之後（fix4，同一個版號；**契約版本 12 → 13，需要重建 `akashic` CLI**，SKILL 第 0 步要求 13）：規則改以 2026-11-20 在真的 Safari 上的量測為依據（`references/safari-measurements.md`，M0–M8；每一句說 Safari 怎麼反應的話都指到它的某一列，或寫明沒有量過）。**新分頁**：位置說不出是誰開的（連結、`window.open`、⌘T 開的分頁都落在視窗最後面），所以拿掉「右邊一格」與主機分類，改成只在按的同一個 Bash 呼叫裡、恰好多一個在最後面、其餘分頁沒變、沒有多出視窗、而且網址等於按的那個連結時才收（新子命令 `akashic fulltext same-target`）；其餘讓 Safari 變多的情形立刻停下整批、不對多出來的送任何命令，並印出位置與主機。代價：轉址過的連結、沒有 href 的按鈕開的分頁、使用者或別的程式剛好在那一刻開的分頁或視窗都會讓整批停下。**對話框**：`present` 一律停下、訊息不印也不比；`unknown`（儲存面板開著時讀到的就是它）當場停下請使用者看，他確認是儲存面板或下載權限提示就當場處理、批次接著跑；按之前不是 `clear` 就不按；按的命令定時。Safari 的下載權限提示沒有量到，所以它出現時也是停下，不是「先跳過」。**交接**：每一篇到要交的前一刻才取基準，做完之後只收文章站、已知驗證服務或交出去那一刻的主機，其餘不讀；同站延後的各篇等全部接完才跑；請使用者不動那個視窗的期間延到最後一篇接完。**鎖對不到**：先跑落點那一段（以位置認、改寫存下的網址），還沒按就自己換頁的頁面也照落點表判。另外：各段的結束碼重列（基準檔不在是自己的停止）、驗證服務與登入主機上不跑探測、profile 的名字從檔讀（名字裡有引號也照樣帶 `--profile`）、位置不是 1 到 n 就拒絕、空的標題不算讀取失敗、第 1 步多一類不按的元件（同時表示接受條款的下載鈕）。仍然擋不住的兩種寫成明文限制：使用者在按的那一刻把分頁開到同一個網址；同一個位置的分頁關掉再補上。沒有在出版商網站上跑過。細節見 changelog。
 
 ## #777 — 取全文四件待裁事項的裁決（2026-11-11）：plugin 殼 0.13.15 → 0.13.16，契約版本 9 → 10
 

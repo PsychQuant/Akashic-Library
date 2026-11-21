@@ -30,9 +30,9 @@ Crossref、ORCID、DOI 解析、出版商頁面）一直是 skill 層的事；�
   再用 `"${LOCK[@]}"`（陣列：zsh 不對未加引號的變數分詞）。fragment 不送伺服器，只讓這把鎖
   對得到唯一的分頁。**不要**用 `--url <子字串>`：它取第一個符合的分頁、而且跨所有 profile，
   別人的 session 開著同一站就會被選中（#617 verify）。**也不要**用 `--window N --tab-in-window T`：
-  視窗編號依前後順序排，使用者一切換就漂移（#617 落地時實際發生；`fetch-fulltext.sh` 仍是這個鎖法，
-  是 grandfathered 的例外，見〈例外〉）。**`documents` 一律帶 `--profile`**：不帶會把所有 profile
-  （含別人的 session）的分頁網址與標題整份倒進對話。
+  視窗編號依前後順序排，使用者一切換就漂移（#617 落地時實際發生）。`akashic fulltext fetch`（原 `fetch-fulltext.sh`）記號不在時的
+  位置鎖是 grandfathered 的例外（見〈例外〉），#772 起是 `--window-id W --tab-in-window T`（穩定的視窗 id，不是前後順序）。**`documents` 一律帶 `--profile`**：不帶會把所有 profile
+  （含別人的 session）的分頁網址與標題整份倒進對話。唯一的例外是下方〈例外〉形狀 (b) 登記的 `akashic-fetch-fulltext` 第 3 步：`fetch` 讀不出視窗的 profile 時，整份清單只寫進暫存檔、在同一個呼叫裡以視窗 id 篩完就刪，留下的只有那個視窗的列與各視窗的 id（#781 第 3 輪 verify 第 6、13 列；讀得出 profile 時照樣帶 `--profile`，使用者 2026-11-19 21:40；名字經檔案帶入、不經 shell 的引號，名字裡有引號也照樣帶，第 4 輪 verify 第 16 列）。
 - **為什麼從 `--url-exact` 改成 `--url-endswith`，查證了什麼，沒實測什麼**（CLAUDE.md〈Rules〉的執行語意第 2 條：
   覺得規則錯了就顯式改、寫下為什麼、附上查證；#634 的驗證第 16 列指出）：
   - 舊鎖法 `--url-exact "<開分頁時用的完整網址>#akashic-<碼>"` 比的是 **Safari 回報的網址**。`safari-browser open --help`
@@ -61,11 +61,11 @@ Crossref、ORCID、DOI 解析、出版商頁面）一直是 skill 層的事；�
 - **shell 變數不跨 Bash 呼叫保留**：每個動到分頁的步驟寫成**自足的 Bash 區塊**——同一次呼叫內自己初始化 `LOCK`、
   確認它非空才動作（`LOCK` 若是空的，safari-browser 會退回 front tab）。web-access.md 的每個區塊都照這個形，
   包括讀渲染後的頁面與關分頁（#634 驗證第 1 列：DOM 讀取那三步曾直接用 `"${LOCK[@]}"`，遺失時退回 front tab）。
-- **只碰「個人」profile 的分頁。** 這台機器的 Safari 有其他人的 profile，那些是別人的 session。
+- **只碰「個人」profile 的分頁。** 這台機器的 Safari 有其他人的 profile，那些是別人的 session。`akashic-fetch-fulltext` 的 `fetch` 例外：它碰的是使用者在開頭選定的那一個視窗（profile 只用來選視窗、可以不給，使用者 2026-11-19 09:25），之後只在那個視窗裡動（形狀 (b)；#781 第 3 輪 verify 第 13 列）。
 - **中止條款**：網站一出現「懷疑是自動化」的訊號就停下，分頁留著、不重試、不換來源。停下分兩種（使用者
   2026-09-28、2026-10-01，#613）：CAPTCHA、人類檢查、Cloudflare「Just a moment」、按住驗證這四種是**等人驗證**——
-  暫停、請使用者在那個分頁自己驗證、完成後在**同一個分頁**接著走（不重新載入、不代解、不換站）；其他訊號（403／429、
-  access denied 與各家封鎖頁、unusual traffic、PMC 與 ScienceDirect 的下載前驗證頁）是**整批暫停**；2026-10-02 再補兩條：等人驗證只在**文章站本身或已知的驗證服務**（封閉清單：Cloudflare 的挑戰主機、hCaptcha、reCAPTCHA）上成立，其他主機上的驗證字樣一律整批暫停，HTTP 429 一律整批暫停；分頁導航之後到了別的主機時，顯示 PDF 照常交給人；其他頁面要等它載完，載完而沒有命中驗證／封鎖／登入的封閉清單（那不代表它不是登入頁）才把這一筆交給人、批次繼續，沒載完是卡住（整批暫停）；讀不到的分頁（可能是 Safari 的 PDF 檢視器；文章站上與別的主機上同一套）交給人、未驗證，除非它在已知的驗證服務上、主機是登入主機的長相（整批暫停），或帶著驗證服務自己的標記；DOI 解不開要看得到 doi.org 自己的查無頁，否則整批暫停（使用者 2026-10-05 第 1 則）；主機的登入字詞只認最左邊的標籤與 IdP 服務名（同日第 4 則）（#613 R2、R3、b34；細節與封閉清單以 akashic-fetch-fulltext SKILL.md〈中止條款〉為準）。實作範例是
+  那一篇跳過、同一個站剩下的各篇延到最後，整批跑完才請使用者在那個分頁自己驗證、完成後在**同一個分頁**接著走（不重新載入、不代解、不換站；#781 起，使用者 2026-11-10 10:49）；其他訊號（403／429、
+  access denied 與各家封鎖頁、unusual traffic、PMC 與 ScienceDirect 的下載前驗證頁）是**整批暫停**；2026-10-02 再補兩條：等人驗證只在**文章站本身或已知的驗證服務**（封閉清單：Cloudflare 的挑戰主機、hCaptcha、reCAPTCHA）上成立，其他主機上的驗證字樣一律整批暫停，HTTP 429 一律整批暫停；分頁導航之後到了別的主機時，顯示 PDF 照常交接（`fetch` 結束碼 7；#781 起接手的是照 skill 執行的 agent，真的要使用者動手的只有那個 skill〈人機分工〉的封閉清單）；其他頁面要等它載完，載完而沒有命中驗證／封鎖／登入的封閉清單（那不代表它不是登入頁）才把這一筆交接、批次繼續，沒載完是卡住（整批暫停）；讀不到的分頁（可能是 Safari 的 PDF 檢視器；文章站上與別的主機上同一套）交接、未驗證，除非它在已知的驗證服務上、主機是登入主機的長相（整批暫停），或帶著驗證服務自己的標記；DOI 解不開要看得到 doi.org 自己的查無頁，否則整批暫停（使用者 2026-10-05 第 1 則）；主機的登入字詞只認最左邊的標籤與 IdP 服務名（同日第 4 則）（#613 R2、R3、b34；細節與封閉清單以 akashic-fetch-fulltext SKILL.md〈中止條款〉為準）。實作範例是
   `plugin/skills/akashic-fetch-fulltext/`（`fetch` 結束碼 8／6；`akashic fulltext bot-signals --kind` 印 `verify`／`pause`）。**判斷順序：先看狀態碼，再看內容**（這句管取 API 的回應；讀渲染後頁面時，403 而文字是四種驗證頁才照等人驗證，429 一律整批暫停，見上）——404 是「查無此筆」、
   不是訊號（Crossref 對不存在的 DOI 回 404 加純文字本文，它同時符合「不是 JSON」，狀態碼優先）；#634 驗證第 26／32／38 列指出
   兩條規則對同一個回應各說各話。
@@ -99,7 +99,7 @@ Crossref、ORCID、DOI 解析、出版商頁面）一直是 skill 層的事；�
 ## 例外：可以不照本規則的取得指令（封閉列舉，只有兩類，不得依性質相似類推第三類）
 
 1. **本規則成文前已存在的檔（grandfathered）**，逐檔列在下方〈既有檔〉。可以修 bug；不得新增
-   同類指令，也不得在新 skill 裡照抄。遷移由 #634 追蹤，改完一檔就從清單拿掉（2026-09-29
+   同類指令，也不得在新 skill 裡照抄。例外只有一種：下方 `akashic-fetch-fulltext` 那一條明列的「`fetch` 之後 skill 自己的讀與按」（以 `own-tab:` 的視窗 id 加分頁位置送的 `snapshot -i`、`get`、`click`、`save-pdf`），是逐條登記在那裡才算，不能比照再加（#781 第 3 輪 verify 第 13 列）。遷移由 #634 追蹤，改完一檔就從清單拿掉（2026-09-29
    散文檔遷移完；同日 b11c R1 起 verify-venue 改為指向 web-access.md；同日 #629 第二塊移植掉兩支直連 Crossref 的 Python 腳本，形狀 (a) 只剩一個量測範例檔）。
    這一類有**兩種形狀**（2026-09-29 顯式加入第二種，#634 驗證第 3／12／41／47 列：#634 曾把 `akashic-fetch-fulltext`
    當成已遷移移出清單，而它取得雖走 safari-browser，鎖分頁的方式仍是本規則明禁的視窗編號）：
@@ -174,8 +174,9 @@ Crossref、ORCID、DOI 解析、出版商頁面）一直是 skill 層的事；�
    **`akashic s2` 與 `akashic_s2` 不在此類**：它們連網，歸上面〈例外〉第 2 類，受那一類的邊界
    約束。#664 之前本類寫的是「`akashic` CLI……沒有網路」，`akashic s2` 落地後那句為假；所以把
    它點名排除，而不是讓「本機工具」這個字面把一個連網的子命令收進來。
-3. **使用者本人在瀏覽器上的操作**——登入、授權、付費牆後的點擊。那是人的動作；skill 不代按
-   登入或授權按鈕。
+3. **使用者本人在瀏覽器上的操作**——登入、授權、付費。那是人的動作；skill 不代按
+   登入、授權或付費的按鈕。文章自己的 PDF 或下載連結不在此列：`akashic-fetch-fulltext` 預設由 Claude 按
+   （該 skill 的〈人機分工〉；#781）。
 4. **凍結的評測快照**——`docs/skill-evals/**/skill-snapshot-*/` 底下的舊 skill（與 `swift-is-the-implementation-language`
    〈不適用〉第 5 類同一批檔，2026-09-29 #629 R2 加列）。它是 A／B 比對的基準線，不被任何 skill、CLI、守衛或測試執行；
    改寫它就不再是基準線。
@@ -225,14 +226,14 @@ grep -rlE -- '--tab-in-window' plugin/skills plugins/*/skills Sources | grep -vE
 2026-09-29（#629 第二塊移植後）命中 4 個檔，其中 2 個不算（`web-access.md` 與 `akashic-work-references/SKILL.md` 提到它是在說「不要用」）；剩下的：
 
 - `Sources/AkashicSkillTools/FulltextFetch.swift`（`akashic fulltext fetch`，原 `fetch-fulltext.sh`），以及 `plugin/skills/akashic-fetch-fulltext/SKILL.md` 的第 3 步
-  （描述那條命令）：（歷史：#613、#629 時鎖法是 `--window N --tab-in-window T`；#768 起改成記號加 `--profile`，見本段末。）
+  （描述那條命令）：（歷史：#613、#629 時鎖法是 `--window N --tab-in-window T`；#768 起改成記號加 `--profile`；#772 起記號不在時的位置鎖以視窗 id 指定視窗，見本段末。）
   理由：`publishers.md` 記著——使用者已開著同一頁時，URL 鎖會比對到兩個分頁、safari-browser fail-closed。**便宜的解**（沒實測）：
   對 `--landing` 加一次性 fragment，同一頁已開的問題自然消失（#634 驗證第 41 列）。**但 `--landing` 的形狀檢查（`landingShapeProblem`）
   自 #629 R2 起拒絕 `#`**：照這個解做，得先讓形狀檢查放行結尾的那一段 fragment，或由工具在檢查之後自己加上（#629 R3 verify 第 2、42 則）。這個 skill 因此**同時有兩個鎖法**：第 2 步（頁內
   OpenAlex 查詢）用 web-access.md 的鎖，第 3 步（`fetch`）用命令自己的記號鎖（#768 之前是視窗編號）；SKILL.md 第 3 步明寫兩者不混用。**移植後這條鎖法有一個
   比以前好的地方**：`SafariBrowser` 介面讓「這支程式對瀏覽器說了什麼」可以在測試裡逐條斷言（`FulltextFetchPathTests`），改鎖法時測試會告訴你哪些
   引數向量變了——以前只有一個 Python stub 的結束碼。**要改時**：`FulltextFetch.swift` 的引數向量建構點（`open`／`js`／`wait` 的 `--window`
-  `--tab-in-window`）改成 `--profile`＋`--url-endswith`，`stillOurTab` 與「以位置認分頁」的邏輯只剩記號不在時的後備。**#768（2026-11-04）已部分採用 fragment**：使用者選定 `fetch` 的分頁以一次性記號（`#akashic-<16 hex>`）認、記號還在時以 `--profile`＋`--url-endswith` 鎖分頁（一定帶 `--profile`：只帶 `--url-endswith` 的 `open` 會在前景視窗開新分頁、不導航那個分頁，safari-browser#233，#768 第三輪 verify），接受頁面腳本看得到它的代價；Elsevier 在授權轉址時丟掉記號，所以位置追蹤仍是後備。`--window`／`--tab-in-window` 只用在記號不在時。
+  `--tab-in-window`）改成 `--profile`＋`--url-endswith`，`stillOurTab` 與「以位置認分頁」的邏輯只剩記號不在時的後備。**#768（2026-11-04）已部分採用 fragment**：使用者選定 `fetch` 的分頁以一次性記號（`#akashic-<16 hex>`）認、記號還在時以 `--profile`＋`--url-endswith` 鎖分頁（一定帶 `--profile`：只帶 `--url-endswith` 的 `open` 會在前景視窗開新分頁、不導航那個分頁，safari-browser#233，#768 第三輪 verify），接受頁面腳本看得到它的代價；Elsevier 在授權轉址時丟掉記號，所以位置追蹤仍是後備，只用在記號不在時。**`fetch` 之後 skill 自己的讀與按**（`snapshot -i`、`get`、`click`、`save-pdf`，#781 第 2 輪 verify 第 3、7 列）同屬這個例外：以 `fetch` 的 `own-tab:` 一行印的視窗 id 加分頁位置送（`--window-id "$W" --tab-in-window "$t"`），`$t` 在同一個 Bash 呼叫裡從 `documents --json` 認出——記號還在時是網址以記號結尾的那一個分頁，記號不在時是那個視窗裡網址**整個**等於上一步存下的網址的那一個分頁；認不出來（沒有或不只一個）就不送。這一段的 `documents --json` 與命令在 `fetch` 印了視窗的 profile 時帶 `--profile`（使用者 2026-11-19 21:40，#781 第 3 輪 verify 第 6 列）；讀不出 profile 時才不帶：完整的清單只寫進一個暫存檔、在同一個呼叫裡以視窗 id 篩完就刪，留下的只有那個視窗的列與各視窗的 id（判按了之後有沒有多出視窗用；沒有網址與標題），也不印進對話——〈使用紀律〉「`documents` 一律帶 `--profile`」要防的是別的 profile 的分頁倒進對話，這個後備以篩選做到。記號存在每一篇的檔裡，收下新分頁時清掉，之後的鎖跟著新分頁；按了之後以 `fetch` 的 `stillOurTab` 同一個判法認位置，加上 2026-11-20 在真的 Safari 上量到的一個例外（最後面多一個分頁、被按的分頁只有片段變了，#820 的 M5）。**新分頁只在按的同一個 Bash 呼叫裡、恰好多一個在視窗最後面、網址等於按的那個連結時才收**（`akashic fulltext same-target`；位置說不出一個分頁是誰開的，M1–M4a），其餘讓 Safari 變多的情形（對不上的分頁、多個分頁、新視窗）停下整批、不對多出來的送任何命令（#781 第 4 輪 verify 第 1、2 列；維護者 2026-11-20 08:42）。交出去之後再接：到要交的前一刻才以記號或完整網址認分頁、取基準，做完之後只收文章站、已知驗證服務或交出去那一刻的主機，其餘不讀（第 4 輪 verify 第 4、11 列）。這取代了 fix 第 1 輪用的 `--profile` 加 `--url "$lock"`（`$lock` 是依位置從清單取的，等於〈使用紀律〉禁的位置鎖換了個樣子）。仍然擋不住：`documents --json` 與命令之間分頁剛好移動。**#772（2026-11-19）起位置鎖是 `--window-id W --tab-in-window T`**：W 是 `fetch` 開頭以 `--window N` 選定的視窗的穩定 id（safari-browser v2.9.0 的 `--window-id`，id 不存在時失敗、不退回前景視窗），新分頁也以 `open --new-tab --window-id W` 開。視窗被拉到前面不再讓命令打到別的視窗（#735 的視窗那一半）；同一個視窗裡左邊開關分頁時 `--tab-in-window T` 仍會指到別的分頁，所以每一步之前照舊以 `documents --json` 核對。別的 profile 的視窗開著不再讓 `fetch` 停（使用者 2026-11-19 09:24、09:25：只要鎖定固定的視窗；profile 只用來選視窗）。
 
 歷史：2026-09-25 同一個量法（沒有最後一段）命中 13 個檔，其中 2 個不算，其餘 11 個。#634 於 2026-09-29
 遷移了其中 8 個：`akashic-bootstrap` 的 `person-sources.md`、`work-sources.md`，`akashic-disambiguate` 的

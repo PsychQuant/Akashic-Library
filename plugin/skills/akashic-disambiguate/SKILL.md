@@ -162,4 +162,5 @@ akashic record-divergence --question "…" --candidate "a:person" --candidate "b
   **此處刻意不重述它的判準**：重述過一次，被逐句比對後找出多處失真（漏掉一項證據、把明標的開放清單寫成封閉、整個識別碼例外沒提；型態的完整清單見 `../../rules/assertions-must-be-measured.md` 的失真表）。**確切數目不寫**——那個計數只存在於一則讀者多半取不到的 verify comment，而寫一個他無法重跑的數字正好違反那條規則的第 2 題。讀不到時的出路是**明說讀不到**、請讀得到的人補，不是憑印象補上
 - [`assertions-must-be-measured`](../../rules/assertions-must-be-measured.md)——判定寫進 verdict 的理由是關於世界的斷言，先量過再寫
 - [`source-of-truth-over-consent`](../../rules/source-of-truth-over-consent.md)——身分判定的依據是證據；使用者說「就歸給這個人」而沒有給出處時，那是線索、不是授權
+- [`site-knowledge-goes-back-into-the-plugin`](../../rules/site-knowledge-goes-back-into-the-plugin.md)——一批做完、回報之前，把這一批量到的網站或 API 行為（plugin 還沒有紀錄的、與 plugin 寫的不同的、照字面做不到的一步）寫回 plugin，並在回報列出寫了什麼（#822）
 - Akashic-Library#384（統計所 100 筆歧義的逐輪消歧，本 skill 的方法論來源）、#386（per-work 判定路徑）、#396（220 列非歧義候選）

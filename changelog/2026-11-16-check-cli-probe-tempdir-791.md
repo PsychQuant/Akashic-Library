@@ -30,7 +30,7 @@
 
 ## 版號
 
-plugin 殼 0.13.16 → 0.13.17（`plugin/.claude-plugin/plugin.json`、`plugin/CHANGELOG.md`、`.githooks/plugin-shell-versions.txt` 接一列）。0.13.17 還沒推上 main，後面兩輪改 hook 時原地重算那一列的摘要。binary 與 fulltext 契約版本不變，不需要重建 CLI。
+~~plugin 殼 0.13.16 → 0.13.17（`plugin/.claude-plugin/plugin.json`、`plugin/CHANGELOG.md`、`.githooks/plugin-shell-versions.txt` 接一列）。0.13.17 還沒推上 main，後面兩輪改 hook 時原地重算那一列的摘要。~~ → 2026-11-21 併入 main 時改成 0.13.18 → 0.13.19：main 已用掉 0.13.17（#781／#780）與 0.13.18（#822）。版號表那一列以合併後的內容重算。binary 與 fulltext 契約版本不變，不需要重建 CLI。
 
 ## verify 第 1 輪之後（change `idd-791-fix1`，`422059a0`）
 

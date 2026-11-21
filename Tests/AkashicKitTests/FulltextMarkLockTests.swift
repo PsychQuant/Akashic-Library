@@ -8,7 +8,7 @@ import XCTest
 ///   開新分頁，我們的分頁沒有被導航。假瀏覽器照真的 safari-browser 的判斷（`FakeBrowser.openTargetFlags`）。
 /// - 記號不見就改用位置追蹤，不論何時：頁面用腳本轉到的登入、驗證頁照常分類（6／8）。
 ///
-/// 另外：記進帳本之後的每一條失敗都印「已計次」；有別的 profile 的視窗開著就在開分頁之前停（safari-browser#351）；接續以上一次執行的
+/// 另外：記進帳本之後的每一條失敗都印「已計次」；別的 profile 的視窗開著不停（#772 起：新分頁與位置鎖都帶 `--window-id`；先前在開分頁之前停，safari-browser#351）；接續以上一次執行的
 /// 記號找分頁（`--resume-mark`），`resume:` 一行帶視窗編號。
 final class FulltextMarkLockTests: XCTestCase {
     typealias FakeBrowser = FulltextFetchPathTests.FakeBrowser
@@ -63,7 +63,7 @@ final class FulltextMarkLockTests: XCTestCase {
             for (i, url) in w.urls.enumerated() {
                 items.append(PyJSON.object([("window", .int(w.number)), ("index", .int(i + 1)), ("tab_in_window", .int(i + 1)), ("url", .string(url)),
                                             ("title", .string("t")), ("profile", w.profile.map { .string($0) } ?? .null), ("is_current", .bool(i == 0)),
-                                            ("blocking_dialog", PyJSON.object([("state", .string("unknown")), ("window_id", .int(w.id))]))]))
+                                            ("window_id", .int(w.id)), ("blocking_dialog", PyJSON.object([("state", .string("unknown")), ("window_id", .int(w.id))]))]))
             }
         }
         return PyJSON.array(items).dumps() + "\n"
@@ -154,20 +154,24 @@ final class FulltextMarkLockTests: XCTestCase {
         XCTAssertFalse(errText.contains("already counted"), errText)
     }
 
-    // MARK: 別的 profile 的視窗（safari-browser#351；第三輪 verify 第 12 則）
+    // MARK: 別的 profile 的視窗（safari-browser#351；第三輪 verify 第 12 則；#772 起不停，鎖在 `--window-id`）
 
-    /// 別的 profile 的視窗開著：#351 可能把新分頁開到那裡，以那個 profile 的身分載入文章頁。開任何分頁之前就停，訊息不印那個 profile 與它的分頁。
-    func testAWindowOfAnotherProfileStopsTheRunBeforeAnythingIsOpened() {
+    /// #772（使用者 2026-11-19 09:24「在別的是窗沒差，只要鎖定好固定視窗就好」）：別的 profile 的視窗開著不再停。每一個以位置認分頁的動作
+    /// 都帶 `--window-id`，所以新分頁與位置鎖都到不了那個視窗。訊息仍然不印那個 profile 與它的分頁。
+    // spec-example: fulltext-window-lock / Another profile's window at the start does not stop the run
+    func testAWindowOfAnotherProfileDoesNotStopTheRun() {
         let code = fetch(hook: { args, fake in
             guard args[0] == "documents" else { return nil }
+            if fake.tabs.count > 1, fake.tabs[1].url.hasPrefix("https://doi.org/") { fake.tabs[1].url = Self.finalURL + "#" + Self.mark }
             return SafariRun(status: 0, stdout: Self.documents([(5, "own", 9005, fake.tabs.map(\.url)),
                                                                 (6, "someone-else", 9006, ["https://mail.private.example/inbox"])]))
         })
-        XCTAssertEqual(code, 1, errText)
-        XCTAssertTrue(errText.contains("a Safari window of another profile"), errText)
-        XCTAssertFalse(errText.contains("someone-else"), errText)
-        XCTAssertFalse(errText.contains("mail.private.example"), errText)
-        XCTAssertFalse(browser.calls.contains { $0.hasPrefix("open") }, "什麼都沒開：\(browser.calls)")
+        XCTAssertEqual(code, 7, errText)
+        XCTAssertFalse(errText.contains("another profile"), errText)
+        for leaked in ["someone-else", "mail.private.example"] {
+            XCTAssertFalse(errText.contains(leaked), errText)
+            XCTAssertFalse(outText.contains(leaked), outText)
+        }
     }
 
     /// 同一個 profile 的另一個視窗不擋：新分頁真的開錯視窗時 fetch 認得出來、不讀它（`went to another Safari window`），而那一頁載入在使用者
@@ -236,7 +240,7 @@ final class FulltextMarkLockTests: XCTestCase {
         })
         XCTAssertEqual(code, 7, errText)
         XCTAssertTrue(outText.contains("resuming: window 5 tab 2"), outText)
-        XCTAssertEqual(opens.map { Array($0.dropLast()) }, [["open", "--window", "5", "--tab-in-window", "2"]])
+        XCTAssertEqual(opens.map { Array($0.dropLast()) }, [["open", "--window-id", "9005", "--tab-in-window", "2"]])
     }
 
     /// 帶著記號的分頁在別的視窗：不接續，請人找出它所在的視窗。
@@ -274,7 +278,7 @@ final class FulltextMarkLockTests: XCTestCase {
             let items = fake.tabs.enumerated().map { i, t in
                 PyJSON.object([("window", .int(5)), ("index", .int(i + 1)), ("tab_in_window", .int(i == 0 ? 1 : i + 2)), ("url", .string(t.url)),
                                ("title", .string(t.title)), ("profile", .string("own")), ("is_current", .bool(false)),
-                               ("blocking_dialog", PyJSON.object([("state", .string("unknown")), ("window_id", .int(9005))]))])
+                               ("window_id", .int(9005)), ("blocking_dialog", PyJSON.object([("state", .string("unknown")), ("window_id", .int(9005))]))])
             }
             return SafariRun(status: 0, stdout: PyJSON.array(items).dumps() + "\n")
         })
@@ -286,24 +290,24 @@ final class FulltextMarkLockTests: XCTestCase {
     // MARK: 第五版（第四輪 verify 之後，使用者 2026-11-04：靠 safari-browser#351 根本解決、照位置接續）
 
 
-    /// 接續也一樣：別的 profile 的視窗開著，接續在讀、導航任何東西之前就停（第六輪 verify 第 1、4 則：先前判斷放在 resume 之後）。
-    func testAResumeStopsWhenAnotherProfilesWindowIsOpen() {
-        var sent: [String] = []
+    /// 接續也一樣不停（#772）。
+    // spec-example: fulltext-window-lock / Another profile's window does not stop a resume
+    func testAResumeDoesNotStopWhenAnotherProfilesWindowIsOpen() {
         let code = fetch(tabs: ["https://user.example/mine", Self.finalURL], configure: {
             $0.resumeTab = 2; $0.resumeOrigin = "https://pub.example"
         }, hook: { args, fake in
-            if args[0] != "documents" { sent.append(args[0]) }
             guard args[0] == "documents" else { return nil }
             return SafariRun(status: 0, stdout: Self.documents([(5, "own", 9005, fake.tabs.map(\.url)),
                                                                 (6, "someone-else", 9006, ["https://mail.private.example/inbox"])]))
         })
-        XCTAssertEqual(code, 1, errText)
-        XCTAssertTrue(errText.contains("a Safari window of another profile"), errText)
-        XCTAssertEqual(sent, [], "沒有送任何 js、wait、open：\(sent)")
+        XCTAssertEqual(code, 7, errText)
+        XCTAssertFalse(errText.contains("a Safari window of another profile"), errText)
+        XCTAssertFalse(errText.contains("mail.private.example"), errText)
     }
 
-    /// 執行當中才開了別的 profile 的視窗：下一眼就停，不再讀、不再導航（第六輪 verify 第 8 則）。
-    func testAnotherProfilesWindowOpenedMidRunStopsTheRun() {
+    /// 執行當中才開了別的 profile 的視窗：不停（#772）。
+    // spec-example: fulltext-window-lock / Another profile's window opened mid-run does not stop the run
+    func testAnotherProfilesWindowOpenedMidRunDoesNotStopTheRun() {
         var looks = 0
         let code = fetch(hook: { args, fake in
             guard args[0] == "documents" else { return nil }
@@ -313,9 +317,8 @@ final class FulltextMarkLockTests: XCTestCase {
             if looks >= 5 { windows.append((6, "someone-else", 9006, ["https://mail.private.example/inbox"])) }
             return SafariRun(status: 0, stdout: Self.documents(windows))
         })
-        XCTAssertEqual(code, 1, errText)
-        XCTAssertTrue(errText.contains("was opened while this ran"), errText)
-        XCTAssertFalse(browser.navigated)
+        XCTAssertEqual(code, 7, errText)
+        XCTAssertTrue(browser.navigated)
         XCTAssertFalse(errText.contains("mail.private.example"), errText)
     }
 
@@ -334,34 +337,35 @@ final class FulltextMarkLockTests: XCTestCase {
         XCTAssertFalse(browser.navigated)
     }
 
-    /// 新分頁以全域的 `--window N` 開（不帶 `--profile`：safari-browser#351 的修正不能把它釘在那個 profile 的視窗，見那個 issue 的更正）。
-    func testTheTabIsOpenedByTheGlobalWindowNumber() {
+    /// 新分頁以視窗 id 開（#772：`--window-id`，safari-browser v2.9.0；先前是全域的 `--window N`，前後順序一變就指到別的視窗）。
+    // spec-example: fulltext-window-lock / The new tab is opened by window id
+    func testTheTabIsOpenedByTheWindowID() {
         var newTabArgs: [String] = []
         XCTAssertEqual(fetch(hook: { args, _ in
             if args[0] == "open", args.contains("--new-tab") { newTabArgs = Array(args.dropLast()) }
             return nil
         }), 7, errText)
-        XCTAssertEqual(newTabArgs, ["open", "--new-tab", "--window", "5"])
+        XCTAssertEqual(newTabArgs, ["open", "--new-tab", "--window-id", "9005"])
     }
 
-    /// 認不出 profile 的別的視窗（`profile: null`）也當成可能是別人的：沒有修正時停（第四輪 verify 第 6 則）。
-    func testAnotherWindowWhoseProfileCannotBeReadAlsoStopsTheRun() {
+    /// 認不出 profile 的別的視窗（`profile: null`）也不停（#772；先前當成可能是別人的而停，第四輪 verify 第 6 則）。
+    func testAnotherWindowWhoseProfileCannotBeReadDoesNotStopTheRun() {
         let code = fetch(hook: { args, fake in
             guard args[0] == "documents" else { return nil }
+            if fake.tabs.count > 1, fake.tabs[1].url.hasPrefix("https://doi.org/") { fake.tabs[1].url = Self.finalURL + "#" + Self.mark }
             var items: [PyJSON] = []
             for (i, t) in fake.tabs.enumerated() {
                 items.append(PyJSON.object([("window", .int(5)), ("index", .int(i + 1)), ("tab_in_window", .int(i + 1)), ("url", .string(t.url)),
                                             ("title", .string("t")), ("profile", .string("own")), ("is_current", .bool(false)),
-                                            ("blocking_dialog", PyJSON.object([("state", .string("unknown")), ("window_id", .int(9005))]))]))
+                                            ("window_id", .int(9005)), ("blocking_dialog", PyJSON.object([("state", .string("unknown")), ("window_id", .int(9005))]))]))
             }
             items.append(PyJSON.object([("window", .int(6)), ("index", .int(9)), ("tab_in_window", .int(1)), ("url", .string("https://x.example/")),
                                         ("title", .string("")), ("profile", .null), ("is_current", .bool(true)),
-                                        ("blocking_dialog", PyJSON.object([("state", .string("unknown")), ("window_id", .int(9006))]))]))
+                                        ("window_id", .int(9006)), ("blocking_dialog", PyJSON.object([("state", .string("unknown")), ("window_id", .int(9006))]))]))
             return SafariRun(status: 0, stdout: PyJSON.array(items).dumps() + "\n")
         })
-        XCTAssertEqual(code, 1, errText)
-        XCTAssertTrue(errText.contains("cannot be read"), errText)
-        XCTAssertFalse(browser.calls.contains { $0.hasPrefix("open") }, "\(browser.calls)")
+        XCTAssertEqual(code, 7, errText)
+        XCTAssertFalse(errText.contains("cannot be read"), errText)
     }
 
     /// 記號剛好在確認與命令之間不見（讀頁面文字之前頁面用腳本換了網址）：記號鎖找不到分頁，再確認一次、改用位置鎖重跑一次，照常往下走
@@ -539,10 +543,10 @@ final class FulltextMarkLockTests: XCTestCase {
         }
         XCTAssertEqual(code, 7, errText)
         XCTAssertTrue(browser.navigated)
-        XCTAssertEqual(opens.map { Array($0.dropLast()) }, [["open", "--window", "5", "--tab-in-window", "2"]])
+        XCTAssertEqual(opens.map { Array($0.dropLast()) }, [["open", "--window-id", "9005", "--tab-in-window", "2"]])
     }
 
-    // MARK: 第八版：每一眼的別的 profile 檢查只看開頭沒有的視窗（第七輪 verify 第 4、15 則）
+    // MARK: 第八版：每一眼的別的 profile 檢查只看開頭沒有的視窗（第七輪 verify 第 4、15 則；#772 起這道檢查拿掉了，測試改成「不停」）
 
     /// 同一個 profile 的第二個視窗開頭就在、檢查過：它載入新頁、標題一時空白而讀不出 profile，不是有人開了別的 profile 的視窗。
     func testAWindowCheckedAtTheStartWhoseProfileGoesUnreadableDoesNotStopTheRun() {
@@ -573,8 +577,8 @@ final class FulltextMarkLockTests: XCTestCase {
         XCTAssertTrue(browser.navigated)
     }
 
-    /// 開頭沒有的視窗讀不出 profile：可能是別人的，停。
-    func testAWindowOpenedMidRunWhoseProfileCannotBeReadStopsTheRun() {
+    /// 開頭沒有的視窗讀不出 profile：不停（#772）。
+    func testAWindowOpenedMidRunWhoseProfileCannotBeReadDoesNotStopTheRun() {
         var looks = 0
         let code = fetch(hook: { args, fake in
             guard args[0] == "documents" else { return nil }
@@ -584,9 +588,8 @@ final class FulltextMarkLockTests: XCTestCase {
             if looks >= 5 { windows.append((6, nil, 9006, ["https://x.example/"])) }
             return SafariRun(status: 0, stdout: Self.documents(windows))
         })
-        XCTAssertEqual(code, 1, errText)
-        XCTAssertTrue(errText.contains("was opened while this ran"), errText)
-        XCTAssertFalse(browser.navigated)
+        XCTAssertEqual(code, 7, errText)
+        XCTAssertTrue(browser.navigated)
     }
 
     /// 開頭沒有、而屬於同一個 profile 的視窗不擋。
@@ -655,35 +658,34 @@ final class FulltextMarkLockTests: XCTestCase {
 
     // MARK: 第八版：把停止的位置釘住（第七輪 verify 第 9、21 則）
 
-    /// 只有這條路上順序才有差：導航之後的接續、分頁在 PDF 主機上、記號不在。`resume` 在任何 `ownTabNow` 之前就送 `js`，所以停止要排在 `resume`
-    /// 之前。沒有送任何東西到那個位置。
-    func testAFollowedResumeStopsBeforeItsFirstScriptWhenAnotherProfilesWindowIsOpen() {
+    /// 導航之後的接續、分頁在 PDF 主機上、記號不在：別的 profile 的視窗開著也接得住（#772）；接續送的腳本以 `--window-id` 鎖在我們的視窗。
+    func testAFollowedResumeIsNotStoppedByAnotherProfilesWindow() {
         var s = Scenario(); s.currentContentType = "application/pdf"
-        var sent: [String] = []
+        var scripts: [[String]] = []
         let code = fetch(s, tabs: ["https://user.example/mine", "https://cdn.pub.example/x.pdf"], configure: {
             $0.resumeTab = 2; $0.resumeOrigin = "https://pub.example"; $0.resumeStage = .followed
         }, hook: { args, fake in
-            guard args[0] == "documents" else { sent.append(args[0]); return nil }
+            guard args[0] == "documents" else { if args[0] == "js" { scripts.append(Array(args.dropLast())) }; return nil }
             return SafariRun(status: 0, stdout: Self.documents([(5, "own", 9005, fake.tabs.map(\.url)),
                                                                 (6, "someone-else", 9006, ["https://mail.private.example/inbox"])]))
         })
-        XCTAssertEqual(code, 1, errText)
-        XCTAssertTrue(errText.contains("a Safari window of another profile"), errText)
-        XCTAssertEqual(sent, [], "\(sent)")
+        XCTAssertEqual(code, 7, errText)
+        XCTAssertFalse(scripts.isEmpty)
+        XCTAssertTrue(scripts.allSatisfy { $0.contains("--window-id") && !$0.contains("--window") }, "\(scripts)")
     }
 
-    /// 無條件：`safari-browser --version` 回多新都一樣。第五版的版本閘是第五輪 verify 的 HIGH，維護者裁決不要；假瀏覽器沒有 `--version`
-    /// 時，版本閘回來測試也不會紅。
-    func testTheStopDoesNotDependOnTheSafariBrowserVersion() {
+    /// 不問 `safari-browser --version`（#772）：開發建置印 `unknown`，所以檢查的是 `documents --json` 有沒有頂層的 `window_id`（能力），不是版本字串。
+    func testTheVersionStringIsNotConsulted() {
+        var askedForVersion = false
         let code = fetch(hook: { args, fake in
-            if args.contains("--version") { return SafariRun(status: 0, stdout: "v9.9.9\n") }
+            if args.contains("--version") { askedForVersion = true; return SafariRun(status: 0, stdout: "unknown\n") }
             guard args[0] == "documents" else { return nil }
+            if fake.tabs.count > 1, fake.tabs[1].url.hasPrefix("https://doi.org/") { fake.tabs[1].url = Self.finalURL + "#" + Self.mark }
             return SafariRun(status: 0, stdout: Self.documents([(5, "own", 9005, fake.tabs.map(\.url)),
                                                                 (6, "someone-else", 9006, ["https://mail.private.example/inbox"])]))
         })
-        XCTAssertEqual(code, 1, errText)
-        XCTAssertTrue(errText.contains("a Safari window of another profile"), errText)
-        XCTAssertFalse(browser.calls.contains { $0.hasPrefix("open") }, "\(browser.calls)")
+        XCTAssertEqual(code, 7, errText)
+        XCTAssertFalse(askedForVersion)
     }
 
     // MARK: 第九版：頁面標題偽造的列（第八輪 verify 第 1 則，safari-browser#355）
@@ -693,7 +695,7 @@ final class FulltextMarkLockTests: XCTestCase {
         PyJSON.array(list.map { r in
             PyJSON.object([("window", .int(r.window)), ("index", .int(r.tab)), ("tab_in_window", .int(r.tab)), ("url", .string(r.url)),
                            ("title", .string("t")), ("profile", .string("own")), ("is_current", .bool(false)),
-                           ("blocking_dialog", PyJSON.object([("state", .string("unknown")), ("window_id", .int(r.id))]))])
+                           ("window_id", .int(r.id)), ("blocking_dialog", PyJSON.object([("state", .string("unknown")), ("window_id", .int(r.id))]))])
         }).dumps() + "\n"
     }
 

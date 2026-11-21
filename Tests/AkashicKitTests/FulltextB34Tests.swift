@@ -433,15 +433,15 @@ final class FulltextB34Tests: XCTestCase {
         XCTAssertEqual(Set(ticks(list)), BotSignals.identityProviderNames)
     }
 
-    /// 〈交給人之後〉的表逐一列交給人的原因：表的原因就是 `Handover` 的全部 `rawValue`（先前 SKILL 說「只有這四種」而程式有七種，
+    /// 〈結束碼 7 之後〉的表（#781 之前叫〈交給人之後〉）逐一列 `fetch` 交接的原因：表的原因就是 `Handover` 的全部 `rawValue`（先前 SKILL 說「只有這四種」而程式有七種，
     /// 範圍只是隱含的——b33 X3 第 10 則，與 b31 W4 第 5 則同形）。另外，「分頁到了別的主機時只有這四種」的四種要在表裡。
     func testTheSkillsHandoverTableIsTheHandoverEnum() throws {
         let skill = try skillText()
-        let table = between(skill, "| 原因 | 請使用者做什麼 |", "`pdf-shown` 也包含")
+        let table = between(skill, "| 原因 | 你做什麼 |", "**不要自己再發請求去取顯示中的 PDF**")
         let reasons = table.split(separator: "\n").filter { $0.hasPrefix("| `") }.compactMap { ticks($0).first }
         XCTAssertEqual(Set(reasons), Set(FulltextFetch.Handover.allCases.map(\.rawValue)))
         XCTAssertEqual(reasons.count, FulltextFetch.Handover.allCases.count, "\(reasons)")
-        let offSite = between(skill, "交給人的原因**只有這四種**", "沒有命中封閉清單**不代表不是登入頁**")
+        let offSite = between(skill, "`fetch` 交接的原因**只有這四種**", "沒有命中封閉清單**不代表不是登入頁**")
         let named = Set(ticks(offSite)).intersection(Set(FulltextFetch.Handover.allCases.map(\.rawValue)))
         XCTAssertEqual(named, ["pdf-shown", "left-site", "unverifiable", "doi-not-resolved", "html-page", "tab-unchanged", "button"],
                        "四種在別的主機上、三種只在文章站上，兩組合起來是全部")

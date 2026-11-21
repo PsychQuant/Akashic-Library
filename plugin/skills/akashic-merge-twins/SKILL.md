@@ -100,6 +100,7 @@ pmid），每次都是閘對。**預掃模擬閘就要用閘的粒度**；預掃
   「應該是」；見 [`assertions-must-be-measured`](../../rules/assertions-must-be-measured.md)
 - 合併的依據是「兩筆確實是同一件作品」的證據——使用者指定「這兩筆合併」而證據不支持時
   不合併；見 [`source-of-truth-over-consent`](../../rules/source-of-truth-over-consent.md)
+- 本檔沒有自己的網頁取得步驟；過程中若經別的 skill 去讀外部網站，量到的站別做法在回報之前寫回 plugin；見 [`site-knowledge-goes-back-into-the-plugin`](../../rules/site-knowledge-goes-back-into-the-plugin.md)（#822）
 - 乾跑報告先行（逐組 keeper／doomed／證據／判定），`store-source` 存證拿 digest，
   該 digest 就是每筆 judgement 的 `--rests-on`
 - REFUTE 逐組附理由；差集裁決史（誰的 abstract 被丟、為什麼）記入 store commit 與

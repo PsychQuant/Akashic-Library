@@ -124,9 +124,9 @@
 | Oxford Academic（`academic.oup.com`，Biometrika 1967）| 結束碼 7 `pdf-shown`：PDF 顯示在 `watermark02.silverchair.com`，交接時記號還在 | `save-pdf` 取得 7 頁。首頁沒有印 DOI，`take` 結束碼 5（帶 `--pages` 也是：頁數相符但沒有 DOI 可比），讀首頁以刊名、年份、卷期、起始頁確認後存入。站的行為與〈2026-11-10、2026-11-19 的實測〉Oxford Academic 那一列同一個樣子 | 1 篇成功 |
 | SpringerLink（`link.springer.com`，2026 年的書章）| 結束碼 7 `pdf-shown`：分頁在 `/content/pdf/<DOI>.pdf` | `save-pdf` 取得 26 頁。當天這一篇 `take` 的結束碼沒有記在 #822 的紀錄裡（那一批五次 `take` 都沒有帶 `--pages`）；事後帶上頁碼離線重跑是結束碼 0。站的行為與〈2026-11-02 一批〉Springer 那一列同一個樣子 | 1 篇成功 |
 
-**對話框探測在這一批讀起來的樣子**（Safari 本身的行為，不是哪一站的；這一段量到的寫在 [safari-measurements.md](safari-measurements.md) 的 P1，2026-11-21 的量測是 P2）：視窗裡都是 HTML 分頁時，`documents --json` 的 `blocking_dialog` 多數是 `clear`，偶爾一次 `unknown`／`incomplete`，等一次再讀又是 `clear`。批次到第 7 篇前後連續四次讀到 `unknown`（其中一次在跑過節奏工具之後），照 SKILL 停下來請使用者看那個視窗；他回答畫面上什麼都沒有掛著。第一個顯示 PDF 的分頁出現之後（上表 Taylor & Francis 那一篇），之後每一次讀取整個視窗的每一個分頁都是 `unknown`／`incomplete`、沒有訊息。機器當時負載很高，這一點有沒有關係沒有查。這與 PsychQuant/safari-browser#345 記的是同一個樣子。**它碰到 SKILL 第 3 步〈一層層按〉的一條規則**：按之前讀到的不是 `clear` 就不按、仍然是 `unknown` 就停下整批。
+**對話框探測在這一批讀起來的樣子**（Safari 本身的行為，不是哪一站的；這一段量到的寫在 [safari-measurements.md](safari-measurements.md) 的 P1，2026-11-21 的量測是 P2）：視窗裡都是 HTML 分頁時，`documents --json` 的 `blocking_dialog` 多數是 `clear`，偶爾一次 `unknown`／`incomplete`，等一次再讀又是 `clear`。第一個顯示 PDF 的分頁出現之後（上表 Taylor & Francis 那一篇；safari-browser#345 記的時間是 17:39），之後每一次讀取整個視窗的每一個分頁都是 `unknown`／`incomplete`、沒有訊息。批次到第 7 篇前後連續四次讀到 `unknown`（其中一次在跑過節奏工具之後），照 SKILL 停下來請使用者看那個視窗；他 17:48 回答畫面上什麼都沒有掛著，之後第 8、9 篇照樣讀成 `unknown`。從這些時間看，那一次停下多半在第一個 PDF 分頁出現之後，逐次的先後沒有記錄。機器當時負載很高，這一點有沒有關係沒有查。這與 PsychQuant/safari-browser#345 記的是同一個樣子。**它碰到 SKILL 第 3 步〈一層層按〉的一條規則**：按之前讀到的不是 `clear` 就不按、仍然是 `unknown` 就停下整批。
 
-（2026-11-21 更正，#822 verify 第 1 輪第 2、11 列。）這一段原本接著寫：「照那條規則，一批裡第一個 `pdf-shown` 的分頁出現之後，同一個視窗後面需要按的每一篇都會停下來問。這一批沒有碰到，是因為需要按的兩篇剛好排在第一個 PDF 分頁之前」。兩句都不成立：第一句是從這一批的讀數推的，2026-11-21 量到狀態跟著**作用中的分頁**走（作用中分頁顯示 PDF 時讀成 `unknown`，不顯示 PDF 時是 `clear`，P2），而 `fetch` 為下一篇開的分頁會成為作用中分頁；第二句漏了上面那一次停下。那條規則要不要改，沒有使用者的裁決，在 #828。
+（2026-11-21 更正，#822 verify 第 1 輪第 2、11 列。）這一段原本接著寫：「照那條規則，一批裡第一個 `pdf-shown` 的分頁出現之後，同一個視窗後面需要按的每一篇都會停下來問。這一批沒有碰到，是因為需要按的兩篇剛好排在第一個 PDF 分頁之前」。第一句是從這一批的讀數推的、沒有量過；2026-11-21 的唯讀量測指向相反的方向——狀態跟著**作用中的分頁**走（作用中分頁顯示 PDF 時讀成 `unknown`，不顯示 PDF 時是 `clear`，P2），而 `fetch` 為下一篇開的分頁會成為作用中分頁——但出版商網站上、PDF 分頁出現之後還要按的一篇仍然沒有量過。第二句與上面那一次停下不合。那條規則要不要改，沒有使用者的裁決，在 #828。
 
 這一批的 `acquisition`：下載資料夾取得的兩篇是 `browser-download`，`save-pdf` 取得的三篇是 `browser-save-pdf`。存進 store 的 note 有兩筆寫了「記錄沒有頁碼」，那是錯的（條目有頁碼，是執行時沒有帶 `--pages`）；note 目前沒有更正的入口，見 #824。
 
@@ -142,6 +142,6 @@
 
 **它碰到 SKILL 第 2 步的一條規則**：「第 3 步的 `--landing` 一律是 `https://doi.org/<DOI>`」，其他入口要使用者逐次確認。照那條規則，Claude 自己不會去試舊出版商的站；這一批是使用者懷疑「沒有權限」的結論、Claude 才提出這個入口並取得確認。要不要讓流程在 DOI 的落地頁沒有權限時，自己提出（或自己試）以 DOI 前綴認得的舊出版商入口，沒有使用者的裁決；那是會改變流程怎麼判的句子，這裡只記事實。
 
-**對話框探測**：這一批每一次讀取都是 `unknown`。三篇都是 `pdf-shown`，讀取時作用中的分頁是顯示 PDF 的那一個（#828 對照存下的分頁清單），與 [safari-measurements.md](safari-measurements.md) 的 P2 相符。這一段原本把它讀成「視窗裡留著前一天顯示 PDF 的分頁」所以 `unknown`、與前一天同一個樣子——那是照前一天的推論讀的，P2 之後不成立。三篇都不需要按，所以沒有碰到「不是 `clear` 就不按」那條規則。
+**對話框探測**：這一批每一次讀取都是 `unknown`。三篇都是 `pdf-shown`，讀取時作用中的分頁是顯示 PDF 的那一個（#828 對照存下的分頁清單），與 [safari-measurements.md](safari-measurements.md) 的 P2 相符。這一段原本把它讀成「視窗裡留著前一天顯示 PDF 的分頁」所以 `unknown`、與前一天同一個樣子——那是照前一天的推論讀的，P2 指向別的解釋；這一批沒有切換分頁的對照，兩種讀法在這三篇上分不出來。三篇都不需要按，所以沒有碰到「不是 `clear` 就不按」那條規則。
 
 這一批的 `acquisition` 都是 `browser-save-pdf`，`origin` 是 `https://link.springer.com/content/pdf/<DOI>.pdf`；note 寫明入口是使用者確認的 SpringerLink 文章頁、以及 `doi.org` 解析到的站前一天沒有權限。

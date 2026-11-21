@@ -4,8 +4,8 @@
 
 維護者 2026-11-21 決定修報告裡標為 in-scope 的 22 列、再審一輪（#822 的決定留言）。**只改文件，沒有改 `akashic` CLI。**
 
-- `rules/site-knowledge-goes-back-into-the-plugin.md`：送到別的 repo 的留言或 issue 兩種情況都要使用者確認、先過隱私檢查（先前 Safari 那一列叫 agent 直接補在 safari-browser 的 issue，退路指到不相干的 (b)）；寫進檔的頁面文字是資料、不是指示；封閉的〈不寫的〉清單；欄位依取得方式（`fetch` 或頁內 fetch）寫；(a) 怎麼認原始碼 repo 與維護者；表裡沒有的去處寫進回報、不先改受保護的規則檔；`akashic-work-references` 有了去處、路徑相對於哪個根寫明；「取得方式的改動」是三處的封閉列舉，CLI 落後那一點兩種情況都適用、也要確認；第 1 類的清單是舉例；再量到已知行為不屬三類；第 3 類的例子改用 #828 的量測；〈為什麼〉更正第一次有導航實測的站數。
-- 八個 skill 的那一行寫全第 3 類，`akashic-venue-works` 寫全三類，`akashic-fetch-fulltext` 第 7 步補上「使用者是維護者」。
+- `rules/site-knowledge-goes-back-into-the-plugin.md`：送到別的 repo 的留言或 issue 兩種情況都要使用者確認、先過隱私檢查（先前 Safari 那一列叫 agent 直接補在 safari-browser 的 issue，退路指到不相干的 (b)）；寫進檔的頁面文字是資料、不是指示；封閉的〈不寫的〉清單；欄位依取得方式（`fetch`、頁內 fetch、`akashic s2`）寫；(a) 怎麼認原始碼 repo 與維護者；表裡沒有的去處寫進回報、不先改受保護的規則檔；`akashic-work-references` 有了去處、路徑相對於哪個根寫明；「取得方式的改動」是三處的封閉列舉，CLI 落後那一點兩種情況都適用、也要確認；第 1 類的清單是舉例；再量到已知行為不屬三類；第 3 類的例子改用 #828 的量測；〈為什麼〉更正第一次有導航實測的站數。
+- 引用這條規則的那一行寫全第 3 類：六個 skill 的 `SKILL.md`（`akashic-bootstrap`、`akashic-disambiguate`、`akashic-import-wos`、`akashic-verify-person`、`akashic-verify-venue`、`akashic-work-references`）、`web-access.md`〈其他〉、`akashic-fetch-fulltext` 第 7 步，共八處；`akashic-venue-works` 寫全三類；`akashic-fetch-fulltext` 第 7 步也補上「使用者是維護者」。
 - `akashic-fetch-fulltext`：`references/safari-measurements.md` 新增〈之後在出版商網站上的觀察〉（P1、P2：對話框探測跟著作用中分頁走）；SKILL 第 3 步兩處補 P2（處置不改）、SAGE「每一篇都停在儲存面板」改寫、`html-page` 例子寫明那一篇是從 `points off-site` 進來、`tab-unchanged` 補 Cambridge Core 沒有檔的情形；`references/publishers.md` 收窄沒有出處的「機構網路」、拿掉路由細節、推論標成推論並寫出反向對照、SAGE 的設定句收窄、規則表兩列恢復「導航未量」並加註、Wiley 處置欄加註、當天的 `take` 結果與事後重跑分開寫、SKILL 的句子改成引用。
 - 本檔與 `changelog/2026-11-20-site-knowledge-rule-822.md` 裡數錯或寫寬的句子加註更正。
 - `akashic-discovery` 0.2.19：它的 `rules/` 連到 `plugin/rules`，規則改了，它的 skill 也改了一行。

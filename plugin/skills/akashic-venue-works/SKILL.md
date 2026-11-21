@@ -170,7 +170,7 @@ O(n) index rebuild → 全批 **O(n²)**（2026-09-01 實測每筆 2 → 6 秒�
   見 [`assertions-must-be-measured`](../../rules/assertions-must-be-measured.md)
 - 期刊目錄只收本 skill 的篩選規則選中的作品，使用者同意也不加規則外的——目錄收什麼由規則
   決定、不由誰點頭決定；見 [`source-of-truth-over-consent`](../../rules/source-of-truth-over-consent.md)
-- 一批做完、回報之前，把這一批量到的期刊網站行為（plugin 還沒有紀錄的、與 [site-access.md](references/site-access.md) 寫的不同的）寫回 plugin，並在回報列出寫了什麼；見 [`site-knowledge-goes-back-into-the-plugin`](../../rules/site-knowledge-goes-back-into-the-plugin.md)（#822）
+- 一批做完、回報之前，把這一批量到的期刊網站行為（plugin 還沒有紀錄的、與 [site-access.md](references/site-access.md) 或本檔寫的不同的、本檔照字面做不到或做了會得到它沒料到的結果的一步）寫回 plugin，並在回報列出寫了什麼；見 [`site-knowledge-goes-back-into-the-plugin`](../../rules/site-knowledge-goes-back-into-the-plugin.md)（#822）
 - 83/17 的摘要覆蓋、零歧義歸戶、攣生規模都是 Psychological Methods 的數字——**換一份刊
   要重量**，不當通則
 - 本次量測中 OpenAlex 的書目欄位（頁碼等）與 Crossref 一致可追溯——**這些欄位**不構成

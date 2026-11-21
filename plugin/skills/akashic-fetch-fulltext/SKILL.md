@@ -550,7 +550,7 @@ CLI 是 `akashic update-entry <citekey> --add-source <digest>`，加 `--apply` �
 
 另外列出：第 2 步查到的合法開放版本（位址，供使用者決定要不要改用）、留在 Safari 裡沒關的分頁、今天各站用掉幾次嘗試、當場停下過的每一次（第 3 步落點那一段印的 `grown …` 一行照抄：多出來的分頁在哪個位置、什麼主機，或多了幾個視窗；對話框只寫 `present` 或 `unknown`，訊息不寫）。整批暫停時先回報 (e)：哪個站、哪個訊號、在哪一步、完成到哪一篇。**不寫「應該有權限」「大概是這篇」**——量到什麼寫什麼，見 [`assertions-must-be-measured`](../../rules/assertions-must-be-measured.md)。
 
-**回報之前，把這一批量到的寫回 plugin**（使用者 2026-11-20，#822）：這一批裡量到 [publishers.md](references/publishers.md) 還沒有的站別行為、與它或本檔寫的不同的行為、或本檔照字面做不到的一步，就照 [`site-knowledge-goes-back-into-the-plugin`](../../rules/site-knowledge-goes-back-into-the-plugin.md) 寫回去——什麼算、寫到哪個檔、誰來寫（這個工作階段有 plugin 的原始碼 repo，或只有安裝的版本）、每一列要帶哪些欄位，都在那一條。回報裡加一節列出寫了什麼；什麼都沒量到新的，就寫一句「這一批沒有要寫回的觀察」。你自己漏做的一步（本檔有寫、執行時沒照做）不寫進 plugin，在回報照實寫。
+**回報之前，把這一批量到的寫回 plugin**（使用者 2026-11-20，#822）：這一批裡量到 [publishers.md](references/publishers.md) 還沒有的站別行為、與它或本檔寫的不同的行為、或本檔照字面做不到、做了會得到本檔沒料到的結果的一步，就照 [`site-knowledge-goes-back-into-the-plugin`](../../rules/site-knowledge-goes-back-into-the-plugin.md) 寫回去——什麼算、寫到哪個檔、誰來寫（這個工作階段有 plugin 的原始碼 repo、而且使用者是它的維護者，或其他情況）、每一列要帶哪些欄位，都在那一條。回報裡加一節列出寫了什麼；什麼都沒量到新的，就寫一句「這一批沒有要寫回的觀察」。你自己漏做的一步（本檔有寫、執行時沒照做）不寫進 plugin，在回報照實寫。
 
 ### 8. 下一步：依全文核對書目
 

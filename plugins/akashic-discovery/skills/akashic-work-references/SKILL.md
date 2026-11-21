@@ -215,7 +215,7 @@ warnings：
 
 **寫入以 source of truth 為準**：`cites` 的依據是種子的參考文獻；library 成員的依據是那個 library 的規則（目錄）、那份文件的參考文獻（文件型），或使用者的選擇（主題型）。使用者要求的寫入對不上時，改成正確的再寫，乾跑逐筆寫出「要求／依據／實際寫入」——見 [`source-of-truth-over-consent`](../../rules/source-of-truth-over-consent.md)。
 
-**量到的站別做法要寫回 plugin**：一批做完、回報之前，把這一批量到的網站或 API 行為（plugin 還沒有紀錄的、與 plugin 寫的不同的、照字面做不到的一步）寫回 plugin，並在回報列出寫了什麼——見 [`site-knowledge-goes-back-into-the-plugin`](../../rules/site-knowledge-goes-back-into-the-plugin.md)（#822）。
+**量到的站別做法要寫回 plugin**：一批做完、回報之前，把這一批量到的網站或 API 行為（plugin 還沒有紀錄的、與 plugin 寫的不同的、流程照字面做不到或做了會得到它沒料到的結果的一步）寫回 plugin，並在回報列出寫了什麼——見 [`site-knowledge-goes-back-into-the-plugin`](../../rules/site-knowledge-goes-back-into-the-plugin.md)（#822）。
 
 ## 已知限制
 

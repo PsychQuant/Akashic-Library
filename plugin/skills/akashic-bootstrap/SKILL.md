@@ -200,7 +200,7 @@ DOI 識別「註冊的物件」，篇名識別「作品」，store 的 work 記�
 
 **寫入的依據是 source of truth，不是同意。** 使用者要求的值與作品本身、權威來源對不上時，改成正確的再寫，乾跑報告逐筆寫出「要求／依據／實際寫入」；查不到就不寫——見 [`source-of-truth-over-consent`](../../rules/source-of-truth-over-consent.md)。
 
-**量到的站別做法要寫回 plugin。** 一批做完、回報之前，把這一批量到的網站或 API 行為（plugin 還沒有紀錄的、與 plugin 寫的不同的、照字面做不到的一步）寫回 plugin，並在回報列出寫了什麼（#822）——見 [`site-knowledge-goes-back-into-the-plugin`](../../rules/site-knowledge-goes-back-into-the-plugin.md)。
+**量到的站別做法要寫回 plugin。** 一批做完、回報之前，把這一批量到的網站或 API 行為（plugin 還沒有紀錄的、與 plugin 寫的不同的、流程照字面做不到或做了會得到它沒料到的結果的一步）寫回 plugin，並在回報列出寫了什麼（#822）——見 [`site-knowledge-goes-back-into-the-plugin`](../../rules/site-knowledge-goes-back-into-the-plugin.md)。
 
 ## 常見情境
 

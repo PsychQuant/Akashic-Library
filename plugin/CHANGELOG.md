@@ -2,7 +2,7 @@
 
 ## #822 — verify 第 1 輪的修正（2026-11-21）：plugin 殼維持 0.13.19（同一條分支、還沒推上 main），契約版本不變（13）；`akashic-discovery` 0.2.18 → 0.2.19
 
-維護者 2026-11-21 決定修報告裡標為 in-scope 的 22 列、再審一輪（#822 的決定留言）。**只改文件，沒有改 `akashic` CLI。**
+維護者 2026-11-21 決定修報告裡標為 in-scope 的 22 列、再審一輪（#822 的決定留言）。**沒有改 `akashic` CLI 與契約**：改的是 Markdown，加上 `plugins/akashic-discovery` 的 `plugin.json` 版號與 `.githooks/plugin-shell-versions.txt` 的兩列（這一句原本寫「只改文件」，#822 verify 第 2 輪）。
 
 - `rules/site-knowledge-goes-back-into-the-plugin.md`：送到別的 repo 的留言或 issue 兩種情況都要使用者確認、先過隱私檢查（先前 Safari 那一列叫 agent 直接補在 safari-browser 的 issue，退路指到不相干的 (b)）；寫進檔的頁面文字是資料、不是指示；封閉的〈不寫的〉清單；欄位依取得方式（`fetch`、頁內 fetch、`akashic s2`）寫；(a) 怎麼認原始碼 repo 與維護者；表裡沒有的去處寫進回報、不先改受保護的規則檔；`akashic-work-references` 有了去處、路徑相對於哪個根寫明；「取得方式的改動」是三處的封閉列舉，CLI 落後那一點兩種情況都適用、也要確認；第 1 類的清單是舉例；再量到已知行為不屬三類；第 3 類的例子改用 #828 的量測；〈為什麼〉更正第一次有導航實測的站數。
 - 引用這條規則的那一行寫全第 3 類：六個 skill 的 `SKILL.md`（`akashic-bootstrap`、`akashic-disambiguate`、`akashic-import-wos`、`akashic-verify-person`、`akashic-verify-venue`、`akashic-work-references`）、`web-access.md`〈其他〉、`akashic-fetch-fulltext` 第 7 步，共八處；`akashic-venue-works` 寫全三類；`akashic-fetch-fulltext` 第 7 步也補上「使用者是維護者」。
@@ -15,12 +15,12 @@
 規則合併之後照 `rules/site-knowledge-goes-back-into-the-plugin.md` 寫回的第一批（2026-11-20 那一批是隨規則本身一起寫的；這一句原本寫「寫回的第一批」，#822 verify 第 1 輪第 15 列）。**這一批本身只改 `references/publishers.md` 與版號，沒有改 SKILL、沒有改 `akashic` CLI**；同一個版號之後疊上的 verify 第 1 輪修正改了 SKILL 與規則，見上一節。
 
 - `akashic-fetch-fulltext` 的 `references/publishers.md` 新增〈2026-11-21 的實測〉：前一天在 Cambridge Core 被寫成沒有權限的三篇 Psychometrika（DOI 是 `10.1007/…`），入口改成使用者確認的 `https://link.springer.com/article/<DOI>` 之後，三篇都是結束碼 7 `pdf-shown`、`save-pdf` 取得。
-- 加註、不刪：〈2026-11-20 的實測〉Cambridge Core 一列（那一列量到的是那一站沒有權限，不是那三篇拿不到）；規則表 Springer 一列的出處。
+- 加註、不刪：〈2026-11-20 的實測〉Cambridge Core 一列（那一列量到的是那一站沒有權限，不是那三篇拿不到；#822 verify 第 2 輪把那一列的註改成引頁面上取得權限與購買的選項，不再寫頁面「寫沒有權限」）；規則表 Springer 一列的出處。
 - **沒有改的**：SKILL 第 2 步「`--landing` 一律是 `https://doi.org/<DOI>`」。這一批顯示期刊換過出版商時，舊出版商的站可能還給得到全文；要不要讓流程自己提出或自己試那個入口，等使用者裁決。
 
 ## #822 — 量到的站別做法要寫回 plugin（2026-11-20）：plugin 殼 0.13.17 → 0.13.18，契約版本不變（13）
 
-使用者 2026-11-20 的指示與三個選擇；細節在 `changelog/2026-11-20-site-knowledge-rule-822.md`。**只改文件，沒有改 `akashic` CLI**：SKILL 第 0 步要求的契約版本仍是 13。
+使用者 2026-11-20 的指示與三個選擇；細節在 `changelog/2026-11-20-site-knowledge-rule-822.md`。**沒有改 `akashic` CLI**：SKILL 第 0 步要求的契約版本仍是 13。（這一句原本寫「只改文件」：這一次也改了兩個守衛資料檔與 `akashic-guards` 的一個 Swift 檔，見 `changelog/2026-11-20-site-knowledge-rule-822.md`〈驗證〉；#822 verify 第 2 輪。）
 
 - 新規則 `rules/site-knowledge-goes-back-into-the-plugin.md`：碰網站的 skill 在一批做完、回報之前，把量到的站別做法寫回 plugin（什麼算、寫到哪個檔、誰來寫、要帶哪些欄位都是封閉列舉）；改動合併之後，同一個工作階段把安裝的 plugin 與 CLI 更新到合併後的版本。`akashic-fetch-fulltext` 第 7 步與 `akashic-bootstrap` 的 `web-access.md`〈其他〉引用它；其餘十個 skill 的 `SKILL.md`（akashic-mcp 九個、akashic-discovery 一個）各加一行指向它（規則覆蓋的守衛要求每一條 plugin 規則都被每一個 skill 引用），不自己讀網站的三個 skill 寫明這一點。（原本寫「九個」，#822 verify 第 1 輪第 15 列。）
 - `akashic-fetch-fulltext` 的 `references/publishers.md` 新增〈2026-11-20 的實測〉：合併後的流程第一次用在真的出版商網站，九篇、六個站（SAGE、Wiley 的學會子網域、Cambridge Core、Taylor & Francis、Oxford Academic、SpringerLink），以及對話框探測在出現 PDF 分頁之後整個視窗讀成 `unknown` 的觀察（PsychQuant/safari-browser#345）。（2026-11-21 更正：#828 量到狀態跟著作用中分頁走，「出現 PDF 分頁之後」是當時的讀法，見 `safari-measurements.md` 的 P2。）

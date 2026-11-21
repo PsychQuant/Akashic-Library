@@ -110,7 +110,7 @@ final class FulltextB39Tests: XCTestCase {
             args[0] == "open" && args.contains("--new-tab") ? SafariRun(status: 1, stderr: long) : nil
         }
         XCTAssertEqual(code, 1, errText)
-        XCTAssertTrue(errText.contains("safari-browser `open --new-tab --window 5 <the landing URL>` printed 2 more lines"), errText)
+        XCTAssertTrue(errText.contains("safari-browser `open --new-tab --window-id 9005 <the landing URL>` printed 2 more lines"), errText)
         XCTAssertFalse(errText.contains("mail.other-profile"), errText)
     }
 

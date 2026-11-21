@@ -6,15 +6,15 @@ import AkashicMCPKit
 
 /// `akashic-fetch-fulltext` skill 的決定論中間運算與抓取編排（#629 由 `scripts/*.py`、`fetch-fulltext.sh` 移植）。
 ///
-/// 全部**不寫 store、不連網**：`fetch` 只在使用者自己的 Safari 裡導航、把 PDF 交給人（本身沒有 HTTP client，也不在頁內取檔，
+/// 全部**不寫 store、不連網**：`fetch` 只在使用者自己的 Safari 裡導航、交接（結束碼 7；接手的是照 skill 執行的 agent，#781）（本身沒有 HTTP client，也不在頁內取檔，
 /// `.claude/rules/web-access-via-safari-browser.md`、#613 的「跟真人一樣」），`take` 收人存下來的本機檔；其餘是「取得之後怎麼判斷」。
 /// MCP 沒有對應面：輸入是本機檔案或使用者的瀏覽器，不是 store 狀態（`mcp-cli-parity` 的 CLI-only 表一列）。
 struct FulltextCmd: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "fulltext",
-        abstract: "取全文與依全文核對的中間運算：驗證下載檔、起疑訊號、抖動、導航到 PDF 並交給人、收人存的檔、標題規則校準、契約版本、逐頁文字（text）",
+        abstract: "取全文與依全文核對的中間運算：驗證下載檔、起疑訊號、抖動、導航到 PDF 並交接、記一次嘗試（attempt）、新分頁是不是按的那個連結（same-target）、收存下來的檔、標題規則校準、契約版本、逐頁文字（text）",
         subcommands: [FulltextVerifyCmd.self, FulltextBotSignalsCmd.self, FulltextJitterCmd.self,
-                      FulltextFetchCmd.self, FulltextTakeCmd.self, FulltextCalibrateCmd.self, FulltextContractCmd.self,
+                      FulltextFetchCmd.self, FulltextAttemptCmd.self, FulltextSameTargetCmd.self, FulltextTakeCmd.self, FulltextCalibrateCmd.self, FulltextContractCmd.self,
                       FulltextTextCmd.self, FulltextCompareCmd.self])
 }
 
@@ -26,7 +26,7 @@ struct FulltextContractCmd: ParsableCommand {
         abstract: "印 fetch／take 對 skill 的契約版本（fulltext-contract <N>）；唯讀，不碰瀏覽器、不連網、不寫任何檔",
         discussion: """
         SKILL.md 第 0 步要求至少某個版本；比它舊的 CLI（含沒有這個子命令的，ArgumentParser 回 64）一律當成要先更新。\
-        結束碼、交給人的原因、或哪些頁面整批暫停改變時版本往上調。
+        結束碼、交接的原因、或哪些頁面整批暫停改變時版本往上調。
         """)
 
     func run() throws {
@@ -113,19 +113,22 @@ struct FulltextJitterCmd: ParsableCommand {
     }
 }
 
-/// 在使用者自己的 Safari 裡從 DOI 走到頁面自己的 PDF 連結，交給人（#613）。**不取位元組、不寫任何輸出檔**；結束碼是它對 agent 的契約
-/// （見 `FulltextFetch`）。分頁以網址上的一次性記號認、以 `--profile`＋`--url-endswith` 鎖；記號不在時以視窗 id 與位置追蹤（#768）。
+/// 在使用者自己的 Safari 裡從 DOI 走到頁面自己的 PDF 連結，交接（#613；#781 起接手的是照 skill 執行的 agent）。**不取位元組、不寫任何輸出檔**；結束碼是它對 agent 的契約
+/// （見 `FulltextFetch`）。分頁以網址上的一次性記號認、以 `--profile`＋`--url-endswith` 鎖；記號不在時以視窗 id 與位置追蹤（#768），
+/// 位置鎖與新分頁都以 `--window-id` 指定開頭選定的視窗（#772）。
 struct FulltextFetchCmd: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "fetch",
-        abstract: "在使用者自己的 Safari 裡導航到頁面自己的 PDF 連結、交給人存檔；不取位元組、不寫檔；結束碼 6＝整批暫停",
+        abstract: "在使用者自己的 Safari 裡導航到頁面自己的 PDF 連結，然後交接（結束碼 7）；不取位元組、不寫檔；結束碼 6＝整批暫停",
         discussion: """
-        只用瀏覽器導航（不在頁內取檔、不拼出版商網址）。結束碼：7 交給人，批次繼續（PDF 已顯示——含在別的主機上顯示、頁面的下載按鈕要人按、\
-        分頁到了別的主機、頁面載完而沒有命中驗證／封鎖／登入的封閉清單（不代表不是登入頁）、讀不到的分頁（可能是 Safari 的 PDF 檢視器，什麼都沒檢查過；文章站上與別的主機上同一套）、DOI 解不開（doi.org 自己的查無頁）；原因在 stdout 的 `handover:` 一行；人存檔之後用 `fulltext take`）；\
+        只用瀏覽器導航（不在頁內取檔、不拼出版商網址）。結束碼：7 交接，批次繼續（接手的是照 skill 執行的人或 agent；PDF 已顯示——含在別的主機上顯示、頁面的下載是表單按鈕、\
+        分頁到了別的主機、頁面載完而沒有命中驗證／封鎖／登入的封閉清單（不代表不是登入頁）、讀不到的分頁（可能是 Safari 的 PDF 檢視器，什麼都沒檢查過；文章站上與別的主機上同一套）、DOI 解不開（doi.org 自己的查無頁）；原因在 stdout 的 `handover:` 一行；取得的檔交給 `fulltext take`）；\
         8 等人驗證（CAPTCHA 等，只在文章站本身或已知的驗證服務上成立，文章站上網址有登入頁長相、讀得到的那一頁除外；使用者驗證完加 stdout `resume:` 一行印出的 \
         --resume-tab／--resume-origin（導航之後的驗證另有 --resume-stage followed；有印 --resume-mark 一起帶；--window 換成那一行的值）在同一個分頁接著走）；\
         9 這個站今天（Asia/Taipei）已經 10 次嘗試，停這個站；6 整批暫停：其他起疑訊號（含其他主機上的驗證字樣、HTTP 403／429、登入頁、登入頁長相的 DOI 落地頁、文章站上網址有登入頁長相而命中 CAPTCHA 等訊號的頁面、讀不到而停在登入主機上的分頁、停在 doi.org 卻沒有查無證據、頁面約 60 秒沒載完），\
         分頁留著給使用者看；3 頁面上找不到 PDF 連結；1 自動化失敗（看 stderr）。沒有結束碼 0。命令列本身打錯是 64。\
+        --window 在開頭選一個視窗，之後每一個以位置認分頁的命令都以那個視窗的 id 指定（--window-id，要 safari-browser 2.9.0 以上）；\
+        認出分頁時 stdout 印 `own-tab: window-id <W> tab <T> [mark <記號>]`。別的 profile 的視窗開著不停。\
         每次準備導航到 PDF 就在帳本（預設 $HOME/Library/Application Support/akashic/fulltext-attempts.jsonl，在 store 之外）記一次；\
         查數與記錄是一步（跨行程的鎖）。--ledger 只給測試：換帳本等於重算上限，不要為了繞過每站 10 次而用它。
         """)
@@ -136,8 +139,8 @@ struct FulltextFetchCmd: ParsableCommand {
     @Option(name: .long, help: "落地頁網址（一律是 https://doi.org/<DOI>，見 SKILL.md 第 2 步）")
     var landing: String
 
-    @Option(name: .customLong("expect-profile"), help: "這個視窗必須屬於的 Safari profile（使用者自己的；必填）；不符就在開任何分頁之前拒絕")
-    var expectProfile: String
+    @Option(name: .customLong("expect-profile"), help: "選填：這個視窗必須屬於的 Safari profile；給了就在開任何分頁之前比對一次，不符或讀不出就拒絕（之後每一步不再比，#772）")
+    var expectProfile: String?
 
     @Option(name: .long, help: "每日嘗試帳本的路徑（只給測試；預設 $HOME/Library/Application Support/akashic/fulltext-attempts.jsonl）")
     var ledger: String?
@@ -159,8 +162,9 @@ struct FulltextFetchCmd: ParsableCommand {
 
     func validate() throws {
         guard window >= 1 else { throw ValidationError("--window 必須是 1 以上的整數") }
-        // 視窗屬於誰是唯一防止「動到別人的 Safari session」的檢查：文件一直寫「一律帶」，程式現在也強制（R1 verify 第 31 則）
-        guard !expectProfile.isEmpty else { throw ValidationError("--expect-profile 不可為空：它是唯一防止動到別人的 Safari session 的檢查") }
+        // #772 起 `--expect-profile` 選填（使用者 2026-11-19 09:25：profile 只用來選視窗）：給了就在開頭比一次，沒給不比。不讓命令跑到別的
+        // 視窗的是開頭選定的視窗 id（`--window-id`），不是 profile。給了卻是空的仍拒絕：不帶這個旗標才是不比對（R1 verify 第 31 則）
+        if let p = expectProfile, p.isEmpty { throw ValidationError("--expect-profile 給了就不可為空（不帶這個旗標才是不比對 profile）") }
         guard (resumeTab == nil) == (resumeOrigin == nil) else { throw ValidationError("--resume-tab 與 --resume-origin 要一起給") }
         if let t = resumeTab, t < 1 { throw ValidationError("--resume-tab 必須是 1 以上的整數") }
         guard FulltextFetch.ResumeStage(rawValue: resumeStage) != nil else { throw ValidationError("--resume-stage 只能是 article 或 followed") }
@@ -190,6 +194,93 @@ struct FulltextFetchCmd: ParsableCommand {
                                     expectProfile: expectProfile, resumeTab: resumeTab, resumeOrigin: resumeOrigin,
                                     resumeStage: FulltextFetch.ResumeStage(rawValue: resumeStage) ?? .article, resumeMark: resumeMark))
         throw ExitCode(code)
+    }
+}
+
+/// 在每站每日的嘗試帳本上記一次（#781、#780）。skill 以 safari-browser 按頁面上這篇自己的連結之前呼叫：先記到，才按。
+/// 不碰瀏覽器、不連網、不讀不寫 store；與 `fetch` 共用同一本帳（`FulltextAttemptLedger.reserve`）。
+struct FulltextAttemptCmd: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "attempt",
+        abstract: "在每站每日的嘗試帳本上記一次（與 fetch 共用同一本帳）；記到＝0，這個站今天已到上限＝9；不碰瀏覽器、不連網、不寫 store",
+        discussion: """
+        取全文的 skill 在出版商頁面上每按一下之前呼叫一次：結束碼 0 才按。結束碼：0 記到了，stdout 一行 attempt: <站> <n>/10 <日>；\
+        9 這個站今天（Asia/Taipei）已經 10 次嘗試，stdout 一行 cap: <站> <n>/10 <日>，帳本不變——停這個站，不要按；\
+        1 帳本讀不懂或寫不了，帳本不變，不要按；命令列打錯是 64，含 --site 不是乾淨的主機名稱、--landing 不是絕對的 https 網址（都在碰帳本之前擋下）。\
+        --site 是文章頁的主機（doi.org 轉址之後的那一個，也就是 fetch 記帳用的鍵），不是 PDF 所在的主機；大小寫不分。\
+        --ledger 只給測試：換帳本等於重算上限，不要為了繞過每站 10 次而用它。
+        """)
+
+    @Option(name: .long, help: "文章頁的主機（例如 journals.sagepub.com）：不帶 scheme、路徑、帳密、埠號")
+    var site: String
+
+    @Option(name: .long, help: "這一篇的落地頁網址（https://doi.org/<DOI>）；只是記錄，不參與計數，查詢字串與片段不留")
+    var landing: String
+
+    @Option(name: .long, help: "每日嘗試帳本的路徑（只給測試；預設 $HOME/Library/Application Support/akashic/fulltext-attempts.jsonl）")
+    var ledger: String?
+
+    func validate() throws {
+        if let problem = FulltextAttempt.siteProblem(site) {
+            throw ValidationError("--site 必須是乾淨的主機名稱（\(displaySafeInvisible(problem, max: 200))）")
+        }
+        if let problem = FulltextAttempt.landingProblem(landing) {
+            throw ValidationError("--landing 必須是絕對的 https 網址（\(displaySafeInvisible(problem, max: 200))）")
+        }
+    }
+
+    func run() throws {
+        if let ledger, ledger != FulltextAttemptLedger.defaultPath() {
+            FileHandle.standardError.write(Data("⚠ using a ledger other than the default (\(displaySafeInvisible(ledger, max: 300))): --ledger is for tests — a different ledger recounts the per-site daily cap from zero\n".utf8))
+        }
+        let attempt = FulltextAttempt(
+            out: { line in print(line); fflush(stdout) },
+            err: { line in FileHandle.standardError.write(Data((line + "\n").utf8)) })
+        let code = attempt.run(site: site, landing: landing, ledger: ledger ?? FulltextAttemptLedger.defaultPath())
+        if code != 0 { throw ExitCode(code) }
+    }
+}
+
+/// 按了之後多出來的那一個分頁，顯示的是不是按的那個連結指的網址（#781 第 4 輪 verify 第 1、2 列）。skill 的落點那一段呼叫它；
+/// 三個值都是頁面決定的字串，所以都從檔案讀，不經命令列。不碰瀏覽器、不連網、不讀不寫 store、不寫任何檔。
+struct FulltextSameTargetCmd: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "same-target",
+        abstract: "新分頁的網址是不是按的那個連結（href 對被按的那一頁解析之後）指的網址；印 match、differ 或 unresolvable 一行；唯讀",
+        discussion: """
+        取全文的 skill 按了頁面上這篇自己的連結之後，視窗多了一個分頁時呼叫：印 match 才把那個分頁當成這一下開的。\
+        三個檔各放一個值（結尾的換行不算）：--page-file 被按的那一頁當時的網址，--href-file 按之前讀到的 href 屬性原文，--tab-file 新分頁的網址。\
+        比的是 scheme、主機、埠號、路徑與查詢字串，片段不比。stdout 恰好一行，封閉的三種：\
+        match（解析得出來、與新分頁相同）；differ（解析得出來、新分頁是別的網址，含轉址過的連結）；\
+        unresolvable（href 是空的、只有片段、不是 https、帶帳密、主機不乾淨、有不解析的字元、解析之後就是那一頁自己，或那一頁的網址不是乾淨的 https 網址；\
+        --href-file 不在也算）。印了這三種之一時結束碼 0；--page-file 或 --tab-file 讀不到是 1、什麼都不印；命令列打錯是 64。\
+        呼叫端把 match 以外的任何輸出與任何非零的結束碼都當成「不是這一下開的」。
+        """)
+
+    @Option(name: .customLong("page-file"), help: "放著被按的那一頁當時的網址的檔")
+    var pageFile: String
+
+    @Option(name: .customLong("href-file"), help: "放著按之前讀到的 href 屬性原文的檔（不在或是空的＝沒有 href）")
+    var hrefFile: String
+
+    @Option(name: .customLong("tab-file"), help: "放著新分頁的網址的檔")
+    var tabFile: String
+
+    private static func read(_ path: String) -> String? {
+        guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+        defer { try? handle.close() }
+        guard let data = try? handle.read(upToCount: FulltextSameTarget.maxBytes + 1) else { return nil }
+        // 超過上限或不是 UTF-8 的內容不是一個網址：回一個必然不解析的值
+        guard data.count <= FulltextSameTarget.maxBytes, let text = String(data: data, encoding: .utf8) else { return "\u{0}" }
+        return text
+    }
+
+    func run() throws {
+        guard let page = Self.read(pageFile), let tab = Self.read(tabFile) else {
+            FileHandle.standardError.write(Data("✗ --page-file or --tab-file cannot be read — nothing was compared; treat the tab as not opened by this click.\n".utf8))
+            throw ExitCode(1)
+        }
+        print(FulltextSameTarget.judge(page: page, href: Self.read(hrefFile) ?? "", tab: tab).rawValue)
     }
 }
 

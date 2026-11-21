@@ -113,11 +113,13 @@ Foresay 管**人機確認的格式與迴圈**，本 repo 的規則管**哪些寫
 | [upstream-first-bibliographic-updates.md](.claude/rules/upstream-first-bibliographic-updates.md) | **文獻資料更新一律從上游 store 開始，交付層只投影不修正**——投影只能選欄、改名、剝除隱私、加標記欄，不得改變事實陳述；上游暫時修不了才可遮蔽，且必須開 issue 註明號碼、遮蔽是暫時的；反例是一次下游交付（R2）在交付層遮蔽離職博後被標現職等三個資料問題，之後才回頭修 store（#599）|
 
 > **plugin 另有自己的規則目錄。** `plugin/rules/` 隨 plugin 走（plugin 安裝到哪，規則就在哪），
-> 由 skill 以相對路徑引用——**不像上表那樣自動注入**。目前兩條：
+> 由 skill 以相對路徑引用——**不像上表那樣自動注入**。目前三條：前兩條是
 > [`assertions-must-be-measured`](plugin/rules/assertions-must-be-measured.md)，管「寫下一句可能是錯的話
 > 之前先回答四個問題」（不是分類法——理由見該檔）；
 > [`source-of-truth-over-consent`](plugin/rules/source-of-truth-over-consent.md)，管「寫入的依據是 source of truth、
 > 不是同意」——使用者要的與 source of truth 不符時改成正確的再寫，使用者可以提供證據、不能提供授權（#642）。
+> 第三條是 [`site-knowledge-goes-back-into-the-plugin`](plugin/rules/site-knowledge-goes-back-into-the-plugin.md)，管「碰網站的 skill 量到的
+> 站別做法，在回報之前寫回 plugin；改動合併之後同一個工作階段更新安裝的 plugin 與 CLI」（#822）。
 > 刻意不列進上表：那張表的語意是「自動注入的 repo 規則」，
 > 混進去會讓那個性質變成謊話（#407）。
 >

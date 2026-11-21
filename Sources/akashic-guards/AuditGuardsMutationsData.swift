@@ -59,6 +59,7 @@ let agmCases: [AGMCase] = [
     // 「移植時的新舊差分（不在 repo）」，於是這條分支沒有任何東西釘住。刪光 `plugin/rules/` 底下的 `.md`（目錄還在）即得那個狀態。
     AGMCase(desc: "coverage④：規則目錄在、一條 .md 規則都沒有（空集合不得冒充通過）", guardRel: "akashic-guards rule-coverage", edits: [
         AGMEdit(path: "plugin/rules/assertions-must-be-measured.md", kind: "delete", a: "", b: ""),
+        AGMEdit(path: "plugin/rules/site-knowledge-goes-back-into-the-plugin.md", kind: "delete", a: "", b: ""),
         AGMEdit(path: "plugin/rules/source-of-truth-over-consent.md", kind: "delete", a: "", b: ""),
     ], expect: ["沒有任何 .md 規則檔"]),
     AGMCase(desc: "numbers：把某個數字唯一的行內時間錨拿掉", guardRel: "akashic-guards measured-numbers-audit", edits: [

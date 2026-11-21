@@ -146,6 +146,8 @@ final class FulltextR3Tests: XCTestCase {
             assertHandover(run(s), .unverifiable, title)
             XCTAssertTrue(errText.contains("could not read the tab"), errText)
             XCTAssertTrue(errText.contains("nothing on it was checked"), errText)
+            // #781 verify 第 1 輪第 22 列：`save-pdf` 用不了，SKILL 記成「取不到」——不再叫人把「存下的檔」交給 take
+            XCTAssertFalse(errText.contains("fulltext take"), errText)
             XCTAssertFalse((outText + errText).contains("SECRETSIG"), title)
         }
         // 主機的登入字詞不在最左邊的標籤時不算（使用者 2026-10-05 第 4 則）。最左邊的標籤是登入字詞的主機（先前這裡是 `sso-files.example.org`）

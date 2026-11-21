@@ -2,31 +2,31 @@
 
 每一條都是**某一天觀察到的站點行為**，不是永久事實——出版商會改版。表中日期是最後一次實測；超過幾個月沒再遇到的，用之前先看一眼頁面。
 
-所有觀察都在使用者的機構網路下、以使用者自己的 Safari profile 進行。**權限因機構而異**：這裡寫「取得成功」只代表那個機構那一天有權限。
+2026-11-10 之前各批的觀察都在使用者的機構網路下、以使用者自己的 Safari profile 進行；2026-11-10 與 2026-11-19 兩批在哪個 profile、哪個網路下，issue 沒有回報（見〈2026-11-10、2026-11-19 的實測〉；#781 第 4 輪 verify 第 26 列：這一句先前涵蓋了那兩批）。**權限因機構而異**：這裡寫「取得成功」只代表那個機構那一天有權限。
 
 ## #613 之後怎麼讀這張表
 
-2026-10-01 起 `akashic fulltext fetch` **只導航、交給人**（SKILL.md〈最高原則：跟真人一樣〉）。所以：
+2026-10-01 起 `akashic fulltext fetch` **只導航，然後交接**（結束碼 7；SKILL.md〈最高原則：跟真人一樣〉）。2026-11-19 起（#781、#780）交接之後預設由 Claude 接手：分頁顯示 PDF 就 `safari-browser save-pdf`，頁面要先按才到得了 PDF 就按這篇自己的連結（每一下先 `akashic fulltext attempt` 記帳），交給使用者的只有 SKILL.md〈人機分工〉的封閉清單。所以：
 
-- **拼網址的規則全部拿掉**（`akashic fulltext url-rule` 與它的三條規則：SAGE `?download=true`、Wiley `pdfdirect`、PsycNet `/fulltext/<id>.pdf`）。`fetch` 只跟頁面自己的連結走；那個連結通到 HTML 閱讀器時，下載按鈕交給使用者按。
+- **拼網址的規則全部拿掉**（`akashic fulltext url-rule` 與它的三條規則：SAGE `?download=true`、Wiley `pdfdirect`、PsycNet `/fulltext/<id>.pdf`）。`fetch` 只跟頁面自己的連結走；那個連結通到 HTML 閱讀器時，閱讀器上這篇自己的下載鈕由 Claude 照 SKILL.md〈一層層按〉按。
 - 下表「觀察」欄裡 2026-09-23／09-28 的「成功」，多數是**頁內 fetch** 量到的——那條路已經不用了，經導航取這些站**大多沒有量過**。遇到了，把新的觀察（日期、做了什麼、看到什麼）補進該列。
-- 「做法」欄寫的是 `fetch` 會怎麼處理（結束碼）與交給人之後使用者要做什麼，不是可以另外照做的取檔步驟。
+- 「做法」欄寫的是 `fetch` 會怎麼處理（結束碼）與交接之後怎麼走，不是可以另外照做的取檔步驟。**2026-11-19 之前寫下的各列裡「請使用者按下載」「請使用者存」是當時的分工**；現在照 SKILL.md〈結束碼 7 之後〉與〈一層層按〉由 Claude 做，表裡的站點行為（哪個連結通到哪裡）仍然有效。
 - **PDF 放在另一個主機**（儲存或 CDN 主機：ScienceDirect 的 `pdf.sciencedirectassets.com`、OUP 的 `watermark.silverchair.com` 之類）是正常結果，不是「網站懷疑自動化」：新主機顯示 PDF → 結束碼 7 `pdf-shown`（先判 PDF，不看分頁標題——PDF 分頁的標題常是文章標題）；那裡是 HTML 頁 → 等它載完，沒有命中封閉清單 → 結束碼 7 `left-site`；分頁讀不到（Safari 的 PDF 檢視器可能不跑頁面 JS）→ 結束碼 7 `unverifiable`，不看標題與網址的字樣（#613 R3；b34 起文章站上同一套），但讀不到的分頁停在登入主機上 → 結束碼 6；是登入／驗證／封鎖頁 → 結束碼 6（使用者 2026-10-02）。每站上限仍以**文章頁的主機**計。
 
 ## 規則表
 
 | 站 | 已知行為 | `fetch` 的處置／交給人之後 | 觀察 |
 |---|---|---|---|
-| Taylor & Francis（tandfonline.com）| 跳轉中繼頁先回 `readyState=complete`，文章頁還沒載入，此時找不到 PDF 連結 | `fetch` 等 PDF 連結出現（45 秒）；頁面的 `/doi/pdf/<doi>` 連結 | 2026-09-23，6 篇成功（頁內 fetch；導航未量）|
-| SAGE（journals.sagepub.com）| `citation_pdf_url` 指向 `/doi/reader/`（HTML 線上閱讀器）| 導航後分頁是 HTML → 結束碼 7 `html-page`：請使用者在閱讀器按下載 | 2026-09-23，3 篇成功（當時以拼出來的 `?download=true` 頁內 fetch；#613 起不拼）|
+| Taylor & Francis（tandfonline.com）| 跳轉中繼頁先回 `readyState=complete`，文章頁還沒載入，此時找不到 PDF 連結 | `fetch` 等 PDF 連結出現（45 秒）；頁面的 `/doi/pdf/<doi>` 連結 | 2026-09-23，6 篇成功（頁內 fetch）；導航之後的結果 2026-11-20 量到一篇：`pdf-shown`，見〈2026-11-20 的實測〉|
+| SAGE（journals.sagepub.com）| `citation_pdf_url` 指向 `/doi/reader/`（HTML 線上閱讀器）| 導航後分頁是 HTML → 結束碼 7 `html-page`：閱讀器上這篇自己的下載鈕由 Claude 按（見下方〈2026-11-10、2026-11-19 的實測〉SAGE 兩列） | 2026-09-23，3 篇成功（當時以拼出來的 `?download=true` 頁內 fetch；#613 起不拼）|
 | SAGE | 頁面 60 秒內 `readyState` 未到 `complete` | `interactive` 即可繼續 | 2026-09-23，1 篇 |
-| Wiley（onlinelibrary.wiley.com）| 頁面的 `/doi/pdf/<doi>` 通到 HTML 檢視器 | 導航後分頁是 HTML → 結束碼 7 `html-page`：請使用者在檢視器按下載 | 2026-09-23，2 篇成功（當時以拼出來的 `pdfdirect` 頁內 fetch；#613 起不拼）|
-| APA PsycNet（psycnet.apa.org）| 有權限時 DOI 跳到 `/fulltext/<id>.html`；有時停在 `doiLanding?doi=…`、只有 `/record/<id>` 連結 | 頁面沒有自己的 PDF 連結時 → 結束碼 3。**不拼** `/fulltext/<id>.pdf`；請使用者在頁面上找 PDF 按鈕 | 2026-09-23，3 篇成功（拼網址＋頁內 fetch）|
-| APA PsycNet 無權限 | 書目頁只有 Login／Get Access；`/fulltext/<id>.pdf` 回 HTTP 200、約 8,028 bytes、內容「Loading…」 | 「沒有權限」，不是起疑：列入「需要人」，或改走下方〈EBSCO APA PsycInfo〉 | 2026-09-23，6 篇；2026-09-28，1 篇（Luce & Edwards, 1958）；2026-10-07，1 篇（Marsh et al., 2013；手動開書目頁只有 Get Access。同一篇用 #613 之前的舊 shell 腳本跑，在 `doiLanding` 停於結束碼 6 `cloudflare-challenge`，但訊號網址是 sciencedirect.com 的 `__cf_chl_rt_tk`、不是 psycnet——舊腳本讀到哪一頁未查證）|
-| Annual Reviews（annualreviews.org）| 「download PDF」是 `href="#"` 的按鈕，外層是 POST 表單 `form.ft-download-content__form--pdf`；第一個 `.pdf` 連結是**補充資料** | 結束碼 7 `button`：請使用者按下載按鈕（不代按、不代送表單）；`take` 的驗證會擋下補充資料 | 2026-09-23，1 篇（當時以表單頁內送出）|
+| Wiley（onlinelibrary.wiley.com）| 頁面的 `/doi/pdf/<doi>` 通到 HTML 檢視器 | 導航後分頁是 HTML → 結束碼 7 `html-page`：`snapshot -i` 讀得到這篇自己的下載鈕就由 Claude 按；epdf 閱讀器讀不到任何下載鈕（見下方實測 Wiley 一列）→「取不到」 | 2026-09-23，2 篇成功（當時以拼出來的 `pdfdirect` 頁內 fetch；#613 起不拼）。**「epdf 閱讀器讀不到任何下載鈕」是 2026-11-10 那一篇量到的；2026-11-20 在學會子網域上的另一篇讀得到、也按成了**，見〈2026-11-20 的實測〉。所以到了 epdf 閱讀器先照 SKILL 讀那一頁，讀不到才是「取不到」|
+| APA PsycNet（psycnet.apa.org）| 有權限時 DOI 跳到 `/fulltext/<id>.html`；有時停在 `doiLanding?doi=…`、只有 `/record/<id>` 連結 | 頁面沒有 `fetch` 認得的 PDF 連結時 → 結束碼 3。**不拼** `/fulltext/<id>.pdf`；Claude 照〈一層層按〉在頁面上找這篇自己的 PDF 連結 | 2026-09-23，3 篇成功（拼網址＋頁內 fetch）|
+| APA PsycNet 無權限 | 書目頁只有 Login／Get Access；`/fulltext/<id>.pdf` 回 HTTP 200、約 8,028 bytes、內容「Loading…」 | 「沒有權限」，不是起疑：「取不到（無權限）」，或改走下方〈EBSCO APA PsycInfo〉 | 2026-09-23，6 篇；2026-09-28，1 篇（Luce & Edwards, 1958）；2026-10-07，1 篇（Marsh et al., 2013；手動開書目頁只有 Get Access。同一篇用 #613 之前的舊 shell 腳本跑，在 `doiLanding` 停於結束碼 6 `cloudflare-challenge`，但訊號網址是 sciencedirect.com 的 `__cf_chl_rt_tk`、不是 psycnet——舊腳本讀到哪一頁未查證）|
+| Annual Reviews（annualreviews.org）| 「download PDF」是 `href="#"` 的按鈕，外層是 POST 表單 `form.ft-download-content__form--pdf`；第一個 `.pdf` 連結是**補充資料** | 結束碼 7 `button`：Claude 按那個下載按鈕（只按，不代填、不另外送表單；按之前先確認不是補充資料的連結）；`take` 的驗證會擋下補充資料。**2026-11-19 起的分工，按這個按鈕之後的行為沒有實測過** | 2026-09-23，1 篇（當時以表單頁內送出）|
 | Oxford Academic（academic.oup.com）| 頁內 fetch PDF 回 403「Just a moment…」（Cloudflare）| Cloudflare「Just a moment」→ 結束碼 8 **等人驗證**（使用者 2026-09-28 裁決；挑戰頁以 403 回應也一樣）；頁面同時有封鎖句時整批暫停（結束碼 6）。2026-09-23 當時是改找 PMC 作者稿繼續——那是在被懷疑之後換路，2026-09-24 起不再這樣做 | 2026-09-23，1 篇 |
 | PubMed Central（pmc.ncbi.nlm.nih.gov）| 頁內 fetch PDF 回約 1.8 KB 的防爬蟲驗證頁（「preparing to download」、proof of work） | 那個驗證頁是**整批暫停**（使用者 2026-10-01：下載前驗證頁不當成等人驗證）。#613 拿掉了 `--prime`：它只是為了讓之後的頁內 fetch 過得去，導航本來就像讀者點連結 | 2026-09-23，1 篇成功（`--prime`＋頁內 fetch）|
-| Springer（link.springer.com）| 頁面自己的 PDF 連結是 `/content/pdf/<doi>.pdf`；curl 取同一個網址回 HTML | `fetch` 照頁面的連結導航；導航後顯示 PDF → 結束碼 7 `pdf-shown` | 2026-09-28，1 篇成功（頁內 fetch；導航未量；bronze OA）|
+| Springer（link.springer.com）| 頁面自己的 PDF 連結是 `/content/pdf/<doi>.pdf`；curl 取同一個網址回 HTML | `fetch` 照頁面的連結導航；導航後顯示 PDF → 結束碼 7 `pdf-shown` | 2026-09-28，1 篇成功（頁內 fetch；bronze OA）；導航之後 `pdf-shown` 見下方各批的實測（2026-11-20 一篇書章）|
 | ScienceDirect（sciencedirect.com）| 「View PDF」連結有兩種形狀（`/science/article/pii/<PII>/pdf?md5=…&pid=…` 與 `/pdfft?md5=…&pid=…`），頁面上還有推薦文章的 `pdfft` 連結；由 DOI 猜 PII 不可靠。點 View PDF 先到「**Preparing your download**」中介頁（`cra_js_challenge`），再跳到 `pdf.sciencedirectassets.com` 的 S3 簽章網址（`X-Amz-Expires=300`）；對已顯示的 PDF 再發一次請求會觸發 CAPTCHA | 中介頁 → 結束碼 6 **整批暫停**（使用者 2026-10-01）；文章站上的 CAPTCHA 頁（「Are you a robot?」）→ 結束碼 8（導航之後的驗證另印 `--resume-stage followed`；驗證完分頁到 `pdf.sciencedirectassets.com` 也接得住）。導航之後分頁跑到 `pdf.sciencedirectassets.com`（別的主機）：顯示 PDF → 結束碼 7 `pdf-shown`（使用者 2026-10-02；先前是 6）；**那個主機上出現 CAPTCHA 字樣**（2026-09-28 的第二次 CAPTCHA 就是那樣）→ 結束碼 6，因為它既不是文章站、也不在已知驗證服務清單裡（使用者 2026-10-02）。**這一站目前沒有自動走得完的路**；PDF 的網路快取也不留（safari-browser#210 比對 4/4 不在快取裡）| 2026-09-28，3 篇成功（導航到簽章網址後頁內 fetch）；同晚 2 次 CAPTCHA，見 #613 |
 | Optica（opg.optica.org）| 導航之前先以 curl 打了 DOI 頁與 `viewmedia.cfm`（第二次回「Please wait...」），隨後 Safari 導航即被導到 `/captcha/` | CAPTCHA → 結束碼 8。**不要在 Safari 之外先碰這個站**（最高原則規則 1） | 2026-09-28，1 篇 |
 | OSF／PsyArXiv、機構典藏（UvA）| — | 2026-09-23 以一般 HTTP 下載成功；**這條路自 #634 起不是本 skill 的取得方式**（一律經 Safari），經 `fetch` 取這幾站沒有量過——遇到照結束碼處理，新量到的寫在這一列 | 2026-09-23，4 篇成功（一般 HTTP 下載）|
@@ -43,15 +43,15 @@
 2. **詳細頁**：點結果標題 → `…/search/details/<recordId>?db=psyh…`。有全文權限時，頁面有「前往全功能閱讀檢視」連到 `…/viewer/pdf/<recordId>`。結果列表的「存取選項」按鈕在該例展不開，不要依賴它。
 3. **閱讀器**：導到 `…/viewer/pdf/<recordId>`。PDF 由閱讀器自己的 JS 載入並繪製，頁面上沒有直接的檔案連結。
 
-**然後交給人**：**請使用者用閱讀器自己的下載鈕存檔**，再把檔案交給 `akashic fulltext take`（與 SKILL.md 第 4 步同一條）。
+**然後**：閱讀器自己的下載鈕是這一篇自己的元件，但這個閱讀器不經 `fetch` 到達，不在 SKILL.md〈一層層按〉封閉的五種入口裡（那五種都是 `fetch` 的結果；沒有 `fetch` 印的位置與主機，就沒有分頁可鎖、沒有 `--site` 可記帳）。所以這一篇列入最後交給使用者的清單、註明不在 (a)–(d) 裡，由使用者自己按閱讀器的下載鈕存檔；要把 EBSCO 閱讀器加成〈一層層按〉的一種入口，需要使用者裁決（#781 verify 第 1 輪第 14 列）。存下的檔交給 `akashic fulltext take`（與 SKILL.md 第 4 步同一條）。
 
-**2026-09-28 的步驟 4–5 不再照做**：當時在閱讀器分頁內頁內 fetch 同源的 `api/researcher-edge-aggregator/v1/records/<id>/fulltext/pdf?…` 取得 JSON 裡的取件網址，再把分頁導到 `content.ebscohost.com/cds/retrieve?content=…`、在那個分頁頁內 fetch `location.href`。前者是頁內以 JS 發請求（最高原則規則 1）；後者**就算改成單純導航**，也是對閱讀器已經載入過的同一份檔再發一次請求（規則 2——ScienceDirect 的第二次 CAPTCHA 就是這個形狀）。所以這一段**沒有只用導航的寫法**：閱讀器之後一律交給人。
+**2026-09-28 的步驟 4–5 不再照做**：當時在閱讀器分頁內頁內 fetch 同源的 `api/researcher-edge-aggregator/v1/records/<id>/fulltext/pdf?…` 取得 JSON 裡的取件網址，再把分頁導到 `content.ebscohost.com/cds/retrieve?content=…`、在那個分頁頁內 fetch `location.href`。前者是頁內以 JS 發請求（最高原則規則 1）；後者**就算改成單純導航**，也是對閱讀器已經載入過的同一份檔再發一次請求（規則 2——ScienceDirect 的第二次 CAPTCHA 就是這個形狀）。所以這一段**沒有只用導航的寫法**：那個取件網址不由 Claude 去取；閱讀器之後只走閱讀器自己的下載鈕。
 
 當時的其他觀察（保留作紀錄）：取回的是 16 頁、對應期刊頁碼 222–237，首頁有期刊名、卷期、標題、作者，另印「This document is copyrighted by the American Psychological Association」；全程沒有 CAPTCHA、驗證頁或起疑字樣；在 research.ebsco.com 頁內直接 fetch `content.ebscohost.com` 是 CORS 失敗。網址跨三個網域（research.ebsco.com → content.ebscohost.com），`--url` 子字串鎖會失配。權限依機構而異：「成功」只代表臺大 EBSCO 訂閱在 2026-09-28 涵蓋這篇。
 
 ### 2026-10-07 的觀察（含一次違規）
 
-這一次是**用過期的 skill 版本**做的：本機 plugin 快取的內容停在 #613 修正輪之前，但它的版本號與 marketplace 上的同為 0.13.2——#613 的 skill 修改之後殼版本沒有再升，`claude plugin update` 回報「已是最新」，快取不會換（akashic-mcp 0.13.3 那一次修正；之後每一次 skill 的改動都要再升版才送得到使用者那裡，0.13.3 之後的 skill 改動跟著 0.13.4 起的版號出貨——`akashic-guards plugin-shell-version` 守著這件事）；本機 repo 也落後 origin 229 個 commit。agent 照舊版「頁內取檔」的寫法走，違反了上面三步之後「交給人」的規定。記下來是為了兩件事：留下量到的站點行為，以及讓這個失敗形狀被看見——**舊版 skill 沒有第 0 步的契約版本檢查，所以察覺不到自己過期**。
+這一次是**用過期的 skill 版本**做的：本機 plugin 快取的內容停在 #613 修正輪之前，但它的版本號與 marketplace 上的同為 0.13.2——#613 的 skill 修改之後殼版本沒有再升，`claude plugin update` 回報「已是最新」，快取不會換（akashic-mcp 0.13.3 那一次修正；之後每一次 skill 的改動都要再升版才送得到使用者那裡，0.13.3 之後的 skill 改動跟著 0.13.4 起的版號出貨——`akashic-guards plugin-shell-version` 守著這件事）；本機 repo 也落後 origin 229 個 commit。agent 照舊版「頁內取檔」的寫法走，違反了當時上面三步之後「交給人」的規定（現在是「只走閱讀器自己的下載鈕」）。記下來是為了兩件事：留下量到的站點行為，以及讓這個失敗形狀被看見——**舊版 skill 沒有第 0 步的契約版本檢查，所以察覺不到自己過期**。
 
 - **入口**：在機構網路下開 `…/c/rw5enf/search`，頁首直接顯示機構名，沒有出現登入頁（這一天、這個網路下的觀察；其他網路照上面的前提由使用者登入）。
 - **搜尋**：`…/search/results?q=DO%20<DOI>`（`DO` 是 EBSCO 的 DOI 欄位）回 1 筆，即本篇；結果頁網址自己補上 `db=psyh`。在搜尋框 `fill`／`type` 之後按 Enter 或點檢索鈕都沒有送出（頁面掛著 Cookie 同意橫幅，未代按）。
@@ -60,7 +60,7 @@
 - **違規的取檔**：在閱讀器分頁頁內 fetch `api/researcher-edge-aggregator/…/fulltext/pdf?…&intent=view…`（帶 credentials）取得 JSON 的取件網址，再在**同一個 research.ebsco.com 分頁**頁內 fetch `content.ebscohost.com/cds/retrieve?content=…`：**帶** `credentials:"include"` 那次沒有任何結果（沒接 `catch`，錯誤未記錄）；**不帶**的那次回 `200 application/pdf`、500,609 bytes。這與上面 2026-09-28「在 research.ebsco.com 頁內直接 fetch `content.ebscohost.com` 是 CORS 失敗」不同——兩次差在有沒有帶 credentials，但 09-28 那次帶了什麼沒有記錄，所以不能說哪一個是通則。**兩種都是被禁止的做法，記下來只為了不讓下一個人再去試。**
 - 取回的檔：21 頁、對應期刊頁碼 108–128，`verify` 結果標題完全相符、首頁印的 DOI 相符、正式版。全程沒有 CAPTCHA、驗證頁或起疑字樣——**沒被擋不代表做法可以**（2026-09-28 ScienceDirect 的兩次 CAPTCHA 也是在同樣形狀的請求之後才出現）。
 
-**這個管道沒有接進 `akashic fulltext fetch`**：`fetch` 從 `https://doi.org/<DOI>` 出發，走不到 EBSCO 的搜尋。上面三步是照 web-access.md 手動導航；到閱讀器就交給人。
+**這個管道沒有接進 `akashic fulltext fetch`**：`fetch` 從 `https://doi.org/<DOI>` 出發，走不到 EBSCO 的搜尋。上面三步是照 web-access.md 手動導航；到閱讀器之後照上面〈然後〉那一段。
 
 ## `fetch` 已內建、不必每次想起的陷阱
 
@@ -72,7 +72,7 @@
 
 ## 2026-11-02 一批（21 篇，pdf-cache 改接之後）
 
-導航仍走 `fetch`；`pdf-shown` 之後用 `pdf-cache get --url` 取快取（#766）。都在使用者的機構網路、default profile 下。
+導航仍走 `fetch`；`pdf-shown` 之後用 `pdf-cache get --url` 取快取（#766）。**這是當時的工具**：`pdf-cache` 現在不認 WebKitCache Version 18，SKILL 改用 `save-pdf`（#780），不要照這一段做（#781 第 2 輪 verify 第 23 列）。都在使用者的機構網路、default profile 下。
 
 | 站 | 結果 | 處置 | 觀察 |
 |---|---|---|---|
@@ -85,10 +85,45 @@
 | Nature（Sci Rep）| `pdf-shown`（`/articles/<id>.pdf`），快取取得，結束碼 0 | 自動 | 1 篇成功 |
 | MDPI | 導航到 `/pdf` 之後分頁不變（`tab-unchanged`），Safari 直接下載 `<journal>-<vol>-<id>-v<n>.pdf` 到下載資料夾；article number 比不了頁碼 → 結束碼 5 | 下載資料夾取檔；Claude 讀首頁確認 | 2 篇成功 |
 | Wolters Kluwer（Neurosurgery）| DOI 轉到 `www.ovid.com/jnls/neurosurgery/fulltext/...`，找不到 PDF 連結（結束碼 3）| 列入「需要人」 | 1 篇未取得 |
-| Wiley | `/doi/pdf/<doi>` 是 HTML 閱讀器（`html-page`）；`snapshot -i` 讀不到任何下載鈕（閱讀器多半在框架裡）| 列入「需要人」 | 1 篇未取得 |
+| Wiley | `/doi/pdf/<doi>` 是 HTML 閱讀器（`html-page`）；`snapshot -i` 讀不到任何下載鈕（閱讀器多半在框架裡）| 列入「需要人」 | 1 篇未取得（2026-11-20 另一篇讀得到，見〈2026-11-20 的實測〉）|
 | AME（jss.amegroups.org）| `/article/view/<id>/pdf` 是 HTML（`html-page`）；`#pdfDownloadLink`「Download」按下去跳出 Safari 的「要允許在『jss.amegroups.org』上下載嗎？」；`dialog dismiss` 回「無法在預算內檢查所有視窗」| 權限對話框交給使用者親手按 | 1 篇待使用者 |
 | J-STAGE | `pdf-shown`（`/_pdf`），快取取得；首頁沒有 DOI 與卷期，第 2 頁起的頁首有 → 結束碼 5 | Claude 確認（頁首）| 1 篇成功 |
 | AJNR | `pdf-shown`（`.full.pdf`），快取取得，結束碼 0 | 自動 | 1 篇成功 |
 | Springer（Eur Spine J）| `pdf-shown`（`/content/pdf/<doi>.pdf`），快取取得，結束碼 0 | 自動 | 1 篇成功 |
 | ScienceDirect | 第一篇落地就是 CAPTCHA（結束碼 8）；使用者驗證後在同一分頁接續，但視窗編號已變，`--resume-tab` 找不到分頁（結束碼 1，已記一次嘗試）。另一篇導航到 `pdf.sciencedirectassets.com` 的 `main.pdf?X-Amz-...` → `pdf-shown`，但 `pdf-cache get` 回 `No cached PDF matches`（不進快取）。在那個分頁以 `fetch(location.href,{cache:'only-if-cached',mode:'same-origin'})` 只讀探測（使用者同意後一次）回 `status=200 bytes=1220093 head=%PDF-`——WebKit 持有位元組，見 safari-browser#338 | 使用者存檔（1 篇）；其餘等 #338 | 1 篇成功、3 篇待 #338 |
 
+## 2026-11-10、2026-11-19 的實測（#780、#781：一層層按與 `save-pdf`）
+
+兩批在哪個 Safari profile、哪個網路下，issue 都沒有回報（#781 第 2 輪 verify 第 17 列：先前這裡寫兩批都在使用者自己的 profile 下）。2026-11-19 那一批 SAGE 的兩下是 Claude 按的，**沒有記進每站每天的帳本**（#780 的 2026-11-19 留言：當天的帳本沒有 `journals.sagepub.com` 的紀錄；當時還沒有 `akashic fulltext attempt`）。2026-11-10 那一批是誰按的，#780 正文沒有寫；當時同樣還沒有 `attempt`，所以那幾下也不可能記進帳本——這是推論，issue 沒有回報（#781 verify 第 1 輪第 18 列：先前這一段寫了兩批都在機構網路、2026-11-10 由 Claude 按，issue 都沒有回報）。環境：safari-browser v2.9.0；2026-11-19 是 macOS 27.3、`akashic fulltext contract` 印 10。**2026-11-20 另有一次在真的 Safari 上的量測**（按了之後分頁開在哪裡、對話框與儲存面板讀起來是什麼），用的是本機的測試頁、沒有連任何出版商網站，所以下表沒有新的一列；結果在 [safari-measurements.md](safari-measurements.md)，SKILL.md 第 3 步的規則以它為依據。
+
+| 站 | `fetch` 的結果 | 之後做了什麼、看到什麼 | 觀察 |
+|---|---|---|---|
+| Ovid／LWW（`ovid.com/jnls/<刊>/fulltext/…`）| 結束碼 3 | 頁面有「View full text」與「Download PDF」；「Download PDF」是這篇自己的連結，後面才接推薦文章。按下去，同一個分頁導到 `/pdf/…`，`save-pdf` 取得 | 2026-11-10，2 篇成功 |
+| Ovid／LWW，沒有權限 | 沒有回報 | 分頁在 `/abstract/`（#780 沒有寫那是 `fetch` 落的還是按了之後到的；#781 第 4 輪 verify 第 26 列），頁面只有「Check Access」「Log in for access」：沒有權限 | 2026-11-10，1 篇未取得 |
+| SAGE（journals.sagepub.com）| 結束碼 1 `points off-site`：`citation_pdf_url` 指到 Google Scholar | 文章頁的「PDF/EPUB」連到 `/doi/epub/…` 閱讀頁，閱讀頁上再按 `#favourite-download`（#780 正文的寫法；href 與 aria-label 是 2026-11-19 那一次讀到的，見下一列）。沒有產生下載檔，最後由使用者自己存 | 2026-11-10，1 篇 |
+| SAGE，同一條路 | 結束碼 1 `points off-site` | 同上兩下：文章頁的「PDF/EPUB」連結（href `/doi/reader/<DOI>`），閱讀頁上的 `a#favourite-download`（aria-label「Download PDF」，href 的路徑是 `/doi/pdf/<DOI>`）。第二下之後 `click` 結束碼 0、分頁網址不變、之後 18 秒下載資料夾沒有新檔：**Safari 掛著的是「儲存為」面板**（PsychQuant/safari-browser#358），不是下載權限提示；使用者按「儲存」之後檔案才寫入，`take` 結束碼 0（標題、PDF metadata 的 DOI、頁數都相符）。所以這一站目前每一篇最後都要使用者按一次「儲存」（SKILL.md〈人機分工〉的 (c)）。（2026-11-20 補：Safari 的下載位置設成固定資料夾的那一批，同樣兩下之後沒有出現面板、檔案直接寫入，見〈2026-11-20 的實測〉；「每一篇都要按一次」只在會跳儲存面板的設定下成立。）當時沒有讀 `documents --json` 的 `blocking_dialog`；2026-11-20 在本機測試頁上量到儲存面板開著時它是 `unknown`（[safari-measurements.md](safari-measurements.md) 的 M6），照現在的 SKILL，按了之後讀到 `unknown` 就當場停下請使用者看（落點表第 5 種）——這一站會不會每一篇都這樣停一次，是從 M6 推出來的，沒有在這一站量過。2026-11-10 那一次沒有下載檔可能是同一個面板在等——這是推測，沒有查證 | 2026-11-19，1 篇成功 |
+| AME（jss.amegroups）| `.com` 轉到 `.org`，結束碼 7 `left-site` | 文章頁 Article Options 的「PDF」連結（`a.pdf` → `/article/view/<id>/pdf`）開成新分頁（開在視窗的哪個位置當時沒有記）；新分頁裡的 `#pdfDownloadLink`「Download」按下去跳出 Safari 的下載權限提示，那一步由使用者按（這個提示在 `documents --json` 裡是什麼樣子沒有量過：2026-11-20 的量測裡它沒有出現） | 2026-11-10，1 篇 |
+| Wiley epdf 閱讀器 | — | `snapshot -i` 讀不到任何下載鈕，由使用者自己存 | 2026-11-10（2026-11-20 另一篇讀得到，見〈2026-11-20 的實測〉）|
+| Project Euclid | 結束碼 7 `pdf-shown`（PDF 在文章站本身）| `save-pdf` 以 `--url` 鎖 `fetch` 交接出來的分頁，取得（當時的鎖法；現在照 SKILL 第 3 步〈`fetch` 之後的鎖分頁〉，不用 `--url`） | 2026-11-19，2 篇成功 |
+| Oxford Academic | 結束碼 7 `pdf-shown`（PDF 在 `watermark02.silverchair.com`）| `save-pdf` 取得，27 頁 | 2026-11-19，1 篇成功 |
+| ScienceDirect | 結束碼 7 `pdf-shown`（PDF 在 `pdf.sciencedirectassets.com`）| `save-pdf` 取得，29 頁；中途兩次人工驗證（#819，處置待使用者裁決） | 2026-11-19，1 篇成功 |
+
+`pdf-cache`：2026-11-10 與 2026-11-19 各試一次，都以同一個錯誤停下——Safari 的網路快取是 WebKitCache Version 18，`safari-browser pdf-cache`（v2.9.0）只認 Version 17（PsychQuant/safari-browser#375）。上表的 `pdf-shown` 都是 `save-pdf` 取得的。2026-11-19 的四篇 `pdf-shown` 是 1970 到 1997 年的文章，首頁都沒有印 DOI，`take` 都回結束碼 5，由 Claude 讀首頁確認後存入（SKILL.md 第 6 步）；當時 acquisition 記成 `browser-cache`，SAGE 那一篇記成 `browser-download`——`browser-save-pdf` 這個值是之後才定的。
+
+## 2026-11-20 的實測（#822：合併後的流程第一次用在真的出版商網站）
+
+一批九篇，使用者自己的 Safari profile、機構網路、固定一個視窗（`fetch` 以 `--window-id` 鎖定）；plugin 0.13.17、`akashic fulltext contract` 印 13、safari-browser v2.9.0。Safari 的檔案下載位置是固定的「下載項目」資料夾——這是使用者當場的說明，沒有從命令列讀到（讀出這個設定見 PsychQuant/safari-browser#388）。機器當時負載很高（load average 60–100）。**每一列都只有表裡寫的篇數**；「成功」「沒有權限」只代表那個機構那一天。
+
+| 站 | `fetch` 的結果 | 之後做了什麼、看到什麼 | 觀察 |
+|---|---|---|---|
+| SAGE（`journals.sagepub.com`，APM 2014）| 結束碼 1 `points off-site`：`citation_pdf_url` 指到 `scholar.google.com` | 兩下，各記一次嘗試：文章頁的「PDF/EPUB」（分頁到 `/doi/epub/…` 閱讀頁），閱讀頁的「Download PDF」（href `/doi/pdf/<DOI>?download=true`）。第二下之後分頁網址不變，檔案在約 15 秒內直接出現在下載資料夾，**沒有儲存面板，使用者沒有按任何東西**；`take` 結束碼 0，17 頁。與 2026-11-19 那一篇（等使用者按「儲存」）的差別，使用者的說明是下載位置改成了固定資料夾；11-19 當天的設定沒有記錄，所以這不是同一天改設定前後各量一次的對照 | 1 篇成功 |
+| SAGE（同一站，EPM 2014）| 結束碼 7 `html-page`：頁面自己的 `/doi/pdf/<DOI>` 通到 HTML 頁 | 那一頁寫「Restricted access」「Get full access to this article」「Purchase access」：沒有權限、頁面提供購買（落點表第 7 種的 (d)）。沒有按 | 1 篇，留給使用者決定 |
+| Wiley 的學會子網域（`bpspsychub.onlinelibrary.wiley.com`，BJMSP 2014）| 結束碼 1 `points off-site`：頁面給的 PDF 連結在 `onlinelibrary.wiley.com`（母站，與文章頁不同主機；同一個樣子見 #726）| 兩下，各記一次嘗試：文章頁上同主機的 PDF 連結（分頁到 `/doi/epdf/…` 閱讀器），**閱讀器上這篇自己的「Download PDF」`snapshot -i` 讀得到**（href `/doi/pdfdirect/<DOI>?download=true`）。第二下之後檔案直接出現在下載資料夾，沒有儲存面板；21 頁。當時 `take` 沒有帶 `--pages`，結束碼 5、讀首頁確認後存入；事後帶上條目的頁碼重跑是結束碼 0 | 1 篇成功 |
+| Cambridge Core（`www.cambridge.org`；Psychometrika 2016、1989、1983，DOI 仍是 `10.1007/…`）| 三篇都是結束碼 7 `tab-unchanged`：落地在 `/core/journals/psychometrika/article/abs/…`，頁面的 PDF 連結在 `/core/services/aop-cambridge-core/content/view/…/….pdf`，導航之後分頁沒有離開摘要頁 | 15 秒內下載資料夾沒有新檔；等一次之後落點仍然沒變；`save-pdf` 探測回「text/html, not a PDF」；`bot-signals` 沒有命中。頁面上是「Get access」「Access through your institution」「Log in to your personal account」與「Add article to cart」：沒有權限、頁面提供購買。沒有按。這裡的 `tab-unchanged` 不是「連結直接開始下載」，是沒有權限時被送回摘要頁——這是從頁面上的字推出來的，沒有看到轉址本身 | 3 篇，留給使用者決定 |
+| Taylor & Francis（`www.tandfonline.com`，JASA 2001）| 結束碼 7 `pdf-shown`：分頁在 `/doi/pdf/<DOI>` 直接顯示 PDF | `save-pdf` 取得 11 頁（出版商封面頁加正文 10 頁；條目的頁碼是 10 頁，帶 `--pages` 時 `take` 仍判頁數相符、結束碼 0）| 1 篇成功 |
+| Oxford Academic（`academic.oup.com`，Biometrika 1967）| 結束碼 7 `pdf-shown`：PDF 顯示在 `watermark02.silverchair.com`，交接時記號還在 | `save-pdf` 取得 7 頁。首頁沒有印 DOI，`take` 結束碼 5（帶 `--pages` 也是：頁數相符但沒有 DOI 可比），讀首頁以刊名、年份、卷期、起始頁確認後存入 | 1 篇成功 |
+| SpringerLink（`link.springer.com`，2026 年的書章）| 結束碼 7 `pdf-shown`：分頁在 `/content/pdf/<DOI>.pdf` | `save-pdf` 取得 26 頁；帶 `--pages` 時 `take` 結束碼 0 | 1 篇成功 |
+
+**對話框探測在這一批讀起來的樣子**（Safari 本身的行為，不是哪一站的）：視窗裡都是 HTML 分頁時，`documents --json` 的 `blocking_dialog` 多數是 `clear`，偶爾一次 `unknown`／`incomplete`，等一次再讀又是 `clear`。第一個顯示 PDF 的分頁出現之後（上表 Taylor & Francis 那一篇），之後每一次讀取整個視窗的每一個分頁都是 `unknown`／`incomplete`、沒有訊息；使用者看過那個視窗，回答畫面上什麼都沒有掛著。這與 PsychQuant/safari-browser#345 記的是同一個樣子。**它碰到 SKILL 第 3 步〈一層層按〉的一條規則**：按之前讀到的不是 `clear` 就不按、仍然是 `unknown` 就停下整批。照那條規則，一批裡第一個 `pdf-shown` 的分頁出現之後，同一個視窗後面需要按的每一篇都會停下來問。這一批沒有碰到，是因為需要按的兩篇剛好排在第一個 PDF 分頁之前；那條規則要不要改，沒有使用者的裁決（#822）。
+
+這一批的 `acquisition`：下載資料夾取得的兩篇是 `browser-download`，`save-pdf` 取得的三篇是 `browser-save-pdf`。存進 store 的 note 有兩筆寫了「記錄沒有頁碼」，那是錯的（條目有頁碼，是執行時沒有帶 `--pages`）；note 目前沒有更正的入口，見 #824。

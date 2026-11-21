@@ -2,7 +2,7 @@ import Foundation
 import AkashicCore
 import AkashicStoreIO
 
-/// 在使用者自己的 Safari 裡，把一篇 work 從 DOI 走到頁面自己的 PDF 連結，然後**交給人**（#613；#629 由 `fetch-fulltext.sh` 移植）。
+/// 在使用者自己的 Safari 裡，把一篇 work 從 DOI 走到頁面自己的 PDF 連結，然後**交接**（#613；#629 由 `fetch-fulltext.sh` 移植）。
 ///
 /// # 最高原則：跟真人一樣（使用者 2026-09-28）
 ///
@@ -12,10 +12,12 @@ import AkashicStoreIO
 /// - **只用瀏覽器導航**：開 `--landing`、等頁面落定、讀頁面**自己的** PDF 連結、把同一個分頁導過去。**不在頁內以 JS 取檔**（`fetch()`
 ///   帶 `Sec-Fetch-Mode: cors`，看得出來），不用任何 HTTP 客戶端，**不自己拼出版商的 PDF 網址**（#613 起刪掉 SAGE `?download=true`、
 ///   Wiley `pdfdirect`、PsycNet `/fulltext/<id>.pdf` 三條規則與 `url-rule` 子命令）。
-/// - **不取位元組、不寫任何輸出檔**：PDF 顯示出來之後就交給人（結束碼 7）。人存檔之後交給 `fulltext take`（不碰瀏覽器、不連網）。
+/// - **不取位元組、不寫任何輸出檔**：PDF 顯示出來之後就交接（結束碼 7）。接手的是照 SKILL 執行的 agent（#781 起預設由它以 `safari-browser save-pdf`
+///   取分頁已持有的那一份）；取得的檔交給 `fulltext take`（不碰瀏覽器、不連網）。
 ///   **不重抓已載入的檔**——不對顯示中的 PDF 再發請求。
-/// - **按鈕與驗證交給人**：頁面的下載是表單按鈕、連結通到 HTML 閱讀器、出現 CAPTCHA，都停下來交給使用者。
-/// - **每站每天 10 次嘗試**（`FulltextAttemptLedger`）：準備導航到 PDF（或把按鈕交給人）就記一次；到上限就停那個站（結束碼 9）。
+/// - **按鈕與驗證不由這個命令處理**：頁面的下載是表單按鈕、連結通到 HTML 閱讀器時交接（結束碼 7），出現 CAPTCHA 時等人驗證（結束碼 8）。
+///   之後誰做什麼寫在 SKILL〈人機分工〉：#781 起這篇自己的按鈕由 agent 按，人類驗證交給使用者。
+/// - **每站每天 10 次嘗試**（`FulltextAttemptLedger`）：準備導航到 PDF（或把按鈕交接）就記一次；到上限就停那個站（結束碼 9）。
 /// - **頁面上執行的 JS 少而且正確**：每一段都寫成**運算式**。`safari-browser js` 先把程式碼包成運算式試一次、解析失敗才退回函式本體
 ///   （它的 `JSWrapper`），所以寫成 `return …` 的敘述，第一次注入就是一段解析不了的程式碼。頁面的錯誤處理器看不看得到 `do JavaScript`
 ///   的解析錯誤沒有實測；2026-09-28 NVA 的 Matomo 記錄了 agent 的 SyntaxError，是使用者訂這一條的理由。`FulltextJavaScriptTests` 用
@@ -23,8 +25,8 @@ import AkashicStoreIO
 ///
 /// # 結束碼是它對 agent 的契約
 ///
-///     7 交給人：分頁已導到頁面自己的 PDF 連結（或該按的按鈕已找到），這個命令沒有取位元組、沒有寫檔。分頁留著。**批次繼續**：
-///       這一筆交給人，不是整批停。原因（`handover:` 一行）：`pdf-shown`（含另一個主機上顯示的 PDF——依據是頁面讀得到的
+///     7 交接：分頁已導到頁面自己的 PDF 連結（或該按的按鈕已找到），這個命令沒有取位元組、沒有寫檔。分頁留著。**批次繼續**：
+///       這一筆交接，不是整批停。原因（`handover:` 一行）：`pdf-shown`（含另一個主機上顯示的 PDF——依據是頁面讀得到的
 ///       `document.contentType`，頁面腳本改得了它）、`html-page`、`unverifiable`（讀不到分頁，什麼都沒檢查；文章站上與別的主機上同一個
 ///       條件：同一個網址連三次讀不到、而那裡從沒讀到過一般網頁的分頁）、`tab-unchanged`、`button`、`left-site`（導航之後分頁到了別的主機、頁面載完而
 ///       沒有命中驗證／封鎖／登入的封閉清單——那不代表它不是登入頁）與 `doi-not-resolved`（停在 doi.org，而且看得到 doi.org 自己的
@@ -45,10 +47,10 @@ import AkashicStoreIO
 ///     1 自動化失敗（見 stderr）；或頁面給的 PDF 連結不是同站的絕對 https 網址（`points off-site`）；或帳本讀不懂；或對不上我們的分頁
 ///       （`cannot find the tab just opened`、`went to another Safari window`、`the tabs in window <N> changed…`，#768：使用者正在動那個視窗）；
 ///       或判過之後頁面換了（`the page changed after it was checked`：PDF 連結不是從判過的那一頁讀來的，不導航）；
-///       或有別的 profile 的視窗（或讀不出 profile 的視窗）開著（`a Safari window of another profile`；開頭、接續與 `ownTabNow` 的每一眼都判，
-///       每一眼只看開頭沒有的視窗；safari-browser#352 以視窗 id 指定視窗之前不放寬）
+///       或 safari-browser 太舊、`documents --json` 的列沒有頂層的 `window_id`（v2.9.0 與 `--window-id` 一起加的；開任何分頁之前就停）。
+///       別的 profile 的視窗開著**不**停（#772，使用者 2026-11-19：「在別的是窗沒差，只要鎖定好固定視窗就好」；先前開頭、接續與每一眼都停）
 ///
-/// **沒有結束碼 0**：這個命令的正常終點就是交給人。先前的 0（「取得並驗證」）、2（回應不是 PDF）、4（無權限的登入殼）、5（驗證不過）
+/// **沒有結束碼 0**：這個命令的正常終點就是交接。先前的 0（「取得並驗證」）、2（回應不是 PDF）、4（無權限的登入殼）、5（驗證不過）
 /// 都跟著取位元組一起離開這個命令——2 與 5 在 `take`，4 由看分頁的人判斷。舊的呼叫端把 0 當成「檔案存好了」，新的碼不會被它讀錯。
 ///
 /// # 鎖分頁（#768）
@@ -56,28 +58,30 @@ import AkashicStoreIO
 /// 分頁以落地網址上的一次性記號（`#akashic-` 加 16 個十六進位數字）認。記號在時以 `--profile <P> --url-endswith '#akashic-…'` 鎖——
 /// `web-access-via-safari-browser.md` 的形狀，記號就是那個 suffix；**一定帶 `--profile`**：safari-browser 的 `open` 不把 `--url-endswith`
 /// 當成指定了分頁，只帶它會在前景視窗開新分頁（safari-browser#233，第三輪 verify）。記號不在時（Elsevier 的轉址丟掉它、頁面用腳本轉走）
-/// 退回 `--window N` 加位置（`--tab-in-window`，`ownTabNow` 剛確認過），規則檔〈例外〉形狀 (b)。`--resume-tab` 帶了 `--resume-mark` 時先以
+/// 退回 `--window-id W` 加位置（`--tab-in-window`，`ownTabNow` 剛確認過），規則檔〈例外〉形狀 (b)。`W` 是開頭以 `--window N` 選定的那個視窗的
+/// 穩定 id（#772，safari-browser v2.9.0 的 `--window-id`）：視窗被拉到前面、前後順序變了也是同一個視窗；新分頁也以它開
+/// （`open --new-tab --window-id W`，不把 Safari 拉到前面）。profile 只用來選視窗：`--expect-profile` 給了才在開頭比一次（使用者 2026-11-19 09:25）。`--resume-tab` 帶了 `--resume-mark` 時先以
 /// 記號找分頁，找不到才照位置；另外要求那個分頁此刻顯示：導航之前的接續（`article`）是 `--resume-origin`；
 /// 導航之後的接續（`followed`）是 `--resume-origin`、已知的驗證服務、或 PDF（只讀 `document.contentType` 判斷，不讀頁面文字）——
-/// 使用者驗證時把視窗拉到前面，視窗編號會變；對不上就停（結束碼 1），不猜是哪一個分頁。**`--resume-origin` 是呼叫端給的**：接續時
+/// 使用者驗證時把視窗拉到前面，視窗編號會變（接續的 `--window` 要換成那一刻的編號）；對不上就停（結束碼 1），不猜是哪一個分頁。**`--resume-origin` 是呼叫端給的**：接續時
 /// 「文章站」就是它，主機的判斷信任這個參數。
 ///
 /// **仍沒有的**：真的 Safari 只跑過兩次（2026-11-04：SAGE 找不到連結、Elsevier 接續之後導航到 PDF），記號還在時的導航沒有實跑；Safari 的
 /// PDF 檢視器能不能執行頁面 JS、`document.contentType`
-/// 在那裡回什麼、`PerformanceNavigationTiming.responseStatus` 在 Safari 有沒有值，都沒有實測——讀不到時照「無從檢查」處理（交給人或暫停），
+/// 在那裡回什麼、`PerformanceNavigationTiming.responseStatus` 在 Safari 有沒有值，都沒有實測——讀不到時照「無從檢查」處理（交接或暫停），
 /// 不當成乾淨。
 ///
 /// # 契約版本
 ///
 /// `contractVersion` 是這個命令（與 `take`）對 skill 的契約版本，`akashic fulltext contract` 印它；SKILL.md 第 0 步要求至少這個值（#613 R3，
-/// b31 W4 第 1 則：先前以 `take` 的行為探測，分不出 R1、R2 的 CLI）。結束碼、交給人的原因、或哪些頁面整批暫停改變時就往上調，SKILL 第 0 步
+/// b31 W4 第 1 則：先前以 `take` 的行為探測，分不出 R1、R2 的 CLI）。結束碼、交接的原因、或哪些頁面整批暫停改變時就往上調，skill 開始依賴一個新的子命令時也調（版本 11 的 `attempt`），SKILL 第 0 步
 /// 一起調（`SkillToolsCLITests` 比對兩邊相等）。
 ///
 /// **只改印出的字（skill 不解析的那幾行）不調**：使用者 2026-11-04 第 10 則（「維持」契約版本；範圍以 2026-11-09 的問答為準，見 #613 的 Decision comment）。b39、b41、b43、b45 改的都是轉印哪一行、對話框的文字、
 /// 帳密的邊角，契約都沒有調。b37 為了 safari-browser 的錯誤只轉印一行而從 5 調到 6，是這條裁決之前的例外。`akashic` CLI 從來沒有發布過
 /// （release 只發 `akashic-mcp`，CLI 要在本 repo `swift build`），所以這幾次沒有調只影響維護者自己的建置。
 public final class FulltextFetch {
-    /// 1＝#613 只導航、交給人；2＝R1 修正輪（2026-10-02）；3＝R2 修正輪（e5182cf1）；4＝R3（2026-10-04）；5＝b34（2026-10-05：文章站上
+    /// 1＝#613 只導航、交接；2＝R1 修正輪（2026-10-02）；3＝R2 修正輪（e5182cf1）；4＝R3（2026-10-04）；5＝b34（2026-10-05：文章站上
     /// 讀不到的分頁與別的主機同一套、讀不到的分頁在登入主機上整批暫停、文章站上同一份快照、使用者 2026-10-05 的主機標籤與路徑段裁決）；
     /// 6＝b37（2026-10-09：複合路徑段只認明確的登入字、讀的當中換到同站登入頁先判登入長相、safari-browser 的錯誤只轉印第一行、`plainURL`
     /// 與站的比對同一個主機；b39 起轉印 `Error:` 那一行、b41 起 stderr 有對話框的訊息時只轉印固定的一句——兩次都沒有調，理由見上面〈契約版本〉）。
@@ -85,16 +89,25 @@ public final class FulltextFetch {
     /// 本身也不可使用（第一版還會關分頁，第三版導航時會在前景視窗開出新分頁）。
     /// 8＝#768 第五版起（2026-11-04～05）：記號鎖帶 `--profile`、別的 profile 的視窗開著就停（開頭、接續、每一眼）、頁面文字這類讀取的鎖找不到分頁時
     /// 重跑一次、PDF 連結的答案綁在判過的那一頁上、接續可帶 `--resume-mark`。第五到第八版的開發建置也印 8 而行為不同（第五版有版本閘、第六版接續
-    /// 不判別的 profile、讀連結會重跑、第八版同一個位置兩列不停、換頁之後不等落定），都沒有發布（CLI 沒有發布版）；第 0 步的門檻升到 9 之後（現在是 10）一律被擋下。
+    /// 不判別的 profile、讀連結會重跑、第八版同一個位置兩列不停、換頁之後不等落定），都沒有發布（CLI 沒有發布版）；第 0 步的門檻升到 9 之後（現在是 13）一律被擋下。
     /// 9＝#613 b49（2026-11-09）：導航之後（含 `--resume-stage followed`）文章站上網址有登入頁長相的那一頁寫著 CAPTCHA 時整批暫停（先前是 8，等人驗證；導航之前自 b37 起就是 6）；`/sign-on`、`/single-sign-on`
     /// 與單字寫法的 `signon`、`singlesignon` 算登入頁（落地頁是它們時整批暫停，先前照一般網頁讀；導航之後落在別的主機上的這種頁面整批暫停，
-    /// 先前交給人 `left-site`；主機最左邊的標籤是 `signon`、`sign-on`、`single-sign-on`、`singlesignon` 也算登入主機——第 8 則的副作用，使用者 2026-11-11 裁決保留，#777 第 4 件）。2026-11-06 到 b49 之間從 main 建的 CLI 印 8，碰到這兩種頁面照舊的判斷，所以要調（使用者 2026-11-09）。
+    /// 先前交接 `left-site`；主機最左邊的標籤是 `signon`、`sign-on`、`single-sign-on`、`singlesignon` 也算登入主機——第 8 則的副作用，使用者 2026-11-11 裁決保留，#777 第 4 件）。2026-11-06 到 b49 之間從 main 建的 CLI 印 8，碰到這兩種頁面照舊的判斷，所以要調（使用者 2026-11-09）。
     /// 10＝#777（2026-11-11）：Atypon 的 `/action/showLogin` 算登入頁（`BotSignals.pathOnlyLoginSegments`，只看路徑；既有的 8 個呼叫點都跟著算——
-    /// 導航之後同站寫著 CAPTCHA 的那一頁 8 → 6；別的主機上落定的頁面 7（交給人 `left-site`）→ 6；落地頁與導航之前的同站頁先前照一般網頁讀
+    /// 導航之後同站寫著 CAPTCHA 的那一頁 8 → 6；別的主機上落定的頁面 7（交接 `left-site`）→ 6；落地頁與導航之前的同站頁先前照一般網頁讀
     /// （頁面文字有起疑訊號就照訊號，沒有的多半等不到 PDF 連結、以 3 結束），現在 6）；連 `document.contentType` 都讀不到的同站分頁命中
     /// Cloudflare 挑戰或按住驗證的標記、而路徑有登入長相時整批暫停（先前 8）。這幾格的結束碼變了，所以要調。
+    /// 11＝#781／#780（2026-11-19）：新增 `fulltext attempt`（skill 在出版商頁面上每按一下之前記一次，與 `fetch` 共用同一本帳）。`fetch` 與 `take`
+    /// 的結束碼、交接的原因、哪些頁面整批暫停都與版本 10 相同；調它是因為 SKILL 改成預設由 Claude 按這篇自己的連結，而每一下都要先記帳——
+    /// 沒有這個子命令的 CLI（印 10 以下的）配上新的 SKILL，點擊就不會算進每站每天 10 次，所以第 0 步要擋下它們。
+    /// 12＝#772（2026-11-19）：每一個以位置認分頁的動作與新分頁都帶 `--window-id`（開頭選定的視窗的穩定 id），別的 profile 的視窗開著不再停（少了
+    /// 一種結束碼 1）、`--expect-profile` 改成選填、`documents --json` 的列沒有頂層 `window_id`（safari-browser 2.9.0 以前）就停、認出分頁時印
+    /// `own-tab:` 一行（skill 之後的讀與按以它鎖同一個視窗與分頁）。skill 要用新的一行，舊的 CLI 又會在別的 profile 的視窗開著時停，所以要調。
+    /// 13＝#781 第 4 輪 verify 之後（2026-11-20）：新增 `fulltext same-target`（skill 按了之後視窗多一個分頁時，比它的網址是不是按的那個連結；
+    /// `FulltextSameTarget`），`tab-unchanged` 的 stderr 提示改成照 skill 的落點表判。`fetch`、`take`、`attempt` 的結束碼與 stdout 都與版本 12 相同；
+    /// 調它是因為 SKILL 的落點那一段要呼叫 `same-target`，沒有這個子命令的 CLI（印 12 以下的）配上新的 SKILL，按了之後開的新分頁一律認不出來。
     /// 前三版的 CLI 沒有 `contract` 子命令——數字只是給歷史一個名字，第 0 步擋它們靠的是「沒有這個子命令」。
-    public static let contractVersion = 10
+    public static let contractVersion = 13
 
     public struct Options {
         public var window: Int
@@ -121,7 +134,7 @@ public final class FulltextFetch {
     public enum ResumeStage: String {
         /// 導航到 PDF 連結**之前**（文章頁上的驗證）：接著讀頁面的連結、記一次嘗試、導過去
         case article
-        /// 導航到 PDF 連結**之後**（嘗試已經記過、已經導航過）：回到「分頁顯示什麼」的判斷——PDF → 交給人，HTML 閱讀器 → 交給人；
+        /// 導航到 PDF 連結**之後**（嘗試已經記過、已經導航過）：回到「分頁顯示什麼」的判斷——PDF → 交接，HTML 閱讀器 → 交接；
         /// 不再讀連結、不再導航、不再記嘗試。分頁此刻可以在別的主機（PDF 放在另一個主機）；這一步只讀、不導航、不關分頁
         case followed
     }
@@ -137,7 +150,7 @@ public final class FulltextFetch {
         public static let dailyCapReached: Int32 = 9
     }
 
-    /// 交給人的原因（結束碼 7；stdout 的 `handover:` 一行印它的 `rawValue`）。SKILL〈交給人之後〉的表逐一列它們（`FulltextB34Tests.testTheSkillsHandoverTableIsTheHandoverEnum` 對帳）。
+    /// 交接的原因（結束碼 7；stdout 的 `handover:` 一行印它的 `rawValue`）。SKILL〈結束碼 7 之後〉的表逐一列它們（`FulltextB34Tests.testTheSkillsHandoverTableIsTheHandoverEnum` 對帳；#781 起那一節改名，接手的是照 SKILL 執行的 agent）。
     public enum Handover: String, CaseIterable {
         /// 分頁回報它顯示 PDF（`document.contentType` 含 pdf）。那是頁面讀得到的值，頁面腳本改得了它（b31 W4 第 18、33 則）——訊息照實說
         case pdfShown = "pdf-shown"
@@ -152,7 +165,7 @@ public final class FulltextFetch {
         /// 頁面的 PDF 下載是表單按鈕（Annual Reviews 型）
         case button = "button"
         /// 分頁到了別的主機（跨主機的中繼頁、CDN 的檔案主機），頁面載完而沒有命中驗證／封鎖／登入的封閉清單——那不代表它不是登入頁；
-        /// 那裡顯示的是 PDF 時是 `pdf-shown`（使用者 2026-10-02）。這一筆交給人，批次繼續
+        /// 那裡顯示的是 PDF 時是 `pdf-shown`（使用者 2026-10-02）。這一筆交接，批次繼續
         case leftSite = "left-site"
         /// DOI 解不開：分頁停在 doi.org，而且看得到 doi.org 自己的查無證據（`DOI Not Found` 或 404）。這是資料問題，不是起疑訊號
         case doiNotResolved = "doi-not-resolved"
@@ -172,7 +185,8 @@ public final class FulltextFetch {
     private var ownTab = ""
     /// 這個視窗所有分頁的網址（依位置）：最後一次確認 `ownTab` 還是我們的分頁時看到的。下一眼拿來比（`ownTabNow`，#768）。
     private var lastTabs: [String] = []
-    /// 我們的視窗（`documents --json` 的 `blocking_dialog.window_id`）。`--window` 的編號是前後順序，這個才是穩定的；每一眼都以它找回視窗的編號（#768）。
+    /// 我們的視窗（`documents --json` 的 `window_id`）。`--window` 的編號是前後順序，這個才是穩定的；每一眼都以它找回視窗的編號（#768），
+    /// 每一個以位置認分頁的命令都以它指定視窗（`--window-id`，#772）。
     private var ownWindowID: Int?
     /// 這次執行的記號（`akashic-` 加 16 個十六進位數字），開分頁時加在落地網址後、導航到 PDF 連結時也帶著（#768，使用者 2026-11-04 選定）。
     /// fragment 不送伺服器，HTTP 轉址會保留它，所以網址結尾是它的分頁就是我們的分頁（例外：記號不見之後以位置鎖導航回來的，要在我們的位置上才算，見 `ownTabNow`）。2026-11-04 在 Safari 量到：SAGE、Wiley、Springer、APA、
@@ -292,7 +306,7 @@ public final class FulltextFetch {
         return verificationStop(signal, site, shownOn: origin(url))
     }
 
-    /// 交給人（結束碼 7）。這個命令沒有取 PDF 的位元組、沒有寫任何輸出檔；分頁留著。
+    /// 交接（結束碼 7）。這個命令沒有取 PDF 的位元組、沒有寫任何輸出檔；分頁留著。
     ///
     /// `at`：判斷時那一份快照的網址（別的主機上的判斷傳它，#613 R3，b31 W4 第 0 則）。印出來的網址要是判斷的那一頁，不是判完之後再讀一次的
     /// ——那一下分頁可能已經換了頁。沒傳就讀分頁此刻的網址。
@@ -304,27 +318,33 @@ public final class FulltextFetch {
         err("✋ HANDED OVER TO YOU (\(reason.rawValue)) — window \(window), tab \(ownTab).")
         switch reason {
         case .pdfShown:
-            err("  The tab reports that it shows a PDF (document.contentType — a page can claim that, so look at it before saving). Save it yourself (which Safari control is the standard one is being settled in safari-browser#210). If it shows a login, verification or block page instead, that is the abort clause.")
+            err("  The tab reports that it shows a PDF (document.contentType — a page can claim that, so look at it before saving). Take it with `safari-browser save-pdf` (the skill's exit-7 table); do not load the PDF again. If it shows a login, verification or block page instead, that is the abort clause.")
         case .htmlPage:
             err("  The page's own PDF link opened an HTML page — a reader, a login page, or an access shell. If it has a download button, press it yourself; if it says there is no access, report that.")
         case .unverifiable:
-            err("  This command could not read the tab (Safari's PDF viewer may not run page scripts), so nothing on it was checked — it is unverified, not clean. Look at it: save the PDF if it shows one; a login, verification or block page is the abort clause.")
+            err("  This command could not read the tab (Safari's PDF viewer may not run page scripts), so nothing on it was checked — it is unverified, not clean. `save-pdf` cannot be used on it (its content type cannot be read); the skill reports this item as not obtained, with the window and tab. A login, verification or block page there is the abort clause.")
         case .tabUnchanged:
-            err("  The tab did not leave the article page after following the PDF link — the link may have started a download (check Safari's downloads) or needs a click.")
+            err("  The tab did not leave the article page after following the PDF link — the link may have started a download (check Safari's downloads). Following the link was the click: do not click it again. If no file arrives, judge what happened as the skill's landing table says (its exit-7 row for tab-unchanged); the table decides whether the item is handed to the person, is not obtained, or stops the batch.")
         case .button:
             err("  The page's PDF download is a form button. Press it yourself; the site may download the file.")
         case .leftSite:
-            err("  The tab left the article site for \(displaySafeInvisible(origin(shownURL), max: 300)); the page finished loading and matched none of the closed lists of verification, block or login markers — that does not mean it is not one. Look at it: if it shows the PDF, save it; a login, verification or block page is the abort clause. This item is handed to you; the rest of the batch can go on once you have looked at it.")
+            err("  The tab left the article site for \(displaySafeInvisible(origin(shownURL), max: 300)); the page finished loading and matched none of the closed lists of verification, block or login markers — that does not mean it is not one. Read it as the skill's exit-7 table says: if it shows the PDF, take it with `safari-browser save-pdf`; a login page on this other host, or a verification or block page, is the abort clause. Unless it is, the rest of the batch can go on.")
         case .doiNotResolved:
-            err("  doi.org did not resolve this DOI (the tab stayed on doi.org's own not-found page). Check the DOI in the record; there is no file to save. This item is handed to you — the rest of the batch can go on.")
+            err("  doi.org did not resolve this DOI (the tab stayed on doi.org's own not-found page). Check the DOI in the record; there is no file to save. Report this item as not obtained (the DOI did not resolve) — the rest of the batch can go on.")
         }
         // DOI 解不開時沒有任何檔可存：不叫人把「存下的檔」交給 take（R2 verify 第 14 則）
-        if reason != .doiNotResolved { err("  Then pass the saved file to `akashic fulltext take --from <file> --out <path> --title … --doi …`.") }
+        // `doi-not-resolved` 沒有檔；`unverifiable` 的分頁 `save-pdf` 用不了，SKILL 記成「取不到」（#781 verify 第 1 輪第 22 列）
+        if reason != .doiNotResolved, reason != .unverifiable { err("  Then pass the saved file to `akashic fulltext take --from <file> --out <path> --title … --doi …`.") }
         err("  Nothing requested the PDF bytes and no file was written. The tab is left open.")
         return Stop(code: Code.handedOver)
     }
 
     private func nap(_ seconds: Double) { sleeper(seconds) }
+
+    /// `own-tab: window-id <W> tab <T>[ mark <記號>]`（#772）：只在分頁確認是我們的之後印，skill 之後的讀與按以它鎖分頁。
+    private func printOwnTab() {
+        out("own-tab: window-id \(ownWindowID.map(String.init) ?? "") tab \(ownTab)\(markSeen ? " mark \(mark)" : "")")
+    }
 
     // MARK: Safari 輔助：一律走 `documents --json`，不讀人看的表格
 
@@ -335,6 +355,8 @@ public final class FulltextFetch {
         var title: String
         var profile: String?
         var windowID: Int?
+        /// 這一列有頂層的 `window_id` 鍵（值可以是 null）：safari-browser v2.9.0 起才有，與 `--window-id` 同一個 commit（safari-browser#352）。
+        var reportsWindowIDKey: Bool
     }
 
     /// 讀不到清單就停，不回空的：空的清單會被讀成「分頁不見了」，而「不知道」不是「可以繼續」（#768）。
@@ -348,7 +370,8 @@ public final class FulltextFetch {
             guard let w = FulltextFetch.int(d["window"]), let t = FulltextFetch.int(d["tab_in_window"]) else { return nil }
             return Tab(window: w, tabInWindow: t, url: (d["url"] as? String) ?? "", title: (d["title"] as? String) ?? "",
                        profile: d["profile"] as? String,
-                       windowID: (d["blocking_dialog"] as? [String: Any]).flatMap { FulltextFetch.int($0["window_id"]) })
+                       windowID: FulltextFetch.int(d["window_id"]) ?? (d["blocking_dialog"] as? [String: Any]).flatMap { FulltextFetch.int($0["window_id"]) },
+                       reportsWindowIDKey: d.keys.contains("window_id"))
         }
         // safari-browser 把分頁標題不跳脫地接進以控制字元分隔的列舉（safari-browser#355），所以頁面可以用 `document.title` 寫出一列假的分頁，
         // 帶上它讀得到的記號：`ownTabNow` 認記號，導航就打到別的分頁（第八輪 verify 第 1 則）。假列刪不掉別的分頁的列，指向存在的分頁時通常
@@ -393,11 +416,7 @@ public final class FulltextFetch {
     private func ownTabNow() throws -> Tab? {
         guard let position = Int(ownTab) else { return nil }
         let all = try docs()
-        // 執行當中才開的別的 profile 的視窗：位置鎖可能打到它，停（第六輪 verify 第 8 則）。只看開頭沒有的視窗：開頭就在的視窗檢查過，它的 profile
-        // 不會變，讀不出來只是載入中標題空白（第七輪 verify 第 4 則）
-        if otherProfileWindowOpen(in: all.filter { $0.windowID.map { !windowsAtStart.contains($0) } ?? true }) {
-            throw fail("a Safari window of another profile (or one whose profile cannot be read) was opened while this ran; a position-locked command could reach it, so nothing more was read or navigated. Ask the user: those windows have to be closed first, and only the user decides that.")
-        }
+        // 別的 profile 的視窗不看（#772）：位置鎖帶 `--window-id`，到不了別的視窗
         let mine = all.filter { $0.windowID == ownWindowID }.sorted { $0.tabInWindow < $1.tabInWindow }
         let marked = all.filter { $0.url.hasSuffix(markSuffix) }
         if !marked.isEmpty {
@@ -452,29 +471,15 @@ public final class FulltextFetch {
     /// 記號鎖一定帶 `--profile`：safari-browser 的 `open` 不把 `--url-endswith` 當成指定了分頁，只帶它會在前景視窗開新分頁（safari-browser#233，
     /// #768 第三輪 verify；使用者 2026-11-04 選定）。`--profile` 讓 `open` 解析記號、導航那個分頁。視窗的 profile 不只一個時改用位置鎖。
     ///
-    /// 位置鎖是全域的 `--window N`（視窗的前後順序）。確認與命令之間使用者點了自己的另一個視窗，那一次會打到那個視窗；別的 profile 的視窗
-    /// 開頭開著就不開始、執行當中才開的下一眼就停，但一眼與命令之間才開、又搶到同一個編號的視窗，那一次打得到。第五版曾改成「profile 內的第 k 個視窗」，第五輪 verify 指出那個 k 與
-    /// safari-browser 自己的算法會對不上（沒有分頁的視窗、載入中標題空白時讀不出 profile），使用者 2026-11-04 選定改回並改做 safari-browser#352
-    /// （以視窗 id 指定視窗）。
+    /// 位置鎖以視窗 id 指定視窗（`--window-id W`，#772；safari-browser#352，v2.9.0）：id 在視窗開著時不變，視窗被拉到前面也是同一個；id 不存在
+    /// 時 safari-browser 失敗、不退回前景視窗。先前是全域的 `--window N`（前後順序），確認與命令之間使用者點了自己的另一個視窗，那一次會打到
+    /// 那個視窗（#735）。**仍然擋不住的**：確認與命令之間，同一個視窗裡左邊開關分頁時 `--tab-in-window T` 指到別的分頁（見 `ownTabNow`）。
     private var lock: [String] {
         if markSeen, let p = ownProfile { return ["--profile", p, "--url-endswith", markSuffix] }
-        return ["--window", String(window), "--tab-in-window", ownTab]
+        return ["--window-id", ownWindowID.map(String.init) ?? "", "--tab-in-window", ownTab]
     }
     /// 我們的視窗所屬的 profile（開頭讀到恰好一個時）。
     private var ownProfile: String?
-    /// 我們的視窗的分頁回報的 profile（開頭讀到的全部；通常只有一個）。
-    private var ownProfiles: Set<String> = []
-    /// 開頭檢查過的視窗（id）。每一眼的檢查只看這份清單以外的視窗。
-    private var windowsAtStart: Set<Int> = []
-
-    /// 清單裡有沒有不屬於我們視窗、而 profile 是別的或讀不出來的分頁。
-    private func otherProfileWindowOpen(in all: [Tab]) -> Bool {
-        all.contains { t in
-            guard t.windowID != ownWindowID else { return false }
-            let q = t.profile ?? ""
-            return q.isEmpty || !ownProfiles.contains(q)
-        }
-    }
     /// 上一個鎖分頁的命令實際用的鎖（失敗訊息印它，不是重算一次；第四輪 verify 第 21 則）。
     private var usedLock: [String] = []
     private var lockText: String { (usedLock.isEmpty ? lock : usedLock).joined(separator: " ") }
@@ -512,9 +517,10 @@ public final class FulltextFetch {
     /// 站名也取自那個分頁，頁面文字被讀，找不到連結時連分頁都關了；第二版比對開之前與之後的分頁清單，最後一個分頁同時換頁時會認錯。
     /// 記號在新分頁剛出現時一定還在（六家出版商都量到；Elsevier 約 2 秒後才丟掉），所以只看開完之後的頭幾眼。
     private func openOwnTab(_ url: String) throws {
-        let r = browser.run(["open", "--new-tab", "--window", String(window), url + markSuffix])
+        let windowID = ownWindowID.map(String.init) ?? ""
+        let r = browser.run(["open", "--new-tab", "--window-id", windowID, url + markSuffix])
         if r.status != 0 {
-            let f = FulltextFetch.safariFailure(r.stderr, command: "open --new-tab --window \(window) <the landing URL>")
+            let f = FulltextFetch.safariFailure(r.stderr, command: "open --new-tab --window-id \(windowID) <the landing URL>")
             throw fail("open: \(f.line)", note: f.note)
         }
         openedUnidentified = true
@@ -528,7 +534,7 @@ public final class FulltextFetch {
             }
             guard t.windowID == ownWindowID else {
                 openedUnidentified = false
-                throw fail("the tab just opened went to another Safari window (window \(t.window)), not window \(window) (safari-browser#351). Nothing was read. Ask the user to close that tab (its address ends with \(markSuffix)); keeping a single Safari window open avoids this.")
+                throw fail("the tab just opened went to another Safari window (window \(t.window)), not window \(window) (safari-browser#351; `open --new-tab --window-id` should not do this). Nothing was read. Ask the user to close that tab (its address ends with \(markSuffix)).")
             }
             openedUnidentified = false
             window = t.window
@@ -536,6 +542,7 @@ public final class FulltextFetch {
             lastTabs = all.filter { $0.windowID == ownWindowID }.sorted { $0.tabInWindow < $1.tabInWindow }.map(\.url)
             lastOwnShown = t.url
             markSeen = true
+            printOwnTab()
             return
         }
         throw fail("cannot find the tab just opened: no Safari tab showed this run's mark within about 3 s, so nothing was read.")
@@ -592,7 +599,7 @@ public final class FulltextFetch {
 
     /// 同站頁面上命中訊號之後的停法。等人驗證的訊號落在**登入頁的長相**上時整批暫停，不降成等人驗證（使用者 2026-11-04 第 6 則，b38 INFO 17：
     /// 導航之後落定的同站 `/login` 頁寫著 CAPTCHA，先前得 8）。導航之前的檢查在這之前就已經對登入長相整批暫停，所以這一條只改變導航之後與
-    /// `--resume-stage followed` 的判斷；沒有訊號的同站登入頁仍交給人 `html-page`。連 `document.contentType` 都讀不到的分頁不經過這裡，
+    /// `--resume-stage followed` 的判斷；沒有訊號的同站登入頁仍交接 `html-page`。連 `document.contentType` 都讀不到的分頁不經過這裡，
     /// 照 `judgeUnreadable` 判（同站、帶 Cloudflare 挑戰或按住驗證的標記（`cloudflare-challenge`、`perimeterx-press-and-hold`）、路徑有登入長相時同樣整批暫停——使用者 2026-11-11 把第 6 則延伸到那一格，#777 第 2 件；其他四個標記本來就是 6）。
     private func onSiteStop(for hit: BotSignals.Hit, _ snap: PageSnapshot, _ site: String) -> Stop {
         if hit.response == .humanVerification, BotSignals.urlGateLook(snap.url) == "login" {
@@ -608,7 +615,7 @@ public final class FulltextFetch {
     /// `beforeNavigation`：導航到 PDF 連結**之前**的檢查（落地頁、讀連結之前、導航之前的接續）——每一份快照先判網址的**登入長相**，命中就整批暫停，
     /// 再判起疑訊號（#613 b37，b36 Y2 第 0 則：先前呼叫端只在呼叫之前看一次網址，讀的當中分頁轉到同站的 `/login`、那一頁寫著 CAPTCHA，就成了
     /// 等人驗證、印出以文章站為目標的 `resume:`——登入頁降成等人驗證，正是 R3 對落地頁修掉的形狀）。導航**之後**（`awaitShown`）傳 false：
-    /// 那時同站的 HTML 頁是頁面自己的 PDF 連結的結果，與 `decideShown` 同一套：不因網址的登入長相整批暫停，只看文字訊號，沒有訊號就交給人 `html-page`（b36 Y2 第 16 則）；文字訊號是等人驗證、而網址有登入頁的長相時整批暫停（`onSiteStop`，使用者 2026-11-04 第 6 則）。
+    /// 那時同站的 HTML 頁是頁面自己的 PDF 連結的結果，與 `decideShown` 同一套：不因網址的登入長相整批暫停，只看文字訊號，沒有訊號就交接 `html-page`（b36 Y2 第 16 則）；文字訊號是等人驗證、而網址有登入頁的長相時整批暫停（`onSiteStop`，使用者 2026-11-04 第 6 則）。
     @discardableResult
     private func botCheckPage(_ site: String, beforeNavigation: Bool) throws -> String {
         for _ in 1...3 {
@@ -633,7 +640,7 @@ public final class FulltextFetch {
     }
 
     /// 分頁離開了文章站。順序（#613 R2 verify 第 0、1、2、3、6、7、8、10 則；R3＝b31 W4 第 0、3、4、5、7、12 則）：
-    /// 1. **先問 PDF**（`document.contentType`；頁面讀得到的值，頁面腳本改得了它——不是回應本身）→ 交給人（`pdf-shown`）。Safari 的 PDF
+    /// 1. **先問 PDF**（`document.contentType`；頁面讀得到的值，頁面腳本改得了它——不是回應本身）→ 交接（`pdf-shown`）。Safari 的 PDF
     ///    分頁標題通常就是文章標題，先前標題與網址的長相排在前面，`Research design in …` 這種標題讓 PDF 變成整批暫停。
     /// 2. 不是 PDF 的頁面**要等它落定**（readyState 是 complete／interactive；最多約 60 秒，以時鐘計、也不超過 30 次輪詢）：還在載入的頁面說不出
     ///    「沒有標記」。一直沒落定 → 卡住，整批暫停。等的時候分頁又換了網址就重新看（換到登入頁就判登入頁；回到文章站就照常往下走）。
@@ -641,7 +648,7 @@ public final class FulltextFetch {
     ///    等人驗證；等人驗證只在已知的驗證服務上成立，其他主機一律整批暫停。這幾樣要是**同一頁的**（`readPage`）：讀完之後分頁的網址或
     ///    標題變了，那一份不用，回去等。
     /// 4. 登入／驗證頁的長相（`BotSignals.gateLook`：網址的主機與路徑、標題的整字片語）→ 整批暫停。
-    /// 5. 其他（CDN 的檔案主機、跨主機的中繼頁）→ 這一筆交給人（`left-site`），批次繼續。沒命中封閉清單不代表不是登入頁，訊息照說。
+    /// 5. 其他（CDN 的檔案主機、跨主機的中繼頁）→ 這一筆交接（`left-site`），批次繼續。沒命中封閉清單不代表不是登入頁，訊息照說。
     ///
     /// **讀不到**（頁面 JS 跑不起來；Safari 的 PDF 檢視器可能就是這樣）：同一個網址**連三次**讀不到、而且那個網址上**從沒讀到過一般網頁**的回答
     /// 才算（`UnreadableTally`），照 `judgeUnreadable` 判——文章站上同一套。讀到過「還在載入」的網址是一般網頁，不是 PDF 檢視器——讀不到就
@@ -676,7 +683,7 @@ public final class FulltextFetch {
     }
 
     /// 讀不到的分頁要「同一個網址**連三次**、那個網址上從沒讀到過一般網頁的回答」才算（b31 W4 第 5 則；b34 起文章站上同一個規則，b33 X3
-    /// 第 4 則：先前文章站上是累積計數，失敗、還在載入、失敗、失敗就交給人、批次繼續，別的主機上同一串回答是卡住）。
+    /// 第 4 則：先前文章站上是累積計數，失敗、還在載入、失敗、失敗就交接、批次繼續，別的主機上同一串回答是卡住）。
     private struct UnreadableTally {
         private var count = 0
         private var url = ""
@@ -696,10 +703,10 @@ public final class FulltextFetch {
     /// 分頁此刻的（網址，標題）——同一次 `documents` 讀到的一對。
     private func tabSnapshot() throws -> (url: String, title: String)? { try ownTabNow().map { ($0.url, $0.title) } }
 
-    /// 別的主機上的頁面落定了：標題、網址、頁面文字與狀態碼一起判訊號，再看登入／驗證頁的長相，都沒有就交給人。
+    /// 別的主機上的頁面落定了：標題、網址、頁面文字與狀態碼一起判訊號，再看登入／驗證頁的長相，都沒有就交接。
     ///
     /// **同一份快照**（#613 R3，b31 W4 第 0 則；`readPage`）：讀完之後網址或標題變了＝讀的當中分頁換了頁（中繼頁轉到登入頁），這一份不用，回 nil
-    /// 讓 `leftSite` 回去等。先前標題、頁面文字、交給人時印的網址各讀各的，舊中繼頁的網址與標題配上新登入頁的文字，三樣都沒命中就交給人。
+    /// 讓 `leftSite` 回去等。先前標題、頁面文字、交接時印的網址各讀各的，舊中繼頁的網址與標題配上新登入頁的文字，三樣都沒命中就交接。
     private func offSiteSettled(_ url: String, _ site: String) throws -> Stop? {
         guard let snap = try readPage(accept: { $0 == url }) else { return nil }
         let moved = "→ \(FulltextFetch.plainURL(url))"
@@ -716,7 +723,7 @@ public final class FulltextFetch {
     /// 讀不到的分頁（頁面 JS 跑不起來）：只剩標題與網址，而這樣的分頁可能就是 Safari 的 PDF 檢視器——PDF 分頁的標題常是文章標題、檔案的路徑
     /// 常有 `auth`、`validate` 之類的段。**文章站上與別的主機上同一套**（#613 b34，b33 X3 第 1、3、5、7 則：R3 只在別的主機上這樣判，文章站上
     /// 仍以標題與網址的一般字樣判——同站 PDF 的文章標題 `A Survey of CAPTCHA Design` 得 8、`Analysis of unusual traffic patterns` 得 6）。
-    /// 一般的訊號字詞、路徑與標題的登入／驗證長相都**不看**（使用者 2026-10-02：PDF 交給人），只看三件封閉的事，依序：
+    /// 一般的訊號字詞、路徑與標題的登入／驗證長相都**不看**（使用者 2026-10-02：PDF 交接），只看三件封閉的事，依序：
     /// 1. 網址在已知的驗證服務上（`isKnownVerificationService`）：照訊號處理（等人驗證或整批暫停）；沒有訊號也整批暫停——那是驗證服務的頁面，
     ///    而它讀不到。
     /// 2. **主機**是登入主機的長相（`BotSignals.hostLoginLook`：最左邊的標籤、或 IdP 服務的名稱）→ 整批暫停（使用者 2026-10-02：登入頁維持
@@ -725,7 +732,7 @@ public final class FulltextFetch {
     ///    其他主機一律整批暫停）。**例外**（使用者 2026-11-11，#777 第 2 件）：文章站上的人類檢查（`cloudflare-challenge`、
     ///    `perimeterx-press-and-hold`）而網址的**路徑**有登入長相 → 整批暫停，與 `onSiteStop` 同一條（第 6 則）。路徑只在標記命中之後才看；
     ///    沒有標記的讀不到分頁照舊不看路徑（使用者 2026-10-02，PDF 檢視器的路徑常有 `auth`、`validate`）。
-    /// 其他 → 交給人（`unverifiable`），訊息說讀不到、什麼都沒檢查。判斷用同一次 `documents` 的（網址，標題）；那一下網址不是 `url` 就回 nil，
+    /// 其他 → 交接（`unverifiable`），訊息說讀不到、什麼都沒檢查。判斷用同一次 `documents` 的（網址，標題）；那一下網址不是 `url` 就回 nil，
     /// 回去等。
     private func judgeUnreadable(_ url: String, _ site: String) throws -> Stop? {
         guard let snap = try tabSnapshot(), snap.url == url else { pageChanges += 1; return nil }
@@ -772,16 +779,22 @@ public final class FulltextFetch {
         let ledger = FulltextAttemptLedger(path: o.ledger)
         do { _ = try ledger.load() } catch { throw fail("\(displaySafeErrorText(error))") }   // 數不出今天的次數，就不能保證沒超過上限
 
-        // 視窗不存在，或它的分頁都沒有 profile 欄位：兩者對這支程式是同一件事——無從確認它屬於誰，不碰
+        // 選視窗：`--window N` 在這一刻指的那個視窗。之後一律以它的 id 指定（#772），profile 只用在這裡（使用者 2026-11-19 09:25：「也不一定要在
+        // 個人，只要固定視窗就好了嗎」）——`--expect-profile` 給了才比，讀不出 profile 的視窗在沒給時也可以用（記號鎖要 profile，那時一律用位置鎖）
         let everything = try docs()
         let tabsBefore = tabsHere(everything)
+        guard !tabsBefore.isEmpty else { throw fail("Safari window \(window) not found") }
+        // 每一個以位置認分頁的命令都帶 `--window-id`：safari-browser 沒有它就什麼都不開。檢查的是能力（`documents --json` 的頂層 `window_id`，
+        // 與 `--window-id` 同一個 commit 加的），不是版本字串——safari-browser 的開發建置 `--version` 印 `unknown`
+        guard everything.allSatisfy(\.reportsWindowIDKey) else {
+            throw fail("this safari-browser does not report window ids (`window_id` in `documents --json`), so it has no `--window-id` to keep every command in window \(window) — safari-browser 2.9.0 or later is needed. Nothing was opened or read.")
+        }
         let profiles = Set(tabsBefore.compactMap(\.profile).filter { !$0.isEmpty })
-        ownProfiles = profiles
         let profile = profiles.sorted().joined(separator: ",")
         ownProfile = profiles.count == 1 ? profiles.first : nil
-        guard !profile.isEmpty else { throw fail("Safari window \(window) not found") }
-        out("window \(window) profile: \(displaySafeInvisible(profile, max: 200))")
+        out("window \(window) profile: \(profile.isEmpty ? "(none read)" : displaySafeInvisible(profile, max: 200))")
         if let expected = o.expectProfile, !expected.isEmpty, profile != expected {
+            if profile.isEmpty { throw fail("window \(window)'s profile cannot be read, so it cannot be checked against '\(expected)' — refusing to touch it") }
             throw fail("window \(window) belongs to profile '\(profile)', not '\(expected)' — refusing to touch it")   // `fail()` 跳脫整則訊息，這裡再跳脫就是兩次
         }
 
@@ -792,15 +805,10 @@ public final class FulltextFetch {
         }
         ownWindowID = id
 
-        // safari-browser#351：多個視窗時 `open --new-tab --window N` 可能開進別的視窗。那個視窗若屬於別的 profile（Safari 的 profile 可能屬於
-        // 別人），落地頁就以那個 profile 的 cookie 與登入載入、記進它的瀏覽紀錄；位置鎖（全域的 `--window N`）在視窗順序變了時也會打到它。
-        // 有別的 profile 的分頁開著就停（第三輪 verify 第 12 則）；認不出 profile 的別的視窗也算（第四輪 verify 第 6 則）。不印那個 profile 的名字。
-        // 無條件：safari-browser 沒有穩定指定視窗的方式之前沒有安全的放寬（使用者 2026-11-04；以視窗 id 指定視窗是 safari-browser#352）。
-        // **接續也一樣**，所以在 `resume` 之前判（第六輪 verify 第 1、4 則：先前放在 `resume` 之後，接續的 run 從不判）；之後每一眼也判（第 8 則）
-        if otherProfileWindowOpen(in: everything) {
-            throw fail("a Safari window of another profile (or one whose profile cannot be read) is open, and this safari-browser can put the new tab or a position-locked command in another window (safari-browser#352), which would load or read a page under that profile (possibly someone else's). Nothing was opened or read. Ask the user: those windows have to be closed first, and only the user decides that (they may belong to someone else).")
-        }
-        windowsAtStart = Set(everything.compactMap(\.windowID))
+        // 別的 profile 的視窗開著不停（#772，使用者 2026-11-19 09:24：「我是覺得在別的是窗沒差，只要鎖定好固定視窗就好」）。先前這裡停
+        // （#768，safari-browser#351：`open --new-tab --window N` 可能開進別的視窗、以那個 profile 的身分載入落地頁；位置鎖在視窗順序變了時也會
+        // 打到它）。現在新分頁以 `open --new-tab --window-id <id>` 開，位置鎖帶 `--window-id`，兩者都到不了別的視窗。**沒有在真的 Safari 上量過**
+        // 別的 profile 的視窗開著時新分頁是否一定落在這個視窗（#772 Strategy 第 7 項）；「新分頁跑到別的視窗就停、不讀它」的檢查照舊。
         if let resumeTab = o.resumeTab, let resumeOrigin = o.resumeOrigin {
             try resume(tab: resumeTab, origin: resumeOrigin, stage: o.resumeStage, mark: o.resumeMark, ledger: ledger)
         }
@@ -868,14 +876,14 @@ public final class FulltextFetch {
     }
 
     /// 60 秒之後分頁還在 doi.org。DOI 解不開時 doi.org 留在自己的「查無」頁——那是記錄的資料問題，不是起疑訊號（使用者 2026-10-02）：
-    /// 這一筆交給人（`doi-not-resolved`），批次繼續。但只在**看得到 doi.org 自己的「查無」證據**時（標題或頁面文字有 `DOI Not Found`，
+    /// 這一筆交接（`doi-not-resolved`），批次繼續。但只在**看得到 doi.org 自己的「查無」證據**時（標題或頁面文字有 `DOI Not Found`，
     /// 或 HTTP 404）——Safari 離線時在同一個網址上顯示自己的錯誤頁，那不是 DOI 的問題，是整批暫停（R2 verify 第 9 則）。
     ///
     /// 這裡的起疑訊號一律整批暫停，**包括等人驗證的那四種**：doi.org 不是文章站，驗證完它會轉到出版商，`--resume-origin https://doi.org`
     /// 接不回去（R2 verify 第 17 則）。登入／驗證頁的長相同樣整批暫停。還在載入是卡住（整批暫停）。停在 doi.org 卻看不到它自己的查無證據
     /// 整批暫停是使用者 2026-10-05 第 1 則的裁決（對 2026-10-01 裁決的收窄，以它為準）。
     ///
-    /// 標題、頁面文字與交給人時印的網址是**同一份快照**（`readPage`，#613 b34）：讀的當中分頁離開了 doi.org 就不判——那一頁是誰的已經說不準，
+    /// 標題、頁面文字與交接時印的網址是**同一份快照**（`readPage`，#613 b34）：讀的當中分頁離開了 doi.org 就不判——那一頁是誰的已經說不準，
     /// 整批暫停。
     private func stillOnTheDOIResolver(_ u: String) throws -> Never {
         let site = origin(u)
@@ -902,18 +910,18 @@ public final class FulltextFetch {
     ///
     /// - `article`（導航到 PDF 連結之前的驗證）：分頁必須還顯示文章站；接著讀頁面的連結、記一次嘗試、導過去。
     /// - `followed`（導航到 PDF 連結**之後**的驗證）：嘗試已經記過、已經導航過——**不讀連結、不導航、不記嘗試**，回到「分頁顯示什麼」
-    ///   的判斷（PDF → 交給人；HTML 閱讀器 → 交給人）。分頁此刻可以在別的主機（PDF 放在另一個主機，驗證完瀏覽器把分頁帶過去），所以
+    ///   的判斷（PDF → 交接；HTML 閱讀器 → 交接）。分頁此刻可以在別的主機（PDF 放在另一個主機，驗證完瀏覽器把分頁帶過去），所以
     ///   這一步不要求分頁顯示文章站；它只讀分頁、不導航、不關分頁。但分頁要是這三種之一：文章站（`--resume-origin`）、已知的驗證服務、
     ///   或此刻顯示 PDF——其他分頁（使用者驗證時開關分頁，位置漂移到他自己的信箱或銀行）拒絕（結束碼 1）。判斷 PDF 只讀
     ///   `document.contentType`，不讀那個分頁的文字（#613 R2 verify 第 12、16、19、21 則：先前只要網址非空就對它跑讀頁文字的 JS）。
     /// - `article` 的順序（#613 b34，b33 X3 第 0、21 則）：主機是登入主機的長相 → 整批暫停，不送任何 JS；然後與導航之後同一套讀法
-    ///   （`watchOnSite`）——分頁顯示 PDF → 交給人（舊的呼叫端沒帶 `--resume-stage`，驗證發生在導航之後；**PDF 先於路徑的登入長相**，
+    ///   （`watchOnSite`）——分頁顯示 PDF → 交接（舊的呼叫端沒帶 `--resume-stage`，驗證發生在導航之後；**PDF 先於路徑的登入長相**，
     ///   `/auth/12345.pdf` 不整批暫停）；讀不到 → `judgeUnreadable`；落定的網頁 → 判的是**分頁此刻的網址**（先前用接續開始時讀的舊網址）：
     ///   路徑的登入長相 → 整批暫停、起疑訊號 → 8 或 6、驗證頁的網址而沒有訊號 → 使用者說驗證完了而頁面還在轉址，**等它轉走**（只讀分頁網址、
     ///   不送 JS，與等落定同一個約 60 秒），轉走了照常往下走、沒轉走整批暫停。
     private func resume(tab requested: Int, origin expected: String, stage resumeStage: ResumeStage, mark resumeMark: String?,
                         ledger: FulltextAttemptLedger) throws -> Never {
-        let all = try docs()   // 別的 profile 的視窗已在 `execute` 呼叫這裡之前判過
+        let all = try docs()
         let here = tabsHere(all)
         var position = requested
         // 上一次執行的記號還在一個分頁上：那就是停下的那個分頁，不論它現在在哪個位置（分頁移動了也不會接到別的分頁）。它必須在這個視窗；
@@ -952,6 +960,7 @@ public final class FulltextFetch {
                     throw fail("window \(window) tab \(position) shows another page — not \(expected), a known verification service, or a PDF; not resuming there. Find the tab you verified in with `safari-browser documents --json --profile <P>` and pass its window/tab; if it is that tab, look at it yourself.")
                 }
             }
+            printOwnTab()   // 接受了才印：上面兩個拒絕會把 `ownTab` 清掉，那時印出的會是別人的分頁（#781 第 2 輪之後的 advisor 檢查）
             out("resuming: window \(window) tab \(ownTab) \(displaySafeInvisible(FulltextFetch.plainURL(t.url), max: 600)) (after the PDF link was followed)")
             try decideShown(site: expected)
         case .article:
@@ -960,6 +969,7 @@ public final class FulltextFetch {
                 throw fail("window \(window) tab \(position) shows \(t.url.isEmpty ? "nothing" : "another page"), not \(expected) — not resuming there. Find the tab showing \(expected) with `safari-browser documents --json --profile <P>` and pass its window/tab.")
             }
             let site = origin(t.url)
+            printOwnTab()
             out("resuming: window \(window) tab \(ownTab) \(displaySafeInvisible(FulltextFetch.plainURL(t.url), max: 600))")
             // 主機是登入主機的長相：不往那個分頁送任何 JS（PDF 不從 IdP 主機出來）
             if BotSignals.hostLoginLook(t.url) {
@@ -982,7 +992,7 @@ public final class FulltextFetch {
         }
     }
 
-    /// 讀頁面自己的 PDF 連結、記一次嘗試、把同一個分頁導過去、交給人。
+    /// 讀頁面自己的 PDF 連結、記一次嘗試、把同一個分頁導過去、交接。
     private func followThePagesOwnLink(site: String, ledger: FulltextAttemptLedger) throws -> Never {
         // 連結可能晚出現（最多約 45 秒）。`wait` 等的時候沒有人看分頁，所以切成小段，每段之前確認一次（#768）
         for _ in 1...FulltextFetch.linkWaitSlices {
@@ -1036,7 +1046,7 @@ public final class FulltextFetch {
             out("attempt: \(displaySafeInvisible(host, max: 300)) \(used)/\(FulltextAttemptLedger.dailyCap) \(day)")
         }
 
-        if method == "POST" { throw handover(.button) }   // 表單按鈕交給人按，不代按、不代送
+        if method == "POST" { throw handover(.button) }   // 表單按鈕不由這個命令按、不代送；#781 起由照 SKILL 執行的 agent 按（SKILL〈結束碼 7 之後〉的 `button` 列）
 
         out("pdf:  \(displaySafeInvisible(FulltextFetch.plainURL(target), max: 600))")
         let before = try ownURL()
@@ -1053,7 +1063,7 @@ public final class FulltextFetch {
     /// 連結的答案屬於判過的那一頁（第七輪 verify 第 1、3 則）：`siteGuard` 只看主機，位置追蹤把同位置、同站的新網址當成我們的分頁在換頁，所以讀完
     /// 連結之後分頁到了同站的登入或驗證頁，先前照樣拿舊頁面的連結導航，把那一頁蓋掉（結束碼 6／8 不出現）。網址與判過的不同（我們的記號不算：
     /// 頁面用腳本拿掉 fragment 不是換頁）就**等新的那一頁落定、判它**，走 `watchOnSite`，與導航之前的接續同一套（第八輪 verify 第 5、10 則：先前只讀一次、
-    /// 不看驗證頁的網址）：登入、驗證頁 6／8，一直不落定 6，PDF 交給人，讀不到的頁面交給人（7 `unverifiable`，落地頁同樣的頁面是 6，第九輪 verify 第 2、6 則），
+    /// 不看驗證頁的網址）：登入、驗證頁 6／8，一直不落定 6，PDF 交接，讀不到的頁面交接（7 `unverifiable`，落地頁同樣的頁面是 6，第九輪 verify 第 2、6 則），
     /// 其他都不導航（結束碼 1）：連結不是從判過的那一頁讀來的，而重讀一次又是同一個問題。別的 fragment 或 query
     /// 算換頁：`#/login` 這種路由也長這樣，看不出是不是同一頁，停的方向是安全的，訊息說明只有這部分變了（第八輪 verify 第 11、18 則）。
     /// 這是 Apple event 之間看得到的變化；網址不變而內容換了、或比對之後才換，看不到（導航收不回，SKILL 的限制 (b)）。
@@ -1074,7 +1084,7 @@ public final class FulltextFetch {
     }
 
     /// 導航之後：等分頁離開文章頁（20 秒），再看它顯示什麼。分頁沒離開：檢查起疑訊號（同一份快照）——判的那一頁還是導航之前的那一頁才是
-    /// `tab-unchanged`；檢查的當中換了頁就照「分頁顯示什麼」判（b33 X3 第 8 則的同一個形狀：先前交給人時才讀網址，印的是換過去的那一頁）。
+    /// `tab-unchanged`；檢查的當中換了頁就照「分頁顯示什麼」判（b33 X3 第 8 則的同一個形狀：先前交接時才讀網址，印的是換過去的那一頁）。
     private func awaitShown(site: String, before: String) throws -> Never {
         var moved = false
         for _ in 1...10 {
@@ -1082,7 +1092,7 @@ public final class FulltextFetch {
             let u = try ownURL()
             if u.isEmpty || u != before { moved = true; break }
         }
-        try siteGuard(site)   // 分頁對不上 → 1（`lostOwnTab`）；到了別的主機 → 照 `leftSite`（PDF／沒有標記的頁面交給人，訊號與登入頁停）
+        try siteGuard(site)   // 分頁對不上 → 1（`lostOwnTab`）；到了別的主機 → 照 `leftSite`（PDF／沒有標記的頁面交接，訊號與登入頁停）
         if !moved {
             let judged = try botCheckPage(site, beforeNavigation: false)
             if judged == before { throw handover(.tabUnchanged, at: judged) }
@@ -1090,7 +1100,7 @@ public final class FulltextFetch {
         try decideShown(site: site)
     }
 
-    /// 分頁顯示什麼：PDF → 交給人；HTML 頁落定 → 查訊號（同一份快照）、交給人；讀不到 → `judgeUnreadable`。導航之後的判斷與等人驗證之後
+    /// 分頁顯示什麼：PDF → 交接；HTML 頁落定 → 查訊號（同一份快照）、交接；讀不到 → `judgeUnreadable`。導航之後的判斷與等人驗證之後
     /// 接著走（`resume --resume-stage followed`）是同一段——驗證完不重新讀連結、不再導航。
     private func decideShown(site: String) throws -> Never {
         try watchOnSite(site, stalled: "the tab did not settle after following the PDF link (stalled)") { url in
@@ -1112,7 +1122,7 @@ public final class FulltextFetch {
     /// 等分頁在文章站上給出一個屬於**同一個網址**的回答（#613 b34，b33 X3 第 2、4、8 則：R3 只在別的主機上這樣讀，文章站上一次讀分頁顯示什麼、
     /// 讀不到累積計數、判完再讀網址印出來）。導航之後（`decideShown`）與導航之前的接續（`resume` 的 `article`）同一套：
     /// - 每一次輪詢先過 `siteGuard`（分頁到了別的主機照 `leftSite` 判、對不上 → 1）；讀之前與之後的網址相同，這個回答才屬於那個網址。
-    /// - PDF → 交給人（`pdf-shown`，印那個網址）。
+    /// - PDF → 交接（`pdf-shown`，印那個網址）。
     /// - 讀不到 → 同一個網址連三次、那裡從沒讀到過一般網頁才算（`UnreadableTally`），照 `judgeUnreadable` 判（與別的主機同一套）。
     /// - 落定的網頁 → `consider`。
     /// 約 60 秒（時鐘）沒有結果 → 卡住，整批暫停；停在等它轉走的網址上 → 整批暫停，訊息說是驗證頁的網址。

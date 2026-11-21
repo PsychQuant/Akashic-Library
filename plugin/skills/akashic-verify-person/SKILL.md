@@ -171,4 +171,4 @@ akashic_resolve_people reject:["<citekey>:<index>:<personKey>", …]  # 查過�
 - [`akashic-disambiguate`](../akashic-disambiguate/SKILL.md)——歧義列的判定；它的第 3 步會回頭用本 skill
 - [`assertions-must-be-measured`](../../rules/assertions-must-be-measured.md)——**本 skill 產出的每一句關於世界的話都受它管**：查得到就寫查到什麼、查不到就寫「查不到」並列出查過的來源，不寫「應該是」
 - [`source-of-truth-over-consent`](../../rules/source-of-truth-over-consent.md)——ORCID、任期、異名的依據是權威來源；使用者說「他那時候就在那裡」而沒有出處時，那是線索
-- [`site-knowledge-goes-back-into-the-plugin`](../../rules/site-knowledge-goes-back-into-the-plugin.md)——一批做完、回報之前，把這一批量到的網站或 API 行為（plugin 還沒有紀錄的、與 plugin 寫的不同的、照字面做不到的一步）寫回 plugin，並在回報列出寫了什麼（#822）
+- [`site-knowledge-goes-back-into-the-plugin`](../../rules/site-knowledge-goes-back-into-the-plugin.md)——一批做完、回報之前，把這一批量到的網站或 API 行為（plugin 還沒有紀錄的、與 plugin 寫的不同的、流程照字面做不到或做了會得到它沒料到的結果的一步）寫回 plugin，並在回報列出寫了什麼（#822）

@@ -152,10 +152,10 @@
 
 | 站 | `fetch` 的結果 | 之後做了什麼、看到什麼 | 觀察 |
 |---|---|---|---|
-| ACM Digital Library（`dl.acm.org`；*Communications of the ACM* 1987，DOI 是 `10.1145/…`）| 兩次都落地在 `/doi/<DOI>`，`fetch` 印的 PDF 連結都是 `/doi/pdf/<DOI>`。第一次結束碼 6，`fetch` 印的是 `SITE SUSPECTS AUTOMATION (page-unreadable: could not check it for suspicion)`，記為當天 `dl.acm.org` 1/10。約六個半小時之後在另一個視窗重跑同一篇，結束碼 7 `pdf-shown`，記為 2/10 | 第一次照結束碼 6 停下：`fetch` 把分頁留給使用者看，之後那個視窗關了，所以分頁當時顯示什麼沒有讀到（這一列引的是 `fetch` 印的字，不是頁面上的字）。第二次 `save-pdf` 從分頁取得 8 頁、1,422,224 bytes。`take`（帶 `--pages`）結束碼 5：頁數相符、標題完全相符，`doi_state` 是 `absent`，檔案的 metadata 與首頁都沒有 DOI；verify JSON 另有 `is_article: false`、`version_of_record: false`。讀首頁以刊名、年月、卷期、起始頁與第一作者確認後存入。`doi_state` 是 `absent`、`take` 結束碼 5 這兩點，與〈2026-11-21 的實測〉SpringerLink 1989、1983 兩篇掃描檔相同。兩次都沒有按任何東西（紀錄裡沒有 `akashic fulltext attempt`，也沒有按的指令）；第二次 `fetch` 沒有回報驗證頁或登入頁，交接之前分頁經過哪些頁面沒有記錄 | 第二次取得 |
+| ACM Digital Library（`dl.acm.org`；*Communications of the ACM* 1987，DOI 是 `10.1145/…`）| 兩次都落地在 `/doi/<DOI>`，`fetch` 印的 PDF 連結都是 `/doi/pdf/<DOI>`。第一次結束碼 6，`fetch` 印的是 `SITE SUSPECTS AUTOMATION (page-unreadable: could not check it for suspicion)`，記為當天 `dl.acm.org` 1/10。約六個半小時之後在另一個視窗重跑同一篇，結束碼 7 `pdf-shown`，記為 2/10 | 第一次照結束碼 6 停下：`fetch` 把分頁留給使用者看，之後那個視窗關了，所以分頁當時顯示什麼沒有讀到（這一列引的是 `fetch` 印的字，不是頁面上的字）。第二次 `save-pdf` 從分頁取得 8 頁、1,422,224 bytes。`take`（帶 `--pages`）結束碼 5：頁數相符、標題完全相符，`doi_state` 是 `absent`，檔案的 metadata 與首頁都沒有 DOI；verify JSON 另有 `is_article: false`、`version_of_record: false`。讀首頁以刊名、年月、卷期、起始頁與第一作者確認後存入（store 的一個 commit 把這份檔的 digest 連上條目）。`doi_state` 是 `absent`、`take` 結束碼 5 這兩點，與〈2026-11-21 的實測〉SpringerLink 1989、1983 兩篇掃描檔相同。Claude 兩次都沒有下按的指令（紀錄裡沒有 `akashic fulltext attempt`，也沒有按的指令）；兩次之間使用者有沒有操作過那個視窗，沒有記錄。第二次 `fetch` 沒有回報驗證頁或登入頁，交接之前分頁經過哪些頁面沒有記錄 | 第二次取得 |
 
-**兩次為什麼不同，沒有查出來。** 兩次差在視窗與時間；沒有在第一次的視窗裡重跑，網路路徑兩次都沒有記錄。維護者 2026-11-23 決定只記這一次讀數、不另外重現（#834）。所以這一列不能讀成「這一站換一個視窗就好」，也不能讀成「這一站會懷疑自動化」：`fetch` 回報的是它沒能檢查那一頁有沒有起疑（`page-unreadable`），那一頁為什麼讀不出來沒有查。
+**兩次為什麼不同，沒有查出來。** 兩次差在視窗與時間；沒有在第一次的視窗裡重跑，網路路徑兩次都沒有記錄。維護者 2026-11-23 決定只記這一次讀數、不另外重現（#834）。所以這一列不能讀成「這一站換一個視窗就好」，也不能讀成「這一站會懷疑自動化」：`fetch` 回報的是它沒能檢查那一頁有沒有起疑（`page-unreadable`），那一頁為什麼讀不出來沒有查出來。
 
-**對話框探測**：第二次 `save-pdf` 之前讀到 `unknown`，並警告那個視窗沒能完整讀取。讀取時哪一個分頁是作用中的沒有記錄（沒有存下分頁清單），所以這一次不能拿來對照 [safari-measurements.md](safari-measurements.md) 的 P2。這一篇沒有按，所以沒有碰到「不是 `clear` 就不按」那條規則。
+**對話框探測**：第二次 `save-pdf` 之前讀到 `unknown`（`reason` 是 `incomplete`），並警告那個視窗沒能完整讀取。取鎖時存下的兩份分頁清單（23:39 與 23:40，臺北時間）裡，那個視窗只有兩個分頁，作用中的是顯示 PDF 的那一個，與 [safari-measurements.md](safari-measurements.md) 的 P2 相符；這一次沒有切換分頁的對照。Claude 沒有下按的指令，所以沒有碰到「不是 `clear` 就不按」那條規則。
 
 這一篇的 `acquisition` 是 `browser-save-pdf`，`origin` 是 `https://dl.acm.org/doi/pdf/<DOI>`；note 寫明是 Claude 讀首頁確認的。

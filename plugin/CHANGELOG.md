@@ -1,5 +1,12 @@
 # Changelog
 
+## #834 — 2026-11-22 的實測：dl.acm.org 一篇（2026-11-23）：plugin 殼 0.13.19 → 0.13.20，契約版本不變（13）
+
+照 `rules/site-knowledge-goes-back-into-the-plugin.md` 第 4 條 (b)，量到的觀察先寫成 #834，再由這個變更寫回。**只改 `references/publishers.md`，加上版號、版號表與本檔；沒有改 SKILL、沒有改 `akashic` CLI**。
+
+- `akashic-fetch-fulltext` 的 `references/publishers.md` 新增〈2026-11-22 的實測〉：*Communications of the ACM* 1987 年的一篇。第一次 `fetch` 結束碼 6（`page-unreadable`）；同一天在另一個視窗重跑，結束碼 7 `pdf-shown`，`save-pdf` 取得。檔案的 metadata 與首頁都沒有 DOI（`doi_state` 是 `absent`），`take` 結束碼 5，由 Claude 讀首頁確認。兩次為什麼不同沒有查出來，維護者決定只記這一次讀數。
+- **沒有改的**：SKILL 第 4 步。SKILL 已經寫了沒有 DOI 可比時驗證必然不自動收（結束碼 5），也寫了結束碼 5 之後由 Claude 讀首頁確認的程序。
+
 ## #822 — verify 第 1 輪的修正（2026-11-21）：plugin 殼維持 0.13.19（同一條分支、還沒推上 main），契約版本不變（13）；`akashic-discovery` 0.2.18 → 0.2.19
 
 維護者 2026-11-21 決定修報告裡標為 in-scope 的 22 列、再審一輪（#822 的決定留言）。**沒有改 `akashic` CLI 與契約**：改的是 Markdown，加上 `plugins/akashic-discovery` 的 `plugin.json` 版號與 `.githooks/plugin-shell-versions.txt` 的兩列（這一句原本寫「只改文件」，#822 verify 第 2 輪）。

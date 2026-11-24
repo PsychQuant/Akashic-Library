@@ -1,5 +1,13 @@
 # Changelog
 
+## #791 — SessionStart 檢查的探測暫存檔（2026-11-16）：plugin 殼 0.13.20 → 0.13.21
+
+細節在 `changelog/2026-11-16-check-cli-probe-tempdir-791.md`。binary 與契約版本不變，不需要重建 CLI。
+
+- `hooks/check-cli.sh`：探測 CLI 的暫存檔改放 `mktemp -d` 建的私有目錄，清理時整個刪掉；hook 在探測中途被砍時，組內的計時器第 8 秒收掉目錄；`TMPDIR` 建不出目錄或輸出檔時說出是 hook 自己的問題，不再報成 CLI 執行失敗、也不叫人重建。計時器以 `mkdir` 建標記，路徑上有任何東西都不開、不寫；CLI 以 0 回答時一律讀它的輸出。
+
+這條 branch 原本用 0.13.17，2026-11-21 併入 main 時改成 0.13.19；2026-11-24 再併入 main 時 0.13.19（#822）與 0.13.20（#834）也已用掉，改成 0.13.21。
+
 ## #834 — 2026-11-22 的實測：dl.acm.org 一篇（2026-11-23）：plugin 殼 0.13.19 → 0.13.20，契約版本不變（13）
 
 照 `rules/site-knowledge-goes-back-into-the-plugin.md` 第 4 條 (b)，量到的觀察先寫成 #834，再由這個變更寫回。**只改 `references/publishers.md`，加上版號、版號表與本檔；沒有改 SKILL、沒有改 `akashic` CLI**。

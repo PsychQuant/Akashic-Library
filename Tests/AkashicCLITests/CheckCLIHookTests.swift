@@ -914,4 +914,341 @@ final class CheckCLIHookTests: XCTestCase {
         XCTAssertTrue(r.out.contains("✓ akashic CLI"), r.out)
         XCTAssertTrue(r.out.contains(try short("D")), r.out)
     }
+
+    // MARK: - 探測的暫存目錄（#791）
+
+    /// `TMPDIR` 裡探測留下的項目。名字是 `akashic-check-cli.` 開頭（目錄或舊版的兩個檔都算）。
+    private func probeLeftovers(in dir: URL) -> [String] {
+        ((try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []).filter { $0.hasPrefix("akashic-check-cli.") }.sorted()
+    }
+
+    private func emptyTmp() throws -> URL {
+        let t = root.appendingPathComponent("tmp-\(UUID().uuidString.prefix(8))")
+        try FileManager.default.createDirectory(at: t, withIntermediateDirectories: true)
+        return t
+    }
+
+    // spec-example: session-start-cli-check / A normal probe leaves nothing in TMPDIR
+    func testANormalProbeLeavesNothingInTMPDIR() throws {
+        let tmp = try emptyTmp()
+        let r = try runHook(["FAKE_VERSION": try short("D"), "FAKE_CONTRACT": "\(Self.required)", "TMPDIR": tmp.path])
+        assertQuietSuccess(r)
+        XCTAssertTrue(r.out.contains("✓ akashic CLI"), r.out)
+        XCTAssertEqual(probeLeftovers(in: tmp), [], "正常的探測之後 TMPDIR 要是空的")
+    }
+
+    // spec-example: session-start-cli-check / A timed-out probe leaves nothing in TMPDIR
+    func testATimedOutProbeLeavesNothingInTMPDIR() throws {
+        let tmp = try emptyTmp()
+        let r = try runHook(["FAKE_VERSION_HANG": "1", "FAKE_CONTRACT": "\(Self.required)", "TMPDIR": tmp.path])
+        assertQuietSuccess(r)
+        XCTAssertTrue(r.out.contains("沒有回應"), r.out)
+        XCTAssertEqual(probeLeftovers(in: tmp), [], "逾時的探測之後 TMPDIR 要是空的")
+    }
+
+    /// hook 與跑探測的子 shell 都被 SIGKILL：EXIT trap 不會跑，收尾的只剩組內的 8 秒計時器。
+    /// 不砍 process group——hook 由這個測試直接啟動，可能與測試程序同一組。分別砍 hook 與子 shell（假 CLI 的 PPID），
+    /// 計時器與 CLI 在它們自己的那一組裡繼續跑，第 8 秒由計時器清掉目錄、再收掉那一組。機器很忙時 8 秒會變長，所以等到 30 秒。
+    // spec-example: session-start-cli-check / Killing the hook during a probe leaves nothing in TMPDIR after the timer
+    func testKillingTheHookDuringAProbeLeavesNothingInTMPDIRAfterTheTimer() throws {
+        let tmp = try emptyTmp()
+        let owner = root.appendingPathComponent("probe-owner.pid")
+        let markerPathFile = root.appendingPathComponent("probe-marker-path")
+        try writeExecutable("stubs/bin/akashic",
+                            "#!/bin/bash\necho \"$PROBE_TIMED_OUT\" > '\(markerPathFile.path)'\necho \"$PPID\" > '\(owner.path)'\nexec /bin/sleep 30\n")
+        var e = scrubbedGitEnvironment()
+        e["LANG"] = "C.UTF-8"
+        e["PATH"] = root.appendingPathComponent("stubs/bin").path + ":/usr/bin:/bin"
+        e["CLAUDE_PLUGIN_ROOT"] = root.appendingPathComponent("plugin").path
+        e["AKASHIC_SOURCE_DIR"] = src.path
+        e["TMPDIR"] = tmp.path
+        let p = Process()
+        p.executableURL = root.appendingPathComponent("plugin/hooks/check-cli.sh")
+        p.environment = e
+        p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice; p.standardInput = FileHandle.nullDevice
+        try p.run()
+        var ownerPID: Int32 = 0
+        for _ in 0..<200 {   // 最多 20 秒等 CLI 起來
+            if let s = try? String(contentsOf: owner, encoding: .utf8), let v = Int32(s.trimmingCharacters(in: .whitespacesAndNewlines)), v > 1 {
+                ownerPID = v; break
+            }
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+        guard ownerPID > 1 else { p.terminate(); return XCTFail("假 CLI 沒有起來，量不到") }
+        // 讀到的 PID 是 hook 自己或測試程序時不送 SIGKILL：hook 日後改了，這裡不能砍到無關的程序（verify r1 第 12 列）
+        guard ownerPID != p.processIdentifier, ownerPID != getpid() else {
+            p.terminate(); return XCTFail("PPID 應是跑探測的子 shell，讀到的是 \(ownerPID)")
+        }
+        // 探測期間：恰好一個探測目錄、權限 0700、輸出檔在裡面（verify r1 第 8 列：Requirement 1 的本體）
+        let during = probeLeftovers(in: tmp)
+        XCTAssertEqual(during.count, 1, "探測期間 TMPDIR 裡應該恰好有一個探測的目錄：\(during)")
+        if let name = during.first {
+            let dir = tmp.appendingPathComponent(name)
+            let attrs = try FileManager.default.attributesOfItem(atPath: dir.path)
+            XCTAssertEqual(attrs[.type] as? FileAttributeType, .typeDirectory, "探測的項目應是目錄")
+            XCTAssertEqual((attrs[.posixPermissions] as? NSNumber)?.intValue, 0o700, "探測的目錄應是 0700")
+            XCTAssertTrue(FileManager.default.fileExists(atPath: dir.appendingPathComponent("out").path), "輸出檔應在探測的目錄裡")
+            // 標記的路徑也在這個目錄裡（verify r2 第 4 列：Requirement 1 的另一半）
+            let marker = ((try? String(contentsOf: markerPathFile, encoding: .utf8)) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            XCTAssertEqual((marker as NSString).deletingLastPathComponent, dir.path, "逾時標記應在探測的目錄裡：\(marker)")
+        }
+        kill(p.processIdentifier, SIGKILL)
+        kill(ownerPID, SIGKILL)
+        p.waitUntilExit()
+        var left = probeLeftovers(in: tmp)
+        for _ in 0..<300 where !left.isEmpty {   // 最多 30 秒
+            Thread.sleep(forTimeInterval: 0.1)
+            left = probeLeftovers(in: tmp)
+        }
+        XCTAssertEqual(left, [], "計時器動手之後 TMPDIR 要是空的")
+    }
+
+    // spec-example: session-start-cli-check / A missing TMPDIR is reported as the hook's own problem
+    func testAMissingTMPDIRIsReportedAsTheHooksOwnProblem() throws {
+        let log = root.appendingPathComponent("calls.log")
+        let r = try runHook(["FAKE_VERSION": try short("D"), "FAKE_CONTRACT": "\(Self.required)", "CALL_LOG": log.path,
+                             "TMPDIR": root.appendingPathComponent("no-such-dir").path])
+        assertQuietSuccess(r)
+        XCTAssertTrue(r.out.contains("TMPDIR"), r.out)
+        for bad in ["✓", "執行 --version 失敗", "要先重建", "install -m 755"] {
+            XCTAssertFalse(r.out.contains(bad), "不該出現「\(bad)」：\(r.out)")
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: log.path), "建不出暫存目錄時不該執行 CLI")
+    }
+
+    // spec-example: session-start-cli-check / A CLI that exits 125 is reported as exit 1
+    func testACLIThatExits125IsReportedAsExit1() throws {
+        let tmp = try emptyTmp()
+        let r = try runHook(["FAKE_VERSION_RC": "125", "FAKE_CONTRACT": "\(Self.required)", "TMPDIR": tmp.path])
+        assertQuietSuccess(r)
+        XCTAssertTrue(r.out.contains("執行 --version 失敗（結束碼 1）"), r.out)
+        XCTAssertFalse(r.out.contains("暫存目錄"), "CLI 自己回 125 不是 hook 建不出暫存目錄：\(r.out)")
+    }
+
+    /// 假 CLI 回答 `--version` 時順手把 TMPDIR 改成唯讀，第二次探測（契約）就建不出目錄。
+    // spec-example: session-start-cli-check / A contract probe that cannot create its directory does not ask for a rebuild
+    func testAContractProbeThatCannotCreateItsDirectoryDoesNotAskForARebuild() throws {
+        let tmp = try emptyTmp()
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: tmp.path) }
+        try writeExecutable("stubs/bin/akashic", """
+            #!/bin/bash
+            case "$1" in
+              --version) /bin/chmod 500 "$TMPDIR"; echo "\(try short("D"))" ;;
+              fulltext) echo "fulltext-contract \(Self.required)" ;;
+              *) exit 64 ;;
+            esac
+            """)
+        let r = try runHook(["TMPDIR": tmp.path])
+        assertQuietSuccess(r)
+        XCTAssertTrue(r.out.contains("✓ akashic CLI"), r.out)
+        XCTAssertTrue(r.out.contains("TMPDIR"), r.out)
+        XCTAssertTrue(r.out.contains("沒有比對契約"), r.out)
+        XCTAssertFalse(r.out.contains("讀不到 akashic CLI 的 fulltext 契約"), r.out)
+        XCTAssertFalse(r.out.contains("要先重建"), r.out)
+    }
+
+    // MARK: - 計時器的標記與探測結果的分類（#791 verify r1）
+
+    /// 一個程序是否已經結束（還沒被收的 zombie 也算）：`ps` 回空或狀態以 Z 開頭。
+    private func hasExited(_ pid: Int32) -> Bool {
+        let ps = Process()
+        ps.executableURL = URL(fileURLWithPath: "/bin/ps")
+        ps.arguments = ["-o", "stat=", "-p", String(pid)]
+        let o = Pipe()
+        ps.standardOutput = o; ps.standardError = FileHandle.nullDevice; ps.standardInput = FileHandle.nullDevice
+        guard (try? ps.run()) != nil else { return false }
+        let s = String(decoding: o.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        ps.waitUntilExit()
+        return s.isEmpty || s.hasPrefix("Z")
+    }
+
+    /// 跑探測的 shell 被停住（SIGSTOP）時，`kill -0` 仍成功，計時器走「寫標記」那一支。標記的路徑上已經有一個指向
+    /// victim 的 symlink：寫標記不得寫穿它（verify r1 第 1 列）。等到 CLI 被計時器收掉（zombie）才看 victim，
+    /// 確定計時器真的動過手，再放行那個 shell。
+    // spec-example: session-start-cli-check / A symbolic link at the marker's path is not written through
+    func testASymbolicLinkAtTheMarkersPathIsNotWrittenThrough() throws {
+        let tmp = try emptyTmp()
+        let victim = root.appendingPathComponent("victim.txt")
+        try "keep\n".write(to: victim, atomically: true, encoding: .utf8)
+        let ids = root.appendingPathComponent("probe-ids")
+        let planted = root.appendingPathComponent("planted")
+        let markerPathFile = root.appendingPathComponent("probe-marker-path")
+        // 睡 300 秒：CLI 若在 40 秒內結束，只會是計時器（或迴圈期限）收的，不會是它自己睡完（verify r2 第 6 列）
+        try writeExecutable("stubs/bin/akashic", """
+            #!/bin/bash
+            /bin/ln -s '\(victim.path)' "$PROBE_TIMED_OUT" && echo ok > '\(planted.path)'
+            echo "$PROBE_TIMED_OUT" > '\(markerPathFile.path)'
+            echo "$PPID $$" > '\(ids.path)'
+            exec /bin/sleep 300
+            """)
+        var e = scrubbedGitEnvironment()
+        e["LANG"] = "C.UTF-8"
+        e["PATH"] = root.appendingPathComponent("stubs/bin").path + ":/usr/bin:/bin"
+        e["CLAUDE_PLUGIN_ROOT"] = root.appendingPathComponent("plugin").path
+        e["AKASHIC_SOURCE_DIR"] = src.path
+        e["TMPDIR"] = tmp.path
+        let p = Process()
+        p.executableURL = root.appendingPathComponent("plugin/hooks/check-cli.sh")
+        p.environment = e
+        p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice; p.standardInput = FileHandle.nullDevice
+        try p.run()
+        var owner: Int32 = 0, cli: Int32 = 0
+        for _ in 0..<200 {   // 最多 20 秒等 CLI 起來
+            if let s = try? String(contentsOf: ids, encoding: .utf8) {
+                let v = s.split(whereSeparator: { $0 == " " || $0 == "\n" }).compactMap { Int32($0) }
+                if v.count == 2, v[0] > 1, v[1] > 1 { owner = v[0]; cli = v[1]; break }
+            }
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+        guard owner > 1, cli > 1 else { p.terminate(); return XCTFail("假 CLI 沒有起來，量不到") }
+        guard owner != p.processIdentifier, owner != getpid(), cli != getpid() else {
+            p.terminate(); return XCTFail("讀到的 PID 不是探測的 shell 與 CLI：\(owner) \(cli)")
+        }
+        kill(owner, SIGSTOP)
+        defer { kill(owner, SIGCONT); p.waitUntilExit() }
+        var fired = false
+        for _ in 0..<400 {   // 最多 40 秒等計時器（第 8 秒）收掉 CLI；機器很忙時 8 秒會變長
+            if hasExited(cli) { fired = true; break }
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+        XCTAssertTrue(fired, "計時器沒有在 40 秒內收掉 CLI，量不到它寫不寫標記")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: planted.path), "假 CLI 沒有放成 symlink，量不到")
+        // 是計時器動的手，不是迴圈的期限：迴圈那條路會刪掉探測目錄（連同 symlink），計時器在 shell 還在時不刪
+        let marker = ((try? String(contentsOf: markerPathFile, encoding: .utf8)) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        XCTAssertNotNil(try? FileManager.default.destinationOfSymbolicLink(atPath: marker), "收掉 CLI 的應是計時器：探測目錄與 symlink 應還在")
+        XCTAssertEqual(try String(contentsOf: victim, encoding: .utf8), "keep\n", "計時器寫標記時寫穿了 symlink")
+    }
+
+    /// CLI 以 0 回答、輸出檔也在：即使逾時標記在場，也照常讀輸出（verify r1 第 2、3 列）。假 CLI 自己留下標記，
+    /// 模擬「CLI 剛好在第 8 秒前回答、計時器已經留了標記」。
+    // spec-example: session-start-cli-check / A version answered with 0 is read even when the timer left its mark
+    func testAVersionAnsweredWithZeroIsReadEvenWhenTheTimerLeftItsMark() throws {
+        let v = try short("D")
+        let planted = root.appendingPathComponent("planted")
+        try writeExecutable("stubs/bin/akashic", """
+            #!/bin/bash
+            case "$1" in
+              --version) : > "$PROBE_TIMED_OUT" && echo ok > '\(planted.path)'; echo "\(v)" ;;
+              fulltext) echo "fulltext-contract \(Self.required)" ;;
+              *) exit 64 ;;
+            esac
+            """)
+        let r = try runHook()
+        assertQuietSuccess(r)
+        XCTAssertTrue(r.out.contains("✓ akashic CLI"), r.out)
+        XCTAssertTrue(r.out.contains(v), r.out)
+        XCTAssertFalse(r.out.contains("沒有回應"), r.out)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: planted.path), "假 CLI 沒有放成標記，量不到")
+    }
+
+    // spec-example: session-start-cli-check / A contract answered with 0 after the timer's mark does not ask for a rebuild
+    func testAContractAnsweredWithZeroAfterTheTimersMarkDoesNotAskForARebuild() throws {
+        let planted = root.appendingPathComponent("planted")
+        try writeExecutable("stubs/bin/akashic", """
+            #!/bin/bash
+            case "$1" in
+              --version) echo "\(try short("D"))" ;;
+              fulltext) : > "$PROBE_TIMED_OUT" && echo ok > '\(planted.path)'; echo "fulltext-contract \(Self.required)" ;;
+              *) exit 64 ;;
+            esac
+            """)
+        let r = try runHook()
+        assertQuietSuccess(r)
+        XCTAssertTrue(r.out.contains("✓ akashic CLI"), r.out)
+        XCTAssertFalse(r.out.contains("讀不到 akashic CLI 的 fulltext 契約"), r.out)
+        XCTAssertFalse(r.out.contains("要先重建"), r.out)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: planted.path), "假 CLI 沒有放成標記，量不到")
+    }
+
+    /// `--version` 探測建不出暫存目錄時也要說出 CLI 不在 PATH 上：那一行不需要 TMPDIR（verify r1 第 10 列）。
+    // spec-example: session-start-cli-check / A CLI off PATH is still named when TMPDIR is unusable
+    func testACLIOffPathIsStillNamedWhenTMPDIRIsUnusable() throws {
+        try writeExecutable("home/bin/akashic", Self.fakeCLI)
+        let r = try runHook(["FAKE_VERSION": try short("D"), "FAKE_CONTRACT": "\(Self.required)",
+                             "TMPDIR": root.appendingPathComponent("no-such-dir").path], onPath: false)
+        assertQuietSuccess(r)
+        XCTAssertTrue(r.out.contains("TMPDIR"), r.out)
+        XCTAssertTrue(r.out.contains("不在 PATH 上"), r.out)
+        XCTAssertFalse(r.out.contains("✓"), r.out)
+    }
+
+    /// 標記路徑上是沒有讀者的 FIFO：以開檔寫標記的作法會卡在 open，走不到收掉整組那一步（verify r2 第 1 列）。
+    /// 探測的 shell 被停住，所以收掉 CLI 的只可能是計時器。
+    // spec-example: session-start-cli-check / A FIFO at the marker's path does not stop the timer
+    func testAFIFOAtTheMarkersPathDoesNotStopTheTimer() throws {
+        let tmp = try emptyTmp()
+        let ids = root.appendingPathComponent("probe-ids")
+        let planted = root.appendingPathComponent("planted")
+        try writeExecutable("stubs/bin/akashic", """
+            #!/bin/bash
+            /usr/bin/mkfifo "$PROBE_TIMED_OUT" && echo ok > '\(planted.path)'
+            echo "$PPID $$" > '\(ids.path)'
+            exec /bin/sleep 300
+            """)
+        var e = scrubbedGitEnvironment()
+        e["LANG"] = "C.UTF-8"
+        e["PATH"] = root.appendingPathComponent("stubs/bin").path + ":/usr/bin:/bin"
+        e["CLAUDE_PLUGIN_ROOT"] = root.appendingPathComponent("plugin").path
+        e["AKASHIC_SOURCE_DIR"] = src.path
+        e["TMPDIR"] = tmp.path
+        let p = Process()
+        p.executableURL = root.appendingPathComponent("plugin/hooks/check-cli.sh")
+        p.environment = e
+        p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice; p.standardInput = FileHandle.nullDevice
+        try p.run()
+        var owner: Int32 = 0, cli: Int32 = 0
+        for _ in 0..<200 {
+            if let s = try? String(contentsOf: ids, encoding: .utf8) {
+                let v = s.split(whereSeparator: { $0 == " " || $0 == "\n" }).compactMap { Int32($0) }
+                if v.count == 2, v[0] > 1, v[1] > 1 { owner = v[0]; cli = v[1]; break }
+            }
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+        guard owner > 1, cli > 1 else { p.terminate(); return XCTFail("假 CLI 沒有起來，量不到") }
+        guard owner != p.processIdentifier, owner != getpid(), cli != getpid() else {
+            p.terminate(); return XCTFail("讀到的 PID 不是探測的 shell 與 CLI：\(owner) \(cli)")
+        }
+        kill(owner, SIGSTOP)
+        defer { kill(owner, SIGCONT); p.waitUntilExit() }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: planted.path), "假 CLI 沒有放成 FIFO，量不到")
+        var fired = false
+        for _ in 0..<400 {
+            if hasExited(cli) { fired = true; break }
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+        XCTAssertTrue(fired, "標記路徑上有 FIFO 時，計時器沒有在 40 秒內收掉 CLI")
+    }
+
+    /// 實際路徑（解開 symlink 之後）恰好 `length` 位元組的既有目錄。Foundation 的 `resolvingSymlinksInPath` 會拿掉
+    /// `/private`，所以用 realpath(3)。
+    private func longTmp(length: Int) throws -> String {
+        guard let r = realpath(root.path, nil) else { throw NSError(domain: "CheckCLIHookTests", code: 1) }
+        var path = String(cString: r)
+        free(r)
+        path += "/long"
+        while length - path.utf8.count > 256 { path += "/" + String(repeating: "a", count: 200) }
+        let rest = length - path.utf8.count
+        guard rest >= 2 else { throw NSError(domain: "CheckCLIHookTests", code: 2) }
+        path += "/" + String(repeating: "b", count: rest - 1)
+        XCTAssertEqual(path.utf8.count, length)
+        try FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
+        return path
+    }
+
+    /// TMPDIR 長到 `mktemp -d` 建得出目錄（996＋25 位元組），而目錄裡的 `out` 超過 PATH_MAX（1024，含結尾的 NUL）：
+    /// 建不出輸出檔也是 hook 自己的問題（verify r2 第 2 列；DA 實測的窗口是 995–998 位元組）。
+    // spec-example: session-start-cli-check / A TMPDIR that holds the directory but not its output file is reported as the hook's own problem
+    func testATMPDIRThatHoldsTheDirectoryButNotItsOutputFileIsReportedAsTheHooksOwnProblem() throws {
+        let long = try longTmp(length: 996)
+        let log = root.appendingPathComponent("calls.log")
+        let r = try runHook(["FAKE_VERSION": try short("D"), "FAKE_CONTRACT": "\(Self.required)", "CALL_LOG": log.path,
+                             "TMPDIR": long])
+        assertQuietSuccess(r)
+        XCTAssertTrue(r.out.contains("TMPDIR"), r.out)
+        for bad in ["✓", "執行 --version 失敗", "要先重建", "install -m 755"] {
+            XCTAssertFalse(r.out.contains(bad), "不該出現「\(bad)」：\(r.out)")
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: log.path), "建不出輸出檔時不該執行 CLI")
+        XCTAssertEqual(probeLeftovers(in: URL(fileURLWithPath: long)), [], "建不出輸出檔時要刪掉剛建的目錄")
+    }
 }

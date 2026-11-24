@@ -119,7 +119,8 @@ Foresay 管**人機確認的格式與迴圈**，本 repo 的規則管**哪些寫
 > [`source-of-truth-over-consent`](plugin/rules/source-of-truth-over-consent.md)，管「寫入的依據是 source of truth、
 > 不是同意」——使用者要的與 source of truth 不符時改成正確的再寫，使用者可以提供證據、不能提供授權（#642）。
 > 第三條是 [`site-knowledge-goes-back-into-the-plugin`](plugin/rules/site-knowledge-goes-back-into-the-plugin.md)，管「碰網站的 skill 量到的
-> 站別做法，在回報之前寫回 plugin；改動合併之後同一個工作階段更新安裝的 plugin 與 CLI」（#822）。
+> 站別做法，在回報之前寫回 plugin；改動合併之後同一個工作階段更新安裝的 plugin 與 CLI——合併與更新各自要使用者確認，
+> 送到別的 repo 的留言或 issue 也是」（#822）。
 > 刻意不列進上表：那張表的語意是「自動注入的 repo 規則」，
 > 混進去會讓那個性質變成謊話（#407）。
 >
